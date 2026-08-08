@@ -4,7 +4,7 @@ Make movies out of your CS2 demos, without leaving the game.
 
 Browse your demos, fly a camera around, put it on a path, mess with skins and effects, and line up
 a render  all from a proper UI built right into CS2's menus. It's a fork of
-[HLAE / advancedfx](https://github.com/advancedfx/advancedfx), pointed squarely at CS2.
+[HLAE / advancedfx](https://github.com/advancedfx/advancedfx), pointed squarely at CS2 for now
 
 **This is a beta.** Stuff will break. Tell me when it does.
 
