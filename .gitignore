@@ -1,0 +1,5 @@
+# Release artifacts are attached to GitHub releases, never committed here.
+payload-dist/
+release/
+*.zip
+*.exe
