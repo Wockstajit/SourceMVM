@@ -1,9 +1,15 @@
-# SOURCE:MVM downloads
+# SOURCE:MVM public website
 
-The public download website for SOURCE:MVM: https://wockstajit.github.io/SourceMVM/
+This is the public website and download repository for SOURCE:MVM:
+https://wockstajit.github.io/SourceMVM/
 
-This repository contains the static website. App installers belong in GitHub Releases;
-the application's source is maintained separately. No installer has been published here yet.
+This repository only contains the website. Unfortunately, I don't feel comfortable making
+SOURCE:MVM open source due to how many things I've reverse-engineered could be used for cheats
+and other things. Instead of letting that work go out publicly and letting my use of AI amplify
+those other uses of AI, I would rather keep the rebuild private.
+
+Application source is maintained privately. Installers will be shared through GitHub Releases;
+no installer has been published here yet.
 
 The Download button automatically finds the newest published complete setup exe. It stays
 unavailable until an installer exists. GitHub Pages serves main from the repository root.
