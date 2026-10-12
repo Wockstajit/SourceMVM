@@ -3,7 +3,9 @@
 const RELEASES_URL = 'https://api.github.com/repos/Wockstajit/SourceMVM/releases?per_page=20';
 const RELEASES_PAGE = 'https://github.com/Wockstajit/SourceMVM/releases';
 const download = document.getElementById('download');
-const downloadVersion = document.getElementById('download-version');
+const downloadStatus = document.getElementById('download-status');
+const checksums = document.getElementById('download-checksums');
+const fallbackDownload = download.getAttribute('href');
 document.getElementById('download-label').textContent = 'Download';
 
 async function refreshDownload() {
@@ -24,16 +26,46 @@ async function refreshDownload() {
         || !url.pathname.startsWith('/Wockstajit/SourceMVM/releases/download/')) continue;
       download.href = url.href;
       download.removeAttribute('aria-disabled');
-      downloadVersion.textContent = release.name || release.tag_name;
+      downloadStatus.textContent = 'Download SOURCE:MVM';
+      const checksum = (release.assets || []).find(asset => asset.name === 'SHA256SUMS.txt' && asset.state === 'uploaded');
+      checksums.hidden = !checksum;
+      if (checksum && checksum.browser_download_url?.startsWith('https://github.com/Wockstajit/SourceMVM/releases/download/')) {
+        checksums.href = checksum.browser_download_url;
+      } else { checksums.hidden = true; }
+      void refreshVirusTotal(installer, release.assets || []);
       return;
     }
-    downloadVersion.textContent = 'Installer being prepared';
+    download.removeAttribute('href');
+    download.setAttribute('aria-disabled', 'true');
+    checksums.hidden = true;
+    downloadStatus.textContent = 'Download unavailable';
   } catch {
     // The release page is a useful fallback if GitHub's public API is unavailable or rate limited.
-    download.href = RELEASES_PAGE;
+    download.href = fallbackDownload || RELEASES_PAGE;
     download.removeAttribute('aria-disabled');
-    downloadVersion.textContent = 'View downloads on GitHub';
+    downloadStatus.textContent = 'Download SOURCE:MVM';
   }
+}
+async function refreshVirusTotal(installer, assets) {
+  try {
+    const response = await fetch('./virustotal.json', { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return;
+    const report = await response.json();
+    const installerHash = installer.digest?.replace(/^sha256:/, '');
+    if (!installerHash || !/^[a-f0-9]{64}$/i.test(installerHash)) return;
+    const installedFile = report.fileName === 'SourceMovieMaker.exe';
+    if (report.fileName && !installedFile) return;
+    const hash = installedFile ? report.sha256 : installerHash;
+    if (!hash || !/^[a-f0-9]{64}$/i.test(hash) || report.sha256 !== hash || !report.url
+      || (installedFile && report.installerSha256 !== installerHash)) return;
+    const url = new URL(report.url);
+    if (url.origin !== 'https://www.virustotal.com'
+      || (url.pathname !== `/gui/file/${hash}` && !url.pathname.startsWith(`/gui/file/${hash}/`))) return;
+    const link = document.getElementById('virustotal-report');
+    link.href = url.href;
+    link.textContent = 'VirusTotal report';
+    document.getElementById('virustotal-container').hidden = false;
+  } catch { /* A scan link is optional, and never substitutes for a completed report. */ }
 }
 void refreshDownload();
 

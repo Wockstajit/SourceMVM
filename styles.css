@@ -120,6 +120,8 @@ a { color: inherit; text-underline-offset: 3px; }
 .badge::before { content: "● "; }
 
 .logo {
+  /* The transparent logo box overlaps the header; only the social links take input. */
+  pointer-events: none;
   position: relative;
   width: var(--logo-w);
   aspect-ratio: 1880 / 640;
