@@ -10,7 +10,7 @@ document.getElementById('download-label').textContent = 'Download';
 
 async function refreshDownload() {
   try {
-    const response = await fetch(RELEASES_URL, { signal: AbortSignal.timeout(15000), headers: {
+    const response = await fetch(RELEASES_URL, { cache: 'no-store', signal: AbortSignal.timeout(15000), headers: {
       Accept: 'application/vnd.github+json',
     } });
     if (!response.ok) throw new Error(`Release check failed (${response.status})`);
@@ -32,6 +32,9 @@ async function refreshDownload() {
       if (checksum && checksum.browser_download_url?.startsWith('https://github.com/Wockstajit/SourceMVM/releases/download/')) {
         checksums.href = checksum.browser_download_url;
       } else { checksums.hidden = true; }
+      // The static report works even when GitHub's API is unavailable. Hide it only if
+      // the API selects a different installer, until that build's report is validated.
+      document.getElementById('virustotal-container').hidden = url.href !== fallbackDownload;
       void refreshVirusTotal(installer, release.assets || []);
       return;
     }
@@ -39,6 +42,7 @@ async function refreshDownload() {
     download.setAttribute('aria-disabled', 'true');
     checksums.hidden = true;
     downloadStatus.textContent = 'Download unavailable';
+    document.getElementById('virustotal-container').hidden = true;
   } catch {
     // The release page is a useful fallback if GitHub's public API is unavailable or rate limited.
     download.href = fallbackDownload || RELEASES_PAGE;
@@ -48,7 +52,7 @@ async function refreshDownload() {
 }
 async function refreshVirusTotal(installer, assets) {
   try {
-    const response = await fetch('./virustotal.json', { signal: AbortSignal.timeout(5000) });
+    const response = await fetch('./virustotal.json', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     if (!response.ok) return;
     const report = await response.json();
     const installerHash = installer.digest?.replace(/^sha256:/, '');
