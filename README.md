@@ -3,10 +3,8 @@
 This is the public website and download repository for SOURCE:MVM:
 https://wockstajit.github.io/SourceMVM/
 
-This repository only contains the website. Unfortunately, I don't feel comfortable making
-SOURCE:MVM open source due to how many things I've reverse-engineered could be used for cheats
-and other things. Instead of letting that work go out publicly and letting my use of AI amplify
-those other uses of AI, I would rather keep the rebuild private.
+I'll move over all the shit here soon, bro. 
+I'll open source it in a little bit. 
 
 Application source is maintained privately. Complete installers are shared through GitHub Releases.
 
