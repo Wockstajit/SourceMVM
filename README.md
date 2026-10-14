@@ -11,6 +11,9 @@ Application source is maintained privately. Complete installers are shared throu
 The Download button automatically finds the newest published complete setup exe. It stays
 unavailable if no published installer exists. GitHub Pages serves main from the repository root.
 
+The download total includes installer and hotfix downloads across all published releases.
+Repeat downloads count; metadata, checksums and blockmaps do not.
+
 Each release includes SHA-256 checksums. The VirusTotal report links to the owner's scan of
 SourceMovieMaker.exe, the normal executable installed by the setup. Its exact hash is recorded
 in virustotal.json. The website binds the report to the matching setup version.
