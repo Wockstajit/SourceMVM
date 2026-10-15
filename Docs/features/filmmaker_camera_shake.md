@@ -20,7 +20,7 @@ write-back. They are additive over:
 
 - plain first-person spectate;
 - Follow/Attach preview;
-- the third-person orbit camera.
+- CS2's own chase and free cameras (they are not overrides, so they count as plain spectate).
 
 They are disabled for free camera, baked Camera Path playback and other camera owners. The stack is
 still called while gated, so it can discard stale integration state and restart cleanly.

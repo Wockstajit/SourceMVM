@@ -55,7 +55,8 @@ function createUi() {
         this.children = this.children.filter(p => p !== child);
         this.children.splice(this.children.indexOf(after) + 1, 0, child);
       },
-      AddClass() {}, RemoveClass() {}, SetAttributeString() {}, SetAttributeInt() {},
+      attrs: {},
+      AddClass() {}, RemoveClass() {}, SetAttributeString(key, value) { this.attrs[key] = value; }, SetAttributeInt() {},
       SetImage() {}, SetFocus() {},
     };
     panels.push(panel);
@@ -82,10 +83,13 @@ function createUi() {
   makePanel('Panel', controls, 'PlayerControls');
   makePanel('Panel', controls, 'NextEventButton');
   makePanel('Panel', controls, 'ControlRowSpacer');
-  makePanel('Panel', controls, 'CameraButton');
+  const cameraButton = makePanel('Panel', controls, 'CameraButton');
+  makePanel('Label', cameraButton, 'CameraModeLabel').text = 'First Person';
   makePanel('Panel', controls, 'HighlightsButton');
   makePanel('Panel', controls, 'SettingsButton');
   makePanel('Label', controls, 'EndPlayback');
+  // CS2's spectator overview map (layout/hud/hud.xml: CSGOMapOverview id="MapOverview").
+  makePanel('Panel', ctx, 'MapOverview');
   const dialogVars = {};
   native.SetDialogVariableInt = (name, value) => { dialogVars[name] = value; };
   const $ = selector => ctx.FindChildTraverse(selector.replace(/^#/, ''));
@@ -172,12 +176,33 @@ test('our bar buttons sit in one group at the right end of the native row', () =
   ui.render({});
   assert.deepEqual(ui.controls.children.map(p => p.id), rowIds, 're-rendering leaves the order alone');
   assert.deepEqual(group.children.filter(p => p.visible).map(p => p.id),
-    ['LoopBtn', 'CamCursorBtn', 'CamEditorBtn', 'ConfigBtn']);
+    ['LoopBtn', 'CamEditorBtn', 'ConfigBtn']);
   for (const id of ['EndPlayback', 'SettingsButton', 'HighlightsButton']) {
     assert.equal(ui.find(id).visible, false, `${id} is hidden`);
   }
   for (const id of ['PlayerControls', 'NextEventButton', 'CameraButton']) {
     assert.equal(ui.find(id).visible, true, `${id} stays`);
+  }
+});
+
+test('the spectator overview map never shows during a demo', () => {
+  const ui = createUi();
+  ui.render({});
+  const overview = ui.find('MapOverview');
+  assert.equal(overview.visible, false, 'hidden on the first frame');
+  overview.visible = true; // CS2 opens it (Ctrl)
+  ui.render({});
+  assert.equal(overview.visible, false, 'hidden again the next frame');
+});
+
+test('the timeline publishes the camera CS2 camera button shows', () => {
+  const ui = createUi();
+  const label = ui.find('CameraModeLabel');
+  const published = () => ui.panels.find(p => 'cammode' in p.attrs)?.attrs.cammode;
+  for (const [text, mode] of [['First Person', '0'], ['Chase Cam', '1'], ['Free Cam', '2'], ['', '-1']]) {
+    label.text = text;
+    ui.render({});
+    assert.equal(published(), mode, `"${text}" -> ${mode}`);
   }
 });
 

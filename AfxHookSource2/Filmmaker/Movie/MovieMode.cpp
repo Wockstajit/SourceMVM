@@ -3,12 +3,11 @@
 #include "../Props/Props.h"
 #include "MovieMode.h"
 #include "../MouseCapture.h" // MouseCapture_TakeForCamera
-#include "UiClickMath.h"     // OnUiClick: is this game-mode click on our UI
+#include "../Window/WindowResize.h" // WindowResize_GetClientSize: place clicks / notches on the preview
 
 #include "CameraBridge.h"
 #include "CameraPath.h"
 #include "FollowCamera.h"
-#include "ThirdPersonCamera.h"
 #include "../Filmmaker.h"            // CameraTimeline_Visible()
 #include "../MvmTest.h"              // mvm_test offline FX menu
 #include "HudBlackout.h"          // F8: clear every overlay while directing
@@ -20,10 +19,20 @@
 #include "../Demo/PlayingDemoPath.h" // ResolvePlayingDemoPath: per-demo X-ray default
 #include "../Relight/RelightLightEditor.h" // LightEditorKey: F/Esc while the light editor is on
 #include "../../MirvTime.h"
+#include "../../ClientEntitySystem.h" // AfxGetLocalObserverState: the camera CS2 is showing
+#include "../../MirvCommands.h"       // MirvFov_*: Ctrl+wheel FOV in CS2's own cameras
+#include "FreeCamStepMath.h"          // NextFreeCamSpeed: Shift+wheel steps sv_specspeed the same way
 
 #include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
 #include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
+#include "../../../Deps/release/prop/cs2/sdk_src/public/icvar.h" // sv_specspeed
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <sstream>
 
 // Provided by main.cpp (same global the Filmmaker "Watch" action uses).
@@ -46,7 +55,6 @@ namespace {
 	constexpr int kVK_K = 0x4B;     // place a camera marker
 	constexpr int kVK_L = 0x4C;     // delete the aimed-at marker
 	constexpr int kVK_F = 0x46;     // edit the aimed-at marker
-	constexpr int kVK_G = 0x47;     // toggle UI-mouse for the camera timeline panel
 	constexpr int kVK_C = 0x43;     // Config open: Ctrl+C copies the selected scene object
 	constexpr int kVK_D = 0x44;     // Config open: Ctrl+D duplicates the selected scene object
 	constexpr int kVK_V = 0x56;     // Config open: Ctrl+V pastes it under the mouse
@@ -60,10 +68,20 @@ namespace {
 
 	constexpr int kSkipSeconds = 5; // demo skip step: arrow keys and the bar's -/+ buttons
 
-	// CS2 OBS_MODE_* enum: FIXED=1, IN_EYE=2, CHASE=3, ROAMING=4. The user
-	// confirmed `spec_mode 4` is roaming (free fly), so first person (in-eye) = 2
-	// and third person (chase) = 3. Centralised so it's a one-line tweak.
-	const char* const kSpecModeFirstPerson = "spec_mode 2"; // in-eye
+	// CS2 OBS_MODE_* enum: FIXED=1, IN_EYE=2, CHASE=3, ROAMING=4 (huddemocontroller.js). The three
+	// demo cameras, in the order CS2's own camera button steps them.
+	const char* SpecModeCommand(MovieMode::Mode m) {
+		switch (m) {
+		case MovieMode::Mode::ThirdPerson: return "spec_mode 3"; // chase
+		case MovieMode::Mode::FreeCam: return "spec_mode 4";     // roaming
+		default: return "spec_mode 2";                           // in-eye
+		}
+	}
+	MovieMode::Mode ModeFromObserver(uint8_t obsMode) {
+		if (obsMode == 3) return MovieMode::Mode::ThirdPerson;
+		if (obsMode == 4) return MovieMode::Mode::FreeCam;
+		return MovieMode::Mode::Default;
+	}
 
 	// The director input taps must do NOTHING (and must not consume the event)
 	// unless a demo is actively playing. Otherwise they swallow main-menu /
@@ -169,66 +187,74 @@ bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, in
 		return true;
 	}
 
-	if (GetMode() == Mode::ThirdPerson && shiftDown) {
-		ThirdPersonCameraState s = ThirdPersonCameraRef().State();
-		ThirdPersonCameraRef().SetDistance(s.distance + (delta > 0 ? -10.0 : 10.0));
+	// Plain wheel: over the game it always steps CS2's camera (UiClickMath.h). Inside a workspace,
+	// a notch over a panel scrolls that panel instead -- Panorama never sees the wheel in this
+	// context, so the panel scrolls its own column from this pipe. Config wins the tie when both
+	// flags somehow read true; they are mutually exclusive in practice (CameraEditor_Set closes
+	// Config). The experimental graph editor owns the wheel (timeline zoom) while it is open.
+	if (GraphEditorExperiment_Enabled())
+		return true;
+	ctrlDown = ctrlDown || m_controlDown;
+	shiftDown = shiftDown || m_shiftDown;
+	const UiClick::Input where = ClickInput(x, y);
+	// No position (-1, -1) = the notch came during a look-around drag, where CS2 parks the cursor
+	// wherever it likes: it is the game's, whatever is under the parked pointer.
+	const bool cycle = (x < 0 && y < 0) || UiClick::WheelCyclesCamera(where);
+	const bool modifier = ctrlDown || shiftDown;
+	if (MvmDebugLog_Active())
+		MvmDebugLog_Linef("movie.wheel", "delta=%d at %d,%d shift=%d ctrl=%d workspace=%d preview=%d -> %s",
+			delta, x, y, shiftDown ? 1 : 0, ctrlDown ? 1 : 0, where.workspace ? 1 : 0, where.preview.valid ? 1 : 0,
+			!cycle ? "panel" : (ctrlDown ? "fov" : (shiftDown ? "speed" : "camera")));
+	// Over the game in CS2's own cameras: Ctrl+wheel = FOV in any of them, Shift+wheel = CS2's
+	// free-cam fly speed. Applied on the main thread (ApplyNativeCameraControls).
+	if (cycle && modifier) {
+		std::lock_guard<std::mutex> lk(m_mutex);
+		if (ctrlDown) m_pendingFov += delta > 0 ? +1 : -1;
+		else m_pendingSpeed += delta > 0 ? +1 : -1;
+		return true;
+	}
+	if (!cycle) {
+		if (ConfigHud_Enabled())
+			ConfigHud_PushWheel(delta > 0 ? +1 : -1);
+		else
+			CameraEditor_PushWheel(delta > 0 ? +1 : -1);
 		return true;
 	}
 
-	// Plain-wheel routing depends on whether the UI mouse is active:
-	//   * Camera Editor Mode: the G key flips UI<->GAME. In UI mouse (cursor on) the wheel
-	//     stays a no-op so editing never "throws you back into the game"; in GAME mouse
-	//     (cursor off) it falls through to the POV cycle below, so you can scroll between
-	//     First/Third/Free while controlling the game.
-	//   * Standalone camera timeline / experimental graph editor are always UI surfaces, so
-	//     the plain wheel is swallowed there (it used to step the selected camera / keyframes).
-	if (CameraEditor_Active() || ConfigHud_Enabled()) {
-		if (CameraTimeline_WantsCursor()) {
-			// UI mouse. The wheel must never reach the game here (it would switch the spectated
-			// player behind the panel), but "no-op" left the Config panel's inspector column
-			// unscrollable over EVERY control -- Panorama itself never sees the wheel in this
-			// context, so its native overflow:scroll could not help either. Consume it and hand
-			// the notch to the panel, which scrolls its own column (same contract as the
-			// Customize modal above).
-			//
-			// The Camera Editor used to be left as a no-op here, which is why its inspector could
-			// not be scrolled with the wheel at all while Config could -- reported as "I can't put
-			// my mouse in the middle of the camera editor and scroll". Both workspaces now do the
-			// same thing. Config wins the tie when both flags somehow read true; they are mutually
-			// exclusive in practice (CameraEditor_Set closes Config).
-			if (ConfigHud_Enabled())
-				ConfigHud_PushWheel(delta > 0 ? +1 : -1);
-			else
-				CameraEditor_PushWheel(delta > 0 ? +1 : -1);
-			return true;
-		}
-		// GAME mouse: fall through to the camera-mode cycle below.
-	} else if (CameraTimeline_Visible() || GraphEditorExperiment_Enabled()) {
-		return true;
-	}
-
-	// Plain scroll cycles the camera mode, wrapping around at the ends:
-	// up   = Default -> Third -> Free -> Default ...
-	// down = Default -> Free  -> Third -> Default ...
+	// Steps CS2's own demo camera, wrapping around at the ends:
+	// up   = First person -> Chase -> Free cam -> First person ...
+	// down = First person -> Free cam -> Chase -> First person ...
+	// Applied on the main thread (FlushActions).
 	std::lock_guard<std::mutex> lk(m_mutex);
-	constexpr int kModeCount = (int)Mode::FreeCam + 1;
-	int next = ((int)m_mode + (delta > 0 ? +1 : -1) + kModeCount) % kModeCount;
-	m_mode = (Mode)next;
-	m_pendingMode = m_mode;
-	m_modeDirty = true;
+	m_pendingCycle += delta > 0 ? +1 : -1;
 	return true;
 }
 
-void MovieMode::SetUiClickRegions(bool previewValid, float px0, float py0, float px1, float py1,
-	bool barValid, float bx0, float by0, float bx1, float by1) {
+void MovieMode::SetUiClickRegions(bool previewValid, float px0, float py0, float px1, float py1) {
 	std::lock_guard<std::mutex> lk(m_mutex);
 	m_uiPreviewValid = previewValid;
 	m_uiPreview[0] = px0; m_uiPreview[1] = py0; m_uiPreview[2] = px1; m_uiPreview[3] = py1;
-	m_uiBarValid = barValid;
-	m_uiBar[0] = bx0; m_uiBar[1] = by0; m_uiBar[2] = bx1; m_uiBar[3] = by1;
 }
 
-bool MovieMode::OnUiClick(int x, int y, int clientW, int clientH) {
+// Where (x, y) falls this frame: inside a workspace or not, and the workspace's preview rect.
+UiClick::Input MovieMode::ClickInput(int x, int y) {
+	UiClick::Input in;
+	in.uiModeOn = CameraTimeline_WantsCursor();
+	in.workspace = CameraEditor_Active() || ConfigHud_Enabled();
+	// The keyframe shake menu (right-click a diamond) opens over the preview too: a click on its
+	// close button or rows is the menu's, not a switch to GAME mode.
+	in.popupOpen = CameraEditor_PopupOpen() || ConfigHud_PopupOpen() || CameraTimeline_MenuOpen();
+	in.x = (float)x; in.y = (float)y;
+	int clientW = 0, clientH = 0;
+	WindowResize_GetClientSize(clientW, clientH);
+	std::lock_guard<std::mutex> lk(m_mutex);
+	if (m_uiPreviewValid)
+		in.preview = UiClick::FromFractions(m_uiPreview[0], m_uiPreview[1], m_uiPreview[2], m_uiPreview[3],
+			(float)clientW, (float)clientH);
+	return in;
+}
+
+bool MovieMode::OnUiClick(int x, int y) {
 	if (!IsDemoActive() || ConfigHud_IsLive())
 		return false;
 	// Surfaces that place something with the click, or own every click while they are up, are left
@@ -237,29 +263,23 @@ bool MovieMode::OnUiClick(int x, int y, int clientW, int clientH) {
 		|| CameraPathRef().MenuOpen() || GraphEditorExperiment_WantsCursor() || CameraEditor_CustomizeModalOpen())
 		return false;
 
-	UiClick::Input in;
-	in.uiModeOn = CameraTimeline_WantsCursor();
-	in.workspace = CameraEditor_Active() || ConfigHud_Enabled();
-	const Mode mode = GetMode();
-	in.uiModeAvailable = in.workspace || mode == Mode::ThirdPerson || mode == Mode::FreeCam;
-	in.x = (float)x; in.y = (float)y;
-	{
-		std::lock_guard<std::mutex> lk(m_mutex);
-		if (m_uiPreviewValid)
-			in.preview = UiClick::FromFractions(m_uiPreview[0], m_uiPreview[1], m_uiPreview[2], m_uiPreview[3],
-				(float)clientW, (float)clientH);
-		in.demoBar.valid = m_uiBarValid;
-		in.demoBar.x0 = m_uiBar[0]; in.demoBar.y0 = m_uiBar[1]; in.demoBar.x1 = m_uiBar[2]; in.demoBar.y1 = m_uiBar[3];
-	}
+	const UiClick::Input in = ClickInput(x, y);
 	const bool toUi = UiClick::ClickSwitchesToUiMode(in);
+	const bool toGame = UiClick::ClickSwitchesToGameMode(in);
 	if (MvmDebugLog_Active())
 		MvmDebugLog_Linef("input.uiclick",
-			"x=%d y=%d client=%dx%d uiOn=%d avail=%d workspace=%d preview=%d(%.0f,%.0f,%.0f,%.0f) "
-			"bar=%d(%.0f,%.0f,%.0f,%.0f) -> %s",
-			x, y, clientW, clientH, in.uiModeOn ? 1 : 0, in.uiModeAvailable ? 1 : 0,
-			in.workspace ? 1 : 0, in.preview.valid ? 1 : 0, in.preview.x0, in.preview.y0, in.preview.x1, in.preview.y1,
-			in.demoBar.valid ? 1 : 0, in.demoBar.x0, in.demoBar.y0, in.demoBar.x1, in.demoBar.y1,
-			toUi ? "UI mode" : "unchanged");
+			"x=%d y=%d uiOn=%d workspace=%d popup=%d preview=%d(%.0f,%.0f,%.0f,%.0f) -> %s",
+			x, y, in.uiModeOn ? 1 : 0, in.workspace ? 1 : 0, in.popupOpen ? 1 : 0,
+			in.preview.valid ? 1 : 0, in.preview.x0, in.preview.y0, in.preview.x1, in.preview.y1,
+			toUi ? "UI mode" : (toGame ? "GAME mode" : "unchanged"));
+	if (toGame) {
+		// The click itself carries on to the camera (CS2's look-around drag, or our free cam).
+		// UI mode only drops next frame, so take the mouse here: MouseCapture_OnGameClick stands
+		// down while the UI still owns the cursor.
+		EnqueueCmd("mirv_filmmaker camtl cursor off");
+		MouseCapture_TakeForCamera("preview click");
+		return false;
+	}
 	if (!toUi)
 		return false;
 	EnqueueCmd("mirv_filmmaker camtl cursor on");
@@ -299,28 +319,18 @@ bool MovieMode::OnMouseButton(int button, bool down) {
 	// so it never ran for the panel Insert actually opens.)
 	if (ConfigHud_IsLive())
 		return false;
-	// In FREE CAM, swallow LMB/RMB so CS2's spectator doesn't yank the view to a
-	// different player while the director is flying the camera. Gate on the ACTUAL free-cam
-	// state (MirvInput camera control), not the tracked spectator mode: free cam is enabled
-	// from many places (camera editor, camera paths, ...) that don't run through the scroll
-	// mode-cycle, so GetMode() can still read First/Third while the cam is really flying --
-	// and an unswallowed click there silently switches the spectated player.
+	// While OUR free cam owns the view (camera editor, camera paths, follow camera), swallow
+	// LMB/RMB so CS2's spectator doesn't yank the view to a different player. CS2's own chase
+	// and free cameras are NOT gated here: there a held button is CS2's look-around drag.
 	// EXCEPTIONS: when the marker edit menu is open, the camera timeline's UI-mouse mode is
-	// on (G), OR the Customize modal is open, we must let the click reach Panorama -- those
+	// on, OR the Customize modal is open, we must let the click reach Panorama -- those
 	// surfaces draw a full-screen hit-test panel that absorbs stray clicks (so they still can't
 	// switch players) while keeping their own buttons/sliders clickable. This is what makes the
 	// timeline / curve editor / Customize modal usable. NOTE: consuming here (return true) makes
 	// main.cpp's WndProc `return 0` BEFORE CallWindowProcW, so Panorama never sees the click --
 	// that is exactly why the modal must be excepted, or every click in it is swallowed.
-	// THIRD PERSON deliberately does NOT swallow clicks (reversed 2026-08-28 on report: "in third
-	// person, orbiting somebody, you can't switch players"). The orbit is driven by mouse MOVEMENT
-	// deltas (CameraBridge_ConsumeThirdPersonOrbit) and never needs a button held, so eating
-	// LMB/RMB bought nothing except removing the spectator's next/prev-player bind from the one
-	// mode where you are looking straight at a player and most likely to want a different one.
-	// Free cam and camera-path modes still swallow: there a stray click yanks the shot to another
-	// player mid-take, and the camera is not attached to anyone to begin with.
 	if (IsDemoActive()
-		&& (CameraBridge_GetFreeCamEnabled() || GetMode() == Mode::FreeCam)
+		&& CameraBridge_GetFreeCamEnabled()
 		&& !CameraPathRef().MenuOpen() && !CameraTimeline_WantsCursor()
 		&& !GraphEditorExperiment_WantsCursor() && !CameraEditor_CustomizeModalOpen()) {
 		// The click is swallowed (no player switch), but it still means "I want to steer":
@@ -328,8 +338,8 @@ bool MovieMode::OnMouseButton(int button, bool down) {
 		if (down) MouseCapture_TakeForCamera("freecam click");
 		return true;
 	}
-	// Otherwise never consume clicks: the first-person spectator switches players on
-	// LMB/RMB and the native demo UI (demoui) needs clicks to reach Panorama.
+	// Otherwise never consume clicks: CS2 steps players or drags its camera with them, and the
+	// native demo UI (demoui) needs clicks to reach Panorama.
 	return false;
 }
 
@@ -492,37 +502,6 @@ bool MovieMode::OnKey(int vkey, bool down) {
 		return true;
 	}
 
-	// G toggles the native-demo-bar UI cursor only in regular viewing mode, and only
-	// from third-person/freecam. The camera timeline / curve editor is always a UI
-	// surface, so G is swallowed there and cannot turn the cursor off -- EXCEPT in
-	// Camera Editor Mode, where G must keep flipping UI<->GAME so the user can fly the
-	// free cam to frame a shot (the editor decouples the timeline's forced cursor).
-	// The Config panel gets the same priority: while it is open, G always flips UI<->GAME
-	// regardless of camera mode (in first person the regular-mode branch below would force
-	// the cursor OFF and the user could never get back into the panel).
-	if (vkey == kVK_G) {
-		// LIVE Insert panel first: it owns its own cursor flag, so G flips that directly and
-		// never goes near `camtl cursor`. Routing it through the camera timeline was the bug --
-		// on a live map the timeline's spectator-mode gate refuses the toggle and responds by
-		// forcing the cursor OFF, so G could only take the mouse away and never give it back.
-		if (ConfigHud_IsLive()) {
-			if (down) ConfigHud_ToggleLiveCursor();
-			return true;
-		}
-		if (CameraEditor_Active() || ConfigHud_Enabled()) {
-			if (down) EnqueueCmd("mirv_filmmaker camtl cursor toggle");
-			return true;
-		}
-		if (CameraTimeline_Visible())
-			return true;
-		const Mode mode = GetMode();
-		if (mode != Mode::ThirdPerson && mode != Mode::FreeCam) {
-			if (down) EnqueueCmd("mirv_filmmaker camtl cursor off");
-			return true;
-		}
-		if (down) EnqueueCmd("mirv_filmmaker camtl cursor toggle");
-		return true;
-	}
 
 	using CPMode = CameraPath::Mode;
 	const CPMode cpMode = CameraPathRef().GetMode();
@@ -671,6 +650,15 @@ bool MovieMode::OnKey(int vkey, bool down) {
 		return false;
 	}
 
+	// Held X / Z roll CS2's own free cam (ApplyNativeCameraControls), like they roll ours. A release
+	// always clears, so a camera change mid-hold cannot leave the roll running.
+	if ((vkey == kVK_X || vkey == kVK_Z) && !CameraBridge_GetFreeCamEnabled()) {
+		std::lock_guard<std::mutex> lk(m_mutex);
+		bool& held = vkey == kVK_X ? m_rollRight : m_rollLeft;
+		if (!down && held) { held = false; return true; }
+		if (down && !m_controlDown && m_mode == Mode::FreeCam) { held = true; return true; }
+	}
+
 	if (vkey == kVK_X) {
 		// In free cam, X is already roll (MirvInput) -> don't steal it.
 		if (CameraBridge_GetFreeCamEnabled())
@@ -753,57 +741,181 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	return false;
 }
 
-void MovieMode::ApplyMode(Mode m, bool keepCursor) {
-	switch (m) {
-	case Mode::FreeCam:
-		// Release the orbit camera (and its mouse capture) before handing the view to
-		// HLAE freecam -- the two both ride MirvInput and must not overlap.
-		ThirdPersonCameraRef().Exit();
-		CameraBridge_SetFreeCamEnabled(true);
-		// Free cam is steered with the mouse: take it now instead of waiting for a game click that
-		// free cam swallows anyway (a click here must not switch the spectated player).
-		if (!keepCursor) MouseCapture_TakeForCamera("mode freecam");
-		break;
-	case Mode::ThirdPerson:
-		CameraBridge_SetFreeCamEnabled(false);
-		ThirdPersonCameraRef().Enter();
-		// The orbit follows mouse movement: without the mouse, third person cannot look around.
-		if (!keepCursor) MouseCapture_TakeForCamera("mode thirdperson");
-		if (g_pEngineToClient && !keepCursor) {
-			// Leaving free cam: drop the UI cursor so it can't linger into a normal
-			// spectator view (and stays in sync for the next time you enter free cam).
-			g_pEngineToClient->ExecuteClientCmd(0, "mirv_filmmaker camtl cursor off", true);
-		}
-		break;
-	case Mode::Default:
-		CameraBridge_SetFreeCamEnabled(false);
-		ThirdPersonCameraRef().Exit();
-		if (g_pEngineToClient) {
-			g_pEngineToClient->ExecuteClientCmd(0, kSpecModeFirstPerson, true);
-			if (!keepCursor)
-				g_pEngineToClient->ExecuteClientCmd(0, "mirv_filmmaker camtl cursor off", true);
-		}
-		break;
+// Hand the view to one of CS2's demo cameras. Our own free cam (camera paths, the editor, the
+// follow camera) lets go first, so the camera CS2 switches to is the one on screen.
+void MovieMode::ApplyMode(Mode m) {
+	CameraBridge_SetFreeCamEnabled(false);
+	m_roll = 0.f;
+	if (g_pEngineToClient)
+		g_pEngineToClient->ExecuteClientCmd(0, SpecModeCommand(m), true);
+}
+
+namespace {
+	std::atomic<float> g_nativeRoll{ 0.f }; // render thread reads it (MovieMode_NativeCameraRoll)
+
+	// A float convar's value, 0 when it cannot be read.
+	double ReadFloatCvar(const char* name) {
+		if (!SOURCESDK::CS2::g_pCVar) return 0.0;
+		SOURCESDK::CS2::ConVarHandle h = SOURCESDK::CS2::g_pCVar->FindConVar(name, false);
+		if (!h.IsValid()) return 0.0;
+		const SOURCESDK::CS2::Cvar_s* cv = SOURCESDK::CS2::g_pCVar->GetCvar(h.Get());
+		if (!cv) return 0.0;
+		if (cv->m_eVarType == SOURCESDK::CS2::EConVarType_Float32) return cv->m_Value.m_flValue;
+		if (cv->m_eVarType == SOURCESDK::CS2::EConVarType_Float64) return cv->m_Value.m_dbValue;
+		return 0.0;
 	}
+	// CS2's demo free cam flies at `sv_noclipspeed` units/s (sv_specspeed has no effect on it,
+	// measured 2026-10-15). Shown and stepped as a multiple of the 1200 default, like our free cam.
+	constexpr double kNoclipSpeedDefault = 1200.0;
+	double ReadNativeFreeCamSpeed() { return ReadFloatCvar("sv_noclipspeed") / kNoclipSpeedDefault; }
+
+	// mvm_debug: how fast CS2's free cam actually moves (units/s, measured from the rendered camera)
+	// next to the convars that might drive it. Twice a second.
+	void LogNativeFreeCamSpeed() {
+		using Clock = std::chrono::steady_clock;
+		static Clock::time_point s_t;
+		static double s_o[3] = {};
+		static bool s_have = false;
+		const Clock::time_point now = Clock::now();
+		if (s_have && now - s_t < std::chrono::milliseconds(500)) return;
+		double o[3], a[3], fov = 0;
+		CameraBridge_GetCurrentCamera(o, a, fov);
+		if (s_have) {
+			const double secs = std::chrono::duration<double>(now - s_t).count();
+			const double dx = o[0] - s_o[0], dy = o[1] - s_o[1], dz = o[2] - s_o[2];
+			const double ups = secs > 0 ? std::sqrt(dx * dx + dy * dy + dz * dz) / secs : 0;
+			if (ups > 1.0)
+				MvmDebugLog_Linef("movie.freecam.speed", "moved %.0f u/s  sv_specspeed=%g sv_noclipspeed=%g sv_specaccelerate=%g sv_maxspeed=%g",
+					ups, ReadFloatCvar("sv_specspeed"), ReadFloatCvar("sv_noclipspeed"),
+					ReadFloatCvar("sv_specaccelerate"), ReadFloatCvar("sv_maxspeed"));
+		}
+		s_t = now; s_o[0] = o[0]; s_o[1] = o[1]; s_o[2] = o[2]; s_have = true;
+	}
+}
+
+float MovieMode_NativeCameraRoll() { return g_nativeRoll.load(std::memory_order_relaxed); }
+
+double MovieMode::NativeFreeCamSpeed() const { return ReadNativeFreeCamSpeed(); }
+
+// Shift+wheel speed, Ctrl+wheel FOV and held X / Z roll for CS2's own cameras (main thread). Our
+// free cam keeps its own handling (MirvInput); this only runs while it is off.
+//   * speed: CS2's free-cam speed, `sv_noclipspeed`, stepped on the same ladder as our free cam;
+//   * FOV:   the shot FOV override (`mirv_fov`, also Config's camera card), 1 degree a notch;
+//   * roll:  added on top of CS2's free cam in the view hook (MovieMode_NativeCameraRoll); CS2's
+//            camera has no roll of its own. Cleared whenever the camera changes.
+void MovieMode::ApplyNativeCameraControls(Mode current, int speedSteps, int fovSteps, int roll) {
+	using Clock = std::chrono::steady_clock;
+	static Clock::time_point s_last = Clock::now();
+	const Clock::time_point now = Clock::now();
+	const double dt = (std::min)(0.1, std::chrono::duration<double>(now - s_last).count());
+	s_last = now;
+
+	const bool native = IsDemoActive() && !CameraBridge_GetFreeCamEnabled();
+	if (!native) {
+		g_nativeRoll.store(0.f, std::memory_order_relaxed);
+		return;
+	}
+	if (current == Mode::FreeCam && MvmDebugLog_Active())
+		LogNativeFreeCamSpeed();
+
+	if (speedSteps != 0 && current == Mode::FreeCam) {
+		double speed = ReadNativeFreeCamSpeed();
+		if (speed <= 0.0) speed = 1.0;
+		const int dir = speedSteps > 0 ? +1 : -1;
+		for (int i = 0; i < std::abs(speedSteps); ++i) speed = NextFreeCamSpeed(speed, dir);
+		char cmd[64];
+		snprintf(cmd, sizeof(cmd), "sv_noclipspeed %g", speed * kNoclipSpeedDefault);
+		if (g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, cmd, true);
+		CameraBridge_NoteFreeCamAdjust(1, dir);
+	}
+
+	if (fovSteps != 0) {
+		const float base = MirvFov_Enabled() ? MirvFov_Value() : CameraBridge_GetGameCameraFov();
+		float fov = base - (float)(fovSteps * kFreeCamFovStepDeg); // up = zoom in
+		fov = (std::max)(1.f, (std::min)(170.f, fov));
+		MirvFov_Set(true, fov);
+		CameraBridge_NoteFreeCamAdjust(2, fovSteps > 0 ? +1 : -1);
+	}
+
+	constexpr float kRollDegPerSec = 90.f;
+	if (current == Mode::FreeCam) {
+		m_roll += (float)(roll * kRollDegPerSec * dt);
+		if (m_roll > 180.f) m_roll -= 360.f;
+		if (m_roll < -180.f) m_roll += 360.f;
+	} else {
+		m_roll = 0.f;
+	}
+	g_nativeRoll.store(m_roll, std::memory_order_relaxed);
+}
+
+bool MovieMode::OwnsWheel() {
+	return IsDemoActive() && !ConfigHud_IsLive();
 }
 
 void MovieMode::FlushActions() {
 	std::vector<std::string> cmds;
 	bool modeDirty = false;
 	Mode pending = Mode::Default;
-	bool keepCursor = false;
+	int cycle = 0, speedSteps = 0, fovSteps = 0, roll = 0;
 	{
 		std::lock_guard<std::mutex> lk(m_mutex);
 		cmds.swap(m_cmdQueue);
 		modeDirty = m_modeDirty;
 		pending = m_pendingMode;
-		keepCursor = m_pendingKeepCursor;
-		m_pendingKeepCursor = false;
+		cycle = m_pendingCycle;
+		speedSteps = m_pendingSpeed;
+		fovSteps = m_pendingFov;
+		roll = (m_rollRight ? 1 : 0) - (m_rollLeft ? 1 : 0);
+		m_pendingCycle = 0;
+		m_pendingSpeed = 0;
+		m_pendingFov = 0;
 		m_modeDirty = false;
 	}
 
-	if (modeDirty)
-		ApplyMode(pending, keepCursor);
+	// The camera CS2 is showing right now, read every frame: CS2's own camera button and its player
+	// stepping (which leaves free cam for first person) change it without us. POV demos report it
+	// through the local observer; GOTV demos report observer mode 0, so there the demo bar's own
+	// camera label is the source (CameraTimelineJs publishes it). A mode we just asked for takes a few
+	// frames to land, so for a short while after a switch it stands in for the stale read.
+	static int s_holdFrames = 0;
+	const uint8_t obs = IsDemoActive() ? AfxGetLocalObserverState(nullptr) : 0;
+	const int label = CameraTimeline_NativeCameraMode();
+	Mode current = GetMode();
+	if (obs != 0 || label >= 0) {
+		const Mode live = obs != 0 ? ModeFromObserver(obs) : (Mode)label;
+		if (s_holdFrames > 0 && live != current) --s_holdFrames;
+		else { s_holdFrames = 0; current = live; }
+	}
+
+	if (modeDirty) {
+		ApplyMode(pending);
+		current = pending;
+		s_holdFrames = 30;
+		if (MvmDebugLog_Active())
+			MvmDebugLog_Linef("movie.mode", "apply %s (observer %d, label %d)", SpecModeCommand(pending), (int)obs, label);
+	} else if (cycle != 0) {
+		// Exactly what CS2's own camera button does (`spec_mode` with no argument steps CS2's real
+		// camera), so the step is right even when we could not read the mode. Back is two steps
+		// forward round the three cameras.
+		constexpr int kModeCount = (int)Mode::FreeCam + 1;
+		const int forward = ((cycle % kModeCount) + kModeCount) % kModeCount;
+		CameraBridge_SetFreeCamEnabled(false);
+		if (g_pEngineToClient)
+			for (int i = 0; i < forward; ++i)
+				g_pEngineToClient->ExecuteClientCmd(0, "spec_mode", true);
+		current = (Mode)(((int)current + forward) % kModeCount);
+		s_holdFrames = 30;
+		m_roll = 0.f;
+		if (MvmDebugLog_Active())
+			MvmDebugLog_Linef("movie.mode", "wheel %+d -> spec_mode x%d, expect %s (observer %d, label %d)",
+				cycle, forward, SpecModeCommand(current), (int)obs, label);
+	}
+	{
+		std::lock_guard<std::mutex> lk(m_mutex);
+		if (!m_modeDirty && m_pendingCycle == 0) m_mode = current;
+	}
+
+	ApplyNativeCameraControls(current, speedSteps, fovSteps, roll);
 
 	ApplyXrayDefault();
 
@@ -855,53 +967,27 @@ void MovieMode::ApplyXrayDefault() {
 
 MovieMode::Mode MovieMode::GetMode() { std::lock_guard<std::mutex> lk(m_mutex); return m_mode; }
 bool MovieMode::GetXray() { std::lock_guard<std::mutex> lk(m_mutex); return m_xray; }
-bool MovieMode::GetCursor() { std::lock_guard<std::mutex> lk(m_mutex); return m_cursor; }
-
-void MovieMode::SetMode(Mode mode, bool keepCursor) {
+void MovieMode::SetMode(Mode mode) {
 	Mode prev;
 	{
 		std::lock_guard<std::mutex> lk(m_mutex);
 		prev = m_mode;
 		m_mode = mode;
 		m_pendingMode = mode;
-		m_pendingKeepCursor = keepCursor;
+		m_pendingCycle = 0;
 		m_modeDirty = true;
 	}
-	// Logged OUTSIDE the lock (the log takes its own mutex and flushes per line). keepCursor
-	// is the new render-workspace path: true skips ApplyMode's `camtl cursor off`, so a
-	// workspace that goes unclickable after a camera-source click shows up here as keepCursor=0.
+	// Logged OUTSIDE the lock (the log takes its own mutex and flushes per line).
 	if (MvmDebugLog_Active())
-		MvmDebugLog_Linef("movie.mode", "set %d -> %d keepCursor=%d",
-			(int)prev, (int)mode, keepCursor ? 1 : 0);
+		MvmDebugLog_Linef("movie.mode", "set %d -> %d", (int)prev, (int)mode);
 }
 
+// The same names CS2's demo bar shows for its camera button.
 const char* MovieMode::ModeName() {
 	switch (GetMode()) {
 	case Mode::FreeCam: return "Free cam";
-	case Mode::ThirdPerson: return "Third person";
+	case Mode::ThirdPerson: return "Chase cam";
 	default: return "First person";
-	}
-}
-
-void MovieMode::SyncFromFreeCam(bool freeCamEnabled) {
-	std::lock_guard<std::mutex> lk(m_mutex);
-
-	// Don't fight an in-flight transition: a scroll may have set a new pending
-	// mode that FlushActions hasn't applied yet, so the live free-cam state still
-	// reflects the OLD mode. Reconciling here would clobber the user's choice and
-	// cause the intermittent first/third/free mislabel. Only correct the mode
-	// once the queue is drained (m_modeDirty == false), i.e. for genuine external
-	// (console) free-cam toggles.
-	if (m_modeDirty)
-		return;
-
-	if (freeCamEnabled) {
-		m_mode = Mode::FreeCam;
-	} else if (ThirdPersonCameraRef().State().active) {
-		m_mode = Mode::ThirdPerson;
-	} else if (m_mode == Mode::FreeCam) {
-		// Free cam was turned off elsewhere; fall back to third person.
-		m_mode = Mode::ThirdPerson;
 	}
 }
 

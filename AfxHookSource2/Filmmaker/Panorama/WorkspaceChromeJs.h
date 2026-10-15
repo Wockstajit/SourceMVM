@@ -16,7 +16,7 @@
 //     border:1px solid #ffffff1f; border-radius:3px; padding:8px 13px; white-space:nowrap
 //
 // There is NO accent fill on a header chip in either original design, and none is needed: every chip here
-// states its own state in its label ("MOUSE: UI · G" vs "MOUSE: GAME · G", "GAME UI: HIDE ALL"),
+// states its own state in its label ("MOUSE: UI" vs "MOUSE: GAME", "GAME UI: HIDE ALL"),
 // so a fill is a second, redundant encoding of something the words already say -- and the gold
 // version failed contrast reading gold text on a gold ground. `UI.chip` already carries exactly
 // the original design's numbers (13 / 8 / 13 / 3), and both panels already define `S.label` as #c8d3df and

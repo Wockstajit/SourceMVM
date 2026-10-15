@@ -25,7 +25,7 @@
 // The host owns its own button; this fragment owns the card. Call it once at build time and keep
 // the returned handle:
 //
-//   var pop = mvmEditorSettingsPopup(ctx, { id: 'UniqueRootId', marginBottom: 120, ... });
+//   var pop = mvmEditorSettingsPopup(ctx, { id: 'UniqueRootId', publish: root, marginBottom: 120, ... });
 //   pop.open() / pop.close(why) / pop.toggle() / pop.isOpen() / pop.refresh()
 //   pop.overlay / pop.card   -- for host-side layout and debug probes
 //
@@ -116,9 +116,14 @@ R"ESJS(
       }
       function dbgOn() { try { return !!(opts.debugOn && opts.debugOn()); } catch (e) { return false; } }
       function dbgTag() { return opts.debugTag || 'editorsettings'; }
+      // 'popupopen' on the host's root (opts.publish): while it is "1" the click router hands every
+      // click to the UI, even over the game preview the card sits on (MovieMode::OnUiClick).
+      function publish(on) {
+        try { if (opts.publish) opts.publish.SetAttributeString('popupopen', on ? '1' : '0'); } catch (e) {}
+      }
       function open() {
         if (opts.beforeOpen) opts.beforeOpen();
-        refresh(); overlay.visible = true;
+        refresh(); overlay.visible = true; publish(true);
         if (opts.onOpen) opts.onOpen();
         if (dbgOn()) $.Msg('[' + dbgTag() + '] open\n');
       }
@@ -131,7 +136,7 @@ R"ESJS(
           try { extra = opts.debugState ? (' ' + opts.debugState()) : ''; } catch (e) { extra = ''; }
           $.Msg('[' + dbgTag() + '] close why=' + (why || '?') + extra + '\n');
         }
-        overlay.visible = false;
+        overlay.visible = false; publish(false);
         if (opts.onClose) opts.onClose(why);
       }
       function toggle() { if (overlay.visible) close('reclick'); else open(); }

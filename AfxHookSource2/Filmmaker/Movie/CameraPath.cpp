@@ -187,6 +187,7 @@ void CameraPath::PushPose(const CamMarker& m) {
 
 void CameraPath::SeekDemoTick(int tick) {
 	if (tick < 0) tick = 0;
+	DemoScrub_Cancel();
 	std::ostringstream oss;
 	oss << "demo_gototick " << tick;
 	DemoCmd(oss.str().c_str());
@@ -319,8 +320,9 @@ void CameraPath::SelectForEditor(int index) {
 	// The editor always navigates to the selected camera, independent of the optional
 	// marker-menu Auto-Snap setting.
 	CameraBridge_SetFreeCamEnabled(true);
-	if (DemoIsPlaying() && !DemoIsPaused()) DemoCmd("demo_pause");
-	SeekDemoTick(marker.tick);
+	// Through the scrub controller, not a raw demo_gototick: a forward gototick on a paused demo
+	// never runs, so clicking a diamond right of the playhead did not move the world.
+	DemoScrub_Release(marker.tick, /*resume*/ false);
 	PushPose(marker);
 	m_editorPoseHoldFrames = 4;
 
@@ -584,7 +586,7 @@ void CameraPath::PlayPath() {
 // exact tick so you can preview the camera live, synchronized with the replay. Unlike J's
 // ArmPreview this does NOT show the big "Camera Path Preview" banner (m_editorPlay), does
 // not jump to the first marker, and engages the dolly immediately (not range-gated).
-void CameraPath::PlayFromEditor() {
+void CameraPath::PlayFromEditor(int startTick) {
 	EndCurveValueEdit();
 	const int n = m_data.Count();
 	if (n < 2) {
@@ -601,13 +603,14 @@ void CameraPath::PlayFromEditor() {
 	const double scrubTick = m_play.ScrubTick();
 	int demoTickRaw = -1;
 	bool demoTickOk = false;
-	if (scrubbing) tick = (int)(scrubTick + 0.5);
+	if (startTick >= 0) tick = startTick;
+	else if (scrubbing) tick = (int)(scrubTick + 0.5);
 	else { int dt = 0; demoTickOk = g_MirvTime.GetCurrentDemoTick(dt); if (demoTickOk) { demoTickRaw = dt; tick = dt; } }
 	const int tickBeforeClamp = tick;
 	tick = ClampToPathTick(tick);
 	const int firstTick = m_data.Front().tick;
 	const int lastTick = m_data.Back().tick;
-	const bool wrappedFromEnd = tick >= lastTick;
+	const bool wrappedFromEnd = startTick < 0 && tick >= lastTick;
 	// WHERE DID THE START TICK COME FROM? A second play after a pause was observed wrapping to
 	// the first keyframe as if the playhead were past the end, when it was in the middle -- and
 	// the state line said scrubbing=0, so the usual stale-scrub suspect is not it. Print every
@@ -629,9 +632,15 @@ void CameraPath::PlayFromEditor() {
 	m_editorPlayWaitFrames = 0;
 	m_editorPlayStartTiming = m_eval.TimingAtTick(m_data, tick);
 
-	// Keep deterministic scrub active while the asynchronous seek settles. Playback
-	// starts from RunFrame only after the engine reports the requested tick.
-	SeekDemoTick(tick);
+	// Keep deterministic scrub active while the asynchronous seek settles. Playback starts from
+	// RunFrame only after the requested tick has landed. Backward (the wrap to the first key) a
+	// plain demo_gototick lands in one restore; forward on a paused demo it never runs, so the
+	// scrub controller plays in instead.
+	m_play.Stop();
+	m_liveResumeGuard = 0;
+	int nowTick = -1;
+	if (g_MirvTime.GetCurrentDemoTick(nowTick) && tick < nowTick) SeekDemoTick(tick);
+	else DemoScrub_Release(tick, /*resume*/ false);
 	CameraBridge_SetFreeCamEnabled(true);
 	m_play.BeginScrub(tick);
 	m_scrubReleasePending = false; // editor play owns this scrub until its own handshake ends it
@@ -982,7 +991,9 @@ void CameraPath::RunFrame() {
 	UpdateHover();
 
 	if (m_editorPlayPending) {
-		++m_editorPlayWaitFrames;
+		// The scrub controller is still landing the start tick: starting now would resume a demo it
+		// is pausing and stepping.
+		if (!DemoScrub_Active()) ++m_editorPlayWaitFrames;
 		int tick = -1;
 		const bool atTarget = g_MirvTime.GetCurrentDemoTick(tick)
 			&& std::abs(tick - m_editorPlayTargetTick) <= 1;
@@ -993,7 +1004,7 @@ void CameraPath::RunFrame() {
 		// with the play button frozen on the play icon. Live playback binds the camera to demo
 		// time, so starting from wherever the demo actually is still flies the path; the resume
 		// guard keeps the demo rolling.
-		if ((atTarget && m_editorPlayWaitFrames >= 2) || m_editorPlayWaitFrames >= 30) {
+		if (!DemoScrub_Active() && ((atTarget && m_editorPlayWaitFrames >= 2) || m_editorPlayWaitFrames >= 30)) {
 			m_editorPlayPending = false;
 			m_play.EndScrub();
 			CameraBridge_SetFreeCamEnabled(true);

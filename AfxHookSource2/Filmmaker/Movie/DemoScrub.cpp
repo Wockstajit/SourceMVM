@@ -48,6 +48,17 @@ int g_seekFrom = -1;         // the tick a pending seek started from (JudgeSeek)
 bool g_keyframed = false;    // the playing file is a keyframed copy: restores take a frame or two
 double g_timescale = 1.0;    // the demo_timescale the scrub last set
 int g_seeks = 0, g_steps = 0, g_plays = 0;
+// IsDemoPaused reads true a frame or two before the demo clock stops: a step issued then started
+// from a still-moving demo and ran ~2 ticks past its goal, and the re-aim seek/step repeated that
+// for ~10 s ("Space loops the first few ticks", 2026-10-15). A pause only counts once the clock
+// has held still for kStillFrames frames.
+constexpr int kStillFrames = 2;
+double g_prevNow = -1.0;
+int g_stillFrames = 0;
+// Re-aims after a lost step or seek. Past kMaxReaims the scrub lands where it is instead of
+// looping: a tick or two off beats replaying the same ticks over and over.
+constexpr int kMaxReaims = 3;
+int g_reaims = 0;
 
 void Cmd(const char* c) {
 	if (g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, c, true);
@@ -103,6 +114,8 @@ void Begin() {
 	g_pending = Pending::None;
 	g_busyFrames = 0;
 	g_seeks = g_steps = g_plays = 0;
+	g_reaims = 0;
+	g_stillFrames = 0; g_prevNow = -1.0;
 	g_wasPlaying = !paused;
 	g_timescale = DemoTimescale_Get();
 	// Per scrub, not per frame: resolving the playing file is not free.
@@ -144,15 +157,27 @@ void DemoScrub_Drag(double tick) {
 	g_settled = false;
 }
 
-void DemoScrub_Release(double tick) {
+void DemoScrub_Release(double tick, bool resume) {
 	if (Render_IsJobActive()) return;
 	Begin();
 	if (!g_active) return;
+	if (!resume) g_wasPlaying = false;
 	g_target = tick;
 	g_released = true;
+	g_reaims = 0; // a new destination gets its own retries
 }
 
 bool DemoScrub_Active() { return g_active; }
+
+void DemoScrub_Cancel() {
+	if (!g_active) return;
+	DemoTimescale_Set(DemoTimescale_Get());
+	Log("cancelled target=%.3f seeks=%d steps=%d", g_target, g_seeks, g_steps);
+	g_active = false;
+	g_released = false;
+	g_settled = false;
+	g_pending = Pending::None;
+}
 
 void DemoScrub_RunFrame() {
 	if (!g_active) return;
@@ -162,11 +187,15 @@ void DemoScrub_RunFrame() {
 		g_active = false; g_pending = Pending::None;
 		return;
 	}
+	if (paused && g_prevNow >= 0.0 && std::fabs(now - g_prevNow) < 1e-4) ++g_stillFrames;
+	else g_stillFrames = 0;
+	g_prevNow = now;
+	const bool stopped = paused && g_stillFrames >= kStillFrames;
 	if (g_pending != Pending::None) {
 		++g_busyFrames;
 		bool landed = false;
 		switch (g_pending) {
-		case Pending::Pause: landed = paused; break;
+		case Pending::Pause: landed = stopped; break;
 		case Pending::Resume: landed = !paused; break;
 		case Pending::Step:
 			// A step only ever moves forward from where it started; anywhere else, another seek
@@ -175,9 +204,25 @@ void DemoScrub_RunFrame() {
 				Log("step to %d from %d lost: tick=%d; re-aiming", g_expectTick, g_seekFrom, tick);
 				g_pending = Pending::None;
 				if (g_released) g_settled = false;
+				// demo_step_tick sometimes runs ~3 ticks long right after a restore (measured
+				// 2026-10-15: 8 ticks from 5748 ended on 5759, twice running). Retry once; a
+				// second overshoot just past the goal is where the step lands, so stay there.
+				const bool overshot = tick > g_expectTick + 1 && tick - g_target <= 4.0;
+				if (g_released && overshot && g_reaims >= 1) {
+					if (!paused) Cmd("demo_pause");
+					Log("step overshot again: landing at %d (goal %.0f)", tick, g_target);
+					Finish(now);
+					return;
+				}
+				if (g_released && ++g_reaims > kMaxReaims) {
+					if (!paused) Cmd("demo_pause");
+					Log("giving up after %d re-aims: landing at %d", g_reaims - 1, tick);
+					Finish(now);
+					return;
+				}
 				break;
 			}
-			landed = paused && tick >= g_expectTick - 1;
+			landed = stopped && tick >= g_expectTick - 1;
 			break;
 		case Pending::Seek: {
 			// A seek must land ON its tick (+/-1): mid-replay a backward seek reads the OLD tick,
@@ -200,9 +245,15 @@ void DemoScrub_RunFrame() {
 					g_busyFrames, tick, paused ? 1 : 0);
 				g_pending = Pending::None;
 				if (g_released) g_settled = false; // the settle seek did not happen: do it again
+				if (g_released && ++g_reaims > kMaxReaims) {
+					if (!paused) Cmd("demo_pause");
+					Log("giving up after %d re-aims: landing at %d", g_reaims - 1, tick);
+					Finish(now);
+					return;
+				}
 				break;
 			}
-			landed = wait == SeekWait::Landed;
+			landed = wait == SeekWait::Landed && stopped;
 			break;
 		}
 		default: break;

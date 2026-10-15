@@ -52,7 +52,6 @@
 #include "Movie/DemoTimescale.h"
 #include "Movie/DemoScrub.h"
 #include "Demo/DemoKeyframes.h"
-#include "Movie/ThirdPersonCamera.h"
 #include "MouseCapture.h"
 #include "Movie/HudBlackout.h"
 #include "Cosmetics/CosmeticOverrideSystem.h"
@@ -115,10 +114,9 @@ void PrintHelp(const char* cmd) {
 	advancedfx::Message(
 		"Movie director (in a demo):\n"
 		"%s hud [on|off|toggle] - show/hide the camera help/status panel (also F8).\n"
-		"   Scroll = cycle First/Third/Free cam; LMB/RMB = next/prev player;\n"
-		"   X = X-ray, off by default in demos (when not in free cam); Shift+Scroll = cam speed / third-person distance;\n"
+		"   Scroll = cycle CS2's First person / Chase / Free cam (hold a mouse button to look around);\n"
+		"   LMB/RMB = next/prev player; X = X-ray, off by default in demos;\n"
 		"   Space = pause/resume; Left/Right = skip -/+5s.\n"
-		"%s thirdperson on|off|toggle|state / preset front|back|left|right / angles <yaw> <pitch> / distance <30-200>.\n"
 		"%s speedbar [on|off|toggle] - inline demo-bar speed buttons (off = native dropdown).\n"
 		"%s mouse free|click|game|toggle|state - cursor modes. Default is CLICK: the desktop cursor\n"
 		"                             stays yours until you click into the game. `game` = CS2's normal grab.\n"
@@ -126,10 +124,10 @@ void PrintHelp(const char* cmd) {
 		"%s endhold [on|off|toggle|status|postgame on|off|phase <n>] - stop before CS2's end-of-match\n"
 		"                             screens (and before the demo's stop record); play again = restart.\n"
 		"%s skip back|forward      - skip the demo -/+5s (also the demo bar's -5s / +5s buttons).\n"
-		// SEVEN %s above (hud / thirdperson / speedbar / mouse / timescale / endhold / skip) -- count them
+		// SIX %s above (hud / speedbar / mouse / timescale / endhold / skip) -- count them
 		// against this list whenever a line is added. A short list here is not a cosmetic bug: the
 		// missing argument is read as a char* and dereferenced.
-		, cmd, cmd, cmd, cmd, cmd, cmd, cmd
+		, cmd, cmd, cmd, cmd, cmd, cmd
 	);
 	advancedfx::Message(
 		"Camera markers / dolly path (in free cam):\n"
@@ -431,8 +429,6 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 	} else if (0 == _stricmp(sub, "loop")) {
 		// Playback loop region. Deliberately NOT the render or export range -- see PlaybackLoop.h.
 		Filmmaker::PlaybackLoop_RunCommand(argc, args, cmd);
-	} else if (0 == _stricmp(sub, "thirdperson")) {
-		Filmmaker::ThirdPerson_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "marker")) {
 		Filmmaker::Marker_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "camtl")) {

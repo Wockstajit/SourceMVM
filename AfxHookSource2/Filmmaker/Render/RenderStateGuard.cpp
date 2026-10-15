@@ -34,7 +34,6 @@ RenderStateRestoreGuard::RenderStateRestoreGuard()
 	: m_hasSnapshot(false)
 	, m_restored(false)
 	, m_freeCam(false)
-	, m_thirdPersonOrbit(false)
 	, m_uiCursor(false)
 	, m_movieMode(0)
 	, m_origin{ 0.0, 0.0, 0.0 }
@@ -61,7 +60,6 @@ void RenderStateRestoreGuard::Snapshot() {
 
 	// --- camera ownership ---
 	m_freeCam = CameraBridge_GetFreeCamEnabled();
-	m_thirdPersonOrbit = CameraBridge_GetThirdPersonOrbitEnabled();
 	m_uiCursor = CameraTimelineHudRef().Cursor();
 	m_movieMode = (int)MovieModeRef().GetMode();
 
@@ -126,10 +124,8 @@ void RenderStateRestoreGuard::Restore() {
 		m_angles[0], m_angles[1], m_angles[2], m_fov);
 
 	// --- camera ownership ---
-	// SetMode normally turns the UI cursor off when it reapplies Default/ThirdPerson. Keep cursor
-	// ownership untouched here, then restore the exact pre-job value explicitly below.
-	MovieModeRef().SetMode((MovieMode::Mode)m_movieMode, /*keepCursor*/ true);
-	CameraBridge_SetThirdPersonOrbitEnabled(m_thirdPersonOrbit);
+	// CS2's camera first, then our free cam and the UI cursor exactly as they were.
+	MovieModeRef().SetMode((MovieMode::Mode)m_movieMode);
 	CameraBridge_SetFreeCamEnabled(m_freeCam);
 	CameraEditor_SetCursorMode(m_uiCursor);
 }
@@ -137,7 +133,6 @@ void RenderStateRestoreGuard::Restore() {
 const std::vector<const char*>& RenderStateRestoreGuard::Covered() {
 	static const std::vector<const char*> k = {
 		"free cam enabled",
-		"third-person orbit enabled",
 		"Camera Editor UI cursor ownership",
 		"movie mode (Default/ThirdPerson/FreeCam)",
 		"camera origin + angles + fov",

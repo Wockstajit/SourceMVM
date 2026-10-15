@@ -39,18 +39,18 @@ namespace Filmmaker {
 	// The last wheel adjustment, for the Config/Camera Editor speed and FOV toast (MovieHud).
 	// Main thread only: the wheel handler and the HUD state both run there.
 	static int s_adjustSeq = 0, s_adjustKind = 0, s_adjustDir = 0;
-	static void NoteFreeCamAdjust(int kind, int dir) { ++s_adjustSeq; s_adjustKind = kind; s_adjustDir = dir; }
+	void CameraBridge_NoteFreeCamAdjust(int kind, int dir) { ++s_adjustSeq; s_adjustKind = kind; s_adjustDir = dir; }
 
 	void  CameraBridge_AdjustFreeCamSpeed(int dir) {
 		if (dir == 0) return;
 		auto* in = g_MirvInputEx.m_MirvInput;
 		in->SetCamSpeed(NextFreeCamSpeed(in->GetCamSpeed(), dir));
-		NoteFreeCamAdjust(1, dir);
+		CameraBridge_NoteFreeCamAdjust(1, dir);
 	}
 	void  CameraBridge_AdjustFreeCamFov(int dir) {
 		if (dir == 0) return;
 		g_MirvInputEx.m_MirvInput->NudgeFov(dir > 0 ? -kFreeCamFovStepDeg : kFreeCamFovStepDeg);
-		NoteFreeCamAdjust(2, dir);
+		CameraBridge_NoteFreeCamAdjust(2, dir);
 	}
 	void  CameraBridge_LastFreeCamAdjust(int& seq, int& kind, int& dir) {
 		seq = s_adjustSeq; kind = s_adjustKind; dir = s_adjustDir;

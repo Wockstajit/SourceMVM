@@ -16,17 +16,33 @@ The HUD is display-only. It never blocks clicks, even where it is drawn.
 
 ## Camera modes (mouse wheel)
 
-Scrolling cycles through three camera modes and wraps around at the ends:
+The director uses CS2's own three demo cameras. Scrolling steps through them and wraps around at the ends, the same way CS2's camera button on the demo bar does:
 
 ```
-  Scroll Up ▶   First person → Third person → Free cam → (back to First) ...
-  ◀ Scroll Down First person → Free cam → Third person → (back to First) ...
+  Scroll Up ▶   First person → Chase cam → Free cam → (back to First) ...
+  ◀ Scroll Down First person → Free cam → Chase cam → (back to First) ...
 ```
 
 | Action | Control | Under the hood |
 | --- | --- | --- |
-| Cycle mode up | **Scroll Up** | first-person / native third-person orbit / free-cam |
-| Cycle mode down | **Scroll Down** | same, reversed |
+| Next camera | **Scroll Up** | `spec_mode` (CS2's own step) |
+| Previous camera | **Scroll Down** | `spec_mode` twice |
+| Look around (Chase, Free cam) | **Hold a mouse button and drag** | CS2's own click-and-drag look. Let go and the cursor is yours again |
+
+Scrolling always steps the camera over the game, in every mode. Inside the Camera Editor or Config, a notch over a panel scrolls that panel instead; a notch during a look-around drag always belongs to the camera. The director takes the wheel away from CS2 during demos, so CS2's own wheel binds (which step the spectated player and drop free cam to first person) never fire.
+
+The HUD's mode name follows the camera CS2 is actually showing, including changes made with CS2's own camera button or player stepping.
+
+### Free-cam controls (CS2's free cam)
+
+| Action | Control | Under the hood |
+| --- | --- | --- |
+| Move | **W / A / S / D** while looking | CS2's own free cam |
+| Fly speed up / down | **Shift + Scroll** | `sv_noclipspeed`, the same speed ladder as before (0.5x per notch) |
+| FOV in / out | **Ctrl + Scroll** | `mirv_fov`, 1 degree per notch. `mirv_fov default` goes back to the game's FOV |
+| Roll | **Hold X / Z** | Added on top of CS2's free cam. Cleared when the camera changes |
+
+Shift and Ctrl + Scroll also work in the middle of a look-around drag. While Config or the Camera Editor is open, each speed or FOV notch shows a short toast over the preview with the new value.
 
 ## Playback (in a demo)
 
@@ -36,61 +52,35 @@ Scrolling cycles through three camera modes and wraps around at the ends:
 | Skip back 5s | **Left arrow**, or the demo bar's **-5s** | `mirv_filmmaker skip back` (current tick − 5s) |
 | Skip forward 5s | **Right arrow**, or the demo bar's **+5s** | `mirv_filmmaker skip forward` (current tick + 5s) |
 
-**Ctrl** is reserved for Movie Director shortcuts during demos. Its press and release do not reach CS2's overview-map bind, so tapping Ctrl does not open the map while you watch a demo. Ctrl+Z, Ctrl+A, and Ctrl+Shift+Z still work in the editor. Live matches keep normal Ctrl input.
+**Ctrl** is reserved for Movie Director shortcuts during demos, and CS2's overview map is kept hidden, so tapping Ctrl never opens it while you watch a demo. Ctrl+Z, Ctrl+A, and Ctrl+Shift+Z still work in the editor. Live matches keep normal Ctrl input.
 
 The demo bar shows inline speed buttons (0.1x to 4x) in place of the native timescale dropdown. To show the native dropdown instead, toggle the buttons off: `mirv_filmmaker speedbar [on|off|toggle]`.
 
-> First person = `spec_mode 2` (in-eye). Third person = the HLAE-owned orbit camera (`ThirdPersonCamera.cpp`, solved in the view-setup hook). CS2's native `thirdperson` and chase cvars are not used, because they fight the demo view pass and jitter. Free cam = HLAE free camera. `spec_mode 4` is CS2's native roaming. Numbers are centralised in `MovieMode.cpp`. Confirm in-game and adjust if needed.
-
-**Third person.** The mouse orbits the camera. The pointer is hidden, as it is while flying the free cam. Both re-centre the cursor every frame, so a visible arrow would jitter in the middle of the shot (G brings it back). **Left and right click** switch to the next and previous player, and the camera stays in third person behind them. The orbit follows whichever player the engine's own spectator camera is watching, read from that camera before any override. In first person, that camera sits in the player's eye. In the chase mode that third person sets, it aims at them. GOTV demos report no observer target at all (observer services read mode 0 / target −1), so this is the only signal that follows a switch.
-
-## Free-cam controls (only when in Free cam mode)
-
-These are HLAE's `mirv_input` camera keys. The director only turns the camera on when you scroll into Free cam. They do nothing in first or third person.
-
-| Action | Key(s) |
-| --- | --- |
-| Move forward / back | **W / S**  (or Numpad 8 / 2) |
-| Strafe left / right | **A / D**  (or Numpad 4 / 6) |
-| Move up / down | **R / F**  (or Numpad 9 / 3) |
-| Roll left / right | **X / Z**  (or Numpad . / 0) |
-| Pitch (look up / down) | **Arrow Up / Down** |
-| Yaw (look left / right) | **Arrow Left / Right** |
-| FOV in / out | **Numpad 1 / 7**  (or PageDown / PageUp) |
-| Reset view + speed | **Home**  (or Numpad 5) |
-| Look around | **Mouse**: always-look (point the camera, and it stays). Sensitivity is **independent of cam speed**. |
-| Slow / fine movement (hold) | **Shift**: applies a 25% slow factor to all free-cam movement + rotation while held |
-| Cam speed up / down | **Shift + Scroll** (0.5x per notch; below 0.5x each notch halves, down to 0.125x) |
-| FOV in / out (scroll) | **Ctrl + Scroll** (1 degree per notch) |
-| Exit camera control | **Esc** |
-
-> **Shift-scroll changes third-person distance** and free-cam speed. Shift-hold slow movement only affects the free camera. While Config or the Camera Editor is open, each speed or FOV notch shows a short toast under the top scoreboard with the new value.
-
-## Spectator (first / third person)
+## Spectator (first person / chase)
 
 | Action | Control | Notes |
 | --- | --- | --- |
-| Next player | **Left click** | CS2's own spectator bind, **first person only**. In third person, clicks are consumed so orbiting cannot switch players |
-| Previous player | **Right click** | CS2's own spectator bind, first person only (see above) |
-| Orbit current player | **Mouse move in Third person** | HLAE-owned orbit camera locked to the spectated player's eye; works identically while the demo is paused. |
-| Third-person distance | **Shift + Scroll** | Clamped to 30 to 200 units. |
-| Toggle X-ray | **X** | `spec_show_xray`, **first and third person only**. In free cam, X is camera roll instead. |
+| Next player | **Left click** | CS2's own spectator bind |
+| Previous player | **Right click** | CS2's own spectator bind |
+| Toggle X-ray | **X** | `spec_show_xray`, first person and chase cam. In free cam, X / Z roll the camera instead |
 
-Third-person commands:
+## The mouse in the Camera Editor and Config
 
-```text
-mirv_filmmaker thirdperson on|off|toggle|state
-mirv_filmmaker thirdperson preset front|back|left|right
-mirv_filmmaker thirdperson angles <yaw> <pitch>
-mirv_filmmaker thirdperson distance <30-200>
-mirv_filmmaker thirdperson sens <deg per pixel, 0.005-0.5>   (default 0.05)
-```
+There is no mouse toggle. Where you click decides it:
 
-Presets and the orbit yaw are relative to the spectated player's facing: `back = 0` (camera stays behind them as they turn), `front = 180`, `left = -90`, `right = 90`. The orbit yaw is eased (~0.12 s), so player flicks swing the camera instead of snapping it. HLAE solves the camera from the pawn's render-time eye pose. No engine `cam_*` cvars are touched.
+- Click the game **preview**: the mouse belongs to the camera (CS2's look-around drag, or the editor's own camera).
+- Click any **panel**: the mouse belongs to the UI.
+- Popups that sit over the preview (Editor Settings, a keyframe's shake menu) keep their clicks.
 
-While the camera is detached (third person or free cam), the first-person viewmodel is hidden (`r_drawviewmodel false`). Its `_fp/_fps` particle systems are blocked to `dev/empty`. They anchor to the camera and would otherwise render as giant floating arms and mid-air muzzle flashes. The spectator is also held in chase mode (`spec_mode 3`, re-asserted every 2 s) while detached. In-eye spawns only the `_fp` variants for the spectated player, so without chase there would be no weapon effects on their gun at all. This is what makes the Modern/Povarehok swaps show in third person. Everything restores automatically when the camera returns to first person.
+Outside a workspace there is nothing to switch: CS2 gives the cursor back by itself after a look-around drag, so the demo bar is always clickable.
 
-World collision (pull-in at walls) is not implemented yet. The DLL has no engine trace hooked. Adding one (Source 2 `GameTraceManager` AOB) is the known follow-up.
+## Camera Editor paths
+
+The Camera Editor's keyframe cameras still use SOURCE:MVM's own camera, because a path has to set every frame's pose. On the camera timeline, **click a diamond** to go to that keyframe's tick and camera, and **right-click** it for its shake menu. Both work on every inspector tab. While a path keyframe camera owns the view, its own keys keep working: W/A/S/D/R/F to move, Shift + Scroll for speed, Ctrl + Scroll for FOV, X / Z to roll, Shift held for slow movement.
+
+When our own camera is detached from the spectated eye, the first-person viewmodel can be hidden with `mirv_filmmaker fphide on` (default off). Its `_fp/_fps` particle systems anchor to the camera and would otherwise float in mid-air.
+
+The spectator overview map (CS2's **[CTRL] Close / [Z] / [X] / [SPACE] Clear Drawing** panel) never shows during a demo.
 
 ## Native CS2 demo playback UI
 
@@ -123,7 +113,6 @@ mirv_filmmaker mouse state
 | Command | Purpose |
 | --- | --- |
 | `mirv_filmmaker hud [on\|off\|toggle]` | Show/hide the help+status HUD |
-| `mirv_filmmaker thirdperson ...` | Third-person orbit camera controls and presets |
 | `mirv_filmmaker speedbar [on\|off\|toggle]` | Inline demo-bar speed buttons (off = native dropdown) |
 | `mirv_filmmaker mouse free\|click\|game\|toggle\|state` | Control free or click-to-capture mouse modes |
 | `mirv_filmmaker hud_eval <panorama js>` | Run Panorama JS in the HUD context (debug) |

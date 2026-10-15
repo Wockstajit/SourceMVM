@@ -31,6 +31,6 @@ test("opening the Render workspace always hands the mouse to Panorama", () => {
 test("render state restoration preserves the pre-job UI cursor", () => {
   assert.match(guardHeader, /bool m_uiCursor/);
   assert.match(guardSource, /m_uiCursor\s*=\s*CameraTimelineHudRef\(\)\.Cursor\(\)/);
-  assert.match(guardSource, /MovieModeRef\(\)\.SetMode\([^;]+\/\*keepCursor\*\/\s*true\)/);
+  assert.match(guardSource, /MovieModeRef\(\)\.SetMode\(\(MovieMode::Mode\)m_movieMode\)/);
   assert.match(guardSource, /CameraEditor_SetCursorMode\(m_uiCursor\)/);
 });

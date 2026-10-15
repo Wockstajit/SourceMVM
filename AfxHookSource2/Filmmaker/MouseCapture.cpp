@@ -80,6 +80,12 @@ void MouseCapture_OnGameClick() {
 	if (LiveFxMenu_WantsGameMouseReleased())
 		return;
 
+	// Same for a workspace in UI mode: the click is the panel's (a keyframe's right-click menu
+	// died when this took the mouse for CS2). A click into the preview switches to GAME mode
+	// first (MovieMode::OnUiClick), which captures the mouse there.
+	if (CameraTimeline_WantsCursor() || MarkerMenu_WantsCursor() || CameraEditor_CustomizeModalOpen())
+		return;
+
 	if (!clickToCapture)
 		return;
 

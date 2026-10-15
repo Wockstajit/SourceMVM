@@ -15,12 +15,14 @@
 #include "UiInputGate.h"
 #include "Filmmaker/Movie/CameraBridge.h"
 
-// A camera is being steered with the mouse -- the free cam flown, or the third-person orbit -- the
-// mouse is the game's, and no filmmaker surface (timeline / editor UI mode, marker menu, graph
-// editor, Customize, console) wants a cursor. Both re-centre the pointer every frame to measure the
-// movement, so a visible arrow sits jittering in the middle of the shot.
+#include <atomic>
+
+// The free cam is being steered with the mouse -- the mouse is the game's, and no filmmaker surface
+// (timeline / editor UI mode, marker menu, graph editor, Customize, console) wants a cursor. It
+// re-centres the pointer every frame to measure the movement, so a visible arrow sits jittering in
+// the middle of the shot.
 static bool MouseSteeredCamera() {
-	return (Filmmaker::CameraBridge_GetFreeCamEnabled() || Filmmaker::CameraBridge_GetThirdPersonOrbitEnabled())
+	return Filmmaker::CameraBridge_GetFreeCamEnabled()
 		&& !Filmmaker::MouseCapture_IsFree()
 		&& !Filmmaker::LiveFxMenu_WantsGameMouseReleased()
 		&& !Filmmaker::CameraTimeline_WantsCursor()
@@ -28,6 +30,58 @@ static bool MouseSteeredCamera() {
 		&& !Filmmaker::GraphEditorExperiment_WantsCursor()
 		&& !Filmmaker::CameraEditor_CustomizeModalOpen()
 		&& !Filmmaker::UiInputGate_Active();
+}
+
+// Raw wheel notches the director took from CS2 (WindowInputHooks_FilterRawInput), waiting for the
+// main thread. Signed: +1 per notch up, -1 per notch down. A legacy WM_MOUSEWHEEL for the same
+// physical notch cancels its raw copy, so a notch that arrives both ways is handled once.
+static std::atomic<bool> s_directorOwnsWheel{ false };
+static std::atomic<int> s_rawWheelNotches{ 0 };
+
+// Take one raw notch of this sign back (its legacy message is being handled instead).
+static bool CancelRawNotch(int sign) {
+	int cur = s_rawWheelNotches.load();
+	while (cur != 0 && (cur > 0) == (sign > 0)) {
+		if (s_rawWheelNotches.compare_exchange_weak(cur, cur - sign))
+			return true;
+	}
+	return false;
+}
+
+void WindowInputHooks_FilterRawInput(RAWINPUT* raw) {
+	if (!raw || raw->header.dwType != RIM_TYPEMOUSE) return;
+	RAWMOUSE& m = raw->data.mouse;
+	if (!(m.usButtonFlags & RI_MOUSE_WHEEL)) return;
+	if (!s_directorOwnsWheel.load(std::memory_order_relaxed)) return;
+	const short delta = (short)m.usButtonData;
+	m.usButtonFlags &= ~(USHORT)RI_MOUSE_WHEEL;
+	m.usButtonData = 0;
+	if (delta == 0) return;
+	s_rawWheelNotches.fetch_add(delta > 0 ? 1 : -1);
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("input.wheel", "raw delta=%d taken from the game (shift=%d ctrl=%d)",
+			(int)delta, (GetAsyncKeyState(VK_SHIFT) & 0x8000) ? 1 : 0, (GetAsyncKeyState(VK_CONTROL) & 0x8000) ? 1 : 0);
+}
+
+void WindowInputHooks_MainThreadFrame(bool directorOwnsWheel) {
+	s_directorOwnsWheel.store(directorOwnsWheel, std::memory_order_relaxed);
+	int notches = s_rawWheelNotches.exchange(0);
+	if (!notches || !directorOwnsWheel) return;
+	// A mouse button held = a look-around drag: the notch is the game's wherever CS2 parked the
+	// pointer, so it goes in without a position (MovieMode::OnMouseWheel).
+	POINT pt = { -1, -1 };
+	const bool dragging = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) || (GetAsyncKeyState(VK_RBUTTON) & 0x8000);
+	if (!dragging) {
+		GetCursorPos(&pt);
+		if (g_UiCursorProbe.hwnd) ScreenToClient(g_UiCursorProbe.hwnd, &pt);
+	}
+	const bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+	const bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("input.wheel", "raw notches=%d dispatched (shift=%d ctrl=%d at %ld,%ld)",
+			notches, shift ? 1 : 0, ctrl ? 1 : 0, pt.x, pt.y);
+	for (; notches != 0; notches += notches > 0 ? -1 : 1)
+		Filmmaker::MovieInput_OnMouseWheel(notches > 0 ? WHEEL_DELTA : -WHEEL_DELTA, shift, ctrl, pt.x, pt.y);
 }
 
 AfxUiCursorProbe g_UiCursorProbe;
@@ -216,7 +270,19 @@ LRESULT CALLBACK new_Afx_WindowProc(
 		{
 			POINT pt = { (int)(short)LOWORD(lParam), (int)(short)HIWORD(lParam) };
 			ScreenToClient(hwnd, &pt);
-			if(Filmmaker::MovieInput_OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam), (GetKeyState(VK_SHIFT) & 0x8000) != 0, (GetKeyState(VK_CONTROL) & 0x8000) != 0, pt.x, pt.y))
+			// Modifiers from every source: GetKeyState goes stale while CS2 holds the mouse for a
+			// look-around drag, and a stale "no Shift" turned Shift+wheel into a camera switch.
+			const WORD keys = GET_KEYSTATE_WPARAM(wParam);
+			const bool shift = (keys & MK_SHIFT) || (GetKeyState(VK_SHIFT) & 0x8000) || (GetAsyncKeyState(VK_SHIFT) & 0x8000);
+			const bool ctrl = (keys & MK_CONTROL) || (GetKeyState(VK_CONTROL) & 0x8000) || (GetAsyncKeyState(VK_CONTROL) & 0x8000);
+			// This notch may also have come in raw (FilterRawInput): handle it here, once.
+			const int wheelDelta = GET_WHEEL_DELTA_WPARAM(wParam);
+			const bool hadRaw = wheelDelta != 0 && CancelRawNotch(wheelDelta > 0 ? 1 : -1);
+			if (Filmmaker::MvmDebugLog_Active())
+				Filmmaker::MvmDebugLog_Linef("input.wheel", "message delta=%d (raw copy cancelled=%d)", wheelDelta, hadRaw ? 1 : 0);
+			// A button held = a look-around drag: the notch is the game's (no position, see above).
+			if (keys & (MK_LBUTTON | MK_RBUTTON)) pt = { -1, -1 };
+			if(Filmmaker::MovieInput_OnMouseWheel(wheelDelta, shift, ctrl, pt.x, pt.y))
 				return 0;
 		}
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam))
@@ -226,13 +292,9 @@ LRESULT CALLBACK new_Afx_WindowProc(
 		g_UiCursorProbe.lmb = true; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
 		// GAME mode, and the click is on our UI: switch to UI mode and let the
 		// panel have the click (press AND release) instead of the camera grabbing the mouse.
-		{
-			RECT client = {};
-			GetClientRect(hwnd, &client);
-			if (Filmmaker::MovieInput_OnUiClick((short)LOWORD(lParam), (short)HIWORD(lParam), client.right, client.bottom)) {
-				s_uiClickHeld = true;
-				break;
-			}
+		if (Filmmaker::MovieInput_OnUiClick((short)LOWORD(lParam), (short)HIWORD(lParam))) {
+			s_uiClickHeld = true;
+			break;
 		}
 		if(Filmmaker::MovieInput_OnMouseButton(0, true)) return 0;
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam)) return 0;

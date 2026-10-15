@@ -675,19 +675,19 @@ void Render_ApplyCameraSourceLive(RenderCameraSource src, const char* cmd) {
 		fc.StopPreview("render camera pov");
 		ge.SetDrive(false);
 		releaseCameraPath("render camera pov");
-		mm.SetMode(MovieMode::Mode::Default, /*keepCursor*/ true); // spec_mode in_eye
+		mm.SetMode(MovieMode::Mode::Default); // CS2 first person
 		break;
 	case RenderCameraSource::ThirdPerson:
 		fc.StopPreview("render camera thirdperson");
 		ge.SetDrive(false);
 		releaseCameraPath("render camera thirdperson");
-		mm.SetMode(MovieMode::Mode::ThirdPerson, /*keepCursor*/ true);
+		mm.SetMode(MovieMode::Mode::ThirdPerson); // CS2 chase cam
 		break;
 	case RenderCameraSource::FreeCamera:
 		fc.StopPreview("render camera freecam");
 		ge.SetDrive(false);
 		releaseCameraPath("render camera freecam");
-		mm.SetMode(MovieMode::Mode::FreeCam, /*keepCursor*/ true);
+		mm.SetMode(MovieMode::Mode::FreeCam); // CS2 free cam
 		break;
 	case RenderCameraSource::CameraPath:
 		fc.StopPreview("render camera path");

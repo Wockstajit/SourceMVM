@@ -35,6 +35,8 @@ void  CameraBridge_AdjustFreeCamFov(int dir);
 // The last speed/FOV wheel step: seq counts every step, kind 1 = speed, 2 = FOV, dir its sign.
 // Drives the speed/FOV toast (MovieHud) while Config or the Camera Editor is open.
 void  CameraBridge_LastFreeCamAdjust(int& seq, int& kind, int& dir);
+// Record a step made elsewhere (CS2's own cameras, MovieMode) so the same toast shows it.
+void  CameraBridge_NoteFreeCamAdjust(int kind, int dir);
 
 // Temporarily scale free-cam keyboard+mouse sensitivity for fine/slow movement
 // (held while Shift is down). Saves/restores the base sensitivity internally and

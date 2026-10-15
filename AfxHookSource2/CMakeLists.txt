@@ -822,9 +822,6 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/MethodActingMath.h
     Filmmaker/Movie/FxAlign.cpp
     Filmmaker/Movie/FxAlign.h
-    Filmmaker/Movie/ThirdPersonCamera.cpp
-    Filmmaker/Movie/ThirdPersonCamera.h
-    Filmmaker/Movie/ThirdPersonCameraMath.h
     Filmmaker/Movie/MovieMode.cpp
     Filmmaker/Movie/MovieMode.h
     Filmmaker/Movie/UiClickMath.h

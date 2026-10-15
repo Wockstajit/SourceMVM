@@ -1,20 +1,20 @@
 #pragma once
 
-// Click-to-UI-mode: in GAME mode (G handed the mouse to the camera) a left click on our UI switches
-// to UI mode and goes to the panel, instead of being eaten as a camera click. A click on the game
-// itself (the workspace preview, or the world in regular viewing) keeps doing what it did.
+// Where the mouse belongs inside a workspace (Camera Editor, demo Config), decided by where you
+// click -- there is no mouse toggle:
+//   * click the game preview  -> GAME: the click is the camera's (CS2's look-around drag, or our
+//                                free cam), and our panels stop catching clicks;
+//   * click anywhere else     -> UI: the click goes to the panel.
+// The wheel follows the same split: over the preview it steps CS2's camera (first person / chase /
+// free cam), over a panel it scrolls that panel. Outside a workspace the whole window is the game.
 //
 // In game mode the arrow stays free and visible between looks, so the click position is where the
 // user aimed. While a look is in progress the free cam pins a hidden cursor to the window centre --
-// inside the preview / the world -- so such a click answers "game" by position alone.
+// inside the preview -- so such a click answers "game" by position alone.
 //
-// Engine-free so Automation/tests/ui-click-math-tests.cpp can pin it; MovieMode::OnUiClick gathers
-// the inputs.
-//
-// Where the UI is:
-//   * a workspace (Camera Editor, demo Config) is open: everything OUTSIDE its preview rect;
-//   * regular viewing: the native demo bar (it carries our MOUSE / CAM EDITOR / CONFIG buttons).
-// An unknown rect answers "not UI": a click that cannot be placed keeps the old behaviour.
+// Engine-free so Automation/tests/ui-click-math-tests.cpp can pin it; MovieMode gathers the inputs.
+// An unknown preview rect answers "leave it as it is": a click or notch that cannot be placed
+// never flips the mode.
 
 namespace Filmmaker {
 namespace UiClick {
@@ -26,18 +26,30 @@ struct Rect {
 };
 
 struct Input {
-	bool uiModeOn = false;        // the UI already has the mouse: nothing to switch
-	bool uiModeAvailable = false; // G could hand the UI the mouse here (workspace, third person, free cam)
-	bool workspace = false;       // Camera Editor or demo Config is open
-	Rect preview;                 // the workspace's game preview
-	Rect demoBar;                 // the native demo bar (regular viewing)
-	float x = 0, y = 0;           // the click, client px
+	bool uiModeOn = false;  // the UI has the mouse right now
+	bool workspace = false; // Camera Editor or demo Config is open
+	Rect preview;           // the workspace's game preview
+	bool popupOpen = false; // a popup that covers the window (Editor Settings) is up
+	float x = 0, y = 0;     // the click / wheel position, client px
 };
 
+// GAME mode, a click on a panel: hand the mouse to the UI and give the panel the click. With a
+// popup up, every click is the popup's, even one over the preview it sits on.
 inline bool ClickSwitchesToUiMode(const Input& in) {
-	if (in.uiModeOn || !in.uiModeAvailable) return false;
-	if (in.workspace) return in.preview.valid && !in.preview.Contains(in.x, in.y);
-	return in.demoBar.Contains(in.x, in.y);
+	if (!in.workspace || in.uiModeOn) return false;
+	if (in.popupOpen) return true;
+	return in.preview.valid && !in.preview.Contains(in.x, in.y);
+}
+
+// UI mode, a click in the preview: hand the mouse to the camera; the click carries on to the game.
+inline bool ClickSwitchesToGameMode(const Input& in) {
+	return in.workspace && in.uiModeOn && !in.popupOpen && in.preview.Contains(in.x, in.y);
+}
+
+// Does this wheel notch step CS2's camera (true) or scroll the panel under it (false)?
+inline bool WheelCyclesCamera(const Input& in) {
+	if (!in.workspace) return true;
+	return !in.popupOpen && in.preview.Contains(in.x, in.y);
 }
 
 // A rect given as window fractions (how the workspaces publish their preview) in client px.

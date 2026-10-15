@@ -1,5 +1,4 @@
 #include "../../AfxHookSource2/Filmmaker/Movie/FollowCameraMath.h"
-#include "../../AfxHookSource2/Filmmaker/Movie/ThirdPersonCameraMath.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -92,55 +91,6 @@ int main() {
 	}
 	Check(Near(FollowWrapDegrees(190.0), -170.0), "wrap +190");
 	Check(Near(FollowWrapDegrees(-190.0), 170.0), "wrap -190");
-	Check(Near(ThirdPersonWrapYaw(540.0), 180.0), "thirdperson yaw wrap");
-	Check(Near(ThirdPersonWrapYaw(-181.0), 179.0), "thirdperson negative yaw wrap");
-	Check(Near(ThirdPersonClampPitch(100.0), 85.0), "thirdperson pitch max");
-	Check(Near(ThirdPersonClampPitch(-100.0), -85.0), "thirdperson pitch min");
-	Check(Near(ThirdPersonClampDistance(10.0), 30.0), "thirdperson distance min");
-	Check(Near(ThirdPersonClampDistance(250.0), 200.0), "thirdperson distance max");
-	double presetYaw = 0.0;
-	Check(ThirdPersonPresetYaw("left", presetYaw) && Near(presetYaw, -90.0), "thirdperson left preset");
-
-	// Who the engine camera watches: in the eye, or on the chase camera's aim ray.
-	{
-		const double cam[3] = {0.0, 0.0, 64.0};
-		const double inEye[3] = {0.3, 0.0, 64.0};
-		Check(Near(ThirdPersonWatchScore(cam, 0.0, 0.0, inEye), 0.0), "watch: in-eye match scores 0");
-		const double aimed[3] = {150.0, 5.0, 64.0};    // 150u ahead, 5u off the ray
-		const double beside[3] = {150.0, 30.0, 64.0};  // same distance, 30u off
-		const double sAimed = ThirdPersonWatchScore(cam, 0.0, 0.0, aimed);
-		const double sBeside = ThirdPersonWatchScore(cam, 0.0, 0.0, beside);
-		Check(sAimed > 0.0 && sBeside > sAimed, "watch: the player on the aim ray beats one beside it");
-		const double behind[3] = {-150.0, 0.0, 64.0};
-		Check(ThirdPersonWatchScore(cam, 0.0, 0.0, behind) < 0.0, "watch: a player behind the camera is not watched");
-		const double far[3] = {150.0, 100.0, 64.0};
-		Check(ThirdPersonWatchScore(cam, 0.0, 0.0, far) < 0.0, "watch: far off the ray is not watched");
-		// Pitch positive looks DOWN: a chase camera above and behind aims down at the eye.
-		const double below[3] = {100.0, 0.0, 64.0 - 100.0 * std::tan(20.0 * 3.14159265358979 / 180.0)};
-		Check(ThirdPersonWatchScore(cam, 20.0, 0.0, below) < 2.0, "watch: pitched-down chase aim finds the eye below");
-		// Yaw 90 looks along +Y.
-		const double north[3] = {0.0, 120.0, 64.0};
-		Check(ThirdPersonWatchScore(cam, 0.0, 90.0, north) >= 0.0, "watch: yaw 90 aims along +Y");
-	}
-
-	// Orbit pose solver: east-facing pivot (yaw 0), camera behind at 100u, level pitch.
-	const double orbitEye[3] = {100.0, 50.0, 64.0};
-	const ThirdPersonPose behind = ThirdPersonSolvePose(orbitEye, 0.0, 0.0, 100.0);
-	Check(Near(behind.x, 0.0) && Near(behind.y, 50.0) && Near(behind.z, 64.0)
-		&& Near(behind.yaw, 0.0) && Near(behind.pitch, 0.0), "orbit camera sits behind pivot");
-	// World yaw 90 (north): camera south of the pivot, looking north at it.
-	const ThirdPersonPose side = ThirdPersonSolvePose(orbitEye, 90.0, 0.0, 100.0);
-	Check(Near(side.x, 100.0, 1e-5) && Near(side.y, -50.0, 1e-5) && Near(side.yaw, 90.0),
-		"orbit camera yaw 90 sits south of pivot");
-	// Positive pitch = camera raised above the pivot, looking down at it.
-	const ThirdPersonPose raised = ThirdPersonSolvePose(orbitEye, 0.0, 30.0, 100.0);
-	Check(raised.z > orbitEye[2] && Near(raised.pitch, 30.0), "orbit positive pitch raises camera");
-	// Yaw ease: tau 0 snaps; otherwise the approach takes the shortest wrapped arc.
-	Check(Near(ThirdPersonApproachYaw(170.0, -170.0, 1.0, 0.0), -170.0), "orbit yaw snap with zero tau");
-	const double eased = ThirdPersonApproachYaw(170.0, -170.0, 0.12, 0.12);
-	const double easedArc = ThirdPersonWrapYaw(eased - 170.0);
-	Check(easedArc > 0.0 && easedArc < 20.0, "orbit yaw ease crosses the wrap the short way");
-
 	const FollowAngles east = FollowLookAt({0, 0, 0}, {100, 0, 0});
 	Check(Near(east.pitch, 0.0) && Near(east.yaw, 0.0), "look east");
 	const FollowAngles north = FollowLookAt({0, 0, 0}, {0, 100, 0});

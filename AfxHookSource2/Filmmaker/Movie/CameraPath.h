@@ -67,7 +67,7 @@ public:
 	void StartPreviewPlay();            // Space: begin playback (BO2 arm flow)
 	void PlayFromTimeline();            // timeline Play: same path start as J+Space, editor stays visible
 	void PlayPath();                    // timeline play: Live, no jump, dolly only in marker range
-	void PlayFromEditor();              // Space / "Test" button: seek to the editor tick, then play
+	void PlayFromEditor(int startTick = -1); // Space / "Test" button: seek to the editor tick (or startTick), then play
 	                                    // the demo + dolly together from there (no preview banner)
 	void Play() { ArmPreview(); }       // console/dashboard alias for the J arm step
 	void PausePreview();                // timeline pause: stop at current tick, keep position

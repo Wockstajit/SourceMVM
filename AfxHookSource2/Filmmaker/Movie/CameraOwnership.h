@@ -3,7 +3,7 @@
 // Who claimed the view pose this frame, and what that means downstream.
 //
 // WHY THIS EXISTS. The view-setup trampoline runs a stack of override cameras (camera path, cam
-// import, free cam, attach, third person, the Rust hook). Several of them can be active at once,
+// import, free cam, attach, the Rust hook). Several of them can be active at once,
 // so "did something override the pose" is not enough -- the shake stack layers on top of POV and
 // attach but must leave a hand-flown or hand-authored camera alone, and the true-aim crosshair
 // only has a meaning while the view is still the game's own POV.
@@ -24,10 +24,9 @@ struct CameraOwnership {
 	bool import = false;      // cam import (CamIO)
 	bool freeCam = false;     // mirv free cam / MirvInput override
 	bool attach = false;      // FollowCamera attach preview
-	bool thirdPerson = false; // third-person orbit camera
 	bool other = false;       // the Rust view hook, or anything else
 
-	bool Any() const { return path || import || freeCam || attach || thirdPerson || other; }
+	bool Any() const { return path || import || freeCam || attach || other; }
 
 	// Collapses the flags to the single mode the shake stack gates on.
 	//
@@ -39,14 +38,12 @@ struct CameraOwnership {
 	//                        cam, so `attach` and `freeCam` are BOTH set during an
 	//                        attach preview. If freeCam won, the shake would switch itself off
 	//                        on exactly the head cam it exists to ride.
-	//   3. thirdPerson    -- orbit camera; shakeable (often pushed inside the pawn as a POV shot).
-	//   4. freeCam        -- hand-flown, never shaken.
-	//   5. other          -- unknown owner, treated conservatively.
-	//   6. (none)         -- plain POV spectate.
+	//   3. freeCam        -- hand-flown, never shaken.
+	//   4. other          -- unknown owner, treated conservatively.
+	//   5. (none)         -- plain POV spectate, including CS2's own chase and free cameras.
 	ShakeCamMode Resolve() const {
 		if (path || import) return ShakeCamMode::CameraPath;
 		if (attach)         return ShakeCamMode::Attach;
-		if (thirdPerson)    return ShakeCamMode::ThirdPerson;
 		if (freeCam)        return ShakeCamMode::FreeCam;
 		if (other)          return ShakeCamMode::Other;
 		return ShakeCamMode::Pov;

@@ -26,7 +26,7 @@
 #include "Filmmaker/Movie/NervousSystem.h"
 #include "Filmmaker/Movie/FollowCamera.h"
 #include "Filmmaker/Movie/FollowCameraMath.h"
-#include "Filmmaker/Movie/ThirdPersonCamera.h"
+#include "Filmmaker/Movie/MovieMode.h" // MovieMode_NativeCameraRoll: X / Z roll on CS2's free cam
 #include "Filmmaker/Movie/ViewFx.h"
 #include "Filmmaker/Movie/CameraShakeStack.h" // handheld / recoil shake layers
 #include "Filmmaker/Movie/CamPathShake.h"     // per-keyframe camera-path shake (frame shaker)
@@ -600,17 +600,13 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 		}
 	}
 
-	// Third-person orbit camera: solved HERE from the spectated pawn's render-time
-	// (interpolated) eye pose, so it is jitter-free and works while the demo is paused.
-	// No-ops while the free cam / a FollowCamera preview owns the view (checked inside).
-	{
-		double tx = Tx, ty = Ty, tz = Tz, tp = Rx, tyaw = Ry, tr = Rz;
-		if (Filmmaker::ThirdPersonCameraRef().ViewSetupOverride(tx, ty, tz, tp, tyaw, tr,
-				g_MirvInputEx.GameCameraOrigin, g_MirvInputEx.GameCameraAngles)) {
-			Tx = (float)tx; Ty = (float)ty; Tz = (float)tz;
-			Rx = (float)tp; Ry = (float)tyaw; Rz = (float)tr;
+	// CS2's own free cam has no roll; held X / Z adds one on top (MovieMode). Only while none of
+	// our cameras owns the pose -- they carry their own roll.
+	if (!owner.Any()) {
+		const float nativeRoll = Filmmaker::MovieMode_NativeCameraRoll();
+		if (nativeRoll != 0.f) {
+			Rz += nativeRoll;
 			originOrAnglesOverriden = true;
-			owner.thirdPerson = true;
 		}
 	}
 
@@ -795,6 +791,23 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	g_MirvInputEx.LastCameraAngles[2] = Rz;
 	g_MirvInputEx.LastCameraFov = Fov;
 
+	// mvm_debug: the FOV CS2 handed us vs the one this frame is rendered with, and who owned the
+	// view -- logged on change only. A zoomed-in preview whose HUD still fits is a FOV change.
+	if (Filmmaker::MvmDebugLog_Active()) {
+		static int s_fovSig = 0x7fffffff;
+		const int sig = ((int)(g_MirvInputEx.GameCameraFov * 10.f + 0.5f) << 12) ^ (int)(Fov * 10.f + 0.5f)
+			^ ((originOrAnglesOverriden ? 1 : 0) << 28) ^ ((owner.path ? 1 : 0) << 29) ^ ((owner.freeCam ? 1 : 0) << 30)
+			^ ((width * 7 + height) << 3);
+		if (sig != s_fovSig) {
+			s_fovSig = sig;
+			Filmmaker::MvmDebugLog_LinefAlways("camera.fov",
+				"engine=%.2f final=%.2f overridden=%d path=%d freecam=%d attach=%d import=%d other=%d mirvFov=%d size=%dx%d",
+				(float)g_MirvInputEx.GameCameraFov, Fov, originOrAnglesOverriden ? 1 : 0, owner.path ? 1 : 0,
+				owner.freeCam ? 1 : 0, owner.attach ? 1 : 0, owner.import ? 1 : 0, owner.other ? 1 : 0,
+				Filmmaker::MirvFov_Enabled() ? 1 : 0, width, height);
+		}
+	}
+
 	g_MirvInputEx.LastFrameTime = absTime;
 
 	g_MirvInputEx.LastWidth = width;
@@ -852,12 +865,7 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	// the pose we just wrote. Range-gated playpath out-of-range remains unaffected because
 	// it releases free cam and stops pushing a path pose before this hook runs.
 	const bool pathOwnsView = Filmmaker::CameraPathOwnsView() || Filmmaker::GraphEditorExperiment_OwnsView();
-	// The third-person orbit camera must also block the pass, or the engine re-asserts
-	// the spectator view over the orbit pose every frame while the demo plays (the
-	// close/far "flicker" the old cvar-based implementation suffered from).
-	const bool thirdPersonOwnsView = Filmmaker::ThirdPersonCameraRef().OwnsView();
-	const bool blockDemoViewOverride =
-		inputOverride || pathOwnsView || thirdPersonOwnsView;
+	const bool blockDemoViewOverride = inputOverride || pathOwnsView;
 
 	if (Filmmaker::CampathDebug()) {
 		static unsigned s_ownerLogThrottle = 0;
@@ -1053,6 +1061,22 @@ bool CS2_Client_InstallPostDemoJoin(unsigned char *join) {
 	return true;
 }
 
+// mvm_debug: the FOV the frame is finally rendered with, logged whenever it (or what decides it)
+// changes -- our override on/off, the FOV we wrote, the engine's own value, the size the scaling
+// used. A zoomed-in preview whose HUD still fits is a FOV change, and this is where it lands.
+static void FovProbe_Log(bool overridden, float ourFov, float engineFov, float finalFov) {
+	if (!Filmmaker::MvmDebugLog_Active()) return;
+	static int s_sig = 0x7fffffff;
+	const int sig = (overridden ? 1 : 0) | ((int)(finalFov * 10.f + 0.5f) << 1)
+		^ ((g_MirvInputEx.LastWidth * 31 + g_MirvInputEx.LastHeight) << 14);
+	if (sig == s_sig) return;
+	s_sig = sig;
+	Filmmaker::MvmDebugLog_LinefAlways("camera.fov",
+		"final=%.2f overridden=%d ours=%.2f engine=%.2f size=%dx%d freecam=%d path=%d",
+		finalFov, overridden ? 1 : 0, ourFov, engineFov, g_MirvInputEx.LastWidth, g_MirvInputEx.LastHeight,
+		g_MirvInputEx.m_MirvInput->GetCameraControlMode() ? 1 : 0, Filmmaker::CameraPathOwnsView() ? 1 : 0);
+}
+
 typedef void (__fastcall * Unk_Override_Fov_t)(void *param_1,int param_2);
 Unk_Override_Fov_t g_Old_Unk_Override_Fov = nullptr;
 void __fastcall New_Unk_Override_Fov(void *param_1,int param_2) {
@@ -1063,11 +1087,14 @@ void __fastcall New_Unk_Override_Fov(void *param_1,int param_2) {
 		float oldWeaponFov = *pWeaponFov;
 
 		g_Old_Unk_Override_Fov(param_1,param_2);
+		const float engineFov = *g_pFov;
 
 		*g_pFov = Apply_FovScaling(g_MirvInputEx.LastWidth, g_MirvInputEx.LastHeight, oldFov, FovScaling_AlienSwarm);
 		*pWeaponFov = Apply_FovScaling(g_MirvInputEx.LastWidth, g_MirvInputEx.LastHeight, oldWeaponFov, FovScaling_AlienSwarm);
+		FovProbe_Log(true, oldFov, engineFov, *g_pFov);
 	} else {
 		g_Old_Unk_Override_Fov(param_1,param_2);
+		FovProbe_Log(false, 0.f, 0.f, g_MirvInputEx.LastCameraFov);
 	}
 }
 
@@ -1946,7 +1973,6 @@ void  new_CS2_Client_FrameStageNotify(void* This, SOURCESDK::CS2::ClientFrameSta
 			const int sig = (hWnd == probeHwnd ? 1 : 0)
 				| (NULL != hWnd ? 2 : 0)
 				| (g_MirvInputEx.m_MirvInput->GetCameraControlMode() ? 4 : 0)
-				| (g_MirvInputEx.m_MirvInput->GetThirdPersonOrbitMode() ? 8 : 0)
 				| (Filmmaker::CameraTimeline_WantsCursor() ? 16 : 0)
 				| (Filmmaker::CameraEditor_Active() ? 32 : 0)
 				| (bCursorHidden ? 64 : 0);
@@ -1956,11 +1982,10 @@ void  new_CS2_Client_FrameStageNotify(void* This, SOURCESDK::CS2::ClientFrameSta
 				if (probeHwnd) GetClientRect(probeHwnd, &probeRect);
 				if (hWnd) GetClientRect(hWnd, &activeRect);
 				Filmmaker::MvmDebugLog_LinefAlways("input.park",
-					"ACTIVE active=%p probe=%p same=%d camCtl=%d orbit=%d tlCursor=%d editor=%d"
+					"ACTIVE active=%p probe=%p same=%d camCtl=%d tlCursor=%d editor=%d"
 					" activeClient=%ldx%ld probeClient=%ldx%ld hidden=%d",
 					(void*)hWnd, (void*)probeHwnd, hWnd == probeHwnd ? 1 : 0,
 					g_MirvInputEx.m_MirvInput->GetCameraControlMode() ? 1 : 0,
-					g_MirvInputEx.m_MirvInput->GetThirdPersonOrbitMode() ? 1 : 0,
 					Filmmaker::CameraTimeline_WantsCursor() ? 1 : 0,
 					Filmmaker::CameraEditor_Active() ? 1 : 0,
 					activeRect.right - activeRect.left, activeRect.bottom - activeRect.top,
@@ -1993,13 +2018,6 @@ void  new_CS2_Client_FrameStageNotify(void* This, SOURCESDK::CS2::ClientFrameSta
 								realPoint.x, realPoint.y, pt.x, pt.y,
 								realPoint.x - pt.x, realPoint.y - pt.y,
 								rect.right - rect.left, rect.bottom - rect.top);
-					}
-					// Third-person orbit input: ONE authoritative pixel delta per frame --
-					// how far the real cursor drifted from the center we parked it at last
-					// frame. Only valid once the park below has happened at least once
-					// (bCursorHidden). See MirvInput::SupplyThirdPersonOrbitPixels.
-					if(bCursorHidden && bHavePoint && g_MirvInputEx.m_MirvInput->GetThirdPersonOrbitMode()) {
-						g_MirvInputEx.m_MirvInput->SupplyThirdPersonOrbitPixels(realPoint.x - pt.x, realPoint.y - pt.y);
 					}
 					new_SetCursorPos(pt.x, pt.y);
 				}
@@ -2406,6 +2424,15 @@ New_GetRawInputBuffer(
 
 	result = g_MirvInputEx.m_MirvInput->Supply_RawInputBuffer(result, pData,pcbSize,cbSizeHeader);
 
+	if (result != (UINT)-1 && 0 < result && pData && pcbSize && sizeof(RAWINPUTHEADER) == cbSizeHeader) {
+		PRAWINPUT block = pData;
+		for (UINT i = 0; i < result; i++) {
+			WindowInputHooks_FilterRawInput(block);
+			// NEXTRAWINPUTBLOCK, spelled out (its QWORD typedef is not declared here).
+			block = (PRAWINPUT)((BYTE*)block + ((block->header.dwSize + sizeof(ULONGLONG) - 1) & ~(sizeof(ULONGLONG) - 1)));
+		}
+	}
+
 	return result;
 
 }
@@ -2430,6 +2457,9 @@ UINT WINAPI New_GetRawInputData(
 	UINT result = g_Import_SDL3_USER32_GetRawInputData.GetTrueFuncValue()(hRawInput,uiCommand,pData,pcbSize,cbSizeHeader);
 
 	result = g_MirvInputEx.m_MirvInput->Supply_RawInputData(result, hRawInput, uiCommand,pData,pcbSize,cbSizeHeader);
+
+	if (result != (UINT)-1 && uiCommand == RID_INPUT && pData && pcbSize && sizeof(RAWINPUT) <= *pcbSize)
+		WindowInputHooks_FilterRawInput((RAWINPUT*)pData);
 
 	return result;
 }
