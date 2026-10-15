@@ -87,6 +87,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.native == 'true'
     runs-on: windows-2022
+    timeout-minutes: 75
+    env:
+      # An unbounded parallel build starved the runner ("lost communication" after an hour), so cap
+      # MSBuild and cargo.
+      CARGO_BUILD_JOBS: 2
     steps:
       # Some osu! easter-egg asset paths exceed Windows' 260-character limit.
       - name: Enable long paths
@@ -112,7 +117,7 @@ jobs:
       - name: CMake - Build shaderbuilder
         run: cmake --build --preset x64-deadlock-release --target shaderbuilder
       - name: CMake - Build both hooks and the native tests
-        run: cmake --build --preset x64-deadlock-release --parallel
+        run: cmake --build --preset x64-deadlock-release --parallel 3
       # The four D3D11 render fixtures take 17 s to 8 minutes on a real GPU and have no GPU here, so
       # they stay local checks (ctest on a dev machine) and in-game verification.
       - name: Native tests
