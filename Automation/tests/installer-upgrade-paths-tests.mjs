@@ -29,6 +29,15 @@ test('the pre-clean runs after the app is closed and only inside a real install 
   assert.match(nsh, /rd \/s \/q "\\\\\?\\\$0\\resources\\bundle\\runtime\\osu"/);
 });
 
+test('an elevated all-users install cleans up too, and a failed delete is reported', () => {
+  // electron-builder skips its app check in the elevated inner instance of an all-users install.
+  const init = nsh.slice(nsh.indexOf('!macro customInit'));
+  assert.match(init, /\$\{if\} \$\{UAC_IsInnerInstance\}\s+!insertmacro removeLongBundledPathsFromInstalls/);
+  const remove = nsh.slice(nsh.indexOf('!macro removeLongBundledPaths DIR'), nsh.indexOf('!macro removeLongBundledPathsFromInstalls'));
+  assert.ok(remove.indexOf('MessageBox') > remove.indexOf('rd /s /q'), 'a folder still present after rd is reported');
+  assert.match(remove, /\/SD IDOK/, 'silent installs must not block on the message');
+});
+
 test('the complete bundle build shortens paths before stamping', () => {
   const shorten = bundleScript.indexOf('shorten-bundle-paths.ps1');
   assert.ok(shorten > 0 && shorten < bundleScript.indexOf('# ---- stamp'));
