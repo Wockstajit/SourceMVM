@@ -18,7 +18,8 @@
     "package": "npm run build && electron-builder --win --config.directories.output=release --publish never",
     "package:dir": "npm run build && electron-builder --win --dir --config.directories.output=release --publish never",
     "build:bundle": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/build-bundle.ps1",
-    "package:bundled": "npm run build && npm run build:bundle && electron-builder --win --config electron-builder.bundled.cjs --config.directories.output=release --publish never"
+    "package:bundled": "npm run build && npm run build:bundle && electron-builder --win --config electron-builder.bundled.cjs --config.directories.output=release --publish never",
+    "package:portable-zip": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/build-portable-zip.ps1"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",

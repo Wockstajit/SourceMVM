@@ -37,7 +37,7 @@ REPO =Path(__file__).resolve().parents[2]
 CONFIG = REPO / "Automation" / "config" / "discord-reports.local.json"
 OUT_ROOT = REPO / "Automation" / "runs" / "bug-reports"
 API = "https://discord.com/api/v10"
-USER_AGENT = "DiscordBot (https://github.com/Wockstajit/Source-MVM, 1.0)"
+USER_AGENT = "DiscordBot (https://github.com/Wockstajit/SourceMVM, 1.0)"
 REPORT_TITLES = ("Bug report from ", "Crash report from ")
 
 # One bot reaction per state; a message carries at most one of them.

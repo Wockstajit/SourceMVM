@@ -49,7 +49,7 @@ foreach ($name in @('runtime','dlss')) {
         @{path=$_.FullName.Substring($source.Length+1); sha256=(Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant()}
     })
     $packages[$name] = [ordered]@{
-        url="https://github.com/Wockstajit/Source-MVM/releases/download/$Version/$([IO.Path]::GetFileName($archive))"
+        url="https://github.com/Wockstajit/SourceMVM/releases/download/$Version/$([IO.Path]::GetFileName($archive))"
         sha256=(Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant()
         destination=$(if($name -eq 'runtime') {'build/portable-runtime/bin'} else {'build/dlss5-downloads'})
         files=$files

@@ -46,14 +46,24 @@ app.setAppUserModelId('com.sourcemvm.launcher');
 app.setName(APP_NAME);
 
 // ---- Portable build --------------------------------------------------------------------------
-// electron-builder's portable target sets PORTABLE_EXECUTABLE_DIR to the folder the single-file
-// exe was run from. When that is set we keep settings and the downloaded runtime next to the exe
-// instead of in %APPDATA%, so the whole thing really does travel on a USB stick -- which is the
-// only reason to ship a portable build at all.
-const portableDir = process.env.PORTABLE_EXECUTABLE_DIR || '';
+// Two ways to run portable. electron-builder's portable target sets PORTABLE_EXECUTABLE_DIR to the
+// folder the single-file exe was run from. The portable zip (scripts/build-portable-zip.ps1) is
+// the unpacked app plus an empty portable.flag beside the exe. Either way we keep settings and the
+// downloaded runtime next to the exe instead of in %APPDATA%, so the whole thing really does
+// travel on a USB stick -- which is the only reason to ship a portable build at all.
+function portableFolder() {
+  if (process.env.PORTABLE_EXECUTABLE_DIR) return process.env.PORTABLE_EXECUTABLE_DIR;
+  if (!app.isPackaged) return '';
+  const folder = path.dirname(process.execPath);
+  return fs.existsSync(path.join(folder, 'portable.flag')) ? folder : '';
+}
+const portableDir = portableFolder();
 const isPortable = Boolean(portableDir);
 if (isPortable) {
-  app.setPath('userData', path.join(portableDir, 'SourceMovieMaker-data'));
+  // app.setPath is documented to throw for a missing folder, and a fresh zip extraction has none.
+  const dataDir = path.join(portableDir, 'SourceMovieMaker-data');
+  fs.mkdirSync(dataDir, { recursive: true });
+  app.setPath('userData', dataDir);
 }
 
 function defaultSettings() {

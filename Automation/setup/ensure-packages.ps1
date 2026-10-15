@@ -7,19 +7,13 @@ $DestinationRoot = [IO.Path]::GetFullPath($DestinationRoot)
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
 function Get-ReleaseHeaders {
+    # The repository is public, so no sign-in is needed. GH_TOKEN or GITHUB_TOKEN is optional and
+    # only raises GitHub's anonymous API rate limit.
+    $headers = @{ 'User-Agent'='SourceMVM-setup'; Accept='application/vnd.github+json' }
     $token = $env:GH_TOKEN
     if (-not $token) { $token = $env:GITHUB_TOKEN }
-    if (-not $token) {
-        if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Install Git for Windows and sign in to the repository, or supply GH_TOKEN for private package downloads.' }
-        $oldPrompt=$env:GIT_TERMINAL_PROMPT; $oldInteractive=$env:GCM_INTERACTIVE
-        try {
-            $env:GIT_TERMINAL_PROMPT='0'; $env:GCM_INTERACTIVE='Never'
-            $credential = "protocol=https`nhost=github.com`npath=Wockstajit/Source-MVM.git`n`n" | git -C $repo credential fill 2>$null
-            foreach ($line in $credential) { if ($line.StartsWith('password=')) { $token=$line.Substring(9) } }
-        } finally { $env:GIT_TERMINAL_PROMPT=$oldPrompt; $env:GCM_INTERACTIVE=$oldInteractive }
-    }
-    if (-not $token) { throw 'Sign in to GitHub with the same account used to clone Source-MVM, then launch again. Private release downloads need repository access.' }
-    return @{ Authorization=('Bearer '+$token); 'User-Agent'='SourceMVM-setup'; Accept='application/vnd.github+json' }
+    if ($token) { $headers.Authorization = 'Bearer ' + $token }
+    return $headers
 }
 
 $names = if ($Dlss) { @('runtime','dlss') } else { @('runtime') }
@@ -44,10 +38,10 @@ foreach ($name in $names) {
         $partial = $archive + '.partial'
         if ($package.url -match '^https://') {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            if ($package.url -match '^https://github.com/Wockstajit/Source-MVM/releases/download/([^/]+)/([^/]+)$') {
+            if ($package.url -match '^https://github.com/Wockstajit/SourceMVM/releases/download/([^/]+)/([^/]+)$') {
                 $tag=$matches[1]; $assetName=$matches[2]
                 $headers=Get-ReleaseHeaders
-                $release=Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/Wockstajit/Source-MVM/releases/tags/$tag"
+                $release=Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/Wockstajit/SourceMVM/releases/tags/$tag"
                 $asset=$release.assets | Where-Object {$_.name -eq $assetName} | Select-Object -First 1
                 if (-not $asset) {throw "Release $tag is missing $assetName. The package publisher must finish uploading it."}
                 $headers.Accept='application/octet-stream'
