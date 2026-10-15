@@ -221,6 +221,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Staging bundled FFmpeg failed.' }
 $unfinished = Get-ChildItem -LiteralPath $bundle -Recurse -File | Where-Object { $_.FullName.Substring($bundle.Length) -match '(?i)deadlock' }
 if ($unfinished) { throw 'The complete installer must not contain unfinished Deadlock files.' }
 
+# ---- path length: the NSIS uninstaller an upgrade runs cannot move files past 260 characters ------
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'shorten-bundle-paths.ps1') -Root $bundle
+if ($LASTEXITCODE -ne 0) { throw 'Bundled paths are too long for the installer.' }
+
 # ---- stamp --------------------------------------------------------------------------------------
 # Changes whenever any bundled file changes, so the launcher re-copies exactly when it must.
 # One stamp PER COMPONENT, so a launcher update re-installs only what changed: a new hook DLL

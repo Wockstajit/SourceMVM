@@ -92,7 +92,8 @@
       "shortcutName": "SourceMovieMaker",
       "installerIcon": "build-resources/icon.ico",
       "uninstallerIcon": "build-resources/icon.ico",
-      "installerHeaderIcon": "build-resources/icon.ico"
+      "installerHeaderIcon": "build-resources/icon.ico",
+      "include": "build-resources/installer.nsh"
     },
     "publish": {
       "provider": "github",
