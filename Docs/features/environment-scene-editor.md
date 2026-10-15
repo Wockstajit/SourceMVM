@@ -682,18 +682,28 @@ maths in [`EnvironmentGltfMath.h`](../../AfxHookSource2/Filmmaker/Environment/En
 
 ## Lights
 
-**Lights** opens with **Lit by**. Added lights belong to whichever lighting is running. With Environment
-lighting on (the Lighting card), they bounce and cast soft shadows. With it off, the map shows CS2's
-own lighting and the added lights are not drawn. They come back unchanged when lighting is turned on.
-**Change in Lighting** jumps to that card. CS2's native lighting cannot take added lights yet.
+**Lights** opens with **Lit by**. With Environment lighting on (the Lighting card), added lights
+join the native material lighting, shadow atlas, bounce and smoke-lighting paths. With it off,
+they contribute through the environment composite over CS2's lighting. Sky and Lighting are separate
+switches; changing the sky does not remove a placed light. **Change in Lighting** opens the Lighting card.
 
 **Point**, **Spot** and **Area** add a light ahead of the rendered camera. Select a light in the list
 to adjust its position, direction, color, intensity, range and spot cone. Up to 16 lights are
-supported. The lights shade visible surfaces in the private environment pass. Each light has an
-optional **Dynamic shadows** switch. Its shadow is calculated from world geometry, not from the camera
-depth buffer. The first four enabled lights illuminate the added fog volume. They do not illuminate
-the game's own smoke. Transparent surfaces inherit the opaque depth behind them. Imported props can
-use the material inspector and receive the scene's fog, grading and lights.
+supported. Their intensity remains independent of **Map lights** brightness. Area lights use four
+emitter samples. Native materials use their own normals and reflectance, so brightness is not a
+pixel-for-pixel match to the composite. Studio cues work in both paths; native lighting does not yet
+apply the composite's pattern and profile shaping.
+
+Each light has an optional **Dynamic shadows** switch. Shadows use world geometry and supported
+engine-submitted prop geometry. Opaque placed CS2 assets participate in both lighting paths; moving
+or hiding an asset updates its shadow. Native lighting reads the last completed opaque scene because
+its shadow pass precedes the current frame's color draws, so opaque movement can lag by one frame.
+Off-camera geometry that the engine does not submit is still outside this capture's coverage.
+
+Four emitter samples share the moving local-light shadow budget with map and VFX lights. Placed lights
+take priority over map fixtures; lights outside that budget remain lit without dynamic shadows.
+An area light can occupy all four slots. The first four enabled lights illuminate the added fog
+volume. Imported props can use the material inspector and receive fog, grading and scene lights.
 
 ## Presets and reset
 

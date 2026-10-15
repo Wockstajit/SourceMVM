@@ -763,6 +763,10 @@ void PrepareShadowMaps(ID3D11DeviceContext *ctx, const Frame &f, bool viewmodel,
     // First-person receivers use environment geometry only. Native actor
     // animation must not introduce third-person self shadows on the viewmodel.
     state.receiverPose=pose;
+    // Scene assets are environment casters too. Refresh the receiver layer for
+    // a changed/removed prop, independently of the character layer below.
+    const auto sceneGeneration=AnimatedCasterGeneration();
+    state.receiverPose=Hash(state.receiverPose,&sceneGeneration,sizeof(sceneGeneration));
     // Also clear the previous pose on the first empty frame: no frozen shadows
     // when an actor disappears or an engine visibility decision stops its draws.
     if(posed||state.posedLast){animated=true;auto generation=AnimatedCasterGeneration();pose=Hash(pose,&generation,sizeof(generation));}

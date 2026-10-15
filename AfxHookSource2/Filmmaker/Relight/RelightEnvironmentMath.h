@@ -2,6 +2,7 @@
 #include "RelightMath.h"
 #include "../Environment/EnvironmentClimateMath.h"
 #include "../Environment/EnvironmentWorld.h"
+#include "../Environment/EnvironmentScene.h"
 
 namespace Filmmaker::Relight {
 // Mirage authors 3, Vertigo 3.25, Overpass 2.8.
@@ -91,6 +92,37 @@ inline void ApplyEnvironmentLighting(Scene& out,const Environment::Climate& auth
     add(&out.shadows,sizeof(out.shadows));add(&out.sunAngle,sizeof(out.sunAngle));
     add(&out.lampAngle,sizeof(out.lampAngle));add(&out.shadowSoftness,sizeof(out.shadowSoftness));
     out.generation=hash;
+}
+// Scene Objects must enter the same material/occlusion path as map lights. The
+// display composite deliberately skips illumination after native relighting.
+// Called on a fresh captured scene, after map-light choices and before VFX lights.
+inline unsigned ApplySceneObjectLights(Scene& out,const std::vector<Environment::Object>& objects,double time) {
+    if(!out.enabled || !std::isfinite(time))return 0;
+    unsigned added=0,emitters=0;
+    for(const auto& object:objects) {
+        if(!object.enabled||!object.IsLight())continue;
+        if(emitters++>=16)break;
+        const unsigned samples=object.kind=="area"?4u:1u;
+        Vec3 forward,right,up;LightBasis(object.angles,forward,right,up);
+        for(unsigned sample=0;sample<samples;++sample) {
+            Light light;
+            light.identity="scene:"+std::to_string(object.id)+":"+std::to_string(sample);
+            light.kind=object.kind=="point"?"light_omni":"light_spot";
+            light.sceneObject=true;light.runtimeShadows=object.shadows;
+            light.position=samples==1?object.position:Environment::AreaLightSample(
+                object.position,right,up,object.studio.width,object.studio.height,int(sample));
+            light.angles=object.angles;light.color=object.color;light.range=object.range;
+            light.sourceRadius=(std::max)(16.f,object.studio.sourceRadius);
+            light.outerAngle=object.cone*.5f;
+            light.innerAngle=std::acos((std::min)(.9999f,std::cos(Environment::Radians(light.outerAngle))+.12f))/Environment::Radians(1);
+            // Match the old intensity's diffuse energy halfway through its range;
+            // native materials then supply their actual normals and BRDF.
+            light.lumens=object.intensity*object.range*object.range/(80.f*samples);
+            light.brightnessScale=Environment::StudioCue(object.studio,time);
+            out.lights.push_back(std::move(light));++added;
+        }
+    }
+    return added;
 }
 // How much of the map's authored daylight the relit world still receives: the luminance of
 // sun plus sky irradiance after Environment edits, over the same before them. Draws whose

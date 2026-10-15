@@ -779,6 +779,12 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
         }
         o.mesh = posed;
     }
+    const auto sceneLights=f.active?Relight::ApplySceneObjectLights(f.relight,f.scene.objects,f.time):0u;
+    if(MvmDebugLog_Active()) {
+        static ULONGLONG last=0;const auto now=GetTickCount64();
+        if(now-last>=3000){last=now;MvmDebugLog_LinefAlways("environment.scene.lights",
+            "active=%d native=%d emitters=%u total=%zu time=%.3f",int(f.active),int(f.relight.enabled),sceneLights,f.relight.lights.size(),f.time);}
+    }
     CaptureVfxLights(f.relight,f.time,map,f.active);
     CaptureCoatingActors(f);
     CaptureSmokeVolumes(f);

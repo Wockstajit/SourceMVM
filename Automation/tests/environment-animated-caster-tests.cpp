@@ -246,6 +246,34 @@ int main(int argc,char** argv){
     NextAnimatedCasterFrame();RequestAnimatedCasters(true);
     Check(AnimatedCasterVertexCount(AnimatedCasterSubset::Scene)==0,"empty frame expires prop pose instead of leaving a ghost shadow");
     constants[100]=0;
+    // CS2 scene assets can use the same static-material programs as map geometry.
+    // They are absent from the extracted map and must enter live shadow capture.
+    for(const char* name:{"csgo_environment.vfx_vs","csgo_environment_blend.vfx_vs","csgo_simple_3layer_parallax.vfx_vs"}) {
+        nativeProp->SetPrivateData(WKPDID_D3DDebugObjectName,UINT(std::strlen(name)),name);
+        bindNative(.95f,nativeProp.Get());ctx->PSSetShader(cutoutPs.Get(),nullptr,0);
+        Check(!BeginAnimatedCasterDraw(ctx.Get(),3,1),"Static-material cutout still needs verified opacity");
+        ctx->PSSetShader(opaquePs.Get(),nullptr,0);
+        Check(BeginAnimatedCasterDraw(ctx.Get(),3,1),"Capture placed static-material asset");
+        ctx->Draw(3,0);EndAnimatedCasterDraw(ctx.Get());inspect(-.1f,AnimatedCasterSubset::Scene);
+        NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+        NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+        Check(AnimatedCasterVertexCount(AnimatedCasterSubset::Scene)==0,"Removed static-material prop leaves no shadow");
+    }
+    // An early light pass must not replace yesterday's complete scene with the
+    // first opaque draw of this frame. The overlay still needs the current pose.
+    constants[100]=0;bindNative(.95f,nativeProp.Get());ctx->PSSetShader(opaquePs.Get(),nullptr,0);
+    Check(BeginAnimatedCasterDraw(ctx.Get(),3,1),"Capture complete prior scene");
+    ctx->Draw(3,0);EndAnimatedCasterDraw(ctx.Get());NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+    constants[100]=.5f;bindNative(.95f,nativeProp.Get());ctx->PSSetShader(opaquePs.Get(),nullptr,0);
+    Check(BeginAnimatedCasterDraw(ctx.Get(),3,1),"Capture first draw of next scene");
+    ctx->Draw(3,0);EndAnimatedCasterDraw(ctx.Get());
+    { CompletedSceneCasterScope completed;inspect(-.1f,AnimatedCasterSubset::Scene); }
+    inspect(.4f,AnimatedCasterSubset::Scene);
+    NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+    { CompletedSceneCasterScope completed;inspect(.4f,AnimatedCasterSubset::Scene); }
+    NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+    { CompletedSceneCasterScope completed;Check(!AnimatedCasterVertexCount(AnimatedCasterSubset::Scene),"Removed prop expires from the completed scene"); }
+    constants[100]=0;
     // Complex materials also appear on moving physics props. Their shader name
     // alone must never bypass the pixel coverage proof.
     NextAnimatedCasterFrame();RequestAnimatedCasters(true);
