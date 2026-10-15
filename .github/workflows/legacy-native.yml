@@ -1,0 +1,37 @@
+name: Legacy native build
+
+# The inherited HLAE multi-build (Source 1, GoldSrc, win32 and x64 staging). Active work targets CS2
+# and Deadlock, which CI builds on every relevant pull request. This keeps the legacy targets
+# compiling without slowing pull requests. Run it by hand from the Actions tab, or wait for the
+# nightly schedule.
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-native-build:
+    # The schedule only runs in the canonical repository.
+    if: github.event_name == 'workflow_dispatch' || github.repository == 'Wockstajit/SourceMVM'
+    runs-on: windows-2022
+    steps:
+      # Some osu! easter-egg asset paths exceed Windows' 260-character limit.
+      - name: Enable long paths
+        run: git config --system core.longpaths true
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          check-latest: true
+      - uses: MinoruSekine/setup-scoop@v4
+      - name: Update submodules
+        run: git submodule update --init --recursive
+      - name: Install gettext
+        run: scoop install gettext
+      - name: CMake - Build Staging
+        working-directory: "${{github.workspace}}"
+        run: cmake -DAFX_MULTIBUILD_STAGING=ON -P CMake/MultiBuild.cmake
