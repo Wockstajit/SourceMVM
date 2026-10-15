@@ -2,6 +2,7 @@
 #include <d3d11.h>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 #include "EnvironmentMath.h"
 #include "EnvironmentCasterBoundsMath.h"
 
@@ -36,7 +37,15 @@ public:
     CompletedSceneCasterScope(const CompletedSceneCasterScope&)=delete;
     CompletedSceneCasterScope& operator=(const CompletedSceneCasterScope&)=delete;
 };
+// Placed CS2 assets can use the map's own static-material programs. Draws from
+// those programs keep only triangles overlapping a placed asset's world box; the
+// extracted map already casts the rest. Main thread publishes, render reads.
+struct PlacedCasterBox { Vec3 low, high; };
+inline constexpr size_t MaxPlacedCasterBoxes=64;
+void SetPlacedCasterBoxes(const std::vector<PlacedCasterBox>&);
 uint64_t AnimatedCasterGeneration();
+// Scene-subset geometry (props, foliage, cables, particles) this frame or the last complete one.
+bool HasAnimatedSceneCasters();
 UINT AnimatedCasterVertexCount(AnimatedCasterSubset subset = AnimatedCasterSubset::All);
 // Includes GPU-counted batches whose vertex count is deliberately not read by the CPU.
 bool HasAnimatedCasterGeometry();

@@ -696,13 +696,20 @@ apply the composite's pattern and profile shaping.
 
 Each light has an optional **Dynamic shadows** switch. Shadows use world geometry and supported
 engine-submitted prop geometry. Opaque placed CS2 assets participate in both lighting paths; moving
-or hiding an asset updates its shadow. Native lighting reads the last completed opaque scene because
-its shadow pass precedes the current frame's color draws, so opaque movement can lag by one frame.
+or hiding an asset updates its shadow. Many assets share the map's static-material shaders, so live
+capture of those shaders keeps only triangles inside a placed asset's box. The extracted map casts the
+rest, and with no asset placed nothing from those shaders is captured. Up to 64 assets get their own
+box; beyond that, the last box grows to cover the rest.
+
+Native lighting reads the last completed opaque scene because its shadow pass precedes the current
+frame's color draws, so opaque movement can lag by one frame. Alpha-tested, cable and GPU-indirect
+props are not yet retained that way: in the native path they shadow only when drawn before that pass.
 Off-camera geometry that the engine does not submit is still outside this capture's coverage.
 
 Four emitter samples share the moving local-light shadow budget with map and VFX lights. Placed lights
-take priority over map fixtures; lights outside that budget remain lit without dynamic shadows.
-An area light can occupy all four slots. The first four enabled lights illuminate the added fog
+take priority over both, so gunfire flashes cannot take a placed light's shadow; lights outside that
+budget remain lit without dynamic shadows. Native lighting shadows every placed sample as a full cube,
+so an area light occupies all four slots. The first four enabled lights illuminate the added fog
 volume. Imported props can use the material inspector and receive fog, grading and scene lights.
 
 ## Presets and reset

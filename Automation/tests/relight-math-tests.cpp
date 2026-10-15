@@ -31,6 +31,11 @@ int main() {
         Check(Relight::StaticShadowSet(lighting.lights,{},100).empty(),"Editable lights never retain baked cached tiles");
         auto unshadowed=lighting.lights;unshadowed[0].runtimeShadows=false;
         Check(Relight::ShadowBudget(unshadowed,{},4).empty(),"Dynamic shadows off releases the light's atlas slot");
+        auto contested=lighting.lights;auto muzzle=contested[0];
+        muzzle.identity="vfx:flash";muzzle.sceneObject=false;muzzle.transient=true;muzzle.position={1,1,1};
+        contested.push_back(muzzle);
+        Check(Relight::ShadowBudget(contested,{},1)==std::vector<unsigned>{0},"A nearer muzzle flash cannot take a placed light's shadow");
+        Check(Relight::StableShadowBudget(contested,{},1,{1})==std::vector<unsigned>{0},"Placed light keeps its slot across frames of gunfire");
         Environment::Object area=point;area.kind="area";area.cone=60;area.studio.width=120;area.studio.height=60;
         Relight::Scene panel;panel.enabled=true;
         Check(Relight::ApplySceneObjectLights(panel,{area},0)==4,"Area light supplies four stable emitter samples");

@@ -125,7 +125,7 @@ struct State {
     bool ready = false;
     bool animate = false;
     Vec3 wind{};float windStrength=0;bool windValid=false;
-    bool posedLast = false;
+    bool posedLast = false, sceneCastersLast = false;
 } state;
 State proofState;
 State skyboxState;
@@ -763,10 +763,13 @@ void PrepareShadowMaps(ID3D11DeviceContext *ctx, const Frame &f, bool viewmodel,
     // First-person receivers use environment geometry only. Native actor
     // animation must not introduce third-person self shadows on the viewmodel.
     state.receiverPose=pose;
-    // Scene assets are environment casters too. Refresh the receiver layer for
-    // a changed/removed prop, independently of the character layer below.
-    const auto sceneGeneration=AnimatedCasterGeneration();
-    state.receiverPose=Hash(state.receiverPose,&sceneGeneration,sizeof(sceneGeneration));
+    // Scene assets are environment casters too. Refresh the receiver layer while
+    // they are captured, and once more after the last one goes (no frozen prop
+    // shadow); a frame with players only keeps reusing the environment layer.
+    const bool sceneCasters=HasAnimatedSceneCasters();
+    if(sceneCasters||state.sceneCastersLast){const auto generation=AnimatedCasterGeneration();
+        state.receiverPose=Hash(state.receiverPose,&generation,sizeof(generation));}
+    state.sceneCastersLast=sceneCasters;
     // Also clear the previous pose on the first empty frame: no frozen shadows
     // when an actor disappears or an engine visibility decision stops its draws.
     if(posed||state.posedLast){animated=true;auto generation=AnimatedCasterGeneration();pose=Hash(pose,&generation,sizeof(generation));}

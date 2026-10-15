@@ -461,14 +461,15 @@ inline std::vector<unsigned> ShadowBudget(const std::vector<Light> &lights, Vec3
     }
     std::stable_sort(ranked.begin(), ranked.end(),
                      [](const auto &a, const auto &b) { return a.first < b.first; });
-    // Give every active fire a representative before adding its extra patches.
-    // Ungrouped flashes precede sustained patches so shots cannot be starved.
+    // A placed light is the user's deliberate key light: gunfire must never make
+    // its shadow flicker. Then every active fire gets a representative before
+    // its extra patches; ungrouped flashes precede sustained patches.
     std::vector<std::pair<unsigned,unsigned>> order;
     std::vector<int> groups;
     for(unsigned n=0;n<ranked.size();++n){const auto& light=lights[ranked[n].second];
-        unsigned tier=light.sceneObject ? 1u : unsigned(lights.size())+1;
-        if(light.transient){tier=0;if(light.transientGroup>=0){
-            tier=1+unsigned(std::count(groups.begin(),groups.end(),light.transientGroup));
+        unsigned tier=light.sceneObject ? 0u : unsigned(lights.size())+2;
+        if(light.transient){tier=1;if(light.transientGroup>=0){
+            tier=2+unsigned(std::count(groups.begin(),groups.end(),light.transientGroup));
             groups.push_back(light.transientGroup);}}
         order.push_back({tier,n});
     }
