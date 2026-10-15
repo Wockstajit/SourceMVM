@@ -18,6 +18,11 @@ contextBridge.exposeInMainWorld('sourceMvm', {
   chooseFile: (kind) => ipcRenderer.invoke('file:choose', kind),
   chooseFolder: () => ipcRenderer.invoke('folder:choose'),
   launchCs2: (settings) => ipcRenderer.invoke('cs2:launch', settings),
+  onCs2StartupExit: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('cs2-startup-exit', listener);
+    return () => ipcRenderer.removeListener('cs2-startup-exit', listener);
+  },
   getIntroVideoUrl: () => ipcRenderer.invoke('intro:video-url'),
   getUpdateStatus: () => ipcRenderer.invoke('update:status'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),

@@ -66,7 +66,7 @@ internal static class LauncherHostTests
                 throw new Exception("Invalid monitor handle was ignored.");
             }
             catch (Win32Exception) { }
-            Console.WriteLine("PASS: monitoring errors are not reported as launch success.");
+            Console.WriteLine("PASS: monitoring errors are raised for the host to report separately.");
 
             // Reproduce error 5 on our own disposable executable, never on a game/user file.
             string blocked = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "blocked.exe");

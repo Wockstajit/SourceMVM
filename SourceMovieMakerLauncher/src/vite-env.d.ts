@@ -174,6 +174,7 @@ interface Window {
     chooseFile: (kind?: 'game' | 'hook') => Promise<string>;
     chooseFolder: () => Promise<string>;
     launchCs2: (settings: LauncherSettings) => Promise<{ ok: boolean; output?: string; processId?: number }>;
+    onCs2StartupExit: (callback: (status: { message: string }) => void) => () => void;
     getIntroVideoUrl: () => Promise<string>;
     getUpdateStatus: () => Promise<UpdateStatus>;
     checkForUpdates: () => Promise<UpdateStatus>;

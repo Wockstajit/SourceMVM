@@ -27,6 +27,7 @@ const STEAM_REGISTRY_KEY = 'HKLM\\SOFTWARE\\WOW6432Node\\Valve\\Steam';
 let mainWindow = null;
 let settings = null;
 let launchedCs2ProcessId = 0;
+let startupWatchPending = false;
 let launchInProgress = false;
 let updateService = null;
 
@@ -591,7 +592,17 @@ function configureUpdater() {
     },
   });
 }
-async function launchWithSettings(current, commandLineOverride, extraEnv = []) {
+// How long the host keeps watching CS2 after the launch has already been reported as started.
+// Startup to the main menu fits well inside this; a later exit is the user quitting.
+const STARTUP_WATCH_MS = 30000;
+
+function reportStartupExit(message, processId) {
+  if (launchedCs2ProcessId === processId) launchedCs2ProcessId = 0;
+  mainWindow?.webContents.send('cs2-startup-exit', { message });
+}
+
+// watchStartup: keep the host watching for an early exit and report it to the window.
+async function launchWithSettings(current, commandLineOverride, extraEnv = [], watchStartup = false) {
   if (!current.cs2Exe || !fs.existsSync(current.cs2Exe)) {
     throw new Error('Select a valid cs2.exe before launching.');
   }
@@ -662,6 +673,7 @@ async function launchWithSettings(current, commandLineOverride, extraEnv = []) {
     '--cmd-line',
     commandLineOverride || buildCommandLine(current),
   ];
+  if (watchStartup) args.push('--watch-startup-ms', String(STARTUP_WATCH_MS));
   const env = environmentFor(current);
   for (const entry of extraEnv) {
     const separator = entry.indexOf('=');
@@ -673,9 +685,14 @@ async function launchWithSettings(current, commandLineOverride, extraEnv = []) {
   const result = await runLaunchHost({
     host, args, cwd: path.dirname(cs2Exe), env,
     logPath: path.join(app.getPath('userData'), 'launch.log'),
+    onStartupExit: reportStartupExit,
   });
   launchedCs2ProcessId = result.processId;
-  return result;
+  // CS2 stops answering as "running" while it tears down, before the host's wait returns its exit
+  // code. Holding the running state until then keeps READY from flashing ahead of the error.
+  startupWatchPending = true;
+  result.hostExited.then(() => { startupWatchPending = false; });
+  return { ok: result.ok, output: result.output, processId: result.processId };
 }
 
 function createWindow() {
@@ -724,7 +741,7 @@ function registerIpc() {
   ipcMain.handle('settings:get', () => settings);
   ipcMain.handle('settings:save', (_event, next) => saveSettings(next));
   ipcMain.handle('cs2:detect', () => detectCs2Exe());
-  ipcMain.handle('cs2:running', () => isProcessRunning(launchedCs2ProcessId));
+  ipcMain.handle('cs2:running', () => startupWatchPending || isProcessRunning(launchedCs2ProcessId));
   ipcMain.handle('cs2:workshop-tools', (_event, cs2Exe) => (
     workshopToolsStatus(cs2Exe || (settings && settings.cs2Exe) || '')
   ));
@@ -801,7 +818,7 @@ function registerIpc() {
     launchInProgress = true;
     try {
       settings = saveSettings(next);
-      return await launchWithSettings(settings);
+      return await launchWithSettings(settings, undefined, [], true);
     } finally { launchInProgress = false; }
   });
   ipcMain.handle('update:status', () => updateService.getStatus());

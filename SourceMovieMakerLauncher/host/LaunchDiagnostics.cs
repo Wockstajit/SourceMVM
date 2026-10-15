@@ -6,9 +6,6 @@ namespace SourceMovieMakerHost
 {
     internal static class LaunchDiagnostics
     {
-        // Detect an immediate Steam/loader/crash exit; this is not a game-readiness probe.
-        internal const uint StartupObservationMilliseconds = 8000;
-
         internal static Exception CreateProcessError(int error, string programPath)
         {
             string message = "Windows could not start the game (CreateProcessW error " + error

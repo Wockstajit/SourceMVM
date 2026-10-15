@@ -99,10 +99,12 @@ Automation (`Automation\launch\*`) passes explicit `--hook`/`--injector` paths a
 
 ## Launch failures
 
-The launcher waits for the host to finish, including eight seconds of observing the exact game
-process after injection. An exit during that interval (including exit code zero) is a launch
-failure and leaves GO available to retry. Surviving this interval does not prove the game reached
-the menu; exits or hangs later in startup still need game/crash logs.
+The launcher shows CS2 STARTED as soon as the host resumes the injected game; nothing waits on a
+timer. The app passes `--watch-startup-ms 30000`, so the host keeps the game's process handle open
+in the background. If CS2 exits within that window (including exit code zero), the status switches
+to the error with the PID and exit code, and GO is available again. Automation and headless
+launches do not pass the flag, so the host exits right after resuming the game. Surviving the
+window does not prove the game reached the menu; later exits or hangs still need game/crash logs.
 
 `CreateProcessW error 5` means Windows denied creating the game process, before hook injection.
 The message includes Windows' error description and the executable path. Check the executable's

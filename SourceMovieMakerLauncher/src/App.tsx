@@ -356,6 +356,13 @@ export default function App() {
   useEffect(() => { void refreshDlss(); }, [settings.cs2Exe, advanced]);
   useEffect(() => window.sourceMvm.onDlssStatus((status) => setDlssNote(status.message)), []);
 
+  // CS2 died shortly after a launch that already reported CS2 STARTED.
+  useEffect(() => window.sourceMvm.onCs2StartupExit((status) => {
+    setStarted(false);
+    setMessage(status.message);
+    setMessageTone('error');
+  }), []);
+
   // The GPU decides the runtime: preselect it, and ask the first-launch question once.
   useEffect(() => {
     if (!ready || !dlss || !dlss.bundled) return;
