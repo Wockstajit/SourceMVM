@@ -16,6 +16,8 @@ namespace SourceMovieMakerHost
 
         private static int Main(string[] args)
         {
+            // Electron decodes the captured streams as UTF-8, including localized errors/paths.
+            Console.OutputEncoding = new UTF8Encoding(false);
             PROCESS_INFORMATION processInfo = default(PROCESS_INFORMATION);
             bool resumed = false;
 
@@ -53,6 +55,10 @@ namespace SourceMovieMakerHost
                 string injectorPath = Path.GetFullPath(options.InjectorPath);
                 string commandLine = $"\"{programPath}\" {options.CommandLine}".TrimEnd();
                 string workingDirectory = Path.GetDirectoryName(programPath);
+                Console.WriteLine("Game: " + programPath);
+                Console.WriteLine("Hook: " + hookPath);
+                Console.WriteLine("Injector: " + injectorPath);
+                Console.WriteLine("Desktop: " + InteractiveDesktop);
 
                 var startupInfo = new STARTUPINFOW
                 {
@@ -80,8 +86,8 @@ namespace SourceMovieMakerHost
                     ref startupInfo,
                     out processInfo))
                 {
-                    throw new InvalidOperationException(
-                        $"CreateProcessW failed with error {Marshal.GetLastWin32Error()}.");
+                    int error = Marshal.GetLastWin32Error();
+                    throw LaunchDiagnostics.CreateProcessError(error, programPath);
                 }
 
                 Console.WriteLine($"Created CS2 process {processInfo.dwProcessId} suspended.");
@@ -115,6 +121,11 @@ namespace SourceMovieMakerHost
                 if (!string.IsNullOrWhiteSpace(options.ProcessIdFile))
                     File.WriteAllText(options.ProcessIdFile, processInfo.dwProcessId.ToString());
                 Console.WriteLine("Hook injected; CS2 resumed.");
+                // Resuming the thread does not prove Steam or the Windows loader accepted it.
+                // Keep the original process handle so even an exit with code 0 or 259 is detected.
+                LaunchDiagnostics.ObserveStartup(processInfo.hProcess, processInfo.dwProcessId,
+                    LaunchDiagnostics.StartupObservationMilliseconds);
+                Console.WriteLine("Game survived initial startup.");
                 return 0;
             }
             catch (Exception exception)

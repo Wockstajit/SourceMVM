@@ -97,6 +97,32 @@ To run a local build from the launcher UI, set RUNTIME FOLDER (or HOOK DLL OVERR
 Automation (`Automation\launch\*`) passes explicit `--hook`/`--injector` paths and its own
 `USRLOCALCSGO`, so it is unaffected.
 
+## Launch failures
+
+The launcher waits for the host to finish, including eight seconds of observing the exact game
+process after injection. An exit during that interval (including exit code zero) is a launch
+failure and leaves GO available to retry. Surviving this interval does not prove the game reached
+the menu; exits or hangs later in startup still need game/crash logs.
+
+`CreateProcessW error 5` means Windows denied creating the game process, before hook injection.
+The message includes Windows' error description and the executable path. Check the executable's
+file permissions, Windows Security Protection history, and administrator compatibility settings.
+Run Steam and SOURCE:MVM normally under the same signed-in Windows account. The error alone
+cannot identify the permission or security rule responsible.
+
+Every host attempt writes a timestamped `launch.log` in the launcher's data folder, including the
+host arguments, resolved game/hook/injector paths, stdout, stderr and exit status. Failures lead
+with stderr and show the log path. Advanced > Locations can reveal the launcher data folder.
+Portable builds keep it under `SourceMovieMaker-data` beside the app. These logs stay local;
+remove personal paths and custom launch-option values before sharing them.
+
+Regression checks (no Steam or game launch required):
+
+```powershell
+node --test Automation/tests/launcher-launch-host-tests.mjs
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File Automation/tests/launcher-host-tests.ps1
+```
+
 ## Saved data
 
 The hook saves everything under `%APPDATA%\HLAE` (`GetHlaeRoamingAppDataFolderW`). Advanced

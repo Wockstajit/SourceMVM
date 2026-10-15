@@ -12,12 +12,13 @@ const { autoUpdater } = require('electron-updater');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { execFileSync, spawn } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 const runtimePayload = require('./runtime-payload.cjs');
 const ffmpegTool = require('./ffmpeg-tool.cjs');
 const dlssTool = require('./dlss-tool.cjs');
 const { createUpdateService } = require('./update-service.cjs');
 const { findCs2Processes, installBlocker } = require('./cs2-process.cjs');
+const { runLaunchHost } = require('./launch-host.cjs');
 const { resetSavesIfNeeded, SAVE_EPOCH } = require('./save-reset.cjs');
 
 const APP_NAME = 'SourceMovieMaker';
@@ -669,69 +670,12 @@ async function launchWithSettings(current, commandLineOverride, extraEnv = []) {
     }
   }
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(host, args, {
-      cwd: path.dirname(cs2Exe),
-      env,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let settled = false;
-    let output = '';
-    const succeed = () => {
-      if (settled) return;
-      settled = true;
-      const processMatch = output.match(/Created CS2 process\s+(\d+)/);
-      launchedCs2ProcessId = processMatch ? Number(processMatch[1]) : 0;
-      resolve({
-        ok: true,
-        output,
-        processId: launchedCs2ProcessId,
-      });
-    };
-    const fail = (error) => {
-      if (settled) return;
-      settled = true;
-      reject(error);
-    };
-    child.stdout.on('data', (chunk) => {
-      const text = chunk.toString();
-      output += text;
-      if (output.includes('Hook injected; CS2 resumed.')) succeed();
-    });
-    child.stderr.on('data', (chunk) => {
-      output += chunk.toString();
-    });
-    child.on('error', (error) => {
-      fail(error);
-    });
-    child.on('close', (code) => {
-      if (settled) return;
-      if (code === 0) {
-        succeed();
-      } else {
-        // Keep the full transcript in a log, but surface only the failure lines: the host
-        // prints "Created CS2 process N suspended." BEFORE injection, so leading with the raw
-        // output buries the actual error behind a success line -- in a one-line status field
-        // that truncates, all the user ever saw was "Created CS2 pro...".
-        try {
-          fs.appendFileSync(
-            path.join(app.getPath('userData'), 'launch.log'),
-            `\n[${new Date().toISOString()}] host exited ${code}\n${output}\n`,
-          );
-        } catch {
-          // Logging must never mask the launch error itself.
-        }
-        const failureLines = output.split(/\r?\n/)
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .filter((line) => !/^Created CS2 process \d+ suspended\.$/.test(line));
-        fail(new Error(failureLines.length
-          ? failureLines.join('\n')
-          : `Launcher host exited with code ${code}.`));
-      }
-    });
+  const result = await runLaunchHost({
+    host, args, cwd: path.dirname(cs2Exe), env,
+    logPath: path.join(app.getPath('userData'), 'launch.log'),
   });
+  launchedCs2ProcessId = result.processId;
+  return result;
 }
 
 function createWindow() {

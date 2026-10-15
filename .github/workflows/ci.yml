@@ -55,6 +55,17 @@ jobs:
         run: npm run check:renderer
       - name: Build launcher renderer
         run: npm run build:renderer
+      - name: Initialize injection protocol dependency
+        working-directory: .
+        run: git submodule update --init Deps/release/injector
+      - name: Build launcher host
+        run: npm run build:host
+      - name: Test launch failures
+        working-directory: .
+        run: |
+          node --test Automation/tests/launcher-launch-host-tests.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File Automation/tests/launcher-host-tests.ps1
 
   # The native build is the slow job, so it only runs when something it compiles changed. A job
   # skipped this way counts as passing for `ci-gate`. Pushes and merge groups always build.
