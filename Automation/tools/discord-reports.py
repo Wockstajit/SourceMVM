@@ -38,7 +38,7 @@ CONFIG = REPO / "Automation" / "config" / "discord-reports.local.json"
 OUT_ROOT = REPO / "Automation" / "runs" / "bug-reports"
 API = "https://discord.com/api/v10"
 USER_AGENT = "DiscordBot (https://github.com/Wockstajit/SourceMVM, 1.0)"
-REPORT_TITLES = ("Bug report from ", "Crash report from ")
+REPORT_TITLES = ("Bug report", "Crash report")
 
 # One bot reaction per state; a message carries at most one of them.
 STATES = {"claimed": "\N{EYES}", "fixed": "\N{WHITE HEAVY CHECK MARK}", "skipped": "\N{NO ENTRY SIGN}"}

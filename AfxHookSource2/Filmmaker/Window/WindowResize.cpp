@@ -364,7 +364,7 @@ int MakeEven(int value) {
 	return WindowSnap_MakeEven(value);
 }
 
-void ArmVerify(int width, int height, const char* trigger) {
+void ArmVerify(int width, int height, const char* trigger, bool external) {
 	if (width <= 0 || height <= 0)
 		return;
 
@@ -383,6 +383,20 @@ void ArmVerify(int width, int height, const char* trigger) {
 					: (s_commit == WindowResizeCommit::Sdl ? "sdl" : "off")));
 
 	if (s_commit == WindowResizeCommit::Sdl) {
+		// A resize from outside the drag loop is often the ENGINE'S OWN video-mode change: startup
+		// applying the saved Display Mode, a switch to or from fullscreen, the Video settings. The
+		// engine rebuilds its swapchain for those itself, so re-asserting at once (with its +2px
+		// nudge) only adds two more rebuilds on top of a mode change still in flight -- and an SDL
+		// size call that lands while the render thread is inside SetFullscreenState is the measured
+		// "Not Responding" hang described in ReassertThroughSdl. Wait instead: PumpVerify
+		// re-asserts only if the swapchain has not followed by the end of the verify window, which
+		// still covers a maximise or a tool's SetWindowPos that the engine ignores.
+		if (external) {
+			if (MvmDebugLog_Active())
+				MvmDebugLog_LinefAlways("window.resize", "external %dx%d: waiting for the engine before any SDL commit",
+					width, height);
+			return;
+		}
 		const bool ok = ReassertThroughSdl(width, height);
 		s_verifyReasserted = true;
 		if (MvmDebugLog_Active())
@@ -855,7 +869,7 @@ void WindowResize_OnWindowMessage(void* hwndRaw, unsigned msg, unsigned long lon
 
 		ShowOverlayCentered(hwnd, width, height, nullptr);
 		WindowSizeOverlay_HideAfter(kOverlayHoldMs);
-		ArmVerify(width, height, "external");
+		ArmVerify(width, height, "external", true);
 		break;
 	}
 	case WM_MOVING: {
@@ -936,7 +950,7 @@ void WindowResize_OnWindowMessage(void* hwndRaw, unsigned msg, unsigned long lon
 		PrecisionGuard_Release(s_precision);
 
 		WindowSizeOverlay_HideAfter(kOverlayHoldMs);
-		ArmVerify(width, height, "drag");
+		ArmVerify(width, height, "drag", false);
 		break;
 	}
 	default:

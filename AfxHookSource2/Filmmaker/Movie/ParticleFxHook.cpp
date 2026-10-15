@@ -472,7 +472,8 @@ void* __fastcall Hook_CreateBody(unsigned long long thisOrFlag, void* handle, vo
 				action = 'X';
 				g_bloodBlocked.fetch_add(1, std::memory_order_relaxed);
 			}
-			if (action == '=' && g_enabled) {
+			// No effects at the main menu: a hook left armed by the last demo passes everything.
+			if (action == '=' && g_enabled && g_sceneActive.load(std::memory_order_relaxed)) {
 				// Custom rules outrank category modes (they're the power-user override).
 				for (const CustomRule& r : g_customRules) {
 					if (std::strstr(low, r.match.c_str())) {

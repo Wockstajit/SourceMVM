@@ -17,11 +17,34 @@
 #include "SmokeFx.h"
 #include "WorldHealth.h"
 
+#include "../Config/EffectsPersistence.h" // no effects switched on at the main menu
+
 #include "../../../Shared/AfxConsole.h"
 
 #include <cstring>
 
 namespace Filmmaker {
+
+namespace {
+
+// At the main menu a world command may only read, list or put things back: it is refused if none
+// of its arguments is one of these. `world shadows on` is the CS2 default, so it counts as putting
+// shadows back rather than switching an effect on.
+bool RestoresOrReads(int argc, advancedfx::ICommandArgs* args, const char* sub) {
+	static const char* const kAllowed[] = { "off", "disable", "reset", "default", "auto", "status", "list", "refresh" };
+	if (argc < 4) return true; // bare subcommand: prints its status and usage
+	const bool shadows = 0 == _stricmp(sub, "shadows") || 0 == _stricmp(sub, "bakedshadows")
+		|| 0 == _stricmp(sub, "dynamicshadows");
+	for (int i = 3; i < argc; ++i) {
+		const char* a = args->ArgV(i);
+		for (const char* allowed : kAllowed)
+			if (0 == _stricmp(a, allowed)) return true;
+		if (shadows && (0 == _stricmp(a, "on") || 0 == _stricmp(a, "enable"))) return true;
+	}
+	return false;
+}
+
+} // namespace
 
 void World_RunFrame() {
 	NightMode_RunFrame();
@@ -43,6 +66,8 @@ void World_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 		WorldHealth_RunCommand(argc, args, cmd);
 		return;
 	}
+	if (*sub && !RestoresOrReads(argc, args, sub) && !EffectsPersistence_AllowEnable("World effects"))
+		return;
 	if (0 == _stricmp(sub, "exposure")) {
 		NightMode_RunCommand(argc, args, cmd);
 		return;

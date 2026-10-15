@@ -52,6 +52,12 @@ Fresh runtime defaults are opt-in. The master switch and all six categories star
 saved configuration, startup and demo entry do not arm the particle hook or load anything under
 `particles/filmmaker/`. Saved configurations load exactly as stored.
 
+Effects never run at the main menu or on CS2's UI maps. A saved configuration stays stored there,
+and the particle hook arms only once a demo plays or an `mvm_test` map is up. At the menu, any
+`mirv_filmmaker fx` or `mirv_filmmaker world` command that would switch an effect on is refused
+with "Load a demo first". Turning effects off, resets, status and lists still work.
+`EffectsPersistence_SceneActive()` is the one predicate for "a scene is up".
+
 Selecting a non-Off category turns the master on and makes only that category's selected pack
 eligible for swaps. Loading is **front-loaded into a warm-up burst** at demo open and after settings
 switches:
