@@ -537,8 +537,8 @@ An effect has no model, so it is picked by a 32×32×48 handle box at its base. 
   are measured on a throwaway `prop_dynamic`, because the pawn's own bounds are the player hull. The
   hook arms the same paused-render gates as the death-animation preview. It turns the model by writing
   its scene-node transform in the late frame. The box keeps one panel and swaps the model on its pawn.- **Place in scene** switches to the free cam and hangs the model under the mouse. The model follows
-  the surface under the cursor (the map's collision mesh) over the view until a click drops it. **G**
-  hands the mouse to the camera so you can fly somewhere else and back. **Esc** cancels. Each model is
+  the surface under the cursor (the map's collision mesh) over the view until a click drops it. Fly
+  CS2's free cam to look somewhere else and back. **Esc** cancels. Each model is
   precached first, so it never draws as the ERROR placeholder.
 - With Scene Objects open, a click on a prop in the view selects it, and a click on empty ground
   deselects it. A right-click selects the prop and opens its menu (the outliner's). A selected prop is

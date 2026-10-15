@@ -96,7 +96,7 @@ bool MovieInput_OnKey(int vkey, bool down);
 bool MovieInput_OnMouseButton(int button, bool down); // 0 = left, 1 = right
 // Left press at client (x, y): true = a game-mode click on our UI, now switching to UI mode; the
 // caller passes the press and its release straight to the game window (MovieMode::OnUiClick).
-bool MovieInput_OnUiClick(int x, int y, int clientW, int clientH);
+bool MovieInput_OnUiClick(int x, int y);
 bool MovieInput_OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x = -1, int y = -1);
 
 // HUD panel show/hide (driven by the mirv_filmmaker hud console command).
@@ -133,6 +133,8 @@ bool CameraTimeline_Visible();
 // style list takes the notches instead of the workspace behind it.
 bool CameraTimeline_MenuOpen();
 void CameraTimeline_PushWheel(int notches); // +1 = wheel up
+// CS2's demo-bar camera button: 0 first person, 1 chase, 2 free cam, -1 unknown. Main thread.
+int CameraTimeline_NativeCameraMode();
 
 // True while the offline mvm_test FX menu is open in UI-cursor mode. main.cpp's
 // CCSGOInput::MouseInputEnabled detour returns false while this holds so a LIVE match
@@ -190,6 +192,8 @@ bool CameraEditor_ScaledHud(float& x0, float& y0, float& x1, float& y1);
 // unconditionally while this is true, and main.cpp's GetSuspendMirvInput() ORs it in so free-cam
 // mouse-look can't compete with dragging/scrolling inside the modal.
 bool CameraEditor_CustomizeModalOpen();
+// The Camera Editor's Editor Settings fly-out is up (its overlay takes every click).
+bool CameraEditor_PopupOpen();
 
 // Route captured input into the Customize modal's Panorama JS. In the in-game HUD context CS2 keeps
 // keyboard/wheel priority (a Panorama TextEntry never gets real focus, and the wheel still drives

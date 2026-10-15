@@ -230,6 +230,17 @@ inline float HighlightIsolation(float peak, float ringMean) {
 	return (std::min)((std::max)((0.95f - q) / 0.25f, 0.0f), 1.0f);
 }
 
+// 1 for the inside of a light's clipped CORE, 0 for a lone bright speck. A lamp's core is several
+// pixels wide, so the four pixels touching one of its pixels are about as bright as it; a sunlit
+// concrete or plaster texture is a field of one- and two-pixel specks at 1.0 over a ~0.6 surface,
+// and its specks pass the isolation test better than a lamp does. Lifting them by up to 15 stops is
+// what washed the whole out-of-focus area white (reported 2026-10-15, measured on de_nuke: wall
+// median 0.62, 2% of its texels clipped). `crossMin` is the darkest of the four touching pixels.
+inline float HighlightCore(float peak, float crossMin) {
+	const float q = crossMin / (std::max)(peak, 1e-3f);
+	return (std::min)((std::max)((q - 0.75f) / 0.15f, 0.0f), 1.0f);
+}
+
 // The factor the LINEAR colour of a pixel is multiplied by. gamma is dof.gamma (stops at pure white).
 // Each unit of gamma is kLiftStopsPerGamma stops (a 3 to 6 pixel lamp fills only a few percent of its own disc, so
 // one stop per unit left gamma 6 a faint ghost); the lift stops at kMaxLiftStops, which keeps peak * 2^stops inside a half float.

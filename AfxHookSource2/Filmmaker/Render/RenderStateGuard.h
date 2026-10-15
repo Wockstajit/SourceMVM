@@ -67,7 +67,6 @@ private:
 
 	// --- camera ownership ---
 	bool m_freeCam;
-	bool m_thirdPersonOrbit;
 	bool m_uiCursor;
 	int m_movieMode; // MovieMode::Mode as int, to keep this header dependency-free
 

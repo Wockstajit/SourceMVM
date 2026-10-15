@@ -41,7 +41,7 @@ VAC-protected servers.
   workspace preferences. See the [camera editor guide](Docs/features/camera-editor-feature.md).
 - **Follow and Attach cameras** that track a player through the demo. See the
   [follow camera docs](Docs/follow-camera/README.md).
-- **Movie director controls**: first-person, third-person orbit and free camera.
+- **Movie director controls**: the scroll wheel steps CS2's own first-person, chase and free cameras.
   See [movie controls](Docs/features/filmmaker_movie_controls.md).
 - **Live demo scrubbing**, so the world follows timeline and demo-bar drags.
 

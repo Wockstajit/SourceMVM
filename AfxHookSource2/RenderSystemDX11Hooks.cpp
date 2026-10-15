@@ -7770,6 +7770,12 @@ namespace AfxViewportScaler {
     // frame and shrink it again). Re-armed in Before_Present via RenderThread_OnPresent().
     static std::atomic<bool> s_BlitRanThisPresent{ false };
 
+    // mvm_debug evidence for the scaled preview, summarised once a second at present time:
+    // how many presents, how many were blitted by the queued BeforeUi2 path or the render-thread
+    // fallback, and how many went out UNSCALED while scaling was requested (the full-size frame
+    // behind the panels is what reads as a zoomed / cropped preview). Only counted while logging.
+    static std::atomic<unsigned> s_DbgPresents{ 0 }, s_DbgQueued{ 0 }, s_DbgFallback{ 0 }, s_DbgMissed{ 0 };
+
     void SetRequest(bool active, float x0, float y0, float x1, float y1) {
         std::unique_lock<std::mutex> lock(s_RequestMutex);
         s_Active = active;
@@ -7809,6 +7815,7 @@ namespace AfxViewportScaler {
         g_RenderCommands.EngineThread_GetCommands().BeforeUi2.Push(
             [scaler, x0, y0, x1, y1](ID3D11DeviceContext* pDeviceContext, ID3D11RenderTargetView* pTarget) {
                 s_BlitRanThisPresent.store(true, std::memory_order_relaxed);
+                if (Filmmaker::MvmDebugLog_Active()) ++s_DbgQueued;
                 scaler->Blit(pDeviceContext, pTarget, x0, y0, x1, y1);
             });
     }
@@ -7831,6 +7838,7 @@ namespace AfxViewportScaler {
         if (!pContext)
             return;
         s_BlitRanThisPresent.store(true, std::memory_order_relaxed);
+        if (Filmmaker::MvmDebugLog_Active()) ++s_DbgFallback;
         g_ViewportScaler.Blit(pContext, pTarget, rect[0], rect[1], rect[2], rect[3]);
         pContext->Release();
     }
@@ -7840,6 +7848,30 @@ namespace AfxViewportScaler {
     }
 
     void RenderThread_OnPresent() {
+        if (Filmmaker::MvmDebugLog_Active()) {
+            bool active; float rect[4];
+            {
+                std::unique_lock<std::mutex> lock(s_RequestMutex);
+                active = s_Active;
+                rect[0] = s_Rect[0]; rect[1] = s_Rect[1]; rect[2] = s_Rect[2]; rect[3] = s_Rect[3];
+            }
+            ++s_DbgPresents;
+            const bool missed = active && !s_BlitRanThisPresent.load(std::memory_order_relaxed)
+                && !g_AfxStreams.GetRecordingCapturesAfterUi();
+            if (missed) ++s_DbgMissed;
+            static ULONGLONG s_lastLog = 0;
+            const ULONGLONG nowMs = GetTickCount64();
+            if (nowMs - s_lastLog >= 1000 && (active || s_DbgMissed.load())) {
+                s_lastLog = nowMs;
+                UINT bbW = 0, bbH = 0; float vp[4] = { 0, 0, 0, 0 };
+                const bool ran = g_ViewportScaler.GetLastBlit(bbW, bbH, vp);
+                Filmmaker::MvmDebugLog_LinefAlways("vpscale.present",
+                    "active=%d presents=%u queued=%u fallback=%u MISSED=%u rect=%.3f %.3f %.3f %.3f lastBlit=%d bb=%ux%u vp=%.0f %.0f %.0f %.0f",
+                    active ? 1 : 0, s_DbgPresents.exchange(0), s_DbgQueued.exchange(0), s_DbgFallback.exchange(0),
+                    s_DbgMissed.exchange(0), rect[0], rect[1], rect[2], rect[3], ran ? 1 : 0, bbW, bbH,
+                    vp[0], vp[1], vp[2], vp[3]);
+            }
+        }
         s_BlitRanThisPresent.store(false, std::memory_order_relaxed);
     }
 

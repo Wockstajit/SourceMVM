@@ -134,6 +134,8 @@ public:
 	// The input layer (MovieMode + GetSuspendMirvInput) uses this to make the modal an
 	// exclusive surface: no click/key/scroll should leak to the game while it's up.
 	bool CustomizeModalOpen() const { return m_customizeOpen; }
+	// The Editor Settings fly-out is up: its full-screen overlay takes every click, preview included.
+	bool PopupOpen() const { return m_popupOpen; }
 
 	// True while a Panorama field in OUR UI is collecting typed characters (currently the Render
 	// workspace's FPS / resolution boxes). CS2 does not give an in-game HUD TextEntry real
@@ -178,6 +180,8 @@ private:
 	short m_symCustomizeOpen = -1; // "customizeopen" -- JS publishes custOverlay.visible ("0"/"1")
 	short m_symTextCapture = -1;   // "textcapture" -- JS publishes whether a text field has focus
 	bool m_customizeOpen = false;
+	short m_symPopupOpen = -1;     // "popupopen" -- EditorSettingsPopupJs.h publishes its overlay
+	bool m_popupOpen = false;
 	bool m_textCapture = false; // JS-published "textcapture" attribute (a field wants keystrokes)
 	// Captured-input queue for the modal (WndProc thread -> main thread). Guarded by m_custInputMutex.
 	std::mutex m_custInputMutex;

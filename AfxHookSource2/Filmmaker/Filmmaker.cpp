@@ -34,6 +34,8 @@
 #include "Workshop/WorkshopOrganizer.h"
 #include "Movie/CameraBridge.h"
 #include "../SceneSystem.h"
+#include "../UiInputGate.h" // UiInputGate_Active: a foreign UI keeps the wheel
+#include "../WindowInputHooks.h" // WindowInputHooks_MainThreadFrame: raw-input wheel notches
 
 #include <cmath>
 #include <filesystem> // RenameDemoFile moves the demo and its sidecars
@@ -66,7 +68,6 @@
 #include "Movie/PlaybackLoop.h"
 #include "Movie/DemoScrub.h"
 #include "Movie/WeaponBobProbe.h"
-#include "Movie/ThirdPersonCamera.h"
 #include "Render/RenderSessionDriver.h"
 #include "Render/RenderEngineSize.h"
 #include "Render/RenderWorldOnly.h"
@@ -757,10 +758,13 @@ void RunMainThreadFrame() {
 	// Read-only, and returns immediately unless BOTH `bobprobe on` and a log are active.
 	WeaponBobProbe_RunMainThreadFrame();
 
+	// Wheel notches that came in as raw input (CS2's look-around drag holds the mouse, so no wheel
+	// message arrives): hand them to the director before it applies this frame's actions.
+	WindowInputHooks_MainThreadFrame(MovieModeRef().OwnsWheel() && !UiInputGate_Active());
+
 	// Movie director: apply queued input actions (engine commands / free-cam
 	// toggle) on this thread, then refresh the in-game help/status HUD panel.
 	MovieModeRef().FlushActions();
-	ThirdPerson_RunFrame();
 
 	// Camera detached from the spectated eye (FREE CAM ONLY): hide the first-person viewmodel
 	// and suppress its _fp weapon FX. Both are anchored to the CAMERA, so once the view leaves
@@ -968,11 +972,10 @@ void RunMainThreadFrame() {
 
 	{ PanoramaPerf_Scope _p("previewcommit"); WorkspacePreviewRef().Commit(); }
 	{
-		// Where the UI is this frame, for click-to-UI-mode (MovieMode::OnUiClick on the input thread).
-		float px0 = 0, py0 = 0, px1 = 0, py1 = 0, bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
+		// Where the game preview is this frame: clicks and the wheel split on it (MovieMode, input thread).
+		float px0 = 0, py0 = 0, px1 = 0, py1 = 0;
 		const bool preview = WorkspacePreviewRef().Active(px0, py0, px1, py1);
-		const bool bar = CameraTimelineHudRef().DemoBarRect(bx0, by0, bx1, by1);
-		MovieModeRef().SetUiClickRegions(preview, px0, py0, px1, py1, bar, bx0, by0, bx1, by1);
+		MovieModeRef().SetUiClickRegions(preview, px0, py0, px1, py1);
 	}
 
 	{ PanoramaPerf_Scope _p("graphexp"); GraphEditorExperimentHudRef().RunFrame(); }
@@ -1014,7 +1017,7 @@ void Shutdown() {
 // --- Movie director input taps (forward to the MovieMode singleton) ---
 bool MovieInput_OnKey(int vkey, bool down) { return MovieModeRef().OnKey(vkey, down); }
 bool MovieInput_OnMouseButton(int button, bool down) { return MovieModeRef().OnMouseButton(button, down); }
-bool MovieInput_OnUiClick(int x, int y, int clientW, int clientH) { return MovieModeRef().OnUiClick(x, y, clientW, clientH); }
+bool MovieInput_OnUiClick(int x, int y) { return MovieModeRef().OnUiClick(x, y); }
 bool MovieInput_OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, int y) { return MovieModeRef().OnMouseWheel(delta, shiftDown, ctrlDown, x, y); }
 
 // --- HUD panel show/hide ---
@@ -1124,7 +1127,9 @@ bool CameraEditor_ScaledHud(float& x0, float& y0, float& x1, float& y1) {
 	return WorkspacePreviewRef().Active(x0, y0, x1, y1);
 }
 bool CameraEditor_CustomizeModalOpen() { return CameraEditorHudRef().CustomizeModalOpen(); }
+bool CameraEditor_PopupOpen() { return CameraEditorHudRef().PopupOpen(); }
 bool CameraTimeline_MenuOpen() { return CameraTimelineHudRef().MenuOpen(); }
+int CameraTimeline_NativeCameraMode() { return CameraTimelineHudRef().NativeCameraMode(); }
 void CameraTimeline_PushWheel(int notches) { CameraTimelineHudRef().PushWheel(notches); }
 void CameraEditor_CustomizePushWheel(int notches, int x, int y) { CameraEditorHudRef().PushCustomizeWheel(notches, x, y); }
 void CameraEditor_CustomizePushChar(unsigned charCode) { CameraEditorHudRef().PushCustomizeChar(charCode); }

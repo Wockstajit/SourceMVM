@@ -9,6 +9,7 @@
 #include "PerWeaponFx.h"                   // per-weapon overrides for shared flash systems
 #include "../Filmmaker.h"                  // PlayingDemoPath (level-change detection)
 #include "../MvmTest.h"                    // offline live-match FX testing (mvm_test)
+#include "../Config/EffectsPersistence.h"  // EffectsPersistence_SceneActive: no effects at the main menu
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_* (thread-safe flight recorder)
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/TextEncoding.h"      // WideToUtf8 (FxLevelCacheKey)
@@ -97,15 +98,15 @@ int DemoTick() {
 	return -1;
 }
 
-// Demo playback OR mvm_test on a loaded live map: main-thread precache/warmup is safe.
+// Demo playback OR mvm_test on a loaded live map: main-thread precache/warmup is safe. Never the
+// main menu or a UI map: effects are not switched on, installed or applied there.
 bool FxMainThreadContextActive() {
-	if (DemoIsPlaying())
-		return true;
-	if (!MvmTest_Active() || !g_pEngineToClient)
-		return false;
-	const char* lvl = g_pEngineToClient->GetLevelNameShort();
-	return lvl && lvl[0] != '\0';
+	return EffectsPersistence_SceneActive();
 }
+
+// FxMainThreadContextActive() as of this main-thread frame, for the create hook (it runs on
+// whatever thread creates particles, where the engine's demo state must not be read).
+std::atomic<bool> g_sceneActive{ false };
 
 // The cache key must change whenever the engine's PARTICLE RESOURCE CONTEXT changes, not
 // merely when the user opens a different demo. A demo can reload its own level mid-playback
@@ -379,7 +380,13 @@ bool FxModeSupported(FxCategory cat, FxMode mode) {
 	return cat >= 0 && cat < kFxCategoryCount && ModeSupported(cat, mode);
 }
 
-bool ParticleFx::EnsureInstalled() { return TryInstall(); }
+bool ParticleFx::EnsureInstalled() {
+	// The particle manager is only detoured once a demo or live test map is up. At the main menu
+	// the saved settings stay stored and the hook arms from PumpMainThread when a scene loads.
+	if (!FxMainThreadContextActive())
+		return g_installed.load();
+	return TryInstall();
+}
 bool ParticleFx::Installed() const { return g_installed.load(); }
 
 void ParticleFx_OnLevelInit() {
@@ -529,6 +536,7 @@ void ParticleFx::SetMoneyHeadshot(bool on) {
 }
 
 void ParticleFx::PumpMainThread() {
+	g_sceneActive.store(FxMainThreadContextActive(), std::memory_order_relaxed);
 	// Spray-heat clock for the create hook (safe engine access is main-thread/pump
 	// only; the hook reads the atomic). Live mvm_test uses a synthetic tick.
 	int tickNow = -1;
@@ -640,7 +648,7 @@ void ParticleFx::PumpMainThread() {
 	}
 	if (g_installFailedHard)
 		return;
-	if (!WantsHook())
+	if (!WantsHook() || !g_sceneActive.load(std::memory_order_relaxed))
 		return;
 	const unsigned long long now = GetTickCount64();
 	if (now - g_lastInstallTryMs < 3000)
@@ -873,6 +881,8 @@ void ParticleFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*
 	}
 	if (0 == _stricmp(action, "on") || 0 == _stricmp(action, "off")) {
 		const bool turningOn = (0 == _stricmp(action, "on"));
+		if (turningOn && !EffectsPersistence_AllowEnable("Particle effects"))
+			return;
 		fx.SetEnabled(turningOn);
 		// The DEBUG SQUARES ARE NOT TURNED ON HERE. This used to force
 		// g_debugHudEnabled = true on every `fx on`, so the developer overlay came back every
@@ -894,6 +904,8 @@ void ParticleFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*
 		const int mode = ModeFromName(args->ArgV(4));
 		if (cat < 0) { advancedfx::Warning("fx: unknown category '%s' (see '%s fx').\n", args->ArgV(3), cmd); return; }
 		if (mode < 0) { advancedfx::Warning("fx: unknown mode '%s' (on|less|modern|off).\n", args->ArgV(4)); return; }
+		if ((FxMode)mode != FxMode::Off && !EffectsPersistence_AllowEnable("Particle effects"))
+			return;
 		if (!ModeSupported(cat, (FxMode)mode) && (FxMode)mode != FxMode::More)
 			advancedfx::Warning("fx: %s does not support '%s' (no distinct assets); using 'on'.\n",
 				kCategoryKeys[cat], args->ArgV(4));
@@ -958,6 +970,8 @@ void ParticleFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*
 			advancedfx::Warning("usage: %s fx %s <substr>%s\n", cmd, action, isSwap ? " <target.vpcf>" : "");
 			return;
 		}
+		if (!EffectsPersistence_AllowEnable("Particle rules"))
+			return;
 		CustomRule r;
 		r.match = args->ArgV(3);
 		std::transform(r.match.begin(), r.match.end(), r.match.begin(),
@@ -1011,6 +1025,7 @@ void ParticleFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*
 	}
     if (!_stricmp(action,"helights") || !_stricmp(action,"flashlights")) {
         const bool flash=!_stricmp(action,"flashlights");const char* value=argc>=4?args->ArgV(3):"";
+        if(!_stricmp(value,"on")&&!EffectsPersistence_AllowEnable("Dynamic lights"))return;
         if(!_stricmp(value,"on"))fx.SetGrenadeLights(flash,true);
         else if(!_stricmp(value,"off"))fx.SetGrenadeLights(flash,false);
         else if(*value){advancedfx::Warning("usage: %s fx %s on|off\n",cmd,action);return;}
@@ -1018,6 +1033,7 @@ void ParticleFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*
     }
 	if (0 == _stricmp(action, "mollylights")) {
         const char* value=argc>=4?args->ArgV(3):"";
+        if(!_stricmp(value,"on")&&!EffectsPersistence_AllowEnable("Dynamic lights"))return;
         if(!_stricmp(value,"on"))fx.SetMollyLights(true);
         else if(!_stricmp(value,"off"))fx.SetMollyLights(false);
         else if(*value){advancedfx::Warning("usage: %s fx mollylights on|off\n",cmd);return;}
@@ -1026,12 +1042,13 @@ void ParticleFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*
 	if (0 == _stricmp(action, "flashblind")) {
 		const char* v = (argc >= 4) ? args->ArgV(3) : "";
 		if (0 == _stricmp(v, "on")) fx.SetFlashBlind(true);
-		else if (0 == _stricmp(v, "off")) fx.SetFlashBlind(false);
+		else if (0 == _stricmp(v, "off") && EffectsPersistence_AllowEnable("No-blind flashbangs")) fx.SetFlashBlind(false);
 		advancedfx::Message("fx: flash blindness %s.\n", fx.FlashBlind() ? "ON (CS2 default)" : "OFF (flashbangs never blind)");
 		return;
 	}
 	if (0 == _stricmp(action, "moneyshot")) {
 		const char* v = (argc >= 4) ? args->ArgV(3) : "";
+		if (0 == _stricmp(v, "on") && !EffectsPersistence_AllowEnable("Money on headshot")) return;
 		if (0 == _stricmp(v, "on")) fx.SetMoneyHeadshot(true);
 		else if (0 == _stricmp(v, "off")) fx.SetMoneyHeadshot(false);
 		else { advancedfx::Message("fx: moneyshot is %s (fx moneyshot on|off).\n", fx.MoneyHeadshot() ? "ON" : "off"); return; }

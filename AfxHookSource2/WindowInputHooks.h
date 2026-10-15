@@ -34,3 +34,14 @@ int WINAPI new_ShowCursor(BOOL bShow);
 HWND WINAPI new_SetCapture(HWND hWnd);
 BOOL WINAPI new_ReleaseCapture();
 BOOL WINAPI new_ClipCursor(const RECT* lpRect);
+
+// --- The wheel that arrives as RAW input ---
+// While CS2 holds the mouse for its look-around drag (chase / free cam), the wheel reaches the game
+// as raw input only: no WM_MOUSEWHEEL, so the director never saw it and CS2's own wheel binds stepped
+// the spectated player instead -- which drops CS2's free cam into first person. In a demo the
+// director owns the wheel, so the raw notch is stripped before CS2 reads it and handed to the
+// director on the main thread. Any thread (the raw input may be read off the main thread).
+void WindowInputHooks_FilterRawInput(RAWINPUT* raw);
+// Main thread, once per frame: whether the director owns the wheel right now, and dispatch the raw
+// notches collected since the last frame.
+void WindowInputHooks_MainThreadFrame(bool directorOwnsWheel);

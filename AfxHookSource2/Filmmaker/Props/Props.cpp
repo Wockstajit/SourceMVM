@@ -667,9 +667,9 @@ void CancelGrab() {
 	SyncBusy();
 }
 
-// Placing is a free-cam job: fly to the spot (G hands the mouse to the camera), click to drop.
+// Placing is a free-cam job: fly CS2's free cam to the spot (hold a mouse button to look), click to drop.
 void EnterFreeCam() {
-	if (MovieModeRef().GetMode() != MovieMode::Mode::FreeCam) MovieModeRef().SetMode(MovieMode::Mode::FreeCam, true);
+	if (MovieModeRef().GetMode() != MovieMode::Mode::FreeCam) MovieModeRef().SetMode(MovieMode::Mode::FreeCam);
 }
 
 // The pose a gizmo is drawn for: the prop being placed, else the selected live prop.

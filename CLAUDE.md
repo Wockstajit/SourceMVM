@@ -314,6 +314,10 @@ precedence.
 - Do substantive work on a named, short-lived branch: `feat/`, `fix/`, `perf/`, `refactor/`, `docs/`,
   `chore/`, `security/`, or `upstream/`. Use `release/<major.minor>` only for an intentionally supported
   release line. Do not name branches after release tags.
+- Pass `--repo Wockstajit/SourceMVM` on every `gh` command, and always on commands that write
+  (issues, PRs, comments, labels, releases). The clone has an `upstream` remote for
+  advancedfx/advancedfx, and without a default `gh` can pick it. Never create issues, PRs, comments,
+  or labels in advancedfx/advancedfx.
 - Open a pull request into `main` for routine work, or into the relevant release branch for a supported
   hotfix. Use draft PRs while work is incomplete. Do not merge or publish without the required authorization.
 - Respect the CI gate (`ci-gate`), code review, scoped changes, tests, privacy and licensing rules, issue

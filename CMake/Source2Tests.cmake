@@ -6,7 +6,6 @@ add_executable(FollowCameraMathTests
     ../Automation/tests/follow-camera-math-tests.cpp
     Filmmaker/Movie/FollowCameraMath.cpp
     Filmmaker/Movie/FollowCameraMath.h
-    Filmmaker/Movie/ThirdPersonCameraMath.h
 )
 target_compile_features(FollowCameraMathTests PRIVATE cxx_std_17)
 add_test(NAME FollowCameraMathTests COMMAND FollowCameraMathTests)

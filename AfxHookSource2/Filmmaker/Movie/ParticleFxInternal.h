@@ -115,6 +115,8 @@ extern std::atomic<bool> g_mollyLights;
 extern std::atomic<bool> g_heLights, g_flashLights;
 void NativeLightFx_OnDetonate(bool flash,int entity,float x,float y,float z);
 bool FxMainThreadContextActive();
+// FxMainThreadContextActive() sampled once per main-thread frame; read by the create hook.
+extern std::atomic<bool> g_sceneActive;
 void MollyFx_PumpMainThread();
 void MollyFx_OnLevelInit();
 bool MollyFx_Ready();

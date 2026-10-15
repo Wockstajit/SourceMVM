@@ -218,10 +218,21 @@ R"TLJS(
     // points off. Callers also clamp cx so the first/last keys keep their full shape instead of
     // bleeding past the strip. `sel` owns the resting colours; hover brightens without stealing
     // the selected state (same contract as btnVisual).
+    //
+    // THE CLICK TARGET IS NOT THE GEM. The visible square is 14px and rotated, and a click a few
+    // pixels off its centre missed it entirely -- reported as "clicking the diamonds does nothing".
+    // An invisible DIAM_HIT_W x DIAM_HIT_H box centred on the key takes the clicks instead; the gem
+    // inside it is drawn only. The height stops short of the next lane in SCENE KEYS.
+    var DIAM_HIT_W = 24, DIAM_HIT_H = 20;
     function diamond(parent, cx, cy, size, sel, onClick, onRight) {
-      var p = mk('Panel', parent);
+      var hit = mk('Panel', parent);
+      hit.style.position = (cx - DIAM_HIT_W / 2).toFixed(1) + 'px ' + (cy - DIAM_HIT_H / 2).toFixed(1) + 'px 0px';
+      hit.style.width = DIAM_HIT_W + 'px'; hit.style.height = DIAM_HIT_H + 'px';
+      hit.hittest = !!(onClick || onRight);
+      var p = mk('Panel', hit);
+      p.hittest = false;
       var half = size / 2;
-      p.style.position = (cx - half).toFixed(1) + 'px ' + (cy - half).toFixed(1) + 'px 0px';
+      p.style.position = (DIAM_HIT_W / 2 - half).toFixed(1) + 'px ' + (DIAM_HIT_H / 2 - half).toFixed(1) + 'px 0px';
       p.style.width = size + 'px'; p.style.height = size + 'px';
       p.style.transformOrigin = '50% 50%';
       p.style.transform = 'rotateZ(45deg)';
@@ -232,18 +243,17 @@ R"TLJS(
       var fill = sel ? '#ffffffff' : S.accent;
       p.style.backgroundColor = fill;
       p.style.border = '1px solid ' + (sel ? S.accent : '#00000088');
-      p.hittest = !!(onClick || onRight);
-      if (p.hittest) {
-        p.SetPanelEvent('onmouseover', function () { if (!sel) p.style.backgroundColor = '#ffd766ff'; });
-        p.SetPanelEvent('onmouseout', function () { p.style.backgroundColor = fill; });
+      if (hit.hittest) {
+        hit.SetPanelEvent('onmouseover', function () { if (!sel) p.style.backgroundColor = '#ffd766ff'; });
+        hit.SetPanelEvent('onmouseout', function () { p.style.backgroundColor = fill; });
       }
-      if (onClick) p.SetPanelEvent('onactivate', onClick);
+      if (onClick) hit.SetPanelEvent('onactivate', onClick);
       // Right-click = this keyframe's shake menu. `oncontextmenu` is the only right-button event
       // this in-game HUD context delivers (the Config panel's skybox tiles use the same one), and
       // it reaches us because the timeline forces UI-mouse mode -- which is what stops MovieMode
       // from swallowing the click for CS2's spectator switch (see MovieMode::OnMouseButton).
-      if (onRight) p.SetPanelEvent('oncontextmenu', onRight);
-      return p;
+      if (onRight) hit.SetPanelEvent('oncontextmenu', onRight);
+      return hit;
     }
 
     // Find a native HUD panel by id (walk to the topmost ancestor, then traverse) -- MEMOISED.
@@ -291,7 +301,7 @@ R"TLJS(
     // The undocked demo bar's backing (see nativeUndock) and our bar buttons' OPAQUE fills: the
     // old 8-20% white fills vanished over a bright scene and took the labels with them.
     var BAR_BG = 'rgba(12,14,18,0.9)';
-    var BAR_BTN = { base: '#272b32ff', loopOn: '#1d4a2bff', mouseOn: '#a32323ff',
+    var BAR_BTN = { base: '#272b32ff', loopOn: '#1d4a2bff',
       editor: '#4a3a10ff', config: '#1c3552ff' };
     function ensureNative() {
       if (!nativeContents) {
@@ -302,23 +312,6 @@ R"TLJS(
     }
     function setNativeHidden(hide) {
       if (ensureNative()) nativeContents.visible = !hide;
-    }
-    // The native bar's box on screen (client px, "x0 y0 x1 y1"; '' while hidden or not found) for
-    // click-to-UI-mode: in GAME mode with a visible cursor, a click on the bar hands the UI the
-    // mouse (Movie/UiClickMath.h). CameraTimelineHud reads it back each frame.
-    var lastBarRect = null;
-    function publishBarRect() {
-      var s = '';
-      try {
-        if (ensureNative() && nativeContents.visible && (!nativeRoot || nativeRoot.visible)
-            && nativeContents.GetPositionWithinWindow) {
-          var a = nativeContents.GetPositionWithinWindow();
-          var w = nativeContents.actuallayoutwidth || 0, h = nativeContents.actuallayoutheight || 0;
-          if (a && w > 1 && h > 1)
-            s = Math.round(a.x) + ' ' + Math.round(a.y) + ' ' + Math.round(a.x + w) + ' ' + Math.round(a.y + h);
-        }
-      } catch (e) { s = ''; }
-      if (s !== lastBarRect) { lastBarRect = s; try { root.SetAttributeString('barrect', s); } catch (e2) {} }
     }
 
 )TLJS"
@@ -829,6 +822,20 @@ R"TLJS(
     // The injected buttons are HIDDEN only when the editor replaces the native bar with the
     // camera-timeline or graph overlay (hosted + open / graphExp). In the editor's default NATIVE
     // bottom mode the native bar IS the bottom panel, so we keep the buttons present on it.
+    // The camera CS2's camera button says it is showing: 0 first person, 1 chase, 2 free cam, -1
+    // unknown. GOTV demos report no observer mode, so MovieMode reads this back ('cammode').
+    var lastCamMode = null;
+    function publishCameraMode() {
+      var m = -1;
+      try {
+        var lbl = findNative('CameraModeLabel');
+        var t = lbl ? String(lbl.text || '').toLowerCase() : '';
+        if (t.indexOf('first') >= 0) m = 0;
+        else if (t.indexOf('chase') >= 0 || t.indexOf('third') >= 0) m = 1;
+        else if (t.indexOf('free') >= 0 || t.indexOf('roam') >= 0) m = 2;
+      } catch (e) { m = -1; }
+      if (m !== lastCamMode) { lastCamMode = m; try { root.SetAttributeString('cammode', String(m)); } catch (e2) {} }
+    }
     function patchNativeBar() {
       patchTimeStep();
       // "End Playback" and the native gear (opens CS2's own X-Ray/True View panel, which our Camera
@@ -846,6 +853,12 @@ R"TLJS(
       // in Config, or during plain playback -- so it goes with EndPlayback and the native gear.
       var reelBtn = findNative('HighlightsButton');
       if (reelBtn) reelBtn.visible = false;
+      // CS2's spectator overview map ([CTRL] Close / [Z] / [X] / [SPACE] Clear Drawing) pops up
+      // over the shot. It is no use while filming, so it never shows during a demo. The panel
+      // toggles itself, so this is re-asserted every frame like the buttons above.
+      var overview = findNative('MapOverview');
+      if (overview && overview.visible) overview.visible = false;
+      publishCameraMode();
       var host = barGroup();
       if (!host) return;
       function childIndex(p) {
@@ -856,17 +869,14 @@ R"TLJS(
       }
       var hosted = !!(st && st.hosted);
       var cfgOpenBar = !!(st && st.configOpen);
-      var oldMouse = host.FindChildTraverse && host.FindChildTraverse('CamCursorBtn');
       var oldEditor = host.FindChildTraverse && host.FindChildTraverse('CamEditorBtn');
       var oldConfig = host.FindChildTraverse && host.FindChildTraverse('ConfigBtn');
       var oldSwap = host.FindChildTraverse && host.FindChildTraverse('ModeSwapBtn');
-      // Ordering guard (MOUSE -> CAM EDITOR -> CONFIG): if any of the three is missing while a
-      // later one exists, or any pair is out of order, delete them all and rebuild next frame.
-      var badOrder = (!oldMouse && (oldEditor || oldConfig)) || (!oldEditor && oldConfig)
-        || (oldMouse && oldEditor && childIndex(oldMouse) > childIndex(oldEditor))
+      // Ordering guard (CAM EDITOR -> CONFIG): if the first is missing while the second exists,
+      // or the pair is out of order, delete both and rebuild next frame.
+      var badOrder = (!oldEditor && oldConfig)
         || (oldEditor && oldConfig && childIndex(oldEditor) > childIndex(oldConfig));
       if (badOrder) {
-        try { if (oldMouse) oldMouse.DeleteAsync(0); } catch (orderErr1) {}
         try { if (oldEditor) oldEditor.DeleteAsync(0); } catch (orderErr2) {}
         try { if (oldConfig) oldConfig.DeleteAsync(0); } catch (orderErr3) {}
         return;
@@ -942,13 +952,11 @@ R"TLJS(
       if (lpBtn.visible && !lpVis) barTip('');   // no onmouseout fires for a panel that vanishes
       lpBtn.visible = lpVis;
 
-      // Workspace open (Camera Editor hosted OR Config): the standalone MOUSE / CAM EDITOR /
-      // CONFIG buttons collapse into ONE swap button that flips to the OTHER workspace --
+      // Workspace open (Camera Editor hosted OR Config): the standalone CAM EDITOR / CONFIG
+      // buttons collapse into ONE swap button that flips to the OTHER workspace --
       // Config shows "CAM EDITOR" (gold), the editor's Regular Timeline shows "CONFIG" (blue).
-      // The workspaces provide their own mouse toggle (G / inspector button), so the injected
-      // MOUSE button must NOT appear in the bar while either is open.
+      // There is no MOUSE button: CS2's own cameras hand the cursor back after a look-around drag.
       if (hosted || cfgOpenBar) {
-        try { if (oldMouse) oldMouse.visible = false; } catch (hm) {}
         try { if (oldEditor) oldEditor.visible = false; } catch (he) {}
         try { if (oldConfig) oldConfig.visible = false; } catch (hc) {}
         var sb = nativeBtn('ModeSwapBtn', cfgOpenBar ? 'CAM EDITOR' : 'CONFIG', function () {
@@ -962,11 +970,6 @@ R"TLJS(
         return;
       }
       try { if (oldSwap) oldSwap.visible = false; } catch (hsw) {}
-      var mb = nativeBtn('CamCursorBtn', 'MOUSE (G)', function () { cmd('mirv_filmmaker camtl cursor toggle'); });
-      var curOn = !!(st && st.cursor);
-      mb.style.backgroundColor = curOn ? BAR_BTN.mouseOn : BAR_BTN.base;
-      mb.__lbl.style.color = curOn ? '#ffffffff' : S.label;
-      mb.visible = true; // re-show if we hid it for a previous overlay bottom mode
       var cb = nativeBtn('CamEditorBtn', 'CAM EDITOR', function () { cmd('mirv_filmmaker editor toggle'); });
       cb.style.backgroundColor = BAR_BTN.editor;
       cb.__lbl.style.color = S.accent;
@@ -1118,6 +1121,10 @@ R"TLJS(
             $.Schedule(0, function () {
               try {
                 if (!panel || (panel.IsValid && !panel.IsValid())) return;
+                // Re-taken since (a one-frame restore during a seek): clearing now would wipe the
+                // fresh preview transform while __camViewportCss says it is applied, and the HUD
+                // stayed full-size until the preview rect next moved ("VP scale breaks").
+                if (panel.__camViewportAdjusted) return;
                 // Then release every inline override to CS2. Its native demo-controller rule keeps
                 // the lower gameplay HUD above the timeline; leaving transform='none' masks it.
                 panel.style.transformOrigin = null;
@@ -1152,6 +1159,7 @@ R"TLJS(
             $.Schedule(0, function () {
               try {
                 if (!panel || (panel.IsValid && !panel.IsValid())) return;
+                if (panel.__camViewportAdjusted) return; // re-taken since: see restoreHudViewport
                 panel.style.transformOrigin = null;
                 panel.style.transform = null;
                 panel.style.transition = null;
@@ -1422,6 +1430,12 @@ R"TLJS(
     // the keyframe diamonds, which are created BEFORE this and own their clicks;
     // a full-height Slider sits on top of them in hit order and swallows those presses.
     scrub.style.width = TLW + 'px'; scrub.style.height = '24px'; scrub.style.position = '0px 18px 0px';
+    // The band alone was not enough: the Slider's hit area still reached the diamonds, so a click
+    // on one was a scrub and a right-click never opened its shake menu (2026-10-15 log: diamond
+    // clicks arrived as `camtl scrub`, never `camtl select`). Diamonds go ABOVE the Slider in hit
+    // order; diamWrap itself does not hittest, so a click between diamonds still reaches the Slider.
+    try { srow.MoveChildAfter(diamWrap, scrub); } catch (eOrder) {}
+    diamWrap.style.zIndex = '2';
     // rgba(0,0,0,0), NOT S.clear -- this script's theme has no `clear` token, so that wrote
     // `undefined` into a style, which Panorama throws on. The throw aborted the whole panel
     // build, so $.CamTimeline never registered and the bar froze at its build-time
@@ -1558,8 +1572,9 @@ R"TLJS(
       else cmd('mirv_filmmaker camtl scrubpreview ' + tf.toFixed(2));
     });
     $.RegisterEventHandler('SliderReleased', scrub, function (panel, v) {
-      if (st && st.playing) return;
       var t = sliderTick(v, scrubT0, scrubT1);
+      // A click on the bar while the path plays carries playback on from that tick.
+      if (st && st.playing) { if (!graphExpActive) cmd('mirv_filmmaker camtl playfrom ' + t); return; }
       if (graphExpActive) { cmd('mirv_filmmaker scrub release ' + t); cmd('mirv_filmmaker grapheditor playhead release'); }
       else cmd('mirv_filmmaker camtl scrub ' + t);
     });
@@ -1588,30 +1603,25 @@ R"TLJS(
       }
       var camCY = sceneMode ? 9 : 11;
       var sceneCY = 29;
-      // Camera markers (always drawn when present). In SCENE KEYS they stay visible but read-only.
+      // Camera markers (always drawn when present). Clicking one goes to that camera and
+      // right-clicking opens its shake menu on EVERY inspector tab: in SCENE KEYS they used to be
+      // read-only, which read as "clicking the diamonds does nothing" whenever that tab was open.
       if (st.markers) for (var i = 0; i < st.markers.length; i++) (function (i) {
         var x = frac(st.markers[i].tick, t0, t1) * TLW;
         var cx = Math.min(Math.max(x, EDGE), TLW - EDGE);
-        var sel = (!sceneMode && i === st.selected);
+        var sel = (i === st.selected);
         diamond(diamWrap, cx, camCY, DIAM, sel, function () {
-          if (sceneMode) return;
           cmd('mirv_filmmaker camtl select ' + i);
         }, function () {
-          if (sceneMode) return;
           openShakeMenu(i, cx);
         });
-        if (!sceneMode && shakeSettingFor(i)) {
+        if (shakeSettingFor(i)) {
           var d = mk('Panel', diamWrap);
           d.hittest = false;
           d.style.position = (cx - 2).toFixed(1) + 'px ' + (camCY - 2) + 'px 0px';
           d.style.width = '4px'; d.style.height = '4px';
           d.style.borderRadius = '2px';
           d.style.backgroundColor = '#10141aee';
-        }
-        // Dim camera diamonds in scene mode so they read as timing context, not edit targets.
-        if (sceneMode) {
-          // diamond() paints gold/white; overlay a quiet tint by rebuilding with a quieter look
-          // is not available, so leave geometry and rely on the second lane's accent contrast.
         }
       })(i);
       if (!sceneMode) return;
@@ -1749,7 +1759,6 @@ R"TLJS(
       // fixes itself after going in and out" report (2026-08-28).
       if (!raw) { closeShakeMenu(); root.visible = false; setNativeHidden(false); nativeUndock(); applyHudView('full'); restoreHudViewport(); return; }
       try { st = JSON.parse(raw); } catch (e) { return; }
-      publishBarRect();
       // Track the operator's column width before anything lays out against it this frame.
       // A live drag outranks the published width, and hands back once the published value has
       // caught up with it -- clearing the override on the command instead would show one frame
@@ -1937,7 +1946,7 @@ R"TLJS(
       // workspace header carries the MOUSE chip, and Clear All lives on the SELECTED CAMERA card.
       // Docked, this row was three restatements competing with the rows that own them.
       header.visible = !hosted;
-      mouseLbl.text = forcedCur ? 'Mouse: UI  ·  editor cursor forced' : (cur ? 'Mouse: UI  ·  press G to toggle mouse' : 'Mouse: GAME  ·  press G to toggle mouse');
+      mouseLbl.text = forcedCur ? 'Mouse: UI  ·  editor cursor forced' : (cur ? 'Mouse: UI' : 'Mouse: GAME');
       mouseLbl.style.color = cur ? S.accent : S.label;
       // ONE SPEED, THREE BARS. st.timescale is the engine's demo_timescale, pushed by C++
       // (Movie/DemoTimescale.h). This used to read ctx.GetDemoControllerState().fTimeScale, which

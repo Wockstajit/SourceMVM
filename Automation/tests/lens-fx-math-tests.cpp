@@ -280,6 +280,20 @@ static void TestHighlightBoost() {
 	CHECK_NEAR(IsolationRingMean(0.99f, 0.8f), 0.8, 1e-6);    // the darker ring decides
 	CHECK(HighlightBoost(12.0f, 0.9f, HighlightIsolation(0.9f, 0.9f), 20.0f) == 1.0f);           // never whited out
 	CHECK(HighlightIsolation(0.0f, 0.5f) >= 0.0f && HighlightIsolation(0.0f, 0.5f) <= 1.0f);
+
+	// Core: the inside of a lamp's clipped core (its touching pixels are about as bright) lifts; a lone
+	// speck in a sunlit texture does not, however isolated it looks.
+	CHECK_NEAR(HighlightCore(1.0f, 1.0f), 1.0, 1e-6);    // inside a 3+ px core
+	CHECK_NEAR(HighlightCore(1.0f, 0.92f), 1.0, 1e-6);   // core still clipping, a little ragged
+	CHECK_NEAR(HighlightCore(1.0f, 0.62f), 0.0, 1e-6);   // a speck on the measured sunlit wall (median 0.62)
+	CHECK_NEAR(HighlightCore(1.0f, 0.75f), 0.0, 1e-6);   // a speck with a soft edge
+	CHECK(HighlightCore(1.0f, 0.82f) > 0.0f && HighlightCore(1.0f, 0.82f) < 1.0f); // the edge of a core: partly
+	CHECK(HighlightCore(0.0f, 0.0f) >= 0.0f && HighlightCore(0.0f, 0.0f) <= 1.0f);
+	// The reported wash-out: a clipped speck on a ~0.62 wall is "isolated" enough for the full lift, and
+	// only the core test keeps it at its own brightness.
+	CHECK(HighlightIsolation(1.0f, 0.62f) > 0.9f);
+	CHECK(HighlightBoost(6.0f, 1.0f, HighlightIsolation(1.0f, 0.62f) * HighlightCore(1.0f, 0.62f), 20.0f) == 1.0f);
+	CHECK(HighlightBoost(6.0f, 1.0f, HighlightIsolation(1.0f, 0.3f) * HighlightCore(1.0f, 1.0f), 20.0f) > 1000.0f); // a real lamp still lifts
 	// The ring is a fraction of the blur radius, bounded, and follows the resolution.
 	CHECK_NEAR(IsolationRadius(20.0f, 1080.0f), 12.0, 1e-4);
 	CHECK_NEAR(IsolationRadius(100.0f, 1080.0f), 24.0, 1e-4);
@@ -714,7 +728,8 @@ static void TestShaderSource() {
 	CHECK(src.find("min(max(.6 * abs(coc), 2), 24 * dims.y / 1080)") != std::string::npos);
 	CHECK(kIsolationOuter == 1.8f && src.find("ring[k] * rho * 1.8") != std::string::npos);
 	CHECK(src.find("saturate((.95 - (min(acc, accOuter) * .125) / max(peak, 1e-3)) / .25)") != std::string::npos);
-	CHECK(src.find("exp2(stops * iso)") != std::string::npos);
+	CHECK(src.find("exp2(stops * iso * core)") != std::string::npos);
+	CHECK(src.find("saturate((crossMin / max(peak, 1e-3) - .75) / .15)") != std::string::npos); // HighlightCore
 	CHECK(src.find("min(dofC.y * kLiftStopsPerGamma * key * ramp, kMaxLiftStops)") != std::string::npos);
 	CHECK(src.find("kLiftStopsPerGamma = 1.75;") != std::string::npos && src.find("kMaxLiftStops = 15.0;") != std::string::npos);
 	CHECK(src.find("ToLinear(src) * HighlightBoost(p, src, coc)") != std::string::npos);

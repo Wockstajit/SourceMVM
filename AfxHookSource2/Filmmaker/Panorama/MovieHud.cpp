@@ -8,10 +8,10 @@
 #include "../Movie/MovieMode.h"
 #include "../Movie/HudBlackout.h" // F8 blackout hides this card too
 #include "../Movie/CameraBridge.h"
-#include "../Movie/ThirdPersonCamera.h"
 #include "../Cosmetics/CosmeticOverrideSystem.h" // Cosmetics_GetSpectatedWeaponMeshHud (mesh-group HUD readout)
 #include "../Debug/MvmDebugLog.h"        // MvmDebugLog_Active (debug-only mesh HUD gate)
 #include "ConfigHud.h"                     // ConfigHud_Enabled (speed/FOV toast gate)
+#include "WorkspacePreview.h"              // the toast centres on the workspace's game preview
 
 #include "../../DeathMsg.h" // AfxHookSource2_GetPanoramaHudPanel + PanoramaUIPanel offsets + g_CurrentGameCamera
 #include "../../MirvTime.h"
@@ -102,11 +102,13 @@ std::string MovieHud::BuildStateJson() {
 	o << ",\"mode\":\"" << mode.ModeName() << "\"";
 	o << ",\"playing\":" << (playing ? "true" : "false");
 	o << ",\"paused\":" << (paused ? "true" : "false");
-	o << ",\"freecam\":" << (CameraBridge_GetFreeCamEnabled() ? "true" : "false");
-	o << ",\"speed\":" << r1(CameraBridge_GetFreeCamSpeed());
-	o << ",\"thirdperson\":" << ThirdPersonCameraRef().BuildStateJson();
+	// Fly speed of whichever free cam is up: ours, or CS2's own (sv_noclipspeed, Shift+wheel).
+	const bool ownFreeCam = CameraBridge_GetFreeCamEnabled();
+	const double nativeSpeed = !ownFreeCam && mode.GetMode() == MovieMode::Mode::FreeCam ? mode.NativeFreeCamSpeed() : 0.0;
+	const double flySpeed = nativeSpeed > 0.0 ? nativeSpeed : CameraBridge_GetFreeCamSpeed();
+	o << ",\"freecam\":" << (ownFreeCam ? "true" : "false");
+	o << ",\"speed\":" << r1(flySpeed);
 	o << ",\"xray\":" << (mode.GetXray() ? "true" : "false");
-	o << ",\"cursor\":" << (mode.GetCursor() ? "true" : "false");
 	o << ",\"player\":\"\"";
 	o << ",\"ox\":" << r1(g_CurrentGameCamera.origin[0]);
 	o << ",\"oy\":" << r1(g_CurrentGameCamera.origin[1]);
@@ -125,7 +127,11 @@ std::string MovieHud::BuildStateJson() {
 			&& !RenderSessionDriver_WantsChromeHidden() && !HudBlackout_Active();
 		o << ",\"adjust\":{\"seq\":" << seq << ",\"kind\":" << kind << ",\"dir\":" << dir
 			<< ",\"on\":" << (toastOn ? "true" : "false")
-			<< ",\"speed\":" << (std::floor(CameraBridge_GetFreeCamSpeed() * 1000.0 + 0.5) / 1000.0) << "}";
+			<< ",\"speed\":" << (std::floor(flySpeed * 1000.0 + 0.5) / 1000.0);
+		// The workspace's game preview as window fractions, so the toast sits over the picture.
+		float px0 = 0, py0 = 0, px1 = 1, py1 = 1;
+		if (!WorkspacePreviewRef().Active(px0, py0, px1, py1)) { px0 = 0; py0 = 0; px1 = 1; py1 = 1; }
+		o << ",\"area\":[" << px0 << "," << py0 << "," << px1 << "," << py1 << "]}";
 	}
 	if (haveTick) o << ",\"tick\":" << tick;
 	if (haveTime) o << ",\"time\":" << r1(dtime);
@@ -155,9 +161,6 @@ std::string MovieHud::BuildStateJson() {
 }
 
 void MovieHud::RunFrame() {
-	// Keep the director's mode in sync if free cam was toggled via console.
-	MovieModeRef().SyncFromFreeCam(CameraBridge_GetFreeCamEnabled());
-
 	m_bridge.Init(); // resolve engine + RunScript (idempotent)
 
 	// The movie HUD exists ONLY while a demo is actively playing. In the main

@@ -197,6 +197,18 @@ void Reassert(int pass) {
 
 } // namespace
 
+bool EffectsPersistence_SceneActive() {
+	return WorldReady();
+}
+
+bool EffectsPersistence_AllowEnable(const char* what) {
+	if (WorldReady())
+		return true;
+	advancedfx::Warning("mirv_filmmaker: %s cannot be switched on at the main menu. Load a demo first.\n",
+		what ? what : "effects");
+	return false;
+}
+
 bool EffectsPersistence_Keep(const char* group) {
 	const int i = KeepIndex(group);
 	return i < 0 ? true : g_keep[i];

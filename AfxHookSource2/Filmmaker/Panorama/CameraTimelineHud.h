@@ -57,11 +57,9 @@ public:
 	// on the panel root; RunFrame reads it back each frame.
 	bool MenuOpen() const { return m_menuOpen; }
 
-	// CS2's native demo bar on screen (client px), as the JS measured it last frame. False while it
-	// is hidden or not found. Click-to-UI-mode's "is this click on the UI" in regular viewing.
-	bool DemoBarRect(float& x0, float& y0, float& x1, float& y1) const {
-		x0 = m_barX0; y0 = m_barY0; x1 = m_barX1; y1 = m_barY1; return m_barValid;
-	}
+	// The camera CS2's demo-bar camera button shows (0 first person, 1 chase, 2 free cam), -1 when
+	// the label is missing or unrecognised. Read back from the JS each frame.
+	int NativeCameraMode() const { return m_nativeCameraMode; }
 
 	// WndProc/input thread: accumulate notches. Main thread: DispatchWheel drains them into the
 	// panel's JS. Same split, and the same reason, as ConfigHud's channel.
@@ -84,9 +82,8 @@ private:
 	short m_symState = -1;
 	short m_symMenuOpen = -1;
 	bool m_menuOpen = false;        // the keyframe menu is up and owns the wheel
-	short m_symBarRect = -1;        // "barrect" -- the JS publishes the native demo bar's box
-	bool m_barValid = false;
-	float m_barX0 = 0, m_barY0 = 0, m_barX1 = 0, m_barY1 = 0;
+	short m_symCamMode = -1;        // "cammode" -- the JS publishes CS2's camera button label
+	int m_nativeCameraMode = -1;
 	int m_pendingWheel = 0;         // guarded by m_wheelMutex
 	std::mutex m_wheelMutex;
 	void DispatchWheel();           // main thread only

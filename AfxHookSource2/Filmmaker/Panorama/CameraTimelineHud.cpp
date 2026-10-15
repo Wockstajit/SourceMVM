@@ -95,7 +95,7 @@ bool CameraTimelineHud::BuildIfNeeded() {
 		return false;
 	m_symState = m_bridge.MakeSymbol("state");
 	m_symMenuOpen = m_bridge.MakeSymbol("menuopen");
-	m_symBarRect = m_bridge.MakeSymbol("barrect");
+	m_symCamMode = m_bridge.MakeSymbol("cammode");
 	m_root = FindRoot();
 	m_built = (m_root != nullptr);
 	m_lastState.clear();
@@ -105,7 +105,7 @@ bool CameraTimelineHud::BuildIfNeeded() {
 }
 
 void CameraTimelineHud::Teardown() {
-	m_barValid = false;
+	m_nativeCameraMode = -1;
 	if (m_built && m_hudPanel && m_bridge.ContextPanel()) {
 		// Hand CS2's own demo bar back FIRST. Our dock writes width/horizontalAlign/background
 		// onto native panels; deleting our root does not revert them, so skipping this orphans
@@ -378,13 +378,7 @@ void CameraTimelineHud::RunFrame() {
 	// decides who the wheel belongs to (MovieMode::OnMouseWheel).
 	m_menuOpen = m_root
 		&& m_bridge.GetAttributeString(m_root, m_symMenuOpen, "0") == "1";
-	{
-		const std::string bar = m_bridge.GetAttributeString(m_root, m_symBarRect, "");
-		float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-		m_barValid = !bar.empty() && 4 == sscanf_s(bar.c_str(), "%f %f %f %f", &x0, &y0, &x1, &y1)
-			&& x1 > x0 && y1 > y0;
-		if (m_barValid) { m_barX0 = x0; m_barY0 = y0; m_barX1 = x1; m_barY1 = y1; }
-	}
+	m_nativeCameraMode = m_root ? atoi(m_bridge.GetAttributeString(m_root, m_symCamMode, "-1").c_str()) : -1;
 
 	// After render(), so the list it scrolls has this frame's layout.
 	DispatchWheel();

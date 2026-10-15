@@ -102,6 +102,7 @@ bool CameraEditorHud::BuildIfNeeded() {
 	m_symRenderWorkspace = m_bridge.MakeSymbol("renderworkspace");
 	m_symRenderHit = m_bridge.MakeSymbol("renderhit");
 	m_symCustomizeOpen = m_bridge.MakeSymbol("customizeopen");
+	m_symPopupOpen = m_bridge.MakeSymbol("popupopen");
 	m_symTextCapture = m_bridge.MakeSymbol("textcapture");
 	m_root = FindRoot();
 	m_built = (m_root != nullptr);
@@ -125,6 +126,7 @@ void CameraEditorHud::Teardown() {
 	m_hudPanel = nullptr;
 	m_lastState.clear();
 	m_customizeOpen = false; // don't leave input permanently swallowed if the editor tears down mid-modal
+	m_popupOpen = false;
 	m_textCapture = false;   // ...same for a focused text field
 }
 
@@ -192,7 +194,7 @@ void CameraEditorHud::OnExit() {
 	// SetFreeCamEnabled(false): if the user was already flying in free cam before opening the
 	// editor, that is the mode they should get back, not first person.
 	if (!ConfigHud_Enabled())
-		MovieModeRef().SetMode(MovieModeRef().GetMode(), /*keepCursor*/ true);
+		MovieModeRef().SetMode(MovieModeRef().GetMode());
 
 	// Do NOT restore the floating movie-director card when Config is taking over. Opening Config
 	// closes the editor, and RunMainThreadFrame runs ConfigHud BEFORE CameraEditorHud: Config's
@@ -681,6 +683,7 @@ void CameraEditorHud::DispatchCustomizeInput() {
 // so this naturally reads false (no attribute to read) whenever the editor itself is closed.
 void CameraEditorHud::UpdateCustomizeModalState() {
 	m_customizeOpen = m_root && (m_bridge.GetAttributeString(m_root, m_symCustomizeOpen, "0") == "1");
+	m_popupOpen = m_root && (m_bridge.GetAttributeString(m_root, m_symPopupOpen, "0") == "1");
 	// Same contract for the render workspace's typed fields. Cleared automatically whenever the
 	// workspace tears down, because m_root goes null and there is no attribute left to read.
 	m_textCapture = m_root && (m_bridge.GetAttributeString(m_root, m_symTextCapture, "0") == "1");

@@ -9,11 +9,38 @@
 #include <cstdint>
 #include <cstring>
 namespace Filmmaker::Environment {
-// A basename load can reuse CS2's already loaded, older compiler even with
+// CS2's tools mode (`-tools`, the launcher's Dev mode) verifies every DLL loaded into the process,
+// and a System32 d3dcompiler_47.dll stops it on a modal "File verification failure. File in wrong
+// directory" -- the game sits frozen behind the dialog a few seconds after launch, which reached us
+// as "CS2 hung" reports. In tools mode the compiler is the one CS2 ships next to cs2.exe.
+inline bool EnvironmentShaderToolsMode() {
+    const wchar_t *line = GetCommandLineW();
+    for (const wchar_t *p = line ? wcsstr(line, L"-tools") : nullptr; p; p = wcsstr(p + 1, L"-tools")) {
+        const bool startOk = p == line || p[-1] == L' ' || p[-1] == L'\t' || p[-1] == L'"';
+        const wchar_t end = p[6];
+        if (startOk && (end == 0 || end == L' ' || end == L'\t' || end == L'"'))
+            return true;
+    }
+    return false;
+}
+// Outside tools mode a basename load can reuse CS2's already loaded, older compiler even with
 // LOAD_LIBRARY_SEARCH_SYSTEM32. Resolve the full path so tests and the hook
 // use the same compiler without replacing any game DLL.
 inline HMODULE EnvironmentShaderCompiler() {
     static HMODULE module = []() -> HMODULE {
+        if (EnvironmentShaderToolsMode()) {
+            wchar_t exe[MAX_PATH];
+            const DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+            if (!n || n >= MAX_PATH)
+                return nullptr;
+            std::wstring path(exe, n);
+            const size_t slash = path.find_last_of(L"\\/");
+            if (slash == std::wstring::npos)
+                return nullptr;
+            path.resize(slash + 1);
+            path += L"d3dcompiler_47.dll";
+            return LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+        }
         wchar_t directory[MAX_PATH];
         UINT length = GetSystemDirectoryW(directory, MAX_PATH);
         if (!length || length >= MAX_PATH)

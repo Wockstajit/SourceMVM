@@ -208,18 +208,14 @@ const char* ShakeCamModeName(ShakeCamMode m) {
 	case ShakeCamMode::Attach:      return "Attach";
 	case ShakeCamMode::FreeCam:     return "FreeCam";
 	case ShakeCamMode::CameraPath:  return "CameraPath";
-	case ShakeCamMode::ThirdPerson: return "ThirdPerson";
 	default:                        return "Other";
 	}
 }
 
 bool ModeAllowed(ShakeCamMode mode) {
-	// ThirdPerson was added after the fact: the orbit camera pushed INSIDE the spectated pawn
-	// is used as a first-person-style shot (in-eye body + viewmodel), and gating the shake off
-	// there made the shake read as broken in exactly the view it matters most in. Free cam
-	// and baked paths stay excluded -- those are hand-authored moves.
-	return mode == ShakeCamMode::Pov || mode == ShakeCamMode::Attach
-		|| mode == ShakeCamMode::ThirdPerson;
+	// CS2's own chase and free cameras are not overrides, so they arrive here as Pov. Our free
+	// cam and baked paths stay excluded -- those are hand-authored moves.
+	return mode == ShakeCamMode::Pov || mode == ShakeCamMode::Attach;
 }
 
 // ---- game-event fan-in ---------------------------------------------------------------------

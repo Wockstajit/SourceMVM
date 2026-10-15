@@ -165,6 +165,7 @@ R"CFJS(
     // clipped beside the real one as a stray half-glyph.
     var settingsPopup = mvmEditorSettingsPopup(ctx, {
       id: 'ConfigEditorSettingsRoot',        // deleted by ConfigHud's teardown script, by id
+      publish: root,
       // Just above this band and left of the inspector -- the band's own right edge is the
       // inspector's left edge, so the card rises directly off the gear that opened it.
       marginRight: INSPECTOR_W + 16,
@@ -470,10 +471,8 @@ R"CFJS(
       return mvmChromeChip(head, function (parent, t, f) { return btn(parent, t, f, S.label); },
         paintBtn, text, onClick);
     }
-    // MOUSE: UI/GAME is a DEMO control and is hidden on the live Insert panel (see render()).
-    // `camtl cursor` is the demo camera timeline's cursor; the live panel owns its own flag and
-    // routing it here did nothing but flip demo state. G still toggles the live cursor directly.
-    var mouseBtn = chromeChip('MOUSE: UI · G', function () { cmd('mirv_filmmaker camtl cursor toggle'); });
+    // No MOUSE: UI/GAME chip: in a demo, where you click decides it (Movie/UiClickMath.h) -- the
+    // preview is GAME, everything else is UI.
     // Game-UI visibility: how much of CS2's own HUD shows behind the panel. Hide All = clean
     // plate, In-Game = radar + HP/ammo with no observer panel, Show All = the full spectator HUD.
     var HUD_CYCLE = [['hidden', 'Hide All'], ['game', 'In-Game'], ['full', 'Show All']];
@@ -863,16 +862,6 @@ R"CFJS(
         // isOpen() -- a per-frame closer that fires unconditionally is its own bug (it stomped the
         // editor's dropdowns once already).
         if ((!cur || !st.demo) && settingsPopup.isOpen()) settingsPopup.close(cur ? 'noDemo' : 'noCursor');
-        // The live Insert panel does not show MOUSE: UI/GAME. It is a demo control (it drives the
-        // camera timeline's cursor), and on a live map the panel manages its own cursor -- so the
-        // button was both misleading and inert there. Game UI / hide-HUD stays in BOTH panels.
-        mouseBtn.visible = !!st.demo;
-        if (st.demo) {
-          // Label only -- no accent fill. The words already carry the state, and the fill
-          // is what made this chip read as a different control from the editor's (see
-          // WorkspaceChromeJs.h).
-          mouseBtn.__lbl.text = cur ? 'MOUSE: UI · G' : 'MOUSE: GAME · G';
-        }
         // Live map only, and only while the panel holds the UI cursor: G hands the mouse back to
         // the game, and that has to release the deny-input claim too or aiming stays broken.
         setLiveMouseCapture(!st.demo && cur);

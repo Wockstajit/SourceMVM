@@ -78,7 +78,6 @@ enum class ShakeCamMode {
 	Attach,       // FollowCamera attach preview
 	FreeCam,      // mirv free cam -- hand-flown, never shaken
 	CameraPath,   // baked camera path / cam import -- hand-authored, never shaken
-	ThirdPerson,  // third-person orbit camera
 	Other         // Rust hook or anything else that claimed the pose
 };
 

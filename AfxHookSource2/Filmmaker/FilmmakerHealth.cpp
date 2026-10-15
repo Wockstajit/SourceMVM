@@ -5,6 +5,7 @@
 #include "Debug/MvmDebugLog.h"     // MvmDebugLog_*
 #include "Cosmetics/CosmeticOverrideSystem.h"
 #include "Movie/ParticleFx.h"
+#include "Config/EffectsPersistence.h" // SceneActive: the particle hook waits for a demo
 #include "../SchemaSystem.h"                // g_clientDllOffsets, g_cosmeticsOffsetsOk
 #include "../RenderSystemDX11Hooks.h"       // RenderHookCost_Sample: the detours' own frame cost
 #include "Community/BugReport.h"            // BugReport_Record: the always-on recorder
@@ -134,7 +135,9 @@ void Filmmaker_RunHealthCommand(int argc, advancedfx::ICommandArgs* args, const 
 	// -- particle FX hook ---------------------------------------------------------------------
 	advancedfx::Message("  particle hook installed      : %s   (fx enabled: %s)\n",
 		YesNo(fxInstalled), fx.Enabled() ? "yes" : "no");
-	if (fx.Enabled() && !fxInstalled) {
+	if (fx.Enabled() && !fxInstalled && !EffectsPersistence_SceneActive()) {
+		advancedfx::Message("  (the hook arms once a demo or test map loads; effects never run at the main menu)\n");
+	} else if (fx.Enabled() && !fxInstalled) {
 		++problems;
 		advancedfx::Warning(
 			"  ^ FX is enabled but the particle hook is NOT installed, so every swap falls\n"

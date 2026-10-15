@@ -175,14 +175,25 @@ float FocusPS(VOut i) : SV_Target {
 // The frame is tonemapped, so a lamp is only 1.0 and would spread into a faint ghost. Small bright
 // lights are lifted by dofC.y STOPS at pure white here, at full resolution and BEFORE the mip chain
 // is built (a lift after the mips tests a lamp already averaged with its dark neighbours). Mirrors
-// HighlightKey / HighlightFocusRamp / IsolationRadius / HighlightIsolation / HighlightBoost in
-// LensFxMath.h.
+// HighlightKey / HighlightFocusRamp / IsolationRadius / HighlightIsolation / HighlightCore /
+// HighlightBoost in LensFxMath.h.
 float HighlightBoost(int2 p, float3 src, float coc) {
     float peak = max(src.r, max(src.g, src.b));
     float key = pow(saturate(peak), 6);
     float ramp = saturate((abs(coc) - .5) / 2.5);
     float stops = min(dofC.y * kLiftStopsPerGamma * key * ramp, kMaxLiftStops);
     if (stops < .02) return 1;
+    // Core: only the inside of a light's clipped core is lifted, never a lone texture speck (a sunlit
+    // wall's specks washed the whole blur white). Darkest of the four touching pixels vs this one.
+    static const int2 cross4[4] = { int2(1,0), int2(-1,0), int2(0,1), int2(0,-1) };
+    float crossMin = peak;
+    [unroll] for (int j = 0; j < 4; ++j) {
+        int2 q = clamp(p + cross4[j], int2(0, 0), int2(dims.xy) - 1);
+        float3 c = colorTex.Load(int3(q, 0)).rgb;
+        crossMin = min(crossMin, max(c.r, max(c.g, c.b)));
+    }
+    float core = saturate((crossMin / max(peak, 1e-3) - .75) / .15);
+    if (core <= 0) return 1;
     // Isolation: a light on a dark surround counts, a lit wall or the sky (as bright as its ring) does not.
     float rho = min(max(.6 * abs(coc), 2), 24 * dims.y / 1080);
     static const float2 ring[8] = { float2(1,0), float2(-1,0), float2(0,1), float2(0,-1),
@@ -197,7 +208,7 @@ float HighlightBoost(int2 p, float3 src, float coc) {
         accOuter += max(c2.r, max(c2.g, c2.b));
     }
     float iso = saturate((.95 - (min(acc, accOuter) * .125) / max(peak, 1e-3)) / .25);
-    return exp2(stops * iso);
+    return exp2(stops * iso * core);
 }
 
 // ---- per-pixel circle of confusion, colour moved to linear light ---------------------------

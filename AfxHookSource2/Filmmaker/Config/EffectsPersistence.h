@@ -46,6 +46,16 @@ void EffectsPersistence_OnLevelInit();
 // Main thread, from Filmmaker::RunFrame.
 void EffectsPersistence_RunFrame();
 
+// True while a scene the EFFECTS tab may act on is up: a demo playing or paused, or a live
+// mvm_test map. False at the main menu and on CS2's UI maps (ui/xpshop_item), which report a real
+// level name but are no place for a demo's particles, lighting or sky. Every effect module gates
+// on this one predicate, so "no effects at the main menu" has a single definition.
+bool EffectsPersistence_SceneActive();
+
+// For command handlers about to switch an effect ON: false (and a warning naming `what`) at the
+// main menu. Turning effects off and resets stay allowed there.
+bool EffectsPersistence_AllowEnable(const char* what);
+
 // mirv_filmmaker effects keep <group> on|off|toggle
 // mirv_filmmaker effects reset camera|effects|ragdolls -- same reset as each Config footer
 void EffectsPersistence_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);

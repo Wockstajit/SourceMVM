@@ -400,9 +400,10 @@ R"MHJS(
     mkSep(bodyLeft);
     var secControls = mkSection(bodyLeft);
     mkControl(secControls, 'F8',      'Show / hide this panel');
-    mkControl(secControls, 'Scroll',  'Cycle camera mode');
+    mkControl(secControls, 'Scroll',  'First person / Chase / Free cam');
+    mkControl(secControls, 'Hold click', 'Look around (Chase, Free cam)');
     mkControl(secControls, '← / →', 'Skip 5s');
-    mkControl(secControls, 'X / Z',   'Roll camera (free cam)');
+    mkControl(secControls, 'X',       'X-ray on / off');
     // --- camera-marker / dolly path (BO2-style) ---
     mkControl(secControls, 'K',       'Place camera marker');
     mkControl(secControls, 'J',       'Play / stop camera path');
@@ -415,6 +416,9 @@ R"MHJS(
     var hostAttr = root; // state JSON is set on the #MovieHudRoot container by C++
 
     var api = {};
+)MHJS"
+// Split for MSVC's ~16 KB string literal cap (C2026), as above.
+R"MHJS(
     // ---- speed / FOV toast ----------------------------------------------------------------
     // A quiet pill under the top scoreboard: which value the wheel just changed and where it is
     // now. Its own panel beside #MovieHudRoot, so hiding the director card (F8) never hides the
@@ -423,8 +427,7 @@ R"MHJS(
     var toast = $.CreatePanel('Panel', ctx, 'MvmCamToast', {});
     toast.hittest = false;
     var ts = toast.style;
-    ts.horizontalAlign = 'center'; ts.verticalAlign = 'top';
-    ts.marginTop = '17%';
+    ts.horizontalAlign = 'left'; ts.verticalAlign = 'top';
     ts.flowChildren = 'right';
     ts.paddingTop = '8px'; ts.paddingBottom = '8px'; ts.paddingLeft = '16px'; ts.paddingRight = '16px';
     ts.backgroundColor = 'rgba(10,14,20,0.72)';
@@ -456,9 +459,21 @@ R"MHJS(
       if (t.indexOf('.') >= 0) t = t.replace(/0+$/, '').replace(/\.$/, '');
       return t;
     }
+    // Centred across the game picture -- the workspace preview while Camera Editor / Config /
+    // Render is open (a.area, window fractions), the whole window otherwise -- 17% down it.
+    function placeToast(a) {
+      var r = a.area || [0, 0, 1, 1];
+      var sx = ctx.actualuiscale_x || 1, sy = ctx.actualuiscale_y || 1;
+      var w = (ctx.actuallayoutwidth || 0) / sx, h = (ctx.actuallayoutheight || 0) / sy;
+      var tw = (toast.actuallayoutwidth || 0) / sx;
+      if (w <= 0 || h <= 0) return;
+      ts.marginLeft = Math.round((r[0] + r[2]) / 2 * w - tw / 2) + 'px';
+      ts.marginTop = Math.round((r[1] + (r[3] - r[1]) * 0.17) * h) + 'px';
+    }
     function showToast(s) {
       var a = s.adjust;
       if (!a) return;
+      placeToast(a);
       if (toastSeen < 0) { toastSeen = a.seq; return; } // a fresh panel shows nothing old
       if (a.seq === toastSeen) return;
       toastSeen = a.seq;

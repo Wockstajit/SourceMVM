@@ -71,6 +71,8 @@ public:
 	void PushChar(unsigned charCode);
 	void PushKey(const char* name); // a named shortcut for the panel's JS ($.ConfigHud.key)
 	bool TextCaptureActive() const { return m_textCapture; }
+	// The Editor Settings fly-out is up: its full-screen overlay takes every click, preview included.
+	bool PopupOpen() const { return m_popupOpen; }
 	bool Enabled() const { return m_enabled; }
 
 	std::string DebugStateJson() { return BuildStateJson(); }
@@ -108,6 +110,7 @@ private:
 	short m_symState = -1;
 	short m_symPreviewRect = -1;
 	short m_symTextCapture = -1;
+	short m_symPopupOpen = -1;     // "popupopen" -- EditorSettingsPopupJs.h publishes its overlay
 	// Last preview rect parsed from the JS-published "previewrect" (normalised window fractions).
 	bool m_previewValid = false;
 	bool m_demoScaleActive = false;
@@ -118,6 +121,7 @@ private:
 	Context m_context = Context::Demo; // latched in OnEnter, never re-read per frame
 	bool m_liveCursor = false;         // live panel's own UI-cursor flag (demo uses the timeline's)
 	bool m_textCapture = false;
+	bool m_popupOpen = false;
 	bool m_prevMovieHud = false; // movie-director card visibility to restore on exit
 	bool m_povReady = false;     // debounced spectated-player-available flag
 	int m_povReadyHold = 0;      // frames the current reading has held steady
@@ -152,6 +156,7 @@ void ConfigHud_ToggleLiveCursor();
 // physical keys are swallowed before they can also drive demo playback.
 void ConfigHud_PushChar(unsigned charCode);
 bool ConfigHud_TextCaptureActive();
+bool ConfigHud_PopupOpen(); // Config's Editor Settings fly-out is up
 // Editing shortcuts handed to the panel's JS, which owns the selection they act on
 // ("delete", "duplicate"). Input thread.
 void ConfigHud_PushKey(const char* name);

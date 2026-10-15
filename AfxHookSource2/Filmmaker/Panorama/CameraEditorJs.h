@@ -267,6 +267,7 @@ R"EDJS(
     // deletes by id.
     var settingsPopup = mvmEditorSettingsPopup(ctx, {
       id: 'CamEditorSettingsRoot',
+      publish: root,
       marginBottom: BOTTOM_H + 16,
       accent: S.freeze,          // Editor Settings owns the theme BLUE, not the editor's gold
       debugTag: 'camsettings',
@@ -540,7 +541,8 @@ R"EDJS(
       return mvmChromeChip(head, function (parent, t, f) { return btn(parent, t, f, S.label); },
         btnVisual, text, onClick);
     }
-    var mouseBtn = edChip('MOUSE: UI · G', function () { cmd('mirv_filmmaker camtl cursor toggle'); });
+    // No MOUSE: UI/GAME chip: where you click decides it (Movie/UiClickMath.h). The preview is
+    // GAME, everything else is UI.
     // Exit fully closes the editor and restores the native CS2 demo bar. The bottom-panel switch
     // (Camera Timeline / Graph) lives in the persistent bottom tab bar, not here.
     var exitBtn = edChip('ESC EXIT', function () { cmd('mirv_filmmaker editor close'); });
@@ -1045,8 +1047,6 @@ R"EDJS(
       inspector.hittest = cur;
       backdrop.hittest = cur;
       tabBar.hittest = cur;
-      // Label only -- no accent fill; matches the CONFIG panel and the original design.
-      mouseBtn.__lbl.text = cur ? 'MOUSE: UI · G' : 'MOUSE: GAME · G';
 
       // Customize button: always visible while the editor is open so the player can always
       // inspect/change weapon skins and loadout regardless of the free-cam state. The modal

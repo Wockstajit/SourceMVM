@@ -24,12 +24,6 @@ namespace Filmmaker {
 
 namespace {
 
-bool RegularCursorToggleAllowed() {
-	using Mode = Filmmaker::MovieMode::Mode;
-	const Mode mode = Filmmaker::MovieModeRef().GetMode();
-	return mode == Mode::ThirdPerson || mode == Mode::FreeCam;
-}
-
 void PlayCameraTimeline(Filmmaker::CameraPath& cp) {
 	Filmmaker::FollowCameraRef().StopPreview("camera path started");
 	if (Filmmaker::CameraEditor_Active())
@@ -81,7 +75,7 @@ void CameraTimeline_RunCommand(int argc, advancedfx::ICommandArgs* args, const c
 			"%s camtl undo - undo the last curve value/retime edit (Ctrl+Z).\n"
 			"%s camtl ease <i> none|in|out|inout  |  speed <i> <0.2..1.0>.\n"
 			"%s camtl interp linear|cubic|cycle.\n"
-			"%s camtl cursor on|off|toggle - regular UI-mouse mode (third-person/freecam; forced on while editor is open).\n"
+			"%s camtl cursor on|off|toggle - UI-mouse mode in the Camera Editor and Config.\n"
 			"%s camtl clear - remove ALL keyframes.\n"
 			"%s camtl eval <panorama js>.\n",
 			cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
@@ -131,6 +125,11 @@ void CameraTimeline_RunCommand(int argc, advancedfx::ICommandArgs* args, const c
 	else if (0 == _stricmp(a, "playtest")) {
 		Filmmaker::FollowCameraRef().StopPreview("camera path started");
 		cp.PlayFromEditor();
+	}
+	else if (0 == _stricmp(a, "playfrom")) { // a timeline click during playback: carry on from there
+		if (argc < 4) { advancedfx::Warning("usage: %s camtl playfrom <tick>\n", cmd); return; }
+		Filmmaker::FollowCameraRef().StopPreview("camera path started");
+		cp.PlayFromEditor(atoi(a3));
 	}
 	else if (0 == _stricmp(a, "playtimeline")) {
 		Filmmaker::FollowCameraRef().StopPreview("camera path started");
@@ -198,19 +197,12 @@ void CameraTimeline_RunCommand(int argc, advancedfx::ICommandArgs* args, const c
 		advancedfx::Message("mirv_filmmaker: camera timeline HUD toggle is disabled.\n");
 	}
 	else if (0 == _stricmp(a, "cursor")) {
-		// In Camera Editor Mode the free cam is always on and the cursor is the user's
-		// way to flip between clicking the inspector and flying, so allow it regardless
-		// of the spectator mode gate.
-		// The CONFIG panel counts too, and its absence here is why G could not hand the demo
-		// panel the mouse. On a first-person POV none of the other conditions hold, so the
-		// toggle was refused -- and the refusal path FORCES THE CURSOR OFF, so G could only
-		// ever take the mouse away, never give it back, leaving the sliders unclickable.
-		// Same stale-gate bug as the live Insert panel: the only non-editor entry here used to be
-		// the since-removed TestHud panel.
-		if (!tl.EditorHosted() && !RegularCursorToggleAllowed()
-			&& !ConfigHud_Enabled()) {
+		// UI-mouse mode belongs to the Camera Editor and Config workspaces, where the cursor flips
+		// between clicking the panel and flying the free cam. Plain demo viewing has none: CS2's own
+		// cameras give the cursor back by themselves when a look-around drag ends.
+		if (!tl.EditorHosted() && !ConfigHud_Enabled()) {
 			tl.SetCursor(false);
-			advancedfx::Message("mirv_filmmaker: cursor toggle is available in third-person/freecam.\n");
+			advancedfx::Message("mirv_filmmaker: the UI mouse is only used in the Camera Editor and Config.\n");
 			return;
 		}
 		if (tl.CursorForced()) {
