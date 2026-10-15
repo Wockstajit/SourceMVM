@@ -1,6 +1,6 @@
 # RenderDoc debug bridge
 
-This folder is development tooling. `SourceMvmRenderDocBridge.dll` is not linked into or installed with `AfxHookSource2.dll`, the launcher package, or the full Source-MVM build.
+This folder is development tooling. `SourceMvmRenderDocBridge.dll` is not linked into or installed with `AfxHookSource2.dll`, the launcher package, or the full SOURCE:MVM build.
 
 The bridge uses RenderDoc's official runtime application API. The API header and its MIT license come from a sparse checkout of `https://github.com/baldurk/renderdoc` under the ignored `Automation/output/renderdoc-src/` folder.
 

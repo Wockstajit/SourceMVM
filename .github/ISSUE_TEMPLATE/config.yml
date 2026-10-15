@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/Wockstajit/Source-MVM/security/advisories/new
+    url: https://github.com/Wockstajit/SourceMVM/security/advisories/new
     about: Report privately. Do not open a public issue for a vulnerability.
   - name: Contributing guide
-    url: https://github.com/Wockstajit/Source-MVM/blob/main/CONTRIBUTING.md
+    url: https://github.com/Wockstajit/SourceMVM/blob/main/CONTRIBUTING.md
     about: How to contribute, including the AI-assisted contribution policy.

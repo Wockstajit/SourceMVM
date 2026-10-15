@@ -2,7 +2,8 @@
 
 The public SourceMVM repository (`Wockstajit/SourceMVM`) holds the source, the website
 (`Website/`, deployed by `.github/workflows/pages.yml`) and the release downloads. Development
-happens in the private repository (`Wockstajit/Source-MVM`). Its history is never published.
+happens in this same repository. The earlier private repository's history was never published and
+is not part of it.
 
 ## Versions
 
@@ -31,28 +32,21 @@ Launchers from 0.1.0 onward use this path. Launchers before 0.1.9 also ignore ru
 
 ## Publishing the source to SourceMVM
 
-The public `main` carries the source tree, one commit per publication. Each commit is a snapshot of
-the private working tree, made on top of the public `main`'s current tip. That keeps the public
-history linear and needs no force-push, and no private commit is ever an ancestor.
+This repository is the only one. Source reaches `main` through reviewed pull requests, and a release
+is a tag on a reviewed `main` commit. There are no snapshot commits and no second repository. The
+history of the earlier private repository was never published, and it is never fetched or pushed here.
 
 1. Make the tree publishable first. Game-derived and third-party material stays out unless its
    redistribution is cleared (FX donors and compiled packs, Valve fonts, sounds and Panorama art,
    other people's songs), along with leaked or decompiled third-party code and anything with a
    personal path, address or secret. `node Automation/verify/check-repo-policy.mjs --scan` must
    report no findings. The maintainer keeps a private readiness checklist beside this doc.
-2. Snapshot the working tree into a temporary index, so `.gitignore` decides what goes in and the
-   real index is untouched:
-   `GIT_INDEX_FILE=<tmp> git add -A`, then `GIT_INDEX_FILE=<tmp> git write-tree`.
-   List the snapshot (`git ls-tree -r --name-only <tree>`) and confirm that no `FX/sources/`,
-   `FX/compiled/`, `FX/death-animations/`, third-party osu! songs, `public/fonts/`, `public/sounds/`,
-   `public/panorama/` or `reference/` path is in it.
-3. Fetch the public `main` and make the commit with `git commit-tree <tree> -p <public main tip>`.
-   Author and committer are `Wockstajit <164069541+Wockstajit@users.noreply.github.com>`. Never
-   use a personal address, and add no co-author or tool trailers.
-4. Push that commit to the public `main` as a fast-forward. Never force-push it, and never push
-   `--all`, `--mirror` or `--tags`: those would publish private branches, tags and history.
-5. Push only the new release tag, `v<version>`, pointing at that commit.
-6. Git LFS objects (the osu! skin, the README trailer) upload with the push. Confirm on GitHub that
+2. Merge the change into `main` through a pull request with a green `ci-gate`. Commits use the
+   noreply author `Wockstajit <164069541+Wockstajit@users.noreply.github.com>`, never a personal
+   address, and carry no co-author or tool trailers.
+3. Create the release tag `v<version>` on the merged `main` commit and push only that tag. Never push
+   `--all`, `--mirror` or `--tags`, never move a published tag, and never force-push `main`.
+4. Git LFS objects (the osu! skin, the README trailer) upload with the push. Confirm on GitHub that
    an LFS file shows its real size, not a pointer.
 
 GitHub Pages must use **GitHub Actions** as its source (Settings > Pages); `pages.yml` deploys
@@ -141,6 +135,10 @@ Create a draft release for the new version, then upload only these files:
 - `latest.yml`
 - `AfxHookSource2.dll`, the same hook the installer bundles (`build/source2-release/bin/x64/`),
   for people who inject it themselves. The launcher ignores it.
+- `SourceMovieMaker-Portable-<version>.zip`, from `npm run package:portable-zip` after
+  `package:bundled`. Unzip and run, nothing is installed. It is not in `latest.yml`, so the updater
+  never offers it, and the website links only the Complete-Setup exe. A portable launcher cannot
+  replace itself: it tells the user to download the new zip or the setup exe.
 - `SHA256SUMS.txt`, regenerated for exactly these files. The packaging step can leave a stale one
   in `release\` from an older version; never upload that.
 

@@ -295,7 +295,7 @@ a release or tag just because GitHub marks it stale.
 - **Feature requests.** Describe the user problem, the proposal, a sample workflow, the tradeoffs, and
   whether an existing feature already covers it.
 - **Security issues.** Report them privately through
-  [GitHub Security Advisories](https://github.com/Wockstajit/Source-MVM/security/advisories/new), not in a
+  [GitHub Security Advisories](https://github.com/Wockstajit/SourceMVM/security/advisories/new), not in a
   public issue. Keep exploit details and secrets out of public tickets. See [SECURITY.md](../../SECURITY.md).
 - **PR reviews.** Focus on evidence and behavior. Critique the code, not the contributor.
 - **Scope.** Avoid unrelated changes. Apply labels consistently. Close duplicates with a reference. Never

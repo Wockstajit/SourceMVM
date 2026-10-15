@@ -6,8 +6,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Wockstajit/Source-MVM/releases"><img src="https://img.shields.io/badge/Download-Releases-2ea44f?style=for-the-badge&logo=github" alt="Download releases"></a>
-  <a href="https://github.com/Wockstajit/Source-MVM/issues/new/choose"><img src="https://img.shields.io/badge/Report%20an%20Issue-d73a4a?style=for-the-badge&logo=github" alt="Report an issue"></a>
+  <a href="https://github.com/Wockstajit/SourceMVM/releases"><img src="https://img.shields.io/badge/Download-Releases-2ea44f?style=for-the-badge&logo=github" alt="Download releases"></a>
+  <a href="https://github.com/Wockstajit/SourceMVM/issues/new/choose"><img src="https://img.shields.io/badge/Report%20an%20Issue-d73a4a?style=for-the-badge&logo=github" alt="Report an issue"></a>
   <a href="https://github.com/sponsors/Wockstajit"><img src="https://img.shields.io/badge/Sponsor-db61a2?style=for-the-badge&logo=githubsponsors" alt="Sponsor"></a>
 </p>
 
@@ -89,15 +89,15 @@ VAC-protected servers.
 
 ## Getting started
 
-**Players:** download the latest build from [Releases](https://github.com/Wockstajit/Source-MVM/releases),
+**Players:** download the latest build from [Releases](https://github.com/Wockstajit/SourceMVM/releases),
 keep Steam open and signed in, then launch CS2 through the SOURCE:MVM launcher.
 
 **Developers:** clone the repository with Git LFS and submodules, then build:
 
 ```batch
 git lfs install
-git clone --recurse-submodules https://github.com/Wockstajit/Source-MVM.git
-cd Source-MVM
+git clone --recurse-submodules https://github.com/Wockstajit/SourceMVM.git
+cd SourceMVM
 build.bat
 ```
 
@@ -116,7 +116,7 @@ Bug reports, fixes, documentation and feature ideas are welcome. Read
 [CONTRIBUTING.md](CONTRIBUTING.md) and the [GitHub workflow policy](Docs/setup/git-workflow.md)
 first. AI-assisted contributions are welcome if you disclose them and test your changes.
 
-To report a security issue, use [GitHub Security Advisories](https://github.com/Wockstajit/Source-MVM/security/advisories/new)
+To report a security issue, use [GitHub Security Advisories](https://github.com/Wockstajit/SourceMVM/security/advisories/new)
 instead of a public issue. See [SECURITY.md](SECURITY.md).
 
 ## Safety

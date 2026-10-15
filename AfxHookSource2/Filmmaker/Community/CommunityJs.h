@@ -25,7 +25,7 @@ inline const char* kCommunityJs = R"CMJS(
   // HC Tracker's eye, compiled into our FX pack (FX/ui -> FX/compiled/.../panorama/images/sourcemvm).
   // The web copy is the fallback for a build whose FX pack predates it.
   C.LOGO = 's2r://panorama/images/sourcemvm/hctracker_eye_png.vtex';
-  C.LOGO_WEB = 'https://raw.githubusercontent.com/Wockstajit/Source-MVM/main/Assets/hctracker/hctracker-eye.png';
+  C.LOGO_WEB = 'https://raw.githubusercontent.com/Wockstajit/SourceMVM/main/Assets/hctracker/hctracker-eye.png';
 
   var host = $.CreatePanel('Panel', $.GetContextPanel(), 'MvmCommunityHost', {});
   host.visible = false; host.style.width = '0px'; host.style.height = '0px';

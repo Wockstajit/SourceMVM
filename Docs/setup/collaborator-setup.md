@@ -22,8 +22,8 @@ first time each map loads ([map data extraction](../effects/map-data-extraction.
 ## 2. Clone
 
 ```batch
-git clone --recurse-submodules https://github.com/Wockstajit/Source-MVM.git
-cd Source-MVM
+git clone --recurse-submodules https://github.com/Wockstajit/SourceMVM.git
+cd SourceMVM
 git lfs pull
 ```
 

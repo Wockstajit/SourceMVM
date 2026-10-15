@@ -338,18 +338,19 @@ commit messages, and PRs. Route routine work through a branch and a PR into `mai
 workflow section above describes. A direct push to `main` needs an explicit request from the repository owner, and the
 tracking issue should record that exception. Keep one issue and one commit per finished request,
 unless the user asks for separately pushed fixes. Stage only this task's changes. Source belongs in
-`Wockstajit/Source-MVM`, and `main` is the default branch. Verify remote commits, and report issue state
+`Wockstajit/SourceMVM`, and `main` is the default branch. Verify remote commits, and report issue state
 accurately: pushes to a feature branch do not close issues. Labels describe the work and its evidence.
 Release tags are reserved for requested releases.
 
 ## Publishing to the public repository
 
-`Wockstajit/SourceMVM` is public: source, website and release downloads. Publish only when the owner
-asks, and only by [publishing releases](Docs/setup/publishing-releases.md): one snapshot commit of the
-working tree on top of the public `main`, noreply author and committer, no co-author or tool trailers,
-a fast-forward push and only the new `v<version>` tag. Never push this repository's history, branches
-or other tags there, and never force-push it. The launcher version, the tag and the installer name are
-the same number, and the new release must carry `latest.yml` or installed launchers stop at an error.
+`Wockstajit/SourceMVM` is the only repository and it is public: source, website and release downloads.
+Publish only when the owner asks, and only by [publishing releases](Docs/setup/publishing-releases.md):
+a reviewed `main` commit, noreply author and committer, no co-author or tool trailers, and only the new
+`v<version>` tag. The history of the earlier private repository is not part of this one. Never fetch or
+push it here, never push `--all`, `--mirror` or `--tags`, and never force-push. The launcher version, the
+tag and the installer name are the same number, and the new release must carry `latest.yml` or installed
+launchers stop at an error.
 
 ## Completion and reporting
 

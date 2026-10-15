@@ -36,6 +36,14 @@ test('only a published complete uploaded installer enables Download', async () =
   assert.equal(e.download.attributes['aria-disabled'], undefined);
   assert.equal(e['download-status'].textContent, 'Download SOURCE:MVM');
 });
+test('a portable zip release asset never becomes the download link', async () => {
+  const portable = { name: 'SourceMovieMaker-Portable-0.2.0.zip', state: 'uploaded',
+    browser_download_url: 'https://github.com/Wockstajit/SourceMVM/releases/download/v0.2.0/SourceMovieMaker-Portable-0.2.0.zip' };
+  const only = await run([{ assets: [portable] }]);
+  assert.equal(only.download.href, undefined);
+  const both = await run([{ assets: [portable, installer] }]);
+  assert.equal(both.download.href, installer.browser_download_url);
+});
 test('foreign hosts, private source URLs, and non-installer assets never become download links', async () => {
   for (const url of ['https://example.com/setup.exe',
     'https://github.com/Wockstajit/Source-MVM/releases/download/v0.1.7/setup.exe',

@@ -3,7 +3,7 @@
   "sourceCommit": "acee5469cc8fdbd25177179021fc3ababec4943f",
   "packages": {
     "runtime": {
-      "url": "https://github.com/Wockstajit/Source-MVM/releases/download/portable-20260905/source-mvm-runtime-portable-20260905.zip",
+      "url": "https://github.com/Wockstajit/SourceMVM/releases/download/portable-20260905/source-mvm-runtime-portable-20260905.zip",
       "sha256": "a1eef8cb86a650a0b789a78e9ab553a73cc5bd42820b740684aa22fef9db60fc",
       "destination": "build/portable-runtime/bin",
       "files": [
@@ -358,7 +358,7 @@
       ]
     },
     "dlss": {
-      "url": "https://github.com/Wockstajit/Source-MVM/releases/download/portable-20260905/source-mvm-dlss-portable-20260905.zip",
+      "url": "https://github.com/Wockstajit/SourceMVM/releases/download/portable-20260905/source-mvm-dlss-portable-20260905.zip",
       "sha256": "79332cc9353bcd719cc2cef048e3d7bc13102e832b8519eec21ded9e793ee087",
       "destination": "build/dlss5-downloads",
       "files": [

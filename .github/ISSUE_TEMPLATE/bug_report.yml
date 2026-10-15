@@ -10,7 +10,7 @@ body:
         in paths, Steam IDs, webhook URLs, tokens, and private demo files.
 
         **Security problems do not belong here.** Report them privately through
-        [GitHub Security Advisories](https://github.com/Wockstajit/Source-MVM/security/advisories/new).
+        [GitHub Security Advisories](https://github.com/Wockstajit/SourceMVM/security/advisories/new).
 
   - type: input
     id: version

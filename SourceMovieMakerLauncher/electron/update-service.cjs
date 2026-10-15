@@ -49,7 +49,7 @@ function createUpdateService({ updater, packaged, portable, loadReleases, prepar
         }
         if (result.isUpdateAvailable) {
           const version = result.updateInfo?.version;
-          if (portable) throw new Error('A launcher update is required. Install the new setup exe; portable builds cannot replace themselves.');
+          if (portable) throw new Error('A launcher update is required. Install the new setup exe or download the new portable zip; portable builds cannot replace themselves.');
           assertInstallable('updating SOURCE:MVM');
           publish({ state: 'available', version });
           const files = await updater.downloadUpdate();

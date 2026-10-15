@@ -1,6 +1,6 @@
 # How we finish work
 
-SOURCE:MVM source and its tracking issues live in `Wockstajit/Source-MVM` (`origin`). The default
+SOURCE:MVM source and its tracking issues live in `Wockstajit/SourceMVM` (`origin`). The default
 branch is `main`. `upstream` is advancedfx, not our publishing destination. Follow this workflow
 for finished work, along with [CLAUDE.md](../../CLAUDE.md).
 
@@ -26,8 +26,8 @@ only your changes. Preserve mixed line endings.
 Before opening an issue, list the existing labels and create only missing ones:
 
 ```powershell
-gh label list -R Wockstajit/Source-MVM --limit 100
-gh label create "type: perf" --color fb8500 --description "Runtime performance or memory improvement" -R Wockstajit/Source-MVM
+gh label list -R Wockstajit/SourceMVM --limit 100
+gh label create "type: perf" --color fb8500 --description "Runtime performance or memory improvement" -R Wockstajit/SourceMVM
 ```
 
 Keep existing labels. Do not rename or remove labels used by older issues. Choose one or two
@@ -77,7 +77,7 @@ Create the issue before the commit so its number is available. Title it `Area: s
 checkout, and pass it with `--body-file`:
 
 ```powershell
-gh issue create -R Wockstajit/Source-MVM --title "Lighting: reuse native material irradiance" --body-file <scratch-file> --label "type: perf" --label "area: cs2" --label "area: lighting" --label "status: not-deployed"
+gh issue create -R Wockstajit/SourceMVM --title "Lighting: reuse native material irradiance" --body-file <scratch-file> --label "type: perf" --label "area: cs2" --label "area: lighting" --label "status: not-deployed"
 ```
 
 Use these sections in order:

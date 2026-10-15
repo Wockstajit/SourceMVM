@@ -9,7 +9,7 @@ Update the launcher through the in-app updater, or download the newest installer
 ## Reporting a vulnerability
 
 Report security problems privately through
-[GitHub Security Advisories](https://github.com/Wockstajit/Source-MVM/security/advisories/new).
+[GitHub Security Advisories](https://github.com/Wockstajit/SourceMVM/security/advisories/new).
 Do not open a public issue or post exploit details in a pull request.
 
 Include:

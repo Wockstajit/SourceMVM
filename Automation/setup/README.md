@@ -13,9 +13,9 @@ signed NVIDIA neural runtime. Files land under `build/portable-runtime` and `bui
 A complete local developer build takes priority. Nothing installs into the original Steam binary
 directory.
 
-Download URLs and SHA-256 hashes are pinned in Git. Private release downloads reuse Git's credential
-helper (or `GH_TOKEN` / `GITHUB_TOKEN`). Tokens are never written to the manifest or logs. If
-authentication fails, sign in to the same GitHub account that can clone this repository. An already
+Download URLs and SHA-256 hashes are pinned in Git. The repository is public, so downloads need no
+sign-in. `GH_TOKEN` or `GITHUB_TOKEN` is optional and only raises GitHub's anonymous rate limit.
+Tokens are never written to the manifest or logs. An already
 installed, verified package can be used without a network connection. Corrupt downloads and archive
 traversal are rejected. Never commit the download cache, a private CS2 tree or generated
 machine-specific INIs.

@@ -63,7 +63,7 @@ evidence.
 ## Security and privacy
 
 - Report vulnerabilities privately through
-  [GitHub Security Advisories](https://github.com/Wockstajit/Source-MVM/security/advisories/new). Do not
+  [GitHub Security Advisories](https://github.com/Wockstajit/SourceMVM/security/advisories/new). Do not
   open a public issue. See [SECURITY.md](SECURITY.md).
 - Never commit or paste secrets, webhook URLs, access tokens, personal machine paths, or private demo
   files.
