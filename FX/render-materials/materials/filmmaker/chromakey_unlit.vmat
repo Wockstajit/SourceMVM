@@ -1,0 +1,16 @@
+"Layer0"
+{
+	"shader" "csgo_vertexlitgeneric.vfx"
+	"F_DO_NOT_CAST_SHADOWS" "1"
+	"F_SELF_ILLUM" "1"
+	"g_bFogEnabled" "0"
+	"g_flModelTintAmount" "0"
+	"g_flSelfIllumAlbedoFactor" "1"
+	"g_flSelfIllumBrightness" "1"
+	"g_flSelfIllumScale" "1"
+	"g_vColorTint" "[1.000000 1.000000 1.000000 0.000000]"
+	"g_vSelfIllumTint" "[1.000000 1.000000 1.000000 0.000000]"
+	"TextureColor" "[0.000000 1.000000 0.000000 0.000000]"
+	"TextureRoughness" "[1.000000 1.000000 1.000000 0.000000]"
+	"TextureSelfIllumMask" "[1.000000 1.000000 1.000000 0.000000]"
+}

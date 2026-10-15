@@ -1,0 +1,160 @@
+#include "stdafx.h"
+
+#include "RenderServiceHooks.h"
+
+#include "RenderSystemDX11Hooks.h"
+
+#include "../Shared/AfxDetours.h"
+
+#include "addresses.h"
+
+#include <stdint.h>
+
+extern void * g_pSceneSystem;
+
+extern void ErrorBox(char const * messageText);
+extern void ErrorBox();
+
+typedef void (__fastcall * Tier0_EventListener_t)(void * pUnk0, void * pUnk1);
+
+Tier0_EventListener_t g_Engine2_RenderService_OnClientOutput = nullptr;
+
+bool g_bHad_ClientOutput = false;
+bool g_bLastPassWasExtra = false;
+
+extern void ClearThreadSceneLayerContexts();
+
+typedef void (__fastcall * SceneSystem_WaitForRenderingToComplete_t)(void * pThis);
+SceneSystem_WaitForRenderingToComplete_t g_Old_SceneSystem_WaitForRenderingToComplete = nullptr;
+void __fastcall My_SceneSystem_WaitForRenderingToComplete(void * pThis) {
+    if(g_bHad_ClientOutput) {
+        g_bHad_ClientOutput = false;
+
+        g_Old_SceneSystem_WaitForRenderingToComplete(pThis);
+
+        if(g_bLastPassWasExtra) {
+            g_bLastPassWasExtra = false;
+            RenderSystemDX11_EngineThread_EndNextRenderPass();
+        }
+        else RenderSystemDX11_EngineThread_EndMainRenderPass();
+    } else {
+        g_Old_SceneSystem_WaitForRenderingToComplete(pThis);
+    }
+
+    ClearThreadSceneLayerContexts();
+}
+
+void __fastcall My_Engine2_RenderService_OnClientOutput(void * pUnk0, void * pUnk1) {
+
+    g_bHad_ClientOutput = true;
+
+    RenderSystemDX11_EngineThread_Prepare();
+
+    // We need to do the a normal / main render pass first, since it's used to generate the UI background texture
+    // and it won't be re-generated in subsequent passes.
+
+    RenderSystemDX11_EngineThread_BeginMainRenderPass();
+
+    RenderSystemDX11_EngineThread_BeforeRender();
+
+    g_Engine2_RenderService_OnClientOutput(pUnk0,pUnk1);
+
+    if(RenderSystemDX11_EngineThread_HasNextRenderPass()) {
+
+        bool bFirstExtraPass = true;
+        g_bLastPassWasExtra = true;
+
+        bool bHooksAvailable = g_pSceneSystem && g_Old_SceneSystem_WaitForRenderingToComplete && AFXADDR_GET(cs2_SceneSystem_FrameUpdate_vtable_idx);
+
+        while(RenderSystemDX11_EngineThread_HasNextRenderPass()) {
+            // The previous render must be FINISHED before its pass ends and the next one is primed.
+            // Every isolation policy (viewmodel convar, World Only / Players Only draw filters) is
+            // shared state the render workers read while they draw; ending and priming while the
+            // previous render was still in flight leaked the next render's policy into it
+            // (measured 2026-09-26: the No Gun plate lost the enemy player to the World Only
+            // filter, and World Only came out chroma-painted by the Players pass).
+            if(bHooksAvailable) g_Old_SceneSystem_WaitForRenderingToComplete(g_pSceneSystem);
+
+            // mirv_streams scene filter: the layer contexts of the finished render are stale now.
+            ClearThreadSceneLayerContexts();
+
+            // Then publish the next pass's state. The subject-pass policy is primed by
+            // BeginNextRenderPass and must be visible before SceneSystem::FrameUpdate builds the
+            // next scene command lists; publishing it after FrameUpdate made the dedicated stream
+            // capture a beauty frame even though its draw hook counters reported substitutions.
+            if(bFirstExtraPass){
+                bFirstExtraPass = false;
+                RenderSystemDX11_EngineThread_EndMainRenderPass();
+            } else RenderSystemDX11_EngineThread_EndNextRenderPass();
+
+            RenderSystemDX11_EngineThread_BeginNextRenderPass();
+
+            if(bHooksAvailable) {
+                void ** vtable = *(void***)g_pSceneSystem;
+
+                void (__fastcall * FrameUpdate)(void *, unsigned char) = (void (__fastcall *)(void *, unsigned char))(vtable[AFXADDR_GET(cs2_SceneSystem_FrameUpdate_vtable_idx)]);
+                FrameUpdate(g_pSceneSystem, 1);
+
+                // Note:
+                // We are wasteful here, since we always wait for the render to finish and begin a new render,
+                // even if not needed after the last pass. But this way we need less hooks and logic
+                // (otherwise we would need to put RenderSystemDX11_EngineThread_EndNextRenderPass elsewhere).
+            }
+
+            if(bHooksAvailable) {
+                RenderSystemDX11_EngineThread_BeforeRender();
+
+                g_Engine2_RenderService_OnClientOutput(pUnk0,pUnk1);
+            }
+        }
+    }
+}
+
+bool Hook_Engine_RenderService() {
+    static bool bFirstRun = true;
+    static bool bFirstResult = false;
+
+    if(bFirstRun) {
+        bFirstRun = false;
+
+        if(AFXADDR_GET(cs2_engine_CRenderService_OnClientOutput)) {
+
+            g_Engine2_RenderService_OnClientOutput = (Tier0_EventListener_t)AFXADDR_GET(cs2_engine_CRenderService_OnClientOutput);
+
+    		DetourTransactionBegin();
+	    	DetourUpdateThread(GetCurrentThread());
+		
+		    DetourAttach(&(PVOID&)g_Engine2_RenderService_OnClientOutput, My_Engine2_RenderService_OnClientOutput);
+
+            bFirstResult = NO_ERROR == DetourTransactionCommit();
+		
+		    if(!bFirstResult) ErrorBox("Hook_Engine_RenderService failed.");            
+        }        
+    }
+    return bFirstResult;
+}
+
+bool Hook_SceneSystem_WaitForRenderingToComplete(void * g_pSceneSystem) {
+    static bool bFirstRun = true;
+    static bool bFirstResult = false;
+
+    if(bFirstRun) {
+        bFirstRun = false;
+
+        if(g_pSceneSystem && AFXADDR_GET(cs2_SceneSystem_WaitForRenderingToComplete_vtable_idx)) {
+            void ** vtable = *(void***)g_pSceneSystem;
+
+            g_Old_SceneSystem_WaitForRenderingToComplete = (SceneSystem_WaitForRenderingToComplete_t)(vtable[AFXADDR_GET(cs2_SceneSystem_WaitForRenderingToComplete_vtable_idx)]);
+
+    		DetourTransactionBegin();
+	    	DetourUpdateThread(GetCurrentThread());
+		
+		    DetourAttach(&(PVOID&)g_Old_SceneSystem_WaitForRenderingToComplete, My_SceneSystem_WaitForRenderingToComplete);
+
+            bFirstResult = NO_ERROR == DetourTransactionCommit();
+		
+		    if(!bFirstResult) ErrorBox("Hook_SceneSystem_WaitForRenderingToComplete failed.");            
+        }        
+    }
+    return bFirstResult;
+}

@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-04",
+  "map": "de_inferno",
+  "viewport": [
+    2560,
+    1351
+  ],
+  "fov": 90,
+  "msaa": 8,
+  "hookSha256": "8dc1db1918c193fb9fe57e0a5a4e013ce8a7088f621e0344808adf329d19934f",
+  "gpuContactBefore": 0.356567,
+  "gpuContactAfter": 0,
+  "unoccludedPlaneVisibility": [
+    1,
+    1,
+    1
+  ],
+  "nativeChecks": [
+    "EnvironmentShaderCacheTests",
+    "EnvironmentSunVisibilityMathTests",
+    "EnvironmentRenderTests",
+    "EnvironmentNativeMaterialTests",
+    "EnvironmentEarlyCasterTests",
+    "EnvironmentAnimatedCasterTests",
+    "EnvironmentParticleShadowTests",
+    "RelightProbeGpuTests"
+  ],
+  "documentationChecksPassed": 4,
+  "fan": {
+    "ceiling": {
+      "roi": [
+        1025,
+        570,
+        1125,
+        615
+      ],
+      "changedPairsAbove3": 48,
+      "pairs": 59,
+      "maxPair": 138,
+      "meanAbsoluteChange": 26.063388575015694
+    },
+    "static-wall": {
+      "roi": [
+        1850,
+        370,
+        2050,
+        600
+      ],
+      "changedPairsAbove3": 0,
+      "pairs": 59,
+      "maxPair": 0,
+      "meanAbsoluteChange": 0.0
+    }
+  },
+  "uncapturedMotion": [
+    {
+      "name": "ledges",
+      "seconds": 8.316478299995651,
+      "frames": 378,
+      "fps": 45.45193125799386,
+      "frameTiming": {
+        "samples": 377.0,
+        "meanMs": 22.009,
+        "p50Ms": 21.967,
+        "p95Ms": 23.943,
+        "p99Ms": 25.871,
+        "maxMs": 27.454,
+        "over33": 0.0
+      }
+    },
+    {
+      "name": "banana",
+      "seconds": 8.244521299988264,
+      "frames": 330,
+      "fps": 40.02658104606628,
+      "frameTiming": {
+        "samples": 329.0,
+        "meanMs": 24.972,
+        "p50Ms": 24.495,
+        "p95Ms": 29.122,
+        "p99Ms": 37.05,
+        "maxMs": 42.367,
+        "over33": 6.0
+      }
+    }
+  ],
+  "runtime": "Automation/output/lighting-ledges/verified-debug.log",
+  "muzzleRuntime": "Automation/output/lighting-ledges/muzzle-debug.log",
+  "limits": [
+    "Controlled visual comparisons disable clouds; original clouds restored afterward.",
+    "Very thin native fallback edge highlights remain.",
+    "Timing was sampled while validation ran; it does not establish before/after performance parity.",
+    "The fresh On/Modern shots confirm effect rendering and scene illumination; the previous isolated shadow comparisons remain the shadow-specific evidence."
+  ]
+}

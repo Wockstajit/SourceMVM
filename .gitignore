@@ -1,0 +1,255 @@
+# What stays out of git. Everything a collaborator needs to build and launch is tracked:
+# source, vendored dependencies (Deps/release, git submodules), the FX donor trees and their
+# compiled pack (FX/compiled, git LFS) and the ragdoll animation data (git LFS). See
+# Docs/setup/collaborator-setup.md. Generated output belongs under build/ or Automation/runs/.
+
+# ---------------------------------------------------------------------------------------------
+# Build outputs
+/build
+/build-*/
+/cmake-build-*/
+/ipch
+/out
+/packages
+AfxCppCli/build/
+ShaderBuilder/obj/
+FilmmakerDemoInfoGo/build/
+FilmmakerDemoInfoGo/out.json
+FilmmakerDemoInfoGo/err.txt
+FX/tools/ragdoll-loosen/bin/
+FX/tools/ragdoll-loosen/obj/
+build-*.bat.log
+*.pdb
+# Archived release symbols (Automation/tools/archive-symbols.ps1): keep them, never commit them.
+/Automation/symbols/
+*.ilk
+*.obj
+*.pch
+*.idb
+*.tlog
+
+# Go tool binaries, wherever `go build` was run from (helpers and their per-subtool scanners).
+FilmmakerDemoInfoGo/**/*.exe
+FilmmakerDemoRepairGo/**/*.exe
+FilmmakerDemoKeyframesGo/**/*.exe
+
+# Rust
+Lib/**/target/
+
+# Node / package managers
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python caches
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# ---------------------------------------------------------------------------------------------
+# Launcher outputs
+SourceMovieMakerLauncher/renderer-dist/
+SourceMovieMakerLauncher/release/
+SourceMovieMakerLauncher/release-*/
+# Release-payload zips (hook runtime + FX pack) staged for upload to the release repo.
+SourceMovieMakerLauncher/payload-dist/
+# Self-contained build: the hook, FX pack and DLSS 5 payload staged into the installer.
+SourceMovieMakerLauncher/bundle/
+SourceMovieMakerLauncher/packaged/
+SourceMovieMakerLauncher/host/build/
+SourceMovieMakerLauncher/host/bin/
+SourceMovieMakerLauncher/host/obj/
+SourceMovieMakerLauncher/bin/
+SourceMovieMakerLauncher/obj/
+SourceMovieMakerLauncher/_trash*/
+
+# ---------------------------------------------------------------------------------------------
+# External checkouts and local dumps (fetched or produced on demand, never project source)
+# Vendored SDK dumps.
+ultralight-free-sdk-*/
+# Conversion-tool checkouts (cloned by FX/tools/convert-fx-source1.ps1 setup).
+Misc/source1import/
+Misc/Source2Converter/
+# Generated CS2 offset reference dumps.
+Misc/cs2-offsets/source/
+Misc/cs2-offsets/cs2-offsets-*.csv
+Misc/cs2-offsets/cs2-offsets-meta.json
+Misc/cs2-offsets/cs2-offsets-update.log
+Misc/cs2-offsets/CS2-OFFSETS-*/
+Misc/cs2-offsets/.update-stage-*/
+# Local dev reference dumps (Panorama layout, third-party mod/source references).
+reference/
+# Local third-party RE tools and dumps (~1 GB).
+/.codex/
+# NVIDIA DLSS 5 + Streamline runtime payload: the local source the optional installer copies into
+# the private SOURCE:MVM CS2 binary folder. Named subfolders preserve the NVIDIA original and the
+# supplied RTX 40, 30, 20 compatible patched variant; hashes are tracked in payload-versions.json.
+/dlss 5/
+# DLSS 5 bridge experiment scratch: netcon transcripts and probe dumps.
+/artifacts/
+/Docs/handoff/
+/Docs/deadlock/handoff-deadlock/
+/Misc/design_handoff_config_camera_editor_rail/
+/Misc/design_handoff_customize_deathanims/
+/Docs/effects/HANDOFF-sky-rotation.md
+/Docs/effects/lighting-experiment-handoff.md
+
+# ---------------------------------------------------------------------------------------------
+# Automation: scripts, fixtures and configs stay tracked; runtime artifacts do not
+Automation/runs/
+Automation/output/
+Automation/**/runs/
+Automation/**/output/
+Automation/**/*.log
+Automation/**/*.tmp
+Automation/**/*.transcript.txt
+Automation/**/*.trace
+Automation/**/*.etl
+Automation/**/*.dmp
+Automation/**/*.bak
+Automation/**/*.old
+Automation/**/*.cache
+Automation/**/*.pid
+Automation/**/*.pid.lock
+Automation/**/*.png
+Automation/**/*.jpg
+Automation/**/*.jpeg
+Automation/**/*.webp
+Automation/**/*.bmp
+Automation/**/*.gif
+Automation/**/*.mp4
+Automation/**/*.webm
+Automation/**/*.mkv
+Automation/**/*.avi
+Automation/**/*.mov
+Automation/**/*.zip
+Automation/**/*.7z
+Automation/**/*.rar
+Automation/**/*.tar
+Automation/**/*.gz
+Automation/**/*.jsonl
+Automation/**/*.exe
+Automation/tools/*/bin/
+Automation/tools/*/obj/
+Automation/_build_log*.txt
+Automation/_*.png
+Automation/mirv_filmmaker ui
+mirv_filmmaker ui
+# Authored regression fixtures can include images, archives and capture data.
+!Automation/fixtures/**
+!Automation/tests/fixtures/
+!Automation/tests/fixtures/**
+
+# ---------------------------------------------------------------------------------------------
+# Editor, OS and agent state
+/.vs
+/.vscode
+/.idea
+/*.VC.*
+*.user
+*.suo
+*.sdf
+*.opensdf
+Thumbs.db
+.DS_Store
+.agents/
+.claude/
+/.cursor/
+.impeccable/
+**/.impeccable/
+# Steam writes this next to the launcher; machine state, not project config.
+/steam_appid.txt
+
+# ---------------------------------------------------------------------------------------------
+# Accidental root-level artifacts. Debug logs belong in %APPDATA%\HLAE\debuglogs\. Tools run from
+# the repo instead of the user profile have written here, and raw netcon/console output has landed
+# as files named after the command itself (`demo_pause`, `mirv_filmmaker follow status`) or a JS
+# fragment (`dbgGeom)`). A pattern cannot catch every future name, but these never are sources.
+/*.log
+/*.ppm
+/nul
+/AppData/
+/demo_pause
+/mirv_filmmaker*
+/*)
+/exceptions.txt
+/demo_*
+/spec_*
+/mvm_test*
+/mvmsb_*
+mvm_debug_*.log
+# Resource-compiler search output; runtime FX is staged under build/, never at the root.
+/particles/
+
+# The bug report webhook (Discord) stays out of the public repository: see
+# Docs/features/filmmaker_community.md.
+AfxHookSource2/Filmmaker/Community/BugReportWebhook.local.h
+# The read-only bot that fetches those reports back (Automation/tools/discord-reports.py).
+Automation/config/discord-reports.local.json
+
+# Local trailer production files and captured media.
+/trailer/
+# Local build transcript.
+/Automation/rabins-log.txt
+
+# Local credentials, signing material and private settings. Defense in depth next to the explicit
+# webhook and bot-config rules above: nothing that authenticates belongs in the repository.
+.env
+.env.*
+!.env.example
+*.secret
+*.secrets
+*.pfx
+*.p12
+*.pem
+*.key
+*.kdbx
+*.credentials.json
+*.secrets.json
+*.webhook.json
+*.local.json
+*.local.yml
+*.local.yaml
+*.local.ini
+*.local.toml
+*.local.h
+*.local.hpp
+
+# Crash dumps, traces and captures anywhere in the tree, and private review output.
+*.dmp
+*.mdmp
+*.etl
+*.har
+*.pcap
+*.pcapng
+/security-reports/
+/sensitive-data-removal/
+/release-private/
+/Automation/reports-private/
+
+# Third-party game material: the donor FX and animations, the FX pack compiled from them and the
+# baked death-animation library. They ship in SOURCE:MVM releases but are not part of the source
+# (FX/README.md). Kept privately and placed here locally for development and packaging.
+/FX/sources/
+/FX/compiled/
+/FX/death-animations/
+
+# Third-party media that is not ours to redistribute in the source tree. The osu! beatmaps and songs
+# are other people's (and commercial artists') work; the launcher fonts are Valve's Stratum2 and the
+# sound is from CS2; the UwU egg's song is someone else's music. They stay on the developer's
+# machine and are still bundled into releases from there. The osu! SKIN (Assets/easter-eggs/osu-skin)
+# is a public skin and stays tracked, and so does our own generated warmup map
+# (Automation/tools/make-osu-warmup-map.py).
+/Assets/easter-eggs/osu/*
+!/Assets/easter-eggs/osu/SOURCE MVM - Warmup/
+/Assets/easter-eggs/uwu/music.mp3
+/SourceMovieMakerLauncher/public/fonts/
+/SourceMovieMakerLauncher/public/sounds/
+/SourceMovieMakerLauncher/public/panorama/
+
+/Docs/setup/publication-readiness.md

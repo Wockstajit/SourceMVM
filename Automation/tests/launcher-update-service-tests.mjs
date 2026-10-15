@@ -1,0 +1,233 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+const require = createRequire(import.meta.url);
+const { createUpdateService } = require('../../SourceMovieMakerLauncher/electron/update-service.cjs');
+
+const release = { draft: false, assets: [{ name: 'latest.yml' }] };
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+function fixture(overrides = {}) {
+  const calls = [], events = [];
+  const service = createUpdateService({ packaged: true, portable: false,
+    loadReleases: async () => [release],
+    prepareRuntime: async () => { calls.push('runtime'); },
+    canInstall: () => true,
+    updater: {
+      checkForUpdates: async () => { calls.push('check'); return { isUpdateAvailable: false }; },
+      downloadUpdate: async () => { calls.push('download'); return ['verified.exe']; },
+      quitAndInstall: (...args) => calls.push(['restart', ...args]),
+    }, ...overrides, report: status => events.push(status) });
+  return { service, calls, events };
+}
+test('launch is denied before the first check and throughout runtime installation', async () => {
+  const pending = deferred();
+  const f = fixture({ prepareRuntime: () => pending.promise });
+  assert.throws(f.service.assertCanLaunch, /Wait for/);
+  const result = f.service.check();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.throws(f.service.assertCanLaunch, /Wait for/);
+  pending.resolve();
+  assert.equal((await result).launchAllowed, true);
+  assert.doesNotThrow(f.service.assertCanLaunch);
+});
+test('new apps download, restart automatically, and never unlock the older process', async () => {
+  const calls = [], download = deferred();
+  const f = fixture({ updater: {
+    checkForUpdates: async () => ({ isUpdateAvailable: true, updateInfo: { version: '0.1.7' } }),
+    downloadUpdate: () => download.promise,
+    quitAndInstall: (...args) => calls.push(args),
+  } });
+  const result = f.service.check();
+  await new Promise(resolve => setImmediate(resolve));
+  f.service.progress(37);
+  assert.equal(f.service.getStatus().percent, 37);
+  assert.throws(f.service.assertCanLaunch);
+  download.resolve(['verified.exe']);
+  assert.equal((await result).state, 'installing');
+  assert.deepEqual(calls, [[false, true]]);
+  assert.equal(f.events.some(event => event.launchAllowed), false);
+  assert.equal(f.calls.includes('runtime'), false);
+  assert.throws(f.service.assertCanLaunch);
+  assert.equal((await f.service.check()).state, 'installing');
+});
+test('startup and button checks share one in-flight operation', async () => {
+  const pending = deferred();
+  let checks = 0;
+  const f = fixture({ loadReleases: () => { checks++; return pending.promise; } });
+  const a = f.service.check(), b = f.service.check();
+  assert.equal(a, b);
+  pending.resolve([]);
+  await a;
+  assert.equal(checks, 1);
+});
+test('empty public repo and draft releases have no update; installed runtime can become ready', async () => {
+  for (const releases of [[], [{ draft: true }]]) {
+    const f = fixture({ loadReleases: async () => releases });
+    assert.equal((await f.service.check()).message, 'NO UPDATES PUBLISHED');
+    assert.deepEqual(f.calls, ['runtime']);
+    assert.doesNotThrow(f.service.assertCanLaunch);
+  }
+});
+test('network failure leaves launch blocked, with retry recovering normally', async () => {
+  let online = false;
+  const f = fixture({ loadReleases: async () => { if (!online) throw new Error('Offline'); return []; } });
+  assert.match((await f.service.check()).message, /Offline.*Retry/);
+  assert.throws(f.service.assertCanLaunch);
+  online = true;
+  assert.equal((await f.service.check()).state, 'ready');
+});
+test('a malformed list or a published release with no update metadata never reports current', async () => {
+  for (const releases of [{}, [{ draft: false, assets: [] }]]) {
+    const f = fixture({ loadReleases: async () => releases });
+    assert.equal((await f.service.check()).state, 'error');
+    assert.throws(f.service.assertCanLaunch);
+    assert.deepEqual(f.calls, []);
+  }
+});
+test('runtime installation failure blocks GO even when the launcher is current', async () => {
+  const f = fixture({ prepareRuntime: async () => { throw new Error('Runtime locked'); } });
+  assert.match((await f.service.check()).message, /Runtime locked/);
+  assert.throws(f.service.assertCanLaunch);
+});
+test('download/check/checksum and installer failures cannot unlock launch', async () => {
+  for (const at of ['check', 'download', 'install', 'empty']) {
+    const f = fixture({ updater: {
+      checkForUpdates: async () => {
+        if (at === 'check') throw new Error('Bad metadata');
+        return { isUpdateAvailable: true };
+      },
+      downloadUpdate: async () => {
+        if (at === 'download') throw new Error('Checksum mismatch');
+        return at === 'empty' ? [] : ['verified.exe'];
+      },
+      quitAndInstall: () => { if (at === 'install') throw new Error('Installer failed'); },
+    } });
+    assert.equal((await f.service.check()).state, 'error');
+    assert.throws(f.service.assertCanLaunch);
+  }
+});
+test('a game running at discovery or starting during download prevents restart', async () => {
+  for (const beforeDownload of [true, false]) {
+    let running = beforeDownload, restarts = 0;
+    const f = fixture({ canInstall: () => !running, updater: {
+      checkForUpdates: async () => ({ isUpdateAvailable: true }),
+      downloadUpdate: async () => { running = true; return ['verified.exe']; },
+      quitAndInstall: () => restarts++,
+    } });
+    assert.match((await f.service.check()).message, /Close CS2/);
+    assert.equal(restarts, 0);
+    assert.throws(f.service.assertCanLaunch);
+  }
+});
+test('a named blocker replaces the generic close-CS2 message and still blocks launch', async () => {
+  const f = fixture({ canInstall: () => 'cs2.exe (PID 4321) is still running.' });
+  const result = await f.service.check();
+  assert.equal(result.state, 'error');
+  assert.match(result.message, /PID 4321.*Retry UPDATES/);
+  assert.deepEqual(f.calls, ['check']);
+  assert.throws(f.service.assertCanLaunch);
+});
+test('unpackaged development never attempts app installation or network access', async () => {
+  const f = fixture({ packaged: false, loadReleases: () => { throw new Error('Unexpected network'); } });
+  assert.equal((await f.service.check()).state, 'ready');
+  assert.deepEqual(f.calls, []);
+});
+test('portable app with a known update requires the installer and stays blocked', async () => {
+  const f = fixture({ portable: true, updater: { checkForUpdates: async () => ({ isUpdateAvailable: true }) } });
+  assert.match((await f.service.check()).message, /portable builds/);
+  assert.throws(f.service.assertCanLaunch);
+});
+test('new checks lock launch immediately and returned snapshots cannot bypass the gate', async () => {
+  const f = fixture();
+  await f.service.check();
+  const snapshot = f.service.getStatus();
+  snapshot.launchAllowed = false;
+  assert.doesNotThrow(f.service.assertCanLaunch);
+  const next = f.service.check();
+  assert.throws(f.service.assertCanLaunch);
+  await next;
+});
+test('asynchronous updater errors prevent a late current result from unlocking GO', async () => {
+  const pending = deferred();
+  const f = fixture({ prepareRuntime: () => pending.promise });
+  const result = f.service.check();
+  await new Promise(resolve => setImmediate(resolve));
+  f.service.fail(new Error('Late update error'));
+  pending.resolve();
+  assert.equal((await result).state, 'error');
+  assert.throws(f.service.assertCanLaunch);
+});
+test('the actual main-process launch IPC denies bypasses and launches only after readiness', async () => {
+  const source = readFileSync(new URL('../../SourceMovieMakerLauncher/electron/main.cjs', import.meta.url), 'utf8');
+  const register = source.slice(source.indexOf('function registerIpc()'), source.indexOf('\nasync function runHeadless'));
+  const handlers = new Map(), f = fixture();
+  let saves = 0, launches = 0;
+  const context = vm.createContext({
+    ipcMain: { on() {}, handle: (name, fn) => handlers.set(name, fn) },
+    updateService: f.service, settings: {}, launchInProgress: false,
+    saveSettings: next => { saves++; return next; },
+    launchWithSettings: async () => { launches++; return { ok: true }; },
+  });
+  vm.runInContext(register + '\nregisterIpc();', context);
+  await assert.rejects(handlers.get('cs2:launch')(null, {}), /Wait for/);
+  assert.equal(saves, 0);
+  assert.equal(launches, 0);
+  await handlers.get('update:check')();
+  const result = await handlers.get('cs2:launch')(null, {});
+  assert.equal(result.ok, true);
+  assert.equal(saves, 1);
+  assert.equal(launches, 1);
+  assert.equal(context.launchInProgress, false);
+  f.service.fail(new Error('Known update failed'));
+  await assert.rejects(handlers.get('cs2:launch')(null, {}), /Known update failed/);
+  assert.equal(launches, 1);
+});
+
+function headlessContext(service) {
+  const source = readFileSync(new URL('../../SourceMovieMakerLauncher/electron/main.cjs', import.meta.url), 'utf8');
+  const run = source.slice(source.indexOf('async function runHeadless'), source.indexOf('\napp.whenReady()'));
+  const calls = [];
+  const context = vm.createContext({
+    updateService: service,
+    cliSettings: () => ({ current: {}, commandLine: '', envValues: [] }),
+    runtimePayload: { isBundled: () => true, installBundled: () => { calls.push('unguarded bundle write'); } },
+    launchWithSettings: async () => { calls.push('launch'); },
+    process: { exit: code => calls.push(['exit', code]), stderr: { write: value => calls.push(['stderr', value]) } },
+  });
+  vm.runInContext(run, context);
+  return { run: () => context.runHeadless([]), calls };
+}
+
+test('headless startup waits for guarded runtime readiness and never writes a bundle while CS2 is open', async () => {
+  const blocked = fixture({ canInstall: () => false });
+  const cli = headlessContext(blocked.service);
+  await cli.run();
+  assert.deepEqual(blocked.calls, ['check']);
+  assert.match(cli.calls[0][1], /Close CS2/);
+  assert.deepEqual(cli.calls[1], ['exit', 1]);
+  const ready = fixture(), current = headlessContext(ready.service);
+  await current.run();
+  assert.deepEqual(ready.calls, ['check', 'runtime']);
+  assert.deepEqual(current.calls, ['launch', ['exit', 0]]);
+});
+
+test('headless app updates leave exit and restart to the installer without launching or prematurely exiting', async () => {
+  let restarts = 0;
+  const next = fixture({ updater: {
+    checkForUpdates: async () => ({ isUpdateAvailable: true }),
+    downloadUpdate: async () => ['verified.exe'],
+    quitAndInstall: () => { restarts++; },
+  } });
+  const cli = headlessContext(next.service);
+  await cli.run();
+  assert.equal(restarts, 1);
+  assert.deepEqual(cli.calls, []);
+  assert.deepEqual(next.calls, []);
+  assert.equal(next.service.getStatus().state, 'installing');
+});

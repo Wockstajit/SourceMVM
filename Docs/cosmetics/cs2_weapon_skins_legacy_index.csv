@@ -1,0 +1,1405 @@
+weapon,weapon_class,skin_name,paint_kit,paint_kit_id,classification
+AK-47,weapon_ak47,Aphrodite,gsch_ak_djiin,1397,CS2
+AK-47,weapon_ak47,Aquamarine Revenge,cu_ak47_courage_alt,474,Legacy
+AK-47,weapon_ak47,Asiimov,cu_ak47_asiimov,801,Legacy
+AK-47,weapon_ak47,B the Monster,cu_overpass_monster_ak47,142,CS2
+AK-47,weapon_ak47,Baroque Purple,hy_veneto_purple,745,Legacy
+AK-47,weapon_ak47,Black Laminate,hy_ak47lam_bw,172,Legacy
+AK-47,weapon_ak47,Bloodsport,gs_ak47_bloodsport,639,Legacy
+AK-47,weapon_ak47,Blue Laminate,hy_ak47lam_blue,226,Legacy
+AK-47,weapon_ak47,Breakthrough,hye_zeds,1358,CS2
+AK-47,weapon_ak47,Cartel,aq_ak47_cartel,394,Legacy
+AK-47,weapon_ak47,Case Hardened,aq_oiled,44,Legacy
+AK-47,weapon_ak47,Crane Flight,ak47_crane_flight,1425,CS2
+AK-47,weapon_ak47,Crossfade,cu_graphic_overlay_ak47,912,CS2
+AK-47,weapon_ak47,Elite Build,cu_ak47_mastery,422,Legacy
+AK-47,weapon_ak47,Emerald Pinstripe,cu_pinstripe_ak47,300,Legacy
+AK-47,weapon_ak47,Fire Serpent,cu_fireserpent_ak47_bravo,180,Legacy
+AK-47,weapon_ak47,First Class,cu_green_leather_ak47,341,Legacy
+AK-47,weapon_ak47,Frontside Misty,cu_ak47_winter_sport,490,Legacy
+AK-47,weapon_ak47,Fuel Injector,gs_ak47_supercharged,524,Legacy
+AK-47,weapon_ak47,Gold Arabesque,gs_ak47_gold_arabesque,921,Legacy
+AK-47,weapon_ak47,Green Laminate,hy_ak47lam_green,1070,Legacy
+AK-47,weapon_ak47,Head Shot,cu_ak_head_shot_holo,1221,Legacy
+AK-47,weapon_ak47,Hydroponic,am_bamboo_jungle,456,Legacy
+AK-47,weapon_ak47,Ice Coaled,cu_ak47_cogthings,1143,Legacy
+AK-47,weapon_ak47,Inheritance,ak_porcelain,1171,CS2
+AK-47,weapon_ak47,Jaguar,cu_panther_ak47,316,Legacy
+AK-47,weapon_ak47,Jet Set,cu_well_traveled_ak47,340,Legacy
+AK-47,weapon_ak47,Jungle Spray,sp_spray_jungle,122,CS2
+AK-47,weapon_ak47,Leet Museo,gs_ak47_abstract,1087,Legacy
+AK-47,weapon_ak47,Legion of Anubis,cu_ak47_anubis,959,Legacy
+AK-47,weapon_ak47,Midnight Laminate,soe_iridescent_purple,1218,CS2
+AK-47,weapon_ak47,Neon Revolution,cu_ak47_anarchy,600,Legacy
+AK-47,weapon_ak47,Neon Rider,cu_ak_neon_rider,707,Legacy
+AK-47,weapon_ak47,Nightwish,cu_ak47_nightwish,1141,Legacy
+AK-47,weapon_ak47,Nouveau Rouge,hye_ak47_nouveau,1309,CS2
+AK-47,weapon_ak47,Olive Polycam,ht_poly_camo_ak47,1179,CS2
+AK-47,weapon_ak47,Orbit Mk01,gs_ak_colony01_red,656,Legacy
+AK-47,weapon_ak47,Panthera onca,cu_ak_jaguar,1018,Legacy
+AK-47,weapon_ak47,Point Disarray,cu_ak47_point_disarray,506,Legacy
+AK-47,weapon_ak47,Predator,sp_zebracam,170,CS2
+AK-47,weapon_ak47,Rat Rod,gs_ak47_nibbler,885,Legacy
+AK-47,weapon_ak47,Red Laminate,hy_ak47lam,14,Legacy
+AK-47,weapon_ak47,Redline,cu_ak47_cobra,282,Legacy
+AK-47,weapon_ak47,Safari Mesh,sp_mesh_tan,72,CS2
+AK-47,weapon_ak47,Safety Net,hy_mesh_safetyorange,795,Legacy
+AK-47,weapon_ak47,Searing Rage,ak47_explosive,1207,CS2
+AK-47,weapon_ak47,Slate,gs_ak47_professional,1035,Legacy
+AK-47,weapon_ak47,Steel Delta,gs_ak47_strone,1238,Legacy
+AK-47,weapon_ak47,The Empress,gs_ak47_empress,675,Legacy
+AK-47,weapon_ak47,The Oligarch,ak47_puffer_custom,1352,CS2
+AK-47,weapon_ak47,The Outsiders,ak47_t_bus,113,CS2
+AK-47,weapon_ak47,Uncharted,cu_ak47_aztec,836,Legacy
+AK-47,weapon_ak47,VariCamo Grey,soe_varicamo,1288,CS2
+AK-47,weapon_ak47,Vulcan,cu_ak47_rubber,302,Legacy
+AK-47,weapon_ak47,Wasteland Rebel,cu_tribute_ak47,380,Legacy
+AK-47,weapon_ak47,Wild Lotus,cu_ak_island_floral,724,Legacy
+AK-47,weapon_ak47,Wintergreen,soe_metallic_green_2,1283,CS2
+AK-47,weapon_ak47,X-Ray,cu_ak_xray,1004,Legacy
+AUG,weapon_aug,Akihabara Accept,cu_anime_aug,455,Legacy
+AUG,weapon_aug,Amber Fade,aa_fade_metallic,246,CS2
+AUG,weapon_aug,Amber Slipstream,hy_aug_torn_orange,708,Legacy
+AUG,weapon_aug,Anodized Navy,an_navy_bravo,197,CS2
+AUG,weapon_aug,Arctic Wolf,cu_aug_whitefang,886,Legacy
+AUG,weapon_aug,Aristocrat,gs_aug_aristocrat,583,Legacy
+AUG,weapon_aug,Bengal Tiger,hy_tiger,9,Legacy
+AUG,weapon_aug,Carved Jade,am_jade,1033,Legacy
+AUG,weapon_aug,Chameleon,cu_aug_chameleonaire,280,Legacy
+AUG,weapon_aug,Colony,so_space_marine,47,CS2
+AUG,weapon_aug,Commando Company,hy_flecktarn,1308,CS2
+AUG,weapon_aug,Condemned,sp_mesh_forest_fire,110,CS2
+AUG,weapon_aug,Contractor,so_pmc,46,CS2
+AUG,weapon_aug,Copperhead,hy_copperhead,10,Legacy
+AUG,weapon_aug,Creep,soe_aug_creep,1362,CS2
+AUG,weapon_aug,Daedalus,sp_labyrinth3,444,CS2
+AUG,weapon_aug,Death by Puppy,am_aug_death_by_doggy,913,Legacy
+AUG,weapon_aug,Eye of Zapems,cu_overpass_graf_aug,134,CS2
+AUG,weapon_aug,Flame Jörmungandr,am_jorm_orange,758,Legacy
+AUG,weapon_aug,Fleet Flock,cu_aug_swallows,541,Legacy
+AUG,weapon_aug,Hot Rod,an_red,33,CS2
+AUG,weapon_aug,Lil' Pig,gs_lilpig_aug,173,CS2
+AUG,weapon_aug,Luxe Trim,aug_puffer,121,CS2
+AUG,weapon_aug,Midnight Lily,am_bloom_blue,727,Legacy
+AUG,weapon_aug,Momentum,cu_aug_momentum,845,Legacy
+AUG,weapon_aug,Navy Murano,hy_murano_blue,740,Legacy
+AUG,weapon_aug,Plague,gs_aug_plague,1088,Legacy
+AUG,weapon_aug,Radiation Hazard,sp_nukestripe_orange_aug,375,CS2
+AUG,weapon_aug,Random Access,am_circuitboard_orange,779,Legacy
+AUG,weapon_aug,Ricochet,am_aug_jumble,507,Legacy
+AUG,weapon_aug,Sand Storm,gs_aug_sand_storm,823,Legacy
+AUG,weapon_aug,Snake Pit,hy_dune_trap,1249,Legacy
+AUG,weapon_aug,Spalted Wood,hy_dry_wood,927,Legacy
+AUG,weapon_aug,Steel Sentinel,aug_cold_sentinel,1198,CS2
+AUG,weapon_aug,Storm,so_stormfront,100,CS2
+AUG,weapon_aug,Stymphalian,gs_aug_stymphalian_birds,690,Legacy
+AUG,weapon_aug,Surveillance,am_intelligence_grey,995,Legacy
+AUG,weapon_aug,Sweeper,sp_mesh_safetyblack,794,CS2
+AUG,weapon_aug,Syd Mead,gs_aug_syd_mead,601,Legacy
+AUG,weapon_aug,Tom Cat,gs_aug_thunderstorm,942,Legacy
+AUG,weapon_aug,Torque,cu_aug_progressiv,305,Legacy
+AUG,weapon_aug,Trigger Discipline,aug_trigger_discipline_velco,1339,CS2
+AUG,weapon_aug,Triqua,cu_aug_orange_triangle,674,Legacy
+AUG,weapon_aug,Wings,hy_feathers_aug,73,Legacy
+AWP,weapon_awp,Acheron,hy_nuclear_skulls_redblue,788,Legacy
+AWP,weapon_awp,Arsenic Spill,hy_varicamo_simple_yellow,1324,CS2
+AWP,weapon_awp,Asiimov,cu_awp_asimov,279,Legacy
+AWP,weapon_awp,Atheris,cu_awp_viper,838,Legacy
+AWP,weapon_awp,Black Nile,gs_awp_strone,1239,Legacy
+AWP,weapon_awp,BOOM,hy_blam_simple,174,Legacy
+AWP,weapon_awp,Capillary,cu_awp_vein,943,Legacy
+AWP,weapon_awp,Chromatic Aberration,cu_awp_chroma_pink,1144,Legacy
+AWP,weapon_awp,Chrome Cannon,awp_tempered,1170,CS2
+AWP,weapon_awp,CMYK,gs_independe_awp,163,CS2
+AWP,weapon_awp,Containment Breach,cu_awp_virus,887,Legacy
+AWP,weapon_awp,Corticera,cu_favela_awp,181,Legacy
+AWP,weapon_awp,Crakow!,cu_overpass_crakow_awp,137,CS2
+AWP,weapon_awp,Desert Hydra,gs_awp_hydra,819,Legacy
+AWP,weapon_awp,Dragon Lore,cu_medieval_dragon_awp,344,Legacy
+AWP,weapon_awp,Duality,gs_awp_limbo_snake,1222,Legacy
+AWP,weapon_awp,Electric Hive,hy_hive,227,Legacy
+AWP,weapon_awp,Elite Build,cu_awp_mastery,525,Legacy
+AWP,weapon_awp,Exoskeleton,gs_awp_exoskeleton,975,Legacy
+AWP,weapon_awp,Exothermic,hye_firework_patches,1378,CS2
+AWP,weapon_awp,Fade,aa_awp_fade,1026,CS2
+AWP,weapon_awp,Fever Dream,cu_awp_psychopath,640,Legacy
+AWP,weapon_awp,Graphite,am_crumple_bravo,212,Legacy
+AWP,weapon_awp,Green Energy,cue_jump_line,1280,CS2
+AWP,weapon_awp,Gungnir,gs_awp_gungnir,756,Legacy
+AWP,weapon_awp,Hyper Beast,cu_awp_hyper_beast,475,Legacy
+AWP,weapon_awp,Ice Coaled,awp_ice_coaled,1346,CS2
+AWP,weapon_awp,Lightning Strike,am_lightning_awp,51,Legacy
+AWP,weapon_awp,LongDog,awp_longdog,1213,CS2
+AWP,weapon_awp,Man-o'-war,am_awp_glory,395,Legacy
+AWP,weapon_awp,Medusa,cu_medusa_awp,446,Legacy
+AWP,weapon_awp,Mortis,gs_awp_death,691,Legacy
+AWP,weapon_awp,Neo-Noir,cu_awp_neonoir,803,Legacy
+AWP,weapon_awp,Oni Taiji,cu_awp_hannya,662,Legacy
+AWP,weapon_awp,PAW,am_awp_pawpaw,718,Legacy
+AWP,weapon_awp,Phobos,gs_awp_phobos,584,Legacy
+AWP,weapon_awp,Pink DDPAT,hy_ddpat_pink,84,Legacy
+AWP,weapon_awp,Pit Viper,hy_snakeskin,251,Legacy
+AWP,weapon_awp,POP AWP,hy_technowar_rwb,1058,Legacy
+AWP,weapon_awp,Printstream,awp_printstream,1206,CS2
+AWP,weapon_awp,Queen's Gambit,awp_queens_gambit,1422,CS2
+AWP,weapon_awp,Redline,cu_awp_cobra,259,Legacy
+AWP,weapon_awp,Safari Mesh,sp_mesh_tan,72,CS2
+AWP,weapon_awp,Silk Tiger,am_tigers_blue,1029,Legacy
+AWP,weapon_awp,Snake Camo,sp_snake,30,CS2
+AWP,weapon_awp,Sun in Leo,hy_zodiac2,451,Legacy
+AWP,weapon_awp,The End,soe_bw_the_end_awp,1356,CS2
+AWP,weapon_awp,The Prince,gs_awp_enamel,736,Legacy
+AWP,weapon_awp,Wildfire,cu_awp_wildfire,917,Legacy
+AWP,weapon_awp,Worm God,aq_awp_twine,424,Legacy
+CZ75-Auto,weapon_cz75a,Army Sheen,am_army_shine,298,Legacy
+CZ75-Auto,weapon_cz75a,Chalice,am_royal,325,Legacy
+CZ75-Auto,weapon_cz75a,Circaetus,cu_cz75_whirlwind,1036,Legacy
+CZ75-Auto,weapon_cz75a,Copper Fiber,am_carbon_fiber_cz75,1195,CS2
+CZ75-Auto,weapon_cz75a,Crimson Web,hy_webs,12,Legacy
+CZ75-Auto,weapon_cz75a,Distressed,cu_cz75_cerakote,944,Legacy
+CZ75-Auto,weapon_cz75a,Eco,cu_cz75_eco,709,Legacy
+CZ75-Auto,weapon_cz75a,Emerald,an_emerald,453,CS2
+CZ75-Auto,weapon_cz75a,Emerald Quartz,am_crystallized_green,859,Legacy
+CZ75-Auto,weapon_cz75a,Framework,hy_vertigoillusion,1076,Legacy
+CZ75-Auto,weapon_cz75a,Green Plaid,hy_plaid2,366,Legacy
+CZ75-Auto,weapon_cz75a,Hexane,hy_bluehex,218,Legacy
+CZ75-Auto,weapon_cz75a,Honey Paisley,hye_paisley_desat,1390,CS2
+CZ75-Auto,weapon_cz75a,Imprint,gs_cz75_tread,602,Legacy
+CZ75-Auto,weapon_cz75a,Indigo,so_indigo_and_grey,333,CS2
+CZ75-Auto,weapon_cz75a,Jungle Dashed,sp_tape_short_jungle,147,CS2
+CZ75-Auto,weapon_cz75a,Midnight Palm,sp_palm_night,933,CS2
+CZ75-Auto,weapon_cz75a,Nitro,so_orange_accents2,322,CS2
+CZ75-Auto,weapon_cz75a,Pink Pearl,soe_pink_pearl,1329,CS2
+CZ75-Auto,weapon_cz75a,Poison Dart,am_nitrogen,315,Legacy
+CZ75-Auto,weapon_cz75a,Pole Position,cu_cz75_precision,435,Legacy
+CZ75-Auto,weapon_cz75a,Polymer,am_czv2_mf,622,Legacy
+CZ75-Auto,weapon_cz75a,Red Astor,gs_cz75a_redastor,543,Legacy
+CZ75-Auto,weapon_cz75a,Silver,an_silver,32,CS2
+CZ75-Auto,weapon_cz75a,Slalom,cu_abstract_white_cz,937,CS2
+CZ75-Auto,weapon_cz75a,Syndicate,gs_train_cz75,1064,Legacy
+CZ75-Auto,weapon_cz75a,Tacticat,gs_cz75_tacticat,687,Legacy
+CZ75-Auto,weapon_cz75a,The Fuschia Is Now,am_fuschia,269,CS2
+CZ75-Auto,weapon_cz75a,Tread Plate,am_diamond_plate,268,Legacy
+CZ75-Auto,weapon_cz75a,Tuxedo,so_orca,297,CS2
+CZ75-Auto,weapon_cz75a,Twist,am_gyrate,334,Legacy
+CZ75-Auto,weapon_cz75a,Vendetta,gs_cz75_vendetta,976,Legacy
+CZ75-Auto,weapon_cz75a,Victoria,aq_etched_cz75,270,Legacy
+CZ75-Auto,weapon_cz75a,Xiangliu,gs_cz_snakes_purple,643,Legacy
+CZ75-Auto,weapon_cz75a,Yellow Jacket,cu_cz75a_chastizer,476,Legacy
+Desert Eagle,weapon_deagle,Blaze,aa_flames,37,CS2
+Desert Eagle,weapon_deagle,Blue Ply,cu_deagle_replica,945,Legacy
+Desert Eagle,weapon_deagle,Bronze Deco,am_bronze_sparkle,425,Legacy
+Desert Eagle,weapon_deagle,Calligraffiti,deagle_calligraff,114,CS2
+Desert Eagle,weapon_deagle,Cobalt Disruption,am_ddpatdense_peacock,231,Legacy
+Desert Eagle,weapon_deagle,Code Red,gs_deagle_aggressor,711,Legacy
+Desert Eagle,weapon_deagle,Conspiracy,cu_deagle_aureus,351,Legacy
+Desert Eagle,weapon_deagle,Corinthian,aq_deagle_corinthian,509,Legacy
+Desert Eagle,weapon_deagle,Crimson Web,hy_webs_darker,232,Legacy
+Desert Eagle,weapon_deagle,Directive,aq_desert_eagle_constable,603,Legacy
+Desert Eagle,weapon_deagle,Emerald Jörmungandr,am_jorm_green,757,Legacy
+Desert Eagle,weapon_deagle,Fennec Fox,gs_deagle_fennec,764,Legacy
+Desert Eagle,weapon_deagle,Firebreathing,deagle_firebreathing,1430,CS2
+Desert Eagle,weapon_deagle,Golden Koi,am_scales_bravo,185,Legacy
+Desert Eagle,weapon_deagle,Hand Cannon,aq_handcannon,328,Legacy
+Desert Eagle,weapon_deagle,Heat Treated,aq_deagle_case_hardened_2,1054,CS2
+Desert Eagle,weapon_deagle,Heirloom,aq_engraved_deagle,273,Legacy
+Desert Eagle,weapon_deagle,Hypnotic,aa_vertigo,61,CS2
+Desert Eagle,weapon_deagle,Kumicho Dragon,aq_deserteagle_kumichodragon,527,Legacy
+Desert Eagle,weapon_deagle,Light Rail,gs_deagle_exo,841,Legacy
+Desert Eagle,weapon_deagle,Mecha Industries,gs_deagle_mecha,805,Legacy
+Desert Eagle,weapon_deagle,Meteorite,am_crystallized_dark,296,Legacy
+Desert Eagle,weapon_deagle,Midnight Storm,am_seastorm,468,Legacy
+Desert Eagle,weapon_deagle,Mint Fan,ht_earth_fans,1257,CS2
+Desert Eagle,weapon_deagle,Mudder,hy_mottled_sand,90,Legacy
+Desert Eagle,weapon_deagle,Mulberry,soe_plum,1318,CS2
+Desert Eagle,weapon_deagle,Naga,aq_deagle_naga,397,Legacy
+Desert Eagle,weapon_deagle,Night,so_night,40,CS2
+Desert Eagle,weapon_deagle,Night Heist,am_heist_plans_purple,1006,Legacy
+Desert Eagle,weapon_deagle,Ocean Drive,cu_deagle_kitch,1090,Legacy
+Desert Eagle,weapon_deagle,Oxide Blaze,cu_desert_eagle_corroden,645,Legacy
+Desert Eagle,weapon_deagle,Pilot,aq_pilot_deagle,347,Legacy
+Desert Eagle,weapon_deagle,Printstream,cu_deag_printstream,962,Legacy
+Desert Eagle,weapon_deagle,Serpent Strike,deagle_snake_pattern,1189,CS2
+Desert Eagle,weapon_deagle,Sputnik,sp_spacerace_blue,1056,CS2
+Desert Eagle,weapon_deagle,Starcade,cu_glitter_deagle,938,CS2
+Desert Eagle,weapon_deagle,Sunset Storm 壱,am_seastorm_blood,469,Legacy
+Desert Eagle,weapon_deagle,Sunset Storm 弐,am_seastorm_shojo,470,Legacy
+Desert Eagle,weapon_deagle,The Bronze,am_numbers_bronze,992,Legacy
+Desert Eagle,weapon_deagle,The Daily Deagle,hye_car_wrap,1360,CS2
+Desert Eagle,weapon_deagle,Tilted,cu_overpass_aqua_deagle,138,CS2
+Desert Eagle,weapon_deagle,Trigger Discipline,cu_deag_trigger_discipline,1050,Legacy
+Desert Eagle,weapon_deagle,Urban DDPAT,hy_ddpat_urb,17,Legacy
+Desert Eagle,weapon_deagle,Urban Rubble,hy_varicamo_urban,237,Legacy
+Dual Berettas,weapon_elite,Angel Eyes,dual_elite_biblical_angel,1347,CS2
+Dual Berettas,weapon_elite,Anodized Navy,an_navy,28,CS2
+Dual Berettas,weapon_elite,Balance,gs_dual_elites_rose,895,Legacy
+Dual Berettas,weapon_elite,Black Limba,cu_season_elites_bravo,190,Legacy
+Dual Berettas,weapon_elite,BorDeux,soch_acrylic_grips,1335,CS2
+Dual Berettas,weapon_elite,Briar,hy_vines,330,Legacy
+Dual Berettas,weapon_elite,Cartel,aq_dualberettas_cartel,528,Legacy
+Dual Berettas,weapon_elite,Cobalt Quartz,am_crystallized_blue,249,Legacy
+Dual Berettas,weapon_elite,Cobra Strike,gs_dualberettas_cobra,658,Legacy
+Dual Berettas,weapon_elite,Colony,so_space_marine,47,CS2
+Dual Berettas,weapon_elite,Contractor,so_pmc,46,CS2
+Dual Berettas,weapon_elite,Demolition,so_tangerine,153,CS2
+Dual Berettas,weapon_elite,Dezastre,gs_dual_elites_dezastre,978,Legacy
+Dual Berettas,weapon_elite,Drift Wood,sp_dry_wood,824,CS2
+Dual Berettas,weapon_elite,Dualing Dragons,cu_dualberretta_dragons,491,Legacy
+Dual Berettas,weapon_elite,Duelist,gs_mother_of_pearl_elite,447,Legacy
+Dual Berettas,weapon_elite,Elite 1.6,gs_dual_elites_classic,903,Legacy
+Dual Berettas,weapon_elite,Emerald,an_emerald,453,CS2
+Dual Berettas,weapon_elite,Flora Carnivora,cu_dual_elites_evil_flora,1156,Legacy
+Dual Berettas,weapon_elite,Heist,am_heist_plans_green,1005,Legacy
+Dual Berettas,weapon_elite,Hemoglobin,am_ossify_red,220,Legacy
+Dual Berettas,weapon_elite,Hideout,dual_berettas_lethal_grin,1169,CS2
+Dual Berettas,weapon_elite,Hydro Strike,dual_elite_hydro_strike,112,CS2
+Dual Berettas,weapon_elite,Marina,hy_marina_sunrise,261,Legacy
+Dual Berettas,weapon_elite,Melondrama,cu_elites_beware,1126,Legacy
+Dual Berettas,weapon_elite,Moon in Libra,hy_zodiac1,450,Legacy
+Dual Berettas,weapon_elite,Oil Change,sp_engine_dirty,1086,CS2
+Dual Berettas,weapon_elite,Panther,so_panther,276,CS2
+Dual Berettas,weapon_elite,Polished Malachite,soch_marble_grips,1290,CS2
+Dual Berettas,weapon_elite,Pyre,hy_gelpen_dark,860,Legacy
+Dual Berettas,weapon_elite,Retribution,cu_retribution,307,Legacy
+Dual Berettas,weapon_elite,Rose Nacre,soo_rose_gold,1263,CS2
+Dual Berettas,weapon_elite,Royal Consorts,gs_dual_berettas_golden_venice,625,Legacy
+Dual Berettas,weapon_elite,Shred,sp_elites_winter_raider,710,CS2
+Dual Berettas,weapon_elite,Silver Pour,soe_acrylic_flow3,1373,CS2
+Dual Berettas,weapon_elite,Stained,aq_forced,43,Legacy
+Dual Berettas,weapon_elite,Sweet Little Angels,cu_overpass_baby_dualies,139,CS2
+Dual Berettas,weapon_elite,Switch Board,hy_numbers_green,998,Legacy
+Dual Berettas,weapon_elite,Tread,gs_dual_berettas_tread,1091,Legacy
+Dual Berettas,weapon_elite,Twin Turbo,cu_dual_elites_rally,747,Legacy
+Dual Berettas,weapon_elite,Urban Shock,cu_elites_urbanstorm,396,Legacy
+Dual Berettas,weapon_elite,Ventilators,gs_dualberettas_ventilators,544,Legacy
+FAMAS,weapon_famas,2A2F,gs_train_car_famas,1202,CS2
+FAMAS,weapon_famas,Afterimage,cu_broken_path_famas,154,Legacy
+FAMAS,weapon_famas,Bad Trip,famas_badtrip,1184,CS2
+FAMAS,weapon_famas,Byproduct,hye_firework_patches_famas,1393,CS2
+FAMAS,weapon_famas,CaliCamo,hy_varicamo_desert,240,Legacy
+FAMAS,weapon_famas,Colony,so_space_marine,47,CS2
+FAMAS,weapon_famas,Commemoration,gs_famas_legacy_gold,919,Legacy
+FAMAS,weapon_famas,Contrast Spray,sp_spray,22,CS2
+FAMAS,weapon_famas,Crypsis,sp_famas_ghost_insects,835,CS2
+FAMAS,weapon_famas,Cyanospatter,hy_reef,92,Legacy
+FAMAS,weapon_famas,Dark Water,am_zebra_dark,60,Legacy
+FAMAS,weapon_famas,Decommissioned,cu_famas_nuke_tension,904,Legacy
+FAMAS,weapon_famas,Djinn,aq_famas_jinn,429,Legacy
+FAMAS,weapon_famas,Doomkitty,hy_doomkitty,178,Legacy
+FAMAS,weapon_famas,Eye of Athena,cu_famas_owl_orange,723,Legacy
+FAMAS,weapon_famas,Faulty Wiring,aa_wiring_yellow,1066,CS2
+FAMAS,weapon_famas,Grey Ghost,soo_famas_grey_ghost,1321,CS2
+FAMAS,weapon_famas,Half Sleeve,gs_gamebred_famas,461,CS2
+FAMAS,weapon_famas,Halftone Wash,ht_splash_famas,882,CS2
+FAMAS,weapon_famas,Hexane,hy_bluehex,218,Legacy
+FAMAS,weapon_famas,Macabre,sp_famas_macabre,659,CS2
+FAMAS,weapon_famas,Mecha Industries,gs_famas_mecha,626,Legacy
+FAMAS,weapon_famas,Meltdown,am_nuclear_pattern4_famas,1053,Legacy
+FAMAS,weapon_famas,Meow 36,gs_famas_corp_meow,1146,Legacy
+FAMAS,weapon_famas,Neural Net,am_famas_dots,477,Legacy
+FAMAS,weapon_famas,Night Borre,sp_knots_blue,863,Legacy
+FAMAS,weapon_famas,Palm,spo_palm,1302,CS2
+FAMAS,weapon_famas,Prime Conspiracy,am_numbers_magenta,999,Legacy
+FAMAS,weapon_famas,Pulse,cu_famas_pulse,260,Legacy
+FAMAS,weapon_famas,Rapid Eye Movement,gs_famas_rapid_eyes,1127,Legacy
+FAMAS,weapon_famas,Roll Cage,gs_famas_rally,604,Legacy
+FAMAS,weapon_famas,Sergeant,an_famas_sgt,288,Legacy
+FAMAS,weapon_famas,Spitfire,sp_spitfire_famas_bravo,194,CS2
+FAMAS,weapon_famas,Styx,am_nuclear_skulls2_famas,371,Legacy
+FAMAS,weapon_famas,Sundown,sp_palm_sunset,869,CS2
+FAMAS,weapon_famas,Survivor Z,cu_famas_lenta,492,Legacy
+FAMAS,weapon_famas,Teardown,sp_mesh_hot_and_cold,244,CS2
+FAMAS,weapon_famas,Valence,aq_famas_contour,529,Legacy
+FAMAS,weapon_famas,Vendetta,soe_bw_blast,1365,CS2
+FAMAS,weapon_famas,Waters of Nephthys,cu_famas_holo_ocean,1241,Legacy
+FAMAS,weapon_famas,Yeti Camo,soe_blue_famas,1219,CS2
+FAMAS,weapon_famas,ZX Spectron,cu_famas_spectron,1092,Legacy
+Five-SeveN,weapon_fiveseven,Angry Mob,cu_five_seven_angry,837,Legacy
+Five-SeveN,weapon_fiveseven,Anodized Gunmetal,an_gunmetal_bravo,210,CS2
+Five-SeveN,weapon_fiveseven,Autumn Thicket,soo_branches,1336,CS2
+Five-SeveN,weapon_fiveseven,Berries And Cherries,aa_fade_red_blue,1002,CS2
+Five-SeveN,weapon_fiveseven,Boost Protocol,gs_five_seven_efusion,1093,Legacy
+Five-SeveN,weapon_fiveseven,Buddy,cu_fiveseven_gsg9,906,Legacy
+Five-SeveN,weapon_fiveseven,Candy Apple,so_red,3,CS2
+Five-SeveN,weapon_fiveseven,Capillary,cu_fiveseven_vein,646,Legacy
+Five-SeveN,weapon_fiveseven,Case Hardened,aq_oiled,44,Legacy
+Five-SeveN,weapon_fiveseven,Contractor,so_pmc,46,CS2
+Five-SeveN,weapon_fiveseven,Coolant,hy_ducts_green,784,Legacy
+Five-SeveN,weapon_fiveseven,Copper Galaxy,am_copper_flecks,274,CS2
+Five-SeveN,weapon_fiveseven,Crimson Blossom,hy_bud_red,729,Legacy
+Five-SeveN,weapon_fiveseven,Dark Polymer,fiveseven_polymer_dark,1429,CS2
+Five-SeveN,weapon_fiveseven,Fairy Tale,cu_five_seven_diary,979,Legacy
+Five-SeveN,weapon_fiveseven,Fall Hazard,cu_vertigo_fiveseven,1082,Legacy
+Five-SeveN,weapon_fiveseven,Flame Test,gs_fiveseven_hot_rod_violet,693,Legacy
+Five-SeveN,weapon_fiveseven,Forest Night,hy_forest_night,78,Legacy
+Five-SeveN,weapon_fiveseven,Fowl Play,aq_57_feathers,352,Legacy
+Five-SeveN,weapon_fiveseven,Fraise Crane,soe_pink_cranes,1380,CS2
+Five-SeveN,weapon_fiveseven,Heat Treated,aq_case_hardened_fiveseven,831,CS2
+Five-SeveN,weapon_fiveseven,Hot Shot,so_grey_nuclear_orange_five_seven,377,CS2
+Five-SeveN,weapon_fiveseven,Hybrid,fiveseven_hybrid,1168,CS2
+Five-SeveN,weapon_fiveseven,Hyper Beast,cu_fiveseven_hyperbeast,660,Legacy
+Five-SeveN,weapon_fiveseven,Jungle,so_jungle,151,CS2
+Five-SeveN,weapon_fiveseven,Kami,hy_kami,265,Legacy
+Five-SeveN,weapon_fiveseven,Midnight Paintover,hy_overpass_paintover_teal,1062,CS2
+Five-SeveN,weapon_fiveseven,Monkey Business,cu_fiveseven_banana,427,Legacy
+Five-SeveN,weapon_fiveseven,Neon Kimono,hy_kimono_diamonds,464,Legacy
+Five-SeveN,weapon_fiveseven,Nightshade,hy_flowers,223,Legacy
+Five-SeveN,weapon_fiveseven,Nitro,so_orange_accents,254,CS2
+Five-SeveN,weapon_fiveseven,Orange Peel,sp_tape_orange,141,CS2
+Five-SeveN,weapon_fiveseven,Retrobution,cu_fiveseven_retrobution,510,Legacy
+Five-SeveN,weapon_fiveseven,Scrawl,cu_fiveseven_alpha_omega,1128,Legacy
+Five-SeveN,weapon_fiveseven,Scumbria,aq_five_seven_scumbria,605,Legacy
+Five-SeveN,weapon_fiveseven,Silver Quartz,am_crystallized_silver,252,Legacy
+Five-SeveN,weapon_fiveseven,Sky Blue,soe_blue_and_chrome,1262,CS2
+Five-SeveN,weapon_fiveseven,Triumvirate,cu_fiveseven_augmented,530,Legacy
+Five-SeveN,weapon_fiveseven,Urban Hazard,cu_fiveseven_urban_hazard,387,Legacy
+Five-SeveN,weapon_fiveseven,Violent Daimyo,cu_five_seven_daimyo,585,Legacy
+Five-SeveN,weapon_fiveseven,Withered Vine,sp_moro_textile_purple_yellow,932,CS2
+G3SG1,weapon_g3sg1,Ancient Ritual,am_ancient_wine,1034,Legacy
+G3SG1,weapon_g3sg1,Arctic Camo,hy_arctic,6,Legacy
+G3SG1,weapon_g3sg1,Azure Zebra,sp_zebracam_blue,229,CS2
+G3SG1,weapon_g3sg1,Black Sand,cu_g3sg1_blacksand,891,Legacy
+G3SG1,weapon_g3sg1,Chronos,cu_chronos_g3sg1,438,Legacy
+G3SG1,weapon_g3sg1,Contractor,so_pmc,46,CS2
+G3SG1,weapon_g3sg1,Demeter,hy_bluepolygon_bravo,195,Legacy
+G3SG1,weapon_g3sg1,Desert Storm,hy_desert,8,Legacy
+G3SG1,weapon_g3sg1,Digital Mesh,gs_g3sg1_disrupt,980,Legacy
+G3SG1,weapon_g3sg1,Dream Glade,cu_g3sg1_glade,1129,Legacy
+G3SG1,weapon_g3sg1,Flux,gs_g3sg1_flux_purple,493,Legacy
+G3SG1,weapon_g3sg1,Green Apple,so_green,294,CS2
+G3SG1,weapon_g3sg1,Green Cell,sp_khaki_camo,1305,CS2
+G3SG1,weapon_g3sg1,High Seas,gs_g3sg1_buccaneer,712,Legacy
+G3SG1,weapon_g3sg1,Hunter,gs_g3sg1_cetme_redux,677,Legacy
+G3SG1,weapon_g3sg1,Jungle Dashed,sp_tape_short_jungle,147,CS2
+G3SG1,weapon_g3sg1,Keeping Tabs,cu_g3sg1_tacticalmap,1095,Legacy
+G3SG1,weapon_g3sg1,Murky,am_g3sg1_murky,382,Legacy
+G3SG1,weapon_g3sg1,New Roots,sp_moro_carving_lightblue,930,CS2
+G3SG1,weapon_g3sg1,Orange Crash,sp_g3sg1_militiaorange,545,CS2
+G3SG1,weapon_g3sg1,Orange Kimono,hy_kimono_diamonds_orange,465,Legacy
+G3SG1,weapon_g3sg1,Polar Camo,hy_arctic_contrast,74,Legacy
+G3SG1,weapon_g3sg1,Red Jasper,soo_g3sg1_tomato,1328,CS2
+G3SG1,weapon_g3sg1,Safari Mesh,sp_mesh_tan,72,CS2
+G3SG1,weapon_g3sg1,Scavenger,gs_g3sg1_savage,806,Legacy
+G3SG1,weapon_g3sg1,Stinger,gs_g3sg1_viper_yellow,628,Legacy
+G3SG1,weapon_g3sg1,The Executioner,cu_g3sg1_executioner,511,Legacy
+G3SG1,weapon_g3sg1,VariCamo,hy_varicamo,235,Legacy
+G3SG1,weapon_g3sg1,Ventilator,gs_g3sg1_ventilator,606,Legacy
+G3SG1,weapon_g3sg1,Violet Murano,am_murano_violet,739,Legacy
+Galil AR,weapon_galilar,Acid Dart,hye_yellow_usaf,1296,CS2
+Galil AR,weapon_galilar,Akoben,sp_galil_akoben,842,CS2
+Galil AR,weapon_galilar,Amber Fade,aa_fade_metallic,246,CS2
+Galil AR,weapon_galilar,Aqua Terrace,am_geometric_steps,460,Legacy
+Galil AR,weapon_galilar,Blue Titanium,an_titanium30v,216,CS2
+Galil AR,weapon_galilar,CAUTION!,sp_galil_caution,1071,CS2
+Galil AR,weapon_galilar,Cerberus,cu_cerbrus_galil,379,Legacy
+Galil AR,weapon_galilar,Chatterbox,cu_galil_abrasion,398,Legacy
+Galil AR,weapon_galilar,Chromatic Aberration,cu_galil_chroma_pink,1038,Legacy
+Galil AR,weapon_galilar,Cold Fusion,hy_nuclear_skulls_aqua,790,Legacy
+Galil AR,weapon_galilar,Connexion,gs_galil_phoenix,972,Legacy
+Galil AR,weapon_galilar,Control,galil_control_strike,1185,CS2
+Galil AR,weapon_galilar,Crimson Tsunami,sp_galil_wave,647,CS2
+Galil AR,weapon_galilar,Destroyer,cu_galil_destroyer,1147,Legacy
+Galil AR,weapon_galilar,Dusk Ruins,hy_ruins_red,1032,Legacy
+Galil AR,weapon_galilar,Eco,cu_galil_eco,428,Legacy
+Galil AR,weapon_galilar,Firefight,gs_galilar_incenerator,546,Legacy
+Galil AR,weapon_galilar,Galigator,galil_galigator,1434,CS2
+Galil AR,weapon_galilar,Green Apple,so_green,294,CS2
+Galil AR,weapon_galilar,Grey Smoke,soch_blorb_bw_galilar,1275,CS2
+Galil AR,weapon_galilar,Hunting Blind,sp_mesh_slashes,241,CS2
+Galil AR,weapon_galilar,Kami,hy_galil_kami,308,Legacy
+Galil AR,weapon_galilar,Metallic Squeezer,sp_overpass_paint_pen_metal,239,CS2
+Galil AR,weapon_galilar,NV,cu_poly_green_galil,939,CS2
+Galil AR,weapon_galilar,O-Ranger,soe_orange_flick,1314,CS2
+Galil AR,weapon_galilar,Orange DDPAT,hy_ddpat_orange,83,Legacy
+Galil AR,weapon_galilar,Phoenix Blacklight,sp_phoenix_tags_purple,1013,Legacy
+Galil AR,weapon_galilar,Rainbow Spoon,aq_titanium_rainbow_galilar,1178,CS2
+Galil AR,weapon_galilar,Robin's Egg,soe_robinsegg,1264,CS2
+Galil AR,weapon_galilar,Rocket Pop,cu_galilar_particles,478,Legacy
+Galil AR,weapon_galilar,Sage Spray,sp_spray_desert_sage,119,CS2
+Galil AR,weapon_galilar,Sandstorm,cu_sandstorm,264,Legacy
+Galil AR,weapon_galilar,Shattered,hy_crumple_bravo,192,Legacy
+Galil AR,weapon_galilar,Signal,hy_galil_signal_red,807,Legacy
+Galil AR,weapon_galilar,Sky Mandala,hye_earth_mandala,1383,CS2
+Galil AR,weapon_galilar,Stone Cold,gs_galil_nightwing,494,Legacy
+Galil AR,weapon_galilar,Sugar Rush,cu_galil_candychaos,661,Legacy
+Galil AR,weapon_galilar,Tornado,so_tornado,101,CS2
+Galil AR,weapon_galilar,Tuxedo,so_orca,297,CS2
+Galil AR,weapon_galilar,Urban Rubble,hy_varicamo_urban,237,Legacy
+Galil AR,weapon_galilar,Vandal,gs_galil_vandal,981,Legacy
+Galil AR,weapon_galilar,VariCamo,hy_varicamo,235,Legacy
+Galil AR,weapon_galilar,Winter Forest,hy_forest_winter,76,Legacy
+Glock-18,weapon_glock,AXIA,gsch_axia_glock,832,CS2
+Glock-18,weapon_glock,Block-18,glock_brick_mondrian,1167,CS2
+Glock-18,weapon_glock,Blue Fissure,hy_craquelure,278,Legacy
+Glock-18,weapon_glock,Brass,aq_brass,159,Legacy
+Glock-18,weapon_glock,Bullet Queen,cu_glock18_warmaiden,957,Legacy
+Glock-18,weapon_glock,Bunsen Burner,aq_glock18_flames_blue,479,Legacy
+Glock-18,weapon_glock,Candy Apple,so_red,3,CS2
+Glock-18,weapon_glock,Catacombs,cu_glock_deathtoll,399,Legacy
+Glock-18,weapon_glock,Clear Polymer,gs_glock_polymer,1039,Legacy
+Glock-18,weapon_glock,Coral Bloom,soe_roses,1312,CS2
+Glock-18,weapon_glock,Death Rattle,hy_nerodia,293,Legacy
+Glock-18,weapon_glock,Dragon Tattoo,am_dragon_glock,48,Legacy
+Glock-18,weapon_glock,Fade,aa_fade,38,CS2
+Glock-18,weapon_glock,Franklin,cu_money_glock,1016,Legacy
+Glock-18,weapon_glock,Fully Tuned,glock_jdpeek,1421,CS2
+Glock-18,weapon_glock,Gamma Doppler,am_emerald_marbleized_glock,1119,Legacy
+Glock-18,weapon_glock,Gamma Doppler,am_gamma_doppler_phase1_glock,1120,Legacy
+Glock-18,weapon_glock,Gamma Doppler,am_gamma_doppler_phase2_glock,1121,Legacy
+Glock-18,weapon_glock,Gamma Doppler,am_gamma_doppler_phase3_glock,1122,Legacy
+Glock-18,weapon_glock,Gamma Doppler,am_gamma_doppler_phase4_glock,1123,Legacy
+Glock-18,weapon_glock,Glockingbird,spe_missile,1282,CS2
+Glock-18,weapon_glock,Gold Toof,glock_chomper,129,CS2
+Glock-18,weapon_glock,Green Line,glock_train_green,1200,CS2
+Glock-18,weapon_glock,Grinder,aq_glock_coiled,381,Legacy
+Glock-18,weapon_glock,Groundwater,so_olive,2,CS2
+Glock-18,weapon_glock,High Beam,aa_vertigo_blue,799,CS2
+Glock-18,weapon_glock,Mirror Mosaic,glock_mirror_maze_v2_pearl,1348,CS2
+Glock-18,weapon_glock,Moonrise,aa_glock_18_urban_moon_fever,694,Legacy
+Glock-18,weapon_glock,Neo-Noir,cu_glock_noir,988,Legacy
+Glock-18,weapon_glock,Night,so_night,40,CS2
+Glock-18,weapon_glock,Nuclear Garden,am_nuclear_skulls_green,789,Legacy
+Glock-18,weapon_glock,Ocean Topo,hye_topo,1265,CS2
+Glock-18,weapon_glock,Off World,cu_glock_indigo,680,Legacy
+Glock-18,weapon_glock,Oxide Blaze,cu_glock18_corroden,808,Legacy
+Glock-18,weapon_glock,Pink DDPAT,hy_ddpat_pink,84,Legacy
+Glock-18,weapon_glock,Ramese's Reach,cu_glock_ramzes,1240,Legacy
+Glock-18,weapon_glock,Reactor,am_nuclear_pattern1_glock,367,Legacy
+Glock-18,weapon_glock,Red Tire,sp_tire_tread_red,1079,CS2
+Glock-18,weapon_glock,Royal Legion,gs_glock18_award,532,Legacy
+Glock-18,weapon_glock,Sacrifice,cu_glock_hero,918,Legacy
+Glock-18,weapon_glock,Sand Dune,so_sand_bravo,208,CS2
+Glock-18,weapon_glock,Shinobu,glock_shinobu,1208,CS2
+Glock-18,weapon_glock,Snack Attack,cu_glock_snackattack,1100,Legacy
+Glock-18,weapon_glock,Steel Disruption,am_ddpatdense_silver,230,Legacy
+Glock-18,weapon_glock,Synth Leaf,hy_leaf_blue,732,Legacy
+Glock-18,weapon_glock,Teal Graf,hy_overpass_tagged_teal,152,CS2
+Glock-18,weapon_glock,Trace Lock,ht_white_edges,1357,CS2
+Glock-18,weapon_glock,Twilight Galaxy,am_aqua_flecks,437,CS2
+Glock-18,weapon_glock,Umbral Rabbit,cu_glock_moon_rabbit,1227,Legacy
+Glock-18,weapon_glock,Vogue,cu_glock_eyecontact,963,Legacy
+Glock-18,weapon_glock,Warhawk,gs_glock_thunder_dust,713,Legacy
+Glock-18,weapon_glock,Wasteland Rebel,cu_glock_wasteland_rebel,586,Legacy
+Glock-18,weapon_glock,Weasel,cu_glock18_weasel,607,Legacy
+Glock-18,weapon_glock,Winterized,gs_glock_elite_camo,1158,Legacy
+Glock-18,weapon_glock,Wraiths,gs_glock18_wrathys,495,Legacy
+M249,weapon_m249,Aztec,aq_m249_aztec,902,Legacy
+M249,weapon_m249,Blizzard Marbleized,hy_blizzard,75,Legacy
+M249,weapon_m249,Bock Blocks,m249_blocks_purple,1435,CS2
+M249,weapon_m249,Contrast Spray,sp_spray,22,CS2
+M249,weapon_m249,Deep Relief,cu_m249_deep_relief,983,Legacy
+M249,weapon_m249,Downtown,cu_m249_downvote,1148,Legacy
+M249,weapon_m249,Emerald Poison Dart,sp_m249_frog_original,648,CS2
+M249,weapon_m249,Gator Mesh,sp_mesh_python,243,CS2
+M249,weapon_m249,Humidor,sp_moro_carving_burnt,827,CS2
+M249,weapon_m249,Hypnosis,m249_hypnosis,120,CS2
+M249,weapon_m249,Impact Drill,so_keycolors,472,CS2
+M249,weapon_m249,Jungle,so_jungle,151,CS2
+M249,weapon_m249,Jungle DDPAT,hy_ddpat_jungle_bravo,202,Legacy
+M249,weapon_m249,Magma,aq_obsidian,266,Legacy
+M249,weapon_m249,Midnight Palm,sp_palm_night,933,CS2
+M249,weapon_m249,Nebula Crusader,gs_m249_nebula_crusader,496,Legacy
+M249,weapon_m249,O.S.I.P.R.,gs_m249_combine,1042,Legacy
+M249,weapon_m249,Predator,sp_zebracam,170,CS2
+M249,weapon_m249,Sage Camo,hyo_jungle_desat,1298,CS2
+M249,weapon_m249,Shipping Forecast,hy_zodiac3,452,Legacy
+M249,weapon_m249,Sleet,hye_m249_car_wrap_3,1370,CS2
+M249,weapon_m249,Spectre,cu_m249_spectre,547,Legacy
+M249,weapon_m249,Spectrogram,ht_peaks_rainbow,875,CS2
+M249,weapon_m249,Submerged,cu_m249_scarab,1242,Legacy
+M249,weapon_m249,System Lock,cu_m249_sektor,401,Legacy
+M249,weapon_m249,Warbird,gs_m249_warbird_veteran,900,Legacy
+M4A1-S,weapon_m4a1_silencer,Basilisk,aq_m4a1s_basilisk,383,Legacy
+M4A1-S,weapon_m4a1_silencer,Black Lotus,m4a1s_black_lotus,1166,CS2
+M4A1-S,weapon_m4a1_silencer,Blood Tiger,hy_redtiger,217,Legacy
+M4A1-S,weapon_m4a1_silencer,Blue Phosphor,am_m4a1s_bluesmoke,1017,CS2
+M4A1-S,weapon_m4a1_silencer,Boreal Forest,hy_forest_boreal,77,Legacy
+M4A1-S,weapon_m4a1_silencer,Briefing,cu_m4a1s_metritera,663,Legacy
+M4A1-S,weapon_m4a1_silencer,Bright Water,hy_ocean_bravo,189,Legacy
+M4A1-S,weapon_m4a1_silencer,Chantico's Fire,cu_m4a1s_soultaker,548,Legacy
+M4A1-S,weapon_m4a1_silencer,Control Panel,gs_m4a1s_operator,792,Legacy
+M4A1-S,weapon_m4a1_silencer,Cyrex,cu_m4a1s_cyrex,360,Legacy
+M4A1-S,weapon_m4a1_silencer,Dark Water,am_zebra_dark,60,Legacy
+M4A1-S,weapon_m4a1_silencer,Decimator,gs_m4a1_decimator,644,Legacy
+M4A1-S,weapon_m4a1_silencer,Electrum,m4a1s_electrum,1433,CS2
+M4A1-S,weapon_m4a1_silencer,Emphorosaur-S,cu_m4a1s_feeding_frenzy,1223,Legacy
+M4A1-S,weapon_m4a1_silencer,Fade,aa_fade_m4a1s,1177,CS2
+M4A1-S,weapon_m4a1_silencer,Fizzy POP,sp_technowar_red,1059,CS2
+M4A1-S,weapon_m4a1_silencer,Flashback,cu_m4a1_flashback,631,Legacy
+M4A1-S,weapon_m4a1_silencer,Glitched Paint,ht_abstract_wind,1311,CS2
+M4A1-S,weapon_m4a1_silencer,Golden Coil,gs_m4a1s_snakebite_gold,497,Legacy
+M4A1-S,weapon_m4a1_silencer,Hot Rod,an_red_m4a1s,445,Legacy
+M4A1-S,weapon_m4a1_silencer,Hyper Beast,cu_m4a1_hyper_beast,430,Legacy
+M4A1-S,weapon_m4a1_silencer,Icarus Fell,hy_icarus,440,Legacy
+M4A1-S,weapon_m4a1_silencer,Imminent Danger,gs_m4a1_vertigo,1073,Legacy
+M4A1-S,weapon_m4a1_silencer,Knight,am_metals,326,Legacy
+M4A1-S,weapon_m4a1_silencer,Leaded Glass,gs_m4a1_shatter,681,Legacy
+M4A1-S,weapon_m4a1_silencer,Liquidation,m4a1s_quick_liquidation,1340,CS2
+M4A1-S,weapon_m4a1_silencer,Mecha Industries,gs_m4a1_mecha_industries,587,Legacy
+M4A1-S,weapon_m4a1_silencer,Moss Quartz,am_crystallized_dark_green,862,Legacy
+M4A1-S,weapon_m4a1_silencer,Mud-Spec,gs_m4a1s_milspec,1243,Legacy
+M4A1-S,weapon_m4a1_silencer,Night Terror,gs_m4a1s_insomnia,1130,Legacy
+M4A1-S,weapon_m4a1_silencer,Nightmare,cu_m4a1s_nightmare,714,Legacy
+M4A1-S,weapon_m4a1_silencer,Nitro,so_orange_accents,254,CS2
+M4A1-S,weapon_m4a1_silencer,Party Animal,hye_animal_print_90s,1376,CS2
+M4A1-S,weapon_m4a1_silencer,Player Two,cu_m4a1s_csgo2048,946,Legacy
+M4A1-S,weapon_m4a1_silencer,Printstream,cu_m4a1s_printstream,984,Legacy
+M4A1-S,weapon_m4a1_silencer,Rose Hex,hy_hexagon,1319,CS2
+M4A1-S,weapon_m4a1_silencer,Solitude,soch_mountains_m4a1s,1338,CS2
+M4A1-S,weapon_m4a1_silencer,Stratosphere,cue_stratosphere,1216,CS2
+M4A1-S,weapon_m4a1_silencer,Vaporwave,m4a1s_vaporwave,106,CS2
+M4A1-S,weapon_m4a1_silencer,VariCamo,hy_varicamo,235,Legacy
+M4A1-S,weapon_m4a1_silencer,Wash me plz,hy_overpass_doodle_m4a1s,160,CS2
+M4A1-S,weapon_m4a1_silencer,Welcome to the Jungle,cu_m4a1_snake,1001,Legacy
+M4A4,weapon_m4a1,Aeolian Dark,hye_abstract_knot_m4,1364,CS2
+M4A4,weapon_m4a1,Asiimov,cu_m4_asimov,255,Legacy
+M4A4,weapon_m4a1,Bullet Rain,cu_bullet_rain_m4a1,155,Legacy
+M4A4,weapon_m4a1,Buzz Kill,gs_m4a4_sector,632,Legacy
+M4A4,weapon_m4a1,Choppa,m4a4_green_camo,1210,CS2
+M4A4,weapon_m4a1,Converter,hy_red_hex,793,Legacy
+M4A4,weapon_m4a1,Cyber Security,cu_m4a4_cyberpunk,985,Legacy
+M4A4,weapon_m4a1,Dark Blossom,sp_bud_blue,730,CS2
+M4A4,weapon_m4a1,Daybreak,am_kimono_sunrise,471,Legacy
+M4A4,weapon_m4a1,Desert Storm,hy_desert,8,Legacy
+M4A4,weapon_m4a1,Desert-Strike,cu_titanstorm,336,Legacy
+M4A4,weapon_m4a1,Desolate Space,cu_m4a4_desolate_space,588,Legacy
+M4A4,weapon_m4a1,Etch Lord,m4a4_snakebite,1165,CS2
+M4A4,weapon_m4a1,Evil Daimyo,cu_m4a4_evil_daimyo,480,Legacy
+M4A4,weapon_m4a1,Eye of Horus,gs_m4a4_ra,1255,Legacy
+M4A4,weapon_m4a1,Faded Zebra,sp_zebracam_bw,176,CS2
+M4A4,weapon_m4a1,Full Throttle,m4a4_skrrrt_green,1353,CS2
+M4A4,weapon_m4a1,Global Offensive,cu_csgo_camo,993,Legacy
+M4A4,weapon_m4a1,Griffin,cu_m4a4_griffin,384,Legacy
+M4A4,weapon_m4a1,Hellfire,cu_m4a4_hellfire,664,Legacy
+M4A4,weapon_m4a1,Hellish,cu_m4a4_train_hell,1209,CS2
+M4A4,weapon_m4a1,Howl,cu_m4a1_howling,309,Legacy
+M4A4,weapon_m4a1,In Living Color,cu_m4a4_love,1041,Legacy
+M4A4,weapon_m4a1,Jungle Tiger,hy_v_tiger,16,Legacy
+M4A4,weapon_m4a1,Magnesium,gs_m4a4_chopper_ghost,811,Legacy
+M4A4,weapon_m4a1,Mainframe,am_circuitboard_silver,780,Legacy
+M4A4,weapon_m4a1,Modern Hunter,hy_hunter_modern,164,Legacy
+M4A4,weapon_m4a1,Naval Shred Camo,hye_blue_m4a4,1266,CS2
+M4A4,weapon_m4a1,Neo-Noir,cu_m4a4_neo_noir,695,Legacy
+M4A4,weapon_m4a1,Poly Mag,cu_m4a4_elite_tactical,1149,Legacy
+M4A4,weapon_m4a1,Polysoup,soo_polysoup_m4a4,874,CS2
+M4A4,weapon_m4a1,Poseidon,cu_poseidon,449,Legacy
+M4A4,weapon_m4a1,Radiation Hazard,sp_nukestripe_orange,167,CS2
+M4A4,weapon_m4a1,Red DDPAT,hy_ddpat_urban_red,926,Legacy
+M4A4,weapon_m4a1,Royal Paladin,gs_m4a4_royal_squire,512,Legacy
+M4A4,weapon_m4a1,Sheet Lightning,spe_lightning,1281,CS2
+M4A4,weapon_m4a1,Spider Lily,gs_m4_flowers,1097,Legacy
+M4A4,weapon_m4a1,Steel Work,ht_metal_edges,1313,CS2
+M4A4,weapon_m4a1,Temukau,cu_m4a4_temukau,1228,Legacy
+M4A4,weapon_m4a1,The Battlestar,gs_m4a4_pioneer,533,Legacy
+M4A4,weapon_m4a1,The Coalition,gs_m4a4_coalition,1063,Legacy
+M4A4,weapon_m4a1,The Emperor,gs_m4a4_emperor,844,Legacy
+M4A4,weapon_m4a1,Tooth Fairy,cu_m4a4_queenfairy,971,Legacy
+M4A4,weapon_m4a1,Tornado,so_tornado,101,CS2
+M4A4,weapon_m4a1,Turbine,m4a4_fusion,118,CS2
+M4A4,weapon_m4a1,Urban DDPAT,hy_ddpat_urb,17,Legacy
+M4A4,weapon_m4a1,X-Ray,cu_xray_m4,215,Legacy
+M4A4,weapon_m4a1,Zirka,sp_star_bravo,187,Legacy
+M4A4,weapon_m4a1,Zubastick,m4a4_zubastick_bw,1432,CS2
+M4A4,weapon_m4a1,龍王 (Dragon King),cu_m4a4_ancestral,400,Legacy
+MAC-10,weapon_mac10,Acid Hex,hye_green_camo,1295,CS2
+MAC-10,weapon_mac10,Allure,cu_mac10_isoonna,965,Legacy
+MAC-10,weapon_mac10,Aloha,am_mac10_aloha,665,Legacy
+MAC-10,weapon_mac10,Amber Fade,aa_fade_metallic,246,CS2
+MAC-10,weapon_mac10,Bronzer,so_bronze_powder,1334,CS2
+MAC-10,weapon_mac10,Button Masher,cu_mac10_portable,1045,Legacy
+MAC-10,weapon_mac10,Calf Skin,gs_mac10_checker,748,Legacy
+MAC-10,weapon_mac10,Candy Apple,so_red,3,CS2
+MAC-10,weapon_mac10,Carnivore,aq_mac_10_alien_camo,589,Legacy
+MAC-10,weapon_mac10,Case Hardened,aq_oiled,44,Legacy
+MAC-10,weapon_mac10,Cat Fight,mac10_kamicatze,1349,CS2
+MAC-10,weapon_mac10,Classic Crate,gs_mac10_dust_crate,908,Legacy
+MAC-10,weapon_mac10,Commuter,cu_luggage_mac10,343,Legacy
+MAC-10,weapon_mac10,Copper Borre,am_knots_brown,761,Legacy
+MAC-10,weapon_mac10,Curse,cu_mac10_decay,310,Legacy
+MAC-10,weapon_mac10,Derailment,mac10_train_crash,1204,CS2
+MAC-10,weapon_mac10,Disco Tech,cu_mac10_nacre,947,Legacy
+MAC-10,weapon_mac10,Echoing Sands,cu_mac10_scarab,1244,Legacy
+MAC-10,weapon_mac10,Ensnared,cu_mac10_pixie,1131,Legacy
+MAC-10,weapon_mac10,Fade,aa_fade,38,CS2
+MAC-10,weapon_mac10,Gold Brick,am_gold_brick,1025,CS2
+MAC-10,weapon_mac10,Graven,aq_etched_mac10_bravo,188,Legacy
+MAC-10,weapon_mac10,Heat,cu_mac10_redhot,284,Legacy
+MAC-10,weapon_mac10,Hot Snakes,gs_mac10_snake,1009,Legacy
+MAC-10,weapon_mac10,Indigo,so_indigo_and_grey,333,CS2
+MAC-10,weapon_mac10,Lapis Gator,am_mac10_electricity,534,Legacy
+MAC-10,weapon_mac10,Last Dive,aa_mac10_the_last_dive,651,CS2
+MAC-10,weapon_mac10,Light Box,mac10_illusion,1164,CS2
+MAC-10,weapon_mac10,Malachite,am_mac10_malachite,402,Legacy
+MAC-10,weapon_mac10,Monkeyflage,cu_mac10_monkeyflage,1150,Legacy
+MAC-10,weapon_mac10,Neon Rider,cu_mac10_neonrider,433,Legacy
+MAC-10,weapon_mac10,Nuclear Garden,am_nuclear_skulls3_mac10,372,Legacy
+MAC-10,weapon_mac10,Oceanic,am_mac10_oceani,682,Legacy
+MAC-10,weapon_mac10,Palm,sp_palm,157,CS2
+MAC-10,weapon_mac10,Pipe Down,gs_mac10_exo_pipes,812,Legacy
+MAC-10,weapon_mac10,Pipsqueak,cu_overpass_squeak_mac10,140,CS2
+MAC-10,weapon_mac10,Poplar Thicket,hye_green_forest,1285,CS2
+MAC-10,weapon_mac10,Propaganda,cu_mac10_propaganda,1067,Legacy
+MAC-10,weapon_mac10,Rangeen,cu_mac10_alekhya_duo,498,Legacy
+MAC-10,weapon_mac10,Red Filigree,am_ren_red,742,Legacy
+MAC-10,weapon_mac10,Saibā Oni,mac10_ozaki,126,CS2
+MAC-10,weapon_mac10,Sakkaku,cu_mac10_sakkaku,1229,Legacy
+MAC-10,weapon_mac10,Sienna Damask,sp_mirage_flowers_tan,826,CS2
+MAC-10,weapon_mac10,Silver,an_silver,32,CS2
+MAC-10,weapon_mac10,Snow Splash,hye_car_wrap4,1367,CS2
+MAC-10,weapon_mac10,Stalker,gs_mac10_stalker,898,Legacy
+MAC-10,weapon_mac10,Storm Camo,soo_mac10_blueberry,1269,CS2
+MAC-10,weapon_mac10,Strats,hy_vertigospray_blue,1075,Legacy
+MAC-10,weapon_mac10,Surfwood,sp_twigs_beach,871,CS2
+MAC-10,weapon_mac10,Tatter,cu_korupt,337,Legacy
+MAC-10,weapon_mac10,Tornado,so_tornado,101,CS2
+MAC-10,weapon_mac10,Toybox,cu_mac10_toybox,1098,Legacy
+MAC-10,weapon_mac10,Ultraviolet,so_purple,98,CS2
+MAC-10,weapon_mac10,Urban DDPAT,hy_ddpat_urb,17,Legacy
+MAC-10,weapon_mac10,Whitefish,gs_mac10_fish_bait,840,Legacy
+MAG-7,weapon_mag7,BI83 Spectrum,gs_mag7_bismuth,1089,Legacy
+MAG-7,weapon_mag7,Bulldozer,so_yellow,39,CS2
+MAG-7,weapon_mag7,Carbon Fiber,am_carbon_fiber,70,Legacy
+MAG-7,weapon_mag7,Chainmail,am_chainmail,327,Legacy
+MAG-7,weapon_mag7,Cinquedea,gs_mag7_glass,737,Legacy
+MAG-7,weapon_mag7,Cobalt Core,cu_mag7_myrcene,499,Legacy
+MAG-7,weapon_mag7,Copper Coated,gs_mag7_goold,1245,Legacy
+MAG-7,weapon_mag7,Copper Oxide,so_greyblue,1306,CS2
+MAG-7,weapon_mag7,Core Breach,hy_nuclear_hotorange,787,Legacy
+MAG-7,weapon_mag7,Counter Terrace,hy_geometric_steps_green,462,Legacy
+MAG-7,weapon_mag7,Firestarter,sp_mag7_firebitten,385,Legacy
+MAG-7,weapon_mag7,Foresight,cu_mag7_predictor,1132,Legacy
+MAG-7,weapon_mag7,Hard Water,am_mag7_caustic,666,Legacy
+MAG-7,weapon_mag7,Hazard,sp_hazard_bravo,198,CS2
+MAG-7,weapon_mag7,Heat,cu_mag7_redhot,431,Legacy
+MAG-7,weapon_mag7,Heaven Guard,cu_mag7_heaven,291,Legacy
+MAG-7,weapon_mag7,Insomnia,cu_mag7_insomnia,1220,Legacy
+MAG-7,weapon_mag7,Irradiated Alert,sp_nukestripe_brown,171,Legacy
+MAG-7,weapon_mag7,Justice,gs_mag7_justice,948,Legacy
+MAG-7,weapon_mag7,MAGnitude,mag7_circle_copper,1355,CS2
+MAG-7,weapon_mag7,Memento,hy_icosahedron,177,Legacy
+MAG-7,weapon_mag7,Metallic DDPAT,am_urban,34,Legacy
+MAG-7,weapon_mag7,Monster Call,cu_mag7_monster_call,961,Legacy
+MAG-7,weapon_mag7,Navy Sheen,am_navy_shine,822,Legacy
+MAG-7,weapon_mag7,Petroglyph,cu_mag7_tribal,608,Legacy
+MAG-7,weapon_mag7,Popdog,gs_mag7_popdog,909,Legacy
+MAG-7,weapon_mag7,Praetorian,gs_mag7_praetorian,535,Legacy
+MAG-7,weapon_mag7,Prism Terrace,hy_geometric_steps_pearl,1072,Legacy
+MAG-7,weapon_mag7,Resupply,mag7_ammo_box,1188,CS2
+MAG-7,weapon_mag7,Rust Coat,aq_steel_inferno,754,Legacy
+MAG-7,weapon_mag7,Sand Dune,so_sand,99,CS2
+MAG-7,weapon_mag7,Seabird,so_aqua,473,CS2
+MAG-7,weapon_mag7,Silver,an_silver,32,CS2
+MAG-7,weapon_mag7,Sonar,am_mag7_malform,633,Legacy
+MAG-7,weapon_mag7,Storm,so_stormfront,100,CS2
+MAG-7,weapon_mag7,SWAG-7,aq_mag7_swag7,703,Legacy
+MAG-7,weapon_mag7,Wildwood,soch_wildwood_mag7,773,CS2
+MP5-SD,weapon_mp5sd,Acid Wash,gs_mp5_etch,888,Legacy
+MP5-SD,weapon_mp5sd,Agent,gs_mp5_fbi,915,Legacy
+MP5-SD,weapon_mp5sd,Autumn Twilly,hy_trainarchitect,1061,Legacy
+MP5-SD,weapon_mp5sd,Bamboo Garden,hy_bamboo_stmarc,872,Legacy
+MP5-SD,weapon_mp5sd,Co-Processor,am_circuitboard_aqua,781,Legacy
+MP5-SD,weapon_mp5sd,Condition Zero,gs_mp5_conditionzero,986,Legacy
+MP5-SD,weapon_mp5sd,Desert Strike,cu_mp5_desert_strike,949,Legacy
+MP5-SD,weapon_mp5sd,Dirt Drop,sp_tape_short_rally,753,CS2
+MP5-SD,weapon_mp5sd,Focus,mp5sd_chrome,1344,CS2
+MP5-SD,weapon_mp5sd,Gauss,gs_mp5sd_astromatic,846,Legacy
+MP5-SD,weapon_mp5sd,Gold Leaf,hye_gold_camo,1294,CS2
+MP5-SD,weapon_mp5sd,Kitbash,gs_mp5sd_wasteland_legacy,974,Legacy
+MP5-SD,weapon_mp5sd,Lab Rats,hy_labrat_mp5,800,Legacy
+MP5-SD,weapon_mp5sd,Lime Hex,sp_lime_hex,1274,CS2
+MP5-SD,weapon_mp5sd,Liquidation,cu_mp5sd_quick_liquidation,1231,Legacy
+MP5-SD,weapon_mp5sd,Necro Jr.,gs_mp5_kid_necronomicon,1137,Legacy
+MP5-SD,weapon_mp5sd,Neon Squeezer,sp_overpass_paint_pen_neon,161,CS2
+MP5-SD,weapon_mp5sd,Nitro,so_orange_accents3,798,CS2
+MP5-SD,weapon_mp5sd,Oxide Oasis,gs_mp5_neon_flektarn,923,Legacy
+MP5-SD,weapon_mp5sd,Phosphor,gs_mp5_festival_drip,810,Legacy
+MP5-SD,weapon_mp5sd,Picnic,soe_red,1385,CS2
+MP5-SD,weapon_mp5sd,Savannah Halftone,ht_blur_camo_mp5sd,768,CS2
+MP5-SD,weapon_mp5sd,Snow Splash,hye_mp5_car_wrap4,1366,CS2
+MP5-SD,weapon_mp5sd,Statics,mp5_statics_blue,1180,CS2
+MP7,weapon_mp7,Abyssal Apparition,cu_mp7_fear,1133,Legacy
+MP7,weapon_mp7,Akoben,sp_mp7_tribal_yellow,649,CS2
+MP7,weapon_mp7,Amberline,mp7_amberline,1436,CS2
+MP7,weapon_mp7,Anodized Navy,an_navy,28,CS2
+MP7,weapon_mp7,Armor Core,aq_mp7_ultramodern,423,Legacy
+MP7,weapon_mp7,Army Recon,sp_spray_army,245,CS2
+MP7,weapon_mp7,Asterion,sp_labyrinth,442,CS2
+MP7,weapon_mp7,Astrolabe,gs_constellation_dark_mp7,940,CS2
+MP7,weapon_mp7,Bloodsport,gs_mp7_bloodsport,696,Legacy
+MP7,weapon_mp7,Cirrus,gs_final_pooldeadv2,627,Legacy
+MP7,weapon_mp7,Coral Paisley,hye_paisley_warm,1386,CS2
+MP7,weapon_mp7,Fade,aa_fade_mp7,752,CS2
+MP7,weapon_mp7,Forest DDPAT,hy_ddpat,5,Legacy
+MP7,weapon_mp7,Full Stop,hy_varicamo_red,250,Legacy
+MP7,weapon_mp7,Groundwater,so_olive_bravo,209,CS2
+MP7,weapon_mp7,Guerrilla,cu_mp7_khaki,1096,Legacy
+MP7,weapon_mp7,Gunsmoke,hy_gelpen,15,Legacy
+MP7,weapon_mp7,Impire,sp_mp7_impire,536,CS2
+MP7,weapon_mp7,Just Smile,mp7_just_smile,1163,CS2
+MP7,weapon_mp7,Mischief,cu_mp7_racketeer,847,Legacy
+MP7,weapon_mp7,Motherboard,am_circuitboard_green,782,Legacy
+MP7,weapon_mp7,Nemesis,cu_mp7_nemsis,481,Legacy
+MP7,weapon_mp7,Neon Ply,cu_mp7_replica,893,Legacy
+MP7,weapon_mp7,Ocean Foam,am_ossify_blue,213,Legacy
+MP7,weapon_mp7,Olive Plaid,hy_plaid1,365,Legacy
+MP7,weapon_mp7,Orange Peel,sp_tape_orange,141,CS2
+MP7,weapon_mp7,Powercore,gs_powercore_mp7,719,Legacy
+MP7,weapon_mp7,Prey,sp_zebracam_red,935,CS2
+MP7,weapon_mp7,Scorched,sp_dapple,175,CS2
+MP7,weapon_mp7,Short Ochre,so_mustard,1326,CS2
+MP7,weapon_mp7,Skulls,hy_skulls,11,Legacy
+MP7,weapon_mp7,Smoking Kills,mp7_smoking_kills_v2,1354,CS2
+MP7,weapon_mp7,Special Delivery,cu_mp7_classified,500,Legacy
+MP7,weapon_mp7,Sunbaked,gs_mp7_strone,1246,Legacy
+MP7,weapon_mp7,Tall Grass,hy_drywood_green,1023,Legacy
+MP7,weapon_mp7,Teal Blossom,sp_bud_green,728,CS2
+MP7,weapon_mp7,Vault Heist,am_heist_plans_yellow,1007,Legacy
+MP7,weapon_mp7,Whiteout,so_whiteout,102,CS2
+MP9,weapon_mp9,Airlock,cu_mp9_narcis,609,Legacy
+MP9,weapon_mp9,Arctic Tri-Tone,gs_arctic_mp9,331,CS2
+MP9,weapon_mp9,Army Sheen,am_army_shine,298,Legacy
+MP9,weapon_mp9,Bee-Tron,soe_yellow_bits,1388,CS2
+MP9,weapon_mp9,Bioleak,am_mp9_bioleak,549,Legacy
+MP9,weapon_mp9,Black Sand,cu_mp9_black_sand,697,Legacy
+MP9,weapon_mp9,Broken Record,mp9_vinyl,1341,CS2
+MP9,weapon_mp9,Buff Blue,ht_blue_edges,1278,CS2
+MP9,weapon_mp9,Bulldozer,so_yellow,39,CS2
+MP9,weapon_mp9,Capillary,cu_mp9_vein,715,Legacy
+MP9,weapon_mp9,Cobalt Paisley,hye_blue_paisley,1258,CS2
+MP9,weapon_mp9,Dark Age,am_metal_inlay,329,Legacy
+MP9,weapon_mp9,Dart,cu_mp9_chevron,386,Legacy
+MP9,weapon_mp9,Deadly Poison,cu_mp9_deadly_poison,403,Legacy
+MP9,weapon_mp9,Dizzy,soe_ddpat_swirl_bw,1375,CS2
+MP9,weapon_mp9,Dry Season,sp_tape_dots_bravo,199,CS2
+MP9,weapon_mp9,Featherweight,cu_mp9_superlight,1225,Legacy
+MP9,weapon_mp9,Food Chain,cu_mp9_food_chain,1037,Legacy
+MP9,weapon_mp9,Goo,cu_mp9_goo,679,Legacy
+MP9,weapon_mp9,Green Plaid,hy_plaid2,366,Legacy
+MP9,weapon_mp9,Hot Rod,an_red,33,CS2
+MP9,weapon_mp9,Hydra,cu_mp9_hydra,910,Legacy
+MP9,weapon_mp9,Hypnotic,aa_vertigo,61,CS2
+MP9,weapon_mp9,Latte Rush,cu_mp9_latte,1211,CS2
+MP9,weapon_mp9,Modest Threat,gs_mp9_colony01,804,Legacy
+MP9,weapon_mp9,Mount Fuji,aa_mp9_fuji_pink,1094,CS2
+MP9,weapon_mp9,Multi-Terrain,hy_mtp,1330,CS2
+MP9,weapon_mp9,Music Box,am_mirage_flowers_metalic,820,Legacy
+MP9,weapon_mp9,Nexus,mp9_nexus,1193,CS2
+MP9,weapon_mp9,Old Roots,sp_moro_carving_yellow,931,CS2
+MP9,weapon_mp9,Orange Peel,sp_tape_orange,141,CS2
+MP9,weapon_mp9,Pandora's Box,aa_pandora,448,CS2
+MP9,weapon_mp9,Pine,soe_alpine_green,1301,CS2
+MP9,weapon_mp9,Rose Iron,am_thorny_rose_mp9,262,Legacy
+MP9,weapon_mp9,Ruby Poison Dart,am_mp9_nitrogen,482,Legacy
+MP9,weapon_mp9,Sand Dashed,sp_tape_short_sand,148,CS2
+MP9,weapon_mp9,Setting Sun,hy_nuclear_pattern2_mp9,368,Legacy
+MP9,weapon_mp9,Shredded,hye_pink_tiger,1310,CS2
+MP9,weapon_mp9,Slide,hy_splatter3,755,Legacy
+MP9,weapon_mp9,Stained Glass,am_stained_glass,867,Legacy
+MP9,weapon_mp9,Starlight Protector,gs_mp9_starlight,1134,Legacy
+MP9,weapon_mp9,Storm,so_stormfront,100,CS2
+MP9,weapon_mp9,Urban Sovereign,mp9_urban_sovereign,1423,CS2
+MP9,weapon_mp9,Wild Lily,cu_mp9_island_floral,734,Legacy
+Negev,weapon_negev,Anodized Navy,an_navy,28,CS2
+Negev,weapon_negev,Army Sheen,am_army_shine,298,Legacy
+Negev,weapon_negev,Boroque Sand,hy_veneto_tan,920,Legacy
+Negev,weapon_negev,Bratatat,cu_bratatat_negev,317,Legacy
+Negev,weapon_negev,Bulkhead,hy_ducts_yellow,783,Legacy
+Negev,weapon_negev,CaliCamo,hy_varicamo_desert,240,Legacy
+Negev,weapon_negev,Dazzle,hy_negev_dazzle,610,Legacy
+Negev,weapon_negev,Desert-Strike,cu_negev_titanstorm,355,Legacy
+Negev,weapon_negev,dev_texture,cu_negev_devtexture,1043,Legacy
+Negev,weapon_negev,Drop Me,cu_negev_clear_sky,1152,Legacy
+Negev,weapon_negev,Infrastructure,hy_vertigospray,1080,Legacy
+Negev,weapon_negev,Lionfish,sp_negev_lionfish,698,CS2
+Negev,weapon_negev,Loudmouth,cu_negev_annihilator,483,Legacy
+Negev,weapon_negev,Man-o'-war,am_negev_glory,432,Legacy
+Negev,weapon_negev,Mjölnir,gs_negev_thor,763,Legacy
+Negev,weapon_negev,Nuclear Waste,sp_nuclear_pattern3_negev,369,CS2
+Negev,weapon_negev,Palm,sp_palm_bravo,201,CS2
+Negev,weapon_negev,Phoenix Stencil,hy_phoenix_tags_red,1012,Legacy
+Negev,weapon_negev,Power Loader,cu_negev_impact,514,Legacy
+Negev,weapon_negev,Prototype,cu_negev_prototype,950,Legacy
+Negev,weapon_negev,Raw Ceramic,so_ceramic_negev,1300,CS2
+Negev,weapon_negev,Sour Grapes,soe_berry,1260,CS2
+Negev,weapon_negev,Terrain,sp_negev_turq_terrain,285,CS2
+Negev,weapon_negev,Ultralight,cu_negev_ultralight,958,Legacy
+Negev,weapon_negev,Wall Bang,cu_overpass_graf_negev,144,CS2
+Nova,weapon_nova,Antique,cu_nova_antique,286,Legacy
+Nova,weapon_nova,Army Sheen,am_army_shine,298,Legacy
+Nova,weapon_nova,Baroque Orange,am_veneto2,746,Legacy
+Nova,weapon_nova,Blaze Orange,hy_hunter_blaze_orange,166,Legacy
+Nova,weapon_nova,Bloomstick,cu_spring_nova,62,Legacy
+Nova,weapon_nova,Caged Steel,am_oval_hex,299,Legacy
+Nova,weapon_nova,Candy Apple,so_red,3,CS2
+Nova,weapon_nova,Clear Polymer,cu_nova_polymer,987,Legacy
+Nova,weapon_nova,Currents,hye_geobirds,1368,CS2
+Nova,weapon_nova,Dark Sigil,nova_drakkar,1162,CS2
+Nova,weapon_nova,Exo,aq_nova_sci_fi,590,Legacy
+Nova,weapon_nova,Forest Leaves,sp_leaves,25,CS2
+Nova,weapon_nova,Ghost Camo,sp_camo_wood_blue,225,CS2
+Nova,weapon_nova,Gila,am_nova_sand,634,Legacy
+Nova,weapon_nova,Graphite,am_crumple,214,Legacy
+Nova,weapon_nova,Green Apple,so_green,294,CS2
+Nova,weapon_nova,Hyper Beast,cu_nova_hyperbeast,537,Legacy
+Nova,weapon_nova,Interlock,hy_vertigoillusion_yellow,1077,Legacy
+Nova,weapon_nova,Koi,cu_nova_koi,356,Legacy
+Nova,weapon_nova,Mandrel,hy_ducts_grey,785,Legacy
+Nova,weapon_nova,Marsh Grass,soo_grass_photo_camo,1331,CS2
+Nova,weapon_nova,Modern Hunter,hy_hunter_modern,164,Legacy
+Nova,weapon_nova,Moon in Libra,hy_zodiac1,450,Legacy
+Nova,weapon_nova,Ocular,nova_ocular,1350,CS2
+Nova,weapon_nova,Plume,cu_nova_featherswing,890,Legacy
+Nova,weapon_nova,Polar Mesh,sp_mesh_arctic_contrast,107,CS2
+Nova,weapon_nova,Predator,sp_zebracam,170,CS2
+Nova,weapon_nova,Quick Sand,hy_torn_camo_paints,929,Legacy
+Nova,weapon_nova,Rain Station,train_shapes_01,1337,CS2
+Nova,weapon_nova,Ranger,cu_nova_ranger,484,Legacy
+Nova,weapon_nova,Red Quartz,am_crystallized,248,Legacy
+Nova,weapon_nova,Rising Skull,cu_skull_nova,263,Legacy
+Nova,weapon_nova,Rising Sun,nova_rising_sun,1192,CS2
+Nova,weapon_nova,Rust Coat,aq_steel,323,Legacy
+Nova,weapon_nova,Sand Dune,so_sand,99,CS2
+Nova,weapon_nova,Sobek's Bite,gs_nova_sobek,1247,Legacy
+Nova,weapon_nova,Tempest,hy_seaside_bravo,191,Legacy
+Nova,weapon_nova,Toy Soldier,cu_nova_toy_soldier,716,Legacy
+Nova,weapon_nova,Turquoise Pour,soo_acrylic_flow_turquoise,1261,CS2
+Nova,weapon_nova,Walnut,cu_walnut_nova,158,Legacy
+Nova,weapon_nova,Wild Six,gs_nova_anchorite,699,Legacy
+Nova,weapon_nova,Windblown,sp_nova_wind_dispersal,1051,CS2
+Nova,weapon_nova,Wood Fired,gs_nova_hunter_brute,809,Legacy
+Nova,weapon_nova,Wurst Hölle,cu_overpass_wurst_nova,145,CS2
+Nova,weapon_nova,Yorkshire,gs_ripple_nova,324,CS2
+P2000,weapon_hkp2000,Acid Etched,aq_p2000_acid_clover,951,Legacy
+P2000,weapon_hkp2000,Amber Fade,aa_fade_metallic,246,CS2
+P2000,weapon_hkp2000,Chainmail,am_chainmail,327,Legacy
+P2000,weapon_hkp2000,Coach Class,cu_luggage_p2000,346,Legacy
+P2000,weapon_hkp2000,Coral Halftone,ht_facet_p2000,878,CS2
+P2000,weapon_hkp2000,Corticera,cu_favela_p2000,184,Legacy
+P2000,weapon_hkp2000,Dispatch,am_numbers_red_blue,997,Legacy
+P2000,weapon_hkp2000,Fire Elemental,cu_p2000_fire_elemental,389,Legacy
+P2000,weapon_hkp2000,Gnarled,aq_p2000_lost_world,960,Legacy
+P2000,weapon_hkp2000,Granite Marbleized,hy_granite,21,Legacy
+P2000,weapon_hkp2000,Grassland,so_grassland,95,CS2
+P2000,weapon_hkp2000,Grassland Leaves,sp_leaves_grassland,104,CS2
+P2000,weapon_hkp2000,Grip Tape,soe_p2000_grips,1359,CS2
+P2000,weapon_hkp2000,Handgun,aq_p2000_boom,485,Legacy
+P2000,weapon_hkp2000,Imperial,am_p2000_imperial_red,515,Legacy
+P2000,weapon_hkp2000,Imperial Dragon,gs_p2000_imperial_dragon,591,Legacy
+P2000,weapon_hkp2000,Ivory,cu_p2000_ivory,357,Legacy
+P2000,weapon_hkp2000,Lifted Spirits,cu_p2k_flying_dream,1138,Legacy
+P2000,weapon_hkp2000,Marsh,soe_teal_glitter,1292,CS2
+P2000,weapon_hkp2000,Obsidian,cu_p2000_obsidian,894,Legacy
+P2000,weapon_hkp2000,Ocean Foam,am_ossify_blue_p2000_bravo,211,Legacy
+P2000,weapon_hkp2000,Oceanic,hy_p2000_oceani,550,Legacy
+P2000,weapon_hkp2000,Panther Camo,am_black_panther,1019,Legacy
+P2000,weapon_hkp2000,Pathfinder,sp_labyrinth2,443,CS2
+P2000,weapon_hkp2000,Pulse,cu_p2000_pulse,338,Legacy
+P2000,weapon_hkp2000,Red FragCam,hy_poly_camo,275,Legacy
+P2000,weapon_hkp2000,Red Wing,p2000_deep_red,1342,CS2
+P2000,weapon_hkp2000,Royal Baroque,spe_scarf_print,1259,CS2
+P2000,weapon_hkp2000,Scorpion,am_scorpion_p2000,71,Legacy
+P2000,weapon_hkp2000,Silver,an_silver,32,CS2
+P2000,weapon_hkp2000,Space Race,aa_spacerace_orange,1055,CS2
+P2000,weapon_hkp2000,Sure Grip,p2k_fractal,1181,CS2
+P2000,weapon_hkp2000,Urban Hazard,cu_p2000_urban_hazard,700,Legacy
+P2000,weapon_hkp2000,Wicked Sick,cu_p2000_decline,1224,Legacy
+P2000,weapon_hkp2000,Woodsman,cu_p2000_hunter,667,Legacy
+P250,weapon_p250,Apep's Curse,gs_p250_apep,1248,Legacy
+P250,weapon_p250,Asiimov,cu_p250_asiimov,551,Legacy
+P250,weapon_p250,Bengal Tiger,hy_p250_tiger,1030,Legacy
+P250,weapon_p250,Black & Tan,hy_desert_multicam,928,Legacy
+P250,weapon_p250,Bone Mask,sp_tape,27,CS2
+P250,weapon_p250,Boreal Forest,hy_forest_boreal,77,Legacy
+P250,weapon_p250,Bullfrog,p250_bullfrog,1345,CS2
+P250,weapon_p250,Cartel,aq_p250_cartel,388,Legacy
+P250,weapon_p250,Cassette,cu_p250_cassette,968,Legacy
+P250,weapon_p250,Constructivist,brutalist_architecture,1212,CS2
+P250,weapon_p250,Contaminant,cu_p250_infect,982,Legacy
+P250,weapon_p250,Contamination,hy_nuclear_skulls4_p250,373,Legacy
+P250,weapon_p250,Copper Oxide,so_greyblue_p250,1307,CS2
+P250,weapon_p250,Crimson Kimono,hy_kimono_diamonds_red,466,Legacy
+P250,weapon_p250,Cyber Shell,gs_p250_cybershell,1044,Legacy
+P250,weapon_p250,Dark Filigree,am_ren_dark,741,Legacy
+P250,weapon_p250,Digital Architect,aa_vertigogeo_neon,1081,CS2
+P250,weapon_p250,Drought,sp_desert_skulls_dawn,825,CS2
+P250,weapon_p250,Epicenter,p250_impact,130,CS2
+P250,weapon_p250,Exchanger,hy_ducts_blue,786,Legacy
+P250,weapon_p250,Facets,hy_crumple_dark_bravo,207,Legacy
+P250,weapon_p250,Facility Draft,hy_blueprint_red,777,Legacy
+P250,weapon_p250,Forest Night,hy_forest_night,78,Legacy
+P250,weapon_p250,Franklin,cu_money,295,Legacy
+P250,weapon_p250,Gunsmoke,hy_gelpen,15,Legacy
+P250,weapon_p250,Hive,hy_redhex,219,Legacy
+P250,weapon_p250,Inferno,gs_p250_inferno,907,Legacy
+P250,weapon_p250,Iron Clad,gs_p250_metal_panels,592,Legacy
+P250,weapon_p250,Kintsugi,p250_kintsugi,1420,CS2
+P250,weapon_p250,Mehndi,cu_p250_refined,258,Legacy
+P250,weapon_p250,Metallic DDPAT,am_urban,34,Legacy
+P250,weapon_p250,Mint Kimono,sp_kimono_diamonds,467,CS2
+P250,weapon_p250,Modern Hunter,hy_hunter_modern,164,Legacy
+P250,weapon_p250,Muertos,cu_p250_mandala,404,Legacy
+P250,weapon_p250,Nevermore,aa_p250_gravediggers,813,CS2
+P250,weapon_p250,Nuclear Threat,sp_nukestripe_green,168,CS2
+P250,weapon_p250,Plum Netting,sp_lace,1273,CS2
+P250,weapon_p250,Re.built,cu_p250_rebuilt,1230,Legacy
+P250,weapon_p250,Red Rock,cu_p250_axiom,668,Legacy
+P250,weapon_p250,Red Tide,hye_pink_coral,1315,CS2
+P250,weapon_p250,Ripple,am_p250_sputnik,650,Legacy
+P250,weapon_p250,Sand Dune,so_sand,99,CS2
+P250,weapon_p250,Sedimentary,soe_yellow_swirl,1317,CS2
+P250,weapon_p250,See Ya Later,cu_p250_cybercroc,678,Legacy
+P250,weapon_p250,Sleet,hye_car_wrap_3,1369,CS2
+P250,weapon_p250,Small Game,soch_hunter_blaze_p250,774,CS2
+P250,weapon_p250,Splash,sp_splash_p250,162,CS2
+P250,weapon_p250,Steel Disruption,am_ddpatdense_silver,230,Legacy
+P250,weapon_p250,Supernova,cu_bittersweet,358,Legacy
+P250,weapon_p250,Undertow,am_p250_beaded_paint,271,Legacy
+P250,weapon_p250,Valence,aq_p250_contour,426,Legacy
+P250,weapon_p250,Verdigris,aq_p250_verdigris,848,Legacy
+P250,weapon_p250,Vino Primo,gs_p250_checker,749,Legacy
+P250,weapon_p250,Visions,gs_p250_visions,1153,Legacy
+P250,weapon_p250,Whiteout,so_whiteout,102,CS2
+P250,weapon_p250,Wingshot,hy_p250_crackshot,501,Legacy
+P250,weapon_p250,X-Ray,cu_xray_p250,125,Legacy
+P90,weapon_p90,Aeolian Light,hye_abstract_knot,1361,CS2
+P90,weapon_p90,Ancient Earth,aa_ancient_brown,1020,CS2
+P90,weapon_p90,Ash Wood,sp_twigs,234,CS2
+P90,weapon_p90,Astral Jörmungandr,am_jorm_blue,759,Legacy
+P90,weapon_p90,Attack Vector,cu_poly_violet_p90,936,CS2
+P90,weapon_p90,Baroque Red,am_veneto_red,744,Legacy
+P90,weapon_p90,Blind Spot,hy_modspots,228,Legacy
+P90,weapon_p90,Blue Tac,hy_usaf_round,1277,CS2
+P90,weapon_p90,Chopper,gs_p90_full_throttle,593,Legacy
+P90,weapon_p90,Cocoa Rampage,hy_p90_dino_rampage,977,Legacy
+P90,weapon_p90,Cold Blooded,am_slither_p90,67,Legacy
+P90,weapon_p90,Death by Kitty,cu_catskulls_p90,156,Legacy
+P90,weapon_p90,Death Grip,hy_p90_barebones_blue,669,Legacy
+P90,weapon_p90,Deathgaze,p90_deathgaze,1419,CS2
+P90,weapon_p90,Desert DDPAT,hy_ddpat_desert,925,Legacy
+P90,weapon_p90,Desert Halftone,ht_simple_camo,1332,CS2
+P90,weapon_p90,Desert Warfare,cu_p90_scorpius,311,Legacy
+P90,weapon_p90,Elite Build,cu_p90_mastery,486,Legacy
+P90,weapon_p90,Emerald Dragon,cu_dragon_p90_bravo,182,Legacy
+P90,weapon_p90,Facility Negative,hy_blueprint_aqua,776,Legacy
+P90,weapon_p90,Fallout Warning,sp_nukestripe_maroon,169,Legacy
+P90,weapon_p90,Freight,gs_p90_container,969,Legacy
+P90,weapon_p90,Glacier Mesh,sp_mesh_glacier,111,CS2
+P90,weapon_p90,Grim,cu_p90_grimm,611,Legacy
+P90,weapon_p90,Leather,cu_brown_leather_p90,342,Legacy
+P90,weapon_p90,Module,an_royalbleed,335,Legacy
+P90,weapon_p90,Mustard Gas,hye_zoom,1291,CS2
+P90,weapon_p90,Neoqueen,gs_p90_neoqueen,1233,Legacy
+P90,weapon_p90,Nostalgia,cu_p90_nostalgia,911,Legacy
+P90,weapon_p90,Off World,cu_p90_offworld,849,Legacy
+P90,weapon_p90,Randy Rush,p90_randy_rush,127,CS2
+P90,weapon_p90,Reef Grief,hye_coral,1256,CS2
+P90,weapon_p90,Run and Hide,cu_jaguar_p90,1000,Legacy
+P90,weapon_p90,Sand Spray,sp_spray_sand,124,CS2
+P90,weapon_p90,ScaraB Rush,cu_p90_scarab_of_wisdom,1250,Legacy
+P90,weapon_p90,Schematic,hy_vertigogeo,1074,Legacy
+P90,weapon_p90,Scorched,sp_dapple,175,CS2
+P90,weapon_p90,Shallow Grave,gs_p90_shallow_grave,636,Legacy
+P90,weapon_p90,Shapewood,cu_p90_shapewood,516,Legacy
+P90,weapon_p90,Storm,so_stormfront,100,CS2
+P90,weapon_p90,Straight Dimes,p90_steelcraft,1199,CS2
+P90,weapon_p90,Sunset Lily,sp_bloom_orange,726,CS2
+P90,weapon_p90,Teardown,sp_mesh_hot_and_cold,244,CS2
+P90,weapon_p90,Tiger Pit,am_tigers_brown,1015,Legacy
+P90,weapon_p90,Traction,gs_p90_tread,717,Legacy
+P90,weapon_p90,Trigon,cu_p90_trigon,283,Legacy
+P90,weapon_p90,Vent Rush,gs_p90_tangled,1154,Legacy
+P90,weapon_p90,Verdant Growth,sp_moro_textile_green_vine,828,CS2
+P90,weapon_p90,Virus,hy_zombie,20,Legacy
+P90,weapon_p90,Wash me,sp_overpass_doodle_plum,133,CS2
+P90,weapon_p90,Wave Breaker,p90_boost_blue,1190,CS2
+PP-Bizon,weapon_bizon,Anolis,hy_lizard_skin,829,Legacy
+PP-Bizon,weapon_bizon,Antique,cu_bizon_antique,306,Legacy
+PP-Bizon,weapon_bizon,Bamboo Print,hy_bamboo_jungle_ink,457,Legacy
+PP-Bizon,weapon_bizon,Bizoom,hye_car_wrap_bizon,1374,CS2
+PP-Bizon,weapon_bizon,Blue Streak,hy_splatter,13,Legacy
+PP-Bizon,weapon_bizon,Brass,aq_brass,159,Legacy
+PP-Bizon,weapon_bizon,Breaker Box,aa_wiring,1083,CS2
+PP-Bizon,weapon_bizon,Candy Apple,so_red,3,CS2
+PP-Bizon,weapon_bizon,Carbon Fiber,am_carbon_fiber,70,Legacy
+PP-Bizon,weapon_bizon,Chemical Green,so_grey_nuclear_green_bizon,376,CS2
+PP-Bizon,weapon_bizon,Cobalt Halftone,am_turqoise_halftone,267,Legacy
+PP-Bizon,weapon_bizon,Cold Cell,sp_wax_rub_bizon,770,CS2
+PP-Bizon,weapon_bizon,Death Rattle,hy_nerodia,293,Legacy
+PP-Bizon,weapon_bizon,Embargo,cu_bizon_road_warrior,884,Legacy
+PP-Bizon,weapon_bizon,Facility Sketch,hy_blueprint_white,775,Legacy
+PP-Bizon,weapon_bizon,Forest Leaves,sp_leaves,25,CS2
+PP-Bizon,weapon_bizon,Fuel Rod,cu_bizon_noxious,508,Legacy
+PP-Bizon,weapon_bizon,Harvester,gs_pp_bizon_harvester,594,Legacy
+PP-Bizon,weapon_bizon,High Roller,cu_bizon_all_in,676,Legacy
+PP-Bizon,weapon_bizon,Irradiated Alert,sp_nukestripe_brown,171,Legacy
+PP-Bizon,weapon_bizon,Jungle Slipstream,hy_bizon_torn_green,641,Legacy
+PP-Bizon,weapon_bizon,Lumen,gs_bizon_flasher,1099,Legacy
+PP-Bizon,weapon_bizon,Modern Hunter,hy_hunter_modern,164,Legacy
+PP-Bizon,weapon_bizon,Night Ops,hy_varicamo_night,236,Legacy
+PP-Bizon,weapon_bizon,Night Riot,cu_bizon_riot,692,Legacy
+PP-Bizon,weapon_bizon,Photic Zone,cu_bizon_citizen,526,Legacy
+PP-Bizon,weapon_bizon,RMX,bizon_rmx,1418,CS2
+PP-Bizon,weapon_bizon,Runic,gs_bizon_hellraider,973,Legacy
+PP-Bizon,weapon_bizon,Rust Coat,aq_steel_bravo,203,Legacy
+PP-Bizon,weapon_bizon,Sand Dashed,sp_tape_short_sand,148,CS2
+PP-Bizon,weapon_bizon,Seabird,so_aqua_stmarc,873,CS2
+PP-Bizon,weapon_bizon,Space Cat,cu_bizon_spacecat,1125,Legacy
+PP-Bizon,weapon_bizon,Thermal Currents,hye_geobirds_sunrise,1392,CS2
+PP-Bizon,weapon_bizon,Urban Dashed,sp_tape_short_urban,149,CS2
+PP-Bizon,weapon_bizon,Water Sigil,hy_water_crest,224,Legacy
+PP-Bizon,weapon_bizon,Wood Block Camo,hy_wood_grain_camo_red,1325,CS2
+R8 Revolver,weapon_revolver,Amber Fade,aa_fade_metallic_revolver,523,CS2
+R8 Revolver,weapon_revolver,Banana Cannon,gs_r8_banana,1232,Legacy
+R8 Revolver,weapon_revolver,Blaze,aa_flames,37,CS2
+R8 Revolver,weapon_revolver,Bone Forged,gs_r8_leviathan,952,Legacy
+R8 Revolver,weapon_revolver,Bone Mask,sp_tape,27,CS2
+R8 Revolver,weapon_revolver,Canal Spray,sp_spray_water,866,CS2
+R8 Revolver,weapon_revolver,Cobalt Grip,soch_indigo_grips,1276,CS2
+R8 Revolver,weapon_revolver,Crazy 8,gs_revolver_purple_elite,1145,Legacy
+R8 Revolver,weapon_revolver,Crimson Web,hy_webs,12,Legacy
+R8 Revolver,weapon_revolver,Dark Chamber,soch_smoke_grips,1363,CS2
+R8 Revolver,weapon_revolver,Desert Brush,hy_brush_camo_tan,924,Legacy
+R8 Revolver,weapon_revolver,Fade,aa_fade_revolver,522,CS2
+R8 Revolver,weapon_revolver,Grip,gs_revolver_tread,701,Legacy
+R8 Revolver,weapon_revolver,Inlay,gs_revolver_acanthus_bronze,1237,Legacy
+R8 Revolver,weapon_revolver,Junk Yard,gs_r8_rustking,1047,Legacy
+R8 Revolver,weapon_revolver,Leafhopper,aq_titanium_acid,1293,CS2
+R8 Revolver,weapon_revolver,Llama Cannon,gs_r8_llamacannon,683,Legacy
+R8 Revolver,weapon_revolver,Mauve Aside,soch_copper_accent_revolver,1389,CS2
+R8 Revolver,weapon_revolver,Memento,gs_r8_memento,892,Legacy
+R8 Revolver,weapon_revolver,Night,so_night,40,CS2
+R8 Revolver,weapon_revolver,Nitro,so_orange_accents3,798,CS2
+R8 Revolver,weapon_revolver,Phoenix Marker,am_phoenix_tags_blue,1011,Legacy
+R8 Revolver,weapon_revolver,Reboot,cu_r8_cybersport,595,Legacy
+R8 Revolver,weapon_revolver,Skull Crusher,cu_revolver_oppressor,843,Legacy
+R8 Revolver,weapon_revolver,Survivalist,cu_r8_survivalist,721,Legacy
+R8 Revolver,weapon_revolver,Tango,r8_roses_and_guns,123,CS2
+Sawed-Off,weapon_sawedoff,Amber Fade,aa_fade_metallic,246,CS2
+Sawed-Off,weapon_sawedoff,Analog Input,sawedoff_gamer,1160,CS2
+Sawed-Off,weapon_sawedoff,Apocalypto,cu_sawedoff_apocalypto,953,Legacy
+Sawed-Off,weapon_sawedoff,Bamboo Shadow,hy_bamboo_jungle_black,458,Legacy
+Sawed-Off,weapon_sawedoff,Black Sand,cu_sawedoff_black_sand,814,Legacy
+Sawed-Off,weapon_sawedoff,Brake Light,aa_vertigo_red,797,Legacy
+Sawed-Off,weapon_sawedoff,Clay Ambush,hy_tigers_tan,1014,Legacy
+Sawed-Off,weapon_sawedoff,Copper,aq_copper,41,CS2
+Sawed-Off,weapon_sawedoff,Crimson Batik,hye_batik_eyes,1391,CS2
+Sawed-Off,weapon_sawedoff,Devourer,cu_sawedoff_devourer,720,Legacy
+Sawed-Off,weapon_sawedoff,First Class,cu_green_leather_sawedoff,345,Legacy
+Sawed-Off,weapon_sawedoff,Forest DDPAT,hy_ddpat,5,Legacy
+Sawed-Off,weapon_sawedoff,Fubar,gs_sawedoff_fubar,552,Legacy
+Sawed-Off,weapon_sawedoff,Full Stop,hy_varicamo_red,250,Legacy
+Sawed-Off,weapon_sawedoff,Fusion,sawedoff_fusion,1427,CS2
+Sawed-Off,weapon_sawedoff,Highwayman,aq_sawedoff_blackgold,390,Legacy
+Sawed-Off,weapon_sawedoff,Irradiated Alert,sp_nukestripe_brown,171,Legacy
+Sawed-Off,weapon_sawedoff,Jungle Thicket,sp_palm_green,870,CS2
+Sawed-Off,weapon_sawedoff,Kiss♥Love,cu_sawedoff_kisslove,1155,Legacy
+Sawed-Off,weapon_sawedoff,Limelight,cu_sawed_off_lime,596,Legacy
+Sawed-Off,weapon_sawedoff,Mosaico,hy_ali_tile_bravo,204,Legacy
+Sawed-Off,weapon_sawedoff,Orange DDPAT,hy_ddpat_orange,83,Legacy
+Sawed-Off,weapon_sawedoff,Origami,cu_sawedoff_origami,434,Legacy
+Sawed-Off,weapon_sawedoff,Parched,hy_desert_bloom,880,Legacy
+Sawed-Off,weapon_sawedoff,Runoff,gsch_ripple,1272,CS2
+Sawed-Off,weapon_sawedoff,Rust Coat,aq_steel,323,Legacy
+Sawed-Off,weapon_sawedoff,Sage Spray,sp_spray_desert_sage,119,CS2
+Sawed-Off,weapon_sawedoff,Serenity,cu_sawedoff_deva,405,Legacy
+Sawed-Off,weapon_sawedoff,Snake Camo,sp_snake,30,CS2
+Sawed-Off,weapon_sawedoff,Spirit Board,cu_sawedoff_ouija,1140,Legacy
+Sawed-Off,weapon_sawedoff,The Kraken,cu_sawedoff_octopump,256,Legacy
+Sawed-Off,weapon_sawedoff,Wasteland Princess,cu_wp_sawedoff,638,Legacy
+Sawed-Off,weapon_sawedoff,Yorick,gs_sawedoff_necromancer,517,Legacy
+Sawed-Off,weapon_sawedoff,Zander,aq_sawedoff_zander2,655,Legacy
+SCAR-20,weapon_scar20,Army Sheen,am_army_shine,298,Legacy
+SCAR-20,weapon_scar20,Assault,cu_scar_assault,914,Legacy
+SCAR-20,weapon_scar20,Bloodsport,gs_scar20_bloodsport,597,Legacy
+SCAR-20,weapon_scar20,Blueprint,cu_blueprint_scar,642,Legacy
+SCAR-20,weapon_scar20,Brass,aq_brass,159,Legacy
+SCAR-20,weapon_scar20,Caged,scar_refraction_v4,1343,CS2
+SCAR-20,weapon_scar20,Carbon Fiber,am_carbon_fiber,70,Legacy
+SCAR-20,weapon_scar20,Cardiac,cu_scar20_intervention,391,Legacy
+SCAR-20,weapon_scar20,Contractor,so_pmc,46,CS2
+SCAR-20,weapon_scar20,Crimson Web,hy_webs_darker,232,Legacy
+SCAR-20,weapon_scar20,Cyrex,cu_scar_cyrex,312,Legacy
+SCAR-20,weapon_scar20,Emerald,an_emerald_bravo,196,CS2
+SCAR-20,weapon_scar20,Enforcer,gs_scar20_enforcer,954,Legacy
+SCAR-20,weapon_scar20,Fragments,gs_scar_fragments_black,1226,Legacy
+SCAR-20,weapon_scar20,Green Marine,gs_scar20_peacemaker03,502,Legacy
+SCAR-20,weapon_scar20,Grotto,aq_scar20_leak,406,Legacy
+SCAR-20,weapon_scar20,Jungle Slipstream,hy_scar20_jungle_slipstream,685,Legacy
+SCAR-20,weapon_scar20,Magna Carta,hy_authority_purple,1028,Legacy
+SCAR-20,weapon_scar20,Outbreak,hy_scar20_jungler,518,Legacy
+SCAR-20,weapon_scar20,Palm,sp_palm,157,CS2
+SCAR-20,weapon_scar20,Poultrygeist,sp_scar_chickenfight,1139,CS2
+SCAR-20,weapon_scar20,Powercore,gs_scar20_powercore,612,Legacy
+SCAR-20,weapon_scar20,Sand Mesh,sp_mesh_sand,116,CS2
+SCAR-20,weapon_scar20,Short Ochre,so_mustard_scar20,1327,CS2
+SCAR-20,weapon_scar20,Splash Jam,hy_hunter_blaze_pink,165,Legacy
+SCAR-20,weapon_scar20,Stone Mosaico,hy_canals_tile,865,Legacy
+SCAR-20,weapon_scar20,Storm,so_stormfront,100,CS2
+SCAR-20,weapon_scar20,Torn,sp_scar20_striker_dust,896,CS2
+SCAR-20,weapon_scar20,Trail Blazer,scar20_fury_topo,117,CS2
+SCAR-20,weapon_scar20,Wild Berry,cu_chevron_scar20,883,CS2
+SCAR-20,weapon_scar20,Zinc,hye_chrome_ripple,1371,CS2
+SG 553,weapon_sg556,Aerial,cu_sg553_aerial,598,Legacy
+SG 553,weapon_sg556,Aloha,sp_sg533_aloha,702,CS2
+SG 553,weapon_sg556,Anodized Navy,an_navy,28,CS2
+SG 553,weapon_sg556,Army Sheen,am_army_shine,298,Legacy
+SG 553,weapon_sg556,Atlas,cu_sg553_atlas,553,Legacy
+SG 553,weapon_sg556,Barricade,sp_asgard_wall,861,CS2
+SG 553,weapon_sg556,Basket Halftone,ht_orange_basket,1320,CS2
+SG 553,weapon_sg556,Berry Gel Coat,gs_happy_red_sg556,901,CS2
+SG 553,weapon_sg556,Bleached,sp_desert_skulls,934,CS2
+SG 553,weapon_sg556,Bulldozer,so_yellow,39,CS2
+SG 553,weapon_sg556,Candy Apple,so_red_sg553,864,CS2
+SG 553,weapon_sg556,Colony IV,cu_sg553_reactor,897,Legacy
+SG 553,weapon_sg556,Cyberforce,cu_sg553_cyberforce,1234,Legacy
+SG 553,weapon_sg556,Cyrex,cu_sg553_cyrex,487,Legacy
+SG 553,weapon_sg556,Damascus Steel,aq_damascus_sg553,247,Legacy
+SG 553,weapon_sg556,Danger Close,gs_sg553_over_heated,815,Legacy
+SG 553,weapon_sg556,Darkwing,cu_sg553_darkwing,955,Legacy
+SG 553,weapon_sg556,Desert Blossom,aa_desert_bloom_bright,765,CS2
+SG 553,weapon_sg556,Dragon Tech,cu_sg553_cyber_dragon,1151,Legacy
+SG 553,weapon_sg556,Fallout Warning,sp_nukestripe_maroon_sg553,378,CS2
+SG 553,weapon_sg556,Gator Mesh,sp_mesh_python,243,CS2
+SG 553,weapon_sg556,Hazard Pay,cu_sg553_caution,1084,Legacy
+SG 553,weapon_sg556,Heavy Metal,gs_sg553_deathmetal,1048,Legacy
+SG 553,weapon_sg556,Hypnotic,aa_vertigo,61,CS2
+SG 553,weapon_sg556,Integrale,cu_sg553_rally,750,Legacy
+SG 553,weapon_sg556,Lush Ruins,aa_ruins_green,1022,CS2
+SG 553,weapon_sg556,Night Camo,soo_blues,1270,CS2
+SG 553,weapon_sg556,Ol' Rusty,gs_sg553_rusty,966,Legacy
+SG 553,weapon_sg556,Phantom,gs_sg553_phantom,686,Legacy
+SG 553,weapon_sg556,Pulse,cu_sg553_pulse,287,Legacy
+SG 553,weapon_sg556,Safari Print,hye_animal_print_lc,1394,CS2
+SG 553,weapon_sg556,Tiger Moth,gs_sg553_tiger_moth,519,Legacy
+SG 553,weapon_sg556,Tornado,so_tornado,101,CS2
+SG 553,weapon_sg556,Traveler,cu_luggage_sg553,363,Legacy
+SG 553,weapon_sg556,Triarch,cu_sg556_triarch,613,Legacy
+SG 553,weapon_sg556,Ultraviolet,so_purple,98,CS2
+SG 553,weapon_sg556,Wave Spray,sp_spray_waves_bravo,186,CS2
+SG 553,weapon_sg556,Waves Perforated,sp_tape_dots_waves,136,CS2
+SSG 08,weapon_ssg08,Abyss,aq_leviathan,361,Legacy
+SSG 08,weapon_ssg08,Acid Fade,aa_fade_grassland,253,CS2
+SSG 08,weapon_ssg08,Azure Glyph,gs_ssg08_anubis,1251,Legacy
+SSG 08,weapon_ssg08,Big Iron,cu_ssg08_technicality,503,Legacy
+SSG 08,weapon_ssg08,Blood in the Water,cu_shark,222,Legacy
+SSG 08,weapon_ssg08,Bloodshot,cu_ssg08_tickler,899,Legacy
+SSG 08,weapon_ssg08,Blue Spruce,so_moss,96,CS2
+SSG 08,weapon_ssg08,Blush Pour,soo_acrylic_flow_pink,1316,CS2
+SSG 08,weapon_ssg08,Calligrafaux,ht_red_edges_fineline,1379,CS2
+SSG 08,weapon_ssg08,Carbon Fiber,am_carbon_fiber,70,Legacy
+SSG 08,weapon_ssg08,Dark Water,am_zebra_dark,60,Legacy
+SSG 08,weapon_ssg08,Death Strike,cu_ssg08_scorpion,1052,Legacy
+SSG 08,weapon_ssg08,Death's Head,cu_ssg08_deathshead,670,Legacy
+SSG 08,weapon_ssg08,Detour,hy_ssg08_marker,319,Legacy
+SSG 08,weapon_ssg08,Dezastre,ssg08_dezastre,1161,CS2
+SSG 08,weapon_ssg08,Dragonfire,cu_ssg08_dragonfire_scope,624,Legacy
+SSG 08,weapon_ssg08,Fever Dream,cu_ssg08_fever_dream,956,Legacy
+SSG 08,weapon_ssg08,Ghost Crusader,gs_ssg08_armacore,554,Legacy
+SSG 08,weapon_ssg08,Green Ceramic,so_ceramic_green_ssg08,1304,CS2
+SSG 08,weapon_ssg08,Grey Smoke,soch_blorb_bw,1271,CS2
+SSG 08,weapon_ssg08,Halftone Whorl,ht_swirl_ssg08,877,CS2
+SSG 08,weapon_ssg08,Hand Brake,gs_ssg08_checker,751,Legacy
+SSG 08,weapon_ssg08,Jungle Dashed,sp_tape_short_jungle,147,CS2
+SSG 08,weapon_ssg08,Lichen Dashed,sp_short_tape,26,CS2
+SSG 08,weapon_ssg08,Mainframe 001,cu_ssg08_mainframe,967,Legacy
+SSG 08,weapon_ssg08,Mayan Dreams,hy_mayan_dreams_bravo,200,Legacy
+SSG 08,weapon_ssg08,Memorial,ssg08_brutalist,1187,CS2
+SSG 08,weapon_ssg08,Necropos,cu_ssg08_necropos,538,Legacy
+SSG 08,weapon_ssg08,Orange Filigree,hy_ren_orange,743,Legacy
+SSG 08,weapon_ssg08,Parallax,cu_ssg08_chromatic,989,Legacy
+SSG 08,weapon_ssg08,Prey,sp_zebracam_red,935,CS2
+SSG 08,weapon_ssg08,Rapid Transit,ssg08_transit_white,128,CS2
+SSG 08,weapon_ssg08,Red Stone,so_rune_stone,762,CS2
+SSG 08,weapon_ssg08,Sand Dune,so_sand,99,CS2
+SSG 08,weapon_ssg08,Sans Comic,hye_comic_shapes,1372,CS2
+SSG 08,weapon_ssg08,Sea Calico,hy_flowers_stmarc,868,Legacy
+SSG 08,weapon_ssg08,Slashed,cu_ssg08_immortal,304,Legacy
+SSG 08,weapon_ssg08,Spring Twilly,hy_trainarchitect_green,1060,Legacy
+SSG 08,weapon_ssg08,Threat Detected,am_intelligence_orange,996,Legacy
+SSG 08,weapon_ssg08,Tiger Tear,hye_tiger2,1289,CS2
+SSG 08,weapon_ssg08,Tropical Storm,sp_palm_shadow,233,CS2
+SSG 08,weapon_ssg08,Turbo Peek,cu_ssg_overtake,1101,Legacy
+SSG 08,weapon_ssg08,Zeno,gsch_zeno_ssg08,513,CS2
+Tec-9,weapon_tec9,Army Mesh,sp_mesh_army,242,CS2
+Tec-9,weapon_tec9,Avalanche,cu_tec9_avalanche,520,Legacy
+Tec-9,weapon_tec9,Bamboo Forest,hy_bamboo_jungle,459,Legacy
+Tec-9,weapon_tec9,Bamboozle,cu_tec9_bamboo,839,Legacy
+Tec-9,weapon_tec9,Banana Leaf,hye_batik_eyes_tec9,1384,CS2
+Tec-9,weapon_tec9,Blast From the Past,hy_ancient_tiles_peach,1024,Legacy
+Tec-9,weapon_tec9,Blue Blast,so_teal,1279,CS2
+Tec-9,weapon_tec9,Blue Titanium,an_titanium30v,216,CS2
+Tec-9,weapon_tec9,Brass,aq_brass,159,Legacy
+Tec-9,weapon_tec9,Brother,gs_tec9_guerilla,964,Legacy
+Tec-9,weapon_tec9,Citric Acid,soo_paint_splats_yellow,1322,CS2
+Tec-9,weapon_tec9,Cracked Opal,cu_tec9_cracked_opal,684,Legacy
+Tec-9,weapon_tec9,Cut Out,aq_tec9_chalk_pattern,671,Legacy
+Tec-9,weapon_tec9,Decimator,gs_tec9_decimator,889,Legacy
+Tec-9,weapon_tec9,Flash Out,cu_tec9_flash,905,Legacy
+Tec-9,weapon_tec9,Fubar,gs_tec9_fubar,816,Legacy
+Tec-9,weapon_tec9,Fuel Injector,gs_tec9_supercharged,614,Legacy
+Tec-9,weapon_tec9,Garter-9,soe_snakeskin,1286,CS2
+Tec-9,weapon_tec9,Groundwater,so_olive,2,CS2
+Tec-9,weapon_tec9,Hades,hy_hades,439,Legacy
+Tec-9,weapon_tec9,Ice Cap,am_tec_9_sea_salt,599,Legacy
+Tec-9,weapon_tec9,Isaac,cu_tec9_asiimov,303,Legacy
+Tec-9,weapon_tec9,Jambiya,gs_tec9_jambiya,539,Legacy
+Tec-9,weapon_tec9,Mummy's Rot,cu_tec9_mummy,1252,Legacy
+Tec-9,weapon_tec9,Nuclear Threat,sp_nukestripe_green_tec9,179,CS2
+Tec-9,weapon_tec9,Orange Murano,hy_murano_orange,738,Legacy
+Tec-9,weapon_tec9,Ossified,am_ossify,36,Legacy
+Tec-9,weapon_tec9,Phoenix Chalk,hy_phoenix_tags_lilac,1010,Legacy
+Tec-9,weapon_tec9,Raw Ceramic,so_ceramic,1299,CS2
+Tec-9,weapon_tec9,Re-Entry,am_tec9_redblast,555,Legacy
+Tec-9,weapon_tec9,Rebel,cu_tec9_freedom,1235,Legacy
+Tec-9,weapon_tec9,Red Quartz,am_crystallized,248,Legacy
+Tec-9,weapon_tec9,Remote Control,gs_tec9_envoy,791,Legacy
+Tec-9,weapon_tec9,Rust Leaf,sp_leaf_orange,733,CS2
+Tec-9,weapon_tec9,Safety Net,hy_mesh_safetyorange,795,Legacy
+Tec-9,weapon_tec9,Sandstorm,cu_tec9_sandstorm,289,Legacy
+Tec-9,weapon_tec9,Slag,tec9_junkyard_engineering,1159,CS2
+Tec-9,weapon_tec9,Snek-9,cu_tec9_snake,722,Legacy
+Tec-9,weapon_tec9,Terrace,hy_geometric_steps_yellow,463,Legacy
+Tec-9,weapon_tec9,Tiger Stencil,soch_tiger_stencil_tec9,766,CS2
+Tec-9,weapon_tec9,Titanium Bit,am_fluted_tec9,272,Legacy
+Tec-9,weapon_tec9,Tornado,so_tornado_bravo,206,CS2
+Tec-9,weapon_tec9,Toxic,hy_nuclear_skulls5_tec9,374,Legacy
+Tec-9,weapon_tec9,Urban DDPAT,hy_ddpat_urb,17,Legacy
+Tec-9,weapon_tec9,VariCamo,hy_varicamo,235,Legacy
+Tec-9,weapon_tec9,Whiteout,so_whiteout_tec9,1214,CS2
+UMP-45,weapon_ump45,Arctic Wolf,cu_ump45_white_fang,704,Legacy
+UMP-45,weapon_ump45,Blaze,aa_flames,37,CS2
+UMP-45,weapon_ump45,Bone Pile,sp_skull_diagram_bravo,193,CS2
+UMP-45,weapon_ump45,Briefing,cu_ump45_metritera,615,Legacy
+UMP-45,weapon_ump45,Caramel,so_caramel,93,CS2
+UMP-45,weapon_ump45,Carbon Fiber,am_carbon_fiber,70,Legacy
+UMP-45,weapon_ump45,Continuum,ump45_illumina_v2,1351,CS2
+UMP-45,weapon_ump45,Corporal,cu_ump_corporal,281,Legacy
+UMP-45,weapon_ump45,Crime Scene,cu_ump_crime_scene,1003,Legacy
+UMP-45,weapon_ump45,Crimson Foil,gsch_sport_ump45,412,CS2
+UMP-45,weapon_ump45,Day Lily,hy_bloom_red,725,Legacy
+UMP-45,weapon_ump45,Facility Dark,hy_blueprint_bluered,778,Legacy
+UMP-45,weapon_ump45,Fade,aa_fade_ump,879,CS2
+UMP-45,weapon_ump45,Fallout Warning,sp_nukestripe_maroon,169,Legacy
+UMP-45,weapon_ump45,Fragment,ump_fragment,1426,CS2
+UMP-45,weapon_ump45,Full Stop,hy_varicamo_red,250,Legacy
+UMP-45,weapon_ump45,Gold Bismuth,gs_ump_gold_bismuth,990,Legacy
+UMP-45,weapon_ump45,Grand Prix,am_ump_racer,436,Legacy
+UMP-45,weapon_ump45,Green Swirl,soch_hueshift_desat,1303,CS2
+UMP-45,weapon_ump45,Gunsmoke,hy_gelpen,15,Legacy
+UMP-45,weapon_ump45,Houndstooth,hy_houndstooth_brown,1008,Legacy
+UMP-45,weapon_ump45,Indigo,so_indigo_and_grey,333,CS2
+UMP-45,weapon_ump45,K.O. Factory,ump45_old_cartoon,1194,CS2
+UMP-45,weapon_ump45,Labyrinth,hy_lines_orange,362,Legacy
+UMP-45,weapon_ump45,Late Night Transit,ump_transit,1203,CS2
+UMP-45,weapon_ump45,Mechanism,aa_engine_performance,1085,CS2
+UMP-45,weapon_ump45,Metal Flowers,aq_ump45_flameflower,672,Legacy
+UMP-45,weapon_ump45,Minotaur's Labyrinth,cu_labyrinth,441,Legacy
+UMP-45,weapon_ump45,Momentum,cu_ump_arrows,802,Legacy
+UMP-45,weapon_ump45,Moonrise,aa_ump45_moonrise_sunset,851,Legacy
+UMP-45,weapon_ump45,Motorized,ump45_assembled_engine,1175,CS2
+UMP-45,weapon_ump45,Mudder,hy_mottled_sand,90,Legacy
+UMP-45,weapon_ump45,Neo-Noir,ump45_neo_noir,131,CS2
+UMP-45,weapon_ump45,Oscillator,am_ump45_electrowave,1049,Legacy
+UMP-45,weapon_ump45,Plastique,cu_ump_bomb,916,Legacy
+UMP-45,weapon_ump45,Primal Saber,cu_ump45_primalsaber,556,Legacy
+UMP-45,weapon_ump45,Riot,cu_ump45_uproar,488,Legacy
+UMP-45,weapon_ump45,Roadblock,gs_ump_roadblock,1157,Legacy
+UMP-45,weapon_ump45,Scaffold,gs_ump_abyss,652,Legacy
+UMP-45,weapon_ump45,Scorched,sp_dapple,175,CS2
+UMP-45,weapon_ump45,Urban DDPAT,hy_ddpat_urb,17,Legacy
+UMP-45,weapon_ump45,Warm Blooded,hye_test_animal_print_45,1387,CS2
+UMP-45,weapon_ump45,Wild Child,cu_ump_clutch_kick,1236,Legacy
+USP-S,weapon_usp_silencer,27,usp_field_snake,115,CS2
+USP-S,weapon_usp_silencer,Alpine Camo,gsch_bright_camo_usp,830,CS2
+USP-S,weapon_usp_silencer,Ancient Visions,sp_ancient_bright,1031,Legacy
+USP-S,weapon_usp_silencer,Black Lotus,cu_usp_black_lotus,1102,Legacy
+USP-S,weapon_usp_silencer,Bleeding Edge,ht_red_edges,1323,CS2
+USP-S,weapon_usp_silencer,Blood Tiger,hy_redtiger,217,Legacy
+USP-S,weapon_usp_silencer,Blueprint,cu_usps_blueprint,657,Legacy
+USP-S,weapon_usp_silencer,Caiman,cu_kaiman,339,Legacy
+USP-S,weapon_usp_silencer,Check Engine,sp_mesh_safetyred,796,CS2
+USP-S,weapon_usp_silencer,Cortex,cu_usp_cut,705,Legacy
+USP-S,weapon_usp_silencer,Cyrex,cu_usp_cyrex,637,Legacy
+USP-S,weapon_usp_silencer,Dark Water,am_zebra_dark,60,Legacy
+USP-S,weapon_usp_silencer,Desert Tactical,gs_usps_tactical_camo,1253,Legacy
+USP-S,weapon_usp_silencer,Flashback,cu_usp_flashback,817,Legacy
+USP-S,weapon_usp_silencer,Forest Leaves,sp_leaves,25,CS2
+USP-S,weapon_usp_silencer,Guardian,cu_usp_elegant,290,Legacy
+USP-S,weapon_usp_silencer,Jawbreaker,usps_doggy,1173,CS2
+USP-S,weapon_usp_silencer,Kill Confirmed,cu_usp_kill_confirmed,504,Legacy
+USP-S,weapon_usp_silencer,Lead Conduit,gs_usp_voltage,540,Legacy
+USP-S,weapon_usp_silencer,Monster Mashup,cu_usp_krokos,991,Legacy
+USP-S,weapon_usp_silencer,Neo-Noir,cu_usps_noir,653,Legacy
+USP-S,weapon_usp_silencer,Night Ops,hy_varicamo_night,236,Legacy
+USP-S,weapon_usp_silencer,Orange Anolis,am_lizard_red,922,Legacy
+USP-S,weapon_usp_silencer,Orion,cu_usp_spitfire,313,Legacy
+USP-S,weapon_usp_silencer,Overgrowth,hy_siege_bravo,183,Legacy
+USP-S,weapon_usp_silencer,Para Green,so_khaki_green,454,Legacy
+USP-S,weapon_usp_silencer,Pathfinder,sp_labyrinth2,443,CS2
+USP-S,weapon_usp_silencer,PC-GRN,usps_bruteforce_green,1186,CS2
+USP-S,weapon_usp_silencer,Printstream,cu_usp_printstream,1142,Legacy
+USP-S,weapon_usp_silencer,Purple DDPAT,am_ddpat_purple,818,Legacy
+USP-S,weapon_usp_silencer,Road Rash,cu_usp_sandpapered,318,Legacy
+USP-S,weapon_usp_silencer,Royal Blue,hy_indigo_usp,332,Legacy
+USP-S,weapon_usp_silencer,Royal Guard,soe_blue_and_gold,1217,CS2
+USP-S,weapon_usp_silencer,Serum,am_electric_red,221,Legacy
+USP-S,weapon_usp_silencer,Silent Shot,usps_silent_boy,1431,CS2
+USP-S,weapon_usp_silencer,Sleeping Potion,soe_purple,1377,CS2
+USP-S,weapon_usp_silencer,Stainless,aq_usp_stainless,277,Legacy
+USP-S,weapon_usp_silencer,Target Acquired,am_intelligence_magenta,1027,Legacy
+USP-S,weapon_usp_silencer,The Traitor,gs_usps_hangedman,1040,Legacy
+USP-S,weapon_usp_silencer,Ticket to Hell,cu_usp_to_hell,1136,Legacy
+USP-S,weapon_usp_silencer,Torque,cu_usp_progressiv,489,Legacy
+USP-S,weapon_usp_silencer,Tropical Breeze,soe_tropical,1284,CS2
+USP-S,weapon_usp_silencer,Whiteout,so_whiteout_riptide,1065,CS2
+XM1014,weapon_xm1014,Ancient Lore,am_ancient_warm,1021,Legacy
+XM1014,weapon_xm1014,Banana Leaf,hy_leaf_green,731,Legacy
+XM1014,weapon_xm1014,Black Tie,cu_xm1014_spectrum,557,Legacy
+XM1014,weapon_xm1014,Blaze Orange,hy_hunter_blaze_orange,166,Legacy
+XM1014,weapon_xm1014,Blue Spruce,so_moss,96,CS2
+XM1014,weapon_xm1014,Blue Steel,aq_blued,42,Legacy
+XM1014,weapon_xm1014,Blue Tire,sp_tire_tread_blue,1078,CS2
+XM1014,weapon_xm1014,Bone Machine,am_nuclear_skulls1_xm1014,370,Legacy
+XM1014,weapon_xm1014,CaliCamo,hy_varicamo_desert,240,Legacy
+XM1014,weapon_xm1014,Canvas Cloud,hy_cloud_camo,1333,CS2
+XM1014,weapon_xm1014,Charter,am_authority_brown,994,Legacy
+XM1014,weapon_xm1014,Copperflage,ht_copper_edges,1287,CS2
+XM1014,weapon_xm1014,Elegant Vines,am_moro_textile_bright,821,Legacy
+XM1014,weapon_xm1014,Entombed,cu_xm1014_amulet_blue,970,Legacy
+XM1014,weapon_xm1014,Fallout Warning,sp_nukestripe_maroon,169,Legacy
+XM1014,weapon_xm1014,Frost Borre,am_knots_silver,760,Legacy
+XM1014,weapon_xm1014,Grassland,so_grassland,95,CS2
+XM1014,weapon_xm1014,Gum Wall Camo,hye_drippy_camo,1267,CS2
+XM1014,weapon_xm1014,Halftone Shift,ht_shapes_xm1014,834,CS2
+XM1014,weapon_xm1014,Heaven Guard,cu_xm1014_heaven_guard,314,Legacy
+XM1014,weapon_xm1014,Hieroglyph,cu_xm1014_pharaoh,1254,Legacy
+XM1014,weapon_xm1014,Incinegator,cu_xm1014_incinerator,850,Legacy
+XM1014,weapon_xm1014,Irezumi,xm1014_irezumi,1174,CS2
+XM1014,weapon_xm1014,Jungle,so_jungle_bravo,205,CS2
+XM1014,weapon_xm1014,Mockingbird,xm1014_mockingbird,1182,CS2
+XM1014,weapon_xm1014,Monster Melt,cu_overpass_monsters_xm,146,CS2
+XM1014,weapon_xm1014,Oxide Blaze,cu_xm1014_oxide_blaze,706,Legacy
+XM1014,weapon_xm1014,Quicksilver,aq_xm1014_sigla,407,Legacy
+XM1014,weapon_xm1014,Red Leather,cu_leather_xm1014,348,Legacy
+XM1014,weapon_xm1014,Red Python,hy_snakeskin_red,320,Legacy
+XM1014,weapon_xm1014,Run Run Run,xm1014_freight,1201,CS2
+XM1014,weapon_xm1014,Scumbria,aq_xm1014_scumbria,505,Legacy
+XM1014,weapon_xm1014,Seasons,aq_xm_leaf_fade,654,Legacy
+XM1014,weapon_xm1014,Slipstream,hy_xm1014_fractal_blue,616,Legacy
+XM1014,weapon_xm1014,Solitude,soch_mountains_limited_time,1215,CS2
+XM1014,weapon_xm1014,Teclu Burner,aq_xm1014_hot_rod,521,Legacy
+XM1014,weapon_xm1014,Tranquility,cu_xm1014_caritas,393,Legacy
+XM1014,weapon_xm1014,Urban Perforated,sp_tape_dots_urban,135,CS2
+XM1014,weapon_xm1014,VariCamo Blue,hy_varicamo_blue,238,Legacy
+XM1014,weapon_xm1014,Watchdog,gs_xm1014_watchdog,1103,Legacy
+XM1014,weapon_xm1014,XoooM,soe_yellow_xm,1381,CS2
+XM1014,weapon_xm1014,XOXO,aq_xm1014_punk,1046,Legacy
+XM1014,weapon_xm1014,Ziggy,aq_xm1014_ziggy_anarchy,689,Legacy
+XM1014,weapon_xm1014,Zombie Offensive,am_xm_zombie_offensive,1135,Legacy
+Zeus x27,weapon_taser,Charged Up,zeus_standard_issue,1205,CS2
+Zeus x27,weapon_taser,Dragon Snore,cu_overpass_dragon_zeus,292,CS2
+Zeus x27,weapon_taser,Earth Mandala,hye_earth_mandala_lc,1382,CS2
+Zeus x27,weapon_taser,Electric Blue,soe_electric_blue,1268,CS2
+Zeus x27,weapon_taser,Olympus,zeus_thunder_god,1172,CS2
+Zeus x27,weapon_taser,Swamp DDPAT,hy_digicam_forest,1297,CS2
+Zeus x27,weapon_taser,Tosai,zeus_tosai,1183,CS2

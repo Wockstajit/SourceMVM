@@ -1,0 +1,44 @@
+// afx_depthms_ps_5_0: reduce a MULTISAMPLED depth buffer to one plain R32_FLOAT value per pixel.
+//
+// WHY: CS2's scene depth is 8x MSAA (measured), and an MSAA depth resource can only be read
+// through a Texture2DMS SRV with .Load() -- there is no ResolveSubresource for depth formats.
+//
+// The NEAREST sample is kept, not sample 0: glass and other alpha-to-coverage surfaces write depth
+// into a varying subset of samples, so sample 0 flickers between the glass and what is behind it
+// from one render to the next (measured 2026-09-26: speckle on a cs_office window that differed
+// between two renders of the same frame). The nearest covered sample is deterministic.
+//
+// cbuffer b0 is the render-pass compositor's (afx_render_pass_ps_5_0): camera.w = 1 when depth is
+// reversed (near = larger). Pairs with afx_drawtexture_vs_5_0 (screen-space pass-through).
+
+cbuffer PS_CONSTANT_BUFFER : register(b0)
+{
+	int4 modeMask;
+	float4 keyIn;
+	float4 keyOut;
+	float4 nearFar;
+	float4 camera;        // w = 1 when depth is reversed
+};
+
+Texture2DMS<float> depthMs : register(t0);
+
+struct PS_INPUT
+{
+	float4 xyzw : SV_POSITION;
+	float2 t0 : TEXCOORD0;
+};
+
+float4 main( PS_INPUT i ) : SV_TARGET
+{
+	// SV_POSITION is already the pixel centre in target space, and the resolve target matches
+	// the depth buffer's dimensions 1:1, so the coordinate needs no scaling.
+	int2 px = int2(i.xyzw.xy);
+	uint w, h, count;
+	depthMs.GetDimensions(w, h, count);
+	float d = depthMs.Load(px, 0);
+	for (uint s = 1; s < count; ++s) {
+		float c = depthMs.Load(px, s);
+		d = camera.w > 0.5 ? max(d, c) : min(d, c);
+	}
+	return float4(d, 0.0, 0.0, 1.0);
+}

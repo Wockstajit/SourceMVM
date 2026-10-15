@@ -1,0 +1,9 @@
+# Derived from AfxHookSource2/Filmmaker/Deadlock/*Js.h -- regenerate with extract-deadlock-ui.mjs
+generated/
+
+# Valve's artwork, decompiled from the user's own Deadlock install by fetch-assets.mjs.
+# Not ours to commit.
+assets/
+
+# Deadlock's own typefaces, copied out of the install by fetch-assets.mjs. Same reason.
+fonts/

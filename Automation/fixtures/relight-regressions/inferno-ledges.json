@@ -1,0 +1,225 @@
+{
+  "map": "de_inferno",
+  "date": "2026-10-04",
+  "viewport": [
+    2560,
+    1351
+  ],
+  "fov": 90,
+  "msaa": 8,
+  "network": "offline loopback:1; insecure",
+  "sunCascadeTexels": 2048,
+  "controlledEnvironment": "inferno-ledges-environment.json",
+  "poses": [
+    {
+      "name": "current",
+      "eye": [
+        -426.490356,
+        506.115967,
+        104
+      ],
+      "angles": [
+        14.795373,
+        131.673401,
+        0
+      ]
+    },
+    {
+      "name": "current-upper",
+      "eye": [
+        -426.490356,
+        506.115967,
+        104
+      ],
+      "angles": [
+        -28,
+        131.673401,
+        0
+      ]
+    },
+    {
+      "name": "street",
+      "eye": [
+        -335.047241,
+        -110.141296,
+        86.0
+      ],
+      "angles": [
+        -6.740799,
+        -0.514984,
+        0.0
+      ]
+    },
+    {
+      "name": "apartments",
+      "eye": [
+        990.03125,
+        13.954691,
+        320.0
+      ],
+      "angles": [
+        2.725803,
+        -51.921585,
+        0.0
+      ]
+    },
+    {
+      "name": "hall-user",
+      "eye": [
+        1265.808228,
+        -150.775146,
+        324
+      ],
+      "angles": [
+        5.205084,
+        139.232483,
+        0
+      ]
+    },
+    {
+      "name": "hall-hallwayStep",
+      "eye": [
+        1245.808228,
+        -150.775146,
+        324
+      ],
+      "angles": [
+        5.205084,
+        139.232483,
+        0
+      ]
+    },
+    {
+      "name": "hall-fanDoor",
+      "eye": [
+        1210,
+        30,
+        324
+      ],
+      "angles": [
+        -15,
+        -160,
+        0
+      ]
+    },
+    {
+      "name": "hall-stairNear",
+      "eye": [
+        1195,
+        195,
+        260
+      ],
+      "angles": [
+        40,
+        45,
+        0
+      ]
+    },
+    {
+      "name": "hall-stairDistant",
+      "eye": [
+        1195,
+        100,
+        324
+      ],
+      "angles": [
+        45,
+        73,
+        0
+      ]
+    },
+    {
+      "name": "lamp-126",
+      "eye": [
+        1120,
+        -63,
+        345
+      ],
+      "angles": [
+        -10,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "lamp-125",
+      "eye": [
+        1120,
+        -180,
+        345
+      ],
+      "angles": [
+        -10,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "banana-back",
+      "eye": [
+        243.66687,
+        1772.228882,
+        186.562485
+      ],
+      "angles": [
+        6.325378,
+        -91.297417,
+        0
+      ]
+    },
+    {
+      "name": "banana-forward",
+      "eye": [
+        243.66687,
+        1692.228882,
+        179.058502
+      ],
+      "angles": [
+        6.325378,
+        -91.297417,
+        0
+      ]
+    },
+    {
+      "name": "church",
+      "eye": [
+        1413.360718,
+        3170.192139,
+        216
+      ],
+      "angles": [
+        -5.999908,
+        -176.152039,
+        0
+      ]
+    },
+    {
+      "name": "aa-corner",
+      "eye": [
+        591.249634,
+        579.039856,
+        154.608566
+      ],
+      "angles": [
+        5.928943,
+        177.9478,
+        0
+      ]
+    }
+  ],
+  "verification": {
+    "before": "Automation/output/lighting-ledges/before",
+    "after": "Automation/output/lighting-ledges/verified",
+    "motionFramesPerRoute": 60,
+    "routes": [
+      "ledges",
+      "banana",
+      "fan"
+    ],
+    "limits": [
+      "Saved views cover reported locations, not every map surface.",
+      "The native mixed-MSAA fallback retains a fixed filter footprint; very thin edge highlights can remain.",
+      "Performance samples do not establish before/after parity."
+    ]
+  }
+}

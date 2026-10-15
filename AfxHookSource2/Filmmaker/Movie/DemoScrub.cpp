@@ -1,0 +1,304 @@
+#include "DemoScrub.h"
+
+#include "DemoScrubMath.h"
+#include "DemoTimescale.h"
+#include "../Debug/MvmDebugLog.h"
+#include "../Demo/PlayingDemoPath.h"
+#include "../Render/RenderCommand.h" // Render_IsJobActive: a render job owns the demo clock
+
+#include "../../MirvTime.h"
+#include "../../../Shared/AfxConsole.h"
+
+#include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
+#include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
+
+#include <cmath>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cwctype>
+#include <string>
+
+extern SOURCESDK::CS2::ISource2EngineToClient* g_pEngineToClient;
+
+namespace Filmmaker {
+namespace {
+
+// A command is "in flight" from the frame it is issued until the demo shows its effect. Commands
+// execute on the next frame and IsDemoPaused lags a frame, so a few frames are always waited; a
+// stuck command is released after kMaxBusyFrames. A backward seek on a demo WITHOUT keyframes
+// replays over MANY frames (ragdolls.dem, 3000 ticks back: 158 frames, 4 s), so the cap is a safety
+// net far above any real landing.
+constexpr int kMinBusyFrames = 2;
+constexpr int kMaxBusyFrames = 1200;
+
+enum class Pending { None, Pause, Resume, Step, Seek };
+
+bool g_active = false;
+bool g_released = false;
+bool g_settled = false;      // released and the settle seek went out (DemoScrubMath.h)
+double g_target = 0.0;
+bool g_wasPlaying = false;   // the demo was playing when the drag began: resume after landing
+Pending g_pending = Pending::None;
+int g_busyFrames = 0;
+int g_expectTick = -1;
+bool g_repaused = false;     // a seek landed playing and demo_pause was sent once
+int g_seekFrom = -1;         // the tick a pending seek started from (JudgeSeek)
+bool g_keyframed = false;    // the playing file is a keyframed copy: restores take a frame or two
+double g_timescale = 1.0;    // the demo_timescale the scrub last set
+int g_seeks = 0, g_steps = 0, g_plays = 0;
+
+void Cmd(const char* c) {
+	if (g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, c, true);
+}
+
+// Offset between the client clock (curtime * 64) and the demo tick, learned whenever the demo is
+// paused on a whole tick (it is the demo's server start tick; 3173 in ragdolls.dem).
+bool g_haveClockOffset = false;
+double g_clockOffset = 0.0;
+
+// The world's demo time in ticks, FRACTIONAL. A paused demo can rest between two ticks
+// (DemoScrubMath.h) and a slow drag has to see that. The client clock is the source: measured
+// 2026-09-27, curtime * 64 reads exactly tick + offset when paused on a whole tick, holds the
+// fraction when paused between ticks, and advances continuously while playing. (MirvTime's
+// interpolation_amount reads 0 in CS2 -- a CS:GO-era offset -- so it cannot be used.)
+bool DemoState(int& tick, double& now, bool& paused) {
+	tick = 0; now = 0.0; paused = true;
+	if (!g_pEngineToClient) return false;
+	auto* demo = g_pEngineToClient->GetDemoFile();
+	if (!demo || !(demo->IsPlayingDemo() || demo->IsDemoPaused())) return false;
+	paused = demo->IsDemoPaused();
+	if (!g_MirvTime.GetCurrentDemoTick(tick)) return false;
+	const double rel = (double)g_MirvTime.curtime_get() * kScrubTickRate - tick;
+	if (paused && std::fabs(rel - std::floor(rel + 0.5)) < 0.002) {
+		g_clockOffset = std::floor(rel + 0.5);
+		g_haveClockOffset = true;
+	}
+	// Before an offset is learned, tolerate the clock's small backward jitter at a tick boundary.
+	const double offset = g_haveClockOffset ? g_clockOffset : std::floor(rel + 0.02);
+	double frac = rel - offset;
+	if (!(frac >= 0.0)) frac = 0.0;
+	if (frac > 0.999) frac = 0.999;
+	now = tick + frac;
+	return true;
+}
+
+void Log(const char* fmt, ...) {
+	if (!MvmDebugLog_Active()) return;
+	char buf[256];
+	va_list va;
+	va_start(va, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, va);
+	va_end(va);
+	MvmDebugLog_LinefAlways("demo.scrub", "%s", buf);
+}
+
+void Begin() {
+	if (g_active) return;
+	g_haveClockOffset = false; // per demo: relearned on the first paused whole tick
+	int tick = 0; double now = 0.0; bool paused = true;
+	if (!DemoState(tick, now, paused)) return;
+	g_active = true;
+	g_pending = Pending::None;
+	g_busyFrames = 0;
+	g_seeks = g_steps = g_plays = 0;
+	g_wasPlaying = !paused;
+	g_timescale = DemoTimescale_Get();
+	// Per scrub, not per frame: resolving the playing file is not free.
+	std::wstring file = ResolvePlayingDemoPath();
+	for (auto& ch : file) ch = (wchar_t)std::towlower(ch);
+	const std::wstring suffix = L"keyframed.dem";
+	g_keyframed = file.size() >= suffix.size() && file.compare(file.size() - suffix.size(), suffix.size(), suffix) == 0;
+	Log("begin now=%.3f wasPlaying=%d keyframed=%d", now, g_wasPlaying ? 1 : 0, g_keyframed ? 1 : 0);
+}
+
+void Finish(double now) {
+	// Back to the user's own speed, and play if they were playing.
+	DemoTimescale_Set(DemoTimescale_Get());
+	if (g_wasPlaying) Cmd("demo_resume");
+	Log("done now=%.3f target=%.3f seeks=%d steps=%d plays=%d resumed=%d", now, g_target, g_seeks, g_steps,
+		g_plays, g_wasPlaying ? 1 : 0);
+	g_active = false;
+	g_released = false;
+	g_settled = false;
+	g_pending = Pending::None;
+}
+
+void Issue(Pending pending, int expectTick, int fromTick = -1) {
+	g_pending = pending;
+	g_seekFrom = fromTick;
+	g_busyFrames = 0;
+	g_expectTick = expectTick;
+	g_repaused = false;
+}
+
+} // namespace
+
+void DemoScrub_Drag(double tick) {
+	if (Render_IsJobActive()) return;
+	Begin();
+	if (!g_active) return;
+	g_target = tick;
+	g_released = false;
+	g_settled = false;
+}
+
+void DemoScrub_Release(double tick) {
+	if (Render_IsJobActive()) return;
+	Begin();
+	if (!g_active) return;
+	g_target = tick;
+	g_released = true;
+}
+
+bool DemoScrub_Active() { return g_active; }
+
+void DemoScrub_RunFrame() {
+	if (!g_active) return;
+	int tick = 0; double now = 0.0; bool paused = true;
+	if (!DemoState(tick, now, paused) || Render_IsJobActive()) {
+		// The demo went away (or a render took the clock): drop the scrub without touching it.
+		g_active = false; g_pending = Pending::None;
+		return;
+	}
+	if (g_pending != Pending::None) {
+		++g_busyFrames;
+		bool landed = false;
+		switch (g_pending) {
+		case Pending::Pause: landed = paused; break;
+		case Pending::Resume: landed = !paused; break;
+		case Pending::Step:
+			// A step only ever moves forward from where it started; anywhere else, another seek
+			// moved the world and the step will never finish.
+			if (tick < g_seekFrom - 1 || tick > g_expectTick + 1) {
+				Log("step to %d from %d lost: tick=%d; re-aiming", g_expectTick, g_seekFrom, tick);
+				g_pending = Pending::None;
+				if (g_released) g_settled = false;
+				break;
+			}
+			landed = paused && tick >= g_expectTick - 1;
+			break;
+		case Pending::Seek: {
+			// A seek must land ON its tick (+/-1): mid-replay a backward seek reads the OLD tick,
+			// paused, which is past the target and not a landing.
+			const bool there = tick >= g_expectTick - 1 && tick <= g_expectTick + 1;
+			// The seek command does not include demo_pause. demo_pause toggles, and putting it in
+			// the same string as demo_resume runs it while the demo is still paused, which starts
+			// playback (timeline/graph reports 2026-10-13: any time change plays the demo). Pause
+			// once, only after the tick has landed and the demo is observed playing.
+			if (there && !paused && !g_repaused && g_busyFrames >= 2) {
+				Cmd("demo_pause");
+				g_repaused = true;
+				Log("seek landed playing at %d (expect %d): pausing", tick, g_expectTick);
+			}
+			const SeekWait wait = JudgeSeek(g_seekFrom, g_expectTick, tick, paused, g_busyFrames, g_keyframed);
+			if (wait == SeekWait::Lost) {
+				// Another seek (CS2's own bar, a click) moved the world, or ours was swallowed: stop
+				// waiting and aim again from where the world is (DemoScrubMath.h JudgeSeek).
+				Log("seek %d from %d lost after %d frame(s): tick=%d paused=%d; re-aiming", g_expectTick, g_seekFrom,
+					g_busyFrames, tick, paused ? 1 : 0);
+				g_pending = Pending::None;
+				if (g_released) g_settled = false; // the settle seek did not happen: do it again
+				break;
+			}
+			landed = wait == SeekWait::Landed;
+			break;
+		}
+		default: break;
+		}
+		const int minFrames = (g_pending == Pending::Resume || g_pending == Pending::Pause) ? 1 : kMinBusyFrames;
+		if ((landed && g_busyFrames >= minFrames) || g_busyFrames >= kMaxBusyFrames) {
+			if (!landed)
+				Log("command timed out (kind %d) tick=%d expect=%d paused=%d", (int)g_pending, tick, g_expectTick, paused ? 1 : 0);
+			g_pending = Pending::None;
+		} else {
+			return;
+		}
+	}
+
+	ScrubInput in;
+	in.target = g_target;
+	in.now = now;
+	in.paused = paused;
+	in.released = g_released;
+	in.settled = g_settled;
+	const float frame = g_MirvTime.absoluteframetime_get();
+	in.frameSeconds = (frame > 0.0f && frame < 0.25f) ? frame : 1.0 / 60.0;
+	in.timescale = g_timescale;
+	const ScrubDecision d = DecideScrub(in);
+	char c[96];
+	switch (d.action) {
+	case ScrubAction::Play:
+		// Glide: the world plays toward the playhead, slowing as it gets close (DemoScrubMath.h).
+		g_timescale = d.timescale;
+		if (paused) {
+			_snprintf_s(c, sizeof(c), _TRUNCATE, "demo_timescale %.4f;demo_resume", d.timescale);
+			Issue(Pending::Resume, -1);
+		} else {
+			_snprintf_s(c, sizeof(c), _TRUNCATE, "demo_timescale %.4f", d.timescale);
+		}
+		Cmd(c);
+		if ((g_plays++ % 16) == 0)
+			Log("play %.3fx from %.3f target=%.3f", d.timescale, now, g_target);
+		break;
+	case ScrubAction::Pause:
+		// Only ever decided while playing: demo_pause is a toggle.
+		Cmd("demo_pause");
+		Issue(Pending::Pause, -1);
+		Log("pause at %.3f target=%.3f released=%d", now, g_target, g_released ? 1 : 0);
+		break;
+	case ScrubAction::Step:
+		// Play the last whole ticks for real, paused exactly on the goal.
+		_snprintf_s(c, sizeof(c), _TRUNCATE, "demo_timescale %.3f;demo_step_tick %d", d.timescale, d.ticks);
+		Cmd(c);
+		g_timescale = d.timescale;
+		Issue(Pending::Step, tick + d.ticks, tick);
+		++g_steps;
+		Log("step %d ticks at %.2fx from %.3f target=%.3f released=%d", d.ticks, d.timescale, now, g_target, g_released ? 1 : 0);
+		break;
+	case ScrubAction::Seek:
+		// A FORWARD demo_gototick issued while paused is never executed (measured: the tick holds
+		// until playback resumes), so a forward skip resumes and seeks, then the seek handler
+		// pauses once it sees the demo playing on the target tick. demo_pause is not in this
+		// string: it toggles, and in the same batch as demo_resume it fires while still paused
+		// and leaves the demo playing. Backward, a plain seek from a paused demo holds; if the
+		// replay plays on, the same handler pauses it.
+		if (d.seekTick > tick)
+			_snprintf_s(c, sizeof(c), _TRUNCATE, "demo_resume;demo_gototick %d", d.seekTick);
+		else
+			_snprintf_s(c, sizeof(c), _TRUNCATE, "demo_gototick %d", d.seekTick);
+		Cmd(c);
+		Issue(Pending::Seek, d.seekTick, tick);
+		++g_seeks;
+		if (g_released) g_settled = true;
+		Log("seek %d from %.3f target=%.3f released=%d", d.seekTick, now, g_target, g_released ? 1 : 0);
+		break;
+	case ScrubAction::Done:
+		Finish(now);
+		break;
+	default:
+		break;
+	}
+}
+
+void DemoScrub_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
+	const char* sub = argc >= 3 ? args->ArgV(2) : "status";
+	if ((0 == _stricmp(sub, "drag") || 0 == _stricmp(sub, "release")) && argc >= 4) {
+		const double t = atof(args->ArgV(3));
+		if (0 == _stricmp(sub, "drag")) DemoScrub_Drag(t);
+		else DemoScrub_Release(t);
+		return; // silent: every drag frame calls this
+	}
+	int tick = 0; double now = 0.0; bool paused = true;
+	const bool demo = DemoState(tick, now, paused);
+	advancedfx::Message("%s scrub clock: tick=%d interp=%.4f curtime=%.5f curtime*64=%.4f\n", cmd, tick,
+		g_MirvTime.interpolation_amount_get(), g_MirvTime.curtime_get(), g_MirvTime.curtime_get() * kScrubTickRate);
+	advancedfx::Message("%s scrub: %s target=%.3f world=%.3f%s released=%d pending=%d seeks=%d steps=%d plays=%d\n"
+		"%s scrub drag <tick>     - the world follows a timeline drag (glides forward, restores back)\n"
+		"%s scrub release <tick>  - land exactly on the tick, restore speed and play state\n",
+		cmd, g_active ? "ACTIVE" : "idle", g_target, now, demo ? (paused ? " (paused)" : " (playing)") : " (no demo)",
+		g_released ? 1 : 0, (int)g_pending, g_seeks, g_steps, g_plays, cmd, cmd);
+}
+
+} // namespace Filmmaker

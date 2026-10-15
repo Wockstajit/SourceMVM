@@ -1,0 +1,266 @@
+{
+  "fan": {
+    "fan-before-focused": {
+      "ceiling": {
+        "meanRange": 0.0,
+        "p95Range": 0.0,
+        "maxRange": 1,
+        "fractionOver3": 0.0
+      },
+      "ceilingAboveFan": {
+        "meanRange": 4.758,
+        "p95Range": 38.0,
+        "maxRange": 145,
+        "fractionOver3": 0.16
+      },
+      "wallAbovePainting": {
+        "meanRange": 0.001,
+        "p95Range": 0.0,
+        "maxRange": 1,
+        "fractionOver3": 0.0
+      },
+      "wallBesideFan": {
+        "meanRange": 0.252,
+        "p95Range": 1.0,
+        "maxRange": 2,
+        "fractionOver3": 0.0
+      },
+      "staticWall": {
+        "meanRange": 0.0,
+        "p95Range": 0.0,
+        "maxRange": 0,
+        "fractionOver3": 0.0
+      }
+    },
+    "fan-seam-final-focused": {
+      "ceiling": {
+        "meanRange": 33.473,
+        "p95Range": 64.0,
+        "maxRange": 129,
+        "fractionOver3": 0.911
+      },
+      "ceilingAboveFan": {
+        "meanRange": 28.112,
+        "p95Range": 98.0,
+        "maxRange": 229,
+        "fractionOver3": 0.657
+      },
+      "wallAbovePainting": {
+        "meanRange": 13.993,
+        "p95Range": 48.0,
+        "maxRange": 78,
+        "fractionOver3": 0.586
+      },
+      "wallBesideFan": {
+        "meanRange": 0.613,
+        "p95Range": 1.0,
+        "maxRange": 15,
+        "fractionOver3": 0.037
+      },
+      "staticWall": {
+        "meanRange": 0.003,
+        "p95Range": 0.0,
+        "maxRange": 1,
+        "fractionOver3": 0.0
+      }
+    }
+  },
+  "lampSeam": {
+    "cameraEye": [
+      1120,
+      -63,
+      345
+    ],
+    "cameraAngles": [
+      -10,
+      0,
+      0
+    ],
+    "wallX": 1156,
+    "emitterPosition": [
+      1144,
+      -63,
+      351
+    ],
+    "projectedFaceBoundaryRow": 718,
+    "sampleColumns": [
+      1035,
+      1120
+    ],
+    "samples": {
+      "wall-lamp-near-before": {
+        "meanLuminanceStep": 29.451
+      },
+      "wall-lamp32": {
+        "meanLuminanceStep": 39.672
+      },
+      "wall-lamp-seam-fixed": {
+        "meanLuminanceStep": -0.725
+      }
+    }
+  },
+  "timing": {
+    "name": "apartments-stationary-final",
+    "route": {
+      "name": "apartments-stationary-final",
+      "start": [
+        990.03125,
+        13.954691,
+        320,
+        2.725803,
+        -51.921585,
+        0
+      ],
+      "finish": [
+        990.03125,
+        13.954691,
+        320,
+        2.725803,
+        -51.921585,
+        0
+      ]
+    },
+    "seconds": 8.339772200008156,
+    "frames": 355,
+    "fps": 42.567109926534066,
+    "lowestWindowFps": 40.57847824284602,
+    "windows": [
+      {
+        "time": 0.467738699997426,
+        "fps": 42.75891646363677,
+        "frames": 20,
+        "seconds": 0.467738699997426,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32624\r\n  main pump                    : 32365\r\n  frame timing: samples=19 meanMs=23.550 p50Ms=23.712 p95Ms=25.624 p99Ms=25.624 maxMs=25.624 over33=0\r\n  hook cost last frame         : draw detours 6.80 ms over 1163 draws (native draws 0.17 ms), present 0.00 ms, environment 0.17 ms\r\n  hook cost ~20-frame average  : draw detours 5.88 ms, present 0.00 ms, environment 0.17 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 0.918967600009637,
+        "fps": 44.32340215677402,
+        "frames": 20,
+        "seconds": 0.45122890001221094,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32644\r\n  main pump                    : 32385\r\n  frame timing: samples=39 meanMs=23.501 p50Ms=23.357 p95Ms=25.618 p99Ms=25.624 maxMs=25.624 over33=0\r\n  hook cost last frame         : draw detours 5.43 ms over 1163 draws (native draws 0.17 ms), present 0.00 ms, environment 0.15 ms\r\n  hook cost ~20-frame average  : draw detours 5.84 ms, present 0.00 ms, environment 0.17 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 1.3817430000053719,
+        "fps": 41.05663352065626,
+        "frames": 19,
+        "seconds": 0.4627753999957349,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32663\r\n  main pump                    : 32404\r\n  frame timing: samples=58 meanMs=23.431 p50Ms=23.323 p95Ms=25.579 p99Ms=25.624 maxMs=25.624 over33=0\r\n  hook cost last frame         : draw detours 5.38 ms over 1163 draws (native draws 0.16 ms), present 0.00 ms, environment 0.16 ms\r\n  hook cost ~20-frame average  : draw detours 5.67 ms, present 0.00 ms, environment 0.16 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 1.849061700006132,
+        "fps": 42.79734579413892,
+        "frames": 20,
+        "seconds": 0.46731870000076015,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32683\r\n  main pump                    : 32424\r\n  frame timing: samples=78 meanMs=23.435 p50Ms=23.361 p95Ms=25.503 p99Ms=25.624 maxMs=25.624 over33=0\r\n  hook cost last frame         : draw detours 6.22 ms over 1163 draws (native draws 0.18 ms), present 0.00 ms, environment 0.18 ms\r\n  hook cost ~20-frame average  : draw detours 5.59 ms, present 0.00 ms, environment 0.16 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 2.316669500010903,
+        "fps": 42.770886199494406,
+        "frames": 20,
+        "seconds": 0.467607800004771,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32703\r\n  main pump                    : 32444\r\n  frame timing: samples=98 meanMs=23.422 p50Ms=23.402 p95Ms=25.503 p99Ms=25.624 maxMs=25.624 over33=0\r\n  hook cost last frame         : draw detours 6.12 ms over 1163 draws (native draws 0.15 ms), present 0.00 ms, environment 0.16 ms\r\n  hook cost ~20-frame average  : draw detours 5.61 ms, present 0.00 ms, environment 0.16 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 2.7684497000009287,
+        "fps": 44.26931503514664,
+        "frames": 20,
+        "seconds": 0.4517801999900257,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32723\r\n  main pump                    : 32464\r\n  frame timing: samples=118 meanMs=23.444 p50Ms=23.414 p95Ms=25.579 p99Ms=25.743 maxMs=26.260 over33=0\r\n  hook cost last frame         : draw detours 6.22 ms over 1163 draws (native draws 0.22 ms), present 0.00 ms, environment 0.17 ms\r\n  hook cost ~20-frame average  : draw detours 5.69 ms, present 0.00 ms, environment 0.17 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 3.2230844000005163,
+        "fps": 41.79179459908633,
+        "frames": 19,
+        "seconds": 0.4546346999995876,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32742\r\n  main pump                    : 32483\r\n  frame timing: samples=137 meanMs=23.497 p50Ms=23.414 p95Ms=25.668 p99Ms=26.526 maxMs=27.438 over33=0\r\n  hook cost last frame         : draw detours 5.26 ms over 1163 draws (native draws 0.16 ms), present 0.00 ms, environment 0.15 ms\r\n  hook cost ~20-frame average  : draw detours 5.81 ms, present 0.00 ms, environment 0.18 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 3.691312900002231,
+        "fps": 40.57847824284602,
+        "frames": 19,
+        "seconds": 0.46822850000171456,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32761\r\n  main pump                    : 32502\r\n  frame timing: samples=156 meanMs=23.512 p50Ms=23.414 p95Ms=25.642 p99Ms=26.526 maxMs=27.438 over33=0\r\n  hook cost last frame         : draw detours 5.47 ms over 1163 draws (native draws 0.17 ms), present 0.00 ms, environment 0.14 ms\r\n  hook cost ~20-frame average  : draw detours 5.68 ms, present 0.00 ms, environment 0.17 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 4.156806300001335,
+        "fps": 42.96516341593345,
+        "frames": 20,
+        "seconds": 0.46549339999910444,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32781\r\n  main pump                    : 32522\r\n  frame timing: samples=176 meanMs=23.498 p50Ms=23.426 p95Ms=25.642 p99Ms=26.526 maxMs=27.438 over33=0\r\n  hook cost last frame         : draw detours 6.38 ms over 1163 draws (native draws 0.18 ms), present 0.00 ms, environment 0.17 ms\r\n  hook cost ~20-frame average  : draw detours 5.69 ms, present 0.00 ms, environment 0.17 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 4.625751100000343,
+        "fps": 42.64894290339142,
+        "frames": 20,
+        "seconds": 0.46894479999900796,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32801\r\n  main pump                    : 32542\r\n  frame timing: samples=196 meanMs=23.490 p50Ms=23.426 p95Ms=25.668 p99Ms=26.526 maxMs=27.438 over33=0\r\n  hook cost last frame         : draw detours 5.30 ms over 1163 draws (native draws 0.17 ms), present 0.00 ms, environment 0.16 ms\r\n  hook cost ~20-frame average  : draw detours 5.98 ms, present 0.00 ms, environment 0.19 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 5.0777063999994425,
+        "fps": 44.252163875586504,
+        "frames": 20,
+        "seconds": 0.4519552999990992,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32821\r\n  main pump                    : 32562\r\n  frame timing: samples=216 meanMs=23.508 p50Ms=23.472 p95Ms=25.668 p99Ms=26.525 maxMs=27.438 over33=0\r\n  hook cost last frame         : draw detours 5.70 ms over 1163 draws (native draws 0.19 ms), present 0.00 ms, environment 0.18 ms\r\n  hook cost ~20-frame average  : draw detours 5.77 ms, present 0.00 ms, environment 0.19 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 5.543310200009728,
+        "fps": 40.807227087880904,
+        "frames": 19,
+        "seconds": 0.46560380001028534,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32840\r\n  main pump                    : 32581\r\n  frame timing: samples=235 meanMs=23.490 p50Ms=23.472 p95Ms=25.697 p99Ms=26.525 maxMs=27.438 over33=0\r\n  hook cost last frame         : draw detours 5.35 ms over 1163 draws (native draws 0.17 ms), present 0.00 ms, environment 0.16 ms\r\n  hook cost ~20-frame average  : draw detours 5.77 ms, present 0.00 ms, environment 0.17 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 6.009824000007939,
+        "fps": 42.87118623302614,
+        "frames": 20,
+        "seconds": 0.46651379999821074,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32860\r\n  main pump                    : 32601\r\n  frame timing: samples=255 meanMs=23.479 p50Ms=23.483 p95Ms=25.668 p99Ms=26.525 maxMs=27.438 over33=0\r\n  hook cost last frame         : draw detours 5.43 ms over 1163 draws (native draws 0.16 ms), present 0.00 ms, environment 0.15 ms\r\n  hook cost ~20-frame average  : draw detours 5.75 ms, present 0.00 ms, environment 0.17 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 6.47969120000198,
+        "fps": 42.565218428214656,
+        "frames": 20,
+        "seconds": 0.4698671999940416,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32880\r\n  main pump                    : 32621\r\n  frame timing: samples=275 meanMs=23.477 p50Ms=23.472 p95Ms=25.697 p99Ms=26.526 maxMs=27.799 over33=0\r\n  hook cost last frame         : draw detours 5.74 ms over 1163 draws (native draws 0.17 ms), present 0.00 ms, environment 0.16 ms\r\n  hook cost ~20-frame average  : draw detours 5.77 ms, present 0.00 ms, environment 0.17 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 6.946841900004074,
+        "fps": 42.81273687465385,
+        "frames": 20,
+        "seconds": 0.4671507000020938,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32900\r\n  main pump                    : 32641\r\n  frame timing: samples=295 meanMs=23.471 p50Ms=23.483 p95Ms=25.668 p99Ms=26.526 maxMs=27.799 over33=0\r\n  hook cost last frame         : draw detours 5.43 ms over 1163 draws (native draws 0.17 ms), present 0.00 ms, environment 0.16 ms\r\n  hook cost ~20-frame average  : draw detours 5.71 ms, present 0.00 ms, environment 0.17 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 7.405159800007823,
+        "fps": 41.45594138881459,
+        "frames": 19,
+        "seconds": 0.45831790000374895,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32919\r\n  main pump                    : 32660\r\n  frame timing: samples=314 meanMs=23.516 p50Ms=23.507 p95Ms=25.697 p99Ms=26.525 maxMs=27.799 over33=0\r\n  hook cost last frame         : draw detours 5.97 ms over 1163 draws (native draws 0.16 ms), present 0.00 ms, environment 0.21 ms\r\n  hook cost ~20-frame average  : draw detours 5.70 ms, present 0.00 ms, environment 0.18 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 7.874219300007098,
+        "fps": 42.63851387730319,
+        "frames": 20,
+        "seconds": 0.46905949999927543,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32939\r\n  main pump                    : 32680\r\n  frame timing: samples=334 meanMs=23.516 p50Ms=23.506 p95Ms=25.668 p99Ms=26.525 maxMs=27.799 over33=0\r\n  hook cost last frame         : draw detours 5.97 ms over 1163 draws (native draws 0.19 ms), present 0.00 ms, environment 0.18 ms\r\n  hook cost ~20-frame average  : draw detours 5.60 ms, present 0.00 ms, environment 0.17 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      },
+      {
+        "time": 8.339772200008156,
+        "fps": 42.95967225197088,
+        "frames": 20,
+        "seconds": 0.4655529000010574,
+        "health": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32959\r\n  main pump                    : 32700\r\n  frame timing: samples=354 meanMs=23.498 p50Ms=23.483 p95Ms=25.642 p99Ms=26.525 maxMs=27.799 over33=0\r\n  hook cost last frame         : draw detours 5.87 ms over 1163 draws (native draws 0.20 ms), present 0.00 ms, environment 0.22 ms\r\n  hook cost ~20-frame average  : draw detours 5.54 ms, present 0.00 ms, environment 0.17 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n"
+      }
+    ],
+    "finalHealth": "mirv_filmmaker health:\r\n  render pump (Before_Present) : 32959\r\n  main pump                    : 32700\r\n  frame timing: samples=354 meanMs=23.498 p50Ms=23.483 p95Ms=25.642 p99Ms=26.525 maxMs=27.799 over33=0\r\n  hook cost last frame         : draw detours 5.87 ms over 1163 draws (native draws 0.20 ms), present 0.00 ms, environment 0.22 ms\r\n  hook cost ~20-frame average  : draw detours 5.54 ms, present 0.00 ms, environment 0.17 ms\r\n  cosmetics offsets ok         : yes  (required 5/5, optional 13/13 resolved)\r\n  particle hook installed      : NO   (fx enabled: no)\r\n  cosmetics enabled/armed      : yes / yes   (in demo: no)\r\n  demos in list                : 20   (scanning: no)\r\n  => healthy: every version-coupled subsystem resolved.\r\n",
+    "frameTiming": {
+      "samples": 354.0,
+      "meanMs": 23.498,
+      "p50Ms": 23.483,
+      "p95Ms": 25.642,
+      "p99Ms": 26.525,
+      "maxMs": 27.799,
+      "over33": 0.0
+    }
+  }
+}

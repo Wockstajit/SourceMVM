@@ -1,0 +1,16 @@
+* -text
+*.fxo binary
+
+# Git LFS: large binary assets a clone needs to build and launch. Run `git lfs install` once per
+# machine before cloning or committing (Docs/setup/collaborator-setup.md).
+# Bundled osu! easter-egg beatmaps: their songs and hitsound samples.
+Assets/easter-eggs/osu/**/*.mp3 filter=lfs diff=lfs merge=lfs -text
+Assets/easter-eggs/osu/**/*.ogg filter=lfs diff=lfs merge=lfs -text
+Assets/easter-eggs/osu/**/*.wav filter=lfs diff=lfs merge=lfs -text
+# The bundled default osu! skin (ExpressoKuns japan (WB) by Cappuccino).
+Assets/easter-eggs/osu-skin/**/*.png filter=lfs diff=lfs merge=lfs -text
+Assets/easter-eggs/osu-skin/**/*.ogg filter=lfs diff=lfs merge=lfs -text
+Assets/easter-eggs/osu-skin/**/*.wav filter=lfs diff=lfs merge=lfs -text
+
+# Animated README hero (the SOURCE:MVM trailer). Large, so it lives in Git LFS.
+Assets/readme/*.webp filter=lfs diff=lfs merge=lfs -text

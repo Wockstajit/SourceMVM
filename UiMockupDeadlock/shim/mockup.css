@@ -1,0 +1,270 @@
+/* Base styling for emulated Panorama panels, plus the harness's own chrome.
+   Everything under .stage is the game UI; everything outside it belongs to the mockup.
+
+   The .pnl rules below are Panorama SEMANTICS rather than anything Deadlock-specific, and each one
+   is there because its absence produced a specific visible fault in the CS2 harness. They are
+   repeated here with their reasons so the next person does not have to rediscover them. */
+
+/* Deadlock's own faces, copied out of the install by fetch-assets.mjs. The family names are the ones
+   citadel_base_styles.css uses and DeadlockStyleJs.h names, so the extracted UI asks for them by the
+   same spelling it does in game. */
+@font-face { font-family: 'Retail Demo'; src: url('../fonts/retaildemo-regular.otf') format('opentype'); font-weight: 400; font-display: block; }
+@font-face { font-family: 'Retail Demo'; src: url('../fonts/retaildemo-medium.otf') format('opentype'); font-weight: 500; font-display: block; }
+@font-face { font-family: 'Retail Demo'; src: url('../fonts/retaildemo-semibold.otf') format('opentype'); font-weight: 600; font-display: block; }
+@font-face { font-family: 'Retail Demo'; src: url('../fonts/retaildemo-bold.otf') format('opentype'); font-weight: 700; font-display: block; }
+@font-face { font-family: 'Retail Text Demo'; src: url('../fonts/retailtextdemo-regular.otf') format('opentype'); font-weight: 400; font-display: block; }
+@font-face { font-family: 'Retail Text Demo'; src: url('../fonts/retailtextdemo-bold.otf') format('opentype'); font-weight: 700; font-display: block; }
+@font-face { font-family: 'Reaver'; src: url('../fonts/reaver-regular.otf') format('opentype'); font-weight: 400; font-display: block; }
+@font-face { font-family: 'Reaver'; src: url('../fonts/reaver-semibold.otf') format('opentype'); font-weight: 600; font-display: block; }
+@font-face { font-family: 'VALVEPulp'; src: url('../fonts/valvepulp-bold.ttf') format('truetype'); font-weight: 700; font-display: block; }
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: #0b0c09; color: #C6C6C6;
+  font-family: 'Retail Demo', system-ui, sans-serif;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- harness chrome */
+
+#app { display: flex; height: 100vh; }
+
+#sidebar {
+  width: 272px; flex: 0 0 272px; background: #141511; border-right: 1px solid #ffffff14;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+/* The UA's [hidden] rule is display:none, which a specific display:flex outranks -- so hiding the
+   chrome for a bare capture needs saying explicitly. Without it a 1920x1080 shot spends 272px on the
+   sidebar and loses the right-hand end of the game frame, which is exactly the part (the inspector
+   column, the bar's Loop button) a comparison against the game is checking. */
+#sidebar[hidden], #status[hidden], #dev[hidden] { display: none !important; }
+#sidebar h1 {
+  margin: 0; padding: 14px 16px 4px; font-size: 13px; letter-spacing: 2px;
+  color: #FFEFD7; font-weight: 700; text-transform: uppercase;
+}
+#sidebar h1 span { color: #FFED79; }
+#sidebar .sub { padding: 0 16px 10px; font-size: 10px; color: #6f6a5e; letter-spacing: 1px; }
+#sidebody { overflow-y: auto; flex: 1; padding-bottom: 12px; }
+#viewlist { padding-bottom: 4px; }
+#jumps summary { cursor: pointer; list-style: none; }
+#jumps summary::-webkit-details-marker { display: none; }
+#jumps summary::before { content: 'B8  '; color: #6f6a5e; }
+#jumps[open] summary::before { content: 'BE  '; }
+/* Popups / overlays and the reported states: buttons that reach what a click cannot. */
+.action-owner { padding: 8px 16px 2px; font-size: 10px; color: #8d877a; letter-spacing: 1px; text-transform: uppercase; }
+.action-btn {
+  display: block; width: calc(100% - 24px); margin: 3px 12px; padding: 5px 8px; text-align: left;
+  background: #ffffff10; border: 1px solid #ffffff1a; border-radius: 4px;
+  color: #C6C6C6; font: inherit; font-size: 11px; cursor: pointer;
+}
+.action-btn:hover { background: #FFED7926; border-color: #FFED7966; color: #FFEFD7; }
+.action-btn.on { background: #FFED7933; border-color: #FFED79; color: #FFED79; }
+.group-label {
+  padding: 12px 16px 6px; font-size: 10px; letter-spacing: 2px; color: #6f6a5e;
+  text-transform: uppercase; font-weight: 700;
+}
+.view-btn {
+  display: block; width: 100%; text-align: left; background: none; border: 0;
+  border-left: 3px solid transparent; color: #C6C6C6; padding: 8px 16px;
+  font: inherit; font-size: 13px; cursor: pointer;
+}
+.view-btn:hover { background: #ffffff0e; }
+.view-btn.active { background: #FFED7918; border-left-color: #FFED79; color: #FFEFD7; }
+.view-btn .note { display: block; font-size: 10px; color: #6f6a5e; margin-top: 2px; line-height: 1.35; }
+
+#controls { border-top: 1px solid #ffffff14; padding: 10px 16px; font-size: 11px; }
+#controls label { display: flex; align-items: center; gap: 7px; margin: 5px 0; cursor: pointer; color: #a9a296; }
+#controls .row { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+#controls button {
+  flex: 1; min-width: 56px; background: #ffffff14; border: 1px solid #ffffff1a; color: #FFEFD7;
+  padding: 5px; border-radius: 4px; font: inherit; font-size: 11px; cursor: pointer;
+}
+#controls button:hover { background: #ffffff26; }
+#controls button.on { background: #FFED7933; border-color: #FFED79; color: #FFED79; }
+
+/* ---------------------------------------------------------------- the stage */
+
+/* The stage is a fixed 1920x1080 that gets CSS-scaled. A transform does not change layout size, so
+   an unwrapped stage creates a 1920px grid track that overflows and drags the centred result off
+   screen. #stagewrap carries the SCALED size as its real layout box and the stage scales from its
+   top-left corner inside it, so centring and scrolling both work on true dimensions. */
+#viewport { flex: 1; position: relative; overflow: auto; display: grid; place-items: safe center; }
+#stagewrap { position: relative; }
+
+/* The game render behind the UI. In the editor the world is blitted into the preview rect, which
+   this cannot do, so the plate sits at native size and the preview FRAME is what shows where the
+   world would be scaled to. Drop a real capture in as assets/backdrop.jpg to replace the gradient. */
+#backdrop {
+  position: absolute; inset: 0;
+  background: radial-gradient(120% 90% at 35% 30%, #3b3a31 0%, #23231c 46%, #0f100c 100%);
+  background-size: cover; background-position: center;
+}
+#backdrop.has-image {
+  background-color: #05070a;
+  background-image: var(--shot);
+  background-size: var(--shot-w, 1920px) auto;
+  background-position: top left;
+  background-repeat: no-repeat;
+}
+
+.stage {
+  width: 1920px; height: 1080px;
+  transform-origin: top left;
+  position: relative;
+}
+.stage-inner { position: absolute; inset: 0; }
+
+.stage, .stage * { user-select: none; -webkit-user-select: none; }
+input, textarea { user-select: text; -webkit-user-select: text; }
+
+/* ---------------------------------------------------------------- panels */
+
+.pnl {
+  display: grid;
+  white-space: pre-wrap;
+  /* Chrome's line-height:normal includes the font's line GAP; Panorama's label box does not, so
+     every label comes out 1-2px tall and the error accumulates down each flowed column. 1.19 is the
+     ratio measured against the game's own reported label heights in the CS2 harness, and it is
+     carried over here as the starting point -- compare-geometry.mjs against a Deadlock dump is what
+     would re-tune it for Retail Demo. */
+  line-height: 1.19;
+  position: relative;
+  flex-shrink: 0;
+  font-family: inherit;
+  color: inherit;
+  /* A Panorama panel is NEVER enlarged by what is inside it: width:100% means exactly the parent's
+     width and oversized children simply overflow. A CSS grid/flex item defaults to min-width:auto,
+     which is its content's minimum, so width:100% loses and a root holding a child wider than the
+     screen grows to fit it. That is not cosmetic here: the Deadlock workspace MEASURES its root
+     every frame and reports the screen size from it, so a root that grows feeds its own width back
+     into the layout and the column marches off the side of the screen on every frame. */
+  min-width: 0;
+  min-height: 0;
+}
+
+/* An empty Panorama Label still occupies a full line box; an empty inline span in CSS collapses to
+   zero, silently eating a row's height in a flowed column. A zero-width space restores the line box
+   without adding anything visible. */
+.pnl-text:empty::before { content: '\200B'; }
+
+.pnl-text {
+  /* Same stacking cell any child panels use, so a Label that also has children behaves the way
+     Panorama's does. */
+  grid-area: 1 / 1;
+  min-width: 0;
+  /* Not hidden by default: Panorama lets an unconstrained label overflow rather than cutting it, and
+     Chrome measures text a few px wider than Panorama does, so a blanket clip eats the last
+     character of labels that fit perfectly well in game. .pnl-cliptext opts in, set by the shim
+     wherever the source actually asks for it. */
+  overflow: visible;
+  text-overflow: inherit;
+  white-space: inherit;
+  text-align: inherit;
+  letter-spacing: inherit;
+  align-self: center;
+}
+.pnl-cliptext > .pnl-text { overflow: hidden; }
+
+.pnl-context { font-size: 14px; }
+
+/* hittest=false is about THIS panel only (see the setter in panorama.js): the panel lets clicks
+   through, its children keep theirs. Restoring the direct children is enough -- everything below
+   them inherits 'auto' again from there. A child that is itself hittest=false keeps its own inline
+   none, which outranks this rule. */
+.pnl-nohit > .pnl, .pnl-nohit > .pnl-text { pointer-events: auto; }
+.no-hit-children > .pnl { pointer-events: none; }
+.pnl-disabled { opacity: 0.45; pointer-events: none; }
+
+/* A missing asset. Visible on purpose: a silently absent icon reads as a design choice, and the one
+   thing the harness must never do is make a broken panel look finished. */
+.pnl-noimg::before {
+  content: ''; position: absolute; inset: 0;
+  border: 1px dashed #FF410D66;
+  pointer-events: none;
+}
+
+/* Children and text paint above the panel's own background layers. */
+.pnl > .pnl-text, .pnl > .pnl { position: relative; z-index: 1; }
+
+/* ---- Slider ------------------------------------------------------------------------------------
+   Panorama builds a Slider out of child PANELS (SliderTrack / SliderTrackProgress / SliderThumb),
+   and our speed dial finds them by id and makes them transparent. So the shim creates them as real
+   panels and they are styled here from the game's own citadel_hud_replay_scrubber.css, while a
+   range input underneath carries the actual dragging -- the browser has no other way to map a drag
+   onto a value, and Panorama's HUD context has no mouse-move event either, which is the whole
+   reason every drag in this UI is a Slider in the first place. */
+.pnl-Slider { display: grid; }
+.pnl-slider {
+  grid-area: 1 / 1;
+  width: 100%; height: 100%;
+  margin: 0;
+  opacity: 0;                 /* invisible but still hit-testable: the panels above are the skin */
+  cursor: pointer;
+  z-index: 4;
+  position: relative;
+}
+/* !important, because the shim writes `position: relative` INLINE on every panel during placement
+   and an inline style outranks this sheet. Without it the game's own scrubber track has no width
+   and draws nothing -- which is how the replay bar's slider vanished in the mockup. */
+.pnl-sliderpart { pointer-events: none; position: absolute !important; }
+/* An absolutely positioned child of a GRID container takes its grid area as containing block and
+   still honours justify-self -- and the shim writes justify-self:start inline on every panel, which
+   shrinks a left:0/right:0 track to nothing. Stretch puts the game's 8px track back across the
+   slider; the thumb keeps its explicit 6px width regardless. */
+.pnl-sliderpart { justify-self: stretch !important; align-self: start !important; }
+.pnl-sliderpart-SliderTrack {
+  left: 0; right: 0; top: 50%; transform: translateY(-50%);
+  height: 8px; background: #576886cc; border-radius: 3px; z-index: 2;
+}
+.pnl-sliderpart-SliderTrackProgress {
+  left: 0; top: 50%; transform: translateY(-50%);
+  height: 8px; width: 0; background: #ffffff60; border-radius: 3px 0 0 3px; z-index: 2;
+}
+.pnl-sliderpart-SliderThumb {
+  top: 50%; transform: translate(-50%, -50%);
+  width: 6px; height: 24px; background: #a3bbea; border-radius: 3px; z-index: 3;
+}
+
+/* ---- the native bar's own classes --------------------------------------------------------------
+   From reference/deadlock/panorama/styles/replay/citadel_hud_replay.css. These two are the ones our
+   code adds and removes, and they hide the bar in two DIFFERENT ways -- which is why both are here:
+   a harness that modelled only the first could not tell a shown bar from one parked off screen. */
+.c-Hidden.pnl[data-pid="hud_replay"] { visibility: collapse; display: none !important; }
+/* hud.css `#hud_replay`: the bar's STYLESHEET size. The hook hands the bar back by clearing its
+   inline width (DeadlockNativeHudJs.h releaseNativeBarHosting sets style.width = null), and in game
+   that falls back to this rule -- the whole bottom of the screen. Without it the cleared bar shrank
+   to its children and sat in the lower-left third after a workspace was closed. */
+.pnl[data-pid="hud_replay"] { width: 100%; height: 60px; align-self: end; }
+.pnl[data-pid="SpectatorOptionsContainer"].c-Hidden { transform: translateX(272px); }
+
+/* ---------------------------------------------------------------- dev panel */
+
+#dev {
+  position: absolute; right: 0; bottom: 0; width: 520px; max-height: 52%;
+  background: #0b0c09f2; border-left: 1px solid #ffffff1f; border-top: 1px solid #ffffff1f;
+  display: none; flex-direction: column; font-size: 11px; z-index: 50;
+}
+#dev.open { display: flex; }
+#devtabs { display: flex; border-bottom: 1px solid #ffffff14; }
+#devtabs button {
+  background: none; border: 0; color: #a9a296; padding: 7px 12px; font: inherit; font-size: 11px;
+  cursor: pointer; border-bottom: 2px solid transparent;
+}
+#devtabs button.active { color: #FFED79; border-bottom-color: #FFED79; }
+#devbody {
+  overflow: auto; padding: 8px 12px; font-family: 'Retail Text Demo', ui-monospace, monospace;
+  white-space: pre-wrap; line-height: 1.5; flex: 1;
+}
+#devbody .gap { color: #ee5945; }
+#devbody .cmd { color: #70F8C1; }
+#devbody .hdr { color: #FFEFD7; font-weight: 700; display: block; margin: 6px 0 2px; }
+
+#status {
+  position: absolute; left: 0; bottom: 0; padding: 5px 10px; font-size: 11px;
+  background: #0b0c09cc; color: #a9a296; z-index: 40;
+  font-family: 'Retail Text Demo', ui-monospace, monospace;
+}
+#status b { color: #FFED79; font-weight: 400; }
+#status .warn { color: #ee5945; }

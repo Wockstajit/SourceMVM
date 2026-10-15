@@ -1,0 +1,996 @@
+#include "stdafx.h"
+#include "Filmmaker/Debug/MvmDebugLog.h" // spectated-player resolution probe
+
+#include "ClientEntitySystem.h"
+#include "DeathMsg.h"
+#include "WrpConsole.h"
+#include "Globals.h"
+
+#include "../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
+
+#include "../Shared/AfxConsole.h"
+//#include "../Shared/binutils.h"
+#include "../Shared/FFITools.h"
+#include "../Shared/StringTools.h"
+
+#include "AfxHookSource2Rs.h"
+#include "SchemaSystem.h"
+#include "Filmmaker/Movie/RagdollWeapon.h" // pair death ragdolls with their dropped world weapon
+#include "Filmmaker/Movie/ParticleFx.h" // smoke-trail particle tracking (forget on entity removed)
+
+#define WIN32_LEAN_AND_MEAN
+#include "../Deps/release/Detours/src/detours.h"
+
+#include <map>
+#include <algorithm>
+
+void ** g_pEntityList = nullptr;
+GetHighestEntityIndex_t  g_GetHighestEntityIndex = nullptr;
+GetEntityFromIndex_t g_GetEntityFromIndex = nullptr;
+
+/*
+cl_track_render_eye_angles 1
+cl_ent_absbox 192
+cl_ent_viewoffset 192
+*/
+
+// CEntityInstance: Root class for all entities
+// Retrieved from script function.
+const char * CEntityInstance::GetName() {
+    /*
+        undefined8 * FUN_1814beac0(void) {
+            puVar6[2] = "CEntityInstance: Root class for all entities";
+            ...
+            puVar4[2] = "Get the entity name";
+            ...
+            *puVar4 = "GetName";
+            ...
+            puVar4[8] = FUN_18094f290; // <-  VSCRIPT entity.GetName function.
+            ...            
+        }        
+    */
+	const char * pszName = (const char*)*(unsigned char**)(*(unsigned char**)((unsigned char*)this + 0x10) + 0x18);
+	if(pszName) return pszName;
+	return "";
+}
+
+// Retrieved from script function.
+// can return nullptr!
+const char * CEntityInstance::GetDebugName() {
+    /*
+        undefined8 * FUN_1814beac0(void) {
+            puVar6[2] = "CEntityInstance: Root class for all entities";
+            ...
+            puVar4[2] = "Get the entity name w/help if not defined (i.e. classname/etc)";
+            ...
+            *puVar4 = "GetDebugName";
+            ...
+           puVar4[8] = &LAB_1814c1b90; // <-  VSCRIPT entity.GetDebugName function.
+            ...            
+        }        
+    */    
+	const char * pszName = (const char*)*(unsigned char**)(*(unsigned char**)((unsigned char*)this + 0x10) + 0x18);
+	if(pszName) return pszName;
+	return **(const char***)(*(unsigned char**)(*(unsigned char**)((unsigned char*)this + 0x10) + 0x8)+0x58);
+}
+
+// Retrieved from script function.
+const char * CEntityInstance::GetClassName() {
+    /*
+        undefined8 * FUN_1814beac0(void) {
+            puVar6[2] = "CEntityInstance: Root class for all entities";
+            ...
+            *puVar4 = "GetClassname";
+            ...
+            puVar4[8] = &LAB_1814c1b60; // <-  VSCRIPT entity.GetClassName function.
+            ...            
+        }        
+    */     
+	const char * pszName = (const char*)*(unsigned char**)(*(unsigned char**)((unsigned char*)this + 0x10) + 0x20);
+	if(pszName) return pszName;
+	return "";
+}
+
+extern HMODULE g_H_ClientDll;
+
+// Retrieved from script function.
+const char * CEntityInstance::GetClientClassName() {
+    // GetClientClass function.
+    // find it by searching for 4th full-ptr ref to "C_PlantedC4" subtract sizeof(void*) (0x8) and search function that references this struct.
+    // you need to search for raw bytes, GiHidra doesn't seem to find the reference.
+    void * pClientClass = ((void * (__fastcall *)(void *)) (*(void***)this)[49]) (this); // was 48 before 2026-09-23 build
+
+    if(pClientClass) {
+        return *(const char**)((unsigned char*)pClientClass + 0x10);
+    }
+    return nullptr;
+}
+
+// Retrieved from script function.
+// GetEntityHandle ...
+
+bool CEntityInstance::IsPlayerPawn() {
+	// See cl_ent_text drawing function.
+	return ((bool (__fastcall *)(void *)) (*(void***)this)[158]) (this); // was 155 before 2026-09-23 build
+}
+
+SOURCESDK::CS2::CBaseHandle CEntityInstance::GetPlayerPawnHandle() {
+	// See cl_ent_text drawing function.
+	if(!IsPlayerController())  return SOURCESDK::CS2::CEntityHandle::CEntityHandle();
+	return SOURCESDK::CS2::CEntityHandle::CEntityHandle(*(unsigned int *)((unsigned char *)this + g_clientDllOffsets.CBasePlayerController.m_hPawn));
+}
+
+bool CEntityInstance::IsPlayerController() {
+	// See cl_ent_text drawing function. Near "Pawn: (%d) Name: %s".
+	return ((bool (__fastcall *)(void *)) (*(void***)this)[159]) (this); // was 156 before 2026-09-23 build
+}
+
+SOURCESDK::CS2::CBaseHandle CEntityInstance::GetPlayerControllerHandle() {
+	// See cl_ent_text drawing function.
+	if(!IsPlayerPawn())  return SOURCESDK::CS2::CEntityHandle::CEntityHandle();
+	return SOURCESDK::CS2::CEntityHandle::CEntityHandle(*(unsigned int *)((unsigned char *)this + g_clientDllOffsets.C_BasePlayerPawn.m_hController));
+}
+
+unsigned int CEntityInstance::GetHealth() {
+	// See cl_ent_text drawing function. Near "Health: %d\n".
+	return *(unsigned int *)((unsigned char *)this + g_clientDllOffsets.C_BaseEntity.m_iHealth);
+}
+
+int CEntityInstance::GetTeam() {
+    return *(int*)((u_char*)(this) + g_clientDllOffsets.C_BaseEntity.m_iTeamNum);
+}
+
+
+/**
+ * @remarks FLOAT_MAX if invalid
+ */
+void CEntityInstance::GetOrigin(float & x, float & y, float & z) {
+    auto ptr = *(u_char**)((u_char*)this + g_clientDllOffsets.C_BaseEntity.m_pGameSceneNode);
+	if (!ptr) {
+		x = y = z = FLT_MAX;
+		return;
+	}
+	// See cl_ent_text drawing function. Near "Position: %0.3f, %0.3f, %0.3f\n" or cl_ent_viewoffset related function.
+	auto vector = (float*)(ptr + g_clientDllOffsets.CGameSceneNode.m_vecAbsOrigin);
+	x =  vector[0];
+	y =  vector[1];
+	z =  vector[2];
+}
+
+void CEntityInstance::GetRenderEyeOrigin(float outOrigin[3]) {
+	// GetRenderEyeAngles vtable offset minus 1
+	((void (__fastcall *)(void *,float outOrigin[3])) (*(void***)this)[173]) (this,outOrigin); // was 170 before 2026-09-23 build
+}
+
+void CEntityInstance::GetRenderEyeAngles(float outAngles[3]) {
+	// See cl_track_render_eye_angles. Near "Render eye angles: %.7f, %.7f, %.7f\n".
+	((void (__fastcall *)(void *,float outAngles[3])) (*(void***)this)[174]) (this,outAngles); // was 171 before 2026-09-23 build
+}
+
+SOURCESDK::CS2::CBaseHandle CEntityInstance::GetViewEntityHandle() {
+	if (!IsPlayerPawn())  return SOURCESDK::CS2::CEntityHandle::CEntityHandle();
+    void * pCameraServices = *(void**)((unsigned char*)this + g_clientDllOffsets.C_BasePlayerPawn.m_pCameraServices);
+    if(nullptr == pCameraServices) return SOURCESDK::CS2::CEntityHandle::CEntityHandle();
+	return SOURCESDK::CS2::CEntityHandle::CEntityHandle(*(unsigned int*)((unsigned char*)pCameraServices + g_clientDllOffsets.CPlayer_CameraServices.m_hViewEntity));
+}
+
+SOURCESDK::CS2::CBaseHandle CEntityInstance::GetActiveWeaponHandle() {
+	if (!IsPlayerPawn())  return SOURCESDK::CS2::CEntityHandle::CEntityHandle();
+    void * pWeaponServices = *(void**)((unsigned char*)this + g_clientDllOffsets.C_BasePlayerPawn.m_pWeaponServices);
+    if(nullptr == pWeaponServices) return SOURCESDK::CS2::CEntityHandle::CEntityHandle();
+	return SOURCESDK::CS2::CEntityHandle::CEntityHandle(*(unsigned int*)((unsigned char*)pWeaponServices + g_clientDllOffsets.CPlayer_WeaponServices.m_hActiveWeapon));
+}
+
+const char * CEntityInstance::GetPlayerName(){
+    if (!IsPlayerController()) return nullptr;
+    return (const char*)((u_char*)this + g_clientDllOffsets.CBasePlayerController.m_iszPlayerName);
+}
+
+uint64_t CEntityInstance::GetSteamId(){
+    if (!IsPlayerController())  return 0;
+    return *(uint64_t*)((u_char*)(this) + g_clientDllOffsets.CBasePlayerController.m_steamID);
+}
+
+const char * CEntityInstance::GetSanitizedPlayerName() {
+   if (!IsPlayerController()) return nullptr;
+    return *(const char **)((u_char*)(this) + g_clientDllOffsets.CCSPlayerController.m_sSanitizedPlayerName);
+
+}
+
+uint8_t CEntityInstance::GetObserverMode() {
+	if (!IsPlayerPawn()) return 0;
+    void * pObserverServices = *(void**)((unsigned char*)this + g_clientDllOffsets.C_BasePlayerPawn.m_pObserverServices);
+    if(nullptr == pObserverServices) return 0;
+	return *(uint8_t*)((unsigned char*)pObserverServices + g_clientDllOffsets.CPlayer_ObserverServices.m_iObserverMode);    
+}
+
+SOURCESDK::CS2::CBaseHandle CEntityInstance::GetObserverTarget() {
+	if (!IsPlayerPawn())  return SOURCESDK::CS2::CEntityHandle::CEntityHandle();
+    void * pObserverServices = *(void**)((unsigned char*)this + g_clientDllOffsets.C_BasePlayerPawn.m_pObserverServices);
+    if(nullptr == pObserverServices) return SOURCESDK::CS2::CEntityHandle::CEntityHandle();
+	return SOURCESDK::CS2::CEntityHandle::CEntityHandle(*(unsigned int*)((unsigned char*)pObserverServices + g_clientDllOffsets.CPlayer_ObserverServices.m_hObserverTarget));    
+}
+
+SOURCESDK::CS2::CBaseHandle CEntityInstance::GetHandle() {
+	if (auto pEntityIdentity = *(u_char**)((u_char*)this + g_clientDllOffsets.CEntityInstance.m_pEntity)) {
+		return SOURCESDK::CS2::CEntityHandle::CEntityHandle(*(uint32_t*)(pEntityIdentity + 0x10));
+	}
+
+	return SOURCESDK::CS2::CEntityHandle::CEntityHandle();
+}
+
+SOURCESDK::CS2::CBaseHandle CEntityInstance::GetOwnerEntityHandle() {
+	return SOURCESDK::CS2::CEntityHandle::CEntityHandle(
+		*(uint32_t*)((unsigned char*)this + g_clientDllOffsets.C_BaseEntity.m_hOwnerEntity));
+}
+
+float CEntityInstance::GetGrenadeTrajectoryCreationTime() {
+	return *(float*)((unsigned char*)this
+		+ g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_flTrajectoryTrailEffectCreationTime);
+}
+
+typedef	void (__fastcall * org_LookupAttachment_t)(void* This, uint8_t& outIdx, const char* attachmentName);
+org_LookupAttachment_t org_LookupAttachment = nullptr;
+
+typedef	bool (__fastcall * org_GetAttachment_t)(void* This, uint8_t idx, void* out);
+org_GetAttachment_t org_GetAttachment = nullptr;
+
+uint8_t CEntityInstance::LookupAttachment(const char* attachmentName) {
+	uint8_t idx = 0;
+	if (!org_LookupAttachment || !attachmentName || !*attachmentName)
+		return idx;
+	org_LookupAttachment(this, idx, attachmentName);
+	return idx;
+}
+
+bool CEntityInstance::GetAttachment(uint8_t idx, SOURCESDK::Vector &origin, SOURCESDK::Quaternion &angles) {
+	if (!org_GetAttachment || idx == 0)
+		return false;
+	alignas(16) float resData[8] = {0};
+
+	if(org_GetAttachment(this, idx, resData)) {
+		origin.x = resData[0];
+		origin.y = resData[1];
+		origin.z = resData[2];
+
+		angles.x = resData[4];
+		angles.y = resData[5];
+		angles.z = resData[6];
+		angles.w = resData[7];
+
+		return true;
+	}
+
+	return false;
+}
+
+class CAfxEntityInstanceRef {
+public:
+    static CAfxEntityInstanceRef * Aquire(CEntityInstance * pInstance) {
+        CAfxEntityInstanceRef * pRef;
+        auto it = m_Map.find(pInstance);
+        if(it != m_Map.end()) {    
+            pRef = it->second;
+        } else {
+            pRef = new CAfxEntityInstanceRef(pInstance);
+            m_Map[pInstance] = pRef;
+        }
+        pRef->AddRef();
+        return pRef;
+    }
+
+    static void Invalidate(CEntityInstance * pInstance) {
+        if(m_Map.empty()) return;
+        auto it = m_Map.find(pInstance);
+        if(it != m_Map.end()) {
+            auto & pInstance = it->second;
+            pInstance->m_pInstance = nullptr;
+            m_Map.erase(it);
+        }        
+    }
+
+    CEntityInstance * GetInstance() {
+        return m_pInstance;
+    }
+
+    bool IsValid() {
+        return nullptr != m_pInstance;
+    }
+
+    void AddRef() {
+        m_RefCount++;
+    }
+
+    void Release() {
+        m_RefCount--;
+        if(0 == m_RefCount) {
+            delete this;
+        }
+    }
+
+protected:
+    CAfxEntityInstanceRef(class CEntityInstance * pInstance)
+    : m_pInstance(pInstance)
+    {
+    }
+
+    ~CAfxEntityInstanceRef() {
+        m_Map.erase(m_pInstance);
+    }
+
+private:
+    int m_RefCount = 0;
+    class CEntityInstance * m_pInstance;
+    static std::map<CEntityInstance *,CAfxEntityInstanceRef *> m_Map;
+};
+
+std::map<CEntityInstance *,CAfxEntityInstanceRef *> CAfxEntityInstanceRef::m_Map;
+
+
+typedef void* (__fastcall * OnAddEntity_t)(void* This, CEntityInstance* pInstance, SOURCESDK::uint32 handle);
+OnAddEntity_t g_Org_OnAddEntity = nullptr;
+
+
+void* __fastcall New_OnAddEntity(void* This, CEntityInstance* pInstance, SOURCESDK::uint32 handle) {
+
+    void * result =  g_Org_OnAddEntity(This,pInstance,handle);
+
+    // Creation tap: fires for CLIENT-ONLY entities (index >= 0x4000) too, which the 2048-capped
+    // index scans can never see. Not gated on g_b_on_add_entity (that toggles a separate
+    // mirv-script feature).
+    if(pInstance) Filmmaker::RagdollWeapon_OnEntityAdded(pInstance, handle);
+
+    if(g_b_on_add_entity && pInstance) {
+        auto pRef = CAfxEntityInstanceRef::Aquire(pInstance);
+        AfxHookSource2Rs_Engine_OnAddEntity(pRef,handle);
+        pRef->Release();
+    }
+
+    return result;
+}
+
+typedef void* (__fastcall * OnRemoveEntity_t)(void* This, CEntityInstance* inst, SOURCESDK::uint32 handle);
+OnRemoveEntity_t g_Org_OnRemoveEntity = nullptr;
+
+void* __fastcall New_OnRemoveEntity(void* This, CEntityInstance* pInstance, SOURCESDK::uint32 handle) {
+
+    if(pInstance) Filmmaker::RagdollWeapon_OnEntityRemoved(pInstance); // drop held-weapon/ragdoll ptrs
+    if(pInstance) Filmmaker::ParticleFx_SmokeTrailForget(pInstance); // drop smoke native-dispatch sentinel
+
+    if(g_b_on_remove_entity && pInstance) {
+        auto pRef = CAfxEntityInstanceRef::Aquire(pInstance);
+        AfxHookSource2Rs_Engine_OnRemoveEntity(pRef,handle);
+        pRef->Release();
+    }
+
+    CAfxEntityInstanceRef::Invalidate(pInstance);
+
+    void * result =  g_Org_OnRemoveEntity(This,pInstance,handle);
+    return result;
+}
+
+#define STRINGIZE(x) STRINGIZE2(x)
+#define STRINGIZE2(x) #x
+#define MkErrStr(file,line) "Problem in " file ":" STRINGIZE(line)
+extern void ErrorBox(char const * messageText);
+
+bool Hook_ClientEntitySystem( void* pEntityList, void * pFnGetHighestEntityIterator, void * pFnGetEntityFromIndex ) {
+    static bool firstResult = false;
+    static bool firstRun = true;
+
+    if(firstRun) {
+        firstRun = false;
+        g_pEntityList = (void**)pEntityList;
+        g_GetHighestEntityIndex = (GetHighestEntityIndex_t)pFnGetHighestEntityIterator;
+        g_GetEntityFromIndex = (GetEntityFromIndex_t)pFnGetEntityFromIndex;
+        firstResult = true;
+    }
+
+    return firstResult;
+}
+
+bool Hook_ClientEntitySystem2() {
+    static bool firstResult = false;
+    static bool firstRun = true;
+
+    if(g_pEntityList && *g_pEntityList) {
+        // https://github.com/bruhmoment21/cs2-sdk
+        void ** vtable = **(void****)g_pEntityList;
+        g_Org_OnAddEntity = (OnAddEntity_t)vtable[15];
+        g_Org_OnRemoveEntity = (OnRemoveEntity_t)vtable[16];
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourAttach(&(PVOID&)g_Org_OnAddEntity, New_OnAddEntity);
+        DetourAttach(&(PVOID&)g_Org_OnRemoveEntity, New_OnRemoveEntity);
+        firstResult = NO_ERROR == DetourTransactionCommit();
+    }
+
+    return firstResult;    
+}
+
+void Hook_ClientEntitySystem3(HMODULE clientDll) {
+	// these two called one after each other
+	// there is only one placed where they are called together
+	//
+	//                             LAB_1802066cd                                   XREF[1]:     18020660b (j)   
+    // 1802066cd 8b  4f  6c       MOV        ECX ,dword ptr [RDI  + 0x6c ]
+    // 1802066d0 83  e9  01       SUB        ECX ,0x1
+    // 1802066d3 0f  84  3d       JZ         LAB_180206816
+    //           01  00  00
+    // 1802066d9 83  f9  01       CMP        ECX ,0x1
+    // 1802066dc 75  4c           JNZ        LAB_18020672a
+    // 1802066de 4c  8b  47  30    MOV        R8,qword ptr [RDI  + 0x30 ]
+    // 1802066e2 48  8d  95       LEA        RDX =>Stack [0x28 ],[RBP  + 0xc0 ]
+    //           c0  00  00  00
+    // 1802066e9 48  8b  ce       MOV        RCX ,RSI
+    // 1802066ec e8  9f  bf       CALL       FUN_1808c2690                                    undefined FUN_1808c2690()
+    //           6b  00
+    // 1802066f1 0f  b6  95       MOVZX      EDX ,byte ptr [RBP  + Stack [0x28 ]]
+    //           c0  00  00  00
+    // 1802066f8 84  d2           TEST       DL,DL
+    // 1802066fa 74  29           JZ         LAB_180206725
+    // 1802066fc 4c  8d  45  b0    LEA        R8=>local_e8 ,[RBP  + -0x50 ]
+    // 180206700 48  8b  ce       MOV        RCX ,RSI
+    // 180206703 e8  78  ca       CALL       FUN_1808b3180                                    undefined FUN_1808b3180()
+	//
+	// to find this place find function with 5 arguments near "Unable to create non-precached breakable%s\n"
+	// then in that function find place like this
+	//
+	//   else if (((*(int *)((longlong)param_4 + 0x6c) == 2) &&
+    //          (FUN_1808c2690(param_3,&param_5,param_4[6]), (char)param_5 != '\0')) &&
+    //         (FUN_1808b3180(param_3,(char)param_5,&local_e8), cVar2 != '\0')) {
+    //   FUN_1815f22b0(param_2,(char)param_5,local_158,&local_108);
+    // }
+	//
+	// first function can be found near "attachment_point" or called with "muzzle_flash" as last arg
+	// second function in some places can be found with offset to m_nAttachmentIndex of CEffectData as 2nd arg
+
+	// Since 2026-09-23 the je between the calls is near (0F 84 rel32) instead of short, so the second call is at +27.
+	if (auto startAddr = getAddress(clientDll, "E8 ?? ?? ?? ?? 0F B6 95 ?? ?? ?? ?? 84 D2 0F 84 ?? ?? ?? ?? 4C 8D 45 B0 48 8B CE E8 ?? ?? ?? ??")) {
+		org_LookupAttachment = (org_LookupAttachment_t)(startAddr + 5 + *(int32_t*)(startAddr + 1));
+		org_GetAttachment = (org_GetAttachment_t)(startAddr + 27 + 5 + *(int32_t*)(startAddr + 27 + 1));
+	} else ErrorBox(MkErrStr(__FILE__, __LINE__));
+}
+
+int GetHighestEntityIndex() {
+    return 2048; // Hardcoded for now, because the function we have is the count, not the index and we need to change mirv-script API to support that better.
+    //return g_pEntityList && g_GetHighestEntityIndex ? g_GetHighestEntityIndex(*g_pEntityList, false) : -1;
+}
+
+struct MirvEntityEntry {
+	int entryIndex;
+	int handle;
+	std::string debugName;
+	std::string className;
+	std::string clientClassName;
+	SOURCESDK::Vector origin;
+	SOURCESDK::QAngle angles;
+};
+
+CON_COMMAND(mirv_listentities, "List entities.")
+{
+	auto argC = args->ArgC();
+	auto arg0 = args->ArgV(0);
+
+	bool filterPlayers = false;
+	bool sortByDistance = false;
+	int printCount = -1;
+
+	if (2 <= argC && 0 == _stricmp(args->ArgV(1), "help")) {
+		advancedfx::Message(
+			"%s help - Print this help.\n"
+			"%s <option1> <option2> ... - Customize printed output with options.\n"
+			"Where <option> is (you don't have to use all):\n"
+			"\t\"isPlayer=1\" - Show only player related entities. Unless you need handles, the \"mirv_deathmsg help players\" might be more useful.\n"
+			"\t\"sort=distance\" - Sort entities by distance relative to current position, from closest to most distant.\n"
+			"\t\"limit=<i>\" - Limit number of printed entries.\n"
+			"Example:\n"
+			"%s sort=distance limit=10\n" 
+			, arg0, arg0, arg0
+		);
+		return;
+	} else {
+		for (int i = 1; i < argC; i++) {
+			const char * argI = args->ArgV(i);
+			if (StringIBeginsWith(argI, "limit=")) {
+				printCount = atoi(argI + strlen("limit="));
+			} 
+			else if (StringIBeginsWith(argI, "sort=")) {
+				if (0 == _stricmp(argI + strlen("sort="), "distance")) sortByDistance = true;
+			}
+			else if (0 == _stricmp(argI, "isPlayer=1")) {
+				filterPlayers = true;
+			}
+		}
+	}
+
+	std::vector<MirvEntityEntry> entries;
+
+    int highestIndex = GetHighestEntityIndex();
+    for(int i = 0; i < highestIndex + 1; i++) {
+        if(auto ent = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList,i)) {
+			if (filterPlayers && !ent->IsPlayerController() && !ent->IsPlayerPawn()) continue;
+			
+            float render_origin[3];
+            float render_angles[3];
+            ent->GetRenderEyeOrigin(render_origin);
+            ent->GetRenderEyeAngles(render_angles);
+
+			auto debugName = ent->GetDebugName();
+			auto className = ent->GetClassName();
+			auto clientClassName = ent->GetClientClassName();
+
+			entries.emplace_back(
+				MirvEntityEntry {
+					i, ent->GetHandle().ToInt(), 
+					debugName ? debugName : "", className ? className : "", clientClassName ? clientClassName : "",
+					SOURCESDK::Vector {render_origin[0], render_origin[1], render_origin[2]},
+					SOURCESDK::QAngle {render_angles[0], render_angles[1], render_angles[2]} 
+				}
+			);
+
+        }
+    }
+
+	if (sortByDistance) {
+		SOURCESDK::Vector curPos = {(float)g_CurrentGameCamera.origin[0], (float)g_CurrentGameCamera.origin[1], (float)g_CurrentGameCamera.origin[2]};
+
+		std::sort(entries.begin(), entries.end(), [&](MirvEntityEntry & a, MirvEntityEntry & b) {
+			auto distA = (curPos - a.origin).LengthSqr();
+			auto distB = (curPos - b.origin).LengthSqr();
+			return distA < distB;
+		});
+	}
+
+	advancedfx::Message("entryIndex / handle / debugName / className / clientClassName / [ x , y , z , rX , rY , rZ ]\n");
+	if (printCount == -1) printCount = entries.size();
+	for (int i = 0; i < printCount; i++) {
+		auto e = entries[i];
+		advancedfx::Message("%i / %i / %s / %s / %s / [ %f , %f , %f , %f , %f , %f ]\n"
+			, e.entryIndex, e.handle
+			, e.debugName.c_str(), e.className.c_str(), e.clientClassName.c_str()
+			, e.origin.x, e.origin.y, e.origin.z 
+			, e.angles.x, e.angles.y, e.angles.z
+		);
+	}
+}
+
+extern "C" int afx_hook_source2_get_highest_entity_index() {
+    int highestIndex = GetHighestEntityIndex();
+    return highestIndex;
+}
+
+extern "C" void * afx_hook_source2_get_entity_ref_from_index(int index) {
+    if(CEntityInstance * result = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList,index)) {
+        return CAfxEntityInstanceRef::Aquire(result);
+    }
+    return nullptr;
+}
+
+extern "C" void afx_hook_source2_add_ref_entity_ref(void * pRef) {
+    ((CAfxEntityInstanceRef *)pRef)->AddRef();
+}
+
+extern "C" void afx_hook_source2_release_entity_ref(void * pRef) {
+    ((CAfxEntityInstanceRef *)pRef)->Release();
+}
+
+extern "C" FFIBool afx_hook_source2_get_entity_ref_is_valid(void * pRef) {
+    return BOOL_TO_FFIBOOL(((CAfxEntityInstanceRef *)pRef)->IsValid());
+}
+
+extern "C" const char * afx_hook_source2_get_entity_ref_name(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+        return pInstance->GetName();
+    }
+    return "";
+}
+
+extern "C" const char * afx_hook_source2_get_entity_ref_debug_name(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+        return pInstance->GetDebugName();
+    }
+    return nullptr;
+}
+
+extern "C" const char * afx_hook_source2_get_entity_ref_class_name(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+        return pInstance->GetClassName();
+    }
+    return "";
+}
+
+extern "C" const char * afx_hook_source2_get_entity_ref_client_class_name(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+        return pInstance->GetClientClassName();
+    }
+    return "";
+}
+
+extern "C" FFIBool afx_hook_source2_get_entity_ref_is_player_pawn(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+        return BOOL_TO_FFIBOOL(pInstance->IsPlayerPawn());
+    }
+    return FFIBOOL_FALSE;
+}
+
+extern "C" int afx_hook_source2_get_entity_ref_player_pawn_handle(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+        return pInstance->GetPlayerPawnHandle().ToInt();
+    }
+    return SOURCESDK_CS2_INVALID_EHANDLE_INDEX;    
+}
+
+extern "C" FFIBool afx_hook_source2_get_entity_ref_is_player_controller(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+        return BOOL_TO_FFIBOOL(pInstance->IsPlayerController());
+    }
+    return FFIBOOL_FALSE;    
+}
+
+extern "C" int afx_hook_source2_get_entity_ref_player_controller_handle(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+        return pInstance->GetPlayerControllerHandle().ToInt();
+    }
+    return SOURCESDK_CS2_INVALID_EHANDLE_INDEX;  
+}
+
+extern "C" int afx_hook_source2_get_entity_ref_health(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+        return pInstance->GetHealth();
+    }
+    return 0;    
+}
+
+extern "C" int afx_hook_source2_get_entity_ref_team(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+        return pInstance->GetTeam();
+    }
+    return 0;    
+}
+
+
+extern "C" void afx_hook_source2_get_entity_ref_origin(void * pRef, float & x, float & y, float & z) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+       pInstance->GetOrigin(x,y,z);
+    }    
+}
+
+extern "C" void afx_hook_source2_get_entity_ref_render_eye_origin(void * pRef, float & x, float & y, float & z) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+        float tmp[3];
+       pInstance->GetRenderEyeOrigin(tmp);
+       x = tmp[0];
+       y = tmp[1];
+       z = tmp[2];
+    }    
+}
+
+extern "C" void afx_hook_source2_get_entity_ref_render_eye_angles(void * pRef, float & x, float & y, float & z) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+        float tmp[3];
+       pInstance->GetRenderEyeAngles(tmp);
+       x = tmp[0];
+       y = tmp[1];
+       z = tmp[2];
+    }    
+}
+
+extern "C" int afx_hook_source2_get_entity_ref_view_entity_handle(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+       return pInstance->GetViewEntityHandle().ToInt();
+    }
+    return SOURCESDK_CS2_INVALID_EHANDLE_INDEX;
+}
+
+extern "C" int afx_hook_source2_get_entity_ref_active_weapon_handle(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+       return pInstance->GetActiveWeaponHandle().ToInt();
+    }
+    return SOURCESDK_CS2_INVALID_EHANDLE_INDEX;
+}
+
+extern "C" const char* afx_hook_source2_get_entity_ref_player_name(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+       return pInstance->GetPlayerName();
+    }
+    return nullptr;
+}
+
+extern "C" uint64_t afx_hook_source2_get_entity_ref_steam_id(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+       return pInstance->GetSteamId();
+    }
+    return 0;
+}
+
+extern "C" const char* afx_hook_source2_get_entity_ref_sanitized_player_name(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+       return pInstance->GetSanitizedPlayerName();
+    }
+    return nullptr;
+}
+
+typedef CEntityInstance *  (__fastcall * ClientDll_GetSplitScreenPlayer_t)(int slot);
+ClientDll_GetSplitScreenPlayer_t g_ClientDll_GetSplitScreenPlayer = nullptr;
+
+bool Hook_GetSplitScreenPlayer( void* pAddr) {
+    g_ClientDll_GetSplitScreenPlayer = (ClientDll_GetSplitScreenPlayer_t)pAddr;
+    return true;
+}
+
+extern "C" void * afx_hook_source2_get_entity_ref_from_split_screen_player(int index) {
+    if(0 == index && g_ClientDll_GetSplitScreenPlayer) {
+        if(CEntityInstance * result = g_ClientDll_GetSplitScreenPlayer(index)) {
+            return CAfxEntityInstanceRef::Aquire(result);
+        }
+    }
+    return nullptr;
+}
+
+extern "C" uint8_t afx_hook_source2_get_entity_ref_observer_mode(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+       return pInstance->GetObserverMode();
+    }
+    return 0;
+}
+
+extern "C" int afx_hook_source2_get_entity_ref_observer_target_handle(void * pRef) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+       return pInstance->GetObserverTarget().ToInt();
+    }
+    return SOURCESDK_CS2_INVALID_EHANDLE_INDEX;
+}
+
+// Local viewer's observer state, used by the cam editor to gate the "Customize" button and to
+// know which player is being spectated. Returns the OBS_MODE_* value (1=fixed, 2=in-eye/first
+// person, 3=chase/third person, 4=roaming/freecam; 0=none/unavailable). The observer services
+// live on the player PAWN, so resolve the local controller's pawn first. outTargetIndex receives
+// the spectated entity index, or -1 when there is no valid target.
+uint8_t AfxGetLocalObserverState(int * outTargetIndex) {
+    if (outTargetIndex) *outTargetIndex = -1;
+    if (!g_ClientDll_GetSplitScreenPlayer) return 0;
+    CEntityInstance * controller = g_ClientDll_GetSplitScreenPlayer(0);
+    if (!controller) return 0;
+    CEntityInstance * pawn = controller;
+    if (!controller->IsPlayerPawn()) {
+        auto ph = controller->GetPlayerPawnHandle();
+        pawn = nullptr;
+        if (ph.IsValid()) {
+            int idx = ph.GetEntryIndex();
+            if (idx >= 0 && idx <= GetHighestEntityIndex() && g_pEntityList && *g_pEntityList && g_GetEntityFromIndex)
+                pawn = (CEntityInstance *)g_GetEntityFromIndex(*g_pEntityList, idx);
+        }
+    }
+    if (!pawn) return 0;
+    uint8_t mode = pawn->GetObserverMode();
+    if (outTargetIndex) {
+        auto th = pawn->GetObserverTarget();
+        if (th.IsValid()) *outTargetIndex = th.GetEntryIndex();
+    }
+    return mode;
+}
+
+CEntityInstance* AfxGetLocalViewerPawn() {
+    if (!g_ClientDll_GetSplitScreenPlayer)
+        return nullptr;
+    CEntityInstance* controller = g_ClientDll_GetSplitScreenPlayer(0);
+    if (!controller)
+        return nullptr;
+    if (controller->IsPlayerPawn())
+        return controller;
+    auto ph = controller->GetPlayerPawnHandle();
+    if (!ph.IsValid())
+        return nullptr;
+    int idx = ph.GetEntryIndex();
+    if (idx < 0 || idx > GetHighestEntityIndex() || !g_pEntityList || !*g_pEntityList || !g_GetEntityFromIndex)
+        return nullptr;
+    CEntityInstance* pawn = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList, idx);
+    return (pawn && pawn->IsPlayerPawn()) ? pawn : nullptr;
+}
+
+// Resolves the player PAWN currently being viewed, returning its entity index or -1.
+//
+// Primary path is the engine observer-services target (AfxGetLocalObserverState). In many CS2
+// demos -- notably POV / "Your Matches" downloads -- the local controller's observer-services
+// read mode 0 / target -1 even while a player is plainly being spectated, because demo playback
+// drives the render view directly rather than through the live observer system. When the observer
+// target is unavailable, fall back to matching each player pawn's render eye (origin + angles)
+// against the active game camera (g_CurrentGameCamera), the SAME first-person resolution that
+// DeathMsg.cpp::getSpectatedPlayer relies on. The fallback only matches in first person (where the
+// camera eye coincides with the pawn's render eye); in third-person / free cam it returns -1,
+// which is correct -- there is no single spectated player then.
+int AfxGetSpectatedPawnIndex() {
+    if (!g_pEntityList || !*g_pEntityList || !g_GetEntityFromIndex)
+        return -1;
+
+    // Primary: engine observer-services target, validated to be a player pawn.
+    int target = -1;
+    AfxGetLocalObserverState(&target);
+    if (target >= 0 && target <= GetHighestEntityIndex()) {
+        CEntityInstance* pawn = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList, target);
+        if (pawn && pawn->IsPlayerPawn())
+            return target;
+    }
+
+    // Fallback: render-eye match against the current game camera (first-person only).
+    auto absd = [](double v) { return v < 0.0 ? -v : v; };
+    const double* camO = g_CurrentGameCamera.origin;
+    const double* camA = g_CurrentGameCamera.angles;
+
+    const int highest = GetHighestEntityIndex();
+    for (int i = 0; i <= highest; ++i) {
+        CEntityInstance* ent = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList, i);
+        if (!ent || !ent->IsPlayerPawn())
+            continue;
+
+        float o[3] = {}; ent->GetRenderEyeOrigin(o);
+        float a[3] = {}; ent->GetRenderEyeAngles(a);
+
+        // Magnitude comparison + 0.2 tolerance, matching DeathMsg.cpp::getSpectatedPlayer.
+        if (absd(absd((double)o[0]) - absd(camO[0])) > 0.2) continue;
+        if (absd(absd((double)o[1]) - absd(camO[1])) > 0.2) continue;
+        if (absd(absd((double)o[2]) - absd(camO[2])) > 0.2) continue;
+        if (absd(absd((double)a[0]) - absd(camA[0])) > 0.2) continue;
+        if (absd(absd((double)a[1]) - absd(camA[1])) > 0.2) continue;
+        if (absd(absd((double)a[2]) - absd(camA[2])) > 0.2) continue;
+        return i;
+    }
+
+    // Last fallback: POSITION-only render-eye match. Recoil view punch skews the camera
+    // ANGLES away from the pawn's stored render-eye angles while firing, which made the
+    // full match above fail during exactly the frames weapon FX spawn (observed live
+    // 2026-07-04: FxAlign resolved a pawn on only 4 of ~950 shot samples, and the
+    // watched-player uid flickered to -1 mid-burst for the same reason). Punch never
+    // moves the camera ORIGIN off the eye, and a 0.2-unit position coincidence in
+    // third-person / free cam is not realistically reachable, so position alone still
+    // means first person in practice.
+    for (int i = 0; i <= highest; ++i) {
+        CEntityInstance* ent = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList, i);
+        if (!ent || !ent->IsPlayerPawn())
+            continue;
+        float o[3] = {}; ent->GetRenderEyeOrigin(o);
+        if (absd(absd((double)o[0]) - absd(camO[0])) > 0.2) continue;
+        if (absd(absd((double)o[1]) - absd(camO[1])) > 0.2) continue;
+        if (absd(absd((double)o[2]) - absd(camO[2])) > 0.2) continue;
+        return i;
+    }
+    return -1;
+}
+
+int AfxGetSpectatedPawnIndexHeld() {
+    static int s_lastGood = -1;
+    static ULONGLONG s_lastGoodMs = 0;
+    constexpr ULONGLONG kHoldMs = 1000;
+
+    const int live = AfxGetSpectatedPawnIndex();
+    const ULONGLONG now = GetTickCount64();
+    if (live >= 0) {
+        s_lastGood = live;
+        s_lastGoodMs = now;
+        return live;
+    }
+    if (s_lastGood >= 0 && now - s_lastGoodMs <= kHoldMs && g_pEntityList && *g_pEntityList && g_GetEntityFromIndex
+        && s_lastGood <= GetHighestEntityIndex()) {
+        CEntityInstance* pawn = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList, s_lastGood);
+        if (pawn && pawn->IsPlayerPawn())
+            return s_lastGood;
+    }
+    s_lastGood = -1;
+    return -1;
+}
+
+// Game-event userid for the spectated pawn. Walks the controllers to find the one owning that
+// pawn; userid is its entity index minus one.
+static int AfxResolveSpectatedUserIdNow() {
+    if (!g_pEntityList || !*g_pEntityList || !g_GetEntityFromIndex)
+        return -1;
+
+    // Probe (throttled, gated). "No spectated player" silently disables a lot -- Customize
+    // Player greys out, and every first-person effect refuses to fire -- and until now the only
+    // symptom was a -1 with no way to tell WHICH of the three resolution stages failed: the
+    // engine observer target, the render-eye match, or the controller lookup that turns a pawn
+    // index into a user id.
+    int dbgObserver = -1;
+    AfxGetLocalObserverState(&dbgObserver);
+
+    int pawn = AfxGetSpectatedPawnIndex();
+    if (pawn < 0) {
+        // Locally-recorded demo: there is no observer target, so the "watched" player is the
+        // local viewer itself.
+        CEntityInstance* lp = AfxGetLocalViewerPawn();
+        if (lp && lp->IsPlayerPawn()) {
+            const auto h = lp->GetHandle();
+            if (h.IsValid())
+                pawn = h.GetEntryIndex();
+        }
+    }
+    if (pawn < 0) {
+        if (Filmmaker::MvmDebugLog_Active()) {
+            static ULONGLONG s_lastMs = 0;
+            const ULONGLONG now = GetTickCount64();
+            if (now - s_lastMs >= 1000) {
+                s_lastMs = now;
+                Filmmaker::MvmDebugLog_LinefAlways("spectate.resolve",
+                    "FAILED at pawn stage: observerTarget=%d (engine observer target unusable, "
+                    "render-eye match found nothing, local-viewer fallback empty)", dbgObserver);
+            }
+        }
+        return -1;
+    }
+
+    const int highest = GetHighestEntityIndex();
+    for (int i = 0; i <= highest; ++i) {
+        CEntityInstance* ent = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList, i);
+        if (!ent || !ent->IsPlayerController())
+            continue;
+        if (ent->GetPlayerPawnHandle().GetEntryIndex() == pawn)
+            return i - 1;
+    }
+    if (Filmmaker::MvmDebugLog_Active()) {
+        static ULONGLONG s_lastMs = 0;
+        const ULONGLONG now = GetTickCount64();
+        if (now - s_lastMs >= 1000) {
+            s_lastMs = now;
+            Filmmaker::MvmDebugLog_LinefAlways("spectate.resolve",
+                "FAILED at controller lookup: observerTarget=%d pawn=%d (no controller owns that pawn)",
+                dbgObserver, pawn);
+        }
+    }
+    return -1;
+}
+
+// Sticky wrapper around the resolve above.
+//
+// The underlying resolution matches a pawn's render eye against the game camera within 0.2
+// units / 0.2 degrees, and that match drops out for individual frames all the time: recoil view
+// punch skews the angles while firing, the eye lerps during a spectator switch, and a paused or
+// mid-seek frame can present a stale camera. Callers that consume GAME EVENTS see that as a
+// permanently broken feature rather than a blip -- measured live, 141 of 150 weapon_fire /
+// player_footstep events were being discarded as "no spectated player" while a player was
+// plainly being spectated.
+//
+// So a successful resolve is held briefly. Short enough that genuinely leaving a POV (free cam,
+// end of round) still reports -1 promptly, long enough to ride out the per-frame dropouts.
+int AfxGetSpectatedUserId() {
+    static int s_lastGood = -1;
+    static ULONGLONG s_lastGoodMs = 0;
+    constexpr ULONGLONG kHoldMs = 1000;
+
+    const int live = AfxResolveSpectatedUserIdNow();
+    const ULONGLONG now = GetTickCount64();
+    if (live >= 0) {
+        s_lastGood = live;
+        s_lastGoodMs = now;
+        return live;
+    }
+    if (s_lastGood >= 0 && now - s_lastGoodMs <= kHoldMs)
+        return s_lastGood;
+    s_lastGood = -1;
+    return -1;
+}
+
+extern "C" FFIBool afx_hook_source2_get_entity_ref_attachment(void * pRef, const char* attachmentName, double outPosition[3], double outAngles[4]) {
+    if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
+		auto idx = pInstance->LookupAttachment(attachmentName);
+		if (0 == idx) return FFIBOOL_FALSE;
+		
+		SOURCESDK::Vector origin;
+		SOURCESDK::Quaternion angles;
+
+		if (pInstance->GetAttachment(idx, origin, angles)) {
+			outPosition[0] = origin.x;
+			outPosition[1] = origin.y;
+			outPosition[2] = origin.z;
+
+			outAngles[0] = angles.w;
+			outAngles[1] = angles.x;
+			outAngles[2] = angles.y;
+			outAngles[3] = angles.z;
+
+			return FFIBOOL_TRUE;
+		}
+    }
+
+    return FFIBOOL_FALSE;
+}

@@ -1,0 +1,76 @@
+<meta charset="utf-8">
+<title>SOURCE:MVM — Deadlock in-game UI mockup</title>
+<!-- The stylesheet is cache-busted with the scripts below, for the same reason: a stale sheet next
+     to a fresh shim hides whichever fix lives in the CSS. -->
+<script>document.write('<link rel="stylesheet" href="shim/mockup.css?v=' + Date.now() + '">');</script>
+
+<div id="app">
+  <div id="sidebar">
+    <h1>SOURCE:<span>MVM</span> &middot; Deadlock</h1>
+    <div class="sub">the real workspace script, in a browser</div>
+
+    <div id="sidebody">
+      <!-- Popups, overlays and reported states: the things you cannot reach by clicking. The
+           workspaces themselves are reached the way they are in game -- from the replay bar's
+           Cam Editor / Config / Render buttons, the dock ribbon, and the hotkeys. -->
+      <div id="actions"></div>
+      <!-- The workspace x dock combinations, for the headless harness and for jumping straight to
+           one. Collapsed: nothing here is needed to walk the UI. -->
+      <details id="jumps"><summary class="group-label">Jump to</summary><div id="viewlist"></div></details>
+    </div>
+
+    <details style="margin: 10px 16px; font-size: 12px; color: #9aa4b0; line-height: 1.5">
+      <summary>How edits reach the game</summary>
+      <p>Edit the shared Panorama scripts to change the game. The preview launcher refreshes on save.
+      Apply generated JS drafts back to source, then rebuild and relaunch the game.</p>
+      <p>Mockup HTML/CSS and temporary DevTools edits affect this preview only.</p>
+    </details>
+    <div id="controls">
+      <label><input type="checkbox" id="chk-play"> Play (runs the fake demo clock)</label>
+      <label><input type="checkbox" id="chk-mouse" checked> UI mouse (J in game)</label>
+      <label><input type="checkbox" id="chk-demo" checked> Demo loaded</label>
+      <label><input type="checkbox" id="chk-hudhide"> Hide the gameplay HUD</label>
+      <div class="row">
+        <button id="btn-fit" class="on">Fit</button>
+        <button id="btn-100">100%</button>
+        <button id="btn-200">200%</button>
+      </div>
+      <div class="row">
+        <button id="btn-dev">Dev</button>
+        <button id="btn-reload">Reload</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="viewport">
+    <div id="stagewrap">
+      <div id="backdrop"></div>
+      <div class="stage" tabindex="0"><div class="stage-inner" id="host"></div></div>
+    </div>
+    <div id="status"></div>
+    <div id="dev">
+      <div id="devtabs">
+        <button data-tab="commands" class="active">Commands</button>
+        <button data-tab="log">$.Msg</button>
+        <button data-tab="gaps">Gaps</button>
+        <button data-tab="geometry">Geometry</button>
+        <button data-tab="state">State</button>
+        <button data-tab="keys">Hotkeys</button>
+      </div>
+      <div id="devbody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Cache-busted on purpose. A static server sends no Cache-Control, so Chrome keeps the shim
+     and the driver by heuristic freshness: an edit to shim/commands.js then loads next to a
+     freshly extracted panel and a control that was just wired still looks dead. -->
+<script>
+(function () {
+  var v = Date.now();
+  ['shim/panorama.js', 'shim/native-hud.js', 'shim/state.js', 'shim/commands.js'].forEach(function (s) {
+    document.write('<script src="' + s + '?v=' + v + '"><\/script>');
+  });
+  document.write('<script type="module" src="app.js?v=' + v + '"><\/script>');
+})();
+</script>

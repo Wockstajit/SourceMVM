@@ -1,0 +1,12 @@
+{
+  "map": "de_inferno",
+  "purpose": "Live user-reported foliage shadow quality and unlocked frame cost",
+  "reportedPosition": [881.445984, 2012.593872, 281.339478],
+  "playerOrigin": [881.445984, 2012.593872, 217.339478],
+  "angles": [0.678197, -64.619354, 0],
+  "capturedAt": "2026-09-30T18:52:00Z",
+  "positionConvention": "reportedPosition is the standing camera eye; playerOrigin is 64 Source units below the eye",
+  "restoreCommand": "setpos_exact 881.445984 2012.593872 217.339478;setang 0.678197 -64.619354 0",
+  "climate": {"sunAzimuth": 138, "sunElevation": 65, "sunPower": 1, "ambient": 0.3, "sky": 1, "clouds": 1, "contactShadows": 1},
+  "fpsMax": 0
+}

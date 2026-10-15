@@ -1,0 +1,127 @@
+name: CI
+
+# Checks for pull requests into main and release/*, and for pushes to those branches. Branch
+# protection should require only `ci-gate`, because it fails when any job it aggregates fails.
+# A green CI run does not prove that an in-game feature works. See Docs/setup/git-workflow.md.
+
+on:
+  pull_request:
+    branches: [main, "release/**"]
+  push:
+    branches: [main, "release/**"]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-integrity:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          check-latest: true
+      - name: Documentation integrity
+        run: node --test Automation/tests/documentation-integrity-tests.mjs
+
+  panorama-tests:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          check-latest: true
+      - name: Panorama interaction and layout tests
+        run: node --test Automation/tests/panorama-interaction-layout-tests.mjs
+
+  launcher-build:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: SourceMovieMakerLauncher
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: SourceMovieMakerLauncher/package-lock.json
+      - name: Install launcher dependencies
+        run: npm ci
+      - name: Typecheck launcher renderer
+        run: npm run check:renderer
+      - name: Build launcher renderer
+        run: npm run build:renderer
+
+  native-build-windows:
+    runs-on: windows-2022
+    steps:
+      # Some osu! easter-egg asset paths exceed Windows' 260-character limit.
+      - name: Enable long paths
+        run: git config --system core.longpaths true
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          check-latest: true
+      - uses: MinoruSekine/setup-scoop@v4
+
+      - name: Update submodules
+        run: git submodule update --init --recursive
+
+      - name: Install gettext
+        run: scoop install gettext
+
+      # Not needed since we only build Staging
+      #- name: Install WiX Toolset
+      #  run: scoop install wixtoolset
+
+      - name: CMake - Build Staging
+        working-directory: "${{github.workspace}}"
+        run: cmake -DAFX_MULTIBUILD_STAGING=ON -P CMake/MultiBuild.cmake
+
+  security-license-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Scan tracked files for secrets, private paths, and forbidden files
+        run: node Automation/verify/check-repo-policy.mjs --scan
+
+  changed-file-policy:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check added and modified files
+        run: >-
+          node Automation/verify/check-repo-policy.mjs --changed
+          "${{ github.event.pull_request.base.sha }}"
+          "${{ github.event.pull_request.head.sha }}"
+
+  ci-gate:
+    if: always()
+    needs:
+      - docs-integrity
+      - panorama-tests
+      - launcher-build
+      - native-build-windows
+      - security-license-scan
+      - changed-file-policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail when any aggregated job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "At least one aggregated job failed or was cancelled."
+          exit 1

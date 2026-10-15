@@ -1,0 +1,15 @@
+Texture2D texture0;
+SamplerState sampler0;
+
+struct PS_INPUT
+{
+	float4 xyzw : SV_POSITION;
+	float2 t0 : TEXCOORD0;
+};
+
+float4 main( PS_INPUT i ) : SV_TARGET
+{
+	float4 color = texture0.Sample(sampler0, i.t0);
+	clip( color.a < 0.004f ? -1:1 );
+	return color;
+}

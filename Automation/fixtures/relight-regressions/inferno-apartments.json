@@ -1,0 +1,9 @@
+{
+  "map": "de_inferno",
+  "cameraEye": [990.031250, 13.954691, 320.0],
+  "cameraAngles": [2.725803, -51.921585, 0.0],
+  "captureSize": [1920, 1080],
+  "environmentPreset": "inferno-apartments-environment.json",
+  "relight": {"gi": 1, "giscale": 1, "reflections": 1, "shadows": 1, "sunscale": 1},
+  "notes": "T Glock view. Inspect blue sky spill beneath the wooden ceiling, warm lamp bounce, doorway illumination and direct shadows. Compare matching inputs before judging transport; the environment owns the effective frame lighting."
+}

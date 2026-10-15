@@ -1,0 +1,20 @@
+[workspace]
+members = ["Lib/*"]
+resolver = "3"
+
+[profile.release-tool]
+inherits = "release"
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.release-hook]
+inherits = "release"
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+# debug = true

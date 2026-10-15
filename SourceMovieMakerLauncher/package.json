@@ -1,0 +1,103 @@
+{
+  "name": "source-movie-maker-launcher",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Standalone Electron launcher for SOURCE:MVM and Counter-Strike 2.",
+  "author": "Wockstajit",
+  "license": "MIT",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "check:renderer": "tsc --noEmit",
+    "dev": "vite",
+    "build:renderer": "npm run check:renderer && vite build",
+    "build:host": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/build-host.ps1",
+    "build:icon": "electron scripts/build-icon.cjs",
+    "build:payload": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/build-release-payload.ps1",
+    "build": "npm run build:renderer && npm run build:host",
+    "start": "electron .",
+    "package": "npm run build && electron-builder --win --config.directories.output=release --publish never",
+    "package:dir": "npm run build && electron-builder --win --dir --config.directories.output=release --publish never",
+    "build:bundle": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/build-bundle.ps1",
+    "package:bundled": "npm run build && npm run build:bundle && electron-builder --win --config electron-builder.bundled.cjs --config.directories.output=release --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "lucide-react": "^1.29.0",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "electron": "latest",
+    "electron-builder": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  },
+  "build": {
+    "appId": "com.sourcemvm.launcher",
+    "productName": "SourceMovieMaker",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "renderer-dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "host/build/SourceMovieMakerHost.exe",
+        "to": "host/SourceMovieMakerHost.exe"
+      },
+      {
+        "from": "host/build/SourceMovieMakerHost.exe.config",
+        "to": "host/SourceMovieMakerHost.exe.config"
+      },
+      {
+        "from": "public/source-mvm-intro.mp4",
+        "to": "media/source-mvm-intro.mp4"
+      }
+    ],
+    "win": {
+      "icon": "build-resources/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "SourceMovieMaker-Portable-${version}.${ext}",
+      "unicode": true
+    },
+    "nsis": {
+      "artifactName": "SourceMovieMaker-Setup-${version}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SourceMovieMaker",
+      "installerIcon": "build-resources/icon.ico",
+      "uninstallerIcon": "build-resources/icon.ico",
+      "installerHeaderIcon": "build-resources/icon.ico"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Wockstajit",
+      "repo": "SourceMVM",
+      "releaseType": "prerelease"
+    }
+  }
+}

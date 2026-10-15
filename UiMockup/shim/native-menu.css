@@ -1,0 +1,272 @@
+/* CS2 menu geometry in Panorama design pixels (1080 high). Native layout class names
+   are preserved so shared scripts can manipulate exactly the same subtree as in game. */
+@font-face { font-family: 'Stratum2 Condensed'; src: url('../fonts/stratum2condensed-regular.otf') format('opentype'); font-weight: 400; font-display: block; }
+@font-face { font-family: 'Stratum2 Condensed'; src: url('../fonts/stratum2condensed-medium.otf') format('opentype'); font-weight: 500; font-display: block; }
+@font-face { font-family: 'Stratum2 Condensed'; src: url('../fonts/stratum2condensed-bold.otf') format('opentype'); font-weight: 700; font-display: block; }
+@font-face { font-family: 'Stratum2 Regular Monodigit'; src: url('../fonts/stratum2regular_monodigit.ttf') format('truetype'); font-weight: 400; font-display: block; }
+@font-face { font-family: 'Stratum2 Bold Monodigit'; src: url('../fonts/stratum2bold_monodigit.ttf') format('truetype'); font-weight: 700; font-display: block; }
+.c-native-menu .c-native-main-tab { font-family: 'Stratum2 Condensed', sans-serif; }
+#menu-preview-status { color: #a9b8c7; font-size: 11px; line-height: 1.5; margin: 8px 0; }
+#menu-aspect { width: 100%; background: #171e27; color: #e0e8ee; border: 1px solid #536171; padding: 5px; }
+.c-native-menu { width: 100%; height: 1080px; color: #d0d0d0; font-size: 16px;
+  background: radial-gradient(ellipse at 67% 54%, #181917d9, transparent 37%), linear-gradient(165deg, #323d46, #54534b 72%, #3b3834);
+  overflow: hidden; }
+.c-native-menu::before { content: ''; position: absolute; inset: 0; opacity: .16;
+  background: url('../assets/panorama/images/backgrounds/bluedots_large_png.png') repeat; background-size: 360px 360px; pointer-events: none; }
+.c-native-menu .pnl { box-sizing: border-box; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.c-native-menu .pnl[class*='c-native-'] { place-self: stretch !important; }
+.native-dropdown { appearance: none; width: 100%; height: 100%; background: #ffffff08 url('../assets/panorama/images/icons/ui/expand.svg') right 16px center / 16px 16px no-repeat; border: 0; color: #e1e6ea; font: 16px 'Stratum2'; padding: 0 40px 0 10px; }
+.native-dropdown option { background: #41484d; }
+.c-native-menu [data-pid='MvmWsHide']:hover { background: #ffffff08; }
+.c-native-menu .pnl-Button, .c-native-menu .pnl-RadioButton, .c-native-menu .pnl-ToggleButton { cursor: pointer; }
+.c-native-menu .pnl-Button:focus-visible, .c-native-menu .pnl-RadioButton:focus-visible { outline: 2px solid #75c9f3; outline-offset: -2px; }
+.c-native-menu .pnl-Label { white-space: pre; }
+.c-native-menu .pnl-Image { background-repeat: no-repeat; background-size: contain; background-position: center; }
+.c-native-menu .pnl-entry { background: transparent; border: 0; border-bottom: 1px solid #ddd; border-radius: 0; padding: 12px 8px; }
+.c-native-menu .pnl-entry:focus { outline: 1px solid #71c3e8; }
+.c-native-menu .c-native-menu-content { position: absolute !important; inset: 64px 0 0 0; }
+.c-native-menu .c-native-top { position: absolute !important; inset: 0 0 auto 0; height: 64px;
+  background: #42484c; border-bottom: 1px solid #ffffff19; }
+.c-native-menu .c-native-tools { position: absolute !important; left: 12px; top: 8px; height: 48px; display: flex !important; align-items: center; gap: 18px; }
+.c-native-menu .c-native-icon { width: 32px; height: 32px; background-size: contain; background-position: center; background-repeat: no-repeat; }
+.c-native-menu .c-native-icon > .pnl-Image { width: 30px; height: 30px; }
+.c-native-menu .c-native-film { background: #ae792b; border: 2px solid #e5b342; box-shadow: 0 0 12px #d9a63e99; }
+.c-native-menu .c-native-primary-tabs { position: absolute !important; left: 0; right: 0; top: 0; height: 64px;
+  display: flex !important; justify-content: center; align-items: center; pointer-events: none; }
+.c-native-menu .c-native-main-tab { padding: 0 20px; font-size: 28px; color: #fff; pointer-events: auto; line-height: 32px; border-right: 1px solid #ffffff30; }
+.c-native-menu .c-native-main-tab:last-child { border: 0; }
+.c-native-menu .c-native-main-tab.c-active { color: #b1d5e7; font-size: 32px; background: #648b9c30; }
+.c-native-menu .c-native-friends { position: absolute !important; right: 0; top: 0; bottom: 0; width: 64px;
+  background: #343937ee; border-left: 1px solid #ffffff20; overflow: hidden; display: flex !important; flex-direction: column; align-items: center; z-index: 10 !important; }
+.c-native-menu .c-native-invite { width: 64px; height: 145px; background: #105222; padding: 9px; display: flex !important; flex-direction: column; font-size: 10px; }
+.c-native-menu .c-native-avatar { width: 40px; height: 40px; order: -1; margin-bottom: 12px; }
+.c-native-menu .c-native-check { width: 20px; height: 20px; margin: 14px 12px; }
+.c-native-menu .c-native-friend-count { height: 22px; width: 22px; margin-top: 20px; }
+.c-native-menu .c-native-count { font-size: 10px; margin: 6px 0; }
+.c-native-menu .c-native-friend { width: 52px; height: 58px; padding: 6px; }
+.c-native-menu .c-native-friend > .pnl-Image { width: 40px; height: 40px; }
+.c-native-menu .c-native-page { position: absolute !important; inset: 0; }
+.c-native-menu .c-native-subnav { position: absolute !important; left: 0; right: 0; top: 0; height: 48px; background: #27313970; border-bottom: 1px solid #ffffff20; }
+.c-native-menu .c-native-subtabs { position: absolute !important; inset: 0; display: flex !important; justify-content: center; align-items: center; gap: 14px; pointer-events: none; }
+.c-native-menu .c-native-subtab { color: white; font-weight: 700; font-size: 16px; padding: 6px 8px; pointer-events: auto; }
+.c-native-menu .c-native-subtab.c-active, .c-native-menu .c-native-subtab.pnl-checked { background: #407a9480; color: #75d3f5; border-radius: 2px; }
+.c-native-menu .c-native-nav-actions { position: absolute !important; right: 14px; top: 0; height: 48px; }
+.c-native-menu .c-native-watch-bodies { position: absolute !important; inset: 48px 0 0; }
+.c-native-menu .c-WatchMenu { width: 100%; height: 100%; }
+.c-native-menu .c-WatchMenu--Hide, .c-native-menu .c-hide, .c-native-menu .c-hidden { display: none !important; }
+.c-native-menu .c-native-empty { align-self: center; justify-self: center; }
+.c-native-menu .c-native-workshop-body { position: absolute !important; inset: 48px 0 96px; display: flex !important; }
+.c-native-menu .c-native-workshop-sidebar { width: 240px; padding: 44px 0 0 0; display: flex !important; flex-direction: column; }
+.c-native-menu .c-native-workshop-search { width: 200px; height: 48px; margin-left: 22px; background: #00000015; }
+.c-native-menu [data-pid='WorkshopSearchTextEntry'] { width: 100%; height: 48px; }
+.c-native-menu .c-native-search-clear { position: absolute !important; right: 3px; top: 16px; width: 16px; height: 16px; background-size: contain; }
+.c-native-menu .c-native-options-label { margin: 18px 22px 10px; color: #ffffff66; font-size: 18px; }
+.c-native-menu .c-native-party { margin: 0 22px; font-size: 16px; font-weight: 700; }
+.c-native-menu .c-native-workshop-grid { flex: 1; height: 100%; display: flex !important; flex-wrap: wrap; align-content: flex-start; padding: 8px 20px 20px 8px; gap: 16px; overflow-y: auto; }
+.c-native-menu .c-native-map { width: 200px; height: 280px; overflow: hidden; background: #14181b; }
+.c-native-menu .c-native-map-plate { position: absolute !important; inset: 0; background-size: auto 100%; background-position: center top; opacity: .65; }
+.c-native-menu .c-native-map::after { content: ''; position: absolute; inset: 55% 0 0; background: linear-gradient(transparent,#000000b0); pointer-events: none; }
+.c-native-menu .c-native-map:hover .c-native-map-plate { opacity: 1; }
+.c-native-menu .c-native-map.pnl-checked { outline: 2px solid #dec778; outline-offset: -2px; }
+.c-native-menu .c-native-map-name { position: absolute !important; left: 5%; bottom: 26px; width: 90%; text-align: center;
+  color: white; font-size: 28px; font-family: 'Stratum2 Condensed', 'Stratum2', sans-serif; z-index: 2 !important; overflow: hidden; text-overflow: ellipsis; }
+.c-native-menu .c-native-play-footer { position: absolute !important; bottom: 0; left: 0; right: 0; height: 96px;
+  border-top: 1px solid #ffffff20; background: #30343150; display: flex !important; align-items: center; justify-content: flex-end; padding: 24px 50px; gap: 24px; }
+.c-native-menu .c-native-secondary-button { font-size: 18px; padding: 10px 16px; }
+.c-native-menu .c-native-go { width: 100px; height: 48px; text-align: center; background: #b98f23; color: white; font-size: 28px; font-weight: 700; }
+.c-native-menu .c-full-width { width: 100%; }
+.c-native-menu .c-full-height { height: 100%; }
+.c-native-menu .c-left-right-flow { display: flex !important; flex-direction: row; }
+.c-native-menu .c-top-bottom-flow { display: flex !important; flex-direction: column; }
+.c-native-menu .c-no-flow { display: grid !important; }
+.c-native-menu .c-horizontal-center, .c-native-menu .c-horizontal-align-center { justify-self: center !important; }
+.c-native-menu .c-vertical-center, .c-native-menu .c-vertical-align-center { align-self: center !important; }
+.c-native-menu .c-horizontal-align-right { justify-self: end !important; }
+.c-native-menu .c-vertical-align-bottom { align-self: end !important; }
+.c-native-menu .c-MatchList { width: 360px; display: flex !important; flex-direction: column; }
+.c-native-menu .c-MatchList-scroll { overflow-y: auto; }
+.c-native-menu .c-MatchTile { width: 340px; height: 110px; align-self: center; }
+.c-native-menu .c-MatchTile .c-MatchTile { display: flex !important; }
+.c-native-menu .c-MatchTile > .c-full-width.c-full-height { display: grid !important; }
+.c-native-menu .c-MatchTile.c-MatchVictory { background: linear-gradient(90deg, #00ff0025, #00ff0000); }
+.c-native-menu .c-MatchTile.c-MatchLoss { background: linear-gradient(90deg, #ff000010, #ff000000); }
+.c-native-menu .c-MatchTile.c-MatchTied { background: linear-gradient(90deg, #00ff0010, #00ff0000); }
+.c-native-menu .c-MatchTile.pnl-checked { background: linear-gradient(90deg, #ffffff65, #ffffff08 10%, #ffffff00); box-shadow: inset 8px 0 white; }
+.c-native-menu .c-MatchMap { width: 80px; height: max-content; display: flex !important; flex-direction: column; margin-left: 32px; align-self: center !important; text-align: center; }
+.c-native-menu .c-MatchMap__Icon { width: 80px; height: 80px; }
+.c-native-menu .c-MatchMap__IconInScoreLister { width: 24px; height: 24px; margin: 0 10px 0 2px; align-self: center; }
+.c-native-menu .c-MatchInfoContainer { display: flex !important; flex-direction: column; margin-left: 16px; align-self: center !important; }
+.c-native-menu .c-MatchInfo { font-size: 14px; margin: 3px 0; }
+.c-native-menu .c-MatchInfo__Score { font-family: 'Stratum2 Bold Monodigit', 'Stratum2', sans-serif; font-size: 28px; font-weight: 700; }
+.c-native-menu [data-pid='score_team0'] { color: #a8cce0; }
+.c-native-menu [data-pid='score_team1'] { color: #e4ce83; }
+.c-native-menu [data-pid='vs'] { margin: 8px 10px 0; }
+.c-native-menu .c-MiniIcon { width: 24px; height: 24px; margin: 10px 20px; background: url('../assets/panorama/images/icons/ui/check.svg') center / contain no-repeat; }
+.c-native-menu .c-mi-main { width: 100%; height: 100%; }
+.c-native-menu [data-pid='FmInfo'] { width: 0; flex: 1 1 0 !important; }
+.c-native-menu [data-pid='FmEmptyMsg'] { justify-self: center !important; align-self: center !important; }
+.c-native-menu .c-mi-main > .c-vertical-align-bottom { position: absolute !important; bottom: 0; left: 0; right: 0; }
+.c-native-menu .c-mi-sb-frame { position: absolute !important; inset: 0 0 96px; }
+.c-native-menu .c-mi-sb__container { position: absolute !important; top: 108px; left: 0; right: 0; height: 400px; display: grid !important; place-self: stretch !important; }
+.c-native-menu .c-mi-sb-main { width: 730px; height: max-content; justify-self: center !important; display: flex !important; flex-direction: column; }
+.c-native-menu .c-mi-sb-frame { place-self: stretch !important; }
+.c-native-menu .c-mi-sb-meta { display: flex !important; flex-direction: row; padding-left: 80px; margin-bottom: 20px; }
+.c-native-menu .c-mi-meta__map-icon { width: 44px; height: 44px; margin: 10px; }
+.c-native-menu .c-mi-meta__labels { display: flex !important; flex-direction: row; margin-left: 10px; align-self: center; gap: 62px; }
+.c-native-menu .c-mi-meta__labels--bold { font-weight: 700; }
+.c-native-menu .c-sb-row { display: flex !important; flex-direction: row; height: 26px; }
+.c-native-menu .c-sb-team { display: flex !important; flex-direction: row-reverse; }
+.c-native-menu .c-sb-team__data { flex: 1; }
+.c-native-menu .c-sb-team__info { width: 80px; height: max-content; display: flex !important; flex-direction: column; align-self: center; text-align: center; }
+.c-native-menu .c-sb-team__info__score { width: 80px; height: 80px; }
+.c-native-menu .c-sb-team__info__score .pnl-Label { font-size: 64px; font-weight: 700; text-shadow: 1px 3px 2px #000; }
+.c-native-menu .c-sb-team__info__name { font-size: 11px; line-height: 13px; margin: 6px 0; }
+.c-native-menu .c-scorebox_backdrop { width: 80px; height: 80px; opacity: .3; }
+.c-native-menu .c-sb-color--CT, .c-native-menu .c-sb-team--CT { color: #a5cbe2; }
+.c-native-menu .c-sb-color--TERRORIST, .c-native-menu .c-sb-team--TERRORIST { color: #dfc976; }
+.c-native-menu .c-sb-players-table { display: flex !important; flex-direction: column; }
+.c-native-menu .c-sb-row:nth-child(odd) { background: #ffffff05; }
+.c-native-menu .c-sb-row:nth-child(even) { background: #ffffff09; }
+.c-native-menu .c-sb-row:hover { background: #ffffff18; }
+.c-native-menu .c-sb-row__cell { width: 40px; text-align: center; align-items: center; justify-content: center; }
+.c-native-menu .c-sb-row__cell--avatar { width: 30px; height: 26px; }
+.c-native-menu .c-sb-row__cell--avatar > .pnl { width: 22px; height: 22px; background: #5b626530; }
+.c-native-menu .c-sb-row__cell--name { width: 380px; text-align: left; }
+.c-native-menu .c-sb-row__cell--name .pnl-Label { margin-left: 2px; }
+.c-native-menu .c-sb-row__cell--mvps { width: 30px; }
+.c-native-menu .c-sb-row__cell--score { width: 50px; }
+.c-native-menu .c-mi-sb-row--labels { color: #ffffff50; margin-left: 0; background: none; }
+.c-native-menu .c-mi-sb-row--labels > .c-sb-team__info { height: 26px; }
+.c-native-menu .c-mi-sb__spacer { height: 24px; }
+.c-native-menu .c-mi-player-stats { position: absolute !important; bottom: 28px; left: 50%; transform: translateX(-50%); width: 530px; height: 250px; }
+.c-native-menu .c-mi-player-stats__collapse { display: none !important; }
+.c-native-menu .c-mi-horizontal-separator { position: absolute !important; top: 0; width: 490px; height: 1px; background: #ffffff20; justify-self: center; }
+.c-native-menu .c-mi-round-stats__title__container { position: absolute !important; top: 22px; width: 100%; justify-content: center; }
+.c-native-menu .c-round-stats-outer { position: absolute !important; bottom: 0; width: 100%; height: 196px; }
+.c-native-menu .c-mi-round-stats__container { position: absolute !important; bottom: 54px; width: 100%; height: 130px; display: flex !important; flex-direction: row; align-items: flex-end; }
+.c-native-menu .c-mi-round-stats__tick-labels { display: flex !important; flex-direction: row; height: 36px; position: absolute !important; bottom: 0; }
+.c-native-menu .c-mi-round-summary-bar { width: 25px; height: 130px; }
+.c-native-menu .c-mi-round-summary-bar__container { position: absolute !important; inset: 0; }
+.c-native-menu .c-mi-round-summary-bar-win__container { height: 130px; width: 25px; }
+.c-native-menu .c-mi-round-summary-bar-win__fill { width: 100%; height: 32px; align-self: end; }
+.c-native-menu .c-mi-round-summary-bar-loss__container { position: absolute !important; bottom: -32px; height: 32px; width: 100%; }
+.c-native-menu .c-mi-round-summary-bar-loss__fill { width: 100%; height: 32px; }
+.c-native-menu .c-mi-round-summary-bar__border { width: 100%; height: 2px; align-self: end; background: #808080; }
+.c-native-menu .c-mi-round-summary-bar--CT { background: #8cb6d030; }
+.c-native-menu .c-mi-round-summary-bar--TERRORIST { background: #d4b85a30; }
+.c-native-menu .c-mi-icons__container { width: 100%; height: 100%; }
+.c-native-menu .c-mi-icons__eliminations--top { position: absolute !important; bottom: 0; left: 5px; width: 16px; display: flex !important; flex-direction: column; }
+.c-native-menu .c-mi-icons__frame { width: 18px; height: 18px; }
+.c-native-menu .c-mi-icons__padding { height: 4px; }
+.c-native-menu .c-mi-icons { width: 18px; height: 18px; }
+.c-native-menu .c-mi-icons__eliminations--bottom { position: absolute !important; top: 144px; left: 5px; }
+.c-native-menu .c-mi-tick { width: 25px; text-align: center; }
+.c-native-menu .c-mi-sb-menu { height: 96px; width: 100%; border-top: 1px solid #ffffff20; }
+.c-native-menu .c-mi-sb-menu > .c-horizontal-align-right { justify-self: end; height: 96px; gap: 10px; align-items: center; padding: 0 18px; }
+.c-native-menu .c-PopupButton, .c-native-menu .c-IconButton { height: 48px; padding: 10px 14px; font-size: 22px; color: white; background: #ffffff08; border-radius: 2px; }
+.c-native-menu .c-PopupButton.c-Positive { background: #0a9d5c; }
+.c-native-menu .c-IconButton { width: 64px; background: #53606a; }
+.c-native-menu .c-IconButton > .pnl-Image { width: 24px; height: 24px; }
+.c-native-menu .c-PopupButton:hover, .c-native-menu .c-IconButton:hover { filter: brightness(1.2); }
+/* Ported from csgostyles.css: labels use Stratum's condensed medium face. */
+.c-native-menu .c-PopupButton { display: flex !important; align-items: center; justify-content: center; height: 48px; padding: 0; margin: 4px; background: linear-gradient(90deg, #00000010, transparent); border-radius: 3px; }
+.c-native-menu .c-PopupButton > .pnl-Label { font: 500 24px 'Stratum2 Condensed', sans-serif; margin: 10px 12px 8px; }
+.c-native-menu .c-PopupButton.c-Positive { background: #0f9d58; }
+.c-native-menu .c-IconButton { width: 36px; height: 36px; padding: 0; margin: 6px; background: linear-gradient(90deg, transparent, #00000010, transparent); }
+.c-native-menu .c-IconButton > .pnl-Image { width: 20px; height: 20px; margin: 8px; }
+.c-native-menu [data-pid='id-mi-copy'] { width: 64px; height: 48px; background: #ffffff12; }
+.c-native-menu .c-sb-row__cell .pnl-Label { font-family: 'Stratum2 Regular Monodigit', 'Stratum2', sans-serif; font-size: 18px; }
+.c-native-menu .c-sb-row__cell--name .pnl-Label { font-family: 'Stratum2', sans-serif; }
+.c-native-menu .c-sb-team__info__score .pnl-Label { font-family: 'Stratum2 Bold Monodigit', 'Stratum2', sans-serif; }
+.c-native-menu [data-pid='FmNavBtns'] { margin-right: 64px; }
+.c-native-menu .c-mi-sb-menu > .c-horizontal-align-right { padding: 0 64px; gap: 0; }
+.c-native-menu .c-mi-sb-menu [data-pid='id-mi-delete'] { background: transparent; }
+.c-native-menu .c-mi-sb-menu [data-pid='id-mi-watch'] { width: 68px; }
+.c-native-menu .c-native-top .c-native-main-tab { font-weight: 400; }
+.c-native-menu .c-mi-sb-main { align-self: start !important; }
+.c-native-menu .c-sb-team__data { margin-left: 10px; }
+.c-native-menu .c-mi-sb-meta { margin-bottom: 9px; }
+.c-native-menu .c-mi-sb-row--labels { height: 24px; margin-bottom: 6px; }
+.c-native-menu .c-mi-sb__spacer { height: 20px; }
+.c-native-menu .c-mi-player-stats { width: 605px; height: 270px; bottom: 0; }
+.c-native-menu .c-mi-player-stats .c-mi-round-stats__title__container { top: 22px; }
+.c-native-menu .c-round-stats-outer { height: 207px; }
+.c-native-menu .c-mi-round-stats__container { height: 150px; bottom: 60px; width: max-content; left: 50%; transform: translateX(-50%); }
+.c-native-menu .c-mi-round-summary-bar { height: 150px; }
+.c-native-menu .c-mi-tick { height: 22px; }
+.c-native-menu .c-native-scene { position: absolute !important; inset: 64px 64px 0 0; background-size: 100% 100%; }
+.c-native-menu.c-native-scene-captured::before { opacity: 0; }
+.c-native-menu.c-native-scene-captured .c-native-menu-content { background: transparent; }
+.c-native-menu .pnl-CSGOAvatarImage { background-size: cover !important; }
+.c-native-menu .c-native-workshop-body { right: 64px; }
+.c-native-menu .c-native-play-footer { right: 64px; padding: 12px 20px 12px 64px; }
+.c-native-menu .c-native-go { width: 300px; height: 56px; color: #9bf409; background-color: #006900; border: 1px solid #09db0955; font: 700 28px 'Stratum2'; box-shadow: 0 0 16px #0004; }
+.c-native-menu .c-native-mission { position: absolute !important; left: 64px; top: 12px; width: 200px; height: 72px; background-size: cover; }
+.c-native-menu .c-native-mission-title { font: 500 16px 'Stratum2 Condensed'; width: 100%; text-align: center; margin-top: 6px; }
+.c-native-menu .c-native-mission-detail { position: absolute !important; bottom: 12px; width: 100%; text-align: center; font-size: 14px; }
+.c-native-menu .c-native-workshop-visit { position: absolute !important; bottom: 36px; left: 22px; width: 200px; font-size: 14px; font-weight: 700; }
+.c-native-menu .c-native-workshop-visit > .pnl-Image { width: 18px; height: 18px; justify-self: end !important; }
+.c-native-menu .pnl.c-native-party-switch { width: 40px; height: 16px; border-radius: 16px; place-self: center end !important; background: #424542; }
+.c-native-menu .c-native-party.pnl-checked .c-native-party-switch { background: #31991f; }
+.c-native-menu .c-native-party-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 100%; background: white; }
+.c-native-menu .c-native-party.pnl-checked .c-native-party-switch::after { left: 26px; }
+.c-native-menu ::-webkit-scrollbar { width: 6px; }
+.c-native-menu ::-webkit-scrollbar-thumb { background: #ffffff50; border-radius: 2px; }
+.c-native-menu ::selection { color: white; background: #487b97; }
+.native-context-menu { position: fixed; z-index: 1000; width: 240px; padding: 6px; background: #20272f; border: 1px solid #667683; box-shadow: 0 6px 20px #0006; }
+.native-context-menu button { display: block; width: 100%; text-align: left; padding: 8px 10px; background: none; border: 0; color: #e5eaf0; font: 14px 'Stratum2', sans-serif; cursor: pointer; }
+.native-context-menu button:hover { background: #446c86; }
+/* Native flow rules must never resurrect a panel Panorama has collapsed. */
+.c-native-menu .pnl[style*="display: none"] { display: none !important; }
+.c-native-menu .c-MiniTrophy { min-height: 18px; }
+.c-native-menu .c-sb-row__cell--mvps__star { width: 18px; height: 18px; align-self: center; justify-self: center; }
+.c-native-menu .c-sb-row__cell--mvps__count { font-size: 9px; justify-self: end; align-self: start; }
+.c-native-menu .c-hide-mvps > .pnl { opacity: 0; }
+.c-native-menu .c-mi-icons__eliminations--top { top: 0; bottom: auto; height: 110px; flex-direction: column-reverse !important; }
+.c-native-menu .c-mi-icons__container > .c-mi-icons__frame { position: absolute !important; top: 110px; left: 4px; }
+.c-native-menu .c-mi-icons__eliminations--bottom { top: 128px; }
+.c-native-menu .c-mi-round-stats__labels { position: absolute !important; left: 0; width: 100%; bottom: 24px; height: 26px; }
+.c-native-menu .c-mi-round-stats__tick-labels { top: 0 !important; bottom: auto !important; left: 40px; width: max-content; height: 26px; }
+.c-native-menu .c-mi-round-summary-bar__border { position: absolute !important; top: 114px; }
+.c-native-menu .c-mi-round-summary-bar-win__fill { height: 114px; background: linear-gradient(transparent, #ffffff10); }
+.c-native-menu .c-mi-round-summary-bar-loss__container { top: 115px; bottom: auto; }
+.c-native-menu .c-mi-round-summary-bar--EMPTY { opacity: 0; }
+.c-native-menu .c-mi-meta__labels { font-size: 18px; gap: 70px; }
+.c-native-menu .c-mi-round-stats__title { font-size: 18px; }
+.c-native-menu .c-sb-row__cell--name { width: 400px; }
+.c-native-menu .c-sb-row__cell--avatar { width: 24px; }
+.c-native-menu .c-sb-row__cell--mvps { width: 45px; }
+.c-native-menu .c-sb-row__cell--score { width: 52px; }
+.c-native-menu .c-sb-team__info__score .pnl-Label { font-size: 70px; justify-self: center; align-self: center; }
+.c-native-menu .c-sb-row__cell--mvps__star { width: 16px; height: 16px; }
+.c-native-menu .c-native-main-tab { padding: 0 24px; }
+.c-native-menu .c-native-friend-utilities { width: 64px; position: absolute !important; bottom: 0; background: #494943; display: flex !important; flex-direction: column; }
+.c-native-menu .c-native-friend-utility { width: 64px; height: 64px; border-top: 1px solid #ffffff20; }
+.c-native-menu .c-native-friend-utility > .pnl-Image { width: 24px; height: 24px; justify-self: center; align-self: center; }
+.c-native-menu .pnl.c-native-friend-count, .c-native-menu .pnl.c-native-count { place-self: center !important; }
+.c-native-menu .c-native-main-tab > .pnl-text { align-self: center; }
+.c-native-menu .c-native-friend-utility > .pnl-Image { place-self: center !important; }
+.c-native-menu .c-native-popup-dim { position: absolute !important; inset: 0; z-index: 100 !important; background: #0009; display: flex !important; align-items: center; justify-content: center; }
+.c-native-menu .c-native-workshop-mode-dialog { width: 580px; background: #2c2c2c; border: 1px solid #414141; padding-bottom: 16px; display: flex !important; flex-direction: column; box-shadow: 0 8px 30px #0009; }
+.c-native-menu .c-native-workshop-mode-dialog .c-PopupTitle { width: 100%; padding: 16px 28px; margin-bottom: 15px; background: #0004; color: #979797; font-size: 28px; font-weight: 700; }
+.c-native-menu .c-popup-workshop-mode-block, .c-native-menu .c-popup-workshop-mode { display: flex !important; flex-direction: column; align-self: center; }
+.c-native-menu .c-native-mode-choice { width: 480px; justify-content: flex-start; }
+.c-native-menu .c-native-mode-choice.pnl-checked { background: #ffffff18; }
+.c-native-menu .c-PopupButtonRow { display: flex !important; flex-direction: row; align-self: end; margin: 25px 32px 0; }
+.c-native-menu .c-PopupButtonRow .pnl-TextButton { font: 500 24px 'Stratum2 Condensed'; padding: 8px 12px; }
+.c-native-menu .c-native-map-name > .pnl-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-native-menu .c-mi-tick-class-halftime-align > .pnl-Label { transform: translateX(-50%); }
+.c-native-menu .c-native-go { font-size: 32px; letter-spacing: 4px; }
+.c-native-menu .c-native-new { position: absolute !important; bottom: -3px; left: 0; padding: 2px 6px; background: #db7800; color: white; font: 700 10px 'Stratum2'; }
+.c-native-menu .c-native-popup-message { padding: 8px 28px; font-size: 18px; }
+.c-native-menu [data-pid='WorkshopSearchTextEntry'] .pnl-entry { font: 18px 'Stratum2'; color: #d0d0d0; }
+.c-native-menu [data-pid='FmEmptyMsg'] { min-width: 300px; min-height: 26px; }
+.c-native-menu .pnl-TextEntry > .pnl-text { display: none; }
+.c-native-menu .c-native-popup-dim { place-self: stretch !important; width: 100%; height: 100%; }
+.c-native-menu .pnl.c-native-main-tab, .c-native-menu .pnl.c-native-subtab { align-self: center !important; }
+.c-native-menu [data-pid='MvmWorkshopFilters'] { margin-top: 30px !important; }
+.c-native-menu .c-native-options-label { margin-top: 1px; }
+.c-native-menu .c-native-invite { font-size: 12px; }
+.c-native-menu .c-native-check { margin-top: 6px; }
+.c-native-menu .c-native-mission-title { font-size: 18px; margin-top: 4px; }
+.native-menu-tooltip { position: absolute; z-index: 80; width: 360px; padding: 16px; background: #161616e8; border-radius: 4px; color: #ccc; font: 16px/1.65 'Stratum2'; white-space: normal; pointer-events: none; box-shadow: 0 4px 10px #0003; }

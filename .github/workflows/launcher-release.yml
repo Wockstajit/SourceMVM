@@ -1,0 +1,41 @@
+name: SourceMovieMaker Launcher Build
+
+on:
+  push:
+    tags:
+      - "launcher-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: windows-2022
+
+    defaults:
+      run:
+        working-directory: SourceMovieMakerLauncher
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: SourceMovieMakerLauncher/package-lock.json
+
+      - name: Build launcher without publishing
+        run: |
+          npm ci
+          npm run build
+          npm exec -- electron-builder --win --publish never
+
+      - name: Keep launcher build artifacts private
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-build
+          path: |
+            SourceMovieMakerLauncher/release/*.exe
+            SourceMovieMakerLauncher/release/*.blockmap
+            SourceMovieMakerLauncher/release/*.yml

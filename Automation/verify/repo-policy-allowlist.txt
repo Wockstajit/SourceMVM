@@ -1,0 +1,12 @@
+# Repository policy exemptions for Automation/verify/check-repo-policy.mjs.
+# Keep this list short. Give every entry a reason in a comment line above it.
+#
+#   binary <path>               exempts one path from the binary and size rules
+#   scan <path> | <rule name>   exempts one path from one secret or private-path rule
+
+# Inherited upstream HLAE/advancedfx text that quotes an example path. Not ours to rewrite.
+scan Resources/AfxHookSource_changelog.xml | private Windows user path
+scan Resources/ffmpeg/readme.advancedfx.txt | private Windows user path
+
+# Placeholder account names in the bug-report path scrubber's comments.
+scan AfxHookSource2/Filmmaker/Community/BugReportMath.h | private Windows user path

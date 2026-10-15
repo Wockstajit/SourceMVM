@@ -1,0 +1,14 @@
+// Deadlock in-world overlay: flat per-vertex colour, no texture, no lighting. The camera path,
+// marker diamonds and hero boxes are all drawn as plain coloured lines; the colour and alpha are
+// decided on the CPU (selection highlight, freeze/live tint) and simply carried through here.
+
+struct PS_INPUT
+{
+	float4 position : SV_POSITION;
+	float4 color : COLOR0;
+};
+
+float4 main(PS_INPUT i) : SV_TARGET
+{
+	return i.color;
+}

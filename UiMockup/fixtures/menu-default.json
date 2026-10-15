@@ -1,0 +1,2069 @@
+{
+  "tiles": [
+    {
+      "id": "3663186989",
+      "map": "@workshop/3663186989/de_boulder",
+      "title": "Boulder",
+      "description": "Boulder",
+      "modes": "casual,competitive,deathmatch,scrimcomp2v2,gungameprogressive,retakes,flyingscoutsman,custom"
+    },
+    {
+      "id": "3663976049",
+      "map": "@workshop/3663976049/de_brownstone",
+      "title": "Brownstone",
+      "description": "Brownstone",
+      "modes": "casual,competitive,deathmatch,scrimcomp2v2,gungameprogressive,retakes,flyingscoutsman,custom"
+    },
+    {
+      "id": "3467065969",
+      "map": "@workshop/3467065969/de_contact",
+      "title": "Contact",
+      "description": "Contact",
+      "modes": "casual,competitive,deathmatch,gungameprogressive,custom,scrimcomp2v2,retakes,flyingscoutsman"
+    },
+    {
+      "id": "3414036782",
+      "map": "@workshop/3414036782/de_dogtown",
+      "title": "Dogtown",
+      "description": "Dogtown",
+      "modes": "casual,competitive,deathmatch,scrimcomp2v2,gungameprogressive,retakes,flyingscoutsman,custom"
+    },
+    {
+      "id": "3423073369",
+      "map": "@workshop/3423073369/de_flick",
+      "title": "Flick",
+      "description": "Flick",
+      "modes": "casual,competitive,deathmatch,scrimcomp2v2,gungameprogressive,retakes,flyingscoutsman,custom"
+    },
+    {
+      "id": "3507728279",
+      "map": "@workshop/3507728279/de_lublin",
+      "title": "Lublin",
+      "description": "Lublin",
+      "modes": "casual,competitive,scrimcomp2v2,deathmatch,gungameprogressive,retakes,flyingscoutsman,custom"
+    },
+    {
+      "id": "3536622725",
+      "map": "@workshop/3536622725/de_rooftop",
+      "title": "Rooftop",
+      "description": "Rooftop",
+      "modes": "casual,competitive,deathmatch,scrimcomp2v2,gungameprogressive,retakes,flyingscoutsman,custom"
+    },
+    {
+      "id": "3643331442",
+      "map": "@workshop/3643331442/de_sanctum",
+      "title": "Sanctum",
+      "description": "Sanctum",
+      "modes": "scrimcomp2v2,casual,competitive,deathmatch,gungameprogressive,retakes,flyingscoutsman,custom"
+    },
+    {
+      "id": "3542662073",
+      "map": "@workshop/3542662073/de_transit",
+      "title": "Transit",
+      "description": "Transit",
+      "modes": "casual,competitive,custom,scrimcomp2v2,deathmatch,gungameprogressive,retakes,flyingscoutsman"
+    },
+    {
+      "id": "3433040330",
+      "map": "@workshop/3433040330/de_wrecked",
+      "title": "Wrecked",
+      "description": "Wrecked",
+      "modes": "casual,competitive,deathmatch,scrimcomp2v2,gungameprogressive,retakes,flyingscoutsman,custom"
+    },
+    {
+      "id": "3416003536",
+      "map": "@workshop/3416003536/refrag_training",
+      "title": "Refrag.gg - Aim, Movement, Crosshair, Prefire!",
+      "description": "Training map sample",
+      "modes": "custom,casual,competitive,scrimcomp2v2,deathmatch,gungameprogressive,retakes,flyingscoutsman"
+    }
+  ],
+  "demos": {
+    "scanning": false,
+    "installRoot": "mock-game/",
+    "folders": [
+      "mock-game/replays"
+    ],
+    "hiddenCount": 0,
+    "repair": {
+      "state": 3,
+      "text": "demo is current (protocol 14176, build 10847); no check needed",
+      "demoIndex": 1
+    },
+    "demos": [
+      {
+        "index": 0,
+        "fileName": "preview-0.dem",
+        "folder": "mock-game/replays",
+        "map": "cs_office",
+        "duration": 99,
+        "networkProtocol": 14185,
+        "buildNum": 10924,
+        "compatibility": "supported",
+        "repairCache": "none",
+        "durationText": "1:39",
+        "date": 1790384389,
+        "dateText": "25 Sep 2026, 19:59",
+        "hasScoreboard": true,
+        "hasRounds": false,
+        "teamScore0": 0,
+        "teamScore1": 0,
+        "players": [
+          {
+            "name": "Player 1",
+            "accountId": 1,
+            "k": 30,
+            "a": 0,
+            "d": 1,
+            "score": 54,
+            "mvps": 0,
+            "team": 0,
+            "perRound": []
+          }
+        ]
+      },
+      {
+        "index": 1,
+        "fileName": "preview-1.dem",
+        "folder": "mock-game/replays",
+        "map": "de_anubis",
+        "duration": 2367,
+        "networkProtocol": 14176,
+        "buildNum": 10847,
+        "compatibility": "supported",
+        "repairCache": "none",
+        "durationText": "39:27",
+        "date": 1788152852,
+        "dateText": "31 Aug 2026, 00:07",
+        "hasScoreboard": true,
+        "hasRounds": true,
+        "teamScore0": 13,
+        "teamScore1": 8,
+        "players": [
+          {
+            "name": "Player 1",
+            "accountId": 1,
+            "k": 26,
+            "a": 3,
+            "d": 14,
+            "score": 63,
+            "mvps": 6,
+            "team": 0,
+            "perRound": [
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 2,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 4,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 4,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 4,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 1
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              }
+            ]
+          },
+          {
+            "name": "Player 2",
+            "accountId": 2,
+            "k": 20,
+            "a": 5,
+            "d": 14,
+            "score": 57,
+            "mvps": 3,
+            "team": 0,
+            "perRound": [
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 3,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 3,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 1
+              }
+            ]
+          },
+          {
+            "name": "Player 3",
+            "accountId": 3,
+            "k": 18,
+            "a": 4,
+            "d": 14,
+            "score": 44,
+            "mvps": 1,
+            "team": 0,
+            "perRound": [
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 3,
+                "hs": 2,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 1
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 0,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              }
+            ]
+          },
+          {
+            "name": "Player 4",
+            "accountId": 4,
+            "k": 19,
+            "a": 3,
+            "d": 15,
+            "score": 44,
+            "mvps": 1,
+            "team": 1,
+            "perRound": [
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 3,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 3,
+                "hs": 2,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              }
+            ]
+          },
+          {
+            "name": "Player 5",
+            "accountId": 5,
+            "k": 18,
+            "a": 0,
+            "d": 17,
+            "score": 40,
+            "mvps": 4,
+            "team": 1,
+            "perRound": [
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 2,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 1
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 3,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 2,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              }
+            ]
+          },
+          {
+            "name": "Player 6",
+            "accountId": 6,
+            "k": 15,
+            "a": 3,
+            "d": 14,
+            "score": 35,
+            "mvps": 1,
+            "team": 1,
+            "perRound": [
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 1
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 0,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 2,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              }
+            ]
+          },
+          {
+            "name": "Player 7",
+            "accountId": 7,
+            "k": 10,
+            "a": 10,
+            "d": 17,
+            "score": 32,
+            "mvps": 2,
+            "team": 0,
+            "perRound": [
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 2,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 3,
+                "hs": 2,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 1
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              }
+            ]
+          },
+          {
+            "name": "Player 8",
+            "accountId": 8,
+            "k": 10,
+            "a": 2,
+            "d": 16,
+            "score": 28,
+            "mvps": 1,
+            "team": 1,
+            "perRound": [
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              }
+            ]
+          },
+          {
+            "name": "Player 9",
+            "accountId": 9,
+            "k": 6,
+            "a": 4,
+            "d": 17,
+            "score": 26,
+            "mvps": 1,
+            "team": 0,
+            "perRound": [
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 2,
+                "hs": 1,
+                "d": 0,
+                "w": 1,
+                "side": 1,
+                "mvp": 1
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              }
+            ]
+          },
+          {
+            "name": "Player 10",
+            "accountId": 10,
+            "k": 11,
+            "a": 4,
+            "d": 19,
+            "score": 26,
+            "mvps": 1,
+            "team": 1,
+            "perRound": [
+              {
+                "k": 3,
+                "hs": 3,
+                "d": 1,
+                "w": 1,
+                "side": 0,
+                "mvp": 1
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 0,
+                "w": 1,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 0,
+                "side": 0,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 1,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 1,
+                "hs": 0,
+                "d": 1,
+                "w": 1,
+                "side": 1,
+                "mvp": 0
+              },
+              {
+                "k": 0,
+                "hs": 0,
+                "d": 1,
+                "w": 0,
+                "side": 1,
+                "mvp": 0
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "workshop": {
+    "sort": "name",
+    "hideTraining": false,
+    "root": "mock-workshop/730",
+    "words": [
+      "aim",
+      "training",
+      "trainer",
+      "yprac",
+      "prac",
+      "crashz",
+      "movement",
+      "surf",
+      "bhop",
+      "kz",
+      "strafe",
+      "parkour",
+      "hub",
+      "benchmark",
+      "warmup",
+      "warm up",
+      "prefire",
+      "rush",
+      "recoil",
+      "spray",
+      "reflex",
+      "flick",
+      "config",
+      "generator",
+      "cfg"
+    ],
+    "items": {}
+  },
+  "maps": [
+    {
+      "workshop_id": "3507728279",
+      "map": "de_lublin",
+      "name": "Lublin",
+      "imageUrl": "https://images.steamusercontent.com/ugc/11599198447579986328/7D64A8718719B0171D79748D95675B294FB052D1/"
+    },
+    {
+      "workshop_id": "3643331442",
+      "map": "de_sanctum",
+      "name": "Sanctum",
+      "imageUrl": "https://images.steamusercontent.com/ugc/13278878431071047703/4C7C5AA090477C082F83532CFC2BBBD7B92EA4EB/"
+    },
+    {
+      "workshop_id": "3536622725",
+      "map": "de_rooftop",
+      "name": "Rooftop",
+      "imageUrl": "https://images.steamusercontent.com/ugc/11643761870443939102/F23DB344716189C4B698B590040F7FC1E76747CB/"
+    },
+    {
+      "workshop_id": "3467065969",
+      "map": "de_contact",
+      "name": "Contact",
+      "imageUrl": "https://images.steamusercontent.com/ugc/10244298823216674151/C94FF89AFDF91FA2ACB0579D5FE13889597E14C0/"
+    },
+    {
+      "workshop_id": "3433040330",
+      "map": "de_wrecked",
+      "name": "Wrecked",
+      "imageUrl": "https://images.steamusercontent.com/ugc/11929017088511772/DF92E10E3FC1477E40B58AC9F2AF1ED5BF5B4D82/"
+    },
+    {
+      "workshop_id": "3663186989",
+      "map": "de_boulder",
+      "name": "Boulder",
+      "imageUrl": "https://images.steamusercontent.com/ugc/16780753117156519191/2A90D8D4A777A169F14EF93641C3ED3D8A5D0B5D/"
+    },
+    {
+      "workshop_id": "3663976049",
+      "map": "de_brownstone",
+      "name": "Brownstone",
+      "imageUrl": "https://images.steamusercontent.com/ugc/13651754439201949970/E2B2D73CFF35AA01DC47E37075E0F8E9243683D4/"
+    },
+    {
+      "workshop_id": "3423073369",
+      "map": "de_flick",
+      "name": "Flick",
+      "imageUrl": "https://images.steamusercontent.com/ugc/17353012947447139751/ED8A55CFF51B90D73F16AEA483FE69DA7298C51B/"
+    },
+    {
+      "workshop_id": "3542662073",
+      "map": "de_transit",
+      "name": "Transit",
+      "imageUrl": "https://images.steamusercontent.com/ugc/9255541956908186634/3ABD78E5DEBFDC694F036604CBCA2F0B4D867D89/"
+    },
+    {
+      "workshop_id": "3414036782",
+      "map": "de_dogtown",
+      "name": "Dogtown",
+      "imageUrl": "https://images.steamusercontent.com/ugc/15215854709185568630/51235A3D7D2779CBB743F6260D381F0CD6FE9A04/"
+    },
+    {
+      "workshop_id": "3416003536",
+      "map": "refrag_training",
+      "imageUrl": "assets/panorama/images/map_icons/screenshots/360p/random_png.png",
+      "name": "Refrag.gg - Aim, Movement, Crosshair, Prefire!",
+      "desc": "https://i.imgur.com/20ze9yn.png https://i.imgur.com/sLqC5MI.png Map Features: Moving bots Fully customizable Movement training on KZ and BHOP Crosshair generator and selector Prefire mode https://i.imgur.com/sLqC5MI.png What is Refrag? Refrag is the worlds",
+      "tags": "Cs2,Map,Custom",
+      "score": 0.9626301527023315,
+      "upvotes": 8734,
+      "downvotes": 291
+    }
+  ],
+  "organizer": {
+    "sort": "date",
+    "rootCollapsed": false,
+    "groups": [],
+    "demos": {}
+  },
+  "persona": {
+    "xuid": "76561197960265729"
+  },
+  "viewport": {
+    "width": 1439.9999313354524,
+    "height": 1079.9999485015894,
+    "sx": 1.1111111640930176,
+    "sy": 1.1111111640930176
+  },
+  "source": "Sample data. Import a local capture to compare your menus."
+}

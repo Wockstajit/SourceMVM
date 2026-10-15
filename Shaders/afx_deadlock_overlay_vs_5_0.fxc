@@ -1,0 +1,47 @@
+// Deadlock in-world overlay (camera path, markers, hero boxes): pre-projected 2D line drawing.
+//
+// Every vertex position arrives ALREADY PROJECTED TO BACKBUFFER PIXELS by the CPU
+// (AfxHookSource2/Deadlock/DeadlockOverlayMath.h), because Deadlock's engine has not been found to
+// expose a world-to-screen matrix the way CS2's afx_line_vs_5_0 shader expects (see that header's
+// own file comment for what IS measured: the pose the view hook reads every frame -- position,
+// Source pitch/yaw/roll, aspect-widened horizontal FOV). That header derives pixel coordinates
+// directly from that pose, including its own near-plane clipping, so this vertex shader's only job
+// is pixel -> clip space.
+//
+// NO VERTEX BUFFER: Deadlock's software render command list retains vertex-buffer bindings made by
+// callbacks, and its own internal list is 16-bit indexed -- the exact overflow that took down the
+// old Panorama-based preview (see DeadlockViewportBlit.cpp / afx_blit_triangle_vs_5_0.fxc's own
+// comment). A StructuredBuffer read by SV_VertexID, like the blit triangle's SV_VertexID trick,
+// avoids ever binding one.
+
+cbuffer VS_CONSTANT_BUFFER : register(b0)
+{
+	float2 cBackbufferSize;
+	float2 cPad;
+};
+
+struct OverlayVertex
+{
+	float2 posPixel;
+	float4 color;
+};
+
+StructuredBuffer<OverlayVertex> VertexData : register(t0);
+
+struct VS_OUTPUT
+{
+	float4 position : SV_POSITION;
+	float4 color : COLOR0;
+};
+
+VS_OUTPUT main(uint id : SV_VertexID)
+{
+	VS_OUTPUT output;
+	OverlayVertex v = VertexData[id];
+	float2 ndc = float2(
+		(v.posPixel.x / cBackbufferSize.x) * 2.0 - 1.0,
+		1.0 - (v.posPixel.y / cBackbufferSize.y) * 2.0);
+	output.position = float4(ndc, 0.0, 1.0);
+	output.color = v.color;
+	return output;
+}

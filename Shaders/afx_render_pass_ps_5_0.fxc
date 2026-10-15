@@ -1,0 +1,255 @@
+// afx_render_pass_ps_5_0: the render-pass compositor (Filmmaker multipass capture).
+//
+// Turns one physical render into the frame a pass stream records:
+//   mode 0 Beauty  -- colour, optionally matted onto the key colour
+//   mode 1 Depth   -- linear grayscale camera depth (distance along the view axis), white at
+//                     `nearFar.x`, black at `nearFar.y`
+//   mode 2 Normal  -- view-space surface normal reconstructed from depth, RGB = n * 0.5 + 0.5
+//                     (+X right = red, +Y up = green, +Z toward the camera = blue)
+//   mode 3 Key     -- the isolated subject in its own colour over the key colour (green screen):
+//                     the colour plate of Players only and Gun only, which have no Beauty
+//   mode 4         -- diagnostic: the raw depth sample (r + g/255 + b/65025)
+// and the subject mask:
+//   mask 0 None     -- the whole render
+//   mask 1 ColorKey -- pixels painted with the internal chroma key, and the sky, are background
+//   mask 2 GunDiff  -- pixels where the reference render (Main) differs from this render (NoGun)
+//                      are the subject; colour and depth then come from the reference
+//   mask 3 PlayersDepth -- Players only in a render job, taken from the NoGun render: the subject
+//                      is what is CLOSER than the World Only render of the same frame (t4). Props,
+//                      wires, decals and lighting all sit AT world depth, so they are background
+//                      and the plate's background is exactly the key colour.
+//
+// DEPTH (measured 2026-09-26, cs_office): CS2's raw depth is NOT a single projection. The world is
+// drawn into the viewport depth range [depthRange.x, depthRange.y] (forward or reversed, detected
+// on the CPU from the projection), and the first-person viewmodel into the band below it
+// ([0, depthRange.x) forward; raw ~0.094 on a pistol) with its own projection. The world is
+// unprojected exactly like the Environment renderer does it: normalise into the viewport range,
+// then the inverse world-to-clip. The viewmodel band is normalised into [0, 1] and unprojected with
+// the same inverse -- its depth is right to within its (different, narrower) field of view.
+//
+// t0 = this render's colour   t1 = this render's raw depth (sample 0, R32F or R24)
+// t2 = reference colour        t3 = reference raw depth
+// Pairs with afx_drawtexture_vs_5_0 (screen-space pass-through).
+
+cbuffer PS_CONSTANT_BUFFER : register(b0)
+{
+	int4 modeMask;        // x = mode, y = mask
+	float4 keyIn;         // rgb = internal chroma key, a = match tolerance
+	float4 keyOut;        // rgb = output background colour
+	float4 nearFar;       // x = near units (white), y = far units (black), z = sky cutoff units
+	float4 camera;        // xyz = camera world position, w = 1 when depth is reversed
+	float4 depthRange;    // x = world viewport min depth, y = max depth
+	float4 forward;       // xyz = camera forward (world)
+	float4 right;         // xyz = camera right (world)
+	float4 up;            // xyz = camera up (world)
+	float4 invViewProj0;  // inverse world-to-clip, rows
+	float4 invViewProj1;
+	float4 invViewProj2;
+	float4 invViewProj3;
+	float4 texel;         // xy = 1 / size, zw = size in pixels
+	float4 diff;          // x = diff threshold low, y = high (0..1 colour units), z = 1: target is sRGB
+};
+
+Texture2D<float4> colorTex : register(t0);
+Texture2D<float> depthTex : register(t1);
+Texture2D<float4> refColorTex : register(t2);
+Texture2D<float> refDepthTex : register(t3);
+Texture2D<float> worldDepthTex : register(t4);
+
+struct PS_INPUT
+{
+	float4 xyzw : SV_POSITION;
+	float2 t0 : TEXCOORD0;
+};
+
+float4 MulRows(float4 v)
+{
+	return float4(dot(invViewProj0, v), dot(invViewProj1, v), dot(invViewProj2, v), dot(invViewProj3, v));
+}
+
+// Raw sample -> projection depth in [0, 1] of the projection that drew it. -1 = sky / 3D skybox.
+float ProjectionDepth(float raw)
+{
+	float span = max(depthRange.y - depthRange.x, 1e-12);
+	if (camera.w > 0.5) {
+		// Reversed: sky clears to 0, the world occupies [min, max] with near at max, and the
+		// viewmodel band lies above max.
+		if (raw < 1e-7) return -1.0;
+		if (raw > depthRange.y) return saturate((raw - depthRange.y) / max(1.0 - depthRange.y, 1e-7));
+		if (raw < depthRange.x) return -1.0;
+		return saturate((raw - depthRange.x) / span);
+	}
+	// Forward: sky clears to 1, the viewmodel band lies below min.
+	if (raw > 0.9999999) return -1.0;
+	if (raw < depthRange.x) return saturate(raw / max(depthRange.x, 1e-7));
+	if (raw > depthRange.y) return -1.0;
+	return saturate((raw - depthRange.x) / span);
+}
+
+// World position of pixel `px` at a raw depth; false for the sky.
+bool WorldPos(int2 px, float raw, out float3 p)
+{
+	float d = ProjectionDepth(raw);
+	p = camera.xyz;
+	if (d < 0.0) return false;
+	float2 uv = (float2(px) + 0.5) * texel.xy;
+	float4 h = MulRows(float4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, d, 1.0));
+	if (abs(h.w) < 1e-12) return false;
+	p = h.xyz / h.w;
+	return true;
+}
+
+float LoadRaw(Texture2D<float> t, int2 px)
+{
+	int2 size = int2(texel.zw);
+	px = clamp(px, int2(0, 0), size - 1);
+	return t.Load(int3(px, 0));
+}
+
+// Distance along the view axis; huge for the sky.
+float CameraDepth(Texture2D<float> t, int2 px)
+{
+	float3 p;
+	if (!WorldPos(px, LoadRaw(t, px), p)) return 1e30;
+	return dot(p - camera.xyz, forward.xyz);
+}
+
+float3 Normal(Texture2D<float> t, int2 px, out bool valid)
+{
+	float3 c, l, r, u, d;
+	valid = WorldPos(px, LoadRaw(t, px), c);
+	bool vl = WorldPos(px + int2(-1, 0), LoadRaw(t, px + int2(-1, 0)), l);
+	bool vr = WorldPos(px + int2( 1, 0), LoadRaw(t, px + int2( 1, 0)), r);
+	bool vu = WorldPos(px + int2(0, -1), LoadRaw(t, px + int2(0, -1)), u);
+	bool vd = WorldPos(px + int2(0,  1), LoadRaw(t, px + int2(0,  1)), d);
+	if (!valid) return float3(0, 0, 0);
+	// The neighbour on the same surface is the one closer in depth: taking it on each axis keeps
+	// silhouettes from smearing the foreground normal into the background.
+	float dc = dot(c - camera.xyz, forward.xyz);
+	float el = vl ? abs(dc - dot(l - camera.xyz, forward.xyz)) : 1e30;
+	float er = vr ? abs(dot(r - camera.xyz, forward.xyz) - dc) : 1e30;
+	float eu = vu ? abs(dc - dot(u - camera.xyz, forward.xyz)) : 1e30;
+	float ed = vd ? abs(dot(d - camera.xyz, forward.xyz) - dc) : 1e30;
+	if (min(el, er) > 1e29 || min(eu, ed) > 1e29) { valid = false; return float3(0, 0, 0); }
+	float3 dx = er < el ? (r - c) : (c - l);
+	float3 dy = ed < eu ? (d - c) : (c - u);
+	float3 n = cross(dx, dy);
+	if (dot(n, n) < 1e-20) { valid = false; return float3(0, 0, 0); }
+	n = normalize(n);
+	if (dot(n, camera.xyz - c) < 0.0) n = -n; // face the camera
+	// World -> view axes: +X right, +Y up, +Z toward the camera.
+	return float3(dot(n, right.xyz), dot(n, up.xyz), -dot(n, forward.xyz));
+}
+
+// Depth only gives the FACE normal of each triangle, so a character came out as a faceted low-poly
+// mesh. The game shades with interpolated vertex normals, which this approximates: average the
+// face normals of nearby pixels that lie on the same smooth surface -- close to this pixel's
+// tangent plane and within ~45 degrees of its normal. Real creases (wall corners, the edge of a
+// crate) and silhouettes fail those tests and stay sharp. Texture normal-map detail is not
+// recoverable: CS2's forward renderer exposes no normal buffer.
+float3 SmoothNormal(Texture2D<float> t, int2 px, out bool valid)
+{
+	float3 nc = Normal(t, px, valid);
+	if (!valid) return nc;
+	float3 pc;
+	WorldPos(px, LoadRaw(t, px), pc);
+	float dist = dot(pc - camera.xyz, forward.xyz);
+	float tol = 0.5 + dist * 0.01;
+	float3 sum = nc;
+	[loop] for (int y = -4; y <= 4; y += 2) {
+		[loop] for (int x = -4; x <= 4; x += 2) {
+			if (x == 0 && y == 0) continue;
+			int2 q = px + int2(x, y);
+			bool vq;
+			float3 nq = Normal(t, q, vq);
+			if (!vq) continue;
+			float3 pq;
+			if (!WorldPos(q, LoadRaw(t, q), pq)) continue;
+			float3 d = pq - pc;
+			float3 dv = float3(dot(d, right.xyz), dot(d, up.xyz), -dot(d, forward.xyz));
+			float plane = abs(dot(dv, nc)) / tol;
+			float w = exp(-plane * plane) * smoothstep(0.7, 0.9, dot(nq, nc));
+			sum += nq * w;
+		}
+	}
+	return normalize(sum);
+}
+
+float4 ComposePixel(PS_INPUT i);
+
+// An sRGB target encodes on write; what we output is already display-encoded, so decode it first.
+float4 main(PS_INPUT i) : SV_TARGET
+{
+	float4 c = ComposePixel(i);
+	if (diff.z > 0.5) {
+		float3 lo = c.rgb / 12.92;
+		float3 hi = pow(max((c.rgb + 0.055) / 1.055, 0.0), 2.4);
+		c.rgb = lerp(hi, lo, step(c.rgb, 0.04045));
+	}
+	return c;
+}
+
+float4 ComposePixel(PS_INPUT i)
+{
+	int2 px = int2(i.xyzw.xy);
+	int mode = modeMask.x;
+	int mask = modeMask.y;
+
+	float4 col = colorTex.Load(int3(px, 0));
+	float subject = 1.0;
+	bool useRef = false;
+	if (mask == 3) {
+		// Closer than the world by more than depth noise (relative, so distant players count too).
+		// The sky is world-less in both renders and never closer, so it is background as well.
+		float here = CameraDepth(depthTex, px);
+		float world = CameraDepth(worldDepthTex, px);
+		subject = (here < 1e29 && here < world - max(1.5, world * 0.004)) ? 1.0 : 0.0;
+	} else if (mask == 1) {
+		// Background = the chroma-painted scene, or the sky: the players render repaints only scene
+		// materials, and the sky dome (a separate env_sky path) keeps its colour, so it is keyed by
+		// depth -- nothing a player can be sits past the sky cutoff.
+		// The match is on HUE, not RGB distance: the chroma-painted world still goes through the
+		// engine's exposure, lighting and vignette, which change only its BRIGHTNESS (measured on a
+		// players plate: R = B = 0 everywhere, G from 0.46 to 0.95). Dividing by the brightest
+		// channel removes that, so every shade of the key reads as background.
+		float cm = max(max(col.r, col.g), col.b);
+		float km = max(max(keyIn.r, keyIn.g), keyIn.b);
+		float3 dk = abs(col.rgb / max(cm, 1e-4) - keyIn.rgb / max(km, 1e-4));
+		bool keyed = cm > 0.02 && max(max(dk.r, dk.g), dk.b) <= keyIn.a;
+		bool sky = CameraDepth(depthTex, px) > nearFar.z;
+		subject = (keyed || sky) ? 0.0 : 1.0;
+	} else if (mask == 2) {
+		float4 ref = refColorTex.Load(int3(px, 0));
+		float3 dc = abs(ref.rgb - col.rgb);
+		subject = smoothstep(diff.x, diff.y, max(max(dc.r, dc.g), dc.b));
+		col = ref;
+		useRef = true;
+	}
+
+	if (mode == 0 || mode == 3) {
+		return float4(lerp(keyOut.rgb, col.rgb, subject), 1.0);
+	}
+
+	if (mode == 4) {
+		float raw = useRef ? LoadRaw(refDepthTex, px) : LoadRaw(depthTex, px);
+		float r = floor(raw * 255.0) / 255.0;
+		float g = floor((raw - r) * 65025.0) / 255.0;
+		float bb = frac((raw - r) * 65025.0);
+		return float4(r, g, bb, 1.0);
+	}
+
+	if (subject < 0.5) return float4(0.0, 0.0, 0.0, 1.0);
+
+	if (mode == 1) {
+		float dist = useRef ? CameraDepth(refDepthTex, px) : CameraDepth(depthTex, px);
+		float range = max(nearFar.y - nearFar.x, 1e-3);
+		float g = saturate(1.0 - (dist - nearFar.x) / range);
+		return float4(g, g, g, 1.0);
+	}
+
+	// mode 2: normals. Sky has no surface.
+	bool valid;
+	float3 n = useRef ? SmoothNormal(refDepthTex, px, valid) : SmoothNormal(depthTex, px, valid);
+	if (!valid) return float4(0.0, 0.0, 0.0, 1.0);
+	return float4(n * 0.5 + 0.5, 1.0);
+}

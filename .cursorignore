@@ -1,0 +1,6 @@
+﻿# Keep the IDE from locking Electron app.asar files in build output.
+SourceMovieMakerLauncher/release/
+SourceMovieMakerLauncher/release-*/
+SourceMovieMakerLauncher/packaged/
+SourceMovieMakerLauncher/renderer-dist/
+SourceMovieMakerLauncher/node_modules/

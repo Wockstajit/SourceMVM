@@ -1,0 +1,18 @@
+// Deadlock in-world overlay, TEXTURED variant: CS2's afx_drawtexture_ps_5_0 exactly -- sample the
+// digit atlas and discard the transparent texels, so a digit is its glyph and outline, not a quad.
+
+Texture2D texture0 : register(t0);
+SamplerState sampler0 : register(s0);
+
+struct PS_INPUT
+{
+	float4 position : SV_POSITION;
+	float2 uv : TEXCOORD0;
+};
+
+float4 main(PS_INPUT i) : SV_TARGET
+{
+	float4 color = texture0.Sample(sampler0, i.uv);
+	clip(color.a < 0.004f ? -1 : 1);
+	return color;
+}

@@ -1,0 +1,164 @@
+// afx_contact_shadow_ps_5_0: Phase B directional shadow-map composite.
+//
+// Reconstructs world position from scene depth, projects into a sun-space
+// cascade atlas (native CSM layout: four 1280 tiles in a large R16 atlas),
+// and darkens the colour buffer. Not a screen-space contact march.
+//
+// t0 = colour (resolved backbuffer copy)
+// t1 = scene depth
+// t2 = shadow atlas (R16_UNORM depth)
+
+cbuffer PS_CONSTANT_BUFFER : register(b0)
+{
+	// row0-3: inverse view-projection (clip -> world)
+	float4 invViewProj0;
+	float4 invViewProj1;
+	float4 invViewProj2;
+	float4 invViewProj3;
+	// row0-3: light view-projection (world -> clip), cascade 0 basis; cascades share orientation
+	float4 lightViewProj0;
+	float4 lightViewProj1;
+	float4 lightViewProj2;
+	float4 lightViewProj3;
+	// xyz = camera world position, w = strength 0..1
+	float4 camPosStrength;
+	// x = depth bias, y = soft radius in atlas texels, z = filter taps (1..16), w = cascade range metres
+	float4 biasSoftStepsRange;
+	// xy = atlas size pixels, zw = cascade tile size pixels (typically 1280)
+	float4 atlasInfo;
+	// packed cascade scales: x=c0, y=c1, z=c2, w=c3 ortho half-extents relative to c0
+	float4 cascadeScales;
+};
+
+Texture2D texture0; // colour
+Texture2D texture1; // scene depth
+Texture2D texture2; // shadow atlas
+SamplerState sampler0; // linear colour/depth
+SamplerState sampler1; // point shadow
+
+struct PS_INPUT
+{
+	float4 xyzw : SV_POSITION;
+	float2 t0 : TEXCOORD0;
+};
+
+float4 MulMat(float4 r0, float4 r1, float4 r2, float4 r3, float4 v)
+{
+	return float4(
+		dot(r0, v),
+		dot(r1, v),
+		dot(r2, v),
+		dot(r3, v));
+}
+
+float3 ReconstructWorld(float2 uv, float depth)
+{
+	// DX clip: x [-1,1], y [-1,1] with y+ up in clip; UV y+ down.
+	float2 clipXY = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+	float4 clip = float4(clipXY, depth, 1.0);
+	float4 worldH = MulMat(invViewProj0, invViewProj1, invViewProj2, invViewProj3, clip);
+	float invW = abs(worldH.w) > 1e-8 ? (1.0 / worldH.w) : 0.0;
+	return worldH.xyz * invW;
+}
+
+float2 CascadeUv(float2 lightNDC, int cascade, float2 atlasSize, float tile)
+{
+	// Proven Mirage tile origins: (0,0), (1280,0), (2560,0), (0,2048)
+	float2 originPx = float2(0, 0);
+	if (cascade == 1) originPx = float2(tile, 0);
+	else if (cascade == 2) originPx = float2(tile * 2.0, 0);
+	else if (cascade == 3) originPx = float2(0, 2048);
+
+	// light NDC xy in [-1,1] → tile UV
+	float2 tileUv = lightNDC * 0.5 + 0.5;
+	tileUv.y = 1.0 - tileUv.y;
+	float2 px = originPx + tileUv * tile;
+	return px / atlasSize;
+}
+
+int PickCascade(float camDist, float range, float4 scales)
+{
+	float r0 = max(range, 1.0);
+	float r1 = r0 * max(scales.y, 1.0);
+	float r2 = r0 * max(scales.z, 1.0);
+	float r3 = r0 * max(scales.w, 1.0);
+	if (camDist < r0) return 0;
+	if (camDist < r1) return 1;
+	if (camDist < r2) return 2;
+	return 3;
+}
+
+float SampleShadow(float2 uv, float receiverDepth, float bias)
+{
+	float closest = texture2.Sample(sampler1, uv).r;
+	// D16 atlas: larger stored depth = farther from light in typical ortho maps.
+	// Also accept reverse encoding.
+	float shadowed = 0.0;
+	if (receiverDepth - bias > closest)
+		shadowed = 1.0;
+	if (closest - bias > receiverDepth)
+		shadowed = max(shadowed, 0.85);
+	return shadowed;
+}
+
+float4 main(PS_INPUT i) : SV_TARGET
+{
+	float2 uv = i.t0;
+	float3 color = texture0.Sample(sampler0, uv).rgb;
+	float strength = saturate(camPosStrength.w);
+	if (strength <= 0.0001)
+		return float4(color, 1);
+
+	float depth0 = texture1.Sample(sampler0, uv).r;
+	if (depth0 <= 0.00001 || depth0 >= 0.9999)
+		return float4(color, 1);
+
+	float3 world = ReconstructWorld(uv, depth0);
+	float3 camPos = camPosStrength.xyz;
+	float camDist = length(world - camPos);
+
+	float bias = max(biasSoftStepsRange.x, 0.00001);
+	float soft = max(biasSoftStepsRange.y, 0.0);
+	int taps = (int)biasSoftStepsRange.z;
+	if (taps < 1) taps = 1;
+	if (taps > 16) taps = 16;
+	float range = max(biasSoftStepsRange.w, 1.0);
+
+	int cascade = PickCascade(camDist, range, cascadeScales);
+	float scale = 1.0;
+	if (cascade == 1) scale = max(cascadeScales.y, 1.0);
+	else if (cascade == 2) scale = max(cascadeScales.z, 1.0);
+	else if (cascade == 3) scale = max(cascadeScales.w, 1.0);
+
+	// Scale world offset from camera in light-projected space by cascade ortho size.
+	float4 lightClip = MulMat(lightViewProj0, lightViewProj1, lightViewProj2, lightViewProj3,
+		float4(world, 1.0));
+	float invW = abs(lightClip.w) > 1e-8 ? (1.0 / lightClip.w) : 0.0;
+	float3 lightNDC = lightClip.xyz * invW;
+	// Wider cascades cover more world metres per NDC unit.
+	lightNDC.xy /= scale;
+
+	if (abs(lightNDC.x) > 1.0 || abs(lightNDC.y) > 1.0 || lightNDC.z < 0.0 || lightNDC.z > 1.0)
+		return float4(color, 1);
+
+	float2 atlasSize = max(atlasInfo.xy, float2(1, 1));
+	float tile = max(atlasInfo.z, 1.0);
+	float2 baseUv = CascadeUv(lightNDC.xy, cascade, atlasSize, tile);
+
+	float shadow = 0.0;
+	float invTaps = 1.0 / (float)taps;
+	float2 texel = soft / atlasSize;
+	[loop]
+	for (int t = 0; t < taps; ++t)
+	{
+		float ang = (float)t * 2.399963; // golden angle
+		float rad = texel.x * (0.35 + 0.65 * ((float)t + 1.0) * invTaps);
+		float2 offset = float2(cos(ang), sin(ang)) * rad * atlasSize.x; // in pixels via later /atlas
+		offset = float2(cos(ang), sin(ang)) * (soft * ((float)t + 1.0) * invTaps) / atlasSize;
+		shadow += SampleShadow(baseUv + offset, lightNDC.z, bias);
+	}
+	shadow *= invTaps;
+
+	float shade = 1.0 - shadow * strength;
+	return float4(color * shade, 1);
+}

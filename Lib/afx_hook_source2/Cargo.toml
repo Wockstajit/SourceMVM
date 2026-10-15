@@ -1,0 +1,22 @@
+[package]
+name = "afx_hook_source2"
+version = "0.0.0"
+authors = ["advancedfx.org <contact@advancedfx.org>"]
+license = "MIT"
+homepage = "https://github.com/advancedfx"
+repository = "https://github.com/advancedfx/advancedfx"
+edition = "2024"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+boa_engine = { git = "https://github.com/boa-dev/boa.git", rev = "da570fd74bb6cd5b0fc01363451eb710b7ab5a0c" }
+boa_gc = { git = "https://github.com/boa-dev/boa.git", rev = "da570fd74bb6cd5b0fc01363451eb710b7ab5a0c" }
+boa_runtime = { git = "https://github.com/boa-dev/boa.git", rev = "da570fd74bb6cd5b0fc01363451eb710b7ab5a0c" }
+async-net = "2.0"
+async-tungstenite = { version = "0.34.0", features = ["smol-runtime","async-net"] }
+futures = "0.3.32"
+futures-lite = "2.6.1" # matches current BoaJS version
+futures-concurrency = "7.7.1" # matches current BoaJS version
+rustc-hash = { version = "2.1.2", default-features = false } # matches current BoaJS version

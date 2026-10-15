@@ -1,0 +1,2015 @@
+/* Stratum2 is the Panorama UI typeface, decoded from the local CS2 install's
+   stratum2.uifont. It is licensed to Valve, so these faces stay local-only and
+   are never redistributed with a public build. */
+@font-face {
+  font-family: "Stratum2";
+  src: url("/fonts/stratum2-regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Stratum2";
+  src: url("/fonts/stratum2-medium.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Stratum2";
+  src: url("/fonts/stratum2-bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Stratum2 Condensed";
+  src: url("/fonts/stratum2condensed-regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Stratum2 Condensed";
+  src: url("/fonts/stratum2condensed-bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Stratum2 Mono";
+  src: url("/fonts/stratum2mono-regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+:root {
+  color: #eef2f6;
+  background: #0c0e12;
+  font-family: "Stratum2", Bahnschrift, "Segoe UI Variable", sans-serif;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+  --bg: #0c0e12;
+  --chrome: #14181e;
+  --panel: #1a1f26;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.18);
+  --text: #eef2f6;
+  --label: #c8d3df;
+  --hint: #8993a1;
+  --dim: #606a76;
+  --blue: #80bdff;
+  --blue-soft: rgba(128, 189, 255, 0.14);
+  --gold: #f0b323;
+  --gold-bright: #ffd15c;
+  --gold-ink: #151004;
+  --danger: #fc9994;
+  --success: #7be07b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 1px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.loading {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+}
+
+.launcher {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  grid-template-rows: 58px 1fr 42px;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, transparent 0 49.9%, rgba(255, 255, 255, 0.018) 50%, transparent 50.1%),
+    linear-gradient(180deg, #11151b 0%, var(--bg) 76%);
+  opacity: 1;
+  transition: opacity 420ms ease-out;
+}
+
+.launcher.is-ready {
+  opacity: 1;
+}
+
+.game-nav,
+.launch-field,
+.utility-rail {
+  position: relative;
+  z-index: 1;
+}
+
+.game-nav {
+  border-bottom: 1px solid var(--line-strong);
+  background: rgba(12, 14, 18, 0.96);
+}
+
+.game-tabs {
+  display: grid;
+  height: 100%;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.game-tab {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: center;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 16px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--dim);
+  text-align: left;
+}
+
+.game-tab:last-child {
+  border-right: 0;
+}
+
+.game-tab span {
+  overflow: hidden;
+  width: 100%;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-tab small {
+  color: inherit;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.game-tab::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: transparent;
+  content: "";
+}
+
+.game-tab.is-active {
+  background: var(--blue-soft);
+  color: var(--text);
+}
+
+.game-tab.is-active small {
+  color: var(--blue);
+}
+
+.game-tab.is-active::after {
+  background: var(--blue);
+  box-shadow: 0 -4px 14px rgba(128, 189, 255, 0.22);
+}
+
+.game-tab:disabled {
+  cursor: not-allowed;
+}
+
+.launch-field {
+  display: grid;
+  grid-template-columns: 1fr 228px;
+  align-items: stretch;
+  padding: 18px 20px 16px;
+}
+
+.session-copy {
+  display: flex;
+  min-width: 0;
+  justify-content: center;
+  flex-direction: column;
+  padding-left: 4px;
+}
+
+.readiness {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--hint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+}
+
+.readiness.is-found {
+  color: var(--success);
+}
+
+.readiness.is-missing {
+  color: var(--danger);
+}
+
+.readiness button {
+  margin-left: 5px;
+  padding: 3px 7px;
+  border: 1px solid rgba(252, 153, 148, 0.38);
+  background: rgba(201, 42, 42, 0.14);
+  color: var(--danger);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+/* Launch mode: two named options rather than a checkbox, because the choice changes what CS2 is
+   for the session. The pair reads as one control, so the gap is hairline and the active option
+   carries the accent -- the same "selected, not hovered" language the readiness row uses. */
+.mode-switch {
+  display: flex;
+  gap: 1px;
+  margin-top: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.mode-option {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--hint);
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.mode-option:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.mode-option.is-active {
+  background: rgba(240, 179, 35, 0.16);
+  color: var(--gold);
+}
+
+/* Selected but unusable. It stays selected -- hiding the selection would make the warning below
+   look unrelated -- and turns red so the blocked GO button has a visible cause. */
+.mode-option.is-active.is-blocked {
+  background: rgba(201, 42, 42, 0.16);
+  color: var(--danger);
+}
+
+.mode-option-name {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+}
+
+.mode-option-detail {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  opacity: 0.72;
+}
+
+
+/* Footer progress: whatever is installing or downloading, between the status and the buttons. */
+.rail-progress {
+  display: flex;
+  flex: 0 1 300px;
+  align-items: center;
+  gap: 9px;
+  min-width: 120px;
+  margin: 0 18px;
+  color: var(--hint);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.rail-progress-label,
+.rail-progress-value {
+  flex: none;
+  white-space: nowrap;
+}
+
+.rail-progress-value {
+  min-width: 28px;
+  text-align: right;
+  color: var(--gold);
+}
+
+.rail-progress-track {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.rail-progress-track span {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+  transition: width 200ms ease;
+}
+
+.rail-progress.is-indeterminate .rail-progress-track span {
+  animation: ffmpeg-progress-slide 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-progress.is-indeterminate .rail-progress-track span {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* FFmpeg install progress. A real bar, not just status-line text: the 150 MB download runs for
+   minutes and the dialog otherwise reads as hung. Indeterminate = unpack/verify phase. */
+.ffmpeg-progress {
+  overflow: hidden;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ffmpeg-progress span {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+  transition: width 200ms ease;
+}
+
+.ffmpeg-progress.is-indeterminate span {
+  animation: ffmpeg-progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes ffmpeg-progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ffmpeg-progress.is-indeterminate span {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+.location-select-button {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--hint);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.location-select-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.mode-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(252, 153, 148, 0.38);
+  border-radius: 3px;
+  background: rgba(201, 42, 42, 0.12);
+  color: var(--danger);
+}
+
+.mode-warning .panorama-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.mode-warning-body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mode-warning-body strong {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.mode-warning-body span {
+  color: var(--hint);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.mode-warning button {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border: 1px solid rgba(252, 153, 148, 0.5);
+  background: rgba(201, 42, 42, 0.2);
+  color: var(--danger);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.mode-warning button:hover {
+  background: rgba(201, 42, 42, 0.32);
+}
+
+.start-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  align-self: center;
+  width: 100%;
+  height: 86px;
+  padding: 0 18px 0 24px;
+  overflow: hidden;
+  border: 1px solid rgba(240, 179, 35, 0.72);
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(115deg, transparent 0 17px, rgba(255, 255, 255, 0.055) 18px 19px, transparent 20px 34px),
+    rgba(49, 40, 9, 0.92);
+  color: var(--gold);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34), inset 0 0 24px rgba(240, 179, 35, 0.05);
+  transform: translateY(20px);
+  opacity: 0;
+  transition:
+    background-color 130ms ease,
+    border-color 130ms ease,
+    color 130ms ease,
+    box-shadow 130ms ease,
+    opacity 380ms ease-out,
+    transform 380ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.is-ready .start-button {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.start-button::before {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(240, 179, 35, 0.02), rgba(240, 179, 35, 0.15));
+  content: "";
+  opacity: 0;
+  transition: opacity 130ms ease;
+}
+
+.start-button:hover:not(:disabled) {
+  border-color: var(--gold-bright);
+  color: var(--gold-bright);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.42), 0 0 16px rgba(240, 179, 35, 0.16);
+}
+
+.start-button:hover:not(:disabled)::before {
+  opacity: 1;
+}
+
+.start-button:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.25);
+  opacity: 0.38;
+}
+
+.start-text {
+  position: relative;
+  z-index: 1;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+
+.utility-rail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px 0 20px;
+  border-top: 1px solid var(--line);
+  background: var(--chrome);
+}
+
+.session-state,
+.utility-actions,
+.utility-button {
+  display: flex;
+  align-items: center;
+}
+
+.session-state {
+  min-width: 0;
+  gap: 7px;
+  color: var(--hint);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.state-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+.session-state.is-good {
+  color: var(--success);
+}
+
+.session-state.is-good .state-dot {
+  background: var(--success);
+}
+
+.session-state.is-error {
+  max-width: min(560px, 62%);
+  color: var(--danger);
+}
+
+/* An error is something to act on: wrap it (three lines fit the rail) instead of clipping it to
+   one line, which hid what to do ("CLOSE CS2 BEFORE CHECKING OR INSTALLING THE RUNTI"). */
+.session-state.is-error span:last-child {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  line-height: 1.3;
+}
+
+.session-state.is-error .state-dot {
+  background: var(--danger);
+}
+
+.utility-actions {
+  height: 100%;
+  gap: 6px;
+}
+
+.utility-button {
+  height: 28px;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--hint);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.utility-button:hover:not(:disabled),
+.utility-button.is-active {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.utility-button:disabled {
+  cursor: not-allowed;
+  color: #77818c;
+  opacity: 0.62;
+}
+
+.advanced-drawer {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  display: grid;
+  grid-template-rows: 48px 38px minmax(0, 1fr);
+  background: rgba(12, 14, 18, 0.985);
+  transform: translateY(100%);
+  visibility: hidden;
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1), visibility 300ms;
+}
+
+.advanced-drawer.is-open {
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px 0 20px;
+  border-bottom: 1px solid var(--blue);
+  background: var(--chrome);
+}
+
+.drawer-header > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.drawer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drawer-header .autosave-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--hint);
+  font-size: 7px;
+  letter-spacing: 0.12em;
+}
+
+.drawer-header .autosave-note::before {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #54cf8a;
+  content: "";
+}
+
+.drawer-header span {
+  color: var(--blue);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.drawer-header strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.icon-button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--label);
+}
+
+.icon-button:hover {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.advanced-tabs {
+  display: flex;
+  align-items: end;
+  gap: 3px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: #101319;
+}
+
+.advanced-tabs button {
+  position: relative;
+  height: 37px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.advanced-tabs button::after {
+  position: absolute;
+  right: 7px;
+  bottom: -1px;
+  left: 7px;
+  height: 2px;
+  background: transparent;
+  content: "";
+}
+
+.advanced-tabs button:hover,
+.advanced-tabs button.is-active {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.advanced-tabs button.is-active::after {
+  background: var(--blue);
+}
+
+.drawer-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  min-height: 0;
+  padding: 16px 20px 20px;
+  overflow-y: auto;
+}
+
+.field {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.field-wide {
+  grid-column: 1 / -1;
+}
+
+.field > span:first-child {
+  color: var(--hint);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.field input {
+  width: 100%;
+  height: 28px;
+  min-width: 0;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  outline: 0;
+  background: #11151b;
+  color: var(--text);
+  font-size: 10px;
+}
+
+.field input::placeholder {
+  color: var(--dim);
+}
+
+.field input:focus {
+  border-color: var(--blue);
+  background: #18202a;
+}
+
+.field-control {
+  display: grid;
+  grid-template-columns: 1fr 30px 30px;
+}
+
+.field-control input {
+  border-radius: 2px 0 0 2px;
+}
+
+.field-control button {
+  display: grid;
+  height: 28px;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-left: 0;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--label);
+}
+
+.field-control button:last-child {
+  border-radius: 0 2px 2px 0;
+}
+
+.field-control button:hover:not(:disabled) {
+  background: rgba(128, 189, 255, 0.18);
+  color: var(--blue);
+}
+
+.field-control button:disabled {
+  color: var(--dim);
+  cursor: default;
+}
+
+/* ---- Advanced drawer: grouping and resolved paths ---- */
+
+.field-group {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.group-title {
+  margin: 0;
+  color: var(--blue);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* The path a setting actually resolves to. Small, dim, and always present -- "Automatic" alone
+   never told you which file was about to be injected. */
+.resolved-hint {
+  display: flex;
+  overflow: hidden;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: var(--dim);
+  font-size: 9px;
+}
+
+.resolved-tag {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  color: var(--hint);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.resolved-path {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.resolved-hint.is-missing .resolved-path {
+  color: var(--danger);
+}
+
+.resolved-missing {
+  flex: none;
+  color: var(--danger);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+/* ---- FFmpeg prompt ---- */
+
+.ffmpeg-prompt {
+  position: absolute;
+  z-index: 9;
+  inset: 0;
+  display: grid;
+  padding: 18px;
+  place-items: center;
+  background: rgba(6, 8, 11, 0.92);
+}
+
+.ffmpeg-prompt-body {
+  display: grid;
+  gap: 9px;
+  width: min(100%, 460px);
+  padding: 16px 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel);
+}
+
+.ffmpeg-prompt-body strong {
+  color: var(--gold);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ffmpeg-prompt-body p {
+  margin: 0;
+  color: var(--label);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.ffmpeg-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--label);
+  font-size: 9px;
+}
+
+.ffmpeg-checkbox input {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--gold);
+}
+
+.ffmpeg-checkbox code {
+  color: var(--blue);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.ffmpeg-prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* HC Tracker partner link: its own yellow (#f5b719) and eye, framed so it reads as a link out. */
+.utility-button.hc-tracker-button {
+  border-color: rgba(245, 183, 25, 0.55);
+  background: rgba(10, 10, 11, 0.85);
+  color: #f0eeeb;
+}
+
+.utility-button.hc-tracker-button:hover {
+  border-color: #f5b719;
+  background: rgba(245, 183, 25, 0.14);
+  color: #ffffff;
+}
+
+.hc-tracker-eye {
+  width: 20px;
+  height: 11px;
+  object-fit: contain;
+}
+
+.utility-button.is-primary {
+  border-color: var(--gold);
+  background: rgba(240, 179, 35, 0.16);
+  color: var(--gold-bright);
+}
+
+.utility-button.is-primary:hover:not(:disabled) {
+  background: rgba(240, 179, 35, 0.28);
+}
+
+.ffmpeg-prompt-note {
+  color: var(--dim);
+  font-size: 8px;
+  line-height: 1.55;
+}
+
+/* Paths the launcher owns but has no editable field for. */
+.location-list {
+  display: grid;
+  gap: 6px;
+}
+
+.location-row {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 30px;
+  gap: 12px;
+}
+
+.location-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.location-label {
+  color: var(--hint);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.location-path {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--dim);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.location-row.is-missing .location-path {
+  color: var(--danger);
+  opacity: 0.75;
+}
+
+.location-row .goto-button {
+  width: 28px;
+  height: 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.location-size {
+  min-width: 52px;
+  color: var(--dim);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.location-group-title {
+  margin-top: 14px;
+}
+
+.location-note {
+  margin: 0;
+  color: var(--hint);
+  font-size: 9px;
+}
+
+.intro {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--bg);
+  opacity: 1;
+  transition: opacity 420ms ease-out, visibility 420ms ease-out;
+}
+
+.intro::before {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at center, rgba(128, 189, 255, 0.09), transparent 52%),
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.018), transparent);
+  content: "";
+}
+
+.intro.is-fading,
+.intro.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.media-preload {
+  display: none;
+}
+
+.intro-video {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  mix-blend-mode: screen;
+  filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.48));
+}
+
+@media (max-width: 570px) {
+  .drawer-header .autosave-note {
+    display: none;
+  }
+
+  .advanced-tabs,
+  .drawer-content {
+    padding-inline: 12px;
+  }
+
+  .advanced-tabs button {
+    flex: 1 1 0;
+    padding-inline: 6px;
+  }
+
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .location-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px 8px;
+  }
+
+  .location-label,
+  .location-path {
+    grid-column: 1;
+  }
+
+  .location-actions {
+    grid-row: 1 / 3;
+    grid-column: 2;
+  }
+
+  .game-tab {
+    padding: 0 9px;
+  }
+
+  .game-tab span {
+    font-size: 10px;
+  }
+
+  .launch-field {
+    grid-template-columns: 1fr 190px;
+    padding-inline: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Native Panorama reference pass.
+   These selectors mirror the layout vocabulary in reference/layout:
+   mainmenu-top-navbar, content-navbar__tabs, SettingsBackground, and
+   play-menu-controls-actions-bar. The launcher keeps those relationships
+   while rendering through React instead of Panorama XML. */
+
+.launcher {
+  grid-template-rows: 28px 48px 1fr 38px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  background: #0c0e12;
+}
+
+.window-chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding-left: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #11151b;
+  color: var(--label);
+  -webkit-app-region: drag;
+}
+
+.window-identity,
+.window-actions,
+.window-button {
+  display: flex;
+  align-items: center;
+}
+
+.window-identity {
+  min-width: 0;
+  gap: 7px;
+}
+
+.window-mark {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  color: var(--blue);
+}
+
+.window-title {
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.window-context {
+  padding-left: 7px;
+  border-left: 1px solid var(--line);
+  color: var(--hint);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.window-actions {
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.window-button {
+  justify-content: center;
+  width: 34px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--hint);
+}
+
+.window-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.window-button-close:hover {
+  background: #c92a2a;
+  color: #fff;
+}
+
+.game-nav {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  background: #14181e;
+}
+
+.game-tabs {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.game-tab {
+  align-items: center;
+  justify-content: center;
+  flex-direction: row;
+  gap: 7px;
+  padding: 0 12px;
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  color: #687381;
+  text-align: center;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.game-tab span {
+  width: auto;
+  font-family: "Stratum2", Bahnschrift, "Segoe UI Variable", sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.025em;
+}
+
+.game-tab small {
+  font-size: 7px;
+  letter-spacing: 0.1em;
+  opacity: 0.68;
+}
+
+.game-tab.is-active {
+  background: rgba(128, 189, 255, 0.1);
+  color: var(--text);
+}
+
+.game-tab.is-active small {
+  color: var(--blue);
+}
+
+.game-tab.is-active::after {
+  height: 2px;
+  background: var(--blue);
+  box-shadow: none;
+}
+
+.game-tab:disabled:hover {
+  background: rgba(255, 255, 255, 0.025);
+  color: #77818c;
+}
+
+.launch-field {
+  grid-template-columns: minmax(0, 1fr) 212px;
+  gap: 12px;
+  /* As a grid ROW of .launcher, this must be allowed to shrink to its 1fr track. Without it,
+     conditional content (the mode note / tools warning) makes the row grow past the track and
+     pushes the 42px utility rail -- CHECK FOR UPDATES included -- clean out of the window. */
+  min-height: 0;
+  padding: 12px 14px;
+  background: #0c0e12;
+}
+
+.session-copy {
+  position: relative;
+  justify-content: flex-start;
+  min-height: 0;
+  padding: 0 16px 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  background: #14181e;
+  box-shadow: none;
+}
+
+.readiness {
+  position: relative;
+  z-index: 1;
+  gap: 8px;
+  min-height: 20px;
+  font-size: 8px;
+  letter-spacing: 0.14em;
+}
+
+.readiness button {
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 1px solid rgba(252, 153, 148, 0.4);
+  background: rgba(201, 42, 42, 0.12);
+  font-size: 7px;
+  letter-spacing: 0.12em;
+}
+
+.play-menu-controls-actions-bar {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  flex-direction: column;
+  min-width: 0;
+  padding: 10px 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  background: #11151b;
+}
+
+.play-menu-controls-actions-bar::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--gold);
+  content: "";
+  opacity: 0.8;
+}
+
+.action-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-inline: 10px;
+  color: var(--hint);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+}
+
+.action-meta-brand {
+  color: var(--label);
+  letter-spacing: 0.16em;
+}
+
+.action-meta-state {
+  color: var(--gold);
+}
+
+.start-button.play-menu__playbtn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: calc(100% - 20px);
+  height: 62px;
+  flex: 0 0 auto;
+  margin: 12px 10px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(240, 179, 35, 0.336);
+  border-radius: 0;
+  background: rgba(41, 33, 7, 0.85);
+  color: var(--gold-bright);
+  box-shadow: 0 0 16px 0 rgba(0, 0, 0, 0.255);
+  perspective: 200px;
+  perspective-origin: 0% 0%;
+  transition:
+    opacity 250ms ease-in-out,
+    box-shadow 250ms ease-in-out,
+    filter 250ms ease-in-out;
+}
+
+.start-button.play-menu__playbtn::before {
+  display: none;
+}
+
+.start-button.play-menu__playbtn:hover:not(:disabled) {
+  border-color: rgba(255, 209, 92, 0.72);
+  color: #fff0bd;
+}
+
+.start-button.play-menu__playbtn:hover:not(:disabled) .play-menu__playbtn__bar {
+  filter: brightness(2);
+  box-shadow: 0 0 64px 4px rgba(240, 179, 35, 0.6);
+}
+
+.start-button.play-menu__playbtn:disabled {
+  cursor: not-allowed;
+  box-shadow: none;
+  filter: grayscale(1) saturate(0.12) brightness(0.72);
+  opacity: 0.58;
+}
+
+.play-menu__playbtn__bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+  background-color: rgba(41, 33, 7, 0.85);
+  pointer-events: none;
+}
+
+.play-menu__playbtn__bg::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: rgba(26, 20, 5, 0.24);
+  content: "";
+  pointer-events: none;
+}
+
+/* Native Panorama uses background-size:auto auto: the 1024px map is cropped
+   through the 300px button instead of being scaled to fit it. */
+.play-linemap-video {
+  position: absolute;
+  top: calc(60% - 614.4px);
+  left: calc(20% - 204.8px);
+  z-index: 0;
+  width: 1024px;
+  max-width: none;
+  height: 1024px;
+  max-height: none;
+  opacity: 0.34;
+  filter: sepia(1) saturate(3.2) hue-rotate(-12deg) brightness(0.72) contrast(1.12);
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.play-menu__playbtn__bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.075);
+  box-shadow: 0 0 34px 3px rgba(240, 179, 35, 0.5);
+  pointer-events: none;
+  transition: filter 250ms ease-in-out, box-shadow 250ms ease-in-out;
+}
+
+.play-menu__playbtn__bar--right {
+  right: 0;
+  left: auto;
+}
+
+.group-text-with-steam-button {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.start-button.play-menu__playbtn .start-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  font-family: "Stratum2 Condensed", "Stratum2", Bahnschrift, sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-shadow: 0 0 14px rgba(240, 179, 35, 0.4);
+}
+
+.action-caption {
+  margin-top: 8px;
+  padding-inline: 10px;
+  color: var(--dim);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-align: right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .play-linemap-video {
+    display: none;
+  }
+}
+
+.utility-rail {
+  height: auto;
+  padding: 0 12px 0 14px;
+  background: #14181e;
+}
+
+.session-state {
+  font-size: 7px;
+  letter-spacing: 0.13em;
+}
+
+.utility-button {
+  height: 24px;
+  padding-inline: 8px;
+  font-size: 7px;
+  letter-spacing: 0.1em;
+}
+
+.advanced-drawer {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  background: #0c0e12;
+}
+
+@media (max-width: 570px) {
+  .game-tab {
+    gap: 4px;
+    padding-inline: 6px;
+  }
+
+  .game-tab span {
+    font-size: 11px;
+  }
+
+  .game-tab small {
+    display: none;
+  }
+
+  .launch-field {
+    grid-template-columns: minmax(0, 1fr) 190px;
+    gap: 8px;
+    padding-inline: 9px;
+  }
+
+  .session-copy {
+    padding-inline: 12px;
+  }
+}
+
+/* Extracted from the local CS2 Panorama VPK with ValveResourceFormat.
+   Keep these bindings in the launcher so its controls use the same icon
+   language as the game instead of approximating it with generic glyphs. */
+.panorama-icon,
+.panorama-control-icon {
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.panorama-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.panorama-control-icon {
+  width: 15px;
+  height: 15px;
+  image-rendering: auto;
+}
+
+.launcher::before,
+.launcher::after {
+  position: absolute;
+  z-index: 0;
+  inset: 28px 0 38px;
+  pointer-events: none;
+  content: "";
+}
+
+.launcher::before {
+  background:
+    linear-gradient(90deg, rgba(12, 14, 18, 0.96), rgba(12, 14, 18, 0.78)),
+    url("../panorama/backgrounds/linemap.png") center / 100% 100% no-repeat;
+  opacity: 0.52;
+}
+
+.launcher::after {
+  background: url("../panorama/backgrounds/bluedots.png") right 18% / 230px 230px repeat;
+  mix-blend-mode: screen;
+  opacity: 0.07;
+}
+
+.window-chrome {
+  position: relative;
+  z-index: 1;
+}
+
+.window-mark .panorama-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.window-button .panorama-control-icon {
+  width: 13px;
+  height: 13px;
+  opacity: 0.78;
+}
+
+.window-button:hover .panorama-control-icon,
+.window-button-close:hover .panorama-control-icon {
+  opacity: 1;
+}
+
+.session-copy {
+  background-image:
+    linear-gradient(90deg, rgba(20, 24, 30, 0.98), rgba(20, 24, 30, 0.84)),
+    url("../panorama/backgrounds/linemap.png");
+  background-position: center, center;
+  background-size: cover, 100% 100%;
+}
+
+.session-copy > * {
+  position: relative;
+  z-index: 1;
+}
+
+.play-menu-controls-actions-bar {
+  background-image:
+    linear-gradient(180deg, rgba(17, 21, 27, 0.9), rgba(17, 21, 27, 0.98)),
+    url("../panorama/backgrounds/bluedots.png");
+  background-position: center, right bottom;
+  background-size: cover, 210px 210px;
+}
+
+.play-disc .panorama-icon {
+  width: 17px;
+  height: 17px;
+  margin-left: 2px;
+}
+
+.utility-button .panorama-control-icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0.78;
+}
+
+.utility-button:hover:not(:disabled) .panorama-control-icon,
+.utility-button.is-active .panorama-control-icon {
+  opacity: 1;
+}
+
+.icon-button .panorama-control-icon {
+  width: 15px;
+  height: 15px;
+  opacity: 0.8;
+}
+
+.icon-button:hover .panorama-control-icon {
+  opacity: 1;
+}
+
+/* ---- Soft club pass (design: "SOURCE:MVM Launcher - Soft Club Pass") ---------------------------
+   The session card carries the in-game workspace wordmark (WorkspaceShellJs.h): a short accent rule
+   and a spaced code line, then SOURCE:MVM as DECORATION -- dim gold, soft focus, glowing, with three
+   motion-blur echoes and an out-of-focus ghost -- on the same seamless streak-in / rest / whip-out
+   loop. Readable state lives in the code row (GAME READY) and the mode switch, never in the title. */
+.session-copy {
+  justify-content: flex-start;
+  gap: 0;
+  padding: 10px 12px 10px;
+}
+
+.session-code {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 18px;
+}
+
+.session-code-rule {
+  flex: none;
+  width: 24px;
+  height: 1px;
+  background: var(--gold);
+}
+
+.session-code-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gold);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  opacity: 0.85;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-code .readiness {
+  flex: none;
+  gap: 5px;
+  min-height: 0;
+  white-space: nowrap;
+}
+
+.readiness-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.session-wordmark {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 34px;
+  margin: 0 -12px;
+  overflow: hidden;
+  font: inherit;
+}
+
+.session-wordmark span {
+  position: absolute;
+  color: var(--gold);
+  font-family: "Stratum2", Bahnschrift, "Segoe UI Variable", sans-serif;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.wm-ghost {
+  top: 50%;
+  right: -10px;
+  margin-top: -24px;
+  font-size: 40px;
+  letter-spacing: 7px;
+  opacity: 0.055;
+  filter: blur(3px);
+}
+
+.wm-title,
+.wm-trail {
+  bottom: 4px;
+  left: 14px;
+  font-size: 26px;
+  letter-spacing: 6px;
+}
+
+.wm-title {
+  opacity: 0.4;
+  filter: blur(1.1px);
+  text-shadow: 0 0 10px rgba(240, 179, 35, 0.75);
+}
+
+.wm-t1 { opacity: 0.14; filter: blur(3px); }
+.wm-t2 { opacity: 0.1; filter: blur(4px); }
+.wm-t3 { opacity: 0.07; filter: blur(5px); }
+
+.launcher.is-ready .wm-title,
+.launcher.is-ready .wm-trail {
+  animation: wm-sweep 8.3s cubic-bezier(0.2, 0, 0, 1) infinite;
+}
+
+.launcher.is-ready .wm-t1 { animation-delay: 0.035s; }
+.launcher.is-ready .wm-t2 { animation-delay: 0.075s; }
+.launcher.is-ready .wm-t3 { animation-delay: 0.13s; }
+
+.launcher.is-ready .wm-ghost {
+  animation: wm-ghost 8.3s ease-in-out infinite;
+}
+
+/* Seamless: the next sweep starts as the last one clears the card, so the loop never rests empty. */
+@keyframes wm-sweep {
+  0% { transform: translateX(-360px); filter: blur(9px); letter-spacing: 22px; }
+  15% { transform: translateX(0); filter: blur(1.1px); letter-spacing: 6px; }
+  90% { transform: translateX(2px); filter: blur(1.1px); letter-spacing: 6px; }
+  97%, 100% { transform: translateX(420px); filter: blur(12px); letter-spacing: 18px; }
+}
+
+@keyframes wm-ghost {
+  0%, 100% { transform: translateX(-14px); }
+  50% { transform: translateX(14px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launcher.is-ready .wm-title,
+  .launcher.is-ready .wm-trail,
+  .launcher.is-ready .wm-ghost {
+    animation: none;
+  }
+}
+
+.session-sub {
+  margin: 0 0 7px;
+  color: var(--hint);
+  font-family: "Stratum2 Mono", ui-monospace, Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+}
+
+/* Two equal buttons with a gap; only the selected one glows. */
+.mode-switch {
+  gap: 6px;
+  margin-top: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.mode-option {
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.mode-option .mode-option-name {
+  color: var(--label);
+  font-size: 11px;
+}
+
+.mode-option.is-active {
+  border-color: rgba(240, 179, 35, 0.55);
+  background: rgba(240, 179, 35, 0.12);
+  box-shadow: 0 0 14px rgba(240, 179, 35, 0.12);
+}
+
+.mode-option.is-active .mode-option-name {
+  color: var(--gold);
+}
+
+.mode-option.is-active.is-blocked {
+  border-color: rgba(252, 153, 148, 0.55);
+}
+
+.mode-option.is-active.is-blocked .mode-option-name {
+  color: var(--danger);
+}
+
+.mode-warning {
+  margin: 6px 0 0;
+  padding: 4px 4px 4px 9px;
+}
+
+/* The drawer gets the same contour map as the session card, edge to edge. */
+.advanced-drawer {
+  background-color: #10141a;
+  background-image:
+    linear-gradient(rgba(16, 20, 26, 0.92), rgba(16, 20, 26, 0.92)),
+    url("../panorama/backgrounds/linemap.png");
+  background-position: center, center;
+  background-size: cover, cover;
+}
+
+.advanced-drawer .drawer-header,
+.advanced-drawer .advanced-tabs,
+.advanced-drawer .drawer-content {
+  background: transparent;
+}
+
+/* ---- DLSS 5 tab ---------------------------------------------------------------------------- */
+.dlss-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dlss-panel .mode-warning {
+  margin: 0;
+}
+
+.dlss-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+}
+
+.dlss-toggle.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dlss-toggle input {
+  margin: 1px 0 0;
+  accent-color: var(--gold);
+}
+
+.dlss-toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dlss-toggle strong {
+  color: var(--text);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.dlss-toggle small {
+  color: var(--hint);
+  font-size: 9px;
+}
+
+.dlss-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--label);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.dlss-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+.dlss-dot.is-on {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+
+.dlss-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.dlss-variant {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--hint);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.dlss-variant select {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+  background: #0b0e12;
+  color: var(--text);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.dlss-note {
+  margin: 0;
+  color: var(--hint);
+  font-size: 9px;
+  line-height: 1.4;
+}

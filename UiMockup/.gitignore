@@ -1,0 +1,13 @@
+# Derived from AfxHookSource2/Filmmaker/Panorama/*Js.h -- regenerate with extract-ui.mjs
+generated/
+
+# Valve's artwork, extracted from the user's own CS2 install by fetch-assets.mjs.
+# Not ours to commit.
+assets/
+
+# Copied from SourceMovieMakerLauncher/public/fonts by the setup step.
+fonts/
+
+# Optional local game capture used as the backdrop behind the panels.
+backdrop.jpg
+backdrop.png

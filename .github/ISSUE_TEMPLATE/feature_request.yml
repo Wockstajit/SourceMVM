@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest a capability or workflow improvement
+title: "[Feature]: "
+labels: ["type: feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search open and closed issues first. Describe the problem you want solved. A proposed solution
+        helps, but the problem comes first. Do not include personal data or private demo files.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Example workflow
+      description: Walk through the steps a user would take with the change.
+
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Tradeoffs and alternatives
+      description: What could go wrong, and do existing features already cover part of this?
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched open and closed issues for this request.
+          required: true
+        - label: I removed personal data and private files from what I pasted.
+          required: true

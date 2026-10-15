@@ -1,0 +1,21 @@
+// Full-screen triangle generated entirely from SV_VertexID.
+//
+// Deadlock's software render command list retains vertex-buffer bindings made by callbacks.
+// The old preview quad therefore grew its internal CVertexBufferDx11 list every frame until the
+// 16-bit allocation counter overflowed.  This shader needs no input layout, vertex buffer or
+// constant buffer, while still producing TEXCOORD0 for afx_blit_ps_5_0.
+
+struct VS_OUTPUT
+{
+	float4 position : SV_POSITION;
+	float2 texcoord : TEXCOORD0;
+};
+
+VS_OUTPUT main(uint id : SV_VertexID)
+{
+	VS_OUTPUT output;
+	float2 uv = float2((id << 1) & 2, id & 2);
+	output.position = float4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0);
+	output.texcoord = uv;
+	return output;
+}

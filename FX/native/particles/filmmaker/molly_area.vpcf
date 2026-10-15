@@ -1,0 +1,42 @@
+<!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:vpcf60:version{cd92a366-0b0d-4811-a18d-f6d472d19709} -->
+{
+    _class = "CParticleSystemDefinition"
+    m_nBehaviorVersion = 12
+    m_nMaxParticles = 1
+    // The owner destroys this single light explicitly; do not cycle it while fire burns.
+    m_flConstantLifespan = 1000000.0
+    m_flConstantRadius = 110.0
+    m_ConstantColor = [ 255, 255, 255, 255 ]
+    m_BoundingBoxMin = [ -350.0, -350.0, -350.0 ]
+    m_BoundingBoxMax = [ 350.0, 350.0, 350.0 ]
+    m_Emitters = [ { _class = "C_OP_InstantaneousEmitter" m_nParticlesToEmit = 1 } ]
+    m_Initializers = [ { _class = "C_INIT_CreateWithinSphereTransform" m_fRadiusMax = 0.0 } ]
+    m_Operators = [
+        { _class = "C_OP_PositionLock" m_flStartTime_min = 0.0 m_flStartTime_max = 0.0
+          m_flEndTime_min = 1.0 m_flEndTime_max = 1.0 },
+        { _class = "C_OP_SetFloat" m_nOutputField = 3
+          m_InputValue = { m_nType = "PF_TYPE_CONTROL_POINT_COMPONENT" m_nControlPoint = 1 m_nVectorComponent = 1 } },
+        { _class = "C_OP_Decay" }
+    ]
+    m_Renderers = [ {
+        _class = "C_OP_RenderOmni2Light"
+        m_nLightType = "PARTICLE_OMNI2_LIGHT_TYPE_BARN"
+        m_vColorBlend = { m_nType = "PVEC_TYPE_LITERAL_COLOR" m_LiteralColor = [ 255, 133, 41 ] }
+        m_nBrightnessUnit = "PARTICLE_LIGHT_UNIT_LUMENS"
+        // CP1 carries real emitted energy, bounded reach, and broad flame-source size.
+        m_flBrightnessLumens = { m_nType = "PF_TYPE_CONTROL_POINT_COMPONENT" m_nControlPoint = 1 m_nVectorComponent = 0 }
+        m_flRange = { m_nType = "PF_TYPE_CONTROL_POINT_COMPONENT" m_nControlPoint = 1 m_nVectorComponent = 1 }
+        m_flLuminaireRadius = { m_nType = "PF_TYPE_CONTROL_POINT_COMPONENT" m_nControlPoint = 1 m_nVectorComponent = 2 }
+        m_nOrientationType = "PARTICLE_OMNI2_LIGHT_ORIENTATION_NORMAL"
+        m_vNormal = { m_nType = "PVEC_TYPE_CP_VALUE" m_nControlPoint = 2 }
+        m_flFOVAngle = { m_nType = "PF_TYPE_LITERAL" m_flLiteralValue = 150.0 }
+        m_flBarnNearSizeX = { m_nType = "PF_TYPE_LITERAL" m_flLiteralValue = 64.0 }
+        m_flBarnNearSizeY = { m_nType = "PF_TYPE_LITERAL" m_flLiteralValue = 64.0 }
+        m_flBarnSoftX = { m_nType = "PF_TYPE_LITERAL" m_flLiteralValue = 48.0 }
+        m_flBarnSoftY = { m_nType = "PF_TYPE_LITERAL" m_flLiteralValue = 48.0 }
+        m_flSkirt = { m_nType = "PF_TYPE_LITERAL" m_flLiteralValue = 0.5 }
+        m_bCastShadows = false
+        m_bDynamicBounce = false
+        m_bFog = false
+    } ]
+}

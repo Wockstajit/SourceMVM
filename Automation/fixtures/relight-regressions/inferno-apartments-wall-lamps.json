@@ -1,0 +1,42 @@
+{
+  "map": "de_inferno",
+  "captureSize": [
+    1920,
+    1080
+  ],
+  "environmentPreset": "inferno-apartments-fixed-environment.json",
+  "cameras": [
+    {
+      "lightIndex": 126,
+      "eye": [
+        1120,
+        -63,
+        345
+      ],
+      "angles": [
+        -10,
+        0,
+        0
+      ]
+    },
+    {
+      "lightIndex": 125,
+      "eye": [
+        1120,
+        -180,
+        345
+      ],
+      "angles": [
+        -10,
+        0,
+        0
+      ]
+    }
+  ],
+  "relight": {
+    "gi": 1,
+    "reflections": 1,
+    "shadows": 1
+  },
+  "notes": "Inspect the wall below the shade: the cube-face seam must fade continuously, with no rectangular cutoff. Keep authored light values and shadows enabled."
+}

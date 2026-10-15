@@ -1,0 +1,23 @@
+// afx_blit_ps_5_0: opaque full-frame texture blit for the camera-editor preview
+// viewport scaler (AfxHookSource2/ViewportScaler.cpp).
+//
+// Mirrors afx_drawtexture_ps_5_0 but WITHOUT its alpha clip. The scaler samples a
+// copy of the whole rendered backbuffer, whose alpha channel is undefined for a
+// full-frame copy; the drawtexture clip(alpha < 0.004) would therefore punch black
+// holes into the scaled preview. This shader forces opaque output so the scaled
+// frame is written solid into the preview rect. Pairs with afx_drawtexture_vs_5_0
+// (identity matrix -> screen-space NDC pass-through).
+
+Texture2D texture0;
+SamplerState sampler0;
+
+struct PS_INPUT
+{
+	float4 xyzw : SV_POSITION;
+	float2 t0 : TEXCOORD0;
+};
+
+float4 main( PS_INPUT i ) : SV_TARGET
+{
+	return float4(texture0.Sample(sampler0, i.t0).rgb, 1);
+}

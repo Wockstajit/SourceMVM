@@ -1,0 +1,35 @@
+[submodule "prop"]
+	path = Deps/release/prop
+	url = https://github.com/Wockstajit/advancedfx-prop.git
+	branch = codex/cs2-console-registration
+[submodule "shared/easywsclient"]
+	path = Deps/release/easywsclient
+	url = https://github.com/advancedfx/easywsclient.git
+	branch = upstream
+[submodule "shared/Detours"]
+	path = Deps/release/Detours
+	url = https://github.com/advancedfx/Detours
+	branch = upstream
+[submodule "shared/halflife"]
+	path = Deps/release/halflife
+	url = https://github.com/advancedfx/halflife.git
+	branch = advancedfx
+[submodule "contrib"]
+	path = Deps/release/contrib
+	url = https://github.com/advancedfx/contrib.git
+	branch = main
+[submodule "l10n"]
+	path = Deps/release/l10n
+	url = https://github.com/advancedfx/l10n.git
+	branch = main
+[submodule "deps/wxl-po-tools"]
+	path = Deps/dev/wxl-po-tools
+	url = https://github.com/advancedfx/wxl-po-tools.git
+	branch = wix-v5
+[submodule "deps/release/rapidxml"]
+	path = Deps/release/rapidxml
+	url = https://github.com/advancedfx/rapidxml.git
+	branch = upstream
+[submodule "deps/release/injector"]
+	path = Deps/release/injector
+	url = https://github.com/advancedfx/injector.git

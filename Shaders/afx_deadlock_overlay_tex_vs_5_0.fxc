@@ -1,0 +1,37 @@
+// Deadlock in-world overlay, TEXTURED variant: the camera-marker index digits (CS2 CampathDrawer's
+// "Draw keyframes index", sampled from HLAE's hexfont). Same arrangement as
+// afx_deadlock_overlay_vs_5_0.fxc -- positions arrive already projected to backbuffer pixels by the
+// CPU, read from a StructuredBuffer by SV_VertexID because Deadlock's render command list must never
+// see a vertex-buffer binding -- plus a texture coordinate into the digit atlas.
+
+cbuffer VS_CONSTANT_BUFFER : register(b0)
+{
+	float2 cBackbufferSize;
+	float2 cPad;
+};
+
+struct OverlayTexVertex
+{
+	float2 posPixel;
+	float2 uv;
+};
+
+StructuredBuffer<OverlayTexVertex> VertexData : register(t0);
+
+struct VS_OUTPUT
+{
+	float4 position : SV_POSITION;
+	float2 uv : TEXCOORD0;
+};
+
+VS_OUTPUT main(uint id : SV_VertexID)
+{
+	VS_OUTPUT output;
+	OverlayTexVertex v = VertexData[id];
+	float2 ndc = float2(
+		(v.posPixel.x / cBackbufferSize.x) * 2.0 - 1.0,
+		1.0 - (v.posPixel.y / cBackbufferSize.y) * 2.0);
+	output.position = float4(ndc, 0.0, 1.0);
+	output.uv = v.uv;
+	return output;
+}

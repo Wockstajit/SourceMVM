@@ -1,0 +1,289 @@
+@font-face { font-family: 'Stratum2Mono'; src: url('../fonts/stratum2mono-regular.otf') format('opentype'); font-display: block; }
+/* Base styling for emulated Panorama panels, plus the mockup's own chrome.
+   Everything under .stage is the game UI; everything outside it belongs to the harness. */
+
+@font-face { font-family: 'Stratum2'; src: url('../fonts/stratum2-regular.otf') format('opentype'); font-weight: 400; font-display: block; }
+@font-face { font-family: 'Stratum2'; src: url('../fonts/stratum2-medium.otf')  format('opentype'); font-weight: 500; font-display: block; }
+@font-face { font-family: 'Stratum2'; src: url('../fonts/stratum2-bold.otf')    format('opentype'); font-weight: 700; font-display: block; }
+@font-face { font-family: 'Stratum2 Mono'; src: url('../fonts/stratum2mono-regular.otf') format('opentype'); font-display: block; }
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: #0a0c10; color: #c8d3df;
+  font-family: 'Stratum2', 'Arial Unicode MS', system-ui, sans-serif;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- harness chrome */
+
+#app { display: flex; height: 100vh; }
+
+#sidebar {
+  width: 268px; flex: 0 0 268px; background: #0c0e12; border-right: 1px solid #ffffff14;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#sidebar h1 {
+  margin: 0; padding: 14px 16px 10px; font-size: 13px; letter-spacing: 2px;
+  color: #eef2f6; font-weight: 700; text-transform: uppercase;
+}
+#sidebar h1 span { color: #f0b323; }
+#sidebody { overflow-y: auto; flex: 1; padding-bottom: 12px; }
+#surfacelist { padding-bottom: 4px; }
+/* The context rows: which Panorama context the stage is standing in. */
+#contexts { padding-bottom: 4px; }
+.ctx-btn {
+  display: block; width: 100%; text-align: left; background: none; border: 0;
+  border-left: 3px solid transparent; color: #c8d3df; padding: 6px 16px;
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+.ctx-btn:hover { background: #ffffff0e; }
+.ctx-btn.active { background: #f0b32318; border-left-color: #f0b323; color: #eef2f6; }
+.ctx-btn .note { display: block; font-size: 10px; color: #6b7480; margin-top: 2px; line-height: 1.35; }
+#jumps summary { cursor: pointer; list-style: none; }
+#jumps summary::-webkit-details-marker { display: none; }
+#jumps summary::before { content: 'B8  '; color: #6b7480; }
+#jumps[open] summary::before { content: 'BE  '; }
+.action-owner { padding: 8px 16px 2px; font-size: 10px; color: #8b95a1; letter-spacing: 1px; text-transform: uppercase; }
+.group-label {
+  padding: 12px 16px 6px; font-size: 10px; letter-spacing: 2px; color: #6b7480;
+  text-transform: uppercase; font-weight: 700;
+}
+.surface-btn {
+  display: block; width: 100%; text-align: left; background: none; border: 0;
+  border-left: 3px solid transparent; color: #c8d3df; padding: 8px 16px;
+  font: inherit; font-size: 13px; cursor: pointer;
+}
+.surface-btn:hover { background: #ffffff0e; }
+.surface-btn.active { background: #f0b32318; border-left-color: #f0b323; color: #eef2f6; }
+.surface-btn .note { display: block; font-size: 10px; color: #6b7480; margin-top: 2px; line-height: 1.35; }
+.surface-btn .lines { float: right; font-size: 10px; color: #6b7480; }
+
+#controls { border-top: 1px solid #ffffff14; padding: 10px 16px; font-size: 11px; }
+#controls label { display: flex; align-items: center; gap: 7px; margin: 5px 0; cursor: pointer; color: #afb9c6; }
+#controls .row { display: flex; gap: 6px; margin-top: 8px; }
+#controls button {
+  flex: 1; background: #ffffff14; border: 1px solid #ffffff1a; color: #eef2f6;
+  padding: 5px; border-radius: 3px; font: inherit; font-size: 11px; cursor: pointer;
+}
+#controls button:hover { background: #ffffff26; }
+#controls button.on { background: #f0b32333; border-color: #f0b323; color: #f0b323; }
+
+/* ---------------------------------------------------------------- the stage */
+
+/* The stage is a fixed 1920x1080 that gets CSS-scaled. A transform does not change layout size,
+   so an unwrapped stage creates a 1920px grid track that overflows and drags the centred result
+   off-screen. #stagewrap carries the SCALED size as its real layout box, and the stage scales from
+   its top-left corner inside it -- so centring and scrolling both work on true dimensions. */
+#viewport { flex: 1; position: relative; overflow: auto; display: grid; place-items: safe center; }
+/* Black behind the plate: outside the preview rect the game shows chrome, never world. */
+#stagewrap { position: relative; background: #000; }
+
+/* The game render behind the UI. A real capture can be dropped in as backdrop.jpg; the gradient
+   stands in for it so panel translucency still reads correctly.
+   It lives INSIDE #stagewrap and is absolute to it, so it covers exactly the game stage. It must
+   never be position:fixed -- that spans the whole window and paints over the sidebar, which reads
+   as a dead empty strip on the left. */
+/* THE PLATE IS THE PREVIEW, NOT THE WHOLE SCREEN.
+   In game the world renders full-screen and a pre-UI blit scales it into the rect the panel
+   publishes as `previewrect`; every pixel outside that rect is our own chrome. Painting the
+   capture across the whole stage instead showed world where the game never does -- the letterbox
+   bands, and the hairline where two chrome panels meet once the stage is scaled to fit. app.js
+   (syncBackdrop) parks this element ON the published rect every frame, so it rescales exactly
+   when the layout does and everything around it is black, as on screen. */
+#backdrop {
+  position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+  background:
+    radial-gradient(120% 90% at 30% 25%, #40484f 0%, #22272d 45%, #12151a 100%);
+  background-size: cover; background-position: center;
+}
+/* The plate is the game render only; CS2's own demo bar is cropped off it because the mockup
+   draws that bar itself, and keeping it in the image rendered two of them stacked. Pinned to the
+   top rather than cover, so the crop lines up with where the bar begins.
+   #backdrop is a SIBLING of .stage, so it never receives the stage's scale transform -- its width
+   has to track that scale itself. It was hard-coded to 1920px, so at Fit (the default, and the
+   only thing you see when the window is smaller than 1920) the capture painted at native size in
+   a box less than half that wide: you got the top-left corner of the frame blown up behind
+   correctly-scaled panels, which reads as the preview having slid sideways. fitStage() writes
+   --shot-w; the 1920px here is only the 100%-zoom fallback. */
+#backdrop.has-image {
+  background-color: #05070a;
+  background-image: var(--shot);
+  /* cover, not a hand-computed width: this element IS the preview rect now, so the capture
+     fills it the way the blit fills that rect on screen. */
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.stage {
+  position: relative; width: 1920px; height: 1080px;
+  transform-origin: top left; overflow: hidden;
+  outline: 1px solid #ffffff14;
+}
+.stage-inner { position: absolute; inset: 0; }
+
+#hostlayer { position: absolute; inset: 0; }
+
+#errorbox {
+  position: absolute; left: 0; right: 0; bottom: 0; max-height: 42%; overflow: auto;
+  background: #2a0d0dee; border-top: 2px solid #c92a2a; color: #ffb4b4;
+  padding: 10px 14px; font-family: 'Stratum2 Mono', ui-monospace, monospace; font-size: 12px;
+  white-space: pre-wrap; display: none;
+}
+
+#devpanel {
+  width: 340px; flex: 0 0 340px; background: #0c0e12; border-left: 1px solid #ffffff14;
+  display: none; flex-direction: column; overflow: hidden;
+}
+#devpanel.open { display: flex; }
+#devtabs { display: flex; border-bottom: 1px solid #ffffff14; }
+#devtabs button {
+  flex: 1; background: none; border: 0; border-bottom: 2px solid transparent; color: #6b7480;
+  padding: 9px 4px; font: inherit; font-size: 11px; letter-spacing: 1px; cursor: pointer;
+  text-transform: uppercase;
+}
+#devtabs button.active { color: #f0b323; border-bottom-color: #f0b323; }
+.devpane {
+  display: none; flex: 1; overflow: auto; padding: 8px 12px;
+  font-family: 'Stratum2 Mono', ui-monospace, monospace; font-size: 11px; line-height: 1.5;
+  color: #9aa5b1; white-space: pre-wrap; word-break: break-word;
+}
+.devpane.active { display: block; }
+.devpane .cmd { color: #80bdff; }
+.devpane .miss { color: #e8b339; }
+
+/* ---------------------------------------------------------------- panel base */
+
+/* A stacking panel is a single-cell grid. The track is left AUTO on purpose: it absorbs the
+   parent's free space when the parent has a definite size (so `horizontalAlign: right` reaches the
+   real right edge and `height: 100%` means the full panel), and collapses to content when it does
+   not (so a panel with no explicit size still fits its children, as Panorama's does). Pinning
+   align-content/justify-content to `start` here breaks both halves of that. */
+/* Panorama keeps a label string exactly as authored -- the Customize header separator is
+   literally "  ·  ", and HTML would collapse those pad spaces away, closing the gap around
+   the dot. pre-wrap preserves them and still wraps at the panel width, which is what the
+   engine does; a panel that wants nowrap sets it explicitly and overrides this. */
+/* Panorama has no text selection: dragging across a panel in game selects nothing, and a slider
+   drag that starts on a label has to stay a slider drag. In the browser every label was
+   selectable, so dragging painted a blue selection across the UI. Inputs opt back in. */
+.stage, .stage * { user-select: none; -webkit-user-select: none; }
+.pnl-entry, input, textarea { user-select: text; -webkit-user-select: text; }
+
+.pnl {
+  display: grid;
+  white-space: pre-wrap;
+  /* Chrome's line-height:normal includes the font's line GAP; Panorama's label box does not, so
+     every label came out 1-2px tall and the error accumulated down each flowed column (the FOLLOW
+     inspector ended 6px low). 1.19 is measured, not guessed: it is the ratio that best fits the
+     game's own reported label heights at 11/15/16px (13/18/19px) across a paired dump. */
+  line-height: 1.19;
+  position: relative;
+  flex-shrink: 0;
+  font-family: inherit;
+  color: inherit;
+  /* A Panorama panel is NEVER enlarged by what is inside it: width:100% means exactly the parent's
+     width and oversized children simply overflow. A CSS grid/flex item defaults to
+     min-width/min-height:auto, which is its content's minimum -- so width:100% lost, and a root
+     holding a child wider than the screen grew to fit it.
+     That is not cosmetic. CameraEditorJs.h measures the root every frame (rw =
+     root.actuallayoutwidth) and CameraEditorRenderLayoutJs.h places the render column at
+     rootWidth - setW; a root that grows to fit its children feeds its own width back in, so the
+     column marched further right on every frame (1978 -> 2050 -> 2129px) and the RENDER panel
+     ended up off the side of the screen. Panorama has no such loop because the root cannot grow. */
+  min-width: 0;
+  min-height: 0;
+}
+
+/* A panel's own text node. grid-area keeps it in the same stacking cell any child panels use,
+   so a Label that also has children behaves like Panorama's does. */
+/* An empty Panorama Label still occupies a full line box; an empty inline span in CSS collapses
+   to zero. That silently ate 16px per empty label, and in a flowed column (the SHORTCUTS list)
+   the error stacked up until everything below it sat 10px high. A zero-width space restores the
+   line box without adding anything visible. */
+.pnl-text:empty::before { content: '\200B'; }
+
+.pnl-text {
+  grid-area: 1 / 1;
+  min-width: 0;
+  /* Not hidden by default: Panorama lets an unconstrained label overflow rather than cutting it,
+     and Chrome measures text a few px wider than Panorama does, so a blanket clip ate the last
+     character of labels that fit perfectly well in game. .pnl-cliptext opts in, set by the shim
+     wherever the source actually asks for text-overflow. */
+  overflow: visible;
+  text-overflow: inherit;
+  white-space: inherit;
+  text-align: inherit;
+  letter-spacing: inherit;
+  align-self: center;
+}
+
+.pnl-context { font-size: 14px; }
+
+/* hittest=false is about THIS panel only (see the setter in panorama.js): the panel itself lets
+   clicks through, its children keep theirs. Restoring the direct children is enough -- everything
+   below them inherits 'auto' again from there. */
+.pnl-nohit > .pnl, .pnl-nohit > .pnl-text { pointer-events: auto; }
+.no-hit-children > .pnl { pointer-events: none; }
+.pnl-disabled { opacity: 0.45; pointer-events: none; }
+
+/* Panorama tints panel content with washColor; approximated as an overlay so a tinted icon still
+   reads as tinted rather than silently rendering untinted. */
+/* Panorama multiplies a panel by its wash colour; the multiply must see the panel's OWN
+   content (its background, its video layer) and nothing behind it, so the panel is isolated. */
+.pnl-wash { isolation: isolate; }
+.pnl-wash::after {
+  content: ''; position: absolute; inset: 0; background: var(--wash);
+  mix-blend-mode: multiply; pointer-events: none;
+}
+
+/* Engine-only image paths (file://{images}/..., s2r://) cannot resolve in a browser. Mark them
+   instead of leaving a silent blank, so a missing icon is never mistaken for a layout bug. */
+.pnl-noimg::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(45deg, #ffffff10 0 6px, #ffffff04 6px 12px);
+  border: 1px dashed #ffffff26;
+}
+
+.pnl-Slider { display: block; }
+.pnl-slider { width: 100%; height: 100%; margin: 0; accent-color: #f0b323; }
+.pnl-entry {
+  width: 100%; height: 100%; background: #00000055; border: 1px solid #ffffff26;
+  color: inherit; font: inherit; padding: 0 6px; border-radius: 2px;
+}
+.pnl-checked { }
+
+#actions { border-top: 1px solid #ffffff14; padding-bottom: 8px; }
+.action-btn {
+  display: block; width: calc(100% - 24px); margin: 3px 12px; padding: 5px 8px; text-align: left;
+  background: #ffffff10; border: 1px solid #ffffff1a; border-radius: 3px;
+  color: #c8d3df; font: inherit; font-size: 11px; cursor: pointer;
+}
+.action-btn:hover { background: #f0b32326; border-color: #f0b32366; color: #eef2f6; }
+
+/* Animated panel surfaces (Panorama plays a .webm as a panel background). It sits UNDER the
+   panel's own children, never intercepts clicks, and is clipped by the panel's corners. */
+/* The media layer: the video plus, when the source asks for one, its wash. Isolated so the
+   multiply sees the video and nothing behind the panel; opacity here is Panorama's
+   background-img-opacity, which belongs to this layer and not to the panel. */
+.pnl-videowrap { position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  border-radius: inherit; overflow: hidden; }
+.pnl-washmedia { isolation: isolate; }
+.pnl-washmedia::after { content: ''; position: absolute; inset: 0;
+  background: var(--wash); mix-blend-mode: multiply; pointer-events: none; }
+
+.pnl-video {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; pointer-events: none; z-index: 0; border-radius: inherit;
+}
+.pnl > .pnl-text, .pnl > .pnl { position: relative; z-index: 1; }
+
+.pnl-cliptext > .pnl-text { overflow: hidden; }
+
+/* Stand-in for the native 3D character panel (shim/preview3d.js). Fills the panel the script
+   sized; the script's own transform (PREVIEW_FIT_SCALE / offsets) applies to it as in game. */
+.mvm-preview3d { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.mvm-preview3d > canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.mvm-preview3d-portrait { position: absolute; left: 50%; bottom: 0; height: 78%; transform: translateX(-50%);
+  object-fit: contain; }

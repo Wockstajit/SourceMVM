@@ -1,0 +1,17 @@
+{
+  "map": "de_inferno",
+  "cameraEye": [-335.047241, -110.141296, 86.0],
+  "cameraAngles": [-6.740799, -0.514984, 0.0],
+  "captureSize": [1600, 1200],
+  "environmentPreset": "inferno-street-environment.json",
+  "relight": {"gi": 1, "giscale": 1, "reflections": 1, "shadows": 1, "sunscale": 1},
+  "regions": {
+    "window": [574, 542, 634, 680],
+    "gunInterior": [918, 804, 939, 828],
+    "upperShutter": [1005, 43, 1100, 173],
+    "leftGround": [200, 920, 470, 980],
+    "rightWall": [1420, 810, 1510, 865]
+  },
+  "comparisonImage": "../../../Docs/effects/images/lighting-flicker-before-after.png",
+  "notes": "Original comparison uses CT USP-S, viewmodel_fov 68, offsets 0/2/-2, preset 1. Hold the camera with mirv_input; capture native game pixels. Foliage, clouds, weapon silhouette and direct animated shadows can legitimately change."
+}

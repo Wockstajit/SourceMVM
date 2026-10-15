@@ -1,0 +1,109 @@
+name: Bug report
+description: Report a reproducible problem with SOURCE:MVM
+title: "[Bug]: "
+labels: ["type: fix"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search open and closed issues first. Remove personal data before you post: Windows user names
+        in paths, Steam IDs, webhook URLs, tokens, and private demo files.
+
+        **Security problems do not belong here.** Report them privately through
+        [GitHub Security Advisories](https://github.com/Wockstajit/Source-MVM/security/advisories/new).
+
+  - type: input
+    id: version
+    attributes:
+      label: SOURCE:MVM version
+      description: The launcher version (for example 0.1.9), shown in the app or the installer name.
+      placeholder: "0.1.9"
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 23H2 (build 22631)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: game
+    attributes:
+      label: Game
+      options:
+        - CS2
+        - Deadlock
+        - Launcher only
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: game-version
+    attributes:
+      label: Game version or build
+      description: The CS2 or Deadlock build number, if you know it.
+
+  - type: dropdown
+    id: update
+    attributes:
+      label: Did a game update happen shortly before the problem started?
+      options:
+        - "Yes"
+        - "No"
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Launch with ...
+        2. Open ...
+        3. Click ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste only logs you have checked. Remove paths that contain your user name.
+      render: text
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or video
+      description: Drag files into this box. Do not upload private demos.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched open and closed issues for this problem.
+          required: true
+        - label: I removed personal data, webhook URLs, tokens, and private files from what I pasted.
+          required: true
+        - label: This is not a security vulnerability. Those go through the private advisory form.
+          required: true

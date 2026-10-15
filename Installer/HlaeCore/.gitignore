@@ -1,0 +1,4 @@
+bin/*
+obj/*
+HlaeFiles.wxs
+LocaleFiles.wxs

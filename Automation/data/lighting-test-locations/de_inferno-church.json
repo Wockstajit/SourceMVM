@@ -1,0 +1,23 @@
+{
+  "map": "de_inferno",
+  "purpose": "User-selected church fixture shadow comparison",
+  "reportedPosition": [
+    1413.360718,
+    3170.192139,
+    336.374298
+  ],
+  "angles": [
+    13.629454,
+    -176.151932,
+    0
+  ],
+  "capturedAt": "2026-09-30T17:36:02.314Z",
+  "positionConvention": "reportedPosition is the standing camera eye; restoreCommand uses player origin 64 Source units below the eye",
+  "playerOrigin": [
+    1413.360718,
+    3170.192139,
+    272.374298
+  ],
+  "restoreCommand": "setpos_exact 1413.360718 3170.192139 272.374298;setang 13.629454 -176.151932 0",
+  "reportedConsoleCommand": "setpos 1413.360718 3170.192139 336.374298;setang 13.629454 -176.151932 0.000000"
+}

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SOURCE:MVM — In-game UI mockup</title>
+<!-- The stylesheet is cache-busted with the scripts below, for the same reason: a stale sheet next
+     to a fresh shim hides whichever fix lives in the CSS. -->
+<script>document.write('<link rel="stylesheet" href="shim/mockup.css?v=' + Date.now() + '">');</script>
+<script>document.write('<link rel="stylesheet" href="shim/native-menu.css?v=' + Date.now() + '">');</script>
+<!-- three.js renders the stand-in for the native 3D character panel (shim/preview3d.js). Pinned;
+     without a network the previews fall back to the agent's inventory portrait. -->
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app">
+
+  <aside id="sidebar">
+    <h1>SOURCE<span>:</span>MVM UI</h1>
+    <div id="sidebody">
+      <!-- Which Panorama context the stage is standing in. The in-game demo is the default and
+           boots closed, exactly like the game after a demo loads; every workspace is then reached
+           by clicking inside the UI. The two menu rows are different contexts in game. -->
+      <div id="contexts"></div>
+      <!-- Popups, overlays and reported states: the things you cannot reach by clicking. -->
+      <div id="actions"></div>
+      <!-- The legacy per-surface rows, for the headless harness and for jumping straight to a
+           spot. Collapsed: nothing here is needed to walk the UI. -->
+      <details id="jumps"><summary class="group-label">Jump to</summary><div id="surfacelist"></div></details>
+    </div>
+    <details style="margin: 10px 16px; font-size: 12px; color: #9aa4b0; line-height: 1.5">
+      <summary>How edits reach the game</summary>
+      <p>Edit the shared Panorama scripts to change the game. The preview launcher refreshes on save.
+      Apply generated JS drafts back to source, then rebuild and relaunch the game.</p>
+      <p>Mockup HTML/CSS and temporary DevTools edits affect this preview only.</p>
+    </details>
+    <div id="controls">
+      <div class="row"><button id="menu-workshop">Workshop Maps</button><button id="menu-downloaded">Downloaded</button></div>
+      <label>Menu viewport <select id="menu-aspect"><option value="1920">1920 × 1080</option><option value="1440">1440 × 1080 (4:3)</option><option value="1728">1728 × 1080 (16:10)</option></select></label>
+      <div id="menu-preview-status" role="status">Menu actions use local fixture data.</div>
+      <button id="menu-reset">Reset menu fixtures</button>
+      <label><input type="checkbox" id="opt-cursor" checked> UI cursor (G)</label>
+      <label><input type="checkbox" id="opt-demo" checked> Demo context</label>
+      <label><input type="checkbox" id="opt-grid" checked> Show game backdrop</label>
+      <label><input type="checkbox" id="opt-native" checked> Native CS2 demo bar</label>
+      <div class="row">
+        <button id="btn-play">Play</button>
+        <button id="btn-reload">Reload</button>
+        <button id="btn-dev">Dev</button>
+      </div>
+      <div class="row">
+        <button id="zoom-fit" class="on">Fit</button>
+        <button id="zoom-1">100%</button>
+        <button id="zoom-2">200%</button>
+      </div>
+    </div>
+  </aside>
+
+  <main id="viewport">
+    <div id="stagewrap">
+    <div id="backdrop"></div>
+    <div class="stage" id="stage" tabindex="0">
+      <div class="stage-inner">
+        <div id="hostlayer"></div>
+      </div>
+      <div id="errorbox"></div>
+    </div>
+    </div>
+  </main>
+
+  <aside id="devpanel">
+    <div id="devtabs">
+      <button data-pane="log" class="active">$.Msg</button>
+      <button data-pane="cmd">Commands</button>
+      <button data-pane="issues">Gaps</button>
+      <button data-pane="edits">Edits</button>
+    </div>
+    <div class="devpane active" id="pane-log"></div>
+    <div class="devpane" id="pane-cmd"></div>
+    <div class="devpane" id="pane-issues"></div>
+    <div class="devpane" id="pane-edits"></div>
+  </aside>
+
+</div>
+
+<div style="position:fixed;left:276px;bottom:8px;font-size:11px;color:#6b7480;pointer-events:none">
+  <span id="surfacetitle"></span> — <span id="stage-dimensions">1920×1080</span> logical stage
+</div>
+
+<!-- Cache-busted on purpose. A static server sends no Cache-Control, so Chrome keeps the shim
+     and the driver by heuristic freshness: an edit to shim/commands.js then loads next to a
+     freshly extracted panel and a control that was just wired still looks dead. -->
+<script>
+(function () {
+  var v = Date.now();
+  ['shim/panorama.js', 'shim/preview3d.js', 'shim/scene-catalog.js', 'shim/scene-keys.js', 'shim/state.js', 'shim/commands.js', 'shim/native-menu.js', 'app.js', 'compare.js'].forEach(function (s) {
+    document.write('<script src="' + s + '?v=' + v + '"><\/script>');
+  });
+})();
+</script>
+</body>
+</html>

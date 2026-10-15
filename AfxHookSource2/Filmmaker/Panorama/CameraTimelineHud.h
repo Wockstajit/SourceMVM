@@ -1,0 +1,112 @@
+#pragma once
+
+// CameraTimelineHud: a native-CS2-styled camera TIMELINE / scrub bar.
+//
+// Mirrors the proven MovieHud / MarkerHud bridge pattern: a PanoramaBridge pinned
+// to the in-game HUD panel, the panel built ONCE from embedded JS, and a small
+// state JSON pushed each frame. JS buttons / the scrubber emit
+// "mirv_filmmaker camtl ..." console commands (the same back-end as the hotkeys).
+//
+// The "state" attribute is pushed with playhead tick/time, marker list, and
+// transport settings. The old embedded curve view was retired in favor of
+// GraphEditorExperimentHud / GraphEditorJs.
+
+#include "PanoramaBridge.h"
+
+#include <cstdint>
+#include <mutex>
+#include <string>
+#include <vector>
+
+namespace advancedfx { class ICommandArgs; }
+
+namespace Filmmaker {
+
+class CameraTimelineHud {
+public:
+	// Main/UI thread, once per frame from Filmmaker::RunMainThreadFrame.
+	void RunFrame();
+
+	void SetVisible(bool v) { m_visible = v; }
+	void Toggle() { m_visible = !m_visible; }
+	bool Visible() const { return m_visible; }
+
+	// UI-mouse mode: MirvInput is suspended so the OS cursor shows. While the camera
+	// timeline / curve editor is open standalone this is forced on; otherwise it is the
+	// regular native-demo-bar mouse toggle.
+	//
+	// EDITOR-HOSTED exception: inside Camera Editor Mode the cursor is NOT forced -- the
+	// user must still be able to press G to drop into GAME mouse and fly the free cam to
+	// frame a shot. So when hosted the cursor follows the toggle (m_cursor) only.
+	void SetCursor(bool v) { m_cursor = v; }
+	void ToggleCursor() { m_cursor = !m_cursor; }
+	bool Cursor() const { return m_editorHosted ? m_cursor : (m_visible || m_cursor); }
+	bool CursorForced() const { return m_editorHosted ? false : m_visible; }
+
+	// Camera Editor Mode hosting: CameraEditorHud forces this panel open + docked and
+	// owns the gameplay-HUD hide (driven by the "hosted" state flag this pushes to JS).
+	void SetEditorHosted(bool v) { m_editorHosted = v; }
+	bool EditorHosted() const { return m_editorHosted; }
+
+	void SetView(int) { }
+	void ToggleView() { }
+	int View() const { return 0; }
+
+	// The per-keyframe menu (right-click a diamond) is a MODAL surface: while it is up the
+	// wheel belongs to its style list, not to the workspace behind it. The JS publishes the flag
+	// on the panel root; RunFrame reads it back each frame.
+	bool MenuOpen() const { return m_menuOpen; }
+
+	// CS2's native demo bar on screen (client px), as the JS measured it last frame. False while it
+	// is hidden or not found. Click-to-UI-mode's "is this click on the UI" in regular viewing.
+	bool DemoBarRect(float& x0, float& y0, float& x1, float& y1) const {
+		x0 = m_barX0; y0 = m_barY0; x1 = m_barX1; y1 = m_barY1; return m_barValid;
+	}
+
+	// WndProc/input thread: accumulate notches. Main thread: DispatchWheel drains them into the
+	// panel's JS. Same split, and the same reason, as ConfigHud's channel.
+	void PushWheel(int notches);
+
+	void RequestEval(const std::string& js) { m_evalQueue.push_back(js); }
+
+private:
+	void* FindRoot();
+	bool BuildIfNeeded();
+	void Teardown();
+	std::string BuildStateJson();
+	// One-shot after a build: hands the JS the GTA V shake style list from the C++ table, so the
+	// right-click keyframe menu and the engine agree on what index means which style.
+	void PushShakeStyles();
+
+	PanoramaBridge m_bridge;
+	void* m_hudPanel = nullptr; // HUD context we built against (rebuild if it changes)
+	void* m_root = nullptr;     // #CamTimelineRoot
+	short m_symState = -1;
+	short m_symMenuOpen = -1;
+	bool m_menuOpen = false;        // the keyframe menu is up and owns the wheel
+	short m_symBarRect = -1;        // "barrect" -- the JS publishes the native demo bar's box
+	bool m_barValid = false;
+	float m_barX0 = 0, m_barY0 = 0, m_barX1 = 0, m_barY1 = 0;
+	int m_pendingWheel = 0;         // guarded by m_wheelMutex
+	std::mutex m_wheelMutex;
+	void DispatchWheel();           // main thread only
+	bool m_built = false;
+	bool m_visible = false; // hidden until 'camtl open'
+	bool m_cursor = false;  // global freecam cursor mode (G toggles; never opens the editor)
+	bool m_editorHosted = false; // true while hosted inside Camera Editor Mode
+	std::string m_lastState;
+	std::vector<std::string> m_evalQueue;
+};
+
+CameraTimelineHud& CameraTimelineHudRef();
+
+// Console command entry: handles "mirv_filmmaker camtl ...". argc/args/cmd are forwarded
+// from FilmmakerCommand.cpp's dispatcher (args->ArgV(0) == "mirv_filmmaker", ArgV(1) == "camtl").
+void CameraTimeline_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);
+
+// Selects the current (or first) camera-path marker for the editor/timeline, if any exist.
+// Shared by CameraTimelineCommand.cpp ("camtl open/toggle") and CameraEditorCommand.cpp
+// ("editor curveeditor ..."). Returns false (no-op) when the path has no markers.
+bool FocusEditorCameraIfAny();
+
+} // namespace Filmmaker

@@ -1,0 +1,37 @@
+{
+  "map": "cs_office",
+  "physicsDigest": "7192df0922d94b226e150c7efdd72da00218259f9d797f08087e89176dbe0f7f",
+  "poses": [
+    {
+      "identity": "maps/cs_office/entities/default_ents.vents_c:hammer:2:42786:2181",
+      "position": [
+        -843.6812744140625,
+        221.88299560546875,
+        -251.71556091308594
+      ],
+      "kind": "light_barn",
+      "pose": {
+        "camera": [
+          -775.799,
+          289.765,
+          -302
+        ],
+        "angles": [
+          -27.645,
+          -135
+        ],
+        "viewYaw": 270,
+        "validation": {
+          "geometryValid": true,
+          "errors": [],
+          "floorDistance": 66.0,
+          "ceilingDistance": 62.0,
+          "wallClearance": 1024.0,
+          "enclosingDirections": 8,
+          "visualReview": "accepted"
+        }
+      }
+    }
+  ],
+  "evidence": "Automation/output/office-stop008-manual/cs_office-overview.png"
+}

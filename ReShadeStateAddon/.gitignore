@@ -1,0 +1,5 @@
+# Build leftovers from build.ps1 (cl /LD). The .addon64 is the deliverable and IS tracked,
+# because it is deployed into the CS2 game folder and UiInputGate resolves it by name.
+*.obj
+*.lib
+*.exp

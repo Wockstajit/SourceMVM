@@ -1,0 +1,39 @@
+name: Website
+
+# Serves the Website/ folder at https://wockstajit.github.io/SourceMVM/ now that the application
+# source lives in the same repository. Legacy "deploy from a branch" Pages can only publish the
+# repository root or /docs, so the site is deployed from this workflow instead. This requires the
+# repository's Pages source to be set to "GitHub Actions" (Settings > Pages); see Website/README.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Website/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          # Only the page and its media. Website/tools and the README are development files.
+          path: Website
+      - id: deployment
+        uses: actions/deploy-pages@v4

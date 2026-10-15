@@ -1,0 +1,269 @@
+cmake_minimum_required (VERSION 3.24)
+
+project ("AfxHookGoldSrc")
+
+add_library(${PROJECT_NAME} MODULE)
+
+add_dependencies(${PROJECT_NAME}
+    OpenEXR
+)
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    _CRT_SECURE_NO_WARNINGS
+)
+
+# - generate PDB in Release too
+# - enable Hot Reload in Debug
+target_compile_options(${PROJECT_NAME} PRIVATE
+	$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/Zi>
+	$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:/ZI>
+)
+target_link_options(${PROJECT_NAME} PRIVATE
+	$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/DEBUG /OPT:REF /OPT:ICF>
+	$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:/INCREMENTAL>
+)
+
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ./
+    ../
+    ../Deps/release/prop
+    ../Deps/release/halflife/common
+    ../Deps/release/halflife/engine
+    ../Deps/release/halflife/pm_shared
+    ../Deps/release/halflife/public
+    ${AFX_OPENEXR_INCLUDE_DIRECTORIES}
+)
+
+target_link_directories(${PROJECT_NAME} PRIVATE
+    ${AFX_OPENEXR_LINK_DIRECTORIES}
+)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    ${AFX_OPENEXR_LINK_LIBRARIES}
+)
+
+target_sources(${PROJECT_NAME} PRIVATE
+    hooks/client/cstrike/CrossHairFix.cpp
+    hooks/client/cstrike/CrossHairFix.h
+    hooks/client/cstrike/SpectatorFix.cpp
+    hooks/client/cstrike/SpectatorFix.h
+    hooks/client/cstrike/ViewmodelAnimationFix.cpp
+    hooks/client/cstrike/ViewmodelAnimationFix.h
+
+    hooks/client/HookClient.cpp
+    hooks/client/HookClient.h
+
+    hooks/demoplayer/DemoPlayer.cpp
+    hooks/demoplayer/DemoPlayer.h
+
+    hooks/hw/CL_Disconnect.cpp
+    hooks/hw/CL_Disconnect.h
+    hooks/hw/ClientFunctions.cpp
+    hooks/hw/ClientFunctions.h
+    hooks/hw/Host_Frame.cpp
+    hooks/hw/Host_Frame.h
+    hooks/hw/Host_Init.cpp
+    hooks/hw/Host_Init.h
+    hooks/hw/Mod_LeafPvs.cpp
+    hooks/hw/Mod_LeafPvs.h
+    hooks/hw/R_DrawEntitiesOnList.cpp
+    hooks/hw/R_DrawEntitiesOnList.h
+    hooks/hw/R_DrawParticles.cpp
+    hooks/hw/R_DrawParticles.h
+    hooks/hw/R_DrawSkyBoxEx.cpp
+    hooks/hw/R_DrawSkyBoxEx.h
+    hooks/hw/R_DrawViewModel.cpp
+    hooks/hw/R_DrawViewModel.h
+    hooks/hw/R_PolyBlend.cpp
+    hooks/hw/R_PolyBlend.h
+    hooks/hw/R_RenderView.cpp
+    hooks/hw/R_RenderView.h
+    hooks/hw/UnkDrawHud.cpp
+    hooks/hw/UnkDrawHud.h
+
+    hooks/svdll/GiveFnptrsToDll.cpp
+    hooks/svdll/GiveFnptrsToDll.h
+    hooks/svdll/Server_GetBlendingInterface.cpp
+    hooks/svdll/Server_GetBlendingInterface.h
+
+    hooks/gdi32Hooks.cpp
+    hooks/gdi32Hooks.h
+    hooks/HookGameLoaded.cpp
+    hooks/HookGameLoaded.h
+    hooks/HookHl.cpp
+    hooks/HookHl.h
+    hooks/HookHw.cpp
+    hooks/HookHw.h
+    hooks/interface.cpp
+    hooks/interface.h
+    hooks/OpenGl32Hooks.cpp
+    hooks/OpenGl32Hooks.h
+    hooks/user32Hooks.cpp
+    hooks/user32Hooks.h
+
+    AfxGlImage.cpp
+    AfxGlImage.h
+    AfxImageUtils.cpp
+    AfxImageUtils.h
+    AfxMemory.cpp
+    AfxMemory.h
+    AfxSettings.cpp
+    AfxSettings.h
+    AfxSteamLegacy.h
+    aiming.cpp
+    aiming.h
+    camexport.cpp
+    camexport.h
+    camimport.cpp
+    camimport.h
+    CampathDrawer.cpp
+    CampathDrawer.h
+    cmd_tools.cpp
+    cmd_tools.h
+    cmdregister.h
+    cstrike_ch.cpp
+    cstrike_deathmsg.cpp
+    cstrike_smoke.cpp
+    decals_hook.cpp
+    demo_tools.cpp
+    demozoom.cpp
+    disable_spec_menu.cpp
+    film_sound.cpp
+    film_sound.h
+    filming.cpp
+    filming.h
+    forcePlayersSolid.cpp
+    fx_noblend.cpp
+    GameRecord.cpp
+    GameRecord.h
+    GlPrimMods.cpp
+    GlPrimMods.h
+    hl_addresses.cpp
+    hl_addresses.h
+    hlaeFolder.cpp
+    hlaeFolder.h
+    hlsdk.h
+    HltvFix.cpp
+    HltvFix.h
+    ICreateContext.h
+    main.cpp
+    mdt_media.cpp
+    mdt_media.h
+    mirv_campath.cpp
+    mirv_commands.cpp
+    mirv_commands.h
+    mirv_glext.cpp
+    mirv_glext.h
+    mirv_info.cpp
+    mirv_input.cpp
+    mirv_input.h
+    mirv_time.cpp
+    mirv_time.h
+    MirvCommandArgs.cpp
+    MirvCommandArgs.h
+    move_to.cpp
+    newsky.cpp
+    stdafx.cpp
+    stdafx.h
+    Store.cpp
+    Store.h
+    supportrender.cpp
+    supportrender.h
+    sv_hitboxes.cpp
+    sv_hitboxes.h
+    temporary_dominik_0005.cpp
+    variousCommands.cpp
+    zooming.cpp
+    zooming.h
+
+    ../Deps/release/Detours/src/detours.cpp
+    ../Deps/release/Detours/src/detours.h
+    ../Deps/release/Detours/src/detver.h
+    ../Deps/release/Detours/src/disasm.cpp
+    ../Deps/release/Detours/src/disolarm.cpp
+    ../Deps/release/Detours/src/disolarm64.cpp
+    ../Deps/release/Detours/src/disolia64.cpp
+    ../Deps/release/Detours/src/disolx64.cpp
+    ../Deps/release/Detours/src/disolx86.cpp
+    ../Deps/release/Detours/src/image.cpp
+    ../Deps/release/Detours/src/modules.cpp
+
+    ../Deps/release/halflife/utils/common/mathlib.c
+
+    ../Deps/release/rapidxml/rapidxml.hpp
+    ../Deps/release/rapidxml/rapidxml_iterators.hpp
+    ../Deps/release/rapidxml/rapidxml_print.hpp
+    ../Deps/release/rapidxml/rapidxml_utils.hpp
+
+    ../Shared/hldemo/hldemo.h
+    ../Shared/hooks/gameOverlayRenderer.cpp
+    ../Shared/hooks/gameOverlayRenderer.h
+    ../Shared/vcpp/AfxAddr.cpp
+    ../Shared/vcpp/AfxAddr.h
+    ../Shared/AfxConsole.cpp
+    ../Shared/AfxConsole.h
+    ../Shared/AfxDetours.cpp
+    ../Shared/AfxDetours.h
+    ../Shared/AfxGameRecord.cpp
+    ../Shared/AfxGameRecord.h
+    ../Shared/AfxMath.cpp
+    ../Shared/AfxMath.h
+    ../Shared/AfxOutStreams.cpp
+    ../Shared/AfxOutStreams.h
+    ../Shared/binutils.cpp
+    ../Shared/binutils.h
+    ../Shared/bvhexport.cpp
+    ../Shared/bvhexport.h
+    ../Shared/bvhimport.cpp
+    ../Shared/bvhimport.h
+    ../Shared/CamPath.cpp
+    ../Shared/CamPath.h
+    ../Shared/EasySampler.cpp
+    ../Shared/EasySampler.h
+    ../Shared/FileTools.cpp
+    ../Shared/FileTools.h
+    ../Shared/GrowingBuffer.h
+    ../Shared/GrowingBufferPool.h
+    ../Shared/ImageBuffer.h
+    ../Shared/MirvCampath.cpp
+    ../Shared/MirvCampath.h
+    ../Shared/MirvInput.cpp
+    ../Shared/MirvInput.h
+    ../Shared/OpenExrOutput.cpp
+    ../Shared/OpenExrOutput.h
+    ../Shared/RawOutput.cpp
+    ../Shared/RawOutput.h
+    ../Shared/RefCounted.h
+    ../Shared/StringTools.cpp
+    ../Shared/StringTools.h
+    ../Shared/TRefCounted.h
+)
+
+if (MSVC)
+    set_target_properties(${PROJECT_NAME} PROPERTIES CMAKE_CXX_FLAGS  "/Yustdafx.h /FIstdafx.h")
+    set_source_files_properties(
+        stdafx.cpp
+        TARGET_DIRECTORY ${PROJECT_NAME}
+        PROPERTIES COMPILE_FLAGS "/Ycstdafx.h"
+    )
+endif(MSVC)
+
+source_group("AfxHookGoldSrc" REGULAR_EXPRESSION "/AfxHookGoldSrc/")
+source_group("AfxHookGoldSrc/hooks" REGULAR_EXPRESSION "/AfxHookGoldSrc/hooks/")
+source_group("AfxHookGoldSrc/hooks/client/" REGULAR_EXPRESSION "/AfxHookGoldSrc/hooks/client/")
+source_group("AfxHookGoldSrc/hooks/client/cstrike" REGULAR_EXPRESSION "/AfxHookGoldSrc/hooks/client/cstrike")
+source_group("AfxHookGoldSrc/hooks/demoplayer" REGULAR_EXPRESSION "/AfxHookGoldSrc/hooks/demoplayer/")
+source_group("AfxHookGoldSrc/hooks/hw" REGULAR_EXPRESSION "/AfxHookGoldSrc/hooks/hw/")
+source_group("AfxHookGoldSrc/hooks/svdll" REGULAR_EXPRESSION "/AfxHookGoldSrc/hooks/svdll/")
+source_group("deps" REGULAR_EXPRESSION "/Deps/")
+source_group("Deps/release" REGULAR_EXPRESSION "/Deps/release/")
+source_group("Deps/release/Detours" REGULAR_EXPRESSION "/Deps/release/Detours/")
+source_group("Deps/release/Detours/src" REGULAR_EXPRESSION "/Deps/release/Detours/src/")
+source_group("Deps/release/halflife" REGULAR_EXPRESSION "/Deps/release/halflife/")
+source_group("Deps/release/halflife/utils" REGULAR_EXPRESSION "/Deps/release/halflife/utils/")
+source_group("Deps/release/halflife/utils/common" REGULAR_EXPRESSION "/Deps/release/halflife/utils/common/")
+source_group("Deps/release/rapidxml" REGULAR_EXPRESSION "/Deps/release/rapidxml/")
+source_group("shared" REGULAR_EXPRESSION "/Shared/")
+source_group("Shared/hldemo" REGULAR_EXPRESSION "/Shared/hldemo/")
+source_group("Shared/hooks" REGULAR_EXPRESSION "/Shared/hooks/")
+source_group("Shared/vcpp" REGULAR_EXPRESSION "/Shared/vcpp/")

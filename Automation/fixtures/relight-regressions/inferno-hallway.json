@@ -1,0 +1,95 @@
+{
+  "map": "de_inferno",
+  "captureSize": [
+    1920,
+    1080
+  ],
+  "environmentPreset": "inferno-hallway-environment.json",
+  "relight": {
+    "gi": 1,
+    "reflections": 1,
+    "shadows": 1,
+    "sunscale": 1
+  },
+  "cameras": {
+    "user": {
+      "eye": [
+        1265.808228,
+        -150.775146,
+        324
+      ],
+      "angles": [
+        5.205084,
+        139.232483,
+        0
+      ]
+    },
+    "hallwayStep": {
+      "eye": [
+        1245.808228,
+        -150.775146,
+        324
+      ],
+      "angles": [
+        5.205084,
+        139.232483,
+        0
+      ]
+    },
+    "fanDoor": {
+      "eye": [
+        1210,
+        30,
+        324
+      ],
+      "angles": [
+        -15,
+        -160,
+        0
+      ]
+    },
+    "stairNear": {
+      "eye": [
+        1195,
+        195,
+        260
+      ],
+      "angles": [
+        40,
+        45,
+        0
+      ]
+    },
+    "stairDistant": {
+      "eye": [
+        1195,
+        100,
+        324
+      ],
+      "angles": [
+        45,
+        73,
+        0
+      ]
+    }
+  },
+  "walk": {
+    "start": [
+      1265.808228,
+      -150.775146,
+      324,
+      5.205084,
+      139.232483,
+      0
+    ],
+    "finish": [
+      1215.808228,
+      -150.775146,
+      324,
+      5.205084,
+      139.232483,
+      0
+    ]
+  },
+  "notes": "Camera coordinates are eye positions. Engine setpos_exact uses feet; subtract the current view offset when positioning the physical player. Keep game time advancing for fan shadow comparisons."
+}

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-06-30T10:16:27Z",
+  "source": "cosmetics.json skins + items_game paint_kits.use_legacy_model",
+  "weapons": {
+    "7": {
+      "weaponName": "AK-47",
+      "legacyPaint": {
+        "id": 456,
+        "name": "AK-47 | Hydroponic",
+        "useLegacyModel": true
+      },
+      "modernPaint": {
+        "id": 1425,
+        "name": "AK-47 | Crane Flight",
+        "useLegacyModel": false
+      },
+      "skinTestPaint": {
+        "id": 282,
+        "name": "AK-47 | Redline"
+      },
+      "meshTogglePaint": 456,
+      "meshToggleNote": "Apply this paint, then toggle mirv_filmmaker cosmetics mesh modern|legacy. Only body_hd vs body_legacy changes; do not compare two different paints for mesh."
+    },
+    "34": {
+      "weaponName": "MP9",
+      "legacyPaint": {
+        "id": 609,
+        "name": "MP9 | Airlock",
+        "useLegacyModel": true
+      },
+      "modernPaint": {
+        "id": 1388,
+        "name": "MP9 | Bee-Tron",
+        "useLegacyModel": false
+      },
+      "skinTestPaint": {
+        "id": 33,
+        "name": "MP9 | Hot Rod"
+      },
+      "meshTogglePaint": 609,
+      "meshToggleNote": "Apply this paint, then toggle mirv_filmmaker cosmetics mesh modern|legacy. Only body_hd vs body_legacy changes; do not compare two different paints for mesh."
+    },
+    "61": {
+      "weaponName": "USP-S",
+      "legacyPaint": {
+        "id": 637,
+        "name": "USP-S | Cyrex",
+        "useLegacyModel": true
+      },
+      "modernPaint": {
+        "id": 1173,
+        "name": "USP-S | Jawbreaker",
+        "useLegacyModel": false
+      },
+      "skinTestPaint": {
+        "id": 1173,
+        "name": "USP-S | Jawbreaker"
+      },
+      "meshTogglePaint": 637,
+      "meshToggleNote": "Apply this paint, then toggle mirv_filmmaker cosmetics mesh modern|legacy. Only body_hd vs body_legacy changes; do not compare two different paints for mesh."
+    }
+  },
+  "notes": {
+    "paint38": "Paint kit 38 is Glock-18 | Fade (and shared knife Fade). Never use on USP/AK/MP9.",
+    "meshTest": "legacy-vs-modern PAINTS = paint change + mesh. mesh modern|legacy on SAME paint = geometry only."
+  }
+}

@@ -1,0 +1,7 @@
+# Written by Automation/verify/verify-cs2-signatures.py on a fully-clean run.
+# The CS2 build every AOB signature in AfxHookSource2 last verified against.
+# A mismatch with the installed game means the patterns are unverified for it.
+ClientVersion=2000930
+PatchVersion=1.41.9.0
+VersionDate=Oct 08 2026
+SignaturesVerified=82

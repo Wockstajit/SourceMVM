@@ -1,0 +1,32 @@
+# Per-map sky/light resource inventory
+
+Generated from the installed CS2 map VPKs with the Valve Resource Format and Source 2 Viewer CLIs. `Baked sun` is an asset-level classification. The runtime GPU probe is authoritative for the sprite and effect path.
+
+| Map | Sky material | Rotation parameter | Sun entity | Baked sun | Fog | Fog reference | Sun/cascade setup | Baked shadows |
+|---|---|---|---|---|---|---|---|---|
+| de_ancient | materials/skybox/sky_hr_aztec_02_lighting.vmat | no rotation parameter | light_environment | baked sky solar sprite (SolarPosition) | env_cubemap_fog, env_gradient_fog | material=materials/skybox/sky_hr_aztec_02_v1.vmat | light_environment angles=49.999992, 42.999985, 0.0 castshadows="1" brightness=3.8 baked_light_indexing=true | yes |
+| de_anubis | materials/skybox/sky_de_annubis.vmat | no rotation parameter | light_environment | baked sky solar sprite (SolarPosition) | env_cubemap_fog, env_gradient_fog | skyentity=[PR#]default_sky | light_environment angles=61.0, 75.0, 0.0 castshadows="1" brightness=6.35 baked_light_indexing=true | yes |
+| de_cache | materials/de_cache/sky/de_cache_sky_001.vmat | no rotation parameter | light_environment | baked sky solar sprite (SolarPosition) | env_cubemap_fog, env_gradient_fog | skyentity=[PR#]106210_sky | light_environment angles=44.999966, 115.999886, 0.0 castshadows="1" brightness=1.9 baked_light_indexing=true | yes |
+| de_dust2 | materials/skybox/sky_de_dust2.vmat | no rotation parameter | light_environment | no SolarPosition; entity/engine path | env_cubemap_fog | material=materials/skybox/sky_de_dust2.vmat; skyentity=[PR#]dust_sky | light_environment angles=50.0, 43.0, 0.0 castshadows="1" brightness=2.5 baked_light_indexing=true | yes |
+| de_inferno | materials/skybox/test/s2_de_inferno_sky01.vmat | no rotation parameter | light_environment | no SolarPosition; entity/engine path | env_cubemap_fog, env_gradient_fog | skyentity=[PR#]13276_MAT_sky | light_environment angles=62.999996, 218.0, 0.0 castshadows="1" brightness=3.0 baked_light_indexing=true | yes |
+| de_mirage | materials/skybox/sky_de_mirage.vmat | no rotation parameter | light_environment | no SolarPosition; entity/engine path | env_cubemap_fog | skyentity=[PR#]mirage_sky | light_environment angles=60.0, 318.0, 0.0 castshadows="1" brightness=3.0 baked_light_indexing=true | yes |
+| de_nuke | materials/skybox/sky_de_nuke.vmat | no rotation parameter | light_environment | baked sky solar sprite (SolarPosition) | env_cubemap_fog, env_gradient_fog | material=materials/skybox/sky_de_nuke.vmat; skyentity=[PR#]skyibl | light_environment angles=60.0, 25.999996, 0.0 castshadows="1" brightness=2.4 baked_light_indexing=true | yes |
+| de_overpass | materials/skybox/sky_de_overpass_01.vmat | no rotation parameter | light_environment | no SolarPosition; entity/engine path | env_cubemap_fog, env_gradient_fog | skyentity=[PR#]sky | light_environment angles=51.999996, 69.999992, 0.0 castshadows="1" brightness=2.8 baked_light_indexing=true | yes |
+| de_train | materials/skybox/sky_overcast_01.vmat | no rotation parameter | light_environment | baked sky solar sprite (SolarPosition) | env_cubemap_fog, env_gradient_fog | skyentity=[PR#]sky1 | light_environment angles=14.593894, 215.82106, -108.122391 castshadows="2" brightness=0.0 baked_light_indexing=true | yes |
+| de_vertigo | materials/skybox/sky_de_vertigo.vmat | no rotation parameter | light_environment | baked sky solar sprite (SolarPosition) | env_cubemap_fog, env_gradient_fog | skyentity=[PR#]6514_sky | light_environment angles=61.999989, 53.999996, 0.0 castshadows="1" brightness=3.25 baked_light_indexing=true | yes |
+| cs_office | materials/skybox/cs_office_45_0.vmat | no rotation parameter | light_environment | baked sky solar sprite (SolarPosition) | env_cubemap_fog | skyentity=[PR#]sky | light_environment angles= castshadows="2" brightness=0.0 baked_light_indexing=false | yes |
+| cs_italy | materials/skybox/cs_italy_s2_skybox_2.vmat | no rotation parameter | light_environment | no SolarPosition; entity/engine path | env_cubemap_fog | skyentity=[PR#]default_sky | light_environment angles= castshadows="1" brightness="32" baked_light_indexing=true | no/unknown |
+| de_boulder | materials/de_bldr/hdri/bldr_sky.vmat | no rotation parameter | light_environment | no SolarPosition; entity/engine path | env_cubemap_fog, env_gradient_fog | material=materials/de_bldr/hdri/bldr_sky.vmat | light_environment angles=48.000004, 333.0, 0.0 castshadows="1" brightness=3.0 baked_light_indexing=true | yes |
+| de_fachwerk | materials/skybox/fachwerk.vmat | no rotation parameter | light_environment | no SolarPosition; entity/engine path | env_cubemap_fog, env_gradient_fog | material=materials/skybox/fachwerk.vmat | light_environment angles=54.999981, 60.0, 0.0 castshadows="1" brightness=3.5 baked_light_indexing=true | yes |
+| cs_shelter | materials/skybox/skybox_sunset_test.vmat | no rotation parameter | light_environment | no SolarPosition; entity/engine path | env_cubemap_fog | skyentity=[PR#]sky | light_environment angles=35.255917, 146.44278, 0.0 castshadows="1" brightness=4.0 baked_light_indexing=true | yes |
+| ar_baggage | materials/skybox/sky_ar_baggage_01.vmat | no rotation parameter | light_environment | no SolarPosition; entity/engine path | env_cubemap_fog | skyentity=[PR#]6987_sky | light_environment angles= castshadows="2" brightness=5.0 baked_light_indexing=true | yes |
+| ar_pool_day | materials/skybox/poolday_skybox.vmat | no rotation parameter | light_environment | no SolarPosition; entity/engine path | env_cubemap_fog | skyentity=[PR#]17949_2091_envsky | light_environment angles= castshadows="1" brightness=2.0 baked_light_indexing=true | no/unknown |
+| ar_shoots | materials/skybox/sky_hr_aztec_02_lighting.vmat | no rotation parameter | light_environment | baked sky solar sprite (SolarPosition) | env_cubemap_fog, env_gradient_fog | material=materials/skybox/sky_hr_aztec_02_v1.vmat | light_environment angles= castshadows="1" brightness=4.0 baked_light_indexing=true | yes |
+
+## Runtime branch
+
+At runtime the table still drives entity and material discovery. The visible `csgo_effects` sun
+disc always uses Sun yaw and pitch, never Skybox yaw, pitch or mirror, even on maps whose
+asset classification contains `SolarPosition`. That keeps the skybox from moving the sun decal.
+Sky and cubemap-fog transforms share one canonical quaternion. The fog-axis correction is internal
+and is not exposed as a second slider.

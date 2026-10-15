@@ -1,0 +1,242 @@
+[
+  {
+    "map": "cs_office",
+    "eye": [
+      353.0,
+      -520.524719,
+      -94.0
+    ],
+    "angles": [
+      12,
+      135
+    ],
+    "physicsDigest": "7192df0922d94b226e150c7efdd72da00218259f9d797f08087e89176dbe0f7f",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/cs_office-room-2-live.png",
+    "lightIdentity": "maps/cs_office/entities/default_ents.vents_c:hammer:2:42786:1589"
+  },
+  {
+    "map": "de_cache",
+    "eye": [
+      952.117737,
+      -521.882263,
+      1678.000366
+    ],
+    "angles": [
+      12,
+      315
+    ],
+    "physicsDigest": "60b0498c271e4d6051388397d95d87925cd8af17fa95406964c0e7fb9208a179",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/de_cache-room-1-live.png",
+    "lightIdentity": "maps/de_cache/entities/default_ents.vents_c:hammer:106210:80:32926:1203"
+  },
+  {
+    "map": "de_anubis",
+    "eye": [
+      462.117737,
+      1832.882202,
+      26.0
+    ],
+    "angles": [
+      12,
+      135
+    ],
+    "physicsDigest": "8bf5ec32fa634187477073a96ecc907bff5e0baddc8b6b7bf974f77007d9ffb7",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/de_anubis-room-2-live.png",
+    "lightIdentity": "maps/de_anubis/entities/default_ents.vents_c:hammer:2:31041:18912"
+  },
+  {
+    "map": "de_inferno",
+    "eye": [
+      809.007996,
+      1750.327148,
+      209.0
+    ],
+    "angles": [
+      12,
+      180
+    ],
+    "physicsDigest": "71dc502b86bdf44cc2d249f9268141bc7a9db7d8f40c3072b9c2dab74a2c96e8",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/de_inferno-room-2-live.png",
+    "lightIdentity": "maps/de_inferno/entities/default_ents.vents_c:hammer:13103:3:39052"
+  },
+  {
+    "map": "de_mirage",
+    "eye": [
+      -1232.0,
+      -1132.0,
+      -102.0
+    ],
+    "angles": [
+      12,
+      90
+    ],
+    "physicsDigest": "f154e17573280758d421b35f512349cc767b3bf82e2cec31c64a4189816c9c68",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/de_mirage-room-2-live.png",
+    "lightIdentity": "maps/de_mirage/entities/default_ents.vents_c:hammer:2:60417:4807"
+  },
+  {
+    "map": "de_dust2",
+    "eye": [
+      372.226196,
+      2181.129883,
+      -59.670959
+    ],
+    "angles": [
+      12,
+      135
+    ],
+    "physicsDigest": "37e72a9df21dcc5b14a181aabe638ae69f18afac87e513a1ef6cefac110f3c24",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/de_dust2-room-2-live.png",
+    "lightIdentity": "maps/de_dust2/entities/default_ents.vents_c:hammer:2:23513:18328"
+  },
+  {
+    "map": "de_nuke",
+    "eye": [
+      706.520264,
+      885.382263,
+      -414.0
+    ],
+    "angles": [
+      12,
+      180
+    ],
+    "physicsDigest": "d723f5fd585d47b248072a30cc7a5ed1ee3967ba99b7d58464a039770888fe1d",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/de_nuke-room-1-live.png",
+    "lightIdentity": "maps/de_nuke/entities/default_ents.vents_c:hammer:2:61814:39190"
+  },
+  {
+    "map": "de_ancient",
+    "eye": [
+      -1782.848633,
+      78.953659,
+      137.687408
+    ],
+    "angles": [
+      12,
+      135
+    ],
+    "physicsDigest": "4df88b1fa458591da1347fdaca5f0f5723e060dedde9f83205b52b36b21e45e5",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/de_ancient-room-1-live.png",
+    "lightIdentity": "maps/de_ancient/entities/default_ents.vents_c:hammer:28:12"
+  },
+  {
+    "map": "de_train",
+    "eye": [
+      492.016113,
+      739.98407,
+      457.0
+    ],
+    "angles": [
+      12,
+      180
+    ],
+    "physicsDigest": "c2a08453a9d6465d9531c406246382158222606202eb638f011c2323b7169be4",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/de_train-room-1-live.png",
+    "lightIdentity": "maps/de_train/entities/default_ents.vents_c:hammer:22527"
+  },
+  {
+    "map": "de_vertigo",
+    "eye": [
+      -257.377075,
+      -141.356934,
+      11554.0
+    ],
+    "angles": [
+      12,
+      225
+    ],
+    "physicsDigest": "9e0484c0427264b619c776e2ecff18c44c057db94a4c77b7e2b42ad0cdfab3ce",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/de_vertigo-room-2-live.png",
+    "lightIdentity": "maps/de_vertigo/entities/default_ents.vents_c:hammer:2:29793"
+  },
+  {
+    "map": "de_overpass",
+    "eye": [
+      -2131.705566,
+      717.794373,
+      326.0
+    ],
+    "angles": [
+      12,
+      315
+    ],
+    "physicsDigest": "62bc721e250a47031786374022e42424e9eca543b42f0b77ff0277115d4351df",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/de_overpass-room-1-live.png",
+    "lightIdentity": "maps/de_overpass/entities/default_ents.vents_c:hammer:2:62088:3338"
+  },
+  {
+    "map": "de_boulder",
+    "eye": [
+      -196.93396,
+      232.016785,
+      0.0
+    ],
+    "angles": [
+      12,
+      270
+    ],
+    "physicsDigest": "f6216d31ec089f64f14bd43c2a8bb1e64f749b56c71129d0dd43b19104e36dbe",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/de_boulder-room-1-live.png",
+    "lightIdentity": "maps/de_boulder/entities/default_ents.vents_c:hammer:2:11050"
+  },
+  {
+    "map": "de_fachwerk",
+    "eye": [
+      93.21914672851562,
+      -163.42317199707028,
+      162.0
+    ],
+    "angles": [
+      12,
+      180
+    ],
+    "physicsDigest": "1cad1f5f1a3e65745b5148acc1dd3f87afb83865bef43651f8a3da1a47ddb6d8",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/fachwerk-verified-interiors/de_fachwerk-candidate-34-live.png",
+    "lightIdentity": "maps/de_fachwerk/entities/default_ents.vents_c:hammer:2132241"
+  },
+  {
+    "map": "cs_shelter",
+    "eye": [
+      680.0,
+      1544.0,
+      2.0
+    ],
+    "angles": [
+      12,
+      180
+    ],
+    "physicsDigest": "b4dc5136d563f5bcfc5ba7398056f1b1cf4da919944c19a45bdf8d976923de63",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/cs_shelter-room-1-live.png",
+    "lightIdentity": "maps/cs_shelter/entities/default_ents.vents_c:hammer:7136:19368"
+  },
+  {
+    "map": "cs_italy",
+    "eye": [
+      661.0,
+      2293.0,
+      66.0
+    ],
+    "angles": [
+      12,
+      45
+    ],
+    "physicsDigest": "a83f9c5f254bbf788c5ab16e249b6dd17991bf7b8882313d812503762c7594cd",
+    "visualReview": "accepted",
+    "evidence": "Automation/output/interior-lighting-loop/cs_italy-room-1-live.png",
+    "lightIdentity": "maps/cs_italy/entities/default_ents.vents_c:hammer:2:46491:64557"
+  }
+]

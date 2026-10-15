@@ -1,0 +1,380 @@
+{
+  "version": "portable-20260905",
+  "sourceCommit": "acee5469cc8fdbd25177179021fc3ababec4943f",
+  "packages": {
+    "runtime": {
+      "url": "https://github.com/Wockstajit/Source-MVM/releases/download/portable-20260905/source-mvm-runtime-portable-20260905.zip",
+      "sha256": "a1eef8cb86a650a0b789a78e9ab553a73cc5bd42820b740684aa22fef9db60fc",
+      "destination": "build/portable-runtime/bin",
+      "files": [
+        {
+          "sha256": "2e8dfd22601d6e6f4f17b41314593fce60caa8e5a50592b2e9ec95c762c6e758",
+          "path": "SourceMovieMakerHost.exe"
+        },
+        {
+          "sha256": "47f80a95845fea605c139412251d75e7364d650ef6f3c310bc81455ce28f0905",
+          "path": "resources\\hexfont.tga"
+        },
+        {
+          "sha256": "d468e5248ce3ee778c2544b734453dc7e479a200218e5bfc81367a97c645ba6d",
+          "path": "resources\\AfxHookSource2\\snippets\\mirv_script_aim.js"
+        },
+        {
+          "sha256": "9a24b1a6da6231048dd17946d856fb62b8cdb9d7793339f175a4b7a75b510891",
+          "path": "resources\\AfxHookSource2\\snippets\\mirv_script_fov.js"
+        },
+        {
+          "sha256": "0532c57c608c9ceb8555716ac0aa4b46b939cde81480d3b59f6670861df2e80c",
+          "path": "resources\\AfxHookSource2\\snippets\\mirv_script_point.js"
+        },
+        {
+          "sha256": "dfd413dc887d49e96ce92e0099cdc9bec7593c5657811c620ee7ea092286c9a2",
+          "path": "resources\\AfxHookSource2\\snippets\\mirv_script_spec_lock.js"
+        },
+        {
+          "sha256": "3507349cb9f3193a707cceffb66faf6e77084f78b5a8822ea5c867a93dd6b58b",
+          "path": "resources\\AfxHookSource2\\snippets\\mirv_script_view.js"
+        },
+        {
+          "sha256": "ed6517d8d86cf85ab71aad2f60925b9a931e784477a9467005bf6befeb9d549a",
+          "path": "resources\\AfxHookSource2\\snippets\\mirv_script_voice.js"
+        },
+        {
+          "sha256": "c28fdeb116a24ecc6b1cb2e7f55558dd45dc03bd7df96562303547ba4161c980",
+          "path": "resources\\AfxHookSource2\\snippets\\quit-when-demo-is-paused.js"
+        },
+        {
+          "sha256": "221952410a23d6dee9bb7205ff0ddc1f8287b4ff77d5a57d88c3a226a8ad49e7",
+          "path": "resources\\AfxHookSource2\\snippets\\tests\\attachment-test.js"
+        },
+        {
+          "sha256": "aa702c7520494a23f9bef865b1a8039273270732f91e7807233e8b6c96694ae7",
+          "path": "resources\\AfxHookSource2\\snippets\\tests\\cvars-test.js"
+        },
+        {
+          "sha256": "f8a29e342103470c2615b2e29197cbf4373ea788f3f828ae4a25fa6a93cefce0",
+          "path": "resources\\AfxHookSource2\\snippets\\tests\\observer-test.js"
+        },
+        {
+          "sha256": "24edd3ae2ba508b48387b389084034b424000968d6faf0cdc297b270d4c9153f",
+          "path": "resources\\shaders\\afx_blit_ps_5_0.acs"
+        },
+        {
+          "sha256": "f2599227d66aa728195cfd788554d7a3e10d279baca4ac0c7e6bdc1f3292ffd9",
+          "path": "resources\\shaders\\afx_contact_shadow_ps_5_0.acs"
+        },
+        {
+          "sha256": "7bdd9f6ec72e54345d8d6901714cc251f73e5b20a51535f7b062c47e3b243667",
+          "path": "resources\\shaders\\afx_depthms_ps_5_0.acs"
+        },
+        {
+          "sha256": "69236b6738a2569d4e79ee1cfcef50ee65de98548fcb5b4eb557ca8de954b8cd",
+          "path": "resources\\shaders\\afx_depth_ps_5_0.acs"
+        },
+        {
+          "sha256": "c327e169a4b89ee855a4448ea3f1180f8dbcb4dbdcb132e2912b05ee00fc257d",
+          "path": "resources\\shaders\\afx_depth_vs_5_0.acs"
+        },
+        {
+          "sha256": "681ae28c3ebb33676d00f06caa5685e0391442fa0c663af7b4c959e9d1f3b9e6",
+          "path": "resources\\shaders\\afx_drawtexture_ps_5_0.acs"
+        },
+        {
+          "sha256": "e786959a922409e3291569af0e96960c179ff27eae408a9a9132b97d6e37c5e4",
+          "path": "resources\\shaders\\afx_drawtexture_vs_5_0.acs"
+        },
+        {
+          "sha256": "6a70ee4cb185227d82b52af6d19f634691dfe4943e0e139ec908a21ddd1bf4ba",
+          "path": "resources\\shaders\\afx_fisheye_ps_5_0.acs"
+        },
+        {
+          "sha256": "073cfb14f3d1026e3f10592c3e4358a83ad2ab64bfcf6aecb381e39941fef6ee",
+          "path": "resources\\shaders\\afx_line_ps_5_0.acs"
+        },
+        {
+          "sha256": "e1854df037e5d27b301191ea404dcdc1a40b86e9c3cb5a16519dc555ea807a21",
+          "path": "resources\\shaders\\afx_line_vs_5_0.acs"
+        },
+        {
+          "sha256": "1e9115314c55e60a473c06522b529f560d3b041c09fa55e8fe10609846ca1769",
+          "path": "x64\\AfxHook.dat"
+        },
+        {
+          "sha256": "ab811ae4b3a248793111ce0a3606d207ba0752f246a6484af1af813024d34ace",
+          "path": "x64\\AfxHookSource2.dll"
+        },
+        {
+          "sha256": "6b0c4b6372321d49d2e034108d32d6a98c6a14440585fcd177810510fa0f7d6a",
+          "path": "x64\\api-ms-win-core-console-l1-1-0.dll"
+        },
+        {
+          "sha256": "dae23a9777741f98cf74d6cd580e287d459baa81b00a18e9fa9b9db4e52858fc",
+          "path": "x64\\api-ms-win-core-console-l1-2-0.dll"
+        },
+        {
+          "sha256": "276db780115fcb521b5a8761d739f4b8cdcc8ecbfbb14eb6511147d09d79c630",
+          "path": "x64\\api-ms-win-core-datetime-l1-1-0.dll"
+        },
+        {
+          "sha256": "11ef443d9135822786cd08df9d163a2490e0110f770fca808b65448c35239f0e",
+          "path": "x64\\api-ms-win-core-debug-l1-1-0.dll"
+        },
+        {
+          "sha256": "371a57f185e4e777987201c05f405b1d8dfc67c330743306d3d75d982fd9b51a",
+          "path": "x64\\api-ms-win-core-errorhandling-l1-1-0.dll"
+        },
+        {
+          "sha256": "ab9facc89587f2fab21b0e2d85a486c4e63d3ea5fba34d68dfd3fa58d47e4e3f",
+          "path": "x64\\api-ms-win-core-fibers-l1-1-0.dll"
+        },
+        {
+          "sha256": "922917fe51a3feeb52ff197f10879f50a7fbf121fce0a1f30c21978c3beab24e",
+          "path": "x64\\api-ms-win-core-fibers-l1-1-1.dll"
+        },
+        {
+          "sha256": "46dc258e09e89fb0380f79a3068aa4145d3d408673cf5f41c51e4547ca26d678",
+          "path": "x64\\api-ms-win-core-file-l1-1-0.dll"
+        },
+        {
+          "sha256": "a1234096d224a6934926744af585b06e89894936241c94ca96b06e1f3298ff02",
+          "path": "x64\\api-ms-win-core-file-l1-2-0.dll"
+        },
+        {
+          "sha256": "10e950ce9e9805bfec35b66b91f8127befeda2fcd6eb216942a84cbc7fbc731c",
+          "path": "x64\\api-ms-win-core-file-l2-1-0.dll"
+        },
+        {
+          "sha256": "998ea69ed12a6560bfb912168193ccab1765e98ac2dc9ab2ca172c14a599b70a",
+          "path": "x64\\api-ms-win-core-handle-l1-1-0.dll"
+        },
+        {
+          "sha256": "613499df2b19316597f1e95750445948a428baaa00dffb670da63bce5dd6ced5",
+          "path": "x64\\api-ms-win-core-heap-l1-1-0.dll"
+        },
+        {
+          "sha256": "ba0a561a63d7b551152d1ea89321ab14e658322fccff3c2cfb94251c93a2f2ca",
+          "path": "x64\\api-ms-win-core-interlocked-l1-1-0.dll"
+        },
+        {
+          "sha256": "aa4a6c5aa0dea8d9dbd3d18293f407d5a9de4ce10b46d2e30c9db7517edb379f",
+          "path": "x64\\api-ms-win-core-kernel32-legacy-l1-1-1.dll"
+        },
+        {
+          "sha256": "ba3ec15c07bb3a39866e582bf89a9ab9219c7fedcaa1b01a2c481c092cc624c1",
+          "path": "x64\\api-ms-win-core-libraryloader-l1-1-0.dll"
+        },
+        {
+          "sha256": "e3ad26ad119d381a193a205e1b3895187a91f3c990d184089dce2a7e1aecea92",
+          "path": "x64\\api-ms-win-core-localization-l1-2-0.dll"
+        },
+        {
+          "sha256": "19c413b458b1b2a4269173e7515e2a901e604054a3f47e31536b7283bb4a35e8",
+          "path": "x64\\api-ms-win-core-memory-l1-1-0.dll"
+        },
+        {
+          "sha256": "2e8e5d0e95ea5d30ddead534e569a075f0e3264c85f05d363f87a0e114f1865f",
+          "path": "x64\\api-ms-win-core-namedpipe-l1-1-0.dll"
+        },
+        {
+          "sha256": "5687eb9fc4b24d907a7d623bd920307b0ee6eb224c286e322a838e6962148477",
+          "path": "x64\\api-ms-win-core-processenvironment-l1-1-0.dll"
+        },
+        {
+          "sha256": "c58c5344362e34146f5fea2a74a672cd1f0849407dc038526b999285066b6402",
+          "path": "x64\\api-ms-win-core-processthreads-l1-1-0.dll"
+        },
+        {
+          "sha256": "cd94372e7130e95d0c69374535146bf03db6f3544008790bd7729cc9718cf923",
+          "path": "x64\\api-ms-win-core-processthreads-l1-1-1.dll"
+        },
+        {
+          "sha256": "29231f7fd824c891ae1764e5e7fcf7d6da308b9ae1be44158856ac975c9b4cb6",
+          "path": "x64\\api-ms-win-core-profile-l1-1-0.dll"
+        },
+        {
+          "sha256": "85d6d36706f1f88cc2c0facc3044a6ecbefcc568ba365ea91e1924686513269e",
+          "path": "x64\\api-ms-win-core-rtlsupport-l1-1-0.dll"
+        },
+        {
+          "sha256": "dfdb6f7af6f7366558f8b2aebb0819195d49f774518c11219fa015915f0f3c42",
+          "path": "x64\\api-ms-win-core-string-l1-1-0.dll"
+        },
+        {
+          "sha256": "5645a329ba737496f4647be4edc53a0231deb3b401ffa5b84502b953d900e4f2",
+          "path": "x64\\api-ms-win-core-synch-l1-1-0.dll"
+        },
+        {
+          "sha256": "19fd829b16f1fae61f25938a54ea0e771f454b9a5a0cdb3f778a44df2adc926b",
+          "path": "x64\\api-ms-win-core-synch-l1-2-0.dll"
+        },
+        {
+          "sha256": "cea14e6703df736e30b482c13fc3b6ff4a0d1b1c5691806b41f904a2eda62799",
+          "path": "x64\\api-ms-win-core-sysinfo-l1-1-0.dll"
+        },
+        {
+          "sha256": "49e2777982ba0d1816425785f15dc78de653b418038ee30ed6fb77dbf342f9c9",
+          "path": "x64\\api-ms-win-core-sysinfo-l1-2-0.dll"
+        },
+        {
+          "sha256": "5370fdb166f1ba412b29fb0294b453771fb9bb47706117d17f8f1397db388b55",
+          "path": "x64\\api-ms-win-core-timezone-l1-1-0.dll"
+        },
+        {
+          "sha256": "ea4d4b3ed34a8fc4a1e7383f3c88f852176efb59e1912f2305b80f17d9205c62",
+          "path": "x64\\api-ms-win-core-util-l1-1-0.dll"
+        },
+        {
+          "sha256": "04bb5350f298df56698ebb7b64c47677de5c2294aa02af3a394a124b6a295d76",
+          "path": "x64\\api-ms-win-crt-conio-l1-1-0.dll"
+        },
+        {
+          "sha256": "b71ebb3084cb0db116309dbb960024dcb7baefc412ee52a9b655f2775f9dff43",
+          "path": "x64\\api-ms-win-crt-convert-l1-1-0.dll"
+        },
+        {
+          "sha256": "06dc604e1667f49466a7cac48cdde6518c5c76946f35b7816b8bc47204f8142c",
+          "path": "x64\\api-ms-win-crt-environment-l1-1-0.dll"
+        },
+        {
+          "sha256": "7169560bad818df44435c2d8c05300499da0782500f40a64da7405a08de9a8a0",
+          "path": "x64\\api-ms-win-crt-filesystem-l1-1-0.dll"
+        },
+        {
+          "sha256": "bf5211d7b6bceda2bfa532c161f8c522d6b85ef3fc490cc72f8f18bf6cfede47",
+          "path": "x64\\api-ms-win-crt-heap-l1-1-0.dll"
+        },
+        {
+          "sha256": "ce8c4d2f5545767d7af4eb105b01c3bc60e486d778ac6d424bd5671047aa2bc6",
+          "path": "x64\\api-ms-win-crt-locale-l1-1-0.dll"
+        },
+        {
+          "sha256": "dacdb72cbe1d835a4b309d5095a058502c829fa2ec5b19a712001ce7e2720585",
+          "path": "x64\\api-ms-win-crt-math-l1-1-0.dll"
+        },
+        {
+          "sha256": "35840db6a2db22f4ab2262096ff0ae78398397df63df76be79540364c7423b1b",
+          "path": "x64\\api-ms-win-crt-multibyte-l1-1-0.dll"
+        },
+        {
+          "sha256": "533ca4b95ccf06939600f6a6c652fbaaf1d6774c1855efa557bbbd5753db6589",
+          "path": "x64\\api-ms-win-crt-private-l1-1-0.dll"
+        },
+        {
+          "sha256": "4cf9218970ca534921bf90afb831df4e0552eaadc472fdbb8e02b6566a474004",
+          "path": "x64\\api-ms-win-crt-process-l1-1-0.dll"
+        },
+        {
+          "sha256": "d9c556f76da7c9d0b0c801895d9ef0a66380e445ca11d8403f9c84d97d0e6d84",
+          "path": "x64\\api-ms-win-crt-runtime-l1-1-0.dll"
+        },
+        {
+          "sha256": "6e285fb8e04c1a8e8c3fcba4633ad05ac898ec74ba85cf85b4b2e9cb30a7b094",
+          "path": "x64\\api-ms-win-crt-stdio-l1-1-0.dll"
+        },
+        {
+          "sha256": "1a5fea370e605360e321efb0b02069b92ea504dcf418e60e549fff573dfd20a9",
+          "path": "x64\\api-ms-win-crt-string-l1-1-0.dll"
+        },
+        {
+          "sha256": "7f5a449bebeb9bfa7a4f66c04eecf25fa3062f6791f1aa47a513c1b873d46b0d",
+          "path": "x64\\api-ms-win-crt-time-l1-1-0.dll"
+        },
+        {
+          "sha256": "17ab3d88d7888e9c8f73edbf046c7d2a1d33aa7098e720284859ef59304ab3e1",
+          "path": "x64\\api-ms-win-crt-utility-l1-1-0.dll"
+        },
+        {
+          "sha256": "4b831129b3b1a4a1ce3192b4ee30cd3ec6b3a8d2ca1f6f93d29d74c34c75d2ff",
+          "path": "x64\\concrt140.dll"
+        },
+        {
+          "sha256": "e3386a4dfc08a1150db3bea82676a0736b07da9814410d8ae05fed1db6030745",
+          "path": "x64\\Iex-3_3.dll"
+        },
+        {
+          "sha256": "ff68f4e850ef50d45d1a6bbbbcb03d44f11122d0561a6a1403bb445b0c901ace",
+          "path": "x64\\IlmThread-3_3.dll"
+        },
+        {
+          "sha256": "d5ace894dd4d2d4ee5bc6578ee958831efd62140be0ca384e091e08eb729f932",
+          "path": "x64\\Imath-3_1.dll"
+        },
+        {
+          "sha256": "c39458e19bb44e62ab1e6d15abb44720b83a8708bb746fdf570d8f151568d46c",
+          "path": "x64\\injector.exe"
+        },
+        {
+          "sha256": "3aa124022e86fbe72c11c2a334e35eb9f719572e15ac444dd722171cd69ae7ff",
+          "path": "x64\\msvcp140.dll"
+        },
+        {
+          "sha256": "4e34b7175f9760ca58a64e7d693ee1b7df17257706b77e444eeb4ae34a0e322a",
+          "path": "x64\\msvcp140_1.dll"
+        },
+        {
+          "sha256": "5b8a32ddf6ba1134340334deeae4a46841a018e7afc7baa9ee534b2c408fad5b",
+          "path": "x64\\msvcp140_2.dll"
+        },
+        {
+          "sha256": "6b56dcb05ef45f429f777468a93c6a85616990aedfdb0dfe5288b97277882a03",
+          "path": "x64\\msvcp140_atomic_wait.dll"
+        },
+        {
+          "sha256": "14c8caf37ab165ff6d8707d761d6b93cf6e85c77dd5c23d66e06a1861ae60a61",
+          "path": "x64\\msvcp140_codecvt_ids.dll"
+        },
+        {
+          "sha256": "b4e8b5ca9480b3c50db789cb0f6c300cb3401751d5b5efed3fa4930a294e4847",
+          "path": "x64\\OpenEXR-3_3.dll"
+        },
+        {
+          "sha256": "be251a55697efa04c27902a957d8072bbf89bc734527f2051fbf55e1072c60ab",
+          "path": "x64\\OpenEXRCore-3_3.dll"
+        },
+        {
+          "sha256": "609c288114671f1dea1602039e30f67a11718ac3a943cddf993087233624bf97",
+          "path": "x64\\ucrtbase.dll"
+        },
+        {
+          "sha256": "d2a2594fdfcf5fa588f5326cfcd3e7b7e17221f84f2aafdc6bdd928c9ad54f95",
+          "path": "x64\\vccorlib140.dll"
+        },
+        {
+          "sha256": "bdf138419212f885be2db487f586a1b5b7efacdbe076a9be971e322b6a2c8fc3",
+          "path": "x64\\vcruntime140.dll"
+        },
+        {
+          "sha256": "b4ec274497a2981e660c89207e5bbb48265bb7d981631d00ce74ff1a26f9f62a",
+          "path": "x64\\vcruntime140_1.dll"
+        },
+        {
+          "sha256": "ca8bb0cba08892dd77ee0ca8b9ac8ac6924267c931a1b8e5f773b8632dfeb657",
+          "path": "x64\\FilmmakerDemoInfo\\FilmmakerDemoInfo.exe"
+        },
+        {
+          "sha256": "5f0be6f2b288501c79613c85bfde0a9764d433dcf7bb9c55aea5199fc1dbb2ab",
+          "path": "x64\\FilmmakerDemoRepair\\FilmmakerDemoRepair.exe"
+        }
+      ]
+    },
+    "dlss": {
+      "url": "https://github.com/Wockstajit/Source-MVM/releases/download/portable-20260905/source-mvm-dlss-portable-20260905.zip",
+      "sha256": "79332cc9353bcd719cc2cef048e3d7bc13102e832b8519eec21ded9e793ee087",
+      "destination": "build/dlss5-downloads",
+      "files": [
+        {
+          "sha256": "1d855cf226857dce890cffbf7206ba9b6497ce1d471b217c1c8b44b6cd5d27e9",
+          "path": "renodx-dlss.addon64"
+        },
+        {
+          "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7",
+          "path": "reshade\\ReShade64.dll"
+        },
+        {
+          "sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e",
+          "path": "runtime\\nvngx_dlssnr.dll"
+        }
+      ]
+    }
+  }
+}

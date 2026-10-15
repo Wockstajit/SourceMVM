@@ -1,0 +1,22 @@
+{
+  "updated": "2026-10-10",
+  "addon": {
+    "file": "renodx-dlss.addon64",
+    "sha256": "F43A19C7DEBE2225AEEE68B23B804939F2222E128775080F09F18D09B83D1736",
+    "size": 3013120,
+    "build": "2026-10-04T00:41:17"
+  },
+  "runtimes": {
+    "NVIDIA original": {
+      "file": "nvngx_dlssnr.dll",
+      "sha256": "E16BCF15E16E13F527491CDF7845B2FE6521A738D8F7C9C721866A8496E1FC8E",
+      "signature": "Valid"
+    },
+    "RTX 40, 30, 20 compatible": {
+      "file": "nvngx_dlssnr.dll",
+      "sha256": "E67DEE209320CDAFE0E93E45675D7AA34323A53ACC57A72B2E40A181581C989A",
+      "signature": "HashMismatch",
+      "compatibility": "Supplier README claim; not verified on RTX 20/30/40 hardware."
+    }
+  }
+}

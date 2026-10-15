@@ -1,0 +1,29 @@
+// Swap target for SKIP-CLASS elements (decals, detail foliage, ground litter) only.
+//
+// WHY A SECOND MATERIAL. chromakey_unlit gets its dead-flat look from a BLACK colour tint plus a
+// green self-illum term (the render code pokes those at arm time). That is correct for ordinary
+// world draws, whose pipeline honours the self-illum combo. Skip-class elements are frequently
+// drawn by FOREIGN pipelines (csgo_simple, csgo_foliage, decal renderers) that bind our material
+// but have no self-illum combo -- there the black tint is the only term that survives and the
+// element renders BLACK, which is the worst possible result on a chroma plate (measured on
+// de_cache detail foliage 2026-08-20).
+//
+// This variant is therefore green in its ALBEDO and keeps a white colour tint, so any pipeline
+// that samples base colour gets green, with or without self-illum. It is never used for world
+// surfaces, so it cannot reintroduce the lit-term shading that the black tint exists to kill.
+"Layer0"
+{
+	"shader" "csgo_vertexlitgeneric.vfx"
+	"F_DO_NOT_CAST_SHADOWS" "1"
+	"F_SELF_ILLUM" "1"
+	"g_bFogEnabled" "0"
+	"g_flModelTintAmount" "0"
+	"g_flSelfIllumAlbedoFactor" "1"
+	"g_flSelfIllumBrightness" "1"
+	"g_flSelfIllumScale" "1"
+	"g_vColorTint" "[1.000000 1.000000 1.000000 0.000000]"
+	"g_vSelfIllumTint" "[0.000000 1.000000 0.000000 0.000000]"
+	"TextureColor" "[0.000000 1.000000 0.000000 0.000000]"
+	"TextureRoughness" "[1.000000 1.000000 1.000000 0.000000]"
+	"TextureSelfIllumMask" "[1.000000 1.000000 1.000000 0.000000]"
+}

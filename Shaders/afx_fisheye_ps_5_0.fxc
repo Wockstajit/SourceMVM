@@ -1,0 +1,47 @@
+// afx_fisheye_ps_5_0: full-frame barrel ("fisheye") lens distortion for the Action Cam
+// (AfxHookSource2/FisheyePass.cpp).
+//
+// Radial polynomial distortion (Brown-Conrady style, k1/k2 only): each output pixel
+// samples the source frame at a radius scaled by f(r^2) = 1 + k1*r^2 + k2*r^4, with the
+// radius aspect-corrected so the distortion is circular on non-square backbuffers. The
+// factor is normalised against the CORNER's factor so the frame corners map to corners --
+// the image zooms in slightly toward the centre instead of leaving clamped-edge streaks
+// (the sampler is linear CLAMP). Pairs with afx_drawtexture_vs_5_0 (identity matrix ->
+// screen-space NDC pass-through), same as afx_blit_ps_5_0.
+
+cbuffer PS_CONSTANT_BUFFER : register(b0)
+{
+	// x = k1, y = k2 (distortion coefficients, >0 = barrel), z = aspect (width/height), w = unused.
+	float4 params;
+};
+
+Texture2D texture0;
+SamplerState sampler0;
+
+struct PS_INPUT
+{
+	float4 xyzw : SV_POSITION;
+	float2 t0 : TEXCOORD0;
+};
+
+float4 main( PS_INPUT i ) : SV_TARGET
+{
+	float k1 = params.x;
+	float k2 = params.y;
+	float aspect = params.z;
+
+	float2 c = i.t0 - 0.5;
+	c.x *= aspect; // circular radius on a widescreen frame
+
+	float r2 = dot(c, c);
+	float f = 1.0 + r2 * (k1 + k2 * r2);
+
+	// Corner anchor: the corner sits at (0.5*aspect, 0.5) -> rMax^2 = 0.25*(aspect^2+1).
+	float rMax2 = 0.25 * (aspect * aspect + 1.0);
+	float fMax = 1.0 + rMax2 * (k1 + k2 * rMax2);
+
+	c *= f / fMax;
+	c.x /= aspect;
+
+	return float4(texture0.Sample(sampler0, c + 0.5).rgb, 1);
+}
