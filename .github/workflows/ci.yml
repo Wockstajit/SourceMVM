@@ -76,7 +76,7 @@ jobs:
           if [ "$EVENT" = "pull_request" ]; then
             native=false
             pattern='^(AfxHookSource2|Lib|CMake|Deps|Shared|Shaders|ShaderBuilder|FilmmakerDemo[A-Za-z]*Go|Misc|Resources)/|^Automation/(tests|tools)/.*\.(cpp|h|hpp)$|^(CMakeLists\.txt|CMakePresets\.json|Cargo\.toml|Cargo\.lock|\.gitmodules)$|^\.github/workflows/ci\.yml$'
-            if git diff --name-only "$BASE" "$HEAD" | grep -Eq "$pattern"; then native=true; fi
+            if git diff --name-only --no-renames "$BASE" "$HEAD" | grep -Eq "$pattern"; then native=true; fi
           fi
           echo "native=$native" >> "$GITHUB_OUTPUT"
 
