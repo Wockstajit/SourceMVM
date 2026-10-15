@@ -60,7 +60,10 @@ function portableFolder() {
 const portableDir = portableFolder();
 const isPortable = Boolean(portableDir);
 if (isPortable) {
-  app.setPath('userData', path.join(portableDir, 'SourceMovieMaker-data'));
+  // app.setPath is documented to throw for a missing folder, and a fresh zip extraction has none.
+  const dataDir = path.join(portableDir, 'SourceMovieMaker-data');
+  fs.mkdirSync(dataDir, { recursive: true });
+  app.setPath('userData', dataDir);
 }
 
 function defaultSettings() {

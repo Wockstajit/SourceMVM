@@ -21,6 +21,7 @@ test('the portable zip is built from the complete unpacked app and carries the p
 test('the launcher keeps its data beside the exe when portable.flag is present', () => {
   assert.match(main, /portable\.flag/);
   assert.match(main, /SourceMovieMaker-data/);
+  assert.match(main, /mkdirSync\(dataDir, \{ recursive: true \}\);\s*app\.setPath\('userData', dataDir\)/, 'the data folder must exist before setPath');
 });
 test('the zip stays out of the updater feed: the complete build only emits the nsis installer', () => {
   assert.match(bundled, /target: \[\{ target: 'nsis', arch: \['x64'\] \}\]/);
