@@ -56,32 +56,64 @@ jobs:
       - name: Build launcher renderer
         run: npm run build:renderer
 
+  # The native build is the slow job, so it only runs when something it compiles changed. A job
+  # skipped this way counts as passing for `ci-gate`. Pushes and merge groups always build.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      native: ${{ steps.detect.outputs.native }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          native=true
+          if [ "$EVENT" = "pull_request" ]; then
+            native=false
+            pattern='^(AfxHookSource2|Lib|CMake|Deps|Shared|Shaders|ShaderBuilder|FilmmakerDemo[A-Za-z]*Go|Misc|Resources)/|^Automation/tests/.*\.(cpp|h|hpp)$|^(CMakeLists\.txt|CMakePresets\.json|\.gitmodules)$|^\.github/workflows/ci\.yml$'
+            if git diff --name-only "$BASE" "$HEAD" | grep -Eq "$pattern"; then native=true; fi
+          fi
+          echo "native=$native" >> "$GITHUB_OUTPUT"
+
+  # The CS2 hook and its native tests. The inherited HLAE multi-build (Source 1, GoldSrc, win32)
+  # lives in legacy-native.yml and runs nightly instead of on every pull request.
   native-build-windows:
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
     runs-on: windows-2022
     steps:
       # Some osu! easter-egg asset paths exceed Windows' 260-character limit.
       - name: Enable long paths
         run: git config --system core.longpaths true
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          check-latest: true
-      - uses: MinoruSekine/setup-scoop@v4
-
       - name: Update submodules
         run: git submodule update --init --recursive
 
-      - name: Install gettext
-        run: scoop install gettext
+      - name: Cache cargo registry and the Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/x64-source2-release/x64/Release/cargo
+          key: cargo-${{ runner.os }}-${{ hashFiles('Lib/**/Cargo.toml', 'Lib/**/Cargo.lock', 'Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
 
-      # Not needed since we only build Staging
-      #- name: Install WiX Toolset
-      #  run: scoop install wixtoolset
-
-      - name: CMake - Build Staging
-        working-directory: "${{github.workspace}}"
-        run: cmake -DAFX_MULTIBUILD_STAGING=ON -P CMake/MultiBuild.cmake
+      - name: CMake - Configure CS2 hook
+        run: cmake --preset x64-source2-release
+      - name: CMake - Build CS2 hook and native tests
+        run: cmake --build --preset x64-source2-release --parallel
+      # The four D3D11 render fixtures take 17 s to 8 minutes on a real GPU and have no GPU here, so
+      # they stay local checks (ctest on a dev machine) and in-game verification.
+      - name: Native tests
+        run: >-
+          ctest --test-dir build/x64-source2-release -C Release --output-on-failure --timeout 300 --parallel 4
+          -E "^(EnvironmentAtmosphereEdgeTests|EnvironmentRenderTests|RelightProbeGpuTests|EnvironmentVolumeCacheTests)$"
 
   security-license-scan:
     runs-on: ubuntu-latest
@@ -112,6 +144,7 @@ jobs:
   ci-gate:
     if: always()
     needs:
+      - changes
       - docs-integrity
       - panorama-tests
       - launcher-build

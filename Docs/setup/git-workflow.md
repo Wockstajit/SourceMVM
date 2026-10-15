@@ -182,12 +182,14 @@ when it runs on the real codebase.
 | --- | --- | --- |
 | `docs-integrity` | Relative links and documentation consistency (`Automation/tests/documentation-integrity-tests.mjs`) | Yes when docs change |
 | `panorama-tests` | Panorama source and UI interaction tests | Yes for UI changes |
-| `native-build-windows` | Windows CMake build of the changed native targets, including submodules | Yes for native changes |
-| `native-unit-tests` | Relevant CTest suites, including state and math, map extraction, and crash handling | Yes for affected native behavior |
+| `changes` | Decides whether the native build runs: PRs that touch no native source, CMake, or dependency path skip it, and a skipped job passes `ci-gate`. Pushes and merge groups always build | Yes on all PRs |
+| `native-build-windows` | CS2 hook build (`x64-source2-release`, `AfxHookSource2` and the native test targets, with the cargo build cached) followed by the CTest suites, including state and math, map extraction, and crash handling. The four slow D3D11 render fixtures (`EnvironmentAtmosphereEdgeTests`, `EnvironmentRenderTests`, `RelightProbeGpuTests`, `EnvironmentVolumeCacheTests`) are excluded because the runner has no GPU, so run them locally | Yes for native changes |
 | `launcher-build` | Node install, launcher typecheck, and renderer build | Yes for launcher changes |
 | `security-license-scan` | Secrets, private paths, and forbidden tracked files (`Automation/verify/check-repo-policy.mjs --scan`) | Yes on all PRs |
 | `changed-file-policy` | No accidental binaries, large files, or private artifacts in the PR diff (`check-repo-policy.mjs --changed`) | Yes on all PRs |
 | `ci-gate` | Aggregates the checks above and fails if any of them fails | Yes on all PRs |
+
+The inherited HLAE multi-build (Source 1, GoldSrc, win32) is not part of the PR path. `legacy-native.yml` runs it nightly and on demand from the Actions tab.
 
 Mark a job as a required status check only after it exists, runs reliably on PRs, and has passed at least
 once. A conditional check needs an always-running aggregator, or another predictable gate. Otherwise a
