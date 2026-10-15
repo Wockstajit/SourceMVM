@@ -32,6 +32,17 @@ static bool MouseSteeredCamera() {
 		&& !Filmmaker::UiInputGate_Active();
 }
 
+// A click on a workspace in UI mode is the panel's (a keyframe's right-click menu died when the
+// click took the mouse for CS2). A click into the preview switches to GAME mode first
+// (MovieMode::OnUiClick), which captures the mouse there. Kept here, not in the shared
+// MouseCapture.cpp, because these panels exist only in the CS2 hook.
+static void GameClick() {
+	if (Filmmaker::CameraTimeline_WantsCursor() || Filmmaker::MarkerMenu_WantsCursor()
+		|| Filmmaker::CameraEditor_CustomizeModalOpen())
+		return;
+	Filmmaker::MouseCapture_OnGameClick();
+}
+
 // Raw wheel notches the director took from CS2 (WindowInputHooks_FilterRawInput), waiting for the
 // main thread. Signed: +1 per notch up, -1 per notch down. A legacy WM_MOUSEWHEEL for the same
 // physical notch cancels its raw copy, so a notch that arrives both ways is handled once.
@@ -298,7 +309,7 @@ LRESULT CALLBACK new_Afx_WindowProc(
 		}
 		if(Filmmaker::MovieInput_OnMouseButton(0, true)) return 0;
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam)) return 0;
-		Filmmaker::MouseCapture_OnGameClick();
+		GameClick();
 		break;
 	case WM_LBUTTONUP:
 		g_UiCursorProbe.lmb = false; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
@@ -310,7 +321,7 @@ LRESULT CALLBACK new_Afx_WindowProc(
 		g_UiCursorProbe.rmb = true; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
 		if(Filmmaker::MovieInput_OnMouseButton(1, true)) return 0;
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam)) return 0;
-		Filmmaker::MouseCapture_OnGameClick();
+		GameClick();
 		break;
 	case WM_RBUTTONUP:
 		g_UiCursorProbe.rmb = false; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
