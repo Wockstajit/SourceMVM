@@ -55,9 +55,10 @@ void CrashReport_SessionLogLine(const std::string& line);
 // by the main-thread frame: "" when none. For typed bug reports.
 std::string CrashReport_InjectedModules();
 
-// The heartbeat's p95 frame time (ms). A session that crawled is still reported when the player
-// then quits normally: that is how most "it crashed" reports actually ended.
-void CrashReport_NoteFrameTime(double p95Ms);
+// The heartbeat's p95 frame time (ms) over `frames` frames. A session that crawled is still reported
+// when the player then quits normally: that is how most "it crashed" reports actually ended. Startup
+// alone never counts (CrashReportMath IsSlowHeartbeat).
+void CrashReport_NoteFrameTime(double p95Ms, unsigned frames);
 
 // DllMain (detach), client shutdown and a self-terminate: the session ended on purpose, not a
 // crash. A session that crawled keeps its lock, marked as a clean quit, for the next launch.

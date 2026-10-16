@@ -51,6 +51,8 @@ Read from `engine2.dll` (Ghidra) and measured:
 | match, de_mirage (legacy protocol) | 118k | 300 → 522 MB | 3656 | 51 s | (client refuses the protocol) |
 
 **In the product.** The first Watch of a demo plays the normal file (or its repaired copy) at once. In the background, at below-normal priority, it builds `keyframed.dem` in the demo's `source_mvm` project folder. Selecting a demo in the browser starts the build too. Every later play uses the copy. `keyframed.dem.src` stores the size and mtime of the original and of the helper, and the copy is rebuilt when either changes. The copy is not listed as a demo. Camera paths, markers and other sidecars stay keyed to the original.
+When a build fails, the console warning and the crash-report history carry the helper's own last line
+(`FAILED: <reason>`), read from `keyframed.dem.log` beside the copy. The log is deleted after each run.
 
 At most **three** keyframed copies exist. Each is about 1.8× its demo's size. Starting a build for a demo without one first deletes the least recently used others. "Used" is the newer of the project's `project.mvm` (rewritten whenever the demo opens) and the copy itself. A copy that is open in another game instance stays until it is free. `repaired.dem` copies are never pruned.
 

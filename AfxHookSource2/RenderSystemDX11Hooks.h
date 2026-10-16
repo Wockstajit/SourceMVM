@@ -32,6 +32,20 @@ struct RenderHookCost {
     double avgDrawBeginMs = 0, avgDrawExtraMs = 0, avgDrawCasterMs = 0;
 };
 RenderHookCost RenderHookCost_Sample();
+// Shader creation since the hook loaded, in wall milliseconds summed over every creating thread:
+// CS2's own CreatePixelShader/CreateVertexShader calls, and what our detours added on top of them
+// (bytecode inspection and the derived shaders the lighting and smoke paths create). These run on
+// CS2's loader threads during startup and map loads, so the heartbeat shows them beside the
+// loading frames.
+struct RenderShaderCost {
+    unsigned long long shaders = 0;   // pixel and vertex shaders CS2 created
+    double engineMs = 0, hookMs = 0;  // CS2's own creation, our work after it
+    double maxHookMs = 0;             // the slowest single shader's hook work
+};
+RenderShaderCost RenderShaderCost_Sample();
+// Brackets shader creations this thread makes for our own derived programs (a background worker),
+// so they count as neither CS2 shaders nor detour work.
+void RenderShaderCost_OwnWork(bool begin);
 // Always-on, lock-free progress sampled by the main-thread heartbeat. Completed-frame costs
 // stay stale during a render stall; this identifies the active boundary and its wall-clock age.
 struct RenderProgress {

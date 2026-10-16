@@ -902,9 +902,9 @@ void CrashReport_SessionLogLine(const std::string& line) {
 
 std::string CrashReport_InjectedModules() { return g_modules; }
 
-void CrashReport_NoteFrameTime(double p95Ms) {
+void CrashReport_NoteFrameTime(double p95Ms, unsigned frames) {
 	// Only a new worst slow value rewrites the lock (main thread, as the heartbeat is).
-	if (!(p95Ms >= kSlowSessionP95Ms) || p95Ms <= g_worstP95 + 50.0) return;
+	if (!IsSlowHeartbeat(p95Ms, frames) || p95Ms <= g_worstP95 + 50.0) return;
 	g_worstP95 = p95Ms;
 	if (g_sessionStarted) WriteLock();
 }

@@ -22,6 +22,7 @@ constexpr size_t kSessionLogMaxBytes = 32 * 1024 * 1024; // the on-disk mirror o
 constexpr size_t kSessionLogBudget = 768 * 1024;       // its tail, in a next-launch report
 constexpr int kMaxSendsPerLaunch = 3;                  // older pending reports are kept, not sent
 constexpr double kSlowSessionP95Ms = 250.0;            // a heartbeat p95 this slow: the game crawled
+constexpr unsigned kSlowSessionMinFrames = 600;        // ...over at least this many frames
 constexpr int kMaxKeptReports = 10;                    // reports kept on disk (all their files)
 constexpr uint64_t kMaxKeptReportBytes = 200ull * 1024 * 1024; // and at most this much of them
 
@@ -96,6 +97,14 @@ inline bool ParseLock(const std::string& text, uint32_t& pid, int64_t& startUnix
 	pid = uint32_t(p);
 	startUnix = s;
 	return true;
+}
+
+// Whether a heartbeat says the game crawled. Its frame window is the last 4096 presents since the hook
+// loaded, so the first heartbeats hold only CS2's startup: a few long loading frames among a hundred
+// set their p95. Those made normal quits arrive as crash reports (user reports 2026-10-15: one 70 s
+// and one 11 s startup frame, then normal play). A real crawl fills the window with slow frames.
+inline bool IsSlowHeartbeat(double p95Ms, unsigned frames) {
+	return frames >= kSlowSessionMinFrames && p95Ms >= kSlowSessionP95Ms;
 }
 
 // A previous session ended without a clean exit and without the crash handler noticing: it left

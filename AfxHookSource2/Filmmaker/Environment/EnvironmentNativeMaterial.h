@@ -3,6 +3,11 @@
 #include <d3d11.h>
 namespace Filmmaker::Environment {
 void NoteNativeMaterialPixelShader(ID3D11PixelShader*,const void*,size_t);
+// The lighting variants of CS2's material programs are built on a background worker, off CS2's
+// loader threads (EnvironmentNativeMaterial.cpp). For the heartbeat: programs handled, programs
+// still waiting, and the worker's total time.
+struct NativeMaterialDerivation { unsigned long long done=0; size_t queued=0; double workMs=0; };
+NativeMaterialDerivation NativeMaterialDerivationStatus();
 // Writes the bytecode of every clustered-light program seen so far to <directory>/<hash>.dxbc.
 unsigned DumpNativePrograms(const char* directory);
 // Shade the native sky geometry directly, preserving its depth and MSAA coverage.

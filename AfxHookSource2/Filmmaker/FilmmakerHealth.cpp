@@ -223,20 +223,25 @@ void FilmmakerHealth_Heartbeat() {
 	Filmmaker::Environment::NativeMaterialLiveCost(livePrepare, liveAo, liveTotal);
 	unsigned long long ownedBytes = 0; unsigned ownedResources = 0;
 	Filmmaker::RenderOwnedMemory_Totals(ownedBytes, ownedResources);
-	char line[1280];
+	const RenderShaderCost shaders = RenderShaderCost_Sample();
+	const Environment::NativeMaterialDerivation derived = Environment::NativeMaterialDerivationStatus();
+	char line[1408];
 	snprintf(line, sizeof(line),
 		"heartbeat map=%s | frame p50=%.1f p95=%.1f max=%.1f ms over33=%u/%u | hook draw=%.2f (lighting check %.2f redraw %.2f caster %.2f; live %.2f prepare %.2f ao %.2f) present=%.2f env=%.2f ms"
 		" | render phase=%s age=%llu ms frameAge=%llu ms started=%d pumps=%llu/%llu"
-		" | game cpu %.0f%% gpu %.0f%% ram %llu MB (private %llu) vram %llu/%llu MB (hook %llu MB in %u) | system cpu %.0f%% ram free %llu/%llu MB | sampler %.1f ms | %s",
+		" | game cpu %.0f%% gpu %.0f%% ram %llu MB (private %llu) vram %llu/%llu MB (hook %llu MB in %u) | system cpu %.0f%% ram free %llu/%llu MB | sampler %.1f ms"
+		" | shaders %llu engine %.0f ms hook %.0f ms (max %.1f) derived %llu in %.0f ms (%zu queued) | %s",
 		map.c_str(), timing.p50Ms, timing.p95Ms, timing.maxMs, timing.over33, timing.samples,
 		cost.avgDrawHookMs, cost.avgDrawBeginMs, cost.avgDrawExtraMs, cost.avgDrawCasterMs, liveTotal, livePrepare, liveAo, cost.avgPresentHookMs, cost.avgEnvironmentMs,
 		progress.phase, progress.phaseAgeMs, progress.frameAgeMs, progress.started ? 1 : 0,
 		static_cast<unsigned long long>(renderCalls), static_cast<unsigned long long>(mainCalls),
 		sys.gameCpuPercent, sys.gameGpuPercent, sys.gameWorkingSetMb, sys.gamePrivateMb,
 		haveGpu ? gpu.usedBytes >> 20 : 0ull, haveGpu ? gpu.budgetBytes >> 20 : 0ull, ownedBytes >> 20, ownedResources,
-		sys.systemCpuPercent, sys.ramFreeMb, sys.ramTotalMb, sys.sampleMs, Relight::HeartbeatText().c_str());
+		sys.systemCpuPercent, sys.ramFreeMb, sys.ramTotalMb, sys.sampleMs,
+		shaders.shaders, shaders.engineMs, shaders.hookMs, shaders.maxHookMs, derived.done, derived.workMs, derived.queued,
+		Relight::HeartbeatText().c_str());
 	BugReport_Record("health", line);
-	CrashReport_NoteFrameTime(timing.p95Ms);
+	CrashReport_NoteFrameTime(timing.p95Ms, timing.samples);
 }
 
 } // namespace Filmmaker
