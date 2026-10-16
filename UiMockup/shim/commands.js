@@ -396,7 +396,7 @@
       return false;
     }
     if (t[0] === "mirv_filmmaker" && a === "environment") return environment(st, cmd);
-    if (t[0] === 'mirv_filmmaker' && (a === 'scenekeys' || (a === 'grapheditor' && st.uiEditorInspector === 'scene' && ['on','off','toggle'].indexOf(b)<0))) {
+    if (t[0] === 'mirv_filmmaker' && (a === 'scenekeys' || (a === 'grapheditor' && st.uiEditorInspector === 'scene' && ['on','off','toggle','playhead'].indexOf(b)<0))) {
       return global.MvmSceneKeys.run(st, a === 'scenekeys' ? t.slice(2) : ['graph'].concat(t.slice(2)));
     }
 
@@ -756,8 +756,21 @@
     }
 
     if (a === 'follow' && b === 'select') { st.follow.enabled = true; return true; }
+    // DemoScrub.cpp: the demo WORLD follows a drag and lands on the release tick. The mockup's
+    // world is st.tick; the playhead reads the scrub tick while a drag is open.
+    if (a === 'scrub' && (b === 'drag' || b === 'release')) {
+      st.tick = Math.max(0, Math.round(num(c, st.tick)));
+      if (!st.scrubbing) { st.scrubTick = st.tick; st.playhead = st.tick; }
+      return true;
+    }
     if (a === 'grapheditor') {
-      if (b === 'playhead') { st.playhead = Math.round(num(c, st.playhead)); return true; }
+      // GraphEditorExperimentHud::CmdPlayhead, shared by both graph modes: a drag moves the cursor
+      // and the world with it, a release hands the cursor back to the (landed) world tick.
+      if (b === 'playhead') {
+        if (c === 'release') { st.scrubbing = false; st.playhead = st.scrubTick = st.tick; }
+        else { st.playhead = st.scrubTick = Math.max(0, num(c, st.playhead)); st.scrubbing = true; st.tick = Math.round(st.playhead); }
+        return true;
+      }
       // GraphEditorCommand.cpp: the channel list's name (solo) and eye (hide) buttons, and the
       // Smooth / Linear pair. The graph reads `vis` and `solo` off each entry of st.channels.
       if (b === 'chan') {

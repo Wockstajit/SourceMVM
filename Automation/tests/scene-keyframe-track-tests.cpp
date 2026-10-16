@@ -17,6 +17,20 @@ int main(int argc,char** argv) {try {
     const auto& angle=*FindSpec(catalog,"lightDirection.yaw");const auto& toggle=*FindSpec(catalog,"cloudsVisible");
     const auto& asset=*FindSpec(catalog,"sky");
     for(const auto&s:catalog)Check(ValidValue(s,s.initial),"valid catalog default");
+    // Names are what the key changes (CONFIG's own labels), never the id: a missing entry in the
+    // catalog's name table falls back to the id, and "Sun Position yaw" / "Smoke Tint · T" were
+    // what id-derived names looked like.
+    std::set<std::string> seen;
+    for(const auto&s:catalog){
+        Check(!s.label.empty()&&s.label!=s.id&&s.label.find('.')==std::string::npos&&s.label.find("\xC2\xB7")==std::string::npos,("named from CONFIG, not the id: "+s.id).c_str());
+        Check(seen.insert(s.family+"|"+s.label).second,("unique name within its tab: "+s.label).c_str());
+    }
+    auto name=[&](const char* id){const auto* s=FindSpec(catalog,id);return s?s->label:std::string();};
+    auto group=[&](const char* id){const auto* s=FindSpec(catalog,id);return s?s->group:std::string();};
+    Check(name("env.sunAzimuth")=="Sun azimuth"&&name("env.sunElevation")=="Sun elevation","procedural sun named as CONFIG's SKY page");
+    Check(name("sunPosition.yaw")=="Custom sun azimuth"&&name("sunPosition.pitch")=="Custom sun elevation","absolute sun position says azimuth/elevation");
+    Check(name("lightDirection.yaw")=="Sun rotate"&&name("lightDirection.pitch")=="Sun tilt","map sun named as CONFIG's Sun page");
+    Check(group("env.sunAzimuth")=="Sky"&&group("env.fogDensity")=="Fog"&&group("env.snow")=="Ground"&&group("env.bloom")=="Looks","environment groups follow CONFIG's ENVIRONMENT cards");
     SceneKeyframeTrack track;
     track.BeginEdit();track.data.armed.insert(exposure.id);int first=track.Put(exposure,100,{{1},{}});track.EndEdit();
     bool active=true;Check(Sample(exposure,track.data.fields[exposure.id],100,{{3},{}},&active).numbers[0]==3&&!active,"single key follows baseline");
@@ -27,6 +41,15 @@ int main(int argc,char** argv) {try {
     track.BeginEdit();track.selected={first};track.MoveSelected(catalog,100,0);track.EndEdit();Check(track.Find(exposure.id,first)->tick==100,"collision refuses move");
     track.BeginEdit();track.MoveSelected(catalog,10,.2);track.EndEdit();Check(track.Find(exposure.id,first)->tick==110,"move key");
     Check(track.Undo()&&track.Find(exposure.id,first)->tick==100,"undo grouped move");Check(track.Redo()&&track.Find(exposure.id,first)->tick==110,"redo move");
+    // A drag sends the TOTAL offset since the press. A step refused at a collision is not lost:
+    // the next one is measured from the same origin and lands where the pointer is.
+    track.BeginEdit();track.selected={first};
+    track.MoveSelected(catalog,40,0);Check(track.Find(exposure.id,first)->tick==150,"drag offset from press");
+    track.MoveSelected(catalog,90,0);Check(track.Find(exposure.id,first)->tick==150,"collision keeps the last valid position");
+    track.MoveSelected(catalog,95,0);Check(track.Find(exposure.id,first)->tick==205,"past the collision the key is back under the pointer");
+    track.MoveSelected(catalog,95,50);Check(track.Find(exposure.id,first)->value.numbers[0]==exposure.max,"value clamps at the bound");
+    track.MoveSelected(catalog,95,-0.5);Check(std::fabs(track.Find(exposure.id,first)->value.numbers[0]-0.9)<1e-9,"a clamped value comes back without drift");
+    Check(track.EndEdit()&&track.Undo()&&track.Find(exposure.id,first)->tick==110,"one drag is one undo step");
     track.BeginEdit();track.Put(color,100,{{255,0,0,0},{}});track.Put(color,200,{{0,0,255,255},{}});track.Put(toggle,100,{{0},{}});track.Put(toggle,200,{{1},{}});track.Put(asset,100,{{},""});track.Put(asset,200,{{},"night"});track.EndEdit();
     auto c=Sample(color,track.data.fields[color.id],150,color.initial);Check(c.numbers[1]<100&&c.numbers[3]>127&&c.numbers[3]<128,"OKLab and alpha");
     Check(Sample(toggle,track.data.fields[toggle.id],199,toggle.initial).numbers[0]==0,"step holds left");Check(Sample(toggle,track.data.fields[toggle.id],200,toggle.initial).numbers[0]==1,"step exact endpoint");

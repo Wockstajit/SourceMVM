@@ -229,10 +229,16 @@ public:
         }
         selected.clear(); ++revision;
     }
+    // dt/dv are the TOTAL offset since the open edit began (BeginEdit), not a per-frame step. A
+    // drag sends where the pointer is now relative to where it went down, so a step that is
+    // refused (a collision) or clamped (a value bound) is not lost: the next frame is measured
+    // from the same origin and the key lands back under the pointer. Per-frame deltas used to
+    // drop every refused step for good, which left a dragged key drifting away from the cursor.
+    // Outside an open edit the origin is the current data.
     void MoveSelected(const std::vector<ChannelSpec>& catalog, double dt, double dv) {
         if (!std::isfinite(dt) || !std::isfinite(dv)) return;
         // Preserve spacing and reject collisions atomically; no silent loss of sparse fields.
-        TrackData pending = data;
+        TrackData pending = editing ? before : data;
         for (auto& f : pending.fields) {
             const auto* spec = FindSpec(catalog, f.first); if (!spec) continue;
             std::set<double> ticks;

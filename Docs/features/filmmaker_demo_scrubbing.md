@@ -8,7 +8,7 @@ Dragging any timeline playhead moves the demo **world** with it, forward and bac
 | Driver (issues engine commands, main thread) | `AfxHookSource2/Filmmaker/Movie/DemoScrub.cpp` |
 | Keyframed copies (build, cache, play) | `AfxHookSource2/Filmmaker/Demo/DemoKeyframes.cpp`, helper `FilmmakerDemoKeyframesGo/` |
 | Camera timeline slider | `CameraPath.cpp` `ScrubToTick` (drag → `DemoScrub_Drag`, release → `DemoScrub_Release`) |
-| Graph editor ruler | `GraphEditorExperimentHud.cpp` `CmdPlayhead`, `GraphEditorJs.h` release |
+| Graph editor ruler, key jumps and key drags (GRAPH and SCENE GRAPH) | `GraphEditorExperimentHud.cpp` `CmdPlayhead`, `GraphEditorJs.h` `playheadTo` / `releasePlayhead` |
 | CS2's own demo bar | `Panorama/DemoBarScrubJs.h`, injected by `DemoBarButtons.cpp` |
 | Console | `mirv_filmmaker scrub drag <tick>`, `scrub release <tick>`, `scrub status`, `keyframes` |
 
@@ -65,6 +65,7 @@ A controller runs every frame and steers the world toward the playhead. The play
 - **Ahead by up to 16 ticks** (0.25 s): keep the demo playing toward the playhead, at a speed proportional to the gap. It arrives in about 0.12 s and slows as it gets close, clamped to 0.02 to 16×. It pauses the frame it would reach the playhead, at whatever fraction of a tick that is. A slow drag glides. A burst of 90 captured frames during a 6-tick drag changed a little on every frame (median 0.06, largest 0.09 mean pixel difference), with no frozen-then-jump pattern.
 - **Behind by more than a tick, or far ahead:** pause, restore the whole tick before the playhead, then glide in. On a keyframed copy, a restore is one ~80 ms frame, so a backward drag updates about 12 times a second. Less than a tick ahead of the playhead, the world holds, because a restore is not worth doing for a fraction of a tick.
 - **Release:** land on the nearest whole tick. From the glide, that is a `demo_step_tick` to it. From behind, it is a restore 8 ticks short and a played-in step, so the final frame has been played into. One tick past the goal is accepted only after that settle. Then the user's own speed (`DemoTimescale_Get()`) comes back, and playback resumes if the demo was playing when the drag began.
+- **The playhead after a release:** `TimelinePlayhead` holds the released tick while the world travels there, and afterwards while the demo tick stays where it landed, within two ticks. The demo tick still reads the old position mid-seek and can land one past the goal, and the playhead used to show both. Playback, a step, or a scrub toward another tick (CS2's own bar) hands the playhead back to the demo tick. `mvm_debug` logs `playhead.hold` hold, landed and drop lines.
 - **Other seeks:** CS2's own bar seeks on click and release, and other tools seek too. A seek in flight is judged every frame (`JudgeSeek`). If the world moved outside the range between where the seek started and its target, or the demo plays on away from the target, or nothing moved for 20 frames on a keyframed copy (240 without keyframes), the seek is dropped. The controller then aims again from where the world is. A settle step that lands outside its range is dropped the same way.
 - One command is in flight at a time, and the newest drag position always wins. `demo_pause` is a toggle, so a pause is only ever sent while the demo is playing.
 

@@ -25,9 +25,17 @@
 //   * Not scrubbing -> the playhead IS the demo tick. Both panels agree for free.
 //   * Scrubbing     -> the playhead is the dragged tick. The world has not moved yet; whichever
 //                      panel is on screen previews the camera there.
-//   * Release       -> ends the scrub AND seeks the demo to that tick, so the fallback above is
-//                      immediately correct again. Both callers must honour this; a release that
-//                      does not seek re-creates the exact bug this module removes.
+//   * Release       -> ends the scrub AND seeks the demo to that tick (DemoScrub_Release, sent
+//                      BEFORE the release). Both callers must honour this; a release that does
+//                      not seek re-creates the exact bug this module removes.
+//   * Held          -> after a release the playhead keeps reporting the released tick while the
+//                      world travels there, and afterwards while the demo sits where it landed
+//                      (within a tick or two: a seek can land one past). A seek takes frames and
+//                      can end a tick off, and reading the demo tick in that window made the
+//                      playhead jump back for the whole seek and then sit beside the key it was
+//                      sent to -- so the key read as "not here" and a value edit dropped a second
+//                      key one tick away. Playback, a step, or any seek elsewhere moves the demo
+//                      tick and hands the playhead back to it.
 //
 // This owns the CURSOR only -- which tick the user is pointing at. It does not drive the camera,
 // evaluate a pose or touch the engine; CamPlayback::TickScrub and
@@ -40,8 +48,10 @@ namespace Filmmaker {
 // Enter or continue a drag at `tick`. Idempotent; call it for every dragged value.
 void TimelinePlayhead_BeginScrub(double tick);
 
-// Release: fall back to following the demo tick. The CALLER is responsible for seeking the demo
-// to the final tick (CameraPath::ScrubToTick with seek=true, or the graph's demo_gototick).
+// Release: hold the released tick until the demo has landed there, then follow the demo tick (see
+// "Held" above). The CALLER is responsible for seeking the demo to the final tick first
+// (CameraPath::ScrubToTick with seek=true, or the graph's `scrub release`). With no drag open it
+// changes nothing, which is what graph enter/exit/clear rely on when they call it as a reset.
 void TimelinePlayhead_EndScrub();
 
 bool TimelinePlayhead_Scrubbing();

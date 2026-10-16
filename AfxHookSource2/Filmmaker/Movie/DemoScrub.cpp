@@ -169,6 +169,12 @@ void DemoScrub_Release(double tick, bool resume) {
 
 bool DemoScrub_Active() { return g_active; }
 
+bool DemoScrub_Target(double& tick) {
+	if (!g_active) return false;
+	tick = g_target;
+	return true;
+}
+
 void DemoScrub_Cancel() {
 	if (!g_active) return;
 	DemoTimescale_Set(DemoTimescale_Get());
