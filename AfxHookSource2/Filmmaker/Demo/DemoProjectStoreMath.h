@@ -244,4 +244,44 @@ inline bool IsLegacyRepairedFolderName(const std::wstring& folderName) {
 	return WideEqualsI(folderName, L"repaired");
 }
 
+// Where the project key of a playing demo comes from. Project data (campath, loop, scene keys)
+// is keyed by the ORIGINAL demo, never by a copy generated from it: a repaired or keyframed copy
+// inside a project folder maps back through that folder's project.mvm, and a copy in the
+// pre-project <demo dir>\repaired\ folder maps to the same file name one folder up. The caller
+// reads the project file and checks the copy's .src marker (DemoProjectPath.cpp).
+enum class DemoCopySource {
+	None, // a demo of its own: it keys its own project
+	ProjectFolder, // a copy in a project folder: the original is project.mvm's demoPath
+	LegacyRepaired, // a copy in <demo dir>\repaired\: the original is `original`
+};
+
+struct DemoCopyLookup {
+	DemoCopySource source = DemoCopySource::None;
+	std::wstring projectDir; // ProjectFolder: the folder holding project.mvm
+	std::wstring original; // LegacyRepaired: the candidate original demo
+};
+
+inline std::wstring ParentPath(const std::wstring& path) {
+	const size_t pos = path.find_last_of(L"\\/");
+	return pos == std::wstring::npos ? std::wstring() : path.substr(0, pos);
+}
+
+inline DemoCopyLookup PlanDemoCopyLookup(const std::wstring& playingDemoPath) {
+	DemoCopyLookup out;
+	const std::wstring fileName = DemoFileName(playingDemoPath);
+	const std::wstring dir = ParentPath(playingDemoPath);
+	if (fileName.empty() || dir.empty()) return out;
+	if (IsProjectDemoCopyFileName(fileName)) {
+		out.source = DemoCopySource::ProjectFolder;
+		out.projectDir = dir;
+		return out;
+	}
+	if (!IsLegacyRepairedFolderName(DemoFileName(dir))) return out;
+	const std::wstring demoDir = ParentPath(dir);
+	if (demoDir.empty()) return out;
+	out.source = DemoCopySource::LegacyRepaired;
+	out.original = JoinPath(demoDir, fileName);
+	return out;
+}
+
 } // namespace Filmmaker
