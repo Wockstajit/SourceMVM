@@ -21,6 +21,32 @@ void Main(triangle Input input[3],inout TriangleStream<Output> output) {
 }
 )";
 
+// Static-material programs draw the map AND placed CS2 assets. Keep only
+// triangles overlapping a placed asset's world box. The CPU counts three
+// vertices per input triangle, so a rejected triangle stays in the stream as a
+// zero-area point inside the first box: it rasterizes nothing and its bounds
+// stay inside a region that already holds a caster.
+inline constexpr const char* AnimatedCasterPlacedCaptureShader=R"(
+cbuffer NativeView:register(b0) {
+    column_major float4x4 projectionToWorld:packoffset(c4);
+    float4 worldToCameraOffset:packoffset(c24);
+}
+cbuffer PlacedBoxes:register(b1) {uint4 placedCount;float4 placedLow[64];float4 placedHigh[64];}
+struct Input {float4 position:SV_Position;};
+struct Output {float3 position:POSITION;};
+[maxvertexcount(3)]
+void Main(triangle Input input[3],inout TriangleStream<Output> output) {
+    float3 p[3];
+    [unroll]for(uint i=0;i<3;++i){float4 w=mul(projectionToWorld,input[i].position);p[i]=w.xyz/w.w;}
+    const float3 low=min(p[0],min(p[1],p[2])),high=max(p[0],max(p[1],p[2]));
+    bool inside=false;
+    for(uint b=0;b<placedCount.x&&!inside;++b)inside=all(low<=placedHigh[b].xyz)&&all(high>=placedLow[b].xyz);
+    const float3 anchor=(placedLow[0].xyz+placedHigh[0].xyz)*.5;
+    [unroll]for(uint j=0;j<3;++j){Output v;v.position=inside?p[j]:anchor;output.Append(v);}
+    output.RestartStrip();
+}
+)";
+
 // Dither the actual vertex opacity into depth coverage. Endpoints zero and one
 // stay exact; partially faded cables do not become opaque blockers. PCF filters
 // this stable shadow-texel pattern along with the geometric shadow edge.

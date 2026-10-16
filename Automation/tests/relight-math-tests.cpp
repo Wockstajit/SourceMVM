@@ -12,6 +12,44 @@ void Check(bool value, const char* message) {
 }
 bool Near(float a, float b, float epsilon = .001f) { return std::abs(a-b) < epsilon; }
 int main() {
+    using Filmmaker::Relight::Scene;
+    {
+        using namespace Filmmaker;
+        Relight::Scene lighting;lighting.enabled=true;lighting.intensity=0;
+        Environment::Object point;point.id=7;point.kind="point";point.position={10,20,30};
+        point.intensity=2;point.range=400;point.shadows=true;
+        Environment::Object hidden=point;hidden.enabled=false;
+        Environment::Object mesh;
+        Check(Relight::ApplySceneObjectLights(lighting,{point,hidden,mesh},0)==1,"Only enabled scene lights enter native lighting");
+        Check(Relight::HasLocalRadiance(lighting),"Turning off map lights retains placed-light energy");
+        const auto& native=lighting.lights[0];
+        Check(native.identity=="scene:7:0"&&native.sceneObject&&native.runtimeShadows,"Placed light has stable identity and explicit shadow policy");
+        Check(Near(native.position.y,20)&&Near(native.range,400),"Placement and range reach native lighting");
+        const auto record=Relight::ToRecord(native,0);
+        Check(record[40]>0&&Near(record[33],20),"Native material record remains lit with map intensity zero");
+        Check(Relight::StableShadowBudget(lighting.lights,{},4,{})==std::vector<unsigned>{0},"Placed light gets a current shadow slot");
+        Check(Relight::StaticShadowSet(lighting.lights,{},100).empty(),"Editable lights never retain baked cached tiles");
+        auto unshadowed=lighting.lights;unshadowed[0].runtimeShadows=false;
+        Check(Relight::ShadowBudget(unshadowed,{},4).empty(),"Dynamic shadows off releases the light's atlas slot");
+        auto contested=lighting.lights;auto muzzle=contested[0];
+        muzzle.identity="vfx:flash";muzzle.sceneObject=false;muzzle.transient=true;muzzle.position={1,1,1};
+        contested.push_back(muzzle);
+        Check(Relight::ShadowBudget(contested,{},1)==std::vector<unsigned>{0},"A nearer muzzle flash cannot take a placed light's shadow");
+        Check(Relight::StableShadowBudget(contested,{},1,{1})==std::vector<unsigned>{0},"Placed light keeps its slot across frames of gunfire");
+        Environment::Object area=point;area.kind="area";area.cone=60;area.studio.width=120;area.studio.height=60;
+        Relight::Scene panel;panel.enabled=true;
+        Check(Relight::ApplySceneObjectLights(panel,{area},0)==4,"Area light supplies four stable emitter samples");
+        Vec3 center{};float flux=0;
+        for(const auto& light:panel.lights){center=center+light.position*.25f;flux+=light.lumens;
+            Check(light.kind=="light_spot"&&Near(light.outerAngle,30),"Area samples preserve the emission cone");}
+        Check(Near(center.x,10)&&Near(center.y,20)&&Near(center.z,30),"Area samples are centered on the editor position");
+        Check(Near(flux,native.lumens),"Area samples conserve total intensity");
+        area.kind="spot";area.studio.cue=3;area.studio.amount=1;
+        Relight::Scene flash;flash.enabled=true;Relight::ApplySceneObjectLights(flash,{area},.1);
+        Check(!Relight::HasLocalRadiance(flash),"Studio cue dark phase contributes no light");
+        Relight::Scene off;
+        Check(!Relight::ApplySceneObjectLights(off,{point},0)&&off.lights.empty(),"Disabled native lighting keeps the existing overlay path");
+    }
     {
         using namespace Filmmaker::Relight;
         Scene pendingLighting;

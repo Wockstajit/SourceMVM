@@ -41,6 +41,8 @@ struct Light {
     int castShadows = 2;
     bool enabled = true;
     bool transient = false; // VFX emitters need current shadows, never cached map tiles.
+    bool sceneObject = false; // Editable emitters use moving shadows and their own intensity.
+    bool runtimeShadows = true; // Explicit runtime choice; authored castShadows is a bake flag.
     int transientGroup = -1; // Fire patches from one entity share the moving-light budget.
     bool viewmodelEmitter = false; // Emitted by the current first-person attachment.
     float minimumRoughness = .04f;
@@ -327,7 +329,7 @@ inline void ConeFade(float inner,float outer,float& bias,float& scale) {
 // this is not established parity and the global multiplier is the tuning handle.
 inline float Power(const Light &light, float intensity) {
     if (!light.enabled) return 0.f;
-    return light.lumens * light.brightnessScale * intensity * 10.f / SourceRadiusSquared(light);
+    return light.lumens * light.brightnessScale * (light.sceneObject ? 1.f : intensity) * 10.f / SourceRadiusSquared(light);
 }
 
 // Local lights. Omni stays an axis-aligned range box (full sphere). Rect/barn write an
@@ -434,9 +436,9 @@ inline bool HasRadiance(Vec3 radiance) {
     return radiance.x>0||radiance.y>0||radiance.z>0;
 }
 inline bool HasLocalRadiance(const Scene& scene) {
-    if(!scene.localLights||scene.intensity<=0)return false;
-    return std::any_of(scene.lights.begin(),scene.lights.end(),[](const Light& light){
-        return light.enabled&&Power(light,1)>0&&HasRadiance(light.color);
+    if(!scene.localLights)return false;
+    return std::any_of(scene.lights.begin(),scene.lights.end(),[&](const Light& light){
+        return light.enabled&&Power(light,scene.intensity)>0&&HasRadiance(light.color);
     });
 }
 
@@ -451,22 +453,23 @@ inline std::vector<unsigned> ShadowBudget(const std::vector<Light> &lights, Vec3
     std::vector<std::pair<float, unsigned>> ranked;
     for (unsigned i = 0; i < lights.size(); ++i) {
         const auto &light = lights[i];
-        if (!light.enabled || Power(light,1)<=0 || !HasRadiance(light.color)) continue;
+        if (!light.enabled || !light.runtimeShadows || Power(light,1)<=0 || !HasRadiance(light.color)) continue;
         const Vec3 delta{light.position.x - camera.x, light.position.y - camera.y,
                          light.position.z - camera.z};
         const float distance = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
-        ranked.push_back({light.transient ? distance - 100000.f : distance, i});
+        ranked.push_back({light.transient || light.sceneObject ? distance - 100000.f : distance, i});
     }
     std::stable_sort(ranked.begin(), ranked.end(),
                      [](const auto &a, const auto &b) { return a.first < b.first; });
-    // Give every active fire a representative before adding its extra patches.
-    // Ungrouped flashes precede sustained patches so shots cannot be starved.
+    // A placed light is the user's deliberate key light: gunfire must never make
+    // its shadow flicker. Then every active fire gets a representative before
+    // its extra patches; ungrouped flashes precede sustained patches.
     std::vector<std::pair<unsigned,unsigned>> order;
     std::vector<int> groups;
     for(unsigned n=0;n<ranked.size();++n){const auto& light=lights[ranked[n].second];
-        unsigned tier=unsigned(lights.size())+1;
-        if(light.transient){tier=0;if(light.transientGroup>=0){
-            tier=1+unsigned(std::count(groups.begin(),groups.end(),light.transientGroup));
+        unsigned tier=light.sceneObject ? 0u : unsigned(lights.size())+2;
+        if(light.transient){tier=1;if(light.transientGroup>=0){
+            tier=2+unsigned(std::count(groups.begin(),groups.end(),light.transientGroup));
             groups.push_back(light.transientGroup);}}
         order.push_back({tier,n});
     }
@@ -481,17 +484,17 @@ inline std::vector<unsigned> StableShadowBudget(const std::vector<Light>& lights
     const auto ranked=ShadowBudget(lights,camera,unsigned(lights.size()));
     std::vector<unsigned> chosen;
     // Re-evaluate transient priority each frame; residency belongs to static fixtures.
-    for(auto index:ranked)if(lights[index].transient&&chosen.size()<budget)chosen.push_back(index);
-    for(auto index:previous)if(chosen.size()<budget&&index<lights.size()&&!lights[index].transient&&
+    for(auto index:ranked)if((lights[index].transient||lights[index].sceneObject)&&chosen.size()<budget)chosen.push_back(index);
+    for(auto index:previous)if(chosen.size()<budget&&index<lights.size()&&!lights[index].transient&&!lights[index].sceneObject&&
         std::find(ranked.begin(),ranked.end(),index)!=ranked.end()&&
         std::find(chosen.begin(),chosen.end(),index)==chosen.end())chosen.push_back(index);
     for(auto index:ranked)if(chosen.size()<budget&&std::find(chosen.begin(),chosen.end(),index)==chosen.end())chosen.push_back(index);
     if(chosen.empty())return chosen;
     const auto distance=[&](unsigned i){const auto d=lights[i].position-camera;return Environment::Dot(d,d);};
     auto farthest=std::max_element(chosen.begin(),chosen.end(),[&](unsigned a,unsigned b){
-        return (lights[a].transient?-1.f:distance(a))<(lights[b].transient?-1.f:distance(b));});
+        return (lights[a].transient||lights[a].sceneObject?-1.f:distance(a))<(lights[b].transient||lights[b].sceneObject?-1.f:distance(b));});
     for(auto index:ranked)if(std::find(chosen.begin(),chosen.end(),index)==chosen.end()){
-        if(!lights[*farthest].transient&&distance(index)<distance(*farthest)*.64f)*farthest=index;
+        if(!lights[*farthest].transient&&!lights[*farthest].sceneObject&&distance(index)<distance(*farthest)*.64f)*farthest=index;
         break;
     }
     return chosen;
@@ -522,7 +525,7 @@ inline std::vector<unsigned> StaticShadowSet(const std::vector<Light> &lights,
     for (unsigned i = 0; i < lights.size(); ++i) {
         // Reserve stable residency even while a fixture is disabled or promoted to
         // the nearby tier. Camera motion and intensity edits cannot reshuffle tiles.
-        if (lights[i].lumens <= 0 || lights[i].transient) continue;
+        if (lights[i].lumens <= 0 || lights[i].transient || lights[i].sceneObject || !lights[i].runtimeShadows) continue;
         ranked.push_back({-lights[i].lumens, i});
     }
     std::stable_sort(ranked.begin(), ranked.end(),

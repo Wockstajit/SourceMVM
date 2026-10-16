@@ -482,6 +482,7 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
             // The pass also draws the sun tile, so it runs whenever shadows are on even
             // if no local light won a slot.
             if(set.shadows&&(localEnergy||sunShadow)&&mapShadowPass){
+                CompletedSceneCasterScope completedScene;
                 std::vector<Vec3> positions;std::vector<float> ranges;
                 for(auto index:shadowed){positions.push_back(set.lights[index].position);ranges.push_back(set.lights[index].range);}
                 if(MvmDebugLog_Active()){
@@ -1825,7 +1826,7 @@ bool PrepareSmokeInputs(ID3D11Device* device,ID3D11DeviceContext* ctx){
         float nearest=INFINITY;
         for(const auto& smoke:state.frame.smokes){const auto d=smoke.center-light.position;nearest=(std::min)(nearest,std::sqrt(Dot(d,d))-smoke.radius);}
         if(nearest>light.range)continue;
-        ranked.push_back({nearest-(light.transient?100000.f:0.f),i});
+        ranked.push_back({nearest-(light.transient||light.sceneObject?100000.f:0.f),i});
     }
     std::stable_sort(ranked.begin(),ranked.end());if(ranked.size()>8)ranked.resize(8);
     state.smokeRecords.clear();

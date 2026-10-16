@@ -58,6 +58,10 @@ int main(){
     Check(ProbeLightingKey(lighting,21)!=key,"Newly resident world shadows invalidate unshadowed transport");
     const auto beforeLamp=ProbeLightingKey(lighting,20);lighting.lights[0].color={1,0,0};
     Check(ProbeLightingKey(lighting,20)!=beforeLamp,"Emitter radiance edits invalidate bounced energy");
+    const auto beforeCone=ProbeLightingKey(lighting,20);lighting.lights[0].outerAngle+=10;
+    Check(ProbeLightingKey(lighting,20)!=beforeCone,"Scene light cone edits invalidate bounced energy");
+    const auto beforeShadows=ProbeLightingKey(lighting,20);lighting.lights[0].runtimeShadows=false;
+    Check(ProbeLightingKey(lighting,20)!=beforeShadows,"Scene light shadow edits invalidate bounced energy");
     const auto edited=ProbeLightingKey(lighting,20);lighting.sunAngles.y+=30;
     Check(ProbeLightingKey(lighting,20)!=edited,"Time of day invalidates sunlight transport");
     {

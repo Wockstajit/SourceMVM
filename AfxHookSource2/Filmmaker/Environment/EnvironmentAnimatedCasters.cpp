@@ -55,6 +55,10 @@ constexpr GUID OpaquePixelTag={0xe9b6654e,0x4a72,0x4d94,{0xa8,0xbb,0x3d,0x01,0x6
 constexpr GUID ViewTag={0xcf09e215,0x4724,0x4aae,{0x90,0xd3,0x77,0x68,0x29,0xa1,0xe9,0x3a}};
 constexpr GUID ViewCaptureTag={0x54ffda73,0x19aa,0x4ff3,{0xbb,0x41,0x4c,0x53,0xaa,0x0d,0x43,0x09}};
 constexpr GUID CaptureTag={0xf6cfd0c7,0x1f31,0x496f,{0x88,0x4e,0x78,0xa8,0x4c,0x5c,0xcf,0xaf}};
+constexpr GUID PlacedCaptureTag={0x5b0e7c1a,0x93d4,0x4f61,{0xa2,0x0c,0x6e,0x41,0xd8,0x37,0xb9,0x52}};
+struct PlacedBoxConstants { UINT count[4]; float low[MaxPlacedCasterBoxes][4]; float high[MaxPlacedCasterBoxes][4]; };
+std::mutex placedBoxesMutex;
+std::vector<PlacedCasterBox> placedBoxesShared;
 constexpr GUID SkinInputTag={0x1d4b7217,0x2f6a,0x4b0d,{0xad,0x11,0x58,0xec,0x72,0x89,0x31,0x22}};
 constexpr GUID GlobalsScrubShaderTag={0x3e1c5f24,0x74fb,0x4a0a,{0x96,0xd0,0x24,0xc8,0x4e,0x91,0x0f,0x5b}};
 constexpr GUID GlobalsScrubInfoTag={0x9b32ad57,0xc33c,0x4540,{0x82,0x7a,0x1c,0xf8,0x2e,0xa9,0x65,0xd4}};
@@ -92,6 +96,12 @@ struct State {
     ComPtr<ID3D11Buffer> publishedVertices,publishedWeaponVertices,publishedViewmodelVertices,publishedSceneVertices;
     ComPtr<ID3D11Device> device;
     UINT publishedCount=0,publishedWeaponCount=0,publishedViewmodelCount=0,publishedSceneCount=0;
+    // Static-material draws filtered to placed CS2 assets. A separate store: the
+    // map's own triangles that pass through as degenerate points must never
+    // crowd out, or overflow, the ordinary prop capture.
+    ComPtr<ID3D11Buffer> placedVertices,publishedPlacedVertices,placedBoxes,previousBoxConstants;
+    UINT placedCount=0,publishedPlacedCount=0,placedOverflow=0,placedBoxCount=0;
+    bool activeBoxes=false;
     ComPtr<ID3D11Buffer> coverageVertices,coverageConstants;
     ComPtr<ID3D11VertexShader> coverageVertex;
     ComPtr<ID3D11PixelShader> coveragePixel;
@@ -118,15 +128,24 @@ struct State {
     Matrix receiverWorldToClip{},pendingReceiverWorldToClip{};
     bool receiverProjectionValid=false,pendingReceiverProjectionValid=false;
     uint64_t generation=1;
-    bool wanted=false, requested=false, active=false;
+    bool wanted=false, requested=false, active=false, completedSceneRead=false;
 } state;
 
+ID3D11Buffer* AvailableSceneBuffer(){
+    return !state.completedSceneRead&&state.sceneCount?state.sceneVertices.Get():state.publishedSceneVertices.Get();
+}
 UINT AvailableSceneCount(){
+    if(state.completedSceneRead)return state.publishedSceneCount;
     // A current masked or indirect scene draw replaces the previous opaque pose
     // too; mixing them can retain a stale solid blocker for a newly cut-out prop.
-    if(state.sceneCount||state.coverageCount||state.cutoutCount||state.indirectCount)return state.sceneCount;
+    if(state.sceneCount||state.placedCount||state.coverageCount||state.cutoutCount||state.indirectCount)return state.sceneCount;
     return state.publishedSceneCount;
 }
+bool CurrentPlacedCapture(){
+    return !state.completedSceneRead&&(state.sceneCount||state.placedCount||state.coverageCount||state.cutoutCount||state.indirectCount);
+}
+ID3D11Buffer* AvailablePlacedBuffer(){return CurrentPlacedCapture()?state.placedVertices.Get():state.publishedPlacedVertices.Get();}
+UINT AvailablePlacedCount(){return CurrentPlacedCapture()?state.placedCount:state.publishedPlacedCount;}
 
 struct Clip4 { float x=0,y=0,z=0,w=0; };
 Clip4 MultiplyClip(const Matrix &m, Vec3 p) {
@@ -410,6 +429,19 @@ void NoteAnimatedCasterShader(ID3D11VertexShader* shader,const void* code,size_t
     if(FAILED(device->CreateGeometryShaderWithStreamOutput(compiled.data(),compiled.size(),&entry,1,&stride,1,D3D11_SO_NO_RASTERIZED_STREAM,nullptr,&capture)))return;
     if(scrubInfo.bytes&&!AttachGlobalsScrubber(device.Get(),shader,r.Get(),scrubInfo))return;
     if(SUCCEEDED(::Filmmaker::SetOwnedInterface(::Filmmaker::RawOwner(shader),CaptureTag,capture.Get())))shader->SetPrivateData(ViewTag,sizeof(binding.BindPoint),&binding.BindPoint);
+    {
+        std::string placedSource=AnimatedCasterPlacedCaptureShader;
+        placedSource.replace(placedSource.find(original),original.size(),input);
+        std::vector<unsigned char> placedCode;ComPtr<ID3D11ShaderReflection> placedCheck;
+        bool linked=CachedCasterShader(placedSource,"PlacedCasterCapture","gs_5_0",placedCode)&&
+            SUCCEEDED(reflect(placedCode.data(),placedCode.size(),__uuidof(ID3D11ShaderReflection),&placedCheck));
+        for(UINT j=0;linked&&j<signature.size();++j){D3D11_SIGNATURE_PARAMETER_DESC actual{};
+            linked=SUCCEEDED(placedCheck->GetInputParameterDesc(j,&actual))&&actual.Register==signature[j].Register&&actual.Mask==signature[j].Mask&&
+                actual.ComponentType==signature[j].ComponentType&&actual.SemanticIndex==signature[j].SemanticIndex&&!strcmp(actual.SemanticName,signature[j].SemanticName);}
+        ComPtr<ID3D11GeometryShader> placedCapture;
+        if(linked&&SUCCEEDED(device->CreateGeometryShaderWithStreamOutput(placedCode.data(),placedCode.size(),&entry,1,&stride,1,D3D11_SO_NO_RASTERIZED_STREAM,nullptr,&placedCapture)))
+            ::Filmmaker::SetOwnedInterface(::Filmmaker::RawOwner(shader),PlacedCaptureTag,placedCapture.Get());
+    }
     // Depth-prepass UVs are TEXCOORD0. Retain their post-VS values beside the
     // actual posed world positions; never reconstruct UVs from screen depth.
     for(UINT i=0;i<signature.size();++i){const auto& d=signature[i];
@@ -481,7 +513,13 @@ void BeginAnimatedCasters(ID3D11Device* device){
        FAILED(device->CreateBuffer(&bd,nullptr,&state.publishedViewmodelVertices))||
        FAILED(device->CreateBuffer(&bd,nullptr,&state.publishedSceneVertices))||
        FAILED(device->CreateBuffer(&bd,nullptr,&state.viewmodelVertices))||
-       FAILED(device->CreateBuffer(&bd,nullptr,&state.sceneVertices))){EndAnimatedCasters();return;}
+       FAILED(device->CreateBuffer(&bd,nullptr,&state.sceneVertices))||
+       FAILED(device->CreateBuffer(&bd,nullptr,&state.placedVertices))||
+       FAILED(device->CreateBuffer(&bd,nullptr,&state.publishedPlacedVertices))){EndAnimatedCasters();return;}
+    {
+        D3D11_BUFFER_DESC boxes{};boxes.ByteWidth=sizeof(PlacedBoxConstants);boxes.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+        if(FAILED(device->CreateBuffer(&boxes,nullptr,&state.placedBoxes))){EndAnimatedCasters();return;}
+    }
     bd.ByteWidth=CasterBufferCapacity(1,CoverageCapacity)*16;
     if(FAILED(device->CreateBuffer(&bd,nullptr,&state.coverageVertices))){EndAnimatedCasters();return;}
     bd.ByteWidth=64;bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;bd.MiscFlags=0;
@@ -545,7 +583,8 @@ void NextAnimatedCasterFrame(){
                 D3D11_BUFFER_DESC desc{};if(buffer)buffer->GetDesc(&desc);coverageBytes+=desc.ByteWidth;
             }
             MvmDebugLog_LinefAlways("environment.caster.storage","poseBytes=%llu coverageBytes=%llu boundedGrowth=1",poseBytes,coverageBytes);
-            MvmDebugLog_LinefAlways("environment.caster.cutout","vertices=%u batches=%u",state.cutoutCount,state.cutoutBatchCount);}}
+            MvmDebugLog_LinefAlways("environment.caster.cutout","vertices=%u batches=%u",state.cutoutCount,state.cutoutBatchCount);
+            MvmDebugLog_LinefAlways("environment.caster.placed","boxes=%u vertices=%u published=%u overflow=%u",state.placedBoxCount,state.placedCount,state.publishedPlacedCount,state.placedOverflow);}}
     if(state.wanted&&MvmDebugLog_Active()){
         static ULONGLONG last=0;auto now=GetTickCount64();if(now-last>3000){last=now;
             MvmDebugLog_LinefAlways("environment.caster.gates","attempts=%u world=%u tagged=%u character=%u color=%u lastDepth=%.5f..%.5f",state.attempts,state.world,state.tagged,state.character,state.color,state.lastMin,state.lastMax);}}
@@ -563,8 +602,20 @@ void NextAnimatedCasterFrame(){
         // Animated props can be submitted after the first owned world draw too.
         // Keep their completed pose available to that early local-light shadow pass.
         if(state.publishedSceneVertices)publish(state.sceneVertices.Get(),state.publishedSceneVertices.Get(),state.sceneCount,state.publishedSceneCount);
+        if(state.publishedPlacedVertices)publish(state.placedVertices.Get(),state.publishedPlacedVertices.Get(),state.placedCount,state.publishedPlacedCount);
+        if(state.placedBoxes){
+            PlacedBoxConstants boxes{};
+            {std::lock_guard<std::mutex> lock(placedBoxesMutex);
+                boxes.count[0]=UINT((std::min)(placedBoxesShared.size(),MaxPlacedCasterBoxes));
+                for(UINT i=0;i<boxes.count[0];++i){const auto& box=placedBoxesShared[i];
+                    const float low[4]{box.low.x,box.low.y,box.low.z,0},high[4]{box.high.x,box.high.y,box.high.z,0};
+                    std::memcpy(boxes.low[i],low,sizeof(low));std::memcpy(boxes.high[i],high,sizeof(high));}}
+            if(boxes.count[0]||state.placedBoxCount)immediate->UpdateSubresource(state.placedBoxes.Get(),0,nullptr,&boxes,0,0);
+            state.placedBoxCount=boxes.count[0];
+        }
     }
     state.count=state.weaponCount=state.viewmodelCount=state.sceneCount=state.coverageCount=state.batches=state.overflow=state.directOverflow=state.indirectOverflow=0;++state.generation;
+    state.placedCount=state.placedOverflow=0;
     for(UINT i=0;i<state.cutoutBatchCount;++i){state.cutouts[i].opacity.Reset();state.cutouts[i].sampler.Reset();}
     state.cutoutCount=state.cutoutBatchCount=0;
     for(UINT i=0;i<state.indirect.size();++i){auto& batch=state.indirect[i];
@@ -632,10 +683,13 @@ bool BeginAnimatedCasterDraw(ID3D11DeviceContext* ctx,UINT indices,UINT instance
     if(depth)ctx->PSGetShader(&depthPixel,nullptr,nullptr);
     const bool depthPose=depth&&!depthPixel&&SUCCEEDED(vs->GetPrivateData(SkinInputTag,&skinBytes,&skinInput))&&skinBytes==sizeof(skinInput)&&skinInput==1;
     const bool cutout=depth&&!depthPose;
-    const bool scene=cutout||depthPose||!strcmp(name,"csgo_vertexlitgeneric.vfx_vs")||!strcmp(name,"csgo_complex.vfx_vs")||!strcmp(name,"cables.vfx_vs")||!strcmp(name,"csgo_simple.vfx_vs");
+    const bool placed=!strcmp(name,"csgo_environment.vfx_vs")||!strcmp(name,"csgo_environment_blend.vfx_vs")||
+        !strcmp(name,"csgo_simple_3layer_parallax.vfx_vs");
+    const bool scene=cutout||depthPose||placed||!strcmp(name,"csgo_vertexlitgeneric.vfx_vs")||!strcmp(name,"csgo_complex.vfx_vs")||!strcmp(name,"cables.vfx_vs")||!strcmp(name,"csgo_simple.vfx_vs");
     if((viewmodel&&scene)||(!scene&&strcmp(name,"csgo_character.vfx_vs")&&strcmp(name,"csgo_weapon.vfx_vs"))){
         evidence(name,true,"shader-class-not-allowlisted",false);return false;
     }
+    if(placed&&!state.placedBoxCount){evidence(name,true,"static-material-without-placed-asset",false);return false;}
     bool sceneOpaqueAlpha=false,vertexCoverage=false;
     if(cutout){
         ComPtr<ID3D11PixelShader> ps;ctx->PSGetShader(&ps,nullptr,nullptr);
@@ -714,20 +768,23 @@ bool BeginAnimatedCasterDraw(ID3D11DeviceContext* ctx,UINT indices,UINT instance
     else vertexCoverage=false;
     const bool weapon=!strcmp(name,"csgo_weapon.vfx_vs");
     const uint64_t vertices=uint64_t(indices)*instances;
-    const UINT classCount=cutout?state.cutoutCount:vertexCoverage?state.coverageCount:viewmodel?state.viewmodelCount:scene?state.sceneCount:weapon?state.weaponCount:state.count;
+    const UINT classCount=cutout?state.cutoutCount:vertexCoverage?state.coverageCount:viewmodel?state.viewmodelCount:placed?state.placedCount:scene?state.sceneCount:weapon?state.weaponCount:state.count;
     if(vertices>(cutout?CutoutCapacity:vertexCoverage?CoverageCapacity:Capacity)-classCount||
-       (cutout&&state.cutoutBatchCount>=state.cutouts.size())){++state.overflow;++state.directOverflow;
+       (cutout&&state.cutoutBatchCount>=state.cutouts.size())){
+        // Placed-asset overflow drops only later static-material draws; the
+        // captured triangles stay valid, so bounds of the other classes remain usable.
+        if(placed)++state.placedOverflow;else{++state.overflow;++state.directOverflow;}
         evidence(name,true,"capture-capacity-exceeded",false);return false;}
     auto& storage=cutout?state.cutoutVertices:vertexCoverage?state.coverageVertices:viewmodel?state.viewmodelVertices:
-        scene?state.sceneVertices:weapon?state.weaponVertices:state.vertices;
+        placed?state.placedVertices:scene?state.sceneVertices:weapon?state.weaponVertices:state.vertices;
     const UINT storageStride=cutout?20:vertexCoverage?16:12;
     const UINT storageLimit=cutout?CutoutCapacity:vertexCoverage?CoverageCapacity:Capacity;
     const UINT required=classCount+UINT(vertices);
     bool storageReady=EnsureCasterBuffer(state.device.Get(),ctx,storage,required,classCount,storageStride,storageLimit);
     if(storageReady&&!cutout&&!vertexCoverage){
-        auto& published=viewmodel?state.publishedViewmodelVertices:scene?state.publishedSceneVertices:
+        auto& published=viewmodel?state.publishedViewmodelVertices:placed?state.publishedPlacedVertices:scene?state.publishedSceneVertices:
             weapon?state.publishedWeaponVertices:state.publishedVertices;
-        const UINT previousCount=viewmodel?state.publishedViewmodelCount:scene?state.publishedSceneCount:
+        const UINT previousCount=viewmodel?state.publishedViewmodelCount:placed?state.publishedPlacedCount:scene?state.publishedSceneCount:
             weapon?state.publishedWeaponCount:state.publishedCount;
         // Publication happens before next-frame shadows. Reserve its destination
         // before accepting this draw, retaining the previous complete pose on growth.
@@ -770,7 +827,7 @@ bool BeginAnimatedCasterDraw(ID3D11DeviceContext* ctx,UINT indices,UINT instance
         if(!scrubReady){evidence(name,true,"globals-scrub-unavailable",false);return false;}
     }
     ComPtr<ID3D11GeometryShader> capture;size=sizeof(ID3D11GeometryShader*);
-    if(FAILED(::Filmmaker::GetOwnedInterface(::Filmmaker::RawOwner(vs),cutout?CutoutCaptureTag:vertexCoverage?CoverageCaptureTag:viewmodel?ViewCaptureTag:CaptureTag,&size,(void**)capture.GetAddressOf()))||!capture){
+    if(FAILED(::Filmmaker::GetOwnedInterface(::Filmmaker::RawOwner(vs),cutout?CutoutCaptureTag:vertexCoverage?CoverageCaptureTag:viewmodel?ViewCaptureTag:placed?PlacedCaptureTag:CaptureTag,&size,(void**)capture.GetAddressOf()))||!capture){
         if(state.globalsReplaced){auto original=state.previousVsGlobals.Get();ctx->VSSetConstantBuffers(state.previousVsGlobalsSlot,1,&original);state.previousVsGlobals.Reset();state.previousVsGlobalsSlot=~0u;state.globalsReplaced=false;}
         evidence(name,true,"capture-geometry-shader-missing",false);return false;}
     if(cutout){
@@ -799,11 +856,12 @@ bool BeginAnimatedCasterDraw(ID3D11DeviceContext* ctx,UINT indices,UINT instance
     evidence(name,true,depthPose?"accepted-skinned-depth-prepass":cutout?"accepted-native-depth-cutout":vertexCoverage?"accepted-vertex-alpha-coverage":viewmodel?"accepted-viewmodel":state.globalsReplaced?"accepted-globals-scrubbed":"accepted",true);
     ctx->GSGetConstantBuffers(0,1,&state.previousConstants);
     auto buffer=cb.Get();ctx->GSSetConstantBuffers(0,1,&buffer);
+    if(placed){ctx->GSGetConstantBuffers(1,1,&state.previousBoxConstants);auto boxes=state.placedBoxes.Get();ctx->GSSetConstantBuffers(1,1,&boxes);state.activeBoxes=true;}
     ctx->GSSetShader(capture.Get(),nullptr,0);
-    buffer=cutout?state.cutoutVertices.Get():vertexCoverage?state.coverageVertices.Get():viewmodel?state.viewmodelVertices.Get():scene?state.sceneVertices.Get():weapon?state.weaponVertices.Get():state.vertices.Get();UINT offset=classCount*(cutout?20:vertexCoverage?16:12);ctx->SOSetTargets(1,&buffer,&offset);
+    buffer=cutout?state.cutoutVertices.Get():vertexCoverage?state.coverageVertices.Get():viewmodel?state.viewmodelVertices.Get():placed?state.placedVertices.Get():scene?state.sceneVertices.Get():weapon?state.weaponVertices.Get():state.vertices.Get();UINT offset=classCount*(cutout?20:vertexCoverage?16:12);ctx->SOSetTargets(1,&buffer,&offset);
     state.activeOffset=offset;
     state.activeWeapon=weapon;
-    state.activeScene=scene&&!cutout&&!vertexCoverage;
+    state.activeScene=scene&&!cutout&&!vertexCoverage&&!placed;
     state.activeSample=debug&&!viewmodel&&!state.pending&&GetTickCount64()-state.probeTime>=3000&&
         ((state.sampleClass==0&&!strcmp(name,"csgo_character.vfx_vs"))||
          (state.sampleClass==1&&!strcmp(name,"csgo_weapon.vfx_vs"))||
@@ -820,7 +878,7 @@ bool BeginAnimatedCasterDraw(ID3D11DeviceContext* ctx,UINT indices,UINT instance
         }
     }
     if(state.activeSample)CopyCasterShaderName(state.activeShader,name);
-    state.active=true;(cutout?state.cutoutCount:vertexCoverage?state.coverageCount:viewmodel?state.viewmodelCount:scene?state.sceneCount:weapon?state.weaponCount:state.count)+=UINT(vertices);++state.batches;return true;
+    state.active=true;(cutout?state.cutoutCount:vertexCoverage?state.coverageCount:viewmodel?state.viewmodelCount:placed?state.placedCount:scene?state.sceneCount:weapon?state.weaponCount:state.count)+=UINT(vertices);++state.batches;return true;
 }
 bool BeginAnimatedCasterIndirectDraw(ID3D11DeviceContext* ctx,ID3D11Buffer* arguments,
                                     UINT offset,UINT stride,UINT count,bool indexed){
@@ -943,6 +1001,8 @@ void EndAnimatedCasterDraw(ID3D11DeviceContext* ctx){
     ctx->SOSetTargets(0,nullptr,nullptr);ctx->GSSetShader(nullptr,nullptr,0);
     auto buffer=state.previousConstants.Get();ctx->GSSetConstantBuffers(0,1,&buffer);
     state.previousConstants.Reset();state.active=false;
+    if(state.previousBoxConstants||state.activeBoxes){buffer=state.previousBoxConstants.Get();ctx->GSSetConstantBuffers(1,1,&buffer);
+        state.previousBoxConstants.Reset();state.activeBoxes=false;}
     if(state.globalsReplaced){
         auto original=state.previousVsGlobals.Get();ctx->VSSetConstantBuffers(state.previousVsGlobalsSlot,1,&original);
         state.previousVsGlobals.Reset();state.previousVsGlobalsSlot=~0u;state.globalsReplaced=false;
@@ -984,13 +1044,25 @@ void EndAnimatedCasterDraw(ID3D11DeviceContext* ctx){
     }
     state.activeSample=false;
 }
+CompletedSceneCasterScope::CompletedSceneCasterScope():previous(state.completedSceneRead){state.completedSceneRead=true;}
+CompletedSceneCasterScope::~CompletedSceneCasterScope(){state.completedSceneRead=previous;}
+void SetPlacedCasterBoxes(const std::vector<PlacedCasterBox>& boxes){
+    std::vector<PlacedCasterBox> fitted(boxes.begin(),boxes.begin()+(std::min)(boxes.size(),MaxPlacedCasterBoxes));
+    // Beyond the shader's slots, the last box grows to cover every remaining
+    // asset: conservative (more map triangles pass) but no asset loses its shadow.
+    for(size_t i=MaxPlacedCasterBoxes;i<boxes.size();++i){auto& last=fitted.back();
+        last.low={(std::min)(last.low.x,boxes[i].low.x),(std::min)(last.low.y,boxes[i].low.y),(std::min)(last.low.z,boxes[i].low.z)};
+        last.high={(std::max)(last.high.x,boxes[i].high.x),(std::max)(last.high.y,boxes[i].high.y),(std::max)(last.high.z,boxes[i].high.z)};}
+    std::lock_guard<std::mutex> lock(placedBoxesMutex);placedBoxesShared=std::move(fitted);
+}
 uint64_t AnimatedCasterGeneration(){return state.generation;}
+bool HasAnimatedSceneCasters(){return AnimatedCasterVertexCount(AnimatedCasterSubset::Scene)!=0||state.indirectCount!=0;}
 bool ReadAnimatedCasterBounds(ID3D11DeviceContext* context,std::vector<CasterBounds>& result,bool waitForGpu){
     if(state.overflow){result.clear();return false;}
     std::vector<CasterVertexStream> streams{
         {state.count?state.vertices.Get():state.publishedVertices.Get(),state.count?state.count:state.publishedCount,12},
         {state.weaponCount?state.weaponVertices.Get():state.publishedWeaponVertices.Get(),state.weaponCount?state.weaponCount:state.publishedWeaponCount,12},
-        {state.sceneCount?state.sceneVertices.Get():state.publishedSceneVertices.Get(),AvailableSceneCount(),12},
+        {AvailableSceneBuffer(),AvailableSceneCount(),12},{AvailablePlacedBuffer(),AvailablePlacedCount(),12},
         {state.coverageVertices.Get(),state.coverageCount,16},{state.cutoutVertices.Get(),state.cutoutCount,20}};
     for(UINT i=0;i<state.indirectCount;++i){const auto& batch=state.indirect[i];
         streams.push_back({batch.vertices.Get(),batch.capacity,batch.stride,batch.metadataView.Get()});}
@@ -1004,7 +1076,7 @@ UINT AnimatedCasterVertexCount(AnimatedCasterSubset subset){
     if(subset==AnimatedCasterSubset::Characters)return characters;
     if(subset==AnimatedCasterSubset::Weapons)return weapons;
     if(subset==AnimatedCasterSubset::Actors)return characters+weapons;
-    const UINT scene=AvailableSceneCount();
+    const UINT scene=AvailableSceneCount()+AvailablePlacedCount();
     const UINT particles=ParticleShadowStream().count;
     if(subset==AnimatedCasterSubset::Scene)return scene+state.coverageCount+state.cutoutCount+particles;
     return characters+weapons+scene+state.coverageCount+state.cutoutCount+particles;
@@ -1066,8 +1138,13 @@ void DrawAnimatedCasters(ID3D11DeviceContext* ctx,AnimatedCasterSubset subset){
     }
     const UINT scene=AvailableSceneCount();
     if((subset==AnimatedCasterSubset::All||subset==AnimatedCasterSubset::Scene)&&scene){
-        auto buffer=state.sceneCount?state.sceneVertices.Get():state.publishedSceneVertices.Get();
+        auto buffer=AvailableSceneBuffer();
         ctx->IASetVertexBuffers(0,1,&buffer,&stride,&offset);ctx->Draw(scene,0);
+    }
+    const UINT placed=AvailablePlacedCount();
+    if((subset==AnimatedCasterSubset::All||subset==AnimatedCasterSubset::Scene)&&placed){
+        auto buffer=AvailablePlacedBuffer();
+        ctx->IASetVertexBuffers(0,1,&buffer,&stride,&offset);ctx->Draw(placed,0);
     }
     if(subset==AnimatedCasterSubset::All||subset==AnimatedCasterSubset::Scene)
         for(UINT i=0;i<state.indirectCount;++i){const auto& batch=state.indirect[i];if(batch.masked)continue;

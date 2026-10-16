@@ -8,6 +8,7 @@
 #include "PropPreview.h"
 #include "PropEditMath.h"
 #include "../Environment/EnvironmentScene.h"
+#include "../Environment/EnvironmentAnimatedCasters.h"
 #include "SceneUndoClock.h"
 #include "../Environment/EnvironmentSurfaceMath.h"
 #include "../Movie/CameraBridge.h"
@@ -999,8 +1000,33 @@ void Props_StopEditing() {
 	StopPlacing();
 }
 
+namespace {
+// Every frame: a dragged asset's shadow capture must follow its draw. The margin
+// covers the one frame between this publish and the render thread's upload.
+void PublishCasterBoxes() {
+	std::vector<Environment::PlacedCasterBox> boxes;
+	const auto add = [&](const Placed& p) {
+		Vec3 mins, maxs, corners[8];
+		if (Props::IsEffect(p.model) || !Alive(p) || !PropBounds(p, mins, maxs)) return;
+		Props::BoxCorners(p.position, p.angles, p.scale, mins, maxs, corners);
+		Environment::PlacedCasterBox box{corners[0], corners[0]};
+		for (const Vec3& c : corners) {
+			box.low = {std::min(box.low.x, c.x), std::min(box.low.y, c.y), std::min(box.low.z, c.z)};
+			box.high = {std::max(box.high.x, c.x), std::max(box.high.y, c.y), std::max(box.high.z, c.z)};
+		}
+		box.low = box.low - Vec3{8, 8, 8};
+		box.high = box.high + Vec3{8, 8, 8};
+		boxes.push_back(box);
+	};
+	for (const Placed& p : g_props) if (Shown(p)) add(p);
+	if (g_placing) add(g_ghost);
+	Environment::SetPlacedCasterBoxes(boxes);
+}
+} // namespace
+
 void Props_RunMainThreadFrame() {
 	PropPreview_RunFrame(); // every frame: the preview's fit must land before it is drawn
+	PublishCasterBoxes();
 	if (g_spawnArmed) ++g_framesSinceSpawn;
 	// Every frame, so the first recorded frame already lacks the props kept out of renders.
 	if (const bool recording = AfxStreams_IsRcording(); recording != g_recording) {

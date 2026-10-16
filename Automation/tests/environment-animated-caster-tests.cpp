@@ -246,6 +246,52 @@ int main(int argc,char** argv){
     NextAnimatedCasterFrame();RequestAnimatedCasters(true);
     Check(AnimatedCasterVertexCount(AnimatedCasterSubset::Scene)==0,"empty frame expires prop pose instead of leaving a ghost shadow");
     constants[100]=0;
+    // CS2 scene assets can use the same static-material programs as the map.
+    // Only triangles overlapping a placed asset enter capture: the extracted map
+    // already casts the rest, and with no asset placed nothing is captured.
+    for(const char* name:{"csgo_environment.vfx_vs","csgo_environment_blend.vfx_vs","csgo_simple_3layer_parallax.vfx_vs"}) {
+        nativeProp->SetPrivateData(WKPDID_D3DDebugObjectName,UINT(std::strlen(name)),name);
+        SetPlacedCasterBoxes({});NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+        bindNative(.95f,nativeProp.Get());ctx->PSSetShader(opaquePs.Get(),nullptr,0);
+        Check(!BeginAnimatedCasterDraw(ctx.Get(),3,1),"Map static-material draw is not captured without a placed asset");
+        SetPlacedCasterBoxes({{{-10,-10,-10},{10,10,10}}});NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+        bindNative(.95f,nativeProp.Get());ctx->PSSetShader(cutoutPs.Get(),nullptr,0);
+        Check(!BeginAnimatedCasterDraw(ctx.Get(),3,1),"Static-material cutout still needs verified opacity");
+        ctx->PSSetShader(opaquePs.Get(),nullptr,0);
+        Check(BeginAnimatedCasterDraw(ctx.Get(),3,1),"Capture placed static-material asset");
+        ctx->Draw(3,0);EndAnimatedCasterDraw(ctx.Get());
+        Check(AnimatedCasterVertexCount(AnimatedCasterSubset::Scene)==3,"Placed asset triangle counts as a scene caster");
+        inspect(-.1f,AnimatedCasterSubset::Scene);
+        ComPtr<ID3D11Buffer> restoredBoxes;ctx->GSGetConstantBuffers(1,1,&restoredBoxes);
+        Check(!restoredBoxes,"Restore GS constant slot 1 after a placed-asset capture");
+        NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+        { CompletedSceneCasterScope completed;inspect(-.1f,AnimatedCasterSubset::Scene); }
+        SetPlacedCasterBoxes({{{1000,1000,1000},{1010,1010,1010}}});NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+        bindNative(.95f,nativeProp.Get());ctx->PSSetShader(opaquePs.Get(),nullptr,0);
+        Check(BeginAnimatedCasterDraw(ctx.Get(),3,1),"Static-material draw runs through the placed-asset filter");
+        ctx->Draw(3,0);EndAnimatedCasterDraw(ctx.Get());
+        inspect(1005,AnimatedCasterSubset::Scene,1005,1005);
+        SetPlacedCasterBoxes({});
+        NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+        NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+        Check(AnimatedCasterVertexCount(AnimatedCasterSubset::Scene)==0,"Removed static-material prop leaves no shadow");
+    }
+    nativeProp->SetPrivateData(WKPDID_D3DDebugObjectName,UINT(strlen(propName)),propName);
+    // An early light pass must not replace yesterday's complete scene with the
+    // first opaque draw of this frame. The overlay still needs the current pose.
+    constants[100]=0;bindNative(.95f,nativeProp.Get());ctx->PSSetShader(opaquePs.Get(),nullptr,0);
+    Check(BeginAnimatedCasterDraw(ctx.Get(),3,1),"Capture complete prior scene");
+    ctx->Draw(3,0);EndAnimatedCasterDraw(ctx.Get());NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+    constants[100]=.5f;bindNative(.95f,nativeProp.Get());ctx->PSSetShader(opaquePs.Get(),nullptr,0);
+    Check(BeginAnimatedCasterDraw(ctx.Get(),3,1),"Capture first draw of next scene");
+    ctx->Draw(3,0);EndAnimatedCasterDraw(ctx.Get());
+    { CompletedSceneCasterScope completed;inspect(-.1f,AnimatedCasterSubset::Scene); }
+    inspect(.4f,AnimatedCasterSubset::Scene);
+    NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+    { CompletedSceneCasterScope completed;inspect(.4f,AnimatedCasterSubset::Scene); }
+    NextAnimatedCasterFrame();RequestAnimatedCasters(true);
+    { CompletedSceneCasterScope completed;Check(!AnimatedCasterVertexCount(AnimatedCasterSubset::Scene),"Removed prop expires from the completed scene"); }
+    constants[100]=0;
     // Complex materials also appear on moving physics props. Their shader name
     // alone must never bypass the pixel coverage proof.
     NextAnimatedCasterFrame();RequestAnimatedCasters(true);

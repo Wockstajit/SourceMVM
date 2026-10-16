@@ -2,6 +2,7 @@
 #include <d3d11.h>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 #include "EnvironmentMath.h"
 #include "EnvironmentCasterBoundsMath.h"
 
@@ -25,7 +26,26 @@ bool BeginAnimatedCasterDraw(ID3D11DeviceContext*, UINT indices, UINT instances)
 // The caller replays the original GPU indirect command between Begin/End.
 bool BeginAnimatedCasterIndirectDraw(ID3D11DeviceContext*,ID3D11Buffer*,UINT offset,UINT stride,UINT count,bool indexed);
 void EndAnimatedCasterDraw(ID3D11DeviceContext*);
+// Native material shadows run before all opaque color draws have been captured.
+// Read the last completed opaque scene for that pass, even after this frame's
+// first scene draw. Later overlay passes continue to use the current capture.
+class CompletedSceneCasterScope {
+    bool previous;
+public:
+    CompletedSceneCasterScope();
+    ~CompletedSceneCasterScope();
+    CompletedSceneCasterScope(const CompletedSceneCasterScope&)=delete;
+    CompletedSceneCasterScope& operator=(const CompletedSceneCasterScope&)=delete;
+};
+// Placed CS2 assets can use the map's own static-material programs. Draws from
+// those programs keep only triangles overlapping a placed asset's world box; the
+// extracted map already casts the rest. Main thread publishes, render reads.
+struct PlacedCasterBox { Vec3 low, high; };
+inline constexpr size_t MaxPlacedCasterBoxes=64;
+void SetPlacedCasterBoxes(const std::vector<PlacedCasterBox>&);
 uint64_t AnimatedCasterGeneration();
+// Scene-subset geometry (props, foliage, cables, particles) this frame or the last complete one.
+bool HasAnimatedSceneCasters();
 UINT AnimatedCasterVertexCount(AnimatedCasterSubset subset = AnimatedCasterSubset::All);
 // Includes GPU-counted batches whose vertex count is deliberately not read by the CPU.
 bool HasAnimatedCasterGeometry();
