@@ -258,8 +258,11 @@ jobs:
           $bundle = "build\$env:PRESET\AfxHookSource2\Release\environment-shaders"
           # ready.stamp is written only after every program compiled and verified in this run.
           if (-not (Test-Path "$bundle\ready.stamp")) { "The shader bundle did not finish in this run."; exit 0 }
-          # Store only the programs the manifest lists, so obsolete entries never accumulate.
-          $stage = Join-Path $env:RUNNER_TEMP "environment-shaders-save"
+          # Store only the programs the manifest lists, so obsolete entries never accumulate. Stage
+          # into the restore step's folder: actions/cache versions an entry by its path, so a save
+          # from any other path can never be restored.
+          $stage = Join-Path $env:RUNNER_TEMP "environment-shaders"
+          Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force $stage | Out-Null
           Get-Content "$bundle\manifest.txt" | Where-Object { $_ } | ForEach-Object { Copy-Item (Join-Path $bundle $_) $stage }
           Copy-Item "$bundle\manifest.txt" $stage
@@ -269,7 +272,7 @@ jobs:
         if: ${{ !cancelled() && steps.shaders-stage.outputs.key != '' && steps.shaders-stage.outputs.key != steps.shaders-restore.outputs.cache-matched-key }}
         uses: actions/cache/save@v4
         with:
-          path: ${{ runner.temp }}/environment-shaders-save
+          path: ${{ runner.temp }}/environment-shaders
           key: ${{ steps.shaders-stage.outputs.key }}
 
       # The four D3D11 render fixtures take 17 s to 8 minutes on a real GPU and have no GPU here, so

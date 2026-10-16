@@ -239,6 +239,20 @@ test("the ci-gate job lists every job the gate reasons about", () => {
   }
 });
 
+// actions/cache versions an entry by its path, so a save under a path no restore step uses is never
+// restored, and the run silently rebuilds from scratch.
+test("every cache the workflow saves is one it restores", () => {
+  const workflow = readFileSync(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const paths = (kind) =>
+    [...workflow.matchAll(new RegExp(`uses: actions/cache/${kind}@\\S+\\s+with:\\s+path: ([^\\r\\n]+)`, "g"))].map(
+      (match) => match[1].trim(),
+    );
+  const restored = new Set(paths("restore"));
+  const saved = paths("save");
+  assert.ok(saved.length > 0, "the workflow saves caches");
+  for (const path of saved) assert.ok(restored.has(path), `${path} is saved but never restored`);
+});
+
 // The Deadlock-only scope skips the CS2 DLL and tests. That is safe only while no CS2 build file or
 // non-Deadlock source refers to the Deadlock-only folders.
 test("CS2 build files and sources never reach into the Deadlock-only folders", () => {
