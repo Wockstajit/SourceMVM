@@ -123,13 +123,15 @@ jobs:
     env:
       PRESET: x64-deadlock-ninja-release
       SCOPE: ${{ needs.changes.outputs.native }}
-      # Ninja runs one compiler per job; 4 matches the runner's 4 vCPUs. Cargo builds inside one of
-      # those jobs, so cap its own parallelism too.
+      # Ninja runs one compiler per job. On the hosted runner (4 vCPUs) cold builds at 4, 6 and 8 jobs
+      # took the same time within noise, with over 11 GB of RAM free (Docs/setup/ci.md), so use 4.
+      # Cargo builds inside one of those jobs, so cap its own parallelism too.
       NATIVE_JOBS: 4
       CARGO_BUILD_JOBS: 2
       CMAKE_C_COMPILER_LAUNCHER: sccache
       CMAKE_CXX_COMPILER_LAUNCHER: sccache
-      SCCACHE_CACHE_SIZE: 3G
+      # A full build stores about 115 MB. The cap keeps the restored cache small as variants pile up.
+      SCCACHE_CACHE_SIZE: 1G
       SCCACHE_IDLE_TIMEOUT: "0"
     steps:
       # Some osu! easter-egg asset paths exceed Windows' 260-character limit.

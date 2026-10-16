@@ -53,7 +53,7 @@ cannot use it. Three caches persist between runs:
   builder reuses an entry only on an exact key match with a valid checksum and recompiles the rest.
   The cache holds only the programs the manifest lists, keyed on the manifest's hash.
 - **sccache.** Keyed by sccache on the preprocessed source, the compiler binary and its flags.
-  Saved when the run wrote new entries, capped at 3 GB.
+  Saved when the run wrote new entries, capped at 1 GB (a full build stores about 115 MB).
 - **Cargo.** The registry and the Rust target folder, keyed on the Cargo manifests and lockfile.
 
 GitHub scopes caches by branch. A pull request reads its own caches and those of `main`, and its
@@ -108,3 +108,38 @@ node --test Automation/tests/ci-change-scope-tests.mjs
 
 Set `CMAKE_C_COMPILER_LAUNCHER` and `CMAKE_CXX_COMPILER_LAUNCHER` to `sccache` before the first
 configure to use a local compiler cache.
+
+## Measured effect
+
+Measured in October 2026 on GitHub-hosted `windows-2022` runners (4 vCPUs, 16 GB) while this
+workflow was introduced. Hosted runners mix CPU generations, so the table names the CPU, and only
+rows on the same CPU compare directly.
+
+**Before.** Across the 18 successful runs with a native build in the previous configuration, the
+run took a median of 28.6 minutes (21.8 to 32.6). The shader bundle took 417 to 908 s of each
+build and reused nothing.
+
+**Native build step**, environment shader bundle and Rust crate already cached:
+
+| Configuration | C++ objects | Build step | CPU |
+| --- | --- | --- | --- |
+| Previous: Visual Studio, `/MP`, MSBuild `--parallel 3` | rebuilt | 654 s | EPYC 7763 |
+| Ninja `--parallel 4` | rebuilt | 640 s | EPYC 7763 |
+| Ninja `--parallel 6` | rebuilt | 674 s, 634 s | EPYC 7763 |
+| Ninja `--parallel 8` | rebuilt | 649 s, 641 s | EPYC 7763 |
+| Ninja `--parallel 4` with sccache, empty cache | rebuilt and stored | 791 s | EPYC 7763 |
+| Same, warm cache, unchanged sources | 813 of 814 from cache | 205 s, 218 s | EPYC 7763 |
+| Same, one `.cpp` edited | 811 of 814 from cache | 220 s | EPYC 7763 |
+| Same, `Filmmaker.h` edited (32 objects) | 782 of 814 from cache | 243 s | EPYC 7763 |
+
+The job count does not matter on this runner, so CI keeps 4. An empty sccache adds about a quarter
+to the C++ time, paid once per cache scope. A warm build is limited by sccache running the
+preprocessor for every object, and by the Rust workspace crate (about 110 s, in parallel), which
+cargo rebuilds because a fresh checkout has new file times. `main.cpp` embeds `__DATE__` and
+`__TIME__` in the console banner, so it always recompiles.
+
+**Whole run**, pull request #15:
+
+| Run | Caches | Native build step | Native job | Run wall time |
+| --- | --- | --- | --- | --- |
+| First push | none | 1475 s | 1708 s | 28.8 min |
