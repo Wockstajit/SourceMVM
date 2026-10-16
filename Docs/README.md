@@ -54,6 +54,7 @@ Every document lives in exactly one of these folders. Nothing but this index sit
 - [Repository guidance](../CLAUDE.md) and [build instructions](../BUILDING.md) own setup and runtime diagnosis.
 - [How we finish work](setup/finishing-work.md) covers tracking issues, labels, commits, branch pushes and PRs.
 - [GitHub workflow and contribution policy](setup/git-workflow.md) covers branches, PRs, AI-assisted contributions, required checks, releases and issues.
+- [Continuous integration](setup/ci.md) covers which CI jobs a change runs, the native build caches and `ci-gate`.
 - [Publishing releases](setup/publishing-releases.md) covers builds, the direct executable scan and public assets.
 - [Automation hygiene](../Automation/docs/AUTOMATION_HYGIENE.md) covers generated output and retained evidence.
 - [Relighting regression fixtures](../Automation/fixtures/relight-regressions/README.md) describe saved visual checks.

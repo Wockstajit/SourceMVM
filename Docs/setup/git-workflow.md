@@ -182,12 +182,13 @@ when it runs on the real codebase.
 | --- | --- | --- |
 | `docs-integrity` | Relative links and documentation consistency (`Automation/tests/documentation-integrity-tests.mjs`) | Yes when docs change |
 | `panorama-tests` | Panorama source and UI interaction tests | Yes for UI changes |
-| `changes` | Decides whether the native build runs: PRs that touch no native source, CMake, or dependency path skip it, and a skipped job passes `ci-gate`. Pushes and merge groups always build | Yes on all PRs |
-| `native-build-windows` | CS2 and Deadlock hook build (`x64-deadlock-release`, `AfxHookSource2`, `AfxHookDeadlock` and the native test targets, with the cargo build cached) followed by the CTest suites, including state and math, map extraction, and crash handling. The four slow D3D11 render fixtures (`EnvironmentAtmosphereEdgeTests`, `EnvironmentRenderTests`, `RelightProbeGpuTests`, `EnvironmentVolumeCacheTests`) are excluded because the runner has no GPU, so run them locally | Yes for native changes |
+| `changes` | Decides which jobs a PR or push needs from its changed files ([CI](ci.md)). Merge queue groups run every job. Nightly, manual and release-line runs also run the shipping build | Yes on all PRs |
+| `native-build-windows` | CS2 and Deadlock hook build (`x64-deadlock-ninja-release`, Ninja with sccache and cached shader and cargo builds) followed by the CTest suites, including state and math, map extraction, and crash handling. A Deadlock-only change builds and tests only the Deadlock targets. The four slow D3D11 render fixtures (`EnvironmentAtmosphereEdgeTests`, `EnvironmentRenderTests`, `RelightProbeGpuTests`, `EnvironmentVolumeCacheTests`) are excluded because the runner has no GPU, so run them locally | Yes for native changes |
+| `native-full-validation` | The shipping configuration (`x64-deadlock-release`, Visual Studio generator) from a clean tree without compile caches, with the same CTest suites. Runs nightly, on manual runs and for `release/*` | Yes for release lines |
 | `launcher-build` | Node install, launcher typecheck, and renderer build | Yes for launcher changes |
 | `security-license-scan` | Secrets, private paths, and forbidden tracked files (`Automation/verify/check-repo-policy.mjs --scan`) | Yes on all PRs |
 | `changed-file-policy` | No accidental binaries, large files, or private artifacts in the PR diff (`check-repo-policy.mjs --changed`) | Yes on all PRs |
-| `ci-gate` | Aggregates the checks above and fails if any of them fails | Yes on all PRs |
+| `ci-gate` | Aggregates the checks above. Fails if any of them fails or is cancelled, or if a check the change needed did not run | Yes on all PRs |
 
 The inherited HLAE multi-build (Source 1, GoldSrc, win32) is not part of the PR path. `legacy-native.yml` runs it nightly and on demand from the Actions tab.
 
