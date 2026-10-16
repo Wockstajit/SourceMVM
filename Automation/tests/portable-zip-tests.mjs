@@ -29,3 +29,12 @@ test('the zip stays out of the updater feed: the complete build only emits the n
 test('a portable launcher is told to download a new zip or setup, and never self-updates', () => {
   assert.match(updateService, /if \(portable\) throw new Error\([^)]*portable zip/);
 });
+test('the portable zip is never a public release asset', () => {
+  // It contains DMCA-restricted files. The installer is published; the zip is local or private only.
+  const publish = read('Docs/setup/publishing-releases.md');
+  const uploads = publish.slice(publish.indexOf('upload only these files'), publish.indexOf('Never upload the portable zip'));
+  assert.ok(uploads.length > 0, 'the publish list and the portable-zip rule must both exist');
+  assert.doesNotMatch(uploads, /Portable/);
+  assert.doesNotMatch(script, /upload it as a normal release asset/);
+  assert.match(script, /Do not upload it to a public release/);
+});
