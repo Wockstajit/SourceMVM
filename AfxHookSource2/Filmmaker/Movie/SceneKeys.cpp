@@ -4,7 +4,6 @@
 #include "TimelinePlayhead.h"
 #include "../Filmmaker.h"
 #include "../Demo/DemoProjectStore.h"
-#include "../Demo/PlayingDemoPath.h"
 #include "../Environment/EnvironmentScene.h"
 #include "../World/WorldTransient.h"
 #include "../World/SkyboxLibrary.h"
@@ -192,7 +191,9 @@ void SceneKeys_Flush() { g_track.EndEdit(); Flush(); for (auto it = g_unsaved.be
 void SceneKeys_Reassert() { g_reassert = true; }
 void SceneKeys_ApplyCaptureTick(double tick) { g_captureTick = tick; }
 void SceneKeys_RunFrame() {
-    const auto demo = ResolvePlayingDemoPath();
+    // Keyed like CameraPath and the other project.mvm sections: a keyframed or repaired copy
+    // maps back to the original demo, so its scene keys live in the original's project.
+    const auto demo = PlayingDemoPath();
     const auto map = Environment::CurrentMapName();
     if (!g_loaded || demo != g_demo) { g_track.EndEdit(); Flush(); g_demo = demo; g_loaded = true; Load(); g_reassert = true; }
     if (map != g_map) { g_map = map; PrepareAssets(); g_reassert = true; }
