@@ -293,8 +293,10 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
         ++g_track.revision;return;
     }
     if(op=="graph") {
+        // The playhead is not a scene verb: both graph modes drive it with `grapheditor playhead`,
+        // which also drags the demo world (DemoScrub). A scene-only copy moved the cursor alone, so
+        // the world stood still under a SCENE GRAPH ruler drag.
         const std::string action=arg(3); const auto* spec=Channel(atoi(arg(4))); const int kid=atoi(arg(5));
-        if(action=="playhead") { if(std::string(arg(4))=="release")TimelinePlayhead_EndScrub();else {double n=Number(arg(4));if(std::isfinite(n))TimelinePlayhead_BeginScrub(std::max(0.0,n));}return; }
         if(action=="undo"||action=="redo") {if(action=="undo"?g_track.Undo():g_track.Redo()){MarkDirty();PrepareAssets();}g_gesture=false;return;}
         if(action=="editbegin"){g_track.BeginEdit();g_gesture=true;return;}
         if(action=="editend"){if(g_track.EndEdit())MarkDirty();g_gesture=false;return;}
@@ -308,11 +310,18 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
         }
         g_track.BeginEdit();
         if(action=="delsel")g_track.DeleteSelected();
-        else if(action=="movesel")g_track.MoveSelected(Catalog(),Number(arg(4)),Number(arg(5)));
+        else if(action=="movesel"){g_track.MoveSelected(Catalog(),Number(arg(4)),Number(arg(5)));
+            if(MvmDebugLog_Active()){static unsigned n=0;if((n++%8)==0)MvmDebugLog_Linef("scenekeys.move","dt=%s dv=%s gesture=%d selected=%zu rev=%d",arg(4),arg(5),g_gesture?1:0,g_track.selected.size(),g_track.revision);}}
         else if(action=="addkey"&&spec&&!spec->Stepped()&&spec->type!=ChannelType::Colour){Value v{{Number(arg(6))},{}};int id=g_track.Put(*spec,Number(arg(5)),v);if(id)g_track.selected={id};}
         else if(action=="handle"&&spec&&!spec->Stepped()) {
             auto k=g_track.Find(spec->id,kid); double tx=Number(arg(7)),dv=Number(arg(8));
-            if(k&&std::isfinite(tx)&&std::isfinite(dv)&&std::fabs(dv)<=1e9){if(spec->type==ChannelType::Colour)dv*=std::max(size_t(1),g_track.data.fields[spec->id].size()-1);auto& h=std::string(arg(6))=="left"?k->left:k->right;h={true,Clamp01(tx),dv};++g_track.revision;}
+            if(k&&std::isfinite(tx)&&std::isfinite(dv)&&std::fabs(dv)<=1e9){
+                if(spec->type==ChannelType::Colour)dv*=std::max(size_t(1),g_track.data.fields[spec->id].size()-1);
+                // A handle never reaches past the property's range. The sampled value is clamped to
+                // that range anyway, so a handle beyond it only bought a flat clipped plateau -- and
+                // it put the handle itself off the graph, where it could not be grabbed back.
+                else dv=std::max(spec->min,std::min(spec->max,k->value.numbers[0]+dv))-k->value.numbers[0];
+                auto& h=std::string(arg(6))=="left"?k->left:k->right;h={true,Clamp01(tx),dv};++g_track.revision;}
         } else if(action=="smooth"||action=="linear"||action=="ease"||action=="direction") {
             for(auto& f:g_track.data.fields){auto s=FindSpec(Catalog(),f.first);if(!s||s->Stepped())continue;
                 for(size_t i=0;i<f.second.size();++i){auto& k=f.second[i];if(!g_track.selected.empty()&&!g_track.selected.count(k.id))continue;
@@ -337,7 +346,12 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
         const std::string how=arg(4);const bool on=how=="on"||(how!="off"&&!all);for(const auto& id:ids){if(on)g_track.data.muted.insert(id);else g_track.data.muted.erase(id);}}
     else if(op=="group"){std::vector<std::string> ids;bool all=true;for(const auto& s:Catalog())if(s.family+"."+s.groupId==arg(3)){ids.push_back(s.id);if(!g_track.data.armed.count(s.id))all=false;}for(const auto& id:ids){if(all)g_track.data.armed.erase(id);else g_track.data.armed.insert(id);}}
     else if(op=="add"){g_track.selected.clear();for(const auto& id:g_track.data.armed){const auto* s=FindSpec(Catalog(),id);if(s){int k=g_track.Put(*s,tick,Editable(*s,tick,base));if(k)g_track.selected.insert(k);}}}
-    else if(op=="set"||op=="graphadd"){const auto* s=FindSpec(Catalog(),arg(3));if(s&&(g_track.data.armed.count(s->id)||op=="graphadd")){Value v=op=="set"?ParseValue(*s,argc,args,4):Editable(*s,Number(arg(4)),base);int k=g_track.Put(*s,op=="set"?tick:Number(arg(4)),v);if(k){g_track.selected={k};g_error.clear();if(s->type==ChannelType::SkyId)PrepareAssets();}else g_error="Invalid value for "+s->label;}}
+    else if(op=="set"||op=="graphadd"){const auto* s=FindSpec(Catalog(),arg(3));if(s&&(g_track.data.armed.count(s->id)||op=="graphadd")){Value v=op=="set"?ParseValue(*s,argc,args,4):Editable(*s,Number(arg(4)),base);const double at=op=="set"?tick:std::round(Number(arg(4)));const int before=g_track.data.nextId;int k=g_track.Put(*s,at,v);
+        // A value edit re-keys the key under the playhead; it only makes a NEW key when the playhead
+        // is on a tick without one. Logged per edit so "it made a second key next to mine" shows
+        // which tick the playhead actually held (TimelinePlayhead.h keeps it on a jumped-to key).
+        if(MvmDebugLog_Active()){static unsigned n=0;const bool added=g_track.data.nextId!=before;if(added||(n++%8)==0)MvmDebugLog_Linef("scenekeys.set","%s %s tick=%.0f key=%d %s playhead=%.2f scrubbing=%d",op.c_str(),s->id.c_str(),at,k,added?"new":"rekey",TimelinePlayhead_Tick(),TimelinePlayhead_Scrubbing()?1:0);}
+        if(k){g_track.selected={k};g_error.clear();if(s->type==ChannelType::SkyId)PrepareAssets();}else g_error="Invalid value for "+s->label;}}
     else if(op=="delsel")g_track.DeleteSelected();
     // clear <all | family.groupId | fieldId>. It DISARMS as well as deleting the keys, because the
     // Scene Keys inspector is an on/off selector: a property left armed with its keys gone would

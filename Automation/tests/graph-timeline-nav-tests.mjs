@@ -165,7 +165,8 @@ test('scene properties are grouped under collapsible group headers', () => {
 });
 
 test('scene curves overlay ONE shared canvas, not a band per property', () => {
-  assert.match(graph, /function chBand\(ch\) \{ return \{ y0: 0, h: G\.ch \}; \}/);
+  // One band for every scene curve: the canvas below the ruler that overlays its top edge.
+  assert.match(graph, /function chBand\(ch\) \{ return sceneOn\(\) \? \{ y0: RULER_H \+ 10, h: Math\.max\(20, G\.ch - RULER_H - 20\) \} : \{ y0: 0, h: G\.ch \}; \}/);
   // Collapsing a group takes its curves out of the shared canvas (there is no band to remove).
   assert.match(graph, /sceneCollapsedCh\[model\[grp\.items\[h\]\]\.ch\] = true;/);
   assert.match(graph, /return !sceneOn\(\) \|\| !sceneCollapsedCh\[ch\.ch\];/);
@@ -187,7 +188,7 @@ test('time snap: one shared step quantises the playhead, key placement and key d
   assert.match(bridgeH, /bool CameraBridge_GetAltDown\(\);/);
   // The playhead scrub uses the snapped tick everywhere it is read.
   assert.doesNotMatch(graph, /xToTick\(cc\.clx\)\.toFixed\(2\)/);
-  assert.match(graph, /scrubTick\(cc\.clx\)\.toFixed\(2\)/);
+  assert.match(graph, /playheadTo\(scrubTick\(cc\.clx\)\)/);
   // Key placement and the lead-key drag snap.
   assert.match(graph, /snapTick\(st\.playhead\)\.toFixed\(2\)/);
   assert.match(graph, /Math\.round\(snapTick\(st\.playhead\)\)/);

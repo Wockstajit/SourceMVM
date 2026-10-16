@@ -29,6 +29,7 @@ All paths under `AfxHookSource2/Filmmaker/`.
 | Reusable settings | `Config/FilmmakerSettingsStore.{h,cpp}` | Debounced persistence for workspace preferences; excludes camera/shot data. |
 | Camera timeline (scrub bar, keys, easing) | `Panorama/CameraTimelineHud.{h,cpp}` + `CameraTimelineJs.h`; back-end `Movie/CamPlayback.cpp`, command surface `CameraTimelineCommand.cpp` (`camtl`) | Space and the play button use the same playback gate. |
 | Graph editor (experimental) | `Panorama/GraphEditorExperimentHud.{h,cpp}` + `GraphEditorJs.h`; model `Movie/GraphExpModel.cpp`; command `GraphEditorCommand.cpp` | Graph mutations bake back into CameraPath markers so the graph and timeline share the path. Path-side edits do not reseed a live graph session. |
+| Scene keys (animated lighting, sky, fog, weather, look) | Catalog `Movie/SceneKeyframeCatalog.cpp`, track and sampling `Movie/SceneKeyframeTrackMath.h`, runtime and commands `Movie/SceneKeys.cpp` (`scenekeys`); inspector `Panorama/CameraEditorSceneKeysJs.h`; strips in the graph dock's SCENE GRAPH mode (`GraphEditorJs.h`) | See [Scene keys and the Scene Graph](#scene-keys-and-the-scene-graph). |
 | Marker / dolly path | `Movie/CameraPath.cpp` (+ `CameraPathPicking.cpp` for the crosshair hover pick), `Movie/CamMarkers.cpp`, `Movie/CamPathEval.cpp`; HUD `Panorama/MarkerHud.{h,cpp}`; command `MarkerCommand.cpp` (`marker`) | BO2-style: K = place, L = delete aimed, F = edit aimed (in free cam). |
 | Follow / Lock-On camera | `Movie/FollowCamera.cpp` + `FollowTarget*`/`FollowEventIndex`; command `FollowCommand.cpp` (`follow`) | Full docs in [follow-camera/](../follow-camera/README.md). |
 | Customize (loadout) modal | JS in `Panorama/CameraEditorCustomizeJs.h` (modal) + `CameraEditorCustomizePreviewJs.h` (3D preview wiring); queries `Cosmetics/CosmeticUiQueries.{h,cpp}`; backend `Cosmetics/` | Per-player skins, knife, gloves and agent: see [customize-feature.md](customize-feature.md). Includes the experimental 3D player preview ([panorama-player-preview-summary.md](../panorama/panorama-player-preview-summary.md)). |
@@ -53,6 +54,20 @@ mirv_filmmaker cosmetics ...               customize backend
 ```
 
 Drive the UI from netcon with short calls into predefined JS helpers (`$.Filmmaker.*`). `ui_eval` truncates at 256 bytes.
+
+## Scene keys and the Scene Graph
+
+The SCENE KEYS inspector tab picks which properties are animated. Turning one on gives it a strip in the graph dock's SCENE GRAPH mode, where its keys and curves are edited. CONFIG stays the baseline for every property that is off, and for every tick outside a keyed span.
+
+**Names.** A property has one name, held in the catalog's name table, and both the inspector row and the graph strip show it. The name is the label of the CONFIG control that edits the same value. Where CONFIG's label only makes sense on its own page, the name adds the page's subject: CONFIG's LIGHTING > Sun "Rotate" is "Sun rotate", and its SKY > Sun & sky "Azimuth" is "Sun azimuth". Values that CONFIG keeps off its panels are named for what they drive, such as "Custom sun azimuth" for the absolute sun position. Groups follow CONFIG's tabs and cards: Effects (Lighting, Weather & Sky, Atmosphere) and Environment (Looks, Sky, Lighting, Fog, Weather, Ground), in CONFIG's order. The graph's group bars read "Effects · Lighting" and "Environment · Lighting", because both tabs have a Lighting card. The inspector lists the properties CONFIG shows by default, and the rest sit under More settings.
+
+**The playhead.** Both graph modes drive the playhead with `grapheditor playhead`, so a SCENE GRAPH ruler drag moves the demo world as well (see [live demo scrubbing](filmmaker_demo_scrubbing.md)). Clicking a scene key moves the playhead to that key. Dragging a key takes the playhead with it, so the world on screen shows the dragged key's own value, and the release lands on the key. After any release, the playhead holds the released tick while the demo travels there, and then while the demo stays where it landed. A seek can land one tick past its target, and without the hold a key you jumped to read as "not here". A value edit at the playhead re-keys the key under it and only adds a key on a tick that has none.
+
+**Editing.** A key drag sends its total offset since the press, so a step refused at another key or clamped at a range bound is not lost and the key stays under the pointer. Bezier handles stay inside the property's range, because the sampled value is clamped to it anyway. Each scene curve is fitted to what it draws: its keys, the curve between them and the handles of selected keys. The fit is padded and never wider than the property's range. It is frozen while a drag is open and refits on release. Angles are drawn the way they are sampled, the short way round (or in the key's set direction) and wrapped. The band starts below the ruler, so a key at the top of its range is never hidden under it. **FIT** in the bottom bar frames every visible key. A key created off screen and a jump to a key off screen both page the window to it. A colour strip's chip opens the shared CONFIG colour picker in a tray beside the strip list. A press outside the tray closes it.
+
+**Diagnosis.** `mvm_debug` logs `scenekeys.set` (every new key, sampled re-keys, with the playhead it used), `scenekeys.move` (sampled drags) and `playhead.hold` (hold, landed, drop and why). `mirv_filmmaker scenekeys status` prints each armed or keyed property with its keys and the value resolved at the playhead.
+
+Tests: `SceneKeyframeTrackTests` (catalog names and groups, sampling, drag offsets, serialization), `Automation/tests/scene-graph-tests.mjs`, `scene-keys-ui-tests.mjs` and `graph-timeline-nav-tests.mjs`.
 
 ## Known contracts / gotchas
 

@@ -54,7 +54,7 @@ inline const char* kGraphEditorJs = R"GEJS(
       ovViewBorder: '#ffffff4d', ovViewBorderHot: '#f0b323cc', ovKey: '#ffffff66', ovPlay: '#ff5a5aee',
       // Tokens the SHARED colour popover reads (ConfigColorPickerJs.h, spliced in below) so this
       // dock's colour properties open the SAME wheel the Config panel's custom colours do.
-      muted: '#8b95a3ff', danger: '#ff6b6bff',
+      muted: '#8b95a3ff', danger: '#ff6b6bff', drawer: '#11151bff', clear: 'rgba(0,0,0,0)',
       fontMonodigit: 'Stratum2 Bold Monodigit, Stratum2, "Arial Unicode MS"',
       font: 'Stratum2, "Arial Unicode MS"'
     };
@@ -301,11 +301,23 @@ R"GEJS(
       return p;
     }
     function clamp01(x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
-    // ---- host-scope shims for the shared colour popover -------------------
+    // ---- host-scope shims for the shared colour picker --------------------
     // ConfigColorPickerJs.h is a raw-string CHUNK, not a standalone script: it expects
-    // mk/lbl/btn/clamp01/root/S from whichever workspace splices it in, plus these three. Config
+    // mk/lbl/btn/clamp01/S from whichever workspace splices it in, plus the helpers below. Config
     // keeps them in ConfigHudWidgetsJs.h, which this dock does not include (it carries a much
-    // smaller widget set), so the three the picker actually calls are restated here.
+    // smaller widget set), so every one the picker calls is restated here. A missing one is a
+    // ReferenceError the first time a colour strip is built: it aborted the scene column's
+    // rebuild at the first colour property, and every row after it never appeared.
+    // (Automation/tests/scene-graph-tests.mjs checks the list against the picker's own calls.)
+    function endTileLine(parent) { if (parent) { parent.__tileLine = null; parent.__chipLine = null; } }
+    function paintBtn(b) { btnVisual(b); }
+    function hoverable(p, paint) {
+      p.hittest = true; p.__hot = false;
+      p.SetPanelEvent('onmouseover', function () { p.__hot = true; paint(p); });
+      p.SetPanelEvent('onmouseout', function () { p.__hot = false; paint(p); });
+      paint(p);
+      return p;
+    }
     function hex2(n) {
       n = Math.round(n); if (n < 0) n = 0; if (n > 255) n = 255;
       var h = n.toString(16); return h.length < 2 ? '0' + h : h;
@@ -682,6 +694,13 @@ R"GEJS(
       b.SetPanelEvent('onmouseout', function () { b.style.backgroundColor = S.btnBg; hideTip(); });
       return b;
     }
+    // FIT frames every visible key (and refits each scene curve's height). The navigator and the
+    // zoom buttons only ever move the window from where it is; after keys pile up off screen there
+    // was no one-step way back to all of them.
+    var FIT_W = 40, NAV_L = FIT_W + ZOOM_W;
+    var fitBtn = zoomBtn('FIT', 'Fit every visible key in the graph', function () { fitAll(); });
+    fitBtn.style.width = FIT_W + 'px'; fitBtn.__lbl.style.fontSize = '11px'; fitBtn.__lbl.style.letterSpacing = '1px';
+    fitBtn.style.borderRight = '1px solid ' + S.border;
     var zoomOut = zoomBtn('−', 'Zoom out the timeline (Ctrl+Wheel down)', function () { zoomStep(1.6); });
     var zoomIn = zoomBtn('+', 'Zoom in the timeline (Ctrl+Wheel up)', function () { zoomStep(1 / 1.6); });
     var sbTrack = mk('Panel', bottomBar); sbTrack.hittest = false;
@@ -690,6 +709,8 @@ R"GEJS(
     sbThumb.style.backgroundColor = '#ffffff33'; sbThumb.style.borderRadius = '7px';
     sbThumb.style.border = '1px solid #ffffff2a';
 
+)GEJS"
+R"GEJS(
     // ---- SCENE KEYS: stacked property strips ---------------------------
     // SCENE KEYS uses the Graph dock as a stacked property editor. Camera mode overlays seven
     // channels on ONE set of axes, which works because they are all metres/degrees on one camera.
@@ -711,7 +732,9 @@ R"GEJS(
     // The value cell's rect has to be known in DOCK coordinates because the mouse pipe owns it
     // (drag to scrub, click to type, right-click for its menu) -- exactly the camera column's
     // contract, which is the interaction people already know in this dock.
-    var SH_VALW = 78, SH_ROWH = 20;
+    // 66px holds a five-digit tick value or a hex chip, and leaves the property NAME ~20
+    // characters before it ellipses (it used to be 78px, which cut names at ~17).
+    var SH_VALW = 66, SH_ROWH = 20;
     var SH_VALX = LEFTW - 8 - EYEW - 6 - SH_VALW;
     var sceneStrips = [], sceneGroups = [], sceneScroll = 0, sceneContentH = 0, sceneCollapsed = {}, sceneCollapsedCh = {};
     var sceneHeadSig = '', sceneValues = {}, sceneCells = [], sceneNavs = [];
@@ -721,6 +744,42 @@ R"GEJS(
     sceneHeads.style.position = '0px 0px 0px'; sceneHeads.style.width = '100%';
     var sceneEmpty = lbl(canvas, 'Turn properties on in SCENE KEYS to give them strips here.', S.hint, 14);
     sceneEmpty.style.horizontalAlign = 'center'; sceneEmpty.style.verticalAlign = 'center'; sceneEmpty.hittest = false;
+
+    // THE COLOUR PICKER'S TRAY. The shared picker opens INLINE under the parent it is handed
+    // (Config's rows push down to make room for it). This dock has no flowing column to open it
+    // in, so every colour strip parents its picker here instead: one floating panel beside the
+    // strip list, placed next to the chip that opened it. Done, the chip again, or a click
+    // anywhere else closes it.
+    var PICK_W = 392;
+    var pickTray = mk('Panel', dock); pickTray.hittest = false; pickTray.hittestchildren = true;
+    pickTray.visible = false; pickTray.style.zIndex = '24'; pickTray.style.width = PICK_W + 'px';
+    pickTray.style.flowChildren = 'down'; pickTray.style.padding = '8px 10px 10px 10px';
+    pickTray.style.backgroundColor = 'rgba(16,20,26,0.99)'; pickTray.style.borderRadius = '5px';
+    pickTray.style.border = '1px solid ' + S.border; pickTray.style.boxShadow = '#000000aa 0px 6px 18px 0px';
+    var pickHead = lbl(pickTray, '', S.hint, 10); pickHead.hittest = false;
+    pickHead.style.fontWeight = 'bold'; pickHead.style.letterSpacing = '1.4px';
+    var pickBody = mk('Panel', pickTray); pickBody.hittest = false; pickBody.hittestchildren = true;
+    pickBody.style.width = '100%'; pickBody.style.flowChildren = 'down';
+    var pickAnchor = null, pickTitle = '', pickPos = '';
+    function panelRect(p) {
+      if (!p || (p.IsValid && !p.IsValid()) || !p.GetPositionWithinWindow) return null;
+      var pos = p.GetPositionWithinWindow(), s = uiscale || 1;
+      var x = pos.x / s - dockScreenX, y = pos.y / s - dockScreenY;
+      return { x0: x, y0: y, x1: x + (p.actuallayoutwidth || 0) / s, y1: y + (p.actuallayoutheight || 0) / s };
+    }
+    function overPanel(p, lx, ly) { var r = panelRect(p); return !!r && lx >= r.x0 && lx <= r.x1 && ly >= r.y0 && ly <= r.y1; }
+    // Called on open and again every frame while open (render()): the tray's height is only known
+    // after its first layout pass, and the clamp that keeps it inside the dock needs it.
+    function placePickTray(anchor, title) {
+      if (anchor !== pickAnchor || title !== pickTitle) { pickAnchor = anchor; pickTitle = title; pickHead.text = ('' + title).toUpperCase(); }
+      var r = panelRect(anchor), h = (pickTray.actuallayoutheight || 0) / (uiscale || 1) || 250;
+      var y = r ? r.y0 - 12 : HEADER_H + OVERVIEW_H;
+      y = Math.max(HEADER_H + 4, Math.min(DOCK_H - h - 4, y));
+      var pos = (LEFTW + 10) + 'px ' + Math.round(y) + 'px 0px';
+      if (pos !== pickPos) { pickPos = pos; pickTray.style.position = pos; }
+      pickTray.visible = true;
+    }
+    function closePickTray() { if (cfgColorOwner) cfgCloseColor(); pickTray.visible = false; pickAnchor = null; }
 
     function stepped(ch) { return ch && (ch.type === 'bool' || ch.type === 'enum' || ch.type === 'asset'); }
     // Rounded per component: a colour arrives as three float channels and printing them raw put
@@ -747,7 +806,7 @@ R"GEJS(
       for (var i = 0; i < n; i++) {
         var c = model[i], gid = (c.family || '') + '.' + (c.group || '');
         var g = byId[gid];
-        if (!g) { g = byId[gid] = { id: gid, title: c.group || c.family || 'Properties', items: [] }; sceneGroups.push(g); }
+        if (!g) { g = byId[gid] = { id: gid, title: sceneGroupTitle(c), items: [] }; sceneGroups.push(g); }
         g.items.push(i);
       }
       var y = 0;
@@ -776,8 +835,16 @@ R"GEJS(
     }
 )GEJS"
 R"GEJS(
+    // A group header names the CONFIG tab as well as the card: both tabs have a LIGHTING card, and
+    // two bars both reading "Lighting" gave no way to tell the map's sun from the procedural one.
+    function sceneGroupTitle(ch) {
+      return (ch.family === 'effects' ? 'Effects' : ch.family === 'environment' ? 'Environment' : 'Properties')
+        + (ch.group ? ' · ' + ch.group : '');
+    }
     function rebuildSceneHeads() {
       sceneHeads.RemoveAndDeleteChildren(); sceneValues = {}; sceneCells = []; sceneNavs = [];
+      // The colour pickers belong to the rows being replaced.
+      closePickTray(); pickBody.RemoveAndDeleteChildren();
       for (var gi = 0; gi < sceneGroups.length; gi++) (function (grp) {
         // ---- group header bar: disclosure + name + count + show/hide-all ----
         var allVis = false;
@@ -821,6 +888,7 @@ R"GEJS(
         // reason the groups above are.
         for (var k = 0; k < grp.items.length; k++) (function (ch, strip) {
           if (!strip) return;
+          try {
           var row = mk('Panel', sceneHeads); row.hittest = false;
           row.style.position = '0px ' + strip.y0 + 'px 0px';
           row.style.width = LEFTW + 'px'; row.style.height = strip.h + 'px';
@@ -836,6 +904,8 @@ R"GEJS(
           var nm = lbl(hot, ch.muted ? ch.name + '  (off)' : ch.name, ch.muted ? S.hint : ch.solo ? S.accent : (ch.edit ? S.value : S.inactive), 12);
           nm.hittest = false; nm.style.verticalAlign = 'center';
           nm.style.whiteSpace = 'nowrap'; nm.style.textOverflow = 'ellipsis'; nm.style.width = 'fill-parent-flow(1.0)';
+          // The full name on hover: a long one is ellipsed in this column.
+          attachTip(hot, ch.name + (ch.solo ? ' · click to show every strip' : ' · click to solo'));
           var dnav = mk('Panel', row); dnav.style.height = '100%'; dnav.style.marginRight = '5px';
           dnav.style.flowChildren = 'right'; dnav.style.width = 'fit-children';
           var dprev = navBtn(dnav, '◀', 'Previous keyframe', function () { jumpSceneKey(ch, -1); });
@@ -848,9 +918,9 @@ R"GEJS(
           // nothing to scrub along, and "255 180 140" or a sky name has to be typed.
           if (ch.type === 'colour') {
             // A COLOUR OPENS THE COLOUR WHEEL. The chip IS the swatch: it shows the value, and
-            // clicking it drops the shared popover under the row. Writing goes through the same
-            // `scenekeys set` verb the number cells use, so a colour edit keys exactly like any
-            // other edit (and, at a keyed tick, re-keys in place).
+            // clicking it opens the shared picker in the tray beside the list. Writing goes through
+            // the same `scenekeys set` verb the number cells use, so a colour edit keys exactly
+            // like any other edit (and, at a keyed tick, re-keys in place).
             var swRgb = [255, 255, 255];
             var chip = mk('Panel', row); chip.hittest = true;
             chip.style.width = SH_VALW + 'px'; chip.style.height = SH_ROWH + 'px';
@@ -870,7 +940,7 @@ R"GEJS(
               chipLbl.text = rgbHex(swRgb).substring(1, 7).toUpperCase();
             }
             crec.paint = paintChip;
-            crec.picker = colorPicker(root, ch.name, swRgb, function (value) {
+            crec.picker = colorPicker(pickBody, ch.name, swRgb, function (value) {
               paintChip();
               // show() fires onChange once to prime the preview; only a real change may write,
               // or merely OPENING the wheel would drop a keyframe.
@@ -884,7 +954,10 @@ R"GEJS(
               rawCmd('mirv_filmmaker scenekeys set ' + ch.fieldId + ' ' + out.join(' '));
             }, 1);
             crec.ch = ch.ch;
-            chip.SetPanelEvent('onactivate', function () { crec.picker.show(chip); });
+            crec.picker.onOpen = function () { placePickTray(chip, ch.name); };
+            crec.picker.owner.onClose = function () { pickTray.visible = false; pickAnchor = null; };
+            // show() toggles: the chip of the open picker closes it again.
+            chip.SetPanelEvent('onactivate', function () { crec.picker.show(); });
             attachTip(chip, 'Pick a colour for ' + ch.name);
             paintChip();
             sceneValues[ch.fieldId] = crec;
@@ -915,6 +988,12 @@ R"GEJS(
           var eye = btn(row, ch.vis ? '◉' : '○', function () { cmd('chan ' + ch.ch + (ch.vis ? ' hide' : ' show')); }, ch.vis ? S.accent : S.hint);
           eye.style.width = '24px'; eye.style.height = '20px'; eye.style.verticalAlign = 'center';
           eye.style.paddingLeft = '0px'; eye.style.paddingRight = '0px'; eye.style.marginRight = '0px';
+          } catch (rowErr) {
+            // One row that cannot build must not take the rows below it with it: the column is
+            // rebuilt only when its signature moves, so a throw here used to leave every later
+            // property missing until something else changed.
+            $.Msg('[grapheditor] scene row ' + (ch && ch.fieldId) + ' failed: ' + rowErr + String.fromCharCode(10));
+          }
         })(model[grp.items[k]], stripFor(model[grp.items[k]].ch));
       })(sceneGroups[gi]);
     }
@@ -951,6 +1030,20 @@ R"GEJS(
 
     function cmd(s) { try { GameInterfaceAPI.ConsoleCommand('mirv_filmmaker ' + (sceneOn() ? 'scenekeys graph ' : 'grapheditor ') + s); } catch (e) {} }
     function rawCmd(s) { try { GameInterfaceAPI.ConsoleCommand(s); } catch (e) {} }
+    // THE PLAYHEAD HAS ONE VERB IN BOTH MODES. `grapheditor playhead` moves the shared cursor AND
+    // drags the demo world with it (DemoScrub). Scene mode used to send its own copy that moved
+    // the cursor only, so the world stood still under a SCENE GRAPH drag and the values on screen
+    // were not the ones at the tick you were pointing at.
+    function playheadTo(t) { rawCmd('mirv_filmmaker grapheditor playhead ' + (+t).toFixed(2)); }
+    // Land the world on a whole tick and hand the playhead back. The playhead holds that tick
+    // while the demo travels there (Movie/TimelinePlayhead.h), so a jump to a key reads as "at
+    // the key" even when the seek lands a tick off.
+    function releasePlayhead(t) {
+      t = Math.max(0, Math.round(t));
+      playheadTo(t);
+      rawCmd('mirv_filmmaker scrub release ' + t);
+      rawCmd('mirv_filmmaker grapheditor playhead release');
+    }
 
 )GEJS"
 R"GEJS(
@@ -1019,6 +1112,51 @@ R"GEJS(
     }
     function panTicks(dt) { view.t0 += dt; view.t1 += dt; normalizeView(); afterViewChange(); }
     function panByFrac(frac) { panTicks(frac * (view.t1 - view.t0)); }
+    // Bring [a, b] into the window without zooming if it fits, or widen to it when it does not.
+    // Used when something you did lands OFF screen: a key created at a playhead outside the
+    // window, a jump to the next key. Moving the playhead never pans by itself (see above); these
+    // are discrete "show me what I just made / went to" moves, not a playhead follow.
+    function revealTicks(a, b) {
+      if (!(b >= a)) return;
+      var span = view.t1 - view.t0, margin = span * 0.12;
+      if (a >= view.t0 + margin * 0.25 && b <= view.t1 - margin * 0.25) return;
+      if (b - a > span - 2 * margin) { frameTicks(a, b); return; }
+      if (a < view.t0 + margin) { view.t0 = a - margin; view.t1 = view.t0 + span; }
+      else { view.t1 = b + margin; view.t0 = view.t1 - span; }
+      normalizeView(); afterViewChange(true);
+    }
+    function frameTicks(a, b) {
+      var pad = Math.max(32, (b - a) * 0.08);
+      view.t0 = a - pad; view.t1 = b + pad;
+      if (view.t1 - view.t0 < MIN_SPAN * 4) { var c = (a + b) / 2; view.t0 = c - MIN_SPAN * 2; view.t1 = c + MIN_SPAN * 2; }
+      normalizeView(); afterViewChange(true);
+    }
+    // FIT: every visible key on screen, and (scene mode) every curve refitted to its own height.
+    function fitAll() {
+      var a = Infinity, b = -Infinity;
+      for (var i = 0; i < model.length; i++) {
+        var ch = model[i]; if (!ch.vis || !sceneStripped(ch)) continue;
+        for (var j = 0; j < ch.keys.length; j++) { if (ch.keys[j].t < a) a = ch.keys[j].t; if (ch.keys[j].t > b) b = ch.keys[j].t; }
+      }
+      if (!(b >= a)) { var p = num(st.playhead); a = p - 500; b = p + 500; }
+      frameTicks(a, b);
+      sceneRanges = {}; lastSig = '';
+    }
+    // Keys that were not in the model last frame and sit outside the window are revealed: the
+    // only way to create one off screen is from a playhead you cannot see.
+    var knownKeys = null, knownMode = '';
+    function revealNewKeys(mode) {
+      var seen = {}, a = Infinity, b = -Infinity, fresh = knownKeys && knownMode === mode;
+      for (var i = 0; i < model.length; i++) {
+        var ch = model[i];
+        for (var j = 0; j < ch.keys.length; j++) {
+          var k = ch.keys[j], id = ch.ch + ':' + k.id; seen[id] = 1;
+          if (fresh && !knownKeys[id] && ch.vis && (k.t < view.t0 || k.t > view.t1)) { if (k.t < a) a = k.t; if (k.t > b) b = k.t; }
+        }
+      }
+      knownKeys = seen; knownMode = mode;
+      if (b >= a) revealTicks(a, b);
+    }
     // While the demo PLAYS, page the window so the playhead stays on screen. Scrubbing never does
     // this -- that is the whole point of the seed/epoch split above -- but during playback a
     // playhead that has left the window makes the graph look frozen, which is exactly "when I
@@ -1087,6 +1225,8 @@ R"GEJS(
     }
 
     // ---- coordinate maps (canvas-local layout px) -----------------------
+)GEJS"
+R"GEJS(
     function tickToX(t) { return (t - view.t0) / (view.t1 - view.t0) * G.cw; }
     function xToTick(x) { return view.t0 + (x / G.cw) * (view.t1 - view.t0); }
     // The overview maps the WHOLE demo (domain), not the visible window.
@@ -1106,11 +1246,80 @@ R"GEJS(
     // pile of separate little graphs. They are overlaid exactly like the camera channels now: each
     // curve is scaled to its own [min,max] across the FULL height, so every property is visible at
     // once and fills the area -- solo one (click its name) to see only it.
-    function chBand(ch) { return { y0: 0, h: G.ch }; }
-    function valToY(v, ch) { var d = ch.max - ch.min; if (Math.abs(d) < 1e-9) d = 1; var b = chBand(ch); return b.y0 + (1 - (v - ch.min) / d) * b.h; }
-    function yToVal(y, ch) { var d = ch.max - ch.min; if (Math.abs(d) < 1e-9) d = 1; var b = chBand(ch); return ch.min + (1 - (y - b.y0) / b.h) * d; }
+    // Scene curves are fitted edge to edge, so their band starts BELOW the ruler that overlays the
+    // canvas top and stops short of the bottom: a key at the top of its range used to sit under
+    // the ruler, half hidden and ungrabbable. Camera ranges are padded half a span past their keys
+    // already and keep the full height.
+    function chBand(ch) { return sceneOn() ? { y0: RULER_H + 10, h: Math.max(20, G.ch - RULER_H - 20) } : { y0: 0, h: G.ch }; }
+    // THE VERTICAL RANGE A CURVE IS DRAWN IN. Camera channels arrive already fitted (C++ pads the
+    // keyed span). A scene property arrives with its CODED range, and drawing in that put a fog
+    // density of 0.1 -> 0.3 or a cloud base of 1800 -> 2500 along the bottom few pixels of the
+    // canvas, every property piled onto the same baseline. So each scene curve is fitted to what it
+    // actually draws -- its keys, the curve between them and the handles of selected keys --
+    // padded, never wider than the coded range (exposure can never read negative), and with a
+    // floor so a nearly flat curve is not blown up into noise. FROZEN while any gesture is open:
+    // refitting under a dragged key or handle would move the axis under the pointer and run away.
+    var sceneRanges = {};
+    function rng(ch) {
+      if (!sceneOn()) return { lo: ch.min, hi: ch.max };
+      var r = sceneRanges[ch.fieldId];
+      return r || { lo: ch.min, hi: ch.max };
+    }
+    function fitSceneRange(ch) {
+      var lo = ch.min, hi = ch.max, full = hi - lo;
+      if (!(full > 0) || stepped(ch) || ch.type === 'colour' || !ch.keys.length) return { lo: lo, hi: hi };
+      var a = Infinity, b = -Infinity;
+      function take(v) { if (!isFinite(v)) return; v = Math.max(lo, Math.min(hi, v)); if (v < a) a = v; if (v > b) b = v; }
+      var k = ch.keys;
+      for (var i = 0; i < k.length; i++) {
+        take(k[i].v);
+        if (k[i].sel) { take(handleEndpoint(ch, k[i], -1).v); take(handleEndpoint(ch, k[i], 1).v); }
+        if (i + 1 < k.length) { var pts = scenePolyline(ch, k[i], k[i + 1]); for (var p = 0; p < pts.length; p++) take(pts[p].v); }
+      }
+      var span = Math.max(b - a, full * 0.04), pad = span * 0.15, c = (a + b) / 2;
+      var vlo = c - span / 2 - pad, vhi = c + span / 2 + pad;
+      if (vhi - vlo >= full) return { lo: lo, hi: hi };
+      if (vlo < lo) { vhi += lo - vlo; vlo = lo; }
+      if (vhi > hi) { vlo -= vhi - hi; vhi = hi; }
+      return { lo: vlo, hi: vhi };
+    }
+    function refitSceneRanges() {
+      var out = {};
+      for (var i = 0; i < model.length; i++) out[model[i].fieldId] = fitSceneRange(model[i]);
+      sceneRanges = out;
+    }
+    function valToY(v, ch) { var r = rng(ch), d = r.hi - r.lo; if (Math.abs(d) < 1e-9) d = 1; var b = chBand(ch); return b.y0 + (1 - (v - r.lo) / d) * b.h; }
+    function yToVal(y, ch) { var r = rng(ch), d = r.hi - r.lo; if (Math.abs(d) < 1e-9) d = 1; var b = chBand(ch); return r.lo + (1 - (y - b.y0) / b.h) * d; }
+    function rngSpan(ch) { var r = rng(ch); return (r.hi - r.lo) || 1; }
     function tickDelta(dxLayout) { return dxLayout / G.cw * (view.t1 - view.t0); }
-    function valDelta(dyLayout, ch) { var d = ch.max - ch.min; if (Math.abs(d) < 1e-9) d = 1; return -(dyLayout / chBand(ch).h) * d; }
+    function valDelta(dyLayout, ch) { return -(dyLayout / chBand(ch).h) * rngSpan(ch); }
+    // What a scene segment really evaluates to, as {t, v} samples, mirroring SceneKeyframeTrack's
+    // Sample(): a float is clamped to its range, and an ANGLE goes the way the key's direction says
+    // (shortest by default) and wraps -- 350 -> 10 is 20 degrees through north, which the plain
+    // value-to-value curve drew as a 340-degree sweep the other way. A wrap starts a new run
+    // (`brk`), so the drawn line jumps edge to edge instead of slashing across the canvas.
+    function scenePolyline(ch, a, b) {
+      var steps = ch.type === 'angle' ? 24 : 14, out = [], P;
+      var delta = b.v - a.v;
+      if (ch.type === 'angle') {
+        delta = ((b.v - a.v) % 360 + 360) % 360;
+        if (a.direction === 2 && delta > 0) delta -= 360;
+        else if (!a.direction && delta > 180) delta -= 360;
+      }
+      var bb = { t: b.t, v: a.v + delta, cl: b.cl };
+      P = segPts(a, bb);
+      var active = segActive(a, b), prev = null;
+      for (var s = 0; s <= steps; s++) {
+        var u = s / steps;
+        var t = active ? bez(P.p0x, P.p1x, P.p2x, P.p3x, u) : a.t + (b.t - a.t) * u;
+        var v = active ? bez(P.p0y, P.p1y, P.p2y, P.p3y, u) : a.v + delta * u;
+        if (ch.type === 'angle') { while (v > ch.max) v -= 360; while (v < ch.min) v += 360; }
+        else v = Math.max(ch.min, Math.min(ch.max, v));
+        out.push({ t: t, v: v, brk: ch.type === 'angle' && prev !== null && Math.abs(v - prev) > 180 });
+        prev = v;
+      }
+      return out;
+    }
 
     function computeGeom() {
       // Measure the screen from the ALREADY-laid-out HUD context panel first. Our own root is
@@ -1158,10 +1367,11 @@ R"GEJS(
       phLine.style.height = G.ch + 'px';
       bottomBar.style.position = G.cx + 'px ' + (DOCK_H - FOOTER_H) + 'px 0px';
       bottomBar.style.width = G.cw + 'px'; bottomBar.style.height = FOOTER_H + 'px';
-      zoomOut.style.position = '0px 0px 0px'; zoomOut.style.height = FOOTER_H + 'px';
+      fitBtn.style.position = '0px 0px 0px'; fitBtn.style.height = FOOTER_H + 'px';
+      zoomOut.style.position = FIT_W + 'px 0px 0px'; zoomOut.style.height = FOOTER_H + 'px';
       zoomIn.style.position = (G.cw - ZOOM_W) + 'px 0px 0px'; zoomIn.style.height = FOOTER_H + 'px';
-      sbTrack.style.position = (ZOOM_W + 10) + 'px ' + Math.round((FOOTER_H - SB_H) / 2) + 'px 0px';
-      sbTrack.style.width = Math.max(40, G.cw - 2 * (ZOOM_W + 10)) + 'px'; sbTrack.style.height = SB_H + 'px';
+      sbTrack.style.position = (NAV_L + 10) + 'px ' + Math.round((FOOTER_H - SB_H) / 2) + 'px 0px';
+      sbTrack.style.width = Math.max(40, G.cw - NAV_L - ZOOM_W - 20) + 'px'; sbTrack.style.height = SB_H + 'px';
       return true;
     }
 
@@ -1180,13 +1390,12 @@ R"GEJS(
     // diamond is filled when the playhead is already on a key, and << / >> step key to key. None
     // of it depends on clicking empty canvas space to create the first key.
     function seekTo(t) {
-      // Move the SHARED playhead and the demo with it, then hand the playhead back to the demo
-      // clock. Same three-command shape as a ruler release, so a jump-to-key behaves exactly like
-      // a scrub that ended on that tick.
+      // Move the SHARED playhead and the demo with it. The same release a ruler drag ends with, so
+      // a jump-to-key behaves exactly like a scrub that ended on that tick -- and the window pages
+      // to it when the key is off screen, or << / >> would jump somewhere you cannot see.
       t = Math.max(0, Math.round(t));
-      cmd('playhead ' + t);
-      rawCmd('mirv_filmmaker scrub release ' + t);
-      cmd('playhead release');
+      releasePlayhead(t);
+      revealTicks(t, t);
     }
     function nearestKeyTick(keys, t, dir) {
       var best = null;
@@ -1234,7 +1443,7 @@ R"GEJS(
     function inBottomBar(lx, ly) { return lx >= G.cx && lx <= G.cx + G.cw && ly >= DOCK_H - FOOTER_H && ly <= DOCK_H; }
     // Scrollbar track in DOCK coordinates, plus the thumb's current rect (set by layoutNav).
     function sbTrackRect() {
-      var x0 = G.cx + ZOOM_W + 10, x1 = G.cx + G.cw - ZOOM_W - 10;
+      var x0 = G.cx + NAV_L + 10, x1 = G.cx + G.cw - ZOOM_W - 10;
       return { x0: x0, x1: Math.max(x0 + 40, x1) };
     }
     var sbThumbX0 = 0, sbThumbW = 40;
@@ -1245,7 +1454,9 @@ R"GEJS(
         for (var j = 0; j < ch.keys.length; j++) {
           var k = ch.keys[j]; var x = tickToX(k.t), y = valToY(k.v, ch);
           var dx = x - clx, dy = y - cly, d = dx * dx + dy * dy;
-          if (d <= bd) { bd = d; best = { ch: ch.ch, id: k.id }; }
+          // `t` too: a key drag anchors its snap grid (leadT0) and the scene playhead on it. Without
+          // it leadT0 was undefined, so a dragged key never snapped to the grid at all.
+          if (d <= bd) { bd = d; best = { ch: ch.ch, id: k.id, t: k.t }; }
         }
       }
       return best;
@@ -1541,6 +1752,8 @@ R"GEJS(
       sbThumb.style.backgroundColor = hot ? '#ffffff59' : '#ffffff33';
     }
 
+)GEJS"
+R"GEJS(
     function processInput() {
       var lmb = !!st.lmb, rmb = !!st.rmb; var cc = curCursor();
       var inCanvas = (cc.clx >= 0 && cc.clx <= G.cw && cc.cly >= 0 && cc.cly <= G.ch);
@@ -1581,10 +1794,14 @@ R"GEJS(
       prevRmb = rmb;
 
       if (lmb && !prevLmb) {
-        // The colour wheel owns the pointer while it is open: it is a real Panorama popover with
-        // its own drag pump, so the raw pipe must not also start a box-select or grab a keyframe
-        // under it. cfgColorPump closes it on a genuine click-away.
-        if (cfgColorOwner) { prevLmb = lmb; return; }
+        // The colour picker owns the pointer while it is open: its wheel and bar drag off the same
+        // raw pipe (cfgColorPump), so this press must not also start a box-select or grab a
+        // keyframe. A press outside the tray closes it; the chip that opened it is left to its
+        // own onactivate, which toggles it shut.
+        if (cfgColorOwner) {
+          if (!overPanel(pickTray, cc.lx, cc.ly) && !overPanel(pickAnchor, cc.lx, cc.ly)) closePickTray();
+          prevLmb = lmb; return;
+        }
         // The snap dropdown's rows own their own clicks; a press anywhere else closes it. Its
         // Custom… field is a real TextEntry, so the raw pipe must not start a gesture over it.
         if (snapMenuOpen()) {
@@ -1637,14 +1854,20 @@ R"GEJS(
               if (!isSelectedId(k.ch, k.id)) cmd('select ' + k.ch + ' ' + k.id);
               // leadT0 is the CLICKED key's original tick: the snap grid is anchored to it, so a
               // multi-key drag keeps its spacing instead of collapsing every key onto one tick.
-              cmd('editbegin'); gesture = { type: 'kf', sx: cc.lx, sy: cc.ly, ldt: 0, ldv: 0, ach: k.ch, leadT0: k.t };
+              cmd('editbegin'); gesture = { type: 'kf', sx: cc.lx, sy: cc.ly, ldt: 0, ldv: 0, ach: k.ch, kid: k.id, leadT0: k.t };
+              // SCENE KEYS: CLICKING A KEY GOES TO IT, and a dragged key takes the playhead with it.
+              // The world (lighting, sky, fog) is what a scene key changes, so the only way to judge
+              // one is to stand on it: the value on screen while you drag is the dragged key's own.
+              // Before, the playhead stayed wherever it was, so a click selected a key without
+              // showing it, and a drag reshaped the curve somewhere you were not looking.
+              if (sceneOn()) { gesture.seek = true; gesture.ph = Math.round(k.t); playheadTo(gesture.ph); }
             } else if (inRuler) {
               // The ruler overlays the top of the canvas, so it is checked AFTER the keys/handles
               // that may sit under it -- the ruler is a scrub zone only where nothing is drawn.
-              gesture = { type: 'ruler' }; cmd('playhead ' + scrubTick(cc.clx).toFixed(2));
+              gesture = { type: 'ruler' }; playheadTo(scrubTick(cc.clx));
             } else if (nearPlayhead) {
               // grab the red playhead LINE in the canvas to scrub (same as the ruler handle).
-              gesture = { type: 'ruler' }; cmd('playhead ' + scrubTick(cc.clx).toFixed(2));
+              gesture = { type: 'ruler' }; playheadTo(scrubTick(cc.clx));
             } else {
               // Empty canvas is box-select. It used to be a create target ("click the strip to
               // place the first key"), which scattered keys wherever the pointer happened to land
@@ -1653,7 +1876,7 @@ R"GEJS(
               gesture = { type: 'rect', sx: cc.clx, sy: cc.cly, cx: cc.clx, cy: cc.cly };
             }
           }
-        } else if (inRuler) { gesture = { type: 'ruler' }; cmd('playhead ' + scrubTick(cc.clx).toFixed(2)); }
+        } else if (inRuler) { gesture = { type: 'ruler' }; playheadTo(scrubTick(cc.clx)); }
         else {
           var scell = sceneCellHit(cc.lx, cc.ly);
           if (scell) {
@@ -1686,7 +1909,7 @@ R"GEJS(
             if (st.shift) dv = 0;
             // Keep the handle OUTSIDE the diamond: enforce a minimum pixel distance from the key so
             // the arm/dot can't get swallowed into the diamond and become ungrabbable.
-            var spanPx = span / (view.t1 - view.t0) * G.cw, dd = (chh.max - chh.min) || 1;
+            var spanPx = span / (view.t1 - view.t0) * G.cw, dd = rngSpan(chh);
             var hpx = tx * spanPx, vpx = dv / dd * chBand(chh).h, dist = Math.sqrt(hpx * hpx + vpx * vpx), MIN = KF_R + 8;
             if (dist < MIN) {
               if (dist < 1e-3) { tx = clamp01(MIN / (spanPx || 1)); dv = 0; }
@@ -1707,16 +1930,26 @@ R"GEJS(
             dv2 = gesture.lockDv;
           } else if (gesture.shiftLock) {
             gesture.shiftLock = false;
-            var dd3 = (ach.max - ach.min) || 1; gesture.sy = cc.ly + gesture.lockDv * chBand(ach).h / dd3; dv2 = gesture.lockDv;
+            var dd3 = rngSpan(ach); gesture.sy = cc.ly + gesture.lockDv * chBand(ach).h / dd3; dv2 = gesture.lockDv;
           }
           // Snap the LEAD key to the grid; every other selected key moves by the same delta. With
           // snapping off, scene stays on whole ticks and the camera stays continuous.
           if (gesture.leadT0 != null && snapStep() > 0) dt = snapTick(gesture.leadT0 + dt) - gesture.leadT0;
           else if (sceneOn()) dt = Math.round(dt);
-          cmd('movesel ' + (dt - gesture.ldt).toFixed(3) + ' ' + (dv2 - gesture.ldv).toFixed(3));
+          // Scene keys move by the TOTAL offset since the press (SceneKeyframeTrack::MoveSelected
+          // measures from the edit's start), so a step refused at a collision or clamped at a
+          // bound is not lost and the key stays under the pointer. Camera keys take per-frame steps.
+          if (sceneOn()) {
+            if (dt !== gesture.ldt || dv2 !== gesture.ldv) cmd('movesel ' + dt.toFixed(3) + ' ' + dv2.toFixed(3));
+            // The playhead rides the KEY (as the model has it), not the pointer: a move refused at
+            // another key leaves the key, and so the playhead, where the property really changes.
+            var lead = keyById(chById(gesture.ach) || { keys: [] }, gesture.kid);
+            var ph = Math.max(0, Math.round(lead ? lead.t : gesture.leadT0 + dt));
+            if (gesture.seek && ph !== gesture.ph) { gesture.ph = ph; playheadTo(ph); }
+          } else cmd('movesel ' + (dt - gesture.ldt).toFixed(3) + ' ' + (dv2 - gesture.ldv).toFixed(3));
           gesture.ldt = dt; gesture.ldv = dv2;
         } else if (gesture.type === 'rect') { gesture.cx = cc.clx; gesture.cy = cc.cly; updateRect(gesture); }
-        else if (gesture.type === 'ruler') { cmd('playhead ' + scrubTick(cc.clx).toFixed(2)); }
+        else if (gesture.type === 'ruler') { playheadTo(scrubTick(cc.clx)); }
         else if (gesture.type === 'num') {
           var dpx = st.mx - gesture.smx; if (Math.abs(dpx) > 5) gesture.moved = true;
           if (gesture.moved) { var nv = gesture.sv + dpx * fieldSens(gesture.ch); cmd('addkey ' + gesture.ch + ' ' + snapTick(st.playhead).toFixed(2) + ' ' + nv.toFixed(3)); }
@@ -1736,11 +1969,18 @@ R"GEJS(
           var sel = keysInRect(gesture); if (sel.length) cmd('selset ' + sel.join(' ')); else cmd('selclear');
           rectVis.visible = false;
         } else if (gesture.type === 'ruler') {
-          rawCmd('mirv_filmmaker scrub release ' + Math.round(snapTick(xToTick(curCursor().clx)))); cmd('playhead release');
+          releasePlayhead(snapTick(xToTick(curCursor().clx)));
+        } else if (gesture.type === 'kf' && gesture.seek) {
+          // Land on the key where it ended up. A refused move leaves it short of the pointer, so
+          // its own tick wins: the last move went out on an earlier frame, and this frame's model
+          // already carries the result.
+          var lk = keyById(chById(gesture.ach) || { keys: [] }, gesture.kid);
+          releasePlayhead(lk ? lk.t : gesture.ph);
         } else if (gesture.type === 'num') { if (!gesture.moved) openType(gesture.ch); }
         else if (gesture.type === 'snum') { if (!gesture.moved) openSceneType(gesture.cell); }
         if (sceneOn()) cmd('editend');
         gesture = null;
+        lastSig = ''; // refit the scene ranges that were frozen for the gesture
       }
       prevLmb = lmb;
     }
@@ -1786,8 +2026,9 @@ R"GEJS(
       // whole canvas. This is the same in both modes now -- scene curves overlay each other and
       // each is scaled to its own range, exactly like the camera channels.
       if (ach) {
-        var lo = typeof ach.min === 'number' ? ach.min : 0, hi = typeof ach.max === 'number' ? ach.max : 1;
-        var coarse = Math.abs(hi - lo) >= 100;
+        // Decimals follow the span on screen: a fitted fog density reads 0.140, a cloud base 1850.
+        var axSpan = Math.abs(rngSpan(ach));
+        var axDec = axSpan >= 100 ? 0 : axSpan >= 10 ? 1 : axSpan >= 1 ? 2 : axSpan >= 0.05 ? 3 : 4;
         for (var gi = 0; gi <= 4; gi++) {
         var y = gi / 4 * G.ch; lineSeg(gridLayer, 0, y, G.cw, y, gi === 2 ? S.gridMid : S.grid, 1);
           // CENTRED ON ITS OWN LINE, in a fixed right-aligned gutter. Positioning a Label by its
@@ -1796,7 +2037,7 @@ R"GEJS(
           var box = mk('Panel', gridLayer); box.hittest = false;
           box.style.position = '0px ' + (y - AXIS_HALF).toFixed(0) + 'px 0px';
           box.style.width = AXIS_W + 'px'; box.style.height = (AXIS_HALF * 2) + 'px';
-          var v = yToVal(y, ach), svl = lbl(box, v.toFixed(coarse ? 0 : 2), S.hint, 9);
+          var v = yToVal(y, ach), svl = lbl(box, v.toFixed(axDec), S.hint, 9);
           svl.hittest = false; svl.style.horizontalAlign = 'right'; svl.style.verticalAlign = 'center';
           svl.style.whiteSpace = 'nowrap'; svl.style.marginRight = '5px';
         }
@@ -1819,6 +2060,13 @@ R"GEJS(
           if (stepped(ch)) {
             lineSeg(curveLayer, tickToX(a.t), valToY(a.v, ch), tickToX(b.t), valToY(a.v, ch), col, 2);
             lineSeg(curveLayer, tickToX(b.t), valToY(a.v, ch), tickToX(b.t), valToY(b.v, ch), col, 2);
+          } else if (sceneOn() && scrubbable(ch)) {
+            // Draw what the property is set to, not the raw Bezier: clamped, and wrapped for angles.
+            var pts = scenePolyline(ch, a, b);
+            for (var q = 1; q < pts.length; q++) {
+              if (pts[q].brk) continue;
+              lineSeg(curveLayer, tickToX(pts[q - 1].t), valToY(pts[q - 1].v, ch), tickToX(pts[q].t), valToY(pts[q].v, ch), col, 2);
+            }
           } else if (segActive(a, b)) {
             var P = segPts(a, b); var steps = 14; var px = -1, py = -1;
             for (var s = 0; s <= steps; s++) {
@@ -1920,8 +2168,8 @@ R"GEJS(
       var d = domainRange(), domSpan = Math.max(1, d.t1 - d.t0);
       var vr = ovViewRect();
       var px = domToX(num(st.playhead));
-      var trackX0 = G.cx + ZOOM_W + 10;
-      var trackW = Math.max(40, G.cw - 2 * (ZOOM_W + 10));
+      var trackX0 = G.cx + NAV_L + 10;
+      var trackW = Math.max(40, G.cw - NAV_L - ZOOM_W - 20);
       var thumbW = Math.max(22, Math.min(trackW, (view.t1 - view.t0) / domSpan * trackW));
       var frac = (view.t0 - d.t0) / domSpan;
       if (frac < 0) frac = 0; if (frac > 1) frac = 1;
@@ -2035,7 +2283,8 @@ R"GEJS(
       // reseed, clear). Everything after this line reads `view`, never the state's suggested
       // window, which is what makes scrubbing the playhead leave the window alone.
       var gmk = sceneOn() ? 'scene' : 'camera';
-      if (view.mode !== gmk || (st.viewEpoch != null && view.epoch !== st.viewEpoch)) seedView(gmk);
+      if (view.mode !== gmk || (st.viewEpoch != null && view.epoch !== st.viewEpoch)) { seedView(gmk); sceneRanges = {}; }
+      revealNewKeys(gmk);
       // One scene-mode signal across editor, timeline and graph. C++ publishes the
       // persisted inspector mode to each HUD state feed.
       var sceneMode = sceneOn();
@@ -2086,6 +2335,7 @@ R"GEJS(
       // and the two sliders, and to close itself on a click-away.
       try { cfgColorPump({ cursor: true, lmb: !!st.lmb, mx: st.mx, my: st.my }); }
       catch (ecp) { $.Msg('[grapheditor] colour pump failed: ' + ecp + String.fromCharCode(10)); }
+      if (pickTray.visible && pickAnchor) placePickTray(pickAnchor, pickTitle);
       processInput();
       followPlayback();
       // ONE SPEED, THREE BARS -- st.timescale is the engine's demo_timescale, pushed by C++.
@@ -2143,6 +2393,8 @@ R"GEJS(
         + (sceneMode ? ':' + sceneScroll + ':' + model.length : '');
       if (sig !== lastSig) {
         lastSig = sig;
+        // Scene curves refit to their content between gestures, never during one (see rng()).
+        if (sceneMode && !gesture) refitSceneRanges();
         if (sceneMode) drawSceneStrips(); else stripLayer.RemoveAndDeleteChildren();
         drawGrid(); drawCurves(); drawKeyframes(); drawHandles(); drawOverviewKeys();
       }

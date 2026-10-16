@@ -794,15 +794,11 @@
           var sk=state.sceneKeys; window.MvmSceneKeys.sync(sk,state.scrubbing?state.playhead:state.tick);
           feed.channels=sk.sceneChannels;feed.rev=sk.rev;feed.selCount=sk.selected.length;feed.selCh=sk.activeCh == null ? -1 : sk.activeCh;
           feed.canUndo=sk.canUndo;feed.canRedo=sk.canRedo;
-          var tick=state.scrubbing?state.playhead:state.tick, span=2000;
-          if(sk.events.length>1)span=Math.max(512,(sk.events[sk.events.length-1].tick-sk.events[0].tick)*1.25);
-          else if(sk.events.length===1)span=1024;
-          if(!state.scrubbing)state.sceneViewAnchor=tick;
-          var anchor=state.sceneViewAnchor==null?tick:state.sceneViewAnchor,lead=span*0.04;
-          var lo=Math.max(0,anchor-lead),hi=lo+span;
-          if(tick>hi){hi=tick+lead;lo=Math.max(0,hi-span);}
-          else if(tick<lo){lo=Math.max(0,tick-lead);hi=lo+span;}
-          feed.viewT0=lo;feed.viewT1=hi;
+          // SceneKeys_AppendGraphState: a SUGGESTED window, the keyed events padded (or the
+          // playhead +-1000 with none). The JS seeds from it once and owns the window after that.
+          var tick=state.scrubbing?state.playhead:state.tick, lo=tick-1000, hi=lo+2000;
+          if(sk.events.length){lo=sk.events[0].tick;hi=sk.events[sk.events.length-1].tick;var pad=Math.max(64,(hi-lo)*0.1);lo-=pad;hi+=pad;}
+          feed.viewT0=Math.max(0,lo);feed.viewT1=hi;
         }
         feed.enabled = dock.graphEnabled;
         feed.renderOpen = nav.renderOpen;

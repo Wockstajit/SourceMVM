@@ -146,34 +146,18 @@ R"EDJS(
       return { row: r, dia: dia, nm: nm, state: state, sw: sw, setSw: setSw };
     }
 
-    // Keep setup switches and fine adjustments available on demand. Stable catalog IDs
-    // are unchanged, and active/keyed properties are always visible.
+    // What CONFIG itself shows is listed by default; the rest (values CONFIG keeps off its panels)
+    // sits under "More settings". Stable catalog IDs are unchanged, and active/keyed properties
+    // are always visible.
     function skCommon(id) {
-      return (' exposure lightColor lightAmount sunPosition.yaw sunPosition.pitch sunBrightness sunVisible'
-        + ' sky skyDirection.yaw skyDirection.pitch skyColor cloudColor cloudsVisible cloudDensity cloudDrift'
+      return (' exposure lightColor lightAmount lightDirection.yaw lightDirection.pitch sunGlowSize sunVisible'
+        + ' sky skyDirection.yaw skyDirection.pitch skyMirror skyColor cloudColor cloudDensity cloudSize cloudDrift cloudBrightness'
         + ' worldColors.world worldStrength smokeColors.T smokeColors.CT'
-        + ' env.enabled env.sunAzimuth env.sunElevation env.sunPower env.ambient'
-        + ' env.sky env.clouds env.coverage env.windSpeed env.haze env.stars'
-        + ' env.fogDensity env.fogColor env.weather.type env.weather.speed env.weather.size env.weather.color'
-        + ' env.snow env.wet env.puddles env.exposure env.tint env.bloom env.saturation env.contrast ')
+        + ' env.exposure env.saturation env.contrast env.tint env.bloom env.vignette env.grain env.chromatic'
+        + ' env.sky env.sunAzimuth env.sunElevation env.sunPower env.haze env.stars env.clouds env.coverage env.cloudBase env.windSpeed'
+        + ' env.ambient env.sunAngle env.fogDensity env.fogColor env.fogStart env.fogHeight env.fogNoise'
+        + ' env.weather.type env.weather.speed env.snow env.wet env.puddles ')
         .indexOf(' ' + id + ' ') >= 0;
-    }
-    function skFieldLabel(f) {
-      var labels = {
-        'lightDirection.yaw': 'Light rotation (yaw)', 'lightDirection.pitch': 'Light tilt (pitch)',
-        'sunPosition.yaw': 'Sun direction (yaw)', 'sunPosition.pitch': 'Sun height (pitch)',
-        'skyDirection.yaw': 'Sky rotation (yaw)', 'skyDirection.pitch': 'Sky tilt (pitch)',
-        'env.sunAzimuth': 'Sun direction (yaw)', 'env.sunElevation': 'Sun height (pitch)',
-        lightAmount: 'Light strength', lightUniform: 'Uniform lighting',
-        sunPositionOverride: 'Custom sun position', skyTint: 'Enable sky colour',
-        cloudTint: 'Enable cloud colour', 'env.weather.type': 'Precipitation type',
-        'env.weather.speed': 'Fall speed', 'env.weather.size': 'Drop / flake size',
-        'env.weather.windX': 'Wind X', 'env.weather.windY': 'Wind Y',
-        'env.sky': 'Procedural sky', 'env.clouds': 'Clouds', 'env.coverage': 'Cloud coverage',
-        'env.sunPower': 'Sun brightness', 'env.ambient': 'Ambient light',
-        'env.wet': 'Wet surfaces', 'env.chromatic': 'Chromatic aberration'
-      };
-      return labels[f.id] || f.label;
     }
 
     function skBuild() {
@@ -189,9 +173,9 @@ R"EDJS(
       ['effects', 'environment'].forEach(function (family) {
         var fam = cat.filter(function (f) { return f.family === family; });
         if (!fam.length) return;
-        // Both families carry a LIGHTING / WEATHER & SKY / ATMOSPHERE card, so the rail's group
-        // heading is what tells two identically named cards apart.
-        var groupName = family === 'effects' ? 'Map effects' : 'Procedural environment';
+        // Both families carry a LIGHTING card, so the rail's group heading -- CONFIG's own tab
+        // name -- is what tells two identically named cards apart.
+        var groupName = family === 'effects' ? 'Effects' : 'Environment';
         var order = [];
         fam.forEach(function (f) { var gid = family + '.' + (f.groupId || f.group); if (order.indexOf(gid) < 0) order.push(gid); });
         order.forEach(function (groupId) {
@@ -203,7 +187,10 @@ R"EDJS(
           g.more = false; g.extras = [];
           members.forEach(function (f) {
             g.fields.push(f.id);
-            var name = skFieldLabel(f);
+            // The catalog's name is the CONFIG control's (Movie/SceneKeyframeCatalog.cpp), and the
+            // graph strip shows the same one. This tab used to rename a third of them on its own,
+            // so a property was "Sun direction (yaw)" here and "Sun Azimuth" in the graph.
+            var name = f.label;
             skFields[f.id] = skRowPanel(card, '◇', name,
               'Animate ' + name + ' in the Scene Graph', function () { skToggle(f); });
             if (!skCommon(f.id)) g.extras.push(f.id);
