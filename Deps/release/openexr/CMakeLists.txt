@@ -47,16 +47,18 @@ set(AFX_OPENEXR_LINK_DIRECTORIES
 )
 set(AFX_OPENEXR_LINK_DIRECTORIES ${AFX_OPENEXR_LINK_DIRECTORIES} PARENT_SCOPE)
 
+# Resolve the built files through their targets. The Visual Studio generator adds a <config>/
+# folder that Ninja does not, so hardcoded paths only worked for one of them.
 set(AFX_OPENEXR_LINK_LIBRARIES
-	${OpenEXR_BINARY_DIR}/src/lib/OpenEXR/$<CONFIG>/OpenEXR-3_3$<$<CONFIG:Debug>:_d>.lib
+	$<TARGET_LINKER_FILE:OpenEXR>
 )
 set(AFX_OPENEXR_LINK_LIBRARIES ${AFX_OPENEXR_LINK_LIBRARIES} PARENT_SCOPE)
 
 set(AFX_OPENEXR_INSTALL_BINARIES
-	${CMAKE_BINARY_DIR}/bin/$<CONFIG>/Iex-3_3$<$<CONFIG:Debug>:_d>.dll
-	${CMAKE_BINARY_DIR}/bin/$<CONFIG>/IlmThread-3_3$<$<CONFIG:Debug>:_d>.dll
-	${CMAKE_BINARY_DIR}/bin/$<CONFIG>/Imath-3_1$<$<CONFIG:Debug>:_d>.dll
-	${CMAKE_BINARY_DIR}/bin/$<CONFIG>/OpenEXR-3_3$<$<CONFIG:Debug>:_d>.dll
-	${CMAKE_BINARY_DIR}/bin/$<CONFIG>/OpenEXRCore-3_3$<$<CONFIG:Debug>:_d>.dll
+	$<TARGET_FILE:Iex>
+	$<TARGET_FILE:IlmThread>
+	$<TARGET_FILE:Imath>
+	$<TARGET_FILE:OpenEXR>
+	$<TARGET_FILE:OpenEXRCore>
 )
 set(AFX_OPENEXR_INSTALL_BINARIES ${AFX_OPENEXR_INSTALL_BINARIES} PARENT_SCOPE)

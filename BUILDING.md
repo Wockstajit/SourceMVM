@@ -165,6 +165,9 @@ cmake --install build/x64-source2-release --config Release --prefix build/source
 Available presets:
 
 - `x64-source2-release` / `x64-source2-debug`: default CS2 stack (`AFX_SOURCE2_ONLY=ON`)
+- `x64-deadlock-release` / `x64-deadlock-debug`: the CS2 stack plus the Deadlock hook (`AFX_DEADLOCK=ON`)
+- `x64-deadlock-ninja-release`: the same targets built with Ninja, as CI builds them. Configure it from
+  an x64 Visual Studio developer prompt. See [continuous integration](Docs/setup/ci.md)
 - `x64-release` / `x64-debug`: x64 hooks for Source 1 and Source 2
 - `win32-release` / `win32-debug`: Win32 HLAE GUI, GoldSrc and Source 1
 

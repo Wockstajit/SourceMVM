@@ -40,7 +40,7 @@ target_compile_options(AfxHookDeadlock PRIVATE
 	/EHa
 	# PDBs in Release too. Every address in this port is a hypothesis; a crash without symbols
 	# would be a dead end rather than a diagnosis.
-	$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/Zi>
+	$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:${AFX_MSVC_RELEASE_DEBUG_INFO}>
 	$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:/ZI>
 )
 target_link_options(AfxHookDeadlock PRIVATE

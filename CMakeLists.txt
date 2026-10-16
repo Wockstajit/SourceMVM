@@ -9,9 +9,31 @@ enable_testing()
 
 # MSVC compiles one .cpp at a time per project unless /MP is set; without it the
 # whole build is effectively single-threaded. AfxCppCli (C++/CLI) is unaffected:
-# it builds through its own vcxproj, not CMake compile flags.
-if(MSVC)
+# it builds through its own vcxproj, not CMake compile flags. Ninja already runs one
+# compiler per source file in parallel, so it does not get /MP.
+if(MSVC AND CMAKE_GENERATOR MATCHES "^Visual Studio")
     add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/MP>)
+endif()
+
+# The Visual Studio presets name the platform (-A x64 or -A Win32). Ninja presets have no
+# platform, so take it from the compiler that the developer prompt selected.
+if(CMAKE_GENERATOR_PLATFORM)
+    set(AFX_TARGET_PLATFORM "${CMAKE_GENERATOR_PLATFORM}")
+elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(AFX_TARGET_PLATFORM "x64")
+else()
+    set(AFX_TARGET_PLATFORM "Win32")
+endif()
+message(STATUS "AFX_TARGET_PLATFORM=${AFX_TARGET_PLATFORM}")
+
+# Release hooks always carry full debug info and link a PDB with /DEBUG. /Zi has the compiler
+# write that info into one shared PDB per target, which a compiler cache such as sccache cannot
+# store. The Ninja CI preset uses /Z7 instead: the same info goes into each object file, and the
+# linker still writes the complete PDB from it.
+set(AFX_MSVC_RELEASE_DEBUG_INFO "/Zi" CACHE STRING "Compiler debug-info flag for Release hook builds: /Zi or /Z7")
+set_property(CACHE AFX_MSVC_RELEASE_DEBUG_INFO PROPERTY STRINGS /Zi /Z7)
+if(NOT AFX_MSVC_RELEASE_DEBUG_INFO MATCHES "^/Z[i7]$")
+    message(FATAL_ERROR "AFX_MSVC_RELEASE_DEBUG_INFO must be /Zi or /Z7, not '${AFX_MSVC_RELEASE_DEBUG_INFO}'")
 endif()
 
 # Define CMAKE_CXX_STANDARD otherwise e.g. libprotobuf will have linking problems against ABSL when compiling protobuf:
@@ -86,7 +108,7 @@ if(NOT DEFINED AFX_DEADLOCK)
 endif()
 message(STATUS "AFX_DEADLOCK=${AFX_DEADLOCK}")
 
-if(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
+if(AFX_TARGET_PLATFORM STREQUAL "x64")
 
 #
 # Setup "corrosion" for including Rust code in our projects:
@@ -139,7 +161,7 @@ endif()
 # Project setup
 #
 
-if(CMAKE_GENERATOR_PLATFORM STREQUAL "Win32")
+if(AFX_TARGET_PLATFORM STREQUAL "Win32")
     if(AFX_SOURCE2_ONLY)
         message(FATAL_ERROR "AFX_SOURCE2_ONLY requires the x64 generator platform.")
     endif()
@@ -157,7 +179,7 @@ if(CMAKE_GENERATOR_PLATFORM STREQUAL "Win32")
     add_custom_target(advancedfx ALL
 	    DEPENDS hlae
     )
-elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
+elseif(AFX_TARGET_PLATFORM STREQUAL "x64")
 
     add_subdirectory("Deps/release/openexr")
     add_subdirectory("ShaderBuilder")
@@ -215,7 +237,7 @@ else()
 	set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} "${MSVC_CRT_DIR}/vccorlib${v}.dll" )
 endif()
 
-if(CMAKE_GENERATOR_PLATFORM STREQUAL "Win32")
+if(AFX_TARGET_PLATFORM STREQUAL "Win32")
     install(
         PROGRAMS
             ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}
@@ -262,7 +284,7 @@ if(CMAKE_GENERATOR_PLATFORM STREQUAL "Win32")
             "${injector_BINARY_DIR}/x64/injector.pdb"
         DESTINATION "pdb/x64"
     )
-elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
+elseif(AFX_TARGET_PLATFORM STREQUAL "x64")
     install(
         PROGRAMS
             ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}

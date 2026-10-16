@@ -1,8 +1,10 @@
 name: CI
 
-# Checks for pull requests into main and release/*, and for pushes to those branches. Branch
-# protection should require only `ci-gate`, because it fails when any job it aggregates fails.
-# A green CI run does not prove that an in-game feature works. See Docs/setup/git-workflow.md.
+# Checks for pull requests into main and release/*, pushes to those branches, merge queue groups,
+# a nightly run and manual runs. Branch protection should require only `ci-gate`: it fails when any
+# job failed or was cancelled, or when a job the change needed did not run. Docs/setup/ci.md
+# explains the job scoping and the build caches. A green CI run does not prove that an in-game
+# feature works. See Docs/setup/git-workflow.md.
 
 on:
   pull_request:
@@ -10,11 +12,48 @@ on:
   push:
     branches: [main, "release/**"]
   merge_group:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer push to the same pull request or branch cancels the run it replaces. Merge queue groups,
+# nightly runs and manual runs each get their own group and are never cancelled.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.event_name, github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+
 jobs:
+  # Decides which jobs this change needs (Automation/verify/ci-change-scope.mjs). Pull requests and
+  # pushes run only the jobs whose inputs changed. Merge queue groups run every job. Nightly runs,
+  # manual runs and release lines also run the shipping build without compile caches.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.scope.outputs.mode }}
+      native: ${{ steps.scope.outputs.native }}
+      launcher: ${{ steps.scope.outputs.launcher }}
+      panorama: ${{ steps.scope.outputs.panorama }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Test the scope rules
+        run: node --test Automation/tests/ci-change-scope-tests.mjs
+      - id: scope
+        name: Decide which jobs this change needs
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: node Automation/verify/ci-change-scope.mjs --scope
+
+  # Scans every tracked file, so every change runs it.
   docs-integrity:
     runs-on: windows-2022
     steps:
@@ -27,6 +66,8 @@ jobs:
         run: node --test Automation/tests/documentation-integrity-tests.mjs
 
   panorama-tests:
+    needs: changes
+    if: needs.changes.outputs.panorama == 'true'
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +79,8 @@ jobs:
         run: node --test Automation/tests/panorama-interaction-layout-tests.mjs
 
   launcher-build:
+    needs: changes
+    if: needs.changes.outputs.launcher == 'true'
     runs-on: windows-2022
     defaults:
       run:
@@ -67,38 +110,180 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File Automation/tests/launcher-host-tests.ps1
 
-  # The native build is the slow job, so it only runs when something it compiles changed. A job
-  # skipped this way counts as passing for `ci-gate`. Pushes and merge groups always build.
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      native: ${{ steps.detect.outputs.native }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: detect
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          native=true
-          if [ "$EVENT" = "pull_request" ]; then
-            native=false
-            pattern='^(AfxHookSource2|Lib|CMake|Deps|Shared|Shaders|ShaderBuilder|FilmmakerDemo[A-Za-z]*Go|Misc|Resources)/|^Automation/(tests|tools)/.*\.(cpp|h|hpp)$|^(CMakeLists\.txt|CMakePresets\.json|Cargo\.toml|Cargo\.lock|\.gitmodules)$|^\.github/workflows/ci\.yml$'
-            if git diff --name-only --no-renames "$BASE" "$HEAD" | grep -Eq "$pattern"; then native=true; fi
-          fi
-          echo "native=$native" >> "$GITHUB_OUTPUT"
-
-  # The CS2 and Deadlock hooks and their native tests (the x64-deadlock-release preset builds both).
-  # The inherited HLAE multi-build (Source 1, GoldSrc, win32) lives in legacy-native.yml and runs
-  # nightly instead of on every pull request.
+  # The CS2 and Deadlock hooks and their native tests, built with Ninja so sccache can cache each
+  # compile. A Deadlock-only change builds and tests only the Deadlock targets. The environment
+  # shader bundle, sccache and the cargo build persist between runs; every cached entry is keyed on
+  # its exact inputs, so a stale entry is rebuilt rather than reused. The inherited HLAE multi-build
+  # (Source 1, GoldSrc, win32) lives in legacy-native.yml and runs nightly.
   native-build-windows:
     needs: changes
-    if: needs.changes.outputs.native == 'true'
+    if: needs.changes.outputs.mode == 'fast' && needs.changes.outputs.native != 'none'
     runs-on: windows-2022
     timeout-minutes: 75
+    env:
+      PRESET: x64-deadlock-ninja-release
+      SCOPE: ${{ needs.changes.outputs.native }}
+      # Ninja runs one compiler per job; 4 matches the runner's 4 vCPUs. Cargo builds inside one of
+      # those jobs, so cap its own parallelism too.
+      NATIVE_JOBS: 4
+      CARGO_BUILD_JOBS: 2
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
+      SCCACHE_CACHE_SIZE: 3G
+      SCCACHE_IDLE_TIMEOUT: "0"
+    steps:
+      # Some osu! easter-egg asset paths exceed Windows' 260-character limit.
+      - name: Enable long paths
+        run: git config --system core.longpaths true
+      - uses: actions/checkout@v4
+      - name: Update submodules
+        run: git submodule update --init --recursive
+
+      - name: Install sccache
+        run: |
+          $version = "v0.18.0"
+          $sha256 = "8965c74d5e8a225244f741e18ad2f3f504f48228dc1bac948fc22761a348363d"
+          $name = "sccache-$version-x86_64-pc-windows-msvc"
+          $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
+          Invoke-WebRequest "https://github.com/mozilla/sccache/releases/download/$version/$name.zip" -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $sha256) { throw "sccache download does not match its pinned SHA-256" }
+          Expand-Archive $zip -DestinationPath $env:RUNNER_TEMP
+          Join-Path $env:RUNNER_TEMP $name | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          "SCCACHE_DIR=$(Join-Path $env:RUNNER_TEMP 'sccache')" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      # The Ninja preset needs the x64 compiler environment that a developer prompt provides.
+      - name: Enter the Visual Studio x64 developer environment
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $before = @{}
+          Get-ChildItem env: | ForEach-Object { $before[$_.Name] = $_.Value }
+          $after = cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul && set"
+          if ($LASTEXITCODE -ne 0) { throw "vcvars64.bat failed" }
+          foreach ($line in $after) {
+            if ($line -notmatch '^([^=]+)=(.*)$') { continue }
+            $name, $value = $Matches[1], $Matches[2]
+            if ($name -match '^(GITHUB_|RUNNER_)' -or $before[$name] -eq $value) { continue }
+            if ($name -eq 'Path') {
+              # The runner puts the last GITHUB_PATH line first, so write them reversed to keep
+              # vcvars' order. All of them land ahead of the existing PATH.
+              $known = $before['Path'] -split ';'
+              $added = @($value -split ';' | Where-Object { $_ -and $known -notcontains $_ })
+              [array]::Reverse($added)
+              $added | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+            } else {
+              "$name=$value" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+            }
+          }
+      - name: Tool versions
+        run: |
+          cmake --version | Select-Object -First 1
+          "ninja $(ninja --version)"
+          sccache --version
+          (Get-Command cl).Source
+
+      - name: Cache cargo registry and the Rust build
+        if: env.SCOPE == 'all'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/x64-deadlock-ninja-release/cargo
+          key: cargo-ninja-${{ runner.os }}-${{ hashFiles('Lib/**/Cargo.toml', 'Lib/**/Cargo.lock', 'Cargo.lock') }}
+          restore-keys: cargo-ninja-${{ runner.os }}-
+
+      # The bundle builder reuses an entry only when its stored compile key (source, macros, entry,
+      # profile, flags, compiler DLL) matches exactly and its bytecode checksum holds, and compiles
+      # the rest. The cache is keyed on the resulting manifest, so a new entry is saved only when
+      # the bundle changed.
+      - name: Restore the environment shader bundle
+        id: shaders-restore
+        if: env.SCOPE == 'all'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/environment-shaders
+          key: envshaders-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: envshaders-v1-${{ runner.os }}-
+      - name: Seed the build tree with the cached shader bundle
+        if: steps.shaders-restore.outputs.cache-matched-key != ''
+        run: |
+          $bundle = "build\$env:PRESET\AfxHookSource2\Release\environment-shaders"
+          New-Item -ItemType Directory -Force $bundle | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\environment-shaders\*" $bundle
+
+      - name: Restore the compiler cache
+        id: sccache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/sccache
+          key: sccache-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: sccache-v1-${{ runner.os }}-
+
+      - name: CMake - Configure CS2 and Deadlock hooks
+        run: cmake --preset $env:PRESET
+      - name: CMake - Build (${{ needs.changes.outputs.native }})
+        run: |
+          sccache --zero-stats | Out-Null
+          $target = if ($env:SCOPE -eq 'deadlock') { @('--target', 'AfxHookSource2/Deadlock/all') } else { @() }
+          $timer = [Diagnostics.Stopwatch]::StartNew()
+          cmake --build --preset $env:PRESET --parallel $env:NATIVE_JOBS @target
+          $code = $LASTEXITCODE
+          "::notice title=Native build::$env:SCOPE build took $([int]$timer.Elapsed.TotalSeconds) s with $env:NATIVE_JOBS jobs"
+          exit $code
+      - name: Compiler cache statistics
+        id: sccache-stats
+        if: ${{ !cancelled() }}
+        run: |
+          sccache --show-stats
+          $stats = (sccache --show-stats --stats-format json | ConvertFrom-Json).stats
+          $hits = [int]($stats.cache_hits.counts.PSObject.Properties | Measure-Object Value -Sum).Sum
+          $misses = [int]($stats.cache_misses.counts.PSObject.Properties | Measure-Object Value -Sum).Sum
+          $notCached = ($stats.not_cached.PSObject.Properties | ForEach-Object { "$($_.Name): $($_.Value)" }) -join '; '
+          "::notice title=Compiler cache::$hits hits, $misses misses, $($stats.cache_writes) writes, $($stats.requests_not_cacheable) not cacheable ($notCached)"
+          "writes=$($stats.cache_writes)" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+          sccache --stop-server | Out-Null
+      - name: Save the compiler cache
+        if: ${{ !cancelled() && steps.sccache-stats.outputs.writes != '0' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/sccache
+          key: ${{ steps.sccache-restore.outputs.cache-primary-key }}
+
+      - name: Stage the environment shader bundle
+        id: shaders-stage
+        if: ${{ !cancelled() && env.SCOPE == 'all' }}
+        run: |
+          $bundle = "build\$env:PRESET\AfxHookSource2\Release\environment-shaders"
+          # ready.stamp is written only after every program compiled and verified in this run.
+          if (-not (Test-Path "$bundle\ready.stamp")) { "The shader bundle did not finish in this run."; exit 0 }
+          # Store only the programs the manifest lists, so obsolete entries never accumulate.
+          $stage = Join-Path $env:RUNNER_TEMP "environment-shaders-save"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Get-Content "$bundle\manifest.txt" | Where-Object { $_ } | ForEach-Object { Copy-Item (Join-Path $bundle $_) $stage }
+          Copy-Item "$bundle\manifest.txt" $stage
+          $hash = (Get-FileHash "$bundle\manifest.txt" -Algorithm SHA256).Hash.Substring(0, 16).ToLowerInvariant()
+          "key=envshaders-v1-$env:RUNNER_OS-$hash" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+      - name: Save the environment shader bundle
+        if: ${{ !cancelled() && steps.shaders-stage.outputs.key != '' && steps.shaders-stage.outputs.key != steps.shaders-restore.outputs.cache-matched-key }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/environment-shaders-save
+          key: ${{ steps.shaders-stage.outputs.key }}
+
+      # The four D3D11 render fixtures take 17 s to 8 minutes on a real GPU and have no GPU here, so
+      # they stay local checks (ctest on a dev machine) and in-game verification.
+      - name: Native tests (${{ needs.changes.outputs.native }})
+        run: |
+          $dir = if ($env:SCOPE -eq 'deadlock') { "build/$env:PRESET/AfxHookSource2/Deadlock" } else { "build/$env:PRESET" }
+          ctest --test-dir $dir -C Release --output-on-failure --timeout 300 --parallel 4 -E "^(EnvironmentAtmosphereEdgeTests|EnvironmentRenderTests|RelightProbeGpuTests|EnvironmentVolumeCacheTests)$"
+
+  # The shipping configuration (Visual Studio generator, x64-deadlock-release preset) from a clean
+  # tree without the compiler or shader caches. Runs nightly, on manual runs and for release lines.
+  native-full-validation:
+    needs: changes
+    if: needs.changes.outputs.mode == 'full'
+    runs-on: windows-2022
+    timeout-minutes: 90
     env:
       # An unbounded parallel build starved the runner ("lost communication" after an hour), so cap
       # MSBuild and cargo.
@@ -124,13 +309,11 @@ jobs:
       - name: CMake - Configure CS2 and Deadlock hooks
         run: cmake --preset x64-deadlock-release
       # The shader rules call ShaderBuilder.exe without a build-order dependency on it, so a clean
-      # parallel build can reach them first (error MSB8066, exit 9009). Build it first.
+      # parallel MSBuild build can reach them first (error MSB8066, exit 9009). Build it first.
       - name: CMake - Build shaderbuilder
         run: cmake --build --preset x64-deadlock-release --target shaderbuilder
       - name: CMake - Build both hooks and the native tests
         run: cmake --build --preset x64-deadlock-release --parallel 3
-      # The four D3D11 render fixtures take 17 s to 8 minutes on a real GPU and have no GPU here, so
-      # they stay local checks (ctest on a dev machine) and in-game verification.
       - name: Native tests
         run: >-
           ctest --test-dir build/x64-deadlock-release -C Release --output-on-failure --timeout 300 --parallel 4
@@ -162,6 +345,8 @@ jobs:
           "${{ github.event.pull_request.base.sha }}"
           "${{ github.event.pull_request.head.sha }}"
 
+  # The only required status check. It runs even when a job fails or the run is cancelled, so it
+  # never reports a skipped (passing) status in place of a failure.
   ci-gate:
     if: always()
     needs:
@@ -170,12 +355,19 @@ jobs:
       - panorama-tests
       - launcher-build
       - native-build-windows
+      - native-full-validation
       - security-license-scan
       - changed-file-policy
     runs-on: ubuntu-latest
     steps:
-      - name: Fail when any aggregated job failed or was cancelled
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-        run: |
-          echo "At least one aggregated job failed or was cancelled."
-          exit 1
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: Automation/verify/ci-change-scope.mjs
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check that every job this change needed passed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node Automation/verify/ci-change-scope.mjs --gate

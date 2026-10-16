@@ -91,6 +91,22 @@
         "AFX_SOURCE2_ONLY": "TRUE",
         "AFX_DEADLOCK": "TRUE"
       }
+    },
+    {
+      "name": "x64-deadlock-ninja-release",
+      "displayName": "x64 Deadlock Release (Ninja)",
+      "description": "Same targets as x64-deadlock-release, built with Ninja so a compiler cache such as sccache can wrap cl.exe. Configure it from an x64 Visual Studio developer prompt.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
+        "AFX_RUST_CARGO_LOCKED": "TRUE",
+        "AFX_SOURCE2_ONLY": "TRUE",
+        "AFX_DEADLOCK": "TRUE",
+        "AFX_MSVC_RELEASE_DEBUG_INFO": "/Z7"
+      }
     }
   ],
   "buildPresets": [
@@ -133,6 +149,10 @@
       "name": "x64-deadlock-debug",
       "configurePreset": "x64-deadlock-debug",
       "configuration": "Debug"
+    },
+    {
+      "name": "x64-deadlock-ninja-release",
+      "configurePreset": "x64-deadlock-ninja-release"
     }
   ]
 }

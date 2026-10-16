@@ -62,22 +62,22 @@ add_custom_command(
     WORKING_DIRECTORY ${shaderbuilder_BINARY_DIR}
     OUTPUT ${AFXHOOKSOURCE2_SHADERS}
     DEPENDS shaderbuilder ${AFXHOOKSOURCE2_SHADERS_SOURCES}
-    COMMAND ShaderBuilder.exe --profile vs_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_line_vs_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_line_vs_5_0"
-	COMMAND ShaderBuilder.exe --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_line_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_line_ps_5_0"
-    COMMAND ShaderBuilder.exe --profile vs_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_drawtexture_vs_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_drawtexture_vs_5_0"
-	COMMAND ShaderBuilder.exe --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_drawtexture_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_drawtexture_ps_5_0"
-	COMMAND ShaderBuilder.exe --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_blit_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_blit_ps_5_0"
-	COMMAND ShaderBuilder.exe --profile vs_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_blit_triangle_vs_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_blit_triangle_vs_5_0"
-	COMMAND ShaderBuilder.exe --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_fisheye_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_fisheye_ps_5_0"
-	COMMAND ShaderBuilder.exe --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_contact_shadow_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_contact_shadow_ps_5_0"
-	COMMAND ShaderBuilder.exe --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depthms_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_depthms_ps_5_0"
-	COMMAND ShaderBuilder.exe --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_render_pass_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_render_pass_ps_5_0"
-	COMMAND ShaderBuilder.exe --profile vs_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depth_vs_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_depth_vs_5_0"
-	COMMAND ShaderBuilder.exe --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depth_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_depth_ps_5_0"
-	COMMAND ShaderBuilder.exe --profile vs_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_deadlock_overlay_vs_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_deadlock_overlay_vs_5_0"
-	COMMAND ShaderBuilder.exe --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_deadlock_overlay_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_deadlock_overlay_ps_5_0"
-	COMMAND ShaderBuilder.exe --profile vs_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_deadlock_overlay_tex_vs_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_deadlock_overlay_tex_vs_5_0"
-	COMMAND ShaderBuilder.exe --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_deadlock_overlay_tex_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_deadlock_overlay_tex_ps_5_0"
+    COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile vs_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_line_vs_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_line_vs_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_line_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_line_ps_5_0"
+    COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile vs_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_drawtexture_vs_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_drawtexture_vs_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_drawtexture_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_drawtexture_ps_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_blit_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_blit_ps_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile vs_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_blit_triangle_vs_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_blit_triangle_vs_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_fisheye_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_fisheye_ps_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_contact_shadow_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_contact_shadow_ps_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depthms_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_depthms_ps_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_render_pass_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_render_pass_ps_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile vs_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depth_vs_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_depth_vs_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depth_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_depth_ps_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile vs_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_deadlock_overlay_vs_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_deadlock_overlay_vs_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_deadlock_overlay_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_deadlock_overlay_ps_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile vs_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_deadlock_overlay_tex_vs_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_deadlock_overlay_tex_vs_5_0"
+	COMMAND "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile ps_5_0 --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_deadlock_overlay_tex_ps_5_0.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_deadlock_overlay_tex_ps_5_0"
 )
 
 add_custom_target(AfxHookSource2Shaders
@@ -199,7 +199,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 # - generate PDB in Release too
 # - enable Hot Reload in Debug
 target_compile_options(${PROJECT_NAME} PRIVATE
-	$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/Zi>
+	$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:${AFX_MSVC_RELEASE_DEBUG_INFO}>
 	$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:/ZI>
 	)
 target_link_options(${PROJECT_NAME} PRIVATE
