@@ -517,14 +517,14 @@
     'ingame': {
       label: 'In-game demo',
       note: 'What you see after a demo loads. Nothing open; CAM EDITOR / CONFIG / LOOP on the demo bar.',
-      always: ['moviehud', 'markerhud', 'cameratimeline', 'demobar', 'aimcrosshair', 'fxdebug', 'eastereggs'],
-      order: ['moviehud', 'markerhud', 'cameratimeline', 'aimcrosshair', 'confighud', 'cameraeditor', 'grapheditor', 'fxdebug', 'eastereggs'],
+      always: ['moviehud', 'markerhud', 'cameratimeline', 'demobar', 'aimcrosshair', 'fxdebug', 'eastereggs', 'onboarding'],
+      order: ['moviehud', 'markerhud', 'cameratimeline', 'aimcrosshair', 'confighud', 'cameraeditor', 'grapheditor', 'fxdebug', 'eastereggs', 'onboarding'],
       native: true, demo: true
     },
     'menu-demos': {
       label: 'Main menu: Demos tab',
       note: 'The main-menu demo library. A different Panorama context in game, so it swaps the whole stage.',
-      always: ['filmmakergui'], order: ['filmmakergui'], native: false, demo: false
+      always: ['filmmakergui', 'onboarding'], order: ['filmmakergui', 'onboarding'], native: false, demo: false
     },
     'menu-workshop': {
       label: 'Main menu: Workshop Maps', note: 'Installed maps, native shell, shared filters and keyword editor.',
@@ -749,7 +749,7 @@
   // keys mean different things to different owners. The model keeps the colliding ones under the
   // owner's namespace (shim/state.js) and this hands each script the feed it would get from its
   // own BuildStateJson.
-  var NAMESPACES = ['nav', 'dock', 'movie', 'marker', 'aim', 'fxdbg', 'eggs'];
+  var NAMESPACES = ['nav', 'dock', 'movie', 'marker', 'aim', 'fxdbg', 'eggs', 'onboarding'];
   function baseFeed() {
     var feed = Object.assign({}, state);
     NAMESPACES.forEach(function (k) { delete feed[k]; });
@@ -832,6 +832,27 @@
         Object.assign(feed, state.eggs);
         feed.cx = (state.mx || 960) / 1920; feed.cy = (state.my || 540) / 1080;
         feed.click = state.mclick || 0; // the C++ side counts button-downs only, not moves
+        break;
+      case 'onboarding':
+        // OnboardingHud::RunFrame: the tutorial state (Onboarding.cpp), the cursor in client
+        // fractions, the held left button, and the bottom band in the dock's 1080 units.
+        Object.assign(feed, state.onboarding);
+        var menuCtx = state.nav.context !== 'ingame';
+        feed.ctx = menuCtx ? 'menu' : 'hud';
+        feed.hidden = !!state.render.captureHide;
+        feed.dockH = menuCtx ? 0 : (dock.hosted ? dockH : 126);
+        feed.cx = (state.mx == null ? -1920 : state.mx) / 1920; feed.cy = (state.my == null ? -1080 : state.my) / 1080;
+        feed.cvis = state.mx != null && feed.cx >= 0 && feed.cx <= 1 && feed.cy >= 0 && feed.cy <= 1;
+        feed.lmb = !!state.lmb;
+        // The game state a lesson step waits on. The mockup has no rendered camera, so the
+        // world markers (vp / eye) never draw here.
+        if (!menuCtx) feed.app = {
+          editor: !!nav.editorOpen, config: !!nav.configOpen, render: !!nav.renderOpen,
+          graph: !!dock.graphEnabled, dock: dock.tab, insp: state.uiEditorInspector || 'path',
+          keys: (state.markers || []).length, pathPlaying: !!state.playing,
+          sceneRev: state.sceneKeys ? state.sceneKeys.rev : 0, recoil: !!state.wrOn, bob: !!state.wbOn,
+          weapon: 'ak47', demo: !!state.demo, paused: !state.demoPlaying, tick: state.tick || 0
+        };
         break;
       case 'filmmakergui':
         feed.enabled = true; feed.demo = false;
@@ -1160,6 +1181,7 @@
       ['E-girl mode', [], function () { window.PanoramaShim.onCommand('mirv_filmmaker egg egirl toggle'); }],
       ['Sony Vegas intervention', [], function () { window.PanoramaShim.onCommand('mirv_filmmaker egg vegas test'); }],
       ['Clippy', [], function () { window.PanoramaShim.onCommand('mirv_filmmaker egg clippy show'); }],
+      ['Onboarding tutorial (Clippy)', [], function () { window.PanoramaShim.onCommand('mirv_filmmaker onboarding restart'); }],
       ['Disco inferno', [], function () { window.PanoramaShim.onCommand('mirv_filmmaker egg disco toggle'); }],
       ['Michael Bay blast', [], function () { window.PanoramaShim.onCommand('mirv_filmmaker egg michaelbay'); }],
       ['Wes Anderson (+ next chapter)', [], function () { window.PanoramaShim.onCommand(state.eggs.wes.on ? 'mirv_filmmaker egg chapter' : 'mirv_filmmaker egg wes on'); }]

@@ -54,6 +54,13 @@ bool FilmmakerSettings_ResetGroup(const char* group);
 // it again just restarts the window.
 void FilmmakerSettings_BeginQuietReset();
 
+// A practice session (Clippy's tutorial, Config/PracticeSessionFlag.h). Begin writes the user's
+// pending edits, then puts every setting back to its construction default (the UI keys and the
+// editor layout included; the render output folder is kept) and saves nothing until End. End
+// applies the settings file again, so the user's settings are exactly what they were. Main thread.
+void FilmmakerSettings_BeginPractice();
+void FilmmakerSettings_EndPractice();
+
 // Console entry used by Panorama to persist UI-only state:
 //   mirv_filmmaker settings ui <key> <value>
 void FilmmakerSettings_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);

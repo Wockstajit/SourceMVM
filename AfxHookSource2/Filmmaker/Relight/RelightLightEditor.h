@@ -17,6 +17,9 @@ bool LightEditorActive();
 void ApplyLightChoices(Scene& scene);
 // Switches every light of the current map back on.
 void ResetLightChoices();
+// A practice session begins or ends: the current map's choices are read again when next applied
+// (during the session there are none, and none are saved).
+void ReloadLightChoices();
 unsigned LightsSwitchedOff();
 // Window-thread key hook. True when the key was used by the editor.
 bool LightEditorKey(int vkey, bool down);

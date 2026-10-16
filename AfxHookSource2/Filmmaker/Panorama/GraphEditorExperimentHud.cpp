@@ -437,6 +437,20 @@ void GraphEditorExperimentHud::RunFrame() {
 	if (!m_enabled)
 		return;
 
+	// Keys placed while the graph is open (K in the editor, the onboarding tutorial) never reached
+	// it: OnEnter only seeds an EMPTY model, once. An empty model has no edits to lose, so it takes
+	// the path's keys as soon as there are any, and the view is asked to frame them.
+	if (m_model.TotalKeys() == 0 && CameraPathRef().Count() > 0) {
+		m_model.SeedFromMarkers(CameraPathRef().Markers());
+		if (CameraPathRef().GetInterp() == CameraPath::Interp::Bezier)
+			m_model.SetInterpAll(true, false);
+		m_viewInit = false;
+		++m_viewEpoch;
+		BumpRev();
+		if (MvmDebugLog_Active())
+			MvmDebugLog_Linef("graph.mode", "late seed total=%d pathCount=%d", m_model.TotalKeys(), CameraPathRef().Count());
+	}
+
 	if (!BuildIfNeeded())
 		return;
 

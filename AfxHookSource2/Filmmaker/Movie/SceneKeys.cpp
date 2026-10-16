@@ -17,6 +17,9 @@
 #include "../../SceneSystem.h"
 #include "../../../Shared/AfxConsole.h"
 #include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
+#include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
+
+extern SOURCESDK::CS2::ISource2EngineToClient* g_pEngineToClient;
 #include <Windows.h>
 #include <iomanip>
 
@@ -189,6 +192,7 @@ void CatalogJson(JsonBuilder& j) {
 } // namespace
 
 void SceneKeys_Flush() { g_track.EndEdit(); Flush(); for (auto it = g_unsaved.begin(); it != g_unsaved.end();) { if (SaveData(it->first,it->second)) it=g_unsaved.erase(it); else ++it; } }
+void SceneKeys_ReloadProject() { g_track.EndEdit(); g_dirty = false; g_failed = false; g_loaded = false; }
 void SceneKeys_Reassert() { g_reassert = true; }
 void SceneKeys_ApplyCaptureTick(double tick) { g_captureTick = tick; }
 void SceneKeys_RunFrame() {
@@ -200,6 +204,8 @@ void SceneKeys_RunFrame() {
     Apply(g_captureTick >= 0 ? g_captureTick : TimelinePlayhead_Tick()); g_captureTick = -1;
 }
 int SceneKeys_Revision() { return g_track.revision; }
+int SceneKeys_ArmedCount() { return (int)g_track.data.armed.size(); }
+int SceneKeys_KeyCount() { int n = 0; for (const auto& f : g_track.data.fields) n += (int)f.second.size(); return n; }
 std::string SceneKeys_StateJson() {
     JsonBuilder j; j.BeginObject(); const auto base = Baselines(); const double tick = TimelinePlayhead_Tick();
     j.Key("catalog"); CatalogJson(j);
@@ -372,5 +378,15 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
         }
     }
     if(!g_gesture&&g_track.EndEdit())MarkDirty();
+    // A property switched on here has to show. The env.* channels (sun, fog, clouds, grading...) only
+    // render while the Environment scene is on, so turning one on turns the Environment on with it;
+    // a time-of-day look keyed with the Environment off used to change nothing on screen.
+    if(op!="status"&&!Environment::SceneEnabled())
+        for(const auto& id:g_track.data.armed)
+            if(id.rfind("env.",0)==0&&id!="env.enabled"){
+                if(g_pEngineToClient)g_pEngineToClient->ExecuteClientCmd(0,"mirv_filmmaker environment on",true);
+                MvmDebugLog_LinefAlways("scenekeys","%s turned the Environment on for %s",op.c_str(),id.c_str());
+                break;
+            }
 }
 } // namespace Filmmaker

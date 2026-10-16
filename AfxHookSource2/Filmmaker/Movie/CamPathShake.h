@@ -67,6 +67,9 @@ CamPathShakeSetting CamPathShake_Get(int markerIndex);
 void CamPathShake_Set(int markerIndex, const CamPathShakeSetting& s);
 void CamPathShake_Clear(int markerIndex);
 void CamPathShake_ClearAll();
+// A practice session begins or ends: drop the shakes in memory without saving them and read the
+// playing demo's project again on the next frame (CameraPath::ReloadProject).
+void CamPathShake_ReloadProject();
 int  CamPathShake_Count();          // how many keyframes currently carry a shake
 // Copy one keyframe's shake onto EVERY keyframe. Returns how many were written. The usual way to
 // shake a whole shot: dial one keyframe in, then push it across instead of repeating the edit.

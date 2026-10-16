@@ -2,6 +2,7 @@
 #define NOMINMAX
 #endif
 #include "Props.h"
+#include "../Config/PracticeSessionFlag.h" // a practice session writes nothing
 #include "PropsMath.h"
 #include "PropsEffectProfiles.h"
 #include "ClientEntitySpawn.h"
@@ -275,7 +276,7 @@ std::filesystem::path StorePath(const std::string& map) {
 }
 
 void Save() {
-	if (g_map.empty()) return;
+	if (g_map.empty() || PracticeSession_Active()) return;
 	JsonBuilder j;
 	j.BeginObject();
 	j.IntField("v", 1);
@@ -341,6 +342,7 @@ void Load(const std::string& map) {
 	g_undo.clear();
 	g_selected = 0;
 	g_nextId = 1;
+	if (PracticeSession_Active()) return; // a practice session starts every map without props
 	std::ifstream in(StorePath(map), std::ios::binary);
 	if (!in) return;
 	const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -992,6 +994,13 @@ bool Props_EditorBusy() { return g_editorBusy; }
 
 void Props_OnShutdown() {
 	if (g_spawnArmed) DisarmSpawnMarker(g_map);
+}
+
+void Props_ReloadAfterPractice() {
+	// The next check sees the current map as newly loaded: it reads the map's saved props and
+	// spawns them once the level has settled, as on a level load.
+	g_map.clear();
+	g_lastCheck = 0;
 }
 
 void Props_StopEditing() {

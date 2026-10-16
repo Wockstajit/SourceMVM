@@ -1094,6 +1094,21 @@ R"CFJS(
       }
       return persistKey + '=' + (body.__getOpen() ? 'open' : 'shut');
     };
+    // A card's panels, for the onboarding tutorial's spotlight (Panorama/OnboardingGuideJs.h).
+    // part: 'header' (the title row, default), 'rail' (its row in the left rail), 'test' (Weapon
+    // Recoil's Test Shot button), 'pivot' (the hinge drawer of recoil / bob). Null when absent.
+    api.cardPanel = function (persistKey, part) {
+      var body = cfgSections[persistKey];
+      var cc = body && body.__card && body.__card.__cfgCard;
+      if (!cc) return null;
+      if (part === 'rail') { var r = cfgRails[cc.tab]; return r && r.items[persistKey] ? r.items[persistKey].row : null; }
+      if (part === 'test') return body.__cfgParts ? body.__cfgParts.test : null;
+      if (part === 'pivot') {
+        var owner = persistKey === 'config.section.weaponrecoil' ? 'recoil' : (persistKey === 'config.section.weaponbob' ? 'bob' : '');
+        return owner && cfgPivotDrawers[owner] ? cfgPivotDrawers[owner].panel : null;
+      }
+      return cc.header || null;
+    };
     // Select a card's sub-page by index, so a screenshot can reach every page of every card.
     api.cardPage = function (persistKey, index) {
       persistKey = evalArg(persistKey);

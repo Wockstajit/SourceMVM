@@ -596,6 +596,19 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Panorama/EasterEggHintJs.h
     Filmmaker/Panorama/EasterEggVegasJs.h
     Filmmaker/Panorama/EasterEggClippyJs.h
+    Filmmaker/Panorama/OnboardingHud.cpp
+    Filmmaker/Panorama/OnboardingHud.h
+    Filmmaker/Panorama/OnboardingJs.h
+    Filmmaker/Panorama/OnboardingClippyJs.h
+    Filmmaker/Panorama/OnboardingScriptJs.h
+    Filmmaker/Panorama/OnboardingRoutesJs.h
+    Filmmaker/Panorama/OnboardingGuideJs.h
+    Filmmaker/Panorama/OnboardingLessonJs.h
+    Filmmaker/Onboarding/Onboarding.cpp
+    Filmmaker/Onboarding/Onboarding.h
+    Filmmaker/Onboarding/PracticeSession.cpp
+    Filmmaker/Onboarding/PracticeSession.h
+    Filmmaker/Config/PracticeSessionFlag.h
     Filmmaker/EasterEggs/EasterEggs.cpp
     Filmmaker/EasterEggs/EasterEggs.h
     Filmmaker/EasterEggs/EasterEggHintMath.h

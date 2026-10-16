@@ -2,6 +2,7 @@
 #include "DemoMatchInfoFile.h"
 
 #include "../Debug/MvmDebugLog.h"
+#include "../Config/PracticeSessionFlag.h" // a practice session writes nothing
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/JsonParser.h"
 #include "../Platform/TextEncoding.h"
@@ -231,6 +232,8 @@ std::wstring DemoProjectStore_EnsureProjectFile(ProjectGame game, const std::wst
 bool DemoProjectStore_ReadSection(ProjectGame game, const std::wstring& demoPath,
 	ProjectSection section, std::string& payload) {
 	payload.clear();
+	// A practice session starts every demo empty: nothing the user saved for it is read.
+	if (PracticeSession_Active()) return false;
 	std::lock_guard<std::mutex> lock(g_mutex);
 	const std::wstring root = DemoProjectStore_Root();
 	if (root.empty() || demoPath.empty()) return false;
@@ -256,6 +259,9 @@ bool DemoProjectStore_ReadSection(ProjectGame game, const std::wstring& demoPath
 
 bool DemoProjectStore_WriteSection(ProjectGame game, const std::wstring& demoPath,
 	ProjectSection section, const std::string& payload) {
+	// A practice session keeps its edits in memory. Reported as written, so no module holds
+	// them back to retry later (SceneKeys would, on shutdown).
+	if (PracticeSession_Active()) return true;
 	std::lock_guard<std::mutex> lock(g_mutex);
 	std::wstring root;
 	const std::wstring dir = EnsureDirectoryLocked(game, demoPath, root);

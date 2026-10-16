@@ -994,7 +994,9 @@ R"TLJS(
     // the popup silently vanishing -- it never goes through closeSettings(), so nothing logs it).
     var OURS = { 'CamTimelineRoot': 1, 'CamTimelineRangeRoot': 1, 'MarkerHudRoot': 1, 'MovieHudRoot': 1, 'CamEditorRoot': 1, 'GraphExpRoot': 1, 'CamEditorConfirmRoot': 1, 'CamEditorSettingsRoot': 1, 'CamEditorRenderRoot': 1, 'ConfigHudRoot': 1, 'CamEditorCustomizeRoot': 1, 'CamEditorCustomizeConfirmRoot': 1, 'MvmBarTipRoot': 1,
       // The easter-egg overlay: never part of the gameplay HUD the view modes hide.
-      'MvmEggRoot': 1 };
+      'MvmEggRoot': 1,
+      // Clippy's onboarding tutorial: it has to stay up while it explains the hidden-HUD views.
+      'MvmOnboardingRoot': 1 };
     var VIEWPORT_HUD_ROOTS = {
       'HudBottomGradient': 1,
       'HudInWorld': 1,
@@ -1341,6 +1343,7 @@ R"TLJS(
     var interpLin = btn(trow, 'Linear', function () { cmd('mirv_filmmaker camtl interp linear'); }, S.value);
     interpLin.style.marginLeft = '12px'; interpLin.style.marginRight = '2px';
     var interpSmooth = btn(trow, '∿ Smooth', function () { cmd('mirv_filmmaker camtl interp cubic'); }, S.value);
+    try { var mvmT = $.MvmTour || ($.MvmTour = {}); (mvmT['camtl.smooth'] = mvmT['camtl.smooth'] || []).push(interpSmooth); } catch (e) {}
     var tReadout = lbl(trow, '', S.value, 13); tReadout.style.verticalAlign = 'center';
     // Original design: Stratum2Mono 15/700, takes the slack between the segmented pair and the dial.
     tReadout.style.marginLeft = '14px'; tReadout.style.width = 'fill-parent-flow(1.0)';
@@ -1368,6 +1371,8 @@ R"TLJS(
     // The old 18px strip clipped every diamond's top point (see the note on diamond()).
     // SCENE KEYS mode grows this to two compact lanes (camera context + editable scene events).
     var diamWrap = mk('Panel', srow); diamWrap.hittest = false;
+    // Named for the onboarding tutorial's spotlight ($.MvmTour, see TimelineDockRibbonJs.h).
+    try { var mvmT = $.MvmTour || ($.MvmTour = {}); (mvmT['camtl.keys'] = mvmT['camtl.keys'] || []).push(diamWrap); } catch (e) {}
     diamWrap.style.width = TLW + 'px'; diamWrap.style.height = '22px'; diamWrap.style.position = '0px 0px 0px';
     var sceneLaneActive = false;
     var SROW_BASE = 42, SROW_SCENE = 64, DIAM_H_BASE = 22, DIAM_H_SCENE = 40;
@@ -1468,12 +1473,14 @@ R"TLJS(
     K.kLabel.style.fontWeight = 'bold'; K.kLabel.style.letterSpacing = '1.6px';
     K.kLabel.style.marginRight = '10px'; K.kLabel.style.whiteSpace = 'nowrap';
     K.add = btn(keyFooter, '+ Add', function () { cmd('mirv_filmmaker camtl addkey'); }, S.accent);
+    try { var mvmT2 = $.MvmTour || ($.MvmTour = {}); (mvmT2['camtl.addkey'] = mvmT2['camtl.addkey'] || []).push(K.add); (mvmT2['camtl.play'] = mvmT2['camtl.play'] || []).push(playBtn); } catch (e) {}
     K.del = btn(keyFooter, '− Delete', function () { if (st && st.selected >= 0) cmd('mirv_filmmaker camtl delkey ' + st.selected); }, S.value);
     K.retime = btn(keyFooter, '⟲ Tick→Here', function () { if (st && st.selected >= 0) cmd('mirv_filmmaker camtl movekey ' + st.selected + ' ' + st.tick); }, S.value);
     K.ease = btn(keyFooter, 'Ease: None', function () {
       if (!st || st.selected < 0) return;
       var nx = ((st.selEase || 0) + 1) % 4; cmd('mirv_filmmaker camtl ease ' + st.selected + ' ' + EASE[nx]);
     }, S.value);
+    try { var mvmT = $.MvmTour || ($.MvmTour = {}); (mvmT['camtl.ease'] = mvmT['camtl.ease'] || []).push(K.ease); } catch (e) {}
     K.spdMinus = btn(keyFooter, '−', function () { stepSpeed(-1); }, S.accent);
     K.spdLbl = lbl(keyFooter, 'Seg x1.00', S.value, 13); K.spdLbl.style.verticalAlign = 'center'; K.spdLbl.style.width = '92px'; K.spdLbl.style.textAlign = 'center';
     K.spdPlus = btn(keyFooter, '+', function () { stepSpeed(1); }, S.accent);

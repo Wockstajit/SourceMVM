@@ -206,6 +206,7 @@ R"EDJS(
         tb.__lbl.style.fontSize = UI.tabTop.font + 'px';
         tb.__lbl.style.letterSpacing = UI.tabTop.ls + 'px';
         renderTabs.push(tb);
+        mvmTourAdd(['render.tab.range', 'render.tab.passes', 'render.tab.output'][idx], tb);
       })(ti);
     }
 
@@ -437,6 +438,7 @@ R"EDJS(
       cmd('mirv_filmmaker render range ' + RANGE_MODE_TOKENS[idx]);
     }, { padV: 9, id: 'RsRangeSeg' });
     var rangeErr = rsBlockBox(rangeSec);
+    mvmTourAdd('render.range', rangeSeg.panel); mvmTourAdd('render.range.path', rangeSeg.cells[2]);
 
     // The resolved span: what this mode actually renders right now.
     var rangeSpan = mk('Panel', rangeSec); rangeSpan.hittest = false;
@@ -557,6 +559,7 @@ R"EDJS(
       })(csr * 3 + csc);
     }
     var camErr = rsBlockBox(camSec);
+    mvmTourAdd('render.cams', camGrid); mvmTourAdd('render.cam.path', camTiles[4]);
     // Camera Path's own setting, shown while it is the source.
     var EXT_ROWS = [['fail', 'Fail (safe)'], ['holdfirst', 'Hold first'], ['holdlast', 'Hold last'], ['clamp', 'Clamp range']];
     var extRow = rsLabeledRow(camSec, 'If the path is shorter than the range', 200, 12);
@@ -909,10 +912,12 @@ R"EDJS(
     }, 'Choose the folder where the render files will be written.');
     folderBtn.style.height = '34px'; folderBtn.style.marginLeft = '6px';
     folderBtn.__lbl.style.fontSize = '12px';
+    mvmTourAdd('render.folder', folderBtn);
     var projectLbl = rsNote(destSec, '', 8);
     var FORMATS = [['mp4', 'MP4', 'VIDEO'], ['avi', 'AVI', 'VIDEO'], ['gif', 'GIF', 'VIDEO'], ['exr', 'EXR', 'SEQ'],
                    ['tga', 'TGA', 'SEQ'], ['bmp', 'BMP', 'SEQ'], ['png', 'PNG', 'SEQ'], ['tiff', 'TIFF', 'SEQ']];
     var fmtRow = rsTileRow(destSec, 10); fmtRow.id = 'RsFormatGrid';
+    mvmTourAdd('render.format', fmtRow);
     var fmtCells = [];
     for (var fmi = 0; fmi < FORMATS.length; fmi++) (function (f, last) {
       var c = mk('Panel', fmtRow);
@@ -1096,6 +1101,7 @@ R"EDJS(
     jobBtn.style.minHeight = '52px';
     jobBtn.style.paddingTop = '8px'; jobBtn.style.paddingBottom = '8px';
     jobBtn.__lbl.style.horizontalAlign = 'center'; jobBtn.__lbl.style.fontSize = '14px';
+    mvmTourAdd('render.start', jobBtn);
     function setJobBtnRunning(running) {
       if (jobBtnRunning === running) return;
       jobBtnRunning = running;

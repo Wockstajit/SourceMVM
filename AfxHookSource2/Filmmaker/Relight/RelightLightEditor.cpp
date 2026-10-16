@@ -3,6 +3,7 @@
 #include "RelightLightEditorMath.h"
 #include "../Environment/EnvironmentShaderCompiler.h"
 #include "../Debug/MvmDebugLog.h"
+#include "../Config/PracticeSessionFlag.h" // a practice session writes nothing
 #include <cstdlib>
 #include <wrl/client.h>
 #include <d3dcompiler.h>
@@ -42,7 +43,7 @@ void LoadLocked(const std::string& map) {
     if (map == g_map) return;
     g_map = map;
     g_off.clear();
-    if (map.empty()) return;
+    if (map.empty() || PracticeSession_Active()) return;
     std::ifstream in(ChoicesPath(map));
     for (std::string line; std::getline(in, line);) {
         while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
@@ -50,7 +51,7 @@ void LoadLocked(const std::string& map) {
     }
 }
 void SaveLocked() {
-    if (g_map.empty()) return;
+    if (g_map.empty() || PracticeSession_Active()) return;
     std::error_code error;
     const auto path = ChoicesPath(g_map);
     if (g_off.empty()) { std::filesystem::remove(path, error); return; }
@@ -161,6 +162,11 @@ void ResetLightChoices() {
     std::lock_guard<std::mutex> lock(g_lock);
     g_off.clear();
     SaveLocked();
+}
+void ReloadLightChoices() {
+    std::lock_guard<std::mutex> lock(g_lock);
+    g_map.clear();
+    g_off.clear();
 }
 unsigned LightsSwitchedOff() {
     std::lock_guard<std::mutex> lock(g_lock);

@@ -52,6 +52,9 @@ void PlaybackLoop_SetOut(int tick);
 // so crossing the flags swaps their roles instead of temporarily invalidating the loop.
 void PlaybackLoop_SetRange(int inTick, int outTick);
 void PlaybackLoop_Clear();
+// A practice session begins or ends: read the playing demo's loop again on the next frame. Every
+// edit saves at once, so there is nothing unsaved to drop.
+void PlaybackLoop_ReloadProject();
 
 // False when the region is unset or degenerate, in which case the loop cannot run.
 bool PlaybackLoop_Range(int& inTick, int& outTick);

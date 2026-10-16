@@ -713,6 +713,23 @@ void ParticleFx::SetMode(FxCategory cat, FxMode mode) {
 		ArmWarmup(false);
 }
 
+// The settings were replaced wholesale (ResetSettingsToDefaults / ReloadSettings): the same
+// follow-up SetMode does, so effects switched on in the middle of a demo are installed, the demo is
+// re-seeked to apply them and their systems are precached.
+void ParticleFx::AfterSettingsReplaced() {
+	bool wantsHook = false;
+	{
+		std::lock_guard<std::mutex> lock(g_mx);
+		RebuildActiveSwapTargetsLocked(true);
+		wantsHook = HasActiveFxLocked();
+	}
+	if (wantsHook)
+		EnsureInstalled();
+	RequestApplyReseek();
+	if (FxMainThreadContextActive())
+		ArmWarmup(false);
+}
+
 void ParticleFx::SetLogging(bool on) {
 	{
 		std::lock_guard<std::mutex> lock(g_mx);

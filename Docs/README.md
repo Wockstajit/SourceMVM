@@ -10,6 +10,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | --- | --- |
 | Cloning, building and launching on a new machine | [`collaborator-setup.md`](setup/collaborator-setup.md) |
 | First local launch | [`local-quickstart.md`](features/local-quickstart.md) |
+| Onboarding tutorial (Clippy prototype, `mvm_onboarding`) | [`filmmaker_onboarding.md`](features/filmmaker_onboarding.md) |
 | Build and repository layout | [`../BUILDING.md`](../BUILDING.md), [`../CONTENTS.md`](../CONTENTS.md), [`../CLAUDE.md`](../CLAUDE.md) |
 | Demo browser | [`filmmaker_demos_feature.md`](features/filmmaker_demos_feature.md) |
 | Play page + workshop map sorting | [`filmmaker_play_menu.md`](features/filmmaker_play_menu.md) |

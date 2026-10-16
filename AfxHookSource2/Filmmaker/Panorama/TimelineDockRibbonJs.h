@@ -36,6 +36,13 @@
 //   ribbon.gear                      -- so the host can light it while its popup is open
 //   ribbon.sync(tabName, metaText)   -- called from render() every frame; cheap and idempotent
 R"DOCKRIBJS(
+    // $.MvmTour: named panels the onboarding tutorial can spotlight (Panorama/OnboardingGuideJs.h).
+    // Most controls are created without an id, so the script that owns one registers it here by
+    // name. Several panels may share a name (the editor and Config each build a dock ribbon); the
+    // tutorial lights whichever is on screen and skips ones that were deleted.
+    function mvmTourAdd(name, panel) {
+      try { var t = $.MvmTour || ($.MvmTour = {}); (t[name] = t[name] || []).push(panel); } catch (e) {}
+    }
     function mvmTimelineDockRibbon(parent, accent, onGear) {
       var RIBBON_H = 36, TAB_W = 150;
       var band = mk('Panel', parent);
@@ -75,6 +82,7 @@ R"DOCKRIBJS(
         b.__lbl = t;
         b.SetPanelEvent('onactivate', function () { cmd('mirv_filmmaker dock ' + key); });
         tabs[key] = b;
+        mvmTourAdd('dock.' + key, b);
       })(TABS[i][0], TABS[i][1], i === TABS.length - 1);
 
       var spacer = mk('Panel', band);

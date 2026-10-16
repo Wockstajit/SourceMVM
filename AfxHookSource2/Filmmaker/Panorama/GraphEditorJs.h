@@ -371,6 +371,9 @@ R"GEJS(
     // editor's inspector, lifted above the compact timeline bar. Size/offset are recomputed each
     // frame in computeGeom(); all editor children lay out relative to `dock`.
     var root = $.CreatePanel('Panel', ctx, 'GraphExpRoot', {});
+    // The onboarding tutorial lets clicks into the whole dock on its graph steps (toolbar, FIT,
+    // the right-click menu), not only the canvas it lights up.
+    try { ($.MvmTour = $.MvmTour || {})['graph.dock'] = [root]; } catch (e) {}
     // z65: always-on-top experimental overlay. See the canonical z-layer map in PanoramaBridge.h.
     root.hittest = false; root.style.width = '100%'; root.style.height = '100%'; root.style.zIndex = '65';
     root.style.fontFamily = S.font;
@@ -411,6 +414,8 @@ R"GEJS(
     }
     var camModeTab = gTab('GRAPH', 'camera');
     var sceneModeTab = gTab('SCENE GRAPH', 'scene', true);
+    try { var mvmT = $.MvmTour || ($.MvmTour = {}); (mvmT['graph.tab.camera'] = mvmT['graph.tab.camera'] || []).push(camModeTab); } catch (e) {}
+    try { var mvmT = $.MvmTour || ($.MvmTour = {}); (mvmT['graph.tab.scene'] = mvmT['graph.tab.scene'] || []).push(sceneModeTab); } catch (e) {}
     var hInfo = lbl(header, '', S.hint, 11); hInfo.style.verticalAlign = 'center'; hInfo.style.width = 'fill-parent-flow(1.0)';
     hInfo.style.letterSpacing = '0.5px';
 
@@ -595,6 +600,9 @@ R"GEJS(
       rows.push({ rowP: rowP, hot: hot, sw: sw, nm: nm, valBox: valBox, val: val, eye: eye, eyeL: eyeL,
                   prev: prev, dia: dia, next: next,
                   valRect: { x0: VAL_X, y0: HEADER_H + rowY, x1: VAL_X + VALW, y1: HEADER_H + rowY + (ROW_H - 4) } });
+      // Named for the onboarding tutorial: 'graph.row.yaw', 'graph.row.fov', ...
+      var mvmRowName = 'graph.row.' + ['x', 'y', 'z', 'pitch', 'yaw', 'roll', 'fov'][c];
+      try { var mvmT = $.MvmTour || ($.MvmTour = {}); (mvmT[mvmRowName] = mvmT[mvmRowName] || []).push(hot); } catch (e) {}
     }
     for (var c0 = 0; c0 < 7; c0++) makeRow(c0);
 )GEJS"
@@ -646,6 +654,8 @@ R"GEJS(
     var rulerLayer = mk('Panel', ruler); rulerLayer.hittest = false; rulerLayer.style.width = '100%'; rulerLayer.style.height = '100%';
 
     var canvas = mk('Panel', dock); canvas.hittest = false; canvas.style.backgroundColor = 'rgba(0,0,0,0.18)';
+    // Named for the onboarding tutorial's spotlight ($.MvmTour, see TimelineDockRibbonJs.h).
+    try { var mvmT = $.MvmTour || ($.MvmTour = {}); (mvmT['graph.canvas'] = mvmT['graph.canvas'] || []).push(canvas); } catch (e) {}
     // Backstop for the scene strip stack, which scrolls: a half-visible band's contents must stop
     // at the canvas edge instead of drawing over the ruler above it or the bottom bar below.
     canvas.style.overflow = 'clip clip';
@@ -898,6 +908,8 @@ R"GEJS(
           var hot = mk('Panel', row); hot.hittest = true; hot.style.flowChildren = 'right';
           hot.style.width = 'fill-parent-flow(1.0)'; hot.style.height = '100%'; hot.style.borderRadius = '3px';
           hot.SetPanelEvent('onactivate', function () { cmd('chan ' + ch.ch + (ch.solo ? ' unsolo' : ' solo')); });
+          var mvmSceneRow = 'graph.scene.' + ch.fieldId;
+          try { var mvmT = $.MvmTour || ($.MvmTour = {}); (mvmT[mvmSceneRow] = mvmT[mvmSceneRow] || []).push(row); } catch (e) {}
           var sw = mk('Panel', hot); sw.hittest = false; sw.style.width = '10px'; sw.style.height = '10px';
           sw.style.borderRadius = '2px'; sw.style.backgroundColor = ch.color;
           sw.style.verticalAlign = 'center'; sw.style.marginLeft = '2px'; sw.style.marginRight = '8px';
@@ -1147,14 +1159,19 @@ R"GEJS(
     var knownKeys = null, knownMode = '';
     function revealNewKeys(mode) {
       var seen = {}, a = Infinity, b = -Infinity, fresh = knownKeys && knownMode === mode;
+      var anyKey = false, anyInView = false;
       for (var i = 0; i < model.length; i++) {
         var ch = model[i];
         for (var j = 0; j < ch.keys.length; j++) {
           var k = ch.keys[j], id = ch.ch + ':' + k.id; seen[id] = 1;
+          if (ch.vis) { anyKey = true; if (k.t >= view.t0 && k.t <= view.t1) anyInView = true; }
           if (fresh && !knownKeys[id] && ch.vis && (k.t < view.t0 || k.t > view.t1)) { if (k.t < a) a = k.t; if (k.t > b) b = k.t; }
         }
       }
       knownKeys = seen; knownMode = mode;
+      // First look in this mode with keys, none of them in the window (the window was seeded
+      // around a playhead far from the shot): frame the keys instead of an empty grid.
+      if (!fresh && anyKey && !anyInView) { fitAll(); return; }
       if (b >= a) revealTicks(a, b);
     }
     // While the demo PLAYS, page the window so the playhead stays on screen. Scrubbing never does
@@ -1461,18 +1478,21 @@ R"GEJS(
       }
       return best;
     }
+    // A handle that is not set (a Linear key) lies ON the straight segment it belongs to, at the
+    // same 1/3 the model's ease uses: drawn flat, it looked already eased, and Ease In / Out then
+    // seemed to change nothing while the curve itself bent.
     function handleEndpoint(ch, k, side) {
       var idx = keyIndex(ch, k.id);
       var defSpan = (view.t1 - view.t0) * 0.06;
       if (side > 0) {
         var nx = (idx + 1 < ch.keys.length) ? ch.keys[idx + 1] : null;
         var span = nx ? (nx.t - k.t) : defSpan; var tx = (k.cr && k.cr.a) ? k.cr.tx : 1 / 3;
-        var dv = (k.cr && k.cr.a) ? k.cr.dv : 0;
+        var dv = (k.cr && k.cr.a) ? k.cr.dv : (nx ? (nx.v - k.v) * tx : 0);
         return { t: k.t + clamp01(tx) * span, v: k.v + dv, span: span };
       } else {
         var pv = (idx - 1 >= 0) ? ch.keys[idx - 1] : null;
         var span2 = pv ? (k.t - pv.t) : defSpan; var tx2 = (k.cl && k.cl.a) ? k.cl.tx : 1 / 3;
-        var dv2 = (k.cl && k.cl.a) ? k.cl.dv : 0;
+        var dv2 = (k.cl && k.cl.a) ? k.cl.dv : (pv ? (pv.v - k.v) * tx2 : 0);
         return { t: k.t - clamp01(tx2) * span2, v: k.v + dv2, span: span2 };
       }
     }
@@ -1629,7 +1649,8 @@ R"GEJS(
         var it = mk('Panel', easeMenu); it.hittest = false;
         it.style.width = (EM_W - 2 * EM_PAD) + 'px'; it.style.height = EM_ITEM + 'px';
         it.style.horizontalAlign = 'center'; it.style.borderRadius = '3px'; it.style.paddingLeft = '11px';
-        var l = lbl(it, menuItems[i][1], danger ? S.dangerText : S.value, 13);
+        var off = menuItems[i][3]; // why it would do nothing here, or undefined when it applies
+        var l = lbl(it, menuItems[i][1] + (off ? '  · ' + off : ''), off ? S.hint : (danger ? S.dangerText : S.value), 13);
         l.hittest = false; l.style.verticalAlign = 'center'; l.style.whiteSpace = 'nowrap';
         easeItemPanels.push(it);
       }
@@ -1646,7 +1667,8 @@ R"GEJS(
       easeRects = [];
       for (var i = 0; i < items.length; i++) {
         var y = ly + menuItemY(i);
-        easeRects.push({ x0: lx + EM_PAD, x1: lx + W - EM_PAD, y0: y, y1: y + EM_ITEM, mode: items[i][0] });
+        // A greyed item takes no click: easeHit finds no mode there.
+        easeRects.push({ x0: lx + EM_PAD, x1: lx + W - EM_PAD, y0: y, y1: y + EM_ITEM, mode: items[i][3] ? null : items[i][0] });
       }
     }
     // The strip's own menu: what you can do to THIS property at THIS tick, reachable where you are
@@ -1703,9 +1725,36 @@ R"GEJS(
       for (var i = 0; i < ch.keys.length; i++) if (Math.round(ch.keys[i].t) === want) return ch.keys[i];
       return null;
     }
+    // Ease shapes the side of a key that has a curve: a channel's first key has nothing coming
+    // in, its last nothing going out. With two keys that is most of the menu, and an ease that
+    // changes nothing read as a broken menu, so those items are greyed with the reason.
+    function easeItemsFor(ch, id) {
+      var picked = [], anyPrev = false, anyNext = false;
+      // Right-clicking a key outside the selection selects only that key (the press handler).
+      var onlyThis = !isSelectedId(ch, id);
+      for (var i = 0; i < model.length; i++) {
+        var keys = model[i].keys.slice().sort(function (p, q) { return p.t - q.t; });
+        for (var j = 0; j < keys.length; j++) {
+          var k = keys[j];
+          var sel = (model[i].ch === ch && k.id === id) || (!onlyThis && (k.sel || selCache[model[i].ch + ':' + k.id]));
+          if (!sel) continue;
+          picked.push(k);
+          if (j > 0) anyPrev = true;
+          if (j < keys.length - 1) anyNext = true;
+        }
+      }
+      if (!picked.length) return EASE_ITEMS;
+      return EASE_ITEMS.map(function (it) {
+        var why;
+        if (it[0] === 'in' && !anyPrev) why = 'first key';
+        else if (it[0] === 'out' && !anyNext) why = 'last key';
+        else if (it[0] === 'inout' && !anyPrev && !anyNext) why = 'only key';
+        return why ? [it[0], it[1], it[2], why] : it;
+      });
+    }
     function showEaseMenu(lx, ly, ch, id) {
       easeAlignCh = ch; easeAlignId = id;
-      showMenu(lx, ly, 'SELECTED KEYS', EASE_ITEMS, function (em) {
+      showMenu(lx, ly, 'SELECTED KEYS', easeItemsFor(ch, id), function (em) {
         if (em === 'delete') cmd('delsel');
         else if (em === 'align') cmd('align ' + easeAlignCh + ' ' + easeAlignId);
         else cmd('ease ' + em);
@@ -1717,7 +1766,7 @@ R"GEJS(
       for (var i = 0; i < easeRects.length; i++) {
         var inIt = (lx >= easeRects[i].x0 && lx <= easeRects[i].x1 && ly >= easeRects[i].y0 && ly <= easeRects[i].y1);
         if (easeItemPanels[i]) easeItemPanels[i].style.backgroundColor =
-          inIt ? (easeRects[i].mode === 'delete' ? S.dangerBg : S.btnOn) : 'rgba(0,0,0,0)';
+          inIt && easeRects[i].mode ? (easeRects[i].mode === 'delete' ? S.dangerBg : S.btnOn) : 'rgba(0,0,0,0)';
       }
     }
     function easeHit(lx, ly) {
@@ -2418,6 +2467,8 @@ R"GEJS(
       }
     };
 
+    // FIT from outside: the onboarding tutorial frames the keys on its graph steps.
+    api.fit = function () { fitAll(); };
     $.GraphExp = api;
     api.render();
     $.Msg('[grapheditor] experimental graph editor built.\n');

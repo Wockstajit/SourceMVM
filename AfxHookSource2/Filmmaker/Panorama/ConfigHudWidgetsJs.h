@@ -1277,7 +1277,8 @@ R"CFJS(
       var strip = null;
       var body = mk('Panel', clipper); body.hittest = false; body.hittestchildren = true;
       body.style.flowChildren = 'down'; body.style.width = '100%';
-      s.__cfgCard = { tab: tab, key: key, title: title, accent: edgeOn, body: body };
+      // `header` lets $.ConfigHud.cardPanel() hand the title row to the onboarding spotlight.
+      s.__cfgCard = { tab: tab, key: key, title: title, accent: edgeOn, body: body, header: hr };
 
       var item = tab ? cfgRailAdd(tab, key, title, edgeOn, s) : null;
 )CFJS"

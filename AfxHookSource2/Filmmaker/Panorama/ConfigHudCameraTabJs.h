@@ -148,6 +148,7 @@ R"CFJS(
     // Amber edge: this card owns the amber pivot marker, and the edge is what ties the two.
     var wrSec = section(pageCamera, 'WEAPON RECOIL', true, false, 'config.section.weaponrecoil', '#e8b339ff');
     var wrTestBtn = wrSec.__headerAction('Test Shot', function () { cmd('mirv_filmmaker weaponrecoil test'); });
+    wrSec.__cfgParts = { test: wrTestBtn };
     attachTip(wrTestBtn, 'Fires one kick using the scope selected below -- the gun in shot when that scope covers it, otherwise a weapon from that category. So a test always exercises the settings you are editing. Shortcut: press T while Config is open.');
     // Same split as Weapon Bob: Recoil's own reset covers its tuning and its `pivot` scalar, but
     // not the Forward/Right/Up hinge or the marker orb that sit in this card.
@@ -486,7 +487,7 @@ R"CFJS(
       hoverable(head, function () { head.style.backgroundColor = head.__hot ? '#ffffff08' : S.clear; });
       head.SetPanelEvent('onactivate', function () { setOpen(!open, true); });
       setOpen(false, false);
-      cfgPivotDrawers[owner] = { setOpen: setOpen };
+      cfgPivotDrawers[owner] = { setOpen: setOpen, panel: d };
 )CFJS"
 R"CFJS(
       var liveClass = '', scope = '';
