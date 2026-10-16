@@ -138,8 +138,22 @@ preprocessor for every object, and by the Rust workspace crate (about 110 s, in 
 cargo rebuilds because a fresh checkout has new file times. `main.cpp` embeds `__DATE__` and
 `__TIME__` in the console banner, so it always recompiles.
 
-**Whole run**, pull request #15:
+**Whole run**, the `pull_request` runs of pull request #15 (the workflow does not record the CPU
+model, so these rows are indicative):
 
-| Run | Caches | Native build step | Native job | Run wall time |
-| --- | --- | --- | --- | --- |
-| First push | none | 1475 s | 1708 s | 28.8 min |
+| Run | Shader bundle | sccache | Native build step | Native job | Run wall time |
+| --- | --- | --- | --- | --- | --- |
+| First push, no caches | 0 of 67 reused | 0 of 814 hits | 1475 s | 1708 s | 28.8 min |
+| Second push | not restored (save-path bug, fixed in the third push) | 813 of 814 hits | 1035 s | 1209 s | cancelled by the third push after its tests passed |
+| Third push | 0 of 67 reused, 1014 s | 813 of 814 hits | 1099 s | 1322 s | 23.0 min |
+| Re-run of the third push, every cache warm | 67 of 67 reused, 47 ms | 813 of 814 hits | 179 s | 409 s | 7.3 min |
+
+With every cache warm and no source change, the run takes about a quarter of the previous median
+(7.3 min against 28.6 min). The native job then splits into configure 41 s, build 179 s and tests
+125 s, so the tests are now a third of it. The benchmark table above places a typical edit between
+the warm rows: one changed `.cpp` adds about 15 s to the build step and a widely included header
+about 40 s. The shader bundle dominates whenever it is not restored (1014 s of the third push's
+1099 s build step), which is why its cache has a test that fails when the save path and the
+restore path differ. A pull request's first run pays only for what `main` has not cached yet;
+after one push to `main` with this workflow, new pull requests start from `main`'s shader bundle
+and sccache entries.
