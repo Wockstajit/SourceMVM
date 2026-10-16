@@ -1370,6 +1370,14 @@ R"TLJS(
     // fixed buttons could not express 0.7x or 12x at all, and they took more width than the
     // continuous control does. Right-anchored so the transport reads left-to-right: play, step,
     // where you are, how fast.
+    // Cache: keep the preview of every frame the world plays, so dragging back over it is shown at
+    // frame rate instead of restoring the demo on every move (Movie/ScrubFrameCache.h). Lit while
+    // on. Sits right before the speed it shares the transport with.
+    var cacheBtn = btn(trow, 'Cache', function () {
+      cmd('mirv_filmmaker scrub cache ' + (st && st.scrubCache ? 'off' : 'on'));
+    }, S.value);
+    cacheBtn.style.marginLeft = TROW_GAP + 'px';
+    cacheBtn.style.verticalAlign = 'center';
     var speedScrub = buildSpeedScrubber(trow, { width: 250, height: 30, font: S.font });
     speedScrub.strip.style.marginLeft = TROW_GAP + 'px';
 
@@ -2015,6 +2023,7 @@ R"TLJS(
       // rather than sitting lit over linear motion.
       btnSel(interpLin, st.interp === 'Linear');
       btnSel(interpSmooth, st.interp !== 'Linear');
+      btnSel(cacheBtn, !!st.scrubCache);
       interpSmooth.__lbl.text = '∿ Smooth';
       interpSmooth.__lbl.style.color = st.interpDegraded ? S.hint
         : (interpSmooth.__sel ? S.accent : S.value);

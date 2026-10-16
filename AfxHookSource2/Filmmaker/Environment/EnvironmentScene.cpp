@@ -964,6 +964,7 @@ bool UndoLastEditLocked(std::string &error) {
     return true;
 }
 } // namespace
+uint64_t SceneGeneration() { return g_sceneGeneration; }
 uint64_t LastUndoStamp() {
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_undoStamps.empty() ? 0 : g_undoStamps.back();

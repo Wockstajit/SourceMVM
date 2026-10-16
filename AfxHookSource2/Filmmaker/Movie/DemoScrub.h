@@ -17,6 +17,8 @@ void DemoScrub_Drag(double tick);
 void DemoScrub_Release(double tick, bool resume = true);
 // True from the first drag until the world has landed after the release.
 bool DemoScrub_Active();
+// Active and not yet released: the playhead is still being dragged.
+bool DemoScrub_Dragging();
 // While active: the tick the world is being steered to (the latest drag or release position).
 bool DemoScrub_Target(double& tick);
 // Another seek takes the demo clock: drop the scrub so it does not drag the world back to its own
@@ -25,6 +27,12 @@ void DemoScrub_Cancel();
 
 // Main thread, once per frame.
 void DemoScrub_RunFrame();
+
+// The world's demo time in ticks, fractional (paused between ticks it holds the fraction). False
+// without a demo. Main thread.
+bool DemoScrub_WorldTime(int& tick, double& now, bool& paused);
+// A seek of the scrub's own is in flight (the world may still read the old tick mid-replay).
+bool DemoScrub_SeekInFlight();
 
 // Console: `mirv_filmmaker scrub drag|release <tick>`, `mirv_filmmaker scrub status`.
 void DemoScrub_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);

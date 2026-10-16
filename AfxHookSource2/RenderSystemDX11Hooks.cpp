@@ -7818,6 +7818,48 @@ namespace AfxViewportScaler {
     // behind the panels is what reads as a zoomed / cropped preview). Only counted while logging.
     static std::atomic<unsigned> s_DbgPresents{ 0 }, s_DbgQueued{ 0 }, s_DbgFallback{ 0 }, s_DbgMissed{ 0 };
 
+    // SCRUB FRAME CACHE: the identity of each frame travels main thread -> engine thread (with the
+    // frame's scale blit) -> render thread (this present). s_PublishedFrame is the newest the main
+    // thread published; s_PresentFrame is the one whose blit ran in THIS present.
+    static ScrubCacheFrame s_PublishedFrame;      // under s_RequestMutex
+    static ScrubCacheFrame s_PresentFrame;        // render thread
+    static bool s_PresentFrameValid = false;      // render thread: this present's queued blit ran
+    static ScrubCacheFrame s_LastFrame;           // render thread: newest frame seen (missed presents)
+    static std::atomic<unsigned long long> s_CachePoseMismatches{ 0 };
+
+    void ScrubCache_Publish(const ScrubCacheFrame& frame) {
+        std::unique_lock<std::mutex> lock(s_RequestMutex);
+        s_PublishedFrame = frame;
+    }
+
+    // Engine thread: the identity for the frame being prepared. "Whether the pose matches" is
+    // decided here, against the camera this frame actually renders with: a frame whose camera is
+    // not the path pose at the world's time (another camera owner, smoothing, an identity from a
+    // different frame) is shown but never kept.
+    static ScrubCacheFrame EngineThread_TakeScrubFrame() {
+        ScrubCacheFrame frame;
+        {
+            std::unique_lock<std::mutex> lock(s_RequestMutex);
+            frame = s_PublishedFrame;
+        }
+        if (frame.id.cameraTick >= 0.0) {
+            const float actual[Filmmaker::ScrubCache::kPoseValues] = {
+                (float)g_CurrentGameCamera.origin[0], (float)g_CurrentGameCamera.origin[1], (float)g_CurrentGameCamera.origin[2],
+                (float)g_CurrentGameCamera.angles[0], (float)g_CurrentGameCamera.angles[1], (float)g_CurrentGameCamera.angles[2],
+                frame.id.pose[6] };
+            if (!Filmmaker::ScrubCache::PoseNear(actual, frame.id.pose)) {
+                const unsigned long long n = ++s_CachePoseMismatches;
+                if (Filmmaker::MvmDebugLog_Active() && (n % 30) == 1)
+                    Filmmaker::MvmDebugLog_LinefAlways("scrub.cache",
+                        "pose mismatch #%llu world=%.3f camTick=%.3f path=%.2f,%.2f,%.2f/%.2f,%.2f,%.2f rendered=%.2f,%.2f,%.2f/%.2f,%.2f,%.2f",
+                        n, frame.id.worldTime, frame.id.cameraTick, frame.id.pose[0], frame.id.pose[1], frame.id.pose[2],
+                        frame.id.pose[3], frame.id.pose[4], frame.id.pose[5], actual[0], actual[1], actual[2], actual[3], actual[4], actual[5]);
+                frame.id.cameraTick = -1.0;
+            }
+        }
+        return frame;
+    }
+
     void SetRequest(bool active, float x0, float y0, float x1, float y1) {
         std::unique_lock<std::mutex> lock(s_RequestMutex);
         s_Active = active;
@@ -7854,11 +7896,15 @@ namespace AfxViewportScaler {
 
         CViewportScaler* scaler = &g_ViewportScaler;
         float x0 = rect[0], y0 = rect[1], x1 = rect[2], y1 = rect[3];
+        const ScrubCacheFrame frame = EngineThread_TakeScrubFrame();
         g_RenderCommands.EngineThread_GetCommands().BeforeUi2.Push(
-            [scaler, x0, y0, x1, y1](ID3D11DeviceContext* pDeviceContext, ID3D11RenderTargetView* pTarget) {
+            [scaler, x0, y0, x1, y1, frame](ID3D11DeviceContext* pDeviceContext, ID3D11RenderTargetView* pTarget) {
                 s_BlitRanThisPresent.store(true, std::memory_order_relaxed);
                 if (Filmmaker::MvmDebugLog_Active()) ++s_DbgQueued;
                 scaler->Blit(pDeviceContext, pTarget, x0, y0, x1, y1);
+                // This present now shows that frame, scaled: the scrub frame cache may keep it.
+                s_PresentFrame = frame;
+                s_PresentFrameValid = true;
             });
     }
 
@@ -7911,20 +7957,171 @@ namespace AfxViewportScaler {
         s_HeldValid = false;
     }
 
-    // Returns true when this present shows the held region instead of what was rendered.
+    // --- Scrub frame cache: storage ------------------------------------------------------------
+    // The index and the configuration are shared (main thread looks up and drops, render thread
+    // stores) under s_CacheMutex; the textures are created, copied and released on the render
+    // thread only. One texture per slot, the size of the preview rect, created on first use.
+    static std::mutex s_CacheMutex;
+    static Filmmaker::ScrubCache::Index s_CacheIndex;
+    static bool s_CacheEnabled = true;
+    static int s_CacheBudgetMb = Filmmaker::ScrubCache::kDefaultBudgetMb;
+    static bool s_CacheConfigDirty = true;
+    static std::vector<ID3D11Texture2D*> s_CacheTex;
+    static D3D11_TEXTURE2D_DESC s_CacheBbDesc = {};
+    static D3D11_BOX s_CacheBox = {};
+    static ID3D11Device* s_CacheDevice = nullptr;
+    static std::atomic<unsigned long long> s_CacheStores{ 0 }, s_CacheServed{ 0 }, s_CacheServeMissing{ 0 }, s_CacheEvictions{ 0 };
+    static std::atomic<unsigned long long> s_CacheBytes{ 0 };
+    static std::atomic<unsigned> s_CacheW{ 0 }, s_CacheH{ 0 };
+
+    static UINT CacheBytesPerPixel(DXGI_FORMAT f) {
+        switch (f) {
+        case DXGI_FORMAT_R16G16B16A16_FLOAT: case DXGI_FORMAT_R16G16B16A16_TYPELESS: case DXGI_FORMAT_R16G16B16A16_UNORM: return 8;
+        case DXGI_FORMAT_R32G32B32A32_FLOAT: case DXGI_FORMAT_R32G32B32A32_TYPELESS: return 16;
+        default: return 4;
+        }
+    }
+
+    // s_CacheMutex held.
+    static void ReleaseCacheTextures() {
+        for (ID3D11Texture2D*& t : s_CacheTex) if (t) { t->Release(); t = nullptr; }
+        s_CacheTex.clear();
+        s_CacheBytes.store(0, std::memory_order_relaxed);
+    }
+
+    // s_CacheMutex held. Sizes the cache to this backbuffer and preview rect. Any change of either
+    // (window size, layout, device) drops every frame: a frame is a copy of one exact region.
+    static bool EnsureCache(const D3D11_TEXTURE2D_DESC& desc, const D3D11_BOX& box) {
+        if (!s_CacheEnabled) {
+            if (s_CacheIndex.Capacity() > 0 || !s_CacheTex.empty()) {
+                const int n = s_CacheIndex.Count();
+                ReleaseCacheTextures();
+                s_CacheIndex.Reset(0);
+                if (Filmmaker::MvmDebugLog_Active())
+                    Filmmaker::MvmDebugLog_LinefAlways("scrub.cache", "off: released %d frame(s)", n);
+            }
+            return false;
+        }
+        const bool same = s_CacheDevice == g_pDevice && s_CacheBbDesc.Width == desc.Width && s_CacheBbDesc.Height == desc.Height
+            && s_CacheBbDesc.Format == desc.Format && s_CacheBox.left == box.left && s_CacheBox.top == box.top
+            && s_CacheBox.right == box.right && s_CacheBox.bottom == box.bottom;
+        if (same && !s_CacheConfigDirty) return s_CacheIndex.Capacity() > 0;
+        const int dropped = s_CacheIndex.Count();
+        ReleaseCacheTextures();
+        const UINT w = box.right - box.left, h = box.bottom - box.top;
+        const int capacity = Filmmaker::ScrubCache::CapacityForBudget((uint64_t)s_CacheBudgetMb << 20, w, h, CacheBytesPerPixel(desc.Format));
+        s_CacheIndex.Reset(capacity);
+        s_CacheTex.assign((size_t)capacity, nullptr);
+        s_CacheBbDesc = desc;
+        s_CacheBox = box;
+        s_CacheDevice = g_pDevice;
+        s_CacheW.store(w, std::memory_order_relaxed);
+        s_CacheH.store(h, std::memory_order_relaxed);
+        if (Filmmaker::MvmDebugLog_Active())
+            Filmmaker::MvmDebugLog_LinefAlways("scrub.cache", "sized frame=%ux%u format=%d capacity=%d budget=%dMB dropped=%d why=%s",
+                w, h, (int)desc.Format, capacity, s_CacheBudgetMb, dropped, s_CacheConfigDirty ? "config" : "window/rect");
+        s_CacheConfigDirty = false;
+        return capacity > 0;
+    }
+
+    void ScrubCache_Configure(bool enabled, int budgetMb) {
+        std::lock_guard<std::mutex> lock(s_CacheMutex);
+        if (budgetMb < 16) budgetMb = 16;
+        if (enabled == s_CacheEnabled && budgetMb == s_CacheBudgetMb) return;
+        s_CacheEnabled = enabled;
+        s_CacheBudgetMb = budgetMb;
+        s_CacheConfigDirty = true;
+    }
+
+    int ScrubCache_Find(double tick, uint64_t revision, Filmmaker::ScrubCache::Index::Entry* out) {
+        std::lock_guard<std::mutex> lock(s_CacheMutex);
+        if (!s_CacheEnabled) return -1;
+        const int slot = s_CacheIndex.Find(tick, revision);
+        if (slot >= 0 && out) *out = s_CacheIndex.At(slot);
+        return slot;
+    }
+    int ScrubCache_DropOtherRevisions(uint64_t revision) { std::lock_guard<std::mutex> lock(s_CacheMutex); return s_CacheIndex.DropOtherRevisions(revision); }
+    int ScrubCache_DropSlot(int slot) { std::lock_guard<std::mutex> lock(s_CacheMutex); return s_CacheIndex.DropSlot(slot); }
+    int ScrubCache_Clear() { std::lock_guard<std::mutex> lock(s_CacheMutex); return s_CacheIndex.Clear(); }
+
+    void ScrubCache_GetStats(ScrubCacheStats& out) {
+        {
+            std::lock_guard<std::mutex> lock(s_CacheMutex);
+            out.enabled = s_CacheEnabled;
+            out.frames = s_CacheIndex.Count();
+            out.capacity = s_CacheIndex.Capacity();
+        }
+        out.width = s_CacheW.load(std::memory_order_relaxed);
+        out.height = s_CacheH.load(std::memory_order_relaxed);
+        out.bytes = s_CacheBytes.load(std::memory_order_relaxed);
+        out.stores = s_CacheStores.load(std::memory_order_relaxed);
+        out.served = s_CacheServed.load(std::memory_order_relaxed);
+        out.serveMissing = s_CacheServeMissing.load(std::memory_order_relaxed);
+        out.evictions = s_CacheEvictions.load(std::memory_order_relaxed);
+        out.poseMismatches = s_CachePoseMismatches.load(std::memory_order_relaxed);
+    }
+
+    // Render thread, s_CacheMutex held, cache sized. Keeps this present's preview region when its
+    // identity says it is a played frame of its own tick, then shows a cached frame if the main
+    // thread asked for one. Returns true when the preview now shows a cached frame.
+    static bool CacheStoreAndServe(ID3D11DeviceContext* ctx, ID3D11Texture2D* bb, const D3D11_BOX& box,
+        bool haveIdentity, const ScrubCacheFrame& frame) {
+        const UINT w = box.right - box.left, h = box.bottom - box.top;
+        if (haveIdentity) {
+            const Filmmaker::ScrubCache::Index::Store st = s_CacheIndex.PlanStore(frame.id, frame.nearTick);
+            if (st.slot >= 0) {
+                ID3D11Texture2D*& tex = s_CacheTex[(size_t)st.slot];
+                if (!tex) {
+                    D3D11_TEXTURE2D_DESC td = s_CacheBbDesc;
+                    td.Width = w; td.Height = h; td.MipLevels = 1; td.ArraySize = 1;
+                    td.SampleDesc.Count = 1; td.SampleDesc.Quality = 0;
+                    td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = 0; td.CPUAccessFlags = 0; td.MiscFlags = 0;
+                    if (FAILED(g_pDevice->CreateTexture2D(&td, nullptr, &tex))) tex = nullptr;
+                    else s_CacheBytes.fetch_add((unsigned long long)w * h * CacheBytesPerPixel(td.Format), std::memory_order_relaxed);
+                }
+                if (tex) {
+                    ctx->CopySubresourceRegion(tex, 0, 0, 0, 0, bb, 0, &box);
+                    s_CacheIndex.Commit(st.slot, frame.id);
+                    ++s_CacheStores;
+                    if (st.evicted) {
+                        const unsigned long long n = ++s_CacheEvictions;
+                        if (Filmmaker::MvmDebugLog_Active() && (n % 16) == 1)
+                            Filmmaker::MvmDebugLog_LinefAlways("scrub.cache", "evict #%llu tick=%d for tick=%d near=%.2f frames=%d",
+                                n, st.evictedTick, Filmmaker::ScrubCache::SlotTick(frame.id.worldTime), frame.nearTick, s_CacheIndex.Count());
+                    }
+                }
+            }
+        }
+        if (!frame.serve) return false;
+        const int slot = s_CacheIndex.Find(frame.serveTick, frame.id.revision);
+        if (slot < 0 || !s_CacheTex[(size_t)slot]) { ++s_CacheServeMissing; return false; }
+        const D3D11_BOX src = { 0, 0, 0, w, h, 1 };
+        ctx->CopySubresourceRegion(bb, 0, box.left, box.top, 0, s_CacheTex[(size_t)slot], 0, &src);
+        ++s_CacheServed;
+        return true;
+    }
+
+    // Returns true when this present shows the held region (or a cached frame) instead of what was
+    // rendered.
     //
     // Two reasons to hold, with different limits:
     //   * a MISSED blit -- the frame under the preview is the unscaled world. During a demo seek the
-    //     engine builds no scene frame for many presents, so the before-UI callback that runs both
-    //     blits is never queued and nothing CAN scale them (measured 2026-10-16 while dragging
-    //     backward: ~45% of presents, fallback=0, up to 2 s at a time). The held frame is the newest
-    //     correct picture there is, so it is used for as long as the misses last;
+    //     engine builds no scene frame for many presents and re-presents the UI over the LAST world
+    //     it rendered, so the before-UI callback that runs both blits is never queued and nothing
+    //     CAN scale them (measured 2026-10-16 while dragging backward: 45-70% of presents,
+    //     fallback=0). The held frame is the newest correctly scaled one -- the same world the
+    //     engine re-shows behind the panels -- so it is used for as long as the misses last;
     //   * a scrub's REQUEST (SetHoldPreview) over frames that did blit -- a restore and its play-in.
     //     Those are real frames, so the hold gives up after kMaxHoldMs rather than freeze the preview.
+    // A frame served from the scrub frame cache replaces both, and becomes the frame to fall back on.
     static bool HoldOrCapturePreview(bool active, bool recording, bool blitRan, const float rect[4]) {
         const bool requested = s_HoldRequested.load(std::memory_order_relaxed);
         const bool holdWanted = requested || !blitRan;
         if (!requested) s_HoldStartMs = 0;
+        // This present's identity (its queued blit ran) or, for a missed present, the newest one: a
+        // serve request outlives the presents the engine re-shows without a scene.
+        const bool haveIdentity = blitRan && s_PresentFrameValid;
+        if (haveIdentity) s_LastFrame = s_PresentFrame;
         if (!active || recording || !g_pSwapChain || !g_pDevice) { s_HeldValid = false; return false; }
 
         ID3D11Texture2D* bb = nullptr;
@@ -7946,18 +8143,33 @@ namespace AfxViewportScaler {
             }
             ID3D11DeviceContext* ctx = nullptr;
             g_pDevice->GetImmediateContext(&ctx);
+            bool served = false;
+            if (ctx) {
+                std::lock_guard<std::mutex> lock(s_CacheMutex);
+                if (EnsureCache(desc, box))
+                    served = CacheStoreAndServe(ctx, bb, box, haveIdentity, haveIdentity ? s_PresentFrame : s_LastFrame);
+            }
             if (ctx && s_HeldTex) {
                 const bool sameBox = s_HeldValid && box.left == s_HeldBox.left && box.top == s_HeldBox.top
                     && box.right == s_HeldBox.right && box.bottom == s_HeldBox.bottom;
                 const ULONGLONG nowMs = GetTickCount64();
                 if (requested && !s_HoldStartMs) s_HoldStartMs = nowMs;
                 const bool withinCap = !blitRan || nowMs - s_HoldStartMs < kMaxHoldMs;
-                if (holdWanted && sameBox && withinCap) {
+                if (served) {
+                    // The cached frame is what the preview shows: hold on to it, not to an older one.
+                    ctx->CopySubresourceRegion(s_HeldTex, 0, box.left, box.top, 0, bb, 0, &box);
+                    s_HeldBox = box;
+                    s_HeldValid = true;
+                    held = true;
+                } else if (holdWanted && sameBox && withinCap) {
                     ctx->CopySubresourceRegion(bb, 0, box.left, box.top, 0, s_HeldTex, 0, &box);
                     held = true;
                     if (Filmmaker::MvmDebugLog_Active()) ++s_DbgHeld;
-                } else if (blitRan && !s_HoldRequested.load(std::memory_order_relaxed)) {
-                    // A settled, correctly scaled frame: the one to fall back on.
+                } else if (blitRan && !s_HoldRequested.load(std::memory_order_relaxed)
+                    && !(haveIdentity && s_PresentFrame.id.valid && !s_PresentFrame.id.played)) {
+                    // A settled, correctly scaled frame: the one to fall back on. Never one whose own
+                    // identity says the world has not been played into since its restore (bind-pose
+                    // players), whatever the hold flag -- which reaches this thread a frame apart.
                     ctx->CopySubresourceRegion(s_HeldTex, 0, box.left, box.top, 0, bb, 0, &box);
                     s_HeldBox = box;
                     s_HeldValid = true;
@@ -8060,9 +8272,21 @@ namespace AfxViewportScaler {
                     active ? 1 : 0, s_DbgPresents.exchange(0), s_DbgQueued.exchange(0), s_DbgFallback.exchange(0),
                     s_DbgMissed.exchange(0), s_DbgHeld.exchange(0), rect[0], rect[1], rect[2], rect[3], ran ? 1 : 0, bbW, bbH,
                     vp[0], vp[1], vp[2], vp[3]);
+                ScrubCacheStats cs;
+                ScrubCache_GetStats(cs);
+                static unsigned long long s_lastStores = 0, s_lastServed = 0, s_lastMissing = 0, s_lastEvict = 0, s_lastMismatch = 0;
+                if (cs.stores != s_lastStores || cs.served != s_lastServed || cs.serveMissing != s_lastMissing) {
+                    Filmmaker::MvmDebugLog_LinefAlways("scrub.cache",
+                        "present frames=%d/%d %ux%u vram=%lluMB stored=%llu served=%llu serveMissing=%llu evicted=%llu poseMismatch=%llu",
+                        cs.frames, cs.capacity, cs.width, cs.height, cs.bytes >> 20, cs.stores - s_lastStores, cs.served - s_lastServed,
+                        cs.serveMissing - s_lastMissing, cs.evictions - s_lastEvict, cs.poseMismatches - s_lastMismatch);
+                }
+                s_lastStores = cs.stores; s_lastServed = cs.served; s_lastMissing = cs.serveMissing;
+                s_lastEvict = cs.evictions; s_lastMismatch = cs.poseMismatches;
             }
         }
         s_BlitRanThisPresent.store(false, std::memory_order_relaxed);
+        s_PresentFrameValid = false;
     }
 
     bool GetLastBlit(int& bbW, int& bbH, float& vx, float& vy, float& vw, float& vh) {

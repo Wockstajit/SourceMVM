@@ -57,6 +57,45 @@ constexpr double kScrubReleaseOvershootTicks = 1.0;
 // been simulated, not just restored.
 constexpr int kScrubBackLeadTicks = 2;
 constexpr double kScrubBackStepTimescale = 4.0;
+// ...but never more than this many ticks a frame. demo_step_tick plays at the timescale and only
+// pauses on a frame boundary, so a slow frame runs past the goal: with heavy Environment effects
+// (~60 ms frames) a 2-tick step at 4x ended 6 ticks on (`step to 5812 from 5810 lost: tick=5816`,
+// 2026-10-16) and the world visibly ran FORWARD while the playhead was dragged back.
+constexpr double kScrubBackStepMaxTicksPerFrame = 1.0;
+
+// The play-in step's timescale for a frame of `frameSeconds`.
+inline double ScrubBackStepTimescale(double frameSeconds) {
+	if (!(frameSeconds > 0.0)) return kScrubBackStepTimescale;
+	const double cap = kScrubBackStepMaxTicksPerFrame / (kScrubTickRate * frameSeconds);
+	double s = cap < kScrubBackStepTimescale ? cap : kScrubBackStepTimescale;
+	if (s < kScrubMinTimescale) s = kScrubMinTimescale;
+	return s;
+}
+
+// SCRUB FRAME CACHE (ScrubFrameCacheMath.h). The cache holds the shot's recorded take, and a
+// playhead over a cached tick is shown from it:
+//   * dragging BEHIND the world: always -- no restore, the world stays where it is;
+//   * dragging forward while the world is RECORDING (its take began at the shot's first key): no --
+//     the world glides and its frames re-record the shot;
+//   * dragging forward otherwise, or anywhere a tick from the world: yes -- the take is the picture;
+//   * a RELEASE on a cached tick: yes, while the world still lands there for real underneath
+//     (play and edits need it), so a click shows the same frame a drag did.
+// A drag that leaves the cached span falls back to the controller (restore or glide).
+struct ScrubCacheInput {
+	bool enabled = false;   // the Cache toggle
+	bool released = false;
+	bool cached = false;    // the playhead's frame is in the cache (ScrubCache::Index::Find)
+	bool recording = false; // the world's take began at or before the shot's first key
+	double target = 0.0;    // playhead
+	double now = 0.0;       // world
+};
+
+inline bool ScrubServeFromCache(const ScrubCacheInput& in) {
+	if (!in.enabled || !in.cached) return false;
+	if (in.released) return true;
+	if (in.target < in.now - kScrubBehindToleranceTicks) return true;
+	return !in.recording;
+}
 
 enum class ScrubAction {
 	None,   // wait: a command is in flight, or the world is where it should be
@@ -177,7 +216,7 @@ inline ScrubDecision DecideScrub(const ScrubInput& in) {
 		if (!in.paused) { d.action = ScrubAction::Pause; return d; }
 		d.action = ScrubAction::Step;
 		d.ticks = kScrubBackLeadTicks;
-		d.timescale = kScrubBackStepTimescale;
+		d.timescale = ScrubBackStepTimescale(in.frameSeconds);
 		return d;
 	}
 	if (gap < -kScrubBehindToleranceTicks || gap > kScrubPlayAheadTicks) {
@@ -207,7 +246,7 @@ inline ScrubDecision DecideScrub(const ScrubInput& in) {
 		if (!in.paused) { d.action = ScrubAction::Pause; return d; }
 		d.action = ScrubAction::Step;
 		d.ticks = (int)std::floor(gap + 1e-9);
-		d.timescale = kScrubBackStepTimescale;
+		d.timescale = ScrubBackStepTimescale(in.frameSeconds);
 		return d;
 	}
 	const double speed = ScrubPlaySpeed(gap);

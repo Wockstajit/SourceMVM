@@ -155,7 +155,7 @@ void TestBackwardDragShowsOnlyPlayedFrames() {
 	// Behind by whole ticks while dragging back: one quick step plays them in.
 	in.now = 998.0; in.target = 1000.3;
 	const ScrubDecision step = DecideScrub(in);
-	CHECK(step.action == ScrubAction::Step && step.ticks == 2 && step.timescale == kScrubBackStepTimescale);
+	CHECK(step.action == ScrubAction::Step && step.ticks == 2 && step.timescale == ScrubBackStepTimescale(in.frameSeconds));
 }
 
 void TestSmallOvershootHolds() {
@@ -263,6 +263,41 @@ void TestSeekJudgedEveryFrame() {
 
 } // namespace
 
+void TestBackStepNeverRunsPastAFrame() {
+	// A slow frame must not carry the play-in step past its goal: at ~60 ms frames (heavy
+	// Environment effects) 4x played 15 ticks a frame and a 2-tick step ended 6 ticks on.
+	for (double dt : { 1.0 / 240.0, 1.0 / 144.0, 1.0 / 60.0, 0.06, 0.2 }) {
+		const double s = ScrubBackStepTimescale(dt);
+		CHECK(s <= kScrubBackStepTimescale + 1e-9);
+		CHECK(s >= kScrubMinTimescale - 1e-9);
+		CHECK(s * kScrubTickRate * dt <= kScrubBackStepMaxTicksPerFrame + 1e-9);
+	}
+	CHECK(ScrubBackStepTimescale(1.0 / 1000.0) == kScrubBackStepTimescale); // fast frames keep the quick step
+	CHECK(ScrubBackStepTimescale(0.0) == kScrubBackStepTimescale);           // unknown frame time
+	// The decision uses it.
+	ScrubInput in; in.target = 1000.3; in.now = 998.0; in.paused = true; in.draggingBack = true; in.frameSeconds = 0.06;
+	const ScrubDecision d = DecideScrub(in);
+	CHECK(d.action == ScrubAction::Step && d.timescale * kScrubTickRate * 0.06 <= kScrubBackStepMaxTicksPerFrame + 1e-9);
+}
+
+void TestCacheServesTheRecordedTake() {
+	ScrubCacheInput in; in.enabled = true; in.cached = true; in.now = 1000.0;
+	in.target = 990.0;
+	CHECK(ScrubServeFromCache(in));              // behind the world, cached: no restore
+	in.target = 1004.0; in.recording = true;
+	CHECK(!ScrubServeFromCache(in));             // forward while recording from the first key: play and record
+	in.recording = false;
+	CHECK(ScrubServeFromCache(in));              // forward inside a clicked-into shot: the take is the picture
+	in.target = 999.5;
+	CHECK(ScrubServeFromCache(in));
+	in.released = true; in.recording = true;
+	CHECK(ScrubServeFromCache(in));              // a click on a cached tick shows the cached frame
+	in.cached = false;
+	CHECK(!ScrubServeFromCache(in));             // off the cached span: the real world
+	in.cached = true; in.enabled = false;
+	CHECK(!ScrubServeFromCache(in));             // Cache off: today's behaviour
+}
+
 int main() {
 	TestSeekJudgedEveryFrame();
 	TestSlowDragGlidesToAFraction();
@@ -277,6 +312,8 @@ int main() {
 	TestMediumForwardDragSeeks();
 	TestBusyWaits();
 	TestNeverPausesAPausedDemo();
+	TestBackStepNeverRunsPastAFrame();
+	TestCacheServesTheRecordedTake();
 	if (g_failed) { std::cerr << g_failed << " check(s) failed\n"; return 1; }
 	std::cout << "demo scrub math tests passed\n";
 	return 0;

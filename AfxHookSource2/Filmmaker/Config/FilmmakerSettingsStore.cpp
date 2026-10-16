@@ -663,9 +663,23 @@ void FilmmakerSettings_Load() {
 	g_pendingSnapshot = g_savedSnapshot;
 }
 
+static uint64_t g_pictureRevision = 1;
+static std::string g_pictureSnapshot;
+
+uint64_t FilmmakerSettings_PictureRevision() { return g_pictureRevision; }
+
 void FilmmakerSettings_RunFrame() {
 	if (!g_loaded) return;
 	const std::string snapshot = BuildSnapshot();
+	{
+		// The "ui" object is written last and holds panel disclosure state only.
+		const size_t ui = snapshot.rfind("\"ui\":");
+		const size_t len = ui == std::string::npos ? snapshot.size() : ui;
+		if (snapshot.compare(0, len, g_pictureSnapshot) != 0) {
+			g_pictureSnapshot.assign(snapshot, 0, len);
+			++g_pictureRevision;
+		}
+	}
 	const unsigned long long now = GetTickCount64();
 	if (g_quiet) {
 		if (g_quietSettleFrames > 0) {
