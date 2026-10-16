@@ -16,6 +16,8 @@ namespace SourceMovieMakerHost
 
         private static int Main(string[] args)
         {
+            // Electron decodes the captured streams as UTF-8, including localized errors/paths.
+            Console.OutputEncoding = new UTF8Encoding(false);
             PROCESS_INFORMATION processInfo = default(PROCESS_INFORMATION);
             bool resumed = false;
 
@@ -53,6 +55,10 @@ namespace SourceMovieMakerHost
                 string injectorPath = Path.GetFullPath(options.InjectorPath);
                 string commandLine = $"\"{programPath}\" {options.CommandLine}".TrimEnd();
                 string workingDirectory = Path.GetDirectoryName(programPath);
+                Console.WriteLine("Game: " + programPath);
+                Console.WriteLine("Hook: " + hookPath);
+                Console.WriteLine("Injector: " + injectorPath);
+                Console.WriteLine("Desktop: " + InteractiveDesktop);
 
                 var startupInfo = new STARTUPINFOW
                 {
@@ -80,8 +86,8 @@ namespace SourceMovieMakerHost
                     ref startupInfo,
                     out processInfo))
                 {
-                    throw new InvalidOperationException(
-                        $"CreateProcessW failed with error {Marshal.GetLastWin32Error()}.");
+                    int error = Marshal.GetLastWin32Error();
+                    throw LaunchDiagnostics.CreateProcessError(error, programPath);
                 }
 
                 Console.WriteLine($"Created CS2 process {processInfo.dwProcessId} suspended.");
@@ -115,6 +121,23 @@ namespace SourceMovieMakerHost
                 if (!string.IsNullOrWhiteSpace(options.ProcessIdFile))
                     File.WriteAllText(options.ProcessIdFile, processInfo.dwProcessId.ToString());
                 Console.WriteLine("Hook injected; CS2 resumed.");
+                if (options.WatchStartupMilliseconds == 0)
+                    return 0;
+                // Opt-in: callers that wait for this host's exit must not pay for the watch. The
+                // launcher reports success on the line above and keeps reading. The original
+                // handle catches even an exit with code 0 or 259.
+                try
+                {
+                    LaunchDiagnostics.ObserveStartup(processInfo.hProcess, processInfo.dwProcessId,
+                        options.WatchStartupMilliseconds);
+                }
+                catch (System.ComponentModel.Win32Exception exception)
+                {
+                    // The game may well be running; a broken watch is not a launch failure.
+                    Console.WriteLine("Startup watch unavailable: " + exception.Message);
+                    return 0;
+                }
+                Console.WriteLine("Game survived initial startup.");
                 return 0;
             }
             catch (Exception exception)
@@ -202,6 +225,7 @@ namespace SourceMovieMakerHost
             // Defaults to CS2 so every existing caller keeps working without passing it.
             public string SteamAppId { get; private set; } = "730";
             public int SettleMilliseconds { get; private set; } = 2000;
+            public uint WatchStartupMilliseconds { get; private set; }
 
             public void ResolveSteamPath()
             {
@@ -254,6 +278,8 @@ namespace SourceMovieMakerHost
                     options.CommandLine = commandLine;
                 if (int.TryParse(settle, out int settleMilliseconds))
                     options.SettleMilliseconds = Math.Max(0, settleMilliseconds);
+                if (uint.TryParse(Value(values, "--watch-startup-ms"), out uint watchMilliseconds))
+                    options.WatchStartupMilliseconds = watchMilliseconds;
                 return options;
             }
 
