@@ -155,6 +155,17 @@ struct QpcScope {
     explicit QpcScope(std::atomic<long long>& a) : acc(a) { QueryPerformanceCounter(&t0); }
     ~QpcScope() { LARGE_INTEGER t1; QueryPerformanceCounter(&t1); acc.fetch_add(t1.QuadPart - t0.QuadPart, std::memory_order_relaxed); }
 };
+// RenderShaderCost, in QPC ticks. Many loader threads create shaders at once.
+std::atomic<unsigned long long> g_shaderCount{0};
+std::atomic<long long> g_shaderEngineTicks{0}, g_shaderHookTicks{0}, g_shaderMaxHookTicks{0};
+long long QpcNow() { LARGE_INTEGER t; QueryPerformanceCounter(&t); return t.QuadPart; }
+void NoteShaderCreated(long long engineTicks, long long hookTicks) {
+    g_shaderCount.fetch_add(1, std::memory_order_relaxed);
+    g_shaderEngineTicks.fetch_add(engineTicks, std::memory_order_relaxed);
+    g_shaderHookTicks.fetch_add(hookTicks, std::memory_order_relaxed);
+    long long worst = g_shaderMaxHookTicks.load(std::memory_order_relaxed);
+    while (hookTicks > worst && !g_shaderMaxHookTicks.compare_exchange_weak(worst, hookTicks, std::memory_order_relaxed)) {}
+}
 } // namespace
 namespace Filmmaker::Environment {
 bool BeginNativeMaterialDraw(ID3D11DeviceContext* ctx);
@@ -204,6 +215,16 @@ void HookCost_EndFrame() {
 }
 } // namespace
 RenderHookCost RenderHookCost_Sample() { std::lock_guard<std::mutex> lock(g_hookCostMutex); return g_hookCostSample; }
+RenderShaderCost RenderShaderCost_Sample() {
+    LARGE_INTEGER f; QueryPerformanceFrequency(&f);
+    const double ms = 1000.0 / double(f.QuadPart);
+    RenderShaderCost out;
+    out.shaders = g_shaderCount.load(std::memory_order_relaxed);
+    out.engineMs = g_shaderEngineTicks.load(std::memory_order_relaxed) * ms;
+    out.hookMs = g_shaderHookTicks.load(std::memory_order_relaxed) * ms;
+    out.maxHookMs = g_shaderMaxHookTicks.load(std::memory_order_relaxed) * ms;
+    return out;
+}
 unsigned long long RenderCompletedPresents() { return g_completedPresents.load(std::memory_order_relaxed); }
 RenderProgress RenderProgress_Sample() {
     const auto progress = g_renderProgress.load(std::memory_order_relaxed);
@@ -1827,11 +1848,28 @@ CreateRenderTargetView_t g_Old_CreateRenderTargetView = nullptr;
 CreateVertexShader_t g_Old_CreateVertexShader = nullptr;
 CreatePixelShader_t g_Old_CreatePixelShader = nullptr;
 
+// The outermost shader creation on this thread. Our detours create derived shaders through the same
+// hooked device; those count as the outer call's hook work, not as CS2 shaders (RenderShaderCost).
+thread_local int g_shaderCreateDepth = 0;
+void RenderShaderCost_OwnWork(bool begin) { g_shaderCreateDepth += begin ? 1 : -1; }
+struct ShaderCreateTiming {
+    const bool outer = g_shaderCreateDepth++ == 0;
+    const long long start = outer ? QpcNow() : 0;
+    long long engineEnd = 0;
+    void EngineDone() { if (outer) engineEnd = QpcNow(); }
+    ~ShaderCreateTiming() {
+        --g_shaderCreateDepth;
+        if (outer && engineEnd) NoteShaderCreated(engineEnd - start, QpcNow() - engineEnd);
+    }
+};
+
 HRESULT STDMETHODCALLTYPE New_CreateVertexShader(ID3D11Device* This, const void* pBytecode,
     SIZE_T BytecodeLength, ID3D11ClassLinkage* pClassLinkage,
     ID3D11VertexShader** ppVertexShader) {
+    ShaderCreateTiming timing;
     const HRESULT result = g_Old_CreateVertexShader(This, pBytecode, BytecodeLength,
         pClassLinkage, ppVertexShader);
+    timing.EngineDone();
     // Do not re-enable the old unsynchronized diagnostic bytecode map on compile workers.
     // The foliage observer only reflects verified bindings into shader-owned private data.
     if (SUCCEEDED(result) && ppVertexShader && *ppVertexShader){
@@ -1846,8 +1884,10 @@ HRESULT STDMETHODCALLTYPE New_CreateVertexShader(ID3D11Device* This, const void*
 HRESULT STDMETHODCALLTYPE New_CreatePixelShader(ID3D11Device* This, const void* pBytecode,
     SIZE_T BytecodeLength, ID3D11ClassLinkage* pClassLinkage,
     ID3D11PixelShader** ppPixelShader) {
+    ShaderCreateTiming timing;
     const HRESULT result = g_Old_CreatePixelShader(This, pBytecode, BytecodeLength,
         pClassLinkage, ppPixelShader);
+    timing.EngineDone();
     if (SUCCEEDED(result) && ppPixelShader && *ppPixelShader && !Filmmaker::SmokeAppearance::CreatingShader()) {
         Filmmaker::Environment::NoteAnimatedCasterPixelShader(*ppPixelShader, pBytecode, BytecodeLength);
         Filmmaker::Environment::NoteNativeMaterialPixelShader(*ppPixelShader, pBytecode, BytecodeLength);

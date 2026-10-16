@@ -114,25 +114,66 @@ void SetState(KeyframeState s, const std::string& text) {
 	g_status = text;
 }
 
-int RunHelper(const std::wstring& exe, const std::wstring& args) {
+// The helper's output goes to `logPath`: on failure its last line is "FAILED: <why>". Only that file's
+// handle is inherited, never the game's own handles.
+int RunHelper(const std::wstring& exe, const std::wstring& args, const std::wstring& logPath) {
 	std::wstring cmd = L"\"" + exe + L"\" " + args;
 	std::vector<wchar_t> buf(cmd.begin(), cmd.end());
 	buf.push_back(L'\0');
-	STARTUPINFOW si{};
-	si.cb = sizeof(si);
-	si.dwFlags = STARTF_USESHOWWINDOW;
-	si.wShowWindow = SW_HIDE;
+	SECURITY_ATTRIBUTES inherit{ sizeof(inherit), nullptr, TRUE };
+	HANDLE log = CreateFileW(logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_DELETE, &inherit,
+		CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+	STARTUPINFOEXW si{};
+	si.StartupInfo.cb = sizeof(si);
+	si.StartupInfo.dwFlags = STARTF_USESHOWWINDOW;
+	si.StartupInfo.wShowWindow = SW_HIDE;
+	std::vector<unsigned char> attributes;
+	if (log != INVALID_HANDLE_VALUE) {
+		SIZE_T bytes = 0;
+		InitializeProcThreadAttributeList(nullptr, 1, 0, &bytes);
+		attributes.resize(bytes);
+		auto list = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attributes.data());
+		if (InitializeProcThreadAttributeList(list, 1, 0, &bytes) &&
+			UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &log, sizeof(log), nullptr, nullptr)) {
+			si.lpAttributeList = list;
+			si.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
+			si.StartupInfo.hStdOutput = si.StartupInfo.hStdError = log;
+		}
+	}
 	PROCESS_INFORMATION pi{};
 	// Below normal: it is background work beside a running game.
-	if (!CreateProcessW(exe.c_str(), buf.data(), nullptr, nullptr, FALSE,
-			CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS, nullptr, nullptr, &si, &pi))
-		return -1;
+	const bool redirected = si.lpAttributeList != nullptr;
+	const BOOL started = CreateProcessW(exe.c_str(), buf.data(), nullptr, nullptr, redirected,
+		CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS | (redirected ? EXTENDED_STARTUPINFO_PRESENT : 0),
+		nullptr, nullptr, &si.StartupInfo, &pi);
+	if (redirected) DeleteProcThreadAttributeList(si.lpAttributeList);
+	if (log != INVALID_HANDLE_VALUE) CloseHandle(log);
+	if (!started) return -1;
 	WaitForSingleObject(pi.hProcess, INFINITE);
 	DWORD code = 1;
 	GetExitCodeProcess(pi.hProcess, &code);
 	CloseHandle(pi.hThread);
 	CloseHandle(pi.hProcess);
 	return (int)code;
+}
+
+// The last non-empty line of the helper's log, shortened for a console line: "" when there is none.
+std::string LastLogLine(const std::wstring& logPath) {
+	FILE* f = _wfopen(logPath.c_str(), L"rb");
+	if (!f) return std::string();
+	std::string text;
+	char chunk[4096];
+	for (size_t n; (n = fread(chunk, 1, sizeof(chunk), f)) > 0;) {
+		text.append(chunk, n);
+		if (text.size() > 64 * 1024) text.erase(0, text.size() - 16 * 1024);
+	}
+	fclose(f);
+	while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) text.pop_back();
+	const size_t start = text.find_last_of('\n');
+	std::string line = start == std::string::npos ? text : text.substr(start + 1);
+	if (!line.empty() && line.back() == '\r') line.pop_back();
+	if (line.size() > 200) line = line.substr(0, 200) + "...";
+	return line;
 }
 
 } // namespace
@@ -233,13 +274,17 @@ void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourc
 		const std::wstring temp = copy + L".part";
 		const auto t0 = std::chrono::steady_clock::now();
 		advancedfx::Message("mirv_filmmaker: building scrub keyframes for %s...\n", WideToUtf8(demoPath).c_str());
-		const int code = RunHelper(exe, L"-verify-every 16 \"" + sourcePath + L"\" \"" + temp + L"\"");
+		const std::wstring log = copy + L".log";
+		const int code = RunHelper(exe, L"-verify-every 16 \"" + sourcePath + L"\" \"" + temp + L"\"", log);
 		const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+		// A player report only said "exit 1" (2026-10-15); the helper's own last line says why.
+		const std::string helperSaid = code != 0 ? LastLogLine(log) : std::string();
+		DeleteFileW(log.c_str());
 
 		const DemoHeaderInfo src = ReadDemoHeader(sourcePath);
 		const DemoHeaderInfo out = ReadDemoHeader(temp);
 		std::string why;
-		if (code != 0) why = "the helper failed (exit " + std::to_string(code) + ")";
+		if (code != 0) why = "the helper failed (exit " + std::to_string(code) + (helperSaid.empty() ? "" : ": " + helperSaid) + ")";
 		else if (!out.ok) why = "the copy has no readable demo header";
 		else if (src.ok && out.map != src.map) why = "the copy names a different map";
 		else if (FileSize(temp) < FileSize(sourcePath)) why = "the copy is smaller than its source";

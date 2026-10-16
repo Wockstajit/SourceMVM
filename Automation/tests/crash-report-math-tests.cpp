@@ -72,6 +72,18 @@ void LockRoundTrips() {
 	CHECK(!ParseLock("pid=0 start=5", pid, start)); // no process has pid 0
 }
 
+void StartupFramesAreNotACrawl() {
+	// User report 2026-10-15: the first heartbeat held 108 frames, 26 of them CS2's startup load
+	// (one 70 s); its p95 of 240-495 ms made a normal quit 26 minutes later arrive as a crash.
+	CHECK(!IsSlowHeartbeat(495.0, 108));
+	CHECK(!IsSlowHeartbeat(6303.0, 12));
+	// Once the window is full of frames, a slow p95 is the game crawling.
+	CHECK(IsSlowHeartbeat(371.0, 4096));
+	CHECK(IsSlowHeartbeat(kSlowSessionP95Ms, kSlowSessionMinFrames));
+	CHECK(!IsSlowHeartbeat(kSlowSessionP95Ms - 1.0, 4096));
+	CHECK(!IsSlowHeartbeat(1000.0, kSlowSessionMinFrames - 1));
+}
+
 void UnexpectedExitNeedsAGoneOtherProcess() {
 	// Lock left behind by a process that no longer runs: the session died without a clean exit.
 	CHECK(IsUnexpectedExit(true, true, 100, false, 200));
@@ -213,6 +225,7 @@ int main() {
 	BaseNamesSortByTime();
 	LockRoundTrips();
 	UnexpectedExitNeedsAGoneOtherProcess();
+	StartupFramesAreNotACrawl();
 	LaunchSendsOnlyTheNewestFew();
 	AppendNeverOverflows();
 	if (g_failures) { std::printf("%d failure(s)\n", g_failures); return 1; }

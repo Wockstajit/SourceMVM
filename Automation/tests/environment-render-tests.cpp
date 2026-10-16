@@ -15,6 +15,7 @@
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentShadowMaps.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentAnimatedCasters.h"
 using Microsoft::WRL::ComPtr;
+void RenderShaderCost_OwnWork(bool){}
 using namespace Filmmaker::Environment;
 namespace Filmmaker {
 // A standalone device has no engine effect draws to classify.

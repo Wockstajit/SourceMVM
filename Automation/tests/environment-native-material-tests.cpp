@@ -14,6 +14,7 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
+#include <chrono>
 #include <thread>
 #include <fstream>
 #include <filesystem>
@@ -25,6 +26,7 @@
 using Microsoft::WRL::ComPtr;
 using namespace Filmmaker::Environment;
 namespace Filmmaker {bool SkyGpuProbe_IsPlayersOnlyGreenSkyDraw(ID3D11DeviceContext*,unsigned,unsigned){return false;} bool MvmDebugLog_Active(){return false;}void MvmDebugLog_LinefAlways(const char*,const char*,...){} }
+void RenderShaderCost_OwnWork(bool){}
 namespace Filmmaker::Environment {CompletedSceneCasterScope::CompletedSceneCasterScope():previous(false){} CompletedSceneCasterScope::~CompletedSceneCasterScope(){} UINT AnimatedCasterVertexCount(AnimatedCasterSubset){return 0;} void RestoreWorldSunTile(ID3D11DeviceContext*){} WorldLook DefaultWorldLook(){return WorldLook{};} ID3D11ShaderResourceView* SkyboxSunShadow(Matrix*){return nullptr;}}
 void Check(bool ok,const char* message){if(!ok){std::cerr<<message<<'\n';std::exit(1);}}
 void CheckResourceBindings() {
@@ -402,7 +404,11 @@ void Run(unsigned samples,bool world=false,bool a2c=false){
     Check(SUCCEEDED(device->CreateVertexShader(vsCode->GetBufferPointer(),vsCode->GetBufferSize(),nullptr,&vs)),"VS");
     const char* name=world?"csgo_lightmappedgeneric.vfx_vs":"csgo_weapon.vfx_vs";vs->SetPrivateData(WKPDID_D3DDebugObjectName,UINT(strlen(name)),name);
     Check(SUCCEEDED(device->CreatePixelShader(psCode->GetBufferPointer(),psCode->GetBufferSize(),nullptr,&ps)),"PS");
+    const auto derivedBefore=NativeMaterialDerivationStatus().done;
     NoteNativeMaterialPixelShader(ps.Get(),psCode->GetBufferPointer(),psCode->GetBufferSize());
+    // The lighting variants are built on a background worker, off CS2's loader threads; this draw needs them.
+    for(int wait=0;wait<2000&&NativeMaterialDerivationStatus().done==derivedBefore;++wait)std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    Check(NativeMaterialDerivationStatus().done>derivedBefore,"lighting variants derived on the worker");
     // The live engine allocates 2014 entries for this 1990-entry shader ABI.
     std::array<float,2014*4> lighting{};
     for(unsigned i=0;i<lighting.size();++i)lighting[i]=.001f*(1+i%31);

@@ -299,8 +299,9 @@ offered.
   previous `session.log`. When CS2 wrote its own `.mdmp` in `game\bin\win64` within two minutes of
   that log's last line, the summary says CS2 crashed and names the dump: that crash bypassed our
   handler, and the dump holds the faulting module.
-- a **slow session the player quit**: frames were slow (a heartbeat p95 of 250 ms or worse) and the
-  game was then closed normally. The lock is kept with `exit=clean` so the report still arrives,
+- a **slow session the player quit**: frames were slow (a heartbeat p95 of 250 ms or worse over at
+  least 600 frames) and the game was then closed normally. The frame window starts when the hook
+  loads, so the first heartbeats hold only CS2's startup load; those never count. The lock is kept with `exit=clean` so the report still arrives,
   marked as a quit after a slowdown rather than a crash.
 
 A clean exit is client shutdown (`Source2Shutdown`), `DLL_PROCESS_DETACH`, or the process
@@ -317,8 +318,10 @@ from its lock.
 
 Every 5 s the recorder gets one `health` line: the map, frame p50/p95/max, the hook's own CPU cost
 per frame, the game's CPU %, GPU % (busiest GPU engine, as Task Manager shows it), RAM (working set
-and private), VRAM in use against the OS budget, system CPU % and free RAM, the relight/GI state,
-and what taking the sample cost. A `machine` line records the CPU model, RAM, GPU and VRAM budget
+and private), VRAM in use against the OS budget, system CPU % and free RAM, what taking the sample
+cost, shader creation since start (`shaders N engine X ms hook Y ms (max Z)`: CS2's own pixel and
+vertex shader creation and what our detours added on its loader threads, summed over threads), and
+the relight/GI state. A `machine` line records the CPU model, RAM, GPU and VRAM budget
 once. The system figures are sampled on their own thread
 ([`SystemUsage.cpp`](../../AfxHookSource2/Filmmaker/Platform/SystemUsage.cpp)), never on the game's
 threads; the heartbeat only formats the newest sample. About 70 KB per hour.

@@ -43,12 +43,17 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <condition_variable>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
+// RenderSystemDX11Hooks: our own shader creations on this thread are not counted as CS2's.
+void RenderShaderCost_OwnWork(bool begin);
 namespace Filmmaker::Environment {
 using Microsoft::WRL::ComPtr;
 namespace {
@@ -1017,11 +1022,14 @@ bool BeginTonemap(ID3D11DeviceContext* ctx,const D3D11_VIEWPORT& vp){
 }
 
 }
-void NoteNativeMaterialPixelShader(ID3D11PixelShader* shader,const void* code,size_t bytes){
-    static thread_local bool creatingCoverage=false;
-    if(!shader||creatingCoverage)return;NativeSunAbiInfo info{};
-    if(NativePostUsesCompressedHdr(code,bytes)){const UINT encoded=1;shader->SetPrivateData(PostCompressionTag,sizeof(encoded),&encoded);nativePostCompressedHdr.store(true,std::memory_order_relaxed);}
-    const bool sunAbi=HasNativeSunMaterialAbi(code,bytes,&info);
+namespace {
+// Set while this thread creates one of our derived programs: that creation passes through the
+// CreatePixelShader detour again and must not be derived from.
+thread_local bool creatingCoverage=false;
+bool NativeSmokeAbi(const NativeSunAbiInfo& info){return info.cb3Count==1990&&!info.lightSlot&&info.flags==31;}
+// The lighting variants of one CS2 material program: atmosphere, dynamic irradiance, shared AO and
+// lighting, sparse cluster, coverage and smoke. Runs on the derivation worker below.
+void DeriveNativeMaterialShaders(ID3D11PixelShader* shader,const void* code,size_t bytes,const bool sunAbi,NativeSunAbiInfo info){
     auto shareLighting=[&](ID3D11Device* device,ID3D11PixelShader* original,const std::vector<uint8_t>& program){
         auto create=[&](const std::vector<uint8_t>& candidate,ComPtr<ID3D11PixelShader>& shared){
             std::vector<uint8_t> sharedCode;NativeSharedLightingInfo layout;
@@ -1093,10 +1101,13 @@ void NoteNativeMaterialPixelShader(ID3D11PixelShader* shader,const void* code,si
         }
     }
     shader->SetPrivateData(SunAbiInfoTag,sizeof(info),&info);
-    if(info.cb3Count==1990&&!info.lightSlot&&info.flags==31){
-        ComPtr<ID3DBlob> kernel,error;
-        if(SUCCEEDED(CompileEnvironmentShader(NativeSmokeLightingShader,sizeof(NativeSmokeLightingShader)-1,
-            "EnvironmentNativeSmoke",nullptr,"main","ps_5_0",D3DCOMPILE_ENABLE_STRICTNESS,&kernel,&error))){
+    if(NativeSmokeAbi(info)){
+        // One compile serves every smoke program; D3DCompile per program cost up to hundreds of ms
+        // each. Never released, so nothing calls into the compiler module during process exit.
+        static std::once_flag compiled;static ID3DBlob* kernel=nullptr;static ID3DBlob* error=nullptr;
+        std::call_once(compiled,[]{if(FAILED(CompileEnvironmentShader(NativeSmokeLightingShader,sizeof(NativeSmokeLightingShader)-1,
+            "EnvironmentNativeSmoke",nullptr,"main","ps_5_0",D3DCOMPILE_ENABLE_STRICTNESS,&kernel,&error))&&kernel){kernel->Release();kernel=nullptr;}});
+        if(kernel){
             std::vector<uint8_t> patched;unsigned queries=0;
             if(NativeSmokeProgram(code,bytes,kernel->GetBufferPointer(),kernel->GetBufferSize(),patched,&queries)){
                 ComPtr<ID3D11Device> device;shader->GetDevice(&device);ComPtr<ID3D11PixelShader> smoke;
@@ -1116,6 +1127,78 @@ void NoteNativeMaterialPixelShader(ID3D11PixelShader* shader,const void* code,si
             total+=bytes;
         }
     }
+}
+
+// CS2 creates its shaders on loader threads while the main menu or a map loads, and waits for them.
+// Deriving the variants there (up to eight more programs per material, each compiled by the driver)
+// cost those threads 19-50 s per load on a 9800X3D, against 3 s for CS2's own 5240 shaders
+// (measured 2026-10-15). Player reports from that day show 70 s and 18 s frames at startup and
+// sessions that ended at the main menu without a clean exit. The variants are built here instead,
+// one program at a time below normal priority. Until its turn a program carries no SunAbiInfoTag,
+// so its draws take CS2's own path, exactly as an unsupported program's do.
+struct DerivationJob {
+    ComPtr<ID3D11PixelShader> shader;
+    std::vector<uint8_t> code;
+    bool sunAbi=false;
+    NativeSunAbiInfo info{};
+};
+struct DerivationQueue {
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::deque<DerivationJob> jobs;
+    bool started=false;
+    std::atomic<unsigned long long> done{0};
+    std::atomic<long long> ticks{0};
+};
+// Never destroyed: the worker is still parked on it while statics are torn down at exit.
+DerivationQueue& Derivations(){static auto* queue=new DerivationQueue();return *queue;}
+void DerivationWorker(){
+    SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_BELOW_NORMAL);
+    auto& queue=Derivations();
+    for(;;){
+        DerivationJob job;
+        {
+            std::unique_lock<std::mutex> lock(queue.mutex);
+            queue.wake.wait(lock,[&]{return !queue.jobs.empty();});
+            job=std::move(queue.jobs.front());queue.jobs.pop_front();
+        }
+        // Our reference is the last one: CS2 released the program while it waited (a map unloaded).
+        job.shader->AddRef();
+        if(job.shader->Release()>1){
+            LARGE_INTEGER t0,t1;QueryPerformanceCounter(&t0);
+            RenderShaderCost_OwnWork(true);
+            DeriveNativeMaterialShaders(job.shader.Get(),job.code.data(),job.code.size(),job.sunAbi,job.info);
+            RenderShaderCost_OwnWork(false);
+            QueryPerformanceCounter(&t1);queue.ticks.fetch_add(t1.QuadPart-t0.QuadPart,std::memory_order_relaxed);
+        }
+        queue.done.fetch_add(1,std::memory_order_relaxed);
+    }
+}
+}
+void NoteNativeMaterialPixelShader(ID3D11PixelShader* shader,const void* code,size_t bytes){
+    if(!shader||creatingCoverage)return;NativeSunAbiInfo info{};
+    if(NativePostUsesCompressedHdr(code,bytes)){const UINT encoded=1;shader->SetPrivateData(PostCompressionTag,sizeof(encoded),&encoded);nativePostCompressedHdr.store(true,std::memory_order_relaxed);}
+    const bool sunAbi=HasNativeSunMaterialAbi(code,bytes,&info);
+    if(!sunAbi&&!info.lightSlot&&!NativeSmokeAbi(info)){shader->SetPrivateData(SunAbiInfoTag,sizeof(info),&info);return;}
+    DerivationJob job;
+    job.shader=shader;job.sunAbi=sunAbi;job.info=info;
+    job.code.assign(static_cast<const uint8_t*>(code),static_cast<const uint8_t*>(code)+bytes);
+    auto& queue=Derivations();
+    {
+        std::lock_guard<std::mutex> lock(queue.mutex);
+        queue.jobs.push_back(std::move(job));
+        if(!queue.started){queue.started=true;std::thread(DerivationWorker).detach();}
+    }
+    queue.wake.notify_one();
+}
+NativeMaterialDerivation NativeMaterialDerivationStatus(){
+    auto& queue=Derivations();
+    NativeMaterialDerivation out;
+    {std::lock_guard<std::mutex> lock(queue.mutex);out.queued=queue.jobs.size();}
+    LARGE_INTEGER frequency;QueryPerformanceFrequency(&frequency);
+    out.done=queue.done.load(std::memory_order_relaxed);
+    out.workMs=queue.ticks.load(std::memory_order_relaxed)*1000.0/double(frequency.QuadPart);
+    return out;
 }
 unsigned DumpNativePrograms(const char* directory){
     unsigned written=0;

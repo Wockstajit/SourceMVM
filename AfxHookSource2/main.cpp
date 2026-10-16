@@ -16,6 +16,7 @@
 #include "DeathMsg.h"
 #include "Filmmaker/Filmmaker.h"
 #include "Filmmaker/Debug/MvmDebugLog.h"
+#include "Filmmaker/Community/BugReport.h"
 #include "Filmmaker/Community/CrashReport.h"
 #include "Filmmaker/Platform/RawMouse.h"
 #include "Filmmaker/Panorama/ConfigHud.h" // ConfigHud_Enabled: is the workspace preview owning the view?
@@ -1766,8 +1767,12 @@ CON_COMMAND(__mirv_print_search_paths, "")
 typedef void(* CCS2_Client_Shutdown_t)(void* This);
 CCS2_Client_Shutdown_t old_CCS2_Client_Shutdown;
 void new_CCS2_Client_Shutdown(void* This) {
+	// Each step leaves a session-log line. A quit that hung until Windows ended it (player report
+	// 2026-10-15, last line "ShutdownSource2Logging") then shows whether it stopped in our steps.
+	Filmmaker::BugReport_Record("shutdown", "client shutdown: saving environment edits");
 	Filmmaker::Environment::FlushCommittedEdits();
 	Filmmaker::Props_OnShutdown();
+	Filmmaker::BugReport_Record("shutdown", "client shutdown: our steps done; CS2 continues its shutdown");
 	// A quit reaches here, but CS2 then ends the process without DLL detach, so the lock removed
 	// only at detach made every normal quit look like a crash ("CS2 closed without a clean exit"
 	// with Source2Shutdown as the last log line). The session is over here.
