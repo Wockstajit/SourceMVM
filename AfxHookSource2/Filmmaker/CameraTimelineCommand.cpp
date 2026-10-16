@@ -215,8 +215,10 @@ void CameraTimeline_RunCommand(int argc, advancedfx::ICommandArgs* args, const c
 		else nextCursor = !nextCursor;
 		if (Filmmaker::CameraEditor_Active())
 			Filmmaker::CameraEditor_SetCursorMode(nextCursor);
-		else
+		else {
 			tl.SetCursor(nextCursor);
+			if (nextCursor) MouseCapture_ReleaseForUi("cursor on"); // Config: same hand-back as the editor
+		}
 		// Returning to free-cam look (cursor off) releases any active scrub so the
 		// camera stops being pinned to the scrub tick and the user can fly again.
 		if (!nextCursor) {

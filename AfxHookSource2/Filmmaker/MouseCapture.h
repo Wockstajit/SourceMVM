@@ -22,6 +22,10 @@ void MouseCapture_SetClickToCapture(bool clickToCapture);
 // workspace) is the same opt-in as clicking into the game: in the default click-to-capture mode it
 // hands the mouse to the game right away. Explicit `mouse free` (automation) is left alone.
 void MouseCapture_TakeForCamera(const char* reason);
+// The mirror image: handing the cursor to a workspace UI (UI-mouse mode on) gives the mouse back,
+// so CS2's own mouse-look and capture stand down under the panel instead of grabbing the pointer
+// on the next right-click. Same default-mode-only rule as TakeForCamera.
+void MouseCapture_ReleaseForUi(const char* reason);
 void MouseCapture_OnActivate(bool active);
 void MouseCapture_OnGameClick();
 void MouseCapture_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);

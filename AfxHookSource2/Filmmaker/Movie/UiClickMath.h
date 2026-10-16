@@ -46,6 +46,15 @@ inline bool ClickSwitchesToGameMode(const Input& in) {
 	return in.workspace && in.uiModeOn && !in.popupOpen && in.preview.Contains(in.x, in.y);
 }
 
+// While a camera path PLAYS (or is about to), the path flies the camera. A press in the preview
+// must neither flip the workspace to GAME mode -- free-look would fight the path for the view --
+// nor reach CS2, whose right-click look-around and left-click player step both take the pointer.
+// Either button, either mouse mode; panels and popups keep their clicks. The caller swallows the
+// matching release too.
+inline bool PathPlaybackSwallowsPress(const Input& in, bool pathPlaying) {
+	return pathPlaying && in.workspace && !in.popupOpen && in.preview.Contains(in.x, in.y);
+}
+
 // Does this wheel notch step CS2's camera (true) or scroll the panel under it (false)?
 inline bool WheelCyclesCamera(const Input& in) {
 	if (!in.workspace) return true;

@@ -57,6 +57,32 @@ public:
 	void SeedFromMarkers(const std::vector<CamMarker>& markers);
 	void Clear();
 
+	// Bring the model back in line with a marker list that something OTHER than this graph
+	// changed: a marker placed from the HUD, a camera-timeline drag, the path inspector, the
+	// path's own undo, a project load. The path is the shot, so after this the model has one
+	// key per marker per channel. A key that still exists (same channel, same whole tick) keeps
+	// its id, Bezier handles and selection; keys the path no longer has are dropped. Keys that
+	// are new get auto tangents when smoothNewKeys (the path is in Smooth). The undo/redo
+	// history is dropped, because every snapshot in it describes the old marker set and an undo
+	// would bake that set back over the path. Returns true if any key changed.
+	bool ReconcileWithMarkers(const std::vector<CamMarker>& markers, bool smoothNewKeys);
+
+	// Project the model into a camera-path marker list: one marker per WHOLE tick in the union of
+	// every channel's key ticks, each channel sampled there (channels with no keys fall back to
+	// 0, FOV to 90). Path-side fields the graph does not model (ease, speedMul) carry over from
+	// `old` on a matching tick. Two keys that round to the same tick make ONE marker, so the
+	// result never holds duplicate ticks. intervalPerTick converts ticks to demo seconds.
+	// Each marker also carries every channel's Bezier handles (CamMarker::in/out); where a channel
+	// has no key at a marker's tick its segment is split there exactly (GraphCurve::SplitAt), so
+	// the path flies the graph's curves unchanged (CamPathEval::EvalCurves).
+	std::vector<CamMarker> BakeMarkers(const std::vector<CamMarker>& old, double intervalPerTick) const;
+
+	// True when two marker lists describe the same shot (same ticks, pose values and handles).
+	// This is how the graph notices that the path changed behind its back.
+	static bool SameMarkers(const std::vector<CamMarker>& a, const std::vector<CamMarker>& b);
+	// True when any marker carries graph handles, i.e. the path already follows graph curves.
+	static bool MarkersHaveCurves(const std::vector<CamMarker>& markers);
+
 	int ChannelCount() const { return kChannelCount; }
 	const Channel& GetChannel(int ch) const { return m_ch[Clamp(ch)]; }
 	Channel& GetChannelMut(int ch) { return m_ch[Clamp(ch)]; }
@@ -134,6 +160,7 @@ public:
 private:
 	static int Clamp(int ch) { return (ch < 0) ? 0 : (ch >= kChannelCount ? kChannelCount - 1 : ch); }
 	void SortChannel(int ch);
+	void AutoTangent(int ch, int index); // Catmull-Rom handles for one key (SetInterpAll's smooth case)
 	double BezierSegment(const Keyframe& a, const Keyframe& b, double t) const;
 
 	// Selection key packs (channel, id) so the same id in different channels is distinct.

@@ -33,6 +33,8 @@
 #include "../Shared/ImageTransformer.h"
 #include "../Shared/RecordingSettings.h"
 #include "Filmmaker/Debug/MvmDebugLog.h" // MvmDebugLog_* (render.capsize RE probe)
+#include "Filmmaker/Panorama/VpScaleBreakMath.h" // every scaled-preview break, numbered (vpscale.break)
+#include "Filmmaker/Window/WindowResize.h"        // WindowResize_GetClientSize: is the frame stretched?
 #include "Filmmaker/Community/BugReport.h" // BugReport_Record: device creations in every crash report
 #include "Filmmaker/Render/RenderTargetProbe.h"   // CreateTexture2D stack probe (render-res RE)
 #include "Filmmaker/Render/RenderEngineSize.h"    // scaled scene target dimensions (raster probe)
@@ -7887,7 +7889,155 @@ namespace AfxViewportScaler {
         return s_BlitRanThisPresent.load(std::memory_order_relaxed);
     }
 
+    // HOLD THE PREVIEW (SetHoldPreview). The last good preview region of the presented frame is kept
+    // in s_HeldTex; a held or blit-missing present gets it copied back over the same region. Region
+    // only, so the panels around the preview -- the timeline playhead under a drag -- stay live.
+    static std::atomic<bool> s_HoldRequested{ false };
+    static ID3D11Texture2D* s_HeldTex = nullptr;
+    static D3D11_TEXTURE2D_DESC s_HeldDesc = {};
+    static D3D11_BOX s_HeldBox = {};
+    static bool s_HeldValid = false;
+    static ID3D11Device* s_HeldDevice = nullptr; // a device re-creation drops the held texture
+    static ULONGLONG s_HoldStartMs = 0;
+    static std::atomic<unsigned> s_DbgHeld{ 0 };
+    constexpr ULONGLONG kMaxHoldMs = 500;
+
+    void SetHoldPreview(bool hold) {
+        s_HoldRequested.store(hold, std::memory_order_relaxed);
+    }
+
+    static void ReleaseHeld() {
+        if (s_HeldTex) { s_HeldTex->Release(); s_HeldTex = nullptr; }
+        s_HeldValid = false;
+    }
+
+    // Returns true when this present shows the held region instead of what was rendered.
+    //
+    // Two reasons to hold, with different limits:
+    //   * a MISSED blit -- the frame under the preview is the unscaled world. During a demo seek the
+    //     engine builds no scene frame for many presents, so the before-UI callback that runs both
+    //     blits is never queued and nothing CAN scale them (measured 2026-10-16 while dragging
+    //     backward: ~45% of presents, fallback=0, up to 2 s at a time). The held frame is the newest
+    //     correct picture there is, so it is used for as long as the misses last;
+    //   * a scrub's REQUEST (SetHoldPreview) over frames that did blit -- a restore and its play-in.
+    //     Those are real frames, so the hold gives up after kMaxHoldMs rather than freeze the preview.
+    static bool HoldOrCapturePreview(bool active, bool recording, bool blitRan, const float rect[4]) {
+        const bool requested = s_HoldRequested.load(std::memory_order_relaxed);
+        const bool holdWanted = requested || !blitRan;
+        if (!requested) s_HoldStartMs = 0;
+        if (!active || recording || !g_pSwapChain || !g_pDevice) { s_HeldValid = false; return false; }
+
+        ID3D11Texture2D* bb = nullptr;
+        if (FAILED(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) || !bb) return false;
+        D3D11_TEXTURE2D_DESC desc = {};
+        bb->GetDesc(&desc);
+        auto px = [](float f, UINT n) { const float v = f * (float)n; return (UINT)(v < 0 ? 0 : (v > (float)n ? (float)n : v)); };
+        D3D11_BOX box = { px(rect[0], desc.Width), px(rect[1], desc.Height), 0, px(rect[2], desc.Width), px(rect[3], desc.Height), 1 };
+        bool held = false;
+        if (desc.SampleDesc.Count == 1 && box.right > box.left + 1 && box.bottom > box.top + 1) {
+            if (!s_HeldTex || s_HeldDevice != g_pDevice || s_HeldDesc.Width != desc.Width || s_HeldDesc.Height != desc.Height
+                || s_HeldDesc.Format != desc.Format) {
+                ReleaseHeld();
+                D3D11_TEXTURE2D_DESC td = desc;
+                td.MipLevels = 1; td.ArraySize = 1; td.Usage = D3D11_USAGE_DEFAULT;
+                td.BindFlags = 0; td.CPUAccessFlags = 0; td.MiscFlags = 0;
+                if (SUCCEEDED(g_pDevice->CreateTexture2D(&td, nullptr, &s_HeldTex))) { s_HeldDesc = desc; s_HeldDevice = g_pDevice; }
+                else s_HeldTex = nullptr;
+            }
+            ID3D11DeviceContext* ctx = nullptr;
+            g_pDevice->GetImmediateContext(&ctx);
+            if (ctx && s_HeldTex) {
+                const bool sameBox = s_HeldValid && box.left == s_HeldBox.left && box.top == s_HeldBox.top
+                    && box.right == s_HeldBox.right && box.bottom == s_HeldBox.bottom;
+                const ULONGLONG nowMs = GetTickCount64();
+                if (requested && !s_HoldStartMs) s_HoldStartMs = nowMs;
+                const bool withinCap = !blitRan || nowMs - s_HoldStartMs < kMaxHoldMs;
+                if (holdWanted && sameBox && withinCap) {
+                    ctx->CopySubresourceRegion(bb, 0, box.left, box.top, 0, s_HeldTex, 0, &box);
+                    held = true;
+                    if (Filmmaker::MvmDebugLog_Active()) ++s_DbgHeld;
+                } else if (blitRan && !s_HoldRequested.load(std::memory_order_relaxed)) {
+                    // A settled, correctly scaled frame: the one to fall back on.
+                    ctx->CopySubresourceRegion(s_HeldTex, 0, box.left, box.top, 0, bb, 0, &box);
+                    s_HeldBox = box;
+                    s_HeldValid = true;
+                }
+            }
+            if (ctx) ctx->Release();
+        }
+        bb->Release();
+        return held;
+    }
+
+    // EVERY BREAK, NUMBERED. The once-a-second summary below says THAT presents went out wrong;
+    // this says when each break started, why (VpScaleBreakMath.h), what the request, backbuffer,
+    // window and last blit were at that moment, and how many presents it lasted. Counted always
+    // (cheap: one swapchain GetDesc and one GetClientRect per present), logged while mvm_debug runs.
+    static Filmmaker::VpScaleBreak::Tracker s_BreakTracker;
+    static std::atomic<unsigned> s_BreaksTotal{ 0 }, s_BreaksOpen{ 0 };
+    static std::atomic<unsigned> s_BreaksByReason[Filmmaker::VpScaleBreak::kReasonCount];
+
+    static void TrackBreaks() {
+        using namespace Filmmaker::VpScaleBreak;
+        Present p;
+        {
+            std::unique_lock<std::mutex> lock(s_RequestMutex);
+            p.active = s_Active;
+            for (int i = 0; i < 4; ++i) p.rect[i] = s_Rect[i];
+        }
+        p.recording = g_AfxStreams.GetRecordingCapturesAfterUi();
+        p.blitRan = s_BlitRanThisPresent.load(std::memory_order_relaxed);
+        // A missed blit covered by the held preview never reaches the screen: not a break.
+        if (HoldOrCapturePreview(p.active, p.recording, p.blitRan, p.rect)) p.blitRan = true;
+        DXGI_SWAP_CHAIN_DESC desc = {};
+        if (g_pSwapChain && SUCCEEDED(g_pSwapChain->GetDesc(&desc))) {
+            p.bbW = (int)desc.BufferDesc.Width;
+            p.bbH = (int)desc.BufferDesc.Height;
+        }
+        Filmmaker::WindowResize_GetClientSize(p.clientW, p.clientH);
+        UINT lbW = 0, lbH = 0;
+        g_ViewportScaler.GetLastBlit(lbW, lbH, p.vp);
+
+        const unsigned raw = Classify(p);
+        const Tracker::Event ev = s_BreakTracker.Step(raw);
+        s_BreaksTotal.store(s_BreakTracker.breaks, std::memory_order_relaxed);
+        s_BreaksOpen.store(s_BreakTracker.open, std::memory_order_relaxed);
+        for (int b = 0; b < kReasonCount; ++b)
+            s_BreaksByReason[b].store(s_BreakTracker.perReason[b], std::memory_order_relaxed);
+        if (ev == Tracker::Event::None)
+            return;
+        if (Filmmaker::MvmDebugLog_Active()) {
+            char reasons[64] = { 0 };
+            for (int b = 0; b < kReasonCount; ++b) {
+                if (!(s_BreakTracker.open & (1u << b))) continue;
+                if (reasons[0]) strncat_s(reasons, ",", _TRUNCATE);
+                strncat_s(reasons, ReasonName(b), _TRUNCATE);
+            }
+            if (ev == Tracker::Event::Closed) {
+                Filmmaker::MvmDebugLog_LinefAlways("vpscale.break",
+                    "#%u recovered after %u presents", s_BreakTracker.breaks, s_BreakTracker.presentsOpen);
+            } else {
+                Filmmaker::MvmDebugLog_LinefAlways("vpscale.break",
+                    "#%u %s %s | totals missed=%u stale=%u stretched=%u | active=%d rec=%d blit=%d bb=%dx%d client=%dx%d rect=%.3f %.3f %.3f %.3f lastVp=%.0f %.0f %.0f %.0f (lastBb=%ux%u)",
+                    s_BreakTracker.breaks, ev == Tracker::Event::Opened ? "OPEN" : "now", reasons,
+                    s_BreakTracker.perReason[0], s_BreakTracker.perReason[1], s_BreakTracker.perReason[2],
+                    p.active ? 1 : 0, p.recording ? 1 : 0, p.blitRan ? 1 : 0, p.bbW, p.bbH, p.clientW, p.clientH,
+                    p.rect[0], p.rect[1], p.rect[2], p.rect[3], p.vp[0], p.vp[1], p.vp[2], p.vp[3], lbW, lbH);
+            }
+        }
+        if (ev == Tracker::Event::Closed) s_BreakTracker.ResetLength();
+    }
+
+    void BreakCounts(unsigned& total, unsigned& missed, unsigned& stale, unsigned& stretched, unsigned& openReasons) {
+        total = s_BreaksTotal.load(std::memory_order_relaxed);
+        missed = s_BreaksByReason[0].load(std::memory_order_relaxed);
+        stale = s_BreaksByReason[1].load(std::memory_order_relaxed);
+        stretched = s_BreaksByReason[2].load(std::memory_order_relaxed);
+        openReasons = s_BreaksOpen.load(std::memory_order_relaxed);
+    }
+
     void RenderThread_OnPresent() {
+        TrackBreaks();
         if (Filmmaker::MvmDebugLog_Active()) {
             bool active; float rect[4];
             {
@@ -7906,9 +8056,9 @@ namespace AfxViewportScaler {
                 UINT bbW = 0, bbH = 0; float vp[4] = { 0, 0, 0, 0 };
                 const bool ran = g_ViewportScaler.GetLastBlit(bbW, bbH, vp);
                 Filmmaker::MvmDebugLog_LinefAlways("vpscale.present",
-                    "active=%d presents=%u queued=%u fallback=%u MISSED=%u rect=%.3f %.3f %.3f %.3f lastBlit=%d bb=%ux%u vp=%.0f %.0f %.0f %.0f",
+                    "active=%d presents=%u queued=%u fallback=%u MISSED=%u held=%u rect=%.3f %.3f %.3f %.3f lastBlit=%d bb=%ux%u vp=%.0f %.0f %.0f %.0f",
                     active ? 1 : 0, s_DbgPresents.exchange(0), s_DbgQueued.exchange(0), s_DbgFallback.exchange(0),
-                    s_DbgMissed.exchange(0), rect[0], rect[1], rect[2], rect[3], ran ? 1 : 0, bbW, bbH,
+                    s_DbgMissed.exchange(0), s_DbgHeld.exchange(0), rect[0], rect[1], rect[2], rect[3], ran ? 1 : 0, bbW, bbH,
                     vp[0], vp[1], vp[2], vp[3]);
             }
         }

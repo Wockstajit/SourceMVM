@@ -103,6 +103,39 @@ void CamPathEval::Rebuild(const CamMarkers& mk, const PathSettings& st) {
 	}
 	m_duration = t;
 	if (m_smoothPace) m_paceSlopes = CamPathPchipSlopes(m_keyT, m_shapeS);
+	// Markers carrying the graph's handles are flown along the graph's curves (EvalSegP).
+	m_curves = false;
+	for (int i = 0; i < n && !m_curves; ++i) m_curves = mk.At(i).HasCurve();
+}
+
+bool CamPathEval::EvalCurves(const CamMarkers& mk, int seg, double p, Pose& out) const {
+	// THE GRAPH'S CURVES, EXACTLY (CurvePoseBetween: the per-channel Bezier segments the graph
+	// draws, in TICK space). The segment's progress maps linearly onto its ticks, so a speed mode
+	// still paces the segment and a marker's ease still warps it, but the SHAPE in time is the
+	// graph's.
+	const CamMarker& a = mk.At(seg);
+	const CamMarker& b = mk.At(seg + 1);
+	double v[7];
+	CurvePoseBetween(a, b, (double)a.tick + p * (double)(b.tick - a.tick), v);
+	out.x = v[0]; out.y = v[1]; out.z = v[2];
+	out.pitch = v[3]; out.yaw = v[4]; out.roll = v[5]; out.fov = v[6];
+	out.valid = true;
+	return true;
+}
+
+bool CamPathEval::CurvePointAtShape(const CamMarkers& mk, double s, double outPos[3]) const {
+	const int n = mk.Count();
+	if (!m_curves || n < 2 || (int)m_shapeS.size() != n)
+		return false;
+	int seg = 0;
+	while (seg < n - 2 && s >= m_shapeS[seg + 1]) ++seg;
+	const double s0 = m_shapeS[seg], s1 = m_shapeS[seg + 1];
+	double p = (s1 > s0) ? (s - s0) / (s1 - s0) : 1.0;
+	if (p < 0.0) p = 0.0; else if (p > 1.0) p = 1.0;
+	Pose pose;
+	EvalCurves(mk, seg, p, pose);
+	outPos[0] = pose.x; outPos[1] = pose.y; outPos[2] = pose.z;
+	return true;
 }
 
 bool CamPathEval::CanEval() const {
@@ -121,6 +154,10 @@ CamPathEval::Pose CamPathEval::EvalSegP(const CamMarkers& mk, int seg, double p)
 
 	// Ease the progress (timing only), then project onto the fixed shape axis.
 	double pe = ApplyEase(mk.At(seg).ease, p);
+	if (m_curves) {
+		EvalCurves(mk, seg, pe, out);
+		return out;
+	}
 	if (m_smoothProgress) pe = pe * pe * (3.0 - 2.0 * pe);
 	// Smooth with 3+ keys: the time-to-shape mapping is a monotone cubic through every marker, so
 	// the camera's speed flows through the keys; Linear keeps the per-segment linear pacing.

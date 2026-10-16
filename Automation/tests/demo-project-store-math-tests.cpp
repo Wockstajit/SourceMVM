@@ -66,6 +66,9 @@ int main() {
 		L"C:\\source_mvm\\demos\\cs2\\match.dem\\repaired.dem", "project repaired path");
 	Expect(IsProjectDemoCopyFileName(L"repaired.dem"), "project repaired name");
 	Expect(IsProjectDemoCopyFileName(L"KEYFRAMED.dem"), "project keyframed name");
+	Expect(IsProjectDemoCopyFileName(L"keyframed-b.dem"), "second keyframed slot is a copy too");
+	Expect(IsKeyframedCopyFileName(L"Keyframed-B.dem") && !IsKeyframedCopyFileName(L"repaired.dem"),
+		"keyframed slots, and only those");
 	Expect(!IsProjectDemoCopyFileName(L"match.dem"), "a real demo is not a copy");
 	Expect(IsLegacyRepairedFolderName(L"RePaIrEd"), "legacy repaired folder");
 	ExpectWide(DemoFileName(L"C:\\csgo\\replays\\foo.dem"), L"foo.dem", "filename");

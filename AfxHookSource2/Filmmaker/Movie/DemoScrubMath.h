@@ -52,6 +52,11 @@ constexpr double kScrubBehindToleranceTicks = 1.0;
 // A released world one whole tick past its goal after the settle seek is accepted (seeks land one
 // past now and then); a second restore would land the same way.
 constexpr double kScrubReleaseOvershootTicks = 1.0;
+// A backward drag restores this far short of the playhead and plays it in with one quick step,
+// while the preview holds its last settled frame (DemoScrub_HoldPreview): the frame shown next has
+// been simulated, not just restored.
+constexpr int kScrubBackLeadTicks = 2;
+constexpr double kScrubBackStepTimescale = 4.0;
 
 enum class ScrubAction {
 	None,   // wait: a command is in flight, or the world is where it should be
@@ -69,6 +74,8 @@ struct ScrubInput {
 	bool busy = false;         // a step, seek or pause has not taken effect yet
 	bool released = false;     // the drag ended: land exactly on a whole tick
 	bool settled = false;      // released, and the settle seek went out
+	bool draggingBack = false; // the drag's last move went backward
+	bool restoredNotPlayed = false; // a backward restore landed and nothing has been played since
 	double frameSeconds = 1.0 / 60.0;
 	double timescale = 1.0;    // demo_timescale while playing
 };
@@ -161,14 +168,46 @@ inline ScrubDecision DecideScrub(const ScrubInput& in) {
 	}
 
 	// Dragging.
-	if (gap < -kScrubBehindToleranceTicks || gap > kScrubPlayAheadTicks) {
-		// Restore the whole tick before the playhead (a seek may land one past), then glide in.
+	if (in.draggingBack && in.restoredNotPlayed) {
+		// A backward restore has landed and nothing has been played since. Play the lead in FIRST,
+		// whatever the playhead did meanwhile: the next frame the preview shows must be simulated.
+		// A fast drag outruns the restores (~10 a second), so by the time one lands the playhead is
+		// already further back and the play-in below never came up -- measured 2026-10-16 at 40
+		// ticks a second: 25 restores, 0 steps, and un-animated players on screen.
 		if (!in.paused) { d.action = ScrubAction::Pause; return d; }
+		d.action = ScrubAction::Step;
+		d.ticks = kScrubBackLeadTicks;
+		d.timescale = kScrubBackStepTimescale;
+		return d;
+	}
+	if (gap < -kScrubBehindToleranceTicks || gap > kScrubPlayAheadTicks) {
+		if (!in.paused) { d.action = ScrubAction::Pause; return d; }
+		// Dragging BACKWARD: restore kScrubBackLeadTicks short of the playhead and play them in
+		// with one quick step (below), while the preview holds its last settled frame
+		// (DemoScrub_HoldPreview). Two things this avoids, both measured 2026-10-16:
+		//   * gliding into the playhead after every restore showed as a saw-tooth -- jump back,
+		//     play a tick FORWARD -- on a slow backward drag (seek 5812 target 5813, seek 5806 ...);
+		//   * showing the restore itself showed an un-simulated world: a restore runs no
+		//     animation, so players stood in bind pose or were missing until a tick had played.
+		// A seek landing one past still leaves at least a tick to play in.
+		if (in.draggingBack && gap < 0.0)
+			return ScrubSeekTo((int)std::floor(goal) - kScrubBackLeadTicks);
+		// Otherwise restore the whole tick before the playhead (a seek may land one past), then glide in.
 		return ScrubSeekTo((int)std::floor(goal) - 1);
 	}
-	if (gap <= kScrubArriveTicks) {
-		// There (or a hair past): hold.
+	if (gap <= kScrubArriveTicks || (in.draggingBack && gap < 1.0)) {
+		// There, a hair past, or -- dragging backward -- within the tick: hold. Never glide forward
+		// while the playhead moves back.
 		if (!in.paused) d.action = ScrubAction::Pause;
+		return d;
+	}
+	if (in.draggingBack) {
+		// Behind the playhead after a backward restore: play the lead in, whole ticks, in one step,
+		// so the frame the preview shows next has been simulated.
+		if (!in.paused) { d.action = ScrubAction::Pause; return d; }
+		d.action = ScrubAction::Step;
+		d.ticks = (int)std::floor(gap + 1e-9);
+		d.timescale = kScrubBackStepTimescale;
 		return d;
 	}
 	const double speed = ScrubPlaySpeed(gap);

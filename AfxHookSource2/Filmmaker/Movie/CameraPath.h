@@ -112,6 +112,9 @@ public:
 	void SetSpeedMulIndex(int index, float mul);
 	// Pure pose at a demo tick (curve sampling + scrub readout). false => off-path.
 	bool EvalPoseAtTick(double tick, double out[7]) const;
+	// The trajectory line's position at shape-axis s when the path flies the graph's curves
+	// (CamPathEval::CurvePointAtShape); false when it flies g_CamPath's spline.
+	bool CurvePointAtShape(double s, double out[3]) const { return m_eval.CurvePointAtShape(m_data, s, out); }
 	// Where the dolly is on its path RIGHT NOW, in demo ticks. True only while the path is
 	// actually driving (playing or scrubbing). The view-stage shake layer reads this so it keys
 	// off the same point on the path the pose was evaluated at.
@@ -154,6 +157,7 @@ public:
 	int LastPathTick() const;
 	int ClampToPathTick(int tick) const;
 	const char* Notice() const;                     // transient on-screen message ("" if none)
+	void ShowNotice(const char* msg) { Notify(msg); } // raise one from outside the path (main thread)
 	const char* SpeedModeName() const;
 	const char* TimingName() const;
 	const char* InterpName() const;        // what the user SELECTED
@@ -262,6 +266,11 @@ private:
 };
 
 CameraPath& CameraPathRef();
+
+// The ticks of the camera markers saved with `demoPath` (its project.mvm campath section), read
+// without loading them -- for work that starts before the demo plays, such as the keyframed copy's
+// dense windows. Empty when there are none.
+std::vector<int> CameraPath_SavedMarkerTicks(const std::wstring& demoPath);
 
 // Console command entry: handles "mirv_filmmaker marker ...". argc/args/cmd are forwarded
 // from FilmmakerCommand.cpp's dispatcher (args->ArgV(0) == "mirv_filmmaker", ArgV(1) == "marker").

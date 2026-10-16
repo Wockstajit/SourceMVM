@@ -23,6 +23,7 @@ enum class ProjectGenerated {
 	Repaired,
 	MatchInfo,
 	Keyframed, // the playable copy with dense full packets for fast backward seeks (DemoKeyframes.h)
+	KeyframedB, // its second slot: a rebuild while the engine holds the first one open writes here
 };
 
 struct ProjectIndexEntry {
@@ -202,6 +203,7 @@ inline const wchar_t* ProjectGeneratedFileName(ProjectGenerated kind) {
 	case ProjectGenerated::Repaired: return L"repaired.dem";
 	case ProjectGenerated::MatchInfo: return L"demo.info";
 	case ProjectGenerated::Keyframed: return L"keyframed.dem";
+	case ProjectGenerated::KeyframedB: return L"keyframed-b.dem";
 	}
 	return L"generated.bin";
 }
@@ -228,9 +230,14 @@ inline std::wstring RepairCleanMarkerPath(const std::wstring& repairedPath) {
 	return repairedPath + L".clean";
 }
 
+// Either slot of a keyframed copy (DemoKeyframes.h).
+inline bool IsKeyframedCopyFileName(const std::wstring& fileName) {
+	return WideEqualsI(fileName, L"keyframed.dem") || WideEqualsI(fileName, L"keyframed-b.dem");
+}
+
 // A demo COPY the tool generated into a project folder (not a demo of its own).
 inline bool IsProjectDemoCopyFileName(const std::wstring& fileName) {
-	return WideEqualsI(fileName, L"repaired.dem") || WideEqualsI(fileName, L"keyframed.dem");
+	return WideEqualsI(fileName, L"repaired.dem") || IsKeyframedCopyFileName(fileName);
 }
 
 inline bool IsLegacyRepairedFolderName(const std::wstring& folderName) {

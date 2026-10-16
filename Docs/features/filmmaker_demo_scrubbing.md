@@ -1,6 +1,6 @@
 # Live demo scrubbing
 
-Dragging any timeline playhead moves the demo **world** with it, forward and backward. Forward, the demo plays through the drag. Backward, it restores the dragged tick about 12 times a second. Every demo is played from a **keyframed copy** that carries a full snapshot every 32 ticks. A release lands exactly on the tick under the playhead.
+Dragging any timeline playhead moves the demo **world** with it, forward and backward. Forward, the demo plays through the drag. Backward, it restores the dragged tick about 12 times a second. Every demo is played from a **keyframed copy** that carries a full snapshot every 32 ticks, and every 2 ticks around the camera-path markers ([dense keyframes](#dense-keyframes-around-the-shot)). A release lands exactly on the tick under the playhead.
 
 | Piece | File |
 | --- | --- |
@@ -40,7 +40,8 @@ Read from `engine2.dll` (Ghidra) and measured:
 **Verification.** Each run fails instead of writing a bad copy:
 
 - Keyframes are decoded again and compared with the live state bit for bit (all of them, or every Nth with `-verify-every N`).
-- The live state is compared with **each of Valve's full packets**. The entity list, classes and serials must match, and at most 1% of fields may differ. Some difference is legitimate. Valve's snapshot is the server's view, while a keyframe must reproduce what normal playback holds in the client. That includes stale weapon timing fields, per-round stats, and values the server changed back without sending a delta (an `engine2` comment describes that bug). Measured on a 118k-tick match: 0.34% of fields, all of those kinds.
+- The live state is compared with **each of Valve's full packets**. The entity list, classes and serials must match, and at most 1% of fields may differ. Some difference is legitimate. Valve's snapshot is the server's view, while a keyframe must reproduce what normal playback holds in the client. That includes stale weapon timing fields, per-round stats, and values the server changed back without sending a delta (an `engine2` comment describes that bug).
+- The known-legitimate kinds are listed but do not count toward the 1%: the scoreboard bookkeeping (`m_perRoundStats`, the `m_pActionTrackingServices` totals, `m_pDamageServices`) and stale `m_flAnimTime` / `m_flSimulationTime`. The per-round stats grow with every round played, so counting them failed long matches outright. A 10-player de_cache match failed at tick 65281 with 350 of 27805 fields (1.26%), every one of them of those kinds, and had no copy at all. With the split it builds: 25 of Valve's packets checked, 0 of 939979 other fields differ, 4783 scoreboard and stale-time fields listed.
 
 **Measured:**
 
@@ -54,7 +55,31 @@ Read from `engine2.dll` (Ghidra) and measured:
 When a build fails, the console warning and the crash-report history carry the helper's own last line
 (`FAILED: <reason>`), read from `keyframed.dem.log` beside the copy. The log is deleted after each run.
 
-At most **three** keyframed copies exist. Each is about 1.8× its demo's size. Starting a build for a demo without one first deletes the least recently used others. "Used" is the newer of the project's `project.mvm` (rewritten whenever the demo opens) and the copy itself. A copy that is open in another game instance stays until it is free. `repaired.dem` copies are never pruned.
+**One copy.** Only the demo you have open keeps a keyframed copy. Opening a demo deletes every other demo's copy, along with its marker, log and unfinished build. That happens whether or not the opened demo needs a build. A copy that is open in another game instance stays until it is free. `repaired.dem` copies are never pruned.
+
+## Dense keyframes around the shot
+
+Scrubbing between cameras is a backward seek most of the time, and every backward seek is a restore followed by a replay ([How CS2 seeks](#how-cs2-seeks)). The replay is what puts effects back on screen in a burst. Every shot, impact, blood splash and grenade event between the restored snapshot and the target fires again within a frame or two, all at age zero. On the 32-tick grid, a release lands by restoring at most 31 ticks before `goal − 8` and playing in. Up to 39 ticks of events fire again on every jump between cameras. During a backward drag, each restore replays up to 31 ticks.
+
+Denser keyframes shrink that window, but they cost about **45 KB each** (measured: 2941 keyframes added 132 MB to a 173 MB, 10-player match). A 2-tick grid over a whole 120k-tick match would add about 2.7 GB. So the copy gets a dense grid **only where the shot is**:
+
+- **Windows.** They come from the demo's camera-path markers. Markers less than 8 s apart form one cluster, and a window covers each cluster plus 4 s of padding on both sides. Inside a window a keyframe sits on every 2nd tick. Everywhere else the 32-tick grid stays, still aligned with Valve's own packets.
+- **Effect on seeks.** Inside a window, a release replays at most 9 ticks (the 8-tick play-in plus one), and a drag restore replays at most one. That is about a quarter of the replayed events on a release, and a 30th on a drag.
+- **Size.** A 3 s shot gets an 11 s window, which is 352 keyframes, or about 16 MB. The windows are capped at 6144 dense ticks in total (about 140 MB). Beyond that the dense step widens to 4 ticks, then 8, until the windows fit.
+- **Helper.** `-dense <a-b,c-d,...>` names the windows and `-dense-every N` sets their step. Without `-dense`, the copy is exactly the old 32-tick one.
+- **Marker file.** `keyframed.dem.src` also records the windows a copy was built with: `<demo stamp>|<helper stamp>|<windows>`. A copy is reused while its stamps match, whatever its windows.
+- **Rebuilding as keys are added.** When camera markers exist outside every window of the copy, a rebuild with the new windows starts in the background. It starts when the demo opens, and also during a session, 5 s after the last marker change, never during a render job. The engine holds the copy it is playing open, so a rebuild during playback writes the second slot, `keyframed-b.dem`. The next play of the demo uses whichever slot is newer and covers its markers, and deletes the other.
+- **Switching onto a finished copy.** A copy that finishes while its demo is open is switched to automatically, at the first quiet moment: the demo paused, no render job, no scrub or path playback in flight. The switch reopens the demo on the copy, plays to the tick it was on, and pauses there. It is a level load of a few seconds, once per build. Without it, the session that built the copy kept scrubbing backward from Valve's snapshot a minute back, about 0.75 s per step on a 10-player match. The marker HUD shows a notice when a switch is queued, and `mvm_debug` logs `keyframes.switch` lines (switching, seeking, done, or why it gave up).
+- **Mapping.** Both slot names count as project copies (`IsProjectDemoCopyFileName`), so the demo browser hides them, the scrub driver detects a keyframed copy by either name, and `project.mvm` maps both back to the original.
+
+## Effects across a restore
+
+What the engine does, and what can and cannot be kept:
+
+- A restore destroys every live client particle. Entity-bound effects (smoke volumes, inferno flames, grenade trails) are rebuilt from the snapshot's entity state. Event effects (tracers, impacts, blood, muzzle flashes) are gone unless their event lies inside the replay window. Surface decals are not particles and survive. A restore cannot keep a particle that already exists. A backward move needs the particle as it was at an earlier age, and a particle cannot be simulated backward.
+- What this design changes: fewer events replay (see above), so a jump between cameras no longer re-fires a burst of every effect from the last half-second.
+- What it does not change: a restored frame still starts each effect at the age the replay gives it. A smoke that bloomed 3 s ago is rebuilt from its entity state, and an impact from 2 ticks ago replays at age zero.
+- **The tick-perfect fix is a re-created effect at the right age:** a particle system re-created by a replayed event is simulated forward by `(target tick − event tick) × interval` before its first frame. The hook already sees every particle system the client creates (`ParticleFxHook.cpp`). What it still needs is engine-side: the replayed event's own tick at creation, and a way to advance a new particle collection by a given time (CS2's definitions carry a pre-simulation time). That needs reverse engineering in `particles.dll` and `client.dll`, and it is tracked as its own piece of work.
 
 Diagnostics: `KF_CENSUS=1` prints a per-command message census instead of writing. `KF_TRACE=<field name substring>` prints every write to matching fields.
 
@@ -64,6 +89,23 @@ A controller runs every frame and steers the world toward the playhead. The play
 
 - **Ahead by up to 16 ticks** (0.25 s): keep the demo playing toward the playhead, at a speed proportional to the gap. It arrives in about 0.12 s and slows as it gets close, clamped to 0.02 to 16×. It pauses the frame it would reach the playhead, at whatever fraction of a tick that is. A slow drag glides. A burst of 90 captured frames during a 6-tick drag changed a little on every frame (median 0.06, largest 0.09 mean pixel difference), with no frozen-then-jump pattern.
 - **Behind by more than a tick, or far ahead:** pause, restore the whole tick before the playhead, then glide in. On a keyframed copy, a restore is one ~80 ms frame, so a backward drag updates about 12 times a second. Less than a tick ahead of the playhead, the world holds, because a restore is not worth doing for a fraction of a tick.
+- **Dragging backward:** restore 2 ticks short of the playhead, then play those 2 ticks in with one quick `demo_step_tick` at 4×, while the preview holds its last settled frame (see [The preview hold](#the-preview-hold)). Then show the result for 2 frames before the next restore. The play-in always runs, even when a fast drag has already moved the playhead further back. Without it, a raw restore reached the screen, and a restore runs no animation, so players stood in bind pose or were missing (measured at 40 ticks/s: 25 restores, 0 play-ins). The shown frames never move forward. Gliding into the playhead after each restore had made every backward step a saw-tooth: back about 10 ticks, then forward one (`seek 5812 target 5813`, `seek 5806 target 5807`, …). Turning back to forward resumes the glide, and the release still lands exactly.
+
+### The preview hold
+
+During a seek the engine builds no scene frame for many presents, but it keeps presenting the UI over the last world it had. The before-UI callback that runs the preview's scale blit, and its fallback, is never queued for those presents, so nothing can scale them. They showed the full-size world through the preview window, which looks like a zoom: measured at about 45% of presents while dragging backward, up to 2 s at a time.
+
+- The render thread keeps the preview region of the last correctly scaled, settled frame (`Before_Present`, `RenderSystemDX11Hooks.cpp`).
+- A present whose blit was missed gets that region copied back over it, for as long as the misses last. It is the newest correct picture there is.
+- While a restore and its play-in are in flight (`DemoScrub` raises `SetHoldPreview`), the frames that did blit are held too, so a raw restore never shows. That hold gives up after 0.5 s, so a seek that never settles cannot freeze the preview.
+- Only the preview rect is held. The panels around it, including the playhead under the drag, stay live.
+- `vpscale.present` lines report `held=N` beside `MISSED=N`. A covered miss is not counted as a `vpscale.break`.
+
+### Why backward is still slower than forward
+
+Forward, the world plays, so every rendered frame is new. Backward, every update is an engine restore. On the 2-tick dense grid each restore replays at most one tick (measured: max 1, from about 1,940 without a keyframed copy), but the restore itself costs about 50–80 ms. With the play-in and the settle frames, a backward drag shows roughly 8–13 new frames a second against forward's full frame rate. No keyframe density changes that, because the floor is the restore.
+
+The way past it is a **scrub frame cache**: keep the scaled preview of each tick the world has been played through (keyed by tick and camera pose), and serve a backward drag over cached ticks from the cache, with a single real restore when the drag stops. Dragging back and forth over a shot, which is how a shot is tuned, would then match forward after the first pass. This is planned as its own change. It needs a frame identity carried from the engine thread to the present, a VRAM budget (about 5 MB per cached preview frame at 1564×826), and invalidation when anything other than time changes the picture.
 - **Release:** land on the nearest whole tick. From the glide, that is a `demo_step_tick` to it. From behind, it is a restore 8 ticks short and a played-in step, so the final frame has been played into. One tick past the goal is accepted only after that settle. Then the user's own speed (`DemoTimescale_Get()`) comes back, and playback resumes if the demo was playing when the drag began.
 - **The playhead after a release:** `TimelinePlayhead` holds the released tick while the world travels there, and afterwards while the demo tick stays where it landed, within two ticks. The demo tick still reads the old position mid-seek and can land one past the goal, and the playhead used to show both. Playback, a step, or a scrub toward another tick (CS2's own bar) hands the playhead back to the demo tick. `mvm_debug` logs `playhead.hold` hold, landed and drop lines.
 - **Other seeks:** CS2's own bar seeks on click and release, and other tools seek too. A seek in flight is judged every frame (`JudgeSeek`). If the world moved outside the range between where the seek started and its target, or the demo plays on away from the target, or nothing moved for 20 frames on a keyframed copy (240 without keyframes), the seek is dropped. The controller then aims again from where the world is. A settle step that lands outside its range is dropped the same way.

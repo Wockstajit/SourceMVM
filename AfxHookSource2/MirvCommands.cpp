@@ -107,6 +107,7 @@ bool MirvFovOverride(float &fov) {
 namespace Filmmaker {
 bool MirvFov_Enabled() { return g_bMirvFovEnabled; }
 float MirvFov_Value() { return g_fMirvFovValue; }
+bool MirvFov_IsZoomedFov(float gameFov) { return g_bMirvFovHandleZoom && gameFov < g_fMirvFovMinUnzoomedFov; }
 void MirvFov_Set(bool enabled, float value) {
 	g_bMirvFovEnabled = enabled;
 	if (std::isfinite(value))

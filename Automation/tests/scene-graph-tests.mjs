@@ -72,9 +72,14 @@ test('a scene key drag sends its total offset, so refused steps are not lost', (
   assert.match(track, /TrackData pending = editing \? before : data;/);
 });
 
-test('scene curves are fitted to what they draw, never while a gesture holds them', () => {
+test('scene and camera curves are fitted to what they draw, never while a gesture holds them', () => {
   assert.match(graph, /function fitSceneRange\(ch\)/);
-  assert.match(graph, /if \(sceneMode && !gesture\) refitSceneRanges\(\);/);
+  assert.match(graph, /if \(!gesture\) \{ if \(sceneMode\) refitSceneRanges\(\); else refitCamRanges\(\); \}/);
+  // Camera channels: an eased Bezier bulge and the selected key's handles widen the C++ key range,
+  // so FIT brings back a curve that ran off the canvas and its handles stay grabbable.
+  assert.match(graph, /function fitCamRange\(ch\)/);
+  assert.match(graph, /if \(!sceneOn\(\)\) return camRanges\[ch\.ch\] \|\| \{ lo: ch\.min, hi: ch\.max \};/);
+  assert.match(graph, /sceneRanges = \{\}; camRanges = \{\}; lastSig = '';/);
   // Angles are drawn the way they are sampled: the short way round, wrapped.
   assert.match(graph, /function scenePolyline\(ch, a, b\)/);
   // Handles stay inside the property's range.

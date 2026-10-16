@@ -1,7 +1,9 @@
 #include "DemoKeyframes.h"
 
 #include "DemoHeaderReader.h"
+#include "DemoKeyframesMath.h"
 #include "DemoProjectStore.h"
+#include "DemoRepair.h" // DemoRepair_ResolvePlayable: the source of a rebuild during a session
 #include "../Platform/TextEncoding.h"
 #include "../../../Shared/AfxConsole.h"
 
@@ -79,33 +81,59 @@ std::wstring FindKeyframesExe() {
 	return std::wstring();
 }
 
-// "<original size:mtime>|<helper size:mtime>" beside the copy. A copy of a re-recorded demo, or
-// one written by an older helper, is rebuilt rather than trusted by name.
+// "<original size:mtime>|<helper size:mtime>|<dense windows>" beside the copy. A copy of a
+// re-recorded demo, or one written by an older helper, is rebuilt rather than trusted by name; the
+// windows only say where the copy is dense (KeyframeWindows::Format), never whether it is valid.
 std::wstring MarkerPath(const std::wstring& copyPath) { return copyPath + L".src"; }
+
+std::string ReadMarker(const std::wstring& copyPath) {
+	FILE* f = _wfopen(MarkerPath(copyPath).c_str(), L"rb");
+	if (!f) return std::string();
+	std::string stored;
+	char buf[4096];
+	for (size_t n; (n = fread(buf, 1, sizeof(buf), f)) > 0;) stored.append(buf, n);
+	fclose(f);
+	return stored;
+}
 
 bool MarkerValid(const std::wstring& demoPath, const std::wstring& copyPath, const std::wstring& exePath) {
 	const std::string demoStamp = FileStamp(demoPath);
 	if (demoStamp.empty()) return false;
-	FILE* f = _wfopen(MarkerPath(copyPath).c_str(), L"rb");
-	if (!f) return false;
-	char buf[256]{};
-	const size_t n = fread(buf, 1, sizeof(buf) - 1, f);
-	fclose(f);
-	const std::string stored(buf, n);
+	const std::string stored = ReadMarker(copyPath);
 	const size_t bar = stored.find('|');
 	if (bar == std::string::npos || stored.substr(0, bar) != demoStamp) return false;
 	// With no helper on disk an existing copy still beats the slow original.
 	const std::string exeStamp = FileStamp(exePath);
 	if (exePath.empty() || exeStamp.empty()) return true;
-	return stored.substr(bar + 1) == exeStamp;
+	const size_t bar2 = stored.find('|', bar + 1);
+	return stored.substr(bar + 1, bar2 == std::string::npos ? std::string::npos : bar2 - bar - 1) == exeStamp;
 }
 
-void WriteMarker(const std::wstring& demoPath, const std::wstring& copyPath, const std::wstring& exePath) {
-	const std::string value = FileStamp(demoPath) + "|" + FileStamp(exePath);
+std::vector<KeyframeWindows::Window> MarkerWindows(const std::wstring& copyPath) {
+	const std::string stored = ReadMarker(copyPath);
+	const size_t bar = stored.find('|');
+	const size_t bar2 = bar == std::string::npos ? bar : stored.find('|', bar + 1);
+	if (bar2 == std::string::npos) return {};
+	return KeyframeWindows::Parse(stored.substr(bar2 + 1));
+}
+
+void WriteMarker(const std::wstring& demoPath, const std::wstring& copyPath, const std::wstring& exePath,
+	const std::string& windows) {
+	const std::string value = FileStamp(demoPath) + "|" + FileStamp(exePath) + "|" + windows;
 	FILE* f = _wfopen(MarkerPath(copyPath).c_str(), L"wb");
 	if (!f) return;
 	fwrite(value.data(), 1, value.size(), f);
 	fclose(f);
+}
+
+// Removes one slot and everything a build leaves beside it. False when the slot itself is still
+// there (the engine, or another game instance, holds it open).
+bool DeleteSlot(const std::wstring& copy) {
+	DeleteFileW((copy + L".part").c_str());
+	DeleteFileW((copy + L".log").c_str());
+	if (FileExists(copy) && !DeleteFileW(copy.c_str())) return false;
+	DeleteFileW(MarkerPath(copy).c_str());
+	return true;
 }
 
 void SetState(KeyframeState s, const std::string& text) {
@@ -180,70 +208,103 @@ std::string LastLogLine(const std::wstring& logPath) {
 
 namespace {
 
-// Every keyframed copy is ~1.8x its demo and nothing ever removed them, so a few weeks of demos
-// held gigabytes of copies the user never asked for. At most kKeptKeyframedCopies exist: starting
-// a build for a demo without one deletes the least recently used others first. A demo whose copy
-// was deleted rebuilds it in the background the next time it plays.
-constexpr size_t kKeptKeyframedCopies = 3;
-
 unsigned long long LastWrite(const std::wstring& p) {
 	WIN32_FILE_ATTRIBUTE_DATA d{};
 	if (!GetFileAttributesExW(p.c_str(), GetFileExInfoStandard, &d)) return 0;
 	return (static_cast<unsigned long long>(d.ftLastWriteTime.dwHighDateTime) << 32) | d.ftLastWriteTime.dwLowDateTime;
 }
 
-void PruneKeyframedCopies(const std::wstring& keepDemoPath) {
-	const std::wstring keepDir = DemoProjectStore_ProjectDirectory(ProjectGame::Cs2, keepDemoPath);
+const ProjectGenerated kSlots[2] = { ProjectGenerated::Keyframed, ProjectGenerated::KeyframedB };
+
+std::wstring SlotPath(const std::wstring& demoPath, int slot, bool forSave) {
+	return forSave ? DemoProjectStore_GeneratedForSave(ProjectGame::Cs2, demoPath, kSlots[slot])
+		: DemoProjectStore_GeneratedForLoad(ProjectGame::Cs2, demoPath, kSlots[slot]);
+}
+
+// Newest valid slot: -1 when there is none. A rebuild always writes the newer one with the windows
+// the markers needed when it started, so newest is also best covered.
+int ReadySlot(const std::wstring& demoPath) {
+	if (demoPath.empty()) return -1;
+	const std::wstring exe = FindKeyframesExe();
+	int best = -1;
+	unsigned long long bestTime = 0;
+	for (int slot = 0; slot < 2; ++slot) {
+		const std::wstring copy = SlotPath(demoPath, slot, false);
+		if (copy.empty() || !FileExists(copy) || !MarkerValid(demoPath, copy, exe)) continue;
+		const unsigned long long t = LastWrite(MarkerPath(copy));
+		if (best < 0 || t > bestTime) { best = slot; bestTime = t; }
+	}
+	return best;
+}
+
+// The engine reports its own spelling of the playing file (forward slashes, its own case).
+bool SamePath(std::wstring a, std::wstring b) {
+	if (a.empty() || b.empty()) return false;
+	for (auto& c : a) if (c == L'/') c = L'\\';
+	for (auto& c : b) if (c == L'/') c = L'\\';
+	return _wcsicmp(a.c_str(), b.c_str()) == 0;
+}
+
+// Set by a finished build, read by DemoKeyframes_RunFrame on the main thread.
+std::atomic<bool> g_announce{ false };
+std::wstring g_announceDemo; // guarded by g_mx
+
+} // namespace
+
+std::wstring DemoKeyframes_ReadyPath(const std::wstring& demoPath) {
+	const int slot = ReadySlot(demoPath);
+	return slot < 0 ? std::wstring() : SlotPath(demoPath, slot, false);
+}
+
+bool DemoKeyframes_HelperAvailable() { return !FindKeyframesExe().empty(); }
+
+// ONE COPY. Every keyframed copy is ~1.8x its demo and nothing ever removed them, so a few weeks
+// of demos held gigabytes of copies the user never asked for, and a three-copy LRU still held two
+// copies nobody had open. Only the demo being opened keeps one; a demo whose copy was deleted
+// rebuilds it in the background the next time it plays.
+void DemoKeyframes_KeepOnly(const std::wstring& demoPath, const std::wstring& playingFile) {
+	const std::wstring keepDir = DemoProjectStore_ProjectDirectory(ProjectGame::Cs2, demoPath);
 	const size_t slash = keepDir.find_last_of(L"\\/");
 	if (keepDir.empty() || slash == std::wstring::npos) return;
 	const std::wstring gameDir = keepDir.substr(0, slash);
-	const std::wstring keyframedName = ProjectGeneratedFileName(ProjectGenerated::Keyframed);
 
-	struct Copy { std::wstring dir; unsigned long long used; };
-	std::vector<Copy> copies;
 	WIN32_FIND_DATAW fd{};
 	HANDLE h = FindFirstFileW((gameDir + L"\\*").c_str(), &fd);
 	if (h == INVALID_HANDLE_VALUE) return;
 	do {
 		if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || fd.cFileName[0] == L'.') continue;
 		const std::wstring dir = gameDir + L"\\" + fd.cFileName;
-		if (_wcsicmp(dir.c_str(), keepDir.c_str()) == 0) continue; // the copy just built stays
-		const std::wstring copy = dir + L"\\" + keyframedName;
-		if (!FileExists(copy)) continue;
-		// "Used" = the project file, rewritten whenever the demo is opened, or the copy itself.
-		const unsigned long long used = (std::max)(LastWrite(dir + L"\\project.mvm"), LastWrite(copy));
-		copies.push_back({ dir, used });
+		if (_wcsicmp(dir.c_str(), keepDir.c_str()) == 0) continue;
+		bool removed = false;
+		for (int slot = 0; slot < 2; ++slot) {
+			const std::wstring copy = dir + L"\\" + ProjectGeneratedFileName(kSlots[slot]);
+			if (FileExists(copy) || FileExists(MarkerPath(copy)) || FileExists(copy + L".part"))
+				removed = DeleteSlot(copy) || removed;
+		}
+		if (removed)
+			advancedfx::Message("mirv_filmmaker: removed the scrub keyframes of another demo (%s)\n",
+				WideToUtf8(dir).c_str());
 	} while (FindNextFileW(h, &fd));
 	FindClose(h);
 
-	if (copies.size() + 1 <= kKeptKeyframedCopies) return;
-	std::sort(copies.begin(), copies.end(), [](const Copy& a, const Copy& b) { return a.used > b.used; });
-	for (size_t i = kKeptKeyframedCopies - 1; i < copies.size(); ++i) {
-		const std::wstring copy = copies[i].dir + L"\\" + keyframedName;
-		// A copy that is open (a second game instance playing it) stays until it is free.
-		if (DeleteFileW(copy.c_str())) {
-			DeleteFileW(MarkerPath(copy).c_str());
-			advancedfx::Message("mirv_filmmaker: removed the scrub keyframes of a less recently used demo (%s)\n",
-				WideToUtf8(copies[i].dir).c_str());
-		}
+	// This demo: the newest valid slot and the one the engine is playing stay. A superseded slot
+	// goes once the engine lets go of it (the next RunFrame after the play switches).
+	const int ready = ReadySlot(demoPath);
+	for (int slot = 0; slot < 2; ++slot) {
+		if (slot == ready) continue;
+		const std::wstring copy = SlotPath(demoPath, slot, false);
+		if (copy.empty() || SamePath(copy, playingFile) || !FileExists(copy)) continue;
+		if (g_busy.load()) continue; // a build may be writing this slot right now
+		DeleteSlot(copy);
 	}
 }
 
-} // namespace
-
-std::wstring DemoKeyframes_ReadyPath(const std::wstring& demoPath) {
-	if (demoPath.empty()) return std::wstring();
-	const std::wstring copy = DemoProjectStore_GeneratedForLoad(ProjectGame::Cs2, demoPath, ProjectGenerated::Keyframed);
-	if (copy.empty() || !FileExists(copy) || !MarkerValid(demoPath, copy, FindKeyframesExe()))
-		return std::wstring();
-	return copy;
-}
-
-bool DemoKeyframes_HelperAvailable() { return !FindKeyframesExe().empty(); }
-
-void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourcePath) {
+void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourcePath,
+	const std::vector<int>& markerTicks) {
 	if (demoPath.empty() || sourcePath.empty()) return;
-	if (!DemoKeyframes_ReadyPath(demoPath).empty()) return;
+	const int ready = ReadySlot(demoPath);
+	if (ready >= 0 && KeyframeWindows::Covers(MarkerWindows(SlotPath(demoPath, ready, false)), markerTicks))
+		return;
 	const std::wstring exe = FindKeyframesExe();
 	if (exe.empty()) {
 		SetState(KeyframeState::Failed, "FilmmakerDemoKeyframes.exe not found; backward seeks stay slow");
@@ -251,7 +312,7 @@ void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourc
 	}
 	bool expected = false;
 	if (!g_busy.compare_exchange_strong(expected, true))
-		return; // one build at a time; the next play or prepare asks again
+		return; // one build at a time; the next play, prepare or marker change asks again
 	if (g_worker.joinable()) g_worker.join();
 	{
 		std::lock_guard<std::mutex> lock(g_mx);
@@ -259,23 +320,35 @@ void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourc
 		g_state = KeyframeState::Building;
 		g_status = "building scrub keyframes...";
 	}
-	g_worker = std::thread([exe, demoPath, sourcePath]() {
-		const std::wstring copy = DemoProjectStore_GeneratedForSave(ProjectGame::Cs2, demoPath, ProjectGenerated::Keyframed);
+	const KeyframeWindows::Plan plan = KeyframeWindows::PlanFor(markerTicks);
+	// The slot that is not the ready one: the engine may be playing that one, and it holds it open.
+	const int target = ready == 0 ? 1 : 0;
+	g_worker = std::thread([exe, demoPath, sourcePath, plan, target, ready]() {
+		const std::wstring copy = SlotPath(demoPath, target, true);
 		if (copy.empty()) {
 			SetState(KeyframeState::Failed, "could not create the demo project folder");
 			g_busy.store(false);
 			return;
 		}
-		// Make room first: at most kKeptKeyframedCopies copies exist, this new one included, so the
-		// least recently used ones go before the helper writes another ~0.5 GB.
-		PruneKeyframedCopies(demoPath);
+		// One copy: the other demos' go before the helper writes another few hundred MB.
+		DemoKeyframes_KeepOnly(demoPath, std::wstring());
+		if (!DeleteSlot(copy)) {
+			SetState(KeyframeState::Failed, "scrub keyframes: the previous copy is still open");
+			g_busy.store(false);
+			return;
+		}
 		// Write beside the final name, then swap in: a half-written copy is never visible under
 		// the name the next play would pick up.
 		const std::wstring temp = copy + L".part";
 		const auto t0 = std::chrono::steady_clock::now();
-		advancedfx::Message("mirv_filmmaker: building scrub keyframes for %s...\n", WideToUtf8(demoPath).c_str());
+		const std::string windows = KeyframeWindows::Format(plan.windows);
+		advancedfx::Message("mirv_filmmaker: building scrub keyframes for %s (dense %s)...\n",
+			WideToUtf8(demoPath).c_str(), windows.empty() ? "nowhere yet: no camera markers" : windows.c_str());
 		const std::wstring log = copy + L".log";
-		const int code = RunHelper(exe, L"-verify-every 16 \"" + sourcePath + L"\" \"" + temp + L"\"", log);
+		std::wstring args = L"-verify-every 16";
+		if (!plan.windows.empty())
+			args += L" -dense " + Utf8ToWide(windows) + L" -dense-every " + std::to_wstring(plan.step);
+		const int code = RunHelper(exe, args + L" \"" + sourcePath + L"\" \"" + temp + L"\"", log);
 		const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 		// A player report only said "exit 1" (2026-10-15); the helper's own last line says why.
 		const std::string helperSaid = code != 0 ? LastLogLine(log) : std::string();
@@ -302,13 +375,72 @@ void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourc
 			g_busy.store(false);
 			return;
 		}
-		WriteMarker(demoPath, copy, exe);
-		char text[160];
-		snprintf(text, sizeof(text), "scrub keyframes ready (%.0f s); used from the next play of this demo", secs);
+		WriteMarker(demoPath, copy, exe, windows);
+		// The slot this one supersedes goes now if nothing has it open, else once the engine lets
+		// go of it (DemoKeyframes_KeepOnly from the next play).
+		if (ready >= 0) DeleteSlot(SlotPath(demoPath, ready, false));
+		char text[200];
+		snprintf(text, sizeof(text), "scrub keyframes ready (%.0f s, %.0f MB%s); used from the next play of this demo",
+			secs, (double)FileSize(copy) / 1e6, windows.empty() ? "" : ", dense around the camera markers");
 		SetState(KeyframeState::Ready, text);
 		advancedfx::Message("mirv_filmmaker: %s\n", text);
+		{
+			std::lock_guard<std::mutex> lock(g_mx);
+			g_announceDemo = demoPath;
+		}
+		g_announce.store(true);
 		g_busy.store(false);
 	});
+}
+
+bool DemoKeyframes_RunFrame(const std::wstring& demoPath, const std::wstring& playingFile,
+	const std::vector<int>& markerTicks, bool renderJobActive) {
+	// Markers settle before a rebuild starts: placing five keys must not start five builds.
+	constexpr unsigned long long kSettleMs = 5000;
+	static std::wstring s_demo, s_playing;
+	static std::vector<int> s_ticks;
+	static unsigned long long s_changedAtMs = 0;
+	const unsigned long long now = GetTickCount64();
+
+	if (!SamePath(demoPath, s_demo) || !SamePath(playingFile, s_playing)) {
+		// A new demo, or the same demo on its other slot: the open-time build already covered the
+		// markers saved with it, so only later changes count. Tidy what the engine just let go of.
+		const bool sameDemo = SamePath(demoPath, s_demo);
+		s_demo = demoPath;
+		s_playing = playingFile;
+		if (!sameDemo) { s_ticks = markerTicks; s_changedAtMs = 0; }
+		if (!demoPath.empty()) DemoKeyframes_KeepOnly(demoPath, playingFile);
+	}
+	if (demoPath.empty()) return false;
+	if (markerTicks != s_ticks) {
+		s_ticks = markerTicks;
+		s_changedAtMs = now;
+	}
+
+	if (s_changedAtMs != 0 && now - s_changedAtMs >= kSettleMs && !renderJobActive && !g_busy.load()) {
+		s_changedAtMs = 0;
+		const int ready = ReadySlot(demoPath);
+		if (ready < 0 || !KeyframeWindows::Covers(MarkerWindows(SlotPath(demoPath, ready, false)), markerTicks)) {
+			const std::wstring source = DemoRepair_ResolvePlayable(demoPath);
+			if (!source.empty()) DemoKeyframes_Build(demoPath, source, markerTicks);
+		}
+	}
+
+	if (g_announce.load()) {
+		std::wstring finished;
+		{
+			std::lock_guard<std::mutex> lock(g_mx);
+			finished = g_announceDemo;
+		}
+		g_announce.store(false);
+		// Only worth saying while that demo is open on something other than the new copy.
+		const std::wstring copy = DemoKeyframes_ReadyPath(demoPath);
+		if (SamePath(finished, demoPath) && !SamePath(copy, playingFile)) {
+			advancedfx::Message("mirv_filmmaker: finer scrub keyframes are ready for this demo -- reopen it to scrub with them.\n");
+			return true;
+		}
+	}
+	return false;
 }
 
 KeyframeState DemoKeyframes_State() {

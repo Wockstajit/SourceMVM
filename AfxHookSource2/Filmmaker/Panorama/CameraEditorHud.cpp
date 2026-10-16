@@ -178,6 +178,11 @@ void CameraEditorHud::OnExit() {
 	// If the render modal was open when the editor closes (e.g., switching to Config), close
 	// it now so the editor does not restart in render-workspace layout on the next open.
 	Render_SetModalOpen(false);
+	// A test play started from the editor belongs to the editor. Left running, it re-claims free
+	// cam every frame (CameraPath::RunFrame), so the view stayed on the path after the editor was
+	// gone and the camera restore below could not hold.
+	if (cp.EditorPlay() || cp.PlaybackPending())
+		cp.StopPreview();
 	cp.StopScrub();
 
 	// Hand the camera back. Opening the editor deliberately does not touch the camera, but its

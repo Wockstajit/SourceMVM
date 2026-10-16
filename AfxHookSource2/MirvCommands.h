@@ -31,4 +31,6 @@ namespace Filmmaker {
 bool MirvFov_Enabled();
 float MirvFov_Value();
 void MirvFov_Set(bool enabled, float value);
+// The game's own FOV is a weapon zoom (a scope): FOV overrides leave it alone, same rule as `mirv_fov`.
+bool MirvFov_IsZoomedFov(float gameFov);
 } // namespace Filmmaker
