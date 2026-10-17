@@ -642,6 +642,7 @@ R"GEJS(
     var rowsView = mk('Panel', dock); rowsView.hittest = false; rowsView.style.overflow = 'clip clip';
     var rowsInner = mk('Panel', rowsView); rowsInner.hittest = false;
     var rowsSbThumb = mk('Panel', dock); rowsSbThumb.hittest = false; rowsSbThumb.visible = false;
+    rowsSbThumb.style.zIndex = '6';   // above the GRAPH panel, which covers the scrollbar's column
     rowsSbThumb.style.width = '6px'; rowsSbThumb.style.borderRadius = '3px'; rowsSbThumb.style.backgroundColor = '#ffffff33';
     var emptyHint = lbl(dock, '', S.hint, 13); emptyHint.hittest = false; emptyHint.visible = false;
 
@@ -953,8 +954,8 @@ R"GEJS(
     function tickToX(t) { return PAD + (t - view.t0) / (view.t1 - view.t0) * G.cw; }
     function xToTick(x) { return view.t0 + ((x - PAD) / G.cw) * (view.t1 - view.t0); }
     // The overview maps the WHOLE demo (domain) across the track width.
-    function domToX(t) { var d = domainRange(); return (t - d.t0) / Math.max(1, d.t1 - d.t0) * G.tw; }
-    function xToDom(x) { var d = domainRange(); return d.t0 + (x / G.tw) * Math.max(1, d.t1 - d.t0); }
+    function domToX(t) { var d = domainRange(); return (t - d.t0) / Math.max(1, d.t1 - d.t0) * G.ow; }
+    function xToDom(x) { var d = domainRange(); return d.t0 + (x / G.ow) * Math.max(1, d.t1 - d.t0); }
     function ovViewRect() {
       var x0 = domToX(view.t0), x1 = domToX(view.t1);
       if (x0 < 0) x0 = 0; if (x1 > G.tw) x1 = G.tw;
@@ -2446,7 +2447,7 @@ R"GEJS(
     function processInput() {
       var lmb = !!st.lmb, rmb = !!st.rmb, cc = curCursor();
       var inDock = cc.lx >= 0 && cc.lx <= G.rw && cc.ly >= 0 && cc.ly <= DOCK_H;
-      var overOverview = inTrackX(cc.tx) && cc.ly >= HEADER_H && cc.ly < HEADER_H + OVERVIEW_H;
+      var overOverview = cc.tx >= 0 && cc.tx <= G.ow && cc.ly >= HEADER_H && cc.ly < HEADER_H + OVERVIEW_H;
       var overRuler = inTrackX(cc.tx) && cc.ly >= HEADER_H + OVERVIEW_H && cc.ly < ROWS_Y;
       var overRows = cc.ly >= ROWS_Y && cc.ly < ROWS_Y + ROWS_H;
       var overTrack = overRows && inTrackX(cc.tx);
@@ -2704,7 +2705,7 @@ R"GEJS(
       ovKeyLayer.RemoveAndDeleteChildren();
       var e = unionKeys(camCh.map(function (c) { return c.uid; }).concat(scCh.map(function (c) { return c.uid; })));
       for (var i = 0; i < e.length; i++) {
-        var x = domToX(e[i].t); if (x < 0 || x > G.tw) continue;
+        var x = domToX(e[i].t); if (x < 0 || x > G.ow) continue;
         box(ovKeyLayer, x, 5, 1, 4, e[i].sel ? S.sel : S.ovKey);
       }
     }
@@ -2720,11 +2721,11 @@ R"GEJS(
                  rt ? rt.a + '-' + rt.b : '-', view.t0.toFixed(2), view.t1.toFixed(2)].join(',');
       if (sig === navSig) return;
       navSig = sig;
-      ovLeftGrip.style.position = Math.max(0, Math.min(G.tw - 6, vr.x0 - 1)).toFixed(1) + 'px 1px 0px';
-      ovRightGrip.style.position = Math.max(0, Math.min(G.tw - 6, vr.x1 - 5)).toFixed(1) + 'px 1px 0px';
+      ovLeftGrip.style.position = Math.max(0, Math.min(G.ow - 6, vr.x0 - 1)).toFixed(1) + 'px 1px 0px';
+      ovRightGrip.style.position = Math.max(0, Math.min(G.ow - 6, vr.x1 - 5)).toFixed(1) + 'px 1px 0px';
       ovView.style.position = vr.x0.toFixed(1) + 'px 1px 0px';
       ovView.style.width = Math.max(3, vr.x1 - vr.x0).toFixed(1) + 'px'; ovView.style.height = '12px';
-      if (px >= 0 && px <= G.tw) { ovPlay.visible = true; ovPlay.style.position = px.toFixed(1) + 'px 0px 0px'; }
+      if (px >= 0 && px <= G.ow) { ovPlay.visible = true; ovPlay.style.position = px.toFixed(1) + 'px 0px 0px'; }
       else ovPlay.visible = false;
       sbThumb.style.position = thumbX.toFixed(1) + 'px 0px 0px'; sbThumb.style.width = thumbW.toFixed(1) + 'px';
       var on = !!rt;
@@ -2779,15 +2780,17 @@ R"GEJS(
       dockScreenX = 0; dockScreenY = Math.max(0, scrH - DOCK_H - BOTTOM_LIFT);
       var tw = Math.max(120, dockW - LEFTW - SB_W);
       var changed = !G || G.rw !== dockW;
-      G = { rw: dockW, tw: tw, cw: Math.max(60, tw - 2 * PAD) };
+      // ow: the track plus the row scrollbar's column, i.e. everything right of the layer list. The
+      // overview, the ruler's strip and the GRAPH panel span it, so no row shows past them.
+      G = { rw: dockW, tw: tw, ow: tw + SB_W, cw: Math.max(60, tw - 2 * PAD) };
       if (!changed) return true;
       dock.style.width = dockW + 'px'; dock.style.height = DOCK_H + 'px'; dock.style.marginBottom = BOTTOM_LIFT + 'px';
       header.style.width = dockW + 'px';
-      overview.style.position = LEFTW + 'px ' + HEADER_H + 'px 0px'; overview.style.width = tw + 'px'; overview.style.height = OVERVIEW_H + 'px';
-      ovTrack.style.position = '0px 3px 0px'; ovTrack.style.width = tw + 'px'; ovTrack.style.height = '8px';
-      ruler.style.position = LEFTW + 'px ' + (HEADER_H + OVERVIEW_H) + 'px 0px'; ruler.style.width = tw + 'px'; ruler.style.height = RULER_H + 'px';
+      overview.style.position = LEFTW + 'px ' + HEADER_H + 'px 0px'; overview.style.width = G.ow + 'px'; overview.style.height = OVERVIEW_H + 'px';
+      ovTrack.style.position = '0px 3px 0px'; ovTrack.style.width = G.ow + 'px'; ovTrack.style.height = '8px';
+      ruler.style.position = LEFTW + 'px ' + (HEADER_H + OVERVIEW_H) + 'px 0px'; ruler.style.width = G.ow + 'px'; ruler.style.height = RULER_H + 'px';
       rowsView.style.position = '0px ' + ROWS_Y + 'px 0px'; rowsView.style.width = dockW + 'px'; rowsView.style.height = ROWS_H + 'px';
-      graph.style.position = LEFTW + 'px ' + ROWS_Y + 'px 0px'; graph.style.width = tw + 'px'; graph.style.height = ROWS_H + 'px';
+      graph.style.position = LEFTW + 'px ' + ROWS_Y + 'px 0px'; graph.style.width = G.ow + 'px'; graph.style.height = ROWS_H + 'px';
       selOverlay.style.position = LEFTW + 'px ' + ROWS_Y + 'px 0px'; selOverlay.style.width = tw + 'px'; selOverlay.style.height = ROWS_H + 'px';
       selOverlay.style.overflow = 'clip clip';
       phLine.style.height = (DOCK_H - FOOTER_H - (HEADER_H + OVERVIEW_H + 8)) + 'px';

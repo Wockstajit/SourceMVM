@@ -354,3 +354,15 @@ test('shake keys select like keys: click, Shift, box, Delete, drag the value', (
   assert.match(graph, /if \(kv !== g\.last\) \{ g\.last = kv; shakeCmd\(kn\.verb \+ ' ' \+ g\.i \+ ' ' \+ kv\); \}/);
   assert.match(graph, /shakeSel\[s\.i\] \? S\.accent : '#80bdffff'/);
 });
+
+// The strips above the rows and the GRAPH panel run to the dock's right edge, over the row
+// scrollbar's column: stopping at the track width left a corner gap, and in GRAPH the keyframe
+// rows showed through that column.
+test('overview, ruler and graph span the scrollbar column', () => {
+  assert.match(graph, /G = \{ rw: dockW, tw: tw, ow: tw \+ SB_W,/);
+  assert.match(graph, /overview\.style\.width = G\.ow \+ 'px'/);
+  assert.match(graph, /ruler\.style\.width = G\.ow \+ 'px'/);
+  assert.match(graph, /graph\.style\.width = G\.ow \+ 'px'/);
+  assert.match(graph, /function domToX\(t\) \{ var d = domainRange\(\); return \(t - d\.t0\) \/ Math\.max\(1, d\.t1 - d\.t0\) \* G\.ow; \}/);
+  assert.match(graph, /rowsSbThumb\.style\.zIndex = '6';/);
+});
