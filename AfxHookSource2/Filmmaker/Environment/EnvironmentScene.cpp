@@ -746,13 +746,13 @@ static bool SmokeVolumeOf(CEntityInstance *ent, SmokeVolume &out) {
         return false;
     }
 }
-void CaptureSmokeVolumes(Frame &f) {
-    f.smokes.clear();
+void CaptureSmokeVolumes(std::vector<SmokeVolume> &out) {
+    out.clear();
     const auto &o = g_clientDllOffsets.C_SmokeGrenadeProjectile;
-    if (!o.m_vSmokeDetonationPos || !o.m_bDidSmokeEffect || !f.active)
+    if (!o.m_vSmokeDetonationPos || !o.m_bDidSmokeEffect)
         return;
     const int highest = GetHighestEntityIndex();
-    for (int i = 1; i <= highest && (int)f.smokes.size() < Frame::kMaxSmokes; ++i) {
+    for (int i = 1; i <= highest && (int)out.size() < Frame::kMaxSmokes; ++i) {
         CEntityInstance *ent = CosmeticEntFromIndex(i);
         if (!ent)
             continue;
@@ -761,7 +761,7 @@ void CaptureSmokeVolumes(Frame &f) {
             continue;
         SmokeVolume v;
         if (SmokeVolumeOf(ent, v))
-            f.smokes.push_back(v);
+            out.push_back(v);
     }
 }
 Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
@@ -858,7 +858,8 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
     }
     CaptureVfxLights(f.relight,f.time,map,f.active);
     CaptureCoatingActors(f);
-    CaptureSmokeVolumes(f);
+    if (f.active)
+        CaptureSmokeVolumes(f.smokes);
     return f;
 }
 std::vector<PickBox> ScenePickBoxes() {

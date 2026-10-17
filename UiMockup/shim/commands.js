@@ -385,6 +385,13 @@
     if (resetPatches[resetKey]) {Object.assign(st,resetPatches[resetKey]);return true;}
     if (a === 'pivotorb') {st[b === 'bob' ? 'wbPivotOrb' : 'wrPivotOrb']=boolWord(c, false);return true;}
     if (a === 'pivot' && c === 'reset') return true;
+    if (a === 'lens' && b === 'set' && c && d !== undefined) {
+      // The Lens cards write every control as `lens set <key> <value>`; the game clamps, the mockup only stores.
+      st.lens = st.lens || {};
+      st.lens[c] = +d;
+      st.lens[c.indexOf('dof.') === 0 ? 'dofDefault' : 'flareDefault'] = false;
+      return true;
+    }
     if (a === 'lens' && b === 'reset') {
       st.lens = st.lens || {};
       if (c !== 'flare') {st.lens['dof.on']=0;st.lens.dofDefault=true;}

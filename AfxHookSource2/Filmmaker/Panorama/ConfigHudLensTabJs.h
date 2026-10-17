@@ -37,7 +37,7 @@ R"CFJS(
     // A post pass over the finished world frame (never the HUD) that reads the engine's own depth
     // buffer, so the blur follows real distance. Two pages, at most eight controls on either:
     //   FOCUS  what is sharp: a look preset, how focus is decided (manual / auto / near-far zones),
-    //          the aperture or the four zone distances, the largest blur.
+    //          the aperture and the sharp band, or the four zone distances, the largest blur.
     //   BOKEH  what a point of light turns into: the BOKEH GAMMA first (it is what makes the shape
     //          show at all), then the iris shape and its few adjustments.
     // Controls that mean nothing for the current choice are hidden, not left to do nothing.
@@ -61,11 +61,15 @@ R"CFJS(
         lensSet('dof.mode', k === '2' ? 1 : 0);
         lensSet('dof.auto', k === '1' ? 1 : 0);
       },
-      'Manual: you set one sharp distance. Auto: the camera focuses on whatever is in the middle of the screen and eases there. Zones: you say where sharp starts and ends.', 13);
+      'Manual: you set one sharp distance. Auto: the camera focuses on whatever is in the middle of the screen and eases there at the focus speed. Zones: you say where sharp starts and ends.', 13);
     var dofFocus = lensSlider(dofFocusPage, 'Focus distance', 'dof.focus', 10, 3000, 0, 'u',
       'How far from the camera is perfectly sharp, in world units (1 unit is about 2.5 cm).');
+    var dofFocusSpeed = lensSlider(dofFocusPage, 'Focus speed', 'dof.focusSpeed', 0.25, 30, 2, '',
+      'How fast autofocus moves to a new distance. Low drifts over like a slow focus pull; the far right (30) jumps instantly.');
     var dofFstop = lensSlider(dofFocusPage, 'Aperture', 'dof.fstop', 0.7, 16, 1, '',
       'The f-stop. Lower is a wider opening and a shallower focus: f/1.4 is creamy, f/8 keeps most of the scene sharp.');
+    var dofRange = lensSlider(dofFocusPage, 'Sharp band', 'dof.range', 0, 1000, 0, 'u',
+      'How far in front of and behind the focus distance everything stays perfectly sharp, in world units. 0 is one sharp distance; raise it to keep a whole player or doorway sharp while the rest still blurs.', { offAtZero: true });
     var dofNearStart = lensSlider(dofFocusPage, 'Near: fully blurred', 'dof.nearStart', 0, 2000, 0, 'u',
       'At this distance and closer the foreground is blurred as much as it ever gets.');
     var dofNearEnd = lensSlider(dofFocusPage, 'Near: sharp from', 'dof.nearEnd', 0, 2000, 0, 'u',
@@ -78,9 +82,9 @@ R"CFJS(
       'The radius of the biggest blur disc, in pixels on a 1080p frame (it scales with the resolution). Caps both ways of focusing.');
     var dofWeaponToggle = lensToggle(dofFocusPage, 'Blur the weapon', 'dof.weapon',
       'The first-person weapon is drawn outside the world depth range. Off keeps it sharp; on blurs it as if it were held about 30 units from the lens.');
-    var dofDebug = modeRow(dofFocusPage, 'Show', [['0', 'Picture'], ['1', 'Blur map'], ['2', 'Focus plane']], '260px',
+    var dofDebug = modeRow(dofFocusPage, 'Show', [['0', 'Picture'], ['1', 'Blur map'], ['2', 'Focus'], ['3', 'Zebra']], '260px',
       function (k) { lensSet('dof.debug', k); },
-      'Blur map paints foreground blur orange and background blur blue by how strong it is. Focus plane paints what is sharp magenta -- the fastest way to see where your focus really is.', 13);
+      'Blur map paints foreground blur orange and background blur blue by how strong it is. Focus paints what is sharp magenta -- the fastest way to see where your focus really is. Zebra draws stripes over what is sharp on top of the finished picture.', 13);
 )CFJS"
 R"CFJS(
     // ---- page: BOKEH ----
@@ -97,14 +101,14 @@ R"CFJS(
       function (key) { lensSet('dof.shape', key); }, 13);
     var dofBlades = lensSlider(dofBokehPage, 'Blades', 'dof.blades', 3, 12, 0, '',
       'How many aperture blades (Polygon) or points (Star).');
-    var dofRoundness = lensSlider(dofBokehPage, 'Blade curve', 'dof.roundness', 0, 1, 2, '',
-      'Real iris blades are slightly curved. 0 is a hard polygon, 1 is a circle.', { offAtZero: true });
+    var dofRoundness = lensSlider(dofBokehPage, 'Blade curve', 'dof.roundness', -1, 1, 2, '',
+      'Real iris blades are slightly curved. 0 is a hard polygon, 1 is a circle. Below 0 the blades bend inward and the polygon becomes a curved star with the same number of points.', { offAtZero: true });
     var dofRotation = lensSlider(dofBokehPage, 'Rotation', 'dof.rotation', -180, 180, 0, '°',
       'Turns the shape clockwise around its centre.');
     var dofSqueeze = lensSlider(dofBokehPage, 'Anamorphic squeeze', 'dof.squeeze', 1, 3, 2, 'x',
       'Stretches every disc into a tall oval, the way an anamorphic cinema lens does. 1.00 is round.');
-    var dofEdge = lensSlider(dofBokehPage, 'Bright rim', 'dof.edge', 0, 3, 2, '',
-      'Brightens the edge of each disc, like the ring in a lens with spherical aberration.', { offAtZero: true });
+    var dofEdge = lensSlider(dofBokehPage, 'Rim', 'dof.edge', -1, 3, 2, '',
+      'How the light is spread across each disc. Above 0 the edge is brighter, like the ring in a lens with spherical aberration. Below 0 the light gathers in the middle and fades toward the edge, a soft creamy disc. 0 is even.', { offAtZero: true });
     var MASKS = [['diamond','Diamond'],['cross','Cross'],['crescent','Crescent'],['clover','Clover'],['smile','Smiley']];
     var dofMaskGrid = optionGrid(dofBokehPage, 'Custom shape', MASKS, 5,
       'The shapes Custom can use. Your own black-and-white image works too: run  mirv_filmmaker lens iris file <path>  in the console (white passes light).',
@@ -126,7 +130,9 @@ R"CFJS(
       // What is sharp decides which controls mean anything, so the others are hidden. (In zones the
       // weapon switch gives way to keep the page at eight controls.)
       dofFocus.slot.visible = !zone && !auto;
+      dofFocusSpeed.slot.visible = auto;
       dofFstop.slot.visible = !zone;
+      dofRange.slot.visible = !zone;
       dofWeaponToggle.row.visible = !zone;
       dofNearStart.slot.visible = zone; dofNearEnd.slot.visible = zone;
       dofFarStart.slot.visible = zone; dofFarEnd.slot.visible = zone;

@@ -109,7 +109,10 @@ struct Constants {
 	F4 dims, depthInfo, frame, dofA, dofB, dofC, irisA, irisB;
 	F4 flareA, flareB, flareC, flareTint, streakTint;
 	F4 lowRes, tileInfo, passInfo, modes;
+	F4 dofBand, smokeInfo, cameraPos;
+	F4 smokeSpheres[8]; // kLensMaxSmokes; the shader's cbuffer spells the 8 out
 };
+static_assert(kLensMaxSmokes == 8, "LensConstants.smokeSpheres holds 8 spheres");
 static_assert(sizeof(Constants) % 16 == 0, "D3D constant buffers are 16-byte aligned");
 
 struct PreparedShader {
@@ -531,6 +534,11 @@ bool LensFx_Active() {
 	return g_values[DofOn] > 0.5f || g_values[FlareOn] > 0.5f;
 }
 
+bool LensFx_DofOn() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_values[DofOn] > 0.5f;
+}
+
 bool LensFx_SetBuiltInIris(const char* name) {
 	const int id = IrisMaskFromName(name);
 	if (id < 0) return false;
@@ -737,7 +745,7 @@ void LensFx_EndDevice() {
 }
 
 bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, ID3D11DepthStencilView* depth,
-	const float* worldToClip, float depthMin, float depthMax) {
+	const float* worldToClip, float depthMin, float depthMax, const LensSmoke& smoke) {
 	Values L;
 	MaskImage irisPending, dirtPending;
 	bool irisChanged = false, dirtChanged = false;
@@ -820,7 +828,7 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 	for (int i = 0; i < 16; ++i) k.inverseViewProjection[i] = inv[i];
 	k.dims = { W, H, (float)dd.Width, (float)dd.Height };
 	k.depthInfo = { depthMin, depthMax, 0, 0 };
-	k.frame = { dt, 0, 0, g.focusValid ? 0.f : 1.f };
+	k.frame = { dt, L[DofFocusSpeed], 0, g.focusValid ? 0.f : 1.f };
 	k.dofA = { L[DofMode], L[DofFocus], L[DofFstop], autoFocus ? 1.f : 0.f };
 	k.dofB = { L[DofNearStart], L[DofNearEnd], L[DofFarStart], L[DofFarEnd] };
 	const float maxPx = L[DofMaxBlur] * H / kReferenceHeightPx;
@@ -837,6 +845,15 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 	const UINT gw = g.tile[0].w, gh = g.tile[0].h;
 	k.tileInfo = { (float)gw, (float)gh, std::ceil(maxPx / 16.0f) + 1.0f, 0 };
 	k.modes = { dofOn ? 1.f : 0.f, flareOn ? 1.f : 0.f, W / H, 0 };
+	k.dofBand = { L[DofRange], 0, 0, 0 };
+	// Smoke: only with all three parts (coverage, where the smokes are, where the camera is).
+	const int smokeCount = (smoke.absorbance && smoke.width && smoke.height && smoke.haveCamera && smoke.spheres)
+		? std::min(smoke.count, kLensMaxSmokes) : 0;
+	k.smokeInfo = { (float)smokeCount, smokeCount > 0 ? 1.f : 0.f, (float)smoke.width, (float)smoke.height };
+	k.cameraPos = { smoke.camera[0], smoke.camera[1], smoke.camera[2], 0 };
+	for (int i = 0; i < smokeCount; ++i)
+		k.smokeSpheres[i] = { smoke.spheres[i * 4], smoke.spheres[i * 4 + 1], smoke.spheres[i * 4 + 2], smoke.spheres[i * 4 + 3] };
+	ID3D11ShaderResourceView* smokeSrv = smokeCount > 0 ? smoke.absorbance : nullptr;
 
 	ID3D11DeviceContext* c = g.ctx.Get();
 	c->ClearState();
@@ -854,8 +871,8 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 
 	struct Bind { UINT slot; ID3D11ShaderResourceView* srv; };
 	auto pass = [&](ID3D11PixelShader* ps, ID3D11RenderTargetView* rtv, UINT w, UINT h, std::initializer_list<Bind> binds) {
-		ID3D11ShaderResourceView* none[20] = {};
-		c->PSSetShaderResources(0, 20, none);
+		ID3D11ShaderResourceView* none[21] = {};
+		c->PSSetShaderResources(0, 21, none);
 		c->OMSetRenderTargets(1, &rtv, nullptr);
 		const D3D11_VIEWPORT vp{ 0, 0, (float)w, (float)h, 0, 1 };
 		c->RSSetViewports(1, &vp);
@@ -885,9 +902,10 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 	if (dofOn) {
 		const int cur = autoFocus ? 1 - g.focusCur : g.focusCur;
 		if (autoFocus)
-			pass(g.focusPS[dms].Get(), g.focus[cur].rtv.Get(), 1, 1, { { 1, g.depthCopy.srv.Get() }, { 3, g.focus[g.focusCur].srv.Get() } });
+			pass(g.focusPS[dms].Get(), g.focus[cur].rtv.Get(), 1, 1,
+				{ { 1, g.depthCopy.srv.Get() }, { 3, g.focus[g.focusCur].srv.Get() }, { 20, smokeSrv } });
 		pass(g.cocPS[dms].Get(), g.cocRtv[0].Get(), td.Width, td.Height,
-			{ { 0, g.srcRes.srv.Get() }, { 1, g.depthCopy.srv.Get() }, { 2, g.focus[cur].srv.Get() } });
+			{ { 0, g.srcRes.srv.Get() }, { 1, g.depthCopy.srv.Get() }, { 2, g.focus[cur].srv.Get() }, { 20, smokeSrv } });
 		for (int m = 1; m < g.cocLevels; ++m)
 			pass(g.mipPS.Get(), g.cocRtv[m].Get(), std::max(td.Width >> m, 1u), std::max(td.Height >> m, 1u), { { 4, g.cocMip[m - 1].Get() } });
 		pass(g.tilePS.Get(), g.tile[0].rtv.Get(), gw, gh, { { 4, g.cocAll.Get() } });
@@ -956,10 +974,12 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		if ((g.probeCounter++ % 120) == 0)
 			MvmDebugLog_Linef("lens.frame",
 				"dof=%d flare=%d target=%ux%u samples=%u fmt=%d depth=%ux%u depthSamples=%u depthFmt=%d mode=%d shape=%d "
-				"depthCopy=%ux%u focus=%.1f fstop=%.2f maxBlurPx=%.1f taps=%d auto=%d iris=%d ghosts=%d streak=%.2f star=%.2f threshold=%.2f",
+				"depthCopy=%ux%u focus=%.1f fstop=%.2f band=%.0f maxBlurPx=%.1f taps=%d auto=%d iris=%d ghosts=%d streak=%.2f star=%.2f threshold=%.2f "
+				"smoke: absorbance=%ux%u spheres=%d camera=%d used=%d",
 				(int)dofOn, (int)flareOn, td.Width, td.Height, td.SampleDesc.Count, (int)fmt, dd.Width, dd.Height,
-				dd.SampleDesc.Count, (int)dd.Format, (int)L[DofMode], (int)L[DofShape], g.dw, g.dh, L[DofFocus], L[DofFstop], maxPx,
-				TapCount(L), (int)autoFocus, (int)g.irisLoaded, (int)L[FlareGhosts], L[FlareStreak], L[FlareStar], L[FlareThreshold]);
+				dd.SampleDesc.Count, (int)dd.Format, (int)L[DofMode], (int)L[DofShape], g.dw, g.dh, L[DofFocus], L[DofFstop], L[DofRange], maxPx,
+				TapCount(L), (int)autoFocus, (int)g.irisLoaded, (int)L[FlareGhosts], L[FlareStreak], L[FlareStar], L[FlareThreshold],
+				smoke.absorbance ? smoke.width : 0u, smoke.absorbance ? smoke.height : 0u, smoke.count, (int)smoke.haveCamera, smokeCount);
 	}
 	std::lock_guard<std::mutex> lock(g_mutex);
 	g_status = "Rendering";

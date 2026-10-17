@@ -49,13 +49,32 @@ case it counts as sitting 30 units from the lens.
   is `c = f² |d − s| / (N d (s − f))` in millimetres (world units are inches, 25.4 mm), turned into
   pixels through a 36 mm sensor width, so a wider aperture (lower f-number) blurs more. There is no
   focal-length setting. Blur strength is the f-stop. **Auto** eases toward whatever sits in the middle
-  of the screen (a 1×1 GPU pass, nine depth taps, nearest-cluster average, fixed pull of 6 per second,
-  wall-clock so it also pulls while paused).
+  of the screen (a 1×1 GPU pass, nine depth taps, nearest-cluster average, wall-clock so it also pulls
+  while paused). *Focus speed* (`dof.focusSpeed`, 0.25 to 30 per second, default 6) is how fast:
+  each frame moves `1 - exp(-speed × dt)` of the way (`AutofocusStep`), so a pull takes the same time at
+  any frame rate, and 30 jumps in one frame.
+  *Sharp band* (`dof.range`, units, default 0) keeps everything that close to the focus distance
+  perfectly sharp. Past the band the blur grows as it would from the focus distance, moved out by the
+  band (`SharpBandDistance`), so it starts from zero at the band's edge.
 - *Zones*: four absolute distances (fully blurred / sharp from / sharp until / fully blurred),
   smooth-stepped between.
 
-Both cap at *Largest blur* (pixels on a 1080p frame, scaled with the resolution). *Show → Focus plane*
-paints the sharp region magenta, and *Blur map* paints near blur orange and far blur blue.
+Both cap at *Largest blur* (pixels on a 1080p frame, scaled with the resolution). *Show → Focus*
+paints the sharp region magenta, *Blur map* paints near blur orange and far blur blue, and *Zebra*
+draws diagonal stripes over whatever blurs less than half a pixel, on the finished picture.
+
+**Smoke.** CS2 draws smokes without depth, so the depth buffer under a smoke is the wall behind it. A
+smoke used to be blurred at the wall's distance, so the background's blur showed through it instead of
+stopping at it. Now each pixel also reads CS2's OIT absorbance (`b0`; `exp(-b0)` of the surface still
+shows, captured from `mboit_mixed_combine` in `RenderSystemDX11Hooks.cpp`) and the detonated smokes as
+spheres (`Environment::CaptureSmokeVolumes`, collected for the lens even with the Environment off). The
+smoke's distance is where its light comes from along the ray: the sphere entry plus the mean depth of a
+uniform cloud of that absorbance (`SmokeSeenDepth`; the middle of a haze, near the front of a dense
+cloud). A ray that is covered but misses every sphere uses the nearest smoke's near edge. The pixel's
+blur is the smoke's over the surface's in proportion to coverage, signed by the dominant layer
+(`SmokeBlendCoc`), so no sharp ring forms at a smoke's edge. Autofocus counts a dense smoke (over half
+coverage) at the focus point as what it is looking at. With no absorbance or no smoke positions the
+depth buffer is the whole truth, as before.
 
 **The gather.** Scatter-as-gather bokeh. Per pixel, 48, 96 or 192 spiral taps are read, and their radius
 comes from a 16-pixel tile maximum of the blur radius (dilated). An empty area therefore costs nothing,
@@ -120,8 +139,11 @@ A reference simulation of the pass (a numpy port of the gather on a synthetic fr
 
 **The iris.** This is what a point of light becomes: Circle, Polygon (3 to 12 blades, blade curve), Star,
 Heart, Ring (mirror lens with a hole), or Custom (five built-in shapes, or your own black-and-white image).
-Anamorphic squeeze stretches every disc into a vertical oval at constant area. A bright rim brightens the
-disc edge.
+Anamorphic squeeze stretches every disc into a vertical oval at constant area. *Blade curve* runs from -1
+to 1: 1 is a circle, 0 hard blades, and below 0 the blades bow inward into a curved star with the same
+number of points (every vertex stays on the circle, a side's middle comes in to `2 cos(pi/n) - 1` at -1).
+*Rim* runs from -1 to 3: above 0 it brightens the disc edge (spherical aberration), below 0 the light
+gathers in the middle and fades toward the edge (`1 + rim × u²`), a soft creamy disc.
 
 **Orientation:** a gather draws the kernel reflected through its centre, so the kernel is built as a half
 turn of the shape you see. Shapes are designed on screen. A polygon or star has a point at the top, the
@@ -135,17 +157,18 @@ and is as big as a hexagon.
 so they only look like hearts and hexagons once a disc is a few dozen pixels across. Set the focus close,
 for example `dof.focus 25`, `dof.fstop 1`, `dof.maxBlur 90`, to get discs 150 px wide.
 
-**Settings.** `dof.on`, `dof.mode` (0 lens, 1 zones), `dof.auto`, `dof.focus`, `dof.fstop`,
-`dof.maxBlur`, `dof.nearStart`, `dof.nearEnd`, `dof.farStart`, `dof.farEnd`, `dof.shape` (0 circle,
-1 polygon, 2 star, 3 heart, 4 ring, 5 custom), `dof.blades`, `dof.rotation`, `dof.roundness`,
-`dof.squeeze`, `dof.edge`, `dof.gamma`, `dof.quality` (48 / 96 / 192 taps), `dof.weapon`, `dof.debug`.
-That is twenty settings. These are fixed in `LensFxMath.h` (and
-mirrored in the HLSL): the focal length (50 mm), the autofocus point (screen centre) and pull speed
-(6/s), the weapon distance (30 units), the rim width and the Ring hole. Settings are session-local.
+**Settings.** `dof.on`, `dof.mode` (0 lens, 1 zones), `dof.auto`, `dof.focusSpeed`, `dof.focus`,
+`dof.fstop`, `dof.range`, `dof.maxBlur`, `dof.nearStart`, `dof.nearEnd`, `dof.farStart`, `dof.farEnd`,
+`dof.shape` (0 circle, 1 polygon, 2 star, 3 heart, 4 ring, 5 custom), `dof.blades`, `dof.rotation`,
+`dof.roundness`, `dof.squeeze`, `dof.edge`, `dof.gamma`, `dof.quality` (48 / 96 / 192 taps),
+`dof.weapon`, `dof.debug` (1 blur map, 2 focus, 3 zebra). That is twenty-two settings. These are fixed
+in `LensFxMath.h` (and mirrored in the HLSL): the focal length (50 mm), the autofocus point (screen
+centre), the weapon distance (30 units), the rim width and the Ring hole. Settings are session-local.
 
 **Panel.** DEPTH OF FIELD has two pages, with at most eight controls on either. *Focus* holds the look,
-the Manual / Auto / Zones row, focus distance and aperture (or the four zone distances), largest blur,
-blur the weapon (hidden in Zones to keep the page at eight), and *Show*. *Bokeh* starts with the gamma,
+the Manual / Auto / Zones row, focus distance (Manual) or focus speed (Auto), aperture and sharp band
+(or the four zone distances), largest blur, blur the weapon (hidden in Zones to keep the page at eight),
+and *Show*. *Bokeh* starts with the gamma,
 then the shape and only the adjustments that mean something for it: blades for polygon and star, blade
 curve for polygon, rotation for anything with an orientation, and the custom-shape picker for Custom.
 Squeeze, rim and quality follow.

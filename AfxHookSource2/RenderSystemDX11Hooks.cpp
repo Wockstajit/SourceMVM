@@ -116,6 +116,8 @@ bool g_bCompositeSmoke = false;
 bool g_bExpectPresent = false;
 ID3D11RenderTargetView* g_BeforeUiRT = nullptr;
 Filmmaker::Environment::Frame g_EnvironmentFrame; // pass-local snapshot, render thread only
+// The smokes for depth of field while the Environment (which normally collects them) is off. Render thread.
+std::vector<Filmmaker::Environment::SmokeVolume> g_LensSmokes;
 
 // ---- hook cost accounting --------------------------------------------------------------------
 // `mirv_filmmaker health` reports how much of a frame the detours themselves take, EXCLUDING
@@ -2883,6 +2885,9 @@ private:
 // so this logs which pixel shaders run in the window and which targets they write, to find the
 // main-view smoke coverage. One line per unique shader+target signature, capped.
 static bool g_bSmokeWindow = false;
+// Whether this frame keeps CS2's smoke absorbance: the Environment uses it, and depth of field blurs a
+// smoke at its own distance with it. Decided once per frame when the smoke window opens.
+static bool g_bSmokeAbsorbanceWanted = false;
 static void SmokeWindowProbe(ID3D11DeviceContext* ctx, const char* shaderName) {
     if (!g_bSmokeWindow || !Filmmaker::MvmDebugLog_Active() || !ctx) return;
     static std::set<std::string> seen;
@@ -3048,6 +3053,7 @@ public:
         g_SmokeAbsorbance.OnEndFrame(); // also resets seeks/multiple views BEFORE any capture
         Filmmaker::Environment::SetSmokeAbsorbance(nullptr, 0, 0);
         g_bSmokeWindow = true;
+        g_bSmokeAbsorbanceWanted = g_EnvironmentFrame.active || Filmmaker::LensFx_DofOn();
         g_bDetectSmoke =
             g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade && g_bReShadeCompositeSmoke
             || g_bCompositeSmoke
@@ -3066,7 +3072,7 @@ public:
 
     virtual void OnCallback(void) {
         MaybeCaptureSmokeDepth();
-        if (g_EnvironmentFrame.active)
+        if (g_bSmokeAbsorbanceWanted)
             if (auto ctx = g_RenderCommands.RenderThread_GetContext())
                 g_SmokeAbsorbance.Capture(ctx);
         g_bDetectSmoke = false;
@@ -3332,10 +3338,26 @@ public:
                 g_bInOwnDraw = true;
                 // Depth of field / bokeh / lens flare: after every world addition, before the recorder
                 // and the scaled preview, so it is in the recorded frame and never on the HUD.
-                if (Filmmaker::LensFx_Active())
+                if (Filmmaker::LensFx_Active()) {
+                    // The smokes in front of the world, so the blur stops at a smoke instead of showing through it.
+                    Filmmaker::LensSmoke smoke;
+                    smoke.absorbance = g_SmokeAbsorbance.Get(smoke.width, smoke.height);
+                    const auto& smokes = g_EnvironmentFrame.active ? g_EnvironmentFrame.smokes : g_LensSmokes;
+                    float spheres[Filmmaker::Lens::kLensMaxSmokes * 4] = {};
+                    smoke.count = (int)(std::min)(smokes.size(), (size_t)Filmmaker::Lens::kLensMaxSmokes);
+                    for (int i = 0; i < smoke.count; ++i) {
+                        spheres[i * 4] = smokes[i].center.x; spheres[i * 4 + 1] = smokes[i].center.y;
+                        spheres[i * 4 + 2] = smokes[i].center.z; spheres[i * 4 + 3] = smokes[i].radius;
+                    }
+                    smoke.spheres = spheres;
+                    const auto& eye = g_EnvironmentFrame.camera;
+                    smoke.camera[0] = eye.x; smoke.camera[1] = eye.y; smoke.camera[2] = eye.z;
+                    smoke.haveCamera = g_EnvironmentFrame.hasWorldToClip
+                        && std::isfinite(eye.x) && std::isfinite(eye.y) && std::isfinite(eye.z);
                     Filmmaker::LensFx_Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                         g_EnvironmentFrame.hasWorldToClip ? g_EnvironmentFrame.worldToClip.data() : nullptr,
-                        g_ViewPort.MinDepth, g_ViewPort.MaxDepth);
+                        g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke);
+                }
                 // Render workspace live Depth / Normal view: last, so it replaces the finished scene.
                 AfxRenderLivePassPreview(pDeviceContext, pRenderTargetViews[0]);
                 g_bInOwnDraw = wasOwnDraw;
@@ -3577,13 +3599,13 @@ void STDMETHODCALLTYPE New_PSSetShader(ID3D11DeviceContext* This,
 		UINT shaderNameSize = 0;
 		const bool needShaderName = 2 <= g_iRenderContextDebug
 			|| g_bDetectSmoke
-			|| (g_bSmokeWindow && (g_EnvironmentFrame.active || Filmmaker::MvmDebugLog_Active()))
+			|| (g_bSmokeWindow && (g_bSmokeAbsorbanceWanted || Filmmaker::MvmDebugLog_Active()))
 			|| Filmmaker::ShadowMapProbe_Armed();
 		const bool hasShaderName = needShaderName
 			&& AfxReadPixelShaderName(pPixelShader, shaderName, sizeof(shaderName), shaderNameSize);
 		Filmmaker::ShadowMapProbe_NotePixelShader(pPixelShader, hasShaderName ? shaderName : "");
 		SmokeWindowProbe(This, hasShaderName ? shaderName : "");
-		if (g_bSmokeWindow && g_EnvironmentFrame.active) g_SmokeAbsorbance.Note(This, hasShaderName ? shaderName : "");
+		if (g_bSmokeWindow && g_bSmokeAbsorbanceWanted) g_SmokeAbsorbance.Note(This, hasShaderName ? shaderName : "");
         if(2 <= g_iRenderContextDebug) {
 			advancedfx::Message("AFXDEBUG: New_PSSetShader(0x%016x \"%s\" [%lu],0x%016x,%u)\n",
 				pPixelShader, hasShaderName ? shaderName : "", shaderNameSize,
@@ -8436,8 +8458,14 @@ void RenderSystemDX11_EngineThread_Prepare() {
         memcpy(environmentWorldToClip.data(), g_WorldToScreenMatrix.m, sizeof(g_WorldToScreenMatrix.m));
         auto environmentFrame = Filmmaker::Environment::CaptureFrame(environmentProjection, environmentWorldToClip);
         environmentFrame.exporting = AfxStreams_IsRcording();
-        queue.Push([environmentFrame]() {
+        // Depth of field blurs a smoke at its own distance, so it needs the smokes even while the
+        // Environment, which collects them for its own frame, is off.
+        std::vector<Filmmaker::Environment::SmokeVolume> lensSmokes;
+        if (!environmentFrame.active && Filmmaker::LensFx_DofOn())
+            Filmmaker::Environment::CaptureSmokeVolumes(lensSmokes);
+        queue.Push([environmentFrame, lensSmokes]() {
             g_EnvironmentFrame = environmentFrame;
+            g_LensSmokes = lensSmokes;
             Filmmaker::Environment::PrepareNativeMaterialFrame(environmentFrame);
             Filmmaker::Environment::SetLightingProofShadowPass([](ID3D11DeviceContext* ctx,const Filmmaker::Environment::Frame& frame,Filmmaker::Environment::Matrix* matrices,ID3D11ShaderResourceView** atlas){
                 const bool own=g_bInOwnDraw;g_bInOwnDraw=true;

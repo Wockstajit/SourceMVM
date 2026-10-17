@@ -175,6 +175,9 @@ std::vector<PickBox> ScenePickBoxes();
 // 0 = the click picked something else or nothing: stop editing.
 void SelectInView(int id);
 Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip);
+// The detonated smokes as spheres (at most Frame::kMaxSmokes), whether or not the Environment is on:
+// depth of field reads them too (LensSmoke). Main thread.
+void CaptureSmokeVolumes(std::vector<SmokeVolume> &out);
 void SetRenderStatus(const char *status, bool drawn = false);
 // Scene object rigs (Filmmaker/Movie/SceneRig.cpp). The loaded map's placed objects as authored
 // (their rest pose, before any rig moves them); empty while the scene belongs to another map.

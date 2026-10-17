@@ -424,7 +424,7 @@
       // minimum). Defaults are the parameter table's in Lens/LensFxMath.h; both effects ship OFF.
       // dofDefault / flareDefault dim each card's Reset.
       lens: {
-        'dof.on': 0, 'dof.mode': 0, 'dof.auto': 0, 'dof.focus': 400, 'dof.fstop': 2, 'dof.maxBlur': 40,
+        'dof.on': 0, 'dof.mode': 0, 'dof.auto': 0, 'dof.focusSpeed': 6, 'dof.focus': 400, 'dof.fstop': 2, 'dof.range': 0, 'dof.maxBlur': 40,
         'dof.nearStart': 60, 'dof.nearEnd': 180, 'dof.farStart': 600, 'dof.farEnd': 2400,
         'dof.shape': 0, 'dof.blades': 6, 'dof.rotation': 0, 'dof.roundness': 0.12, 'dof.squeeze': 1,
         'dof.edge': 0, 'dof.gamma': 6, 'dof.quality': 1, 'dof.weapon': 0, 'dof.debug': 0,

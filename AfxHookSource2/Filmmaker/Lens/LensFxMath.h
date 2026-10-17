@@ -27,8 +27,10 @@ namespace Filmmaker::Lens {
 	X(DofOn,          "dof.on",          0,     1,     0,     true)  \
 	X(DofMode,        "dof.mode",        0,     1,     0,     true)  /* 0 lens (focus + f-stop), 1 near/far zones */ \
 	X(DofAuto,        "dof.auto",        0,     1,     0,     true)  /* focus on whatever is at the middle of the screen */ \
+	X(DofFocusSpeed,  "dof.focusSpeed",  0.25f, 30,    6,     false) /* how fast autofocus moves to a new distance (1/s); 30 is instant */ \
 	X(DofFocus,       "dof.focus",       10,    30000, 400,   false) /* world units */ \
 	X(DofFstop,       "dof.fstop",       0.7f,  32,    2.0f,  false) \
+	X(DofRange,       "dof.range",       0,     5000,  0,     false) /* units either side of the focus distance that stay perfectly sharp */ \
 	X(DofMaxBlur,     "dof.maxBlur",     1,     90,    40,    false) /* px at 1080p, the largest disc */ \
 	/* ---- zone lens: absolute distances in world units ---- */ \
 	X(DofNearStart,   "dof.nearStart",   0,     20000, 60,    false) /* fully blurred at or closer than this */ \
@@ -39,14 +41,14 @@ namespace Filmmaker::Lens {
 	X(DofShape,       "dof.shape",       0,     5,     0,     true)  /* IrisShape */ \
 	X(DofBlades,      "dof.blades",      3,     12,    6,     true) \
 	X(DofRotation,    "dof.rotation",    -180,  180,   0,     false) \
-	X(DofRoundness,   "dof.roundness",   0,     1,     0.12f, false) /* 0 hard blades, 1 circle */ \
+	X(DofRoundness,   "dof.roundness",   -1,    1,     0.12f, false) /* -1 blades bent in (a star), 0 hard blades, 1 circle */ \
 	X(DofSqueeze,     "dof.squeeze",     1,     3,     1,     false) /* anamorphic: vertical ovals */ \
-	X(DofEdge,        "dof.edge",        0,     3,     0,     false) /* bright rim, like a spherical-aberration disc */ \
+	X(DofEdge,        "dof.edge",        -1,    3,     0,     false) /* below 0 a soft centre-weighted disc, above 0 a bright rim (spherical aberration) */ \
 	/* ---- the bokeh gamma: how far small bright lights are lifted before they are blurred ---- */ \
 	X(DofGamma,       "dof.gamma",       0,     12,    6,     false) /* lift at pure white, 1.75 stops per unit (HighlightBoost) */ \
 	X(DofQuality,     "dof.quality",     0,     2,     1,     true)  /* 32 / 64 / 128 taps */ \
 	X(DofWeapon,      "dof.weapon",      0,     1,     0,     true)  /* the viewmodel is blurred too */ \
-	X(DofDebug,       "dof.debug",       0,     2,     0,     true)  /* 1 blur map, 2 focus plane */ \
+	X(DofDebug,       "dof.debug",       0,     3,     0,     true)  /* 1 blur map, 2 focus plane, 3 focus zebra */ \
 	/* ---- LENS FLARE: fourteen controls. The two tints are indices into the palettes below. ---- */ \
 	X(FlareOn,        "flare.on",        0,     1,     0,     true)  \
 	X(FlareIntensity, "flare.intensity", 0,     2,     1,     false) /* how strong the whole flare is; it never blows past white */ \
@@ -139,7 +141,7 @@ constexpr float kFarSky = 60000.0f;        // distance assigned to sky / the 3D 
 constexpr float kFocalLengthMm = 50.0f;    // the lens is a 50 mm; blur strength is set by the f-stop
 constexpr float kAutofocusX = 0.5f;        // autofocus samples the middle of the screen ...
 constexpr float kAutofocusY = 0.5f;
-constexpr float kAutofocusPull = 6.0f;     // ... and eases toward it at this rate (1/s)
+constexpr float kAutofocusInstant = 30.0f; // ... and eases toward it at dof.focusSpeed per second; this speed jumps in one frame
 constexpr float kWeaponDistance = 30.0f;   // where the first-person weapon counts as being, in units
 constexpr float kEdgeSoftness = 0.22f;     // width of the bright rim (dof.edge), as a fraction of the radius
 constexpr float kRingHole = 0.55f;         // size of the hole of the Ring iris, as a fraction of the radius
@@ -147,7 +149,27 @@ constexpr int   kCocMipLevels = 6;         // mip chain of the linear-light imag
 constexpr float kGatherFootprint = 0.9f;   // tap footprint as a multiple of the tap spacing (see GatherLod)
 constexpr float kGatherJitter = 1.0f;      // per-pixel rotation of the tap spiral, 0 (fixed) to 1 (white noise); a fixed pattern leaves a lattice of dots
 
+// How far autofocus moves from where it sits toward what is now at the focus point in a frame `dt`
+// seconds long, at dof.focusSpeed `speed` (per second): exponential, so it slows as it arrives and
+// the same pull takes the same time at any frame rate. The top of the range snaps in one frame.
+inline float AutofocusStep(float speed, float dt) {
+	if (speed >= kAutofocusInstant) return 1.0f;
+	if (!(dt > 0.0f) || !(speed > 0.0f)) return 0.0f;
+	return 1.0f - std::exp(-speed * dt);
+}
+
 // ---- circle of confusion ------------------------------------------------------------------
+
+// dof.range: a band either side of the focus distance that stays perfectly sharp, so a subject with
+// depth (a player, a doorway) is sharp all the way through. Past the band the blur grows as it would
+// from the focus distance, only moved out by the band: the distance is pulled in by `range` toward
+// the focus, so the blur starts at zero at the band's edge with no step.
+inline float SharpBandDistance(float distance, float focus, float range) {
+	if (!(range > 0.0f)) return distance;
+	if (distance > focus + range) return distance - range;
+	if (distance < focus - range) return distance + range;
+	return focus;
+}
 
 // Signed blur radius in PIXELS of an image `heightPx` tall for a surface `distance` units from
 // the camera (distance along the view axis, not radial). Positive = behind the focus (far
@@ -162,7 +184,7 @@ inline float CircleOfConfusion(const Values& L, float distance, float focus, flo
 		// on the sensor. That is turned into pixels through the sensor width and halved.
 		const float f = kFocalLengthMm;
 		const float s = (std::max)(focus * kMillimetresPerUnit, f * 1.05f);
-		const float d = (std::max)(distance * kMillimetresPerUnit, 1.0f);
+		const float d = (std::max)(SharpBandDistance(distance, focus, L[DofRange]) * kMillimetresPerUnit, 1.0f);
 		const float cMm = f * f * std::fabs(d - s) / (L[DofFstop] * d * (s - f));
 		const float radiusPx = 0.5f * cMm / kSensorWidthMm * widthPx;
 		signedPx = (d >= s) ? radiusPx : -radiusPx;
@@ -275,7 +297,9 @@ inline float PolygonRadius(float theta, int blades, float rotation) {
 }
 
 // Blend between hard blades and a circle. Real iris blades are arcs, so a slight roundness is the
-// natural look and 0 is the harsh CG polygon.
+// natural look and 0 is the harsh CG polygon. Below 0 the blades bow INWARD: every vertex stays on
+// the unit circle and the middle of each side is pulled toward the centre (2 cos(pi/n) - 1 at -1),
+// a curved star that keeps the blade count.
 inline float RoundedPolygonRadius(float theta, int blades, float rotation, float roundness) {
 	const float p = PolygonRadius(theta, blades, rotation);
 	return p + (1.0f - p) * roundness;
@@ -364,8 +388,67 @@ inline KernelTap KernelSample(const Values& L, int i, int n, float jitter) {
 		const float soft = kEdgeSoftness;
 		const float t = (std::min)((std::max)((u - (1.0f - soft)) / soft, 0.0f), 1.0f);
 		w *= 1.0f + L[DofEdge] * t * t * (3.0f - 2.0f * t);
+	} else if (L[DofEdge] < 0.0f) {
+		// The other side of the same control: light gathered toward the middle of the disc and fading
+		// toward its edge, the soft "creamy" disc of an over-corrected lens. At -1 the rim reaches zero.
+		w *= 1.0f + L[DofEdge] * u * u;
 	}
 	return { x, y, u, w };
+}
+
+// ---- smoke in front of the world -----------------------------------------------------------
+//
+// CS2 draws its smokes without depth, so the depth buffer under a smoke is the wall behind it. A
+// smoke in focus was blurred at the WALL's distance: it went as soft as the background, and the
+// background's blur showed through it instead of stopping at it. Two things CS2 already provides fix
+// that: its OIT pass leaves the absorbance b0 of everything transparent in front of each pixel
+// (exp(-b0) of the surface still shows; RenderSystemDX11Hooks.cpp), and each detonated smoke is
+// placed as a sphere (Environment::SmokeVolume). The smoke is blurred at the distance its light
+// comes from, blended with the surface's blur by how much of the pixel the smoke covers. The HLSL
+// mirrors these as SmokeSpan / SmokeSeenDepth / SmokeBlendCoc.
+
+constexpr int kLensMaxSmokes = 8;          // spheres the shader reads (Environment::Frame::kMaxSmokes)
+constexpr float kSmokeMinCover = 0.02f;    // coverage below which a pixel counts as clear
+
+inline float SmokeCover(float absorbance) {
+	return absorbance > 0.0f && std::isfinite(absorbance) ? 1.0f - std::exp(-absorbance) : 0.0f;
+}
+
+// The stretch [t0, t1] of a ray from `cam` along the unit vector `dir` that lies inside the sphere
+// (`c`, `r`), clipped to [0, maxT] (the surface the ray stops at). False when the ray misses it.
+inline bool SmokeSpan(const float cam[3], const float dir[3], const float c[3], float r, float maxT,
+	float& t0, float& t1) {
+	const float o[3] = { cam[0] - c[0], cam[1] - c[1], cam[2] - c[2] };
+	const float b = o[0] * dir[0] + o[1] * dir[1] + o[2] * dir[2];
+	const float cc = o[0] * o[0] + o[1] * o[1] + o[2] * o[2] - r * r;
+	const float disc = b * b - cc;
+	if (!(r > 0.0f) || disc <= 0.0f) return false;
+	const float h = std::sqrt(disc);
+	t0 = (std::max)(-b - h, 0.0f);
+	t1 = (std::min)(-b + h, maxT);
+	return t1 > t0;
+}
+
+// How far into a uniform smoke `span` units long holding absorbance `b0` the light that reaches the
+// camera comes from, on average. Each slice of the smoke gives off light in proportion to its
+// density and is dimmed by everything in front of it, so the mean is
+//   (span / b0) * (1 - (1 + b0) e^-b0) / (1 - e^-b0)
+// -- the middle of the span for a thin haze, close to its front for a dense cloud.
+inline float SmokeSeenDepth(float span, float b0) {
+	if (!(span > 0.0f)) return 0.0f;
+	if (!(b0 > 1e-3f)) return 0.5f * span;
+	const float e = std::exp(-b0);
+	return span / b0 * (1.0f - (1.0f + b0) * e) / (1.0f - e);
+}
+
+// The blur of a pixel a smoke covers by `cover`: the smoke's blur over the surface's in proportion
+// to coverage, signed by whichever layer dominates. A plain lerp between a foreground smoke's
+// negative blur and a background wall's positive one passes through zero, and would draw a sharp
+// ring around every smoke.
+inline float SmokeBlendCoc(float surfaceCoc, float smokeCoc, float cover) {
+	const float w = (std::min)((std::max)(cover, 0.0f), 1.0f);
+	const float size = std::fabs(surfaceCoc) + (std::fabs(smokeCoc) - std::fabs(surfaceCoc)) * w;
+	return ((w > 0.5f ? smokeCoc : surfaceCoc) < 0.0f) ? -size : size;
 }
 
 inline int TapCount(const Values& L) {
