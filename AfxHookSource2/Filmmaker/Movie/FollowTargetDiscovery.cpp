@@ -325,6 +325,7 @@ bool FollowCamera::SelectCandidate(const FollowTargetCandidate& candidate) {
 	// Keep the requested mount when changing weapons/targets; transient fallback belongs
 	// to the resolver, not the saved framing. Returning to the model restores its point.
 	m_haveLastRawTarget = false;
+	m_highlightTarget = -2; // every pick shows the target box again for a few seconds (PublishTargetHighlight)
 	m_lastMessage = "Selected " + candidate.name + ".";
 	advancedfx::Message("[followcam] target selected: type=%s entity=%d name=%s distance=%.1f.\n",
 		FollowTargetTypeName(m_state.targetType), candidate.entityIndex, candidate.name.c_str(), candidate.distance);
