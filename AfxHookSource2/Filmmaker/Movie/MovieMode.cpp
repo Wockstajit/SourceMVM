@@ -342,12 +342,7 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 			MouseCapture_TakeForCamera("right-click look");
 			if (MvmDebugLog_Active())
 				MvmDebugLog_Linef("input.uiclick", "button=1 x=%d y=%d -> look around (environment view)", x, y);
-		} else if (!down && m_rightLook) {
-			m_rightLook = false;
-			EnqueueCmd("mirv_filmmaker camtl cursor on");
-			if (MvmDebugLog_Active())
-				MvmDebugLog_Linef("input.uiclick", "button=1 released -> back to the environment editor");
-		}
+		} else if (!down) OnRightButtonUp();
 	}
 	// Follow Camera reposition uses the same free-look + left-click placement model
 	// as path-marker repositioning.
@@ -407,6 +402,13 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 	// Otherwise never consume clicks: CS2 steps players or drags its camera with them, and the
 	// native demo UI (demoui) needs clicks to reach Panorama.
 	return false;
+}
+
+void MovieMode::OnRightButtonUp() {
+	if (!m_rightLook.exchange(false)) return;
+	EnqueueCmd("mirv_filmmaker camtl cursor on");
+	if (MvmDebugLog_Active())
+		MvmDebugLog_Linef("input.uiclick", "button=1 released -> back to the environment editor");
 }
 
 bool MovieMode::OnKey(int vkey, bool down) {

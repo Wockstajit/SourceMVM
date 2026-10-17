@@ -63,6 +63,10 @@ static bool CancelRawNotch(int sign) {
 void WindowInputHooks_FilterRawInput(RAWINPUT* raw) {
 	if (!raw || raw->header.dwType != RIM_TYPEMOUSE) return;
 	RAWMOUSE& m = raw->data.mouse;
+	// While the game holds the mouse for a right-click look it reads raw input only: no
+	// WM_RBUTTONUP arrives, and GetAsyncKeyState does not track the button either. The raw release
+	// is the one that always comes, so it ends the look (MovieMode::OnRightButtonUp).
+	if (m.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_UP) Filmmaker::MovieInput_RightButtonUp();
 	if (!(m.usButtonFlags & RI_MOUSE_WHEEL)) return;
 	if (!s_directorOwnsWheel.load(std::memory_order_relaxed)) return;
 	const short delta = (short)m.usButtonData;

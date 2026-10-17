@@ -201,13 +201,18 @@ void ConfigHud::OnEnter() {
 }
 
 void ConfigHud::OnExit() {
-	// Hand the mouse back to the game. Only the live panel's own flag: the demo panel never
-	// owned the timeline cursor exclusively, so clearing it here would yank the cursor from
-	// whatever else (editor, timeline) is still using it.
+	// Hand the mouse back to the game: the live panel clears its own flag.
 	if (IsLive())
 		m_liveCursor = false;
 	// Parks the dock: the overlays must not outlive the workspace showing them.
 	TimelineDock_Release(DockHost::Config);
+	// The demo panel shares the timeline's UI-mouse mode. Once its dock is released the timeline
+	// is hosted only if the Camera Editor owns it, and then the editor keeps the cursor. Otherwise
+	// plain demo viewing has no UI mode (camtl cursor refuses it): left on, it made
+	// WindowInputHooks skip every game click, so after leaving Config in UI mode -- the
+	// ENVIRONMENT tab keeps the left button for editing -- neither button reached CS2.
+	if (!IsLive() && !CameraTimelineHudRef().EditorHosted())
+		CameraTimelineHudRef().SetCursor(false);
 	// HudView is shared, persistent state -- CameraTimelineJs automatically restores the full
 	// game HUD when neither the editor nor this panel is open, so nothing to reset here.
 	MovieHudRef().SetVisible(m_prevMovieHud);

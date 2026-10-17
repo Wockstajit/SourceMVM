@@ -135,3 +135,15 @@ test("Camera cards carry their Reset and their master switch in the header", () 
 test("Config no longer duplicates the native Video resolution workflow", () => {
   assert.doesNotMatch(configCamera, /WINDOW SIZE|ConfigWindowWidth|mirv_filmmaker window size/);
 });
+
+test("leaving Config hands the mouse back to the game, and a right-click look always ends", () => {
+  // Issue 41 follow-up: Config closed in UI mode (the ENVIRONMENT tab keeps the left button for
+  // editing) left the timeline cursor on, so GameClick skipped every click in plain demo viewing.
+  // The dock re-asserts EditorHosted while Config holds it, so the reset must follow the release.
+  assert.match(configHud, /void ConfigHud::OnExit\(\)[\s\S]{0,400}TimelineDock_Release\(DockHost::Config\);[\s\S]{0,600}if \(!IsLive\(\) && !CameraTimelineHudRef\(\)\.EditorHosted\(\)\)\s*CameraTimelineHudRef\(\)\.SetCursor\(false\)/);
+  // While the game holds the mouse no WM_RBUTTONUP arrives and GetAsyncKeyState does not see the
+  // button (polling it ended every look one frame in), so the raw release ends the look.
+  assert.match(input, /void WindowInputHooks_FilterRawInput[\s\S]{0,600}RI_MOUSE_RIGHT_BUTTON_UP\) Filmmaker::MovieInput_RightButtonUp\(\)/);
+  assert.doesNotMatch(input, /GetAsyncKeyState\(VK_RBUTTON\)[^;]*RightButton/);
+  assert.match(movieMode, /void MovieMode::OnRightButtonUp\(\)\s*\{\s*if \(!m_rightLook\.exchange\(false\)\) return;\s*EnqueueCmd\("mirv_filmmaker camtl cursor on"\)/);
+});
