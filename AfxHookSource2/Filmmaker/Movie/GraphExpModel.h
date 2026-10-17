@@ -37,6 +37,7 @@ public:
 		bool active = false; // false => this side is linear (no handle)
 		double tx = 0.33;    // 0..1 fraction of the segment toward the neighbour
 		double dv = 0.0;     // value offset from the owning keyframe's value
+		bool autoTan = false; // Auto Bezier: follows the neighbours (GraphCurve::Handle::autoTan)
 	};
 	struct Keyframe {
 		int id = 0;
@@ -138,6 +139,10 @@ public:
 	// auto tangents so the curves render smooth; smooth=false clears all handles back to straight
 	// lines. selectedOnly restricts it to the current selection.
 	void SetInterpAll(bool smooth, bool selectedOnly);
+	// Re-solve every Auto Bezier side from the keys as they are now, so a Smooth key keeps
+	// following its neighbours after any move, add, delete or value edit (AE's Auto Bezier).
+	// Sides a hand edit turned into plain Bezier are left alone. True when a handle changed.
+	bool RefreshAutoTangents();
 
 	// --- selection (ids) ---
 	void ClearSelection() { m_selected.clear(); }

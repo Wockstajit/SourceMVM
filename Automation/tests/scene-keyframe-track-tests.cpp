@@ -58,6 +58,24 @@ int main(int argc,char** argv) {try {
     track.data.fields[exposure.id][0].right={true,.3,.4};
     const auto encoded=Encode(track.data);TrackData restored;std::string error;
     Check(Decode(encoded,catalog,restored,error)&&Encode(restored)==encoded,"round trip ids handles colors assets arming");
+    {   // Smooth is AE's Auto Bezier: solved from the neighbours, kept through the file, and the
+        // slope of an angle follows the turn its segment really takes.
+        const double lo=exposure.min,span=exposure.max-exposure.min;
+        std::vector<Key> ks(3);
+        for(int i=0;i<3;++i){ks[i].id=900+i;ks[i].tick=100.0*i;ks[i].value={{lo+span*(i==0?.1:i==1?.3:.7)},{}};ks[i].left.autoTan=ks[i].right.autoTan=true;}
+        Check(RefreshAutoTangents(exposure,ks)&&!RefreshAutoTangents(exposure,ks),"auto handles solve once and then hold");
+        Check(std::fabs(ks[1].right.dv-(span*.6/200.0)*100.0/3.0)<1e-9&&ks[1].right.active&&ks[1].left.active,"Catmull-Rom slope at 1/3 influence");
+        Check(!ks[0].left.active&&ks[0].left.autoTan&&ks[0].right.active,"an end key has no outer handle but stays auto");
+        ks[1].right={true,.5,.01};ks[2].value.numbers[0]=lo+span*.9;RefreshAutoTangents(exposure,ks);
+        Check(!ks[1].right.autoTan&&std::fabs(ks[1].right.dv-.01)<1e-12&&ks[1].left.autoTan,"a hand-edited side is a plain Bezier the refresh leaves alone");
+        TrackData autoData;autoData.armed.insert(exposure.id);autoData.fields[exposure.id]=ks;autoData.nextId=903;TrackData autoBack;std::string autoError;
+        Check(Decode(Encode(autoData),catalog,autoBack,autoError)&&autoBack.fields[exposure.id][1].left.autoTan&&!autoBack.fields[exposure.id][1].right.autoTan,"handle kinds round trip");
+        std::vector<Key> turn(3);
+        const double deg[]={350,10,30};
+        for(int i=0;i<3;++i){turn[i].id=950+i;turn[i].tick=100.0*i;turn[i].value={{deg[i]},{}};turn[i].left.autoTan=turn[i].right.autoTan=true;}
+        RefreshAutoTangents(angle,turn);
+        Check(std::fabs(turn[1].right.dv-(40.0/200.0)*100.0/3.0)<1e-9,"an angle slopes the short way round");
+    }
     auto bad=encoded;auto pos=bad.find("\"version\":1");bad.replace(pos,11,"\"version\":2");Check(!Decode(bad,catalog,restored,error)&&Encode(restored)==encoded,"invalid version transactional");
     bad=encoded;pos=bad.find("\"value\":\"night\"");bad.replace(pos,15,"\"value\":false");Check(!Decode(bad,catalog,restored,error),"asset type rejected");
     auto corrupt=track.data;corrupt.fields[exposure.id].push_back(corrupt.fields[exposure.id][0]);Check(!Decode(Encode(corrupt),catalog,restored,error),"duplicate IDs rejected");

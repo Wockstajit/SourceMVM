@@ -9,7 +9,7 @@
 //   index.html?surface=cameraeditor&zoom=1       -- pin the stage to true 1:1 (default in bare mode)
 //   index.html?surface=confighud&act=Effects     -- run a sidebar action/state button by its label
 //   index.html?surface=cameraeditor&hold=1200    -- extra settle time in ms before ready
-//   index.html?surface=cameraeditor&cmd=mirv_filmmaker editor curveeditor timeline
+//   index.html?surface=cameraeditor&cmd=mirv_filmmaker dock timeline
 //                                                -- send console command(s), ';'-separated, after settle
 //   index.html?surface=demobar&drag=MirvSpeedRow,60 -- press on a panel's centre and drag it +60px
 //   index.html?surface=confighud&click=pid:LoopBtn -- hit-test and click a real Panorama control

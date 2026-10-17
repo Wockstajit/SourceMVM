@@ -150,7 +150,7 @@ void CameraEditorHud::OnEnter() {
 	tl.SetCursor(true); // start in UI-cursor so the inspector is immediately clickable
 
 	TimelineDock_Claim(DockHost::CameraEditor);
-	GraphEditorExperiment_Set(TimelineDock_Tab() == DockTab::Graph);
+	GraphEditorExperiment_Set(TimelineDock_Tab() == DockTab::Timeline);
 
 	// Do NOT hijack the camera on open. Opening the editor only shows the UI -- it must not
 	// enable free cam, pause, seek, or jump to a camera. Pre-select a key for the inspector

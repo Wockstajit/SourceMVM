@@ -13,17 +13,17 @@ namespace Filmmaker {
 // declaration rather than by including GraphEditorExperimentHud.h so this module keeps its
 // dependency on the graph down to the one call it actually makes.
 void GraphEditorExperiment_Set(bool enabled);
+bool GraphEditorExperiment_Enabled();
 
 namespace {
 
 DockTab g_tab = DockTab::Native;
 DockHost g_host = DockHost::None;
 
-// Design dock heights (Docs/panorama/panorama_ui_guide.md): the dock is
-// bottom-anchored and its height changes per tab.
+// Design dock heights (Docs/panorama/panorama_ui_guide.md), ribbon included: the dock is
+// bottom-anchored and its height changes per tab. TIMELINE is the 440px dock under the 36px ribbon.
 constexpr int kHeightNative = 126;
-constexpr int kHeightCamera = 196;
-constexpr int kHeightGraph = 416;
+constexpr int kHeightTimeline = 476;
 
 // The Camera Editor outranks CONFIG: it is the workspace that owns the whole screen, and opening
 // it closes CONFIG anyway. Without a rank, a frame in which both believe they are open would let
@@ -46,7 +46,7 @@ const char* HostName(DockHost host) {
 
 // EDGE-TRIGGERED, because these run every frame: only a CHANGE in who owns the dock, or a change
 // in who is being refused, is worth a line. A per-frame log here would bury the one transition
-// that explains "CAMERA / GRAPH did nothing, the native timeline stayed up".
+// that explains "TIMELINE did nothing, the native timeline stayed up".
 DockHost g_lastOwner = DockHost::None;
 DockHost g_lastRefused = DockHost::None;
 DockHost g_lastOrphanApply = DockHost::None;
@@ -57,39 +57,26 @@ void TimelineDock_SetTab(DockTab tab) { g_tab = tab; }
 DockTab TimelineDock_Tab() { return g_tab; }
 
 const char* TimelineDock_TabName() {
-	switch (g_tab) {
-	case DockTab::Camera: return "camera";
-	case DockTab::Graph: return "graph";
-	default: return "native";
-	}
+	return g_tab == DockTab::Timeline ? "timeline" : "native";
 }
 
 bool TimelineDock_ParseTab(const char* name, DockTab& out) {
 	if (!name) return false;
-	// The console has accepted these spellings since before the dock was shared; keep every one
-	// of them working, or a user's binds break for a refactor they cannot see.
 	if (0 == _stricmp(name, "native") || 0 == _stricmp(name, "cs2") || 0 == _stricmp(name, "off")
 		|| 0 == _stricmp(name, "regular")) {
 		out = DockTab::Native;
 		return true;
 	}
-	if (0 == _stricmp(name, "timeline") || 0 == _stricmp(name, "camera")) {
-		out = DockTab::Camera;
-		return true;
-	}
-	if (0 == _stricmp(name, "graph")) {
-		out = DockTab::Graph;
+	// The CAMERA and GRAPH tabs became the one TIMELINE; their names are gone with them.
+	if (0 == _stricmp(name, "timeline")) {
+		out = DockTab::Timeline;
 		return true;
 	}
 	return false;
 }
 
 int TimelineDock_HeightFor(DockTab tab) {
-	switch (tab) {
-	case DockTab::Camera: return kHeightCamera;
-	case DockTab::Graph: return kHeightGraph;
-	default: return kHeightNative;
-	}
+	return tab == DockTab::Timeline ? kHeightTimeline : kHeightNative;
 }
 
 int TimelineDock_Height() { return TimelineDock_HeightFor(g_tab); }
@@ -149,10 +136,8 @@ void TimelineDock_Pick(const char* name) {
 		return;
 	}
 	if (name && 0 == _stricmp(name, "toggle")) {
-		// Toggle flips between the two OVERLAYS, never into Native -- that is what the editor's
-		// old `curveeditor toggle` did, and a toggle that can land on "no editor" is a switch
-		// that sometimes does nothing visible.
-		g_tab = (g_tab == DockTab::Camera) ? DockTab::Graph : DockTab::Camera;
+		// With one editor tab left, toggle is REGULAR TIMELINE <-> TIMELINE.
+		g_tab = (g_tab == DockTab::Timeline) ? DockTab::Native : DockTab::Timeline;
 	}
 }
 
@@ -160,22 +145,21 @@ void TimelineDock_RunCommand(int argc, advancedfx::ICommandArgs* args, const cha
 	const char* arg = (argc >= 3) ? args->ArgV(2) : nullptr;
 	if (!arg) {
 		// The HOST matters as much as the tab: nothing applies the dock unless a workspace owns
-		// it, so "camera / nobody" is the signature of a panel that never gets told it is hosted
-		// and falls back to its standalone card.
+		// it, so "timeline / nobody" is the signature of a panel that never gets told it is hosted.
 		const char* hostName = g_host == DockHost::CameraEditor ? "camera editor"
 			: (g_host == DockHost::Config ? "config" : "nobody");
 		advancedfx::Message("%s dock is \"%s\" (height %d), hosted by %s"
-			" [timeline: hosted=%s visible=%s].\n", cmd,
+			" [native bar hosted=%s; timeline dock enabled=%s].\n", cmd,
 			TimelineDock_TabName(), TimelineDock_Height(), hostName,
 			CameraTimelineHudRef().EditorHosted() ? "yes" : "NO",
-			CameraTimelineHudRef().Visible() ? "yes" : "NO");
-		advancedfx::Message("usage: %s dock [native|camera|graph|toggle]\n", cmd);
+			GraphEditorExperiment_Enabled() ? "yes" : "NO");
+		advancedfx::Message("usage: %s dock [native|timeline|toggle]\n", cmd);
 		return;
 	}
 	DockTab before = g_tab;
 	TimelineDock_Pick(arg);
-	if (g_tab == before && 0 != _stricmp(arg, TimelineDock_TabName())) {
-		advancedfx::Warning("%s dock: unknown tab \"%s\" (native|camera|graph|toggle).\n", cmd, arg);
+	if (g_tab == before && 0 != _stricmp(arg, TimelineDock_TabName()) && 0 != _stricmp(arg, "toggle")) {
+		advancedfx::Warning("%s dock: unknown tab \"%s\" (native|timeline|toggle).\n", cmd, arg);
 		return;
 	}
 	advancedfx::Message("mirv_filmmaker: dock = %s.\n", TimelineDock_TabName());
@@ -191,14 +175,13 @@ void TimelineDock_Apply(DockHost host) {
 		return;
 	}
 	g_lastOrphanApply = DockHost::None;
-	const bool camera = g_tab == DockTab::Camera;
-	const bool graph = g_tab == DockTab::Graph;
-	// Re-asserted every frame on purpose (cheap): a stray timeline close or a HUD recreation
-	// would otherwise leave the workspace half torn down, which is the bug this mirrors from
-	// CameraEditorHud's own comment.
+	// Re-asserted every frame on purpose (cheap): a stray close or a HUD recreation would otherwise
+	// leave the workspace half torn down. The camera timeline stays HOSTED on both tabs (it owns the
+	// native bar's patches and the gameplay-HUD hide) but is never docked any more: the TIMELINE tab
+	// is the unified dock.
 	CameraTimelineHudRef().SetEditorHosted(true);
-	CameraTimelineHudRef().SetVisible(camera);
-	GraphEditorExperiment_Set(graph);
+	CameraTimelineHudRef().SetVisible(false);
+	GraphEditorExperiment_Set(g_tab == DockTab::Timeline);
 }
 
 }  // namespace Filmmaker

@@ -23,9 +23,7 @@ function Require-Text {
 }
 
 Require-Text 'AfxHookSource2\Filmmaker\Panorama\CameraEditorJs.h' 'var INSPECTOR_W = 430, BOTTOM_H = 176, BOTTOM_LIFT = 0;' 'editor uses widened/flush layout constants'
-Require-Text 'AfxHookSource2\Filmmaker\Panorama\CameraEditorJs.h' "bottomTab\('CAMERA', 'mirv_filmmaker editor curveeditor timeline'\)" 'bottom tab bar has Camera switch'
-Require-Text 'AfxHookSource2\Filmmaker\Panorama\CameraEditorJs.h' "bottomTab\('GRAPH', 'mirv_filmmaker editor curveeditor graph'\)" 'bottom tab bar has Graph switch'
-Require-Text 'AfxHookSource2\Filmmaker\Panorama\CameraEditorJs.h' "bottomTab\('REGULAR TIMELINE', 'mirv_filmmaker editor curveeditor native'\)" 'bottom tab bar has Regular Timeline switch'
+Require-Text 'AfxHookSource2\Filmmaker\Panorama\TimelineDockRibbonJs.h' "\['native', 'REGULAR TIMELINE'\], \['timeline', 'TIMELINE'\]" 'dock ribbon has the Regular Timeline and TIMELINE tabs'
 Require-Text 'AfxHookSource2\Filmmaker\Panorama\CameraEditorHud.h' 'BottomMode m_bottomMode = BottomMode::Native;' 'camera editor defaults to the Regular (native CS2) timeline'
 Require-Text 'AfxHookSource2\Filmmaker\Panorama\CameraEditorHud.cpp' 'GraphEditorExperiment_Set\(false\);' 'camera editor does not auto-open graph on entry'
 Require-Text 'AfxHookSource2\Filmmaker\Panorama\CameraEditorFollowInspectorJs.h' "targetDrop = customDrop" 'follow target dropdown exists'

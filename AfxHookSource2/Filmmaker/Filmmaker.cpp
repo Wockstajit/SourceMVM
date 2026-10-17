@@ -1231,11 +1231,7 @@ void CameraEditor_SetCursorMode(bool uiCursor) {
 void CameraEditor_SetScale(bool enabled) { CameraEditorHudRef().SetScale(enabled); }
 void CameraEditor_ToggleScale() { CameraEditorHudRef().ToggleScale(); }
 bool CameraEditor_ScaleActive() { return CameraEditorHudRef().ScaleEnabled(); }
-void CameraEditor_SetUseTimeline(bool useTimeline) { CameraEditorHudRef().SetUseTimeline(useTimeline); }
-void CameraEditor_ToggleUseTimeline() { CameraEditorHudRef().ToggleUseTimeline(); }
-void CameraEditor_SetNativeTimeline() {
-	CameraEditorHudRef().SetBottomMode(CameraEditorHud::BottomMode::Native);
-}
+void CameraEditor_SetNativeTimeline() { TimelineDock_SetTab(DockTab::Native); }
 const char* CameraEditor_HudViewName() {
 	switch (CameraEditorHudRef().GetHudView()) {
 	case CameraEditorHud::HudView::ShowAll: return "full";
@@ -1266,6 +1262,7 @@ void GraphEditorExperiment_Set(bool enabled) { GraphEditorExperimentHudRef().Set
 void GraphEditorExperiment_Toggle() { GraphEditorExperimentHudRef().Toggle(); }
 bool GraphEditorExperiment_Enabled() { return GraphEditorExperimentHudRef().Enabled(); }
 bool GraphEditorExperiment_OwnsView() { return GraphEditorExperimentHudRef().OwnsView(); }
+bool GraphEditorExperiment_Drive() { return GraphEditorExperimentHudRef().Drive(); }
 bool GraphEditorExperiment_WantsCursor() {
 	if (!GraphEditorExperimentHudRef().Enabled())
 		return false;

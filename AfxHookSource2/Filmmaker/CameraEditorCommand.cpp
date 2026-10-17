@@ -48,14 +48,6 @@ void CameraEditor_RunCommand(int argc, advancedfx::ICommandArgs* args, const cha
 		else Filmmaker::CameraEditor_ToggleScale();
 		advancedfx::Message("mirv_filmmaker: camera editor scaled preview %s (auto-off while recording).\n",
 			Filmmaker::CameraEditor_ScaleActive() ? "ON" : "off");
-	} else if (0 == _stricmp(arg, "curveeditor")) {
-		// ALIAS. The dock is shared with the CONFIG panel now, so its canonical verb is
-		// `mirv_filmmaker dock <tab>` (Filmmaker::TimelineDock_RunCommand). This spelling stays
-		// because it is in people's binds; both go through the same parser, so they cannot drift.
-		const char* a2 = (argc >= 4) ? args->ArgV(3) : "toggle";
-		Filmmaker::TimelineDock_Pick(a2);
-		if (Filmmaker::TimelineDock_Tab() != Filmmaker::DockTab::Native)
-			FocusEditorCameraIfAny();
 	} else if (0 == _stricmp(arg, "hud")) {
 		// Game-HUD visibility behind the editor: hide all / in-game (radar + HP/ammo, no
 		// spectator observer panel) / show all (full spectator HUD).

@@ -13,6 +13,7 @@
 // changing size, and one-shots have to die while loops keep going.
 
 #include "../../AfxHookSource2/Filmmaker/Movie/RageShake.h"
+#include "../../AfxHookSource2/Filmmaker/Movie/CamPathShakeRampMath.h"
 
 #include <cmath>
 #include <cstdio>
@@ -31,8 +32,9 @@ void Check(bool ok, const std::string& what) {
 	}
 }
 
-// Must match CamPathShake.cpp's AmplitudeFor / TimeScaleFor. Duplicated on purpose: if the
-// mapping there changes, these tests should be re-examined rather than silently follow along.
+// Must match CamPathShake.cpp's AmplitudeFor and the speed/50 time scale ShakeRamp::ClockSeconds
+// integrates. Duplicated on purpose: if the mapping there changes, these tests should be
+// re-examined rather than silently follow along.
 double AmplitudeFor(double intensity) { return 0.024 * intensity * intensity + 0.076 * intensity; }
 double TimeScaleFor(double speed) { return speed / 50.0; }
 
@@ -171,6 +173,34 @@ int main() {
 		Check(!z.Any(), "amplitude 0 contributes nothing at all");
 		const RageShakePose neg = RageShake_Eval(RageShake_Style(RageShake_MenuStyle(0)), -1.0, 1.0, 1.0);
 		Check(!neg.Any(), "a negative time (before the keyframe) contributes nothing");
+	}
+
+	{
+		// Ramps between shake keys (CamPathShakeRampMath.h): eased, and on an integrated clock.
+		using namespace Filmmaker::ShakeRamp;
+		Check(Value(2, 8, 0) == 2 && Value(2, 8, 1) == 8 && std::fabs(Value(2, 8, 0.5) - 5) < 1e-12, "a ramp runs from key to key");
+		const double h = 1e-4;
+		Check(std::fabs(Value(2, 8, h) - 2) < 1e-6 && std::fabs(Value(2, 8, 1 - h) - 8) < 1e-6,
+			"and leaves and lands on a key with no sudden change of rate");
+		Check(std::fabs(Integral(2, 8, 1) - 5) < 1e-12, "a whole segment's integral is its mean");
+		const double spt = 1.0 / 64.0;
+		// Hold at speed 50 for 640 ticks (10 s), then ramp to 100 over 640 ticks.
+		const ClockKey run[] = { { 0, 50, true }, { 640, 50, true }, { 1280, 100, false } };
+		Check(std::fabs(ClockSeconds(run, 3, 0, 320, spt) - 5.0) < 1e-9, "speed 50 is real time");
+		Check(std::fabs(ClockSeconds(run, 3, 0, 1280, spt) - 25.0) < 1e-9, "a ramp from 50 to 100 runs 1.5x on average");
+		Check(std::fabs(ClockSeconds(run, 3, 0, 1344, spt) - 27.0) < 1e-9, "after the last key the speed holds");
+		// The clock's rate is the current speed and never jumps: no rush while the speed ramps,
+		// however long the run has been going (the old time x speed product sped up 4x here).
+		double worst = 0;
+		for (double t = 641; t < 1279; t += 1) {
+			const double rate = (ClockSeconds(run, 3, 0, t + 0.5, spt) - ClockSeconds(run, 3, 0, t - 0.5, spt)) / spt;
+			const double want = Value(50, 100, (t - 640) / 640.0) / 50.0;
+			worst = std::fmax(worst, std::fabs(rate - want));
+		}
+		Check(worst < 1e-3, "the clock's rate follows the ramped speed (worst " + std::to_string(worst) + ")");
+		const ClockKey solo[] = { { 100, 30, false }, { 200, 90, false } };
+		Check(std::fabs(ClockSeconds(solo, 2, 0, 228, spt) - 128 * spt * 0.6) < 1e-9, "an ending run keeps its speed through a handover");
+		Check(ClockSeconds(solo, 2, 1, 150, spt) == 0, "before its first key a run's clock has not started");
 	}
 
 	if (g_failures == 0) {

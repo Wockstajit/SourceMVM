@@ -42,8 +42,8 @@ Opening `index.html` from disk will not work.
 
 The UI opens the way the game does after a demo loads. None of our panels are up yet: CS2's own
 demo bar, with MOUSE / CAM EDITOR / CONFIG / LOOP docked onto it, and the director card. From there
-you use the UI as in game. CAM EDITOR opens the Camera Editor, its REGULAR TIMELINE / CAMERA /
-GRAPH tabs swap the bottom band, RENDER opens the render workspace and its RANGE / CAMERA / HUD /
+you use the UI as in game. CAM EDITOR opens the Camera Editor, its REGULAR TIMELINE / TIMELINE
+tabs swap the bottom band, RENDER opens the render workspace and its RANGE / CAMERA / HUD /
 OUTPUT tabs switch, CONFIG opens Config, ESC EXIT drops back to playback, and F8 blacks the screen
 out. The left sidebar is not needed for any of that.
 
@@ -67,8 +67,8 @@ where they are built in game:
 | Render Workspace | Range & Camera / Passes / Output tabs, START RENDER, running-job state |
 | Key Editor | Selected camera key: SELECTED CAMERA / TRANSFORM / LENS / PATH / SHORTCUTS |
 | Customize Player | Agent, weapon skin, knife and glove pickers for the selected player |
-| Camera Timeline | The editor with its CAMERA tab up: transport, markers, render-range overlay, shake menu, speed scrubber; playback Loop controls stay on the Regular Timeline |
-| Graph Editor | The editor with its GRAPH tab up: per-channel curves (x/y/z/pitch/yaw/roll/fov), undo/redo, delete key |
+| Camera Timeline | The floating bar `camtl open` puts over the HUD: transport, markers, shake menu, speed scrubber (it is never docked; playback Loop controls stay on the Regular Timeline) |
+| Timeline (`grapheditor`) | The editor with its TIMELINE tab up: camera and scene layers, KEYFRAMES / GRAPH, render range, key and property menus, Camera shake row. `scenekeys macro golden` adds scene layers; camera graph verbs are simulated in `shim/commands.js` |
 | Marker HUD | Camera-path marker card and prompt banners |
 | Movie HUD | Reposition / edit-mode director cards |
 | Demo Bar Buttons | The controls Source MVM docks onto CS2's own demo bar |
@@ -94,7 +94,7 @@ undo / redo on whichever curve surface is open.
 This is what the sidebar is for: the things you cannot reach by clicking. Two kinds:
 
 **Popups / overlays** first go where the popup lives, by issuing the same commands the UI's own
-buttons send (`editor on`, `config on`, `dock camera`), then find the real control by its label
+buttons send (`editor on`, `config on`, `dock timeline`), then find the real control by its label
 and fire its own handler, so the actual code path runs and no panel is forced visible:
 
 | Surface | Reaches |
@@ -119,13 +119,13 @@ to undo just that one, or **Reset states** to undo all of them.
 
 **Jump to** (collapsed at the bottom) keeps the older per-surface rows. Each one is a place reached
 the way a person reaches it. `render` issues `editor on; render open`, `grapheditor` issues
-`editor on; dock graph`, and the highlight follows wherever the UI's own buttons take you. The
+`editor on; dock timeline`, and the highlight follows wherever the UI's own buttons take you. The
 headless scripts still address these ids through `?surface=`.
 
 ## Using it
 
 - Navigation matches the game. The demo bar's CAM EDITOR / CONFIG open the workspaces, the
-  editor's REGULAR TIMELINE / CAMERA / GRAPH tabs swap the bottom band, RENDER opens the render
+  editor's REGULAR TIMELINE / TIMELINE tabs swap the bottom band, RENDER opens the render
   workspace and its tabs switch, and Config's RENDER / CUSTOMIZE PLAYER hand over to the Camera
   Editor (Config owns neither). ESC EXIT drops back to playback, and the speed dial drags. Every
   one of those is a console command through the same router. The model decides what is built,

@@ -76,7 +76,7 @@ const CASES = argv.length ? argv.map((s) => ({ name: s, q: 'surface=' + s }))
     { name: 'cameraeditor', q: 'surface=cameraeditor' },
     { name: 'cameratimeline', q: 'surface=cameratimeline' },
     { name: 'render', q: 'surface=render' },
-    { name: 'render+graph', q: 'surface=render&cmd=mirv_filmmaker editor curveeditor graph' },
+    { name: 'render+timeline', q: 'surface=render&cmd=mirv_filmmaker dock timeline' },
     { name: 'keyeditor', q: 'surface=keyeditor' },
     { name: 'grapheditor', q: 'surface=grapheditor' },
     { name: 'demobar', q: 'surface=demobar' },
@@ -87,7 +87,7 @@ const CASES = argv.length ? argv.map((s) => ({ name: s, q: 'surface=' + s }))
     { name: 'customize', q: 'surface=customize&hold=1200', modal: 'CamEditorCustomizeRoot',
       expect: ['Apply to', 'Cancel', 'Reset to default'] },
     // The one that was actually broken: the modal with the tallest dock underneath it.
-    { name: 'customize+graph', q: 'surface=customize&cmd=mirv_filmmaker editor curveeditor graph&hold=1200',
+    { name: 'customize+timeline', q: 'surface=customize&cmd=mirv_filmmaker dock timeline&hold=1200',
       modal: 'CamEditorCustomizeRoot', expect: ['Apply to', 'Cancel', 'Reset to default'] },
     // The browser runs the generated catalogue (CameraEditorCosmeticsCatalog.inc), so both pickers
     // list what the game lists: agents grouped by faction, finishes for the weapon actually carried.

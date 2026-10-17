@@ -9,15 +9,11 @@
 //     inspector + a bottom timeline + a dimmed letterbox make the open area read as a
 //     viewport -- note the preview is a CROP of the full-screen frame, not a scaled
 //     copy, since Panorama only composites overlays on top of the full game render);
-//   * docks a BOTTOM panel under the preview whose mode is selectable (BottomMode):
-//       - CameraTimeline (default): the custom camera timeline (CameraTimelineHud) overlay;
-//       - Graph: the experimental graph curve editor overlay;
-//       - Native: kept only for the `editor curveeditor native` console command -- shows no
-//         overlay (just the bottom tab bar). The native CS2 demo bar is HIDDEN the whole time
-//         the editor is open, so it can never bleed through behind the overlays.
-//     A persistent BOTTOM tab bar (drawn by CameraEditorJs where CS2's old CAM EDITOR / MOUSE
-//     buttons sat) flips between Camera Timeline and Graph; all are driven by the same
-//     "mirv_filmmaker editor curveeditor ..." console commands;
+//   * docks a BOTTOM panel under the preview whose tab is the shared dock (Movie/TimelineDock.h):
+//       - Native (REGULAR TIMELINE): CS2's own demo bar;
+//       - Timeline: the unified TIMELINE dock (GraphEditorExperimentHud) -- camera and scene keys
+//         as layers, KEYFRAMES / GRAPH views.
+//     The shared ribbon (TimelineDockRibbonJs.h) switches them with `mirv_filmmaker dock ...`;
 //   * surfaces selected-camera settings (FOV, roll, interpolation, segment speed,
 //     easing, freeze/live, speed mode) as Slider / stepper / cycle controls that issue
 //     those same commands;
@@ -61,30 +57,9 @@ public:
 	void ToggleScale() { m_scaleEnabled = !m_scaleEnabled; }
 	bool ScaleEnabled() const { return m_scaleEnabled; }
 
-	enum class BottomMode { Native = 0, CameraTimeline = 1, Graph = 2 };
-
-	// Bottom editor selection. Native = CS2's own demo timeline stays visible; CameraTimeline
-	// and Graph are explicit overlays opened by buttons.
-	//
-	// THE MODE IS NOT STORED HERE any more -- it belongs to Movie/TimelineDock.h, because the
-	// CONFIG panel shows the same dock and could not switch tabs while this was private state.
-	// These stay as the editor's spelling of the shared value so every existing caller and
-	// console alias keeps working.
-	static BottomMode FromTab(DockTab t) {
-		return t == DockTab::Graph ? BottomMode::Graph
-			: (t == DockTab::Camera ? BottomMode::CameraTimeline : BottomMode::Native);
-	}
-	static DockTab ToTab(BottomMode m) {
-		return m == BottomMode::Graph ? DockTab::Graph
-			: (m == BottomMode::CameraTimeline ? DockTab::Camera : DockTab::Native);
-	}
-	void SetBottomMode(BottomMode mode) { TimelineDock_SetTab(ToTab(mode)); }
-	void SetUseTimeline(bool v) { SetBottomMode(v ? BottomMode::CameraTimeline : BottomMode::Graph); }
-	void ToggleUseTimeline() {
-		SetBottomMode(UseTimeline() ? BottomMode::Graph : BottomMode::CameraTimeline);
-	}
-	bool UseTimeline() const { return TimelineDock_Tab() == DockTab::Camera; }
-	BottomMode GetBottomMode() const { return FromTab(TimelineDock_Tab()); }
+	// Bottom editor selection is NOT stored here: it is the shared dock tab (Movie/TimelineDock.h),
+	// because the CONFIG panel shows the same dock. REGULAR TIMELINE = CS2's own demo bar; TIMELINE
+	// = the unified camera + scene keyframe dock.
 
 	// Game-HUD visibility while the editor is open. HideAll = clean workspace (the original
 	// auto-hide, default); InGame = keep radar + HP/ammo but strip the spectator observer

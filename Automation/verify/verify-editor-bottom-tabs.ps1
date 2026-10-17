@@ -154,27 +154,29 @@ Check "Editor enabled" ($st -and $st.enabled)
 Check "Default bottom mode = Regular Timeline (native)" ($st -and $st.bottomMode -eq 'native')
 Shot '01-regular-timeline.png' | Out-Null
 
-# --- Camera tab ---
-Send 'mirv_filmmaker editor curveeditor timeline' 0.6 | Out-Null
-Start-Sleep -Milliseconds 600
-$st = Read-EditorState
-Check "Camera tab -> bottomMode = camera" ($st -and $st.bottomMode -eq 'camera')
-Shot '02-camera.png' | Out-Null
-
-# --- Graph tab ---
-Send 'mirv_filmmaker editor curveeditor graph' 0.6 | Out-Null
+# --- TIMELINE tab (KEYFRAMES view) ---
+Send 'mirv_filmmaker settings ui editor.timeline.view keys' 0.3 | Out-Null
+Send 'mirv_filmmaker dock timeline' 0.6 | Out-Null
 Start-Sleep -Milliseconds 800
 $st = Read-EditorState
-Check "Graph tab -> bottomMode = graph" ($st -and $st.bottomMode -eq 'graph')
-Check "Graph experiment active in graph mode" ($st -and $st.graphExp)
-Shot '03-graph.png' | Out-Null
+Check "TIMELINE tab -> bottomMode = timeline" ($st -and $st.bottomMode -eq 'timeline')
+Check "Timeline dock active on the TIMELINE tab" ($st -and $st.graphExp)
+Shot '02-timeline-keyframes.png' | Out-Null
+
+# --- TIMELINE tab, GRAPH view ---
+Send 'mirv_filmmaker settings ui editor.timeline.view graph' 0.6 | Out-Null
+Start-Sleep -Milliseconds 600
+$st = Read-EditorState
+Check "GRAPH view keeps bottomMode = timeline" ($st -and $st.bottomMode -eq 'timeline')
+Shot '03-timeline-graph.png' | Out-Null
+Send 'mirv_filmmaker settings ui editor.timeline.view keys' 0.3 | Out-Null
 
 # --- back to Regular Timeline ---
-Send 'mirv_filmmaker editor curveeditor native' 0.6 | Out-Null
+Send 'mirv_filmmaker dock native' 0.6 | Out-Null
 Start-Sleep -Milliseconds 600
 $st = Read-EditorState
 Check "Regular Timeline tab -> bottomMode = native" ($st -and $st.bottomMode -eq 'native')
-Check "Graph experiment off again" ($st -and -not $st.graphExp)
+Check "Timeline dock off again" ($st -and -not $st.graphExp)
 Shot '04-regular-again.png' | Out-Null
 
 # --- exit editor: normal state restored ---

@@ -73,12 +73,11 @@ const VIEWS = {
   cameraeditor_follow:    'surface=cameraeditor&act=Follow',
   render:                 'surface=render',
   render_running:         'surface=render&act=RUNNING',
-  // The bottom editor stays available inside the render workspace -- verified in the running
-  // game, where GRAPH docks the full curve editor under the render columns. It was suppressed
-  // here, so GRAPH did nothing in Render.
-  render_graph:           'surface=render&cmd=mirv_filmmaker editor curveeditor graph',
+  // The bottom dock stays available inside the render workspace: TIMELINE docks under the
+  // render columns.
+  render_timeline:        'surface=render&cmd=mirv_filmmaker dock timeline',
   // The ribbon's own verb, and the Render workspace's own tabs.
-  editor_dock_graph:      'surface=cameraeditor&cmd=mirv_filmmaker dock graph',
+  editor_dock_timeline:   'surface=cameraeditor&cmd=mirv_filmmaker dock timeline',
   // Render v2 (three tabs): RANGE & CAMERA is slot 0, PASSES slot 2, OUTPUT slot 3.
   render_range_span:      'surface=render&cmd=' + encodeURIComponent('mirv_filmmaker render in 41800;mirv_filmmaker render out 43900'),
   render_tab_passes:      'surface=render&cmd=mirv_filmmaker render tab 2',
@@ -103,11 +102,11 @@ const VIEWS = {
   // Same camera graph with the 100-tick time snap armed, so the snap grid and the lit SNAP pill
   // are on screen together.
   grapheditor_snap:       'surface=grapheditor&live=0&cmd=' + encodeURIComponent('mirv_filmmaker settings ui editor.graph.snap 100'),
-  // SCENE GRAPH with real strips: the time-of-day macro arms a batch of properties and lays one
-  // key on each, so the navigator has marks, the track list has several rows, and the overview /
-  // scrollbar have something to map.
-  grapheditor_scene:      'surface=grapheditor&cmd=' + encodeURIComponent(
-    "mirv_filmmaker scenekeys macro golden;mirv_filmmaker settings ui editor.graph scene"),
+  // Scene layers next to the camera path: the time-of-day macro arms a batch of properties and
+  // lays one key on each, so the navigator has marks and the layer list has several rows.
+  grapheditor_scene:      'surface=grapheditor&cmd=' + encodeURIComponent('mirv_filmmaker scenekeys macro golden'),
+  // The same timeline in its GRAPH view.
+  grapheditor_graph:      'surface=grapheditor&live=0&cmd=' + encodeURIComponent('mirv_filmmaker settings ui editor.timeline.view graph'),
   markerhud:              'surface=markerhud',
   markerhud_editing:      'surface=markerhud&act=editing',
   markerhud_need2:        'surface=markerhud&act=Need at least 2 markers',

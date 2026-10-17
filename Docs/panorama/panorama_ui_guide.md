@@ -34,7 +34,8 @@ Every concept below has shipped. The concrete shape:
 
 - Config, Camera Editor and Render share the chrome, header chips and timeline dock builders;
   workspace accents must not create separate implementations of those controls. The dock is
-  bottom-anchored; its design heights are 126 for the native bar, 196 for camera and 416 for graph.
+  bottom-anchored; its design heights (ribbon included) are 126 for the native bar and 476 for the
+  TIMELINE dock (Docs/features/camera-editor-feature.md, "The TIMELINE dock").
 - Workspace tabs are text on a rule, not filled pill buttons. Action rows use named, bordered
   groups; selections and supported options stay visible rather than hiding behind dead dropdowns.
 - Config and Camera Editor inspectors use a rail and one selected pane. Scroll vertically within

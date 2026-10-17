@@ -1,19 +1,31 @@
 #pragma once
 
-// Panorama JS for the EXPERIMENTAL After-Effects-style camera GRAPH EDITOR. Built ONCE into
-// the in-game HUD (CSGOHud) context by GraphEditorExperimentHud.cpp. Default OFF; appears only
-// when the experiment is toggled on, and is fully torn down (DeleteAsync) when toggled off, so
-// the regular timeline/editor are never touched.
+// Panorama JS for the TIMELINE dock: ONE After-Effects-style timeline for everything that is keyed
+// in a shot. Built ONCE into the in-game HUD (CSGOHud) context by GraphEditorExperimentHud.cpp and
+// torn down when the dock leaves the TIMELINE tab.
 //
-// Layout (AE-like): LEFT channel list (per-channel show/solo + a scrubby/typed value field),
-// TOP time ruler/scrubber, RIGHT graph canvas (grid + per-channel curves + keyframe diamonds +
-// Bezier handles + drag-select rectangle + playhead).
+// It replaces three surfaces that used to be separate dock tabs and modes -- the CAMERA timeline,
+// the camera GRAPH and the SCENE GRAPH -- so camera keys and scene keys are edited side by side:
 //
-// Dragging is driven by the streamed mouse (state.mx/my/lmb/seq from the WndProc) since Panorama
-// has no mouse-move event: a full-screen catcher consumes the clicks, and this script interprets
-// the raw cursor against the canvas to implement keyframe drag, handle drag, drag-select, ruler
-// scrub, and AE scrubby number fields. All edits issue "mirv_filmmaker grapheditor ..." commands;
-// C++ owns the authoritative model and pushes it back as "state".
+//   * LAYERS on the left, each with an expandable property tree. The camera path is one layer
+//     (Transform > Position / Rotation / Field of view); every CONFIG card with keyed or armed
+//     scene properties is another ("EFFECTS · LIGHTING", "ENVIRONMENT · FOG", ...).
+//   * KEYFRAMES / GRAPH on the right. KEYFRAMES is a dope sheet: one glyph per key, a bar per
+//     layer that slides all of its keys, summary marks on collapsed rows. GRAPH draws the curves of
+//     the selected layer / group / property, each scaled to its own range, with Bezier handles.
+//   * One ruler with the render range (work area), one overview navigator, one playhead.
+//
+// Two models stay authoritative in C++ and are addressed by domain: camera channels through
+// `mirv_filmmaker grapheditor ...` (GraphExpModel, baked into the camera path) and scene
+// properties through `mirv_filmmaker scenekeys graph ...` (SceneKeyframeTrack). A channel's id here
+// is its domain letter plus its index: c0..c6 for the camera, s<catalog index> for the scene.
+//
+// Dragging is driven by the streamed mouse (state.mx/my/lmb/rmb from the WndProc): Panorama has no
+// mouse-move event in this context, so a full-dock catcher swallows clicks and processInput() reads
+// the raw cursor. Buttons, chevrons, switches and the key navigator use their own onactivate.
+//
+//   C++ -> JS : attribute "state", then $.GraphExp.render() every frame.
+//   JS  -> C++: console commands.
 
 namespace Filmmaker {
 
@@ -23,101 +35,58 @@ inline const char* kGraphEditorJs = R"GEJS(
     var existing = $('#GraphExpRoot'); if (existing) existing.DeleteAsync(0);
     var ctx = $.GetContextPanel();
 
+    // Design tokens (Docs/features/camera-editor-feature.md, "The TIMELINE dock").
     var S = {
-      bg: 'rgba(8,10,14,0.55)', panel: 'rgba(16,20,26,0.98)', border: '#ffffff1f',
-      grid: '#ffffff10', gridMid: '#ffffff20', label: '#c8d3dfff', value: '#eef2f6ff',
-      // dim = DISABLED CONTROLS ONLY (del/undo/redo when there is nothing to act on).
-      // inactive = de-emphasized STATE -- the channel rows below are the reason it exists: a
-      // channel's name/value has to stay legible while it is NOT the edit target, because
-      // reading it is how you pick the next one.
-      // hint = STATIC supporting text: the CHANNELS/SELECTION headers, the shortcut hint line,
-      // and the ruler/grid tick numbers. Tier table: CameraEditorJs.h.
-      dim: '#6b7480ff', inactive: '#afb9c6ff', hint: '#afb9c6ff',
-      accent: '#f0b323ff', cameraAccent: '#f0b323ff',
-      // This editor draws the playhead AND hosts a destructive button. It used to paint the
-      // Delete Key label with S.playhead, so one red meant both "you are here" and "this
-      // deletes your keys" on a single surface. Destructive text gets its own token.
-      dangerText: '#fc9994ff',
-      renderAccent: '#aeb4bcff', sel: '#ffffffff', playhead: '#ff5a5aee',
-      btnBg: '#ffffff14', btnOn: '#f0b32333', handle: '#ffffffcc',
-      // Interaction tiers, matching CameraTimelineJs.h. This Panorama context has no :hover and
-      // no stylesheet of ours, so every state is applied from panel events -- without these the
-      // graph's buttons were literally inert: no hover, no press flash, no selected state, so a
-      // click on Smooth/Linear gave zero feedback and you could not tell it had registered.
-      btnHover: '#ffffff26', btnDown: '#ffffff3d', btnOnHover: '#f0b32352',
-      dangerBg: '#c92a2a26', dangerBorder: '#c92a2a66', // destructive-button tint (matches CameraEditorJs)
-      rowOn: '#ffffff0c',
-      // Timeline overview / navigator (AE's navigation bar). The track is the WHOLE demo and the
-      // viewport is the slice the ruler below is showing. Both stay quiet at rest -- a navigator
-      // has to read as a map, not as one more control -- so the viewport only lifts on hover/drag.
+      panel: '#10141aff', panelHex: '#10141a', graphBg: '#0b0e12ff', border: '#ffffff1f', chip: '#ffffff1a',
+      rowLine: '#ffffff08', layerBg: '#ffffff0a', layerSel: '#f0b32326', rowSel: '#f0b3231c',
+      // dim = DISABLED controls only; hint = static supporting text; muted = meta and menu hints.
+      label: '#c8d3dfff', value: '#eef2f6ff', hint: '#afb9c6ff', muted: '#8b95a3ff', dim: '#6b7480ff',
+      inactive: '#afb9c6ff',
+      accent: '#f0b323ff', cameraAccent: '#f0b323ff', renderAccent: '#aeb4bcff',
+      dangerText: '#fc9994ff', dangerBg: '#c92a2a26', dangerBorder: '#c92a2a66', danger: '#ff6b6bff',
+      sel: '#ffffffff', playhead: '#ff5a5aee', handle: '#ffffffcc', glyph: '#c8d3dfff', summary: '#ffffff8c',
+      btnBg: '#ffffff14', btnOn: '#f0b32333', btnHover: '#ffffff26', btnDown: '#ffffff3d', btnOnHover: '#f0b32352',
+      grid: '#ffffff0c', gridMid: '#ffffff20',
       ovTrack: 'rgba(255,255,255,0.05)', ovView: '#ffffff20', ovViewHot: '#ffffff33',
-      ovViewBorder: '#ffffff4d', ovViewBorderHot: '#f0b323cc', ovKey: '#ffffff66', ovPlay: '#ff5a5aee',
-      // Tokens the SHARED colour popover reads (ConfigColorPickerJs.h, spliced in below) so this
-      // dock's colour properties open the SAME wheel the Config panel's custom colours do.
-      muted: '#8b95a3ff', danger: '#ff6b6bff', drawer: '#11151bff', clear: 'rgba(0,0,0,0)',
+      ovViewBorder: '#ffffff4d', ovViewBorderHot: '#f0b323cc', ovKey: '#ffffff66',
+      // Read by the shared colour popover (ConfigColorPickerJs.h, spliced in below).
+      drawer: '#11151bff', clear: 'rgba(0,0,0,0)',
       fontMonodigit: 'Stratum2 Bold Monodigit, Stratum2, "Arial Unicode MS"',
+      fontMono: 'Stratum2Mono, monospace',
       font: 'Stratum2, "Arial Unicode MS"'
     };
-    // LEFTW is the property / track column, and it is wide enough for the property name AND the
-    // keyframe navigator (<< diamond >>) that now closes every row -- the AE arrangement, where the
-    // navigator sits between the layer name and the timeline rather than floating in a toolbar.
-    var LEFTW = 320, HEADER_H = 64, OVERVIEW_H = 30, RULER_H = 26, FOOTER_H = 30;
-    var KF_R = 8, HANDLE_R = 7; // hit radii (layout px)
-    var KF_DRAG_PX = 3;         // a key press only becomes a drag past this many layout px
-    // Scene-mode value axis: a fixed gutter down the left of the canvas so every strip's three
-    // numbers share one right edge, and half a line height so each sits ON its rule.
-    var AXIS_W = 46, AXIS_HALF = 6;
-    // Docked layout: this editor lives in the bottom curve-editor zone -- left of the camera
-    // editor's inspector and above the compact timeline scrub bar -- it is NOT full screen.
-    // The operator-dragged inspector width, published by C++ in st.inspW (InspectorWidth.h).
-    // INSPECTOR_W is only the value to use before the first state arrives; it used to be a
-    // hand-synced copy of the editor's, and it is what sized the graph dock -- so dragging the
-    // column left the graph at the old edge.
+    var LAYER_COLORS = { cam: '#f0b323', effects: '#d4b36a', environment: '#7fbdc7', other: '#aeb4bc' };
+
+    // The operator-dragged inspector width, published by C++ in st.inspW (InspectorWidth.h). The
+    // dock fills the screen left of that column; INSPECTOR_W is only the value before the first
+    // state arrives.
     var INSPECTOR_W = 640;
     var graphInspW = INSPECTOR_W;
-    // Pushed in by the panel being dragged right now; see api.setInspW. The stored width only
-    // moves on release, so during the gesture this is the only current source.
+    // Pushed in by the panel being dragged right now (api.setInspW). The stored width only moves on
+    // release, so during the gesture this is the only current source.
     var graphInspWOverride = 0;
     function graphInspectorW(screenW) {
       var w = graphInspW > 0 ? graphInspW : INSPECTOR_W;
-      // Same floor and screen cap as InspectorWidth.h, so the graph dock, the column and the
-      // camera timeline all agree on where the edge is.
+      // Same floor and screen cap as InspectorWidth.h.
       if (screenW > 1) w = Math.min(w, Math.max(600, screenW * 0.62));
       return Math.floor(Math.max(600, w));
     }
-    var DOCK_H = 380;      // compact shared height (timeline is hidden while we're open);
-                           // keep in sync with CameraEditorJs GRAPH_DOCK_H
-    // 0 = FLUSH with the bottom of the screen. This used to be 28, to sit above CS2's bottom-left
-    // build/version string -- but that reserved a 28px band of bare game render under the dock,
-    // which reads as the editor not quite fitting rather than as deliberate clearance. The build
-    // string is engine debug text; a movie-making workspace is entitled to cover it. Keep in sync
-    // with CameraEditorJs BOTTOM_LIFT and CameraTimelineJs EDITOR_BOTTOM_LIFT -- all three docks
-    // share this edge and a mismatch makes them jump as you switch between them.
-    var BOTTOM_LIFT = 0;
 
+    // ---- geometry (layout px, dock-local) ---------------------------------
+    // 440 tall under the shared ribbon. Toolbar on top; the left column header sits beside the
+    // overview + ruler; rows scroll in the middle; the footer closes the dock.
+    var DOCK_H = 440, HEADER_H = 72, OVERVIEW_H = 14, RULER_H = 26, ROWS_Y = 112, FOOTER_H = 26;
+    var ROWS_H = DOCK_H - ROWS_Y - FOOTER_H;
+    var LEFTW = 340, PAD = 12, SB_W = 12, ROW_H = 22, VAL_W = 120, NAV_W = 54;
+    var GLYPH = 14, KF_HIT = 8, HANDLE_R = 7, KF_DRAG_PX = 3;
+    var GRAPH_TOP = 30, GRAPH_BOTTOM = 26;   // value-axis margins inside the graph area
+    var BOTTOM_LIFT = 0;                      // flush with the screen bottom, like every dock tab
 
-    // ---- dock motion -----------------------------------------------------
-    // This overlay is a bottom dock, and swapping between Regular Timeline / Camera / Graph used
-    // to be a hard cut: one root's visible went false and another's went true in the same frame,
-    // which reads as the screen glitching rather than as a panel changing. It rises from below --
-    // the direction it actually lives in -- on the same arrival curve the rest of the HUD uses.
-    //
-    // TRANSFORM ONLY, no opacity: this dock is opaque and sits over the live game, so fading it
-    // would show the match straight through the panel for the length of the transition.
-    //
-    // Fired once per visible->hidden->visible edge; render() runs every frame, so an unguarded
-    // entrance would restart forever and never settle.
-    //
-    // moDockHideFrames starts ABOVE the debounce threshold, not at 0: this script is torn down on
-    // exit (OnExit -> Teardown) and only pumped while the graph is enabled, so render() never runs
-    // with the dock hidden. A fresh build IS the "was genuinely hidden" state -- starting at 0 made
-    // moDockOpenIsReal always answer false and the rise never played.
+    // ---- dock motion ------------------------------------------------------
+    // The dock rises from below when the TIMELINE tab opens. TRANSFORM ONLY, no opacity: the dock is
+    // opaque over the live game. moDockHideFrames starts above the debounce so a fresh build (the
+    // script is torn down while hidden) plays the entrance.
     var moDockSeen = false, moDockHideFrames = 99;
-    // fromY is a SIGNED offset, because the direction has to agree with what the dock is doing:
-    //   growing  (Camera -> Graph): the top edge travels UP, so the panel rises  -> fromY = +14
-    //   shrinking (Graph -> Camera): the top edge travels DOWN, so it descends   -> fromY = -14
-    // Always rising made the shrink read backwards -- the dock got shorter while its content
-    // moved the other way, which is the "weird" part.
     function moDockIn(panel, fromY) {
       if (!panel || (panel.IsValid && !panel.IsValid())) return;
       var y = (typeof fromY === 'number') ? fromY : 14;
@@ -135,19 +104,7 @@ inline const char* kGraphEditorJs = R"GEJS(
         } catch (e2) {}
       });
     }
-    // Swapping workspaces (Cam Editor <-> Config) drives this dock's inputs through a frame or two
-    // of disagreement, so the raw "should it show" answer blinks false and back, which re-fired the
-    // entrance and made rapid Cam Editor / Config clicking stutter.
-    //
-    // The debounce is on the ANIMATION ONLY -- never on visibility. Delaying the hide was a real
-    // bug: the C++ side STOPS pumping this script's render() once the bottom mode changes, so the
-    // last render to run returned "still visible", root.visible stayed true, and the camera
-    // timeline was left stranded on top of the Regular Timeline with nothing ever coming back to
-    // clear it. Visibility must therefore be decided from the RAW answer every frame; only the
-    // decision to replay the entrance gets to wait.
-    //
-    // moDockOpenIsReal(raw) is called once per render. It returns true when raw has just gone
-    // false->true after being genuinely hidden (not a one-frame blink).
+    // Visibility follows the RAW answer every frame; only the entrance waits out a one-frame blink.
     function moDockOpenIsReal(raw) {
       var wasHiddenLongEnough = (moDockHideFrames > 2);
       if (raw) { moDockHideFrames = 0; return wasHiddenLongEnough; }
@@ -162,16 +119,13 @@ inline const char* kGraphEditorJs = R"GEJS(
       l.style.fontFamily = S.font; return l;
     }
 
-    // ---- hover tips ------------------------------------------------------
-    // The old footer was one run-on line of every shortcut in the dock. That legend consumed a
-    // strip of the editing area to describe controls that are now self-evident (a diamond adds a
-    // key; - and + zoom), so it is gone and the explanation moved to the control under the
-    // pointer. ONE shared tip panel, repositioned per anchor, because thirty dedicated label
-    // panels would cost more than the single line this replaces.
+    // ---- hover tips -------------------------------------------------------
+    // ONE shared tip panel, repositioned per anchor. Instructions live on the control under the
+    // pointer, never burned into the editing area.
     var tipPanel = null, tipLabel = null;
     function showTip(anchor, text) {
       if (!text) { hideTip(); return; }
-      if (!G) return;   // hover can fire before the first valid layout pass
+      if (!G) return;
       if (!tipPanel) {
         tipPanel = mk('Panel', dock); tipPanel.hittest = false; tipPanel.visible = false;
         tipPanel.style.zIndex = '30'; tipPanel.style.padding = '4px 8px';
@@ -181,28 +135,27 @@ inline const char* kGraphEditorJs = R"GEJS(
         tipLabel.hittest = false; tipLabel.style.whiteSpace = 'nowrap';
       }
       tipLabel.text = text; tipPanel.visible = true;
-      // Anchor in client px (same space the streamed cursor uses), converted to dock-local.
       var pos = (anchor && anchor.GetPositionWithinWindow) ? anchor.GetPositionWithinWindow() : null;
       var w = tipPanel.actuallayoutwidth || 0, h = tipPanel.actuallayoutheight || 0;
       var ax = pos ? pos.x / (uiscale || 1) - dockScreenX : 10;
       var ay = pos ? pos.y / (uiscale || 1) - dockScreenY : 10;
       if (ax + w > G.rw) ax = G.rw - w - 2; if (ax < 2) ax = 2;
-      tipPanel.style.position = ax.toFixed(0) + 'px ' + Math.max(2, ay - h - 4).toFixed(0) + 'px 0px';
+      var ty = ay - h - 4; if (ty < 2) ty = ay + 24;
+      tipPanel.style.position = ax.toFixed(0) + 'px ' + ty.toFixed(0) + 'px 0px';
     }
-    function hideTip() { if (tipPanel) tipPanel.visible = false; }
+    function hideTip() { if (tipPanel && (!tipPanel.IsValid || tipPanel.IsValid())) tipPanel.visible = false; }
     function attachTip(panel, text) {
       panel.SetPanelEvent('onmouseover', function () { showTip(panel, text); });
       panel.SetPanelEvent('onmouseout', function () { hideTip(); });
     }
 
-    // One keyframe-navigator button. Siblings of the row's solo target, never children of it --
-    // Panorama bubbles onactivate, so a nav button nested inside the solo hit area would also
-    // toggle solo every time you pressed the diamond.
+    // One keyframe-navigator button (◀ ◇ ▶, 17x20). A SIBLING of the row's other targets, never a
+    // child: Panorama bubbles onactivate.
     function navBtn(parent, glyph, tip, fn) {
       var b = mk('Panel', parent); b.hittest = true;
       b.style.width = '17px'; b.style.height = '20px'; b.style.verticalAlign = 'center';
-      b.style.borderRadius = '3px'; b.style.marginLeft = '1px';
-      var l = lbl(b, glyph, S.inactive, 11);
+      b.style.borderRadius = '3px';
+      var l = lbl(b, glyph, S.hint, glyph === '◇' ? 11 : 9);
       l.hittest = false; l.style.horizontalAlign = 'center'; l.style.verticalAlign = 'center';
       b.__lbl = l;
       b.SetPanelEvent('onactivate', function () { hideTip(); fn(); });
@@ -214,9 +167,8 @@ inline const char* kGraphEditorJs = R"GEJS(
 #include "PanoramaUiMetricsJs.h"
 #include "SpeedScrubberJs.h"
 R"GEJS(
-    // Same interaction contract as CameraTimelineJs.h's btn(): hover and a short press flash come
-    // from panel events, and the SELECTED state is owned by btnVisual so a per-frame render()
-    // cannot repaint over the hover fill. There is no :hover in this in-game Panorama context.
+    // Hover and a short press flash come from panel events (no :hover in this context); the
+    // SELECTED state is owned by btnVisual so a per-frame render() cannot paint over the hover.
     function panelAlive(b) {
       try {
         if (!b || (b.IsValid && !b.IsValid())) return false;
@@ -226,12 +178,10 @@ R"GEJS(
     }
     function btnVisual(b) {
       if (!panelAlive(b)) return;
-      // A TAB never takes a fill in any state -- only its label colour and its accent underline
-      // move. Same treatment as the Config panel and the Camera Editor, so the dock's GRAPH /
-      // SCENE GRAPH switch reads as navigation rather than as two more buttons in the header.
+      // A TAB never takes a fill: only its label colour and its accent underline move.
       if (b.__isTab) {
         b.style.backgroundColor = 'rgba(0,0,0,0)';
-        b.__lbl.style.color = b.__sel ? S.accent : (b.__hot ? S.value : '#8b95a3ff');
+        b.__lbl.style.color = b.__sel ? S.accent : (b.__hot ? S.value : S.muted);
         applyTabUnderline(b);
         return;
       }
@@ -243,11 +193,9 @@ R"GEJS(
       b.__lbl.style.color = fg;
     }
     function applyTabUnderline(b) {
-      b.style.borderBottom = '2px solid ' + (b.__sel ? S.accent : (b.__hot ? S.accent + '66' : 'rgba(0,0,0,0)'));
+      b.style.borderBottom = '2px solid ' + (b.__sel ? S.accent : (b.__hot ? S.accent.substring(0, 7) + '66' : 'rgba(0,0,0,0)'));
     }
-    function tabify(b) {
-      b.__isTab = true; b.style.borderRadius = '0px'; btnVisual(b); return b;
-    }
+    function tabify(b) { b.__isTab = true; b.style.borderRadius = '0px'; btnVisual(b); return b; }
     function styleTab(b, on) {
       var changed = (b.__sel !== !!on);
       b.__sel = !!on;
@@ -259,9 +207,8 @@ R"GEJS(
       if (!b || b.__bgBase == null || b.__sel === on) return b;
       b.__sel = on; btnVisual(b); return b;
     }
-    // `tip` is integrated here rather than bolted on with attachTip(): SetPanelEvent REPLACES a
-    // handler, so a separate attachTip would have silently overwritten the hover/press feedback
-    // this button owns.
+    // `tip` is integrated (SetPanelEvent REPLACES a handler, so a separate attachTip would overwrite
+    // the hover/press feedback this button owns).
     function btn(parent, text, onClick, color, tip) {
       var b = mk('Panel', parent); b.hittest = true;
       b.style.borderRadius = UI.btn.radius + 'px';
@@ -269,6 +216,7 @@ R"GEJS(
       b.style.paddingLeft = UI.btnCompact.padH + 'px'; b.style.paddingRight = UI.btnCompact.padH + 'px';
       b.style.marginRight = UI.btn.gap + 'px'; b.style.verticalAlign = 'center';
       var l = lbl(b, text, color || S.value, UI.btnCompact.font); l.style.fontWeight = 'bold';
+      l.style.whiteSpace = 'nowrap';
       b.__lbl = l;
       b.__sel = false; b.__hot = false; b.__down = false;
       b.__bgBase = S.btnBg; b.__fgBase = color || S.value;
@@ -301,15 +249,18 @@ R"GEJS(
       if (rot) { p.style.transformOrigin = '50% 50%'; p.style.transform = 'rotateZ(45deg)'; p.style.borderRadius = '1px'; }
       return p;
     }
+    function box(parent, x, y, w, h, color) {
+      var p = mk('Panel', parent); p.hittest = false;
+      p.style.position = x.toFixed(1) + 'px ' + y.toFixed(1) + 'px 0px';
+      p.style.width = Math.max(0, w).toFixed(1) + 'px'; p.style.height = Math.max(0, h).toFixed(1) + 'px';
+      if (color) p.style.backgroundColor = color;
+      return p;
+    }
     function clamp01(x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
     // ---- host-scope shims for the shared colour picker --------------------
-    // ConfigColorPickerJs.h is a raw-string CHUNK, not a standalone script: it expects
-    // mk/lbl/btn/clamp01/S from whichever workspace splices it in, plus the helpers below. Config
-    // keeps them in ConfigHudWidgetsJs.h, which this dock does not include (it carries a much
-    // smaller widget set), so every one the picker calls is restated here. A missing one is a
-    // ReferenceError the first time a colour strip is built: it aborted the scene column's
-    // rebuild at the first colour property, and every row after it never appeared.
-    // (Automation/tests/scene-graph-tests.mjs checks the list against the picker's own calls.)
+    // ConfigColorPickerJs.h is a raw-string CHUNK that expects these from its host. A missing one is
+    // a ReferenceError the first time a colour property is built (Automation/tests/scene-graph-
+    // tests.mjs checks the list against the picker's own calls).
     function endTileLine(parent) { if (parent) { parent.__tileLine = null; parent.__chipLine = null; } }
     function paintBtn(b) { btnVisual(b); }
     function hoverable(p, paint) {
@@ -324,8 +275,7 @@ R"GEJS(
       var h = n.toString(16); return h.length < 2 ? '0' + h : h;
     }
     function rgbHex(c) { return '#' + hex2(c[0]) + hex2(c[1]) + hex2(c[2]) + 'ff'; }
-    // Fails OPEN on a throw: the walk runs off the end of our own tree into CS2's native panels,
-    // and a placement desync beats a picker that refuses to appear.
+    // Fails OPEN on a throw: the walk runs off our tree into CS2's native panels.
     function cfgPanelOnScreen(pnl) {
       try {
         for (var q = pnl, guard = 0; q && guard < 64; ++guard) {
@@ -337,8 +287,8 @@ R"GEJS(
       return true;
     }
     function num(v) { return (typeof v === 'number' && isFinite(v)) ? v : 0; }
-)GEJS"
-R"GEJS(
+    function rgbOnly(hex) { return ('' + hex).substring(0, 7); }
+
     // ---- bezier sampling (mirrors GraphExpModel) ------------------------
     function bez(a0, a1, a2, a3, s) { var u = 1 - s; return u * u * u * a0 + 3 * u * u * s * a1 + 3 * u * s * s * a2 + s * s * s * a3; }
     function segActive(a, b) { return (a.cr && a.cr.a) || (b.cl && b.cl.a); }
@@ -364,104 +314,182 @@ R"GEJS(
       }
       return k[k.length - 1].v;
     }
+)GEJS"
+R"GEJS(
+    // ---- keyframe glyphs ----------------------------------------------------
+    // A key is drawn as two halves, each saying how the curve meets the key on that side:
+    //   lin  half diamond           ease  half square with a notch (AE's Easy Ease hourglass)
+    //   auto half disc (Smooth)     hold  half square (a stepped property)
+    // Panorama has no clip-path, so a half is a clipped box holding a shape centred on the key.
+    function glyphHalf(parent, side, kind, size, color, bg) {
+      var h = size / 2;
+      var hb = mk('Panel', parent); hb.hittest = false;
+      hb.style.width = h + 'px'; hb.style.height = size + 'px'; hb.style.overflow = 'clip clip';
+      var f = mk('Panel', hb); f.hittest = false; f.style.backgroundColor = color;
+      if (kind === 'lin') {
+        var d = size / Math.SQRT2, cx = side < 0 ? h : 0;
+        f.style.width = d.toFixed(2) + 'px'; f.style.height = d.toFixed(2) + 'px';
+        f.style.position = (cx - d / 2).toFixed(2) + 'px ' + (h - d / 2).toFixed(2) + 'px 0px';
+        f.style.transformOrigin = '50% 50%'; f.style.transform = 'rotateZ(45deg)';
+      } else if (kind === 'auto') {
+        f.style.width = size + 'px'; f.style.height = size + 'px'; f.style.borderRadius = h + 'px';
+        f.style.position = (side < 0 ? 0 : -h) + 'px 0px 0px';
+      } else {
+        f.style.width = h + 'px'; f.style.height = size + 'px';
+        f.style.position = '0px 0px 0px';
+        if (kind === 'ease') {
+          var n = size * 0.62, ncx = side < 0 ? 0 : h;
+          var notch = mk('Panel', hb); notch.hittest = false; notch.style.backgroundColor = bg || S.panelHex;
+          notch.style.width = n.toFixed(2) + 'px'; notch.style.height = n.toFixed(2) + 'px';
+          notch.style.position = (ncx - n / 2).toFixed(2) + 'px ' + (h - n / 2).toFixed(2) + 'px 0px';
+          notch.style.transformOrigin = '50% 50%'; notch.style.transform = 'rotateZ(45deg)';
+        }
+      }
+      return hb;
+    }
+    // A whole glyph. With x/y it is placed centred on (x, y); without, it flows inline.
+    function glyph(parent, sides, size, color, bg, x, y) {
+      var g = mk('Panel', parent); g.hittest = false;
+      g.style.width = size + 'px'; g.style.height = size + 'px'; g.style.flowChildren = 'right';
+      if (typeof x === 'number') g.style.position = (x - size / 2).toFixed(1) + 'px ' + (y - size / 2).toFixed(1) + 'px 0px';
+      glyphHalf(g, -1, sides[0], size, color, bg);
+      glyphHalf(g, 1, sides[1], size, color, bg);
+      return g;
+    }
+    var EASE_SIDES = { smooth: ['auto', 'auto'], linear: ['lin', 'lin'], 'in': ['ease', 'lin'], out: ['lin', 'ease'], inout: ['ease', 'ease'] };
+    // The side's STORED kind, never a guess from its slope: a flat Smooth handle and an Easy Ease
+    // are the same numbers, and a handle dragged in the graph must stop reading as Smooth. Auto
+    // Bezier (Smooth, follows its neighbours) = disc; any other handle (Easy Ease, a hand-dragged
+    // Bezier) = hourglass; no handle = linear.
+    function sideOf(h) { if (h && h.auto) return 'auto'; return (h && h.a) ? 'ease' : 'lin'; }
+    function stepped(ch) { return !!ch && (ch.type === 'bool' || ch.type === 'enum' || ch.type === 'asset'); }
+    function keySides(ch, k) { return stepped(ch) ? ['hold', 'hold'] : [sideOf(k.cl), sideOf(k.cr)]; }
+    function easeOfSides(s) {
+      // An eased side names the key before an auto one does: Ease In on a Smooth key reads as In.
+      if (s[0] === 'hold') return 'hold';
+      if (s[0] === 'ease' && s[1] === 'ease') return 'inout';
+      if (s[0] === 'ease') return 'in';
+      if (s[1] === 'ease') return 'out';
+      if (s[0] === 'auto' || s[1] === 'auto') return 'smooth';
+      return 'linear';
+    }
 
-    // ---- root + catcher -------------------------------------------------
-    // Root stays FULL-SCREEN + transparent + non-hittest: a reliable screen-size reference (other
-    // HUDs read their full-screen root the same way) and a pass-through for clicks outside our dock.
-    // The editor itself lives in `dock`: a BOTTOM-DOCKED child filling the width left of the camera
-    // editor's inspector, lifted above the compact timeline bar. Size/offset are recomputed each
-    // frame in computeGeom(); all editor children lay out relative to `dock`.
+    // ---- root, dock, catcher -----------------------------------------------
+    // Root is FULL-SCREEN, transparent and non-hittest: a reliable screen-size reference and a
+    // pass-through outside the dock. The dock is the bottom-left band left of the inspector.
     var root = $.CreatePanel('Panel', ctx, 'GraphExpRoot', {});
-    // z65: always-on-top experimental overlay. See the canonical z-layer map in PanoramaBridge.h.
+    // z65: see the canonical z-layer map in PanoramaBridge.h.
     root.hittest = false; root.style.width = '100%'; root.style.height = '100%'; root.style.zIndex = '65';
     root.style.fontFamily = S.font;
     var dock = mk('Panel', root); dock.hittest = false;
     dock.style.horizontalAlign = 'left'; dock.style.verticalAlign = 'bottom';
-    // No borderTop: the camera editor's tab bar sits directly above with its own accent
-    // borderBottom, so a top border here drew a SECOND separator line 4px under it.
-    dock.style.backgroundColor = S.panel;
+    dock.style.backgroundColor = S.panel; dock.style.overflow = 'clip clip';
     var catcher = mk('Panel', dock); catcher.hittest = true; catcher.style.width = '100%'; catcher.style.height = '100%';
     catcher.style.position = '0px 0px 0px';
-    catcher.SetPanelEvent('onactivate', function () { /* swallow stray clicks; pipe owns logic */ });
+    catcher.SetPanelEvent('onactivate', function () { /* swallow stray clicks; the pipe owns logic */ });
 
-    // ---- header ---------------------------------------------------------
-    // Title + live info sit on the LEFT; a two-row control cluster anchors to the RIGHT. Top row
-    // = switch-back-to-timeline + demo timescale; bottom row = the graph's own interp / history /
-    // delete. (Requested: the Timeline + speed buttons sit ABOVE the Smooth/Linear stuff, right.)
-    var header = mk('Panel', dock); header.style.width = '100%'; header.style.height = HEADER_H + 'px';
-    header.style.flowChildren = 'right'; header.style.backgroundColor = S.panel;
-    header.style.borderBottom = '1px solid ' + S.border; header.style.paddingLeft = '14px'; header.style.paddingRight = '14px';
-    // The dock's OWN mode switch. Camera curves and scene strips are two models in one dock, and
-    // which one is up must be a thing you can see and click -- it was previously implied by the
-    // inspector tab, so the camera graph vanished the moment you opened SCENE KEYS.
-    function setGraphMode(mode) {
-      rawCmd('mirv_filmmaker settings ui editor.graph ' + mode);
-      if (st) { st.graphMode = mode; lastSig = ''; sceneHeadSig = ''; }
-    }
-    var modeStrip = mk('Panel', header); modeStrip.style.flowChildren = 'right';
-    modeStrip.style.verticalAlign = 'center'; modeStrip.style.marginRight = '18px';
-    function gTab(caption, mode, last) {
-      var b = tabify(btn(modeStrip, caption, function () { setGraphMode(mode); }, S.label));
+    // ---- toolbar ------------------------------------------------------------
+    // Timecode | KEYFRAMES / GRAPH + what you have hold of | transport + speed over ease, snap,
+    // history and delete.
+    var header = mk('Panel', dock); header.hittest = false;
+    header.style.position = '0px 0px 0px'; header.style.height = HEADER_H + 'px';
+    header.style.flowChildren = 'right'; header.style.paddingLeft = '14px'; header.style.paddingRight = '14px';
+    header.style.borderBottom = '1px solid ' + S.border;
+    var tcCol = mk('Panel', header); tcCol.hittest = false;
+    tcCol.style.width = '150px'; tcCol.style.flowChildren = 'down'; tcCol.style.verticalAlign = 'center';
+    tcCol.style.marginRight = '18px';
+    var tcLbl = lbl(tcCol, '0:00.00', S.accent, 22); tcLbl.hittest = false;
+    tcLbl.style.fontFamily = S.fontMonodigit; tcLbl.style.marginBottom = '4px';
+    var tickLbl = lbl(tcCol, '', S.hint, 11); tickLbl.hittest = false;
+    tickLbl.style.letterSpacing = '0.5px'; tickLbl.style.whiteSpace = 'nowrap';
+    var midCol = mk('Panel', header); midCol.hittest = false;
+    midCol.style.width = 'fill-parent-flow(1.0)'; midCol.style.flowChildren = 'down';
+    midCol.style.verticalAlign = 'center'; midCol.style.marginRight = '18px';
+    var tabRow = mk('Panel', midCol); tabRow.hittest = false; tabRow.style.flowChildren = 'right';
+    tabRow.style.marginBottom = '6px';
+    function viewTab(caption, mode, last) {
+      var b = tabify(btn(tabRow, caption, function () { setView(mode); }, S.label,
+        mode === 'graph' ? 'Curves of the selected layer or property' : 'Every key, one row per property'));
       b.style.width = 'fit-children';
       b.style.paddingLeft = '0px'; b.style.paddingRight = '0px';
-      b.style.paddingTop = '8px'; b.style.paddingBottom = '7px';
+      b.style.paddingTop = '4px'; b.style.paddingBottom = '6px';
       b.style.marginRight = last ? '0px' : '16px';
-      b.__lbl.style.fontSize = '15px'; b.__lbl.style.fontWeight = 'bold';
-      b.__lbl.style.letterSpacing = '1.4px'; b.__lbl.style.whiteSpace = 'nowrap';
+      b.__lbl.style.fontSize = '15px'; b.__lbl.style.letterSpacing = '1.4px';
       return b;
     }
-    var camModeTab = gTab('GRAPH', 'camera');
-    var sceneModeTab = gTab('SCENE GRAPH', 'scene', true);
-    var hInfo = lbl(header, '', S.hint, 11); hInfo.style.verticalAlign = 'center'; hInfo.style.width = 'fill-parent-flow(1.0)';
-    hInfo.style.letterSpacing = '0.5px';
-
-    // Right-anchored, two stacked rows.
-    var rightCol = mk('Panel', header); rightCol.style.flowChildren = 'down'; rightCol.style.verticalAlign = 'center';
-    var rowTop = mk('Panel', rightCol); rowTop.style.flowChildren = 'right'; rowTop.style.horizontalAlign = 'right'; rowTop.style.marginBottom = '5px';
-    var rowBot = mk('Panel', rightCol); rowBot.style.flowChildren = 'right'; rowBot.style.horizontalAlign = 'right';
-
-    // TOP row: demo speed. The SAME continuous scrubber the native demo bar and the camera timeline
-    // carry -- six preset pills could not express 0.7x or 12x at all, and cost more width than the
-    // control that can. (Bottom-panel switching lives in the Camera Editor's bottom-editor tab bar,
-    // so there is no in-graph "Timeline" switch button. The graph editor always drives the camera
-    // now -> no Drive toggle; the camera is seeded automatically -> no Reseed.)
+    var keysTab = viewTab('KEYFRAMES', 'keys');
+    var graphTab = viewTab('GRAPH', 'graph', true);
+    var selInfo = lbl(midCol, '', S.hint, 11); selInfo.hittest = false;
+    selInfo.style.letterSpacing = '0.5px'; selInfo.style.whiteSpace = 'nowrap';
+    selInfo.style.textOverflow = 'ellipsis'; selInfo.style.width = '100%';
+    var rightCol = mk('Panel', header); rightCol.hittest = false;
+    rightCol.style.flowChildren = 'down'; rightCol.style.verticalAlign = 'center';
+    var rowTop = mk('Panel', rightCol); rowTop.hittest = false; rowTop.style.flowChildren = 'right';
+    rowTop.style.horizontalAlign = 'right'; rowTop.style.marginBottom = '5px';
+    var prevKeyBtn = btn(rowTop, '|◀', function () { jumpKey(-1); }, S.value, 'Previous keyframe on the selected layer');
+    var playBtn = btn(rowTop, '▶', function () { togglePlay(); }, S.value, 'Play / pause (Space)');
+    playBtn.style.width = '46px'; playBtn.__lbl.style.horizontalAlign = 'center';
+    var nextKeyBtn = btn(rowTop, '▶|', function () { jumpKey(1); }, S.value, 'Next keyframe on the selected layer');
+    nextKeyBtn.style.marginRight = '11px';
+    // Cache: keep the preview of every frame the world plays, so scrubbing back over it shows at
+    // frame rate instead of restoring the demo on every move (Movie/ScrubFrameCache.h). Lit while
+    // on; right before the speed it shares the transport with, as on the old camera timeline.
+    var cacheBtn = btn(rowTop, 'Cache', function () {
+      rawCmd('mirv_filmmaker scrub cache ' + (st && st.scrubCache ? 'off' : 'on'));
+    }, S.value, 'Keep every frame you play, so scrubbing back over it is instant');
+    cacheBtn.style.marginRight = '11px';
+    // The SAME continuous speed scrubber the native demo bar carries.
     var speedScrub = buildSpeedScrubber(rowTop, { width: 250, height: 30, font: S.font });
     speedScrub.strip.style.marginRight = '0px';
-
-    // BOTTOM row: Smooth / Linear. With no selection they set the whole graph AND the camera
-    // path's interpolation (one mode, mirrored both ways -- the camera timeline shows the same
-    // pair); with keys selected they shape only those keys' handles, graph-local.
-    // TIME SNAP: one shared step for both graph modes (persisted as editor.graph.snap). The pill
-    // shows the current value and lights when snapping; clicking opens the dropdown.
-    var snapBtn = btn(rowBot, 'SNAP', function () { showSnapMenu(); }, S.value,
-      'Time snap: quantise the playhead and key placement to a tick grid');
-    snapBtn.style.verticalAlign = 'center';
-    var smoothBtn = btn(rowBot, '∿ Smooth', function () { cmd('smooth' + (st && st.selCount > 0 ? ' sel' : '')); }, S.value,
-      'Smooth interpolation for the selection (or the whole graph)');
-    smoothBtn.style.verticalAlign = 'center';
-    var linearBtn = btn(rowBot, '╱ Linear', function () { cmd('linear' + (st && st.selCount > 0 ? ' sel' : '')); }, S.value,
-      'Linear interpolation for the selection (or the whole graph)');
-    linearBtn.style.verticalAlign = 'center';
-    var undoBtn = btn(rowBot, '↺ Undo', function () { cmd('undo'); }, S.value); undoBtn.style.verticalAlign = 'center';
-    var redoBtn = btn(rowBot, '↻ Redo', function () { cmd('redo'); }, S.value); redoBtn.style.verticalAlign = 'center';
-    // Destructive actions do not need to dominate the toolbar. Delete Key is an icon button with a
-    // tooltip: it still turns red-tinted while there is a selection to act on, but at rest it is a
-    // quiet glyph rather than the widest pill in the header.
-    var delBtn = btn(rowBot, '✕', function () { if (st && st.selCount > 0) cmd('delsel'); }, S.dangerText,
-      'Delete selected keyframes');
-    delBtn.style.verticalAlign = 'center'; delBtn.style.marginRight = '0px';
-    delBtn.style.paddingLeft = '9px'; delBtn.style.paddingRight = '9px';
-    // Destructive treatment: red-tinted fill + border, not just red text on the same gray pill.
-    delBtn.style.backgroundColor = S.dangerBg; delBtn.style.border = '1px solid ' + S.dangerBorder;
-    // No "Exit Experiment" button: the graph editor is the default curve editor now, opened and
-    // closed with the Camera Editor workspace (use the inspector's Exit). Standalone toggle is
-    // still available via the `mirv_filmmaker grapheditor off` console command.
-
+    var rowBot = mk('Panel', rightCol); rowBot.hittest = false; rowBot.style.flowChildren = 'right';
+    rowBot.style.horizontalAlign = 'right';
 )GEJS"
 R"GEJS(
+    // The interpolation strip. With keys selected it shapes THOSE keys; with nothing selected Smooth /
+    // Linear set the camera path's one interpolation (the eases need a selection).
+    var EASE_ITEMS = [['smooth', 'Smooth'], ['linear', 'Linear'], ['in', 'Ease In'], ['out', 'Ease Out'], ['inout', 'In/Out']];
+    var easeBar = mk('Panel', rowBot); easeBar.hittest = false; easeBar.style.flowChildren = 'right';
+    easeBar.style.border = '1px solid ' + S.chip; easeBar.style.borderRadius = '3px';
+    easeBar.style.marginRight = '9px'; easeBar.style.verticalAlign = 'center'; easeBar.style.overflow = 'clip clip';
+    var easeBtns = {};
+    EASE_ITEMS.forEach(function (it) {
+      var b = mk('Panel', easeBar); b.hittest = true; b.style.flowChildren = 'right';
+      b.style.paddingTop = '5px'; b.style.paddingBottom = '5px'; b.style.paddingLeft = '9px'; b.style.paddingRight = '9px';
+      var gw = mk('Panel', b); gw.hittest = false; gw.style.width = '10px'; gw.style.height = '10px';
+      gw.style.verticalAlign = 'center'; gw.style.marginRight = '6px';
+      var l = lbl(b, it[1], S.label, 12); l.hittest = false; l.style.fontWeight = 'bold';
+      l.style.whiteSpace = 'nowrap'; l.style.verticalAlign = 'center';
+      b.__gw = gw; b.__lbl = l; b.__mode = it[0]; b.__on = null; b.__hot = false; b.__en = true;
+      b.SetPanelEvent('onmouseover', function () { b.__hot = true; paintEase(b); showTip(b, easeTip(it[0])); });
+      b.SetPanelEvent('onmouseout', function () { b.__hot = false; paintEase(b); hideTip(); });
+      b.SetPanelEvent('onactivate', function () { applyEase(it[0]); });
+      easeBtns[it[0]] = b;
+    });
+    function easeTip(m) {
+      return { smooth: 'Smooth tangents (no selection: the whole camera path)', linear: 'Straight lines between keys (no selection: the whole camera path)',
+        'in': 'Ease into the selected keys (Shift+F9)', out: 'Ease out of the selected keys (Ctrl+Shift+F9)', inout: 'Easy Ease the selected keys (F9)' }[m];
+    }
+    function paintEase(b) {
+      var on = !!b.__on;
+      b.style.backgroundColor = on ? '#f0b3232e' : (b.__hot && b.__en ? '#ffffff0d' : 'rgba(0,0,0,0)');
+      b.style.opacity = b.__en ? '1' : '0.45';
+      b.__lbl.style.color = on ? S.value : S.label;
+      var sig = (on ? 1 : 0) + '';
+      if (b.__gsig !== sig) {
+        b.__gsig = sig; b.__gw.RemoveAndDeleteChildren();
+        glyph(b.__gw, EASE_SIDES[b.__mode], 10, on ? S.accent : S.glyph, S.panelHex);
+      }
+    }
+    var snapBtn = btn(rowBot, 'SNAP', function () { showSnapMenu(); }, S.value,
+      'Time snap: quantise the playhead and key placement to a tick grid');
+    var undoBtn = btn(rowBot, '↺ Undo', function () { undo(false); }, S.value, 'Undo (Ctrl+Z)');
+    var redoBtn = btn(rowBot, '↻ Redo', function () { undo(true); }, S.value, 'Redo (Ctrl+Shift+Z)');
+    var delBtn = btn(rowBot, '✕', function () { deleteSelection(); }, S.dangerText, 'Delete the selected keyframes (Del)');
+    delBtn.style.marginRight = '0px';
+    delBtn.style.backgroundColor = S.dangerBg; delBtn.style.border = '1px solid ' + S.dangerBorder;
+
     // ---- time-snap dropdown ---------------------------------------------
-    // Real panels with onactivate (unlike the raw-pipe right-click ease menu) because Custom…
-    // hosts a text field. It opens UNDER the SNAP pill, so it stays inside the dock.
+    // Real panels with onactivate because Custom… hosts a text field. It opens UNDER the SNAP pill.
     var snapMenu = null, snapRows = [], snapCustomBox = null, snapCustomEntry = null, snapRect = null;
     var SNAP_W = 168, SNAP_HEAD = 22, SNAP_ITEM = 26, SNAP_PAD = 5;
     function snapMenuOpen() { return !!(snapMenu && snapMenu.visible); }
@@ -479,12 +507,9 @@ R"GEJS(
       if (!snapMenu) return;
       var h = SNAP_PAD * 2 + SNAP_HEAD + snapRows.length * SNAP_ITEM + (snapCustomBox && snapCustomBox.visible ? SNAP_ITEM : 0);
       snapMenu.style.width = SNAP_W + 'px'; snapMenu.style.height = h + 'px';
-      var pos = (snapBtn && snapBtn.GetPositionWithinWindow) ? snapBtn.GetPositionWithinWindow() : null;
-      var ax = pos ? (pos.x / (uiscale || 1) - dockScreenX) : 100;
-      var ay = pos ? (pos.y / (uiscale || 1) - dockScreenY) : 60;
-      var aw = (snapBtn && snapBtn.actuallayoutwidth) || 0, ah = (snapBtn && snapBtn.actuallayoutheight) || 0;
-      ax = Math.max(0, Math.min(ax + aw - SNAP_W, (G ? G.rw : 1920) - SNAP_W - 2));
-      ay = ay + ah + 2;   // below the pill
+      var r = panelRect(snapBtn);
+      var ax = r ? r.x1 - SNAP_W : 100, ay = r ? r.y1 + 2 : 60;
+      ax = Math.max(0, Math.min(ax, (G ? G.rw : 1280) - SNAP_W - 2));
       snapMenu.style.position = ax.toFixed(0) + 'px ' + ay.toFixed(0) + 'px 0px';
       snapRect = { x0: ax, y0: ay, x1: ax + SNAP_W, y1: ay + h };
     }
@@ -499,7 +524,7 @@ R"GEJS(
       snapMenu.style.boxShadow = '#000000aa 0px 6px 18px 0px';
       var head = mk('Panel', snapMenu); head.hittest = false;
       head.style.width = '100%'; head.style.height = SNAP_HEAD + 'px'; head.style.paddingLeft = '11px';
-      var t = lbl(head, 'TIME SNAP', S.hint, 10); t.hittest = false; t.style.verticalAlign = 'center';
+      var t = lbl(head, 'TIME SNAP (TICKS)', S.hint, 10); t.hittest = false; t.style.verticalAlign = 'center';
       t.style.fontWeight = 'bold'; t.style.letterSpacing = '1.4px';
       snapRows = [];
       for (var i = 0; i < items.length; i++) (function (mode, label) {
@@ -536,221 +561,139 @@ R"GEJS(
     }
     function showSnapMenu() {
       buildSnapMenu();
-      hideEaseMenu();
+      closeMenu();
       snapCustomBox.visible = false;
       refreshSnapRows();
       layoutSnapMenu();
       snapMenu.visible = true;
     }
-
-    // ---- left channel column -------------------------------------------
-    // Each row sits at a FIXED Y (so the value cell's rect stays known for the mouse pipe) but its
-    // contents FLOW horizontally + center vertically -- so the swatch / name / value / eye always
-    // share one line. (Positioning each element by absolute Y inside the tall column drifted the
-    // labels out of their rows.)
-    // Rows start at the TOP of the editing area (aligned with the canvas/ruler top), not pushed
-    // down by a ruler band that no longer exists: AE's layer list begins at the panel's top edge.
-    var ROWS_Y0 = OVERVIEW_H, ROW_H = 34, VALW = 64, EYEW = 24;
-    var EYE_X = LEFTW - 8 - EYEW, VAL_X = EYE_X - 6 - VALW;
-    var left = mk('Panel', dock); left.style.position = '0px ' + HEADER_H + 'px 0px';
-    left.style.width = LEFTW + 'px'; left.style.backgroundColor = S.panel;
-    left.style.borderRight = '1px solid ' + S.border;
-    // The property-column header sits at the very TOP of the column -- AE's layer panel starts at
-    // the panel's top edge, it does not push its rows down to the ruler.
-    var lhP = mk('Panel', left); lhP.hittest = false; lhP.style.position = '8px 4px 0px';
-    lhP.style.width = (LEFTW - 16) + 'px'; lhP.style.height = '16px';
-    var lh = lbl(lhP, 'PROPERTIES', S.hint, 11); lh.style.fontWeight = 'bold'; lh.style.letterSpacing = '2px'; lh.style.verticalAlign = 'center';
-
-    var rows = []; // per-channel row controls + value-cell rect (dock-relative layout coords)
-    function makeRow(c) {
-      var rowY = ROWS_Y0 + c * ROW_H;
-      var rowP = mk('Panel', left); rowP.hittest = false;
-      rowP.style.position = '0px ' + rowY + 'px 0px'; rowP.style.width = LEFTW + 'px'; rowP.style.height = (ROW_H - 4) + 'px';
-      rowP.style.flowChildren = 'right'; rowP.style.paddingLeft = '8px'; rowP.style.paddingRight = '8px';
-      // swatch + name = solo TOGGLE target; fills the row left of the keyframe navigator. Then, in
-      // order: << diamond >> (the navigator), the value cell the mouse pipe scrubs/types, and the
-      // eye. Value and eye stay right-anchored at the same x as before, so the value-cell hit rect
-      // (VAL_X) is unchanged.
-      var hot = mk('Panel', rowP); hot.hittest = true; hot.style.flowChildren = 'right';
-      hot.style.width = 'fill-parent-flow(1.0)'; hot.style.height = '100%'; hot.style.borderRadius = '3px';
-      hot.SetPanelEvent('onactivate', function () { var m = chById(c); cmd('chan ' + c + ' ' + (m && m.solo ? 'unsolo' : 'solo')); });
-      var sw = mk('Panel', hot); sw.hittest = false; sw.style.width = '12px'; sw.style.height = '12px';
-      sw.style.verticalAlign = 'center'; sw.style.marginLeft = '2px'; sw.style.marginRight = '9px'; sw.style.borderRadius = '3px';
-      var nm = lbl(hot, '', S.value, 12); nm.hittest = false; nm.style.verticalAlign = 'center';
-      var nav = mk('Panel', rowP); nav.style.height = '100%'; nav.style.marginRight = '5px';
-      nav.style.flowChildren = 'right'; nav.style.width = 'fit-children';
-      var prev = navBtn(nav, '◀', 'Previous keyframe', function () { jumpChannelKey(c, -1); });
-      var dia = navBtn(nav, '◇', 'Add or remove a keyframe at the playhead', function () { toggleChannelKey(c); });
-      var next = navBtn(nav, '▶', 'Next keyframe', function () { jumpChannelKey(c, 1); });
-      // The value lives in a fixed-size BOX so the in-cell TextEntry can be created inside it; the
-      // box's rect is the value-cell hit rect the mouse pipe scrubs and the editor types into.
-      var valBox = mk('Panel', rowP); valBox.hittest = false;
-      valBox.style.width = VALW + 'px'; valBox.style.height = '100%'; valBox.style.marginRight = '6px';
-      var val = lbl(valBox, '-', S.accent, 12); val.hittest = false; val.style.width = '100%';
-      val.style.textAlign = 'right'; val.style.verticalAlign = 'center'; val.style.fontWeight = 'bold';
-      var eye = mk('Panel', rowP); eye.hittest = true; eye.style.width = EYEW + 'px'; eye.style.height = '20px';
-      eye.style.verticalAlign = 'center'; eye.style.borderRadius = '3px';
-      var eyeL = lbl(eye, '◉', S.label, 12); eyeL.style.horizontalAlign = 'center'; eyeL.style.verticalAlign = 'center';
-      eye.SetPanelEvent('onactivate', function () { var m = chById(c); cmd('chan ' + c + ' ' + (m && m.vis ? 'hide' : 'show')); });
-      attachTip(eye, 'Show / hide this property');
-      rows.push({ rowP: rowP, hot: hot, sw: sw, nm: nm, valBox: valBox, val: val, eye: eye, eyeL: eyeL,
-                  prev: prev, dia: dia, next: next,
-                  valRect: { x0: VAL_X, y0: HEADER_H + rowY, x1: VAL_X + VALW, y1: HEADER_H + rowY + (ROW_H - 4) } });
-    }
-    for (var c0 = 0; c0 < 7; c0++) makeRow(c0);
 )GEJS"
-// THE SAME COLOUR POPOVER THE CONFIG PANEL USES -- wheel, saturation, brightness and hex, one
-// definition spliced into both workspaces (the pattern TimelineDockRibbonJs.h and
-// EditorSettingsPopupJs.h already follow). A scene colour property is a colour, and it opens the
-// control the rest of this UI opens for a colour; it does not get a second, worse editor that
-// makes you type "255 180 140" to find out what it looks like.
-#include "ConfigColorPickerJs.h"
 R"GEJS(
-    // ---- timeline overview / navigator ---------------------------------
-    // AE's navigation bar. It sits directly above the ruler, spans the time area, and shows the
-    // WHOLE demo as a track with a draggable viewport marking the slice the ruler below displays.
-    // This is the primary time navigation -- drag the body to pan, either edge to zoom, and the
-    // viewport literally is the answer to "what am I looking at". (The old header speed scrubber
-    // was never a navigator; it stays where it is, as a speed control, and the map now exists.)
+    // ---- column header, overview, ruler ------------------------------------
+    var colHead = mk('Panel', dock); colHead.hittest = false;
+    colHead.style.position = '0px ' + HEADER_H + 'px 0px';
+    colHead.style.width = LEFTW + 'px'; colHead.style.height = (ROWS_Y - HEADER_H) + 'px';
+    colHead.style.flowChildren = 'right'; colHead.style.paddingLeft = '10px'; colHead.style.paddingRight = '8px';
+    colHead.style.borderRight = '1px solid ' + S.border; colHead.style.borderBottom = '1px solid ' + S.border;
+    function headCap(text, w, align) {
+      var l = lbl(colHead, text, S.hint, 11); l.hittest = false;
+      l.style.fontWeight = 'bold'; l.style.letterSpacing = '2px'; l.style.verticalAlign = 'center';
+      if (w) { l.style.width = w + 'px'; l.style.textAlign = align; l.style.marginLeft = '6px'; }
+      else l.style.width = 'fill-parent-flow(1.0)';
+      return l;
+    }
+    headCap('LAYERS'); headCap('VALUE', VAL_W, 'right'); headCap('KEY', NAV_W, 'center');
+
+    // The overview maps the WHOLE demo: key marks, the render range, the playhead and the view box.
+    // Drag the box to scroll, an end to zoom, empty track to jump.
     var overview = mk('Panel', dock); overview.hittest = false;
-    overview.style.backgroundColor = 'rgba(0,0,0,0.25)';
-    overview.style.borderBottom = '1px solid ' + S.border;
-    var ovTrack = mk('Panel', overview); ovTrack.hittest = false;
-    ovTrack.style.position = '0px 0px 0px'; ovTrack.style.width = '100%'; ovTrack.style.height = '100%';
-    ovTrack.style.backgroundColor = S.ovTrack;
-    // Keyframe marks, so the navigator also answers "where are my keys in the whole demo".
+    overview.style.backgroundColor = 'rgba(0,0,0,0.25)'; overview.style.overflow = 'clip clip';
+    var ovTrack = mk('Panel', overview); ovTrack.hittest = false; ovTrack.style.backgroundColor = S.ovTrack;
     var ovKeyLayer = mk('Panel', overview); ovKeyLayer.hittest = false;
     ovKeyLayer.style.position = '0px 0px 0px'; ovKeyLayer.style.width = '100%'; ovKeyLayer.style.height = '100%';
+    var ovRange = mk('Panel', overview); ovRange.hittest = false; ovRange.style.backgroundColor = '#f0b32340';
+    var ovPlay = mk('Panel', overview); ovPlay.hittest = false;
+    ovPlay.style.width = '1px'; ovPlay.style.height = '100%'; ovPlay.style.backgroundColor = S.playhead;
     var ovView = mk('Panel', overview); ovView.hittest = false;
     ovView.style.backgroundColor = S.ovView; ovView.style.border = '1px solid ' + S.ovViewBorder;
     ovView.style.borderRadius = '2px';
-    var ovPlay = mk('Panel', overview); ovPlay.hittest = false;
-    ovPlay.style.width = '1px'; ovPlay.style.height = '100%'; ovPlay.style.backgroundColor = S.ovPlay;
-    // Persistent edge grips sit above the playhead/key marks. Input still belongs to the
-    // raw navigator hit regions; these panels only make those existing regions visible.
-    function overviewGrip() {
-      var grip = mk('Panel', overview); grip.hittest = false;
-      grip.style.width = '6px'; grip.style.height = '22px';
-      grip.style.borderRadius = '2px'; grip.style.backgroundColor = '#303740ff';
-      grip.style.border = '1px solid #bac4d0ff';
-      var line = mk('Panel', grip); line.hittest = false;
-      line.style.width = '2px'; line.style.height = '12px';
-      line.style.horizontalAlign = 'center'; line.style.verticalAlign = 'center';
-      line.style.backgroundColor = '#e5ebf2ff';
-      return grip;
+    function ovGrip() {
+      var g = mk('Panel', overview); g.hittest = false;
+      g.style.width = '6px'; g.style.height = '12px'; g.style.borderRadius = '2px'; g.style.backgroundColor = '#303740ff';
+      return g;
     }
-    var ovLeftGrip = overviewGrip(), ovRightGrip = overviewGrip();
+    var ovLeftGrip = ovGrip(), ovRightGrip = ovGrip();
 
-    // ---- ruler + canvas layers -----------------------------------------
-    var ruler = mk('Panel', dock); ruler.hittest = false; ruler.style.backgroundColor = 'rgba(0,0,0,0.25)';
-    ruler.style.borderBottom = '1px solid ' + S.border;
-    var rulerLayer = mk('Panel', ruler); rulerLayer.hittest = false; rulerLayer.style.width = '100%'; rulerLayer.style.height = '100%';
+    // The ruler: ticks that adapt to the zoom, the render range (work area) as a gold bar with end
+    // handles along its top, and a scrub zone everywhere else.
+    var ruler = mk('Panel', dock); ruler.hittest = false; ruler.style.backgroundColor = '#00000040';
+    ruler.style.borderBottom = '1px solid ' + S.border; ruler.style.overflow = 'clip clip';
+    var rangeFill = mk('Panel', ruler); rangeFill.hittest = false; rangeFill.style.backgroundColor = '#f0b32310';
+    rangeFill.style.borderLeft = '1px solid #f0b32399'; rangeFill.style.borderRight = '1px solid #f0b32399';
+    var rulerLayer = mk('Panel', ruler); rulerLayer.hittest = false;
+    rulerLayer.style.position = '0px 0px 0px'; rulerLayer.style.width = '100%'; rulerLayer.style.height = '100%';
+    var rangeBar = mk('Panel', ruler); rangeBar.hittest = false; rangeBar.style.backgroundColor = '#f0b32366';
+    var rangeL = mk('Panel', ruler); rangeL.hittest = false; rangeL.style.backgroundColor = S.accent;
+    rangeL.style.borderRadius = '1px'; rangeL.style.width = '7px'; rangeL.style.height = '8px';
+    var rangeR = mk('Panel', ruler); rangeR.hittest = false; rangeR.style.backgroundColor = S.accent;
+    rangeR.style.borderRadius = '1px'; rangeR.style.width = '7px'; rangeR.style.height = '8px';
 
-    var canvas = mk('Panel', dock); canvas.hittest = false; canvas.style.backgroundColor = 'rgba(0,0,0,0.18)';
-    // Backstop for the scene strip stack, which scrolls: a half-visible band's contents must stop
-    // at the canvas edge instead of drawing over the ruler above it or the bottom bar below.
-    canvas.style.overflow = 'clip clip';
-    // Scene-mode property bands sit UNDER the grid, so they are created first (Panorama draws
-    // siblings in creation order and this canvas has no z-index of its own).
-    var stripLayer = mk('Panel', canvas); stripLayer.hittest = false;
-    var gridLayer = mk('Panel', canvas); gridLayer.hittest = false;
-    var curveLayer = mk('Panel', canvas); curveLayer.hittest = false;
-    var kfLayer = mk('Panel', canvas); kfLayer.hittest = false;
-    var handleLayer = mk('Panel', canvas); handleLayer.hittest = false;
-    var rectVis = mk('Panel', canvas); rectVis.hittest = false; rectVis.visible = false;
+    // ---- rows ---------------------------------------------------------------
+    var rowsView = mk('Panel', dock); rowsView.hittest = false; rowsView.style.overflow = 'clip clip';
+    var rowsInner = mk('Panel', rowsView); rowsInner.hittest = false;
+    var rowsSbThumb = mk('Panel', dock); rowsSbThumb.hittest = false; rowsSbThumb.visible = false;
+    rowsSbThumb.style.width = '6px'; rowsSbThumb.style.borderRadius = '3px'; rowsSbThumb.style.backgroundColor = '#ffffff33';
+    var emptyHint = lbl(dock, '', S.hint, 13); emptyHint.hittest = false; emptyHint.visible = false;
+
+    // ---- graph area (replaces the track side when GRAPH is up) -------------
+    var graph = mk('Panel', dock); graph.hittest = false; graph.visible = false;
+    graph.style.backgroundColor = S.graphBg; graph.style.overflow = 'clip clip';
+    var gridLayer = mk('Panel', graph); gridLayer.hittest = false;
+    var curveLayer = mk('Panel', graph); curveLayer.hittest = false;
+    var kfLayer = mk('Panel', graph); kfLayer.hittest = false;
+    var handleLayer = mk('Panel', graph); handleLayer.hittest = false;
+    [gridLayer, curveLayer, kfLayer, handleLayer].forEach(function (L) { L.style.position = '0px 0px 0px'; L.style.width = '100%'; L.style.height = '100%'; });
+    var legend = mk('Panel', graph); legend.hittest = false; legend.style.position = '12px 10px 0px';
+    legend.style.flowChildren = 'right'; legend.style.padding = '5px 10px 5px 10px';
+    legend.style.backgroundColor = 'rgba(8,10,14,0.9)'; legend.style.border = '1px solid ' + S.border;
+    legend.style.borderRadius = '3px';
+    var graphEmpty = lbl(graph, '', S.hint, 13); graphEmpty.hittest = false;
+    graphEmpty.style.horizontalAlign = 'center'; graphEmpty.style.verticalAlign = 'center';
+
+    // Box selection, drawn over whichever view is up.
+    var selOverlay = mk('Panel', dock); selOverlay.hittest = false; selOverlay.style.zIndex = '4';
+    var rectVis = mk('Panel', selOverlay); rectVis.hittest = false; rectVis.visible = false;
     rectVis.style.backgroundColor = '#f0b32322'; rectVis.style.border = '1px solid ' + S.accent;
-    [stripLayer, gridLayer, curveLayer, kfLayer, handleLayer].forEach(function (L) { L.style.position = '0px 0px 0px'; L.style.width = '100%'; L.style.height = '100%'; });
 
-    // The playhead is a property of the DOCK, not of the canvas: it runs from the top of the
-    // ruler all the way down through the editing area (AE's playhead extends through the tracks),
-    // so it is not clipped away by the canvas' own overflow as it crosses the ruler line.
+    // The playhead runs from just under the render-range bar down through the rows.
     var phLine = mk('Panel', dock); phLine.hittest = false; phLine.style.zIndex = '5';
     phLine.style.width = '2px'; phLine.style.backgroundColor = S.playhead;
-
-    // Playhead grab handle: a clear pin sitting in the ruler directly above the red line, so users
-    // know where to click + drag to scrub. The red line itself is ALSO grabbable in the canvas.
     var phHandle = mk('Panel', dock); phHandle.hittest = false; phHandle.style.zIndex = '6';
-    phHandle.style.width = '15px'; phHandle.style.height = '11px';
+    phHandle.style.width = '12px'; phHandle.style.height = '10px';
     phHandle.style.backgroundColor = S.playhead; phHandle.style.borderRadius = '3px';
-    var phPin = mk('Panel', phHandle); phPin.hittest = false; phPin.style.width = '9px'; phPin.style.height = '9px';
-    phPin.style.backgroundColor = S.playhead; phPin.style.transform = 'rotateZ(45deg)'; phPin.style.position = '3px 7px 0px';
 
-    // ---- bottom bar: timeline scrollbar + zoom --------------------------
-    // The old one-line shortcut legend lived here and is gone: instructions belong on the control
-    // under the pointer, not burned into the editing area. In its place is real navigation -- a
-    // scrollbar whose thumb WIDTH is the zoom level (wide = most of the demo is on screen, narrow
-    // = you are inside a small range) and - / + buttons. Dragging the thumb pans; clicking the
-    // trough re-centres there.
-    var ZOOM_W = 26, SB_H = 14;
-    var bottomBar = mk('Panel', dock); bottomBar.style.backgroundColor = S.panel;
-    bottomBar.style.borderTop = '1px solid ' + S.border;
-    function zoomBtn(glyph, tip, fn) {
-      var b = mk('Panel', bottomBar); b.hittest = true;
-      b.style.width = ZOOM_W + 'px'; b.style.borderRadius = '0px'; b.style.backgroundColor = S.btnBg;
-      var l = lbl(b, glyph, S.value, 16); l.hittest = false;
+    // ---- footer: render range, the visible span, FIT, zoom and the scrollbar ----
+    var footer = mk('Panel', dock); footer.hittest = false;
+    footer.style.flowChildren = 'right'; footer.style.borderTop = '1px solid ' + S.border;
+    var footLeft = mk('Panel', footer); footLeft.hittest = false;
+    footLeft.style.width = LEFTW + 'px'; footLeft.style.height = '100%'; footLeft.style.borderRight = '1px solid ' + S.border;
+    var rangeTxt = lbl(footer, '', S.hint, 11); rangeTxt.hittest = false;
+    rangeTxt.style.width = 'fill-parent-flow(1.0)'; rangeTxt.style.paddingLeft = '12px';
+    rangeTxt.style.verticalAlign = 'center'; rangeTxt.style.whiteSpace = 'nowrap';
+    var viewTxt = lbl(footer, '', S.hint, 11); viewTxt.hittest = false;
+    viewTxt.style.verticalAlign = 'center'; viewTxt.style.whiteSpace = 'nowrap'; viewTxt.style.marginRight = '6px';
+    function footBtn(glyphText, tip, fn, w) {
+      var b = mk('Panel', footer); b.hittest = true;
+      b.style.width = (w || 24) + 'px'; b.style.height = '18px'; b.style.verticalAlign = 'center';
+      b.style.backgroundColor = S.btnBg; b.style.marginRight = '6px';
+      var l = lbl(b, glyphText, S.value, glyphText.length > 1 ? 10 : 13); l.hittest = false;
       l.style.horizontalAlign = 'center'; l.style.verticalAlign = 'center'; l.style.fontWeight = 'bold';
+      if (glyphText.length > 1) l.style.letterSpacing = '1px';
       b.__lbl = l;
       b.SetPanelEvent('onactivate', function () { hideTip(); fn(); });
       b.SetPanelEvent('onmouseover', function () { b.style.backgroundColor = S.btnHover; showTip(b, tip); });
       b.SetPanelEvent('onmouseout', function () { b.style.backgroundColor = S.btnBg; hideTip(); });
       return b;
     }
-    // FIT frames every visible key (and refits each scene curve's height). The navigator and the
-    // zoom buttons only ever move the window from where it is; after keys pile up off screen there
-    // was no one-step way back to all of them.
-    var FIT_W = 40, NAV_L = FIT_W + ZOOM_W;
-    var fitBtn = zoomBtn('FIT', 'Fit every visible key in the graph', function () { fitAll(); });
-    fitBtn.style.width = FIT_W + 'px'; fitBtn.__lbl.style.fontSize = '11px'; fitBtn.__lbl.style.letterSpacing = '1px';
-    fitBtn.style.borderRight = '1px solid ' + S.border;
-    var zoomOut = zoomBtn('−', 'Zoom out the timeline (Ctrl+Wheel down)', function () { zoomStep(1.6); });
-    var zoomIn = zoomBtn('+', 'Zoom in the timeline (Ctrl+Wheel up)', function () { zoomStep(1 / 1.6); });
-    var sbTrack = mk('Panel', bottomBar); sbTrack.hittest = false;
-    sbTrack.style.backgroundColor = 'rgba(0,0,0,0.45)'; sbTrack.style.borderRadius = '7px';
+    // FIT frames every key (and refits every curve's height in GRAPH): the navigator and the zoom
+    // buttons only move the window from where it is.
+    var fitBtn = footBtn('FIT', 'Fit every key in the timeline', function () { fitAll(); }, 34);
+    var zoomOut = footBtn('−', 'Zoom out (Ctrl+Wheel)', function () { zoomStep(1.5); });
+    var sbTrack = mk('Panel', footer); sbTrack.hittest = false;
+    sbTrack.style.width = '220px'; sbTrack.style.height = '12px'; sbTrack.style.verticalAlign = 'center';
+    sbTrack.style.backgroundColor = 'rgba(0,0,0,0.45)'; sbTrack.style.borderRadius = '7px'; sbTrack.style.marginRight = '6px';
     var sbThumb = mk('Panel', sbTrack); sbThumb.hittest = false;
-    sbThumb.style.backgroundColor = '#ffffff33'; sbThumb.style.borderRadius = '7px';
-    sbThumb.style.border = '1px solid #ffffff2a';
-
+    sbThumb.style.height = '12px'; sbThumb.style.backgroundColor = '#ffffff33'; sbThumb.style.borderRadius = '7px';
+    var zoomIn = footBtn('+', 'Zoom in (Ctrl+Wheel)', function () { zoomStep(1 / 1.5); });
+    zoomIn.style.marginRight = '14px';
 )GEJS"
+// THE SAME COLOUR POPOVER THE CONFIG PANEL USES -- one definition spliced into both workspaces. A
+// scene colour property opens the control the rest of this UI opens for a colour.
+#include "ConfigColorPickerJs.h"
 R"GEJS(
-    // ---- SCENE KEYS: stacked property strips ---------------------------
-    // SCENE KEYS uses the Graph dock as a stacked property editor. Camera mode overlays seven
-    // channels on ONE set of axes, which works because they are all metres/degrees on one camera.
-    // Scene properties are not: exposure lives in -1..10, fog density in 0..1, sun yaw in 0..360
-    // and a toggle in 0..1. Drawn on shared axes the small ranges flatten onto the baseline and
-    // the curves cross each other meaninglessly. Each property therefore gets its OWN full-width
-    // horizontal strip with its own vertical range, stacked down the canvas, and the left column
-    // carries one header per strip, lined up with it.
-    //
-    // A strip exists for every property the inspector has turned ON, keyed or not.
-    //
-    // STRIPS ARE GROUPED. A shot can have a dozen properties under Lighting, Weather & Sky,
-    // Atmosphere and Look, and the old flat list gave no way to tell them apart or to get a group
-    // out of the way. Each group now gets a header BAR carrying its name, a disclosure triangle
-    // and an eye (show/hide every curve in the group); its properties sit under it as compact
-    // single-line rows. Collapsing a group removes its rows AND its canvas bands, so the whole
-    // group -- not just its labels -- goes away.
-    var SCENE_ROW_H = 26, SCENE_GROUP_H = 24;
-    // The value cell's rect has to be known in DOCK coordinates because the mouse pipe owns it
-    // (drag to scrub, click to type, right-click for its menu) -- exactly the camera column's
-    // contract, which is the interaction people already know in this dock.
-    // 66px holds a five-digit tick value or a hex chip, and leaves the property NAME ~20
-    // characters before it ellipses (it used to be 78px, which cut names at ~17).
-    var SH_VALW = 66, SH_ROWH = 20;
-    var SH_VALX = LEFTW - 8 - EYEW - 6 - SH_VALW;
-    var sceneStrips = [], sceneGroups = [], sceneScroll = 0, sceneContentH = 0, sceneCollapsed = {}, sceneCollapsedCh = {};
-    var sceneHeadSig = '', sceneValues = {}, sceneCells = [], sceneNavs = [];
-    var sceneHeadClip = mk('Panel', left); sceneHeadClip.visible = false; sceneHeadClip.hittest = false;
-    sceneHeadClip.style.width = LEFTW + 'px'; sceneHeadClip.style.overflow = 'clip clip';
-    var sceneHeads = mk('Panel', sceneHeadClip); sceneHeads.hittest = false;
-    sceneHeads.style.position = '0px 0px 0px'; sceneHeads.style.width = '100%';
-    var sceneEmpty = lbl(canvas, 'Turn properties on in SCENE KEYS to give them strips here.', S.hint, 14);
-    sceneEmpty.style.horizontalAlign = 'center'; sceneEmpty.style.verticalAlign = 'center'; sceneEmpty.hittest = false;
-
-    // THE COLOUR PICKER'S TRAY. The shared picker opens INLINE under the parent it is handed
-    // (Config's rows push down to make room for it). This dock has no flowing column to open it
-    // in, so every colour strip parents its picker here instead: one floating panel beside the
-    // strip list, placed next to the chip that opened it. Done, the chip again, or a click
-    // anywhere else closes it.
+    // THE COLOUR PICKER'S TRAY. The shared picker opens inline under its parent; this dock has no
+    // flowing column for it, so colour chips parent their picker here: one floating panel beside the
+    // layer list, placed next to the chip that opened it.
     var PICK_W = 392;
     var pickTray = mk('Panel', dock); pickTray.hittest = false; pickTray.hittestchildren = true;
     pickTray.visible = false; pickTray.style.zIndex = '24'; pickTray.style.width = PICK_W + 'px';
@@ -769,12 +712,10 @@ R"GEJS(
       return { x0: x, y0: y, x1: x + (p.actuallayoutwidth || 0) / s, y1: y + (p.actuallayoutheight || 0) / s };
     }
     function overPanel(p, lx, ly) { var r = panelRect(p); return !!r && lx >= r.x0 && lx <= r.x1 && ly >= r.y0 && ly <= r.y1; }
-    // Called on open and again every frame while open (render()): the tray's height is only known
-    // after its first layout pass, and the clamp that keeps it inside the dock needs it.
     function placePickTray(anchor, title) {
       if (anchor !== pickAnchor || title !== pickTitle) { pickAnchor = anchor; pickTitle = title; pickHead.text = ('' + title).toUpperCase(); }
       var r = panelRect(anchor), h = (pickTray.actuallayoutheight || 0) / (uiscale || 1) || 250;
-      var y = r ? r.y0 - 12 : HEADER_H + OVERVIEW_H;
+      var y = r ? r.y0 - 12 : ROWS_Y;
       y = Math.max(HEADER_H + 4, Math.min(DOCK_H - h - 4, y));
       var pos = (LEFTW + 10) + 'px ' + Math.round(y) + 'px 0px';
       if (pos !== pickPos) { pickPos = pos; pickTray.style.position = pos; }
@@ -782,263 +723,29 @@ R"GEJS(
     }
     function closePickTray() { if (cfgColorOwner) cfgCloseColor(); pickTray.visible = false; pickAnchor = null; }
 
-    function stepped(ch) { return ch && (ch.type === 'bool' || ch.type === 'enum' || ch.type === 'asset'); }
-    // Rounded per component: a colour arrives as three float channels and printing them raw put
-    // '254.99999707116' in a 74px field, which wraps to three lines and hides the strip header.
-    function sceneValueText(v) {
-      if (v instanceof Array) return v.map(function (n) { return typeof n === 'number' ? String(Math.round(n * 1000) / 1000) : String(n); }).join(' ');
-      return typeof v === 'number' ? String(Math.round(v * 1000) / 1000) : String(v || '');
-    }
-    function sceneOn() { return !!(st && st.graphMode === 'scene'); }
-    function stripFor(c) { for (var i = 0; i < sceneStrips.length; i++) if (sceneStrips[i].ch === c) return sceneStrips[i]; return null; }
-    function stripAt(cly) { for (var i = 0; i < sceneStrips.length; i++) { var s = sceneStrips[i]; if (cly >= s.y0 && cly < s.y0 + s.h) return s; } return null; }
-    // A scene channel whose GROUP is collapsed is not drawn or hit-tested: collapsing a group means
-    // "hide everything in it", and with the curves overlaid there is no band to remove. The list
-    // rows are gone anyway; this is what takes the curves with them.
-    function sceneStripped(ch) { return !sceneOn() || !sceneCollapsedCh[ch.ch]; }
-    // Build the group list and place the compact rows. One pass, called before anything reads a
-    // band. Groups come from the catalog's own family/group order (already sorted), so two
-    // properties with the same name in different families cannot merge.
-    function layoutSceneStrips() {
-      sceneStrips = []; sceneGroups = []; sceneCollapsedCh = {};
-      var n = model.length;
-      if (!n || !G) { sceneScroll = 0; sceneContentH = 0; return; }
-      var byId = {};
-      for (var i = 0; i < n; i++) {
-        var c = model[i], gid = (c.family || '') + '.' + (c.group || '');
-        var g = byId[gid];
-        if (!g) { g = byId[gid] = { id: gid, title: sceneGroupTitle(c), items: [] }; sceneGroups.push(g); }
-        g.items.push(i);
-      }
-      var y = 0;
-      for (var gi = 0; gi < sceneGroups.length; gi++) {
-        var grp = sceneGroups[gi];
-        grp.collapsed = !!sceneCollapsed[grp.id];
-        grp.y0 = y; grp.h = SCENE_GROUP_H;
-        if (grp.collapsed) {
-          // Collapsed group: no rows, and its curves drop out of the shared canvas too.
-          for (var h = 0; h < grp.items.length; h++) sceneCollapsedCh[model[grp.items[h]].ch] = true;
-        }
-        y += SCENE_GROUP_H;
-        if (grp.collapsed) continue;
-        for (var k = 0; k < grp.items.length; k++) {
-          var ch = model[grp.items[k]];
-          sceneStrips.push({ ch: ch.ch, fieldId: ch.fieldId, groupId: grp.id, y0: y, h: SCENE_ROW_H });
-          y += SCENE_ROW_H;
-        }
-      }
-      sceneContentH = y;
-      var max = Math.max(0, sceneContentH - G.ch);
-      if (sceneScroll > max) sceneScroll = max;
-      if (sceneScroll < 0) sceneScroll = 0;
-      for (var s = 0; s < sceneStrips.length; s++) sceneStrips[s].y0 -= sceneScroll;
-      for (var g2 = 0; g2 < sceneGroups.length; g2++) sceneGroups[g2].y0 -= sceneScroll;
-    }
-)GEJS"
-R"GEJS(
-    // A group header names the CONFIG tab as well as the card: both tabs have a LIGHTING card, and
-    // two bars both reading "Lighting" gave no way to tell the map's sun from the procedural one.
-    function sceneGroupTitle(ch) {
-      return (ch.family === 'effects' ? 'Effects' : ch.family === 'environment' ? 'Environment' : 'Properties')
-        + (ch.group ? ' · ' + ch.group : '');
-    }
-    function rebuildSceneHeads() {
-      sceneHeads.RemoveAndDeleteChildren(); sceneValues = {}; sceneCells = []; sceneNavs = [];
-      // The colour pickers belong to the rows being replaced.
-      closePickTray(); pickBody.RemoveAndDeleteChildren();
-      for (var gi = 0; gi < sceneGroups.length; gi++) (function (grp) {
-        // ---- group header bar: disclosure + name + count + show/hide-all ----
-        var allVis = false;
-        for (var a = 0; a < grp.items.length; a++) if (model[grp.items[a]].vis) allVis = true;
-        var gh = mk('Panel', sceneHeads); gh.hittest = false;
-        gh.style.position = '0px ' + grp.y0 + 'px 0px';
-        gh.style.width = LEFTW + 'px'; gh.style.height = grp.h + 'px';
-        gh.style.flowChildren = 'right'; gh.style.paddingLeft = '8px'; gh.style.paddingRight = '8px';
-        gh.style.backgroundColor = 'rgba(255,255,255,0.07)';
-        gh.style.borderTop = '1px solid ' + S.border;
-        // The disclosure+name is its OWN click target, a SIBLING of the eye. Panorama bubbles
-        // onactivate, so putting the toggle on the whole bar would make the show/hide-all eye also
-        // collapse the group every time you pressed it.
-        var toggle = (function (gid) { return function () {
-          sceneCollapsed[gid] = !sceneCollapsed[gid]; sceneHeadSig = ''; lastSig = ''; api.render();
-        }; })(grp.id);
-        var ghot = mk('Panel', gh); ghot.hittest = true; ghot.style.flowChildren = 'right';
-        ghot.style.width = 'fill-parent-flow(1.0)'; ghot.style.height = '100%'; ghot.style.borderRadius = '3px';
-        ghot.SetPanelEvent('onactivate', toggle);
-        ghot.SetPanelEvent('onmouseover', function () { gh.style.backgroundColor = 'rgba(255,255,255,0.12)'; });
-        ghot.SetPanelEvent('onmouseout', function () { gh.style.backgroundColor = 'rgba(255,255,255,0.07)'; });
-        var gchev = lbl(ghot, grp.collapsed ? '▶' : '▼', S.inactive, 10);
-        gchev.hittest = false; gchev.style.verticalAlign = 'center'; gchev.style.marginRight = '7px';
-        var gname = lbl(ghot, grp.title, S.value, 11);
-        gname.hittest = false; gname.style.verticalAlign = 'center'; gname.style.fontWeight = 'bold';
-        gname.style.letterSpacing = '0.6px'; gname.style.whiteSpace = 'nowrap';
-        gname.style.textOverflow = 'ellipsis'; gname.style.width = 'fill-parent-flow(1.0)';
-        var gcount = lbl(gh, '' + grp.items.length, S.hint, 10);
-        gcount.hittest = false; gcount.style.verticalAlign = 'center'; gcount.style.marginRight = '8px';
-        var geye = btn(gh, allVis ? '◉' : '○', function () {
-          for (var m = 0; m < grp.items.length; m++) cmd('chan ' + model[grp.items[m]].ch + (allVis ? ' hide' : ' show'));
-        }, allVis ? S.accent : S.hint, allVis ? 'Hide every ' + grp.title + ' curve' : 'Show every ' + grp.title + ' curve');
-        geye.style.width = '24px'; geye.style.height = '20px'; geye.style.verticalAlign = 'center';
-        geye.style.paddingLeft = '0px'; geye.style.paddingRight = '0px'; geye.style.marginRight = '0px';
-        if (grp.collapsed) return;
-
-        // ---- one compact row per property ----
-        // ONE CLOSURE PER ROW. `var ch` inside a plain for-loop is function-scoped, so every row's
-        // solo / eye / keyframe handlers captured the SAME (last) property in the group: clicking
-        // the eye on the first of three hid the third. The rows are built in an IIFE for the same
-        // reason the groups above are.
-        for (var k = 0; k < grp.items.length; k++) (function (ch, strip) {
-          if (!strip) return;
-          try {
-          var row = mk('Panel', sceneHeads); row.hittest = false;
-          row.style.position = '0px ' + strip.y0 + 'px 0px';
-          row.style.width = LEFTW + 'px'; row.style.height = strip.h + 'px';
-          row.style.flowChildren = 'right'; row.style.paddingLeft = '8px'; row.style.paddingRight = '8px';
-          row.style.borderTop = '1px solid ' + S.border;
-          row.style.backgroundColor = ch.solo ? S.rowOn : 'rgba(0,0,0,0)';
-          var hot = mk('Panel', row); hot.hittest = true; hot.style.flowChildren = 'right';
-          hot.style.width = 'fill-parent-flow(1.0)'; hot.style.height = '100%'; hot.style.borderRadius = '3px';
-          hot.SetPanelEvent('onactivate', function () { cmd('chan ' + ch.ch + (ch.solo ? ' unsolo' : ' solo')); });
-          var sw = mk('Panel', hot); sw.hittest = false; sw.style.width = '10px'; sw.style.height = '10px';
-          sw.style.borderRadius = '2px'; sw.style.backgroundColor = ch.color;
-          sw.style.verticalAlign = 'center'; sw.style.marginLeft = '2px'; sw.style.marginRight = '8px';
-          var nm = lbl(hot, ch.muted ? ch.name + '  (off)' : ch.name, ch.muted ? S.hint : ch.solo ? S.accent : (ch.edit ? S.value : S.inactive), 12);
-          nm.hittest = false; nm.style.verticalAlign = 'center';
-          nm.style.whiteSpace = 'nowrap'; nm.style.textOverflow = 'ellipsis'; nm.style.width = 'fill-parent-flow(1.0)';
-          // The full name on hover: a long one is ellipsed in this column.
-          attachTip(hot, ch.name + (ch.solo ? ' · click to show every strip' : ' · click to solo'));
-          var dnav = mk('Panel', row); dnav.style.height = '100%'; dnav.style.marginRight = '5px';
-          dnav.style.flowChildren = 'right'; dnav.style.width = 'fit-children';
-          var dprev = navBtn(dnav, '◀', 'Previous keyframe', function () { jumpSceneKey(ch, -1); });
-          var ddia = navBtn(dnav, '◇', 'Add or remove a keyframe at the playhead', function () { toggleSceneKey(ch); });
-          var dnext = navBtn(dnav, '▶', 'Next keyframe', function () { jumpSceneKey(ch, 1); });
-          sceneNavs.push({ ch: ch.ch, fieldId: ch.fieldId, prev: dprev, dia: ddia, next: dnext });
-          // A SINGLE NUMBER IS A SCRUBBY CELL, not a text box: drag it left/right to move the value
-          // and watch the world change, click it to type an exact one (in the cell), right-click it
-          // for this strip's own key menu. Colours, skies and enums keep a real TextEntry: there is
-          // nothing to scrub along, and "255 180 140" or a sky name has to be typed.
-          if (ch.type === 'colour') {
-            // A COLOUR OPENS THE COLOUR WHEEL. The chip IS the swatch: it shows the value, and
-            // clicking it opens the shared picker in the tray beside the list. Writing goes through
-            // the same `scenekeys set` verb the number cells use, so a colour edit keys exactly
-            // like any other edit (and, at a keyed tick, re-keys in place).
-            var swRgb = [255, 255, 255];
-            var chip = mk('Panel', row); chip.hittest = true;
-            chip.style.width = SH_VALW + 'px'; chip.style.height = SH_ROWH + 'px';
-            chip.style.marginRight = '6px'; chip.style.verticalAlign = 'center';
-            chip.style.borderRadius = '3px'; chip.style.border = '1px solid ' + S.border;
-            var chipLbl = lbl(chip, '', S.value, 10);
-            chipLbl.hittest = false; chipLbl.style.horizontalAlign = 'center';
-            chipLbl.style.verticalAlign = 'center'; chipLbl.style.fontWeight = 'bold';
-            chipLbl.style.whiteSpace = 'nowrap';
-            var crec = { swatch: chip, swatchLbl: chipLbl, rgb: swRgb, editing: false, last: '' };
-            function paintChip() {
-              chip.style.backgroundColor = rgbHex(swRgb);
-              // Dark text on a light swatch, light on a dark one -- the hex has to stay readable
-              // against the colour it is describing.
-              var lum = swRgb[0] * 0.2126 + swRgb[1] * 0.7152 + swRgb[2] * 0.0722;
-              chipLbl.style.color = lum > 145 ? '#111820ff' : '#ffffffff';
-              chipLbl.text = rgbHex(swRgb).substring(1, 7).toUpperCase();
-            }
-            crec.paint = paintChip;
-            crec.picker = colorPicker(pickBody, ch.name, swRgb, function (value) {
-              paintChip();
-              // show() fires onChange once to prime the preview; only a real change may write,
-              // or merely OPENING the wheel would drop a keyframe.
-              var sig = value[0] + ',' + value[1] + ',' + value[2];
-              if (sig === crec.last) return;
-              crec.last = sig;
-              var live = chById(crec.ch), out = value.slice(0, 3);
-              // Alpha (skyColor and friends are RGBA) is not the wheel's business: carry the
-              // channel's current alpha through untouched rather than dropping it to opaque.
-              if (live && live.value instanceof Array && live.value.length > 3) out.push(live.value[3]);
-              rawCmd('mirv_filmmaker scenekeys set ' + ch.fieldId + ' ' + out.join(' '));
-            }, 1);
-            crec.ch = ch.ch;
-            crec.picker.onOpen = function () { placePickTray(chip, ch.name); };
-            crec.picker.owner.onClose = function () { pickTray.visible = false; pickAnchor = null; };
-            // show() toggles: the chip of the open picker closes it again.
-            chip.SetPanelEvent('onactivate', function () { crec.picker.show(); });
-            attachTip(chip, 'Pick a colour for ' + ch.name);
-            paintChip();
-            sceneValues[ch.fieldId] = crec;
-          } else if (scrubbable(ch)) {
-            var cell = mk('Panel', row); cell.hittest = false;
-            cell.style.width = SH_VALW + 'px'; cell.style.height = SH_ROWH + 'px'; cell.style.marginRight = '6px';
-            cell.style.verticalAlign = 'center'; cell.style.borderRadius = '3px';
-            cell.style.backgroundColor = S.btnBg;
-            var cl = lbl(cell, '-', S.accent, 12);
-            cl.hittest = false; cl.style.horizontalAlign = 'right'; cl.style.verticalAlign = 'center';
-            cl.style.fontWeight = 'bold'; cl.style.whiteSpace = 'nowrap'; cl.style.marginRight = '7px';
-            var top0 = HEADER_H + OVERVIEW_H + strip.y0 + Math.round((strip.h - SH_ROWH) / 2);
-            sceneCells.push({ ch: ch.ch, fieldId: ch.fieldId, box: cell, lbl: cl,
-              rect: { x0: SH_VALX, y0: top0, x1: SH_VALX + SH_VALW, y1: top0 + SH_ROWH } });
-            sceneValues[ch.fieldId] = { cell: cl, editing: false };
-          } else {
-            var val = $.CreatePanel('TextEntry', row, '', {});
-            val.style.width = SH_VALW + 'px'; val.style.height = SH_ROWH + 'px'; val.style.marginRight = '6px';
-            val.style.verticalAlign = 'center';
-            val.style.fontSize = '11px'; val.style.color = S.value; val.style.backgroundColor = S.btnBg;
-            val.style.border = '1px solid ' + S.border; val.style.borderRadius = '3px';
-            var rec = { input: val, editing: false };
-            val.SetPanelEvent('onfocus', function () { rec.editing = true; });
-            val.SetPanelEvent('onblur', function () { rec.editing = false; });
-            val.SetPanelEvent('oninputsubmit', function () { rawCmd('mirv_filmmaker scenekeys set ' + ch.fieldId + ' ' + val.text.replace(/,/g, ' ')); rec.editing = false; });
-            sceneValues[ch.fieldId] = rec;
-          }
-          var eye = btn(row, ch.vis ? '◉' : '○', function () { cmd('chan ' + ch.ch + (ch.vis ? ' hide' : ' show')); }, ch.vis ? S.accent : S.hint);
-          eye.style.width = '24px'; eye.style.height = '20px'; eye.style.verticalAlign = 'center';
-          eye.style.paddingLeft = '0px'; eye.style.paddingRight = '0px'; eye.style.marginRight = '0px';
-          } catch (rowErr) {
-            // One row that cannot build must not take the rows below it with it: the column is
-            // rebuilt only when its signature moves, so a throw here used to leave every later
-            // property missing until something else changed.
-            $.Msg('[grapheditor] scene row ' + (ch && ch.fieldId) + ' failed: ' + rowErr + String.fromCharCode(10));
-          }
-        })(model[grp.items[k]], stripFor(model[grp.items[k]].ch));
-      })(sceneGroups[gi]);
-    }
-    function scrubbable(ch) { return !!ch && (ch.type === 'float' || ch.type === 'angle'); }
-    function sceneCellHit(lx, ly) {
-      if (!sceneOn()) return null;
-      // The list is a clipped viewport (it scrolls), so a row that is scrolled out must not be
-      // hit-testable through the clip.
-      var top = G.ovH + HEADER_H;
-      if (ly < top || ly > top + G.ch) return null;
-      for (var i = 0; i < sceneCells.length; i++) {
-        var r = sceneCells[i].rect;
-        if (lx >= r.x0 && lx <= r.x1 && ly >= r.y0 && ly <= r.y1) return sceneCells[i];
-      }
-      return null;
-    }
-)GEJS"
-R"GEJS(
-    // The canvas is the SHARED graph in scene mode now -- the property bands are gone -- so there
-    // is nothing to draw here; the layer is simply kept clear. (An empty strip used to carry a
-    // "click to place the first key" instruction; empty space reads as empty space.)
-    function drawSceneStrips() { stripLayer.RemoveAndDeleteChildren(); }
-
-    // (The click-to-type number editor is created on demand inside its own cell; see
-    // beginCellEdit / commitEdit in the number-field-typing block.)
-
     // ---- state + interaction vars (closure) -----------------------------
-    var st = null, model = [], G = null, uiscale = 1;
-    var lastSig = '', activeCh = 0;
+    var st = null, G = null, uiscale = 1;
+    var dockScreenX = 0, dockScreenY = 0;     // dock top-left in screen layout px (mouse mapping)
+    var camCh = [], scCh = [], chMap = {};
+    var tree = [], rows = [], treeSig = '', rowSig = '', trackSig = '', graphSig = '';
+    var openState = {}, splitState = {};
+    var selNode = '';                          // the selected row's node id (what GRAPH draws)
+    var viewMode = 'keys', viewHold = 0;        // viewHold: frames a local view pick wins over state
+    var lastDom = 'cam';                        // the domain of the last edit (Undo goes there first)
     var prevLmb = false, prevRmb = false, gesture = null;
-    var dockScreenX = 0, dockScreenY = 0; // dock top-left in screen layout px (for mouse mapping)
-    var didInitTimeline = false;          // one-shot: force the host timeline to its compact view
-    var easeMenu = null, easeItemPanels = [], easeRects = []; // right-click ease menu (dock-relative rects)
+    var selCache = {};
+    var rowScroll = 0, rowsContentH = 0;
 
-    function cmd(s) { try { GameInterfaceAPI.ConsoleCommand('mirv_filmmaker ' + (sceneOn() ? 'scenekeys graph ' : 'grapheditor ') + s); } catch (e) {} }
     function rawCmd(s) { try { GameInterfaceAPI.ConsoleCommand(s); } catch (e) {} }
-    // THE PLAYHEAD HAS ONE VERB IN BOTH MODES. `grapheditor playhead` moves the shared cursor AND
-    // drags the demo world with it (DemoScrub). Scene mode used to send its own copy that moved
-    // the cursor only, so the world stood still under a SCENE GRAPH drag and the values on screen
-    // were not the ones at the tick you were pointing at.
+    function camCmd(s) { rawCmd('mirv_filmmaker grapheditor ' + s); }
+    function sceneCmd(s) { rawCmd('mirv_filmmaker scenekeys graph ' + s); }
+    function domCmd(dom, s) { if (dom === 'scene') sceneCmd(s); else camCmd(s); }
+    function edit(dom) { lastDom = dom; }
+    // THE PLAYHEAD HAS ONE VERB. `grapheditor playhead` moves the shared cursor AND drags the demo
+    // world with it (DemoScrub), for camera and scene alike.
     function playheadTo(t) { rawCmd('mirv_filmmaker grapheditor playhead ' + (+t).toFixed(2)); }
-    // Land the world on a whole tick and hand the playhead back. The playhead holds that tick
-    // while the demo travels there (Movie/TimelinePlayhead.h), so a jump to a key reads as "at
-    // the key" even when the seek lands a tick off.
+    // Land the world on a whole tick and hand the playhead back. The playhead holds that tick while
+    // the demo travels there (Movie/TimelinePlayhead.h).
     function releasePlayhead(t) {
       t = Math.max(0, Math.round(t));
       playheadTo(t);
@@ -1046,23 +753,36 @@ R"GEJS(
       rawCmd('mirv_filmmaker grapheditor playhead release');
     }
 
+    function chU(uid) { return chMap[uid] || null; }
+    function domOf(uid) { return ('' + uid).charAt(0) === 's' ? 'scene' : 'cam'; }
+    function chNum(uid) { return parseInt(('' + uid).substring(1), 10); }
+    function tps() { var r = num(st && st.tickRate); return r > 1 ? r : 64; }
+    function fmtTime(t) {
+      var s = Math.max(0, t) / tps(), m = Math.floor(s / 60); s -= m * 60;
+      return m + ':' + (s < 10 ? '0' : '') + s.toFixed(2);
+    }
+    function fmtTimeShort(t) { return fmtTime(t).replace(/\.00$/, ''); }
+    function keyAtTick(ch, t) {
+      if (!ch) return null;
+      var want = Math.round(t);
+      for (var i = 0; i < ch.keys.length; i++) if (Math.round(ch.keys[i].t) === want) return ch.keys[i];
+      return null;
+    }
+    function isSelectedId(uid, id) { return !!selCache[uid + ':' + id]; }
+    function selCountDom(dom) { return dom === 'scene' ? num(st.scene && st.scene.selCount) : num(st.selCount); }
+    function totalSel() { return selCountDom('cam') + selCountDom('scene'); }
 )GEJS"
 R"GEJS(
     // ---- the visible time window (owned HERE) ---------------------------
-    // C++ publishes viewT0/viewT1 as a SUGGESTED fit (the key span, or the playhead when there are
-    // no keys yet) plus a viewEpoch that advances whenever that suggestion should be re-applied
-    // (dock enter, reseed, clear). After the seed, the JS owns pan and zoom outright. That split is
-    // the whole point: the old window was anchored to the playhead, so scrubbing away from a key
-    // dragged the view out from under it and made existing keyframes impossible to find. Now
-    // moving the playhead NEVER moves the view; only the navigator, the scrollbar, the zoom
-    // buttons and Ctrl/Shift+wheel do.
+    // C++ publishes viewT0/viewT1 as a SUGGESTED fit plus a viewEpoch that advances when that
+    // suggestion should be re-applied (dock enter, reseed, clear, demo change). After the seed the JS
+    // owns pan and zoom: moving the playhead NEVER moves the view by itself; only the navigator, the
+    // scrollbar, the zoom buttons, FIT, Ctrl/Shift+wheel and playback paging do.
     var view = { t0: 0, t1: 1, mode: '', epoch: null };
     var MIN_SPAN = 24;
     function domainRange() {
       var d0 = num(st.domainT0), d1 = num(st.domainT1);
       if (!(d1 > d0)) {
-        // No published domain (early frame / standalone): the view plus the playhead is enough to
-        // draw a navigator that is not obviously wrong.
         d0 = Math.min(view.t0, num(st.playhead)); d1 = Math.max(view.t1, num(st.playhead));
         if (!(d1 > d0)) { d0 = 0; d1 = 2000; }
       }
@@ -1083,18 +803,15 @@ R"GEJS(
       if (span < minS) span = minS;
       var c = (view.t0 + view.t1) * 0.5;
       view.t0 = c - span / 2; view.t1 = view.t0 + span;
-      // HARD CLAMP to the demo. There are no ticks before 0 and none past the last one, so the
-      // ruler must never be allowed to show "-5000" or run off the end of the demo. The old
-      // code allowed 5% of travel past each end, which is where the negative ticks came from.
+      // HARD CLAMP to the demo: no ticks before its start or past its end.
       if (view.t0 < d.t0) { view.t1 += d.t0 - view.t0; view.t0 = d.t0; }
       if (view.t1 > d.t1) { view.t0 -= view.t1 - d.t1; view.t1 = d.t1; }
       if (view.t0 < d.t0) view.t0 = d.t0;
     }
     function afterViewChange(automatic) {
-      lastSig = '';
+      trackSig = ''; graphSig = '';
       if (!automatic) {
-        // Manual navigation owns the window until playback is restarted. Updating the
-        // playback latch also covers a drag on the very first playing frame.
+        // Manual navigation owns the window until playback is restarted.
         manualView = true;
         wasPlaying = !!st.playing;
       }
@@ -1113,17 +830,15 @@ R"GEJS(
     }
     function panTicks(dt) { view.t0 += dt; view.t1 += dt; normalizeView(); afterViewChange(); }
     function panByFrac(frac) { panTicks(frac * (view.t1 - view.t0)); }
-    // Bring [a, b] into the window without zooming if it fits, or widen to it when it does not.
-    // Used when something you did lands OFF screen: a key created at a playhead outside the
-    // window, a jump to the next key. Moving the playhead never pans by itself (see above); these
-    // are discrete "show me what I just made / went to" moves, not a playhead follow.
+    // A JUMP (prev/next key, a new key off screen): if the target is off screen, shift the view so
+    // it lands 2% inside. Never a zoom.
     function revealTicks(a, b) {
       if (!(b >= a)) return;
-      var span = view.t1 - view.t0, margin = span * 0.12;
-      if (a >= view.t0 + margin * 0.25 && b <= view.t1 - margin * 0.25) return;
-      if (b - a > span - 2 * margin) { frameTicks(a, b); return; }
-      if (a < view.t0 + margin) { view.t0 = a - margin; view.t1 = view.t0 + span; }
-      else { view.t1 = b + margin; view.t0 = view.t1 - span; }
+      var span = view.t1 - view.t0, m = span * 0.02;
+      if (a >= view.t0 && b <= view.t1) return;
+      if (b - a > span - 2 * m) { frameTicks(a, b); return; }
+      if (a < view.t0) { view.t0 = a - m; view.t1 = view.t0 + span; }
+      else { view.t1 = b + m; view.t0 = view.t1 - span; }
       normalizeView(); afterViewChange(true);
     }
     function frameTicks(a, b) {
@@ -1132,51 +847,36 @@ R"GEJS(
       if (view.t1 - view.t0 < MIN_SPAN * 4) { var c = (a + b) / 2; view.t0 = c - MIN_SPAN * 2; view.t1 = c + MIN_SPAN * 2; }
       normalizeView(); afterViewChange(true);
     }
-    // FIT: every visible key on screen, and every curve -- eased bulges and selected handles
-    // included -- refitted to its own height (fitSceneRange / fitCamRange).
+    // FIT: every key of every layer on screen, and every curve refitted to its own height.
     function fitAll() {
-      var a = Infinity, b = -Infinity;
-      for (var i = 0; i < model.length; i++) {
-        var ch = model[i]; if (!ch.vis || !sceneStripped(ch)) continue;
-        for (var j = 0; j < ch.keys.length; j++) { if (ch.keys[j].t < a) a = ch.keys[j].t; if (ch.keys[j].t > b) b = ch.keys[j].t; }
-      }
+      var a = Infinity, b = -Infinity, all = camCh.concat(scCh);
+      for (var i = 0; i < all.length; i++)
+        for (var j = 0; j < all[i].keys.length; j++) { var t = all[i].keys[j].t; if (t < a) a = t; if (t > b) b = t; }
       if (!(b >= a)) { var p = num(st.playhead); a = p - 500; b = p + 500; }
       frameTicks(a, b);
-      sceneRanges = {}; camRanges = {}; lastSig = '';
+      ranges = {}; graphSig = '';
     }
-    // Keys that were not in the model last frame and sit outside the window are revealed: the
-    // only way to create one off screen is from a playhead you cannot see.
-    var knownKeys = null, knownMode = '';
-    function revealNewKeys(mode) {
-      var seen = {}, a = Infinity, b = -Infinity, fresh = knownKeys && knownMode === mode;
-      for (var i = 0; i < model.length; i++) {
-        var ch = model[i];
+    // Keys that were not in the model last frame and sit outside the window are revealed: the only
+    // way to create one off screen is from a playhead you cannot see.
+    var knownKeys = null;
+    function revealNewKeys() {
+      var seen = {}, a = Infinity, b = -Infinity, fresh = !!knownKeys, all = camCh.concat(scCh);
+      for (var i = 0; i < all.length; i++) {
+        var ch = all[i];
         for (var j = 0; j < ch.keys.length; j++) {
-          var k = ch.keys[j], id = ch.ch + ':' + k.id; seen[id] = 1;
-          if (fresh && !knownKeys[id] && ch.vis && (k.t < view.t0 || k.t > view.t1)) { if (k.t < a) a = k.t; if (k.t > b) b = k.t; }
+          var k = ch.keys[j], id = ch.uid + ':' + k.id; seen[id] = 1;
+          if (fresh && !knownKeys[id] && (k.t < view.t0 || k.t > view.t1)) { if (k.t < a) a = k.t; if (k.t > b) b = k.t; }
         }
       }
-      knownKeys = seen; knownMode = mode;
+      knownKeys = seen;
       if (b >= a) revealTicks(a, b);
     }
-    // While the demo PLAYS, page the window so the playhead stays on screen. Scrubbing never does
-    // this -- that is the whole point of the seed/epoch split above -- but during playback a
-    // playhead that has left the window makes the graph look frozen, which is exactly "when I
-    // play, nothing happens".
-    //
-    // It does NOT yank the window to a playhead that was never in view: opening the graph on a
-    // keyed shot while the playhead sits somewhere else keeps the keys visible. It pages on the
-    // rising edge of PLAY (starting playback should show the playhead) and whenever the playhead
-    // crosses out of the window during playback. Manual pan/zoom suspends this following
-    // until the next playback start, so a navigator drag can leave the playhead off screen.
+
     // ---- time snap --------------------------------------------------------
-    // ONE shared step for both graph modes, persisted by the settings store as
-    // editor.graph.snap. It quantises where things LAND -- the playhead, key placement and key
-    // drags -- and nothing else. Alt bypasses it for one gesture (Shift is axis-lock/straighten
-    // and Ctrl is wheel-zoom in this dock, so Alt is the free modifier).
+    // ONE shared step (editor.graph.snap) that quantises where things LAND -- the playhead, key
+    // placement and key drags. Alt bypasses it for one gesture.
     function snapSetting() { return (st && st.snap) ? ('' + st.snap) : 'off'; }
     function niceSnap(v) {
-      // 1-2-5 decade ladder, so an Auto step is always a round number.
       var p = Math.pow(10, Math.floor(Math.log(Math.max(1, v)) / Math.LN10));
       var n = v / p;
       var m = n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10;
@@ -1194,22 +894,23 @@ R"GEJS(
       if (step <= 0 || (st && st.alt)) return t;   // Alt = fine placement
       return Math.max(0, Math.round(t / step) * step);
     }
-    // One place the ruler/canvas scrub asks "what tick is under the cursor" so the snap can never
-    // be forgotten on one path but not another.
-    function scrubTick(clx) { return snapTick(xToTick(clx)); }
+    // One place a scrub asks "what tick is under the cursor", so the snap is never forgotten.
+    function scrubTick(tx) { return snapTick(xToTick(tx)); }
     function snapLabel() {
       var s = snapSetting();
       if (s === 'off' || s === '0') return 'SNAP';
-      if (s === 'auto') return 'SNAP AUTO';
-      return 'SNAP ' + s;
+      if (s === 'auto') return 'SNAP · Auto';
+      return 'SNAP · ' + s;
     }
     function setSnap(v) {
       v = ('' + v);
       rawCmd('mirv_filmmaker settings ui editor.graph.snap ' + v);
-      if (st) st.snap = v;   // show it now; C++ echoes the same value next frame
-      lastSig = ''; navSig = '';
+      if (st) st.snap = v;
+      trackSig = ''; graphSig = ''; navSig = '';
     }
 
+    // While the demo PLAYS the window PAGES: when the playhead passes the right edge the next page
+    // starts at the playhead (AE). Manual pan/zoom suspends this until playback restarts.
     var playWasInView = false, wasPlaying = false, manualView = false;
     function followPlayback() {
       var p = num(st.playhead), inside = (p >= view.t0 && p <= view.t1);
@@ -1220,63 +921,637 @@ R"GEJS(
       if (inside) { playWasInView = true; return; }
       if (!started && !playWasInView) return;
       var span = view.t1 - view.t0;
-      view.t0 = (p > view.t1) ? (p - span * 0.12) : (p - span * 0.88);
+      view.t0 = (p > view.t1) ? p : (p - span * 0.02);
       view.t1 = view.t0 + span;
       normalizeView(); afterViewChange(true);
       playWasInView = true;
     }
 
-    // ---- coordinate maps (canvas-local layout px) -----------------------
-)GEJS"
-R"GEJS(
-    function tickToX(t) { return (t - view.t0) / (view.t1 - view.t0) * G.cw; }
-    function xToTick(x) { return view.t0 + (x / G.cw) * (view.t1 - view.t0); }
-    // The overview maps the WHOLE demo (domain), not the visible window.
-    function domToX(t) { var d = domainRange(); return (t - d.t0) / Math.max(1, d.t1 - d.t0) * G.cw; }
-    function xToDom(x) { var d = domainRange(); return d.t0 + (x / G.cw) * Math.max(1, d.t1 - d.t0); }
+    // ---- coordinate maps -----------------------------------------------------
+    // Track-local x: 0 is the left edge of the track side (the column border), the time span runs
+    // from PAD to PAD + G.cw.
+    function tickToX(t) { return PAD + (t - view.t0) / (view.t1 - view.t0) * G.cw; }
+    function xToTick(x) { return view.t0 + ((x - PAD) / G.cw) * (view.t1 - view.t0); }
+    // The overview maps the WHOLE demo (domain) across the track width.
+    function domToX(t) { var d = domainRange(); return (t - d.t0) / Math.max(1, d.t1 - d.t0) * G.tw; }
+    function xToDom(x) { var d = domainRange(); return d.t0 + (x / G.tw) * Math.max(1, d.t1 - d.t0); }
     function ovViewRect() {
       var x0 = domToX(view.t0), x1 = domToX(view.t1);
-      if (x0 < 0) x0 = 0; if (x1 > G.cw) x1 = G.cw;
-      // A floor of a few px: a deep zoom on a long demo maps the viewport to ~1px, which reads as
-      // an empty navigator rather than as "you are looking at a tiny slice".
-      if (x1 < x0 + 8) x1 = Math.min(G.cw, x0 + 8);
+      if (x0 < 0) x0 = 0; if (x1 > G.tw) x1 = G.tw;
+      if (x1 < x0 + 8) x1 = Math.min(G.tw, x0 + 8);
       return { x0: x0, x1: x1 };
     }
-
-    // ONE set of axes for the whole canvas, in BOTH modes. Scene properties used to get their own
-    // stacked band with its own tiny axis, which squashed every curve into ~20px and read as a
-    // pile of separate little graphs. They are overlaid exactly like the camera channels now: each
-    // curve is scaled to its own [min,max] across the FULL height, so every property is visible at
-    // once and fills the area -- solo one (click its name) to see only it.
-    // Scene curves are fitted edge to edge, so their band starts BELOW the ruler that overlays the
-    // canvas top and stops short of the bottom: a key at the top of its range used to sit under
-    // the ruler, half hidden and ungrabbable. Camera ranges are padded half a span past their keys
-    // already and keep the full height.
-    function chBand(ch) { return sceneOn() ? { y0: RULER_H + 10, h: Math.max(20, G.ch - RULER_H - 20) } : { y0: 0, h: G.ch }; }
-    // THE VERTICAL RANGE A CURVE IS DRAWN IN. Camera channels arrive already fitted (C++ pads the
-    // keyed span). A scene property arrives with its CODED range, and drawing in that put a fog
-    // density of 0.1 -> 0.3 or a cloud base of 1800 -> 2500 along the bottom few pixels of the
-    // canvas, every property piled onto the same baseline. So each scene curve is fitted to what it
-    // actually draws -- its keys, the curve between them and the handles of selected keys --
-    // padded, never wider than the coded range (exposure can never read negative), and with a
-    // floor so a nearly flat curve is not blown up into noise. FROZEN while any gesture is open:
-    // refitting under a dragged key or handle would move the axis under the pointer and run away.
-    var sceneRanges = {};
-    // Camera channels get the same treatment for their CURVES: C++ fits the keys only, so an eased
-    // segment whose Bezier bulges past its keys -- and the handles that shape it -- ran off the top or
-    // bottom of the canvas, where they could not be seen or grabbed, and FIT (time only) could not
-    // bring them back. The C++ range stays the floor; the curve and selected handles widen it.
-    // Refit between gestures, frozen during one, exactly like the scene strips.
-    var camRanges = {};
-    function rng(ch) {
-      if (!sceneOn()) return camRanges[ch.ch] || { lo: ch.min, hi: ch.max };
-      var r = sceneRanges[ch.fieldId];
-      return r || { lo: ch.min, hi: ch.max };
+)GEJS"
+R"GEJS(
+    // ---- the layer tree ---------------------------------------------------------
+    // Rebuilt only when the SET of scene properties or a split changes; the rows flatten it by the
+    // open state. Nodes carry channel ids, never channel objects (those are replaced every frame).
+    var CAM_PROPS = [
+      { id: 'cam.pos', name: 'Position', chans: [0, 1, 2], comps: ['X', 'Y', 'Z'], axn: ['X Position', 'Y Position', 'Z Position'], dec: 0, unit: '' },
+      { id: 'cam.rot', name: 'Rotation', chans: [3, 4, 5], comps: ['Pitch', 'Yaw', 'Roll'], axn: ['Pitch', 'Yaw', 'Roll'], dec: 1, unit: '°' },
+      { id: 'cam.fov', name: 'Field of view', chans: [6], comps: ['FOV'], axn: ['Field of view'], dec: 1, unit: '' }
+    ];
+    // A layer names the CONFIG tab as well as the card: both tabs have a Lighting card.
+    function sceneLayerTitle(c) {
+      return (c.family === 'effects' ? 'EFFECTS' : c.family === 'environment' ? 'ENVIRONMENT' : 'SCENE')
+        + (c.group ? ' · ' + ('' + c.group).toUpperCase() : '');
     }
-    function fitCamRange(ch) {
-      var lo = ch.min, hi = ch.max, a = lo, b = hi;
+    function buildTree() {
+      var out = [], nodes = {};
+      var cam = { id: 'cam', kind: 'layer', dom: 'cam', name: 'CAMERA PATH', color: LAYER_COLORS.cam, children: [] };
+      var tr = { id: 'cam.tr', kind: 'group', dom: 'cam', name: 'Transform', layer: cam, children: [] };
+      cam.children.push(tr);
+      CAM_PROPS.forEach(function (p) {
+        var n = { id: p.id, kind: 'prop', dom: 'cam', name: p.name, layer: cam, chans: p.chans.map(function (c) { return 'c' + c; }),
+                  comps: p.comps, dec: p.dec, unit: p.unit, splittable: p.chans.length > 1, children: [] };
+        if (n.splittable && splitState[n.id])
+          n.children = n.chans.map(function (u, i) {
+            return { id: n.id + '.' + i, kind: 'prop', dom: 'cam', name: p.axn[i], layer: cam, parentProp: n,
+                     chans: [u], comps: [p.comps[i]], dec: p.dec, unit: p.unit, children: [] };
+          });
+        tr.children.push(n);
+      });
+      // Path > Camera shake: the GTA V shake each camera key carries (CamPathShake). Not a curve:
+      // its marks follow the camera keys, and its menu sets style, strength and speed.
+      var pg = { id: 'cam.path', kind: 'group', dom: 'cam', name: 'Path', layer: cam, children: [] };
+      var shk = { id: 'cam.shake', kind: 'shake', dom: 'cam', name: 'Camera shake', layer: cam, chans: [], comps: [], children: [] };
+      // Once a key carries a shake the row twirls open to that shake's own values: the shake that
+      // runs under the playhead (from the camera key at or before it), like any property's value.
+      if ((st.shakes || []).length) shk.children = [
+        { id: 'cam.shake.n', kind: 'shakep', param: 'n', verb: 'intensity', name: 'Intensity', min: 1, max: 10, dom: 'cam', layer: cam, chans: [], comps: [''], children: [] },
+        { id: 'cam.shake.p', kind: 'shakep', param: 'p', verb: 'speed', name: 'Speed', min: 10, max: 100, dom: 'cam', layer: cam, chans: [], comps: [''], children: [] }];
+      pg.children.push(shk);
+      cam.children.push(pg);
+      out.push(cam);
+      var byGroup = {};
+      scCh.forEach(function (c) {
+        var gid = c.groupId || ((c.family || '') + '.' + (c.group || ''));
+        var L = byGroup[gid];
+        if (!L) {
+          L = byGroup[gid] = { id: 's:' + gid, kind: 'layer', dom: 'scene', groupId: gid, name: sceneLayerTitle(c),
+                               color: LAYER_COLORS[c.family] || LAYER_COLORS.other, children: [] };
+          out.push(L);
+        }
+        L.children.push({ id: 's:' + c.fieldId, kind: 'prop', dom: 'scene', name: c.name, layer: L, chans: [c.uid],
+                          comps: [''], fieldId: c.fieldId, type: c.type, children: [] });
+      });
+      function index(n) { nodes[n.id] = n; n.children.forEach(index); }
+      out.forEach(index);
+      tree = out; treeNodes = nodes;
+    }
+    var treeNodes = {};
+    function nodeById(id) { return treeNodes[id] || null; }
+    function isSplit(n) { return n.kind === 'prop' && !!splitState[n.id] && n.children.length > 0; }
+    function isOpen(n) {
+      if (n.kind === 'prop') return isSplit(n) && openState[n.id] !== false;
+      if (n.kind === 'shake') return n.children.length > 0 && openState[n.id] !== false;
+      return openState[n.id] !== false;   // layers and groups start open
+    }
+    function expandable(n) { return n.kind === 'layer' || n.kind === 'group' || isSplit(n) || (n.kind === 'shake' && n.children.length > 0); }
+    // Leaf properties under a node (a split property's dimension rows instead of the property).
+    function propsOf(n) {
+      if (!n || n.kind === 'shake' || n.kind === 'shakep') return [];
+      if (n.kind === 'prop') return isSplit(n) ? n.children : [n];
+      var out = []; n.children.forEach(function (c) { out = out.concat(propsOf(c)); }); return out;
+    }
+    function chansOf(n) {
+      var u = [];
+      propsOf(n).forEach(function (p) { p.chans.forEach(function (x) { if (u.indexOf(x) < 0) u.push(x); }); });
+      return u;
+    }
+    // Keys of several channels merged by time: one entry per tick, carrying every member key. This is
+    // what a Position row (X, Y and Z) and a collapsed layer show.
+    function unionKeys(uids) {
+      var m = {}, out = [];
+      uids.forEach(function (u) {
+        var c = chU(u); if (!c) return;
+        c.keys.forEach(function (k) {
+          var tk = Math.round(k.t * 2) / 2, e = m[tk];
+          if (!e) { e = m[tk] = { t: k.t, members: [], sel: false }; out.push(e); }
+          e.members.push({ uid: u, id: k.id, k: k });
+          if (k.sel) e.sel = true;
+        });
+      });
+      out.sort(function (a, b) { return a.t - b.t; });
+      return out;
+    }
+    function allTimes(n) { return unionKeys(chansOf(n)).map(function (e) { return e.t; }); }
+    function layerOn(L) {
+      if (L.dom === 'cam') return !!st.drive;
+      var any = false;
+      for (var i = 0; i < L.children.length; i++) { var c = chU(L.children[i].chans[0]); if (c && !c.muted) any = true; }
+      return any;
+    }
+    function propMuted(p) { var c = p.dom === 'scene' ? chU(p.chans[0]) : null; return !!(c && c.muted); }
+    function flatten() {
+      var out = [];
+      function walk(n, depth) {
+        out.push({ node: n, depth: depth });
+        if (expandable(n) && isOpen(n)) n.children.forEach(function (c) { walk(c, depth + 1); });
+      }
+      tree.forEach(function (L) { walk(L, 0); });
+      return out;
+    }
+    function rowPad(r) {
+      var n = r.node;
+      if (n.kind === 'layer') return 6;
+      if (n.kind === 'group') return 24;
+      return 10 + r.depth * 18;
+    }
+    function rowAt(ly) {
+      var i = Math.floor((ly - ROWS_Y + rowScroll) / ROW_H);
+      return (ly >= ROWS_Y && ly < ROWS_Y + ROWS_H && i >= 0 && i < rows.length) ? rows[i] : null;
+    }
+    function rowY(r) { return ROWS_Y + r.index * ROW_H - rowScroll; }
+)GEJS"
+R"GEJS(
+    // ---- building the rows ------------------------------------------------------
+    // One full-width panel per visible row: the left cell (chevron, swatch, name, value, key
+    // navigator or meta + switch) and the track cell where the glyphs are drawn. Rebuilt when the
+    // flattened list changes; values and states are refreshed every frame from cached refs.
+    function setOpen(n, open) { openState[n.id] = open; rowSig = ''; }
+    function selectNode(id) { if (selNode !== id) { selNode = id; graphSig = ''; trackSig = ''; } }
+    function rebuildRows() {
+      closePickTray(); pickBody.RemoveAndDeleteChildren();
+      if (editState) cancelEdit();
+      rowsInner.RemoveAndDeleteChildren();
+      var flat = flatten();
+      rows = [];
+      for (var i = 0; i < flat.length; i++) {
+        try { rows.push(buildRow(flat[i], i)); }
+        catch (rowErr) {
+          // One row that cannot build must not take the rows below it with it.
+          $.Msg('[timeline] row ' + (flat[i].node && flat[i].node.id) + ' failed: ' + rowErr + String.fromCharCode(10));
+          rows.push({ node: flat[i].node, depth: flat[i].depth, index: i, broken: true });
+        }
+      }
+      rowsContentH = rows.length * ROW_H;
+      rowsInner.style.width = G.rw + 'px'; rowsInner.style.height = Math.max(ROWS_H, rowsContentH) + 'px';
+      clampRowScroll();
+      trackSig = '';
+    }
+    function buildRow(f, index) {
+      var n = f.node, r = { node: n, depth: f.depth, index: index };
+      var rowP = mk('Panel', rowsInner); rowP.hittest = false;
+      rowP.style.position = '0px ' + (index * ROW_H) + 'px 0px';
+      rowP.style.width = G.rw + 'px'; rowP.style.height = ROW_H + 'px';
+      rowP.style.borderBottom = '1px solid ' + S.rowLine;
+      r.rowP = rowP;
+      var left = mk('Panel', rowP); left.hittest = false;
+      left.style.width = LEFTW + 'px'; left.style.height = ROW_H + 'px'; left.style.flowChildren = 'right';
+      left.style.paddingLeft = rowPad(r) + 'px'; left.style.paddingRight = '8px';
+      left.style.borderRight = '1px solid ' + S.border;
+      r.left = left;
+      var chev = mk('Panel', left); chev.style.width = '14px'; chev.style.height = '100%'; chev.style.marginRight = '6px';
+      var chevL = lbl(chev, expandable(n) ? (isOpen(n) ? '▾' : '▸') : '', S.hint, 10);
+      chevL.hittest = false; chevL.style.horizontalAlign = 'center'; chevL.style.verticalAlign = 'center';
+      if (expandable(n)) {
+        chev.hittest = true;
+        chev.SetPanelEvent('onactivate', function () { setOpen(n, !isOpen(n)); });
+      } else chev.hittest = false;
+      if (n.kind === 'layer') {
+        var sw = mk('Panel', left); sw.hittest = false; sw.style.width = '10px'; sw.style.height = '10px';
+        sw.style.borderRadius = '2px'; sw.style.backgroundColor = n.color; sw.style.verticalAlign = 'center';
+        sw.style.marginRight = '6px';
+      }
+      var hot = mk('Panel', left); hot.hittest = true; hot.style.height = '100%';
+      hot.style.width = 'fill-parent-flow(1.0)'; hot.style.marginRight = '6px';
+      var nm = lbl(hot, n.name, S.value, 12); nm.hittest = false; nm.style.verticalAlign = 'center';
+      nm.style.whiteSpace = 'nowrap'; nm.style.textOverflow = 'ellipsis'; nm.style.width = '100%';
+      if (n.kind === 'layer') { nm.style.fontWeight = 'bold'; nm.style.letterSpacing = '1px'; }
+      else if (n.kind === 'group') { nm.style.fontWeight = 'bold'; nm.style.letterSpacing = '0.5px'; nm.style.color = S.label; }
+      hot.SetPanelEvent('onactivate', function () { selectNode(n.id); });
+      hot.SetPanelEvent('onmouseover', function () { if (n.name.length > 18) showTip(hot, n.name); });
+      hot.SetPanelEvent('onmouseout', function () { hideTip(); });
+      r.nm = nm;
+      if (n.kind === 'layer') {
+        var meta = lbl(left, '', S.muted, 11); meta.hittest = false;
+        meta.style.fontFamily = S.fontMono; meta.style.width = '60px'; meta.style.textAlign = 'right';
+        meta.style.verticalAlign = 'center';
+        r.meta = meta;
+        var swc = mk('Panel', left); swc.hittest = true;
+        swc.style.width = '34px'; swc.style.height = '18px'; swc.style.verticalAlign = 'center';
+        swc.style.marginLeft = '6px'; swc.style.marginRight = '4px'; swc.style.borderRadius = '2px';
+        var knob = mk('Panel', swc); knob.hittest = false;
+        knob.style.width = '12px'; knob.style.height = '12px'; knob.style.borderRadius = '1px';
+        swc.SetPanelEvent('onactivate', function () { toggleLayer(n); });
+        swc.SetPanelEvent('onmouseover', function () { showTip(swc, n.dom === 'cam'
+          ? 'Camera path on: scrubbing and Space preview the path. Off: the free cam stays yours.'
+          : 'Layer on: its keys apply to the world. Off: the keys are kept but not applied.'); });
+        swc.SetPanelEvent('onmouseout', function () { hideTip(); });
+        r.sw = swc; r.knob = knob; r.swOn = null;
+      }
+      if (n.kind === 'prop') buildPropCells(r, left);
+      else if (n.kind === 'shake') buildShakeCells(r, left);
+      else if (n.kind === 'shakep') buildShakeParamCells(r, left);
+      var trk = mk('Panel', rowP); trk.hittest = false;
+      trk.style.position = LEFTW + 'px 0px 0px';
+      trk.style.width = G.tw + 'px'; trk.style.height = ROW_H + 'px'; trk.style.overflow = 'clip clip';
+      r.trk = trk;
+      r.bg = null;
+      return r;
+    }
+)GEJS"
+R"GEJS(
+    // The VALUE cell and the << ◇ >> navigator of a property row. A number is scrubby (drag it) and
+    // typeable (click it) through the mouse pipe; a colour opens the shared colour wheel; a switch,
+    // a list or a sky is typed.
+    function buildPropCells(r, left) {
+      var n = r.node;
+      // A fixed 120px column with its numbers right-aligned inside it (they may run a little past
+      // its left edge for three wide components rather than wrap).
+      var vcol = mk('Panel', left); vcol.hittest = false;
+      vcol.style.width = VAL_W + 'px'; vcol.style.height = '100%'; vcol.style.marginRight = '6px';
+      vcol.style.overflow = 'noclip noclip';
+      var vb = mk('Panel', vcol); vb.hittest = false;
+      vb.style.width = 'fit-children'; vb.style.height = '100%';
+      vb.style.flowChildren = 'right'; vb.style.horizontalAlign = 'right';
+      r.valBox = vb; r.comps = [];
+      var c0 = chU(n.chans[0]);
+      if (n.dom === 'scene' && c0 && c0.type === 'colour') {
+        var swRgb = [255, 255, 255];
+        var chip = mk('Panel', vb); chip.hittest = true;
+        chip.style.width = '66px'; chip.style.height = '16px'; chip.style.verticalAlign = 'center';
+        chip.style.borderRadius = '3px'; chip.style.border = '1px solid ' + S.border;
+        var chipLbl = lbl(chip, '', S.value, 10);
+        chipLbl.hittest = false; chipLbl.style.horizontalAlign = 'center'; chipLbl.style.verticalAlign = 'center';
+        chipLbl.style.fontWeight = 'bold'; chipLbl.style.fontFamily = S.fontMonodigit;
+        var crec = { swatch: chip, swatchLbl: chipLbl, rgb: swRgb, last: '', uid: n.chans[0] };
+        crec.paint = function () {
+          chip.style.backgroundColor = rgbHex(swRgb);
+          var lum = swRgb[0] * 0.2126 + swRgb[1] * 0.7152 + swRgb[2] * 0.0722;
+          chipLbl.style.color = lum > 145 ? '#111820ff' : '#ffffffff';
+          chipLbl.text = rgbHex(swRgb).substring(1, 7).toUpperCase();
+        };
+        crec.picker = colorPicker(pickBody, n.name, swRgb, function (value) {
+          crec.paint();
+          // show() fires onChange once to prime the preview; only a real change may write, or
+          // merely OPENING the wheel would drop a keyframe.
+          var sig = value[0] + ',' + value[1] + ',' + value[2];
+          if (sig === crec.last) return;
+          crec.last = sig;
+          var live = chU(crec.uid), out = value.slice(0, 3);
+          // Alpha is not the wheel's business: carry the property's current alpha through.
+          if (live && live.value instanceof Array && live.value.length > 3) out.push(live.value[3]);
+          edit('scene');
+          rawCmd('mirv_filmmaker scenekeys set ' + n.fieldId + ' ' + out.join(' '));
+        }, 1);
+        crec.picker.onOpen = function () { placePickTray(chip, n.name); };
+        crec.picker.owner.onClose = function () { pickTray.visible = false; pickAnchor = null; };
+        chip.SetPanelEvent('onactivate', function () { crec.picker.show(); });
+        attachTip(chip, 'Pick a colour for ' + n.name);
+        crec.paint();
+        r.colour = crec;
+      } else {
+        for (var i = 0; i < n.comps.length; i++) {
+          var wrap = mk('Panel', vb); wrap.hittest = false;
+          wrap.style.height = '100%'; wrap.style.width = 'fit-children';
+          if (i) wrap.style.marginLeft = '5px';
+          var v = lbl(wrap, '-', S.value, n.comps.length > 2 ? 11 : 12); v.hittest = false;
+          v.style.fontWeight = 'bold'; v.style.fontFamily = S.fontMonodigit; v.style.verticalAlign = 'center';
+          v.style.whiteSpace = 'nowrap'; v.style.borderBottom = '1px dotted #ffffff33';
+          r.comps.push({ wrap: wrap, lbl: v, uid: n.chans[Math.min(i, n.chans.length - 1)], text: null });
+        }
+      }
+      var nav = mk('Panel', left); nav.hittest = false;
+      nav.style.width = NAV_W + 'px'; nav.style.height = '100%'; nav.style.flowChildren = 'right';
+      var showNav = !isSplit(n);
+      if (showNav) {
+        var navIn = mk('Panel', nav); navIn.hittest = false; navIn.style.flowChildren = 'right';
+        navIn.style.horizontalAlign = 'center'; navIn.style.height = '100%';
+        r.prev = navBtn(navIn, '◀', 'Previous keyframe', function () { selectNode(n.id); jumpOn(n, -1); });
+        r.dia = navBtn(navIn, '◇', 'Add or remove a keyframe at the playhead', function () { selectNode(n.id); toggleKeyAt(n); });
+        r.next = navBtn(navIn, '▶', 'Next keyframe', function () { selectNode(n.id); jumpOn(n, 1); });
+      }
+    }
+
+    // The Camera shake row: the style on the camera key under the playhead, and ◀ ◇ ▶ over the
+    // keys that carry one (◇ adds a shake to the key under the playhead, or removes it).
+    function buildShakeCells(r, left) {
+      var vcol = mk('Panel', left); vcol.hittest = false;
+      vcol.style.width = VAL_W + 'px'; vcol.style.height = '100%'; vcol.style.marginRight = '6px';
+      var v = lbl(vcol, 'Off', S.value, 12); v.hittest = false;
+      v.style.horizontalAlign = 'right'; v.style.verticalAlign = 'center'; v.style.whiteSpace = 'nowrap';
+      r.shakeLbl = v;
+      var nav = mk('Panel', left); nav.hittest = false;
+      nav.style.width = NAV_W + 'px'; nav.style.height = '100%';
+      var navIn = mk('Panel', nav); navIn.hittest = false; navIn.style.flowChildren = 'right';
+      navIn.style.horizontalAlign = 'center'; navIn.style.height = '100%';
+      var times = function () { return (st.shakes || []).map(function (s) { return s.t; }); };
+      r.prev = navBtn(navIn, '◀', 'Previous shaken key', function () { var t = nearestTime(times(), st.playhead, -1); if (t != null) seekTo(t); });
+      r.dia = navBtn(navIn, '◇', 'Add or remove a shake on the camera key at the playhead', function () {
+        var i = pathIndexAt(st.playhead); if (i < 0) return;
+        shakeCmd(shakeAt(i) ? 'clear ' + i : 'style ' + i + ' next');
+      });
+      r.next = navBtn(navIn, '▶', 'Next shaken key', function () { var t = nearestTime(times(), st.playhead, 1); if (t != null) seekTo(t); });
+    }
+    // Intensity / Speed under Camera shake: scrubbable and typeable like any number; ◀ ▶ walk the
+    // shaken keys. They show (and set) the shake running under the playhead.
+    function buildShakeParamCells(r, left) {
+      var vcol = mk('Panel', left); vcol.hittest = false;
+      vcol.style.width = VAL_W + 'px'; vcol.style.height = '100%'; vcol.style.marginRight = '6px';
+      var vb = mk('Panel', vcol); vb.hittest = false;
+      vb.style.width = 'fit-children'; vb.style.height = '100%'; vb.style.horizontalAlign = 'right';
+      var wrap = mk('Panel', vb); wrap.hittest = false; wrap.style.height = '100%'; wrap.style.width = 'fit-children';
+      var v = lbl(wrap, '-', S.value, 12); v.hittest = false;
+      v.style.fontWeight = 'bold'; v.style.fontFamily = S.fontMonodigit; v.style.verticalAlign = 'center';
+      v.style.whiteSpace = 'nowrap'; v.style.borderBottom = '1px dotted #ffffff33';
+      r.comps = [{ wrap: wrap, lbl: v, uid: null, text: null }];
+      var nav = mk('Panel', left); nav.hittest = false;
+      nav.style.width = NAV_W + 'px'; nav.style.height = '100%';
+      var navIn = mk('Panel', nav); navIn.hittest = false; navIn.style.flowChildren = 'right';
+      navIn.style.horizontalAlign = 'center'; navIn.style.height = '100%';
+      var times = function () { return (st.shakes || []).map(function (s) { return s.t; }); };
+      r.prev = navBtn(navIn, '◀', 'Previous shaken key', function () { var t = nearestTime(times(), st.playhead, -1); if (t != null) seekTo(t); });
+      r.dia = navBtn(navIn, '◇', 'Add a shake key here (it continues the shake running here), or remove it', function () {
+        var i = pathIndexAt(st.playhead); if (i < 0) return;
+        if (shakeAt(i)) { shakeCmd('clear ' + i); return; }
+        shakeKeyFrom(i, null, 0);
+      });
+      r.next = navBtn(navIn, '▶', 'Next shaken key', function () { var t = nearestTime(times(), st.playhead, 1); if (t != null) seekTo(t); });
+    }
+)GEJS"
+R"GEJS(
+    // The camera key whose shake runs at tick t: the last one at or before it (-1 before the first).
+    function shakeKeyAt(t) {
+      var k = st.pathKeys || [], at = -1;
+      for (var i = 0; i < k.length; i++) if (k[i] <= t + 0.5) at = i;
+      return at;
+    }
+    // Shake runs, as CamPathShake_EvalSnapshot plays them: a shake key and the next shake key with
+    // the same style are one run across any camera keys between them (a one-shot, o, never
+    // chains), and the values glide along CamPathShakeRampMath.h's eased ramp. A shake key with no
+    // same-style successor runs to the next camera key and ends there.
+    function shakeKeysSorted() { return (st.shakes || []).slice().sort(function (a, b) { return a.i - b.i; }); }
+    function shakeRun(i) {
+      var ks = shakeKeysSorted();
+      for (var q = 0; q < ks.length; q++) if (ks[q].i === i) { var nx = ks[q + 1]; return nx && nx.s === ks[q].s && !ks[q].o ? nx : null; }
+      return null;
+    }
+    function shakeEase(u) { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); }
+    // The shake key whose run covers tick t, or null.
+    function shakeRunningAt(t) {
+      var ks = shakeKeysSorted(), pk = st.pathKeys || [], a = null;
+      for (var q = 0; q < ks.length; q++) if (ks[q].t <= t + 0.5) a = ks[q];
+      if (!a) return null;
+      if (shakeRun(a.i)) return a;
+      var end = pk[a.i + 1];
+      return (end == null || t < end - 0.5) ? a : null;
+    }
+    function shakeValueAt(param, t) {
+      var a = shakeRunningAt(t); if (!a) return null;
+      var b = shakeRun(a.i);
+      if (!b || !(b.t > a.t)) return a[param];
+      return a[param] + (b[param] - a[param]) * shakeEase((t - a.t) / (b.t - a.t));
+    }
+    // Put a shake on camera key idx that continues the shake running there (or the menu's first),
+    // at the values it reads there, with `param` (if given) set to v.
+    function shakeKeyFrom(idx, param, v) {
+      // Read just before the key: the shake arriving there (key idx itself carries none yet).
+      var t = (st.pathKeys || [])[idx] - 1, run = shakeRunningAt(t), styles = st.shakeStyles || [];
+      var style = run ? run.s : (styles[0] ? styles[0][0] : -1); if (style < 0) return;
+      var n = Math.round(num(shakeValueAt('n', t)) || SHAKE_N0), p = Math.round(num(shakeValueAt('p', t)) || SHAKE_P0);
+      if (param === 'n') n = v; else if (param === 'p') p = v;
+      shakeCmd('set ' + idx + ' ' + style + ' ' + n + ' ' + p);
+    }
+    // An edit lands on the camera key under the playhead (keying it if it has no shake yet), else on
+    // the key whose shake runs here.
+    function shakeEditKey() { var i = pathIndexAt(st.playhead), a = shakeRunningAt(st.playhead); return i >= 0 ? i : (a ? a.i : -1); }
+    function shakeParamSet(node, idx, v) {
+      v = Math.round(Math.max(node.min, Math.min(node.max, v)));
+      if (!isFinite(v) || idx < 0) return;
+      if (shakeAt(idx)) shakeCmd(node.verb + ' ' + idx + ' ' + v);
+      else shakeKeyFrom(idx, node.param, v);
+    }
+    function fmtShake(v) { return v == null ? '-' : String(Math.round(v * 10) / 10); }
+    function pathIndexAt(t) {
+      var k = st.pathKeys || [], want = Math.round(t);
+      for (var i = 0; i < k.length; i++) if (Math.round(k[i]) === want) return i;
+      return -1;
+    }
+    function shakeAt(i) { var s = st.shakes || []; for (var j = 0; j < s.length; j++) if (s[j].i === i) return s[j]; return null; }
+    function shakeCmd(tail) { rawCmd('mirv_filmmaker pathshake ' + tail); }
+
+    // Per-frame refresh of what the rows SAY: values, the diamond, switches, counts, selection.
+    function sceneValueText(c) {
+      var v = c.value;
+      if (c.type === 'bool') return v ? 'On' : 'Off';
+      if (c.type === 'asset') return (v === '' || v == null) ? 'Default' : ('' + v);
+      if (v instanceof Array) return v.map(function (x) { return typeof x === 'number' ? String(Math.round(x * 1000) / 1000) : String(x); }).join(' ');
+      return typeof v === 'number' ? String(Math.round(v * 1000) / 1000) : String(v || '');
+    }
+    function camValue(c) { var v = c.keys.length ? sampleChan(c, st.playhead) : c.cur; return num(v); }
+    function fmtNum(v, dec) { v = num(v); if (Math.abs(v) < Math.pow(10, -dec) / 2) v = 0; return v.toFixed(dec); }
+    function setText(l, t) { if (l && l.text !== t) l.text = t; }
+    function setColor(l, c) { if (l && l.__c !== c) { l.__c = c; l.style.color = c; } }
+    function updateRows() {
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i], n = r.node; if (r.broken) continue;
+        var sel = selNode === n.id;
+        var bg = n.kind === 'layer' ? (sel ? S.layerSel : S.layerBg) : (sel ? S.rowSel : 'rgba(0,0,0,0)');
+        if (r.bg !== bg) { r.bg = bg; r.rowP.style.backgroundColor = bg; }
+        if (n.kind === 'layer') {
+          var on = layerOn(n);
+          var nk = unionKeys(chansOf(n)).length;
+          setText(r.meta, nk + (nk === 1 ? ' key' : ' keys'));
+          setColor(r.nm, on ? S.value : S.muted);
+          if (r.swOn !== on) {
+            r.swOn = on;
+            r.sw.style.backgroundColor = on ? S.btnOn : S.btnBg;
+            r.sw.style.border = '1px solid ' + (on ? S.accent : S.chip);
+            r.knob.style.backgroundColor = on ? S.accent : S.dim;
+            r.knob.style.position = (on ? 18 : 2) + 'px 2px 0px';
+          }
+          continue;
+        }
+        if (n.kind === 'shake') {
+          var pi = pathIndexAt(st.playhead), sk = pi >= 0 ? shakeAt(pi) : null, anyShake = (st.shakes || []).length > 0;
+          var running = shakeRunningAt(st.playhead);
+          setText(r.shakeLbl, running ? running.l : 'Off');
+          setColor(r.shakeLbl, running ? S.value : S.muted);
+          setText(r.dia.__lbl, sk ? '◆' : '◇');
+          setColor(r.dia.__lbl, sk ? S.accent : (pi >= 0 ? S.hint : S.dim));
+          setColor(r.prev.__lbl, anyShake ? S.hint : S.dim); setColor(r.next.__lbl, anyShake ? S.hint : S.dim);
+          continue;
+        }
+        if (n.kind === 'shakep') {
+          var spv = shakeValueAt(n.param, st.playhead), anyS = (st.shakes || []).length > 0;
+          var onKey = pathIndexAt(st.playhead), keyed = onKey >= 0 && !!shakeAt(onKey);
+          if (!(editState && editState.node === n)) setText(r.comps[0].lbl, fmtShake(spv));
+          setColor(r.comps[0].lbl, spv != null ? S.value : S.muted); setColor(r.nm, spv != null ? S.value : S.muted);
+          setText(r.dia.__lbl, keyed ? '◆' : '◇');
+          setColor(r.dia.__lbl, keyed ? S.accent : (onKey >= 0 ? S.hint : S.dim));
+          setColor(r.prev.__lbl, anyS ? S.hint : S.dim); setColor(r.next.__lbl, anyS ? S.hint : S.dim);
+          continue;
+        }
+        if (n.kind !== 'prop') continue;
+        var muted = propMuted(n);
+        setColor(r.nm, muted ? S.muted : S.value);
+        if (r.colour) {
+          var cc = chU(r.colour.uid), cv = cc && cc.value;
+          if (cv instanceof Array && !r.colour.picker.visible()) {
+            var moved = false;
+            for (var ci = 0; ci < 3; ci++) {
+              var nn = Math.max(0, Math.min(255, Math.round(cv[ci])));
+              if (r.colour.rgb[ci] !== nn) { r.colour.rgb[ci] = nn; moved = true; }
+            }
+            // Always re-prime, not only on a move: a chip that never moved would keep last '' and
+            // the picker's priming onChange would key the colour just for opening.
+            r.colour.last = r.colour.rgb.join(',');
+            if (moved) r.colour.paint();
+          }
+          r.colour.picker.sync();
+        }
+        for (var k = 0; k < r.comps.length; k++) {
+          var cp = r.comps[k], ch = chU(cp.uid); if (!ch) continue;
+          if (editState && editState.comp === cp) continue;
+          var txt = n.dom === 'cam' ? fmtNum(camValue(ch), n.dec) + n.unit : sceneValueText(ch);
+          setText(cp.lbl, txt);
+          setColor(cp.lbl, muted ? S.muted : (n.dom === 'cam' ? ch.color : S.value));
+        }
+        if (r.dia) {
+          var at = false, any = false;
+          for (var u = 0; u < n.chans.length; u++) { var c2 = chU(n.chans[u]); if (!c2) continue; if (c2.keys.length) any = true; if (keyAtTick(c2, st.playhead)) at = true; }
+          setText(r.dia.__lbl, at ? '◆' : '◇');
+          setColor(r.dia.__lbl, at ? S.accent : S.hint);
+          setColor(r.prev.__lbl, any ? S.hint : S.dim); setColor(r.next.__lbl, any ? S.hint : S.dim);
+        }
+      }
+    }
+)GEJS"
+R"GEJS(
+    // ---- drawing the track side (KEYFRAMES) ------------------------------------
+    // Layer rows: the bar from first to last key (drag = slide every key of the layer). Collapsed
+    // rows: summary marks. Property rows: one glyph per key time; a key shared by X/Y/Z is one glyph.
+    function drawTrack() {
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i], n = r.node; if (r.broken) continue;
+        r.trk.RemoveAndDeleteChildren();
+        r.hits = []; r.bar = null;
+        var y = ROW_H / 2;
+        if (n.kind === 'layer') {
+          var ks = unionKeys(chansOf(n));
+          if (ks.length) {
+            var on = layerOn(n), col = rgbOnly(n.color);
+            var x0 = tickToX(ks[0].t), x1 = tickToX(ks[ks.length - 1].t);
+            r.bar = { x0: x0, x1: Math.max(x0 + 4, x1) };
+            // Clamped to the track: Panorama does not reliably clip a child many times wider than
+            // its clipping parent, and an off-screen key span drew its bar across the inspector.
+            var bx0 = Math.max(-6, x0), bx1 = Math.min(G.tw + 6, Math.max(x0 + 4, x1));
+            if (bx1 > bx0) {
+              var bar = box(r.trk, bx0, 4, bx1 - bx0, 13, col + (on ? '40' : '18'));
+              bar.style.borderRadius = '3px'; bar.style.border = '1px solid ' + col + (on ? 'aa' : '44');
+            }
+            if (!isOpen(n)) drawSummary(r, ks);
+          }
+          continue;
+        }
+        if (n.kind === 'group' || isSplit(n)) { if (!isOpen(n)) drawSummary(r, unionKeys(chansOf(n))); continue; }
+        if (n.kind === 'shake') {
+          // One mark per shaken camera key, shaped as a hold (the shake runs from that key to the
+          // next); clicking one goes to it.
+          // Under the marks, a bar for how far each shake runs: to the next shake key of its run, or
+          // to the next camera key where it ends.
+          var spk = st.pathKeys || [];
+          (st.shakes || []).forEach(function (s) {
+            var nxs = shakeRun(s.i), endT = nxs ? nxs.t : spk[s.i + 1];
+            if (endT == null) endT = view.t1;
+            var bx0 = Math.max(-6, tickToX(s.t)), bx1 = Math.min(G.tw + 6, tickToX(endT));
+            if (bx1 > bx0) box(r.trk, bx0, y - 2, bx1 - bx0, 4, '#80bdff40');
+          });
+          (st.shakes || []).forEach(function (s) {
+            var sx = tickToX(s.t); if (sx < -GLYPH || sx > G.tw + GLYPH) return;
+            glyph(r.trk, ['hold', 'hold'], 10, '#80bdffff', S.panelHex, sx, y);
+            r.hits.push({ x: sx, entry: { t: s.t, members: [], shake: s } });
+          });
+          continue;
+        }
+        if (n.kind === 'shakep') {
+          // The value as a line inside the row (min at the bottom), eased between the keys of a run
+          // exactly as the camera plays it; a marker on each shake key with its number beside it.
+          var vy = function (v) { return ROW_H - 4 - (v - n.min) / (n.max - n.min) * (ROW_H - 8); };
+          var pk = st.pathKeys || [];
+          (st.shakes || []).forEach(function (s) {
+            var nx = shakeRun(s.i);
+            if (!nx || !(nx.t > s.t)) return;
+            var t0 = s.t, t1 = nx.t, prev = null;
+            for (var q = 0; q <= 16; q++) {
+              var tq = t0 + (t1 - t0) * q / 16, pt = { x: tickToX(tq), y: vy(s[n.param] + (nx[n.param] - s[n.param]) * shakeEase(q / 16)) };
+              if (prev) gSeg(r.trk, prev.x, prev.y, pt.x, pt.y, '#80bdff99', 2);
+              prev = pt;
+            }
+          });
+          (st.shakes || []).forEach(function (s) {
+            var sx = tickToX(s.t); if (sx < -24 || sx > G.tw + 24) return;
+            glyph(r.trk, ['ease', 'ease'], 10, '#80bdffff', S.panelHex, sx, vy(s[n.param]));
+            var tv = lbl(r.trk, String(s[n.param]), '#80bdffcc', 10); tv.hittest = false;
+            tv.style.fontFamily = S.fontMonodigit; tv.style.fontWeight = 'bold';
+            tv.style.position = (sx + 7).toFixed(0) + 'px 2px 0px';
+            r.hits.push({ x: sx, entry: { t: s.t, members: [], shake: s } });
+          });
+          continue;
+        }
+        var keys = unionKeys(n.chans), c0 = chU(n.chans[0]);
+        var bg = selNode === n.id ? '#2a271b' : S.panelHex;
+        for (var j = 0; j < keys.length; j++) {
+          var e = keys[j], x = tickToX(e.t);
+          if (x < -GLYPH || x > G.tw + GLYPH) continue;
+          var m0 = e.members[0], mc = chU(m0.uid) || c0;
+          glyph(r.trk, keySides(mc, m0.k), GLYPH, e.sel ? S.accent : S.glyph, bg, x, y);
+          r.hits.push({ x: x, entry: e });
+        }
+      }
+    }
+    function drawSummary(r, ks) {
+      for (var j = 0; j < ks.length; j++) {
+        var x = tickToX(ks[j].t);
+        if (x < -8 || x > G.tw + 8) continue;
+        dot(r.trk, x, ROW_H / 2, 7, ks[j].sel ? S.accent : S.summary, true);
+      }
+    }
+    function hitTrackKey(r, tx) {
+      if (!r || !r.hits) return null;
+      var best = null, bd = KF_HIT;
+      for (var i = 0; i < r.hits.length; i++) { var d = Math.abs(r.hits[i].x - tx); if (d <= bd) { bd = d; best = r.hits[i].entry; } }
+      return best;
+    }
+    function membersInRect(g) {
+      var x0 = Math.min(g.sx, g.cx), x1 = Math.max(g.sx, g.cx), y0 = Math.min(g.sy, g.cy), y1 = Math.max(g.sy, g.cy);
+      var out = [];
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i]; if (r.broken || r.node.kind !== 'prop' || isSplit(r.node)) continue;
+        var ry0 = rowY(r) - ROWS_Y, ry1 = ry0 + ROW_H;
+        if (ry1 < y0 || ry0 > y1) continue;
+        var keys = unionKeys(r.node.chans);
+        for (var j = 0; j < keys.length; j++) {
+          var x = tickToX(keys[j].t);
+          if (x >= x0 - 4 && x <= x1 + 4) out = out.concat(keys[j].members);
+        }
+      }
+      return out;
+    }
+)GEJS"
+R"GEJS(
+    // ---- the GRAPH view -----------------------------------------------------------
+    // The curves of the selected layer, group or property, each scaled to its own range across the
+    // whole height. Camera channels keep their C++ fit as a floor; an eased bulge and the selected
+    // handles widen it. Scene curves fit what they draw inside their coded range. Ranges refit
+    // between gestures and stay FROZEN during one, or the axis would move under the pointer.
+    var ranges = {};
+    function graphChans() {
+      var n = nodeById(selNode) || tree[0];
+      var props = propsOf(n).filter(function (p) { return p.chans.some(function (u) { var c = chU(u); return c && c.keys.length; }); });
+      if (!props.length) props = propsOf(n).slice(0, 1);
+      var u = [];
+      props.forEach(function (p) { p.chans.forEach(function (x) { if (u.indexOf(x) < 0 && u.length < 8) u.push(x); }); });
+      return u.map(chU).filter(function (c) { return !!c; });
+    }
+    function band() { return { y0: GRAPH_TOP, h: Math.max(20, ROWS_H - GRAPH_TOP - GRAPH_BOTTOM) }; }
+    function rng(c) { return ranges[c.uid] || { lo: c.min, hi: c.max }; }
+    function fitCamRange(c) {
+      var lo = c.min, hi = c.max, a = lo, b = hi;
       function take(v) { if (isFinite(v)) { if (v < a) a = v; if (v > b) b = v; } }
-      var k = ch.keys;
+      var k = c.keys;
       for (var i = 0; i < k.length; i++) {
         if (k[i].sel) {
           if (k[i].cl && k[i].cl.a) take(k[i].v + k[i].cl.dv);
@@ -1291,48 +1566,40 @@ R"GEJS(
       var pad = (b - a) * 0.08;
       return { lo: a < lo ? a - pad : lo, hi: b > hi ? b + pad : hi };
     }
-    function refitCamRanges() {
-      var out = {};
-      for (var i = 0; i < model.length; i++) out[model[i].ch] = fitCamRange(model[i]);
-      camRanges = out;
-    }
-    function fitSceneRange(ch) {
-      var lo = ch.min, hi = ch.max, full = hi - lo;
-      if (!(full > 0) || stepped(ch) || ch.type === 'colour' || !ch.keys.length) return { lo: lo, hi: hi };
+    function fitSceneRange(c) {
+      var lo = c.min, hi = c.max, full = hi - lo;
+      if (!(full > 0) || stepped(c) || c.type === 'colour' || !c.keys.length) return { lo: lo, hi: hi };
       var a = Infinity, b = -Infinity;
       function take(v) { if (!isFinite(v)) return; v = Math.max(lo, Math.min(hi, v)); if (v < a) a = v; if (v > b) b = v; }
-      var k = ch.keys;
+      var k = c.keys;
       for (var i = 0; i < k.length; i++) {
         take(k[i].v);
-        if (k[i].sel) { take(handleEndpoint(ch, k[i], -1).v); take(handleEndpoint(ch, k[i], 1).v); }
-        if (i + 1 < k.length) { var pts = scenePolyline(ch, k[i], k[i + 1]); for (var p = 0; p < pts.length; p++) take(pts[p].v); }
+        if (k[i].sel) { take(handleEndpoint(c, k[i], -1).v); take(handleEndpoint(c, k[i], 1).v); }
+        if (i + 1 < k.length) { var pts = scenePolyline(c, k[i], k[i + 1]); for (var p = 0; p < pts.length; p++) take(pts[p].v); }
       }
-      var span = Math.max(b - a, full * 0.04), pad = span * 0.15, c = (a + b) / 2;
-      var vlo = c - span / 2 - pad, vhi = c + span / 2 + pad;
+      var span = Math.max(b - a, full * 0.04), pad = span * 0.15, mid = (a + b) / 2;
+      var vlo = mid - span / 2 - pad, vhi = mid + span / 2 + pad;
       if (vhi - vlo >= full) return { lo: lo, hi: hi };
       if (vlo < lo) { vhi += lo - vlo; vlo = lo; }
       if (vhi > hi) { vlo -= vhi - hi; vhi = hi; }
       return { lo: vlo, hi: vhi };
     }
-    function refitSceneRanges() {
+    function refitRanges(list) {
       var out = {};
-      for (var i = 0; i < model.length; i++) out[model[i].fieldId] = fitSceneRange(model[i]);
-      sceneRanges = out;
+      list.forEach(function (c) { out[c.uid] = c.dom === 'scene' ? fitSceneRange(c) : fitCamRange(c); });
+      ranges = out;
     }
-    function valToY(v, ch) { var r = rng(ch), d = r.hi - r.lo; if (Math.abs(d) < 1e-9) d = 1; var b = chBand(ch); return b.y0 + (1 - (v - r.lo) / d) * b.h; }
-    function yToVal(y, ch) { var r = rng(ch), d = r.hi - r.lo; if (Math.abs(d) < 1e-9) d = 1; var b = chBand(ch); return r.lo + (1 - (y - b.y0) / b.h) * d; }
-    function rngSpan(ch) { var r = rng(ch); return (r.hi - r.lo) || 1; }
-    function tickDelta(dxLayout) { return dxLayout / G.cw * (view.t1 - view.t0); }
-    function valDelta(dyLayout, ch) { return -(dyLayout / chBand(ch).h) * rngSpan(ch); }
-    // What a scene segment really evaluates to, as {t, v} samples, mirroring SceneKeyframeTrack's
-    // Sample(): a float is clamped to its range, and an ANGLE goes the way the key's direction says
-    // (shortest by default) and wraps -- 350 -> 10 is 20 degrees through north, which the plain
-    // value-to-value curve drew as a 340-degree sweep the other way. A wrap starts a new run
-    // (`brk`), so the drawn line jumps edge to edge instead of slashing across the canvas.
-    function scenePolyline(ch, a, b) {
-      var steps = ch.type === 'angle' ? 24 : 14, out = [], P;
+    function valToY(v, c) { var r = rng(c), d = r.hi - r.lo; if (Math.abs(d) < 1e-9) d = 1; var b = band(); return b.y0 + (1 - (v - r.lo) / d) * b.h; }
+    function yToVal(y, c) { var r = rng(c), d = r.hi - r.lo; if (Math.abs(d) < 1e-9) d = 1; var b = band(); return r.lo + (1 - (y - b.y0) / b.h) * d; }
+    function rngSpan(c) { var r = rng(c); return (r.hi - r.lo) || 1; }
+    function tickDelta(dx) { return dx / G.cw * (view.t1 - view.t0); }
+    function valDelta(dy, c) { return -(dy / band().h) * rngSpan(c); }
+    // What a scene segment really evaluates to (mirrors SceneKeyframeTrack's Sample()): a float is
+    // clamped to its range, an ANGLE goes the way the key's direction says and wraps.
+    function scenePolyline(c, a, b) {
+      var steps = c.type === 'angle' ? 24 : 14, out = [], P;
       var delta = b.v - a.v;
-      if (ch.type === 'angle') {
+      if (c.type === 'angle') {
         delta = ((b.v - a.v) % 360 + 360) % 360;
         if (a.direction === 2 && delta > 0) delta -= 360;
         else if (!a.direction && delta > 180) delta -= 360;
@@ -1344,942 +1611,1174 @@ R"GEJS(
         var u = s / steps;
         var t = active ? bez(P.p0x, P.p1x, P.p2x, P.p3x, u) : a.t + (b.t - a.t) * u;
         var v = active ? bez(P.p0y, P.p1y, P.p2y, P.p3y, u) : a.v + delta * u;
-        if (ch.type === 'angle') { while (v > ch.max) v -= 360; while (v < ch.min) v += 360; }
-        else v = Math.max(ch.min, Math.min(ch.max, v));
-        out.push({ t: t, v: v, brk: ch.type === 'angle' && prev !== null && Math.abs(v - prev) > 180 });
+        if (c.type === 'angle') { while (v > c.max) v -= 360; while (v < c.min) v += 360; }
+        else v = Math.max(c.min, Math.min(c.max, v));
+        out.push({ t: t, v: v, brk: c.type === 'angle' && prev !== null && Math.abs(v - prev) > 180 });
         prev = v;
       }
       return out;
     }
-
-    function computeGeom() {
-      // Measure the screen from the ALREADY-laid-out HUD context panel first. Our own root is
-      // created fresh on each (re)build and reports actuallayoutwidth==0 until the next layout pass
-      // -- and a resolution switch re-lays-out the whole tree -- so for ~half a second root was 0
-      // and the old hardcoded 1280/720 fallback squished the editor into the top-left until it
-      // settled. ctx already has a valid full-screen size on frame one, killing that transient.
-      uiscale = root.actualuiscale_x || ctx.actualuiscale_x || 1;
-      var rawW = root.actuallayoutwidth || 0, rawH = root.actuallayoutheight || 0;
-      if (rawW < 16) { rawW = ctx.actuallayoutwidth || 0; rawH = ctx.actuallayoutheight || 0; }
-      if (rawW < 16) return G != null; // no valid size yet: keep last-good geom, retry next frame
-      var scrW = rawW / uiscale;
-      var scrH = (rawH > 16 ? rawH : rawW * 0.5625) / uiscale;
-      // The graph editor REPLACES the camera timeline (the host hides it while we're open), so we
-      // sit flush at the bottom and fill the whole bottom panel -- no timeline bar to sit above.
-      var dockW = Math.max(360, (st && st.renderOpen) ? scrW : scrW - graphInspectorW(scrW));
-      dockScreenX = 0; dockScreenY = Math.max(0, scrH - DOCK_H - BOTTOM_LIFT);
-      // Size + place the dock within the full-screen root (bottom-left, flush to the screen bottom).
-      dock.style.width = dockW + 'px'; dock.style.height = DOCK_H + 'px';
-      dock.style.marginBottom = BOTTOM_LIFT + 'px';
-      // Vertical stack, top to bottom: header, overview navigator, then the editing area with the
-      // time ruler OVERLAID on its top edge, then the bottom scrollbar.
-      //
-      // The ruler used to be its own band above the canvas, and because rows line up with their
-      // bands the left column reserved that band too -- a 26px hole above the first property in
-      // both modes. Overlaying the ruler on the canvas (AE does the same: the ruler sits on the
-      // top of the graph, it is not a row of its own) puts the first property row directly under
-      // the header and hands the reclaimed 26px to the editing area.
-      var ovY = HEADER_H, rulerY = HEADER_H + OVERVIEW_H, canvasY = HEADER_H + OVERVIEW_H;
-      G = { rw: dockW, rh: DOCK_H, headerH: HEADER_H, rulerH: RULER_H, ovH: OVERVIEW_H,
-            ovY: ovY, rulerY: rulerY,
-            cx: LEFTW, cy: canvasY,
-            cw: Math.max(120, dockW - LEFTW),
-            ch: Math.max(80, DOCK_H - HEADER_H - OVERVIEW_H - FOOTER_H) };
-      left.style.height = (DOCK_H - HEADER_H) + 'px';
-      overview.style.position = LEFTW + 'px ' + ovY + 'px 0px';
-      overview.style.width = (dockW - LEFTW) + 'px'; overview.style.height = OVERVIEW_H + 'px';
-      ruler.style.position = LEFTW + 'px ' + rulerY + 'px 0px';
-      ruler.style.width = (dockW - LEFTW) + 'px'; ruler.style.height = RULER_H + 'px';
-      ruler.style.zIndex = '4';   // over the canvas it now shares its top edge with
-      canvas.style.position = G.cx + 'px ' + G.cy + 'px 0px';
-      canvas.style.width = G.cw + 'px'; canvas.style.height = G.ch + 'px';
-      // The playhead runs the full editing area; it draws above the ruler (z 5 > 4) so it reads as
-      // one cursor across both.
-      phLine.style.height = G.ch + 'px';
-      bottomBar.style.position = G.cx + 'px ' + (DOCK_H - FOOTER_H) + 'px 0px';
-      bottomBar.style.width = G.cw + 'px'; bottomBar.style.height = FOOTER_H + 'px';
-      fitBtn.style.position = '0px 0px 0px'; fitBtn.style.height = FOOTER_H + 'px';
-      zoomOut.style.position = FIT_W + 'px 0px 0px'; zoomOut.style.height = FOOTER_H + 'px';
-      zoomIn.style.position = (G.cw - ZOOM_W) + 'px 0px 0px'; zoomIn.style.height = FOOTER_H + 'px';
-      sbTrack.style.position = (NAV_L + 10) + 'px ' + Math.round((FOOTER_H - SB_H) / 2) + 'px 0px';
-      sbTrack.style.width = Math.max(40, G.cw - NAV_L - ZOOM_W - 20) + 'px'; sbTrack.style.height = SB_H + 'px';
-      return true;
+    function keyIndex(c, id) { for (var i = 0; i < c.keys.length; i++) if (c.keys[i].id === id) return i; return -1; }
+    function keyById(c, id) { var i = keyIndex(c, id); return i >= 0 ? c.keys[i] : null; }
+    function handleEndpoint(c, k, side) {
+      var idx = keyIndex(c, k.id);
+      var defSpan = (view.t1 - view.t0) * 0.06;
+      if (side > 0) {
+        var nx = (idx + 1 < c.keys.length) ? c.keys[idx + 1] : null;
+        var span = nx ? (nx.t - k.t) : defSpan; var tx = (k.cr && k.cr.a) ? k.cr.tx : 1 / 3;
+        var dv = (k.cr && k.cr.a) ? k.cr.dv : 0;
+        return { t: k.t + clamp01(tx) * span, v: k.v + dv, span: span };
+      }
+      var pv = (idx - 1 >= 0) ? c.keys[idx - 1] : null;
+      var span2 = pv ? (k.t - pv.t) : defSpan; var tx2 = (k.cl && k.cl.a) ? k.cl.tx : 1 / 3;
+      var dv2 = (k.cl && k.cl.a) ? k.cl.dv : 0;
+      return { t: k.t - clamp01(tx2) * span2, v: k.v + dv2, span: span2 };
     }
-
-    function curCursor() {
-      // Streamed cursor is screen-space; make it dock-relative so it lines up with the dock-
-      // relative panel layout (the dock is no longer pinned to the screen origin).
-      var lx = (st.mx || 0) / uiscale - dockScreenX, ly = (st.my || 0) / uiscale - dockScreenY;
-      return { lx: lx, ly: ly, clx: lx - G.cx, cly: ly - G.cy };
+)GEJS"
+R"GEJS(
+    // A graph line clipped to the visible track first (same reason as the layer bar: Panorama does
+    // not reliably clip a child far outside its parent).
+    function gSeg(parent, x0, y0, x1, y1, color, thick) {
+      var lo = -2, hi = G.tw + 2;
+      if ((x0 < lo && x1 < lo) || (x0 > hi && x1 > hi)) return null;
+      if (x1 !== x0) {
+        var ax = x0, ay = y0, bx = x1, by = y1;
+        var f = function (x) { return ay + (by - ay) * (x - ax) / (bx - ax); };
+        if (x0 < lo) { y0 = f(lo); x0 = lo; } else if (x0 > hi) { y0 = f(hi); x0 = hi; }
+        if (x1 < lo) { y1 = f(lo); x1 = lo; } else if (x1 > hi) { y1 = f(hi); x1 = hi; }
+      }
+      return lineSeg(parent, x0, y0, x1, y1, color, thick);
     }
-    function chById(c) { for (var i = 0; i < model.length; i++) if (model[i].ch === c) return model[i]; return null; }
-    function keyById(ch, id) { for (var i = 0; i < ch.keys.length; i++) if (ch.keys[i].id === id) return ch.keys[i]; return null; }
-    function keyIndex(ch, id) { for (var i = 0; i < ch.keys.length; i++) if (ch.keys[i].id === id) return i; return -1; }
-
-    // ---- keyframe navigation -------------------------------------------------
-    // The AE workflow, per property: move the playhead, set a value, press the diamond; the
-    // diamond is filled when the playhead is already on a key, and << / >> step key to key. None
-    // of it depends on clicking empty canvas space to create the first key.
+    function niceStep(raw) { var p = Math.pow(10, Math.floor(Math.log(Math.max(1, raw)) / Math.LN10)); var n = raw / p; var m = n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10; return Math.max(1, m * p); }
+    function drawGraph() {
+      gridLayer.RemoveAndDeleteChildren(); curveLayer.RemoveAndDeleteChildren();
+      kfLayer.RemoveAndDeleteChildren(); handleLayer.RemoveAndDeleteChildren(); legend.RemoveAndDeleteChildren();
+      var list = graphChans(), bd = band();
+      graphList = list;
+      // Grid: the ruler's seconds as verticals, the snap step when it is coarse enough to see, five
+      // horizontals with the first curve's values along the left edge.
+      var tk = rulerSteps(), snap = snapStep(), pxPerTick = G.cw / Math.max(1e-9, view.t1 - view.t0);
+      // Minor lines AT THE SNAP STEP while snapping, so the grid shows exactly where a key will
+      // stick; skipped when they would be denser than a few px.
+      if (snap > 0 && snap * pxPerTick >= 4 && (view.t1 - view.t0) / snap <= 140) {
+        for (var sm = Math.ceil(view.t0 / snap) * snap; sm <= view.t1; sm += snap) {
+          var smx = tickToX(sm); if (smx >= 0 && smx <= G.tw) lineSeg(gridLayer, smx, 0, smx, ROWS_H, S.grid, 1);
+        }
+      }
+      for (var s = Math.ceil(view.t0 / tk.minor) * tk.minor; s <= view.t1; s += tk.minor) {
+        var gx = tickToX(s); if (gx < 0 || gx > G.tw) continue;
+        var major = Math.abs(s / tk.major - Math.round(s / tk.major)) < 1e-6;
+        lineSeg(gridLayer, gx, 0, gx, ROWS_H, major ? S.gridMid : S.grid, 1);
+      }
+      for (var h = 0; h <= 4; h++) {
+        var hy = bd.y0 + h * bd.h / 4;
+        lineSeg(gridLayer, 0, hy, G.tw, hy, h === 2 ? S.gridMid : '#ffffff10', 1);
+        if (list.length) {
+          var ax = list[0], axSpan = Math.abs(rngSpan(ax));
+          var dec = axSpan >= 100 ? 0 : axSpan >= 10 ? 1 : axSpan >= 1 ? 2 : 3;
+          var vl = lbl(gridLayer, yToVal(hy, ax).toFixed(dec), S.hint, 9); vl.hittest = false;
+          vl.style.position = '3px ' + (hy - 12).toFixed(0) + 'px 0px';
+        }
+      }
+      graphEmpty.visible = !list.some(function (c) { return c.keys.length; });
+      graphEmpty.text = 'No keys on ' + ((nodeById(selNode) || tree[0] || { name: 'this layer' }).name) + ' yet. Press ◇ on a property to add one at the playhead.';
+      for (var i = 0; i < list.length; i++) {
+        var c = list[i], col = c.color, k = c.keys;
+        var item = mk('Panel', legend); item.hittest = false; item.style.flowChildren = 'right'; item.style.marginRight = '14px';
+        var sw = mk('Panel', item); sw.hittest = false; sw.style.width = '10px'; sw.style.height = '10px';
+        sw.style.borderRadius = '2px'; sw.style.backgroundColor = col; sw.style.verticalAlign = 'center'; sw.style.marginRight = '6px';
+        var ln = lbl(item, legendName(c), S.value, 11); ln.hittest = false; ln.style.whiteSpace = 'nowrap';
+        if (!k.length) continue;
+        var fy = valToY(k[0].v, c); gSeg(curveLayer, 0, fy, tickToX(k[0].t), fy, col + '55', 1);
+        var ly = valToY(k[k.length - 1].v, c); gSeg(curveLayer, tickToX(k[k.length - 1].t), ly, G.tw, ly, col + '55', 1);
+        for (var j = 0; j + 1 < k.length; j++) {
+          var a = k[j], b = k[j + 1];
+          if (stepped(c)) {
+            gSeg(curveLayer, tickToX(a.t), valToY(a.v, c), tickToX(b.t), valToY(a.v, c), col, 2);
+            gSeg(curveLayer, tickToX(b.t), valToY(a.v, c), tickToX(b.t), valToY(b.v, c), col, 2);
+          } else if (c.dom === 'scene' && (c.type === 'float' || c.type === 'angle')) {
+            var pts = scenePolyline(c, a, b);
+            for (var q = 1; q < pts.length; q++) {
+              if (pts[q].brk) continue;
+              gSeg(curveLayer, tickToX(pts[q - 1].t), valToY(pts[q - 1].v, c), tickToX(pts[q].t), valToY(pts[q].v, c), col, 2);
+            }
+          } else if (segActive(a, b)) {
+            var P = segPts(a, b), px = null, py = null;
+            for (var st2 = 0; st2 <= 14; st2++) {
+              var u = st2 / 14, X = tickToX(bez(P.p0x, P.p1x, P.p2x, P.p3x, u)), Y = valToY(bez(P.p0y, P.p1y, P.p2y, P.p3y, u), c);
+              if (px !== null) gSeg(curveLayer, px, py, X, Y, col, 2);
+              px = X; py = Y;
+            }
+          } else gSeg(curveLayer, tickToX(a.t), valToY(a.v, c), tickToX(b.t), valToY(b.v, c), col, 2);
+        }
+        for (var m = 0; m < k.length; m++) {
+          var kx = tickToX(k[m].t), ky = valToY(k[m].v, c);
+          if (kx < -10 || kx > G.tw + 10) continue;
+          var d = dot(kfLayer, kx, ky, 9, k[m].swatch || (k[m].sel ? S.accent : col), true);
+          d.style.border = '1px solid ' + S.graphBg;
+          if (k[m].sel && !stepped(c)) {
+            [-1, 1].forEach(function (side) {
+              var e = handleEndpoint(c, k[m], side), hx = tickToX(e.t), hy2 = valToY(e.v, c);
+              gSeg(handleLayer, kx, ky, hx, hy2, S.handle, 1);
+              dot(handleLayer, hx, hy2, 7, S.handle, false);
+            });
+          }
+        }
+      }
+    }
+    var graphList = [];
+    function legendName(c) {
+      if (c.dom === 'scene') return c.name;
+      var p = CAM_PROPS.filter(function (x) { return x.chans.indexOf(chNum(c.uid)) >= 0; })[0];
+      return p ? p.axn[p.chans.indexOf(chNum(c.uid))] : c.name;
+    }
+    function hitGraphKey(tx, gy) {
+      var best = null, bd = KF_HIT * KF_HIT;
+      for (var i = 0; i < graphList.length; i++) {
+        var c = graphList[i];
+        for (var j = 0; j < c.keys.length; j++) {
+          var k = c.keys[j], dx = tickToX(k.t) - tx, dy = valToY(k.v, c) - gy, d = dx * dx + dy * dy;
+          if (d <= bd) { bd = d; best = { uid: c.uid, id: k.id, t: k.t, k: k }; }
+        }
+      }
+      return best;
+    }
+    function hitGraphHandle(tx, gy) {
+      var best = null, bd = HANDLE_R * HANDLE_R;
+      for (var i = 0; i < graphList.length; i++) {
+        var c = graphList[i]; if (stepped(c)) continue;
+        for (var j = 0; j < c.keys.length; j++) {
+          var k = c.keys[j]; if (!k.sel) continue;
+          for (var side = -1; side <= 1; side += 2) {
+            var e = handleEndpoint(c, k, side), dx = tickToX(e.t) - tx, dy = valToY(e.v, c) - gy, d = dx * dx + dy * dy;
+            if (d <= bd) { bd = d; best = { uid: c.uid, id: k.id, side: side, span: e.span }; }
+          }
+        }
+      }
+      return best;
+    }
+    function graphMembersInRect(g) {
+      var x0 = Math.min(g.sx, g.cx), x1 = Math.max(g.sx, g.cx), y0 = Math.min(g.sy, g.cy), y1 = Math.max(g.sy, g.cy), out = [];
+      graphList.forEach(function (c) {
+        c.keys.forEach(function (k) {
+          var x = tickToX(k.t), y = valToY(k.v, c);
+          if (x >= x0 && x <= x1 && y >= y0 && y <= y1) out.push({ uid: c.uid, id: k.id, k: k });
+        });
+      });
+      return out;
+    }
+)GEJS"
+R"GEJS(
+    // ---- selection, keys and edits --------------------------------------------
+    // Each model keeps its own selection. Selecting in one domain clears the other unless the
+    // gesture adds (Shift), so Delete / ease / drag always mean the keys you can see lit.
+    function selectMembers(members, add) {
+      var by = { cam: [], scene: [] };
+      members.forEach(function (m) { by[domOf(m.uid)].push(m); });
+      ['cam', 'scene'].forEach(function (dom) {
+        var list = by[dom];
+        if (!list.length) { if (!add) domCmd(dom, 'selclear'); return; }
+        // One selset is atomic, but a console line has a length limit: a big box selection goes out
+        // as a clear plus one additive select per key.
+        if (!add && list.length <= 16) { domCmd(dom, 'selset ' + list.map(function (m) { return chNum(m.uid) + ' ' + m.id; }).join(' ')); return; }
+        if (!add) domCmd(dom, 'selclear');
+        list.forEach(function (m) { domCmd(dom, 'select ' + chNum(m.uid) + ' ' + m.id + ' add'); });
+      });
+      members.forEach(function (m) { selCache[m.uid + ':' + m.id] = 1; });
+    }
+    function clearSelection() { camCmd('selclear'); sceneCmd('selclear'); selCache = {}; }
+    function selectedDoms() {
+      var d = [];
+      if (selCountDom('cam') > 0) d.push('cam');
+      if (selCountDom('scene') > 0) d.push('scene');
+      return d;
+    }
+    function selectedDomsOf(members) {
+      var d = [];
+      members.forEach(function (m) { var x = domOf(m.uid); if (d.indexOf(x) < 0) d.push(x); });
+      return d;
+    }
+    function deleteSelection() {
+      selectedDoms().forEach(function (dom) { edit(dom); domCmd(dom, 'delsel'); });
+    }
+    function undo(redo) {
+      var can = function (dom) { return dom === 'scene' ? !!(st.scene && (redo ? st.scene.canRedo : st.scene.canUndo)) : !!(redo ? st.canRedo : st.canUndo); };
+      var dom = can(lastDom) ? lastDom : (can(lastDom === 'cam' ? 'scene' : 'cam') ? (lastDom === 'cam' ? 'scene' : 'cam') : null);
+      if (dom) domCmd(dom, redo ? 'redo' : 'undo');
+    }
+    // The interpolation strip and the Keyframe Assistant: per domain, on that domain's selection.
+    function applyEase(mode) {
+      var doms = selectedDoms();
+      if (!doms.length) {
+        if (mode === 'smooth' || mode === 'linear') { edit('cam'); camCmd(mode); }
+        return;
+      }
+      doms.forEach(function (dom) {
+        edit(dom);
+        if (mode === 'smooth' || mode === 'linear') domCmd(dom, dom === 'cam' ? mode + ' sel' : mode);
+        else domCmd(dom, 'ease ' + mode);
+      });
+    }
+    function selectAll() { camCmd('selall'); sceneCmd('selall'); }
     function seekTo(t) {
-      // Move the SHARED playhead and the demo with it. The same release a ruler drag ends with, so
-      // a jump-to-key behaves exactly like a scrub that ended on that tick -- and the window pages
-      // to it when the key is off screen, or << / >> would jump somewhere you cannot see.
       t = Math.max(0, Math.round(t));
       releasePlayhead(t);
       revealTicks(t, t);
     }
-    function nearestKeyTick(keys, t, dir) {
+    function nearestTime(times, t, dir) {
       var best = null;
-      for (var i = 0; i < keys.length; i++) {
-        var kt = keys[i].t;
+      for (var i = 0; i < times.length; i++) {
+        var kt = times[i];
         if (dir < 0) { if (kt < t - 0.25 && (best === null || kt > best)) best = kt; }
         else { if (kt > t + 0.25 && (best === null || kt < best)) best = kt; }
       }
-      if (best === null && keys.length) best = (dir < 0) ? keys[keys.length - 1].t : keys[0].t;
       return best;
     }
-    function toggleChannelKey(c) {
-      var ch = chById(c); if (!ch) return;
-      var at = keyAtTick(ch, st.playhead);
-      if (at) { cmd('delkey ' + c + ' ' + at.id); return; }
-      var v = (typeof ch.cur === 'number' && isFinite(ch.cur)) ? ch.cur : sampleChan(ch, st.playhead);
-      if (v == null || !isFinite(v)) v = 0;
-      cmd('addkey ' + c + ' ' + snapTick(st.playhead).toFixed(2) + ' ' + v.toFixed(3));
-    }
-    function jumpChannelKey(c, dir) {
-      var ch = chById(c); if (!ch || !ch.keys.length) return;
-      var t = nearestKeyTick(ch.keys, st.playhead, dir);
+    function jumpOn(n, dir) {
+      var t = nearestTime(allTimes(n), st.playhead, dir);
       if (t != null) seekTo(t);
     }
-    // Scene strips have no channel index the graph knows: the diamond keys the strip's own field.
-    // graphadd samples the current editable value, so it is the same "key using the value you are
-    // looking at" contract as the camera channels' addkey.
-    function toggleSceneKey(ch) {
-      if (!ch) return;
-      var at = keyAtTick(ch, st.playhead);
-      if (at) { cmd('select ' + ch.ch + ' ' + at.id); cmd('delsel'); return; }
-      rawCmd('mirv_filmmaker scenekeys graphadd ' + ch.fieldId + ' ' + Math.round(snapTick(st.playhead)));
-    }
-    function jumpSceneKey(ch, dir) {
-      if (!ch || !ch.keys.length) return;
-      var t = nearestKeyTick(ch.keys, st.playhead, dir);
+    // |◀ ▶| on the toolbar: the selected row's keys, or every key when nothing is selected.
+    function jumpKey(dir) {
+      var n = nodeById(selNode);
+      var times = n ? allTimes(n) : unionKeys(camCh.map(function (c) { return c.uid; }).concat(scCh.map(function (c) { return c.uid; }))).map(function (e) { return e.t; });
+      var t = nearestTime(times, st.playhead, dir);
       if (t != null) seekTo(t);
     }
-)GEJS"
-R"GEJS(
-    // ---- hit-testing ----------------------------------------------------
-    // Region tests run on the DOCK-relative cursor: the overview, the ruler and the bottom bar all
-    // start at G.cx and share its width, so their canvas-local x is the same number.
-    function inOverview(clx, cly) { return clx >= 0 && clx <= G.cw && cly >= G.ovY && cly <= G.ovY + OVERVIEW_H; }
-    function inBottomBar(lx, ly) { return lx >= G.cx && lx <= G.cx + G.cw && ly >= DOCK_H - FOOTER_H && ly <= DOCK_H; }
-    // Scrollbar track in DOCK coordinates, plus the thumb's current rect (set by layoutNav).
-    function sbTrackRect() {
-      var x0 = G.cx + NAV_L + 10, x1 = G.cx + G.cw - ZOOM_W - 10;
-      return { x0: x0, x1: Math.max(x0 + 40, x1) };
+    // A camera key is the whole camera: placing the first key at a tick keys every channel there,
+    // at the value it already has, exactly like "+ Add". Later edits at that tick re-key one channel.
+    function camKeyAt(uid, tick, v) {
+      var anyAt = camCh.some(function (c) { return !!keyAtTick(c, tick); });
+      if (anyAt) { camCmd('addkey ' + chNum(uid) + ' ' + tick.toFixed(2) + ' ' + v.toFixed(3)); return; }
+      camCh.forEach(function (c) {
+        var val = c.uid === uid ? v : (c.keys.length ? sampleChan(c, tick) : c.cur);
+        camCmd('addkey ' + chNum(c.uid) + ' ' + tick.toFixed(2) + ' ' + num(val).toFixed(3));
+      });
     }
-    var sbThumbX0 = 0, sbThumbW = 40;
-    function hitKeyframe(clx, cly) {
-      var best = null, bd = KF_R * KF_R;
-      for (var i = 0; i < model.length; i++) {
-        var ch = model[i]; if (!ch.vis || !sceneStripped(ch)) continue;
-        for (var j = 0; j < ch.keys.length; j++) {
-          var k = ch.keys[j]; var x = tickToX(k.t), y = valToY(k.v, ch);
-          var dx = x - clx, dy = y - cly, d = dx * dx + dy * dy;
-          // `t` too: a key drag anchors its snap grid (leadT0) and the scene playhead on it. Without
-          // it leadT0 was undefined, so a dragged key never snapped to the grid at all.
-          if (d <= bd) { bd = d; best = { ch: ch.ch, id: k.id, t: k.t }; }
-        }
-      }
-      return best;
-    }
-    function handleEndpoint(ch, k, side) {
-      var idx = keyIndex(ch, k.id);
-      var defSpan = (view.t1 - view.t0) * 0.06;
-      if (side > 0) {
-        var nx = (idx + 1 < ch.keys.length) ? ch.keys[idx + 1] : null;
-        var span = nx ? (nx.t - k.t) : defSpan; var tx = (k.cr && k.cr.a) ? k.cr.tx : 1 / 3;
-        var dv = (k.cr && k.cr.a) ? k.cr.dv : 0;
-        return { t: k.t + clamp01(tx) * span, v: k.v + dv, span: span };
-      } else {
-        var pv = (idx - 1 >= 0) ? ch.keys[idx - 1] : null;
-        var span2 = pv ? (k.t - pv.t) : defSpan; var tx2 = (k.cl && k.cl.a) ? k.cl.tx : 1 / 3;
-        var dv2 = (k.cl && k.cl.a) ? k.cl.dv : 0;
-        return { t: k.t - clamp01(tx2) * span2, v: k.v + dv2, span: span2 };
-      }
-    }
-    function hitHandle(clx, cly) {
-      var best = null, bd = HANDLE_R * HANDLE_R;
-      for (var i = 0; i < model.length; i++) {
-        var ch = model[i]; if (!ch.vis || stepped(ch) || !sceneStripped(ch)) continue;
-        for (var j = 0; j < ch.keys.length; j++) {
-          var k = ch.keys[j]; if (!k.sel) continue;
-          [-1, 1].forEach(function (side) {
-            var e = handleEndpoint(ch, k, side); var x = tickToX(e.t), y = valToY(e.v, ch);
-            var dx = x - clx, dy = y - cly, d = dx * dx + dy * dy;
-            if (d <= bd) { bd = d; best = { ch: ch.ch, id: k.id, side: side, span: e.span }; }
-          });
-        }
-      }
-      return best;
-    }
-    function keysInRect(g) {
-      var x0 = Math.min(g.sx, g.cx), x1 = Math.max(g.sx, g.cx);
-      var y0 = Math.min(g.sy, g.cy), y1 = Math.max(g.sy, g.cy);
-      var out = [];
-      for (var i = 0; i < model.length; i++) {
-        var ch = model[i]; if (!ch.vis || !sceneStripped(ch)) continue;
-        for (var j = 0; j < ch.keys.length; j++) {
-          var k = ch.keys[j]; var x = tickToX(k.t), y = valToY(k.v, ch);
-          // space-separated "ch id" so the flat token list survives the console tokenizer
-          // (a single "ch:id,ch:id" token gets split on the comma and loses all but the first).
-          if (x >= x0 && x <= x1 && y >= y0 && y <= y1) out.push(ch.ch + ' ' + k.id);
-        }
-      }
-      return out;
-    }
-
-    // ---- number field typing -------------------------------------------
-    // Hit-test the left-column value cells by their known absolute rects (layout px). No reliance
-    // on onmouseover (which the in-game HUD context does not reliably deliver to created panels).
-    function numFieldHit(lx, ly) {
-      if (sceneOn()) return -1;
-      for (var c = 0; c < rows.length; c++) {
-        var r = rows[c].valRect;
-        if (lx >= r.x0 && lx <= r.x1 && ly >= r.y0 && ly <= r.y1) return c;
-      }
-      return -1;
-    }
-    function fieldValue(c) { var ch = chById(c); if (!ch) return 0; var v = sampleChan(ch, st.playhead); return v == null ? 0 : v; }
-    function fieldSens(c) { var ch = chById(c); if (!ch) return 0.1; return (ch.max - ch.min) / 300; }
-
-    // The number you clicked is where you type. The TextEntry is created INSIDE the value cell and
-    // destroyed on commit, so it can never land anywhere but on that number -- the old floating
-    // box was positioned in dock space and, in game, appeared at the bottom of the dock -- and
-    // destroying it releases keyboard focus. A hidden-but-still-focused TextEntry was swallowing
-    // Space, which is why the demo would not play after a value had been typed.
-    var edit = null; // { entry, label, rect, onCommit, done }
     function clampToSpec(ch, v) {
       if (!ch || !isFinite(v)) return v;
       if (typeof ch.min === 'number' && v < ch.min) v = ch.min;
       if (typeof ch.max === 'number' && v > ch.max) v = ch.max;
       return v;
     }
-    function beginCellEdit(host, label, initial, rect, onCommit) {
-      if (edit) commitEdit();
-      if (!host) return;
-      var e = $.CreatePanel('TextEntry', host, 'GraphExpType', {});
+    // inGesture: a scrub already opened the camera edit (one undo step for the whole drag).
+    function setPropValue(n, uid, v, inGesture) {
+      if (n.dom === 'cam') {
+        var tick = snapTick(st.playhead);
+        edit('cam'); if (!inGesture) camCmd('editbegin');
+        camKeyAt(uid, tick, v);
+        if (Math.abs(tick - st.playhead) > 0.25) releasePlayhead(tick);
+      } else {
+        var c = chU(uid);
+        edit('scene');
+        rawCmd('mirv_filmmaker scenekeys set ' + n.fieldId + ' ' + (typeof v === 'number' ? clampToSpec(c, v).toFixed(3) : v));
+      }
+    }
+    // ◇ on a row: remove the keys under the playhead, or key every channel of the property with the
+    // value you are looking at (the live camera, or the property's own editable value).
+    function toggleKeyAt(n) {
+      var tick = Math.round(st.playhead), hits = [];
+      n.chans.forEach(function (u) { var c = chU(u), k = keyAtTick(c, tick); if (k) hits.push({ uid: u, id: k.id }); });
+      if (hits.length) {
+        // Select exactly those keys and delete them in one step (one undo entry per domain).
+        selectMembers(hits, false);
+        selectedDomsOf(hits).forEach(function (dom) { edit(dom); domCmd(dom, 'delsel'); });
+        return;
+      }
+      addKeyAt(n);
+    }
+    function addKeyAt(n) {
+      if (n.dom === 'scene') { edit('scene'); rawCmd('mirv_filmmaker scenekeys graphadd ' + n.fieldId + ' ' + Math.round(snapTick(st.playhead))); return; }
+      var tick = snapTick(st.playhead);
+      edit('cam'); camCmd('editbegin');
+      n.chans.forEach(function (u) { var c = chU(u); var v = (typeof c.cur === 'number' && isFinite(c.cur)) ? c.cur : sampleChan(c, tick); camCmd('addkey ' + chNum(u) + ' ' + tick.toFixed(2) + ' ' + num(v).toFixed(3)); });
+    }
+    function toggleLayer(L) {
+      var on = layerOn(L);
+      if (L.dom === 'cam') camCmd('drive ' + (on ? 'off' : 'on'));
+      else { edit('scene'); rawCmd('mirv_filmmaker scenekeys mute ' + L.groupId + (on ? ' on' : ' off')); }
+    }
+    function selectLayerKeys(L) {
+      var members = [];
+      unionKeys(chansOf(L)).forEach(function (e) { members = members.concat(e.members); });
+      if (!members.length) return 0;
+      // The camera layer IS every camera key: one selall instead of a select per key.
+      if (L.dom === 'cam') { camCmd('selall'); sceneCmd('selclear'); members.forEach(function (m) { selCache[m.uid + ':' + m.id] = 1; }); }
+      else selectMembers(members, false);
+      return members.length;
+    }
+    function togglePlay() {
+      var camKeys = unionKeys(camCh.map(function (c) { return c.uid; })).length;
+      if (st.drive && camKeys >= 2) rawCmd('mirv_filmmaker camtl ' + (st.pathPlaying ? 'pause' : 'playtest'));
+      else rawCmd(st.playing ? 'demo_pause' : 'demo_resume');
+    }
+    function setView(mode) {
+      if (mode !== 'keys' && mode !== 'graph') return;
+      viewMode = mode; viewHold = 30;
+      rawCmd('mirv_filmmaker settings ui editor.timeline.view ' + mode);
+      trackSig = ''; graphSig = ''; closeMenu();
+    }
+)GEJS"
+R"GEJS(
+    // ---- typing a value ---------------------------------------------------------
+    // The number you clicked is where you type: a TextEntry is created INSIDE that number's cell and
+    // destroyed on commit, which is also what drops the keyboard focus (a hidden focused entry
+    // swallowed Space). Enter or a click away commits.
+    var editState = null;   // { entry, comp, node, done }
+    function beginCellEdit(r, comp, initial) {
+      if (editState) commitEdit();
+      var e = $.CreatePanel('TextEntry', comp.wrap, 'TimelineType', {});
       e.hittest = true;
-      e.style.width = '100%'; e.style.height = '100%';
-      e.style.fontSize = '12px'; e.style.textAlign = 'right';
-      e.style.color = S.accent; e.style.backgroundColor = 'rgba(0,0,0,0.65)';
-      e.style.border = '1px solid ' + S.accent; e.style.borderRadius = '3px';
+      e.style.width = '52px'; e.style.height = '18px'; e.style.verticalAlign = 'center';
+      e.style.fontSize = '12px'; e.style.textAlign = 'right'; e.style.fontWeight = 'bold';
+      e.style.fontFamily = S.fontMonodigit;
+      e.style.color = S.value; e.style.backgroundColor = '#05070aff';
+      e.style.border = '1px solid ' + S.accent; e.style.borderRadius = '2px';
       e.text = initial;
-      edit = { entry: e, label: label, rect: rect, onCommit: onCommit, done: false };
-      if (label) label.visible = false;
+      comp.lbl.visible = false;
+      editState = { entry: e, comp: comp, node: r.node, done: false };
       e.SetPanelEvent('oninputsubmit', function () { commitEdit(); });
       e.SetPanelEvent('onblur', function () { commitEdit(); });
       e.SetFocus(); try { e.RaiseSelectAll && e.RaiseSelectAll(); } catch (err) {}
     }
-    function commitEdit() {
-      if (!edit || edit.done) return;
-      edit.done = true;
-      var e = edit.entry, cb = edit.onCommit, label = edit.label, v = parseFloat(e.text);
-      edit = null;
-      if (label) label.visible = true;
-      try { e.DeleteAsync(0); } catch (err) {}   // deletion is what actually drops the focus grab
+    function finishEdit(apply) {
+      if (!editState || editState.done) return;
+      var es = editState; es.done = true; editState = null;
+      var text = es.entry.text;
+      try { if (es.comp.lbl && es.comp.lbl.IsValid && es.comp.lbl.IsValid()) es.comp.lbl.visible = true; } catch (e0) {}
+      try { es.entry.DeleteAsync(0); } catch (err) {}   // deletion is what drops the focus grab
       hideTip();
-      if (isFinite(v) && cb) cb(v);
+      if (!apply) return;
+      if (es.node.kind === 'shakep') {
+        var sv = parseFloat(('' + text).replace(',', '.')), si = shakeEditKey();
+        if (isFinite(sv) && si >= 0 && shakeValueAt(es.node.param, st.playhead) != null) shakeParamSet(es.node, si, sv);
+        return;
+      }
+      var c = chU(es.comp.uid);
+      if (es.node.dom === 'scene' && c && (stepped(c) || c.type === 'colour')) {
+        var t = ('' + text).replace(/,/g, ' ').replace(/^\s+|\s+$/g, '');
+        if (c.type === 'bool') t = /^(on|true|yes|1)$/i.test(t) ? '1' : '0';
+        if (t !== '') setPropValue(es.node, es.comp.uid, t);
+        return;
+      }
+      var v = parseFloat(('' + text).replace(',', '.'));
+      if (isFinite(v)) setPropValue(es.node, es.comp.uid, es.node.dom === 'scene' ? v : clampToSpec(c, v));
     }
-    function editHit(lx, ly) {
-      if (!edit || !edit.rect) return false;
-      var r = edit.rect;
-      return lx >= r.x0 - 2 && lx <= r.x1 + 2 && ly >= r.y0 - 2 && ly <= r.y1 + 2;
+    function commitEdit() { finishEdit(true); }
+    function cancelEdit() { finishEdit(false); }
+    function editHit(lx, ly) { return !!editState && overPanel(editState.entry, lx, ly); }
+    function openType(r, comp) {
+      var c = chU(comp.uid); if (!c) return;
+      var init = r.node.dom === 'cam' ? fmtNum(camValue(c), Math.max(1, r.node.dec + 1)) : sceneValueText(c);
+      if (r.node.dom === 'scene' && c.type === 'bool') init = c.value ? 'On' : 'Off';
+      beginCellEdit(r, comp, init);
     }
-    function openSceneType(cell) {
-      var ch = chById(cell.ch);
-      var rec = sceneValues[cell.fieldId];
-      var initial = (ch && typeof ch.value === 'number') ? String(Math.round(ch.value * 1000) / 1000) : '0';
-      beginCellEdit(cell.box, rec && rec.cell, initial, cell.rect, function (v) {
-        rawCmd('mirv_filmmaker scenekeys set ' + cell.fieldId + ' ' + clampToSpec(ch, v).toFixed(3));
-      });
-    }
-    function openType(c) {
-      var ch = chById(c);
-      beginCellEdit(rows[c].valBox, rows[c].val, fieldValue(c).toFixed(2), rows[c].valRect, function (v) {
-        v = clampToSpec(ch, v);
-        cmd('editbegin'); cmd('addkey ' + c + ' ' + snapTick(st.playhead).toFixed(2) + ' ' + v.toFixed(3)); if (sceneOn()) cmd('editend');
-      });
+    // Which value cell (and which number in it) is under the cursor.
+    function valueHit(lx, ly) {
+      if (lx >= LEFTW || ly < ROWS_Y || ly >= ROWS_Y + ROWS_H) return null;
+      var r = rowAt(ly); if (!r || r.broken || (r.node.kind !== 'prop' && r.node.kind !== 'shakep') || !r.comps || !r.comps.length) return null;
+      for (var i = 0; i < r.comps.length; i++) {
+        var rc = panelRect(r.comps[i].wrap);
+        if (rc && lx >= rc.x0 - 3 && lx <= rc.x1 + 3) return { row: r, comp: r.comps[i] };
+      }
+      return null;
     }
 
-    // ---- right-click selection menu (applies to the WHOLE selection) ----
-    // "Align Keys" snaps every selected key to the right-clicked key's tick (vertical sync
-    // across channels); the ease items shape the selection's tangents; Delete removes it.
-    var easeAlignCh = -1, easeAlignId = -1; // key the menu was opened on (the Align target)
-    // ONE flowed column, not five absolutely-placed rows over a floating caption. The old build
-    // offset each row with style.position inside a non-flowing parent, which put the SELECTION
-    // caption on top of the third item -- a context menu that reads as a rendering fault.
-    // EM_* are shared by the layout and by the hit rects, so the two can never drift.
-    var EM_W = 214, EM_PAD = 5, EM_HEAD = 22, EM_ITEM = 27, EM_SEP = 7;
-    var EASE_ITEMS = [['in', 'Ease In'], ['out', 'Ease Out'], ['inout', 'Ease In / Out'],
-                      ['align', 'Align Keys'], ['delete', 'Delete Key', 1]];
-    var menuItems = EASE_ITEMS, menuPick = null;
-    function menuItemY(i) {
-      var y = EM_PAD + EM_HEAD;
-      for (var j = 0; j < i; j++) y += EM_ITEM + (menuItems[j + 1] && menuItems[j + 1][2] ? EM_SEP : 0);
-      return y;
+    // ---- menus --------------------------------------------------------------------
+    // One menu engine for the property, layer and keyframe menus, driven off the raw cursor pipe
+    // (hover and click are hit-tested here). Items: {kind:'title'|'head'|'sep'} or {id, label,
+    // hint (under), sc (shortcut, right), check, danger, disabled, sub:[...], subW, pick, keep,
+    // key}. Submenus nest to any depth (Camera Shake > a shake > its strength). An item with a sub
+    // opens it on hover; with pick it is ALSO an action on click. key names an item across a
+    // rebuild (a shake's id carries its values, which change as you step them).
+    var menu = null;   // { levels: [panel per depth], open: [the item at depth i whose sub is levels[i+1]], onPick, rebuild }
+    var M_PAD = 5, M_ITEM = 27, M_HINT = 40, M_TITLE = 22, M_HEAD = 44, M_SEP = 9;
+    function itemH(it) { return it.kind === 'sep' ? M_SEP : it.kind === 'title' ? M_TITLE : it.kind === 'head' ? M_HEAD : (it.hint ? M_HINT : M_ITEM); }
+    function menuOpen() { return !!menu; }
+    function dropLevels(from) {
+      while (menu.levels.length > from) { var m = menu.levels.pop(); try { m.panel.DeleteAsync(0); } catch (e) {} }
+      menu.open.length = Math.max(0, from - 1);
     }
-    function menuH() { return menuItemY(menuItems.length - 1) + EM_ITEM + EM_PAD; }
-    // ONE menu panel, rebuilt for whichever list is being shown. Two hand-built menus would drift
-    // apart in a week, and a context menu that does not match the one next to it looks broken.
-    function buildMenu(title) {
-      if (!easeMenu) {
-        easeMenu = mk('Panel', dock); easeMenu.hittest = false; easeMenu.style.zIndex = '20';
-        easeMenu.style.flowChildren = 'down';
-        easeMenu.style.paddingTop = EM_PAD + 'px'; easeMenu.style.paddingBottom = EM_PAD + 'px';
-        easeMenu.style.backgroundColor = 'rgba(16,20,26,0.99)';
-        easeMenu.style.border = '1px solid ' + S.border;
-        easeMenu.style.borderRadius = '5px';
-        easeMenu.style.boxShadow = '#000000aa 0px 6px 18px 0px';
-      }
-      easeMenu.RemoveAndDeleteChildren();
-      easeMenu.style.width = EM_W + 'px'; easeMenu.style.height = menuH() + 'px';
-      var head = mk('Panel', easeMenu); head.hittest = false;
-      head.style.width = '100%'; head.style.height = EM_HEAD + 'px'; head.style.paddingLeft = '11px';
-      var t = lbl(head, title, S.hint, 10);
-      t.hittest = false; t.style.verticalAlign = 'center'; t.style.whiteSpace = 'nowrap';
-      t.style.fontWeight = 'bold'; t.style.letterSpacing = '1.4px';
-      easeItemPanels = [];
-      for (var i = 0; i < menuItems.length; i++) {
-        var danger = !!menuItems[i][2];
-        if (danger) {
-          var sep = mk('Panel', easeMenu); sep.hittest = false;
-          sep.style.width = '100%'; sep.style.height = '1px';
-          sep.style.marginTop = '3px'; sep.style.marginBottom = '3px';
-          sep.style.backgroundColor = S.border;
+    function closeMenu() {
+      if (!menu) return;
+      dropLevels(0);
+      menu = null;
+    }
+    function buildMenuPanel(x, y, w, items, level) {
+      var p = mk('Panel', dock); p.hittest = false; p.style.zIndex = '' + (26 + level);
+      p.style.flowChildren = 'down'; p.style.paddingTop = M_PAD + 'px'; p.style.paddingBottom = M_PAD + 'px';
+      p.style.backgroundColor = 'rgba(16,20,26,0.99)'; p.style.border = '1px solid ' + S.border;
+      p.style.borderRadius = '5px'; p.style.boxShadow = '#000000aa 0px 6px 18px 0px';
+      var h = M_PAD * 2;
+      items.forEach(function (it) { h += itemH(it); });
+      if (x + w > G.rw - 2) x = G.rw - w - 2; if (x < 2) x = 2;
+      if (y + h > DOCK_H - 2) y = DOCK_H - h - 2; if (y < 2) y = 2;
+      p.style.position = x.toFixed(0) + 'px ' + y.toFixed(0) + 'px 0px';
+      p.style.width = w + 'px'; p.style.height = h + 'px';
+      var hasCheck = items.some(function (it) { return it.check != null; });
+      var cy = y + M_PAD, rects = [];
+      items.forEach(function (it) {
+        var ih = itemH(it);
+        if (it.kind === 'sep') {
+          var sp = mk('Panel', p); sp.hittest = false; sp.style.width = '100%'; sp.style.height = '1px';
+          sp.style.marginTop = '4px'; sp.style.marginBottom = '4px'; sp.style.backgroundColor = '#ffffff1a';
+        } else if (it.kind === 'title') {
+          var th = mk('Panel', p); th.hittest = false; th.style.width = '100%'; th.style.height = M_TITLE + 'px'; th.style.paddingLeft = '11px';
+          var tl = lbl(th, it.label, S.hint, 10); tl.hittest = false; tl.style.verticalAlign = 'center';
+          tl.style.fontWeight = 'bold'; tl.style.letterSpacing = '1.4px'; tl.style.whiteSpace = 'nowrap';
+        } else if (it.kind === 'head') {
+          var hd = mk('Panel', p); hd.hittest = false; hd.style.width = (w - 2 * M_PAD) + 'px'; hd.style.height = M_HEAD + 'px';
+          hd.style.horizontalAlign = 'center'; hd.style.flowChildren = 'down'; hd.style.padding = '6px 8px 6px 8px';
+          var hv = lbl(hd, it.value, S.value, 13); hv.hittest = false; hv.style.fontFamily = S.fontMonodigit; hv.style.whiteSpace = 'nowrap';
+          hv.style.marginBottom = '2px';
+          var ht = lbl(hd, it.title, S.muted, 11); ht.hittest = false; ht.style.whiteSpace = 'nowrap';
+        } else {
+          var row = mk('Panel', p); row.hittest = false;
+          row.style.width = (w - 2 * M_PAD) + 'px'; row.style.height = ih + 'px'; row.style.horizontalAlign = 'center';
+          row.style.borderRadius = '3px'; row.style.flowChildren = 'right'; row.style.paddingLeft = '8px'; row.style.paddingRight = '8px';
+          if (hasCheck) {
+            var ck = lbl(row, it.check ? '✓' : '', S.accent, 11); ck.hittest = false; ck.style.width = '12px';
+            ck.style.verticalAlign = 'center'; ck.style.marginRight = '8px';
+          }
+          var col = mk('Panel', row); col.hittest = false; col.style.width = 'fill-parent-flow(1.0)';
+          col.style.flowChildren = 'down'; col.style.verticalAlign = 'center';
+          var il = lbl(col, it.label, it.disabled ? S.dim : (it.danger ? S.dangerText : S.value), 13); il.hittest = false; il.style.whiteSpace = 'nowrap';
+          if (it.hint) { var ih2 = lbl(col, it.hint, S.muted, 11); ih2.hittest = false; ih2.style.whiteSpace = 'nowrap'; ih2.style.marginTop = '2px'; }
+          var right = it.sub ? '›' : (it.sc || '');
+          if (right) { var rl = lbl(row, right, it.sub ? S.hint : S.muted, it.sub ? 12 : 11); rl.hittest = false; rl.style.verticalAlign = 'center'; rl.style.marginLeft = '8px'; }
+          rects.push({ x0: x + M_PAD, x1: x + w - M_PAD, y0: cy, y1: cy + ih, it: it, panel: row });
         }
-        var it = mk('Panel', easeMenu); it.hittest = false;
-        it.style.width = (EM_W - 2 * EM_PAD) + 'px'; it.style.height = EM_ITEM + 'px';
-        it.style.horizontalAlign = 'center'; it.style.borderRadius = '3px'; it.style.paddingLeft = '11px';
-        var l = lbl(it, menuItems[i][1], danger ? S.dangerText : S.value, 13);
-        l.hittest = false; l.style.verticalAlign = 'center'; l.style.whiteSpace = 'nowrap';
-        easeItemPanels.push(it);
+        cy += ih;
+      });
+      return { panel: p, rects: rects, x: x, y: y, w: w, h: h };
+    }
+    // `rebuild` (optional) re-lists the items: a pick on an item marked `keep` applies, then the
+    // menu reopens in place a few frames later with the new values, down the same submenus
+    // (stepping a shake's strength leaves you on that shake).
+    var reopenMenu = null;
+    function showMenu(lx, ly, w, items, onPick, rebuild) {
+      closeMenu(); hideSnapMenu(); hideTip();
+      menu = { levels: [buildMenuPanel(lx, ly, w, items, 0)], open: [], onPick: onPick, rebuild: rebuild || null };
+    }
+    function itemKey(it) { return it.key || it.id; }
+    function pumpMenuReopen() {
+      if (!reopenMenu || --reopenMenu.frames > 0) return;
+      var r = reopenMenu; reopenMenu = null;
+      showMenu(r.x, r.y, r.w, r.rebuild(), r.onPick, r.rebuild);
+      for (var L = 0; L < r.path.length && menu; L++) {
+        var m = menu.levels[L], hit = null;
+        for (var i = 0; m && i < m.rects.length; i++) if (itemKey(m.rects[i].it) === r.path[L]) { hit = m.rects[i]; break; }
+        if (!hit || !hit.it.sub) break;
+        openSub(L, hit);
+      }
+    }
+    function menuRectAt(m, lx, ly) {
+      if (!m) return null;
+      for (var i = 0; i < m.rects.length; i++) { var r = m.rects[i]; if (lx >= r.x0 && lx <= r.x1 && ly >= r.y0 && ly <= r.y1) return r; }
+      return null;
+    }
+    function inMenuPanel(m, lx, ly) { return !!m && lx >= m.x && lx <= m.x + m.w && ly >= m.y && ly <= m.y + m.h; }
+    // Open item r's submenu (r sits in level L), closing anything deeper first.
+    function openSub(L, r) {
+      if (menu.open[L] === r && menu.levels.length > L + 1) return;
+      dropLevels(L + 1);
+      var W = r.it.subW || 224, x = r.x1 + 2;
+      if (x + W > G.rw - 2) x = r.x0 - W - 2;   // flip left near the edge
+      menu.levels.push(buildMenuPanel(x, r.y0 - 6, W, r.it.sub, L + 1));
+      menu.open[L] = r;
+    }
+    // The deepest open menu under the cursor (a submenu draws over its parent) and the item there;
+    // r is null over a separator or the padding, which still counts as inside that menu.
+    function menuHit(lx, ly) {
+      for (var L = menu.levels.length - 1; L >= 0; L--)
+        if (inMenuPanel(menu.levels[L], lx, ly)) return { L: L, r: menuRectAt(menu.levels[L], lx, ly) };
+      return null;
+    }
+    function menuHover(lx, ly) {
+      if (!menu) return;
+      var h = menuHit(lx, ly);
+      if (h && h.r) {
+        if (h.r.it.sub && !h.r.it.disabled) openSub(h.L, h.r);
+        else dropLevels(h.L + 1);
+      }
+      menu.levels.forEach(function (m, L) {
+        m.rects.forEach(function (r) {
+          var on = ((h && r === h.r) || menu.open[L] === r) && !r.it.disabled;
+          var bg = on ? (r.it.danger ? S.dangerBg : S.btnOn) : 'rgba(0,0,0,0)';
+          if (r.__bg !== bg) { r.__bg = bg; r.panel.style.backgroundColor = bg; }
+        });
+      });
+    }
+    // A press while a menu is open is consumed: it picks an item, opens a submenu, or (outside
+    // every menu) closes it.
+    function menuClick(lx, ly) {
+      var h = menuHit(lx, ly);
+      if (h && !h.r) return;
+      var r = h ? h.r : null;
+      if (r && r.it.sub && !r.it.pick) { if (!r.it.disabled) openSub(h.L, r); return; }
+      var pick = menu.onPick, m = menu, path = [];
+      if (r) { for (var i = 0; i < h.L; i++) path.push(itemKey(m.open[i].it)); if (r.it.sub) path.push(itemKey(r.it)); }
+      var x = m.levels[0].x, y = m.levels[0].y, w = m.levels[0].w;
+      closeMenu();
+      if (r && !r.it.disabled && pick) {
+        pick(r.it.id);
+        if (r.it.keep && m.rebuild) reopenMenu = { frames: 3, x: x, y: y, w: w, rebuild: m.rebuild, onPick: pick, path: path };
       }
     }
 )GEJS"
 R"GEJS(
-    function showMenu(lx, ly, title, items, onPick) {
-      menuItems = items; menuPick = onPick;
-      buildMenu(title);
-      var W = EM_W, H = menuH();
-      if (lx + W > G.rw) lx = G.rw - W - 2; if (lx < 0) lx = 0;
-      if (ly + H > G.rh) ly = G.rh - H - 2; if (ly < 0) ly = 0;
-      easeMenu.style.position = lx + 'px ' + ly + 'px 0px'; easeMenu.visible = true;
-      easeRects = [];
-      for (var i = 0; i < items.length; i++) {
-        var y = ly + menuItemY(i);
-        easeRects.push({ x0: lx + EM_PAD, x1: lx + W - EM_PAD, y0: y, y1: y + EM_ITEM, mode: items[i][0] });
-      }
+    // ---- the three menus ------------------------------------------------------------
+    function fmtKeyValue(m) {
+      var c = chU(m.uid); if (!c) return '';
+      if (m.k.swatch) return ('' + m.k.swatch).toUpperCase();
+      if (c.dom === 'cam') { var p = CAM_PROPS.filter(function (x) { return x.chans.indexOf(chNum(m.uid)) >= 0; })[0]; return fmtNum(m.k.v, p ? p.dec : 1) + (p ? p.unit : ''); }
+      if (c.type === 'bool') return m.k.v ? 'On' : 'Off';
+      return String(Math.round(m.k.v * 1000) / 1000);
     }
-    // The strip's own menu: what you can do to THIS property at THIS tick, reachable where you are
-    // already pointing instead of only from a keyframe you may not have yet.
-    function showStripMenu(lx, ly, cell) {
-      var ch = chById(cell.ch), at = keyAtTick(ch, st.playhead);
-      var items = [['stripkey', at ? 'Re-key at playhead' : 'Key at playhead']];
-      if (at) items.push(['stripdel', 'Delete key at playhead']);
-      items.push(['stripoff', 'Turn this strip off', 1]);
-      showMenu(lx, ly, (ch ? ch.name.toUpperCase() : 'STRIP'), items, function (mode) {
-        if (mode === 'stripkey') rawCmd('mirv_filmmaker scenekeys graphadd ' + cell.fieldId + ' ' + Math.round(snapTick(st.playhead)));
-        else if (mode === 'stripdel' && at) { cmd('select ' + cell.ch + ' ' + at.id); cmd('delsel'); }
-        else if (mode === 'stripoff') rawCmd('mirv_filmmaker scenekeys clear ' + cell.fieldId);
-      });
+    // The shake menu for camera-path key `idx`: every shake on the menu (the Rockstar Editor five,
+    // the rest under More shakes), each its own submenu with strength and speed. Clicking a shake
+    // puts it on the key; the steps put THAT shake on with the stepped value and keep the menu
+    // open on it. Ids are `shk:<pathshake verb + args>`.
+    var SHAKE_N0 = 5, SHAKE_P0 = 50;   // CamPathShakeSetting's defaults
+    function shakeStyleItem(idx, s, style) {
+      var si = style[0], cur = !!s && s.s === si, n = s ? s.n : SHAKE_N0, p = s ? s.p : SHAKE_P0;
+      var set = function (nn, pp) { return 'shk:set ' + idx + ' ' + si + ' ' + nn + ' ' + pp; };
+      return { id: set(n, p), key: 'style:' + si, label: style[1], check: cur, pick: true, keep: true, subW: 236, sub: [
+        { kind: 'head', value: style[1], title: cur ? ('Strength ' + n + ' of 10 · speed ' + p) : 'Click to put it on this key' },
+        { kind: 'sep' },
+        { id: set(Math.min(10, n + 1), p), label: 'Stronger', hint: 'strength ' + Math.min(10, n + 1) + ' of 10', disabled: cur && n >= 10, keep: true },
+        { id: set(Math.max(1, n - 1), p), label: 'Weaker', hint: 'strength ' + Math.max(1, n - 1) + ' of 10', disabled: cur && n <= 1, keep: true },
+        { kind: 'sep' },
+        { id: set(n, Math.min(100, p + 10)), label: 'Faster', hint: 'speed ' + Math.min(100, p + 10), disabled: cur && p >= 100, keep: true },
+        { id: set(n, Math.max(10, p - 10)), label: 'Slower', hint: 'speed ' + Math.max(10, p - 10), disabled: cur && p <= 10, keep: true }
+      ] };
     }
-    // Right-click on the property LIST (left of the curves): the whole property, or with a group
-    // header the whole group. Disable keeps the keys but stops applying them (`scenekeys mute`);
-    // Delete removes the keys and the strip (`scenekeys clear`, undoable like every scene edit).
-    function sceneRowHit(lx, ly) {
-      if (!sceneOn() || lx < 0 || lx > LEFTW) return null;
-      var top = G.ovH + HEADER_H, y = ly - top;
-      if (ly < top || ly > top + G.ch) return null;
-      for (var g = 0; g < sceneGroups.length; g++) {
-        var grp = sceneGroups[g];
-        if (y >= grp.y0 && y < grp.y0 + grp.h) return { group: grp };
-      }
-      for (var i = 0; i < sceneStrips.length; i++) {
-        var sp = sceneStrips[i];
-        if (y >= sp.y0 && y < sp.y0 + sp.h) return { strip: sp };
-      }
-      return null;
+    function shakeItems(idx) {
+      var s = shakeAt(idx), styles = st.shakeStyles || [], ess = Math.min(styles.length, st.shakeEssentials || 5);
+      var items = [
+        { kind: 'head', value: s ? s.l : 'No shake', title: s ? ('Strength ' + s.n + ' of 10 · speed ' + s.p) : ('Camera key ' + (idx + 1)) },
+        { kind: 'sep' }
+      ];
+      styles.slice(0, ess).forEach(function (x) { items.push(shakeStyleItem(idx, s, x)); });
+      var more = styles.slice(ess);
+      if (more.length) items.push({ id: 'shkmore', label: 'More shakes', subW: 210,
+        check: !!s && more.some(function (x) { return x[0] === s.s; }),
+        sub: more.map(function (x) { return shakeStyleItem(idx, s, x); }) });
+      items.push({ kind: 'sep' },
+        { id: 'shk:applyall ' + idx, label: 'Use on every camera key', disabled: !s },
+        { id: 'shk:clear ' + idx, label: 'Remove shake', danger: true, disabled: !s });
+      return items;
     }
-    function showSceneRowMenu(lx, ly, hit) {
-      var target, title, allMuted = true, groupWord = '';
-      if (hit.group) {
-        var g = hit.group, first = g.items.length ? model[g.items[0]] : null;
-        if (!first) return;
-        target = first.groupId; title = g.title.toUpperCase(); groupWord = ' group';
-        for (var i = 0; i < g.items.length; i++) if (!model[g.items[i]].muted) allMuted = false;
+    function pickShake(id) { if (('' + id).indexOf('shk:') === 0) { shakeCmd(id.substring(4)); return true; } return false; }
+    function showShakeMenu(lx, ly, idx) {
+      showMenu(lx, ly, 236, shakeItems(idx), function (id) { pickShake(id); }, function () { return shakeItems(idx); });
+    }
+    function showKeyMenu(lx, ly, n, entry) {
+      var list = unionKeys(n.chans), idx = 0;
+      for (var i = 0; i < list.length; i++) if (Math.abs(list[i].t - entry.t) < 0.26) idx = i + 1;
+      var m0 = entry.members[0], c0 = chU(m0.uid), cur = easeOfSides(keySides(c0, m0.k)), stepOnly = stepped(c0);
+      // Rebuilt after a keep-open shake step so the menu shows the new strength.
+      var build = function () {
+      var items = [
+        { kind: 'head', value: entry.members.map(fmtKeyValue).join(', '),
+          title: n.name + ' · keyframe ' + idx + ' of ' + list.length + ' · ' + fmtTime(entry.t) },
+        { kind: 'sep' },
+        { id: 'delete', label: 'Delete Keyframe', sc: 'Del' },
+        { id: 'align', label: 'Align selected keys here', disabled: totalSel() < 2 },
+        { kind: 'sep' },
+        { id: 'assist', label: 'Keyframe Assistant', disabled: stepOnly, sub: stepOnly ? null : [
+          { id: 'inout', label: 'Easy Ease', sc: 'F9', check: cur === 'inout' },
+          { id: 'in', label: 'Easy Ease In', sc: 'Shift+F9', check: cur === 'in' },
+          { id: 'out', label: 'Easy Ease Out', sc: 'Ctrl+Shift+F9', check: cur === 'out' },
+          { kind: 'sep' },
+          { id: 'smooth', label: 'Smooth', check: cur === 'smooth' },
+          { id: 'linear', label: 'Linear', check: cur === 'linear' }
+        ] }
+      ];
+      // A camera key is a camera-path marker, and a marker can carry a shake.
+      var pidx = domOf(m0.uid) === 'cam' ? pathIndexAt(entry.t) : -1;
+      if (pidx >= 0) items.push({ id: 'shake', label: 'Camera Shake', subW: 236, sub: shakeItems(pidx) });
+      return items;
+      };
+      showMenu(lx, ly, 230, build(), function (id) {
+        if (pickShake(id)) return;
+        if (id === 'delete') deleteSelection();
+        else if (id === 'align') { edit(domOf(m0.uid)); domCmd(domOf(m0.uid), 'align ' + chNum(m0.uid) + ' ' + m0.id); }
+        else applyEase(id);
+      }, build);
+    }
+    function showRowMenu(lx, ly, r) {
+      var n = r.node, items = [{ kind: 'title', label: n.name.toUpperCase() }];
+      if (n.kind === 'prop') {
+        var parent = n.parentProp;
+        if (isSplit(n)) items.push({ id: 'join', label: 'Join Dimensions', hint: 'back to one ' + n.name + ' row' });
+        else if (parent) items.push({ id: 'joinparent', label: 'Join Dimensions', hint: 'merge into ' + parent.name });
+        else if (n.splittable) items.push({ id: 'separate', label: 'Separate Dimensions', hint: n.comps.join(' / ') + ' on their own rows' });
+        if (viewMode !== 'graph') items.push({ id: 'graph', label: 'Show in Graph' });
+        var at = n.chans.some(function (u) { return !!keyAtTick(chU(u), st.playhead); });
+        if (!isSplit(n)) items.push({ id: 'addkey', label: at ? 'Re-key at playhead' : 'Add key at playhead',
+          hint: n.dom === 'cam' ? 'the live camera\'s ' + n.name.toLowerCase() : 'the value it has now' });
+        if (n.dom === 'scene') {
+          var muted = propMuted(n);
+          items.push({ kind: 'sep' });
+          items.push({ id: 'mute', label: muted ? 'Enable property' : 'Disable property', hint: muted ? 'apply its keys again' : 'keep the keys, stop applying them' });
+          items.push({ id: 'clear', label: 'Delete property', danger: true, hint: 'removes it and its keys (undoable)' });
+        }
       } else {
-        var ch = chById(hit.strip.ch);
-        if (!ch) return;
-        target = ch.fieldId; title = ch.name.toUpperCase(); allMuted = !!ch.muted;
+        items.push({ id: 'selall', label: 'Select all keys', disabled: !allTimes(n).length });
+        if (viewMode !== 'graph') items.push({ id: 'graph', label: 'Show in Graph' });
+        if (n.kind === 'layer') {
+          var on = layerOn(n);
+          items.push({ id: 'toggle', label: on ? 'Turn layer off' : 'Turn layer on',
+            hint: n.dom === 'cam' ? (on ? 'scrubbing leaves the free cam alone' : 'scrubbing previews the path') : (on ? 'keys kept, nothing applied' : 'apply its keys again') });
+          if (n.dom === 'scene') items.push({ kind: 'sep' }, { id: 'clear', label: 'Delete layer', danger: true, hint: 'removes every property in it (undoable)' });
+        }
       }
-      var items = [['mute', allMuted ? 'Enable' + groupWord : 'Disable' + groupWord], ['delete', 'Delete' + groupWord, 1]];
-      showMenu(lx, ly, title, items, function (mode) {
-        if (mode === 'mute') rawCmd('mirv_filmmaker scenekeys mute ' + target + (allMuted ? ' off' : ' on'));
-        else if (mode === 'delete') rawCmd('mirv_filmmaker scenekeys clear ' + target);
+      showMenu(lx, ly, 236, items, function (id) {
+        if (id === 'separate') { splitState[n.id] = true; openState[n.id] = true; treeSig = ''; }
+        else if (id === 'join') { delete splitState[n.id]; treeSig = ''; selectNode(n.id); }
+        else if (id === 'joinparent') { delete splitState[n.parentProp.id]; treeSig = ''; selectNode(n.parentProp.id); }
+        else if (id === 'graph') { selectNode(n.id); setView('graph'); }
+        else if (id === 'addkey') addKeyAt(n);
+        else if (id === 'mute') { edit('scene'); rawCmd('mirv_filmmaker scenekeys mute ' + n.fieldId + (propMuted(n) ? ' off' : ' on')); }
+        else if (id === 'clear') { edit('scene'); rawCmd('mirv_filmmaker scenekeys clear ' + (n.kind === 'layer' ? n.groupId : n.fieldId)); }
+        else if (id === 'selall') selectLayerKeys(n);
+        else if (id === 'toggle') toggleLayer(n);
       });
     }
-    function keyAtTick(ch, t) {
-      if (!ch) return null;
-      var want = Math.round(t);
-      for (var i = 0; i < ch.keys.length; i++) if (Math.round(ch.keys[i].t) === want) return ch.keys[i];
-      return null;
+    // Keyboard, forwarded by MovieMode while the dock is up (`grapheditor key <name>`).
+    function onKey(name) {
+      if (name === 'escape') { if (menu) closeMenu(); else if (snapMenuOpen()) hideSnapMenu(); else if (editState) cancelEdit(); return; }
+      if (editState) return;   // the text field owns the keyboard
+      if (name === 'delete') deleteSelection();
+      else if (name === 'undo') undo(false);
+      else if (name === 'redo') undo(true);
+      else if (name === 'selall') selectAll();
+      else if (name === 'easeinout') applyEase('inout');
+      else if (name === 'easein') applyEase('in');
+      else if (name === 'easeout') applyEase('out');
     }
-    function showEaseMenu(lx, ly, ch, id) {
-      easeAlignCh = ch; easeAlignId = id;
-      showMenu(lx, ly, 'SELECTED KEYS', EASE_ITEMS, function (em) {
-        if (em === 'delete') cmd('delsel');
-        else if (em === 'align') cmd('align ' + easeAlignCh + ' ' + easeAlignId);
-        else cmd('ease ' + em);
-      });
-    }
-    function hideEaseMenu() { if (easeMenu) { easeMenu.visible = false; easeRects = []; } }
-    function easeMenuOpen() { return easeMenu && easeMenu.visible; }
-    function easeHover(lx, ly) {
-      for (var i = 0; i < easeRects.length; i++) {
-        var inIt = (lx >= easeRects[i].x0 && lx <= easeRects[i].x1 && ly >= easeRects[i].y0 && ly <= easeRects[i].y1);
-        if (easeItemPanels[i]) easeItemPanels[i].style.backgroundColor =
-          inIt ? (easeRects[i].mode === 'delete' ? S.dangerBg : S.btnOn) : 'rgba(0,0,0,0)';
-      }
-    }
-    function easeHit(lx, ly) {
-      for (var i = 0; i < easeRects.length; i++)
-        if (lx >= easeRects[i].x0 && lx <= easeRects[i].x1 && ly >= easeRects[i].y0 && ly <= easeRects[i].y1) return easeRects[i].mode;
-      return null;
-    }
-
 )GEJS"
 R"GEJS(
-    // ---- the mouse-driven interaction engine ----------------------------
-    // Hover dressing for the navigator panels, cached so a per-frame call does not rewrite styles.
-    var ovVis = '', sbVis = 0;
+    // ---- the mouse-driven interaction engine ----------------------------------------
+    function curCursor() {
+      var lx = (st.mx || 0) / uiscale - dockScreenX, ly = (st.my || 0) / uiscale - dockScreenY;
+      return { lx: lx, ly: ly, tx: lx - LEFTW, gy: ly - ROWS_Y };
+    }
+    function inTrackX(tx) { return tx >= 0 && tx <= G.tw; }
+    function rangeTicks() {
+      if (gesture && gesture.r0 != null) return { a: gesture.r0, b: gesture.r1 };
+      if (!st.rangeActive) return null;
+      var a = num(st.rangeIn), b = num(st.rangeOut);
+      return b > a ? { a: a, b: b } : null;
+    }
+    // Hover dressing for the navigator, cached so a per-frame call does not rewrite styles.
+    var ovVis = '';
     function setOvVisual(hot, edge) {
-      if (gesture && gesture.type === 'ovL') edge = -1;
-      else if (gesture && gesture.type === 'ovR') edge = 1;
+      if (gesture && gesture.type === 'ovL') edge = -1; else if (gesture && gesture.type === 'ovR') edge = 1;
       var sig = (hot ? 1 : 0) + '' + edge;
       if (sig === ovVis) return;
       ovVis = sig;
-      var lit = hot || edge !== 0;
-      ovView.style.border = '1px solid ' + (lit ? S.ovViewBorderHot : S.ovViewBorder);
-      ovView.style.backgroundColor = lit ? S.ovViewHot : S.ovView;
-      var activeEdge = edge;
-      ovLeftGrip.style.backgroundColor = activeEdge === -1 ? S.accent : '#303740ff';
-      ovRightGrip.style.backgroundColor = activeEdge === 1 ? S.accent : '#303740ff';
-      ovLeftGrip.style.border = '1px solid ' + (activeEdge === -1 ? S.accent : '#bac4d0ff');
-      ovRightGrip.style.border = '1px solid ' + (activeEdge === 1 ? S.accent : '#bac4d0ff');
+      ovView.style.border = '1px solid ' + (hot || edge ? S.ovViewBorderHot : S.ovViewBorder);
+      ovView.style.backgroundColor = hot || edge ? S.ovViewHot : S.ovView;
+      ovLeftGrip.style.backgroundColor = edge === -1 ? S.accent : '#303740ff';
+      ovRightGrip.style.backgroundColor = edge === 1 ? S.accent : '#303740ff';
     }
-    function setSbVisual(hot) {
-      var v = hot ? 1 : 0;
-      if (v === sbVis) return; sbVis = v;
-      sbThumb.style.backgroundColor = hot ? '#ffffff59' : '#ffffff33';
+    function pressRuler(cc) {
+      var rt = rangeTicks();
+      if (rt && cc.ly < HEADER_H + OVERVIEW_H + 10) {
+        var xa = tickToX(rt.a), xb = tickToX(rt.b);
+        if (Math.abs(cc.tx - xa) <= 6) { gesture = { type: 'rangeL', r0: rt.a, r1: rt.b }; return; }
+        if (Math.abs(cc.tx - xb) <= 6) { gesture = { type: 'rangeR', r0: rt.a, r1: rt.b }; return; }
+        if (cc.tx > xa && cc.tx < xb) { gesture = { type: 'rangeMove', r0: rt.a, r1: rt.b, sx: cc.tx, a0: rt.a, b0: rt.b }; return; }
+      }
+      gesture = { type: 'ruler', lastTx: cc.tx }; playheadTo(scrubTick(Math.max(PAD, Math.min(PAD + G.cw, cc.tx))));
     }
-
-)GEJS"
-R"GEJS(
-    function processInput() {
-      var lmb = !!st.lmb, rmb = !!st.rmb; var cc = curCursor();
-      var inCanvas = (cc.clx >= 0 && cc.clx <= G.cw && cc.cly >= 0 && cc.cly <= G.ch);
-      var inRuler = (cc.lx >= G.cx && cc.lx <= G.cx + G.cw && cc.ly >= G.rulerY && cc.ly <= G.rulerY + G.rulerH);
-      var overOverview = inOverview(cc.clx, cc.ly);
-      var overBar = inBottomBar(cc.lx, cc.ly);
-      var nearPlayhead = inCanvas && Math.abs(cc.clx - tickToX(st.playhead)) <= 6;
-
-      // Navigator hover dressing. The viewport lights as a whole when the pointer is anywhere over
-      // the map; an edge that would resize it gets the accent so the grab is discoverable.
-      var ovEdge = 0;
-      if (overOverview) {
-        var vr0 = ovViewRect();
-        if (Math.abs(cc.clx - vr0.x0) <= 7) ovEdge = -1;
-        else if (Math.abs(cc.clx - vr0.x1) <= 7) ovEdge = 1;
+    function pressTrackKeys(cc) {
+      var r = rowAt(cc.ly);
+      if (r && !r.broken && (r.node.kind === 'shake' || r.node.kind === 'shakep')) {
+        var se = hitTrackKey(r, cc.tx);
+        selectNode(r.node.id);
+        if (se) { seekTo(se.t); return; }
       }
-      setOvVisual(overOverview, ovEdge);
-      var sbHot = false;
-      if (overBar) {
-        var sr0 = sbTrackRect();
-        if (cc.lx >= sr0.x0 - 4 && cc.lx <= sr0.x1 + 4) sbHot = true;
+      if (r && !r.broken && r.node.kind === 'prop' && !isSplit(r.node)) {
+        var e = hitTrackKey(r, cc.tx);
+        if (e) { pressKeyEntry(cc, r.node, e.members, e.t); return; }
       }
-      setSbVisual(sbHot || (gesture && (gesture.type === 'sbL' || gesture.type === 'sbR' || gesture.type === 'sbMove')));
-
-      // Right-click opens the ease menu on a keyframe; it applies to the whole selection (the
-      // clicked key is added to the selection if it wasn't already part of it).
-      if (rmb && !prevRmb) {
-        hideSnapMenu();
-        var rk = inCanvas ? hitKeyframe(cc.clx, cc.cly) : null;
-        var rcell = rk ? null : sceneCellHit(cc.lx, cc.ly);
-        var rrow = (rk || rcell) ? null : sceneRowHit(cc.lx, cc.ly);
-        if (rk) { if (!isSelectedId(rk.ch, rk.id)) cmd('select ' + rk.ch + ' ' + rk.id); showEaseMenu(cc.lx, cc.ly, rk.ch, rk.id); }
-        else if (rcell) showStripMenu(cc.lx, cc.ly, rcell);
-        else if (rrow) showSceneRowMenu(cc.lx, cc.ly, rrow);
-        else hideEaseMenu();
+      if (r && !r.broken && r.node.kind === 'layer' && r.bar && cc.tx >= r.bar.x0 - 3 && cc.tx <= r.bar.x1 + 3) {
+        selectNode(r.node.id);
+        var n = selectLayerKeys(r.node);
+        if (n) startKeyDrag(cc, [r.node.dom], allTimes(r.node)[0], false);
+        return;
       }
-      if (easeMenuOpen()) easeHover(cc.lx, cc.ly);
-      prevRmb = rmb;
-
-      if (lmb && !prevLmb) {
-        // The colour picker owns the pointer while it is open: its wheel and bar drag off the same
-        // raw pipe (cfgColorPump), so this press must not also start a box-select or grab a
-        // keyframe. A press outside the tray closes it; the chip that opened it is left to its
-        // own onactivate, which toggles it shut.
-        if (cfgColorOwner) {
-          if (!overPanel(pickTray, cc.lx, cc.ly) && !overPanel(pickAnchor, cc.lx, cc.ly)) closePickTray();
-          prevLmb = lmb; return;
-        }
-        // The snap dropdown's rows own their own clicks; a press anywhere else closes it. Its
-        // Custom… field is a real TextEntry, so the raw pipe must not start a gesture over it.
-        if (snapMenuOpen()) {
-          if (!(snapRect && cc.lx >= snapRect.x0 && cc.lx <= snapRect.x1 && cc.ly >= snapRect.y0 && cc.ly <= snapRect.y1)) hideSnapMenu();
-          prevLmb = lmb; return;
-        }
-        // While the ease menu is open a click picks an item (or closes it), and is consumed.
-        if (easeMenuOpen()) {
-          var em = easeHit(cc.lx, cc.ly);
-          if (em && menuPick) menuPick(em);
-          hideEaseMenu(); prevLmb = lmb; return;
-        }
-        // An open in-cell editor owns its own clicks; a press anywhere else commits it first, and
-        // the raw pipe starts no gesture while the editor still holds the click.
-        if (edit) { if (editHit(cc.lx, cc.ly)) { prevLmb = lmb; return; } commitEdit(); }
-        // ---- timeline overview navigator: body pans, a grip resizes, empty track jumps.
-        if (overOverview) {
-          var vr = ovViewRect(), span = view.t1 - view.t0;
-          if (Math.abs(cc.clx - vr.x0) <= 7) gesture = { type: 'ovL' };
-          else if (Math.abs(cc.clx - vr.x1) <= 7) gesture = { type: 'ovR' };
-          else if (cc.clx > vr.x0 && cc.clx < vr.x1) gesture = { type: 'ovMove', startX: cc.clx, startT0: view.t0, startT1: view.t1 };
-          else {
-            var ct = xToDom(cc.clx);
-            view.t0 = ct - span / 2; view.t1 = view.t0 + span; normalizeView(); afterViewChange();
-            gesture = { type: 'ovMove', startX: cc.clx, startT0: view.t0, startT1: view.t1 };
-          }
-          prevLmb = lmb; return;
-        }
-        // ---- bottom scrollbar: the same grammar through the whole demo (thumb width = zoom).
-        if (overBar) {
-          var sr = sbTrackRect();
-          if (cc.lx >= sr.x0 - 4 && cc.lx <= sr.x1 + 4) {
-            if (Math.abs(cc.lx - sbThumbX0) <= 6) gesture = { type: 'sbL' };
-            else if (Math.abs(cc.lx - (sbThumbX0 + sbThumbW)) <= 6) gesture = { type: 'sbR' };
-            else if (cc.lx > sbThumbX0 && cc.lx < sbThumbX0 + sbThumbW) gesture = { type: 'sbMove', startX: cc.clx, startT0: view.t0, startT1: view.t1 };
-            else {
-              var span2 = view.t1 - view.t0, ct2 = xToDom(cc.clx);
-              view.t0 = ct2 - span2 / 2; view.t1 = view.t0 + span2; normalizeView(); afterViewChange();
-              gesture = { type: 'sbMove', startX: cc.clx, startT0: view.t0, startT1: view.t1 };
-            }
-          }
-          prevLmb = lmb; return;
-        }
-        if (inCanvas) {
-          var h = hitHandle(cc.clx, cc.cly);
-          if (h) { cmd('editbegin'); gesture = { type: 'handle', ch: h.ch, id: h.id, side: h.side }; }
-          else {
-            var k = hitKeyframe(cc.clx, cc.cly);
-            if (k) {
-              if (!isSelectedId(k.ch, k.id)) cmd('select ' + k.ch + ' ' + k.id);
-              // leadT0 is the CLICKED key's original tick: the snap grid is anchored to it, so a
-              // multi-key drag keeps its spacing instead of collapsing every key onto one tick.
-              cmd('editbegin'); gesture = { type: 'kf', sx: cc.lx, sy: cc.ly, ldt: 0, ldv: 0, ach: k.ch, kid: k.id, leadT0: k.t };
-              // SCENE KEYS: CLICKING A KEY GOES TO IT, and a dragged key takes the playhead with it.
-              // The world (lighting, sky, fog) is what a scene key changes, so the only way to judge
-              // one is to stand on it: the value on screen while you drag is the dragged key's own.
-              // Before, the playhead stayed wherever it was, so a click selected a key without
-              // showing it, and a drag reshaped the curve somewhere you were not looking.
-              if (sceneOn()) { gesture.seek = true; gesture.ph = Math.round(k.t); playheadTo(gesture.ph); }
-            } else if (inRuler) {
-              // The ruler overlays the top of the canvas, so it is checked AFTER the keys/handles
-              // that may sit under it -- the ruler is a scrub zone only where nothing is drawn.
-              gesture = { type: 'ruler' }; playheadTo(scrubTick(cc.clx));
-            } else if (nearPlayhead) {
-              // grab the red playhead LINE in the canvas to scrub (same as the ruler handle).
-              gesture = { type: 'ruler' }; playheadTo(scrubTick(cc.clx));
-            } else {
-              // Empty canvas is box-select. It used to be a create target ("click the strip to
-              // place the first key"), which scattered keys wherever the pointer happened to land
-              // and made key placement depend on finding empty space. Keys now come from the
-              // property row's diamond at the playhead; a drag out here only ever selects.
-              gesture = { type: 'rect', sx: cc.clx, sy: cc.cly, cx: cc.clx, cy: cc.cly };
-            }
-          }
-        } else if (inRuler) { gesture = { type: 'ruler' }; playheadTo(scrubTick(cc.clx)); }
-        else {
-          var scell = sceneCellHit(cc.lx, cc.ly);
-          if (scell) {
-            var sch = chById(scell.ch);
-            gesture = { type: 'snum', cell: scell, smx: st.mx, moved: false,
-                        sv: (sch && typeof sch.value === 'number') ? sch.value : 0 };
-            cmd('editbegin');
-          } else { var nf = numFieldHit(cc.lx, cc.ly); if (nf >= 0) { gesture = { type: 'num', ch: nf, smx: st.mx, sv: fieldValue(nf), moved: false }; cmd('editbegin'); } }
-        }
-)GEJS"
-R"GEJS(
-      } else if (lmb && prevLmb && gesture) {
-        if (gesture.type === 'ovL') { view.t0 = xToDom(cc.clx); normalizeView(); afterViewChange(); }
-        else if (gesture.type === 'ovR') { view.t1 = xToDom(cc.clx); normalizeView(); afterViewChange(); }
-        else if (gesture.type === 'ovMove') {
-          var ovdt = xToDom(cc.clx) - xToDom(gesture.startX);
-          view.t0 = gesture.startT0 + ovdt; view.t1 = gesture.startT1 + ovdt; normalizeView(); afterViewChange();
-        } else if (gesture.type === 'sbL') { view.t0 = xToDom(cc.clx); normalizeView(); afterViewChange(); }
-        else if (gesture.type === 'sbR') { view.t1 = xToDom(cc.clx); normalizeView(); afterViewChange(); }
-        else if (gesture.type === 'sbMove') {
-          var sbdt = xToDom(cc.clx) - xToDom(gesture.startX);
-          view.t0 = gesture.startT0 + sbdt; view.t1 = gesture.startT1 + sbdt; normalizeView(); afterViewChange();
-        } else if (gesture.type === 'handle') {
-          var chh = chById(gesture.ch); var kk = chh ? keyById(chh, gesture.id) : null; if (kk) {
-            var e = handleEndpoint(chh, kk, gesture.side);
-            var th = xToTick(cc.clx), vh = yToVal(cc.cly, chh);
-            var span = e.span > 1e-9 ? e.span : 1;
-            var tx = clamp01(gesture.side > 0 ? (th - kk.t) / span : (kk.t - th) / span);
-            var dv = vh - kk.v;
-            // Shift = STRAIGHTEN: lock the handle flat (level with the key, dv=0) so the curve runs
-            // straight through the keyframe; you still set the arm LENGTH (left/right), just not slope.
-            if (st.shift) dv = 0;
-            // Keep the handle OUTSIDE the diamond: enforce a minimum pixel distance from the key so
-            // the arm/dot can't get swallowed into the diamond and become ungrabbable.
-            var spanPx = span / (view.t1 - view.t0) * G.cw, dd = rngSpan(chh);
-            var hpx = tx * spanPx, vpx = dv / dd * chBand(chh).h, dist = Math.sqrt(hpx * hpx + vpx * vpx), MIN = KF_R + 8;
-            if (dist < MIN) {
-              if (dist < 1e-3) { tx = clamp01(MIN / (spanPx || 1)); dv = 0; }
-              else { var sc = MIN / dist; tx = clamp01(tx * sc); dv = dv * sc; }
-            }
-            // No vertical clamp: drag the handle as high/low as you want -- the auto-fit zooms the
-            // view out to follow it (and back in when it returns), so you are never walled in.
-            // reflect=0: left/right tangents are INDEPENDENT (dragging one never moves the other).
-            cmd('handle ' + gesture.ch + ' ' + gesture.id + ' ' + (gesture.side > 0 ? 'right' : 'left') + ' ' + tx.toFixed(3) + ' ' + dv.toFixed(3) + ' 0');
-          }
-        } else if (gesture.type === 'kf') {
-          // A CLICK IS NOT A DRAG. Until the pointer leaves a few pixels around the press, the key
-          // stays exactly where it is: no snap (the lead-key snap would otherwise move an off-grid
-          // key the moment it is clicked) and no movesel, because every movesel bakes the graph
-          // into the camera path.
-          if (!gesture.dragging) {
-            var pdx = cc.lx - gesture.sx, pdy = cc.ly - gesture.sy;
-            if (pdx * pdx + pdy * pdy < KF_DRAG_PX * KF_DRAG_PX) { prevLmb = lmb; return; }
-            gesture.dragging = true;
-          }
-          var ach = chById(gesture.ach) || model[0];
-          var dt = tickDelta(cc.lx - gesture.sx), dv2 = valDelta(cc.ly - gesture.sy, ach);
-          // Shift = lock to the horizontal axis (timing only): freeze the value delta where it was
-          // when Shift went down; rebaseline on release so it resumes without a jump.
-          if (st.shift) {
-            if (!gesture.shiftLock) { gesture.shiftLock = true; gesture.lockDv = gesture.ldv; }
-            dv2 = gesture.lockDv;
-          } else if (gesture.shiftLock) {
-            gesture.shiftLock = false;
-            var dd3 = rngSpan(ach); gesture.sy = cc.ly + gesture.lockDv * chBand(ach).h / dd3; dv2 = gesture.lockDv;
-          }
-          // Snap the LEAD key to the grid; every other selected key moves by the same delta. With
-          // snapping off, scene stays on whole ticks and the camera stays continuous.
-          if (gesture.leadT0 != null && snapStep() > 0) dt = snapTick(gesture.leadT0 + dt) - gesture.leadT0;
-          else if (sceneOn()) dt = Math.round(dt);
-          // Scene keys move by the TOTAL offset since the press (SceneKeyframeTrack::MoveSelected
-          // measures from the edit's start), so a step refused at a collision or clamped at a
-          // bound is not lost and the key stays under the pointer. Camera keys take per-frame steps.
-          if (sceneOn()) {
-            if (dt !== gesture.ldt || dv2 !== gesture.ldv) cmd('movesel ' + dt.toFixed(3) + ' ' + dv2.toFixed(3));
-            // The playhead rides the KEY (as the model has it), not the pointer: a move refused at
-            // another key leaves the key, and so the playhead, where the property really changes.
-            var lead = keyById(chById(gesture.ach) || { keys: [] }, gesture.kid);
-            var ph = Math.max(0, Math.round(lead ? lead.t : gesture.leadT0 + dt));
-            if (gesture.seek && ph !== gesture.ph) { gesture.ph = ph; playheadTo(ph); }
-          } else if (dt !== gesture.ldt || dv2 !== gesture.ldv) cmd('movesel ' + (dt - gesture.ldt).toFixed(3) + ' ' + (dv2 - gesture.ldv).toFixed(3));
-          gesture.ldt = dt; gesture.ldv = dv2;
-        } else if (gesture.type === 'rect') { gesture.cx = cc.clx; gesture.cy = cc.cly; updateRect(gesture); }
-        else if (gesture.type === 'ruler') { playheadTo(scrubTick(cc.clx)); }
-        else if (gesture.type === 'num') {
-          var dpx = st.mx - gesture.smx; if (Math.abs(dpx) > 5) gesture.moved = true;
-          if (gesture.moved) { var nv = gesture.sv + dpx * fieldSens(gesture.ch); cmd('addkey ' + gesture.ch + ' ' + snapTick(st.playhead).toFixed(2) + ' ' + nv.toFixed(3)); }
-        } else if (gesture.type === 'snum') {
-          var sdpx = st.mx - gesture.smx; if (Math.abs(sdpx) > 4) gesture.moved = true;
-          if (gesture.moved) {
-            var sch2 = chById(gesture.cell.ch);
-            // Shift = fine, a fifth of the gain, same as every other scrubby control in this UI.
-            var sens = ((sch2 ? sch2.max - sch2.min : 1) / 320) * (st.shift ? 0.2 : 1);
-            var sv2 = gesture.sv + sdpx * sens;
-            if (sch2) sv2 = Math.max(sch2.min, Math.min(sch2.max, sv2));
-            rawCmd('mirv_filmmaker scenekeys set ' + gesture.cell.fieldId + ' ' + sv2.toFixed(3));
-          }
-        }
-      } else if (!lmb && prevLmb && gesture) {
-        if (gesture.type === 'rect') {
-          var sel = keysInRect(gesture); if (sel.length) cmd('selset ' + sel.join(' ')); else cmd('selclear');
-          rectVis.visible = false;
-        } else if (gesture.type === 'ruler') {
-          releasePlayhead(snapTick(xToTick(curCursor().clx)));
-        } else if (gesture.type === 'kf' && gesture.seek) {
-          // Land on the key where it ended up. A refused move leaves it short of the pointer, so
-          // its own tick wins: the last move went out on an earlier frame, and this frame's model
-          // already carries the result.
-          var lk = keyById(chById(gesture.ach) || { keys: [] }, gesture.kid);
-          releasePlayhead(lk ? lk.t : gesture.ph);
-        } else if (gesture.type === 'num') { if (!gesture.moved) openType(gesture.ch); }
-        else if (gesture.type === 'snum') { if (!gesture.moved) openSceneType(gesture.cell); }
-        if (sceneOn()) cmd('editend');
-        gesture = null;
-        lastSig = ''; // refit the scene ranges that were frozen for the gesture
-      }
-      prevLmb = lmb;
+      if (Math.abs(cc.tx - tickToX(st.playhead)) <= 4) { gesture = { type: 'ruler', lastTx: cc.tx }; return; }
+      if (r) selectNode(r.node.id);
+      gesture = { type: 'rect', sx: cc.tx, sy: cc.gy, cx: cc.tx, cy: cc.gy, graph: false };
     }
-    var selCache = {};
-    function isSelectedId(c, id) { return !!selCache[c + ':' + id]; }
+    function pressKeyEntry(cc, node, members, t) {
+      selectNode(node.id);
+      var already = members.every(function (m) { return isSelectedId(m.uid, m.id); });
+      if (!already) selectMembers(members, !!st.shift);
+      var doms = already ? selectedDoms() : [];
+      members.forEach(function (m) { var d = domOf(m.uid); if (doms.indexOf(d) < 0) doms.push(d); });
+      startKeyDrag(cc, doms, t, domOf(members[0].uid) === 'scene', members[0]);
+      // Pressing a key that is already part of a selection keeps the whole selection for a drag;
+      // a plain click (no drag, no Shift) narrows it to this key on release, as in AE.
+      if (already && !st.shift) gesture.narrow = members;
+    }
+    // The edit (one undo step per domain) opens when the drag really starts, not on the press:
+    // a click that only selects must not leave an empty step in the history.
+    function startKeyDrag(cc, doms, t, seek, lead) {
+      gesture ={ type: 'kf', sx: cc.lx, sy: cc.ly, ldt: 0, ldv: 0, doms: doms, leadT0: t, lead: lead || null, graph: viewMode === 'graph' };
+      // SCENE KEYS: clicking a key goes to it, and a dragged key carries the playhead with it -- the
+      // world is what a scene key changes, so the only way to judge one is to stand on it.
+      if (seek) { gesture.seek = true; gesture.ph = Math.round(t); playheadTo(gesture.ph); }
+    }
+    function pressGraph(cc) {
+      var h = hitGraphHandle(cc.tx, cc.gy);
+      if (h) { edit(domOf(h.uid)); domCmd(domOf(h.uid), 'editbegin'); gesture = { type: 'handle', uid: h.uid, id: h.id, side: h.side }; return; }
+      var k = hitGraphKey(cc.tx, cc.gy);
+      if (k) { pressKeyEntry(cc, nodeById(selNode) || tree[0], [{ uid: k.uid, id: k.id, k: k.k }], k.t); return; }
+      if (Math.abs(cc.tx - tickToX(st.playhead)) <= 4) { gesture = { type: 'ruler', lastTx: cc.tx }; return; }
+      gesture = { type: 'rect', sx: cc.tx, sy: cc.gy, cx: cc.tx, cy: cc.gy, graph: true };
+    }
     function updateRect(g) {
       var x0 = Math.min(g.sx, g.cx), x1 = Math.max(g.sx, g.cx), y0 = Math.min(g.sy, g.cy), y1 = Math.max(g.sy, g.cy);
       rectVis.visible = true; rectVis.style.position = x0.toFixed(0) + 'px ' + y0.toFixed(0) + 'px 0px';
       rectVis.style.width = (x1 - x0).toFixed(0) + 'px'; rectVis.style.height = (y1 - y0).toFixed(0) + 'px';
     }
+    function rightClick(cc) {
+      hideSnapMenu();
+      if (cc.ly >= ROWS_Y && cc.ly < ROWS_Y + ROWS_H && cc.lx >= 0 && cc.lx < LEFTW + G.tw) {
+        if (cc.lx >= LEFTW && viewMode === 'graph') {
+          var gk = hitGraphKey(cc.tx, cc.gy);
+          if (gk) {
+            if (!isSelectedId(gk.uid, gk.id)) selectMembers([{ uid: gk.uid, id: gk.id }], false);
+            var gn = nodeOfChan(gk.uid);
+            showKeyMenu(cc.lx, cc.ly, gn, { t: gk.t, members: [{ uid: gk.uid, id: gk.id, k: gk.k }] });
+          } else closeMenu();
+          return;
+        }
+        var r = rowAt(cc.ly); if (!r || r.broken) { closeMenu(); return; }
+        if (r.node.kind === 'shake' || r.node.kind === 'shakep') {
+          // On a mark: that key's shake. Anywhere else on the row: the camera key under the
+          // playhead, else the one whose shake runs here.
+          var se = cc.lx >= LEFTW ? hitTrackKey(r, cc.tx) : null;
+          var sidx = se ? se.shake.i : (pathIndexAt(st.playhead) >= 0 ? pathIndexAt(st.playhead) : shakeKeyAt(st.playhead));
+          selectNode(r.node.id);
+          if (sidx >= 0) showShakeMenu(cc.lx, cc.ly, sidx);
+          else showMenu(cc.lx, cc.ly, 236, [{ kind: 'title', label: 'CAMERA SHAKE' },
+            { id: 'none', label: 'Add a camera key first', hint: 'a shake runs from a camera key', disabled: true }], function () {});
+          return;
+        }
+        if (cc.lx >= LEFTW && r.node.kind === 'prop' && !isSplit(r.node)) {
+          var e = hitTrackKey(r, cc.tx);
+          if (e) {
+            selectNode(r.node.id);
+            if (!e.members.every(function (m) { return isSelectedId(m.uid, m.id); })) selectMembers(e.members, false);
+            showKeyMenu(cc.lx, cc.ly, r.node, e); return;
+          }
+        }
+        selectNode(r.node.id);
+        showRowMenu(cc.lx, cc.ly, r);
+        return;
+      }
+      closeMenu();
+    }
+    function nodeOfChan(uid) {
+      var out = null;
+      tree.forEach(function (L) { propsOf(L).forEach(function (p) { if (!out && p.chans.length === 1 && p.chans[0] === uid) out = p; }); });
+      if (!out) tree.forEach(function (L) { propsOf(L).forEach(function (p) { if (!out && p.chans.indexOf(uid) >= 0) out = p; }); });
+      return out || tree[0];
+    }
 )GEJS"
 R"GEJS(
-    // ---- drawing --------------------------------------------------------
-    function drawGrid() {
-      gridLayer.RemoveAndDeleteChildren();
-      var ach = chById(activeCh) || model[0];
-      // vertical time lines + labels
-      var span = view.t1 - view.t0;
-      rulerLayer.RemoveAndDeleteChildren();
-      var pxPerTick = G.cw / Math.max(1e-9, span);
-      var snap = snapStep();
-      var labelStep = niceStep(span / 8);
-      // Minor lines AT THE SNAP STEP, so the grid shows exactly where a key will stick. Skipped
-      // when they would be denser than a few px (or more than ~140 of them); the labelled majors
-      // are then the only lines.
-      if (snap > 0 && snap * pxPerTick >= 4 && span / snap <= 140) {
-        var m0 = Math.ceil(view.t0 / snap) * snap;
-        for (var tm = m0; tm <= view.t1; tm += snap) {
-          var xm = tickToX(tm); if (xm < 0 || xm > G.cw) continue;
-          lineSeg(gridLayer, xm, 0, xm, G.ch, S.grid, 1);
-        }
-      }
-      // Labelled majors: multiples of the snap step when snapping, otherwise the automatic step.
-      var major = snap > 0 ? snap * Math.max(1, Math.round(labelStep / snap)) : labelStep;
-      var b0 = Math.ceil(view.t0 / major) * major;
-      for (var t = b0; t <= view.t1; t += major) {
-        var x = tickToX(t); if (x < 0 || x > G.cw) continue;
-        lineSeg(gridLayer, x, 0, x, G.ch, S.gridMid, 1);
-        var tl = lbl(rulerLayer, '' + Math.round(t), S.hint, 10);
-        tl.style.position = (x + 2).toFixed(0) + 'px 6px 0px';
-      }
-      // Horizontal value lines: ONE shared axis, labelling the ACTIVE property's range across the
-      // whole canvas. This is the same in both modes now -- scene curves overlay each other and
-      // each is scaled to its own range, exactly like the camera channels.
-      if (ach) {
-        // Decimals follow the span on screen: a fitted fog density reads 0.140, a cloud base 1850.
-        var axSpan = Math.abs(rngSpan(ach));
-        var axDec = axSpan >= 100 ? 0 : axSpan >= 10 ? 1 : axSpan >= 1 ? 2 : axSpan >= 0.05 ? 3 : 4;
-        for (var gi = 0; gi <= 4; gi++) {
-        var y = gi / 4 * G.ch; lineSeg(gridLayer, 0, y, G.cw, y, gi === 2 ? S.gridMid : S.grid, 1);
-          // CENTRED ON ITS OWN LINE, in a fixed right-aligned gutter. Positioning a Label by its
-          // TOP left every number sitting a half-line below the rule it belongs to; a sized box
-          // with the label aligned inside it is what keeps the numbers on their rules.
-          var box = mk('Panel', gridLayer); box.hittest = false;
-          box.style.position = '0px ' + (y - AXIS_HALF).toFixed(0) + 'px 0px';
-          box.style.width = AXIS_W + 'px'; box.style.height = (AXIS_HALF * 2) + 'px';
-          var v = yToVal(y, ach), svl = lbl(box, v.toFixed(axDec), S.hint, 9);
-          svl.hittest = false; svl.style.horizontalAlign = 'right'; svl.style.verticalAlign = 'center';
-          svl.style.whiteSpace = 'nowrap'; svl.style.marginRight = '5px';
-        }
-      }
-    }
-    function niceStep(raw) { var p = Math.pow(10, Math.floor(Math.log(Math.max(1, raw)) / Math.LN10)); var n = raw / p; var m = n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10; return Math.max(1, m * p); }
+    function processInput() {
+      var lmb = !!st.lmb, rmb = !!st.rmb, cc = curCursor();
+      var inDock = cc.lx >= 0 && cc.lx <= G.rw && cc.ly >= 0 && cc.ly <= DOCK_H;
+      var overOverview = inTrackX(cc.tx) && cc.ly >= HEADER_H && cc.ly < HEADER_H + OVERVIEW_H;
+      var overRuler = inTrackX(cc.tx) && cc.ly >= HEADER_H + OVERVIEW_H && cc.ly < ROWS_Y;
+      var overRows = cc.ly >= ROWS_Y && cc.ly < ROWS_Y + ROWS_H;
+      var overTrack = overRows && inTrackX(cc.tx);
+      var ovEdge = 0;
+      if (overOverview) { var vr0 = ovViewRect(); if (Math.abs(cc.tx - vr0.x0) <= 6) ovEdge = -1; else if (Math.abs(cc.tx - vr0.x1) <= 6) ovEdge = 1; }
+      setOvVisual(overOverview && !ovEdge, ovEdge);
+      if (menu) menuHover(cc.lx, cc.ly);
+      if (rmb && !prevRmb && inDock && !cfgColorOwner) rightClick(cc);
+      prevRmb = rmb;
 
-    function drawCurves() {
-      curveLayer.RemoveAndDeleteChildren();
-      for (var i = 0; i < model.length; i++) {
-        var ch = model[i]; if (!ch.vis || ch.keys.length === 0 || !sceneStripped(ch)) continue;
-        var col = ch.edit ? ch.color : (ch.color + '66');
-        var k = ch.keys;
-        // Flat extrapolation before the first / after the last key, in every mode now that a curve
-        // is scaled to the whole canvas rather than confined to its own band.
-        var fy = valToY(k[0].v, ch); lineSeg(curveLayer, 0, fy, tickToX(k[0].t), fy, ch.color + '55', 1);
-        var ly = valToY(k[k.length - 1].v, ch); lineSeg(curveLayer, tickToX(k[k.length - 1].t), ly, G.cw, ly, ch.color + '55', 1);
-        for (var j = 0; j + 1 < k.length; j++) {
-          var a = k[j], b = k[j + 1];
-          if (stepped(ch)) {
-            lineSeg(curveLayer, tickToX(a.t), valToY(a.v, ch), tickToX(b.t), valToY(a.v, ch), col, 2);
-            lineSeg(curveLayer, tickToX(b.t), valToY(a.v, ch), tickToX(b.t), valToY(b.v, ch), col, 2);
-          } else if (sceneOn() && scrubbable(ch)) {
-            // Draw what the property is set to, not the raw Bezier: clamped, and wrapped for angles.
-            var pts = scenePolyline(ch, a, b);
-            for (var q = 1; q < pts.length; q++) {
-              if (pts[q].brk) continue;
-              lineSeg(curveLayer, tickToX(pts[q - 1].t), valToY(pts[q - 1].v, ch), tickToX(pts[q].t), valToY(pts[q].v, ch), col, 2);
-            }
-          } else if (segActive(a, b)) {
-            var P = segPts(a, b); var steps = 14; var px = -1, py = -1;
-            for (var s = 0; s <= steps; s++) {
-              var u = s / steps; var xv = bez(P.p0x, P.p1x, P.p2x, P.p3x, u), yv = bez(P.p0y, P.p1y, P.p2y, P.p3y, u);
-              var X = tickToX(xv), Y = valToY(yv, ch);
-              if (px >= 0) lineSeg(curveLayer, px, py, X, Y, col, 2);
-              px = X; py = Y;
-            }
-          } else { lineSeg(curveLayer, tickToX(a.t), valToY(a.v, ch), tickToX(b.t), valToY(b.v, ch), col, 2); }
+      if (lmb && !prevLmb) {
+        // The colour picker owns the pointer while open; a press outside the tray closes it.
+        if (cfgColorOwner) {
+          if (!overPanel(pickTray, cc.lx, cc.ly) && !overPanel(pickAnchor, cc.lx, cc.ly)) closePickTray();
+          prevLmb = lmb; return;
         }
-      }
-    }
-    function drawKeyframes() {
-      kfLayer.RemoveAndDeleteChildren();
-      for (var i = 0; i < model.length; i++) {
-        var ch = model[i]; if (!ch.vis || !sceneStripped(ch)) continue;
-        for (var j = 0; j < ch.keys.length; j++) {
-          var k = ch.keys[j]; var x = tickToX(k.t), y = valToY(k.v, ch);
-          if (x < -10 || x > G.cw + 10 || y < -10 || y > G.ch + 10) continue;
-          dot(kfLayer, x, y, k.sel ? 12 : 9, k.swatch || (k.sel ? S.sel : ch.color), true);
+        if (snapMenuOpen()) {
+          if (!(snapRect && cc.lx >= snapRect.x0 && cc.lx <= snapRect.x1 && cc.ly >= snapRect.y0 && cc.ly <= snapRect.y1)) hideSnapMenu();
+          prevLmb = lmb; return;
         }
-      }
-    }
-    function drawHandles() {
-      handleLayer.RemoveAndDeleteChildren();
-      for (var i = 0; i < model.length; i++) {
-        var ch = model[i]; if (!ch.vis || stepped(ch) || !sceneStripped(ch)) continue;
-        for (var j = 0; j < ch.keys.length; j++) {
-          var k = ch.keys[j]; if (!k.sel) continue;
-          var kx = tickToX(k.t), ky = valToY(k.v, ch);
-          [-1, 1].forEach(function (side) {
-            var e = handleEndpoint(ch, k, side); var hx = tickToX(e.t), hy = valToY(e.v, ch);
-            lineSeg(handleLayer, kx, ky, hx, hy, S.handle, 1);
-            dot(handleLayer, hx, hy, 7, S.handle, false);
-          });
+        if (menu) { menuClick(cc.lx, cc.ly); prevLmb = lmb; return; }
+        if (editState) { if (editHit(cc.lx, cc.ly)) { prevLmb = lmb; return; } commitEdit(); }
+        if (!inDock) { prevLmb = lmb; return; }
+        if (overOverview) {
+          var vr = ovViewRect(), span = view.t1 - view.t0;
+          if (Math.abs(cc.tx - vr.x0) <= 6) gesture = { type: 'ovL' };
+          else if (Math.abs(cc.tx - vr.x1) <= 6) gesture = { type: 'ovR' };
+          else if (cc.tx > vr.x0 && cc.tx < vr.x1) gesture = { type: 'ovMove', sx: cc.tx, t0: view.t0, t1: view.t1 };
+          else {
+            var ct = xToDom(cc.tx);
+            view.t0 = ct - span / 2; view.t1 = view.t0 + span; normalizeView(); afterViewChange();
+            gesture = { type: 'ovMove', sx: cc.tx, t0: view.t0, t1: view.t1 };
+          }
+        } else if (overRuler) pressRuler(cc);
+        else if (overPanel(sbTrack, cc.lx, cc.ly)) {
+          var sr = panelRect(sbTrack), d = domainRange(), w = view.t1 - view.t0;
+          if (!(cc.lx >= sbThumbX0 && cc.lx <= sbThumbX0 + sbThumbW)) {
+            var c2 = d.t0 + (cc.lx - sr.x0) / Math.max(1, sr.x1 - sr.x0) * (d.t1 - d.t0);
+            view.t0 = c2 - w / 2; view.t1 = view.t0 + w; normalizeView(); afterViewChange();
+          }
+          gesture = { type: 'sb', sx: cc.lx, t0: view.t0, t1: view.t1, scale: (d.t1 - d.t0) / Math.max(1, sr.x1 - sr.x0) };
+        } else if (overRows && cc.lx >= LEFTW + G.tw && rowsContentH > ROWS_H) {
+          gesture = { type: 'rsb', sy: cc.ly, s0: rowScroll };
+        } else if (overTrack) {
+          if (viewMode === 'graph') pressGraph(cc); else pressTrackKeys(cc);
+        } else if (overRows && cc.lx < LEFTW) {
+          var vh = valueHit(cc.lx, cc.ly);
+          if (vh && vh.row.node.kind === 'shakep') {
+            var sp0 = shakeValueAt(vh.row.node.param, st.playhead), sk0 = shakeEditKey();
+            selectNode(vh.row.node.id);
+            if (sp0 != null && sk0 >= 0) gesture = { type: 'shakeNum', row: vh.row, comp: vh.comp, smx: st.mx, moved: false, idx: sk0,
+                                 sv: sp0, last: Math.round(sp0) };
+          } else if (vh) {
+            var vc = chU(vh.comp.uid), scrub = vc && (vh.row.node.dom === 'cam' || vc.type === 'float' || vc.type === 'angle');
+            selectNode(vh.row.node.id);
+            gesture = { type: 'num', row: vh.row, comp: vh.comp, smx: st.mx, moved: false, scrub: !!scrub,
+                        sv: vc ? (vh.row.node.dom === 'cam' ? camValue(vc) : num(vc.value)) : 0 };
+          }
         }
+      } else if (lmb && prevLmb && gesture) {
+        dragGesture(cc);
+      } else if (!lmb && prevLmb && gesture) {
+        releaseGesture(cc);
       }
+      prevLmb = lmb;
     }
 )GEJS"
 R"GEJS(
-    // The navigator's keyframe marks: one tick of light per key across the WHOLE demo, drawn from
-    // every visible channel. Rebuilt with the curves (not per frame) -- it only changes when the
-    // model, visibility or the domain changes.
+    function dragGesture(cc) {
+      var g = gesture;
+      if (g.type === 'ovL') { view.t0 = xToDom(cc.tx); normalizeView(); afterViewChange(); }
+      else if (g.type === 'ovR') { view.t1 = xToDom(cc.tx); normalizeView(); afterViewChange(); }
+      else if (g.type === 'ovMove') {
+        var dt0 = xToDom(cc.tx) - xToDom(g.sx);
+        view.t0 = g.t0 + dt0; view.t1 = g.t1 + dt0; normalizeView(); afterViewChange();
+      } else if (g.type === 'sb') {
+        var ds = (cc.lx - g.sx) * g.scale;
+        view.t0 = g.t0 + ds; view.t1 = g.t1 + ds; normalizeView(); afterViewChange();
+      } else if (g.type === 'rsb') {
+        var ratio = rowsContentH / ROWS_H;
+        rowScroll = g.s0 + (cc.ly - g.sy) * ratio; clampRowScroll();
+      } else if (g.type === 'ruler') {
+        // No auto-scroll inside the track. Only past its edge does the view creep, faster the further
+        // out (capped), with the playhead pinned to the edge.
+        var over = cc.tx > PAD + G.cw ? cc.tx - (PAD + G.cw) : (cc.tx < PAD ? cc.tx - PAD : 0);
+        if (over) {
+          var w = view.t1 - view.t0, step = (over > 0 ? 1 : -1) * w * Math.min(0.012, Math.abs(over) * 0.00012) * 0.6;
+          view.t0 += step; view.t1 += step; normalizeView(); afterViewChange(true);
+          playheadTo(snapTick(over > 0 ? view.t1 : view.t0));
+        } else playheadTo(scrubTick(cc.tx));
+      } else if (g.type === 'rangeL' || g.type === 'rangeR' || g.type === 'rangeMove') {
+        var d = domainRange(), t = Math.round(xToTick(cc.tx));
+        if (g.type === 'rangeL') g.r0 = Math.max(d.t0, Math.min(g.r1 - 32, t));
+        else if (g.type === 'rangeR') g.r1 = Math.min(d.t1, Math.max(g.r0 + 32, t));
+        else {
+          var dt = Math.round(xToTick(cc.tx) - xToTick(g.sx)), len = g.b0 - g.a0;
+          g.r0 = Math.max(d.t0, Math.min(d.t1 - len, g.a0 + dt)); g.r1 = g.r0 + len;
+        }
+        navSig = '';
+      } else if (g.type === 'rect') {
+        g.cx = cc.tx; g.cy = cc.gy; updateRect(g);
+      } else if (g.type === 'handle') {
+        var c = chU(g.uid), k = c ? keyById(c, g.id) : null;
+        if (k) {
+          var e = handleEndpoint(c, k, g.side), th = xToTick(cc.tx), vh = yToVal(cc.gy, c);
+          var span = e.span > 1e-9 ? e.span : 1;
+          var tx = clamp01(g.side > 0 ? (th - k.t) / span : (k.t - th) / span), dv = vh - k.v;
+          // Shift = STRAIGHTEN: the handle stays level with its key.
+          if (st.shift) dv = 0;
+          // Keep the handle OUTSIDE the key glyph, or it is swallowed and cannot be grabbed again.
+          var spanPx = span / (view.t1 - view.t0) * G.cw, hpx = tx * spanPx, vpx = dv / rngSpan(c) * band().h;
+          var dist = Math.sqrt(hpx * hpx + vpx * vpx), MIN = KF_HIT + 8;
+          if (dist < MIN) {
+            if (dist < 1e-3) { tx = clamp01(MIN / (spanPx || 1)); dv = 0; }
+            else { var sc = MIN / dist; tx = clamp01(tx * sc); dv = dv * sc; }
+          }
+          var side = g.side > 0 ? 'right' : 'left';
+          if (domOf(g.uid) === 'cam') camCmd('handle ' + chNum(g.uid) + ' ' + g.id + ' ' + side + ' ' + tx.toFixed(3) + ' ' + dv.toFixed(3) + ' 0');
+          else sceneCmd('handle ' + chNum(g.uid) + ' ' + g.id + ' ' + side + ' ' + tx.toFixed(3) + ' ' + dv.toFixed(3));
+        }
+      } else if (g.type === 'kf') dragKeys(cc);
+      else if (g.type === 'shakeNum') {
+        var sdx = st.mx - g.smx, pn = g.row.node;
+        if (!g.moved && Math.abs(sdx) > 4) g.moved = true;
+        if (g.moved) {
+          var snv = Math.round(Math.max(pn.min, Math.min(pn.max, g.sv + sdx * (pn.max - pn.min) / 200 * (st.shift ? 0.2 : 1))));
+          if (snv !== g.last) { g.last = snv; shakeParamSet(pn, g.idx, snv); }
+        }
+      }
+      else if (g.type === 'num') {
+        var dpx = st.mx - g.smx;
+        if (!g.moved && Math.abs(dpx) > 4) {
+          g.moved = true;
+          // One undo step for the whole scrub, opened when it really starts.
+          if (g.scrub && g.row.node.dom === 'cam') { edit('cam'); camCmd('editbegin'); }
+        }
+        if (g.moved && g.scrub) {
+          var c3 = chU(g.comp.uid); if (!c3) return;
+          var sens = ((c3.max - c3.min) / (g.row.node.dom === 'cam' ? 300 : 320)) * (st.shift ? 0.2 : 1);
+          var nv = g.sv + dpx * sens;
+          if (g.row.node.dom === 'scene') nv = Math.max(c3.min, Math.min(c3.max, nv));
+          setPropValue(g.row.node, g.comp.uid, nv, true);
+        }
+      }
+    }
+    // A key drag. A CLICK IS NOT A DRAG: until the pointer leaves a few px around the press nothing
+    // moves (every camera move bakes the path). Then the LEAD key snaps to the grid and the rest of
+    // the selection moves by the same delta; GRAPH also moves values. Camera keys take per-frame
+    // steps; scene keys take the TOTAL offset since the press (SceneKeyframeTrack measures from the
+    // edit's start), so a step refused at a collision is not lost.
+    function dragKeys(cc) {
+      var g = gesture;
+      if (!g.dragging) {
+        var pdx = cc.lx - g.sx, pdy = cc.ly - g.sy;
+        if (pdx * pdx + pdy * pdy < KF_DRAG_PX * KF_DRAG_PX) return;
+        g.dragging = true;
+        g.doms.forEach(function (d) { edit(d); domCmd(d, 'editbegin'); });
+      }
+      var dt = tickDelta(cc.lx - g.sx), dv = 0;
+      var lc = g.graph && g.lead ? chU(g.lead.uid) : null;
+      if (lc) {
+        dv = valDelta(cc.ly - g.sy, lc);
+        // Shift = timing only: freeze the value delta where it was.
+        if (st.shift) { if (!g.shiftLock) { g.shiftLock = true; g.lockDv = g.ldv; } dv = g.lockDv; }
+        else if (g.shiftLock) { g.shiftLock = false; g.sy = cc.ly + g.lockDv * band().h / rngSpan(lc); dv = g.lockDv; }
+      }
+      if (g.leadT0 != null && snapStep() > 0) dt = snapTick(g.leadT0 + dt) - g.leadT0;
+      if (g.doms.indexOf('scene') >= 0) dt = Math.round(dt);
+      if (dt === g.ldt && dv === g.ldv) return;
+      g.doms.forEach(function (d) {
+        var dvd = (lc && domOf(g.lead.uid) === d) ? dv : 0, ldvd = (lc && domOf(g.lead.uid) === d) ? g.ldv : 0;
+        if (d === 'scene') sceneCmd('movesel ' + dt.toFixed(3) + ' ' + dvd.toFixed(3));
+        else camCmd('movesel ' + (dt - g.ldt).toFixed(3) + ' ' + (dvd - ldvd).toFixed(3));
+      });
+      g.ldt = dt; g.ldv = dv;
+      if (g.seek && g.lead) {
+        var lk = keyById(chU(g.lead.uid) || { keys: [] }, g.lead.id);
+        var ph = Math.max(0, Math.round(lk ? lk.t : g.leadT0 + dt));
+        if (ph !== g.ph) { g.ph = ph; playheadTo(ph); }
+      }
+    }
+    function releaseGesture(cc) {
+      var g = gesture;
+      if (g.type === 'rect') {
+        rectVis.visible = false;
+        var picked = g.graph ? graphMembersInRect(g) : membersInRect(g);
+        if (Math.abs(g.cx - g.sx) < 3 && Math.abs(g.cy - g.sy) < 3) { if (!st.shift) clearSelection(); }
+        else if (picked.length) selectMembers(picked, !!st.shift);
+        else if (!st.shift) clearSelection();
+      } else if (g.type === 'ruler') {
+        var tx = Math.max(PAD, Math.min(PAD + G.cw, cc.tx));
+        releasePlayhead(snapTick(xToTick(tx)));
+      } else if (g.type === 'rangeL' || g.type === 'rangeR' || g.type === 'rangeMove') {
+        rawCmd('mirv_filmmaker render range custom ' + Math.round(g.r0) + ' ' + Math.round(g.r1));
+      } else if (g.type === 'kf') {
+        if (g.seek) {
+          var lk = g.lead ? keyById(chU(g.lead.uid) || { keys: [] }, g.lead.id) : null;
+          releasePlayhead(lk ? lk.t : g.ph);
+        }
+        if (g.dragging && g.doms.indexOf('scene') >= 0) sceneCmd('editend');
+        if (!g.dragging && g.narrow) selectMembers(g.narrow, false);
+      } else if (g.type === 'handle') {
+        if (domOf(g.uid) === 'scene') sceneCmd('editend');
+      } else if (g.type === 'shakeNum') {
+        if (!g.moved) beginCellEdit(g.row, g.comp, String(Math.round(g.sv)));
+      } else if (g.type === 'num') {
+        if (!g.moved) {
+          if (g.row.node.dom === 'scene' && !g.scrub) { var c = chU(g.comp.uid); if (c && c.type !== 'colour') openType(g.row, g.comp); }
+          else openType(g.row, g.comp);
+        }
+      }
+      gesture = null;
+      graphSig = ''; trackSig = '';
+    }
+    function clampRowScroll() {
+      var max = Math.max(0, rowsContentH - ROWS_H);
+      if (rowScroll > max) rowScroll = max; if (rowScroll < 0) rowScroll = 0;
+    }
+)GEJS"
+R"GEJS(
+    // ---- per-frame layout of the ruler, overview, footer and playhead -------------
+    // Ruler ticks adapt to the span: label steps from 1/16 s up to 20 min, roughly 70 px apart.
+    var SECOND_STEPS = [0.0625, 0.125, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200];
+    function rulerSteps() {
+      var r = tps(), pxPerSec = G.cw / Math.max(1e-9, (view.t1 - view.t0) / r), major = SECOND_STEPS[SECOND_STEPS.length - 1];
+      for (var i = 0; i < SECOND_STEPS.length; i++) if (SECOND_STEPS[i] * pxPerSec >= 70) { major = SECOND_STEPS[i]; break; }
+      var minor = major >= 10 ? major / 5 : (major >= 1 ? major / (major === 2 ? 2 : 5) : major / 2);
+      return { major: major * r, minor: Math.max(1, minor * r) };
+    }
+    function drawRuler() {
+      rulerLayer.RemoveAndDeleteChildren();
+      var s = rulerSteps();
+      for (var t = Math.ceil(view.t0 / s.minor) * s.minor; t <= view.t1; t += s.minor) {
+        var x = tickToX(t); if (x < 0 || x > G.tw) continue;
+        var major = Math.abs(t / s.major - Math.round(t / s.major)) < 1e-6;
+        box(rulerLayer, x, RULER_H - (major ? 10 : 5), 1, major ? 10 : 5, major ? '#ffffff55' : '#ffffff26');
+        if (major) {
+          var l = lbl(rulerLayer, fmtTimeShort(t), S.hint, 11); l.hittest = false;
+          l.style.fontFamily = S.fontMonodigit; l.style.position = (x + 4).toFixed(0) + 'px 9px 0px';
+        }
+      }
+    }
     function drawOverviewKeys() {
       ovKeyLayer.RemoveAndDeleteChildren();
-      for (var i = 0; i < model.length; i++) {
-        var ch = model[i]; if (!ch.vis) continue;
-        for (var j = 0; j < ch.keys.length; j++) {
-          var k = ch.keys[j]; var x = domToX(k.t);
-          if (x < 0 || x > G.cw) continue;
-          var m = mk('Panel', ovKeyLayer); m.hittest = false;
-          m.style.position = x.toFixed(1) + 'px 0px 0px';
-          m.style.width = '1px'; m.style.height = '42%'; m.style.verticalAlign = 'center';
-          m.style.backgroundColor = k.sel ? S.sel : S.ovKey;
-        }
+      var e = unionKeys(camCh.map(function (c) { return c.uid; }).concat(scCh.map(function (c) { return c.uid; })));
+      for (var i = 0; i < e.length; i++) {
+        var x = domToX(e[i].t); if (x < 0 || x > G.tw) continue;
+        box(ovKeyLayer, x, 5, 1, 4, e[i].sel ? S.sel : S.ovKey);
       }
     }
-
-    function updateChannelRows() {
-      for (var c = 0; c < rows.length; c++) {
-        var ch = chById(c); var r = rows[c]; if (!ch) continue;
-        r.sw.style.backgroundColor = ch.color;
-        r.nm.text = ch.name; r.nm.style.color = ch.solo ? S.accent : (ch.edit ? S.value : S.inactive);
-        var v = sampleChan(ch, st.playhead);
-        r.val.text = (v == null) ? '-' : v.toFixed(2);
-        r.val.style.color = ch.edit ? S.accent : S.inactive;
-        r.eye.style.backgroundColor = ch.vis ? S.btnOn : S.btnBg;
-        r.eyeL.style.color = ch.vis ? S.accent : S.inactive;
-        r.hot.style.backgroundColor = (c === activeCh) ? S.rowOn : 'rgba(0,0,0,0)';
-        // The diamond's whole job is to say "the playhead is on a key" -- filled when it is, so it
-        // doubles as the remove button without a separate delete control on the row.
-        var at = keyAtTick(ch, st.playhead);
-        r.dia.__lbl.text = at ? '◆' : '◇';
-        r.dia.__lbl.style.color = at ? S.accent : S.inactive;
-        var dim = ch.keys.length ? S.inactive : S.dim;
-        r.prev.__lbl.style.color = dim; r.next.__lbl.style.color = dim;
-      }
-    }
-    // The same per-frame state for the scene strips' diamonds (their headers are rebuilt only when
-    // the strip set moves, so the glyphs cannot be read back out of the tree).
-    function updateSceneNavs() {
-      for (var i = 0; i < sceneNavs.length; i++) {
-        var n = sceneNavs[i], ch = chById(n.ch); if (!ch) continue;
-        var at = keyAtTick(ch, st.playhead);
-        n.dia.__lbl.text = at ? '◆' : '◇';
-        n.dia.__lbl.style.color = at ? S.accent : S.inactive;
-        var dim = ch.keys.length ? S.inactive : S.dim;
-        n.prev.__lbl.style.color = dim; n.next.__lbl.style.color = dim;
-      }
-    }
-
-    // Per-frame placement of the navigator chrome: the overview viewport, its playhead marker and
-    // the bottom scrollbar thumb. Style writes are cheap but not free -- Panorama re-lays-out on
-    // each one -- so the whole block is gated behind a signature and does nothing at rest.
-    var navSig = '';
-)GEJS"
-R"GEJS(
+    var navSig = '', sbThumbX0 = 0, sbThumbW = 10;
     function layoutNav() {
-      var d = domainRange(), domSpan = Math.max(1, d.t1 - d.t0);
-      var vr = ovViewRect();
-      var px = domToX(num(st.playhead));
-      var trackX0 = G.cx + NAV_L + 10;
-      var trackW = Math.max(40, G.cw - NAV_L - ZOOM_W - 20);
-      var thumbW = Math.max(22, Math.min(trackW, (view.t1 - view.t0) / domSpan * trackW));
-      var frac = (view.t0 - d.t0) / domSpan;
-      if (frac < 0) frac = 0; if (frac > 1) frac = 1;
-      var thumbX = trackX0 + frac * trackW;
-      if (thumbX + thumbW > trackX0 + trackW) thumbX = trackX0 + trackW - thumbW;
-      sbThumbX0 = thumbX; sbThumbW = thumbW;
-      var sig = vr.x0.toFixed(1) + ',' + vr.x1.toFixed(1) + ',' + px.toFixed(1) + ','
-        + thumbX.toFixed(1) + ',' + thumbW.toFixed(1) + ',' + G.cw;
+      var d = domainRange(), domSpan = Math.max(1, d.t1 - d.t0), vr = ovViewRect(), px = domToX(num(st.playhead));
+      var rt = rangeTicks();
+      var trackW = 220, thumbW = Math.max(10, Math.min(trackW, (view.t1 - view.t0) / domSpan * trackW));
+      var frac = Math.max(0, Math.min(1, (view.t0 - d.t0) / domSpan)), thumbX = Math.min(trackW - thumbW, frac * trackW);
+      var sbr = panelRect(sbTrack);
+      if (sbr) { sbThumbX0 = sbr.x0 + thumbX; sbThumbW = thumbW; }
+      var sig = [vr.x0.toFixed(1), vr.x1.toFixed(1), px.toFixed(1), thumbX.toFixed(1), thumbW.toFixed(1), G.tw,
+                 rt ? rt.a + '-' + rt.b : '-', view.t0.toFixed(2), view.t1.toFixed(2)].join(',');
       if (sig === navSig) return;
       navSig = sig;
-      ovLeftGrip.style.position = Math.max(0, Math.min(G.cw - 6, vr.x0 - 3)).toFixed(1) + 'px 4px 0px';
-      ovRightGrip.style.position = Math.max(0, Math.min(G.cw - 6, vr.x1 - 3)).toFixed(1) + 'px 4px 0px';
-      ovView.style.position = vr.x0.toFixed(1) + 'px 0px 0px';
-      ovView.style.width = Math.max(3, vr.x1 - vr.x0).toFixed(1) + 'px';
-      ovView.style.height = '100%';
-      if (px >= 0 && px <= G.cw) { ovPlay.visible = true; ovPlay.style.position = px.toFixed(1) + 'px 0px 0px'; }
+      ovLeftGrip.style.position = Math.max(0, Math.min(G.tw - 6, vr.x0 - 1)).toFixed(1) + 'px 1px 0px';
+      ovRightGrip.style.position = Math.max(0, Math.min(G.tw - 6, vr.x1 - 5)).toFixed(1) + 'px 1px 0px';
+      ovView.style.position = vr.x0.toFixed(1) + 'px 1px 0px';
+      ovView.style.width = Math.max(3, vr.x1 - vr.x0).toFixed(1) + 'px'; ovView.style.height = '12px';
+      if (px >= 0 && px <= G.tw) { ovPlay.visible = true; ovPlay.style.position = px.toFixed(1) + 'px 0px 0px'; }
       else ovPlay.visible = false;
-      sbThumb.style.position = (thumbX - trackX0).toFixed(1) + 'px 0px 0px';
-      sbThumb.style.width = thumbW.toFixed(1) + 'px';
-      sbThumb.style.height = SB_H + 'px';
+      sbThumb.style.position = thumbX.toFixed(1) + 'px 0px 0px'; sbThumb.style.width = thumbW.toFixed(1) + 'px';
+      var on = !!rt;
+      [ovRange, rangeFill, rangeBar, rangeL, rangeR].forEach(function (p) { p.visible = on; });
+      if (on) {
+        var ra = domToX(rt.a), rb = domToX(rt.b);
+        ovRange.style.position = ra.toFixed(1) + 'px 3px 0px'; ovRange.style.width = Math.max(1, rb - ra).toFixed(1) + 'px'; ovRange.style.height = '8px';
+        var xa = tickToX(rt.a), xb = tickToX(rt.b), w = Math.max(2, xb - xa);
+        rangeFill.style.position = xa.toFixed(1) + 'px 0px 0px'; rangeFill.style.width = w.toFixed(1) + 'px'; rangeFill.style.height = (RULER_H - 1) + 'px';
+        rangeBar.style.position = xa.toFixed(1) + 'px 0px 0px'; rangeBar.style.width = w.toFixed(1) + 'px'; rangeBar.style.height = '8px';
+        rangeL.style.position = (xa - 3).toFixed(1) + 'px 0px 0px';
+        rangeR.style.position = (xb - 4).toFixed(1) + 'px 0px 0px';
+        rangeTxt.text = 'RENDER RANGE  ' + fmtTime(rt.a) + ' – ' + fmtTime(rt.b);
+      } else rangeTxt.text = 'RENDER RANGE  whole demo';
+      setText(viewTxt, 'Showing ' + fmtTimeShort(view.t0) + ' – ' + fmtTimeShort(view.t1) + ' of ' + fmtTimeShort(d.t1));
+      // The ruler's ticks only depend on the window and the width, not on the playhead: during
+      // playback this block runs every frame, and rebuilding the ticks there is the expensive part.
+      var rsig = view.t0.toFixed(2) + ',' + view.t1.toFixed(2) + ',' + G.tw + ',' + tps();
+      if (rsig !== rulerSig) { rulerSig = rsig; drawRuler(); }
+    }
+    var rulerSig = '';
+    function layoutPlayhead() {
+      var x = tickToX(num(st.playhead));
+      if (x >= 0 && x <= G.tw) {
+        phLine.visible = true; phHandle.visible = true;
+        phLine.style.position = (LEFTW + x - 1).toFixed(1) + 'px ' + (HEADER_H + OVERVIEW_H + 8) + 'px 0px';
+        phHandle.style.position = (LEFTW + x - 6).toFixed(1) + 'px ' + (HEADER_H + OVERVIEW_H + 8) + 'px 0px';
+      } else { phLine.visible = false; phHandle.visible = false; }
+    }
+    function layoutRowsScroll() {
+      rowsInner.style.position = '0px ' + (-rowScroll).toFixed(0) + 'px 0px';
+      var need = rowsContentH > ROWS_H;
+      rowsSbThumb.visible = need;
+      if (need) {
+        var h = Math.max(24, ROWS_H * ROWS_H / rowsContentH), y = ROWS_Y + (ROWS_H - h) * (rowScroll / (rowsContentH - ROWS_H));
+        rowsSbThumb.style.height = h.toFixed(0) + 'px';
+        rowsSbThumb.style.position = (G.rw - SB_W + 3) + 'px ' + y.toFixed(0) + 'px 0px';
+      }
+    }
+)GEJS"
+R"GEJS(
+    function computeGeom() {
+      // Measure from the ALREADY-laid-out HUD context first: a fresh root reports 0 for the first
+      // layout passes after a build or a resolution switch.
+      uiscale = root.actualuiscale_x || ctx.actualuiscale_x || 1;
+      var rawW = root.actuallayoutwidth || 0, rawH = root.actuallayoutheight || 0;
+      if (rawW < 16) { rawW = ctx.actuallayoutwidth || 0; rawH = ctx.actuallayoutheight || 0; }
+      if (rawW < 16) return G != null;
+      var scrW = rawW / uiscale;
+      var scrH = (rawH > 16 ? rawH : rawW * 0.5625) / uiscale;
+      var dockW = Math.floor(Math.max(560, (st && st.renderOpen) ? scrW : scrW - graphInspectorW(scrW)));
+      dockScreenX = 0; dockScreenY = Math.max(0, scrH - DOCK_H - BOTTOM_LIFT);
+      var tw = Math.max(120, dockW - LEFTW - SB_W);
+      var changed = !G || G.rw !== dockW;
+      G = { rw: dockW, tw: tw, cw: Math.max(60, tw - 2 * PAD) };
+      if (!changed) return true;
+      dock.style.width = dockW + 'px'; dock.style.height = DOCK_H + 'px'; dock.style.marginBottom = BOTTOM_LIFT + 'px';
+      header.style.width = dockW + 'px';
+      overview.style.position = LEFTW + 'px ' + HEADER_H + 'px 0px'; overview.style.width = tw + 'px'; overview.style.height = OVERVIEW_H + 'px';
+      ovTrack.style.position = '0px 3px 0px'; ovTrack.style.width = tw + 'px'; ovTrack.style.height = '8px';
+      ruler.style.position = LEFTW + 'px ' + (HEADER_H + OVERVIEW_H) + 'px 0px'; ruler.style.width = tw + 'px'; ruler.style.height = RULER_H + 'px';
+      rowsView.style.position = '0px ' + ROWS_Y + 'px 0px'; rowsView.style.width = dockW + 'px'; rowsView.style.height = ROWS_H + 'px';
+      graph.style.position = LEFTW + 'px ' + ROWS_Y + 'px 0px'; graph.style.width = tw + 'px'; graph.style.height = ROWS_H + 'px';
+      selOverlay.style.position = LEFTW + 'px ' + ROWS_Y + 'px 0px'; selOverlay.style.width = tw + 'px'; selOverlay.style.height = ROWS_H + 'px';
+      selOverlay.style.overflow = 'clip clip';
+      phLine.style.height = (DOCK_H - FOOTER_H - (HEADER_H + OVERVIEW_H + 8)) + 'px';
+      footer.style.position = '0px ' + (DOCK_H - FOOTER_H) + 'px 0px'; footer.style.width = dockW + 'px'; footer.style.height = FOOTER_H + 'px';
+      emptyHint.style.position = (LEFTW + 24) + 'px ' + (ROWS_Y + 60) + 'px 0px';
+      // A narrow dock (a wide inspector) keeps the ease strip's glyphs and drops its words.
+      var narrow = dockW < 1180;
+      EASE_ITEMS.forEach(function (it) { easeBtns[it[0]].__lbl.visible = !narrow; easeBtns[it[0]].__gw.style.marginRight = narrow ? '0px' : '6px'; });
+      rowSig = ''; trackSig = ''; graphSig = ''; navSig = '';
+      return true;
     }
 
+    // ---- the frame ----------------------------------------------------------------
     var api = {};
-    // Wheel, forwarded by CameraEditorJs's api.wheel when the cursor is over this dock. The wheel
-    // is CONTEXTUAL: over the dock it belongs to the dock (and is consumed, so it can never fall
-    // through to the game or scroll the inspector), and only over the inspector does it return
-    // false so the column keeps its own scroll.
-    //
-    //   Ctrl+Wheel  = zoom the time axis about the cursor
-    //   Shift+Wheel = pan the time axis
-    //   plain Wheel = scroll the track list (scene mode stacks one strip per property)
-    //
-    // Ctrl+Wheel must never nudge the free-cam FOV while the graph is up; MovieMode.cpp stops the
-    // modifier notches at this dock before its own FOV branch. (Panorama never sees the wheel in
-    // this HUD context -- the notches come off the WndProc pipe through CameraEditorHud.)
+    // Wheel, forwarded by CameraEditorJs's api.wheel while the cursor is over this dock. Over the
+    // dock the wheel is ours and consumed: Ctrl = zoom about the cursor, Shift = pan time, plain =
+    // scroll the layers.
     api.wheel = function (notches) {
       var n = parseInt(notches, 10);
       if (!isFinite(n) || !n || !st || !G || !st.enabled) return false;
       var c = curCursor();
-      if (c.lx < 0 || c.lx > G.rw || c.ly < 0 || c.ly > G.rh) return false;
+      if (c.lx < 0 || c.lx > G.rw || c.ly < 0 || c.ly > DOCK_H) return false;
       if (st.ctrl) {
-        var anchor = (c.clx >= 0 && c.clx <= G.cw) ? xToTick(c.clx) : (view.t0 + view.t1) * 0.5;
+        var anchor = inTrackX(c.tx) ? xToTick(c.tx) : (view.t0 + view.t1) * 0.5;
         zoomAt(n > 0 ? (1 / 1.25) : 1.25, anchor);
         return true;
       }
       if (st.shift) { panByFrac(n > 0 ? -0.1 : 0.1); return true; }
-      if (sceneOn()) {
-        var max = Math.max(0, sceneContentH - G.ch);
-        if (max > 0) {
-          var was = sceneScroll;
-          sceneScroll = Math.max(0, Math.min(max, sceneScroll - n * 48));
-          if (sceneScroll !== was) { sceneHeadSig = ''; lastSig = ''; api.render(); }
-        }
-      }
+      var was = rowScroll;
+      rowScroll -= n * ROW_H * 3; clampRowScroll();
+      if (rowScroll !== was) trackSig = '';
       return true;   // consumed: over the dock the wheel is ours even when there is nothing to scroll
     };
-    // THE COLUMN IS BEING DRAGGED RIGHT NOW, at this width -- called straight from CONFIG's and
-    // the CAMERA EDITOR's grip (one shared Panorama script context), so the graph follows the
-    // edge DURING the drag rather than jumping to it on release.
+    // THE COLUMN IS BEING DRAGGED RIGHT NOW, at this width (CONFIG's and the CAMERA EDITOR's grip).
     api.setInspW = function (w) {
       var n = parseInt(w, 10);
       graphInspWOverride = (isFinite(n) && n > 0) ? n : 0;
     };
+    api.key = function (name) { if (st && st.enabled) onKey('' + name); };
+    // What the shared ribbon says on the right while TIMELINE is up.
+    api.ribbonMeta = function () {
+      if (!st || !tree.length) return '';
+      var keys = unionKeys(camCh.map(function (c) { return c.uid; })).length;
+      scCh.forEach(function (c) { keys += c.keys.length; });
+      return tree.length + (tree.length === 1 ? ' layer' : ' layers') + ' · ' + keys + ' keys';
+    };
+)GEJS"
+R"GEJS(
     api.render = function () {
       var raw = root.GetAttributeString('state', ''); if (!raw) { root.visible = false; return; }
       try { st = JSON.parse(raw); } catch (e) { return; }
-      // A live drag outranks the published width, and hands back once the published value has
-      // caught up -- same contract as the camera timeline's, for the same reason.
+      // A live drag outranks the published width, and hands back once state has caught up.
       if (graphInspWOverride > 0) {
         graphInspW = graphInspWOverride;
         if (typeof st.inspW === 'number' && Math.abs(st.inspW - graphInspWOverride) < 1) graphInspWOverride = 0;
@@ -2288,183 +2787,112 @@ R"GEJS(
       }
       S.accent = st.renderOpen ? S.renderAccent : S.cameraAccent;
       S.btnOn = st.renderOpen ? '#aeb4bc26' : '#f0b32333';
-      rectVis.style.backgroundColor = st.renderOpen ? '#aeb4bc1f' : '#f0b32322';
-      rectVis.style.border = '1px solid ' + S.accent;
-      // easeMenu is built LAZILY, on the first right-click (showEaseMenu -> buildEaseMenu), so it
-      // is null for the entire session until then. Dereferencing it unconditionally here threw
-      // every frame, and a Panorama exception ABORTS THE REST OF THE FUNCTION -- taking out the
-      // `root.visible` assignment on the next line and every draw call below it, which is why the
-      // graph editor rendered nothing at all. Only restyle it once it exists.
-      if (easeMenu) easeMenu.style.border = '1px solid ' + S.accent;
-      model = st.channels || [];
-      // The graph is the TALLER dock, so arriving here is always a grow: it rises.
-      var graphShown = !!st.enabled;   // RAW: never delay a hide, see moDockOpenIsReal
-      var graphRealOpen = moDockOpenIsReal(graphShown);
-      root.visible = graphShown;
-      if (graphShown !== moDockSeen) {
-        moDockSeen = graphShown;
-        // The graph is the TALLER dock, so arriving here is always a grow: it rises.
-        if (graphShown && graphRealOpen) moDockIn(root, 14);
-      }
+      var shown = !!st.enabled;   // RAW: never delay a hide, see moDockOpenIsReal
+      var realOpen = moDockOpenIsReal(shown);
+      root.visible = shown;
+      if (shown !== moDockSeen) { moDockSeen = shown; if (shown && realOpen) moDockIn(root, 14); }
       if (!st.enabled) return;
 
-      // Put the host timeline in its compact scrub view (once) so the bottom bar stays short and
-      // this dock can sit above it. The timeline also self-suppresses its curve toggle while we're on.
-      if (!didInitTimeline) { didInitTimeline = true; rawCmd('mirv_filmmaker camtl view timeline'); }
+      // The two models, tagged with their domain and id.
+      camCh = st.channels || []; scCh = (st.scene && st.scene.channels) || []; chMap = {}; selCache = {};
+      camCh.forEach(function (c) { c.dom = 'cam'; c.uid = 'c' + c.ch; chMap[c.uid] = c; });
+      scCh.forEach(function (c) { c.dom = 'scene'; c.uid = 's' + c.ch; chMap[c.uid] = c; });
+      camCh.concat(scCh).forEach(function (c) { c.keys.forEach(function (k) { if (k.sel) selCache[c.uid + ':' + k.id] = 1; }); });
 
-      // selection cache (used by hit-test press path before C++ echoes back)
-      selCache = {};
-      for (var i = 0; i < model.length; i++) for (var j = 0; j < model[i].keys.length; j++)
-        if (model[i].keys[j].sel) selCache[model[i].ch + ':' + model[i].keys[j].id] = 1;
-
-      activeCh = (st.selCh != null && st.selCh >= 0) ? st.selCh : 0;
-      // Until we have a valid screen measurement (root reports 0 for the first layout passes after
-      // a build / resolution switch), skip the layout-dependent draw rather than render squished.
       if (!computeGeom() || !G) { root.visible = false; return; }
-      // Seed the visible window ONCE per mode (and whenever C++ advances viewEpoch: dock enter,
-      // reseed, clear). Everything after this line reads `view`, never the state's suggested
-      // window, which is what makes scrubbing the playhead leave the window alone.
-      var gmk = sceneOn() ? 'scene' : 'camera';
-      if (view.mode !== gmk || (st.viewEpoch != null && view.epoch !== st.viewEpoch)) { seedView(gmk); sceneRanges = {}; }
-      revealNewKeys(gmk);
-      // One scene-mode signal across editor, timeline and graph. C++ publishes the
-      // persisted inspector mode to each HUD state feed.
-      var sceneMode = sceneOn();
-      styleTab(camModeTab, !sceneMode);
-      styleTab(sceneModeTab, sceneMode);
-      lhP.visible = !sceneMode;
-      rows.forEach(function (r) { r.rowP.visible = !sceneMode; });
-      sceneHeadClip.visible = sceneMode;
-      stripLayer.visible = sceneMode;
-      sceneEmpty.visible = sceneMode && !model.length;
-      if (sceneMode) {
-        layoutSceneStrips();
-        sceneHeadClip.style.position = '0px ' + G.ovH + 'px 0px';
-        sceneHeadClip.style.height = G.ch + 'px';
-        // The headers are rebuilt when the strip SET, a group's collapse, the visibility or the
-        // scroll offset moves -- all change where every row sits, and there is no cheaper way to
-        // move an absolutely placed column.
-        var headSig = model.map(function (c) { return c.fieldId + ':' + c.vis + ':' + c.solo + ':' + c.muted; }).join('|')
-          + '@' + sceneScroll + 'x' + sceneContentH
-          + '@' + sceneGroups.map(function (g) { return g.id + (g.collapsed ? '1' : '0'); }).join(',');
-        if (headSig !== sceneHeadSig) { sceneHeadSig = headSig; rebuildSceneHeads(); }
-        model.forEach(function (c) {
-          var r = sceneValues[c.fieldId]; if (!r || r.editing) return;
-          if (r.swatch) {
-            // A colour row mirrors the MODEL into the chip (and into the open wheel), except
-            // while the wheel is the thing driving the value -- otherwise every frame would
-            // paint the last committed colour back over the one being dragged.
-            var v = c.value;
-            if (v instanceof Array && !r.picker.visible()) {
-              var moved = false;
-              for (var ci = 0; ci < 3; ci++) {
-                var n = Math.max(0, Math.min(255, Math.round(v[ci])));
-                if (r.rgb[ci] !== n) { r.rgb[ci] = n; moved = true; }
-              }
-              if (moved) { r.last = r.rgb.join(','); r.paint(); }
-            }
-            r.picker.sync();
-            return;
-          }
-          var text = sceneValueText(c.value);
-          if (r.cell) { if (r.cell.text !== text) r.cell.text = text; }
-          else r.input.text = text;
-        });
-        updateSceneNavs();
-      }
-      // The colour popover runs off the SAME raw cursor pipe as everything else in this dock
-      // (Panorama delivers no mouse-move here), so it needs one pump per frame to drag the wheel
-      // and the two sliders, and to close itself on a click-away.
+      if (view.mode !== 'timeline' || (st.viewEpoch != null && view.epoch !== st.viewEpoch)) { seedView('timeline'); ranges = {}; }
+      revealNewKeys();
+      if (viewHold > 0) viewHold--;
+      else if (st.timelineView === 'graph' || st.timelineView === 'keys') { if (viewMode !== st.timelineView) { viewMode = st.timelineView; trackSig = ''; graphSig = ''; } }
+
+      // Structure: the tree follows the SET of scene properties and the splits; the rows follow the
+      // tree and the open state.
+      var tsig = scCh.map(function (c) { return c.fieldId; }).join('|') + '#' + Object.keys(splitState).join(',')
+        + '#' + ((st.shakes || []).length ? 'shake' : '');
+      if (tsig !== treeSig) { treeSig = tsig; buildTree(); rowSig = ''; if (!nodeById(selNode)) selNode = ''; }
+      var rsig = treeSig + '@' + flatten().map(function (f) { return f.node.id; }).join(',') + '@' + G.rw;
+      if (rsig !== rowSig) { rowSig = rsig; rebuildRows(); }
+
+      // The colour popover runs off the same raw cursor pipe; one pump per frame drags the wheel.
       try { cfgColorPump({ cursor: true, lmb: !!st.lmb, mx: st.mx, my: st.my }); }
-      catch (ecp) { $.Msg('[grapheditor] colour pump failed: ' + ecp + String.fromCharCode(10)); }
+      catch (ecp) { $.Msg('[timeline] colour pump failed: ' + ecp + String.fromCharCode(10)); }
       if (pickTray.visible && pickAnchor) placePickTray(pickAnchor, pickTitle);
       processInput();
+      pumpMenuReopen();
       followPlayback();
-      // ONE SPEED, THREE BARS -- st.timescale is the engine's demo_timescale, pushed by C++.
-      // ctx.GetDemoControllerState() does not exist on this HUD context panel; see the same note
-      // in CameraTimelineJs.h and Movie/DemoTimescale.h.
       if (typeof st.timescale === 'number') speedScrub.setSpeed(st.timescale);
-      // Same raw-cursor pipe every other gesture in this editor runs on (no mouse-move event exists
-      // in this HUD context), pumped once per frame.
       speedScrub.pump(st.mx || 0, st.my || 0, !!st.lmb);
 
-      // Smooth / Linear show which mode the shot is actually in. st.interp is the camera path's
-      // InterpName(), i.e. the SAME value the camera timeline's pair reads -- setting it in
-      // either panel lights the matching button in both.
-      btnSel(smoothBtn, st.interp !== 'Linear');
-      btnSel(linearBtn, st.interp === 'Linear');
-      // Reflect the path's reported interpolation state; cubic supports three markers.
-      smoothBtn.__lbl.text = '∿ Smooth';
-      smoothBtn.__lbl.style.color = st.interpDegraded ? S.dim
-        : (smoothBtn.__sel ? S.accent : S.value);
-
-      // The destructive FILL tracks enablement, not just the label: a dimmed label on a live
-      // red pill reads as an enabled button whose text went missing. Dropping to the neutral
-      // pill is what makes S.dim legible AS "disabled" (same pairing as custApplyBtn). Latched
-      // on the flag so this stays off the per-frame style-write path once settled.
-      var delOn = st.selCount > 0;
-      if (delOn !== delBtn.__delOn) {
-        delBtn.__delOn = delOn;
-        delBtn.__lbl.style.color = delOn ? S.dangerText : S.dim;
-        delBtn.style.backgroundColor = delOn ? S.dangerBg : S.btnBg;
-        delBtn.style.border = '1px solid ' + (delOn ? S.dangerBorder : S.border);
+      // ---- toolbar ----
+      setText(tcLbl, fmtTime(num(st.playhead)));
+      setText(tickLbl, 'tick ' + Math.round(num(st.playhead)) + ' · ' + Math.round(tps()) + ' tps');
+      styleTab(keysTab, viewMode === 'keys'); styleTab(graphTab, viewMode === 'graph');
+      var playingNow = (st.drive && st.pathPlaying) || st.playing;
+      setText(playBtn.__lbl, playingNow ? 'II' : '▶'); btnSel(playBtn, playingNow);
+      btnSel(cacheBtn, !!st.scrubCache);
+      var nSel = totalSel(), lead = null;
+      for (var li = 0; li < camCh.length + scCh.length && !lead; li++) {
+        var lc = li < camCh.length ? camCh[li] : scCh[li - camCh.length];
+        for (var lk = 0; lk < lc.keys.length; lk++) if (lc.keys[lk].sel) { lead = { c: lc, k: lc.keys[lk] }; break; }
       }
-      undoBtn.__lbl.style.color = st.canUndo ? S.value : S.dim;
-      redoBtn.__lbl.style.color = st.canRedo ? S.value : S.dim;
-      // Time snap: the pill reports the current value and lights while snapping is on.
-      btnSel(snapBtn, snapSetting() !== 'off');
-      snapBtn.__lbl.text = snapLabel();
+      var cur = lead ? easeOfSides(keySides(lead.c, lead.k)) : (st.interp === 'Linear' ? 'linear' : 'smooth');
+      EASE_ITEMS.forEach(function (it) {
+        var b = easeBtns[it[0]], en = nSel > 0 ? !(lead && stepped(lead.c)) : (it[0] === 'smooth' || it[0] === 'linear');
+        var on = en && it[0] === cur;
+        if (b.__on !== on || b.__en !== en) { b.__on = on; b.__en = en; paintEase(b); }
+      });
+      if (nSel !== delBtn.__n) {
+        delBtn.__n = nSel;
+        delBtn.__lbl.style.color = nSel ? S.dangerText : S.dim;
+        delBtn.style.backgroundColor = nSel ? S.dangerBg : S.btnBg;
+        delBtn.style.border = '1px solid ' + (nSel ? S.dangerBorder : S.border);
+      }
+      var cu = !!(st.canUndo || (st.scene && st.scene.canUndo)), cr = !!(st.canRedo || (st.scene && st.scene.canRedo));
+      setColor(undoBtn.__lbl, cu ? S.value : S.dim); setColor(redoBtn.__lbl, cr ? S.value : S.dim);
+      btnSel(snapBtn, snapSetting() !== 'off'); setText(snapBtn.__lbl, snapLabel());
       if (snapMenuOpen()) refreshSnapRows();
-      // Deliberately SHORT. This line used to run the tick, the selection count, a live/SCRUBBING
-      // word and four shortcut hints across the whole header -- a wall of small text where the
-      // shortcuts belong in the quiet hint block under the channel list (they are there now) and
-      // "live" said nothing the moving playhead did not. Tick, and what you have hold of.
-      hInfo.text = 'tick ' + Math.round(st.playhead)
-        + (st.selCount > 0 ? ('  ·  ' + st.selCount + ' selected') : '');
+      setText(selInfo, selectionInfo(nSel, lead));
 
-      if (!sceneMode) updateChannelRows();
+      updateRows();
+      var hasRows = rows.length > 1 || scCh.length > 0;
+      emptyHint.visible = !hasRows && viewMode === 'keys';
+      emptyHint.text = 'Turn properties on in SCENE KEYS and they get their own layers here.';
 
-      // Rebuild the (expensive) grid/curves/keyframes/handles only when the model, view, size
-      // or active channel changed. The model rev bumps on every edit, so an active drag rebuilds
-      // each frame; idle frames only move the playhead.
-      // The view span is part of the signature, so a pan/zoom rebuilds the curves; the overview
-      // keyframe marks only need the model + domain, but rebuilding them here keeps one code path.
-      var dom = domainRange();
-      var sig = (sceneMode ? 'scene:' : 'camera:') + st.rev + ':' + view.t0 + ':' + view.t1 + ':' + G.cw + ':' + G.ch + ':' + activeCh
-        + ':' + dom.t0 + ':' + dom.t1 + ':' + snapSetting()
-        + (sceneMode ? ':' + sceneScroll + ':' + model.length : '');
-      if (sig !== lastSig) {
-        lastSig = sig;
-        // Curves refit to their content between gestures, never during one (see rng()).
-        if (!gesture) { if (sceneMode) refitSceneRanges(); else refitCamRanges(); }
-        if (sceneMode) drawSceneStrips(); else stripLayer.RemoveAndDeleteChildren();
-        drawGrid(); drawCurves(); drawKeyframes(); drawHandles(); drawOverviewKeys();
+      // The expensive drawing only when something it reads changed.
+      graph.visible = viewMode === 'graph';
+      var ksig = [st.rev, st.scene ? st.scene.rev : 0, view.t0, view.t1, G.rw, selNode, rowSig, viewMode,
+                  (st.shakes || []).map(function (z) { return z.i + '.' + z.s + '.' + z.n + '.' + z.p; }).join(',')].join(':');
+      if (viewMode === 'keys' && ksig !== trackSig) { trackSig = ksig; drawTrack(); }
+      var gsig = ksig + ':' + snapSetting();
+      if (viewMode === 'graph' && gsig !== graphSig) {
+        graphSig = gsig;
+        if (!gesture) refitRanges(graphChans());
+        drawGraph();
       }
+      var osig = [st.rev, st.scene ? st.scene.rev : 0, G.tw, num(st.domainT0), num(st.domainT1)].join(':');
+      if (osig !== ovSig) { ovSig = osig; drawOverviewKeys(); }
       layoutNav();
-
-      {
-      var phx = tickToX(st.playhead);
-        // Dock-relative and full height: the playhead runs from the ruler down through the tracks.
-        // It is HIDDEN once it leaves the visible window -- pinned to the left edge it read as "the
-        // playhead is stuck there" instead of "the playhead is outside this view".
-        if (phx >= 0 && phx <= G.cw) {
-          phLine.visible = true;
-          phLine.style.position = (G.cx + phx).toFixed(1) + 'px ' + G.cy + 'px 0px';
-        phHandle.visible = true;
-          // The ruler now overlays the top of the canvas, so the grab pin lives IN the ruler at
-          // the canvas top rather than 13px above it.
-          phHandle.style.position = (G.cx + phx - 7).toFixed(1) + 'px ' + (G.cy + 2) + 'px 0px';
-        } else {
-          phLine.visible = false; phHandle.visible = false;
-        }
-      }
+      layoutRowsScroll();
+      layoutPlayhead();
     };
+    var ovSig = '';
+    function selectionInfo(nSel, lead) {
+      if (lead && nSel === 1) {
+        var n = nodeOfChan(lead.c.uid), list = unionKeys(n.chans), idx = 0;
+        for (var i = 0; i < list.length; i++) if (Math.abs(list[i].t - lead.k.t) < 0.26) idx = i + 1;
+        return n.layer.name + '  ›  ' + n.name + '  ·  key ' + idx + ' of ' + list.length + '  ·  ' + fmtTime(lead.k.t);
+      }
+      if (nSel > 1) return nSel + ' keys selected  ·  drag to move  ·  F9 eases  ·  Del deletes';
+      var sn = nodeById(selNode);
+      if (sn) return (sn.layer ? sn.layer.name + '  ›  ' : '') + sn.name + '  ·  click a key to select it, right-click for options';
+      return 'Click a key to select it  ·  drag to move  ·  right-click for options';
+    }
 
     $.GraphExp = api;
     api.render();
-    $.Msg('[grapheditor] experimental graph editor built.\n');
+    $.Msg('[timeline] unified timeline built.\n');
   } catch (err) {
-    $.Msg('[grapheditor] gui error: ' + err + '\n');
+    $.Msg('[timeline] gui error: ' + err + '\n');
   }
 })();
 )GEJS";

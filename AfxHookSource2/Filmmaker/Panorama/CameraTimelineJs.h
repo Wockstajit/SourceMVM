@@ -1287,8 +1287,6 @@ R"TLJS(
     }, S.value);
     // ("Curve Editor" view toggle removed: the graph editor is the curve editor now.)
     var closeBtn = btn(header, '✕', function () { cmd('mirv_filmmaker camtl close'); }, S.value);
-    // In the Camera Editor, switch the bottom panel back to the (default) graph editor.
-    var graphBtn = btn(header, '≡ Graph', function () { cmd('mirv_filmmaker editor curveeditor graph'); }, S.accent);
 )TLJS"
 R"TLJS(
     // ===================== SHARED TRANSPORT =============================
@@ -1865,7 +1863,6 @@ R"TLJS(
       setNativeHidden(!nativeBarVisible);
       updateRangeOverlay(nativeBarVisible); // render-range / loop flags whenever the native bar is visible
       closeBtn.visible = !hosted; // editor mode exits via its own "✕ Exit" button
-      graphBtn.visible = false;   // bottom-panel switching is now the editor's bottom tab bar only
       // When hosted, this panel IS the editor's bottom bar under the preview. It fills the
       // entire width left of the inspector instead of floating as a card inside that bar.
       // Standalone timeline mode keeps the compact native-style card.

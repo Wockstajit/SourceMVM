@@ -102,8 +102,8 @@ CameraTimelineHud& CameraTimelineHudRef();
 void CameraTimeline_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);
 
 // Selects the current (or first) camera-path marker for the editor/timeline, if any exist.
-// Shared by CameraTimelineCommand.cpp ("camtl open/toggle") and CameraEditorCommand.cpp
-// ("editor curveeditor ..."). Returns false (no-op) when the path has no markers.
+// Used by CameraTimelineCommand.cpp ("camtl open/toggle"). Returns false (no-op) when the path
+// has no markers.
 bool FocusEditorCameraIfAny();
 
 } // namespace Filmmaker
