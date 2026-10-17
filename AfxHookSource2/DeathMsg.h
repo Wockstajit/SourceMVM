@@ -25,6 +25,7 @@ unsigned char* AfxHookSource2_GetPanoramaMainMenuPanel();
 struct currentGameCamera {
 	double origin[3];
 	double angles[3];
+	float fov;
 	float time;
 };
 

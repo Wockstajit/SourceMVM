@@ -3,6 +3,7 @@
 #include "ScrubFrameCacheMath.h"
 #include "DemoScrub.h"
 #include "CameraPath.h"                    // EvalPoseAtTick / PathRevision: the pose a frame was taken with
+#include "CamPathShake.h"                  // CamPathShake_Revision: per-key shake edits change the picture
 #include "SceneKeys.h"                     // SceneKeys_Revision: scene key edits change the picture
 #include "TimelinePlayhead.h"              // a camera-path surface (timeline, graph) is being dragged
 #include "CameraBridge.h"                  // a parked frame lets go when the camera moves
@@ -80,6 +81,8 @@ uint64_t PictureRevision() {
 	h = Mix(h, g_sceneUndoClock.load(std::memory_order_relaxed));
 	h = Mix(h, Environment::SceneGeneration());
 	h = Mix(h, CameraPathRef().PathRevision());
+	// The per-key shake is a view-stage layer the pose check cannot see (it compares the path).
+	h = Mix(h, CamPathShake_Revision());
 	return h ? h : 1;
 }
 

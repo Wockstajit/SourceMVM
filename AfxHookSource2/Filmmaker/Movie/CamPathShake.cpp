@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <map>
 #include <atomic>
 #include <mutex>
@@ -245,6 +246,7 @@ std::vector<SnapKey> g_snapKeys;            // guarded by g_snapMutex; ordered b
 double g_snapSecondsPerTick = 1.0 / 64.0;   // guarded
 bool g_snapEnabled = false;                 // guarded
 bool g_snapAnyShake = false;                // guarded: at least one key is Active()
+uint64_t g_snapRevision = 0;                // main thread only: hash of what the view applies
 
 // Main thread, once per frame from CamPathShake_RunFrame.
 void PublishSnapshot() {
@@ -267,9 +269,28 @@ void PublishSnapshot() {
 		next.push_back(k);
 	}
 
+	// The scrub frame cache keeps frames with the shake they were rendered with, and its pose check
+	// compares the unshaken path, so any change to the applied shake must change this revision.
+	const double secondsPerTick = SecondsPerTick();
+	uint64_t rev = 0;
+	if (s.enabled && any) {
+		rev = 0xcbf29ce484222325ull;
+		auto mix = [&rev](uint64_t v) { rev = (rev ^ v) * 0x100000001b3ull; };
+		uint64_t spt = 0;
+		std::memcpy(&spt, &secondsPerTick, sizeof(spt));
+		mix(spt);
+		for (const SnapKey& k : next) {
+			mix((uint64_t)(uint32_t)k.tick);
+			mix((uint64_t)(int64_t)k.style);
+			mix((uint64_t)(int64_t)k.intensity);
+			mix((uint64_t)(int64_t)k.speed);
+		}
+	}
+	g_snapRevision = rev;
+
 	std::lock_guard<std::mutex> lock(g_snapMutex);
 	g_snapKeys.swap(next);
-	g_snapSecondsPerTick = SecondsPerTick();
+	g_snapSecondsPerTick = secondsPerTick;
 	g_snapEnabled = s.enabled;
 	g_snapAnyShake = any;
 }
@@ -296,6 +317,8 @@ RageShakePose EvalStyle(int style, double intensity, double clockSec) {
 } // namespace
 
 bool CamPathShake_Enabled() { return S().enabled; }
+
+uint64_t CamPathShake_Revision() { return g_snapRevision; }
 
 void CamPathShake_SetEnabled(bool on) {
 	Store& s = S();

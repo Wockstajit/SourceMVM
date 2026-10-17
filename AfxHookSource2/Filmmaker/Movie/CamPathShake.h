@@ -35,6 +35,7 @@
 // the view side reads only that, under a mutex held just long enough to copy. See PublishSnapshot
 // in the .cpp for the full note.
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -106,6 +107,11 @@ bool CamPathShake_Apply(double lookupTick,
 // Master switch (the layer is on by default; this is for A/B-ing a shot).
 bool CamPathShake_Enabled();
 void CamPathShake_SetEnabled(bool on);
+
+// Main thread. Changes whenever the shake the view applies changes (a key's style, intensity or
+// speed, the master switch, a retime); 0 while no shake applies. The scrub frame cache mixes it
+// into its picture revision.
+uint64_t CamPathShake_Revision();
 
 // Console entry: "mirv_filmmaker pathshake ...". Deliberately NOT "camshake", which is the
 // CameraShakeStack (Handheld / Recoil / Weapon Recoil) diagnostics command.

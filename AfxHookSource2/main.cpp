@@ -690,6 +690,7 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	// Follow attach and third-person both require a valid spectated player.
 	const float preShakeTx = Tx, preShakeTy = Ty, preShakeTz = Tz;
 	const float preShakeRx = Rx, preShakeRy = Ry, preShakeRz = Rz;
+	const float preShakeFov = Fov; // the path shake can add FOV too
 
 	// Camera-shake layers (handheld / recoil -- CameraShakeStack.h). Deliberately
 	// NOT gated like ViewFx above: these are additive layers meant to ride ON TOP of the
@@ -863,6 +864,7 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	g_CurrentGameCamera.angles[0] = preShakeRx;
 	g_CurrentGameCamera.angles[1] = preShakeRy;
 	g_CurrentGameCamera.angles[2] = preShakeRz;
+	g_CurrentGameCamera.fov = preShakeFov;
 	g_CurrentGameCamera.time = curTime;
 
 	// VIEW OWNERSHIP: this trampoline stands in for CS2's internal IsPlayingDemo() check
