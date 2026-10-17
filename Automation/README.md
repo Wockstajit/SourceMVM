@@ -94,6 +94,11 @@ Per-frame runtime diagnosis still belongs in `mvm_debug`. Netcon is the command 
 ## Other launchers
 
 - `launch/launch-cs2-netcon.ps1`: launch CS2 + hook + netcon, without loading a demo.
+  Every launch carries the private local assets too. `FX\compiled`, `FX\death-animations` and a
+  stage's `bin\ffmpeg` setup are git-ignored, so a git worktree has none of them; the launcher takes
+  them from the main checkout (`Get-PrivateAssetRoots` in `lib/AutomationCommon.ps1`). It seeds the
+  worktree's own FX stage from the main checkout's stage (cfg excluded), copies the ragdoll library
+  next to the hook, and borrows a working FFmpeg setup when the stage has none.
 - `launch/launch-cs2-test.ps1` / `launch/test.bat`: launch the offline `mvm_test` bot-practice harness.
 - `launch/cs2-live.ps1`: optional browser dashboard for an already-running netcon session.
 - `netcon/cs2-demo.ps1`: bounded, verified demo control for a running game. `-Demo` loads a demo
