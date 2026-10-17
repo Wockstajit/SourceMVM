@@ -123,7 +123,9 @@ Agents do not need the dashboard. It holds a long-lived netcon connection, so ke
   `Resolve-Cs2Dir.ps1` for PowerShell, `steam_paths.py` for Python.
 - `netcon/`: low-level command helpers.
 - `tests/`: C++ automation tests plus launcher integration tests.
-- `tools/`: reusable generators and maintenance scripts.
+- `tools/`: reusable generators and maintenance scripts. Run
+  [sync-merged-branches.ps1](tools/sync-merged-branches.ps1) after every PR merge. It retires the
+  merged local branches and worktrees and fast-forwards local `main`.
 - `verify/`: live and static verification harnesses.
 - `runs/`: ignored, timestamped run artifacts and session files.
 - `output/`: ignored, temporary verifier output.
