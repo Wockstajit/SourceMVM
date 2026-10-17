@@ -811,6 +811,20 @@ static void TestShaderSource() {
 	CHECK(src.find("coc = SmokeBlendCoc(coc, CoC(smokeAxis, focus), cover);") != std::string::npos);
 	CHECK(src.find("SmokeAt(pix, dist, cover, smokeAxis) && cover > .5") != std::string::npos);
 	CHECK(kLensMaxSmokes == 8 && src.find("float4 smokeSpheres[8];") != std::string::npos);
+	// The sharp weapon is written out of the blurred image and every tap is weighted by how much of it is
+	// world: a mip texel that mixed the gun with a near-blurred smoke smeared the gun out as a ragged halo.
+	CHECK(src.find("float m = (vm && dofC.z < .5) ? 0 : 1;") != std::string::npos);
+	CHECK(src.find("o.coc = float4(ToLinear(src) * HighlightBoost(p, src, coc) * m, coc * m);") != std::string::npos);
+	CHECK(src.find("o.world = worldMask.SampleLevel(linearClamp, i.uv, 0);") != std::string::npos);
+	CHECK(src.find("if (worldMask.Load(int3(p, 0)) < .5) return 0;") != std::string::npos);
+	CHECK(src.find("float3 col = s.rgb / wm;") != std::string::npos && src.find("float cs = s.a / wm, as = abs(cs);") != std::string::npos);
+	CHECK(src.find("float w = cover * kw * tapScale / max(as * as, .25) * wm;") != std::string::npos);
+	{
+		const std::string cpp = ReadRepoFile("AfxHookSource2/Filmmaker/Lens/LensFx.cpp");
+		CHECK(cpp.find("pass2(g.cocPS[dms].Get(), g.cocRtv[0].Get(), g.worldRtv[0].Get()") != std::string::npos);
+		CHECK(cpp.find("pass2(g.mipPS.Get(), g.cocRtv[m].Get(), g.worldRtv[m].Get()") != std::string::npos);
+		CHECK(cpp.find("{ 21, g.worldAll.Get() }") != std::string::npos);
+	}
 	// The zebra marks what blurs less than half a pixel.
 	CHECK(src.find("dbg == 3") != std::string::npos && src.find("if (abs(coc) < .5) col = band == 0") != std::string::npos);
 	CHECK(src.find("/ 36.0") != std::string::npos);

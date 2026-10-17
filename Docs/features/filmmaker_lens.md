@@ -93,6 +93,13 @@ pixel's own sample is read at the taps' mip level, because a full-resolution rea
 in every lifted disc. On a multisampled target, the composite keeps the engine's own per-sample edges
 wherever nothing was blurred.
 
+**The sharp weapon is not part of the blurred image.** With *Blur the weapon* off, `CocPS` writes
+the first-person weapon out of the gather's image (colour and radius premultiplied by a world mask,
+which has its own mip chain), and every tap is weighted by how much of it is world. A mip texel at
+the gun's outline used to mix the sharp gun with the blurred world around it; next to a near-blurred
+smoke that mix read as a blurred foreground sample, which always spreads, and the gun's colour
+smeared out as a dark, ragged halo. The composite keeps the engine's own sharp weapon on top.
+
 The flare is built from the sharp frame, whether or not the depth of field is on. A lifted bokeh disc is
 a huge white shape, and a flare cast from it would be a wash. A light flares where it is, in focus or not.
 

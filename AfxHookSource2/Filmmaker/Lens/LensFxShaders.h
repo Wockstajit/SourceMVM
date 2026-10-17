@@ -68,6 +68,7 @@ Texture2D<float4> sourceTex : register(t17);   // the source map, quarter resolu
 Texture2D<float4> source8Tex : register(t18);  // the source map, eighth resolution
 Texture2D<float4> sourceHTex : register(t19);  // the source map, eighth width x half height (Gaussian-filtered streak)
 Texture2D<float> smokeAbsorb : register(t20);  // CS2's OIT absorbance b0 in front of each surface
+Texture2D<float> worldMask : register(t21);    // 1 world, 0 the sharp first-person weapon; mips like cocTex
 
 static const float kPi = 3.14159265;
 static const float kFarSky = 60000.0;
@@ -291,7 +292,15 @@ float HighlightBoost(int2 p, float3 src, float coc) {
 }
 
 // ---- per-pixel circle of confusion, colour moved to linear light ---------------------------
-float4 CocPS(VOut i) : SV_Target {
+// THE SHARP WEAPON IS NOT PART OF THE PICTURE BEING BLURRED. The gather reads mips that average colour
+// and blur radius together, so at the weapon's outline a texel mixes the sharp gun (radius 0) with the
+// world around it; around a near-blurred world (a smoke in front of the lens) that mix reads as a
+// blurred FOREGROUND sample, which always spreads, and the gun's colour smeared out as a dark, ragged
+// halo. While the weapon is kept sharp it is written out of the image (colour and radius are
+// premultiplied by worldMask) and every tap is weighted by how much of it is world, so no gather ever
+// sees it; the composite keeps the engine's own sharp weapon on top.
+struct CocOut { float4 coc : SV_Target0; float world : SV_Target1; };
+CocOut CocPS(VOut i) {
     int2 p = int2(i.pos.xy);
     float3 src = colorTex.Load(int3(p, 0)).rgb;
     bool vm;
@@ -304,14 +313,21 @@ float4 CocPS(VOut i) : SV_Target {
         float cover, smokeAxis;
         if (SmokeAt(i.pos.xy, dist, cover, smokeAxis)) coc = SmokeBlendCoc(coc, CoC(smokeAxis, focus), cover);
     }
-    return float4(ToLinear(src) * HighlightBoost(p, src, coc), coc);
+    float m = (vm && dofC.z < .5) ? 0 : 1;
+    CocOut o;
+    o.coc = float4(ToLinear(src) * HighlightBoost(p, src, coc) * m, coc * m);
+    o.world = m;
+    return o;
 }
 // One step down the mip chain of the linear-light image + radius: the destination texel centre
 // sits on the corner shared by four source texels, so a single bilinear tap IS the 2x2 average. A
 // wide gather reads these pre-averaged taps instead of single texels -- that is what keeps a 60 px
 // blur from turning to noise. tileInfo.w is the source mip.
-float4 MipPS(VOut i) : SV_Target {
-    return cocTex.SampleLevel(linearClamp, i.uv, 0);
+CocOut MipPS(VOut i) {
+    CocOut o;
+    o.coc = cocTex.SampleLevel(linearClamp, i.uv, 0);
+    o.world = worldMask.SampleLevel(linearClamp, i.uv, 0);
+    return o;
 }
 float TilePS(VOut i) : SV_Target {
     int2 base = int2(i.pos.xy) * 16;
@@ -409,6 +425,7 @@ float4 GatherPS(VOut i) : SV_Target {
     float2 pix = i.pos.xy;
     int2 p = int2(pix);
     float4 c0 = cocTex.Load(int3(p, 0));
+    if (worldMask.Load(int3(p, 0)) < .5) return 0;   // the sharp weapon: the composite keeps it as drawn
     int2 tp = min(p >> 4, int2(tileInfo.xy) - 1);
     float R = min(tileTex.Load(int3(tp, 0)), dofC.x);
     if (R < .6) return float4(c0.rgb, 0);
@@ -430,12 +447,14 @@ float4 GatherPS(VOut i) : SV_Target {
         float ur = discR * R;
         float2 tuv = (pix + off * R) / dims.xy;
         float4 s = cocTex.SampleLevel(linearClamp, tuv, lod);
-        float3 col = s.rgb;
-        float cs = s.a, as = abs(cs);
+        float wm = worldMask.SampleLevel(linearClamp, tuv, lod);
+        if (wm < 1e-3) continue;                     // all weapon: nothing of the world to gather here
+        float3 col = s.rgb / wm;
+        float cs = s.a / wm, as = abs(cs);
         float reach = as;
         if (cs > 0 && cs > c0far) reach = min(as, max(c0far, .5));
         float cover = saturate(reach - ur + soft);
-        float w = cover * kw * tapScale / max(as * as, .25);
+        float w = cover * kw * tapScale / max(as * as, .25) * wm;
         if (w <= 0) continue;
         // (The highlight lift already happened in CocPS, before the mips: see HighlightBoost.)
         if (cs < 0) { nearAcc += col * w; nearW += w; }
@@ -444,7 +463,8 @@ float4 GatherPS(VOut i) : SV_Target {
     // The centre pixel is one more sample, and belongs to whichever layer it is in.
     float wc = tapScale / max(c0.a * c0.a, .25);
     // Read at the taps' own mip level: a full-resolution read would put a sharp bright dot at the centre of every lifted disc.
-    float3 cCentre = cocTex.SampleLevel(linearClamp, pix / dims.xy, lod).rgb;
+    float wmC = worldMask.SampleLevel(linearClamp, pix / dims.xy, lod);
+    float3 cCentre = wmC > 1e-3 ? cocTex.SampleLevel(linearClamp, pix / dims.xy, lod).rgb / wmC : c0.rgb;
     if (c0.a < 0) { nearAcc += cCentre * wc; nearW += wc; }
     else { farAcc += cCentre * wc; farW += wc; }
     float3 farCol = farW > 1e-6 ? farAcc / farW : c0.rgb;

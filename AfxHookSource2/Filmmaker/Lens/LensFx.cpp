@@ -212,6 +212,11 @@ struct Gpu {
 	ComPtr<ID3D11Texture2D> coc;
 	ComPtr<ID3D11ShaderResourceView> cocAll, cocMip[kCocMipLevels];
 	ComPtr<ID3D11RenderTargetView> cocRtv[kCocMipLevels];
+	// 1 world, 0 the sharp first-person weapon, with the same mips: the gather weights every tap by it
+	// (see CocOut in LensFxShaders.h).
+	ComPtr<ID3D11Texture2D> worldMask;
+	ComPtr<ID3D11ShaderResourceView> worldAll, worldMip[kCocMipLevels];
+	ComPtr<ID3D11RenderTargetView> worldRtv[kCocMipLevels];
 	int cocLevels = 1; // mip levels this target size can hold (at most kCocMipLevels)
 	Tex focus[2];
 	int focusCur = 0;
@@ -352,8 +357,8 @@ bool EnsureTargets(const D3D11_TEXTURE2D_DESC& td, const D3D11_TEXTURE2D_DESC* d
 	g.tile[0] = g.tile[1] = g.halfBright = g.quarterBright = g.eighthBright = Gpu::Tex{};
 	g.sourceQ = g.sourceE = g.sourceH = Gpu::Tex{};
 	g.ghostSrc = g.ghostOut = g.streakOut = g.glowA = g.glowB = Gpu::Tex{};
-	g.coc.Reset(); g.cocAll.Reset();
-	for (int i = 0; i < kCocMipLevels; ++i) { g.cocMip[i].Reset(); g.cocRtv[i].Reset(); }
+	g.coc.Reset(); g.cocAll.Reset(); g.worldMask.Reset(); g.worldAll.Reset();
+	for (int i = 0; i < kCocMipLevels; ++i) { g.cocMip[i].Reset(); g.cocRtv[i].Reset(); g.worldMip[i].Reset(); g.worldRtv[i].Reset(); }
 	g.focus[0] = g.focus[1] = Gpu::Tex{};
 	g.focusStaging.Reset();
 	g.focusValid = false;
@@ -401,23 +406,30 @@ bool EnsureTargets(const D3D11_TEXTURE2D_DESC& td, const D3D11_TEXTURE2D_DESC* d
 		int levels = 1;
 		while (levels < kCocMipLevels && ((std::min)(w, h) >> levels) >= 1) ++levels;
 		g.cocLevels = levels;
-		D3D11_TEXTURE2D_DESC d{};
-		d.Width = w; d.Height = h; d.MipLevels = (UINT)levels; d.ArraySize = 1; d.Format = hdr;
-		d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT;
-		d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-		if (FAILED(g.device->CreateTexture2D(&d, nullptr, &g.coc)) ||
-			FAILED(g.device->CreateShaderResourceView(g.coc.Get(), nullptr, &g.cocAll)))
-			return false;
-		for (int m = 0; m < levels; ++m) {
-			D3D11_SHADER_RESOURCE_VIEW_DESC sv{};
-			sv.Format = hdr; sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-			sv.Texture2D.MostDetailedMip = m; sv.Texture2D.MipLevels = 1;
-			D3D11_RENDER_TARGET_VIEW_DESC rv{};
-			rv.Format = hdr; rv.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D; rv.Texture2D.MipSlice = m;
-			if (FAILED(g.device->CreateShaderResourceView(g.coc.Get(), &sv, &g.cocMip[m])) ||
-				FAILED(g.device->CreateRenderTargetView(g.coc.Get(), &rv, &g.cocRtv[m])))
+		auto chain = [&](DXGI_FORMAT format, ComPtr<ID3D11Texture2D>& tex, ComPtr<ID3D11ShaderResourceView>& all,
+			ComPtr<ID3D11ShaderResourceView>* mips, ComPtr<ID3D11RenderTargetView>* rtvs) {
+			D3D11_TEXTURE2D_DESC d{};
+			d.Width = w; d.Height = h; d.MipLevels = (UINT)levels; d.ArraySize = 1; d.Format = format;
+			d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT;
+			d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+			if (FAILED(g.device->CreateTexture2D(&d, nullptr, &tex)) ||
+				FAILED(g.device->CreateShaderResourceView(tex.Get(), nullptr, &all)))
 				return false;
-		}
+			for (int m = 0; m < levels; ++m) {
+				D3D11_SHADER_RESOURCE_VIEW_DESC sv{};
+				sv.Format = format; sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+				sv.Texture2D.MostDetailedMip = m; sv.Texture2D.MipLevels = 1;
+				D3D11_RENDER_TARGET_VIEW_DESC rv{};
+				rv.Format = format; rv.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D; rv.Texture2D.MipSlice = m;
+				if (FAILED(g.device->CreateShaderResourceView(tex.Get(), &sv, &mips[m])) ||
+					FAILED(g.device->CreateRenderTargetView(tex.Get(), &rv, &rtvs[m])))
+					return false;
+			}
+			return true;
+		};
+		if (!chain(hdr, g.coc, g.cocAll, g.cocMip, g.cocRtv) ||
+			!chain(DXGI_FORMAT_R16_FLOAT, g.worldMask, g.worldAll, g.worldMip, g.worldRtv))
+			return false;
 	}
 	const UINT gw = (w + 15) / 16, gh = (h + 15) / 16;
 	if (!MakeTarget(g.tile[0], gw, gh, DXGI_FORMAT_R16_FLOAT) || !MakeTarget(g.tile[1], gw, gh, DXGI_FORMAT_R16_FLOAT) ||
@@ -871,9 +883,22 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 
 	struct Bind { UINT slot; ID3D11ShaderResourceView* srv; };
 	auto pass = [&](ID3D11PixelShader* ps, ID3D11RenderTargetView* rtv, UINT w, UINT h, std::initializer_list<Bind> binds) {
-		ID3D11ShaderResourceView* none[21] = {};
-		c->PSSetShaderResources(0, 21, none);
+		ID3D11ShaderResourceView* none[22] = {};
+		c->PSSetShaderResources(0, 22, none);
 		c->OMSetRenderTargets(1, &rtv, nullptr);
+		const D3D11_VIEWPORT vp{ 0, 0, (float)w, (float)h, 0, 1 };
+		c->RSSetViewports(1, &vp);
+		c->PSSetShader(ps, nullptr, 0);
+		for (const Bind& b : binds) c->PSSetShaderResources(b.slot, 1, &b.srv);
+		c->Draw(3, 0);
+	};
+	// The same with two targets: the CoC pass and its mips also write the world mask.
+	auto pass2 = [&](ID3D11PixelShader* ps, ID3D11RenderTargetView* rtv0, ID3D11RenderTargetView* rtv1, UINT w, UINT h,
+		std::initializer_list<Bind> binds) {
+		ID3D11ShaderResourceView* none[22] = {};
+		c->PSSetShaderResources(0, 22, none);
+		ID3D11RenderTargetView* rtvs[2] = { rtv0, rtv1 };
+		c->OMSetRenderTargets(2, rtvs, nullptr);
 		const D3D11_VIEWPORT vp{ 0, 0, (float)w, (float)h, 0, 1 };
 		c->RSSetViewports(1, &vp);
 		c->PSSetShader(ps, nullptr, 0);
@@ -904,15 +929,16 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		if (autoFocus)
 			pass(g.focusPS[dms].Get(), g.focus[cur].rtv.Get(), 1, 1,
 				{ { 1, g.depthCopy.srv.Get() }, { 3, g.focus[g.focusCur].srv.Get() }, { 20, smokeSrv } });
-		pass(g.cocPS[dms].Get(), g.cocRtv[0].Get(), td.Width, td.Height,
+		pass2(g.cocPS[dms].Get(), g.cocRtv[0].Get(), g.worldRtv[0].Get(), td.Width, td.Height,
 			{ { 0, g.srcRes.srv.Get() }, { 1, g.depthCopy.srv.Get() }, { 2, g.focus[cur].srv.Get() }, { 20, smokeSrv } });
 		for (int m = 1; m < g.cocLevels; ++m)
-			pass(g.mipPS.Get(), g.cocRtv[m].Get(), std::max(td.Width >> m, 1u), std::max(td.Height >> m, 1u), { { 4, g.cocMip[m - 1].Get() } });
+			pass2(g.mipPS.Get(), g.cocRtv[m].Get(), g.worldRtv[m].Get(), std::max(td.Width >> m, 1u), std::max(td.Height >> m, 1u),
+				{ { 4, g.cocMip[m - 1].Get() }, { 21, g.worldMip[m - 1].Get() } });
 		pass(g.tilePS.Get(), g.tile[0].rtv.Get(), gw, gh, { { 4, g.cocAll.Get() } });
 		pass(g.dilateH.Get(), g.tile[1].rtv.Get(), gw, gh, { { 5, g.tile[0].srv.Get() } });
 		pass(g.dilateV.Get(), g.tile[0].rtv.Get(), gw, gh, { { 5, g.tile[1].srv.Get() } });
 		pass(g.gatherPS.Get(), g.gather.rtv.Get(), td.Width, td.Height,
-			{ { 4, g.cocAll.Get() }, { 5, g.tile[0].srv.Get() }, { 7, g.irisTex.srv.Get() } });
+			{ { 4, g.cocAll.Get() }, { 5, g.tile[0].srv.Get() }, { 7, g.irisTex.srv.Get() }, { 21, g.worldAll.Get() } });
 		pass(g.denoisePS.Get(), g.soft.rtv.Get(), td.Width, td.Height, { { 4, g.cocAll.Get() }, { 6, g.gather.srv.Get() } });
 		if (autoFocus) g.focusCur = cur;
 		g.focusValid = autoFocus;
