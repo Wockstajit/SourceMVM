@@ -134,6 +134,12 @@ the validation and remaining gaps. Update the same PR as the series grows. Use t
 labels on the PR. Do not mark it ready, claim an FPS target, or merge based only on compilation.
 Merging and public release publication are separate actions from the requested branch pushes.
 
+Right after a merge, run `Automation\tools\sync-merged-branches.ps1` from the main checkout. It
+deletes the merged local branch and its worktree, saves their git-ignored notes and captures, and
+fast-forwards local `main` ([Branch retirement](git-workflow.md#branch-retirement)). If another
+branch was stacked on the merged PR, update it before its own review
+([Stacked pull requests](git-workflow.md#stacked-pull-requests)).
+
 After each push, verify that the remote branch tip matches the intended local commit. For a direct
 push or merge to `main`, also verify that the tracking issue closed. GitHub closing keywords take
 effect when the change reaches the default branch. A feature-branch push leaves its issues open.
