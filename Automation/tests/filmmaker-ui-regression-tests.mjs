@@ -264,3 +264,17 @@ test("only explicit mouse commands switch click-to-capture off", () => {
   assert.doesNotMatch(hooks, /MouseCapture_SetFree\(/);
   assert.match(osu, /if \(g_prevClickToCapture\) \{ MouseCapture_SetClickToCapture\(true\);/, "osu! gives back the mode it found");
 });
+
+// 2026-10-17 (mvm_debug fx log, MoNaTy USP-S demo): CS2 no longer creates blood_impact_headshot, so
+// money only paid out on helmeted heads. A head hit no helmet swap covered spawns the burst itself.
+test("money on headshot covers heads without a helmet, and never a seek's replayed hits", () => {
+  const money = read("AfxHookSource2", "Filmmaker", "Movie", "ParticleFxMoney.cpp");
+  const hook = read("AfxHookSource2", "Filmmaker", "Movie", "ParticleFxHook.cpp");
+  const fxCpp = read("AfxHookSource2", "Filmmaker", "Movie", "ParticleFx.cpp");
+  assert.match(money, /if \(!gate\.death && gate\.hitgroup == 1\) \{/, "the head hit queues a spawn");
+  assert.match(money, /SpawnParticleAt\(kMoneyBurst, at\)/);
+  assert.match(money, /const bool helmet = m\.tick >= 0 && std::abs\(helmetTick - m\.tick\) <= 1;/, "no second burst on a helmet swap");
+  assert.match(money, /std::abs\(tickNow - m\.tick\) > kMoneyStaleTicks/, "a seek's replayed events are skipped");
+  assert.match(hook, /g_helmetMoneyTick\.store\(/);
+  assert.match(fxCpp, /MoneyShot_PumpMainThread\(\);/);
+});

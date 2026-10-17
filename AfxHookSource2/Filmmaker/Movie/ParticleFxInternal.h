@@ -83,6 +83,10 @@ constexpr const char* kMw2019FlashbangParts[] = {
 // flashbang_detonate position (any thread) -> created by the main-thread pump.
 void FlashbangFx_OnDetonate(float x, float y, float z);
 void FlashbangFx_PumpMainThread();
+// Money on headshot (ParticleFxMoney.cpp): the demo tick of the last helmet-spark swap, and the
+// main-thread spawn of the money burst for a headshot no helmet spark covered.
+extern std::atomic<int> g_helmetMoneyTick;
+void MoneyShot_PumpMainThread();
 // Main thread. Creates `name` at a world point via the game particle manager; -1 on failure.
 int SpawnParticleAt(const char* name, const float* position);
 // Money-on-headshot lives in its OWN converted namespace (FX\sources\povarehok-money\ ->

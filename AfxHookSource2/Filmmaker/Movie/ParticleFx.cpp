@@ -571,6 +571,7 @@ void ParticleFx::PumpMainThread() {
 	FxAlign_PumpMainThread();
 	// Flash grenade On: place the MW2019 flash at each queued detonation.
 	FlashbangFx_PumpMainThread();
+	MoneyShot_PumpMainThread();
 	MollyFx_PumpMainThread();
 	// Cache the firing weapon for PerWeaponFx_Override. Must be main-thread: the particle
 	// hook resolves swaps on whatever thread creates particles, where entity access is unsafe.

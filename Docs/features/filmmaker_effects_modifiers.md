@@ -292,9 +292,13 @@ staged material names, into the pack. Without it the target is missing, the swap
 HE On plays vanilla; `FX/tools/verify-fx-pack.py` reports that as `ROOT NOT STAGED`.
 
 **Money on Headshot** (`mirv_filmmaker fx moneyshot on|off`) swaps the headshot-only
-particles (`blood_impact_headshot`, `impact_helmet_headshot`, ...) to the converted money
-burst. There is no event gating; those systems are only ever created on real headshot hits (particles spawn before the
-`player_hurt`/`player_death` events within the tick).
+particles (`impact_helmet_headshot`, ...) to the converted money burst; those are only ever created
+on real headshot hits (before the `player_hurt` / `player_death` events within the tick). Current
+CS2 no longer creates `blood_impact_headshot`: a head without a helmet bleeds with the ordinary
+`blood_impact_high` / `med` / `low`, so the swap alone only paid out on helmeted heads (pistol and
+eco rounds, the USP-S, rarely have one). Every other headshot (`player_hurt`, hitgroup head) spawns
+the burst at the victim's head on the main thread instead, unless the helmet swap covered that tick,
+and never for the events a seek replays. `mvm_debug` logs each one as `fx.money`.
 
 **Taser/Zeus is untouched by the variant tables**: its `weapon_tracers_taser*` wire
 systems are not mapped, so they play vanilla.

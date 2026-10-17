@@ -16,12 +16,21 @@
 // dispatched, so a single lethal headshot armed the window only after its blood had
 // already spawned unswapped -- the only thing that ever hit the armed window was a SECOND
 // headshot following within 1.5s (i.e. spraying someone's head). Event-gating a particle
-// that is already headshot-exclusive was pure downside; the events are kept below ONLY as
-// mvm_debug breadcrumbs.
+// that is already headshot-exclusive was pure downside.
+//
+// LESSON (2026-10-17, user report "suppressed weapons do not do the money on headshot, at least
+// the USP"): current CS2 never creates blood_impact_headshot at all -- a headshot bleeds with the
+// ordinary blood_impact_high / med / low (mvm_debug fx log on the MoNaTy USP-S demo; no log since
+// has a single blood_impact_headshot). The one headshot-only system left is the helmet spark, so
+// money only came on HELMETED heads, and pistol / eco rounds (the USP) rarely have a helmet. The
+// swap still covers a helmeted head; any other headshot (player_hurt, hitgroup head) now spawns
+// the money burst at the victim's head itself (MoneyShot_PumpMainThread).
 
 #include "ParticleFxInternal.h"
 
 #include "FxAlign.h"                       // FxAlign_Enabled (weapon_fire window arming)
+#include "RagdollBodies.h"                 // PawnOfUser
+#include "../../ClientEntitySystem.h"      // CEntityInstance: the victim's render eye
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_* (thread-safe flight recorder)
 #include "../Platform/JsonParser.h"
 #include "../Environment/EnvironmentVfxLighting.h"
@@ -33,12 +42,40 @@
 #include "../../../Deps/release/prop/cs2/sdk_src/public/igameevents.h"
 #include "../../../Deps/release/prop/cs2/sdk_src/public/tier1/utlstring.h"
 
+#include <cmath>
 #include <cstring>
+#include <mutex>
+#include <vector>
 
 namespace Filmmaker {
 namespace fx {
 
+std::atomic<int> g_helmetMoneyTick{ -1000 };
+
 namespace {
+
+// A headshot the helmet swap did not cover, waiting for the main thread to spawn its money.
+struct PendingMoneyShot { int userid = 0; int tick = -1; unsigned long long wallMs = 0; };
+std::mutex g_moneyShotMx;
+std::vector<PendingMoneyShot> g_moneyShots;
+// A seek replays the events it skips over: those are not hits on screen now (same rule as the
+// flashbang detonations, ParticleFxFlashbang.cpp).
+constexpr int kMoneyStaleTicks = 8;
+constexpr unsigned long long kMoneyStaleMs = 500;
+
+// The victim's head (its render eye, a few units down, as the follow camera's head point), dead or
+// alive; false for anything that is not a player pawn or reads no position.
+bool HeadOf(CEntityInstance* pawn, float out[3]) {
+	__try {
+		if (!pawn->IsPlayerPawn()) return false;
+		float eye[3] = {};
+		pawn->GetRenderEyeOrigin(eye);
+		if (!std::isfinite(eye[0]) || !std::isfinite(eye[1]) || !std::isfinite(eye[2])
+			|| (eye[0] == 0 && eye[1] == 0 && eye[2] == 0)) return false;
+		out[0] = eye[0]; out[1] = eye[1]; out[2] = eye[2] - 3.0f;
+		return true;
+	} __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
 
 std::atomic<unsigned long long> g_lastMoneyHeadshotSignature{ 0 };
 std::atomic<unsigned long long> g_lastMoneyHeadshotSignatureMs{ 0 };
@@ -157,6 +194,41 @@ bool IsMoneyHeadshotCandidateLower(const char* n) {
 		|| 0 == std::strcmp(n, "particles/impact_fx/impact_helmet_headshot.vpcf");
 }
 
+void MoneyShot_PumpMainThread() {
+	std::vector<PendingMoneyShot> pending;
+	{
+		std::lock_guard<std::mutex> lock(g_moneyShotMx);
+		if (g_moneyShots.empty()) return;
+		pending.swap(g_moneyShots);
+	}
+	{
+		std::lock_guard<std::mutex> lock(g_mx);
+		if (!g_enabled || !g_moneyHeadshot) return;
+	}
+	const int tickNow = g_demoTickNow.load(std::memory_order_relaxed);
+	const int helmetTick = g_helmetMoneyTick.load(std::memory_order_relaxed);
+	const unsigned long long now = GetTickCount64();
+	for (const PendingMoneyShot& m : pending) {
+		const bool stale = now - m.wallMs > kMoneyStaleMs
+			|| (tickNow >= 0 && m.tick >= 0 && std::abs(tickNow - m.tick) > kMoneyStaleTicks);
+		// The helmet spark is created before the hurt event in the same tick and was already swapped.
+		const bool helmet = m.tick >= 0 && std::abs(helmetTick - m.tick) <= 1;
+		const char* outcome = stale ? "SKIPPED (seek replay)" : helmet ? "covered by the helmet swap" : "no head";
+		float at[3] = {};
+		if (!stale && !helmet) {
+			// The victim's head this tick, read directly: a lethal headshot has already taken its
+			// health to 0, which the follow-camera's head point refuses (ResolvePlayerVirtualPoint).
+			CEntityInstance* pawn = RagdollBodies::PawnOfUser(m.userid, nullptr);
+			if (!pawn) outcome = "no pawn for the victim";
+			else if (!HeadOf(pawn, at)) outcome = "no head position";
+			else outcome = SpawnParticleAt(kMoneyBurst, at) >= 0 ? "spawned at the head" : "spawn failed";
+		}
+		if (MvmDebugLog_Active())
+			MvmDebugLog_LinefAlways("fx.money", "headshot userid=%d eventTick=%d tick=%d helmetTick=%d at %.1f %.1f %.1f: %s",
+				m.userid, m.tick, tickNow, helmetTick, at[0], at[1], at[2], outcome);
+	}
+}
+
 } // namespace fx
 
 // ============================== public API =========================================
@@ -220,6 +292,13 @@ void ParticleFx_OnGameEvent(SOURCESDK::CS2::CGameEvent* event) {
 		return;
 	if (MoneyHeadshotEventIsDuplicate(gate.signature))
 		return;
+	// The hit itself (player_hurt to the head): the main thread spawns its money unless the helmet
+	// swap covered it. player_death repeats the same hit, so it only leaves the breadcrumb.
+	if (!gate.death && gate.hitgroup == 1) {
+		std::lock_guard<std::mutex> lock(g_moneyShotMx);
+		if (g_moneyShots.size() >= 16) g_moneyShots.erase(g_moneyShots.begin());
+		g_moneyShots.push_back({ gate.userid, g_demoTickNow.load(std::memory_order_relaxed), GetTickCount64() });
+	}
 
 	// Debug breadcrumb only: the swap itself is no longer event-gated (headshot particles
 	// are created BEFORE these events within the tick -- see the file comment above). This
