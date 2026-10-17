@@ -8,6 +8,8 @@
 // CamPlayback (to evaluate). This is the "marker data" slice carved out of the
 // old CameraPath god-object.
 
+#include "GraphCurveMath.h"
+
 #include <string>
 #include <vector>
 
@@ -30,7 +32,29 @@ struct CamMarker {
 	// the last marker has no outgoing segment, so its value is ignored.
 	float speedMul = 1.0f;
 	Ease ease = Ease::None;                    // easing of this marker's outgoing segment
+	// The graph's Bezier handles per channel, in GraphExpModel's channel order (x, y, z, pitch,
+	// yaw, roll, fov): `in` toward the previous marker, `out` toward the next (GraphCurveMath.h).
+	// A path whose markers carry any is flown along those curves (CamPathEval); a path with none
+	// keeps the spline it always had.
+	GraphCurve::Handle in[7], out[7];
+	bool HasCurve() const {
+		for (int c = 0; c < 7; ++c) if (in[c].active || out[c].active) return true;
+		return false;
+	}
 };
+
+// The pose between markers a and b at `tick` along the graph's curves: per channel the Bezier
+// segment from a's `out` handle to b's `in` handle (GraphCurve::SegmentValue -- what the graph
+// draws), angles the short way round. CamPathEval::EvalCurves flies this. Order: x, y, z, pitch,
+// yaw, roll, fov.
+inline void CurvePoseBetween(const CamMarker& a, const CamMarker& b, double tick, double out[7]) {
+	const double va[7] = { a.x, a.y, a.z, a.pitch, a.yaw, a.roll, a.fov };
+	const double vb[7] = { b.x, b.y, b.z, b.pitch, b.yaw, b.roll, b.fov };
+	for (int c = 0; c < 7; ++c) {
+		const double end = GraphCurve::IsAngleChannel(c) ? GraphCurve::Unwrap(va[c], vb[c]) : vb[c];
+		out[c] = GraphCurve::SegmentValue((double)a.tick, va[c], a.out[c], (double)b.tick, end, b.in[c], tick);
+	}
+}
 
 // Path-wide settings persisted in the SAME sidecar as the markers. Kept here so
 // the on-disk schema lives in one place; the ints mirror the CameraPath enums

@@ -63,6 +63,7 @@ inline const char* kGraphEditorJs = R"GEJS(
     // navigator sits between the layer name and the timeline rather than floating in a toolbar.
     var LEFTW = 320, HEADER_H = 64, OVERVIEW_H = 30, RULER_H = 26, FOOTER_H = 30;
     var KF_R = 8, HANDLE_R = 7; // hit radii (layout px)
+    var KF_DRAG_PX = 3;         // a key press only becomes a drag past this many layout px
     // Scene-mode value axis: a fixed gutter down the left of the canvas so every strip's three
     // numbers share one right edge, and half a line height so each sits ON its rule.
     var AXIS_W = 46, AXIS_HALF = 6;
@@ -1131,7 +1132,8 @@ R"GEJS(
       if (view.t1 - view.t0 < MIN_SPAN * 4) { var c = (a + b) / 2; view.t0 = c - MIN_SPAN * 2; view.t1 = c + MIN_SPAN * 2; }
       normalizeView(); afterViewChange(true);
     }
-    // FIT: every visible key on screen, and (scene mode) every curve refitted to its own height.
+    // FIT: every visible key on screen, and every curve -- eased bulges and selected handles
+    // included -- refitted to its own height (fitSceneRange / fitCamRange).
     function fitAll() {
       var a = Infinity, b = -Infinity;
       for (var i = 0; i < model.length; i++) {
@@ -1140,7 +1142,7 @@ R"GEJS(
       }
       if (!(b >= a)) { var p = num(st.playhead); a = p - 500; b = p + 500; }
       frameTicks(a, b);
-      sceneRanges = {}; lastSig = '';
+      sceneRanges = {}; camRanges = {}; lastSig = '';
     }
     // Keys that were not in the model last frame and sit outside the window are revealed: the
     // only way to create one off screen is from a playhead you cannot see.
@@ -1260,10 +1262,39 @@ R"GEJS(
     // floor so a nearly flat curve is not blown up into noise. FROZEN while any gesture is open:
     // refitting under a dragged key or handle would move the axis under the pointer and run away.
     var sceneRanges = {};
+    // Camera channels get the same treatment for their CURVES: C++ fits the keys only, so an eased
+    // segment whose Bezier bulges past its keys -- and the handles that shape it -- ran off the top or
+    // bottom of the canvas, where they could not be seen or grabbed, and FIT (time only) could not
+    // bring them back. The C++ range stays the floor; the curve and selected handles widen it.
+    // Refit between gestures, frozen during one, exactly like the scene strips.
+    var camRanges = {};
     function rng(ch) {
-      if (!sceneOn()) return { lo: ch.min, hi: ch.max };
+      if (!sceneOn()) return camRanges[ch.ch] || { lo: ch.min, hi: ch.max };
       var r = sceneRanges[ch.fieldId];
       return r || { lo: ch.min, hi: ch.max };
+    }
+    function fitCamRange(ch) {
+      var lo = ch.min, hi = ch.max, a = lo, b = hi;
+      function take(v) { if (isFinite(v)) { if (v < a) a = v; if (v > b) b = v; } }
+      var k = ch.keys;
+      for (var i = 0; i < k.length; i++) {
+        if (k[i].sel) {
+          if (k[i].cl && k[i].cl.a) take(k[i].v + k[i].cl.dv);
+          if (k[i].cr && k[i].cr.a) take(k[i].v + k[i].cr.dv);
+        }
+        if (i + 1 < k.length && segActive(k[i], k[i + 1])) {
+          var P = segPts(k[i], k[i + 1]);
+          for (var s = 1; s < 16; s++) take(bez(P.p0y, P.p1y, P.p2y, P.p3y, s / 16));
+        }
+      }
+      if (a >= lo && b <= hi) return { lo: lo, hi: hi };
+      var pad = (b - a) * 0.08;
+      return { lo: a < lo ? a - pad : lo, hi: b > hi ? b + pad : hi };
+    }
+    function refitCamRanges() {
+      var out = {};
+      for (var i = 0; i < model.length; i++) out[model[i].ch] = fitCamRange(model[i]);
+      camRanges = out;
     }
     function fitSceneRange(ch) {
       var lo = ch.min, hi = ch.max, full = hi - lo;
@@ -1886,6 +1917,8 @@ R"GEJS(
             cmd('editbegin');
           } else { var nf = numFieldHit(cc.lx, cc.ly); if (nf >= 0) { gesture = { type: 'num', ch: nf, smx: st.mx, sv: fieldValue(nf), moved: false }; cmd('editbegin'); } }
         }
+)GEJS"
+R"GEJS(
       } else if (lmb && prevLmb && gesture) {
         if (gesture.type === 'ovL') { view.t0 = xToDom(cc.clx); normalizeView(); afterViewChange(); }
         else if (gesture.type === 'ovR') { view.t1 = xToDom(cc.clx); normalizeView(); afterViewChange(); }
@@ -1921,6 +1954,15 @@ R"GEJS(
             cmd('handle ' + gesture.ch + ' ' + gesture.id + ' ' + (gesture.side > 0 ? 'right' : 'left') + ' ' + tx.toFixed(3) + ' ' + dv.toFixed(3) + ' 0');
           }
         } else if (gesture.type === 'kf') {
+          // A CLICK IS NOT A DRAG. Until the pointer leaves a few pixels around the press, the key
+          // stays exactly where it is: no snap (the lead-key snap would otherwise move an off-grid
+          // key the moment it is clicked) and no movesel, because every movesel bakes the graph
+          // into the camera path.
+          if (!gesture.dragging) {
+            var pdx = cc.lx - gesture.sx, pdy = cc.ly - gesture.sy;
+            if (pdx * pdx + pdy * pdy < KF_DRAG_PX * KF_DRAG_PX) { prevLmb = lmb; return; }
+            gesture.dragging = true;
+          }
           var ach = chById(gesture.ach) || model[0];
           var dt = tickDelta(cc.lx - gesture.sx), dv2 = valDelta(cc.ly - gesture.sy, ach);
           // Shift = lock to the horizontal axis (timing only): freeze the value delta where it was
@@ -1946,7 +1988,7 @@ R"GEJS(
             var lead = keyById(chById(gesture.ach) || { keys: [] }, gesture.kid);
             var ph = Math.max(0, Math.round(lead ? lead.t : gesture.leadT0 + dt));
             if (gesture.seek && ph !== gesture.ph) { gesture.ph = ph; playheadTo(ph); }
-          } else cmd('movesel ' + (dt - gesture.ldt).toFixed(3) + ' ' + (dv2 - gesture.ldv).toFixed(3));
+          } else if (dt !== gesture.ldt || dv2 !== gesture.ldv) cmd('movesel ' + (dt - gesture.ldt).toFixed(3) + ' ' + (dv2 - gesture.ldv).toFixed(3));
           gesture.ldt = dt; gesture.ldv = dv2;
         } else if (gesture.type === 'rect') { gesture.cx = cc.clx; gesture.cy = cc.cly; updateRect(gesture); }
         else if (gesture.type === 'ruler') { playheadTo(scrubTick(cc.clx)); }
@@ -2393,8 +2435,8 @@ R"GEJS(
         + (sceneMode ? ':' + sceneScroll + ':' + model.length : '');
       if (sig !== lastSig) {
         lastSig = sig;
-        // Scene curves refit to their content between gestures, never during one (see rng()).
-        if (sceneMode && !gesture) refitSceneRanges();
+        // Curves refit to their content between gestures, never during one (see rng()).
+        if (!gesture) { if (sceneMode) refitSceneRanges(); else refitCamRanges(); }
         if (sceneMode) drawSceneStrips(); else stripLayer.RemoveAndDeleteChildren();
         drawGrid(); drawCurves(); drawKeyframes(); drawHandles(); drawOverviewKeys();
       }

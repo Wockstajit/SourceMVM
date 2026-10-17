@@ -51,6 +51,11 @@ void MouseCapture_TakeForCamera(const char* reason) {
 	MouseCapture_ApplyFreeState(false, reason ? reason : "camera");
 }
 
+void MouseCapture_ReleaseForUi(const char* reason) {
+	if (!g_clickToCapture.load(std::memory_order_acquire)) return; // explicit free/game: not ours to change
+	MouseCapture_ApplyFreeState(true, reason ? reason : "ui");
+}
+
 void MouseCapture_OnActivate(bool active) {
 	if (MvmDebugLog_Active())
 		MvmDebugLog_Linef("input.capture", "wm_activate active=%d clickMode=%d free=%d",

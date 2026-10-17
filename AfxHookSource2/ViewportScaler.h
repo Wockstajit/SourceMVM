@@ -106,8 +106,22 @@ namespace AfxViewportScaler {
 	// EngineThread_RunFrame, at most once per present.
 	void RenderThread_MaybeFallbackBlit(ID3D11RenderTargetView* pTarget);
 
-	// Render thread (Before_Present): re-arm the once-per-present fallback latch.
+	// Render thread (Before_Present): re-arm the once-per-present fallback latch, and count this
+	// present against VpScaleBreakMath.h (each break is numbered in the mvm_debug log as
+	// vpscale.break, with the state it started in and how long it lasted).
 	void RenderThread_OnPresent();
+
+	// Main thread (DemoScrub, every frame): hold the workspace preview on its last settled frame.
+	// While held -- and for any present whose scale blit was missed -- the render thread copies the
+	// last good preview REGION back over the frame before it is presented, so a seek's raw restore
+	// (an un-simulated world: bind-pose or missing players), its play-in, and the full-size frame of
+	// a missed blit never reach the screen. Only the preview rect is held: the panels around it stay
+	// live. Capped at kMaxHoldMs so a seek that never settles cannot freeze the preview.
+	void SetHoldPreview(bool hold);
+
+	// Any thread: breaks of the scaled preview since the game started, per reason
+	// (VpScaleBreakMath.h), and the reasons of the break open right now (0 = healthy).
+	void BreakCounts(unsigned& total, unsigned& missed, unsigned& stale, unsigned& stretched, unsigned& openReasons);
 
 	// Render thread: has this present's scale-blit already happened? Anything drawn into the
 	// scene AFTER it lands in full-screen coordinates on top of the shrunk image -- i.e. over the

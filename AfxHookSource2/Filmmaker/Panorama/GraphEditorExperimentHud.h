@@ -20,6 +20,7 @@
 //   JS  -> C++: "mirv_filmmaker grapheditor ..." console commands.
 
 #include "PanoramaBridge.h"
+#include "../Movie/CamMarkers.h"
 #include "../Movie/GraphExpModel.h"
 
 #include <string>
@@ -90,10 +91,15 @@ private:
 	void* FindRoot();
 	bool BuildIfNeeded();
 	void Teardown();
-	void OnEnter();   // seed, sync drive mode, stop stable scrub only when graph has keys
+	void OnEnter();   // adopt path changes, sync drive mode, stop stable scrub only when graph has keys
 	void OnExit();    // stop driving + tear down
+	// Seed (empty model) or reconcile (kept model) from the camera path when its markers differ
+	// from the last set this graph seeded from or baked. `why` names the caller in the log.
+	// Returns true if the model changed.
+	bool AdoptPathChanges(const char* why);
 	std::string BuildStateJson();
 	void DriveCameraThisFrame();
+	bool DrivingNow() const; // a playhead scrub or a key edit is in progress (the only times the graph flies the camera)
 	void BumpRev() { ++m_rev; }
 	double PlayheadTick() const; // the SHARED cursor (Movie/TimelinePlayhead.h), not a private one
 	// UNIFICATION: project the graph model back into the stable camera path (CameraPath
@@ -111,6 +117,11 @@ private:
 	PanoramaBridge m_bridge;
 	GraphExpModel m_model;
 	bool m_pathUndoPending = false; // arm one CameraPath curve-undo push for the next sync
+	// The camera path's markers as of this graph's last seed or bake. Anything else that differs
+	// from this changed the path behind the graph's back (see AdoptPathChanges).
+	std::vector<CamMarker> m_pathSeen;
+	bool m_pathSeenValid = false;
+	int m_editDriveFrames = 0;    // frames left of "show the edit" drive after a bake
 
 	void* m_hudPanel = nullptr;
 	void* m_root = nullptr;       // #GraphExpRoot

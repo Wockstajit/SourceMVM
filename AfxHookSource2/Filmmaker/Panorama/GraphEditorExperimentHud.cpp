@@ -140,19 +140,45 @@ void GraphEditorExperimentHud::Teardown() {
 	m_lastState.clear();
 }
 
-void GraphEditorExperimentHud::OnEnter() {
-	// Seed our isolated model from the stable path (read-only) ONLY if we don't already have one.
-	// Enabling fires every time the bottom panel flips back from the timeline; re-seeding there
-	// would wipe the user's graph edits. The model is cleared when the demo changes (RunFrame),
-	// so a genuinely new session still seeds fresh.
-	if (m_model.TotalKeys() == 0) {
-		m_model.SeedFromMarkers(CameraPathRef().Markers());
+bool GraphEditorExperimentHud::AdoptPathChanges(const char* why) {
+	const CameraPath& cp = CameraPathRef();
+	if (m_pathSeenValid && GraphExpModel::SameMarkers(cp.Markers(), m_pathSeen))
+		return false;
+	const int keysBefore = m_model.TotalKeys();
+	const bool smooth = cp.GetInterp() == CameraPath::Interp::Bezier;
+	bool changed;
+	if (keysBefore == 0) {
+		m_model.SeedFromMarkers(cp.Markers());
 		// Seeded keys carry no handles, i.e. they read as Linear -- but the PATH may be in Smooth
 		// mode. Shape the fresh handles to the path's interp so the graph opens showing the curve
-		// the camera is actually flying (the other half of the Smooth/Linear sync).
-		if (CameraPathRef().GetInterp() == CameraPath::Interp::Bezier)
+		// the camera is actually flying (the other half of the Smooth/Linear sync). A path that
+		// already carries the graph's handles opens on exactly those (SeedFromMarkers).
+		if (smooth && !GraphExpModel::MarkersHaveCurves(cp.Markers()))
 			m_model.SetInterpAll(true, false);
+		m_viewInit = false;
+		++m_viewEpoch;
+		changed = m_model.TotalKeys() > 0;
+	} else {
+		changed = m_model.ReconcileWithMarkers(cp.Markers(), smooth);
 	}
+	m_pathSeen = cp.Markers();
+	m_pathSeenValid = true;
+	if (changed) BumpRev();
+	if (MvmDebugLog_Active())
+		MvmDebugLog_Linef("graph.adopt", "why=%s pathCount=%d keysBefore=%d keys=%s changed=%d seeded=%d",
+			why, cp.Count(), keysBefore, ChKeyCounts(m_model).c_str(), changed ? 1 : 0, keysBefore == 0 ? 1 : 0);
+	return changed;
+}
+
+void GraphEditorExperimentHud::OnEnter() {
+	// THE PATH IS THE SHOT. The model is kept between visits so graph-only shape (Bezier handles,
+	// a channel keyed on its own) survives flipping the dock to the timeline and back -- but
+	// markers can change while the graph is closed (placed from the marker HUD, dragged on the
+	// camera timeline, edited in the inspector, undone). Keeping the model as it was is what
+	// turned a 5-marker path into 2: the graph reopened on the 2 keys it saw last time, and the
+	// next key click baked those 2 back over the path. AdoptPathChanges brings the model in line
+	// with any marker change this graph did not make, keeping handles on keys that still exist.
+	AdoptPathChanges("enter");
 	m_viewInit = false;
 	++m_viewEpoch; // ask the JS to take the fresh suggestion
 	TimelinePlayhead_EndScrub();
@@ -169,8 +195,9 @@ void GraphEditorExperimentHud::OnEnter() {
 	if (m_model.TotalKeys() > 0)
 		CameraPathRef().StopScrub();
 
-	// Seeding is conditional (only an EMPTY model re-seeds), so "the graph opened with the
-	// wrong curves" is answered by seeded= plus the key counts, not by guessing.
+	// The graph.adopt line above says whether the model was seeded, reconciled or kept; this one
+	// records the result next to the path count, so "the graph opened with the wrong curves" is
+	// answered by the key counts, not by guessing.
 	if (MvmDebugLog_Active())
 		MvmDebugLog_Linef("graph.mode", "enter keys=%s total=%d pathCount=%d drive=%d editorActive=%d cursor=%d",
 			ChKeyCounts(m_model).c_str(), m_model.TotalKeys(), CameraPathRef().Count(),
@@ -194,12 +221,26 @@ double GraphEditorExperimentHud::PlayheadTick() const {
 	return TimelinePlayhead_Tick();
 }
 
+bool GraphEditorExperimentHud::DrivingNow() const {
+	// ONLY WHILE THE USER IS STEERING THE PLAYHEAD OR A KEY. The graph used to push the path pose
+	// every frame the playhead sat inside the path, with free cam forced on: after a playback
+	// ended on the last key, while the demo simply played, and after a click on "first person".
+	// The view could not leave the path while the dock was open. A scrub or an edit is what the
+	// preview is for; between them the camera belongs to whatever the user picked, exactly as on
+	// the camera timeline, whose scrub hands the free cam back once its seek lands.
+	return TimelinePlayhead_Scrubbing() || m_editDriveFrames > 0;
+}
+
 bool GraphEditorExperimentHud::OwnsView() const {
-	return m_enabled && m_drive && m_model.TotalKeys() > 0 && CameraBridge_GetFreeCamEnabled();
+	return m_enabled && m_drive && m_model.TotalKeys() > 0 && CameraBridge_GetFreeCamEnabled() && DrivingNow();
 }
 
 void GraphEditorExperimentHud::DriveCameraThisFrame() {
+	const bool editDrive = m_editDriveFrames > 0;
+	if (m_editDriveFrames > 0) --m_editDriveFrames;
 	if (!m_enabled || !m_drive || m_model.TotalKeys() == 0)
+		return;
+	if (!TimelinePlayhead_Scrubbing() && !editDrive)
 		return;
 	// The dock only drives the camera while it is SHOWING the camera. In scene mode it is a
 	// lighting/weather editor; writing a camera-path pose every frame from behind it is how
@@ -421,9 +462,10 @@ void GraphEditorExperimentHud::RunFrame() {
 	unsigned char* hud = PlayingDemo() ? AfxHookSource2_GetPanoramaHudPanel() : nullptr;
 	if (!hud) {
 		if (m_wasEnabled) { m_enabled = false; OnExit(); m_wasEnabled = false; }
-		// Demo gone: drop the model so the NEXT demo/session re-seeds fresh (OnEnter only seeds
-		// an empty model, so without this it would keep showing the previous demo's curves).
+		// Demo gone: drop the model so the NEXT demo/session seeds fresh instead of reconciling
+		// the previous demo's handles onto a different shot.
 		if (m_model.TotalKeys() > 0) { m_model.Clear(); m_viewInit = false; ++m_viewEpoch; }
+		m_pathSeenValid = false;
 		m_built = false; m_root = nullptr; m_hudPanel = nullptr;
 		return;
 	}
@@ -436,6 +478,11 @@ void GraphEditorExperimentHud::RunFrame() {
 
 	if (!m_enabled)
 		return;
+
+	// The path can also change WHILE the graph is open: a marker placed with the marker key, a
+	// value typed in the path inspector beside the dock, the path's own undo. Every frame, so the
+	// graph never shows (or bakes) a marker set the path no longer has.
+	AdoptPathChanges("path");
 
 	if (!BuildIfNeeded())
 		return;
@@ -518,47 +565,26 @@ void GraphEditorExperimentHud::SyncToCameraPath() {
 		return;
 	}
 
-	// Union of key ticks across channels (dedupe within half a tick).
-	std::vector<double> ticks;
-	for (int c = 0; c < GraphExpModel::kChannelCount; ++c)
-		for (const auto& k : m_model.GetChannel(c).keys)
-			ticks.push_back(k.tick);
-	std::sort(ticks.begin(), ticks.end());
-	ticks.erase(std::unique(ticks.begin(), ticks.end(),
-		[](double a, double b) { return std::abs(a - b) < 0.5; }), ticks.end());
-
 	CameraPath& cp = CameraPathRef();
-	const std::vector<CamMarker>& old = cp.Markers();
-	float ipt = g_MirvTime.interval_per_tick_get();
-
-	std::vector<CamMarker> baked;
-	baked.reserve(ticks.size());
-	for (double t : ticks) {
-		CamMarker m;
-		m.tick = (int)std::floor(t + 0.5);
-		m.time = (ipt > 0.0f) ? t * ipt : 0.0;
-		double v = 0.0;
-		m.x = m_model.SampleChannel(0, t, v) ? v : 0.0;
-		m.y = m_model.SampleChannel(1, t, v) ? v : 0.0;
-		m.z = m_model.SampleChannel(2, t, v) ? v : 0.0;
-		m.pitch = m_model.SampleChannel(3, t, v) ? v : 0.0;
-		m.yaw = m_model.SampleChannel(4, t, v) ? v : 0.0;
-		m.roll = m_model.SampleChannel(5, t, v) ? v : 0.0;
-		m.fov = m_model.SampleChannel(6, t, v) ? v : 90.0;
-		for (const CamMarker& om : old) {
-			if (std::abs((double)om.tick - t) < 0.5) { m.ease = om.ease; m.speedMul = om.speedMul; break; }
-		}
-		baked.push_back(m);
-	}
+	// A bake from a model that missed a path change would put the old marker set back, so adopt
+	// first. In the normal flow this is a no-op: the per-frame check already caught up.
+	AdoptPathChanges("sync");
+	const float ipt = g_MirvTime.interval_per_tick_get();
+	const std::vector<CamMarker> baked = m_model.BakeMarkers(cp.Markers(), (double)ipt);
 
 	const bool pushUndo = m_pathUndoPending;
 	m_pathUndoPending = false;
 	const int pathBefore = cp.Count();
 	const int selBefore = cp.Selected();
 	cp.ReplaceMarkersFromGraph(baked, pushUndo);
+	m_pathSeen = cp.Markers();
+	m_pathSeenValid = true;
+	// Show the edit: a dragged key or handle reshapes the path at the playhead, so the camera
+	// follows the gesture for as long as it keeps baking (see DrivingNow).
+	m_editDriveFrames = 2;
 
-	// Logged AFTER the write so one line carries inputs (union tick count, key counts, undo
-	// arming) and the real effect (marker count + selection before/after). Drag-rate callers
+	// Logged AFTER the write so one line carries inputs (key counts, undo arming) and the real
+	// effect (marker count + selection before/after). Drag-rate callers
 	// hit this per mouse-move, so throttle -- but never skip a line where the marker COUNT
 	// changed, since that is the structural event worth reconstructing.
 	if (MvmDebugLog_Active()) {
@@ -568,9 +594,9 @@ void GraphEditorExperimentHud::SyncToCameraPath() {
 		s_lastBaked = baked.size();
 		if (structural || (s_n++ % 8) == 0)
 			MvmDebugLog_Linef("graph.sync",
-				"baked keys=%s unionTicks=%zu markers=%zu pathCount=%d->%d sel=%d->%d undo=%d "
+				"baked keys=%s markers=%zu pathCount=%d->%d sel=%d->%d undo=%d "
 				"tick0=%d tickN=%d ipt=%.5f",
-				ChKeyCounts(m_model).c_str(), ticks.size(), baked.size(),
+				ChKeyCounts(m_model).c_str(), baked.size(),
 				pathBefore, cp.Count(), selBefore, cp.Selected(), pushUndo ? 1 : 0,
 				baked.empty() ? -1 : baked.front().tick, baked.empty() ? -1 : baked.back().tick,
 				(double)ipt);
@@ -681,11 +707,10 @@ void GraphEditorExperimentHud::CmdClear() {
 	++m_viewEpoch;
 	TimelinePlayhead_EndScrub();
 	BumpRev();
-	// No SyncToCameraPath: CmdClear also runs on demo unload / CameraPath::DeleteAll, where
-	// writing an empty marker list back would be wrong (or redundant). The graph's own model
-	// is empty; the path is rebuilt by whoever triggered the clear.
-	// NOTE for the log reader: no graph.sync line follows a clear -- that is deliberate, not a
-	// missed sync (CmdClear also runs on demo unload).
+	// No SyncToCameraPath: clearing the GRAPH is not deleting the shot. The path keeps its
+	// markers, so the next frame re-seeds this model from them (graph.adopt) -- the graph and
+	// the camera timeline must never disagree about what markers exist.
+	m_pathSeenValid = false;
 	DebugLogEdit("clear", "noSync");
 }
 
@@ -786,8 +811,10 @@ void GraphEditorExperimentHud::CmdReseed() {
 	m_model.SeedFromMarkers(CameraPathRef().Markers());
 	// Same as the OnEnter seed: fresh keys have no handles, so a Smooth path must re-shape them
 	// or the reseed silently downgrades the graph's view of the shot to Linear.
-	if (CameraPathRef().GetInterp() == CameraPath::Interp::Bezier)
+	if (CameraPathRef().GetInterp() == CameraPath::Interp::Bezier && !GraphExpModel::MarkersHaveCurves(CameraPathRef().Markers()))
 		m_model.SetInterpAll(true, false);
+	m_pathSeen = CameraPathRef().Markers();
+	m_pathSeenValid = true;
 	m_viewInit = false; ++m_viewEpoch; BumpRev();
 	DebugLogEdit("reseed", "fromPathCount=%d", pathCount);
 }

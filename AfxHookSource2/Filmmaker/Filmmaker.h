@@ -93,7 +93,7 @@ std::wstring PlayingDemoPath();
 // Input taps, called from the WndProc / input thread. Return true if the event
 // was consumed (the caller should then swallow it). Safe no-ops if unused.
 bool MovieInput_OnKey(int vkey, bool down);
-bool MovieInput_OnMouseButton(int button, bool down); // 0 = left, 1 = right
+bool MovieInput_OnMouseButton(int button, bool down, int x, int y); // 0 = left, 1 = right; client px
 // Left press at client (x, y): true = a game-mode click on our UI, now switching to UI mode; the
 // caller passes the press and its release straight to the game window (MovieMode::OnUiClick).
 bool MovieInput_OnUiClick(int x, int y);

@@ -15,6 +15,7 @@
 #include "Platform/SystemUsage.h"           // machine RAM/CPU, the game's RAM/CPU/GPU
 #include "Environment/EnvironmentNativeMaterial.h" // NativeMaterialLiveCost
 #include "Render/RenderTargetProbe.h"          // RenderOwnedMemory_*: what the hook holds in VRAM
+#include "../ViewportScaler.h"                 // AfxViewportScaler::BreakCounts: scaled-preview breaks
 #include <chrono>
 #include <cstdio>
 #include "../WrpConsole.h"
@@ -102,6 +103,12 @@ void Filmmaker_RunHealthCommand(int argc, advancedfx::ICommandArgs* args, const 
 		advancedfx::Message("  hook cost ~20-frame average  : draw detours %.2f ms, present %.2f ms, environment %.2f ms\n",
 			cost.avgDrawHookMs, cost.avgPresentHookMs, cost.avgEnvironmentMs);
 		Filmmaker::RenderOwnedMemory_Print(8);
+		// Scaled workspace preview: every break since launch, by reason (VpScaleBreakMath.h). Each
+		// one is a numbered vpscale.break line in the mvm_debug log with the state it started in.
+		unsigned vpTotal = 0, vpMissed = 0, vpStale = 0, vpStretched = 0, vpOpen = 0;
+		AfxViewportScaler::BreakCounts(vpTotal, vpMissed, vpStale, vpStretched, vpOpen);
+		advancedfx::Message("  vp scale breaks              : %u (missed blit %u, stale rect %u, stretched %u)%s\n",
+			vpTotal, vpMissed, vpStale, vpStretched, vpOpen ? " -- BROKEN NOW" : "");
 	}
 	if (renderCalls == 0) {
 		++problems;

@@ -609,6 +609,13 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 			Rz += nativeRoll;
 			originOrAnglesOverriden = true;
 		}
+		// Ctrl+wheel zoom in one of CS2's own cameras: it lasts only while that camera does, so
+		// first person comes back at the game's FOV (MovieMode::ApplyNativeCameraControls).
+		float nativeFov = 0.f;
+		if (Filmmaker::MovieMode_NativeCameraFov(nativeFov) && !Filmmaker::MirvFov_IsZoomedFov((float)g_MirvInputEx.GameCameraFov)) {
+			Fov = nativeFov;
+			originOrAnglesOverriden = true;
+		}
 	}
 
 	if(g_b_on_c_view_render_setup_view) {

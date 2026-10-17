@@ -33,7 +33,7 @@ public:
 
 	// --- input taps (WndProc / input thread). Return true if consumed. ---
 	bool OnKey(int vkey, bool down);
-	bool OnMouseButton(int button, bool down); // 0 = left, 1 = right
+	bool OnMouseButton(int button, bool down, int x = -1, int y = -1); // 0 = left, 1 = right; client px
 	bool OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x = -1, int y = -1);
 	// Left button down at client (x, y) inside a workspace. A click on a panel in GAME mode switches
 	// to UI mode and returns true: the caller hands this press (and its release) straight to the
@@ -91,10 +91,17 @@ private:
 	bool m_rollLeft = false;    // Z held in CS2's free cam
 	bool m_rollRight = false;   // X held in CS2's free cam
 	float m_roll = 0.f;         // main thread only: roll added to CS2's free cam (degrees)
+	// main thread only: the Ctrl+wheel zoom in one of CS2's cameras, and the camera it belongs to
+	bool m_wheelFovOn = false;
+	float m_wheelFov = 90.f;
+	Mode m_wheelFovMode = Mode::Default;
 	std::vector<std::string> m_cmdQueue;
 	// The workspace preview (guarded by m_mutex; written by SetUiClickRegions).
 	bool m_uiPreviewValid = false;
 	float m_uiPreview[4] = {};
+	// A press swallowed because a camera path was playing (UiClick::PathPlaybackSwallowsPress); its
+	// release is swallowed too, even if playback ended in between. Input thread only.
+	bool m_playbackSwallowed[2] = { false, false };
 
 	// X-ray default-off bookkeeping (main thread only -- ApplyXrayDefault):
 	std::wstring m_xrayDefaultPath;  // demo we have already forced spec_show_xray 0 for
@@ -107,5 +114,8 @@ MovieMode& MovieModeRef();
 // Roll (degrees) the view hook adds on top of CS2's own free cam; 0 in every other camera. Any
 // thread.
 float MovieMode_NativeCameraRoll();
+// The Ctrl+wheel zoom for the CS2 camera that is showing, if one is set. Lasts only while that
+// camera does (MovieMode::ApplyNativeCameraControls) and is never saved. Any thread.
+bool MovieMode_NativeCameraFov(float& outFov);
 
 } // namespace Filmmaker

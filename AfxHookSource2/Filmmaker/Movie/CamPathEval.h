@@ -56,9 +56,19 @@ public:
 
 	// Map an explicit (segment, normalized progress) to a pose: ease the progress,
 	// project onto the shape axis, sample the spline. The shared core of the above.
+	// When the markers carry the graph's handles (CamMarker::HasCurve), the pose comes from the
+	// graph's per-channel Bezier curves instead (EvalCurves), so the graph is what flies.
 	Pose EvalSegP(const CamMarkers& markers, int seg, double p) const;
 
+	// The path follows the graph's curves (any marker carries handles).
+	bool FollowsCurves() const { return m_curves; }
+	// The position at shape-axis parameter s, from the graph's curves -- for the in-world
+	// trajectory line, which samples the shape axis. False when the path has no curves.
+	bool CurvePointAtShape(const CamMarkers& markers, double s, double outPos[3]) const;
+
 private:
+	bool EvalCurves(const CamMarkers& markers, int seg, double p, Pose& out) const;
+	bool m_curves = false;
 	std::vector<double> m_keyT;   // cumulative TIMING of each marker (speed-mode durations)
 	std::vector<double> m_shapeS; // cumulative SHAPE (chord length); g_CamPath is keyed by this
 	double m_duration = 0.0;      // == m_keyT.back()

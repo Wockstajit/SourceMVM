@@ -80,6 +80,20 @@ void TestPopupOverPreview() {
 	CHECK(!ClickSwitchesToUiMode(regular));
 }
 
+void TestPathPlayback() {
+	// A playing path owns the view: presses in the preview go nowhere, in either mouse mode, so
+	// neither free-look nor CS2's own look-around can take the pointer mid-playback.
+	CHECK(PathPlaybackSwallowsPress(Editor(400, 500, true), true));
+	CHECK(PathPlaybackSwallowsPress(Editor(400, 500, false), true));
+	CHECK(!PathPlaybackSwallowsPress(Editor(400, 500, true), false));  // not playing: a normal click
+	CHECK(!PathPlaybackSwallowsPress(Editor(1300, 500, true), true));  // the panels keep working (pause, stop)
+	Input popup = Editor(400, 500, true); popup.popupOpen = true;
+	CHECK(!PathPlaybackSwallowsPress(popup, true));                    // a popup over the preview keeps its clicks
+	Input none = Editor(400, 500, true); none.preview = Rect();
+	CHECK(!PathPlaybackSwallowsPress(none, true));                     // cannot place it: leave it alone
+	CHECK(!PathPlaybackSwallowsPress(Regular(800, 600), true));        // no workspace: the free-cam swallow covers it
+}
+
 void TestFractions() {
 	const Rect r = FromFractions(0.25f, 0.5f, 0.75f, 1.0f, 1920, 1080);
 	CHECK(r.valid && r.x0 == 480 && r.y0 == 540 && r.x1 == 1440 && r.y1 == 1080);
@@ -94,6 +108,7 @@ int main() {
 	TestNoWorkspace();
 	TestWheel();
 	TestPopupOverPreview();
+	TestPathPlayback();
 	TestFractions();
 	if (g_failed) { std::printf("%d check(s) failed\n", g_failed); return 1; }
 	std::printf("ui-click-math-tests: all passed\n");

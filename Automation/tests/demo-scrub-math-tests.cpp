@@ -104,6 +104,60 @@ void TestBackwardRestoresThenGlides() {
 	CHECK(std::fabs(p.now - 900.6) <= kScrubArriveTicks + 0.01);
 }
 
+void TestBackwardDragShowsOnlyPlayedFrames() {
+	// A slow backward drag, a quarter tick a frame, with seeks landing exactly or one past. The
+	// preview holds from every seek until the controller is idle again (DemoScrub_HoldPreview), so
+	// the frames it SHOWS are the ones where the decision is None. Each of those must have been
+	// played into since the last restore (a raw restore has no animation: bind-pose players), must
+	// never be further forward than the one before it (no saw-tooth), and must keep up with the drag.
+	// Slow (a quarter tick a frame) and fast (a tick and a half: the playhead outruns the restores,
+	// which is where the play-in used to be skipped and bind-pose frames reached the screen).
+	const double speeds[2] = { 0.25, 1.5 };
+	for (double speed : speeds)
+	for (int past = 0; past < 2; ++past) {
+		Engine e; e.now = 1000.0; e.seekLandsPast = past != 0;
+		double target = 1000.0, lastShown = 1e9, worstAhead = 0.0, worstBehind = 0.0;
+		bool restored = false; // the driver's g_needsPlayIn
+		int shown = 0;
+		for (int f = 0; f < 240; ++f) {
+			target -= speed;
+			ScrubInput in;
+			in.target = target; in.now = e.now; in.paused = e.paused && !e.pausePending; in.busy = e.pausePending;
+			in.frameSeconds = e.dt; in.timescale = e.timescale; in.draggingBack = true; in.restoredNotPlayed = restored;
+			const ScrubDecision d = DecideScrub(in);
+			if (d.action == ScrubAction::None && !e.pausePending) {
+				++shown;
+				CHECK(!restored);                  // every shown frame was played into after its restore
+				CHECK(e.now <= lastShown + 1e-9);  // and the shown frames only ever go back
+				lastShown = e.now;
+				if (e.now - target > worstAhead) worstAhead = e.now - target;
+				if (target - e.now > worstBehind) worstBehind = target - e.now;
+			}
+			if (d.action == ScrubAction::Seek) restored = true;
+			if (d.action == ScrubAction::Step) restored = false;
+			e.Apply(d);
+			e.Frame();
+		}
+		CHECK(e.plays == 0);                    // no glides: only quick steps after restores
+		CHECK(e.steps > 0 && e.seeks > 0);
+		CHECK(e.steps >= e.seeks - 1);          // every restore is played into
+		if (speed < 1.0) {
+			CHECK(shown > 20);
+			CHECK(worstAhead <= 1.0 + speed + 1e-9); // a shown frame is at most a tick ahead of the playhead
+			CHECK(worstBehind < 1.0);                // and never a whole tick behind it
+		}
+	}
+	// Turning round resumes the forward glide.
+	ScrubInput in; in.target = 1000.6; in.now = 1000.0; in.paused = true; in.draggingBack = false;
+	CHECK(DecideScrub(in).action == ScrubAction::Play);
+	in.draggingBack = true;
+	CHECK(DecideScrub(in).action == ScrubAction::None);
+	// Behind by whole ticks while dragging back: one quick step plays them in.
+	in.now = 998.0; in.target = 1000.3;
+	const ScrubDecision step = DecideScrub(in);
+	CHECK(step.action == ScrubAction::Step && step.ticks == 2 && step.timescale == kScrubBackStepTimescale);
+}
+
 void TestSmallOvershootHolds() {
 	// Less than a tick past the playhead is not worth a restore while dragging...
 	ScrubInput in; in.target = 1000.0; in.now = 1000.03; in.paused = true;
@@ -215,6 +269,7 @@ int main() {
 	TestDragFollowsWithoutOvershoot();
 	TestSpeedFollowsTheGap();
 	TestBackwardRestoresThenGlides();
+	TestBackwardDragShowsOnlyPlayedFrames();
 	TestSmallOvershootHolds();
 	TestReleaseLandsOnAWholeTick();
 	TestReleaseAcceptsOnePastAfterSettle();

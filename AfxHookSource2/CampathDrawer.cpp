@@ -794,6 +794,17 @@ CCampathDrawer::CDynamicProperties::CDynamicProperties(CCampathDrawer * drawer) 
 	}
 }
 
+// The Filmmaker path can fly the graph editor's per-channel curves instead of g_CamPath's spline
+// (CamPathEval::EvalCurves). The line then has to show those positions, or the drawn path is not
+// the path the camera flies. Defined in Filmmaker/Movie/CameraPath.cpp; false => use g_CamPath.
+bool Filmmaker_CampathCurvePoint(double shapeT, double outPos[3]);
+static CamPathValue EvalTrajectoryAt(double t) {
+	CamPathValue v = g_CamPath.Eval(t);
+	double p[3];
+	if (Filmmaker_CampathCurvePoint(t, p)) { v.X = p[0]; v.Y = p[1]; v.Z = p[2]; }
+	return v;
+}
+
 CCampathDrawer::CLessDynamicProperties::CLessDynamicProperties(CCampathDrawer * drawer) {
 
 	m_CampathCanEval = g_CamPath.CanEval();
@@ -822,7 +833,7 @@ CCampathDrawer::CLessDynamicProperties::CLessDynamicProperties(CCampathDrawer * 
 			{
 				double t = last.GetTime() + delta*((double)i/(c_CameraTrajectoryMaxPointsPerInterval-1));
 
-				CamPathValue cpv = g_CamPath.Eval(t);
+				CamPathValue cpv = EvalTrajectoryAt(t);
 
 				pts[i].t = t;
 				pts[i].y = Vector3(cpv.X, cpv.Y, cpv.Z);
@@ -836,7 +847,7 @@ CCampathDrawer::CLessDynamicProperties::CLessDynamicProperties(CCampathDrawer * 
 			{
 				m_TrajectoryPoints.emplace_back(
 					pt->t,
-					g_CamPath.Eval(pt->t));
+					EvalTrajectoryAt(pt->t));
 			}
 
 			last = it;
@@ -845,7 +856,7 @@ CCampathDrawer::CLessDynamicProperties::CLessDynamicProperties(CCampathDrawer * 
 		// add last point:
 		m_TrajectoryPoints.emplace_back(
 			pts[c_CameraTrajectoryMaxPointsPerInterval-1].t,
-			g_CamPath.Eval(pts[c_CameraTrajectoryMaxPointsPerInterval-1].t));
+			EvalTrajectoryAt(pts[c_CameraTrajectoryMaxPointsPerInterval-1].t));
 
 		delete[] pts;
 	}

@@ -1189,15 +1189,30 @@ R"TLJS(
       var h = ctx.actuallayoutheight || 0; if (h < 16) h = root.actuallayoutheight || 0;
       return { w: w / sx, h: h / sy, sx: sx, sy: sy };
     }
+    // The HUD half of a VP scale break: the world is scaled into the preview but the native HUD
+    // cannot follow it, so it stays full size over the panels. Numbered and reported once per
+    // change, next to the render side's vpscale.break lines (VpScaleBreakMath.h) in mvm_debug.
+    var hudBreak = '', hudBreaks = 0;
+    function noteHudBreak(why, detail) {
+      if (why === hudBreak) return;
+      if (why) { hudBreaks++; $.Msg('[vpscale] hud break #' + hudBreaks + ' ' + why + ' ' + detail + '\n'); }
+      else $.Msg('[vpscale] hud break #' + hudBreaks + ' recovered\n');
+      hudBreak = why;
+    }
     function applyGameHudViewport(active, rect) {
-      if (!active || !rect || rect.length < 4) { restoreHudViewport(); return; }
+      if (!active || !rect || rect.length < 4) { noteHudBreak('', ''); restoreHudViewport(); return; }
       var hs = hudSizeCss();
       var rsx = hs.sx, rsy = hs.sy, rw = hs.w, rh = hs.h;
-      if (!(rw > 1 && rh > 1)) { restoreHudViewport(); return; }
-      var x0 = Number(rect[0]), y0 = Number(rect[1]), x1 = Number(rect[2]), y1 = Number(rect[3]);
-      if (!(isFinite(x0) && isFinite(y0) && isFinite(x1) && isFinite(y1) && x1 > x0 && y1 > y0)) {
+      if (!(rw > 1 && rh > 1)) {
+        noteHudBreak('hud-size-unread', 'w=' + rw + ' h=' + rh + ' ctx=' + (ctx.actuallayoutwidth || 0) + 'x' + (ctx.actuallayoutheight || 0));
         restoreHudViewport(); return;
       }
+      var x0 = Number(rect[0]), y0 = Number(rect[1]), x1 = Number(rect[2]), y1 = Number(rect[3]);
+      if (!(isFinite(x0) && isFinite(y0) && isFinite(x1) && isFinite(y1) && x1 > x0 && y1 > y0)) {
+        noteHudBreak('bad-rect', 'rect=' + rect.join(' '));
+        restoreHudViewport(); return;
+      }
+      noteHudBreak('', '');
       // Map the FULL screen 1:1 into the EXACT preview rect the world blit uses -- NO insets, so
       // the HUD lines up pixel-for-pixel with the scaled game view (the rect already matches the
       // game aspect, so sx == sy). x0*rw / y0*rh is the rect's top-left in virtual px.
