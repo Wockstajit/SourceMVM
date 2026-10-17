@@ -7846,14 +7846,15 @@ namespace AfxViewportScaler {
             const float actual[Filmmaker::ScrubCache::kPoseValues] = {
                 (float)g_CurrentGameCamera.origin[0], (float)g_CurrentGameCamera.origin[1], (float)g_CurrentGameCamera.origin[2],
                 (float)g_CurrentGameCamera.angles[0], (float)g_CurrentGameCamera.angles[1], (float)g_CurrentGameCamera.angles[2],
-                frame.id.pose[6] };
+                g_CurrentGameCamera.fov };
             if (!Filmmaker::ScrubCache::PoseNear(actual, frame.id.pose)) {
                 const unsigned long long n = ++s_CachePoseMismatches;
                 if (Filmmaker::MvmDebugLog_Active() && (n % 30) == 1)
                     Filmmaker::MvmDebugLog_LinefAlways("scrub.cache",
-                        "pose mismatch #%llu world=%.3f camTick=%.3f path=%.2f,%.2f,%.2f/%.2f,%.2f,%.2f rendered=%.2f,%.2f,%.2f/%.2f,%.2f,%.2f",
+                        "pose mismatch #%llu world=%.3f camTick=%.3f path=%.2f,%.2f,%.2f/%.2f,%.2f,%.2f fov=%.3f rendered=%.2f,%.2f,%.2f/%.2f,%.2f,%.2f fov=%.3f",
                         n, frame.id.worldTime, frame.id.cameraTick, frame.id.pose[0], frame.id.pose[1], frame.id.pose[2],
-                        frame.id.pose[3], frame.id.pose[4], frame.id.pose[5], actual[0], actual[1], actual[2], actual[3], actual[4], actual[5]);
+                        frame.id.pose[3], frame.id.pose[4], frame.id.pose[5], frame.id.pose[6],
+                        actual[0], actual[1], actual[2], actual[3], actual[4], actual[5], actual[6]);
                 frame.id.cameraTick = -1.0;
             }
         }
@@ -7989,17 +7990,23 @@ namespace AfxViewportScaler {
         s_CacheBytes.store(0, std::memory_order_relaxed);
     }
 
+    // s_CacheMutex held. Frees every cached frame once the cache is turned off. Runs on every
+    // present, with or without an active preview: the toggle can change from the console while no
+    // workspace is open, and its VRAM must not wait for one to open.
+    static void ReleaseCacheIfDisabled() {
+        if (s_CacheEnabled || (s_CacheIndex.Capacity() == 0 && s_CacheTex.empty())) return;
+        const int n = s_CacheIndex.Count();
+        ReleaseCacheTextures();
+        s_CacheIndex.Reset(0);
+        if (Filmmaker::MvmDebugLog_Active())
+            Filmmaker::MvmDebugLog_LinefAlways("scrub.cache", "off: released %d frame(s)", n);
+    }
+
     // s_CacheMutex held. Sizes the cache to this backbuffer and preview rect. Any change of either
     // (window size, layout, device) drops every frame: a frame is a copy of one exact region.
     static bool EnsureCache(const D3D11_TEXTURE2D_DESC& desc, const D3D11_BOX& box) {
         if (!s_CacheEnabled) {
-            if (s_CacheIndex.Capacity() > 0 || !s_CacheTex.empty()) {
-                const int n = s_CacheIndex.Count();
-                ReleaseCacheTextures();
-                s_CacheIndex.Reset(0);
-                if (Filmmaker::MvmDebugLog_Active())
-                    Filmmaker::MvmDebugLog_LinefAlways("scrub.cache", "off: released %d frame(s)", n);
-            }
+            ReleaseCacheIfDisabled();
             return false;
         }
         const bool same = s_CacheDevice == g_pDevice && s_CacheBbDesc.Width == desc.Width && s_CacheBbDesc.Height == desc.Height
@@ -8122,7 +8129,12 @@ namespace AfxViewportScaler {
         // serve request outlives the presents the engine re-shows without a scene.
         const bool haveIdentity = blitRan && s_PresentFrameValid;
         if (haveIdentity) s_LastFrame = s_PresentFrame;
-        if (!active || recording || !g_pSwapChain || !g_pDevice) { s_HeldValid = false; return false; }
+        if (!active || recording || !g_pSwapChain || !g_pDevice) {
+            s_HeldValid = false;
+            std::lock_guard<std::mutex> lock(s_CacheMutex);
+            ReleaseCacheIfDisabled();
+            return false;
+        }
 
         ID3D11Texture2D* bb = nullptr;
         if (FAILED(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) || !bb) return false;
