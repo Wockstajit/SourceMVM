@@ -73,6 +73,12 @@ forward-port it to `main`. Never merge an old release branch over newer work.
 ### Branch retirement
 
 - After a merge, delete the branch. Turn on GitHub's automatic deletion of head branches.
+- GitHub deletes only the remote branch. Whoever merges then runs
+  `Automation\tools\sync-merged-branches.ps1` from the main checkout. It removes each merged local
+  branch and its worktree, and fast-forwards local `main`. Before it removes a worktree, it moves the
+  git-ignored files that are not rebuildable output (handoff notes, captures, logs, local configs) to
+  `Automation\runs\worktree-leftovers\<branch>\`. It keeps any branch with an open PR, unmerged
+  commits or uncommitted work. Use `-DryRun` to preview.
 - After 30 days without changes, triage an open working branch or PR as active, paused, blocked, or
   abandoned. This is a maintenance cadence, not GitHub's Stale threshold.
 - After 60 to 90 days, close abandoned draft PRs with an explanation. Delete a branch only after you
@@ -104,14 +110,31 @@ produced them.
    self-review. Do not present a self-review as an independent approval.
 8. Squash merge by default, with a concise final message and the issue reference. Use rebase merge only
    for commits you mean to keep. Disallow merge commits if the project enforces linear history.
-9. Confirm the merged commit and the linked issue's state, then delete the branch. Merging is not
-   publishing.
+9. Confirm the merged commit and the linked issue's state, then retire the branch locally too
+   ([Branch retirement](#branch-retirement)). Update any branch stacked on it
+   ([Stacked pull requests](#stacked-pull-requests)). Merging is not publishing.
 
 ### Draft or ready
 
 Keep a PR as Draft while core work is incomplete, security review is open, CI is failing, or required
 in-game verification is missing. A PR can be ready for code review before runtime validation is done,
 but it must say what remains. It must not be described as runtime verified.
+
+### Stacked pull requests
+
+Branch from `main`, not from another open PR, whenever the work allows it. A squash merge lands the
+base PR as one new commit, so a branch that still carries the base PR's original commits conflicts
+with `main` on every file both touched.
+
+When a stack is unavoidable, say so in the PR body and merge from the bottom up. After each squash
+merge, update the next branch before you review or merge it:
+
+1. Merge `origin/main` into the branch. Do not rebase or force-push a published branch.
+2. A conflicted file takes the branch's side only when `main`'s copy is identical to the merged base
+   PR's head copy (`git rev-parse origin/main:<file>` equals `git rev-parse <base-head>:<file>`).
+   Resolve any other conflict by hand.
+3. Check that `git diff origin/main HEAD` shows only this branch's own changes, then push and let CI
+   run again.
 
 ### Titles
 
