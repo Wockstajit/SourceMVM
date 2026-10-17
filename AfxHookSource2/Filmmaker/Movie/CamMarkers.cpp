@@ -32,6 +32,7 @@ int CamMarkers::Add(const CamMarker& m) {
 		if (m_markers[i].tick > m.tick) { idx = i; break; }
 	}
 	m_markers.insert(m_markers.begin() + idx, m);
+	SanitizeMarker(m_markers[idx]);
 	m_selected = idx;
 	return m_selected;
 }
@@ -54,6 +55,7 @@ void CamMarkers::DeleteAll() {
 
 void CamMarkers::Restore(const std::vector<CamMarker>& markers, int selected) {
 	m_markers = markers;
+	for (CamMarker& m : m_markers) SanitizeMarker(m);
 	SetSelected(selected);
 }
 
@@ -138,6 +140,10 @@ bool CamMarkers::Parse(const std::string& text, PathSettings& st, int& selected)
 						}
 					}
 				}
+				// A file saved before the limits existed can hold a value that froze the game on load.
+				if (SanitizeMarker(m))
+					advancedfx::Warning("[campath] marker #%d had out-of-range values (yaw %.6g); repaired on load.\n",
+						(int)m_markers.size(), num("yaw", 0));
 				m_markers.push_back(m);
 			}
 		}

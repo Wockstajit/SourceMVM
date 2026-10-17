@@ -72,6 +72,14 @@ One After Effects-style timeline for everything keyed in a shot. It replaced the
 
 **Time.** The ruler shows m:ss.cc at the demo's tick rate and carries the render range (work area): drag its ends or middle, released as `render range custom <in> <outExclusive>`. Click or drag elsewhere on the ruler to scrub; past the track's edge the view creeps after the cursor. The overview maps the whole demo (keys, render range, playhead, view box: drag to scroll, drag an end to zoom). The JS owns the visible window after C++ suggests it once (camera and scene key span), playback pages it AE-style, and a jump to an off-screen key lands 2% inside. Time snap (`editor.graph.snap`) quantises the playhead, key placement and drags; Alt bypasses it. The KEYFRAMES / GRAPH choice persists as `editor.timeline.view`.
 
+**Marker limits.** A marker is checked wherever it enters the path: a placement, a typed or
+dragged value (`camtl setval`), a graph edit, an undo and a load (`SanitizeMarker` in
+`Movie/CamMarkers.h`). Angles may spin through many turns, up to 36000 degrees (100 turns); past that
+a value folds back to the same direction within one turn. Non-finite values reset, positions stay
+within 1e6 units, FOV within 1 to 179, and a runaway handle drops to 0. A saved yaw of 4.7e10 once
+froze the game on every load of its demo, because every angle wrap walked 360 at a time; wraps are
+one step now (`std::remainder`), and `angle-wrap-loop-tests.mjs` keeps the loops out.
+
 Two models stay authoritative in C++: camera channels in `GraphExpModel` (`grapheditor ...`, baked into the camera path) and scene properties in the scene track (`scenekeys graph ...`). `GraphEditorExperimentHud::BuildStateJson` publishes both: the seven camera channels, `scene` (SceneKeys_AppendTimelineState), the render range, the path's marker ticks with their shakes, the tick rate and path playback.
 
 ## Scene keys

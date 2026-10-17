@@ -1094,6 +1094,7 @@ void CameraPath::SetChannelValue(int index, int channel, double v) {
 	if (*target == v) return;
 	PushCurveUndo();
 	*target = v;
+	SanitizeMarker(m); // a typed or dragged value past the marker limits (CamMarkers.h)
 	RebuildCamPath();
 	MarkDirty();
 	advancedfx::Message("[campath] marker #%d channel %d -> %.3f.\n", index, channel, v);

@@ -141,8 +141,10 @@ bool SkyOrient_Available(std::string* outReason) {
 
 void SkyOrient_SetYaw(float degrees) {
 	// Wrap rather than clamp: yaw is circular, and a slider that sticks at 360 feels broken.
-	while (degrees < 0.0f) degrees += 360.0f;
-	while (degrees >= 360.0f) degrees -= 360.0f;
+	// In one step: a float wrap that walks 360 at a time never finishes on a huge value.
+	degrees = std::isfinite(degrees) ? std::fmod(degrees, 360.0f) : 0.0f;
+	if (degrees < 0.0f) degrees += 360.0f;
+	if (degrees >= 360.0f) degrees = 0.0f;
 	g_yaw = degrees;
 }
 

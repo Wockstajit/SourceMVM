@@ -6,9 +6,8 @@
 namespace Filmmaker {
 
 double FollowWrapDegrees(double value) {
-	while (value > 180.0) value -= 360.0;
-	while (value < -180.0) value += 360.0;
-	return value;
+	// In one step: A wrap that walks 360 at a time never finishes on a huge value (a saved yaw of 4.7e10 froze the game on every load).
+	return std::isfinite(value) ? std::remainder(value, 360.0) : 0.0;
 }
 
 double FollowHalfTimeAlpha(double halfTimeSeconds, double deltaSeconds) {

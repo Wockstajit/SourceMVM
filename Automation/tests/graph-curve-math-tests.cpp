@@ -3,6 +3,7 @@
 // path relies on: straight segments stay straight, a split leaves the curve unchanged, auto
 // tangents are smooth through a key, and angles take the short way round.
 #include "../../AfxHookSource2/Filmmaker/Movie/GraphCurveMath.h"
+#include "../../AfxHookSource2/Filmmaker/Movie/CamMarkers.h"
 
 #include <algorithm>
 #include <cmath>
@@ -94,6 +95,29 @@ int main() {
         check(near(Unwrap(10.0, 20.0), 20.0), "a small turn is untouched");
         check(IsAngleChannel(3) && IsAngleChannel(4) && IsAngleChannel(5), "pitch, yaw, roll are angles");
         check(!IsAngleChannel(0) && !IsAngleChannel(6), "position and FOV are not");
+        // A huge value unwraps in one step (a while loop walking 360 froze the game on a saved yaw of 4.7e10).
+        const double far = Unwrap(89.8082, 4.71641e10);
+        check(std::isfinite(far) && std::fabs(far - 89.8082) <= 180.0 + 1e-6, "a huge yaw unwraps to within half a turn");
+        check(std::fabs(Unwrap(0.0, 1e300)) <= 180.0 + 1e-6, "even an absurd one");
+        check(!std::isfinite(Unwrap(10.0, std::nan(""))), "NaN passes through instead of hanging");
+    }
+
+    // The marker limits: the user's frozen path (marker 1 of the 2026-10-17 "ballz" demo) loads sane.
+    {
+        Filmmaker::CamMarker bad;
+        bad.x = -490.679; bad.y = 1286.46; bad.z = 143.036; bad.pitch = 10.2872; bad.yaw = 4.71641e10; bad.fov = 90;
+        bad.out[4].active = true; bad.out[4].tx = 0.333333; bad.out[4].dv = -1.57214e10;
+        bad.out[0].active = true; bad.out[0].tx = 0.333333; bad.out[0].dv = 10.1437;
+        check(Filmmaker::SanitizeMarker(bad), "an out-of-range marker is reported as repaired");
+        check(std::fabs(bad.yaw) <= 180.0, "its yaw is folded back within one turn");
+        check(bad.out[4].dv == 0.0, "its runaway yaw handle is dropped");
+        check(bad.out[0].dv == 10.1437 && bad.pitch == 10.2872 && bad.x == -490.679, "everything sane is kept");
+        check(!Filmmaker::SanitizeMarker(bad), "and a sane marker is left alone");
+        Filmmaker::CamMarker spin; spin.yaw = 720.0; spin.roll = -1440.0;
+        check(!Filmmaker::SanitizeMarker(spin) && spin.yaw == 720.0 && spin.roll == -1440.0, "a path may still spin several turns");
+        Filmmaker::CamMarker junk; junk.pitch = std::nan(""); junk.fov = 0; junk.x = 1e300; junk.in[3].tx = 7;
+        Filmmaker::SanitizeMarker(junk);
+        check(junk.pitch == 0.0 && junk.fov == 1.0 && junk.x == Filmmaker::kMarkerMaxCoord && junk.in[3].tx == 1.0, "NaN, zero FOV, far coordinates and bad handle spans are clamped");
     }
 
     if (g_failures == 0) std::printf("graph-curve-math-tests: all passed\n");

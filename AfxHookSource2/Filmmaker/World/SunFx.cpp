@@ -448,7 +448,7 @@ void SunFx_RunFrame() {
 	if (!active) g_lightSnaps.clear();
 }
 
-void SunFx_SetLightYaw(float d)   { while(d<0)d+=360; while(d>=360)d-=360; g_lightYaw=d; }
+void SunFx_SetLightYaw(float d)   { d = std::isfinite(d) ? std::fmod(d, 360.0f) : 0.0f; if (d < 0) d += 360; if (d >= 360) d = 0; g_lightYaw = d; }
 void SunFx_SetLightPitch(float d) { g_lightPitch = Clamp(d, -90.0f, 90.0f); }
 float SunFx_LightYaw()   { return g_lightYaw; }
 float SunFx_LightPitch() { return g_lightPitch; }
@@ -496,8 +496,10 @@ void SunFx_ResetAll() {
 }
 
 void SunFx_SetAzimuth(float degrees) {
-	while (degrees < 0.0f) degrees += 360.0f;
-	while (degrees >= 360.0f) degrees -= 360.0f;
+	// In one step: a float wrap that walks 360 at a time never finishes on a huge value.
+	degrees = std::isfinite(degrees) ? std::fmod(degrees, 360.0f) : 0.0f;
+	if (degrees < 0.0f) degrees += 360.0f;
+	if (degrees >= 360.0f) degrees = 0.0f;
 	g_azimuth = degrees;
 	g_posOverridden = true;
 	SunFx_Apply();
