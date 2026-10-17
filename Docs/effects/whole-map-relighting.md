@@ -211,7 +211,11 @@ Brightness conversion remains provisional.
 
 Owned local shadows use a five-depth blocker search and 32 fixed comparison taps to estimate
 source-size penumbrae. Cube faces overlap by 1/0.9 and blend normalized smooth weights;
-this avoids a hard rectangular boundary where a soft shadow crosses a face. The
+this avoids a hard rectangular boundary where a soft shadow crosses a face. The weights read
+each face's NDC from the lanes the native atlas MAD writes (`SourceForMask` in
+`EnvironmentNativeShadowMath.h`). Lightmapped world kernels write `.zw`, and reading `.xy`
+there left adjacent faces both at full weight across their overlap: a bright, hard-edged square
+under every shadowed placed lamp (issue 41). The
 compensated atlas scale preserves the stored shadow projection, and the filter is capped
 to the guard remaining after the overlap. Nearby 1024-square faces reserve 96
 texels per edge; cached 128-square faces reserve 12. Overlap leaves approximately 50 and
