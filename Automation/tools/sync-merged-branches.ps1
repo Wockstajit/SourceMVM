@@ -23,6 +23,11 @@
     the main checkout already holds an identical copy. Handoff notes, captures, review output,
     generated UI drafts, local configs and debug logs survive the cleanup.
 
+    Junctions and symbolic links are never followed. Each one is deleted as a link before git
+    removes the worktree, because `git worktree remove` follows junctions and empties their
+    targets: a worktree's reference\ junction into the main checkout, or an FX build's game\
+    junction into the CS2 install. Never remove a worktree by hand with --force.
+
     Finally, main is fast-forwarded to origin/main in the checkout that has it, when that checkout
     has no tracked changes.
 
@@ -58,15 +63,40 @@ function Write-Result([string]$Action, [string]$Branch, [string]$Reason) {
 }
 
 # Moves one ignored entry's files out of a worktree, skipping files the main checkout already has.
+$reparsePoint = [IO.FileAttributes]::ReparsePoint
+
+# Walks $Path without ever descending into a junction or symbolic link. What a link points at belongs
+# to someone else: worktrees link reference/ back to the main checkout and FX builds link game\ into
+# the CS2 install. Emits the links when $Links is set, otherwise the files that live in the tree.
+function Get-TreeEntries([string]$Path, [switch]$Links) {
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if (-not $item) { return }
+    if ($item.Attributes -band $reparsePoint) { if ($Links) { $item }; return }
+    if (-not $item.PSIsContainer) { if (-not $Links) { $item }; return }
+    $stack = New-Object System.Collections.Stack
+    $stack.Push($item)
+    while ($stack.Count) {
+        foreach ($child in $stack.Pop().EnumerateFileSystemInfos()) {
+            if ($child.Attributes -band $reparsePoint) { if ($Links) { $child } }
+            elseif ($child -is [IO.DirectoryInfo]) { $stack.Push($child) }
+            elseif (-not $Links) { $child }
+        }
+    }
+}
+
+# Deletes the link itself. RemoveDirectory on a junction or directory symlink removes the link and
+# leaves the target alone. `git worktree remove` does not: it follows junctions and empties the
+# target, which is how a worktree's reference/ junction once wiped the main checkout's copy.
+function Remove-Link([IO.FileSystemInfo]$Link) {
+    if ($Link -is [IO.DirectoryInfo]) { [IO.Directory]::Delete($Link.FullName, $false) }
+    else { [IO.File]::Delete($Link.FullName) }
+}
+
 function Save-Leftover([string]$Worktree, [string]$Entry, [string]$Destination, [string]$MainRoot) {
     $root = [IO.Path]::GetFullPath($Worktree).TrimEnd('\')
-    $source = Join-Path $root $Entry
-    if (-not (Test-Path -LiteralPath $source)) { return 0 }
-    $files = if (Test-Path -LiteralPath $source -PathType Container) {
-        Get-ChildItem -LiteralPath $source -Recurse -File -Force
-    } else { Get-Item -LiteralPath $source -Force }
+    $source = Join-Path $root $Entry.TrimEnd('/')
     $moved = 0
-    foreach ($file in @($files)) {
+    foreach ($file in @(Get-TreeEntries $source)) {
         $relative = $file.FullName.Substring($root.Length).TrimStart('\')
         $twin = Join-Path $MainRoot $relative
         if ((Test-Path -LiteralPath $twin -PathType Leaf) -and
@@ -167,6 +197,19 @@ try {
                 if ($entry -notmatch $rebuildable) { $moved += Save-Leftover $path $entry $destination $mainRoot }
             }
             if ($moved) { Write-Host "  $moved ignored file(s) from $path -> $destination" }
+            # Unlink every junction and symbolic link first, so git has nothing to follow.
+            $links = @(Get-TreeEntries $path -Links)
+            if ($links.Count) {
+                Write-Host "  $($links.Count) link(s) in $path removed as links; their targets are untouched:"
+                foreach ($link in $links) { Write-Host "    $($link.FullName.Substring($path.Length + 1))" }
+                if (-not $DryRun) {
+                    foreach ($link in $links) { Remove-Link $link }
+                    if (@(Get-TreeEntries $path -Links).Count) {
+                        Write-Result 'kept' $branch "could not remove every link in $path"
+                        continue
+                    }
+                }
+            }
             # --force: worktrees with initialized submodules refuse a plain remove. Both checks above passed.
             if (-not $DryRun -and -not (Test-Git $mainRoot @('worktree', 'remove', '--force', $path))) {
                 # A program with the folder open (a shell or session still in it) blocks deleting the

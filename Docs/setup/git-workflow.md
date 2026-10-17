@@ -79,6 +79,9 @@ forward-port it to `main`. Never merge an old release branch over newer work.
   git-ignored files that are not rebuildable output (handoff notes, captures, logs, local configs) to
   `Automation\runs\worktree-leftovers\<branch>\`. It keeps any branch with an open PR, unmerged
   commits or uncommitted work. Use `-DryRun` to preview.
+- Never run `git worktree remove --force` by hand. On Windows it follows junctions and empties their
+  targets. A worktree's `reference\` junction leads to the main checkout's copy, and an FX build's
+  `game\` junctions lead into the CS2 install. The script deletes each link as a link first.
 - After 30 days without changes, triage an open working branch or PR as active, paused, blocked, or
   abandoned. This is a maintenance cadence, not GitHub's Stale threshold.
 - After 60 to 90 days, close abandoned draft PRs with an explanation. Delete a branch only after you
