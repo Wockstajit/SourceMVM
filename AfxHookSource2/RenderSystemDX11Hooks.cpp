@@ -7851,9 +7851,10 @@ namespace AfxViewportScaler {
                 const unsigned long long n = ++s_CachePoseMismatches;
                 if (Filmmaker::MvmDebugLog_Active() && (n % 30) == 1)
                     Filmmaker::MvmDebugLog_LinefAlways("scrub.cache",
-                        "pose mismatch #%llu world=%.3f camTick=%.3f path=%.2f,%.2f,%.2f/%.2f,%.2f,%.2f rendered=%.2f,%.2f,%.2f/%.2f,%.2f,%.2f",
+                        "pose mismatch #%llu world=%.3f camTick=%.3f path=%.2f,%.2f,%.2f/%.2f,%.2f,%.2f fov=%.3f rendered=%.2f,%.2f,%.2f/%.2f,%.2f,%.2f fov=%.3f",
                         n, frame.id.worldTime, frame.id.cameraTick, frame.id.pose[0], frame.id.pose[1], frame.id.pose[2],
-                        frame.id.pose[3], frame.id.pose[4], frame.id.pose[5], actual[0], actual[1], actual[2], actual[3], actual[4], actual[5]);
+                        frame.id.pose[3], frame.id.pose[4], frame.id.pose[5], frame.id.pose[6],
+                        actual[0], actual[1], actual[2], actual[3], actual[4], actual[5], actual[6]);
                 frame.id.cameraTick = -1.0;
             }
         }
