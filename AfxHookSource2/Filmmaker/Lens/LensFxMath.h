@@ -60,6 +60,7 @@ namespace Filmmaker::Lens {
 	X(FlareStar,      "flare.star",      0,     3,     0.5f,  false) /* diffraction spikes */ \
 	X(FlareBlades,    "flare.blades",    3,     12,    6,     true)  /* aperture blades: ghost shape and spike count */ \
 	X(FlareGlow,      "flare.glow",      0,     3,     0.5f,  false) /* veiling glare around each source */ \
+	X(FlareSun,       "flare.sun",       0,     2,     1,     false) /* how strongly the sun itself flares (found from the sky, not the frame) */ \
 	X(FlareDirt,      "flare.dirt",      0,     1,     0.2f,  false) /* smudges on the front element */ \
 	X(FlareTint,      "flare.tint",      0,     7,     0,     true)  /* FlareTintColor palette index */ \
 	X(FlareStreakTint,"flare.streakTint",0,     5,     0,     true)  /* StreakTintColor palette index */ \
@@ -666,6 +667,39 @@ inline float SpikeAngle(int j, int lines) { return (float)(kPi * 0.5) + (float)j
 // the mean back by it keeps the ring as bright as the blob whatever its radius. `r` in frame heights.
 inline float HaloRingBlobs(float r, float aspect) {
 	return (float)(2.0 * kPi) * r / (2.0f * kGhostRadius * aspect);
+}
+
+// ---- the sun ----------------------------------------------------------------------------------
+//
+// THE SUN NEVER FLARED. A source has to be small and brighter than what surrounds it (the
+// isolation rings above), and a frame full of near-white has its flare budgeted down -- both on
+// purpose, so a bright wall or a sky-filled doorway never throws a frame-sized flare. A sun sits on
+// a bright sky, so both rules took it out (user report 2026-10-17: "when I look at the sun ... I
+// don't have a lens flare at all"). The sun is therefore found from the SKY instead of the frame:
+// its direction (where sky.vfx draws its disc, or the map's light_environment) is projected onto
+// the screen, a 1x1 pass checks the sky is really visible there (geometry and smoke block it), and
+// the sun is added to the source map past the isolation test, with the budget lifted while it shows.
+constexpr float kSunSourceRadius = 0.012f;     // the sun's blob in the source map, fraction of frame height
+constexpr float kSunVisibilityRadius = 0.006f; // the disc the visibility taps cover, fraction of frame height
+constexpr float kSunMargin = 0.15f;            // projected this far past the frame edge it still counts (fades in)
+
+// Where a DIRECTION (toward the sun, world space) lands on screen, from the row-major world-to-clip
+// matrix: a point at infinity, so w = 0 in the input. False when it is behind the camera or well off
+// the frame.
+inline bool SunScreenUv(const float* worldToClip, const float dir[3], float& u, float& v) {
+	const float* m = worldToClip;
+	const float x = m[0] * dir[0] + m[1] * dir[1] + m[2] * dir[2];
+	const float y = m[4] * dir[0] + m[5] * dir[1] + m[6] * dir[2];
+	const float w = m[12] * dir[0] + m[13] * dir[1] + m[14] * dir[2];
+	if (!(w > 1e-6f)) return false;
+	u = 0.5f + 0.5f * x / w;
+	v = 0.5f - 0.5f * y / w;
+	return u > -kSunMargin && u < 1.0f + kSunMargin && v > -kSunMargin && v < 1.0f + kSunMargin;
+}
+
+// The sun's blob at an offset (dx, dy) from it, both in frame-height units.
+inline float SunSourceBlob(float dx, float dy) {
+	return std::exp(-(dx * dx + dy * dy) / (2.0f * kSunSourceRadius * kSunSourceRadius));
 }
 
 // ---- palettes ---------------------------------------------------------------------------------

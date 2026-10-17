@@ -193,6 +193,8 @@ R"CFJS(
       'How far the streak reaches across the frame.');
     lensSlider(flareDetailPage, 'Aperture blades', 'flare.blades', 3, 12, 0, '',
       'Sets the shape of every ghost and how many spikes a light gets. Six blades make hexagon ghosts and six spikes; an odd number makes twice as many spikes.');
+    lensSlider(flareDetailPage, 'Sun', 'flare.sun', 0, 2, 2, 'x',
+      'How strongly the sun itself flares. It is found from the sky, so a sun on a bright sky still flares; walls and smoke in front of it block it. 0 leaves the sun to the ordinary light test.', { offAtZero: true });
     lensSlider(flareDetailPage, 'Lens dirt', 'flare.dirt', 0, 1, 2, '',
       'Smudges on the front element that light up where flare falls on them. Load your own dirt image with  mirv_filmmaker lens dirt <path>  (the shape is read as brightness).', { offAtZero: true });
     var FLARE_TINTS = [

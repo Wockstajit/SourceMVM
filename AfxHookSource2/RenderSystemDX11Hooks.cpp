@@ -11,6 +11,7 @@
 #include "Filmmaker/Render/RenderWorldOnly.h"
 #include "Filmmaker/Environment/EnvironmentRender.h"
 #include "Filmmaker/Lens/LensFx.h"
+#include "Filmmaker/World/SunFx.h" // the lens flare's sun (SunFx_VisibleSunDirection)
 #include "Filmmaker/World/CustomShadowAtlas.h"
 #include "DeathMsg.h"
 #include "RenderServiceHooks.h"
@@ -3357,9 +3358,17 @@ public:
                     smoke.camera[0] = eye.x; smoke.camera[1] = eye.y; smoke.camera[2] = eye.z;
                     smoke.haveCamera = g_EnvironmentFrame.hasWorldToClip
                         && std::isfinite(eye.x) && std::isfinite(eye.y) && std::isfinite(eye.z);
+                    // The sun for the flare: where the sky draws it, else the map's light_environment.
+                    Filmmaker::LensSun sun;
+                    sun.have = Filmmaker::SunFx_VisibleSunDirection(sun.dir);
+                    if (!sun.have && g_EnvironmentFrame.relight.hasSun) {
+                        const auto d = Filmmaker::Relight::SunDirection(g_EnvironmentFrame.relight.sunAngles);
+                        sun.dir[0] = d.x; sun.dir[1] = d.y; sun.dir[2] = d.z;
+                        sun.have = true;
+                    }
                     Filmmaker::LensFx_Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                         g_EnvironmentFrame.hasWorldToClip ? g_EnvironmentFrame.worldToClip.data() : nullptr,
-                        g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke);
+                        g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke, sun);
                 }
                 // Render workspace live Depth / Normal view: last, so it replaces the finished scene.
                 AfxRenderLivePassPreview(pDeviceContext, pRenderTargetViews[0]);

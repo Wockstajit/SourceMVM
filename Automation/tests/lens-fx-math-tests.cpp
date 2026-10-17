@@ -49,11 +49,11 @@ static void TestParameterTable() {
 	CHECK(Specs()[DofRoundness].min == -1.0f && Specs()[DofEdge].min == -1.0f && Specs()[DofEdge].def == 0.0f);
 	CHECK(Specs()[DofRange].def == 0.0f && Specs()[DofDebug].max == 3.0f);
 
-	// The flare group is fourteen controls (at most sixteen), and everything that was folded into a fixed
-	// constant, a palette index or removed is gone, not aliased.
+	// The flare group is fifteen controls (at most sixteen; the fifteenth is the sun), and everything that
+	// was folded into a fixed constant, a palette index or removed is gone, not aliased.
 	int flareCount = 0;
 	for (int i = 0; i < ParamCount; ++i) flareCount += InGroup(i, Group::Flare) ? 1 : 0;
-	CHECK(flareCount == 14 && flareCount <= 16);
+	CHECK(flareCount == 15 && flareCount <= 16);
 	for (const char* removed : { "flare.range", "flare.boost", "flare.spread", "flare.ghostGain", "flare.ghostSize", "flare.ghostShape",
 		"flare.ghostHue", "flare.ghostSat", "flare.variety", "flare.seed", "flare.chroma", "flare.squeeze", "flare.bladeRound",
 		"flare.haloWidth", "flare.haloCompress", "flare.haloRainbow", "flare.streakAng", "flare.starLen", "flare.starRot",
@@ -61,9 +61,10 @@ static void TestParameterTable() {
 		"flare.tintB", "flare.streakR", "flare.streakG", "flare.streakB" })
 		CHECK(FindParam(removed) == -1);
 	for (const char* kept : { "flare.on", "flare.intensity", "flare.threshold", "flare.ghosts", "flare.halo", "flare.streak",
-		"flare.streakLen", "flare.star", "flare.blades", "flare.glow", "flare.dirt", "flare.tint", "flare.streakTint", "flare.debug" })
+		"flare.streakLen", "flare.star", "flare.blades", "flare.glow", "flare.sun", "flare.dirt", "flare.tint", "flare.streakTint", "flare.debug" })
 		CHECK(FindParam(kept) >= 0);
 	CHECK(Specs()[FlareGhosts].max == (float)kMaxGhosts);
+	CHECK(Specs()[FlareSun].def == 1.0f && Specs()[FlareSun].min == 0.0f);
 	CHECK(Specs()[FlareThreshold].max == 1.0f && Specs()[FlareThreshold].def < 0.95f && Specs()[FlareThreshold].def > Specs()[FlareThreshold].min);
 	CHECK(Specs()[DofShape].max == (float)(IrisShapeCount - 1)); // no shape number outside the enum
 
@@ -187,6 +188,30 @@ static void TestAutofocusSpeed() {
 	// Frame-rate independent: one 1/30 s frame moves as far as two 1/60 s frames.
 	const float one = AutofocusStep(4, 1.0f / 30), half = AutofocusStep(4, 1.0f / 60);
 	CHECK_NEAR(one, 1 - (1 - half) * (1 - half), 1e-6);
+}
+
+// The sun is found from the sky and projected onto the screen (see "the sun" in LensFxMath.h).
+static void TestSunProjection() {
+	// A camera at the origin looking down +x, Source axes (z up), 90 degree FOV, aspect 16:9:
+	// clip x = -y / tan(45) / aspect, clip y = z / tan(45), clip w = x (row-major, M * v).
+	const float a = 16.0f / 9.0f;
+	const float m[16] = { 0, -1 / a, 0, 0,   0, 0, 1, 0,   0, 0, 0, 0,   1, 0, 0, 0 };
+	float u = 0, v = 0;
+	const float ahead[3] = { 1, 0, 0 };
+	CHECK(SunScreenUv(m, ahead, u, v) && std::fabs(u - 0.5f) < 1e-6f && std::fabs(v - 0.5f) < 1e-6f);
+	const float upRight[3] = { 1, -0.5f, 0.5f }; // right of and above the middle
+	CHECK(SunScreenUv(m, upRight, u, v) && u > 0.5f && v < 0.5f);
+	CHECK(std::fabs(v - 0.25f) < 1e-5f);              // 45 degrees up is the top edge of a 90 degree view; half that is a quarter
+	const float behind[3] = { -1, 0, 0.2f };
+	CHECK(!SunScreenUv(m, behind, u, v));              // behind the camera never flares
+	const float wide[3] = { 1, 3, 0 };                 // far off to the side
+	CHECK(!SunScreenUv(m, wide, u, v));
+	const float justOff[3] = { 1, 0, 1.2f };           // a little past the top: still counts, fading in
+	CHECK(SunScreenUv(m, justOff, u, v) && v < 0 && v > -kSunMargin);
+	// The blob is 1 on the sun and falls off over its radius.
+	CHECK(SunSourceBlob(0, 0) == 1.0f);
+	CHECK(std::fabs(SunSourceBlob(kSunSourceRadius, 0) - std::exp(-0.5f)) < 1e-6f);
+	CHECK(SunSourceBlob(0.1f, 0) < 1e-6f);
 }
 
 static void TestZoneMode() {
@@ -825,6 +850,13 @@ static void TestShaderSource() {
 		CHECK(cpp.find("pass2(g.mipPS.Get(), g.cocRtv[m].Get(), g.worldRtv[m].Get()") != std::string::npos);
 		CHECK(cpp.find("{ 21, g.worldAll.Get() }") != std::string::npos);
 	}
+	// The sun: same constants, the 1x1 visibility pass, and the source and budget take it.
+	CHECK(kSunSourceRadius == 0.012f && src.find("kSunSourceRadius = .012;") != std::string::npos);
+	CHECK(kSunVisibilityRadius == 0.006f && src.find("kSunVisibilityRadius = .006;") != std::string::npos);
+	CHECK(kSunMargin == 0.15f && src.find("kSunMargin = .15;") != std::string::npos);
+	CHECK(src.find("float SunPS(VOut i) : SV_Target") != std::string::npos);
+	CHECK(src.find("exp(-dot(d, d) / (2 * kSunSourceRadius * kSunSourceRadius)) * vis * sunInfo.z") != std::string::npos);
+	CHECK(src.find("if (sunInfo.z > 0) budget = max(budget, sunVisTex.Load(int3(0, 0, 0)));") != std::string::npos);
 	// The zebra marks what blurs less than half a pixel.
 	CHECK(src.find("dbg == 3") != std::string::npos && src.find("if (abs(coc) < .5) col = band == 0") != std::string::npos);
 	CHECK(src.find("/ 36.0") != std::string::npos);
@@ -1043,6 +1075,7 @@ int main() {
 	TestCircleOfConfusion();
 	TestSharpBand();
 	TestAutofocusSpeed();
+	TestSunProjection();
 	TestSmoke();
 	TestZoneMode();
 	TestIrisShapes();

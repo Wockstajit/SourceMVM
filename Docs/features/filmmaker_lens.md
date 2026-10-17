@@ -187,7 +187,16 @@ so applying two in a row never leaves values from the first.
 
 Screen-space, built from the hot spots of the (possibly already blurred) frame: ghosts shaped like the
 aperture, a ring, an anamorphic streak, diffraction spikes, a soft glow and lens dirt, in a warm tint.
-Fourteen settings, five looks.
+Fifteen settings, five looks.
+
+**The sun.** The rules below keep only small lights brighter than their surroundings and turn the
+flare down on a frame full of near-white, so a sun on a bright sky never flared. The sun is found
+from the sky instead: its direction is `SolarPosition` on the sky material (where sky.vfx draws its
+disc, read live by `SunFx_RefreshVisibleSun` while the flare is on), else the map's
+`light_environment`. It is projected onto the screen (`SunScreenUv`); a 1×1 pass (`SunPS`) checks
+how much of its disc is open sky (geometry and smoke in front block it); the sun is added to the
+source map past the isolation test (`SunSourceBlob`), and the budget is lifted while it shows.
+*Sun* (`flare.sun`, 0 to 2, default 1) is its strength.
 
 The flare follows these rules:
 

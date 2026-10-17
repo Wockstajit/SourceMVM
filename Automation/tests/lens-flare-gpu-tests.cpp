@@ -38,7 +38,7 @@ int main(){try {
     // Compile the remaining affected pipeline as well, including composite bindings.
     for(const char* entry:{"BrightPS","Down13PS","SourcePS","GhostPS","GlowHPS","GlowVPS","CompositePS"})pixel(entry);
     // The depth-of-field passes share the constant buffer and the smoke lookup: they must compile too.
-    for(const char* entry:{"FocusPS","CocPS","MipPS","TilePS","DilateHPS","DilateVPS","GatherPS","DenoisePS"})pixel(entry);
+    for(const char* entry:{"FocusPS","CocPS","SunPS","MipPS","TilePS","DilateHPS","DilateVPS","GatherPS","DenoisePS"})pixel(entry);
     auto image=[&](UINT w,UINT h,bool mips=false){Image im{w,h};D3D11_TEXTURE2D_DESC td{};
         td.Width=w;td.Height=h;td.MipLevels=mips?0:1;td.ArraySize=td.SampleDesc.Count=1;
         td.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;td.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;

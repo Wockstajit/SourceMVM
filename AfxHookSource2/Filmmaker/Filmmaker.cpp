@@ -60,6 +60,8 @@
 #include "Movie/ParticleFx.h"
 #include "Movie/RagdollPhysics.h" // ragdoll gravity/friction/limit (convar-driven)
 #include "World/WorldCommand.h" // World_RunFrame: lighting / atmosphere / weather modules
+#include "World/SunFx.h"        // SunFx_RefreshVisibleSun: the lens flare's sun
+#include "Lens/LensFx.h"        // LensFx_FlareOn
 #include "Movie/RagdollWeapon.h"
 #include "Movie/DeathAnimations.h"
 #include "Movie/NervousSystem.h"
@@ -1034,6 +1036,8 @@ void RunMainThreadFrame() {
 	// World/Effects: lighting, atmosphere, weather. Entity-touching like the passes above, so it
 	// rides this thread. Fans out to its own modules; every one is a no-op while disabled.
 	World_RunFrame();
+	// The lens flare's sun comes from the sky material (SunFx_VisibleSunDirection); keep it fresh while the flare is on.
+	if (LensFx_FlareOn()) SunFx_RefreshVisibleSun();
 	// Player-preview scene probe (read-only instrumentation, own module). No-op unless armed with
 	// `mvm_previewprobe watch`; exists to settle which clock the preview animgraph follows.
 	PreviewSceneProbe_RunFrame();

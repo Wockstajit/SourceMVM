@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <string>
 
 namespace Filmmaker {
@@ -278,6 +279,12 @@ void ApplyToGlow(CMaterial2* mat, const std::string& name, bool restore) {
 	SceneSystem_UpdateMaterial(mat);
 }
 
+// The visible sun (SunFx_VisibleSunDirection): written on the main thread, read by the renderer.
+std::mutex g_visibleSunMutex;
+bool g_visibleSunHave = false;
+float g_visibleSun[3] = {};
+int g_visibleSunWait = 0; // refreshes left before the next walk
+
 void ForEachSunMaterial(bool restore) {
 	if (!g_pCResourceSystem) return;
 	GetMaterialsArrayResult materials = { 0 };
@@ -471,7 +478,48 @@ void SunFx_SetSceneLightTint(int r, int g, int b, float amount, bool colorOnly) 
 	SunFx_Apply();
 }
 
+void SunFx_RefreshVisibleSun() {
+	if (g_visibleSunWait-- > 0) return;
+	g_visibleSunWait = 60;
+	bool have = false;
+	float dir[3] = {};
+	if (g_pCResourceSystem) {
+		GetMaterialsArrayResult materials = { 0 };
+		g_pCResourceSystem->GetMaterials(&materials);
+		for (uint64_t i = 0; i < materials.count && !have; ++i) {
+			// Same sentinel guards as ForEachSunMaterial: a level load grows this array under us.
+			CMaterial2** slot = materials.pArrMaterials[i];
+			if (!slot || (uintptr_t)slot == (uintptr_t)-1) continue;
+			CMaterial2* mat = *slot;
+			if (!mat || (uintptr_t)mat == (uintptr_t)-1) continue;
+			char nameBuf[512];
+			if (!SceneSystem_MaterialName(mat, nameBuf, sizeof(nameBuf)) || !IsSkyMaterial(nameBuf)) continue;
+			const float* pos = SceneSystem_FindMaterialParam(mat, kParamSolarPosition);
+			const float* irr = SceneSystem_FindMaterialParam(mat, kParamSolarIrradiance);
+			if (!pos || (irr && irr[0] + irr[1] + irr[2] <= 0.0f)) continue; // no sun, or hidden
+			const float len = sqrtf(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]);
+			if (!(len > 1e-4f) || !std::isfinite(len)) continue;
+			for (int c = 0; c < 3; ++c) dir[c] = pos[c] / len;
+			have = true;
+		}
+	}
+	std::lock_guard<std::mutex> lock(g_visibleSunMutex);
+	g_visibleSunHave = have;
+	for (int c = 0; c < 3; ++c) g_visibleSun[c] = dir[c];
+}
+
+bool SunFx_VisibleSunDirection(float out[3]) {
+	std::lock_guard<std::mutex> lock(g_visibleSunMutex);
+	for (int c = 0; c < 3; ++c) out[c] = g_visibleSun[c];
+	return g_visibleSunHave;
+}
+
 void SunFx_OnLevelInit() {
+	{
+		std::lock_guard<std::mutex> lock(g_visibleSunMutex);
+		g_visibleSunHave = false; // the old map's sky is gone; the next refresh reads the new one
+		g_visibleSunWait = 0;
+	}
     if (!g_skySnaps.empty() || !g_glowSnaps.empty()) ForEachSunMaterial(true);
     g_skySnaps.clear();g_glowSnaps.clear();g_lightSnaps.clear();g_haveBaseline=false;
     MvmDebugLog_Linef("environment.baseline","sun materials restored and generation released");

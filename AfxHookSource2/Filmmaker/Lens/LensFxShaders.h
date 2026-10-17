@@ -39,6 +39,7 @@ cbuffer LensConstants : register(b0) {
     float4 smokeInfo;   // x smoke spheres, y absorbance bound, zw absorbance size (px)
     float4 cameraPos;   // xyz camera position (world), w unused
     float4 smokeSpheres[8]; // xyz centre, w radius (kLensMaxSmokes)
+    float4 sunInfo;     // xy the sun's screen uv, z sun flare strength (0 = no sun), w unused
 };
 SamplerState linearClamp : register(s0);
 Texture2D<float4> colorTex : register(t0);
@@ -69,6 +70,7 @@ Texture2D<float4> source8Tex : register(t18);  // the source map, eighth resolut
 Texture2D<float4> sourceHTex : register(t19);  // the source map, eighth width x half height (Gaussian-filtered streak)
 Texture2D<float> smokeAbsorb : register(t20);  // CS2's OIT absorbance b0 in front of each surface
 Texture2D<float> worldMask : register(t21);    // 1 world, 0 the sharp first-person weapon; mips like cocTex
+Texture2D<float> sunVisTex : register(t22);    // 1x1: how much of the sun's disc is open sky (SunPS)
 
 static const float kPi = 3.14159265;
 static const float kFarSky = 60000.0;
@@ -87,6 +89,9 @@ static const float kMaxLiftStops = 15.0;    // kMaxLiftStops
 static const float kHeartCentroid = 0.26759; // kHeartCentroid
 static const float kHeartScale = 1.65;       // kHeartScale
 static const float kSmokeMinCover = .02;     // kSmokeMinCover
+static const float kSunSourceRadius = .012;  // kSunSourceRadius
+static const float kSunVisibilityRadius = .006; // kSunVisibilityRadius
+static const float kSunMargin = .15;         // kSunMargin
 struct VOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
 VOut VS(uint id : SV_VertexID) {
     VOut o;
@@ -249,6 +254,31 @@ float FocusPS(VOut i) : SV_Target {
     // AutofocusStep in LensFxMath.h: exponential at dof.focusSpeed, instant at the top of its range.
     float a = frame.y >= kAutofocusInstant ? 1 : 1 - exp(-frame.y * frame.x);
     return lerp(prev, target, a);
+}
+
+// ---- the sun's visibility: a 1x1 target, how much of its disc is open sky (SunScreenUv) ------
+float SunPS(VOut i) : SV_Target {
+    if (sunInfo.z <= 0) return 0;
+    float2 c = sunInfo.xy * dims.xy;
+    float r = max(kSunVisibilityRadius * dims.y, 1.5);
+    float vis = 0;
+    [unroll] for (int y = -1; y <= 1; ++y)
+        [unroll] for (int x = -1; x <= 1; ++x) {
+            float2 pix = clamp(c + float2(x, y) * r, float2(0, 0), dims.xy - 1);
+            float raw = RawDepth(pix);
+            bool sky = depthInfo.w > .5 ? raw < 1e-7 : raw >= depthInfo.y - 1e-6;
+            float open = sky ? 1 : 0;
+            // A smoke in front of the sun hides it as much as it hides anything.
+            if (smokeInfo.y > .5) {
+                int2 q = clamp(int2(pix * smokeInfo.zw / dims.xy), int2(0, 0), int2(smokeInfo.zw) - 1);
+                float b0 = smokeAbsorb.Load(int3(q, 0));
+                if (b0 > 0 && b0 < 1e6) open *= exp(-b0);
+            }
+            vis += open;
+        }
+    // Fades in from kSunMargin past the frame edge, so a sun entering the frame does not pop.
+    float2 edge = min(sunInfo.xy, 1 - sunInfo.xy);
+    return vis / 9 * saturate(1 + min(edge.x, edge.y) / kSunMargin);
 }
 
 // ---- the bokeh gamma -------------------------------------------------------------------------
@@ -635,7 +665,14 @@ float4 SourcePS(VOut i) : SV_Target {
     iso *= 1 - smoothstep(kFlareWideIsoLo, kFlareWideIsoHi, wideRing / 16);
     // Specks a few pixels wide (sparkles on a brick wall) are not lights: they fade out below a size floor.
     float floorW = smoothstep(kFlareMinLo, kFlareMinHi, Luma(s));
-    return float4(s * iso * floorW * BorderFade(i.uv), 1);
+    float3 outc = s * iso * floorW * BorderFade(i.uv);
+    // The sun, found from the sky (SunPS): never dropped as part of a bright area. Mirrors SunSourceBlob.
+    if (sunInfo.z > 0) {
+        float2 d = (i.uv - sunInfo.xy) * float2(modes.z, 1);
+        float vis = sunVisTex.Load(int3(0, 0, 0));
+        outc += float3(1, .96, .9) * exp(-dot(d, d) / (2 * kSunSourceRadius * kSunSourceRadius)) * vis * sunInfo.z;
+    }
+    return float4(outc, 1);
 }
 
 // Pre-filter the streak once: a continuous Gaussian across its width, and a box
@@ -865,6 +902,8 @@ float4 CompositePS(VOut i
         // the flare's strength is a budget: full while that area is small, falling as it grows.
         float area = BrightArea();
         float budget = pow(saturate(kFlareBudgetArea / max(area, 1e-9)), kFlareBudgetPow);
+        // The sun sits on a bright sky, which is exactly what the budget turns down: while it shows it keeps the flare.
+        if (sunInfo.z > 0) budget = max(budget, sunVisTex.Load(int3(0, 0, 0)));
         float3 f = 1 - exp(-max(((gh + gl) * flareTint.rgb * dirt + st) * flareA.x * budget, 0));
         col = flareC.w > .5 ? f : 1 - (1 - col) * (1 - f);
         if (flareC.w > 1.5) col = float3(area * 10, budget, 0);
