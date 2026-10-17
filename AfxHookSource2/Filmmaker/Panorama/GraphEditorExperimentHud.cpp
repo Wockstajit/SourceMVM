@@ -1,5 +1,7 @@
 #include "GraphEditorExperimentHud.h"
 #include "../Movie/DemoScrub.h"
+#include "../Movie/ScrubFrameCache.h" // the camera flies the world's own tick while the world chases a drag
+#include "../Movie/ScrubFrameCache.h" // the camera flies the world's own tick while the world chases a drag
 
 #include "InspectorWidth.h"
 
@@ -205,6 +207,7 @@ void GraphEditorExperimentHud::OnEnter() {
 }
 
 void GraphEditorExperimentHud::OnExit() {
+	m_releaseDrive = false;
 	if (MvmDebugLog_Active())
 		MvmDebugLog_Linef("graph.mode", "exit keys=%s total=%d pathCount=%d drive=%d ownsView=%d",
 			ChKeyCounts(m_model).c_str(), m_model.TotalKeys(), CameraPathRef().Count(),
@@ -228,7 +231,12 @@ bool GraphEditorExperimentHud::DrivingNow() const {
 	// The view could not leave the path while the dock was open. A scrub or an edit is what the
 	// preview is for; between them the camera belongs to whatever the user picked, exactly as on
 	// the camera timeline, whose scrub hands the free cam back once its seek lands.
-	return TimelinePlayhead_Scrubbing() || m_editDriveFrames > 0;
+	//
+	// ...and after the graph's own release until the world has landed: the camera flies the released
+	// tick through the settle, so the last pose it is left with is the tick the playhead shows. With
+	// the scrub frame cache on, the drag flies the WORLD's time (ScrubFrameCache_CameraTick), and
+	// stopping at the release left the camera wherever the world was mid-travel.
+	return TimelinePlayhead_Scrubbing() || m_editDriveFrames > 0 || m_releaseDrive;
 }
 
 bool GraphEditorExperimentHud::OwnsView() const {
@@ -236,8 +244,10 @@ bool GraphEditorExperimentHud::OwnsView() const {
 }
 
 void GraphEditorExperimentHud::DriveCameraThisFrame() {
-	const bool editDrive = m_editDriveFrames > 0;
+	const bool editDrive = m_editDriveFrames > 0 || m_releaseDrive;
 	if (m_editDriveFrames > 0) --m_editDriveFrames;
+	// This frame still drives (the world landed this frame at the latest); the next one does not.
+	if (m_releaseDrive && !DemoScrub_Active()) m_releaseDrive = false;
 	if (!m_enabled || !m_drive || m_model.TotalKeys() == 0)
 		return;
 	if (!TimelinePlayhead_Scrubbing() && !editDrive)
@@ -291,10 +301,17 @@ void GraphEditorExperimentHud::DriveCameraThisFrame() {
 	//
 	// Falls back to the model ONLY when the path cannot evaluate at all (<2 markers), so a graph
 	// with keys still previews something instead of freezing.
-	if (!CameraPathRef().EvalPoseAtTick(PlayheadTick(), pose))
+	//
+	// With the scrub frame cache on, the path is flown at the WORLD's time while the world chases a
+	// drag (ScrubFrameCache_CameraTick), so every frame shows one tick as the render would and can
+	// be kept for a backward drag.
+	const double camTick = ScrubFrameCache_CameraTick(PlayheadTick());
+	const bool onPath = CameraPathRef().EvalPoseAtTick(camTick, pose);
+	if (!onPath)
 		m_model.SamplePose(PlayheadTick(), defaults, pose);
 	CameraBridge_SetFreeCamEnabled(true);
 	CameraBridge_SetCameraPose(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6]);
+	if (onPath) ScrubFrameCache_NoteCamera(camTick, pose);
 
 	// Per-frame: heavily throttled. Carries the INPUT (playhead, scrub state, the camera pose
 	// used as the per-channel default) next to the sampled OUTPUT, so "camera ignores the
@@ -724,7 +741,11 @@ void GraphEditorExperimentHud::CmdClearHandles(int ch, int id) { m_model.BeginEd
 void GraphEditorExperimentHud::CmdPlayhead(double tick, bool seek) {
 	// Writes the SHARED cursor, so the camera timeline's readout and slider follow this drag
 	// even though it started on the graph's ruler.
-	if (seek) TimelinePlayhead_EndScrub();   // release: follow the demo tick again (JS sends scrub release)
+	if (seek) {
+		const bool wasScrubbing = TimelinePlayhead_Scrubbing();
+		TimelinePlayhead_EndScrub();         // release: follow the demo tick again (JS sends scrub release)
+		if (wasScrubbing) m_releaseDrive = true;
+	}
 	else {
 		TimelinePlayhead_BeginScrub(tick);   // drag: preview the camera at this tick...
 		DemoScrub_Drag(tick);                // ...and the world follows (Movie/DemoScrub.h)

@@ -583,6 +583,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Panorama/SpeedScrubberJs.h
     Filmmaker/Movie/DemoTimescale.cpp
     Filmmaker/Movie/DemoScrub.cpp
+    Filmmaker/Movie/ScrubFrameCache.cpp
+    Filmmaker/Movie/ScrubFrameCache.h
+    Filmmaker/Movie/ScrubFrameCacheMath.h
     Filmmaker/Movie/DemoTimescale.h
     Filmmaker/Panorama/CameraEditorHud.cpp
     Filmmaker/Panorama/CameraEditorHud.h

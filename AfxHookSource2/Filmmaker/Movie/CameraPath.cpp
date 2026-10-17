@@ -170,6 +170,33 @@ bool CameraPath::OwnsView() const {
 
 void CameraPath::RebuildCamPath() {
 	m_eval.Rebuild(m_data, MakeSettings());
+	// The revision moves only when the path now FLIES differently: the pose at every key and every
+	// segment's middle tick. Entering a scrub rebuilds an unchanged path, and counting that as an
+	// edit dropped the whole scrub frame cache on every new drag (measured 2026-10-16: a click
+	// halfway kept 26 frames below it, the drag back dropped them all and restored instead).
+	{
+		uint64_t h = 0xcbf29ce484222325ull;
+		auto mix = [&h](double v) {
+			const long long q = (long long)std::llround(v * 1000.0);
+			h = (h ^ (uint64_t)q) * 0x100000001b3ull;
+		};
+		mix((double)m_data.Count());
+		for (int i = 0; i < m_data.Count(); ++i) {
+			const int t0 = m_data.At(i).tick;
+			double ticks[2] = { (double)t0, -1.0 };
+			if (i + 1 < m_data.Count()) ticks[1] = 0.5 * (t0 + m_data.At(i + 1).tick);
+			for (double t : ticks) {
+				if (t < 0.0) continue;
+				double p[7];
+				mix(t);
+				if (EvalPoseAtTick(t, p)) for (double v : p) mix(v);
+			}
+		}
+		if (h != m_pathFingerprint) {
+			m_pathFingerprint = h;
+			++m_pathRevision;
+		}
+	}
 	// What the camera will fly after this rebuild: whether it follows the graph's curves and the
 	// pose at each segment's middle tick -- where a handle edit shows (a key's own tick does not
 	// move). Graph drags rebuild at drag rate, so this samples unless the mode or count changed.
@@ -290,9 +317,13 @@ void CameraPath::FinishPlaybackAtLastKey() {
 	const int lastIndex = m_data.Count() - 1;
 	const int lastTick = LastPathTick();
 	if (m_timing == Timing::Live) {
-		DemoCmd("demo_pause");
+		// Land on the last key the way a timeline release does (DemoScrub: restore 8 ticks short,
+		// play in, pause), not with a bare demo_gototick. On a keyframed copy the key's tick has its
+		// own snapshot, and a bare seek showed that restore as the final frame: players in bind pose
+		// (2026-10-16). The scrub also pauses the demo (demo_pause toggles, so it is not sent here)
+		// and holds the preview on the last played frame while it lands.
 		m_liveResumeGuard = 0;
-		SeekDemoTick(lastTick);
+		DemoScrub_Release((double)lastTick, false);
 	}
 	StopPreview();
 	HoldEditorAtMarker(lastIndex);

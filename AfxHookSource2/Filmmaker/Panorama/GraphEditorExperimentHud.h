@@ -122,6 +122,7 @@ private:
 	std::vector<CamMarker> m_pathSeen;
 	bool m_pathSeenValid = false;
 	int m_editDriveFrames = 0;    // frames left of "show the edit" drive after a bake
+	bool m_releaseDrive = false;  // our playhead was released: keep flying the released tick until the world lands
 
 	void* m_hudPanel = nullptr;
 	void* m_root = nullptr;       // #GraphExpRoot

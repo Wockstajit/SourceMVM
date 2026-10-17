@@ -72,6 +72,7 @@
 #include "Movie/DemoEndHold.h"
 #include "Movie/PlaybackLoop.h"
 #include "Movie/DemoScrub.h"
+#include "Movie/ScrubFrameCache.h"
 #include "Movie/WeaponBobProbe.h"
 #include "Render/RenderSessionDriver.h"
 #include "Render/RenderEngineSize.h"
@@ -841,7 +842,10 @@ void RunMainThreadFrame() {
 	PlaybackLoop_RunFrame();
 
 	// Live scrubbing: the world follows a timeline drag (plays forward, seeks back). Inert unless a
-	// scrub surface is being dragged.
+	// scrub surface is being dragged. The scrub frame cache reads the world and takes first, so a
+	// backward drag can be shown from frames already played; its EndFrame below publishes this
+	// frame's identity once the camera drivers have run.
+	ScrubFrameCache_BeginFrame();
 	DemoScrub_RunFrame();
 
 	// World Only: refresh the planted-bomb bit BEFORE the render driver steps, so a job's first
@@ -1109,6 +1113,8 @@ void RunMainThreadFrame() {
 	// Debounced persistence for reusable Config / Camera Editor preferences. Shot-specific
 	// camera, path and Follow/Attach state stays in its owning subsystem.
 	FilmmakerSettings_RunFrame();
+	// After every camera driver: what this frame renders, for the scrub frame cache.
+	ScrubFrameCache_EndFrame();
 
 	// Close the measurement window for this main-thread frame (no-op unless the probe is armed).
 	PanoramaPerf_EndFrame();

@@ -29,6 +29,7 @@
 #include "CamPlayback.h"
 
 #include <atomic>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -119,6 +120,9 @@ public:
 	// actually driving (playing or scrubbing). The view-stage shake layer reads this so it keys
 	// off the same point on the path the pose was evaluated at.
 	bool CurrentPathTick(double& outTick) const;
+	// Bumped by every edit (MarkDirty) and by any rebuild after which the path flies differently: the
+	// scrub frame cache drops frames of an older path (ScrubFrameCache.cpp).
+	uint64_t PathRevision() const { return m_pathRevision; }
 
 	// --- reads for the UI/HUD (main thread) ---
 	int Count() const { return m_data.Count(); }
@@ -181,7 +185,7 @@ public:
 
 private:
 	void RebuildCamPath();   // m_eval.Rebuild(m_data, settings)
-	void MarkDirty() { m_dirty = true; }
+	void MarkDirty() { m_dirty = true; ++m_pathRevision; }
 	void EnsureDrawState();  // toggle the in-world gizmos with marker presence
 	void SyncDrawerStyle();  // push Freeze/Live colour + aimed-highlight to the drawer
 	void UpdateHover();      // crosshair pick -> m_hovered
@@ -258,6 +262,8 @@ private:
 	CurveUndoState m_curveEditStart;
 	bool m_drawOn = false;
 	bool m_dirty = false;
+	uint64_t m_pathRevision = 1;
+	uint64_t m_pathFingerprint = 0; // RebuildCamPath: the poses the path flew last time
 
 	std::string m_notice;          // transient on-screen message
 	double m_noticeExpireSec = 0.0;// NowSec() after which the notice clears

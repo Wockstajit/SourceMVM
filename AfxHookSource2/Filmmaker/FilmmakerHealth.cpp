@@ -16,6 +16,7 @@
 #include "Environment/EnvironmentNativeMaterial.h" // NativeMaterialLiveCost
 #include "Render/RenderTargetProbe.h"          // RenderOwnedMemory_*: what the hook holds in VRAM
 #include "../ViewportScaler.h"                 // AfxViewportScaler::BreakCounts: scaled-preview breaks
+#include "Movie/ScrubFrameCache.h"             // ScrubFrameCache_PrintHealth
 #include <chrono>
 #include <cstdio>
 #include "../WrpConsole.h"
@@ -109,6 +110,7 @@ void Filmmaker_RunHealthCommand(int argc, advancedfx::ICommandArgs* args, const 
 		AfxViewportScaler::BreakCounts(vpTotal, vpMissed, vpStale, vpStretched, vpOpen);
 		advancedfx::Message("  vp scale breaks              : %u (missed blit %u, stale rect %u, stretched %u)%s\n",
 			vpTotal, vpMissed, vpStale, vpStretched, vpOpen ? " -- BROKEN NOW" : "");
+		ScrubFrameCache_PrintHealth();
 	}
 	if (renderCalls == 0) {
 		++problems;

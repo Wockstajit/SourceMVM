@@ -310,6 +310,13 @@ add_executable(DemoScrubMathTests
 target_compile_features(DemoScrubMathTests PRIVATE cxx_std_17)
 add_test(NAME DemoScrubMathTests COMMAND DemoScrubMathTests)
 
+add_executable(ScrubFrameCacheMathTests
+    ../Automation/tests/scrub-frame-cache-math-tests.cpp
+    Filmmaker/Movie/ScrubFrameCacheMath.h
+)
+target_compile_features(ScrubFrameCacheMathTests PRIVATE cxx_std_17)
+add_test(NAME ScrubFrameCacheMathTests COMMAND ScrubFrameCacheMathTests)
+
 add_executable(OsuRealmTests
     ../Automation/tests/osu-realm-tests.cpp
 )

@@ -20,6 +20,9 @@ void FilmmakerSettings_AcceptCurrent();
 bool FilmmakerSettings_UiBool(const char* key, bool fallback);
 std::string FilmmakerSettings_UiString(const char* key, const char* fallback);
 void FilmmakerSettings_SetUi(const char* key, const char* value);
+// Bumped whenever a persistent setting changes, UI-only keys excepted: what a frame looks like may
+// have changed (the scrub frame cache drops older frames, ScrubFrameCache.cpp).
+uint64_t FilmmakerSettings_PictureRevision();
 
 // Appends ",\"ui\":{...}" -- every UI key that has actually been stored, as one object.
 //
