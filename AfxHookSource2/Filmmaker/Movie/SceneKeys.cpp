@@ -1,6 +1,8 @@
 #define NOMINMAX
 #include "SceneKeys.h"
 #include "SceneKeyframeCatalog.h"
+#include "SceneRig.h"
+#include "SceneRigMath.h"
 #include "TimelinePlayhead.h"
 #include "../Filmmaker.h"
 #include "../Demo/DemoProjectStore.h"
@@ -30,7 +32,7 @@ std::wstring g_demo;
 std::string g_map, g_error;
 bool g_loaded = false, g_dirty = false, g_failed = false, g_gesture = false, g_reassert = false;
 ULONGLONG g_saveAt = 0;
-double g_captureTick = -1;
+double g_captureTick = -1, g_appliedTick = 0;
 std::map<std::wstring, TrackData> g_unsaved;
 std::map<std::string, std::string> g_preparedSkies;
 std::string g_lastValidSky;
@@ -54,8 +56,16 @@ std::map<std::string, Value> Baselines() {
     }
     return out;
 }
+// A property's value with no keys: CONFIG's (Baselines), or for a scene object's pose channel its
+// rest pose (SceneRig: the attach offset, or the map's authored pose).
+Value BaselineOf(const ChannelSpec& s, const std::map<std::string, Value>& base) {
+    const auto b = base.find(s.id); if (b != base.end()) return b->second;
+    int object = 0, c = 0; double rest = 0;
+    if (Rig::ParseChannelId(s.id, object, c) && SceneRig_RestChannel(object, c, rest)) return Value{{rest}, {}};
+    return s.initial;
+}
 Value Resolved(const ChannelSpec& s, double tick, const std::map<std::string, Value>& base) {
-    const auto b = base.find(s.id); const auto& baseline = b == base.end() ? s.initial : b->second;
+    const Value baseline = BaselineOf(s, base);
     if (g_track.data.muted.count(s.id)) return baseline; // disabled: the keys stay, nothing applies
     auto f = g_track.data.fields.find(s.id);
     return f == g_track.data.fields.end() ? baseline : Sample(s, f->second, tick, baseline);
@@ -118,8 +128,33 @@ void Load() {
         g_track.data = std::move(pending);
     } catch (const std::exception& e) { g_error = e.what(); g_failed = true; }
     PrepareAssets();
+    SceneRig_Reset(); // another demo: no held poses or looked-through camera carry over
 }
-const ChannelSpec* Channel(int ch) { return ch >= 0 && ch < int(Catalog().size()) ? &Catalog()[ch] : nullptr; }
+// The dock's channel number: the catalog's index, or a scene object's pose channel above it.
+const ChannelSpec* Channel(int ch) {
+    int object = 0, c = 0;
+    if (Rig::ParseChannelIndex(ch, object, c)) return ObjectSpec(object, c);
+    return ch >= 0 && ch < int(Catalog().size()) ? &Catalog()[ch] : nullptr;
+}
+// The scene objects with pose channels in the track (keyed, armed or disabled).
+std::set<int> TrackObjects() {
+    std::set<int> out; int object = 0, c = 0;
+    for (const auto& f : g_track.data.fields) if (Rig::ParseChannelId(f.first, object, c)) out.insert(object);
+    for (const auto& id : g_track.data.armed) if (Rig::ParseChannelId(id, object, c)) out.insert(object);
+    for (const auto& id : g_track.data.muted) if (Rig::ParseChannelId(id, object, c)) out.insert(object);
+    return out;
+}
+// Every property a group / layer target names: "all", a catalog group ("environment.fog"), a
+// scene object's layer ("objects.<id>"), or one property id.
+std::vector<const ChannelSpec*> SpecsFor(const std::string& target) {
+    std::vector<const ChannelSpec*> out;
+    for (const auto& s : Catalog()) if (target == "all" || s.family + "." + s.groupId == target || s.id == target) out.push_back(&s);
+    int object = 0, c = 0;
+    if (target == "all") { for (int id : TrackObjects()) for (int k = 0; k < Rig::kObjectChannels; ++k) out.push_back(ObjectSpec(id, k)); }
+    else if (target.rfind("objects.", 0) == 0 && Rig::ParseObjectId(target.substr(8), object)) { for (int k = 0; k < Rig::kObjectChannels; ++k) out.push_back(ObjectSpec(object, k)); }
+    else if (const auto* s = ObjectSpecById(target)) out.push_back(s);
+    return out;
+}
 // Smooth keys follow their neighbours (AE's Auto Bezier): re-solved after every edit, so a moved,
 // added or deleted key reshapes the Smooth keys around it the same frame.
 void RefreshAuto() { for(auto& f:g_track.data.fields){const auto* s=FindSpec(Catalog(),f.first);if(s&&RefreshAutoTangents(*s,f.second))++g_track.revision;} }
@@ -153,6 +188,7 @@ void Apply(double tick) {
             for (int i = 0; i < s.components; ++i) target[s.offset + i] = value.numbers[i];
         }
     }
+    g_appliedTick = tick;
     const auto previous = WorldTransient::Read();
     const bool changed = WorldTransient::Publish(state);
     if (!changed && !g_reassert) return;
@@ -231,13 +267,15 @@ std::string SceneKeys_ChannelsJson() {
     bool solo = false; for (const auto& c : g_track.solo) if (c.second) solo = true;
     const char* colors[] = {"#e4ba69","#8fd29c","#87bafa","#d8a0dd","#a8a3e8","#73cbd0"};
     static const std::vector<SceneKeys::Key> kNoKeys;
-    for (int ch=0; ch<int(Catalog().size()); ++ch) { const auto& s = Catalog()[ch];
+    auto channel = [&](int ch, const ChannelSpec& s, const std::string& group, bool fit, bool always) {
         auto f = g_track.data.fields.find(s.id);
         const bool keyed = f != g_track.data.fields.end() && !f->second.empty();
+        const bool live = keyed || g_track.data.armed.count(s.id) != 0;
         // An ARMED property gets its strip before it has a single key -- that empty strip is where
         // you click to create the first one. Without it, turning a property on in the inspector
-        // would show nothing anywhere and there would be no way to key it.
-        if (!keyed && !g_track.data.armed.count(s.id)) continue;
+        // would show nothing anywhere and there would be no way to key it. A scene camera's or
+        // light's rows are there `always`: not animated (`live` false) until a key or its switch.
+        if (!live && !always) return;
         const auto& keys = keyed ? f->second : kNoKeys; bool edit = !solo || g_track.solo[s.id];
         // The strip's value axis is EXACTLY the property's coded range. It used to expand over the
         // keyed span and then pad 8% past that, which pushed Exposure (min 0) to a -1.88 floor and
@@ -245,9 +283,19 @@ std::string SceneKeys_ChannelsJson() {
         // number are bounded by the same min/max.
         double lo=s.min, hi=s.max;
         if (s.type == ChannelType::Colour || s.type == ChannelType::SkyId) { lo=0; hi=1; }
-        j.BeginObject(); j.IntField("ch",ch); j.StringField("fieldId",s.id); j.StringField("name",s.label); j.StringField("family",s.family); j.StringField("group",s.group);
+        // A scene object's position and field of view are world units with a range of +-32768: on
+        // that axis a key 100 units away is a flat line. Those strips fit what they hold (the
+        // keys and the rest value, padded), still inside the coded range.
+        if (fit) {
+            const double rest = BaselineOf(s, base).numbers[0];
+            double a = rest, b = rest;
+            for (const auto& k : keys) { a = (std::min)(a, k.value.numbers[0]); b = (std::max)(b, k.value.numbers[0]); }
+            const double pad = (std::max)((b - a) * .15, s.id.size() > 4 && s.id.compare(s.id.size() - 4, 4, ".fov") == 0 ? 5.0 : 16.0);
+            lo = (std::max)(s.min, a - pad); hi = (std::min)(s.max, b + pad);
+        }
+        j.BeginObject(); j.IntField("ch",ch); j.StringField("fieldId",s.id); j.StringField("name",s.label); j.StringField("family",s.family); j.StringField("group",group);
         j.StringField("type",TypeName(s.type)); j.StringField("color",colors[ch%6]); j.BoolField("vis",!g_track.hidden[s.id] && edit); j.BoolField("solo",g_track.solo[s.id]); j.BoolField("edit",edit);
-        j.StringField("groupId",(s.family+"."+s.groupId).c_str()); j.BoolField("muted",g_track.data.muted.count(s.id)!=0);
+        j.StringField("groupId",(s.family+"."+s.groupId).c_str()); j.BoolField("muted",g_track.data.muted.count(s.id)!=0); j.BoolField("live",live);
         j.DoubleField("min",lo); j.DoubleField("max",hi); j.Key("value"); WriteValue(j,Editable(s,TimelinePlayhead_Tick(),base),s.type==ChannelType::SkyId);
         j.Key("keys"); j.BeginArray();
         for (size_t i=0; i<keys.size(); ++i) { const auto& k=keys[i]; j.BeginObject(); j.IntField("id",k.id); j.DoubleField("t",k.tick);
@@ -256,10 +304,28 @@ std::string SceneKeys_ChannelsJson() {
             j.BoolField("sel",g_track.selected.count(k.id)!=0); j.IntField("direction",int(k.direction));
             auto left=k.left, right=k.right; if(s.type==ChannelType::Colour){left.dv*=scale;right.dv*=scale;}
             WriteHandle(j,"cl",left); WriteHandle(j,"cr",right);
+            // Hold: this key steps out (hold), or the key before it stepped into this one (hin).
+            if(k.hold&&!s.Stepped()) j.BoolField("hold",true);
+            if(i>0&&keys[i-1].hold&&!s.Stepped()) j.BoolField("hin",true);
             if(s.type==ChannelType::Colour) { std::ostringstream sw; sw << '#' << std::hex << std::setfill('0'); for(int c=0;c<3;++c)sw<<std::setw(2)<<int(std::round(k.value.numbers[c])); j.StringField("swatch",sw.str()); }
             j.EndObject();
         } j.EndArray(); j.EndObject();
-    } j.EndArray(); return j.Str();
+    };
+    for (int ch=0; ch<int(Catalog().size()); ++ch) channel(ch, Catalog()[ch], Catalog()[ch].group, false, false);
+    // Scene object rigs: one layer per object, named as the Outliner names it -- every camera and
+    // light, and any other object with keys -- with the rows its kind has (Rig::ChannelsFor).
+    // A removed object's layer goes with it (its keys stay for an undo of the removal).
+    std::set<int> objects = TrackObjects();
+    for (int id : SceneRig_TimelineObjects()) objects.insert(id);
+    for (int object : objects) {
+        if (!SceneRig_ObjectExists(object)) continue;
+        const std::string name = SceneRig_ObjectName(object);
+        for (int c : SceneRig_DockChannels(object)) {
+            const ChannelSpec* s = ObjectSpec(object, c);
+            channel(Rig::ChannelIndex(object, c), *s, name, c <= Rig::Z || c == Rig::Fov, true);
+        }
+    }
+    j.EndArray(); return j.Str();
 }
 // The SCENE half of the TIMELINE dock's state, published under "scene" next to the camera channels:
 // its own revision, selection and history (the scene track keeps its own undo), and every armed or
@@ -271,6 +337,23 @@ void SceneKeys_AppendTimelineState(std::ostringstream& out) {
         << ",\"selCount\":" << g_track.selected.size() << ",\"selCh\":" << g_activeChannel
         << ",\"canUndo\":" << (g_track.CanUndo()?"true":"false") << ",\"canRedo\":" << (g_track.CanRedo()?"true":"false")
         << ",\"channels\":" << SceneKeys_ChannelsJson() << "}";
+}
+
+const SceneKeys::TrackData& SceneKeys_Data() { return g_track.data; }
+double SceneKeys_AppliedTick() { return g_appliedTick; }
+void SceneKeys_Edit(const std::function<void(SceneKeys::SceneKeyframeTrack&)>& edit) {
+    g_track.BeginEdit();
+    edit(g_track);
+    RefreshAuto();
+    ++g_track.revision;
+    if (!g_gesture && g_track.EndEdit()) MarkDirty();
+}
+void SceneKeys_BeginGesture() { g_track.BeginEdit(); g_gesture = true; }
+void SceneKeys_EndGesture(bool keep) {
+    if (!g_gesture) return;
+    g_gesture = false;
+    if (!keep) { g_track.CancelEdit(); return; }
+    if (g_track.EndEdit()) MarkDirty();
 }
 
 bool SceneKeys_KeySpan(double& lo, double& hi) {
@@ -335,7 +418,17 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
                 // that range anyway, so a handle beyond it only bought a flat clipped plateau -- and
                 // it put the handle itself off the graph, where it could not be grabbed back.
                 else dv=std::max(spec->min,std::min(spec->max,k->value.numbers[0]+dv))-k->value.numbers[0];
-                auto& h=std::string(arg(6))=="left"?k->left:k->right;h={true,Clamp01(tx),dv};++g_track.revision;}
+                auto& h=std::string(arg(6))=="left"?k->left:k->right;h={true,Clamp01(tx),dv};
+                // A handle shapes a curve, so the segment it belongs to no longer holds: the right
+                // handle's is this key's own, the left handle's is the key before it.
+                if(std::string(arg(6))!="left")k->hold=false;
+                else{auto& ks=g_track.data.fields[spec->id];for(size_t i=1;i<ks.size();++i)if(ks[i].id==kid)ks[i-1].hold=false;}
+                ++g_track.revision;}
+        } else if(action=="hold") {
+            // Hold: the segment leaving each selected key is a step (every key when none is selected).
+            for(auto& f:g_track.data.fields){auto s=FindSpec(Catalog(),f.first);if(!s||s->Stepped())continue;
+                for(auto& k:f.second)if(g_track.selected.empty()||g_track.selected.count(k.id))k.hold=true;}
+            ++g_track.revision;
         } else if(action=="smooth"||action=="linear"||action=="ease"||action=="direction") {
             for(auto& f:g_track.data.fields){auto s=FindSpec(Catalog(),f.first);if(!s||s->Stepped())continue;
                 for(size_t i=0;i<f.second.size();++i){auto& k=f.second[i];if(!g_track.selected.empty()&&!g_track.selected.count(k.id))continue;
@@ -344,7 +437,12 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
                     // the side it names: IN is the incoming (left) side, OUT the outgoing one, as in AE
                     // and the camera graph.
                     const bool active=action!="linear",smooth=action=="smooth";k.left={active,1.0/3,0,smooth};k.right={active,1.0/3,0,smooth};
-                    if(action=="ease"){std::string how=arg(4);if(how=="in")k.right.active=false;if(how=="out")k.left.active=false;}
+                    const std::string how=action=="ease"?arg(4):"inout";
+                    if(action=="ease"){if(how=="in")k.right.active=false;if(how=="out")k.left.active=false;}
+                    // A held segment becomes this curve: the outgoing side is this key's hold, the
+                    // incoming side is the hold of the key before it.
+                    if(how!="in")k.hold=false;
+                    if(how!="out"&&i>0)f.second[i-1].hold=false;
                 }
             }++g_track.revision;
         } else if(action=="align") {
@@ -360,11 +458,15 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
     if(op=="arm"||op=="strip") {const auto* s=FindSpec(Catalog(),arg(3));if(s){bool on=std::string(arg(4))=="on"||(std::string(arg(4))!="off"&&!g_track.data.armed.count(s->id));if(on)g_track.data.armed.insert(s->id);else g_track.data.armed.erase(s->id);}}
     // mute <family.groupId | fieldId> [on|off]: disable (keys kept, nothing applied) or re-enable a
     // property or a whole group. With no on/off a group flips together: all on unless all are on.
-    else if(op=="mute"){std::vector<std::string> ids;bool all=true;for(const auto& s:Catalog())if(s.family+"."+s.groupId==arg(3)||s.id==arg(3)){ids.push_back(s.id);if(!g_track.data.muted.count(s.id))all=false;}
+    else if(op=="mute"){std::vector<std::string> ids;bool all=true;for(const auto* s:SpecsFor(arg(3))){ids.push_back(s->id);if(!g_track.data.muted.count(s->id))all=false;}
         const std::string how=arg(4);const bool on=how=="on"||(how!="off"&&!all);for(const auto& id:ids){if(on)g_track.data.muted.insert(id);else g_track.data.muted.erase(id);}}
-    else if(op=="group"){std::vector<std::string> ids;bool all=true;for(const auto& s:Catalog())if(s.family+"."+s.groupId==arg(3)){ids.push_back(s.id);if(!g_track.data.armed.count(s.id))all=false;}for(const auto& id:ids){if(all)g_track.data.armed.erase(id);else g_track.data.armed.insert(id);}}
+    else if(op=="group"){std::vector<std::string> ids;bool all=true;for(const auto* s:SpecsFor(arg(3))){ids.push_back(s->id);if(!g_track.data.armed.count(s->id))all=false;}for(const auto& id:ids){if(all)g_track.data.armed.erase(id);else g_track.data.armed.insert(id);}}
     else if(op=="add"){g_track.selected.clear();for(const auto& id:g_track.data.armed){const auto* s=FindSpec(Catalog(),id);if(s){int k=g_track.Put(*s,tick,Editable(*s,tick,base));if(k)g_track.selected.insert(k);}}}
-    else if(op=="set"||op=="graphadd"){const auto* s=FindSpec(Catalog(),arg(3));if(s&&(g_track.data.armed.count(s->id)||op=="graphadd")){Value v=op=="set"?ParseValue(*s,argc,args,4):Editable(*s,Number(arg(4)),base);const double at=op=="set"?tick:std::round(Number(arg(4)));const int before=g_track.data.nextId;int k=g_track.Put(*s,at,v);
+    else if(op=="set"||op=="graphadd"){const auto* s=FindSpec(Catalog(),arg(3));
+        // A scene object's row (listed before it is animated) keys on its first value edit: dragging
+        // or typing its number arms that row and keys it at the playhead, like the camera's rows.
+        int editObject=0,editChannel=0;if(s&&op=="set"&&Rig::ParseChannelId(s->id,editObject,editChannel))g_track.data.armed.insert(s->id);
+        if(s&&(g_track.data.armed.count(s->id)||op=="graphadd")){Value v=op=="set"?ParseValue(*s,argc,args,4):Editable(*s,Number(arg(4)),base);const double at=op=="set"?tick:std::round(Number(arg(4)));const int before=g_track.data.nextId;int k=g_track.Put(*s,at,v);
         // A value edit re-keys the key under the playhead; it only makes a NEW key when the playhead
         // is on a tick without one. Logged per edit so "it made a second key next to mine" shows
         // which tick the playhead actually held (TimelinePlayhead.h keeps it on a jumped-to key).
@@ -375,7 +477,7 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
     // Scene Keys inspector is an on/off selector: a property left armed with its keys gone would
     // still hold a strip in the graph while its row reads "off".
     else if(op=="clear"){const std::string target=arg(3);
-        for(const auto& s:Catalog())if(target=="all"||s.family+"."+s.groupId==target||s.id==target){g_track.data.fields.erase(s.id);g_track.data.armed.erase(s.id);g_track.data.muted.erase(s.id);}
+        for(const auto* s:SpecsFor(target)){g_track.data.fields.erase(s->id);g_track.data.armed.erase(s->id);g_track.data.muted.erase(s->id);}
         g_track.selected.clear();++g_track.revision;}
     else if(op=="macro") {
         const std::string name=arg(3);const std::vector<std::string> names={"dawn","day","golden","dusk","night","moonlit"};

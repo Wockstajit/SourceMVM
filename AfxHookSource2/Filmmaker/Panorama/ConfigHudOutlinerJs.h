@@ -17,13 +17,14 @@
 // selected object's card holds the light and mesh inspectors (ConfigHudEnvironmentTabJs.h).
 
 R"CFJS(
-    // ===================== SCENE OBJECTS: + Point / + Spot / + Area =====================
+    // ===================== SCENE OBJECTS: + Point / + Spot / + Area / + Camera =====================
+    // A camera object (scene-object-rigs.md) is a viewpoint: attach it, key it, look through it.
     var ENV_PAGE_OUTLINER = 0, ENV_PAGE_ASSETS = 1;
     var olLightRow = mk('Panel', envSceneSec);
     olLightRow.hittest = false; olLightRow.hittestchildren = true;
     olLightRow.style.width = '100%'; olLightRow.style.flowChildren = 'right'; olLightRow.style.marginTop = '10px';
     [['Point', 'Shines all around', 'point'], ['Spot', 'A cone of light', 'spot'],
-     ['Area', 'A soft rectangle', 'area']].forEach(function (d, n) {
+     ['Area', 'A soft rectangle', 'area'], ['Camera', 'A viewpoint', 'camera']].forEach(function (d, n) {
       var b = btn(olLightRow, '', function () {
         // A new light starts ahead of the camera, selected, so its card opens on the Outliner.
         envCommand('add ' + d[2]);
@@ -31,7 +32,7 @@ R"CFJS(
         olMulti = {};
       }, S.label);
       b.style.width = 'fill-parent-flow(1.0)'; b.style.flowChildren = 'down';
-      b.style.marginRight = n < 2 ? '6px' : '0px';
+      b.style.marginRight = n < 3 ? '6px' : '0px';
       b.style.padding = '6px 4px';
       // The caption is drawn below as '+' + name over the hint; the button's own label keeps the
       // name for search and automation but is not shown.
@@ -41,12 +42,13 @@ R"CFJS(
       var cap = lbl(top, d[0], S.label, 12); cap.hittest = false; cap.style.fontWeight = 'bold';
       var sub = lbl(b, d[1], S.muted, 10); sub.hittest = false;
       sub.style.horizontalAlign = 'center'; sub.style.marginTop = '1px';
-      attachTip(b, 'Adds a ' + d[0].toLowerCase() + ' light ahead of the camera and selects it.');
+      attachTip(b, d[2] === 'camera' ? 'Adds a camera ahead of the view and selects it. Attach it, key it or look through it.'
+        : 'Adds a ' + d[0].toLowerCase() + ' light ahead of the camera and selects it.');
     });
 
     // ===================== SCENE OBJECTS > OUTLINER =====================
     var olPage = envSceneSec.__page('Outliner');
-    var OL_KIND = { asset: ['#80bdff', 'CS2 asset'], light: ['#f2d394', 'Light'], mesh: ['#b9a3ff', 'Your mesh'] };
+    var OL_KIND = { asset: ['#80bdff', 'CS2 asset'], light: ['#f2d394', 'Light'], mesh: ['#b9a3ff', 'Your mesh'], camera: ['#ffd76a', 'Camera'] };
     var OL_ICON = 's2r://panorama/images/icons/ui/';
     var olOpen = {}, olFilter = 'all', olSel = '', olSig = '', olItemsNow = [];
     var olLastProp = 0, olLastEnv = 0, olIsolate = '', olIsolateMemo = null;
@@ -65,9 +67,9 @@ R"CFJS(
       });
       var s = envState();
       ((s && s.objects) || []).forEach(function (o) {
-        var light = olIsLightKind(o.kind);
-        out.push({ key: 'e' + o.id, src: 'e', id: o.id, kind: light ? 'light' : 'mesh',
-                   name: o.asset || (light ? o.kind + ' light' : o.kind) + ' ' + o.id,
+        var light = olIsLightKind(o.kind), camera = o.kind === 'camera';
+        out.push({ key: 'e' + o.id, src: 'e', id: o.id, kind: light ? 'light' : camera ? 'camera' : 'mesh',
+                   name: o.asset || (light ? o.kind + ' light' : camera ? 'Camera' : o.kind) + ' ' + o.id,
                    group: o.group || '', visible: o.enabled !== false, render: o.render !== false,
                    locked: !!o.locked, envKind: o.kind });
       });
@@ -177,6 +179,12 @@ R"CFJS(
         items.push(['Stand upright', function () { olAct(it, 'upright'); }]);
       } else {
         items.push(['Edit position', function () { olAct(it, 'edit'); }]);
+        // A camera object's own view (the RIG card has the same two).
+        if (it.kind === 'camera') {
+          items.push(['Go to camera', function () { cmd('mirv_filmmaker rig goto ' + it.id); }]);
+          items.push([st && st.rig && st.rig.lookThrough === it.id ? 'Stop looking through' : 'Look through',
+            function () { cmd('mirv_filmmaker rig lookthrough ' + it.id + ' ' + (st && st.rig && st.rig.lookThrough === it.id ? 'off' : 'on')); }]);
+        }
       }
       items.push(null);
       items.push([it.visible ? 'Hide' : 'Show', function () { olSet(it, 'visible', !it.visible); }]);
@@ -504,6 +512,9 @@ R"CFJS(
     olLightHost.style.width = '100%'; olLightHost.style.flowChildren = 'down';
     var olMeshHost = mk('Panel', olCard);
     olMeshHost.style.width = '100%'; olMeshHost.style.flowChildren = 'down';
+    // What a light, mesh or camera rides, and its pose keys (ConfigHudRigJs.h).
+    var olRigHost = mk('Panel', olCard);
+    olRigHost.style.width = '100%'; olRigHost.style.flowChildren = 'down';
 
     // Group membership, for one item: the existing groups, none, or a new one.
     var olGroupDrop = dropdownRow(olCard, 'Group', [], function (g) {
@@ -650,7 +661,8 @@ R"CFJS(
       olCardChip.style.backgroundColor = kind[0] + '1f';
       olCardSub.text = isGroup ? olMembers(olSel.substring(2)).length + ' objects  ·  rename, isolate or ungroup'
         : it.kind === 'asset' ? ((it.source ? it.source + '  ·  ' : '') + (it.folder || ''))
-        : it.kind === 'light' ? 'Lit by the Environment lighting' : 'Your mesh';
+        : it.kind === 'light' ? 'Lit by the Environment lighting'
+        : it.kind === 'camera' ? 'A viewpoint: attach it, key it or look through it' : 'Your mesh';
       olGroupBox.visible = isGroup;
       olGroupDrop.row.visible = !isGroup;
       olCardHint.visible = !isGroup;

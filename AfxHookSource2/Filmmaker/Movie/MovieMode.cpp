@@ -8,6 +8,7 @@
 
 #include "CameraBridge.h"
 #include "CameraPath.h"
+#include "TimelineDock.h"          // TimelineDock_Height: a right-click on CONFIG's column above the dock
 #include "FollowCamera.h"
 #include "../Filmmaker.h"            // CameraTimeline_Visible()
 #include "../MvmTest.h"              // mvm_test offline FX menu
@@ -129,6 +130,13 @@ void MovieMode::EnqueueCmd(const std::string& c) {
 	m_cmdQueue.push_back(c);
 }
 
+// A notch for whichever workspace is up: CONFIG when it is open (it hosts the dock then), the
+// Camera Editor otherwise. Both offer it to the TIMELINE dock before scrolling their column.
+static void PushWorkspaceWheel(int notches) {
+	if (ConfigHud_Enabled()) ConfigHud_PushWheel(notches);
+	else CameraEditor_PushWheel(notches);
+}
+
 bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, int y) {
 	// LIVE Insert panel: consume the notch and hand it to the panel's own scroll column.
 	//
@@ -183,7 +191,7 @@ bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, in
 	// zooming the timeline". Hand it to the editor's wheel pipe, which reaches $.GraphExp.wheel.
 	if (CameraBridge_GetFreeCamEnabled() && (ctrlDown || shiftDown)) {
 		if (GraphEditorExperiment_Enabled()) {
-			CameraEditor_PushWheel(delta > 0 ? +1 : -1);
+			PushWorkspaceWheel(delta > 0 ? +1 : -1);
 			return true;
 		}
 		if (ctrlDown) CameraBridge_AdjustFreeCamFov(delta > 0 ? +1 : -1);
@@ -195,9 +203,7 @@ bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, in
 	// a notch over a panel scrolls that panel instead -- Panorama never sees the wheel in this
 	// context, so the panel scrolls its own column from this pipe. Config wins the tie when both
 	// flags somehow read true; they are mutually exclusive in practice (CameraEditor_Set closes
-	// Config). The experimental graph editor owns the wheel (timeline zoom) while it is open.
-	if (GraphEditorExperiment_Enabled())
-		return true;
+	// Config).
 	ctrlDown = ctrlDown || m_controlDown;
 	shiftDown = shiftDown || m_shiftDown;
 	const UiClick::Input where = ClickInput(x, y);
@@ -205,10 +211,23 @@ bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, in
 	// wherever it likes: it is the game's, whatever is under the parked pointer.
 	const bool cycle = (x < 0 && y < 0) || UiClick::WheelCyclesCamera(where);
 	const bool modifier = ctrlDown || shiftDown;
+	// With the dock up, a notch over the preview steps the camera only once you have clicked into
+	// the preview (GAME mode): before that it is ignored, so scrolling near the dock never flips
+	// the view by accident (user request 2026-10-17).
+	const bool dockIgnores = GraphEditorExperiment_Enabled() && !(cycle && where.workspace && !where.uiModeOn);
 	if (MvmDebugLog_Active())
 		MvmDebugLog_Linef("movie.wheel", "delta=%d at %d,%d shift=%d ctrl=%d workspace=%d preview=%d -> %s",
 			delta, x, y, shiftDown ? 1 : 0, ctrlDown ? 1 : 0, where.workspace ? 1 : 0, where.preview.valid ? 1 : 0,
-			!cycle ? "panel" : (ctrlDown ? "fov" : (shiftDown ? "speed" : "camera")));
+			!cycle ? "panel" : dockIgnores ? "dock-up (ignored)" : (ctrlDown ? "fov" : (shiftDown ? "speed" : "camera")));
+	// The TIMELINE dock is up: over the game the wheel steps nothing (it used to cycle CS2's camera
+	// under the dock), and over a panel or the dock the notch goes to the hosting workspace's pipe,
+	// which offers it to the dock first ($.GraphExp.wheel: rows, Ctrl zoom, Shift pan) and scrolls
+	// the panel's column otherwise. Swallowing every notch here, as this did, left CONFIG unable to
+	// scroll whenever TIMELINE was open.
+	if (dockIgnores) {
+		if (!cycle) PushWorkspaceWheel(delta > 0 ? +1 : -1);
+		return true;
+	}
 	// Over the game in CS2's own cameras: Ctrl+wheel = FOV in any of them, Shift+wheel = CS2's
 	// free-cam fly speed. Applied on the main thread (ApplyNativeCameraControls).
 	if (cycle && modifier) {
@@ -218,10 +237,7 @@ bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, in
 		return true;
 	}
 	if (!cycle) {
-		if (ConfigHud_Enabled())
-			ConfigHud_PushWheel(delta > 0 ? +1 : -1);
-		else
-			CameraEditor_PushWheel(delta > 0 ? +1 : -1);
+		PushWorkspaceWheel(delta > 0 ? +1 : -1);
 		return true;
 	}
 
@@ -262,6 +278,8 @@ UiClick::Input MovieMode::ClickInput(int x, int y) {
 // A camera path is playing, armed to play, or waiting for its start seek to land.
 static bool PathPlaybackOwnsView() {
 	const CameraPath& cp = CameraPathRef();
+	// AUTO waiting for the playhead to reach the path: the view is CS2's, and so are the clicks.
+	if (cp.AutoWaiting()) return false;
 	const CameraPath::Mode mode = cp.GetMode();
 	return mode == CameraPath::Mode::PreviewPlaying || mode == CameraPath::Mode::PreviewArmed
 		|| cp.PlaybackPending();
@@ -276,10 +294,20 @@ bool MovieMode::OnUiClick(int x, int y) {
 		|| CameraPathRef().MenuOpen() || GraphEditorExperiment_WantsCursor() || CameraEditor_CustomizeModalOpen())
 		return false;
 
+	// Outside the workspaces the native demo bar (scrubber, CAM EDITOR, CONFIG) is the UI on screen,
+	// and a press on it is the bar's, press and release. In the free cam it used to become a
+	// hold-to-look (OnMouseButton swallows every click there), so the bar's buttons were dead until
+	// the wheel cycled back to one of CS2's own cameras (mvm_debug 2026-10-17 08:13).
+	if (!CameraEditor_Active() && !ConfigHud_Enabled() && CameraTimeline_DemoBarContains(x, y)) {
+		if (MvmDebugLog_Active())
+			MvmDebugLog_Linef("input.uiclick", "x=%d y=%d on the demo bar -> the bar's (no look, no capture)", x, y);
+		return true;
+	}
+
 	// A camera path playing (J) drives the view by itself; it never needs the mouse. A click
 	// while it plays hands the mouse back to the UI instead of capturing it for free look, which
 	// left users stuck looking through the dolly with a captured cursor and no way out.
-	if (CameraPathRef().GetMode() == CameraPath::Mode::PreviewPlaying) {
+	if (CameraPathRef().GetMode() == CameraPath::Mode::PreviewPlaying && !CameraPathRef().AutoWaiting()) {
 		EnqueueCmd("mirv_filmmaker camtl cursor on");
 		MouseCapture_SetFree(true);
 		return true;
@@ -315,6 +343,7 @@ bool MovieMode::OnUiClick(int x, int y) {
 }
 
 bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
+	if (!down) OnButtonUp(button);
 	// A camera path is PLAYING: a press in the workspace preview goes to nobody -- not to free-look
 	// (it would fight the path) and not to CS2, whose right-click look-around and left-click player
 	// step are what "the game takes the mouse during playback" was. The release of a swallowed
@@ -332,17 +361,19 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 			return true;
 		}
 	}
-	// ENVIRONMENT tab: the left button picks and drags scene objects, so the right button held in
-	// the preview looks around. The press takes the mouse for the camera and carries on to it (CS2's
-	// look-around drag, or the free cam below); the release hands the mouse back to the editor.
-	if (button == 1) {
-		if (down && IsDemoActive() && UiClick::RightPressLooks(ClickInput(x, y))) {
-			m_rightLook = true;
-			EnqueueCmd("mirv_filmmaker camtl cursor off");
-			MouseCapture_TakeForCamera("right-click look");
-			if (MvmDebugLog_Active())
-				MvmDebugLog_Linef("input.uiclick", "button=1 x=%d y=%d -> look around (environment view)", x, y);
-		} else if (!down) OnRightButtonUp();
+	// ENVIRONMENT tab: the left button picks and drags scene objects, so the right button in the
+	// preview is the camera's and the menu's. The press waits (m_rightPress): a quick click opens the
+	// object's menu, a hold or a drag looks around (StartRightLookIfHeld), and the release hands the
+	// mouse back to the editor (OnButtonUp).
+	if (button == 1 && down && IsDemoActive() && UiClick::RightPressLooks(ClickInput(x, y))) {
+		{
+			std::lock_guard<std::mutex> lk(m_rightMutex);
+			m_rightPress.pending = true;
+			m_rightPress.x = x; m_rightPress.y = y;
+			m_rightPress.at = std::chrono::steady_clock::now();
+		}
+		if (MvmDebugLog_Active())
+			MvmDebugLog_Linef("input.uiclick", "button=1 x=%d y=%d -> menu if released now, look if held (environment view)", x, y);
 	}
 	// Follow Camera reposition uses the same free-look + left-click placement model
 	// as path-marker repositioning.
@@ -362,7 +393,9 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 	// ease context menu through the cursor pipe (not Panorama events), so it must not reach CS2's
 	// spectator switch. Left-click still passes through (the editor's panels/buttons need it; its
 	// full-screen catcher absorbs strays).
-	if (button == 1 && IsDemoActive() && GraphEditorExperiment_WantsCursor())
+	// Not on CONFIG's column, though: there the right-click is Panorama's, and the Outliner rows open
+	// their menu from it (oncontextmenu), which this swallow silenced while the TIMELINE dock was up.
+	if (button == 1 && IsDemoActive() && GraphEditorExperiment_WantsCursor() && !OnConfigColumn(x, y))
 		return true;
 	// LIVE Insert panel: clicks are PASSED THROUGH either way, on purpose.
 	//
@@ -393,10 +426,16 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 		// The click is swallowed (no player switch), but it still means "I want to steer":
 		// take the mouse, which the swallow would otherwise keep MouseCapture from ever seeing.
 		// Not while a camera path plays: then the click gives the mouse back (see OnUiClick).
-		if (down && CameraPathRef().GetMode() == CameraPath::Mode::PreviewPlaying) {
+		if (down && CameraPathRef().GetMode() == CameraPath::Mode::PreviewPlaying && !CameraPathRef().AutoWaiting()) {
 			EnqueueCmd("mirv_filmmaker camtl cursor on");
 			MouseCapture_SetFree(true);
-		} else if (down) MouseCapture_TakeForCamera("freecam click");
+		} else if (down) {
+			MouseCapture_TakeForCamera("freecam click");
+			// Outside the workspaces the click is a hold-to-look (m_flyHoldButton). Inside them it is
+			// the GAME mode switch, which keeps the mouse until G / Esc as before.
+			if (!CameraEditor_Enabled() && !ConfigHud_Enabled() && !Render_IsModalOpen())
+				m_flyHoldButton = button;
+		}
 		return true;
 	}
 	// Otherwise never consume clicks: CS2 steps players or drags its camera with them, and the
@@ -404,8 +443,29 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 	return false;
 }
 
-void MovieMode::OnRightButtonUp() {
-	if (!m_rightLook.exchange(false)) return;
+void MovieMode::OnButtonUp(int button) {
+	int held = button;
+	if (m_flyHoldButton.compare_exchange_strong(held, -1)) {
+		MouseCapture_ReleaseForUi("freecam hold released");
+		if (MvmDebugLog_Active())
+			MvmDebugLog_Linef("input.uiclick", "button=%d released -> free cam hold ends, mouse back", button);
+	}
+	if (button == 1) {
+		bool click = false;
+		{
+			std::lock_guard<std::mutex> lk(m_rightMutex);
+			click = m_rightPress.pending;
+			m_rightPress.pending = false;
+		}
+		if (click) {
+			// Released before it became a look: the object under the pointer gets its menu.
+			EnqueueCmd("mirv_filmmaker config viewmenu");
+			if (MvmDebugLog_Active())
+				MvmDebugLog_Linef("input.uiclick", "button=1 released quickly -> object menu (environment view)");
+			return;
+		}
+	}
+	if (button != 1 || !m_rightLook.exchange(false)) return;
 	EnqueueCmd("mirv_filmmaker camtl cursor on");
 	if (MvmDebugLog_Active())
 		MvmDebugLog_Linef("input.uiclick", "button=1 released -> back to the environment editor");
@@ -464,8 +524,10 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	// Config's Scene Objects: Delete removes the selected object, Ctrl+D duplicates it, Ctrl+C
 	// copies it and Ctrl+V pastes the copy under the mouse to place. The panel's JS owns the
 	// selection, so the key is handed to it. Once per press (auto-repeat would delete the next
-	// selection too).
-	if (ConfigHud_Enabled() && !GraphEditorExperiment_Enabled() &&
+	// selection too). With the TIMELINE dock up, Delete is the dock's only while the pointer is over
+	// it (its keys); anywhere else it removes the selected object. It used to go to the dock always,
+	// so Delete never removed a scene object while the dock was up (2026-10-17).
+	if (ConfigHud_Enabled() && (!GraphEditorExperiment_Enabled() || !PointerOverDock()) &&
 	    (vkey == kVK_DELETE || (m_controlDown && (vkey == kVK_D || vkey == kVK_C || vkey == kVK_V)))) {
 		static bool editKeyHeld = false;
 		if (down && !editKeyHeld)
@@ -689,16 +751,11 @@ bool MovieMode::OnKey(int vkey, bool down) {
 		return true;
 	}
 
-	// Space drives camera-path play ONLY when a path editor overlay is actually open (Camera
-	// timeline or Graph). In the editor's Regular Timeline (native bottom) mode neither is open,
-	// so Space must fall through to plain demo pause/resume below -- not trigger a path playtest
-	// (which would just warn "need 2 camera markers"). Matches the gate used elsewhere here.
-	// ...and NOT while the TIMELINE's CAMERA PATH layer is switched off. Scene keys are not a camera
-	// path: a playtest seeks to the path's first marker and loops its range, so watching a lighting
-	// animation while camera markers happened to be down just replayed the dolly over and over.
-	// With the camera layer off, Space is plain demo play/pause -- the toolbar's play does the same.
-	const bool timelinePathOff = timelineDock && !GraphEditorExperiment_Drive();
-	if (vkey == kVK_SPACE && !timelinePathOff && (CameraTimeline_Visible() || timelineDock) && cpMode == CPMode::Editing) {
+	// Space plays the DEMO. With the TIMELINE dock up it no longer starts a camera-path preview
+	// (user request 2026-10-17): the camera path layer's AUTO button makes the view follow the path
+	// while the playhead is inside it (CameraPath::RunAutoPath), and J plays the path. Only the
+	// legacy camera timeline bar, when it is the open path editor, keeps Space as its path play.
+	if (vkey == kVK_SPACE && CameraTimeline_Visible() && !timelineDock && cpMode == CPMode::Editing) {
 		// Skip re-issuing playtest while a start is PENDING (mode stays Editing during the
 		// seek settle) -- a held / repeated Space would otherwise restart the seek. Swallow
 		// the key regardless so it never leaks to the demo_pause fallback below.
@@ -971,7 +1028,64 @@ bool MovieMode::OwnsWheel() {
 	return IsDemoActive() && !ConfigHud_IsLive();
 }
 
+// A right press in the ENVIRONMENT view held for kRightClickHoldMs, or moved more than
+// kRightClickSlopPx, starts the look. Main thread, every frame.
+void MovieMode::StartRightLookIfHeld() {
+	constexpr int kRightClickSlopPx = 4;
+	constexpr int kRightClickHoldMs = 200;
+	int x = 0, y = 0;
+	bool lmb = false, rmb = false, shift = false;
+	unsigned seq = 0;
+	{
+		std::lock_guard<std::mutex> lk(m_rightMutex);
+		if (!m_rightPress.pending) return;
+		CameraBridge_GetUiCursor(x, y, lmb, rmb, shift, seq);
+		// The release normally ends a waiting press (OnButtonUp). One whose release never came
+		// (focus lost mid-press clears the probe's button) is dropped instead of becoming a look.
+		if (!rmb) { m_rightPress.pending = false; return; }
+		const bool moved = std::abs(x - m_rightPress.x) + std::abs(y - m_rightPress.y) > kRightClickSlopPx;
+		const bool held = std::chrono::steady_clock::now() - m_rightPress.at >= std::chrono::milliseconds(kRightClickHoldMs);
+		if (!moved && !held) return;
+		m_rightPress.pending = false;
+	}
+	m_rightLook = true;
+	// The look is the fly cam's (MirvInput camera mode): it reads the mouse itself, so it turns the
+	// view whatever camera CS2 is in. CS2's own demo cameras start their drag-look only when CS2
+	// itself takes the press, which under the Config panel it mostly did not -- measured 2026-10-17:
+	// right-holds in CS2's roaming cam left spec_pos unchanged. The fly cam starts from the view on
+	// screen, so the shot does not jump.
+	if (!CameraBridge_GetFreeCamEnabled()) EnqueueCmd("mirv_input camera");
+	EnqueueCmd("mirv_filmmaker camtl cursor off");
+	MouseCapture_TakeForCamera("right-click look");
+	if (MvmDebugLog_Active())
+		MvmDebugLog_Linef("input.uiclick", "button=1 held at %d,%d -> look around (environment view)", x, y);
+}
+
+bool MovieMode::PointerOverDock() {
+	int x = 0, y = 0, clientW = 0, clientH = 0;
+	bool lmb = false, rmb = false, shift = false;
+	unsigned seq = 0;
+	CameraBridge_GetUiCursor(x, y, lmb, rmb, shift, seq);
+	WindowResize_GetClientSize(clientW, clientH);
+	if (clientH <= 0) return true;
+	// The dock spans the bottom of the 1080-tall stage at its shared height (TimelineDock.h).
+	return (float)y >= (float)clientH * (1.f - (float)TimelineDock_Height() / 1080.f);
+}
+
+bool MovieMode::OnConfigColumn(int x, int y) {
+	if (!ConfigHud_Enabled() || CameraEditor_Active() || x < 0 || y < 0) return false;
+	int clientW = 0, clientH = 0;
+	WindowResize_GetClientSize(clientW, clientH);
+	if (clientH <= 0) return false;
+	// The dock spans the bottom of the 1080-tall stage at its shared height (TimelineDock.h).
+	const float dockTop = (float)clientH * (1.f - (float)TimelineDock_Height() / 1080.f);
+	if ((float)y >= dockTop) return false;
+	const UiClick::Input in = ClickInput(x, y);
+	return !in.preview.Contains(in.x, in.y);
+}
+
 void MovieMode::FlushActions() {
+	StartRightLookIfHeld();
 	std::vector<std::string> cmds;
 	bool modeDirty = false;
 	Mode pending = Mode::Default;

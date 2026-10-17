@@ -24,9 +24,11 @@ struct CameraOwnership {
 	bool import = false;      // cam import (CamIO)
 	bool freeCam = false;     // mirv free cam / MirvInput override
 	bool attach = false;      // FollowCamera attach preview
+	bool sceneCamera = false; // a placed camera object looked through (SceneRig); overwrites the above
+	bool sceneCameraAttached = false; // ...and it rides a player, weapon, grenade or object
 	bool other = false;       // the Rust view hook, or anything else
 
-	bool Any() const { return path || import || freeCam || attach || other; }
+	bool Any() const { return path || import || freeCam || attach || sceneCamera || other; }
 
 	// Collapses the flags to the single mode the shake stack gates on.
 	//
@@ -42,6 +44,10 @@ struct CameraOwnership {
 	//   4. other          -- unknown owner, treated conservatively.
 	//   5. (none)         -- plain POV spectate, including CS2's own chase and free cameras.
 	ShakeCamMode Resolve() const {
+		// 0. sceneCamera -- set after every stage above and overwrites their pose, so it decides:
+		//                   an attached scene camera rides like attach, a placed or keyed one is
+		//                   hand-authored like a path.
+		if (sceneCamera)    return sceneCameraAttached ? ShakeCamMode::Attach : ShakeCamMode::CameraPath;
 		if (path || import) return ShakeCamMode::CameraPath;
 		if (attach)         return ShakeCamMode::Attach;
 		if (freeCam)        return ShakeCamMode::FreeCam;

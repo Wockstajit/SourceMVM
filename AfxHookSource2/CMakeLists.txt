@@ -723,6 +723,10 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/SceneKeyframeCatalog.cpp
     Filmmaker/Movie/SceneKeys.cpp
     Filmmaker/Movie/SceneKeys.h
+    Filmmaker/Movie/SceneRig.cpp
+    Filmmaker/Movie/SceneRig.h
+    Filmmaker/Movie/SceneRigMath.h
+    Filmmaker/Movie/SceneRigTransient.h
     Filmmaker/Movie/SceneKeyframeMath.h
     Filmmaker/Movie/GraphExpModel.cpp
     Filmmaker/Movie/GraphExpModel.h

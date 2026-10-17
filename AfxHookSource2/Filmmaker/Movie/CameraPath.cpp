@@ -7,6 +7,8 @@
 #include "CameraBridge.h"
 #include "TimelinePlayhead.h" // the ONE cursor shared with the graph editor
 #include "FollowCamera.h"
+#include "MovieMode.h"     // SetMode: the end of a playback gives CS2 its camera back
+#include "../Config/FilmmakerSettingsStore.h" // editor.timeline.autopath: the layer's AUTO button
 #include "../Filmmaker.h"            // PlayingDemoPath()
 #include "../Demo/DemoProjectStore.h"
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_*
@@ -241,6 +243,12 @@ void CameraPath::EnsureDrawState() {
 
 void CameraPath::SyncDrawerStyle() {
 	CameraBridge_SetMarkerStyle(!m_data.Empty(), m_timing == Timing::Freeze, m_hovered.load());
+	// The playhead's place on the path: shown inside its keys (the drawer hides it with the rest of
+	// the path's markers while a path plays).
+	double pose[7];
+	const double tick = TimelinePlayhead_Tick();
+	const bool head = HasPathRange() && tick >= FirstPathTick() && tick <= LastPathTick() && EvalPoseAtTick(tick, pose);
+	CameraBridge_SetPathHead(head, head ? pose[0] : 0, head ? pose[1] : 0, head ? pose[2] : 0);
 }
 
 double CameraPath::NowSec() {
@@ -310,7 +318,7 @@ void CameraPath::RestartPathPlayback() {
 		m_liveResumeGuard = 120;
 	}
 	m_play.StartPlay(m_eval.Duration(), /*rangeGated*/ m_timing == Timing::Live);
-	SetMode(Mode::PreviewPlaying);
+	SetMode(Mode::PreviewPlaying, "RestartPathPlayback");
 }
 
 void CameraPath::FinishPlaybackAtLastKey() {
@@ -327,6 +335,87 @@ void CameraPath::FinishPlaybackAtLastKey() {
 	}
 	StopPreview();
 	HoldEditorAtMarker(lastIndex);
+	// Once the last key has landed, the view goes back to CS2's own camera (HandBackAtLastKey).
+	m_handBackOnRelease = m_scrubReleasePending;
+}
+
+// The path has played to its end and the demo sits on the last key: CS2's own camera takes the view
+// back, so CS2's look-around and movement work again. Leaving our free cam parked on the last key
+// left users stuck in the path's camera with no mouse control (2026-10-17). The camera CS2 was
+// showing is re-applied, the same restore closing the Camera Editor does. CS2 cannot be placed at
+// the last key instead: `spec_goto` turns its roaming camera but leaves the position where it was
+// (measured 2026-10-17, paused and playing). A render job or the follow camera drives the view
+// itself, so neither is touched.
+void CameraPath::HandBackAtLastKey() {
+	if (Render_IsJobActive() || FollowCameraRef().OwnsView())
+		return;
+	MovieModeRef().SetMode(MovieModeRef().GetMode());
+	advancedfx::Message("[campath] end of path: the view is back on CS2's own camera (%s).\n", MovieModeRef().ModeName());
+}
+
+// --- AUTO: follow the path while the timeline plays through it ---
+//
+// The camera path layer's AUTO button (`camtl autopath`, saved as editor.timeline.autopath, off by
+// default). While the TIMELINE dock is up and the demo plays in Live timing, the view follows the
+// path whenever the playhead is inside its keys: the range-gated playback the timeline's Play uses,
+// whose gate hands the view back before the first key. At the last key the view goes back to CS2's
+// camera and the demo plays on. Space no longer starts a path preview (user request 2026-10-17);
+// J still plays the path, AUTO or not.
+
+void CameraPath::SetMode(Mode m, const char* why) {
+	const Mode was = (Mode)m_mode.exchange((int)m);
+	// A playback AUTO started that someone else ends: who, at which tick (campath.mode).
+	if (m_autoPlaying && was == Mode::PreviewPlaying && m != Mode::PreviewPlaying && MvmDebugLog_Active()) {
+		int tick = -1;
+		g_MirvTime.GetCurrentDemoTick(tick);
+		MvmDebugLog_Linef("campath.mode", "AUTO playback left PreviewPlaying for %d by %s at tick %d (scrub=%d pending=%d paused=%d)",
+			(int)m, why ? why : "?", tick, m_play.Scrubbing() ? 1 : 0, PlaybackPending() ? 1 : 0, DemoIsPaused() ? 1 : 0);
+	}
+}
+
+bool CameraPath::AutoWaiting() const {
+	return m_autoPlaying && GetMode() == Mode::PreviewPlaying && !CameraBridge_GetFreeCamEnabled();
+}
+
+bool CameraPath_AutoPath() { return FilmmakerSettings_UiBool("editor.timeline.autopath", false); }
+void CameraPath_SetAutoPath(bool on) { FilmmakerSettings_SetUi("editor.timeline.autopath", on ? "1" : "0"); }
+
+void CameraPath::EndAutoPath(const char* why) {
+	if (!m_autoPlaying) return;
+	m_autoPlaying = false;
+	m_play.Stop();
+	m_liveResumeGuard = 0;
+	SetMode(Mode::Editing, "EndAutoPath");
+	HandBackAtLastKey();
+	if (MvmDebugLog_Active()) MvmDebugLog_Linef("campath.auto", "end (%s): the view is CS2's again", why);
+}
+
+void CameraPath::RunAutoPath() {
+	const bool want = CameraPath_AutoPath() && GraphEditorExperiment_Enabled() && m_timing == Timing::Live
+		&& m_data.Count() >= 2 && DemoIsPlaying() && !DemoIsPaused() && !Render_IsJobActive()
+		&& !FollowCameraRef().OwnsView();
+	if (m_autoPlaying) {
+		// J, Esc, a pause or a seek ended it: that playback is not AUTO's any more.
+		if (GetMode() != Mode::PreviewPlaying) { m_autoPlaying = false; return; }
+		if (!want) EndAutoPath(!CameraPath_AutoPath() ? "AUTO off" : !GraphEditorExperiment_Enabled() ? "the TIMELINE dock closed"
+			: m_timing != Timing::Live ? "Freeze timing" : m_data.Count() < 2 ? "under two camera keys"
+			: !DemoIsPlaying() ? "the demo stopped" : DemoIsPaused() ? "the demo paused"
+			: Render_IsJobActive() ? "a render started" : "the Follow Camera owns the view");
+		return;
+	}
+	if (!want || GetMode() != Mode::Editing || m_play.Scrubbing() || PlaybackPending()) return;
+	int tick = -1;
+	if (!g_MirvTime.GetCurrentDemoTick(tick) || tick >= LastPathTick()) return; // past it this pass
+	RebuildCamPath();
+	if (!m_eval.CanEval()) return;
+	m_hudHidden = false;
+	m_editorPlay = false;
+	m_timelinePlayPending = false;
+	m_play.StartPlay(m_eval.Duration(), /*rangeGated*/ true);
+	SetMode(Mode::PreviewPlaying, "RunAutoPath");
+	m_autoPlaying = true;
+	if (MvmDebugLog_Active())
+		MvmDebugLog_Linef("campath.auto", "start at tick %d: the view follows the path inside %d..%d", tick, FirstPathTick(), LastPathTick());
 }
 
 // --- editing actions ---
@@ -409,7 +498,7 @@ void CameraPath::DeleteAll(bool confirmed) {
 	m_data.DeleteAll();
 	m_menuOpen = false;
 	m_play.Stop();
-	SetMode(Mode::Editing);
+	SetMode(Mode::Editing, "DeleteAll");
 	RebuildCamPath();
 	EnsureDrawState();
 	MarkDirty();
@@ -441,7 +530,7 @@ void CameraPath::SelectForEditor(int index) {
 	m_timelinePlayPending = false;
 	m_editorPlayPending = false;
 	m_editorPlay = false;
-	SetMode(Mode::Editing);
+	SetMode(Mode::Editing, "SelectForEditor");
 	m_data.SetSelected(index);
 	const CamMarker& marker = m_data.At(m_data.Selected());
 
@@ -485,7 +574,7 @@ void CameraPath::SelectEditorDelta(int delta) {
 
 void CameraPath::OpenMenu(int index) {
 	if (m_data.Empty()) return;
-	SetMode(Mode::Editing);
+	SetMode(Mode::Editing, "OpenMenu");
 	SelectIndex(index, /*teleport*/ false);
 	CameraBridge_SetFreeCamEnabled(true);
 	m_menuOpen = true;
@@ -574,7 +663,7 @@ void CameraPath::BeginReposition() {
 	CameraBridge_SetFreeCamEnabled(true);
 	if (CameraEditor_Active())
 		CameraEditor_SetCursorMode(false);
-	SetMode(Mode::Reposition);
+	SetMode(Mode::Reposition, "BeginReposition");
 	advancedfx::Message("[campath] repositioning marker #%d @ tick %d: move + left-click to place (Esc cancels).\n",
 		sel, m_data.At(sel).tick);
 }
@@ -582,7 +671,7 @@ void CameraPath::BeginReposition() {
 void CameraPath::PlaceReposition() {
 	if (GetMode() != Mode::Reposition) return;
 	int sel = m_data.Selected();
-	if (!m_data.ValidIndex(sel)) { SetMode(Mode::Editing); return; }
+	if (!m_data.ValidIndex(sel)) { SetMode(Mode::Editing, "PlaceReposition"); return; }
 	CamMarker& m = m_data.At(sel);
 	double o[3], a[3], fov;
 	CameraBridge_GetCurrentCamera(o, a, fov);
@@ -592,7 +681,7 @@ void CameraPath::PlaceReposition() {
 	double dt = 0.0; if (g_MirvTime.GetCurrentDemoTime(dt)) m.time = dt;
 	RebuildCamPath();
 	MarkDirty();
-	SetMode(Mode::Editing);
+	SetMode(Mode::Editing, "PlaceReposition");
 	if (CameraEditor_Active())
 		CameraEditor_SetCursorMode(true);
 	advancedfx::Message("[campath] marker #%d repositioned @ tick %d (%.1f %.1f %.1f).\n",
@@ -601,7 +690,7 @@ void CameraPath::PlaceReposition() {
 
 void CameraPath::CancelReposition() {
 	if (GetMode() != Mode::Reposition) return;
-	SetMode(Mode::Editing);
+	SetMode(Mode::Editing, "CancelReposition");
 	if (CameraEditor_Active())
 		CameraEditor_SetCursorMode(true);
 	advancedfx::Message("[campath] reposition cancelled.\n");
@@ -638,7 +727,7 @@ void CameraPath::ArmPreview() {
 
 	CameraBridge_SetFreeCamEnabled(true);
 	m_play.Reset();
-	SetMode(Mode::PreviewArmed);
+	SetMode(Mode::PreviewArmed, "ArmPreview");
 
 	advancedfx::Message(
 		"[campath] preview ARMED: jumped to first marker (tick %d). Press SPACE to play, Esc to cancel.\n",
@@ -654,7 +743,7 @@ void CameraPath::StartPreviewPlay() {
 	if (!m_eval.CanEval()) { advancedfx::Message("[campath] cannot evaluate path.\n"); return; }
 
 	m_play.StartPlay(m_eval.Duration());
-	SetMode(Mode::PreviewPlaying);
+	SetMode(Mode::PreviewPlaying, "StartPreviewPlay");
 	m_liveStartPauseGuard = 30; // brief window where a stray pause (held/repeated Space) can't kill the start
 
 	// Insurance: the dolly drives the camera through MirvInput's free-cam override, so make
@@ -712,7 +801,7 @@ void CameraPath::PlayPath() {
 	// range-gating toggles the free cam itself as the playhead enters/leaves the range.
 	if (m_timing == Timing::Freeze) CameraBridge_SetFreeCamEnabled(true);
 	m_play.StartPlay(m_eval.Duration(), /*rangeGated*/ m_timing == Timing::Live);
-	SetMode(Mode::PreviewPlaying);
+	SetMode(Mode::PreviewPlaying, "PlayPath");
 	m_liveStartPauseGuard = 30; // brief window where a stray pause (held/repeated Space) can't kill the start
 	// Resume UNCONDITIONALLY in Live: the demo is usually paused here (from a prior scrub)
 	// and the cached pause check could miss it, leaving the playhead stuck. demo_resume on
@@ -787,7 +876,7 @@ void CameraPath::PlayFromEditor(int startTick) {
 	CameraBridge_SetFreeCamEnabled(true);
 	m_play.BeginScrub(tick);
 	m_scrubReleasePending = false; // editor play owns this scrub until its own handshake ends it
-	SetMode(Mode::Editing);
+	SetMode(Mode::Editing, "PlayFromEditor");
 
 	advancedfx::Message(
 		"[campath][INPUT] editor play queued: start tick=%d, plays to LAST keyframe tick=%d (#%d), then stops; waiting for seek.\n",
@@ -815,11 +904,12 @@ void CameraPath::PausePreview() {
 	m_editorPlay = false;
 	m_timelinePlayPending = false;
 	m_editorPlayPending = false;
-	SetMode(Mode::Editing);
+	SetMode(Mode::Editing, "PausePreview");
 	advancedfx::Message("[campath] playback paused at current tick.\n");
 }
 
 void CameraPath::StopPreview() {
+	m_autoPlaying = false;
 	EndCurveValueEdit();
 	bool was = (GetMode() == Mode::PreviewArmed || GetMode() == Mode::PreviewPlaying);
 	m_play.Stop();
@@ -827,7 +917,7 @@ void CameraPath::StopPreview() {
 	m_editorPlay = false;
 	m_timelinePlayPending = false;
 	m_editorPlayPending = false;
-	SetMode(Mode::Editing);
+	SetMode(Mode::Editing, "StopPreview");
 	if (was) advancedfx::Message("[campath] preview stopped (back to editing).\n");
 }
 
@@ -878,12 +968,14 @@ void CameraPath::ScrubToTick(double tick, bool seek) {
 
 void CameraPath::ArmScrubRelease(int targetTick) {
 	m_scrubReleasePending = true;
+	m_handBackOnRelease = false;
 	m_scrubReleaseTargetTick = targetTick;
 	m_scrubReleaseWaitFrames = 0;
 }
 
 void CameraPath::StopScrub() {
 	m_scrubReleasePending = false;
+	m_handBackOnRelease = false;
 	m_play.EndScrub();
 	TimelinePlayhead_EndScrub();
 }
@@ -1097,7 +1189,7 @@ void CameraPath::RunFrame() {
 		m_editorPlay = false;
 		m_timelinePlayPending = false;
 		m_editorPlayPending = false;
-		SetMode(Mode::Editing);
+		SetMode(Mode::Editing, "RunFrame");
 		Load();              // no-op if the project has no campath section
 		RebuildCamPath();
 		EnsureDrawState();
@@ -1122,7 +1214,7 @@ void CameraPath::RunFrame() {
 			m_timelinePlayPending = false;
 			m_editorPlayPending = false;
 			m_liveResumeGuard = 0;
-			SetMode(Mode::Editing);
+			SetMode(Mode::Editing, "RunFrame");
 		}
 	} else {
 		m_demoStoppedFrames = 0;
@@ -1152,7 +1244,7 @@ void CameraPath::RunFrame() {
 			m_play.EndScrub();
 			CameraBridge_SetFreeCamEnabled(true);
 			m_play.StartPlay(m_eval.Duration(), /*rangeGated*/ false, m_editorPlayStartTiming);
-			SetMode(Mode::PreviewPlaying);
+			SetMode(Mode::PreviewPlaying, "RunFrame");
 			m_liveStartPauseGuard = 30; // brief window where a stray pause (held/repeated Space) can't kill the start
 			if (m_timing == Timing::Live) { DemoCmd("demo_resume"); m_liveResumeGuard = 120; }
 			advancedfx::Message("[campath] editor play started from tick %d (atTarget=%d, waited %d frames, freecam=%d, guard=%d).\n",
@@ -1160,6 +1252,8 @@ void CameraPath::RunFrame() {
 				CameraBridge_GetFreeCamEnabled() ? 1 : 0, m_liveStartPauseGuard);
 		}
 	}
+
+	RunAutoPath();
 
 	Mode mode = GetMode();
 	if (m_debug) {
@@ -1220,9 +1314,12 @@ void CameraPath::RunFrame() {
 			}
 		}
 		const bool playDone = m_play.TickPlay(m_data, m_eval, MakeContext());
-		if (m_timing == Timing::Live && m_play.LiveEndSettling() && !playDone && !DemoIsPaused())
+		// AUTO lets the demo play on past the path; any other playback stops it at the last key.
+		if (m_timing == Timing::Live && m_play.LiveEndSettling() && !playDone && !DemoIsPaused() && !m_autoPlaying)
 			DemoCmd("demo_pause");
-		if (playDone && PlaybackLoop_Enabled() && m_data.Count() >= 2 && m_eval.CanEval()) {
+		if (playDone && m_autoPlaying) {
+			EndAutoPath("the last key");
+		} else if (playDone && PlaybackLoop_Enabled() && m_data.Count() >= 2 && m_eval.CanEval()) {
 			// LOOP is on: play the path again instead of stopping on the last keyframe. Same
 			// switch as the tick loop, because "loop" is one idea to the person pressing it --
 			// what it loops is simply whatever is playing.
@@ -1261,6 +1358,10 @@ void CameraPath::RunFrame() {
 				advancedfx::Message(
 					"[campath] scrub released after settle (target=%d atTarget=%d waited=%d) -- free cam handed back.\n",
 					m_scrubReleaseTargetTick, atTarget ? 1 : 0, m_scrubReleaseWaitFrames);
+				if (m_handBackOnRelease) {
+					m_handBackOnRelease = false;
+					HandBackAtLastKey();
+				}
 			}
 		}
 	} else if (m_editorPoseHoldFrames > 0 && m_data.ValidIndex(m_data.Selected())) {

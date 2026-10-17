@@ -25,6 +25,10 @@ const configHudHeader = read("AfxHookSource2", "Filmmaker", "Panorama", "ConfigH
 const windowResizeHeader = read("AfxHookSource2", "Filmmaker", "Window", "WindowResize.h");
 const movieMode = read("AfxHookSource2", "Filmmaker", "Movie", "MovieMode.cpp");
 const viewFx = read("AfxHookSource2", "Filmmaker", "Movie", "ViewFx.cpp");
+const filmmaker = read("AfxHookSource2", "Filmmaker", "Filmmaker.cpp");
+const configJs = read("AfxHookSource2", "Filmmaker", "Panorama", "ConfigHudJs.h");
+const propsGizmo = read("AfxHookSource2", "Filmmaker", "Panorama", "ConfigHudPropsGizmoJs.h");
+const graphJs = read("AfxHookSource2", "Filmmaker", "Panorama", "GraphEditorJs.h");
 
 test("regular-timeline loop flags are direct hit targets driven by the cursor pipe", () => {
   assert.doesNotMatch(timeline, /function pumpLoopFlags|function makeLoopFlag/);
@@ -143,7 +147,108 @@ test("leaving Config hands the mouse back to the game, and a right-click look al
   assert.match(configHud, /void ConfigHud::OnExit\(\)[\s\S]{0,400}TimelineDock_Release\(DockHost::Config\);[\s\S]{0,600}if \(!IsLive\(\) && !CameraTimelineHudRef\(\)\.EditorHosted\(\)\)\s*CameraTimelineHudRef\(\)\.SetCursor\(false\)/);
   // While the game holds the mouse no WM_RBUTTONUP arrives and GetAsyncKeyState does not see the
   // button (polling it ended every look one frame in), so the raw release ends the look.
-  assert.match(input, /void WindowInputHooks_FilterRawInput[\s\S]{0,600}RI_MOUSE_RIGHT_BUTTON_UP\) Filmmaker::MovieInput_RightButtonUp\(\)/);
+  assert.match(input, /void WindowInputHooks_FilterRawInput[\s\S]{0,700}RI_MOUSE_LEFT_BUTTON_UP\) Filmmaker::MovieInput_ButtonUp\(0\);\s*if \(m\.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_UP\) Filmmaker::MovieInput_ButtonUp\(1\);/);
   assert.doesNotMatch(input, /GetAsyncKeyState\(VK_RBUTTON\)[^;]*RightButton/);
-  assert.match(movieMode, /void MovieMode::OnRightButtonUp\(\)\s*\{\s*if \(!m_rightLook\.exchange\(false\)\) return;\s*EnqueueCmd\("mirv_filmmaker camtl cursor on"\)/);
+  assert.match(movieMode, /void MovieMode::OnButtonUp\(int button\)\s*\{[\s\S]{0,1400}if \(button != 1 \|\| !m_rightLook\.exchange\(false\)\) return;\s*EnqueueCmd\("mirv_filmmaker camtl cursor on"\)/);
+  // The right-hold look is the fly cam's, which reads the mouse itself: in CS2's own demo cameras
+  // the press often never started CS2's drag-look under the Config panel (2026-10-17), so the hold
+  // switches to the fly cam first, before handing it the mouse.
+  assert.match(movieMode, /m_rightLook = true;[\s\S]{0,700}if \(!CameraBridge_GetFreeCamEnabled\(\)\) EnqueueCmd\("mirv_input camera"\);\s*EnqueueCmd\("mirv_filmmaker camtl cursor off"\);/);
+});
+
+test("a quick right-click in the ENVIRONMENT view opens the object's menu, a hold looks", () => {
+  // The view's pick menu was dropped for the right-hold look (#42); the user wants both. The press
+  // waits: released within 200 ms and 4 px it is a click (the menu), held or moved it is the look.
+  assert.match(movieMode, /UiClick::RightPressLooks\(ClickInput\(x, y\)\)\) \{\s*\{\s*std::lock_guard<std::mutex> lk\(m_rightMutex\);\s*m_rightPress\.pending = true;/);
+  assert.match(movieMode, /void MovieMode::StartRightLookIfHeld\(\) \{\s*constexpr int kRightClickSlopPx = 4;\s*constexpr int kRightClickHoldMs = 200;/);
+  assert.match(movieMode, /if \(!rmb\) \{ m_rightPress\.pending = false; return; \}/);
+  assert.match(movieMode, /void MovieMode::FlushActions\(\) \{\s*StartRightLookIfHeld\(\);/);
+  assert.match(movieMode, /if \(click\) \{[\s\S]{0,200}EnqueueCmd\("mirv_filmmaker config viewmenu"\);/);
+  assert.match(configHud, /0 == _stricmp\(arg, "viewmenu"\)[\s\S]{0,300}RequestEval\("\$\.ConfigHud\.viewMenu\(\)"\)/);
+  assert.match(configJs, /api\.viewMenu = function \(\) \{ propsMenuRequest = true; return 'ok'; \};/);
+  assert.match(propsGizmo, /if \(propsMenuRequest\) \{[\s\S]{0,300}propsCommand\('pick ' \+ u\.toFixed\(4\) \+ ' ' \+ v\.toFixed\(4\)\);/);
+  assert.match(propsGizmo, /propsOpenMenu\('p' \+ p\.selected\)[\s\S]{0,200}propsOpenMenu\('e' \+ envSel\)/);
+  // The TIMELINE dock's right-click swallow leaves CONFIG's column alone: the Outliner's own
+  // right-click menu (oncontextmenu) needs the message.
+  assert.match(movieMode, /GraphEditorExperiment_WantsCursor\(\) && !OnConfigColumn\(x, y\)\)\s*return true;/);
+  assert.match(movieMode, /bool MovieMode::OnConfigColumn\(int x, int y\) \{[\s\S]{0,600}TimelineDock_Height\(\) \/ 1080\.f[\s\S]{0,200}return !in\.preview\.Contains\(in\.x, in\.y\);/);
+});
+
+test("a key in the TIMELINE dock can be gone to: double-click it, or its menu's Go to this key", () => {
+  assert.match(graphJs, /function keyDoubleClick\(t\) \{[\s\S]{0,300}now - prev\.at > KEY_DBL_MS \|\| Math\.abs\(prev\.t - t\) > 0\.5/);
+  assert.match(graphJs, /if \(keyDoubleClick\(t\)\) \{ seekTo\(t\); gesture\.seek = false; \}/);
+  assert.match(graphJs, /var lt = n \? keyTimeNear\(r\.node, cc\.tx\) : null;\s*if \(lt !== null && keyDoubleClick\(lt\)\) seekTo\(lt\);/);
+  assert.match(graphJs, /\{ id: 'goto', label: 'Go to this key', sc: 'Double-click' \},\s*\{ id: 'delete'/);
+  assert.match(graphJs, /if \(id === 'goto'\) seekTo\(entry\.t\);\s*else if \(id === 'delete'\) deleteSelection\(\);/);
+  // The second press of a quick double-click can arrive as WM_LBUTTONDBLCLK: still a press to the pipe.
+  assert.match(input, /if \(uMsg == WM_LBUTTONDBLCLK\) \{ g_UiCursorProbe\.lmb = true;/);
+});
+
+test("a camera path that plays to its end gives the view back to CS2's own camera", () => {
+  // Leaving our free cam parked on the last key left users with no mouse control after a path
+  // (2026-10-17). The release armed by the end, once the last key has landed, re-applies the camera
+  // CS2 was showing; any other release or scrub stop clears the request.
+  assert.match(cameraPath, /void CameraPath::FinishPlaybackAtLastKey\(\)[\s\S]{0,1200}HoldEditorAtMarker\(lastIndex\);\s*\/\/[^\n]*\n\s*m_handBackOnRelease = m_scrubReleasePending;/);
+  assert.match(cameraPath, /void CameraPath::ArmScrubRelease\(int targetTick\) \{\s*m_scrubReleasePending = true;\s*m_handBackOnRelease = false;/);
+  assert.match(cameraPath, /void CameraPath::StopScrub\(\) \{\s*m_scrubReleasePending = false;\s*m_handBackOnRelease = false;/);
+  assert.match(cameraPath, /free cam handed back[\s\S]{0,200}if \(m_handBackOnRelease\) \{\s*m_handBackOnRelease = false;\s*HandBackAtLastKey\(\);/);
+  // CS2's spec_goto turns its roaming camera without moving it, so the restore is CS2's own camera
+  // as it was, the same one closing the Camera Editor applies.
+  assert.match(cameraPath, /void CameraPath::HandBackAtLastKey\(\) \{\s*if \(Render_IsJobActive\(\) \|\| FollowCameraRef\(\)\.OwnsView\(\)\)\s*return;\s*MovieModeRef\(\)\.SetMode\(MovieModeRef\(\)\.GetMode\(\)\);/);
+});
+
+test("outside the workspaces a click on our free cam is a hold-to-look, so the mouse comes back", () => {
+  // After a right-hold look in Config the free cam stays on; the first click after Config closed
+  // took the mouse for it until Esc (2026-10-17). Outside Config, the Camera Editor and Render the
+  // press steers only while held, and either button's release (legacy or raw) hands the mouse back.
+  assert.match(movieMode, /bool MovieMode::OnMouseButton\(int button, bool down, int x, int y\) \{\s*if \(!down\) OnButtonUp\(button\);/);
+  assert.match(movieMode, /MouseCapture_TakeForCamera\("freecam click"\);[\s\S]{0,300}if \(!CameraEditor_Enabled\(\) && !ConfigHud_Enabled\(\) && !Render_IsModalOpen\(\)\)\s*m_flyHoldButton = button;/);
+  assert.match(movieMode, /void MovieMode::OnButtonUp\(int button\) \{\s*int held = button;\s*if \(m_flyHoldButton\.compare_exchange_strong\(held, -1\)\) \{\s*MouseCapture_ReleaseForUi\("freecam hold released"\);/);
+});
+
+test("the TIMELINE dock under Config follows the shared cursor flag, so a right-hold can look", () => {
+  // The dock's cursor claim suspends MirvInput. Docked in Config it claimed the cursor whatever the
+  // flag said, so "camtl cursor off" from the right-hold never reached the fly cam (2026-10-17).
+  // Only the standalone graph editor, with no workspace hosting the dock, keeps the cursor always.
+  const body = filmmaker.slice(filmmaker.indexOf("bool GraphEditorExperiment_WantsCursor()"),
+                               filmmaker.indexOf("// --- Fisheye lens (barrel"));
+  assert.match(body, /if \(TimelineDock_Host\(\) != DockHost::None \|\| CameraEditorHudRef\(\)\.Enabled\(\)\)\s*return CameraTimelineHudRef\(\)\.Cursor\(\);\s*return true;/);
+  assert.doesNotMatch(body, /return !CameraEditorHudRef\(\)\.Enabled\(\) \|\|/);
+});
+
+// 2026-10-17 (mvm_debug 08:11-08:13): three input leaks outside the workspaces.
+test("a dock scrub flies the camera path only while the path layer's AUTO is on", () => {
+  const graphHud = read("AfxHookSource2", "Filmmaker", "Panorama", "GraphEditorExperimentHud.cpp");
+  assert.match(graphHud, /return ScrubDrives\(\) \|\| m_editDriveFrames > 0 \|\| m_releaseDrive;/);
+  assert.match(graphHud, /bool GraphEditorExperimentHud::ScrubDrives\(\) const \{\s*return TimelinePlayhead_Scrubbing\(\) && CameraPath_AutoPath\(\);/);
+  assert.match(graphHud, /if \(!ScrubDrives\(\) && !editDrive\)\s*return;/, "the per-frame drive takes the same gate");
+  assert.match(graphHud, /if \(wasScrubbing && CameraPath_AutoPath\(\)\) m_releaseDrive = true;/);
+});
+
+test("the UI-mouse flag only counts inside a workspace, and the editor gives it up on close", () => {
+  const filmmaker = read("AfxHookSource2", "Filmmaker", "Filmmaker.cpp");
+  const editorHud = read("AfxHookSource2", "Filmmaker", "Panorama", "CameraEditorHud.cpp");
+  assert.match(filmmaker, /return tl\.Cursor\(\) && \(tl\.EditorHosted\(\) \|\| tl\.CursorForced\(\) \|\| ConfigHud_Enabled\(\)\);/);
+  assert.match(editorHud, /if \(!ConfigHud_Enabled\(\)\) tl\.SetCursor\(false\);/);
+});
+
+test("outside the workspaces a press on the native demo bar is the bar's, not a free-cam look", () => {
+  const movie = read("AfxHookSource2", "Filmmaker", "Movie", "MovieMode.cpp");
+  assert.match(timeline, /root\.SetAttributeString\('barrect', r\)/, "the bar's rect is published");
+  assert.match(timeline, /publishCameraMode\(\);\s*publishBarRect\(\);/, "every frame, with the camera mode");
+  assert.match(timelineHud, /m_symBarRect = m_bridge\.MakeSymbol\("barrect"\);/);
+  assert.match(timelineHud, /ReadBarRect\(\);/);
+  assert.match(movie, /if \(!CameraEditor_Active\(\) && !ConfigHud_Enabled\(\) && CameraTimeline_DemoBarContains\(x, y\)\) \{[\s\S]{0,200}return true;/,
+    "OnUiClick hands the press to Panorama before the free cam or a game click can take it");
+});
+
+// 2026-10-17: the end-of-demo hold restarted the demo from the beginning whenever playback came
+// while it held (play, a scrub's seek, a camera path), and held on the final round's first tick.
+test("the end-of-demo hold stays put, a second after the final round, and never restarts the demo", () => {
+  const hold = read("AfxHookSource2", "Filmmaker", "Movie", "DemoEndHold.cpp");
+  assert.doesNotMatch(hold, /"demo_gototick %d"/, "no seek back to the start");
+  assert.match(hold, /constexpr int kPostGameTailTicks = 64;/);
+  assert.match(hold, /holdTick = s_postGameTick \+ kPostGameTailTicks;/);
+  assert.match(hold, /if \(DemoScrub_Active\(\)\) return;\s*\n[\s\S]{0,700}DemoCmd\("demo_pause"\);/,
+    "a scrub's own steps are left alone; anything else playing past the hold is paused");
 });

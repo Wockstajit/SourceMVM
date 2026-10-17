@@ -122,7 +122,9 @@ test('a property has ONE name, the CONFIG control\'s, in the timeline and the in
 });
 
 test('scene property menus keep Disable / Delete, and a colour opens the shared wheel', () => {
-  assert.match(graph, /rawCmd\('mirv_filmmaker scenekeys mute ' \+ n\.fieldId/);
-  assert.match(graph, /rawCmd\('mirv_filmmaker scenekeys clear ' \+ \(n\.kind === 'layer' \? n\.groupId : n\.fieldId\)\)/);
+  // Per property, or per channel of a scene object's grouped row (sceneEach).
+  assert.match(graph, /sceneEach\(n, function \(f\) \{ return 'mute ' \+ f \+ mon; \}\)/);
+  assert.match(graph, /if \(n\.kind === 'layer'\) rawCmd\('mirv_filmmaker scenekeys clear ' \+ n\.groupId\);/);
+  assert.match(graph, /else sceneEach\(n, function \(f\) \{ return 'clear ' \+ f; \}\);/);
   assert.match(graph, /chip\.SetPanelEvent\('onactivate', function \(\) \{ crec\.picker\.show\(\); \}\);/);
 });

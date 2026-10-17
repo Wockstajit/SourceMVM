@@ -25,6 +25,13 @@ add_executable(RecoilPivotMarkerMathTests
 target_compile_features(RecoilPivotMarkerMathTests PRIVATE cxx_std_17)
 add_test(NAME RecoilPivotMarkerMathTests COMMAND RecoilPivotMarkerMathTests)
 
+add_executable(SceneMarkerMathTests
+    ../Automation/tests/scene-marker-math-tests.cpp
+    SceneMarkerMath.h
+)
+target_compile_features(SceneMarkerMathTests PRIVATE cxx_std_17)
+add_test(NAME SceneMarkerMathTests COMMAND SceneMarkerMathTests)
+
 add_executable(ViewFxWeaponSwayMathTests
     ../Automation/tests/viewfx-weapon-sway-math-tests.cpp
     Filmmaker/Movie/ViewFxWeaponSwayMath.h
@@ -573,11 +580,21 @@ add_test(NAME EnvironmentCacheTests COMMAND EnvironmentCacheTests)
 add_executable(SceneKeyframeTrackTests
     ../Automation/tests/scene-keyframe-track-tests.cpp
     Filmmaker/Movie/SceneKeyframeCatalog.cpp
+    Filmmaker/Movie/FollowCameraMath.cpp
     Filmmaker/Environment/EnvironmentWorldDocument.cpp
     Filmmaker/Platform/JsonBuilder.cpp
     Filmmaker/Platform/JsonParser.cpp)
 target_compile_features(SceneKeyframeTrackTests PRIVATE cxx_std_17)
 add_test(NAME SceneKeyframeTrackTests COMMAND SceneKeyframeTrackTests)
+
+add_executable(SceneRigMathTests
+    ../Automation/tests/scene-rig-math-tests.cpp
+    Filmmaker/Movie/SceneRigMath.h
+    Filmmaker/Movie/FollowCameraMath.cpp
+    Filmmaker/Platform/JsonBuilder.cpp
+    Filmmaker/Platform/JsonParser.cpp)
+target_compile_features(SceneRigMathTests PRIVATE cxx_std_17)
+add_test(NAME SceneRigMathTests COMMAND SceneRigMathTests)
 
 add_executable(DeathAnimationsMathTests
     ../Automation/tests/death-animations-math-tests.cpp

@@ -86,5 +86,76 @@ int main(int argc,char** argv) {try {
     bad=mutedText;pos=bad.find("\"muted\":[\"skyColor\"]");bad.replace(pos,20,"\"muted\":[\"nope\"]");Check(!Decode(bad,catalog,restored,error),"unknown disabled property rejected");
     Check(track.Undo()&&!track.data.muted.count(color.id),"undo disable");
     track.BeginEdit();track.selected={first,second};track.DeleteSelected();track.EndEdit();Check(!track.data.fields.count(exposure.id),"delete removes empty channel");Check(track.Undo()&&track.data.fields.count(exposure.id),"undo delete");
+    {   // Scene object pose channels (scene-object-rigs.md): linear keys, clamped ends.
+        const ChannelSpec* x=FindSpec(catalog,"obj.7.x");const ChannelSpec* yaw=FindSpec(catalog,"obj.7.yaw");const ChannelSpec* fov=FindSpec(catalog,"obj.7.fov");
+        Check(x&&yaw&&fov&&x==ObjectSpec(7,Rig::X)&&x->family=="objects"&&x->groupId=="7","object channels resolve from their id");
+        Check(x->editLinear&&x->clampEnds&&yaw->type==ChannelType::Angle&&fov->min==1&&fov->max==179,"pose channel ranges and defaults");
+        Check(!FindSpec(catalog,"obj.7.w")&&!FindSpec(catalog,"obj.0.x"),"invalid object channels rejected");
+        const Value base{{-5},{}};
+        SceneKeyframeTrack pose;bool on=false;
+        Check(Sample(*x,{},100,base,&on).numbers[0]==-5&&!on,"no keys: the rest pose");
+        pose.BeginEdit();pose.data.armed.insert(x->id);const int a=pose.Put(*x,100,{{10},{}});pose.EndEdit();
+        auto& keys=pose.data.fields[x->id];
+        Check(keys.size()==1&&!keys[0].hold,"a placed pose key is linear");
+        Check(Sample(*x,keys,0,base,&on).numbers[0]==10&&on&&Sample(*x,keys,500,base).numbers[0]==10,"one key is a constant");
+        pose.BeginEdit();const int b=pose.Put(*x,200,{{50},{}});pose.EndEdit();
+        Check(Sample(*x,keys,50,base).numbers[0]==10,"before the first key: the first key");
+        Check(std::fabs(Sample(*x,keys,150,base).numbers[0]-30)<1e-9,"a second key blends from the first");
+        Check(Sample(*x,keys,200,base).numbers[0]==50&&Sample(*x,keys,900,base).numbers[0]==50,"lands on the next key and stays after the last");
+        pose.Find(x->id,a)->hold=true;
+        Check(Sample(*x,keys,150,base).numbers[0]==10&&Sample(*x,keys,199.9,base).numbers[0]==10,"a held key stays until the next");
+        // Moving the object at either end of a held segment makes both of its segments linear.
+        const int c=pose.Put(*x,300,{{70},{}});pose.Find(x->id,b)->hold=true;
+        Check(pose.Put(*x,200,{{60},{}})==b&&!pose.Find(x->id,a)->hold&&!pose.Find(x->id,b)->hold&&!pose.Find(x->id,c)->hold,"re-posing a key clears the holds on both of its segments");
+        Check(std::fabs(Sample(*x,keys,150,base).numbers[0]-35)<1e-9&&std::fabs(Sample(*x,keys,250,base).numbers[0]-65)<1e-9,"both segments blend");
+        pose.Find(x->id,a)->right={true,1.0/3,0};pose.Find(x->id,b)->left={true,1.0/3,0};
+        const double eased=Sample(*x,keys,125,base).numbers[0];
+        Check(eased>10&&eased<22.5,"an eased segment starts slow");
+        Check(pose.Put(*x,100,{{12},{}})==a&&pose.Find(x->id,a)->right.active,"re-keying a tick keeps its ease");
+        pose.Find(x->id,c)->hold=true;const int d=pose.Put(*x,400,{{90},{}});
+        Check(!pose.Find(x->id,c)->hold&&!pose.Find(x->id,d)->hold,"a new key after a held one makes the segment into it linear");
+        // Ordinary scene keys keep their baseline outside the span, and a write keeps their holds.
+        SceneKeyframeTrack env;env.Put(exposure,100,{{1},{}});env.Put(exposure,200,{{2},{}});
+        Check(!env.data.fields[exposure.id][0].hold&&Sample(exposure,env.data.fields[exposure.id],300,{{3},{}}).numbers[0]==3,"scene keys unchanged");
+        env.data.fields[exposure.id][0].hold=true;env.Put(exposure,200,{{2.5},{}});
+        Check(env.data.fields[exposure.id][0].hold&&Sample(exposure,env.data.fields[exposure.id],150,{{3},{}}).numbers[0]==1,"a scene key can hold too");
+        // Angles blend the short way, and hold when asked.
+        pose.Put(*yaw,100,{{170},{}});pose.Put(*yaw,200,{{-170},{}});
+        Check(std::fabs(std::fabs(Sample(*yaw,pose.data.fields[yaw->id],150,{{0},{}}).numbers[0])-180)<1e-9,"angle blends the short way");
+        pose.data.fields[yaw->id][0].hold=true;
+        Check(Sample(*yaw,pose.data.fields[yaw->id],150,{{0},{}}).numbers[0]==170,"angle holds");
+        // File: hold flags and the attach map round trip; an attach change is one undo step.
+        Rig::Attachment att;att.parent=Rig::ParentKind::Player;att.steamId=76561198000000123ull;att.playerName="ropz";att.mount="head";att.offset.pos={20,0,4};
+        pose.BeginEdit();pose.data.attach[7]=att;Check(pose.EndEdit(),"attaching is an undoable edit");
+        const auto text=Encode(pose.data);TrackData restoredPose;std::string poseError;
+        Check(Decode(text,catalog,restoredPose,poseError)&&Encode(restoredPose)==text&&restoredPose.attach.at(7)==att,"pose keys, holds and attachments round trip");
+        Check(restoredPose.fields[yaw->id][0].hold&&!restoredPose.fields[yaw->id][1].hold,"hold flags kept per key");
+        Check(pose.Undo()&&pose.data.attach.empty(),"undo detaches");
+        // A project whose objects are gone still loads; a malformed attach map does not.
+        auto badAttach=text;const auto at=badAttach.find("\"parent\":\"player\"");badAttach.replace(at,17,"\"parent\":\"nobody\"");
+        TrackData keep=restoredPose;Check(!Decode(badAttach,catalog,keep,poseError)&&Encode(keep)==text,"bad attachment rejects the file transactionally");
+        auto badHold=text;const auto h=badHold.find("\"hold\":true");badHold.replace(h,11,"\"hold\":1");Check(!Decode(badHold,catalog,keep,poseError),"non-bool hold rejected");
+    }
+    {   // The in-world overlay's path: X/Y/Z sampled over the union of their key ticks.
+        SceneKeyframeTrack path;const double rest[3]={1,2,3};
+        Check(SamplePositionPath(path.data,9,rest,2,4096).empty(),"no keys: no path");
+        const ChannelSpec* px=ObjectSpec(9,Rig::X);const ChannelSpec* py=ObjectSpec(9,Rig::Y);
+        path.Put(*px,100,{{0},{}});path.Put(*px,200,{{100},{}});path.Put(*py,150,{{50},{}});
+        auto pts=SamplePositionPath(path.data,9,rest,2,4096);
+        Check(pts.size()==9,"a key, two inner points and the point before the next key per segment");
+        Check(pts.front()[0]==0&&pts.front()[1]==50&&pts.front()[2]==3,"the first point: first keys, clamped ends, rest for the unkeyed");
+        Check(pts.back()[0]==100&&pts.back()[1]==50&&pts.back()[2]==3,"the last point: the last keys");
+        Check(pts[1][0]>0&&pts[1][0]<50,"inner points follow the curve");
+        std::vector<std::array<double,3>> keyPts;SamplePositionPath(path.data,9,rest,2,4096,&keyPts);
+        Check(keyPts.size()==3&&keyPts[0][0]==0&&keyPts[2][0]==100&&keyPts[1][1]==50&&keyPts[1][0]>0&&keyPts[1][0]<100,
+            "a key dot on each key tick of any channel, where the path is then");
+        path.data.fields[px->id][0].hold=true;
+        pts=SamplePositionPath(path.data,9,rest,2,4096);
+        Check(pts[4][0]==0&&pts[7][0]==0&&pts[8][0]==100,"a held segment stays put until just before the next key");
+        Check(SamplePositionPath(path.data,9,rest,50,5).size()==5,"a tight budget keeps the keys and the steps");
+        path.data.muted.insert(px->id);
+        pts=SamplePositionPath(path.data,9,rest,2,4096);
+        Check(pts.size()==1&&pts[0][0]==1&&pts[0][1]==50,"a muted channel sits at rest and adds no ticks");
+    }
     std::cout<<"Scene key catalog, sampling, transactions and serialization passed.\n";return 0;
 } catch(const std::exception&e){std::cerr<<e.what()<<'\n';return 1;}}

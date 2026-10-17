@@ -9,7 +9,11 @@
 // system and lets the UI/director layers stay decoupled (architecture rule:
 // Panorama displays state + sends commands; the camera system owns movement).
 
+#include <memory>
+
 namespace Filmmaker {
+
+struct SceneOverlay;
 
 // Free-cam (MirvInput camera control mode) on/off.
 bool  CameraBridge_GetFreeCamEnabled();
@@ -73,6 +77,9 @@ void CameraBridge_SetFollowCameraMarker(bool enabled,
                                         double x, double y, double z,
                                         double pitch, double yaw, double roll, double fov);
 
+// Draw/hide the camera path's playhead dot: where the path puts the camera at the playhead tick.
+void CameraBridge_SetPathHead(bool enabled, double x, double y, double z);
+
 // Draw/hide the in-world box around the entity the Follow inspector has selected. The box sits
 // on (x,y,z), rises "height" and is "halfWidth" wide either way.
 void CameraBridge_SetFollowTargetBox(bool enabled,
@@ -97,6 +104,10 @@ bool CameraBridge_GetCtrlDown();
 // drag it places the value at fine (unsnapped) ticks. Shift is already axis-lock/straighten in
 // that editor and Ctrl is the wheel zoom, so Alt is the free modifier.
 bool CameraBridge_GetAltDown();
+
+// The placed cameras and lights and their key paths, drawn in the world next to the camera path
+// (SceneOverlayData.h). Its own feature: it never touches the path's draw flag. Null clears it.
+void CameraBridge_SetSceneOverlay(std::shared_ptr<const SceneOverlay> overlay);
 
 // Style the in-world keyframe gizmos for the camera-marker system: paint them in
 // the global Freeze (blue) / Live (gold) colour with a glow, and draw the aimed-at

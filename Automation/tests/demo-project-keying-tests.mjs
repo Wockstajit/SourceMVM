@@ -40,3 +40,20 @@ test("every CS2 project section is keyed by the original demo, never a copy", ()
       `${file} must not key a project section by the raw playing file`);
   }
 });
+
+// The copy's .src beside it is what maps it back to its demo. CS2 opens a demo with
+// FILE_SHARE_DELETE, so deleting the copy it plays succeeds and takes the .src with it: the camera
+// path then took the demo for a new one and dropped every marker (2026-10-17). The keyframe builder
+// must leave the slot the engine plays alone, at the start of a build, at its end and in KeepOnly.
+test("the keyframe builder never deletes or overwrites the copy the engine is playing", () => {
+  const text = fs.readFileSync(path.join(filmmakerDirectory, "Demo", "DemoKeyframes.cpp"), "utf8");
+  assert.match(text, /if \(SamePath\(SlotPath\(demoPath, target, false\), PlayingFile\(\)\)\)/,
+    "a build whose target slot is being played does not start");
+  assert.match(text, /if \(!SamePath\(superseded, PlayingFile\(\)\)\) DeleteSlot\(superseded\);/,
+    "the superseded slot stays while it is played");
+  assert.match(text, /DemoKeyframes_KeepOnly\(demoPath, PlayingFile\(\)\);/,
+    "the build's tidy-up knows which file is playing");
+  assert.doesNotMatch(text, /DemoKeyframes_KeepOnly\(demoPath, std::wstring\(\)\)/);
+  assert.match(text, /if \(SamePath\(copy, playingFile\)\) continue;/,
+    "another demo's slot that is being played is not deleted either");
+});

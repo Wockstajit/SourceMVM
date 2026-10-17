@@ -23,6 +23,9 @@
 #include "../Config/EffectsPersistence.h"
 #include "../Debug/MvmDebugLog.h"
 #include "../Movie/CameraBridge.h"
+#include "../Movie/SceneRig.h"          // scene object rigs: attached and keyed object poses
+#include "../Movie/SceneRigMath.h"      // Rig::PoseChannel
+#include "../Movie/SceneRigTransient.h" // where the rig put each object this frame
 #include "../Cosmetics/CosmeticEntityAccess.h" // CosmeticEntFromIndex: pawn origins for the coating actors
 #include "../../ClientEntitySystem.h"      // GetHighestEntityIndex, CEntityInstance
 #include "../../SchemaSystem.h"          // g_clientDllOffsets: smoke detonation positions
@@ -181,7 +184,7 @@ bool ResolveImage(const std::string &name,std::shared_ptr<const MaterialImage> &
 }
 bool Resolve(Scene &s, std::string &error) {
     for (auto &o : s.objects)
-        if (!o.IsLight()) {
+        if (o.IsProp()) {
             if(!ResolveImage(o.material.albedoTexture,o.material.albedoImage,error)||
                !ResolveImage(o.material.normalTexture,o.material.normalImage,error)||
                !ResolveImage(o.material.roughnessTexture,o.material.roughnessImage,error))return false;
@@ -454,8 +457,10 @@ void Place(Object &o, float distance) {
         if (SurfaceRaycast(*world, eye, forward, distance, hit)) reach = (std::max)(8.f, hit.distance - 16.f);
     }
     o.position = eye + forward * reach;
-    if (o.IsLight())
+    if (!o.IsProp())
         o.angles = {float(view[0]), float(view[1]), 0.f};
+    if (o.IsCamera())
+        o.fov = std::clamp(float(fov), 1.f, 179.f);
 }
 float Number(const char *value) {
     char *end = nullptr;
@@ -480,15 +485,45 @@ void SetVector(Vec3 &v, const std::string &key, float n) {
     else
         throw std::runtime_error("Unknown vector field");
 }
-int NextId(const Scene &s) {
-    int id = 1;
+// Never reuses an id (Scene::nextObjectId): rigs key their per-demo data by object id.
+int NextId(Scene &s) {
+    int id = std::max(1, s.nextObjectId);
     for (auto &o : s.objects)
         id = std::max(id, o.id + 1);
+    s.nextObjectId = id + 1;
     return id;
+}
+// Scene object rigs: a rigged object renders, picks and shows its gizmo where its rig put it this
+// frame (SceneRigTransient.h), or not at all while its parent is missing and the policy hides it.
+void ApplyRig(Object &o, const RigTransient::State &rig) {
+    const auto e = rig.objects.find(o.id);
+    if (e == rig.objects.end()) return;
+    if (e->second.pose) {
+        if (!e->second.visible) { o.enabled = false; return; }
+        o.position = {float(e->second.pos[0]), float(e->second.pos[1]), float(e->second.pos[2])};
+        o.angles = {float(e->second.ang[0]), float(e->second.ang[1]), float(e->second.ang[2])};
+        if (o.IsCamera()) o.fov = float(e->second.fov);
+    }
+    // Keyed light settings (scene-object-rigs.md): brightness, range, beam angle, emitter size, panel.
+    float *light[6] = {&o.intensity, &o.range, &o.cone, &o.studio.sourceRadius, &o.studio.width, &o.studio.height};
+    if (o.IsLight())
+        for (int i = 0; i < 6; ++i)
+            if (e->second.lightMask & (1u << i)) *light[i] = float(e->second.light[i]);
+}
+bool g_rigDrag = false; // the open gizmo drag moves a rigged object (SceneRig owns its pose)
+std::string ObjectName(const Object &o) {
+    if (o.IsLight()) return o.kind == "spot" ? "Spot light" : o.kind == "area" ? "Area light" : "Point light";
+    if (o.IsCamera()) return "Camera";
+    if (o.kind == "obj") return std::filesystem::path(o.asset).stem().string();
+    std::string name = o.kind;
+    if (!name.empty()) name[0] = char(toupper(static_cast<unsigned char>(name[0])));
+    return name;
 }
 } // namespace
 // Overlay a copy: CONFIG, undo snapshots and autosaves retain authored values.
 static Scene AnimatedScene(Scene scene) {
+    const auto rig = RigTransient::Read();
+    for (auto &o : scene.objects) ApplyRig(o, *rig);
     const auto state = WorldTransient::Read();
     auto number = [&](const std::string& id, double base, size_t component = 0) {
         auto f = state->fields.find(id);
@@ -830,25 +865,20 @@ std::vector<PickBox> ScenePickBoxes() {
     std::lock_guard<std::mutex> lock(g_mutex);
     std::vector<PickBox> out;
     if (!g_scene.map.empty() && g_scene.map != CurrentMap()) return out;
-    for (const auto &o : g_scene.objects) {
+    const auto rig = RigTransient::Read();
+    for (Object o : g_scene.objects) {
+        ApplyRig(o, *rig);
         if (!o.enabled || o.locked) continue;
         PickBox box;
         box.id = o.id;
         box.center = o.position;
-        box.kind = o.IsLight() ? o.kind : "mesh";
+        box.kind = o.IsProp() ? "mesh" : o.kind;
         box.color = o.color;
         box.selected = o.id == g_selected;
-        if (o.IsLight()) {
-            box.name = o.kind == "spot" ? "Spot light" : o.kind == "area" ? "Area light" : "Point light";
-        } else if (o.kind == "obj") {
-            box.name = std::filesystem::path(o.asset).stem().string();
-        } else {
-            box.name = o.kind;
-            if (!box.name.empty()) box.name[0] = char(toupper(static_cast<unsigned char>(box.name[0])));
-        }
-        if (o.IsLight()) {
-            // The light's dot: drawn at a fixed screen size over the view (Props marks it), and
-            // a 24-unit box for the hover outline.
+        box.name = ObjectName(o);
+        if (!o.IsProp()) {
+            // The light's (or camera's) dot: drawn at a fixed screen size over the view (Props
+            // marks it), and a 24-unit box for the hover outline.
             box.light = true;
             const Vec3 h{12, 12, 12};
             for (int i = 0; i < 8; ++i)
@@ -924,9 +954,11 @@ void AppendStateJson(std::ostringstream &out) {
         << ",\"envEditRevision\":" << g_editRevision;
     out << ",\"envGizmo\":";
     auto selected = std::find_if(g_scene.objects.begin(), g_scene.objects.end(), [](const Object &o){return o.id==g_selected;});
-    if (!g_cameraValid || selected==g_scene.objects.end() || (!g_scene.map.empty() && g_scene.map!=CurrentMap())) out << "null";
+    Object shown;
+    if (selected!=g_scene.objects.end()) { shown=*selected; ApplyRig(shown,*RigTransient::Read()); }
+    if (!g_cameraValid || selected==g_scene.objects.end() || !shown.enabled || (!g_scene.map.empty() && g_scene.map!=CurrentMap())) out << "null";
     else {
-        const auto &o=*selected;
+        const auto &o=shown;
         auto point=[&](Vec3 p) {
             const auto q=GizmoProject(g_gizmoProjection,p);
             out << '[' << q.x << ',' << q.y << ',' << (q.visible?"true":"false") << ']';
@@ -935,7 +967,7 @@ void AppendStateJson(std::ostringstream &out) {
         float size=GizmoWorldSize(g_gizmoProjection,o.position);
         for(int i=0;i<3;++i){if(i)out<<',';point(o.position+GizmoAxis(i)*size);}
         out << "],\"bounds\":[";
-        const Matrix model=ModelMatrix(o.position,o.angles,o.IsLight()?Vec3{8,8,8}:o.scale);
+        const Matrix model=ModelMatrix(o.position,o.angles,o.IsProp()?o.scale:Vec3{8,8,8});
         for(int i=0;i<8;++i){if(i)out<<',';point(Transform(model,{i&1?1.f:-1.f,i&2?1.f:-1.f,i&4?1.f:-1.f}));}
         out << "]}";
     }
@@ -1009,6 +1041,59 @@ bool UndoLastEdit(std::string &error) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!UndoLastEditLocked(error)) return false;
     g_message = "Undid last scene edit.";
+    return true;
+}
+namespace {
+// The tail of every committed edit, under g_mutex: the validated scene becomes the live one, and
+// the map's autosave hears about it.
+void AdoptValidatedScene(Scene validated) {
+    g_scene = std::move(validated);
+    g_restoreAutosave = false;
+    ++g_sceneGeneration;
+    if (IsSceneMap(CurrentMap())) {
+        Scene committed = LiveScene(); committed.map = CurrentMap();
+        if (g_autosave.map != committed.map) { FlushAutosave(true); BindAutosave(committed.map); }
+        g_autosave.Observe(SerializeScene(committed), GetTickCount64());
+    }
+}
+} // namespace
+std::vector<ObjectSummary> ObjectSummaries() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    std::vector<ObjectSummary> out;
+    if (g_restoreAutosave || (!g_scene.map.empty() && g_scene.map != CurrentMap())) return out;
+    out.reserve(g_scene.objects.size());
+    for (const auto &o : g_scene.objects) {
+        ObjectSummary s;
+        s.id = o.id; s.kind = o.kind; s.name = ObjectName(o); s.group = o.group; s.enabled = o.enabled;
+        s.position = o.position; s.angles = o.angles; s.fov = o.fov;
+        s.color = o.color; s.cone = o.cone; s.width = o.studio.width; s.height = o.studio.height;
+        s.intensity = o.intensity; s.range = o.range; s.radius = o.studio.sourceRadius;
+        out.push_back(std::move(s));
+    }
+    return out;
+}
+int SelectedObject() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_selected;
+}
+bool SetObjectRestPose(int id, const Vec3 &position, const Vec3 &angles, float fov, std::string &error) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_drag.active) { error = "Finish the drag first"; return false; }
+    if (!g_scene.map.empty() && g_scene.map != CurrentMap()) { error = "Object belongs to another map"; return false; }
+    Scene next = LiveScene();
+    auto it = std::find_if(next.objects.begin(), next.objects.end(), [&](const Object &o) { return o.id == id; });
+    if (it == next.objects.end()) { error = "Object no longer exists"; return false; }
+    auto wrap = [](float a) { a = std::fmod(a, 360.f); return a > 180.f ? a - 360.f : a <= -180.f ? a + 360.f : a; };
+    it->position = position;
+    it->angles = {wrap(angles.x), wrap(angles.y), wrap(angles.z)};
+    if (it->IsCamera()) it->fov = std::clamp(fov, 1.f, 179.f);
+    Scene validated;
+    if (!ParseScene(SerializeScene(next), validated, error) || !Resolve(validated, error)) return false;
+    Remember();
+    AdoptValidatedScene(std::move(validated));
+    g_message = "Scene updated.";
+    MvmDebugLog_LinefAlways("environment.edit", "op=restpose id=%d pos=%.1f %.1f %.1f ang=%.1f %.1f %.1f",
+        id, position.x, position.y, position.z, angles.x, angles.y, angles.z);
     return true;
 }
 void RunCommand(advancedfx::ICommandArgs *args) {
@@ -1131,17 +1216,28 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 auto it=std::find_if(g_scene.objects.begin(),g_scene.objects.end(),[&](const Object &o){return o.id==g_editing;});
                 if(it==g_scene.objects.end() || axis<0)throw std::runtime_error("Invalid object or axis");
                 float u=Number(args->ArgV(5)),v=Number(args->ArgV(6)),aspect=Number(args->ArgV(7));
-                auto origin=GizmoProject(g_gizmoProjection,it->position);
-                auto tip=GizmoProject(g_gizmoProjection,it->position+GizmoAxis(axis)*GizmoWorldSize(g_gizmoProjection,it->position));
+                Object shown=*it;ApplyRig(shown,*RigTransient::Read());
+                if(!shown.enabled)throw std::runtime_error("Its parent is not in the demo at this tick");
+                auto origin=GizmoProject(g_gizmoProjection,shown.position);
+                auto tip=GizmoProject(g_gizmoProjection,shown.position+GizmoAxis(axis)*GizmoWorldSize(g_gizmoProjection,shown.position));
                 if(u<0||u>1||v<0||v>1||aspect<.1f||aspect>10 ||
                    GizmoSegmentDistance({u,v,true},origin,tip,aspect)>.025f ||
-                   !g_drag.Begin(g_editing,axis,it->position,g_camera,g_gizmoProjection,u,v))
+                   !g_drag.Begin(g_editing,axis,shown.position,g_camera,g_gizmoProjection,u,v))
                     throw std::runtime_error("This axis cannot be dragged from the current view");
                 g_dragBefore=LiveScene();++g_editRevision;
+                // An attached or keyed object's pose belongs to its rig: the drag keys it (or moves
+                // its attach offset) instead of moving the map's authored position.
+                g_rigDrag=SceneRig_Rigged(g_editing);
+                if(g_rigDrag)SceneRig_BeginGesture();
             } else if(action=="drag") {
                 required(6);
                 if(!g_drag.active) return;
                 if(!g_drag.Move(Number(args->ArgV(4)),Number(args->ArgV(5)))) return;
+                if(g_rigDrag){
+                    const double at[3]={g_drag.current.x,g_drag.current.y,g_drag.current.z};
+                    SceneRig_SetWorld(g_drag.objectId,at,nullptr);
+                    return;
+                }
                 Scene preview=g_scene;
                 auto it=std::find_if(preview.objects.begin(),preview.objects.end(),[&](const Object &o){return o.id==g_drag.objectId;});
                 if(it==preview.objects.end())throw std::runtime_error("Object no longer exists");
@@ -1151,7 +1247,11 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 g_scene=std::move(preview);
             } else if(action=="commit") {
                 required(4);
-                if(g_drag.active) {
+                if(g_drag.active && g_rigDrag) {
+                    SceneRig_EndGesture(true);g_rigDrag=false;
+                    MvmDebugLog_LinefAlways("environment.edit","rig position commit id=%d axis=%d",g_drag.objectId,g_drag.axisIndex);
+                    g_drag.Commit();++g_editRevision;
+                } else if(g_drag.active) {
                     auto moved=std::find_if(g_scene.objects.begin(),g_scene.objects.end(),[&](const Object &o){return o.id==g_drag.objectId;});
                     const Vec3 delta=moved==g_scene.objects.end()?Vec3{}:moved->position-g_drag.origin;
                     if(Dot(delta,delta)>.000001f) {
@@ -1162,7 +1262,8 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 }
             } else if(action=="cancel" || action=="stop") {
                 required(4);
-                if(g_drag.active) {g_scene=g_dragBefore;g_drag.Cancel();}
+                if(g_drag.active && g_rigDrag) {SceneRig_EndGesture(false);g_rigDrag=false;g_drag.Cancel();}
+                else if(g_drag.active) {g_scene=g_dragBefore;g_drag.Cancel();}
                 else if(action=="cancel")g_editing=0;
                 if(action=="stop")g_editing=0;
                 ++g_editRevision;
@@ -1170,7 +1271,10 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             return;
         }
         // An unrelated edit ends the transient gesture first, so it cannot invalidate its object.
-        if(g_drag.active && op!="status") {g_scene=g_dragBefore;g_drag.Cancel();++g_editRevision;}
+        if(g_drag.active && op!="status") {
+            if(g_rigDrag){SceneRig_EndGesture(false);g_rigDrag=false;}else g_scene=g_dragBefore;
+            g_drag.Cancel();++g_editRevision;
+        }
         if(op=="select"||op=="remove"||op=="add"||op=="load"||op=="reset"||op=="undo")g_editing=0;
         if (op == "mapinfo") {
             // Research surface for CS2's native weather globals on info_map_parameters.
@@ -1284,6 +1388,28 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             if (!UndoLastEditLocked(error)) throw std::runtime_error(error);
             g_message = "Undid last scene edit.";
             return;
+        }
+        if ((op == "object" && argc == 6) || (op == "place" && argc == 5)) {
+            const int id = Id(args->ArgV(3));
+            auto it = std::find_if(g_scene.objects.begin(), g_scene.objects.end(), [&](const Object &o) { return o.id == id; });
+            if (it != g_scene.objects.end() && SceneRig_Rigged(id)) {
+                if (op == "place") {
+                    Object placed = *it;
+                    Place(placed, Number(args->ArgV(4)));
+                    const double at[3] = {placed.position.x, placed.position.y, placed.position.z};
+                    const double turn[3] = {placed.angles.x, placed.angles.y, placed.angles.z};
+                    SceneRig_SetWorld(id, at, placed.IsProp() ? nullptr : turn);
+                    g_message = "Placed. The rig keeps this pose.";
+                    return;
+                }
+                const int channel = Rig::ChannelOfKey(arg(4));
+                if (channel >= 0 && channel < Rig::kPoseChannels && (channel != Rig::Fov || it->IsCamera())) {
+                    if (!SceneRig_SetLocal(id, channel, Number(args->ArgV(5))))
+                        throw std::runtime_error("The rig refused that value");
+                    g_message = "Scene updated.";
+                    return;
+                }
+            }
         }
         Scene next = LiveScene();
         std::string resetPage = "all";
@@ -1586,6 +1712,10 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 o.scale = {1, 1, 1};
                 if (o.kind == "area") o.cone = 150;
             }
+            if (o.IsCamera()) {
+                o.color = {1, .85f, .3f};
+                o.scale = {1, 1, 1};
+            }
             Place(o, 160.f);
             next.objects.push_back(o);
             next.map = CurrentMap();
@@ -1614,7 +1744,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             } else if (op == "place")
                 Place(*it, Number(args->ArgV(4)));
             else if(op=="texture"){
-                if(it->IsLight())throw std::runtime_error("Textures belong to solid props");
+                if(!it->IsProp())throw std::runtime_error("Textures belong to solid props");
                 std::string name=arg(5)=="-"?"":arg(5);auto channel=arg(4);
                 if(!name.empty()&&!ValidName(name))throw std::runtime_error("Invalid texture asset name");
                 if(channel=="albedo")it->material.albedoTexture=name;
@@ -1660,19 +1790,21 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                     it->intensity = n;
                 else if (key == "cone")
                     it->cone = n;
-                else if(!it->IsLight()&&key=="materialEnabled"&&(n==0||n==1))it->material.enabled=n!=0;
-                else if(!it->IsLight()&&key=="cameraVisible"&&(n==0||n==1))it->cameraVisible=n!=0;
+                else if (key == "fov" && it->IsCamera() && n >= 1 && n <= 179)
+                    it->fov = n;
+                else if(it->IsProp()&&key=="materialEnabled"&&(n==0||n==1))it->material.enabled=n!=0;
+                else if(it->IsProp()&&key=="cameraVisible"&&(n==0||n==1))it->cameraVisible=n!=0;
                 else if(key=="render"&&(n==0||n==1))it->render=n!=0;
                 else if(key=="locked"&&(n==0||n==1))it->locked=n!=0;
-                else if(!it->IsLight()&&key=="clipSpeed"&&n>=-4&&n<=4)it->clipSpeed=n;
-                else if(!it->IsLight()&&key=="roughness")it->material.roughness=n;
-                else if(!it->IsLight()&&key=="metallic")it->material.metallic=n;
-                else if(!it->IsLight()&&key=="coat")it->material.coat=n;
-                else if(!it->IsLight()&&key=="coatRoughness")it->material.coatRoughness=n;
-                else if(!it->IsLight()&&key=="anisotropy")it->material.anisotropy=n;
-                else if(!it->IsLight()&&key=="emission")it->material.emission=n;
-                else if(!it->IsLight()&&key=="normalStrength")it->material.normalStrength=n;
-                else if(!it->IsLight()&&key=="uvScale")it->material.uvScale=n;
+                else if(it->IsProp()&&key=="clipSpeed"&&n>=-4&&n<=4)it->clipSpeed=n;
+                else if(it->IsProp()&&key=="roughness")it->material.roughness=n;
+                else if(it->IsProp()&&key=="metallic")it->material.metallic=n;
+                else if(it->IsProp()&&key=="coat")it->material.coat=n;
+                else if(it->IsProp()&&key=="coatRoughness")it->material.coatRoughness=n;
+                else if(it->IsProp()&&key=="anisotropy")it->material.anisotropy=n;
+                else if(it->IsProp()&&key=="emission")it->material.emission=n;
+                else if(it->IsProp()&&key=="normalStrength")it->material.normalStrength=n;
+                else if(it->IsProp()&&key=="uvScale")it->material.uvScale=n;
                 else if (it->IsLight() && key == "width") it->studio.width=n;
                 else if (it->IsLight() && key == "height") it->studio.height=n;
                 else if (it->IsLight() && key == "sourceRadius") it->studio.sourceRadius=n;
@@ -1703,14 +1835,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             ApplyWorldLook(validated.world, op == "reset" ? resetPage : "all");
             FilmmakerSettings_AcceptCurrent();
         }
-        g_scene = std::move(validated);
-        g_restoreAutosave = false;
-        ++g_sceneGeneration;
-        if (IsSceneMap(CurrentMap())) {
-            Scene committed = LiveScene(); committed.map = CurrentMap();
-            if (g_autosave.map != committed.map) { FlushAutosave(true); BindAutosave(committed.map); }
-            g_autosave.Observe(SerializeScene(committed), GetTickCount64());
-        }
+        AdoptValidatedScene(std::move(validated));
         g_selected = nextSelected;
         if (op == "load") {
             g_savedName = arg(3);

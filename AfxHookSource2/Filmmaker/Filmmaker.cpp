@@ -51,6 +51,7 @@
 #include "Movie/CamPathShake.h"
 #include "Movie/CameraPath.h"
 #include "Movie/SceneKeys.h"
+#include "Movie/SceneRig.h"
 #include "Movie/FollowCamera.h"
 #include "Movie/ViewFx.h"
 #include "Movie/ViewFxVm.h"
@@ -1113,6 +1114,9 @@ void RunMainThreadFrame() {
 	// level init armed it.
 	EffectsPersistence_RunFrame();
 	SceneKeys_RunFrame();
+	// After the keys (their applied tick and the pose channels) and before the Environment reads
+	// where each rigged object is (scene-object-rigs.md).
+	SceneRig_RunMainThreadFrame();
 	Environment::RunMainThreadFrame();
 	Props_RunMainThreadFrame();
 	// Debounced persistence for reusable Config / Camera Editor preferences. Shot-specific
@@ -1140,7 +1144,7 @@ void Shutdown() {
 // --- Movie director input taps (forward to the MovieMode singleton) ---
 bool MovieInput_OnKey(int vkey, bool down) { return MovieModeRef().OnKey(vkey, down); }
 bool MovieInput_OnMouseButton(int button, bool down, int x, int y) { return MovieModeRef().OnMouseButton(button, down, x, y); }
-void MovieInput_RightButtonUp() { MovieModeRef().OnRightButtonUp(); }
+void MovieInput_ButtonUp(int button) { MovieModeRef().OnButtonUp(button); }
 bool MovieInput_OnUiClick(int x, int y) { return MovieModeRef().OnUiClick(x, y); }
 bool MovieInput_OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, int y) { return MovieModeRef().OnMouseWheel(delta, shiftDown, ctrlDown, x, y); }
 
@@ -1161,10 +1165,14 @@ bool MarkerMenu_WantsCursor() { return CameraPathRef().WantsCursor(); }
 // --- Camera timeline panel: cursor/suspend hook for main.cpp ---
 bool CameraTimeline_WantsCursor() {
 	auto& tl = CameraTimelineHudRef();
-	// The camera timeline / curve editor is always a UI surface, so it forces cursor
-	// ownership while open. When closed, the regular native-bar/G cursor toggle owns it.
-	return tl.Cursor();
+	// UI-mouse mode belongs to the workspaces (the Camera Editor, Config, the standalone camera
+	// timeline). Plain demo viewing has none (`camtl cursor` refuses it there). A flag left on after
+	// the editor closed suspended the fly cam and made WindowInputHooks skip every game click, so
+	// looking around was dead after joining a demo until Config was opened and closed (its exit
+	// clears the flag; 2026-10-17).
+	return tl.Cursor() && (tl.EditorHosted() || tl.CursorForced() || ConfigHud_Enabled());
 }
+bool CameraTimeline_DemoBarContains(int x, int y) { return CameraTimelineHudRef().BarContains(x, y); }
 bool CameraTimeline_Visible() { return CameraTimelineHudRef().Visible(); }
 
 // --- Live-match FX test menu: release the GAME mouse so the cursor drives the panel ---
@@ -1272,9 +1280,14 @@ bool GraphEditorExperiment_Drive() { return GraphEditorExperimentHudRef().Drive(
 bool GraphEditorExperiment_WantsCursor() {
 	if (!GraphEditorExperimentHudRef().Enabled())
 		return false;
-	// Standalone graph-editor mode owns the cursor. Inside Camera Editor Mode,
-	// G controls cursor ownership through the hosted timeline flag.
-	return !CameraEditorHudRef().Enabled() || CameraTimelineHudRef().Cursor();
+	// Standalone graph-editor mode owns the cursor. Docked in a workspace (the Camera Editor or
+	// CONFIG), the hosted timeline flag decides, as it does with the dock down: G, a click into the
+	// preview, and the ENVIRONMENT tab's right-hold look turn it off. Under CONFIG this used to
+	// return true whatever the flag said, which kept MirvInput suspended through the right-hold, so
+	// the fly cam never turned (mvm_debug, 2026-10-17: "camtl cursor off" then mirvActive=0).
+	if (TimelineDock_Host() != DockHost::None || CameraEditorHudRef().Enabled())
+		return CameraTimelineHudRef().Cursor();
+	return true;
 }
 
 // --- Fisheye lens (barrel-distortion D3D pass, decoupled from deleted ActionCam) ---

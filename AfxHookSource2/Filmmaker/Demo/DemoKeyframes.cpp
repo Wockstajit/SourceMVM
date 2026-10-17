@@ -28,6 +28,17 @@ std::string g_status;
 std::wstring g_activeDemo;
 std::thread g_worker;
 std::atomic<bool> g_busy{ false };
+// The file the engine is playing, as DemoKeyframes_RunFrame last saw it (under g_mx). CS2 opens a
+// demo with FILE_SHARE_DELETE, so deleting the copy it plays SUCCEEDS: the copy's .src went with
+// it, the playing file no longer resolved to its demo (ResolveDemoProjectPath), the camera path
+// took that for a new demo and dropped every marker, and KeepOnly then deleted the demo's fresh
+// keyframes as another demo's (mvm_debug 2026-10-17 08:19:34). No slot it plays is ever touched.
+std::wstring g_playingFile;
+
+std::wstring PlayingFile() {
+	std::lock_guard<std::mutex> lock(g_mx);
+	return g_playingFile;
+}
 
 bool FileExists(const std::wstring& p) {
 	const DWORD a = GetFileAttributesW(p.c_str());
@@ -278,6 +289,7 @@ void DemoKeyframes_KeepOnly(const std::wstring& demoPath, const std::wstring& pl
 		bool removed = false;
 		for (int slot = 0; slot < 2; ++slot) {
 			const std::wstring copy = dir + L"\\" + ProjectGeneratedFileName(kSlots[slot]);
+			if (SamePath(copy, playingFile)) continue;
 			if (FileExists(copy) || FileExists(MarkerPath(copy)) || FileExists(copy + L".part"))
 				removed = DeleteSlot(copy) || removed;
 		}
@@ -321,8 +333,15 @@ void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourc
 		g_status = "building scrub keyframes...";
 	}
 	const KeyframeWindows::Plan plan = KeyframeWindows::PlanFor(markerTicks);
-	// The slot that is not the ready one: the engine may be playing that one, and it holds it open.
+	// The slot that is not the ready one. The engine may still be playing it (the copy a rebuild
+	// superseded, until the demo is reopened): then there is no slot to write, and the next play
+	// builds instead. Overwriting it would pull the demo out from under the engine.
 	const int target = ready == 0 ? 1 : 0;
+	if (SamePath(SlotPath(demoPath, target, false), PlayingFile())) {
+		g_busy.store(false);
+		SetState(KeyframeState::Idle, "scrub keyframes: the copy being played is in use; reopen the demo to rebuild");
+		return;
+	}
 	g_worker = std::thread([exe, demoPath, sourcePath, plan, target, ready]() {
 		const std::wstring copy = SlotPath(demoPath, target, true);
 		if (copy.empty()) {
@@ -331,7 +350,7 @@ void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourc
 			return;
 		}
 		// One copy: the other demos' go before the helper writes another few hundred MB.
-		DemoKeyframes_KeepOnly(demoPath, std::wstring());
+		DemoKeyframes_KeepOnly(demoPath, PlayingFile());
 		if (!DeleteSlot(copy)) {
 			SetState(KeyframeState::Failed, "scrub keyframes: the previous copy is still open");
 			g_busy.store(false);
@@ -376,9 +395,13 @@ void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourc
 			return;
 		}
 		WriteMarker(demoPath, copy, exe, windows);
-		// The slot this one supersedes goes now if nothing has it open, else once the engine lets
-		// go of it (DemoKeyframes_KeepOnly from the next play).
-		if (ready >= 0) DeleteSlot(SlotPath(demoPath, ready, false));
+		// The slot this one supersedes goes now unless the engine is playing it; then it goes once
+		// the engine lets go of it (DemoKeyframes_KeepOnly from the next play). Its open handle does
+		// not stop the delete (see g_playingFile).
+		if (ready >= 0) {
+			const std::wstring superseded = SlotPath(demoPath, ready, false);
+			if (!SamePath(superseded, PlayingFile())) DeleteSlot(superseded);
+		}
 		char text[200];
 		snprintf(text, sizeof(text), "scrub keyframes ready (%.0f s, %.0f MB%s); used from the next play of this demo",
 			secs, (double)FileSize(copy) / 1e6, windows.empty() ? "" : ", dense around the camera markers");
@@ -401,6 +424,10 @@ bool DemoKeyframes_RunFrame(const std::wstring& demoPath, const std::wstring& pl
 	static std::vector<int> s_ticks;
 	static unsigned long long s_changedAtMs = 0;
 	const unsigned long long now = GetTickCount64();
+	{
+		std::lock_guard<std::mutex> lock(g_mx);
+		if (g_playingFile != playingFile) g_playingFile = playingFile;
+	}
 
 	if (!SamePath(demoPath, s_demo) || !SamePath(playingFile, s_playing)) {
 		// A new demo, or the same demo on its other slot: the open-time build already covered the

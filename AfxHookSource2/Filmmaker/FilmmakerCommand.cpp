@@ -26,6 +26,7 @@
 #include "Movie/CamPathShake.h"
 #include "Movie/CameraPath.h"
 #include "Movie/SceneKeys.h"
+#include "Movie/SceneRig.h"
 #include "Props/Props.h"
 #include "Movie/FollowCamera.h"
 #include "Movie/ViewFx.h"
@@ -443,6 +444,9 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 		Filmmaker::GraphEditor_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "scenekeys")) {
 		Filmmaker::SceneKeys_RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "rig")) {
+		// Scene object rigs: attach placed lights / meshes / cameras, key their pose, look through.
+		Filmmaker::SceneRig_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "props")) {
 		Filmmaker::Props_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "dock")) {

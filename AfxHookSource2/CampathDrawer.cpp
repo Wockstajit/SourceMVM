@@ -5,6 +5,7 @@
 #include "RenderSystemDX11Hooks.h" // AfxStreams_IsRcording (capture suppression, see below)
 
 #include "hlaeFolder.h"
+#include "Filmmaker/Debug/MvmDebugLog.h" // campath.overlay: what the scene overlay drew
 
 #include "../Shared/MirvCampath.h"
 
@@ -27,18 +28,15 @@ const FLOAT c_CampathCrossPixelWidth = 4.0f;
 
 const FLOAT c_CameraRadius = c_CampathCrossRadius / 2.0f;
 const FLOAT c_CameraPixelWidth = 4.0f;
+const FLOAT c_SceneOverlayPathPixelWidth = 4.0f; // a keyed scene object's path (thinner than the camera path)
+const double c_SceneOverlayLightRadius = 10.0;   // a light's bulb, at the markers' reference distance
 
 const FLOAT c_CameraTrajectoryPixelWidth = 8.0f;
+const FLOAT c_MarkerTrajectoryPixelWidth = 5.0f; // the K camera path's line under its solid markers
+const FLOAT c_MarkerEdgePixelWidth = 2.5f;       // a solid marker's crisp edge, over a dark underline
 
-// Constant-screen-size markers: the camera gizmo + axis cross are scaled by their
-// distance from the viewer so they keep a consistent on-screen size near or far. A
-// world-space gizmo drawn with fixed-pixel lines turns into a fat blob when you fly
-// away (the shape shrinks but the lines don't); this keeps the proportion fixed.
-const double c_MarkerScreenRefDist = 300.0; // distance (units) at which scale == 1.0
-const double c_MarkerScreenMinScale = 0.5;  // clamp so very near markers aren't huge
-// Cap the FAR growth tightly: past ~660 units the gizmo holds a fixed world size and so
-// SHRINKS with distance like everything else, instead of ballooning into a glow blob.
-const double c_MarkerScreenMaxScale = 2.2;
+// Constant-screen-size markers: each is scaled by its distance from the viewer
+// (Filmmaker::Marker::ScreenScale, SceneMarkerMath.h) so it keeps a consistent size on screen.
 
 /// <summary>Epsilon for point reduction in world units (inch).</summary>
 /// <remarks>Must be at least 0.0.</remarks>
@@ -76,6 +74,7 @@ void CCampathDrawer::AutoPolyLineStart()
 
 void CCampathDrawer::AutoPolyLinePoint(Vector3 previous, Vector3 current, DWORD colorCurrent, Vector3 next)
 {
+	if(m_SolidBatch) AutoSolidFlush();
 	// make sure we have enough space:
 	if(c_VertexBufferVertexCount < m_VertexBufferVertexCount+2)
 		AutoPolyLineFlush();
@@ -129,6 +128,7 @@ void CCampathDrawer::AutoPolyLineFlush()
 
 void CCampathDrawer::AutoSingleLine(Vector3 from, DWORD colorFrom, Vector3 to, DWORD colorTo)
 {
+	if(m_SolidBatch) AutoSolidFlush();
 	// make sure we have space for another line:
 	if(c_VertexBufferVertexCount < m_VertexBufferVertexCount+4)
 		AutoSingleLineFlush();
@@ -148,6 +148,7 @@ void CCampathDrawer::AutoSingleLine(Vector3 from, DWORD colorFrom, Vector3 to, D
 
 void CCampathDrawer::AutoSingleLineFlush()
 {
+	if(m_SolidBatch) { AutoSolidFlush(); return; }
 	if(!m_LockedVertexBuffer)
 		return;
 
@@ -383,6 +384,8 @@ void CCampathDrawer::BeginDevice(ID3D11Device * device)
 		};
 
 		m_Device->CreateRasterizerState(&rasterizerDesc, &m_RasterizerStateLines);
+		rasterizerDesc.CullMode = D3D11_CULL_NONE; // the solid markers: their faces are picked on the CPU
+		m_Device->CreateRasterizerState(&rasterizerDesc, &m_RasterizerStateSolid);
 	}
 	{
 		D3D11_BLEND_DESC blendDesc {
@@ -597,6 +600,10 @@ void CCampathDrawer::EndDevice()
 		m_RasterizerStateLines->Release();
 		m_RasterizerStateLines = nullptr;
 	}
+	if(m_RasterizerStateSolid) {
+		m_RasterizerStateSolid->Release();
+		m_RasterizerStateSolid = nullptr;
+	}
 	if(m_BlendState) {
 		m_BlendState->Release();
 		m_BlendState = nullptr;
@@ -771,7 +778,11 @@ CCampathDrawer::CDynamicProperties::CDynamicProperties(CCampathDrawer * drawer) 
 	m_FollowCameraMarker = drawer->m_FollowCameraMarker;
 	m_FollowCameraValue = drawer->m_FollowCameraValue;
 	m_FollowTargetBox = drawer->m_FollowTargetBox;
+	m_PathHead = drawer->m_PathHead;
+	for (int i = 0; i < 3; ++i) m_PathHeadPos[i] = drawer->m_PathHeadPos[i];
 	for (int i = 0; i < kPivotMarkerSlots; ++i) m_PivotMarker[i] = drawer->m_PivotMarker[i];
+	m_DrawCampath = drawer->m_Draw;
+	m_SceneOverlay = drawer->SceneOverlay_get();
 
 	// The pivot marker can pull this snapshot into existence on its own (see the gate in
 	// OnEngineThread_SetupViewDone). When it does, `mirv_campath draw` is off and the operator
@@ -782,11 +793,15 @@ CCampathDrawer::CDynamicProperties::CDynamicProperties(CCampathDrawer * drawer) 
 		m_MarkerStyle = false;
 		m_MarkerHighlight = -1;
 		m_FollowCameraMarker = false;
+		m_PathHead = false;
 		// NOT m_FollowTargetBox: like the pivot marker it is its own feature with its own enable
 		// (a Follow-inspector selection), and it is one of the things that can pull this snapshot
 		// into existence. Clearing it here is what kept the editor helper invisible.
 		m_DrawKeyframeAxis = false;
 		m_DrawKeyframeCam = false;
+		// Nor the path's line and key numbers: they used to ride along whenever a separate feature
+		// pulled the frame in, so the camera path showed while the Follow Camera owned the view.
+		m_DrawKeyFrameIndex = 0;
 	}
 
 	if(g_CamPath.CanEval() && 2 <= g_CamPath.GetSize()) {
@@ -878,7 +893,7 @@ void CCampathDrawer::OnEngineThread_SetupViewDone() {
 	// behind `mirv_campath draw` -- a developer toggle that is OFF by default -- meant the helper
 	// could never appear for a normal user. That is why a positive control for it was never
 	// captured. SuppressForCapture below still keeps it out of every recorded frame.
-	if(!m_Draw && !AnyPivotMarker() && !m_FollowTargetBox.enabled)
+	if(!m_Draw && !AnyPivotMarker() && !m_FollowTargetBox.enabled && !SceneOverlay_get())
 		return;
 
 	// Never let the in-world gizmos into a captured frame. Suppressing at the PRODUCER (rather
@@ -1108,13 +1123,19 @@ void CCampathDrawer::OnPostRenderAllTools_DrawingThread(CDynamicProperties * dyn
 		bool markerStyle = dynamicPorperties->GetMarkerStyle();
 		bool markerFreeze = dynamicPorperties->GetMarkerFreeze();
 		int markerHighlight = dynamicPorperties->GetMarkerHighlight();
-		const DWORD markerCore = markerFreeze ? D3DCOLOR_RGBA(60, 150, 255, 255) : D3DCOLOR_RGBA(255, 205, 40, 255);
-		const DWORD markerHalo = markerFreeze ? D3DCOLOR_RGBA(60, 150, 255, 80) : D3DCOLOR_RGBA(255, 205, 40, 70);
-		const DWORD markerTraj = markerFreeze ? D3DCOLOR_RGBA(80, 160, 255, 150) : D3DCOLOR_RGBA(255, 200, 40, 150);
-		const DWORD markerHiCore = D3DCOLOR_RGBA(255, 255, 255, 255);
-		const DWORD markerHiHalo = D3DCOLOR_RGBA(255, 255, 255, 120);
+		const Filmmaker::Marker::Rgb markerRgb = markerFreeze ? Filmmaker::Marker::kCampathFreeze : Filmmaker::Marker::kCampathLive;
 		const bool followMarker = dynamicPorperties->GetFollowCameraMarker();
 		const CamPathValue followCpv = dynamicPorperties->GetFollowCameraValue();
+		// The view the solid markers are turned to and shaded for (SceneMarkerMath.h).
+		MarkerView markerView;
+		markerView.eye = Filmmaker::Marker::Vec{ planeOrigin.X, planeOrigin.Y, planeOrigin.Z };
+		markerView.forward = Filmmaker::Marker::Unit(Filmmaker::Marker::Vec{ planeNormal.X, planeNormal.Y, planeNormal.Z });
+		Filmmaker::Marker::ViewBasis(markerView.forward, markerView.right, markerView.up);
+		markerView.light = Filmmaker::Marker::KeyLight(markerView.forward, markerView.right, markerView.up);
+		auto markerScale = [&](double x, double y, double z) {
+			const Filmmaker::Marker::Vec d = Filmmaker::Marker::Vec{ x, y, z } - markerView.eye;
+			return Filmmaker::Marker::ScreenScale(sqrt(Filmmaker::Marker::Dot(d, d)));
+		};
 
 		// Draw keyframes index:
 		float drawKeyFrameIndex = dynamicPorperties->GetDrawKeyframeIndex();
@@ -1214,9 +1235,10 @@ void CCampathDrawer::OnPostRenderAllTools_DrawingThread(CDynamicProperties * dyn
 		m_DeviceContext->PSSetShader(m_PixelShader, NULL, 0);
 
 		// Draw trajectory:
-		if(2 <= lessDynamicProperties->GetKeyframesSize() && lessDynamicProperties->GetCampathCanEval())
+		if(dynamicPorperties->GetDrawCampath() && 2 <= lessDynamicProperties->GetKeyframesSize() && lessDynamicProperties->GetCampathCanEval())
 		{
 			this->SetLineWidth(c_CameraTrajectoryPixelWidth);
+			std::vector<Vector3> markerTrajectory; // markerStyle: the Freeze / Live line, drawn whole after the loop
 
 			AutoPolyLineStart();
 
@@ -1285,18 +1307,16 @@ void CCampathDrawer::OnPostRenderAllTools_DrawingThread(CDynamicProperties * dyn
 					lastPtValue = curPtValue;
 				}
 
-				// emit current point:
+				// emit current point (the marker style draws the whole line after the loop):
+				if(markerStyle)
+					markerTrajectory.push_back(Vector3(curPtValue.X, curPtValue.Y, curPtValue.Z));
+				else
 				{
 					double deltaTime = abs(curTime -curPtTime);
 
 					DWORD colour;
 
 					// determine colour:
-					if(markerStyle)
-					{
-						colour = markerTraj; // uniform Freeze/Live path colour
-					}
-					else
 					if(deltaTime < 1.0)
 					{
 						double t = (deltaTime -0.0)/1.0;
@@ -1338,56 +1358,41 @@ void CCampathDrawer::OnPostRenderAllTools_DrawingThread(CDynamicProperties * dyn
 			while(hasNextPt);
 
 			AutoPolyLineFlush();
+			if(markerStyle)
+				DrawPathMarker(markerView, markerTrajectory, std::vector<Vector3>(), markerRgb, 210, c_MarkerTrajectoryPixelWidth, false);
 		}
 
 		// Draw keyframes:
 		{
-			// Camera-marker glow: several ADDITIVE passes (wide+dim halo down to a
-			// bright core), coloured by Freeze/Live with the aimed-at marker white.
+			// The keys' cameras: solid markers in the global Freeze (blue) / Live (gold) colour, the
+			// aimed-at one lit white (SceneMarkerMath.h).
 			if (markerStyle)
 			{
 				bool axis = dynamicPorperties->GetDrawKeyframeAxis();
 				bool cam = dynamicPorperties->GetDrawKeyframeCam();
 				int sw = dynamicPorperties->GetScreenWidth();
 				int sh = dynamicPorperties->GetScreenHeight();
-				// REAL glow: stacked ADDITIVE passes, wide+dim -> narrow+bright. Light
-					// accumulates so the centre blooms while the edges fall off softly.
-					m_DeviceContext->OMSetBlendState(m_BlendStateAdditive ? m_BlendStateAdditive : m_BlendState, NULL, 0xffffffff);
-					struct GlowPass { float widthMul; unsigned char alpha; };
-					// Narrower widest passes so the halo doesn't bloom into a fat blob.
-					static const GlowPass kGlow[] = { {4.5f,20},{3.0f,30},{2.0f,48},{1.4f,90},{1.0f,255} };
-					for (int pass = 0; pass < (int)(sizeof(kGlow)/sizeof(kGlow[0])); ++pass)
+				int kf = 0;
+				for (auto it = lessDynamicProperties->GetKeyframesBegin(); it != lessDynamicProperties->GetKeyframesEnd(); ++it, ++kf)
 				{
-					this->SetLineWidth(c_CampathCrossPixelWidth * kGlow[pass].widthMul);
-					int kf = 0;
-					for (auto it = lessDynamicProperties->GetKeyframesBegin(); it != lessDynamicProperties->GetKeyframesEnd(); ++it, ++kf)
+					CamPathValue cpv = it->GetValue();
+					const bool hi = (kf == markerHighlight);
+					const double gscale = markerScale(cpv.X, cpv.Y, cpv.Z);
+					if (axis)
 					{
-						CamPathValue cpv = it->GetValue();
-						bool hi = (kf == markerHighlight);
-						DWORD colour = D3DCOLOR_RGBA(
-							hi ? 255 : (markerFreeze ? 60 : 255),
-							hi ? 255 : (markerFreeze ? 150 : 205),
-							hi ? 255 : (markerFreeze ? 255 : 40),
-							kGlow[pass].alpha);
-						// Constant ON-SCREEN size: scale the gizmo by its distance from the
-						// viewer so far markers stay readable instead of swelling into a blob.
-						double dgx = cpv.X - planeOrigin.X, dgy = cpv.Y - planeOrigin.Y, dgz = cpv.Z - planeOrigin.Z;
-						double gscale = sqrt(dgx * dgx + dgy * dgy + dgz * dgz) / c_MarkerScreenRefDist;
-						if (gscale < c_MarkerScreenMinScale) gscale = c_MarkerScreenMinScale;
-						else if (gscale > c_MarkerScreenMaxScale) gscale = c_MarkerScreenMaxScale;
-						double gcross = c_CampathCrossRadius * gscale;
-						if (axis)
-						{
-							AutoSingleLine(Vector3(cpv.X - gcross, cpv.Y, cpv.Z), colour, Vector3(cpv.X + gcross, cpv.Y, cpv.Z), colour);
-							AutoSingleLine(Vector3(cpv.X, cpv.Y - gcross, cpv.Z), colour, Vector3(cpv.X, cpv.Y + gcross, cpv.Z), colour);
-							AutoSingleLine(Vector3(cpv.X, cpv.Y, cpv.Z - gcross), colour, Vector3(cpv.X, cpv.Y, cpv.Z + gcross), colour);
-						}
-						if (cam) DrawCamera(cpv, colour, sw, sh, gscale);
+						const double gcross = c_CampathCrossRadius * gscale;
+						const std::vector<MarkerEdge> cross = {
+							{ Vector3(cpv.X - gcross, cpv.Y, cpv.Z), Vector3(cpv.X + gcross, cpv.Y, cpv.Z) },
+							{ Vector3(cpv.X, cpv.Y - gcross, cpv.Z), Vector3(cpv.X, cpv.Y + gcross, cpv.Z) },
+							{ Vector3(cpv.X, cpv.Y, cpv.Z - gcross), Vector3(cpv.X, cpv.Y, cpv.Z + gcross) },
+						};
+						const Filmmaker::Marker::Rgb c = hi ? Filmmaker::Marker::kSelected : markerRgb;
+						DrawMarkerEdges(cross, D3DCOLOR_RGBA(c.r, c.g, c.b, 255), c_MarkerEdgePixelWidth * 0.8f);
 					}
-					AutoSingleLineFlush();
+					if (cam) DrawCameraMarker(markerView, cpv, markerRgb, hi, sw, sh, gscale);
 				}
 			}
-			else
+			else if (dynamicPorperties->GetDrawCampath())
 			{
 			this->SetLineWidth(c_CampathCrossPixelWidth);
 
@@ -1482,36 +1487,32 @@ void CCampathDrawer::OnPostRenderAllTools_DrawingThread(CDynamicProperties * dyn
 		// Restore the standard alpha blend after the marker glow (which used additive).
 		m_DeviceContext->OMSetBlendState(m_BlendState, NULL, 0xffffffff);
 
-		if (followMarker)
+		// The camera path's playhead: where the path puts the camera at this tick, a dot on its
+		// line in its Live / Freeze colour with a white centre.
+		if (markerStyle && dynamicPorperties->GetPathHead())
 		{
-			const DWORD followCore = D3DCOLOR_RGBA(190, 80, 255, 255);
-			struct FollowGlowPass { float widthMul; unsigned char alpha; };
-			static const FollowGlowPass kFollowGlow[] = { {4.8f, 24}, {3.2f, 42}, {2.0f, 74}, {1.2f, 150}, {1.0f, 255} };
-			double dgx = followCpv.X - planeOrigin.X, dgy = followCpv.Y - planeOrigin.Y, dgz = followCpv.Z - planeOrigin.Z;
-			double gscale = sqrt(dgx * dgx + dgy * dgy + dgz * dgz) / c_MarkerScreenRefDist;
-			if (gscale < c_MarkerScreenMinScale) gscale = c_MarkerScreenMinScale;
-			else if (gscale > c_MarkerScreenMaxScale) gscale = c_MarkerScreenMaxScale;
-			double gcross = c_CampathCrossRadius * gscale;
-
-			m_DeviceContext->OMSetBlendState(m_BlendStateAdditive ? m_BlendStateAdditive : m_BlendState, NULL, 0xffffffff);
-			for (int pass = 0; pass < (int)(sizeof(kFollowGlow) / sizeof(kFollowGlow[0])); ++pass)
+			const double* h = dynamicPorperties->GetPathHeadPos();
+			const Filmmaker::Marker::Vec at{ h[0], h[1], h[2] };
+			const double s = markerScale(h[0], h[1], h[2]);
+			if (Filmmaker::Marker::Dot(at - markerView.eye, markerView.forward) > 8.0 * s + 2.0)
 			{
-				DWORD colour = D3DCOLOR_RGBA(190, 80, 255, kFollowGlow[pass].alpha);
-				this->SetLineWidth(c_CampathCrossPixelWidth * kFollowGlow[pass].widthMul);
-				AutoSingleLine(Vector3(followCpv.X - gcross, followCpv.Y, followCpv.Z), colour, Vector3(followCpv.X + gcross, followCpv.Y, followCpv.Z), colour);
-				AutoSingleLine(Vector3(followCpv.X, followCpv.Y - gcross, followCpv.Z), colour, Vector3(followCpv.X, followCpv.Y + gcross, followCpv.Z), colour);
-				AutoSingleLine(Vector3(followCpv.X, followCpv.Y, followCpv.Z - gcross), colour, Vector3(followCpv.X, followCpv.Y, followCpv.Z + gcross), colour);
-				DrawCamera(followCpv, colour, dynamicPorperties->GetScreenWidth(), dynamicPorperties->GetScreenHeight(), gscale);
-				AutoSingleLineFlush();
+				m_DeviceContext->OMSetDepthStencilState(m_DepthStencilStateNoDepth ? m_DepthStencilStateNoDepth : m_DepthStencilStateLines, 0);
+				DrawMarkerDisc(markerView, at, 7.5 * s, D3DCOLOR_RGBA(0, 0, 0, 200), D3DCOLOR_RGBA(0, 0, 0, 200));
+				DrawMarkerDisc(markerView, at, 6.0 * s, D3DCOLOR_RGBA(markerRgb.r, markerRgb.g, markerRgb.b, 255), D3DCOLOR_RGBA(markerRgb.r, markerRgb.g, markerRgb.b, 255));
+				DrawMarkerDisc(markerView, at, 3.0 * s, D3DCOLOR_RGBA(255, 255, 255, 255), D3DCOLOR_RGBA(255, 255, 255, 255));
+				AutoSolidFlush();
+				m_DeviceContext->OMSetDepthStencilState(m_DepthStencilStateLines, 0);
 			}
-			m_DeviceContext->OMSetBlendState(m_BlendState, NULL, 0xffffffff);
-			this->SetLineWidth(c_CameraPixelWidth);
-			DrawCamera(followCpv, followCore, dynamicPorperties->GetScreenWidth(), dynamicPorperties->GetScreenHeight(), gscale);
-			AutoSingleLineFlush();
 		}
 
-		// Follow-target highlight: a wireframe box around whatever the Follow inspector currently
-		// has selected. Drawn in cyan so it never reads as a camera marker (gold/blue/purple).
+		if (followMarker)
+			DrawCameraMarker(markerView, followCpv, Filmmaker::Marker::kFollowCamera, false,
+				dynamicPorperties->GetScreenWidth(), dynamicPorperties->GetScreenHeight(),
+				markerScale(followCpv.X, followCpv.Y, followCpv.Z));
+
+		// Follow-target highlight: a glass box around whatever the Follow inspector currently has
+		// selected -- its near faces faintly filled, its edges crisp. Cyan, so it never reads as a
+		// camera marker (gold / blue / purple / teal).
 		const FollowTargetBox targetBox = dynamicPorperties->GetFollowTargetBox();
 		if (targetBox.enabled && targetBox.half > 0.0f && targetBox.height > 0.0f)
 		{
@@ -1529,18 +1530,18 @@ void CCampathDrawer::OnPostRenderAllTools_DrawingThread(CDynamicProperties * dyn
 				{4,5},{5,6},{6,7},{7,4},  // top face
 				{0,4},{1,5},{2,6},{3,7},  // uprights
 			};
-			struct BoxGlowPass { float widthMul; unsigned char alpha; };
-			static const BoxGlowPass kBoxGlow[] = { {3.4f, 30}, {2.0f, 60}, {1.0f, 220} };
-			m_DeviceContext->OMSetBlendState(m_BlendStateAdditive ? m_BlendStateAdditive : m_BlendState, NULL, 0xffffffff);
-			for (int pass = 0; pass < (int)(sizeof(kBoxGlow) / sizeof(kBoxGlow[0])); ++pass)
+			const Filmmaker::Marker::Rgb cyan = Filmmaker::Marker::kFollowTarget;
+			const Filmmaker::Marker::Vec boxCentre{ bx, by, bz + targetBox.height * 0.5 };
+			const double boxHalf[3] = { bh, bh, targetBox.height * 0.5 };
+			const Filmmaker::Marker::Vec boxAxes[3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+			if (Filmmaker::Marker::Dot(boxCentre - markerView.eye, markerView.forward) > bh + targetBox.height + 2.0)
 			{
-				const DWORD colour = D3DCOLOR_RGBA(80, 230, 255, kBoxGlow[pass].alpha);
-				this->SetLineWidth(c_CampathCrossPixelWidth * kBoxGlow[pass].widthMul);
-				for (int edge = 0; edge < 12; ++edge)
-					AutoSingleLine(corners[kBoxEdges[edge][0]], colour, corners[kBoxEdges[edge][1]], colour);
-				AutoSingleLineFlush();
+				DrawMarkerBox(markerView, boxCentre, boxAxes, boxHalf, cyan, nullptr, 30);
+				AutoSolidFlush();
 			}
-			m_DeviceContext->OMSetBlendState(m_BlendState, NULL, 0xffffffff);
+			std::vector<MarkerEdge> boxEdges;
+			for (int edge = 0; edge < 12; ++edge) boxEdges.push_back({ corners[kBoxEdges[edge][0]], corners[kBoxEdges[edge][1]] });
+			DrawMarkerEdges(boxEdges, D3DCOLOR_RGBA(cyan.r, cyan.g, cyan.b, 230), c_MarkerEdgePixelWidth * 0.8f);
 			this->SetLineWidth(c_CameraPixelWidth);
 		}
 
@@ -1600,6 +1601,59 @@ void CCampathDrawer::OnPostRenderAllTools_DrawingThread(CDynamicProperties * dyn
 			this->SetLineWidth(c_CameraPixelWidth);
 		}
 		} // slot
+
+		// Scene objects (SceneOverlayData.h): the paths keyed cameras and lights take, then each one
+		// where it is now as a solid marker in its kind's colour (SceneMarkerMath.h). Depth-tested
+		// like the camera path, and sized for the screen the same way as its markers.
+		if (const std::shared_ptr<const Filmmaker::SceneOverlay>& overlay = dynamicPorperties->GetSceneOverlay())
+		{
+			m_DeviceContext->OMSetDepthStencilState(m_DepthStencilStateLines, 0);
+			m_DeviceContext->OMSetBlendState(m_BlendState, NULL, 0xffffffff);
+			const int sw = dynamicPorperties->GetScreenWidth(), sh = dynamicPorperties->GetScreenHeight();
+			if (Filmmaker::MvmDebugLog_Active()) {
+				static ULONGLONG s_last = 0;
+				const ULONGLONG now = GetTickCount64();
+				if (now - s_last >= 1000) {
+					s_last = now;
+					Filmmaker::MvmDebugLog_Linef("campath.overlay", "draw paths=%d glyphs=%d screen=%dx%d eye=%.1f %.1f %.1f",
+						(int)overlay->paths.size(), (int)overlay->glyphs.size(), sw, sh,
+						(double)planeOrigin.X, (double)planeOrigin.Y, (double)planeOrigin.Z);
+				}
+			}
+			std::vector<Vector3> pathPoints, pathKeys;
+			for (const auto& path : overlay->paths)
+			{
+				pathPoints.clear();
+				pathKeys.clear();
+				for (const auto& p : path.points) pathPoints.push_back(Vector3(p[0], p[1], p[2]));
+				for (const auto& k : path.keys) pathKeys.push_back(Vector3(k[0], k[1], k[2]));
+				DrawPathMarker(markerView, pathPoints, pathKeys, Filmmaker::Marker::Rgb{ path.colour.r, path.colour.g, path.colour.b },
+					path.colour.a, c_SceneOverlayPathPixelWidth, path.selected);
+			}
+			// Far to near: the markers write no depth, so a near one has to be drawn over a far one.
+			std::vector<std::pair<double, const Filmmaker::SceneOverlay::Glyph*>> farToNear;
+			for (const auto& glyph : overlay->glyphs)
+			{
+				const Filmmaker::Marker::Vec d = Filmmaker::Marker::Vec{ glyph.pos[0], glyph.pos[1], glyph.pos[2] } - markerView.eye;
+				farToNear.push_back({ Filmmaker::Marker::Dot(d, d), &glyph });
+			}
+			std::sort(farToNear.begin(), farToNear.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+			for (const auto& entry : farToNear)
+			{
+				const Filmmaker::SceneOverlay::Glyph& glyph = *entry.second;
+				const double gscale = Filmmaker::Marker::ScreenScale(sqrt(entry.first));
+				if (glyph.kind == Filmmaker::SceneOverlay::GlyphKind::Camera)
+				{
+					const CamPathValue pose(glyph.pos[0], glyph.pos[1], glyph.pos[2], glyph.ang[0], glyph.ang[1], glyph.ang[2], glyph.fov);
+					DrawCameraMarker(markerView, pose, Filmmaker::Marker::Rgb{ glyph.colour.r, glyph.colour.g, glyph.colour.b },
+						glyph.selected, sw, sh, gscale);
+				}
+				else
+					DrawLightMarker(markerView, glyph, gscale);
+			}
+			m_DeviceContext->OMSetBlendState(m_BlendState, NULL, 0xffffffff);
+			this->SetLineWidth(c_CameraPixelWidth);
+		}
 
 		// Draw wireframe camera:
 		// NOTE: this "current position" gizmo samples g_CamPath at the engine clock
@@ -1691,6 +1745,377 @@ void CCampathDrawer::DrawCamera(const CamPathValue & cpv, DWORD colour, int scre
 	AutoSingleLine(vLU, colour, vMUU, colour);
 
 	AutoSingleLine(vRU, colour, vMUU, colour);
+}
+
+// The in-world markers (SceneMarkerMath.h) ///////////////////////////////////
+
+namespace {
+using Filmmaker::Marker::Rgb;
+using Filmmaker::Marker::Vec;
+Vector3 ToVector3(Vec v) { return Vector3(v.x, v.y, v.z); }
+Vec VecOf(const double v[3]) { return Vec{ v[0], v[1], v[2] }; }
+DWORD Rgba(Rgb c, unsigned alpha) { return D3DCOLOR_RGBA(c.r, c.g, c.b, alpha); }
+// The dark line under every marker edge, so an edge reads on a sunlit wall as well as in shade.
+const DWORD c_MarkerUnderline = D3DCOLOR_RGBA(0, 0, 0, 150);
+// A solid is drawn only while it is wholly in front of the viewer: a vertex behind the eye has no
+// place on screen, and the line shader clips only lines. Its edges still draw.
+bool WhollyInFront(Vec eye, Vec forward, Vec centre, double radius) {
+	return Filmmaker::Marker::Dot(centre - eye, forward) > radius + 2.0;
+}
+}
+
+void CCampathDrawer::AutoSolidTri(Vector3 a, DWORD colourA, Vector3 b, DWORD colourB, Vector3 c, DWORD colourC)
+{
+	if (!m_SolidBatch && m_VertexBufferVertexCount) AutoSingleLineFlush();
+	if (c_VertexBufferVertexCount < m_VertexBufferVertexCount + 3) AutoSolidFlush();
+	if (!m_LockedVertexBuffer && !LockVertexBuffer()) return;
+	m_SolidBatch = true;
+
+	Vertex * v = &(m_LockedVertexBuffer[m_VertexBufferVertexCount]);
+	const Vector3 * at[3] = { &a, &b, &c };
+	const DWORD colour[3] = { colourA, colourB, colourC };
+	for (int i = 0; i < 3; ++i)
+	{
+		// No extrusion: the line shader puts the vertex on its own point.
+		v[i] = Vertex{};
+		v[i].x = (float)at[i]->X;
+		v[i].y = (float)at[i]->Y;
+		v[i].z = (float)at[i]->Z;
+		v[i].diffuse = colour[i];
+	}
+	m_VertexBufferVertexCount += 3;
+}
+
+void CCampathDrawer::AutoSolidFlush()
+{
+	if (!m_SolidBatch) { AutoSingleLineFlush(); return; }
+	m_SolidBatch = false;
+	if (!m_LockedVertexBuffer) { m_VertexBufferVertexCount = 0; return; }
+
+	UnlockVertexBuffer();
+
+	UINT stride = sizeof(Vertex);
+	UINT offset = 0;
+	m_DeviceContext->IASetVertexBuffers(0, 1, &m_VertexBuffer, &stride, &offset);
+	m_DeviceContext->RSSetState(m_RasterizerStateSolid ? m_RasterizerStateSolid : m_RasterizerStateLines);
+	m_DeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	m_DeviceContext->Draw(m_VertexBufferVertexCount, 0);
+	m_DeviceContext->RSSetState(m_RasterizerStateLines);
+
+	m_VertexBufferVertexCount = 0;
+}
+
+void CCampathDrawer::DrawMarkerEdges(const std::vector<MarkerEdge> & edges, DWORD colour, float pixelWidth)
+{
+	AutoSingleLineFlush();
+	if (edges.empty()) return;
+	// Every underline first, then every colour: an edge's underline must not cut the one before it.
+	SetLineWidth(pixelWidth * 2.2f);
+	for (const MarkerEdge & e : edges) AutoSingleLine(e.from, c_MarkerUnderline, e.to, c_MarkerUnderline);
+	AutoSingleLineFlush();
+	SetLineWidth(pixelWidth);
+	for (const MarkerEdge & e : edges) AutoSingleLine(e.from, colour, e.to, colour);
+	AutoSingleLineFlush();
+}
+
+void CCampathDrawer::DrawMarkerBox(const MarkerView & view, Vec centre, const Vec axes[3], const double half[3],
+	Rgb rgb, const Rgb * frontFace, unsigned char alpha)
+{
+	using namespace Filmmaker::Marker;
+	// Its near faces, each shaded by its facing; the +axes[0] face can be lit (a lens or a panel).
+	for (int i = 0; i < 3; ++i)
+	{
+		const int j = (i + 1) % 3, k = (i + 2) % 3;
+		for (int side = -1; side <= 1; side += 2)
+		{
+			const Vec n = double(side) * axes[i];
+			const Vec c = centre + (side * half[i]) * axes[i];
+			if (!FacesViewer(n, c, view.eye)) continue;
+			const bool lit = frontFace && 0 == i && 0 < side;
+			const DWORD colour = Rgba(lit ? *frontFace : Shade(rgb, n, view.light), alpha);
+			const Vec du = half[j] * axes[j], dv = half[k] * axes[k];
+			const Vector3 p0 = ToVector3(c - du - dv), p1 = ToVector3(c + du - dv), p2 = ToVector3(c + du + dv), p3 = ToVector3(c - du + dv);
+			AutoSolidTri(p0, colour, p1, colour, p2, colour);
+			AutoSolidTri(p0, colour, p2, colour, p3, colour);
+		}
+	}
+}
+
+void CCampathDrawer::DrawMarkerSphere(const MarkerView & view, Vec centre, double radius, Rgb rgb)
+{
+	using namespace Filmmaker::Marker;
+	// Shaded at its corners, so the colour runs smoothly over the facets.
+	const int kRings = 7, kSegments = 12;
+	auto normalAt = [&](int ring, int seg) {
+		const double theta = M_PI * ring / kRings, phi = 2.0 * M_PI * seg / kSegments;
+		return Vec{ sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta) };
+	};
+	for (int ring = 0; ring < kRings; ++ring)
+	{
+		for (int seg = 0; seg < kSegments; ++seg)
+		{
+			const Vec n[4] = { normalAt(ring, seg), normalAt(ring, seg + 1), normalAt(ring + 1, seg + 1), normalAt(ring + 1, seg) };
+			const Vec mid = Unit(n[0] + n[1] + n[2] + n[3]);
+			if (!FacesViewer(mid, centre + radius * mid, view.eye)) continue;
+			Vector3 p[4];
+			DWORD c[4];
+			for (int v = 0; v < 4; ++v)
+			{
+				p[v] = ToVector3(centre + radius * n[v]);
+				c[v] = Rgba(Shade(rgb, n[v], view.light), 255);
+			}
+			AutoSolidTri(p[0], c[0], p[1], c[1], p[2], c[2]);
+			AutoSolidTri(p[0], c[0], p[2], c[2], p[3], c[3]);
+		}
+	}
+}
+
+void CCampathDrawer::DrawMarkerDisc(const MarkerView & view, Vec centre, double radius, DWORD centreColour, DWORD rimColour)
+{
+	// Turned to the viewer; the colour runs from the centre to the rim (a glow fades to nothing).
+	const int kSegments = 20;
+	const Vector3 mid = ToVector3(centre);
+	auto rim = [&](int i) {
+		const double a = 2.0 * M_PI * i / kSegments;
+		return ToVector3(centre + (radius * cos(a)) * view.right + (radius * sin(a)) * view.up);
+	};
+	for (int i = 0; i < kSegments; ++i) AutoSolidTri(mid, centreColour, rim(i), rimColour, rim(i + 1), rimColour);
+}
+
+void CCampathDrawer::DrawMarkerRing(const MarkerView & view, Vec centre, double radius, DWORD colour, float pixelWidth)
+{
+	const int kSegments = 24;
+	auto at = [&](int i) {
+		const double a = 2.0 * M_PI * i / kSegments;
+		return ToVector3(centre + (radius * cos(a)) * view.right + (radius * sin(a)) * view.up);
+	};
+	std::vector<MarkerEdge> edges;
+	for (int i = 0; i < kSegments; ++i) edges.push_back({ at(i), at(i + 1) });
+	DrawMarkerEdges(edges, colour, pixelWidth);
+}
+
+void CCampathDrawer::DrawCameraMarker(const MarkerView & view, const CamPathValue & cpv, Rgb rgb, bool selected,
+	int screenWidth, int screenHeight, double sizeScale)
+{
+	using namespace Filmmaker::Marker;
+	// limit to values as RenderView hook:
+	const double fov = min(179, max(1, cpv.Fov));
+	double forward[3], right[3], up[3];
+	QEulerAngles ang = cpv.R.ToQREulerAngles().ToQEulerAngles();
+	MakeVectors(ang.Roll, ang.Pitch, ang.Yaw, forward, right, up);
+	const Vec f = VecOf(forward), r = VecOf(right), u = VecOf(up);
+	const Vec eye{ cpv.X, cpv.Y, cpv.Z };
+
+	// The lens: its frame `radius` in front of the eye, at the field of view's corners.
+	const double radius = c_CameraRadius * sizeScale;
+	const double a = sin(fov * M_PI / 360.0) * radius;
+	const double b = a * (screenWidth ? (double)screenHeight / (double)screenWidth : 1.0);
+	const Vec frame = eye + radius * f;
+	const Vec lu = frame - a * r + b * u, ru = frame + a * r + b * u;
+	const Vec ld = frame - a * r - b * u, rd = frame + a * r - b * u;
+	// Which way is up: a solid triangle over the frame's top edge.
+	const Vec t0 = lu + 0.22 * (ru - lu) + (0.12 * b) * u, t1 = lu + 0.78 * (ru - lu) + (0.12 * b) * u;
+	const Vec tip = 0.5 * (lu + ru) + (0.62 * b) * u;
+	const Rgb body = selected ? Mix(rgb, kSelected, 0.45) : rgb;
+
+	if (WhollyInFront(view.eye, view.forward, eye, 1.4 * radius))
+	{
+		auto drawBody = [&]() {
+			// A box behind the eye, its front face on it.
+			const Vec axes[3] = { f, r, u };
+			const double half[3] = { 0.42 * radius, 0.26 * radius, 0.34 * radius };
+			DrawMarkerBox(view, eye - (0.42 * radius) * f, axes, half, body, nullptr, 255);
+		};
+		auto drawLens = [&]() {
+			// Glass: bright at the eye and fading toward the frame, each side shaded by its facing.
+			const Vec corners[4] = { lu, ru, rd, ld };
+			for (int i = 0; i < 4; ++i)
+			{
+				const Vec p = corners[i], q = corners[(i + 1) % 4];
+				Vec n = Unit(Cross(p - eye, q - eye));
+				if (Dot(n, 0.5 * (p + q) - frame) < 0) n = -n;
+				const Rgb side = Shade(body, n, view.light);
+				AutoSolidTri(ToVector3(eye), Rgba(side, 120), ToVector3(p), Rgba(side, 40), ToVector3(q), Rgba(side, 40));
+			}
+			const DWORD glass = Rgba(body, 26);
+			AutoSolidTri(ToVector3(lu), glass, ToVector3(ru), glass, ToVector3(rd), glass);
+			AutoSolidTri(ToVector3(lu), glass, ToVector3(rd), glass, ToVector3(ld), glass);
+		};
+		// The nearer part last: the markers write no depth.
+		if (Dot(view.eye - eye, f) > 0) { drawBody(); drawLens(); }
+		else { drawLens(); drawBody(); }
+		const DWORD solid = Rgba(body, 255);
+		AutoSolidTri(ToVector3(t0), solid, ToVector3(t1), solid, ToVector3(tip), solid);
+		AutoSolidFlush();
+	}
+
+	const Rgb edge = selected ? kSelected : rgb;
+	const std::vector<MarkerEdge> edges = {
+		{ ToVector3(lu), ToVector3(ru) }, { ToVector3(ru), ToVector3(rd) }, { ToVector3(rd), ToVector3(ld) }, { ToVector3(ld), ToVector3(lu) },
+		{ ToVector3(eye), ToVector3(lu) }, { ToVector3(eye), ToVector3(ru) }, { ToVector3(eye), ToVector3(rd) }, { ToVector3(eye), ToVector3(ld) },
+		{ ToVector3(t0), ToVector3(tip) }, { ToVector3(tip), ToVector3(t1) }, { ToVector3(t1), ToVector3(t0) },
+	};
+	DrawMarkerEdges(edges, Rgba(edge, 255), c_MarkerEdgePixelWidth);
+}
+
+void CCampathDrawer::DrawLightMarker(const MarkerView & view, const Filmmaker::SceneOverlay::Glyph & glyph, double sizeScale)
+{
+	using namespace Filmmaker::Marker;
+	using Kind = Filmmaker::SceneOverlay::GlyphKind;
+	const Vec c{ glyph.pos[0], glyph.pos[1], glyph.pos[2] };
+	const double radius = c_SceneOverlayLightRadius * sizeScale;
+	double forward[3], right[3], up[3];
+	MakeVectors(glyph.ang[2], glyph.ang[0], glyph.ang[1], forward, right, up);
+	const Vec f = VecOf(forward), r = VecOf(right), u = VecOf(up);
+	const Rgb kind{ glyph.colour.r, glyph.colour.g, glyph.colour.b };
+	const Rgb emit{ glyph.emit.r, glyph.emit.g, glyph.emit.b };
+	const Rgb lit = Mix(emit, kSelected, 0.5); // a lit lens or panel: the light's own colour, toward white
+	const Rgb edge = glyph.selected ? kSelected : kind;
+	const bool viewerInFront = Dot(view.eye - c, f) > 0;
+	std::vector<MarkerEdge> edges;
+
+	switch (glyph.kind)
+	{
+	case Kind::SpotLight:
+	{
+		// A lamp, and its beam at the light's cone.
+		const Beam beam = SpotBeam(glyph.cone, 5.5 * radius, 2.8 * radius);
+		const Vec lens = c + (0.3 * radius) * f, rimCentre = lens + beam.length * f;
+		auto around = [&](Vec centre, double rr, int i, int segments) {
+			const double t = 2.0 * M_PI * i / segments;
+			return centre + (rr * cos(t)) * r + (rr * sin(t)) * u;
+		};
+		if (WhollyInFront(view.eye, view.forward, c, beam.length + radius))
+		{
+			auto drawBeam = [&]() {
+				const int kSegments = 20;
+				for (int i = 0; i < kSegments; ++i)
+					AutoSolidTri(ToVector3(lens), Rgba(kind, 105),
+						ToVector3(around(rimCentre, beam.rim, i, kSegments)), Rgba(kind, 10),
+						ToVector3(around(rimCentre, beam.rim, i + 1, kSegments)), Rgba(kind, 10));
+			};
+			auto drawLamp = [&]() {
+				// A can widening to its lens, the lens lit in the light's colour.
+				const int kSegments = 14;
+				const Vec back = c - (0.85 * radius) * f;
+				const double rb = 0.42 * radius, rf = 0.8 * radius, len = 1.15 * radius;
+				for (int i = 0; i < kSegments; ++i)
+				{
+					const Vec b0 = around(back, rb, i, kSegments), b1 = around(back, rb, i + 1, kSegments);
+					const Vec f0 = around(lens, rf, i, kSegments), f1 = around(lens, rf, i + 1, kSegments);
+					const Vec n = Unit(len * Unit((b0 + b1) - 2.0 * back) - (rf - rb) * f);
+					if (FacesViewer(n, 0.25 * (b0 + b1 + f0 + f1), view.eye))
+					{
+						const DWORD colour = Rgba(Shade(kind, n, view.light), 255);
+						AutoSolidTri(ToVector3(b0), colour, ToVector3(b1), colour, ToVector3(f1), colour);
+						AutoSolidTri(ToVector3(b0), colour, ToVector3(f1), colour, ToVector3(f0), colour);
+					}
+					if (FacesViewer(-f, back, view.eye))
+					{
+						const DWORD colour = Rgba(Shade(kind, -f, view.light), 255);
+						AutoSolidTri(ToVector3(back), colour, ToVector3(b0), colour, ToVector3(b1), colour);
+					}
+					if (FacesViewer(f, lens, view.eye))
+						AutoSolidTri(ToVector3(lens), Rgba(Mix(lit, kSelected, 0.5), 255), ToVector3(f0), Rgba(lit, 255), ToVector3(f1), Rgba(lit, 255));
+				}
+			};
+			// The nearer part last: the markers write no depth.
+			if (viewerInFront) { drawLamp(); drawBeam(); }
+			else { drawBeam(); drawLamp(); }
+			AutoSolidFlush();
+		}
+		const int kRim = 24;
+		for (int i = 0; i < kRim; ++i)
+			edges.push_back({ ToVector3(around(rimCentre, beam.rim, i, kRim)), ToVector3(around(rimCentre, beam.rim, i + 1, kRim)) });
+		// The beam's rim stays in its kind's colour: the selected one is ringed white below, and a
+		// white rim beside that ring read as two selection marks (2026-10-17).
+		DrawMarkerEdges(edges, Rgba(kind, 200), c_MarkerEdgePixelWidth * 0.7f);
+		break;
+	}
+	case Kind::AreaLight:
+	{
+		// A panel lit on its front in the light's colour, throwing a short fading shaft.
+		const double width = (std::max)((double)glyph.width, 2.2 * radius);
+		const double height = (std::max)((double)glyph.height, 2.2 * radius);
+		const double depth = 0.14 * radius;
+		const Vec axes[3] = { f, r, u };
+		const double half[3] = { depth, 0.5 * width, 0.5 * height };
+		const Vec face = c + depth * f;
+		const Vec corners[4] = {
+			face - (0.5 * width) * r - (0.5 * height) * u, face + (0.5 * width) * r - (0.5 * height) * u,
+			face + (0.5 * width) * r + (0.5 * height) * u, face - (0.5 * width) * r + (0.5 * height) * u,
+		};
+		if (WhollyInFront(view.eye, view.forward, c, 0.5 * (width + height) + 3.4 * radius))
+		{
+			auto drawShaft = [&]() {
+				for (int i = 0; i < 4; ++i)
+				{
+					const Vec p = corners[i], q = corners[(i + 1) % 4];
+					const Vec p2 = p + (3.2 * radius) * f + 0.3 * (p - face), q2 = q + (3.2 * radius) * f + 0.3 * (q - face);
+					const DWORD nearColour = Rgba(kind, 80), farColour = Rgba(kind, 0);
+					AutoSolidTri(ToVector3(p), nearColour, ToVector3(q), nearColour, ToVector3(q2), farColour);
+					AutoSolidTri(ToVector3(p), nearColour, ToVector3(q2), farColour, ToVector3(p2), farColour);
+				}
+			};
+			auto drawPanel = [&]() { DrawMarkerBox(view, c, axes, half, kind, &lit, 255); };
+			if (viewerInFront) { drawPanel(); drawShaft(); }
+			else { drawShaft(); drawPanel(); }
+			AutoSolidFlush();
+		}
+		for (int i = 0; i < 4; ++i) edges.push_back({ ToVector3(corners[i]), ToVector3(corners[(i + 1) % 4]) });
+		edges.push_back({ ToVector3(face), ToVector3(face + (1.6 * radius) * f) }); // where it points
+		DrawMarkerEdges(edges, Rgba(edge, 255), c_MarkerEdgePixelWidth);
+		break;
+	}
+	default:
+	{
+		// A bulb with a glow in the light's colour and a lit core.
+		if (WhollyInFront(view.eye, view.forward, c, 2.8 * radius))
+		{
+			DrawMarkerDisc(view, c, 2.8 * radius, Rgba(emit, 80), Rgba(emit, 0));
+			DrawMarkerSphere(view, c, radius, kind);
+			DrawMarkerDisc(view, c + (0.5 * radius) * Unit(view.eye - c), 0.5 * radius, Rgba(Mix(lit, kSelected, 0.4), 255), Rgba(lit, 0));
+			AutoSolidFlush();
+		}
+		DrawMarkerRing(view, c, radius, Rgba(kind, 255), c_MarkerEdgePixelWidth * 0.6f);
+		break;
+	}
+	}
+	// The selected one: a white ring around it (an area light's panel is already edged white).
+	if (glyph.selected && glyph.kind != Kind::AreaLight)
+		DrawMarkerRing(view, c, 1.9 * radius, Rgba(kSelected, 255), c_MarkerEdgePixelWidth * 0.8f);
+}
+
+void CCampathDrawer::DrawPathMarker(const MarkerView & view, const std::vector<Vector3> & points, const std::vector<Vector3> & keys,
+	Rgb rgb, unsigned char alpha, float pixelWidth, bool selected)
+{
+	using namespace Filmmaker::Marker;
+	AutoSingleLineFlush();
+	const size_t n = points.size();
+	if (n >= 2)
+	{
+		// A dark underline, then the colour, so it reads on a sunlit wall as well as in shade.
+		for (int pass = 0; pass < 2; ++pass)
+		{
+			SetLineWidth(pass == 0 ? pixelWidth * 2.0f : pixelWidth);
+			const DWORD colour = pass == 0 ? D3DCOLOR_RGBA(0, 0, 0, 120) : Rgba(selected ? Mix(rgb, kSelected, 0.5) : rgb, alpha);
+			AutoPolyLineStart();
+			for (size_t i = 0; i < n; ++i)
+				AutoPolyLinePoint(points[i ? i - 1 : 0], points[i], colour, points[i + 1 < n ? i + 1 : n - 1]);
+			AutoPolyLineFlush();
+		}
+	}
+	// A dot on every key, sized for the screen.
+	const Rgb dot = selected ? kSelected : rgb;
+	for (const Vector3 & key : keys)
+	{
+		const Vec at{ key.X, key.Y, key.Z };
+		const double s = ScreenScale(sqrt(Dot(at - view.eye, at - view.eye)));
+		if (!WhollyInFront(view.eye, view.forward, at, 6.0 * s)) continue;
+		DrawMarkerDisc(view, at, 5.0 * s, D3DCOLOR_RGBA(0, 0, 0, 190), D3DCOLOR_RGBA(0, 0, 0, 190));
+		DrawMarkerDisc(view, at, 3.5 * s, Rgba(Mix(dot, kSelected, 0.35), 255), Rgba(dot, 255));
+	}
+	AutoSolidFlush();
 }
 
 void CCampathDrawer::BuildSingleLine(Vector3 from, Vector3 to, Vertex * pOutVertexData)

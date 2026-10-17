@@ -19,7 +19,11 @@ public:
 #include <queue>
 #include <list>
 #include <atomic>
+#include <memory>
 #include <mutex>
+
+#include "SceneOverlayData.h"
+#include "SceneMarkerMath.h"
 
 // TODO: most line vertices can be cached if the colouring is done through the vertex shader.
 class CCampathDrawer
@@ -85,6 +89,11 @@ public:
 	// same ("Knife", "HE Grenade"), so nothing on screen says which body a pick refers to.
 	void FollowTargetBox_set(const FollowTargetBox& box) { m_FollowTargetBox = box; }
 
+	// Where the camera path puts the camera at the playhead tick: a dot on its line.
+	void PathHead_set(bool enabled, double x, double y, double z) {
+		m_PathHead = enabled; m_PathHeadPos[0] = x; m_PathHeadPos[1] = y; m_PathHeadPos[2] = z;
+	}
+
 	// Weapon Recoil's rotation pivot, drawn as a world-space wireframe sphere. It marks a point
 	// ON THE WEAPON a few units from the eye, so it has to be a real 3D object sharing the
 	// scene's depth -- a Panorama overlay can only paint a flat disc over the frame, which reads
@@ -111,6 +120,18 @@ public:
 	// only here: with `mirv_campath draw` off every camera gizmo is cleared from the snapshot,
 	// so there is nothing else that could be drawn twice or against the wrong depth buffer.
 	bool WantsLateRedraw() const { return !m_Draw && AnyPivotMarker(); }
+
+	// The Environment's placed cameras and lights and the paths their keys take (SceneOverlayData.h).
+	// Its own feature, like the pivot marker: drawn whether or not the camera path is, and also
+	// while the Follow Camera owns the view. Swapped in whole from the main thread.
+	void SceneOverlay_set(std::shared_ptr<const Filmmaker::SceneOverlay> overlay) {
+		std::lock_guard<std::mutex> lock(m_SceneOverlayMutex);
+		m_SceneOverlay = (overlay && !overlay->Empty()) ? std::move(overlay) : nullptr;
+	}
+	std::shared_ptr<const Filmmaker::SceneOverlay> SceneOverlay_get() {
+		std::lock_guard<std::mutex> lock(m_SceneOverlayMutex);
+		return m_SceneOverlay;
+	}
 	bool AnyPivotMarker() const {
 		for (int i = 0; i < kPivotMarkerSlots; ++i) if (m_PivotMarker[i].enabled) return true;
 		return false;
@@ -211,7 +232,13 @@ private:
 		bool GetFollowCameraMarker() const { return m_FollowCameraMarker; }
 		const CamPathValue& GetFollowCameraValue() const { return m_FollowCameraValue; }
 		const FollowTargetBox& GetFollowTargetBox() const { return m_FollowTargetBox; }
+		bool GetPathHead() const { return m_PathHead; }
+		const double* GetPathHeadPos() const { return m_PathHeadPos; }
 		const PivotMarker& GetPivotMarker(int slot) const { return m_PivotMarker[slot]; }
+		// `mirv_campath draw` / the Filmmaker path asked for the camera path itself. False when only
+		// a separate feature (pivot marker, follow target box, scene overlay) pulled the frame in.
+		bool GetDrawCampath() const { return m_DrawCampath; }
+		const std::shared_ptr<const Filmmaker::SceneOverlay>& GetSceneOverlay() const { return m_SceneOverlay; }
 
 	private:
 		double m_CurTime;
@@ -235,7 +262,11 @@ private:
 		bool m_FollowCameraMarker;
 		CamPathValue m_FollowCameraValue;
 		FollowTargetBox m_FollowTargetBox;
+		bool m_PathHead = false;
+		double m_PathHeadPos[3] = {};
 		PivotMarker m_PivotMarker[kPivotMarkerSlots];
+		bool m_DrawCampath;
+		std::shared_ptr<const Filmmaker::SceneOverlay> m_SceneOverlay;
 
 		CamPathValue m_CurrentValue;
 	};
@@ -338,12 +369,16 @@ private:
 	int m_MarkerHighlight = -1;
 	bool m_FollowCameraMarker = false;
 	CamPathValue m_FollowCameraValue;
+	bool m_PathHead = false;
+	double m_PathHeadPos[3] = {};
 	// The draw functor is normally consumed once per frame. While the pivot marker is the only
 	// content we RETAIN it and re-run it on every later 3D pass, so the marker ends up on top of
 	// the viewmodel whatever order CS2 draws a given weapon in -- re-arming alone was not enough,
 	// because the engine only queues one or two functors and some weapons need more passes.
 	// Freed at present, and on device teardown.
 	CMaterialSystemFunctor * m_RetainedFunctor = nullptr;
+	std::mutex m_SceneOverlayMutex;
+	std::shared_ptr<const Filmmaker::SceneOverlay> m_SceneOverlay;
 	FollowTargetBox m_FollowTargetBox;
 	PivotMarker m_PivotMarker[kPivotMarkerSlots];
 
@@ -363,6 +398,8 @@ private:
 	ID3D11SamplerState * m_SamplerState = nullptr;
 	ID3D11RasterizerState * m_RasterizerStateDigits = nullptr;
 	ID3D11RasterizerState * m_RasterizerStateLines = nullptr;
+	// The solid markers: no culling, their faces are picked on the CPU (SceneMarkerMath.h).
+	ID3D11RasterizerState * m_RasterizerStateSolid = nullptr;
 	ID3D11BlendState * m_BlendState = nullptr;
 	ID3D11BlendState * m_BlendStateAdditive = nullptr; // additive blend for the marker glow
 	ID3D11InputLayout * m_InputLayoutDigits = nullptr;
@@ -390,6 +427,9 @@ private:
 	ID3D11VertexShader * m_VertexShader = nullptr;
 	ID3D11Buffer * m_VertexBuffer = nullptr;
 	UINT m_VertexBufferVertexCount = 0; // c_VertexBufferVertexCount
+	// The buffer holds solid triangles, not line quads: the first solid flushes pending lines and
+	// the first line (or any flush) flushes pending solids.
+	bool m_SolidBatch = false;
 	Vertex * m_LockedVertexBuffer = nullptr;
 	float m_DrawKeyframIndex = 18.0f;
 	ID3D11Texture2D* m_DigitsTexture = nullptr;
@@ -429,6 +469,24 @@ private:
 	static double ShortestDistanceToSegment(TempPoint * pt, TempPoint * start, TempPoint * end);
 
 	void DrawCamera(const CamPathValue & cpv, DWORD colour, int screenWidth, int screenHeight, double sizeScale = 1.0);
+
+	// The in-world markers (SceneMarkerMath.h): solid, shaded shapes with a crisp edge, drawn with
+	// the line shader -- a vertex with no extrusion lands on its own point.
+	struct MarkerView { Filmmaker::Marker::Vec eye, forward, right, up, light; };
+	struct MarkerEdge { Vector3 from, to; };
+	void AutoSolidTri(Vector3 a, DWORD colourA, Vector3 b, DWORD colourB, Vector3 c, DWORD colourC);
+	void AutoSolidFlush();
+	void DrawMarkerEdges(const std::vector<MarkerEdge> & edges, DWORD colour, float pixelWidth);
+	void DrawMarkerBox(const MarkerView & view, Filmmaker::Marker::Vec centre, const Filmmaker::Marker::Vec axes[3], const double half[3],
+		Filmmaker::Marker::Rgb rgb, const Filmmaker::Marker::Rgb * frontFace, unsigned char alpha);
+	void DrawMarkerSphere(const MarkerView & view, Filmmaker::Marker::Vec centre, double radius, Filmmaker::Marker::Rgb rgb);
+	void DrawMarkerDisc(const MarkerView & view, Filmmaker::Marker::Vec centre, double radius, DWORD centreColour, DWORD rimColour);
+	void DrawMarkerRing(const MarkerView & view, Filmmaker::Marker::Vec centre, double radius, DWORD colour, float pixelWidth);
+	void DrawCameraMarker(const MarkerView & view, const CamPathValue & cpv, Filmmaker::Marker::Rgb rgb, bool selected,
+		int screenWidth, int screenHeight, double sizeScale);
+	void DrawLightMarker(const MarkerView & view, const Filmmaker::SceneOverlay::Glyph & glyph, double sizeScale);
+	void DrawPathMarker(const MarkerView & view, const std::vector<Vector3> & points, const std::vector<Vector3> & keys,
+		Filmmaker::Marker::Rgb rgb, unsigned char alpha, float pixelWidth, bool selected);
 
 	void OnPostRenderAllTools_DrawingThread(CDynamicProperties * dynamicPorperties, CLessDynamicProperties * lessDynamicProperties);
 

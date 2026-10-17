@@ -988,6 +988,10 @@ R"CFJS(
       // A list that scrolls on its own (scrollWell) takes the notch while the cursor is over it;
       // at its top or bottom the notch goes on to the column.
       if (cfgWellWheel(n)) return;
+      // The TIMELINE dock under CONFIG gets the notch while the pointer is over it (its rows, Ctrl
+      // zoom, Shift pan), exactly as under the Camera Editor ($.GraphExp.wheel answers false
+      // everywhere else).
+      try { if ($.GraphExp && $.GraphExp.wheel && $.GraphExp.wheel(n)) return; } catch (eg) {}
       // The wheel ALWAYS scrolls the column. It used to change the value of whatever tile the
       // pointer happened to be over ("wheel = 2% per notch" in the original design), which meant scrolling
       // past a slider silently edited it -- you cannot move through a tab without crossing tiles.
@@ -996,6 +1000,9 @@ R"CFJS(
       cfgApplyScroll();
     };
     api.chars = function (csv) { configWindowChars(csv); };
+    // A quick right-click in the ENVIRONMENT view (MovieMode via `config viewmenu`): the props
+    // gizmo picks under the pointer and opens that object's outliner menu.
+    api.viewMenu = function () { propsMenuRequest = true; return 'ok'; };
     api.key = function (name) {
       for (var k = 0; k < keyHooks.length; k++) {
         try { keyHooks[k](String(name)); }

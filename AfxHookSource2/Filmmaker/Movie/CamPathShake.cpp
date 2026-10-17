@@ -11,11 +11,13 @@
 #include "../Platform/JsonParser.h"
 #include "../Platform/TextEncoding.h"
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_*
+#include "SceneKeys.h"              // SceneKeys_AppliedTick: a looked-through camera object's tick
 
 #include "../../../Shared/AfxConsole.h"
 
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <atomic>
@@ -51,8 +53,10 @@ double AmplitudeFor(double intensity) {
 int ClampInt(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 struct Store {
-	// keyframe tick -> setting. Tick, not index: see the header.
+	// The camera path's track: keyframe tick -> setting. Tick, not index: see the header.
 	std::map<int, CamPathShakeSetting> byTick;
+	// Camera objects' tracks: object id -> tick -> setting. Free ticks, not tied to any marker.
+	std::map<int, std::map<int, CamPathShakeSetting>> objects;
 	std::wstring demoPath;
 	std::vector<int> lastTicks; // previous frame's keyframe ticks, for retime detection
 	bool dirty = false;
@@ -73,20 +77,32 @@ void Save() {
 	jb.BeginObject();
 	jb.IntField("version", 1);
 	jb.BoolField("enabled", s.enabled);
+	// The style is written by NAME, not index. An index would silently re-point at a different
+	// shake if the style table ever gains or reorders an entry. A stop key is "STOP".
+	auto writeTrack = [&jb](const std::map<int, CamPathShakeSetting>& track) {
+		jb.BeginArray();
+		for (const auto& kv : track) {
+			if (!kv.second.IsKey()) continue;
+			jb.BeginObject();
+			jb.IntField("tick", kv.first);
+			jb.StringField("style", kv.second.Stop() ? "STOP" : RageShake_StyleName(kv.second.style));
+			jb.IntField("intensity", kv.second.intensity);
+			jb.IntField("speed", kv.second.speed);
+			jb.EndObject();
+		}
+		jb.EndArray();
+	};
 	jb.Key("keys");
-	jb.BeginArray();
-	for (const auto& kv : s.byTick) {
-		if (!kv.second.Active()) continue;
-		jb.BeginObject();
-		jb.IntField("tick", kv.first);
-		// The style is written by NAME, not index. An index would silently re-point at a
-		// different shake if the style table ever gains or reorders an entry.
-		jb.StringField("style", RageShake_StyleName(kv.second.style));
-		jb.IntField("intensity", kv.second.intensity);
-		jb.IntField("speed", kv.second.speed);
-		jb.EndObject();
+	writeTrack(s.byTick);
+	// Camera objects' tracks (scene-object-rigs.md), by object id.
+	jb.Key("objects");
+	jb.BeginObject();
+	for (const auto& o : s.objects) {
+		if (o.second.empty()) continue;
+		jb.Key(std::to_string(o.first).c_str());
+		writeTrack(o.second);
 	}
-	jb.EndArray();
+	jb.EndObject();
 	jb.EndObject();
 
 	// Its OWN section, deliberately not folded into the campath payload: the camera
@@ -115,28 +131,38 @@ void Load() {
 	if (const JsonValue* v = root.Find("enabled")) s.enabled = v->AsBool(true);
 
 	int skipped = 0;
-	if (const JsonValue* arr = root.Find("keys")) {
-		if (arr->type == JsonValue::Type::Array) {
-			for (const JsonValue& ko : arr->arr) {
-				if (ko.type != JsonValue::Type::Object) continue;
-				const JsonValue* tk = ko.Find("tick");
-				const JsonValue* st = ko.Find("style");
-				if (!tk || !st) continue;
-				const int styleIdx = RageShake_FindStyle(st->AsString("").c_str());
-				if (styleIdx < 0) { ++skipped; continue; } // unknown style name: drop, don't guess
-				CamPathShakeSetting cfg;
-				cfg.style = styleIdx;
-				const JsonValue* iv = ko.Find("intensity");
-				const JsonValue* pv = ko.Find("speed");
-				cfg.intensity = ClampInt(iv ? iv->AsInt(5) : 5, 1, 10);
-				cfg.speed = ClampInt(pv ? pv->AsInt(50) : 50, 10, 100);
-				s.byTick[tk->AsInt(0)] = cfg;
+	auto readTrack = [&skipped](const JsonValue* arr, std::map<int, CamPathShakeSetting>& into) {
+		if (!arr || arr->type != JsonValue::Type::Array) return;
+		for (const JsonValue& ko : arr->arr) {
+			if (ko.type != JsonValue::Type::Object) continue;
+			const JsonValue* tk = ko.Find("tick");
+			const JsonValue* st = ko.Find("style");
+			if (!tk || !st) continue;
+			const std::string name = st->AsString("");
+			const int styleIdx = name == "STOP" ? kCamPathShakeStop : RageShake_FindStyle(name.c_str());
+			if (styleIdx == -1) { ++skipped; continue; } // unknown style name: drop, don't guess
+			CamPathShakeSetting cfg;
+			cfg.style = styleIdx;
+			const JsonValue* iv = ko.Find("intensity");
+			const JsonValue* pv = ko.Find("speed");
+			cfg.intensity = ClampInt(iv ? iv->AsInt(5) : 5, 1, 10);
+			cfg.speed = ClampInt(pv ? pv->AsInt(50) : 50, 10, 100);
+			into[tk->AsInt(0)] = cfg;
+		}
+	};
+	readTrack(root.Find("keys"), s.byTick);
+	s.objects.clear();
+	if (const JsonValue* objs = root.Find("objects")) {
+		if (objs->type == JsonValue::Type::Object) {
+			for (const auto& kv : objs->obj) {
+				const int id = atoi(kv.first.c_str());
+				if (id > 0) readTrack(&kv.second, s.objects[id]);
 			}
 		}
 	}
-	if (!s.byTick.empty() || skipped)
-		advancedfx::Message("[pathshake] loaded %d keyframe shakes%s.\n",
-			(int)s.byTick.size(), skipped ? " (some styles unknown, dropped)" : "");
+	if (!s.byTick.empty() || !s.objects.empty() || skipped)
+		advancedfx::Message("[pathshake] loaded %d path shake keys and %d camera object tracks%s.\n",
+			(int)s.byTick.size(), (int)s.objects.size(), skipped ? " (some styles unknown, dropped)" : "");
 }
 
 // Marker index -> tick, and back. Both go through the live marker list so they can never
@@ -235,14 +261,15 @@ void SyncToMarkers() {
 // IO -- so the view thread's worst case is one memcpy of a few hundred bytes.
 struct SnapKey {
 	int tick = 0;
-	int style = -1;   // < 0 = this keyframe carries no shake
+	int style = -1;   // kCamPathShakeStop = a stop key
 	int intensity = 5;
 	int speed = 50;
 	bool Active() const { return style >= 0 && intensity > 0; }
 };
 
 std::mutex g_snapMutex;
-std::vector<SnapKey> g_snapKeys;            // guarded by g_snapMutex; ordered by tick
+std::vector<SnapKey> g_snapKeys;            // guarded by g_snapMutex; the path's keys, by tick
+std::map<int, std::vector<SnapKey>> g_snapObjects; // guarded: camera objects' keys, by tick
 double g_snapSecondsPerTick = 1.0 / 64.0;   // guarded
 bool g_snapEnabled = false;                 // guarded
 bool g_snapAnyShake = false;                // guarded: at least one key is Active()
@@ -253,20 +280,30 @@ void PublishSnapshot() {
 	Store& s = S();
 	const std::vector<CamMarker>& mk = CameraPathRef().Markers();
 
-	std::vector<SnapKey> next;
-	next.reserve(mk.size());
+	// Only the shake keys: a key runs to the next key of its track, so camera keys without a shake
+	// play no part (they used to end a shake, which is why one stopped at the path's second key).
 	bool any = false;
-	for (const CamMarker& m : mk) {
-		SnapKey k;
-		k.tick = m.tick;
-		auto it = s.byTick.find(m.tick);
-		if (it != s.byTick.end() && it->second.Active()) {
-			k.style = it->second.style;
-			k.intensity = it->second.intensity;
-			k.speed = it->second.speed;
-			any = true;
+	auto snapTrack = [&any](const std::map<int, CamPathShakeSetting>& track, const std::vector<CamMarker>* onMarkers) {
+		std::vector<SnapKey> out;
+		for (const auto& kv : track) {
+			if (!kv.second.IsKey()) continue;
+			if (onMarkers) {
+				bool there = false;
+				for (const CamMarker& m : *onMarkers) if (m.tick == kv.first) { there = true; break; }
+				if (!there) continue;
+			}
+			SnapKey k;
+			k.tick = kv.first; k.style = kv.second.style; k.intensity = kv.second.intensity; k.speed = kv.second.speed;
+			if (k.Active()) any = true;
+			out.push_back(k);
 		}
-		next.push_back(k);
+		return out;
+	};
+	std::vector<SnapKey> next = snapTrack(s.byTick, &mk);
+	std::map<int, std::vector<SnapKey>> nextObjects;
+	for (const auto& o : s.objects) {
+		std::vector<SnapKey> t = snapTrack(o.second, nullptr);
+		if (!t.empty()) nextObjects[o.first] = std::move(t);
 	}
 
 	// The scrub frame cache keeps frames with the shake they were rendered with, and its pose check
@@ -279,29 +316,41 @@ void PublishSnapshot() {
 		uint64_t spt = 0;
 		std::memcpy(&spt, &secondsPerTick, sizeof(spt));
 		mix(spt);
-		for (const SnapKey& k : next) {
-			mix((uint64_t)(uint32_t)k.tick);
-			mix((uint64_t)(int64_t)k.style);
-			mix((uint64_t)(int64_t)k.intensity);
-			mix((uint64_t)(int64_t)k.speed);
-		}
+		auto mixTrack = [&mix](const std::vector<SnapKey>& track) {
+			for (const SnapKey& k : track) {
+				mix((uint64_t)(uint32_t)k.tick);
+				mix((uint64_t)(int64_t)k.style);
+				mix((uint64_t)(int64_t)k.intensity);
+				mix((uint64_t)(int64_t)k.speed);
+			}
+		};
+		mixTrack(next);
+		for (const auto& o : nextObjects) { mix((uint64_t)(uint32_t)o.first); mixTrack(o.second); }
 	}
 	g_snapRevision = rev;
 
 	std::lock_guard<std::mutex> lock(g_snapMutex);
 	g_snapKeys.swap(next);
+	g_snapObjects.swap(nextObjects);
 	g_snapSecondsPerTick = secondsPerTick;
 	g_snapEnabled = s.enabled;
 	g_snapAnyShake = any;
 }
 
-// Any thread. Copies into `out` (reusing its capacity, so the steady state does not allocate).
-// Returns false when there is nothing to apply, without touching `out`.
-bool ReadSnapshot(std::vector<SnapKey>& out, double& outSecondsPerTick) {
+// Any thread. Copies one track (owner 0 = the path) into `out` (reusing its capacity, so the
+// steady state does not allocate). Returns false when there is nothing to apply.
+bool ReadSnapshot(int owner, std::vector<SnapKey>& out, double& outSecondsPerTick) {
 	std::lock_guard<std::mutex> lock(g_snapMutex);
-	if (!g_snapEnabled || !g_snapAnyShake || g_snapKeys.empty())
+	if (!g_snapEnabled || !g_snapAnyShake)
 		return false;
-	out.assign(g_snapKeys.begin(), g_snapKeys.end());
+	const std::vector<SnapKey>* track = &g_snapKeys;
+	if (owner) {
+		const auto f = g_snapObjects.find(owner);
+		if (f == g_snapObjects.end()) return false;
+		track = &f->second;
+	}
+	if (track->empty()) return false;
+	out.assign(track->begin(), track->end());
 	outSecondsPerTick = g_snapSecondsPerTick;
 	return true;
 }
@@ -356,41 +405,73 @@ void CamPathShake_RunFrame() {
 	if (s.dirty) { Save(); s.dirty = false; }
 }
 
+namespace {
+std::map<int, CamPathShakeSetting>* TrackOf(int owner, bool create) {
+	Store& s = S();
+	if (!owner) return &s.byTick;
+	if (owner < 0) return nullptr;
+	auto f = s.objects.find(owner);
+	if (f != s.objects.end()) return &f->second;
+	return create ? &s.objects[owner] : nullptr;
+}
+} // namespace
+
+CamPathShakeSetting CamPathShake_GetAt(int owner, int tick) {
+	const auto* track = TrackOf(owner, false);
+	if (!track) return CamPathShakeSetting();
+	auto it = track->find(tick);
+	return it == track->end() ? CamPathShakeSetting() : it->second;
+}
+
+bool CamPathShake_SetAt(int owner, int tick, const CamPathShakeSetting& in) {
+	if (tick < 0) return false;
+	// The path's keys sit on its camera keys: anywhere else there is no diamond to turn it off.
+	if (!owner) {
+		bool onMarker = false;
+		for (const CamMarker& m : CameraPathRef().Markers()) if (m.tick == tick) { onMarker = true; break; }
+		if (!onMarker) return false;
+	}
+	CamPathShakeSetting cfg = in;
+	if (!(cfg.style >= 0 && cfg.style < RageShake_StyleCount()) && cfg.style != kCamPathShakeStop) cfg.style = -1;
+	cfg.intensity = ClampInt(cfg.intensity, 1, 10);
+	cfg.speed = ClampInt(cfg.speed, 10, 100);
+	auto* track = TrackOf(owner, cfg.style != -1);
+	if (!track) return true; // removing a key from a track that does not exist
+	if (cfg.style == -1) track->erase(tick);
+	else (*track)[tick] = cfg;
+	if (owner && track->empty()) S().objects.erase(owner);
+	S().dirty = true;
+	return true;
+}
+
+void CamPathShake_ClearTrack(int owner) {
+	Store& s = S();
+	if (!owner) { if (s.byTick.empty()) return; s.byTick.clear(); }
+	else if (!s.objects.erase(owner)) return;
+	s.dirty = true;
+}
+
+int CamPathShake_TrackKeys(int owner) {
+	const auto* track = TrackOf(owner, false);
+	return track ? (int)track->size() : 0;
+}
+
 CamPathShakeSetting CamPathShake_Get(int markerIndex) {
 	const int tick = TickForIndex(markerIndex);
-	if (tick == INT32_MIN) return CamPathShakeSetting();
-	Store& s = S();
-	auto it = s.byTick.find(tick);
-	if (it == s.byTick.end()) return CamPathShakeSetting();
-	return it->second;
+	return tick == INT32_MIN ? CamPathShakeSetting() : CamPathShake_GetAt(0, tick);
 }
 
 void CamPathShake_Set(int markerIndex, const CamPathShakeSetting& in) {
 	const int tick = TickForIndex(markerIndex);
-	if (tick == INT32_MIN) return;
-	CamPathShakeSetting cfg = in;
-	cfg.style = (cfg.style >= 0 && cfg.style < RageShake_StyleCount()) ? cfg.style : -1;
-	cfg.intensity = ClampInt(cfg.intensity, 1, 10);
-	cfg.speed = ClampInt(cfg.speed, 10, 100);
-	Store& s = S();
-	if (cfg.style < 0) s.byTick.erase(tick);
-	else s.byTick[tick] = cfg;
-	s.dirty = true;
+	if (tick != INT32_MIN) CamPathShake_SetAt(0, tick, in);
 }
 
 void CamPathShake_Clear(int markerIndex) {
 	const int tick = TickForIndex(markerIndex);
-	if (tick == INT32_MIN) return;
-	Store& s = S();
-	if (s.byTick.erase(tick) > 0) s.dirty = true;
+	if (tick != INT32_MIN) CamPathShake_SetAt(0, tick, CamPathShakeSetting());
 }
 
-void CamPathShake_ClearAll() {
-	Store& s = S();
-	if (s.byTick.empty()) return;
-	s.byTick.clear();
-	s.dirty = true;
-}
+void CamPathShake_ClearAll() { CamPathShake_ClearTrack(0); }
 
 int CamPathShake_Count() { return (int)S().byTick.size(); }
 
@@ -423,37 +504,38 @@ bool CamPathShake_EvalSnapshot(const std::vector<SnapKey>& keys, double secondsP
 	const int n = (int)keys.size();
 	if (n == 0) return false;
 	if (lookupTick < (double)keys[0].tick)
-		return false; // before the path starts: nothing has been triggered yet
+		return false; // before the first shake key: nothing has been triggered yet
 
 	// Seconds derived from ticks, so the shake is a pure function of the path tick: scrub,
 	// preview and render all agree, and re-renders are frame-identical.
 	const double spt = secondsPerTick;
 
-	// The SHAKE keys: camera keys carrying a shake, in order. A shake key and the next one with the
-	// same style are one run: the shake keeps running across the camera keys between them (keys
-	// with no shake of their own) and its intensity and speed glide from one to the other along an
-	// eased ramp on the run's own clock (CamPathShakeRampMath.h). That is what lets a shot start
-	// slow and gentle and build up over several camera keys without a jolt. A shake key with no
-	// same-style successor runs to the next CAMERA key and ends there. A one-shot never chains:
-	// each burst fires on its own key.
+	// The track's keys, in order: shakes and stops. A shake key and the next one with the same
+	// style are one run: its intensity and speed glide from one to the other along an eased ramp
+	// on the run's own clock (CamPathShakeRampMath.h), which is what lets a shot start slow and
+	// gentle and build up without a jolt. Any other key runs UNTIL THE NEXT KEY of the track -- a
+	// different style hands over, a STOP ends it -- or, with none after it, to the end of the shot.
+	// Camera keys without a shake play no part: they used to end a shake, so one put on a path's
+	// first key stopped at its second key however many keys were added later (2026-10-17). A
+	// one-shot never chains: each burst fires on its own key.
 	std::vector<int> sk;
-	for (int i = 0; i < n; ++i) if (keys[(size_t)i].Active()) sk.push_back(i);
+	for (int i = 0; i < n; ++i) if (keys[(size_t)i].Active() || keys[(size_t)i].style == kCamPathShakeStop) sk.push_back(i);
 	const int m = (int)sk.size();
 	if (m == 0) return false;
-	auto oneShot = [&](int j) { return RageShake_Finished(RageShake_Style(keys[(size_t)sk[(size_t)j]].style), 1.0e6, 1.0); };
+	auto oneShot = [&](int j) {
+		const SnapKey& k = keys[(size_t)sk[(size_t)j]];
+		return k.Active() && RageShake_Finished(RageShake_Style(k.style), 1.0e6, 1.0);
+	};
 	std::vector<ShakeRamp::ClockKey> clock((size_t)m);
 	for (int j = 0; j < m; ++j) {
 		const SnapKey& k = keys[(size_t)sk[(size_t)j]];
 		clock[(size_t)j].tick = (double)k.tick;
 		clock[(size_t)j].speed = (double)k.speed;
-		clock[(size_t)j].rampsToNext = j + 1 < m && keys[(size_t)sk[(size_t)j + 1]].style == k.style && !oneShot(j);
+		clock[(size_t)j].rampsToNext = k.Active() && j + 1 < m && keys[(size_t)sk[(size_t)j + 1]].style == k.style && !oneShot(j);
 	}
 	auto runStartOf = [&](int j) { while (j > 0 && clock[(size_t)j - 1].rampsToNext) --j; return j; };
-	// Where shake key j stops when its run does not carry on: the next camera key after it.
-	auto endOf = [&](int j) {
-		const int ci = sk[(size_t)j] + 1;
-		return ci < n ? (double)keys[(size_t)ci].tick : 1.0e300;
-	};
+	// Where key j's shake stops when its run does not carry on: the next key of the track.
+	auto endOf = [&](int j) { return j + 1 < m ? clock[(size_t)j + 1].tick : 1.0e300; };
 
 	// The last shake key at or before the lookup.
 	int j = -1;
@@ -467,7 +549,7 @@ bool CamPathShake_EvalSnapshot(const std::vector<SnapKey>& keys, double secondsP
 	const SnapKey& cur = keys[(size_t)sk[(size_t)j]];
 	const bool ramps = clock[(size_t)j].rampsToNext;
 	const double curEnd = ramps ? 1.0e300 : endOf(j);
-	if (lookupTick < curEnd) {
+	if (cur.Active() && lookupTick < curEnd) {
 		double intensity = (double)cur.intensity;
 		if (ramps) {
 			const double span = clock[(size_t)j + 1].tick - clock[(size_t)j].tick;
@@ -493,9 +575,10 @@ bool CamPathShake_EvalSnapshot(const std::vector<SnapKey>& keys, double secondsP
 	// the previous key's run when this key starts a different one.
 	for (int p = j; p >= 0 && p >= j - 1; --p) {
 		if (clock[(size_t)p].rampsToNext) continue;   // its run carries on: not ended
+		const SnapKey& pk = keys[(size_t)sk[(size_t)p]];
+		if (!pk.Active()) continue;                    // a stop has nothing to fade
 		const double since = (lookupTick - endOf(p)) * spt;
 		if (since < 0.0 || since >= kHandoverSec) continue;
-		const SnapKey& pk = keys[(size_t)sk[(size_t)p]];
 		sum.AddScaled(EvalStyle(pk.style, (double)pk.intensity,
 			ShakeRamp::ClockSeconds(clock.data(), m, runStartOf(p), lookupTick, spt)), 1.0 - since / kHandoverSec);
 	}
@@ -533,14 +616,14 @@ bool CamPathShake_Apply(double lookupTick,
 	double& pitch, double& yaw, double& roll, double& fov) {
 	std::vector<SnapKey> keys;
 	double spt = 1.0 / 64.0;
-	if (!ReadSnapshot(keys, spt))
+	if (!ReadSnapshot(0, keys, spt))
 		return false;
 	return CamPathShake_EvalSnapshot(keys, spt, lookupTick, x, y, z, pitch, yaw, roll, fov);
 }
 
 bool CamPathShake_ApplyToView(
 	float& x, float& y, float& z,
-	float& pitch, float& yaw, float& roll, float& fov) {
+	float& pitch, float& yaw, float& roll, float& fov, int sceneCamera) {
 	// GATE ON OUR OWN CAMERA PATH -- deliberately NOT on ShakeCamMode.
 	//
 	// This looks like it should ask `owner.Resolve() == ShakeCamMode::CameraPath`, and doing that
@@ -555,9 +638,14 @@ bool CamPathShake_ApplyToView(
 	// answers it directly: CurrentPathTick() succeeds only while playing or scrubbing, which is
 	// exactly when the pose in x/y/z/pitch/yaw/roll came from the path.
 	double lookupTick = 0.0;
+	// A looked-through camera object outranks the path (scene-object-rigs.md): its own track shakes
+	// it at the scene keys' tick -- the tick its pose keys use, so scrubbing and rendering agree --
+	// and the path's shake never reaches it.
+	const int owner = sceneCamera > 0 ? sceneCamera : 0;
+	if (owner) lookupTick = SceneKeys_AppliedTick();
 	// During a Camera Path render the job drives the path itself and the editor is not playing,
 	// so CurrentPathTick() is false there: take the tick the render is evaluating instead.
-	if (!CameraPathRef().CurrentPathTick(lookupTick) && !Render_PathCameraTick(lookupTick))
+	else if (!CameraPathRef().CurrentPathTick(lookupTick) && !Render_PathCameraTick(lookupTick))
 		return false;
 
 	// EVERYTHING below runs on the view thread, so it touches only the published snapshot and
@@ -569,7 +657,7 @@ bool CamPathShake_ApplyToView(
 	// state thread_local for the same reason).
 	static thread_local std::vector<SnapKey> s_keys;
 	double spt = 1.0 / 64.0;
-	if (!ReadSnapshot(s_keys, spt))
+	if (!ReadSnapshot(owner, s_keys, spt))
 		return false;
 
 	double dx = x, dy = y, dz = z;
@@ -581,8 +669,8 @@ bool CamPathShake_ApplyToView(
 		static std::atomic<unsigned> s_n{ 0 };
 		if ((s_n.fetch_add(1, std::memory_order_relaxed) % 30) == 0)
 			MvmDebugLog_Linef("pathshake.view",
-				"tick=%.1f keys=%d dPos=(%.2f %.2f %.2f) dAng=(%.3f %.3f %.3f) dFov=%.3f",
-				lookupTick, (int)s_keys.size(),
+				"owner=%d tick=%.1f keys=%d dPos=(%.2f %.2f %.2f) dAng=(%.3f %.3f %.3f) dFov=%.3f",
+				owner, lookupTick, (int)s_keys.size(),
 				dx - (double)x, dy - (double)y, dz - (double)z,
 				dPitch - (double)pitch, dYaw - (double)yaw, dRoll - (double)roll,
 				dFov - (double)fov);
@@ -591,6 +679,53 @@ bool CamPathShake_ApplyToView(
 	x = (float)dx; y = (float)dy; z = (float)dz;
 	pitch = (float)dPitch; yaw = (float)dYaw; roll = (float)dRoll; fov = (float)dFov;
 	return true;
+}
+
+void CamPathShake_AppendDockJson(std::ostringstream& o) {
+	Store& s = S();
+	const std::vector<CamMarker>& mk = CameraPathRef().Markers();
+	auto key = [&o](int tick, const CamPathShakeSetting& k) {
+		o << "\"t\":" << tick << ",\"s\":" << k.style << ",\"l\":\"" << (k.Stop() ? "Stop" : RageShake_StyleLabel(k.style))
+			<< "\",\"n\":" << k.intensity << ",\"p\":" << k.speed
+			<< ",\"o\":" << (k.Active() && RageShake_Finished(RageShake_Style(k.style), 1.0e6, 1.0) ? 1 : 0) << "}";
+	};
+	// The camera path's keys (marker ticks, in order: a marker's index is what `pathshake` takes)
+	// and the shake keys on them, for the CAMERA PATH layer's "Camera shake" row.
+	o << ",\"pathKeys\":[";
+	for (size_t i = 0; i < mk.size(); ++i) { if (i) o << ","; o << mk[i].tick; }
+	o << "],\"shakes\":[";
+	bool first = true;
+	for (int i = 0; i < (int)mk.size(); ++i) {
+		const auto it = s.byTick.find(mk[(size_t)i].tick);
+		if (it == s.byTick.end() || !it->second.IsKey()) continue;
+		o << (first ? "" : ",") << "{\"i\":" << i << ",";
+		first = false;
+		key(it->first, it->second);
+	}
+	// Each camera object's track, for its OBJECTS layer's "Camera shake" row.
+	o << "],\"objShakes\":{";
+	bool firstObj = true;
+	for (const auto& t : s.objects) {
+		o << (firstObj ? "" : ",") << "\"" << t.first << "\":[";
+		firstObj = false;
+		bool firstKey = true;
+		for (const auto& kv : t.second) {
+			if (!kv.second.IsKey()) continue;
+			o << (firstKey ? "{" : ",{");
+			firstKey = false;
+			key(kv.first, kv.second);
+		}
+		o << "]";
+	}
+	o << "}";
+	// The shake menu's list: [style index, label] in menu order, the first shakeEssentials being
+	// the Rockstar Editor set. Static, but small enough to ride along every frame.
+	o << ",\"shakeEssentials\":" << RageShake_RockstarEditorCount() << ",\"shakeStyles\":[";
+	for (int m = 0; m < RageShake_MenuCount(); ++m) {
+		const int si = RageShake_MenuStyle(m);
+		o << (m ? "," : "") << "[" << si << ",\"" << RageShake_StyleLabel(si) << "\"]";
+	}
+	o << "]";
 }
 
 std::string CamPathShake_StateJsonArray() {

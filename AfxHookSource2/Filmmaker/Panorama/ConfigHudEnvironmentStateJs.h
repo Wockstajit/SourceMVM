@@ -217,16 +217,17 @@ R"CFJS(
       }
 
       var KIND_WORD = { point: 'Point', spot: 'Spot', area: 'Area' };
-      // The card summary counts what was placed: CS2 assets, your meshes and lights.
-      var nMeshes = 0, nLights = 0;
+      // The card summary counts what was placed: CS2 assets, your meshes, lights and cameras.
+      var nMeshes = 0, nLights = 0, nCameras = 0;
       s.objects.forEach(function (o) {
-        if (KIND_WORD[o.kind]) nLights++; else nMeshes++;
+        if (KIND_WORD[o.kind]) nLights++; else if (o.kind === 'camera') nCameras++; else nMeshes++;
       });
       var nAssets = (st.props && st.props.placed) ? st.props.placed.length : 0;
       var summary = [];
       if (nAssets) summary.push(nAssets + ' asset' + (nAssets === 1 ? '' : 's'));
       if (nMeshes) summary.push(nMeshes + ' mesh' + (nMeshes === 1 ? '' : 'es'));
       if (nLights) summary.push(nLights + ' light' + (nLights === 1 ? '' : 's'));
+      if (nCameras) summary.push(nCameras + ' camera' + (nCameras === 1 ? '' : 's'));
       envSceneSec.__note(summary.length ? summary.join(' · ') : 'Nothing placed');
 
       // ---- SCENE OBJECTS > Selected --------------------------------------------------------
@@ -286,13 +287,21 @@ R"CFJS(
             c[2].visible = c[1] === 'cue' || selected.kind !== 'point';
           });
         }
+        // A rigged object's turn is its rig's: the rows stay at the top of the card and show (and
+        // edit, `object <id> pitch` goes to the rig) its angles in the frame it rides, or at the
+        // playhead when it is keyed.
+        var rigNow = st.rig && st.rig.objects && st.rig.objects[String(selected.id)];
+        var rigged = !!(rigNow && (rigNow.attached || rigNow.animated));
         envObjectControls[group].forEach(function (c) {
-          c[0].sync(envObjectValue(selected, c[1]));
+          var turn = ['pitch', 'yaw', 'roll'].indexOf(c[1]);
+          c[0].sync(rigged && turn >= 0 && rigNow.local ? rigNow.local[3 + turn] : envObjectValue(selected, c[1]));
           var materialField = MATERIAL_FIELDS.indexOf(c[1]) >= 0;
           setBtnDisabled(c[2], materialField && !selected.materialEnabled);
           c[2].style.opacity = (materialField && !selected.materialEnabled) ? '0.4' : '1';
-          c[2].visible = (selected.kind === 'point' && ['pitch', 'yaw', 'roll'].indexOf(c[1]) >= 0) ? false
-            : (c[1] === 'width' || c[1] === 'height') ? selected.kind === 'area'
+          // Every light shows its Pitch / Yaw / Roll, a point light too: they are keyed with its pose
+          // and show in the timeline, so they can be changed there and here (a point light does
+          // not use them).
+          c[2].visible = (c[1] === 'width' || c[1] === 'height') ? selected.kind === 'area'
             : (c[1] === 'cone' || c[1] === 'patternScale') ? selected.kind !== 'point'
             : true;
         });

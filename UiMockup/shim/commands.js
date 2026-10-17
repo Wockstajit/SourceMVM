@@ -159,12 +159,13 @@
       o.id = st.envNextId; o.enabled = true;
       if (op === 'add') {
         o.kind = t[1]; o.asset = t[1] === 'obj' ? t[2] : ''; o.position = [512, -220.5, 64];
-        o.scale = ['point', 'spot', 'area'].indexOf(o.kind) >= 0 ? [1, 1, 1] : [48, 48, 48];
+        o.scale = ['point', 'spot', 'area', 'camera'].indexOf(o.kind) >= 0 ? [1, 1, 1] : [48, 48, 48];
         o.intensity = 4; o.range = 1200;
+        if (o.kind === 'camera') { o.fov = 90; o.angles = [0, 90, 0]; o.color = [1, 0.85, 0.3]; }
       }
       // Environment.cpp: a light joins whichever lighting runs; only a mesh turns Environment on.
       s.objects.push(o); st.envSelected = o.id; st.envEditing = 0;
-      if (['point', 'spot', 'area'].indexOf(o.kind) < 0) s.enabled = true;
+      if (['point', 'spot', 'area', 'camera'].indexOf(o.kind) < 0) s.enabled = true;
       push(before);
     } else if (op === 'remove') {
       s.objects = s.objects.filter(function (o) { return o.id !== +t[1]; });
@@ -443,8 +444,9 @@
       if (chars && global.$ && global.$.ConfigHud) { global.$.ConfigHud.chars(chars[1]); return true; }
       return false;
     }
-    if (t[0] === "mirv_filmmaker" && a === "environment") return environment(st, cmd);
-    if (t[0] === 'mirv_filmmaker' && a === 'scenekeys') return global.MvmSceneKeys.run(st, t.slice(2));
+    if (t[0] === "mirv_filmmaker" && a === "environment") { var envOk = environment(st, cmd); syncRig(st); return envOk; }
+    if (t[0] === 'mirv_filmmaker' && a === 'scenekeys') { var skOk = global.MvmSceneKeys.run(st, t.slice(2)); syncRig(st); return skOk; }
+    if (t[0] === 'mirv_filmmaker' && a === 'rig') return rig(st, t.slice(2));
 
     // ---- persisted UI keys (tabs, collapsible cards) ----------------------
     if (a === 'settings' && b === 'ui') {
@@ -669,6 +671,8 @@
       if (b === 'play' || b === 'playtest') { st.playing = true; st.paused = false; return true; }
       if (b === 'pause') { st.playing = false; st.paused = true; return true; }
       if (b === 'cursor') { st.cursor = boolWord(c, st.cursor); return true; }
+      // The camera path layer's AUTO button (CameraTimelineCommand.cpp, editor.timeline.autopath).
+      if (b === 'autopath') { st.ui = st.ui || {}; var apOn = c === 'on' || (c !== 'off' && st.ui['editor.timeline.autopath'] !== '1'); st.ui['editor.timeline.autopath'] = apOn ? '1' : '0'; return true; }
       // `camtl view` only resets the timeline's own view index in game (CameraTimelineCommand.cpp);
       // it never moves the editor's bottom band. Routing it onto bottomMode left every hosted
       // timeline reading 'timeline' where the engine says 'camera'.
@@ -831,33 +835,42 @@
       if (!st.scrubbing) { st.scrubTick = st.tick; st.playhead = st.tick; }
       return true;
     }
-    // CamPathShakeCommand.cpp, enough for the timeline's Camera shake row: style next/prev,
-    // intensity / speed steps, applyall and clear, on st.shakes [{i, s, l, n, p}].
+    // CamPathShakeCommand.cpp, enough for the Camera shake rows: per-owner tracks keyed by tick
+    // (owner 0 = the camera path, whose keys sit on camera keys; `obj <id>` = a camera object),
+    // set / style / intensity / speed / stop / clear / clearall / applyall, on st.shakeTracks.
     if (a === 'pathshake') {
       // The menu list RageShakeStyles.cpp publishes (style index, label); the first five are the
       // Rockstar Editor set. The indices are the mockup's own.
       var MENU = global.MvmShakeMenu, lab = function (s) { var m = MENU.filter(function (x) { return x[0] === s; })[0]; return m ? m[1] : '?'; };
-      st.shakes = st.shakes || [];
-      var pk = Math.round(num(c, -1)), cur = st.shakes.filter(function (x) { return x.i === pk; })[0];
-      var seed = function () { if (!cur) { cur = { i: pk, s: MENU[0][0], l: MENU[0][1], n: 5, p: 50 }; st.shakes.push(cur); } return cur; };
-      var step = function (v, lo, hi, by) { return d === 'next' ? Math.min(hi, v + by) : d === 'prev' ? Math.max(lo, v - by) : Math.max(lo, Math.min(hi, Math.round(num(d, v)))); };
-      if (b === 'clearall') { st.shakes = []; return true; }
-      if (b === 'clear') { st.shakes = st.shakes.filter(function (x) { return x.i !== pk; }); return true; }
-      if (b === 'applyall' && cur) { st.shakes = (st.markers || []).map(function (m, i) { return { i: i, s: cur.s, l: cur.l, n: cur.n, p: cur.p }; }); return true; }
-      if (b === 'set') {
-        var ss = Math.round(num(d, -1)); if (!MENU.some(function (x) { return x[0] === ss; })) return true;
+      var w = t.slice(2), owner = 0;
+      if (w[0] === 'obj') { owner = Math.round(num(w[1], 0)); w = w.slice(2); }
+      st.shakeTracks = st.shakeTracks || {};
+      var track = st.shakeTracks[owner] = st.shakeTracks[owner] || [];
+      var verb = w[0], ref = w[1] || '', d2 = w[2];
+      if (verb === 'clearall') { st.shakeTracks[owner] = []; return true; }
+      var marks = (st.markers || []).map(function (m) { return m.tick; });
+      var tick = ref.charAt(0) === '@' ? Math.round(num(ref.slice(1), -1)) : (owner ? Math.round(num(ref, -1)) : (marks[Math.round(num(ref, -1))]));
+      if (!(tick >= 0) || (!owner && marks.indexOf(tick) < 0)) return true;   // a path key sits on a camera key
+      var cur = track.filter(function (x) { return x.t === tick; })[0];
+      var seed = function () { if (!cur || cur.s < 0) { if (cur) track.splice(track.indexOf(cur), 1); cur = { t: tick, s: MENU[0][0], l: MENU[0][1], n: 5, p: 50 }; track.push(cur); } return cur; };
+      var step = function (v, lo, hi, by) { return d2 === 'next' ? Math.min(hi, v + by) : d2 === 'prev' ? Math.max(lo, v - by) : Math.max(lo, Math.min(hi, Math.round(num(d2, v)))); };
+      if (verb === 'clear') { st.shakeTracks[owner] = track.filter(function (x) { return x.t !== tick; }); return true; }
+      if (verb === 'stop') { if (cur) track.splice(track.indexOf(cur), 1); track.push({ t: tick, s: -2, l: 'Stop', n: 5, p: 50 }); return true; }
+      if (verb === 'applyall' && !owner && cur && cur.s >= 0) { st.shakeTracks[0] = marks.map(function (m) { return { t: m, s: cur.s, l: cur.l, n: cur.n, p: cur.p }; }); return true; }
+      if (verb === 'set') {
+        var ss = Math.round(num(d2, -1)); if (!MENU.some(function (x) { return x[0] === ss; })) return true;
         seed(); cur.s = ss; cur.l = lab(ss);
-        if (t[5] != null) cur.n = Math.max(1, Math.min(10, Math.round(num(t[5], cur.n))));
-        if (t[6] != null) cur.p = Math.max(10, Math.min(100, Math.round(num(t[6], cur.p))));
+        if (w[3] != null) cur.n = Math.max(1, Math.min(10, Math.round(num(w[3], cur.n))));
+        if (w[4] != null) cur.p = Math.max(10, Math.min(100, Math.round(num(w[4], cur.p))));
         return true;
       }
-      if (b === 'style') {
-        if (!cur) { seed(); return true; }
-        var mi = MENU.map(function (x) { return x[0]; }).indexOf(cur.s); mi = (mi + (d === 'prev' ? MENU.length - 1 : 1)) % MENU.length;
+      if (verb === 'style') {
+        if (!cur || cur.s < 0) { seed(); return true; }
+        var mi = MENU.map(function (x) { return x[0]; }).indexOf(cur.s); mi = (mi + (d2 === 'prev' ? MENU.length - 1 : 1)) % MENU.length;
         cur.s = MENU[mi][0]; cur.l = MENU[mi][1]; return true;
       }
-      if (b === 'intensity' && cur) { cur.n = step(cur.n || 5, 1, 10, 1); return true; }
-      if (b === 'speed' && cur) { cur.p = step(cur.p || 50, 10, 100, 10); return true; }
+      if (verb === 'intensity') { seed(); cur.n = step(cur.n, 1, 10, 1); return true; }
+      if (verb === 'speed') { seed(); cur.p = step(cur.p, 10, 100, 10); return true; }
       return true;
     }
     if (a === 'grapheditor') {
@@ -878,6 +891,12 @@
         else if (op === 'show') ch.vis = true;
         else if (op === 'solo') { st.channels.forEach(function (x) { x.solo = false; }); ch.solo = true; st.selCh = st.channels.indexOf(ch); }
         else if (op === 'unsolo') ch.solo = false;
+        return true;
+      }
+      // GraphEditorCommand.cpp `eval`, narrowed to the dock's registered helpers.
+      if (b === 'eval') {
+        var gsel = /GraphExp\.select\('([^']+)'\)/.exec(cmd);
+        if (gsel && global.$ && global.$.GraphExp && global.$.GraphExp.select) global.$.GraphExp.select(gsel[1]);
         return true;
       }
       // GraphEditorExperiment_Set: the standalone toggle lands on the timeline tab or leaves it.
@@ -1042,9 +1061,104 @@
     st.selIsLast = st.sel.isLast;
   }
 
+  // ---- scene object rigs (Filmmaker/Movie/SceneRig.cpp) ----------------------------------------
+  // The attach map lives in the scene-key track (sk.attach) so undo covers it, as in C++. The
+  // parents are fixtures: the browser has no demo, so offsets are representative, not solved.
+  var RIG_PLAYERS = [{ pawn: 2, name: 'yashfartt', team: 3, alive: true }, { pawn: 3, name: 's1mple', team: 2, alive: true },
+    { pawn: 4, name: 'ropz', team: 3, alive: false }, { pawn: 5, name: 'ZywOo', team: 2, alive: true }];
+  var RIG_PLAYER_MOUNTS = [['head', 'Head'], ['eyes', 'Eyes'], ['chest', 'Chest'], ['pelvis', 'Pelvis'], ['feet', 'Feet'],
+    ['weapon_hand_R', 'Right hand'], ['weapon_hand_L', 'Left hand'], ['entity', 'Entity']];
+  var RIG_WEAPON_MOUNTS = [['muzzle', 'Muzzle'], ['shell_eject', 'Shell eject'], ['magazine', 'Magazine'], ['bolt', 'Bolt'], ['slide', 'Slide'], ['entity', 'Entity']];
+  function rigMounts(list) { return list.map(function (m) { return { id: m[0], label: m[1] }; }); }
+  function rigName(o) {
+    return (['point', 'spot', 'area'].indexOf(o.kind) >= 0 ? o.kind.charAt(0).toUpperCase() + o.kind.slice(1) + ' light'
+      : o.kind === 'camera' ? 'Camera' : (o.asset || o.kind)) + ' ' + o.id;
+  }
+  function syncRig(st) {
+    var sk = st.sceneKeys, K = global.MvmSceneKeys;
+    if (!sk || !st.environment) return;
+    sk.attach = sk.attach || {};
+    st.rig = st.rig || { lookThrough: 0, message: '' };
+    st.rig.players = RIG_PLAYERS;
+    st.rig.grenades = [{ index: 412, type: 'Smoke', thrower: 's1mple', throwTick: 17720 }, { index: 418, type: 'Flashbang', thrower: 'yashfartt', throwTick: 17790 }];
+    st.rig.dropped = [{ index: 233, name: 'AK-47' }, { index: 251, name: 'C4' }];
+    st.rig.playerMounts = rigMounts(RIG_PLAYER_MOUNTS); st.rig.weaponMounts = rigMounts(RIG_WEAPON_MOUNTS);
+    var tick = Math.round(st.scrubbing ? st.playhead : st.tick), out = {};
+    sk.objectNames = {}; sk.objectRest = {}; sk.objectKinds = {};
+    st.environment.objects.forEach(function (o) {
+      sk.objectNames[o.id] = rigName(o); sk.objectKinds[o.id] = o.kind;
+      var a = sk.attach[o.id], ang = o.angles || [0, 0, 0];
+      var rest = a ? a.offset.concat([o.fov || 90]) : o.position.concat(ang, [o.fov || 90]);
+      var local = [], keys = 0, keyed = false, armed = false;
+      for (var c = 0; c < 7; c++) {
+        var spec = K.objectSpec(o.id, c), ks = sk.byField[spec.id];
+        sk.objectRest[spec.id] = rest[c];
+        if (sk.armed[spec.id]) armed = true;
+        if (ks && ks.length) { keys = Math.max(keys, ks.length); keyed = true; local.push(K.sample(spec, ks, tick, rest[c])); }
+        else local.push(rest[c]);
+      }
+      out[o.id] = { camera: o.kind === 'camera', attached: !!a, parent: a ? a.parent : 'none', who: a ? a.who : '', player: a ? (a.player || '') : '',
+        object: a ? (a.object || 0) : 0, mount: a ? a.mount : '', missing: a ? a.missing : 'hide', valid: true, visible: true,
+        animated: keyed || armed, keys: keys, local: local.map(function (v) { return Math.round(v * 100) / 100; }),
+        mounts: a && (a.parent === 'player') ? rigMounts(RIG_PLAYER_MOUNTS) : a && (a.parent === 'held' || a.parent === 'dropped') ? rigMounts(RIG_WEAPON_MOUNTS) : undefined };
+    });
+    st.rig.objects = out;
+  }
+  function rig(st, t) {
+    syncRig(st);
+    var sk = st.sceneKeys, K = global.MvmSceneKeys, op = t[0], id = +t[1];
+    var o = st.environment.objects.find(function (x) { return x.id === id; }), r = st.rig.objects[id];
+    var tick = Math.round(st.tick);
+    var edit = function (fn) { K.begin(sk); fn(); K.end(sk); ++sk.rev; };
+    var keyPose = function (v) { for (var c = 0; c < (r.camera ? 7 : 6); c++) { var s = K.objectSpec(id, c); sk.armed[s.id] = true; K.put(sk, s, tick, v[c]); } };
+    if (op === 'lookthrough') { st.rig.lookThrough = (t[1] === 'off' || t[2] === 'off') ? 0 : id; syncRig(st); return true; }
+    if (op === 'goto') { if (st.rig.lookThrough === id) st.rig.lookThrough = 0; st.rig.message = 'Going to the camera.'; syncRig(st); return true; }
+    if (!o || !r) { st.rig.message = 'No placed object ' + t[1]; return true; }
+    if (op === 'parent') {
+      if (t[2] === 'none') edit(function () { delete sk.attach[id]; });
+      else {
+        var target = +t[3], kind = t[2], who = '', player = '';
+        if (kind === 'player' || kind === 'held') { RIG_PLAYERS.forEach(function (p) { if (p.pawn === target) player = p.name; }); who = kind === 'held' ? player + '\u2019s AK-47' : player; }
+        if (kind === 'grenade') st.rig.grenades.forEach(function (g) { if (g.index === target) who = g.type + ' by ' + g.thrower; });
+        if (kind === 'dropped') st.rig.dropped.forEach(function (d) { if (d.index === target) who = d.name; });
+        if (kind === 'object') { var p = st.environment.objects.find(function (x) { return x.id === target; }); who = p ? rigName(p) : ''; }
+        var old = sk.attach[id];
+        edit(function () { sk.attach[id] = { parent: kind, who: who, player: player, object: kind === 'object' ? target : 0,
+          mount: t[4] || (kind === 'player' ? 'head' : kind === 'held' ? 'muzzle' : 'entity'), missing: old ? old.missing : 'hide', offset: [20, 0, 8, 0, 0, 0] }; });
+        st.rig.message = 'Attached to ' + who + '. It stays where it is.';
+      }
+    } else if (op === 'mount' && sk.attach[id]) edit(function () { sk.attach[id].mount = t[2]; });
+    else if (op === 'missing' && sk.attach[id]) edit(function () { sk.attach[id].missing = t[2]; });
+    else if (op === 'animate') {
+      var on = t[2] === 'on' || (t[2] !== 'off' && !r.animated);
+      edit(function () {
+        if (on) { for (var c = 0; c < (r.camera ? 7 : 6); c++) sk.armed[K.objectSpec(id, c).id] = true; if (!r.keys) keyPose(r.local); }
+        else for (var d = 0; d < 7; d++) { var sid = K.objectSpec(id, d).id; delete sk.byField[sid]; delete sk.armed[sid]; }
+      });
+      st.rig.message = on ? 'Animate is on: Place at camera and pose edits key it at the playhead.' : 'Animate is off. Its keys are gone; it keeps this pose.';
+    } else if (op === 'place') {
+      var v = r.local.slice(); v[0] += 64; v[4] = (v[4] + 30) % 180;
+      if (r.animated) edit(function () { keyPose(v); });
+      else if (r.attached) edit(function () { sk.attach[id].offset = v.slice(0, 6); });
+      else { o.position = v.slice(0, 3); o.angles = v.slice(3, 6); }
+      st.rig.message = r.animated ? 'Placed at the camera: keyed at the playhead.' : 'Placed at the camera.';
+    } else if (op === 'set' || op === 'offset') {
+      var w = r.local.slice();
+      if (op === 'set') w[['x', 'y', 'z', 'pitch', 'yaw', 'roll', 'fov'].indexOf(t[2])] = +t[3];
+      else for (var i = 2; i < t.length; i++) w[i - 2] = +t[i];
+      if (r.animated) edit(function () { keyPose(w); });
+      else if (r.attached) edit(function () { sk.attach[id].offset = w.slice(0, 6); if (t[2] === 'fov') o.fov = w[6]; });
+      else { o.position = w.slice(0, 3); o.angles = w.slice(3, 6); o.fov = w[6]; }
+    }
+    K.sync(sk, tick);
+    syncRig(st);
+    return true;
+  }
+
   global.MvmCommands = {
     load: loadBindings,
     syncEnvironment: syncEnvironment,
+    syncRig: syncRig,
     run: run,
     pickTab: pickTab,
     deathAnimPlayers: deathAnimPlayers,

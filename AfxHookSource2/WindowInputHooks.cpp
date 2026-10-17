@@ -63,10 +63,12 @@ static bool CancelRawNotch(int sign) {
 void WindowInputHooks_FilterRawInput(RAWINPUT* raw) {
 	if (!raw || raw->header.dwType != RIM_TYPEMOUSE) return;
 	RAWMOUSE& m = raw->data.mouse;
-	// While the game holds the mouse for a right-click look it reads raw input only: no
-	// WM_RBUTTONUP arrives, and GetAsyncKeyState does not track the button either. The raw release
-	// is the one that always comes, so it ends the look (MovieMode::OnRightButtonUp).
-	if (m.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_UP) Filmmaker::MovieInput_RightButtonUp();
+	// While the game holds the mouse for a look (a right-click look, a hold on our free cam) it
+	// reads raw input only: no WM_xBUTTONUP arrives, and GetAsyncKeyState does not track the
+	// button either. The raw release is the one that always comes, so it ends the look
+	// (MovieMode::OnButtonUp).
+	if (m.usButtonFlags & RI_MOUSE_LEFT_BUTTON_UP) Filmmaker::MovieInput_ButtonUp(0);
+	if (m.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_UP) Filmmaker::MovieInput_ButtonUp(1);
 	if (!(m.usButtonFlags & RI_MOUSE_WHEEL)) return;
 	if (!s_directorOwnsWheel.load(std::memory_order_relaxed)) return;
 	const short delta = (short)m.usButtonData;
@@ -378,6 +380,11 @@ LRESULT CALLBACK new_Afx_WindowProc(
 	case WM_RBUTTONDBLCLK:
 	case WM_MOUSEMOVE:
 		if (uMsg == WM_MOUSEMOVE) { g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++; }
+		// The second press of a quick double-click arrives as xBUTTONDBLCLK when the window class asks
+		// for it. To the cursor pipe it is a press like any other: the TIMELINE dock's double-click on
+		// a key (GraphEditorJs keyDoubleClick) and a fast second slider press both need it.
+		if (uMsg == WM_LBUTTONDBLCLK) { g_UiCursorProbe.lmb = true; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++; }
+		if (uMsg == WM_RBUTTONDBLCLK) { g_UiCursorProbe.rmb = true; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++; }
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam))
 			return 0;
 		break;

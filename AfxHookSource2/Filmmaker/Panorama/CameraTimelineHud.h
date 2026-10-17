@@ -13,6 +13,7 @@
 
 #include "PanoramaBridge.h"
 
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -61,6 +62,12 @@ public:
 	// the label is missing or unrecognised. Read back from the JS each frame.
 	int NativeCameraMode() const { return m_nativeCameraMode; }
 
+	// Any thread: whether a client-px point is on CS2's native demo bar (the JS publishes its rect
+	// each frame as 'barrect'). False while the bar is hidden or no demo plays.
+	bool BarContains(int x, int y) const {
+		return m_barValid.load() && x >= m_bar[0].load() && x < m_bar[2].load() && y >= m_bar[1].load() && y < m_bar[3].load();
+	}
+
 	// WndProc/input thread: accumulate notches. Main thread: DispatchWheel drains them into the
 	// panel's JS. Same split, and the same reason, as ConfigHud's channel.
 	void PushWheel(int notches);
@@ -84,6 +91,11 @@ private:
 	bool m_menuOpen = false;        // the keyframe menu is up and owns the wheel
 	short m_symCamMode = -1;        // "cammode" -- the JS publishes CS2's camera button label
 	int m_nativeCameraMode = -1;
+	short m_symBarRect = -1;        // "barrect" -- the native demo bar's on-screen rect
+	std::string m_barRectText;
+	std::atomic<int> m_bar[4] = {};
+	std::atomic<bool> m_barValid{ false };
+	void ReadBarRect();             // main thread
 	int m_pendingWheel = 0;         // guarded by m_wheelMutex
 	std::mutex m_wheelMutex;
 	void DispatchWheel();           // main thread only

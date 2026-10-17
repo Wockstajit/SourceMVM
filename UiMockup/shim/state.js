@@ -298,6 +298,15 @@
         { id: 2, model: 'models/props/de_dust/hr_dust/dust_crates/dust_crate_style_01_32x32x32.vmdl', name: 'dust crate style 01 32x32x32', folder: 'props/de_dust/hr_dust/dust_crates', pos: [0, 0, 0], ang: [0, 0, 0], scale: 1, visible: true, live: true, group: 'Market stalls', render: true, locked: false },
         { id: 3, model: 'models/anubis/foliage/palm_tree_01.vmdl', name: 'palm tree 01', folder: 'anubis/foliage', pos: [0, 0, 0], ang: [0, 0, 0], scale: 1, visible: true, live: true, group: 'Palm row', render: true, locked: true },
         { id: 4, model: 'models/cs_italy/foliage/fern/fern_plant_1.vmdl', name: 'fern plant 1', folder: 'cs_italy/foliage/fern', pos: [0, 0, 0], ang: [0, 0, 0], scale: 2, visible: false, live: false, group: '', render: true, locked: false }],
+        // Props_AppendStateJson's icons over the view: `color` is the light's own, `accent` its
+        // kind's colour (SceneMarkerMath.h, the in-world markers' palette).
+        markers: [
+          { id: 2, kind: 'point', name: 'Point light 2', selected: false, color: '#ffc98a', accent: '#ff7d2d', at: [0.34, 0.44, true] },
+          { id: 5, kind: 'spot', name: 'Spot light 5', selected: true, color: '#ffffff', accent: '#ff5096', at: [0.5, 0.36, true] },
+          { id: 6, kind: 'area', name: 'Area light 6', selected: false, color: '#a0d8ff', accent: '#afeb3c', at: [0.62, 0.52, true] },
+          { id: 7, kind: 'camera', name: 'Camera 7', selected: false, color: '#ffffff', accent: '#28e1af', at: [0.44, 0.6, true] },
+          { id: 1, kind: 'mesh', name: 'box', selected: false, color: '#ccc7b8', at: [0.27, 0.62, true] }
+        ],
         query: '', category: 'all', offset: 0, total: -1, results: [] },
       environment: {
         version: 14, enabled: true, map: 'de_dust2',

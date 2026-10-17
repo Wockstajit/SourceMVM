@@ -36,6 +36,7 @@
 // in the .cpp for the full note.
 
 #include <cstdint>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -43,13 +44,18 @@ namespace advancedfx { class ICommandArgs; }
 
 namespace Filmmaker {
 
+// A STOP key: the shake running into it ends there (it fades over the handover). Saved as "STOP".
+constexpr int kCamPathShakeStop = -2;
+
 // One keyframe's shake, in the Rockstar Editor's own units: a style, 1-10, 10-100.
 struct CamPathShakeSetting {
-	int style = -1;      // index into the RageShake style table; < 0 = no shake
+	int style = -1;      // index into the RageShake style table; -1 = no key; kCamPathShakeStop = stop
 	int intensity = 5;   // 1..10  (5 = the style's authored strength, 10 = double)
 	int speed = 50;      // 10..100 (50 = the style's authored frequency, 100 = double)
 
 	bool Active() const { return style >= 0 && intensity > 0; }
+	bool Stop() const { return style == kCamPathShakeStop; }
+	bool IsKey() const { return Active() || Stop(); }
 
 	// Needed so the retime/prune pass can compare whole maps and only mark the sidecar dirty
 	// when something actually moved -- otherwise every frame would rewrite the file.
@@ -63,7 +69,24 @@ struct CamPathShakeSetting {
 // and drops settings whose keyframe no longer exists. Called from Filmmaker::RunMainThreadFrame.
 void CamPathShake_RunFrame();
 
-// --- per-keyframe access (by MARKER INDEX, which is what the UI and console speak) ---
+// --- shake tracks --------------------------------------------------------------------------
+//
+// One model for two owners (user request 2026-10-17, "share the same thing"): owner 0 is the
+// camera path, whose keys sit on its camera keys (they follow retimes, and go when their camera
+// key does); owner N is camera object N of the Environment scene (scene-object-rigs.md), whose keys
+// sit on any tick and apply while it is looked through. A key runs until the next key of its track
+// -- the same style ramps to it, any other hands over, a STOP ends it -- or to the end of the
+// shot. Keys are addressed by TICK here; the console also takes the path's marker index.
+CamPathShakeSetting CamPathShake_GetAt(int owner, int tick);
+// style -1 removes the key; kCamPathShakeStop writes a stop. A path key must sit on a camera key.
+bool CamPathShake_SetAt(int owner, int tick, const CamPathShakeSetting& s);
+void CamPathShake_ClearTrack(int owner);
+int  CamPathShake_TrackKeys(int owner);
+// The dock's state: `,"pathKeys":[ticks],"shakes":[{i,t,s,l,n,p,o}],"objShakes":{"<id>":[{t,s,l,n,p,o}]},
+// "shakeEssentials":n,"shakeStyles":[[style,label]]` (s = -2 and l = "Stop" for a stop key).
+void CamPathShake_AppendDockJson(std::ostringstream& o);
+
+// --- per-keyframe access to the path's track (by MARKER INDEX, the legacy bar and the console) ---
 CamPathShakeSetting CamPathShake_Get(int markerIndex);
 void CamPathShake_Set(int markerIndex, const CamPathShakeSetting& s);
 void CamPathShake_Clear(int markerIndex);
@@ -96,9 +119,11 @@ int  CamPathShake_ApplyToAll(int fromMarkerIndex);
 // now". Do NOT re-gate this on ShakeCamMode: a filmmaker dolly shot resolves to FreeCam, not
 // CameraPath (only the legacy HLAE campath sets that), and gating on it disables the feature
 // outright. The full explanation is at the top of CamPathShake_ApplyToView in the .cpp.
+// `sceneCamera` is the camera object being looked through (0 for none): then that object's track
+// shakes the view at the scene keys' tick, and the path's never does (it used to leak onto it).
 bool CamPathShake_ApplyToView(
 	float& x, float& y, float& z,
-	float& pitch, float& yaw, float& roll, float& fov);
+	float& pitch, float& yaw, float& roll, float& fov, int sceneCamera);
 
 // The raw evaluator, kept public for tests/diagnostics. `lookupTick` is a position along the
 // camera path in demo ticks. Deterministic: the same tick always produces the same offset, so

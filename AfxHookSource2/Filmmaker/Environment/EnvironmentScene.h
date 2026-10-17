@@ -51,8 +51,14 @@ struct Object {
     // A GLB's animation: the clip it plays ("" = the rest pose) and how fast (1 = as authored).
     std::string clip;
     float clipSpeed = 1;
+    // A "camera" object (scene-object-rigs.md): a viewpoint you can attach, key and look through.
+    float fov = 90;
     std::shared_ptr<const Mesh> mesh;
     bool IsLight() const { return kind == "point" || kind == "spot" || kind == "area"; }
+    bool IsCamera() const { return kind == "camera"; }
+    // A solid placed mesh (OBJ / GLB, or the legacy test shapes): what is drawn, shadowed and
+    // given a material. Lights and cameras are not.
+    bool IsProp() const { return !IsLight() && !IsCamera(); }
 };
 struct Weather {
     int type = 0, count = 1800, seed = 7;
@@ -69,6 +75,9 @@ struct Scene {
     float exposure = 1, ambient = .6f;
     Vec3 fogColor{.45f, .5f, .6f}, tint{1, 1, 1};
     std::vector<Object> objects;
+    // The next object id. Ids are never reused within a map's scene: scene object rigs keep
+    // per-demo keys and attachments by id, and a new light must not inherit a removed one's.
+    int nextObjectId = 1;
     // Passes switched off by a restore, with the value each had (HoldRestoredPasses). Climate keys
     // plus "weatherType". An explicit edit of a key drops it; switching its card on reads it.
     std::map<std::string, float> held;
@@ -167,4 +176,22 @@ std::vector<PickBox> ScenePickBoxes();
 void SelectInView(int id);
 Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip);
 void SetRenderStatus(const char *status, bool drawn = false);
+// Scene object rigs (Filmmaker/Movie/SceneRig.cpp). The loaded map's placed objects as authored
+// (their rest pose, before any rig moves them); empty while the scene belongs to another map.
+struct ObjectSummary {
+    int id = 0;
+    std::string kind, name, group;
+    bool enabled = true;
+    Vec3 position, angles;
+    float fov = 90;
+    // A light's look for the in-world overlay: its colour, a spot's cone (full angle in degrees)
+    // and an area light's panel.
+    Vec3 color{1, 1, 1};
+    float cone = 45, width = 64, height = 64;
+    float intensity = 1, range = 400, radius = 0; // also its keyable settings' rest values
+};
+std::vector<ObjectSummary> ObjectSummaries();
+int SelectedObject();
+// Set a placed object's authored pose (one undo step, saved with the map's scene).
+bool SetObjectRestPose(int id, const Vec3 &position, const Vec3 &angles, float fov, std::string &error);
 } // namespace Filmmaker::Environment
