@@ -59,6 +59,13 @@ during playback, exact demo intervals during capture, and zero while paused. Osc
 phase corrections therefore cannot turn a steady view rotation into tiny-denominator sway
 spikes or dropped aim samples.
 
+A spectated player's view angle also moves only once per demo tick (64 a second), while frames
+render faster, so most frames repeat the last angle. Measured per frame, a steady turn read zero on
+those frames and the whole tick's turn on the next, and the sway stuttered with it.
+`WeaponBobAimAdvance` holds the last measured turn on a repeated angle (up to 2.5 ticks; past that
+the player has stopped) and measures each change over the time since the previous one.
+`WeaponBobMathTests` covers a tick-stepped turn at 144 fps.
+
 The demo clock is not smooth frame to frame. Two render frames can share a tick and report
 dt = 0, and consecutive frames vary by milliseconds for the same wall interval. An oscillator
 integrating it directly renders a staircase. The clock is a phase-locked loop instead. Each frame
@@ -373,8 +380,8 @@ on takeoff and landing. The camera's own vertical motion cannot tell a staircase
 (`SampleBody` in `CameraShakeStack.cpp`; `ShakeInput.haveBody`). Ground contact must be lost for
 60 ms before it counts as airborne (`WeaponBobAirTimeAdvance`), because walking down stairs drops the
 flag for a tick or two. On the ground, the jump term reads zero. The pawn is held across frames
-(`ResolveBodyPawn`), because the engine's own spectated-pawn lookup matches the eye to the camera
-within 0.2 units. A pawn whose flags
+(`ResolveBodyPawn`), because the spectated-pawn lookup (the pawn eye nearest the camera, within
+12 units) can drop a frame during a spectator switch or a seek. A pawn whose flags
 are all zero is dead or unspawned and counts as no pawn. With no pawn, the position-derived estimate is
 the fallback, with the climb a slope explains taken out (`WeaponBobFreeVz`).
 

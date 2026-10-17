@@ -36,7 +36,7 @@ The shake does not run inside the camera-path pose push (`CamPlayback`). Adding 
 
 - placing or repositioning a marker snapshots the current camera, so the shake gets **baked into the keyframe permanently**;
 - the graph editor's per-channel defaults come from `CameraBridge_GetCurrentCamera`, so they drift;
-- `main.cpp`'s spectated-pawn match compares a pawn's render eye to the camera within 0.2 units / 0.2°, which a shake breaks outright.
+- the spectated-pawn match (`AfxGetSpectatedPawnIndex`) compares pawn render eyes to the camera, which a large shake can push out of first-person range.
 
 Shaking the view keeps the authored path clean. `CamPlayback` publishes the authored pose and exports only `LastEvalTick()`, so the view layer knows where it is on the path.
 
