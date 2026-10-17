@@ -252,3 +252,15 @@ test("the end-of-demo hold stays put, a second after the final round, and never 
   assert.match(hold, /if \(DemoScrub_Active\(\)\) return;\s*\n[\s\S]{0,700}DemoCmd\("demo_pause"\);/,
     "a scrub's own steps are left alone; anything else playing past the hold is paused");
 });
+
+// 2026-10-17 (mvm_debug: clickMode=0 free=1): a click while a camera path played, or on Clippy,
+// called MouseCapture_SetFree(true), which also switches click-to-capture off for good -- after
+// that no click gave CS2 the mouse back and looking around was dead until a restart.
+test("only explicit mouse commands switch click-to-capture off", () => {
+  const movie = read("AfxHookSource2", "Filmmaker", "Movie", "MovieMode.cpp");
+  const hooks = read("AfxHookSource2", "WindowInputHooks.cpp");
+  const osu = read("AfxHookSource2", "Filmmaker", "EasterEggs", "Osu", "OsuGame.cpp");
+  assert.doesNotMatch(movie, /MouseCapture_SetFree\(/);
+  assert.doesNotMatch(hooks, /MouseCapture_SetFree\(/);
+  assert.match(osu, /if \(g_prevClickToCapture\) \{ MouseCapture_SetClickToCapture\(true\);/, "osu! gives back the mode it found");
+});

@@ -132,7 +132,8 @@ static bool OnboardingAssistantPress(HWND hwnd, LPARAM lParam) {
 	RECT rc{};
 	if (!GetClientRect(hwnd, &rc)) return false;
 	if (!Filmmaker::Onboarding_ClickOnAssistant((short)LOWORD(lParam), (short)HIWORD(lParam), rc.right, rc.bottom)) return false;
-	if (!Filmmaker::MouseCapture_IsFree()) Filmmaker::MouseCapture_SetFree(true);
+	// For this click only: SetFree would switch click-to-capture off for good.
+	Filmmaker::MouseCapture_ReleaseForUi("click on Clippy");
 	return true;
 }
 AfxClientRectOverride g_AfxClientRectOverride;

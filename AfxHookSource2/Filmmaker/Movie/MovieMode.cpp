@@ -309,7 +309,9 @@ bool MovieMode::OnUiClick(int x, int y) {
 	// left users stuck looking through the dolly with a captured cursor and no way out.
 	if (CameraPathRef().GetMode() == CameraPath::Mode::PreviewPlaying && !CameraPathRef().AutoWaiting()) {
 		EnqueueCmd("mirv_filmmaker camtl cursor on");
-		MouseCapture_SetFree(true);
+		// Hand the mouse to the UI for now: NOT MouseCapture_SetFree, which also switches
+		// click-to-capture off for good, so no later click gave CS2 the mouse back (2026-10-17).
+		MouseCapture_ReleaseForUi("click while a camera path plays");
 		return true;
 	}
 
@@ -428,7 +430,7 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 		// Not while a camera path plays: then the click gives the mouse back (see OnUiClick).
 		if (down && CameraPathRef().GetMode() == CameraPath::Mode::PreviewPlaying && !CameraPathRef().AutoWaiting()) {
 			EnqueueCmd("mirv_filmmaker camtl cursor on");
-			MouseCapture_SetFree(true);
+			MouseCapture_ReleaseForUi("freecam click while a camera path plays");
 		} else if (down) {
 			MouseCapture_TakeForCamera("freecam click");
 			// Outside the workspaces the click is a hold-to-look (m_flyHoldButton). Inside them it is
