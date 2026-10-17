@@ -463,7 +463,8 @@ bool DemoKeyframes_RunFrame(const std::wstring& demoPath, const std::wstring& pl
 		// Only worth saying while that demo is open on something other than the new copy.
 		const std::wstring copy = DemoKeyframes_ReadyPath(demoPath);
 		if (SamePath(finished, demoPath) && !SamePath(copy, playingFile)) {
-			advancedfx::Message("mirv_filmmaker: finer scrub keyframes are ready for this demo -- reopen it to scrub with them.\n");
+			advancedfx::Message("mirv_filmmaker: finer scrub keyframes are ready for this demo -- used the next time it opens"
+				" (mirv_filmmaker keyframes switch to reload onto them now).\n");
 			return true;
 		}
 	}
@@ -497,7 +498,8 @@ void DemoKeyframes_RunCommand(int argc, advancedfx::ICommandArgs* args, const ch
 		std::lock_guard<std::mutex> lock(g_mx);
 		active = g_activeDemo;
 	}
-	advancedfx::Message("%s keyframes: %s%s%s\n  helper: %s\n", cmd,
+	advancedfx::Message("%s keyframes [switch]: %s%s%s\n  helper: %s\n"
+		"  switch: reload the open demo onto its newest finished copy, at the next pause (never automatic)\n", cmd,
 		DemoKeyframes_StatusText().empty() ? "idle" : DemoKeyframes_StatusText().c_str(),
 		active.empty() ? "" : " -- ", WideToUtf8(active).c_str(),
 		DemoKeyframes_HelperAvailable() ? "found" : "MISSING (FilmmakerDemoKeyframes.exe)");

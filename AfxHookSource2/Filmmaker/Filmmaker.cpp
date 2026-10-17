@@ -185,6 +185,11 @@ std::wstring g_currentDemoPath; // last demo launched via Watch (for the marker 
 // back (~0.75 s a step, measured 2026-10-16). The switch is a level load, so it waits for a quiet
 // moment -- paused, no render job, no scrub, no path playback -- then reopens on the copy and lands
 // back on the same tick, paused. Main thread only.
+//
+// ONLY ON REQUEST (`mirv_filmmaker keyframes switch`). It used to start by itself whenever a copy
+// finished, and copies finish on every demo open and 5 s after every camera marker change -- so the
+// demo reloaded under the user at the next pause, again and again ("why does the demo keep
+// restarting", 2026-10-17). A finished copy is otherwise used from the next open of the demo.
 struct CopySwitch {
 	enum class State { Idle, Waiting, Loading, Seeking };
 	State state = State::Idle;
@@ -611,6 +616,29 @@ std::wstring PlayingDemoPath() {
 	return s_lastOut;
 }
 
+bool DemoKeyframes_SwitchNow() {
+	const std::wstring demo = PlayingDemoPath();
+	const std::wstring copy = demo.empty() ? std::wstring() : DemoKeyframes_ReadyPath(demo);
+	if (copy.empty()) {
+		advancedfx::Message("mirv_filmmaker: no finished scrub keyframe copy for the open demo.\n");
+		return false;
+	}
+	std::wstring playing = ResolvePlayingDemoPath();
+	for (auto& c : playing) if (c == L'/') c = L'\\';
+	std::wstring target = copy;
+	for (auto& c : target) if (c == L'/') c = L'\\';
+	if (_wcsicmp(playing.c_str(), target.c_str()) == 0) {
+		advancedfx::Message("mirv_filmmaker: the demo is already playing its newest scrub keyframes.\n");
+		return false;
+	}
+	g_copySwitch = CopySwitch();
+	g_copySwitch.original = demo;
+	g_copySwitch.copy = copy;
+	g_copySwitch.state = CopySwitch::State::Waiting;
+	advancedfx::Message("mirv_filmmaker: switching to the finer scrub keyframes when the demo is paused.\n");
+	return true;
+}
+
 // g_copySwitch, one step per main-thread frame (see the struct).
 void PumpCopySwitch() {
 	CopySwitch& s = g_copySwitch;
@@ -796,14 +824,8 @@ void RunMainThreadFrame() {
 				std::vector<int> markerTicks;
 				for (const CamMarker& m : CameraPathRef().Markers()) markerTicks.push_back(m.tick);
 				const std::wstring demo = PlayingDemoPath();
-				if (DemoKeyframes_RunFrame(demo, ResolvePlayingDemoPath(), markerTicks, Render_IsJobActive())) {
-					g_copySwitch = CopySwitch();
-					g_copySwitch.original = demo;
-					g_copySwitch.copy = DemoKeyframes_ReadyPath(demo);
-					g_copySwitch.state = g_copySwitch.copy.empty() ? CopySwitch::State::Idle : CopySwitch::State::Waiting;
-					if (g_copySwitch.state == CopySwitch::State::Waiting)
-						CameraPathRef().ShowNotice("Finer scrub keyframes are ready -- switching to them when the demo is paused.");
-				}
+				// A finished copy is announced, never switched to by itself (see CopySwitch).
+				DemoKeyframes_RunFrame(demo, ResolvePlayingDemoPath(), markerTicks, Render_IsJobActive());
 			}
 			// Same idea for workshop maps: the Play page's "Recently played" sort needs to know
 			// which map is loaded, and a map started from CS2's own UI never goes through us.

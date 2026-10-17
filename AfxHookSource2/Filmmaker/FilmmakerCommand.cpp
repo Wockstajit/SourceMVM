@@ -411,7 +411,8 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 		Filmmaker::WindowResize_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "keyframes")) {
 		// Keyframed demo copies for one-frame backward seeks -- see Demo/DemoKeyframes.h.
-		Filmmaker::DemoKeyframes_RunCommand(argc, args, cmd);
+		if (argc >= 4 && 0 == _stricmp(args->ArgV(3), "switch")) Filmmaker::DemoKeyframes_SwitchNow();
+		else Filmmaker::DemoKeyframes_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "scrub")) {
 		// Live timeline scrubbing: the world follows a drag -- see Movie/DemoScrub.h.
 		Filmmaker::DemoScrub_RunCommand(argc, args, cmd);

@@ -89,6 +89,11 @@ std::wstring CurrentDemoPath();
 // engine path can't be recovered. Cheap to call per frame.
 std::wstring PlayingDemoPath();
 
+// Reopens the playing demo on its newest finished scrub keyframe copy, at the next quiet pause,
+// landing back on the same tick (`mirv_filmmaker keyframes switch`). Never automatic: a copy that
+// finishes mid-session is otherwise used from the next open. False when there is nothing to switch to.
+bool DemoKeyframes_SwitchNow();
+
 // --- Movie director (camera modes + in-game help HUD) ---
 // Input taps, called from the WndProc / input thread. Return true if the event
 // was consumed (the caller should then swallow it). Safe no-ops if unused.
