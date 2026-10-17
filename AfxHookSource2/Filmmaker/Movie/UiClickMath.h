@@ -30,6 +30,7 @@ struct Input {
 	bool workspace = false; // Camera Editor or demo Config is open
 	Rect preview;           // the workspace's game preview
 	bool popupOpen = false; // a popup that covers the window (Editor Settings) is up
+	bool viewEdit = false;  // the workspace edits in the preview (Config's ENVIRONMENT tab)
 	float x = 0, y = 0;     // the click / wheel position, client px
 };
 
@@ -42,8 +43,15 @@ inline bool ClickSwitchesToUiMode(const Input& in) {
 }
 
 // UI mode, a click in the preview: hand the mouse to the camera; the click carries on to the game.
+// Not while the workspace edits in the preview: there a left click picks and drags scene objects.
 inline bool ClickSwitchesToGameMode(const Input& in) {
-	return in.workspace && in.uiModeOn && !in.popupOpen && in.preview.Contains(in.x, in.y);
+	return in.workspace && in.uiModeOn && !in.popupOpen && !in.viewEdit && in.preview.Contains(in.x, in.y);
+}
+
+// While the workspace edits in the preview, the left button is the editor's, so looking around is
+// the right button: held in the preview, it hands the mouse to the camera until it is released.
+inline bool RightPressLooks(const Input& in) {
+	return in.workspace && in.viewEdit && in.uiModeOn && !in.popupOpen && in.preview.Contains(in.x, in.y);
 }
 
 // While a camera path PLAYS (or is about to), the path flies the camera. A press in the preview

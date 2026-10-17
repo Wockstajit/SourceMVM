@@ -102,6 +102,9 @@ private:
 	// A press swallowed because a camera path was playing (UiClick::PathPlaybackSwallowsPress); its
 	// release is swallowed too, even if playback ended in between. Input thread only.
 	bool m_playbackSwallowed[2] = { false, false };
+	// A right press in the ENVIRONMENT tab's preview took the mouse for looking around
+	// (UiClick::RightPressLooks); its release hands the mouse back to the editor.
+	bool m_rightLook = false;
 
 	// X-ray default-off bookkeeping (main thread only -- ApplyXrayDefault):
 	std::wstring m_xrayDefaultPath;  // demo we have already forced spec_show_xray 0 for

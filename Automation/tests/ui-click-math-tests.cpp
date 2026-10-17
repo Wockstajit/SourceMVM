@@ -94,6 +94,26 @@ void TestPathPlayback() {
 	CHECK(!PathPlaybackSwallowsPress(Regular(800, 600), true));        // no workspace: the free-cam swallow covers it
 }
 
+void TestViewEdit() {
+	// Config's ENVIRONMENT tab edits in the preview: a left click there picks and drags scene
+	// objects, so it must not hand the mouse to the camera; a held right click looks around.
+	Input left = Editor(400, 500, true); left.viewEdit = true;
+	CHECK(!ClickSwitchesToGameMode(left));
+	CHECK(RightPressLooks(left));
+	CHECK(!RightPressLooks(Editor(400, 500, true)));   // other tabs keep the left click for looking
+	Input panel = Editor(1300, 500, true); panel.viewEdit = true;
+	CHECK(!RightPressLooks(panel));                    // the outliner's right-click menu stays
+	Input game = Editor(400, 500, false); game.viewEdit = true;
+	CHECK(!RightPressLooks(game));                     // already looking: the game has the press
+	Input popup = Editor(400, 500, true); popup.viewEdit = true; popup.popupOpen = true;
+	CHECK(!RightPressLooks(popup));                    // a popup over the preview keeps its clicks
+	Input none = Editor(400, 500, true); none.viewEdit = true; none.preview = Rect();
+	CHECK(!RightPressLooks(none));                     // cannot place it: leave it alone
+	// Leaving GAME mode by clicking a panel still works on this tab.
+	Input back = Editor(1300, 500, false); back.viewEdit = true;
+	CHECK(ClickSwitchesToUiMode(back));
+}
+
 void TestFractions() {
 	const Rect r = FromFractions(0.25f, 0.5f, 0.75f, 1.0f, 1920, 1080);
 	CHECK(r.valid && r.x0 == 480 && r.y0 == 540 && r.x1 == 1440 && r.y1 == 1080);
@@ -109,6 +129,7 @@ int main() {
 	TestWheel();
 	TestPopupOverPreview();
 	TestPathPlayback();
+	TestViewEdit();
 	TestFractions();
 	if (g_failed) { std::printf("%d check(s) failed\n", g_failed); return 1; }
 	std::printf("ui-click-math-tests: all passed\n");

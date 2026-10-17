@@ -113,6 +113,7 @@ void ConfigHud_PushChar(unsigned charCode) { ConfigHudRef().PushChar(charCode); 
 void ConfigHud_PushKey(const char* name) { ConfigHudRef().PushKey(name); }
 bool ConfigHud_TextCaptureActive() { return ConfigHudRef().TextCaptureActive(); }
 bool ConfigHud_PopupOpen() { return ConfigHudRef().PopupOpen(); }
+bool ConfigHud_ViewEditing() { return ConfigHudRef().ViewEditing(); }
 
 bool ConfigHud_ScaledHud(float& x0, float& y0, float& x1, float& y1) {
 	// Same committed state the Camera Editor's getter reads -- see WorkspacePreview.h. Kept as a
@@ -138,11 +139,13 @@ bool ConfigHud::BuildIfNeeded() {
 	m_symPreviewRect = m_bridge.MakeSymbol("previewrect");
 	m_symTextCapture = m_bridge.MakeSymbol("textcapture");
 	m_symPopupOpen = m_bridge.MakeSymbol("popupopen");
+	m_symViewEdit = m_bridge.MakeSymbol("viewedit");
 	m_root = FindRoot();
 	m_built = (m_root != nullptr);
 	m_lastState.clear();
 	m_textCapture = false;
 	m_popupOpen = false;
+	m_viewEdit = false;
 	return m_built;
 }
 
@@ -165,6 +168,7 @@ void ConfigHud::Teardown() {
 	m_lastState.clear();
 	m_textCapture = false;
 	m_popupOpen = false;
+	m_viewEdit = false;
 	{
 		std::lock_guard<std::mutex> lk(m_charMutex);
 		m_pendingChars.clear();
@@ -624,6 +628,7 @@ void ConfigHud::DispatchChars() {
 void ConfigHud::UpdateTextCapture() {
 	m_textCapture = m_root && (m_bridge.GetAttributeString(m_root, m_symTextCapture, "0") == "1");
 	m_popupOpen = m_root && (m_bridge.GetAttributeString(m_root, m_symPopupOpen, "0") == "1");
+	m_viewEdit = m_root && (m_bridge.GetAttributeString(m_root, m_symViewEdit, "0") == "1");
 }
 
 // Main thread. Hands the accumulated notches to the panel's JS, which scrolls its own column

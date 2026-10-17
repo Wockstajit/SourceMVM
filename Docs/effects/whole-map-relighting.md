@@ -344,9 +344,13 @@ shadow maps and map light positions do not describe it, so skybox draws do not s
 Skybox draws receive their own exported sun shadow map
 and ambient cube, with no foreground clustered local records. Draws that never carry that
 lighting interface (the city and mountain meshes authored as unlit effects, and the additive
-light shafts) keep daytime brightness in their albedo. While dynamic lighting is on, the
-composite multiplies those pixels by sun height: night leaves a dark city and thin shafts,
-daylight leaves the authored picture. The clear-depth sky is not modified.
+light shafts) keep daytime brightness in their albedo. While dynamic lighting is on, both follow
+the sun: the composite scales 3D-skybox pixels by the energy the relit world receives, and the
+additive shafts are dimmed at draw time by `UnlitOverlayScale`. Night leaves a dark city and thin
+shafts, daylight leaves the authored picture. The composite does not dim bright foreground pixels
+by a luminance test: the native path has already lit them, and a second night factor cut a placed
+lamp's pool into a hard-edged crust wherever the albedo crossed the threshold (issue 41). The
+clear-depth sky is not modified.
 
 The owned AO pass unprojects positions using the inverse of the captured world-to-clip matrix,
 as the environment renderer does. With engine SSAO disabled, CS2 leaves the material's AO
