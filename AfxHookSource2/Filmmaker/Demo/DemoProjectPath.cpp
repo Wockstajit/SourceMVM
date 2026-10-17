@@ -104,25 +104,18 @@ std::wstring ReadProjectDemoPath(const std::filesystem::path& projectFile) {
 std::wstring ResolveDemoProjectPath(const std::wstring& playingDemoPath) {
 	if (playingDemoPath.empty()) return {};
 
-	const std::filesystem::path repaired(playingDemoPath);
-	const std::filesystem::path repairedDirectory = repaired.parent_path();
-	const std::wstring fileName = repaired.filename().wstring();
-
-	if (IsProjectDemoCopyFileName(fileName)) {
-		const std::wstring original = ReadProjectDemoPath(repairedDirectory / kProjectFileName);
-		if (!original.empty() && MarkerMatchesSource(original, playingDemoPath))
-			return original;
-		return playingDemoPath;
+	const DemoCopyLookup lookup = PlanDemoCopyLookup(playingDemoPath);
+	std::wstring original;
+	switch (lookup.source) {
+	case DemoCopySource::None: return playingDemoPath;
+	case DemoCopySource::ProjectFolder:
+		original = ReadProjectDemoPath(std::filesystem::path(lookup.projectDir) / kProjectFileName);
+		break;
+	case DemoCopySource::LegacyRepaired: original = lookup.original; break;
 	}
-
-	if (!IsLegacyRepairedFolderName(repairedDirectory.filename().wstring()))
-		return playingDemoPath;
-
-	const std::filesystem::path original = repairedDirectory.parent_path() / repaired.filename();
-	if (!MarkerMatchesSource(original.wstring(), repaired.wstring()))
-		return playingDemoPath;
-
-	return original.wstring();
+	if (!original.empty() && MarkerMatchesSource(original, playingDemoPath))
+		return original;
+	return playingDemoPath;
 }
 
 } // namespace Filmmaker
