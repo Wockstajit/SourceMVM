@@ -21,6 +21,8 @@ test('a worktree with any unsaved work is kept, and ignored notes are moved out 
     assert.ok(at > 0 && at < remove, `${guard} must run before the worktree is removed`);
   }
   assert.match(script, /Automation\\runs\\worktree-leftovers\\/);
+  assert.match(script, /if \(Get-Worktrees \$mainRoot \| Where-Object \{ \$_\.Path -eq \$path \}\)/,
+    'a folder left open by another program does not stop the run once git unregistered the worktree');
   assert.match(script, /if \(\$entry -notmatch \$rebuildable\)/);
   assert.doesNotMatch(script, /\$rebuildable = .*(handoff|Automation\/(runs|output)|generated|\\\.claude)/,
     'notes, run output, generated UI drafts and agent configs are never treated as rebuildable');
