@@ -16,6 +16,10 @@ namespace Filmmaker {
 // CS2 behaves exactly as it does without the hook.
 void MouseCapture_Initialize(bool clickToCapture);
 bool MouseCapture_IsFree();
+// Whether the default click-to-capture mode is on (false after an explicit `mouse free|game`).
+bool MouseCapture_ClickToCapture();
+// EXPLICIT free / game mouse: also switches click-to-capture OFF until `mouse click`. For a UI that
+// only needs the pointer for now, use MouseCapture_ReleaseForUi instead.
 void MouseCapture_SetFree(bool freeMouse);
 void MouseCapture_SetClickToCapture(bool clickToCapture);
 // Entering a camera that is steered with the mouse (third person, free cam, or G back to flying in a

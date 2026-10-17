@@ -101,19 +101,30 @@ $builtDll = Get-NewestCs2HookBuildDll -RepositoryRoot $root
 $cs2exe  = Join-Path $Cs2Dir 'game\bin\win64\cs2.exe'
 if ([string]::IsNullOrWhiteSpace($FxAssetsGameDir)) {
     # Prefer the pack staged into the build (build-source2.bat copies FX\compiled there).
-    $fxCandidates = @(
-        (Join-Path $root 'build\source2-release\fx\source_mvm_fx'),
-        (Join-Path $root 'build\staging-release\fx\source_mvm_fx'),
-        (Join-Path $root 'build\portable-runtime\fx\source_mvm_fx')
-    )
+    $fxStageNames = @('build\source2-release\fx\source_mvm_fx', 'build\staging-release\fx\source_mvm_fx', 'build\portable-runtime\fx\source_mvm_fx')
+    $fxCandidates = @($fxStageNames | ForEach-Object { Join-Path $root $_ })
     $FxAssetsGameDir = $fxCandidates | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'particles') } | Select-Object -First 1
+    # FX\compiled is private and git-ignored: a worktree reads the main checkout's (Get-PrivateAssetRoots).
+    $committedFx = Find-PrivateAsset -RepositoryRoot $root -RelativePath 'FX\compiled\source_mvm_fx\particles'
+    if ($committedFx) { $committedFx = Split-Path -Parent $committedFx }
     if (-not $FxAssetsGameDir) {
-        # No build yet: mount a writable copy of the local pack when there is one (the game writes
-        # cfg\ into its mount, so FX\compiled is never mounted itself). A clone has none: FX\README.md.
+        # No stage of its own: mount a writable copy (the game writes cfg\ into its mount, so neither
+        # FX\compiled nor another checkout's stage is ever mounted itself). A worktree seeds it from the
+        # main checkout's full stage -- the packs plus the stage's render materials and intro -- so a test
+        # launch has every VFX pack the user's own launch has; cfg\ stays per checkout. A clone has
+        # neither: FX\README.md.
         $FxAssetsGameDir = $fxCandidates[2]
-        $committedFx = Join-Path $root 'FX\compiled\source_mvm_fx'
-        if (Test-Path -LiteralPath (Join-Path $committedFx 'particles')) {
-            robocopy $committedFx $FxAssetsGameDir /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+        $mainStage = Get-PrivateAssetRoots -RepositoryRoot $root | Select-Object -Skip 1 | ForEach-Object {
+            $assetRoot = $_; $fxStageNames | ForEach-Object { Join-Path $assetRoot $_ }
+        } | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'particles') } | Select-Object -First 1
+        if ($mainStage) {
+            Write-Host "Seeding this checkout's FX stage from $mainStage ..."
+            robocopy $mainStage $FxAssetsGameDir /E /XO /XD cfg /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+            if ($LASTEXITCODE -ge 8) { Write-Host "FX stage seed failed (robocopy $LASTEXITCODE): $FxAssetsGameDir" -ForegroundColor Yellow }
+            $global:LASTEXITCODE = 0
+        }
+        if ($committedFx) {
+            robocopy $committedFx $FxAssetsGameDir /E /XO /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
             $global:LASTEXITCODE = 0
         }
     } else {
@@ -122,8 +133,7 @@ if ([string]::IsNullOrWhiteSpace($FxAssetsGameDir)) {
         # from the mount, CS2 handed back an empty placeholder, and the swap drew NOTHING (the
         # MW2019 flashbang, 2026-10-09). Copy new and newer files in on every launch; no purge,
         # so the stage's own render materials, intro and cfg stay. Unchanged files cost nothing.
-        $committedFx = Join-Path $root 'FX\compiled\source_mvm_fx'
-        if (Test-Path -LiteralPath (Join-Path $committedFx 'particles')) {
+        if ($committedFx) {
             robocopy $committedFx $FxAssetsGameDir /E /XO /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
             if ($LASTEXITCODE -ge 8) { Write-Host "FX stage sync failed (robocopy $LASTEXITCODE): $FxAssetsGameDir" -ForegroundColor Yellow }
             $global:LASTEXITCODE = 0
@@ -131,6 +141,56 @@ if ([string]::IsNullOrWhiteSpace($FxAssetsGameDir)) {
     }
 }
 $fxAssetsAvailable = Test-Path -LiteralPath $FxAssetsGameDir
+if (-not (Test-Path -LiteralPath (Join-Path $FxAssetsGameDir 'particles'))) {
+    Write-Host "No VFX pack found in this checkout or the main one: CS2 starts without the SOURCE:MVM particles." -ForegroundColor Yellow
+}
+
+# Death Animations reads resources\ragdoll\ragdoll_animations.mvmanim next to the hook. Only an
+# install configured with the private library present puts it there, so a worktree's stage never had
+# it and ragdolls had no clips. Keep the stage current from whichever checkout has the library.
+$ragdollSource = Find-PrivateAsset -RepositoryRoot $root -RelativePath 'FX\death-animations\ragdoll_animations.mvmanim'
+if ($ragdollSource) {
+    $ragdollStaged = Join-Path $bin 'resources\ragdoll\ragdoll_animations.mvmanim'
+    $ragdollFrom = Get-Item -LiteralPath $ragdollSource
+    $ragdollTo = Get-Item -LiteralPath $ragdollStaged -ErrorAction SilentlyContinue
+    if (-not $ragdollTo -or $ragdollTo.Length -ne $ragdollFrom.Length -or $ragdollTo.LastWriteTimeUtc -lt $ragdollFrom.LastWriteTimeUtc) {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ragdollStaged) | Out-Null
+        Copy-Item -LiteralPath $ragdollSource -Destination $ragdollStaged -Force
+        Write-Host "Staged the ragdoll animation library from $ragdollSource"
+    }
+} else {
+    Write-Host 'No ragdoll animation library in this checkout or the main one: Death Animations has no clips.' -ForegroundColor Yellow
+}
+
+# Rendering encodes through <bin>\ffmpeg: ffmpeg.ini's [Ffmpeg] Path, else the bundled
+# ffmpeg\bin\ffmpeg.exe (RenderEncoderDetect.cpp). Neither is in git, and a worktree's stage had no
+# ffmpeg folder at all, so every render stream failed to start ("refusing a completed manifest",
+# 2026-10-17). When this stage cannot reach an encoder, borrow the setup of a stage that can.
+function Test-StagedFfmpeg([string]$StageBin) {
+    $ini = Join-Path $StageBin 'ffmpeg\ffmpeg.ini'
+    if (Test-Path -LiteralPath $ini) {
+        $line = Get-Content -LiteralPath $ini | Where-Object { $_ -match '^\s*Path\s*=' } | Select-Object -First 1
+        if ($line) { return (Test-Path -LiteralPath ($line -replace '^\s*Path\s*=\s*', '').Trim()) }
+    }
+    return (Test-Path -LiteralPath (Join-Path $StageBin 'ffmpeg\bin\ffmpeg.exe'))
+}
+if (-not (Test-StagedFfmpeg $bin)) {
+    $ffmpegDonor = Get-PrivateAssetRoots -RepositoryRoot $root | ForEach-Object {
+        $assetRoot = $_
+        'build\source2-release\bin', 'build\staging-release\bin', 'build\portable-runtime\bin' | ForEach-Object { Join-Path $assetRoot $_ }
+    } | Where-Object { ($_ -ine $bin) -and (Test-StagedFfmpeg $_) } | Select-Object -First 1
+    if ($ffmpegDonor) {
+        robocopy (Join-Path $ffmpegDonor 'ffmpeg') (Join-Path $bin 'ffmpeg') /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+        $global:LASTEXITCODE = 0
+        Write-Host "Staged the FFmpeg setup from $ffmpegDonor"
+    } elseif ($onPath = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue | Select-Object -First 1) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $bin 'ffmpeg') | Out-Null
+        Set-Content -LiteralPath (Join-Path $bin 'ffmpeg\ffmpeg.ini') -Value @('[Ffmpeg]', "Path=$($onPath.Source)") -Encoding ASCII
+        Write-Host "Pointed rendering at $($onPath.Source)"
+    } else {
+        Write-Host 'No FFmpeg found for this stage: renders will fail until bin\ffmpeg has one (see bin\ffmpeg\readme.advancedfx.txt).' -ForegroundColor Yellow
+    }
+}
 
 # A pipeline that matches nothing yields AutomationNull, not $null. It compares -eq $null as
 # True, but contributes ZERO elements to an array concatenation (a real $null contributes one).

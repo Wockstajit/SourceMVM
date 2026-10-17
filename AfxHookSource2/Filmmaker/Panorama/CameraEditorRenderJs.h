@@ -626,12 +626,11 @@ R"EDJS(
       if (!pv || typeof pv !== 'object' || (pv.type === 'beauty' && pv.elements === 'all')) return null;
       return pv;
     }
-    // The first enabled pass that has a live form, in grid order. Gun only has none: it is the
-    // difference of two renders of one frame.
+    // The first enabled pass, in grid order: every pass has a live form (Gun only shows the gun
+    // itself live; the job adds its muzzle flash from a second render).
     function rpFirstViewable(q) {
       var list = (q && q.list) || [];
       for (var e = 0; e < RP_ELEMENTS.length; e++) {
-        if (RP_ELEMENTS[e][0] === 'gun') continue;
         for (var t = 0; t < RP_TYPES.length; t++)
           for (var i = 0; i < list.length; i++)
             if (list[i].type === RP_TYPES[t][0] && list[i].elements === RP_ELEMENTS[e][0]) return list[i];
@@ -709,9 +708,8 @@ R"EDJS(
         if (!c.visible) c.visible = true;
         if (c.__key === key) return;
         c.__key = key; c.__inert = inert; l.text = caption;
-        c.__tipText = inert
-          ? 'Gun only has no live view: it is taken from two renders of the same frame.'
-          : 'Show ' + caption + ' in the camera view.';
+        c.__tipText = 'Show ' + caption + ' in the camera view.'
+          + (key.indexOf(' gun') > 0 ? ' The render also keeps the muzzle flash, which the live view leaves out.' : '');
         c.__paint(c);
       };
       edHoverable(c, c.__paint);
@@ -1266,7 +1264,7 @@ R"EDJS(
       for (var rve = 0; rve < RP_ELEMENTS.length; rve++)
         for (var rvt = 0; rvt < RP_TYPES.length; rvt++) {
           if (!rpHas(RP_TYPES[rvt][0], RP_ELEMENTS[rve][0])) continue;
-          var vkey = RP_TYPES[rvt][0] + ' ' + RP_ELEMENTS[rve][0], vinert = RP_ELEMENTS[rve][0] === 'gun';
+          var vkey = RP_TYPES[rvt][0] + ' ' + RP_ELEMENTS[rve][0], vinert = false;
           var vc = rpViewChips[rpChip] || rpViewChip();
           rpChip++;
           vc.__set(vkey, RP_TYPES[rvt][1] + ' · ' + RP_ELEMENTS[rve][1], vinert);

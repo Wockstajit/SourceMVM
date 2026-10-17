@@ -147,6 +147,14 @@ void CameraTimeline_RunCommand(int argc, advancedfx::ICommandArgs* args, const c
 			cmd, on ? 1 : 0, on ? "ON" : "OFF");
 	}
 	else if (0 == _stricmp(a, "stop")) { cp.StopPreview(); cp.StopScrub(); }
+	else if (0 == _stricmp(a, "autopath")) { // the camera path layer's AUTO button
+		const char* how = (argc >= 4) ? args->ArgV(3) : "toggle";
+		const bool on = 0 == _stricmp(how, "on") || (0 != _stricmp(how, "off") && !Filmmaker::CameraPath_AutoPath());
+		Filmmaker::CameraPath_SetAutoPath(on);
+		advancedfx::Message("mirv_filmmaker: AUTO %s -- %s\n", on ? "on" : "off", on
+			? "while the timeline plays, the view follows the camera path inside its keys."
+			: "Space plays the demo; J plays the camera path.");
+	}
 	else if (0 == _stricmp(a, "addkey")) cp.PlaceMarker();
 	else if (0 == _stricmp(a, "delkey")) {
 		if (argc < 4) { advancedfx::Warning("usage: %s camtl delkey <i>\n", cmd); return; }

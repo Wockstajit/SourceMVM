@@ -14,6 +14,7 @@ const graph = read('AfxHookSource2/Filmmaker/Panorama/GraphEditorJs.h');
 const hud = read('AfxHookSource2/Filmmaker/Panorama/GraphEditorExperimentHud.cpp');
 const movie = read('AfxHookSource2/Filmmaker/Movie/MovieMode.cpp');
 const cam = read('AfxHookSource2/Filmmaker/Movie/CamPathShake.cpp');
+const main = read('AfxHookSource2/main.cpp');
 
 // Execute the shipped navigation functions, with no engine or duplicate implementation.
 function navigation(playing) {
@@ -101,7 +102,7 @@ test('C++ publishes a suggestion plus an epoch, and never re-derives it from the
 
 test('the dock follows the design: 440 tall, toolbar, overview over the ruler, rows, footer', () => {
   assert.match(graph, /var DOCK_H = 440, HEADER_H = 72, OVERVIEW_H = 14, RULER_H = 26, ROWS_Y = 112, FOOTER_H = 26;/);
-  assert.match(graph, /var LEFTW = 340, PAD = 12, SB_W = 12, ROW_H = 22, VAL_W = 120, NAV_W = 54;/);
+  assert.match(graph, /var LEFTW = 296, PAD = 12, SB_W = 12, ROW_H = 22, VAL_W = 120, NAV_W = 54;/);
   assert.match(graph, /overview\.style\.position = LEFTW \+ 'px ' \+ HEADER_H \+ 'px 0px'/);
   assert.match(graph, /ruler\.style\.position = LEFTW \+ 'px ' \+ \(HEADER_H \+ OVERVIEW_H\) \+ 'px 0px'/);
   assert.match(graph, /function ovViewRect\(\)/);
@@ -126,7 +127,10 @@ test('every property row carries << diamond >> keyframe controls', () => {
   assert.match(graph, /setText\(r\.dia\.__lbl, at \? '◆' : '◇'\);/);
   // Keying uses the value you are looking at (camera) or the property's own editable value (scene).
   assert.match(hud, /,\\"cur\\":/);
-  assert.match(graph, /rawCmd\('mirv_filmmaker scenekeys graphadd ' \+ n\.fieldId/);
+  // A scene object's grouped row (Position: X/Y/Z) keys each of its channels in one undo step.
+  assert.match(graph, /sceneEach\(n, function \(f\) \{ return 'graphadd ' \+ f \+ ' ' \+ at; \}\)/);
+  assert.match(graph, /ids\.forEach\(function \(f\) \{ rawCmd\('mirv_filmmaker scenekeys ' \+ verb\(f\)\); \}\);/);
+  assert.match(graph, /if \(ids\.length > 1\) rawCmd\('mirv_filmmaker scenekeys editbegin'\);/);
 });
 
 test('the visible window is clamped to the demo: no ticks before 0 or past the end', () => {
@@ -227,10 +231,10 @@ test('the wheel is contextual and Ctrl/Shift never reaches the camera FOV', () =
   assert.match(graph, /if \(st\.ctrl\) \{/);
   assert.match(graph, /if \(st\.shift\) \{ panByFrac/);
   assert.match(graph, /return true;   \/\/ consumed: over the dock the wheel is ours/);
-  // MovieMode hands the modifier notch to the editor while the dock is up, before its own
-  // free-cam FOV branch.
+  // MovieMode hands the modifier notch to the workspace hosting the dock (CONFIG or the editor)
+  // while the dock is up, before its own free-cam FOV branch.
   assert.match(movie,
-    /if \(CameraBridge_GetFreeCamEnabled\(\) && \(ctrlDown \|\| shiftDown\)\) \{\s*if \(GraphEditorExperiment_Enabled\(\)\) \{\s*CameraEditor_PushWheel\(delta > 0 \? \+1 : -1\);\s*return true;\s*\}/);
+    /if \(CameraBridge_GetFreeCamEnabled\(\) && \(ctrlDown \|\| shiftDown\)\) \{\s*if \(GraphEditorExperiment_Enabled\(\)\) \{\s*PushWorkspaceWheel\(delta > 0 \? \+1 : -1\);\s*return true;\s*\}/);
 });
 
 // A key's glyph says the interpolation that is STORED on each side, never a guess from the slope:
@@ -255,26 +259,96 @@ test('the transport keeps the Cache toggle from the camera timeline', () => {
   assert.match(hud, /",\\"scrubCache\\":" << \(ScrubFrameCache_Enabled\(\) \? "true" : "false"\)/);
 });
 
-test('Camera Shake lists every shake, each with its own strength and speed submenu', () => {
-  const shakes = [{ i: 2, s: 301, l: 'Drunk', n: 6, p: 40 }];
-  const styles = [[300, 'Hand'], [301, 'Drunk'], [302, 'Explosion'], [303, 'Air Turbulence'], [304, 'Ground Vibration'], [310, 'Hand Soft'], [311, 'Jolt']];
-  const ctx = vm.createContext({ st: { shakes, shakeStyles: styles, shakeEssentials: 5 },
-    shakeAt: (i) => shakes.filter((x) => x.i === i)[0] || null });
+// Runs the dock's shake model (GraphEditorJs.h) in a sandbox: the core helpers, then the menus.
+function shakeSandbox(st, sent) {
+  const ctx = vm.createContext({ st, num: Number, snapTick: Math.round, fmtTime: (t) => 't' + t,
+    shakeCmd: (owner, tail) => sent.push(owner + ':' + tail) });
+  vm.runInContext(graph.slice(graph.indexOf('    var SHAKE_STOP = -2;'), graph.indexOf('    function shakeCmd(owner, tail)')), ctx);
   vm.runInContext(graph.slice(graph.indexOf('    var SHAKE_N0'), graph.indexOf('    function pickShake(')), ctx);
-  const items = JSON.parse(JSON.stringify(ctx.shakeItems(2)));   // plain arrays, not the vm realm's
+  return ctx;
+}
+
+test('Camera Shake lists every shake, each with its own strength and speed submenu', () => {
+  const shakes = [{ i: 2, t: 300, s: 301, l: 'Drunk', n: 6, p: 40 }];
+  const styles = [[300, 'Hand'], [301, 'Drunk'], [302, 'Explosion'], [303, 'Air Turbulence'], [304, 'Ground Vibration'], [310, 'Hand Soft'], [311, 'Jolt']];
+  const ctx = shakeSandbox({ shakes, pathKeys: [100, 200, 300], shakeStyles: styles, shakeEssentials: 5 }, []);
+  const items = JSON.parse(JSON.stringify(ctx.shakeItems(0, 300)));   // plain arrays, not the vm realm's
   const styleRows = items.filter((it) => it.key && it.key.indexOf('style:') === 0);
   assert.deepEqual(styleRows.map((it) => it.label), ['Hand', 'Drunk', 'Explosion', 'Air Turbulence', 'Ground Vibration']);
   const drunk = styleRows[1];
   assert.ok(drunk.check && drunk.pick && drunk.keep, 'the shake on the key is ticked, and clicking a shake applies it');
-  assert.equal(drunk.id, 'shk:set 2 301 6 40');
+  assert.equal(drunk.id, 'shk:0|set @300 301 6 40');
   const steps = Object.fromEntries(drunk.sub.filter((it) => it.id).map((it) => [it.label, it.id]));
-  assert.deepEqual(steps, { Stronger: 'shk:set 2 301 7 40', Weaker: 'shk:set 2 301 5 40', Faster: 'shk:set 2 301 6 50', Slower: 'shk:set 2 301 6 30' });
+  assert.deepEqual(steps, { Stronger: 'shk:0|set @300 301 7 40', Weaker: 'shk:0|set @300 301 5 40', Faster: 'shk:0|set @300 301 6 50', Slower: 'shk:0|set @300 301 6 30' });
   assert.ok(drunk.sub.every((it) => !it.id || it.keep), 'stepping keeps the menu open on that shake');
   // A shake not on the key starts from the key's current strength and speed.
-  assert.equal(styleRows[0].sub.filter((it) => it.label === 'Stronger')[0].id, 'shk:set 2 300 7 40');
+  assert.equal(styleRows[0].sub.filter((it) => it.label === 'Stronger')[0].id, 'shk:0|set @300 300 7 40');
   const more = items.filter((it) => it.id === 'shkmore')[0];
   assert.deepEqual(more.sub.map((it) => it.label), ['Hand Soft', 'Jolt']);
   assert.ok(more.sub.every((it) => it.sub && it.sub.length), 'the extra shakes nest the same way');
+  // Stop, every camera key and remove, addressed by tick on the path's track.
+  const ids = items.filter((it) => it.id).map((it) => it.id);
+  assert.ok(ids.includes('shk:0|stop @300') && ids.includes('shk:0|applyall @300') && ids.includes('shk:0|clear @300'));
+  // A camera object's menu is the same, on its own track, without "every camera key".
+  const obj = JSON.parse(JSON.stringify(shakeSandbox({ objShakes: { 7: [] }, shakeStyles: styles, shakeEssentials: 5 }, []).shakeItems(7, 1500)));
+  assert.equal(obj.filter((it) => it.key === 'style:301')[0].id, 'shk:7|set @1500 301 5 50');
+  assert.ok(!obj.some((it) => it.id && it.id.indexOf('applyall') >= 0));
+  assert.match(graph, /function pickShake\(id\) \{[\s\S]{0,200}shakeCmd\(\+id\.substring\(4, bar\), id\.substring\(bar \+ 1\)\);/);
+});
+
+test('a shaken Camera shake row twirls open to Intensity and Speed, on the path and on a camera object', () => {
+  assert.match(graph, /\{ id: id \+ '\.n', kind: 'shakep', owner: owner, param: 'n', verb: 'intensity', name: 'Intensity', min: 1, max: 10,/);
+  assert.match(graph, /\{ id: id \+ '\.p', kind: 'shakep', owner: owner, param: 'p', verb: 'speed', name: 'Speed', min: 10, max: 100,/);
+  assert.match(graph, /pg\.children\.push\(shakeNode\('cam\.shake', 0, 'cam', cam\)\);/);
+  // Every camera object gets an OBJECTS layer with the same row, before it has pose keys too.
+  assert.match(graph, /\(st\.shakeCams \|\| \[\]\)\.forEach\(function \(sc\) \{[\s\S]{0,600}L\.children\.push\(shakeNode\('o' \+ sc\.id \+ '\.shake', sc\.id, 'scene', L\)\);/);
+  assert.match(hud, /CamPathShake_AppendDockJson\(o\);/);
+  assert.match(hud, /if \(obj\.kind != "camera"\) continue;/);
+  assert.match(graph, /if \(n\.kind === 'shake'\) return n\.children\.length > 0 && openState\[n\.id\] !== false;/);
+  assert.match(graph, /if \(k && k\.s >= 0\) shakeCmd\(owner, node\.verb \+ ' ' \+ shakeRef\(t\) \+ ' ' \+ v\);\s*else shakeKeyFrom\(owner, t, node\.param, v\);/);
+  // The values redraw when a shake's numbers change, not only when one is added.
+  assert.match(graph, /JSON\.stringify\(st\.shakes \|\| \[\]\) \+ JSON\.stringify\(st\.objShakes \|\| \{\}\) \+ Object\.keys\(shakeSel\)\.join\(','\)/);
+});
+
+// Shake strength and speed are keyframes: a shot can start slow and gentle and build up. Between
+// two keys of the same shake the value glides along the SAME eased ramp the camera plays
+// (CamPathShakeRampMath.h). A key runs until the next key of its track, or to the end of the shot:
+// camera keys without a shake play no part (they used to end it, so a shake stopped at the path's
+// second key however many keys were added, 2026-10-17).
+test('shake values ramp between keys and run until the next key, or to the end', () => {
+  const keys = [100, 200, 300, 400, 500, 600];
+  const shakes = [{ i: 0, t: 100, s: 301, n: 2, p: 20 }, { i: 2, t: 300, s: 301, n: 8, p: 80 }, { i: 3, t: 400, s: 302, n: 5, p: 50, o: 1 }];
+  const sent = [];
+  const ctx = shakeSandbox({ shakes, pathKeys: keys, shakeStyles: [[301, 'Drunk']], playhead: 150 }, sent);
+  ctx.SHAKE_N0 = 5; ctx.SHAKE_P0 = 50;
+  assert.equal(ctx.shakeValueAt(0, 'n', 100), 2);
+  assert.equal(ctx.shakeValueAt(0, 'n', 200), 5);              // half way, ACROSS the camera key with no shake
+  assert.ok(ctx.shakeValueAt(0, 'p', 110) < 20 + 60 * 0.05);  // eased: it leaves the key gently
+  assert.equal(ctx.shakeValueAt(0, 'n', 350), 8);              // the run's last key holds until the next key
+  assert.equal(ctx.shakeValueAt(0, 'n', 450), 5);              // a one-shot runs from its key
+  assert.equal(ctx.shakeValueAt(0, 'n', 590), 5);              // past camera keys without a shake: still running
+  assert.equal(ctx.shakeValueAt(0, 'n', 50), null);            // nothing runs before the first key
+  shakes.push({ i: 4, t: 500, s: -2, n: 5, p: 50 });           // a Stop ends it
+  assert.equal(ctx.shakeValueAt(0, 'n', 520), null);
+  ctx.shakeParamSet({ param: 'n', verb: 'intensity', min: 1, max: 10 }, 200, 6);   // camera key 1 has no shake yet
+  assert.deepEqual(sent, ['0:set @200 301 6 50']);              // it joins the run, at the speed it reads there
+  assert.equal(ctx.shakeCanKey(0, 150), false, 'a path shake key sits on a camera key');
+  // A camera object's track: keys on any tick, the same rules.
+  const objSent = [];
+  const obj = shakeSandbox({ objShakes: { 7: [{ t: 1000, s: 301, n: 3, p: 30 }] }, shakeStyles: [[301, 'Drunk']], playhead: 2000 }, objSent);
+  obj.SHAKE_N0 = 5; obj.SHAKE_P0 = 50;
+  assert.equal(obj.shakeValueAt(7, 'n', 5000), 3);
+  assert.equal(obj.shakeCanKey(7, 150), true);
+  obj.shakeParamSet({ param: 'n', verb: 'intensity', owner: 7, min: 1, max: 10 }, 2000, 9);
+  assert.deepEqual(objSent, ['7:set @2000 301 9 30']);
+  // The native evaluator plays the same rule.
+  assert.match(cam, /ShakeRamp::Value\(intensity, \(double\)keys\[\(size_t\)sk\[\(size_t\)j \+ 1\]\]\.intensity, u\)/);
+  assert.match(cam, /clock\[\(size_t\)j\]\.rampsToNext = k\.Active\(\) && j \+ 1 < m && keys\[\(size_t\)sk\[\(size_t\)j \+ 1\]\]\.style == k\.style && !oneShot\(j\);/);
+  assert.match(cam, /auto endOf = \[&\]\(int j\) \{ return j \+ 1 < m \? clock\[\(size_t\)j \+ 1\]\.tick : 1\.0e300; \};/);
+  assert.match(cam, /ShakeRamp::ClockSeconds\(clock\.data\(\), m, runStartOf\(j\), lookupTick, spt\)/);
+  // A looked-through camera object takes its own track at the scene keys' tick.
+  assert.match(cam, /if \(owner\) lookupTick = SceneKeys_AppliedTick\(\);/);
+  assert.match(main, /CamPathShake_ApplyToView\(Tx, Ty, Tz, Rx, Ry, Rz, Fov,\s*owner\.sceneCamera \? Filmmaker::SceneRig_LookThrough\(\) : 0\)/);
 });
 
 test('menus nest to any depth and a keep-open step reopens the same submenus', () => {
@@ -283,43 +357,6 @@ test('menus nest to any depth and a keep-open step reopens the same submenus', (
   assert.match(graph, /reopenMenu = \{ frames: 3, x: x, y: y, w: w, rebuild: m\.rebuild, onPick: pick, path: path \};/);
   assert.match(graph, /if \(itemKey\(m\.rects\[i\]\.it\) === r\.path\[L\]\)/);
   assert.match(graph, /\}, build\);/);   // the key menu rebuilds after a shake step
-});
-
-test('a shaken Camera shake row twirls open to Intensity and Speed', () => {
-  assert.match(graph, /\{ id: 'cam\.shake\.n', kind: 'shakep', param: 'n', verb: 'intensity', name: 'Intensity', min: 1, max: 10,/);
-  assert.match(graph, /\{ id: 'cam\.shake\.p', kind: 'shakep', param: 'p', verb: 'speed', name: 'Speed', min: 10, max: 100,/);
-  assert.match(graph, /if \(n\.kind === 'shake'\) return n\.children\.length > 0 && openState\[n\.id\] !== false;/);
-  assert.match(graph, /if \(shakeAt\(idx\)\) shakeCmd\(node\.verb \+ ' ' \+ idx \+ ' ' \+ v\);\s*else shakeKeyFrom\(idx, node\.param, v\);/);
-  // The values redraw when a shake's numbers change, not only when one is added.
-  assert.match(graph, /return z\.i \+ '\.' \+ z\.s \+ '\.' \+ z\.n \+ '\.' \+ z\.p \+ \(shakeSel\[z\.i\] \? '\*' : ''\);/);
-});
-
-// Shake strength and speed are keyframes: a shot can start slow and gentle and build up. Between
-// two keys of the same shake the value glides along the SAME eased ramp the camera plays
-// (CamPathShakeRampMath.h), and an edit away from a shake key keys the camera key under the
-// playhead, continuing the shake running there.
-test('shake values ramp between keys the way the camera plays them', () => {
-  // Camera keys at 100..500. Drunk gentle on key 0, strong on key 2 (key 1 carries no shake),
-  // then Explosion on key 3, alone.
-  const keys = [100, 200, 300, 400, 500];
-  const shakes = [{ i: 0, t: 100, s: 301, n: 2, p: 20 }, { i: 2, t: 300, s: 301, n: 8, p: 80 }, { i: 3, t: 400, s: 302, n: 5, p: 50, o: 1 }];
-  const sent = [];
-  const ctx = vm.createContext({ st: { shakes, pathKeys: keys, shakeStyles: [[301, 'Drunk']], playhead: 150 },
-    shakeAt: (i) => shakes.filter((x) => x.i === i)[0] || null, shakeCmd: (c) => sent.push(c), num: Number, SHAKE_N0: 5, SHAKE_P0: 50,
-    pathIndexAt: (t) => keys.indexOf(Math.round(t)) });
-  vm.runInContext(graph.slice(graph.indexOf('    function shakeKeyAt(t)'), graph.indexOf('    function pathIndexAt(t)')), ctx);
-  assert.equal(ctx.shakeValueAt('n', 100), 2);
-  assert.equal(ctx.shakeValueAt('n', 200), 5);              // half way, ACROSS the camera key with no shake
-  assert.ok(ctx.shakeValueAt('p', 110) < 20 + 60 * 0.05);  // eased: it leaves the key gently
-  assert.equal(ctx.shakeValueAt('n', 350), 8);              // a different shake next: the run ends at the next camera key
-  assert.equal(ctx.shakeValueAt('n', 450), 5);              // a lone one-shot runs to the next camera key
-  assert.equal(ctx.shakeValueAt('n', 520), null);           // and ends there
-  assert.equal(ctx.shakeValueAt('n', 50), null);            // nothing runs before the first key
-  ctx.shakeParamSet({ param: 'n', verb: 'intensity', min: 1, max: 10 }, 1, 6);   // key 1 has no shake yet
-  assert.deepEqual(sent, ['set 1 301 6 50']);               // it joins the run, at the speed it reads there
-  assert.match(cam, /ShakeRamp::Value\(intensity, \(double\)keys\[\(size_t\)sk\[\(size_t\)j \+ 1\]\]\.intensity, u\)/);
-  assert.match(cam, /clock\[\(size_t\)j\]\.rampsToNext = j \+ 1 < m && keys\[\(size_t\)sk\[\(size_t\)j \+ 1\]\]\.style == k\.style && !oneShot\(j\);/);
-  assert.match(cam, /ShakeRamp::ClockSeconds\(clock\.data\(\), m, runStartOf\(j\), lookupTick, spt\)/);
 });
 
 // The ease half is real geometry. A notch painted in the background colour showed as a black
@@ -346,13 +383,19 @@ test('ease glyph halves are drawn without a background-coloured notch', () => {
   }
 });
 
-test('shake keys select like keys: click, Shift, box, Delete, drag the value', () => {
+test('shake keys select like keys: click, Shift, box, Delete; GRAPH drags the value', () => {
   assert.match(graph, /var shakeSel = \{\};/);
+  assert.match(graph, /function shakeSelKey\(owner, t\) \{ return \(owner \|\| 0\) \+ ':' \+ Math\.round\(t\); \}/);
   assert.match(graph, /pickedShakes = g\.graph \? \[\] : shakesInRect\(g\)/);
-  assert.match(graph, /if \(shakeSel\[s\.i\]\) shakeCmd\('clear ' \+ s\.i\);/);
-  assert.match(graph, /gesture = \{ type: 'shakeKey', node: r\.node, i: si,/);
-  assert.match(graph, /if \(kv !== g\.last\) \{ g\.last = kv; shakeCmd\(kn\.verb \+ ' ' \+ g\.i \+ ' ' \+ kv\); \}/);
-  assert.match(graph, /shakeSel\[s\.i\] \? S\.accent : '#80bdffff'/);
+  assert.match(graph, /Object\.keys\(shakeSel\)\.forEach\(function \(key\) \{ var p = key\.split\(':'\); shakeCmd\(\+p\[0\], 'clear @' \+ p\[1\]\); \}\);/);
+  // The KEYFRAMES rows only mark the keys (no value lines inside them, user request 2026-10-17);
+  // GRAPH draws Intensity and Speed as curves when a shake row or the Path group is selected.
+  assert.doesNotMatch(graph, /'#80bdff99'/);
+  assert.match(graph, /picked \? S\.accent : \(s\.s < 0 \? S\.dim : '#80bdffff'\)/);
+  assert.match(graph, /if \(n\.id === 'cam\.path'\) return \{ owner: 0, only: null \};/);
+  assert.match(graph, /var sg = shakeGraphOf\(\);\s*if \(sg\) drawShakeGraph\(sg\); else shakeGraphHits = \[\];/);
+  assert.match(graph, /gesture = \{ type: 'shakeGraph', owner: sh\.owner, t: sh\.t, P: sh\.P,/);
+  assert.match(graph, /if \(gv !== g\.last\) \{ g\.last = gv; shakeCmd\(g\.owner, gp\.verb \+ ' ' \+ shakeRef\(g\.t\) \+ ' ' \+ gv\); \}/);
 });
 
 // The strips above the rows and the GRAPH panel run to the dock's right edge, over the row

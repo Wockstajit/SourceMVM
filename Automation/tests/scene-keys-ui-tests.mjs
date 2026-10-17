@@ -9,6 +9,7 @@ const timeline = read('AfxHookSource2/Filmmaker/Panorama/CameraTimelineJs.h');
 const graph = read('AfxHookSource2/Filmmaker/Panorama/GraphEditorJs.h');
 const hud = read('AfxHookSource2/Filmmaker/Panorama/GraphEditorExperimentHud.cpp');
 const movie = read('AfxHookSource2/Filmmaker/Movie/MovieMode.cpp');
+const cameraPath = read('AfxHookSource2/Filmmaker/Movie/CameraPath.cpp');
 
 test('Scene Keys is the third Camera Editor inspector tab', () => {
   const path = editor.indexOf("'PATH CAMERA'");
@@ -85,12 +86,26 @@ test('the Camera Editor tab strip uses the Config panel metrics', () => {
   }
 });
 
-test('Space is plain demo play while the CAMERA PATH layer is switched off', () => {
-  assert.match(movie, /const bool timelinePathOff = timelineDock && !GraphEditorExperiment_Drive\(\);/);
-  assert.match(movie, /vkey == kVK_SPACE && !timelinePathOff/);
-  // The toolbar's play button makes the same choice.
-  assert.match(graph, /if \(st\.drive && camKeys >= 2\) rawCmd\('mirv_filmmaker camtl ' \+ \(st\.pathPlaying \? 'pause' : 'playtest'\)\);/);
-  assert.match(graph, /else rawCmd\(st\.playing \? 'demo_pause' : 'demo_resume'\);/);
+test('Space plays the demo with the TIMELINE up; the path takes the view only with AUTO or J', () => {
+  // User request 2026-10-17: Space in the keyframes no longer jumps into the camera path.
+  assert.match(movie, /vkey == kVK_SPACE && CameraTimeline_Visible\(\) && !timelineDock && cpMode == CPMode::Editing/);
+  assert.doesNotMatch(movie, /timelinePathOff/);
+  // The toolbar's play button makes the same choice; a playing path pauses.
+  assert.match(graph, /function togglePlay\(\) \{\s*if \(st\.pathPlaying\) rawCmd\('mirv_filmmaker camtl pause'\);\s*else rawCmd\(st\.playing \? 'demo_pause' : 'demo_resume'\);/);
+  assert.doesNotMatch(graph, /'playtest'/);
+  // AUTO is a button on the camera path layer, saved, and follows the path inside its keys.
+  assert.match(graph, /if \(n\.dom === 'cam'\) \{[\s\S]{0,700}rawCmd\('mirv_filmmaker camtl autopath toggle'\)/);
+  assert.match(graph, /if \(r\.ap && r\.apOn !== !!st\.autoPath\)/);
+  assert.match(cameraPath, /bool CameraPath_AutoPath\(\) \{ return FilmmakerSettings_UiBool\("editor\.timeline\.autopath", false\); \}/);
+  assert.match(cameraPath, /void CameraPath::RunAutoPath\(\) \{[\s\S]{0,500}GraphEditorExperiment_Enabled\(\) && m_timing == Timing::Live[\s\S]{0,1500}m_play\.StartPlay\(m_eval\.Duration\(\), \/\*rangeGated\*\/ true\);/);
+  assert.match(cameraPath, /if \(playDone && m_autoPlaying\) \{\s*EndAutoPath\("the last key"\);/);
+  assert.match(cameraPath, /!DemoIsPaused\(\) && !m_autoPlaying\)\s*DemoCmd\("demo_pause"\);/);
+});
+
+test('FIT frames the selected keys, else the selected layer, and a second press everything', () => {
+  assert.match(graph, /var span = again \? null : keySpan\(function \(k\) \{ return !!k\.sel; \}\);/);
+  assert.match(graph, /if \(!span && !again && selNode\) \{[\s\S]{0,200}allTimes\(nodeById\(selNode\)\)/);
+  assert.match(graph, /var again = lastFit && lastFit\.t0 === view\.t0 && lastFit\.t1 === view\.t1;/);
 });
 
 test('keyframe shortcuts go to the dock, which knows which model holds the selection', () => {

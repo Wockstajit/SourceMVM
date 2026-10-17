@@ -836,6 +836,28 @@ R"TLJS(
       } catch (e) { m = -1; }
       if (m !== lastCamMode) { lastCamMode = m; try { root.SetAttributeString('cammode', String(m)); } catch (e2) {} }
     }
+    // Where the native demo bar is on screen ('barrect'), for MovieMode: outside the workspaces a
+    // press on it is the bar's. The free cam used to take it as a hold-to-look, so CAM EDITOR and
+    // CONFIG were dead until CS2's own camera was cycled back (2026-10-17). Client device px, the
+    // space GetPositionWithinWindow answers in; '' while the bar is hidden.
+    var lastBarRect = null;
+    function publishBarRect() {
+      var r = '';
+      try {
+        if (nativeContents && nativeContents.IsValid && !nativeContents.IsValid()) { nativeContents = null; nativeRoot = null; }
+        var c = ensureNative();
+        var on = !!c;
+        for (var p = c; on && p; p = p.GetParent ? p.GetParent() : null) if (p.visible === false) on = false;
+        if (on && c.GetPositionWithinWindow) {
+          var a = c.GetPositionWithinWindow();
+          var k = $.MirvBarFitK; if (!(typeof k === 'number' && k > 0.05 && k <= 1)) k = 1;
+          var w = (c.actuallayoutwidth || 0) * k, h = (c.actuallayoutheight || 0) * k;
+          if (a && w > 0 && h > 0)
+            r = Math.round(a.x) + ' ' + Math.round(a.y) + ' ' + Math.round(a.x + w) + ' ' + Math.round(a.y + h);
+        }
+      } catch (e) { r = ''; }
+      if (r !== lastBarRect) { lastBarRect = r; try { root.SetAttributeString('barrect', r); } catch (e2) {} }
+    }
     function patchNativeBar() {
       patchTimeStep();
       // "End Playback" and the native gear (opens CS2's own X-Ray/True View panel, which our Camera
@@ -859,6 +881,7 @@ R"TLJS(
       var overview = findNative('MapOverview');
       if (overview && overview.visible) overview.visible = false;
       publishCameraMode();
+      publishBarRect();
       var host = barGroup();
       if (!host) return;
       function childIndex(p) {

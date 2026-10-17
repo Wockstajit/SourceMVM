@@ -1,5 +1,6 @@
 #include "ConfigHud.h"
 #include "../Props/Props.h"
+#include "../Movie/SceneRig.h"
 #include "../Movie/TimelineDock.h" // the dock this panel now hosts and can switch
 #include "../Movie/CameraPath.h"   // key count for the dock ribbon's meta
 #include "../Environment/EnvironmentScene.h"
@@ -373,6 +374,7 @@ std::string ConfigHud::BuildStateJson() {
 	HandheldCamRef().AppendStateJson(o);
 	Environment::AppendStateJson(o);
 	Props_AppendStateJson(o);
+	SceneRig_AppendStateJson(o);
 	WeaponRecoilRef().AppendStateJson(o);
 	WeaponBobRef().AppendStateJson(o);
 	WeaponPivotRecoilRef().AppendStateJson(o, "pvr");
@@ -657,6 +659,12 @@ void ConfigHud_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* 
 	const char* arg = (argc >= 3) ? args->ArgV(2) : "toggle";
 	if (0 == _stricmp(arg, "state")) {
 		advancedfx::Message("[confighud][state] %s\n", ConfigHudRef().DebugStateJson().c_str());
+		return;
+	}
+	if (0 == _stricmp(arg, "viewmenu")) {
+		// A quick right-click in the ENVIRONMENT view (MovieMode): the object under the pointer gets
+		// its menu. The JS picks at the cursor and opens the Outliner's menu for it.
+		ConfigHudRef().RequestEval("$.ConfigHud.viewMenu()");
 		return;
 	}
 	if (0 == _stricmp(arg, "eval")) {

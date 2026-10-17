@@ -392,6 +392,13 @@ restoring five cards at once on panel open does not convulse.
   otherwise hang over controls it has moved away from. Its label is `hittest = false` as well as
   the panel's. A Label is hit-testable by default, which at `z-index: 260` would make the tooltip
   text a live click target over whatever it covered.
+- **The TIMELINE dock under Config shares the wheel.** `MovieMode::OnMouseWheel` sends a plain
+  notch over a panel to the hosting workspace while the dock is up, and `api.wheel` offers it to
+  `$.GraphExp.wheel` first: over the dock it moves the dock's rows (Ctrl zooms, Shift pans),
+  anywhere else it scrolls the column. Over the game it does nothing while the dock is up. The
+  router used to swallow every notch while the dock was up, so Config could not scroll at all.
+  A posted test wheel (`send-wheel.ps1 -Post`) does not move the cursor, and the dock reads the
+  cursor from its own mouse stream, so only a real mouse proves the over-the-dock half.
 - **The floating action row needs a shortened viewport, not padding.**
   RENDER / CUSTOMIZE PLAYER are parented to `root` at `z-index: 120`, so they float over the
   scroll column. `padding-bottom` on the inspector only extends the scrollable *range*; it never

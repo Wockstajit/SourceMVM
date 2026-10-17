@@ -17,6 +17,7 @@
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/JsonParser.h"
 #include "../Debug/MvmDebugLog.h"
+#include "../../SceneMarkerMath.h" // each kind's colour for the Config view's markers
 #include "../../ClientEntitySystem.h"
 #include "../../hlaeFolder.h"
 #include "../../../Shared/AfxConsole.h"
@@ -936,6 +937,13 @@ void AppendMarkers(JsonBuilder& j) {
 			int(std::clamp(box.color.x, 0.f, 1.f) * 255.f + .5f), int(std::clamp(box.color.y, 0.f, 1.f) * 255.f + .5f),
 			int(std::clamp(box.color.z, 0.f, 1.f) * 255.f + .5f));
 		j.StringField("color", color);
+		// Its kind's colour, the in-world markers' palette (SceneMarkerMath.h): the icon's ring and tag.
+		const Marker::Rgb* accent = box.kind == "camera" ? &Marker::kSceneCamera : box.kind == "point" ? &Marker::kPointLight
+			: box.kind == "spot" ? &Marker::kSpotLight : box.kind == "area" ? &Marker::kAreaLight : nullptr;
+		if (accent) {
+			snprintf(color, sizeof(color), "#%02x%02x%02x", accent->r, accent->g, accent->b);
+			j.StringField("accent", color);
+		}
 		j.Key("at"); point(box.center);
 		j.EndObject();
 	}
@@ -957,7 +965,7 @@ void AppendMarkers(JsonBuilder& j) {
 		for (const auto& box : boxes) {
 			if (box.id != -g_hover) continue;
 			j.StringField("name", box.name);
-			j.StringField("kind", box.light ? "Light" : "Mesh");
+			j.StringField("kind", box.kind == "camera" ? "Camera" : box.light ? "Light" : "Mesh");
 			j.BoolField("light", box.light);
 			j.Key("at"); point(box.center);
 			if (!box.light) {

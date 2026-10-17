@@ -497,9 +497,19 @@ void FollowCamera::PublishTargetHighlight() {
 		CameraBridge_SetFollowTargetBox(false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 		return;
 	}
+	// It answers "which one did I just pick?", so it shows for a few seconds after a target is
+	// chosen (Select Nearest, a pick from the list) and then goes. Left on, it stayed around the
+	// subject for the rest of the session (user report 2026-10-17). Picking again shows it again.
+	constexpr unsigned long long kTargetHighlightMs = 5000;
+	const unsigned long long now = GetTickCount64();
+	if (m_state.targetEntityIndex != m_highlightTarget || m_state.targetType != m_highlightType) {
+		m_highlightTarget = m_state.targetEntityIndex;
+		m_highlightType = m_state.targetType;
+		m_highlightSinceMs = now;
+	}
 	CEntityInstance* entity = m_state.targetEntityIndex >= 0 ? EntityAt(m_state.targetEntityIndex) : nullptr;
 	FollowVec3 origin;
-	if (!entity || !ReadOrigin(entity, origin)) {
+	if (!entity || !ReadOrigin(entity, origin) || now - m_highlightSinceMs >= kTargetHighlightMs) {
 		m_wantTargetHighlight = false;
 		CameraBridge_SetFollowTargetBox(false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 		return;

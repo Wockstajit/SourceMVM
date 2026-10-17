@@ -26,6 +26,7 @@
 #include "Movie/CamPathShake.h"
 #include "Movie/CameraPath.h"
 #include "Movie/SceneKeys.h"
+#include "Movie/SceneRig.h"
 #include "Props/Props.h"
 #include "Movie/FollowCamera.h"
 #include "Movie/ViewFx.h"
@@ -410,7 +411,8 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 		Filmmaker::WindowResize_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "keyframes")) {
 		// Keyframed demo copies for one-frame backward seeks -- see Demo/DemoKeyframes.h.
-		Filmmaker::DemoKeyframes_RunCommand(argc, args, cmd);
+		if (argc >= 4 && 0 == _stricmp(args->ArgV(3), "switch")) Filmmaker::DemoKeyframes_SwitchNow();
+		else Filmmaker::DemoKeyframes_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "scrub")) {
 		// Live timeline scrubbing: the world follows a drag -- see Movie/DemoScrub.h.
 		Filmmaker::DemoScrub_RunCommand(argc, args, cmd);
@@ -443,6 +445,9 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 		Filmmaker::GraphEditor_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "scenekeys")) {
 		Filmmaker::SceneKeys_RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "rig")) {
+		// Scene object rigs: attach placed lights / meshes / cameras, key their pose, look through.
+		Filmmaker::SceneRig_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "props")) {
 		Filmmaker::Props_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "dock")) {

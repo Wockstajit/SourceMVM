@@ -8,6 +8,45 @@ function Get-AutomationRepositoryRoot {
     return (Split-Path -Parent (Get-AutomationRoot))
 }
 
+# The checkouts that may hold the PRIVATE local assets: this one first, then the main checkout when
+# this is a git worktree. FX\compiled (the VFX packs), FX\death-animations (the ragdoll clips) and
+# a full build's FX stage are git-ignored, so a worktree has none of them; a launch from one started
+# CS2 with no VFX pack mounted and no ragdoll clips (2026-10-17).
+function Get-PrivateAssetRoots {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot
+    )
+
+    $roots = @([IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\'))
+    $common = ''
+    try { $common = [string](& git -C $RepositoryRoot rev-parse --path-format=absolute --git-common-dir 2>$null) } catch { }
+    $global:LASTEXITCODE = 0
+    if ($common) {
+        $main = [IO.Path]::GetFullPath((Split-Path -Parent $common.Trim())).TrimEnd('\')
+        if ((Test-Path -LiteralPath $main) -and -not ($roots | Where-Object { $_ -ieq $main })) { $roots += $main }
+    }
+    return $roots
+}
+
+# The first of Get-PrivateAssetRoots that has `RelativePath`, or ''.
+function Find-PrivateAsset {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$RelativePath
+    )
+
+    foreach ($assetRoot in (Get-PrivateAssetRoots -RepositoryRoot $RepositoryRoot)) {
+        $candidate = Join-Path $assetRoot $RelativePath
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    return ''
+}
+
 function Get-NewestCs2HookBuildDll {
     [CmdletBinding()]
     param(

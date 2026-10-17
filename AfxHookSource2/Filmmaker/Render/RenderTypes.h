@@ -85,7 +85,7 @@ struct RenderPasses {
 	float depthNear = 8.0f;
 	float depthFar = 4096.0f;
 	// Live workspace view of one pass on the game view (never during a job). Beauty + Everything is
-	// "off": the normal scene. Gun only has no live form (it is the difference of two renders).
+	// "off": the normal scene. Gun only shows its viewmodel depth band (no muzzle flash live).
 	PassConfig preview;
 };
 

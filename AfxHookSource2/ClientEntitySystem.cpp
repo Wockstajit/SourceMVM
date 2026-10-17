@@ -813,48 +813,29 @@ int AfxGetSpectatedPawnIndex() {
             return target;
     }
 
-    // Fallback: render-eye match against the current game camera (first-person only).
-    auto absd = [](double v) { return v < 0.0 ? -v : v; };
+    // Fallback: the pawn whose render eye is nearest the game camera, if it is close enough to be
+    // first person. The match used to demand 0.2 units (and 0.2 degrees, then position alone), but
+    // the camera and the pawn's render eye are sampled at different moments: MEASURED 2026-10-17,
+    // the spectated player's eye sat 4-5 units from the camera whenever he moved (0.3 standing
+    // still), so the spectated player resolved to nobody for most of a round and weapon recoil
+    // dropped 32 of 59 shots. 12 units still never reaches a chase or free camera, which sits tens
+    // to hundreds of units off any eye; the nearest eye wins if two heads are that close.
+    constexpr double kFirstPersonEyeUnits = 12.0;
     const double* camO = g_CurrentGameCamera.origin;
-    const double* camA = g_CurrentGameCamera.angles;
-
+    int nearest = -1;
+    double best = kFirstPersonEyeUnits * kFirstPersonEyeUnits;
     const int highest = GetHighestEntityIndex();
     for (int i = 0; i <= highest; ++i) {
         CEntityInstance* ent = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList, i);
         if (!ent || !ent->IsPlayerPawn())
             continue;
-
         float o[3] = {}; ent->GetRenderEyeOrigin(o);
-        float a[3] = {}; ent->GetRenderEyeAngles(a);
-
-        // Magnitude comparison + 0.2 tolerance, matching DeathMsg.cpp::getSpectatedPlayer.
-        if (absd(absd((double)o[0]) - absd(camO[0])) > 0.2) continue;
-        if (absd(absd((double)o[1]) - absd(camO[1])) > 0.2) continue;
-        if (absd(absd((double)o[2]) - absd(camO[2])) > 0.2) continue;
-        if (absd(absd((double)a[0]) - absd(camA[0])) > 0.2) continue;
-        if (absd(absd((double)a[1]) - absd(camA[1])) > 0.2) continue;
-        if (absd(absd((double)a[2]) - absd(camA[2])) > 0.2) continue;
-        return i;
+        const double dx = o[0] - camO[0], dy = o[1] - camO[1], dz = o[2] - camO[2];
+        const double d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < best) { best = d2; nearest = i; }
     }
-
-    // Last fallback: POSITION-only render-eye match. Recoil view punch skews the camera
-    // ANGLES away from the pawn's stored render-eye angles while firing, which made the
-    // full match above fail during exactly the frames weapon FX spawn (observed live
-    // 2026-07-04: FxAlign resolved a pawn on only 4 of ~950 shot samples, and the
-    // watched-player uid flickered to -1 mid-burst for the same reason). Punch never
-    // moves the camera ORIGIN off the eye, and a 0.2-unit position coincidence in
-    // third-person / free cam is not realistically reachable, so position alone still
-    // means first person in practice.
-    for (int i = 0; i <= highest; ++i) {
-        CEntityInstance* ent = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList, i);
-        if (!ent || !ent->IsPlayerPawn())
-            continue;
-        float o[3] = {}; ent->GetRenderEyeOrigin(o);
-        if (absd(absd((double)o[0]) - absd(camO[0])) > 0.2) continue;
-        if (absd(absd((double)o[1]) - absd(camO[1])) > 0.2) continue;
-        if (absd(absd((double)o[2]) - absd(camO[2])) > 0.2) continue;
-        return i;
-    }
+    if (nearest >= 0)
+        return nearest;
     return -1;
 }
 
@@ -911,9 +892,24 @@ static int AfxResolveSpectatedUserIdNow() {
             const ULONGLONG now = GetTickCount64();
             if (now - s_lastMs >= 1000) {
                 s_lastMs = now;
+                // The nearest pawn eye to the camera, so a near miss (a few units) reads apart
+                // from no candidate at all.
+                int nearest = -1; double best = 1e30;
+                float bestEye[3] = {};
+                for (int i = 0, n = GetHighestEntityIndex(); i <= n; ++i) {
+                    CEntityInstance* ent = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList, i);
+                    if (!ent || !ent->IsPlayerPawn()) continue;
+                    float o[3] = {}; ent->GetRenderEyeOrigin(o);
+                    const double dx = o[0] - g_CurrentGameCamera.origin[0], dy = o[1] - g_CurrentGameCamera.origin[1],
+                        dz = o[2] - g_CurrentGameCamera.origin[2], d = sqrt(dx * dx + dy * dy + dz * dz);
+                    if (d < best) { best = d; nearest = i; bestEye[0] = o[0]; bestEye[1] = o[1]; bestEye[2] = o[2]; }
+                }
                 Filmmaker::MvmDebugLog_LinefAlways("spectate.resolve",
                     "FAILED at pawn stage: observerTarget=%d (engine observer target unusable, "
-                    "render-eye match found nothing, local-viewer fallback empty)", dbgObserver);
+                    "render-eye match found nothing, local-viewer fallback empty) camera=%.2f %.2f %.2f "
+                    "nearestPawn=%d eye=%.2f %.2f %.2f dist=%.2f", dbgObserver,
+                    g_CurrentGameCamera.origin[0], g_CurrentGameCamera.origin[1], g_CurrentGameCamera.origin[2],
+                    nearest, bestEye[0], bestEye[1], bestEye[2], nearest >= 0 ? best : -1.0);
             }
         }
         return -1;
@@ -942,10 +938,9 @@ static int AfxResolveSpectatedUserIdNow() {
 
 // Sticky wrapper around the resolve above.
 //
-// The underlying resolution matches a pawn's render eye against the game camera within 0.2
-// units / 0.2 degrees, and that match drops out for individual frames all the time: recoil view
-// punch skews the angles while firing, the eye lerps during a spectator switch, and a paused or
-// mid-seek frame can present a stale camera. Callers that consume GAME EVENTS see that as a
+// The underlying resolution takes the pawn whose render eye is nearest the game camera (within
+// first-person range), and that match can still drop out for individual frames: the eye lerps
+// during a spectator switch, and a paused or mid-seek frame can present a stale camera. Callers that consume GAME EVENTS see that as a
 // permanently broken feature rather than a blip -- measured live, 141 of 150 weapon_fire /
 // player_footstep events were being discarded as "no spectated player" while a player was
 // plainly being spectated.

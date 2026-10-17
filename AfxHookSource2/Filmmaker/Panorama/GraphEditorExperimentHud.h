@@ -48,6 +48,8 @@ public:
 	// View ownership while live-driving (read by main.cpp's setup-view hook, OR'd with the
 	// stable path's owner) + cursor routing (read by MovieMode's click-consume / suspend).
 	bool OwnsView() const;
+	// A playhead drag flies the camera path: only while the path layer's AUTO is on.
+	bool ScrubDrives() const;
 	bool WantsCursor() const { return m_enabled; }
 
 	// --- command surface (called from FilmmakerCommand's "grapheditor" dispatch) ---

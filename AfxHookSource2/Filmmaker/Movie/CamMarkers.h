@@ -10,6 +10,8 @@
 
 #include "GraphCurveMath.h"
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -42,6 +44,42 @@ struct CamMarker {
 		return false;
 	}
 };
+
+// THE LIMITS ON A MARKER. A camera path once saved yaw = 4.7e10 degrees with graph handles of
+// +-1.6e10 (user report 2026-10-17: "the roll, pitch and stuff can go to really high numbers ... it
+// crashes your game, then it doesn't load"). A marker is checked wherever it enters the list -- a
+// placement, a typed or dragged value, a graph edit, an undo, a load -- so a value like that is never
+// kept. Angles may still spin a path through many turns; past kMarkerMaxAngle a value is folded back
+// to the same direction within one turn. Returns true when something had to change.
+constexpr double kMarkerMaxAngle = 36000.0;   // 100 turns either way
+constexpr double kMarkerMaxCoord = 1.0e6;     // world units (CS2 maps sit within +-16384)
+constexpr double kMarkerMaxHandle = 1.0e6;    // a handle's value offset, any channel
+inline double SanitizeMarkerAngle(double v) {
+	if (!std::isfinite(v)) return 0.0;
+	return std::fabs(v) > kMarkerMaxAngle ? std::remainder(v, 360.0) : v;
+}
+inline bool SanitizeMarker(CamMarker& m) {
+	bool changed = false;
+	auto set = [&](double& v, double next) { if (!(v == next)) { v = next; changed = true; } };
+	auto coord = [&](double& v) {
+		set(v, std::isfinite(v) ? (std::min)((std::max)(v, -kMarkerMaxCoord), kMarkerMaxCoord) : 0.0);
+	};
+	coord(m.x); coord(m.y); coord(m.z);
+	set(m.pitch, SanitizeMarkerAngle(m.pitch));
+	set(m.yaw, SanitizeMarkerAngle(m.yaw));
+	set(m.roll, SanitizeMarkerAngle(m.roll));
+	set(m.fov, std::isfinite(m.fov) ? (std::min)((std::max)(m.fov, 1.0), 179.0) : 90.0);
+	if (!std::isfinite(m.time)) { m.time = 0.0; changed = true; }
+	if (!std::isfinite(m.speedMul) || m.speedMul <= 0.0f) { m.speedMul = 1.0f; changed = true; }
+	for (int c = 0; c < 7; ++c) {
+		const double limit = GraphCurve::IsAngleChannel(c) ? kMarkerMaxAngle : kMarkerMaxHandle;
+		for (GraphCurve::Handle* h : { &m.in[c], &m.out[c] }) {
+			set(h->tx, std::isfinite(h->tx) ? (std::min)((std::max)(h->tx, 0.0), 1.0) : 1.0 / 3.0);
+			set(h->dv, std::isfinite(h->dv) && std::fabs(h->dv) <= limit ? h->dv : 0.0);
+		}
+	}
+	return changed;
+}
 
 // The pose between markers a and b at `tick` along the graph's curves: per channel the Bezier
 // segment from a's `out` handle to b's `in` handle (GraphCurve::SegmentValue -- what the graph

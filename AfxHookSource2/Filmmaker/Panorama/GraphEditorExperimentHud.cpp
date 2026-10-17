@@ -12,11 +12,15 @@
 #include "GraphEditorJs.h"
 #include "CameraTimelineHud.h"
 #include "../Filmmaker.h"
+#include "ConfigHud.h"          // ConfigHud_Enabled: which workspace hosts the dock
 #include "../Movie/CameraPath.h"
 #include "../Movie/CameraBridge.h"
 #include "../Movie/DemoTimescale.h" // one demo speed, shared by all three scrubbers
 #include "../Movie/SceneKeys.h"
-#include "../Movie/CamPathShake.h" // the CAMERA PATH layer's "Camera shake" row
+#include "../Movie/CamPathShake.h" // the "Camera shake" rows (the path's and camera objects')
+#include "../Movie/SceneRig.h"     // SceneRig_ObjectName: a camera object's layer name
+#include "../Environment/EnvironmentScene.h" // ObjectSummaries: the camera objects
+#include "../Platform/JsonBuilder.h"         // JsonBuilder::Escape
 #include "../Movie/ScrubFrameCache.h" // the transport's Cache toggle
 #include "../Movie/RageShake.h"    // RageShake_StyleLabel: the shake's display name
 #include "../Config/FilmmakerSettingsStore.h"
@@ -240,7 +244,17 @@ bool GraphEditorExperimentHud::DrivingNow() const {
 	// tick through the settle, so the last pose it is left with is the tick the playhead shows. With
 	// the scrub frame cache on, the drag flies the WORLD's time (ScrubFrameCache_CameraTick), and
 	// stopping at the release left the camera wherever the world was mid-travel.
-	return TimelinePlayhead_Scrubbing() || m_editDriveFrames > 0 || m_releaseDrive;
+	//
+	// A scrub flies the path only while the camera path layer's AUTO is on. With AUTO off it took
+	// the view whenever the playhead was dragged through the path's range -- dragging scene keys,
+	// or scrubbing to light a shot -- which read as AUTO running while it was off (mvm_debug
+	// 2026-10-17 08:11: ownsView=1 on every scene-key drag inside 1848..2332). J and a camera key
+	// edit still show the path.
+	return ScrubDrives() || m_editDriveFrames > 0 || m_releaseDrive;
+}
+
+bool GraphEditorExperimentHud::ScrubDrives() const {
+	return TimelinePlayhead_Scrubbing() && CameraPath_AutoPath();
 }
 
 bool GraphEditorExperimentHud::OwnsView() const {
@@ -254,7 +268,7 @@ void GraphEditorExperimentHud::DriveCameraThisFrame() {
 	if (m_releaseDrive && !DemoScrub_Active()) m_releaseDrive = false;
 	if (!m_enabled || !m_drive || m_model.TotalKeys() == 0)
 		return;
-	if (!TimelinePlayhead_Scrubbing() && !editDrive)
+	if (!ScrubDrives() && !editDrive)
 		return;
 	// Camera and scene keys share one TIMELINE now, so "which model is showing" no longer decides
 	// this: the CAMERA PATH layer's switch is m_drive itself (checked above). Turning that layer off
@@ -375,6 +389,9 @@ std::string GraphEditorExperimentHud::BuildStateJson() {
 	// so it needs the same number CONFIG and the editor lay out to. See InspectorWidth.h.
 	InspectorWidth_AppendJson(o);
 	o << ",\"drive\":" << (m_drive ? "true" : "false");
+	o << ",\"autoPath\":" << (CameraPath_AutoPath() ? "true" : "false");
+	// Which workspace hosts the dock: its CAM EDITOR / CONFIG buttons light that one.
+	o << ",\"workspace\":\"" << (ConfigHud_Enabled() ? "config" : CameraEditor_Active() ? "editor" : "none") << "\"";
 	o << ",\"scrubbing\":" << (TimelinePlayhead_Scrubbing() ? "true" : "false");
 	// Distinguishes PLAYBACK from a scrub: only playback pages the window to follow the playhead.
 	o << ",\"playing\":" << (DemoPlaying() ? "true" : "false");
@@ -444,30 +461,17 @@ std::string GraphEditorExperimentHud::BuildStateJson() {
 		o << ",\"rangeActive\":" << (ok ? "true" : "false");
 		o << ",\"rangeIn\":" << (ok ? resolved.startTick : 0) << ",\"rangeOut\":" << (ok ? resolved.endTickExclusive : 0);
 	}
-	// The camera path's keys (marker ticks, in order: a marker's index is what `pathshake` takes)
-	// and the GTA V shake each one carries, for the CAMERA PATH layer's "Camera shake" row.
+	// The camera path's keys and the shake tracks (the path's and each camera object's), for the
+	// "Camera shake" rows (CamPathShake owns the format), and the camera objects that can carry one:
+	// each gets an OBJECTS layer with that row even before it has pose keys.
+	CamPathShake_AppendDockJson(o);
 	{
-		const std::vector<CamMarker>& mk = CameraPathRef().Markers();
-		o << ",\"pathKeys\":[";
-		for (size_t i = 0; i < mk.size(); ++i) { if (i) o << ","; o << mk[i].tick; }
-		o << "],\"shakes\":[";
+		o << ",\"shakeCams\":[";
 		bool first = true;
-		for (int i = 0; i < (int)mk.size(); ++i) {
-			const CamPathShakeSetting s = CamPathShake_Get(i);
-			if (!s.Active()) continue;
-			if (!first) o << ",";
+		for (const auto& obj : Environment::ObjectSummaries()) {
+			if (obj.kind != "camera") continue;
+			o << (first ? "" : ",") << "{\"id\":" << obj.id << ",\"name\":\"" << JsonBuilder::Escape(SceneRig_ObjectName(obj.id)) << "\"}";
 			first = false;
-			o << "{\"i\":" << i << ",\"t\":" << mk[(size_t)i].tick << ",\"s\":" << s.style << ",\"l\":\"" << RageShake_StyleLabel(s.style)
-				<< "\",\"n\":" << s.intensity << ",\"p\":" << s.speed
-				<< ",\"o\":" << (RageShake_Finished(RageShake_Style(s.style), 1.0e6, 1.0) ? 1 : 0) << "}";
-		}
-		o << "]";
-		// The shake menu's list: [style index, label] in menu order, the first shakeEssentials
-		// being the Rockstar Editor set. Static, but small enough to ride along every frame.
-		o << ",\"shakeEssentials\":" << RageShake_RockstarEditorCount() << ",\"shakeStyles\":[";
-		for (int m = 0; m < RageShake_MenuCount(); ++m) {
-			const int si = RageShake_MenuStyle(m);
-			o << (m ? "," : "") << "[" << si << ",\"" << RageShake_StyleLabel(si) << "\"]";
 		}
 		o << "]";
 	}
@@ -793,7 +797,7 @@ void GraphEditorExperimentHud::CmdPlayhead(double tick, bool seek) {
 	if (seek) {
 		const bool wasScrubbing = TimelinePlayhead_Scrubbing();
 		TimelinePlayhead_EndScrub();         // release: follow the demo tick again (JS sends scrub release)
-		if (wasScrubbing) m_releaseDrive = true;
+		if (wasScrubbing && CameraPath_AutoPath()) m_releaseDrive = true;
 	}
 	else {
 		TimelinePlayhead_BeginScrub(tick);   // drag: preview the camera at this tick...

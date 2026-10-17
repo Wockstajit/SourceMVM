@@ -70,7 +70,7 @@ void ResetScenePage(Scene &next, const std::string &resetPage) {
         if (resetPage == "lighting" || resetPage == "props") {
             bool lights = resetPage == "lighting";
             next.objects.erase(std::remove_if(next.objects.begin(), next.objects.end(),
-                                              [&](const Object &o) { return o.IsLight() == lights; }),
+                                              [&](const Object &o) { return lights ? o.IsLight() : o.IsProp(); }),
                                next.objects.end());
             if (lights)
                 next.ambient = Scene{}.ambient;
@@ -150,6 +150,7 @@ std::string SerializeScene(const Scene &s) {
         b.BoolField("cameraVisible",o.cameraVisible);b.BoolField("materialEnabled",o.material.enabled);
         b.StringField("group",o.group);b.BoolField("render",o.render);b.BoolField("locked",o.locked);
         if(!o.clip.empty()){b.StringField("clip",o.clip);b.DoubleField("clipSpeed",o.clipSpeed);}
+        if(o.IsCamera())b.DoubleField("fov",o.fov);
         b.DoubleField("roughness",o.material.roughness);b.DoubleField("metallic",o.material.metallic);
         b.DoubleField("coat",o.material.coat);b.DoubleField("coatRoughness",o.material.coatRoughness);
         b.DoubleField("anisotropy",o.material.anisotropy);b.DoubleField("emission",o.material.emission);
@@ -159,6 +160,7 @@ std::string SerializeScene(const Scene &s) {
         b.EndObject();
     }
     b.EndArray();
+    { int next = s.nextObjectId; for (const auto &o : s.objects) next = (std::max)(next, o.id + 1); b.IntField("nextObjectId", next); } // what a load computes, so a round trip is exact
     b.Key("held");
     b.BeginObject();
     for (auto &h : s.held)
@@ -261,7 +263,7 @@ bool ParseScene(const std::string &json, Scene &out, std::string &error) {
         if (objects.size() > 80)
             throw std::runtime_error("Scene exceeds object limit");
         std::set<int> ids;
-        int lights = 0, props = 0, shadowLights = 0;
+        int lights = 0, props = 0, cameras = 0, shadowLights = 0;
         for (auto &v : objects) {
             Object o;
             o.id = Integer(v, "id", 1, 1000000);
@@ -275,12 +277,14 @@ bool ParseScene(const std::string &json, Scene &out, std::string &error) {
             if (o.kind == "snowdrift" || o.kind == "puddle")
                 continue;
             if (o.kind != "box" && o.kind != "sphere" && o.kind != "cylinder" && o.kind != "beveledbox" && o.kind != "obj" &&
-                !o.IsLight())
+                !o.IsLight() && !o.IsCamera())
                 throw std::runtime_error("Unknown object kind");
             if (o.kind == "obj" && !ValidName(o.asset))
                 throw std::runtime_error("Invalid mesh asset name");
             if (o.IsLight())
                 ++lights;
+            else if (o.IsCamera())
+                ++cameras;
             else
                 ++props;
             o.position = Vector(v, "position", -32768, 32768);
@@ -313,7 +317,7 @@ bool ParseScene(const std::string &json, Scene &out, std::string &error) {
                 m.roughnessTexture=Field(v,"roughnessTexture",JsonValue::Type::String).str;
                 for(const auto &name:{m.albedoTexture,m.normalTexture,m.roughnessTexture})
                     if(!name.empty()&&!ValidName(name))throw std::runtime_error("Invalid texture asset name");
-                if(o.IsLight()&&(!o.cameraVisible||m.enabled))throw std::runtime_error("Surface material and camera visibility belong to props");
+                if(!o.IsProp()&&(!o.cameraVisible||m.enabled))throw std::runtime_error("Surface material and camera visibility belong to props");
             }
             // Outliner fields: optional, so a scene saved before the outliner existed keeps its
             // objects ungrouped, rendered and unlocked.
@@ -329,14 +333,24 @@ bool ParseScene(const std::string &json, Scene &out, std::string &error) {
                 o.clip=c->str;
             }
             if(auto s=v.Find("clipSpeed"))o.clipSpeed=std::clamp(float(s->AsNumber(1)),-4.f,4.f);
+            if(o.IsCamera())o.fov=v.Find("fov")?Number(v,"fov",1,179):90.f;
             if (o.shadows && !o.IsLight())
                 throw std::runtime_error("Shadow enable belongs to lights");
             if (o.shadows)
                 ++shadowLights;
             s.objects.push_back(o);
         }
-        if (lights > 16 || props > 64)
-            throw std::runtime_error("Maximum 16 lights and 64 props");
+        if (lights > 16 || props > 64 || cameras > 16)
+            throw std::runtime_error("Maximum 16 lights, 64 props and 16 cameras");
+        // Optional (absent = one past the highest id); never below one past the highest id.
+        s.nextObjectId = 1;
+        for (const auto &o : s.objects) s.nextObjectId = (std::max)(s.nextObjectId, o.id + 1);
+        if (const auto* next = root.Find("nextObjectId")) {
+            if (next->type != JsonValue::Type::Number || !std::isfinite(next->number) || next->number < 1 ||
+                next->number > 1000001 || next->number != std::floor(next->number))
+                throw std::runtime_error("Invalid next object ID");
+            s.nextObjectId = (std::max)(s.nextObjectId, int(next->number));
+        }
         if (shadowLights > 4)
             throw std::runtime_error(
                 "Maximum four shadow-casting added lights; disable shadows on another light first");

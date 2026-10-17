@@ -42,6 +42,7 @@
 
 #include "WeaponPivot.h" // the hinge: one shared answer, see that header
 
+#include <algorithm>
 #include <cmath>
 
 namespace Filmmaker {
@@ -356,7 +357,13 @@ inline void WeaponBobHingeCompensate(double pitchDeg, double yawDeg,
 struct WeaponBobAimState {
     bool have = false;
     double pitch = 0.0, yaw = 0.0;
+    double held = 0.0;                 // seconds the angle has not moved since it last changed
+    double velPitch = 0.0, velYaw = 0.0; // the velocity measured at that change
 };
+// A spectated player's view angle moves once per demo tick (64 a second) while frames render
+// faster, so most frames repeat the last angle. Up to this long without a change the turn is
+// taken to continue at its last measured speed; past it the player has stopped turning.
+constexpr double kWeaponBobAimHoldSeconds = 2.5 / 64.0;
 
 inline double WeaponBobWrapDeg(double a) {
     a = std::fmod(a, 360.0);
@@ -376,8 +383,15 @@ inline double WeaponBobAimInterval(double demoDt,double wallDt,double rate,bool 
     return wallDt*rate;
 }
 
-// Returns true on a spectator cut so the caller can clear its sway filter. Even a held
-// or paused frame rebases the angle: it must never accumulate into a later tiny sample.
+// Returns true on a spectator cut so the caller can clear its sway filter. A paused frame
+// rebases the angle and zeroes the turn: it must never carry into a later sample.
+//
+// TICK-STEPPED ANGLES. Measured 2026-10-17 (weaponbob.frame, MoNaTy demo): during a steady turn
+// the per-frame velocity read (-9.6, 129) -> (-9.1, 93.4) -> (0, 0) -> (0, 0): frames between two
+// ticks repeat the angle and read zero, then the tick frame packs the whole tick's turn into one
+// short frame. Sway followed that zero / spike pattern, which is the laggy, wrong carry. A frame
+// that repeats the angle now keeps the last measured velocity (up to kWeaponBobAimHoldSeconds),
+// and a change is measured over the whole time since the previous change.
 inline bool WeaponBobAimAdvance(WeaponBobAimState& st, double sampleDt,
     double pitch, double yaw, double& pitchVelocity, double& yawVelocity)
 {
@@ -386,12 +400,25 @@ inline bool WeaponBobAimAdvance(WeaponBobAimState& st, double sampleDt,
     const double dP = WeaponBobWrapDeg(pitch - st.pitch);
     const double dY = WeaponBobWrapDeg(yaw - st.yaw);
     const bool cut = st.have && (std::fabs(dP) > 45.0 || std::fabs(dY) > 45.0);
-    if (st.have && !cut && sampleDt > 0.0 && std::isfinite(sampleDt)) {
-        pitchVelocity = dP / sampleDt;
-        yawVelocity = dY / sampleDt;
+    if (!st.have || cut || !(sampleDt > 0.0) || !std::isfinite(sampleDt)) {
+        st.have = true; st.pitch = pitch; st.yaw = yaw;
+        st.held = 0.0; st.velPitch = st.velYaw = 0.0;
+        return cut;
     }
-    st.have = true; st.pitch = pitch; st.yaw = yaw;
-    return cut;
+    if (std::fabs(dP) < 1e-6 && std::fabs(dY) < 1e-6) {
+        st.held += sampleDt;
+        if (st.held <= kWeaponBobAimHoldSeconds) { pitchVelocity = st.velPitch; yawVelocity = st.velYaw; }
+        else st.velPitch = st.velYaw = 0.0;
+        return false;
+    }
+    // After a stop the change still happened within the last tick, not within this one frame.
+    const double interval = st.held <= kWeaponBobAimHoldSeconds ? st.held + sampleDt
+        : (std::max)(sampleDt, 1.0 / 64.0);
+    pitchVelocity = st.velPitch = dP / interval;
+    yawVelocity = st.velYaw = dY / interval;
+    st.held = 0.0;
+    st.pitch = pitch; st.yaw = yaw;
+    return false;
 }
 
 // Look sway state: the smoothed aim-velocity terms ARC9 keeps in module-level locals.

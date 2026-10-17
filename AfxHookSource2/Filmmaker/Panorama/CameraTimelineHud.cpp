@@ -97,6 +97,7 @@ bool CameraTimelineHud::BuildIfNeeded() {
 	m_symState = m_bridge.MakeSymbol("state");
 	m_symMenuOpen = m_bridge.MakeSymbol("menuopen");
 	m_symCamMode = m_bridge.MakeSymbol("cammode");
+	m_symBarRect = m_bridge.MakeSymbol("barrect");
 	m_root = FindRoot();
 	m_built = (m_root != nullptr);
 	m_lastState.clear();
@@ -120,6 +121,19 @@ void CameraTimelineHud::Teardown() {
 	m_root = nullptr;
 	m_hudPanel = nullptr;
 	m_lastState.clear();
+	m_barValid.store(false);
+	m_barRectText.clear();
+}
+
+void CameraTimelineHud::ReadBarRect() {
+	const std::string text = m_root ? m_bridge.GetAttributeString(m_root, m_symBarRect, "") : std::string();
+	if (text == m_barRectText) return;
+	m_barRectText = text;
+	int r[4] = {};
+	const bool ok = 4 == sscanf_s(text.c_str(), "%d %d %d %d", &r[0], &r[1], &r[2], &r[3]) && r[2] > r[0] && r[3] > r[1];
+	m_barValid.store(false);
+	for (int i = 0; i < 4; ++i) m_bar[i].store(r[i]);
+	m_barValid.store(ok);
 }
 
 // Declared in Filmmaker.cpp; queried so the timeline yields the curve zone to the experimental
@@ -381,6 +395,7 @@ void CameraTimelineHud::RunFrame() {
 	m_menuOpen = m_root
 		&& m_bridge.GetAttributeString(m_root, m_symMenuOpen, "0") == "1";
 	m_nativeCameraMode = m_root ? atoi(m_bridge.GetAttributeString(m_root, m_symCamMode, "-1").c_str()) : -1;
+	ReadBarRect();
 
 	// After render(), so the list it scrolls has this frame's layout.
 	DispatchWheel();

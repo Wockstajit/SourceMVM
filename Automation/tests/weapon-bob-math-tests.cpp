@@ -101,6 +101,24 @@ int main() {
         Check(Near(WeaponBobAimInterval(1./60,.001,4,true,true),1./60),"Export uses exact demo intervals even when stepping paused frames");
         Check(WeaponBobAimInterval(.01,std::nan(""),1,false,false)==0,"Invalid render timing cannot poison aim velocity");
     }
+    {
+        // A demo turn at 90 deg/s rendered at 144 fps: the angle moves once per 64 tps tick, so
+        // most frames repeat it. Every frame must read the steady turn, not zero / spike.
+        WeaponBobAimState aim; double p = 0, y = 0;
+        const double frame = 1.0 / 144.0, tick = 1.0 / 64.0;
+        WeaponBobAimAdvance(aim, frame, 0, 0, p, y);
+        double minY = 1e9, maxY = -1e9;
+        for (int i = 1; i <= 288; ++i) {
+            const double t = i * frame;
+            const double angle = 90.0 * std::floor(t / tick) * tick; // the angle of the last tick
+            WeaponBobAimAdvance(aim, frame, 0, angle, p, y);
+            if (t > 0.1) { minY = (std::min)(minY, y); maxY = (std::max)(maxY, y); }
+        }
+        Check(minY > 60 && maxY < 120, "a tick-stepped steady turn reads steady, never zero or a spike");
+        // The player stops: past the hold the turn reads zero.
+        for (int i = 0; i < 12; ++i) WeaponBobAimAdvance(aim, frame, 0, 90.0 * std::floor(2.0 / tick) * tick, p, y);
+        Check(y == 0 && p == 0, "a turn that stopped reads zero once the hold runs out");
+    }
 	// ============================== walk bob ==============================================
 	{
 		Check(!WeaponBobEvaluate(1.0, 1.0 * 9.25, 1.0, 0, 0, 0, 0, 0, 0, 100, 100, 0, kRifle).Any(),

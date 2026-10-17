@@ -37,6 +37,12 @@ bool LensFx_Preset(Lens::Group group, const char* name);
 
 // True when either effect is switched on -- the only test the render hook needs before doing work.
 bool LensFx_Active();
+// True when depth of field is on: the render hook then keeps CS2's smoke absorbance and the smoke
+// spheres for the frame (LensSmoke below).
+bool LensFx_DofOn();
+// True when the lens flare is on: the main thread then keeps the sky's sun direction fresh
+// (SunFx_RefreshVisibleSun) so the sun can flare.
+bool LensFx_FlareOn();
 
 // Which built-in custom iris is loaded ("" when the custom slot holds a file or nothing).
 bool LensFx_SetBuiltInIris(const char* name);
@@ -49,13 +55,33 @@ void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 
 // ---- render thread ----------------------------------------------------------------------------
 
+// The smokes in front of the world this frame (see "smoke in front of the world" in LensFxMath.h).
+// `absorbance` is CS2's OIT zeroth moment (R32, b0 per pixel), `spheres` holds `count` detonated
+// smokes as centre xyz + radius, `camera` is the world position the frame is seen from. Any part may
+// be missing; the DOF then treats the depth buffer as the whole truth, as it did before.
+struct LensSmoke {
+	ID3D11ShaderResourceView* absorbance = nullptr;
+	UINT width = 0, height = 0;
+	const float* spheres = nullptr;
+	int count = 0;
+	float camera[3] = {};
+	bool haveCamera = false;
+};
+
 void LensFx_BeginDevice(ID3D11Device* device);
 void LensFx_EndDevice();
 
 // Runs the enabled effects over `target` in place. `worldToClip` is the engine's row-major
 // world-to-clip matrix for this frame (16 floats); `depthMin`/`depthMax` are the world viewport's
 // depth band (CS2 keeps the rest for the 3D skybox). Returns true when something was drawn.
+// The sun: a unit direction toward it in world space (see "the sun" in LensFxMath.h).
+struct LensSun {
+	bool have = false;
+	float dir[3] = {};
+};
+
 bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
-	ID3D11DepthStencilView* depth, const float* worldToClip, float depthMin, float depthMax);
+	ID3D11DepthStencilView* depth, const float* worldToClip, float depthMin, float depthMax,
+	const LensSmoke& smoke, const LensSun& sun);
 
 } // namespace Filmmaker

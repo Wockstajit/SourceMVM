@@ -31,25 +31,29 @@ static void TestParameterTable() {
 	CHECK(FindParam("dof.nonsense") == -1);
 	CHECK(FindParam(nullptr) == -1);
 
-	// The depth-of-field group stays small: at most 20 parameters, and the settings that were folded
-	// into fixed constants (or replaced by dof.gamma) are gone, not aliased.
+	// The depth-of-field group stays small: at most 22 parameters (the sharp band and the autofocus speed
+	// came back as controls on request), and the settings that were folded into fixed constants (or
+	// replaced by dof.gamma) are gone, not aliased.
 	int dofCount = 0;
 	for (int i = 0; i < ParamCount; ++i) dofCount += InGroup(i, Group::Dof) ? 1 : 0;
-	CHECK(dofCount <= 20);
-	for (const char* removed : { "dof.focusSpeed", "dof.focusX", "dof.focusY", "dof.focal", "dof.nearScale", "dof.farScale",
+	CHECK(dofCount <= 22);
+	for (const char* removed : { "dof.focusX", "dof.focusY", "dof.focal", "dof.nearScale", "dof.farScale",
 		"dof.catEye", "dof.edgeSoft", "dof.hole", "dof.chroma", "dof.threshold", "dof.gain", "dof.weaponDist" })
 		CHECK(FindParam(removed) == -1);
-	for (const char* kept : { "dof.on", "dof.mode", "dof.auto", "dof.focus", "dof.fstop", "dof.maxBlur", "dof.nearStart",
+	for (const char* kept : { "dof.on", "dof.mode", "dof.auto", "dof.focusSpeed", "dof.focus", "dof.fstop", "dof.range", "dof.maxBlur", "dof.nearStart",
 		"dof.nearEnd", "dof.farStart", "dof.farEnd", "dof.shape", "dof.blades", "dof.rotation", "dof.roundness",
 		"dof.squeeze", "dof.edge", "dof.gamma", "dof.quality", "dof.weapon", "dof.debug" })
 		CHECK(FindParam(kept) >= 0);
 	CHECK(Specs()[DofGamma].min == 0.0f && Specs()[DofGamma].max == 12.0f);
+	// Blade curve and rim reach below zero (bent-in blades, a soft centre); 0 stays the old look.
+	CHECK(Specs()[DofRoundness].min == -1.0f && Specs()[DofEdge].min == -1.0f && Specs()[DofEdge].def == 0.0f);
+	CHECK(Specs()[DofRange].def == 0.0f && Specs()[DofDebug].max == 3.0f);
 
-	// The flare group is fourteen controls (at most sixteen), and everything that was folded into a fixed
-	// constant, a palette index or removed is gone, not aliased.
+	// The flare group is fifteen controls (at most sixteen; the fifteenth is the sun), and everything that
+	// was folded into a fixed constant, a palette index or removed is gone, not aliased.
 	int flareCount = 0;
 	for (int i = 0; i < ParamCount; ++i) flareCount += InGroup(i, Group::Flare) ? 1 : 0;
-	CHECK(flareCount == 14 && flareCount <= 16);
+	CHECK(flareCount == 15 && flareCount <= 16);
 	for (const char* removed : { "flare.range", "flare.boost", "flare.spread", "flare.ghostGain", "flare.ghostSize", "flare.ghostShape",
 		"flare.ghostHue", "flare.ghostSat", "flare.variety", "flare.seed", "flare.chroma", "flare.squeeze", "flare.bladeRound",
 		"flare.haloWidth", "flare.haloCompress", "flare.haloRainbow", "flare.streakAng", "flare.starLen", "flare.starRot",
@@ -57,9 +61,10 @@ static void TestParameterTable() {
 		"flare.tintB", "flare.streakR", "flare.streakG", "flare.streakB" })
 		CHECK(FindParam(removed) == -1);
 	for (const char* kept : { "flare.on", "flare.intensity", "flare.threshold", "flare.ghosts", "flare.halo", "flare.streak",
-		"flare.streakLen", "flare.star", "flare.blades", "flare.glow", "flare.dirt", "flare.tint", "flare.streakTint", "flare.debug" })
+		"flare.streakLen", "flare.star", "flare.blades", "flare.glow", "flare.sun", "flare.dirt", "flare.tint", "flare.streakTint", "flare.debug" })
 		CHECK(FindParam(kept) >= 0);
 	CHECK(Specs()[FlareGhosts].max == (float)kMaxGhosts);
+	CHECK(Specs()[FlareSun].def == 1.0f && Specs()[FlareSun].min == 0.0f);
 	CHECK(Specs()[FlareThreshold].max == 1.0f && Specs()[FlareThreshold].def < 0.95f && Specs()[FlareThreshold].def > Specs()[FlareThreshold].min);
 	CHECK(Specs()[DofShape].max == (float)(IrisShapeCount - 1)); // no shape number outside the enum
 
@@ -108,6 +113,107 @@ static void TestCircleOfConfusion() {
 	CHECK_NEAR(CircleOfConfusion(huge, kFarSky, focus, W * 2, H * 2), huge[DofMaxBlur] * 2, 1e-2);
 }
 
+// dof.range keeps a band around the focus distance sharp, and the blur starts from zero at its edge.
+static void TestSharpBand() {
+	Values L;
+	L[DofMode] = 0; L[DofFstop] = 1.4f; L[DofMaxBlur] = 90;
+	const float focus = 400, W = 1920, H = 1080;
+	// With no band nothing changes.
+	CHECK(SharpBandDistance(700, focus, 0) == 700 && SharpBandDistance(100, focus, 0) == 100);
+	Values band = L; band[DofRange] = 150;
+	for (float d : { 250.0f, 300.0f, 400.0f, 549.0f, 550.0f })
+		CHECK_NEAR(CircleOfConfusion(band, d, focus, W, H), 0.0, 1e-4);
+	// Continuous at the edges: just past the band the blur is tiny, and it keeps its sign.
+	const float justFar = CircleOfConfusion(band, 560, focus, W, H), justNear = CircleOfConfusion(band, 240, focus, W, H);
+	CHECK(justFar > 0 && justFar < 0.5f && justNear < 0 && justNear > -0.5f);
+	// Past the band it is the band-free blur moved out by the band.
+	CHECK_NEAR(CircleOfConfusion(band, 1150, focus, W, H), CircleOfConfusion(L, 1000, focus, W, H), 1e-3);
+	CHECK_NEAR(CircleOfConfusion(band, 150, focus, W, H), CircleOfConfusion(L, 300, focus, W, H), 1e-3);
+	// A band never blurs more than none.
+	for (float d = 20; d < 20000; d *= 1.2f)
+		CHECK(std::fabs(CircleOfConfusion(band, d, focus, W, H)) <= std::fabs(CircleOfConfusion(L, d, focus, W, H)) + 1e-4f);
+	// The zone lens has its own sharp range and ignores the band.
+	Values zone = band; zone[DofMode] = 1;
+	Values zoneNoBand = zone; zoneNoBand[DofRange] = 0;
+	CHECK(CircleOfConfusion(zone, 2000, 0, W, H) == CircleOfConfusion(zoneNoBand, 2000, 0, W, H));
+}
+
+// A smoke in front of the wall is blurred at the smoke's own distance (see LensFxMath.h).
+static void TestSmoke() {
+	CHECK(SmokeCover(0) == 0 && SmokeCover(-1) == 0 && SmokeCover(std::nan("")) == 0);
+	CHECK_NEAR(SmokeCover(std::log(2.0f)), 0.5, 1e-6);
+	// The ray through a sphere: entry and exit, clipped to the camera and to the surface behind.
+	const float cam[3] = { 0, 0, 0 }, dir[3] = { 1, 0, 0 }, c[3] = { 500, 0, 0 };
+	float t0 = 0, t1 = 0;
+	CHECK(SmokeSpan(cam, dir, c, 200, 1e6f, t0, t1));
+	CHECK_NEAR(t0, 300, 1e-3); CHECK_NEAR(t1, 700, 1e-3);
+	CHECK(SmokeSpan(cam, dir, c, 200, 450, t0, t1) && std::fabs(t1 - 450) < 1e-3f); // the wall is inside the cloud
+	CHECK(!SmokeSpan(cam, dir, c, 200, 250, t0, t1));                                // the wall is in front of it
+	const float up[3] = { 0, 0, 1 };
+	CHECK(!SmokeSpan(cam, up, c, 200, 1e6f, t0, t1));                                // misses
+	const float inside[3] = { 450, 0, 0 };
+	CHECK(SmokeSpan(inside, dir, c, 200, 1e6f, t0, t1) && t0 == 0 && std::fabs(t1 - 250) < 1e-3f); // camera in the smoke
+	CHECK(!SmokeSpan(cam, dir, c, 0, 1e6f, t0, t1));
+	// Where the light comes from: the middle of a thin haze, the front of a dense cloud, never outside.
+	CHECK(SmokeSeenDepth(0, 3) == 0);
+	CHECK_NEAR(SmokeSeenDepth(400, 0), 200, 1e-3);
+	CHECK_NEAR(SmokeSeenDepth(400, 1e-2f), 200, 1.0);
+	CHECK(SmokeSeenDepth(400, 30) < 400.0f / 30 + 1e-2f);
+	float last = 400;
+	for (float b = 0.01f; b < 40; b *= 1.5f) {
+		const float s = SmokeSeenDepth(400, b);
+		CHECK(s > 0 && s < 200.0f + 1e-3f && s <= last + 1e-3f);
+		last = s;
+	}
+	// The blend: none, full, and in between the sign of the dominant layer.
+	CHECK(SmokeBlendCoc(30, -4, 0) == 30 && SmokeBlendCoc(30, -4, 1) == -4);
+	CHECK(SmokeBlendCoc(30, 0, 1) == 0);                        // a smoke in focus is sharp
+	CHECK(SmokeBlendCoc(30, 2, 0.9f) > 0 && SmokeBlendCoc(30, 2, 0.9f) < 5.0f);
+	CHECK(SmokeBlendCoc(-20, 30, 0.3f) < 0 && SmokeBlendCoc(-20, 30, 0.7f) > 0);
+	for (float w = 0; w <= 1.0f; w += 0.05f) {
+		const float b = std::fabs(SmokeBlendCoc(-20, 30, w));
+		CHECK(b >= 20.0f - 1e-3f && b <= 30.0f + 1e-3f);   // never a sharp ring between the two
+	}
+}
+
+// dof.focusSpeed: how fast autofocus follows, from a slow drift to an instant jump.
+static void TestAutofocusSpeed() {
+	CHECK(AutofocusStep(kAutofocusInstant, 0.016f) == 1.0f);
+	CHECK(AutofocusStep(kAutofocusInstant, 0.0f) == 1.0f);   // even a paused frame snaps
+	CHECK(AutofocusStep(6, 0) == 0 && AutofocusStep(6, -1) == 0 && AutofocusStep(0, 1) == 0);
+	CHECK_NEAR(AutofocusStep(6, 1.0f / 6), 1 - std::exp(-1.0), 1e-6);
+	// Faster speeds always move further in the same frame, and the slowest still moves.
+	float last = 0;
+	for (float s = 0.25f; s < kAutofocusInstant; s *= 1.4f) { const float a = AutofocusStep(s, 0.016f); CHECK(a > last && a < 1); last = a; }
+	// Frame-rate independent: one 1/30 s frame moves as far as two 1/60 s frames.
+	const float one = AutofocusStep(4, 1.0f / 30), half = AutofocusStep(4, 1.0f / 60);
+	CHECK_NEAR(one, 1 - (1 - half) * (1 - half), 1e-6);
+}
+
+// The sun is found from the sky and projected onto the screen (see "the sun" in LensFxMath.h).
+static void TestSunProjection() {
+	// A camera at the origin looking down +x, Source axes (z up), 90 degree FOV, aspect 16:9:
+	// clip x = -y / tan(45) / aspect, clip y = z / tan(45), clip w = x (row-major, M * v).
+	const float a = 16.0f / 9.0f;
+	const float m[16] = { 0, -1 / a, 0, 0,   0, 0, 1, 0,   0, 0, 0, 0,   1, 0, 0, 0 };
+	float u = 0, v = 0;
+	const float ahead[3] = { 1, 0, 0 };
+	CHECK(SunScreenUv(m, ahead, u, v) && std::fabs(u - 0.5f) < 1e-6f && std::fabs(v - 0.5f) < 1e-6f);
+	const float upRight[3] = { 1, -0.5f, 0.5f }; // right of and above the middle
+	CHECK(SunScreenUv(m, upRight, u, v) && u > 0.5f && v < 0.5f);
+	CHECK(std::fabs(v - 0.25f) < 1e-5f);              // 45 degrees up is the top edge of a 90 degree view; half that is a quarter
+	const float behind[3] = { -1, 0, 0.2f };
+	CHECK(!SunScreenUv(m, behind, u, v));              // behind the camera never flares
+	const float wide[3] = { 1, 3, 0 };                 // far off to the side
+	CHECK(!SunScreenUv(m, wide, u, v));
+	const float justOff[3] = { 1, 0, 1.2f };           // a little past the top: still counts, fading in
+	CHECK(SunScreenUv(m, justOff, u, v) && v < 0 && v > -kSunMargin);
+	// The blob is 1 on the sun and falls off over its radius.
+	CHECK(SunSourceBlob(0, 0) == 1.0f);
+	CHECK(std::fabs(SunSourceBlob(kSunSourceRadius, 0) - std::exp(-0.5f)) < 1e-6f);
+	CHECK(SunSourceBlob(0.1f, 0) < 1e-6f);
+}
+
 static void TestZoneMode() {
 	Values L;
 	L[DofMode] = 1; L[DofMaxBlur] = 30;
@@ -140,6 +246,15 @@ static void TestIrisShapes() {
 	}
 	// Roundness 1 is a circle.
 	for (float t = 0; t < 6.3f; t += 0.3f) CHECK_NEAR(RoundedPolygonRadius(t, 5, 0.2f, 1.0f), 1.0, 1e-5);
+	// Below 0 the blades bend inward: the vertices stay on the circle, the sides come in, never past the centre.
+	for (int n = 3; n <= 12; ++n) {
+		CHECK_NEAR(RoundedPolygonRadius(0.0f, n, 0.0f, -1.0f), 1.0, 1e-4);
+		CHECK_NEAR(RoundedPolygonRadius((float)kPi / n, n, 0.0f, -1.0f), 2 * std::cos(kPi / n) - 1, 1e-4);
+		for (float t = -7; t < 7; t += 0.13f) {
+			const float r = RoundedPolygonRadius(t, n, 0.3f, -0.6f);
+			CHECK(r >= -1e-5f && r <= PolygonRadius(t, n, 0.3f) + 1e-5f);
+		}
+	}
 	// Heart and star never leave the unit disc.
 	float heartMax = 0;
 	for (float t = 0; t < 6.2832f; t += 0.002f) {
@@ -199,6 +314,18 @@ static void TestKernel() {
 		else if (t.radius > 0.99f) { rim += t.weight; ++rimN; }
 	}
 	CHECK(coreN > 0 && rimN > 0 && rim / rimN > 2.5 * core / coreN);
+	// Below 0 the same control weights the middle instead, and at -1 the rim fades to nothing.
+	L.Reset(); L[DofEdge] = -1.0f;
+	double mid = 0, edge = 0; int midN = 0, edgeN = 0;
+	for (int i = 0; i < 256; ++i) {
+		const KernelTap t = KernelSample(L, i, 256, 0);
+		CHECK(t.weight >= 0.0f);
+		if (t.radius < 0.3f) { mid += t.weight; ++midN; }
+		else if (t.radius > 0.97f) { edge += t.weight; ++edgeN; }
+	}
+	CHECK(midN > 0 && edgeN > 0 && edge / edgeN < 0.1 * mid / midN);
+	L[DofEdge] = 0;
+	CHECK(KernelSample(L, 200, 256, 0).weight == 1.0f);   // 0 is the even disc it always was
 
 	// The polygon corner really is reached: some tap lands close to the vertex radius.
 	L.Reset(); L[DofShape] = IrisPolygon; L[DofBlades] = 6; L[DofRoundness] = 0;
@@ -698,6 +825,40 @@ static void TestShaderSource() {
 		CHECK(src.find(std::string(" ") + entry + "(") != std::string::npos);
 	// Same physical constants as CircleOfConfusion.
 	CHECK(src.find("focus * 25.4") != std::string::npos);
+	CHECK(src.find("max(SharpBand(dist, focus) * 25.4, 1.0)") != std::string::npos);   // the band, as SharpBandDistance
+	// Bent-in blades are the same formula on both sides, and the soft centre is u^2.
+	CHECK(src.find("return p + (1 - p) * irisA.w;") != std::string::npos);
+	CHECK(src.find("else if (irisB.y < 0) w *= 1 + irisB.y * u * u;") != std::string::npos);
+	// The smoke: same coverage floor, seen depth and blend as LensFxMath.h, used for the blur and for autofocus.
+	CHECK(kSmokeMinCover == 0.02f && src.find("kSmokeMinCover = .02;") != std::string::npos);
+	CHECK(src.find("return span / b0 * (1 - (1 + b0) * e) / (1 - e);") != std::string::npos);
+	CHECK(src.find("return (w > .5 ? smokeCoc : surfaceCoc) < 0 ? -size : size;") != std::string::npos);
+	CHECK(src.find("coc = SmokeBlendCoc(coc, CoC(smokeAxis, focus), cover);") != std::string::npos);
+	CHECK(src.find("SmokeAt(pix, dist, cover, smokeAxis) && cover > .5") != std::string::npos);
+	CHECK(kLensMaxSmokes == 8 && src.find("float4 smokeSpheres[8];") != std::string::npos);
+	// The sharp weapon is written out of the blurred image and every tap is weighted by how much of it is
+	// world: a mip texel that mixed the gun with a near-blurred smoke smeared the gun out as a ragged halo.
+	CHECK(src.find("float m = (vm && dofC.z < .5) ? 0 : 1;") != std::string::npos);
+	CHECK(src.find("o.coc = float4(ToLinear(src) * HighlightBoost(p, src, coc) * m, coc * m);") != std::string::npos);
+	CHECK(src.find("o.world = worldMask.SampleLevel(linearClamp, i.uv, 0);") != std::string::npos);
+	CHECK(src.find("if (worldMask.Load(int3(p, 0)) < .5) return 0;") != std::string::npos);
+	CHECK(src.find("float3 col = s.rgb / wm;") != std::string::npos && src.find("float cs = s.a / wm, as = abs(cs);") != std::string::npos);
+	CHECK(src.find("float w = cover * kw * tapScale / max(as * as, .25) * wm;") != std::string::npos);
+	{
+		const std::string cpp = ReadRepoFile("AfxHookSource2/Filmmaker/Lens/LensFx.cpp");
+		CHECK(cpp.find("pass2(g.cocPS[dms].Get(), g.cocRtv[0].Get(), g.worldRtv[0].Get()") != std::string::npos);
+		CHECK(cpp.find("pass2(g.mipPS.Get(), g.cocRtv[m].Get(), g.worldRtv[m].Get()") != std::string::npos);
+		CHECK(cpp.find("{ 21, g.worldAll.Get() }") != std::string::npos);
+	}
+	// The sun: same constants, the 1x1 visibility pass, and the source and budget take it.
+	CHECK(kSunSourceRadius == 0.012f && src.find("kSunSourceRadius = .012;") != std::string::npos);
+	CHECK(kSunVisibilityRadius == 0.006f && src.find("kSunVisibilityRadius = .006;") != std::string::npos);
+	CHECK(kSunMargin == 0.15f && src.find("kSunMargin = .15;") != std::string::npos);
+	CHECK(src.find("float SunPS(VOut i) : SV_Target") != std::string::npos);
+	CHECK(src.find("exp(-dot(d, d) / (2 * kSunSourceRadius * kSunSourceRadius)) * vis * sunInfo.z") != std::string::npos);
+	CHECK(src.find("if (sunInfo.z > 0) budget = max(budget, sunVisTex.Load(int3(0, 0, 0)));") != std::string::npos);
+	// The zebra marks what blurs less than half a pixel.
+	CHECK(src.find("dbg == 3") != std::string::npos && src.find("if (abs(coc) < .5) col = band == 0") != std::string::npos);
 	CHECK(src.find("/ 36.0") != std::string::npos);
 	CHECK(src.find("kFarSky = 60000.0") != std::string::npos);
 	CHECK(kFarSky == 60000.0f && kMillimetresPerUnit == 25.4f && kSensorWidthMm == 36.0f);
@@ -714,7 +875,9 @@ static void TestShaderSource() {
 	// The fixed settings carry the same numbers as the header's constants.
 	CHECK(kFocalLengthMm == 50.0f && src.find("kFocalMm = 50.0;") != std::string::npos);
 	CHECK(kAutofocusX == 0.5f && kAutofocusY == 0.5f && src.find("kAutofocusPoint = float2(.5, .5)") != std::string::npos);
-	CHECK(kAutofocusPull == 6.0f && src.find("kAutofocusPull = 6.0;") != std::string::npos);
+	CHECK(kAutofocusInstant == 30.0f && src.find("kAutofocusInstant = 30.0;") != std::string::npos);
+	CHECK(Specs()[DofFocusSpeed].max == kAutofocusInstant && Specs()[DofFocusSpeed].def == 6.0f);
+	CHECK(src.find("frame.y >= kAutofocusInstant ? 1 : 1 - exp(-frame.y * frame.x)") != std::string::npos);
 	CHECK(kWeaponDistance == 30.0f && src.find("kWeaponDist = 30.0;") != std::string::npos);
 	CHECK(kEdgeSoftness == 0.22f && src.find("kEdgeSoft = .22;") != std::string::npos);
 	CHECK(kRingHole == 0.55f && src.find("kRingHole = .55;") != std::string::npos);
@@ -910,6 +1073,10 @@ static void TestConstantBufferLockStep() {
 int main() {
 	TestParameterTable();
 	TestCircleOfConfusion();
+	TestSharpBand();
+	TestAutofocusSpeed();
+	TestSunProjection();
+	TestSmoke();
 	TestZoneMode();
 	TestIrisShapes();
 	TestKernel();

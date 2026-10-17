@@ -47,6 +47,13 @@ const VIEWS = {
   env_lightning: "surface=confighud&click=label:ENVIRONMENT&cmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.looks'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.sky'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.light'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.fog'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.wx'%2C1)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.scene'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.cardPage('env.wx'%2C2)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.scrollTo(312)",
   // SCENE OBJECTS is one page (2026-10-10): the outliner with the selected card, then add a light.
   env_scene: "surface=confighud&click=label:ENVIRONMENT|label:SCENE%20OBJECTS&cmd=mirv_filmmaker%20props%20select%201%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.scrollTo(390)",
+  // Scene object rigs: a new camera object (id 3 after the fixture's box and light) attached to a
+  // player's head with Animate on -- the RIG card (attach pickers, mount, offset, Place / Animate /
+  // Look through) under the Outliner. Opened by card id: the rail rows are not label-clickable.
+  env_rig: "surface=confighud&live=0&cmd=" + encodeURIComponent("mirv_filmmaker config eval $.ConfigHud.card('env.scene',1);mirv_filmmaker environment add camera;mirv_filmmaker rig parent 3 player 3 head;mirv_filmmaker rig animate 3 on;mirv_filmmaker config eval $.ConfigHud.scrollTo(560)"),
+  // The fixture's point light riding a player's weapon: its card loses the turn rows (the rig owns
+  // them) and the RIG card shows the weapon mounts.
+  env_rig_light: "surface=confighud&live=0&cmd=" + encodeURIComponent("mirv_filmmaker config eval $.ConfigHud.card('env.scene',1);mirv_filmmaker environment select 2;mirv_filmmaker rig parent 2 held 2 muzzle;mirv_filmmaker config eval $.ConfigHud.scrollTo(700)"),
   // The same page further down: the asset library and its scrolling results, then the presets.
   env_scene_library: "surface=confighud&click=label:ENVIRONMENT|label:SCENE%20OBJECTS&cmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.scrollTo(1000)",
   env_prop: "surface=confighud&click=label:ENVIRONMENT&cmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.looks'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.sky'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.light'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.fog'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.wx'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.scene'%2C1)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.cardPage('env.scene'%2C0)%3Bmirv_filmmaker%20environment%20select%201%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.scrollTo(390)",
@@ -68,6 +75,9 @@ const VIEWS = {
   confighud_ragdolls:     'surface=confighud&click=label:RAGDOLLS',
   confighud_reset:        'surface=confighud&act=Reset footer',
   cameraeditor:           'surface=cameraeditor',
+  // The TIMELINE dock in each workspace: its CAM EDITOR / CONFIG pair lights the host.
+  cameraeditor_dock:      'surface=cameraeditor&cmd=' + encodeURIComponent('mirv_filmmaker dock timeline'),
+  confighud_dock:         'surface=confighud&cmd=' + encodeURIComponent('mirv_filmmaker dock timeline'),
   cameraeditor_gear:      'surface=cameraeditor&act=gear',
   cameraeditor_clearall:  'surface=cameraeditor&act=Clear All',
   cameraeditor_follow:    'surface=cameraeditor&act=Follow',
@@ -107,6 +117,17 @@ const VIEWS = {
   grapheditor_scene:      'surface=grapheditor&cmd=' + encodeURIComponent('mirv_filmmaker scenekeys macro golden'),
   // The same timeline in its GRAPH view.
   grapheditor_graph:      'surface=grapheditor&live=0&cmd=' + encodeURIComponent('mirv_filmmaker settings ui editor.timeline.view graph'),
+  // Scene object rigs: a camera object (id 3 after the fixture's two) keyed with hold keys at three
+  // ticks, so the OBJECTS layer, the hold glyphs and the Hold strip button show; then the same in
+  // GRAPH, where a hold draws as a step. Channel numbers: 1000000 + id * 8 + channel (SceneRigMath.h).
+  grapheditor_rig:        'surface=grapheditor&live=0&cmd=' + encodeURIComponent('mirv_filmmaker environment add camera;mirv_filmmaker rig animate 3 on;mirv_filmmaker scenekeys graph addkey 1000048 42500 600;mirv_filmmaker scenekeys graph addkey 1000048 42700 900;mirv_filmmaker scenekeys graph addkey 1000052 42600 45'),
+  grapheditor_rig_graph:  'surface=grapheditor&live=0&cmd=' + encodeURIComponent('mirv_filmmaker environment add camera;mirv_filmmaker rig animate 3 on;mirv_filmmaker scenekeys graph addkey 1000048 42500 600;mirv_filmmaker scenekeys graph addkey 1000048 42700 900;mirv_filmmaker scenekeys graph addkey 1000052 42600 45;mirv_filmmaker settings ui editor.timeline.view graph'),
+  // Camera shake as keys (scene-object-rigs.md, camera-editor-feature.md): the path's shake on its
+  // first and third camera keys, one run; KEYFRAMES marks the keys only, GRAPH draws Intensity and
+  // Speed. Then a camera object's own shake track, in GRAPH under its OBJECTS layer.
+  grapheditor_shake:      'surface=grapheditor&live=0&cmd=' + encodeURIComponent("mirv_filmmaker pathshake style 0 next;mirv_filmmaker pathshake intensity 2 8;mirv_filmmaker pathshake speed 2 90;mirv_filmmaker grapheditor eval $.GraphExp.select('cam.shake')"),
+  grapheditor_shake_graph: 'surface=grapheditor&live=0&cmd=' + encodeURIComponent("mirv_filmmaker pathshake style 0 next;mirv_filmmaker pathshake intensity 2 8;mirv_filmmaker pathshake speed 2 90;mirv_filmmaker settings ui editor.timeline.view graph;mirv_filmmaker grapheditor eval $.GraphExp.select('cam.shake')"),
+  grapheditor_objshake:   'surface=grapheditor&live=0&cmd=' + encodeURIComponent("mirv_filmmaker environment add camera;mirv_filmmaker pathshake obj 3 set @42500 300 2 30;mirv_filmmaker pathshake obj 3 set @42700 300 9 80;mirv_filmmaker pathshake obj 3 stop @42900;mirv_filmmaker settings ui editor.timeline.view graph;mirv_filmmaker grapheditor eval $.GraphExp.select('o3.shake')"),
   markerhud:              'surface=markerhud',
   markerhud_editing:      'surface=markerhud&act=editing',
   markerhud_need2:        'surface=markerhud&act=Need at least 2 markers',

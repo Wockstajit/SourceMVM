@@ -26,6 +26,7 @@
 #include "Filmmaker/EasterEggs/EasterEggs.h"
 #include "Filmmaker/Movie/NervousSystem.h"
 #include "Filmmaker/Movie/FollowCamera.h"
+#include "Filmmaker/Movie/SceneRig.h"      // scene object rigs: render-time resample, Look through
 #include "Filmmaker/Movie/FollowCameraMath.h"
 #include "Filmmaker/Movie/MovieMode.h" // MovieMode_NativeCameraRoll: X / Z roll on CS2's free cam
 #include "Filmmaker/Movie/ViewFx.h"
@@ -601,6 +602,21 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 		}
 	}
 
+	// Scene object rigs (scene-object-rigs.md): re-read the players, weapons and grenades placed
+	// objects ride at their interpolated pose, every frame; and when a camera object is looked
+	// through, it is the view -- over the path, the Follow Camera and the free cam.
+	{
+		double sx = Tx, sy = Ty, sz = Tz, sp = Rx, syaw = Ry, sr = Rz, sf = Fov;
+		bool sceneAttached = false;
+		if (Filmmaker::SceneRig_ViewSetup(sx, sy, sz, sp, syaw, sr, sf, sceneAttached)) {
+			Tx = (float)sx; Ty = (float)sy; Tz = (float)sz;
+			Rx = (float)sp; Ry = (float)syaw; Rz = (float)sr; Fov = (float)sf;
+			originOrAnglesOverriden = true;
+			owner.sceneCamera = true;
+			owner.sceneCameraAttached = sceneAttached;
+		}
+	}
+
 	// CS2's own free cam has no roll; held X / Z adds one on top (MovieMode). Only while none of
 	// our cameras owns the pose -- they carry their own roll.
 	if (!owner.Any()) {
@@ -739,7 +755,10 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	// push) would make the shaken pose the path's published pose, and marker placement, the graph
 	// editor's defaults and the spectated-pawn match above would all read it back -- baking a
 	// cosmetic wobble permanently into the shot. Here, turning the shake off restores the move.
-	if (Filmmaker::CamPathShake_ApplyToView(Tx, Ty, Tz, Rx, Ry, Rz, Fov))
+	// A looked-through camera object (SceneRig, above) takes its own shake track; the path's
+	// shake applies only while the path drives the view.
+	if (Filmmaker::CamPathShake_ApplyToView(Tx, Ty, Tz, Rx, Ry, Rz, Fov,
+		owner.sceneCamera ? Filmmaker::SceneRig_LookThrough() : 0))
 		originOrAnglesOverriden = true;
 
 	// Build one absolute camera-motion delta for CalcViewModelView. Its hook temporarily removes

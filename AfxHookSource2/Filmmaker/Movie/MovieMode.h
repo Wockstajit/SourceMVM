@@ -21,6 +21,7 @@
 #include "UiClickMath.h"
 
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <vector>
 #include <string>
@@ -35,9 +36,10 @@ public:
 	// --- input taps (WndProc / input thread). Return true if consumed. ---
 	bool OnKey(int vkey, bool down);
 	bool OnMouseButton(int button, bool down, int x = -1, int y = -1); // 0 = left, 1 = right; client px
-	// The right button came up, from WM_RBUTTONUP or from raw input: while the game holds the
-	// mouse no legacy release arrives. Ends a right-click look and gives the editor the mouse back.
-	void OnRightButtonUp();
+	// A button came up (0 = left, 1 = right), from WM_xBUTTONUP or from raw input: while the game
+	// holds the mouse no legacy release arrives. Ends a right-click look (the editor gets the mouse
+	// back) and a hold-to-look on our free cam outside the workspaces. Safe to call twice.
+	void OnButtonUp(int button);
 	bool OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x = -1, int y = -1);
 	// Left button down at client (x, y) inside a workspace. A click on a panel in GAME mode switches
 	// to UI mode and returns true: the caller hands this press (and its release) straight to the
@@ -109,6 +111,23 @@ private:
 	// A right press in the ENVIRONMENT tab's preview took the mouse for looking around
 	// (UiClick::RightPressLooks); its release hands the mouse back to the editor.
 	std::atomic<bool> m_rightLook{ false };
+	// A right press in the ENVIRONMENT view waits to see what it is. Let go within kRightClickHoldMs
+	// without moving more than kRightClickSlopPx and it is a click: the object under it gets its
+	// menu (the Outliner's, `config viewmenu`). Held or moved, it becomes the look
+	// (StartRightLookIfHeld). Guarded by m_rightMutex: written on the input thread, read on the main.
+	struct RightPress { bool pending = false; int x = 0, y = 0; std::chrono::steady_clock::time_point at; };
+	std::mutex m_rightMutex;
+	RightPress m_rightPress;
+	void StartRightLookIfHeld();      // main thread (FlushActions)
+	bool OnConfigColumn(int x, int y); // any thread: CONFIG's column, above the dock and off the view
+	bool PointerOverDock();            // any thread: the UI cursor is over the TIMELINE dock
+	// The button whose press took the mouse for our free cam outside every workspace (Config, the
+	// Camera Editor, Render), or -1. That free cam is steered only while the button is held, like
+	// CS2's own hold-to-look: the release gives the mouse back (OnButtonUp). Before, the press
+	// captured the mouse until Esc -- the free cam a right-hold look in Config left on took the
+	// mouse on the first click after Config closed (mvm_debug 2026-10-17: "freecam click", then
+	// the cursor stayed parked until CS2's pause menu).
+	std::atomic<int> m_flyHoldButton{ -1 };
 
 	// X-ray default-off bookkeeping (main thread only -- ApplyXrayDefault):
 	std::wstring m_xrayDefaultPath;  // demo we have already forced spec_show_xray 0 for

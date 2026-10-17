@@ -543,7 +543,16 @@ An effect has no model, so it is picked by a 32×32×48 handle box at its base. 
 - With Scene Objects open, a click on a prop in the view selects it, and a click on empty ground
   deselects it. On the ENVIRONMENT tab the left button is the editor's and never moves the camera:
   hold the right button in the view to look around (`UiClick::RightPressLooks` in
-  [`UiClickMath.h`](../../AfxHookSource2/Filmmaker/Movie/UiClickMath.h)). A selected prop is
+  [`UiClickMath.h`](../../AfxHookSource2/Filmmaker/Movie/UiClickMath.h)). The hold switches to
+  the fly cam (HLAE's camera mode) at the current view first, because CS2's own demo cameras
+  mostly never started their drag-look from a press under the Config panel. The look works with
+  the TIMELINE dock up too: docked in Config, the dock claims the mouse only while the shared
+  timeline cursor flag is on, which the hold turns off. A quick right-click instead (let go within
+  0.2 s, moved under 4 px) selects what is under the pointer and opens its menu, the Outliner's
+  (Duplicate, Edit position, Hide, Lock, Remove; a camera adds Go to camera and Look through). The
+  Outliner rows keep their own right-click menu with the dock up as well. After Config closes, a
+  click on the fly cam the look left on is a hold-to-look like CS2's own: the mouse comes back when
+  the button does, where it used to stay captured until Esc. A selected prop is
   edited in the view. Drag an arrow to move it along that axis, or drag one of three rings to turn it.
   The blue ring turns it about the vertical (yaw). The green ring tilts it about its side (pitch). The
   red ring rolls it about its forward axis. Each ring changes exactly one angle. **Esc** during a drag
@@ -635,7 +644,9 @@ tree of groups, Blender-style. Code: [`ConfigHudOutlinerJs.h`](../../AfxHookSour
   **Delete** removes the selected item, **Ctrl+D** duplicates it, **Ctrl+C** copies it and
   **Ctrl+V** pastes the copy. A CS2 asset hangs under the mouse like a placement (same size, turn and
   group) and is selected once dropped. A light or mesh pastes as a duplicate. MovieMode hands these
-  keys to the panel, which owns the selection, but never while a field is typing.
+  keys to the panel, which owns the selection, but never while a field is typing. With the TIMELINE
+  dock up, Delete is the dock's only while the pointer is over the dock (its keys); anywhere else it
+  removes the selected object.
 - **Shift-click** selects a range of rows, and **Ctrl-click** adds or drops one. The card then offers
   **New group from these** and **Remove all**, and Delete removes them all. A group's right-click
   menu has **Delete group**, and Delete with a group selected removes all of it. Both ask first.
@@ -681,6 +692,16 @@ maths in [`EnvironmentGltfMath.h`](../../AfxHookSource2/Filmmaker/Environment/En
   pose) and its **Speed** (−4 to 4, negative plays backwards). A clip loops on the demo clock, so a
   render or a scrub poses it the same way. Each animated object is skinned on the CPU per frame.
 - Tested on Khronos CesiumMan (skinned walk), DamagedHelmet, CS2 agent exports and a CoD export.
+
+## Attaching, keying and camera objects
+
+**+ Camera** adds a camera object: a viewpoint with a field of view that can be looked through. The
+card of every light, mesh and camera has a **RIG** section. Attach the object to a player's bone, a
+held or dropped weapon, a thrown grenade or another object, edit its offset there, place it at the
+free cam, and turn on **Animate** to key its pose on the TIMELINE dock. Pose keys hold until the
+next key by default. Attachments and keys are saved per demo; the object stays in the map's scene.
+While an object is rigged, its arrows and turn sliders move it through the rig. The full contract is
+[scene-object-rigs.md](scene-object-rigs.md).
 
 ## Lights
 

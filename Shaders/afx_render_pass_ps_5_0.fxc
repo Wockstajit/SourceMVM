@@ -12,8 +12,11 @@
 // and the subject mask:
 //   mask 0 None     -- the whole render
 //   mask 1 ColorKey -- pixels painted with the internal chroma key, and the sky, are background
-//   mask 2 GunDiff  -- pixels where the reference render (Main) differs from this render (NoGun)
-//                      are the subject; colour and depth then come from the reference
+//   mask 2 GunDiff  -- the gun in a render job: pixels in the viewmodel depth band of the reference
+//                      render (Main), plus pixels where Main differs from this render (NoGun) --
+//                      the muzzle flash and first-person particles; colour and depth then come
+//                      from the reference
+//   mask 4 GunBand  -- the gun in the live view, from one render: its viewmodel depth band
 //   mask 3 PlayersDepth -- Players only in a render job, taken from the NoGun render: the subject
 //                      is what is CLOSER than the World Only render of the same frame (t4). Props,
 //                      wires, decals and lighting all sit AT world depth, so they are background
@@ -175,6 +178,18 @@ float3 SmoothNormal(Texture2D<float> t, int2 px, out bool valid)
 	return normalize(sum);
 }
 
+// The first-person viewmodel's own depth band: CS2 draws it at raw depth <= 0.1 (a pistol ~0.094;
+// the same limit the depth of field uses, LensFxShaders.h ViewDistance). Not "below depthRange.x":
+// the viewport range the compositor is handed starts at 0 in the live view (measured 2026-10-17,
+// depthRange=(0, 0.95)), and the gun then matched nothing. World geometry only reaches 0.1 within
+// a few units of the near plane. Reversed depth keeps the band above the world range.
+static const float kViewmodelDepthMax = 0.100001;
+bool ViewmodelBand(float raw)
+{
+	if (camera.w > 0.5) return raw > depthRange.y + 1e-7;
+	return raw <= max(depthRange.x, kViewmodelDepthMax);
+}
+
 float4 ComposePixel(PS_INPUT i);
 
 // An sRGB target encodes on write; what we output is already display-encoded, so decode it first.
@@ -219,11 +234,19 @@ float4 ComposePixel(PS_INPUT i)
 		bool sky = CameraDepth(depthTex, px) > nearFar.z;
 		subject = (keyed || sky) ? 0.0 : 1.0;
 	} else if (mask == 2) {
+		// The gun's depth band makes it the subject whatever its colour. The colour difference alone
+		// keyed out every part of the gun as bright as what is behind it: grey sleeve and barrel
+		// highlights over grey smoke came out key green (2026-10-17). The difference still brings
+		// what the gun CAUSES outside its band: the muzzle flash, first-person particles.
 		float4 ref = refColorTex.Load(int3(px, 0));
 		float3 dc = abs(ref.rgb - col.rgb);
 		subject = smoothstep(diff.x, diff.y, max(max(dc.r, dc.g), dc.b));
+		if (ViewmodelBand(LoadRaw(refDepthTex, px))) subject = 1.0;
 		col = ref;
 		useRef = true;
+	} else if (mask == 4) {
+		// Live gun view: one render, so only the band (no muzzle flash, which needs the second render).
+		subject = ViewmodelBand(LoadRaw(depthTex, px)) ? 1.0 : 0.0;
 	}
 
 	if (mode == 0 || mode == 3) {

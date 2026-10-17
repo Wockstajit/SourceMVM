@@ -131,7 +131,8 @@ void Render_SetModalOpen(bool open) {
 // can be framed against the plate it will deliver. Scoped to the open workspace on purpose (leaving an altered
 // scene after closing Render reads as the game being broken), and never during a job: a job's
 // isolation renders are extra renders of their own, and the view the user sees stays the full
-// scene. Gun only has no live form -- it is the difference of two renders of one frame.
+// scene. Gun only shows its viewmodel depth band live (a job also adds the muzzle flash, which
+// needs a second render of the frame).
 void Render_ApplyLivePreview() {
 	if (RenderSessionDriver_IsActive())
 		return;
@@ -956,9 +957,6 @@ static void RunPassCommand(int argc, advancedfx::ICommandArgs* args, const char*
 			p.preview = PassConfig{};
 		} else if (argc < 6 || !PassTypeFromToken(val, pc.type) || !VisibleElementsFromToken(args->ArgV(5), pc.elements)) {
 			advancedfx::Warning("usage: %s render pass preview <beauty|depth|normal|key> <all|worldplayers|world|players> | off\n", cmd);
-			return;
-		} else if (pc.elements == VisibleElements::OnlyWeapon) {
-			advancedfx::Warning("%s: Gun only has no live view (it is the difference of two renders of one frame).\n", cmd);
 			return;
 		} else if (pc != PassConfig{} && std::find(p.passes.begin(), p.passes.end(), pc) == p.passes.end()) {
 			// The live view only ever shows a pass the job renders.
