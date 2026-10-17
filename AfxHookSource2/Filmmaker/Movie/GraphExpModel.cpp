@@ -32,13 +32,13 @@ void SetMarkerChannel(CamMarker& m, int ch, double v) {
 	}
 }
 GraphCurve::Handle ToHandle(const GraphExpModel::ControlPoint& cp) {
-	GraphCurve::Handle h; h.active = cp.active; h.tx = cp.tx; h.dv = cp.dv; return h;
+	GraphCurve::Handle h; h.active = cp.active; h.tx = cp.tx; h.dv = cp.dv; h.autoTan = cp.autoTan; return h;
 }
 GraphExpModel::ControlPoint ToControlPoint(const GraphCurve::Handle& h) {
-	GraphExpModel::ControlPoint cp; cp.active = h.active; cp.tx = h.tx; cp.dv = h.dv; return cp;
+	GraphExpModel::ControlPoint cp; cp.active = h.active; cp.tx = h.tx; cp.dv = h.dv; cp.autoTan = h.autoTan; return cp;
 }
 bool SameHandle(const GraphCurve::Handle& a, const GraphCurve::Handle& b) {
-	if (a.active != b.active) return false;
+	if (a.active != b.active || a.autoTan != b.autoTan) return false;
 	return !a.active || (std::abs(a.tx - b.tx) <= 1e-6 && std::abs(a.dv - b.dv) <= 1e-6);
 }
 // Marker values for the graph: angle channels unwrapped against the previous marker, so a yaw
@@ -372,10 +372,11 @@ void GraphExpModel::SetHandle(int ch, int id, int side, double tx, double dv, bo
 	if (!k) return;
 	if (tx < 0) tx = 0; if (tx > 1) tx = 1;
 	ControlPoint& cpNear = (side < 0) ? k->cpLeft : k->cpRight;
-	cpNear.active = true; cpNear.tx = tx; cpNear.dv = dv;
+	// A hand-placed handle is a plain Bezier from now on: the auto refresh must not take it back.
+	cpNear.active = true; cpNear.tx = tx; cpNear.dv = dv; cpNear.autoTan = false;
 	if (reflect) {
 		ControlPoint& cpFar = (side < 0) ? k->cpRight : k->cpLeft;
-		cpFar.active = true; cpFar.tx = tx; cpFar.dv = -dv; // mirror the value slope, keep length
+		cpFar.active = true; cpFar.tx = tx; cpFar.dv = -dv; cpFar.autoTan = false; // mirror the value slope, keep length
 	}
 }
 
@@ -389,8 +390,8 @@ void GraphExpModel::SetEase(int mode, bool selectedOnly) {
 	for (int c = 0; c < kChannelCount; ++c) {
 		for (Keyframe& k : m_ch[c].keys) {
 			if (selectedOnly && m_selected.count(Pack(c, k.id)) == 0) continue;
-			if (mode == 0 || mode == 2) { k.cpLeft.active = true;  k.cpLeft.tx = 1.0 / 3.0;  k.cpLeft.dv = 0.0; }
-			if (mode == 1 || mode == 2) { k.cpRight.active = true; k.cpRight.tx = 1.0 / 3.0; k.cpRight.dv = 0.0; }
+			if (mode == 0 || mode == 2) { k.cpLeft.active = true;  k.cpLeft.tx = 1.0 / 3.0;  k.cpLeft.dv = 0.0;  k.cpLeft.autoTan = false; }
+			if (mode == 1 || mode == 2) { k.cpRight.active = true; k.cpRight.tx = 1.0 / 3.0; k.cpRight.dv = 0.0; k.cpRight.autoTan = false; }
 		}
 	}
 }
@@ -420,6 +421,26 @@ void GraphExpModel::SetInterpAll(bool smooth, bool selectedOnly) {
 			AutoTangent(c, i);
 		}
 	}
+}
+
+bool GraphExpModel::RefreshAutoTangents() {
+	bool changed = false;
+	for (int c = 0; c < kChannelCount; ++c) {
+		std::vector<Keyframe>& keys = m_ch[c].keys;
+		const int n = (int)keys.size();
+		if (n < 2) continue;
+		std::vector<double> ticks(n), values(n);
+		for (int j = 0; j < n; ++j) { ticks[j] = keys[j].tick; values[j] = keys[j].value; }
+		for (int i = 0; i < n; ++i) {
+			Keyframe& k = keys[i];
+			if (!k.cpLeft.autoTan && !k.cpRight.autoTan) continue;
+			GraphCurve::Handle in, out;
+			GraphCurve::AutoTangent(ticks.data(), values.data(), n, i, in, out);
+			if (k.cpLeft.autoTan && !SameHandle(ToHandle(k.cpLeft), in)) { k.cpLeft = ToControlPoint(in); changed = true; }
+			if (k.cpRight.autoTan && !SameHandle(ToHandle(k.cpRight), out)) { k.cpRight = ToControlPoint(out); changed = true; }
+		}
+	}
+	return changed;
 }
 
 // ---- selection --------------------------------------------------------------

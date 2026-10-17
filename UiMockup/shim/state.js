@@ -78,7 +78,7 @@
       // Movie/TimelineDock.cpp: the tab is remembered across closes; host/hosted/visible are what
       // Claim/Release/Apply write into CameraTimelineHud and GraphEditorExperimentHud.
       dock: {
-        tab: 'native',          // native | camera | graph  (TimelineDock g_tab)
+        tab: 'native',          // native | timeline  (TimelineDock g_tab)
         host: 'none',           // none | editor | config   (TimelineDock g_host)
         hosted: false,          // CameraTimelineHud::m_editorHosted
         tlVisible: false,       // CameraTimelineHud::m_visible (the docked camera timeline)
@@ -436,9 +436,8 @@
       domainT0: 0, domainT1: 115200, ctrl: false, shift: false, alt: false, viewEpoch: 0,
       // Time snap (editor.graph.snap): "off" | "auto" | a tick count. One shared value.
       snap: 'off',
-      // SCENE KEYS prototype state (Camera Editor third tab).
-      sceneKeys: makeSceneKeys(),
-      graphMode: 'camera' // 'camera' | 'scene' — Graph dock switches channel source
+      // SCENE KEYS state: the timeline feed publishes it under "scene" next to the camera channels.
+      sceneKeys: makeSceneKeys()
     };
     st.cameraChannels = st.channels;
     return st;

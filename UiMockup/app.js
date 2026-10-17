@@ -646,8 +646,8 @@
     var d = state.dock;
     if (d.host !== h || h === 'none') return;
     d.hosted = true;
-    d.tlVisible = (d.tab === 'camera');
-    d.graphEnabled = (d.tab === 'graph');
+    d.tlVisible = false;   // the camera timeline is never docked: TIMELINE is the unified dock
+    d.graphEnabled = (d.tab === 'timeline');
   }
 
   // ---------------------------------------------------------------- the workspaces
@@ -692,7 +692,7 @@
       dock.hosted = true; dock.tlVisible = false;
       state.cursor = true;
       dockClaim('editor');
-      dock.graphEnabled = (dock.tab === 'graph');
+      dock.graphEnabled = (dock.tab === 'timeline');
       if ((state.count || 0) > 0 && state.selected < 0) state.selected = 0;
       live.editor = true;
       build('cameraeditor');
@@ -758,7 +758,7 @@
   function stateFor(id) {
     var feed = baseFeed();
     var nav = state.nav, dock = state.dock;
-    var dockH = { native: 126, camera: 196, graph: 416 }[dock.tab] || 126;
+    var dockH = { native: 126, timeline: 476 }[dock.tab] || 126;
     switch (id) {
       case 'moviehud':
         // MovieHud.cpp: visible = m_visible && !CameraPath_PreviewHudHidden && !captureHide,
@@ -783,23 +783,36 @@
         feed.timelineView = 'timeline';
         break;
       case 'grapheditor':
-        // The dock's model is ITS OWN setting now (editor.graph), not the inspector tab's -- see
-        // GraphEditorExperimentHud.cpp. The visible window is the JS's to own (it seeds from
-        // viewT0/viewT1 once and then pans/zooms itself), so this feed only supplies the suggested
-        // window plus the DOMAIN the overview maps -- the demo's own bounds.
-        feed.graphMode = state.graphMode;
+        // GraphEditorExperimentHud::BuildStateJson: the camera channels plus the scene keys under
+        // "scene" (SceneKeys_AppendTimelineState) -- ONE timeline for both. The visible window is
+        // the JS's to own (it seeds from viewT0/viewT1 once), so this feed supplies the suggestion
+        // plus the DOMAIN the overview maps -- the demo's own bounds.
         feed.domainT0 = isFinite(state.demoStartTick) ? state.demoStartTick : 0;
         feed.domainT1 = isFinite(state.demoEndTick) ? state.demoEndTick : 115200;
-        if (state.graphMode === 'scene') {
-          var sk=state.sceneKeys; window.MvmSceneKeys.sync(sk,state.scrubbing?state.playhead:state.tick);
-          feed.channels=sk.sceneChannels;feed.rev=sk.rev;feed.selCount=sk.selected.length;feed.selCh=sk.activeCh == null ? -1 : sk.activeCh;
-          feed.canUndo=sk.canUndo;feed.canRedo=sk.canRedo;
-          // SceneKeys_AppendGraphState: a SUGGESTED window, the keyed events padded (or the
-          // playhead +-1000 with none). The JS seeds from it once and owns the window after that.
-          var tick=state.scrubbing?state.playhead:state.tick, lo=tick-1000, hi=lo+2000;
-          if(sk.events.length){lo=sk.events[0].tick;hi=sk.events[sk.events.length-1].tick;var pad=Math.max(64,(hi-lo)*0.1);lo-=pad;hi+=pad;}
-          feed.viewT0=Math.max(0,lo);feed.viewT1=hi;
-        }
+        var sk = state.sceneKeys; window.MvmSceneKeys.sync(sk, state.scrubbing ? state.playhead : state.tick);
+        feed.scene = { rev: sk.rev, selCount: sk.selected.length, selCh: sk.activeCh == null ? -1 : sk.activeCh,
+                       canUndo: sk.canUndo, canRedo: sk.canRedo, channels: sk.sceneChannels };
+        var camSel = 0;
+        (state.channels || []).forEach(function (c) { c.keys.forEach(function (k) { if (k.sel) camSel++; }); });
+        feed.selCount = camSel;
+        feed.rev = state.camRev || 0;
+        feed.canUndo = !!(state.camUndo && state.camUndo.length); feed.canRedo = !!(state.camRedo && state.camRedo.length);
+        feed.drive = !!state.graphDrive;
+        feed.pathPlaying = false;
+        feed.scrubCache = !!state.scrubCache;
+        feed.tickRate = window.MvmState.TICK_RATE;
+        feed.interp = state.interp === false ? 'Linear' : 'Smooth';
+        feed.timelineView = (state.ui && state.ui['editor.timeline.view'] === 'graph') ? 'graph' : 'keys';
+        var rr = state.render || {};
+        feed.rangeActive = !!rr.resOk; feed.rangeIn = rr.resStart || 0; feed.rangeOut = rr.resEnd || 0;
+        // The camera path's marker ticks and each marker's shake (CamPathShake), for the
+        // CAMERA PATH layer's "Camera shake" row.
+        feed.pathKeys = (state.markers || []).map(function (m) { return m.tick; });
+        feed.shakes = (state.shakes || []).filter(function (s) { return state.markers && state.markers[s.i]; }).map(function (s) {
+          return { i: s.i, t: state.markers[s.i].tick, s: s.s, l: s.l || 'Hand', n: s.n || 5, p: s.p || 50 };
+        });
+        feed.shakeStyles = window.MvmShakeMenu || [];
+        feed.shakeEssentials = 5;
         feed.enabled = dock.graphEnabled;
         feed.renderOpen = nav.renderOpen;
         break;
@@ -814,7 +827,7 @@
       case 'cameraeditor':
         feed.enabled = nav.editorOpen && !nav.blackout;
         feed.bottomMode = dock.tab;
-        feed.timelineView = dock.tab === 'graph' ? 'graph' : 'timeline';
+        feed.timelineView = 'timeline';
         feed.graphExp = dock.graphEnabled;
         feed.dockH = dockH;
         feed.renderOpen = nav.renderOpen;
@@ -972,10 +985,12 @@
       holds: function (s) { return s.nav.editorOpen && !s.nav.renderOpen && s.uiEditorInspector === 'path'; } },
     customize: { cmds: ['editor on', 'render close', 'editor customize'],
       holds: function (s) { return s.nav.editorOpen && (s.nav.customizeOpen || customizeVisible()); } },
-    cameratimeline: { cmds: ['editor on', 'render close', 'dock camera'],
-      holds: function (s) { return s.nav.editorOpen && !s.nav.renderOpen && s.dock.tab === 'camera'; } },
-    grapheditor: { cmds: ['editor on', 'render close', 'dock graph'],
-      holds: function (s) { return s.nav.editorOpen && !s.nav.renderOpen && s.dock.tab === 'graph'; } },
+    // The camera timeline is never docked any more (the TIMELINE tab is the unified dock); its own
+    // surface is the floating bar `camtl open` puts over the HUD.
+    cameratimeline: { cmds: ['editor off', 'config off', 'camtl open'],
+      holds: function (s) { return !s.nav.editorOpen && !s.nav.configOpen && s.dock.tlVisible; } },
+    grapheditor: { cmds: ['editor on', 'render close', 'dock timeline'],
+      holds: function (s) { return s.nav.editorOpen && !s.nav.renderOpen && s.dock.tab === 'timeline'; } },
     markerhud: { cmds: ['editor off', 'config off'], patch: { marker: { mode: 'editing', menuOpen: true, notice: '' } },
       holds: function (s) { return !s.nav.configOpen && !s.nav.editorOpen && s.marker.menuOpen; } },
     moviehud: { cmds: ['editor off', 'config off', 'hud on'],
@@ -1113,8 +1128,7 @@
       ['Inspector: Scene Keys', IN_EDITOR, function (a) { a.gotoInspector('scene'); }],
       ['Attachment menu', IN_EDITOR, function (a) { a.setAttachmentMenuOpen(true); }],
       ['Dock: REGULAR TIMELINE', ['editor on'], function () { window.PanoramaShim.onCommand('mirv_filmmaker dock native'); }],
-      ['Dock: CAMERA', ['editor on'], function () { window.PanoramaShim.onCommand('mirv_filmmaker dock camera'); }],
-      ['Dock: GRAPH', ['editor on'], function () { window.PanoramaShim.onCommand('mirv_filmmaker dock graph'); }],
+      ['Dock: TIMELINE', ['editor on'], function () { window.PanoramaShim.onCommand('mirv_filmmaker dock timeline'); }],
       ['Editor: ESC EXIT', [], function () { window.PanoramaShim.onCommand('mirv_filmmaker editor close'); }]
     ] },
     { owner: 'Config', api: 'ConfigHud', items: [
@@ -1143,8 +1157,8 @@
       ['Config: ESC EXIT', [], function () { window.PanoramaShim.onCommand('mirv_filmmaker config close'); }]
     ] },
     { owner: 'Camera Timeline', api: 'CamTimeline', items: [
-      ['Shake menu (right-click a key)', ['editor on', 'render close', 'dock camera'], function () { return fireEventOn('oncontextmenu', 0, 'CamTimelineRoot'); }],
-      ['Clear path', ['editor on', 'render close', 'dock camera'], function () { activateByText('Clear'); }],
+      ['Shake menu (right-click a key)', ['editor off', 'config off', 'camtl open'], function () { return fireEventOn('oncontextmenu', 0, 'CamTimelineRoot'); }],
+      ['Clear path', ['editor off', 'config off', 'camtl open'], function () { activateByText('Clear'); }],
       // The floating bar over the HUD with no editor around it: `camtl open` from the console.
       ['Floating timeline (no editor)', ['editor off', 'config off', 'camtl open'], null]
     ] },

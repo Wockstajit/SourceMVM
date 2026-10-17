@@ -172,10 +172,7 @@ void CameraEditor_SetScale(bool enabled);
 void CameraEditor_ToggleScale();
 bool CameraEditor_ScaleActive();
 
-// Bottom editor selection. "native" leaves CS2's own demo timeline visible; "timeline" opens
-// the custom camera timeline; "graph" opens the graph editor.
-void CameraEditor_SetUseTimeline(bool useTimeline);
-void CameraEditor_ToggleUseTimeline();
+// Put the shared dock back on CS2's own demo bar (REGULAR TIMELINE).
 void CameraEditor_SetNativeTimeline();
 
 // Game-HUD visibility while the editor is open ("hidden" | "game" | "full"). Read by
@@ -218,6 +215,8 @@ void GraphEditorExperiment_Set(bool enabled);
 void GraphEditorExperiment_Toggle();
 bool GraphEditorExperiment_Enabled();
 bool GraphEditorExperiment_OwnsView();
+// The TIMELINE dock's CAMERA PATH layer switch: may scrubbing and Space fly the camera path.
+bool GraphEditorExperiment_Drive();
 bool GraphEditorExperiment_WantsCursor();
 
 // --- mvm_test offline live-match FX testing ---

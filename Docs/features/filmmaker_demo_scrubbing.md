@@ -11,7 +11,7 @@ Dragging any timeline playhead moves the demo **world** with it, forward and bac
 | Driver (issues engine commands, main thread) | `AfxHookSource2/Filmmaker/Movie/DemoScrub.cpp` |
 | Keyframed copies (build, cache, play) | `AfxHookSource2/Filmmaker/Demo/DemoKeyframes.cpp`, helper `FilmmakerDemoKeyframesGo/` |
 | Camera timeline slider | `CameraPath.cpp` `ScrubToTick` (drag → `DemoScrub_Drag`, release → `DemoScrub_Release`) |
-| Graph editor ruler, key jumps and key drags (GRAPH and SCENE GRAPH) | `GraphEditorExperimentHud.cpp` `CmdPlayhead`, `GraphEditorJs.h` `playheadTo` / `releasePlayhead` |
+| TIMELINE dock ruler, key jumps and key drags (camera and scene keys) | `GraphEditorExperimentHud.cpp` `CmdPlayhead`, `GraphEditorJs.h` `playheadTo` / `releasePlayhead` |
 | CS2's own demo bar | `Panorama/DemoBarScrubJs.h`, injected by `DemoBarButtons.cpp` |
 | Console | `mirv_filmmaker scrub drag <tick>`, `scrub release <tick>`, `scrub status`, `keyframes` |
 

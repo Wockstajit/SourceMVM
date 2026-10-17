@@ -16,7 +16,7 @@ The Follow inspector only exists inside the camera editor workspace.
 |---|---|
 | `mirv_filmmaker editor on` / `off` / `toggle` | Open or close the camera editor workspace (preview, inspector and bottom editor). |
 | `mirv_filmmaker editor scale on` / `off` / `toggle` | True scaled-preview viewport (whole frame shrunk, not cropped). |
-| `mirv_filmmaker editor curveeditor native` / `graph` / `timeline` / `camera` / `toggle` | Choose the bottom editor. |
+| `mirv_filmmaker dock native` / `timeline` / `toggle` | Choose the bottom dock: CS2's own bar or the TIMELINE dock. |
 | `mirv_filmmaker editor state64` | Base64 JSON dump of editor state (`[cameraeditor][state64]`). |
 | `mirv_filmmaker editor eval <panorama js>` | Run JS in the editor context (optional UI poke). |
 | `mirv_filmmaker camtl cursor on` / `off` / `toggle` | UI mouse or game mouse (freecam). Forced on while the editor is open. |

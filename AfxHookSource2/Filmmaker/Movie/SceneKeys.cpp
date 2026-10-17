@@ -117,6 +117,9 @@ void Load() {
     PrepareAssets();
 }
 const ChannelSpec* Channel(int ch) { return ch >= 0 && ch < int(Catalog().size()) ? &Catalog()[ch] : nullptr; }
+// Smooth keys follow their neighbours (AE's Auto Bezier): re-solved after every edit, so a moved,
+// added or deleted key reshapes the Smooth keys around it the same frame.
+void RefreshAuto() { for(auto& f:g_track.data.fields){const auto* s=FindSpec(Catalog(),f.first);if(s&&RefreshAutoTangents(*s,f.second))++g_track.revision;} }
 double Number(const char* text, double fallback = 0) {
     if (!text || !*text) return fallback;
     char* end = nullptr; const double n = std::strtod(text, &end);
@@ -252,19 +255,23 @@ std::string SceneKeys_ChannelsJson() {
         } j.EndArray(); j.EndObject();
     } j.EndArray(); return j.Str();
 }
-// A SUGGESTED starting window only -- fit to the keyed events, padded, or a default span around
-// the playhead when there are none yet. The JS owns pan/zoom after that (same contract as the
-// camera graph's m_viewInit): this value is read once when the dock's scene view has not been
-// seeded, and never again, so moving the playhead never recentres, pans or zooms what you are
-// looking at. That used to happen here (an anchor that followed the playhead every frame) and it
-// made existing keys hard to find the moment you scrubbed away from them.
-void SceneKeys_AppendGraphState(std::ostringstream& out) {
-    double lo = TimelinePlayhead_Tick() - 1000, hi = lo + 2000; const auto events = Events(g_track.data);
-    if (!events.empty()) { lo = events.front().tick; hi = events.back().tick; double pad = std::max(64.0, (hi - lo) * .1); lo -= pad; hi += pad; }
-    out << ",\"rev\":" << g_track.revision << ",\"viewT0\":" << std::max(0.0, lo) << ",\"viewT1\":" << hi
+// The SCENE half of the TIMELINE dock's state, published under "scene" next to the camera channels:
+// its own revision, selection and history (the scene track keeps its own undo), and every armed or
+// keyed property. The visible window belongs to the dock; SceneKeys_KeySpan only feeds the single
+// suggested window it seeds from (GraphEditorExperimentHud::BuildStateJson), so moving the playhead
+// never recentres, pans or zooms what you are looking at.
+void SceneKeys_AppendTimelineState(std::ostringstream& out) {
+    out << ",\"scene\":{\"rev\":" << g_track.revision
         << ",\"selCount\":" << g_track.selected.size() << ",\"selCh\":" << g_activeChannel
         << ",\"canUndo\":" << (g_track.CanUndo()?"true":"false") << ",\"canRedo\":" << (g_track.CanRedo()?"true":"false")
-        << ",\"channels\":" << SceneKeys_ChannelsJson();
+        << ",\"channels\":" << SceneKeys_ChannelsJson() << "}";
+}
+
+bool SceneKeys_KeySpan(double& lo, double& hi) {
+    const auto events = Events(g_track.data);
+    if (events.empty()) return false;
+    lo = events.front().tick; hi = events.back().tick;
+    return true;
 }
 
 void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*) {
@@ -327,8 +334,11 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
             for(auto& f:g_track.data.fields){auto s=FindSpec(Catalog(),f.first);if(!s||s->Stepped())continue;
                 for(size_t i=0;i<f.second.size();++i){auto& k=f.second[i];if(!g_track.selected.empty()&&!g_track.selected.count(k.id))continue;
                     if(action=="direction"){int dir=atoi(arg(4));if(dir>=0&&dir<=2)k.direction=AngleDir(dir);continue;}
-                    bool active=action!="linear";k.left={active,1.0/3,0};k.right={active,1.0/3,0};
-                    if(action=="ease"){std::string how=arg(4);if(how=="in")k.left.active=false;if(how=="out")k.right.active=false;}
+                    // Smooth = Auto Bezier (RefreshAuto solves it below); an ease is a flat Bezier on
+                    // the side it names: IN is the incoming (left) side, OUT the outgoing one, as in AE
+                    // and the camera graph.
+                    const bool active=action!="linear",smooth=action=="smooth";k.left={active,1.0/3,0,smooth};k.right={active,1.0/3,0,smooth};
+                    if(action=="ease"){std::string how=arg(4);if(how=="in")k.right.active=false;if(how=="out")k.left.active=false;}
                 }
             }++g_track.revision;
         } else if(action=="align") {
@@ -337,6 +347,7 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
             bool valid=true;for(const auto& f:g_track.data.fields){int atCount=0;for(const auto& k:f.second)if(g_track.selected.count(k.id)||k.tick==at)++atCount;if(atCount>1)valid=false;}
             if(valid){for(auto& f:g_track.data.fields){for(auto& k:f.second)if(g_track.selected.count(k.id))k.tick=at;std::sort(f.second.begin(),f.second.end(),[](auto&a,auto&b){return a.tick<b.tick;});}++g_track.revision;}
         }
+        RefreshAuto();
         if(!g_gesture&&g_track.EndEdit())MarkDirty();return;
     }
     g_track.BeginEdit();
@@ -372,6 +383,7 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
             g_track.selected.clear();for(const auto& v:values){auto s=FindSpec(Catalog(),v.first);if(s){g_track.data.armed.insert(s->id);int k=g_track.Put(*s,tick,v.second);if(k)g_track.selected.insert(k);}}
         }
     }
+    RefreshAuto();
     if(!g_gesture&&g_track.EndEdit())MarkDirty();
 }
 } // namespace Filmmaker

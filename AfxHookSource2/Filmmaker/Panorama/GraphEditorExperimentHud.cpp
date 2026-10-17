@@ -16,8 +16,12 @@
 #include "../Movie/CameraBridge.h"
 #include "../Movie/DemoTimescale.h" // one demo speed, shared by all three scrubbers
 #include "../Movie/SceneKeys.h"
+#include "../Movie/CamPathShake.h" // the CAMERA PATH layer's "Camera shake" row
+#include "../Movie/ScrubFrameCache.h" // the transport's Cache toggle
+#include "../Movie/RageShake.h"    // RageShake_StyleLabel: the shake's display name
 #include "../Config/FilmmakerSettingsStore.h"
 #include "../Render/RenderCommand.h"
+#include "../Render/RenderRange.h" // the ruler's render range (work area)
 
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_* (the only diagnostic channel; console prints nothing)
 
@@ -252,11 +256,9 @@ void GraphEditorExperimentHud::DriveCameraThisFrame() {
 		return;
 	if (!TimelinePlayhead_Scrubbing() && !editDrive)
 		return;
-	// The dock only drives the camera while it is SHOWING the camera. In scene mode it is a
-	// lighting/weather editor; writing a camera-path pose every frame from behind it is how
-	// "the camera path plays while I am working on the scene graph" happened.
-	if (FilmmakerSettings_UiString("editor.graph", "camera") == "scene")
-		return;
+	// Camera and scene keys share one TIMELINE now, so "which model is showing" no longer decides
+	// this: the CAMERA PATH layer's switch is m_drive itself (checked above). Turning that layer off
+	// is how you scrub lighting or weather with the free cam left where you put it.
 
 	// ONLY INSIDE THE PATH'S OWN RANGE. EvalPoseAtTick never fails once there are >= 2 markers
 	// -- EvalSegP clamps its segment parameter to [0,1] -- so OUTSIDE the range it happily
@@ -339,9 +341,19 @@ std::string GraphEditorExperimentHud::BuildStateJson() {
 	double mn = m_model.MinTick(), mx = m_model.MaxTick();
 	if (mx <= mn) mx = mn + 1.0;
 	if (!m_viewInit) {
-		if (m_model.TotalKeys() > 0) {
-			double pad = (mx - mn) * 0.04 + 1.0;
-			m_viewT0 = mn - pad; m_viewT1 = mx + pad;
+		// The suggestion spans every key on the TIMELINE: camera keys and scene keys alike.
+		double klo = 0.0, khi = 0.0;
+		bool any = m_model.TotalKeys() > 0;
+		if (any) { klo = mn; khi = mx; }
+		double slo = 0.0, shi = 0.0;
+		if (SceneKeys_KeySpan(slo, shi)) {
+			if (!any) { klo = slo; khi = shi; any = true; }
+			else { klo = (std::min)(klo, slo); khi = (std::max)(khi, shi); }
+		}
+		if (any) {
+			if (khi <= klo) khi = klo + 1.0;
+			double pad = (khi - klo) * 0.04 + 64.0;
+			m_viewT0 = (std::max)(0.0, klo - pad); m_viewT1 = khi + pad;
 		} else {
 			double p = PlayheadTick();
 			m_viewT0 = p - 1000.0; m_viewT1 = p + 1000.0;
@@ -404,16 +416,10 @@ std::string GraphEditorExperimentHud::BuildStateJson() {
 	// The engine's demo speed, so this dock's scrubber agrees with the other two. NOT r2()'d --
 	// the control is continuous and 2 decimals would snap the handle after every drag.
 	o << ",\"timescale\":" << DemoTimescale_Get();
-	const std::string inspectorMode = FilmmakerSettings_UiString("editor.inspector", "path");
-	o << ",\"uiEditorInspector\":\"" << inspectorMode << "\"";
-	// WHICH MODEL THIS DOCK SHOWS IS ITS OWN SETTING, not a side effect of the inspector tab.
-	// It used to key off inspectorMode, so opening SCENE KEYS in the column silently replaced the
-	// camera graph -- a shot with camera paths down had no way left to see or edit their curves.
-	// The dock now carries its own GRAPH / SCENE GRAPH switch and persists the choice.
-	const std::string graphMode = FilmmakerSettings_UiString("editor.graph", "camera") == "scene" ? "scene" : "camera";
-	o << ",\"graphMode\":\"" << graphMode << "\"";
-	// TIME SNAP (editor.graph.snap): "off" | "auto" | a tick count. ONE shared value for both graph
-	// modes; the JS quantises the playhead, key placement and key drags to it. Sanitised to
+	// KEYFRAMES or GRAPH: the TIMELINE dock's view, persisted like every other dock choice.
+	o << ",\"timelineView\":\"" << (FilmmakerSettings_UiString("editor.timeline.view", "keys") == "graph" ? "graph" : "keys") << "\"";
+	// TIME SNAP (editor.graph.snap): "off" | "auto" | a tick count. ONE shared value for camera and
+	// scene keys; the JS quantises the playhead, key placement and key drags to it. Sanitised to
 	// [a-z0-9-] so an odd stored value can never break this JSON.
 	{
 		const std::string raw = FilmmakerSettings_UiString("editor.graph.snap", "off");
@@ -422,11 +428,51 @@ std::string GraphEditorExperimentHud::BuildStateJson() {
 			if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || c == '-') safe += c;
 		o << ",\"snap\":\"" << (safe.empty() ? "off" : safe) << "\"";
 	}
-	if (graphMode == "scene") {
-		SceneKeys_AppendGraphState(o);
-		o << "}";
-		return o.str();
+	// Ticks per second, for the timecode and the ruler's seconds.
+	{
+		const float ipt = g_MirvTime.interval_per_tick_get();
+		o << ",\"tickRate\":" << r2((ipt > 0.0f) ? 1.0 / (double)ipt : 64.0);
 	}
+	// The camera path's own playback (Space / the toolbar's play), separate from the demo's.
+	o << ",\"scrubCache\":" << (ScrubFrameCache_Enabled() ? "true" : "false");
+	o << ",\"pathPlaying\":" << ((CameraPathRef().IsPlaying() || CameraPathRef().PlaybackPending()) ? "true" : "false");
+	// The render range (work area) the ruler draws and drags, RESOLVED (Full demo / Path / Round /
+	// Custom all become ticks here). Out is exclusive, the same convention `render range custom` takes.
+	{
+		RenderRange resolved;
+		const bool ok = Render_ResolveRangeForDisplay(resolved) && resolved.Valid();
+		o << ",\"rangeActive\":" << (ok ? "true" : "false");
+		o << ",\"rangeIn\":" << (ok ? resolved.startTick : 0) << ",\"rangeOut\":" << (ok ? resolved.endTickExclusive : 0);
+	}
+	// The camera path's keys (marker ticks, in order: a marker's index is what `pathshake` takes)
+	// and the GTA V shake each one carries, for the CAMERA PATH layer's "Camera shake" row.
+	{
+		const std::vector<CamMarker>& mk = CameraPathRef().Markers();
+		o << ",\"pathKeys\":[";
+		for (size_t i = 0; i < mk.size(); ++i) { if (i) o << ","; o << mk[i].tick; }
+		o << "],\"shakes\":[";
+		bool first = true;
+		for (int i = 0; i < (int)mk.size(); ++i) {
+			const CamPathShakeSetting s = CamPathShake_Get(i);
+			if (!s.Active()) continue;
+			if (!first) o << ",";
+			first = false;
+			o << "{\"i\":" << i << ",\"t\":" << mk[(size_t)i].tick << ",\"s\":" << s.style << ",\"l\":\"" << RageShake_StyleLabel(s.style)
+				<< "\",\"n\":" << s.intensity << ",\"p\":" << s.speed
+				<< ",\"o\":" << (RageShake_Finished(RageShake_Style(s.style), 1.0e6, 1.0) ? 1 : 0) << "}";
+		}
+		o << "]";
+		// The shake menu's list: [style index, label] in menu order, the first shakeEssentials
+		// being the Rockstar Editor set. Static, but small enough to ride along every frame.
+		o << ",\"shakeEssentials\":" << RageShake_RockstarEditorCount() << ",\"shakeStyles\":[";
+		for (int m = 0; m < RageShake_MenuCount(); ++m) {
+			const int si = RageShake_MenuStyle(m);
+			o << (m ? "," : "") << "[" << si << ",\"" << RageShake_StyleLabel(si) << "\"]";
+		}
+		o << "]";
+	}
+	// The scene keys, next to the camera channels below: ONE timeline for both.
+	SceneKeys_AppendTimelineState(o);
 	// The LIVE camera pose, per channel, so a row's diamond can place a key using "the value you
 	// are looking at" -- the AE convention. Without it the first key on an empty channel had no
 	// value to take and defaulted to zero-something, which is not what the viewport showed.
@@ -464,8 +510,8 @@ std::string GraphEditorExperimentHud::BuildStateJson() {
 			const GraphExpModel::Keyframe& k = ch.keys[i];
 			o << "{\"id\":" << k.id << ",\"t\":" << r2(k.tick) << ",\"v\":" << r2(k.value)
 				<< ",\"sel\":" << (m_model.IsSelected(c, k.id) ? "true" : "false")
-				<< ",\"cl\":{\"a\":" << (k.cpLeft.active ? 1 : 0) << ",\"tx\":" << r3(k.cpLeft.tx) << ",\"dv\":" << r2(k.cpLeft.dv) << "}"
-				<< ",\"cr\":{\"a\":" << (k.cpRight.active ? 1 : 0) << ",\"tx\":" << r3(k.cpRight.tx) << ",\"dv\":" << r2(k.cpRight.dv) << "}}";
+				<< ",\"cl\":{\"a\":" << (k.cpLeft.active ? 1 : 0) << ",\"auto\":" << (k.cpLeft.autoTan ? 1 : 0) << ",\"tx\":" << r3(k.cpLeft.tx) << ",\"dv\":" << r2(k.cpLeft.dv) << "}"
+				<< ",\"cr\":{\"a\":" << (k.cpRight.active ? 1 : 0) << ",\"auto\":" << (k.cpRight.autoTan ? 1 : 0) << ",\"tx\":" << r3(k.cpRight.tx) << ",\"dv\":" << r2(k.cpRight.dv) << "}}";
 		}
 		o << "]}";
 	}
@@ -572,6 +618,9 @@ void GraphEditorExperimentHud::CmdSelectSet(const char* csv) {
 // sync produce exactly one marker per shared key tick. Per-marker ease/speedMul (path-side
 // concepts the graph does not model) carry over on an exact tick match.
 void GraphEditorExperimentHud::SyncToCameraPath() {
+	// Every edit lands here: re-solve the Auto Bezier sides first, so what is drawn and baked is
+	// the curve after the move, not the tangents from before it.
+	if (m_model.RefreshAutoTangents()) BumpRev();
 	if (!m_enabled || !PlayingDemo()) {
 		// Not an error, but it IS the number-one reason a graph edit appears to do nothing to
 		// the Camera timeline, so it must be visible rather than inferred.

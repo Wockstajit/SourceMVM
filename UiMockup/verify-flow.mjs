@@ -133,64 +133,53 @@ const CASES = [
   { name: 'Config: collapsed Handheld card survives editor round-trip',
     q: 'surface=confighud&click=label:HANDHELD CAMERA&cmd=mirv_filmmaker editor on;mirv_filmmaker config on',
     check: (g, s) => s.surface === 'confighud' && s.state.uiConfigHandheldOpen === false },
-  { name: 'editor: CAMERA tab docks the camera timeline',
-    q: 'surface=cameraeditor&cmd=mirv_filmmaker editor curveeditor timeline',
-    check: (g, s) => s.state.dock.tab === 'camera' && shown(g, 'CamTimelineBar') },
-  { name: 'editor: GRAPH tab shows the graph editor',
-    q: 'surface=cameraeditor&cmd=mirv_filmmaker editor curveeditor graph',
-    check: (g, s) => s.state.dock.tab === 'graph' && shown(g, 'GraphExpRoot') },
-  { name: 'the dock shows scene strips when IT is switched to scene mode',
-    q: 'surface=cameraeditor&cmd=mirv_filmmaker settings ui editor.graph scene;mirv_filmmaker scenekeys strip exposure on;mirv_filmmaker dock graph',
-    check: (g, s) => s.state.dock.tab === 'graph' && s.state.graphMode === 'scene'
-      && shown(g, 'GraphExpRoot') && Array.isArray(s.state.channels)
-      && s.state.channels.some((c) => c.fieldId === 'exposure') },
-  // The regression the dock's own switch exists to prevent: opening the SCENE KEYS tab in the
-  // column used to replace the camera graph, so a shot with paths down lost its curves.
-  { name: 'opening the SCENE KEYS tab leaves the camera graph alone',
-    q: 'surface=cameraeditor&cmd=mirv_filmmaker settings ui editor.inspector scene;mirv_filmmaker scenekeys strip exposure on;mirv_filmmaker dock graph',
-    check: (g, s) => s.state.dock.tab === 'graph' && s.state.graphMode === 'camera'
-      && Array.isArray(s.state.channels) && s.state.channels.some((c) => c.name === 'Pos X') },
-  { name: 'switching the dock back to GRAPH restores camera channels',
-    q: 'surface=cameraeditor&cmd=mirv_filmmaker settings ui editor.graph scene;mirv_filmmaker scenekeys strip exposure on;mirv_filmmaker settings ui editor.graph camera;mirv_filmmaker dock graph',
-    check: (g, s) => s.state.dock.tab === 'graph' && s.state.graphMode === 'camera'
-      && Array.isArray(s.state.channels) && s.state.channels.some((c) => c.name === 'Pos X') },
+  { name: 'editor: TIMELINE tab docks the unified timeline',
+    q: 'surface=cameraeditor&cmd=mirv_filmmaker dock timeline',
+    check: (g, s) => s.state.dock.tab === 'timeline' && shown(g, 'GraphExpRoot') && !shown(g, 'CamTimelineBar') },
+  // Camera and scene keys share the dock: armed scene properties appear as layers NEXT TO the
+  // camera path, and opening the SCENE KEYS inspector tab takes nothing away.
+  { name: 'the timeline shows scene layers next to the camera path',
+    q: 'surface=cameraeditor&cmd=mirv_filmmaker settings ui editor.inspector scene;mirv_filmmaker scenekeys strip exposure on;mirv_filmmaker dock timeline',
+    check: (g, s) => s.state.dock.tab === 'timeline' && shown(g, 'GraphExpRoot')
+      && Array.isArray(s.state.channels) && s.state.channels.some((c) => c.name === 'Pos X')
+      && Array.isArray(s.state.sceneKeys.sceneChannels) && s.state.sceneKeys.sceneChannels.some((c) => c.fieldId === 'exposure') },
   { name: 'editor: REGULAR TIMELINE brings the native bar back',
-    q: 'surface=cameraeditor&cmd=mirv_filmmaker editor curveeditor timeline;mirv_filmmaker editor curveeditor native',
+    q: 'surface=cameraeditor&cmd=mirv_filmmaker dock timeline;mirv_filmmaker dock native',
     // the timeline bar stays laid out under the native bar in game too (see the geometry dumps), so
     // the assertion is the mode plus the native controls being back, not the bar being gone
     check: (g, s) => s.state.dock.tab === 'native' && shown(g, 'ControlRow') },
-  { name: 'Camera Timeline row opens inside the editor (CAMERA tab up)',
+  { name: 'the floating camera timeline opens with no editor around it',
     q: 'surface=cameratimeline',
-    check: (g, s) => shown(g, 'CamEditorRoot') && shown(g, 'CamTimelineBar') && s.state.dock.tab === 'camera' },
-  { name: 'Graph Editor row opens inside the editor (GRAPH tab up)',
+    check: (g, s) => !shown(g, 'CamEditorRoot') && shown(g, 'CamTimelineBar') && s.state.dock.tlVisible === true },
+  { name: 'Timeline row opens inside the editor (TIMELINE tab up)',
     q: 'surface=grapheditor',
     check: (g, s) => shown(g, 'CamEditorRoot') && shown(g, 'GraphExpRoot') },
-  // Config HOSTS the dock and shows the remembered tab, so its own REGULAR TIMELINE / CAMERA /
-  // GRAPH tabs actually switch the timeline. (It used to lose the one-shot claim when opened from
-  // the editor and then never re-claim, leaving the ribbon's tabs doing nothing but repainting.)
-  { name: 'Config hosts the remembered editor timeline, so its tabs are live',
-    q: 'surface=cameratimeline&cmd=mirv_filmmaker config on',
-    check: (g, s) => s.surface === 'confighud' && shown(g, 'CamTimelineBar')
+  // Config HOSTS the dock and shows the remembered tab, so its own REGULAR TIMELINE / TIMELINE
+  // tabs actually switch it. (It used to lose the one-shot claim when opened from the editor and
+  // then never re-claim, leaving the ribbon's tabs doing nothing but repainting.)
+  { name: 'Config hosts the remembered TIMELINE tab, so its tabs are live',
+    q: 'surface=grapheditor&cmd=mirv_filmmaker config on',
+    check: (g, s) => s.surface === 'confighud' && shown(g, 'GraphExpRoot')
       && shown(g, 'ConfigHudRoot') && s.ui.modeSwapText === 'CAM EDITOR' },
   { name: 'the editor gets its docked timeline back after a trip through Config',
-    q: 'surface=cameratimeline&cmd=mirv_filmmaker config on;mirv_filmmaker editor on',
-    check: (g, s) => s.surface === 'cameraeditor' && shown(g, 'CamTimelineBar')
-      && s.state.dock.tab === 'camera' },
+    q: 'surface=grapheditor&cmd=mirv_filmmaker config on;mirv_filmmaker editor on',
+    check: (g, s) => s.surface === 'cameraeditor' && shown(g, 'GraphExpRoot')
+      && s.state.dock.tab === 'timeline' },
   // The render workspace is a modal ON the editor, so it belongs to one row and has to let go.
-  // Verified in the running game: GRAPH docks the full curve editor UNDER the render columns
-  // (channel list, curves, toolbar), and '✕ Back' sends 'render close' to leave.
-  { name: 'Render: GRAPH docks the graph editor inside the render workspace',
-    q: 'surface=render&cmd=mirv_filmmaker editor curveeditor graph',
+  // The TIMELINE dock stays available under the render columns, and '✕ Back' sends
+  // 'render close' to leave.
+  { name: 'Render: TIMELINE docks inside the render workspace',
+    q: 'surface=render&cmd=mirv_filmmaker dock timeline',
     check: (g, s) => s.surface === 'render' && shown(g, 'GraphExpRoot')
-      && shown(g, 'CamEditorRenderRoot') && s.state.dock.tab === 'graph' },
+      && shown(g, 'CamEditorRenderRoot') && s.state.dock.tab === 'timeline' },
   { name: 'Render: Back leaves the render workspace for the editor',
     q: 'surface=render&cmd=mirv_filmmaker render close',
     check: (g, s) => s.surface === 'cameraeditor' && !shown(g, 'CamEditorRenderRoot')
       && shown(g, 'CamEditorRoot') && s.state.nav.renderOpen === false },
   { name: 'the editor does not come up as the render workspace once Render has been open',
-    q: 'surface=render&cmd=mirv_filmmaker render close;mirv_filmmaker editor curveeditor camera',
+    q: 'surface=render&cmd=mirv_filmmaker render close;mirv_filmmaker dock timeline',
     check: (g, s) => s.surface === 'cameraeditor' && !shown(g, 'CamEditorRenderRoot')
-      && shown(g, 'CamTimelineBar') },
+      && shown(g, 'GraphExpRoot') },
   // The graph draws from state.channels. They were absent from the captured state (the graph was
   // shut when it was taken), so the editor drew an empty grid with no channel names.
   // Not pinned to a channel count: generated/ is gitignored, so a fresh clone runs on the
@@ -267,17 +256,16 @@ const CASES = [
       && shown(g, 'CamEditorBtn') && shown(g, 'ConfigBtn')
       && !liveRoots(g).includes('CamEditorRoot') && !liveRoots(g).includes('ConfigHudRoot')
       && !s.apis.includes('CamEditor') && !s.apis.includes('ConfigHud') },
-  // The dock ribbon's own tabs send `mirv_filmmaker dock <tab>` (TimelineDockRibbonJs.h); they
-  // were unrouted, so REGULAR / CAMERA / GRAPH did nothing in the browser.
-  { name: 'ribbon: dock graph from the editor docks the graph editor',
-    q: 'surface=cameraeditor&cmd=mirv_filmmaker dock camera;mirv_filmmaker dock graph',
-    check: (g, s) => s.state.dock.tab === 'graph' && shown(g, 'GraphExpRoot') && !shown(g, 'CamTimelineBar') },
-  { name: 'ribbon: dock toggle cycles camera <-> graph, never native (TimelineDock_Pick)',
-    q: 'surface=cameraeditor&cmd=mirv_filmmaker dock camera;mirv_filmmaker dock toggle',
-    check: (g, s) => s.state.dock.tab === 'graph' && shown(g, 'GraphExpRoot') },
-  { name: 'ribbon: dock toggle again lands on camera',
-    q: 'surface=cameraeditor&cmd=mirv_filmmaker dock camera;mirv_filmmaker dock toggle;mirv_filmmaker dock toggle',
-    check: (g, s) => s.state.dock.tab === 'camera' && shown(g, 'CamTimelineBar') },
+  // The dock ribbon's own tabs send `mirv_filmmaker dock <tab>` (TimelineDockRibbonJs.h).
+  { name: 'ribbon: dock toggle flips REGULAR TIMELINE <-> TIMELINE (TimelineDock_Pick)',
+    q: 'surface=cameraeditor&cmd=mirv_filmmaker dock native;mirv_filmmaker dock toggle',
+    check: (g, s) => s.state.dock.tab === 'timeline' && shown(g, 'GraphExpRoot') },
+  { name: 'ribbon: dock toggle again lands on the native bar',
+    q: 'surface=cameraeditor&cmd=mirv_filmmaker dock timeline;mirv_filmmaker dock toggle',
+    check: (g, s) => s.state.dock.tab === 'native' && !shown(g, 'GraphExpRoot') },
+  { name: 'the old tab names are gone: dock graph changes nothing',
+    q: 'surface=cameraeditor&cmd=mirv_filmmaker dock native;mirv_filmmaker dock graph',
+    check: (g, s) => s.state.dock.tab === 'native' },
   // The editor's own RENDER button sends `render open` (CameraEditorRenderJs.h openRender);
   // the mockup used to route it into state and then overwrite that state, so nothing happened.
   { name: 'editor: RENDER (render open) opens the render workspace',
@@ -324,21 +312,21 @@ const CASES = [
   // Config hosts the dock whether it was opened from playback OR from the editor now: both
   // workspaces re-claim every frame, so the open-from-editor race self-heals instead of leaving
   // Config with a ribbon whose tabs do nothing.
-  { name: 'Config opened from playback hosts the remembered CAMERA tab',
-    q: 'surface=demobar&cmd=mirv_filmmaker dock camera;mirv_filmmaker config on',
-    check: (g, s) => s.surface === 'confighud' && shown(g, 'CamTimelineBar') && s.state.dock.host === 'config' },
+  { name: 'Config opened from playback hosts the remembered TIMELINE tab',
+    q: 'surface=demobar&cmd=mirv_filmmaker dock timeline;mirv_filmmaker config on',
+    check: (g, s) => s.surface === 'confighud' && shown(g, 'GraphExpRoot') && s.state.dock.host === 'config' },
   { name: 'Config opened from the editor hosts the dock and its tabs work',
-    q: 'surface=cameraeditor&cmd=mirv_filmmaker dock camera;mirv_filmmaker config on',
-    check: (g, s) => s.surface === 'confighud' && shown(g, 'CamTimelineBar') && s.state.dock.host === 'config'
-      && s.state.dock.tab === 'camera' },
+    q: 'surface=cameraeditor&cmd=mirv_filmmaker dock timeline;mirv_filmmaker config on',
+    check: (g, s) => s.surface === 'confighud' && shown(g, 'GraphExpRoot') && s.state.dock.host === 'config'
+      && s.state.dock.tab === 'timeline' },
   // F8 is a render-time flag: everything hides, nothing closes, the second press restores.
   { name: 'F8 blackout hides the editor, the bar and the card without closing anything',
     q: 'surface=cameraeditor&cmd=mirv_filmmaker blackout toggle',
     check: (g, s) => s.state.nav.blackout === true && s.state.nav.editorOpen === true
       && !shown(g, 'CamEditorRoot') && !shown(g, 'ControlRow') && !shown(g, 'MovieHudRoot') },
   { name: 'a second F8 puts the editor back exactly as it was',
-    q: 'surface=cameraeditor&cmd=mirv_filmmaker dock camera;mirv_filmmaker blackout toggle;mirv_filmmaker blackout toggle',
-    check: (g, s) => s.state.nav.blackout === false && shown(g, 'CamEditorRoot') && shown(g, 'CamTimelineBar') },
+    q: 'surface=cameraeditor&cmd=mirv_filmmaker dock timeline;mirv_filmmaker blackout toggle;mirv_filmmaker blackout toggle',
+    check: (g, s) => s.state.nav.blackout === false && shown(g, 'CamEditorRoot') && shown(g, 'GraphExpRoot') },
   // Teardown really deletes: after a round trip the roots are gone and the api is null, as in
   // CameraEditorHud::Teardown.
   { name: 'closing the editor deletes its roots and nulls $.CamEditor',

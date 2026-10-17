@@ -73,10 +73,9 @@ R"EDJS(
     var skTools = mk('Panel', skQuickSec); skTools.hittest = false; skTools.hittestchildren = true;
     skTools.style.flowChildren = 'right'; skTools.style.width = '100%';
     var skActions = { btns: [] };
-    [['Open Graph', function () {
-        // Open Graph is the one place that PUTS the dock in scene mode: an explicit "show me my
-        // strips". Merely opening this tab never takes the camera graph away from you.
-        cmd('mirv_filmmaker settings ui editor.graph scene'); cmd('mirv_filmmaker dock graph');
+    [['Open Timeline', function () {
+        // Scene keys are layers on the one TIMELINE dock, next to the camera path.
+        cmd('mirv_filmmaker dock timeline');
       }, 'primary'],
      ['◇ Key every strip', function () { skCmd('add'); }],
      ['↺ Undo', function () { skCmd('undo'); }],

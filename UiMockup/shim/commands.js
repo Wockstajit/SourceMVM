@@ -61,15 +61,13 @@
   // TimelineDock_Pick (Movie/TimelineDock.cpp). The tab is remembered across closes; whether it
   // is APPLIED (the timeline shown, the graph enabled) is the dock host's business, and app.js
   // re-runs Claim/Apply every frame exactly as the HUD drivers do.
-  //   native|cs2|off|regular -> native, timeline|camera -> camera, graph -> graph,
-  //   toggle -> camera<->graph (never lands on "no editor").
+  //   native|cs2|off|regular -> native, timeline -> timeline, toggle -> native<->timeline.
   function pickTab(st, name) {
     var m = String(name || '').toLowerCase();
-    if (m === 'toggle') m = (st.dock.tab === 'camera') ? 'graph' : 'camera';
-    else if (m === 'timeline') m = 'camera';
+    if (m === 'toggle') m = (st.dock.tab === 'timeline') ? 'native' : 'timeline';
     else if (m === 'cs2' || m === 'off' || m === 'regular') m = 'native';
-    if (m !== 'native' && m !== 'camera' && m !== 'graph') {
-      warn('dock: unknown tab "' + name + '" (native|camera|graph|toggle).');
+    if (m !== 'native' && m !== 'timeline') {
+      warn('dock: unknown tab "' + name + '" (native|timeline|toggle).');
       return false;
     }
     st.dock.tab = m;
@@ -227,22 +225,72 @@
     syncEnvironment(st); return true;
   }
 
-  function applySceneGraphMode(st, mode) {
-    var scene = mode === 'scene';
-    st.graphMode = scene ? 'scene' : 'camera';
-    if (!st.cameraChannels) st.cameraChannels = st.channels;
-    if (scene && st.sceneKeys) {
-      if (global.MvmState && global.MvmState.rebuildSceneDerived) {
-        global.MvmState.rebuildSceneDerived(st.sceneKeys);
+
+  // GraphEditorExperimentHud's camera model (GraphExpModel), enough of it to drive the TIMELINE
+  // dock in the browser: selection, key add/delete/move, handles, eases, Smooth/Linear and a
+  // snapshot undo. st.channels holds the seven channels as {ch, keys: [{id, t, v, sel, cl, cr}]}.
+  global.MvmShakeMenu = [[300, 'Hand'], [301, 'Drunk'], [302, 'Explosion'], [303, 'Air Turbulence'], [304, 'Ground Vibration'],
+    [310, 'Hand Soft'], [311, 'Hand Stunt'], [312, 'Hand Roll'], [313, 'Running'], [314, 'Turbulence'], [315, 'Road Vibration'],
+    [316, 'Vibrate'], [317, 'Water Bob'], [318, 'Parachuting'], [319, 'Wobbly'], [320, 'Drug Trip'], [321, 'Explosion Small'],
+    [322, 'Explosion Large'], [323, 'Jolt']];
+  function camGraph(st, t) {
+    var chs = st.channels || [], op = t[0];
+    function ch(i) { return chs[Math.round(num(i, -1))] || null; }
+    function key(c, id) { return c ? c.keys.filter(function (k) { return k.id === Math.round(num(id, -1)); })[0] : null; }
+    function each(fn, selOnly) { chs.forEach(function (c) { c.keys.forEach(function (k) { if (!selOnly || k.sel) fn(k, c); }); }); }
+    function snap() { return JSON.stringify(chs.map(function (c) { return c.keys; })); }
+    function restore(s) { var ks = JSON.parse(s); chs.forEach(function (c, i) { c.keys = ks[i] || []; }); }
+    function sortAll() { chs.forEach(function (c) { c.keys.sort(function (a, b) { return a.t - b.t; }); }); }
+    function nextId() { var m = 0; each(function (k) { if (k.id > m) m = k.id; }); return m + 1; }
+    st.camUndo = st.camUndo || []; st.camRedo = st.camRedo || [];
+    function push() { st.camUndo.push(snap()); st.camRedo = []; }
+    if (op === 'chan') {
+      var cc = ch(t[1]), how = String(t[2] || '');
+      if (cc) { if (how === 'hide') cc.vis = false; else if (how === 'show') cc.vis = true; else cc.solo = how === 'solo'; }
+    } else if (op === 'select') { var sc = ch(t[1]), sk = key(sc, t[2]); if (t[3] !== 'add') each(function (k) { k.sel = false; }); if (sk) sk.sel = true; }
+    else if (op === 'selset') { each(function (k) { k.sel = false; }); for (var i = 1; i + 1 < t.length; i += 2) { var k2 = key(ch(t[i]), t[i + 1]); if (k2) k2.sel = true; } }
+    else if (op === 'selclear') each(function (k) { k.sel = false; });
+    else if (op === 'selall') each(function (k) { k.sel = true; });
+    else if (op === 'editbegin') push();
+    else if (op === 'movesel') { var dt = num(t[1]), dv = num(t[2]); each(function (k) { k.t += dt; k.v += dv; }, true); sortAll(); }
+    else if (op === 'addkey') {
+      var ac = ch(t[1]), at = num(t[2]), av = num(t[3]);
+      if (ac) {
+        var ex = ac.keys.filter(function (k) { return Math.abs(k.t - at) < 0.5; })[0];
+        each(function (k) { k.sel = false; });
+        if (ex) { ex.v = av; ex.sel = true; } else { ac.keys.push({ id: nextId(), t: at, v: av, sel: true }); sortAll(); }
       }
-      st.channels = st.sceneKeys.sceneChannels || [];
-    } else {
-      st.channels = (global.MvmState && global.MvmState.makeCameraChannels)
-        ? global.MvmState.makeCameraChannels(st.selected, st.markers)
-        : (st.cameraChannels || st.channels);
-      st.cameraChannels = st.channels;
-    }
-    st.selCh = 0;
+    } else if (op === 'delkey') { push(); var dc = ch(t[1]); if (dc) dc.keys = dc.keys.filter(function (k) { return k.id !== Math.round(num(t[2], -1)); }); }
+    else if (op === 'delsel') { push(); chs.forEach(function (c) { c.keys = c.keys.filter(function (k) { return !k.sel; }); }); }
+    else if (op === 'handle') { var hk = key(ch(t[1]), t[2]); if (hk) hk[t[3] === 'left' ? 'cl' : 'cr'] = { a: 1, tx: Math.max(0, Math.min(1, num(t[4]))), dv: num(t[5]) }; }
+    else if (op === 'ease') { push(); each(function (k) { if (t[1] !== 'out') k.cl = { a: 1, tx: 1 / 3, dv: 0 }; if (t[1] !== 'in') k.cr = { a: 1, tx: 1 / 3, dv: 0 }; }, true); }
+    else if (op === 'smooth' || op === 'linear') {
+      push();
+      var selOnly = t[1] === 'sel';
+      if (!selOnly) st.interp = op === 'smooth';
+      chs.forEach(function (c) { c.keys.forEach(function (k, i) {
+        if (selOnly && !k.sel) return;
+        if (op === 'linear') { delete k.cl; delete k.cr; return; }
+        k.cl = { a: 1, auto: 1, tx: 1 / 3, dv: 0 }; k.cr = { a: 1, auto: 1, tx: 1 / 3, dv: 0 };   // solved by refreshAuto below
+      }); });
+    } else if (op === 'align') { var ak = key(ch(t[1]), t[2]); if (ak) { push(); each(function (k) { k.t = ak.t; }, true); sortAll(); } }
+    else if (op === 'undo' && st.camUndo.length) { st.camRedo.push(snap()); restore(st.camUndo.pop()); }
+    else if (op === 'redo' && st.camRedo.length) { st.camUndo.push(snap()); restore(st.camRedo.pop()); }
+    else if (op === 'clear') { push(); chs.forEach(function (c) { c.keys = []; }); }
+    else if (['reseed', 'clearhandles', 'setval', 'movekey', 'undo', 'redo'].indexOf(op) < 0) return false;
+    // GraphExpModel::RefreshAutoTangents: Smooth (Auto Bezier) sides follow the keys after every
+    // edit, one-sided at the ends like GraphCurve::AutoTangent.
+    chs.forEach(function (c) {
+      var ks = c.keys, n = ks.length;
+      ks.forEach(function (k, i) {
+        if (!(k.cl && k.cl.auto) && !(k.cr && k.cr.auto)) return;
+        var a = ks[Math.max(0, i - 1)], b = ks[Math.min(n - 1, i + 1)], m = (n > 1 && b.t - a.t > 1e-9) ? (b.v - a.v) / (b.t - a.t) : 0;
+        if (k.cl && k.cl.auto) k.cl = { a: i > 0 ? 1 : 0, auto: 1, tx: 1 / 3, dv: i > 0 ? -m * (k.t - ks[i - 1].t) / 3 : 0 };
+        if (k.cr && k.cr.auto) k.cr = { a: i + 1 < n ? 1 : 0, auto: 1, tx: 1 / 3, dv: i + 1 < n ? m * (ks[i + 1].t - k.t) / 3 : 0 };
+      });
+    });
+    st.camRev = (st.camRev || 0) + 1;
+    return true;
   }
 
   function run(st, raw) {
@@ -396,9 +444,7 @@
       return false;
     }
     if (t[0] === "mirv_filmmaker" && a === "environment") return environment(st, cmd);
-    if (t[0] === 'mirv_filmmaker' && (a === 'scenekeys' || (a === 'grapheditor' && st.uiEditorInspector === 'scene' && ['on','off','toggle','playhead'].indexOf(b)<0))) {
-      return global.MvmSceneKeys.run(st, a === 'scenekeys' ? t.slice(2) : ['graph'].concat(t.slice(2)));
-    }
+    if (t[0] === 'mirv_filmmaker' && a === 'scenekeys') return global.MvmSceneKeys.run(st, t.slice(2));
 
     // ---- persisted UI keys (tabs, collapsible cards) ----------------------
     if (a === 'settings' && b === 'ui') {
@@ -411,8 +457,7 @@
         var n = parseFloat(val);
         if (isFinite(n) && n > 0) st[UI_MIRROR_NUM[key]] = Math.round(n);
       }
-      if (key === 'editor.graph') applySceneGraphMode(st, val);
-      // Time snap is one shared value for both graph modes; the graph feed reads st.snap.
+      // Time snap is one shared value for camera and scene keys; the timeline feed reads st.snap.
       if (key === 'editor.graph.snap') st.snap = val;
       return true;
     }
@@ -472,9 +517,6 @@
       // CameraEditorHud::RunFrame honours m_openCustomizeRequested.
       if (b === 'customize') { setEditor(st, true); st.nav.customizeOpen = true; return true; }
       if (b === 'hud') { st.hudView = c || 'full'; return true; }
-      // The older spelling of the dock tabs ('editor curveeditor <mode>'); the ribbon sends
-      // 'dock <tab>' now, and both go through TimelineDock_Pick.
-      if (b === 'curveeditor') return pickTab(st, c);
     }
     // EasterEggs_RunCommand: `mirv_filmmaker egg ...` -- the overlay's automation surface. Hints
     // come from a C++ table; the mockup carries a few samples of the same shape.
@@ -517,7 +559,7 @@
       }
       return true;
     }
-    // TimelineDock_RunCommand: `mirv_filmmaker dock [native|camera|graph|toggle]`. No argument
+    // TimelineDock_RunCommand: `mirv_filmmaker dock [native|timeline|toggle]`. No argument
     // reports; an unknown tab warns and changes nothing.
     if (a === 'dock') {
       if (b === undefined) return true;
@@ -675,6 +717,8 @@
       if (b === 'range') {
         var rmi = ['full', 'round', 'path', 'segment', 'custom'].indexOf(String(c));
         if (rmi >= 0) rr.rangeMode = rmi;
+        // `render range custom <in> <outExclusive>` (the timeline ruler's work-area drag).
+        if (rmi === 4 && t[4] != null && t[5] != null) { rr.startTick = Math.round(num(t[4])); rr.endTickExclusive = Math.round(num(t[5])); }
         if (rmi === 0) { rr.resStart = rr.demoStart; rr.resEnd = rr.demoEnd; }
         else if (rmi === 4) { rr.resStart = rr.startTick; rr.resEnd = rr.endTickExclusive; }
         rr.resOk = rr.resEnd > rr.resStart;
@@ -758,9 +802,39 @@
     if (a === 'follow' && b === 'select') { st.follow.enabled = true; return true; }
     // DemoScrub.cpp: the demo WORLD follows a drag and lands on the release tick. The mockup's
     // world is st.tick; the playhead reads the scrub tick while a drag is open.
+    if (a === 'scrub' && b === 'cache') { st.scrubCache = c === 'on' ? true : c === 'off' ? false : !st.scrubCache; return true; }
     if (a === 'scrub' && (b === 'drag' || b === 'release')) {
       st.tick = Math.max(0, Math.round(num(c, st.tick)));
       if (!st.scrubbing) { st.scrubTick = st.tick; st.playhead = st.tick; }
+      return true;
+    }
+    // CamPathShakeCommand.cpp, enough for the timeline's Camera shake row: style next/prev,
+    // intensity / speed steps, applyall and clear, on st.shakes [{i, s, l, n, p}].
+    if (a === 'pathshake') {
+      // The menu list RageShakeStyles.cpp publishes (style index, label); the first five are the
+      // Rockstar Editor set. The indices are the mockup's own.
+      var MENU = global.MvmShakeMenu, lab = function (s) { var m = MENU.filter(function (x) { return x[0] === s; })[0]; return m ? m[1] : '?'; };
+      st.shakes = st.shakes || [];
+      var pk = Math.round(num(c, -1)), cur = st.shakes.filter(function (x) { return x.i === pk; })[0];
+      var seed = function () { if (!cur) { cur = { i: pk, s: MENU[0][0], l: MENU[0][1], n: 5, p: 50 }; st.shakes.push(cur); } return cur; };
+      var step = function (v, lo, hi, by) { return d === 'next' ? Math.min(hi, v + by) : d === 'prev' ? Math.max(lo, v - by) : Math.max(lo, Math.min(hi, Math.round(num(d, v)))); };
+      if (b === 'clearall') { st.shakes = []; return true; }
+      if (b === 'clear') { st.shakes = st.shakes.filter(function (x) { return x.i !== pk; }); return true; }
+      if (b === 'applyall' && cur) { st.shakes = (st.markers || []).map(function (m, i) { return { i: i, s: cur.s, l: cur.l, n: cur.n, p: cur.p }; }); return true; }
+      if (b === 'set') {
+        var ss = Math.round(num(d, -1)); if (!MENU.some(function (x) { return x[0] === ss; })) return true;
+        seed(); cur.s = ss; cur.l = lab(ss);
+        if (t[5] != null) cur.n = Math.max(1, Math.min(10, Math.round(num(t[5], cur.n))));
+        if (t[6] != null) cur.p = Math.max(10, Math.min(100, Math.round(num(t[6], cur.p))));
+        return true;
+      }
+      if (b === 'style') {
+        if (!cur) { seed(); return true; }
+        var mi = MENU.map(function (x) { return x[0]; }).indexOf(cur.s); mi = (mi + (d === 'prev' ? MENU.length - 1 : 1)) % MENU.length;
+        cur.s = MENU[mi][0]; cur.l = MENU[mi][1]; return true;
+      }
+      if (b === 'intensity' && cur) { cur.n = step(cur.n || 5, 1, 10, 1); return true; }
+      if (b === 'speed' && cur) { cur.p = step(cur.p || 50, 10, 100, 10); return true; }
       return true;
     }
     if (a === 'grapheditor') {
@@ -783,11 +857,13 @@
         else if (op === 'unsolo') ch.solo = false;
         return true;
       }
-      if (b === 'smooth' || b === 'linear') { st.interp = (b === 'smooth'); return true; }
-      // GraphEditorExperiment_Set: the standalone toggle lands on the graph tab or leaves it.
-      if (b === 'on') return pickTab(st, 'graph');
-      if (b === 'off') return pickTab(st, st.dock.tab === 'graph' ? 'camera' : st.dock.tab);
-      if (b === 'undo' || b === 'redo' || b === 'selall' || b === 'delsel') return true;
+      // GraphEditorExperiment_Set: the standalone toggle lands on the timeline tab or leaves it.
+      if (b === 'on') return pickTab(st, 'timeline');
+      if (b === 'off') return pickTab(st, 'native');
+      // GraphEditorCommand.cpp `key`: a whitelisted shortcut evaluated by the dock itself.
+      if (b === 'key') { if (global.$ && global.$.GraphExp && global.$.GraphExp.key) global.$.GraphExp.key(c); return true; }
+      if (b === 'drive') { st.graphDrive = c === 'on' ? true : (c === 'off' ? false : !st.graphDrive); return true; }
+      return camGraph(st, t.slice(2));
     }
 
     if (t.slice(0,4).join(' ') === 'mirv_filmmaker world smoke appearance') {

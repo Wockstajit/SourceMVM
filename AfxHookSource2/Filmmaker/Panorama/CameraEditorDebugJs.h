@@ -255,7 +255,7 @@ R"EDJS(
       var blockers = [];
       var inspAbs = dbgAbs(inspector);
       if (inspector.visible) blockers.push(dbgRectObj(inspAbs.x / rsx, inspAbs.y / rsy, (inspector.actuallayoutwidth || 0) / rsx, (inspector.actuallayoutheight || 0) / rsy));
-      if (curBottomMode === 'graph' || curBottomMode === 'camera') blockers.push(dbgRectObj(0, rh - (curBottomMode === 'graph' ? GRAPH_DOCK_H + BOTTOM_LIFT : 180), Math.max(0, rw - INSPECTOR_W), curBottomMode === 'graph' ? GRAPH_DOCK_H + BOTTOM_LIFT : 180));
+      if (curBottomMode === 'timeline') blockers.push(dbgRectObj(0, rh - (TIMELINE_DOCK_H + BOTTOM_LIFT), Math.max(0, rw - INSPECTOR_W), TIMELINE_DOCK_H + BOTTOM_LIFT));
       L.push('-- panels (screen px) --');
       L.push('hud root      ' + dbgFmtPanel(ctx, rsx, rsy));
       var recs = [];

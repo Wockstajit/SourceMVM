@@ -6,6 +6,13 @@
 
 namespace Filmmaker {
 
+namespace {
+// An end key's outer side is auto too (no segment, so no curve), which is why auto wins over
+// active here; the next RefreshAutoTangents puts its inactive state back.
+int HandleKind(const GraphCurve::Handle& h) { return h.autoTan ? 2 : (h.active ? 1 : 0); }
+void SetHandleKind(GraphCurve::Handle& h, int kind) { h.active = kind != 0; h.autoTan = kind == 2; }
+}
+
 void CamMarkers::SetSelected(int i) {
 	if (m_markers.empty()) { m_selected = -1; return; }
 	if (i < 0) i = 0;
@@ -72,13 +79,14 @@ std::string CamMarkers::Serialize(const PathSettings& st, int selected) const {
 		jb.DoubleField("speedmul", m.speedMul);
 		jb.IntField("ease", (int)m.ease);
 		if (m.HasCurve()) {
-			// Per channel: [in active, in tx, in dv, out active, out tx, out dv].
+			// Per channel: [in kind, in tx, in dv, out kind, out tx, out dv]; kind 0 = linear,
+			// 1 = Bezier, 2 = Auto Bezier (GraphCurve::Handle::autoTan).
 			jb.Key("curve");
 			jb.BeginArray();
 			for (int c = 0; c < 7; ++c) {
 				jb.BeginArray();
-				jb.ValueInt(m.in[c].active ? 1 : 0); jb.ValueDouble(m.in[c].tx); jb.ValueDouble(m.in[c].dv);
-				jb.ValueInt(m.out[c].active ? 1 : 0); jb.ValueDouble(m.out[c].tx); jb.ValueDouble(m.out[c].dv);
+				jb.ValueInt(HandleKind(m.in[c])); jb.ValueDouble(m.in[c].tx); jb.ValueDouble(m.in[c].dv);
+				jb.ValueInt(HandleKind(m.out[c])); jb.ValueDouble(m.out[c].tx); jb.ValueDouble(m.out[c].dv);
 				jb.EndArray();
 			}
 			jb.EndArray();
@@ -125,8 +133,8 @@ bool CamMarkers::Parse(const std::string& text, PathSettings& st, int& selected)
 						for (int c = 0; c < 7 && c < (int)cv->arr.size(); ++c) {
 							const JsonValue& h = cv->arr[c];
 							if (h.type != JsonValue::Type::Array || h.arr.size() < 6) continue;
-							m.in[c].active = h.arr[0].AsInt(0) != 0;  m.in[c].tx = h.arr[1].AsNumber(1.0 / 3.0);  m.in[c].dv = h.arr[2].AsNumber(0.0);
-							m.out[c].active = h.arr[3].AsInt(0) != 0; m.out[c].tx = h.arr[4].AsNumber(1.0 / 3.0); m.out[c].dv = h.arr[5].AsNumber(0.0);
+							SetHandleKind(m.in[c], h.arr[0].AsInt(0));  m.in[c].tx = h.arr[1].AsNumber(1.0 / 3.0);  m.in[c].dv = h.arr[2].AsNumber(0.0);
+							SetHandleKind(m.out[c], h.arr[3].AsInt(0)); m.out[c].tx = h.arr[4].AsNumber(1.0 / 3.0); m.out[c].dv = h.arr[5].AsNumber(0.0);
 						}
 					}
 				}

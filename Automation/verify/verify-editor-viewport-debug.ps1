@@ -112,8 +112,8 @@ Require-Text 'Automation\verify\verify-editor-viewport-live.ps1' 'live HUD pixel
 Require-Text 'Automation\verify\verify-editor-viewport-live.ps1' 'Compare-PanelBounds \$closed \$open' 'live verifier compares closed/open HUD positions'
 Require-Text 'Automation\verify\verify-editor-viewport-live.ps1' 'viewport-normalized position' 'live verifier checks viewport-normalized HUD stability'
 Require-Text 'Automation\verify\verify-editor-viewport-live.ps1' 'Quote-ConsoleArg' 'live verifier quotes demo paths with spaces'
-Require-Text 'Automation\verify\verify-editor-viewport-live.ps1' 'curveeditor timeline' 'live verifier switches to Camera Timeline'
-Require-Text 'Automation\verify\verify-editor-viewport-live.ps1' 'curveeditor graph' 'live verifier switches to Graph'
+Require-Text 'Automation\verify\verify-editor-viewport-live.ps1' 'dock timeline' 'live verifier switches to the TIMELINE dock'
+Require-Text 'Automation\verify\verify-editor-viewport-live.ps1' 'editor.timeline.view graph' 'live verifier switches the TIMELINE dock to its GRAPH view'
 Require-Text 'Automation\verify\verify-editor-viewport-live.ps1' 'graph is not viewport-scaled' 'live verifier asserts graph remains independent from viewport scaling'
 
 "PASS editor viewport / HUD 1:1 / debug-overlay static verification"

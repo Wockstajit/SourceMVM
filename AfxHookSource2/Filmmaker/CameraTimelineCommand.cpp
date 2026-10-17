@@ -37,7 +37,7 @@ void PlayCameraTimeline(Filmmaker::CameraPath& cp) {
 // SELECTION ONLY -- deliberately not SelectForEditor.
 //
 // Every caller of this is "a panel became visible" or "the bottom editor tool changed":
-// camtl open, camtl toggle, and the three curveeditor branches. None of them is the user asking
+// camtl open and camtl toggle. None of them is the user asking
 // to go to a camera. SelectForEditor is a full navigation action -- it pauses the demo, issues
 // demo_gototick, forces free cam, teleports the viewport to the keyframe and latches scrub -- so
 // merely showing the timeline or flipping between the Camera Timeline and Graph views yanked the
@@ -104,7 +104,7 @@ void CameraTimeline_RunCommand(int argc, advancedfx::ICommandArgs* args, const c
 	else if (0 == _stricmp(a, "view")) {
 		tl.SetView(0);
 		if (0 == _stricmp(a3, "curve"))
-			advancedfx::Warning("%s camtl view curve is not available; use %s editor curveeditor graph.\n", cmd, cmd);
+			advancedfx::Warning("%s camtl view curve is not available; use %s dock timeline (GRAPH view).\n", cmd, cmd);
 	}
 	else if (0 == _stricmp(a, "scrub")) { // slider release: seek the world too
 		if (argc < 4) { advancedfx::Warning("usage: %s camtl scrub <tick>\n", cmd); return; }
@@ -191,7 +191,7 @@ void CameraTimeline_RunCommand(int argc, advancedfx::ICommandArgs* args, const c
 		Filmmaker::GraphEditorExperimentHudRef().MirrorPathInterp(cp.GetInterp() == CP::Interp::Bezier);
 	}
 	else if (0 == _stricmp(a, "zoom") || 0 == _stricmp(a, "pan")) {
-		advancedfx::Warning("%s camtl %s is not available; use %s editor curveeditor graph.\n", cmd, a, cmd);
+		advancedfx::Warning("%s camtl %s is not available; use %s dock timeline.\n", cmd, a, cmd);
 	}
 	else if (0 == _stricmp(a, "gamehud")) {
 		advancedfx::Message("mirv_filmmaker: camera timeline HUD toggle is disabled.\n");

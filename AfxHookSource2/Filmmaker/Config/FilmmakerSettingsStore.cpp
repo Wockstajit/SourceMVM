@@ -373,9 +373,7 @@ std::string BuildSnapshot() {
 	CameraEditorHud& editor = CameraEditorHudRef();
 	b.Key("editor"); b.BeginObject();
 	b.BoolField("scale", editor.ScaleEnabled());
-	b.StringField("bottomMode", editor.GetBottomMode() == CameraEditorHud::BottomMode::Graph
-		? "graph" : editor.GetBottomMode() == CameraEditorHud::BottomMode::CameraTimeline
-		? "camera" : "native");
+	b.StringField("bottomMode", TimelineDock_TabName());
 	b.StringField("hudView", editor.UserHudView() == CameraEditorHud::HudView::HideAll
 		? "hidden" : editor.UserHudView() == CameraEditorHud::HudView::InGame ? "game" : "full");
 	b.BoolField("debugOverlay", editor.DebugOverlay());
@@ -634,10 +632,11 @@ void FilmmakerSettings_Load() {
 		CameraEditorHud& hud = CameraEditorHudRef();
 		if (const JsonValue* value = editor->Find("scale"); value && value->type == JsonValue::Type::Bool)
 			hud.SetScale(value->boolean);
-		if (const JsonValue* value = editor->Find("bottomMode"); value && value->type == JsonValue::Type::String)
-			hud.SetBottomMode(value->str == "graph" ? CameraEditorHud::BottomMode::Graph
-				: value->str == "camera" ? CameraEditorHud::BottomMode::CameraTimeline
-				: CameraEditorHud::BottomMode::Native);
+		if (const JsonValue* value = editor->Find("bottomMode"); value && value->type == JsonValue::Type::String) {
+			DockTab tab = DockTab::Native;
+			TimelineDock_ParseTab(value->str.c_str(), tab);   // anything else (old tab names) = native
+			TimelineDock_SetTab(tab);
+		}
 		if (const JsonValue* value = editor->Find("hudView"); value && value->type == JsonValue::Type::String)
 			hud.SetHudView(value->str == "hidden" ? CameraEditorHud::HudView::HideAll
 				: value->str == "game" ? CameraEditorHud::HudView::InGame

@@ -1,5 +1,6 @@
-// The SCENE GRAPH dock's editing contracts (Docs/features/camera-editor-feature.md, "Scene keys
-// and the Scene Graph").
+// The TIMELINE dock's scene-key editing contracts (Docs/features/camera-editor-feature.md, "The
+// TIMELINE dock"). Scene properties are layers next to the camera path, edited through
+// `scenekeys graph ...`; camera channels go through `grapheditor ...`.
 // Static checks over the shipped sources, so they run without CS2.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,6 +15,7 @@ const sceneKeys = read('AfxHookSource2/Filmmaker/Movie/SceneKeys.cpp');
 const catalog = read('AfxHookSource2/Filmmaker/Movie/SceneKeyframeCatalog.cpp');
 const track = read('AfxHookSource2/Filmmaker/Movie/SceneKeyframeTrackMath.h');
 const playhead = read('AfxHookSource2/Filmmaker/Movie/TimelinePlayhead.cpp');
+const hud = read('AfxHookSource2/Filmmaker/Panorama/GraphEditorExperimentHud.cpp');
 
 const defined = (src) => new Set([...src.matchAll(/function\s+([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]));
 // The JS inside a header's raw strings, with comments and string literals blanked out.
@@ -22,14 +24,12 @@ function jsCode(src, tag) {
   return body.replace(/\/\/[^\n]*/g, '').replace(/'(?:\\.|[^'\\\n])*'/g, "''").replace(/"(?:\\.|[^"\\\n])*"/g, '""');
 }
 
-test('every helper the shared colour picker calls exists in the graph dock', () => {
-  // The picker is a CHUNK spliced into its host. A call the graph does not define is a
-  // ReferenceError on the first colour strip, which aborted the strip list there and left every
-  // property after it missing. colorField is Config's own wrapper and never runs in the graph.
+test('every helper the shared colour picker calls exists in the timeline dock', () => {
+  // The picker is a CHUNK spliced into its host. A call the dock does not define is a
+  // ReferenceError on the first colour property, which aborted the row list there.
   const code = jsCode(picker, 'CLRJS');
   const used = code.slice(0, code.indexOf('function colorField'));
   const have = new Set([...defined(graph), ...defined(picker), ...defined(colorMath)]);
-  // Language keywords, globals, and the picker's own callback parameter.
   const builtins = new Set(['if', 'for', 'while', 'switch', 'return', 'function', 'catch', 'typeof',
     'parseInt', 'parseFloat', 'isFinite', 'onChange']);
   const missing = new Set();
@@ -40,64 +40,89 @@ test('every helper the shared colour picker calls exists in the graph dock', () 
   for (const token of ['drawer:', 'clear:']) assert.ok(graph.includes(token), 'S.' + token + ' missing');
 });
 
-test('one strip that fails to build cannot take the rest of the list with it', () => {
-  assert.match(graph, /scene row ' \+ \(ch && ch\.fieldId\) \+ ' failed: /);
-  assert.match(graph, /colorPicker\(pickBody, ch\.name, swRgb/);
+test('one row that fails to build cannot take the rest of the list with it', () => {
+  assert.match(graph, /\$\.Msg\('\[timeline\] row ' \+ \(flat\[i\]\.node && flat\[i\]\.node\.id\) \+ ' failed: '/);
+  assert.match(graph, /colorPicker\(pickBody, n\.name, swRgb/);
   assert.doesNotMatch(graph, /colorPicker\(root,/);
 });
 
-test('every raw-string chunk of the graph script stays under the MSVC literal limit', () => {
+test('every raw-string chunk of the timeline script stays under the MSVC literal limit', () => {
   // C2026 "string too big": MSVC caps one string literal piece at 16380 bytes.
   const chunks = graph.split('R"GEJS(').slice(1).map((c) => c.slice(0, c.indexOf(')GEJS"')));
   for (const c of chunks) assert.ok(Buffer.byteLength(c, 'utf8') < 16000, 'chunk of ' + Buffer.byteLength(c, 'utf8') + ' bytes');
 });
 
-test('both graph modes move the playhead with the verb that also moves the world', () => {
+test('the playhead has one verb, the one that also moves the world', () => {
   assert.match(graph, /function playheadTo\(t\) \{ rawCmd\('mirv_filmmaker grapheditor playhead '/);
-  assert.doesNotMatch(graph, /cmd\('playhead /);
+  assert.doesNotMatch(graph, /sceneCmd\('playhead /);
   assert.doesNotMatch(sceneKeys, /action=="playhead"/);
 });
 
+test('both models publish into ONE state: camera channels plus "scene"', () => {
+  assert.match(hud, /SceneKeys_AppendTimelineState\(o\);/);
+  assert.match(sceneKeys, /out << ",\\"scene\\":\{\\"rev\\":"/);
+  assert.doesNotMatch(hud, /graphMode/);
+  assert.match(graph, /scCh = \(st\.scene && st\.scene\.channels\) \|\| \[\]/);
+  // Each channel is addressed by domain: c<index> for the camera, s<index> for the scene.
+  assert.match(graph, /c\.dom = 'cam'; c\.uid = 'c' \+ c\.ch;/);
+  assert.match(graph, /c\.dom = 'scene'; c\.uid = 's' \+ c\.ch;/);
+  assert.match(graph, /function camCmd\(s\) \{ rawCmd\('mirv_filmmaker grapheditor ' \+ s\); \}/);
+  assert.match(graph, /function sceneCmd\(s\) \{ rawCmd\('mirv_filmmaker scenekeys graph ' \+ s\); \}/);
+});
+
 test('clicking a scene key goes to it, and a dragged key carries the playhead', () => {
-  assert.match(graph, /best = \{ ch: ch\.ch, id: k\.id, t: k\.t \}/);
-  assert.match(graph, /if \(sceneOn\(\)\) \{ gesture\.seek = true; gesture\.ph = Math\.round\(k\.t\); playheadTo\(gesture\.ph\); \}/);
-  assert.match(graph, /else if \(gesture\.type === 'kf' && gesture\.seek\)/);
+  assert.match(graph, /startKeyDrag\(cc, doms, t, domOf\(members\[0\]\.uid\) === 'scene', members\[0\]\)/);
+  assert.match(graph, /if \(seek\) \{ gesture\.seek = true; gesture\.ph = Math\.round\(t\); playheadTo\(gesture\.ph\); \}/);
+  assert.match(graph, /if \(g\.seek\) \{/);
   // The jump lands and is held there while the demo catches up (TimelinePlayhead.h, "Held").
   assert.match(playhead, /DemoScrub_Target\(target\)/);
   assert.match(playhead, /curTick == s\.landedTick && std::fabs\(curTick - s\.heldTick\) <= kLandTolerance/);
 });
 
-test('a scene key drag sends its total offset, so refused steps are not lost', () => {
-  assert.match(graph, /cmd\('movesel ' \+ dt\.toFixed\(3\) \+ ' ' \+ dv2\.toFixed\(3\)\)/);
+test('a scene key drag sends its total offset, a camera drag its per-frame step', () => {
+  assert.match(graph, /sceneCmd\('movesel ' \+ dt\.toFixed\(3\) \+ ' ' \+ dvd\.toFixed\(3\)\)/);
+  assert.match(graph, /camCmd\('movesel ' \+ \(dt - g\.ldt\)\.toFixed\(3\)/);
   assert.match(track, /TrackData pending = editing \? before : data;/);
+  // The edit (one undo step) opens when the drag starts, not on a click that only selects.
+  assert.match(graph, /g\.dragging = true;\n        g\.doms\.forEach\(function \(d\) \{ edit\(d\); domCmd\(d, 'editbegin'\); \}\);/);
 });
 
-test('scene and camera curves are fitted to what they draw, never while a gesture holds them', () => {
-  assert.match(graph, /function fitSceneRange\(ch\)/);
-  assert.match(graph, /if \(!gesture\) \{ if \(sceneMode\) refitSceneRanges\(\); else refitCamRanges\(\); \}/);
-  // Camera channels: an eased Bezier bulge and the selected key's handles widen the C++ key range,
-  // so FIT brings back a curve that ran off the canvas and its handles stay grabbable.
-  assert.match(graph, /function fitCamRange\(ch\)/);
-  assert.match(graph, /if \(!sceneOn\(\)\) return camRanges\[ch\.ch\] \|\| \{ lo: ch\.min, hi: ch\.max \};/);
-  assert.match(graph, /sceneRanges = \{\}; camRanges = \{\}; lastSig = '';/);
+test('selecting in one model clears the other, so Delete and eases act on what is lit', () => {
+  assert.match(graph, /if \(!list\.length\) \{ if \(!add\) domCmd\(dom, 'selclear'\); return; \}/);
+  assert.match(graph, /function deleteSelection\(\)/);
+  assert.match(graph, /selectedDoms\(\)\.forEach\(function \(dom\) \{ edit\(dom\); domCmd\(dom, 'delsel'\); \}\);/);
+});
+
+test('curves are fitted to what they draw, never while a gesture holds them', () => {
+  assert.match(graph, /function fitSceneRange\(c\)/);
+  assert.match(graph, /function fitCamRange\(c\)/);
+  assert.match(graph, /if \(!gesture\) refitRanges\(graphChans\(\)\);/);
+  assert.match(graph, /function rng\(c\) \{ return ranges\[c\.uid\] \|\| \{ lo: c\.min, hi: c\.max \}; \}/);
+  assert.match(graph, /ranges = \{\}; graphSig = '';/);
   // Angles are drawn the way they are sampled: the short way round, wrapped.
-  assert.match(graph, /function scenePolyline\(ch, a, b\)/);
+  assert.match(graph, /function scenePolyline\(c, a, b\)/);
   // Handles stay inside the property's range.
   assert.match(sceneKeys, /else dv=std::max\(spec->min,std::min\(spec->max,k->value\.numbers\[0\]\+dv\)\)-k->value\.numbers\[0\];/);
 });
 
-test('FIT frames every visible key, and new keys off screen are brought into view', () => {
-  assert.match(graph, /var fitBtn = zoomBtn\('FIT'/);
-  assert.match(graph, /function revealNewKeys\(mode\)/);
+test('FIT frames every key, and new keys off screen are brought into view', () => {
+  assert.match(graph, /var fitBtn = footBtn\('FIT'/);
+  assert.match(graph, /function revealNewKeys\(\)/);
   assert.match(graph, /releasePlayhead\(t\);\n      revealTicks\(t, t\);/);
 });
 
-test('a property has ONE name, the CONFIG control\'s, in the graph and the inspector', () => {
+test('a property has ONE name, the CONFIG control\'s, in the timeline and the inspector', () => {
   assert.doesNotMatch(inspector, /skFieldLabel/);
   assert.match(inspector, /var name = f\.label;/);
   assert.match(catalog, /\{"env\.sunAzimuth", "Sun azimuth"\}/);
   assert.match(catalog, /\{"env\.sunElevation", "Sun elevation"\}/);
   assert.doesNotMatch(catalog, /std::string Label\(/);
-  // Group bars say which CONFIG tab a card belongs to: both tabs have a Lighting card.
-  assert.match(graph, /function sceneGroupTitle\(ch\)/);
+  // Layers say which CONFIG tab a card belongs to: both tabs have a Lighting card.
+  assert.match(graph, /function sceneLayerTitle\(c\)/);
+});
+
+test('scene property menus keep Disable / Delete, and a colour opens the shared wheel', () => {
+  assert.match(graph, /rawCmd\('mirv_filmmaker scenekeys mute ' \+ n\.fieldId/);
+  assert.match(graph, /rawCmd\('mirv_filmmaker scenekeys clear ' \+ \(n\.kind === 'layer' \? n\.groupId : n\.fieldId\)\)/);
+  assert.match(graph, /chip\.SetPanelEvent\('onactivate', function \(\) \{ crec\.picker\.show\(\); \}\);/);
 });

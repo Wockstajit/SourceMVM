@@ -20,6 +20,10 @@ struct Handle {
 	bool active = false; // false => this side of the key is linear
 	double tx = 1.0 / 3.0; // 0..1 fraction of the segment toward the neighbour
 	double dv = 0.0;       // value offset from the key's value
+	// AE's Auto Bezier: the handle is AutoTangent's and is recomputed whenever a neighbour moves.
+	// Any hand edit (a dragged handle, Easy Ease) clears it, making a plain Bezier. Only the key's
+	// glyph and that recompute read it; the curve itself is tx/dv alone.
+	bool autoTan = false;
 };
 
 inline double Clamp01(double v) { return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v); }
@@ -114,6 +118,9 @@ inline void AutoTangent(const double* ticks, const double* values, int n, int i,
 		if (dt > 1e-9) slope = (values[n - 1] - values[n - 2]) / dt;
 	}
 	out = Handle(); in = Handle();
+	// Both sides are flagged auto, an end key's missing side too: when a key is added past it,
+	// the refresh gives that side its real tangent instead of leaving it linear.
+	out.autoTan = in.autoTan = true;
 	if (i < n - 1) { out.active = true; out.tx = 1.0 / 3.0; out.dv = slope * (ticks[i + 1] - ticks[i]) / 3.0; }
 	if (i > 0) { in.active = true; in.tx = 1.0 / 3.0; in.dv = -slope * (ticks[i] - ticks[i - 1]) / 3.0; }
 }

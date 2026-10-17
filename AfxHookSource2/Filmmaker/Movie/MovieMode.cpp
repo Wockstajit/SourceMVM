@@ -45,6 +45,7 @@ namespace Filmmaker {
 namespace {
 	constexpr int kVK_X = 0x58;
 	constexpr int kVK_F8 = 0x77;    // toggle the director help/status HUD
+	constexpr int kVK_F9 = 0x78;    // TIMELINE: Easy Ease (Shift = in, Ctrl+Shift = out)
 	constexpr int kVK_SHIFT = 0x10; // hold = slow/fine free-cam movement
 	constexpr int kVK_CONTROL = 0x11;
 	constexpr int kVK_SPACE = 0x20; // pause / resume the demo
@@ -488,22 +489,21 @@ bool MovieMode::OnKey(int vkey, bool down) {
 		m_spaceDown = down;
 	}
 
-	// TWO DIFFERENT QUESTIONS. `sceneKeys` = which INSPECTOR tab is open. `graphScene` = which
-	// model the GRAPH DOCK is showing, which is now its own setting -- so the keys that act on the
-	// dock (Ctrl+Z / Ctrl+A / Delete / Space) follow the dock, not the column beside it.
+	// THE TIMELINE DOCK OWNS THE KEYFRAME KEYS while it is up. Camera keys and scene keys share it,
+	// and only the dock knows which model holds the selection and which one was edited last, so
+	// Ctrl+Z / Ctrl+A / Delete / F9 go to it as `grapheditor key <name>` and it routes them.
+	// Without the dock, Ctrl+Z follows the inspector: SCENE KEYS undoes scene edits, otherwise the
+	// floating camera timeline undoes the path.
 	const bool sceneKeys = FilmmakerSettings_UiString("editor.inspector", "path") == "scene";
-	const bool graphScene = GraphEditorExperiment_Enabled()
-		&& FilmmakerSettings_UiString("editor.graph", "camera") == "scene";
+	const bool timelineDock = GraphEditorExperiment_Enabled();
 	if (vkey == kVK_Z && down && m_controlDown) {
-		// Ctrl+Z = undo, Ctrl+Shift+Z = redo. Route to whichever curve surface is open: the
-		// experimental graph editor owns it while enabled, otherwise the camera path/timeline.
 		const bool redo = m_shiftDown;
-		if (graphScene || (sceneKeys && !GraphEditorExperiment_Enabled())) {
-			EnqueueCmd(redo ? "mirv_filmmaker scenekeys redo" : "mirv_filmmaker scenekeys undo"); return true;
-		}
-		if (GraphEditorExperiment_Enabled()) {
-			EnqueueCmd(redo ? "mirv_filmmaker grapheditor redo" : "mirv_filmmaker grapheditor undo");
+		if (timelineDock) {
+			EnqueueCmd(redo ? "mirv_filmmaker grapheditor key redo" : "mirv_filmmaker grapheditor key undo");
 			return true;
+		}
+		if (sceneKeys) {
+			EnqueueCmd(redo ? "mirv_filmmaker scenekeys redo" : "mirv_filmmaker scenekeys undo"); return true;
 		}
 		if (CameraTimeline_Visible()) {
 			EnqueueCmd(redo ? "mirv_filmmaker camtl redo" : "mirv_filmmaker camtl undo");
@@ -511,14 +511,21 @@ bool MovieMode::OnKey(int vkey, bool down) {
 		}
 	}
 
-	if (vkey == kVK_A && down && m_controlDown && GraphEditorExperiment_Enabled()) {
-		// Ctrl+A selects every keyframe in the graph editor.
-		EnqueueCmd(graphScene ? "mirv_filmmaker scenekeys graph selall" : "mirv_filmmaker grapheditor selall");
+	if (vkey == kVK_A && down && m_controlDown && timelineDock) {
+		// Ctrl+A selects every keyframe on the timeline, camera and scene alike.
+		EnqueueCmd("mirv_filmmaker grapheditor key selall");
 		return true;
 	}
 
-	if ((vkey == kVK_DELETE || vkey == kVK_BACKSPACE) && GraphEditorExperiment_Enabled()) {
-		if (down) EnqueueCmd(graphScene ? "mirv_filmmaker scenekeys delsel" : "mirv_filmmaker grapheditor delsel");
+	if ((vkey == kVK_DELETE || vkey == kVK_BACKSPACE) && timelineDock) {
+		if (down) EnqueueCmd("mirv_filmmaker grapheditor key delete");
+		return true;
+	}
+
+	if (vkey == kVK_F9 && timelineDock) {
+		// AE's Keyframe Assistant: F9 Easy Ease, Shift+F9 ease in, Ctrl+Shift+F9 ease out.
+		if (down) EnqueueCmd(m_shiftDown ? (m_controlDown ? "mirv_filmmaker grapheditor key easeout" : "mirv_filmmaker grapheditor key easein")
+			: "mirv_filmmaker grapheditor key easeinout");
 		return true;
 	}
 
@@ -636,11 +643,12 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	// timeline or Graph). In the editor's Regular Timeline (native bottom) mode neither is open,
 	// so Space must fall through to plain demo pause/resume below -- not trigger a path playtest
 	// (which would just warn "need 2 camera markers"). Matches the gate used elsewhere here.
-	// ...and NOT while the dock is showing scene strips. Scene keys are not a camera path: a
-	// playtest seeks to the path's first marker and loops its range, so trying to watch a lighting
-	// animation play while camera markers happened to be down just replayed the dolly over and over.
-	// There, Space is plain demo play/pause, which is what "play the scene graph" means.
-	if (vkey == kVK_SPACE && !graphScene && (CameraTimeline_Visible() || GraphEditorExperiment_Enabled()) && cpMode == CPMode::Editing) {
+	// ...and NOT while the TIMELINE's CAMERA PATH layer is switched off. Scene keys are not a camera
+	// path: a playtest seeks to the path's first marker and loops its range, so watching a lighting
+	// animation while camera markers happened to be down just replayed the dolly over and over.
+	// With the camera layer off, Space is plain demo play/pause -- the toolbar's play does the same.
+	const bool timelinePathOff = timelineDock && !GraphEditorExperiment_Drive();
+	if (vkey == kVK_SPACE && !timelinePathOff && (CameraTimeline_Visible() || timelineDock) && cpMode == CPMode::Editing) {
 		// Skip re-issuing playtest while a start is PENDING (mode stays Editing during the
 		// seek settle) -- a held / repeated Space would otherwise restart the seek. Swallow
 		// the key regardless so it never leaks to the demo_pause fallback below.

@@ -76,11 +76,11 @@ const CASES = process.argv.slice(2).length
     { name: 'cameratimeline', q: 'surface=cameratimeline' },
     { name: 'grapheditor', q: 'surface=grapheditor' },
     { name: 'render', q: 'surface=render' },
-    { name: 'render+graph', q: 'surface=render&cmd=mirv_filmmaker editor curveeditor graph' },
+    { name: 'render+timeline', q: 'surface=render&cmd=mirv_filmmaker dock timeline' },
     { name: 'keyeditor', q: 'surface=keyeditor' },
     { name: 'customize', q: 'surface=customize&hold=1200' },
     // The one that was broken: the modal with the tallest dock underneath it.
-    { name: 'customize+graph', q: 'surface=customize&cmd=mirv_filmmaker editor curveeditor graph&hold=1200' },
+    { name: 'customize+timeline', q: 'surface=customize&cmd=mirv_filmmaker dock timeline&hold=1200' },
     { name: 'editor+gear', q: 'surface=cameraeditor&act=gear&hold=600' },
     { name: 'editor+clearall', q: 'surface=cameraeditor&act=Clear All&hold=600' },
     { name: 'markerhud', q: 'surface=markerhud' },

@@ -40,6 +40,7 @@ struct ControlPoint {
 	bool active = false;
 	double tx = 0.33; // 0..1 fraction toward neighbour
 	double dv = 0.0;  // value offset (float/angle/ease only)
+	bool autoTan = false; // Auto Bezier (Smooth): re-solved from the neighbours, see RefreshAutoTangents
 };
 
 struct ScalarKey {

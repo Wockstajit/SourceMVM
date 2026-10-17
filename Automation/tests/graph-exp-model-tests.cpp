@@ -228,6 +228,47 @@ int main() {
         check(CloseAfterSave(loaded.All(), baked), "and keeps every handle");
     }
 
+    {
+        // Smooth is AE's Auto Bezier: its handles follow the keys. A handle edited by hand, or
+        // an Easy Ease, is a plain Bezier that later edits leave alone. The key glyph reads it.
+        GraphExpModel m;
+        const int a = m.AddKey(0, 0, 0), b = m.AddKey(0, 100, 10), c = m.AddKey(0, 200, 0);
+        m.SetInterpAll(true, false);
+        const GraphExpModel::Keyframe* kb = m.FindKeyConst(0, b);
+        check(kb && kb->cpLeft.autoTan && kb->cpRight.autoTan, "Smooth marks both sides Auto Bezier");
+        m.MoveKeyAbs(0, c, 200, 40);
+        check(m.RefreshAutoTangents(), "an auto key re-solves after a neighbour moves");
+        kb = m.FindKeyConst(0, b);
+        check(kb && std::fabs(kb->cpRight.dv - (40.0 / 200.0) * 100.0 / 3.0) < 1e-9, "to the new Catmull-Rom slope");
+        check(!m.RefreshAutoTangents(), "and is stable once solved");
+        m.SetHandle(0, b, +1, 0.5, 7.0, false);
+        kb = m.FindKeyConst(0, b);
+        check(kb && !kb->cpRight.autoTan && kb->cpLeft.autoTan, "a dragged handle becomes a plain Bezier");
+        m.MoveKeyAbs(0, a, 0, -20);
+        m.RefreshAutoTangents();
+        kb = m.FindKeyConst(0, b);
+        check(kb && std::fabs(kb->cpRight.dv - 7.0) < 1e-9 && std::fabs(kb->cpRight.tx - 0.5) < 1e-9, "and keeps its shape after later moves");
+        m.SetEase(2, false);
+        kb = m.FindKeyConst(0, b);
+        check(kb && !kb->cpLeft.autoTan && !kb->cpRight.autoTan && kb->cpLeft.dv == 0.0, "Easy Ease is a flat plain Bezier");
+
+        // The kind survives the project file: linear, Bezier and Auto Bezier sides.
+        std::vector<CamMarker> ms = { Marker(1000, 10.0), Marker(1100, 20.0) };
+        ms[0].out[0].active = true; ms[0].out[0].autoTan = true; ms[0].out[0].dv = 3.0;
+        ms[1].in[0].active = true; ms[1].in[0].dv = -2.0;
+        Filmmaker::PathSettings st;
+        Filmmaker::CamMarkers saved;
+        saved.Restore(ms, 0);
+        Filmmaker::CamMarkers loaded;
+        int sel = 0;
+        check(loaded.Parse(saved.Serialize(st, 0), st, sel) && loaded.All().size() == 2, "a path with handle kinds parses back");
+        if (loaded.All().size() == 2) {
+            check(loaded.All()[0].out[0].active && loaded.All()[0].out[0].autoTan, "an Auto Bezier side stays auto");
+            check(loaded.All()[1].in[0].active && !loaded.All()[1].in[0].autoTan, "a Bezier side stays a plain Bezier");
+            check(!loaded.All()[0].in[0].active && !loaded.All()[0].in[0].autoTan, "a linear side stays linear");
+        }
+    }
+
     if (g_failures == 0) std::printf("graph-exp-model-tests: all passed\n");
     return g_failures == 0 ? 0 : 1;
 }
