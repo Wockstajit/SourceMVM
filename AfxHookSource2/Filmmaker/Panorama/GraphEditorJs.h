@@ -321,6 +321,25 @@ R"GEJS(
     //   lin  half diamond           ease  half square with a notch (AE's Easy Ease hourglass)
     //   auto half disc (Smooth)     hold  half square (a stepped property)
     // Panorama has no clip-path, so a half is a clipped box holding a shape centred on the key.
+    // A filled right triangle P1-P2-C (right angle at C), in parent px: a big panel whose top edge
+    // lies on the hypotenuse P1->P2, clipped by the triangle's bounding box. Real geometry, so it
+    // never shows a background colour through (a painted notch did, on any highlighted row).
+    function triPiece(parent, p1, p2, c, color) {
+      var bx = Math.min(p1[0], p2[0], c[0]), by = Math.min(p1[1], p2[1], c[1]);
+      var bw = Math.max(p1[0], p2[0], c[0]) - bx, bh = Math.max(p1[1], p2[1], c[1]) - by;
+      if (bw <= 0 || bh <= 0) return;
+      var a = p1, b = p2, dx = b[0] - a[0], dy = b[1] - a[1];
+      // The panel fills the clockwise side of its top edge: travel so that C is on it.
+      if ((c[0] - a[0]) * -dy + (c[1] - a[1]) * dx < 0) { a = p2; b = p1; dx = -dx; dy = -dy; }
+      var clip = mk('Panel', parent); clip.hittest = false; clip.style.overflow = 'clip clip';
+      clip.style.position = bx.toFixed(2) + 'px ' + by.toFixed(2) + 'px 0px';
+      clip.style.width = bw.toFixed(2) + 'px'; clip.style.height = bh.toFixed(2) + 'px';
+      var L = (bw + bh) * 2, f = mk('Panel', clip); f.hittest = false; f.style.backgroundColor = color;
+      f.style.width = L + 'px'; f.style.height = L + 'px';
+      f.style.position = (a[0] - bx).toFixed(2) + 'px ' + (a[1] - by).toFixed(2) + 'px 0px';
+      f.style.transformOrigin = '0% 0%';
+      f.style.transform = 'rotateZ(' + (Math.atan2(dy, dx) * 180 / Math.PI).toFixed(3) + 'deg)';
+    }
     function glyphHalf(parent, side, kind, size, color, bg) {
       var h = size / 2;
       var hb = mk('Panel', parent); hb.hittest = false;
@@ -334,16 +353,17 @@ R"GEJS(
       } else if (kind === 'auto') {
         f.style.width = size + 'px'; f.style.height = size + 'px'; f.style.borderRadius = h + 'px';
         f.style.position = (side < 0 ? 0 : -h) + 'px 0px 0px';
+      } else if (kind === 'ease') {
+        // The design's polygon: the half square minus a triangle on its outer edge, apex 62% in.
+        // = a bar on the inner side plus a right triangle above and below the apex.
+        var ax = side < 0 ? 0.62 * h : 0.38 * h, ox = side < 0 ? 0 : h;
+        f.style.width = (side < 0 ? h - ax : ax).toFixed(2) + 'px'; f.style.height = size + 'px';
+        f.style.position = (side < 0 ? ax : 0).toFixed(2) + 'px 0px 0px';
+        triPiece(hb, [ox, 0], [ax, h], [ax, 0], color);
+        triPiece(hb, [ox, size], [ax, h], [ax, size], color);
       } else {
         f.style.width = h + 'px'; f.style.height = size + 'px';
         f.style.position = '0px 0px 0px';
-        if (kind === 'ease') {
-          var n = size * 0.62, ncx = side < 0 ? 0 : h;
-          var notch = mk('Panel', hb); notch.hittest = false; notch.style.backgroundColor = bg || S.panelHex;
-          notch.style.width = n.toFixed(2) + 'px'; notch.style.height = n.toFixed(2) + 'px';
-          notch.style.position = (ncx - n / 2).toFixed(2) + 'px ' + (h - n / 2).toFixed(2) + 'px 0px';
-          notch.style.transformOrigin = '50% 50%'; notch.style.transform = 'rotateZ(45deg)';
-        }
       }
       return hb;
     }
@@ -1461,7 +1481,7 @@ R"GEJS(
           });
           (st.shakes || []).forEach(function (s) {
             var sx = tickToX(s.t); if (sx < -GLYPH || sx > G.tw + GLYPH) return;
-            glyph(r.trk, ['hold', 'hold'], 10, '#80bdffff', S.panelHex, sx, y);
+            glyph(r.trk, ['hold', 'hold'], 10, shakeSel[s.i] ? S.accent : '#80bdffff', S.panelHex, sx, y);
             r.hits.push({ x: sx, entry: { t: s.t, members: [], shake: s } });
           });
           continue;
@@ -1483,7 +1503,7 @@ R"GEJS(
           });
           (st.shakes || []).forEach(function (s) {
             var sx = tickToX(s.t); if (sx < -24 || sx > G.tw + 24) return;
-            glyph(r.trk, ['ease', 'ease'], 10, '#80bdffff', S.panelHex, sx, vy(s[n.param]));
+            glyph(r.trk, ['ease', 'ease'], 10, shakeSel[s.i] ? S.accent : '#80bdffff', S.panelHex, sx, vy(s[n.param]));
             var tv = lbl(r.trk, String(s[n.param]), '#80bdffcc', 10); tv.hittest = false;
             tv.style.fontFamily = S.fontMonodigit; tv.style.fontWeight = 'bold';
             tv.style.position = (sx + 7).toFixed(0) + 'px 2px 0px';
@@ -1785,8 +1805,29 @@ R"GEJS(
         list.forEach(function (m) { domCmd(dom, 'select ' + chNum(m.uid) + ' ' + m.id + ' add'); });
       });
       members.forEach(function (m) { selCache[m.uid + ':' + m.id] = 1; });
+      if (!add) setShakeSel([], false);
     }
-    function clearSelection() { camCmd('selclear'); sceneCmd('selclear'); selCache = {}; }
+    function clearSelection() { camCmd('selclear'); sceneCmd('selclear'); selCache = {}; setShakeSel([], false); }
+    // Shake keys are selected here, by camera-key index: they live on the camera path's markers,
+    // not in either key model. Click, Shift+click and box select them like keys; Delete removes
+    // them; dragging an Intensity / Speed marker up or down sets its value.
+    var shakeSel = {};
+    function setShakeSel(list, add) {
+      if (!add) shakeSel = {};
+      list.forEach(function (i) { shakeSel[i] = 1; });
+      trackSig = '';
+    }
+    function shakeSelCount() { var n = 0; (st.shakes || []).forEach(function (s) { if (shakeSel[s.i]) n++; }); return n; }
+    function shakesInRect(g) {
+      var x0 = Math.min(g.sx, g.cx), x1 = Math.max(g.sx, g.cx), y0 = Math.min(g.sy, g.cy), y1 = Math.max(g.sy, g.cy), out = [];
+      rows.forEach(function (r) {
+        if (r.broken || (r.node.kind !== 'shake' && r.node.kind !== 'shakep')) return;
+        var ry0 = rowY(r) - ROWS_Y, ry1 = ry0 + ROW_H;
+        if (ry1 < y0 || ry0 > y1) return;
+        (st.shakes || []).forEach(function (s) { var x = tickToX(s.t); if (x >= x0 - 4 && x <= x1 + 4 && out.indexOf(s.i) < 0) out.push(s.i); });
+      });
+      return out;
+    }
     function selectedDoms() {
       var d = [];
       if (selCountDom('cam') > 0) d.push('cam');
@@ -1800,6 +1841,8 @@ R"GEJS(
     }
     function deleteSelection() {
       selectedDoms().forEach(function (dom) { edit(dom); domCmd(dom, 'delsel'); });
+      (st.shakes || []).forEach(function (s) { if (shakeSel[s.i]) shakeCmd('clear ' + s.i); });
+      setShakeSel([], false);
     }
     function undo(redo) {
       var can = function (dom) { return dom === 'scene' ? !!(st.scene && (redo ? st.scene.canRedo : st.scene.canUndo)) : !!(redo ? st.canRedo : st.canUndo); };
@@ -2299,7 +2342,14 @@ R"GEJS(
       if (r && !r.broken && (r.node.kind === 'shake' || r.node.kind === 'shakep')) {
         var se = hitTrackKey(r, cc.tx);
         selectNode(r.node.id);
-        if (se) { seekTo(se.t); return; }
+        if (se) {
+          var si = se.shake.i;
+          if (st.shift) { if (shakeSel[si]) { delete shakeSel[si]; trackSig = ''; } else setShakeSel([si], true); }
+          else if (!shakeSel[si]) { camCmd('selclear'); sceneCmd('selclear'); selCache = {}; setShakeSel([si], false); }
+          seekTo(se.t);
+          if (r.node.kind === 'shakep') gesture = { type: 'shakeKey', node: r.node, i: si, sy: cc.ly, v0: se.shake[r.node.param], last: se.shake[r.node.param], moved: false };
+          return;
+        }
       }
       if (r && !r.broken && r.node.kind === 'prop' && !isSplit(r.node)) {
         var e = hitTrackKey(r, cc.tx);
@@ -2518,6 +2568,14 @@ R"GEJS(
           else sceneCmd('handle ' + chNum(g.uid) + ' ' + g.id + ' ' + side + ' ' + tx.toFixed(3) + ' ' + dv.toFixed(3));
         }
       } else if (g.type === 'kf') dragKeys(cc);
+      else if (g.type === 'shakeKey') {
+        var kdy = g.sy - cc.ly, kn = g.node;
+        if (!g.moved && Math.abs(kdy) > 3) g.moved = true;
+        if (g.moved) {
+          var kv = Math.round(Math.max(kn.min, Math.min(kn.max, g.v0 + kdy * (kn.max - kn.min) / 150 * (st.shift ? 0.25 : 1))));
+          if (kv !== g.last) { g.last = kv; shakeCmd(kn.verb + ' ' + g.i + ' ' + kv); }
+        }
+      }
       else if (g.type === 'shakeNum') {
         var sdx = st.mx - g.smx, pn = g.row.node;
         if (!g.moved && Math.abs(sdx) > 4) g.moved = true;
@@ -2582,10 +2640,13 @@ R"GEJS(
       var g = gesture;
       if (g.type === 'rect') {
         rectVis.visible = false;
-        var picked = g.graph ? graphMembersInRect(g) : membersInRect(g);
+        var picked = g.graph ? graphMembersInRect(g) : membersInRect(g), pickedShakes = g.graph ? [] : shakesInRect(g);
         if (Math.abs(g.cx - g.sx) < 3 && Math.abs(g.cy - g.sy) < 3) { if (!st.shift) clearSelection(); }
-        else if (picked.length) selectMembers(picked, !!st.shift);
-        else if (!st.shift) clearSelection();
+        else if (picked.length || pickedShakes.length) {
+          if (picked.length) selectMembers(picked, !!st.shift);
+          else if (!st.shift) { camCmd('selclear'); sceneCmd('selclear'); selCache = {}; }
+          setShakeSel(pickedShakes, !!st.shift || !!picked.length);
+        } else if (!st.shift) clearSelection();
       } else if (g.type === 'ruler') {
         var tx = Math.max(PAD, Math.min(PAD + G.cw, cc.tx));
         releasePlayhead(snapTick(xToTick(tx)));
@@ -2841,11 +2902,12 @@ R"GEJS(
         var on = en && it[0] === cur;
         if (b.__on !== on || b.__en !== en) { b.__on = on; b.__en = en; paintEase(b); }
       });
-      if (nSel !== delBtn.__n) {
-        delBtn.__n = nSel;
-        delBtn.__lbl.style.color = nSel ? S.dangerText : S.dim;
-        delBtn.style.backgroundColor = nSel ? S.dangerBg : S.btnBg;
-        delBtn.style.border = '1px solid ' + (nSel ? S.dangerBorder : S.border);
+      var nDel = nSel + shakeSelCount();
+      if (nDel !== delBtn.__n) {
+        delBtn.__n = nDel;
+        delBtn.__lbl.style.color = nDel ? S.dangerText : S.dim;
+        delBtn.style.backgroundColor = nDel ? S.dangerBg : S.btnBg;
+        delBtn.style.border = '1px solid ' + (nDel ? S.dangerBorder : S.border);
       }
       var cu = !!(st.canUndo || (st.scene && st.scene.canUndo)), cr = !!(st.canRedo || (st.scene && st.scene.canRedo));
       setColor(undoBtn.__lbl, cu ? S.value : S.dim); setColor(redoBtn.__lbl, cr ? S.value : S.dim);
@@ -2861,7 +2923,7 @@ R"GEJS(
       // The expensive drawing only when something it reads changed.
       graph.visible = viewMode === 'graph';
       var ksig = [st.rev, st.scene ? st.scene.rev : 0, view.t0, view.t1, G.rw, selNode, rowSig, viewMode,
-                  (st.shakes || []).map(function (z) { return z.i + '.' + z.s + '.' + z.n + '.' + z.p; }).join(',')].join(':');
+                  (st.shakes || []).map(function (z) { return z.i + '.' + z.s + '.' + z.n + '.' + z.p + (shakeSel[z.i] ? '*' : ''); }).join(',')].join(':');
       if (viewMode === 'keys' && ksig !== trackSig) { trackSig = ksig; drawTrack(); }
       var gsig = ksig + ':' + snapSetting();
       if (viewMode === 'graph' && gsig !== graphSig) {
@@ -2883,6 +2945,8 @@ R"GEJS(
         return n.layer.name + '  ›  ' + n.name + '  ·  key ' + idx + ' of ' + list.length + '  ·  ' + fmtTime(lead.k.t);
       }
       if (nSel > 1) return nSel + ' keys selected  ·  drag to move  ·  F9 eases  ·  Del deletes';
+      var nShk = shakeSelCount();
+      if (nShk) return nShk + (nShk === 1 ? ' shake key' : ' shake keys') + ' selected  ·  drag Intensity / Speed up or down  ·  Del removes';
       var sn = nodeById(selNode);
       if (sn) return (sn.layer ? sn.layer.name + '  ›  ' : '') + sn.name + '  ·  click a key to select it, right-click for options';
       return 'Click a key to select it  ·  drag to move  ·  right-click for options';

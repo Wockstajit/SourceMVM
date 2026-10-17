@@ -291,7 +291,7 @@ test('a shaken Camera shake row twirls open to Intensity and Speed', () => {
   assert.match(graph, /if \(n\.kind === 'shake'\) return n\.children\.length > 0 && openState\[n\.id\] !== false;/);
   assert.match(graph, /if \(shakeAt\(idx\)\) shakeCmd\(node\.verb \+ ' ' \+ idx \+ ' ' \+ v\);\s*else shakeKeyFrom\(idx, node\.param, v\);/);
   // The values redraw when a shake's numbers change, not only when one is added.
-  assert.match(graph, /\(st\.shakes \|\| \[\]\)\.map\(function \(z\) \{ return z\.i \+ '\.' \+ z\.s \+ '\.' \+ z\.n \+ '\.' \+ z\.p; \}\)\.join\(','\)\]\.join\(':'\);/);
+  assert.match(graph, /return z\.i \+ '\.' \+ z\.s \+ '\.' \+ z\.n \+ '\.' \+ z\.p \+ \(shakeSel\[z\.i\] \? '\*' : ''\);/);
 });
 
 // Shake strength and speed are keyframes: a shot can start slow and gentle and build up. Between
@@ -320,4 +320,37 @@ test('shake values ramp between keys the way the camera plays them', () => {
   assert.match(cam, /ShakeRamp::Value\(intensity, \(double\)keys\[\(size_t\)sk\[\(size_t\)j \+ 1\]\]\.intensity, u\)/);
   assert.match(cam, /clock\[\(size_t\)j\]\.rampsToNext = j \+ 1 < m && keys\[\(size_t\)sk\[\(size_t\)j \+ 1\]\]\.style == k\.style && !oneShot\(j\);/);
   assert.match(cam, /ShakeRamp::ClockSeconds\(clock\.data\(\), m, runStartOf\(j\), lookupTick, spt\)/);
+});
+
+// The ease half is real geometry. A notch painted in the background colour showed as a black
+// cut-out on any highlighted row and under a box selection.
+test('ease glyph halves are drawn without a background-coloured notch', () => {
+  const glyphCode = graph.slice(graph.indexOf('    function triPiece('), graph.indexOf('    // A whole glyph.'));
+  assert.doesNotMatch(glyphCode, /notch/);
+  assert.doesNotMatch(glyphCode, /bg \|\| S\.panelHex/);
+  assert.match(glyphCode, /triPiece\(hb, \[ox, 0\], \[ax, h\], \[ax, 0\], color\);/);
+  // Run the triangle maths: the filled side must be the one holding the right angle.
+  const made = [];
+  const mk = () => { const p = { style: {} }; made.push(p); return p; };
+  const ctx = vm.createContext({ mk, Math });
+  vm.runInContext(glyphCode.slice(0, glyphCode.indexOf('    function glyphHalf(')), ctx);
+  for (const [p1, p2, c] of [[[0, 0], [3, 5], [3, 0]], [[0, 10], [3, 5], [3, 10]], [[5, 0], [2, 5], [2, 0]], [[5, 10], [2, 5], [2, 10]]]) {
+    made.length = 0;
+    ctx.triPiece({}, p1, p2, c, '#fff');
+    const f = made[1], deg = parseFloat(/rotateZ\((-?[\d.]+)deg\)/.exec(f.style.transform)[1]) * Math.PI / 180;
+    const [ox, oy] = f.style.position.split(' ').map(parseFloat);
+    const box = made[0].style.position.split(' ').map(parseFloat);
+    // C relative to the panel's rotated top-left corner, in the panel's own axes: inside means y > 0.
+    const vx = c[0] - box[0] - ox, vy = c[1] - box[1] - oy;
+    assert.ok(-Math.sin(deg) * vx + Math.cos(deg) * vy > -1e-9, 'triangle ' + JSON.stringify([p1, p2, c]) + ' fills its right-angle side');
+  }
+});
+
+test('shake keys select like keys: click, Shift, box, Delete, drag the value', () => {
+  assert.match(graph, /var shakeSel = \{\};/);
+  assert.match(graph, /pickedShakes = g\.graph \? \[\] : shakesInRect\(g\)/);
+  assert.match(graph, /if \(shakeSel\[s\.i\]\) shakeCmd\('clear ' \+ s\.i\);/);
+  assert.match(graph, /gesture = \{ type: 'shakeKey', node: r\.node, i: si,/);
+  assert.match(graph, /if \(kv !== g\.last\) \{ g\.last = kv; shakeCmd\(kn\.verb \+ ' ' \+ g\.i \+ ' ' \+ kv\); \}/);
+  assert.match(graph, /shakeSel\[s\.i\] \? S\.accent : '#80bdffff'/);
 });
