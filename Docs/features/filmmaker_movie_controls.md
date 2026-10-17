@@ -39,7 +39,7 @@ The HUD's mode name follows the camera CS2 is actually showing, including change
 | --- | --- | --- |
 | Move | **W / A / S / D** while looking | CS2's own free cam |
 | Fly speed up / down | **Shift + Scroll** | `sv_noclipspeed`, the same speed ladder as before (0.5x per notch) |
-| FOV in / out | **Ctrl + Scroll** | `mirv_fov`, 1 degree per notch. `mirv_fov default` goes back to the game's FOV |
+| FOV in / out | **Ctrl + Scroll** | 1 degree per notch, starting from what is on screen. The zoom belongs to the camera it was set in: switching camera (the wheel, CS2's camera button, a player step, or the editor's camera taking the view) gives the FOV back to the game, or to Config's **Field of view** (`mirv_fov`) when that is set. It is never saved. A weapon scope keeps its own zoom |
 | Roll | **Hold X / Z** | Added on top of CS2's free cam. Cleared when the camera changes |
 
 Shift and Ctrl + Scroll also work in the middle of a look-around drag. While Config or the Camera Editor is open, each speed or FOV notch shows a short toast over the preview with the new value.
@@ -71,12 +71,16 @@ There is no mouse toggle. Where you click decides it:
 - Click the game **preview**: the mouse belongs to the camera (CS2's look-around drag, or the editor's own camera).
 - Click any **panel**: the mouse belongs to the UI.
 - Popups that sit over the preview (Editor Settings, a keyframe's shake menu) keep their clicks.
+- While the UI has the mouse, CS2 does not: its mouse-look and capture stand down, so a right-click over the preview cannot start CS2's own look-around underneath the editor.
+- While a **camera path plays** (or is about to start), a click or right-click on the preview does nothing at all. It neither switches to the camera nor reaches CS2. The path is flying the camera, and either one would take the mouse from you mid-playback. The panels around the preview (pause, stop, the timeline) keep working.
 
 Outside a workspace there is nothing to switch: CS2 gives the cursor back by itself after a look-around drag, so the demo bar is always clickable.
 
 ## Camera Editor paths
 
 The Camera Editor's keyframe cameras still use SOURCE:MVM's own camera, because a path has to set every frame's pose. On the camera timeline, **click a diamond** to go to that keyframe's tick and camera, and **right-click** it for its shake menu. Both work on every inspector tab. While a path keyframe camera owns the view, its own keys keep working: W/A/S/D/R/F to move, Shift + Scroll for speed, Ctrl + Scroll for FOV, X / Z to roll, Shift held for slow movement.
+
+A path only holds the view while it is doing something: playing, scrubbing, or landing on a keyframe you selected. When playback reaches the last keyframe, the camera stays on that keyframe until the demo lands there, then the free cam is yours again. Closing the editor stops a test play the editor started. In the GRAPH dock, the path moves the camera only while you drag the playhead or edit a key. Between those, the camera is whatever you chose, first person included.
 
 When our own camera is detached from the spectated eye, the first-person viewmodel can be hidden with `mirv_filmmaker fphide on` (default off). Its `_fp/_fps` particle systems anchor to the camera and would otherwise float in mid-air.
 

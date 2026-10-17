@@ -3,6 +3,7 @@
 #include "CameraPath.h"
 #include "../Render/RenderCommand.h"
 #include "RageShake.h"
+#include "CamPathShakeRampMath.h" // eased intensity/speed ramps and the integrated shake clock
 #include "../Filmmaker.h"            // PlayingDemoPath()
 #include "../Demo/DemoProjectStore.h"
 #include "../../MirvTime.h"          // interval_per_tick_get: the tick->seconds rate
@@ -19,6 +20,7 @@
 #include <atomic>
 #include <mutex>
 #include <sstream>
+#include <vector>
 
 namespace Filmmaker {
 
@@ -42,10 +44,8 @@ double AmplitudeFor(double intensity) {
 
 // SPEED is a TIME SCALE FACTOR, not a frequency multiplier: it scales the shaker's whole
 // timestep so envelopes stretch with the oscillation. 50 = authored speed, 10 = fifth, 100 = double.
-double TimeScaleFor(double speed) { return speed / 50.0; }
-
-double Lerp(double a, double b, double u) { return a + (b - a) * u; }
-double Clamp01(double v) { return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v); }
+// It is applied by integrating it into the run's shake clock (ShakeRamp::ClockSeconds), so a
+// speed that ramps between keys bends the clock instead of sweeping the oscillator.
 
 int ClampInt(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -285,11 +285,12 @@ bool ReadSnapshot(std::vector<SnapKey>& out, double& outSecondsPerTick) {
 	return true;
 }
 
-// Evaluate a style `tSec` into its run, at an already-blended intensity/speed.
-RageShakePose EvalStyle(int style, double intensity, double speed, double tSec) {
-	if (style < 0 || intensity <= 0.0 || tSec < 0.0) return RageShakePose();
+// Evaluate a style at `clockSec` on its run's own shake clock (ShakeRamp::ClockSeconds, which
+// already carries the speed), at an already-ramped intensity.
+RageShakePose EvalStyle(int style, double intensity, double clockSec) {
+	if (style < 0 || intensity <= 0.0 || clockSec < 0.0) return RageShakePose();
 	const RageShakeDef& def = RageShake_Style(style);
-	return RageShake_Eval(def, tSec, AmplitudeFor(intensity), TimeScaleFor(speed));
+	return RageShake_Eval(def, clockSec, AmplitudeFor(intensity), 1.0);
 }
 
 } // namespace
@@ -401,76 +402,79 @@ bool CamPathShake_EvalSnapshot(const std::vector<SnapKey>& keys, double secondsP
 	if (lookupTick < (double)keys[0].tick)
 		return false; // before the path starts: nothing has been triggered yet
 
-	// Which keyframe owns this point on the path? The one at or before it.
-	int seg = 0;
-	for (int i = 0; i < n; ++i) {
-		if ((double)keys[(size_t)i].tick <= lookupTick) seg = i;
-		else break;
-	}
-
 	// Seconds derived from ticks, so the shake is a pure function of the path tick: scrub,
 	// preview and render all agree, and re-renders are frame-identical.
 	const double spt = secondsPerTick;
-	const double now = lookupTick * spt;
 
-	auto findAt = [&](int i) -> const SnapKey* {
-		if (i < 0 || i >= n) return nullptr;
-		const SnapKey& k = keys[(size_t)i];
-		return k.Active() ? &k : nullptr;
+	// The SHAKE keys: camera keys carrying a shake, in order. A shake key and the next one with the
+	// same style are one run: the shake keeps running across the camera keys between them (keys
+	// with no shake of their own) and its intensity and speed glide from one to the other along an
+	// eased ramp on the run's own clock (CamPathShakeRampMath.h). That is what lets a shot start
+	// slow and gentle and build up over several camera keys without a jolt. A shake key with no
+	// same-style successor runs to the next CAMERA key and ends there. A one-shot never chains:
+	// each burst fires on its own key.
+	std::vector<int> sk;
+	for (int i = 0; i < n; ++i) if (keys[(size_t)i].Active()) sk.push_back(i);
+	const int m = (int)sk.size();
+	if (m == 0) return false;
+	auto oneShot = [&](int j) { return RageShake_Finished(RageShake_Style(keys[(size_t)sk[(size_t)j]].style), 1.0e6, 1.0); };
+	std::vector<ShakeRamp::ClockKey> clock((size_t)m);
+	for (int j = 0; j < m; ++j) {
+		const SnapKey& k = keys[(size_t)sk[(size_t)j]];
+		clock[(size_t)j].tick = (double)k.tick;
+		clock[(size_t)j].speed = (double)k.speed;
+		clock[(size_t)j].rampsToNext = j + 1 < m && keys[(size_t)sk[(size_t)j + 1]].style == k.style && !oneShot(j);
+	}
+	auto runStartOf = [&](int j) { while (j > 0 && clock[(size_t)j - 1].rampsToNext) --j; return j; };
+	// Where shake key j stops when its run does not carry on: the next camera key after it.
+	auto endOf = [&](int j) {
+		const int ci = sk[(size_t)j] + 1;
+		return ci < n ? (double)keys[(size_t)ci].tick : 1.0e300;
 	};
-	// Where did the CURRENT RUN of this style begin? Walk back over consecutive keyframes that
-	// carry the same style. This is what makes a looping shake CONTINUOUS across a run of keyframes instead of
-	// re-attacking at each one.
-	auto runStartOf = [&](int i) {
-		const SnapKey* c = findAt(i);
-		if (!c) return i;
-		// One-shot exception: a one-shot is never contiguous with a previous keyframe of the
-		// same style -- each burst fires on its own keyframe.
-		if (RageShake_Finished(RageShake_Style(c->style), 1.0e6, 1.0))
-			return i;
-		while (i > 0) {
-			const SnapKey* prev = findAt(i - 1);
-			if (!prev || prev->style != c->style) break;
-			--i;
-		}
-		return i;
-	};
+
+	// The last shake key at or before the lookup.
+	int j = -1;
+	for (int q = 0; q < m; ++q) {
+		if (clock[(size_t)q].tick <= lookupTick) j = q;
+		else break;
+	}
+	if (j < 0) return false;
 
 	RageShakePose sum;
-
-	const SnapKey* cur = findAt(seg);
-	if (cur) {
-		double intensity = (double)cur->intensity;
-		double speed = (double)cur->speed;
-		// Within a run, intensity and speed glide toward the next keyframe's values.
-		// This is what lets a shake ramp up over a shot instead of stepping.
-		const SnapKey* nxt = findAt(seg + 1);
-		if (nxt && nxt->style == cur->style) {
-			const double span = (double)(keys[(size_t)seg + 1].tick - keys[(size_t)seg].tick);
-			const double u = (span > 0.0)
-				? Clamp01((lookupTick - (double)keys[(size_t)seg].tick) / span) : 0.0;
-			intensity = Lerp(intensity, (double)nxt->intensity, u);
-			speed = Lerp(speed, (double)nxt->speed, u);
+	const SnapKey& cur = keys[(size_t)sk[(size_t)j]];
+	const bool ramps = clock[(size_t)j].rampsToNext;
+	const double curEnd = ramps ? 1.0e300 : endOf(j);
+	if (lookupTick < curEnd) {
+		double intensity = (double)cur.intensity;
+		if (ramps) {
+			const double span = clock[(size_t)j + 1].tick - clock[(size_t)j].tick;
+			const double u = (span > 0.0) ? (lookupTick - clock[(size_t)j].tick) / span : 0.0;
+			intensity = ShakeRamp::Value(intensity, (double)keys[(size_t)sk[(size_t)j + 1]].intensity, u);
 		}
-		const int runStart = runStartOf(seg);
-		sum.AddScaled(EvalStyle(cur->style, intensity, speed,
-			now - (double)keys[(size_t)runStart].tick * spt), 1.0);
+		const double clockSec = ShakeRamp::ClockSeconds(clock.data(), m, runStartOf(j), lookupTick, spt);
+		sum.AddScaled(EvalStyle(cur.style, intensity, clockSec), 1.0);
+		if (MvmDebugLog_Active()) {
+			static std::atomic<unsigned> s_n{ 0 };
+			if ((s_n.fetch_add(1, std::memory_order_relaxed) % 30) == 0)
+				MvmDebugLog_Linef("pathshake.ramp",
+					"tick=%.1f key=%d runFrom=%d style=%d ramps=%d intensity=%.3f speedNow=%.2f clock=%.4fs",
+					lookupTick, sk[(size_t)j], sk[(size_t)runStartOf(j)], cur.style, ramps ? 1 : 0, intensity,
+					ramps ? ShakeRamp::Value(clock[(size_t)j].speed, clock[(size_t)j + 1].speed,
+						(lookupTick - clock[(size_t)j].tick) / (clock[(size_t)j + 1].tick - clock[(size_t)j].tick)) : clock[(size_t)j].speed,
+					clockSec);
+		}
 	}
 
-	// A DIFFERENT style ending at this keyframe keeps decaying through the handover window, so a
-	// style change is a transition rather than a cut. Same-style runs never reach this -- they
-	// are one continuous shake above.
-	if (seg > 0) {
-		const double since = now - (double)keys[(size_t)seg].tick * spt;
-		if (since >= 0.0 && since < kHandoverSec) {
-			const SnapKey* prev = findAt(seg - 1);
-			if (prev && (!cur || prev->style != cur->style)) {
-				const int prevRun = runStartOf(seg - 1);
-				const double w = 1.0 - (since / kHandoverSec);
-				sum.AddScaled(EvalStyle(prev->style, (double)prev->intensity, (double)prev->speed,
-					now - (double)keys[(size_t)prevRun].tick * spt), w);
-			}
-		}
+	// A run that ended keeps decaying through the handover window, so the end of a shake, or a
+	// change of style, is a transition rather than a cut: this key's own run once it is over, or
+	// the previous key's run when this key starts a different one.
+	for (int p = j; p >= 0 && p >= j - 1; --p) {
+		if (clock[(size_t)p].rampsToNext) continue;   // its run carries on: not ended
+		const double since = (lookupTick - endOf(p)) * spt;
+		if (since < 0.0 || since >= kHandoverSec) continue;
+		const SnapKey& pk = keys[(size_t)sk[(size_t)p]];
+		sum.AddScaled(EvalStyle(pk.style, (double)pk.intensity,
+			ShakeRamp::ClockSeconds(clock.data(), m, runStartOf(p), lookupTick, spt)), 1.0 - since / kHandoverSec);
 	}
 
 	if (!sum.Any())

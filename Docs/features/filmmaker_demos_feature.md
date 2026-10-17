@@ -106,6 +106,12 @@ generated caches live under `%APPDATA%\HLAE\source_mvm\demos\cs2\<filename>/`:
 | `demo.info` | recovery copy of Valve's `<name>.dem.info`, used only to restore a missing sidecar |
 | `repaired.dem` + `.src` / `.clean` | repair cache and validity stamps |
 
+Every section is keyed by the original demo, never by a copy made from it. Each subsystem reads
+`PlayingDemoPath()`, which maps a validated `repaired.dem`, `keyframed.dem` or `keyframed-b.dem`
+back through its folder's `project.mvm` (`PlanDemoCopyLookup` in `DemoProjectStoreMath.h`).
+`Automation/tests/demo-project-keying-tests.mjs` fails any CS2 section that keys off the raw
+playing file (`ResolvePlayingDemoPath()`).
+
 `project.mvm` is a small binary container (format in `DemoProjectFileMath.h`). It starts with a
 32-byte header: magic `SRCMVM\x1A\0`, version 1, a game flag in `flags` bits 0-3, and the section
 count. A table of 32-byte entries follows. Each entry holds a 16-byte ASCII tag, an encoding id

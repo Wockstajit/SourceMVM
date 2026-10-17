@@ -51,31 +51,32 @@ test('Scene Keys timeline has separate camera and scene lanes', () => {
   assert.match(timeline, /st\.uiEditorInspector === 'scene'/);
 });
 
-test('Graph owns full-width scene property strips', () => {
-  assert.match(graph, /SCENE KEYS uses the Graph dock as a stacked property editor/);
-  assert.match(graph, /sceneStrips/);
-  // Keys are placed with the property row's diamond at the playhead, not by clicking empty canvas
+test('scene properties are layers on the one TIMELINE, next to the camera path', () => {
+  assert.match(graph, /function sceneLayerTitle\(c\)/);
+  // Keys are placed with the property row's diamond at the playhead, not by clicking empty track
   // space; the old "click the strip to create the first key" instruction is gone entirely.
-  assert.match(graph, /function toggleSceneKey/);
+  assert.match(graph, /function toggleKeyAt\(n\)/);
   assert.match(graph, /Add or remove a keyframe at the playhead/);
   assert.doesNotMatch(graph, /Click anywhere on this strip/);
+  // The inspector's shortcut opens the dock; there is no scene mode to put it in any more.
+  assert.match(inspector, /cmd\('mirv_filmmaker dock timeline'\)/);
+  assert.doesNotMatch(inspector, /editor\.graph scene/);
 });
 
-test('the Graph dock picks its model itself, not from the inspector tab', () => {
-  // Keying the dock off the inspector made opening SCENE KEYS take the camera graph away, with
-  // no way back to the curves of a path that was already placed.
-  assert.match(graph, /function sceneOn\(\) \{ return !!\(st && st\.graphMode === 'scene'\); \}/);
+test('the dock shows camera and scene keys together, never one model at a time', () => {
+  // Keying the dock off the inspector (and later off a GRAPH / SCENE GRAPH switch) meant one model
+  // was always hidden: a shot's camera curves vanished while its lighting was up, and back.
+  assert.doesNotMatch(graph, /graphMode|sceneOn\(\)|camModeTab|sceneModeTab/);
   assert.doesNotMatch(graph, /uiEditorInspector/);
-  assert.match(graph, /camModeTab/);
-  assert.match(graph, /sceneModeTab/);
-  assert.match(hud, /editor\.graph/);
+  assert.doesNotMatch(hud, /"editor\.graph"/);
+  assert.match(hud, /editor\.timeline\.view/);
 });
 
-test('scene strip values are scrubbed, typed and right-clicked, not only typed', () => {
-  assert.match(graph, /function scrubbable\(ch\)/);
-  assert.match(graph, /type: 'snum'/);
-  assert.match(graph, /function openSceneType/);
-  assert.match(graph, /function showStripMenu/);
+test('scene values are scrubbed, typed and right-clicked, not only typed', () => {
+  assert.match(graph, /function valueHit\(lx, ly\)/);
+  assert.match(graph, /gesture = \{ type: 'num', row: vh\.row, comp: vh\.comp/);
+  assert.match(graph, /function openType\(r, comp\)/);
+  assert.match(graph, /function showRowMenu\(lx, ly, r\)/);
 });
 
 test('the Camera Editor tab strip uses the Config panel metrics', () => {
@@ -84,8 +85,17 @@ test('the Camera Editor tab strip uses the Config panel metrics', () => {
   }
 });
 
-test('Space is plain demo play while the dock shows scene strips', () => {
-  assert.match(movie, /const bool graphScene = GraphEditorExperiment_Enabled\(\)/);
-  assert.match(movie, /vkey == kVK_SPACE && !graphScene/);
-  assert.match(hud, /if \(FilmmakerSettings_UiString\("editor\.graph", "camera"\) == "scene"\)/);
+test('Space is plain demo play while the CAMERA PATH layer is switched off', () => {
+  assert.match(movie, /const bool timelinePathOff = timelineDock && !GraphEditorExperiment_Drive\(\);/);
+  assert.match(movie, /vkey == kVK_SPACE && !timelinePathOff/);
+  // The toolbar's play button makes the same choice.
+  assert.match(graph, /if \(st\.drive && camKeys >= 2\) rawCmd\('mirv_filmmaker camtl ' \+ \(st\.pathPlaying \? 'pause' : 'playtest'\)\);/);
+  assert.match(graph, /else rawCmd\(st\.playing \? 'demo_pause' : 'demo_resume'\);/);
+});
+
+test('keyframe shortcuts go to the dock, which knows which model holds the selection', () => {
+  assert.match(movie, /EnqueueCmd\(redo \? "mirv_filmmaker grapheditor key redo" : "mirv_filmmaker grapheditor key undo"\)/);
+  assert.match(movie, /EnqueueCmd\("mirv_filmmaker grapheditor key delete"\)/);
+  assert.match(movie, /"mirv_filmmaker grapheditor key easeinout"/);
+  assert.match(graph, /api\.key = function \(name\)/);
 });

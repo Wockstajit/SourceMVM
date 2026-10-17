@@ -130,8 +130,7 @@ inline const char* kCameraEditorJs = R"EDJS(
     // its own padding -- at the old 34px the button labels were clipped at the bottom.
     var TAB_BAR_H = 42, TAB_GAP = 4; // bottom-editor tab bar (DIVIDER above the active editor) height + gap
     var NATIVE_BAR_H = 96;  // fallback height for CS2's native demo bar (measured at runtime when shown)
-    var GRAPH_DOCK_H = 380; // compact graph-editor dock height; when open it REPLACES the timeline
-                            // and fills the whole bottom (keep in sync with GraphEditorJs DOCK_H).
+    var TIMELINE_DOCK_H = 440; // the TIMELINE dock under the ribbon (keep in sync with GraphEditorJs DOCK_H)
     var CH_ROLL = 5, CH_FOV = 6;
     var dbgGeom = null; // [debug overlay] last preview geometry stashed by render() (px + fractions)
     var _lastInvariantSig = ''; // rate-limit layout-invariant warnings (one per unique violation)
@@ -1152,17 +1151,12 @@ R"EDJS(
       styleTab(sceneTab, sceneMode, workspaceAccent);
       // A tab change starts the pane at its top.
       if (inspectorTabSeen !== inspectorMode) { inspectorTabSeen = inspectorMode; edScrollY = 0; }
-      var bm = st.bottomMode || (st.graphExp ? 'graph' : 'native');
+      var bm = st.bottomMode || (st.graphExp ? 'timeline' : 'native');
       curBottomMode = bm;
-      var regularActive = (bm !== 'camera' && bm !== 'graph'); // 'native' (Regular Timeline)
-      // The ribbon owns its own tab painting; this panel only says which tab is live and
-      // what the active tab has to report (keyframe count on CAMERA, channel tally on GRAPH).
-      var dockMeta = '';
-      if (bm === 'camera') dockMeta = (st.count || 0) + ' keyframes';
-      // The graph's visible-channel tally is not published in the state JSON yet, and the
-      // original design's '<n> of 7 channels' would be a made-up number until it is -- so the graph
-      // tab shows nothing here rather than something wrong.
-      dockRibbon.sync(bm, dockMeta);
+      var regularActive = (bm !== 'timeline'); // 'native' (Regular Timeline)
+      // The ribbon owns its own tab painting; this panel only says which tab is live and what the
+      // TIMELINE dock reports about itself (its layer and key counts).
+      dockRibbon.sync(bm, bm === 'timeline' ? mvmTimelineMeta() : '');
       // The gear opens the CAM-EDITOR settings fly-out (native demo-playback toggles). It has no
       // business in the Render workspace, which is a different job with its own tabbed settings --
       // and the fly-out is closed here rather than merely hidden, so switching into Render cannot
@@ -1235,7 +1229,7 @@ R"EDJS(
       // editorTop = y-from-bottom of the TOP edge of whatever editor is docked below the tab bar.
       // Camera/Graph overlays rest at marginBottom=BOTTOM_LIFT; the native bar rests at the very
       // bottom (Regular Timeline mode). Measure live heights where they can grow.
-      var nativeBottom = (bm !== 'camera' && bm !== 'graph'); // 'native' = Regular Timeline
+      var nativeBottom = (bm !== 'timeline'); // 'native' = Regular Timeline
 )EDJS"
 R"EDJS(
       // One shared measurement with CONFIG (mvmDockMeasure, TimelineDockRibbonJs.h): the

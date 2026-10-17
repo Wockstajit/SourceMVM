@@ -58,7 +58,7 @@ R"DOCKRIBJS(
 
       // One console verb for every workspace -- see Movie/TimelineDock.h. A tab is a SWITCH, not
       // a toggle: it always selects its own mode, so the dock can never end up showing nothing.
-      var TABS = [['native', 'REGULAR TIMELINE'], ['camera', 'CAMERA'], ['graph', 'GRAPH']];
+      var TABS = [['native', 'REGULAR TIMELINE'], ['timeline', 'TIMELINE']];
       var tabs = {};
       for (var i = 0; i < TABS.length; i++) (function (key, caption, last) {
         var b = mk('Panel', parent ? band : band);
@@ -90,9 +90,8 @@ R"DOCKRIBJS(
       spacer.style.width = 'fill-parent-flow(1.0)';
       spacer.style.height = '1px';
 
-      // What only the active tab knows: its keyframe count, its visible-channel tally, or the
-      // round the demo is sitting in. Mono, because two of the three are numbers that change
-      // every frame and proportional digits jitter.
+      // What only the active tab knows: on TIMELINE, its layer and key counts. Mono, because the
+      // numbers change as you key and proportional digits jitter.
       var meta = lbl(band, '', '#8b95a3ff', 12);
       meta.hittest = false;
       meta.style.fontFamily = 'Stratum2Mono, monospace';
@@ -121,7 +120,7 @@ R"DOCKRIBJS(
         if (tab !== appliedTab) {
           appliedTab = tab;
           // The dock overlays the game render on the native tab and sits under it otherwise, so
-          // the band is translucent there and opaque on the two editor tabs.
+          // the band is translucent there and opaque on TIMELINE.
           band.style.backgroundColor = (tab === 'native') ? 'rgba(18,22,28,0.38)' : '#14181eff';
           for (var k in tabs) {
             var on = k === tab, b = tabs[k];
@@ -140,16 +139,13 @@ R"DOCKRIBJS(
 
     // WHERE THE DOCK IS, for the current tab -- one measurement for every host.
     //
-    // The Camera Editor always had this: it reads the ACTUAL height of whichever editor is docked
-    // (the camera bar is fit-children and grows; the native bar is CS2's own) and parks the ribbon
-    // right above it, then stops the preview at the ribbon. CONFIG never did -- it assumed the
-    // native bar was the only thing under it, so the moment it could dock the camera timeline the
-    // preview stopped shrinking and the ribbon landed under the bar. Same numbers as the editor:
-    // 96 native / 176 camera / 380 graph fallbacks until the panels lay out.
+    // Both hosts park the ribbon right above whichever editor is docked and stop the preview at the
+    // ribbon. The native bar is CS2's own and is MEASURED (96 until it lays out); the TIMELINE dock
+    // is a fixed 440.
     //
     //   ctx  the HUD context panel (FindChildTraverse root)
     //   rh   the host's height in css px, rsy its y ui-scale
-    //   tab  the shared DockTab name ('native' / 'camera' / 'graph')
+    //   tab  the shared DockTab name ('native' / 'timeline')
     //   opt  { floor } -- how far the host lifts the band's minimum off the bottom (CONFIG: 28)
     function mvmDockMeasure(ctx, rh, rsy, tab, opt) {
       opt = opt || {};
@@ -165,15 +161,20 @@ R"DOCKRIBJS(
         } catch (e) {}
         return fallback;
       }
-      if (tab === 'graph') editorTop = 380;
-      else if (tab === 'camera') editorTop = measure('CamTimelineBar', false, 176);
+      if (tab === 'timeline') editorTop = 440;
       else editorTop = measure('SliderRow', true, 96);
       var bottomH = Math.max(RIB + floor, Math.min(editorTop + GAP + RIB, Math.max(0, rh - 160)));
       var dockTopY = Math.max(0, rh - bottomH);
       var tabY = Math.max(dockTopY, rh - editorTop - GAP - RIB);
       return {
         editorTop: editorTop, bottomH: bottomH, dockTopY: dockTopY, tabY: tabY,
-        nativeBottom: (tab !== 'camera' && tab !== 'graph'), ribbonH: RIB
+        nativeBottom: (tab !== 'timeline'), ribbonH: RIB
       };
+    }
+
+    // The ribbon's meta on TIMELINE ("3 layers · 18 keys"), asked of the dock itself: it is the
+    // only script that knows its layers. Empty until the dock is built.
+    function mvmTimelineMeta() {
+      try { return ($.GraphExp && $.GraphExp.ribbonMeta) ? $.GraphExp.ribbonMeta() : ''; } catch (e) { return ''; }
     }
 )DOCKRIBJS"

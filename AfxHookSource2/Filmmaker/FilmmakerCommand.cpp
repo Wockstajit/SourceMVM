@@ -137,7 +137,7 @@ void PrintHelp(const char* cmd) {
 		"%s camtl [...] - camera timeline scrubber (scrub, keys, easing; run for sub-help).\n"
 		"%s editor [on|off|toggle] - dedicated CAMERA EDITOR workspace (preview + inspector + graph editor).\n"
 		"%s editor scale [on|off|toggle] - TRUE scaled preview viewport (whole frame shrunk, not a crop).\n"
-		"%s dock [native|camera|graph|toggle] - shared bottom dock (Regular timeline / Camera / Graph); alias: editor curveeditor.\n"
+		"%s dock [native|timeline|toggle] - shared bottom dock: Regular timeline (CS2's bar) or TIMELINE (camera + scene keys).\n"
 		"%s editor hud [hidden|game|full|cycle] - game UI behind the editor: hide all, in-game (radar+HP/ammo, no spectator panel), or full.\n"
 		"%s editor debug [on|off|toggle] - viewport/HUD debug overlay (window/render-target/viewport numbers; compare vs normal game viewport).\n"
 		"%s config [on|off|toggle] - lightweight CONFIG panel (general UI / display settings, no camera tools).\n"

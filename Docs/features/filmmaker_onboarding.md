@@ -63,15 +63,15 @@ rundown, which opens a menu of short topics.
 | Path | Covers |
 | --- | --- |
 | Teach me CS2 filmmaking (`cs2`) | Movie Making, then the DOWNLOADED tab, repair, WATCH, then Weapon Recoil (switch on, T test shot, the pivot as the hinge, AK vs Glock) and Weapon Bob |
-| Teach me SOURCE:MVM (`app`) | Movie Making, the DOWNLOADED tab, Add, Sort, repair, WATCH, the two workspaces, swapping to CONFIG mid-edit and back, placing two cameras, the CAMERA dock, selecting a key and easing it, playing the path, then the whole render (below) |
+| Teach me SOURCE:MVM (`app`) | Movie Making, the DOWNLOADED tab, Add, Sort, repair, WATCH, the two workspaces, swapping to CONFIG mid-edit and back, placing two cameras, the TIMELINE dock, selecting a key and easing it, playing the path, then the whole render (below) |
 | Deeper rundown (`more`) | A menu of topics, each one a walk-through that takes you to the right place and moment |
 
 | Topic | Walks through |
 | --- | --- |
 | Rendering (`render`) | Keys placed for you if you have none, RENDER, RANGE & CAMERA, the Camera Path camera tile (the range follows), OUTPUT, Choose folder, format, START RENDER, where the take lands (`<folder>\<project>_<date>\beauty\everything.mp4`) |
-| Scene keys (`keys`) | SCENE KEYS, the TIME OF DAY card, Day keyed at the start of the round, Dusk fifteen seconds later, Space to watch the light change, Open Graph, setting one property by hand |
-| The graph (`graph`) | GRAPH (camera, not scene), solo Yaw, select a key, drag it (an edit is what moves the lesson on), ease and undo |
-| Camera keys (`path`) | The CAMERA dock, selecting a key, PATH CAMERA, FOV on one key, Ease In/Out, why Smooth needs three keys, Reposition, playing it |
+| Scene keys (`keys`) | SCENE KEYS, the TIME OF DAY card, Day keyed at the start of the round, Dusk fifteen seconds later, Space to watch the light change, Open Timeline (the scene layers), setting one property by hand |
+| The graph (`graph`) | The TIMELINE dock, its GRAPH view, picking a row to draw, selecting a key, dragging it (an edit is what moves the lesson on), the Keyframe Assistant and undo |
+| Camera keys (`path`) | The TIMELINE dock, selecting a key, PATH CAMERA, FOV on one key, Ease In/Out, why Smooth needs three keys, Reposition, playing it |
 | Recoil and weapon bob (`recoil`) | Weapon Recoil on, T test shot, the pivot drawer as the hinge, AK vs Glock, Weapon Bob on the knife walk |
 | Field of view (`fov`) | The VIEWMODEL card's FOV and Weapon FOV, then per-key FOV in the editor |
 | CONFIG while you edit (`config`) | Swapping to CONFIG and back without losing the keys |
@@ -172,16 +172,18 @@ Each step in `OnboardingScriptJs.h` can name:
 - **enter()**, run once when the step starts: seek the demo (`demo_resume` first, because a forward
   `demo_gototick` is ignored while paused), open a Config card, select the practice demo.
 - **needs**, what the step is taught in: `editor`, `config`, `render`, `renderTab`, `dock`, `insp`,
-  `graphMode`, `freecam`, `pov` (first person through the practice demo's player, for the weapon
+  `tlView` (the TIMELINE dock's KEYFRAMES or GRAPH), `freecam`, `pov` (first person through the practice demo's player, for the weapon
   lessons: `onboarding pov` sets it the way the demo bar does, dropping our free cam), `camKeys`,
-  `sel` (a key selected), `card` (the CONFIG card it points into), `reveal` (a card opened by its
-  own rail button: TIME OF DAY for Day and Dusk, KEYS & HISTORY for Open Graph), `menu` (`watch` or
+  `sel` (a key selected on the path), `graphSel` (camera keys selected on the timeline; all of
+  them are selected when there are none), `card` (the CONFIG card it points into), `reveal` (a card
+  opened by its own rail button: TIME OF DAY for Day and Dusk, KEYS & HISTORY for Open Timeline),
+  `menu` (`watch` or
   `downloaded`). A step about one camera key (`showKey`) selects it again once its needs are in
   place, which jumps the demo and the view to that key whatever camera was up.
-  A graph step (`fitGraph`) frames the keys with the graph's own FIT once the demo is paused:
-  while the demo plays, the graph pages its window to the playhead, and right after a load that
-  left the keys off screen and the canvas empty. Graph steps also let clicks into the whole dock
-  (`clickArea: 'tour:graph.dock'`), so FIT, the toolbar and the right-click ease menu work.
+  A timeline step (`fitGraph`) frames the keys with the dock's own FIT once the demo is paused:
+  while the demo plays, the dock pages its window to the playhead, and right after a load that
+  left the keys off screen. Timeline steps also let clicks into the whole dock
+  (`clickArea: 'tour:tl.dock'`), so FIT, the toolbar and the right-click menus work.
   Entering the step puts the game there, whatever the user had open (retried every 600 ms for up to
   8 s, because the editor takes a frame to exist). Once they are in place the step stops enforcing
   them, because changing them is often the step's job (clicking RENDER). A step whose needs do not
@@ -203,10 +205,12 @@ Each step in `OnboardingScriptJs.h` can name:
   projected into that box (`WorkspacePreviewRef().Active`), not onto the full screen.
 
 Most editor controls are created without an id, so the scripts that own the ones a lesson points
-at register them by name in `$.MvmTour`: the dock tabs (`dock.native`, `dock.camera`,
-`dock.graph`), the inspector tabs (`editor.tab.path|follow|scene`), `editor.addkey`, `editor.fov`,
-`editor.render`, `camtl.play`, `camtl.addkey`, `camtl.keys`, `scene.keyall`, `scene.opengraph` and
-`graph.canvas`. Config cards answer `$.ConfigHud.cardPanel(key, part)` with `header`, `rail`,
+at register them by name in `$.MvmTour`: the dock tabs (`dock.native`, `dock.timeline`), the
+inspector tabs (`editor.tab.path|follow|scene`), `editor.addkey`, `editor.fov`, `editor.render`,
+`scene.keyall`, `scene.opengraph` (Open Timeline), and the TIMELINE dock's `tl.dock`, `tl.play`,
+`tl.view.keys|graph`, `tl.ease.<smooth|linear|in|out|inout>`, `tl.rows`, `tl.graph` and one
+`tl.row.<id>` per row (`tl.row.cam`, `tl.row.cam.rot`, `tl.row.s:exposure`). The dock rebuilds its
+rows, so it replaces those entries rather than adding to them. Config cards answer `$.ConfigHud.cardPanel(key, part)` with `header`, `rail`,
 `test` (Weapon Recoil's Test Shot) or `pivot` (the hinge drawer). The demo bar buttons already have
 ids: `CamEditorBtn`, `ConfigBtn` and `ModeSwapBtn`. A docked demo bar is drawn scaled by
 `$.MirvBarFitK`, which the spotlight applies to anything inside `ControlRow`.

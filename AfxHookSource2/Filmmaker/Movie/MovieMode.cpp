@@ -46,6 +46,7 @@ namespace Filmmaker {
 namespace {
 	constexpr int kVK_X = 0x58;
 	constexpr int kVK_F8 = 0x77;    // toggle the director help/status HUD
+	constexpr int kVK_F9 = 0x78;    // TIMELINE: Easy Ease (Shift = in, Ctrl+Shift = out)
 	constexpr int kVK_SHIFT = 0x10; // hold = slow/fine free-cam movement
 	constexpr int kVK_CONTROL = 0x11;
 	constexpr int kVK_SPACE = 0x20; // pause / resume the demo
@@ -257,6 +258,14 @@ UiClick::Input MovieMode::ClickInput(int x, int y) {
 	return in;
 }
 
+// A camera path is playing, armed to play, or waiting for its start seek to land.
+static bool PathPlaybackOwnsView() {
+	const CameraPath& cp = CameraPathRef();
+	const CameraPath::Mode mode = cp.GetMode();
+	return mode == CameraPath::Mode::PreviewPlaying || mode == CameraPath::Mode::PreviewArmed
+		|| cp.PlaybackPending();
+}
+
 bool MovieMode::OnUiClick(int x, int y) {
 	if (!IsDemoActive() || ConfigHud_IsLive())
 		return false;
@@ -284,6 +293,12 @@ bool MovieMode::OnUiClick(int x, int y) {
 			x, y, in.uiModeOn ? 1 : 0, in.workspace ? 1 : 0, in.popupOpen ? 1 : 0,
 			in.preview.valid ? 1 : 0, in.preview.x0, in.preview.y0, in.preview.x1, in.preview.y1,
 			toUi ? "UI mode" : (toGame ? "GAME mode" : "unchanged"));
+	if (toGame && PathPlaybackOwnsView()) {
+		// The path is flying the camera: stay in UI mode, and let OnMouseButton swallow the press
+		// (UiClick::PathPlaybackSwallowsPress). Switching to GAME here is how a click on the
+		// preview mid-playback handed CS2 the mouse.
+		return false;
+	}
 	if (toGame) {
 		// The click itself carries on to the camera (CS2's look-around drag, or our free cam).
 		// UI mode only drops next frame, so take the mouse here: MouseCapture_OnGameClick stands
@@ -298,7 +313,24 @@ bool MovieMode::OnUiClick(int x, int y) {
 	return true;
 }
 
-bool MovieMode::OnMouseButton(int button, bool down) {
+bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
+	// A camera path is PLAYING: a press in the workspace preview goes to nobody -- not to free-look
+	// (it would fight the path) and not to CS2, whose right-click look-around and left-click player
+	// step are what "the game takes the mouse during playback" was. The release of a swallowed
+	// press is swallowed too, even if playback ended while the button was down, so CS2 never sees
+	// half a click. The panels around the preview (pause, stop, the timeline) keep every click.
+	if (button == 0 || button == 1) {
+		if (!down && m_playbackSwallowed[button]) {
+			m_playbackSwallowed[button] = false;
+			return true;
+		}
+		if (down && IsDemoActive() && UiClick::PathPlaybackSwallowsPress(ClickInput(x, y), PathPlaybackOwnsView())) {
+			m_playbackSwallowed[button] = true;
+			if (MvmDebugLog_Active())
+				MvmDebugLog_Linef("input.uiclick", "button=%d x=%d y=%d swallowed: camera path playing", button, x, y);
+			return true;
+		}
+	}
 	// Follow Camera reposition uses the same free-look + left-click placement model
 	// as path-marker repositioning.
 	if (button == 0 && IsDemoActive() && FollowCameraRef().Repositioning()) {
@@ -479,22 +511,21 @@ bool MovieMode::OnKey(int vkey, bool down) {
 		m_spaceDown = down;
 	}
 
-	// TWO DIFFERENT QUESTIONS. `sceneKeys` = which INSPECTOR tab is open. `graphScene` = which
-	// model the GRAPH DOCK is showing, which is now its own setting -- so the keys that act on the
-	// dock (Ctrl+Z / Ctrl+A / Delete / Space) follow the dock, not the column beside it.
+	// THE TIMELINE DOCK OWNS THE KEYFRAME KEYS while it is up. Camera keys and scene keys share it,
+	// and only the dock knows which model holds the selection and which one was edited last, so
+	// Ctrl+Z / Ctrl+A / Delete / F9 go to it as `grapheditor key <name>` and it routes them.
+	// Without the dock, Ctrl+Z follows the inspector: SCENE KEYS undoes scene edits, otherwise the
+	// floating camera timeline undoes the path.
 	const bool sceneKeys = FilmmakerSettings_UiString("editor.inspector", "path") == "scene";
-	const bool graphScene = GraphEditorExperiment_Enabled()
-		&& FilmmakerSettings_UiString("editor.graph", "camera") == "scene";
+	const bool timelineDock = GraphEditorExperiment_Enabled();
 	if (vkey == kVK_Z && down && m_controlDown) {
-		// Ctrl+Z = undo, Ctrl+Shift+Z = redo. Route to whichever curve surface is open: the
-		// experimental graph editor owns it while enabled, otherwise the camera path/timeline.
 		const bool redo = m_shiftDown;
-		if (graphScene || (sceneKeys && !GraphEditorExperiment_Enabled())) {
-			EnqueueCmd(redo ? "mirv_filmmaker scenekeys redo" : "mirv_filmmaker scenekeys undo"); return true;
-		}
-		if (GraphEditorExperiment_Enabled()) {
-			EnqueueCmd(redo ? "mirv_filmmaker grapheditor redo" : "mirv_filmmaker grapheditor undo");
+		if (timelineDock) {
+			EnqueueCmd(redo ? "mirv_filmmaker grapheditor key redo" : "mirv_filmmaker grapheditor key undo");
 			return true;
+		}
+		if (sceneKeys) {
+			EnqueueCmd(redo ? "mirv_filmmaker scenekeys redo" : "mirv_filmmaker scenekeys undo"); return true;
 		}
 		if (CameraTimeline_Visible()) {
 			EnqueueCmd(redo ? "mirv_filmmaker camtl redo" : "mirv_filmmaker camtl undo");
@@ -502,14 +533,21 @@ bool MovieMode::OnKey(int vkey, bool down) {
 		}
 	}
 
-	if (vkey == kVK_A && down && m_controlDown && GraphEditorExperiment_Enabled()) {
-		// Ctrl+A selects every keyframe in the graph editor.
-		EnqueueCmd(graphScene ? "mirv_filmmaker scenekeys graph selall" : "mirv_filmmaker grapheditor selall");
+	if (vkey == kVK_A && down && m_controlDown && timelineDock) {
+		// Ctrl+A selects every keyframe on the timeline, camera and scene alike.
+		EnqueueCmd("mirv_filmmaker grapheditor key selall");
 		return true;
 	}
 
-	if ((vkey == kVK_DELETE || vkey == kVK_BACKSPACE) && GraphEditorExperiment_Enabled()) {
-		if (down) EnqueueCmd(graphScene ? "mirv_filmmaker scenekeys delsel" : "mirv_filmmaker grapheditor delsel");
+	if ((vkey == kVK_DELETE || vkey == kVK_BACKSPACE) && timelineDock) {
+		if (down) EnqueueCmd("mirv_filmmaker grapheditor key delete");
+		return true;
+	}
+
+	if (vkey == kVK_F9 && timelineDock) {
+		// AE's Keyframe Assistant: F9 Easy Ease, Shift+F9 ease in, Ctrl+Shift+F9 ease out.
+		if (down) EnqueueCmd(m_shiftDown ? (m_controlDown ? "mirv_filmmaker grapheditor key easeout" : "mirv_filmmaker grapheditor key easein")
+			: "mirv_filmmaker grapheditor key easeinout");
 		return true;
 	}
 
@@ -635,11 +673,12 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	// timeline or Graph). In the editor's Regular Timeline (native bottom) mode neither is open,
 	// so Space must fall through to plain demo pause/resume below -- not trigger a path playtest
 	// (which would just warn "need 2 camera markers"). Matches the gate used elsewhere here.
-	// ...and NOT while the dock is showing scene strips. Scene keys are not a camera path: a
-	// playtest seeks to the path's first marker and loops its range, so trying to watch a lighting
-	// animation play while camera markers happened to be down just replayed the dolly over and over.
-	// There, Space is plain demo play/pause, which is what "play the scene graph" means.
-	if (vkey == kVK_SPACE && !graphScene && (CameraTimeline_Visible() || GraphEditorExperiment_Enabled()) && cpMode == CPMode::Editing) {
+	// ...and NOT while the TIMELINE's CAMERA PATH layer is switched off. Scene keys are not a camera
+	// path: a playtest seeks to the path's first marker and loops its range, so watching a lighting
+	// animation while camera markers happened to be down just replayed the dolly over and over.
+	// With the camera layer off, Space is plain demo play/pause -- the toolbar's play does the same.
+	const bool timelinePathOff = timelineDock && !GraphEditorExperiment_Drive();
+	if (vkey == kVK_SPACE && !timelinePathOff && (CameraTimeline_Visible() || timelineDock) && cpMode == CPMode::Editing) {
 		// Skip re-issuing playtest while a start is PENDING (mode stays Editing during the
 		// seek settle) -- a held / repeated Space would otherwise restart the seek. Swallow
 		// the key regardless so it never leaks to the demo_pause fallback below.
@@ -782,6 +821,7 @@ void MovieMode::ApplyMode(Mode m) {
 
 namespace {
 	std::atomic<float> g_nativeRoll{ 0.f }; // render thread reads it (MovieMode_NativeCameraRoll)
+	std::atomic<float> g_nativeFov{ 0.f };  // Ctrl+wheel FOV in CS2's cameras; 0 = off (MovieMode_NativeCameraFov)
 
 	// A float convar's value, 0 when it cannot be read.
 	double ReadFloatCvar(const char* name) {
@@ -825,12 +865,21 @@ namespace {
 
 float MovieMode_NativeCameraRoll() { return g_nativeRoll.load(std::memory_order_relaxed); }
 
+bool MovieMode_NativeCameraFov(float& outFov) {
+	const float fov = g_nativeFov.load(std::memory_order_relaxed);
+	if (fov <= 0.f) return false;
+	outFov = fov;
+	return true;
+}
+
 double MovieMode::NativeFreeCamSpeed() const { return ReadNativeFreeCamSpeed(); }
 
 // Shift+wheel speed, Ctrl+wheel FOV and held X / Z roll for CS2's own cameras (main thread). Our
 // free cam keeps its own handling (MirvInput); this only runs while it is off.
 //   * speed: CS2's free-cam speed, `sv_noclipspeed`, stepped on the same ladder as our free cam;
-//   * FOV:   the shot FOV override (`mirv_fov`, also Config's camera card), 1 degree a notch;
+//   * FOV:   a zoom for the camera it was set in, 1 degree a notch, applied in the view hook
+//            (MovieMode_NativeCameraFov). Leaving that camera hands the FOV back -- to the game,
+//            or to a deliberate `mirv_fov` from Config or the console;
 //   * roll:  added on top of CS2's free cam in the view hook (MovieMode_NativeCameraRoll); CS2's
 //            camera has no roll of its own. Cleared whenever the camera changes.
 void MovieMode::ApplyNativeCameraControls(Mode current, int speedSteps, int fovSteps, int roll) {
@@ -840,7 +889,19 @@ void MovieMode::ApplyNativeCameraControls(Mode current, int speedSteps, int fovS
 	const double dt = (std::min)(0.1, std::chrono::duration<double>(now - s_last).count());
 	s_last = now;
 
+	// THE WHEEL FOV BELONGS TO ONE CAMERA. It used to be written into `mirv_fov` -- the global,
+	// saved shot override -- so a zoom in the chase cam followed you into first person, and into
+	// the next session through the settings file, with nothing to turn it off but Config's reset.
+	// Now it ends the moment its camera does: the wheel, CS2's camera button, a player step, or our
+	// free cam taking the view. The roll below follows the same rule.
 	const bool native = IsDemoActive() && !CameraBridge_GetFreeCamEnabled();
+	if (m_wheelFovOn && (!native || current != m_wheelFovMode)) {
+		m_wheelFovOn = false;
+		g_nativeFov.store(0.f, std::memory_order_relaxed);
+		if (MvmDebugLog_Active())
+			MvmDebugLog_Linef("movie.fov", "wheel fov released: %s (camera %s, native %d)",
+				native ? "camera changed" : "our camera took the view", SpecModeCommand(current), native ? 1 : 0);
+	}
 	if (!native) {
 		g_nativeRoll.store(0.f, std::memory_order_relaxed);
 		return;
@@ -860,11 +921,19 @@ void MovieMode::ApplyNativeCameraControls(Mode current, int speedSteps, int fovS
 	}
 
 	if (fovSteps != 0) {
-		const float base = MirvFov_Enabled() ? MirvFov_Value() : CameraBridge_GetGameCameraFov();
+		// From what is on screen: this zoom, else the shot override, else the game's own FOV.
+		const float base = m_wheelFovOn ? m_wheelFov
+			: (MirvFov_Enabled() ? MirvFov_Value() : CameraBridge_GetGameCameraFov());
 		float fov = base - (float)(fovSteps * kFreeCamFovStepDeg); // up = zoom in
-		fov = (std::max)(1.f, (std::min)(170.f, fov));
-		MirvFov_Set(true, fov);
+		fov = (std::max)(1.f, (std::min)(170.f, std::round(fov)));
+		m_wheelFov = fov;
+		m_wheelFovOn = true;
+		m_wheelFovMode = current;
+		g_nativeFov.store(fov, std::memory_order_relaxed);
 		CameraBridge_NoteFreeCamAdjust(2, fovSteps > 0 ? +1 : -1);
+		if (MvmDebugLog_Active())
+			MvmDebugLog_Linef("movie.fov", "wheel %+d -> %.0f in %s (base %.1f, mirv_fov %d)",
+				fovSteps, fov, SpecModeCommand(current), base, MirvFov_Enabled() ? 1 : 0);
 	}
 
 	constexpr float kRollDegPerSec = 90.f;

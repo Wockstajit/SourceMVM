@@ -376,9 +376,7 @@ std::string BuildSnapshot() {
 	CameraEditorHud& editor = CameraEditorHudRef();
 	b.Key("editor"); b.BeginObject();
 	b.BoolField("scale", editor.ScaleEnabled());
-	b.StringField("bottomMode", editor.GetBottomMode() == CameraEditorHud::BottomMode::Graph
-		? "graph" : editor.GetBottomMode() == CameraEditorHud::BottomMode::CameraTimeline
-		? "camera" : "native");
+	b.StringField("bottomMode", TimelineDock_TabName());
 	b.StringField("hudView", editor.UserHudView() == CameraEditorHud::HudView::HideAll
 		? "hidden" : editor.UserHudView() == CameraEditorHud::HudView::InGame ? "game" : "full");
 	b.BoolField("debugOverlay", editor.DebugOverlay());
@@ -628,10 +626,11 @@ static void ApplySettingsRoot(const JsonValue& root) {
 		CameraEditorHud& hud = CameraEditorHudRef();
 		if (const JsonValue* value = editor->Find("scale"); value && value->type == JsonValue::Type::Bool)
 			hud.SetScale(value->boolean);
-		if (const JsonValue* value = editor->Find("bottomMode"); value && value->type == JsonValue::Type::String)
-			hud.SetBottomMode(value->str == "graph" ? CameraEditorHud::BottomMode::Graph
-				: value->str == "camera" ? CameraEditorHud::BottomMode::CameraTimeline
-				: CameraEditorHud::BottomMode::Native);
+		if (const JsonValue* value = editor->Find("bottomMode"); value && value->type == JsonValue::Type::String) {
+			DockTab tab = DockTab::Native;
+			TimelineDock_ParseTab(value->str.c_str(), tab);   // anything else (old tab names) = native
+			TimelineDock_SetTab(tab);
+		}
 		if (const JsonValue* value = editor->Find("hudView"); value && value->type == JsonValue::Type::String)
 			hud.SetHudView(value->str == "hidden" ? CameraEditorHud::HudView::HideAll
 				: value->str == "game" ? CameraEditorHud::HudView::InGame
@@ -695,10 +694,24 @@ void FilmmakerSettings_EndPractice() {
 	g_dirty = false;
 }
 
+static uint64_t g_pictureRevision = 1;
+static std::string g_pictureSnapshot;
+
+uint64_t FilmmakerSettings_PictureRevision() { return g_pictureRevision; }
+
 void FilmmakerSettings_RunFrame() {
 	if (!g_loaded) return;
 	if (g_practice) { g_dirty = false; return; } // the practice session saves nothing
 	const std::string snapshot = BuildSnapshot();
+	{
+		// The "ui" object is written last and holds panel disclosure state only.
+		const size_t ui = snapshot.rfind("\"ui\":");
+		const size_t len = ui == std::string::npos ? snapshot.size() : ui;
+		if (snapshot.compare(0, len, g_pictureSnapshot) != 0) {
+			g_pictureSnapshot.assign(snapshot, 0, len);
+			++g_pictureRevision;
+		}
+	}
 	const unsigned long long now = GetTickCount64();
 	if (g_quiet) {
 		if (g_quietSettleFrames > 0) {

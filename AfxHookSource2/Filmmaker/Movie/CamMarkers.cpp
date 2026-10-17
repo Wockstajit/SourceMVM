@@ -6,6 +6,13 @@
 
 namespace Filmmaker {
 
+namespace {
+// An end key's outer side is auto too (no segment, so no curve), which is why auto wins over
+// active here; the next RefreshAutoTangents puts its inactive state back.
+int HandleKind(const GraphCurve::Handle& h) { return h.autoTan ? 2 : (h.active ? 1 : 0); }
+void SetHandleKind(GraphCurve::Handle& h, int kind) { h.active = kind != 0; h.autoTan = kind == 2; }
+}
+
 void CamMarkers::SetSelected(int i) {
 	if (m_markers.empty()) { m_selected = -1; return; }
 	if (i < 0) i = 0;
@@ -53,7 +60,7 @@ void CamMarkers::Restore(const std::vector<CamMarker>& markers, int selected) {
 std::string CamMarkers::Serialize(const PathSettings& st, int selected) const {
 	JsonBuilder jb;
 	jb.BeginObject();
-	jb.IntField("version", 2); // 2 adds per-marker "ease"; older loaders ignore it
+	jb.IntField("version", 3); // 2 added per-marker "ease", 3 the graph's per-channel "curve" handles
 	jb.IntField("speedMode", st.speedMode);
 	jb.IntField("timing", st.timing);
 	jb.IntField("interp", st.interp);
@@ -71,6 +78,19 @@ std::string CamMarkers::Serialize(const PathSettings& st, int selected) const {
 		jb.DoubleField("time", m.time);
 		jb.DoubleField("speedmul", m.speedMul);
 		jb.IntField("ease", (int)m.ease);
+		if (m.HasCurve()) {
+			// Per channel: [in kind, in tx, in dv, out kind, out tx, out dv]; kind 0 = linear,
+			// 1 = Bezier, 2 = Auto Bezier (GraphCurve::Handle::autoTan).
+			jb.Key("curve");
+			jb.BeginArray();
+			for (int c = 0; c < 7; ++c) {
+				jb.BeginArray();
+				jb.ValueInt(HandleKind(m.in[c])); jb.ValueDouble(m.in[c].tx); jb.ValueDouble(m.in[c].dv);
+				jb.ValueInt(HandleKind(m.out[c])); jb.ValueDouble(m.out[c].tx); jb.ValueDouble(m.out[c].dv);
+				jb.EndArray();
+			}
+			jb.EndArray();
+		}
 		jb.EndObject();
 	}
 	jb.EndArray();
@@ -108,6 +128,16 @@ bool CamMarkers::Parse(const std::string& text, PathSettings& st, int& selected)
 				m.time = num("time", 0);
 				m.speedMul = (float)num("speedmul", 1.0);
 				const JsonValue* ev = mo.Find("ease"); m.ease = (Ease)(ev ? ev->AsInt(0) : 0);
+				if (const JsonValue* cv = mo.Find("curve")) {
+					if (cv->type == JsonValue::Type::Array) {
+						for (int c = 0; c < 7 && c < (int)cv->arr.size(); ++c) {
+							const JsonValue& h = cv->arr[c];
+							if (h.type != JsonValue::Type::Array || h.arr.size() < 6) continue;
+							SetHandleKind(m.in[c], h.arr[0].AsInt(0));  m.in[c].tx = h.arr[1].AsNumber(1.0 / 3.0);  m.in[c].dv = h.arr[2].AsNumber(0.0);
+							SetHandleKind(m.out[c], h.arr[3].AsInt(0)); m.out[c].tx = h.arr[4].AsNumber(1.0 / 3.0); m.out[c].dv = h.arr[5].AsNumber(0.0);
+						}
+					}
+				}
 				m_markers.push_back(m);
 			}
 		}

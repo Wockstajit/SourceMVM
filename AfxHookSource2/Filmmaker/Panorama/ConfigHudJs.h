@@ -235,7 +235,7 @@ R"CFJS(
       // disagree the moment either one was clicked.
       // Same meta the editor's ribbon shows, from the same field, so the one dock never says
       // two different things depending on which workspace is open.
-      dockRibbon.sync(st.dockTab, st.dockTab === 'camera' ? ((st.count || 0) + ' keyframes') : '');
+      dockRibbon.sync(st.dockTab, st.dockTab === 'timeline' ? mvmTimelineMeta() : '');
       timelineBand.style.width = Math.floor(areaW) + 'px';
 
 

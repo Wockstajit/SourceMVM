@@ -146,7 +146,8 @@ R"OBJS(
       if (n.renderTab != null && (n.renderTab === 0 ? a.renderTab > 1 : a.renderTab !== n.renderTab)) return false;
       if (n.dock && a.dock !== n.dock) return false;
       if (n.insp && a.insp !== n.insp) return false;
-      if (n.graphMode && (a.graphMode === 'scene') !== (n.graphMode === 'scene')) return false;
+      if (n.tlView && a.tlView !== n.tlView) return false;
+      if (n.graphSel && a.demo && !((a.graphSel || 0) > 0)) return false;
       if (n.freecam && a.demo && !a.freeCam) return false;
       if (n.pov && a.demo && !a.pov) return false;
       if (n.camKeys && a.demo && (a.keys || 0) < n.camKeys) return false;
@@ -187,8 +188,9 @@ R"OBJS(
         raw('mirv_filmmaker render tab ' + n.renderTab);
       if (n.dock && a.dock !== n.dock) raw('mirv_filmmaker dock ' + n.dock);
       if (n.insp && a.insp !== n.insp) { try { $.CamEditor.gotoInspector(n.insp); } catch (e) {} }
-      if (n.graphMode && (a.graphMode === 'scene') !== (n.graphMode === 'scene'))
-        raw('mirv_filmmaker settings ui editor.graph ' + n.graphMode);
+      if (n.tlView && a.tlView !== n.tlView) raw('mirv_filmmaker settings ui editor.timeline.view ' + n.tlView);
+      // An ease needs keys to shape: with none selected on the timeline, select them all.
+      if (n.graphSel && a.demo && !((a.graphSel || 0) > 0)) raw('mirv_filmmaker grapheditor selall');
       // A card inside a workspace that has to be opened by its own button (TIME OF DAY).
       if (n.reveal && !guideVisible(n.reveal.shows)) activate(resolve(n.reveal.panel, cssSize(), Date.now()));
     }
@@ -259,11 +261,21 @@ R"OBJS(
       }
       // A graph step frames the keys: playback pages the graph's window to the playhead, which can
       // leave every key off screen and the canvas empty (nothing to click or right-click).
-      // Only on a paused demo: while it plays the graph pages its window back to the playhead.
-      if (ok && run.entered && step.fitGraph && !run.fitted && (!step.needs || run.needsHeld)
-          && (!a.demo || (a.paused && !a.pathPlaying))) {
-        if (!run.fitAt) run.fitAt = now + 500; // the dock and its model settle for a few frames
-        else if (now >= run.fitAt && $.GraphExp && $.GraphExp.fit) { run.fitted = true; try { $.GraphExp.fit(); } catch (e) {} }
+      // Only on a paused demo: while it plays the dock pages its window back to the playhead. Not
+      // gated on the needs: a step whose needs were already met never latches needsHeld, and its
+      // keys then stayed off screen. Fitted twice, a beat apart, because a load or a seek that lands
+      // right after the first can page the window away again.
+      // A demo that is still loading reads as paused at tick 1, then plays a moment, and that play
+      // pages the window away: the demo has to have settled (past its first ticks, paused for a
+      // beat) before the fit counts.
+      var settledDemo = !a.demo || (a.paused && !a.pathPlaying && (a.tick || 0) > 8);
+      if (!settledDemo) { run.fitAt = 0; }
+      if (ok && run.entered && step.fitGraph && (run.fitted || 0) < 2 && settledDemo) {
+        if (!run.fitAt) run.fitAt = now + 800; // the dock and its model settle for a few frames
+        else if (now >= run.fitAt && $.GraphExp && $.GraphExp.fit && (st.app || {}).dock === 'timeline') {
+          run.fitted = (run.fitted || 0) + 1; run.fitAt = now + 1500;
+          try { $.GraphExp.fit(); } catch (e) {}
+        }
       }
       // The free camera alone keeps being asked for: a seek that lands later puts the demo's
       // own camera back.

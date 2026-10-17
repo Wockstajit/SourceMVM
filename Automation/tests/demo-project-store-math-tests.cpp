@@ -66,8 +66,32 @@ int main() {
 		L"C:\\source_mvm\\demos\\cs2\\match.dem\\repaired.dem", "project repaired path");
 	Expect(IsProjectDemoCopyFileName(L"repaired.dem"), "project repaired name");
 	Expect(IsProjectDemoCopyFileName(L"KEYFRAMED.dem"), "project keyframed name");
+	Expect(IsProjectDemoCopyFileName(L"keyframed-b.dem"), "second keyframed slot is a copy too");
+	Expect(IsKeyframedCopyFileName(L"Keyframed-B.dem") && !IsKeyframedCopyFileName(L"repaired.dem"),
+		"keyframed slots, and only those");
 	Expect(!IsProjectDemoCopyFileName(L"match.dem"), "a real demo is not a copy");
 	Expect(IsLegacyRepairedFolderName(L"RePaIrEd"), "legacy repaired folder");
+
+	// A keyframed copy keys the ORIGINAL demo's project: playing either slot looks the original
+	// up in the copy's own project folder, never allocates a project named after the copy.
+	const std::wstring projectDir =
+		L"C:\\Users\\u\\AppData\\Roaming\\HLAE\\source_mvm\\demos\\cs2\\match.dem";
+	for (const wchar_t* slot : {L"keyframed.dem", L"keyframed-b.dem", L"repaired.dem"}) {
+		const DemoCopyLookup lookup = PlanDemoCopyLookup(JoinPath(projectDir, slot));
+		Expect(lookup.source == DemoCopySource::ProjectFolder, "project copy maps through project.mvm");
+		ExpectWide(lookup.projectDir, projectDir, "project copy looks in its own folder");
+	}
+	Expect(PlanDemoCopyLookup(L"D:/demos/match.dem/Keyframed.DEM").projectDir == L"D:/demos/match.dem",
+		"forward slashes and any case");
+	const DemoCopyLookup legacy = PlanDemoCopyLookup(L"C:\\replays\\repaired\\match.dem");
+	Expect(legacy.source == DemoCopySource::LegacyRepaired, "legacy repaired copy");
+	ExpectWide(legacy.original, L"C:\\replays\\match.dem", "legacy copy maps one folder up");
+	Expect(PlanDemoCopyLookup(L"C:\\replays\\match.dem").source == DemoCopySource::None,
+		"a real demo keys its own project");
+	Expect(PlanDemoCopyLookup(L"keyframed.dem").source == DemoCopySource::None,
+		"a bare copy name has no project folder to read");
+	Expect(PlanDemoCopyLookup(L"repaired\\match.dem").source == DemoCopySource::None,
+		"a legacy folder needs a demo folder above it");
 	ExpectWide(DemoFileName(L"C:\\csgo\\replays\\foo.dem"), L"foo.dem", "filename");
 	ExpectWide(RelativeProjectDir(ProjectGame::Cs2, L"foo.dem"), L"cs2\\foo.dem", "cs2 relative dir");
 	ExpectWide(RelativeProjectDir(ProjectGame::Deadlock, L"replay.dem"), L"deadlock\\replay.dem",

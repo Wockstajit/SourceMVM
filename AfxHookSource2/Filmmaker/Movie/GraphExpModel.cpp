@@ -20,6 +20,37 @@ double MarkerChannel(const CamMarker& m, int ch) {
 	default: return m.fov;
 	}
 }
+void SetMarkerChannel(CamMarker& m, int ch, double v) {
+	switch (ch) {
+	case 0: m.x = v; break;
+	case 1: m.y = v; break;
+	case 2: m.z = v; break;
+	case 3: m.pitch = v; break;
+	case 4: m.yaw = v; break;
+	case 5: m.roll = v; break;
+	default: m.fov = v; break;
+	}
+}
+GraphCurve::Handle ToHandle(const GraphExpModel::ControlPoint& cp) {
+	GraphCurve::Handle h; h.active = cp.active; h.tx = cp.tx; h.dv = cp.dv; h.autoTan = cp.autoTan; return h;
+}
+GraphExpModel::ControlPoint ToControlPoint(const GraphCurve::Handle& h) {
+	GraphExpModel::ControlPoint cp; cp.active = h.active; cp.tx = h.tx; cp.dv = h.dv; cp.autoTan = h.autoTan; return cp;
+}
+bool SameHandle(const GraphCurve::Handle& a, const GraphCurve::Handle& b) {
+	if (a.active != b.active || a.autoTan != b.autoTan) return false;
+	return !a.active || (std::abs(a.tx - b.tx) <= 1e-6 && std::abs(a.dv - b.dv) <= 1e-6);
+}
+// Marker values for the graph: angle channels unwrapped against the previous marker, so a yaw
+// crossing +/-180 reads as one continuous curve -- the way the camera takes it.
+std::vector<double> ChannelValues(const std::vector<CamMarker>& markers, int ch) {
+	std::vector<double> v(markers.size());
+	for (size_t i = 0; i < markers.size(); ++i) {
+		v[i] = MarkerChannel(markers[i], ch);
+		if (i > 0 && GraphCurve::IsAngleChannel(ch)) v[i] = GraphCurve::Unwrap(v[i - 1], v[i]);
+	}
+	return v;
+}
 } // namespace
 
 void GraphExpModel::Clear() {
@@ -36,17 +67,158 @@ void GraphExpModel::Clear() {
 
 void GraphExpModel::SeedFromMarkers(const std::vector<CamMarker>& markers) {
 	Clear();
-	for (size_t i = 0; i < markers.size(); ++i) {
-		const CamMarker& m = markers[i];
-		for (int c = 0; c < kChannelCount; ++c) {
+	for (int c = 0; c < kChannelCount; ++c) {
+		const std::vector<double> values = ChannelValues(markers, c);
+		for (size_t i = 0; i < markers.size(); ++i) {
 			Keyframe k;
 			k.id = m_nextId++;
-			k.tick = (double)m.tick;
-			k.value = MarkerChannel(m, c);
+			k.tick = (double)markers[i].tick;
+			k.value = values[i];
+			// The path's own curve, when it has one: the graph opens on what the camera flies.
+			k.cpLeft = ToControlPoint(markers[i].in[c]);
+			k.cpRight = ToControlPoint(markers[i].out[c]);
 			m_ch[c].keys.push_back(k);
 		}
+		SortChannel(c);
 	}
-	for (int c = 0; c < kChannelCount; ++c) SortChannel(c);
+}
+
+bool GraphExpModel::MarkersHaveCurves(const std::vector<CamMarker>& markers) {
+	for (const CamMarker& m : markers) if (m.HasCurve()) return true;
+	return false;
+}
+
+bool GraphExpModel::ReconcileWithMarkers(const std::vector<CamMarker>& markers, bool smoothNewKeys) {
+	bool changed = false;
+	std::set<long long> keptSel;
+	// A path that carries curves is the authority on handles too; one without keeps the graph's
+	// own (display) handles on keys that survive.
+	const bool pathCurves = MarkersHaveCurves(markers);
+	for (int c = 0; c < kChannelCount; ++c) {
+		std::vector<Keyframe>& old = m_ch[c].keys;
+		std::vector<Keyframe> next;
+		std::set<int> fresh;
+		next.reserve(markers.size());
+		std::vector<bool> used(old.size(), false);
+		const std::vector<double> values = ChannelValues(markers, c);
+		for (size_t mi = 0; mi < markers.size(); ++mi) {
+			const CamMarker& m = markers[mi];
+			const double v = values[mi];
+			int match = -1;
+			for (size_t i = 0; i < old.size(); ++i) {
+				if (!used[i] && std::floor(old[i].tick + 0.5) == (double)m.tick) { match = (int)i; break; }
+			}
+			Keyframe k;
+			if (match >= 0) {
+				used[match] = true;
+				k = old[match];
+				if (k.tick != (double)m.tick || k.value != v) changed = true;
+				if (m_selected.count(Pack(c, k.id))) keptSel.insert(Pack(c, k.id));
+			} else {
+				k.id = m_nextId++;
+				fresh.insert(k.id);
+				changed = true;
+			}
+			k.tick = (double)m.tick;
+			k.value = v;
+			if (pathCurves) {
+				const ControlPoint l = ToControlPoint(m.in[c]), r = ToControlPoint(m.out[c]);
+				if (!SameHandle(ToHandle(k.cpLeft), m.in[c]) || !SameHandle(ToHandle(k.cpRight), m.out[c])) changed = true;
+				k.cpLeft = l; k.cpRight = r;
+			}
+			next.push_back(k);
+		}
+		for (bool u : used) if (!u) { changed = true; break; }
+		old.swap(next);
+		SortChannel(c);
+		if (smoothNewKeys && !pathCurves) {
+			for (int i = 0; i < (int)old.size(); ++i)
+				if (fresh.count(old[i].id)) AutoTangent(c, i);
+		}
+	}
+	m_selected.swap(keptSel);
+	if (changed) {
+		m_undo.clear();
+		m_redo.clear();
+	}
+	return changed;
+}
+
+std::vector<CamMarker> GraphExpModel::BakeMarkers(const std::vector<CamMarker>& old, double intervalPerTick) const {
+	// Whole ticks: a marker IS a whole tick, so two keys 0.8 tick apart that both round to tick
+	// 100 must make one marker, not two markers sharing tick 100.
+	std::vector<int> ticks;
+	for (int c = 0; c < kChannelCount; ++c)
+		for (const Keyframe& k : m_ch[c].keys)
+			ticks.push_back((int)std::floor(k.tick + 0.5));
+	std::sort(ticks.begin(), ticks.end());
+	ticks.erase(std::unique(ticks.begin(), ticks.end()), ticks.end());
+
+	std::vector<CamMarker> baked;
+	baked.reserve(ticks.size());
+	for (int tick : ticks) {
+		const double t = (double)tick;
+		CamMarker m;
+		m.tick = tick;
+		m.time = (intervalPerTick > 0.0) ? t * intervalPerTick : 0.0;
+		for (int c = 0; c < kChannelCount; ++c) {
+			double v = 0.0;
+			SetMarkerChannel(m, c, SampleChannel(c, t, v) ? v : (c == 6 ? 90.0 : 0.0));
+		}
+		for (const CamMarker& om : old) {
+			if (om.tick == tick) { m.ease = om.ease; m.speedMul = om.speedMul; break; }
+		}
+		baked.push_back(m);
+	}
+
+	// THE SHAPE GOES WITH IT. Each channel's handles become the markers' handles, so the camera
+	// flies the curve drawn here (CamPathEval follows marker handles). A marker on a tick where this
+	// channel has no key splits the channel's segment there exactly (GraphCurve::SplitAt), so the
+	// curve between the keys is the same curve after the bake as before it.
+	auto index = [&](double keyTick) {
+		const int whole = (int)std::floor(keyTick + 0.5);
+		return (int)(std::lower_bound(ticks.begin(), ticks.end(), whole) - ticks.begin());
+	};
+	for (int c = 0; c < kChannelCount; ++c) {
+		const std::vector<Keyframe>& keys = m_ch[c].keys;
+		if (keys.empty()) continue;
+		// Before the first key and after the last the channel holds flat (SampleChannel), so the
+		// outer handles stay inactive: a handle there would bend a segment the graph draws straight.
+		SetMarkerChannel(baked[index(keys.front().tick)], c, keys.front().value);
+		for (size_t i = 0; i + 1 < keys.size(); ++i) {
+			const Keyframe& A = keys[i];
+			const Keyframe& B = keys[i + 1];
+			const int ja = index(A.tick), jb = index(B.tick);
+			if (jb <= ja) continue; // two keys on one whole tick: one marker, already written
+			double tL = A.tick, vL = A.value;
+			GraphCurve::Handle outL = ToHandle(A.cpRight), inR = ToHandle(B.cpLeft);
+			int jPrev = ja;
+			for (int j = ja + 1; j < jb; ++j) {
+				const GraphCurve::Split s = GraphCurve::SplitAt(tL, vL, outL, B.tick, B.value, inR, (double)ticks[j]);
+				baked[jPrev].out[c] = s.outA;
+				SetMarkerChannel(baked[j], c, s.value);
+				baked[j].in[c] = s.inK;
+				tL = (double)ticks[j]; vL = s.value; outL = s.outK; inR = s.inB;
+				jPrev = j;
+			}
+			baked[jPrev].out[c] = outL;
+			baked[jb].in[c] = inR;
+			SetMarkerChannel(baked[jb], c, B.value);
+		}
+	}
+	return baked;
+}
+
+bool GraphExpModel::SameMarkers(const std::vector<CamMarker>& a, const std::vector<CamMarker>& b) {
+	if (a.size() != b.size()) return false;
+	for (size_t i = 0; i < a.size(); ++i) {
+		if (a[i].tick != b[i].tick) return false;
+		for (int c = 0; c < kChannelCount; ++c) {
+			if (std::abs(MarkerChannel(a[i], c) - MarkerChannel(b[i], c)) > 1e-6) return false;
+			if (!SameHandle(a[i].in[c], b[i].in[c]) || !SameHandle(a[i].out[c], b[i].out[c])) return false;
+		}
+	}
+	return true;
 }
 
 void GraphExpModel::SortChannel(int ch) {
@@ -76,36 +248,9 @@ bool GraphExpModel::IsEditable(int ch) const {
 // ---- sampling ---------------------------------------------------------------
 
 double GraphExpModel::BezierSegment(const Keyframe& a, const Keyframe& b, double t) const {
-	const double t0 = a.tick, t1 = b.tick;
-	const double span = (t1 - t0);
-	if (span <= 1e-9) return b.value;
-
-	// Control points: right handle of a, left handle of b. Clamp tx into the segment so
-	// X(s) stays monotonic and the bisection below is well-defined (also handles flat
-	// value segments without the special-casing the reference needs).
-	double txR = a.cpRight.active ? a.cpRight.tx : (1.0 / 3.0);
-	double txL = b.cpLeft.active ? b.cpLeft.tx : (1.0 / 3.0);
-	if (txR < 0) txR = 0; if (txR > 1) txR = 1;
-	if (txL < 0) txL = 0; if (txL > 1) txL = 1;
-
-	const double p0x = t0,                  p0y = a.value;
-	const double p1x = t0 + txR * span,     p1y = a.value + (a.cpRight.active ? a.cpRight.dv : 0.0);
-	const double p2x = t1 - txL * span,     p2y = b.value + (b.cpLeft.active ? b.cpLeft.dv : 0.0);
-	const double p3x = t1,                  p3y = b.value;
-
-	// Solve cubic Bezier X(s) = t for s in [0,1] by bisection (X is monotonic given the
-	// clamped control-point times), then evaluate Y(s).
-	auto bez = [](double a0, double a1, double a2, double a3, double s) {
-		const double u = 1.0 - s;
-		return u * u * u * a0 + 3.0 * u * u * s * a1 + 3.0 * u * s * s * a2 + s * s * s * a3;
-	};
-	double lo = 0.0, hi = 1.0, s = (t - t0) / span;
-	for (int i = 0; i < 32; ++i) {
-		s = 0.5 * (lo + hi);
-		const double x = bez(p0x, p1x, p2x, p3x, s);
-		if (x < t) lo = s; else hi = s;
-	}
-	return bez(p0y, p1y, p2y, p3y, s);
+	// The camera path evaluates the same function (CamPathEval::EvalCurves), so what the graph
+	// draws is what the camera flies.
+	return GraphCurve::SegmentValue(a.tick, a.value, ToHandle(a.cpRight), b.tick, b.value, ToHandle(b.cpLeft), t);
 }
 
 bool GraphExpModel::SampleChannel(int ch, double tick, double& out) const {
@@ -227,10 +372,11 @@ void GraphExpModel::SetHandle(int ch, int id, int side, double tx, double dv, bo
 	if (!k) return;
 	if (tx < 0) tx = 0; if (tx > 1) tx = 1;
 	ControlPoint& cpNear = (side < 0) ? k->cpLeft : k->cpRight;
-	cpNear.active = true; cpNear.tx = tx; cpNear.dv = dv;
+	// A hand-placed handle is a plain Bezier from now on: the auto refresh must not take it back.
+	cpNear.active = true; cpNear.tx = tx; cpNear.dv = dv; cpNear.autoTan = false;
 	if (reflect) {
 		ControlPoint& cpFar = (side < 0) ? k->cpRight : k->cpLeft;
-		cpFar.active = true; cpFar.tx = tx; cpFar.dv = -dv; // mirror the value slope, keep length
+		cpFar.active = true; cpFar.tx = tx; cpFar.dv = -dv; cpFar.autoTan = false; // mirror the value slope, keep length
 	}
 }
 
@@ -244,10 +390,24 @@ void GraphExpModel::SetEase(int mode, bool selectedOnly) {
 	for (int c = 0; c < kChannelCount; ++c) {
 		for (Keyframe& k : m_ch[c].keys) {
 			if (selectedOnly && m_selected.count(Pack(c, k.id)) == 0) continue;
-			if (mode == 0 || mode == 2) { k.cpLeft.active = true;  k.cpLeft.tx = 1.0 / 3.0;  k.cpLeft.dv = 0.0; }
-			if (mode == 1 || mode == 2) { k.cpRight.active = true; k.cpRight.tx = 1.0 / 3.0; k.cpRight.dv = 0.0; }
+			if (mode == 0 || mode == 2) { k.cpLeft.active = true;  k.cpLeft.tx = 1.0 / 3.0;  k.cpLeft.dv = 0.0;  k.cpLeft.autoTan = false; }
+			if (mode == 1 || mode == 2) { k.cpRight.active = true; k.cpRight.tx = 1.0 / 3.0; k.cpRight.dv = 0.0; k.cpRight.autoTan = false; }
 		}
 	}
+}
+
+void GraphExpModel::AutoTangent(int ch, int i) {
+	std::vector<Keyframe>& keys = m_ch[Clamp(ch)].keys;
+	const int n = (int)keys.size();
+	if (i < 0 || i >= n) return;
+	// Catmull-Rom slope from the neighbours as 1/3-influence Bezier handles. The camera path's
+	// own Smooth (CameraPath::SetInterp) uses the same function, so both make the same curve.
+	std::vector<double> ticks(n), values(n);
+	for (int j = 0; j < n; ++j) { ticks[j] = keys[j].tick; values[j] = keys[j].value; }
+	GraphCurve::Handle in, out;
+	GraphCurve::AutoTangent(ticks.data(), values.data(), n, i, in, out);
+	keys[i].cpLeft = ToControlPoint(in);
+	keys[i].cpRight = ToControlPoint(out);
 }
 
 void GraphExpModel::SetInterpAll(bool smooth, bool selectedOnly) {
@@ -258,30 +418,29 @@ void GraphExpModel::SetInterpAll(bool smooth, bool selectedOnly) {
 			Keyframe& k = keys[i];
 			if (selectedOnly && m_selected.count(Pack(c, k.id)) == 0) continue;
 			if (!smooth) { k.cpLeft = ControlPoint(); k.cpRight = ControlPoint(); continue; }
-			// Catmull-Rom-style slope from the neighbours (one-sided / flat at the ends), converted
-			// to cubic-Bezier handles at the standard 1/3 influence: right handle leans toward the
-			// next key, left toward the previous, both on the same tangent line through this key.
-			double slope = 0.0;
-			if (i > 0 && i < n - 1) {
-				double dt = keys[i + 1].tick - keys[i - 1].tick;
-				if (dt > 1e-9) slope = (keys[i + 1].value - keys[i - 1].value) / dt;
-			} else if (i == 0 && n > 1) {
-				double dt = keys[1].tick - keys[0].tick;
-				if (dt > 1e-9) slope = (keys[1].value - keys[0].value) / dt;
-			} else if (i == n - 1 && n > 1) {
-				double dt = keys[n - 1].tick - keys[n - 2].tick;
-				if (dt > 1e-9) slope = (keys[n - 1].value - keys[n - 2].value) / dt;
-			}
-			if (i < n - 1) {
-				double spanR = keys[i + 1].tick - keys[i].tick;
-				k.cpRight.active = true; k.cpRight.tx = 1.0 / 3.0; k.cpRight.dv = slope * spanR / 3.0;
-			} else { k.cpRight = ControlPoint(); }
-			if (i > 0) {
-				double spanL = keys[i].tick - keys[i - 1].tick;
-				k.cpLeft.active = true; k.cpLeft.tx = 1.0 / 3.0; k.cpLeft.dv = -slope * spanL / 3.0;
-			} else { k.cpLeft = ControlPoint(); }
+			AutoTangent(c, i);
 		}
 	}
+}
+
+bool GraphExpModel::RefreshAutoTangents() {
+	bool changed = false;
+	for (int c = 0; c < kChannelCount; ++c) {
+		std::vector<Keyframe>& keys = m_ch[c].keys;
+		const int n = (int)keys.size();
+		if (n < 2) continue;
+		std::vector<double> ticks(n), values(n);
+		for (int j = 0; j < n; ++j) { ticks[j] = keys[j].tick; values[j] = keys[j].value; }
+		for (int i = 0; i < n; ++i) {
+			Keyframe& k = keys[i];
+			if (!k.cpLeft.autoTan && !k.cpRight.autoTan) continue;
+			GraphCurve::Handle in, out;
+			GraphCurve::AutoTangent(ticks.data(), values.data(), n, i, in, out);
+			if (k.cpLeft.autoTan && !SameHandle(ToHandle(k.cpLeft), in)) { k.cpLeft = ToControlPoint(in); changed = true; }
+			if (k.cpRight.autoTan && !SameHandle(ToHandle(k.cpRight), out)) { k.cpRight = ToControlPoint(out); changed = true; }
+		}
+	}
+	return changed;
 }
 
 // ---- selection --------------------------------------------------------------

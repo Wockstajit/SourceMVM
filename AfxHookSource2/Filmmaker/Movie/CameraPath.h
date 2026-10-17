@@ -29,6 +29,7 @@
 #include "CamPlayback.h"
 
 #include <atomic>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -115,10 +116,16 @@ public:
 	void SetSpeedMulIndex(int index, float mul);
 	// Pure pose at a demo tick (curve sampling + scrub readout). false => off-path.
 	bool EvalPoseAtTick(double tick, double out[7]) const;
+	// The trajectory line's position at shape-axis s when the path flies the graph's curves
+	// (CamPathEval::CurvePointAtShape); false when it flies g_CamPath's spline.
+	bool CurvePointAtShape(double s, double out[3]) const { return m_eval.CurvePointAtShape(m_data, s, out); }
 	// Where the dolly is on its path RIGHT NOW, in demo ticks. True only while the path is
 	// actually driving (playing or scrubbing). The view-stage shake layer reads this so it keys
 	// off the same point on the path the pose was evaluated at.
 	bool CurrentPathTick(double& outTick) const;
+	// Bumped by every edit (MarkDirty) and by any rebuild after which the path flies differently: the
+	// scrub frame cache drops frames of an older path (ScrubFrameCache.cpp).
+	uint64_t PathRevision() const { return m_pathRevision; }
 
 	// --- reads for the UI/HUD (main thread) ---
 	int Count() const { return m_data.Count(); }
@@ -157,6 +164,7 @@ public:
 	int LastPathTick() const;
 	int ClampToPathTick(int tick) const;
 	const char* Notice() const;                     // transient on-screen message ("" if none)
+	void ShowNotice(const char* msg) { Notify(msg); } // raise one from outside the path (main thread)
 	const char* SpeedModeName() const;
 	const char* TimingName() const;
 	const char* InterpName() const;        // what the user SELECTED
@@ -185,7 +193,7 @@ public:
 
 private:
 	void RebuildCamPath();   // m_eval.Rebuild(m_data, settings)
-	void MarkDirty() { m_dirty = true; }
+	void MarkDirty() { m_dirty = true; ++m_pathRevision; }
 	void EnsureDrawState();  // toggle the in-world gizmos with marker presence
 	void SyncDrawerStyle();  // push Freeze/Live colour + aimed-highlight to the drawer
 	void UpdateHover();      // crosshair pick -> m_hovered
@@ -262,6 +270,8 @@ private:
 	CurveUndoState m_curveEditStart;
 	bool m_drawOn = false;
 	bool m_dirty = false;
+	uint64_t m_pathRevision = 1;
+	uint64_t m_pathFingerprint = 0; // RebuildCamPath: the poses the path flew last time
 
 	std::string m_notice;          // transient on-screen message
 	double m_noticeExpireSec = 0.0;// NowSec() after which the notice clears
@@ -270,6 +280,11 @@ private:
 };
 
 CameraPath& CameraPathRef();
+
+// The ticks of the camera markers saved with `demoPath` (its project.mvm campath section), read
+// without loading them -- for work that starts before the demo plays, such as the keyframed copy's
+// dense windows. Empty when there are none.
+std::vector<int> CameraPath_SavedMarkerTicks(const std::wstring& demoPath);
 
 // Console command entry: handles "mirv_filmmaker marker ...". argc/args/cmd are forwarded
 // from FilmmakerCommand.cpp's dispatcher (args->ArgV(0) == "mirv_filmmaker", ArgV(1) == "marker").

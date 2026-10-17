@@ -180,13 +180,23 @@ void OnboardingHud::RunFrame() {
 		// Scene keys: properties switched on, keys made (the revision also moves on a mere toggle).
 		j.IntField("skArmed", SceneKeys_ArmedCount());
 		j.IntField("skKeys", SceneKeys_KeyCount());
-		// The graph: which graph, a key selected, a channel soloed, anything edited.
+		// The TIMELINE dock: KEYFRAMES or GRAPH, camera keys selected, anything edited, and how the
+		// camera keys meet their curves (an Easy Ease side, a Smooth side) for the ease lessons.
 		{
 			const auto& gm = GraphEditorExperimentHudRef().Model();
-			j.StringField("graphMode", FilmmakerSettings_UiString("editor.graph", "camera"));
+			j.StringField("tlView", FilmmakerSettings_UiString("editor.timeline.view", "keys") == "graph" ? "graph" : "keys");
 			j.IntField("graphSel", gm.SelectionCount());
 			j.BoolField("graphSolo", gm.AnySolo());
 			j.BoolField("graphUndo", gm.CanUndo());
+			int eased = 0, smooth = 0;
+			for (int c = 0; c < gm.ChannelCount(); ++c)
+				for (const auto& k : gm.GetChannel(c).keys)
+					for (const auto* cp : { &k.cpLeft, &k.cpRight }) {
+						if (!cp->active) continue;
+						if (cp->autoTan) ++smooth; else ++eased;
+					}
+			j.IntField("easedSides", eased);
+			j.IntField("smoothSides", smooth);
 		}
 		j.BoolField("pathPlaying", CameraPathRef().IsPlaying());
 		j.BoolField("freeCam", MovieModeRef().GetMode() == MovieMode::Mode::FreeCam);

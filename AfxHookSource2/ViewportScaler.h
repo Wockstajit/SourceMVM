@@ -2,6 +2,8 @@
 
 #include <d3d11.h>
 
+#include "Filmmaker/Movie/ScrubFrameCacheMath.h"
+
 // CViewportScaler -- render-layer post-process that scales the just-rendered full-screen
 // world frame down into a sub-rectangle of the backbuffer, so the Panorama camera-editor
 // chrome (CameraEditorHud) can frame it as a real shrunk PREVIEW VIEWPORT instead of a crop.
@@ -106,13 +108,61 @@ namespace AfxViewportScaler {
 	// EngineThread_RunFrame, at most once per present.
 	void RenderThread_MaybeFallbackBlit(ID3D11RenderTargetView* pTarget);
 
-	// Render thread (Before_Present): re-arm the once-per-present fallback latch.
+	// Render thread (Before_Present): re-arm the once-per-present fallback latch, and count this
+	// present against VpScaleBreakMath.h (each break is numbered in the mvm_debug log as
+	// vpscale.break, with the state it started in and how long it lasted).
 	void RenderThread_OnPresent();
+
+	// Main thread (DemoScrub, every frame): hold the workspace preview on its last settled frame.
+	// While held -- and for any present whose scale blit was missed -- the render thread copies the
+	// last good preview REGION back over the frame before it is presented, so a seek's raw restore
+	// (an un-simulated world: bind-pose or missing players), its play-in, and the full-size frame of
+	// a missed blit never reach the screen. Only the preview rect is held: the panels around it stay
+	// live. Capped at kMaxHoldMs so a seek that never settles cannot freeze the preview.
+	void SetHoldPreview(bool hold);
+
+	// Any thread: breaks of the scaled preview since the game started, per reason
+	// (VpScaleBreakMath.h), and the reasons of the break open right now (0 = healthy).
+	void BreakCounts(unsigned& total, unsigned& missed, unsigned& stale, unsigned& stretched, unsigned& openReasons);
 
 	// Render thread: has this present's scale-blit already happened? Anything drawn into the
 	// scene AFTER it lands in full-screen coordinates on top of the shrunk image -- i.e. over the
 	// panel, not in the preview. The pivot marker's late redraw checks this so it cannot paint a
 	// second copy of itself across the Config UI.
 	bool BlitRanThisPresent();
+
+	// --- Scrub frame cache (Filmmaker/Movie/ScrubFrameCacheMath.h, ScrubFrameCache.cpp) ---------
+	// The preview region of each played, consistent frame is kept on the GPU, keyed by its demo
+	// time and take; a backward drag over kept ticks is shown from here instead of restoring the
+	// world. Captured and shown at the same place as the preview hold (Before_Present), so the
+	// frames are exactly what the preview showed, UI over the preview included.
+
+	// What one main-thread frame renders, published once per frame (main thread). The engine
+	// thread hands it to the render thread with that frame's scale blit, so a capture always
+	// carries the identity of the frame it copies.
+	struct ScrubCacheFrame {
+		Filmmaker::ScrubCache::FrameId id;
+		bool serve = false;     // show the cached frame for serveTick instead of the world
+		double serveTick = 0.0;
+		double nearTick = 0.0;  // where the user is: a full cache evicts the frames farthest away
+	};
+	void ScrubCache_Publish(const ScrubCacheFrame& frame);
+	// Main thread. Off releases every frame (and its VRAM) at the next present.
+	void ScrubCache_Configure(bool enabled, int budgetMb);
+	// Main thread: the slot that would be shown for `tick`, or -1 (ScrubCache::Index::Find).
+	int ScrubCache_Find(double tick, uint64_t revision, Filmmaker::ScrubCache::Index::Entry* out);
+	// Main thread. Each returns how many frames were dropped.
+	int ScrubCache_DropOtherRevisions(uint64_t revision);
+	int ScrubCache_DropSlot(int slot);
+	int ScrubCache_Clear();
+
+	struct ScrubCacheStats {
+		bool enabled = false;
+		int frames = 0, capacity = 0;
+		unsigned width = 0, height = 0;      // one frame, px
+		unsigned long long bytes = 0;        // VRAM held by frame textures
+		unsigned long long stores = 0, served = 0, serveMissing = 0, evictions = 0, poseMismatches = 0;
+	};
+	void ScrubCache_GetStats(ScrubCacheStats& out);
 
 } // namespace AfxViewportScaler

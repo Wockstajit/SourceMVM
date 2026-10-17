@@ -4,6 +4,7 @@
 
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_Active / _LinefAlways (teardown probe)
 #include "../Movie/PlaybackLoop.h"
+#include "../Movie/ScrubFrameCache.h" // the transport's Cache toggle
 #include "../Movie/HudBlackout.h" // F8: clear every overlay
 
 #include "PanoramaFindPanel.h"
@@ -257,6 +258,7 @@ std::string CameraTimelineHud::BuildStateJson() {
 	// the UI say why instead of just looking broken.
 	o << ",\"interp\":\"" << cp.EffectiveInterpName() << "\"";
 	o << ",\"interpDegraded\":" << (cp.InterpDegraded() ? "true" : "false");
+	o << ",\"scrubCache\":" << (ScrubFrameCache_Enabled() ? "true" : "false");
 	o << ",\"timing\":\"" << cp.TimingName() << "\"";
 	o << ",\"speedMode\":\"" << cp.SpeedModeName() << "\"";
 	o << ",\"constSpeed\":" << r2(cp.ConstSpeed());

@@ -145,6 +145,8 @@ void RunCommand(advancedfx::ICommandArgs *args);
 // The Environment scene's undo history (lights, meshes, sky and the rest of the scene): the
 // SceneUndoClock stamp of its newest step (0 when empty), and taking that step back.
 uint64_t LastUndoStamp();
+// Bumped by every change to the Environment scene (lights, meshes, sky, lighting, a restore).
+uint64_t SceneGeneration();
 bool UndoLastEdit(std::string &error);
 void AppendStateJson(std::ostringstream &out);
 // Clicking in the view (Filmmaker/Props pick ranks these with the CS2 assets): the box of every

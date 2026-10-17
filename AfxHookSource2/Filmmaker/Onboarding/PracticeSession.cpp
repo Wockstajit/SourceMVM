@@ -6,6 +6,7 @@
 #include "../Movie/CamPathShake.h"
 #include "../Movie/SceneKeys.h"
 #include "../Movie/PlaybackLoop.h"
+#include "../Movie/ScrubFrameCache.h"
 #include "../Movie/ParticleFx.h"
 #include "../Environment/EnvironmentScene.h"
 #include "../Props/Props.h"
@@ -71,6 +72,10 @@ void PracticeSession_Begin() {
 
 	ReloadPerDemo();
 	ParticleFxRef().ResetSettingsToDefaults();
+	// The scrub frame cache keeps and shows the preview region of the FINISHED frame, panels over it
+	// included, so a parked or served frame would show Clippy frozen at an earlier step over the live
+	// one. Off for the session; it is a UI key, so End's settings read-back restores the user's choice.
+	ScrubFrameCache_SetEnabled(false);
 
 	g_render.range = Render_GetRange();
 	g_render.camera = Render_GetCameraSource();

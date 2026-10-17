@@ -339,7 +339,7 @@ LRESULT CALLBACK new_Afx_WindowProc(
 			s_uiClickHeld = true;
 			break;
 		}
-		if(Filmmaker::MovieInput_OnMouseButton(0, true)) return 0;
+		if(Filmmaker::MovieInput_OnMouseButton(0, true, (short)LOWORD(lParam), (short)HIWORD(lParam))) return 0;
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam)) return 0;
 		GameClick();
 		break;
@@ -347,20 +347,20 @@ LRESULT CALLBACK new_Afx_WindowProc(
 		if (OnboardingGateClick(hwnd, uMsg, lParam)) return 0;
 		g_UiCursorProbe.lmb = false; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
 		if (s_uiClickHeld) { s_uiClickHeld = false; break; } // the release of a click-to-UI-mode press
-		if(Filmmaker::MovieInput_OnMouseButton(0, false)) return 0;
+		if(Filmmaker::MovieInput_OnMouseButton(0, false, (short)LOWORD(lParam), (short)HIWORD(lParam))) return 0;
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam)) return 0;
 		break;
 	case WM_RBUTTONDOWN:
 		if (OnboardingGateClick(hwnd, uMsg, lParam)) return 0;
 		g_UiCursorProbe.rmb = true; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
-		if(Filmmaker::MovieInput_OnMouseButton(1, true)) return 0;
+		if(Filmmaker::MovieInput_OnMouseButton(1, true, (short)LOWORD(lParam), (short)HIWORD(lParam))) return 0;
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam)) return 0;
 		GameClick();
 		break;
 	case WM_RBUTTONUP:
 		if (OnboardingGateClick(hwnd, uMsg, lParam)) return 0;
 		g_UiCursorProbe.rmb = false; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
-		if(Filmmaker::MovieInput_OnMouseButton(1, false)) return 0;
+		if(Filmmaker::MovieInput_OnMouseButton(1, false, (short)LOWORD(lParam), (short)HIWORD(lParam))) return 0;
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam)) return 0;
 		break;
 	case WM_LBUTTONDBLCLK:

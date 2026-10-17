@@ -253,6 +253,38 @@ add_executable(CamPathTimingMathTests
 target_compile_features(CamPathTimingMathTests PRIVATE cxx_std_17)
 add_test(NAME CamPathTimingMathTests COMMAND CamPathTimingMathTests)
 
+add_executable(DemoKeyframesMathTests
+    ../Automation/tests/demo-keyframes-math-tests.cpp
+    Filmmaker/Demo/DemoKeyframesMath.h
+)
+target_compile_features(DemoKeyframesMathTests PRIVATE cxx_std_17)
+add_test(NAME DemoKeyframesMathTests COMMAND DemoKeyframesMathTests)
+
+add_executable(VpScaleBreakMathTests
+    ../Automation/tests/vp-scale-break-math-tests.cpp
+    Filmmaker/Panorama/VpScaleBreakMath.h
+)
+target_compile_features(VpScaleBreakMathTests PRIVATE cxx_std_17)
+add_test(NAME VpScaleBreakMathTests COMMAND VpScaleBreakMathTests)
+
+add_executable(GraphExpModelTests
+    ../Automation/tests/graph-exp-model-tests.cpp
+    Filmmaker/Movie/GraphExpModel.cpp
+    Filmmaker/Movie/GraphExpModel.h
+    Filmmaker/Movie/CamMarkers.cpp
+    Filmmaker/Platform/JsonBuilder.cpp
+    Filmmaker/Platform/JsonParser.cpp
+)
+target_compile_features(GraphExpModelTests PRIVATE cxx_std_17)
+add_test(NAME GraphExpModelTests COMMAND GraphExpModelTests)
+
+add_executable(GraphCurveMathTests
+    ../Automation/tests/graph-curve-math-tests.cpp
+    Filmmaker/Movie/GraphCurveMath.h
+)
+target_compile_features(GraphCurveMathTests PRIVATE cxx_std_17)
+add_test(NAME GraphCurveMathTests COMMAND GraphCurveMathTests)
+
 add_executable(BugReportMathTests
     ../Automation/tests/bug-report-math-tests.cpp
 )
@@ -277,6 +309,13 @@ add_executable(DemoScrubMathTests
 )
 target_compile_features(DemoScrubMathTests PRIVATE cxx_std_17)
 add_test(NAME DemoScrubMathTests COMMAND DemoScrubMathTests)
+
+add_executable(ScrubFrameCacheMathTests
+    ../Automation/tests/scrub-frame-cache-math-tests.cpp
+    Filmmaker/Movie/ScrubFrameCacheMath.h
+)
+target_compile_features(ScrubFrameCacheMathTests PRIVATE cxx_std_17)
+add_test(NAME ScrubFrameCacheMathTests COMMAND ScrubFrameCacheMathTests)
 
 add_executable(OsuRealmTests
     ../Automation/tests/osu-realm-tests.cpp

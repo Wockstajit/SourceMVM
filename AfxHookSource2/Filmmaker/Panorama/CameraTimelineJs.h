@@ -1191,15 +1191,30 @@ R"TLJS(
       var h = ctx.actuallayoutheight || 0; if (h < 16) h = root.actuallayoutheight || 0;
       return { w: w / sx, h: h / sy, sx: sx, sy: sy };
     }
+    // The HUD half of a VP scale break: the world is scaled into the preview but the native HUD
+    // cannot follow it, so it stays full size over the panels. Numbered and reported once per
+    // change, next to the render side's vpscale.break lines (VpScaleBreakMath.h) in mvm_debug.
+    var hudBreak = '', hudBreaks = 0;
+    function noteHudBreak(why, detail) {
+      if (why === hudBreak) return;
+      if (why) { hudBreaks++; $.Msg('[vpscale] hud break #' + hudBreaks + ' ' + why + ' ' + detail + '\n'); }
+      else $.Msg('[vpscale] hud break #' + hudBreaks + ' recovered\n');
+      hudBreak = why;
+    }
     function applyGameHudViewport(active, rect) {
-      if (!active || !rect || rect.length < 4) { restoreHudViewport(); return; }
+      if (!active || !rect || rect.length < 4) { noteHudBreak('', ''); restoreHudViewport(); return; }
       var hs = hudSizeCss();
       var rsx = hs.sx, rsy = hs.sy, rw = hs.w, rh = hs.h;
-      if (!(rw > 1 && rh > 1)) { restoreHudViewport(); return; }
-      var x0 = Number(rect[0]), y0 = Number(rect[1]), x1 = Number(rect[2]), y1 = Number(rect[3]);
-      if (!(isFinite(x0) && isFinite(y0) && isFinite(x1) && isFinite(y1) && x1 > x0 && y1 > y0)) {
+      if (!(rw > 1 && rh > 1)) {
+        noteHudBreak('hud-size-unread', 'w=' + rw + ' h=' + rh + ' ctx=' + (ctx.actuallayoutwidth || 0) + 'x' + (ctx.actuallayoutheight || 0));
         restoreHudViewport(); return;
       }
+      var x0 = Number(rect[0]), y0 = Number(rect[1]), x1 = Number(rect[2]), y1 = Number(rect[3]);
+      if (!(isFinite(x0) && isFinite(y0) && isFinite(x1) && isFinite(y1) && x1 > x0 && y1 > y0)) {
+        noteHudBreak('bad-rect', 'rect=' + rect.join(' '));
+        restoreHudViewport(); return;
+      }
+      noteHudBreak('', '');
       // Map the FULL screen 1:1 into the EXACT preview rect the world blit uses -- NO insets, so
       // the HUD lines up pixel-for-pixel with the scaled game view (the rect already matches the
       // game aspect, so sx == sy). x0*rw / y0*rh is the rect's top-left in virtual px.
@@ -1274,8 +1289,6 @@ R"TLJS(
     }, S.value);
     // ("Curve Editor" view toggle removed: the graph editor is the curve editor now.)
     var closeBtn = btn(header, '✕', function () { cmd('mirv_filmmaker camtl close'); }, S.value);
-    // In the Camera Editor, switch the bottom panel back to the (default) graph editor.
-    var graphBtn = btn(header, '≡ Graph', function () { cmd('mirv_filmmaker editor curveeditor graph'); }, S.accent);
 )TLJS"
 R"TLJS(
     // ===================== SHARED TRANSPORT =============================
@@ -1343,7 +1356,6 @@ R"TLJS(
     var interpLin = btn(trow, 'Linear', function () { cmd('mirv_filmmaker camtl interp linear'); }, S.value);
     interpLin.style.marginLeft = '12px'; interpLin.style.marginRight = '2px';
     var interpSmooth = btn(trow, '∿ Smooth', function () { cmd('mirv_filmmaker camtl interp cubic'); }, S.value);
-    try { var mvmT = $.MvmTour || ($.MvmTour = {}); (mvmT['camtl.smooth'] = mvmT['camtl.smooth'] || []).push(interpSmooth); } catch (e) {}
     var tReadout = lbl(trow, '', S.value, 13); tReadout.style.verticalAlign = 'center';
     // Original design: Stratum2Mono 15/700, takes the slack between the segmented pair and the dial.
     tReadout.style.marginLeft = '14px'; tReadout.style.width = 'fill-parent-flow(1.0)';
@@ -1358,6 +1370,14 @@ R"TLJS(
     // fixed buttons could not express 0.7x or 12x at all, and they took more width than the
     // continuous control does. Right-anchored so the transport reads left-to-right: play, step,
     // where you are, how fast.
+    // Cache: keep the preview of every frame the world plays, so dragging back over it is shown at
+    // frame rate instead of restoring the demo on every move (Movie/ScrubFrameCache.h). Lit while
+    // on. Sits right before the speed it shares the transport with.
+    var cacheBtn = btn(trow, 'Cache', function () {
+      cmd('mirv_filmmaker scrub cache ' + (st && st.scrubCache ? 'off' : 'on'));
+    }, S.value);
+    cacheBtn.style.marginLeft = TROW_GAP + 'px';
+    cacheBtn.style.verticalAlign = 'center';
     var speedScrub = buildSpeedScrubber(trow, { width: 250, height: 30, font: S.font });
     speedScrub.strip.style.marginLeft = TROW_GAP + 'px';
 
@@ -1371,8 +1391,6 @@ R"TLJS(
     // The old 18px strip clipped every diamond's top point (see the note on diamond()).
     // SCENE KEYS mode grows this to two compact lanes (camera context + editable scene events).
     var diamWrap = mk('Panel', srow); diamWrap.hittest = false;
-    // Named for the onboarding tutorial's spotlight ($.MvmTour, see TimelineDockRibbonJs.h).
-    try { var mvmT = $.MvmTour || ($.MvmTour = {}); (mvmT['camtl.keys'] = mvmT['camtl.keys'] || []).push(diamWrap); } catch (e) {}
     diamWrap.style.width = TLW + 'px'; diamWrap.style.height = '22px'; diamWrap.style.position = '0px 0px 0px';
     var sceneLaneActive = false;
     var SROW_BASE = 42, SROW_SCENE = 64, DIAM_H_BASE = 22, DIAM_H_SCENE = 40;
@@ -1473,14 +1491,12 @@ R"TLJS(
     K.kLabel.style.fontWeight = 'bold'; K.kLabel.style.letterSpacing = '1.6px';
     K.kLabel.style.marginRight = '10px'; K.kLabel.style.whiteSpace = 'nowrap';
     K.add = btn(keyFooter, '+ Add', function () { cmd('mirv_filmmaker camtl addkey'); }, S.accent);
-    try { var mvmT2 = $.MvmTour || ($.MvmTour = {}); (mvmT2['camtl.addkey'] = mvmT2['camtl.addkey'] || []).push(K.add); (mvmT2['camtl.play'] = mvmT2['camtl.play'] || []).push(playBtn); } catch (e) {}
     K.del = btn(keyFooter, '− Delete', function () { if (st && st.selected >= 0) cmd('mirv_filmmaker camtl delkey ' + st.selected); }, S.value);
     K.retime = btn(keyFooter, '⟲ Tick→Here', function () { if (st && st.selected >= 0) cmd('mirv_filmmaker camtl movekey ' + st.selected + ' ' + st.tick); }, S.value);
     K.ease = btn(keyFooter, 'Ease: None', function () {
       if (!st || st.selected < 0) return;
       var nx = ((st.selEase || 0) + 1) % 4; cmd('mirv_filmmaker camtl ease ' + st.selected + ' ' + EASE[nx]);
     }, S.value);
-    try { var mvmT = $.MvmTour || ($.MvmTour = {}); (mvmT['camtl.ease'] = mvmT['camtl.ease'] || []).push(K.ease); } catch (e) {}
     K.spdMinus = btn(keyFooter, '−', function () { stepSpeed(-1); }, S.accent);
     K.spdLbl = lbl(keyFooter, 'Seg x1.00', S.value, 13); K.spdLbl.style.verticalAlign = 'center'; K.spdLbl.style.width = '92px'; K.spdLbl.style.textAlign = 'center';
     K.spdPlus = btn(keyFooter, '+', function () { stepSpeed(1); }, S.accent);
@@ -1849,7 +1865,6 @@ R"TLJS(
       setNativeHidden(!nativeBarVisible);
       updateRangeOverlay(nativeBarVisible); // render-range / loop flags whenever the native bar is visible
       closeBtn.visible = !hosted; // editor mode exits via its own "✕ Exit" button
-      graphBtn.visible = false;   // bottom-panel switching is now the editor's bottom tab bar only
       // When hosted, this panel IS the editor's bottom bar under the preview. It fills the
       // entire width left of the inspector instead of floating as a card inside that bar.
       // Standalone timeline mode keeps the compact native-style card.
@@ -2007,6 +2022,7 @@ R"TLJS(
       // rather than sitting lit over linear motion.
       btnSel(interpLin, st.interp === 'Linear');
       btnSel(interpSmooth, st.interp !== 'Linear');
+      btnSel(cacheBtn, !!st.scrubCache);
       interpSmooth.__lbl.text = '∿ Smooth';
       interpSmooth.__lbl.style.color = st.interpDegraded ? S.hint
         : (interpSmooth.__sel ? S.accent : S.value);

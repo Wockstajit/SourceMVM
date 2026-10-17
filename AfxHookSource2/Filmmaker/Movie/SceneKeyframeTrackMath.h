@@ -95,13 +95,53 @@ inline Value Sample(const ChannelSpec& s, const std::vector<Key>& keys, double t
     } else out.numbers[0] = (std::max)(s.min, (std::min)(s.max, BezierValue(a.value.numbers[0], b.value.numbers[0], t, a.right, b.left)));
     return out;
 }
+// Re-solve the Auto Bezier (Smooth) sides of one property's keys from the keys as they are now:
+// a Catmull-Rom slope at 1/3 influence, the camera graph's own GraphCurve::AutoTangent, so a
+// Smooth key keeps following its neighbours after a move, add, delete or value edit. Angles slope
+// along the turn each segment really takes (its direction). A colour's curve is a 0..1 blend with
+// no values to slope, so its Smooth is a flat ease. A handle never reaches past the property's
+// range (same rule as a dragged one). Returns true when a handle changed.
+inline bool RefreshAutoTangents(const ChannelSpec& s, std::vector<Key>& keys) {
+    if (s.Stepped()) return false;
+    const size_t n = keys.size();
+    std::vector<double> u(n, 0.0);
+    for (size_t i = 0; i < n; ++i) {
+        if (s.type == ChannelType::Colour || keys[i].value.numbers.empty()) continue;
+        u[i] = (i && s.type == ChannelType::Angle)
+            ? u[i - 1] + AngleDelta(keys[i - 1].value.numbers[0], keys[i].value.numbers[0], keys[i - 1].direction)
+            : keys[i].value.numbers[0];
+    }
+    bool changed = false;
+    auto put = [&](ControlPoint& h, bool active, double dv, double value) {
+        if (s.type == ChannelType::Float) dv = (std::max)(s.min, (std::min)(s.max, value + dv)) - value;
+        const ControlPoint next{ active, 1.0 / 3.0, active ? dv : 0.0, true };
+        if (h.active != next.active || std::fabs(h.tx - next.tx) > 1e-9 || std::fabs(h.dv - next.dv) > 1e-9) changed = true;
+        h = next;
+    };
+    for (size_t i = 0; i < n; ++i) {
+        Key& k = keys[i];
+        if (!k.left.autoTan && !k.right.autoTan) continue;
+        double slope = 0.0;
+        if (s.type != ChannelType::Colour && n > 1) {
+            const size_t a = i ? i - 1 : 0, b = (i + 1 < n) ? i + 1 : n - 1;
+            const double dt = keys[b].tick - keys[a].tick;
+            if (dt > 1e-9) slope = (u[b] - u[a]) / dt;
+        }
+        const double v = s.type == ChannelType::Colour || k.value.numbers.empty() ? 0.0 : k.value.numbers[0];
+        if (k.left.autoTan) put(k.left, i > 0, i > 0 ? -slope * (k.tick - keys[i - 1].tick) / 3.0 : 0.0, v);
+        if (k.right.autoTan) put(k.right, i + 1 < n, i + 1 < n ? slope * (keys[i + 1].tick - k.tick) / 3.0 : 0.0, v);
+    }
+    return changed;
+}
 inline void WriteValue(JsonBuilder& j, const Value& v, bool asset = false) {
     if (asset) j.ValueString(v.asset);
     else if (v.numbers.size() == 1) j.ValueDouble(v.numbers[0]);
     else { j.BeginArray(); for (double n : v.numbers) j.ValueDouble(n); j.EndArray(); }
 }
 inline void WriteHandle(JsonBuilder& j, const char* side, const ControlPoint& h) {
-    j.Key(side); j.BeginObject(); j.BoolField("a", h.active); j.DoubleField("tx", h.tx); j.DoubleField("dv", h.dv); j.EndObject();
+    j.Key(side); j.BeginObject(); j.BoolField("a", h.active); j.DoubleField("tx", h.tx); j.DoubleField("dv", h.dv);
+    if (h.autoTan) j.BoolField("auto", true);
+    j.EndObject();
 }
 inline std::string Encode(const TrackData& data) {
     JsonBuilder j; j.BeginObject(); j.IntField("version", 1); j.IntField("nextId", data.nextId);
@@ -176,6 +216,7 @@ inline bool Decode(const std::string& text, const std::vector<ChannelSpec>& cata
                     h.active = field(p, "a", JsonValue::Type::Bool).boolean;
                     h.tx = field(p, "tx", JsonValue::Type::Number).number;
                     h.dv = field(p, "dv", JsonValue::Type::Number).number;
+                    if (const auto* au = p.Find("auto")) { if (au->type != JsonValue::Type::Bool) throw std::runtime_error("Invalid Bezier handle"); h.autoTan = au->boolean; }
                     if (!std::isfinite(h.tx) || h.tx < 0 || h.tx > 1 || !std::isfinite(h.dv) || std::fabs(h.dv) > 1e9 || (spec->Stepped() && h.active)) throw std::runtime_error("Invalid Bezier handle");
                 };
                 handle("left", k.left); handle("right", k.right);

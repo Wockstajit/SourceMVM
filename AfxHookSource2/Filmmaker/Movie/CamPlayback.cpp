@@ -1,6 +1,8 @@
 #include "CamPlayback.h"
 
 #include "CameraBridge.h"
+#include "ScrubFrameCache.h" // while the world chases a drag, the camera flies the world's own tick
+#include "ScrubFrameCache.h" // while the world chases a drag, the camera flies the world's own tick
 #include "../../MirvTime.h"
 #include "../../../Shared/AfxConsole.h"
 
@@ -231,6 +233,13 @@ bool CamPlayback::TickPlay(const CamMarkers& mk, const CamPathEval& eval, const 
 		CameraBridge_SetCameraPose(m_sX, m_sY, m_sZ, m_sPitch, m_sYaw, m_sRoll, m_sFov);
 		pushedPose = true;
 		poseX = m_sX; poseY = m_sY; poseZ = m_sZ; posePitch = m_sPitch; poseYaw = m_sYaw; poseFov = m_sFov;
+		// Live playback plays a take of the shot: its frames can be kept for a drag back
+		// (ScrubFrameCache.h). The settle at the last key holds the camera while the clock stops.
+		if (!freeze && !m_liveEndSettling) {
+			const double shown[7] = { m_sX, m_sY, m_sZ, m_sPitch, m_sYaw, m_sRoll, m_sFov };
+			const double path[7] = { pose.x, pose.y, pose.z, pose.pitch, pose.yaw, pose.roll, pose.fov };
+			ScrubFrameCache_NoteCamera(shakeTick, shown, path, true);
+		}
 		if (m_liveEndSettling) {
 			++m_liveEndSettleFrames;
 			const double posErr = std::sqrt((pose.x - m_sX) * (pose.x - m_sX)
@@ -292,13 +301,18 @@ void CamPlayback::TickScrub(const CamMarkers& mk, const CamPathEval& eval) {
 	if (!m_scrubbing)
 		return;
 	// Deterministic: evaluate the pure path at the requested tick and push it raw.
-	// No predictive clock, no pose low-pass -> identical tick yields identical pose.
-	CamPathEval::Pose pose = eval.EvalAtTick(mk, m_scrubTick);
+	// No predictive clock, no pose low-pass -> identical tick yields identical pose. With the scrub
+	// frame cache on, the tick is the world's own while it chases the drag, so the camera and the
+	// world in every frame agree and the frame can be kept (ScrubFrameCache.h).
+	const double tick = ScrubFrameCache_CameraTick(m_scrubTick);
+	CamPathEval::Pose pose = eval.EvalAtTick(mk, tick);
 	if (!pose.valid)
 		return;
 	m_playSeg = pose.seg;
-	m_lastEvalTick.store(m_scrubTick, std::memory_order_relaxed); // view-stage shake previews here
+	m_lastEvalTick.store(tick, std::memory_order_relaxed); // view-stage shake previews here
 	CameraBridge_SetCameraPose(pose.x, pose.y, pose.z, pose.pitch, pose.yaw, pose.roll, pose.fov);
+	const double noted[7] = { pose.x, pose.y, pose.z, pose.pitch, pose.yaw, pose.roll, pose.fov };
+	ScrubFrameCache_NoteCamera(tick, noted);
 }
 
 } // namespace Filmmaker

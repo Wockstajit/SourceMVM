@@ -18,7 +18,9 @@
 //   act()               what the step asked the user to do, done for them: Skip runs it before
 //                       moving on, so the next step starts where it expects.
 //   needs               what has to be open for the step: { editor, config, render, renderTab,
-//                       dock, insp, graphMode, freecam, pov, camKeys, sel, card, reveal, menu }.
+//                       dock, insp, tlView, freecam, pov, camKeys, sel, graphSel, card, reveal,
+//                       menu }. dock: 'native' or 'timeline'. tlView: the TIMELINE dock's 'keys'
+//                       (KEYFRAMES) or 'graph'. graphSel: camera keys selected on the timeline.
 //                       pov: first person through the practice demo's player.
 //                       camKeys: at least that many camera keys (the first fight's two are placed
 //                       when there are fewer). sel: a key selected. card: the CONFIG card the step
@@ -36,8 +38,8 @@
 //   options             buttons instead of the main button: { label, go: 'route step' | 'finale' }.
 //   keys                the director hotkeys this step lets through (SPACE, LEFT, RIGHT, J, K, L, F,
 //                       T, ESC, F8, DELETE, Z). Every other one does nothing while the step is up.
-//   clickArea           a wider target spec whose area also takes clicks (the whole graph dock on
-//                       the graph steps: its toolbar, FIT and right-click menu).
+//   clickArea           a wider target spec whose area also takes clicks (the whole TIMELINE dock
+//                       on its steps: the toolbar, FIT and the right-click menu).
 //   click               'target' (default with a target: only the lit control and the bubble take
 //                       clicks), 'none' (default without one: only the bubble), or 'free'.
 //
@@ -129,13 +131,13 @@ R"OBJS(
         }
       },
       body: "You're on the free camera now. Fly to Camera 1 with WASD, hold the mouse to look around, and press K. I'll roll the fight forward a bit, then you place Camera 2." };
-    var DOCK_CAMERA = { ctx: 'hud', title: 'Your keys live down here.', expr: 'focused', target: 'tour:dock.camera',
+    var DOCK_CAMERA = { fitGraph: true, ctx: 'hud', title: 'Your keys live down here.', expr: 'focused', target: 'tour:dock.timeline',
       needs: { camKeys: 2, editor: true, dock: 'native' },
-      body: 'Click CAMERA. Each diamond is one of the keys you placed, sitting at the moment you placed it.',
-      done: function (a) { return a.dock === 'camera'; }, act: function () { raw('mirv_filmmaker dock camera'); } };
-    var PLAY_PATH = { ctx: 'hud', title: 'Roll it.', expr: 'happy', target: 'tour:camtl.play', keys: ['J', 'SPACE'],
-      needs: { camKeys: 2, editor: true, dock: 'camera' },
-      body: 'Press J, or the play button here, and watch it to the end. The camera glides from key to key while the fight plays out. Click anywhere to get your mouse back.',
+      body: 'Click TIMELINE. The CAMERA PATH layer holds every key you placed, at the moment you placed it. Scene keys get layers right under it.',
+      done: function (a) { return a.dock === 'timeline'; }, act: function () { raw('mirv_filmmaker dock timeline'); } };
+    var PLAY_PATH = { fitGraph: true, ctx: 'hud', title: 'Roll it.', expr: 'happy', target: 'tour:tl.play', keys: ['J', 'SPACE'],
+      needs: { camKeys: 2, editor: true, dock: 'timeline' },
+      body: 'Press J, or play up here, and watch it to the end. The camera glides from key to key while the fight plays out. Click anywhere to get your mouse back.',
       done: function (a) { if (a.pathPlaying) run.sawPlay = true; return !!run.sawPlay && !a.pathPlaying; },
       act: function () { raw('mirv_filmmaker camtl play'); } };
 )OBJS"
@@ -144,17 +146,17 @@ R"OBJS(
     var KEYS_READY = { ctx: 'hud', title: 'Two keys to work with.', expr: 'curious', action: 'Next',
       showKey: true, enter: function () { ensureKeys(); },
       body: "If you don't have camera keys yet, I just dropped two in at the first fight. Now let's make that move better." };
-    var SELECT_KEY = { ctx: 'hud', title: 'Click the first diamond.', expr: 'focused', target: 'tour:camtl.keys',
-      needs: { camKeys: 2, editor: true, dock: 'camera' },
-      body: 'Selecting a key jumps the demo and the camera to it, and the editor shows its settings.',
-      done: function (a) { return a.sel === 0; }, act: function () { raw('mirv_filmmaker camtl select 0'); } };
+    var SELECT_KEY = { fitGraph: true, ctx: 'hud', title: 'Click the first key.', expr: 'focused', target: 'tour:tl.row.cam', clickArea: 'tour:tl.dock',
+      needs: { camKeys: 2, editor: true, dock: 'timeline', tlView: 'keys' },
+      body: 'Each diamond on the CAMERA PATH row is a key. Click the first one. Shift adds more.',
+      done: function (a) { return (a.graphSel || 0) > 0; }, act: function () { raw('mirv_filmmaker grapheditor selall'); } };
     var PATH_TAB = { showKey: true, ctx: 'hud', title: 'PATH CAMERA.', expr: 'focused', target: 'tour:editor.tab.path',
-      needs: { camKeys: 2, editor: true, dock: 'camera' },
+      needs: { camKeys: 2, editor: true, dock: 'timeline' },
       body: "The selected key's settings are under PATH CAMERA. Click it if it isn't open.",
       done: function (a) { return a.insp === 'path'; },
       act: function () { try { $.CamEditor.gotoInspector('path'); } catch (e) {} } };
     var KEY_FOV = { showKey: true, ctx: 'hud', title: 'Zoom on one key.', expr: 'curious', target: 'tour:editor.fov',
-      needs: { camKeys: 2, sel: true, editor: true, dock: 'camera', insp: 'path' },
+      needs: { camKeys: 2, sel: true, editor: true, dock: 'timeline', insp: 'path' },
       body: 'Drag FOV to the left to zoom in on this key. The path zooms between keys, so the camera pushes in while it flies.',
       // Measured from the key that is selected once the step has shown it, so the selection itself
       // does not count as a change.
@@ -164,16 +166,17 @@ R"OBJS(
         return Math.abs((a.selFov || 0) - (run.fov0 || 0)) > 0.5;
       },
       act: function () { var a = st.app || {}; if (a.sel >= 0) raw('mirv_filmmaker camtl setval ' + a.sel + ' 6 60'); } };
-    var KEY_EASE = { showKey: true, ctx: 'hud', title: 'Ease in, ease out.', expr: 'happy', target: 'tour:camtl.ease',
-      needs: { camKeys: 2, sel: true, editor: true, dock: 'camera' },
-      body: 'Click Ease until it says Ease In/Out. The camera then starts gently and settles at the next key instead of lurching.',
-      done: function (a) { return a.selEase === 3; },
-      act: function () { var a = st.app || {}; if (a.sel >= 0) raw('mirv_filmmaker camtl ease ' + a.sel + ' inout'); } };
-    var KEY_SMOOTH = { showKey: true, ctx: 'hud', title: 'Curves need three keys.', expr: 'focused', action: 'Next', target: 'tour:camtl.smooth',
-      needs: { camKeys: 2, editor: true, dock: 'camera' },
+    var KEY_EASE = { fitGraph: true, showKey: true, ctx: 'hud', title: 'Ease in, ease out.', expr: 'happy', target: 'tour:tl.ease.inout', clickArea: 'tour:tl.dock',
+      needs: { camKeys: 2, editor: true, dock: 'timeline', graphSel: true },
+      enter: function () { run.eased0 = (st.app || {}).easedSides || 0; },
+      body: 'With keys selected, In/Out eases them: the camera starts gently and settles at the next key instead of lurching. F9 does the same, and right-clicking a key opens the Keyframe Assistant.',
+      done: function (a) { return (a.easedSides || 0) > (run.eased0 || 0); },
+      act: function () { raw('mirv_filmmaker grapheditor ease inout'); } };
+    var KEY_SMOOTH = { fitGraph: true, showKey: true, ctx: 'hud', title: 'Curves need three keys.', expr: 'focused', action: 'Next', target: 'tour:tl.ease.smooth', clickArea: 'tour:tl.dock',
+      needs: { camKeys: 2, editor: true, dock: 'timeline' },
       body: "Smooth bends the path through your keys. With two it's still a straight line. Add a third key with K after the tour and you get a curve." };
     var KEY_REPOS = { showKey: true, ctx: 'hud', title: 'Move a key.', expr: 'curious', action: 'Next', target: 'tour:editor.repos', click: 'none',
-      needs: { camKeys: 2, sel: true, editor: true, dock: 'camera', insp: 'path' },
+      needs: { camKeys: 2, sel: true, editor: true, dock: 'timeline', insp: 'path' },
       body: 'Reposition picks the selected key up: you fly the free camera somewhere better and click to put it down. Save that one for after the tour.' };
 
     // ---- rendering the camera path
@@ -237,17 +240,17 @@ R"OBJS(
       { ctx: 'hud', title: 'Watch it change.', expr: 'love', action: 'I see it', keys: ['SPACE'], needs: { editor: true },
         enter: function () { seek(T_SCENE_A); },
         body: 'Back at the start. Press Space and watch the light slide from day to dusk between your two keys.' },
-      { ctx: 'hud', title: 'See it as strips.', expr: 'focused', target: 'tour:scene.opengraph', needs: { editor: true, insp: 'scene', reveal: KEYS_CARD },
-        body: 'Open Graph shows every property you keyed as its own strip, with your keys as diamonds.',
-        done: function (a) { return a.dock === 'graph' && a.graphMode === 'scene'; },
-        act: function () { raw('mirv_filmmaker settings ui editor.graph scene'); raw('mirv_filmmaker dock graph'); } },
-      { ctx: 'hud', title: 'Set one by hand.', fitGraph: true, expr: 'curious', target: ['tour:graph.scene.exposure', 'tour:graph.canvas'], clickArea: 'tour:graph.dock',
-        needs: { editor: true, dock: 'graph', graphMode: 'scene' },
+      { ctx: 'hud', title: 'See it on the timeline.', expr: 'focused', target: 'tour:scene.opengraph', needs: { editor: true, insp: 'scene', reveal: KEYS_CARD },
+        body: 'Open Timeline puts every property you keyed on its CONFIG card\'s layer, right under the camera path.',
+        done: function (a) { return a.dock === 'timeline'; },
+        act: function () { raw('mirv_filmmaker dock timeline'); } },
+      { ctx: 'hud', title: 'Set one by hand.', fitGraph: true, expr: 'curious', target: ['tour:tl.row.s:exposure', 'tour:tl.rows'], clickArea: 'tour:tl.dock',
+        needs: { editor: true, dock: 'timeline', tlView: 'keys' },
         enter: function () { run.sk0 = (st.app || {}).skKeys || 0; },
         body: 'Each row is one property. Drag its number left or right to change it at the playhead, and that drops a key. Try Exposure.',
         done: function (a) { return (a.skKeys || 0) > (run.sk0 || 0); } },
-      { ctx: 'hud', title: 'Two keys make a change.', fitGraph: true, expr: 'happy', action: 'Got it', target: 'tour:graph.canvas', clickArea: 'tour:graph.dock', keys: ['Z'],
-        needs: { editor: true, dock: 'graph', graphMode: 'scene' },
+      { ctx: 'hud', title: 'Two keys make a change.', fitGraph: true, expr: 'happy', action: 'Got it', target: 'tour:tl.rows', clickArea: 'tour:tl.dock', keys: ['Z'],
+        needs: { editor: true, dock: 'timeline', tlView: 'keys' },
         body: 'One key just holds a value; two keys make it change between them. Drag a diamond sideways to change when. Ctrl+Z undoes.' }
     ];
 
@@ -255,27 +258,27 @@ R"OBJS(
     var GRAPH_STEPS = [
       openEditorStep('Open CAM EDITOR.', 'The graph draws the camera keys you place in the editor.'),
       KEYS_READY,
-      { ctx: 'hud', title: 'Click GRAPH.', expr: 'focused', target: 'tour:dock.graph', needs: { camKeys: 2, editor: true },
-        body: "GRAPH draws the camera's position, angles and zoom as curves over time.",
-        done: function (a) { return a.dock === 'graph'; }, act: function () { raw('mirv_filmmaker dock graph'); } },
-      { ctx: 'hud', title: 'The camera curves.', fitGraph: true, showKey: true, expr: 'focused', target: 'tour:graph.tab.camera', needs: { camKeys: 2, editor: true, dock: 'graph' },
-        body: 'Make sure GRAPH is picked up here, not SCENE GRAPH.',
-        done: function (a) { return a.graphMode !== 'scene'; },
-        act: function () { raw('mirv_filmmaker settings ui editor.graph camera'); } },
-      { ctx: 'hud', title: 'One channel at a time.', fitGraph: true, showKey: true, expr: 'curious', target: 'tour:graph.row.yaw',
-        needs: { camKeys: 2, editor: true, dock: 'graph', graphMode: 'camera' },
-        body: 'Pos X, Y and Z are where the camera is, Pitch, Yaw and Roll where it looks, FOV the zoom. Click Yaw to solo it.',
-        done: function (a) { return a.graphSolo; } },
-      { ctx: 'hud', title: 'Click a diamond.', fitGraph: true, showKey: true, expr: 'focused', target: 'tour:graph.canvas', clickArea: 'tour:graph.dock',
-        needs: { camKeys: 2, editor: true, dock: 'graph', graphMode: 'camera' },
-        body: 'Click a key on the Yaw curve. Handles appear on each side: they set how the camera eases into and out of it.',
+      { ctx: 'hud', title: 'Open TIMELINE.', expr: 'focused', target: 'tour:dock.timeline', needs: { camKeys: 2, editor: true, dock: 'native' },
+        body: 'Camera keys and scene keys share one dock. Click TIMELINE.',
+        done: function (a) { return a.dock === 'timeline'; }, act: function () { raw('mirv_filmmaker dock timeline'); } },
+      { ctx: 'hud', title: 'Switch to GRAPH.', fitGraph: true, showKey: true, expr: 'focused', target: 'tour:tl.view.graph',
+        needs: { camKeys: 2, editor: true, dock: 'timeline', tlView: 'keys' },
+        body: 'KEYFRAMES shows when each key happens. GRAPH shows how the values move between them. Click GRAPH.',
+        done: function (a) { return a.tlView === 'graph'; },
+        act: function () { raw('mirv_filmmaker settings ui editor.timeline.view graph'); } },
+      { ctx: 'hud', title: 'Pick what to draw.', fitGraph: true, showKey: true, expr: 'curious', action: 'Next', target: 'tour:tl.row.cam.rot', clickArea: 'tour:tl.dock',
+        needs: { camKeys: 2, editor: true, dock: 'timeline', tlView: 'graph' },
+        body: 'GRAPH draws the curves of the row you pick on the left. Click Rotation to see pitch, yaw and roll.' },
+      { ctx: 'hud', title: 'Click a key.', fitGraph: true, showKey: true, expr: 'focused', target: 'tour:tl.graph', clickArea: 'tour:tl.dock',
+        needs: { camKeys: 2, editor: true, dock: 'timeline', tlView: 'graph' },
+        body: 'Click a key on a curve. Handles appear on each side: they set how the camera eases into and out of it.',
         done: function (a) { return (a.graphSel || 0) > 0; } },
-      { ctx: 'hud', title: 'Drag it.', fitGraph: true, showKey: true, expr: 'curious', target: 'tour:graph.canvas', clickArea: 'tour:graph.dock', keys: ['Z'],
-        needs: { camKeys: 2, editor: true, dock: 'graph', graphMode: 'camera' },
+      { ctx: 'hud', title: 'Drag it.', fitGraph: true, showKey: true, expr: 'curious', target: 'tour:tl.graph', clickArea: 'tour:tl.dock', keys: ['Z'],
+        needs: { camKeys: 2, editor: true, dock: 'timeline', tlView: 'graph' },
         body: 'Up or down turns the camera more or less, sideways changes when. Hold Shift to change only the timing.',
         done: function (a) { return a.graphUndo; } },
-      { ctx: 'hud', title: 'Read the slope.', fitGraph: true, showKey: true, expr: 'happy', action: 'Got it', target: 'tour:graph.canvas', clickArea: 'tour:graph.dock', keys: ['Z', 'DELETE'],
-        needs: { camKeys: 2, editor: true, dock: 'graph', graphMode: 'camera' },
-        body: 'Steep means fast, flat means still. Right-click a key for Ease In and Ease Out: Ease Out flattens the handle leaving a key, Ease In the one arriving. The first key only eases out, the last only in. Ctrl+Z undoes anything.' }
+      { ctx: 'hud', title: 'Read the slope.', fitGraph: true, showKey: true, expr: 'happy', action: 'Got it', target: 'tour:tl.graph', clickArea: 'tour:tl.dock', keys: ['Z', 'DELETE'],
+        needs: { camKeys: 2, editor: true, dock: 'timeline', tlView: 'graph' },
+        body: 'Steep means fast, flat means still. Right-click a key for the Keyframe Assistant: Easy Ease (F9) eases both sides, Easy Ease In the side arriving, Easy Ease Out the side leaving. Ctrl+Z undoes anything.' }
     ];
 )OBJS"

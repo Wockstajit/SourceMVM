@@ -573,10 +573,11 @@ foreach ($res in $resolutions) {
         Compare-PanelBounds $closed $open "[$tag closed->open]" 'closed-vs-open' $trackedHudPanels $runDir
         Shot $runDir '01-editor-open'
 
-        & $api['Send'] 'mirv_filmmaker editor curveeditor timeline' 0.7 | Out-Null
-        $timeline = Wait-State $api { param($s) $s -and $s.enabled -and ($s.bottomMode -eq 'camera') -and (Has-PanelData $s) -and $s.dbg.blitRan } 18 700
+        & $api['Send'] 'mirv_filmmaker settings ui editor.timeline.view keys' 0.3 | Out-Null
+        & $api['Send'] 'mirv_filmmaker dock timeline' 0.7 | Out-Null
+        $timeline = Wait-State $api { param($s) $s -and $s.enabled -and ($s.bottomMode -eq 'timeline') -and (Has-PanelData $s) -and $s.dbg.blitRan } 18 700
         Write-StateDiagnostic $timeline "[$tag timeline]"
-        Check "[$tag] camera timeline mode active" ($timeline -and $timeline.bottomMode -eq 'camera')
+        Check "[$tag] TIMELINE dock active" ($timeline -and $timeline.bottomMode -eq 'timeline')
         Test-WorldBlit $timeline "[$tag timeline]" $true
         Test-PanelSet $timeline "[$tag timeline]" $trackedHudPanels -ExpectEditor
         Write-PanelBounds $timeline "[$tag timeline]" $trackedHudPanels
@@ -585,10 +586,10 @@ foreach ($res in $resolutions) {
         Compare-PanelBounds $open $timeline "[$tag open->timeline]" 'open-vs-timeline' $trackedHudPanels $runDir
         Shot $runDir '02-camera-timeline'
 
-        & $api['Send'] 'mirv_filmmaker editor curveeditor graph' 0.7 | Out-Null
-        $graph = Wait-State $api { param($s) $s -and $s.enabled -and ($s.bottomMode -eq 'graph') -and (Has-PanelData $s) -and $s.dbg.blitRan } 18 700
+        & $api['Send'] 'mirv_filmmaker settings ui editor.timeline.view graph' 0.7 | Out-Null
+        $graph = Wait-State $api { param($s) $s -and $s.enabled -and ($s.bottomMode -eq 'timeline') -and (Has-PanelData $s) -and $s.dbg.blitRan } 18 700
         Write-StateDiagnostic $graph "[$tag graph]"
-        Check "[$tag] graph mode active" ($graph -and $graph.bottomMode -eq 'graph')
+        Check "[$tag] TIMELINE dock in its GRAPH view" ($graph -and $graph.bottomMode -eq 'timeline')
         Test-WorldBlit $graph "[$tag graph]" $true
         Test-PanelSet $graph "[$tag graph]" $trackedHudPanels -ExpectEditor
         Write-PanelBounds $graph "[$tag graph]" $trackedHudPanels

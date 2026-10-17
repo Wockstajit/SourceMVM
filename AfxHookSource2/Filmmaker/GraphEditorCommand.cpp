@@ -30,7 +30,7 @@ void GraphEditor_RunCommand(int argc, advancedfx::ICommandArgs* args, const char
 			"%s grapheditor editbegin | movesel <dTick> <dVal> | movekey <ch> <id> <tick> <val>.\n"
 			"%s grapheditor setval <ch> <id> <val> | addkey <ch> <tick> <val> | delkey <ch> <id> | delsel.\n"
 			"%s grapheditor handle <ch> <id> left|right <tx> <dv> [reflect] | clearhandles <ch> <id>.\n"
-			"%s grapheditor playhead <tick> | playhead release | eval <panorama js>.\n",
+			"%s grapheditor playhead <tick> | playhead release | key <shortcut> | eval <panorama js>.\n",
 			cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
 		return;
 	}
@@ -138,6 +138,16 @@ void GraphEditor_RunCommand(int argc, advancedfx::ICommandArgs* args, const char
 		if (argc >= 4 && 0 == _stricmp(a3, "release")) ge.CmdPlayhead(0.0, true);
 		else if (argc >= 4) ge.CmdPlayhead(atof(a3), false);
 		else advancedfx::Warning("usage: %s grapheditor playhead <tick> | release\n", cmd);
+	} else if (0 == _stricmp(a, "key")) {
+		// A keyboard shortcut for the TIMELINE dock (MovieMode forwards Delete, Ctrl+Z, Ctrl+A, F9,
+		// Esc). The dock decides what it means: only it knows which model -- camera or scene -- holds
+		// the selection and which one was edited last. The name is whitelisted, so this can never
+		// become an arbitrary-script path.
+		static const char* kKeys[] = { "delete", "undo", "redo", "selall", "easeinout", "easein", "easeout", "escape" };
+		bool known = false;
+		for (const char* k : kKeys) if (0 == _stricmp(a3, k)) known = true;
+		if (!known) { advancedfx::Warning("usage: %s grapheditor key delete|undo|redo|selall|easeinout|easein|easeout|escape\n", cmd); return; }
+		ge.RequestEval(std::string("$.GraphExp && $.GraphExp.key && $.GraphExp.key('") + a3 + "');");
 	} else if (0 == _stricmp(a, "eval")) {
 		if (argc < 4) { advancedfx::Warning("usage: %s grapheditor eval <panorama js>\n", cmd); return; }
 		std::string js;

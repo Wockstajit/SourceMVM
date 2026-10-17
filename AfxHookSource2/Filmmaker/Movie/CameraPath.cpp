@@ -9,7 +9,6 @@
 #include "FollowCamera.h"
 #include "../Filmmaker.h"            // PlayingDemoPath()
 #include "../Demo/DemoProjectStore.h"
-#include "../Panorama/GraphEditorExperimentHud.h"
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_*
 #include "../../MirvTime.h"
 
@@ -20,6 +19,7 @@
 
 #include <Windows.h>
 #include <cmath>
+#include <cstdio>
 #include <sstream>
 
 // Engine pointer (same one MovieMode uses) for demo pause/seek during preview/scrub.
@@ -40,6 +40,32 @@ namespace {
 	}
 	void DemoCmd(const char* c) {
 		if (g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, c, true);
+	}
+	double MarkerValue(const CamMarker& m, int c) {
+		switch (c) {
+		case 0: return m.x; case 1: return m.y; case 2: return m.z;
+		case 3: return m.pitch; case 4: return m.yaw; case 5: return m.roll;
+		default: return m.fov;
+		}
+	}
+	bool AnyCurve(const CamMarkers& data) {
+		for (int i = 0; i < data.Count(); ++i) if (data.At(i).HasCurve()) return true;
+		return false;
+	}
+	// The graph's Smooth on the markers themselves: Catmull-Rom handles per channel
+	// (GraphCurve::AutoTangent, the function GraphExpModel uses), on marker `only` or on all (-1).
+	void AutoTangentMarkers(CamMarkers& data, int only) {
+		const int n = data.Count();
+		std::vector<double> ticks(n), values(n);
+		for (int i = 0; i < n; ++i) ticks[i] = (double)data.At(i).tick;
+		for (int c = 0; c < 7; ++c) {
+			for (int i = 0; i < n; ++i) {
+				values[i] = MarkerValue(data.At(i), c);
+				if (i > 0 && GraphCurve::IsAngleChannel(c)) values[i] = GraphCurve::Unwrap(values[i - 1], values[i]);
+			}
+			for (int i = 0; i < n; ++i)
+				if (only < 0 || i == only) GraphCurve::AutoTangent(ticks.data(), values.data(), n, i, data.At(i).in[c], data.At(i).out[c]);
+		}
 	}
 }
 
@@ -144,6 +170,56 @@ bool CameraPath::OwnsView() const {
 
 void CameraPath::RebuildCamPath() {
 	m_eval.Rebuild(m_data, MakeSettings());
+	// The revision moves only when the path now FLIES differently: the pose at every key and every
+	// segment's middle tick. Entering a scrub rebuilds an unchanged path, and counting that as an
+	// edit dropped the whole scrub frame cache on every new drag (measured 2026-10-16: a click
+	// halfway kept 26 frames below it, the drag back dropped them all and restored instead).
+	{
+		uint64_t h = 0xcbf29ce484222325ull;
+		auto mix = [&h](double v) {
+			const long long q = (long long)std::llround(v * 1000.0);
+			h = (h ^ (uint64_t)q) * 0x100000001b3ull;
+		};
+		mix((double)m_data.Count());
+		for (int i = 0; i < m_data.Count(); ++i) {
+			const int t0 = m_data.At(i).tick;
+			double ticks[2] = { (double)t0, -1.0 };
+			if (i + 1 < m_data.Count()) ticks[1] = 0.5 * (t0 + m_data.At(i + 1).tick);
+			for (double t : ticks) {
+				if (t < 0.0) continue;
+				double p[7];
+				mix(t);
+				if (EvalPoseAtTick(t, p)) for (double v : p) mix(v);
+			}
+		}
+		if (h != m_pathFingerprint) {
+			m_pathFingerprint = h;
+			++m_pathRevision;
+		}
+	}
+	// What the camera will fly after this rebuild: whether it follows the graph's curves and the
+	// pose at each segment's middle tick -- where a handle edit shows (a key's own tick does not
+	// move). Graph drags rebuild at drag rate, so this samples unless the mode or count changed.
+	if (MvmDebugLog_Active()) {
+		static unsigned s_n = 0;
+		static int s_lastCount = -1, s_lastCurves = -1;
+		const int curves = m_eval.FollowsCurves() ? 1 : 0;
+		const bool structural = m_data.Count() != s_lastCount || curves != s_lastCurves;
+		s_lastCount = m_data.Count(); s_lastCurves = curves;
+		if (structural || (s_n++ % 8) == 0) {
+			std::ostringstream mids;
+			for (int i = 0; i + 1 < m_data.Count() && i < 4; ++i) {
+				const double mid = 0.5 * (m_data.At(i).tick + m_data.At(i + 1).tick);
+				const CamPathEval::Pose p = m_eval.EvalAtTick(m_data, mid);
+				char buf[160];
+				std::snprintf(buf, sizeof(buf), " mid%d@%.1f=%.2f,%.2f,%.2f/%.2f,%.2f/%.2f",
+					i, mid, p.x, p.y, p.z, p.pitch, p.yaw, p.fov);
+				mids << buf;
+			}
+			MvmDebugLog_Linef("path.curves", "markers=%d curves=%d interp=%s%s",
+				m_data.Count(), curves, InterpName(), mids.str().c_str());
+		}
+	}
 }
 
 void CameraPath::EnsureDrawState() {
@@ -201,8 +277,20 @@ void CameraPath::HoldEditorAtMarker(int index) {
 	CameraBridge_SetFreeCamEnabled(true);
 	PushPose(marker);
 	m_editorPoseHoldFrames = 4;
-	if (m_data.Count() >= 2)
+	if (m_data.Count() >= 2) {
 		m_play.BeginScrub(marker.tick);
+		// Hold the pose only while the seek to this key lands, then hand the free cam back -- the
+		// same handshake SelectForEditor uses. Without it the end of every playback left a scrub
+		// that pushed the last key's pose every frame forever: the "stuck in the cam path view"
+		// report, escapable only by a camera switch that turned free cam off.
+		// Freeze timing never moves the world to the key, so wait for the tick it is on instead of
+		// one it will not reach.
+		int releaseTick = marker.tick;
+		int nowTick = -1;
+		if (m_timing == Timing::Freeze && g_MirvTime.GetCurrentDemoTick(nowTick))
+			releaseTick = nowTick;
+		ArmScrubRelease(releaseTick);
+	}
 }
 
 // End of the path with LOOP on: rewind to the first marker and play the dolly again.
@@ -229,9 +317,13 @@ void CameraPath::FinishPlaybackAtLastKey() {
 	const int lastIndex = m_data.Count() - 1;
 	const int lastTick = LastPathTick();
 	if (m_timing == Timing::Live) {
-		DemoCmd("demo_pause");
+		// Land on the last key the way a timeline release does (DemoScrub: restore 8 ticks short,
+		// play in, pause), not with a bare demo_gototick. On a keyframed copy the key's tick has its
+		// own snapshot, and a bare seek showed that restore as the final frame: players in bind pose
+		// (2026-10-16). The scrub also pauses the demo (demo_pause toggles, so it is not sent here)
+		// and holds the preview on the last played frame while it lands.
 		m_liveResumeGuard = 0;
-		SeekDemoTick(lastTick);
+		DemoScrub_Release((double)lastTick, false);
 	}
 	StopPreview();
 	HoldEditorAtMarker(lastIndex);
@@ -249,7 +341,28 @@ void CameraPath::PlaceMarker() {
 	double dt = 0.0; if (g_MirvTime.GetCurrentDemoTime(dt)) m.time = dt;
 	m.speedMul = 1.0f; m.ease = Ease::None;
 
+	// ONE MARKER PER TICK. A second marker on a tick that already has one is a zero-length segment
+	// the path cannot time, and the graph -- which keys by tick -- merges the two on its next bake,
+	// so the timeline and the graph stopped agreeing about how many cameras there are. Placing on
+	// an occupied tick re-poses that marker instead, keeping its speed and easing.
+	for (int i = 0; i < m_data.Count(); ++i) {
+		CamMarker& existing = m_data.At(i);
+		if (existing.tick != m.tick) continue;
+		existing.x = m.x; existing.y = m.y; existing.z = m.z;
+		existing.pitch = m.pitch; existing.yaw = m.yaw; existing.roll = m.roll; existing.fov = m.fov;
+		m_data.SetSelected(i);
+		RebuildCamPath();
+		MarkDirty();
+		advancedfx::Message("[campath] marker #%d re-posed @ tick %d (%.1f %.1f %.1f) fov %.1f -- one marker per tick.\n",
+			i, m.tick, m.x, m.y, m.z, m.fov);
+		return;
+	}
+
+	const bool curves = AnyCurve(m_data);
 	int idx = m_data.Add(m);
+	// On a path that follows the graph's curves, a new Smooth marker gets the graph's Smooth
+	// handles too, so it joins the curve instead of making a corner. Its neighbours keep theirs.
+	if (curves && m_interp == Interp::Bezier) AutoTangentMarkers(m_data, idx);
 	RebuildCamPath();
 	EnsureDrawState();
 	MarkDirty();
@@ -282,7 +395,6 @@ void CameraPath::DeleteIndex(int index) {
 	m_data.DeleteIndex(index);
 	if (m_data.Empty()) m_menuOpen = false;
 	RebuildCamPath();
-	GraphEditorExperimentHudRef().CmdReseed();
 	EnsureDrawState();
 	MarkDirty();
 	advancedfx::Message("[campath] marker #%d deleted (%d left).\n", index, Count());
@@ -299,7 +411,6 @@ void CameraPath::DeleteAll(bool confirmed) {
 	m_play.Stop();
 	SetMode(Mode::Editing);
 	RebuildCamPath();
-	GraphEditorExperimentHudRef().CmdClear();
 	EnsureDrawState();
 	MarkDirty();
 	advancedfx::Message("[campath] all markers deleted (%d).\n", c);
@@ -388,7 +499,22 @@ void CameraPath::CloseMenu() { m_menuOpen = false; }
 
 void CameraPath::SetSpeedMode(SpeedMode m) { m_speedMode = m; RebuildCamPath(); MarkDirty(); advancedfx::Message("[campath] speed mode -> %s.\n", SpeedModeName()); }
 void CameraPath::SetTiming(Timing t) { m_timing = t; MarkDirty(); advancedfx::Message("[campath] timing -> %s (all cameras).\n", TimingName()); }
-void CameraPath::SetInterp(Interp i) { m_interp = i; RebuildCamPath(); MarkDirty(); advancedfx::Message("[campath] interpolation -> %s.\n", InterpName()); }
+void CameraPath::SetInterp(Interp i) {
+	m_interp = i;
+	// A path that follows the graph's curves takes the mode as a reshape of those curves, the way
+	// the graph's own Smooth/Linear does: Smooth puts Catmull-Rom handles on every marker, Linear
+	// clears them (and the path flies straight segments again). A path the graph never shaped
+	// keeps the spline it always had.
+	if (AnyCurve(m_data)) {
+		if (i == Interp::Bezier) {
+			AutoTangentMarkers(m_data, -1);
+		} else {
+			for (int k = 0; k < m_data.Count(); ++k)
+				for (int c = 0; c < 7; ++c) { m_data.At(k).in[c] = GraphCurve::Handle(); m_data.At(k).out[c] = GraphCurve::Handle(); }
+		}
+	}
+	RebuildCamPath(); MarkDirty(); advancedfx::Message("[campath] interpolation -> %s.\n", InterpName());
+}
 void CameraPath::CycleSpeedMode() { SetSpeedMode((SpeedMode)(((int)m_speedMode + 1) % 3)); }
 void CameraPath::ToggleTiming() { SetTiming(m_timing == Timing::Live ? Timing::Freeze : Timing::Live); }
 void CameraPath::CycleInterp() { SetInterp(m_interp == Interp::Linear ? Interp::Bezier : Interp::Linear); }
@@ -1154,6 +1280,21 @@ std::string CameraPath::SerializedPath() const {
 	return m_data.Serialize(MakeSettings(), m_data.Selected());
 }
 
+std::vector<int> CameraPath_SavedMarkerTicks(const std::wstring& demoPath) {
+	std::vector<int> ticks;
+	std::string payload;
+	if (demoPath.empty()
+		|| !DemoProjectStore_ReadSection(ProjectGame::Cs2, demoPath, ProjectSection::Campath, payload))
+		return ticks;
+	CamMarkers markers;
+	PathSettings settings;
+	int selected = -1;
+	if (!markers.Parse(payload, settings, selected))
+		return ticks;
+	for (const CamMarker& m : markers.All()) ticks.push_back(m.tick);
+	return ticks;
+}
+
 void CameraPath::Save() {
 	if (m_demoPath.empty()) return; // unknown demo -> memory only
 	DemoProjectStore_WriteSection(ProjectGame::Cs2, m_demoPath, ProjectSection::Campath, SerializedPath());
@@ -1193,3 +1334,9 @@ void CameraPath::Load() {
 }
 
 } // namespace Filmmaker
+
+// The in-world trajectory line (CampathDrawer.cpp) samples g_CamPath on the shape axis; while the
+// path flies the graph's curves it takes the positions from here instead.
+bool Filmmaker_CampathCurvePoint(double shapeT, double outPos[3]) {
+	return Filmmaker::CameraPathRef().CurvePointAtShape(shapeT, outPos);
+}

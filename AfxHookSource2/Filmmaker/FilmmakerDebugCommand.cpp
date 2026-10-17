@@ -81,7 +81,7 @@ MvmCommandTrace::~MvmCommandTrace() {
 			"keyTick=%d pos=%.3f,%.3f,%.3f angles=%.3f,%.3f,%.3f fov=%.3f "
 			"keySpeed=%.3f ease=%d notice='%s'",
 			editor.Enabled() ? 1 : 0, editor.ScaleEnabled() ? 1 : 0,
-			(int)editor.GetBottomMode(), (int)editor.GetHudView(),
+			(int)Filmmaker::TimelineDock_Tab(), (int)editor.GetHudView(),
 			Filmmaker::CameraTimelineHudRef().Visible() ? 1 : 0,
 			Filmmaker::CameraTimelineHudRef().Cursor() ? 1 : 0,
 			path.Count(), selected, path.ModeName(), path.IsPlaying() ? 1 : 0,

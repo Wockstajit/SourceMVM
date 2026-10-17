@@ -34,6 +34,11 @@
 #include "Community/CommunityHud.h"
 #include "Workshop/WorkshopOrganizer.h"
 #include "Movie/CameraBridge.h"
+#include "MouseCapture.h" // MouseCapture_ReleaseForUi: the UI cursor takes the mouse back from CS2
+#include "Render/RenderCommand.h" // Render_IsJobActive: no keyframe rebuild during a render job
+#include "Movie/TimelinePlayhead.h" // TimelinePlayhead_Scrubbing: no copy switch mid-drag
+#include "../MirvTime.h"            // g_MirvTime: the tick a copy switch lands back on
+#include "Debug/MvmDebugLog.h"      // MvmDebugLog_*: keyframes.switch
 #include "../SceneSystem.h"
 #include "../UiInputGate.h" // UiInputGate_Active: a foreign UI keeps the wheel
 #include "../WindowInputHooks.h" // WindowInputHooks_MainThreadFrame: raw-input wheel notches
@@ -68,6 +73,7 @@
 #include "Movie/DemoEndHold.h"
 #include "Movie/PlaybackLoop.h"
 #include "Movie/DemoScrub.h"
+#include "Movie/ScrubFrameCache.h"
 #include "Movie/WeaponBobProbe.h"
 #include "Render/RenderSessionDriver.h"
 #include "Render/RenderEngineSize.h"
@@ -170,6 +176,21 @@ int g_pendingSwitchFrames = 0;         // frames waited, for the give-up fallbac
 
 std::mutex g_demoPathMutex;
 std::wstring g_currentDemoPath; // last demo launched via Watch (for the marker sidecar)
+
+// SWITCH ONTO A KEYFRAMED COPY THAT FINISHED WHILE ITS DEMO IS OPEN. Without it the copy waited
+// for the next open, and the session that built it scrubbed backward from Valve's snapshot a minute
+// back (~0.75 s a step, measured 2026-10-16). The switch is a level load, so it waits for a quiet
+// moment -- paused, no render job, no scrub, no path playback -- then reopens on the copy and lands
+// back on the same tick, paused. Main thread only.
+struct CopySwitch {
+	enum class State { Idle, Waiting, Loading, Seeking };
+	State state = State::Idle;
+	std::wstring original, copy;
+	int tick = -1;
+	int frames = 0;       // since the state began (give-up fallbacks)
+	int loadedFrames = 0; // since the copy was seen playing (settle before the seek)
+};
+CopySwitch g_copySwitch;
 
 void DoInit() {
 	g_library.Init();
@@ -321,11 +342,12 @@ void PrepareDemo(std::size_t index) {
 		return;
 	}
 	// ResolvePlayable is deliberately non-blocking. Preparation only warms the caches; it must
-	// never begin playback. Once the repair verdict is in, the keyframed copy starts building.
-	if (!DemoKeyframes_ReadyPath(path).empty()) return;
+	// never begin playback. Once the repair verdict is in, the keyframed copy starts building --
+	// dense around the camera markers saved with the demo. Build is a no-op when a valid copy
+	// already covers them.
 	const std::wstring playable = DemoRepair_ResolvePlayable(path);
 	if (!playable.empty())
-		DemoKeyframes_Build(path, playable);
+		DemoKeyframes_Build(path, playable, CameraPath_SavedMarkerTicks(path));
 }
 
 // RENAME THE DEMO FILE ITSELF.
@@ -514,10 +536,16 @@ void PlayResolvedDemo(const std::wstring& original, const std::wstring& playable
 	// it back to `original` (ResolveDemoProjectPath), so it has to exist before playback starts.
 	if (!WideEqualsI(playable, original))
 		DemoProjectStore_EnsureProjectFile(ProjectGame::Cs2, original);
-	// Not the keyframed copy yet: play what we have now and build it in the background, so the
-	// NEXT play of this demo scrubs backward in one frame. Playback is never held for it.
+	// One copy: opening this demo removes every other demo's (DemoKeyframes.h).
+	DemoKeyframes_KeepOnly(original, ResolvePlayingDemoPath());
+	// Not the keyframed copy yet, or one that is not dense where the camera markers now are: play
+	// what we have now and build in the background, so the NEXT play of this demo scrubs backward
+	// in one frame. Playback is never held for it. The source is never the keyframed copy itself.
+	const std::vector<int> markerTicks = CameraPath_SavedMarkerTicks(original);
 	if (playable != DemoKeyframes_ReadyPath(original))
-		DemoKeyframes_Build(original, playable);
+		DemoKeyframes_Build(original, playable, markerTicks);
+	else
+		DemoKeyframes_Build(original, DemoRepair_ResolvePlayable(original), markerTicks);
 	// Switching demo-to-demo: tear the current one down FIRST so the native demo bar rebuilds its
 	// round shading and kill markers (see g_pendingSwitch above). The playdemo is issued from the
 	// main pump once the demo is actually gone; issuing both together loses it.
@@ -578,6 +606,74 @@ std::wstring PlayingDemoPath() {
 	static std::wstring s_lastIn, s_lastOut;
 	if (our != s_lastIn) { s_lastIn = our; s_lastOut = CanonicalDemoPath(our); }
 	return s_lastOut;
+}
+
+// g_copySwitch, one step per main-thread frame (see the struct).
+void PumpCopySwitch() {
+	CopySwitch& s = g_copySwitch;
+	if (s.state == CopySwitch::State::Idle || !g_pEngineToClient)
+		return;
+	auto* demoFile = g_pEngineToClient->GetDemoFile();
+	const bool playing = demoFile && demoFile->IsPlayingDemo() && !demoFile->IsDemoPaused();
+	const bool paused = demoFile && demoFile->IsDemoPaused();
+	int tick = -1;
+	const bool haveTick = g_MirvTime.GetCurrentDemoTick(tick);
+	auto log = [&](const char* what) {
+		if (MvmDebugLog_Active())
+			MvmDebugLog_LinefAlways("keyframes.switch", "%s tick=%d target=%d frames=%d copy=%s",
+				what, tick, s.tick, s.frames, WideToUtf8(s.copy).c_str());
+	};
+	// The engine reports its own spelling of a path (forward slashes, its own case).
+	auto sameFile = [](std::wstring a, std::wstring b) {
+		for (auto& c : a) if (c == L'/') c = L'\\';
+		for (auto& c : b) if (c == L'/') c = L'\\';
+		return !a.empty() && _wcsicmp(a.c_str(), b.c_str()) == 0;
+	};
+
+	switch (s.state) {
+	case CopySwitch::State::Waiting: {
+		// Gone, or a different demo now: nothing to switch.
+		if (!sameFile(PlayingDemoPath(), s.original)) { log("dropped: demo changed"); s = CopySwitch(); return; }
+		const bool quiet = paused && haveTick && !Render_IsJobActive() && !DemoScrub_Active()
+			&& !TimelinePlayhead_Scrubbing() && !CameraPathRef().IsPlaying() && !CameraPathRef().PlaybackPending();
+		if (!quiet) return;
+		s.tick = tick;
+		s.frames = 0;
+		s.state = CopySwitch::State::Loading;
+		log("switching");
+		advancedfx::Message("mirv_filmmaker: switching to the finer scrub keyframes at tick %d...\n", tick);
+		PlayResolvedDemo(s.original, s.copy);
+		return;
+	}
+	case CopySwitch::State::Loading:
+		// The copy is loaded once the engine plays it and the clock runs. A few frames more let the
+		// HUD and our panels settle before the seek.
+		if (++s.frames > 64 * 60) { log("gave up: the copy never started"); s = CopySwitch(); return; }
+		if (!sameFile(ResolvePlayingDemoPath(), s.copy) || !haveTick || tick < 1 || !(playing || paused)) { s.loadedFrames = 0; return; }
+		if (++s.loadedFrames < 30) return;
+		// A forward demo_gototick on a PAUSED demo never runs (filmmaker_demo_scrubbing.md), so
+		// seek while playing and pause on arrival.
+		if (paused) g_pEngineToClient->ExecuteClientCmd(0, "demo_resume", true);
+		{
+			char cmd[64];
+			snprintf(cmd, sizeof(cmd), "demo_gototick %d", s.tick);
+			g_pEngineToClient->ExecuteClientCmd(0, cmd, true);
+		}
+		s.frames = 0;
+		s.state = CopySwitch::State::Seeking;
+		log("seeking");
+		return;
+	case CopySwitch::State::Seeking:
+		if (++s.frames > 64 * 10) { log("gave up: the seek never landed"); s = CopySwitch(); return; }
+		if (!haveTick || std::abs(tick - s.tick) > 1) return;
+		if (playing) g_pEngineToClient->ExecuteClientCmd(0, "demo_pause", true); // a toggle: only while playing
+		log("done");
+		advancedfx::Message("mirv_filmmaker: now scrubbing with the finer keyframes (tick %d).\n", tick);
+		s = CopySwitch();
+		return;
+	default:
+		return;
+	}
 }
 
 void RunFrame() {
@@ -690,6 +786,22 @@ void RunMainThreadFrame() {
 		if (now - s_lastPlayingPollMs >= 1000) {
 			s_lastPlayingPollMs = now;
 			DemoOrganizer_PollPlaying(PlayingDemoPath());
+			// Scrub keyframes follow the camera markers: a rebuild with denser windows once they
+			// have settled outside the copy's (Docs/features/filmmaker_demo_scrubbing.md), and a
+			// switch onto a copy that finished while its demo is open.
+			{
+				std::vector<int> markerTicks;
+				for (const CamMarker& m : CameraPathRef().Markers()) markerTicks.push_back(m.tick);
+				const std::wstring demo = PlayingDemoPath();
+				if (DemoKeyframes_RunFrame(demo, ResolvePlayingDemoPath(), markerTicks, Render_IsJobActive())) {
+					g_copySwitch = CopySwitch();
+					g_copySwitch.original = demo;
+					g_copySwitch.copy = DemoKeyframes_ReadyPath(demo);
+					g_copySwitch.state = g_copySwitch.copy.empty() ? CopySwitch::State::Idle : CopySwitch::State::Waiting;
+					if (g_copySwitch.state == CopySwitch::State::Waiting)
+						CameraPathRef().ShowNotice("Finer scrub keyframes are ready -- switching to them when the demo is paused.");
+				}
+			}
 			// Same idea for workshop maps: the Play page's "Recently played" sort needs to know
 			// which map is loaded, and a map started from CS2's own UI never goes through us.
 			// Rides the same one-second sample -- a "last played" stamp has no use for sub-second
@@ -731,7 +843,10 @@ void RunMainThreadFrame() {
 	PlaybackLoop_RunFrame();
 
 	// Live scrubbing: the world follows a timeline drag (plays forward, seeks back). Inert unless a
-	// scrub surface is being dragged.
+	// scrub surface is being dragged. The scrub frame cache reads the world and takes first, so a
+	// backward drag can be shown from frames already played; its EndFrame below publishes this
+	// frame's identity once the camera drivers have run.
+	ScrubFrameCache_BeginFrame();
 	DemoScrub_RunFrame();
 
 	// World Only: refresh the planted-bomb bit BEFORE the render driver steps, so a job's first
@@ -894,6 +1009,7 @@ void RunMainThreadFrame() {
 		}
 		if (fire) IssuePlaydemo(original, playable);
 	}
+	PumpCopySwitch();
 	{ PanoramaPerf_Scope _p("markerhud"); MarkerHudRef().RunFrame(); }
 
 	// Offline demo skin-changer: re-assert any per-player weapon-skin overrides on this frame's
@@ -1002,6 +1118,8 @@ void RunMainThreadFrame() {
 	// Debounced persistence for reusable Config / Camera Editor preferences. Shot-specific
 	// camera, path and Follow/Attach state stays in its owning subsystem.
 	FilmmakerSettings_RunFrame();
+	// After every camera driver: what this frame renders, for the scrub frame cache.
+	ScrubFrameCache_EndFrame();
 
 	// Close the measurement window for this main-thread frame (no-op unless the probe is armed).
 	PanoramaPerf_EndFrame();
@@ -1021,7 +1139,7 @@ void Shutdown() {
 
 // --- Movie director input taps (forward to the MovieMode singleton) ---
 bool MovieInput_OnKey(int vkey, bool down) { return MovieModeRef().OnKey(vkey, down); }
-bool MovieInput_OnMouseButton(int button, bool down) { return MovieModeRef().OnMouseButton(button, down); }
+bool MovieInput_OnMouseButton(int button, bool down, int x, int y) { return MovieModeRef().OnMouseButton(button, down, x, y); }
 bool MovieInput_OnUiClick(int x, int y) { return MovieModeRef().OnUiClick(x, y); }
 bool MovieInput_OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, int y) { return MovieModeRef().OnMouseWheel(delta, shiftDown, ctrlDown, x, y); }
 
@@ -1105,6 +1223,11 @@ void CameraEditor_SetCursorMode(bool uiCursor) {
 	if (!uiCursor) {
 		GraphEditorExperimentHudRef().SetDrive(false);
 		CameraPathRef().StopScrub();
+	} else {
+		// The cursor is the panel's now, so the mouse is too. Without this, one click into the game
+		// earlier in the session left CS2's mouse input live under the UI, and the next right-click
+		// over the preview started CS2's own look-around and took the pointer away.
+		MouseCapture_ReleaseForUi("ui cursor on");
 	}
 }
 
@@ -1113,11 +1236,7 @@ void CameraEditor_SetCursorMode(bool uiCursor) {
 void CameraEditor_SetScale(bool enabled) { CameraEditorHudRef().SetScale(enabled); }
 void CameraEditor_ToggleScale() { CameraEditorHudRef().ToggleScale(); }
 bool CameraEditor_ScaleActive() { return CameraEditorHudRef().ScaleEnabled(); }
-void CameraEditor_SetUseTimeline(bool useTimeline) { CameraEditorHudRef().SetUseTimeline(useTimeline); }
-void CameraEditor_ToggleUseTimeline() { CameraEditorHudRef().ToggleUseTimeline(); }
-void CameraEditor_SetNativeTimeline() {
-	CameraEditorHudRef().SetBottomMode(CameraEditorHud::BottomMode::Native);
-}
+void CameraEditor_SetNativeTimeline() { TimelineDock_SetTab(DockTab::Native); }
 const char* CameraEditor_HudViewName() {
 	switch (CameraEditorHudRef().GetHudView()) {
 	case CameraEditorHud::HudView::ShowAll: return "full";
@@ -1148,6 +1267,7 @@ void GraphEditorExperiment_Set(bool enabled) { GraphEditorExperimentHudRef().Set
 void GraphEditorExperiment_Toggle() { GraphEditorExperimentHudRef().Toggle(); }
 bool GraphEditorExperiment_Enabled() { return GraphEditorExperimentHudRef().Enabled(); }
 bool GraphEditorExperiment_OwnsView() { return GraphEditorExperimentHudRef().OwnsView(); }
+bool GraphEditorExperiment_Drive() { return GraphEditorExperimentHudRef().Drive(); }
 bool GraphEditorExperiment_WantsCursor() {
 	if (!GraphEditorExperimentHudRef().Enabled())
 		return false;

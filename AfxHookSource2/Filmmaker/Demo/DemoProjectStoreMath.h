@@ -23,6 +23,7 @@ enum class ProjectGenerated {
 	Repaired,
 	MatchInfo,
 	Keyframed, // the playable copy with dense full packets for fast backward seeks (DemoKeyframes.h)
+	KeyframedB, // its second slot: a rebuild while the engine holds the first one open writes here
 };
 
 struct ProjectIndexEntry {
@@ -202,6 +203,7 @@ inline const wchar_t* ProjectGeneratedFileName(ProjectGenerated kind) {
 	case ProjectGenerated::Repaired: return L"repaired.dem";
 	case ProjectGenerated::MatchInfo: return L"demo.info";
 	case ProjectGenerated::Keyframed: return L"keyframed.dem";
+	case ProjectGenerated::KeyframedB: return L"keyframed-b.dem";
 	}
 	return L"generated.bin";
 }
@@ -228,13 +230,58 @@ inline std::wstring RepairCleanMarkerPath(const std::wstring& repairedPath) {
 	return repairedPath + L".clean";
 }
 
+// Either slot of a keyframed copy (DemoKeyframes.h).
+inline bool IsKeyframedCopyFileName(const std::wstring& fileName) {
+	return WideEqualsI(fileName, L"keyframed.dem") || WideEqualsI(fileName, L"keyframed-b.dem");
+}
+
 // A demo COPY the tool generated into a project folder (not a demo of its own).
 inline bool IsProjectDemoCopyFileName(const std::wstring& fileName) {
-	return WideEqualsI(fileName, L"repaired.dem") || WideEqualsI(fileName, L"keyframed.dem");
+	return WideEqualsI(fileName, L"repaired.dem") || IsKeyframedCopyFileName(fileName);
 }
 
 inline bool IsLegacyRepairedFolderName(const std::wstring& folderName) {
 	return WideEqualsI(folderName, L"repaired");
+}
+
+// Where the project key of a playing demo comes from. Project data (campath, loop, scene keys)
+// is keyed by the ORIGINAL demo, never by a copy generated from it: a repaired or keyframed copy
+// inside a project folder maps back through that folder's project.mvm, and a copy in the
+// pre-project <demo dir>\repaired\ folder maps to the same file name one folder up. The caller
+// reads the project file and checks the copy's .src marker (DemoProjectPath.cpp).
+enum class DemoCopySource {
+	None, // a demo of its own: it keys its own project
+	ProjectFolder, // a copy in a project folder: the original is project.mvm's demoPath
+	LegacyRepaired, // a copy in <demo dir>\repaired\: the original is `original`
+};
+
+struct DemoCopyLookup {
+	DemoCopySource source = DemoCopySource::None;
+	std::wstring projectDir; // ProjectFolder: the folder holding project.mvm
+	std::wstring original; // LegacyRepaired: the candidate original demo
+};
+
+inline std::wstring ParentPath(const std::wstring& path) {
+	const size_t pos = path.find_last_of(L"\\/");
+	return pos == std::wstring::npos ? std::wstring() : path.substr(0, pos);
+}
+
+inline DemoCopyLookup PlanDemoCopyLookup(const std::wstring& playingDemoPath) {
+	DemoCopyLookup out;
+	const std::wstring fileName = DemoFileName(playingDemoPath);
+	const std::wstring dir = ParentPath(playingDemoPath);
+	if (fileName.empty() || dir.empty()) return out;
+	if (IsProjectDemoCopyFileName(fileName)) {
+		out.source = DemoCopySource::ProjectFolder;
+		out.projectDir = dir;
+		return out;
+	}
+	if (!IsLegacyRepairedFolderName(DemoFileName(dir))) return out;
+	const std::wstring demoDir = ParentPath(dir);
+	if (demoDir.empty()) return out;
+	out.source = DemoCopySource::LegacyRepaired;
+	out.original = JoinPath(demoDir, fileName);
+	return out;
 }
 
 } // namespace Filmmaker
