@@ -14,6 +14,7 @@
 #include "Filmmaker/EasterEggs/EasterEggSnake.h"
 #include "UiInputGate.h"
 #include "Filmmaker/Movie/CameraBridge.h"
+#include "Filmmaker/Onboarding/Onboarding.h" // Onboarding_BlocksClick: linear tutorial steps
 
 #include <atomic>
 
@@ -99,6 +100,32 @@ AfxUiCursorProbe g_UiCursorProbe;
 // A left press went to the UI as a click-to-UI-mode click (MovieInput_OnUiClick): its release
 // follows it to the panel even though UI mode only switches on with the next frame.
 static bool s_uiClickHeld = false;
+// Clippy's onboarding: a press outside the zones a locked step allows is swallowed, and so is its
+// release, even if the lock changes in between (Filmmaker::Onboarding_BlocksClick).
+static bool s_onboardingSwallowL = false, s_onboardingSwallowR = false;
+static bool OnboardingGateClick(HWND hwnd, UINT uMsg, LPARAM lParam) {
+	const bool left = uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONUP;
+	bool& held = left ? s_onboardingSwallowL : s_onboardingSwallowR;
+	if (uMsg == WM_LBUTTONUP || uMsg == WM_RBUTTONUP) {
+		if (!held) return false;
+		held = false;
+		return true;
+	}
+	RECT rc{};
+	if (!GetClientRect(hwnd, &rc)) return false;
+	if (!Filmmaker::Onboarding_BlocksClick((short)LOWORD(lParam), (short)HIWORD(lParam), rc.right, rc.bottom)) return false;
+	held = true;
+	return true;
+}
+// A press on Clippy goes to Panorama only (Filmmaker::Onboarding_ClickOnAssistant). In game mode
+// the mouse is handed back to the UI first, so the bubble's button gets the click.
+static bool OnboardingAssistantPress(HWND hwnd, LPARAM lParam) {
+	RECT rc{};
+	if (!GetClientRect(hwnd, &rc)) return false;
+	if (!Filmmaker::Onboarding_ClickOnAssistant((short)LOWORD(lParam), (short)HIWORD(lParam), rc.right, rc.bottom)) return false;
+	if (!Filmmaker::MouseCapture_IsFree()) Filmmaker::MouseCapture_SetFree(true);
+	return true;
+}
 AfxClientRectOverride g_AfxClientRectOverride;
 bool g_afxWindowProcSet = false;
 WNDPROC g_NextWindProc;
@@ -300,7 +327,12 @@ LRESULT CALLBACK new_Afx_WindowProc(
 			return 0;
 		break;
 	case WM_LBUTTONDOWN:
+		// Clippy's onboarding is linear: a click outside the lit control and his bubble does
+		// nothing at all, and neither does its release (OnboardingGateClick).
+		if (OnboardingGateClick(hwnd, uMsg, lParam)) return 0;
 		g_UiCursorProbe.lmb = true; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
+		// On Clippy: Panorama's alone, press and release (the release rides s_uiClickHeld).
+		if (OnboardingAssistantPress(hwnd, lParam)) { s_uiClickHeld = true; break; }
 		// GAME mode, and the click is on our UI: switch to UI mode and let the
 		// panel have the click (press AND release) instead of the camera grabbing the mouse.
 		if (Filmmaker::MovieInput_OnUiClick((short)LOWORD(lParam), (short)HIWORD(lParam))) {
@@ -312,18 +344,21 @@ LRESULT CALLBACK new_Afx_WindowProc(
 		GameClick();
 		break;
 	case WM_LBUTTONUP:
+		if (OnboardingGateClick(hwnd, uMsg, lParam)) return 0;
 		g_UiCursorProbe.lmb = false; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
 		if (s_uiClickHeld) { s_uiClickHeld = false; break; } // the release of a click-to-UI-mode press
 		if(Filmmaker::MovieInput_OnMouseButton(0, false, (short)LOWORD(lParam), (short)HIWORD(lParam))) return 0;
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam)) return 0;
 		break;
 	case WM_RBUTTONDOWN:
+		if (OnboardingGateClick(hwnd, uMsg, lParam)) return 0;
 		g_UiCursorProbe.rmb = true; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
 		if(Filmmaker::MovieInput_OnMouseButton(1, true, (short)LOWORD(lParam), (short)HIWORD(lParam))) return 0;
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam)) return 0;
 		GameClick();
 		break;
 	case WM_RBUTTONUP:
+		if (OnboardingGateClick(hwnd, uMsg, lParam)) return 0;
 		g_UiCursorProbe.rmb = false; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
 		if(Filmmaker::MovieInput_OnMouseButton(1, false, (short)LOWORD(lParam), (short)HIWORD(lParam))) return 0;
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam)) return 0;

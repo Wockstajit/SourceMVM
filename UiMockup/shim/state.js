@@ -99,6 +99,8 @@
       eggs: { hidden: false, egirl: false, cx: 0.5, cy: 0.5, cvis: true, click: 0,
               hint: { id: 0 }, vegas: 0, clippy: { id: 0, show: false },
               disco: false, bay: 0, wes: { on: false, chapter: 0, title: '' } },
+      // Onboarding.cpp's OnboardingState: off until `mvm_onboarding` opens it.
+      onboarding: { on: false, closed: false, voice: true, route: '', step: 0, rev: 0, px: -1, py: -1 },
 
       // ---- session / context ------------------------------------------------
       demo: true,              // demo playback (not a live mvm_test map)

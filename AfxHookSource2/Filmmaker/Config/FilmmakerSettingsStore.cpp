@@ -59,6 +59,9 @@ std::string g_pendingSnapshot;
 unsigned long long g_lastChangeMs = 0;
 bool g_loaded = false;
 bool g_dirty = false;
+// A practice session is up (FilmmakerSettings_BeginPractice): the modules hold the defaults and the
+// file is not written, whatever changes.
+bool g_practice = false;
 
 // ---- quiet-reset window (see FilmmakerSettings_BeginQuietReset) -------------------------------
 // 0 = off. While settling we are waiting for the reset's console commands to actually land (they
@@ -534,28 +537,19 @@ void LoadLighting(const JsonValue* object) {
 
 } // namespace
 
-void FilmmakerSettings_Load() {
-	if (g_loaded) return;
-	g_loaded = true;
-	// FIRST, before anything can overwrite them: the modules are still at their construction
-	// defaults on this line, and this is the only moment that is true. Everything "reset to
-	// defaults" ever means is replayed from here.
-	g_defaultSnapshot = BuildSnapshot();
+// The settings file, parsed. False when there is none or it is not a JSON object.
+static bool ReadSettingsFile(JsonValue& root) {
 	std::ifstream file{ std::filesystem::path(SettingsPath()) };
-	if (!file.is_open()) {
-		g_savedSnapshot = BuildSnapshot();
-		g_pendingSnapshot = g_savedSnapshot;
-		return;
-	}
+	if (!file.is_open()) return false;
 	std::stringstream buffer;
 	buffer << file.rdbuf();
-	JsonValue root;
-	if (!JsonParse(buffer.str(), root) || root.type != JsonValue::Type::Object) {
-		g_savedSnapshot = BuildSnapshot();
-		g_pendingSnapshot = g_savedSnapshot;
-		return;
-	}
+	return JsonParse(buffer.str(), root) && root.type == JsonValue::Type::Object;
+}
 
+// Puts a parsed settings file (or the defaults snapshot, which has the same shape) into the
+// modules. The UI keys are replaced, not merged.
+static void ApplySettingsRoot(const JsonValue& root) {
+	g_ui.clear();
 	LoadViewFx(Object(root, "viewFx"));
 	LoadSmoothView(Object(root, "smoothView"));
 	const JsonValue* handheld = Object(root, "handheld");
@@ -658,8 +652,46 @@ void FilmmakerSettings_Load() {
             g_ui["config.environment.tab"]=legacy=="atmos"?"atmosphere":legacy=="weather"?"sky":"lighting";
         }
     }
+}
+
+void FilmmakerSettings_Load() {
+	if (g_loaded) return;
+	g_loaded = true;
+	// FIRST, before anything can overwrite them: the modules are still at their construction
+	// defaults on this line, and this is the only moment that is true. Everything "reset to
+	// defaults" ever means is replayed from here.
+	g_defaultSnapshot = BuildSnapshot();
+	JsonValue root;
+	if (ReadSettingsFile(root)) ApplySettingsRoot(root);
 	g_savedSnapshot = BuildSnapshot();
 	g_pendingSnapshot = g_savedSnapshot;
+}
+
+void FilmmakerSettings_BeginPractice() {
+	if (!g_loaded || g_practice) return;
+	// The user's last edits reach the file before the hold starts: it is what End reads back.
+	g_quiet = false; g_quietSnapshot.clear();
+	FilmmakerSettings_Flush();
+	g_practice = true;
+	JsonValue defaults;
+	if (JsonParse(g_defaultSnapshot, defaults) && defaults.type == JsonValue::Type::Object)
+		ApplySettingsRoot(defaults);
+	g_dirty = false;
+}
+
+void FilmmakerSettings_EndPractice() {
+	if (!g_loaded || !g_practice) return;
+	g_practice = false;
+	// Defaults first, then the file over them: a key the file does not have ends where a fresh
+	// launch would leave it, not where the tutorial left it.
+	JsonValue defaults, saved;
+	if (JsonParse(g_defaultSnapshot, defaults) && defaults.type == JsonValue::Type::Object)
+		ApplySettingsRoot(defaults);
+	if (ReadSettingsFile(saved)) ApplySettingsRoot(saved);
+	// On screen is the file again: nothing to save.
+	g_savedSnapshot = BuildSnapshot();
+	g_pendingSnapshot = g_savedSnapshot;
+	g_dirty = false;
 }
 
 static uint64_t g_pictureRevision = 1;
@@ -669,6 +701,7 @@ uint64_t FilmmakerSettings_PictureRevision() { return g_pictureRevision; }
 
 void FilmmakerSettings_RunFrame() {
 	if (!g_loaded) return;
+	if (g_practice) { g_dirty = false; return; } // the practice session saves nothing
 	const std::string snapshot = BuildSnapshot();
 	{
 		// The "ui" object is written last and holds panel disclosure state only.
@@ -728,7 +761,7 @@ void FilmmakerSettings_Flush() {
 	// Shutdown runs through here. Flushing inside a quiet window would write the level-local reset
 	// to disk on exit -- the exact loss the window exists to prevent. `settings save` clears the
 	// window first, so an explicit save still saves whatever is on screen.
-	if (g_quiet) { g_dirty = false; return; }
+	if (g_quiet || g_practice) { g_dirty = false; return; }
 	g_pendingSnapshot = BuildSnapshot();
 	if (g_pendingSnapshot != g_savedSnapshot && SaveSnapshot(g_pendingSnapshot))
 		g_savedSnapshot = g_pendingSnapshot;

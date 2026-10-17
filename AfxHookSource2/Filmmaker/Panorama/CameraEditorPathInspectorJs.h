@@ -31,6 +31,7 @@ R"EDJS(
     var selSec = edCard(inspectorBody, 'SELECTED CAMERA', { edge: S.accent, rail: { tab: 'path', key: 'selcam', group: 'Keys' } });
     var pathSec = selSec;   // the merged card answers to both names
     var addBtn = selSec.__headerAction('+ Add', function () { cmd('mirv_filmmaker camtl addkey'); });
+    mvmTourAdd('editor.addkey', addBtn);
 
     var pathSelPage = selSec.__page('Camera');
 
@@ -82,6 +83,7 @@ R"EDJS(
       ['⟲  Reposition', function () { if (st && st.selected >= 0) cmd('mirv_filmmaker marker reposition'); }]
     ], 1, 'Fly the free cam to where you want it, then click (or press F) to drop the camera there.');
     var reposBtn = pathReposGroup.btns[0];
+    mvmTourAdd('editor.repos', reposBtn);
 
     var pathFovTile = edValueTile(pathSelPage, {
       label: 'FOV', min: 1, max: 170, decimals: 1, unit: '', fill: S.axis[6],
@@ -94,6 +96,7 @@ R"EDJS(
       onBegin: function () { if (st && st.selected >= 0) cmd('mirv_filmmaker camtl editbegin'); },
       onEnd: function () { cmd('mirv_filmmaker camtl editend'); }
     });
+    mvmTourAdd('editor.fov', pathFovTile.tile);
     var pathRollTile = edValueTile(pathSelPage, {
       label: 'Roll', min: -180, max: 180, decimals: 1, unit: '°', fill: S.axis[5],
       tip: 'Camera roll on the selected camera.',

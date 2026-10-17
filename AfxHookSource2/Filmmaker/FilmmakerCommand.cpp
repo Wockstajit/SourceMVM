@@ -6,6 +6,7 @@
 #include "Filmmaker.h"
 #include "EasterEggs/EasterEggs.h"
 #include "EasterEggs/Osu/OsuGame.h"
+#include "Onboarding/Onboarding.h"
 #include "Movie/TimelineDock.h"
 #include "Demo/DemoLibrary.h"
 #include "Demo/DemoEntry.h"
@@ -160,7 +161,8 @@ void PrintHelp(const char* cmd) {
 		"%s pathshake [...] - GTA V shake styles ON A CAMERA KEYFRAME (right-click a timeline diamond; run for sub-help).\n"
 		"%s render [...] - camera-editor render workflow (status, range, camera, start, cancel; run for sub-help).\n"
 		"%s window [...] - free window resizing + the live size/aspect-ratio readout (run for sub-help).\n"
-		, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd
+		"%s onboarding [...] - Clippy's onboarding tutorial prototype, also mvm_onboarding (run status for state).\n"
+		, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd
 	);
 }
 
@@ -482,6 +484,9 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 	} else if (0 == _stricmp(sub, "egg")) {
 		// Easter eggs: status, hint preview, Vegas test, Clippy (automation surface).
 		Filmmaker::EasterEggs_RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "onboarding")) {
+		// Clippy's onboarding tutorial (prototype); also `mvm_onboarding`. Its buttons use this.
+		Filmmaker::Onboarding_RunCommand(argc, args, "mirv_filmmaker onboarding", 2);
 	} else if (0 == _stricmp(sub, "xhair")) {
 		// True-aim crosshair: drawn where the shots actually go, not at screen centre.
 		Filmmaker::AimCrosshair_RunCommand(argc, args, cmd);

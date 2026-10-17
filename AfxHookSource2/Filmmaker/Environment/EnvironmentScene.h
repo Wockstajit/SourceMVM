@@ -126,6 +126,14 @@ std::string CurrentMapName();
 // Immutable validated map physics for independent visual volume growth.
 std::shared_ptr<const OcclusionMesh> CollisionGeometrySnapshot();
 void FlushCommittedEdits();
+// Whether the Environment scene is switched on (CONFIG > ENVIRONMENT, `environment on`). Its
+// lights, fog, sky and the scene keys' env.* channels only render while it is.
+bool SceneEnabled();
+// A practice session (Clippy's tutorial, Config/PracticeSessionFlag.h). Begin writes the user's
+// pending edits; during the session no map gets its saved scene and nothing is saved. End drops
+// the session's scene and restores the current map's saved one, as on a level load.
+void BeginPractice();
+void EndPractice();
 std::map<std::string, std::vector<double>> CaptureAnimationValues();
 void RunMainThreadFrame();
 bool PositionEditing();

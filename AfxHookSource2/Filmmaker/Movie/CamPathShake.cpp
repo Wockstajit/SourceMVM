@@ -327,6 +327,12 @@ void CamPathShake_SetEnabled(bool on) {
 	s.dirty = true;
 }
 
+void CamPathShake_ReloadProject() {
+	Store& s = S();
+	s.dirty = false;
+	s.loaded = false;
+}
+
 void CamPathShake_RunFrame() {
 	Store& s = S();
 

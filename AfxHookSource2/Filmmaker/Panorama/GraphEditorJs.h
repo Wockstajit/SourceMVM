@@ -404,6 +404,10 @@ R"GEJS(
     var dock = mk('Panel', root); dock.hittest = false;
     dock.style.horizontalAlign = 'left'; dock.style.verticalAlign = 'bottom';
     dock.style.backgroundColor = S.panel; dock.style.overflow = 'clip clip';
+    // The onboarding tutorial's names for this dock's controls ($.MvmTour, Panorama/OnboardingGuideJs.h).
+    // tourSet REPLACES the entry: rows are rebuilt, and a stale panel must not stay spotlit.
+    function tourSet(name, panel) { try { ($.MvmTour = $.MvmTour || {})[name] = [panel]; } catch (e) {} }
+    tourSet('tl.dock', dock);
     var catcher = mk('Panel', dock); catcher.hittest = true; catcher.style.width = '100%'; catcher.style.height = '100%';
     catcher.style.position = '0px 0px 0px';
     catcher.SetPanelEvent('onactivate', function () { /* swallow stray clicks; the pipe owns logic */ });
@@ -439,6 +443,7 @@ R"GEJS(
     }
     var keysTab = viewTab('KEYFRAMES', 'keys');
     var graphTab = viewTab('GRAPH', 'graph', true);
+    tourSet('tl.view.keys', keysTab); tourSet('tl.view.graph', graphTab);
     var selInfo = lbl(midCol, '', S.hint, 11); selInfo.hittest = false;
     selInfo.style.letterSpacing = '0.5px'; selInfo.style.whiteSpace = 'nowrap';
     selInfo.style.textOverflow = 'ellipsis'; selInfo.style.width = '100%';
@@ -449,6 +454,7 @@ R"GEJS(
     var prevKeyBtn = btn(rowTop, '|◀', function () { jumpKey(-1); }, S.value, 'Previous keyframe on the selected layer');
     var playBtn = btn(rowTop, '▶', function () { togglePlay(); }, S.value, 'Play / pause (Space)');
     playBtn.style.width = '46px'; playBtn.__lbl.style.horizontalAlign = 'center';
+    tourSet('tl.play', playBtn);
     var nextKeyBtn = btn(rowTop, '▶|', function () { jumpKey(1); }, S.value, 'Next keyframe on the selected layer');
     nextKeyBtn.style.marginRight = '11px';
     // Cache: keep the preview of every frame the world plays, so scrubbing back over it shows at
@@ -484,6 +490,7 @@ R"GEJS(
       b.SetPanelEvent('onmouseout', function () { b.__hot = false; paintEase(b); hideTip(); });
       b.SetPanelEvent('onactivate', function () { applyEase(it[0]); });
       easeBtns[it[0]] = b;
+      tourSet('tl.ease.' + it[0], b);
     });
     function easeTip(m) {
       return { smooth: 'Smooth tangents (no selection: the whole camera path)', linear: 'Straight lines between keys (no selection: the whole camera path)',
@@ -641,6 +648,7 @@ R"GEJS(
     // ---- rows ---------------------------------------------------------------
     var rowsView = mk('Panel', dock); rowsView.hittest = false; rowsView.style.overflow = 'clip clip';
     var rowsInner = mk('Panel', rowsView); rowsInner.hittest = false;
+    tourSet('tl.rows', rowsView);
     var rowsSbThumb = mk('Panel', dock); rowsSbThumb.hittest = false; rowsSbThumb.visible = false;
     rowsSbThumb.style.zIndex = '6';   // above the GRAPH panel, which covers the scrollbar's column
     rowsSbThumb.style.width = '6px'; rowsSbThumb.style.borderRadius = '3px'; rowsSbThumb.style.backgroundColor = '#ffffff33';
@@ -648,6 +656,7 @@ R"GEJS(
 
     // ---- graph area (replaces the track side when GRAPH is up) -------------
     var graph = mk('Panel', dock); graph.hittest = false; graph.visible = false;
+    tourSet('tl.graph', graph);
     graph.style.backgroundColor = S.graphBg; graph.style.overflow = 'clip clip';
     var gridLayer = mk('Panel', graph); gridLayer.hittest = false;
     var curveLayer = mk('Panel', graph); curveLayer.hittest = false;
@@ -1096,6 +1105,7 @@ R"GEJS(
       closePickTray(); pickBody.RemoveAndDeleteChildren();
       if (editState) cancelEdit();
       rowsInner.RemoveAndDeleteChildren();
+      try { for (var tk in $.MvmTour) if (tk.indexOf('tl.row.') === 0) delete $.MvmTour[tk]; } catch (e) {}
       var flat = flatten();
       rows = [];
       for (var i = 0; i < flat.length; i++) {
@@ -1118,6 +1128,7 @@ R"GEJS(
       rowP.style.width = G.rw + 'px'; rowP.style.height = ROW_H + 'px';
       rowP.style.borderBottom = '1px solid ' + S.rowLine;
       r.rowP = rowP;
+      tourSet('tl.row.' + n.id, rowP); // 'tl.row.cam', 'tl.row.cam.rot', 'tl.row.s:exposure', ...
       var left = mk('Panel', rowP); left.hittest = false;
       left.style.width = LEFTW + 'px'; left.style.height = ROW_H + 'px'; left.style.flowChildren = 'right';
       left.style.paddingLeft = rowPad(r) + 'px'; left.style.paddingRight = '8px';
@@ -2955,6 +2966,8 @@ R"GEJS(
       return 'Click a key to select it  ·  drag to move  ·  right-click for options';
     }
 
+    // FIT from outside: the onboarding tutorial frames the keys on its graph steps.
+    api.fit = function () { fitAll(); };
     $.GraphExp = api;
     api.render();
     $.Msg('[timeline] unified timeline built.\n');

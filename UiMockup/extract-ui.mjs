@@ -42,6 +42,7 @@ export const SURFACES = [
   { id: 'aimcrosshair',   file: 'AimCrosshairHudJs.h',        api: 'AimXhair',     label: 'Aim Crosshair HUD',       group: 'ingame', note: 'Free-aim crosshair overlay' },
   { id: 'fxdebug',        file: 'FxDebugHudJs.h',             api: 'FxDebugHud',   label: 'FX Debug HUD',            group: 'ingame', note: 'Per-shot muzzle/tracer/smoke telemetry squares' },
   { id: 'eastereggs',     file: 'EasterEggOverlayJs.h',       api: 'MvmEggs',      label: 'Easter Eggs',             group: 'ingame', note: 'Gen X hints, E-girl sparkles, Sony Vegas intervention, Clippy' },
+  { id: 'onboarding',     file: 'OnboardingJs.h',             api: 'MvmOnboarding', label: 'Onboarding (Clippy)',    group: 'ingame', note: 'Clippy the clapperboard and the sample lesson; open it with mvm_onboarding' },
   { id: 'filmmakergui',   file: 'FilmmakerGuiJs.h',           api: 'Filmmaker',    label: 'Demos Tab (main menu)',   group: 'menu',   note: 'Main-menu demo library + organizer. Menu context, not in-game.' },
   { id: 'workshop', file: 'WorkshopFilterJs.h', files: ['PlayMenuStripJs.h', 'WorkshopFilterJs.h', 'WorkshopKeywordEditorJs.h'], sourceDir: '../PlayMenu', api: 'MvmPlay', label: 'Workshop Maps', group: 'menu', note: 'Native map grid with shared Workshop filters and keyword editor.' },
   { id: 'videoresolution',file: 'VideoSettingsResolutionJs.h',api: 'MvmResolutionSettings', label: 'Custom Resolution (video settings)', group: 'menu', note: 'Injected into CS2 Video settings. Menu context, not in-game.' },

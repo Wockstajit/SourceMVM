@@ -106,7 +106,13 @@ public:
 	void SetGrenadeLights(bool flash,bool on);
 
 	void LoadSettings();             // tolerant: missing/malformed file = defaults
-	bool SaveSettings() const;
+	bool SaveSettings() const;       // skipped (reported done) during a practice session
+	// A practice session (Clippy's tutorial) begins: every effect back to its construction default.
+	// It ends: the defaults, then the file over them. Both install and warm up what is switched on,
+	// as a setter would. Main thread.
+	void ResetSettingsToDefaults();
+	void ReloadSettings();
+	void AfterSettingsReplaced();
 
 	std::string DebugStateJson() const;
 };

@@ -214,6 +214,12 @@ void PlaybackLoop_AppendStateJson(std::ostringstream& o) {
 		<< ",\"loopReady\":" << (RangeUsable() ? "true" : "false");
 }
 
+void PlaybackLoop_ReloadProject() {
+	s_loaded = false;
+	s_inTick = s_outTick = -1;
+	s_enabled = false;
+}
+
 void PlaybackLoop_RunFrame() {
 	if (!g_pEngineToClient) return;
 	// A scrub steps the demo forward in short real-playback bursts; those must not trip the loop's

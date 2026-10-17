@@ -21,5 +21,8 @@ void Props_StopEditing();
 // The client is shutting down cleanly: recent prop spawns did not crash it, so the crash-loop
 // guard must not hold this map's props back on the next load.
 void Props_OnShutdown();
+// A practice session ended: read the current map's saved props again (and spawn them) on the next
+// check. During the session props are neither read nor saved. Main thread.
+void Props_ReloadAfterPractice();
 
 } // namespace Filmmaker

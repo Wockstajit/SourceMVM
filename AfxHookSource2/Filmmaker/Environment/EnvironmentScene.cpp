@@ -8,6 +8,7 @@
 #include "../../SceneSystem.h"
 #include "../Relight/RelightStainedGlass.h"
 #include "EnvironmentPersistenceMath.h"
+#include "../Config/PracticeSessionFlag.h" // a practice session neither restores nor saves scenes
 #include "EnvironmentCoatingMath.h"
 #include "EnvironmentRender.h"
 #include "EnvironmentNativeWater.h"
@@ -269,6 +270,8 @@ bool IsSceneMap(const std::string& map) {
 }
 void SaveQueuedScene(SceneSaveQueue &queue,uint64_t now,bool force) {
     if(!queue.Due(now,force))return;
+    // A practice session's scene stays in memory: taken as saved, so nothing retries it later.
+    if(PracticeSession_Active()){queue.Complete(true,now);return;}
     std::string error;bool saved=false;
     try{saved=AtomicSave(Root()/"autosaves"/(queue.map+".json"),queue.pending,error);}
     catch(const std::exception& e){error=e.what();}
@@ -317,6 +320,15 @@ void UpdateAutosave(const std::string& map) {
         std::error_code ec;
         std::filesystem::remove(RestoringMarker(g_restoreMap), ec);
         g_restoreSettling = false;
+    }
+    if (g_restoreAutosave && PracticeSession_Active()) {
+        // A practice session starts every map without the user's saved environment.
+        g_restoreAutosave = false;
+        g_scene = Scene{};
+        ++g_sceneGeneration;
+        Scene initial = LiveScene(); initial.map = map;
+        g_autosave.Bind(map, SerializeScene(initial));
+        MvmDebugLog_LinefAlways("environment.autosave", "restore skipped map=%s (practice session)", map.c_str());
     }
     if (g_restoreAutosave) {
         // Surface objects need map geometry before they can be resolved. Never
@@ -563,6 +575,30 @@ void FlushCommittedEdits() {
     std::lock_guard<std::mutex> lock(g_mutex);
     // The queue contains accepted snapshots, never an in-progress gizmo drag.
     FlushAutosave(true);
+}
+bool SceneEnabled() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_scene.enabled;
+}
+void BeginPractice() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    FlushAutosave(true); // the user's last edits reach their file before the session holds it
+}
+void EndPractice() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    // The session's scene was never written; drop it and let UpdateAutosave restore the map's
+    // saved one once the world is ready, exactly as after a level load. Nothing is observed for
+    // saving until that restore has run, so the empty scene cannot overwrite the user's file.
+    if (g_drag.active) g_scene = g_dragBefore;
+    g_drag = {};
+    g_scene = Scene{};
+    ++g_sceneGeneration;
+    g_selected = 0; g_editing = 0; ++g_editRevision;
+    g_undo.clear();
+    g_undoStamps.clear();
+    g_autosave.dirty = false;
+    g_restoreAutosave = true;
+    g_restoreGate.Reset();
 }
 std::string CurrentMapName() { return CurrentMap(); }
 std::shared_ptr<const OcclusionMesh> CollisionGeometrySnapshot() {

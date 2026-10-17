@@ -23,6 +23,7 @@
 #include "Panorama/UiLiveReload.h"
 #include "Panorama/AimCrosshairHud.h"
 #include "Panorama/EasterEggOverlayHud.h"
+#include "Panorama/OnboardingHud.h"
 #include "EasterEggs/EasterEggs.h"
 #include "Panorama/ConfigHud.h"
 #include "Movie/HudBlackout.h"
@@ -1075,6 +1076,10 @@ void RunMainThreadFrame() {
 	// the topmost root (z900) in whichever context is up, in-game HUD or main menu.
 	EasterEggs_RunMainThreadFrame();
 	{ PanoramaPerf_Scope _p("eggs"); EasterEggOverlayHudRef().RunFrame(); }
+
+	// Clippy's onboarding tutorial (prototype). A no-op until `mvm_onboarding` opens it; then it
+	// follows whichever context is up, like the egg overlay.
+	{ PanoramaPerf_Scope _p("onboarding"); OnboardingHudRef().RunFrame(); }
 
 	// Experimental After-Effects-style graph editor (opt-in overlay; default OFF). Runs after
 	// everything else so, while enabled, its full-screen overlay sits on top; when disabled it

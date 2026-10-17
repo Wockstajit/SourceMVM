@@ -49,6 +49,9 @@ public:
 
 	// --- editing actions (main thread; dispatched from the console cmd) ---
 	void PlaceMarker();                 // K
+	// A key at a given tick and pose, without touching the live camera or the demo. Returns its
+	// index. The onboarding tutorial uses it to place the keys of a step the user skipped.
+	int PlaceMarkerAt(int tick, double x, double y, double z, double pitch, double yaw, double fov);
 	void DeleteIndex(int index);        // L (aimed) / menu
 	void DeleteAll(bool confirmed);     // menu (with confirm)
 	void SelectIndex(int index, bool teleport);
@@ -182,6 +185,11 @@ public:
 	std::string SerializedPath() const;
 	void Save();
 	void Load();
+	// A practice session begins or ends (Onboarding/PracticeSession.cpp): drop the markers in
+	// memory WITHOUT saving them, put the path settings back to their defaults, and read the
+	// playing demo's project again on the next frame. During the session the store answers
+	// "nothing saved", after it the user's own keys come back.
+	void ReloadProject();
 
 private:
 	void RebuildCamPath();   // m_eval.Rebuild(m_data, settings)

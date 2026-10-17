@@ -296,6 +296,7 @@ R"EDJS(
     ]);
     var actionRow = dockActions.root;
     var renderBtnEl = dockActions.buttons[0], renderBtnLbl = renderBtnEl.__lbl;
+    mvmTourAdd('editor.render', renderBtnEl);
     var customizeBtn = dockActions.buttons[1];
 
 )EDJS"
@@ -591,6 +592,7 @@ R"EDJS(
       inspectorMode = 'scene';
       cmd('mirv_filmmaker settings ui editor.inspector scene');
     }, true);
+    mvmTourAdd('editor.tab.path', pathTab); mvmTourAdd('editor.tab.follow', followTab); mvmTourAdd('editor.tab.scene', sceneTab);
     // FOLLOW's pinned status bar (Docs/features/camera-editor-feature.md): the target line, the state, and Live / Stop.
     // It sits ABOVE the rail so Live works from any Follow card. Built here, filled by
     // CameraEditorFollowInspectorJs.h; shown only on the Follow tab.

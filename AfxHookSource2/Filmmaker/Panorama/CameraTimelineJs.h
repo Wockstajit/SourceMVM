@@ -994,7 +994,9 @@ R"TLJS(
     // the popup silently vanishing -- it never goes through closeSettings(), so nothing logs it).
     var OURS = { 'CamTimelineRoot': 1, 'CamTimelineRangeRoot': 1, 'MarkerHudRoot': 1, 'MovieHudRoot': 1, 'CamEditorRoot': 1, 'GraphExpRoot': 1, 'CamEditorConfirmRoot': 1, 'CamEditorSettingsRoot': 1, 'CamEditorRenderRoot': 1, 'ConfigHudRoot': 1, 'CamEditorCustomizeRoot': 1, 'CamEditorCustomizeConfirmRoot': 1, 'MvmBarTipRoot': 1,
       // The easter-egg overlay: never part of the gameplay HUD the view modes hide.
-      'MvmEggRoot': 1 };
+      'MvmEggRoot': 1,
+      // Clippy's onboarding tutorial: it has to stay up while it explains the hidden-HUD views.
+      'MvmOnboardingRoot': 1 };
     var VIEWPORT_HUD_ROOTS = {
       'HudBottomGradient': 1,
       'HudInWorld': 1,

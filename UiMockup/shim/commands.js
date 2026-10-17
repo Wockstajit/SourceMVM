@@ -559,6 +559,29 @@
       }
       return true;
     }
+    // Onboarding_RunCommand: `mirv_filmmaker onboarding ...` (mvm_onboarding in game). The panel's
+    // buttons drive it; the words and the step count live in the panel script.
+    if (a === 'onboarding') {
+      var ob = st.onboarding, sub = b || 'open';
+      if (sub === 'open' || sub === 'on' || sub === 'show') { ob.on = true; ob.closed = false; ob.rev++; return true; }
+      if (sub === 'restart') { ob.on = true; ob.closed = false; ob.route = ''; ob.step = 0; ob.rev++; return true; }
+      if (sub === 'close' || sub === 'exit') { if (ob.on) { ob.closed = true; ob.rev++; } return true; }
+      if (sub === 'resume') { ob.on = true; ob.closed = false; ob.rev++; return true; }
+      if (sub === 'off' || sub === 'hide') { ob.on = false; ob.closed = false; ob.rev++; return true; }
+      if (sub === 'pos') {
+        if (c === 'reset') { ob.px = -1; ob.py = -1; return true; }
+        var fx = parseFloat(c), fy = parseFloat(d);
+        if (fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1) { ob.px = fx; ob.py = fy; } else warn('onboarding pos <x 0..1> <y 0..1> | pos reset');
+        return true;
+      }
+      if (sub === 'chatter' || sub === 'voice') { ob.voice = (c === undefined || c === 'toggle') ? !ob.voice : (c === 'on' || c === '1'); return true; }
+      if (sub === 'go') {
+        var step = parseInt(d, 10);
+        if (['cs2', 'app', 'more', 'render', 'keys', 'graph', 'path', 'recoil', 'fov', 'config'].indexOf(c) < 0 || !(step >= 0 && step <= 99)) { warn('onboarding go <route> <step 0..99>'); return true; }
+        ob.on = true; ob.closed = false; ob.route = c; ob.step = step; ob.rev++; return true;
+      }
+      return true;
+    }
     // TimelineDock_RunCommand: `mirv_filmmaker dock [native|timeline|toggle]`. No argument
     // reports; an unknown tab warns and changes nothing.
     if (a === 'dock') {

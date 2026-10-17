@@ -370,6 +370,23 @@ void CameraPath::PlaceMarker() {
 		idx, m.tick, m.x, m.y, m.z, m.fov);
 }
 
+int CameraPath::PlaceMarkerAt(int tick, double x, double y, double z, double pitch, double yaw, double fov) {
+	CamMarker m;
+	m.x = x; m.y = y; m.z = z;
+	m.pitch = pitch; m.yaw = yaw; m.roll = 0.0; m.fov = fov;
+	m.tick = tick;
+	m.time = tick * (double)g_MirvTime.interval_per_tick_get();
+	m.speedMul = 1.0f; m.ease = Ease::None;
+
+	int idx = m_data.Add(m);
+	RebuildCamPath();
+	EnsureDrawState();
+	MarkDirty();
+	advancedfx::Message("[campath] marker #%d placed @ tick %d (%.1f %.1f %.1f) fov %.1f.\n",
+		idx, m.tick, m.x, m.y, m.z, m.fov);
+	return idx;
+}
+
 void CameraPath::DeleteIndex(int index) {
 	if (!m_data.ValidIndex(index)) {
 		advancedfx::Message("[campath] delete: no marker #%d.\n", index);
@@ -1281,6 +1298,16 @@ std::vector<int> CameraPath_SavedMarkerTicks(const std::wstring& demoPath) {
 void CameraPath::Save() {
 	if (m_demoPath.empty()) return; // unknown demo -> memory only
 	DemoProjectStore_WriteSection(ProjectGame::Cs2, m_demoPath, ProjectSection::Campath, SerializedPath());
+}
+
+void CameraPath::ReloadProject() {
+	m_dirty = false;      // the outgoing markers are not saved: RunFrame's flush finds nothing
+	m_demoPath.clear();   // RunFrame treats the playing demo as newly opened and loads it
+	m_speedMode = SpeedMode::Manual;
+	m_timing = Timing::Live;
+	m_interp = Interp::Linear;
+	m_constSpeed = 1.0f;
+	m_autoSnap = false;
 }
 
 void CameraPath::Load() {

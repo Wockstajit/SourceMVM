@@ -1,4 +1,5 @@
 #include "../Config/FilmmakerSettingsStore.h"
+#include "../Onboarding/Onboarding.h" // Onboarding_BlocksKey: linear tutorial steps
 #include "../Environment/EnvironmentScene.h"
 #include "../Props/Props.h"
 #include "MovieMode.h"
@@ -66,6 +67,8 @@ namespace {
 	constexpr int kVK_DELETE = 0x2E;
 	constexpr int kVK_BACKSPACE = 0x08;
 	constexpr int kVK_J = 0x4A;     // arm / play / stop the camera path
+	constexpr int kVK_W = 0x57;     // free-cam movement: while a path plays, any of W/A/S/D stops it
+	constexpr int kVK_S = 0x53;
 
 	constexpr int kSkipSeconds = 5; // demo skip step: arrow keys and the bar's -/+ buttons
 
@@ -272,6 +275,15 @@ bool MovieMode::OnUiClick(int x, int y) {
 		|| CameraPathRef().MenuOpen() || GraphEditorExperiment_WantsCursor() || CameraEditor_CustomizeModalOpen())
 		return false;
 
+	// A camera path playing (J) drives the view by itself; it never needs the mouse. A click
+	// while it plays hands the mouse back to the UI instead of capturing it for free look, which
+	// left users stuck looking through the dolly with a captured cursor and no way out.
+	if (CameraPathRef().GetMode() == CameraPath::Mode::PreviewPlaying) {
+		EnqueueCmd("mirv_filmmaker camtl cursor on");
+		MouseCapture_SetFree(true);
+		return true;
+	}
+
 	const UiClick::Input in = ClickInput(x, y);
 	const bool toUi = UiClick::ClickSwitchesToUiMode(in);
 	const bool toGame = UiClick::ClickSwitchesToGameMode(in);
@@ -367,7 +379,11 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 		&& !GraphEditorExperiment_WantsCursor() && !CameraEditor_CustomizeModalOpen()) {
 		// The click is swallowed (no player switch), but it still means "I want to steer":
 		// take the mouse, which the swallow would otherwise keep MouseCapture from ever seeing.
-		if (down) MouseCapture_TakeForCamera("freecam click");
+		// Not while a camera path plays: then the click gives the mouse back (see OnUiClick).
+		if (down && CameraPathRef().GetMode() == CameraPath::Mode::PreviewPlaying) {
+			EnqueueCmd("mirv_filmmaker camtl cursor on");
+			MouseCapture_SetFree(true);
+		} else if (down) MouseCapture_TakeForCamera("freecam click");
 		return true;
 	}
 	// Otherwise never consume clicks: CS2 steps players or drags its camera with them, and the
@@ -461,6 +477,12 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	if (!IsDemoActive())
 		return false; // director keys only act while a demo plays
 
+	// Clippy's onboarding is linear: while a lesson step is up, the director hotkeys it does not
+	// name (Space, arrows, J, K, T, Esc, F8...) do nothing. Swallowed, so they reach neither the
+	// director nor the game. Movement and mouse look are untouched (Onboarding/Onboarding.h).
+	if (Onboarding_BlocksKey(vkey))
+		return true;
+
 	// Customize modal open: swallow EVERY key so NOTHING reaches the game -- no demo transport, no
 	// weapon/movement binds, no spectator change, no pause menu. The modal is an exclusive input
 	// surface like the editor's UI-mouse mode. Typed text is delivered separately: main.cpp forwards
@@ -549,6 +571,14 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	// path is already armed, J is a convenient second press to start it; while playing, J stops it.
 	// This branch used to be missing entirely, so the visible J shortcut was a no-op and the FBM
 	// state stayed `playing=0` after every press.
+	// Trying to fly while a camera path plays ends the playback: the user wants the camera back.
+	// The key is not swallowed, so the free cam moves on the same press.
+	if (down && cpMode == CPMode::PreviewPlaying && !m_controlDown
+		&& (vkey == kVK_W || vkey == kVK_A || vkey == kVK_S || vkey == kVK_D)) {
+		EnqueueCmd("mirv_filmmaker marker previewstop");
+		if (MvmDebugLog_Active()) MvmDebugLog_Linef("movie.input", "path stopped by movement key %d", vkey);
+	}
+
 	if (vkey == kVK_J) {
 		if (down) {
 			if (cpMode == CPMode::PreviewPlaying)

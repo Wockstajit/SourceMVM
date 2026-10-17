@@ -1,4 +1,5 @@
 #include "DemoOrganizer.h"
+#include "../Config/PracticeSessionFlag.h" // a practice session writes nothing
 
 #include "DemoProjectPath.h"
 #include "../Config/DemoOrganizerStore.h"
@@ -93,7 +94,7 @@ void DemoOrganizer_NoteRenamed(const std::wstring& oldPath, const std::wstring& 
 }
 
 void DemoOrganizer_NotePlayed(const std::wstring& demoPath) {
-	if (demoPath.empty())
+	if (demoPath.empty() || PracticeSession_Active())
 		return;
 	const std::wstring path = StripRepairedSegment(demoPath);
 	std::lock_guard<std::mutex> lock(g_mutex);

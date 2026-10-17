@@ -85,6 +85,8 @@ R"EDJS(
       b.__lbl.style.verticalAlign = 'center';
       b.style.marginRight = i === 3 ? '0px' : '6px';
       if (i === 0) b.style.width = 'fill-parent-flow(1.0)';
+      if (i === 0) mvmTourAdd('scene.opengraph', b);
+      if (i === 1) mvmTourAdd('scene.keyall', b);
       skActions.btns.push(b);
     });
     // interactive() reads __tip on hover, so the captions stay short.
@@ -101,10 +103,18 @@ R"EDJS(
           function () { skCmd('clear all'); });
       }, 'danger']
     ]);
-    edActionGroup(skTodSec, 'Key a look', [
+    var skTodGroup = edActionGroup(skTodSec, 'Key a look', [
       ['Dawn', function () { skCmd('macro dawn'); }], ['Day', function () { skCmd('macro day'); }], ['Golden', function () { skCmd('macro golden'); }],
       ['Dusk', function () { skCmd('macro dusk'); }], ['Night', function () { skCmd('macro night'); }], ['Moonlit', function () { skCmd('macro moonlit'); }]
     ], 3, 'Turns the lighting, sky and fog strips on and keys them at this tick. Ordinary keys — reshape or delete them in GRAPH.');
+    // The onboarding tutorial points at the time-of-day buttons by name ($.MvmTour).
+    try { mvmTourAdd('scene.rail.tod', edRails.scene.items['sktod'].row); } catch (e) {}
+    try { mvmTourAdd('scene.rail.keys', edRails.scene.items['skq'].row); } catch (e) {}
+    if (skTodGroup && skTodGroup.btns) {
+      ['dawn', 'day', 'golden', 'dusk', 'night', 'moonlit'].forEach(function (n, i) {
+        if (skTodGroup.btns[i]) mvmTourAdd('scene.tod.' + n, skTodGroup.btns[i]);
+      });
+    }
 
     var skGroups = {}, skFields = {}, skCatalogSig = '';
 
@@ -183,6 +193,7 @@ R"EDJS(
           var card = edCard(inspectorBody, title, { edge: family === 'effects' ? '#d4b36aff' : '#7fbdc7ff',
             rail: { tab: 'scene', key: 'sk.' + groupId, group: groupName } });
           var g = skGroups[groupId] = { fields: [], title: title, card: card };
+          try { mvmTourAdd('scene.rail.' + groupId, edRails.scene.items['sk.' + groupId].row); } catch (e) {}
           g.more = false; g.extras = [];
           members.forEach(function (f) {
             g.fields.push(f.id);
@@ -192,6 +203,7 @@ R"EDJS(
             var name = f.label;
             skFields[f.id] = skRowPanel(card, '◇', name,
               'Animate ' + name + ' in the Scene Graph', function () { skToggle(f); });
+            mvmTourAdd('scene.row.' + f.id, skFields[f.id].row);
             if (!skCommon(f.id)) g.extras.push(f.id);
           });
           if (g.extras.length) {
