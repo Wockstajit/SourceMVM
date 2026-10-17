@@ -82,17 +82,22 @@ function Save-Leftover([string]$Worktree, [string]$Entry, [string]$Destination, 
     $moved
 }
 
+function Get-Worktrees([string]$Dir) {
+    $list = @()
+    foreach ($line in (Invoke-Git $Dir @('worktree', 'list', '--porcelain'))) {
+        if ($line -like 'worktree *') {
+            $list += [pscustomobject]@{ Path = [IO.Path]::GetFullPath($line.Substring(9)).TrimEnd('\'); Branch = $null }
+        } elseif ($line -like 'branch refs/heads/*') {
+            $list[-1].Branch = $line.Substring(18)
+        }
+    }
+    $list
+}
+
 $savedEncoding = [Console]::OutputEncoding
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 try {
-    $worktrees = @()
-    foreach ($line in (Invoke-Git $PSScriptRoot @('worktree', 'list', '--porcelain'))) {
-        if ($line -like 'worktree *') {
-            $worktrees += [pscustomobject]@{ Path = [IO.Path]::GetFullPath($line.Substring(9)).TrimEnd('\'); Branch = $null }
-        } elseif ($line -like 'branch refs/heads/*') {
-            $worktrees[-1].Branch = $line.Substring(18)
-        }
-    }
+    $worktrees = @(Get-Worktrees $PSScriptRoot)
     $mainRoot = $worktrees[0].Path
     $here = [IO.Path]::GetFullPath((Get-Location).ProviderPath).TrimEnd('\')
 
@@ -163,7 +168,16 @@ try {
             }
             if ($moved) { Write-Host "  $moved ignored file(s) from $path -> $destination" }
             # --force: worktrees with initialized submodules refuse a plain remove. Both checks above passed.
-            if (-not $DryRun) { Invoke-Git $mainRoot @('worktree', 'remove', '--force', $path) | Out-Null }
+            if (-not $DryRun -and -not (Test-Git $mainRoot @('worktree', 'remove', '--force', $path))) {
+                # A program with the folder open (a shell or session still in it) blocks deleting the
+                # folder itself after git has removed its files and unregistered it. Only a worktree git
+                # still lists is a failure; an emptied, locked folder is reported and the branch goes.
+                if (Get-Worktrees $mainRoot | Where-Object { $_.Path -eq $path }) {
+                    Write-Result 'kept' $branch "git could not remove the worktree at $path"
+                    continue
+                }
+                Write-Host "  $path is still open in another program. Delete the empty folder once it closes."
+            }
         }
         if (-not $DryRun) { Invoke-Git $mainRoot @('branch', '-D', '--quiet', $branch) | Out-Null }
         Write-Result 'retired' $branch $reason
