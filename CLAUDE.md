@@ -337,7 +337,9 @@ precedence.
 - GitHub deletes only the remote branch. Right after a merge, run
   `Automation\tools\sync-merged-branches.ps1` from the main checkout. It removes the merged local
   branch and its worktree, moves their git-ignored notes and captures to
-  `Automation\runs\worktree-leftovers\`, and fast-forwards local `main`.
+  `Automation\runs\worktree-leftovers\`, and fast-forwards local `main`. Never run
+  `git worktree remove --force` yourself: on Windows it follows junctions (`reference\`, FX
+  `game\` links into the CS2 install) and empties their targets.
 - Branch from `main`, not from another open PR. A squash merge leaves a stacked branch carrying the
   base PR's old commits. If you must stack, update the next branch after each merge as
   [Stacked pull requests](Docs/setup/git-workflow.md#stacked-pull-requests) describes.

@@ -28,6 +28,17 @@ test('a worktree with any unsaved work is kept, and ignored notes are moved out 
     'notes, run output, generated UI drafts and agent configs are never treated as rebuildable');
 });
 
+test('junctions and symbolic links are deleted as links and never followed', () => {
+  // git worktree remove follows junctions and empties their targets (the main checkout's reference/,
+  // the CS2 install behind an FX build's game junction).
+  assert.ok(script.includes('if ($child.Attributes -band $reparsePoint)'), 'the walk stops at every link');
+  assert.ok(script.includes('[IO.Directory]::Delete($Link.FullName, $false)'), 'a directory link is removed, not emptied');
+  assert.ok(script.includes('foreach ($file in @(Get-TreeEntries $source))'), 'leftovers are never taken from a link target');
+  const unlink = script.indexOf('foreach ($link in $links) { Remove-Link $link }');
+  assert.ok(unlink > 0 && unlink < script.indexOf("'worktree', 'remove', '--force'"), 'links go before git removes the worktree');
+  assert.doesNotMatch(script, /Get-ChildItem[^\n]*-Recurse/, 'Get-ChildItem -Recurse follows junctions in Windows PowerShell');
+});
+
 test('main only fast-forwards and nothing is pushed', () => {
   assert.match(script, /'merge', '--ff-only'/);
   assert.match(script, /'fetch', '--quiet', 'origin', 'main:main'/);
