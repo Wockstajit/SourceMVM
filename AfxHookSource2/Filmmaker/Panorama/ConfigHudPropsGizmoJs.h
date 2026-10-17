@@ -3,8 +3,9 @@
 // CS2 ASSETS in the view: the in-world editor over the Config preview (Filmmaker/Props).
 // Placing: the model follows the surface under the cursor; a click drops it. Editing: the selected
 // prop carries move arrows and three turn rings (turn, tilt, roll); drag one, or click another prop
-// to select it. While Scene Objects is open a click selects a prop even when none is selected, and a
-// right-click selects it and opens its menu (the outliner's). Geometry (`st.props.gizmo`) is
+// to select it. While Scene Objects is open a click selects a prop even when none is selected. The
+// right button is the camera's: held in the view it looks around (MovieMode, UiClick::RightPressLooks),
+// and the outliner row keeps the right-click menu. Geometry (`st.props.gizmo`) is
 // projected by C++ from the rendered camera, in coordinates normalized over the full frame, which
 // the scaled preview shows whole. Input is the OS-cursor feed the environment gizmo uses; its
 // envDrawLine/envAxisHit/gizmoTag helpers are shared (same script scope).
@@ -164,8 +165,8 @@ R"CFJS(
     propsHint.style.horizontalAlign = 'center'; propsHint.style.verticalAlign = 'top'; propsHint.style.marginTop = '24px';
     propsHint.style.backgroundColor = '#101318e8'; propsHint.style.padding = '8px 14px';
     propsHint.style.borderRadius = '5px';
-    var propsPointerDown = false, propsRightDown = false, propsGrabbing = false;
-    var propsLastU = -1, propsLastV = -1, propsLastSnap = false, propsMenuPending = false;
+    var propsPointerDown = false, propsGrabbing = false;
+    var propsLastU = -1, propsLastV = -1, propsLastSnap = false;
     // The ring nearest (u, v) within reach: 0 turn, 1 tilt, 2 roll, -1 none. Aspect-corrected.
     function propsRingHit(g, u, v, aspect) {
       var best = -1, reach = 0.02, rings = g.rings || [];
@@ -185,10 +186,10 @@ R"CFJS(
       return best;
     }
     renderHooks.push(function (s) {
-      var p = s.props, down = !!s.lmb, right = !!s.rmb;
+      var p = s.props, down = !!s.lmb;
       var placing = !!(p && p.placing), g = p && p.gizmo, painting = !!(p && p.paint && p.paint.active);
-      // Leaving the tab or closing Config ends a placement. Flying (G hands the mouse to the free
-      // cam) only pauses the input: the placement waits until the cursor comes back.
+      // Leaving the tab or closing Config ends a placement. Looking around (the right button held
+      // hands the mouse to the camera) only pauses the input: the placement waits for the cursor.
       var shown = activeTab === 'environment' && !!s.enabled && !!p;
       if (!shown && (placing || painting)) propsCommand('cancel');
       if ((!shown || !s.cursor) && propsPaintDown) { propsCommand('paint release'); propsPaintDown = false; }
@@ -202,7 +203,7 @@ R"CFJS(
       propsOverlay.visible = shown;
       if (!shown) {
         if (propsHoverSent) { propsCommand('hoverat -1 -1'); propsHoverSent = false; }
-        propsPointerDown = down; propsRightDown = right; return;
+        propsPointerDown = down; return;
       }
       var scale = root.actualuiscale_x || 1;
       var rw = root.actuallayoutwidth / scale, rh = root.actuallayoutheight / scale;
@@ -241,9 +242,8 @@ R"CFJS(
           propsHint.text = 'Drag an arrow to move   ·   release to keep   ·   Esc: cancel   ·   click elsewhere to deselect';
         }
         if (moved) { propsLastU = u; propsLastV = v; }
-        propsPointerDown = down; propsRightDown = right; return;
+        propsPointerDown = down; return;
       }
-      var rightPressed = right && !propsRightDown;
       var axis = -1, ring = -1, selected = !!p.selected;
       // A press owns its eventual release before the queued pick reaches the backend. It only
       // describes a move after the backend confirms a grab: empty space and locked assets do not.
@@ -256,12 +256,12 @@ R"CFJS(
       var snap = !!s.shift, snapArg = snap ? ' 1' : '';
       if (painting) {
         var erasing = snap || !!p.paint.erasing, uv = u.toFixed(4) + ' ' + v.toFixed(4);
-        propsHint.text = (erasing ? 'Erasing ' : 'Painting ') + (p.paint.name || '') + '   ·   hold the mouse   ·   Shift: erase   ·   G: fly   ·   Esc: done';
+        propsHint.text = (erasing ? 'Erasing ' : 'Painting ') + (p.paint.name || '') + '   ·   hold the mouse   ·   Shift: erase   ·   hold right-click: look around   ·   Esc: done';
         if (free && down) { propsCommand('paint ' + (erasing ? 'erase ' : 'stroke ') + uv); propsPaintDown = true; }
         else if (free && moved) propsCommand('paint hover ' + uv);
         if (!down && propsPaintDown) { propsCommand('paint release'); propsPaintDown = false; }
       } else if (placing) {
-        propsHint.text = 'Click to drop ' + (p.placingName || 'it') + '   ·   G: fly the camera   ·   Esc: cancel';
+        propsHint.text = 'Click to drop ' + (p.placingName || 'it') + '   ·   hold right-click: look around   ·   Esc: cancel';
         if (free && moved) propsCommand('hover ' + u.toFixed(4) + ' ' + v.toFixed(4));
         if (free && pressed) propsCommand('drop');
       } else {
@@ -269,8 +269,8 @@ R"CFJS(
         propsHint.text = moving
           ? (grabbed >= 0 ? PROPS_RING_NAMES[grabbed] + (snap ? ' in 15° steps' : '   ·   Shift: 15° steps') : p.grab === 'move' ? 'Moving over the ground' : 'Moving' + (snap ? ' on the floor' : '   ·   Shift: snap to the floor'))
             + '   ·   Esc: put it back'
-          : selected ? 'Drag it to move it over the ground   ·   an arrow for one axis   ·   a ring to turn   ·   right-click for more'
-          : 'Click an asset, or a light\'s or mesh\'s icon, to select it   ·   right-click for its menu';
+          : selected ? 'Drag it to move it over the ground   ·   an arrow for one axis   ·   a ring to turn   ·   hold right-click: look around'
+          : 'Click an asset, or a light\'s or mesh\'s icon, to select it   ·   hold right-click: look around';
         if (!propsGrabbing && free && g && selected) {
           axis = envAxisHit(g, u, v, aspect);
           ring = axis < 0 ? propsRingHit(g, u, v, aspect) : -1;
@@ -292,26 +292,10 @@ R"CFJS(
           propsCommand('drag ' + u.toFixed(4) + ' ' + v.toFixed(4) + snapArg);
           propsCommand('release'); propsGrabbing = false;
         }
-        // Right-click: select what is under the cursor, then open its menu where the click was.
-        // The pick lands in a later state: a new selection opens at once; the same one (it was
-        // already selected) after the next state or two; none (empty ground) drops the menu.
-        if (free && rightPressed && !propsGrabbing) {
-          propsCommand('pick ' + u.toFixed(4) + ' ' + v.toFixed(4));
-          propsMenuPending = { was: p.selected || 0, runs: 0 };
-        } else if (propsMenuPending) {
-          var pm = propsMenuPending;
-          pm.runs++;
-          if (p.selected && (p.selected !== pm.was || pm.runs >= 2)) {
-            propsMenuPending = false;
-            olSelect('p' + p.selected);
-            olMenu(olFind('p' + p.selected));
-          } else if ((!p.selected && pm.runs >= 2) || pm.runs >= 4) propsMenuPending = false;
-        }
       }
       if (moved) { propsLastU = u; propsLastV = v; }
       propsLastSnap = snap;
       propsPointerDown = down;
-      propsRightDown = right;
       // Esc (handled natively) ends a grab; the state then reports no grab.
       if (propsGrabbing && p.grab === '' && !down) propsGrabbing = false;
 

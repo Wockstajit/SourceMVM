@@ -611,6 +611,7 @@ R"CFJS(
 
     var configTabSeen = '';
     var cfgSearchActive = false;   // set by ConfigHudSearchJs.h while a query is up
+    var cfgViewEditSent = '';      // the last 'viewedit' published to C++
     function applyTabs() {
       for (var k in pages) {
         pages[k].visible = !cfgSearchActive && (k === activeTab);
@@ -620,6 +621,10 @@ R"CFJS(
       }
       // A query replaces the rail AND the pane with the result list, at the pane's full width.
       cfgRailHost.visible = !cfgSearchActive;
+      // The ENVIRONMENT tab edits in the preview: C++ (UiClick viewEdit) then leaves a left click
+      // in the view to the scene-object picker and makes a held right click look around.
+      var viewEdit = !cfgSearchActive && activeTab === 'environment' ? '1' : '0';
+      if (cfgViewEditSent !== viewEdit) { cfgViewEditSent = viewEdit; root.SetAttributeString('viewedit', viewEdit); }
       scrollView.style.marginLeft = cfgSearchActive ? '0px' : (UI.rail.gap + 'px');
       pageSearch.visible = cfgSearchActive;
       // applyTabs() is called both on a click and from render(), so the entrance is keyed on a

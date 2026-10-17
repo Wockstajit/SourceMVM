@@ -607,6 +607,20 @@ int main(int argc, char **argv) {
         Check(read()==resolvedNative,"Completed native lighting and sky preserve resolved edge color with mixed MSAA depth");
         frame=saved;
     }
+    {
+        // A placed lamp's pool at night: the native path has already lit this bright map pixel,
+        // so the sun going down must not darken it again (the crusted lamp pool of issue 41).
+        Frame saved=frame;const float savedBackground=background;
+        frame.nativeLightingApplied=true;
+        frame.scene.climate[CL_enabled]=1;frame.scene.climate[CL_relighting]=1;frame.scene.climate[CL_relight]=1;
+        background=.6f;
+        frame.scene.climate[CL_sunElevation]=30;auto lampDay=render(.004f);
+        frame.scene.climate[CL_sunElevation]=-30;auto lampNight=render(.004f);
+        std::cout<<"lamp pool day="<<int(lampDay[center])<<" night="<<int(lampNight[center])<<"\n";
+        Check(lampNight[center]==lampDay[center]&&lampNight[center+1]==lampDay[center+1]&&lampNight[center+2]==lampDay[center+2],
+              "Native-lit surfaces keep their lamp light when the sun sets");
+        background=savedBackground;frame=saved;
+    }
     // Snow must inherit broad map shading and not relight every raw geometric facet.
     {
         frame.scene.climate=Climate{};frame.scene.climate[CL_snow]=1;frame.camera={0,0,1000};frame.angles={90,0,0};

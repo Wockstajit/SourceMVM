@@ -71,6 +71,7 @@ There is no mouse toggle. Where you click decides it:
 - Click the game **preview**: the mouse belongs to the camera (CS2's look-around drag, or the editor's own camera).
 - Click any **panel**: the mouse belongs to the UI.
 - Popups that sit over the preview (Editor Settings, a keyframe's shake menu) keep their clicks.
+- On Config's **ENVIRONMENT** tab the left button edits in the preview: it selects, places and drags scene objects and never moves the camera. **Hold the right button** in the preview to look around; releasing it gives the mouse back to the editor.
 - While the UI has the mouse, CS2 does not: its mouse-look and capture stand down, so a right-click over the preview cannot start CS2's own look-around underneath the editor.
 - While a **camera path plays** (or is about to start), a click or right-click on the preview does nothing at all. It neither switches to the camera nor reaches CS2. The path is flying the camera, and either one would take the mouse from you mid-playback. The panels around the preview (pause, stop, the timeline) keep working.
 

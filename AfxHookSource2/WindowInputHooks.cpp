@@ -63,6 +63,10 @@ static bool CancelRawNotch(int sign) {
 void WindowInputHooks_FilterRawInput(RAWINPUT* raw) {
 	if (!raw || raw->header.dwType != RIM_TYPEMOUSE) return;
 	RAWMOUSE& m = raw->data.mouse;
+	// While the game holds the mouse for a right-click look it reads raw input only: no
+	// WM_RBUTTONUP arrives, and GetAsyncKeyState does not track the button either. The raw release
+	// is the one that always comes, so it ends the look (MovieMode::OnRightButtonUp).
+	if (m.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_UP) Filmmaker::MovieInput_RightButtonUp();
 	if (!(m.usButtonFlags & RI_MOUSE_WHEEL)) return;
 	if (!s_directorOwnsWheel.load(std::memory_order_relaxed)) return;
 	const short delta = (short)m.usButtonData;
@@ -80,9 +84,12 @@ void WindowInputHooks_MainThreadFrame(bool directorOwnsWheel) {
 	int notches = s_rawWheelNotches.exchange(0);
 	if (!notches || !directorOwnsWheel) return;
 	// A mouse button held = a look-around drag: the notch is the game's wherever CS2 parked the
-	// pointer, so it goes in without a position (MovieMode::OnMouseWheel).
+	// pointer, so it goes in without a position (MovieMode::OnMouseWheel). Not while the UI owns
+	// the cursor: then the held button is a press on a panel (a row, a slider), the pointer is
+	// where the user put it, and the notch scrolls what is under it instead of switching cameras.
 	POINT pt = { -1, -1 };
-	const bool dragging = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) || (GetAsyncKeyState(VK_RBUTTON) & 0x8000);
+	const bool dragging = !Filmmaker::CameraTimeline_WantsCursor()
+		&& ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) || (GetAsyncKeyState(VK_RBUTTON) & 0x8000));
 	if (!dragging) {
 		GetCursorPos(&pt);
 		if (g_UiCursorProbe.hwnd) ScreenToClient(g_UiCursorProbe.hwnd, &pt);
@@ -318,8 +325,9 @@ LRESULT CALLBACK new_Afx_WindowProc(
 			const bool hadRaw = wheelDelta != 0 && CancelRawNotch(wheelDelta > 0 ? 1 : -1);
 			if (Filmmaker::MvmDebugLog_Active())
 				Filmmaker::MvmDebugLog_Linef("input.wheel", "message delta=%d (raw copy cancelled=%d)", wheelDelta, hadRaw ? 1 : 0);
-			// A button held = a look-around drag: the notch is the game's (no position, see above).
-			if (keys & (MK_LBUTTON | MK_RBUTTON)) pt = { -1, -1 };
+			// A button held = a look-around drag: the notch is the game's (no position, see above),
+			// unless the UI owns the cursor and the button is a press on a panel.
+			if ((keys & (MK_LBUTTON | MK_RBUTTON)) && !Filmmaker::CameraTimeline_WantsCursor()) pt = { -1, -1 };
 			if(Filmmaker::MovieInput_OnMouseWheel(wheelDelta, shift, ctrl, pt.x, pt.y))
 				return 0;
 		}

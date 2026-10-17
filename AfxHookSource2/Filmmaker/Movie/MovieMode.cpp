@@ -248,6 +248,7 @@ UiClick::Input MovieMode::ClickInput(int x, int y) {
 	// The keyframe shake menu (right-click a diamond) opens over the preview too: a click on its
 	// close button or rows is the menu's, not a switch to GAME mode.
 	in.popupOpen = CameraEditor_PopupOpen() || ConfigHud_PopupOpen() || CameraTimeline_MenuOpen();
+	in.viewEdit = ConfigHud_Enabled() && !CameraEditor_Active() && ConfigHud_ViewEditing();
 	in.x = (float)x; in.y = (float)y;
 	int clientW = 0, clientH = 0;
 	WindowResize_GetClientSize(clientW, clientH);
@@ -331,6 +332,18 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 			return true;
 		}
 	}
+	// ENVIRONMENT tab: the left button picks and drags scene objects, so the right button held in
+	// the preview looks around. The press takes the mouse for the camera and carries on to it (CS2's
+	// look-around drag, or the free cam below); the release hands the mouse back to the editor.
+	if (button == 1) {
+		if (down && IsDemoActive() && UiClick::RightPressLooks(ClickInput(x, y))) {
+			m_rightLook = true;
+			EnqueueCmd("mirv_filmmaker camtl cursor off");
+			MouseCapture_TakeForCamera("right-click look");
+			if (MvmDebugLog_Active())
+				MvmDebugLog_Linef("input.uiclick", "button=1 x=%d y=%d -> look around (environment view)", x, y);
+		} else if (!down) OnRightButtonUp();
+	}
 	// Follow Camera reposition uses the same free-look + left-click placement model
 	// as path-marker repositioning.
 	if (button == 0 && IsDemoActive() && FollowCameraRef().Repositioning()) {
@@ -389,6 +402,13 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 	// Otherwise never consume clicks: CS2 steps players or drags its camera with them, and the
 	// native demo UI (demoui) needs clicks to reach Panorama.
 	return false;
+}
+
+void MovieMode::OnRightButtonUp() {
+	if (!m_rightLook.exchange(false)) return;
+	EnqueueCmd("mirv_filmmaker camtl cursor on");
+	if (MvmDebugLog_Active())
+		MvmDebugLog_Linef("input.uiclick", "button=1 released -> back to the environment editor");
 }
 
 bool MovieMode::OnKey(int vkey, bool down) {

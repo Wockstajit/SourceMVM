@@ -632,7 +632,11 @@ float3 ShadeSample(float2 pixel,float depth,float3 color,uint sample) {
         // When native materials own the lighting, the skybox follows the energy the relit
         // world actually receives (sun AND ambient), not the sun height alone.
         if(IsSkyboxGeometry(depth)) color*=bakedLight.y>.5&&viewmodelInfo.z>.5?bakedLight.x:scale;
-        else if(!sky && !IsViewmodelSample(pixel,sample)){
+        // Native materials dim the additive shafts at draw time (UnlitOverlayScale), and every
+        // other bright pixel here is a surface the native path already lit -- a placed lamp's
+        // pool at night. Darkening those again by a luminance threshold cut the pool into a
+        // crust wherever the albedo crossed it (issue 41), so only the composite-lit path keeps it.
+        else if(viewmodelInfo.z<.5 && !sky && !IsViewmodelSample(pixel,sample)){
             float lum=dot(max(color,0),float3(.2126,.7152,.0722));
             if(lum>.22) color*=scale*lerp(.55,1,day);
         }

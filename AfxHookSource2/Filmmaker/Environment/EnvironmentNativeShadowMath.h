@@ -131,6 +131,22 @@ inline void NativeLampDisk(Relight::IrradianceDxbc::Words& out,unsigned first,
     Emit(out,18,{});compare(Dest(sum,1),center,reference);
     Emit(out,56,{destination,Temp(sum,0),Temp(faceWeight,255)});Emit(out,21,{});
 }
+// A source operand of an instruction that writes `mask`, re-swizzled so the components it feeds
+// to the written lanes arrive in .x, .y, ... A source swizzle is read by destination position:
+// CS2's lightmapped world kernels build the face NDC as `mad r.zw, a.zzzw, rect.zzzw, rect.xxxy`,
+// and copying that operand into `mov t.xy, a.zzzw` read (z, z). The cube-face weights then saw
+// NDC (x, x), neighbouring faces stopped summing to one, and both lit their overlap fully: a
+// bright hard-edged square under every shadowed placed lamp.
+inline Relight::IrradianceDxbc::Words SourceForMask(Relight::IrradianceDxbc::Words operand,unsigned mask) {
+    if(operand.empty()||(operand[0]&3)!=2||((operand[0]>>2)&3)!=1)return operand; // 4-lane swizzle only
+    unsigned lanes[4]{},count=0;
+    for(unsigned c=0;c<4;++c)if(mask&(1u<<c))lanes[count++]=(operand[0]>>(4+2*c))&3;
+    if(!count)return operand;
+    unsigned swizzle=0;
+    for(unsigned c=0;c<4;++c)swizzle|=lanes[c<count?c:count-1]<<(2*c);
+    operand[0]=(operand[0]&~0xff0u)|(swizzle<<4);
+    return operand;
+}
 // Replace only the verified clustered-light nine-comparison kernel. The sun
 // cascade loop and unfamiliar permutations retain their existing lookups.
 inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,bool classifySmallFilters=true) {
@@ -179,8 +195,11 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
         const unsigned uv=temps,sum=temps+1,tap=temps+2,span=temps+3,
             source=temps+4,footprint=temps+5,blocker=temps+6,coords=temps+7,faceWeight=temps+8,
             plane=temps+9;
-        // Keep face-relative NDC before the native atlas MAD overwrites it.
-        Emit(out,54,{Dest(faceWeight,3),words(ins[rect].operands[1])});
+        // Keep face-relative NDC before the native atlas MAD overwrites it, read through the
+        // lanes that MAD writes (SourceForMask: it may write .zw, not .xy).
+        const auto& rectDest=ins[rect].operands[0];
+        const unsigned rectMask=((code[rectDest.start]>>2)&3)==0?(code[rectDest.start]>>4)&15:3;
+        Emit(out,54,{Dest(faceWeight,3),SourceForMask(words(ins[rect].operands[1]),rectMask)});
         Emit(out,54,{Dest(faceWeight,8),Literal(1,1,1,1)});
         patches.emplace(ins[rect].at,Patch{ins[rect].at,std::move(out)});out.clear();
         // Capture the rect before the native UV adds overwrite its register.

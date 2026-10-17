@@ -1140,6 +1140,7 @@ void Shutdown() {
 // --- Movie director input taps (forward to the MovieMode singleton) ---
 bool MovieInput_OnKey(int vkey, bool down) { return MovieModeRef().OnKey(vkey, down); }
 bool MovieInput_OnMouseButton(int button, bool down, int x, int y) { return MovieModeRef().OnMouseButton(button, down, x, y); }
+void MovieInput_RightButtonUp() { MovieModeRef().OnRightButtonUp(); }
 bool MovieInput_OnUiClick(int x, int y) { return MovieModeRef().OnUiClick(x, y); }
 bool MovieInput_OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, int y) { return MovieModeRef().OnMouseWheel(delta, shiftDown, ctrlDown, x, y); }
 

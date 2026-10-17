@@ -73,6 +73,8 @@ public:
 	bool TextCaptureActive() const { return m_textCapture; }
 	// The Editor Settings fly-out is up: its full-screen overlay takes every click, preview included.
 	bool PopupOpen() const { return m_popupOpen; }
+	// The ENVIRONMENT tab edits in the preview: left picks and drags, right looks around.
+	bool ViewEditing() const { return m_viewEdit; }
 	bool Enabled() const { return m_enabled; }
 
 	std::string DebugStateJson() { return BuildStateJson(); }
@@ -111,6 +113,7 @@ private:
 	short m_symPreviewRect = -1;
 	short m_symTextCapture = -1;
 	short m_symPopupOpen = -1;     // "popupopen" -- EditorSettingsPopupJs.h publishes its overlay
+	short m_symViewEdit = -1;      // "viewedit" -- ConfigHudPropsGizmoJs.h, the ENVIRONMENT tab is up
 	// Last preview rect parsed from the JS-published "previewrect" (normalised window fractions).
 	bool m_previewValid = false;
 	bool m_demoScaleActive = false;
@@ -122,6 +125,7 @@ private:
 	bool m_liveCursor = false;         // live panel's own UI-cursor flag (demo uses the timeline's)
 	bool m_textCapture = false;
 	bool m_popupOpen = false;
+	bool m_viewEdit = false;
 	bool m_prevMovieHud = false; // movie-director card visibility to restore on exit
 	bool m_povReady = false;     // debounced spectated-player-available flag
 	int m_povReadyHold = 0;      // frames the current reading has held steady
@@ -157,6 +161,7 @@ void ConfigHud_ToggleLiveCursor();
 void ConfigHud_PushChar(unsigned charCode);
 bool ConfigHud_TextCaptureActive();
 bool ConfigHud_PopupOpen(); // Config's Editor Settings fly-out is up
+bool ConfigHud_ViewEditing(); // the ENVIRONMENT tab edits in the preview (UiClick::Input::viewEdit)
 // Editing shortcuts handed to the panel's JS, which owns the selection they act on
 // ("delete", "duplicate"). Input thread.
 void ConfigHud_PushKey(const char* name);

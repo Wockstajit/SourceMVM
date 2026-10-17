@@ -17,7 +17,26 @@ using Microsoft::WRL::ComPtr;
 using namespace Filmmaker::Environment;
 using namespace Filmmaker::Relight::IrradianceDxbc;
 void Check(bool ok,const char* why){if(!ok){std::cerr<<why<<'\n';std::exit(1);}}
+// Lane a source operand feeds to destination lane `lane`.
+unsigned Lane(const Words& operand,unsigned lane){return (operand[0]>>(4+2*lane))&3;}
+void TestSourceForMask(){
+    // CS2's lightmapped world kernel: mad r16.zw, r16.zzzw, rect.zzzw, rect.xxxy. Copied into an
+    // .xy move, the face NDC must arrive as (z, w), not (z, z) -- the square under placed lamps.
+    const Words ndc=Temp(16,2|(2<<2)|(2<<4)|(3<<6));
+    const auto zw=SourceForMask(ndc,12);
+    Check(Lane(zw,0)==2&&Lane(zw,1)==3,"A .zw kernel's face NDC is read as (z, w)");
+    Check(zw[1]==16,"Re-swizzling keeps the register");
+    // The .xy kernel (mad r8.xy, r6.xyxx, ...) already reads in place.
+    const auto xy=SourceForMask(Temp(6,0|(1<<2)),3);
+    Check(Lane(xy,0)==0&&Lane(xy,1)==1,"A .xy kernel's face NDC is unchanged");
+    // A single written lane replicates; a scalar-select operand is left alone.
+    const auto w=SourceForMask(Temp(4,0xe4),8);
+    Check(Lane(w,0)==3&&Lane(w,1)==3,"A .w write reads w");
+    Words scalar{0x00100002u|(2u<<2)|(1u<<4),7};
+    Check(SourceForMask(scalar,12)==scalar,"Select-1 operands are not re-swizzled");
+}
 int main(int argc,char** argv){
+    TestSourceForMask();
     ComPtr<ID3D11Device> device;ComPtr<ID3D11DeviceContext> ctx;bool hardware=argc>1&&std::string(argv[1])=="--hardware";
     auto hr=D3D11CreateDevice(nullptr,hardware?D3D_DRIVER_TYPE_HARDWARE:D3D_DRIVER_TYPE_WARP,nullptr,D3D11_CREATE_DEVICE_DEBUG,nullptr,0,D3D11_SDK_VERSION,&device,nullptr,&ctx);
     if(hr==DXGI_ERROR_SDK_COMPONENT_MISSING)hr=D3D11CreateDevice(nullptr,hardware?D3D_DRIVER_TYPE_HARDWARE:D3D_DRIVER_TYPE_WARP,nullptr,0,nullptr,0,D3D11_SDK_VERSION,&device,nullptr,&ctx);

@@ -20,6 +20,7 @@
 
 #include "UiClickMath.h"
 
+#include <atomic>
 #include <mutex>
 #include <vector>
 #include <string>
@@ -34,6 +35,9 @@ public:
 	// --- input taps (WndProc / input thread). Return true if consumed. ---
 	bool OnKey(int vkey, bool down);
 	bool OnMouseButton(int button, bool down, int x = -1, int y = -1); // 0 = left, 1 = right; client px
+	// The right button came up, from WM_RBUTTONUP or from raw input: while the game holds the
+	// mouse no legacy release arrives. Ends a right-click look and gives the editor the mouse back.
+	void OnRightButtonUp();
 	bool OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x = -1, int y = -1);
 	// Left button down at client (x, y) inside a workspace. A click on a panel in GAME mode switches
 	// to UI mode and returns true: the caller hands this press (and its release) straight to the
@@ -102,6 +106,9 @@ private:
 	// A press swallowed because a camera path was playing (UiClick::PathPlaybackSwallowsPress); its
 	// release is swallowed too, even if playback ended in between. Input thread only.
 	bool m_playbackSwallowed[2] = { false, false };
+	// A right press in the ENVIRONMENT tab's preview took the mouse for looking around
+	// (UiClick::RightPressLooks); its release hands the mouse back to the editor.
+	std::atomic<bool> m_rightLook{ false };
 
 	// X-ray default-off bookkeeping (main thread only -- ApplyXrayDefault):
 	std::wstring m_xrayDefaultPath;  // demo we have already forced spec_show_xray 0 for

@@ -537,11 +537,13 @@ An effect has no model, so it is picked by a 32×32×48 handle box at its base. 
   are measured on a throwaway `prop_dynamic`, because the pawn's own bounds are the player hull. The
   hook arms the same paused-render gates as the death-animation preview. It turns the model by writing
   its scene-node transform in the late frame. The box keeps one panel and swaps the model on its pawn.- **Place in scene** switches to the free cam and hangs the model under the mouse. The model follows
-  the surface under the cursor (the map's collision mesh) over the view until a click drops it. Fly
-  CS2's free cam to look somewhere else and back. **Esc** cancels. Each model is
+  the surface under the cursor (the map's collision mesh) over the view until a click drops it. Hold
+  the right button to look somewhere else, then let go to carry on placing. **Esc** cancels. Each model is
   precached first, so it never draws as the ERROR placeholder.
 - With Scene Objects open, a click on a prop in the view selects it, and a click on empty ground
-  deselects it. A right-click selects the prop and opens its menu (the outliner's). A selected prop is
+  deselects it. On the ENVIRONMENT tab the left button is the editor's and never moves the camera:
+  hold the right button in the view to look around (`UiClick::RightPressLooks` in
+  [`UiClickMath.h`](../../AfxHookSource2/Filmmaker/Movie/UiClickMath.h)). A selected prop is
   edited in the view. Drag an arrow to move it along that axis, or drag one of three rings to turn it.
   The blue ring turns it about the vertical (yaw). The green ring tilts it about its side (pitch). The
   red ring rolls it about its forward axis. Each ring changes exactly one angle. **Esc** during a drag
@@ -628,7 +630,7 @@ tree of groups, Blender-style. Code: [`ConfigHudOutlinerJs.h`](../../AfxHookSour
   for a CS2 asset its size, its turn, tilt and roll, and the moves that are awkward to drag. For a
   mesh, its full editor (position, size, material, textures). For a light, a link to the Lights page.
   Every item also shows its group.
-- Right-click a row (or a prop in the view) for its menu: Duplicate, Copy, Paste, the asset moves,
+- Right-click a row for its menu: Duplicate, Copy, Paste, the asset moves,
   Hide/Show, Lock/Unlock and Remove. On a group row, Isolate and Ungroup. While Scene Objects is open,
   **Delete** removes the selected item, **Ctrl+D** duplicates it, **Ctrl+C** copies it and
   **Ctrl+V** pastes the copy. A CS2 asset hangs under the mouse like a placement (same size, turn and
