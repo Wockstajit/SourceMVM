@@ -135,12 +135,12 @@ Create a draft release for the new version, then upload only these files:
 - `latest.yml`
 - `AfxHookSource2.dll`, the same hook the installer bundles (`build/source2-release/bin/x64/`),
   for people who inject it themselves. The launcher ignores it.
-- `SourceMovieMaker-Portable-<version>.zip`, from `npm run package:portable-zip` after
-  `package:bundled`. Unzip and run, nothing is installed. It is not in `latest.yml`, so the updater
-  never offers it, and the website links only the Complete-Setup exe. A portable launcher cannot
-  replace itself: it tells the user to download the new zip or the setup exe.
 - `SHA256SUMS.txt`, regenerated for exactly these files. The packaging step can leave a stale one
   in `release\` from an older version; never upload that.
+
+Never upload the portable zip (`SourceMovieMaker-Portable-<version>.zip`, from
+`npm run package:portable-zip`) to a public release. It contains DMCA-restricted files, and the zip
+lays them out as plain files on the release page. Build it only for local or private use.
 
 Keep internal test logs, verification JSON, scan copies and components archives out of public
 release assets. Delete failed uploads from the release form instead of leaving broken entries.
