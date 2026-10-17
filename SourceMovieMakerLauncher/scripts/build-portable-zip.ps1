@@ -8,9 +8,10 @@
     SourceMovieMaker-data folder next to the exe (electron/main.cjs portableFolder). Nothing is
     installed and nothing unpacks to %TEMP%.
 
-    The zip is a plain extra release asset. It is not listed in latest.yml, so the updater never
-    offers it, and the website only links the Complete-Setup exe. A portable launcher cannot
-    replace itself: it tells the user to download the new zip or the setup exe.
+    The zip is for local or private use only. Never upload it to a public release: it contains
+    DMCA-restricted files as plain zip entries (Docs/setup/publishing-releases.md). It is not listed
+    in latest.yml, so the updater never offers it. A portable launcher cannot replace itself: it
+    tells the user to download the new zip or the setup exe.
 #>
 param([string]$ReleaseDirectory = '')
 $ErrorActionPreference = 'Stop'
@@ -43,4 +44,4 @@ try {
 $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Host "Portable zip ready: $archive"
 Write-Host "SHA-256: $hash"
-Write-Host 'Add it to SHA256SUMS.txt and upload it as a normal release asset. Do not add it to latest.yml.'
+Write-Host 'Local or private use only. Do not upload it to a public release (it contains DMCA-restricted files), and do not add it to latest.yml or SHA256SUMS.txt.'
