@@ -39,7 +39,7 @@ Passes that need the same scene share one render (`RenderKey`):
 
 A job never needs more than three renders per output frame, whatever it records. Progress counts output frames, and the workspace shows the renders per frame alongside.
 
-**Gun only** has no render of its own. It is the per-pixel difference between Main and NoGun of the same frame. That isolates exactly the viewmodel and everything it causes, with its true colour and depth taken from Main. This works only because both renders share one simulation state.
+**Gun only** has no render of its own. Its subject is the first-person viewmodel (gun and arms) in Main, found by depth: CS2 draws the viewmodel at raw depth 0.1 or less, so that band is the gun whatever its colour. On top of that comes the per-pixel difference between Main and NoGun of the same frame, which adds what the viewmodel causes outside the band (muzzle flash, first-person particles). Colour and depth come from Main. The difference only works because both renders share one simulation state. The difference alone keyed out every part of the gun as bright as the background behind it: grey sleeve and barrel highlights over grey smoke came out key green (2026-10-17).
 
 **Which render is being drawn** is one engine-thread value (`AfxStreams_CurrentPassRenderKey`). It is set when a render begins, before its scene update. It is cleared only after the extra-pass loop has waited for that render to finish (`RenderServiceHooks.cpp` waits for each render before switching). Every draw-level decision (World Only's player drop, Players Only's repaint, the chroma clear, the foliage and indirect-draw skips) reads it.
 
@@ -58,7 +58,7 @@ Every pass other than a direct Beauty capture goes through [`RenderPassComposito
   No material is swapped in a job. Weapons lying on the ground are dropped by World Only, so they count as subject.
 
   The live workspace view does the same. While a Players only pass is shown, the render loop adds one output-less World Only render per frame, and the next frame is masked against it (identical while paused, one frame behind during playback).
-- Gun only: subject = where Main and NoGun differ (smoothstep 0.03 to 0.08). Colour and depth come from Main.
+- Gun only: subject = Main's viewmodel depth band (raw depth 0.1 or less), plus where Main and NoGun differ (smoothstep 0.03 to 0.08). Colour and depth come from Main. The live view has one render, so it shows the band alone (no muzzle flash).
 
 The compositor applies the background colour (`render pass key`), so any colour works.
 
@@ -66,7 +66,7 @@ The compositor applies the background colour (`render pass key`), so any colour 
 
 ## Controls
 
-The Render workspace's **Passes** tab has a type × visibility grid, the background colour, the depth range, and a live view of one enabled pass (Gun only has none, because it needs two renders). Below that are the game HUD (Beauty · Everything only), the camera sidecar, and blood.
+The Render workspace's **Passes** tab has a type × visibility grid, the background colour, the depth range, and a live view of one enabled pass (Gun only shows the gun and arms live; the muzzle flash needs the job's second render). Below that are the game HUD (Beauty · Everything only), the camera sidecar, and blood.
 
 ```
 mirv_filmmaker render pass                                   status + help

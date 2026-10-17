@@ -234,7 +234,8 @@ public:
 	ID3D11Texture2D* Compose(ID3D11DeviceContext* immediate, ID3D11Texture2D* color, ID3D11DepthStencilView* depth, const ComposeParams& p,
 		ID3D11RenderTargetView* target = nullptr) {
 		if (!Ready() || !immediate || !color) { Fail("compose: not ready"); return nullptr; }
-		const bool needDepth = p.mode != 0 || p.mask == 1; // the players mask keys the sky by depth
+		// The players mask keys the sky by depth; the live gun mask (4) is the viewmodel depth band.
+		const bool needDepth = p.mode != 0 || p.mask == 1 || p.mask == 4;
 		const bool needRef = p.mask == 2;
 		if (needRef && !m_RefValid) { Fail("compose: gun pass without a Main reference this frame"); return nullptr; }
 		const bool worldRef = p.mask == 1 && p.worldRef && m_WorldRefValid;

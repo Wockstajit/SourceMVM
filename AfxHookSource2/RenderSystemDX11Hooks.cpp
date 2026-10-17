@@ -3179,6 +3179,8 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
     AfxRenderPass::ComposeParams params;
     params.mode = live.type;
     params.mask = (int)Filmmaker::PassMaskFor((Filmmaker::VisibleElements)live.elements);
+    // Gun only is Main against NoGun in a job; live there is one render, so its viewmodel band.
+    if (live.elements == (int)Filmmaker::VisibleElements::OnlyWeapon) params.mask = (int)Filmmaker::PassMask::GunBand;
     float key[4];
     Filmmaker::RenderPlayersOnlyGreen_KeyColor(key);
     params.keyIn[0] = key[0]; params.keyIn[1] = key[1]; params.keyIn[2] = key[2];
@@ -3195,9 +3197,10 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
         if (live.type != s_lastType || live.elements != s_lastElements || (ok ? 1 : 0) != s_lastOk) {
             s_lastType = live.type; s_lastElements = live.elements; s_lastOk = ok ? 1 : 0;
             Filmmaker::MvmDebugLog_LinefAlways("render.pass.live",
-                "compose type=%d elements=%d mask=%d ok=%d near=%g far=%g hasW2C=%d dsv=%p",
+                "compose type=%d elements=%d mask=%d ok=%d near=%g far=%g hasW2C=%d dsv=%p depthRange=(%.6f %.6f) reversed=%d",
                 live.type, live.elements, params.mask, ok ? 1 : 0, live.depthNear, live.depthFar,
-                g_EnvironmentFrame.hasWorldToClip ? 1 : 0, (void*)g_pCurrentDepthStencilView);
+                g_EnvironmentFrame.hasWorldToClip ? 1 : 0, (void*)g_pCurrentDepthStencilView,
+                params.depthMin, params.depthMax, params.reversedDepth ? 1 : 0);
         }
     }
     texture->Release();
