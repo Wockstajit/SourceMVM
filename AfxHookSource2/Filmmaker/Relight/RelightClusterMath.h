@@ -188,8 +188,37 @@ inline bool FirstPersonLight(const LightRecord& light,const Vec3& camera,float r
     if(!std::isfinite(distance))return true;
     return distance<=(radius+reach)*(radius+reach);
 }
+// Exact projected sphere tangents, intersected with the existing conservative cone/box.
+// The eye-plane crossing case retains the clipped hull; dividing by a nearly zero tangent
+// denominator there would magnify roundoff. One extra tile remains on every edge.
+inline void TightenSphereExtent(Vec3 c,float radius,const ClusterGrid& g,const ClusterView& view,
+                                float width,float height,ClusterExtent& e){
+    const Vec3 b{view[12][3],view[13][3],view[14][3]};
+    const float w=Dot(b,c)+view[15][3],bb=Dot(b,b),rr=radius*radius;
+    if(!(w>radius*std::sqrt(bb)+(std::max)(1e-4f,std::abs(w)*1e-4f)))return;
+    const float denominator=w*w-rr*bb;if(!(denominator>0)||!std::isfinite(denominator))return;
+    float lo[2]{},hi[2]{};
+    for(unsigned axis=0;axis<2;++axis){
+        const Vec3 a{view[12][axis],view[13][axis],view[14][axis]};
+        const float x=Dot(a,c)+view[15][axis],aa=Dot(a,a),ab=Dot(a,b);
+        const Vec3 tangent=a*w-b*x;
+        const float discriminant=rr*(Dot(tangent,tangent)-rr*(aa*bb-ab*ab));
+        if(!std::isfinite(discriminant)||discriminant<0)return;
+        const float centre=(x*w-rr*ab)/denominator,half=std::sqrt(discriminant)/denominator;
+        lo[axis]=centre-half;hi[axis]=centre+half;
+        if(!std::isfinite(lo[axis])||!std::isfinite(hi[axis]))return;
+        const float pad=1e-4f*(1+(std::max)(std::abs(lo[axis]),std::abs(hi[axis])));
+        lo[axis]-=pad;hi[axis]+=pad;
+    }
+    auto low=[&](float pixel){const auto tile=uint32_t(pixel)>>g.shift;return tile?tile-1:0;};
+    auto high=[&](float pixel,uint32_t limit){return (std::min)((uint32_t(pixel)>>g.shift)+1,limit-1);};
+    e.x0=(std::max)(e.x0,low(std::clamp((lo[0]+1)*width*.5f,0.f,width-1)));
+    e.x1=(std::min)(e.x1,high(std::clamp((hi[0]+1)*width*.5f,0.f,width-1),g.tilesX));
+    e.y0=(std::max)(e.y0,low(std::clamp((1-hi[1])*height*.5f,0.f,height-1)));
+    e.y1=(std::min)(e.y1,high(std::clamp((1-lo[1])*height*.5f,0.f,height-1),g.tilesY));
+}
 inline ClusterExtent LightClusterExtent(const LightRecord& light,const ClusterGrid& g,
-                                       const ClusterView& view,float width,float height,float cutoff=0) {
+                                       const ClusterView& view,float width,float height,float cutoff=0,bool tightSphere=true) {
     ClusterExtent e{0,g.tilesX-1,0,g.tilesY-1,0,g.sliceCount-1,1,0};
     ClusterHull hull;const bool beam=GlassClusterHull(light,hull);float radius=0;
     if(!beam){
@@ -247,6 +276,7 @@ inline ClusterExtent LightClusterExtent(const LightRecord& light,const ClusterGr
     e.x0=low(lowX);e.y0=low(lowY);
     e.x1=(std::min)((uint32_t(highX)>>g.shift)+1,g.tilesX-1);
     e.y1=(std::min)((uint32_t(highY)>>g.shift)+1,g.tilesY-1);e.allTiles=0;
+    if(!beam&&tightSphere)TightenSphereExtent(c,radius,g,view,width,height,e);
     return e;
 }
 }

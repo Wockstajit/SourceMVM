@@ -1,6 +1,8 @@
 #include "PlayingDemoPath.h"
 
 #include "DemoLibrary.h"
+#include "DemoPathCacheMath.h"
+#include "DemoProjectPath.h"
 #include "../Filmmaker.h"              // Library(), CurrentDemoPath()
 #include "../../MirvTime.h"           // g_MirvTime.GetCurrentDemoTick
 #include "../Platform/TextEncoding.h" // WideToUtf8, Utf8ToWide
@@ -226,8 +228,9 @@ std::wstring ResolvePlayingDemoPath() {
 	std::lock_guard<std::mutex> lk(s_m);
 	static void* s_lastDemo = nullptr;
 	static std::wstring s_lastPath;
+	static DemoPathCache<std::string> s_enginePath;
 
-	if (!demo || !demo->IsPlayingDemo()) { s_lastDemo = nullptr; s_lastPath.clear(); return L""; }
+	if (!demo || !demo->IsPlayingDemo()) { s_lastDemo = nullptr; s_lastPath.clear(); s_enginePath.Clear(); return L""; }
 
 	// Primary: the engine's own getter (exact + robust). Fall back to the guarded object scan
 	// only if it yields nothing, so behaviour never regresses on an SDK the slot doesn't match.
@@ -235,9 +238,15 @@ std::wstring ResolvePlayingDemoPath() {
 	char ebuf[1024];
 	int en = SafeGetEngineDemoPath(ebuf, (int)sizeof(ebuf));
 	if (en > 0) {
-		std::wstring abs = ResolveAbsolute(Utf8ToWide(std::string(ebuf, en)));
-		if (!EndsWithDemCI(abs)) abs += L".dem";
-		resolved = CanonicalDemoPath(abs);
+		const std::string raw(ebuf, en);
+		resolved = s_enginePath.Get(raw, reinterpret_cast<uintptr_t>(demo),
+			DemoProjectPathRevision(), GetTickCount64(), [&] {
+				std::wstring abs = ResolveAbsolute(Utf8ToWide(raw));
+				if (!EndsWithDemCI(abs)) abs += L".dem";
+				return CanonicalDemoPath(abs);
+			});
+	} else {
+		s_enginePath.Clear();
 	}
 	if (!resolved.empty()) {
 		s_lastPath = resolved;

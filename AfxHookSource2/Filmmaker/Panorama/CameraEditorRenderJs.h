@@ -1009,8 +1009,8 @@ R"EDJS(
         var v = parseInt(text, 10);
         if (isFinite(v) && v >= 0) cmd('mirv_filmmaker render output bitrate ' + v);
       });
-    // Encoder and speed. Auto is the default and the right answer for almost everyone: encode is
-    // the dominant per-frame cost, and GPU is several times faster than x264. The design puts both
+    // Encoder and speed. Auto is the default and the right answer for almost everyone: a GPU encode
+    // never holds a frame up, while x264 can (measured 2026-10-18). The design puts both
     // on one line; they get a line each because the column is narrower on a 4:3 game window
     // (34% of 1440) and "Balanced" clipped there.
     var encRow = rsLabeledRow(encBody, 'Encoder', 96, 8);
@@ -1342,10 +1342,13 @@ R"EDJS(
       encSeg.sync(enc === 2 ? 'auto' : (enc === 0 ? 'cpu' : 'gpu'));
       encSeg.flag(2, 'dim', out.nvenc === 3);
       encNote.text = (enc === 2 && out.nvenc === 2)
-        ? 'Auto → GPU (NVENC). Encoding is the slowest step of a render; GPU keeps it off the critical path.'
+        ? 'Auto → GPU (NVENC). GPU encoding never slows a render down; CPU encoding can.'
         : (out.nvencNote || '');
       encNote.style.color = (out.encoder === 1 && out.nvenc === 3) ? S.dangerText : RS_MUTED;
       speedSeg.sync(['quality', 'balanced', 'fast'][out.speed || 0] || 'quality');
+      // The speed presets change the CPU encoder's time per frame; on the GPU the three measured
+      // the same (2026-10-18), so the row only shows when the job will encode on the CPU.
+      speedRow.visible = !(enc === 1 || (enc === 2 && out.nvenc === 2));
       encBody.style.opacity = isMp4 ? '1.0' : '0.35';
       encBody.hittestchildren = isMp4;
       encAside.visible = !isMp4;

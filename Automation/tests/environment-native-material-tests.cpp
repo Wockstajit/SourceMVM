@@ -846,7 +846,29 @@ void CheckDerivedAbiAgainstShippedShaders(){
     std::cout<<"derived ABI: "<<derived<<'/'<<scanned<<" extracted programs bind a light record buffer, "
              <<checked<<" audited hashes reproduced exactly\n";
 }
+void CheckDrawWorkTransitions() {
+    Frame frame;
+    PrepareNativeMaterialFrame(frame);
+    Check(!NativeMaterialDrawWorkNeeded(), "inactive environment takes the native draw path");
+    frame.active = true; frame.scene.enabled = true;
+    frame.scene.climate[CL_sky] = 1;
+    PrepareNativeMaterialFrame(frame);
+    Check(NativeMaterialDrawWorkNeeded(), "sky-only environment keeps its material scopes");
+    frame.scene.climate[CL_sky] = 0;
+    frame.scene.climate[CL_bakedSuppressed] = 1;
+    PrepareNativeMaterialFrame(frame);
+    Check(NativeMaterialDrawWorkNeeded(), "unbake without relighting keeps its material scopes");
+    frame.relight.enabled = true;
+    PrepareNativeMaterialFrame(frame);
+    Check(NativeMaterialDrawWorkNeeded(), "live relighting keeps its material scopes");
+    frame.active = false;
+    PrepareNativeMaterialFrame(frame);
+    Check(!NativeMaterialDrawWorkNeeded(), "turning off clears draw work despite stored settings");
+    ResetNativeMaterial();
+    Check(!NativeMaterialDrawWorkNeeded(), "device reset leaves no stale draw request");
+}
 int main(int argc,char** argv){
+    CheckDrawWorkTransitions();
     CheckResourceBindings();
     Check(NativeLightingViewport(1600,1200,0,.95f),"main world receives dynamic lighting");
     Check(NativeLightingViewport(1600,1200,0,.1f),"viewmodel receives dynamic lighting");

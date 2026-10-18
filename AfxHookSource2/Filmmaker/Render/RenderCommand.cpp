@@ -41,9 +41,13 @@
 #include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
 
 #include <sstream>
+#include <atomic>
 #include <string>
 
 extern SOURCESDK::CS2::ISource2EngineToClient* g_pEngineToClient;
+
+// RenderSystemDX11Hooks.cpp: whether a recording forces r_wait_on_present (diagnostic).
+extern std::atomic<bool> g_RecordWaitOnPresent;
 
 namespace Filmmaker {
 
@@ -460,7 +464,8 @@ static void PrintHelp(const char* cmd) {
 		"%s render restorecoverage - what the state-restore guard does and does NOT put back.\n"
 		"%s render start     - begin the recorder-backed render session.\n"
 		"%s render cancel    - request cancellation of active render.\n"
-		, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
+		"%s render waitpresent 0|1 - diagnostic: 1 forces r_wait_on_present while recording (the old behaviour).\n"
+		, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
 }
 
 // -- handlers --
@@ -767,8 +772,8 @@ static void RunOutputCommand(int argc, advancedfx::ICommandArgs* args, const cha
 			"%s render output project <name>    - set the take name (sanitized).\n"
 			"%s render output format <mp4|avi|gif|png|tiff|tga|bmp|exr>\n"
 			"%s render output fps <value>\n"
-			"%s render output encoder auto|cpu|gpu - auto (default) uses NVENC when proven; it is the\n"
-			"                                      biggest render-speed lever (MP4).\n"
+			"%s render output encoder auto|cpu|gpu - auto (default) uses NVENC when proven; the GPU\n"
+			"                                      encoder never holds a frame up, x264 can (MP4).\n"
 			"%s render output quality <0-51>    - constant-quality CRF/CQ; lower = better.\n"
 			"%s render output bitrate <kbps>    - target bitrate; 0 = use quality mode.\n"
 			"%s render output speed quality|balanced|fast - encode speed preset.\n",
@@ -1065,6 +1070,14 @@ void Render_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 		advancedfx::Message("%s", RenderStateRestoreGuard::CoverageReport().c_str());
 	} else if (0 == _stricmp(sub, "hdrgrab")) {
 		RenderHdrCapture_RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "waitpresent")) {
+		if (argc >= 4) {
+			const char* v = args->ArgV(3);
+			if (0 == strcmp(v, "0") || 0 == strcmp(v, "1")) ::g_RecordWaitOnPresent.store(v[0] == '1', std::memory_order_relaxed);
+			else { advancedfx::Warning("usage: %s render waitpresent 0|1\n", cmd); return; }
+		}
+		advancedfx::Message("%s: waitpresent=%d (transient diagnostic; 1 forces r_wait_on_present while recording, the old behaviour)\n",
+			cmd, ::g_RecordWaitOnPresent.load(std::memory_order_relaxed) ? 1 : 0);
 	} else if (0 == _stricmp(sub, "range")) {
 		RunRangeCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "in")) {

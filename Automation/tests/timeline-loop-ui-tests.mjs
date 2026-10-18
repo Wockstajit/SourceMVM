@@ -69,6 +69,7 @@ function createUi() {
   const contents = makePanel('Panel', nativeRoot, 'Contents');
   const sliderRow = makePanel('Panel', contents, 'SliderRow');
   makePanel('Panel', sliderRow, 'RoundMarkers');
+  makePanel('Panel', sliderRow, 'HighlightIcons');
   // CS2's ControlRow as of the 2026-10-14 build (panorama/layout/hud/huddemocontroller.xml).
   const controls = makePanel('Panel', contents, 'ControlRow');
   makePanel('Panel', controls, 'PlayButton');
@@ -115,7 +116,7 @@ function createUi() {
     $.CamTimeline.render();
     checkErrors();
   }
-  return { $, state, panels, commands, contents, controls, dialogVars, render, load, checkErrors,
+  return { $, state, panels, commands, contents, controls, dialogVars, render, load, checkErrors, makePanel, ctx,
     find: id => ctx.FindChildTraverse(id) };
 }
 
@@ -228,4 +229,41 @@ test('the graph builds and renders without adding a duplicate loop control', () 
   assert.equal(ui.find('CamTimelineRangeRoot').visible, false);
   assert.equal(ui.panels.filter(p => p.id === 'LoopBtn').length, 1);
   assert.deepEqual(ui.commands.filter(c => /mirv_filmmaker loop/.test(c)), []);
+});
+
+
+test('undocked playback reads native marker geometry only when docking takes ownership', () => {
+  const ui = createUi();
+  ui.render({ hosted: false });
+  // Finish the existing dock's restore/settle window.
+  for (let i = 0; i < 5; ++i) ui.render();
+  const markers = ui.find('HighlightIcons');
+  const marker = ui.makePanel('Panel', markers, 'test-round');
+  marker.actualxoffset = 120;
+  marker.actuallayoutwidth = 80;
+  let reads = 0;
+  const readChild = markers.GetChild;
+  markers.GetChild = function (i) { ++reads; return readChild.call(this, i); };
+  for (let i = 0; i < 20; ++i) ui.render({ tick: 310 + i });
+  assert.equal(reads, 0, 'plain playback must not scan every marker each frame');
+  ui.render({ hosted: true });
+  assert.ok(reads > 0, 'capture the live basis before taking ownership');
+  assert.equal(marker.style.marginLeft, '120.0px');
+  ui.render({ hosted: false });
+  for (let i = 0; i < 5; ++i) ui.render();
+  // The native script can replace/reposition markers while undocked.
+  marker.actualxoffset = 250;
+  ui.render({ hosted: true });
+  assert.equal(marker.style.marginLeft, '250.0px');
+});
+
+test('unchanged state still follows layout changes and camera-mode readback', () => {
+  const ui = createUi();
+  ui.render({ hosted: true });
+  const width = ui.contents.style.width;
+  ui.ctx.actuallayoutwidth = 1440;
+  ui.find('CameraModeLabel').text = 'Free Camera';
+  ui.render();
+  assert.notEqual(ui.contents.style.width, width);
+  assert.equal(ui.find('CamTimelineRoot').attrs.cammode, '2');
 });

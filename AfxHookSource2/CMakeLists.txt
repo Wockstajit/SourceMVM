@@ -408,7 +408,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Environment/EnvironmentNativeWater.cpp
     Filmmaker/Environment/EnvironmentNativeRain.cpp
     Filmmaker/Environment/EnvironmentNativeRain.h
-    Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp
+    Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp
     Filmmaker/Relight/Relight.cpp Filmmaker/Relight/RelightNativeCluster.cpp
     Filmmaker/Relight/Relight.h
     Filmmaker/Relight/RelightMath.h
@@ -927,6 +927,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Cosmetics/CosmeticDebugEvents.cpp
     Filmmaker/Debug/MvmDebugLog.cpp
     Filmmaker/Debug/MvmDebugLog.h
+    Filmmaker/Debug/GpuPassProfiler.cpp
+    Filmmaker/Debug/GpuPassProfiler.h
+    Filmmaker/Debug/GpuPassProfileMath.h
     Filmmaker/Cosmetics/CosmeticGloveLabels.cpp
     Filmmaker/Cosmetics/CosmeticGloveLabels.h
     Filmmaker/Cosmetics/CosmeticGloveSkinTable.cpp

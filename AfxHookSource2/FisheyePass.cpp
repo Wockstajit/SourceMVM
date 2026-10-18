@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "Filmmaker/Debug/GpuPassProfiler.h"
 
 #include "FisheyePass.h"
 
@@ -355,6 +356,7 @@ void CFisheyePass::Apply(ID3D11DeviceContext* pImmediateContext, ID3D11RenderTar
 	ID3D11CommandList* pCommandList = nullptr;
 	m_DeviceContext->FinishCommandList(FALSE, &pCommandList);
 	if (pCommandList) {
+		GPU_PASS_SCOPE(pImmediateContext, "fisheye");
 		pImmediateContext->ExecuteCommandList(pCommandList, TRUE);
 		pCommandList->Release();
 	}

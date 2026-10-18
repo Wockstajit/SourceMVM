@@ -490,8 +490,16 @@ Preview refreshes at most 128 cached fixture faces per frame, with age/visibilit
 priority and an oldest-face reserve. Cached static shadows remain resident throughout the map;
 moving-caster shadows can lag in the cached tier. Sun cascades and the high-resolution local
 tier keep their normal updates. Movie exports refresh every resident cached face.
-`mvm_debug` reports asynchronous GPU stage times under `relight.probe.gi.gpu` and cached-face
-counts under `environment.relight.shadow.spatial`. Preview bounds readback is nonblocking;
+`mirv_filmmaker gpuprofile` reports the GI stages and the lamp face refresh in GPU milliseconds
+([GPU pass profile](gpu-pass-profile.md)); `mvm_debug` reports cached-face counts under
+`environment.relight.shadow.spatial`. Cached lamp faces batch current-pose character and weapon culling in groups of 16 faces.
+GPU bounds cover blocks of 1,536 vertices and retain whole triangles; each face draws only
+intersecting blocks. Unknown bounds and preparation failures retain the original draws.
+This uses current GPU positions, not delayed CPU bounds, and preserves shadow resolution,
+refresh cadence, material coverage and filter samples. Scene/indirect streams keep their
+existing draws to avoid allocating per-face indices for worst-case capacities.
+`mirv_relight castercull 0|1` compares the original and culled paths (default 1).
+Preview bounds readback is nonblocking;
 unavailable current bounds conservatively include casters, while exports wait for exact bounds.
 The controlled church view remains below the 30 FPS minimum. The
 [Wicked engine lighting comparison](wicked-engine-lighting-comparison.md) records diagnostic timings
@@ -512,18 +520,29 @@ controls and fixed top-down shadow coverage were inspected in game; glass transm
 coloured bounce and exhaustive fly-through acceptance remain unfinished.
 
 Live reflections. Reflections do not use the map's baked reflection cubes. Each frame a 128² cube is marched
-from a retained capture point through the lit map bounce voxels (sun, fixtures, bounce); rays that leave
+from the current camera through the lit map bounce voxels (sun, fixtures, bounce); rays that leave
 the region see the sky. It fills the native clustered reflection list (`cb3[20]`) as one
 map-wide record at `cb3[25..33]`: a box far larger than the map, so parallax correction reduces
 to the reflected direction; strength in the tint row; and a normalization row written on the
 GPU from the capture point's probe irradiance. The material divides local ambient by that row,
 capped at one (`cb3[6]`), so a reflection is dimmed on surfaces darker than the capture point
 and never brightened past it. `cb3[24].y` is the cube's mip count. Record layout and the
-fixture-mirrored lookup are in `ReflectionRecordRows` (`RelightProbeMath.h`). The capture point
-stays fixed until the camera travels 40 units. Moving captures retain 80 percent history for
-both cube radiance and its normalization row, preventing small steps from changing their
-relative brightness. First captures, authored/display edits and large cuts bypass history.
+fixture-mirrored lookup are in `ReflectionRecordRows` (`RelightProbeMath.h`). The capture follows
+camera movement each frame. History is rejected when the origin moves, on the first capture,
+and after authored/display edits; a stationary capture retains 20 percent history. Cube radiance
+and normalization use the same decision. The former 40-unit hold and 80-percent blend could
+leave stale silhouettes in puddles after movement. `mirv_relight reflectionfollow 0` retains that
+old behavior for comparison; the default is 1.
+
+The live cube's roughness mip levels use deterministic GGX filtering with source mip selection
+from the sampling footprint. Level zero preserves the captured detail. This replaces ordinary
+box downsampling, whose angular footprint was too narrow for the native material's roughness
+lookup. `mirv_relight reflectionfilter 0` selects the former box mips; the default is 1. Allocation
+or shader failure falls back to the existing cube without disabling diffuse GI. The GPU fixture
+checks uniform HDR energy, unchanged level zero, cross-face filtering and deterministic output.
+
 This remains one coarse voxel capture, with approximate silhouettes and no local parallax.
+It cannot reproduce accurate fine-detail puddle reflections or reflected animated players.
 The Lighting
 page's Reflections switch and `mirv_relight reflections <0-2>` control it.
 
@@ -622,9 +641,9 @@ probe albedo, fully blocked cages, distance output and scrolling irradiance.
 
 The local `ddgi_rayallocationCS.hlsl` also informs visible-work prioritization. Wicked adapts
 ray budgets using frustum and variance information; this implementation uses current depth
-to refresh receiver cages, with fixed ray counts and no CPU readback. Separate GPU queries
-report the background and visible stages as `relight.probe.gi.gpu` and
-`relight.probe.gi.visible.gpu`. Reduced dispatch work alone is not evidence of an FPS gain.
+to refresh receiver cages, with fixed ray counts and no CPU readback. The GPU pass profile times
+the background stages (`gi: inject`, `gi: trace`, ...) and the visible stage (`gi: visible probe
+mask`) apart. Reduced dispatch work alone is not evidence of an FPS gain.
 
 This uses six directional moment bands rather than Wicked's octahedral maps; voxel rays do not
 provide hardware triangle intersections or Lumen's surface cache. Thin geometry below voxel
@@ -1119,7 +1138,7 @@ both frame time and exposure. Play into the measured tick with the camera alread
 
 Measured at the same pose, standing, within one session, two rounds each (2026-10-18). The cached
 lamp shadows (`shadowlights 0` against the default) cost about 6 ms of a 28 ms frame: rendering
-their faces' depth about 1.85 ms (`mapShadowMs` 3.3 to 1.4 ms), the lookups themselves (blocker
+their faces' depth about 1.85 ms (the map shadow pass, 3.3 to 1.4 ms), the lookups themselves (blocker
 search and disk) about 0.45 ms, and the rest in the shipped light loop. That loop culls a record
 with its whole authored range box, so many pixels far outside a lamp's visible reach still enter
 its shadow code; and a shadowed point light used to be six face records, each with its own cull
@@ -1261,6 +1280,43 @@ preparation on every draw with reuse for matching view buffers and viewport with
 `cost full|word|one` limits evaluation to all records, the first 32, or one record; the last
 two intentionally change the image and are diagnostics, not quality settings.
 
+AO view repair distinguishes unsupported bytecode from a validated program that never reads
+`b4[16].xyz`. The latter keeps the engine's native view buffer instead of copying it twice and
+patching values it cannot use. Reads of `b4[16].w` and all other native view rows stay live.
+Programs with relative or mixed xyz/w addressing keep the existing conservative clone path.
+`mirv_relight aoreuse 0|1` compares the old repair path with this reuse (default 1, transient).
+Native GPU tests compare exact output at 1x, 4x and 8x MSAA with changing view values; the
+optimization does not reduce AO, GI, shadow samples, resolution or update frequency.
+
+Three more passes do the same work with less GPU serialization. Each has a transient
+diagnostic switch (default 1) that restores the previous path for same-process comparison:
+
+- `mirv_relight maskdedupe 0|1`: the visible GI probe mask reads a cell before its atomic. A
+  cell another receiver already marked needs no atomic, because the OR is idempotent and only
+  the first marker appends to the compact list. The mask and the set of listed cells are
+  unchanged; `RelightProbeGpuTests` compares both paths.
+- `mirv_relight facebatch 0|1`: a lamp face refresh batch gives each face its own scratch
+  depth and transfer texture, then issues the batch's base copies, actor draws and atlas copies
+  phase by phase. One shared scratch pair made every face a dependent copy, draw, copy chain.
+- `mirv_relight widecull 0|1`: the batched actor-triangle culling of the cached lamp faces also
+  runs for the budgeted lamp faces and the four sun cascades. A face without a prepared batch
+  still takes the original draw.
+- `mirv_relight slotstable 0|1`: a budgeted shadow light keeps the cache slot it had, and the
+  sun tiers are keyed by static geometry and props rather than by the first light's key. A
+  transient light (a molotov or muzzle light) entering the budget used to shift the other lights
+  to new slots, so every cached face and the whole-map sun tier redrew static geometry. On a
+  molotov loop the mean GPU frame fell from about 47 to 41 ms; the removed redraws reached 24 ms
+  in a single frame. Settled same-pose captures with and without it are identical.
+- `mirv_relight gicarry 0|1`: the probe history and distance volumes are carried into the
+  ping-pong target by a compute copy instead of two `CopyResource` calls on the 3D volumes. The
+  values are the same bit for bit (`RelightProbeGpuTests`); the copy fell from about 0.76 ms to
+  0.02 ms.
+
+On the de_ancient loop at 2560x1351 with 4x MSAA, the mask fell from about 1.55 ms to under
+0.36 ms, lamp face refresh from about 2.6 ms to 2.2 ms and near lamps from about 1.3 ms to
+0.9 ms. Two alternating rounds measured 33.4 ms with all three off and 31.1 ms with all three on.
+Same-pose captures differ no more than repeated captures of one mode.
+
 Offline Mirage, 1600×900, fixed pose, 413 records and 64 cached shadow lights, measured with
 15-second render-pump brackets after warmup:
 
@@ -1286,6 +1342,12 @@ conservative extent, and one writes each mask word exactly once. The sphere come
 attenuation row 9, never the emitter-softening radius. A box crossing the near plane
 retains all tiles; offscreen projections clamp to screen edges and grow by one tile.
 Slice endpoints grow by one slice to cover floating-point boundary differences.
+Finite local lights additionally intersect those bounds with conservative projected sphere
+tangents. Eye-plane crossings or numerically uncertain projections keep the original extent.
+The outward numerical padding and extra tile remain; authored light ranges and the existing
+radiance cutoff do not change. `mirv_relight clusterbounds 0|1` selects box or tighter sphere
+bounds (default 1). Dense independent projected-point tests and WARP mask comparisons cover
+perspective, off-axis, rotated and orthographic views.
 
 Depth culling runs in both position branches. A WARP raster test with known clip W
 verified the D3D11 pixel-input convention; the test is retained in the GPU suite.

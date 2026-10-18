@@ -179,6 +179,9 @@ struct Scene {
     // describes: 0 flat fill, 1 world-space checker, 2 lit from the world's own light field.
     std::string lightmapFile;
     unsigned lightmapMode = 0;
+    bool responsiveReflections = true; // Follow the viewer; never mix captures from different origins.
+    bool filteredReflections = true; // Roughness-aware live cube; false is the box-mip diagnostic.
+    bool tightClusters = true; // Conservative projected sphere bounds; false is the comparison path.
     unsigned clusters = 3; // 0 full mask, 1 native tiles+slices, 2 native slices, 3 owned tiles+slices
     // Visible reach (RelightClusterMath.h): a light stops at the distance where it can no longer
     // change a dark pixel by this many display steps. 0 keeps every authored range. At 4 the

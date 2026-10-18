@@ -193,10 +193,10 @@ includes every submitted caster. It never uses an old pose to omit current shado
 still wait for exact current bounds. Incomplete bounds increase shadow draw work, so this avoids a CPU stall
 without establishing an overall FPS improvement.
 
-`mvm_debug` logs `relight.probe.gi.gpu` approximately every three seconds with
-setup, injection, tracing, composition and reflection GPU milliseconds. Results
-are polled asynchronously with `D3D11_ASYNC_GETDATA_DONOTFLUSH`; the renderer does not wait for
-them. Map-load voxelization and region/history movement are outside this stage sample.
+`mirv_filmmaker gpuprofile` ([GPU pass profile](gpu-pass-profile.md)) reports the GI stages in
+GPU milliseconds: static voxelization, region shift, inject, trace, compose and reflection capture.
+Results are polled asynchronously with `D3D11_ASYNC_GETDATA_DONOTFLUSH`; the renderer does not
+wait for them.
 `environment.relight.shadow.spatial` reports resident/updated faces and the effective budget.
 The live results below show that the reported FPS problem remains.
 

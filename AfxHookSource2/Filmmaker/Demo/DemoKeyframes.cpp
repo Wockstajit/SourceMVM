@@ -1,6 +1,7 @@
 #include "DemoKeyframes.h"
 
 #include "DemoHeaderReader.h"
+#include "DemoProjectPath.h"
 #include "DemoKeyframesMath.h"
 #include "DemoProjectStore.h"
 #include "DemoRepair.h" // DemoRepair_ResolvePlayable: the source of a rebuild during a session
@@ -135,6 +136,7 @@ void WriteMarker(const std::wstring& demoPath, const std::wstring& copyPath, con
 	if (!f) return;
 	fwrite(value.data(), 1, value.size(), f);
 	fclose(f);
+	InvalidateDemoProjectPathCache();
 }
 
 // Removes one slot and everything a build leaves beside it. False when the slot itself is still
@@ -143,7 +145,7 @@ bool DeleteSlot(const std::wstring& copy) {
 	DeleteFileW((copy + L".part").c_str());
 	DeleteFileW((copy + L".log").c_str());
 	if (FileExists(copy) && !DeleteFileW(copy.c_str())) return false;
-	DeleteFileW(MarkerPath(copy).c_str());
+	if (DeleteFileW(MarkerPath(copy).c_str())) InvalidateDemoProjectPathCache();
 	return true;
 }
 

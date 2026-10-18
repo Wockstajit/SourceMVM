@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "Filmmaker/Debug/GpuPassProfiler.h"
 
 #include "CampathDrawer.h"
 #include "MirvTime.h"
@@ -1690,6 +1691,7 @@ void CCampathDrawer::OnPostRenderAllTools_DrawingThread(CDynamicProperties * dyn
 	ID3D11CommandList * pCommandList = nullptr;
 	m_DeviceContext->FinishCommandList(FALSE, &pCommandList);
 	if(pCommandList) {
+		GPU_PASS_SCOPE(m_ImmediateContext, "campath drawer");
 		m_ImmediateContext->ExecuteCommandList(pCommandList,
 			TRUE // RestoreContextState has quite some performance impact on TRUE, let's try FALSE first
 		);

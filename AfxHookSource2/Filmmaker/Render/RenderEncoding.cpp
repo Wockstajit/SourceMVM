@@ -17,9 +17,10 @@ std::string BuildFfmpegVideoOptions(const RenderOutputSettings& settings, bool u
 
 	std::ostringstream o;
 	if (useNvenc) {
-		const char* preset = settings.speed == RenderEncodeSpeed::Quality ? "p7"
-			: settings.speed == RenderEncodeSpeed::Fast ? "p3" : "p5";
-		o << "-c:v h264_nvenc -preset " << preset << " -tune hq -profile:v high " << RenderNvencQualityFlags();
+		// p3, p5 and p7 rendered 3-second clips in the same time at 2560x1351 (2026-10-18): the GPU
+		// encoder is never the slowest step, so it always runs its best preset. The speed setting
+		// still selects the x264 preset below, where it changes the time per frame several-fold.
+		o << "-c:v h264_nvenc -preset p7 -tune hq -profile:v high " << RenderNvencQualityFlags();
 		if (kbps > 0)
 			o << " -rc vbr -b:v " << kbps << "k -maxrate " << (kbps * 3 / 2) << "k";
 		else
@@ -38,7 +39,9 @@ std::string BuildFfmpegVideoOptions(const RenderOutputSettings& settings, bool u
 	// BT.601 while every player and editor decodes HD as BT.709, which shifts and washes colours.
 	// This -vf replaces the recorder's own "-vf setsar=sar=1/1" (FFmpeg keeps only the last
 	// -vf), so the SAR is set here too. One token, no spaces: the command line is not quoted.
-	o << " -vf setsar=sar=1/1," << (resizeFilter.empty() ? "" : resizeFilter + ",")
+	// H.264 4:2:0 needs even dimensions: libx264 refuses an odd game window outright (a 2560x1351
+	// window failed every frame, 2026-10-18), so an odd edge loses one pixel row or column here.
+	o << " -vf setsar=sar=1/1,crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0," << (resizeFilter.empty() ? "" : resizeFilter + ",")
 		<< "scale=out_color_matrix=bt709:out_range=tv:flags=bicubic+accurate_rnd+full_chroma_int,format=yuv420p"
 		<< " -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv";
 	o << " -movflags +faststart {QUOTE}{AFX_STREAM_PATH}\\" << fileStem << ".mp4{QUOTE}";

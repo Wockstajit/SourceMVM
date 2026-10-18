@@ -442,6 +442,13 @@ R"TLJS(
 
     function nativeDock(barW) {
       if (!ensureNative()) return;
+      // Capture the live native basis BEFORE changing its width. While undocked we do not
+      // need to read every round/kill marker every frame; the next dock reads fresh geometry.
+      if (!markersDocked && markerCaptureHold === 0) {
+        captureMarkerBasis('RoundMarkers');
+        captureMarkerBasis('HighlightMarkers');
+        captureMarkerBasis('HighlightIcons');
+      }
       var w = Math.max(360, Math.floor(barW || 0));
       nativeContents.style.width = w + 'px'; nativeContents.style.horizontalAlign = 'left';
       // Give the docked bar the same opaque editor background as the camera/graph panels.
@@ -544,14 +551,9 @@ R"TLJS(
         if (markersAtBasisWidth()) { markersDocked = false; markerCaptureHold = 2; }
       } else if (markerCaptureHold > 0) {
         markerCaptureHold--;
-      } else {
-        // Fully restored: refresh the basis every frame while undocked -- cheap, and self-heals
-        // if the native script recreates the markers (round data changed, spectated player
-        // switched) while undocked.
-        captureMarkerBasis('RoundMarkers');
-        captureMarkerBasis('HighlightMarkers');
-        captureMarkerBasis('HighlightIcons');
       }
+      // Once restored, leave native markers alone. nativeDock captures them again before
+      // taking ownership, including markers replaced after a round or spectator change.
     }
 )TLJS"
 // Split here: MSVC caps a single raw string literal at ~16380 bytes (C2026). Adjacent
@@ -1079,7 +1081,7 @@ R"TLJS(
       // rebuilt while those panels were already hidden, hiddenNatives may not contain them.
       for (var i = 0; i < SPEC_PANELS.length; i++) {
         try {
-          var p = ctx.FindChildTraverse && ctx.FindChildTraverse(SPEC_PANELS[i]);
+          var p = findNative(SPEC_PANELS[i]);
           if (p) p.visible = true;
         } catch (e) {}
       }
@@ -1113,7 +1115,7 @@ R"TLJS(
         }
       } else { // 'game'
         for (var s = 0; s < SPEC_PANELS.length; s++)
-          hidePanel(ctx.FindChildTraverse && ctx.FindChildTraverse(SPEC_PANELS[s]), true);
+          hidePanel(findNative(SPEC_PANELS[s]), true);
       }
     }
 )TLJS"
@@ -1789,6 +1791,7 @@ R"TLJS(
       } catch (e) { $.Msg('[camtl] applyLayout error: ' + e + '\n'); }
     }
 
+    var lastRawState = null, lastPanelLayout = null;
     var api = {};
     // Called by CameraTimelineHud::Teardown BEFORE this panel is deleted. Deleting the panel does
     // NOT revert the styles we wrote onto CS2's own demo bar, so without this the bar is orphaned
@@ -1804,7 +1807,9 @@ R"TLJS(
       // happened to take the undock path -- the "timeline is smaller than the whole length, then
       // fixes itself after going in and out" report (2026-08-28).
       if (!raw) { closeShakeMenu(); root.visible = false; setNativeHidden(false); nativeUndock(); applyHudView('full'); restoreHudViewport(); return; }
-      try { st = JSON.parse(raw); } catch (e) { return; }
+      if (raw !== lastRawState) {
+        try { st = JSON.parse(raw); lastRawState = raw; } catch (e) { return; }
+      }
       // Track the operator's column width before anything lays out against it this frame.
       // A live drag outranks the published width, and hands back once the published value has
       // caught up with it -- clearing the override on the command instead would show one frame
@@ -1828,6 +1833,7 @@ R"TLJS(
         var firstMeasure = (lastVirtW < 0);
         lastVirtW = vW; lastVirtH = vH;
         if (!firstMeasure) {
+          lastPanelLayout = null;
           lastContentW = -1;          // force applyLayout to restyle every width-dependent panel
           lastTlSig = '';             // force the keyframe diamonds to relayout at the new width
           lastRenderRangeSig = '';    // ditto the render-range handles
@@ -1892,6 +1898,7 @@ R"TLJS(
       // entire width left of the inspector instead of floating as a card inside that bar.
       // Standalone timeline mode keeps the compact native-style card.
       if (hosted) {
+        lastPanelLayout = 'hosted';
         // Measure from the ALREADY-laid-out HUD context panel when our fresh root still reports 0
         // (the first layout passes after a build / resolution switch) -- otherwise the hosted bar
         // collapses to the compact fallback width and squishes for ~half a second until root
@@ -1922,18 +1929,21 @@ R"TLJS(
         // Other hosted modes hide it; keep its geometry reset so it's correct when shown again.
         if (nativeMode) nativeDock(barW); else nativeUndock();
       } else {
-        panel.style.horizontalAlign = 'center';
-        panel.style.marginLeft = '0px';
-        panel.style.marginBottom = '0px';
-        panel.style.width = (LABELW + W_DEFAULT + 28) + 'px';
-        panel.style.height = 'fit-children';
-        panel.style.borderRadius = '6px';
-        panel.style.border = '1px solid ' + S.panelBorder;
-        panel.style.boxShadow = '#000000cc 0px 0px 12px 2px';
-        panel.style.backgroundColor = S.bg;
-        panel.style.paddingLeft = '14px'; panel.style.paddingRight = '14px';
-        panel.style.paddingTop = '8px'; panel.style.paddingBottom = '10px';
-        applyLayout(LABELW + W_DEFAULT); // restore the standalone default width
+        if (lastPanelLayout !== 'standalone') {
+          panel.style.horizontalAlign = 'center';
+          panel.style.marginLeft = '0px';
+          panel.style.marginBottom = '0px';
+          panel.style.width = (LABELW + W_DEFAULT + 28) + 'px';
+          panel.style.height = 'fit-children';
+          panel.style.borderRadius = '6px';
+          panel.style.border = '1px solid ' + S.panelBorder;
+          panel.style.boxShadow = '#000000cc 0px 0px 12px 2px';
+          panel.style.backgroundColor = S.bg;
+          panel.style.paddingLeft = '14px'; panel.style.paddingRight = '14px';
+          panel.style.paddingTop = '8px'; panel.style.paddingBottom = '10px';
+          applyLayout(LABELW + W_DEFAULT); // restore the standalone default width
+          lastPanelLayout = 'standalone';
+        }
         // Config panel open (not hosted): dock the native demo bar to fit left of the Config
         // inspector (same width as the editor's Regular Timeline mode); otherwise restore the
         // native demo bar to full width / centre (pixel-perfect on exit).

@@ -213,5 +213,35 @@ int main() {
         Check(FirstPersonLight(nearRecord,{0,0,0})&&!FirstPersonLight(nearRecord,{0,0,0},FirstPersonLightReach,cut),
               "A dim lamp 600 units away reaches the eye by range but not visibly");
     }
+    // Tangent bounds retain independently sampled receivers under asymmetric, rotated and
+    // orthographic projections, while removing corners of the old projected range box.
+    {
+        const auto grid=MakeClusterGrid(2560,1440,1,6400);bool narrowed=false;
+        for(unsigned projection=0;projection<4;++projection){
+            ClusterView v{};v[12][0]=.9f;v[13][0]=.2f;v[14][0]=-.4f;
+            v[12][1]=-.1f;v[13][1]=1.1f;v[14][1]=.05f;
+            v[15][0]=100;v[15][1]=-80;
+            if(projection==0)v[14][3]=1;
+            if(projection==1){v[12][3]=.5f;v[13][3]=.1f;v[14][3]=1;v[15][3]=20;}
+            if(projection==2)v[15][3]=700;
+            if(projection==3)v[14][3]=1;
+            Light bulb;bulb.position={300,-90,projection==3?100.f:700.f};bulb.range=250;bulb.lumens=500;
+            const auto r=ToRecord(bulb,1);
+            const auto tight=LightClusterExtent(r,grid,v,2560,1440,0,true);
+            const auto box=LightClusterExtent(r,grid,v,2560,1440,0,false);
+            Check(tight.x0>=box.x0&&tight.x1<=box.x1&&tight.y0>=box.y0&&tight.y1<=box.y1,"Tangent bounds never enlarge the hull");
+            narrowed|=tight.x0>box.x0||tight.x1<box.x1||tight.y0>box.y0||tight.y1<box.y1;
+            for(int z=-250;z<=250;z+=10)for(int y=-250;y<=250;y+=10)for(int x=-250;x<=250;x+=10){
+                if(x*x+y*y+z*z>250*250)continue;
+                const auto p=bulb.position+Vec3{float(x),float(y),float(z)};
+                auto clip=[&](unsigned axis){return p.x*v[12][axis]+p.y*v[13][axis]+p.z*v[14][axis]+v[15][axis];};
+                const auto w=clip(3);if(w<1e-4f)continue;
+                const auto tx=unsigned(std::clamp((clip(0)/w+1)*1280,0.f,2559.f))/32;
+                const auto ty=unsigned(std::clamp((1-clip(1)/w)*720,0.f,1439.f))/32;
+                Check(tx>=tight.x0&&tx<=tight.x1&&ty>=tight.y0&&ty<=tight.y1,"Projected sphere retains every independently sampled lit point");
+            }
+        }
+        Check(narrowed,"Analytic tangents discard unnecessary light tiles");
+    }
     std::cout<<"Relight cluster addressing and conservative bounds passed\n";
 }

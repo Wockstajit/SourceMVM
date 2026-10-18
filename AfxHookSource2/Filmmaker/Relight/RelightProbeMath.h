@@ -140,6 +140,16 @@ inline Vec3 StableReflectionOrigin(Vec3 camera,Vec3 previous,bool ready) {
     const auto d=camera-previous;
     return ready&&Dot(d,d)<ReflectionCaptureTravel*ReflectionCaptureTravel?previous:camera;
 }
+struct ReflectionUpdate {Vec3 origin;float historyWeight;};
+inline ReflectionUpdate PlanReflectionUpdate(Vec3 camera,Vec3 previous,bool ready,bool edited,bool responsive) {
+    const auto d=camera-previous;
+    if(!responsive)return {StableReflectionOrigin(camera,previous,ready),
+        ready&&!edited&&Dot(d,d)<GiProbeSpacing*GiProbeSpacing*16?.8f:0.f};
+    // Cube texels encode directions from their capture origin. Blending another origin
+    // without reprojection leaves stale silhouettes in puddles after movement/cuts.
+    // A small stationary history damps transport changes without the old long trail.
+    return {camera,ready&&!edited&&Dot(d,d)<1e-6f?.2f:0.f};
+}
 inline constexpr float ReflectionBoxHalfExtent=1e7f;
 inline std::array<ProbeRow,8> ReflectionRecordRows(Vec3 origin,float strength) {
     std::array<ProbeRow,8> rows{};

@@ -17,7 +17,7 @@ bool AfxStreams_RecordingCapturesAfterUi();
 
 void AfxStreams_ShutDown();
 
-// What the D3D detours themselves cost last frame, in wall milliseconds, EXCLUDING the native
+// What the D3D detours themselves cost in the latest sampled frame, in wall milliseconds, EXCLUDING the native
 // calls they forward to. `mirv_filmmaker health` prints it so a frame-rate complaint can be
 // split into the hook's share and the game's share without a profiler.
 struct RenderHookCost {
@@ -25,9 +25,11 @@ struct RenderHookCost {
     double drawNativeMs = 0;      // the forwarded native draws (the game's own submission cost)
     double presentHookMs = 0;     // Before_Present: Filmmaker::RunFrame and the rest
     double environmentMs = 0;     // the pre-UI Environment render call
+    unsigned sampleStride = 32;  // sampled every N frames (1 while mvm_debug is active)
+    unsigned long long sampleAgeMs = 0;
     unsigned draws = 0;           // Draw* calls seen
-    double avgDrawHookMs = 0, avgPresentHookMs = 0, avgEnvironmentMs = 0; // ~20-frame averages
-    // Parts of the draw detours (~20-frame averages): the Lighting pipeline's per-draw decision, its
+    double avgDrawHookMs = 0, avgPresentHookMs = 0, avgEnvironmentMs = 0; // ~20-sample averages
+    // Parts of the draw detours (~20-sample averages): the Lighting pipeline's per-draw decision, its
     // extra redraws, and the animated-caster capture decision.
     double avgDrawBeginMs = 0, avgDrawExtraMs = 0, avgDrawCasterMs = 0;
 };

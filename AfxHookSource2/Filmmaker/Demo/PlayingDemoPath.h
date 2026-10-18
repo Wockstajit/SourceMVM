@@ -17,8 +17,8 @@
 namespace Filmmaker {
 
 // Absolute, canonical path of the engine's currently-playing demo, or L"" when no demo is
-// playing or no path could be recovered. Result is cached per demo-object instance, so this
-// is cheap to call every frame.
+// playing or no path could be recovered. Checks the engine path every call; filesystem
+// resolution is cached by path + demo object, with write invalidation and a one-second expiry.
 std::wstring ResolvePlayingDemoPath();
 
 // Canonicalize a path to the filesystem's true-cased absolute form (GetFinalPathNameByHandle,

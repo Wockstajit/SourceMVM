@@ -3,6 +3,7 @@
 #include "Filmmaker.h"                      // PumpStatus, Library
 #include "Demo/DemoLibrary.h"               // DemoLibrary::Snapshot / IsScanning
 #include "Debug/MvmDebugLog.h"     // MvmDebugLog_*
+#include "Debug/GpuPassProfiler.h"  // the hook's own GPU passes, while profiling
 #include "Cosmetics/CosmeticOverrideSystem.h"
 #include "Movie/ParticleFx.h"
 #include "Config/EffectsPersistence.h" // SceneActive: the particle hook waits for a demo
@@ -99,10 +100,12 @@ void Filmmaker_RunHealthCommand(int argc, advancedfx::ICommandArgs* args, const 
         advancedfx::Message("  frame timing: samples=%u meanMs=%.3f p50Ms=%.3f p95Ms=%.3f p99Ms=%.3f maxMs=%.3f over33=%u\n",
             timing.samples,timing.meanMs,timing.p50Ms,timing.p95Ms,timing.p99Ms,timing.maxMs,timing.over33);
 		const RenderHookCost cost = RenderHookCost_Sample();
-		advancedfx::Message("  hook cost last frame         : draw detours %.2f ms over %u draws (native draws %.2f ms), present %.2f ms, environment %.2f ms\n",
+		advancedfx::Message("  hook cost sampling           : every %u frames, latest sample %llu ms ago\n", cost.sampleStride, cost.sampleAgeMs);
+		advancedfx::Message("  hook cost latest sample      : draw detours %.2f ms over %u draws (native draws %.2f ms), present %.2f ms, environment %.2f ms\n",
 			cost.drawHookMs, cost.draws, cost.drawNativeMs, cost.presentHookMs, cost.environmentMs);
-		advancedfx::Message("  hook cost ~20-frame average  : draw detours %.2f ms, present %.2f ms, environment %.2f ms\n",
+		advancedfx::Message("  hook cost ~20-sample average  : draw detours %.2f ms, present %.2f ms, environment %.2f ms\n",
 			cost.avgDrawHookMs, cost.avgPresentHookMs, cost.avgEnvironmentMs);
+		if (Filmmaker::GpuProfile::Enabled()) Filmmaker::GpuProfile::Print(16);
 		Filmmaker::RenderOwnedMemory_Print(8);
 		// Scaled workspace preview: every break since launch, by reason (VpScaleBreakMath.h). Each
 		// one is a numbered vpscale.break line in the mvm_debug log with the state it started in.
@@ -237,12 +240,12 @@ void FilmmakerHealth_Heartbeat() {
 	char line[1408];
 	snprintf(line, sizeof(line),
 		"heartbeat map=%s | frame p50=%.1f p95=%.1f max=%.1f ms over33=%u/%u | hook draw=%.2f (lighting check %.2f redraw %.2f caster %.2f; live %.2f prepare %.2f ao %.2f) present=%.2f env=%.2f ms"
-		" | render phase=%s age=%llu ms frameAge=%llu ms started=%d pumps=%llu/%llu"
+		" | hook samples stride=%u age=%llu ms | render phase=%s age=%llu ms frameAge=%llu ms started=%d pumps=%llu/%llu"
 		" | game cpu %.0f%% gpu %.0f%% ram %llu MB (private %llu) vram %llu/%llu MB (hook %llu MB in %u) | system cpu %.0f%% ram free %llu/%llu MB | sampler %.1f ms"
 		" | shaders %llu engine %.0f ms hook %.0f ms (max %.1f) derived %llu in %.0f ms (%zu queued) | %s",
 		map.c_str(), timing.p50Ms, timing.p95Ms, timing.maxMs, timing.over33, timing.samples,
 		cost.avgDrawHookMs, cost.avgDrawBeginMs, cost.avgDrawExtraMs, cost.avgDrawCasterMs, liveTotal, livePrepare, liveAo, cost.avgPresentHookMs, cost.avgEnvironmentMs,
-		progress.phase, progress.phaseAgeMs, progress.frameAgeMs, progress.started ? 1 : 0,
+		cost.sampleStride, cost.sampleAgeMs, progress.phase, progress.phaseAgeMs, progress.frameAgeMs, progress.started ? 1 : 0,
 		static_cast<unsigned long long>(renderCalls), static_cast<unsigned long long>(mainCalls),
 		sys.gameCpuPercent, sys.gameGpuPercent, sys.gameWorkingSetMb, sys.gamePrivateMb,
 		haveGpu ? gpu.usedBytes >> 20 : 0ull, haveGpu ? gpu.budgetBytes >> 20 : 0ull, ownedBytes >> 20, ownedResources,

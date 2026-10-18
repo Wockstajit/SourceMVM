@@ -109,6 +109,8 @@ bool MovieInput_OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x = -
 void MovieHud_Set(bool visible);
 void MovieHud_Toggle();
 bool MovieHud_Visible();
+void MovieHud_SetReadoutRate(unsigned hz);
+unsigned MovieHud_ReadoutRate();
 
 // Queues Panorama JS to run in the HUD-panel context (mirv_filmmaker hud_eval).
 void MovieHud_Eval(const std::string& js);

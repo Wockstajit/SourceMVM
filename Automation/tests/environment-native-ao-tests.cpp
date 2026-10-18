@@ -30,12 +30,25 @@ float4 main(float4 p:SV_Position,uint s:SV_SampleIndex):SV_Target{
     ComPtr<ID3D11PixelShader> original,shared;
     Check(SUCCEEDED(device->CreatePixelShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&original)),"Original PS");
     Check(SUCCEEDED(device->CreatePixelShader(patched.data(),patched.size(),nullptr,&shared)),"Shared PS");
+    std::vector<ComPtr<ID3D11PixelShader>> unchangedShaders;
+    for(const auto& body:{std::string("return v[2]+v[17];"),std::string("return v[16].wwww+v[2];")}){
+        const auto c=compile(declaration+"float4 main(float4 p:SV_Position):SV_Target{"+body+"}","ps_5_0");
+        bool unchanged=false;
+        Check(!NativeSharedAoProgram(c->GetBufferPointer(),c->GetBufferSize(),patched,&unchanged)&&unchanged&&patched.empty(),
+            "Prove that absent xyz reads or w-only reads need no AO repair");
+        ComPtr<ID3D11PixelShader> ps;
+        Check(SUCCEEDED(device->CreatePixelShader(c->GetBufferPointer(),c->GetBufferSize(),nullptr,&ps)),"Unchanged native PS");
+        unchangedShaders.push_back(std::move(ps));
+    }
     for(const auto& body:{std::string("return v[16];"),std::string("return v[(uint)p.x];"),std::string("return v[16].xyxy+reserved;")}){
         const auto c=compile(declaration+(body.find("reserved")!=std::string::npos?"cbuffer Occupied:register(b12){float4 reserved;};":"")+
             "float4 main(float4 p:SV_Position):SV_Target{"+body+"}","ps_5_0");
-        Check(!NativeSharedAoProgram(c->GetBufferPointer(),c->GetBufferSize(),patched),"Ambiguous/w/occupied slot falls back");
+        bool unchanged=true;
+        Check(!NativeSharedAoProgram(c->GetBufferPointer(),c->GetBufferSize(),patched,&unchanged)&&!unchanged,
+            "Mixed xyz/w, relative rows and occupied slots must not be classified as unused");
     }
-    Check(!NativeSharedAoProgram(nullptr,0,patched),"Truncated container rejected");
+    bool unchanged=true;
+    Check(!NativeSharedAoProgram(nullptr,0,patched,&unchanged)&&!unchanged,"Truncated container rejected, without reuse proof");
     auto vsCode=compile("float4 main(uint id:SV_VertexID):SV_Position{return float4(id==2?3:-1,id==1?3:-1,0,1);}","vs_5_0");
     ComPtr<ID3D11VertexShader> vs;Check(SUCCEEDED(device->CreateVertexShader(vsCode->GetBufferPointer(),vsCode->GetBufferSize(),nullptr,&vs)),"Vertex shader");
     D3D11_BUFFER_DESC bd{};bd.ByteWidth=40*16;bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
@@ -61,6 +74,8 @@ float4 main(float4 p:SV_Position,uint s:SV_SampleIndex):SV_Target{
             auto reference=native;std::copy_n(row.begin(),3,reference.begin()+64);
             auto expected=draw(original.Get(),reference),actual=draw(shared.Get(),native);
             Check(expected==actual,"Shared AO matches cloned-view output with discard and changing native/view values");
+            for(const auto& ps:unchangedShaders)
+                Check(draw(ps.Get(),reference)==draw(ps.Get(),native),"Skipping unused AO repair is pixel-exact, retaining mutable native rows and w");
             if(change)Check(actual!=prior,"Scene/viewport changes affect output");prior=actual;
         }
         std::cout<<"AO shared view matches reference at "<<samples<<" samples\n";
@@ -69,11 +84,18 @@ float4 main(float4 p:SV_Position,uint s:SV_SampleIndex):SV_Target{
         std::ifstream file(argv[2],std::ios::binary);std::vector<uint8_t> fixture((std::istreambuf_iterator<char>(file)),{});Check(!fixture.empty(),"Read native fixture");
         std::vector<uint8_t> atmosphere,dynamic;bool cascades=false;unsigned screen=0;NativeSunAbiInfo abi{};HasNativeSunMaterialAbi(fixture.data(),fixture.size(),&abi);
         Check(NativeAtmosphereProgram(fixture.data(),fixture.size(),atmosphere,true,&cascades,&screen),"Native atmosphere fixture");
-        Check(NativeSharedAoProgram(atmosphere.data(),atmosphere.size(),patched),"Native atmosphere AO split");
-        ComPtr<ID3D11PixelShader> ps;Check(SUCCEEDED(device->CreatePixelShader(patched.data(),patched.size(),nullptr,&ps)),"Native shared atmosphere PS");
+        const bool expectUnchanged=argc>3&&std::string(argv[3])=="--unused";
+        bool nativeUnchanged=false;
+        const bool split=NativeSharedAoProgram(atmosphere.data(),atmosphere.size(),patched,&nativeUnchanged);
+        Check(expectUnchanged?(!split&&nativeUnchanged):split,"Native atmosphere AO split or proven unused");
+        const auto& atmosphereResult=nativeUnchanged?atmosphere:patched;
+        ComPtr<ID3D11PixelShader> ps;Check(SUCCEEDED(device->CreatePixelShader(atmosphereResult.data(),atmosphereResult.size(),nullptr,&ps)),"Native atmosphere PS");
         Filmmaker::Relight::IrradianceProgramInfo info;
         Check(Filmmaker::Relight::DynamicIrradianceProgram(atmosphere.data(),atmosphere.size(),dynamic,&info,abi.probeSlot),"Native GI fixture");
-        Check(NativeSharedAoProgram(dynamic.data(),dynamic.size(),patched),"Native GI AO split");ps.Reset();Check(SUCCEEDED(device->CreatePixelShader(patched.data(),patched.size(),nullptr,&ps)),"Native shared GI PS");
-        std::cout<<"Captured native atmosphere/GI programs accept shared AO\n";
+        const bool giSplit=NativeSharedAoProgram(dynamic.data(),dynamic.size(),patched,&nativeUnchanged);
+        Check(expectUnchanged?(!giSplit&&nativeUnchanged):giSplit,"Native GI AO split or proven unused");
+        const auto& dynamicResult=nativeUnchanged?dynamic:patched;
+        ps.Reset();Check(SUCCEEDED(device->CreatePixelShader(dynamicResult.data(),dynamicResult.size(),nullptr,&ps)),"Native GI PS");
+        std::cout<<"Captured native atmosphere/GI programs accept "<<(expectUnchanged?"unchanged native view":"shared AO")<<"\n";
     }
 }

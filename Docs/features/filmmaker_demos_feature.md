@@ -112,6 +112,12 @@ back through its folder's `project.mvm` (`PlanDemoCopyLookup` in `DemoProjectSto
 `Automation/tests/demo-project-keying-tests.mjs` fails any CS2 section that keys off the raw
 playing file (`ResolvePlayingDemoPath()`).
 
+Per-frame CS2 callers check the engine's raw demo path on every call, including when its demo
+object is reused. Filesystem canonicalization and project/repair-marker validation are cached
+for at most one second. Our project and repair writers invalidate the cache immediately; expiry
+also catches external edits or replacement files. Stopping playback clears the active identity.
+This avoids repeatedly opening the same demo and project files from camera, cosmetics and UI pumps.
+
 `project.mvm` is a small binary container (format in `DemoProjectFileMath.h`). It starts with a
 32-byte header: magic `SRCMVM\x1A\0`, version 1, a game flag in `flags` bits 0-3, and the section
 count. A table of 32-byte entries follows. Each entry holds a 16-byte ASCII tag, an encoding id

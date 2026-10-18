@@ -45,6 +45,18 @@ int main(){
         Check(StableReflectionOrigin({101,102,100},capture,true).x==capture.x,"Walking retains a world capture instead of changing voxel silhouettes every step");
         Check(StableReflectionOrigin({150,100,100},capture,true).x==150,"Leaving the capture neighbourhood refreshes the environment");
         Check(StableReflectionOrigin({101,102,100},capture,false).x==101,"The first capture uses the actual camera rather than an uninitialized anchor");
+        const auto moved=PlanReflectionUpdate({101,102,100},capture,true,false,true);
+        Check(moved.origin.x==101&&moved.origin.y==102&&moved.historyWeight==0,
+            "Even a small viewer movement refreshes the capture and rejects history from another origin");
+        Check(PlanReflectionUpdate(capture,capture,true,false,true).historyWeight==.2f,
+            "Stationary captures retain only a short history");
+        Check(PlanReflectionUpdate(capture,capture,true,true,true).historyWeight==0&&
+            PlanReflectionUpdate(capture,capture,false,false,true).historyWeight==0,
+            "Lighting edits and the first capture publish without stale history");
+        const auto cut=PlanReflectionUpdate({900,800,700},capture,true,false,true);
+        Check(cut.origin.x==900&&cut.historyWeight==0,"A loop seek cannot blend the preceding camera's reflection");
+        const auto legacy=PlanReflectionUpdate({101,102,100},capture,true,false,false);
+        Check(legacy.origin.x==100&&legacy.historyWeight==.8f,"The diagnostic preserves the original delayed path");
     }
     Scene lighting;lighting.hasSun=true;lighting.sunBrightness=2;
     Light lamp;lamp.position={100,200,300};lamp.lumens=500;lighting.lights.push_back(lamp);

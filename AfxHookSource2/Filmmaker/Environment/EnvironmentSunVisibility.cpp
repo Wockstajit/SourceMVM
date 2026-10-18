@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "EnvironmentSunVisibility.h"
+#include "../Debug/GpuPassProfiler.h"
 #include "EnvironmentAmbientOcclusionMath.h"
 #include "EnvironmentSunVisibilityShaders.h"
 #include "EnvironmentSunVisibilityMath.h"
@@ -125,7 +126,7 @@ ID3D11ShaderResourceView* SunVisibility(ID3D11DeviceContext* immediate,const D3D
     auto sampler=state.comparison.Get();ctx->CSSetSamplers(0,1,&sampler);
     auto uav=state.resultUav.Get();ctx->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
     ctx->CSSetShader(state.visibility[shader].Get(),nullptr,0);
-    ctx->Dispatch((source.Width+7)/8,(source.Height+7)/8,1);
+    {GPU_PASS_SCOPE(ctx,"sun visibility (screen)");ctx->Dispatch((source.Width+7)/8,(source.Height+7)/8,1);}
     uav=nullptr;ctx->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
     ID3D11ShaderResourceView* noViews[2]{};ctx->CSSetShaderResources(0,2,noViews);
     UINT keepCounter=~0u;ctx->CSSetUnorderedAccessViews(0,1,&previousUav,&keepCounter);

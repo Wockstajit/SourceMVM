@@ -1,7 +1,10 @@
 #pragma once
 #include "EnvironmentScene.h"
 #include <d3d11.h>
+#include <atomic>
 namespace Filmmaker::Environment {
+// Transient A/B diagnostic: skip view repair only when bytecode proves it has no effect.
+extern std::atomic<bool> NativeAoRepairReuse;
 void NoteNativeMaterialPixelShader(ID3D11PixelShader*,const void*,size_t);
 // The lighting variants of CS2's material programs are built on a background worker, off CS2's
 // loader threads (EnvironmentNativeMaterial.cpp). For the heartbeat: programs handled, programs
@@ -94,6 +97,9 @@ private:
 // Begin/End; material shaders, textures and pose stay native. Engine resources
 // are read only; the light buffer and color target are private copies.
 bool BeginNativeMaterialDraw(ID3D11DeviceContext*);
+// Render-thread snapshot covering sky, sun suppression, unbake, live lighting and replay.
+// Independent caster/foliage capture and smoke work have their own gates.
+bool NativeMaterialDrawWorkNeeded();
 // Main thread readable: live lighting's per-frame CPU cost (light preparation, ambient occlusion,
 // all of its draw setup), ~20-frame averages.
 void NativeMaterialLiveCost(float& prepareMs,float& ambientOcclusionMs,float& totalMs);

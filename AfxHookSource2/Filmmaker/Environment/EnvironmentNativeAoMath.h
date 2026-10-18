@@ -7,9 +7,12 @@ inline constexpr unsigned NativeAoConstantSlot=12;
 // Move verified reads of the AO addressing triple from native b4[16] to a
 // shared b12[0]. All other view constants, including row 16.w, stay native.
 // Ambiguous addressing, mixed xyz/w reads, or an occupied b12 keeps the cloned-view path.
-inline bool NativeSharedAoProgram(const void* data,size_t size,std::vector<uint8_t>& output) {
+// A validated program with no repaired xyz reads can retain its native view buffer.
+// Report this separately from unsupported bytecode, which still needs the clone.
+inline bool NativeSharedAoProgram(const void* data,size_t size,std::vector<uint8_t>& output,bool* unchanged=nullptr) {
     using namespace Relight::IrradianceDxbc;
-    output.clear();if(!data||size<32||size>16*1024*1024)return false;
+    output.clear();if(unchanged)*unchanged=false;
+    if(!data||size<32||size>16*1024*1024)return false;
     const auto* p=static_cast<const uint8_t*>(data);
     auto word=[&](size_t at){uint32_t v;std::memcpy(&v,p+at,4);return v;};
     if(word(0)!=0x43425844u||word(24)!=size)return false;
@@ -37,7 +40,9 @@ inline bool NativeSharedAoProgram(const void* data,size_t size,std::vector<uint8
         if(op==53){at=end;continue;} // immediate-constant payload is not instructions
         std::vector<size_t> candidates;
         for(size_t j=at+1;j+2<end;++j){const auto token=code[j];
-            if(((token>>12)&255)!=8||((token>>20)&3)!=2||((token>>22)&7)!=0)continue;
+            if(((token>>12)&255)!=8)continue;
+            // Unknown buffer addressing cannot prove that the repaired row is unused.
+            if(((token>>20)&3)!=2||((token>>22)&7)!=0)return false;
             size_t index=j+1;uint32_t extension=token;
             while(extension>>31){if(index>=end)return false;extension=code[index++];}
             if(index+1>=end||code[index]!=4)continue;
@@ -71,7 +76,8 @@ inline bool NativeSharedAoProgram(const void* data,size_t size,std::vector<uint8
         }
         at=end;
     }
-    if(!lastConstant||replacements.empty())return false;
+    if(!lastConstant)return false;
+    if(replacements.empty()){if(unchanged)*unchanged=true;return false;}
     for(auto index:replacements){code[index]=NativeAoConstantSlot;code[index+1]=0;}
     code.insert(code.begin()+lastConstant,{0x04000059u,0x00208e46u,NativeAoConstantSlot,1});
     code[1]=unsigned(code.size());

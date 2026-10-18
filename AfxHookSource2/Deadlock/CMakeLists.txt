@@ -191,6 +191,8 @@ target_sources(AfxHookDeadlock PRIVATE
 	../Filmmaker/Platform/JsonBuilder.cpp
 	../Filmmaker/Platform/JsonParser.cpp
 	../Filmmaker/Platform/TextEncoding.cpp
+	../Filmmaker/Demo/DemoProjectPath.cpp
+	../Filmmaker/Demo/DemoProjectPath.h
 	../Filmmaker/Demo/DemoProjectStore.cpp
 	../Filmmaker/Demo/DemoProjectStore.h
 	../Filmmaker/Demo/DemoProjectStoreMath.h

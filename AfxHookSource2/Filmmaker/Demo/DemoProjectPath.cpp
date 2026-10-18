@@ -6,6 +6,7 @@
 #include <Windows.h>
 
 #include <cstdio>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -14,6 +15,8 @@
 namespace Filmmaker {
 
 namespace {
+
+std::atomic<uint64_t> g_pathRevision{0};
 
 std::string FileStamp(const std::wstring& path) {
 	WIN32_FILE_ATTRIBUTE_DATA data{};
@@ -100,6 +103,9 @@ std::wstring ReadProjectDemoPath(const std::filesystem::path& projectFile) {
 }
 
 } // namespace
+
+uint64_t DemoProjectPathRevision() { return g_pathRevision.load(std::memory_order_acquire); }
+void InvalidateDemoProjectPathCache() { g_pathRevision.fetch_add(1, std::memory_order_release); }
 
 std::wstring ResolveDemoProjectPath(const std::wstring& playingDemoPath) {
 	if (playingDemoPath.empty()) return {};

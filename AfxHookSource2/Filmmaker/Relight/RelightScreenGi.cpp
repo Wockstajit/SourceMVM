@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "RelightProbes.h"
+#include "../Debug/GpuPassProfiler.h"
 #include "RelightScreenGiShaders.h"
 #include "../Environment/EnvironmentShaderCompiler.h"
 #include "../Render/RenderPrivateTextureScope.h"
@@ -64,7 +65,7 @@ ID3D11ShaderResourceView* PrepareScreenGi(ID3D11Device* device,ID3D11DeviceConte
     auto output=state.output.Get();work->CSSetUnorderedAccessViews(0,1,&output,nullptr);
     work->CSSetShader(state.shader.Get(),nullptr,0);work->Dispatch((width+7)/8,(height+7)/8,1);work->ClearState();
     ComPtr<ID3D11CommandList> list;if(FAILED(work->FinishCommandList(FALSE,&list)))return nullptr;
-    immediate->ExecuteCommandList(list.Get(),TRUE);
+    {GPU_PASS_SCOPE(immediate,"gi: screen space");immediate->ExecuteCommandList(list.Get(),TRUE);}
     state.frame=frame;state.positions=positions;state.irradiance=probe.irradiance;state.matrix=matrix;
     if(MvmDebugLog_Active()){static ULONGLONG last=0;auto now=GetTickCount64();if(now-last>=3000){last=now;
         MvmDebugLog_LinefAlways("relight.gi.screen","prepared=%ux%u bands=6 frame=%llu",width,height,frame);}}

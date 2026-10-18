@@ -14,6 +14,8 @@ namespace Filmmaker::Relight {
 
 // The set the render thread should use this frame. Empty and disabled until loaded.
 Scene CaptureScene(const std::string &map);
+// Transient diagnostics; never persisted into the user's lighting scene.
+bool PreviewCapture();
 // Main thread only; preparation publishes a checksum-verified entity export.
 bool UpdateMapLighting(const std::string &map,const std::string &metadataPath);
 // Map changes drop the enable but keep the loaded lights, so re-enabling on the same map
