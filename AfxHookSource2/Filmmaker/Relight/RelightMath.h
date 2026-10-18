@@ -180,6 +180,14 @@ struct Scene {
     std::string lightmapFile;
     unsigned lightmapMode = 0;
     unsigned clusters = 3; // 0 full mask, 1 native tiles+slices, 2 native slices, 3 owned tiles+slices
+    // Visible reach (RelightClusterMath.h): a light stops at the distance where it can no longer
+    // change a dark pixel by this many display steps. 0 keeps every authored range. At 4 the
+    // lit world matched the authored ranges to capture noise (de_ancient, 2026-10-18) while
+    // frames were about 10% faster; up to 8 still matched there.
+    float reach = 4;
+    // Per frame, from `reach` and the exposure actually applied (0 while that exposure is unknown):
+    // the radiance cutoff the light clusters use.
+    float visibleRadiance = 0;
 
     // The map's own light_environment. Its angles and brightness seed the climate sun on
     // load, so the sun is edited with the ordinary sun controls rather than a second set.

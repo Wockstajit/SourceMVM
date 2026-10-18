@@ -73,10 +73,15 @@ constexpr GUID SparseClusterShaderTag={0x4ac1e69b,0x03cf,0x4eb0,{0x95,0x6d,0x81,
 struct Sun {float direction[4]{},radiance[4]{};};
 std::map<uint64_t,std::vector<uint8_t>>& programRecord(){static std::map<uint64_t,std::vector<uint8_t>> record;return record;}
 struct MaterialTiming {
-    static constexpr unsigned Capacity=256;
+    // Every lit pass of a frame (about 900 at a busy view), so the report is the frame's whole
+    // material cost rather than its first passes. Sampled once every three seconds.
+    static constexpr unsigned Capacity=1536;
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<ID3D11Query> disjoint,start[Capacity],end[Capacity];
     bool measuring=false,pending=false,post[Capacity]{},live[Capacity]{};
+    // What each live pass was: its program, which owned variant ran, and its viewport
+    // (the main view, or a secondary render such as a capture), for the grouped report.
+    uint64_t program[Capacity]{};uint8_t variant[Capacity]{};uint16_t viewW[Capacity]{},viewH[Capacity]{};float viewMin[Capacity]{};
     unsigned count=0,eligible=0;int active=-1;ULONGLONG last=0;
 };
 NativeMaterialHdrPass hdrPass=nullptr;
@@ -220,7 +225,7 @@ struct State {
 } state;
 // Local-light receiver bias for player bodies (cb3[1953].z is shared by every light record).
 float CharacterLocalBias(const Relight::Scene& set){return (std::max)(set.shadowBias,.002f);}
-void BeginTiming(ID3D11DeviceContext* ctx,bool post,bool live=false){
+void BeginTiming(ID3D11DeviceContext* ctx,bool post,bool live=false,uint64_t program=0,uint8_t variant=0,const D3D11_VIEWPORT* vp=nullptr){
     auto& t=state.timing;t.active=-1;
     if(!MvmDebugLog_Active()||t.pending||(!t.measuring&&GetTickCount64()-t.last<3000))return;
     if(!t.disjoint){
@@ -234,7 +239,11 @@ void BeginTiming(ID3D11DeviceContext* ctx,bool post,bool live=false){
     if(!t.measuring){t.count=t.eligible=0;t.last=GetTickCount64();ctx->Begin(t.disjoint.Get());t.measuring=true;}
     ++t.eligible;
     if(t.count==MaterialTiming::Capacity)return;
-    t.active=int(t.count++);t.post[t.active]=post;t.live[t.active]=live;ctx->End(t.start[t.active].Get());
+    t.active=int(t.count++);t.post[t.active]=post;t.live[t.active]=live;
+    t.program[t.active]=program;t.variant[t.active]=variant;
+    t.viewW[t.active]=vp?uint16_t((std::min)(vp->Width,65535.f)):0;t.viewH[t.active]=vp?uint16_t((std::min)(vp->Height,65535.f)):0;
+    t.viewMin[t.active]=vp?vp->MinDepth:0;
+    ctx->End(t.start[t.active].Get());
 }
 void EndTiming(ID3D11DeviceContext* ctx){auto& t=state.timing;if(t.active>=0){ctx->End(t.end[t.active].Get());t.active=-1;}}
 void NextTimingFrame(){
@@ -244,14 +253,28 @@ void NextTimingFrame(){
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT d{};
     if(t.context->GetData(t.disjoint.Get(),&d,sizeof(d),D3D11_ASYNC_GETDATA_DONOTFLUSH)!=S_OK)return;
     double material=0,post=0,live=0;unsigned liveCount=0;
+    struct Group{double ms=0;unsigned passes=0;};
+    std::map<uint64_t,Group> byView,byProgram;double byVariant[3]{};
     for(unsigned i=0;i<t.count;++i){
         UINT64 start=0,end=0;
         if(t.context->GetData(t.start[i].Get(),&start,sizeof(start),D3D11_ASYNC_GETDATA_DONOTFLUSH)!=S_OK||
            t.context->GetData(t.end[i].Get(),&end,sizeof(end),D3D11_ASYNC_GETDATA_DONOTFLUSH)!=S_OK)return;
-        if(!d.Disjoint&&d.Frequency&&end>=start)(t.post[i]?post:t.live[i]?live:material)+=double(end-start)*1000/d.Frequency;
-        if(t.live[i])++liveCount;
+        const double ms=!d.Disjoint&&d.Frequency&&end>=start?double(end-start)*1000/d.Frequency:0;
+        (t.post[i]?post:t.live[i]?live:material)+=ms;
+        if(t.live[i]){++liveCount;
+            const uint64_t view=(uint64_t(t.viewW[i])<<48)|(uint64_t(t.viewH[i])<<32)|uint64_t(t.viewMin[i]*1000);
+            auto& v=byView[view];v.ms+=ms;++v.passes;auto& p=byProgram[t.program[i]];p.ms+=ms;++p.passes;
+            byVariant[(std::min)(t.variant[i],uint8_t(2))]+=ms;}
     }
-    if(!d.Disjoint)MvmDebugLog_LinefAlways("environment.native.material.gpu","sampledReplayMs=%.3f sampledLiveMs=%.3f sampledTonemapMs=%.3f sampledLivePasses=%u sampledPasses=%u eligiblePasses=%u maxSampledPasses=%u",material,live,post,liveCount,t.count,t.eligible,MaterialTiming::Capacity);
+    if(!d.Disjoint){
+        MvmDebugLog_LinefAlways("environment.native.material.gpu","sampledReplayMs=%.3f sampledLiveMs=%.3f sampledTonemapMs=%.3f sampledLivePasses=%u sampledPasses=%u eligiblePasses=%u maxSampledPasses=%u nativeMs=%.3f irradianceMs=%.3f atmosphereMs=%.3f",material,live,post,liveCount,t.count,t.eligible,MaterialTiming::Capacity,byVariant[0],byVariant[1],byVariant[2]);
+        for(const auto& v:byView)MvmDebugLog_LinefAlways("environment.native.material.gpu.view","viewport=%llux%llu minDepth=%.3f passes=%u ms=%.3f",
+            (unsigned long long)(v.first>>48),(unsigned long long)((v.first>>32)&0xffff),double(v.first&0xffffffffu)/1000,v.second.passes,v.second.ms);
+        std::vector<std::pair<uint64_t,Group>> programs(byProgram.begin(),byProgram.end());
+        std::sort(programs.begin(),programs.end(),[](const auto& a,const auto& b){return a.second.ms>b.second.ms;});
+        for(size_t i=0;i<programs.size()&&i<12;++i)MvmDebugLog_LinefAlways("environment.native.material.gpu.program","rank=%zu hash=%016llx passes=%u ms=%.3f",
+            i+1,(unsigned long long)programs[i].first,programs[i].second.passes,programs[i].second.ms);
+    }
     t.pending=false;
 }
 void Evidence(const char* reason,UINT bytes=0){
@@ -329,7 +352,7 @@ bool ClusterResources(ID3D11Device* device) {
         }
     }
     if(!state.clusterParams) {
-        D3D11_BUFFER_DESC d{};d.ByteWidth=96;d.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+        D3D11_BUFFER_DESC d{};d.ByteWidth=112;d.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
         if(FAILED(device->CreateBuffer(&d,nullptr,&state.clusterParams)))return false;
     }
     if(!state.clusterRows) {
@@ -768,14 +791,15 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
     const bool clustered=safe&&ClusterResources(device);
     const bool engineClustered=clustered&&state.frame.relight.clusters!=3&&state.nativeClusters.Ensure(device,recordCount);
     struct Params {Relight::ClusterUintRow grid,list;Relight::ClusterFloatRow depth;Relight::ClusterUintRow control;
-        Relight::ClusterFloatRow nearby;Relight::ClusterUintRow nearbyList;};
+        Relight::ClusterFloatRow nearby;Relight::ClusterUintRow nearbyList;Relight::ClusterFloatRow reach;};
     const bool firstPerson=viewport.MaxDepth<=.1f;
     const Params params{{grid.shift,grid.tilesX,grid.tilesY,grid.sliceCount},
         {recordCount,grid.lights.words,grid.lights.tiles,grid.lights.slices},
         {grid.sliceScale,float(grid.sliceCount-1),viewport.Width,viewport.Height},
         {clusterMode,grid.lights.ones,firstPerson?1u:0u,state.clusterSummaries?grid.size:0u},
         {state.frame.camera.x,state.frame.camera.y,state.frame.camera.z,Relight::FirstPersonLightReach},
-        {firstPerson?grid.lights.nearby:0u,0,0,0}};
+        {firstPerson?grid.lights.nearby:0u,0,0,0},
+        {state.frame.relight.visibleRadiance,0,0,0}};
     const UINT fillGroups=(grid.TileCount()+grid.sliceCount+1+63)/64;
     std::vector<uint8_t> viewKey;
     auto key=[&](const void* data,size_t bytes){const auto* p=static_cast<const uint8_t*>(data);viewKey.insert(viewKey.end(),p,p+bytes);};
@@ -2132,7 +2156,7 @@ NativeMaterialLiveScope::NativeMaterialLiveScope(ID3D11DeviceContext* ctx,bool e
     // display pass must not reconstruct and relight an already resolved edge.
     state.composited=true;state.renderedGeneration=state.frame.generation;
     Census(ctx,"live-lit",vp);
-    BeginTiming(ctx,false,true);
+    BeginTiming(ctx,false,true,info.programHash,uint8_t(irradianceActive?1:originalShader?2:0),&vp);
 }
 void NativeMaterialLiveCost(float& prepareMs,float& ambientOcclusionMs,float& totalMs){
     prepareMs=liveCostMs[0].load(std::memory_order_relaxed);ambientOcclusionMs=liveCostMs[1].load(std::memory_order_relaxed);

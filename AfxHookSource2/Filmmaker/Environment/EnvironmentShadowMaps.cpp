@@ -14,6 +14,7 @@
 #include "EnvironmentWeatherMath.h"
 #include "EnvironmentRender.h"
 #include "../Relight/RelightProbeMath.h"
+#include "../Relight/RelightClusterMath.h"
 #include "../Debug/MvmDebugLog.h"
 #include "../Render/RenderPrivateTextureScope.h"
 #include <wrl/client.h>
@@ -1264,13 +1265,21 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
         std::vector<bool> faceDynamic(mapStaticDone);
         std::vector<unsigned> realtimeFaces,actorFaceList;unsigned actorFaces=0;
         const ShadowFrustum receivers(input.worldToClip);
+        // Visible reach (RelightClusterMath.h, the same record the light clusters cull with): past
+        // it a light cannot change the picture, so a face earns on-screen priority and an
+        // every-frame refresh only while that reach, not the authored range, meets the view.
+        std::vector<float> staticReach(staticLights);
+        for(unsigned l=0;l<staticLights;++l){staticReach[l]=(std::max)(1.f,staticRanges[l]);
+            for(const auto& light:input.relight.lights)
+                if(light.position.x==staticPositions[l].x&&light.position.y==staticPositions[l].y&&light.position.z==staticPositions[l].z){
+                    staticReach[l]=Relight::LightVisibleReach(Relight::ToRecord(light,input.relight.intensity),staticReach[l],input.relight.visibleRadiance);break;}}
         for(unsigned i=0;i<mapStaticDone;++i){
             if(i%Relight::ShadowFaces&&projectedSource(staticPositions[i/Relight::ShadowFaces]))continue;
             const bool actor=CasterBoundsIntersect(posedBounds,mapStaticMatrices[i],posedBoundsComplete);
             const bool dynamic=props||mapFoliageFaces[i]||actor;
             faceDynamic[i]=dynamic;if(!dynamic&&!mapFaceDynamic[i])continue;
             const unsigned light=i/Relight::ShadowFaces;
-            const Vec3 p=staticPositions[light];const float range=(std::max)(1.f,staticRanges[light]);
+            const Vec3 p=staticPositions[light];const float range=staticReach[light];
             const Vec3 extent{range,range,range};const float distance=std::sqrt(Dot(p-input.camera,p-input.camera));
             const bool visible=!input.hasWorldToClip||receivers.Intersects(p-extent,p+extent);
             // Preserve per-frame animation across doorways. The extra 128 units

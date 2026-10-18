@@ -15,11 +15,28 @@ cbuffer Params:register(b0) {
     uint4 control; // mode, ones base, require world-position projection, occupancy mirror offset
     float4 nearby; // first-person eye (world), reach
     uint4 nearbyList; // first-person list base (0: use the full list)
+    float4 reach; // x: radiance cutoff for visible reach (0: authored ranges)
 }
 cbuffer NativeViewport:register(b1) {float4 viewport[21];}
 cbuffer NativeView:register(b4) {float4 view[36];}
 float3 Project(float3 p) {
     return p.x*view[12].xyw+p.y*view[13].xyw+p.z*view[14].xyw+view[15].xyw;
+}
+// Mirrors RelightClusterMath.h LightVisibleReach: where the light, at its brightest, falls to
+// the cutoff. Never beyond the authored radius.
+float VisibleReach(Light light,float radius) {
+    if(!(reach.x>0)||!(radius>0)||!isfinite(radius)||!(light.rows[8].w>0))return radius;
+    float peak=max(light.rows[10].x,max(light.rows[10].y,light.rows[10].z));
+    float soft=light.rows[8].w;
+    if(!(peak>0)||!isfinite(peak*soft))return radius;
+    float low=0,high=radius;
+    [loop]for(uint i=0;i<24;++i){
+        float d=(low+high)*.5;
+        float t=saturate(light.rows[9].x+light.rows[9].y*d);
+        float c=peak*soft/max(soft,d*d)*(t*t*(3-2*t));
+        if(c>reach.x)low=d;else high=d;
+    }
+    return high;
 }
 // Clip the convex hull against positive W before projecting. All vertex pairs
 // include every true edge, so additional diagonal intersections only enlarge it.
@@ -109,6 +126,7 @@ bool GlassHull(Light light,out float3 hull[8]) {
         float r=-light.rows[9].x/light.rows[9].y;
         float3 c=light.rows[8].xyz;
         if(r>=0&&isfinite(r)&&all(isfinite(c))) {
+            r=VisibleReach(light,r);
             float3 x=light.rows[0].xyz,y=light.rows[1].xyz,f=light.rows[3].xyz;
             float xx=dot(x,x),yy=dot(y,y),ff=dot(f,f);
             bool cone=light.rows[8].w>0&&isfinite(xx+yy+ff)&&xx>=1e-4&&yy>=1e-4&&abs(ff-1)<=1e-4&&
@@ -141,6 +159,7 @@ bool FirstPersonLight(Light light) {
     if(!(light.rows[9].y<0)||!all(isfinite(light.rows[9].xy)))return true;
     float radius=-light.rows[9].x/light.rows[9].y;
     if(!(radius>=0)||!isfinite(radius))return true;
+    radius=VisibleReach(light,radius);
     float3 delta=light.rows[8].xyz-nearby.xyz;float distance=dot(delta,delta);
     if(!isfinite(distance))return true;
     return distance<=(radius+nearby.w)*(radius+nearby.w);

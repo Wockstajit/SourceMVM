@@ -122,30 +122,64 @@ inline ClusterHull LightClusterHull(const LightRecord& light,float radius) {
     for(unsigned i=0;i<4;++i)hull.points[i+1]=farCenter+side*((i&1)?radius+3*pad:-radius-3*pad)+up*((i&2)?radius+3*pad:-radius-3*pad);
     return hull;
 }
+// Visible reach. A light's authored range is where its smooth window reaches zero, but long
+// before that its inverse-square falloff has made it too dim to change the picture. Clusters
+// beyond that point would only loop over it (and run its shadow filter) for nothing: at a busy
+// view the authored spheres covered about seven times the volume the lights can visibly light
+// (de_ancient, 2026-10-18). The cutoff is a radiance: one display step near black (the first
+// sRGB code, linear 0.0003) on a mid-grey surface at the applied exposure, per `steps`.
+inline constexpr float VisibleStepLinear=.0003f;
+inline constexpr float VisibleReferenceAlbedo=.5f;
+inline float VisibleRadianceCutoff(float steps,float exposure){
+    if(!(steps>0)||!(exposure>0)||!std::isfinite(steps*exposure))return 0;
+    const float cutoff=steps*VisibleStepLinear*3.14159265f/(VisibleReferenceAlbedo*exposure);
+    // Sixteenth-stop steps: an easing exposure must not rebuild the clusters every frame.
+    return std::exp2(std::round(std::log2(cutoff)*16)/16);
+}
+// The distance at which this record's light, at its brightest (no cone, cookie or shadow),
+// falls to `cutoff`: radiance * soft / max(soft, d^2) * smoothstep(saturate(x + y d)), rows
+// 8.w, 9 and 10 exactly as the shipped loop evaluates them. Never beyond `radius`; a zero
+// cutoff, an unproven record or a directional one keeps `radius`. Mirrors VisibleReach (HLSL).
+inline float LightVisibleReach(const LightRecord& light,float radius,float cutoff){
+    if(!(cutoff>0)||!(radius>0)||!std::isfinite(radius)||!(light[35]>0))return radius;
+    const float peak=(std::max)(light[40],(std::max)(light[41],light[42]));
+    const float soft=light[35];
+    if(!(peak>0)||!std::isfinite(peak*soft))return radius;
+    float low=0,high=radius;
+    for(unsigned i=0;i<24;++i){
+        const float d=(low+high)*.5f;
+        const float t=std::clamp(light[36]+light[37]*d,0.f,1.f);
+        const float c=peak*soft/(std::max)(soft,d*d)*(t*t*(3-2*t));
+        if(c>cutoff)low=d;else high=d;
+    }
+    return high;
+}
 // First-person raster coordinates use their own projection, so their pixels cannot
 // index screen tiles. They read one list of the lights that can reach a sphere
 // around the eye instead of every record. The reach covers hands, weapons and
 // held items; beams, cookies and lights without a proven finite range are always listed.
 inline constexpr float FirstPersonLightReach=96.f;
-inline bool FirstPersonLight(const LightRecord& light,const Vec3& camera,float reach=FirstPersonLightReach) {
+inline bool FirstPersonLight(const LightRecord& light,const Vec3& camera,float reach=FirstPersonLightReach,float cutoff=0) {
     ClusterHull cookie;
     if(light[80]>0||GlassClusterHull(light,cookie))return true;
     if(!(light[37]<0)||!std::isfinite(light[36])||!std::isfinite(light[37]))return true;
-    const float radius=-light[36]/light[37];
+    float radius=-light[36]/light[37];
     if(!(radius>=0)||!std::isfinite(radius))return true;
+    radius=LightVisibleReach(light,radius,cutoff);
     const Vec3 delta=Vec3{light[32],light[33],light[34]}-camera;
     const float distance=Dot(delta,delta);
     if(!std::isfinite(distance))return true;
     return distance<=(radius+reach)*(radius+reach);
 }
 inline ClusterExtent LightClusterExtent(const LightRecord& light,const ClusterGrid& g,
-                                       const ClusterView& view,float width,float height) {
+                                       const ClusterView& view,float width,float height,float cutoff=0) {
     ClusterExtent e{0,g.tilesX-1,0,g.tilesY-1,0,g.sliceCount-1,1,0};
     ClusterHull hull;const bool beam=GlassClusterHull(light,hull);float radius=0;
     if(!beam){
         // Row 8.w softens inverse-square falloff; row 9 proves a finite cull sphere.
         if(!(light[37]<0)||!std::isfinite(light[36])||!std::isfinite(light[37]))return e;
         radius=-light[36]/light[37];if(!(radius>=0)||!std::isfinite(radius))return e;
+        radius=LightVisibleReach(light,radius,cutoff);
         hull=LightClusterHull(light,radius);
     }
     const Vec3 c{light[32],light[33],light[34]};

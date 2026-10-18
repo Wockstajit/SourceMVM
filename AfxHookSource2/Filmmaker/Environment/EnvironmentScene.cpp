@@ -34,6 +34,9 @@
 #include "../Relight/Relight.h"
 #include "../Relight/RelightEnvironmentMath.h"
 #include "../Relight/RelightLightEditor.h"
+#include "../Relight/RelightClusterMath.h"
+#include "../World/AutoExposure.h"
+#include "../World/NightMode.h"
 #include "../../hlaeFolder.h"
 #include "../../MirvTime.h"
 #include "../../RenderSystemDX11Hooks.h"
@@ -781,6 +784,13 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
     auto map = CurrentMap();
     f.proof=g_proof;f.proof.enabled=g_proof.enabled&&g_proof.map==map;
     f.relight=Relight::CaptureScene(map);
+    {
+        // The exposure CS2's tonemapper applies this frame: a pinned one (Night mode, the Exposure
+        // slider), else our adaptation's. CS2's own adaptation is not readable, so then no cutoff.
+        const float pinned=NightMode_Exposure();
+        const float exposure=pinned!=kExposureAuto?pinned:AutoExposure_CurrentScale();
+        f.relight.visibleRadiance=Relight::VisibleRadianceCutoff(f.relight.reach,exposure);
+    }
     if (g_restoreAutosave) { f.relight.enabled = false; f.proof.enabled = false; }
     const bool sceneActive=f.scene.enabled&&(f.scene.map.empty()||f.scene.map==map);
     const bool lightingReady=Relight::MapLightingReady(f.relight,map,bool(f.occlusion));

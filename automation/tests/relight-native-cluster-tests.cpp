@@ -12,8 +12,8 @@ using namespace Filmmaker::Relight;
 using Microsoft::WRL::ComPtr;
 void Check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void Hr(HRESULT value,const char* message){Check(SUCCEEDED(value),message);}
-struct Params {ClusterUintRow grid,list;ClusterFloatRow depth;ClusterUintRow control;ClusterFloatRow nearby;ClusterUintRow nearbyList;};
-static_assert(sizeof(Params)==96);
+struct Params {ClusterUintRow grid,list;ClusterFloatRow depth;ClusterUintRow control;ClusterFloatRow nearby;ClusterUintRow nearbyList;ClusterFloatRow reach;};
+static_assert(sizeof(Params)==112);
 int main(int argc,char** argv){try{
     bool hardware=false;std::filesystem::path fixtures;
     for(int i=1;i<argc;++i)if(std::string(argv[i])=="--hardware")hardware=true;else fixtures=std::filesystem::u8path(argv[i]);
@@ -80,7 +80,7 @@ int main(int argc,char** argv){try{
         Hr(device->CreateShaderResourceView(authored.Get(),nullptr,&a),"Authored SRV");Hr(device->CreateShaderResourceView(extentBuffer.Get(),nullptr,&e),"Extent SRV");
         Hr(device->CreateUnorderedAccessView(masks.Get(),nullptr,&u),"Mask UAV");
         const Params params{{grid.shift,grid.tilesX,grid.tilesY,grid.sliceCount},{count,grid.lights.words,grid.lights.tiles,grid.lights.slices},
-            {grid.sliceScale,63,float(width),float(height)},{1,grid.lights.ones,0,summaries?grid.size:0},{100,20,8,96},{grid.lights.nearby,0,0,0}};
+            {grid.sliceScale,63,float(width),float(height)},{1,grid.lights.ones,0,summaries?grid.size:0},{100,20,8,96},{grid.lights.nearby,0,0,0},{0,0,0,0}};
         constants(sizeof(params),&params,paramBuffer);
         ClusterView v{};std::array<ClusterFloatRow,21> vp{};vp[20]={0,0,float(width),float(height)};
         constants(sizeof(v),v.data(),view);constants(sizeof(vp),vp.data(),viewport);

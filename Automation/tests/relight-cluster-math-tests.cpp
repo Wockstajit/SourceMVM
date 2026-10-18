@@ -140,5 +140,43 @@ int main() {
     const auto cookieBeam=GlassBeamProjection({{-80,-60,9000},{80,-60,9000},{80,60,9000},{-80,60,9000}},{0,0,-1},500);
     Check(FirstPersonLight(GlassBeamRecord(cookieBeam,{0,0,-1},{1,1,1},.5f),{0,0,0}),"Glass beams are always listed");
     record=ToRecord(hand,1);record[37]=0;Check(FirstPersonLight(record,{0,0,0}),"A record without a proven range is listed");
+    // ---- visible reach ----
+    {
+        Check(VisibleRadianceCutoff(0,.3f)==0&&VisibleRadianceCutoff(1,0)==0,"No cutoff without steps or a known exposure");
+        const float cut=VisibleRadianceCutoff(1,.286f);
+        Check(std::abs(std::log2(cut/.006590f))<=1.f/32,"One step at exposure 0.286 is about 0.0066 radiance (sixteenth-stop rounding)");
+        Check(VisibleRadianceCutoff(1,.143f)>cut,"A lower exposure (a darker picture) hides more light: a larger cutoff");
+        Light dim;dim.position={0,0,0};dim.range=1000;dim.lumens=75;dim.color={1,.69f,.40f};
+        const auto record=ToRecord(dim,1);
+        const float authored=-record[36]/record[37];
+        Check(LightVisibleReach(record,authored,0)==authored,"Zero cutoff keeps the authored range");
+        const float reach=LightVisibleReach(record,authored,cut);
+        Check(reach>50&&reach<authored*.6f,"A dim 75-lumen lamp stops well inside its 1000-unit range");
+        // The shipped loop's own evaluation: inside the reach the light is above the cutoff, and
+        // nothing past it (to the authored range) rises above it again.
+        auto contribution=[&](float d){const float peak=(std::max)(record[40],(std::max)(record[41],record[42]));
+            const float t=std::clamp(record[36]+record[37]*d,0.f,1.f);
+            return peak*record[35]/(std::max)(record[35],d*d)*(t*t*(3-2*t));};
+        Check(contribution(reach*.995f)>cut,"Just inside the reach the light still exceeds the cutoff");
+        bool tail=true;for(float d=reach;d<=authored;d+=1)tail=tail&&contribution(d)<=cut*1.0001f;
+        Check(tail,"Past the reach the light never exceeds the cutoff");
+        Light bright=dim;bright.lumens=4000;bright.range=480;
+        const auto strong=ToRecord(bright,1);
+        Check(LightVisibleReach(strong,-strong[36]/strong[37],cut)>400,"A bright lamp keeps most of its short range (its fade to the range end is what it loses)");
+        const auto sun=SunRecord({0,0,1},{1,1,1},nullptr,false);
+        const auto g=MakeClusterGrid(1600,900,4,6400);
+        ClusterView view{};view[2][0]=1;view[12][0]=1;view[13][1]=1;view[14][3]=1;
+        const auto sunExtent=LightClusterExtent(sun,g,view,1600,900,cut);
+        Check(sunExtent.allTiles&&sunExtent.z0==0&&sunExtent.z1==63,"The sun is never cut");
+        Light far=dim;far.position={0,0,2000};
+        const auto farRecord=ToRecord(far,1);
+        const auto full=LightClusterExtent(farRecord,g,view,1600,900,0),cutExtent=LightClusterExtent(farRecord,g,view,1600,900,cut);
+        Check(cutExtent.x1-cutExtent.x0<full.x1-full.x0&&cutExtent.z1-cutExtent.z0<full.z1-full.z0,"The cut lamp covers fewer tiles and slices");
+        Check(cutExtent.x0>=full.x0&&cutExtent.x1<=full.x1&&cutExtent.z0>=full.z0&&cutExtent.z1<=full.z1,"The cut extent lies inside the authored one");
+        Light nearEye=dim;nearEye.position={0,0,600};
+        const auto nearRecord=ToRecord(nearEye,1);
+        Check(FirstPersonLight(nearRecord,{0,0,0})&&!FirstPersonLight(nearRecord,{0,0,0},FirstPersonLightReach,cut),
+              "A dim lamp 600 units away reaches the eye by range but not visibly");
+    }
     std::cout<<"Relight cluster addressing and conservative bounds passed\n";
 }

@@ -1070,6 +1070,44 @@ count; the cluster measurements below separate their costs. The full-mask path t
 with no clustering. The cluster implementation below uses conservative masks instead. `mirv_relight shadowlights <n>` trades leaking against frame
 rate directly.
 
+### Visible reach
+
+A light's authored range is where its smooth window reaches zero, but its inverse-square falloff
+makes it too dim to change the picture long before that. Each cluster used to keep every light out
+to its authored range, so pixels looped over (and ran the shadow filter of) lights that could not
+change them. At the de_ancient A-site pose the authored spheres held about seven times the volume
+the lights can visibly light.
+
+`mirv_relight reach <0-8>` (default 4) stops each light at the distance where it changes a
+mid-grey surface by less than that many display steps near black (the first sRGB code, linear
+0.0003), at the exposure CS2's tonemapper is actually applying: a pinned exposure (Night mode, the
+Exposure slider), else the Environment's auto exposure. CS2's own adaptation is not readable, so
+then there is no cutoff. The cutoff is a radiance (`VisibleRadianceCutoff`) and each light's reach
+is solved from its own record, rows 8.w, 9 and 10 exactly as the shipped loop evaluates them
+(`LightVisibleReach` in [`RelightClusterMath.h`](../../AfxHookSource2/Filmmaker/Relight/RelightClusterMath.h),
+mirrored by `VisibleReach` in the cluster shader). It never exceeds the authored range, and the sun,
+glass beams and records without a proven range keep their full extent. `reach 0` restores the
+authored ranges exactly. The same reach decides whether a cached shadow face is on screen and
+needs its every-frame refresh; the faces' depth projections keep the authored range.
+
+Measured at the saved A-site pose (tick 18005, paused, 2560×1351, 4× MSAA, same settings):
+
+| `reach` | standing | moving (forward/back route) |
+| --- | --- | --- |
+| 0 (authored ranges) | 44.0 ms | 47.6 ms (20.9 fps) |
+| 1 | 41.6 ms | 44.8 ms |
+| 4 (default) | 39.7 ms | 42.8 ms (23.3 fps) |
+| 8 | 38.8 ms | - |
+
+Window captures against `reach 0`, sky excluded (its clouds drift between captures): pixels more
+than two levels apart were 0.0001-0.0002% at every setting, the same as two `reach 0` captures.
+`RelightClusterMathTests` cover the cutoff, the reach bound and its tail, and
+`RelightClusterGpuTests` require the GPU masks to equal the CPU bounds with a cutoff.
+
+`mvm_debug` now times every lit material pass of a sampled frame (up to 1,536), not the first
+256, and groups the cost by viewport (`environment.native.material.gpu.view`) and by program
+(`environment.native.material.gpu.program`, top 12).
+
 ## Cluster implementation
 
 `mirv_relight clusters 0|1|2|3` selects the full-mask reference, native tiles plus slices,

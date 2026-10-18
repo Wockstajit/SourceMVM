@@ -85,10 +85,10 @@ int main(){
     auto rows=buffer(96,16,D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS,nullptr);
     auto b4=buffer(sizeof(view),0,D3D11_BIND_CONSTANT_BUFFER,view.data());
     auto b1=buffer(sizeof(viewport),0,D3D11_BIND_CONSTANT_BUFFER,viewport);
-    struct Params{ClusterUintRow grid,list;ClusterFloatRow depth;ClusterUintRow control;ClusterFloatRow nearby;ClusterUintRow nearbyList;};
+    struct Params{ClusterUintRow grid,list;ClusterFloatRow depth;ClusterUintRow control;ClusterFloatRow nearby;ClusterUintRow nearbyList;ClusterFloatRow reach;};
     Params p{{grid.shift,grid.tilesX,grid.tilesY,grid.sliceCount},
         {UINT(lights.size()),grid.lights.words,grid.lights.tiles,grid.lights.slices},
-        {grid.sliceScale,63,160,96},{1,grid.lights.ones,0,grid.size},{0,0,0,FirstPersonLightReach},{0,0,0,0}};
+        {grid.sliceScale,63,160,96},{1,grid.lights.ones,0,grid.size},{0,0,0,FirstPersonLightReach},{0,0,0,0},{0,0,0,0}};
     auto b0=buffer(sizeof(p),0,D3D11_BIND_CONSTANT_BUFFER,&p);
     auto r0=srv(records.Get()),r1=srv(extent.Get());auto u0=uav(extent.Get()),u1=uav(masks.Get()),u2=uav(rows.Get());
     auto read=[&](ID3D11Buffer* from){
@@ -98,7 +98,9 @@ int main(){
         Check(SUCCEEDED(ctx->Map(staging.Get(),0,D3D11_MAP_READ,0,&map)),"readback map");
         std::vector<uint32_t> result(d.ByteWidth/4);std::memcpy(result.data(),map.pData,d.ByteWidth);ctx->Unmap(staging.Get(),0);return result;
     };
-    for(unsigned mode:{0u,1u,2u,3u,4u,5u,6u}){
+    // Pass 7 repeats mode 4 (tiles, slices and the first-person list) with a visible-reach cutoff.
+    for(unsigned pass:{0u,1u,2u,3u,4u,5u,6u,7u}){
+        const unsigned mode=pass==7?4u:pass;const float cutoff=pass==7?.5f:0.f;p.reach[0]=cutoff;
         const bool fallbackMode=mode==3||mode>=5,firstPerson=mode==6;
         p.control[0]=mode>=3?1:mode;viewport[20][0]=mode==3?12.f:0.f;
         p.control[2]=mode>=4?1:0;
@@ -123,7 +125,7 @@ int main(){
             // every light without a proven range (sun, glass beams).
             unsigned listed=0,occupied=0;
             for(unsigned i=0;i<lights.size();++i){
-                const bool wanted=FirstPersonLight(lights[i],{0,0,0});listed+=wanted;
+                const bool wanted=FirstPersonLight(lights[i],{0,0,0},FirstPersonLightReach,cutoff);listed+=wanted;
                 Check(((actual[grid.lights.nearby+i/32]>>(i%32))&1)==unsigned(wanted),"GPU first-person list matches the CPU reach test");
             }
             Check(listed>3&&listed<lights.size(),"first-person list drops distant lights and keeps near ones");
@@ -131,7 +133,7 @@ int main(){
             for(unsigned w=0;w<grid.lights.words;++w)Check(actual[grid.size+grid.lights.nearby+w]==occupied,"first-person occupancy mirror matches its words");
         }
         for(unsigned i=0;i<lights.size();++i){
-            auto e=LightClusterExtent(lights[i],grid,view,160,96);
+            auto e=LightClusterExtent(lights[i],grid,view,160,96,cutoff);
             for(unsigned t=0;t<grid.TileCount();++t){
                 const bool wanted=fallbackMode||e.allTiles||(t%grid.tilesX>=e.x0&&t%grid.tilesX<=e.x1&&t/grid.tilesX>=e.y0&&t/grid.tilesX<=e.y1);
                 const bool bit=(actual[grid.lights.tiles+t*grid.lights.words+i/32]&(1u<<(i%32)))!=0;
