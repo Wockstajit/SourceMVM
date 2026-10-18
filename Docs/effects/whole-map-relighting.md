@@ -1136,7 +1136,10 @@ The defaults do not change the picture. By day, two window captures with the def
 the previous behaviour differed from each other by no more than two captures of the same settings
 (0.53% of pixels more than eight levels apart, against 0.52% and 0.48%; smoke, foliage and clouds
 move while paused). At night (sun elevation -12) cube and face records matched to capture noise
-outside the moving sky. The two opt-in settings trade quality: `actorshadows 16` lets lamp
+outside the moving sky, and so did a second view from the same spot looking the other way, by day
+(0.151% against 0.144-0.157%) and at night. Video memory did not change: the game held 4.24 of
+11.2 GB with either record form, the hook 2.13 GB (the 256 MiB atlas, the 32 MiB summary, cached
+faces and caster buffers among it); the GPU stays at 96-97% busy uncapped, the bottleneck. The two opt-in settings trade quality: `actorshadows 16` lets lamp
 shadows of moving players lag, and `shadowreach` drops lamp shadows past its distance (below).
 
 ### Cube shadow records
