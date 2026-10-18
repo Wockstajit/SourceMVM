@@ -1090,17 +1090,23 @@ glass beams and records without a proven range keep their full extent. `reach 0`
 authored ranges exactly. The same reach decides whether a cached shadow face is on screen and
 needs its every-frame refresh; the faces' depth projections keep the authored range.
 
-Measured at the saved A-site pose (tick 18005, paused, 2560×1351, 4× MSAA, same settings):
+Measured at the saved A-site pose (tick 18005, paused, 2560×1351, 4× MSAA, same settings), on
+CS2's own free camera reached by playing into the tick:
 
-| `reach` | standing | moving (forward/back route) |
+| `reach` | standing | moving (free camera flown while paused) |
 | --- | --- | --- |
-| 0 (authored ranges) | 44.0 ms | 47.6 ms (20.9 fps) |
-| 1 | 41.6 ms | 44.8 ms |
-| 4 (default) | 39.7 ms | 42.8 ms (23.3 fps) |
-| 8 | 38.8 ms | - |
+| 0 (authored ranges) | 36.1 ms (27.7 fps) | 43.0 ms (23.3 fps) |
+| 4 (default) | 33.1 ms (30.2 fps) | 38.6 ms (25.9 fps) |
+| 8 | 32.1 ms | - |
 
-Window captures against `reach 0`, sky excluded (its clouds drift between captures): pixels more
-than two levels apart were 0.0001-0.0002% at every setting, the same as two `reach 0` captures.
+Window captures against `reach 0`, UI and sky excluded: pixels more than two levels apart were
+0.0003-0.0005% at `reach 4` and 0.0007% at `reach 8`, against 0.0002% between two `reach 0`
+captures.
+
+Measuring a paused demo: CS2 updates world visibility only while the demo plays. A view moved while
+paused, a seek that lands paused, or a `mirv_input` pose away from CS2's own camera can leave
+world geometry undrawn, which reads as a bright glare where the sky shows through and changes
+both frame time and exposure. Play into the measured tick with the camera already in place.
 `RelightClusterMathTests` cover the cutoff, the reach bound and its tail, and
 `RelightClusterGpuTests` require the GPU masks to equal the CPU bounds with a cutoff.
 
