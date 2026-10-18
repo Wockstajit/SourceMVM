@@ -56,6 +56,7 @@
 // RenderSystemDX11Hooks: our own shader creations on this thread are not counted as CS2's.
 void RenderShaderCost_OwnWork(bool begin);
 namespace Filmmaker::Environment {
+std::atomic<bool> NativeAoRepairReuse{true};
 using Microsoft::WRL::ComPtr;
 namespace {
 constexpr GUID SunAbiInfoTag={0xc93635ba,0x7dca,0x49ab,{0xb5,0xee,0xab,0x60,0x17,0x0d,0x7c,0x94}};
@@ -64,6 +65,7 @@ constexpr GUID BlackCoverageShaderTag={0x39e29345,0x4b16,0x4534,{0xac,0x89,0x7a,
 constexpr GUID SunAbiTag={0x3f61bdd1,0x622a,0x49f0,{0xae,0x7f,0x71,0xbc,0xda,0x42,0x66,0x21}};
 constexpr GUID PostCompressionTag={0x61859533,0x6b4a,0x45b0,{0x90,0x5f,0x2e,0x5b,0x12,0xa1,0xc3,0xe7}};
 constexpr GUID SharedAoShaderTag={0x72546290,0xe394,0x4a17,{0x9c,0xf0,0x17,0xb9,0x8a,0xfa,0x3e,0x11}};
+constexpr GUID UnchangedAoViewTag={0x417c643b,0x9a52,0x4823,{0xb1,0x71,0xa6,0x40,0x68,0x54,0x3c,0x22}};
 constexpr GUID DynamicIrradianceTag={0x1fd049d5,0x52d1,0x4337,{0xa9,0x65,0x71,0x21,0x44,0xa4,0x48,0x94}};
 // Set on a queued program once a draw has moved it to the front of the derivation queue.
 constexpr GUID DerivationWantedTag={0xccfd28be,0xdbf9,0x46e4,{0x82,0x69,0x58,0x6f,0x2e,0x4f,0x7f,0xfc}};
@@ -1106,7 +1108,11 @@ void DeriveNativeMaterialShaders(ID3D11PixelShader* shader,const void* code,size
     };
     auto shareAo=[&](ID3D11Device* device,ID3D11PixelShader* original,const std::vector<uint8_t>& program){
         std::vector<uint8_t> sharedCode;
-        if(!NativeSharedAoProgram(program.data(),program.size(),sharedCode)){shareLighting(device,original,program);return;}
+        bool unchanged=false;
+        if(!NativeSharedAoProgram(program.data(),program.size(),sharedCode,&unchanged)){
+            if(unchanged){const UINT valid=1;original->SetPrivateData(UnchangedAoViewTag,sizeof(valid),&valid);}
+            shareLighting(device,original,program);return;
+        }
         ComPtr<ID3D11PixelShader> shared;creatingCoverage=true;
         const auto hr=device->CreatePixelShader(sharedCode.data(),sharedCode.size(),nullptr,&shared);creatingCoverage=false;
         if(SUCCEEDED(hr)){shareLighting(device,shared.Get(),sharedCode);::Filmmaker::SetOwnedInterface(original,SharedAoShaderTag,shared.Get());}
@@ -1608,7 +1614,11 @@ void BindAoView(ID3D11DeviceContext* ctx,ID3D11Device* device,const D3D11_VIEWPO
     if(!aoWidth||!aoHeight)return;
     ComPtr<ID3D11PixelShader> shader,shared;ctx->PSGetShader(&shader,nullptr,nullptr);
     UINT bytes=sizeof(ID3D11PixelShader*);
-    static unsigned sharedDraws=0,uploads=0,fallbackDraws=0;
+    static unsigned sharedDraws=0,uploads=0,fallbackDraws=0,unchangedDraws=0;
+    UINT unchanged=0,unchangedBytes=sizeof(unchanged);
+    if(NativeAoRepairReuse.load(std::memory_order_relaxed)&&shader&&
+        SUCCEEDED(shader->GetPrivateData(UnchangedAoViewTag,&unchangedBytes,&unchanged))&&
+        unchangedBytes==sizeof(unchanged)&&unchanged==1){++unchangedDraws;return;}
     if(shader&&SUCCEEDED(::Filmmaker::GetOwnedInterface(shader.Get(),SharedAoShaderTag,&bytes,(void**)shared.GetAddressOf()))&&shared){
         const std::array<float,4> row{1.f/float(aoWidth),1.f/float(aoHeight),float(aoWidth)/vp.Width,0};
         if(!state.sharedAo){D3D11_BUFFER_DESC d{};d.ByteWidth=16;d.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
@@ -1645,8 +1655,8 @@ void BindAoView(ID3D11DeviceContext* ctx,ID3D11Device* device,const D3D11_VIEWPO
         }
     }
     if(MvmDebugLog_Active()){static ULONGLONG last=0;const auto now=GetTickCount64();if(now-last>=3000){last=now;
-        MvmDebugLog_LinefAlways("relight.ao.shared","draws=%u uploads=%u fallback=%u",sharedDraws,uploads,fallbackDraws);
-        sharedDraws=uploads=fallbackDraws=0;}}
+        MvmDebugLog_LinefAlways("relight.ao.shared","draws=%u uploads=%u fallback=%u unchanged=%u",sharedDraws,uploads,fallbackDraws,unchangedDraws);
+        sharedDraws=uploads=fallbackDraws=unchangedDraws=0;}}
 }
 bool BindOwnedInputs(ID3D11DeviceContext* ctx,ID3D11Device* device,const D3D11_VIEWPORT& vp,ID3D11Buffer* native,const NativeSunAbiInfo& info){
     LiveLap(0);

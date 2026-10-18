@@ -1,7 +1,10 @@
 #pragma once
 #include "EnvironmentScene.h"
 #include <d3d11.h>
+#include <atomic>
 namespace Filmmaker::Environment {
+// Transient A/B diagnostic: skip view repair only when bytecode proves it has no effect.
+extern std::atomic<bool> NativeAoRepairReuse;
 void NoteNativeMaterialPixelShader(ID3D11PixelShader*,const void*,size_t);
 // The lighting variants of CS2's material programs are built on a background worker, off CS2's
 // loader threads (EnvironmentNativeMaterial.cpp). For the heartbeat: programs handled, programs

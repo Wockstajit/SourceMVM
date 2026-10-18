@@ -43,7 +43,7 @@ def main():
                          "mirv_filmmaker cosmetics status", "mirv_relight status",
                          "mirv_filmmaker environment status", "mirv_filmmaker window status",
                          "mirv_fov", "getpos", "mirv_relight castercull", "mirv_relight clusterbounds",
-                         "mirv_relight reflectionfilter", "mirv_relight reflectionfollow"], 1.5)
+                         "mirv_relight reflectionfilter", "mirv_relight reflectionfollow", "mirv_relight aoreuse"], 1.5)
         loop = re.search(r"loop (ON|OFF) -- in (\d+), out (\d+)", state)
         if not loop:
             raise RuntimeError("No confirmed playback loop; refusing to replace it")

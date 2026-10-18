@@ -1280,6 +1280,14 @@ preparation on every draw with reuse for matching view buffers and viewport with
 `cost full|word|one` limits evaluation to all records, the first 32, or one record; the last
 two intentionally change the image and are diagnostics, not quality settings.
 
+AO view repair distinguishes unsupported bytecode from a validated program that never reads
+`b4[16].xyz`. The latter keeps the engine's native view buffer instead of copying it twice and
+patching values it cannot use. Reads of `b4[16].w` and all other native view rows stay live.
+Programs with relative or mixed xyz/w addressing keep the existing conservative clone path.
+`mirv_relight aoreuse 0|1` compares the old repair path with this reuse (default 1, transient).
+Native GPU tests compare exact output at 1x, 4x and 8x MSAA with changing view values; the
+optimization does not reduce AO, GI, shadow samples, resolution or update frequency.
+
 Offline Mirage, 1600×900, fixed pose, 413 records and 64 cached shadow lights, measured with
 15-second render-pump brackets after warmup:
 
