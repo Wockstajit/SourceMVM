@@ -163,6 +163,24 @@ int main() {
         Light bright=dim;bright.lumens=4000;bright.range=480;
         const auto strong=ToRecord(bright,1);
         Check(LightVisibleReach(strong,-strong[36]/strong[37],cut)>400,"A bright lamp keeps most of its short range (its fade to the range end is what it loses)");
+        // ---- shadow reach: the face depth a receiver at that face-axis distance stores ----
+        for(int face=0;face<6;++face){
+            const Vec3 origin{120,-40,64};
+            const auto matrix=Filmmaker::Environment::LocalShadowMatrix(origin,Filmmaker::Environment::PointShadowDirection(face),90,1000,8);
+            auto faceRecord=ToShadowedRecord(dim,1,matrix.data(),StaticTile);
+            const Vec3 axis=Filmmaker::Environment::PointShadowDirection(face);
+            for(const float distance:{20.f,240.f,900.f}){
+                const Vec3 p{origin.x+axis.x*distance+3*(axis.y+axis.z),origin.y+axis.y*distance+3*(axis.z+axis.x),origin.z+axis.z*distance+3*(axis.x+axis.y)}; // off-axis, same axis distance
+                const float z=faceRecord[8]*p.x+faceRecord[9]*p.y+faceRecord[10]*p.z+faceRecord[11];
+                const float w=faceRecord[12]*p.x+faceRecord[13]*p.y+faceRecord[14]*p.z+faceRecord[15];
+                Check(std::abs(ShadowReachDepth(faceRecord,distance)-z/w)<1e-5f,"The reach depth is what the face stores at that axis distance");
+            }
+            Check(ShadowReachDepth(faceRecord,4)==1e-7f,"A reach inside the near plane skips every receiver");
+            Check(ShadowReachDepth(faceRecord,5000)==0,"A reach past the far plane keeps every lookup");
+            Check(ShadowReachDepth(ToRecord(dim,1),100)==0,"An unshadowed record (no projection) has no reach depth");
+        }
+        Check(ShadowReachSlot==91&&ToShadowedRecord(dim,1,Filmmaker::Environment::LocalShadowMatrix({0,0,0},{1,0,0},90,1000,8).data(),StaticTile)[ShadowReachSlot]==0,
+            "A shadowed record keeps every lookup until a reach is set");
         const auto sun=SunRecord({0,0,1},{1,1,1},nullptr,false);
         const auto g=MakeClusterGrid(1600,900,4,6400);
         ClusterView view{};view[2][0]=1;view[12][0]=1;view[13][1]=1;view[14][3]=1;

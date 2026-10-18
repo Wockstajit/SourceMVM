@@ -64,6 +64,8 @@ constexpr GUID SunAbiTag={0x3f61bdd1,0x622a,0x49f0,{0xae,0x7f,0x71,0xbc,0xda,0x4
 constexpr GUID PostCompressionTag={0x61859533,0x6b4a,0x45b0,{0x90,0x5f,0x2e,0x5b,0x12,0xa1,0xc3,0xe7}};
 constexpr GUID SharedAoShaderTag={0x72546290,0xe394,0x4a17,{0x9c,0xf0,0x17,0xb9,0x8a,0xfa,0x3e,0x11}};
 constexpr GUID DynamicIrradianceTag={0x1fd049d5,0x52d1,0x4337,{0xa9,0x65,0x71,0x21,0x44,0xa4,0x48,0x94}};
+// Set on a queued program once a draw has moved it to the front of the derivation queue.
+constexpr GUID DerivationWantedTag={0xccfd28be,0xdbf9,0x46e4,{0x82,0x69,0x58,0x6f,0x2e,0x4f,0x7f,0xfc}};
 constexpr GUID NativeAtmosphereTag={0x5c3f07b1,0xc2b7,0x4a6f,{0x91,0x23,0x60,0x48,0x45,0xe1,0x9a,0xb2}};
 constexpr GUID NativeSmokeTag={0x07ca4708,0x7687,0x41c4,{0x90,0x4e,0xc7,0xb3,0x58,0x6d,0x0b,0x92}};
 constexpr GUID SharedLightingShaderTag={0xd706814b,0xb394,0x405b,{0x95,0x66,0x35,0xd2,0x1c,0xa7,0x97,0xac}};
@@ -566,9 +568,15 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
             // Other sources retain wall occlusion, including stained glass.
             if(ownWick||(viewport.MaxDepth<=.1f+1e-6f&&VfxOwnMuzzle(light))){records.push_back(Relight::ToRecord(light,set.intensity));continue;}
             if(first==~0u){if(!set.shadows||!light.transient)records.push_back(Relight::ToRecord(light,set.intensity));continue;}
-            for(unsigned face=0;face<Relight::FixtureFaces(light);++face)
+            // Shadow reach: receivers past it skip this light's shadow lookup (ShadowReachDepth).
+            const float shadowReach=set.shadowRadiance>0&&!Relight::HasFixtureProjection(light)?
+                Relight::LightVisibleReach(Relight::ToRecord(light,set.intensity),light.range,set.shadowRadiance):0.f;
+            for(unsigned face=0;face<Relight::FixtureFaces(light);++face){
                 records.push_back(Relight::ToShadowedRecord(light,set.intensity,
                     state.proofMatrices[first+face].data(),first+face));
+                if(shadowReach>0&&shadowReach<light.range)
+                    records.back()[Relight::ShadowReachSlot]=Relight::ShadowReachDepth(records.back(),shadowReach);
+            }
         }
         // The map's sun, as one directional record. Sunlight reaching through a doorway
         // is the shadow map doing its job; what it cannot do is the bounce that fills
@@ -1158,8 +1166,14 @@ void DeriveNativeMaterialShaders(ID3D11PixelShader* shader,const void* code,size
 // cost those threads 19-50 s per load on a 9800X3D, against 3 s for CS2's own 5240 shaders
 // (measured 2026-10-15). Player reports from that day show 70 s and 18 s frames at startup and
 // sessions that ended at the main menu without a clean exit. The variants are built here instead,
-// one program at a time below normal priority. Until its turn a program carries no SunAbiInfoTag,
-// so its draws take CS2's own path, exactly as an unsupported program's do.
+// below normal priority. Until its turn a program carries no SunAbiInfoTag, so its draws take CS2's
+// own path, exactly as an unsupported program's do.
+//
+// The driver's compile of the variants is nearly all the work: about 0.8 s a program when its
+// shader cache has none of them (the first launch after the patched code changes), 1,650 programs
+// on de_ancient. One worker took over 20 minutes to light the whole map (2026-10-18). Several
+// workers compile at once, and a program a lit draw is waiting for jumps the queue
+// (PrioritizeNativeMaterial), so what is on screen is lit first.
 struct DerivationJob {
     ComPtr<ID3D11PixelShader> shader;
     std::vector<uint8_t> code;
@@ -1174,8 +1188,10 @@ struct DerivationQueue {
     std::atomic<unsigned long long> done{0};
     std::atomic<long long> ticks{0};
 };
-// Never destroyed: the worker is still parked on it while statics are torn down at exit.
+// Never destroyed: the workers are still parked on it while statics are torn down at exit.
 DerivationQueue& Derivations(){static auto* queue=new DerivationQueue();return *queue;}
+// Half the logical processors, at most eight: below normal priority they yield to the game.
+unsigned DerivationWorkers(){return std::clamp(std::thread::hardware_concurrency()/2,1u,8u);}
 void DerivationWorker(){
     SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_BELOW_NORMAL);
     auto& queue=Derivations();
@@ -1211,9 +1227,21 @@ void NoteNativeMaterialPixelShader(ID3D11PixelShader* shader,const void* code,si
     {
         std::lock_guard<std::mutex> lock(queue.mutex);
         queue.jobs.push_back(std::move(job));
-        if(!queue.started){queue.started=true;std::thread(DerivationWorker).detach();}
+        if(!queue.started){queue.started=true;
+            for(unsigned i=0;i<DerivationWorkers();++i)std::thread(DerivationWorker).detach();}
     }
     queue.wake.notify_one();
+}
+void PrioritizeNativeMaterial(ID3D11PixelShader* shader){
+    UINT wanted=1,size=sizeof(wanted);
+    if(!shader||SUCCEEDED(shader->GetPrivateData(DerivationWantedTag,&size,&wanted)))return;
+    shader->SetPrivateData(DerivationWantedTag,sizeof(wanted),&wanted);
+    auto& queue=Derivations();
+    std::lock_guard<std::mutex> lock(queue.mutex);
+    for(auto job=queue.jobs.begin();job!=queue.jobs.end();++job)if(job->shader.Get()==shader){
+        if(job!=queue.jobs.begin()){auto moved=std::move(*job);queue.jobs.erase(job);queue.jobs.push_front(std::move(moved));}
+        break;
+    }
 }
 NativeMaterialDerivation NativeMaterialDerivationStatus(){
     auto& queue=Derivations();
@@ -1752,6 +1780,8 @@ bool BindOwnedInputs(ID3D11DeviceContext* ctx,ID3D11Device* device,const D3D11_V
     UINT slots[48]{13,state.proofLightSlot,6,7};
     ID3D11ShaderResourceView* views[48]{state.proofMaskSrv.Get(),ownedSun?state.proofLocalLightSrv.Get():state.proofLightSrv.Get(),skyboxShadow?skyboxShadow:state.proofAtlas.Get(),ao};
     unsigned bindings=4;
+    // The lamp filter's atlas summary: unbound (no early-out) unless slot 6 holds the map atlas.
+    slots[bindings]=NativeLampPyramidSlot;views[bindings++]=skyboxShadow?nullptr:LampShadowPyramid(state.proofAtlas.Get());
     if(sunVisibility){slots[bindings]=info.screenShadowSlot;views[bindings++]=sunVisibility;}
     for(unsigned slot=0;slot<32;++slot){
         if(info.cubeSlotMask&(1u<<slot)){slots[bindings]=slot;views[bindings++]=state.proofBlackCube.Get();}
@@ -2218,6 +2248,8 @@ bool BeginNativeMaterialDraw(ID3D11DeviceContext* ctx){
         if(seen.size()<64&&seen.insert(info.programHash).second)
             MvmDebugLog_LinefAlways("environment.native.material.abi","vs=%s flags=%u cb3Count=%u hash=%016llx",name,info.flags,info.cb3Count,info.programHash);
     }
+    // A program still waiting for its variants goes to the front of the derivation queue.
+    if(ps){UINT queued=0;if(ps->GetPrivateData(SunAbiInfoTag,&queued,nullptr)==DXGI_ERROR_NOT_FOUND)PrioritizeNativeMaterial(ps.Get());}
     if(!ps||FAILED(ps->GetPrivateData(SunAbiTag,&size,&tag))||tag!=1){Evidence("unsupported-sun-abi");return false;}
     NativeSunAbiInfo fixtureInfo{};UINT fixtureInfoSize=sizeof(fixtureInfo);
     state.fixtureAbi=SUCCEEDED(ps->GetPrivateData(SunAbiInfoTag,&fixtureInfoSize,&fixtureInfo))&&(fixtureInfo.flags&32);

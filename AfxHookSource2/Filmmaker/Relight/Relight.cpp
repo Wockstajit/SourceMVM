@@ -158,6 +158,7 @@ void Load(const std::string &path, const std::string &map) {
     next.reference = g_scene.reference;
     next.clusters = g_scene.clusters;
     next.reach = g_scene.reach;
+    next.shadowReach = g_scene.shadowReach;
     next.probeRebuild=g_scene.probeRebuild;next.probeCheck=g_scene.probeCheck;next.gi=g_scene.gi;next.screenGi=g_scene.screenGi;next.bounce=g_scene.bounce;next.bounceSteps=g_scene.bounceSteps;next.albedo=g_scene.albedo;
     next.lightmapDiag=g_scene.lightmapDiag;next.lightmapFile=g_scene.lightmapFile;next.lightmapMode=g_scene.lightmapMode;next.programFilter=g_scene.programFilter;
 
@@ -291,6 +292,7 @@ void Status() {
     advancedfx::Message("  ao=%g (owned real-time ambient occlusion)\n",g_scene.ao);
     advancedfx::Message("  reflections=%g (live reflection capture)\n",g_scene.reflections);
     advancedfx::Message("  reach=%g (lights stop where they change a dark pixel by less than this many display steps; 0 = authored ranges)\n",g_scene.reach);
+    advancedfx::Message("  shadowreach=%g (lamp shadows stop where the lamp changes a dark pixel by less than this many display steps; 0 = everywhere)\n",g_scene.shadowReach);
 }
 } // namespace
 } // namespace Filmmaker::Relight
@@ -348,6 +350,7 @@ CON_COMMAND(mirv_relight,
                 "mirv_relight shadowbias <0-0.01>    normalized shadow receiver bias\n"
                 "mirv_relight suncascade <-1|0-3>    diagnostic: shade through one sun cascade only\n"
                 "mirv_relight reach <0-8>            light reach cutoff in display steps (4 default, 0 = authored ranges)\n"
+                "mirv_relight shadowreach <0-64>     lamp shadows stop below this many display steps (8 default, 0 = everywhere)\n"
                 "mirv_relight skyocclusion <0-1>     runtime sky visibility on the ambient\n"
                 "mirv_relight reflections <0-2>      live reflection strength (0 off)\n"
                 "mirv_relight lighteditor <on|off>   markers on every light; aim + F switches one off/on, Esc leaves\n"
@@ -356,6 +359,7 @@ CON_COMMAND(mirv_relight,
                 "mirv_relight shadows 0|1             shadow maps for the budgeted lights\n"
                 "mirv_relight shadowlights <n>        lights in the cached shadow tier\n"
                 "mirv_relight actorshadows <0-512>    light faces with a moving player redrawn every frame\n"
+                "mirv_relight lampsummary 0|1         lamp shadows skip their 32 taps where the atlas summary proves the answer (1)\n"
                 "mirv_relight view off|lights|direct|coverage|probes\n"
                 "mirv_relight gi 0|1 | giscale 0.5|1 | bounce <0-16> | albedo <r g b> | rebuild\n"
                 "mirv_relight lightmapdiag 0|1     UV checker on world lightmap t2 (not GI)\n"
@@ -467,6 +471,12 @@ CON_COMMAND(mirv_relight,
             const float value=Number(args->ArgV(2));
             if(!(value>=0)||value>8)throw std::runtime_error("Value out of range");
             g_scene.reach=value;++g_scene.generation;Status();return;
+        }
+        if(op=="shadowreach") {
+            if(argc!=3)throw std::runtime_error("mirv_relight shadowreach <0-64>");
+            const float value=Number(args->ArgV(2));
+            if(!(value>=0)||value>64)throw std::runtime_error("Value out of range");
+            g_scene.shadowReach=value;++g_scene.generation;Status();return;
         }
         if(op=="skyocclusion") {
             if(argc!=3)throw std::runtime_error("mirv_relight skyocclusion <0-1>");
@@ -593,6 +603,13 @@ CON_COMMAND(mirv_relight,
             if (n < 0 || n > 512) throw std::runtime_error("Value out of range");
             Filmmaker::Environment::SetActorShadowFacesPerFrame(unsigned(n));
             advancedfx::Message("mirv_relight: %u visible light faces with a moving player refresh every frame.\n", unsigned(n));
+            return;
+        }
+        if (op == "lampsummary") {
+            if (argc != 3) throw std::runtime_error("mirv_relight lampsummary 0|1");
+            Filmmaker::Environment::SetLampShadowSummary(std::string(args->ArgV(2)) != "0");
+            advancedfx::Message("mirv_relight: lamp shadow early-out %s (the picture is identical either way).\n",
+                Filmmaker::Environment::LampShadowSummary() ? "on" : "off");
             return;
         }
         if (op == "shadowlights") {

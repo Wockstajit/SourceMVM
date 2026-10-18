@@ -27,7 +27,7 @@ using Microsoft::WRL::ComPtr;
 using namespace Filmmaker::Environment;
 namespace Filmmaker {bool SkyGpuProbe_IsPlayersOnlyGreenSkyDraw(ID3D11DeviceContext*,unsigned,unsigned){return false;} bool MvmDebugLog_Active(){return false;}void MvmDebugLog_LinefAlways(const char*,const char*,...){} }
 void RenderShaderCost_OwnWork(bool){}
-namespace Filmmaker::Environment {CompletedSceneCasterScope::CompletedSceneCasterScope():previous(false){} CompletedSceneCasterScope::~CompletedSceneCasterScope(){} UINT AnimatedCasterVertexCount(AnimatedCasterSubset){return 0;} void RestoreWorldSunTile(ID3D11DeviceContext*){} WorldLook DefaultWorldLook(){return WorldLook{};} ID3D11ShaderResourceView* SkyboxSunShadow(Matrix*){return nullptr;}}
+namespace Filmmaker::Environment {CompletedSceneCasterScope::CompletedSceneCasterScope():previous(false){} CompletedSceneCasterScope::~CompletedSceneCasterScope(){} UINT AnimatedCasterVertexCount(AnimatedCasterSubset){return 0;} void RestoreWorldSunTile(ID3D11DeviceContext*){} WorldLook DefaultWorldLook(){return WorldLook{};} ID3D11ShaderResourceView* SkyboxSunShadow(Matrix*){return nullptr;} ID3D11ShaderResourceView* LampShadowPyramid(ID3D11ShaderResourceView*){return nullptr;}}
 void Check(bool ok,const char* message){if(!ok){std::cerr<<message<<'\n';std::exit(1);}}
 void CheckResourceBindings() {
     ComPtr<ID3D11Device> device;ComPtr<ID3D11DeviceContext> ctx;

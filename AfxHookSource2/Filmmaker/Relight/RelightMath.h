@@ -188,6 +188,12 @@ struct Scene {
     // Per frame, from `reach` and the exposure actually applied (0 while that exposure is unknown):
     // the radiance cutoff the light clusters use.
     float visibleRadiance = 0;
+    // Shadow reach (RelightClusterMath.h, ShadowReachDepth): a lamp's shadows stop where the lamp
+    // changes a dark pixel by fewer than this many display steps; past it the lamp lights
+    // unshadowed (at most that faint through a wall) and its faces need no refresh. 0 = off.
+    float shadowReach = 8;
+    // Per frame, like visibleRadiance: the radiance at the shadow reach (0 = off or unknown).
+    float shadowRadiance = 0;
 
     // The map's own light_environment. Its angles and brightness seed the climate sun on
     // load, so the sun is edited with the ordinary sun controls rather than a second set.

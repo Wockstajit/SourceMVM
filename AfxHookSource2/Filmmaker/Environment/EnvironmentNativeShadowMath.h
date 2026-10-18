@@ -54,17 +54,47 @@ inline unsigned OwnNativeLocalShadowGuards(Relight::IrradianceDxbc::Words& code)
     for(auto p=patches.rbegin();p!=patches.rend();++p){code.erase(code.begin()+p->at,code.begin()+p->end);code.insert(code.begin()+p->at,p->words.begin(),p->words.end());}
     code[1]=unsigned(code.size());return unsigned(patches.size());
 }
+// The lamp shadow atlas summary (EnvironmentShadowPyramid.h): per block of the lamp tiles, the
+// nearest and farthest stored depth. Mip m holds blocks of 4 << m atlas texels, from
+// `originX` (the sun tiles to its left are left out: the first-person pass redraws one of them
+// mid-frame). Values are stored bit-inverted, so an unbound slot or an out-of-range read
+// (all zero bits) decodes as NaN and can never prove anything.
+inline constexpr unsigned NativeLampPyramidSlot=123,NativeLampPyramidLevels=9; // 4..1024 texels: a whole local tile
+struct NativeLampPyramid {unsigned slot=0,originX=0,levels=0;}; // levels 0: no summary
+inline constexpr NativeLampPyramid NativeLampAtlasPyramid{NativeLampPyramidSlot,Relight::LocalOriginX,NativeLampPyramidLevels};
+inline constexpr unsigned NativeLampDiskTemps=12;
+// The disk's taps, split into rings for the summary test: {first tap, last tap}. Taps get
+// further out and their compare depth lower with the tap index, so a ring is bounded by its
+// last tap's radius and its first and last taps' compare depths.
+inline constexpr unsigned NativeLampPyramidRings[][2]{{0,NativeLampShadowSamples-1}};
+inline float NativeLampTapRadius(unsigned k){return std::sqrt((k+.5f)/NativeLampShadowSamples);}
 // The 32 original comparisons remain the reference. Inside a single bilinear
 // footprint, a comparison gather at the extreme receiver depths can prove that
-// every tap is identically zero or one. Mixed footprints retain the full disk.
+// every tap is identically zero or one. A larger disk asks the atlas summary instead:
+// every tap lit when no stored depth in the disk's texels is nearer than the largest
+// compare depth, every tap shadowed when none is as far as the smallest. Anything
+// else, and anything the summary cannot vouch for, keeps the full disk.
 template<class Compare,class Gather>
 inline void NativeLampDisk(Relight::IrradianceDxbc::Words& out,unsigned first,
     const Relight::IrradianceDxbc::Words& center,const Relight::IrradianceDxbc::Words& reference,
     const Relight::IrradianceDxbc::Words& destination,Compare compare,Gather gather,
-    bool classify,float width=float(Relight::AtlasWidth),float height=float(Relight::AtlasHeight)) {
+    bool classify,float width=float(Relight::AtlasWidth),float height=float(Relight::AtlasHeight),
+    NativeLampPyramid pyramid=NativeLampAtlasPyramid) {
     using namespace Relight::IrradianceDxbc;
     const unsigned uv=first,sum=first+1,tap=first+2,span=first+3,source=first+4,
-        footprint=first+5,blocker=first+6,coords=first+7,faceWeight=first+8,plane=first+9;
+        footprint=first+5,blocker=first+6,coords=first+7,faceWeight=first+8,plane=first+9,
+        ring=first+10,proof=first+11;
+    auto integers=[](int x,int y,int z,int w){return Words{0x00004002u,uint32_t(x),uint32_t(y),uint32_t(z),uint32_t(w)};};
+    auto integer=[](int x){return Words{0x00004001u,uint32_t(x)};};
+    // Conservatively include the required 8-bit subtexel rounding interval.
+    constexpr float padding=1.f/256;
+    // coords = the integer texel rectangle (x0, y0, x1, y1) that taps within `radius` disk
+    // radii bilinearly read: every tap reads texels x0..x1+1, y0..y1+1.
+    auto region=[&](float radius){
+        Emit(out,54,{Dest(coords,3),center});Emit(out,54,{Dest(coords,12),Temp(coords,0x44)});
+        Emit(out,50,{Dest(coords,15),Temp(span,0x44),Literal(-radius,-radius,radius,radius),Temp(coords)});
+        Emit(out,50,{Dest(coords,15),Temp(coords),Literal(width,height,width,height),Literal(-.5f-padding,-.5f-padding,-.5f+padding,-.5f+padding)});
+    };
     Emit(out,0x4001f,{Temp(span,0)});
     Emit(out,54,{Dest(footprint,8),Literal(1,1,1,1)}); // full disk required
     if(classify){
@@ -76,11 +106,7 @@ inline void NativeLampDisk(Relight::IrradianceDxbc::Words& out,unsigned first,
         Emit(out,29,{Dest(blocker,3),Temp(span),Literal(0,0,0)});
         Emit(out,1,{Dest(blocker,1),Temp(blocker,0),Temp(blocker,85)});
         Emit(out,1,{Dest(footprint,4),Temp(footprint,170),Temp(blocker,0)});
-        Emit(out,54,{Dest(coords,3),center});Emit(out,54,{Dest(coords,12),Temp(coords,0x44)});
-        Emit(out,50,{Dest(coords,15),Temp(span,0x44),Literal(-1,-1,1,1),Temp(coords)});
-        // Conservatively include the required 8-bit subtexel rounding interval.
-        constexpr float padding=1.f/256;
-        Emit(out,50,{Dest(coords,15),Temp(coords),Literal(width,height,width,height),Literal(-.5f-padding,-.5f-padding,-.5f+padding,-.5f+padding)});
+        region(1);
         Emit(out,29,{Dest(blocker,15),Temp(coords),Literal(0,0,0,0)});
         Emit(out,49,{Dest(tap,15),Temp(coords),Literal(width-1,height-1,width-1,height-1)});
         Emit(out,1,{Dest(blocker,15),Temp(blocker),Temp(tap)});
@@ -90,13 +116,12 @@ inline void NativeLampDisk(Relight::IrradianceDxbc::Words& out,unsigned first,
         Emit(out,1,{Dest(footprint,4),Temp(footprint,170),Temp(blocker,0)});
         Emit(out,27,{Dest(coords,15),Temp(coords)});
         Emit(out,32,{Dest(blocker,3),Temp(coords,0x44),Temp(coords,0xee)});
-        Emit(out,1,{Dest(blocker,1),Temp(blocker,0),Temp(blocker,85)});
-        Emit(out,1,{Dest(footprint,4),Temp(footprint,170),Temp(blocker,0)});
+        Emit(out,1,{Dest(blocker,1),Temp(blocker,0),Temp(blocker,85)}); // one bilinear footprint
         Emit(out,0x4001f,{Temp(footprint,170)});
-        constexpr float firstRadius=.125f;
-        const float lastRadius=std::sqrt((NativeLampShadowSamples-.5f)/NativeLampShadowSamples);
+        const float firstRadius=NativeLampTapRadius(0),lastRadius=NativeLampTapRadius(NativeLampShadowSamples-1);
         Emit(out,50,{Dest(source,4),Temp(plane,0),Literal(-firstRadius,-firstRadius,-firstRadius),reference});
         Emit(out,50,{Dest(source,8),Temp(plane,0),Literal(-lastRadius,-lastRadius,-lastRadius,-lastRadius),reference});
+        Emit(out,0x4001f,{Temp(blocker,0)});
         gather(Dest(tap,15),center,Temp(source,170));
         Emit(out,29,{Dest(blocker,15),Temp(tap),Literal(1,1,1,1)});
         Emit(out,1,{Dest(blocker,1),Temp(blocker,0),Temp(blocker,85)});
@@ -113,7 +138,73 @@ inline void NativeLampDisk(Relight::IrradianceDxbc::Words& out,unsigned first,
         Emit(out,1,{Dest(blocker,1),Temp(blocker,0),Temp(blocker,255)});
         Emit(out,0x4001f,{Temp(blocker,0)});
         Emit(out,54,{Dest(sum,1),Literal(0,0,0)});Emit(out,54,{Dest(footprint,8),Literal(0,0,0)});
-        Emit(out,21,{});Emit(out,21,{});Emit(out,21,{});
+        Emit(out,21,{});Emit(out,21,{});
+        if(pyramid.levels){
+            Emit(out,18,{});
+            // Hardware may clamp a compare depth to [0,1] first; the tests below hold either way:
+            // lit needs the nearest depth >= 0, shadowed needs the farthest < 1.
+            const int maxBlock=int(pyramid.levels)+1; // log2 of the coarsest block's texels
+            for(size_t r=0;r<std::size(NativeLampPyramidRings);++r){
+                const unsigned firstTap=NativeLampPyramidRings[r][0],lastTap=NativeLampPyramidRings[r][1];
+                const float inner=NativeLampTapRadius(firstTap),outer=NativeLampTapRadius(lastTap);
+                region(outer);
+                Emit(out,27,{Dest(coords,15),Temp(coords)});
+                Emit(out,33,{Dest(blocker,4),Temp(coords,0),integer(int(pyramid.originX))});
+                // Block size: the smallest power of two above the span (x1+1)-x0, at least
+                // the summary's 4 texels. Two blocks per axis then cover the texels.
+                Emit(out,40,{Dest(blocker,3),Temp(coords,0x44)});
+                Emit(out,30,{Dest(blocker,3),Temp(coords,0xee),Temp(blocker)});
+                Emit(out,36,{Dest(blocker,1),Temp(blocker,0),Temp(blocker,0x55)});
+                Emit(out,30,{Dest(blocker,1),Temp(blocker,0),integer(1)});
+                Emit(out,43,{Dest(blocker,1),Temp(blocker,0)});
+                Emit(out,42,{Dest(blocker,1),Temp(blocker,0),integer(23)}); // exponent: floor(log2)+127
+                Emit(out,30,{Dest(blocker,1),Temp(blocker,0),integer(-126)});
+                Emit(out,36,{Dest(blocker,1),Temp(blocker,0),integer(2)});
+                Emit(out,33,{Dest(blocker,8),integer(maxBlock),Temp(blocker,0)});
+                Emit(out,1,{Dest(blocker,4),Temp(blocker,170),Temp(blocker,255)});
+                Emit(out,30,{Dest(blocker,2),Temp(blocker,0),integer(-2)}); // mip
+                Emit(out,30,{Dest(coords,12),Temp(coords),integers(0,0,1,1)});
+                Emit(out,30,{Dest(coords,5),Temp(coords),integers(-int(pyramid.originX),0,-int(pyramid.originX),0)});
+                Emit(out,42,{Dest(coords,15),Temp(coords),Temp(blocker,0)});
+                Emit(out,54,{Dest(uv,4),integer(0)});Emit(out,54,{Dest(uv,8),Temp(blocker,0x55)});
+                const Words summary{0x00107e46u,pyramid.slot},summaryZw{0x00107446u,pyramid.slot};
+                auto load=[&](unsigned mask,const Words& resource){
+                    Emit(out,0x8000002du,{{0x800000c2u,0x00111103u},Dest(tap,mask),Temp(uv),resource});};
+                // Four blocks. min/max return the other operand for a NaN, so an unreadable block
+                // (zero bits) is caught on the raw words instead: ring.z keeps their minimum.
+                Emit(out,54,{Dest(uv,3),Temp(coords)});load(3,summary);
+                Emit(out,54,{Dest(uv,1),Temp(coords,170)});load(12,summaryZw);
+                Emit(out,84,{Dest(ring,4),Temp(tap,0),Temp(tap,170)});
+                Emit(out,59,{Dest(tap,15),Temp(tap)});
+                for(unsigned corner=0;corner<2;++corner){
+                    Emit(out,51,{Dest(tap,1),Temp(tap,0),Temp(tap,170)});Emit(out,52,{Dest(tap,2),Temp(tap,0x55),Temp(tap,255)});
+                    if(corner)Emit(out,54,{Dest(uv,1),Temp(coords,0)});else Emit(out,54,{Dest(uv,2),Temp(coords,255)});
+                    load(12,summaryZw);Emit(out,84,{Dest(ring,4),Temp(ring,170),Temp(tap,170)});
+                    Emit(out,59,{Dest(tap,12),Temp(tap)});
+                }
+                Emit(out,51,{Dest(tap,1),Temp(tap,0),Temp(tap,170)});Emit(out,52,{Dest(tap,2),Temp(tap,0x55),Temp(tap,255)});
+                Emit(out,39,{Dest(ring,4),Temp(ring,170),integer(0)});
+                Emit(out,1,{Dest(blocker,4),Temp(blocker,170),Temp(ring,170)});
+                // tap.x: nearest depth, tap.y: farthest. proof.z, .w: the ring's compare depths.
+                Emit(out,50,{Dest(proof,4),Temp(plane,0),Literal(-inner,-inner,-inner,-inner),reference});
+                Emit(out,50,{Dest(proof,8),Temp(plane,0),Literal(-outer,-outer,-outer,-outer),reference});
+                Emit(out,29,{Dest(proof,1),Temp(tap,0),Temp(proof,170)});
+                Emit(out,29,{Dest(proof,2),Temp(tap,0),Literal(0,0,0,0)});
+                Emit(out,1,{Dest(proof,1),Temp(proof,0),Temp(proof,0x55)});
+                Emit(out,49,{Dest(proof,2),Temp(tap,0x55),Temp(proof,255)});
+                Emit(out,49,{Dest(proof,4),Temp(tap,0x55),Literal(1,1,1,1)});
+                Emit(out,1,{Dest(proof,2),Temp(proof,0x55),Temp(proof,170)});
+                Emit(out,1,{Dest(proof,3),Temp(proof),Temp(blocker,170)});
+                if(r)Emit(out,1,{Dest(ring,3),Temp(ring),Temp(proof)});else Emit(out,54,{Dest(ring,3),Temp(proof)});
+            }
+            Emit(out,0x4001f,{Temp(ring,0)});
+            Emit(out,54,{Dest(sum,1),Literal(float(NativeLampShadowSamples),0,0)});Emit(out,54,{Dest(footprint,8),Literal(0,0,0)});
+            Emit(out,18,{});
+            Emit(out,0x4001f,{Temp(ring,0x55)});
+            Emit(out,54,{Dest(sum,1),Literal(0,0,0)});Emit(out,54,{Dest(footprint,8),Literal(0,0,0)});
+            Emit(out,21,{});Emit(out,21,{});
+        }
+        Emit(out,21,{});Emit(out,21,{});
     }
     Emit(out,0x4001f,{Temp(footprint,255)});
     Emit(out,54,{Dest(sum,1),Literal(0,0,0)});
@@ -149,23 +240,27 @@ inline Relight::IrradianceDxbc::Words SourceForMask(Relight::IrradianceDxbc::Wor
 }
 // Replace only the verified clustered-light nine-comparison kernel. The sun
 // cascade loop and unfamiliar permutations retain their existing lookups.
-inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,bool classifySmallFilters=true) {
+inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,bool classifySmallFilters=true,
+    NativeLampPyramid pyramid=NativeLampAtlasPyramid) {
     using namespace Relight::IrradianceDxbc;
     struct Ins {size_t at,end;unsigned op;std::vector<Operand> operands;};
-    std::vector<Ins> ins;unsigned temps=0;size_t declaration=0;
+    std::vector<Ins> ins;unsigned temps=0;size_t declaration=0,resources=0;
     for(size_t at=2;at<code.size();) {
         const auto token=code[at];const unsigned op=token&2047;
         size_t length=(token>>24)&127;if(op==53){if(at+1>=code.size())return 0;length=code[at+1];}
         if(!length||length>code.size()-at)return 0;
         Ins i{at,at+length,op,{}};
         if(op==104&&length==2){temps=code[at+1];declaration=at+1;}
+        if(op==88||op==161||op==162){resources=at+length;
+            if(length>=3&&code[at+1]==0x00107000u&&code[at+2]==pyramid.slot)pyramid.levels=0;} // slot already taken
         if(op==71||op==50||op==0||op==167) {
             size_t cursor=at;uint32_t ext=token;while(ext>>31){ext=code[++cursor];}++cursor;
             while(cursor<i.end){Operand o;if(!ReadOperand(code,cursor,i.end,o))return 0;i.operands.push_back(o);}
         }
         ins.push_back(std::move(i));at+=length;
     }
-    if(!temps||temps>4084)return 0;
+    if(!temps||temps>4096-NativeLampDiskTemps)return 0;
+    if(!resources)pyramid.levels=0;
     struct Patch {size_t end;Words words;};std::map<size_t,Patch> patches;unsigned kernels=0;
     auto words=[&](const Operand& o){return Words(code.begin()+o.start,code.begin()+o.end);};
     for(size_t first=0;first<ins.size();++first) {
@@ -222,6 +317,11 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
             const auto& i=ins[load];Words fetch(code.begin()+i.at,code.begin()+i.operands[0].start);
             for(const auto& o:{Dest(source,15),words(i.operands[1]),Words{0x00004001u,336},words(i.operands[3])})fetch.insert(fetch.end(),o.begin(),o.end());
             fetch[0]=(fetch[0]&~0x7f000000u)|(uint32_t(fetch.size())<<24);
+            // sum.w: the record's shadow reach depth (Relight::ShadowReachSlot, row 22.w).
+            Words reach(code.begin()+i.at,code.begin()+i.operands[0].start);
+            for(const auto& o:{Dest(sum,8),words(i.operands[1]),Words{0x00004001u,352},words(i.operands[3])})reach.insert(reach.end(),o.begin(),o.end());
+            reach[0]=(reach[0]&~0x7f000000u)|(uint32_t(reach.size())<<24);
+            fetch.insert(fetch.end(),reach.begin(),reach.end());
             patches.emplace(i.end,Patch{i.end,std::move(fetch)});
         }
         patches.emplace(ins[rect].end,Patch{ins[rect].end,std::move(out)});
@@ -229,6 +329,38 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
         const auto center=words(last.operands[1]),reference=words(sample.operands[4]);
         // plane.x: receiver-plane tolerance per unit of disk radius; zero unless computed below.
         Emit(out,54,{Dest(plane,1),Literal(0,0,0)});
+        if(sourceFound){
+            // Normalize the three positive cube-axis weights. At an edge each
+            // adjacent face contributes one half; at a corner all three sum to one.
+            Emit(out,24,{Dest(tap,1),Temp(source,255),Literal(-12346,-12346,-12346)});
+            Emit(out,0x4001f,{Temp(tap,0)});
+            Emit(out,56,{Dest(faceWeight,3),Temp(faceWeight),Literal(Relight::ShadowFaceBlendWidth,Relight::ShadowFaceBlendWidth,0)});
+            Emit(out,54,{Dest(faceWeight,4),Literal(1,1,1)});
+            Words negative=Temp(faceWeight);negative[0]|=0x80000000u;negative.insert(negative.begin()+1,0x41u);
+            Emit(out,52,{Dest(faceWeight,7),Temp(faceWeight),negative});
+            Emit(out,52,{Dest(tap,1),Temp(faceWeight,0),Temp(faceWeight,0x55)});
+            Emit(out,52,{Dest(tap,1),Temp(tap,0),Temp(faceWeight,0xaa)});
+            Emit(out,14,{Dest(faceWeight,7),Temp(faceWeight),Temp(tap,0)});
+            constexpr float inverse=1/(1-Relight::ShadowFaceBlendStart);
+            Emit(out,50|0x2000,{Dest(faceWeight,7),Temp(faceWeight),Literal(inverse,inverse,inverse),Literal(-Relight::ShadowFaceBlendStart*inverse,-Relight::ShadowFaceBlendStart*inverse,-Relight::ShadowFaceBlendStart*inverse)});
+            Emit(out,56,{Dest(sum,7),Temp(faceWeight),Temp(faceWeight)});
+            Emit(out,50,{Dest(uv,7),Temp(faceWeight),Literal(-2,-2,-2),Literal(3,3,3)});
+            Emit(out,56,{Dest(faceWeight,7),Temp(sum),Temp(uv)});
+            Emit(out,16,{Dest(tap,1),Temp(faceWeight),Literal(1,1,1)});
+            Emit(out,14,{Dest(faceWeight,8),Temp(faceWeight,0xaa),Temp(tap,0)});
+            Emit(out,21,{});
+        }
+        // Shadow reach: a receiver deeper in this face than the record's reach depth (sum.w, 0 =
+        // none) takes the light unshadowed and skips the search and the disk.
+        const Words kernelOutput=words(mad.operands[0]);
+        if(sourceFound){
+            Emit(out,49,{Dest(tap,1),Temp(sum,255),reference});
+            Emit(out,49,{Dest(tap,2),Literal(0,0,0,0),Temp(sum,255)});
+            Emit(out,1,{Dest(tap,1),Temp(tap,0),Temp(tap,0x55)});
+            Emit(out,0x4001f,{Temp(tap,0)});
+            Emit(out,54,{kernelOutput,Temp(faceWeight,255)});
+            Emit(out,18,{});
+        }
         if(sourceFound){
             Emit(out,24,{Dest(tap,1),Temp(source,255),Literal(-12345,-12345,-12345)});
             Emit(out,24,{Dest(uv,1),Temp(source,255),Literal(-12346,-12346,-12346)});
@@ -284,27 +416,6 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
             Emit(out,56,{Dest(plane,1),Temp(plane,0),Literal(tolerance,tolerance,tolerance)});
             Emit(out,21,{});
         }
-        if(sourceFound){
-            // Normalize the three positive cube-axis weights. At an edge each
-            // adjacent face contributes one half; at a corner all three sum to one.
-            Emit(out,24,{Dest(tap,1),Temp(source,255),Literal(-12346,-12346,-12346)});
-            Emit(out,0x4001f,{Temp(tap,0)});
-            Emit(out,56,{Dest(faceWeight,3),Temp(faceWeight),Literal(Relight::ShadowFaceBlendWidth,Relight::ShadowFaceBlendWidth,0)});
-            Emit(out,54,{Dest(faceWeight,4),Literal(1,1,1)});
-            Words negative=Temp(faceWeight);negative[0]|=0x80000000u;negative.insert(negative.begin()+1,0x41u);
-            Emit(out,52,{Dest(faceWeight,7),Temp(faceWeight),negative});
-            Emit(out,52,{Dest(tap,1),Temp(faceWeight,0),Temp(faceWeight,0x55)});
-            Emit(out,52,{Dest(tap,1),Temp(tap,0),Temp(faceWeight,0xaa)});
-            Emit(out,14,{Dest(faceWeight,7),Temp(faceWeight),Temp(tap,0)});
-            constexpr float inverse=1/(1-Relight::ShadowFaceBlendStart);
-            Emit(out,50|0x2000,{Dest(faceWeight,7),Temp(faceWeight),Literal(inverse,inverse,inverse),Literal(-Relight::ShadowFaceBlendStart*inverse,-Relight::ShadowFaceBlendStart*inverse,-Relight::ShadowFaceBlendStart*inverse)});
-            Emit(out,56,{Dest(sum,7),Temp(faceWeight),Temp(faceWeight)});
-            Emit(out,50,{Dest(uv,7),Temp(faceWeight),Literal(-2,-2,-2),Literal(3,3,3)});
-            Emit(out,56,{Dest(faceWeight,7),Temp(sum),Temp(uv)});
-            Emit(out,16,{Dest(tap,1),Temp(faceWeight),Literal(1,1,1)});
-            Emit(out,14,{Dest(faceWeight,8),Temp(faceWeight,0xaa),Temp(tap,0)});
-            Emit(out,21,{});
-        }
         auto compare=[&](const Words& destination,const Words& coordinates,const Words& depth){
             Words cmp(code.begin()+sample.at,code.begin()+sample.operands[0].start);
             for(const auto& o:{destination,coordinates,words(sample.operands[2]),words(sample.operands[3]),depth})cmp.insert(cmp.end(),o.begin(),o.end());
@@ -317,11 +428,15 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
         };
         // Unfamiliar sample controls/offsets keep the original comparison disk.
         const bool simpleSample=sample.operands[0].start==sample.at+3&&code[sample.at+1]==0x800000c2u&&code[sample.at+2]==0x00155543u;
-        NativeLampDisk(out,temps,center,reference,words(mad.operands[0]),compare,gather,classifySmallFilters&&sourceFound&&simpleSample);
+        NativeLampDisk(out,temps,center,reference,kernelOutput,compare,gather,classifySmallFilters&&sourceFound&&simpleSample,
+            float(Relight::AtlasWidth),float(Relight::AtlasHeight),pyramid);
+        if(sourceFound)Emit(out,21,{});
         patches.emplace(sample.at,Patch{ins[end].end,std::move(out)});first=end;++kernels;
     }
     if(patches.empty())return 0;
-    code[declaration]=temps+10;
+    code[declaration]=temps+NativeLampDiskTemps;
+    // dcl_resource_texture2d (uint,uint,uint,uint) for the atlas summary.
+    if(pyramid.levels)patches.emplace(resources,Patch{resources,{0x04001858u,0x00107000u,pyramid.slot,0x00004444u}});
     Words output;size_t cursor=0;for(const auto& [at,p]:patches){output.insert(output.end(),code.begin()+cursor,code.begin()+at);
         output.insert(output.end(),p.words.begin(),p.words.end());cursor=p.end;}
     output.insert(output.end(),code.begin()+cursor,code.end());output[1]=unsigned(output.size());code=std::move(output);

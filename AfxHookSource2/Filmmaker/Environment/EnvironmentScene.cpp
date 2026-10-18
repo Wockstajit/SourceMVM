@@ -790,6 +790,9 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
         const float pinned=NightMode_Exposure();
         const float exposure=pinned!=kExposureAuto?pinned:AutoExposure_CurrentScale();
         f.relight.visibleRadiance=Relight::VisibleRadianceCutoff(f.relight.reach,exposure);
+        // Never inside the visible reach: shadows always cover every light that is drawn.
+        f.relight.shadowRadiance=f.relight.shadowReach>0?
+            Relight::VisibleRadianceCutoff((std::max)(f.relight.shadowReach,f.relight.reach),exposure):0.f;
     }
     if (g_restoreAutosave) { f.relight.enabled = false; f.proof.enabled = false; }
     const bool sceneActive=f.scene.enabled&&(f.scene.map.empty()||f.scene.map==map);

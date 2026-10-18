@@ -140,6 +140,21 @@ inline float VisibleRadianceCutoff(float steps,float exposure){
 // falls to `cutoff`: radiance * soft / max(soft, d^2) * smoothstep(saturate(x + y d)), rows
 // 8.w, 9 and 10 exactly as the shipped loop evaluates them. Never beyond `radius`; a zero
 // cutoff, an unproven record or a directional one keeps `radius`. Mirrors VisibleReach (HLSL).
+// A shadowed record's face depth (its projection, rows 0-3) at `distance` along the face axis:
+// the lamp kernel skips its shadow lookup for receivers deeper than this (EnvironmentNativeShadow
+// Math.h). Record slot ShadowReachSlot (row 22.w, which no shipped material program reads); 0
+// (every record's default) keeps every lookup, as does a projection that is not perspective.
+inline constexpr unsigned ShadowReachSlot=91;
+inline float ShadowReachDepth(const LightRecord& record,float distance){
+    // Perspective: depth = (row2.p)/(row3.p) = a + b/w with w the face-axis distance.
+    unsigned axis=0;for(unsigned j=1;j<3;++j)if(std::abs(record[12+j])>std::abs(record[12+axis]))axis=j;
+    if(!(distance>0)||!(std::abs(record[12+axis])>1e-6f))return 0;
+    const float a=record[8+axis]/record[12+axis],b=record[11]-a*record[15];
+    if(!std::isfinite(a)||!std::isfinite(b))return 0;
+    const float depth=a+b/distance;
+    // Reach inside the near plane (a light too dim to matter anywhere): skip every receiver.
+    return depth<1?(std::max)(depth,1e-7f):0;
+}
 inline float LightVisibleReach(const LightRecord& light,float radius,float cutoff){
     if(!(cutoff>0)||!(radius>0)||!std::isfinite(radius)||!(light[35]>0))return radius;
     const float peak=(std::max)(light[40],(std::max)(light[41],light[42]));
