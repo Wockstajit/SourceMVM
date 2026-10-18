@@ -95,6 +95,8 @@ SkyVisibilitySource skyVisibilitySource=nullptr;
 ViewmodelShadowPass viewmodelShadowPass=nullptr;
 GlassBeamShadowPass glassBeamShadowPass=nullptr;
 MapLightShadowPass mapShadowPass=nullptr;
+// Set once a derived program cannot read cube shadow records (SmoothNativeLampKernels cubeReady).
+std::atomic<bool> g_cubeShadowUnsupported{false};
 // Live lighting's draw-setup CPU time, split into laps: 0 everything else, 1 light preparation,
 // 2 ambient occlusion. Render thread only; NextNativeMaterialFrame folds it into averages the
 // main-thread heartbeat reads ("live ... prepare ... ao").
@@ -571,11 +573,20 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
             // Shadow reach: receivers past it skip this light's shadow lookup (ShadowReachDepth).
             const float shadowReach=set.shadowRadiance>0&&!Relight::HasFixtureProjection(light)?
                 Relight::LightVisibleReach(Relight::ToRecord(light,set.intensity),light.range,set.shadowRadiance):0.f;
+            // One cube record instead of six face records (Relight::ToCubeShadowRecord).
+            Relight::LightRecord cube{};
+            if(set.cubeShadows&&!g_cubeShadowUnsupported.load(std::memory_order_relaxed)&&
+               Relight::ToCubeShadowRecord(light,set.intensity,state.proofMatrices[first].data(),first,cube)){
+                if(shadowReach>0&&shadowReach<light.range)cube[Relight::ShadowReachSlot]=Relight::ShadowReachDepth(cube,shadowReach);
+                if(set.shadowReach<0)cube[Relight::ShadowReachSlot]=1e-7f; // diagnostic: no lookups
+                records.push_back(cube);continue;
+            }
             for(unsigned face=0;face<Relight::FixtureFaces(light);++face){
                 records.push_back(Relight::ToShadowedRecord(light,set.intensity,
                     state.proofMatrices[first+face].data(),first+face));
                 if(shadowReach>0&&shadowReach<light.range)
                     records.back()[Relight::ShadowReachSlot]=Relight::ShadowReachDepth(records.back(),shadowReach);
+                if(set.shadowReach<0&&!Relight::HasFixtureProjection(light))records.back()[Relight::ShadowReachSlot]=1e-7f; // diagnostic: no lookups
             }
         }
         // The map's sun, as one directional record. Sunlight reaching through a doorway
@@ -1089,7 +1100,11 @@ void DeriveNativeMaterialShaders(ID3D11PixelShader* shader,const void* code,size
     if(sunAbi||info.lightSlot){
         std::vector<uint8_t> atmosphereCode;
         bool ownedCascades=false;uint32_t screenShadowSlot=0;
-        const bool atmosphere=NativeAtmosphereProgram(code,bytes,atmosphereCode,true,sunAbi?&ownedCascades:nullptr,&screenShadowSlot);
+        bool lampCube=false;
+        const bool atmosphere=NativeAtmosphereProgram(code,bytes,atmosphereCode,true,sunAbi?&ownedCascades:nullptr,&screenShadowSlot,&lampCube);
+        // One owned program that cannot read cube shadow records keeps every light on face records.
+        if(atmosphere&&!lampCube&&!g_cubeShadowUnsupported.exchange(true))
+            MvmDebugLog_LinefAlways("relight.cube.unsupported","hash=%016llx: lights stay six face records",info.programHash);
         if(atmosphere){
             ComPtr<ID3D11Device> device;shader->GetDevice(&device);ComPtr<ID3D11PixelShader> owned;
             creatingCoverage=true;const auto hr=device->CreatePixelShader(atmosphereCode.data(),atmosphereCode.size(),nullptr,&owned);creatingCoverage=false;

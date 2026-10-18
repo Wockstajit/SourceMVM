@@ -181,6 +181,23 @@ int main() {
         }
         Check(ShadowReachSlot==91&&ToShadowedRecord(dim,1,Filmmaker::Environment::LocalShadowMatrix({0,0,0},{1,0,0},90,1000,8).data(),StaticTile)[ShadowReachSlot]==0,
             "A shadowed record keeps every lookup until a reach is set");
+        // ---- cube shadow records: one record for the six faces, or none ----
+        {
+            std::array<float,96> faces{};
+            for(int f=0;f<6;++f){const auto m=Filmmaker::Environment::LocalShadowMatrix({dim.position.x,dim.position.y,dim.position.z},Filmmaker::Environment::PointShadowDirection(f),90,dim.range,8);
+                std::copy(m.begin(),m.end(),faces.begin()+16*f);}
+            LightRecord cube{};
+            Check(ToCubeShadowRecord(dim,1,faces.data(),StaticTile,cube)&&cube[87]==CubeShadowMarker&&cube[88]==dim.range,"A point light's six faces make one cube record");
+            const auto unshadowed=ToRecord(dim,1);
+            Check(std::equal(cube.begin(),cube.begin()+16,unshadowed.begin()),"A cube record keeps the unshadowed range box");
+            for(unsigned f=0;f<6;++f){const auto face=ToShadowedRecord(dim,1,faces.data()+16*f,StaticTile+f);
+                Check(std::equal(face.begin()+52,face.begin()+56,cube.begin()+4*(CubeFaceRectRow+f)),"Each face's rect is its face record's");}
+            Check(ShadowReachDepth(cube,300)==cube[89]+cube[90]/300,"A cube record's reach depth uses its faces' depth mapping");
+            auto swapped=faces;std::swap_ranges(swapped.begin(),swapped.begin()+16,swapped.begin()+16);
+            Check(!ToCubeShadowRecord(dim,1,swapped.data(),StaticTile,cube),"Faces out of order keep six face records");
+            auto narrow=faces;for(int f=0;f<6;++f){narrow[16*f]*=1.2f;narrow[16*f+1]*=1.2f;narrow[16*f+2]*=1.2f;}
+            Check(!ToCubeShadowRecord(dim,1,narrow.data(),StaticTile,cube),"A face that is not 90 degrees keeps six face records");
+        }
         const auto sun=SunRecord({0,0,1},{1,1,1},nullptr,false);
         const auto g=MakeClusterGrid(1600,900,4,6400);
         ClusterView view{};view[2][0]=1;view[12][0]=1;view[13][1]=1;view[14][3]=1;

@@ -101,6 +101,8 @@ inline void NativeLampDisk(Relight::IrradianceDxbc::Words& out,unsigned first,
         Emit(out,24,{Dest(blocker,1),Temp(source,255),Literal(-12345,-12345,-12345)});
         Emit(out,24,{Dest(blocker,2),Temp(source,255),Literal(-12346,-12346,-12346)});
         Emit(out,60,{Dest(footprint,4),Temp(blocker,0),Temp(blocker,85)});
+        Emit(out,24,{Dest(blocker,1),Temp(source,255),Literal(Relight::CubeShadowMarker,Relight::CubeShadowMarker,Relight::CubeShadowMarker)});
+        Emit(out,60,{Dest(footprint,4),Temp(footprint,170),Temp(blocker,0)});
         Emit(out,29,{Dest(blocker,1),Temp(plane,0),Literal(0,0,0)});
         Emit(out,1,{Dest(footprint,4),Temp(footprint,170),Temp(blocker,0)});
         Emit(out,29,{Dest(blocker,3),Temp(span),Literal(0,0,0)});
@@ -238,10 +240,86 @@ inline Relight::IrradianceDxbc::Words SourceForMask(Relight::IrradianceDxbc::Wor
     operand[0]=(operand[0]&~0xff0u)|(swizzle<<4);
     return operand;
 }
+// Cube shadow records (Relight::ToCubeShadowRecord): one record per shadowed omni light, its
+// range box in rows 0-3 and its six faces in rows 22-28. The kernel loops over the faces whose
+// blend weight is non-zero (one, two at an edge, three at a corner) and runs the unchanged face
+// filter on each, as the six face records did one per record.
+struct NativeLampCubeRegisters {unsigned row,offset,weights,accumulator,rect;}; // temps
+inline constexpr unsigned NativeLampKernelTemps=NativeLampDiskTemps+5;
+// offset.xyz = receiver - light from the box NDC (ndc.xy in `ndc`, the raw box depth in `depth`)
+// and row.x (box half size); weights.xyz = the faces' normalized blend weights, the same
+// smoothstep of |offset| / max |offset| the face records' kernel computes from face NDC.
+inline void NativeLampCubeOffset(Relight::IrradianceDxbc::Words& out,const NativeLampCubeRegisters& r,
+    const Relight::IrradianceDxbc::Words& ndc,const Relight::IrradianceDxbc::Words& depth) {
+    using namespace Relight::IrradianceDxbc;
+    Emit(out,56,{Dest(r.offset,3),ndc,Temp(r.row,0)});
+    Emit(out,50,{Dest(r.offset,4),depth,Literal(2,2,2,2),Literal(-1,-1,-1,-1)});
+    Emit(out,56,{Dest(r.offset,4),Temp(r.offset,170),Temp(r.row,0)});
+}
+inline void NativeLampCubeWeights(Relight::IrradianceDxbc::Words& out,const NativeLampCubeRegisters& r,unsigned scratch) {
+    using namespace Relight::IrradianceDxbc;
+    auto negated=[](Words o){o[0]|=0x80000000u;o.insert(o.begin()+1,0x41u);return o;};
+    Emit(out,52,{Dest(r.weights,7),Temp(r.offset),negated(Temp(r.offset))});
+    Emit(out,52,{Dest(scratch,1),Temp(r.weights,0),Temp(r.weights,0x55)});
+    Emit(out,52,{Dest(scratch,1),Temp(scratch,0),Temp(r.weights,0xaa)});
+    Emit(out,14,{Dest(r.weights,7),Temp(r.weights),Temp(scratch,0)});
+    constexpr float inverse=1/(1-Relight::ShadowFaceBlendStart);
+    Emit(out,50|0x2000,{Dest(r.weights,7),Temp(r.weights),Literal(inverse,inverse,inverse),Literal(-Relight::ShadowFaceBlendStart*inverse,-Relight::ShadowFaceBlendStart*inverse,-Relight::ShadowFaceBlendStart*inverse)});
+    Emit(out,56,{Dest(scratch,14),Temp(r.weights,0x90),Temp(r.weights,0x90)});
+    Emit(out,50,{Dest(r.weights,7),Temp(r.weights),Literal(-2,-2,-2),Literal(3,3,3)});
+    Emit(out,56,{Dest(r.weights,7),Temp(r.weights),Temp(scratch,0xf9)});
+    Emit(out,16,{Dest(scratch,1),Temp(r.weights),Literal(1,1,1)});
+    Emit(out,14,{Dest(r.weights,7),Temp(r.weights),Temp(scratch,0)});
+}
+inline void NativeLampCubePrologue(Relight::IrradianceDxbc::Words& out,const NativeLampCubeRegisters& r,
+    const Relight::IrradianceDxbc::Words& ndc,const Relight::IrradianceDxbc::Words& depth,unsigned scratch) {
+    NativeLampCubeOffset(out,r,ndc,depth);NativeLampCubeWeights(out,r,scratch);
+}
+// Face accumulator.y (0-2, an integer axis) of a cube record: gate = its weight > 0; then the
+// face's record NDC (as its face record computes it), its depth in `depth`, its rect in r.rect
+// (loaded with `load`, the record row load re-pointed at row 23 + face), and its weight.
+// `scratch` holds four lanes, `select` two.
+template<class Load>
+inline void NativeLampCubeFace(Relight::IrradianceDxbc::Words& out,const NativeLampCubeRegisters& r,Load load,
+    unsigned gate,unsigned faceNdc,unsigned depth,unsigned weight,unsigned scratch) {
+    using namespace Relight::IrradianceDxbc;
+    auto negated=[](Words o){o[0]|=0x80000000u;o.insert(o.begin()+1,0x41u);return o;};
+    auto integers=[](int x,int y,int z,int w){return Words{0x00004002u,uint32_t(x),uint32_t(y),uint32_t(z),uint32_t(w)};};
+    auto integer=[](int x){return Words{0x00004001u,uint32_t(x)};};
+    Emit(out,32,{Dest(scratch,3),Temp(r.accumulator,0x55),integers(0,1,0,0)});            // k==0, k==1
+    Emit(out,55,{Dest(weight,1),Temp(scratch,0x55),Temp(r.weights,0x55),Temp(r.weights,0xaa)});
+    Emit(out,55,{Dest(weight,1),Temp(scratch,0),Temp(r.weights,0),Temp(weight,0)});
+    Emit(out,55,{Dest(scratch,4),Temp(scratch,0x55),Temp(r.offset,0x55),Temp(r.offset,0xaa)});
+    Emit(out,55,{Dest(scratch,4),Temp(scratch,0),Temp(r.offset,0),Temp(scratch,0xaa)});    // scratch.z = offset[k]
+    Emit(out,49,{Dest(gate,1),Literal(0,0,0,0),Temp(weight,0)});
+    Emit(out,0x4001f,{Temp(gate,0)});
+    // face = 2k + (offset[k] < 0); u = (k==0 ? y : x) * (k==1 ? -s : s); v = (k==2 ? y : z).
+    Emit(out,49,{Dest(scratch,8),Temp(scratch,0xaa),Literal(0,0,0,0)});
+    Emit(out,55,{Dest(faceNdc,4),Temp(scratch,255),Literal(-1,-1,-1,-1),Literal(1,1,1,1)});   // faceNdc.z = s
+    Emit(out,55,{Dest(faceNdc,1),Temp(scratch,0),Temp(r.offset,0x55),Temp(r.offset,0)});
+    Emit(out,55,{Dest(faceNdc,8),Temp(scratch,0x55),negated(Temp(faceNdc,0xaa)),Temp(faceNdc,0xaa)});
+    Emit(out,56,{Dest(faceNdc,1),Temp(faceNdc,0),Temp(faceNdc,255)});
+    Emit(out,32,{Dest(faceNdc,8),Temp(r.accumulator,0x55),integer(2)});
+    Emit(out,55,{Dest(faceNdc,2),Temp(faceNdc,255),Temp(r.offset,0x55),Temp(r.offset,0xaa)});
+    Emit(out,52,{Dest(faceNdc,4),Temp(scratch,0xaa),negated(Temp(scratch,0xaa))});          // |offset[k]|
+    Emit(out,14,{Dest(faceNdc,3),Temp(faceNdc),Temp(faceNdc,0xaa)});
+    constexpr float narrow=1/Relight::ShadowFaceBlendWidth; // record NDC, as ToShadowedRecord's GuardFace
+    Emit(out,56,{Dest(faceNdc,3),Temp(faceNdc),Literal(narrow,narrow,narrow,narrow)});
+    Emit(out,14,{Dest(depth,1),Temp(r.row,170),Temp(faceNdc,0xaa)});
+    Emit(out,0,{Dest(depth,1),Temp(depth,0),Temp(r.row,0x55)});
+    Emit(out,1,{Dest(scratch,1),Temp(scratch,255),integer(1)});
+    Emit(out,41,{Dest(scratch,2),Temp(r.accumulator,0x55),integer(1)});
+    Emit(out,30,{Dest(scratch,1),Temp(scratch,0),Temp(scratch,0x55)});                      // face
+    Emit(out,41,{Dest(scratch,1),Temp(scratch,0),integer(4)});
+    Emit(out,30,{Dest(scratch,1),Temp(scratch,0),integer(int(Relight::CubeFaceRectRow*16))});
+    load(Dest(r.rect,15),Temp(scratch,0));
+}
 // Replace only the verified clustered-light nine-comparison kernel. The sun
 // cascade loop and unfamiliar permutations retain their existing lookups.
+// `cubeReady`: every lamp kernel here takes cube records (else the caller must not upload any).
 inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,bool classifySmallFilters=true,
-    NativeLampPyramid pyramid=NativeLampAtlasPyramid) {
+    NativeLampPyramid pyramid=NativeLampAtlasPyramid,bool* cubeReady=nullptr) {
+    if(cubeReady)*cubeReady=false;
     using namespace Relight::IrradianceDxbc;
     struct Ins {size_t at,end;unsigned op;std::vector<Operand> operands;};
     std::vector<Ins> ins;unsigned temps=0;size_t declaration=0,resources=0;
@@ -259,7 +337,10 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
         }
         ins.push_back(std::move(i));at+=length;
     }
-    if(!temps||temps>4096-NativeLampDiskTemps)return 0;
+    if(!temps||temps>4096-NativeLampKernelTemps)return 0;
+    unsigned rectRows=0,cubeKernels=0; // native atlas-rect row loads (one per lamp kernel), kernels that take cube records
+    for(const auto& i:ins)if(i.op==167&&i.operands.size()==4&&i.operands[2].type==4&&code[i.operands[2].start+1]==208)++rectRows;
+    if(cubeReady)*cubeReady=rectRows==0; // no lamp lookups: nothing to mis-read
     if(!resources)pyramid.levels=0;
     struct Patch {size_t end;Words words;};std::map<size_t,Patch> patches;unsigned kernels=0;
     auto words=[&](const Operand& o){return Words(code.begin()+o.start,code.begin()+o.end);};
@@ -290,6 +371,7 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
         const unsigned uv=temps,sum=temps+1,tap=temps+2,span=temps+3,
             source=temps+4,footprint=temps+5,blocker=temps+6,coords=temps+7,faceWeight=temps+8,
             plane=temps+9;
+        const NativeLampCubeRegisters cube{temps+12,temps+13,temps+14,temps+15,temps+16};
         // Keep face-relative NDC before the native atlas MAD overwrites it, read through the
         // lanes that MAD writes (SourceForMask: it may write .zw, not .xy).
         const auto& rectDest=ins[rect].operands[0];
@@ -317,18 +399,24 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
             const auto& i=ins[load];Words fetch(code.begin()+i.at,code.begin()+i.operands[0].start);
             for(const auto& o:{Dest(source,15),words(i.operands[1]),Words{0x00004001u,336},words(i.operands[3])})fetch.insert(fetch.end(),o.begin(),o.end());
             fetch[0]=(fetch[0]&~0x7f000000u)|(uint32_t(fetch.size())<<24);
-            // sum.w: the record's shadow reach depth (Relight::ShadowReachSlot, row 22.w).
-            Words reach(code.begin()+i.at,code.begin()+i.operands[0].start);
-            for(const auto& o:{Dest(sum,8),words(i.operands[1]),Words{0x00004001u,352},words(i.operands[3])})reach.insert(reach.end(),o.begin(),o.end());
-            reach[0]=(reach[0]&~0x7f000000u)|(uint32_t(reach.size())<<24);
-            fetch.insert(fetch.end(),reach.begin(),reach.end());
+            // Row 22 (cube box half size, face depth a, b; shadow reach depth in .w) and the record
+            // index for the cube faces' rects, before the native code reuses its register.
+            Words row(code.begin()+i.at,code.begin()+i.operands[0].start);
+            for(const auto& o:{Dest(cube.row,15),words(i.operands[1]),Words{0x00004001u,352},words(i.operands[3])})row.insert(row.end(),o.begin(),o.end());
+            row[0]=(row[0]&~0x7f000000u)|(uint32_t(row.size())<<24);
+            fetch.insert(fetch.end(),row.begin(),row.end());
+            Emit(fetch,54,{Dest(cube.accumulator,8),words(i.operands[1])});
             patches.emplace(i.end,Patch{i.end,std::move(fetch)});
         }
         patches.emplace(ins[rect].end,Patch{ins[rect].end,std::move(out)});
         out.clear();
         const auto center=words(last.operands[1]),reference=words(sample.operands[4]);
-        // plane.x: receiver-plane tolerance per unit of disk radius; zero unless computed below.
-        Emit(out,54,{Dest(plane,1),Literal(0,0,0)});
+        // The native saturated depth bias that feeds every comparison: add_sat ref, raw, bias.
+        size_t refWriter=0;
+        if(sourceFound)for(size_t j=rect+1;j<first;++j){const auto& i=ins[j];
+            if(i.op==0&&(code[i.at]&0x2000u)&&i.operands.size()==3&&i.operands[0].type==0&&
+               i.operands[0].index==sample.operands[4].index)refWriter=j;}
+        const bool cubeKernel=refWriter!=0;
         if(sourceFound){
             // Normalize the three positive cube-axis weights. At an edge each
             // adjacent face contributes one half; at a corner all three sum to one.
@@ -350,12 +438,79 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
             Emit(out,14,{Dest(faceWeight,8),Temp(faceWeight,0xaa),Temp(tap,0)});
             Emit(out,21,{});
         }
-        // Shadow reach: a receiver deeper in this face than the record's reach depth (sum.w, 0 =
-        // none) takes the light unshadowed and skips the search and the disk.
         const Words kernelOutput=words(mad.operands[0]);
+        auto integer=[](int x){return Words{0x00004001u,uint32_t(x)};};
+        auto negated=[](Words o){o[0]|=0x80000000u;o.insert(o.begin()+1,0x41u);return o;};
+        // The kernel output as a source: its one written lane, replicated.
+        Words outputSource=kernelOutput;{const unsigned mask=(outputSource[0]>>4)&15;unsigned lane=0;while(lane<3&&!(mask&(1u<<lane)))++lane;
+            outputSource[0]=(outputSource[0]&~0xffcu)|4u|((lane*0x55u)<<4);}
         if(sourceFound){
-            Emit(out,49,{Dest(tap,1),Temp(sum,255),reference});
-            Emit(out,49,{Dest(tap,2),Literal(0,0,0,0),Temp(sum,255)});
+            // cube.offset.w: a cube record. Its faces' blend weights, from the receiver's offset.
+            Emit(out,24,{Dest(cube.offset,8),Temp(source,255),Literal(Relight::CubeShadowMarker,Relight::CubeShadowMarker,Relight::CubeShadowMarker,Relight::CubeShadowMarker)});
+            // cube.weights.w: past the shadow reach along its dominant face axis, a cube record
+            // skips the face loop outright. The shipped loop culls a record with its whole range
+            // box, so most pixels that reach this point are far outside the lamp's visible reach.
+            Emit(out,54,{Dest(cube.weights,8),integer(0)});
+            if(!cubeKernel)Emit(out,54,{Dest(cube.offset,8),integer(0)});
+            else{
+                Emit(out,0x4001f,{Temp(cube.offset,255)});
+                NativeLampCubeOffset(out,cube,Temp(faceWeight,0x44),words(ins[refWriter].operands[1]));
+                Emit(out,52,{Dest(tap,7),Temp(cube.offset),negated(Temp(cube.offset))});
+                Emit(out,52,{Dest(tap,1),Temp(tap,0),Temp(tap,0x55)});
+                Emit(out,52,{Dest(tap,1),Temp(tap,0),Temp(tap,0xaa)});
+                Emit(out,14,{Dest(tap,1),Temp(cube.row,170),Temp(tap,0)});
+                Emit(out,0,{Dest(tap,1),Temp(tap,0),Temp(cube.row,0x55)});
+                Emit(out,49,{Dest(tap,2),Temp(cube.row,255),Temp(tap,0)});
+                Emit(out,49,{Dest(tap,4),Literal(0,0,0,0),Temp(cube.row,255)});
+                Emit(out,1,{Dest(cube.weights,8),Temp(tap,0x55),Temp(tap,0xaa)});
+                Emit(out,31,{Temp(cube.weights,255)});
+                NativeLampCubeWeights(out,cube,tap);
+                Emit(out,21,{});
+                Emit(out,21,{});
+            }
+            Emit(out,54,{Dest(cube.accumulator,1),Literal(0,0,0,0)});
+            Emit(out,54,{Dest(cube.accumulator,2),integer(0)});
+            Emit(out,31,{Temp(cube.weights,255)});
+            Emit(out,48,{});
+            // Without a cube record the loop runs once on the native face (gate cube.rect.w).
+            Emit(out,54,{Dest(cube.rect,8),integer(-1)});
+            if(cubeKernel){
+                Emit(out,0x4001f,{Temp(cube.offset,255)});
+                const auto& rowSource=ins[load];
+                auto rowLoad=[&](const Words& destination,const Words& offset){
+                    Words w(code.begin()+rowSource.at,code.begin()+rowSource.operands[0].start);
+                    for(const auto& o:{destination,Temp(cube.accumulator,255),offset,words(rowSource.operands[3])})w.insert(w.end(),o.begin(),o.end());
+                    w[0]=(w[0]&~0x7f000000u)|(uint32_t(w.size())<<24);out.insert(out.end(),w.begin(),w.end());};
+                // Opens `if weight > 0`; face NDC in blocker.xy, depth in uv.x, weight in coords.x.
+                NativeLampCubeFace(out,cube,rowLoad,cube.rect,blocker,uv,coords,tap);
+                // This face replaces the native face: centre, compare depth, filter reach, weight.
+                const auto& refDest=ins[refWriter].operands[0];
+                Words depth(Temp(uv,0));
+                Words add(code.begin()+ins[refWriter].at,code.begin()+refDest.start);
+                for(const auto& o:{words(refDest),depth,words(ins[refWriter].operands[2])})add.insert(add.end(),o.begin(),o.end());
+                add[0]=(add[0]&~0x7f000000u)|(uint32_t(add.size())<<24);out.insert(out.end(),add.begin(),add.end());
+                Emit(out,50,{words(ins[rect].operands[0]),Temp(blocker,0x44),Temp(cube.rect,0xee),Temp(cube.rect,0x44)});
+                Emit(out,54,{Dest(faceWeight,8),Temp(coords,0)});
+                Emit(out,56,{Dest(span,3),Temp(cube.rect,0xee),Cb(3,0,0)});
+                Emit(out,52,{Dest(span,3),Temp(span),negated(Temp(span))});
+                Emit(out,51,{Dest(span,3),Temp(span),Cb(3,0,0xa9)});
+                Emit(out,54,{Dest(footprint,12),Temp(cube.rect,0xee)});
+                Emit(out,52,{Dest(footprint,12),Temp(footprint),negated(Temp(footprint))});
+                Emit(out,54,{Dest(cube.rect,8),integer(-1)});
+                Emit(out,18,{});
+                Emit(out,54,{Dest(cube.rect,8),integer(0)});
+                Emit(out,21,{});   // the face's weight gate
+                Emit(out,21,{});   // a cube record
+            }
+            Emit(out,0x4001f,{Temp(cube.rect,255)});
+        }
+        // plane.x: receiver-plane tolerance per unit of disk radius; zero unless computed below.
+        Emit(out,54,{Dest(plane,1),Literal(0,0,0)});
+        // Shadow reach: a receiver deeper in this face than the record's reach depth (cube.row.w,
+        // 0 = none) takes the light unshadowed and skips the search and the disk.
+        if(sourceFound){
+            Emit(out,49,{Dest(tap,1),Temp(cube.row,255),reference});
+            Emit(out,49,{Dest(tap,2),Literal(0,0,0,0),Temp(cube.row,255)});
             Emit(out,1,{Dest(tap,1),Temp(tap,0),Temp(tap,0x55)});
             Emit(out,0x4001f,{Temp(tap,0)});
             Emit(out,54,{kernelOutput,Temp(faceWeight,255)});
@@ -364,6 +519,8 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
         if(sourceFound){
             Emit(out,24,{Dest(tap,1),Temp(source,255),Literal(-12345,-12345,-12345)});
             Emit(out,24,{Dest(uv,1),Temp(source,255),Literal(-12346,-12346,-12346)});
+            Emit(out,60,{Dest(tap,1),Temp(tap,0),Temp(uv,0)});
+            Emit(out,24,{Dest(uv,1),Temp(source,255),Literal(Relight::CubeShadowMarker,Relight::CubeShadowMarker,Relight::CubeShadowMarker)});
             Emit(out,60,{Dest(tap,1),Temp(tap,0),Temp(uv,0)});
             Emit(out,1,{Dest(tap,1),Temp(tap,0),Cb(3,0,0)});
             Emit(out,0x4001f,{Temp(tap,0)});
@@ -430,11 +587,27 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
         const bool simpleSample=sample.operands[0].start==sample.at+3&&code[sample.at+1]==0x800000c2u&&code[sample.at+2]==0x00155543u;
         NativeLampDisk(out,temps,center,reference,kernelOutput,compare,gather,classifySmallFilters&&sourceFound&&simpleSample,
             float(Relight::AtlasWidth),float(Relight::AtlasHeight),pyramid);
-        if(sourceFound)Emit(out,21,{});
+        if(sourceFound){
+            Emit(out,21,{});   // shadow reach
+            Emit(out,0,{Dest(cube.accumulator,1),Temp(cube.accumulator,0),outputSource});
+            Emit(out,21,{});   // face gate
+            Emit(out,30,{Dest(cube.accumulator,2),Temp(cube.accumulator,0x55),integer(1)});
+            Emit(out,32,{Dest(tap,1),Temp(cube.accumulator,0x55),integer(3)});
+            Emit(out,59,{Dest(tap,2),Temp(cube.offset,255)});
+            Emit(out,60,{Dest(tap,1),Temp(tap,0),Temp(tap,0x55)});
+            Emit(out,0x40003,{Temp(tap,0)});
+            Emit(out,22,{});
+            Emit(out,18,{});
+            Emit(out,54,{Dest(cube.accumulator,1),Literal(1,1,1,1)}); // past the shadow reach: lit
+            Emit(out,21,{});
+            Emit(out,54,{kernelOutput,Temp(cube.accumulator,0)});
+            if(cubeKernel)++cubeKernels;
+        }
         patches.emplace(sample.at,Patch{ins[end].end,std::move(out)});first=end;++kernels;
     }
     if(patches.empty())return 0;
-    code[declaration]=temps+NativeLampDiskTemps;
+    code[declaration]=temps+NativeLampKernelTemps;
+    if(cubeReady)*cubeReady=cubeKernels==rectRows;
     // dcl_resource_texture2d (uint,uint,uint,uint) for the atlas summary.
     if(pyramid.levels)patches.emplace(resources,Patch{resources,{0x04001858u,0x00107000u,pyramid.slot,0x00004444u}});
     Words output;size_t cursor=0;for(const auto& [at,p]:patches){output.insert(output.end(),code.begin()+cursor,code.begin()+at);

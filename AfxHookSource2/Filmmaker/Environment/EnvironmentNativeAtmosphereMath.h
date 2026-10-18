@@ -26,7 +26,9 @@ namespace Filmmaker::Environment {
 // texture sets the flag to zero and keeps the native cascade filter. Returns the slot N, or 0
 // when the block does not have exactly this shape (the block is then left alone).
 inline constexpr uint32_t ScreenShadowFlagRow=1953;
-inline bool NativeAtmosphereProgram(const void* data,size_t size,std::vector<uint8_t>& output,bool ownedAo=false,bool* ownedCascades=nullptr,uint32_t* screenShadowSlot=nullptr) {
+// lampCube: every lamp kernel in the program takes cube shadow records (SmoothNativeLampKernels).
+inline bool NativeAtmosphereProgram(const void* data,size_t size,std::vector<uint8_t>& output,bool ownedAo=false,bool* ownedCascades=nullptr,uint32_t* screenShadowSlot=nullptr,bool* lampCube=nullptr) {
+    if(lampCube)*lampCube=false;
     if(ownedCascades)*ownedCascades=false;
     if(screenShadowSlot)*screenShadowSlot=0;
     output.clear();if(!data||size<32||size>16*1024*1024)return false;
@@ -200,7 +202,7 @@ inline bool NativeAtmosphereProgram(const void* data,size_t size,std::vector<uin
     }
     code[1]=unsigned(code.size());
     OwnNativeLocalShadowGuards(code);
-    SmoothNativeLampKernels(code);
+    SmoothNativeLampKernels(code,true,NativeLampAtlasPyramid,lampCube);
     output.assign(p,p+32+chunks*4);
     auto put=[&](size_t at,uint32_t value){std::memcpy(output.data()+at,&value,4);};
     for(unsigned i=0;i<chunks;++i){const size_t at=word(32+i*4),bytes=word(at+4),destination=output.size();

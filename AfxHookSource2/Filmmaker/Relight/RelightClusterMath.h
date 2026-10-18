@@ -146,10 +146,12 @@ inline float VisibleRadianceCutoff(float steps,float exposure){
 // (every record's default) keeps every lookup, as does a projection that is not perspective.
 inline constexpr unsigned ShadowReachSlot=91;
 inline float ShadowReachDepth(const LightRecord& record,float distance){
-    // Perspective: depth = (row2.p)/(row3.p) = a + b/w with w the face-axis distance.
+    // Perspective: depth = (row2.p)/(row3.p) = a + b/w with w the face-axis distance. A cube
+    // record (ToCubeShadowRecord) carries its faces' a and b in row 22.
     unsigned axis=0;for(unsigned j=1;j<3;++j)if(std::abs(record[12+j])>std::abs(record[12+axis]))axis=j;
-    if(!(distance>0)||!(std::abs(record[12+axis])>1e-6f))return 0;
-    const float a=record[8+axis]/record[12+axis],b=record[11]-a*record[15];
+    const bool cube=record[87]==CubeShadowMarker;
+    if(!(distance>0)||(!cube&&!(std::abs(record[12+axis])>1e-6f)))return 0;
+    const float a=cube?record[89]:record[8+axis]/record[12+axis],b=cube?record[90]:record[11]-a*record[15];
     if(!std::isfinite(a)||!std::isfinite(b))return 0;
     const float depth=a+b/distance;
     // Reach inside the near plane (a light too dim to matter anywhere): skip every receiver.

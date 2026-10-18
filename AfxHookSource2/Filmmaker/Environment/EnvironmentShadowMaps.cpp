@@ -43,9 +43,9 @@ constexpr int GustCacheBase = 29; // cached[] slots 29..32
 constexpr unsigned StaticFacesPerFrame = 12;
 // Visible cached faces with a moving actor in them, refreshed every frame ahead of the background
 // rotation (see ShadowRefreshCandidate::actor). Nearest first; beyond this they rotate like the rest.
-// 16: at the de_ancient A-site view 48 cost 1.6 ms more a frame (2026-10-18), and with the shadow
-// reach only faces of lamps bright enough to matter compete for these slots.
-unsigned g_actorShadowFacesPerFrame = 16;
+// Fewer is faster (at the de_ancient A-site view 16 instead of 48 saved 1.4 ms, 2026-10-18) but
+// lets players' lamp shadows lag; only casters inside a lamp's shadow reach compete for them.
+unsigned g_actorShadowFacesPerFrame = 48;
 struct Float4 {
     float x = 0, y = 0, z = 0, w = 0;
 };
@@ -1300,15 +1300,20 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
         // it a light cannot change the picture, so a face earns on-screen priority and an
         // every-frame refresh only while that reach, not the authored range, meets the view.
         // With a shadow reach, receivers past it never read the face at all: it bounds instead.
-        std::vector<float> staticReach(staticLights);
+        // staticShadowReach: the half size of the cube a moving caster must reach into (0 = any).
+        std::vector<float> staticReach(staticLights),staticShadowReach(staticLights);
         for(unsigned l=0;l<staticLights;++l){staticReach[l]=(std::max)(1.f,staticRanges[l]);
             for(const auto& light:input.relight.lights)
                 if(light.position.x==staticPositions[l].x&&light.position.y==staticPositions[l].y&&light.position.z==staticPositions[l].z){
+                    const bool reach=input.relight.shadowRadiance>0&&!Relight::HasFixtureProjection(light);
                     staticReach[l]=Relight::LightVisibleReach(Relight::ToRecord(light,input.relight.intensity),staticReach[l],
-                        input.relight.shadowRadiance>0&&!Relight::HasFixtureProjection(light)?input.relight.shadowRadiance:input.relight.visibleRadiance);break;}}
+                        reach?input.relight.shadowRadiance:input.relight.visibleRadiance);
+                    if(reach)staticShadowReach[l]=staticReach[l];break;}}
         for(unsigned i=0;i<mapStaticDone;++i){
             if(i%Relight::ShadowFaces&&projectedSource(staticPositions[i/Relight::ShadowFaces]))continue;
-            const bool actor=CasterBoundsIntersect(posedBounds,mapStaticMatrices[i],posedBoundsComplete);
+            const unsigned owner=i/Relight::ShadowFaces;
+            const bool actor=CasterBoundsIntersect(posedBounds,mapStaticMatrices[i],posedBoundsComplete,staticPositions[owner],
+                staticShadowReach[owner]);
             const bool dynamic=props||mapFoliageFaces[i]||actor;
             faceDynamic[i]=dynamic;if(!dynamic&&!mapFaceDynamic[i])continue;
             const unsigned light=i/Relight::ShadowFaces;
