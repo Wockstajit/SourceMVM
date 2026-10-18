@@ -335,6 +335,9 @@ RenderFrameTiming RenderFrameTiming_Sample() {
 
 extern SOURCESDK::VMatrix g_WorldToScreenMatrix; // engine's completed view, including Smooth View / TrueView
 std::atomic<int> g_AfxCaptureWriterFailureCount{0};
+// Diagnostic (mirv_filmmaker render waitpresent 1): force r_wait_on_present during a recording, as
+// the inherited recorder always did. Off by default: see RecordStart.
+std::atomic<bool> g_RecordWaitOnPresent{false};
 std::atomic<unsigned> g_playersOnlyGreenSkyGpuSkips{0};
 
 class CAfxCapture {
@@ -7524,7 +7527,14 @@ void CAfxStreams::RecordStart()
 
         if(handle_r_wait_on_present) {
             m_OldValue_r_wait_on_present = handle_r_wait_on_present->m_Value.m_bValue;
-            handle_r_wait_on_present->m_Value.m_bValue = true;            
+            // The capture maps each frame's staging copy one Present later, and that Map blocks
+            // until the copy is done, so the recorder does not need the engine to wait for the
+            // GPU every frame. Waiting serialises CPU and GPU work: 2026-10-18, de_ancient at
+            // 2560x1351, 300 fps renders with the custom lighting off took 10.4 ms per output frame
+            // waiting and 8.2 ms without (A/B/B/A, 900 frames each); with the lighting on, 60 fps
+            // renders went from 36.6 to 33.3 ms. Every take wrote its full frame count.
+            if (g_RecordWaitOnPresent.load(std::memory_order_relaxed))
+                handle_r_wait_on_present->m_Value.m_bValue = true;
         }
 
 		float host_framerate = m_OverrideFps ? m_OverrideFpsValue : (handle_host_framerate != nullptr ? handle_host_framerate->m_Value.m_flValue : 0);

@@ -27,11 +27,11 @@ enum class RenderEncoder {
 	X264 = 0,   // CPU libx264 -- always available
 	Nvenc = 1,  // NVIDIA hardware encoder via FFmpeg h264_nvenc
 	// Default. Resolves to Nvenc when the real test encode PROVED it works on this machine, else
-	// x264. This is the render pipeline's single biggest speed lever: the encode is the dominant
-	// per-frame cost of a job (x264 at -preset medium is tens of ms per frame; NVENC is a few),
-	// and it does not change with the requested output fps -- so a 600 fps job pays it 600 times
-	// per demo-second either way. Auto is a resolution step only: an explicit CPU/GPU pick from
-	// the user is always honoured.
+	// x264. Measured 2026-10-18 at 2560x1351: a rendered frame costs what the game's own frame
+	// costs (about 10 ms with the custom lighting off, the live GPU time with it on) and NVENC
+	// never adds to that, while x264 adds up to a third at -preset slow. A 600 fps job pays
+	// whatever the encoder adds 600 times per demo-second. Auto is a resolution step only: an
+	// explicit CPU/GPU pick from the user is always honoured.
 	Auto = 2
 };
 

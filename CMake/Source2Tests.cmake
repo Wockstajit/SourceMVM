@@ -245,6 +245,13 @@ add_executable(RenderCaptureMathTests
 target_compile_features(RenderCaptureMathTests PRIVATE cxx_std_17)
 add_test(NAME RenderCaptureMathTests COMMAND RenderCaptureMathTests)
 
+add_executable(RenderEncodingTests
+    ../Automation/tests/render-encoding-tests.cpp
+    Filmmaker/Render/RenderEncoding.cpp
+)
+target_compile_features(RenderEncodingTests PRIVATE cxx_std_17)
+add_test(NAME RenderEncodingTests COMMAND RenderEncodingTests)
+
 add_executable(RenderPassPlanTests
     ../Automation/tests/render-pass-plan-tests.cpp
 )
