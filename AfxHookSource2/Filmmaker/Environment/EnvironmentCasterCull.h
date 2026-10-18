@@ -5,6 +5,8 @@
 
 namespace Filmmaker::Environment {
 inline std::atomic<bool> ShadowCasterCulling{true};
+// Diagnostic (mirv_relight widecull): also cull for the budgeted lamp faces and sun cascades.
+inline std::atomic<bool> ShadowCasterCullingWide{true};
 // Exact current-pose GPU culling. The CPU's delayed scheduling bounds must never
 // decide which triangles are drawn: a fast move or a demo seek can outpace them.
 // Retain whole triangle blocks and the original vertex buffer/coverage shader.

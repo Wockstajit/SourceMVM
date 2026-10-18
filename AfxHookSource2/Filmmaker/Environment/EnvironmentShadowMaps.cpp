@@ -3,6 +3,7 @@
 #include "EnvironmentShadowMaps.h"
 #include "../Debug/GpuPassProfiler.h"
 #include "EnvironmentAnimatedCasters.h"
+#include "EnvironmentCasterCull.h"
 #include "EnvironmentFoliage.h"
 #include "EnvironmentFoliageMath.h"
 #include "EnvironmentFoliageShaders.h"
@@ -238,6 +239,25 @@ void DumpSunCascades(ID3D11DeviceContext* immediate){
 // face in turn, because each face is copied into the atlas before the next is drawn.
 ComPtr<ID3D11Texture2D> mapStaticDepth,mapStaticTransfer;ComPtr<ID3D11DepthStencilView> mapStaticDsv;
 ComPtr<ID3D11Texture2D> mapStaticBase;
+// Refresh batches instead give each face its own pair: a batch's copies, draws and atlas copies
+// are then independent of one another, not one dependent chain through the single pair above.
+constexpr unsigned StaticRefreshBatch=16;
+struct StaticScratch {ComPtr<ID3D11Texture2D> depth,transfer;ComPtr<ID3D11DepthStencilView> dsv;};
+std::array<StaticScratch,StaticRefreshBatch> mapStaticScratch;
+bool EnsureStaticScratch(ID3D11Device* device){
+    for(auto& scratch:mapStaticScratch){
+        if(scratch.dsv&&scratch.transfer)continue;
+        D3D11_TEXTURE2D_DESC d{};d.Width=d.Height=Relight::StaticSize;
+        d.MipLevels=d.ArraySize=d.SampleDesc.Count=1;
+        d.Format=DXGI_FORMAT_R32_TYPELESS;d.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+        D3D11_DEPTH_STENCIL_VIEW_DESC ds{};ds.Format=DXGI_FORMAT_D32_FLOAT;ds.ViewDimension=D3D11_DSV_DIMENSION_TEXTURE2D;
+        if(FAILED(device->CreateTexture2D(&d,nullptr,scratch.transfer.ReleaseAndGetAddressOf())))return false;
+        d.BindFlags=D3D11_BIND_DEPTH_STENCIL;
+        if(FAILED(device->CreateTexture2D(&d,nullptr,scratch.depth.ReleaseAndGetAddressOf()))||
+           FAILED(device->CreateDepthStencilView(scratch.depth.Get(),&ds,scratch.dsv.ReleaseAndGetAddressOf()))){scratch=StaticScratch{};return false;}
+    }
+    return true;
+}
 // Runtime sky visibility: whole-map depth from each sky direction, drawn once per map from
 // static render geometry (EnvironmentSkyVisibilityMath.h). Never Valve's baked data.
 ComPtr<ID3D11Texture2D> skyArray,skyDepth;ComPtr<ID3D11DepthStencilView> skyDsv;ComPtr<ID3D11ShaderResourceView> skyArrayView;
@@ -518,7 +538,7 @@ struct PlayerMaskTarget {
 } playerMask;
 } // namespace
 void EndShadowMaps() { playerMask = PlayerMaskTarget{};mapBeamMatrices.clear();mapBeamFrame=Frame{};mapBeamFrameReady=false;mapBeamKey=0;mapBeamCount=0;ResetFoliageInputs();EndAnimatedCasters();state = State{};proofState=State{};proofContext.Reset();proofAtlas.Reset();proofAtlasView.Reset();proofSun.Reset();proofSunDepth.Reset();proofTransfer.Reset();mapAtlas.Reset();mapAtlasView.Reset();lampPyramid=LampPyramid{};mapSunTransfer.Reset();mapSunWorldBackup.Reset();mapSunViewmodelActive=false;
-    mapSunTexture.Reset();mapSunDepth.Reset();mapStaticDepth.Reset();mapStaticTransfer.Reset();mapStaticDsv.Reset();mapStaticBase.Reset();
+    mapSunTexture.Reset();mapSunDepth.Reset();mapStaticDepth.Reset();mapStaticTransfer.Reset();mapStaticDsv.Reset();mapStaticBase.Reset();mapStaticScratch={};
     mapStaticKey=0;mapStaticDone=0;mapStaticMatrices.clear();mapFaceDynamic.clear();mapFaceRefresh.clear();mapRefreshFrame=0;mapFoliageFaces.clear();mapFoliageDraws.clear();
     skyArray.Reset();skyDepth.Reset();skyDsv.Reset();skyArrayView.Reset();skyKey=0;skyDone=0;
     skyboxState=State{};skyboxSunTexture.Reset();skyboxSunDepth.Reset();skyboxSunView.Reset();skyboxSunReady=false; }
@@ -826,6 +846,7 @@ void PrepareShadowMaps(ID3D11DeviceContext *ctx, const Frame &f, bool viewmodel,
                 hash=Hash(hash,&o.studio.width,sizeof(float)); hash=Hash(hash,&o.studio.height,sizeof(float));
                 hash=Hash(hash,&count,sizeof(count)); hash=Hash(hash,&r,sizeof(r)); hash=Hash(hash,&u,sizeof(u));
                 c.light[light] = {float(first), point ? 1.f : o.kind=="area"?2.f:0.f, o.studio.sourceRadius, o.range};
+                std::array<Matrix,6> faceMatrices{};std::array<uint64_t,6> faceHashes{};
                 for (int face = 0; face < count; ++face) {
                     auto matrix =
                         LocalShadowMatrix(o.kind=="area"?AreaLightSample(o.position,r,u,o.studio.width,o.studio.height,face):o.position, point ? PointShadowDirection(face) : direction,
@@ -840,8 +861,15 @@ void PrepareShadowMaps(ID3D11DeviceContext *ctx, const Frame &f, bool viewmodel,
                     // edge: render the budgeted cube faces with the same guard band as the static
                     // tier (the exact matrix is restored when the atlas is packed).
                     if (requireWorld) Relight::GuardFace(matrix.data(), Relight::LocalFaceGuard);
+                    faceMatrices[face]=matrix;faceHashes[face]=hash;
+                }
+                // Moving actors are drawn into every face; cull their triangle blocks per face first.
+                if(animated&&ShadowCasterCullingWide.load(std::memory_order_relaxed))
+                    PrepareAnimatedCasterCulling(ctx,faceMatrices.data(),unsigned(count));
+                for (int face = 0; face < count; ++face) {
+                    const auto& matrix=faceMatrices[face];const auto faceHash=faceHashes[face];
                     c.local[first + face] = matrix;
-                    if (DrawCached(ctx,f,matrix,state.localDsv[first+face].Get(),LocalResolution,first+face,hash,pose,animated)) {
+                    if (DrawCached(ctx,f,matrix,state.localDsv[first+face].Get(),LocalResolution,first+face,faceHash,pose,animated)) {
                         ++draws;
                     }
                 }
@@ -1202,6 +1230,10 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
         const bool animated=state.animate||HasAnimatedCasterGeometry();
         const unsigned tiles[]{Relight::SunTile,Relight::SunMiddleTile,Relight::SunDetailTile,Relight::SunCloseTile};
         for(unsigned cascade=0;cascade<4;++cascade)g_sunDumpMatrices[cascade]=matrices[tiles[cascade]];g_sunDumpMatricesReady=true;
+        if(animated&&ShadowCasterCullingWide.load(std::memory_order_relaxed)){
+            std::array<Matrix,4> cascadeMatrices{};for(unsigned cascade=0;cascade<4;++cascade)cascadeMatrices[cascade]=matrices[tiles[cascade]];
+            PrepareAnimatedCasterCulling(ctx,cascadeMatrices.data(),4);
+        }
         for(unsigned cascade=0;cascade<4;++cascade){const auto tile=tiles[cascade];
             const auto hash=Hash(state.localKeys[0],matrices[tile].data(),sizeof(Matrix));
             DrawCached(ctx,frame,matrices[tile],mapSunDepth.Get(),Relight::SunCascadeSize,24+cascade,hash,
@@ -1315,12 +1347,29 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
         const auto selected=SelectShadowRefresh(std::move(refresh),mapRefreshFrame,refreshBudget,16,
             input.exporting?0u:g_actorShadowFacesPerFrame);
         if(!selected.empty()){GPU_PASS_SCOPE(ctx,"shadows: lamp face refresh");
-        constexpr unsigned batchSize=16;
+        constexpr unsigned batchSize=StaticRefreshBatch;
+        const bool batched=ShadowFaceBatching.load(std::memory_order_relaxed)&&EnsureStaticScratch(state.device.Get());
         for(size_t batch=0;batch<selected.size();batch+=batchSize){
         const auto count=unsigned((std::min)(size_t(batchSize),selected.size()-batch));
         std::array<Matrix,batchSize> cullMatrices{};
         for(unsigned j=0;j<count;++j)cullMatrices[j]=mapStaticMatrices[selected[batch+j]];
         PrepareAnimatedCasterCulling(ctx,cullMatrices.data(),count);
+        if(batched){
+            // The same copies and draws as below, issued phase by phase across the batch.
+            for(unsigned j=0;j<count;++j)
+                ctx->CopySubresourceRegion(mapStaticScratch[j].depth.Get(),0,0,0,0,mapStaticBase.Get(),selected[batch+j],nullptr);
+            for(unsigned j=0;j<count;++j){const unsigned i=selected[batch+j];
+                if(faceDynamic[i])Draw(ctx,frame,mapStaticMatrices[i],mapStaticScratch[j].dsv.Get(),Relight::StaticSize,true,AnimatedCasterSubset::All,true,&mapFoliageDraws[i]);}
+            ctx->OMSetRenderTargets(0,nullptr,nullptr);
+            for(unsigned j=0;j<count;++j)ctx->CopyResource(mapStaticScratch[j].transfer.Get(),mapStaticScratch[j].depth.Get());
+            for(unsigned j=0;j<count;++j){const unsigned i=selected[batch+j];
+                unsigned x=0,y=0,size=0;Relight::TileOrigin(Relight::StaticTile+i,x,y,size);
+                ctx->CopySubresourceRegion(mapAtlas.Get(),0,x,y,0,mapStaticScratch[j].transfer.Get(),0,nullptr);
+                MarkLampTile(x,y,size);
+                mapFaceDynamic[i]=faceDynamic[i];mapFaceRefresh[i]=mapRefreshFrame;++updatedFaces;
+            }
+            continue;
+        }
         for(unsigned j=0;j<count;++j){const unsigned i=selected[batch+j];
             const bool dynamic=faceDynamic[i];
             ctx->CopySubresourceRegion(mapStaticDepth.Get(),0,0,0,0,mapStaticBase.Get(),i,nullptr);

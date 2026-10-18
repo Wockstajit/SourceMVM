@@ -1,6 +1,7 @@
 #pragma once
 #include "RelightProbeMath.h"
 #include <d3d11.h>
+#include <atomic>
 #include <memory>
 namespace Filmmaker::Environment {struct OcclusionMesh;}
 namespace Filmmaker::Relight {
@@ -30,6 +31,8 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
     const std::vector<LightRecord>& records,ID3D11ShaderResourceView* shadow,
     ID3D11SamplerState* comparison,uint64_t frame,unsigned residentStaticLights=0,Vec3 camera={},
     ID3D11ShaderResourceView* glassCookies=nullptr,Vec3 viewForward={});
+// Diagnostic (mirv_relight maskdedupe): skip the atomic for visible cells already marked.
+extern std::atomic<bool> ProbeMaskDedupe;
 // Capture current visible cages for the next frame's prioritized transport pass.
 // Material draws consume one immutable irradiance/distance/reflection snapshot.
 void MarkVisibleProbeGi(ID3D11DeviceContext*,

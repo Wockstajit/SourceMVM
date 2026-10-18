@@ -9,6 +9,8 @@
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentShadowMaps.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentShaderCompiler.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentShadowMath.h"
+#include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <wrl/client.h>
 #include <d3d11.h>
@@ -395,6 +397,33 @@ void CheckShaders(ID3D11Device* device,ID3D11DeviceContext* ctx){
     Check(SUCCEEDED(ctx->Map(headerRead.Get(),0,D3D11_MAP_READ,0,&headerMap)),"visible list count readback");
     UINT headerValue[4]{};std::memcpy(headerValue,headerMap.pData,16);ctx->Unmap(headerRead.Get(),0);
     Check(headerValue[0]==4&&headerValue[1]==6&&headerValue[2]==1&&headerValue[3]==243,"GPU compaction deduplicates biased receiver cages and dispatches every hemisphere exactly");
+    {
+        // Skipping the atomic for an already marked cell (visibleInfo.w) must produce the same mask
+        // and the same set of listed cells; only the list order may differ.
+        auto snapshot=[&](std::vector<uint32_t>& cells,std::vector<uint32_t>& list){
+            D3D11_TEXTURE3D_DESC md{};mask.texture->GetDesc(&md);md.Usage=D3D11_USAGE_STAGING;md.BindFlags=0;md.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+            ComPtr<ID3D11Texture3D> maskRead;Check(SUCCEEDED(device->CreateTexture3D(&md,nullptr,&maskRead)),"mask staging");
+            ctx->CopyResource(maskRead.Get(),mask.texture.Get());D3D11_MAPPED_SUBRESOURCE mm{};
+            Check(SUCCEEDED(ctx->Map(maskRead.Get(),0,D3D11_MAP_READ,0,&mm)),"mask readback");
+            cells.assign(size_t(P)*P*P,0);
+            for(UINT z=0;z<P;++z)for(UINT y=0;y<P;++y)std::memcpy(&cells[(size_t(z)*P+y)*P],static_cast<const uint8_t*>(mm.pData)+z*mm.DepthPitch+y*mm.RowPitch,P*4);
+            ctx->Unmap(maskRead.Get(),0);
+            D3D11_BUFFER_DESC bd{};visibleList->GetDesc(&bd);bd.Usage=D3D11_USAGE_STAGING;bd.BindFlags=0;bd.MiscFlags=0;bd.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+            ComPtr<ID3D11Buffer> listRead;Check(SUCCEEDED(device->CreateBuffer(&bd,nullptr,&listRead)),"list staging");
+            ctx->CopyResource(listRead.Get(),visibleList.Get());D3D11_MAPPED_SUBRESOURCE lm{};
+            Check(SUCCEEDED(ctx->Map(listRead.Get(),0,D3D11_MAP_READ,0,&lm)),"list readback");
+            const auto* words=static_cast<const uint32_t*>(lm.pData);list.assign(words+4,words+4+words[3]);list.push_back(words[3]);
+            ctx->Unmap(listRead.Get(),0);std::sort(list.begin(),list.end()-1);
+        };
+        std::vector<uint32_t> everyCell,everyList,markedCell,markedList;snapshot(everyCell,everyList);
+        values[13]={7,1,1,1};upload();ctx->ClearUnorderedAccessViewUint(mask.uav.Get(),clear);ctx->ClearUnorderedAccessViewUint(listUav.Get(),clear);
+        ctx->UpdateSubresource(visibleList.Get(),0,&hb,header,0,0);
+        auto dedupeList=listUav.Get();ctx->CSSetUnorderedAccessViews(7,1,&dedupeList,nullptr);
+        auto dedupeMask=mask.uav.Get();ctx->CSSetUnorderedAccessViews(0,1,&dedupeMask,nullptr);
+        ctx->CSSetShaderResources(16,1,&position);ctx->CSSetShader(markVisible.Get(),nullptr,0);ctx->Dispatch(1,1,1);ctx->ClearState();
+        snapshot(markedCell,markedList);values[13]={7,1,1,0};
+        Check(markedCell==everyCell&&markedList==everyList,"Skipping atomics for marked cells keeps the exact visible mask and list");
+    }
     ctx->CopyResource(historyOut.texture.Get(),historyIn.texture.Get());
     const D3D11_BOX argsBox{0,0,0,12,1,1};ctx->CopySubresourceRegion(dispatchArgs.Get(),0,0,0,0,visibleList.Get(),0,&argsBox);
     values[5][1]=4;values[8][3]=0;traceRun();

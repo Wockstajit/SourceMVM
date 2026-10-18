@@ -346,6 +346,9 @@ void MarkVisibleCS(uint3 id:SV_DispatchThreadID) {
             uint outside=(x<low.x||x>high.x)+(y<low.y||y>high.y)+(z<low.z||z>high.z);
             if(outside>1)continue;
             if(all(cell>=0)&&all(cell<PROBE_RESOLUTION)){
+                // Neighbouring receivers share nearly every cage. A cell already marked needs
+                // no atomic: OR is idempotent and only its first marker appends to the list.
+                if(visibleInfo.w>0&&voxelOutput[cell]!=0)continue;
                 uint previous;InterlockedOr(voxelOutput[cell],1,previous);
                 if(previous==0){
                     uint index,unused;reflectionNormOutput.InterlockedAdd(12,1,index);

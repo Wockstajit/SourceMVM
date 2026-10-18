@@ -1,7 +1,11 @@
 #pragma once
 #include "EnvironmentScene.h"
 #include <d3d11.h>
+#include <atomic>
 namespace Filmmaker::Environment {
+// Diagnostic (mirv_relight facebatch): refresh a batch of cached lamp faces through one scratch
+// pair per face, so the GPU is not serialized copy -> draw -> copy on a single scratch pair.
+inline std::atomic<bool> ShadowFaceBatching{true};
 void BeginShadowMaps(ID3D11Device *device);
 void EndShadowMaps();
 // Submit cached light-space depth maps using the environment's deferred context.

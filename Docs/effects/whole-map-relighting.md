@@ -1288,6 +1288,25 @@ Programs with relative or mixed xyz/w addressing keep the existing conservative 
 Native GPU tests compare exact output at 1x, 4x and 8x MSAA with changing view values; the
 optimization does not reduce AO, GI, shadow samples, resolution or update frequency.
 
+Three more passes do the same work with less GPU serialization. Each has a transient
+diagnostic switch (default 1) that restores the previous path for same-process comparison:
+
+- `mirv_relight maskdedupe 0|1`: the visible GI probe mask reads a cell before its atomic. A
+  cell another receiver already marked needs no atomic, because the OR is idempotent and only
+  the first marker appends to the compact list. The mask and the set of listed cells are
+  unchanged; `RelightProbeGpuTests` compares both paths.
+- `mirv_relight facebatch 0|1`: a lamp face refresh batch gives each face its own scratch
+  depth and transfer texture, then issues the batch's base copies, actor draws and atlas copies
+  phase by phase. One shared scratch pair made every face a dependent copy, draw, copy chain.
+- `mirv_relight widecull 0|1`: the batched actor-triangle culling of the cached lamp faces also
+  runs for the budgeted lamp faces and the four sun cascades. A face without a prepared batch
+  still takes the original draw.
+
+On the de_ancient loop at 2560x1351 with 4x MSAA, the mask fell from about 1.55 ms to under
+0.36 ms, lamp face refresh from about 2.6 ms to 2.2 ms and near lamps from about 1.3 ms to
+0.9 ms. Two alternating rounds measured 33.4 ms with all three off and 31.1 ms with all three on.
+Same-pose captures differ no more than repeated captures of one mode.
+
 Offline Mirage, 1600×900, fixed pose, 413 records and 64 cached shadow lights, measured with
 15-second render-pump brackets after warmup:
 

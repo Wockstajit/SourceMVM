@@ -15,6 +15,7 @@
 #include <new>
 namespace Filmmaker::Relight {
 using Microsoft::WRL::ComPtr;
+std::atomic<bool> ProbeMaskDedupe{true};
 namespace {
 constexpr UINT Voxels=GiVoxelResolution,Probes=GiProbeResolution;
 // Background sweep plus a 16-probe-wide neighbourhood refreshed every frame.
@@ -344,7 +345,7 @@ void MarkVisibleProbeGi(ID3D11DeviceContext* immediate,
     if(state.visibleFrame==frame)return;
     auto work=state.work.Get();work->ClearState();
     const auto saved=state.constants;
-    state.constants.visibleInfo={float(width),float(height),2,0};
+    state.constants.visibleInfo={float(width),float(height),2,ProbeMaskDedupe.load(std::memory_order_relaxed)?1.f:0.f};
     state.constants.ground[1]=4;Upload(work);
     auto cb=state.params.Get();work->CSSetConstantBuffers(0,1,&cb);
     const UINT zero[4]{};work->ClearUnorderedAccessViewUint(state.visibleMask.uav.Get(),zero);
