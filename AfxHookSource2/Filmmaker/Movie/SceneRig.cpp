@@ -23,6 +23,7 @@
 #include <Windows.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <map>
 #include <string>
 #include <vector>
@@ -118,11 +119,6 @@ std::string ControllerName(CEntityInstance* pawnOrController) {
 	return name ? name : "";
 }
 
-std::string OwnerName(CEntityInstance* e) {
-	if (!e) return "";
-	const auto owner = e->GetOwnerEntityHandle();
-	return owner.IsValid() ? ControllerName(EntityAt(owner.GetEntryIndex())) : "";
-}
 
 void ScanPlayers() {
 	g_players.clear();
@@ -145,42 +141,33 @@ void ScanPlayers() {
 	}
 }
 
-int ThrowTickOf(CEntityInstance* e) {
-	int currentTick = 0;
-	g_MirvTime.GetCurrentDemoTick(currentTick);
-	float interval = g_MirvTime.interval_per_tick_get();
-	if (!(interval > 0.00001f)) interval = 1.0f / 64.0f;
-	const float now = g_MirvTime.curtime_get();
-	const float created = e->GetGrenadeTrajectoryCreationTime();
-	// Same estimate as the Follow Camera's grenade cache: the projectile's age in game time,
-	// carried onto the demo tick (the server-start offset cancels out).
-	if (std::isfinite(created) && created > 0.f && std::isfinite(now) && now > 0.f) {
-		const double estimated = currentTick + (created - now) / interval;
-		if (std::isfinite(estimated) && std::fabs(estimated - currentTick) < 10000.0) return int(std::llround(estimated));
-	}
-	return currentTick;
-}
-
-// Thrown projectiles and dropped weapons alive this tick (the pickers, and grenade matching).
+// Thrown grenades (the shared index the Follow Camera reads too, FollowTargetProviders.h: the
+// ones in the air now with their entity, and the ones seen earlier this session with index -1),
+// and dropped weapons alive this tick.
 void ScanWorld(bool dropped) {
 	g_grenades.clear();
 	if (dropped) g_dropped.clear();
 	if (!EntitiesReady()) return;
+	int currentTick = 0;
+	g_MirvTime.GetCurrentDemoTick(currentTick);
+	for (const GrenadeSighting& s : GrenadeIndex_Update()) {
+		if (!s.active && std::abs(s.throwTick - currentTick) > kGrenadeBrowseTicks) continue;
+		GrenadeRow row;
+		row.index = s.active ? s.entityIndex : -1;
+		row.handle = s.handle;
+		row.type = s.type;
+		row.thrower = s.thrower;
+		row.throwTick = s.throwTick;
+		g_grenades.push_back(std::move(row));
+	}
+	std::sort(g_grenades.begin(), g_grenades.end(), [&](const GrenadeRow& a, const GrenadeRow& b) {
+		if ((a.index >= 0) != (b.index >= 0)) return a.index >= 0; // in the air now first
+		return std::abs(a.throwTick - currentTick) < std::abs(b.throwTick - currentTick);
+	});
+	if (!dropped) return;
 	for (int i = 0, n = GetHighestEntityIndex(); i <= n; ++i) {
 		CEntityInstance* e = EntityAt(i);
 		if (!e) continue;
-		const std::string cls = EntityClass(e);
-		if (IsGrenadeClass(cls)) {
-			GrenadeRow row;
-			row.index = i;
-			row.handle = EntityHandleValue(e);
-			row.type = GrenadeTypeName(cls);
-			row.thrower = OwnerName(e);
-			row.throwTick = ThrowTickOf(e);
-			g_grenades.push_back(std::move(row));
-			continue;
-		}
-		if (!dropped) continue;
 		const std::string weapon = ClassOf(e);
 		if (IsWeaponOrBomb(weapon) && !e->GetOwnerEntityHandle().IsValid()) {
 			DroppedRow row;
@@ -200,7 +187,10 @@ const PlayerRow* FindPlayer(const Rig::Attachment& a) {
 
 const GrenadeRow* FindGrenade(const Rig::Attachment& a) {
 	const GrenadeRow* best = nullptr;
+	for (const auto& g : g_grenades)
+		if (a.grenadeHandle && g.index >= 0 && g.handle == a.grenadeHandle) return &g;
 	for (const auto& g : g_grenades) {
+		if (g.index < 0) continue; // seen earlier, not in the world now
 		if (g.type != a.grenadeType || std::abs(g.throwTick - a.throwTick) > Rig::kGrenadeTickSlack) continue;
 		if (!best || (g.thrower == a.thrower && best->thrower != a.thrower)) best = &g;
 	}
@@ -256,7 +246,7 @@ void FindParent(Live& l) {
 		// Keep the projectile found earlier while its handle is still at that index; otherwise
 		// look again, a few times a second, until the throw happens.
 		CEntityInstance* cached = previous.found ? EntityAt(previous.entityIndex) : nullptr;
-		if (cached && EntityHandleValue(cached) == previous.handle && IsGrenadeClass(EntityClass(cached))) {
+		if (cached && EntityHandleValue(cached) == previous.handle && !ThrownGrenadeClass(cached).empty()) {
 			p.entityIndex = previous.entityIndex;
 		} else {
 			if (g_frame - g_grenadeScanFrame >= 8 || g_frame < g_grenadeScanFrame) { ScanWorld(false); g_grenadeScanFrame = g_frame; }
@@ -292,6 +282,18 @@ void ReadParent(Live& l) {
 	p.pose.oriented = r.oriented;
 	p.pose.pose.pos = r.pos;
 	p.pose.pose.ang = r.ang;
+	// mvm_debug: a held weapon's mount next to its owner's interpolated origin, every read -- a mount
+	// that moves in steps while the origin moves smoothly is read from stale bones (player jitter).
+	if (MvmDebugLog_Active() && p.type == FollowTargetType::Weapon) {
+		FollowVec3 owner{}, self{};
+		const auto oh = e->GetOwnerEntityHandle();
+		CEntityInstance* pawn = oh.IsValid() ? EntityAt(oh.GetEntryIndex()) : nullptr;
+		const bool haveOwner = pawn && ReadOrigin(pawn, owner);
+		ReadOrigin(e, self);
+		MvmDebugLog_Linef("rig.parent.sample", "frame=%d time=%.5f mount=(%.3f %.3f %.3f) owner=(%.3f %.3f %.3f) ownerOk=%d weapon=(%.3f %.3f %.3f) src=%s ang=(%.3f %.3f %.3f)",
+			g_MirvTime.framecount_get(), g_MirvTime.curtime_get(), r.pos.x, r.pos.y, r.pos.z,
+			owner.x, owner.y, owner.z, haveOwner ? 1 : 0, self.x, self.y, self.z, r.source.c_str(), r.ang.pitch, r.ang.yaw, r.ang.roll);
+	}
 }
 
 void ResolveAll() {
@@ -853,6 +855,7 @@ bool SceneRig_ViewSetup(double& x, double& y, double& z, double& pitch, double& 
 }
 
 void SceneRig_Reset() {
+	GrenadeIndex_Reset(); // another demo: its grenades are not this one's
 	g_live.clear();
 	g_lookThrough = 0;
 	RigTransient::Publish(RigTransient::State{});
@@ -972,7 +975,11 @@ void SceneRig_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* c
 		if (l->attached) { a.missing = l->att.missing; }
 		if (kind == "none") { Attach(id, *l, nullptr); return; }
 		if (!Rig::ParseParentKind(kind, a.parent) || a.parent == Rig::ParentKind::None) { advancedfx::Warning("rig parent: none|player|held|dropped|grenade|object\n"); return; }
-		const int target = IntArg(arg(5), ok);
+		// A grenade seen earlier but not in the air now is named by its handle: h<handle>.
+		const char* targetArg = arg(5);
+		const bool byHandle = a.parent == Rig::ParentKind::Grenade && (targetArg[0] == 'h' || targetArg[0] == 'H');
+		const int target = byHandle ? -1 : IntArg(targetArg, ok);
+		if (byHandle) ok = true;
 		if (!ok) { advancedfx::Warning("rig parent %s: give the entity index (or object id)\n", kind.c_str()); return; }
 		a.mount = argc > 6 ? arg(6) : Rig::DefaultMount(a.parent);
 		if (!Rig::MountName(a.mount)) { advancedfx::Warning("rig: invalid mount name\n"); return; }
@@ -988,10 +995,12 @@ void SceneRig_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* c
 			if (!e || !IsWeaponOrBomb(cls) || e->GetOwnerEntityHandle().IsValid()) { advancedfx::Warning("rig: %d is not a dropped weapon at this tick\n", target); return; }
 			a.entityIndex = target; a.entityClass = cls; a.mount = argc > 6 ? arg(6) : "entity";
 		} else if (a.parent == Rig::ParentKind::Grenade) {
-			CEntityInstance* e = EntityAt(target);
-			const std::string cls = e ? EntityClass(e) : "";
-			if (!e || !IsGrenadeClass(cls)) { advancedfx::Warning("rig: %d is not a thrown grenade at this tick\n", target); return; }
-			a.grenadeType = GrenadeTypeName(cls); a.throwTick = ThrowTickOf(e); a.thrower = OwnerName(e); a.mount = "entity";
+			const GrenadeSighting* found = nullptr;
+			const uint64_t handle = byHandle ? std::strtoull(targetArg + 1, nullptr, 10) : 0;
+			for (const GrenadeSighting& s : GrenadeIndex_Update())
+				if (byHandle ? s.handle == handle : (s.active && s.entityIndex == target)) { found = &s; break; }
+			if (!found) { advancedfx::Warning("rig: %s is not a grenade this session has seen\n", targetArg); return; }
+			a.grenadeHandle = found->handle; a.grenadeType = found->type; a.throwTick = found->throwTick; a.thrower = found->thrower; a.mount = "entity";
 		} else {
 			if (target == id || !Find(target)) { advancedfx::Warning("rig: choose another placed object\n"); return; }
 			if (Rig::WouldCycle(SceneKeys_Data().attach, id, target)) { advancedfx::Warning("rig: that would attach it to itself\n"); return; }
@@ -1114,7 +1123,8 @@ void SceneRig_AppendStateJson(std::ostringstream& out) {
 	j.EndArray();
 	j.Key("grenades"); j.BeginArray();
 	for (const auto& g : g_grenades) {
-		j.BeginObject(); j.IntField("index", g.index); j.StringField("type", g.type); j.StringField("thrower", g.thrower); j.IntField("throwTick", g.throwTick); j.EndObject();
+		j.BeginObject(); j.IntField("index", g.index); j.StringField("handle", std::to_string(g.handle)); j.StringField("type", g.type);
+		j.StringField("thrower", g.thrower); j.IntField("throwTick", g.throwTick); j.BoolField("active", g.index >= 0); j.EndObject();
 	}
 	j.EndArray();
 	j.Key("dropped"); j.BeginArray();

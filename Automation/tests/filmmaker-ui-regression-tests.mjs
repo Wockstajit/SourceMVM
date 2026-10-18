@@ -278,3 +278,27 @@ test("money on headshot covers heads without a helmet, and never a seek's replay
   assert.match(hook, /g_helmetMoneyTick\.store\(/);
   assert.match(fxCpp, /MoneyShot_PumpMainThread\(\);/);
 });
+
+// 2026-10-18: a new helper reused the name of a label the Config panel already declared, and the
+// whole Scene objects panel stopped loading ("Identifier 'propsPaintModels' has already been
+// declared"). The Config panel's fragments share one scope.
+test("the Config panel's fragments never declare one name twice", () => {
+  const dir = path.join(repo, "AfxHookSource2", "Filmmaker", "Panorama");
+  for (const file of fs.readdirSync(dir).filter((f) => /^ConfigHud.*Js\.h$/.test(f))) {
+    const src = read("AfxHookSource2", "Filmmaker", "Panorama", file);
+    const seen = new Map();
+    for (const m of src.matchAll(/^    (?:function (\w+)\s*\(|var (\w+)\s*=)/gm)) {
+      const name = m[1] || m[2];
+      assert.ok(!seen.has(name), `${file} declares ${name} twice`);
+      seen.set(name, true);
+    }
+  }
+});
+
+// 2026-10-18: the wheel over an open developer console moved the camera instead of scrolling it.
+test("the open developer console keeps its own wheel, clicks and keys", () => {
+  const gate = read("AfxHookSource2", "UiInputGate.cpp");
+  const main = read("AfxHookSource2", "main.cpp");
+  assert.match(gate, /if \(AfxConsoleVisible\(\)\)\s*return true;/);
+  assert.match(main, /bool AfxConsoleVisible\(\) \{ return g_pGameUIService && g_pGameUIService->Con_IsVisible\(\); \}/);
+});

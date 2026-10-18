@@ -150,7 +150,7 @@ int main() {
 		std::map<int, Attachment> m;
 		Attachment a; a.parent = ParentKind::Player; a.steamId = 76561198000000001ull; a.playerName = "s1mple"; a.mount = "head"; a.offset = P(20, -3, 4.5, 10, 20, -30);
 		Attachment b; b.parent = ParentKind::Held; b.steamId = 0; b.playerName = "BOT Kev"; b.mount = "muzzle"; b.missing = Missing::Hold;
-		Attachment g; g.parent = ParentKind::Grenade; g.grenadeType = "smoke"; g.throwTick = 18340; g.thrower = "s1mple"; g.mount = "entity";
+		Attachment g; g.parent = ParentKind::Grenade; g.grenadeHandle = 18446744073709551000ull; g.grenadeType = "smoke"; g.throwTick = 18340; g.thrower = "s1mple"; g.mount = "entity";
 		Attachment d; d.parent = ParentKind::Dropped; d.entityIndex = 212; d.entityClass = "weapon_ak47"; d.mount = "entity";
 		Attachment o; o.parent = ParentKind::Object; o.object = 3; o.mount = "";
 		m[3] = a; m[4] = b; m[5] = g; m[6] = d; m[7] = o;
@@ -173,6 +173,13 @@ int main() {
 		rejects(R"({"3":{"parent":"player","steamId":"1","name":"a","mount":"head","missing":"hide","offset":[0,0,0,0,0]}})", "short offset rejected");
 		rejects(R"({"3":{"parent":"player","steamId":"1","name":"a","mount":"head","missing":"hide","offset":[0,0,40000,0,0,0]}})", "offset out of range rejected");
 		rejects(R"({"3":{"parent":"grenade","type":"smoke","throwTick":1.5,"thrower":"",)" + tail + "}", "fractional throw tick rejected");
+		rejects(R"({"3":{"parent":"grenade","handle":"-5","type":"smoke","throwTick":15,"thrower":"",)" + tail + "}", "signed grenade handle rejected");
+		{
+			// A grenade picked without a handle (none known) still reads: type and throw tick match it.
+			JsonValue ok; std::map<int, Attachment> out; std::string err;
+			Check(JsonParse(R"({"3":{"parent":"grenade","type":"smoke","throwTick":15,"thrower":"",)" + tail + "}", ok)
+				&& ReadAttachments(ok, out, err) && out[3].grenadeHandle == 0 && out[3].throwTick == 15, "grenade without a handle reads");
+		}
 		rejects(R"({"3":{"parent":"dropped","entity":-2,"class":"weapon_ak47",)" + tail + "}", "negative entity rejected");
 	}
 

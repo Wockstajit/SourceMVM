@@ -1063,6 +1063,19 @@ R"GEJS(
     function showAddMenu(lx, ly) {
       showMenu(lx, ly, 236, [{ kind: 'title', label: 'ADD TO THE SCENE' }].concat(ADD_ITEMS), function (id) { pickAdd(id); });
     }
+    // How far a value moves per pixel of drag. Fixed per kind of value: it used to be the graph's
+    // value range / 300, and that range grows with the value being dragged, so a drag sped itself
+    // up until a small move overshot by thousands (user report 2026-10-18). Shift = 5x finer.
+    function scrubStep(node, c) {
+      var kind = node.dom === 'cam'
+        ? (chNum(c.uid) < 3 ? 'pos' : chNum(c.uid) < 6 ? 'rot' : 'fov')
+        : (objectPropOf(c.fieldId) || {}).id;
+      if (kind === 'pos') return 1;                         // world units
+      if (kind === 'rot' || kind === 'cone' || c.type === 'angle') return 0.25; // degrees
+      if (kind === 'fov') return 0.1;
+      var span = num(c.max) - num(c.min);                   // a scene setting's coded range
+      return span > 0 ? Math.min(span / 600, 1) : 0.01;
+    }
     function objectPropOf(fieldId) {
       var key = ('' + fieldId).substring(('' + fieldId).lastIndexOf('.') + 1);
       for (var i = 0; i < OBJECT_PROPS.length; i++) {
@@ -1294,7 +1307,7 @@ R"GEJS(
       nm.style.whiteSpace = 'nowrap'; nm.style.textOverflow = 'ellipsis'; nm.style.width = '100%';
       if (n.kind === 'layer') { nm.style.fontWeight = 'bold'; nm.style.letterSpacing = '1px'; }
       else if (n.kind === 'group') { nm.style.fontWeight = 'bold'; nm.style.letterSpacing = '0.5px'; nm.style.color = S.label; }
-      hot.SetPanelEvent('onactivate', function () { selectNode(n.id); });
+      hot.SetPanelEvent('onactivate', function () { pickRow(n); });
       hot.SetPanelEvent('onmouseover', function () { if (n.name.length > 18) showTip(hot, n.name); });
       hot.SetPanelEvent('onmouseout', function () { hideTip(); });
       r.nm = nm;
@@ -2193,6 +2206,15 @@ R"GEJS(
       else if (oid && !objectLive(L)) rawCmd('mirv_filmmaker rig animate ' + oid + ' on');
       else { edit('scene'); rawCmd('mirv_filmmaker scenekeys mute ' + L.groupId + (on ? ' on' : ' off')); }
     }
+    // A click on a row's name. A layer's name picks the whole layer: every key in it lights up, so
+    // Delete removes everything in the layer (user report 2026-10-18: clicking a layer and pressing
+    // Delete did nothing, because only its keys can be deleted and none were selected).
+    function pickRow(n) {
+      selectNode(n.id);
+      if (n.kind !== 'layer') return;
+      setShakeSel([], false);
+      if (!selectLayerKeys(n)) { camCmd('selclear'); sceneCmd('selclear'); selCache = {}; }
+    }
     function selectLayerKeys(L) {
       var members = [];
       unionKeys(chansOf(L)).forEach(function (e) { members = members.concat(e.members); });
@@ -2792,12 +2814,13 @@ R"GEJS(
             var vc = chU(vh.comp.uid), scrub = vc && (vh.row.node.dom === 'cam' || vc.type === 'float' || vc.type === 'angle');
             selectNode(vh.row.node.id);
             gesture = { type: 'num', row: vh.row, comp: vh.comp, smx: st.mx, moved: false, scrub: !!scrub,
-                        sv: vc ? (vh.row.node.dom === 'cam' ? camValue(vc) : num(vc.value)) : 0 };
+                        sv: vc ? (vh.row.node.dom === 'cam' ? camValue(vc) : num(vc.value)) : 0,
+                        step: vc ? scrubStep(vh.row.node, vc) : 0 };
           } else {
             // Anywhere else on the row's left side selects it: the gap between its name and its
             // values used to catch nothing (2026-10-17).
             var lr = rowAt(cc.ly);
-            if (lr && !lr.broken) selectNode(lr.node.id);
+            if (lr && !lr.broken) pickRow(lr.node);
           }
         }
       } else if (lmb && prevLmb && gesture) {
@@ -2888,8 +2911,7 @@ R"GEJS(
         }
         if (g.moved && g.scrub) {
           var c3 = chU(g.comp.uid); if (!c3) return;
-          var sens = ((c3.max - c3.min) / (g.row.node.dom === 'cam' ? 300 : 320)) * (st.shift ? 0.2 : 1);
-          var nv = g.sv + dpx * sens;
+          var nv = g.sv + dpx * g.step * (st.shift ? 0.2 : 1);
           if (g.row.node.dom === 'scene') nv = Math.max(c3.min, Math.min(c3.max, nv));
           setPropValue(g.row.node, g.comp.uid, nv, true);
         }

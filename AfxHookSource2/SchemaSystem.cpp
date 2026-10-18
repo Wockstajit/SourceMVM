@@ -134,6 +134,10 @@ void initSchemaSystemOffsets()
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_bCanCreateGrenadeTrail, "client.dll", "C_BaseCSGrenadeProjectile", "m_bCanCreateGrenadeTrail");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_nSnapshotTrajectoryEffectIndex, "client.dll", "C_BaseCSGrenadeProjectile", "m_nSnapshotTrajectoryEffectIndex");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_flTrajectoryTrailEffectCreationTime, "client.dll", "C_BaseCSGrenadeProjectile", "m_flTrajectoryTrailEffectCreationTime");
+	// Optional, off the `ok` chain: the grenade throw tick (GrenadeThrowTick) falls back to the trail time.
+	getOffset(&g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_vInitialPosition, "client.dll", "C_BaseCSGrenadeProjectile", "m_vInitialPosition");
+	getOffset(&g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_vInitialVelocity, "client.dll", "C_BaseCSGrenadeProjectile", "m_vInitialVelocity");
+	getOffset(&g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_nBounces, "client.dll", "C_BaseCSGrenadeProjectile", "m_nBounces");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_SmokeGrenadeProjectile.m_vSmokeColor, "client.dll", "C_SmokeGrenadeProjectile", "m_vSmokeColor");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_EnvSky.m_hSkyMaterial, "client.dll", "C_EnvSky", "m_hSkyMaterial");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_EnvSky.m_vTintColor, "client.dll", "C_EnvSky", "m_vTintColor");

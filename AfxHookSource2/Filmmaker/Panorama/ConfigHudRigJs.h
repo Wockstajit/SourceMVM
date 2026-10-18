@@ -121,8 +121,11 @@ R"CFJS(
           return [String(p.pawn), p.name + (p.team === 2 ? '  ·  T' : p.team === 3 ? '  ·  CT' : '') + (p.alive ? '' : '  (dead)')];
         });
       if (kind === 'dropped') return (r.dropped || []).map(function (d) { return [String(d.index), d.name + '  ·  #' + d.index]; });
+      // In the air now (its entity index), or seen earlier this session (h<handle>; the object
+      // then rides it when the playhead gets there). Same list the Follow Camera offers.
       if (kind === 'grenade') return (r.grenades || []).map(function (g) {
-        return [String(g.index), g.type + (g.thrower ? ' by ' + g.thrower : '') + '  ·  thrown at ' + g.throwTick];
+        return [g.active ? String(g.index) : 'h' + g.handle,
+          g.type + (g.thrower ? ' by ' + g.thrower : '') + '  ·  thrown at ' + g.throwTick + (g.active ? '  ·  in the air' : '')];
       });
       if (kind === 'object') {
         var s = envState();

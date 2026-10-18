@@ -307,6 +307,7 @@ CON_COMMAND(mirv_loadlibrary, "Load a DLL.")
 ////////////////////////////////////////////////////////////////////////////////
 
 SOURCESDK::CS2::IGameUIService * g_pGameUIService = nullptr;
+bool AfxConsoleVisible() { return g_pGameUIService && g_pGameUIService->Con_IsVisible(); }
 
 MirvInputEx g_MirvInputEx;
 
@@ -442,6 +443,9 @@ struct PendingPostDemoView {
 };
 
 thread_local PendingPostDemoView g_PendingPostDemoView;
+// mvm_debug: the pose this frame's setup WROTE (after every shake), to compare with what the engine
+// hands the post-demo step -- a difference means a later pass replaced our view.
+thread_local struct { bool valid; bool pathShake; float origin[3], angles[3]; } g_WrittenView = {};
 
 }
 
@@ -757,8 +761,9 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	// cosmetic wobble permanently into the shot. Here, turning the shake off restores the move.
 	// A looked-through camera object (SceneRig, above) takes its own shake track; the path's
 	// shake applies only while the path drives the view.
-	if (Filmmaker::CamPathShake_ApplyToView(Tx, Ty, Tz, Rx, Ry, Rz, Fov,
-		owner.sceneCamera ? Filmmaker::SceneRig_LookThrough() : 0))
+	const bool pathShakeApplied = Filmmaker::CamPathShake_ApplyToView(Tx, Ty, Tz, Rx, Ry, Rz, Fov,
+		owner.sceneCamera ? Filmmaker::SceneRig_LookThrough() : 0);
+	if (pathShakeApplied)
 		originOrAnglesOverriden = true;
 
 	// Build one absolute camera-motion delta for CalcViewModelView. Its hook temporarily removes
@@ -807,6 +812,10 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	} else {
 		g_bViewOverriden = false;
 	}
+	g_WrittenView.valid = originOrAnglesOverriden;
+	g_WrittenView.pathShake = pathShakeApplied;
+	g_WrittenView.origin[0] = Tx; g_WrittenView.origin[1] = Ty; g_WrittenView.origin[2] = Tz;
+	g_WrittenView.angles[0] = Rx; g_WrittenView.angles[1] = Ry; g_WrittenView.angles[2] = Rz;
 
 	g_iWidth = width;
 	g_iHeight = height;
@@ -906,6 +915,16 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 				originOrAnglesOverriden ? 1 : 0, Tx, Ty, Tz, Rx, Ry, Rz, Fov);
 	}
 
+	if (Filmmaker::MvmDebugLog_Active() && pathShakeApplied) {
+		static unsigned s_n = 0;
+		if ((s_n++ % 30) == 0)
+			Filmmaker::MvmDebugLog_Linef("camera.view.owner",
+				"pathShake=1 inputOverride=%d pathOwnsView=%d block=%d path=%d freecam=%d attach=%d scene=%d other=%d "
+				"written=(%.1f %.1f %.1f | %.2f %.2f %.2f) preShake=(%.2f %.2f %.2f)",
+				inputOverride ? 1 : 0, pathOwnsView ? 1 : 0, blockDemoViewOverride ? 1 : 0,
+				owner.path ? 1 : 0, owner.freeCam ? 1 : 0, owner.attach ? 1 : 0, owner.sceneCamera ? 1 : 0, owner.other ? 1 : 0,
+				Tx, Ty, Tz, Rx, Ry, Rz, preShakeRx, preShakeRy, preShakeRz);
+	}
 	if (blockDemoViewOverride)
 		return false;
 	return g_pEngineToClient->IsPlayingDemo();
@@ -921,6 +940,15 @@ void CS2_Client_CSetupView_PostDemoApply() {
 	float* pFov = (float*)(setup + 0x498);
 	float* pViewOrigin = (float*)(setup + 0x4a0);
 	float* pViewAngles = (float*)(setup + 0x4b8);
+	if (Filmmaker::MvmDebugLog_Active() && g_WrittenView.valid && g_WrittenView.pathShake) {
+		static unsigned s_n = 0;
+		if ((s_n++ % 30) == 0)
+			Filmmaker::MvmDebugLog_Linef("camera.view.postdemo",
+				"written=(%.1f %.1f %.1f | %.2f %.2f %.2f) engine=(%.1f %.1f %.1f | %.2f %.2f %.2f)",
+				g_WrittenView.origin[0], g_WrittenView.origin[1], g_WrittenView.origin[2],
+				g_WrittenView.angles[0], g_WrittenView.angles[1], g_WrittenView.angles[2],
+				pViewOrigin[0], pViewOrigin[1], pViewOrigin[2], pViewAngles[0], pViewAngles[1], pViewAngles[2]);
+	}
 
 	const float inputPitch = pViewAngles[0];
 	const float inputYaw = pViewAngles[1];

@@ -103,8 +103,10 @@ struct Attachment {
 	// Player / Held: Steam id first (0 = unknown, bots), the scoreboard name second.
 	uint64_t steamId = 0;
 	std::string playerName;
-	// Grenade: its type and the tick it was thrown (matched within kGrenadeTickSlack), the thrower
-	// breaking ties between two of a kind.
+	// Grenade: its entity handle in the demo first (the demo records it, so a seek gives the same
+	// grenade the same handle; 0 = unknown), then its type and the tick it was thrown (matched
+	// within kGrenadeTickSlack), the thrower breaking ties between two of a kind.
+	uint64_t grenadeHandle = 0;
 	std::string grenadeType;
 	int throwTick = -1;
 	std::string thrower;
@@ -133,7 +135,7 @@ inline bool SamePose(const Pose& a, const Pose& b) {
 
 inline bool Attachment::operator==(const Attachment& b) const {
 	return parent == b.parent && steamId == b.steamId && playerName == b.playerName &&
-		grenadeType == b.grenadeType && throwTick == b.throwTick && thrower == b.thrower &&
+		grenadeHandle == b.grenadeHandle && grenadeType == b.grenadeType && throwTick == b.throwTick && thrower == b.thrower &&
 		entityIndex == b.entityIndex && entityClass == b.entityClass && object == b.object &&
 		mount == b.mount && missing == b.missing && SamePose(offset, b.offset);
 }
@@ -327,6 +329,7 @@ inline void WriteAttachments(JsonBuilder& j, const std::map<int, Attachment>& at
 			break;
 		case ParentKind::Grenade:
 			j.StringField("type", a.grenadeType);
+			j.StringField("handle", std::to_string(a.grenadeHandle));
 			j.IntField("throwTick", a.throwTick);
 			j.StringField("thrower", a.thrower);
 			break;
@@ -391,6 +394,12 @@ inline bool ReadAttachments(const JsonValue& v, std::map<int, Attachment>& out, 
 				!PlainText(a.grenadeType, 32) || a.grenadeType.empty() || !PlainText(a.thrower, 128) ||
 				tick < 0 || tick > 2147483647.0 || tick != std::floor(tick)) { error = "Invalid attached grenade"; return false; }
 			a.throwTick = int(tick);
+			std::string handle;
+			if (str(o, "handle", handle)) {
+				if (handle.empty() || handle.size() > 20) { error = "Invalid attached grenade"; return false; }
+				for (char c : handle) if (c < '0' || c > '9') { error = "Invalid attached grenade"; return false; }
+				a.grenadeHandle = std::strtoull(handle.c_str(), nullptr, 10);
+			}
 		} else if (a.parent == ParentKind::Dropped) {
 			double index = -1;
 			if (!num(o, "entity", index) || !str(o, "class", a.entityClass) || index < 0 || index > 32767 ||

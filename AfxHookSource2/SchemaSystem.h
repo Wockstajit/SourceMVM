@@ -86,6 +86,12 @@ struct ClientDllOffsets_t {
 		ptrdiff_t m_bCanCreateGrenadeTrail = 0; // bool
 		ptrdiff_t m_nSnapshotTrajectoryEffectIndex = 0; // ParticleIndex_t
 		ptrdiff_t m_flTrajectoryTrailEffectCreationTime = 0; // float32
+		// Optional (0 = unresolved): the networked launch point and velocity and the bounce count.
+		// The trail time above is CLIENT-side and restarts on every seek, so it cannot name a throw;
+		// these date it (GrenadeThrowTick).
+		ptrdiff_t m_vInitialPosition = 0; // Vector
+		ptrdiff_t m_vInitialVelocity = 0; // Vector
+		ptrdiff_t m_nBounces = 0; // int32
 
 	} C_BaseCSGrenadeProjectile;
 

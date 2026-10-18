@@ -569,15 +569,25 @@ An effect has no model, so it is picked by a 32×32×48 handle box at its base. 
   crosshair or stood upright (tilt and roll back to 0). An edit replaces the entity (remove, then
   spawn). This is the one path the engine fully supports for a client entity. A drag does so at most
   every 50 ms.
-- **Paint with a brush** scatters the previewed model. Hold the mouse over the view, and copies land
-  inside the circle on the ground. Dots inside the circle show exactly where the next copies land.
-  **Spacing** keeps one stroke's copies apart. **Density** (5 to 100%) caps how full one stroke makes
-  the circle (`PaintBudget`). A new stroke over a painted patch adds another layer on top. **Size**,
-  **Size variation** and **Turn variation** randomise each copy. **Erase** (or holding **Shift**)
-  removes this brush's copies under the circle. Every copy is filed under one group, "Painted
-  <model>", so the outliner can hide, lock or remove the whole patch. A scene holds at most 2,000
-  props. The scatter maths is engine-free (`Scatter`, `PaintScale`, `PaintYaw` in
-  `PropEditMath.h`).
+- **Paint with a brush** scatters the previewed model, or a mix: click one model, Ctrl-click more
+  (the first one clicked stays in the mix), then **Paint**. A mix of up to 16 models goes to the
+  game in several console lines (`paint start`, then `paint add`), because one line holds only a
+  few model paths. Each spray deals the mix like a shuffled deck (`PaintBagNext`), so every model
+  appears. Hold the mouse over the view, and copies land inside the circle on the ground, one spray
+  every 30 ms. Dots inside the circle show exactly where the next copies land. **Spacing** keeps the
+  brush's copies apart. **Density** (5 to 400%) caps how full the circle gets (`PaintBudget`);
+  past 100% copies sit closer than the spacing (`PaintSpacing`), so painting over a full patch
+  thickens it. Only copies of the brush's own models count toward spacing and density, so a
+  different model paints over an earlier patch. **Size**, **Size variation** and **Turn variation**
+  randomise each copy. **Erase** (or holding **Shift**) removes this brush's copies under the circle.
+  Every copy is filed under one group, "Painted <model>", so the outliner can hide, lock or remove
+  the whole patch. A scene holds at most 2,000 props. The scatter maths is engine-free (`Scatter`,
+  `PaintScale`, `PaintYaw` in `PropEditMath.h`).
+- Placement, the brush and its preview dots find the ground with the shared map-collision ray grid
+  ([`MapCollisionGrid.h`](../../AfxHookSource2/Filmmaker/Environment/MapCollisionGrid.h)), the same
+  one ragdolls use. It builds on a worker once per map. A ray that walked every map triangle cost
+  about 10 ms, which made each spray hitch. The engine's spawn functions are looked up when the map
+  loads, not at the first spray.
 - **Ctrl+Z** (Config open) takes back the last placement, paste, duplicate, whole paint stroke or
   removal (`props undo`; 64 steps, per map). Removing a large group sends it in batches of 40 ids,
   because one console command holds about 60 arguments.

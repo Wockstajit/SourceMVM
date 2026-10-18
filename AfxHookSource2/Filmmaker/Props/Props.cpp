@@ -12,6 +12,7 @@
 #include "../Environment/EnvironmentAnimatedCasters.h"
 #include "SceneUndoClock.h"
 #include "../Environment/EnvironmentSurfaceMath.h"
+#include "../Environment/MapCollisionGrid.h"
 #include "../Movie/CameraBridge.h"
 #include "../Movie/MovieMode.h"
 #include "../Platform/JsonBuilder.h"
@@ -530,10 +531,8 @@ void AimPose(Vec3& position, Vec3& angles) {
 	const Vec3 eye{float(origin[0]), float(origin[1]), float(origin[2])};
 	const Vec3 forward{float(std::cos(pitch) * std::cos(yaw)), float(std::cos(pitch) * std::sin(yaw)), float(-std::sin(pitch))};
 	position = eye + forward * 240.0f;
-	if (auto world = Environment::CollisionGeometrySnapshot()) {
-		Environment::SurfaceHit hit;
-		if (Environment::SurfaceRaycast(*world, eye, forward, 8192, hit)) position = hit.position;
-	}
+	Environment::SurfaceHit hit;
+	if (Environment::MapCollisionRaycast(eye, forward, 8192, hit)) position = hit.position;
 	angles = {0.0f, float(view[1] + 180.0), 0.0f};
 }
 
@@ -571,7 +570,8 @@ struct Brush {
 	std::vector<std::string> models;
 	std::string group;
 	float radius = 160, spacing = 48, size = 1, jitter = 0.25f, turn = 180;
-	float density = 1; // 0.05..1: how full a stroke may make the circle (PropEditMath.h PaintBudget)
+	float density = 1; // 0.05..4: how full a stroke may make the circle; past 1 closer than the spacing (PropEditMath.h)
+	Props::PaintBag bag; // deals a mixed brush's models so every one appears (PaintBagNext)
 	bool hasCenter = false, erasing = false;
 	Vec3 center;
 	uint32_t seed = 1;
@@ -579,13 +579,12 @@ struct Brush {
 	ULONGLONG lastStroke = 0;
 	bool dirty = false; // painted since the last save
 	// The copies this press (mouse down to up) has placed: one undo step. Spacing and density count
-	// every copy in the brush's group, so holding still or painting over a patch again fills its
-	// gaps up to the density and never piles copies on top of each other.
+	// the brush's own models in its group (CrowdsBrush), so holding still or painting over a patch
+	// again fills its gaps up to the density and never piles copies on top of each other.
 	std::vector<int> stroke;
 	std::vector<Placed> erased; // what this press erased, for its undo step
 } g_brush;
-const ULONGLONG kStrokeMs = 45;   // one scatter per this long while the mouse is held
-const int kStrokeBatch = 6;       // copies per scatter: enough to fill quickly, few enough not to hitch
+const ULONGLONG kStrokeMs = 30;   // one scatter per this long while the mouse is held
 const size_t kMaxProps = 2000;    // client entities are not free; a level full of grass stops here
 
 void SyncBusy() { g_editorBusy = g_placing || g_grab != Grab::None || g_brush.active; }
@@ -599,21 +598,18 @@ bool SurfaceUnder(float u, float v, Vec3& out, Vec3* normal = nullptr) {
 	if (!Environment::RenderedCamera(vp, eye) || !Props::CursorRay(vp, eye, u, v, dir)) return false;
 	out = eye + dir * 240.0f;
 	if (normal) *normal = {0, 0, 1};
-	if (auto world = Environment::CollisionGeometrySnapshot()) {
-		Environment::SurfaceHit hit;
-		if (Environment::SurfaceRaycast(*world, eye, dir, 8192, hit)) {
-			out = hit.position;
-			if (normal) *normal = Environment::Dot(hit.normal, dir) > 0 ? hit.normal * -1.0f : hit.normal;
-		}
+	Environment::SurfaceHit hit;
+	if (Environment::MapCollisionRaycast(eye, dir, 8192, hit)) {
+		out = hit.position;
+		if (normal) *normal = Environment::Dot(hit.normal, dir) > 0 ? hit.normal * -1.0f : hit.normal;
 	}
 	return true;
 }
 
 // The floor under `at`: the map's collision straight down from a little above it.
 bool FloorZ(Vec3 at, float& z) {
-	auto world = Environment::CollisionGeometrySnapshot();
 	Environment::SurfaceHit hit;
-	if (!world || !Environment::SurfaceRaycast(*world, {at.x, at.y, at.z + Props::kFloorProbeLift}, {0, 0, -1}, 8192, hit))
+	if (!Environment::MapCollisionRaycast({at.x, at.y, at.z + Props::kFloorProbeLift}, {0, 0, -1}, 8192, hit))
 		return false;
 	z = hit.position.z;
 	return true;
@@ -693,6 +689,12 @@ std::string BrushName() {
 	return std::to_string(g_brush.models.size()) + " models";
 }
 bool InBrushGroup(const Placed& q) { return !g_brush.group.empty() && q.group == g_brush.group; }
+// The copies a scatter keeps its spacing from: the brush's own models in its group. Copies of
+// other models never block, so rocks paint over a grass patch (user report 2026-10-18: painting
+// over an earlier patch added nothing, because every copy in the folder counted).
+bool CrowdsBrush(const Placed& q) {
+	return InBrushGroup(q) && std::find(g_brush.models.begin(), g_brush.models.end(), q.model) != g_brush.models.end();
+}
 
 // The brush outline on the ground, projected for the Config overlay.
 void AppendBrush(JsonBuilder& j) {
@@ -727,7 +729,7 @@ void AppendBrush(JsonBuilder& j) {
 		if (!g_brush.erasing) {
 			uint32_t seed = g_brush.seed;
 			j.Key("dots"); j.BeginArray();
-			for (const Vec3& at : Props::Scatter(g_brush.center, g_brush.radius, g_brush.spacing, BrushBudget(), seed, StrokeNearBrush(), Props::kPaintScatterAttempts)) {
+			for (const Vec3& at : Props::Scatter(g_brush.center, g_brush.radius, Props::PaintSpacing(g_brush.spacing, g_brush.density), BrushBudget(), seed, StrokeNearBrush(), Props::kPaintScatterAttempts)) {
 				float z = at.z;
 				FloorZ({at.x, at.y, g_brush.center.z + Props::PaintProbeLift(g_brush.radius)}, z);
 				const auto q = Environment::GizmoProject(vp, {at.x, at.y, z});
@@ -739,12 +741,12 @@ void AppendBrush(JsonBuilder& j) {
 	j.EndObject();
 }
 
-// The brush group's copies near the brush: what the next scatter keeps its spacing from.
+// The brush's own copies near it (CrowdsBrush): what the next scatter keeps its spacing from.
 std::vector<Vec3> StrokeNearBrush() {
 	std::vector<Vec3> existing;
 	const float reach = g_brush.radius + g_brush.spacing;
 	for (const Placed& q : g_props) {
-		if (!InBrushGroup(q)) continue;
+		if (!CrowdsBrush(q)) continue;
 		const float dx = q.position.x - g_brush.center.x, dy = q.position.y - g_brush.center.y;
 		if (dx * dx + dy * dy <= reach * reach) existing.push_back(q.position);
 	}
@@ -752,16 +754,16 @@ std::vector<Vec3> StrokeNearBrush() {
 }
 
 // How many copies the next scatter may add: the density's share of the circle, less the brush
-// group's copies already inside it, at most one batch.
+// brush's own copies already inside it, at most one batch.
 int BrushBudget() {
 	int inside = 0;
 	const float r2 = g_brush.radius * g_brush.radius;
 	for (const Placed& q : g_props) {
-		if (!InBrushGroup(q)) continue;
+		if (!CrowdsBrush(q)) continue;
 		const float dx = q.position.x - g_brush.center.x, dy = q.position.y - g_brush.center.y;
 		if (dx * dx + dy * dy <= r2) ++inside;
 	}
-	return Props::PaintBudget(g_brush.radius, g_brush.spacing, g_brush.density, inside, kStrokeBatch);
+	return Props::PaintBudget(g_brush.radius, g_brush.spacing, g_brush.density, inside, Props::PaintBatch(int(g_brush.models.size())));
 }
 
 // One press of the brush (mouse down to up) is one undo step: what it painted and what it erased.
@@ -779,7 +781,11 @@ void EndBrushPress() {
 void PaintStroke() {
 	if (!g_brush.active || !g_brush.hasCenter || g_brush.models.empty()) return;
 	if (g_props.size() >= kMaxProps) { g_message = "That is the most props a scene can hold"; return; }
-	const auto points = Props::Scatter(g_brush.center, g_brush.radius, g_brush.spacing, BrushBudget(), g_brush.seed, StrokeNearBrush(), Props::kPaintScatterAttempts);
+	LARGE_INTEGER freq, t0, t1;
+	QueryPerformanceFrequency(&freq); QueryPerformanceCounter(&t0);
+	double spawnMs = 0, worstSpawnMs = 0;
+	int spawned = 0;
+	const auto points = Props::Scatter(g_brush.center, g_brush.radius, Props::PaintSpacing(g_brush.spacing, g_brush.density), BrushBudget(), g_brush.seed, StrokeNearBrush(), Props::kPaintScatterAttempts);
 	for (const Vec3& at : points) {
 		if (g_props.size() >= kMaxProps) break;
 		float z = 0;
@@ -788,7 +794,7 @@ void PaintStroke() {
 		if (!FloorZ({at.x, at.y, g_brush.center.z + Props::PaintProbeLift(g_brush.radius)}, z)) continue;
 		Placed q;
 		q.id = g_nextId++;
-		q.model = g_brush.models[Props::PaintPick(int(g_brush.models.size()), g_brush.seed)];
+		q.model = g_brush.models[size_t(Props::PaintBagNext(g_brush.bag, int(g_brush.models.size()), g_brush.seed))];
 		q.group = g_brush.group;
 		q.scale = Props::PaintScale(g_brush.size, g_brush.jitter, g_brush.seed);
 		q.angles = {0, Props::PaintYaw(g_brush.turn, g_brush.seed), 0};
@@ -799,7 +805,12 @@ void PaintStroke() {
 		auto mz = g_brush.minsZ.find(q.model);
 		const bool effect = Props::IsEffect(q.model);
 		if (!effect && mz != g_brush.minsZ.end()) q.position.z = Props::RestingZ(z, mz->second, q.scale);
+		LARGE_INTEGER s0, s1;
+		QueryPerformanceCounter(&s0);
 		Spawn(q);
+		QueryPerformanceCounter(&s1);
+		const double ms = double(s1.QuadPart - s0.QuadPart) * 1000.0 / double(freq.QuadPart);
+		spawnMs += ms; worstSpawnMs = (std::max)(worstSpawnMs, ms); ++spawned;
 		if (!Live(q)) continue;
 		if (!effect && mz == g_brush.minsZ.end()) {
 			mz = g_brush.minsZ.emplace(q.model, MinsZ(q)).first;
@@ -810,6 +821,11 @@ void PaintStroke() {
 		g_brush.dirty = true;
 	}
 	++g_revision;
+	QueryPerformanceCounter(&t1);
+	if (MvmDebugLog_Active())
+		MvmDebugLog_Linef("props.paint", "spray points=%zu spawned=%d total=%.2f ms spawns=%.2f ms worst=%.2f ms props=%zu models=%zu",
+			points.size(), spawned, double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(freq.QuadPart), spawnMs, worstSpawnMs,
+			g_props.size(), g_brush.models.size());
 }
 
 // Removes this group's copies under the brush.
@@ -1043,6 +1059,8 @@ void PublishCasterBoxes() {
 
 void Props_RunMainThreadFrame() {
 	PropPreview_RunFrame(); // every frame: the preview's fit must land before it is drawn
+	// Every frame, so the grid is ready before the first placement or paint stroke on a map.
+	Environment::MapCollisionGrid_Pump();
 	PublishCasterBoxes();
 	if (g_spawnArmed) ++g_framesSinceSpawn;
 	// Every frame, so the first recorded frame already lacks the props kept out of renders.
@@ -1088,6 +1106,10 @@ void Props_RunMainThreadFrame() {
 				map.c_str(), int(g_restoreHeld), g_props.size());
 		}
 		LoadMapModels(map);
+		// Look up the engine's spawn functions now, while the level loads: the lookup scans
+		// client.dll for about half a second, which otherwise froze the first paint spray or
+		// placement of a session (measured 2026-10-18: 504 ms in the first spawn).
+		if (!map.empty()) Props::ClientEntitySpawnAvailable();
 		++g_revision;
 		return;
 	}
@@ -1269,15 +1291,27 @@ void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 			++g_revision;
 			return;
 		}
-		if (!_stricmp(sub, "paint")) { // paint start <model> | stop | set <key> <v> | hover|stroke|erase <u> <v> | release
+		if (!_stricmp(sub, "paint")) { // paint start|models|add <model> ... | stop | set <key> <v> | hover|stroke|erase <u> <v> | release
 			const std::string what = arg(3);
-			if (what == "start" || what == "models") {
+			if (what == "add") {
+				// add <model> [model ...]: more models for the brush just started or switched. A console
+				// line holds only a few model paths, so the overlay sends a long mix in several lines.
+				if (!g_brush.active) throw std::runtime_error("Not painting");
+				for (int i = 4; i < argc && g_brush.models.size() < Props::kPaintMaxModels; ++i) {
+					const std::string m = arg(i);
+					if (m.empty() || std::find(g_brush.models.begin(), g_brush.models.end(), m) != g_brush.models.end()) continue;
+					g_brush.models.push_back(m);
+					Props::PrecacheModel(m.c_str());
+				}
+				g_brush.group = "Painted " + (g_brush.models.size() == 1 ? Props::DisplayName(g_brush.models[0]) : std::string("mix"));
+				g_brush.bag = Props::PaintBag{};
+			} else if (what == "start" || what == "models") {
 				// start <model> [model ...] begins painting; models <model> [model ...] swaps what an
 				// active brush sprays without leaving paint mode (a new mix paints into its own group).
 				std::vector<std::string> models;
-				for (int i = 4; i < argc && models.size() < 16; ++i)
+				for (int i = 4; i < argc && models.size() < Props::kPaintMaxModels; ++i)
 					if (*arg(i) && std::find(models.begin(), models.end(), arg(i)) == models.end()) models.push_back(arg(i));
-				if (models.empty()) throw std::runtime_error("usage: props paint start|models <models/....vmdl> [more models]");
+				if (models.empty()) throw std::runtime_error("usage: props paint start|models|add <models/....vmdl> [more models]");
 				if (what == "models" && !g_brush.active) throw std::runtime_error("Not painting");
 				if (what == "start") {
 					CancelGrab();
@@ -1291,6 +1325,7 @@ void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 				g_brush.group = "Painted " + (models.size() == 1 ? Props::DisplayName(models[0]) : std::string("mix"));
 				g_brush.minsZ.clear();
 				g_brush.stroke.clear();
+				g_brush.bag = Props::PaintBag{};
 				for (const std::string& m : models) Props::PrecacheModel(m.c_str()); // so strokes never hitch on a load
 				g_brush.active = true;
 				g_selected = 0;
@@ -1307,7 +1342,7 @@ void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 				else if (key == "size") g_brush.size = std::max(0.1f, std::min(5.0f, v));
 				else if (key == "jitter") g_brush.jitter = std::max(0.0f, std::min(0.9f, v));
 				else if (key == "turn") g_brush.turn = std::max(0.0f, std::min(180.0f, v));
-				else if (key == "density") g_brush.density = std::max(0.05f, std::min(1.0f, v / 100.0f)); // percent
+				else if (key == "density") g_brush.density = Props::PaintDensity(v / 100.0f); // percent, up to 400
 				else if (key == "erase") g_brush.erasing = v != 0;
 				else throw std::runtime_error("paint set radius|spacing|size|jitter|turn|density|erase <value>");
 			} else if (what == "hover" || what == "stroke" || what == "erase") {
@@ -1324,7 +1359,7 @@ void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 			} else if (what == "release") {
 				EndBrushPress(); // this press is one undo step
 				if (g_brush.dirty) { Save(); g_brush.dirty = false; }
-			} else throw std::runtime_error("paint start|models|stop|set|hover|stroke|erase|release");
+			} else throw std::runtime_error("paint start|models|add|stop|set|hover|stroke|erase|release");
 			++g_revision;
 			return;
 		}

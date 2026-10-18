@@ -142,7 +142,44 @@ int main() {
 		CHECK(PaintBudget(80, 20, 0.25f, int(capacity * 0.25f) + 1, 6) == 0); // a quarter reached
 		CHECK(PaintBudget(80, 20, 0.25f, 0, 6) > 0);
 		CHECK(PaintBudget(80, 20, 0.0f, 0, 6) >= 1);                       // clamped to 5%, never nothing
-		CHECK(PaintBudget(80, 20, 2.0f, 0, 100) == capacity);              // clamped to 100%
+		CHECK(PaintBudget(80, 20, 2.0f, 0, 100) == 2 * capacity);          // past 100%: more than the spacing fits
+		CHECK(PaintBudget(80, 20, 9.0f, 0, 1000) == int(std::ceil(kPaintMaxDensity * capacity))); // clamped to the most
+		CHECK(PaintSpacing(20, 1.0f) == 20 && PaintSpacing(20, 0.5f) == 20); // up to 100% the spacing is as set
+		CHECK(Near(PaintSpacing(20, 4.0f), 10));                            // 4x the copies: half the spacing
+		// Painting over a FULL patch at 200% adds to it (at 100% a full patch took nothing more).
+		{
+			std::vector<Vec3> full;
+			uint32_t s1 = 21;
+			for (int tick = 0; tick < 200; ++tick) {
+				const int b = PaintBudget(80, 20, 1.0f, int(full.size()), 8);
+				if (!b) break;
+				auto more = Scatter(c, 80, 20, b, s1, full, kPaintScatterAttempts);
+				if (more.empty()) break;
+				full.insert(full.end(), more.begin(), more.end());
+			}
+			CHECK(PaintBudget(80, 20, 1.0f, int(full.size()), 8) == 0 || Scatter(c, 80, 20, 8, s1, full, kPaintScatterAttempts).size() <= 1);
+			const size_t before = full.size();
+			for (int tick = 0; tick < 200; ++tick) {
+				const int b = PaintBudget(80, 20, 2.0f, int(full.size()), 8);
+				if (!b) break;
+				auto more = Scatter(c, 80, PaintSpacing(20, 2.0f), b, s1, full, kPaintScatterAttempts);
+				if (more.empty()) break;
+				full.insert(full.end(), more.begin(), more.end());
+			}
+			CHECK(full.size() >= before + before / 2);
+		}
+		// A spray of a six-model brush is a full deck, and it deals every model once before repeats.
+		CHECK(PaintBatch(1) == kPaintBatchMin && PaintBatch(12) == 12 && PaintBatch(40) == 16);
+		{
+			PaintBag bag;
+			uint32_t s2 = 99;
+			for (int round = 0; round < 4; ++round) {
+				bool dealt[6] = {};
+				for (int i = 0; i < 6; ++i) { const int k = PaintBagNext(bag, 6, s2); CHECK(k >= 0 && k < 6); dealt[k] = true; }
+				for (bool d : dealt) CHECK(d);
+			}
+			CHECK(PaintBagNext(bag, 1, s2) == 0);
+		}
 		CHECK(PaintCapacity(0, 20) == 0 && PaintCapacity(80, 0) == 0);
 		// A HELD brush (the spray Props.cpp runs every 45 ms) reaches what Density asks for: 100%
 		// fills the circle to its capacity, half fills half -- the top of the slider is not dead.

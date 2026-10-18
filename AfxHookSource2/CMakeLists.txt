@@ -434,6 +434,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Environment/EnvironmentShadowMaps.h
     Filmmaker/Environment/EnvironmentOcclusion.h
     Filmmaker/Environment/EnvironmentOcclusion.cpp
+    Filmmaker/Environment/MapCollisionGrid.h
+    Filmmaker/Environment/MapCollisionGrid.cpp
     Filmmaker/Panorama/ConfigHudClimateJs.h
     Filmmaker/Environment/EnvironmentWorld.h
     Filmmaker/Environment/EnvironmentDocument.cpp

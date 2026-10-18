@@ -154,7 +154,7 @@ mirv_filmmaker rig parent <id> none
 mirv_filmmaker rig parent <id> player <pawnIndex> [<mount>]
 mirv_filmmaker rig parent <id> held <pawnIndex> [<mount>]
 mirv_filmmaker rig parent <id> dropped <entityIndex>
-mirv_filmmaker rig parent <id> grenade <entityIndex>
+mirv_filmmaker rig parent <id> grenade <entityIndex>|h<handle>
 mirv_filmmaker rig parent <id> object <otherId>
 mirv_filmmaker rig mount <id> <mount>
 mirv_filmmaker rig missing <id> hide|hold
@@ -222,7 +222,7 @@ another. Attachments share the scene keys' undo history.
 "attach": {
   "3": { "parent": "player", "steamId": "76561198000000123", "name": "ropz", "mount": "head",
          "missing": "hide", "offset": [20, 0, 4, 0, 0, 0] },
-  "5": { "parent": "grenade", "type": "Smoke", "throwTick": 18340, "thrower": "ropz",
+  "5": { "parent": "grenade", "type": "Smoke", "handle": "8913021", "throwTick": 18340, "thrower": "ropz",
          "mount": "entity", "missing": "hold", "offset": [0, 0, 16, 0, 0, 0] },
   "6": { "parent": "dropped", "entity": 212, "class": "weapon_ak47", "mount": "entity",
          "missing": "hide", "offset": [0, 0, 0, 0, 0, 0] },
@@ -234,9 +234,19 @@ A parent is found again every frame by what survives the demo:
 
 - **Player** and **held weapon**: the controller's Steam id, then its name. Held follows the pawn's
   active weapon through switches.
-- **Grenade**: its type and throw tick (within 4 ticks), the thrower breaking ties. The projectile
-  found is kept while its handle stays at that index; otherwise a scan runs every eighth frame until
-  the throw happens.
+- **Grenade**: its entity handle first (the demo records it, so a seek gives the same grenade the
+  same handle; `handle` is optional, "0" or absent when unknown), then its type and throw tick
+  (within 4 ticks), the thrower breaking ties. The projectile found is kept while its handle stays
+  at that index; otherwise a scan runs every eighth frame until the throw happens.
+
+**Which grenade** lists every grenade thrown within a minute of the playhead, in the air or seen
+earlier this session. The list, the Camera Editor's Follow → Grenade list and `follow type
+grenade` share one index (`GrenadeIndex_Update` in `FollowTargetProviders.cpp`). A grenade's
+throw tick comes from the demo, so it holds across seeks: in the air before its first bounce it is
+exact (its distance from the launch point at the launch speed); for a smoke that has popped it is
+the pop tick less the least time it took to get there; otherwise the earliest tick it was ever seen
+with. CS2's own trail time is client-side and restarts on every seek, so it is only the last
+resort.
 - **Dropped weapon**: the entity index and designer class, valid while that index holds that class
   with no owner. This is the weakest identity.
 - **Scene object**: its id.

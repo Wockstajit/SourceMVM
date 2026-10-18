@@ -2,6 +2,7 @@
 
 #include "../../ClientEntitySystem.h"
 #include "../../SchemaSystem.h"
+#include "../../MirvTime.h"
 #include "../Debug/MvmDebugLog.h"
 
 #include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
@@ -10,6 +11,8 @@
 #include <Windows.h>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstring>
 #include <sstream>
 
 namespace Filmmaker {
@@ -112,6 +115,7 @@ bool IsBombClass(const std::string& className) {
 bool IsWeaponClass(const std::string& className) {
 	const std::string s = Lower(className);
 	if (IsBombClass(s) || IsGrenadeClass(s)) return false; // planted C4 and thrown nades are their own kinds
+	if (s.find("basegrenade") != std::string::npos) return false; // a thrown smoke / HE's client class (ThrownGrenadeClass)
 	// Knives and still-held grenades are weapon entities like any other, but their class names
 	// carry neither "weapon" (the client classes are C_Knife / C_HEGrenade) nor "projectile".
 	// Without these two they fail every test here AND in IsGrenadeClass, so they could never be
@@ -208,9 +212,154 @@ std::string EntityFriendlyName(CEntityInstance* entity) {
 	const std::string cls = EntityClass(entity);
 	if (cls.empty()) return "Entity";
 	if (IsBombClass(cls)) return "C4";
-	if (IsGrenadeClass(cls)) return GrenadeTypeName(cls);
+	const std::string thrown = ThrownGrenadeClass(entity);
+	if (!thrown.empty()) return GrenadeTypeName(thrown);
 	if (IsWeaponClass(cls)) return PrettyWeaponName(cls);
 	return cls;
+}
+
+std::string ThrownGrenadeClass(CEntityInstance* entity) {
+	if (!entity) return "";
+	const std::string designer = DesignerClass(entity);
+	if (IsGrenadeClass(designer)) return designer;
+	const std::string client = EntityClass(entity);
+	return IsGrenadeClass(client) ? client : "";
+}
+
+namespace {
+// The networked launch: where the grenade left the hand, its velocity, and how often it has
+// bounced since. A seek restores these (the client-side trail time it does not).
+struct GrenadeLaunch { float start[3] = {}, velocity[3] = {}; int bounces = 0; double groundSpeed = 0; };
+bool ReadGrenadeLaunch(CEntityInstance* entity, GrenadeLaunch& l) {
+	const auto& o = g_clientDllOffsets.C_BaseCSGrenadeProjectile;
+	if (!entity || !o.m_vInitialPosition || !o.m_vInitialVelocity || !o.m_nBounces) return false;
+	__try {
+		const unsigned char* base = reinterpret_cast<const unsigned char*>(entity);
+		std::memcpy(l.start, base + o.m_vInitialPosition, sizeof(l.start));
+		std::memcpy(l.velocity, base + o.m_vInitialVelocity, sizeof(l.velocity));
+		l.bounces = *reinterpret_cast<const int*>(base + o.m_nBounces);
+	} __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+	l.groundSpeed = std::hypot(double(l.velocity[0]), double(l.velocity[1]));
+	// Thrown nearly straight up (or unset): the ground distance cannot time the flight.
+	return std::isfinite(l.groundSpeed) && l.groundSpeed > 50.0;
+}
+// Seconds to cross the ground from the launch point to `at` at the launch speed. Until the first
+// bounce that is the flight time exactly (gravity bends only the height); after a bounce the
+// grenade has slowed, so it is the least time it can have flown.
+double GroundSeconds(const GrenadeLaunch& l, double x, double y) {
+	const double t = std::hypot(x - l.start[0], y - l.start[1]) / l.groundSpeed;
+	return std::isfinite(t) && t < 30.0 ? t : -1;
+}
+// A popped smoke's networked pop tick (a server tick) and where it popped. False before it pops.
+bool ReadSmokePop(CEntityInstance* entity, int& popped, float where[3]) {
+	const auto& smoke = g_clientDllOffsets.C_SmokeGrenadeProjectile;
+	if (!smoke.m_nSmokeEffectTickBegin || !smoke.m_vSmokeDetonationPos) return false;
+	__try {
+		const unsigned char* base = reinterpret_cast<const unsigned char*>(entity);
+		popped = *reinterpret_cast<const int*>(base + smoke.m_nSmokeEffectTickBegin);
+		std::memcpy(where, base + smoke.m_vSmokeDetonationPos, 3 * sizeof(float));
+	} __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+	return popped > 0;
+}
+} // namespace
+
+int GrenadeThrowTick(CEntityInstance* entity) {
+	int currentTick = 0;
+	g_MirvTime.GetCurrentDemoTick(currentTick);
+	float interval = g_MirvTime.interval_per_tick_get();
+	if (!(interval > 0.00001f)) interval = 1.0f / 64.0f;
+	const float now = g_MirvTime.curtime_get();
+	GrenadeLaunch launch;
+	FollowVec3 at{};
+	if (ReadGrenadeLaunch(entity, launch) && ReadOrigin(entity, at)) {
+		// In the air before its first bounce: exact.
+		if (launch.bounces == 0)
+			if (const double t = GroundSeconds(launch, at.x, at.y); t >= 0) return currentTick - int(std::llround(t / interval));
+		// A smoke that has popped: the networked tick it popped at, less the least time it took to
+		// get from the hand to where it popped. Stable across seeks; early by its rolling time.
+		int popped = 0;
+		float where[3] = {};
+		if (std::isfinite(now) && now > 0.f && ThrownGrenadeClass(entity).find("smoke") != std::string::npos
+			&& ReadSmokePop(entity, popped, where)) {
+			const double t = GroundSeconds(launch, where[0], where[1]);
+			// The pop tick is a server tick; the server tick now is game time / interval.
+			const double estimated = currentTick + (popped - now / interval) - t / interval;
+			if (t >= 0 && std::isfinite(estimated) && estimated <= currentTick && currentTick - estimated < 10000.0)
+				return int(std::llround(estimated));
+		}
+	}
+	const float created = entity ? entity->GetGrenadeTrajectoryCreationTime() : 0.0f;
+	// Both are server/game time, so their difference is the age; carried onto the demo tick, the
+	// server-start offset cancels out.
+	if (std::isfinite(created) && created > 0.f && std::isfinite(now) && now > 0.f) {
+		const double estimated = currentTick + (created - now) / interval;
+		if (std::isfinite(estimated) && std::fabs(estimated - currentTick) < 10000.0) return int(std::llround(estimated));
+	}
+	return currentTick;
+}
+
+namespace {
+std::vector<GrenadeSighting> g_grenadeSightings;
+int g_grenadeIndexFrame = -1;
+
+void GrenadeOwner(CEntityInstance* entity, GrenadeSighting& s) {
+	s.throwerIndex = -1; s.thrower.clear(); s.team = 0;
+	const auto ownerHandle = entity->GetOwnerEntityHandle();
+	if (!ownerHandle.IsValid()) return;
+	s.throwerIndex = ownerHandle.GetEntryIndex();
+	CEntityInstance* owner = EntityAt(s.throwerIndex);
+	if (!owner) return;
+	s.team = owner->GetTeam();
+	CEntityInstance* controller = owner;
+	if (owner->IsPlayerPawn()) {
+		const auto ch = owner->GetPlayerControllerHandle();
+		controller = ch.IsValid() ? EntityAt(ch.GetEntryIndex()) : nullptr;
+	}
+	if (controller && controller->IsPlayerController()) {
+		const char* name = controller->GetPlayerName();
+		if (name && *name) s.thrower = name;
+	}
+}
+} // namespace
+
+const std::vector<GrenadeSighting>& GrenadeIndex_Update() {
+	const int frame = g_MirvTime.framecount_get();
+	if (frame == g_grenadeIndexFrame) return g_grenadeSightings;
+	g_grenadeIndexFrame = frame;
+	for (auto& s : g_grenadeSightings) { s.active = false; s.entityIndex = -1; }
+	if (!g_pEntityList || !*g_pEntityList || !g_GetEntityFromIndex) return g_grenadeSightings;
+	int currentTick = 0;
+	g_MirvTime.GetCurrentDemoTick(currentTick);
+	for (int i = 0, n = GetHighestEntityIndex(); i <= n; ++i) {
+		CEntityInstance* entity = EntityAt(i);
+		if (!entity) continue;
+		const std::string cls = ThrownGrenadeClass(entity);
+		if (cls.empty()) continue;
+		const uint64_t handle = EntityHandleValue(entity);
+		if (!handle) continue;
+		GrenadeSighting* s = nullptr;
+		for (auto& e : g_grenadeSightings) if (e.handle == handle) { s = &e; break; }
+		if (!s) { g_grenadeSightings.emplace_back(); s = &g_grenadeSightings.back(); s->handle = handle; }
+		s->entityIndex = i;
+		s->className = cls;
+		s->type = GrenadeTypeName(cls);
+		// A throw tick read in flight (from the launch) is exact. After the first bounce only the
+		// trail time is left, which a seek resets to the landing tick -- always later than the
+		// throw -- so a grenade keeps the earliest tick it was ever dated with.
+		const int tick = GrenadeThrowTick(entity);
+		s->throwTick = s->throwTick < 0 ? tick : (std::min)(s->throwTick, tick);
+		s->active = true;
+		GrenadeOwner(entity, *s);
+	}
+	g_grenadeSightings.erase(std::remove_if(g_grenadeSightings.begin(), g_grenadeSightings.end(), [&](const GrenadeSighting& s) {
+		return s.throwTick < 0 || std::abs(s.throwTick - currentTick) > kGrenadeForgetTicks;
+	}), g_grenadeSightings.end());
+	return g_grenadeSightings;
+}
+
+void GrenadeIndex_Reset() {
+	g_grenadeSightings.clear();
+	g_grenadeIndexFrame = -1;
 }
 
 uint64_t EntityHandleValue(CEntityInstance* entity) {

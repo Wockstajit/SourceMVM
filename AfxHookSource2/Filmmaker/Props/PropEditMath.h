@@ -239,13 +239,48 @@ inline int PaintPick(int count, uint32_t& seed) {
 	return std::min(count - 1, int(Random01(seed) * count));
 }
 
+// A mixed brush deals its models like a shuffled deck: every model once, in a random order, then a
+// new shuffle. With a plain random pick a short stroke of a six-model brush placed two copies and
+// showed two of the six (user report 2026-10-18); dealt, the first six copies are the six models.
+struct PaintBag {
+	std::vector<int> order;
+	size_t next = 0;
+};
+inline int PaintBagNext(PaintBag& bag, int count, uint32_t& seed) {
+	if (count <= 1) return 0;
+	if (int(bag.order.size()) != count || bag.next >= bag.order.size()) {
+		bag.order.resize(size_t(count));
+		for (int i = 0; i < count; ++i) bag.order[size_t(i)] = i;
+		for (int i = count - 1; i > 0; --i) std::swap(bag.order[size_t(i)], bag.order[size_t(PaintPick(i + 1, seed))]);
+		bag.next = 0;
+	}
+	return bag.order[bag.next++];
+}
+
+// Density past 100%: the circle takes more copies than the spacing alone lets fit, so painting
+// over a full patch adds to it (at 100% it added nothing: every gap was already taken, user report
+// 2026-10-18). Above 100% the copies keep spacing / sqrt(density) apart -- twice the density is
+// twice the copies in the same area.
+constexpr float kPaintMaxDensity = 4.0f;
+inline float PaintDensity(float density) { return std::max(0.05f, std::min(kPaintMaxDensity, density)); }
+inline float PaintSpacing(float spacing, float density) {
+	const float d = PaintDensity(density);
+	return d > 1.0f ? spacing / std::sqrt(d) : spacing;
+}
+
 // How many new copies the next scatter may add: what density still allows in the circle, at most
 // `batch`. `inside` = this stroke's copies already within the circle.
 inline int PaintBudget(float radius, float spacing, float density, int inside, int batch) {
-	density = std::max(0.05f, std::min(1.0f, density));
+	density = PaintDensity(density);
 	const int target = std::max(1, int(std::ceil(density * PaintCapacity(radius, spacing))));
 	return std::max(0, std::min(batch, target - inside));
 }
+
+// Copies per spray: a full deck of a mixed brush at once (up to kPaintMaxModels), never fewer than
+// kPaintBatchMin.
+constexpr size_t kPaintMaxModels = 16; // models one brush mixes
+constexpr int kPaintBatchMin = 8;
+inline int PaintBatch(int models) { return std::max(kPaintBatchMin, std::min(int(kPaintMaxModels), models)); }
 
 // A painted copy's scale: 1 plus or minus `jitter` (0..1), times the brush's base size.
 inline float PaintScale(float base, float jitter, uint32_t& seed) {

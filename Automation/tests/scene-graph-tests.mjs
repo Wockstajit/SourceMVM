@@ -128,3 +128,21 @@ test('scene property menus keep Disable / Delete, and a colour opens the shared 
   assert.match(graph, /else sceneEach\(n, function \(f\) \{ return 'clear ' \+ f; \}\);/);
   assert.match(graph, /chip\.SetPanelEvent\('onactivate', function \(\) \{ crec\.picker\.show\(\); \}\);/);
 });
+
+test('a value drag moves a fixed step per pixel, set when the drag starts', () => {
+  // 2026-10-18: the step was the graph's value range / 300, and that range grows with the value
+  // being dragged, so a drag sped itself up until a small move overshot by thousands.
+  assert.match(graph, /function scrubStep\(node, c\) \{/);
+  assert.match(graph, /step: vc \? scrubStep\(vh\.row\.node, vc\) : 0 \};/, 'the step is fixed at the press');
+  assert.match(graph, /var nv = g\.sv \+ dpx \* g\.step \* \(st\.shift \? 0\.2 : 1\);/);
+  assert.doesNotMatch(graph, /c3\.max - c3\.min/, 'no step from the live value range');
+});
+
+test('clicking a layer name picks the whole layer, so Delete removes everything in it', () => {
+  // 2026-10-18: clicking a layer and pressing Delete did nothing; only selected keys are deleted.
+  assert.match(graph, /hot\.SetPanelEvent\('onactivate', function \(\) \{ pickRow\(n\); \}\);/);
+  assert.match(graph, /if \(lr && !lr\.broken\) pickRow\(lr\.node\);/);
+  assert.match(graph, /function pickRow\(n\) \{\s*selectNode\(n\.id\);\s*if \(n\.kind !== 'layer'\) return;/);
+  assert.match(graph, /if \(!selectLayerKeys\(n\)\) \{ camCmd\('selclear'\); sceneCmd\('selclear'\); selCache = \{\}; \}/);
+  assert.match(graph, /if \(name === 'delete'\) deleteSelection\(\);/);
+});

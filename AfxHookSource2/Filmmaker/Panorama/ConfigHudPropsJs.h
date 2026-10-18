@@ -18,6 +18,16 @@ R"CFJS(
     // ===================== SCENE OBJECTS > ASSETS & LIGHTS ====================
     var propsPage = envSceneSec.__page('Assets & Lights');
     function propsCommand(t) { cmd('mirv_filmmaker props ' + t); }
+    // A brush mix as console lines: verb (start|models) with the first models, then paint add for
+    // the rest. One console line holds only a few model paths; a long line lost the last models.
+    function propsSendBrush(verb, models) {
+      var line = verb, sent = 0;
+      for (var i = 0; i < models.length; ++i) {
+        if (sent && line.length + models[i].length > 180) { propsCommand('paint ' + line); line = 'add'; sent = 0; }
+        line += ' ' + models[i]; ++sent;
+      }
+      if (sent) propsCommand('paint ' + line);
+    }
     var PROPS_FIRST = 24, PROPS_MORE = 20;
     var propsQuery = '', propsQueryFocus = false, propsCategory = 'all', propsLimit = PROPS_FIRST;
     var propsRequested = false, propsCtrl = false;
@@ -180,7 +190,7 @@ R"CFJS(
     var propsPaintBtn = btn(propsActs, 'Paint', function () {
       if (propsPainting) { propsCommand('paint stop'); return; }
       var models = propsBrushModels();
-      if (models.length) propsCommand('paint start ' + models.join(' '));
+      if (models.length) propsSendBrush('start', models);
     }, S.label);
     propsPaintBtn.style.marginRight = '0px'; propsPaintBtn.style.marginLeft = '6px'; propsPaintBtn.style.padding = '8px 12px';
     var propsPlacing = false, propsPainting = false;
@@ -210,7 +220,7 @@ R"CFJS(
     var propsPaintSliders = [
       ['radius', 'Brush size', 16, 1024, 0, 'u', 'How wide the circle paints.'],
       ['spacing', 'Spacing', 4, 512, 0, 'u', 'The least distance between two copies: small packs them tight, large leaves gaps.'],
-      ['density', 'Density', 5, 100, 0, '%', 'How full a held brush makes the circle: 100% fills every gap the spacing allows, 50% half of them. Hold the mouse to keep spraying until it is that full.'],
+      ['density', 'Density', 5, 400, 0, '%', 'How full a held brush makes the circle: 100% fills every gap the spacing allows, 50% half of them, and above 100% packs copies closer than the spacing (200% is twice as many), so painting over a patch adds to it. Hold the mouse to keep spraying until it is that full.'],
       ['size', 'Size', 0.1, 5, 2, '×', 'The copies' + "'" + ' base size. 1× is the model' + "'" + 's size in the game.'],
       ['jitter', 'Size variation', 0, 0.9, 2, '', 'How much each copy' + "'" + 's size differs from the base, either way.'],
       ['turn', 'Turn variation', 0, 180, 0, '°', 'How far each copy is turned at random: 180° faces any way, 0 all the same.']
@@ -385,16 +395,22 @@ R"CFJS(
     }
     // A click on a catalog result. Ctrl-click puts it into (or takes it out of) the brush; while
     // painting, a plain click switches the brush to it and Ctrl-click changes the brush's mix live.
+    var propsPrevPick = '';
     function propsPickResult(r, detail) {
       var ctrl = propsCtrl;
+      propsPrevPick = propsPreviewModel; // what was picked before this click
       propsShow(r.model, r.name, detail);
       var paintable = !/\.vpcf$/i.test(r.model);
       if (ctrl && paintable) {
         // Mixing into a brush that is already painting starts from what it paints now.
         if (propsPainting && !propsBrushSet.length) propsBrushSet = propsPaintNow.slice();
+        // The model clicked before the first Ctrl-click (the one in the preview) is part of the pick:
+        // click A, Ctrl-click B and C, Paint -- all three paint, not just B and C.
+        else if (!propsPainting && !propsBrushSet.length && propsPrevPick && propsPrevPick !== r.model && !/\.vpcf$/i.test(propsPrevPick))
+          propsBrushSet.push(propsPrevPick);
         var at = propsBrushSet.indexOf(r.model);
         if (at >= 0) propsBrushSet.splice(at, 1); else propsBrushSet.push(r.model);
-        if (propsPainting && propsBrushSet.length) propsCommand('paint models ' + propsBrushSet.join(' '));
+        if (propsPainting && propsBrushSet.length) propsSendBrush('models', propsBrushSet);
       } else if (propsPainting && paintable) {
         propsBrushSet = [];
         propsCommand('paint models ' + r.model);
