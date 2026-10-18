@@ -440,6 +440,13 @@ void ProbeCS(uint3 id:SV_DispatchThreadID) {
         distanceOutput[texel]=float4(reset?moments:lerp(previous.xy,moments,blend),1,relocation);
     }
 }
+// Carries the whole history and distance volumes into the ping-pong target before a trace writes
+// its probes there. Same values as CopyResource; the copy engine moved these 3D volumes slowly.
+[numthreads(4,4,4)]
+void CarryCS(uint3 id:SV_DispatchThreadID) {
+    probeOutput[id]=historyInput[id];
+    distanceOutput[id]=distanceHistory[id];
+}
 // Moves the history with the region: texel id takes what was at id+shift before the move.
 // Newly exposed probes are unknown until traced; copying a border carries old-room light through walls.
 Texture3D<float4> shiftInput:register(t11);

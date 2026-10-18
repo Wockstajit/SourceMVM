@@ -347,12 +347,13 @@ CON_COMMAND(mirv_relight,
     }
     std::lock_guard<std::mutex> lock(g_mutex);
     try {
-        if(op=="previewcapture"||op=="castercull"||op=="aoreuse"||op=="maskdedupe"||op=="facebatch"||op=="widecull"||op=="slotstable"){
+        if(op=="previewcapture"||op=="castercull"||op=="aoreuse"||op=="maskdedupe"||op=="facebatch"||op=="widecull"||op=="slotstable"||op=="gicarry"){
             auto& flag=op=="previewcapture"?g_previewCapture:op=="castercull"?
                 Filmmaker::Environment::ShadowCasterCulling:op=="aoreuse"?Filmmaker::Environment::NativeAoRepairReuse:
                 op=="facebatch"?Filmmaker::Environment::ShadowFaceBatching:
                 op=="widecull"?Filmmaker::Environment::ShadowCasterCullingWide:
-                op=="slotstable"?Filmmaker::Environment::ShadowSlotStability:ProbeMaskDedupe;
+                op=="slotstable"?Filmmaker::Environment::ShadowSlotStability:
+                op=="gicarry"?ProbeHistoryCarry:ProbeMaskDedupe;
             if(argc==3){const std::string value=args->ArgV(2);
                 if(value!="0"&&value!="1")throw std::runtime_error("Expected 0 or 1");
                 flag.store(value=="1",std::memory_order_relaxed);}
@@ -396,6 +397,7 @@ CON_COMMAND(mirv_relight,
                 "mirv_relight facebatch 0|1        diagnostic: one lamp face refresh after another, or batched phases\n"
                 "mirv_relight widecull 0|1         diagnostic: actor culling for cached lamp faces only, or also lamps and sun\n"
                 "mirv_relight slotstable 0|1       diagnostic: shadow cache slots follow budget order, or stay with their light\n"
+                "mirv_relight gicarry 0|1          diagnostic: GI history carried by CopyResource, or by a compute copy\n"
                 "mirv_relight clusterbounds 0|1    diagnostic: box or tighter sphere light lists\n"
                 "mirv_relight reflectionfilter 0|1 diagnostic: box mips or roughness-filtered reflections\n"
                 "mirv_relight reflectionfollow 0|1 diagnostic: delayed capture or immediate camera follow\n"

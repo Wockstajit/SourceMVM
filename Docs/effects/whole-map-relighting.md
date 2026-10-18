@@ -1307,6 +1307,10 @@ diagnostic switch (default 1) that restores the previous path for same-process c
   to new slots, so every cached face and the whole-map sun tier redrew static geometry. On a
   molotov loop the mean GPU frame fell from about 47 to 41 ms; the removed redraws reached 24 ms
   in a single frame. Settled same-pose captures with and without it are identical.
+- `mirv_relight gicarry 0|1`: the probe history and distance volumes are carried into the
+  ping-pong target by a compute copy instead of two `CopyResource` calls on the 3D volumes. The
+  values are the same bit for bit (`RelightProbeGpuTests`); the copy fell from about 0.76 ms to
+  0.02 ms.
 
 On the de_ancient loop at 2560x1351 with 4x MSAA, the mask fell from about 1.55 ms to under
 0.36 ms, lamp face refresh from about 2.6 ms to 2.2 ms and near lamps from about 1.3 ms to

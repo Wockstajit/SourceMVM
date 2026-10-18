@@ -33,6 +33,8 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
     ID3D11ShaderResourceView* glassCookies=nullptr,Vec3 viewForward={});
 // Diagnostic (mirv_relight maskdedupe): skip the atomic for visible cells already marked.
 extern std::atomic<bool> ProbeMaskDedupe;
+// Diagnostic (mirv_relight gicarry): carry the probe history with a compute copy, or CopyResource.
+extern std::atomic<bool> ProbeHistoryCarry;
 // Capture current visible cages for the next frame's prioritized transport pass.
 // Material draws consume one immutable irradiance/distance/reflection snapshot.
 void MarkVisibleProbeGi(ID3D11DeviceContext*,

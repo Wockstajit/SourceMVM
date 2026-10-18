@@ -16,6 +16,7 @@
 namespace Filmmaker::Relight {
 using Microsoft::WRL::ComPtr;
 std::atomic<bool> ProbeMaskDedupe{true};
+std::atomic<bool> ProbeHistoryCarry{true};
 namespace {
 constexpr UINT Voxels=GiVoxelResolution,Probes=GiProbeResolution;
 // Background sweep plus a 16-probe-wide neighbourhood refreshed every frame.
@@ -44,7 +45,7 @@ struct State {
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> work;
     ComPtr<ID3D11VertexShader> vs;ComPtr<ID3D11GeometryShader> gs;ComPtr<ID3D11PixelShader> staticPs;
-    ComPtr<ID3D11ComputeShader> inject,trace,shift,compose,reflect,reflectNorm,markVisible;
+    ComPtr<ID3D11ComputeShader> inject,trace,shift,compose,reflect,reflectNorm,markVisible,carry;
     ReflectionFilter reflectionFilter;bool reflectionFiltered=false,transportFiltered=false,transportResponsive=false;
     // Live reflection cube (six faces, full mips) and its normalization row.
     ComPtr<ID3D11Texture2D> reflection;ComPtr<ID3D11ShaderResourceView> reflectionSrv;ComPtr<ID3D11UnorderedAccessView> reflectionUav;
@@ -107,11 +108,12 @@ bool Compile(const char* entry,const char* profile,ComPtr<ID3DBlob>& code) {
 }
 bool Initialize() {
     if(state.initialized)return true;if(state.failed)return false;state.failed=true;
-    ComPtr<ID3DBlob> vs,gs,staticPs,inject,trace,shift,compose,reflect,reflectNorm,markVisible;
+    ComPtr<ID3DBlob> vs,gs,staticPs,inject,trace,shift,compose,reflect,reflectNorm,markVisible,carry;
     if(!Compile("VoxelVS","vs_5_0",vs)||!Compile("VoxelGS","gs_5_0",gs)||!Compile("VoxelStaticPS","ps_5_0",staticPs)||
        !Compile("InjectCS","cs_5_0",inject)||!Compile("ProbeCS","cs_5_0",trace)||
        !Compile("ShiftCS","cs_5_0",shift)||!Compile("ComposeCS","cs_5_0",compose)||
-       !Compile("ReflectionCS","cs_5_0",reflect)||!Compile("ReflectionNormCS","cs_5_0",reflectNorm)||!Compile("MarkVisibleCS","cs_5_0",markVisible))return false;
+       !Compile("ReflectionCS","cs_5_0",reflect)||!Compile("ReflectionNormCS","cs_5_0",reflectNorm)||!Compile("MarkVisibleCS","cs_5_0",markVisible)||
+       !Compile("CarryCS","cs_5_0",carry))return false;
     auto d=state.device.Get();
     D3D11_INPUT_ELEMENT_DESC element{"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0,0,D3D11_INPUT_PER_VERTEX_DATA,0};
     if(FAILED(d->CreateVertexShader(vs->GetBufferPointer(),vs->GetBufferSize(),nullptr,&state.vs))||
@@ -124,6 +126,7 @@ bool Initialize() {
        FAILED(d->CreateComputeShader(reflect->GetBufferPointer(),reflect->GetBufferSize(),nullptr,&state.reflect))||
        FAILED(d->CreateComputeShader(reflectNorm->GetBufferPointer(),reflectNorm->GetBufferSize(),nullptr,&state.reflectNorm))||
        FAILED(d->CreateComputeShader(markVisible->GetBufferPointer(),markVisible->GetBufferSize(),nullptr,&state.markVisible))||
+       FAILED(d->CreateComputeShader(carry->GetBufferPointer(),carry->GetBufferSize(),nullptr,&state.carry))||
        FAILED(d->CreateInputLayout(&element,1,vs->GetBufferPointer(),vs->GetBufferSize(),&state.layout))||
        FAILED(d->CreateDeferredContext(0,&state.work)))return false;
     std::array<ProbeRow,3600> rows{};
@@ -519,8 +522,16 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
             work->CSSetConstantBuffers(0,1,&cb);work->CSSetSamplers(0,1,&sampler);
             // Ping-pong: untraced slices carry over by copy, traced ones blend old (SRV) into new (UAV).
             const UINT next=1-state.current;
+            {GPU_PASS_SCOPE(work,"gi: trace history copy");
+            if(ProbeHistoryCarry.load(std::memory_order_relaxed)){
+                auto history=state.history[state.current].srv.Get(),distances=state.distance[state.current].srv.Get();
+                work->CSSetShaderResources(12,1,&history);work->CSSetShaderResources(15,1,&distances);
+                ID3D11UnorderedAccessView* outputs[2]{state.distance[next].uav.Get(),state.history[next].uav.Get()};
+                work->CSSetUnorderedAccessViews(3,2,outputs,nullptr);work->CSSetShader(state.carry.Get(),nullptr,0);
+                work->Dispatch(Probes/4,Probes/4,Probes*6/4);Unbind(work);
+            }else{
             work->CopyResource(state.history[next].texture.Get(),state.history[state.current].texture.Get());
-            work->CopyResource(state.distance[next].texture.Get(),state.distance[state.current].texture.Get());
+            work->CopyResource(state.distance[next].texture.Get(),state.distance[state.current].texture.Get());}}
             ID3D11ShaderResourceView* srvs[13]{state.staticVoxels.srv.Get(),nullptr,nullptr,state.radiance.srv.Get(),state.direction.srv.Get(),nullptr,
                 nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,state.history[state.current].srv.Get()};
             work->CSSetShaderResources(0,13,srvs);
@@ -531,17 +542,17 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
             auto uav=state.history[next].uav.Get();work->CSSetUnorderedAccessViews(4,1,&uav,nullptr);
             work->CSSetShader(state.trace.Get(),nullptr,0);
             state.constants.ground[1]=0;Upload(work);
-            work->Dispatch(Probes/8,Probes/8,UINT(state.constants.probeInfo[0])*6);
+            {GPU_PASS_SCOPE(work,"gi: trace background");work->Dispatch(Probes/8,Probes/8,UINT(state.constants.probeInfo[0])*6);}
             state.constants.ground[1]=1;Upload(work);
-            work->Dispatch(2,2,16*6);
+            {GPU_PASS_SCOPE(work,"gi: trace near");work->Dispatch(2,2,16*6);}
             if(regionChanged){
                 state.constants.ground[1]=2;Upload(work);
-                work->Dispatch(Probes/8,Probes/8,Probes*6);
+                GPU_PASS_SCOPE(work,"gi: trace exposed");work->Dispatch(Probes/8,Probes/8,Probes*6);
             }
             if(visibleRetained){
                 auto compact=state.visibleListSrv.Get();work->CSSetShaderResources(18,1,&compact);
                 state.constants.ground[1]=4;Upload(work);
-                work->DispatchIndirect(state.visibleDispatch.Get(),0);
+                GPU_PASS_SCOPE(work,"gi: trace visible");work->DispatchIndirect(state.visibleDispatch.Get(),0);
             }
             Unbind(work);state.current=next;
         }
