@@ -15,7 +15,7 @@ namespace {
 // One window of frames per report. 120 at 60 fps is two seconds: long enough that a single
 // hitch does not dominate the average, short enough to see a toggle take effect while testing.
 const int kWindow = 120;
-const int kMaxSlots = 24;
+const int kMaxSlots = 64;
 
 struct Slot {
 	const char* name = nullptr;
@@ -89,7 +89,7 @@ void PanoramaPerf_EndFrame() {
 	long long thisFrameNs = 0;
 	for (int i = 0; i < s_slotCount; ++i) {
 		if (s_slots[i].frameNs > s_slots[i].peakNs) s_slots[i].peakNs = s_slots[i].frameNs;
-		thisFrameNs += s_slots[i].frameNs;
+		if (!strchr(s_slots[i].name, '.')) thisFrameNs += s_slots[i].frameNs;
 		s_slots[i].frameNs = 0;
 	}
 	if (thisFrameNs > s_worstFrameNs) s_worstFrameNs = thisFrameNs;
@@ -100,7 +100,7 @@ void PanoramaPerf_EndFrame() {
 
 	const double windowMs = (double)(now - s_windowStart) / 1e6;
 	const double perFrameMs = windowMs / (double)s_frames;
-	char buf[2048];
+	char buf[4096];
 	int used = _snprintf_s(buf, _TRUNCATE,
 		"frames=%d frame=%.2fms (%.0f fps) ourPeak=%.2fms |",
 		s_frames, perFrameMs, perFrameMs > 0.0 ? 1000.0 / perFrameMs : 0.0,

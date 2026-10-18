@@ -1,6 +1,7 @@
 #include "DemoRepair.h"
 
 #include "DemoHeaderReader.h"
+#include "DemoProjectPath.h"
 #include "DemoProjectStore.h"
 #include "../Platform/TextEncoding.h"
 #include "../../../Shared/AfxConsole.h"
@@ -116,6 +117,7 @@ void WriteRepairedMarker(const std::wstring& demoPath, const std::wstring& repai
 	if (!f) return;
 	fwrite(value.data(), 1, value.size(), f);
 	fclose(f);
+	InvalidateDemoProjectPathCache();
 }
 
 std::wstring SelfModuleDir() {

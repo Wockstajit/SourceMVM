@@ -10,6 +10,7 @@
 // console command (mirv_filmmaker hud ...), bindable to a key.
 
 #include "PanoramaBridge.h"
+#include "HudReadoutCadenceMath.h"
 
 #include <cstdint>
 #include <string>
@@ -25,6 +26,8 @@ public:
 	void SetVisible(bool v) { m_visible = v; }
 	void Toggle() { m_visible = !m_visible; }
 	bool Visible() const { return m_visible; }
+	void SetReadoutRate(unsigned hz) { m_readoutRate = hz > 60 ? 60 : hz; m_lastJson.clear(); }
+	unsigned ReadoutRate() const { return m_readoutRate; }
 
 	// Queues Panorama JS to run in the HUD-panel context next frame (live probe /
 	// REPL via 'mirv_filmmaker hud_eval'); output goes to the console.
@@ -44,6 +47,10 @@ private:
 	bool m_visible = true; // shown by default while in a demo; F8 toggles it
 	std::string m_lastJson;
 	std::vector<std::string> m_evalQueue;
+	HudReadoutCadence m_readoutCadence;
+	unsigned m_readoutRate = 10; // 0 = every frame, for controlled comparisons
+	bool m_lastVisible = false, m_lastToast = false, m_lastDebug = false;
+	int m_lastAdjustSeq = 0;
 };
 
 MovieHud& MovieHudRef();

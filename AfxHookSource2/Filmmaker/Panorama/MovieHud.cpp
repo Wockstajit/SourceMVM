@@ -87,14 +87,19 @@ std::string MovieHud::BuildStateJson() {
 		}
 	}
 
+	const bool visible = m_visible && !CameraPath_PreviewHudHidden()
+		&& !RenderSessionDriver_WantsChromeHidden() && !HudBlackout_Active();
+	const bool toastOn = (ConfigHud_Enabled() || CameraEditor_Active())
+		&& !RenderSessionDriver_WantsChromeHidden() && !HudBlackout_Active();
+	if (!visible && !toastOn) {
+		int seq = 0, kind = 0, dir = 0;
+		CameraBridge_LastFreeCamAdjust(seq, kind, dir);
+		return "{\"visible\":false,\"adjust\":{\"seq\":" + std::to_string(seq)
+			+ ",\"kind\":0,\"on\":false}}";
+	}
+
 	int tick = 0; bool haveTick = g_MirvTime.GetCurrentDemoTick(tick);
 	double dtime = 0.0; bool haveTime = g_MirvTime.GetCurrentDemoTime(dtime);
-
-	// Masked for a clean shot while a camera-path preview has the HUD toggled off, and while a
-	// render job is capturing (before-present captures must never include director chrome).
-	bool visible = m_visible && !CameraPath_PreviewHudHidden()
-		&& !RenderSessionDriver_WantsChromeHidden()
-		&& !HudBlackout_Active(); // F8 clears every overlay, this card included
 
 	std::ostringstream o;
 	o << "{";
@@ -123,8 +128,6 @@ std::string MovieHud::BuildStateJson() {
 	{
 		int seq = 0, kind = 0, dir = 0;
 		CameraBridge_LastFreeCamAdjust(seq, kind, dir);
-		const bool toastOn = (ConfigHud_Enabled() || CameraEditor_Active())
-			&& !RenderSessionDriver_WantsChromeHidden() && !HudBlackout_Active();
 		o << ",\"adjust\":{\"seq\":" << seq << ",\"kind\":" << kind << ",\"dir\":" << dir
 			<< ",\"on\":" << (toastOn ? "true" : "false")
 			<< ",\"speed\":" << (std::floor(flySpeed * 1000.0 + 0.5) / 1000.0);
@@ -199,6 +202,17 @@ void MovieHud::RunFrame() {
 		return;
 	}
 
+	const bool visible = m_visible && !CameraPath_PreviewHudHidden()
+		&& !RenderSessionDriver_WantsChromeHidden() && !HudBlackout_Active();
+	const bool toast = (ConfigHud_Enabled() || CameraEditor_Active())
+		&& !RenderSessionDriver_WantsChromeHidden() && !HudBlackout_Active();
+	const bool debug = MvmDebugLog_Active();
+	int seq = 0, kind = 0, dir = 0;
+	CameraBridge_LastFreeCamAdjust(seq, kind, dir);
+	const bool urgent = m_lastJson.empty() || visible != m_lastVisible || toast != m_lastToast
+		|| debug != m_lastDebug || seq != m_lastAdjustSeq;
+	if (!m_readoutCadence.Ready(GetTickCount64(), m_readoutRate, urgent)) return;
+	m_lastVisible = visible; m_lastToast = toast; m_lastDebug = debug; m_lastAdjustSeq = seq;
 	std::string json = BuildStateJson();
 	if (json != m_lastJson) {
 		m_bridge.SetAttributeString(m_root, m_symState, json.c_str());

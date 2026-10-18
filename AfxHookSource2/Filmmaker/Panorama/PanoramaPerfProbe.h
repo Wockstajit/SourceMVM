@@ -1,13 +1,13 @@
 #pragma once
 
-// MAIN-THREAD UI COST PROBE.
+// MAIN-THREAD UI AND BACKEND COST PROBE.
 //
 // "The FPS halves while the editor UI is open" is a claim about main-thread time, and a netcon
 // reply cannot show it: the cost is spread over every frame and lives in whichever of the eight
-// Panorama HUD pumps is doing the most work. This measures them.
+// Panorama HUD pumps or backend systems is doing the most work. This measures them.
 //
 //   mvm_debug start                -> the probe arms with the log
-//   mirv_filmmaker perf on|off     -> arm it without a log (prints to console instead)
+//   mvm_debug perf on|off         -> arm it without the full debug log
 //
 // Every slot is a named accumulator. PanoramaPerf_Scope adds its own lifetime to one; once per
 // kWindow main-thread frames PanoramaPerf_EndFrame() emits ONE line with the frame interval and

@@ -97,6 +97,9 @@ private:
 // Begin/End; material shaders, textures and pose stay native. Engine resources
 // are read only; the light buffer and color target are private copies.
 bool BeginNativeMaterialDraw(ID3D11DeviceContext*);
+// Render-thread snapshot covering sky, sun suppression, unbake, live lighting and replay.
+// Independent caster/foliage capture and smoke work have their own gates.
+bool NativeMaterialDrawWorkNeeded();
 // Main thread readable: live lighting's per-frame CPU cost (light preparation, ambient occlusion,
 // all of its draw setup), ~20-frame averages.
 void NativeMaterialLiveCost(float& prepareMs,float& ambientOcclusionMs,float& totalMs);

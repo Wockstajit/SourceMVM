@@ -34,7 +34,13 @@ All paths under `AfxHookSource2/Filmmaker/`.
 | Follow / Lock-On camera | `Movie/FollowCamera.cpp` + `FollowTarget*`/`FollowEventIndex`; command `FollowCommand.cpp` (`follow`) | Full docs in [follow-camera/](../follow-camera/README.md). |
 | Customize (loadout) modal | JS in `Panorama/CameraEditorCustomizeJs.h` (modal) + `CameraEditorCustomizePreviewJs.h` (3D preview wiring); queries `Cosmetics/CosmeticUiQueries.{h,cpp}`; backend `Cosmetics/` | Per-player skins, knife, gloves and agent: see [customize-feature.md](customize-feature.md). Includes the experimental 3D player preview ([panorama-player-preview-summary.md](../panorama/panorama-player-preview-summary.md)). |
 | Render workspace | `Panorama/CameraEditorRenderJs.h`, `CameraEditorRenderLayoutJs.h`; backend `Render/` | Range, camera, game-HUD policy, output, validation, state restoration, and the recorder-backed beauty capture. See `Render/` and the Render workspace row above for the current contract. |
-| Movie/director HUD + input | `Movie/MovieMode.cpp`, `Panorama/MovieHud.{h,cpp}`; input routing in `Filmmaker.cpp` (`MovieInput_*`) | Scroll = cycle cams, LMB/RMB = switch player, Space = pause, F8 = HUD. |
+| Movie/director HUD + input | `Movie/MovieMode.cpp`, `Panorama/MovieHud.{h,cpp}`; input routing in `Filmmaker.cpp` (`MovieInput_*`) | Scroll = cycle cams, LMB/RMB = switch player, Space = pause, F8 = HUD. Both director and left controls cards remain available. |
+
+The director's passive camera, angle and time readouts refresh at 10 Hz. Camera motion and input
+still run every frame; visibility changes and FOV/speed wheel feedback publish immediately.
+`mirv_filmmaker hud rate` reports the cadence, `hud rate 10` restores the default, and `hud rate 0`
+uses the former per-frame cadence for comparisons (accepted range: 0–60 Hz). This is a session-only
+setting. Hidden cards skip camera/tick/mesh state construction when no workspace toast is needed.
 
 ## Console surface
 

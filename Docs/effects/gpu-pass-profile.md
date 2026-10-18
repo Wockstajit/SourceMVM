@@ -17,6 +17,19 @@ frame, and how many times a frame it ran. Above it: the GPU frame (timestamps at
 presents), the GPU time covered by at least one timed pass (nested passes count once), and the rest:
 native CS2 rendering plus the hook's work inside native draws.
 
+The CPU draw-hook costs in `health` use one complete frame in every 32 during normal playback,
+and every frame while `mvm_debug` logging is active. The report includes the sample cadence and
+age; its average covers about 20 sampled frames. Unsampled frames are not treated as zero cost.
+Present intervals still include every frame. Sampling avoids thousands of stopwatch calls per
+frame when diagnosing a native-looking, environment-off session; it changes no rendering work.
+
+For main-thread overhead, `mvm_debug perf on` enables UI and backend CPU scopes without the full
+debug log; `mvm_debug perf` reads the most recent window and `mvm_debug perf off` stops sampling.
+`main.total` includes the whole main pump; named scopes identify UI, camera, cosmetics, world,
+scene keys and environment preparation. Dotted scopes are inclusive breakdowns and are excluded
+from `ourTotal` and `ourPeak` to avoid counting nested work twice. These CPU times cannot be added
+to GPU times. Run the probe separately from the quiet FPS comparison.
+
 ## What is timed
 
 `GPU_PASS_SCOPE(ctx, "name")` ([`GpuPassProfiler.h`](../../AfxHookSource2/Filmmaker/Debug/GpuPassProfiler.h))

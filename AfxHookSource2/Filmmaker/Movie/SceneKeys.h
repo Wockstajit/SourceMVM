@@ -20,6 +20,7 @@ void SceneKeys_AppendTimelineState(std::ostringstream& out);
 bool SceneKeys_KeySpan(double& lo, double& hi);
 void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);
 std::string SceneKeys_StateJson();
+std::string SceneKeys_MarkerStateJson();
 std::string SceneKeys_ChannelsJson();
 int SceneKeys_Revision();
 // How many properties are switched on, and how many scene keys exist (onboarding done checks).

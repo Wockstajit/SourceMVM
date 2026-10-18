@@ -196,6 +196,14 @@ add_executable(DemoScannerTests
 target_compile_features(DemoScannerTests PRIVATE cxx_std_17)
 add_test(NAME DemoScannerTests COMMAND DemoScannerTests)
 
+add_executable(DemoPathCacheMathTests ../Automation/tests/demo-path-cache-math-tests.cpp)
+target_compile_features(DemoPathCacheMathTests PRIVATE cxx_std_17)
+add_test(NAME DemoPathCacheMathTests COMMAND DemoPathCacheMathTests)
+
+add_executable(HudReadoutCadenceMathTests ../Automation/tests/hud-readout-cadence-math-tests.cpp)
+target_compile_features(HudReadoutCadenceMathTests PRIVATE cxx_std_17)
+add_test(NAME HudReadoutCadenceMathTests COMMAND HudReadoutCadenceMathTests)
+
 add_executable(DemoProjectPathTests
     ../Automation/tests/demo-project-path-tests.cpp
     Filmmaker/Demo/DemoProjectPath.cpp

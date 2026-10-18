@@ -1,5 +1,6 @@
 #include "DemoProjectStore.h"
 #include "DemoMatchInfoFile.h"
+#include "DemoProjectPath.h"
 
 #include "../Debug/MvmDebugLog.h"
 #include "../Config/PracticeSessionFlag.h" // a practice session writes nothing
@@ -135,8 +136,10 @@ bool WriteFileAtomic(const fs::path& target, const std::string& bytes) {
 	const bool ok = WriteFile(file, bytes.data(), (DWORD)bytes.size(), &wrote, nullptr)
 		&& wrote == bytes.size() && FlushFileBuffers(file);
 	CloseHandle(file);
-	return ok && MoveFileExW(temp.c_str(), target.c_str(),
+	const bool published = ok && MoveFileExW(temp.c_str(), target.c_str(),
 		MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+	if (published) InvalidateDemoProjectPathCache();
+	return published;
 }
 
 // A project.mvm that fails to decode is never silently overwritten: rename it aside with a

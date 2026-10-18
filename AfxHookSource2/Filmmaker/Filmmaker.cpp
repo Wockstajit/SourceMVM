@@ -12,6 +12,7 @@
 #include "Demo/DemoOrganizer.h"
 #include "Config/DemoOrganizerStore.h" // NormalizeDemoKey, for re-keying a renamed demo
 #include "Demo/PlayingDemoPath.h"
+#include "Demo/DemoPathCacheMath.h"
 #include "Panorama/FilmmakerMenu.h"
 #include "Panorama/VideoSettingsResolution.h"
 #include "Panorama/MovieHud.h"
@@ -588,8 +589,16 @@ std::wstring PlayingDemoPath() {
 	// Authoritative source: the demo the engine is actually playing (works for our tab,
 	// native Your Matches, and console playdemo alike).
 	std::wstring eng = ResolvePlayingDemoPath();
-	if (!eng.empty())
-		return CanonicalDemoPath(ResolveDemoProjectPath(eng));
+	{
+		static std::mutex mutex;
+		static DemoPathCache<std::wstring> projectPath;
+		std::lock_guard<std::mutex> lock(mutex);
+		if (!eng.empty())
+			return projectPath.Get(eng, 0, DemoProjectPathRevision(), GetTickCount64(), [&] {
+				return CanonicalDemoPath(ResolveDemoProjectPath(eng));
+			});
+		projectPath.Clear();
+	}
 
 	// If no demo is currently playing, do NOT fall back to the last Watch() path. Returning a
 	// stale path here keeps CameraPath bound to the previous demo while CS2 is between demos,
@@ -767,6 +776,8 @@ void RunMainThreadPostFrame() {
 }
 
 void RunMainThreadFrame() {
+	{
+	PanoramaPerf_Scope mainCost("main.total");
 	g_mainPumpCalls.fetch_add(1, std::memory_order_relaxed);
 	EnsureInitialized();
 
@@ -839,7 +850,7 @@ void RunMainThreadFrame() {
 	}
 
 	// Panorama work (RunScript + panel IO) must run on the main/UI thread.
-	g_menu.RunFrame(g_library);
+	{ PanoramaPerf_Scope _p("menu"); g_menu.RunFrame(g_library); }
 
 	// Play-page takeover (main menu only): strips the page to Practice + Workshop Maps and
 	// drives the workshop map sidebar. Cheap no-op while a demo/map is loaded.
@@ -972,15 +983,15 @@ void RunMainThreadFrame() {
 
 	// Camera-marker / dolly path: hover picking, playback driver, auto-save, then
 	// the BO2-style marker-edit menu. Both run on this (main/UI) thread.
-	CameraPathRef().RunFrame();
+	{ PanoramaPerf_Scope _p("campath"); CameraPathRef().RunFrame(); }
 	// Per-keyframe GTA V camera shake: follows the active demo's sidecar and keyframe retimes.
 	// Must run AFTER CameraPathRef().RunFrame() -- it syncs against the keyframe list that call
 	// has just loaded/rebuilt, so running first would sync against the previous demo's keys.
-	CamPathShake_RunFrame();
+	{ PanoramaPerf_Scope _p("pathshake"); CamPathShake_RunFrame(); }
 	// Follow camera treats EITHER workspace as "the editor is up": opening Config closes the
 	// Camera Editor (they share the right column), but that swap must not kill a running
 	// Follow Live preview -- Config's scaled workspace shows the same follow-driven camera.
-	FollowCameraRef().RunFrame(CameraEditorHudRef().Enabled() || ConfigHud_Enabled());
+	{ PanoramaPerf_Scope _p("follow"); FollowCameraRef().RunFrame(CameraEditorHudRef().Enabled() || ConfigHud_Enabled()); }
 	// Fisheye lens D3D pass â€” publish the current toggle state every main-thread frame.
 	PublishFisheye();
 	// ViewFxVm write-site 2 (main-thread pump; viewmodel-rotation experiment).
@@ -1040,12 +1051,12 @@ void RunMainThreadFrame() {
 	// Offline demo skin-changer: re-assert any per-player weapon-skin overrides on this frame's
 	// entities. Cheap no-op when nothing is overridden. Entity-touching, so it rides the main
 	// thread alongside the camera/follow passes above.
-	Cosmetics_RunFrame();
+	{ PanoramaPerf_Scope _p("cosmetics"); Cosmetics_RunFrame(); }
 	// Cache each living player's active weapon before the engine processes this frame. The actual
 	// corpse-hand transform is written by RunMainThreadLateFrame after dropped-weapon physics.
-	RagdollWeapon_RunFrame();
+	{ PanoramaPerf_Scope _p("ragdoll"); RagdollWeapon_RunFrame(); }
 	// Supply eyelid weights before animation/render preparation, then reassert the final eye bones late.
-	MethodActing_RunLateFrame(false);
+	{ PanoramaPerf_Scope _p("acting"); MethodActing_RunLateFrame(false); }
 	// Ragdoll PHYSICS (gravity/friction/limit/collide). Convar-driven, own module.
 	// No-op unless something is overridden.
 	RagdollPhysics_RunFrame();
@@ -1057,7 +1068,7 @@ void RunMainThreadFrame() {
 	NervousSystem_RunFrame();
 	// World/Effects: lighting, atmosphere, weather. Entity-touching like the passes above, so it
 	// rides this thread. Fans out to its own modules; every one is a no-op while disabled.
-	World_RunFrame();
+	{ PanoramaPerf_Scope _p("world"); World_RunFrame(); }
 	// The lens flare's sun comes from the sky material (SunFx_VisibleSunDirection); keep it fresh while the flare is on.
 	if (LensFx_FlareOn()) SunFx_RefreshVisibleSun();
 	// Player-preview scene probe (read-only instrumentation, own module). No-op unless armed with
@@ -1101,7 +1112,7 @@ void RunMainThreadFrame() {
 
 	// Easter eggs: rare hints, secret modes, Clippy, the Sony Vegas intervention. The overlay is
 	// the topmost root (z900) in whichever context is up, in-game HUD or main menu.
-	EasterEggs_RunMainThreadFrame();
+	{ PanoramaPerf_Scope _p("eggsbackend"); EasterEggs_RunMainThreadFrame(); }
 	{ PanoramaPerf_Scope _p("eggs"); EasterEggOverlayHudRef().RunFrame(); }
 
 	// Clippy's onboarding tutorial (prototype). A no-op until `mvm_onboarding` opens it; then it
@@ -1139,18 +1150,19 @@ void RunMainThreadFrame() {
 	// turned the carry-over off -- reset every EFFECTS group to the map default. No-op unless a
 	// level init armed it.
 	EffectsPersistence_RunFrame();
-	SceneKeys_RunFrame();
+	{ PanoramaPerf_Scope _p("scenekeys"); SceneKeys_RunFrame(); }
 	// After the keys (their applied tick and the pose channels) and before the Environment reads
 	// where each rigged object is (scene-object-rigs.md).
-	SceneRig_RunMainThreadFrame();
-	Environment::RunMainThreadFrame();
-	Props_RunMainThreadFrame();
+	{ PanoramaPerf_Scope _p("scenerig"); SceneRig_RunMainThreadFrame(); }
+	{ PanoramaPerf_Scope _p("environment"); Environment::RunMainThreadFrame(); }
+	{ PanoramaPerf_Scope _p("props"); Props_RunMainThreadFrame(); }
 	// Debounced persistence for reusable Config / Camera Editor preferences. Shot-specific
 	// camera, path and Follow/Attach state stays in its owning subsystem.
 	FilmmakerSettings_RunFrame();
 	// After every camera driver: what this frame renders, for the scrub frame cache.
 	ScrubFrameCache_EndFrame();
 
+	} // main.total includes the UI and backend work above.
 	// Close the measurement window for this main-thread frame (no-op unless the probe is armed).
 	PanoramaPerf_EndFrame();
 }
@@ -1178,6 +1190,8 @@ bool MovieInput_OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, in
 void MovieHud_Set(bool visible) { MovieHudRef().SetVisible(visible); }
 void MovieHud_Toggle() { MovieHudRef().Toggle(); }
 bool MovieHud_Visible() { return MovieHudRef().Visible(); }
+void MovieHud_SetReadoutRate(unsigned hz) { MovieHudRef().SetReadoutRate(hz); }
+unsigned MovieHud_ReadoutRate() { return MovieHudRef().ReadoutRate(); }
 void MovieHud_Eval(const std::string& js) { MovieHudRef().RequestEval(js); }
 
 // --- Native demo-bar speed buttons on/off ---

@@ -2264,6 +2264,9 @@ NativeMaterialLiveScope::~NativeMaterialLiveScope(){
     context->PSSetConstantBuffers(3,1,&original);original->Release();
     RestoreOwnedInputs(context);
 }
+bool NativeMaterialDrawWorkNeeded() {
+    return state.frame.active || state.wanted || state.unbake || state.live;
+}
 bool BeginNativeMaterialDraw(ID3D11DeviceContext* ctx){
     if(ctx&&MvmDebugLog_Active()&&(ctx->GetType()!=D3D11_DEVICE_CONTEXT_IMMEDIATE||!state.wanted||state.active)){
         D3D11_VIEWPORT v{};UINT c=1;ctx->RSGetViewports(&c,&v);

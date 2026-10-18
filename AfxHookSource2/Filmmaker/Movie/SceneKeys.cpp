@@ -207,6 +207,12 @@ void Apply(double tick) {
     g_reassert = false;
     if (MvmDebugLog_Active()) { static ULONGLONG last = 0; if (GetTickCount64() - last > 500) { last = GetTickCount64(); MvmDebugLog_Linef("scenekeys.sample", "tick=%.3f fields=%zu rev=%d baselineUnchanged=1", tick, state.fields.size(), g_track.revision); } }
 }
+void EventsJson(JsonBuilder& j) {
+    j.Key("events"); j.BeginArray();
+    for (const auto& ev : Events(g_track.data)) { j.BeginObject(); j.DoubleField("tick",ev.tick); j.Key("fields"); j.BeginArray();
+        for (const auto& id : ev.fields) { j.BeginObject(); j.StringField("id",id); j.EndObject(); } j.EndArray(); j.EndObject();
+    } j.EndArray();
+}
 void CatalogJson(JsonBuilder& j) {
     j.BeginArray();
     for (const auto& s : Catalog()) {
@@ -255,12 +261,15 @@ std::string SceneKeys_StateJson() {
     for (const auto& f : g_track.data.fields) { const auto* s = FindSpec(Catalog(),f.first); if (!s) continue;
         j.Key(f.first.c_str()); j.BeginArray(); for (const auto& k : f.second) { j.BeginObject(); j.IntField("id",k.id); j.DoubleField("tick",k.tick); j.Key("value"); WriteValue(j,k.value,s->type==ChannelType::SkyId); j.EndObject(); } j.EndArray();
     } j.EndObject();
-    j.Key("events"); j.BeginArray();
-    for (const auto& ev : Events(g_track.data)) { j.BeginObject(); j.DoubleField("tick",ev.tick); j.Key("fields"); j.BeginArray();
-        for (const auto& id : ev.fields) { j.BeginObject(); j.StringField("id",id); j.EndObject(); } j.EndArray(); j.EndObject();
-    } j.EndArray();
+    EventsJson(j);
     j.IntField("selectedEvent",g_selectedEvent); j.IntField("rev",g_track.revision); j.BoolField("canUndo",g_track.CanUndo()); j.BoolField("canRedo",g_track.CanRedo());
     j.StringField("save",g_failed ? "failed" : g_dirty ? "saving" : "saved"); j.StringField("error",g_error); j.EndObject(); return j.Str();
+}
+// The camera timeline consumes only event markers and their selection. The property catalog,
+// sampled lighting values and editable channel data belong to the inspector/graph consumers.
+std::string SceneKeys_MarkerStateJson() {
+    JsonBuilder j; j.BeginObject(); EventsJson(j);
+    j.IntField("selectedEvent", g_selectedEvent); j.EndObject(); return j.Str();
 }
 std::string SceneKeys_ChannelsJson() {
     JsonBuilder j; j.BeginArray(); const auto base = Baselines();

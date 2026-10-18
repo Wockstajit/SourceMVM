@@ -262,7 +262,7 @@ std::string CameraTimelineHud::BuildStateJson() {
 	o << ",\"view\":\"timeline\"";
 	o << ",\"uiEditorInspector\":\""
 		<< FilmmakerSettings_UiString("editor.inspector", "path") << "\"";
-	o << ",\"sceneKeys\":" << SceneKeys_StateJson();
+	o << ",\"sceneKeys\":" << SceneKeys_MarkerStateJson();
 	o << ",\"graphExp\":" << (GraphEditorExperiment_Enabled() ? "true" : "false");
 	o << ",\"count\":" << n;
 	o << ",\"selected\":" << sel;

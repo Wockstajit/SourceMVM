@@ -89,6 +89,7 @@
 #include <functional>
 #include <intrin.h>
 #include <cmath>
+#include <optional>
 
 #include <dxgi.h>
 #include <dxgi1_4.h>
@@ -125,7 +126,7 @@ std::vector<Filmmaker::Environment::SmokeVolume> g_LensSmokes;
 // ---- hook cost accounting --------------------------------------------------------------------
 // `mirv_filmmaker health` reports how much of a frame the detours themselves take, EXCLUDING
 // the native calls they forward to. Everything is accumulated on the render thread and
-// snapshotted once per present, so a frame-rate complaint can be split into "the hook" and
+// sampled on selected frames (every frame during mvm_debug), so a frame-rate complaint can be split into "the hook" and
 // "the game" without a profiler.
 namespace {
 struct HookCostAccum {
@@ -135,6 +136,11 @@ struct HookCostAccum {
     std::atomic<unsigned> draws{0};
 };
 HookCostAccum g_hookCostAccum;
+// Thousands of draws need no stopwatch on ordinary frames. Keep bounded diagnostic samples;
+// full mvm_debug logging opts into every frame. Frame intervals are always measured separately.
+std::atomic<bool> g_collectHookCost{true};
+unsigned g_hookCostFrame = 0;
+ULONGLONG g_hookCostSampleAt = 0;
 std::mutex g_hookCostMutex;
 RenderHookCost g_hookCostSample{};
 enum class RenderPhase : unsigned char { NotStarted, EngineFrame, BeforeUi, Environment, ReShade, BeforePresent, EnginePresent, AfterPresent };
@@ -158,9 +164,16 @@ std::array<double,4096> g_frameIntervals{};
 unsigned g_frameIntervalCount=0, g_frameIntervalNext=0;
 long long g_frameIntervalPrevious=0;
 struct QpcScope {
-    std::atomic<long long>& acc; LARGE_INTEGER t0;
-    explicit QpcScope(std::atomic<long long>& a) : acc(a) { QueryPerformanceCounter(&t0); }
-    ~QpcScope() { LARGE_INTEGER t1; QueryPerformanceCounter(&t1); acc.fetch_add(t1.QuadPart - t0.QuadPart, std::memory_order_relaxed); }
+    std::atomic<long long>* acc; LARGE_INTEGER t0;
+    explicit QpcScope(std::atomic<long long>& a)
+        : acc(g_collectHookCost.load(std::memory_order_relaxed) ? &a : nullptr) {
+        if (acc) QueryPerformanceCounter(&t0);
+    }
+    ~QpcScope() {
+        if (!acc) return;
+        LARGE_INTEGER t1; QueryPerformanceCounter(&t1);
+        acc->fetch_add(t1.QuadPart - t0.QuadPart, std::memory_order_relaxed);
+    }
 };
 // RenderShaderCost, in QPC ticks. Many loader threads create shaders at once.
 std::atomic<unsigned long long> g_shaderCount{0};
@@ -182,6 +195,22 @@ namespace {
 // The Lighting pipeline's per-draw decision, and the animated-caster capture decision, timed apart
 // from the rest of the draw detour (heartbeat "draw parts"): a lit scene's draw cost grew from 11
 // to 76 ms per frame over minutes of playback on user machines (2026-10-13).
+struct NativeMaterialScopes {
+    Filmmaker::Environment::NativeMaterialSkyScope sky;
+    Filmmaker::Environment::NativeMaterialSunScope sun;
+    Filmmaker::Environment::NativeMaterialUnbakeScope unbake;
+    Filmmaker::Environment::NativeMaterialLiveScope live;
+    NativeMaterialScopes(ID3D11DeviceContext* ctx, bool enabled)
+        : sky(ctx, enabled), sun(ctx, enabled), unbake(ctx, enabled), live(ctx, enabled) {}
+};
+struct OptionalNativeMaterialScopes {
+    std::optional<NativeMaterialScopes> scopes;
+    OptionalNativeMaterialScopes(ID3D11DeviceContext* ctx, bool enabled) {
+        if ((enabled && Filmmaker::Environment::NativeMaterialDrawWorkNeeded())
+            || Filmmaker::MvmDebugLog_Active()) scopes.emplace(ctx, enabled);
+    }
+    bool Active() const { return scopes.has_value(); }
+};
 bool TimedBeginNativeMaterialDraw(ID3D11DeviceContext* ctx) {
     QpcScope cost(g_hookCostAccum.drawBegin);
     return Filmmaker::Environment::BeginNativeMaterialDraw(ctx);
@@ -191,7 +220,11 @@ bool TimedBeginAnimatedCasterDraw(ID3D11DeviceContext* ctx, UINT count, UINT ins
     return Filmmaker::Environment::BeginAnimatedCasterDraw(ctx, count, instances);
 }
 void HookCost_EndFrame() {
-    g_renderLastFrameTick.store(GetTickCount64(), std::memory_order_relaxed);
+    const auto tick = GetTickCount64();
+    g_renderLastFrameTick.store(tick, std::memory_order_relaxed);
+    const bool sampled = g_collectHookCost.load(std::memory_order_relaxed);
+    const unsigned stride = Filmmaker::MvmDebugLog_Active() ? 1 : 32;
+    g_collectHookCost.store(++g_hookCostFrame % stride == 0, std::memory_order_relaxed);
     static double freq = 0; if (freq == 0) { LARGE_INTEGER f; QueryPerformanceFrequency(&f); freq = double(f.QuadPart); }
     const double ms = 1000.0 / freq;
     const double drawTotal = g_hookCostAccum.drawTotal.exchange(0, std::memory_order_relaxed) * ms;
@@ -210,9 +243,12 @@ void HookCost_EndFrame() {
     }
     g_frameIntervalPrevious=now.QuadPart;
     auto& c = g_hookCostSample;
+    c.sampleStride = stride;
+    if (!sampled) return;
+    g_hookCostSampleAt = tick;
     c.drawHookMs = drawTotal - drawNative; c.drawNativeMs = drawNative; c.presentHookMs = present;
     c.environmentMs = environment; c.draws = draws;
-    const double k = 0.05; // ~20-frame average beside the instantaneous numbers
+    const double k = 0.05; // ~20 sampled frames; never decay missing samples to zero
     c.avgDrawHookMs += (c.drawHookMs - c.avgDrawHookMs) * k;
     c.avgPresentHookMs += (c.presentHookMs - c.avgPresentHookMs) * k;
     c.avgEnvironmentMs += (c.environmentMs - c.avgEnvironmentMs) * k;
@@ -221,7 +257,12 @@ void HookCost_EndFrame() {
     c.avgDrawCasterMs += (g_hookCostAccum.drawCaster.exchange(0, std::memory_order_relaxed) * ms - c.avgDrawCasterMs) * k;
 }
 } // namespace
-RenderHookCost RenderHookCost_Sample() { std::lock_guard<std::mutex> lock(g_hookCostMutex); return g_hookCostSample; }
+RenderHookCost RenderHookCost_Sample() {
+    std::lock_guard<std::mutex> lock(g_hookCostMutex);
+    auto sample = g_hookCostSample;
+    sample.sampleAgeMs = g_hookCostSampleAt ? GetTickCount64() - g_hookCostSampleAt : 0;
+    return sample;
+}
 RenderShaderCost RenderShaderCost_Sample() {
     LARGE_INTEGER f; QueryPerformanceFrequency(&f);
     const double ms = 1000.0 / double(f.QuadPart);
@@ -3812,7 +3853,7 @@ bool AfxPlayersOnlyGreen_SkipFoliageGpuDraw(ID3D11DeviceContext* context, const 
 void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
     UINT IndexCount, UINT StartIndexLocation, INT BaseVertexLocation) {
     if (g_inVendorMultiDraw) { g_Old_DrawIndexed(This, IndexCount, StartIndexLocation, BaseVertexLocation); return; }
-    QpcScope drawCost(g_hookCostAccum.drawTotal); g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
+    QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
     if (!g_bInOwnDraw)
@@ -3829,14 +3870,11 @@ void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
 		return;
 	if (AfxPlayersOnlyGreen_SkipFoliageGpuDraw(This, "DrawIndexed"))
 		return;
-    Filmmaker::Environment::NativeMaterialSkyScope environmentSky(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialSunScope environmentSun(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialUnbakeScope environmentUnbake(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialLiveScope environmentLive(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexed(This, IndexCount, StartIndexLocation, BaseVertexLocation); }
-    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
+    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawIndexed(This,IndexCount,StartIndexLocation,BaseVertexLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_DrawIndexed(This,IndexCount,StartIndexLocation,BaseVertexLocation);}
         if(Filmmaker::Environment::BeginNativeMaterialWithoutFixtures(This)){g_Old_DrawIndexed(This,IndexCount,StartIndexLocation,BaseVertexLocation);}
@@ -3853,7 +3891,7 @@ void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
 void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
     UINT VertexCount, UINT StartVertexLocation) {
     if (g_inVendorMultiDraw) { g_Old_Draw(This, VertexCount, StartVertexLocation); return; }
-    QpcScope drawCost(g_hookCostAccum.drawTotal); g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
+    QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
     if (!g_bInOwnDraw)
@@ -3866,14 +3904,11 @@ void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
 	if (AfxPlayersOnlyGreen_SkipFoliageGpuDraw(This, "Draw"))
 		return;
     AfxCompositeEnvironmentBeforeScope(This, VertexCount);
-    Filmmaker::Environment::NativeMaterialSkyScope environmentSky(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialSunScope environmentSun(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialUnbakeScope environmentUnbake(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialLiveScope environmentLive(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_Draw(This, VertexCount, StartVertexLocation); }
-    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
+    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_Draw(This,VertexCount,StartVertexLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_Draw(This,VertexCount,StartVertexLocation);}
         if(Filmmaker::Environment::BeginNativeMaterialWithoutFixtures(This)){g_Old_Draw(This,VertexCount,StartVertexLocation);}
@@ -3891,7 +3926,7 @@ void STDMETHODCALLTYPE New_DrawIndexedInstanced(ID3D11DeviceContext * This,
     UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation,
     INT BaseVertexLocation, UINT StartInstanceLocation) {
     if (g_inVendorMultiDraw) { g_Old_DrawIndexedInstanced(This, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation); return; }
-    QpcScope drawCost(g_hookCostAccum.drawTotal); g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
+    QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
     if (!g_bInOwnDraw)
@@ -3904,15 +3939,12 @@ void STDMETHODCALLTYPE New_DrawIndexedInstanced(ID3D11DeviceContext * This,
 		return;
 	if (AfxPlayersOnlyGreen_SkipFoliageGpuDraw(This, "DrawIndexedInstanced"))
 		return;
-    Filmmaker::Environment::NativeMaterialSkyScope environmentSky(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialSunScope environmentSun(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialUnbakeScope environmentUnbake(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialLiveScope environmentLive(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
 	{ QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexedInstanced(This, IndexCountPerInstance, InstanceCount, StartIndexLocation,
 		BaseVertexLocation, StartInstanceLocation); }
-    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
+    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawIndexedInstanced(This,IndexCountPerInstance,InstanceCount,StartIndexLocation,BaseVertexLocation,StartInstanceLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_DrawIndexedInstanced(This,IndexCountPerInstance,InstanceCount,StartIndexLocation,BaseVertexLocation,StartInstanceLocation);}
         if(Filmmaker::Environment::BeginNativeMaterialWithoutFixtures(This)){g_Old_DrawIndexedInstanced(This,IndexCountPerInstance,InstanceCount,StartIndexLocation,BaseVertexLocation,StartInstanceLocation);}
@@ -3930,7 +3962,7 @@ void STDMETHODCALLTYPE New_DrawInstanced( ID3D11DeviceContext * This,
     UINT VertexCountPerInstance, UINT InstanceCount,
     UINT StartVertexLocation, UINT StartInstanceLocation) {
     if (g_inVendorMultiDraw) { g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount, StartVertexLocation, StartInstanceLocation); return; }
-    QpcScope drawCost(g_hookCostAccum.drawTotal); g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
+    QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
     if (!g_bInOwnDraw)
@@ -3942,15 +3974,12 @@ void STDMETHODCALLTYPE New_DrawInstanced( ID3D11DeviceContext * This,
 		StartVertexLocation, StartInstanceLocation, _ReturnAddress());
 	if (AfxPlayersOnlyGreen_SkipFoliageGpuDraw(This, "DrawInstanced"))
 		return;
-    Filmmaker::Environment::NativeMaterialSkyScope environmentSky(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialSunScope environmentSun(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialUnbakeScope environmentUnbake(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialLiveScope environmentLive(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
         StartVertexLocation, StartInstanceLocation); }
-    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
+    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
         StartVertexLocation, StartInstanceLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
@@ -4002,14 +4031,11 @@ int NvidiaMultiDraw(NvidiaMultiDraw_t original, ID3D11DeviceContext* context,
     if (g_inVendorMultiDraw || g_bInOwnDraw)
         return original(context, count, arguments, offset, stride);
     QpcScope drawCost(g_hookCostAccum.drawTotal);
-    g_hookCostAccum.draws.fetch_add(count, std::memory_order_relaxed);
+    if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(count, std::memory_order_relaxed);
     Filmmaker::Environment::ObserveFoliageInputs(context);
     if (!g_BeforeUiFiredThisPresent) Filmmaker::Environment::ObserveViewmodel(context);
     if (AfxPlayersOnlyGreen_SkipIndirectDraw(context, operation)) return 0;
-    Filmmaker::Environment::NativeMaterialSkyScope sky(context, !g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialSunScope sun(context, !g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialUnbakeScope unbake(context, !g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialLiveScope live(context, !g_BeforeUiFiredThisPresent);
+    OptionalNativeMaterialScopes environmentMaterial(context, !g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(context);
     // Keep native multi-draw submission intact. Verified skinned depth draws also
     // replay through SO; the capture reads only their bounded argument records.
@@ -4079,18 +4105,15 @@ void EnsureVendorMultiDrawHooks() {
 void STDMETHODCALLTYPE New_DrawIndexedInstancedIndirect( ID3D11DeviceContext * This,
     ID3D11Buffer* pBufferForArgs, UINT AlignedByteOffsetForArgs) {
     if (g_inVendorMultiDraw) { g_Old_DrawIndexedInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs); return; }
-    QpcScope drawCost(g_hookCostAccum.drawTotal); g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
+    QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
     if (AfxPlayersOnlyGreen_SkipIndirectDraw(This, "DrawIndexedInstancedIndirect"))
         return;
-    Filmmaker::Environment::NativeMaterialSkyScope environmentSky(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialSunScope environmentSun(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialUnbakeScope environmentUnbake(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialLiveScope environmentLive(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexedInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs); }
-    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
+    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawIndexedInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_DrawIndexedInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs);}
         if(Filmmaker::Environment::BeginNativeMaterialWithoutFixtures(This)){g_Old_DrawIndexedInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs);}
@@ -4106,18 +4129,15 @@ void STDMETHODCALLTYPE New_DrawIndexedInstancedIndirect( ID3D11DeviceContext * T
 void STDMETHODCALLTYPE New_DrawInstancedIndirect( ID3D11DeviceContext * This,
     ID3D11Buffer* pBufferForArgs, UINT AlignedByteOffsetForArgs) {
     if (g_inVendorMultiDraw) { g_Old_DrawInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs); return; }
-    QpcScope drawCost(g_hookCostAccum.drawTotal); g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
+    QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
     if (AfxPlayersOnlyGreen_SkipIndirectDraw(This, "DrawInstancedIndirect"))
         return;
-    Filmmaker::Environment::NativeMaterialSkyScope environmentSky(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialSunScope environmentSun(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialUnbakeScope environmentUnbake(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
-    Filmmaker::Environment::NativeMaterialLiveScope environmentLive(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs); }
-    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
+    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_DrawInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs);}
         if(Filmmaker::Environment::BeginNativeMaterialWithoutFixtures(This)){g_Old_DrawInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs);}

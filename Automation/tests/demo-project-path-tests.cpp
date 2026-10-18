@@ -1,6 +1,8 @@
 #include "../../AfxHookSource2/Filmmaker/Demo/DemoProjectPath.h"
 #include "../../AfxHookSource2/Filmmaker/Demo/DemoProjectFileMath.h"
 
+#include "../../AfxHookSource2/Filmmaker/Demo/DemoPathCacheMath.h"
+
 #include <Windows.h>
 
 #include <filesystem>
@@ -107,6 +109,25 @@ int main() {
 	}
 	ok = ExpectPath("project repaired.dem maps via project.mvm",
 		Filmmaker::ResolveDemoProjectPath(projectRepaired.wstring()), original) && ok;
+
+	// Exercise the cache against real marker/source changes, not just synthetic keys.
+	Filmmaker::DemoPathCache<std::wstring> cache;
+	auto cached = [&](uint64_t now) {
+		return cache.Get(projectRepaired.wstring(), 1, Filmmaker::DemoProjectPathRevision(), now,
+			[&] { return Filmmaker::ResolveDemoProjectPath(projectRepaired.wstring()); });
+	};
+	ok = ExpectPath("cached valid marker", cached(0), original) && ok;
+	WriteFile(fs::path(projectRepaired.wstring() + L".src"), "stale|helper");
+	Filmmaker::InvalidateDemoProjectPathCache();
+	ok = ExpectPath("marker publication invalidates immediately", cached(1), projectRepaired) && ok;
+	WriteFile(fs::path(projectRepaired.wstring() + L".src"), FileStamp(original) + "|helper");
+	ok = ExpectPath("external marker change expires", cached(1001), original) && ok;
+	WriteFile(original, "source has been replaced with another demo");
+	ok = ExpectPath("external source replacement expires", cached(2001), projectRepaired) && ok;
+	WriteFile(fs::path(projectRepaired.wstring() + L".src"), FileStamp(original) + "|helper");
+	WriteFile(projectDir / L"project.mvm", "corrupt project");
+	Filmmaker::InvalidateDemoProjectPathCache();
+	ok = ExpectPath("corrupt project is not trusted", cached(2002), projectRepaired) && ok;
 
 	fs::remove_all(root, ec);
 	if (!ok) return 1;
