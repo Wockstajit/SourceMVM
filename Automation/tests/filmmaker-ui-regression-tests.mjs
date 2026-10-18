@@ -302,3 +302,11 @@ test("the open developer console keeps its own wheel, clicks and keys", () => {
   assert.match(gate, /if \(AfxConsoleVisible\(\)\)\s*return true;/);
   assert.match(main, /bool AfxConsoleVisible\(\) \{ return g_pGameUIService && g_pGameUIService->Con_IsVisible\(\); \}/);
 });
+
+// 2026-10-18: a camera riding a gun made the player look jittery. Smooth View's breathing, lean and
+// sway (logged up to 4 degrees with pov=0) were added to our own cameras after they wrote the pose.
+test("Smooth View leaves our own cameras alone", () => {
+  const main = read("AfxHookSource2", "main.cpp");
+  assert.match(main, /g_PendingPostDemoView\.filmmakerCamera = owner\.Any\(\);/);
+  assert.match(main, /if \(smoothView\.Enabled\(\) && !pending\.filmmakerCamera && !g_MirvInputEx\.m_MirvInput->GetCameraControlMode\(\)\) \{/);
+});

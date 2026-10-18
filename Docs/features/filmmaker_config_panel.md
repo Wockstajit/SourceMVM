@@ -77,6 +77,10 @@ fall/jump effects, the fisheye lens toggle, and viewmodel follow controls. The *
 Crosshair** shows the recorded aim direction while the camera trails it. Jump/fall pitch is
 derived from the viewed pawn's own ground flag and vertical velocity but smoothed on the render
 clock, so takeoff, falling velocity steps, and landing do not become camera-pitch steps.
+Smooth View moves only the spectated player's own view. It stands down while one of our cameras
+owns the view (a camera path, the Follow camera, a looked-through camera object, the free cam):
+its sway on a camera riding a gun or a player moved the camera off what it rides, so the rider
+seemed to jitter in frame.
 
 **Strafe tilt leans INTO the strafe and runs on the pawn's real velocity.** Positive roll leans the
 view right (measured in game: free camera at roll +10 rotates the world counterclockwise), and the

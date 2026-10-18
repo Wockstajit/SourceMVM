@@ -439,6 +439,7 @@ struct PendingPostDemoView {
 	void* setup = nullptr;
 	float curTime = 0.0f;
 	bool povViewForAim = false;
+	bool filmmakerCamera = false; // one of our cameras owns the pose (CameraOwnership::Any)
 	bool valid = false;
 };
 
@@ -793,6 +794,7 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	g_PendingPostDemoView.setup = ThisCViewSetup;
 	g_PendingPostDemoView.curTime = curTime;
 	g_PendingPostDemoView.povViewForAim = povViewForAim;
+	g_PendingPostDemoView.filmmakerCamera = owner.Any();
 	g_PendingPostDemoView.valid = true;
 
 	if(originOrAnglesOverriden) {
@@ -967,7 +969,11 @@ void CS2_Client_CSetupView_PostDemoApply() {
 		if (auto demo = g_pEngineToClient->GetDemoFile())
 			playbackPaused = demo->IsDemoPaused();
 	}
-	if (smoothView.Enabled() && !g_MirvInputEx.m_MirvInput->GetCameraControlMode()) {
+	// OUR CAMERAS EXCLUDED: Smooth View is the spectated player's own view. On a camera path, a
+	// Follow attach or a looked-through camera object its breathing, lean and sway moved the camera
+	// off the gun or player it rides, so the rider swam in frame (user report 2026-10-18: "when you
+	// attach a camera to a gun, the player jitters"; logged up to 4 degrees with pov=0).
+	if (smoothView.Enabled() && !pending.filmmakerCamera && !g_MirvInputEx.m_MirvInput->GetCameraControlMode()) {
 		// This is the actual post-demo camera pose. Sampling it here is the only way the angle
 		// filter follows the POV the user sees instead of the stale pre-override camera.
 		// FREE CAM EXCLUDED (same rule as CameraShakeStack): the chase filter would smooth the
