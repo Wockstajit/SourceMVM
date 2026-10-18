@@ -409,7 +409,7 @@ void Draw(ID3D11DeviceContext *ctx, const Frame &f, const Matrix &vp, ID3D11Dept
     if(animatedOnly&&(actors==AnimatedCasterSubset::All||actors==AnimatedCasterSubset::Viewmodel||actors==AnimatedCasterSubset::Scene)){
         ctx->UpdateSubresource(cb,0,nullptr,vp.data(),0,0);
         if(actors==AnimatedCasterSubset::Viewmodel){auto anchored=Multiply(vp,ModelMatrix(f.camera,{0,0,0},{1,1,1}));ctx->UpdateSubresource(cb,0,nullptr,anchored.data(),0,0);}
-        DrawAnimatedCasters(ctx,actors);
+        DrawAnimatedCasters(ctx,actors,actors==AnimatedCasterSubset::Viewmodel?nullptr:&vp);
         if(actors==AnimatedCasterSubset::All||actors==AnimatedCasterSubset::Scene)DrawAnimatedCoverageCasters(ctx,vp);
     }
     // Use real render UVs and alpha, not the opaque collision hull or solid leaf cards.
@@ -1315,7 +1315,13 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
         const auto selected=SelectShadowRefresh(std::move(refresh),mapRefreshFrame,refreshBudget,16,
             input.exporting?0u:g_actorShadowFacesPerFrame);
         if(!selected.empty()){GPU_PASS_SCOPE(ctx,"shadows: lamp face refresh");
-        for(unsigned i:selected){
+        constexpr unsigned batchSize=16;
+        for(size_t batch=0;batch<selected.size();batch+=batchSize){
+        const auto count=unsigned((std::min)(size_t(batchSize),selected.size()-batch));
+        std::array<Matrix,batchSize> cullMatrices{};
+        for(unsigned j=0;j<count;++j)cullMatrices[j]=mapStaticMatrices[selected[batch+j]];
+        PrepareAnimatedCasterCulling(ctx,cullMatrices.data(),count);
+        for(unsigned j=0;j<count;++j){const unsigned i=selected[batch+j];
             const bool dynamic=faceDynamic[i];
             ctx->CopySubresourceRegion(mapStaticDepth.Get(),0,0,0,0,mapStaticBase.Get(),i,nullptr);
             if(dynamic)Draw(ctx,frame,mapStaticMatrices[i],mapStaticDsv.Get(),Relight::StaticSize,true,AnimatedCasterSubset::All,true,&mapFoliageDraws[i]);
@@ -1325,7 +1331,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
             ctx->CopySubresourceRegion(mapAtlas.Get(),0,x,y,0,mapStaticTransfer.Get(),0,nullptr);
             MarkLampTile(x,y,size);
             mapFaceDynamic[i]=dynamic;mapFaceRefresh[i]=mapRefreshFrame;++updatedFaces;
-        }}
+        }}}
         if(MvmDebugLog_Active()){
             uint64_t realtimeAge=0;for(auto i:realtimeFaces)realtimeAge=(std::max)(realtimeAge,mapRefreshFrame-mapFaceRefresh[i]);
             uint64_t actorAge=0;for(auto i:actorFaceList)actorAge=(std::max)(actorAge,mapRefreshFrame-mapFaceRefresh[i]);
@@ -1518,7 +1524,7 @@ bool PrepareViewmodelSunShadow(ID3D11DeviceContext* immediate){
     ctx->UpdateSubresource(viewerConstants.Get(),0,nullptr,viewer,0,0);
     auto vc=viewerConstants.Get();ctx->PSSetConstantBuffers(4,1,&vc);
     ctx->VSSetShader(viewerVertex.Get(),nullptr,0);ctx->PSSetShader(viewerPixel.Get(),nullptr,0);
-    DrawAnimatedCasters(ctx,AnimatedCasterSubset::Actors);
+    DrawAnimatedCasters(ctx,AnimatedCasterSubset::Actors,&mapCloseMatrix);
     const auto anchored=Multiply(mapCloseMatrix,ModelMatrix(mapCloseCamera,{0,0,0},{1,1,1}));
     ctx->UpdateSubresource(cb,0,nullptr,anchored.data(),0,0);
     ctx->VSSetShader(state.vertex.Get(),nullptr,0);ctx->PSSetShader(nullptr,nullptr,0);

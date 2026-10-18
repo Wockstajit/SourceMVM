@@ -63,6 +63,29 @@ void TileBounds(float3 hull[8],uint count,inout Extent e) {
     uint2 a=(uint2)lo>>grid.x,b=(uint2)hi>>grid.x;
     a=max(a,1)-1;b=min(b+1,grid.yz-1);e.xy=uint4(a.x,b.x,a.y,b.y);e.z.z=0;
 }
+void TightenSphere(float3 c,float radius,inout Extent e){
+    if(reach.y==0)return;
+    float3 b=float3(view[12].w,view[13].w,view[14].w);
+    float w=dot(b,c)+view[15].w,bb=dot(b,b),rr=radius*radius;
+    if(!(w>radius*sqrt(bb)+max(1e-4,abs(w)*1e-4)))return;
+    float denominator=w*w-rr*bb;if(!(denominator>0)||!isfinite(denominator))return;
+    float2 lo=0,hi=0;
+    [unroll]for(uint axis=0;axis<2;++axis){
+        float3 a=float3(view[12][axis],view[13][axis],view[14][axis]);
+        float x=dot(a,c)+view[15][axis],aa=dot(a,a),ab=dot(a,b);
+        float3 tangent=a*w-b*x;
+        float discriminant=rr*(dot(tangent,tangent)-rr*(aa*bb-ab*ab));
+        if(!isfinite(discriminant)||discriminant<0)return;
+        float centre=(x*w-rr*ab)/denominator,half=sqrt(discriminant)/denominator;
+        lo[axis]=centre-half;hi[axis]=centre+half;
+        if(!isfinite(lo[axis])||!isfinite(hi[axis]))return;
+        float pad=1e-4*(1+max(abs(lo[axis]),abs(hi[axis])));lo[axis]-=pad;hi[axis]+=pad;
+    }
+    uint2 a=(uint2)clamp((float2(lo.x,-hi.y)+1)*depth.zw*.5,0,depth.zw-1)>>grid.x;
+    uint2 bTile=(uint2)clamp((float2(hi.x,-lo.y)+1)*depth.zw*.5,0,depth.zw-1)>>grid.x;
+    a=max(a,1)-1;bTile=min(bTile+1,grid.yz-1);
+    e.xy=uint4(max(e.xy.x,a.x),min(e.xy.y,bTile.x),max(e.xy.z,a.y),min(e.xy.w,bTile.y));
+}
 bool GlassHull(Light light,out float3 hull[8]) {
     [unroll]for(uint i=0;i<8;++i)hull[i]=0;
     if(light.rows[8].w!=0||!(light.rows[10].w>0)||any(light.rows[3]!=float4(0,0,0,1)))return false;
@@ -148,6 +171,7 @@ bool GlassHull(Light light,out float3 hull[8]) {
                 e.z.xy=(uint2)clamp(floor(interval*depth.x)+float2(-1,1),0,depth.y);
             }
             TileBounds(hull,count,e);
+            TightenSphere(c,r,e);
         }
     }
     outputExtent[id.x]=e;

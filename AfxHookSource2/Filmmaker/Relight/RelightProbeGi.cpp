@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "RelightProbes.h"
+#include "RelightReflectionFilter.h"
 #include "RelightProbeGiShaders.h"
 #include "../Environment/EnvironmentShadowMaps.h"
 #include "../Environment/EnvironmentShaderCompiler.h"
@@ -43,6 +44,7 @@ struct State {
     ComPtr<ID3D11DeviceContext> work;
     ComPtr<ID3D11VertexShader> vs;ComPtr<ID3D11GeometryShader> gs;ComPtr<ID3D11PixelShader> staticPs;
     ComPtr<ID3D11ComputeShader> inject,trace,shift,compose,reflect,reflectNorm,markVisible;
+    ReflectionFilter reflectionFilter;bool reflectionFiltered=false,transportFiltered=false,transportResponsive=false;
     // Live reflection cube (six faces, full mips) and its normalization row.
     ComPtr<ID3D11Texture2D> reflection;ComPtr<ID3D11ShaderResourceView> reflectionSrv;ComPtr<ID3D11UnorderedAccessView> reflectionUav;
     ComPtr<ID3D11Buffer> reflectionNorm;ComPtr<ID3D11UnorderedAccessView> reflectionNormUav;UINT reflectionMips=0;Vec3 reflectionOrigin{};
@@ -138,6 +140,8 @@ bool Initialize() {
        !Texture(state.distance[1],Probes,Probes,Probes*6,DXGI_FORMAT_R16G16B16A16_FLOAT)||
        !Texture(state.composed,Probes,Probes,Probes*6,DXGI_FORMAT_R16G16B16A16_FLOAT)||
        !Texture(state.visibleMask,Probes,Probes,Probes,DXGI_FORMAT_R32_UINT))return false;
+    // Allocation/compiler failure keeps the existing cube and diffuse GI available.
+    state.reflectionFilter.Initialize(d,ReflectionSize);
     {
         D3D11_TEXTURE2D_DESC t{};t.Width=t.Height=ReflectionSize;t.MipLevels=0;t.ArraySize=6;t.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
         t.SampleDesc.Count=1;t.BindFlags=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS|D3D11_BIND_RENDER_TARGET;
@@ -327,7 +331,7 @@ ProbeBinding CurrentBinding(const Scene& scene,Vec3 low,Vec3 high) {
     const auto neutral=NeutralProbe(state.device.Get(),low,high);
     ProbeBinding out{state.cb2.Get(),state.composed.srv.Get(),neutral.sunOcclusion,state.packing,state.receiverSampler.Get()};
     out.distance=state.distance[state.current].srv.Get();
-    if(scene.reflections>0){out.reflection=state.reflectionSrv.Get();out.reflectionNorm=state.reflectionNorm.Get();
+    if(scene.reflections>0){out.reflection=state.reflectionFiltered?state.reflectionFilter.View():state.reflectionSrv.Get();out.reflectionNorm=state.reflectionNorm.Get();
         out.reflectionMips=state.reflectionMips;out.reflectionOrigin=state.reflectionOrigin;}
     return out;
 }
@@ -411,10 +415,12 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
             std::memcmp(state.uploadedRecords.data(),records.data(),records.size()*sizeof(LightRecord))!=0;
         const bool cameraChanged=Dot(camera-state.transportCamera,camera-state.transportCamera)>1e-6f;
         const bool presentationChanged=scene.bounce!=state.transportBounce||scene.reflections!=state.transportReflections||
-            scene.bounceSteps!=state.transportSteps||scene.probeCheck!=state.transportDiagnostic;
+            scene.bounceSteps!=state.transportSteps||scene.probeCheck!=state.transportDiagnostic||scene.filteredReflections!=state.transportFiltered||scene.responsiveReflections!=state.transportResponsive;
         if(rebin||changed||cameraChanged||presentationChanged)state.stableTransportFrames=0;
         state.transportCamera=camera;
         state.transportBounce=scene.bounce;state.transportReflections=scene.reflections;
+        state.transportFiltered=scene.filteredReflections;
+        state.transportResponsive=scene.responsiveReflections;
         state.transportSteps=scene.bounceSteps;state.transportDiagnostic=scene.probeCheck;
         if(resized||changed){
             if(resized&&!Structured(UINT(records.size()),sizeof(LightRecord),nullptr,state.records,state.recordsSrv))return {};
@@ -465,12 +471,17 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
         state.constants.probeInfo={float(edited?EditedProbeSlicesPerFrame:ProbeSlicesPerFrame),HistoryBlend,GiFeedbackGain,edited?1.f:0.f};
         state.constants.voxelTarget={region.low.x,region.low.y,region.low.z,region.size};
         state.constants.voxelDims={float(Voxels),float(Voxels),float(Voxels),0};
-        const auto captureDelta=camera-state.reflectionOrigin;
-        const bool blendReflection=state.ready&&!authoredChanged&&!presentationChanged&&Dot(captureDelta,captureDelta)<GiProbeSpacing*GiProbeSpacing*16;
-        state.constants.reflectionHistory={blendReflection?.8f:0,0,0,0};
-        state.reflectionOrigin=StableReflectionOrigin(camera,state.reflectionOrigin,state.ready);
+        const auto update=PlanReflectionUpdate(camera,state.reflectionOrigin,state.ready,
+            authoredChanged||presentationChanged,scene.responsiveReflections);
+        state.constants.reflectionHistory={update.historyWeight,0,0,0};
+        state.reflectionOrigin=update.origin;
         const auto capture=state.reflectionOrigin;
         state.constants.reflection={capture.x,capture.y,capture.z,float(ReflectionSize)};
+        if(MvmDebugLog_Active()){static ULONGLONG last=0;const auto now=GetTickCount64();if(now-last>=2000){last=now;
+            MvmDebugLog_LinefAlways("relight.reflection.update",
+                "frame=%llu camera=(%.2f %.2f %.2f) capture=(%.2f %.2f %.2f) history=%.2f follow=%u filtered=%u",
+                frame,camera.x,camera.y,camera.z,capture.x,capture.y,capture.z,update.historyWeight,
+                unsigned(scene.responsiveReflections),unsigned(scene.filteredReflections));}}
         Upload(work);
         // Indirect occupancy belongs to the static map. Animated bodies and weapons
         // crossing coarse cells must not change probe visibility or the reflection capture.
@@ -550,8 +561,7 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
         }
         if(scene.reflections>0){
             GPU_PASS_SCOPE(work,"gi: reflection capture");
-            // A retained capture point keeps voxel silhouettes and ambient normalization
-            // stable during walking. Authored light edits still enter this frame.
+            // Capture and normalization use the same origin and history decision.
             work->CSSetConstantBuffers(0,1,&cb);work->CSSetSamplers(0,1,&sampler);
             ID3D11ShaderResourceView* srvs[5]{nullptr,nullptr,nullptr,state.radiance.srv.Get(),state.direction.srv.Get()};
             work->CopyResource(state.reflectionHistory.Get(),state.reflection.Get());
@@ -564,6 +574,8 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
             work->CSSetShader(state.reflect.Get(),nullptr,0);work->Dispatch((ReflectionSize+7)/8,(ReflectionSize+7)/8,6);
             Unbind(work);
             work->GenerateMips(state.reflectionSrv.Get());
+            state.reflectionFiltered=scene.filteredReflections&&state.reflectionFilter.Apply(work,state.reflection.Get(),state.reflectionSrv.Get());
+            work->CSSetConstantBuffers(0,1,&cb);work->CSSetSamplers(0,1,&sampler);
             auto composed=state.composed.srv.Get();work->CSSetShaderResources(13,1,&composed);
             work->CSSetShaderResources(21,1,&oldNorm);
             auto norm=state.reflectionNormUav.Get();work->CSSetUnorderedAccessViews(7,1,&norm,nullptr);

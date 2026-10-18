@@ -453,8 +453,14 @@ target_compile_features(RelightClusterGpuTests PRIVATE cxx_std_17)
 target_link_libraries(RelightClusterGpuTests PRIVATE d3d11 dxguid)
 add_test(NAME RelightClusterGpuTests COMMAND RelightClusterGpuTests)
 
+add_executable(RelightReflectionFilterTests ../Automation/tests/relight-reflection-filter-tests.cpp
+    Filmmaker/Relight/RelightReflectionFilter.cpp)
+target_compile_features(RelightReflectionFilterTests PRIVATE cxx_std_17)
+target_link_libraries(RelightReflectionFilterTests PRIVATE d3d11 dxguid)
+add_test(NAME RelightReflectionFilterTests COMMAND RelightReflectionFilterTests)
+
 add_executable(RelightProbeGpuTests ../Automation/tests/relight-probe-gpu-tests.cpp)
-target_sources(RelightProbeGpuTests PRIVATE Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightmap.cpp)
+target_sources(RelightProbeGpuTests PRIVATE Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightmap.cpp)
 target_compile_features(RelightProbeGpuTests PRIVATE cxx_std_17)
 target_link_libraries(RelightProbeGpuTests PRIVATE d3d11 dxguid)
 add_test(NAME RelightProbeGpuTests COMMAND RelightProbeGpuTests)
@@ -536,9 +542,9 @@ add_executable(EnvironmentGizmoMathTests ../Automation/tests/environment-gizmo-m
 target_compile_features(EnvironmentGizmoMathTests PRIVATE cxx_std_17)
 add_test(NAME EnvironmentGizmoMathTests COMMAND EnvironmentGizmoMathTests)
 
-target_sources(EnvironmentRenderTests PRIVATE Filmmaker/Environment/EnvironmentNativeMaterial.cpp Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp)
+target_sources(EnvironmentRenderTests PRIVATE Filmmaker/Environment/EnvironmentNativeMaterial.cpp Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp)
 add_executable(EnvironmentNativeMaterialTests ../Automation/tests/environment-native-material-tests.cpp
-    Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp
+    Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp
     Filmmaker/Environment/EnvironmentNativeMaterial.cpp Filmmaker/Relight/RelightNativeCluster.cpp)
 target_compile_features(EnvironmentNativeMaterialTests PRIVATE cxx_std_17)
 target_link_libraries(EnvironmentNativeMaterialTests PRIVATE d3d11 dxguid)
@@ -554,6 +560,11 @@ add_executable(EnvironmentCasterBoundsTests ../Automation/tests/environment-cast
 target_compile_features(EnvironmentCasterBoundsTests PRIVATE cxx_std_17)
 target_link_libraries(EnvironmentCasterBoundsTests PRIVATE d3d11 dxguid)
 add_test(NAME EnvironmentCasterBoundsTests COMMAND EnvironmentCasterBoundsTests)
+add_executable(EnvironmentCasterCullTests ../Automation/tests/environment-caster-cull-tests.cpp
+    Filmmaker/Environment/EnvironmentCasterBounds.cpp)
+target_compile_features(EnvironmentCasterCullTests PRIVATE cxx_std_17)
+target_link_libraries(EnvironmentCasterCullTests PRIVATE d3d11 dxguid)
+add_test(NAME EnvironmentCasterCullTests COMMAND EnvironmentCasterCullTests)
 add_executable(EnvironmentEarlyCasterTests ../Automation/tests/environment-early-caster-tests.cpp
     Filmmaker/Environment/EnvironmentAnimatedCasters.cpp Filmmaker/Environment/EnvironmentParticleShadows.cpp Filmmaker/Environment/EnvironmentCasterBounds.cpp)
 target_compile_features(EnvironmentEarlyCasterTests PRIVATE cxx_std_17)
@@ -564,6 +575,10 @@ add_executable(EnvironmentAmbientOcclusionTests ../Automation/tests/environment-
 target_compile_features(EnvironmentAmbientOcclusionTests PRIVATE cxx_std_17)
 target_link_libraries(EnvironmentAmbientOcclusionTests PRIVATE d3d11 dxguid)
 add_test(NAME EnvironmentAmbientOcclusionTests COMMAND EnvironmentAmbientOcclusionTests)
+
+foreach(render_fixture RelightProbeGpuTests EnvironmentRenderTests EnvironmentNativeMaterialTests EnvironmentAmbientOcclusionTests)
+    target_sources(${render_fixture} PRIVATE ../Automation/tests/gpu-profile-disabled.cpp)
+endforeach()
 
 add_executable(ConsoleLoggingListenerTests ../Automation/tests/console-logging-listener-tests.cpp)
 add_test(NAME ConsoleLoggingListenerTests COMMAND ConsoleLoggingListenerTests)

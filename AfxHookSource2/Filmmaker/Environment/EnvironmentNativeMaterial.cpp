@@ -832,7 +832,7 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
         {clusterMode,grid.lights.ones,firstPerson?1u:0u,state.clusterSummaries?grid.size:0u},
         {state.frame.camera.x,state.frame.camera.y,state.frame.camera.z,Relight::FirstPersonLightReach},
         {firstPerson?grid.lights.nearby:0u,0,0,0},
-        {state.frame.relight.visibleRadiance,0,0,0}};
+        {state.frame.relight.visibleRadiance,state.frame.relight.tightClusters?1.f:0.f,0,0}};
     const UINT fillGroups=(grid.TileCount()+grid.sliceCount+1+63)/64;
     std::vector<uint8_t> viewKey;
     auto key=[&](const void* data,size_t bytes){const auto* p=static_cast<const uint8_t*>(data);viewKey.insert(viewKey.end(),p,p+bytes);};

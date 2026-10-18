@@ -492,7 +492,14 @@ moving-caster shadows can lag in the cached tier. Sun cascades and the high-reso
 tier keep their normal updates. Movie exports refresh every resident cached face.
 `mirv_filmmaker gpuprofile` reports the GI stages and the lamp face refresh in GPU milliseconds
 ([GPU pass profile](gpu-pass-profile.md)); `mvm_debug` reports cached-face counts under
-`environment.relight.shadow.spatial`. Preview bounds readback is nonblocking;
+`environment.relight.shadow.spatial`. Cached lamp faces batch current-pose character and weapon culling in groups of 16 faces.
+GPU bounds cover blocks of 1,536 vertices and retain whole triangles; each face draws only
+intersecting blocks. Unknown bounds and preparation failures retain the original draws.
+This uses current GPU positions, not delayed CPU bounds, and preserves shadow resolution,
+refresh cadence, material coverage and filter samples. Scene/indirect streams keep their
+existing draws to avoid allocating per-face indices for worst-case capacities.
+`mirv_relight castercull 0|1` compares the original and culled paths (default 1).
+Preview bounds readback is nonblocking;
 unavailable current bounds conservatively include casters, while exports wait for exact bounds.
 The controlled church view remains below the 30 FPS minimum. The
 [Wicked engine lighting comparison](wicked-engine-lighting-comparison.md) records diagnostic timings
@@ -513,18 +520,29 @@ controls and fixed top-down shadow coverage were inspected in game; glass transm
 coloured bounce and exhaustive fly-through acceptance remain unfinished.
 
 Live reflections. Reflections do not use the map's baked reflection cubes. Each frame a 128² cube is marched
-from a retained capture point through the lit map bounce voxels (sun, fixtures, bounce); rays that leave
+from the current camera through the lit map bounce voxels (sun, fixtures, bounce); rays that leave
 the region see the sky. It fills the native clustered reflection list (`cb3[20]`) as one
 map-wide record at `cb3[25..33]`: a box far larger than the map, so parallax correction reduces
 to the reflected direction; strength in the tint row; and a normalization row written on the
 GPU from the capture point's probe irradiance. The material divides local ambient by that row,
 capped at one (`cb3[6]`), so a reflection is dimmed on surfaces darker than the capture point
 and never brightened past it. `cb3[24].y` is the cube's mip count. Record layout and the
-fixture-mirrored lookup are in `ReflectionRecordRows` (`RelightProbeMath.h`). The capture point
-stays fixed until the camera travels 40 units. Moving captures retain 80 percent history for
-both cube radiance and its normalization row, preventing small steps from changing their
-relative brightness. First captures, authored/display edits and large cuts bypass history.
+fixture-mirrored lookup are in `ReflectionRecordRows` (`RelightProbeMath.h`). The capture follows
+camera movement each frame. History is rejected when the origin moves, on the first capture,
+and after authored/display edits; a stationary capture retains 20 percent history. Cube radiance
+and normalization use the same decision. The former 40-unit hold and 80-percent blend could
+leave stale silhouettes in puddles after movement. `mirv_relight reflectionfollow 0` retains that
+old behavior for comparison; the default is 1.
+
+The live cube's roughness mip levels use deterministic GGX filtering with source mip selection
+from the sampling footprint. Level zero preserves the captured detail. This replaces ordinary
+box downsampling, whose angular footprint was too narrow for the native material's roughness
+lookup. `mirv_relight reflectionfilter 0` selects the former box mips; the default is 1. Allocation
+or shader failure falls back to the existing cube without disabling diffuse GI. The GPU fixture
+checks uniform HDR energy, unchanged level zero, cross-face filtering and deterministic output.
+
 This remains one coarse voxel capture, with approximate silhouettes and no local parallax.
+It cannot reproduce accurate fine-detail puddle reflections or reflected animated players.
 The Lighting
 page's Reflections switch and `mirv_relight reflections <0-2>` control it.
 
@@ -1287,6 +1305,12 @@ conservative extent, and one writes each mask word exactly once. The sphere come
 attenuation row 9, never the emitter-softening radius. A box crossing the near plane
 retains all tiles; offscreen projections clamp to screen edges and grow by one tile.
 Slice endpoints grow by one slice to cover floating-point boundary differences.
+Finite local lights additionally intersect those bounds with conservative projected sphere
+tangents. Eye-plane crossings or numerically uncertain projections keep the original extent.
+The outward numerical padding and extra tile remain; authored light ranges and the existing
+radiance cutoff do not change. `mirv_relight clusterbounds 0|1` selects box or tighter sphere
+bounds (default 1). Dense independent projected-point tests and WARP mask comparisons cover
+perspective, off-axis, rotated and orthographic views.
 
 Depth culling runs in both position branches. A WARP raster test with known clip W
 verified the D3D11 pixel-input convention; the test is retained in the GPU suite.

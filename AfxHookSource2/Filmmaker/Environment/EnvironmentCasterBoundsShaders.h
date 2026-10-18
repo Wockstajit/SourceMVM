@@ -7,13 +7,12 @@ struct Bounds {float3 low;float valid;float3 high;float reserved;};
 RWStructuredBuffer<Bounds> output:register(u0);
 cbuffer Settings:register(b0){uint count,stride,base,unused;}
 groupshared float3 lows[128],highs[128];groupshared uint valid[128];
-[numthreads(128,1,1)]
-void Main(uint3 group:SV_GroupID,uint lane:SV_GroupIndex){
+void ReduceBounds(uint3 group,uint lane,bool wholeBatch){
     float3 low=3.402823466e+38,high=-3.402823466e+38;uint ok=1;
     uint currentCount=count;
     if(unused){currentCount=min(count,gpuCount.Load(0));ok=gpuCount.Load(28);}
     // 1536 vertices = 512 whole triangles, so bounds never split a triangle.
-    if(unused){
+    if(wholeBatch){
         for(uint index=lane;index<currentCount;index+=128){float3 p=asfloat(vertices.Load3(index*stride));
             if(!all(isfinite(p)))ok=0;else{low=min(low,p);high=max(high,p);}}
     }else{
@@ -26,7 +25,11 @@ void Main(uint3 group:SV_GroupID,uint lane:SV_GroupIndex){
         if(lane<width){lows[lane]=min(lows[lane],lows[lane+width]);
             highs[lane]=max(highs[lane],highs[lane+width]);valid[lane]&=valid[lane+width];}
         GroupMemoryBarrierWithGroupSync();}
-    if(lane==0){Bounds b;b.low=lows[0];b.high=highs[0];b.valid=valid[0]&&currentCount==0?2:valid[0];b.reserved=0;output[base+group.x]=b;}
+    if(lane==0){Bounds b;b.low=lows[0];b.high=highs[0];
+        b.valid=valid[0]&&(wholeBatch?currentCount==0:group.x*1536>=currentCount)?2:valid[0];
+        b.reserved=0;output[base+group.x]=b;}
 }
+[numthreads(128,1,1)] void Main(uint3 group:SV_GroupID,uint lane:SV_GroupIndex){ReduceBounds(group,lane,unused!=0);}
+[numthreads(128,1,1)] void SpatialBounds(uint3 group:SV_GroupID,uint lane:SV_GroupIndex){ReduceBounds(group,lane,false);}
 )";
 }

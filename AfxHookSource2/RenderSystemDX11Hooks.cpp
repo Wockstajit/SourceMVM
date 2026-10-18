@@ -51,6 +51,7 @@
 #include "Filmmaker/Environment/EnvironmentViewmodel.h"
 #include "Filmmaker/Environment/EnvironmentAnimatedCasters.h"
 #include "Filmmaker/Relight/RelightProbes.h"
+#include "Filmmaker/Relight/Relight.h"
 #include "Filmmaker/Relight/RelightNativeCluster.h"
 #include "Filmmaker/Environment/EnvironmentNativeMaterial.h"
 #include "Filmmaker/World/SmokeAppearance.h"
@@ -8475,7 +8476,7 @@ void RenderSystemDX11_EngineThread_Prepare() {
         Filmmaker::Environment::Matrix environmentWorldToClip;
         memcpy(environmentWorldToClip.data(), g_WorldToScreenMatrix.m, sizeof(g_WorldToScreenMatrix.m));
         auto environmentFrame = Filmmaker::Environment::CaptureFrame(environmentProjection, environmentWorldToClip);
-        environmentFrame.exporting = AfxStreams_IsRcording();
+        environmentFrame.exporting = AfxStreams_IsRcording() && !Filmmaker::Relight::PreviewCapture();
         // Depth of field blurs a smoke at its own distance, so it needs the smokes even while the
         // Environment, which collects them for its own frame, is off.
         std::vector<Filmmaker::Environment::SmokeVolume> lensSmokes;

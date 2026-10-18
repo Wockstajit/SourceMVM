@@ -53,3 +53,22 @@ records. Two things measure it:
 The GPU frame equals the frame time only when the GPU is the bottleneck. Another program using the
 same GPU (a second game, a video) slows every pass and adds to the frame, so compare passes within
 one run rather than across runs on a shared machine.
+
+## Repeating an existing demo loop
+
+[`verify-lighting-loop.py`](../../Automation/verify/verify-lighting-loop.py) records the current
+loop range, spectator/scene state, netcon replies and repeated GPU/whole-frame profiles as JSON.
+It preserves the selected loop. Use `--command` for explicit A/B settings, `--seconds` for the
+timing interval and `--capture` for optional native game frames. For example:
+
+```powershell
+python Automation/verify/verify-lighting-loop.py --out Automation/output/lighting-loop --label culling-on --seconds 40 --capture 5 --command "mirv_relight castercull 1"
+```
+
+The capture runs after timing. `mirv_relight previewcapture 1` prevents native `mirv_streams`
+recording from selecting the more expensive export shadow settings; the helper restores that
+override to zero after capture. Use it with recording initially stopped, screen recording off
+and TGA as the idle format. The helper leaves diagnostic settings at the requested values;
+restore the desired defaults after comparisons. Run timing without debug logging, other GPU
+work, compilation or recording. Compare alternating runs and preserve their spread rather
+than extrapolating a single pass saving into a claimed FPS target.

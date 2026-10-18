@@ -53,6 +53,8 @@ bool HasAnimatedCasterGeometry();
 bool ReadAnimatedCasterBounds(ID3D11DeviceContext*,std::vector<CasterBounds>&,bool waitForGpu=true);
 // Caller supplies depth target and raster/depth state; this binds its coverage shaders.
 void DrawAnimatedCoverageCasters(ID3D11DeviceContext*, const Matrix& worldToShadow);
+// Prepare up to 16 lamp faces together. Unprepared faces retain the original draw.
+void PrepareAnimatedCasterCulling(ID3D11DeviceContext*,const Matrix*,unsigned count);
 // Caller supplies its depth shader/layout, transform, depth target and raster state.
-void DrawAnimatedCasters(ID3D11DeviceContext*, AnimatedCasterSubset subset = AnimatedCasterSubset::All);
+void DrawAnimatedCasters(ID3D11DeviceContext*, AnimatedCasterSubset subset = AnimatedCasterSubset::All, const Matrix* worldToShadow = nullptr);
 }

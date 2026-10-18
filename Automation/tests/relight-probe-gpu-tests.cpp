@@ -1120,7 +1120,14 @@ void CheckDriver(ID3D11Device* device,ID3D11DeviceContext* ctx) {
     Check(ReadHalf4(device,ctx,binding.irradiance,40,40,40+2*GiProbeResolution)!=ProbeRow{7,6,5,4},
           "An authored lighting edit immediately invalidates settled transport");
     camera.x+=1;const auto walked=update(next++);
-    Check(walked.reflectionOrigin.x==binding.reflectionOrigin.x,"Small live camera movement preserves the capture and its normalization origin");
+    Check(walked.reflectionOrigin.x==camera.x&&walked.reflectionOrigin.x!=binding.reflectionOrigin.x,
+          "A small live camera movement refreshes the published reflection origin immediately");
+    scene.responsiveReflections=false;const auto retained=update(next++);camera.x+=1;
+    Check(update(next++).reflectionOrigin.x==retained.reflectionOrigin.x,
+          "The legacy comparison still retains captures during small movements");
+    scene.responsiveReflections=true;
+    Check(update(next++).reflectionOrigin.x==camera.x,"Enabling follow invalidates a retained reflection immediately");
+    camera.x-=1;
     camera.x-=1;
     camera.x+=GiProbeSpacing*3;const auto moved=update(next++);
     Check(moved.constants&&moved.irradiance,"moving the camera never unbinds the bounce volume");

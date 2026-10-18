@@ -4,6 +4,7 @@
 #include "EnvironmentParticleShadows.h"
 #include "EnvironmentAnimatedCasterShaders.h"
 #include "EnvironmentCasterBounds.h"
+#include "EnvironmentCasterCull.h"
 #include "EnvironmentCasterBuffer.h"
 #include "EnvironmentIndirectCasterMath.h"
 #include "EnvironmentIndirectCasterShaders.h"
@@ -79,6 +80,7 @@ struct GlobalsScratch {
 };
 struct State {
     CasterBoundsReader bounds;
+    CasterShadowCuller shadowCuller;
     ComPtr<ID3D11ComputeShader> indirectCounter;
     ComPtr<ID3D11Buffer> indirectSettings;
     std::array<IndirectBatch,32> indirect{};
@@ -551,6 +553,7 @@ void BeginAnimatedCasters(ID3D11Device* device){
     if(FAILED(device->CreateQuery(&query,&state.done))){EndAnimatedCasters();return;}
     // Initialization failure retains the existing conservative draw path.
     state.bounds.Initialize(device);
+    state.shadowCuller.Initialize(device);
     ComPtr<ID3DBlob> indirectCode;
     if(SUCCEEDED(CompileEnvironmentShader(IndirectCasterArgumentsShader,sizeof(IndirectCasterArgumentsShader)-1,
         "EnvironmentIndirectCasterArguments",nullptr,"Main","cs_5_0",D3DCOMPILE_ENABLE_STRICTNESS,&indirectCode,&error))){
@@ -615,6 +618,7 @@ void NextAnimatedCasterFrame(){
         }
     }
     state.count=state.weaponCount=state.viewmodelCount=state.sceneCount=state.coverageCount=state.batches=state.overflow=state.directOverflow=state.indirectOverflow=0;++state.generation;
+    state.shadowCuller.NextFrame(state.generation);
     state.placedCount=state.placedOverflow=0;
     for(UINT i=0;i<state.cutoutBatchCount;++i){state.cutouts[i].opacity.Reset();state.cutouts[i].sampler.Reset();}
     state.cutoutCount=state.cutoutBatchCount=0;
@@ -1118,7 +1122,17 @@ void DrawAnimatedCoverageCasters(ID3D11DeviceContext* ctx,const Matrix& worldToS
     auto constants=state.coverageConstants.Get();ctx->UpdateSubresource(constants,0,nullptr,worldToShadow.data(),0,0);
     ctx->VSSetConstantBuffers(3,1,&constants);ctx->Draw(state.coverageCount,0);
 }
-void DrawAnimatedCasters(ID3D11DeviceContext* ctx,AnimatedCasterSubset subset){
+void PrepareAnimatedCasterCulling(ID3D11DeviceContext* ctx,const Matrix* matrices,unsigned count){
+    if(!ctx||!ShadowCasterCulling.load(std::memory_order_relaxed))return;
+    auto prepare=[&](ID3D11Buffer* buffer,UINT vertices,ID3D11ShaderResourceView* gpuCount=nullptr){
+        if(buffer&&vertices)state.shadowCuller.Prepare(ctx,{buffer,vertices,12,gpuCount},matrices,count,state.generation);
+    };
+    prepare(state.count?state.vertices.Get():state.publishedVertices.Get(),state.count?state.count:state.publishedCount);
+    prepare(state.weaponCount?state.weaponVertices.Get():state.publishedWeaponVertices.Get(),state.weaponCount?state.weaponCount:state.publishedWeaponCount);
+    // Actor streams have exact CPU vertex counts. Scene/indirect buffers retain the original
+    // draws: allocating per-face indices for their worst-case capacities wastes VRAM.
+}
+void DrawAnimatedCasters(ID3D11DeviceContext* ctx,AnimatedCasterSubset subset,const Matrix* worldToShadow){
     if(!ctx)return;
     UINT stride=12,offset=0;ctx->IASetIndexBuffer(nullptr,DXGI_FORMAT_UNKNOWN,0);
     if(subset==AnimatedCasterSubset::Viewmodel){
@@ -1126,28 +1140,33 @@ void DrawAnimatedCasters(ID3D11DeviceContext* ctx,AnimatedCasterSubset subset){
         auto buffer=state.viewmodelCount?state.viewmodelVertices.Get():state.publishedViewmodelVertices.Get();
         if(count&&buffer){ctx->IASetVertexBuffers(0,1,&buffer,&stride,&offset);ctx->Draw(count,0);}return;
     }
+    auto draw=[&](ID3D11Buffer* buffer,UINT count,ID3D11ShaderResourceView* gpuCount=nullptr){
+        return worldToShadow&&ShadowCasterCulling.load(std::memory_order_relaxed)&&
+            state.shadowCuller.Draw(ctx,{buffer,count,12,gpuCount},*worldToShadow,state.generation);
+    };
     // This frame's capture when it already exists, otherwise the last complete frame's.
     const UINT characters=state.count?state.count:state.publishedCount,weapons=state.weaponCount?state.weaponCount:state.publishedWeaponCount;
     ID3D11Buffer* characterBuffer=state.count?state.vertices.Get():state.publishedVertices.Get();
     ID3D11Buffer* weaponBuffer=state.weaponCount?state.weaponVertices.Get():state.publishedWeaponVertices.Get();
     if((subset==AnimatedCasterSubset::All||subset==AnimatedCasterSubset::Characters||subset==AnimatedCasterSubset::Actors)&&characters&&characterBuffer){
-        ctx->IASetVertexBuffers(0,1,&characterBuffer,&stride,&offset);ctx->Draw(characters,0);
+        ctx->IASetVertexBuffers(0,1,&characterBuffer,&stride,&offset);if(!draw(characterBuffer,characters))ctx->Draw(characters,0);
     }
     if((subset==AnimatedCasterSubset::All||subset==AnimatedCasterSubset::Weapons||subset==AnimatedCasterSubset::Actors)&&weapons&&weaponBuffer){
-        ctx->IASetVertexBuffers(0,1,&weaponBuffer,&stride,&offset);ctx->Draw(weapons,0);
+        ctx->IASetVertexBuffers(0,1,&weaponBuffer,&stride,&offset);if(!draw(weaponBuffer,weapons))ctx->Draw(weapons,0);
     }
     const UINT scene=AvailableSceneCount();
     if((subset==AnimatedCasterSubset::All||subset==AnimatedCasterSubset::Scene)&&scene){
         auto buffer=AvailableSceneBuffer();
-        ctx->IASetVertexBuffers(0,1,&buffer,&stride,&offset);ctx->Draw(scene,0);
+        ctx->IASetVertexBuffers(0,1,&buffer,&stride,&offset);if(!draw(buffer,scene))ctx->Draw(scene,0);
     }
     const UINT placed=AvailablePlacedCount();
     if((subset==AnimatedCasterSubset::All||subset==AnimatedCasterSubset::Scene)&&placed){
         auto buffer=AvailablePlacedBuffer();
-        ctx->IASetVertexBuffers(0,1,&buffer,&stride,&offset);ctx->Draw(placed,0);
+        ctx->IASetVertexBuffers(0,1,&buffer,&stride,&offset);if(!draw(buffer,placed))ctx->Draw(placed,0);
     }
     if(subset==AnimatedCasterSubset::All||subset==AnimatedCasterSubset::Scene)
         for(UINT i=0;i<state.indirectCount;++i){const auto& batch=state.indirect[i];if(batch.masked)continue;
-            auto buffer=batch.vertices.Get();ctx->IASetVertexBuffers(0,1,&buffer,&stride,&offset);ctx->DrawInstancedIndirect(batch.metadata.Get(),0);}
+            auto buffer=batch.vertices.Get();ctx->IASetVertexBuffers(0,1,&buffer,&stride,&offset);
+            if(!draw(buffer,batch.capacity,batch.metadataView.Get()))ctx->DrawInstancedIndirect(batch.metadata.Get(),0);}
 }
 }

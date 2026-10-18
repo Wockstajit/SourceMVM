@@ -12,12 +12,14 @@
 #include "../Environment/EnvironmentScene.h"
 #include "../Environment/EnvironmentNativeMaterial.h"
 #include "../Environment/EnvironmentShadowMaps.h"
+#include "../Environment/EnvironmentCasterCull.h"
 #include "../Platform/JsonParser.h"
 #include "../Debug/MvmDebugLog.h"
 #include "../../WrpConsole.h"
 #include "../../../Shared/AfxConsole.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -31,6 +33,7 @@ namespace Filmmaker::Relight {
 namespace {
 std::mutex g_mutex;
 Scene g_scene;
+std::atomic<bool> g_previewCapture{false};
 std::string g_loadedMetadata;
 std::string g_metadataMap;
 void Load(const std::string &path,const std::string &map);
@@ -72,6 +75,7 @@ bool PropertyNumbers(const JsonValue &light, const char *key, float *out, unsign
 }
 } // namespace
 
+bool PreviewCapture(){return g_previewCapture.load(std::memory_order_relaxed);}
 Scene CaptureScene(const std::string &map) {
     std::lock_guard<std::mutex> lock(g_mutex);
     Scene out = g_scene;
@@ -150,6 +154,9 @@ void Load(const std::string &path, const std::string &map) {
     next.sunCascade = g_scene.sunCascade;
     next.skyOcclusion = g_scene.skyOcclusion;
     next.reflections = g_scene.reflections;
+    next.tightClusters = g_scene.tightClusters;
+    next.filteredReflections = g_scene.filteredReflections;
+    next.responsiveReflections = g_scene.responsiveReflections;
     next.stainedGlass = g_scene.stainedGlass;
     next.staticShadows = g_scene.staticShadows;
     next.view = g_scene.view;
@@ -339,6 +346,13 @@ CON_COMMAND(mirv_relight,
     }
     std::lock_guard<std::mutex> lock(g_mutex);
     try {
+        if(op=="previewcapture"||op=="castercull"){
+            auto& flag=op=="previewcapture"?g_previewCapture:Filmmaker::Environment::ShadowCasterCulling;
+            if(argc==3){const std::string value=args->ArgV(2);
+                if(value!="0"&&value!="1")throw std::runtime_error("Expected 0 or 1");
+                flag.store(value=="1",std::memory_order_relaxed);}
+            advancedfx::Message("  %s=%d (transient diagnostic)\n",op.c_str(),flag.load()?1:0);return;
+        }
         if (op.empty() || op == "help") {
             advancedfx::Message(
                 "mirv_relight load <lights.json>      load this map's authored lights\n"
@@ -371,6 +385,11 @@ CON_COMMAND(mirv_relight,
                 "mirv_relight clusters 0|1|2|3      full mask, native tiles+slices, native slices, owned reference\n"
                 "mirv_relight cost full|word|one    diagnostic: all, 32, or one record\n"
                 "mirv_relight hoist 0|1            diagnostic: per-draw or per-view preparation\n"
+                "mirv_relight castercull 0|1       diagnostic: original or culled actor shadow draws\n"
+                "mirv_relight clusterbounds 0|1    diagnostic: box or tighter sphere light lists\n"
+                "mirv_relight reflectionfilter 0|1 diagnostic: box mips or roughness-filtered reflections\n"
+                "mirv_relight reflectionfollow 0|1 diagnostic: delayed capture or immediate camera follow\n"
+                "mirv_relight previewcapture 0|1   diagnostic: record native frames at preview quality\n"
                 "mirv_relight reference 0|1        diagnostic: untouched native-input replay\n"
                 "mirv_relight bindingcheck 0|1|2   diagnostic: normal / white coverage / black material\n"
                 "mirv_relight light <index|identity> "
@@ -469,6 +488,13 @@ CON_COMMAND(mirv_relight,
             ++g_scene.generation;
             Status();
             return;
+        }
+        if(op=="clusterbounds"||op=="reflectionfilter"||op=="reflectionfollow") {
+            auto& enabled=op=="clusterbounds"?g_scene.tightClusters:op=="reflectionfilter"?g_scene.filteredReflections:g_scene.responsiveReflections;
+            if(argc==3){const std::string value=args->ArgV(2);
+                if(value!="0"&&value!="1")throw std::runtime_error("Expected 0 or 1");
+                enabled=value=="1";++g_scene.generation;}
+            advancedfx::Message("  %s=%d (transient diagnostic)\n",op.c_str(),enabled?1:0);return;
         }
         if(op=="reach") {
             if(argc!=3)throw std::runtime_error("mirv_relight reach <0-8>");
