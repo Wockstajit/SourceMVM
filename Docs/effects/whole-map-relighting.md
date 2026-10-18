@@ -222,8 +222,8 @@ to the guard remaining after the overlap. Nearby 1024-square faces reserve 96
 texels per edge; cached 128-square faces reserve 12. Overlap leaves approximately 50 and
 6.2 texels, respectively, available for filtering at the outer edge. A central depth projection still
 approximates tube visibility. Nearby shadow residents retain their slots until a challenger
-is substantially closer. Preview refreshes every visible light face within its shadow reach
-plus 128 camera units each frame, preserving moving shadows through adjacent doorways. The
+is substantially closer. Preview refreshes every visible light face within its visible reach (its shadow
+reach, when set) plus 128 camera units each frame, preserving moving shadows through adjacent doorways. The
 budget expands above 32 faces when needed to retain these faces and at least 16 oldest background
 faces; distant faces otherwise share the remaining budget. Exports refresh all resident faces.
 Overlapping cube faces also use normalized energy weights during GI injection, avoiding duplicate
@@ -1127,14 +1127,17 @@ test, two of them lit in full across a face seam.
 
 | setting | frame |
 | --- | --- |
-| before: six face records, no shadow reach, no summary | 32.9 ms (30.4 fps) |
-| defaults: cube records, `shadowreach 4`, summary | 29.4 ms (34.0 fps) |
+| before: six face records, no summary | 32.05 ms (31.2 fps) |
+| defaults: cube records, summary | 29.3 ms (34.1 fps) |
+| defaults with `shadowreach 4` | 28.6 ms (35.0 fps) |
 | defaults with `actorshadows 16` | 27.9 ms (35.8 fps) |
 
-The defaults do not change the picture. Two window captures with the defaults and two with the
-previous behaviour differed from each other by no more than two captures of the same settings
-(0.70% of pixels more than eight levels apart, against 0.64% and 0.61%; smoke, foliage and clouds
-move while paused). `actorshadows 16` trades lamp-shadow refresh of moving players for speed.
+The defaults do not change the picture. By day, two window captures with the defaults and two with
+the previous behaviour differed from each other by no more than two captures of the same settings
+(0.53% of pixels more than eight levels apart, against 0.52% and 0.48%; smoke, foliage and clouds
+move while paused). At night (sun elevation -12) cube and face records matched to capture noise
+outside the moving sky. The two opt-in settings trade quality: `actorshadows 16` lets lamp
+shadows of moving players lag, and `shadowreach` drops lamp shadows past its distance (below).
 
 ### Cube shadow records
 
@@ -1146,8 +1149,10 @@ holds the box half size and the faces' depth mapping, rows 23-28 each face's atl
 record would carry it. The lamp kernel recovers the receiver's offset from the box coordinates and
 the native depth, picks the faces whose blend weight is not zero (one, two at an edge, three at a
 corner), and runs the unchanged face filter on each with that face's centre, depth and filter
-reach, summing them by weight: the same lookups six face records made. GI injection does the same
-in HLSL. A projector, a shaped light without the range box, or faces that are not the expected
+reach, summing them by weight: the same lookups six face records made. A face whose depth is
+inside its near plane gives nothing, as the shipped loop culled its face record there: without that
+a lamp's light reached surfaces within the near plane that it never lit before, which showed at
+night as brighter puddles beside the A-site door lamps. GI injection does the same in HLSL. A projector, a shaped light without the range box, or faces that are not the expected
 90-degree cube keep six face records, and so does everything if any derived program cannot take
 cube records (logged as `relight.cube.unsupported`).
 `mirv_relight cuberecords 0` restores six face records for comparison: 1.5 ms slower at this view.
@@ -1159,19 +1164,22 @@ lamp kernel to take cube records.
 
 ### Shadow reach
 
-`mirv_relight shadowreach <0-64>` (default 4) stops a lamp's shadows where the lamp changes a dark
-pixel by fewer than that many display steps (the same scale as `reach`, never inside it). At the
-default it is the visible reach, where the light clusters already stop the lamp, so the picture is
-unchanged; a larger value trades a faint unshadowed glow (at most that many steps) for speed. A
-cube record skips its whole face loop when the receiver's dominant axis distance is past it, a face
-record skips the search and the disk for a deeper receiver (`ShadowReachDepth` in
+`mirv_relight shadowreach <0-64>` stops a lamp's shadows where the lamp changes a dark mid-grey
+pixel by fewer than that many display steps (the same scale as `reach`, never inside it); past it
+the lamp lights unshadowed. It is off (0) by default. The estimate is diffuse: at night a dim
+lamp's specular highlight on a wet floor past that distance still showed, and with its shadow
+skipped it appeared where it should have been blocked, even at 4 with face records (the A-site
+stair puddles, up to 210 levels on single pixels, 2026-10-18). The visible reach (`reach 4`) has no
+such effect at night: it matched `reach 0` to capture noise. When set, a cube record skips its whole
+face loop when the receiver's dominant axis distance is past the reach, a face record skips the
+search and the disk for a deeper receiver (`ShadowReachDepth` in
 [`RelightClusterMath.h`](../../AfxHookSource2/Filmmaker/Relight/RelightClusterMath.h), record slot
-91), and a lamp too dim to reach the cutoff anywhere has no lookups at all. `shadowreach 0` keeps
-every lookup; `shadowreach -1` (diagnostic) skips every one.
+91), and a lamp too dim to reach the cutoff anywhere has no lookups at all. `shadowreach -1`
+(diagnostic) skips every lookup.
 
-The same distance decides whether a cached face is on screen and earns an every-frame refresh, and a
-moving caster counts for a face only if it reaches into the cube of that half size around the lamp:
-a caster outside it only shadows receivers further out, which never look. Visible faces with a
+With a reach set, the same distance decides whether a cached face is on screen and earns an
+every-frame refresh, and a moving caster counts for a face only if it reaches into the cube of that
+half size around the lamp: a caster outside it only shadows receivers further out, which never look. Visible faces with a
 moving player in them refresh every frame, nearest first, up to `mirv_relight actorshadows <n>`
 (48).
 

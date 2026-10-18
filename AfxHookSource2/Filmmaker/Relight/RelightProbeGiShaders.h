@@ -153,6 +153,7 @@ float CubeShadowVisibility(Light light,float3 p) {
         float4 rect=light.row[23+face];
         float2 atlas=uv/a[k]*(1/1.111111111)*rect.zw+rect.xy; // the face record's narrowed NDC
         float depth=light.row[22].y+light.row[22].z/a[k];
+        if(depth<=0)continue; // inside the face's near plane its face record was culled
         visibility+=w[k]*shadowAtlas.SampleCmpLevelZero(shadowSampler,atlas,depth-.001);
     }
     return visibility;

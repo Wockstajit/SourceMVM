@@ -100,12 +100,13 @@ int main(int argc,char** argv){
         td.BindFlags=0;td.Usage=D3D11_USAGE_STAGING;td.CPUAccessFlags=D3D11_CPU_ACCESS_READ;Check(SUCCEEDED(device->CreateTexture2D(&td,nullptr,&staging)),"Face readback");
         auto vsCode=compile("float4 Main(uint id:SV_VertexID):SV_Position{return float4(id==2?3:-1,id==1?3:-1,.5,1);}","vs_5_0");ComPtr<ID3D11VertexShader> vs;
         Check(SUCCEEDED(device->CreateVertexShader(vsCode->GetBufferPointer(),vsCode->GetBufferSize(),nullptr,&vs)),"Face vertex");
-        unsigned checked=0,seams=0;uint32_t seed=12345;auto random=[&]{seed=seed*1664525u+1013904223u;return float(seed>>8)/16777216.f*2-1;};
+        unsigned checked=0,seams=0,nearCulled=0;uint32_t seed=12345;auto random=[&]{seed=seed*1664525u+1013904223u;return float(seed>>8)/16777216.f*2-1;};
         for(unsigned test=0;test<600;++test){
             float d[3]{random()*600,random()*600,random()*600};
             if(test%3==0){d[test%2]=d[2]*(test%4?1.02f:.97f);}  // near a seam between two faces
             if(test%7==0){d[0]=d[1]=d[2]*(test%2?1.01f:-1.01f);} // near a corner
-            if(std::abs(d[0])+std::abs(d[1])+std::abs(d[2])<20)continue;
+            if(test%5==0){const float scale=(4+float(test%13))/600;d[0]*=scale;d[1]*=scale;d[2]*=scale;} // around the near plane (8)
+            if(std::abs(d[0])+std::abs(d[1])+std::abs(d[2])<1)continue;
             const float p[3]{light.position.x+d[0],light.position.y+d[1],light.position.z+d[2]};
             auto rowDot=[&](const Filmmaker::Relight::LightRecord& rec,unsigned row){return rec[4*row]*p[0]+rec[4*row+1]*p[1]+rec[4*row+2]*p[2]+rec[4*row+3];};
             const float w=rowDot(cube,3);
@@ -122,16 +123,19 @@ int main(int argc,char** argv){
                 const float expectWeight=k==0?weights.x:k==1?weights.y:weights.z;
                 if(!(expectWeight>0)){Check(got[3]==0,"A face without blend weight is skipped");continue;}
                 const auto& face=faces[2*k+(d[k]<0?1:0)];
+                // The kernel rebuilds the offset from box NDC (float steps of ~1e-7 of the box size), so close to
+                // the light depth (slope near / w^2) carries up to ~3e-4 * near / w^2 of rounding.
                 const float fw=rowDot(face,3),ndcX=rowDot(face,0)/fw,ndcY=rowDot(face,1)/fw,depth=rowDot(face,2)/fw;
+                if(!(depth>0)){Check(got[3]==0,"Inside a face's near plane the face gives nothing, as its culled face record did");++nearCulled;continue;}
                 const float centerX=face[52]+ndcX*face[54],centerY=face[53]+ndcY*face[55];
-                const bool ok=std::abs(got[0]-centerX)<=2e-6f&&std::abs(got[1]-centerY)<=2e-6f&&std::abs(got[2]-depth)<=2e-6f&&std::abs(got[3]-expectWeight)<=1e-5f;
+                const bool ok=std::abs(got[0]-centerX)<=2e-6f&&std::abs(got[1]-centerY)<=2e-6f&&std::abs(got[2]-depth)<=2e-6f+3e-3f/(fw*fw)&&std::abs(got[3]-expectWeight)<=1e-5f+2e-3f/(std::max)({std::abs(d[0]),std::abs(d[1]),std::abs(d[2])});
                 if(!ok)std::cerr<<"cube face k="<<k<<" d=("<<d[0]<<","<<d[1]<<","<<d[2]<<") got "<<got[0]<<","<<got[1]<<","<<got[2]<<","<<got[3]<<" want "<<centerX<<","<<centerY<<","<<depth<<","<<expectWeight<<'\n';
                 Check(ok,"The cube record finds each face's atlas position, depth and blend weight as its face record does");
                 ++checked;if(expectWeight<.999f)++seams;
             }
         }
-        Check(checked>500&&seams>50,"Faces and seams exercised");
-        std::cout<<checked<<" cube faces ("<<seams<<" blended at a seam or corner) match their face records\n";
+        Check(checked>500&&seams>50&&nearCulled>10,"Faces, seams and near planes exercised");
+        std::cout<<checked<<" cube faces ("<<seams<<" blended at a seam or corner) match their face records, "<<nearCulled<<" inside a near plane give nothing\n";
     }
     auto base=compile("cbuffer P:register(b0){float4 p;} Texture2D<float> t:register(t6);SamplerComparisonState s:register(s6);float4 Main(float4 v:SV_Position,uint sample:SV_SampleIndex):SV_Target{return t.SampleCmpLevelZero(s,p.xy+v.xy*p.w,p.z+sample*.000001);}","ps_5_0");
     auto make=[&](bool classify,float width,float height,NativeLampPyramid pyramid){

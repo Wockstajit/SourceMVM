@@ -275,8 +275,10 @@ inline void NativeLampCubePrologue(Relight::IrradianceDxbc::Words& out,const Nat
     const Relight::IrradianceDxbc::Words& ndc,const Relight::IrradianceDxbc::Words& depth,unsigned scratch) {
     NativeLampCubeOffset(out,r,ndc,depth);NativeLampCubeWeights(out,r,scratch);
 }
-// Face accumulator.y (0-2, an integer axis) of a cube record: gate = its weight > 0; then the
-// face's record NDC (as its face record computes it), its depth in `depth`, its rect in r.rect
+// Face accumulator.y (0-2, an integer axis) of a cube record: gate = its weight > 0 and its depth
+// > 0 (a receiver inside the face's near plane gets nothing from it, as the shipped loop culled the
+// face record there); then the face's record NDC (as its face record computes it), its depth in
+// `depth`, its rect in r.rect
 // (loaded with `load`, the record row load re-pointed at row 23 + face), and its weight.
 // `scratch` holds four lanes, `select` two.
 template<class Load>
@@ -291,7 +293,12 @@ inline void NativeLampCubeFace(Relight::IrradianceDxbc::Words& out,const NativeL
     Emit(out,55,{Dest(weight,1),Temp(scratch,0),Temp(r.weights,0),Temp(weight,0)});
     Emit(out,55,{Dest(scratch,4),Temp(scratch,0x55),Temp(r.offset,0x55),Temp(r.offset,0xaa)});
     Emit(out,55,{Dest(scratch,4),Temp(scratch,0),Temp(r.offset,0),Temp(scratch,0xaa)});    // scratch.z = offset[k]
+    Emit(out,52,{Dest(depth,2),Temp(scratch,0xaa),negated(Temp(scratch,0xaa))});            // depth.y = |offset[k]|
+    Emit(out,14,{Dest(depth,1),Temp(r.row,170),Temp(depth,0x55)});
+    Emit(out,0,{Dest(depth,1),Temp(depth,0),Temp(r.row,0x55)});
     Emit(out,49,{Dest(gate,1),Literal(0,0,0,0),Temp(weight,0)});
+    Emit(out,49,{Dest(gate,2),Literal(0,0,0,0),Temp(depth,0)});
+    Emit(out,1,{Dest(gate,1),Temp(gate,0),Temp(gate,0x55)});
     Emit(out,0x4001f,{Temp(gate,0)});
     // face = 2k + (offset[k] < 0); u = (k==0 ? y : x) * (k==1 ? -s : s); v = (k==2 ? y : z).
     Emit(out,49,{Dest(scratch,8),Temp(scratch,0xaa),Literal(0,0,0,0)});
@@ -305,8 +312,6 @@ inline void NativeLampCubeFace(Relight::IrradianceDxbc::Words& out,const NativeL
     Emit(out,14,{Dest(faceNdc,3),Temp(faceNdc),Temp(faceNdc,0xaa)});
     constexpr float narrow=1/Relight::ShadowFaceBlendWidth; // record NDC, as ToShadowedRecord's GuardFace
     Emit(out,56,{Dest(faceNdc,3),Temp(faceNdc),Literal(narrow,narrow,narrow,narrow)});
-    Emit(out,14,{Dest(depth,1),Temp(r.row,170),Temp(faceNdc,0xaa)});
-    Emit(out,0,{Dest(depth,1),Temp(depth,0),Temp(r.row,0x55)});
     Emit(out,1,{Dest(scratch,1),Temp(scratch,255),integer(1)});
     Emit(out,41,{Dest(scratch,2),Temp(r.accumulator,0x55),integer(1)});
     Emit(out,30,{Dest(scratch,1),Temp(scratch,0),Temp(scratch,0x55)});                      // face

@@ -189,11 +189,11 @@ struct Scene {
     // the radiance cutoff the light clusters use.
     float visibleRadiance = 0;
     // Shadow reach (RelightClusterMath.h, ShadowReachDepth): a lamp's shadows stop where the lamp
-    // changes a dark pixel by fewer than this many display steps; past it the lamp lights
-    // unshadowed (at most that faint through a wall) and its faces need no refresh. Never inside
-    // `reach`: at the same 4 steps the shadows end where the light itself is no longer drawn,
-    // so the picture is unchanged. 0 = off.
-    float shadowReach = 4;
+    // changes a dark mid-grey pixel by fewer than this many display steps; past it the lamp lights
+    // unshadowed and its faces need no refresh. Off by default: the estimate is diffuse, and at
+    // night a dim lamp's specular highlight on a wet floor past it showed where it should have
+    // been shadowed, even at 4 (de_ancient A site, 2026-10-18). 0 = off.
+    float shadowReach = 0;
     // Per frame, like visibleRadiance: the radiance at the shadow reach (0 = off or unknown).
     float shadowRadiance = 0;
     // One record per shadowed omni light (ToCubeShadowRecord) instead of six face records; the

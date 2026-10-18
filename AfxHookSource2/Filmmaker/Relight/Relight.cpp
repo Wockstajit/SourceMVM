@@ -352,7 +352,7 @@ CON_COMMAND(mirv_relight,
                 "mirv_relight shadowbias <0-0.01>    normalized shadow receiver bias\n"
                 "mirv_relight suncascade <-1|0-3>    diagnostic: shade through one sun cascade only\n"
                 "mirv_relight reach <0-8>            light reach cutoff in display steps (4 default, 0 = authored ranges)\n"
-                "mirv_relight shadowreach <0-64>     lamp shadows stop below this many display steps (4 default, 0 = everywhere, -1 = none)\n"
+                "mirv_relight shadowreach <0-64>     lamp shadows stop below this many display steps (0 = everywhere, the default; -1 = none)\n"
                 "mirv_relight cuberecords 0|1        one light record per shadowed lamp (1) or six face records (0); same picture\n"
                 "mirv_relight skyocclusion <0-1>     runtime sky visibility on the ambient\n"
                 "mirv_relight reflections <0-2>      live reflection strength (0 off)\n"
