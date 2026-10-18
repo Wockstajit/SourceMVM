@@ -1301,6 +1301,12 @@ diagnostic switch (default 1) that restores the previous path for same-process c
 - `mirv_relight widecull 0|1`: the batched actor-triangle culling of the cached lamp faces also
   runs for the budgeted lamp faces and the four sun cascades. A face without a prepared batch
   still takes the original draw.
+- `mirv_relight slotstable 0|1`: a budgeted shadow light keeps the cache slot it had, and the
+  sun tiers are keyed by static geometry and props rather than by the first light's key. A
+  transient light (a molotov or muzzle light) entering the budget used to shift the other lights
+  to new slots, so every cached face and the whole-map sun tier redrew static geometry. On a
+  molotov loop the mean GPU frame fell from about 47 to 41 ms; the removed redraws reached 24 ms
+  in a single frame. Settled same-pose captures with and without it are identical.
 
 On the de_ancient loop at 2560x1351 with 4x MSAA, the mask fell from about 1.55 ms to under
 0.36 ms, lamp face refresh from about 2.6 ms to 2.2 ms and near lamps from about 1.3 ms to

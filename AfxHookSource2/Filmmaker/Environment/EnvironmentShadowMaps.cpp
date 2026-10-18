@@ -128,6 +128,8 @@ struct State {
     std::shared_ptr<const OcclusionMesh> world;
     std::map<const Mesh *, GpuMesh> props;
     uint64_t localKeys[4]{}, sunKey = 0, shelterKey = 0, nearSunKey = 0;
+    // Static geometry and props only: what a cached sun tier depends on, independent of lights.
+    uint64_t worldKey = 0;
     Constants constants{};
     bool ready = false;
     bool animate = false;
@@ -244,6 +246,7 @@ ComPtr<ID3D11Texture2D> mapStaticBase;
 constexpr unsigned StaticRefreshBatch=16;
 struct StaticScratch {ComPtr<ID3D11Texture2D> depth,transfer;ComPtr<ID3D11DepthStencilView> dsv;};
 std::array<StaticScratch,StaticRefreshBatch> mapStaticScratch;
+std::array<Vec3,Relight::ShadowBudgetLimit> mapSlotPositions{};std::array<float,Relight::ShadowBudgetLimit> mapSlotRanges{};unsigned mapSlotCount=0;
 bool EnsureStaticScratch(ID3D11Device* device){
     for(auto& scratch:mapStaticScratch){
         if(scratch.dsv&&scratch.transfer)continue;
@@ -506,6 +509,14 @@ bool DrawCached(ID3D11DeviceContext *ctx,const Frame &f,const Matrix &vp,
         if(!cache.valid||cache.geometry!=geometry||!cache.texture){
             // Refresh retained rigid depth even on static-only frames, and
             // initialize newly allocated caches before any pose reuses them.
+            std::optional<GpuProfile::Scope> redrawScope;
+            {static const unsigned sunRedraw=GpuProfile::PassId("shadows: static redraw (sun)"),lampRedraw=GpuProfile::PassId("shadows: static redraw (lamp)");
+             redrawScope.emplace(ctx,index>=24&&index<GustCacheBase?sunRedraw:lampRedraw);}
+            if(MvmDebugLog_Active()){static unsigned counts[64]{};static ULONGLONG last=0;++counts[unsigned(index)&63];
+                const auto now=GetTickCount64();if(now-last>=3000){last=now;char line[512]{};size_t at=0;
+                    for(unsigned k=0;k<64&&at<sizeof(line)-16;++k)if(counts[k])at+=sprintf_s(line+at,sizeof(line)-at,"%u:%u ",k,counts[k]);
+                    MvmDebugLog_LinefAlways("environment.shadow.redraw","per-slot static redraws in 3 s (slot:count; <24 lamp faces, 24-28 sun) %s invalid=%u",line,unsigned(!cache.valid));
+                    std::fill(std::begin(counts),std::end(counts),0u);}}
             Draw(ctx,f,vp,cache.view?cache.view.Get():environmentDsv,size);
             cache.geometry=geometry;cache.valid=true;
         }
@@ -538,7 +549,7 @@ struct PlayerMaskTarget {
 } playerMask;
 } // namespace
 void EndShadowMaps() { playerMask = PlayerMaskTarget{};mapBeamMatrices.clear();mapBeamFrame=Frame{};mapBeamFrameReady=false;mapBeamKey=0;mapBeamCount=0;ResetFoliageInputs();EndAnimatedCasters();state = State{};proofState=State{};proofContext.Reset();proofAtlas.Reset();proofAtlasView.Reset();proofSun.Reset();proofSunDepth.Reset();proofTransfer.Reset();mapAtlas.Reset();mapAtlasView.Reset();lampPyramid=LampPyramid{};mapSunTransfer.Reset();mapSunWorldBackup.Reset();mapSunViewmodelActive=false;
-    mapSunTexture.Reset();mapSunDepth.Reset();mapStaticDepth.Reset();mapStaticTransfer.Reset();mapStaticDsv.Reset();mapStaticBase.Reset();mapStaticScratch={};
+    mapSunTexture.Reset();mapSunDepth.Reset();mapStaticDepth.Reset();mapStaticTransfer.Reset();mapStaticDsv.Reset();mapStaticBase.Reset();mapStaticScratch={};mapSlotCount=0;
     mapStaticKey=0;mapStaticDone=0;mapStaticMatrices.clear();mapFaceDynamic.clear();mapFaceRefresh.clear();mapRefreshFrame=0;mapFoliageFaces.clear();mapFoliageDraws.clear();
     skyArray.Reset();skyDepth.Reset();skyDsv.Reset();skyArrayView.Reset();skyKey=0;skyDone=0;
     skyboxState=State{};skyboxSunTexture.Reset();skyboxSunDepth.Reset();skyboxSunView.Reset();skyboxSunReady=false; }
@@ -828,6 +839,7 @@ void PrepareShadowMaps(ID3D11DeviceContext *ctx, const Frame &f, bool viewmodel,
             it = state.props.erase(it);
         else
             ++it;
+    state.worldKey = key;
     unsigned draws = 0;
     int light = 0, slot = 0;
     for (const auto &o : f.scene.objects)
@@ -1171,7 +1183,23 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
             if(Relight::HasFixtureProjection(light)&&light.position.x==position.x&&light.position.y==position.y&&light.position.z==position.z)return &light;
         return nullptr;
     };
-    for(unsigned i=0;i<lights;++i){
+    // Budgeted lights keep the cache slot they had: a transient light entering at the front of the
+    // budget used to shift every other light to a new slot, and each slot's caches are keyed by
+    // the light in it, so all its faces and the sun tier redrew static geometry. order[slot] is the
+    // caller's index; outputs below go back to the caller's tiles.
+    std::array<unsigned,Relight::ShadowBudgetLimit> order{};
+    for(unsigned s=0;s<lights;++s)order[s]=s;
+    if(ShadowSlotStability.load(std::memory_order_relaxed)){
+        std::array<bool,Relight::ShadowBudgetLimit> taken{},filled{};
+        for(unsigned s=0;s<lights&&s<mapSlotCount;++s)for(unsigned i=0;i<lights;++i)
+            if(!taken[i]&&positions[i].x==mapSlotPositions[s].x&&positions[i].y==mapSlotPositions[s].y&&
+               positions[i].z==mapSlotPositions[s].z&&ranges[i]==mapSlotRanges[s]){order[s]=i;taken[i]=filled[s]=true;break;}
+        unsigned next=0;
+        for(unsigned s=0;s<lights;++s)if(!filled[s]){while(taken[next])++next;order[s]=next;taken[next]=true;}
+    }
+    for(unsigned s=0;s<lights;++s){mapSlotPositions[s]=positions[order[s]];mapSlotRanges[s]=ranges[order[s]];}
+    mapSlotCount=lights;
+    for(unsigned slot=0;slot<lights;++slot){const unsigned i=order[slot];
         Object lamp;lamp.kind="point";lamp.position=positions[i];
         if(const auto* source=projectedSource(positions[i])){lamp.kind="spot";lamp.angles=source->angles;}
         lamp.shadowNearClip=sourceNearClip(positions[i]);
@@ -1198,9 +1226,10 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
         // than sampling a tile nothing was ever drawn into.
         if(state.constants.light[light].x<0)break;
         const UINT first=UINT(state.constants.light[light].x);
-        const unsigned faces=projectedSource(positions[light])?1u:Relight::ShadowFaces;
+        const unsigned caller=order[light];
+        const unsigned faces=projectedSource(positions[caller])?1u:Relight::ShadowFaces;
         for(UINT face=0;face<faces;++face){
-            const unsigned tile=light*6+face;
+            const unsigned tile=caller*6+face;
             if(tile>=Relight::LocalColumns*Relight::LocalRows)break;
             matrices[tile]=state.constants.local[first+face];
             Relight::GuardFace(matrices[tile].data(),1/Relight::LocalFaceGuard);
@@ -1235,9 +1264,11 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
             PrepareAnimatedCasterCulling(ctx,cascadeMatrices.data(),4);
         }
         for(unsigned cascade=0;cascade<4;++cascade){const auto tile=tiles[cascade];
-            const auto hash=Hash(state.localKeys[0],matrices[tile].data(),sizeof(Matrix));
+            const auto hash=Hash(ShadowSlotStability.load(std::memory_order_relaxed)?state.worldKey:state.localKeys[0],matrices[tile].data(),sizeof(Matrix));
+            {GPU_PASS_SCOPE(ctx,"shadows: sun cascade draws");
             DrawCached(ctx,frame,matrices[tile],mapSunDepth.Get(),Relight::SunCascadeSize,24+cascade,hash,
-                       AnimatedCasterGeneration(),animated);
+                       AnimatedCasterGeneration(),animated);}
+            GPU_PASS_SCOPE(ctx,"shadows: sun cascade copies");
             ctx->OMSetRenderTargets(0,nullptr,nullptr);ctx->CopyResource(mapSunTransfer.Get(),mapSunTexture.Get());
             unsigned x=0,y=0,size=0;Relight::TileOrigin(tile,x,y,size);
             ctx->CopySubresourceRegion(mapAtlas.Get(),0,x,y,0,mapSunTransfer.Get(),0,nullptr);
@@ -1356,11 +1387,14 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
         PrepareAnimatedCasterCulling(ctx,cullMatrices.data(),count);
         if(batched){
             // The same copies and draws as below, issued phase by phase across the batch.
+            {GPU_PASS_SCOPE(ctx,"shadows: lamp refresh copies");
             for(unsigned j=0;j<count;++j)
-                ctx->CopySubresourceRegion(mapStaticScratch[j].depth.Get(),0,0,0,0,mapStaticBase.Get(),selected[batch+j],nullptr);
+                ctx->CopySubresourceRegion(mapStaticScratch[j].depth.Get(),0,0,0,0,mapStaticBase.Get(),selected[batch+j],nullptr);}
+            {GPU_PASS_SCOPE(ctx,"shadows: lamp refresh draws");
             for(unsigned j=0;j<count;++j){const unsigned i=selected[batch+j];
-                if(faceDynamic[i])Draw(ctx,frame,mapStaticMatrices[i],mapStaticScratch[j].dsv.Get(),Relight::StaticSize,true,AnimatedCasterSubset::All,true,&mapFoliageDraws[i]);}
+                if(faceDynamic[i])Draw(ctx,frame,mapStaticMatrices[i],mapStaticScratch[j].dsv.Get(),Relight::StaticSize,true,AnimatedCasterSubset::All,true,&mapFoliageDraws[i]);}}
             ctx->OMSetRenderTargets(0,nullptr,nullptr);
+            GPU_PASS_SCOPE(ctx,"shadows: lamp refresh copies");
             for(unsigned j=0;j<count;++j)ctx->CopyResource(mapStaticScratch[j].transfer.Get(),mapStaticScratch[j].depth.Get());
             for(unsigned j=0;j<count;++j){const unsigned i=selected[batch+j];
                 unsigned x=0,y=0,size=0;Relight::TileOrigin(Relight::StaticTile+i,x,y,size);

@@ -6,6 +6,9 @@ namespace Filmmaker::Environment {
 // Diagnostic (mirv_relight facebatch): refresh a batch of cached lamp faces through one scratch
 // pair per face, so the GPU is not serialized copy -> draw -> copy on a single scratch pair.
 inline std::atomic<bool> ShadowFaceBatching{true};
+// Diagnostic (mirv_relight slotstable): budgeted lights keep their cache slot and the sun tier is
+// keyed by static geometry, so a reordered budget does not redraw every cached face.
+inline std::atomic<bool> ShadowSlotStability{true};
 void BeginShadowMaps(ID3D11Device *device);
 void EndShadowMaps();
 // Submit cached light-space depth maps using the environment's deferred context.
