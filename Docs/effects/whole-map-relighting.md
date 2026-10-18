@@ -1165,6 +1165,17 @@ hundreds of offsets, a third of them in a seam or corner, and require each face'
 depth and blend weight to match its face record; with the captured programs it also requires every
 lamp kernel to take cube records.
 
+Open difference (2026-10-18): cube records are not yet the same picture everywhere. In the lamp
+corridor at (-520, 330, 200), angles (8, 80), tick 18010, cube and face records differ above capture
+noise by day and at night (0.17% of pixels more than eight levels apart, against 0.04% between two
+captures of the same setting). Lamp shadow edges near the lamps shift by a few pixels and some
+surfaces beside them take slightly more shadow. With every lookup skipped (`shadowreach -1`) the two
+forms match, and with the summary off (`lampsummary 0`) they still differ, so the difference is in the
+cube form's face lookups. A ten times larger `shadowbias` removes most of it, which points at the
+compare depth and position the kernel rebuilds for some world materials. Float rounding of the
+rebuilt offset is ruled out (both forms land within 1e-5 of the exact depth, against a 2e-4 bias).
+The A-site view matched to noise. `cuberecords 0` gives the previous picture.
+
 ### Shadow reach
 
 `mirv_relight shadowreach <0-64>` stops a lamp's shadows where the lamp changes a dark mid-grey
