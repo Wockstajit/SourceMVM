@@ -16,6 +16,8 @@
 #include "EnvironmentStorm.h"
 #include "EnvironmentRayProbe.h"
 #include "../Debug/MvmDebugLog.h"
+#include "../Debug/GpuPassProfiler.h"
+#include <optional>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
 #include <map>
@@ -916,15 +918,18 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     }
     // The native pass/depth identity, not distance from the camera, identifies
     // first-person receivers. Prepare their environment-only shadow layer.
-    PrepareShadowMaps(ctx, f, BindViewmodel(ctx,depthTexture.Get()));
+    {GPU_PASS_SCOPE(ctx, "composite: shadow maps");
+     PrepareShadowMaps(ctx, f, BindViewmodel(ctx,depthTexture.Get()));}
     ctx->ClearState();
     // Which pixels are a person: every coating (snow, wet film, rain impacts) stays off them.
     const bool coating = climate[CL_snow] > 0 || climate[CL_wet] > 0 || climate[CL_puddles] > 0 ||
                          (w.type == 1 && w.count > 0);
-    const bool playerMask = coating && PreparePlayerMask(ctx, c.vp, td.Width, td.Height, reversed);
+    bool playerMask = false;
+    if (coating) {GPU_PASS_SCOPE(ctx, "composite: player mask");
+     playerMask = PreparePlayerMask(ctx, c.vp, td.Width, td.Height, reversed);}
     c.coatingActorCount.y = playerMask ? 1.f : 0.f;
     ctx->ClearState();
-    PrepareGi(ctx, f);
+    {GPU_PASS_SCOPE(ctx, "composite: world GI");PrepareGi(ctx, f);}
     ctx->ClearState();
     if (measure) ctx->End(g.timingStages[0].Get());
     BindShadowMaps(ctx);
@@ -982,6 +987,8 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     ctx->VSSetShader(g.screenVS.Get(), nullptr, 0);
     // The sample-frequency shader used to repeat this identical eight-depth test for every
     // covered sample. A single-sample R8 mask preserves its exact decision for both passes.
+    std::optional<GpuProfile::Scope> atmosphereScope;
+    {static const unsigned pass=GpuProfile::PassId("composite: atmosphere surfaces");atmosphereScope.emplace(ctx,pass);}
     if(c.lighting.z>.5f){
         auto edgeTarget=g.atmosphereEdgesRtv.Get();ctx->OMSetRenderTargets(1,&edgeTarget,nullptr);
         ctx->PSSetShader(g.atmosphereEdgePS.Get(),nullptr,0);ctx->Draw(3,0);
@@ -1001,6 +1008,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     }
     ctx->PSSetShader(g.atmospherePS[ms + (td.SampleDesc.Count > 1 ? 2 : 0)].Get(), nullptr, 0);
     ctx->Draw(3, 0);
+    atmosphereScope.reset();
     if (measure) ctx->End(g.timingStages[1].Get());
     ctx->OMSetRenderTargets(1, &workingTarget, g.propDsv.Get());
     ctx->OMSetDepthStencilState(g.depth[reversed ? 1 : 0].Get(), 0);
@@ -1008,6 +1016,8 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     ctx->VSSetShader(g.meshVS.Get(), nullptr, 0);
     auto materialSampler=g.materialSampler.Get();ctx->PSSetSamplers(4,1,&materialSampler);
     UINT stride = sizeof(Vertex), offset = 0;
+    std::optional<GpuProfile::Scope> propScope;
+    {static const unsigned pass=GpuProfile::PassId("composite: props");propScope.emplace(ctx,pass);}
     for (auto &o : f.scene.objects)
         if (!f.nativeLightingPass && o.enabled && !o.IsLight() && o.mesh && o.cameraVisible) {
             ctx->PSSetShader((o.material.enabled?g.materialMeshPS[variant]:g.meshPS[variant]).Get(),nullptr,0);
@@ -1051,6 +1061,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
             ctx->UpdateSubresource(g.objectConstants.Get(), 0, nullptr, &oc, 0, 0);
             ctx->Draw(UINT(o.mesh->vertices.size()), 0);
         }
+    propScope.reset();
     ctx->OMSetRenderTargets(1, &workingTarget, nullptr);
     ctx->OMSetDepthStencilState(g.noDepth.Get(), 0);
     ctx->IASetInputLayout(nullptr);
@@ -1061,6 +1072,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     const bool markWeather = measure && precipitating;
     if (measure) g.timingWeatherUsed = markWeather;
     if (w.type && w.count) {
+        GPU_PASS_SCOPE(ctx, "composite: precipitation");
         ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
         // Particles test the roof and take their light once per particle in the vertex shader, so
         // it sees what the pixel stage sees: the shadow constants, shelter, sun maps and scene color.
@@ -1099,6 +1111,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         }
     }
     if (volumes) {
+        GPU_PASS_SCOPE(ctx, "composite: fog volumes");
         ctx->OMSetBlendState(g.opaque.Get(), blend, 0xffffffff);
         ctx->VSSetShader(g.screenVS.Get(), nullptr, 0);
         ID3D11ShaderResourceView *noSkyVolume=nullptr;
@@ -1139,6 +1152,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         ctx->Draw(3, 0);
     }
     if(storm.flash>0){
+        GPU_PASS_SCOPE(ctx, "composite: storm");
         ctx->OMSetRenderTargets(1,&workingTarget,nullptr);
         ctx->OMSetBlendState(g.alpha.Get(),blend,0xffffffff);
         ctx->VSSetShader(g.stormVS.Get(),nullptr,0);
@@ -1149,6 +1163,8 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     ID3D11ShaderResourceView *none[9] = {};
     ctx->PSSetShaderResources(0, 9, none);
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    std::optional<GpuProfile::Scope> blitScope;
+    {static const unsigned pass=GpuProfile::PassId("composite: final copy");blitScope.emplace(ctx,pass);}
     ctx->CopyResource(g.color.Get(), g.working.Get());
     ctx->OMSetRenderTargets(1, &displayTarget, nullptr);
     ctx->OMSetBlendState(g.opaque.Get(), blend, 0xffffffff);
@@ -1158,6 +1174,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
 
     ctx->PSSetShaderResources(0, 1, &finalColor);
     ctx->Draw(3, 0);
+    blitScope.reset();
     ctx->ClearState();
     if (measure) {
         ctx->End(g.timingEnd.Get());
@@ -1168,7 +1185,8 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         SetRenderStatus("Could not submit environment frame");
         return false;
     }
-    immediate->ExecuteCommandList(commands.Get(), TRUE);
+    {GPU_PASS_SCOPE(immediate, "environment composite (total)");
+     immediate->ExecuteCommandList(commands.Get(), TRUE);}
     if (measure) {
         g.timingPending = true;
         g.timingSettings = {climate[CL_worldGi], climate[CL_bounce], climate[CL_sceneReflections],

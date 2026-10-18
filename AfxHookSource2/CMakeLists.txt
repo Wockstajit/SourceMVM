@@ -927,6 +927,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Cosmetics/CosmeticDebugEvents.cpp
     Filmmaker/Debug/MvmDebugLog.cpp
     Filmmaker/Debug/MvmDebugLog.h
+    Filmmaker/Debug/GpuPassProfiler.cpp
+    Filmmaker/Debug/GpuPassProfiler.h
+    Filmmaker/Debug/GpuPassProfileMath.h
     Filmmaker/Cosmetics/CosmeticGloveLabels.cpp
     Filmmaker/Cosmetics/CosmeticGloveLabels.h
     Filmmaker/Cosmetics/CosmeticGloveSkinTable.cpp

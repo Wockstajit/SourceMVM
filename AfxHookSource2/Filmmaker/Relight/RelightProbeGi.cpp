@@ -4,6 +4,7 @@
 #include "../Environment/EnvironmentShadowMaps.h"
 #include "../Environment/EnvironmentShaderCompiler.h"
 #include "../Debug/MvmDebugLog.h"
+#include "../Debug/GpuPassProfiler.h"
 #include <d3dcompiler.h>
 #include <wrl/client.h>
 #include <algorithm>
@@ -36,12 +37,6 @@ struct Volume {
     ComPtr<ID3D11UnorderedAccessView> uav;
 };
 struct Constants {ProbeRow lowSize,grid,giLowSize,giInfo,sky,ground,staticOffset,staticDims,probeInfo,shift,voxelTarget,voxelDims,reflection,visibleInfo,reflectionHistory;};
-struct GiTiming {
-    ComPtr<ID3D11Query> disjoint;
-    std::array<ComPtr<ID3D11Query>,6> stamp;
-    ULONGLONG last=0;
-    bool active=false,pending=false;
-};
 constexpr UINT ReflectionSize=GiReflectionSize;
 struct State {
     ComPtr<ID3D11Device> device;
@@ -79,41 +74,7 @@ struct State {
     uint64_t frame=~0ull,visibleFrame=~0ull,recordsKey=0;UINT recordCount=0;
     std::vector<LightRecord> uploadedRecords;
     bool ready=false,initialized=false,failed=false;
-    GiTiming timing,visibleTiming;
 } state;
-void PollGiTiming(ID3D11DeviceContext* immediate,GiTiming& t=state.timing,bool visible=false) {
-    if(!t.pending)return;
-    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT frequency{};
-    if(immediate->GetData(t.disjoint.Get(),&frequency,sizeof(frequency),D3D11_ASYNC_GETDATA_DONOTFLUSH)!=S_OK)return;
-    if(frequency.Disjoint||!frequency.Frequency){t.pending=false;return;}
-    std::array<UINT64,6> stamps{};
-    for(unsigned i=0;i<stamps.size();++i)
-        if(immediate->GetData(t.stamp[i].Get(),&stamps[i],sizeof(stamps[i]),D3D11_ASYNC_GETDATA_DONOTFLUSH)!=S_OK)return;
-    auto ms=[&](unsigned i){return stamps[i+1]>=stamps[i]?double(stamps[i+1]-stamps[i])*1000/frequency.Frequency:0;};
-    if(visible&&MvmDebugLog_Active())MvmDebugLog_LinefAlways("relight.probe.gi.visible.gpu",
-        "maskMs=%.3f totalMs=%.3f",ms(0),ms(0));
-    else if(MvmDebugLog_Active())MvmDebugLog_LinefAlways("relight.probe.gi.gpu",
-        "setupMs=%.3f injectionMs=%.3f traceMs=%.3f compositionMs=%.3f reflectionsMs=%.3f totalMs=%.3f",
-        ms(0),ms(1),ms(2),ms(3),ms(4),ms(0)+ms(1)+ms(2)+ms(3)+ms(4));
-    t.pending=false;
-}
-void BeginGiTiming(ID3D11DeviceContext* work,GiTiming& t=state.timing) {
-    t.active=false;
-    if(!MvmDebugLog_Active()||t.pending||GetTickCount64()-t.last<3000)return;
-    if(!t.disjoint){
-        GiTiming created;D3D11_QUERY_DESC d{D3D11_QUERY_TIMESTAMP,0};
-        for(auto& stamp:created.stamp)if(FAILED(state.device->CreateQuery(&d,&stamp)))return;
-        d.Query=D3D11_QUERY_TIMESTAMP_DISJOINT;
-        if(FAILED(state.device->CreateQuery(&d,&created.disjoint)))return;
-        t=std::move(created);
-    }
-    t.last=GetTickCount64();t.active=true;work->Begin(t.disjoint.Get());work->End(t.stamp[0].Get());
-}
-void StampGiTiming(ID3D11DeviceContext* work,unsigned stage,GiTiming& t=state.timing) {
-    if(!t.active)return;
-    work->End(t.stamp[stage].Get());
-    if(stage==5){work->End(t.disjoint.Get());t.active=false;}
-}
 bool Buffer(UINT size,UINT bind,ComPtr<ID3D11Buffer>& out,const void* data=nullptr,UINT stride=0) {
     D3D11_BUFFER_DESC d{};d.ByteWidth=size;d.BindFlags=bind;d.Usage=data?D3D11_USAGE_IMMUTABLE:D3D11_USAGE_DEFAULT;
     d.StructureByteStride=stride;d.MiscFlags=stride?D3D11_RESOURCE_MISC_BUFFER_STRUCTURED:0;
@@ -377,7 +338,7 @@ void MarkVisibleProbeGi(ID3D11DeviceContext* immediate,
     if(!state.ready||state.frame!=frame||!positions||!width||!height)return;
     if(state.stableTransportFrames>=StableTransportFrames)return;
     if(state.visibleFrame==frame)return;
-    auto work=state.work.Get();work->ClearState();BeginGiTiming(work,state.visibleTiming);
+    auto work=state.work.Get();work->ClearState();
     const auto saved=state.constants;
     state.constants.visibleInfo={float(width),float(height),2,0};
     state.constants.ground[1]=4;Upload(work);
@@ -389,18 +350,17 @@ void MarkVisibleProbeGi(ID3D11DeviceContext* immediate,
     auto listOutput=state.visibleListUav.Get();work->CSSetUnorderedAccessViews(7,1,&listOutput,nullptr);
     work->CSSetShaderResources(16,1,&positions);
     auto mask=state.visibleMask.uav.Get();work->CSSetUnorderedAccessViews(0,1,&mask,nullptr);
-    work->CSSetShader(state.markVisible.Get(),nullptr,0);work->Dispatch((width+15)/16,(height+15)/16,1);
-    Unbind(work);
+    work->CSSetShader(state.markVisible.Get(),nullptr,0);
     const D3D11_BOX dispatchBox{0,0,0,12,1,1};
-    work->CopySubresourceRegion(state.visibleDispatch.Get(),0,0,0,0,state.visibleList.Get(),0,&dispatchBox);
-    StampGiTiming(work,1,state.visibleTiming);
+    {GPU_PASS_SCOPE(work,"gi: visible probe mask");
+     work->Dispatch((width+15)/16,(height+15)/16,1);
+     Unbind(work);
+     work->CopySubresourceRegion(state.visibleDispatch.Get(),0,0,0,0,state.visibleList.Get(),0,&dispatchBox);}
     // Retain the receiver list for the next PrepareProbeGi. Never mutate transport,
     // visibility or normalization while native materials are consuming this frame.
-    for(unsigned stamp=2;stamp<6;++stamp)StampGiTiming(work,stamp,state.visibleTiming);
-    const bool timed=state.visibleTiming.active;
     state.constants=saved;Upload(work);
     ComPtr<ID3D11CommandList> list;if(FAILED(work->FinishCommandList(FALSE,&list)))return;
-    immediate->ExecuteCommandList(list.Get(),TRUE);state.visibleFrame=frame;state.visibleTiming.pending|=timed;
+    immediate->ExecuteCommandList(list.Get(),TRUE);state.visibleFrame=frame;
     if(MvmDebugLog_Active()){static ULONGLONG last=0;const auto now=GetTickCount64();if(now-last>3000){last=now;
         MvmDebugLog_LinefAlways("relight.probe.gi.visible","frame=%llu depth=%ux%u stride=2 priority=next-frame region=(%.0f %.0f %.0f)",
             frame,width,height,state.region.low.x,state.region.low.y,state.region.low.z);}}
@@ -414,7 +374,6 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
     if(!world||records.empty()||!Initialize()||!StaticGeometry(world,immediate))return {};
     if(state.frame!=frame) {
         state.frame=frame;
-        PollGiTiming(immediate);PollGiTiming(immediate,state.visibleTiming,true);
         auto work=state.work.Get();
         if(state.staticDone<state.staticTriangles){
             const UINT count=(std::min)(StaticTrianglesPerFrame,state.staticTriangles-state.staticDone);
@@ -434,7 +393,8 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
                 state.staticVertices.Reset();state.staticIndices.Reset();state.staticAlbedo.Reset();state.staticAlbedoSrv.Reset();
                 if(MvmDebugLog_Active())MvmDebugLog_LinefAlways("relight.probe.gi","static voxelization complete triangles=%u",state.staticTriangles);
             }
-            ComPtr<ID3D11CommandList> commands;if(SUCCEEDED(work->FinishCommandList(FALSE,&commands)))immediate->ExecuteCommandList(commands.Get(),TRUE);
+            ComPtr<ID3D11CommandList> commands;
+            if(SUCCEEDED(work->FinishCommandList(FALSE,&commands))){GPU_PASS_SCOPE(immediate,"gi: static voxelization");immediate->ExecuteCommandList(commands.Get(),TRUE);}
             return {};
         }
         // Region: follows the camera in whole-probe steps; the history moves with it.
@@ -482,7 +442,8 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
                 auto distances=state.distance[state.current].srv.Get();work->CSSetShaderResources(15,1,&distances);
                 auto movedDistance=state.distance[1-state.current].uav.Get();work->CSSetUnorderedAccessViews(3,1,&movedDistance,nullptr);
                 auto output=state.history[1-state.current].uav.Get();work->CSSetUnorderedAccessViews(4,1,&output,nullptr);
-                work->CSSetShader(state.shift.Get(),nullptr,0);work->Dispatch(Probes/8,Probes/8,Probes*6);
+                work->CSSetShader(state.shift.Get(),nullptr,0);
+                {GPU_PASS_SCOPE(work,"gi: region shift");work->Dispatch(Probes/8,Probes/8,Probes*6);}
                 Unbind(work);state.current=1-state.current;
             }else{
                 const float unknown[4]{0,0,0,-1};work->ClearUnorderedAccessViewFloat(state.history[state.current].uav.Get(),unknown);
@@ -511,10 +472,8 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
         const auto capture=state.reflectionOrigin;
         state.constants.reflection={capture.x,capture.y,capture.z,float(ReflectionSize)};
         Upload(work);
-        BeginGiTiming(work);
         // Indirect occupancy belongs to the static map. Animated bodies and weapons
         // crossing coarse cells must not change probe visibility or the reflection capture.
-        StampGiTiming(work,1);
         auto cb=state.params.Get();work->CSSetConstantBuffers(0,1,&cb);
         auto sampler=state.sampler.Get();work->CSSetSamplers(0,1,&sampler);work->CSSetSamplers(1,1,&comparison);
         // Each iteration injects the preceding probe solution and traces another
@@ -537,13 +496,14 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
             ID3D11UnorderedAccessView* uavs[]{state.radiance.uav.Get(),state.direction.uav.Get()};
             auto backOutput=state.backRadiance.uav.Get();work->CSSetUnorderedAccessViews(6,1,&backOutput,nullptr);
             work->CSSetUnorderedAccessViews(1,2,uavs,nullptr);work->CSSetShader(state.inject.Get(),nullptr,0);
+            GPU_PASS_SCOPE(work,"gi: inject");
             work->Dispatch(Voxels/8,Voxels/8,Voxels);
             Unbind(work);
             // Surface rays share exact-cell occupancy and face radiance. Roughness
             // filtering belongs to the reflection cube's mip chain, not wall opacity.
         }
-        if(bounceStep+1==bounceSteps)StampGiTiming(work,2);
         {
+            GPU_PASS_SCOPE(work,"gi: trace");
             work->CSSetConstantBuffers(0,1,&cb);work->CSSetSamplers(0,1,&sampler);
             // Ping-pong: untraced slices carry over by copy, traced ones blend old (SRV) into new (UAV).
             const UINT next=1-state.current;
@@ -574,8 +534,8 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
             Unbind(work);state.current=next;
         }
         }
-        StampGiTiming(work,3);
         {
+            GPU_PASS_SCOPE(work,"gi: compose");
             work->CSSetConstantBuffers(0,1,&cb);
             auto input=state.history[state.current].srv.Get();work->CSSetShaderResources(5,1,&input);
             // The filter follows the same relocated origins as tracing and visibility.
@@ -588,8 +548,8 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
             // Diagnostic 3: the traced volume's layout and bindings with constant contents.
             if(scene.probeCheck==3){const float constant[4]{.5f,.5f,.5f,1};work->ClearUnorderedAccessViewFloat(state.composed.uav.Get(),constant);}
         }
-        StampGiTiming(work,4);
         if(scene.reflections>0){
+            GPU_PASS_SCOPE(work,"gi: reflection capture");
             // A retained capture point keeps voxel silhouettes and ambient normalization
             // stable during walking. Authored light edits still enter this frame.
             work->CSSetConstantBuffers(0,1,&cb);work->CSSetSamplers(0,1,&sampler);
@@ -611,10 +571,8 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
             ID3D11ShaderResourceView* none=nullptr;work->CSSetShaderResources(13,1,&none);
             Unbind(work);
         }
-        const bool timed=state.timing.active;StampGiTiming(work,5);
         ComPtr<ID3D11CommandList> commands;if(FAILED(work->FinishCommandList(FALSE,&commands)))return {};
-        immediate->ExecuteCommandList(commands.Get(),TRUE);
-        state.timing.pending=state.timing.pending||timed;
+        {GPU_PASS_SCOPE(immediate,"gi (probe pass, total)");immediate->ExecuteCommandList(commands.Get(),TRUE);}
         // All exposed probes are traced on their first frame, including a camera cut.
         // Publish the complete first field immediately; never display unknown border cells.
         if(!state.ready){state.ready=true;

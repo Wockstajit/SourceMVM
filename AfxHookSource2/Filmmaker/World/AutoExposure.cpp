@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "AutoExposure.h"
+#include "../Debug/GpuPassProfiler.h"
 #include "AutoExposureMath.h"
 
 #include "../Debug/MvmDebugLog.h"
@@ -160,6 +161,7 @@ ID3D11ShaderResourceView* SceneView(ID3D11DeviceContext* ctx, ID3D11Texture2D* s
         MvmDebugLog_LinefAlways("world.autoexposure", "scene %ux%u fmt=%d samples=%u path=%s",
             desc.Width, desc.Height, int(desc.Format), desc.SampleDesc.Count, direct ? "direct" : "resolve");
     }
+    GPU_PASS_SCOPE(ctx, "auto exposure");
     if (g_render.resolved) {
         if (desc.SampleDesc.Count > 1) ctx->ResolveSubresource(g_render.resolved.Get(), 0, scene, 0, ViewFormat(desc.Format));
         else ctx->CopyResource(g_render.resolved.Get(), scene);

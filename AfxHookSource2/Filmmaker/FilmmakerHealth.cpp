@@ -3,6 +3,7 @@
 #include "Filmmaker.h"                      // PumpStatus, Library
 #include "Demo/DemoLibrary.h"               // DemoLibrary::Snapshot / IsScanning
 #include "Debug/MvmDebugLog.h"     // MvmDebugLog_*
+#include "Debug/GpuPassProfiler.h"  // the hook's own GPU passes, while profiling
 #include "Cosmetics/CosmeticOverrideSystem.h"
 #include "Movie/ParticleFx.h"
 #include "Config/EffectsPersistence.h" // SceneActive: the particle hook waits for a demo
@@ -103,6 +104,7 @@ void Filmmaker_RunHealthCommand(int argc, advancedfx::ICommandArgs* args, const 
 			cost.drawHookMs, cost.draws, cost.drawNativeMs, cost.presentHookMs, cost.environmentMs);
 		advancedfx::Message("  hook cost ~20-frame average  : draw detours %.2f ms, present %.2f ms, environment %.2f ms\n",
 			cost.avgDrawHookMs, cost.avgPresentHookMs, cost.avgEnvironmentMs);
+		if (Filmmaker::GpuProfile::Enabled()) Filmmaker::GpuProfile::Print(16);
 		Filmmaker::RenderOwnedMemory_Print(8);
 		// Scaled workspace preview: every break since launch, by reason (VpScaleBreakMath.h). Each
 		// one is a numbered vpscale.break line in the mvm_debug log with the state it started in.

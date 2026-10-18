@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "LensFx.h"
+#include "../Debug/GpuPassProfiler.h"
 #include "LensFxShaders.h"
 
 #include "../Environment/EnvironmentShaderCompiler.h"
@@ -1000,7 +1001,7 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		g_status = "Could not submit lens frame";
 		return false;
 	}
-	immediate->ExecuteCommandList(list.Get(), TRUE);
+	{ GPU_PASS_SCOPE(immediate, "lens: depth of field, flare"); immediate->ExecuteCommandList(list.Get(), TRUE); }
 	g_frames.fetch_add(1);
 
 	// Diagnostics: while mvm_debug runs, read back where autofocus is sitting and say what was drawn.

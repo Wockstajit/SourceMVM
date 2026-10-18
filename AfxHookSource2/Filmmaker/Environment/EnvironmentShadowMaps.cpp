@@ -1,6 +1,7 @@
 #define NOMINMAX
 #include "EnvironmentShaderCompiler.h"
 #include "EnvironmentShadowMaps.h"
+#include "../Debug/GpuPassProfiler.h"
 #include "EnvironmentAnimatedCasters.h"
 #include "EnvironmentFoliage.h"
 #include "EnvironmentFoliageMath.h"
@@ -170,31 +171,6 @@ void RecordLampPyramid(ID3D11DeviceContext* ctx){
     if(cells&&MvmDebugLog_Active()){const auto now=GetTickCount64();if(now-p.logged>=3000){p.logged=now;
         MvmDebugLog_LinefAlways("environment.shadow.pyramid","updated cells=%u",cells);}}
 }
-struct ShadowTiming {
-    ComPtr<ID3D11Query> disjoint,start,end;
-    bool pending=false;ULONGLONG last=0;
-    bool Begin(ID3D11DeviceContext* ctx){
-        if(pending){
-            D3D11_QUERY_DATA_TIMESTAMP_DISJOINT d{};UINT64 a=0,b=0;
-            if(ctx->GetData(disjoint.Get(),&d,sizeof(d),D3D11_ASYNC_GETDATA_DONOTFLUSH)!=S_OK||
-               ctx->GetData(start.Get(),&a,sizeof(a),D3D11_ASYNC_GETDATA_DONOTFLUSH)!=S_OK||
-               ctx->GetData(end.Get(),&b,sizeof(b),D3D11_ASYNC_GETDATA_DONOTFLUSH)!=S_OK)return false;
-            if(!d.Disjoint&&d.Frequency&&b>=a)
-                MvmDebugLog_LinefAlways("environment.relight.shadow.gpu","mapShadowMs=%.3f",double(b-a)*1000/d.Frequency);
-            pending=false;
-        }
-        if(!MvmDebugLog_Active()||GetTickCount64()-last<3000)return false;
-        if(!disjoint){
-            ComPtr<ID3D11Device> device;ctx->GetDevice(&device);
-            D3D11_QUERY_DESC q{D3D11_QUERY_TIMESTAMP,0};
-            if(FAILED(device->CreateQuery(&q,&start))||FAILED(device->CreateQuery(&q,&end)))return false;
-            q.Query=D3D11_QUERY_TIMESTAMP_DISJOINT;
-            if(FAILED(device->CreateQuery(&q,&disjoint)))return false;
-        }
-        last=GetTickCount64();ctx->Begin(disjoint.Get());ctx->End(start.Get());return true;
-    }
-    void End(ID3D11DeviceContext* ctx){ctx->End(end.Get());ctx->End(disjoint.Get());pending=true;}
-} mapShadowTiming;
 Matrix mapCloseMatrix{};Vec3 mapCloseCamera{};bool mapCloseReady=false;
 // The map pass's static world (no posed casters), kept for the stained glass beam shadows.
 std::vector<Matrix> mapBeamMatrices;
@@ -542,7 +518,6 @@ struct PlayerMaskTarget {
 } playerMask;
 } // namespace
 void EndShadowMaps() { playerMask = PlayerMaskTarget{};mapBeamMatrices.clear();mapBeamFrame=Frame{};mapBeamFrameReady=false;mapBeamKey=0;mapBeamCount=0;ResetFoliageInputs();EndAnimatedCasters();state = State{};proofState=State{};proofContext.Reset();proofAtlas.Reset();proofAtlasView.Reset();proofSun.Reset();proofSunDepth.Reset();proofTransfer.Reset();mapAtlas.Reset();mapAtlasView.Reset();lampPyramid=LampPyramid{};mapSunTransfer.Reset();mapSunWorldBackup.Reset();mapSunViewmodelActive=false;
-    mapShadowTiming=ShadowTiming{};
     mapSunTexture.Reset();mapSunDepth.Reset();mapStaticDepth.Reset();mapStaticTransfer.Reset();mapStaticDsv.Reset();mapStaticBase.Reset();
     mapStaticKey=0;mapStaticDone=0;mapStaticMatrices.clear();mapFaceDynamic.clear();mapFaceRefresh.clear();mapRefreshFrame=0;mapFoliageFaces.clear();mapFoliageDraws.clear();
     skyArray.Reset();skyDepth.Reset();skyDsv.Reset();skyArrayView.Reset();skyKey=0;skyDone=0;
@@ -1179,13 +1154,17 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
     // Preview cannot stall the CPU until all preceding GPU draws finish merely
     // to exclude a few faces. Unavailable current bounds retain every caster;
     // the refresh budget still bounds shadow work. Exports use exact bounds.
-    const bool posedBoundsComplete=ReadAnimatedCasterBounds(immediate,posedBounds,input.exporting);
+    bool posedBoundsComplete=false;
+    {GPU_PASS_SCOPE(immediate,"casters: bounds readback");
+     posedBoundsComplete=ReadAnimatedCasterBounds(immediate,posedBounds,input.exporting);}
     const auto boundsMilliseconds=GetTickCount64()-boundsStarted;
-    auto ctx=proofContext.Get();ctx->ClearState();PrepareShadowMaps(ctx,frame,false,true);
+    auto ctx=proofContext.Get();ctx->ClearState();
+    {GPU_PASS_SCOPE(ctx,"shadows: near lamps");PrepareShadowMaps(ctx,frame,false,true);}
     if(state.world!=input.occlusion||(lights&&!state.local)){
         ctx->ClearState();ComPtr<ID3D11CommandList> discarded;ctx->FinishCommandList(FALSE,&discarded);return 0;}
     ctx->OMSetRenderTargets(0,nullptr,nullptr);
     unsigned rendered=0;
+    {GPU_PASS_SCOPE(ctx,"shadows: near lamp copies");
     for(unsigned light=0;light<lights;++light){
         // A light that won no shadow slot reports -1 here. Leave it shadowless rather
         // than sampling a tile nothing was ever drawn into.
@@ -1203,7 +1182,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
             MarkLampTile(tileX,tileY,tileSize);
         }
         ++rendered;
-    }
+    }}
     // The sun keeps a tile of its own so adding or dropping a local light never
     // moves it. Its frustum covers the whole map, which is what lets sunlight
     // reach through a doorway and stop at the walls around it.
@@ -1219,6 +1198,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
     matrices[Relight::SunDetailTile]=NativeSunCropMatrix(matrices[Relight::SunTile],input.camera,forward,crops.detail,cascadeSize,low.z,high.z);
     matrices[Relight::SunCloseTile]=NativeSunCropMatrix(matrices[Relight::SunTile],input.camera,forward,crops.close,cascadeSize,low.z,high.z);
     if(input.relight.sunShadows&&Relight::HasRadiance(Relight::SunRadiance(input.relight))){
+        GPU_PASS_SCOPE(ctx,"shadows: sun cascades");
         const bool animated=state.animate||HasAnimatedCasterGeometry();
         const unsigned tiles[]{Relight::SunTile,Relight::SunMiddleTile,Relight::SunDetailTile,Relight::SunCloseTile};
         for(unsigned cascade=0;cascade<4;++cascade)g_sunDumpMatrices[cascade]=matrices[tiles[cascade]];g_sunDumpMatricesReady=true;
@@ -1266,6 +1246,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
         const unsigned wanted=staticLights*Relight::ShadowFaces;
         Frame rigid=frame;rigid.scene.objects.clear();
         mapBeamFrame=rigid;mapBeamFrameReady=true;
+        if(mapStaticDone<wanted){GPU_PASS_SCOPE(ctx,"shadows: static faces (first draw)");
         for(unsigned drawn=0;mapStaticDone<wanted&&drawn<StaticFacesPerFrame;++drawn,++mapStaticDone){
             const unsigned light=mapStaticDone/Relight::ShadowFaces,face=mapStaticDone%Relight::ShadowFaces;
             const auto* source=projectedSource(staticPositions[light]);
@@ -1284,7 +1265,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
             unsigned x=0,y=0,size=0;Relight::TileOrigin(Relight::StaticTile+mapStaticDone,x,y,size);
             ctx->CopySubresourceRegion(mapAtlas.Get(),0,x,y,0,mapStaticTransfer.Get(),0,nullptr);
             MarkLampTile(x,y,size);
-        }
+        }}
         // Every resident fixture receives the current posed geometry and editable
         // objects. Copying rigid depth first removes the previous pose completely.
         // These depths are generated in this session; no map-baked shadows are read.
@@ -1333,6 +1314,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
         const unsigned refreshBudget=input.exporting?mapStaticDone:32;
         const auto selected=SelectShadowRefresh(std::move(refresh),mapRefreshFrame,refreshBudget,16,
             input.exporting?0u:g_actorShadowFacesPerFrame);
+        if(!selected.empty()){GPU_PASS_SCOPE(ctx,"shadows: lamp face refresh");
         for(unsigned i:selected){
             const bool dynamic=faceDynamic[i];
             ctx->CopySubresourceRegion(mapStaticDepth.Get(),0,0,0,0,mapStaticBase.Get(),i,nullptr);
@@ -1343,7 +1325,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
             ctx->CopySubresourceRegion(mapAtlas.Get(),0,x,y,0,mapStaticTransfer.Get(),0,nullptr);
             MarkLampTile(x,y,size);
             mapFaceDynamic[i]=dynamic;mapFaceRefresh[i]=mapRefreshFrame;++updatedFaces;
-        }
+        }}
         if(MvmDebugLog_Active()){
             uint64_t realtimeAge=0;for(auto i:realtimeFaces)realtimeAge=(std::max)(realtimeAge,mapRefreshFrame-mapFaceRefresh[i]);
             uint64_t actorAge=0;for(auto i:actorFaceList)actorAge=(std::max)(actorAge,mapRefreshFrame-mapFaceRefresh[i]);
@@ -1371,7 +1353,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
                FAILED(state.device->CreateTexture2D(&z,nullptr,&skyDepth))||FAILED(state.device->CreateDepthStencilView(skyDepth.Get(),&ds,&skyDsv))){
                 skyArray.Reset();skyArrayView.Reset();skyDepth.Reset();skyDsv.Reset();}
         }
-        if(skyArrayView){
+        if(skyArrayView&&skyDone<SkyVisibilityDirections){GPU_PASS_SCOPE(ctx,"shadows: sky visibility");
             const auto directions=SkyVisibilityDirectionSet();Frame rigid=frame;rigid.scene.objects.clear();
             for(unsigned drawn=0;skyDone<SkyVisibilityDirections&&drawn<2;++drawn,++skyDone){
                 skyMatrices[skyDone]=SunShadowMatrix(low,high,directions[skyDone]);
@@ -1403,7 +1385,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
                 SUCCEEDED(state.device->CreateDepthStencilView(skyboxSunTexture.Get(),&ds,&skyboxSunDepth))&&
                 SUCCEEDED(state.device->CreateShaderResourceView(skyboxSunTexture.Get(),&sr,&skyboxSunView));
         }
-        if(ready){
+        if(ready){GPU_PASS_SCOPE(ctx,"shadows: 3D skybox sun");
             auto skyFrame=frame;skyFrame.occlusion=input.occlusion->skybox;skyFrame.scene.objects.clear();
             PrepareShadowMaps(ctx,skyFrame,false,true);
             if(state.world==skyFrame.occlusion&&skyboxSunView){
@@ -1419,11 +1401,9 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
             }
         }
     }
-    RecordLampPyramid(ctx);
+    {GPU_PASS_SCOPE(ctx,"shadows: lamp summary");RecordLampPyramid(ctx);}
     ComPtr<ID3D11CommandList> list;if(FAILED(ctx->FinishCommandList(FALSE,&list))){skyboxSunReady=false;return 0;}
-    const bool measure=mapShadowTiming.Begin(immediate);
-    immediate->ExecuteCommandList(list.Get(),TRUE);
-    if(measure)mapShadowTiming.End(immediate);
+    {GPU_PASS_SCOPE(immediate,"shadows (map pass, total)");immediate->ExecuteCommandList(list.Get(),TRUE);}
     *atlas=mapAtlasView.Get();
     if(MvmDebugLog_Active()){
         static uint64_t reported=~0ull;
@@ -1506,7 +1486,7 @@ unsigned PrepareGlassBeamShadows(ID3D11DeviceContext* immediate,const Matrix* ma
     g_clipOrthographic=false;
     RecordLampPyramid(ctx);
     ComPtr<ID3D11CommandList> list;if(FAILED(ctx->FinishCommandList(FALSE,&list)))return 0;
-    immediate->ExecuteCommandList(list.Get(),TRUE);
+    {GPU_PASS_SCOPE(immediate,"shadows: glass beams");immediate->ExecuteCommandList(list.Get(),TRUE);}
     mapBeamMatrices.assign(matrices,matrices+count);
     mapBeamKey=key;mapBeamCount=count;
     MvmDebugLog_LinefAlways("environment.shadow.glassbeams","rendered %u stained glass beam shadow maps",count);
@@ -1552,7 +1532,7 @@ bool PrepareViewmodelSunShadow(ID3D11DeviceContext* immediate){
     if(backup){const D3D11_BOX tile{x,y,0,x+size,y+size,1};ctx->CopySubresourceRegion(mapSunWorldBackup.Get(),0,0,0,0,mapAtlas.Get(),0,&tile);}
     ctx->CopySubresourceRegion(mapAtlas.Get(),0,x,y,0,mapSunTransfer.Get(),0,nullptr);
     ComPtr<ID3D11CommandList> list;if(FAILED(ctx->FinishCommandList(FALSE,&list)))return false;
-    immediate->ExecuteCommandList(list.Get(),TRUE);
+    {GPU_PASS_SCOPE(immediate,"shadows: viewmodel sun");immediate->ExecuteCommandList(list.Get(),TRUE);}
     mapSunViewmodelActive=backup;
     // The tile now holds the first-person version: the map pass must rebuild the world's version
     // next frame instead of keeping the tile as current.
@@ -1612,7 +1592,7 @@ bool PrepareLightingProofShadows(ID3D11DeviceContext* immediate,const Frame& inp
     ctx->OMSetRenderTargets(0,nullptr,nullptr);ctx->CopyResource(proofTransfer.Get(),proofSun.Get());
     ctx->CopySubresourceRegion(proofAtlas.Get(),0,3072,0,0,proofTransfer.Get(),0,nullptr);
     ComPtr<ID3D11CommandList> list;if(FAILED(ctx->FinishCommandList(FALSE,&list)))return false;
-    immediate->ExecuteCommandList(list.Get(),TRUE);
+    {GPU_PASS_SCOPE(immediate,"shadows: lighting proof");immediate->ExecuteCommandList(list.Get(),TRUE);}
     static uint64_t inspected=~0ull;
     if(MvmDebugLog_Active()&&inspected!=input.proof.generation){
         inspected=input.proof.generation;

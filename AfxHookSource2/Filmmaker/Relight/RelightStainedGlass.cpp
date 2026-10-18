@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "RelightStainedGlass.h"
+#include "../Debug/GpuPassProfiler.h"
 #include "../Environment/EnvironmentCasterMath.h"
 #include "../Environment/EnvironmentShaderCompiler.h"
 #include "../Debug/MvmDebugLog.h"
@@ -188,7 +189,7 @@ GlassBeams PrepareStainedGlass(ID3D11Device* device,ID3D11DeviceContext* immedia
     ID3D11ShaderResourceView* none[2]{};work->PSSetShaderResources(0,2,none);
     ID3D11RenderTargetView* noTarget=nullptr;work->OMSetRenderTargets(1,&noTarget,nullptr);
     ComPtr<ID3D11CommandList> commands;if(FAILED(work->FinishCommandList(FALSE,&commands)))return {};
-    immediate->ExecuteCommandList(commands.Get(),TRUE);
+    {GPU_PASS_SCOPE(immediate,"stained glass cookies");immediate->ExecuteCommandList(commands.Get(),TRUE);}
     state.last.cookies=state.cookieSrv.Get();
     if(MvmDebugLog_Active()&&!state.logged){state.logged=true;
         MvmDebugLog_LinefAlways("relight.glass","windows=%zu beams=%u batches=%zu shadowTested=%u cookie=%ux%ux%zu",

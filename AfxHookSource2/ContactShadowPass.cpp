@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "Filmmaker/Debug/GpuPassProfiler.h"
 
 #include "ContactShadowPass.h"
 
@@ -539,6 +540,7 @@ void CContactShadowPass::Apply(ID3D11DeviceContext* pImmediateContext, ID3D11Ren
 	m_DeviceContext->FinishCommandList(FALSE, &pCommandList);
 	bool submitted = false;
 	if (pCommandList) {
+		GPU_PASS_SCOPE(pImmediateContext, "contact shadows");
 		pImmediateContext->ExecuteCommandList(pCommandList, TRUE);
 		pCommandList->Release();
 		submitted = true;

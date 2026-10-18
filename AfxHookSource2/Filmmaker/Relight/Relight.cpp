@@ -295,6 +295,7 @@ void Status() {
     advancedfx::Message("  reach=%g (lights stop where they change a dark pixel by less than this many display steps; 0 = authored ranges)\n",g_scene.reach);
     advancedfx::Message("  shadowreach=%g (lamp shadows stop where the lamp changes a dark pixel by less than this many display steps; 0 = everywhere)\n",g_scene.shadowReach);
     advancedfx::Message("  cuberecords=%d (one light record per shadowed lamp)\n",g_scene.cubeShadows?1:0);
+    advancedfx::Message("  sunshadow=%d locallights=%d stainedglass=%g bindingcheck=%u\n",g_scene.sunShadows?1:0,g_scene.localLights?1:0,g_scene.stainedGlass,g_scene.bindingCheck);
 }
 } // namespace
 } // namespace Filmmaker::Relight

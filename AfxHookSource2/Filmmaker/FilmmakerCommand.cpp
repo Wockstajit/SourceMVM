@@ -3,6 +3,7 @@
 
 #include "FilmmakerDebugCommand.h" // MvmCommandTrace (the mvm_debug post-command state dumper)
 #include "FilmmakerHealth.h"       // "health": did the version-coupled machinery resolve?
+#include "Debug/GpuPassProfiler.h" // "gpuprofile": GPU time of the hook's own passes
 #include "Filmmaker.h"
 #include "EasterEggs/EasterEggs.h"
 #include "EasterEggs/Osu/OsuGame.h"
@@ -112,6 +113,11 @@ void PrintHelp(const char* cmd) {
 		"   build? Run it first when things broke after a game update (see\n"
 		"   Docs/agent/cs2-update-recovery.md).\n"
 		, cmd, cmd, cmd, cmd, cmd, cmd, cmd
+	);
+	advancedfx::Message(
+		"%s gpuprofile [on|off|reset] - GPU time of the hook's own render passes, most\n"
+		"   expensive first, beside the GPU frame (also in health while on).\n"
+		, cmd
 	);
 	advancedfx::Message(
 		"Movie director (in a demo):\n"
@@ -324,6 +330,13 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 		Filmmaker::MethodActing_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "health")) {
 		Filmmaker::Filmmaker_RunHealthCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "gpuprofile")) {
+		const char* mode = argc >= 3 ? args->ArgV(2) : "";
+		if (0 == _stricmp(mode, "on")) Filmmaker::GpuProfile::SetEnabled(true);
+		else if (0 == _stricmp(mode, "off")) Filmmaker::GpuProfile::SetEnabled(false);
+		else if (0 == _stricmp(mode, "reset")) Filmmaker::GpuProfile::Reset();
+		else if (*mode) { advancedfx::Message("%s gpuprofile [on|off|reset]\n", cmd); return; }
+		Filmmaker::GpuProfile::Print();
 	} else if (0 == _stricmp(sub, "pumpstatus")) {
 		uint64_t renderCalls = 0, mainCalls = 0, scans = 0;
 		Filmmaker::PumpStatus(renderCalls, mainCalls, scans);

@@ -490,8 +490,9 @@ Preview refreshes at most 128 cached fixture faces per frame, with age/visibilit
 priority and an oldest-face reserve. Cached static shadows remain resident throughout the map;
 moving-caster shadows can lag in the cached tier. Sun cascades and the high-resolution local
 tier keep their normal updates. Movie exports refresh every resident cached face.
-`mvm_debug` reports asynchronous GPU stage times under `relight.probe.gi.gpu` and cached-face
-counts under `environment.relight.shadow.spatial`. Preview bounds readback is nonblocking;
+`mirv_filmmaker gpuprofile` reports the GI stages and the lamp face refresh in GPU milliseconds
+([GPU pass profile](gpu-pass-profile.md)); `mvm_debug` reports cached-face counts under
+`environment.relight.shadow.spatial`. Preview bounds readback is nonblocking;
 unavailable current bounds conservatively include casters, while exports wait for exact bounds.
 The controlled church view remains below the 30 FPS minimum. The
 [Wicked engine lighting comparison](wicked-engine-lighting-comparison.md) records diagnostic timings
@@ -622,9 +623,9 @@ probe albedo, fully blocked cages, distance output and scrolling irradiance.
 
 The local `ddgi_rayallocationCS.hlsl` also informs visible-work prioritization. Wicked adapts
 ray budgets using frustum and variance information; this implementation uses current depth
-to refresh receiver cages, with fixed ray counts and no CPU readback. Separate GPU queries
-report the background and visible stages as `relight.probe.gi.gpu` and
-`relight.probe.gi.visible.gpu`. Reduced dispatch work alone is not evidence of an FPS gain.
+to refresh receiver cages, with fixed ray counts and no CPU readback. The GPU pass profile times
+the background stages (`gi: inject`, `gi: trace`, ...) and the visible stage (`gi: visible probe
+mask`) apart. Reduced dispatch work alone is not evidence of an FPS gain.
 
 This uses six directional moment bands rather than Wicked's octahedral maps; voxel rays do not
 provide hardware triangle intersections or Lumen's surface cache. Thin geometry below voxel
@@ -1119,7 +1120,7 @@ both frame time and exposure. Play into the measured tick with the camera alread
 
 Measured at the same pose, standing, within one session, two rounds each (2026-10-18). The cached
 lamp shadows (`shadowlights 0` against the default) cost about 6 ms of a 28 ms frame: rendering
-their faces' depth about 1.85 ms (`mapShadowMs` 3.3 to 1.4 ms), the lookups themselves (blocker
+their faces' depth about 1.85 ms (the map shadow pass, 3.3 to 1.4 ms), the lookups themselves (blocker
 search and disk) about 0.45 ms, and the rest in the shipped light loop. That loop culls a record
 with its whole authored range box, so many pixels far outside a lamp's visible reach still enter
 its shadow code; and a shadowed point light used to be six face records, each with its own cull

@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "Filmmaker/Debug/GpuPassProfiler.h"
 
 #include "RenderPassCompositor.h"
 
@@ -315,7 +316,7 @@ private:
 		ID3D11CommandList* cl = nullptr;
 		m_Ctx->FinishCommandList(FALSE, &cl);
 		if (!cl) return false;
-		immediate->ExecuteCommandList(cl, TRUE);
+		{ GPU_PASS_SCOPE(immediate, "render pass compositor"); immediate->ExecuteCommandList(cl, TRUE); }
 		cl->Release();
 		return true;
 	}

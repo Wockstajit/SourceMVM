@@ -34,6 +34,7 @@
 #include "../Shared/ImageTransformer.h"
 #include "../Shared/RecordingSettings.h"
 #include "Filmmaker/Debug/MvmDebugLog.h" // MvmDebugLog_* (render.capsize RE probe)
+#include "Filmmaker/Debug/GpuPassProfiler.h" // GPU_PASS_SCOPE, the GPU pass profile
 #include "Filmmaker/Panorama/VpScaleBreakMath.h" // every scaled-preview break, numbered (vpscale.break)
 #include "Filmmaker/Window/WindowResize.h"        // WindowResize_GetClientSize: is the frame stretched?
 #include "Filmmaker/Community/BugReport.h" // BugReport_Record: device creations in every crash report
@@ -3841,7 +3842,7 @@ void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
         if(Filmmaker::Environment::BeginNativeMaterialCoverage(This)){g_Old_DrawIndexed(This,IndexCount,StartIndexLocation,BaseVertexLocation);}
         Filmmaker::Environment::EndNativeMaterialDraw(This);
     }
-    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginAnimatedCasterDraw(This,IndexCount,1)){
+    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginAnimatedCasterDraw(This,IndexCount,1)){ GPU_PASS_SCOPE(This,"casters: stream-out capture");
         g_Old_DrawIndexed(This,IndexCount,StartIndexLocation,BaseVertexLocation);
         Filmmaker::Environment::EndAnimatedCasterDraw(This);
     }
@@ -3878,7 +3879,7 @@ void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
         if(Filmmaker::Environment::BeginNativeMaterialCoverage(This)){g_Old_Draw(This,VertexCount,StartVertexLocation);}
         Filmmaker::Environment::EndNativeMaterialDraw(This);
     }
-    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginAnimatedCasterDraw(This,VertexCount,1)){
+    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginAnimatedCasterDraw(This,VertexCount,1)){ GPU_PASS_SCOPE(This,"casters: stream-out capture");
         g_Old_Draw(This,VertexCount,StartVertexLocation);
         Filmmaker::Environment::EndAnimatedCasterDraw(This);
     }
@@ -3917,7 +3918,7 @@ void STDMETHODCALLTYPE New_DrawIndexedInstanced(ID3D11DeviceContext * This,
         if(Filmmaker::Environment::BeginNativeMaterialCoverage(This)){g_Old_DrawIndexedInstanced(This,IndexCountPerInstance,InstanceCount,StartIndexLocation,BaseVertexLocation,StartInstanceLocation);}
         Filmmaker::Environment::EndNativeMaterialDraw(This);
     }
-    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginAnimatedCasterDraw(This,IndexCountPerInstance,InstanceCount)){
+    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginAnimatedCasterDraw(This,IndexCountPerInstance,InstanceCount)){ GPU_PASS_SCOPE(This,"casters: stream-out capture");
         g_Old_DrawIndexedInstanced(This,IndexCountPerInstance,InstanceCount,StartIndexLocation,BaseVertexLocation,StartInstanceLocation);
         Filmmaker::Environment::EndAnimatedCasterDraw(This);
     }
@@ -3959,7 +3960,7 @@ void STDMETHODCALLTYPE New_DrawInstanced( ID3D11DeviceContext * This,
         StartVertexLocation, StartInstanceLocation);}
         Filmmaker::Environment::EndNativeMaterialDraw(This);
     }
-    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginAnimatedCasterDraw(This,VertexCountPerInstance,InstanceCount)){
+    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&TimedBeginAnimatedCasterDraw(This,VertexCountPerInstance,InstanceCount)){ GPU_PASS_SCOPE(This,"casters: stream-out capture");
         g_Old_DrawInstanced(This,VertexCountPerInstance,InstanceCount,StartVertexLocation,StartInstanceLocation);
         Filmmaker::Environment::EndAnimatedCasterDraw(This);
     }
@@ -4025,7 +4026,7 @@ int NvidiaMultiDraw(NvidiaMultiDraw_t original, ID3D11DeviceContext* context,
     }
     int result;
     { QpcScope nativeCost(g_hookCostAccum.drawNative); result=original(context, count, arguments, offset, stride); }
-    if(!g_BeforeUiFiredThisPresent&&Filmmaker::Environment::BeginAnimatedCasterIndirectDraw(context,arguments,offset,stride,count,indexed)){
+    if(!g_BeforeUiFiredThisPresent&&Filmmaker::Environment::BeginAnimatedCasterIndirectDraw(context,arguments,offset,stride,count,indexed)){ GPU_PASS_SCOPE(context,"casters: stream-out capture");
         original(context,count,arguments,offset,stride);
         Filmmaker::Environment::EndAnimatedCasterDraw(context);
     }
@@ -4095,7 +4096,7 @@ void STDMETHODCALLTYPE New_DrawIndexedInstancedIndirect( ID3D11DeviceContext * T
         if(Filmmaker::Environment::BeginNativeMaterialCoverage(This)){g_Old_DrawIndexedInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs);}
         Filmmaker::Environment::EndNativeMaterialDraw(This);
     }
-    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&Filmmaker::Environment::BeginAnimatedCasterIndirectDraw(This,pBufferForArgs,AlignedByteOffsetForArgs,20,1,true)){
+    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&Filmmaker::Environment::BeginAnimatedCasterIndirectDraw(This,pBufferForArgs,AlignedByteOffsetForArgs,20,1,true)){ GPU_PASS_SCOPE(This,"casters: stream-out capture");
         g_Old_DrawIndexedInstancedIndirect(This,pBufferForArgs,AlignedByteOffsetForArgs);
         Filmmaker::Environment::EndAnimatedCasterDraw(This);
     }
@@ -4122,7 +4123,7 @@ void STDMETHODCALLTYPE New_DrawInstancedIndirect( ID3D11DeviceContext * This,
         if(Filmmaker::Environment::BeginNativeMaterialCoverage(This)){g_Old_DrawInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs);}
         Filmmaker::Environment::EndNativeMaterialDraw(This);
     }
-    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&Filmmaker::Environment::BeginAnimatedCasterIndirectDraw(This,pBufferForArgs,AlignedByteOffsetForArgs,16,1,false)){
+    if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&Filmmaker::Environment::BeginAnimatedCasterIndirectDraw(This,pBufferForArgs,AlignedByteOffsetForArgs,16,1,false)){ GPU_PASS_SCOPE(This,"casters: stream-out capture");
         g_Old_DrawInstancedIndirect(This,pBufferForArgs,AlignedByteOffsetForArgs);
         Filmmaker::Environment::EndAnimatedCasterDraw(This);
     }
@@ -4461,6 +4462,11 @@ void Before_Present() {
     EnsureVendorMultiDrawHooks();
     Filmmaker::FlushDeferredOwnedInterfaces();
     HookCost_EndFrame();
+    {   // Frame boundary of the GPU pass profile (no-op while it is off).
+        ID3D11DeviceContext* immediate = nullptr;
+        if (g_pDevice) g_pDevice->GetImmediateContext(&immediate);
+        if (immediate) { Filmmaker::GpuProfile::OnPresent(immediate); immediate->Release(); }
+    }
     QpcScope presentCost(g_hookCostAccum.presentTotal);
     g_bInOwnDraw = true;
 

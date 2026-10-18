@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "EnvironmentAmbientOcclusion.h"
+#include "../Debug/GpuPassProfiler.h"
 #include "EnvironmentAmbientOcclusionMath.h"
 #include "EnvironmentAmbientOcclusionShaders.h"
 #include "EnvironmentShaderCompiler.h"
@@ -158,6 +159,7 @@ ID3D11ShaderResourceView* AmbientOcclusion(ID3D11DeviceContext* immediate,Vec3 c
     ID3D11ShaderResourceView* skyMaps=skyEnabled?sky->maps:nullptr;ctx->CSSetShaderResources(2,1,&skyMaps);
     auto srv=state.depthRead.View();ctx->CSSetShaderResources(0,1,&srv);
     auto uav=state.positionsUav.Get();ctx->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
+    {GPU_PASS_SCOPE(ctx,"ao: positions, horizon, filter");
     ctx->CSSetShader(state.preparePositions[shader].Get(),nullptr,0);ctx->Dispatch((width+7)/8,(height+7)/8,1);
     uav=nullptr;ctx->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
     srv=state.positionsSrv.Get();ctx->CSSetShaderResources(3,1,&srv);
@@ -166,7 +168,7 @@ ID3D11ShaderResourceView* AmbientOcclusion(ID3D11DeviceContext* immediate,Vec3 c
     uav=nullptr;ctx->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
     srv=state.rawSrv.Get();ctx->CSSetShaderResources(1,1,&srv);
     uav=state.filteredUav.Get();ctx->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
-    ctx->CSSetShader(state.filter.Get(),nullptr,0);ctx->Dispatch((width+7)/8,(height+7)/8,1);
+    ctx->CSSetShader(state.filter.Get(),nullptr,0);ctx->Dispatch((width+7)/8,(height+7)/8,1);}
     uav=nullptr;ctx->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
     ID3D11ShaderResourceView* noViews[4]{};ctx->CSSetShaderResources(0,4,noViews);
     UINT keepCounter=~0u;ctx->CSSetUnorderedAccessViews(0,1,&previousUav,&keepCounter);

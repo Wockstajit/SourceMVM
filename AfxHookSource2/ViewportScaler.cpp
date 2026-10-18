@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "Filmmaker/Debug/GpuPassProfiler.h"
 
 #include "ViewportScaler.h"
 
@@ -358,6 +359,7 @@ void CViewportScaler::Blit(ID3D11DeviceContext* pImmediateContext, ID3D11RenderT
 	ID3D11CommandList* pCommandList = nullptr;
 	m_DeviceContext->FinishCommandList(FALSE, &pCommandList);
 	if (pCommandList) {
+		GPU_PASS_SCOPE(pImmediateContext, "viewport scaler");
 		pImmediateContext->ExecuteCommandList(pCommandList, TRUE);
 		pCommandList->Release();
 	}

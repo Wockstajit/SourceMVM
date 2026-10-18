@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "EnvironmentNativeMaterial.h"
+#include "../Debug/GpuPassProfiler.h"
 #include "OwnedInterface.h"
 #include "EnvironmentAnimatedCasters.h"
 #include "EnvironmentNativeMaterialMath.h"
@@ -231,7 +232,9 @@ struct State {
 float CharacterLocalBias(const Relight::Scene& set){return (std::max)(set.shadowBias,.002f);}
 void BeginTiming(ID3D11DeviceContext* ctx,bool post,bool live=false,uint64_t program=0,uint8_t variant=0,const D3D11_VIEWPORT* vp=nullptr){
     auto& t=state.timing;t.active=-1;
-    if(!MvmDebugLog_Active()||t.pending||(!t.measuring&&GetTickCount64()-t.last<3000))return;
+    // One frame every three seconds for the log, every second while the GPU pass profile is on.
+    const bool profiling=GpuProfile::Enabled();
+    if(!(MvmDebugLog_Active()||profiling)||t.pending||(!t.measuring&&GetTickCount64()-t.last<(profiling?1000u:3000u)))return;
     if(!t.disjoint){
         ComPtr<ID3D11Device> device;ctx->GetDevice(&device);MaterialTiming created;
         D3D11_QUERY_DESC q{D3D11_QUERY_TIMESTAMP,0};
@@ -270,7 +273,18 @@ void NextTimingFrame(){
             auto& v=byView[view];v.ms+=ms;++v.passes;auto& p=byProgram[t.program[i]];p.ms+=ms;++p.passes;
             byVariant[(std::min)(t.variant[i],uint8_t(2))]+=ms;}
     }
-    if(!d.Disjoint){
+    if(!d.Disjoint&&GpuProfile::Enabled()){
+        GpuProfile::NoteSampled("lit draws: all patched",live,liveCount);
+        // BeginTiming's variant: 0 the native program with owned inputs, 1 dynamic irradiance, 2 another
+        // derived program (atmosphere, smoke, coverage).
+        static const char* const variants[3]{"lit draws: native program","lit draws: dynamic irradiance","lit draws: atmosphere program"};
+        unsigned passes[3]{};for(unsigned i=0;i<t.count;++i)if(t.live[i])++passes[(std::min)(t.variant[i],uint8_t(2))];
+        for(unsigned v=0;v<3;++v)if(passes[v])GpuProfile::NoteSampled(variants[v],byVariant[v],passes[v]);
+        if(material>0)GpuProfile::NoteSampled("lit draws: replay",material,t.count-liveCount);
+        if(post>0)GpuProfile::NoteSampled("lit draws: tonemap replay",post,0);
+        for(const auto& [program,group]:byProgram)GpuProfile::NoteSampledProgram(program,group.ms,group.passes);
+    }
+    if(!d.Disjoint&&MvmDebugLog_Active()){
         MvmDebugLog_LinefAlways("environment.native.material.gpu","sampledReplayMs=%.3f sampledLiveMs=%.3f sampledTonemapMs=%.3f sampledLivePasses=%u sampledPasses=%u eligiblePasses=%u maxSampledPasses=%u nativeMs=%.3f irradianceMs=%.3f atmosphereMs=%.3f",material,live,post,liveCount,t.count,t.eligible,MaterialTiming::Capacity,byVariant[0],byVariant[1],byVariant[2]);
         for(const auto& v:byView)MvmDebugLog_LinefAlways("environment.native.material.gpu.view","viewport=%llux%llu minDepth=%.3f passes=%u ms=%.3f",
             (unsigned long long)(v.first>>48),(unsigned long long)((v.first>>32)&0xffff),double(v.first&0xffffffffu)/1000,v.second.passes,v.second.ms);
@@ -882,7 +896,7 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
     }
     ComPtr<ID3D11CommandList> commands;
     if(FAILED(work->FinishCommandList(FALSE,&commands))){state.proofViewGate.Invalidate();return false;}
-    ctx->ExecuteCommandList(commands.Get(),TRUE);
+    {GPU_PASS_SCOPE(ctx,"lights: rebase + clusters");ctx->ExecuteCommandList(commands.Get(),TRUE);}
     if(engineClustered)state.nativeClusters.Commit();
     if(gated)state.proofViewGate.Commit();
     if(authoredChanged){state.proofUploadedRecords=records;++state.proofAuthoredUploads;state.proofAuthoredBytes+=records.size()*sizeof(records[0]);}

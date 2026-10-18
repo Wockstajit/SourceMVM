@@ -640,6 +640,10 @@ add_executable(DebugLogDedupMathTests ../Automation/tests/debug-log-dedup-math-t
 target_compile_features(DebugLogDedupMathTests PRIVATE cxx_std_17)
 add_test(NAME DebugLogDedupMathTests COMMAND DebugLogDedupMathTests)
 
+add_executable(GpuPassProfileMathTests ../Automation/tests/gpu-pass-profile-math-tests.cpp)
+target_compile_features(GpuPassProfileMathTests PRIVATE cxx_std_17)
+add_test(NAME GpuPassProfileMathTests COMMAND GpuPassProfileMathTests)
+
 # Exercise the real Windows pointer-hook helper, including page protection restoration.
 add_executable(AfxDetourPointerTests ../Automation/tests/afx-detour-pointer-tests.cpp
     ../Shared/AfxDetours.cpp
