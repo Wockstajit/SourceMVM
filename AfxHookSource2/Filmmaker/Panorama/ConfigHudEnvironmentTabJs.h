@@ -338,6 +338,7 @@ R"CFJS(
     });
 
 )CFJS"
+#include "ConfigHudRigJs.h"
 #include "ConfigHudEnvironmentStateJs.h"
 #include "ConfigHudEnvironmentGizmoJs.h"
 #include "ConfigHudPropsGizmoJs.h"

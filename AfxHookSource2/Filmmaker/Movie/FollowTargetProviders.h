@@ -31,6 +31,33 @@ bool IsWeaponClass(const std::string& className);
 bool IsDroppedWeapon(CEntityInstance* entity, const std::string& className);
 bool IsWeaponOrBomb(const std::string& className);
 std::string GrenadeTypeName(const std::string& className);
+
+// ---- thrown grenades: ONE index for every picker (the Follow Camera's Grenade target, the scene
+// objects' "attach to a grenade") -------------------------------------------------------------
+// A thrown projectile, by either of its names. The designer name ("smokegrenade_projectile")
+// names every kind; the CLIENT class of a thrown smoke and HE is the generic C_BaseGrenade, with
+// no "projectile" in it -- testing only that (EntityClass) is why smokes and HEs never appeared
+// in either picker, even one in the air in front of the camera (2026-10-18). "" when not one.
+std::string ThrownGrenadeClass(CEntityInstance* entity);
+// The demo tick a projectile was thrown: its age in game time carried onto the demo tick.
+int GrenadeThrowTick(CEntityInstance* entity);
+struct GrenadeSighting {
+	uint64_t handle = 0;
+	int entityIndex = -1;       // where it is now, while active
+	std::string className, type, thrower;
+	int throwerIndex = -1, team = 0, throwTick = -1;
+	bool active = false;        // in the world at this tick
+};
+// The pickers list grenades thrown this far either side of the playhead: the ones in the air now
+// and the ones seen earlier this session. Wide on purpose -- a picker that only knew the last few
+// seconds hid the grenade the user was looking for.
+constexpr int kGrenadeBrowseTicks = 64 * 60;
+// Sightings further than this from the playhead are forgotten.
+constexpr int kGrenadeForgetTicks = 64 * 300;
+// Main thread. Scans the entities once per frame however many callers ask, remembers every
+// projectile it has seen (by handle), and returns the index.
+const std::vector<GrenadeSighting>& GrenadeIndex_Update();
+void GrenadeIndex_Reset(); // a new map or demo: nothing seen yet
 std::string PrettyWeaponName(const std::string& className);
 std::string EntityFriendlyName(CEntityInstance* entity);
 uint64_t EntityHandleValue(CEntityInstance* entity);
@@ -111,7 +138,7 @@ public:
 		if (!entity) return false;
 		const std::string cls = EntityClass(entity);
 		switch (m_type) {
-		case FollowTargetType::Grenade: return IsGrenadeClass(cls);
+		case FollowTargetType::Grenade: return !ThrownGrenadeClass(entity).empty();
 		case FollowTargetType::Weapon: return IsWeaponOrBomb(cls);
 		default: return true;
 		}
@@ -124,7 +151,7 @@ public:
 	std::string GetDisplayName() override {
 		const std::string cls = EntityClass(EntityAt(m_index));
 		if (cls.empty()) return "Entity";
-		if (m_type == FollowTargetType::Grenade) return GrenadeTypeName(cls);
+		if (m_type == FollowTargetType::Grenade) return GrenadeTypeName(ThrownGrenadeClass(EntityAt(m_index)));
 		return PrettyWeaponName(cls);
 	}
 	FollowTargetStatus GetStatus() override {

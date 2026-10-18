@@ -26,6 +26,7 @@
 #include "Filmmaker/EasterEggs/EasterEggs.h"
 #include "Filmmaker/Movie/NervousSystem.h"
 #include "Filmmaker/Movie/FollowCamera.h"
+#include "Filmmaker/Movie/SceneRig.h"      // scene object rigs: render-time resample, Look through
 #include "Filmmaker/Movie/FollowCameraMath.h"
 #include "Filmmaker/Movie/MovieMode.h" // MovieMode_NativeCameraRoll: X / Z roll on CS2's free cam
 #include "Filmmaker/Movie/ViewFx.h"
@@ -306,6 +307,7 @@ CON_COMMAND(mirv_loadlibrary, "Load a DLL.")
 ////////////////////////////////////////////////////////////////////////////////
 
 SOURCESDK::CS2::IGameUIService * g_pGameUIService = nullptr;
+bool AfxConsoleVisible() { return g_pGameUIService && g_pGameUIService->Con_IsVisible(); }
 
 MirvInputEx g_MirvInputEx;
 
@@ -437,10 +439,14 @@ struct PendingPostDemoView {
 	void* setup = nullptr;
 	float curTime = 0.0f;
 	bool povViewForAim = false;
+	bool filmmakerCamera = false; // one of our cameras owns the pose (CameraOwnership::Any)
 	bool valid = false;
 };
 
 thread_local PendingPostDemoView g_PendingPostDemoView;
+// mvm_debug: the pose this frame's setup WROTE (after every shake), to compare with what the engine
+// hands the post-demo step -- a difference means a later pass replaced our view.
+thread_local struct { bool valid; bool pathShake; float origin[3], angles[3]; } g_WrittenView = {};
 
 }
 
@@ -601,6 +607,21 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 		}
 	}
 
+	// Scene object rigs (scene-object-rigs.md): re-read the players, weapons and grenades placed
+	// objects ride at their interpolated pose, every frame; and when a camera object is looked
+	// through, it is the view -- over the path, the Follow Camera and the free cam.
+	{
+		double sx = Tx, sy = Ty, sz = Tz, sp = Rx, syaw = Ry, sr = Rz, sf = Fov;
+		bool sceneAttached = false;
+		if (Filmmaker::SceneRig_ViewSetup(sx, sy, sz, sp, syaw, sr, sf, sceneAttached)) {
+			Tx = (float)sx; Ty = (float)sy; Tz = (float)sz;
+			Rx = (float)sp; Ry = (float)syaw; Rz = (float)sr; Fov = (float)sf;
+			originOrAnglesOverriden = true;
+			owner.sceneCamera = true;
+			owner.sceneCameraAttached = sceneAttached;
+		}
+	}
+
 	// CS2's own free cam has no roll; held X / Z adds one on top (MovieMode). Only while none of
 	// our cameras owns the pose -- they carry their own roll.
 	if (!owner.Any()) {
@@ -739,7 +760,11 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	// push) would make the shaken pose the path's published pose, and marker placement, the graph
 	// editor's defaults and the spectated-pawn match above would all read it back -- baking a
 	// cosmetic wobble permanently into the shot. Here, turning the shake off restores the move.
-	if (Filmmaker::CamPathShake_ApplyToView(Tx, Ty, Tz, Rx, Ry, Rz, Fov))
+	// A looked-through camera object (SceneRig, above) takes its own shake track; the path's
+	// shake applies only while the path drives the view.
+	const bool pathShakeApplied = Filmmaker::CamPathShake_ApplyToView(Tx, Ty, Tz, Rx, Ry, Rz, Fov,
+		owner.sceneCamera ? Filmmaker::SceneRig_LookThrough() : 0);
+	if (pathShakeApplied)
 		originOrAnglesOverriden = true;
 
 	// Build one absolute camera-motion delta for CalcViewModelView. Its hook temporarily removes
@@ -769,6 +794,7 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	g_PendingPostDemoView.setup = ThisCViewSetup;
 	g_PendingPostDemoView.curTime = curTime;
 	g_PendingPostDemoView.povViewForAim = povViewForAim;
+	g_PendingPostDemoView.filmmakerCamera = owner.Any();
 	g_PendingPostDemoView.valid = true;
 
 	if(originOrAnglesOverriden) {
@@ -788,6 +814,10 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	} else {
 		g_bViewOverriden = false;
 	}
+	g_WrittenView.valid = originOrAnglesOverriden;
+	g_WrittenView.pathShake = pathShakeApplied;
+	g_WrittenView.origin[0] = Tx; g_WrittenView.origin[1] = Ty; g_WrittenView.origin[2] = Tz;
+	g_WrittenView.angles[0] = Rx; g_WrittenView.angles[1] = Ry; g_WrittenView.angles[2] = Rz;
 
 	g_iWidth = width;
 	g_iHeight = height;
@@ -887,6 +917,16 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 				originOrAnglesOverriden ? 1 : 0, Tx, Ty, Tz, Rx, Ry, Rz, Fov);
 	}
 
+	if (Filmmaker::MvmDebugLog_Active() && pathShakeApplied) {
+		static unsigned s_n = 0;
+		if ((s_n++ % 30) == 0)
+			Filmmaker::MvmDebugLog_Linef("camera.view.owner",
+				"pathShake=1 inputOverride=%d pathOwnsView=%d block=%d path=%d freecam=%d attach=%d scene=%d other=%d "
+				"written=(%.1f %.1f %.1f | %.2f %.2f %.2f) preShake=(%.2f %.2f %.2f)",
+				inputOverride ? 1 : 0, pathOwnsView ? 1 : 0, blockDemoViewOverride ? 1 : 0,
+				owner.path ? 1 : 0, owner.freeCam ? 1 : 0, owner.attach ? 1 : 0, owner.sceneCamera ? 1 : 0, owner.other ? 1 : 0,
+				Tx, Ty, Tz, Rx, Ry, Rz, preShakeRx, preShakeRy, preShakeRz);
+	}
 	if (blockDemoViewOverride)
 		return false;
 	return g_pEngineToClient->IsPlayingDemo();
@@ -902,6 +942,15 @@ void CS2_Client_CSetupView_PostDemoApply() {
 	float* pFov = (float*)(setup + 0x498);
 	float* pViewOrigin = (float*)(setup + 0x4a0);
 	float* pViewAngles = (float*)(setup + 0x4b8);
+	if (Filmmaker::MvmDebugLog_Active() && g_WrittenView.valid && g_WrittenView.pathShake) {
+		static unsigned s_n = 0;
+		if ((s_n++ % 30) == 0)
+			Filmmaker::MvmDebugLog_Linef("camera.view.postdemo",
+				"written=(%.1f %.1f %.1f | %.2f %.2f %.2f) engine=(%.1f %.1f %.1f | %.2f %.2f %.2f)",
+				g_WrittenView.origin[0], g_WrittenView.origin[1], g_WrittenView.origin[2],
+				g_WrittenView.angles[0], g_WrittenView.angles[1], g_WrittenView.angles[2],
+				pViewOrigin[0], pViewOrigin[1], pViewOrigin[2], pViewAngles[0], pViewAngles[1], pViewAngles[2]);
+	}
 
 	const float inputPitch = pViewAngles[0];
 	const float inputYaw = pViewAngles[1];
@@ -920,7 +969,11 @@ void CS2_Client_CSetupView_PostDemoApply() {
 		if (auto demo = g_pEngineToClient->GetDemoFile())
 			playbackPaused = demo->IsDemoPaused();
 	}
-	if (smoothView.Enabled() && !g_MirvInputEx.m_MirvInput->GetCameraControlMode()) {
+	// OUR CAMERAS EXCLUDED: Smooth View is the spectated player's own view. On a camera path, a
+	// Follow attach or a looked-through camera object its breathing, lean and sway moved the camera
+	// off the gun or player it rides, so the rider swam in frame (user report 2026-10-18: "when you
+	// attach a camera to a gun, the player jitters"; logged up to 4 degrees with pov=0).
+	if (smoothView.Enabled() && !pending.filmmakerCamera && !g_MirvInputEx.m_MirvInput->GetCameraControlMode()) {
 		// This is the actual post-demo camera pose. Sampling it here is the only way the angle
 		// filter follows the POV the user sees instead of the stale pre-override camera.
 		// FREE CAM EXCLUDED (same rule as CameraShakeStack): the chase filter would smooth the

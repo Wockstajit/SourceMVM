@@ -798,6 +798,8 @@
         feed.rev = state.camRev || 0;
         feed.canUndo = !!(state.camUndo && state.camUndo.length); feed.canRedo = !!(state.camRedo && state.camRedo.length);
         feed.drive = !!state.graphDrive;
+        feed.autoPath = !!(state.ui && state.ui['editor.timeline.autopath'] === '1');
+        feed.workspace = live.config ? 'config' : live.editor ? 'editor' : 'none'; // the dock's CAM EDITOR / CONFIG
         feed.pathPlaying = false;
         feed.scrubCache = !!state.scrubCache;
         feed.tickRate = window.MvmState.TICK_RATE;
@@ -808,9 +810,16 @@
         // The camera path's marker ticks and each marker's shake (CamPathShake), for the
         // CAMERA PATH layer's "Camera shake" row.
         feed.pathKeys = (state.markers || []).map(function (m) { return m.tick; });
-        feed.shakes = (state.shakes || []).filter(function (s) { return state.markers && state.markers[s.i]; }).map(function (s) {
-          return { i: s.i, t: state.markers[s.i].tick, s: s.s, l: s.l || 'Hand', n: s.n || 5, p: s.p || 50 };
+        // CamPathShake_AppendDockJson: the path's track (with each key's camera-key index) and every
+        // camera object's, keyed by tick; the camera objects that can carry one (shakeCams).
+        var tracks = state.shakeTracks || {}, sortT = function (a, b) { return a.t - b.t; };
+        feed.shakes = (tracks[0] || []).filter(function (k) { return feed.pathKeys.indexOf(k.t) >= 0; }).sort(sortT).map(function (k) {
+          return { i: feed.pathKeys.indexOf(k.t), t: k.t, s: k.s, l: k.l || 'Hand', n: k.n || 5, p: k.p || 50 };
         });
+        feed.objShakes = {};
+        Object.keys(tracks).forEach(function (o) { if (+o) feed.objShakes[o] = tracks[o].slice().sort(sortT); });
+        feed.shakeCams = ((state.environment && state.environment.objects) || []).filter(function (o) { return o.kind === 'camera'; })
+          .map(function (o) { return { id: o.id, name: 'Camera ' + o.id }; });
         feed.shakeStyles = window.MvmShakeMenu || [];
         feed.shakeEssentials = 5;
         feed.enabled = dock.graphEnabled;
@@ -823,6 +832,8 @@
         feed.renderOpen = nav.renderOpen;
         feed.renderJobActive = !!state.renderJobActive;
         feed.daPlayers = window.MvmCommands.deathAnimPlayers(state);
+        // SceneRig_AppendStateJson: what each placed object rides, and the pickers.
+        window.MvmCommands.syncRig(state); feed.rig = state.rig;
         break;
       case 'cameraeditor':
         feed.enabled = nav.editorOpen && !nav.blackout;

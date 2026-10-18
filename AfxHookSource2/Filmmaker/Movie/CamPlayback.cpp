@@ -20,10 +20,9 @@ namespace {
 	constexpr int kTimingFreeze = 1;          // CameraPath::Timing::Freeze
 
 	// Wrap a degree delta to [-180,180] so angle smoothing always takes the short way.
+	// In one step: A wrap that walks 360 at a time never finishes on a huge value (a saved yaw of 4.7e10 froze the game on every load).
 	double WrapDeg(double d) {
-		while (d > 180.0) d -= 360.0;
-		while (d < -180.0) d += 360.0;
-		return d;
+		return std::isfinite(d) ? std::remainder(d, 360.0) : 0.0;
 	}
 }
 

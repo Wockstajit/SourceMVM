@@ -21,8 +21,7 @@ namespace Filmmaker {
 
 namespace {
 
-// Only used by UpdateGrenadeCache/Candidates below -- kept file-local (not exposed via
-// FollowTargetProviders.h, which the provider classes don't call this from).
+// A weapon's owner, for the Weapon list (Candidates below).
 void ResolveOwner(CEntityInstance* entity, int& ownerIndex, std::string& ownerName, int& ownerTeam) {
 	ownerIndex = -1;
 	ownerName.clear();
@@ -49,51 +48,21 @@ void ResolveOwner(CEntityInstance* entity, int& ownerIndex, std::string& ownerNa
 
 } // namespace
 
+// The grenades come from the shared index (GrenadeIndex_Update, FollowTargetProviders.h) -- the
+// same one the scene objects' grenade picker reads -- so both find the same projectiles.
 void FollowCamera::UpdateGrenadeCache() const {
-	for (auto& pair : m_grenadeCache)
-		pair.second.active = false;
-
-	int currentTick = 0;
-	g_MirvTime.GetCurrentDemoTick(currentTick);
-	float interval = g_MirvTime.interval_per_tick_get();
-	if (!(interval > 0.00001f)) interval = 1.0f / 64.0f;
-	const float currentGameTime = g_MirvTime.curtime_get();
-
-	for (int i = 0; i <= GetHighestEntityIndex(); ++i) {
-		CEntityInstance* entity = EntityAt(i);
-		if (!entity) continue;
-		const std::string cls = EntityClass(entity);
-		if (!IsGrenadeClass(cls)) continue;
-		const auto entityHandle = entity->GetHandle();
-		if (!entityHandle.IsValid()) continue;
-		const uint64_t handle = (uint64_t)(uint32_t)entityHandle.ToInt();
-
-		int throwTick = currentTick;
-		const float creationTime = entity->GetGrenadeTrajectoryCreationTime();
-		if (std::isfinite(creationTime) && creationTime > 0.0f
-			&& std::isfinite(currentGameTime) && currentGameTime > 0.0f) {
-			// Both values are server/game time. Convert their relative age onto the
-			// current playback/demo tick, avoiding the server-start tick offset.
-			const double estimated = currentTick + (creationTime - currentGameTime) / interval;
-			if (std::isfinite(estimated) && std::fabs(estimated - currentTick) < 10000.0)
-				throwTick = (int)std::llround(estimated);
-		}
-
-		auto& record = m_grenadeCache[handle];
-		record.handle = handle;
-		record.entityIndex = i;
-		record.className = cls;
-		record.grenadeType = GrenadeTypeName(cls);
-		record.throwTick = throwTick;
-		record.active = true;
-		ResolveOwner(entity, record.throwerIndex, record.throwerName, record.team);
-	}
-
-	for (auto it = m_grenadeCache.begin(); it != m_grenadeCache.end();) {
-		if (it->second.throwTick >= 0 && std::abs(it->second.throwTick - currentTick) > 5000)
-			it = m_grenadeCache.erase(it);
-		else
-			++it;
+	m_grenadeCache.clear();
+	for (const GrenadeSighting& s : GrenadeIndex_Update()) {
+		GrenadeRecord& record = m_grenadeCache[s.handle];
+		record.handle = s.handle;
+		record.entityIndex = s.active ? s.entityIndex : -1;
+		record.className = s.className;
+		record.grenadeType = s.type;
+		record.throwerName = s.thrower.empty() ? "Player" : s.thrower;
+		record.throwerIndex = s.throwerIndex;
+		record.team = s.team;
+		record.throwTick = s.throwTick;
+		record.active = s.active;
 	}
 }
 
@@ -120,9 +89,9 @@ std::vector<FollowTargetCandidate> FollowCamera::Candidates() const {
 		g_MirvTime.GetCurrentDemoTick(currentTick);
 		for (const auto& pair : m_grenadeCache) {
 			const GrenadeRecord& record = pair.second;
-			// Browse window: grenades thrown within ~1000 ticks either side of the playhead
-			// (recently detected, or about to exist once scrubbed into range).
-			if (record.throwTick < 0 || std::abs(record.throwTick - currentTick) > 1000)
+			// Browse window: grenades thrown within kGrenadeBrowseTicks either side of the playhead
+			// (in the air now, or seen earlier this session).
+			if (record.throwTick < 0 || std::abs(record.throwTick - currentTick) > kGrenadeBrowseTicks)
 				continue;
 			FollowTargetCandidate candidate;
 			candidate.entityIndex = record.active ? record.entityIndex : -1;
@@ -325,6 +294,7 @@ bool FollowCamera::SelectCandidate(const FollowTargetCandidate& candidate) {
 	// Keep the requested mount when changing weapons/targets; transient fallback belongs
 	// to the resolver, not the saved framing. Returning to the model restores its point.
 	m_haveLastRawTarget = false;
+	m_highlightTarget = -2; // every pick shows the target box again for a few seconds (PublishTargetHighlight)
 	m_lastMessage = "Selected " + candidate.name + ".";
 	advancedfx::Message("[followcam] target selected: type=%s entity=%d name=%s distance=%.1f.\n",
 		FollowTargetTypeName(m_state.targetType), candidate.entityIndex, candidate.name.c_str(), candidate.distance);

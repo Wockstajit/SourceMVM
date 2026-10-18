@@ -35,6 +35,10 @@ bool MouseCapture_IsFree() {
 	return g_freeMouse.load(std::memory_order_acquire);
 }
 
+bool MouseCapture_ClickToCapture() {
+	return g_clickToCapture.load(std::memory_order_acquire);
+}
+
 void MouseCapture_SetFree(bool freeMouse) {
 	g_clickToCapture.store(false, std::memory_order_release);
 	MouseCapture_ApplyFreeState(freeMouse, "command");

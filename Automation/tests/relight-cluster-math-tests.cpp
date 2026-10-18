@@ -140,5 +140,78 @@ int main() {
     const auto cookieBeam=GlassBeamProjection({{-80,-60,9000},{80,-60,9000},{80,60,9000},{-80,60,9000}},{0,0,-1},500);
     Check(FirstPersonLight(GlassBeamRecord(cookieBeam,{0,0,-1},{1,1,1},.5f),{0,0,0}),"Glass beams are always listed");
     record=ToRecord(hand,1);record[37]=0;Check(FirstPersonLight(record,{0,0,0}),"A record without a proven range is listed");
+    // ---- visible reach ----
+    {
+        Check(VisibleRadianceCutoff(0,.3f)==0&&VisibleRadianceCutoff(1,0)==0,"No cutoff without steps or a known exposure");
+        const float cut=VisibleRadianceCutoff(1,.286f);
+        Check(std::abs(std::log2(cut/.006590f))<=1.f/32,"One step at exposure 0.286 is about 0.0066 radiance (sixteenth-stop rounding)");
+        Check(VisibleRadianceCutoff(1,.143f)>cut,"A lower exposure (a darker picture) hides more light: a larger cutoff");
+        Light dim;dim.position={0,0,0};dim.range=1000;dim.lumens=75;dim.color={1,.69f,.40f};
+        const auto record=ToRecord(dim,1);
+        const float authored=-record[36]/record[37];
+        Check(LightVisibleReach(record,authored,0)==authored,"Zero cutoff keeps the authored range");
+        const float reach=LightVisibleReach(record,authored,cut);
+        Check(reach>50&&reach<authored*.6f,"A dim 75-lumen lamp stops well inside its 1000-unit range");
+        // The shipped loop's own evaluation: inside the reach the light is above the cutoff, and
+        // nothing past it (to the authored range) rises above it again.
+        auto contribution=[&](float d){const float peak=(std::max)(record[40],(std::max)(record[41],record[42]));
+            const float t=std::clamp(record[36]+record[37]*d,0.f,1.f);
+            return peak*record[35]/(std::max)(record[35],d*d)*(t*t*(3-2*t));};
+        Check(contribution(reach*.995f)>cut,"Just inside the reach the light still exceeds the cutoff");
+        bool tail=true;for(float d=reach;d<=authored;d+=1)tail=tail&&contribution(d)<=cut*1.0001f;
+        Check(tail,"Past the reach the light never exceeds the cutoff");
+        Light bright=dim;bright.lumens=4000;bright.range=480;
+        const auto strong=ToRecord(bright,1);
+        Check(LightVisibleReach(strong,-strong[36]/strong[37],cut)>400,"A bright lamp keeps most of its short range (its fade to the range end is what it loses)");
+        // ---- shadow reach: the face depth a receiver at that face-axis distance stores ----
+        for(int face=0;face<6;++face){
+            const Vec3 origin{120,-40,64};
+            const auto matrix=Filmmaker::Environment::LocalShadowMatrix(origin,Filmmaker::Environment::PointShadowDirection(face),90,1000,8);
+            auto faceRecord=ToShadowedRecord(dim,1,matrix.data(),StaticTile);
+            const Vec3 axis=Filmmaker::Environment::PointShadowDirection(face);
+            for(const float distance:{20.f,240.f,900.f}){
+                const Vec3 p{origin.x+axis.x*distance+3*(axis.y+axis.z),origin.y+axis.y*distance+3*(axis.z+axis.x),origin.z+axis.z*distance+3*(axis.x+axis.y)}; // off-axis, same axis distance
+                const float z=faceRecord[8]*p.x+faceRecord[9]*p.y+faceRecord[10]*p.z+faceRecord[11];
+                const float w=faceRecord[12]*p.x+faceRecord[13]*p.y+faceRecord[14]*p.z+faceRecord[15];
+                Check(std::abs(ShadowReachDepth(faceRecord,distance)-z/w)<1e-5f,"The reach depth is what the face stores at that axis distance");
+            }
+            Check(ShadowReachDepth(faceRecord,4)==1e-7f,"A reach inside the near plane skips every receiver");
+            Check(ShadowReachDepth(faceRecord,5000)==0,"A reach past the far plane keeps every lookup");
+            Check(ShadowReachDepth(ToRecord(dim,1),100)==0,"An unshadowed record (no projection) has no reach depth");
+        }
+        Check(ShadowReachSlot==91&&ToShadowedRecord(dim,1,Filmmaker::Environment::LocalShadowMatrix({0,0,0},{1,0,0},90,1000,8).data(),StaticTile)[ShadowReachSlot]==0,
+            "A shadowed record keeps every lookup until a reach is set");
+        // ---- cube shadow records: one record for the six faces, or none ----
+        {
+            std::array<float,96> faces{};
+            for(int f=0;f<6;++f){const auto m=Filmmaker::Environment::LocalShadowMatrix({dim.position.x,dim.position.y,dim.position.z},Filmmaker::Environment::PointShadowDirection(f),90,dim.range,8);
+                std::copy(m.begin(),m.end(),faces.begin()+16*f);}
+            LightRecord cube{};
+            Check(ToCubeShadowRecord(dim,1,faces.data(),StaticTile,cube)&&cube[87]==CubeShadowMarker&&cube[88]==dim.range,"A point light's six faces make one cube record");
+            const auto unshadowed=ToRecord(dim,1);
+            Check(std::equal(cube.begin(),cube.begin()+16,unshadowed.begin()),"A cube record keeps the unshadowed range box");
+            for(unsigned f=0;f<6;++f){const auto face=ToShadowedRecord(dim,1,faces.data()+16*f,StaticTile+f);
+                Check(std::equal(face.begin()+52,face.begin()+56,cube.begin()+4*(CubeFaceRectRow+f)),"Each face's rect is its face record's");}
+            Check(ShadowReachDepth(cube,300)==cube[89]+cube[90]/300,"A cube record's reach depth uses its faces' depth mapping");
+            auto swapped=faces;std::swap_ranges(swapped.begin(),swapped.begin()+16,swapped.begin()+16);
+            Check(!ToCubeShadowRecord(dim,1,swapped.data(),StaticTile,cube),"Faces out of order keep six face records");
+            auto narrow=faces;for(int f=0;f<6;++f){narrow[16*f]*=1.2f;narrow[16*f+1]*=1.2f;narrow[16*f+2]*=1.2f;}
+            Check(!ToCubeShadowRecord(dim,1,narrow.data(),StaticTile,cube),"A face that is not 90 degrees keeps six face records");
+        }
+        const auto sun=SunRecord({0,0,1},{1,1,1},nullptr,false);
+        const auto g=MakeClusterGrid(1600,900,4,6400);
+        ClusterView view{};view[2][0]=1;view[12][0]=1;view[13][1]=1;view[14][3]=1;
+        const auto sunExtent=LightClusterExtent(sun,g,view,1600,900,cut);
+        Check(sunExtent.allTiles&&sunExtent.z0==0&&sunExtent.z1==63,"The sun is never cut");
+        Light far=dim;far.position={0,0,2000};
+        const auto farRecord=ToRecord(far,1);
+        const auto full=LightClusterExtent(farRecord,g,view,1600,900,0),cutExtent=LightClusterExtent(farRecord,g,view,1600,900,cut);
+        Check(cutExtent.x1-cutExtent.x0<full.x1-full.x0&&cutExtent.z1-cutExtent.z0<full.z1-full.z0,"The cut lamp covers fewer tiles and slices");
+        Check(cutExtent.x0>=full.x0&&cutExtent.x1<=full.x1&&cutExtent.z0>=full.z0&&cutExtent.z1<=full.z1,"The cut extent lies inside the authored one");
+        Light nearEye=dim;nearEye.position={0,0,600};
+        const auto nearRecord=ToRecord(nearEye,1);
+        Check(FirstPersonLight(nearRecord,{0,0,0})&&!FirstPersonLight(nearRecord,{0,0,0},FirstPersonLightReach,cut),
+              "A dim lamp 600 units away reaches the eye by range but not visibly");
+    }
     std::cout<<"Relight cluster addressing and conservative bounds passed\n";
 }

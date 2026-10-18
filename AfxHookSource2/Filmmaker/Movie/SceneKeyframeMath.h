@@ -92,10 +92,9 @@ inline double BezierValue(double a, double b, double t,
 	return u * u * u * p0 + 3 * u * u * s * p1 + 3 * u * s * s * p2 + s * s * s * p3;
 }
 
+// In one step: A wrap that walks 360 at a time never finishes on a huge value (a saved yaw of 4.7e10 froze the game on every load).
 inline double NormalizeAngleDeg(double deg) {
-	while (deg > 180.0) deg -= 360.0;
-	while (deg < -180.0) deg += 360.0;
-	return deg;
+	return std::isfinite(deg) ? std::remainder(deg, 360.0) : 0.0;
 }
 
 inline double AngleDelta(double from, double to, AngleDir dir) {

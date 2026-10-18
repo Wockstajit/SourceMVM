@@ -45,6 +45,12 @@ unsigned ActorShadowFacesPerFrame();
 void SetActorShadowFacesPerFrame(unsigned faces);
 // The separate 3D-skybox sun depth; borrowed until EndShadowMaps or the next map update.
 ID3D11ShaderResourceView* SkyboxSunShadow(Matrix* matrix);
+// The lamp tiles' depth summary (EnvironmentShadowPyramid.h) for the lamp filter at
+// NativeLampPyramidSlot, when `atlas` is the map atlas it summarizes; otherwise null.
+ID3D11ShaderResourceView* LampShadowPyramid(ID3D11ShaderResourceView* atlas);
+// `mirv_relight lampsummary`: off leaves the summary unbound, so every lamp runs its full disk.
+bool LampShadowSummary();
+void SetLampShadowSummary(bool enabled);
 // Depth of the static world in each stained glass beam's projection, into the atlas's beam tiles
 // (Relight::GlassBeamTile + i). Cached until the beams change. Returns how many are ready.
 unsigned PrepareGlassBeamShadows(ID3D11DeviceContext* immediate,const Matrix* matrices,unsigned count);

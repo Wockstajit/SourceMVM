@@ -269,6 +269,10 @@ private:
 	                             // while stationary doesn't re-add the trim each frame (spin fix)
 	int m_lastFrameTick = -1;    // last demo tick seen in RunFrame; used to detect a paused demo
 	bool m_wantTargetHighlight = false; // a target box is currently being published
+	// The box shows for kTargetHighlightMs after a target is picked (FollowCamera.cpp), then goes.
+	int m_highlightTarget = -2;
+	FollowTargetType m_highlightType = FollowTargetType::Player;
+	unsigned long long m_highlightSinceMs = 0;
 	// Last player picked in Player mode. Scopes the WEAPON list to that player's weapons, which
 	// is the report's workflow (choose a player, then their weapon) and the only owner signal
 	// that survives free cam -- AfxGetSpectatedPawnIndex returns -1 there by design.

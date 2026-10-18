@@ -83,6 +83,13 @@ int   SunFx_SunLightCount();
 int   SunFx_SolarPositionCount();
 void  SunFx_ResetLightAngles();
 
+// THE SUN AS THE SKY DRAWS IT, for the lens flare (LensFxMath.h "the sun"): SolarPosition of the
+// first sky material that has one, read live so a moved or rotated sun is followed. Refresh is a
+// read-only material walk on the main thread, at most once a second; the direction is then
+// readable from any thread. False on a map whose sun is painted into the sky texture.
+void SunFx_RefreshVisibleSun();
+bool SunFx_VisibleSunDirection(float out[3]);
+
 // Keeps sky.vfx's parameterized solar disc on the same delta as Scene Lights. This is the
 // material fallback for maps that do not submit a separate sun_disc_glow sprite.
 void SunFx_SetSceneLightRotation(float yawDegrees, float pitchDegrees);

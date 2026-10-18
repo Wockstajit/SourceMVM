@@ -20,7 +20,7 @@ cbuffer LensConstants : register(b0) {
     row_major float4x4 inverseViewProjection;
     float4 dims;        // xy target size, zw depth size (px)
     float4 depthInfo;   // x depth min, y depth max (world band), z unused, w reversed
-    float4 frame;       // x dt seconds, y unused, z unused, w first-frame flag
+    float4 frame;       // x dt seconds, y autofocus speed (1/s), z unused, w first-frame flag
     float4 dofA;        // x mode, y focus (units), z f-stop, w autofocus on
     float4 dofB;        // near start, near end, far start, far end
     float4 dofC;        // max blur (px at this size), bokeh gamma (stops), blur weapon, debug
@@ -35,6 +35,11 @@ cbuffer LensConstants : register(b0) {
     float4 tileInfo;    // xy tile grid size, z dilate radius (tiles), w unused
     float4 passInfo;    // xy source texel size for the current downsample step
     float4 modes;       // x dof active, y flare active, z aspect (w/h), w unused
+    float4 dofBand;     // x sharp band either side of the focus (units), yzw unused
+    float4 smokeInfo;   // x smoke spheres, y absorbance bound, zw absorbance size (px)
+    float4 cameraPos;   // xyz camera position (world), w unused
+    float4 smokeSpheres[8]; // xyz centre, w radius (kLensMaxSmokes)
+    float4 sunInfo;     // xy the sun's screen uv, z sun flare strength (0 = no sun), w unused
 };
 SamplerState linearClamp : register(s0);
 Texture2D<float4> colorTex : register(t0);
@@ -63,13 +68,16 @@ Texture2D<float4> ghostSrcTex : register(t16);
 Texture2D<float4> sourceTex : register(t17);   // the source map, quarter resolution
 Texture2D<float4> source8Tex : register(t18);  // the source map, eighth resolution
 Texture2D<float4> sourceHTex : register(t19);  // the source map, eighth width x half height (Gaussian-filtered streak)
+Texture2D<float> smokeAbsorb : register(t20);  // CS2's OIT absorbance b0 in front of each surface
+Texture2D<float> worldMask : register(t21);    // 1 world, 0 the sharp first-person weapon; mips like cocTex
+Texture2D<float> sunVisTex : register(t22);    // 1x1: how much of the sun's disc is open sky (SunPS)
 
 static const float kPi = 3.14159265;
 static const float kFarSky = 60000.0;
 // Fixed settings (mirrored in LensFxMath.h; lens-fx-math-tests.cpp compares the numbers).
 static const float kFocalMm = 50.0;         // kFocalLengthMm
 static const float2 kAutofocusPoint = float2(.5, .5); // kAutofocusX, kAutofocusY
-static const float kAutofocusPull = 6.0;    // kAutofocusPull
+static const float kAutofocusInstant = 30.0; // kAutofocusInstant
 static const float kWeaponDist = 30.0;      // kWeaponDistance
 static const float kEdgeSoft = .22;         // kEdgeSoftness
 static const float kRingHole = .55;         // kRingHole
@@ -80,6 +88,10 @@ static const float kLiftStopsPerGamma = 1.75; // kLiftStopsPerGamma
 static const float kMaxLiftStops = 15.0;    // kMaxLiftStops
 static const float kHeartCentroid = 0.26759; // kHeartCentroid
 static const float kHeartScale = 1.65;       // kHeartScale
+static const float kSmokeMinCover = .02;     // kSmokeMinCover
+static const float kSunSourceRadius = .012;  // kSunSourceRadius
+static const float kSunVisibilityRadius = .006; // kSunVisibilityRadius
+static const float kSunMargin = .15;         // kSunMargin
 struct VOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
 VOut VS(uint id : SV_VertexID) {
     VOut o;
@@ -122,14 +134,21 @@ float ViewDistance(float raw, float2 pixel, out bool viewmodel) {
     return min(1.0 / max(abs(h.w), 1e-9), kFarSky);
 }
 
-// ---- circle of confusion (mirrors CircleOfConfusion in LensFxMath.h) ------------------------
+// ---- circle of confusion (mirrors SharpBandDistance / CircleOfConfusion in LensFxMath.h) ------
+float SharpBand(float dist, float focus) {
+    float range = dofBand.x;
+    if (range <= 0) return dist;
+    if (dist > focus + range) return dist - range;
+    if (dist < focus - range) return dist + range;
+    return focus;
+}
 float CoC(float dist, float focus) {
     float maxPx = dofC.x;
     float s;
     if (dofA.x < .5) {
         float f = kFocalMm;
         float sMm = max(focus * 25.4, f * 1.05);
-        float d = max(dist * 25.4, 1.0);
+        float d = max(SharpBand(dist, focus) * 25.4, 1.0);
         float cMm = f * f * abs(d - sMm) / (dofA.z * d * (sMm - f));
         float r = .5 * cMm / 36.0 * dims.x;
         s = d >= sMm ? r : -r;
@@ -143,6 +162,68 @@ float CoC(float dist, float focus) {
         else if (dist > farStart) s = smoothstep(0, 1, (dist - farStart) / (farEnd - farStart)) * maxPx;
     }
     return clamp(s, -maxPx, maxPx);
+}
+
+// ---- smoke in front of the world (mirrors SmokeSpan / SmokeSeenDepth / SmokeBlendCoc) --------
+// The depth buffer under a smoke is the wall behind it. The smoke's own distance comes from the
+// spheres placed for the detonated smokes, how much it covers from CS2's OIT absorbance.
+float3 RayDir(float2 pixel) {
+    float2 ndc = pixel / dims.xy * float2(2, -2) + float2(-1, 1);
+    float4 h = mul(inverseViewProjection, float4(ndc, .5, 1));
+    return normalize(h.xyz / h.w - cameraPos.xyz);
+}
+float SmokeSeenDepth(float span, float b0) {
+    if (span <= 0) return 0;
+    if (b0 <= 1e-3) return .5 * span;
+    float e = exp(-b0);
+    return span / b0 * (1 - (1 + b0) * e) / (1 - e);
+}
+float SmokeBlendCoc(float surfaceCoc, float smokeCoc, float cover) {
+    float w = saturate(cover);
+    float size = lerp(abs(surfaceCoc), abs(smokeCoc), w);
+    return (w > .5 ? smokeCoc : surfaceCoc) < 0 ? -size : size;
+}
+// Whether a smoke covers this pixel; if so how much (0..1) and how far away ALONG THE VIEW AXIS the
+// light it shows comes from. `surfaceAxis` is the view-axis distance of what the depth buffer holds.
+bool SmokeAt(float2 pixel, float surfaceAxis, out float cover, out float axis) {
+    cover = 0; axis = 0;
+    int count = (int)smokeInfo.x;
+    if (count <= 0 || smokeInfo.y < .5) return false;
+    int2 q = clamp(int2(pixel * smokeInfo.zw / dims.xy), int2(0, 0), int2(smokeInfo.zw) - 1);
+    float b0 = smokeAbsorb.Load(int3(q, 0));
+    if (!(b0 > 0 && b0 < 1e6)) return false;
+    cover = 1 - exp(-b0);
+    if (cover < kSmokeMinCover) return false;
+    float3 dir = RayDir(pixel);
+    float cosA = max(dot(dir, RayDir(dims.xy * .5)), .05);
+    float maxT = surfaceAxis / cosA;
+    float3 cam = cameraPos.xyz;
+    float t0 = -1, t1 = 0;
+    [loop] for (int i = 0; i < 8; ++i) {
+        if (i >= count) break;
+        float r = smokeSpheres[i].w;
+        float3 o = cam - smokeSpheres[i].xyz;
+        float b = dot(o, dir);
+        float disc = b * b - (dot(o, o) - r * r);
+        if (r <= 0 || disc <= 0) continue;
+        float h = sqrt(disc);
+        float a0 = max(-b - h, 0), a1 = min(-b + h, maxT);
+        if (a1 > a0 && (t0 < 0 || a0 < t0)) { t0 = a0; t1 = a1; }
+    }
+    // Covered, but the ray misses every sphere: a CS2 cloud is wider and taller than the sphere placed
+    // for it. The coverage already proves a smoke is in front; take the nearest one's near edge.
+    if (t0 < 0) {
+        [loop] for (int j = 0; j < 8; ++j) {
+            if (j >= count) break;
+            float r = smokeSpheres[j].w;
+            if (r <= 0) continue;
+            float e = max(length(smokeSpheres[j].xyz - cam) - r, 0);
+            if (e < maxT && (t0 < 0 || e < t0)) { t0 = e; t1 = min(e + 2 * r, maxT); }
+        }
+    }
+    if (t0 < 0) return false;
+    axis = (t0 + SmokeSeenDepth(t1 - t0, b0)) * cosA;
+    return true;
 }
 )HLSL";
 
@@ -159,6 +240,9 @@ float FocusPS(VOut i) : SV_Target {
         float2 pix = clamp(c + offs[k] * r, float2(0, 0), dims.xy - 1);
         bool vm;
         float dist = ViewDistance(RawDepth(pix), pix, vm);
+        // A dense smoke in the middle of the screen is what the camera is looking at, not the wall behind it.
+        float cover, smokeAxis;
+        if (!vm && SmokeAt(pix, dist, cover, smokeAxis) && cover > .5) dist = smokeAxis;
         d[k] = (vm || dist >= kFarSky - 1) ? -1 : dist;
         if (d[k] > 0) nearest = min(nearest, d[k]);
     }
@@ -167,8 +251,34 @@ float FocusPS(VOut i) : SV_Target {
     float prev = focusPrev.Load(int3(0, 0, 0));
     float target = cnt > 0 ? sum / cnt : prev;
     if (frame.w > .5 || prev <= 0) prev = target;
-    float a = 1 - exp(-kAutofocusPull * frame.x);
+    // AutofocusStep in LensFxMath.h: exponential at dof.focusSpeed, instant at the top of its range.
+    float a = frame.y >= kAutofocusInstant ? 1 : 1 - exp(-frame.y * frame.x);
     return lerp(prev, target, a);
+}
+
+// ---- the sun's visibility: a 1x1 target, how much of its disc is open sky (SunScreenUv) ------
+float SunPS(VOut i) : SV_Target {
+    if (sunInfo.z <= 0) return 0;
+    float2 c = sunInfo.xy * dims.xy;
+    float r = max(kSunVisibilityRadius * dims.y, 1.5);
+    float vis = 0;
+    [unroll] for (int y = -1; y <= 1; ++y)
+        [unroll] for (int x = -1; x <= 1; ++x) {
+            float2 pix = clamp(c + float2(x, y) * r, float2(0, 0), dims.xy - 1);
+            float raw = RawDepth(pix);
+            bool sky = depthInfo.w > .5 ? raw < 1e-7 : raw >= depthInfo.y - 1e-6;
+            float open = sky ? 1 : 0;
+            // A smoke in front of the sun hides it as much as it hides anything.
+            if (smokeInfo.y > .5) {
+                int2 q = clamp(int2(pix * smokeInfo.zw / dims.xy), int2(0, 0), int2(smokeInfo.zw) - 1);
+                float b0 = smokeAbsorb.Load(int3(q, 0));
+                if (b0 > 0 && b0 < 1e6) open *= exp(-b0);
+            }
+            vis += open;
+        }
+    // Fades in from kSunMargin past the frame edge, so a sun entering the frame does not pop.
+    float2 edge = min(sunInfo.xy, 1 - sunInfo.xy);
+    return vis / 9 * saturate(1 + min(edge.x, edge.y) / kSunMargin);
 }
 
 // ---- the bokeh gamma -------------------------------------------------------------------------
@@ -212,7 +322,15 @@ float HighlightBoost(int2 p, float3 src, float coc) {
 }
 
 // ---- per-pixel circle of confusion, colour moved to linear light ---------------------------
-float4 CocPS(VOut i) : SV_Target {
+// THE SHARP WEAPON IS NOT PART OF THE PICTURE BEING BLURRED. The gather reads mips that average colour
+// and blur radius together, so at the weapon's outline a texel mixes the sharp gun (radius 0) with the
+// world around it; around a near-blurred world (a smoke in front of the lens) that mix reads as a
+// blurred FOREGROUND sample, which always spreads, and the gun's colour smeared out as a dark, ragged
+// halo. While the weapon is kept sharp it is written out of the image (colour and radius are
+// premultiplied by worldMask) and every tap is weighted by how much of it is world, so no gather ever
+// sees it; the composite keeps the engine's own sharp weapon on top.
+struct CocOut { float4 coc : SV_Target0; float world : SV_Target1; };
+CocOut CocPS(VOut i) {
     int2 p = int2(i.pos.xy);
     float3 src = colorTex.Load(int3(p, 0)).rgb;
     bool vm;
@@ -220,15 +338,26 @@ float4 CocPS(VOut i) : SV_Target {
     float focus = dofA.w > .5 ? focusTex.Load(int3(0, 0, 0)) : dofA.y;
     float coc;
     if (vm) coc = dofC.z > .5 ? CoC(kWeaponDist, focus) : 0;
-    else coc = CoC(dist, focus);
-    return float4(ToLinear(src) * HighlightBoost(p, src, coc), coc);
+    else {
+        coc = CoC(dist, focus);
+        float cover, smokeAxis;
+        if (SmokeAt(i.pos.xy, dist, cover, smokeAxis)) coc = SmokeBlendCoc(coc, CoC(smokeAxis, focus), cover);
+    }
+    float m = (vm && dofC.z < .5) ? 0 : 1;
+    CocOut o;
+    o.coc = float4(ToLinear(src) * HighlightBoost(p, src, coc) * m, coc * m);
+    o.world = m;
+    return o;
 }
 // One step down the mip chain of the linear-light image + radius: the destination texel centre
 // sits on the corner shared by four source texels, so a single bilinear tap IS the 2x2 average. A
 // wide gather reads these pre-averaged taps instead of single texels -- that is what keeps a 60 px
 // blur from turning to noise. tileInfo.w is the source mip.
-float4 MipPS(VOut i) : SV_Target {
-    return cocTex.SampleLevel(linearClamp, i.uv, 0);
+CocOut MipPS(VOut i) {
+    CocOut o;
+    o.coc = cocTex.SampleLevel(linearClamp, i.uv, 0);
+    o.world = worldMask.SampleLevel(linearClamp, i.uv, 0);
+    return o;
 }
 float TilePS(VOut i) : SV_Target {
     int2 base = int2(i.pos.xy) * 16;
@@ -315,6 +444,7 @@ void IrisTap(int idx, int n, float jit, out float2 off, out float discR, out flo
     w = bd * bd;
     if (shape == 4) w *= smoothstep(kRingHole - .06, kRingHole + .06, u);
     if (irisB.y > 0) w *= 1 + irisB.y * smoothstep(1 - kEdgeSoft, 1, u);
+    else if (irisB.y < 0) w *= 1 + irisB.y * u * u;   // soft centre-weighted disc
 }
 
 // ---- the gather -----------------------------------------------------------------------------
@@ -325,6 +455,7 @@ float4 GatherPS(VOut i) : SV_Target {
     float2 pix = i.pos.xy;
     int2 p = int2(pix);
     float4 c0 = cocTex.Load(int3(p, 0));
+    if (worldMask.Load(int3(p, 0)) < .5) return 0;   // the sharp weapon: the composite keeps it as drawn
     int2 tp = min(p >> 4, int2(tileInfo.xy) - 1);
     float R = min(tileTex.Load(int3(tp, 0)), dofC.x);
     if (R < .6) return float4(c0.rgb, 0);
@@ -346,12 +477,14 @@ float4 GatherPS(VOut i) : SV_Target {
         float ur = discR * R;
         float2 tuv = (pix + off * R) / dims.xy;
         float4 s = cocTex.SampleLevel(linearClamp, tuv, lod);
-        float3 col = s.rgb;
-        float cs = s.a, as = abs(cs);
+        float wm = worldMask.SampleLevel(linearClamp, tuv, lod);
+        if (wm < 1e-3) continue;                     // all weapon: nothing of the world to gather here
+        float3 col = s.rgb / wm;
+        float cs = s.a / wm, as = abs(cs);
         float reach = as;
         if (cs > 0 && cs > c0far) reach = min(as, max(c0far, .5));
         float cover = saturate(reach - ur + soft);
-        float w = cover * kw * tapScale / max(as * as, .25);
+        float w = cover * kw * tapScale / max(as * as, .25) * wm;
         if (w <= 0) continue;
         // (The highlight lift already happened in CocPS, before the mips: see HighlightBoost.)
         if (cs < 0) { nearAcc += col * w; nearW += w; }
@@ -360,7 +493,8 @@ float4 GatherPS(VOut i) : SV_Target {
     // The centre pixel is one more sample, and belongs to whichever layer it is in.
     float wc = tapScale / max(c0.a * c0.a, .25);
     // Read at the taps' own mip level: a full-resolution read would put a sharp bright dot at the centre of every lifted disc.
-    float3 cCentre = cocTex.SampleLevel(linearClamp, pix / dims.xy, lod).rgb;
+    float wmC = worldMask.SampleLevel(linearClamp, pix / dims.xy, lod);
+    float3 cCentre = wmC > 1e-3 ? cocTex.SampleLevel(linearClamp, pix / dims.xy, lod).rgb / wmC : c0.rgb;
     if (c0.a < 0) { nearAcc += cCentre * wc; nearW += wc; }
     else { farAcc += cCentre * wc; farW += wc; }
     float3 farCol = farW > 1e-6 ? farAcc / farW : c0.rgb;
@@ -531,7 +665,14 @@ float4 SourcePS(VOut i) : SV_Target {
     iso *= 1 - smoothstep(kFlareWideIsoLo, kFlareWideIsoHi, wideRing / 16);
     // Specks a few pixels wide (sparkles on a brick wall) are not lights: they fade out below a size floor.
     float floorW = smoothstep(kFlareMinLo, kFlareMinHi, Luma(s));
-    return float4(s * iso * floorW * BorderFade(i.uv), 1);
+    float3 outc = s * iso * floorW * BorderFade(i.uv);
+    // The sun, found from the sky (SunPS): never dropped as part of a bright area. Mirrors SunSourceBlob.
+    if (sunInfo.z > 0) {
+        float2 d = (i.uv - sunInfo.xy) * float2(modes.z, 1);
+        float vis = sunVisTex.Load(int3(0, 0, 0));
+        outc += float3(1, .96, .9) * exp(-dot(d, d) / (2 * kSunSourceRadius * kSunSourceRadius)) * vis * sunInfo.z;
+    }
+    return float4(outc, 1);
 }
 
 // Pre-filter the streak once: a continuous Gaussian across its width, and a box
@@ -742,6 +883,10 @@ float4 CompositePS(VOut i
         } else if (dbg == 2) {
             float f = saturate(1 - abs(coc) / .75);
             col = lerp(orig * .5, float3(1, 0, .8), f * .7);
+        } else if (dbg == 3) {
+            // Zebra: diagonal stripes over what is sharp (blur under half a pixel), on the finished picture.
+            int band = ((p.x + p.y) / 6) % 4;
+            if (abs(coc) < .5) col = band == 0 ? float3(1, 1, 1) : (band == 2 ? float3(.18, .18, .18) : col);
         }
     }
     if (modes.y > .5) {
@@ -757,6 +902,8 @@ float4 CompositePS(VOut i
         // the flare's strength is a budget: full while that area is small, falling as it grows.
         float area = BrightArea();
         float budget = pow(saturate(kFlareBudgetArea / max(area, 1e-9)), kFlareBudgetPow);
+        // The sun sits on a bright sky, which is exactly what the budget turns down: while it shows it keeps the flare.
+        if (sunInfo.z > 0) budget = max(budget, sunVisTex.Load(int3(0, 0, 0)));
         float3 f = 1 - exp(-max(((gh + gl) * flareTint.rgb * dirt + st) * flareA.x * budget, 0));
         col = flareC.w > .5 ? f : 1 - (1 - col) * (1 - f);
         if (flareC.w > 1.5) col = float3(area * 10, budget, 0);

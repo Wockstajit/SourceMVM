@@ -126,11 +126,13 @@ inline void AutoTangent(const double* ticks, const double* values, int n, int i,
 }
 
 // Angles take the short way round: the next key's value moved by whole turns to within half a
-// turn of `prev`. Handles are offsets, so they move with it.
+// turn of `prev`. Handles are offsets, so they move with it. In one step, never a loop: a loop that
+// walks 360 at a time never finishes on a huge value (a saved yaw of 4.7e10 froze the game on every
+// load, 2026-10-17).
 inline double Unwrap(double prev, double v) {
-	while (v - prev > 180.0) v -= 360.0;
-	while (v - prev < -180.0) v += 360.0;
-	return v;
+	const double d = v - prev;
+	if (!std::isfinite(d)) return v;
+	return prev + std::remainder(d, 360.0);
 }
 inline bool IsAngleChannel(int ch) { return ch >= 3 && ch <= 5; } // pitch, yaw, roll
 

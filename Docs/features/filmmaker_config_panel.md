@@ -77,6 +77,10 @@ fall/jump effects, the fisheye lens toggle, and viewmodel follow controls. The *
 Crosshair** shows the recorded aim direction while the camera trails it. Jump/fall pitch is
 derived from the viewed pawn's own ground flag and vertical velocity but smoothed on the render
 clock, so takeoff, falling velocity steps, and landing do not become camera-pitch steps.
+Smooth View moves only the spectated player's own view. It stands down while one of our cameras
+owns the view (a camera path, the Follow camera, a looked-through camera object, the free cam):
+its sway on a camera riding a gun or a player moved the camera off what it rides, so the rider
+seemed to jitter in frame.
 
 **Strafe tilt leans INTO the strafe and runs on the pawn's real velocity.** Positive roll leans the
 view right (measured in game: free camera at roll +10 rotates the world counterclockwise), and the
@@ -392,6 +396,13 @@ restoring five cards at once on panel open does not convulse.
   otherwise hang over controls it has moved away from. Its label is `hittest = false` as well as
   the panel's. A Label is hit-testable by default, which at `z-index: 260` would make the tooltip
   text a live click target over whatever it covered.
+- **The TIMELINE dock under Config shares the wheel.** `MovieMode::OnMouseWheel` sends a plain
+  notch over a panel to the hosting workspace while the dock is up, and `api.wheel` offers it to
+  `$.GraphExp.wheel` first: over the dock it moves the dock's rows (Ctrl zooms, Shift pans),
+  anywhere else it scrolls the column. Over the game it does nothing while the dock is up. The
+  router used to swallow every notch while the dock was up, so Config could not scroll at all.
+  A posted test wheel (`send-wheel.ps1 -Post`) does not move the cursor, and the dock reads the
+  cursor from its own mouse stream, so only a real mouse proves the over-the-dock half.
 - **The floating action row needs a shortened viewport, not padding.**
   RENDER / CUSTOMIZE PLAYER are parented to `root` at `z-index: 120`, so they float over the
   scroll column. `padding-bottom` on the inspector only extends the scrollable *range*; it never

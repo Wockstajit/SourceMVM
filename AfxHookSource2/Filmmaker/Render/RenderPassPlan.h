@@ -27,10 +27,12 @@
 // render were replayed by the next frame's Main, washing out or blacking out the Beauty plate
 // (measured 2026-10-09, de_mirage: 17 of 19 Beauty frames wrong). A depth comparison changes no
 // material, so no render can leak into another.
-// Gun Only has no render of its own: it is the per-pixel difference between Main and NoGun of
-// the same logical frame, which isolates exactly the viewmodel AND everything it causes (muzzle
-// flash, first-person particles), with its true colour from Main. That is only valid because both
-// renders share one simulation state.
+// Gun Only has no render of its own: Main's viewmodel depth band (the gun, whatever its colour),
+// plus the per-pixel difference between Main and NoGun of the same logical frame, which adds what
+// the gun causes outside the band (muzzle flash, first-person particles), with its true colour from
+// Main. The difference is only valid because both renders share one simulation state. The colour
+// difference alone keyed out every gun part as bright as the background behind it (2026-10-17).
+// The live view has one render, so it shows the band alone (PassMask::GunBand).
 
 #include <cstdint>
 #include <cstring>
@@ -68,7 +70,8 @@ enum class RenderKey : int {
 enum class PassMask : int {
 	None = 0,     // the whole render is the pass
 	ColorKey,     // players: by depth against WorldOnly in a job; by the chroma key in the live view
-	GunDiff       // subject = pixels where Main differs from NoGun (gun pass)
+	GunDiff,      // subject = Main's viewmodel depth band, plus pixels where Main differs from NoGun (gun pass)
+	GunBand = 4   // subject = this render's viewmodel depth band: the live gun view (3 is the shader's players-by-depth)
 };
 
 struct PassConfig {

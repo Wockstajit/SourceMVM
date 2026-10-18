@@ -210,7 +210,8 @@ Native material lighting and GI injection share the resulting emission and analy
 Brightness conversion remains provisional.
 
 Owned local shadows use a five-depth blocker search and 32 fixed comparison taps to estimate
-source-size penumbrae. Cube faces overlap by 1/0.9 and blend normalized smooth weights;
+source-size penumbrae; an atlas depth summary skips the taps where it proves every one of them lit
+or shadowed ([Lamp shadow early-out](#lamp-shadow-early-out)). Cube faces overlap by 1/0.9 and blend normalized smooth weights;
 this avoids a hard rectangular boundary where a soft shadow crosses a face. The weights read
 each face's NDC from the lanes the native atlas MAD writes (`SourceForMask` in
 `EnvironmentNativeShadowMath.h`). Lightmapped world kernels write `.zw`, and reading `.xy`
@@ -221,8 +222,8 @@ to the guard remaining after the overlap. Nearby 1024-square faces reserve 96
 texels per edge; cached 128-square faces reserve 12. Overlap leaves approximately 50 and
 6.2 texels, respectively, available for filtering at the outer edge. A central depth projection still
 approximates tube visibility. Nearby shadow residents retain their slots until a challenger
-is substantially closer. Preview refreshes every visible light face within its influence range
-plus 128 camera units each frame, preserving moving shadows through adjacent doorways. The
+is substantially closer. Preview refreshes every visible light face within its visible reach (its shadow
+reach, when set) plus 128 camera units each frame, preserving moving shadows through adjacent doorways. The
 budget expands above 32 faces when needed to retain these faces and at least 16 oldest background
 faces; distant faces otherwise share the remaining budget. Exports refresh all resident faces.
 Overlapping cube faces also use normalized energy weights during GI injection, avoiding duplicate
@@ -1069,6 +1070,174 @@ About 0.19 ms per cached light in that measurement. The record loop and the per-
 count; the cluster measurements below separate their costs. The full-mask path tests all 413 records per pixel
 with no clustering. The cluster implementation below uses conservative masks instead. `mirv_relight shadowlights <n>` trades leaking against frame
 rate directly.
+
+### Visible reach
+
+A light's authored range is where its smooth window reaches zero, but its inverse-square falloff
+makes it too dim to change the picture long before that. Each cluster used to keep every light out
+to its authored range, so pixels looped over (and ran the shadow filter of) lights that could not
+change them. At the de_ancient A-site pose the authored spheres held about seven times the volume
+the lights can visibly light.
+
+`mirv_relight reach <0-8>` (default 4) stops each light at the distance where it changes a
+mid-grey surface by less than that many display steps near black (the first sRGB code, linear
+0.0003), at the exposure CS2's tonemapper is actually applying: a pinned exposure (Night mode, the
+Exposure slider), else the Environment's auto exposure. CS2's own adaptation is not readable, so
+then there is no cutoff. The cutoff is a radiance (`VisibleRadianceCutoff`) and each light's reach
+is solved from its own record, rows 8.w, 9 and 10 exactly as the shipped loop evaluates them
+(`LightVisibleReach` in [`RelightClusterMath.h`](../../AfxHookSource2/Filmmaker/Relight/RelightClusterMath.h),
+mirrored by `VisibleReach` in the cluster shader). It never exceeds the authored range, and the sun,
+glass beams and records without a proven range keep their full extent. `reach 0` restores the
+authored ranges exactly. The same reach decides whether a cached shadow face is on screen and
+needs its every-frame refresh; the faces' depth projections keep the authored range.
+
+Measured at the saved A-site pose (tick 18005, paused, 2560×1351, 4× MSAA, same settings), on
+CS2's own free camera reached by playing into the tick:
+
+| `reach` | standing | moving (free camera flown while paused) |
+| --- | --- | --- |
+| 0 (authored ranges) | 36.1 ms (27.7 fps) | 43.0 ms (23.3 fps) |
+| 4 (default) | 33.1 ms (30.2 fps) | 38.6 ms (25.9 fps) |
+| 8 | 32.1 ms | - |
+
+Window captures against `reach 0`, UI and sky excluded: pixels more than two levels apart were
+0.0003-0.0005% at `reach 4` and 0.0007% at `reach 8`, against 0.0002% between two `reach 0`
+captures.
+
+Measuring a paused demo: CS2 updates world visibility only while the demo plays. A view moved while
+paused, a seek that lands paused, or a `mirv_input` pose away from CS2's own camera can leave
+world geometry undrawn, which reads as a bright glare where the sky shows through and changes
+both frame time and exposure. Play into the measured tick with the camera already in place.
+`RelightClusterMathTests` cover the cutoff, the reach bound and its tail, and
+`RelightClusterGpuTests` require the GPU masks to equal the CPU bounds with a cutoff.
+
+`mvm_debug` now times every lit material pass of a sampled frame (up to 1,536), not the first
+256, and groups the cost by viewport (`environment.native.material.gpu.view`) and by program
+(`environment.native.material.gpu.program`, top 12).
+
+### Where the shadow cost is
+
+Measured at the same pose, standing, within one session, two rounds each (2026-10-18). The cached
+lamp shadows (`shadowlights 0` against the default) cost about 6 ms of a 28 ms frame: rendering
+their faces' depth about 1.85 ms (`mapShadowMs` 3.3 to 1.4 ms), the lookups themselves (blocker
+search and disk) about 0.45 ms, and the rest in the shipped light loop. That loop culls a record
+with its whole authored range box, so many pixels far outside a lamp's visible reach still enter
+its shadow code; and a shadowed point light used to be six face records, each with its own cull
+test, two of them lit in full across a face seam.
+
+| setting | frame |
+| --- | --- |
+| before: six face records, no summary | 32.05 ms (31.2 fps) |
+| defaults: cube records, summary | 29.3 ms (34.1 fps) |
+| defaults with `shadowreach 4` | 28.6 ms (35.0 fps) |
+| defaults with `actorshadows 16` | 27.9 ms (35.8 fps) |
+
+The defaults do not change the picture. By day, two window captures with the defaults and two with
+the previous behaviour differed from each other by no more than two captures of the same settings
+(0.53% of pixels more than eight levels apart, against 0.52% and 0.48%; smoke, foliage and clouds
+move while paused). At night (sun elevation -12) cube and face records matched to capture noise
+outside the moving sky, and so did a second view from the same spot looking the other way, by day
+(0.151% against 0.144-0.157%) and at night. Video memory did not change: the game held 4.24 of
+11.2 GB with either record form, the hook 2.13 GB (the 256 MiB atlas, the 32 MiB summary, cached
+faces and caster buffers among it); the GPU stays at 96-97% busy uncapped, the bottleneck. The two opt-in settings trade quality: `actorshadows 16` lets lamp
+shadows of moving players lag, and `shadowreach` drops lamp shadows past its distance (below).
+
+### Cube shadow records
+
+A shadowed omni light is one record (`ToCubeShadowRecord` in
+[`RelightMath.h`](../../AfxHookSource2/Filmmaker/Relight/RelightMath.h)): the unshadowed range box in
+rows 0-3, so the shipped loop lights each pixel once, and its six faces in rows 22-28, which no
+shipped material program reads (all 1,575 captured programs read only rows 0-3 and 8-19): row 22
+holds the box half size and the faces' depth mapping, rows 23-28 each face's atlas rect as its face
+record would carry it. The lamp kernel recovers the receiver's offset from the box coordinates and
+the native depth, picks the faces whose blend weight is not zero (one, two at an edge, three at a
+corner), and runs the unchanged face filter on each with that face's centre, depth and filter
+reach, summing them by weight: the same lookups six face records made. A face whose depth is
+inside its near plane gives nothing, as the shipped loop culled its face record there: without that
+a lamp's light reached surfaces within the near plane that it never lit before, which showed at
+night as brighter puddles beside the A-site door lamps. GI injection does the same in HLSL. A projector, a shaped light without the range box, or faces that are not the expected
+90-degree cube keep six face records, and so does everything if any derived program cannot take
+cube records (logged as `relight.cube.unsupported`).
+`mirv_relight cuberecords 0` restores six face records for comparison: 1.5 ms slower at this view.
+
+`EnvironmentNativeLampTests` run the kernel's face selection on the GPU (WARP and `--hardware`) for
+hundreds of offsets, a third of them in a seam or corner, and require each face's atlas position,
+depth and blend weight to match its face record; with the captured programs it also requires every
+lamp kernel to take cube records.
+
+Open difference (2026-10-18): cube records are not yet the same picture everywhere. In the lamp
+corridor at (-520, 330, 200), angles (8, 80), tick 18010, cube and face records differ above capture
+noise by day and at night (0.17% of pixels more than eight levels apart, against 0.04% between two
+captures of the same setting). Lamp shadow edges near the lamps shift by a few pixels and some
+surfaces beside them take slightly more shadow. With every lookup skipped (`shadowreach -1`) the two
+forms match, and with the summary off (`lampsummary 0`) they still differ, so the difference is in the
+cube form's face lookups. A ten times larger `shadowbias` removes most of it, which points at the
+compare depth and position the kernel rebuilds for some world materials. Float rounding of the
+rebuilt offset is ruled out (both forms land within 1e-5 of the exact depth, against a 2e-4 bias).
+The A-site view matched to noise. `cuberecords 0` gives the previous picture.
+
+### Shadow reach
+
+`mirv_relight shadowreach <0-64>` stops a lamp's shadows where the lamp changes a dark mid-grey
+pixel by fewer than that many display steps (the same scale as `reach`, never inside it); past it
+the lamp lights unshadowed. It is off (0) by default. The estimate is diffuse: at night a dim
+lamp's specular highlight on a wet floor past that distance still showed, and with its shadow
+skipped it appeared where it should have been blocked, even at 4 with face records (the A-site
+stair puddles, up to 210 levels on single pixels, 2026-10-18). The visible reach (`reach 4`) has no
+such effect at night: it matched `reach 0` to capture noise. When set, a cube record skips its whole
+face loop when the receiver's dominant axis distance is past the reach, a face record skips the
+search and the disk for a deeper receiver (`ShadowReachDepth` in
+[`RelightClusterMath.h`](../../AfxHookSource2/Filmmaker/Relight/RelightClusterMath.h), record slot
+91), and a lamp too dim to reach the cutoff anywhere has no lookups at all. `shadowreach -1`
+(diagnostic) skips every lookup.
+
+With a reach set, the same distance decides whether a cached face is on screen and earns an
+every-frame refresh, and a moving caster counts for a face only if it reaches into the cube of that
+half size around the lamp: a caster outside it only shadows receivers further out, which never look. Visible faces with a
+moving player in them refresh every frame, nearest first, up to `mirv_relight actorshadows <n>`
+(48).
+
+### Lamp shadow early-out
+
+A depth summary of the lamp tiles
+([`EnvironmentShadowPyramid.h`](../../AfxHookSource2/Filmmaker/Environment/EnvironmentShadowPyramid.h))
+keeps, for blocks of 4 to 1,024 atlas texels, the nearest and farthest stored depth. Before its 32
+comparisons, a disk wider than one bilinear footprint reads the four blocks covering every texel its
+taps can touch (`NativeLampDisk` in
+[`EnvironmentNativeShadowMath.h`](../../AfxHookSource2/Filmmaker/Environment/EnvironmentNativeShadowMath.h)):
+
+- no stored depth nearer than the largest compare depth: every tap is lit, the result is exactly 1;
+- every stored depth nearer than the smallest compare depth: every tap is shadowed, exactly 0;
+- anything else, and anything the summary cannot vouch for, runs the unchanged 32 taps.
+
+The result is bit-identical. Both tests also hold if the hardware clamps a compare depth to [0, 1].
+Values are stored bit-inverted, so an unbound summary or a read past a mip decodes as NaN and proves
+nothing, and a NaN depth makes its block unprovable. The sun tiles are left out (the first-person
+pass redraws one of them mid-frame). Each atlas update rebuilds the summary only for the tiles it
+wrote, in the same command list: one compute dispatch per mip over the changed 8×8 cells. It takes
+32 MiB of VRAM.
+
+`EnvironmentNativeLampTests` render the unchanged filter and the new one over one-footprint and
+many-texel disks, odd atlas sizes, blocks left of the summary and a NaN texel, and require every MSAA
+sample to be bit-identical, on WARP and with `--hardware` on the GPU (an RTX 5070 on 2026-10-18).
+Given CS2's captured material programs it also validates every derived variant.
+`mirv_relight lampsummary 0` leaves the summary unbound, for timing comparisons.
+
+Most disks are neither: on a wall or floor a lamp sees at an angle, the receiver's own depth varies
+across the disk by more than the innermost taps allow, so the summary cannot call it lit. Giving the
+blocker search the disk's receiver-plane tolerance was tried and measured no faster at this view.
+
+### Lighting variants after a launch
+
+A material program gets its owned variants (about ten driver compiles: atmosphere, dynamic
+irradiance, shared AO and lighting, sparse cluster, coverage) on background workers, not on CS2's
+loader threads; until then its draws keep CS2's own lighting. Eight workers (half the logical
+processors, at most eight) compile at once, and a program a lit draw is waiting for jumps the queue,
+so what is on screen is lit first. With the driver's shader cache warm, de_ancient's 1,622 programs
+were done within five seconds of the map loading. After a change to the patched code the driver
+compiles everything again (about 0.8 s a program): 1,650 programs took about 2 m 45 s, where the
+single worker managed about one a second, on course for over 20 minutes. The driver's cache has a size cap; many changed builds in a
+row evict entries, and the next launches compile again until it settles.
 
 ## Cluster implementation
 

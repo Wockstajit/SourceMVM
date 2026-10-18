@@ -4,8 +4,9 @@
 // Placing: the model follows the surface under the cursor; a click drops it. Editing: the selected
 // prop carries move arrows and three turn rings (turn, tilt, roll); drag one, or click another prop
 // to select it. While Scene Objects is open a click selects a prop even when none is selected. The
-// right button is the camera's: held in the view it looks around (MovieMode, UiClick::RightPressLooks),
-// and the outliner row keeps the right-click menu. Geometry (`st.props.gizmo`) is
+// right button held in the view looks around (MovieMode, UiClick::RightPressLooks); a quick
+// right-click (MovieMode tells them apart) selects what is under it and opens its menu, the
+// outliner's ($.ConfigHud.viewMenu, propsMenuRequest). Geometry (`st.props.gizmo`) is
 // projected by C++ from the rendered camera, in coordinates normalized over the full frame, which
 // the scaled preview shows whole. Input is the OS-cursor feed the environment gizmo uses; its
 // envDrawLine/envAxisHit/gizmoTag helpers are shared (same script scope).
@@ -46,12 +47,13 @@ R"CFJS(
     var propsPaintDown = false;
     // Every placed light and mesh carries an icon over the view: a bulb with rays (point light), a
     // cone (spot), a glowing panel (area), a cube (your mesh), drawn in the light's own colour on a
-    // dark disc, with its type beside it. A click on the icon selects that object (props pick ranks
+    // dark disc ringed in its kind's colour (the in-world markers' palette, sent as `accent`), with
+    // its type beside it in that colour. A click on the icon selects that object (props pick ranks
     // an icon above anything behind it). The glyphs are drawn from line panels -- the same
     // technique as the gizmo arrows -- because CS2 ships no such icons and the earlier circle /
     // diamond shapes all read as the same square in game.
     var PROPS_MARKERS = 48, PROPS_MARK = 26, propsMarkers = [];
-    var PROPS_MARKER_TAGS = { point: 'POINT', spot: 'SPOT', area: 'AREA', mesh: 'MESH' };
+    var PROPS_MARKER_TAGS = { point: 'POINT', spot: 'SPOT', area: 'AREA', mesh: 'MESH', camera: 'CAMERA' };
     function propsSeg(host, x1, y1, x2, y2, color, th) {
       var l = mk('Panel', host); l.hittest = false;
       var dx = x2 - x1, dy = y2 - y1;
@@ -80,6 +82,12 @@ R"CFJS(
         propsRing(host, c, 7, 2, color, 2);
         propsSeg(host, c, 8, 7, 19, color, 2); propsSeg(host, c, 8, 19, 19, color, 2);
         propsSeg(host, 7, 19, 19, 19, color, 2);
+      } else if (kind === 'camera') {
+        // A camera object (scene-object-rigs.md): a body and the lens cone in front of it.
+        propsSeg(host, 5, 9, 15, 9, color, 2); propsSeg(host, 5, 17, 15, 17, color, 2);
+        propsSeg(host, 5, 9, 5, 17, color, 2); propsSeg(host, 15, 9, 15, 17, color, 2);
+        propsSeg(host, 15, 11, 21, 8, color, 2); propsSeg(host, 15, 15, 21, 18, color, 2);
+        propsSeg(host, 21, 8, 21, 18, color, 2);
       } else if (kind === 'area') {
         propsSeg(host, 6, 7, 20, 7, color, 2); propsSeg(host, 6, 12, 20, 12, color, 2);
         propsSeg(host, 6, 6, 6, 13, color, 2); propsSeg(host, 20, 6, 20, 13, color, 2);
@@ -128,9 +136,13 @@ R"CFJS(
         var hot = hover && hover.name === mark.name && hover.at &&
           Math.abs(hover.at[0] - at[0]) < 0.0001 && Math.abs(hover.at[1] - at[1]) < 0.0001;
         var color = mesh ? '#b9a3ffff' : (mark.color || '#ffffff');
-        var sig = mark.kind + '|' + color;
-        if (sig !== m.sig) { m.sig = sig; propsGlyph(m.glyph, mark.kind, color); }
-        m.disc.style.border = (mark.selected ? '2px solid #ffffff' : hot ? '2px solid ' + ENV_ACCENT : '1px solid #ffffff40');
+        var sig = mark.kind + '|' + color + '|' + (mark.accent || '');
+        if (sig !== m.sig) {
+          m.sig = sig; propsGlyph(m.glyph, mark.kind, color);
+          m.text.style.color = mark.accent || '#e8ecf2';
+        }
+        m.disc.style.border = (mark.selected ? '2px solid #ffffff' : hot ? '2px solid ' + ENV_ACCENT
+          : mark.accent ? '2px solid ' + mark.accent : '1px solid #ffffff40');
         m.disc.style.backgroundColor = mark.selected ? '#2a3442f0' : hot ? '#1c2530f0' : '#101318e6';
         m.box.style.position = (at[0] * w - PROPS_MARK / 2).toFixed(1) + 'px ' + (at[1] * h - PROPS_MARK / 2).toFixed(1) + 'px 0px';
         m.text.text = mesh ? mark.name : (PROPS_MARKER_TAGS[mark.kind] || 'LIGHT');
@@ -166,6 +178,11 @@ R"CFJS(
     propsHint.style.backgroundColor = '#101318e8'; propsHint.style.padding = '8px 14px';
     propsHint.style.borderRadius = '5px';
     var propsPointerDown = false, propsGrabbing = false;
+    // A quick right-click in the view: pick there, then open the picked object's outliner menu once
+    // the pick lands in a later state. A new selection opens at once; the same one (it was already
+    // selected) after a state or two; nothing under the pointer drops the menu.
+    var propsMenuRequest = false, propsMenuPending = null;
+    function propsOpenMenu(key) { var it = olFind(key); if (!it) return; olSelect(key); olMenu(it); }
     var propsLastU = -1, propsLastV = -1, propsLastSnap = false;
     // The ring nearest (u, v) within reach: 0 turn, 1 tilt, 2 roll, -1 none. Aspect-corrected.
     function propsRingHit(g, u, v, aspect) {
@@ -231,6 +248,23 @@ R"CFJS(
       if (hovering && (moved || !propsHoverSent)) { propsCommand('hoverat ' + u.toFixed(4) + ' ' + v.toFixed(4)); propsHoverSent = true; }
       else if (!hovering && propsHoverSent) { propsCommand('hoverat -1 -1'); propsHoverSent = false; }
       var hover = propsHoverSent ? p.hover : null;
+      if (propsMenuRequest) {
+        propsMenuRequest = false;
+        if (inside && !placing && !painting && !propsGrabbing) {
+          propsCommand('pick ' + u.toFixed(4) + ' ' + v.toFixed(4));
+          propsMenuPending = { was: p.selected || 0, wasEnv: s.envSelected || 0, at: Date.now() };
+        }
+      } else if (propsMenuPending) {
+        // The pick is a queued console command; its result arrives a few states later. A changed
+        // selection is the answer at once; an unchanged one counts after 250 ms; 600 ms of nothing
+        // (empty ground deselects) drops the menu.
+        var pm = propsMenuPending, envSel = s.envSelected || 0, age = Date.now() - pm.at;
+        if (p.selected && (p.selected !== pm.was || age >= 250)) {
+          propsMenuPending = null; propsOpenMenu('p' + p.selected);
+        } else if (!p.selected && envSel && (envSel !== pm.wasEnv || age >= 250)) {
+          propsMenuPending = null; propsOpenMenu('e' + envSel);
+        } else if (age >= 600) propsMenuPending = null;
+      }
       propsDrawMarkers(p, w, h, hover);
       propsDrawHover(hover, w, h, mx, my, x, y);
       if (!editing) {
@@ -269,8 +303,8 @@ R"CFJS(
         propsHint.text = moving
           ? (grabbed >= 0 ? PROPS_RING_NAMES[grabbed] + (snap ? ' in 15° steps' : '   ·   Shift: 15° steps') : p.grab === 'move' ? 'Moving over the ground' : 'Moving' + (snap ? ' on the floor' : '   ·   Shift: snap to the floor'))
             + '   ·   Esc: put it back'
-          : selected ? 'Drag it to move it over the ground   ·   an arrow for one axis   ·   a ring to turn   ·   hold right-click: look around'
-          : 'Click an asset, or a light\'s or mesh\'s icon, to select it   ·   hold right-click: look around';
+          : selected ? 'Drag it to move it over the ground   ·   an arrow for one axis   ·   a ring to turn   ·   right-click: its menu   ·   hold right-click: look around'
+          : 'Click an asset, or a light\'s or mesh\'s icon, to select it   ·   right-click: its menu   ·   hold right-click: look around';
         if (!propsGrabbing && free && g && selected) {
           axis = envAxisHit(g, u, v, aspect);
           ring = axis < 0 ? propsRingHit(g, u, v, aspect) : -1;

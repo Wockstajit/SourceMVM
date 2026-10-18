@@ -89,12 +89,17 @@ std::wstring CurrentDemoPath();
 // engine path can't be recovered. Cheap to call per frame.
 std::wstring PlayingDemoPath();
 
+// Reopens the playing demo on its newest finished scrub keyframe copy, at the next quiet pause,
+// landing back on the same tick (`mirv_filmmaker keyframes switch`). Never automatic: a copy that
+// finishes mid-session is otherwise used from the next open. False when there is nothing to switch to.
+bool DemoKeyframes_SwitchNow();
+
 // --- Movie director (camera modes + in-game help HUD) ---
 // Input taps, called from the WndProc / input thread. Return true if the event
 // was consumed (the caller should then swallow it). Safe no-ops if unused.
 bool MovieInput_OnKey(int vkey, bool down);
 bool MovieInput_OnMouseButton(int button, bool down, int x, int y); // 0 = left, 1 = right; client px
-void MovieInput_RightButtonUp(); // raw-input release of the right button (MovieMode::OnRightButtonUp)
+void MovieInput_ButtonUp(int button); // raw-input release, 0 = left, 1 = right (MovieMode::OnButtonUp)
 // Left press at client (x, y): true = a game-mode click on our UI, now switching to UI mode; the
 // caller passes the press and its release straight to the game window (MovieMode::OnUiClick).
 bool MovieInput_OnUiClick(int x, int y);
@@ -126,6 +131,8 @@ bool MarkerMenu_WantsCursor();
 // editor forces this on while open; otherwise the regular native-bar/G cursor
 // toggle controls it in third-person/freecam.
 bool CameraTimeline_WantsCursor();
+// Any thread: whether a client-px point is on CS2's native demo bar (scrubber, CAM EDITOR, CONFIG).
+bool CameraTimeline_DemoBarContains(int x, int y);
 
 // True while the camera timeline panel is open (any cursor mode). Read by the
 // input layer to decide whether G should toggle the panel's UI-mouse mode.

@@ -11,9 +11,12 @@
 #include "EnvironmentNativeSunCsmMath.h"
 #include "EnvironmentSkyVisibilityMath.h"
 #include "EnvironmentShadowSpatialMath.h"
+#include "EnvironmentShadowPyramid.h"
+#include "EnvironmentNativeShadowMath.h"
 #include "EnvironmentWeatherMath.h"
 #include "EnvironmentRender.h"
 #include "../Relight/RelightProbeMath.h"
+#include "../Relight/RelightClusterMath.h"
 #include "../Debug/MvmDebugLog.h"
 #include "../Render/RenderPrivateTextureScope.h"
 #include <wrl/client.h>
@@ -40,6 +43,8 @@ constexpr int GustCacheBase = 29; // cached[] slots 29..32
 constexpr unsigned StaticFacesPerFrame = 12;
 // Visible cached faces with a moving actor in them, refreshed every frame ahead of the background
 // rotation (see ShadowRefreshCandidate::actor). Nearest first; beyond this they rotate like the rest.
+// Fewer is faster (at the de_ancient A-site view 16 instead of 48 saved 1.4 ms, 2026-10-18) but
+// lets players' lamp shadows lag; only casters inside a lamp's shadow reach compete for them.
 unsigned g_actorShadowFacesPerFrame = 48;
 struct Float4 {
     float x = 0, y = 0, z = 0, w = 0;
@@ -140,6 +145,31 @@ ComPtr<ID3D11Texture2D> mapAtlas,mapSunTransfer;ComPtr<ID3D11ShaderResourceView>
 // PrepareViewmodelSunShadow / RestoreWorldSunTile).
 ComPtr<ID3D11Texture2D> mapSunWorldBackup;bool mapSunViewmodelActive=false;
 ComPtr<ID3D11Texture2D> mapSunTexture;ComPtr<ID3D11DepthStencilView> mapSunDepth;
+// The lamp tiles' depth summary behind the lamp filter's exact early-out (EnvironmentShadowPyramid.h).
+// Rebuilt for the tiles each atlas update writes, inside that update's command list.
+struct LampPyramid {
+    ShadowPyramidBuilder builder;bool ready=false,failed=false;ULONGLONG logged=0;
+} lampPyramid;
+bool g_lampSummary=true;
+void MarkLampTile(unsigned x,unsigned y,unsigned size){lampPyramid.builder.Mark(x,y,size,size);}
+// Records the summary update for every lamp tile marked since the last call, behind the copies
+// that wrote them. Any failure unbinds the summary for good: the lamp filter then always runs its
+// full disk, as it did before the summary existed.
+void RecordLampPyramid(ID3D11DeviceContext* ctx){
+    auto& p=lampPyramid;if(p.failed||!mapAtlasView||!state.device)return;
+    std::string error;
+    if(!p.builder.Created()){
+        if(!p.builder.Create(state.device.Get(),Relight::AtlasWidth,Relight::AtlasHeight,NativeLampAtlasPyramid.originX,NativeLampPyramidLevels,error)){
+            p.failed=true;MvmDebugLog_LinefAlways("environment.shadow.pyramid","disabled: %s",error.c_str());return;}
+        MvmDebugLog_LinefAlways("environment.shadow.pyramid","created levels=%u origin=%u",NativeLampPyramidLevels,NativeLampAtlasPyramid.originX);
+    }
+    unsigned cells=0;
+    if(!p.builder.Record(ctx,mapAtlasView.Get(),error,&cells)){
+        p.failed=true;p.ready=false;MvmDebugLog_LinefAlways("environment.shadow.pyramid","disabled: %s",error.c_str());return;}
+    p.ready=true;
+    if(cells&&MvmDebugLog_Active()){const auto now=GetTickCount64();if(now-p.logged>=3000){p.logged=now;
+        MvmDebugLog_LinefAlways("environment.shadow.pyramid","updated cells=%u",cells);}}
+}
 struct ShadowTiming {
     ComPtr<ID3D11Query> disjoint,start,end;
     bool pending=false;ULONGLONG last=0;
@@ -511,7 +541,7 @@ struct PlayerMaskTarget {
     bool valid = false;
 } playerMask;
 } // namespace
-void EndShadowMaps() { playerMask = PlayerMaskTarget{};mapBeamMatrices.clear();mapBeamFrame=Frame{};mapBeamFrameReady=false;mapBeamKey=0;mapBeamCount=0;ResetFoliageInputs();EndAnimatedCasters();state = State{};proofState=State{};proofContext.Reset();proofAtlas.Reset();proofAtlasView.Reset();proofSun.Reset();proofSunDepth.Reset();proofTransfer.Reset();mapAtlas.Reset();mapAtlasView.Reset();mapSunTransfer.Reset();mapSunWorldBackup.Reset();mapSunViewmodelActive=false;
+void EndShadowMaps() { playerMask = PlayerMaskTarget{};mapBeamMatrices.clear();mapBeamFrame=Frame{};mapBeamFrameReady=false;mapBeamKey=0;mapBeamCount=0;ResetFoliageInputs();EndAnimatedCasters();state = State{};proofState=State{};proofContext.Reset();proofAtlas.Reset();proofAtlasView.Reset();proofSun.Reset();proofSunDepth.Reset();proofTransfer.Reset();mapAtlas.Reset();mapAtlasView.Reset();lampPyramid=LampPyramid{};mapSunTransfer.Reset();mapSunWorldBackup.Reset();mapSunViewmodelActive=false;
     mapShadowTiming=ShadowTiming{};
     mapSunTexture.Reset();mapSunDepth.Reset();mapStaticDepth.Reset();mapStaticTransfer.Reset();mapStaticDsv.Reset();mapStaticBase.Reset();
     mapStaticKey=0;mapStaticDone=0;mapStaticMatrices.clear();mapFaceDynamic.clear();mapFaceRefresh.clear();mapRefreshFrame=0;mapFoliageFaces.clear();mapFoliageDraws.clear();
@@ -1170,6 +1200,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
             unsigned tileX=0,tileY=0,tileSize=0;Relight::TileOrigin(tile,tileX,tileY,tileSize);
             ctx->CopySubresourceRegion(proofTransfer.Get(),0,0,0,0,state.local.Get(),first+face,nullptr);
             ctx->CopySubresourceRegion(mapAtlas.Get(),0,tileX,tileY,0,proofTransfer.Get(),0,nullptr);
+            MarkLampTile(tileX,tileY,tileSize);
         }
         ++rendered;
     }
@@ -1252,6 +1283,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
             ctx->CopyResource(mapStaticTransfer.Get(),mapStaticDepth.Get());
             unsigned x=0,y=0,size=0;Relight::TileOrigin(Relight::StaticTile+mapStaticDone,x,y,size);
             ctx->CopySubresourceRegion(mapAtlas.Get(),0,x,y,0,mapStaticTransfer.Get(),0,nullptr);
+            MarkLampTile(x,y,size);
         }
         // Every resident fixture receives the current posed geometry and editable
         // objects. Copying rigid depth first removes the previous pose completely.
@@ -1264,13 +1296,28 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
         std::vector<bool> faceDynamic(mapStaticDone);
         std::vector<unsigned> realtimeFaces,actorFaceList;unsigned actorFaces=0;
         const ShadowFrustum receivers(input.worldToClip);
+        // Visible reach (RelightClusterMath.h, the same record the light clusters cull with): past
+        // it a light cannot change the picture, so a face earns on-screen priority and an
+        // every-frame refresh only while that reach, not the authored range, meets the view.
+        // With a shadow reach, receivers past it never read the face at all: it bounds instead.
+        // staticShadowReach: the half size of the cube a moving caster must reach into (0 = any).
+        std::vector<float> staticReach(staticLights),staticShadowReach(staticLights);
+        for(unsigned l=0;l<staticLights;++l){staticReach[l]=(std::max)(1.f,staticRanges[l]);
+            for(const auto& light:input.relight.lights)
+                if(light.position.x==staticPositions[l].x&&light.position.y==staticPositions[l].y&&light.position.z==staticPositions[l].z){
+                    const bool reach=input.relight.shadowRadiance>0&&!Relight::HasFixtureProjection(light);
+                    staticReach[l]=Relight::LightVisibleReach(Relight::ToRecord(light,input.relight.intensity),staticReach[l],
+                        reach?input.relight.shadowRadiance:input.relight.visibleRadiance);
+                    if(reach)staticShadowReach[l]=staticReach[l];break;}}
         for(unsigned i=0;i<mapStaticDone;++i){
             if(i%Relight::ShadowFaces&&projectedSource(staticPositions[i/Relight::ShadowFaces]))continue;
-            const bool actor=CasterBoundsIntersect(posedBounds,mapStaticMatrices[i],posedBoundsComplete);
+            const unsigned owner=i/Relight::ShadowFaces;
+            const bool actor=CasterBoundsIntersect(posedBounds,mapStaticMatrices[i],posedBoundsComplete,staticPositions[owner],
+                staticShadowReach[owner]);
             const bool dynamic=props||mapFoliageFaces[i]||actor;
             faceDynamic[i]=dynamic;if(!dynamic&&!mapFaceDynamic[i])continue;
             const unsigned light=i/Relight::ShadowFaces;
-            const Vec3 p=staticPositions[light];const float range=(std::max)(1.f,staticRanges[light]);
+            const Vec3 p=staticPositions[light];const float range=staticReach[light];
             const Vec3 extent{range,range,range};const float distance=std::sqrt(Dot(p-input.camera,p-input.camera));
             const bool visible=!input.hasWorldToClip||receivers.Intersects(p-extent,p+extent);
             // Preserve per-frame animation across doorways. The extra 128 units
@@ -1294,6 +1341,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
             ctx->CopyResource(mapStaticTransfer.Get(),mapStaticDepth.Get());
             unsigned x=0,y=0,size=0;Relight::TileOrigin(Relight::StaticTile+i,x,y,size);
             ctx->CopySubresourceRegion(mapAtlas.Get(),0,x,y,0,mapStaticTransfer.Get(),0,nullptr);
+            MarkLampTile(x,y,size);
             mapFaceDynamic[i]=dynamic;mapFaceRefresh[i]=mapRefreshFrame;++updatedFaces;
         }
         if(MvmDebugLog_Active()){
@@ -1371,6 +1419,7 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
             }
         }
     }
+    RecordLampPyramid(ctx);
     ComPtr<ID3D11CommandList> list;if(FAILED(ctx->FinishCommandList(FALSE,&list))){skyboxSunReady=false;return 0;}
     const bool measure=mapShadowTiming.Begin(immediate);
     immediate->ExecuteCommandList(list.Get(),TRUE);
@@ -1392,6 +1441,11 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
     }
     return rendered;
 }
+ID3D11ShaderResourceView* LampShadowPyramid(ID3D11ShaderResourceView* atlas){
+    return g_lampSummary&&atlas&&atlas==mapAtlasView.Get()&&lampPyramid.ready&&!lampPyramid.failed?lampPyramid.builder.View():nullptr;
+}
+bool LampShadowSummary(){return g_lampSummary;}
+void SetLampShadowSummary(bool enabled){g_lampSummary=enabled;}
 ID3D11ShaderResourceView* SkyboxSunShadow(Matrix* matrix){
     if(!skyboxSunReady)return nullptr;
     if(matrix)*matrix=skyboxSunMatrix;
@@ -1447,8 +1501,10 @@ unsigned PrepareGlassBeamShadows(ID3D11DeviceContext* immediate,const Matrix* ma
         ctx->CopyResource(mapStaticTransfer.Get(),mapStaticDepth.Get());
         unsigned x=0,y=0,size=0;Relight::TileOrigin(Relight::GlassBeamTile+i,x,y,size);
         ctx->CopySubresourceRegion(mapAtlas.Get(),0,x,y,0,mapStaticTransfer.Get(),0,nullptr);
+        MarkLampTile(x,y,size);
     }
     g_clipOrthographic=false;
+    RecordLampPyramid(ctx);
     ComPtr<ID3D11CommandList> list;if(FAILED(ctx->FinishCommandList(FALSE,&list)))return 0;
     immediate->ExecuteCommandList(list.Get(),TRUE);
     mapBeamMatrices.assign(matrices,matrices+count);

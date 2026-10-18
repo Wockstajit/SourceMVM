@@ -74,6 +74,7 @@ std::atomic<bool> g_lmbDown{ false }; // left button held, any mode (the options
 // ---- shared state -------------------------------------------------------------------------------
 Mode g_m = Mode::Closed;
 bool g_prevMouseFree = false;
+bool g_prevClickToCapture = false;
 uint32_t g_mods = 0;
 double g_offset = 0.0; // ms; positive = hit later
 
@@ -1104,6 +1105,7 @@ bool Osu_Active() { return g_modeAtomic.load() != (int)Mode::Closed; }
 void Osu_Open() {
 	if (Osu_Active()) return;
 	g_prevMouseFree = MouseCapture_IsFree();
+	g_prevClickToCapture = MouseCapture_ClickToCapture();
 	MouseCapture_SetFree(true);
 	LoadSettings();
 	OsuSkin::Load();
@@ -1124,7 +1126,9 @@ void Osu_Close() {
 	g_modeAtomic.store((int)g_m);
 	g_modsOpen = false; g_modsOpenAtomic.store(false); g_optionsOpen = false;
 	UpdateRelative(); // mode is Closed: releases a pinned pointer
-	MouseCapture_SetFree(g_prevMouseFree);
+	// Back to the mouse mode it found, click-to-capture included (SetFree alone left it off).
+	if (g_prevClickToCapture) { MouseCapture_SetClickToCapture(true); if (!g_prevMouseFree) MouseCapture_TakeForCamera("osu closed"); }
+	else MouseCapture_SetFree(g_prevMouseFree);
 	{ std::lock_guard<std::mutex> lock(g_inMx); g_inQueue.clear(); }
 }
 

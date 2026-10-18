@@ -6,9 +6,10 @@
 // switch players, WASD must not fly the cam, and the K/J/L/F/X/Z/F8 hotkeys must not fire.
 // Input passes straight through instead; the foreign UI handles it itself.
 //
-// Two foreign UIs are tracked (reported 2026-08-31: "everything goes to the game -- when you
+// Three foreign UIs are tracked (reported 2026-08-31: "everything goes to the game -- when you
 // press pause you're actually in the menu"):
 //
+//  * CS2's developer console, from the engine's own IGameUIService::Con_IsVisible.
 //  * CS2's own pause/main menu. Signalled by CS2's own Panorama events (CSGOShowPauseMenu /
 //    CSGOHidePauseMenu and the MainMenu pair): a tiny JS subscriber installed in the stable
 //    menu context by FilmmakerMenu records the level in a panel attribute, and the menu pump

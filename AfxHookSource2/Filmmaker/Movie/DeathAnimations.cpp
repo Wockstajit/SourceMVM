@@ -2,6 +2,7 @@
 #include "DeathAnimationsMath.h"
 #include "RagdollBodies.h"
 #include "RagdollWeaponGround.h"
+#include "../Environment/MapCollisionGrid.h"
 #include "../Panorama/DeathAnimPreview.h"
 #include "../Cosmetics/CosmeticEntityAccess.h"
 
@@ -1278,7 +1279,7 @@ void DeathAnimations_RunFrame() {
 		g_lastTick = tick;
 	}
 	if (!g_enabled) { ReleaseAll("disabled"); return; }
-	RagdollWeaponGround_Pump();
+	Environment::MapCollisionGrid_Pump();
 	SampleLiving(now);
 	PumpSettles(now);
 	for (Corpse& c : g_corpses) {

@@ -100,6 +100,10 @@ namespace Filmmaker {
 		if (enabled) g_CampathDrawer.Draw_set(true);
 	}
 
+	void CameraBridge_SetPathHead(bool enabled, double x, double y, double z) {
+		g_CampathDrawer.PathHead_set(enabled, x, y, z);
+	}
+
 	void CameraBridge_SetFollowTargetBox(bool enabled,
 		float x, float y, float z, float halfWidth, float height) {
 		CCampathDrawer::FollowTargetBox box;
@@ -112,6 +116,10 @@ namespace Filmmaker {
 		// which StartPreview turns them off for on purpose. EnsureDrawState asks for the highlight
 		// instead, via FollowCamera::WantsTargetHighlight().
 		g_CampathDrawer.FollowTargetBox_set(box);
+	}
+
+	void CameraBridge_SetSceneOverlay(std::shared_ptr<const SceneOverlay> overlay) {
+		g_CampathDrawer.SceneOverlay_set(std::move(overlay));
 	}
 
 	void CameraBridge_SetMarkerStyle(bool enabled, bool freeze, int highlightIndex) {

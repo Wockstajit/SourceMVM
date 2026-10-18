@@ -169,6 +169,10 @@ void CameraEditorHud::OnExit() {
 	TimelineDock_Release(DockHost::CameraEditor);
 	tl.SetEditorHosted(false);
 	tl.SetVisible(false);
+	// Plain demo viewing has no UI-mouse mode: give it up as Config's exit does, unless Config is
+	// taking over the screen (it keeps the cursor). Left on, it suspended the fly cam outside the
+	// workspaces; left off from a GAME-mode click, it is simply off.
+	if (!ConfigHud_Enabled()) tl.SetCursor(false);
 	GraphEditorExperiment_Set(false);
 	// Only kill a running Follow Live preview when the workspace is really gone -- opening
 	// Config closes the editor too (they share the right column), but Config's scaled preview

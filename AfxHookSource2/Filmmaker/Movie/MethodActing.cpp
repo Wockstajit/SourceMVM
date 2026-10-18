@@ -5,6 +5,7 @@
 #include "MethodActingGaze.h"
 #include "RagdollBodies.h"
 #include "RagdollWeaponGround.h"
+#include "../Environment/MapCollisionGrid.h"
 #include "../Platform/JsonParser.h"
 
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_Active / MvmDebugLog_Linef
@@ -366,7 +367,7 @@ void MethodActing_RunLateFrame(bool afterAnimation) {
 	++g_framesRun;
 
     const int highest = GetHighestEntityIndex();
-    if(g_gazeEnabled) RagdollWeaponGround_Pump();
+    if(g_gazeEnabled) Environment::MapCollisionGrid_Pump();
     struct Nearby { CEntityInstance* entity; MethodActingGaze::FaceView view; };
     std::vector<Nearby> nearby;
     if(g_gazeEnabled) for(int i=0;i<=highest && i<kMaxTrackedEntities;++i) {
@@ -478,7 +479,7 @@ void MethodActing_RunLateFrame(bool afterAnimation) {
                 // Each glance has a rest period; people do not stare at the nearest player forever.
                 const double phase=std::fmod(now+Unit01(Hash32(SeedFor(i),7))*5,5.0);
                 if(recovering) target={0,0};
-                else if(!fighting && phase<2.4 && std::strstr(RagdollWeaponGround_Status(),"ready")) {
+                else if(!fighting && phase<2.4 && Environment::MapCollisionGrid_Ready()) {
                     double nearest=221;
                     for(const auto& other:nearby) {
                         if(other.entity==entity)continue;

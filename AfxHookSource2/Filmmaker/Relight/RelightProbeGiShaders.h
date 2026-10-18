@@ -139,6 +139,25 @@ float CubeFaceEnergy(float3 ndc) {
     float3 weights=smoothstep(.9,1,axis);
     return weights.z/max(dot(weights,float3(1,1,1)),1e-6);
 }
+// A cube shadow record (Relight::ToCubeShadowRecord, row 21.w -12347): one record for the six
+// faces, their rects in rows 23-28 and depth a + b / axis distance in row 22. Blends the faces as
+// six face records (CubeFaceEnergy each) would.
+float CubeShadowVisibility(Light light,float3 p) {
+    float3 d=p-light.row[8].xyz,a=abs(d);float m=max(a.x,max(a.y,a.z));
+    float3 w=smoothstep(.9,1,a/max(m,1e-6));w/=max(dot(w,float3(1,1,1)),1e-6);
+    float visibility=0;
+    [unroll]for(uint k=0;k<3;++k){
+        if(w[k]<=0)continue;
+        float s=d[k]<0?-1:1;uint face=2*k+(d[k]<0?1:0);
+        float2 uv=k==0?float2(s*d.y,d.z):k==1?float2(-s*d.x,d.z):float2(s*d.x,d.y);
+        float4 rect=light.row[23+face];
+        float2 atlas=uv/a[k]*(1/1.111111111)*rect.zw+rect.xy; // the face record's narrowed NDC
+        float depth=light.row[22].y+light.row[22].z/a[k];
+        if(depth<=0)continue; // inside the face's near plane its face record was culled
+        visibility+=w[k]*shadowAtlas.SampleCmpLevelZero(shadowSampler,atlas,depth-.001);
+    }
+    return visibility;
+}
 float3 InjectSurface(uint3 id,float3 p,float3 n) {
     float3 radiance=0;
     uint brick=((id.z/8)*16+(id.y/8))*16+(id.x/8);
@@ -180,7 +199,8 @@ float3 InjectSurface(uint3 id,float3 p,float3 n) {
         // Match native cube-face energy normalization in the overlapping cull wedges.
         if(light.row[21].w==-12346)attenuation*=CubeFaceEnergy(ndc);
         float visibility=1;
-        if(light.row[13].z>0&&clip.w>0) {
+        if(light.row[21].w==-12347)visibility=CubeShadowVisibility(light,position4.xyz);
+        else if(light.row[13].z>0&&clip.w>0) {
             float3 q=clip.xyz/clip.w;
             float2 uv=q.xy*light.row[13].zw+light.row[13].xy;
             visibility=shadowAtlas.SampleCmpLevelZero(shadowSampler,uv,q.z-.001);

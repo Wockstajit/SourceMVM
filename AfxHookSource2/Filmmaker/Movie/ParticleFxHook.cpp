@@ -487,6 +487,8 @@ void* __fastcall Hook_CreateBody(unsigned long long thisOrFlag, void* handle, vo
 				if (action == '=' && g_moneyHeadshot && IsMoneyHeadshotCandidateLower(low)) {
 					action = '>';
 					target = kMoneyBurst;
+					// This head is covered: the headshot event in this tick spawns nothing more.
+					g_helmetMoneyTick.store(g_demoTickNow.load(std::memory_order_relaxed), std::memory_order_relaxed);
 				}
 				if (action == '=') {
 					const int cat = ClassifyLower(low);

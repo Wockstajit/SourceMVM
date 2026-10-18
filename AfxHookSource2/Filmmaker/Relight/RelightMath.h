@@ -180,6 +180,25 @@ struct Scene {
     std::string lightmapFile;
     unsigned lightmapMode = 0;
     unsigned clusters = 3; // 0 full mask, 1 native tiles+slices, 2 native slices, 3 owned tiles+slices
+    // Visible reach (RelightClusterMath.h): a light stops at the distance where it can no longer
+    // change a dark pixel by this many display steps. 0 keeps every authored range. At 4 the
+    // lit world matched the authored ranges to capture noise (de_ancient, 2026-10-18) while
+    // frames were about 10% faster; up to 8 still matched there.
+    float reach = 4;
+    // Per frame, from `reach` and the exposure actually applied (0 while that exposure is unknown):
+    // the radiance cutoff the light clusters use.
+    float visibleRadiance = 0;
+    // Shadow reach (RelightClusterMath.h, ShadowReachDepth): a lamp's shadows stop where the lamp
+    // changes a dark mid-grey pixel by fewer than this many display steps; past it the lamp lights
+    // unshadowed and its faces need no refresh. Off by default: the estimate is diffuse, and at
+    // night a dim lamp's specular highlight on a wet floor past it showed where it should have
+    // been shadowed, even at 4 (de_ancient A site, 2026-10-18). 0 = off.
+    float shadowReach = 0;
+    // Per frame, like visibleRadiance: the radiance at the shadow reach (0 = off or unknown).
+    float shadowRadiance = 0;
+    // One record per shadowed omni light (ToCubeShadowRecord) instead of six face records; the
+    // same lookups and blend, a third of the light-loop work near lamps. False = face records.
+    bool cubeShadows = true;
 
     // The map's own light_environment. Its angles and brightness seed the climate sun on
     // load, so the sun is edited with the ordinary sun controls rather than a second set.
@@ -672,6 +691,75 @@ inline LightRecord ToShadowedRecord(const Light &light, float intensity, const f
         record[87]=HasFixtureProjection(light)?-12345.f:-12346.f;
     }
     return record;
+}
+
+// One record for a shadowed omni light instead of six face records. Six face records made every
+// pixel near a lamp run the shipped loop's cull test (seven record rows, seven dot products) for
+// each face its cluster touched, and full lighting twice in the faces' overlap: about 3.7 ms of
+// the cached lamps' 6 ms at the de_ancient A-site view (2026-10-18). This record keeps ToRecord's
+// range box in rows 0-3, so the loop lights a pixel once, and carries the six faces in rows no
+// shipped material program reads (rows 22-28; all 1,575 captured programs read rows 0-3, 8-19).
+// The lamp kernel (EnvironmentNativeShadowMath.h) finds the face from the receiver's offset and
+// looks it up and blends its neighbours exactly as the six face records would:
+//   rows 13, 16, 21: as face 0's ToShadowedRecord, marker CubeShadowMarker
+//   row 22: x box half size, y + z / axis distance = face depth, w shadow reach depth
+//   rows 23-28: face f's atlas rect as its face record carries it (PointShadowDirection order)
+inline constexpr float CubeShadowMarker = -12347.f;
+inline constexpr unsigned CubeFaceRectRow = 23;
+// Face 2*axis+(offset<0): face-NDC u = uSign * faceSign * offset[u] / |offset[axis]|,
+// v = offset[v] / |offset[axis]| (ShadowView: up +z, or +y for the z faces).
+struct CubeFaceAxes { unsigned u; float uSign; unsigned v; };
+inline constexpr CubeFaceAxes CubeFaceUv[3] = {{1, 1, 2}, {0, -1, 2}, {0, 1, 1}};
+// False (use six face records) for a projector, a shaped light without the range box, or faces
+// that are not the 90-degree cube the kernel assumes.
+inline bool ToCubeShadowRecord(const Light &light, float intensity, const float *faces, unsigned firstTile,
+                               LightRecord &record) {
+    if (HasFixtureProjection(light) || !faces) return false;
+    record = ToRecord(light, intensity);
+    const float range = (std::max)(1.f, light.range);
+    for (unsigned i : {1u, 2u, 4u, 6u, 8u, 9u, 12u, 13u, 14u})
+        if (record[i] != 0) return false;
+    if (record[0] != 1 / range || record[5] != 1 / range || record[15] != 1) return false;
+    float a = 0, b = 0;
+    for (unsigned f = 0; f < ShadowFaces; ++f) {
+        const float *m = faces + 16 * f;
+        const unsigned axis = f / 2;
+        const float sign = f % 2 ? -1.f : 1.f;
+        // Depth = row2.p / row3.p = fa + fb / w for every face alike.
+        if (!(std::abs(m[12 + axis]) > .5f)) return false;
+        const float fa = m[8 + axis] / m[12 + axis], fb = m[11] - fa * m[15];
+        if (!f) { a = fa; b = fb; }
+        else if (std::abs(fa - a) > 1e-5f * (std::max)(1.f, std::abs(a)) ||
+                 std::abs(fb - b) > 1e-4f * (std::max)(1.f, std::abs(b))) return false;
+        const auto uv = CubeFaceUv[axis];
+        const float offsets[3][3] = {{37, -11, 5}, {-23, 41, 13}, {7, 3, -29}};
+        for (const auto &o : offsets) {
+            float d[3] = {o[0], o[1], o[2]};
+            d[axis] = sign * (std::abs(d[0]) + std::abs(d[1]) + std::abs(d[2]) + 10);
+            const float p[3] = {light.position.x + d[0], light.position.y + d[1], light.position.z + d[2]};
+            auto row = [&](unsigned r) { return m[4 * r] * p[0] + m[4 * r + 1] * p[1] + m[4 * r + 2] * p[2] + m[4 * r + 3]; };
+            const float w = row(3), expectW = std::abs(d[axis]);
+            if (std::abs(w - expectW) > 1e-3f * expectW) return false;
+            // Exact face (ToShadowedRecord narrows the record's x, y by ShadowFaceBlendWidth later).
+            if (std::abs(row(0) / w - uv.uSign * sign * d[uv.u] / expectW) > 1e-4f ||
+                std::abs(row(1) / w - d[uv.v] / expectW) > 1e-4f) return false;
+        }
+    }
+    const auto face0 = ToShadowedRecord(light, intensity, faces, firstTile);
+    for (unsigned i = 52; i < 56; ++i) record[i] = face0[i];
+    for (unsigned i = 64; i < 68; ++i) record[i] = face0[i];
+    for (unsigned i = 84; i < 88; ++i) record[i] = face0[i];
+    if (record[87] != -12346.f) return false;  // a face without the source coefficients
+    record[87] = CubeShadowMarker;
+    record[88] = range;
+    record[89] = a;
+    record[90] = b;
+    record[91] = 0;
+    for (unsigned f = 0; f < ShadowFaces; ++f) {
+        const auto face = ToShadowedRecord(light, intensity, faces + 16 * f, firstTile + f);
+        for (unsigned i = 0; i < 4; ++i) record[4 * (CubeFaceRectRow + f) + i] = face[52 + i];
+    }
+    return true;
 }
 
 // The sun as a clustered record. A directional source carries its direction where a local

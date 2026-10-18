@@ -8,6 +8,8 @@
 
 #include <atomic>
 
+bool AfxConsoleVisible(); // main.cpp: the engine's IGameUIService::Con_IsVisible
+
 namespace {
 
 // --- CS2 pause/main menu ---------------------------------------------------------------------
@@ -79,6 +81,10 @@ void Filmmaker::UiInputGate_SupplyPauseMenuOpen(bool open) {
 }
 
 bool Filmmaker::UiInputGate_Active() {
+	// The developer console: its scroll, clicks and typing are its own (user report 2026-10-18:
+	// the wheel over an open console moved the camera instead of scrolling the console).
+	if (AfxConsoleVisible())
+		return true;
 	if (MvmReShadeOverlayOpen_t fn = ResolveOverlayOpenFn()) {
 		if (fn() != 0)
 			return true;

@@ -1,6 +1,7 @@
 #include "DemoEndHold.h"
 
 #include "../Filmmaker.h"               // PlayingDemoPath()
+#include "DemoScrub.h"                  // DemoScrub_Active: a scrub's own seeks are left alone
 #include "../Demo/DemoHeaderReader.h"   // playback_ticks from the .dem header
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_Linef
 #include "../../MirvTime.h"
@@ -29,13 +30,15 @@ constexpr int kEndMarginTicks = 64;
 // Demos shorter than this (a couple of seconds) aren't worth guarding -- and a tiny/garbage
 // playback_ticks would put the hold point at/near tick 0 and freeze playback instantly.
 constexpr int kMinTotalTicks = 4 * kEndMarginTicks;
+// How long after the match-over phase starts the hold stops (~1 s at 64 tick). The phase starts the
+// instant the final round ends -- often the last kill itself -- and holding right there froze some
+// demos on the killing frame, with no time after it to film. CS2's line-up comes seconds later.
+constexpr int kPostGameTailTicks = 64;
 
 bool s_enabled = true;
 std::wstring s_path;        // demo the cached tick count belongs to
 int s_totalTicks = -1;      // header playback_ticks; -1 = unusable for this demo -> feature inert
-bool s_holding = false;     // paused at the end-hold; next resume = restart from the beginning
-bool s_restarting = false;  // seek back to the start was issued; suppress re-pausing until it lands
-unsigned long long s_restartDeadlineMs = 0;
+bool s_holding = false;     // paused at the end hold; playing on from here is paused again
 
 // ---- postgame phase ---------------------------------------------------------------------
 // CCSGameRules::m_gamePhase. The values are NOT guessed: the probe below logs every transition
@@ -57,7 +60,6 @@ void Reset() {
 	s_path.clear();
 	s_totalTicks = -1;
 	s_holding = false;
-	s_restarting = false;
 	s_lastPhase = -1;
 	s_postGameTick = -1;
 }
@@ -106,11 +108,9 @@ void DemoEndHold_RunFrame() {
 	const bool playing = demo && demo->IsPlayingDemo();
 	const bool paused = demo && demo->IsDemoPaused(); // a paused demo reports IsPlayingDemo() false
 	if (!playing && !paused) {
-		// IsPlayingDemo() also blips false transiently DURING a demo_gototick seek -- exactly
-		// the state our restart puts the engine in. Dropping state here would re-read the
-		// still-past-the-end tick next frame and instantly re-pause, killing the restart.
-		if (s_restarting && GetTickCount64() <= s_restartDeadlineMs)
-			return;
+		// IsPlayingDemo() also blips false transiently DURING a demo_gototick seek: keep the
+		// cached demo then, or the next frame would re-read the header for nothing.
+		if (DemoScrub_Active()) return;
 		Reset();
 		return;
 	}
@@ -121,7 +121,6 @@ void DemoEndHold_RunFrame() {
 	if (!path.empty() && path != s_path) {
 		s_path = path;
 		s_holding = false;
-		s_restarting = false;
 		DemoHeaderInfo hi = ReadDemoHeader(path);
 		s_totalTicks = (hi.ok && hi.playbackTicks >= kMinTotalTicks) ? hi.playbackTicks : -1;
 	}
@@ -156,21 +155,11 @@ void DemoEndHold_RunFrame() {
 			MvmDebugLog_LinefAlways("endhold", "postgame starts at tick %d (last tick would be %d)",
 				s_postGameTick, holdTick);
 		}
-		if (s_postGameTick < holdTick) holdTick = s_postGameTick;
+		if (s_postGameTick + kPostGameTailTicks < holdTick) holdTick = s_postGameTick + kPostGameTailTicks;
 	} else if (phase >= 0 && phase < s_postGamePhase) {
 		// Back in a playing phase (scrubbed away from the end, or a new demo). Drop the latch so
 		// the next arrival re-measures instead of holding at a tick from the previous match.
 		s_postGameTick = -1;
-	}
-
-	if (s_restarting) {
-		// The seek back to the start replays packets over several frames, during which the
-		// current tick still reads at/past the hold point. Don't re-arm the pause until the
-		// tick is clearly below it (or the seek evidently never landed).
-		if (tick < holdTick || GetTickCount64() > s_restartDeadlineMs)
-			s_restarting = false;
-		else
-			return;
 	}
 
 	// Releasing the latch is HYSTERETIC. demo_pause takes effect a frame or so after we ask, so we
@@ -183,36 +172,27 @@ void DemoEndHold_RunFrame() {
 	if (tick < holdTick) return;   // inside the slack: keep the latch, do not pause again
 
 	// At/past the hold point.
-	if (paused) {
-		// Any pause at the end counts as the hold (ours or the user's own), so a single
-		// play press from here restarts from the beginning.
-		s_holding = true;
-		return;
-	}
-	if (s_holding) {
-		// We were holding at the end and playback is running again = the user pressed play.
-		// Restart from the beginning instead of letting the engine run into the stop record.
-		s_holding = false;
-		s_restarting = true;
-		s_restartDeadlineMs = GetTickCount64() + 15000;
-		char cmd[64];
-		sprintf_s(cmd, "demo_gototick %d", startTick);
-		DemoCmd(cmd);
-		advancedfx::Message("mirv_filmmaker: end of demo -- restarting playback from the beginning.\n");
-	} else {
-		// First arrival at the hold point: freeze. At the postgame hold that keeps the podium
-		// sequence off the screen entirely; at the last-tick hold it beats the engine to the
-		// demo's stop record (which would disconnect back to the main menu).
-		DemoCmd("demo_pause");
-		s_holding = true;
-		const bool postgame = (s_postGameTick >= 0 && s_postGameTick <= holdTick);
-		advancedfx::Message(postgame
-			? "mirv_filmmaker: match over at tick %d -- holding here, before CS2's end-of-match "
-			  "screens (play again restarts from the beginning; `endhold postgame off` to run into them).\n"
-			: "mirv_filmmaker: end of demo (tick %d) -- holding on the last tick "
-			  "(play again restarts from the beginning).\n",
-			holdTick);
-	}
+	if (paused) { s_holding = true; return; }
+	// A timeline scrub plays the demo in short steps to reach its target: those are its own and
+	// pausing them would fight it. It lands paused wherever you dragged to.
+	if (DemoScrub_Active()) return;
+	// Playing at/past the hold point: stop. Every time -- the first arrival, play pressed while
+	// held, or a camera path running on. It used to RESTART the demo from the beginning when play
+	// came while held, and the timeline's own seeks and path playback land "playing", so the demo
+	// kept jumping back to its start (2026-10-17). Scrub back to play on.
+	DemoCmd("demo_pause");
+	const bool again = s_holding;
+	s_holding = true;
+	MvmDebugLog_LinefAlways("endhold", "%s at tick %d (hold %d, postgame %d, last %d)",
+		again ? "playing past the hold: paused again" : "hold", tick, holdTick, s_postGameTick,
+		startTick + s_totalTicks - kEndMarginTicks);
+	if (again) return;
+	const bool postgame = (s_postGameTick >= 0 && s_postGameTick + kPostGameTailTicks <= holdTick);
+	advancedfx::Message(postgame
+		? "mirv_filmmaker: match over -- holding at tick %d, a second after the final round, before "
+		  "CS2's end-of-match screens. Scrub back to play on (`endhold postgame off` runs into them).\n"
+		: "mirv_filmmaker: end of demo -- holding at tick %d, before the demo runs out. Scrub back to play on.\n",
+		holdTick);
 }
 
 void DemoEndHold_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {

@@ -135,6 +135,9 @@ public:
 	Mode GetMode() const { return (Mode)m_mode.load(); }   // safe from WndProc thread
 	bool IsPlaying() const { return m_play.Playing(); }
 	bool PlaybackPending() const { return m_editorPlayPending || m_timelinePlayPending; }
+	// AUTO is playing but the playhead is not inside the path yet: the view is CS2's (the range
+	// gate let the free cam go), so clicks and looks are the user's, not the path's.
+	bool AutoWaiting() const;
 	// True while the dolly is actively driving the FINAL view (PreviewPlaying + playing +
 	// free cam engaged). main.cpp's view-setup hook reads this (via CameraPathOwnsView) to
 	// block CS2's demo-view-override / TrueView from re-owning the view mid-playback.
@@ -201,6 +204,11 @@ private:
 	void SeekDemoTick(int tick);
 	void HoldEditorAtMarker(int index);
 	void FinishPlaybackAtLastKey();
+	void HandBackAtLastKey();
+	// AUTO (the camera path layer's button): follow the path while the timeline plays through it.
+	void RunAutoPath();
+	void EndAutoPath(const char* why);
+	bool m_autoPlaying = false; // the playback running now was started by AUTO, not by J or Play
 	// Same end-of-path moment as FinishPlaybackAtLastKey, but rewinds and plays again. Used
 	// while the shared LOOP switch is on -- see the call site in RunFrame.
 	void RestartPathPlayback();
@@ -208,7 +216,8 @@ private:
 	void Notify(const char* msg);      // raise a transient on-screen message
 	void PushCurveUndo();
 	double* ChannelTarget(CamMarker& marker, int channel);
-	void SetMode(Mode m) { m_mode.store((int)m); }
+	// `why` names the caller: a playback AUTO started that ends is logged with it (campath.mode).
+	void SetMode(Mode m, const char* why = nullptr);
 	PathSettings MakeSettings() const; // gather the persisted settings for eval/save
 	CamPlayback::Context MakeContext() const; // cosmetic/mode context for the driver
 
@@ -248,6 +257,9 @@ private:
 	// then ENDS the scrub so the free cam is handed back instead of being pinned to the path
 	// indefinitely. Same handshake shape as m_editorPlayPending above.
 	bool m_scrubReleasePending = false;
+	// The pending release is the one a playback that reached its end armed: when it fires, CS2's own
+	// camera takes the view back (HandBackAtLastKey). Any other release clears it.
+	bool m_handBackOnRelease = false;
 	int m_scrubReleaseTargetTick = -1;
 	int m_scrubReleaseWaitFrames = 0;
 	// demo_gototick leaves the demo auto-paused and the seek (a multi-100ms "Demo Skipping"
@@ -280,6 +292,11 @@ private:
 };
 
 CameraPath& CameraPathRef();
+
+// The camera path layer's AUTO button (editor.timeline.autopath, saved): while the TIMELINE plays,
+// the view follows the path inside its keys (CameraPath::RunAutoPath). Main thread.
+bool CameraPath_AutoPath();
+void CameraPath_SetAutoPath(bool on);
 
 // The ticks of the camera markers saved with `demoPath` (its project.mvm campath section), read
 // without loading them -- for work that starts before the demo plays, such as the keyframed copy's

@@ -109,7 +109,11 @@ struct Constants {
 	F4 dims, depthInfo, frame, dofA, dofB, dofC, irisA, irisB;
 	F4 flareA, flareB, flareC, flareTint, streakTint;
 	F4 lowRes, tileInfo, passInfo, modes;
+	F4 dofBand, smokeInfo, cameraPos;
+	F4 smokeSpheres[8]; // kLensMaxSmokes; the shader's cbuffer spells the 8 out
+	F4 sunInfo;
 };
+static_assert(kLensMaxSmokes == 8, "LensConstants.smokeSpheres holds 8 spheres");
 static_assert(sizeof(Constants) % 16 == 0, "D3D constant buffers are 16-byte aligned");
 
 struct PreparedShader {
@@ -129,6 +133,7 @@ std::vector<Request> ShaderRequests() {
 	for (int ms = 0; ms < 2; ++ms) {
 		r.push_back({ "FocusPS", "ps_5_0", ms, 0 });
 		r.push_back({ "CocPS", "ps_5_0", ms, 0 });
+		r.push_back({ "SunPS", "ps_5_0", ms, 0 });
 	}
 	for (const char* e : { "MipPS", "TilePS", "DilateHPS", "DilateVPS", "GatherPS", "DenoisePS",
 		"BrightPS", "Down13PS", "SourcePS", "SourceHPS", "ApertureBlurPS", "GhostPS", "StreakPS", "GlowHPS", "GlowVPS" })
@@ -182,7 +187,7 @@ struct Gpu {
 	bool ready = false;
 
 	ComPtr<ID3D11VertexShader> vs;
-	ComPtr<ID3D11PixelShader> focusPS[2], cocPS[2], compositePS[2];
+	ComPtr<ID3D11PixelShader> focusPS[2], cocPS[2], compositePS[2], sunPS[2];
 	ComPtr<ID3D11PixelShader> mipPS, tilePS, dilateH, dilateV, gatherPS, denoisePS;
 	ComPtr<ID3D11PixelShader> brightPS, down13PS, sourcePS, sourceHPS, apertureBlurPS, ghostPS, streakPS, glowH, glowV;
 	ComPtr<ID3D11Buffer> cb;
@@ -209,8 +214,14 @@ struct Gpu {
 	ComPtr<ID3D11Texture2D> coc;
 	ComPtr<ID3D11ShaderResourceView> cocAll, cocMip[kCocMipLevels];
 	ComPtr<ID3D11RenderTargetView> cocRtv[kCocMipLevels];
+	// 1 world, 0 the sharp first-person weapon, with the same mips: the gather weights every tap by it
+	// (see CocOut in LensFxShaders.h).
+	ComPtr<ID3D11Texture2D> worldMask;
+	ComPtr<ID3D11ShaderResourceView> worldAll, worldMip[kCocMipLevels];
+	ComPtr<ID3D11RenderTargetView> worldRtv[kCocMipLevels];
 	int cocLevels = 1; // mip levels this target size can hold (at most kCocMipLevels)
 	Tex focus[2];
+	Tex sunVis; // 1x1: how much of the sun's disc is open sky (SunPS)
 	int focusCur = 0;
 	bool focusValid = false;
 	ComPtr<ID3D11Texture2D> focusStaging;
@@ -245,7 +256,7 @@ bool CreateObjects() {
 	if (!vs || FAILED(g.device->CreateVertexShader(vs->code->GetBufferPointer(), vs->code->GetBufferSize(), nullptr, &g.vs)))
 		return false;
 	for (int ms = 0; ms < 2; ++ms) {
-		if (!MakePs("FocusPS", ms, 0, g.focusPS[ms]) || !MakePs("CocPS", ms, 0, g.cocPS[ms])) return false;
+		if (!MakePs("FocusPS", ms, 0, g.focusPS[ms]) || !MakePs("CocPS", ms, 0, g.cocPS[ms]) || !MakePs("SunPS", ms, 0, g.sunPS[ms])) return false;
 		if (!MakePs("CompositePS", 0, ms, g.compositePS[ms])) return false;
 	}
 	if (!MakePs("MipPS", 0, 0, g.mipPS) || !MakePs("TilePS", 0, 0, g.tilePS) || !MakePs("DilateHPS", 0, 0, g.dilateH) ||
@@ -349,8 +360,8 @@ bool EnsureTargets(const D3D11_TEXTURE2D_DESC& td, const D3D11_TEXTURE2D_DESC* d
 	g.tile[0] = g.tile[1] = g.halfBright = g.quarterBright = g.eighthBright = Gpu::Tex{};
 	g.sourceQ = g.sourceE = g.sourceH = Gpu::Tex{};
 	g.ghostSrc = g.ghostOut = g.streakOut = g.glowA = g.glowB = Gpu::Tex{};
-	g.coc.Reset(); g.cocAll.Reset();
-	for (int i = 0; i < kCocMipLevels; ++i) { g.cocMip[i].Reset(); g.cocRtv[i].Reset(); }
+	g.coc.Reset(); g.cocAll.Reset(); g.worldMask.Reset(); g.worldAll.Reset();
+	for (int i = 0; i < kCocMipLevels; ++i) { g.cocMip[i].Reset(); g.cocRtv[i].Reset(); g.worldMip[i].Reset(); g.worldRtv[i].Reset(); }
 	g.focus[0] = g.focus[1] = Gpu::Tex{};
 	g.focusStaging.Reset();
 	g.focusValid = false;
@@ -398,23 +409,30 @@ bool EnsureTargets(const D3D11_TEXTURE2D_DESC& td, const D3D11_TEXTURE2D_DESC* d
 		int levels = 1;
 		while (levels < kCocMipLevels && ((std::min)(w, h) >> levels) >= 1) ++levels;
 		g.cocLevels = levels;
-		D3D11_TEXTURE2D_DESC d{};
-		d.Width = w; d.Height = h; d.MipLevels = (UINT)levels; d.ArraySize = 1; d.Format = hdr;
-		d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT;
-		d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-		if (FAILED(g.device->CreateTexture2D(&d, nullptr, &g.coc)) ||
-			FAILED(g.device->CreateShaderResourceView(g.coc.Get(), nullptr, &g.cocAll)))
-			return false;
-		for (int m = 0; m < levels; ++m) {
-			D3D11_SHADER_RESOURCE_VIEW_DESC sv{};
-			sv.Format = hdr; sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-			sv.Texture2D.MostDetailedMip = m; sv.Texture2D.MipLevels = 1;
-			D3D11_RENDER_TARGET_VIEW_DESC rv{};
-			rv.Format = hdr; rv.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D; rv.Texture2D.MipSlice = m;
-			if (FAILED(g.device->CreateShaderResourceView(g.coc.Get(), &sv, &g.cocMip[m])) ||
-				FAILED(g.device->CreateRenderTargetView(g.coc.Get(), &rv, &g.cocRtv[m])))
+		auto chain = [&](DXGI_FORMAT format, ComPtr<ID3D11Texture2D>& tex, ComPtr<ID3D11ShaderResourceView>& all,
+			ComPtr<ID3D11ShaderResourceView>* mips, ComPtr<ID3D11RenderTargetView>* rtvs) {
+			D3D11_TEXTURE2D_DESC d{};
+			d.Width = w; d.Height = h; d.MipLevels = (UINT)levels; d.ArraySize = 1; d.Format = format;
+			d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT;
+			d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+			if (FAILED(g.device->CreateTexture2D(&d, nullptr, &tex)) ||
+				FAILED(g.device->CreateShaderResourceView(tex.Get(), nullptr, &all)))
 				return false;
-		}
+			for (int m = 0; m < levels; ++m) {
+				D3D11_SHADER_RESOURCE_VIEW_DESC sv{};
+				sv.Format = format; sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+				sv.Texture2D.MostDetailedMip = m; sv.Texture2D.MipLevels = 1;
+				D3D11_RENDER_TARGET_VIEW_DESC rv{};
+				rv.Format = format; rv.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D; rv.Texture2D.MipSlice = m;
+				if (FAILED(g.device->CreateShaderResourceView(tex.Get(), &sv, &mips[m])) ||
+					FAILED(g.device->CreateRenderTargetView(tex.Get(), &rv, &rtvs[m])))
+					return false;
+			}
+			return true;
+		};
+		if (!chain(hdr, g.coc, g.cocAll, g.cocMip, g.cocRtv) ||
+			!chain(DXGI_FORMAT_R16_FLOAT, g.worldMask, g.worldAll, g.worldMip, g.worldRtv))
+			return false;
 	}
 	const UINT gw = (w + 15) / 16, gh = (h + 15) / 16;
 	if (!MakeTarget(g.tile[0], gw, gh, DXGI_FORMAT_R16_FLOAT) || !MakeTarget(g.tile[1], gw, gh, DXGI_FORMAT_R16_FLOAT) ||
@@ -428,7 +446,8 @@ bool EnsureTargets(const D3D11_TEXTURE2D_DESC& td, const D3D11_TEXTURE2D_DESC* d
 		!MakeTarget(g.ghostOut, (w + 3) / 4, (h + 3) / 4, hdr) ||
 		!MakeTarget(g.streakOut, (w + 1) / 2, (h + 1) / 2, hdr) ||
 		!MakeTarget(g.glowA, (w + 7) / 8, (h + 7) / 8, hdr) || !MakeTarget(g.glowB, (w + 7) / 8, (h + 7) / 8, hdr) ||
-		!MakeTarget(g.focus[0], 1, 1, DXGI_FORMAT_R32_FLOAT) || !MakeTarget(g.focus[1], 1, 1, DXGI_FORMAT_R32_FLOAT))
+		!MakeTarget(g.focus[0], 1, 1, DXGI_FORMAT_R32_FLOAT) || !MakeTarget(g.focus[1], 1, 1, DXGI_FORMAT_R32_FLOAT) ||
+		!MakeTarget(g.sunVis, 1, 1, DXGI_FORMAT_R16_FLOAT))
 		return false;
 	{
 		D3D11_TEXTURE2D_DESC d{};
@@ -529,6 +548,16 @@ bool LensFx_Preset(Group group, const char* name) {
 bool LensFx_Active() {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	return g_values[DofOn] > 0.5f || g_values[FlareOn] > 0.5f;
+}
+
+bool LensFx_DofOn() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_values[DofOn] > 0.5f;
+}
+
+bool LensFx_FlareOn() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_values[FlareOn] > 0.5f;
 }
 
 bool LensFx_SetBuiltInIris(const char* name) {
@@ -737,7 +766,7 @@ void LensFx_EndDevice() {
 }
 
 bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, ID3D11DepthStencilView* depth,
-	const float* worldToClip, float depthMin, float depthMax) {
+	const float* worldToClip, float depthMin, float depthMax, const LensSmoke& smoke, const LensSun& sun) {
 	Values L;
 	MaskImage irisPending, dirtPending;
 	bool irisChanged = false, dirtChanged = false;
@@ -820,7 +849,7 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 	for (int i = 0; i < 16; ++i) k.inverseViewProjection[i] = inv[i];
 	k.dims = { W, H, (float)dd.Width, (float)dd.Height };
 	k.depthInfo = { depthMin, depthMax, 0, 0 };
-	k.frame = { dt, 0, 0, g.focusValid ? 0.f : 1.f };
+	k.frame = { dt, L[DofFocusSpeed], 0, g.focusValid ? 0.f : 1.f };
 	k.dofA = { L[DofMode], L[DofFocus], L[DofFstop], autoFocus ? 1.f : 0.f };
 	k.dofB = { L[DofNearStart], L[DofNearEnd], L[DofFarStart], L[DofFarEnd] };
 	const float maxPx = L[DofMaxBlur] * H / kReferenceHeightPx;
@@ -837,6 +866,20 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 	const UINT gw = g.tile[0].w, gh = g.tile[0].h;
 	k.tileInfo = { (float)gw, (float)gh, std::ceil(maxPx / 16.0f) + 1.0f, 0 };
 	k.modes = { dofOn ? 1.f : 0.f, flareOn ? 1.f : 0.f, W / H, 0 };
+	k.dofBand = { L[DofRange], 0, 0, 0 };
+	// Smoke: only with all three parts (coverage, where the smokes are, where the camera is).
+	const int smokeCount = (smoke.absorbance && smoke.width && smoke.height && smoke.haveCamera && smoke.spheres)
+		? std::min(smoke.count, kLensMaxSmokes) : 0;
+	k.smokeInfo = { (float)smokeCount, smokeCount > 0 ? 1.f : 0.f, (float)smoke.width, (float)smoke.height };
+	k.cameraPos = { smoke.camera[0], smoke.camera[1], smoke.camera[2], 0 };
+	for (int i = 0; i < smokeCount; ++i)
+		k.smokeSpheres[i] = { smoke.spheres[i * 4], smoke.spheres[i * 4 + 1], smoke.spheres[i * 4 + 2], smoke.spheres[i * 4 + 3] };
+	ID3D11ShaderResourceView* smokeSrv = smokeCount > 0 ? smoke.absorbance : nullptr;
+	// The sun, from the sky (LensFxMath.h): on screen, above the horizon, and depth to test it against.
+	float sunU = 0, sunV = 0;
+	const bool sunOn = flareOn && haveDepth && sun.have && L[FlareSun] > 0.0f && sun.dir[2] > -0.05f
+		&& SunScreenUv(worldToClip, sun.dir, sunU, sunV);
+	k.sunInfo = { sunU, sunV, sunOn ? L[FlareSun] : 0.0f, 0 };
 
 	ID3D11DeviceContext* c = g.ctx.Get();
 	c->ClearState();
@@ -854,9 +897,22 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 
 	struct Bind { UINT slot; ID3D11ShaderResourceView* srv; };
 	auto pass = [&](ID3D11PixelShader* ps, ID3D11RenderTargetView* rtv, UINT w, UINT h, std::initializer_list<Bind> binds) {
-		ID3D11ShaderResourceView* none[20] = {};
-		c->PSSetShaderResources(0, 20, none);
+		ID3D11ShaderResourceView* none[23] = {};
+		c->PSSetShaderResources(0, 23, none);
 		c->OMSetRenderTargets(1, &rtv, nullptr);
+		const D3D11_VIEWPORT vp{ 0, 0, (float)w, (float)h, 0, 1 };
+		c->RSSetViewports(1, &vp);
+		c->PSSetShader(ps, nullptr, 0);
+		for (const Bind& b : binds) c->PSSetShaderResources(b.slot, 1, &b.srv);
+		c->Draw(3, 0);
+	};
+	// The same with two targets: the CoC pass and its mips also write the world mask.
+	auto pass2 = [&](ID3D11PixelShader* ps, ID3D11RenderTargetView* rtv0, ID3D11RenderTargetView* rtv1, UINT w, UINT h,
+		std::initializer_list<Bind> binds) {
+		ID3D11ShaderResourceView* none[23] = {};
+		c->PSSetShaderResources(0, 23, none);
+		ID3D11RenderTargetView* rtvs[2] = { rtv0, rtv1 };
+		c->OMSetRenderTargets(2, rtvs, nullptr);
 		const D3D11_VIEWPORT vp{ 0, 0, (float)w, (float)h, 0, 1 };
 		c->RSSetViewports(1, &vp);
 		c->PSSetShader(ps, nullptr, 0);
@@ -879,22 +935,24 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		c->CopyResource(g.srcRes.tex.Get(), targetTex.Get());
 	}
 	const int dms = (haveDepth && dd.SampleDesc.Count > 1) ? 1 : 0;
-	if (dofOn) c->CopyResource(g.depthCopy.tex.Get(), depthTex.Get());
+	if (dofOn || sunOn) c->CopyResource(g.depthCopy.tex.Get(), depthTex.Get());
 
 	// 2. Depth of field.
 	if (dofOn) {
 		const int cur = autoFocus ? 1 - g.focusCur : g.focusCur;
 		if (autoFocus)
-			pass(g.focusPS[dms].Get(), g.focus[cur].rtv.Get(), 1, 1, { { 1, g.depthCopy.srv.Get() }, { 3, g.focus[g.focusCur].srv.Get() } });
-		pass(g.cocPS[dms].Get(), g.cocRtv[0].Get(), td.Width, td.Height,
-			{ { 0, g.srcRes.srv.Get() }, { 1, g.depthCopy.srv.Get() }, { 2, g.focus[cur].srv.Get() } });
+			pass(g.focusPS[dms].Get(), g.focus[cur].rtv.Get(), 1, 1,
+				{ { 1, g.depthCopy.srv.Get() }, { 3, g.focus[g.focusCur].srv.Get() }, { 20, smokeSrv } });
+		pass2(g.cocPS[dms].Get(), g.cocRtv[0].Get(), g.worldRtv[0].Get(), td.Width, td.Height,
+			{ { 0, g.srcRes.srv.Get() }, { 1, g.depthCopy.srv.Get() }, { 2, g.focus[cur].srv.Get() }, { 20, smokeSrv } });
 		for (int m = 1; m < g.cocLevels; ++m)
-			pass(g.mipPS.Get(), g.cocRtv[m].Get(), std::max(td.Width >> m, 1u), std::max(td.Height >> m, 1u), { { 4, g.cocMip[m - 1].Get() } });
+			pass2(g.mipPS.Get(), g.cocRtv[m].Get(), g.worldRtv[m].Get(), std::max(td.Width >> m, 1u), std::max(td.Height >> m, 1u),
+				{ { 4, g.cocMip[m - 1].Get() }, { 21, g.worldMip[m - 1].Get() } });
 		pass(g.tilePS.Get(), g.tile[0].rtv.Get(), gw, gh, { { 4, g.cocAll.Get() } });
 		pass(g.dilateH.Get(), g.tile[1].rtv.Get(), gw, gh, { { 5, g.tile[0].srv.Get() } });
 		pass(g.dilateV.Get(), g.tile[0].rtv.Get(), gw, gh, { { 5, g.tile[1].srv.Get() } });
 		pass(g.gatherPS.Get(), g.gather.rtv.Get(), td.Width, td.Height,
-			{ { 4, g.cocAll.Get() }, { 5, g.tile[0].srv.Get() }, { 7, g.irisTex.srv.Get() } });
+			{ { 4, g.cocAll.Get() }, { 5, g.tile[0].srv.Get() }, { 7, g.irisTex.srv.Get() }, { 21, g.worldAll.Get() } });
 		pass(g.denoisePS.Get(), g.soft.rtv.Get(), td.Width, td.Height, { { 4, g.cocAll.Get() }, { 6, g.gather.srv.Get() } });
 		if (autoFocus) g.focusCur = cur;
 		g.focusValid = autoFocus;
@@ -905,6 +963,8 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		// The flare reads the SHARP frame, blurred or not: a lifted bokeh disc is a huge white shape, and a flare cast
 		// from it would be a wash. Light sources flare where they are, in focus or not.
 		ID3D11ShaderResourceView* flareSrc = g.srcRes.srv.Get();
+		if (sunOn)
+			pass(g.sunPS[dms].Get(), g.sunVis.rtv.Get(), 1, 1, { { 1, g.depthCopy.srv.Get() }, { 20, smokeSrv } });
 		pass(g.brightPS.Get(), g.halfBright.rtv.Get(), hw, hh, { { 8, flareSrc } });
 		setPassSource(hw, hh);
 		pass(g.down13PS.Get(), g.quarterBright.rtv.Get(), qw, qh, { { 9, g.halfBright.srv.Get() } });
@@ -913,7 +973,7 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		// The source map: the bright pass kept only where the source is small (a bright ring around it drops
 		// it) and faded at the frame edge. Everything after this reads the source map, never the bright pass.
 		pass(g.sourcePS.Get(), g.sourceQ.rtv.Get(), qw, qh,
-			{ { 8, flareSrc }, { 9, g.quarterBright.srv.Get() }, { 14, g.eighthBright.srv.Get() } });
+			{ { 8, flareSrc }, { 9, g.quarterBright.srv.Get() }, { 14, g.eighthBright.srv.Get() }, { 22, g.sunVis.srv.Get() } });
 		pass(g.down13PS.Get(), g.sourceE.rtv.Get(), ew, eh, { { 9, g.sourceQ.srv.Get() } });
 		// Each aperture tap reads its full footprint, preventing sparse ghost dots.
 		c->OMSetRenderTargets(0, nullptr, nullptr);
@@ -931,7 +991,7 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		{ { 0, g.srcRes.srv.Get() }, { 4, g.cocAll.Get() }, { 6, g.soft.srv.Get() },
 		  { 10, g.ghostOut.srv.Get() }, { 11, g.streakOut.srv.Get() }, { 12, g.glowA.srv.Get() },
 		  { 13, msaa ? g.msaaCopy.srv.Get() : nullptr }, { 15, g.dirtTex.srv.Get() },
-		  { 14, flareOn ? g.eighthBright.srv.Get() : nullptr } });
+		  { 14, flareOn ? g.eighthBright.srv.Get() : nullptr }, { 22, sunOn ? g.sunVis.srv.Get() : nullptr } });
 	c->ClearState();
 
 	ComPtr<ID3D11CommandList> list;
@@ -956,10 +1016,13 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		if ((g.probeCounter++ % 120) == 0)
 			MvmDebugLog_Linef("lens.frame",
 				"dof=%d flare=%d target=%ux%u samples=%u fmt=%d depth=%ux%u depthSamples=%u depthFmt=%d mode=%d shape=%d "
-				"depthCopy=%ux%u focus=%.1f fstop=%.2f maxBlurPx=%.1f taps=%d auto=%d iris=%d ghosts=%d streak=%.2f star=%.2f threshold=%.2f",
+				"depthCopy=%ux%u focus=%.1f fstop=%.2f band=%.0f maxBlurPx=%.1f taps=%d auto=%d iris=%d ghosts=%d streak=%.2f star=%.2f threshold=%.2f "
+				"smoke: absorbance=%ux%u spheres=%d camera=%d used=%d sun: have=%d dir=(%.3f %.3f %.3f) on=%d uv=(%.3f %.3f)",
 				(int)dofOn, (int)flareOn, td.Width, td.Height, td.SampleDesc.Count, (int)fmt, dd.Width, dd.Height,
-				dd.SampleDesc.Count, (int)dd.Format, (int)L[DofMode], (int)L[DofShape], g.dw, g.dh, L[DofFocus], L[DofFstop], maxPx,
-				TapCount(L), (int)autoFocus, (int)g.irisLoaded, (int)L[FlareGhosts], L[FlareStreak], L[FlareStar], L[FlareThreshold]);
+				dd.SampleDesc.Count, (int)dd.Format, (int)L[DofMode], (int)L[DofShape], g.dw, g.dh, L[DofFocus], L[DofFstop], L[DofRange], maxPx,
+				TapCount(L), (int)autoFocus, (int)g.irisLoaded, (int)L[FlareGhosts], L[FlareStreak], L[FlareStar], L[FlareThreshold],
+				smoke.absorbance ? smoke.width : 0u, smoke.absorbance ? smoke.height : 0u, smoke.count, (int)smoke.haveCamera, smokeCount,
+				(int)sun.have, sun.dir[0], sun.dir[1], sun.dir[2], (int)sunOn, sunU, sunV);
 	}
 	std::lock_guard<std::mutex> lock(g_mutex);
 	g_status = "Rendering";
