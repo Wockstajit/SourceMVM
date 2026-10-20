@@ -261,6 +261,26 @@ void TestSeekJudgedEveryFrame() {
 	CHECK(JudgeSeek(1000, 40000, 12000, true, 600, true) == SeekWait::Waiting);
 }
 
+// 2026-10-19, a plain match demo: seek 64094 from 64103 restored Valve's full packet 61441 and read
+// 63940 (the end of its first 2500-message chunk, playing) for a frame. Judged lost, every re-aim
+// restored and read 63940 again; the scrub gave up 162 ticks short and resumed the demo.
+void TestSeekReplayBelowItsStart() {
+	CHECK(JudgeSeek(64103, 64094, 63940, false, 1, false) == SeekWait::Waiting);
+	CHECK(JudgeSeek(64103, 64094, 61441, true, 1, false) == SeekWait::Waiting); // just restored
+	// The replay then lands on the target like any seek.
+	CHECK(JudgeSeek(64103, 64094, 64094, true, 2, false) == SeekWait::Landed);
+	// No full packet is farther back than Valve's 3840 ticks: below that, another seek moved it.
+	CHECK(JudgeSeek(64103, 64094, 64094 - kSeekReplayTicksPlain - 1, true, 1, false) == SeekWait::Lost);
+	// A keyframed copy restores at most 32 ticks back.
+	CHECK(JudgeSeek(5000, 4900, 4880, false, 1, true) == SeekWait::Waiting);
+	CHECK(JudgeSeek(64103, 64094, 63940, false, 1, true) == SeekWait::Lost);
+	// A replay crosses a chunk a frame; one parked below the target is someone else's.
+	CHECK(JudgeSeek(64103, 64094, 63940, true, kSeekReplayStallFrames - 1, false) == SeekWait::Waiting);
+	CHECK(JudgeSeek(64103, 64094, 63940, true, kSeekReplayStallFrames, false) == SeekWait::Lost);
+	// Above the range is still another seek's world.
+	CHECK(JudgeSeek(64103, 64094, 64200, true, 1, false) == SeekWait::Lost);
+}
+
 } // namespace
 
 void TestBackStepNeverRunsPastAFrame() {
@@ -300,6 +320,7 @@ void TestCacheServesTheRecordedTake() {
 
 int main() {
 	TestSeekJudgedEveryFrame();
+	TestSeekReplayBelowItsStart();
 	TestSlowDragGlidesToAFraction();
 	TestDragFollowsWithoutOvershoot();
 	TestSpeedFollowsTheGap();

@@ -9,11 +9,11 @@
 // (Movie/DemoScrub.h), which PLAYS the world forward and seeks only backward.
 //
 // Only while the user is holding it: the native FrameUpdate writes slider.value every frame when
-// `mousedown` is false, and those writes fire SliderValueChanged too. The native release still
-// calls GotoTick(floor(v)); by then the world is normally there already, and a seek to the current
-// tick is a no-op (measured). A CLICK without a drag is left to the native seek alone: starting a
-// scrub while that seek runs would read IsDemoPaused mid-seek (it blips false) and resume a paused
-// demo. The panel attribute stops a re-injection registering twice.
+// `mousedown` is false, and those writes fire SliderValueChanged too. A click moves the value while
+// the button is down, so it reaches the scrub as one drag and a release. The native release still
+// calls GotoTick(floor(v)); the scrub seeks the paused demo to the whole tick before it, so that
+// seek is a no-op or a one-tick forward skip (Docs/features/filmmaker_demo_scrubbing.md). The panel
+// attribute stops a re-injection registering twice.
 
 namespace Filmmaker {
 

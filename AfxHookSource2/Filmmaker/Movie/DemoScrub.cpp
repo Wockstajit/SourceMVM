@@ -295,10 +295,10 @@ void DemoScrub_RunFrame() {
 			// A seek must land ON its tick (+/-1): mid-replay a backward seek reads the OLD tick,
 			// paused, which is past the target and not a landing.
 			const bool there = tick >= g_expectTick - 1 && tick <= g_expectTick + 1;
-			// The seek command does not include demo_pause. demo_pause toggles, and putting it in
-			// the same string as demo_resume runs it while the demo is still paused, which starts
-			// playback (timeline/graph reports 2026-10-13: any time change plays the demo). Pause
-			// once, only after the tick has landed and the demo is observed playing.
+			// The seek command does not include demo_pause: it toggles, and sent while the demo is
+			// still paused it starts playback (timeline/graph reports 2026-10-13: any time change
+			// plays the demo). A seek that lands playing (something resumed the demo meanwhile) is
+			// paused once, only after the tick has landed and the demo is observed playing.
 			if (there && !paused && !g_repaused && g_busyFrames >= 2) {
 				Cmd("demo_pause");
 				g_repaused = true;
@@ -405,16 +405,12 @@ void DemoScrub_RunFrame() {
 		Log("step %d ticks at %.2fx from %.3f target=%.3f released=%d", d.ticks, d.timescale, now, g_target, g_released ? 1 : 0);
 		break;
 	case ScrubAction::Seek:
-		// A FORWARD demo_gototick issued while paused is never executed (measured: the tick holds
-		// until playback resumes), so a forward skip resumes and seeks, then the seek handler
-		// pauses once it sees the demo playing on the target tick. demo_pause is not in this
-		// string: it toggles, and in the same batch as demo_resume it fires while still paused
-		// and leaves the demo playing. Backward, a plain seek from a paused demo holds; if the
-		// replay plays on, the same handler pauses it.
-		if (d.seekTick > tick)
-			_snprintf_s(c, sizeof(c), _TRUNCATE, "demo_resume;demo_gototick %d", d.seekTick);
-		else
-			_snprintf_s(c, sizeof(c), _TRUNCATE, "demo_gototick %d", d.seekTick);
+		// Always from a paused demo (DecideScrub pauses first), and a paused seek lands paused on
+		// its tick either way (DemoScrubMath.h). A forward seek used to resume first; the world
+		// then played on past every click, the seek was judged lost two ticks past its target,
+		// and a backward restore followed (2026-10-19). If something else resumes the demo
+		// meanwhile, the handler above pauses it once.
+		_snprintf_s(c, sizeof(c), _TRUNCATE, "demo_gototick %d", d.seekTick);
 		Cmd(c);
 		Issue(Pending::Seek, d.seekTick, tick);
 		ScrubFrameCache_NoteSeek(); // a new take starts where this lands

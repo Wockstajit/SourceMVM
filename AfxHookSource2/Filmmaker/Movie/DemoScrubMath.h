@@ -13,10 +13,9 @@
 //   * a backward seek restores the newest full packet at or before the target (one ~50-80 ms
 //     frame on a keyframed copy, see Demo/DemoKeyframes.h) and lands on a whole tick, sometimes
 //     one past it;
-//   * a FORWARD demo_gototick sent while PAUSED never runs, so the driver sends
-//     `demo_resume;demo_gototick N` and pauses once it sees the demo playing on N.
-//     demo_pause is a toggle and must not share that string: it runs while still paused and
-//     starts playback. Backward, a plain demo_gototick from a paused demo holds;
+//   * a demo_gototick from a PAUSED demo lands paused on its tick, forward or backward, near or
+//     far (measured 2026-10-19). An older CS2 held a paused forward seek until playback resumed,
+//     so the driver resumed for it, and the world then played on past every click;
 //   * demo_step_tick N plays to the N-th next whole tick and pauses exactly there, from a whole
 //     or a fractional position;
 //   * demo_pause is a TOGGLE, and commands take effect on the next frame.
@@ -155,7 +154,12 @@ inline ScrubDecision ScrubSeekTo(int tick) {
 // So a seek is judged every frame and given up the moment it is plainly not going to land; the
 // controller then aims again from wherever the world actually is.
 //   * Mid-replay the tick reads the OLD value (or values on the way, forward), so anything inside
-//     [from, expect] (+/-1) may still be ours. Outside it, another seek moved the world: Lost.
+//     [from, expect] (+/-1) may still be ours. Above it, another seek moved the world: Lost.
+//   * BELOW it, the seek may be replaying up from the full packet it restored. A long replay runs
+//     in chunks of 2500 messages a frame and reads each chunk's tick on the way, playing (measured
+//     2026-10-19: seek 64094 from 64103 restored 61441 and read 63940, paused=0, for a frame). Ours
+//     while within a full packet's reach of the target; judged Lost there, every re-aim restored
+//     and read 63940 again, until the scrub gave up 162 ticks short and resumed the demo.
 //   * Still playing away from the target after a few frames (a pause can blip false mid-seek):
 //     another command resumed it: Lost.
 //   * Not moved at all: a seek swallowed by a later one to the same tick. A keyframed copy restores
@@ -166,13 +170,23 @@ enum class SeekWait { Waiting, Landed, Lost };
 constexpr int kSeekPlayingLostFrames = 12;
 constexpr int kSeekStallFramesKeyframed = 20;
 constexpr int kSeekStallFramesPlain = 240;
+// How far below its target a seek's replay can start: Valve's full packets are 3840 ticks apart,
+// a keyframed copy's 32 (Docs/features/filmmaker_demo_scrubbing.md).
+constexpr int kSeekReplayTicksPlain = 4096;
+constexpr int kSeekReplayTicksKeyframed = 64;
+// A replay crosses its chunks in a frame each; one parked below the target this long is not ours.
+constexpr int kSeekReplayStallFrames = 30;
 
 inline SeekWait JudgeSeek(int fromTick, int expectTick, int tick, bool paused, int busyFrames, bool keyframed) {
 	const bool there = tick >= expectTick - 1 && tick <= expectTick + 1;
 	if (there) return paused ? SeekWait::Landed : SeekWait::Waiting; // the driver re-pauses once
 	const int lo = (fromTick < expectTick ? fromTick : expectTick) - 1;
 	const int hi = (fromTick > expectTick ? fromTick : expectTick) + 1;
-	if (tick < lo || tick > hi) return SeekWait::Lost;
+	if (tick > hi) return SeekWait::Lost;
+	const bool replaying = tick < lo;
+	if (replaying && (tick < expectTick - (keyframed ? kSeekReplayTicksKeyframed : kSeekReplayTicksPlain)
+		|| busyFrames >= kSeekReplayStallFrames))
+		return SeekWait::Lost;
 	if (!paused && busyFrames >= kSeekPlayingLostFrames) return SeekWait::Lost;
 	// Moving through the range is progress (a forward replay into demo not yet played); only a
 	// world still on the tick it started from counts as stalled.
