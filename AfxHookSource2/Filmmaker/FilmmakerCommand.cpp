@@ -60,6 +60,7 @@
 #include "Cosmetics/CosmeticOverrideSystem.h"
 #include "World/WorldCommand.h" // "world": lighting / atmosphere / weather + update-day health
 #include "Environment/EnvironmentScene.h"
+#include "Heatmap/RoundHeatmap.h" // "heatmap": where the round's players walked, on the floor
 #include "Config/FilmmakerSettingsStore.h"
 #include "Config/EffectsPersistence.h" // "effects": carry EFFECTS settings across a demo change
 #include "Render/RenderCommand.h"
@@ -318,6 +319,8 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 		Filmmaker::World_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "environment")) {
 		Filmmaker::Environment::RunCommand(args);
+	} else if (0 == _stricmp(sub, "heatmap")) {
+		Filmmaker::Heatmap::RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "ragdollphys")) {
 		Filmmaker::RagdollPhysics_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "deathanim")) {

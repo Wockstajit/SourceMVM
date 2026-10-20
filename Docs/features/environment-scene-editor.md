@@ -23,7 +23,7 @@ implementation and browser mock expose six task-oriented cards:
 | Lighting | Map lights, ambient light, bounce intensity, 1 to 3 bounce steps per frame, shadows and source sizes |
 | Fog | Density, Start distance, Height, Variation, Color |
 | Weather | Type, intensity, fall speed, wind speed/direction; Ground: wetness, puddles, snow; Lightning: enable, intensity, interval |
-| Scene Objects | Outliner: every placed thing in groups, with show/hide, in-renders and lock; Assets: CS2 models and your OBJ meshes; Lights: lit-by, add point/spot/area, the light editor; Presets: save/load |
+| Scene Objects | Round heat map: where the round's players walked ([`round-heatmap.md`](round-heatmap.md)); Outliner: every placed thing in groups, with show/hide, in-renders and lock; Assets: CS2 models and your OBJ meshes; Lights: lit-by, add point/spot/area, the light editor; Presets: save/load |
 
 Bounce steps/frame is an experimental convergence control. 1 keeps the current GPU cost. 2 or 3 run
 more indirect-light propagation work and may reduce FPS. The setting changes the number of

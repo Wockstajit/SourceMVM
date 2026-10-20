@@ -344,4 +344,35 @@ DemoHelperResult ReadDemoInfoViaHelper(const std::wstring& demoPath,
 	return result;
 }
 
+std::string ReadRoundPathsViaHelper(const std::wstring& demoPath, std::string& error,
+	const std::atomic<bool>* cancel) {
+	const std::wstring exe = FindHelperExe();
+	ULONGLONG demoTime = 0, cacheTime = 0, helperTime = 0;
+	const bool haveDemoTime = GetWriteTime(demoPath, demoTime);
+	const bool haveHelperTime = !exe.empty() && GetWriteTime(exe, helperTime);
+	const std::wstring cachePath = DemoProjectStore_GeneratedForLoad(
+		ProjectGame::Cs2, demoPath, ProjectGenerated::RoundPaths);
+	if (GetWriteTime(cachePath, cacheTime)
+		&& (!haveDemoTime || cacheTime >= demoTime)
+		&& (!haveHelperTime || cacheTime >= helperTime)) {
+		std::string cached = ReadFileUtf8(cachePath);
+		if (!cached.empty())
+			return cached;
+	}
+	if (exe.empty()) {
+		error = "FilmmakerDemoInfo helper executable was not found";
+		return {};
+	}
+	std::string out = RunCaptureStdout(exe, demoPath, L"-paths", cancel);
+	if (out.empty()) {
+		error = cancel && cancel->load() ? "round paths scan was cancelled" : "round paths scan produced nothing before timeout";
+		return {};
+	}
+	const std::wstring savePath = DemoProjectStore_GeneratedForSave(
+		ProjectGame::Cs2, demoPath, ProjectGenerated::RoundPaths);
+	if (!savePath.empty())
+		WriteFileUtf8(savePath, out);
+	return out;
+}
+
 } // namespace Filmmaker

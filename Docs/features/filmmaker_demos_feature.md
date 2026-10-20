@@ -103,6 +103,7 @@ generated caches live under `%APPDATA%\HLAE\source_mvm\demos\cs2\<filename>/`:
 | --- | --- |
 | `project.mvm` | single container: the `project` info section (canonical demo path + game) plus one authored section per subsystem (`campath`, `camshake`, `loop`, `scenekeys`) |
 | `scoreboard.fmjson` | parsed scoreboard / event cache |
+| `roundpaths.fmbin` | every player's path per round, for the [round heat map](round-heatmap.md) |
 | `demo.info` | recovery copy of Valve's `<name>.dem.info`, used only to restore a missing sidecar |
 | `repaired.dem` + `.src` / `.clean` | repair cache and validity stamps |
 

@@ -34,6 +34,7 @@
 #include "../Relight/Relight.h"
 #include "../Relight/RelightEnvironmentMath.h"
 #include "../Relight/RelightLightEditor.h"
+#include "../Heatmap/RoundHeatmap.h"
 #include "../Relight/RelightClusterMath.h"
 #include "../World/AutoExposure.h"
 #include "../World/NightMode.h"
@@ -699,7 +700,9 @@ void SetRenderStatus(const char *status, bool drawn) {
 void CaptureCoatingActors(Frame &f) {
     f.actors.clear();
     const auto &c = f.scene.climate;
-    if (!(c[CL_snow] > 0 || c[CL_wet] > 0 || c[CL_puddles] > 0 || (f.scene.weather.type == 1 && f.scene.weather.count > 0)))
+    // The round heat map leaves the live players' shoes unpainted from the same list.
+    if (!(c[CL_snow] > 0 || c[CL_wet] > 0 || c[CL_puddles] > 0 || (f.scene.weather.type == 1 && f.scene.weather.count > 0))
+        && !Heatmap::Enabled())
         return;
     __try {
         const int highest = GetHighestEntityIndex();

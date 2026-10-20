@@ -4,6 +4,7 @@
 #include "../Movie/TimelineDock.h" // the dock this panel now hosts and can switch
 #include "../Movie/CameraPath.h"   // key count for the dock ribbon's meta
 #include "../Environment/EnvironmentScene.h"
+#include "../Heatmap/RoundHeatmap.h" // ENVIRONMENT > Scene Objects: round heat map
 
 #include "PanoramaFindPanel.h"
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_Active / _LinefAlways (previewrect probe)
@@ -374,6 +375,7 @@ std::string ConfigHud::BuildStateJson() {
 	HandheldCamRef().AppendStateJson(o);
 	Environment::AppendStateJson(o);
 	Props_AppendStateJson(o);
+	Heatmap::AppendStateJson(o);
 	SceneRig_AppendStateJson(o);
 	WeaponRecoilRef().AppendStateJson(o);
 	WeaponBobRef().AppendStateJson(o);

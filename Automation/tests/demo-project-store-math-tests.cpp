@@ -56,6 +56,7 @@ int main() {
 	ExpectWide(ProjectGeneratedFileName(ProjectGenerated::Repaired), L"repaired.dem", "repaired file");
 	ExpectWide(ProjectGeneratedFileName(ProjectGenerated::MatchInfo), L"demo.info", "match info file");
 	ExpectWide(ProjectGeneratedFileName(ProjectGenerated::Keyframed), L"keyframed.dem", "keyframed file");
+	ExpectWide(ProjectGeneratedFileName(ProjectGenerated::RoundPaths), L"roundpaths.fmbin", "round paths file");
 	ExpectWide(ValveMatchInfoPath(L"C:\\replays\\match.dem"), L"C:\\replays\\match.dem.info",
 		"valve match info");
 	ExpectWide(RepairValidityMarkerPath(L"C:\\replays\\repaired\\match.dem"),

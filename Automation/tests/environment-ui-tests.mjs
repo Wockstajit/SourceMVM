@@ -423,3 +423,35 @@ test('only the Lighting switch takes over the map lighting', () => {
   const climate = read('ConfigHudClimateJs.h');
   assert.match(climate, /envLightSec\.__note\(s\.enabled && c\.enabled && c\.relighting \?/);
 });
+
+test('round heat map switch drives the heatmap command and shows the round', () => {
+  const h = harness();
+  h.render();
+  const sw = h.toggle('Round heat map');
+  assert.equal(sw.on, false);
+  assert.equal(h.context.hmMore.visible, false, 'its options wait for the switch');
+  assert.equal(h.sent.length, 0, 'rendering alone changes no state');
+  sw.click();
+  assert.deepEqual(h.sent, ['mirv_filmmaker heatmap on quiet']);
+
+  h.render([], 0, { heatmap: { on: true, radius: 2000, teams: 'ct', state: 'ready', round: 4, rounds: 18, players: 0, error: '' } });
+  assert.equal(sw.on, true);
+  assert.equal(h.context.hmMore.visible, true);
+  assert.equal(h.slider('Area').value, 2000);
+  const teams = h.modes.find((m) => m.label === 'Players');
+  assert.equal(teams.value, 'ct');
+  assert.equal(h.context.hmStatus.text, 'Round 4 of 18. Nobody walked near the camera.');
+  h.render([], 0, { heatmap: { on: true, radius: 2000, teams: 'ct', state: 'ready', round: 4, rounds: 18, players: -1, error: '' } });
+  assert.equal(h.context.hmStatus.text, 'Round 4 of 18.', 'no "nobody" while the grid is still being built');
+  h.render([], 0, { heatmap: { on: true, radius: 1500, teams: 'all', state: 'nodemo', round: 0, rounds: 0, players: -1, error: '' } });
+  assert.equal(h.context.hmStatus.text, 'Open a demo to see where its players walked.');
+  h.render([], 0, { heatmap: { on: true, radius: 1500, teams: 'all', state: 'warmup', round: 0, rounds: 18, players: 4, error: '' } });
+  assert.equal(h.context.hmStatus.text, 'Warmup, before the match started.');
+  assert.equal(h.sent.length, 1, 'rendering alone changes no state');
+
+  h.slider('Area').opts.onChange(1200);
+  teams.choose('t');
+  sw.click();
+  assert.deepEqual(h.sent.slice(1),
+    ['mirv_filmmaker heatmap radius 1200 quiet', 'mirv_filmmaker heatmap teams t quiet', 'mirv_filmmaker heatmap off quiet']);
+});

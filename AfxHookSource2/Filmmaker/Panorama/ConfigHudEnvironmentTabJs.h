@@ -175,6 +175,7 @@ R"CFJS(
     cw(envStormPage, 'Lightning', 'storm', 'Lightning channels, cloud flashes and illuminated surfaces.');
     cs(envStormPage, 'stormStrength'); cs(envStormPage, 'stormInterval');
 )CFJS"
+#include "ConfigHudHeatmapJs.h"
 #include "ConfigHudOutlinerJs.h"
 #include "ConfigHudPropsJs.h"
 R"CFJS(
