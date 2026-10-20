@@ -250,6 +250,39 @@ void TestStrokesAndJumps() {
 	Check(At(fg, 100, 0, 0).visits == 1 && std::fabs(At(fg, 100, 0, 0).height) < 1, "below the drop is the lower floor");
 }
 
+// Review of #62: a player back on the same spot a few samples after a gap (a respawn, a reconnect)
+// is a new visit, however short the gap looks in samples.
+void TestVisitAfterAGap() {
+	std::vector<PathSample> a;
+	Stand(a, 0, 0, 0, 3);
+	a[0].flags |= kStrokeStart;
+	a.push_back(P(0, 0, 0, kOnGround | kStrokeStart));
+	Stand(a, 0, 0, 0, 2);
+	Grid g;
+	BuildGrid(Round({ a }), 2, WindowAround(0, 0, 300), g);
+	Check(At(g, 0, 0).visits == 2, "a new stroke on the same spot is a new visit");
+	std::vector<PathSample> b;
+	Stand(b, 0, 0, 0, 3);
+	b[0].flags |= kStrokeStart;
+	b.push_back(P(500, 0, 0)); // a teleport, no flag
+	b.push_back(P(0, 0, 0));   // and straight back
+	Grid h;
+	BuildGrid(Round({ b }), 2, WindowAround(0, 0, 700), h);
+	Check(At(h, 0, 0).visits == 2, "a teleport breaks the visit too");
+}
+
+// Review of #62: warmup and the rounds before the match went live are not match rounds.
+void TestMatchRounds() {
+	DemoPaths d;
+	d.rounds.resize(4);
+	d.rounds[0].warmup = true;
+	d.rounds[1].warmup = true;
+	Check(MatchRoundNumber(d, 0) == 0 && MatchRoundNumber(d, 1) == 0, "warmup has no match number");
+	Check(MatchRoundNumber(d, 2) == 1 && MatchRoundNumber(d, 3) == 2, "the match counts from its own first round");
+	Check(MatchRoundCount(d) == 2, "the count leaves warmup out");
+	Check(MatchRoundNumber(d, -1) == 0 && MatchRoundNumber(d, 4) == 0, "no round outside the list");
+}
+
 void TestOutsideWindow() {
 	std::vector<PathSample> a;
 	Walk(a, 5000, 5000, 5400, 5000, 0, true);
@@ -325,6 +358,8 @@ int main(int argc, char** argv) {
 	TestVisits();
 	TestFloors();
 	TestStrokesAndJumps();
+	TestVisitAfterAGap();
+	TestMatchRounds();
 	TestOutsideWindow();
 	if (g_failures) {
 		std::cerr << g_failures << " round heat map check(s) failed\n";

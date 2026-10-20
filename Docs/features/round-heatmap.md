@@ -43,6 +43,9 @@ cached too, so an unreadable demo is not parsed again.
 - A round runs from its `round_start` to the next one, so freeze time and the walk after the
   round ends are in it. A recording that starts a moment before the first `round_start` folds
   that moment into the first round.
+- Warmup rounds, and every round before the match went live (a knife round, a restart), are
+  marked pre-match. Their paths are shown while you watch them, the status line says Warmup, and
+  `Round N of M` counts the match's own rounds the way the scoreboard does.
 - Ticks are demo ticks, the clock `demo_gototick` and the engine's demo tick use. The round shown
   is the last one that started at or before the current demo tick.
 - A stroke breaks at a respawn and at any jump between two samples longer than 96 units, so no
@@ -61,7 +64,8 @@ to write that round as a picture.
   worker thread (20 to 35 ms for a full round of a competitive match).
 - Each sample stamps the player's body along the segment from the previous sample. A texel counts
   one visit per player until that player has been away from it for 1.5 seconds, so standing still
-  is one visit and coming back later is another.
+  is one visit and coming back later is another. Coming back after a broken stroke (a respawn, a
+  reconnect, a teleport) is always another visit.
 - Each texel keeps two floor heights with their own counts, so traffic on an upper floor does not
   paint the floor under it. In the air, a sample keeps the floor the player left, unless they fell
   below it.

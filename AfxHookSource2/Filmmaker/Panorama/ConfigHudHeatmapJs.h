@@ -38,6 +38,7 @@ R"CFJS(
       if (h.state === 'loading') return 'Reading the rounds from the demo...';
       if (h.state === 'error') return 'This demo could not be read. ' + (h.error || '');
       if (h.state === 'noround') return 'No round has started yet at this point of the demo.';
+      if (h.state === 'warmup') return 'Warmup, before the match started.';
       if (h.state !== 'ready') return '';
       var where = 'Round ' + h.round + ' of ' + h.rounds;
       return h.players === 0 ? where + '. Nobody walked near the camera.' : where + '.';

@@ -68,7 +68,9 @@ const char* StateToken() {
 	switch (g_load) {
 	case Load::Loading: return "loading";
 	case Load::Failed: return "error";
-	case Load::Ready: return g_round < 0 ? "noround" : "ready";
+	case Load::Ready:
+		if (g_round < 0) return "noround";
+		return g_paths && MatchRoundNumber(*g_paths, g_round) == 0 ? "warmup" : "ready";
 	default: return "idle";
 	}
 }
@@ -206,8 +208,9 @@ void PrintStatus() {
 	if (!g_demo.empty()) advancedfx::Message("  demo: %s\n", WideToUtf8(g_demo).c_str());
 	if (g_load == Load::Failed) advancedfx::Message("  error: %s\n", g_error.c_str());
 	if (g_paths)
-		advancedfx::Message("  paths: %s, %zu rounds; tick %d is round %d\n", g_paths->map.c_str(), g_paths->rounds.size(), g_tick,
-			g_round + 1);
+		advancedfx::Message("  paths: %s, %d match rounds (%zu with warmup); tick %d is %s %d\n", g_paths->map.c_str(),
+			MatchRoundCount(*g_paths), g_paths->rounds.size(), g_tick,
+			MatchRoundNumber(*g_paths, g_round) ? "round" : "pre-match round", MatchRoundNumber(*g_paths, g_round));
 	if (g_grid)
 		advancedfx::Message("  grid: round %d, %dx%d texels of %.2f units around (%.0f, %.0f), %zu segments, %d players, up to %.0f visits, built in %.1f ms\n",
 			g_gridRound + 1, g_grid->size, g_grid->size, g_grid->cell, g_window.cx, g_window.cy, g_gridSegments, g_gridPlayers,
@@ -299,8 +302,9 @@ void AppendStateJson(std::ostringstream& out) {
 	j.DoubleField("radius", g_radius);
 	j.StringField("teams", TeamsToken(g_teams));
 	j.StringField("state", StateToken());
-	j.IntField("round", g_round + 1);
-	j.IntField("rounds", g_paths ? int64_t(g_paths->rounds.size()) : 0);
+	// The match's own numbering: warmup and pre-match rounds are state "warmup" and not counted.
+	j.IntField("round", g_paths ? MatchRoundNumber(*g_paths, g_round) : 0);
+	j.IntField("rounds", g_paths ? MatchRoundCount(*g_paths) : 0);
 	// Players near the camera in the grid for this round; -1 while that grid is still being built.
 	const bool current = g_round >= 0 && g_gridRound == g_round && !g_building.load();
 	j.IntField("players", current ? g_gridPlayers : -1);

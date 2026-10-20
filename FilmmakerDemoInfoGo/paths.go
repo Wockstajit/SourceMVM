@@ -7,7 +7,7 @@
 // JSON would make ten times larger):
 //
 //	"FMRP" u32 version u16 sampleStepTicks u16 mapLen map[mapLen] u32 roundCount
-//	round:  i32 startTick i32 endTick(exclusive) u8 warmup u16 playerCount
+//	round:  i32 startTick i32 endTick(exclusive) u8 warmup(or pre-match) u16 playerCount
 //	player: u32 accountId u8 team(2 = T, 3 = CT) u32 sampleCount
 //	sample: i16 x i16 y i16 z u8 flags
 //
@@ -137,6 +137,14 @@ func runPaths(path string) {
 		}
 		implicit = false
 		open(t)
+	})
+	// MatchStart fires when the live match begins, after warmup, a knife round or a restart. Every
+	// round before it is pre-match, like the scoreboard's (main.go), so the hook leaves it out of the
+	// match's round numbers. Its paths stay, for watching that part of the demo.
+	p.RegisterEventHandler(func(e events.MatchStart) {
+		for _, r := range rounds {
+			r.warmup = true
+		}
 	})
 
 	lastSample := math.MinInt32

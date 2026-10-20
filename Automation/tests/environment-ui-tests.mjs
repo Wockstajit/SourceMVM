@@ -445,6 +445,8 @@ test('round heat map switch drives the heatmap command and shows the round', () 
   assert.equal(h.context.hmStatus.text, 'Round 4 of 18.', 'no "nobody" while the grid is still being built');
   h.render([], 0, { heatmap: { on: true, radius: 1500, teams: 'all', state: 'nodemo', round: 0, rounds: 0, players: -1, error: '' } });
   assert.equal(h.context.hmStatus.text, 'Open a demo to see where its players walked.');
+  h.render([], 0, { heatmap: { on: true, radius: 1500, teams: 'all', state: 'warmup', round: 0, rounds: 18, players: 4, error: '' } });
+  assert.equal(h.context.hmStatus.text, 'Warmup, before the match started.');
   assert.equal(h.sent.length, 1, 'rendering alone changes no state');
 
   h.slider('Area').opts.onChange(1200);

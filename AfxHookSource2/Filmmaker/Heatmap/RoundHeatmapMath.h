@@ -110,6 +110,20 @@ inline int RoundAt(const DemoPaths& paths, int tick) {
 	return found;
 }
 
+// The round's number in the match itself (1-based), the way the scoreboard counts: warmup and the
+// rounds before the match went live are 0, and they are left out of the count.
+inline int MatchRoundNumber(const DemoPaths& paths, int index) {
+	if (index < 0 || index >= int(paths.rounds.size()) || paths.rounds[size_t(index)].warmup) return 0;
+	int n = 0;
+	for (int i = 0; i <= index; ++i) n += paths.rounds[size_t(i)].warmup ? 0 : 1;
+	return n;
+}
+inline int MatchRoundCount(const DemoPaths& paths) {
+	int n = 0;
+	for (const auto& r : paths.rounds) n += r.warmup ? 0 : 1;
+	return n;
+}
+
 // ---- the floor grid ----
 
 constexpr int kGridMax = 1024;       // texels per side
@@ -268,6 +282,10 @@ inline void BuildGrid(const RoundPaths& round, int sampleStep, const Window& w, 
 		bool stamped = false, haveGround = false;
 		float lastGround = 0, px = 0, py = 0, pz = 0;
 		bool havePrev = false;
+		// The visit clock counts samples, and jumps past the revisit window where a stroke breaks: the
+		// gap behind a new stroke (a respawn, a reconnect) can be any length, so coming back from it is
+		// always a new visit.
+		uint32_t clock = 0;
 		for (size_t si = 0; si < pl.samples.size(); ++si) {
 			const auto& s = pl.samples[si];
 			if (s.flags & kStrokeStart) { havePrev = false; haveGround = false; }
@@ -276,11 +294,12 @@ inline void BuildGrid(const RoundPaths& round, int sampleStep, const Window& w, 
 				const float dx = s.x - px, dy = s.y - py, dz = s.z - pz;
 				if (dx * dx + dy * dy + dz * dz > kTeleportUnits * kTeleportUnits) havePrev = false;
 			}
+			clock += (si > 0 && !havePrev) ? revisit + 1 : 1;
 			// A stroke's first sample stamps a disc, every later one the capsule back to the previous.
 			const float ax = havePrev ? px : s.x, ay = havePrev ? py : s.y, az = havePrev ? pz : z;
 			if ((std::max)(ax, s.x) >= minX && (std::min)(ax, s.x) <= maxX
 				&& (std::max)(ay, s.y) >= minY && (std::min)(ay, s.y) <= maxY) {
-				detail::StampSegment(work, w, ax, ay, az, s.x, s.y, z, kBodyRadius, who | uint32_t(si & 0xFFFFFFu), revisit);
+				detail::StampSegment(work, w, ax, ay, az, s.x, s.y, z, kBodyRadius, who | (clock & 0xFFFFFFu), revisit);
 				++out.segments;
 				stamped = true;
 			}
