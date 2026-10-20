@@ -33,7 +33,9 @@ same box: a 130px label column, the control, a 66px value column. Booleans are s
 that row, never chips. Nothing truncates: a segment whose widest caption, times its cell count,
 does not fit beside the label drops under it at full width (`cfgCaptionsFit` in
 `ConfigHudWidgetsJs.h`), option grids pick their column count from the pane width, both re-fit
-when the inspector column is dragged (`cfgRelayout`), and labels wrap. A single colour field is a full-width bar of its colour, crossed by the custom mark;
+when the inspector column is dragged (`cfgRelayout`), and labels wrap. When a tab's rail rows
+outgrow a short window, the wheel scrolls the rail while the cursor is over it
+(`$.ConfigHud.railWheel(n)` from the console), so every row stays selectable. A single colour field is a full-width bar of its colour, crossed by the custom mark;
 on a palette that allows a custom colour, the custom chip is wider and carries the same mark.
 The tab-row search indexes controls across all tabs. Rail selection persists independently per tab,
 and hidden cards retain their state and render hooks. See the

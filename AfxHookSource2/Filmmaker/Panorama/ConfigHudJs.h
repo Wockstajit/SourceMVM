@@ -551,6 +551,33 @@ R"CFJS(
     cfgRailHost.style.paddingRight = UI.rail.padR + 'px';
     cfgRailHost.style.borderRight = '1px solid #ffffff12';
     cfgRailHost.style.overflow = 'clip';
+    // The rail SCROLLS ON ITS OWN when its rows outgrow the column (a short window: 720p, or the
+    // 854x480 test size). A wheel notch with the OS cursor over the rail moves the active tab's
+    // rows; over the pane the notch scrolls the pane as before. Same model as the Camera Editor
+    // rail; the cursor comes from st.mx / st.my (cfgDropdownPump), as the colour wells use.
+    var cfgRailScrollY = 0, cfgRailAppliedY = -1;
+    function cfgRailApplyScroll() {
+      var r = cfgRails[activeTab];
+      if (!r || !r.host) return;
+      var sy = inspector.actualuiscale_y || 1;
+      var viewH = (cfgRailHost.actuallayoutheight || 0) / sy, contH = (r.host.actuallayoutheight || 0) / sy;
+      var maxY = contH > viewH ? (contH - viewH + 8) : 0;
+      if (cfgRailScrollY > maxY) cfgRailScrollY = maxY;
+      if (cfgRailScrollY < 0) cfgRailScrollY = 0;
+      var px = Math.round(cfgRailScrollY);
+      if (px !== cfgRailAppliedY) { cfgRailAppliedY = px; r.host.style.marginTop = (-px) + 'px'; }
+    }
+    // Takes the notch when the cursor is over a rail that overflows; false hands it to the pane.
+    function cfgRailWheel(n) {
+      var r = cfgRails[activeTab];
+      if (!r || !r.host || !cfgRailHost.visible) return false;
+      if (!cfgColorOverRect(cfgRailHost, cfgCursorX, cfgCursorY)) return false;
+      var sy = inspector.actualuiscale_y || 1;
+      if (((r.host.actuallayoutheight || 0) / sy) <= ((cfgRailHost.actuallayoutheight || 0) / sy)) return false;
+      cfgRailScrollY -= n * 90;
+      cfgRailApplyScroll();
+      return true;
+    }
     // The scroll region takes whatever width is left, so the title/mouse row/tab strip stay put
     // while only the selected card moves.
     scrollView = mk('Panel', bodyRow);
@@ -632,8 +659,9 @@ R"CFJS(
       if (configTabSeen !== activeTab) {
         configTabSeen = activeTab;
         // A new tab starts at its top; carrying the previous tab's offset into a shorter tab
-        // would open it already scrolled past its first card.
+        // would open it already scrolled past its first card. The rail starts at its top too.
         cfgScrollY = 0;
+        cfgRailScrollY = 0; cfgRailAppliedY = -1;
         // A tab swap ARRIVES (2026-10): the rail and the tab's selected card come up 4px over the
         // shared MO_TAB. These two panels carry their own transitions; the scrolled subtree
         // itself is left alone, which is what kept pinned text from flickering before.
@@ -976,6 +1004,7 @@ R"CFJS(
       // Last: the hooks above can change the column's height (a card opening, a longer
       // readout), so the clamp and the scrollbar are resolved against this frame's real size.
       cfgApplyScroll();
+      cfgRailApplyScroll();   // the rail re-clamps the same way (a window resize shortens it)
     };
 
     // Called from C++ (ConfigHud::DispatchWheel) with the notches captured this frame:
@@ -994,6 +1023,8 @@ R"CFJS(
       // A list that scrolls on its own (scrollWell) takes the notch while the cursor is over it;
       // at its top or bottom the notch goes on to the column.
       if (cfgWellWheel(n)) return;
+      // The rail takes the notch while the cursor is over it and its rows overflow the column.
+      if (cfgRailWheel(n)) return;
       // The TIMELINE dock under CONFIG gets the notch while the pointer is over it (its rows, Ctrl
       // zoom, Shift pan), exactly as under the Camera Editor ($.GraphExp.wheel answers false
       // everywhere else).
@@ -1004,6 +1035,14 @@ R"CFJS(
       // Values are changed by dragging them, which is deliberate and reversible; scrolling is not.
       cfgScrollY -= n * 90;
       cfgApplyScroll();
+    };
+    // Scroll the active rail by notches without the cursor test (netcon cannot hover).
+    api.railWheel = function (notches) {
+      var n = parseInt(notches, 10);
+      if (!isFinite(n) || n === 0) return cfgRailScrollY;
+      cfgRailScrollY -= n * 90;
+      cfgRailApplyScroll();
+      return cfgRailScrollY;
     };
     api.chars = function (csv) { configWindowChars(csv); };
     // A quick right-click in the ENVIRONMENT view (MovieMode via `config viewmenu`): the props
