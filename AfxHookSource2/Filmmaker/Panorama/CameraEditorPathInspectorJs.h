@@ -193,11 +193,12 @@ R"EDJS(
     var pathSpeedPage = selSec.__group('Speed');
     var SPEEDMODE = [['Manual', 'Manual'], ['Per-Segment', 'Per-Seg'], ['Constant', 'Constant']];
     var pathSpeedRow = edModeRow(pathSpeedPage, 'Mode', SPEEDMODE, null, function (which) {
-      // The console command only cycles, so step it until it lands on the requested mode.
-      for (var i = 0; i < SPEEDMODE.length; i++) {
-        if (st && st.speedMode === which) break;
-        cmd('mirv_filmmaker marker speedmode cycle');
-      }
+      // The command takes the mode by name (MarkerCommand.cpp: manual|constant|persegment).
+      // It used to send `cycle` up to three times against the stale state, which with three
+      // modes went full circle and left the mode where it was: Manual and Constant could not be
+      // picked by clicking.
+      var name = { 'Manual': 'manual', 'Per-Segment': 'persegment', 'Constant': 'constant' }[which];
+      if (name) cmd('mirv_filmmaker marker speedmode ' + name);
     }, 'Manual follows the keys; Per-Segment and Constant drive the multiplier below.');
 
     // One multiplier stepper serving both Per-Segment and Constant -- a LADDER (0.20 / 0.50 /
