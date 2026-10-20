@@ -17,8 +17,13 @@ release tagged differently from its launcher never receives a hotfix.
 
 Check this before every publish. It is what decides whether existing installs move to the new build.
 
+Installed launchers check only when the user has switched on **ADVANCED > UPDATES > Check for
+updates automatically** (off by default, stored as `autoUpdate` in `launcher.json`), or
+when the user presses the **UPDATES** button. A launcher that cannot reach the update server logs
+that once and launches the runtime it has. Everything below applies to launchers that do check.
+
 1. The launcher's own guard (`electron/update-service.cjs`) reads the newest non-draft release from
-   the GitHub API. If that release has no `latest.yml`, every installed launcher shows an update
+   the GitHub API. If that release has no `latest.yml`, every launcher that checks shows an update
    error and refuses to launch CS2 until it is fixed.
 2. electron-updater runs with `allowPrerelease = true` on a stable version, so it takes the
    **first entry of the repository's releases Atom feed**, whatever its tag, downloads that
@@ -104,10 +109,11 @@ Both packaging scripts archive the shipped DLL's PDB before stripping it, in `Au
 or `SOURCEMVM_SYMBOL_STORE`. Back up that folder after every release, so crash reports from that
 build can be resolved to function names. See [the community reports doc](../features/filmmaker_community.md).
 
-On its next start, a launcher of that version downloads `runtime-hotfix.json`. It installs a newer
-serial over its runtime, backing up each replaced file and restoring it on failure. The hotfix
-stays in place across restarts until a newer full release replaces the bundle. A failed hotfix
-check never blocks launching. Launchers before 0.1.9 ignore hotfixes and need that full release first.
+On its next start with automatic updates on (or when the user presses **UPDATES**), a launcher of
+that version downloads `runtime-hotfix.json`. It installs a newer serial over its runtime, backing
+up each replaced file and restoring it on failure. The hotfix stays in place across restarts until
+a newer full release replaces the bundle. A failed hotfix check never blocks launching. Launchers
+before 0.1.9 ignore hotfixes and need that full release first.
 
 ## Build and scan
 

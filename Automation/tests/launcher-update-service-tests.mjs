@@ -12,9 +12,12 @@ function deferred() {
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
+// Automatic updates are on here so the online path is what most tests exercise; the opt-in
+// tests below turn them off.
 function fixture(overrides = {}) {
-  const calls = [], events = [];
+  const calls = [], events = [], logs = [];
   const service = createUpdateService({ packaged: true, portable: false,
+    automaticUpdates: () => true,
     loadReleases: async () => [release],
     prepareRuntime: async () => { calls.push('runtime'); },
     canInstall: () => true,
@@ -22,8 +25,8 @@ function fixture(overrides = {}) {
       checkForUpdates: async () => { calls.push('check'); return { isUpdateAvailable: false }; },
       downloadUpdate: async () => { calls.push('download'); return ['verified.exe']; },
       quitAndInstall: (...args) => calls.push(['restart', ...args]),
-    }, ...overrides, report: status => events.push(status) });
-  return { service, calls, events };
+    }, ...overrides, report: status => events.push(status), log: line => logs.push(line) });
+  return { service, calls, events, logs };
 }
 test('launch is denied before the first check and throughout runtime installation', async () => {
   const pending = deferred();
@@ -74,13 +77,71 @@ test('empty public repo and draft releases have no update; installed runtime can
     assert.doesNotThrow(f.service.assertCanLaunch);
   }
 });
-test('network failure leaves launch blocked, with retry recovering normally', async () => {
+test('an unreachable update server is logged once and the installed runtime still launches', async () => {
   let online = false;
-  const f = fixture({ loadReleases: async () => { if (!online) throw new Error('Offline'); return []; } });
-  assert.match((await f.service.check()).message, /Offline.*Retry/);
-  assert.throws(f.service.assertCanLaunch);
+  const runtimeCalls = [];
+  const f = fixture({
+    loadReleases: async () => { if (!online) throw new Error('Offline'); return [release]; },
+    prepareRuntime: async (options) => { runtimeCalls.push(options); },
+  });
+  const result = await f.service.check();
+  assert.equal(result.state, 'ready');
+  assert.equal(result.skipped, true);
+  assert.equal(result.message, 'OFFLINE / UPDATE CHECK SKIPPED');
+  assert.doesNotThrow(f.service.assertCanLaunch);
+  assert.deepEqual(f.logs, ['Update check skipped: Offline']);
+  assert.deepEqual(f.calls, []);
+  // The runtime side is told to stay offline too (no hotfix or payload manifest fetch).
+  assert.deepEqual(runtimeCalls, [{ online: false }]);
   online = true;
-  assert.equal((await f.service.check()).state, 'ready');
+  const next = await f.service.check();
+  assert.equal(next.state, 'ready');
+  assert.equal(next.message, 'UP TO DATE');
+  assert.equal(next.skipped, undefined);
+  assert.deepEqual(runtimeCalls, [{ online: false }, { online: true }]);
+  assert.deepEqual(f.calls, ['check']);
+  assert.equal(f.logs.length, 1);
+});
+test('automatic updates off: no release list, no updater, the runtime readies offline', async () => {
+  const runtimeCalls = [];
+  const f = fixture({
+    automaticUpdates: () => false,
+    loadReleases: () => { throw new Error('Unexpected network'); },
+    prepareRuntime: async (options) => { runtimeCalls.push(options); },
+  });
+  const result = await f.service.check();
+  assert.equal(result.state, 'ready');
+  assert.equal(result.message, 'UPDATES OFF');
+  assert.equal(result.launchAllowed, true);
+  assert.doesNotThrow(f.service.assertCanLaunch);
+  assert.deepEqual(f.calls, []);
+  assert.deepEqual(f.logs, []);
+  assert.deepEqual(runtimeCalls, [{ online: false }]);
+});
+test('the UPDATES button checks once even while automatic updates are off', async () => {
+  const runtimeCalls = [];
+  let fetched = 0;
+  const f = fixture({
+    automaticUpdates: () => false,
+    loadReleases: async () => { fetched++; return [release]; },
+    prepareRuntime: async (options) => { runtimeCalls.push(options); },
+  });
+  const result = await f.service.check({ manual: true });
+  assert.equal(result.message, 'UP TO DATE');
+  assert.equal(fetched, 1);
+  assert.deepEqual(f.calls, ['check']);
+  assert.deepEqual(runtimeCalls, [{ online: true }]);
+  // The next automatic check is offline again.
+  assert.equal((await f.service.check()).message, 'UPDATES OFF');
+  assert.equal(fetched, 1);
+});
+test('automatic updates off still needs an installed runtime before GO unlocks', async () => {
+  const f = fixture({
+    automaticUpdates: () => false,
+    prepareRuntime: async () => { throw new Error('No runtime is installed yet.'); },
+  });
+  assert.match((await f.service.check()).message, /No runtime is installed yet/);
+  assert.throws(f.service.assertCanLaunch);
 });
 test('a malformed list or a published release with no update metadata never reports current', async () => {
   for (const releases of [{}, [{ draft: false, assets: [] }]]) {
@@ -215,6 +276,18 @@ test('headless startup waits for guarded runtime readiness and never writes a bu
   await current.run();
   assert.deepEqual(ready.calls, ['check', 'runtime']);
   assert.deepEqual(current.calls, ['launch', ['exit', 0]]);
+});
+
+test('headless launches without the network when automatic updates are off or the server is down', async () => {
+  for (const automatic of [false, true]) {
+    const f = fixture({ automaticUpdates: () => automatic,
+      loadReleases: async () => { throw new Error('ENOTFOUND api.github.com'); } });
+    const cli = headlessContext(f.service);
+    await cli.run();
+    assert.deepEqual(f.calls, ['runtime']);
+    assert.deepEqual(cli.calls, ['launch', ['exit', 0]]);
+    assert.deepEqual(f.logs, automatic ? ['Update check skipped: ENOTFOUND api.github.com'] : []);
+  }
 });
 
 test('headless app updates leave exit and restart to the installer without launching or prematurely exiting', async () => {

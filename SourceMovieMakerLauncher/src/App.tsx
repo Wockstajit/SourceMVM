@@ -120,6 +120,7 @@ const emptySettings: LauncherSettings = {
   ffmpegPath: '',
   dlss5Enabled: false,
   dlssPromptAnswered: false,
+  autoUpdate: false,
 };
 
 const games = [
@@ -132,7 +133,7 @@ const games = [
 const LETS_ROLL_SOUND = './sounds/mm_success_lets_roll.wav';
 
 type IntroPhase = 'playing' | 'fading' | 'done';
-type AdvancedTab = 'game' | 'runtime' | 'locations' | 'dlss';
+type AdvancedTab = 'game' | 'runtime' | 'locations' | 'dlss' | 'updates';
 
 function playLetsRoll(audio: HTMLAudioElement | null) {
   if (!audio) return;
@@ -261,7 +262,8 @@ export default function App() {
         error: status.message?.toUpperCase() ?? 'UPDATE FAILED / RETRY UPDATES',
       };
       setMessage(messages[status.state] ?? status.message ?? 'CHECKING FOR UPDATES');
-      setMessageTone(status.state === 'error' ? 'error' : status.state === 'ready' ? 'good' : 'normal');
+      // Ready because the update server was unreachable is still ready, but not a green "current".
+      setMessageTone(status.state === 'error' ? 'error' : status.state === 'ready' && !status.skipped ? 'good' : 'normal');
       if (status.state === 'ready') void window.sourceMvm.getPayloadStatus().then(setPayload).catch(() => {});
     };
     const unsubscribe = window.sourceMvm.onUpdateStatus(status => { observed = true; apply(status); });
@@ -1017,7 +1019,9 @@ export default function App() {
             disabled={updateBusy || busy || started}
             title={runtimeMissing
               ? 'Download the SOURCE:MVM runtime (hook + FX pack)'
-              : 'Check for launcher and runtime updates'}
+              : settings.autoUpdate
+                ? 'Check for launcher and runtime updates'
+                : 'Check once for launcher and runtime updates (automatic checks are off)'}
           >
             <PanoramaControlIcon name="refresh.png" />
             <span>{updateState === 'error' ? 'RETRY UPDATES' : runtimeMissing ? 'INSTALL RUNTIME' : 'UPDATES'}</span>
@@ -1062,6 +1066,7 @@ export default function App() {
           <button id="advanced-tab-runtime" type="button" role="tab" aria-selected={advancedTab === 'runtime'} aria-controls="advanced-panel-runtime" className={advancedTab === 'runtime' ? 'is-active' : ''} onClick={() => setAdvancedTab('runtime')}>RUNTIME</button>
           <button id="advanced-tab-locations" type="button" role="tab" aria-selected={advancedTab === 'locations'} aria-controls="advanced-panel-locations" className={advancedTab === 'locations' ? 'is-active' : ''} onClick={() => setAdvancedTab('locations')}>LOCATIONS</button>
           <button id="advanced-tab-dlss" type="button" role="tab" aria-selected={advancedTab === 'dlss'} aria-controls="advanced-panel-dlss" className={advancedTab === 'dlss' ? 'is-active' : ''} onClick={() => setAdvancedTab('dlss')}>DLSS 5</button>
+          <button id="advanced-tab-updates" type="button" role="tab" aria-selected={advancedTab === 'updates'} aria-controls="advanced-panel-updates" className={advancedTab === 'updates' ? 'is-active' : ''} onClick={() => setAdvancedTab('updates')}>UPDATES</button>
         </nav>
 
         <div className="drawer-content">
@@ -1102,6 +1107,31 @@ export default function App() {
               </span>
               <ResolvedHint entry={paths?.hookDll} />
             </label>
+          </div>}
+
+          {/* Updates are opt-in. Off (the default), the launcher contacts nothing on its own and GO
+              works without internet; the footer UPDATES button still checks once when pressed.
+              Turning it on starts the usual check straight away (settings:save in main.cjs). */}
+          {advancedTab === 'updates' && <div id="advanced-panel-updates" className="field-group field-wide setting-panel" role="tabpanel" aria-labelledby="advanced-tab-updates">
+            <h3 className="group-title">Updates</h3>
+            <label className="setting-toggle">
+              <input
+                type="checkbox"
+                checked={settings.autoUpdate}
+                onChange={(event) => patch({ autoUpdate: event.target.checked })}
+              />
+              <span>
+                <strong>Check for updates automatically</strong>
+                <small>On: every start looks for a new launcher and hook, downloads it and restarts. Off: nothing is checked unless you press UPDATES.</small>
+              </span>
+            </label>
+            <div className="setting-status">
+              <span className={`setting-dot ${settings.autoUpdate ? 'is-on' : ''}`} aria-hidden="true" />
+              <span>{settings.autoUpdate ? 'AUTOMATIC · CHECKS ON EVERY START' : 'OFF · PRESS UPDATES TO CHECK ONCE'}</span>
+            </div>
+            <p className="setting-note">
+              CS2 starts without internet either way. Steam still has to be open and signed in.
+            </p>
           </div>}
 
           {/* Everything the launcher owns but has no field for. Without these there is simply no
