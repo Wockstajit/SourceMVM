@@ -26,17 +26,18 @@ function functionBody(source, name) {
   throw new Error(`${name} has no closing brace`);
 }
 
-test("a forward demo seek does not toggle pause in the same command as resume", () => {
+test("a scrub seek neither resumes nor toggles pause", () => {
   const source = read("AfxHookSource2/Filmmaker/Movie/DemoScrub.cpp");
   const at = source.indexOf("case ScrubAction::Seek:");
   assert.notEqual(at, -1);
   const seek = source.slice(at, source.indexOf("break;", at));
-  assert.match(seek, /demo_resume;demo_gototick %d"/);
+  assert.match(seek, /"demo_gototick %d"/);
   assert.doesNotMatch(
     seek,
-    /demo_resume;demo_gototick %d;demo_pause/,
-    "demo_pause toggles; in the same batch as demo_resume it runs while still paused and starts playback",
+    /demo_resume/,
+    "a paused seek lands paused; resuming for it played the world on past every click (2026-10-19)",
   );
+  assert.doesNotMatch(seek, /demo_pause/, "demo_pause toggles: sent while paused it starts playback");
   const frame = functionBody(source, "void DemoScrub_RunFrame");
   assert.match(
     frame,
