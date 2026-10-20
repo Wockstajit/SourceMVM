@@ -489,9 +489,9 @@ R"EDJS(
       g = mk('Panel', r.host); g.hittest = false; g.hittestchildren = true;
       g.style.flowChildren = 'down'; g.style.width = '100%';
       if (r.groupOrder.length) g.style.marginTop = UI.rail.groupGap + 'px';
-      var h = lbl(g, name, S.group, 11); h.hittest = false;
+      var h = lbl(g, name, S.group, UI.rail.groupFont); h.hittest = false;
       h.style.fontWeight = 'bold'; h.style.letterSpacing = '1.8px'; h.style.textTransform = 'uppercase';
-      h.style.paddingLeft = '2px'; h.style.marginBottom = '2px';
+      h.style.paddingLeft = '2px'; h.style.marginBottom = '3px';
       g.__count = 0;
       r.groups[name] = g; r.groupOrder.push(name);
       return g;
@@ -520,11 +520,15 @@ R"EDJS(
       col.style.paddingTop = '5px'; col.style.paddingBottom = '5px';
       // The title and the summary WRAP: the 52px row has room for a two-line summary, and nothing
       // in the rail ends in an ellipsis.
-      var t = lbl(col, title, S.label, 12); t.hittest = false;
+      var t = lbl(col, title, S.label, UI.rail.titleFont); t.hittest = false;
       t.style.fontWeight = 'bold'; t.style.letterSpacing = '0.8px';
+      t.style.textTransform = 'uppercase';   // every rail title, the "Camera N" rows included
       t.style.whiteSpace = 'normal'; t.style.width = '100%';
-      var sum = lbl(col, '', S.muted, 11); sum.hittest = false;
-      sum.style.marginTop = '2px'; sum.style.whiteSpace = 'normal'; sum.style.width = '100%';
+      var sum = lbl(col, '', S.muted, UI.rail.sumFont); sum.hittest = false;
+      sum.style.marginTop = '3px'; sum.style.whiteSpace = 'normal'; sum.style.width = '100%';
+      // An empty summary is COLLAPSED, not blank: a blank label still takes a line, and the title
+      // of a summary-less row then sits at the top of the row instead of its middle.
+      sum.visible = false;
       var badge = mk('Panel', rw); badge.hittest = false; badge.visible = false;
       badge.style.verticalAlign = 'center'; badge.style.marginRight = '8px';
       badge.style.borderRadius = '3px'; badge.style.paddingLeft = '6px'; badge.style.paddingRight = '6px';
@@ -716,7 +720,7 @@ R"EDJS(
           note.SetPanelEvent('onmouseover', function () { if (note.__tipText) showTip(note, note.__tipText); });
           note.SetPanelEvent('onmouseout', function () { hideTip(); });
         }
-        if (itemLive()) item.sum.text = v;
+        if (itemLive()) { item.sum.text = v; item.sum.visible = v.length > 0; }
       };
       // The rail row's badge: kind 'count' (neutral), 'gold' (animated), 'live' (green).
       var badgeSeen = null;

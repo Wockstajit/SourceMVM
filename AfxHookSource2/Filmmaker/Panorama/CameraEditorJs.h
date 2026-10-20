@@ -1174,8 +1174,17 @@ R"EDJS(
       styleTab(followTab, followMode, workspaceAccent);
       styleTab(pathTab, pathMode, workspaceAccent);
       styleTab(sceneTab, sceneMode, workspaceAccent);
-      // A tab change starts the pane at its top.
-      if (inspectorTabSeen !== inspectorMode) { inspectorTabSeen = inspectorMode; edScrollY = 0; }
+      // A tab change starts the pane at its top, and the new tab ARRIVES: the rail, the tab's
+      // selected card and (on Path) the key strip rise over the shared MO_TAB. Once per real
+      // change, never per frame.
+      if (inspectorTabSeen !== inspectorMode) {
+        inspectorTabSeen = inspectorMode; edScrollY = 0;
+        moEnter(edRailHost, UI.mo.rise, MO_TAB);
+        var tr = edRails[inspectorMode];
+        if (tr && tr.sel && tr.items[tr.sel]) moEnter(tr.items[tr.sel].card, UI.mo.rise, MO_TAB);
+        if (pathMode) moEnter(edKeyStrip, UI.mo.rise, MO_TAB);
+        if (followMode) moEnter(edFollowBar, UI.mo.rise, MO_TAB);
+      }
       var bm = st.bottomMode || (st.graphExp ? 'timeline' : 'native');
       curBottomMode = bm;
       var regularActive = (bm !== 'timeline'); // 'native' (Regular Timeline)

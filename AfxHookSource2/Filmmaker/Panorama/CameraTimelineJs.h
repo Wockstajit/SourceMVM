@@ -792,7 +792,20 @@ R"TLJS(
     // Hover hint for our bar buttons. UiToolkitAPI's text tooltip lives in a layer the Camera
     // Editor's inspector (z53+) paints over, so the LOOP hint vanished under it while docked. This
     // one is a top-level root above every HUD layer (z-layer map: PanoramaBridge.h, 270).
+    // The hint waits BAR_TIP_DELAY under a resting pointer before it shows (2026-10), like the
+    // graph editor's tips: a pass over the bar does not flash it. Clearing bumps the token so a
+    // pending hint never lands after the pointer left.
+    var BAR_TIP_DELAY = 2.0, barTipToken = 0;
     function barTip(text, anchor) {
+      var tok = ++barTipToken;
+      if (!text) { placeBarTip(''); return; }
+      $.Schedule(BAR_TIP_DELAY, function () {
+        if (tok !== barTipToken) return;
+        if (anchor && anchor.IsValid && !anchor.IsValid()) return;
+        placeBarTip(text, anchor);
+      });
+    }
+    function placeBarTip(text, anchor) {
       var r = ctx.FindChildTraverse('MvmBarTipRoot');
       if (!r) {
         r = $.CreatePanel('Panel', ctx, 'MvmBarTipRoot', {});

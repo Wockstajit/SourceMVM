@@ -123,8 +123,20 @@ inline const char* kGraphEditorJs = R"GEJS(
     // ONE shared tip panel, repositioned per anchor. Instructions live on the control under the
     // pointer, never burned into the editing area.
     var tipPanel = null, tipLabel = null;
+    // A tip waits TIP_DELAY under a resting pointer before it appears (2026-10): a hand sweeping
+    // across the dock no longer trails a flicker of hints. Each hover bumps the token; the timer
+    // shows the tip only when no mouseout or newer hover has moved it on.
+    var TIP_DELAY = 2.0, tipToken = 0;
     function showTip(anchor, text) {
       if (!text) { hideTip(); return; }
+      var tok = ++tipToken;
+      $.Schedule(TIP_DELAY, function () {
+        if (tok !== tipToken) return;
+        if (anchor && anchor.IsValid && !anchor.IsValid()) return;
+        placeTip(anchor, text);
+      });
+    }
+    function placeTip(anchor, text) {
       if (!G) return;
       if (!tipPanel) {
         tipPanel = mk('Panel', dock); tipPanel.hittest = false; tipPanel.visible = false;
@@ -143,7 +155,10 @@ inline const char* kGraphEditorJs = R"GEJS(
       var ty = ay - h - 4; if (ty < 2) ty = ay + 24;
       tipPanel.style.position = ax.toFixed(0) + 'px ' + ty.toFixed(0) + 'px 0px';
     }
-    function hideTip() { if (tipPanel && (!tipPanel.IsValid || tipPanel.IsValid())) tipPanel.visible = false; }
+    function hideTip() {
+      tipToken++;   // cancels a tip still waiting out its delay
+      if (tipPanel && (!tipPanel.IsValid || tipPanel.IsValid())) tipPanel.visible = false;
+    }
     function attachTip(panel, text) {
       panel.SetPanelEvent('onmouseover', function () { showTip(panel, text); });
       panel.SetPanelEvent('onmouseout', function () { hideTip(); });

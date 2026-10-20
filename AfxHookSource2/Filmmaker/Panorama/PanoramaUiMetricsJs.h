@@ -89,7 +89,11 @@ R"UIMJS(
       // under group headings) and a PANE that shows only the selected card.
       // 180 wide with 52px rows (2026-10 sidebar cleanup): the row's summary may run to two lines
       // and say more, and the pane gets the 20px the rail gave up.
-      rail: { w: 180, padR: 12, gap: 14, rowH: 52, groupGap: 14, rowGap: 4, edge: 3 },
+      rail: { w: 180, padR: 12, gap: 14, rowH: 56, groupGap: 16, rowGap: 4, edge: 3,
+              // Row type: 16px bold uppercase titles, 14px summaries, 13px group headings. The row
+              // is 56px tall and 180px wide; at 13/12 the type filled a third of it and the rest
+              // read as dead space. A long title wraps rather than shrinks.
+              titleFont: 16, sumFont: 14, groupFont: 13 },
       // One-line control rows inside the pane: label column | control | value column.
       line: { h: 32, label: 130, value: 66, gap: 5, padH: 10, colGap: 12,
               // Caption fitting (2026-10 sidebar cleanup): nothing truncates. A control whose captions

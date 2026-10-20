@@ -80,10 +80,10 @@ R"EDJS(
       for (i = 0; i < pathRailRows.length; i++) {
         var it = r.items[pathRailRows[i]]; if (!it) continue;
         var text = count > 0
-          ? ('tick ' + (ticks[i] !== undefined ? Math.round(ticks[i]) : '?') + ' · ' + ((st.interp || 'Linear') === 'Linear' ? 'linear' : 'smooth')
+          ? ('Tick ' + (ticks[i] !== undefined ? Math.round(ticks[i]) : '?') + ' · ' + ((st.interp || 'Linear') === 'Linear' ? 'Linear' : 'Smooth')
              + (i === st.selected && st.sel ? ' · FOV ' + num(st.sel.fov).toFixed(1) : ''))
           : 'Press K to place one';
-        if (it.sum.text !== text) it.sum.text = text;
+        if (it.sum.text !== text) { it.sum.text = text; it.sum.visible = text.length > 0; }
       }
       var want = count > 0 && st.selected >= 0 ? ('key' + st.selected) : pathRailRows[0];
       if (want && want !== r.sel && r.items[want]) edSelectCard('path', want, false);

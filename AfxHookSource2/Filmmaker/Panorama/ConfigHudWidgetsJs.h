@@ -1195,9 +1195,9 @@ R"CFJS(
         var g = mk('Panel', r.host); g.hittest = false; g.hittestchildren = true;
         g.style.flowChildren = 'down'; g.style.width = '100%';
         if (i) g.style.marginTop = UI.rail.groupGap + 'px';
-        var h = lbl(g, defs[i][0], S.group, 11); h.hittest = false;
+        var h = lbl(g, defs[i][0], S.group, UI.rail.groupFont); h.hittest = false;
         h.style.fontWeight = 'bold'; h.style.letterSpacing = '1.8px'; h.style.textTransform = 'uppercase';
-        h.style.paddingLeft = '2px'; h.style.marginBottom = '2px';
+        h.style.paddingLeft = '2px'; h.style.marginBottom = '3px';
         for (var j = 0; j < defs[i][1].length; j++) r.groups[defs[i][1][j]] = g;
       }
       cfgRails[tab] = r;
@@ -1238,11 +1238,15 @@ R"CFJS(
       col.style.paddingTop = '5px'; col.style.paddingBottom = '5px';
       // The title and the summary WRAP (the 52px row has room for a two-line summary); nothing
       // in the rail ends in an ellipsis.
-      var t = lbl(col, title, S.label, 12); t.hittest = false;
+      var t = lbl(col, title, S.label, UI.rail.titleFont); t.hittest = false;
       t.style.fontWeight = 'bold'; t.style.letterSpacing = '0.8px';
+      t.style.textTransform = 'uppercase';   // casing in the style, copy in natural case
       t.style.whiteSpace = 'normal'; t.style.width = '100%';
-      var sum = lbl(col, '', S.muted, 11); sum.hittest = false;
-      sum.style.marginTop = '2px'; sum.style.whiteSpace = 'normal'; sum.style.width = '100%';
+      var sum = lbl(col, '', S.muted, UI.rail.sumFont); sum.hittest = false;
+      sum.style.marginTop = '3px'; sum.style.whiteSpace = 'normal'; sum.style.width = '100%';
+      // An empty summary is COLLAPSED, not blank: a blank label still takes a line, and the title
+      // of a summary-less row then sits at the top of the row instead of its middle.
+      sum.visible = false;
       var swSlot = mk('Panel', rw); swSlot.hittest = false; swSlot.hittestchildren = true;
       swSlot.style.flowChildren = 'right'; swSlot.style.width = 'fit-children';
       swSlot.style.verticalAlign = 'center'; swSlot.style.marginRight = '6px';
@@ -1434,7 +1438,7 @@ R"CFJS(
         note.visible = v.length > 0;
         // Both copies can be cut with an ellipsis, so both keep the full text on hover.
         if (v) attachTip(note, v); else note.__tipText = null;
-        if (item) item.sum.text = v;
+        if (item) { item.sum.text = v; item.sum.visible = v.length > 0; }
       };
       body.__card = s;
       body.__summary = function () { return noteSeen || ''; };

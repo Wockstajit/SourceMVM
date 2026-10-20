@@ -634,9 +634,14 @@ R"CFJS(
         // A new tab starts at its top; carrying the previous tab's offset into a shorter tab
         // would open it already scrolled past its first card.
         cfgScrollY = 0;
-        // No entrance animation on a tab swap: the page lives inside the scrolled
-        // subtree, and transforming it reintroduces the layer that made pinned text
-        // flicker. The tab strip's own underline already reports the change.
+        // A tab swap ARRIVES (2026-10): the rail and the tab's selected card come up 4px over the
+        // shared MO_TAB. These two panels carry their own transitions; the scrolled subtree
+        // itself is left alone, which is what kept pinned text from flickering before.
+        if (!cfgSearchActive) {
+          moEnter(cfgRailHost, UI.mo.rise, MO_TAB);
+          var tr = cfgRails[activeTab];
+          if (tr && tr.sel && tr.items[tr.sel]) moEnter(tr.items[tr.sel].card, UI.mo.rise, MO_TAB);
+        }
       }
     }
 
