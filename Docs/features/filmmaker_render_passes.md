@@ -5,7 +5,7 @@ A render job records one output per **pass**. A pass is an output **type** combi
 | Type | Output |
 | --- | --- |
 | Beauty | the colour image (groups that fill the frame) |
-| Key | the isolated subject in its own colour over the background colour, a green screen (Players only, Gun only) |
+| Key | the isolated subject in its own colour over the background colour, a green screen (Players only, Gun only). The lens flare sits this pass out so the background stays keyable ([Lens](filmmaker_lens.md#lens-flare)) |
 | Depth | linear grayscale camera depth (distance along the view axis): white at *near*, black at *far* (world units, default 8 / 4096) |
 | Normal | view-space surface normal reconstructed from depth, RGB = n·0.5+0.5 (+X right = red, +Y up = green, +Z toward the camera = blue) |
 

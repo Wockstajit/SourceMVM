@@ -767,7 +767,8 @@ void LensFx_EndDevice() {
 }
 
 bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, ID3D11DepthStencilView* depth,
-	const float* worldToClip, float depthMin, float depthMax, const LensSmoke& smoke, const LensSun& sun) {
+	const float* worldToClip, float depthMin, float depthMax, const LensSmoke& smoke, const LensSun& sun,
+	bool keyPass) {
 	Values L;
 	MaskImage irisPending, dirtPending;
 	bool irisChanged = false, dirtChanged = false;
@@ -777,11 +778,21 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		if (g_iris.serial != g.irisUploaded) { irisPending = g_iris; irisChanged = true; }
 		if (g_dirt.serial != g.dirtUploaded) { dirtPending = g_dirt; dirtChanged = true; }
 	}
-	bool dofOn = L[DofOn] > 0.5f, flareOn = L[FlareOn] > 0.5f;
+	bool dofOn = L[DofOn] > 0.5f;
+	const bool flareWanted = L[FlareOn] > 0.5f;
+	// A key (green screen) frame keeps its chroma clean: the flare is additive light over the
+	// whole picture, so it would tint the background and the subject's edges (seen as a green
+	// halo around a scoped rifle, 2026-10-20). It comes back on the next non-key frame.
+	bool flareOn = flareWanted && !keyPass;
+	if (flareWanted && keyPass && MvmDebugLog_Active()) {
+		static unsigned s_held = 0;
+		if ((s_held++ % 120) == 0)
+			MvmDebugLog_LinefAlways("lens.flare", "held back: key (green screen) pass, dof=%d frames=%u", (int)dofOn, s_held);
+	}
 	if (!dofOn && !flareOn) {
 		g.focusValid = false;
 		std::lock_guard<std::mutex> lock(g_mutex);
-		g_status = "Off";
+		g_status = flareWanted ? "Flare held back on the green screen pass" : "Off";
 		return false;
 	}
 	if (!immediate || !target) return false;
