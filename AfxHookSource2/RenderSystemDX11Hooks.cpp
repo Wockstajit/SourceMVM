@@ -11,6 +11,7 @@
 #include "Filmmaker/Render/RenderWorldOnly.h"
 #include "Filmmaker/Environment/EnvironmentRender.h"
 #include "Filmmaker/Lens/LensFx.h"
+#include "Filmmaker/Heatmap/RoundHeatmap.h"
 #include "Filmmaker/World/SunFx.h" // the lens flare's sun (SunFx_VisibleSunDirection)
 #include "Filmmaker/World/CustomShadowAtlas.h"
 #include "DeathMsg.h"
@@ -3415,6 +3416,22 @@ public:
                     Filmmaker::LensFx_Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                         g_EnvironmentFrame.hasWorldToClip ? g_EnvironmentFrame.worldToClip.data() : nullptr,
                         g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke, sun);
+                }
+                // Round heat map: a placement aid painted on the floor after the lens, so it stays
+                // sharp. It sits out recordings (the scene objects tab is where it is switched on).
+                {
+                    const auto& f = g_EnvironmentFrame;
+                    float feet[Filmmaker::Environment::Frame::kMaxActors * 3] = {};
+                    int players = 0;
+                    for (const auto& a : f.actors) {
+                        if (players >= Filmmaker::Environment::Frame::kMaxActors) break;
+                        feet[players * 3] = a.origin.x; feet[players * 3 + 1] = a.origin.y; feet[players * 3 + 2] = a.origin.z;
+                        ++players;
+                    }
+                    const float eye[3] = { f.camera.x, f.camera.y, f.camera.z };
+                    Filmmaker::Heatmap::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
+                        f.hasWorldToClip ? f.worldToClip.data() : nullptr, f.hasWorldToClip ? f.projection.data() : nullptr,
+                        eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, feet, players, AfxStreams_IsRcording());
                 }
                 // Render workspace live Depth / Normal view: last, so it replaces the finished scene.
                 AfxRenderLivePassPreview(pDeviceContext, pRenderTargetViews[0]);

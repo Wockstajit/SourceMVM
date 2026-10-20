@@ -292,6 +292,8 @@
       envAssets: ['barrel', 'crate_stack'],
       envTextures: ['concrete_albedo', 'concrete_normal'],
       envPresets: ['Dusk storm', 'Overcast morning'],
+      // Filmmaker/Heatmap: RoundHeatmap.cpp AppendStateJson. players -1 = the grid is still building.
+      heatmap: { on: false, radius: 1500, teams: 'all', state: 'off', round: 4, rounds: 18, players: 10, error: '' },
       // Filmmaker/Props: Props_AppendStateJson. total -1 = catalog not loaded until the first search.
       props: { revision: 0, map: 'de_dust2', message: '', selected: 0, placed: [
         { id: 1, model: 'models/props/de_dust/hr_dust/dust_cart/dust_cart.vmdl', name: 'dust cart', folder: 'props/de_dust/hr_dust/dust_cart', pos: [0, 0, 0], ang: [0, 0, 0], scale: 1, visible: true, live: true, group: 'Market stalls', render: true, locked: false },

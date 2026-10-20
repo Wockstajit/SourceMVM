@@ -10,6 +10,7 @@
 #include "../Config/FilmmakerSettingsStore.h" // the Cache toggle; PictureRevision
 #include "../Debug/MvmDebugLog.h"
 #include "../Environment/EnvironmentScene.h"  // SceneGeneration: lights, sky, map lighting
+#include "../Heatmap/RoundHeatmap.h"           // the round heat map painted on the floor
 #include "../Props/SceneUndoClock.h"       // every scene object edit
 #include "../../ViewportScaler.h"          // the frames themselves (render thread)
 
@@ -83,6 +84,7 @@ uint64_t PictureRevision() {
 	h = Mix(h, CameraPathRef().PathRevision());
 	// The per-key shake is a view-stage layer the pose check cannot see (it compares the path).
 	h = Mix(h, CamPathShake_Revision());
+	h = Mix(h, Heatmap::PictureRevision());
 	return h ? h : 1;
 }
 

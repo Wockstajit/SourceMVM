@@ -47,4 +47,12 @@ DemoHelperResult ReadDemoInfoViaHelper(const std::wstring& demoPath,
 	const std::vector<uint32_t>& wantedAccountIds = {},
 	const std::atomic<bool>* cancel = nullptr);
 
+// The helper's -paths output for demoPath (FilmmakerDemoInfoGo/paths.go, read by
+// Heatmap/RoundHeatmapMath.h): every player's path through every round. Cached as roundpaths.fmbin in
+// the demo's project folder and reused while it is newer than the demo and the helper. The bytes are
+// the paths file, or the helper's {"ok":false} JSON when it could not parse the demo (cached too, so
+// an unreadable demo is not parsed again). Empty, with error set, when the helper did not run.
+std::string ReadRoundPathsViaHelper(const std::wstring& demoPath, std::string& error,
+	const std::atomic<bool>* cancel = nullptr);
+
 } // namespace Filmmaker

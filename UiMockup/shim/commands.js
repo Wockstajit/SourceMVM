@@ -454,6 +454,16 @@
     if (t[0] === "mirv_filmmaker" && a === "environment") { var envOk = environment(st, cmd); syncRig(st); return envOk; }
     if (t[0] === 'mirv_filmmaker' && a === 'scenekeys') { var skOk = global.MvmSceneKeys.run(st, t.slice(2)); syncRig(st); return skOk; }
     if (t[0] === 'mirv_filmmaker' && a === 'rig') return rig(st, t.slice(2));
+    // Round heat map (Filmmaker/Heatmap/RoundHeatmap.cpp). The mock demo is always read and on round 4.
+    if (t[0] === 'mirv_filmmaker' && a === 'heatmap') {
+      var hm = st.heatmap = st.heatmap || { radius: 1500, teams: 'all', round: 4, rounds: 18, players: 10, error: '' };
+      if (b === 'on' || b === 'off' || b === 'toggle') hm.on = b === 'toggle' ? !hm.on : b === 'on';
+      else if (b === 'radius') hm.radius = Math.max(256, Math.min(4096, num(c, 1500)));
+      else if (b === 'teams' && (c === 'all' || c === 't' || c === 'ct')) hm.teams = c;
+      else if (b !== 'status' && b !== undefined) return false;
+      hm.state = hm.on ? 'ready' : 'off';
+      return true;
+    }
 
     // ---- persisted UI keys (tabs, collapsible cards) ----------------------
     if (a === 'settings' && b === 'ui') {

@@ -125,13 +125,15 @@ install(FILES ../Automation/lib/Resolve-Cs2Dir.ps1 ../Automation/lib/AutomationC
 find_program(GO_EXECUTABLE go)
 if(GO_EXECUTABLE)
 	set(FILMMAKER_DEMOINFO_EXE "${CMAKE_CURRENT_BINARY_DIR}/FilmmakerDemoInfo/FilmmakerDemoInfo.exe")
+	# Every file of the package (main.go, paths.go for the round heat map), not the sub-tools.
+	file(GLOB FILMMAKER_DEMOINFO_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../FilmmakerDemoInfoGo/*.go")
 	add_custom_command(
 		OUTPUT "${FILMMAKER_DEMOINFO_EXE}"
 		COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/FilmmakerDemoInfo"
 		COMMAND "${GO_EXECUTABLE}" build -o "${FILMMAKER_DEMOINFO_EXE}" .
 		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../FilmmakerDemoInfoGo"
 		DEPENDS
-			"${CMAKE_CURRENT_SOURCE_DIR}/../FilmmakerDemoInfoGo/main.go"
+			${FILMMAKER_DEMOINFO_SOURCES}
 			"${CMAKE_CURRENT_SOURCE_DIR}/../FilmmakerDemoInfoGo/go.mod"
 		COMMENT "Building FilmmakerDemoInfo helper"
 		VERBATIM)
@@ -795,6 +797,10 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/WeaponRecoilStyles.h
     Filmmaker/Lens/LensFx.cpp
     Filmmaker/Lens/LensFx.h
+    Filmmaker/Heatmap/RoundHeatmap.cpp
+    Filmmaker/Heatmap/RoundHeatmap.h
+    Filmmaker/Heatmap/RoundHeatmapMath.h
+    Filmmaker/Heatmap/RoundHeatmapRender.cpp
     Filmmaker/Lens/LensFxMath.h
     Filmmaker/Lens/LensFxShaders.h
     Filmmaker/Movie/RecoilPivotMarker.cpp

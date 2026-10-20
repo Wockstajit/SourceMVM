@@ -4,6 +4,7 @@
 // with no runtime dependency.
 //
 // Usage:  FilmmakerDemoInfo <path-to-demo.dem> [accountId,accountId,...]
+// With -paths in place of the account ids it writes the round heat map paths instead (paths.go).
 // Output: a single JSON object on stdout. On failure it still prints
 //
 //	{"ok":false,"error":"..."} and returns non-zero so the C++ caller can
@@ -137,6 +138,10 @@ func main() {
 		os.Exit(2)
 	}
 	path := os.Args[1]
+	if len(os.Args) >= 3 && os.Args[2] == "-paths" {
+		runPaths(path) // paths.go: the round heat map's player paths
+		return
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		fail("file not found")

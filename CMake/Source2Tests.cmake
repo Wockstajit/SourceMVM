@@ -269,6 +269,9 @@ add_executable(PropEditMathTests
 )
 target_compile_features(PropEditMathTests PRIVATE cxx_std_17)
 add_test(NAME PropEditMathTests COMMAND PropEditMathTests)
+add_executable(RoundHeatmapMathTests ../Automation/tests/round-heatmap-math-tests.cpp)
+target_compile_features(RoundHeatmapMathTests PRIVATE cxx_std_17)
+add_test(NAME RoundHeatmapMathTests COMMAND RoundHeatmapMathTests)
 add_executable(CamPathTimingMathTests
     ../Automation/tests/campath-timing-math-tests.cpp
 )

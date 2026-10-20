@@ -92,6 +92,7 @@
 #include "Cosmetics/CosmeticUiQueries.h"
 #include "Config/FilmmakerSettingsStore.h"
 #include "Config/EffectsPersistence.h" // EFFECTS state carry-over across a demo change
+#include "Heatmap/RoundHeatmap.h"
 #include "Platform/FolderPicker.h"
 #include "Platform/DemoFilePicker.h"
 #include "Platform/TextEncoding.h"
@@ -1156,6 +1157,8 @@ void RunMainThreadFrame() {
 	{ PanoramaPerf_Scope _p("scenerig"); SceneRig_RunMainThreadFrame(); }
 	{ PanoramaPerf_Scope _p("environment"); Environment::RunMainThreadFrame(); }
 	{ PanoramaPerf_Scope _p("props"); Props_RunMainThreadFrame(); }
+	// Round heat map: follows the demo to its round and the camera to its area (inert while off).
+	{ PanoramaPerf_Scope _p("heatmap"); Heatmap::RunMainThreadFrame(); }
 	// Debounced persistence for reusable Config / Camera Editor preferences. Shot-specific
 	// camera, path and Follow/Attach state stays in its owning subsystem.
 	FilmmakerSettings_RunFrame();
@@ -1176,6 +1179,7 @@ void Shutdown() {
 	Environment::FlushCommittedEdits();
 	FilmmakerSettings_Flush();
 	FollowCameraRef().Shutdown(); // cancel + join the background loadout-event loader
+	Heatmap::Shutdown(); // cancel + join the round paths scan and the grid build
 	g_library.Shutdown();
 }
 

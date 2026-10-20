@@ -24,6 +24,7 @@ enum class ProjectGenerated {
 	MatchInfo,
 	Keyframed, // the playable copy with dense full packets for fast backward seeks (DemoKeyframes.h)
 	KeyframedB, // its second slot: a rebuild while the engine holds the first one open writes here
+	RoundPaths, // every player's path per round, for the round heat map (Heatmap/RoundHeatmapMath.h)
 };
 
 struct ProjectIndexEntry {
@@ -204,6 +205,7 @@ inline const wchar_t* ProjectGeneratedFileName(ProjectGenerated kind) {
 	case ProjectGenerated::MatchInfo: return L"demo.info";
 	case ProjectGenerated::Keyframed: return L"keyframed.dem";
 	case ProjectGenerated::KeyframedB: return L"keyframed-b.dem";
+	case ProjectGenerated::RoundPaths: return L"roundpaths.fmbin";
 	}
 	return L"generated.bin";
 }

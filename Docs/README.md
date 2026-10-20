@@ -28,6 +28,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | Panorama architecture | [`panorama_ui_guide.md`](panorama/panorama_ui_guide.md), [`panorama_viewmodel_preview.md`](panorama/panorama_viewmodel_preview.md), [`panorama-player-preview-summary.md`](panorama/panorama-player-preview-summary.md) |
 | Particle FX | [`filmmaker_effects_modifiers.md`](features/filmmaker_effects_modifiers.md), [`../FX/README.md`](../FX/README.md) |
 | Environment, volumetrics, surface tests and props | [`environment-scene-editor.md`](features/environment-scene-editor.md) |
+| Round heat map (where the round's players walked, on the floor) | [`round-heatmap.md`](features/round-heatmap.md) |
 | Scene object rigs: attachments, pose keys and camera objects | [`scene-object-rigs.md`](features/scene-object-rigs.md) |
 | Runtime map lighting, smoke, VFX and shadows | [`whole-map-relighting.md`](effects/whole-map-relighting.md) |
 | GPU cost of the hook's own render passes (`mirv_filmmaker gpuprofile`) | [`gpu-pass-profile.md`](effects/gpu-pass-profile.md) |
