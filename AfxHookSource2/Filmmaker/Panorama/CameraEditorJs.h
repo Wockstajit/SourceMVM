@@ -620,6 +620,43 @@ R"EDJS(
     edRailHost.style.paddingRight = UI.rail.padR + 'px';
     edRailHost.style.borderRight = '1px solid #ffffff12';
     edRailHost.style.overflow = 'clip';
+    // The rail SCROLLS ON ITS OWN when its rows outgrow the column: the Path rail carries one row
+    // per camera plus the add button, and a long path put the later cameras under the clip with
+    // no way to reach them. A wheel notch while the pointer is over the rail moves the active
+    // tab's rows (edRailWheel, from api.wheel); over the pane it scrolls the pane as before. The
+    // pointer is known from the host's own hover (it bubbles up from the rows) or any hot row.
+    var edRailHot = false, edRailScrollY = 0, edRailAppliedY = -1;
+    edRailHost.hittest = true;
+    edRailHost.SetPanelEvent('onmouseover', function () { edRailHot = true; });
+    edRailHost.SetPanelEvent('onmouseout', function () { edRailHot = false; });
+    function edRailPointerOver() {
+      if (edRailHot) return true;
+      var r = edRails[edActiveTab];
+      if (!r) return false;
+      for (var k in r.items) { var it = r.items[k]; if (it.row && it.row.__hot) return true; }
+      return false;
+    }
+    function edRailApplyScroll() {
+      var r = edRails[edActiveTab];
+      if (!r || !r.host) return;
+      var sy = inspector.actualuiscale_y || 1;
+      var viewH = (edRailHost.actuallayoutheight || 0) / sy, contH = (r.host.actuallayoutheight || 0) / sy;
+      var maxY = contH > viewH ? (contH - viewH + 8) : 0;
+      if (edRailScrollY > maxY) edRailScrollY = maxY;
+      if (edRailScrollY < 0) edRailScrollY = 0;
+      var px = Math.round(edRailScrollY);
+      if (px !== edRailAppliedY) { edRailAppliedY = px; r.host.style.marginTop = (-px) + 'px'; }
+    }
+    // Takes the notch when the pointer is over a rail that overflows; false hands it to the pane.
+    function edRailWheel(n) {
+      var r = edRails[edActiveTab];
+      if (!r || !r.host || !edRailPointerOver()) return false;
+      var sy = inspector.actualuiscale_y || 1;
+      if (((r.host.actuallayoutheight || 0) / sy) <= ((edRailHost.actuallayoutheight || 0) / sy)) return false;
+      edRailScrollY -= n * 90;
+      edRailApplyScroll();
+      return true;
+    }
     scrollView = mk('Panel', edBodyRow);
     scrollView.style.width = 'fill-parent-flow(1.0)';
     scrollView.style.height = '100%';
@@ -1180,6 +1217,7 @@ R"EDJS(
       // change, never per frame.
       if (inspectorTabSeen !== inspectorMode) {
         inspectorTabSeen = inspectorMode; edScrollY = 0;
+        edRailScrollY = 0; edRailAppliedY = -1;   // each tab's rail starts at its top
         moEnter(edRailHost, UI.mo.rise, MO_TAB);
         var tr = edRails[inspectorMode];
         if (tr && tr.sel && tr.items[tr.sel]) moEnter(tr.items[tr.sel].card, UI.mo.rise, MO_TAB);
@@ -1259,6 +1297,7 @@ R"EDJS(
       topFade.visible = footerBg.visible && edScrollY > 1;
       topFade.style.marginTop = edScrollTop() + 'px';
       edApplyScroll();   // re-clamps + re-places the thumb as the column's content changes height
+      edRailApplyScroll();   // same for the rail: fewer cameras means less travel
       if (!finitePositive(rw) || !finitePositive(rh)) {
         hidePreviewLayout();
       } else {
@@ -1442,6 +1481,9 @@ R"EDJS(
       // and that stack is what the wheel has to move when the pointer is over it. It answers false
       // everywhere else, so the column keeps the wheel in every other case.
       try { if ($.GraphExp && $.GraphExp.wheel && $.GraphExp.wheel(n)) return; } catch (e) {}
+      // The rail takes the notch while the pointer is over it and its rows overflow the column.
+      if (edRailWheel(n)) return;
+      // (api.railWheel below scrolls the rail without the pointer test, for automation.)
       // A notch over a value tile was proposed to edit that tile (2% of its range, 0.4% with Shift)
       // rather than scroll -- the original design, superseded by Docs/panorama/panorama_ui_guide.md's
       // scroll-only wheel contract shared with the Config panel.
@@ -1449,6 +1491,14 @@ R"EDJS(
       edApplyScroll();
     };
     // ---- automation hooks ----------------------------------------------------------------
+    // Scroll the active rail by notches without the pointer-over test (netcon cannot hover).
+    api.railWheel = function (notches) {
+      var n = parseInt(notches, 10);
+      if (!isFinite(n) || n === 0) return edRailScrollY;
+      edRailScrollY -= n * 90;
+      edRailApplyScroll();
+      return edRailScrollY;
+    };
     // Same reason as the Config panel's: synthetic mouse input does not reach CS2, and
     // st.uiEditorInspector is only read once during hydration, so the stored setting alone moves
     // nothing on screen.

@@ -1164,23 +1164,29 @@ R"CFJS(
     // light edge so it reads on any fill, over a chip or a colour bar that is a custom colour.
     // Two rotated panels, not a gradient: a transform is antialiased, a gradient hairline is not.
     // `w` x `h` is the box the line crosses; the panels are centred and clipped by the box.
+    // Returns { line, edge, fit(w, h) }: fit() re-lays the mark for a box that changed size, so a
+    // colour bar that follows the inspector width keeps its corner-to-corner line.
     function cfgCustomMark(box, w, h) {
       box.style.overflow = 'clip';
-      var len = Math.ceil(Math.sqrt(w * w + h * h)) + 6;
-      var deg = -(Math.atan2(h, w) * 180 / Math.PI).toFixed(2);
       // ONE rotated panel (the light edge) with the dark line as its centred child: two siblings
       // would flow side by side in the box and the second would land outside it.
       var edge = mk('Panel', box); edge.hittest = false;
-      edge.style.width = len + 'px'; edge.style.height = '4px'; edge.style.borderRadius = '2px';
+      edge.style.height = '4px'; edge.style.borderRadius = '2px';
       edge.style.backgroundColor = '#ffffff99';
       edge.style.horizontalAlign = 'center'; edge.style.verticalAlign = 'center';
       edge.style.transformOrigin = '50% 50%';
-      edge.style.transform = 'rotateZ(' + deg + 'deg)';
       var line = mk('Panel', edge); line.hittest = false;
       line.style.width = '100%'; line.style.height = '2px'; line.style.borderRadius = '1px';
       line.style.backgroundColor = '#0c0e12ff';
       line.style.verticalAlign = 'center';
-      return line;
+      function fit(bw, bh) {
+        var len = Math.ceil(Math.sqrt(bw * bw + bh * bh)) + 6;
+        var deg = -(Math.atan2(bh, bw) * 180 / Math.PI).toFixed(2);
+        edge.style.width = len + 'px';
+        edge.style.transform = 'rotateZ(' + deg + 'deg)';
+      }
+      fit(w, h);
+      return { line: line, edge: edge, fit: fit };
     }
 
     // ---- the rail ----------------------------------------------------------------------

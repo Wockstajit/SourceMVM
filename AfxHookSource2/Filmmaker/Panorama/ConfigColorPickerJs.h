@@ -256,7 +256,10 @@ R"CLRJS(
       field.style.borderRadius = '3px'; field.style.backgroundColor = '#0c0e12ff';
       trans(field, 'border-color', 0.08);
       var strip = field;
-      cfgCustomMark(field, cfgCtlW() - UI.line.value - UI.line.colGap, 20);
+      // The bar is as wide as the control column, so the mark follows the inspector width.
+      function markW() { return cfgCtlW() - UI.line.value - UI.line.colGap; }
+      var mark = cfgCustomMark(field, markW(), 20);
+      if (typeof cfgRelayoutHooks !== 'undefined') cfgRelayoutHooks.push(function () { mark.fit(markW(), 20); });
       var hex = lbl(line, '#FFFFFF', S.value, 11); hex.hittest = false;
       hex.style.fontWeight = 'bold'; hex.style.fontFamily = S.fontMonodigit;
       hex.style.width = UI.line.value + 'px'; hex.style.textAlign = 'right';

@@ -2,7 +2,9 @@
 
 The **NERVOUS SYSTEM** card sits beside **DEATH ANIMATIONS** on the CONFIG panel's RAGDOLLS tab,
 with its own switch in its header and on its rail row. It still needs Death Animations on; while
-they are off its rail summary says "Off · needs Death animations". A shot
+they are off its rail summary says "Off · needs Death animations". The switch always shows the
+backend's own state: switched on while Death Animations are off, it reads "Armed · needs Death
+animations" and the card says reactions start as soon as Death Animations are switched on. A shot
 player keeps reacting for a few seconds before the body goes still: a hand goes to the wound, the
 chest heaves, and the limbs writhe and twitch. A headshot does none of this. The body goes limp at
 once.

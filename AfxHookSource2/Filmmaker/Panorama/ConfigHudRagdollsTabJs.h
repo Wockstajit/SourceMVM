@@ -167,7 +167,10 @@ R"CFJS(
     nsInfo.style.marginTop = '8px';
 
     renderHooks.push(function (st) {
-      nsTog.set(!!st.nsOn && !!st.daOn);
+      // The switch shows the backend's own state. With Death animations off it is ARMED, not
+      // active, and the note and rail summary say so; hiding it as "off" let a click arm it
+      // silently, and switching Death animations on later started reactions nobody asked for.
+      nsTog.set(!!st.nsOn);
       nsStrength.sync(st.nsStrength);
       nsDuration.sync(st.nsDuration);
       nsBlendIn.sync(st.nsBlendIn);
@@ -177,7 +180,9 @@ R"CFJS(
       nsWrithe.set(!!st.nsWrithe);
       nsTwitch.set(!!st.nsTwitch);
       nsRollOver.set(!!st.nsRollOver);
-      nsInfo.text = !st.daOn ? 'Death animations are off, so the nervous system is inactive. Switch them on first.'
+      nsInfo.text = !st.daOn ? (st.nsOn
+          ? 'Armed: reactions start as soon as Death animations are switched on.'
+          : 'Death animations are off, so the nervous system is inactive. Switch them on first.')
         : !st.nsOn ? 'Nervous system off. Bodies go limp when they die.'
         : 'Where the shot landed decides the reaction. Headshots go limp at once.'
           + (st.nsActive > 0 ? ' Reacting: ' + st.nsActive + '.' : '');
@@ -190,7 +195,7 @@ R"CFJS(
       if (st.nsReach) reactions.push('reach'); if (st.nsBreath) reactions.push('breathing');
       if (st.nsWrithe) reactions.push('writhing'); if (st.nsTwitch) reactions.push('twitches');
       if (st.nsRollOver) reactions.push('roll over');
-      nsSec.__note(!st.daOn ? 'Off · needs Death animations' : (!st.nsOn ? 'Off'
+      nsSec.__note(!st.daOn ? (st.nsOn ? 'Armed · needs Death animations' : 'Off · needs Death animations') : (!st.nsOn ? 'Off'
         : (reactions.length ? reactions.join(' · ') : 'On · no reactions picked')));
     });
 
