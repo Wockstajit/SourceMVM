@@ -363,7 +363,8 @@ a reviewed `main` commit, noreply author and committer, no co-author or tool tra
 `v<version>` tag. The history of the earlier private repository is not part of this one. Never fetch or
 push it here, never push `--all`, `--mirror` or `--tags`, and never force-push. The launcher version, the
 tag and the installer name are the same number, and the new release must carry `latest.yml` or installed
-launchers stop at an error.
+launchers that check for updates stop at an error. Automatic updates are off by default; the launcher
+checks only when the user switches them on or presses UPDATES, and GO works without internet.
 
 ## Completion and reporting
 

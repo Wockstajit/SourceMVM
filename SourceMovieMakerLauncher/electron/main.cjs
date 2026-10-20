@@ -86,6 +86,10 @@ function defaultSettings() {
     // The first-launch "install DLSS 5?" question has been answered (yes or no), so it is not
     // asked again. A self-contained build asks it; the downloadable one has nothing to install.
     dlssPromptAnswered: false,
+    // Check the update server on every start (launcher update, runtime hotfix, payload). Off by
+    // default: the launcher contacts nothing on its own, and GO works without internet. The
+    // UPDATES button still checks once when pressed.
+    autoUpdate: false,
   };
 }
 
@@ -549,6 +553,8 @@ function configureUpdater() {
     packaged: app.isPackaged,
     portable: isPortable,
     report: sendUpdateStatus,
+    automaticUpdates: () => Boolean(settings && settings.autoUpdate),
+    log: message => console.warn(message),
     canInstall: () => installBlocker({
       launching: launchInProgress,
       launchedPid: isProcessRunning(launchedCs2ProcessId) ? launchedCs2ProcessId : 0,
@@ -562,7 +568,9 @@ function configureUpdater() {
       if (!response.ok) throw new Error(`Update server responded ${response.status}.`);
       return response.json();
     },
-    prepareRuntime: async () => {
+    // online is false when automatic updates are off or the update server could not be reached:
+    // then only local work happens (the bundle the installer carries, the FFmpeg link).
+    prepareRuntime: async ({ online }) => {
       // A save epoch older than this release: delete SOURCE:MVM's saved state once (save-reset.cjs).
       // Runs under the same CS2-closed guard as the runtime install.
       const saves = await resetSavesIfNeeded(path.join(app.getPath('appData'), 'HLAE'));
@@ -571,15 +579,23 @@ function configureUpdater() {
         await runtimePayload.installBundled(sendPayloadStatus);
         // Hook-only fixes ship as a runtime hotfix on this version's release, not a new installer.
         // Never fatal: without it the installed runtime still works.
-        try {
-          await runtimePayload.applyRuntimeHotfix(sendPayloadStatus);
-        } catch (error) {
-          console.warn('runtime hotfix check failed:', error);
-          sendPayloadStatus({ state: 'hotfix-failed', message: `Runtime hotfix not installed: ${error.message}` });
+        if (online) {
+          try {
+            await runtimePayload.applyRuntimeHotfix(sendPayloadStatus);
+          } catch (error) {
+            console.warn('runtime hotfix check failed:', error);
+            sendPayloadStatus({ state: 'hotfix-failed', message: `Runtime hotfix not installed: ${error.message}` });
+          }
         }
-      } else {
-        const check = await runtimePayload.checkForPayload();
-        if (check.state === 'outdated') await runtimePayload.installPayload(sendPayloadStatus);
+      } else if (online) {
+        // A thin installer downloads its runtime. Offline with one already installed, that one
+        // is used; with none, the check below names the button that downloads it.
+        try {
+          const check = await runtimePayload.checkForPayload();
+          if (check.state === 'outdated') await runtimePayload.installPayload(sendPayloadStatus);
+        } catch (error) {
+          console.warn('runtime payload check failed:', error);
+        }
       }
       await linkFfmpegToRuntime();
       const hook = settings.hookDllPath
@@ -587,7 +603,7 @@ function configureUpdater() {
       const injector = settings.injectorPath
         || runtimeCandidate(path.join('x64', 'injector.exe'), settings.runtimeRoot);
       if (!fs.existsSync(hook) || !fs.existsSync(injector)) {
-        throw new Error('No runtime is installed or published yet. Install the complete setup exe when it is available.');
+        throw new Error('No runtime is installed yet. Press INSTALL RUNTIME to download it (internet needed), or install the complete setup exe.');
       }
     },
   });
@@ -739,7 +755,13 @@ function registerIpc() {
   // Fixed URL: the renderer never supplies one.
   ipcMain.handle('link:hctracker', () => shell.openExternal('https://www.hctracker.com/'));
   ipcMain.handle('settings:get', () => settings);
-  ipcMain.handle('settings:save', (_event, next) => saveSettings(next));
+  ipcMain.handle('settings:save', (_event, next) => {
+    const wasAutomatic = Boolean(settings && settings.autoUpdate);
+    const saved = saveSettings(next);
+    // Turning automatic updates on runs the usual startup check right away.
+    if (saved.autoUpdate && !wasAutomatic) void updateService.check();
+    return saved;
+  });
   ipcMain.handle('cs2:detect', () => detectCs2Exe());
   ipcMain.handle('cs2:running', () => startupWatchPending || isProcessRunning(launchedCs2ProcessId));
   ipcMain.handle('cs2:workshop-tools', (_event, cs2Exe) => (
@@ -822,9 +844,11 @@ function registerIpc() {
     } finally { launchInProgress = false; }
   });
   ipcMain.handle('update:status', () => updateService.getStatus());
-  ipcMain.handle('update:check', () => updateService.check());
-  ipcMain.handle('update:download', () => updateService.check());
-  ipcMain.handle('update:install', () => updateService.check());
+  // The UPDATES button: one check now, whatever the automatic-updates setting says.
+  ipcMain.handle('update:check', () => updateService.check({ manual: true }));
+  // The user said yes to a pending update: download it, install it and restart.
+  ipcMain.handle('update:download', () => updateService.install());
+  ipcMain.handle('update:install', () => updateService.install());
 
   // FFmpeg. Its own lifecycle: the render pipeline cannot encode without it, but it is a
   // third-party binary the user may already have, so it is detected before it is ever downloaded.
@@ -895,8 +919,10 @@ function registerIpc() {
 async function runHeadless(argv) {
   const { current, commandLine, envValues } = cliSettings(argv);
   try {
+    // A check only reports a pending update; nobody is there to say yes, so automation launches
+    // the installed app. The installer owns exit/restart. Do not exit this process before its
+    // quit callback runs.
     const update = await updateService.check();
-    // The installer owns exit/restart. Do not exit this process before its quit callback runs.
     if (update.state === 'installing') return;
     updateService.assertCanLaunch();
     await launchWithSettings(current, commandLine, envValues);
@@ -921,7 +947,8 @@ app.whenReady().then(async () => {
     return;
   }
   createWindow();
-  // Startup checks and installs are owned by the main process, including complete builds.
+  // Startup checks and installs are owned by the main process, including complete builds. With
+  // automatic updates off (the default) this touches no network and only readies the runtime.
   void updateService.check();
   // The install/launch counter is gone; its state file is left over from older launchers.
   fs.rm(path.join(app.getPath('userData'), 'usage-ping.json'), { force: true }, () => {});

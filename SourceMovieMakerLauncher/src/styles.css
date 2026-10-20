@@ -1906,8 +1906,10 @@ input:focus-visible {
   background: transparent;
 }
 
-/* ---- DLSS 5 tab ---------------------------------------------------------------------------- */
-.dlss-panel {
+/* ---- DLSS 5 and Updates tabs ------------------------------------------------------------- */
+/* .setting-* is the same look for any tab that is one toggle, a status line and a note. */
+.dlss-panel,
+.setting-panel {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1917,7 +1919,8 @@ input:focus-visible {
   margin: 0;
 }
 
-.dlss-toggle {
+.dlss-toggle,
+.setting-toggle {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -1933,29 +1936,34 @@ input:focus-visible {
   cursor: not-allowed;
 }
 
-.dlss-toggle input {
+.dlss-toggle input,
+.setting-toggle input {
   margin: 1px 0 0;
   accent-color: var(--gold);
 }
 
-.dlss-toggle span {
+.dlss-toggle span,
+.setting-toggle span {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 
-.dlss-toggle strong {
+.dlss-toggle strong,
+.setting-toggle strong {
   color: var(--text);
   font-size: 10px;
   letter-spacing: 0.08em;
 }
 
-.dlss-toggle small {
+.dlss-toggle small,
+.setting-toggle small {
   color: var(--hint);
   font-size: 9px;
 }
 
-.dlss-status {
+.dlss-status,
+.setting-status {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1965,14 +1973,16 @@ input:focus-visible {
   letter-spacing: 0.12em;
 }
 
-.dlss-dot {
+.dlss-dot,
+.setting-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--dim);
 }
 
-.dlss-dot.is-on {
+.dlss-dot.is-on,
+.setting-dot.is-on {
   background: var(--success);
   box-shadow: 0 0 6px var(--success);
 }
@@ -2007,7 +2017,8 @@ input:focus-visible {
   letter-spacing: 0.04em;
 }
 
-.dlss-note {
+.dlss-note,
+.setting-note {
   margin: 0;
   color: var(--hint);
   font-size: 9px;

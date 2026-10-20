@@ -16,6 +16,8 @@ interface LauncherSettings {
   dlss5Enabled: boolean;
   /** The first-launch "install DLSS 5?" question was answered, yes or no. */
   dlssPromptAnswered: boolean;
+  /** Check the update server on every start. Off by default; the UPDATES button still checks once. */
+  autoUpdate: boolean;
 }
 
 /** The GPU and the DLSS runtime it gets (RTX 50 -> NVIDIA original, RTX 20/30/40 -> compatible). */
@@ -58,6 +60,10 @@ interface UpdateStatus {
   version?: string;
   percent?: number;
   message?: string;
+  /** Ready without a check: the update server could not be reached, so the installed runtime is used. */
+  skipped?: boolean;
+  /** A newer launcher the last check found. Nothing is downloaded until the user says yes. */
+  update?: { version: string; installable: boolean };
 }
 
 /** One downloadable piece of the game-side runtime. */
@@ -178,7 +184,8 @@ interface Window {
     getIntroVideoUrl: () => Promise<string>;
     getUpdateStatus: () => Promise<UpdateStatus>;
     checkForUpdates: () => Promise<UpdateStatus>;
-    downloadUpdate: () => Promise<unknown>;
+    /** Download and install the pending update, then restart. */
+    downloadUpdate: () => Promise<UpdateStatus>;
     installUpdate: () => Promise<UpdateStatus>;
     onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void;
     detectFfmpeg: () => Promise<FfmpegStatus>;

@@ -254,21 +254,42 @@ The first public complete release is version 0.1.7. Checksums accompany the inst
 The owner submits the build to VirusTotal. A report appears only when its hash matches the
 published installer. A pending scan is never shown as completed.
 
-Every packaged startup checks the public channel in the main process. An available launcher
-update downloads automatically through `electron-updater`, then installs and restarts. **GO
-stays disabled until the restarted app is current and its runtime is ready.** The `cs2:launch`
-IPC handler enforces the same gate. A failed check, download or install keeps GO blocked and shows
-**RETRY UPDATES**. Installation waits for CS2 to close. It never force-closes the game.
+Automatic updates are opt-in. The switch is **ADVANCED > UPDATES > Check for updates
+automatically**, saved in `launcher.json` as `autoUpdate`. A fresh install, and an install whose
+settings predate the switch, start with it off. Off, the launcher contacts nothing on its own:
+startup only readies what is installed (the bundle a complete installer carries, the FFmpeg link)
+and reports **UPDATES OFF**. The footer **UPDATES** button still checks once when pressed, which
+is also how a thin installer downloads its runtime. Turning the switch on starts the usual check
+right away (`settings:save` in `electron/main.cjs`).
+
+With the switch on, every packaged startup checks the public channel in the main process. An
+update is never forced. When a check finds a newer launcher, the runtime readies as usual, GO
+stays usable, and the window asks "Hey, new update. Do you want to update?" **UPDATE** downloads it
+through `electron-updater`, installs and restarts; **NOT NOW** keeps the current version, and the
+footer button reads **DOWNLOAD UPDATE** until the user wants it (the Updates tab shows the pending
+version too). **Once a download starts, GO stays disabled until the restarted app is current and
+its runtime is ready.** The `cs2:launch` IPC handler enforces the same gate. A download or install
+that fails leaves nothing changed on disk, so the current version stays launchable and the status
+line says to press UPDATES to try again. Installation waits for CS2 to close. It never
+force-closes the game. Headless launches (`--headless`) only report a pending update; nobody is
+there to say yes, so they launch the installed app.
+
+GO works without internet. When the release list cannot be fetched (no connection, the update
+server down), the launcher logs that once, skips the hotfix and payload checks too, reports
+**OFFLINE / UPDATE CHECK SKIPPED** and launches the installed runtime. Steam still has to be open
+and signed in; the launcher does not work around that. A release list that does arrive but is
+malformed (a published release with no `latest.yml`) is still an error, so a broken publish is
+noticed by every launcher that checks.
 
 Complete installers carry the same GitHub update configuration as the ordinary installer.
 They replace the whole app, then `installBundled` installs that app's matching hook and FX pack.
 They never replace that bundle with an older separately published payload. Ordinary installers
 check and install `payload-manifest.json` components and restore their FFmpeg link.
 Unpackaged development preserves local build overrides. A portable exe cannot replace itself;
-when a newer app is available it requires installing the setup exe before launch.
+when a newer app is available the status line says to install the setup exe, and GO keeps working.
 
 An empty channel is valid while preparing the first release. A complete app with its runtime
-installed can become ready without a published update. Missing runtime or malformed/incomplete
+installed can become ready without a published update. A missing runtime or malformed/incomplete
 published metadata remains an error. Checks/downloads share one operation, and renderer startup
 reads a state snapshot so it cannot miss an update that finishes before the UI subscribes.
 Pre-releases are accepted, but downgrades are disabled. Updates preserve launcher/user data.
@@ -303,18 +324,20 @@ the layout contract.
 
 `build-app.bat -Package` produces both:
 
-- **`SourceMovieMaker-Setup-<v>.exe`**: NSIS installer. Self-updates via `electron-updater`.
+- **`SourceMovieMaker-Setup-<v>.exe`**: NSIS installer. Self-updates via `electron-updater` once
+  automatic updates are switched on.
 - **`SourceMovieMaker-Portable-<v>.exe`**: single-file portable build. It keeps settings and the
   downloaded runtime in `SourceMovieMaker-data\` beside the exe (driven by
   `PORTABLE_EXECUTABLE_DIR`), so it runs from a USB stick. It does **not** self-update, because
-  `electron-updater` cannot replace a running single-file exe. When a newer app is known, GO stays
-  blocked until the setup exe is installed. When the app is current, runtime payload checks still work.
+  `electron-updater` cannot replace a running single-file exe. When a newer app is known, the status
+  line says to install the setup exe and GO keeps working. Runtime payload checks still work.
 
 Only the installer appears in `latest.yml`; the portable build is a manual download.
 
 ## Advanced drawer
 
-The drawer has three groups: **Game**, **Runtime** and **Locations**.
+The drawer has five tabs: **Game**, **Runtime**, **Locations**, **DLSS 5** and **Updates** (the
+automatic-updates switch, see [Updates](#updates)).
 
 Every path setting shows what it *actually resolves to*, tagged `SET` (user override) or `AUTO`
 (launcher's choice). It appears in red with `NOT FOUND` when the path does not exist. The AUTO

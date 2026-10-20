@@ -120,6 +120,7 @@ const emptySettings: LauncherSettings = {
   ffmpegPath: '',
   dlss5Enabled: false,
   dlssPromptAnswered: false,
+  autoUpdate: false,
 };
 
 const games = [
@@ -132,7 +133,7 @@ const games = [
 const LETS_ROLL_SOUND = './sounds/mm_success_lets_roll.wav';
 
 type IntroPhase = 'playing' | 'fading' | 'done';
-type AdvancedTab = 'game' | 'runtime' | 'locations' | 'dlss';
+type AdvancedTab = 'game' | 'runtime' | 'locations' | 'dlss' | 'updates';
 
 function playLetsRoll(audio: HTMLAudioElement | null) {
   if (!audio) return;
@@ -165,6 +166,9 @@ export default function App() {
   const [updateBusy, setUpdateBusy] = useState(true);
   const [launchAllowed, setLaunchAllowed] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateStatus['state']>('checking');
+  // A newer launcher the last check found, offered once per version and never forced.
+  const [pendingUpdate, setPendingUpdate] = useState<UpdateStatus['update'] | null>(null);
+  const [updatePromptDismissed, setUpdatePromptDismissed] = useState('');
   const [payload, setPayload] = useState<PayloadLocalStatus | null>(null);
   // Footer progress bars. percent < 0 = working, no measurable progress (indeterminate).
   const [payloadProgress, setPayloadProgress] = useState<{ label: string; percent: number } | null>(null);
@@ -251,6 +255,7 @@ export default function App() {
       setUpdateState(status.state);
       setUpdateBusy(['checking', 'available', 'downloading', 'downloaded', 'installing'].includes(status.state));
       setUpdateProgress(status.state === 'downloading' ? status.percent ?? 0 : null);
+      if (status.state === 'ready') setPendingUpdate(status.update ?? null);
       const messages: Partial<Record<UpdateStatus['state'], string>> = {
         checking: 'CHECKING FOR UPDATES',
         available: `DOWNLOADING UPDATE ${status.version ?? ''}`.trim(),
@@ -261,7 +266,8 @@ export default function App() {
         error: status.message?.toUpperCase() ?? 'UPDATE FAILED / RETRY UPDATES',
       };
       setMessage(messages[status.state] ?? status.message ?? 'CHECKING FOR UPDATES');
-      setMessageTone(status.state === 'error' ? 'error' : status.state === 'ready' ? 'good' : 'normal');
+      // Ready because the update server was unreachable is still ready, but not a green "current".
+      setMessageTone(status.state === 'error' ? 'error' : status.state === 'ready' && !status.skipped ? 'good' : 'normal');
       if (status.state === 'ready') void window.sourceMvm.getPayloadStatus().then(setPayload).catch(() => {});
     };
     const unsubscribe = window.sourceMvm.onUpdateStatus(status => { observed = true; apply(status); });
@@ -666,20 +672,33 @@ export default function App() {
     }
   };
 
-  const checkForUpdates = async () => {
+  // UPDATES: a check, or the download once a check has found an update. Either way the status
+  // line follows the main process; the renderer only locks GO until the first status arrives.
+  const runUpdates = async (install: boolean) => {
     if (updateBusy || busy || started) return;
     setLaunchAllowed(false);
     setUpdateBusy(true);
-    setMessage('CHECKING FOR UPDATES');
+    setMessage(install ? 'DOWNLOADING UPDATE' : 'CHECKING FOR UPDATES');
     setMessageTone('normal');
     try {
-      await window.sourceMvm.checkForUpdates();
+      if (install) await window.sourceMvm.downloadUpdate();
+      else await window.sourceMvm.checkForUpdates();
     } catch (error) {
       setMessage(error instanceof Error ? error.message.toUpperCase() : 'UPDATE CHECK FAILED / RETRY UPDATES');
       setMessageTone('error');
       setUpdateBusy(false);
     }
   };
+  const updateInstallable = Boolean(pendingUpdate?.installable);
+  // RETRY UPDATES after an error re-checks; otherwise a pending update is downloaded.
+  const checkForUpdates = () => runUpdates(updateInstallable && updateState !== 'error');
+  const installUpdate = () => {
+    setUpdatePromptDismissed(pendingUpdate?.version ?? '');
+    void runUpdates(true);
+  };
+  // Shown once per version: "not now" hides it until a check finds a different version.
+  const updatePrompt = updateInstallable && pendingUpdate && pendingUpdate.version !== updatePromptDismissed
+    && !updateBusy && !busy && !started;
 
   const minimizeWindow = () => window.sourceMvm.minimizeWindow();
   const closeWindow = () => window.sourceMvm.closeWindow();
@@ -873,6 +892,30 @@ export default function App() {
         </div>
       </section>
 
+      {/* A newer launcher is offered, never forced: NOT NOW keeps this version launchable, and the
+          footer button downloads it later. Same dialog styling as the FFmpeg and DLSS prompts. */}
+      {updatePrompt && (
+        <section className="ffmpeg-prompt" role="dialog" aria-labelledby="update-prompt-title">
+          <div className="ffmpeg-prompt-body">
+            <strong id="update-prompt-title">Hey, new update.</strong>
+            <p>
+              SOURCE:MVM {pendingUpdate?.version} is available. Do you want to update? It downloads,
+              installs and restarts the launcher. If not, GO still works and the UPDATES button
+              downloads it whenever you like.
+            </p>
+            <div className="ffmpeg-prompt-actions">
+              <button type="button" className="utility-button is-primary" onClick={installUpdate}>
+                <Download size={13} />
+                <span>UPDATE</span>
+              </button>
+              <button type="button" className="utility-button" onClick={() => setUpdatePromptDismissed(pendingUpdate?.version ?? '')}>
+                <span>NOT NOW</span>
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* FFmpeg is what encodes every render. Missing it does not break the launcher, so this
           asks rather than blocks -- but it asks up front, because the alternative is finding out
           at the end of a render that nothing could be written. */}
@@ -1015,12 +1058,16 @@ export default function App() {
             className={`utility-button ${updateBusy ? 'is-active' : ''}`}
             onClick={checkForUpdates}
             disabled={updateBusy || busy || started}
-            title={runtimeMissing
-              ? 'Download the SOURCE:MVM runtime (hook + FX pack)'
-              : 'Check for launcher and runtime updates'}
+            title={updateInstallable
+              ? `Download and install SOURCE:MVM ${pendingUpdate?.version ?? ''}, then restart`
+              : runtimeMissing
+                ? 'Download the SOURCE:MVM runtime (hook + FX pack)'
+                : settings.autoUpdate
+                  ? 'Check for launcher and runtime updates'
+                  : 'Check once for launcher and runtime updates (automatic checks are off)'}
           >
             <PanoramaControlIcon name="refresh.png" />
-            <span>{updateState === 'error' ? 'RETRY UPDATES' : runtimeMissing ? 'INSTALL RUNTIME' : 'UPDATES'}</span>
+            <span>{updateState === 'error' ? 'RETRY UPDATES' : updateInstallable ? 'DOWNLOAD UPDATE' : runtimeMissing ? 'INSTALL RUNTIME' : 'UPDATES'}</span>
           </button>
           <button
             ref={advancedButtonRef}
@@ -1062,6 +1109,7 @@ export default function App() {
           <button id="advanced-tab-runtime" type="button" role="tab" aria-selected={advancedTab === 'runtime'} aria-controls="advanced-panel-runtime" className={advancedTab === 'runtime' ? 'is-active' : ''} onClick={() => setAdvancedTab('runtime')}>RUNTIME</button>
           <button id="advanced-tab-locations" type="button" role="tab" aria-selected={advancedTab === 'locations'} aria-controls="advanced-panel-locations" className={advancedTab === 'locations' ? 'is-active' : ''} onClick={() => setAdvancedTab('locations')}>LOCATIONS</button>
           <button id="advanced-tab-dlss" type="button" role="tab" aria-selected={advancedTab === 'dlss'} aria-controls="advanced-panel-dlss" className={advancedTab === 'dlss' ? 'is-active' : ''} onClick={() => setAdvancedTab('dlss')}>DLSS 5</button>
+          <button id="advanced-tab-updates" type="button" role="tab" aria-selected={advancedTab === 'updates'} aria-controls="advanced-panel-updates" className={advancedTab === 'updates' ? 'is-active' : ''} onClick={() => setAdvancedTab('updates')}>UPDATES</button>
         </nav>
 
         <div className="drawer-content">
@@ -1102,6 +1150,36 @@ export default function App() {
               </span>
               <ResolvedHint entry={paths?.hookDll} />
             </label>
+          </div>}
+
+          {/* Updates are opt-in. Off (the default), the launcher contacts nothing on its own and GO
+              works without internet; the footer UPDATES button still checks once when pressed.
+              Turning it on starts the usual check straight away (settings:save in main.cjs). */}
+          {advancedTab === 'updates' && <div id="advanced-panel-updates" className="field-group field-wide setting-panel" role="tabpanel" aria-labelledby="advanced-tab-updates">
+            <h3 className="group-title">Updates</h3>
+            <label className="setting-toggle">
+              <input
+                type="checkbox"
+                checked={settings.autoUpdate}
+                onChange={(event) => patch({ autoUpdate: event.target.checked })}
+              />
+              <span>
+                <strong>Check for updates automatically</strong>
+                <small>On: every start looks for a new launcher and hook and asks before installing. Off: nothing is checked unless you press UPDATES.</small>
+              </span>
+            </label>
+            <div className="setting-status">
+              <span className={`setting-dot ${settings.autoUpdate ? 'is-on' : ''}`} aria-hidden="true" />
+              <span>
+                {pendingUpdate
+                  ? `UPDATE ${pendingUpdate.version} AVAILABLE · ${pendingUpdate.installable ? 'PRESS DOWNLOAD UPDATE' : 'INSTALL THE NEW SETUP EXE'}`
+                  : settings.autoUpdate ? 'AUTOMATIC · CHECKS ON EVERY START' : 'OFF · PRESS UPDATES TO CHECK ONCE'}
+              </span>
+            </div>
+            <p className="setting-note">
+              An update is never forced: you are asked first, and GO keeps working on this version.
+              CS2 starts without internet either way. Steam still has to be open and signed in.
+            </p>
           </div>}
 
           {/* Everything the launcher owns but has no field for. Without these there is simply no
