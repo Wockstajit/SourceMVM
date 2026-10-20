@@ -730,6 +730,7 @@ R"CFJS(
     // help; they just have to run again, which the next render does anyway.
     function cfgApplyInspectorW(w) {
       INSPECTOR_W = w;
+      cfgRelayout();   // mode rows and option grids re-fit to the new pane width
       inspector.style.width = w + 'px';
       footerBg.style.width = w + 'px';
       topFade.style.width = w + 'px';

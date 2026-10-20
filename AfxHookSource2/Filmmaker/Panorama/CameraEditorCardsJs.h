@@ -252,20 +252,35 @@ R"EDJS(
     }
     // ---- caption fitting (Config's cfgCaptionsFit, same estimate) ---------------------------
     // Nothing truncates: captions that do not fit beside the label put the control under it.
+    // The pane width is the column the render actually applied (edLayoutW, from
+    // responsiveInspectorW each frame); INSPECTOR_W is only the build-time default.
     function edPaneInnerW() {
-      var w = (typeof INSPECTOR_W === 'number' && INSPECTOR_W > 0) ? INSPECTOR_W : UI.col.w;
+      var w = (typeof edLayoutW === 'number' && edLayoutW > 0) ? edLayoutW
+        : ((typeof INSPECTOR_W === 'number' && INSPECTOR_W > 0) ? INSPECTOR_W : UI.col.w);
       return w - 2 * UI.col.pad - UI.rail.w - UI.rail.gap - 2 * UI.line.padH;
     }
     function edCaptionW(text) { return ('' + text).length * UI.line.ch + UI.line.padCell; }
+    // Every segmented cell is the same width, so the widest caption x the count must fit.
     function edCaptionsFit(items) {
-      var need = 0;
-      for (var i = 0; i < items.length; i++) need += edCaptionW(items[i][1]);
-      return need <= edPaneInnerW() - UI.line.label - UI.line.colGap;
+      var widest = 0;
+      for (var i = 0; i < items.length; i++) widest = Math.max(widest, edCaptionW(items[i][1]));
+      return widest * items.length <= edPaneInnerW() - UI.line.label - UI.line.colGap;
     }
     function edStackRow(r, nl, ctl) {
       r.style.flowChildren = 'down';
       nl.style.width = '100%'; nl.style.marginBottom = '4px';
       ctl.style.marginLeft = '0px'; ctl.style.width = '100%';
+    }
+    function edUnstackRow(r, nl, ctl) {
+      r.style.flowChildren = 'right';
+      nl.style.width = UI.line.label + 'px'; nl.style.marginBottom = '0px';
+      ctl.style.marginLeft = UI.line.colGap + 'px'; ctl.style.width = 'fill-parent-flow(1.0)';
+    }
+    // Width-dependent rows register here; the render runs them whenever the applied column
+    // width changes (a drag, the stored width arriving, a smaller screen's clamp).
+    var edRelayoutHooks = [];
+    function edRelayout() {
+      for (var i = 0; i < edRelayoutHooks.length; i++) { try { edRelayoutHooks[i](); } catch (e) {} }
     }
 
     // ---- pick-one strips -------------------------------------------------------------------
@@ -323,7 +338,11 @@ R"EDJS(
       if (tip) r.__tipText = tip;
       var seg = edSegmented(r, items, 'fill-parent-flow(1.0)', onPick, font && font < 13 ? font : 12);
       seg.panel.style.marginLeft = UI.line.colGap + 'px';
-      if (!edCaptionsFit(items)) edStackRow(r, nl, seg.panel);
+      function layout() {
+        if (edCaptionsFit(items)) edUnstackRow(r, nl, seg.panel); else edStackRow(r, nl, seg.panel);
+      }
+      layout();
+      edRelayoutHooks.push(layout);
       seg.row = r; seg.label = nl;
       return seg;
     }
@@ -345,15 +364,23 @@ R"EDJS(
       if (tip) r.__tipText = tip;
       var cells = mk('Panel', r); cells.hittest = false; cells.hittestchildren = true;
       cells.style.flowChildren = 'right-wrap'; cells.style.width = '100%';
-      var inner = edPaneInnerW(), longest = 0;
+      var longest = 0;
       for (var li = 0; li < items.length; li++) longest = Math.max(longest, edCaptionW(items[li][1]));
-      var n = Math.max(1, Math.min(perRow || items.length, Math.floor((inner + UI.line.cellGap) / (longest + UI.line.cellGap))));
-      var cellW = Math.floor((inner - UI.line.cellGap * (n - 1)) / n);
-      var btns = {};
+      var btns = {}, order = [];
+      // Column count and cell width follow the applied pane width (edRelayout).
+      function layout() {
+        var inner = edPaneInnerW();
+        var n = Math.max(1, Math.min(perRow || items.length, Math.floor((inner + UI.line.cellGap) / (longest + UI.line.cellGap))));
+        // 1px borders sit outside the width; two pixels per cell keep the last one on the row.
+        var cellW = Math.floor((inner - UI.line.cellGap * (n - 1)) / n) - 2;
+        for (var k = 0; k < order.length; k++) {
+          order[k].style.width = cellW + 'px';
+          order[k].style.marginRight = ((k + 1) % n === 0 ? 0 : UI.line.cellGap) + 'px';
+        }
+      }
       for (var i = 0; i < items.length; i++) (function (key, caption, idx) {
         var b = btn(cells, caption, function () { onPick(key, idx); }, S.label);
-        b.style.width = cellW + 'px';
-        b.style.marginRight = ((idx + 1) % n === 0 ? 0 : UI.line.cellGap) + 'px';
+        order.push(b);
         b.style.marginBottom = UI.line.cellGap + 'px';
         b.style.paddingTop = '5px'; b.style.paddingBottom = '5px';
         b.style.paddingLeft = '4px'; b.style.paddingRight = '4px';
@@ -363,6 +390,8 @@ R"EDJS(
         b.__brBase = '#ffffff1a'; b.__brSel = S.accent.substring(0, 7) + '99'; btnVisual(b);
         btns[key] = b;
       })(items[i][0], items[i][1], i);
+      layout();
+      edRelayoutHooks.push(layout);
       return {
         row: r, btns: btns, label: cap,
         sync: function (key) { for (var k in btns) btnSel(btns[k], k === key); }

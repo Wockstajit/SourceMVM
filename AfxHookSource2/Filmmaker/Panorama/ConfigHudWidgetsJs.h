@@ -923,17 +923,31 @@ R"CFJS(
     }
     function cfgCtlW() { return cfgPaneInnerW() - UI.line.label - UI.line.colGap; }
     function cfgCaptionW(text) { return ('' + text).length * UI.line.ch + UI.line.padCell; }
+    // A segmented control gives every cell the SAME width, so the row fits only when the widest
+    // caption fits in a cell: widest x count, not the sum of the captions.
     function cfgCaptionsFit(items) {
-      var need = 0;
-      for (var i = 0; i < items.length; i++) need += cfgCaptionW(items[i][1]);
-      return need <= cfgCtlW();
+      var widest = 0;
+      for (var i = 0; i < items.length; i++) widest = Math.max(widest, cfgCaptionW(items[i][1]));
+      return widest * items.length <= cfgCtlW();
     }
     // Lay a label + control row out as a STACK: the name on its own line, the control under it
-    // at the row's full width.
+    // at the row's full width. cfgUnstackRow puts it back beside the label.
     function cfgStackRow(r, nl, ctl) {
       r.style.flowChildren = 'down';
       nl.style.width = '100%'; nl.style.marginBottom = '4px';
       ctl.style.marginLeft = '0px'; ctl.style.width = '100%';
+    }
+    function cfgUnstackRow(r, nl, ctl) {
+      r.style.flowChildren = 'right';
+      nl.style.width = UI.line.label + 'px'; nl.style.marginBottom = '0px';
+      ctl.style.marginLeft = UI.line.colGap + 'px'; ctl.style.width = 'fill-parent-flow(1.0)';
+    }
+    // Rows whose layout depends on the pane width register here; cfgApplyInspectorW runs them
+    // after the operator drags the column, so a stacked row can go back beside its label and
+    // a grid's cells follow the new width instead of keeping the 640px build-time one.
+    var cfgRelayoutHooks = [];
+    function cfgRelayout() {
+      for (var i = 0; i < cfgRelayoutHooks.length; i++) { try { cfgRelayoutHooks[i](); } catch (e) {} }
     }
 
     // A labelled MODE ROW: the name in the 130px label column, the segmented control filling the
@@ -959,7 +973,11 @@ R"CFJS(
       if (tip) attachTip(r, tip);           // whole row, not just the name
       var seg = segmented(r, items, 'fill-parent-flow(1.0)', onPick, font);
       seg.panel.style.marginLeft = UI.line.colGap + 'px';
-      if (!cfgCaptionsFit(items)) cfgStackRow(r, nl, seg.panel);
+      function layout() {
+        if (cfgCaptionsFit(items)) cfgUnstackRow(r, nl, seg.panel); else cfgStackRow(r, nl, seg.panel);
+      }
+      layout();
+      if (!__proxy) cfgRelayoutHooks.push(layout);
       seg.row = r; seg.label = nl;
       var rawSync = seg.sync;
       seg.sync = function (key) {
@@ -1624,15 +1642,25 @@ R"CFJS(
       if (tip) attachTip(r, tip);
       var cells = mk('Panel', r); cells.hittest = false; cells.hittestchildren = true;
       cells.style.flowChildren = 'right-wrap'; cells.style.width = '100%';
-      var inner = cfgPaneInnerW(), longest = 0;
+      var longest = 0;
       for (var li = 0; li < items.length; li++) longest = Math.max(longest, cfgCaptionW(items[li][1]));
-      var n = Math.max(1, Math.min(perRow || items.length, Math.floor((inner + UI.line.cellGap) / (longest + UI.line.cellGap))));
-      var cellW = Math.floor((inner - UI.line.cellGap * (n - 1)) / n);
-      var btns = {};
+      var btns = {}, order = [];
+      // Column count and cell width follow the live pane width (cfgRelayout), not the width the
+      // script was built against.
+      function layout() {
+        var inner = cfgPaneInnerW();
+        var n = Math.max(1, Math.min(perRow || items.length, Math.floor((inner + UI.line.cellGap) / (longest + UI.line.cellGap))));
+        // Each cell carries a 1px border on both sides outside its width, so the row that
+        // exactly fills the pane wraps one cell short. Two pixels per cell keep the last one up.
+        var cellW = Math.floor((inner - UI.line.cellGap * (n - 1)) / n) - 2;
+        for (var k = 0; k < order.length; k++) {
+          order[k].style.width = cellW + 'px';
+          order[k].style.marginRight = ((k + 1) % n === 0 ? 0 : UI.line.cellGap) + 'px';
+        }
+      }
       for (var i = 0; i < items.length; i++) (function (key, caption, i) {
         var b = mk('Panel', cells);
-        b.style.width = cellW + 'px';
-        b.style.marginRight = ((i + 1) % n === 0 ? 0 : UI.line.cellGap) + 'px';
+        order.push(b);
         b.style.marginBottom = UI.line.cellGap + 'px';
         b.style.paddingTop = '5px'; b.style.paddingBottom = '5px';
         b.style.paddingLeft = '4px'; b.style.paddingRight = '4px';
@@ -1644,6 +1672,8 @@ R"CFJS(
         makeInteractive(b, l, function () { onPick(key, i); }, { fg: S.label });
         btns[key] = b;
       })(items[i][0], items[i][1], i);
+      layout();
+      cfgRelayoutHooks.push(layout);
       return {
         row: r, btns: btns, label: cap,
         sync: function (key) { for (var k in btns) setBtnOn(btns[k], k === key, S.accent); }

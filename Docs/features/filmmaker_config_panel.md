@@ -30,9 +30,10 @@ on its row and in its header. The pane takes the rest of the column (400px at th
 A card is **one page with group headings as dividers**; sub-tabs stay only where one page would
 not fit the pane (Depth of Field, Weather & Sky, Scene Objects). Every control is one row in the
 same box: a 130px label column, the control, a 66px value column. Booleans are square switches in
-that row, never chips. Nothing truncates: a segment or option grid whose captions do not fit
-beside the label drops under it at full width (`cfgCaptionsFit` in `ConfigHudWidgetsJs.h`), and
-labels wrap. A single colour field is a full-width bar of its colour, crossed by the custom mark;
+that row, never chips. Nothing truncates: a segment whose widest caption, times its cell count,
+does not fit beside the label drops under it at full width (`cfgCaptionsFit` in
+`ConfigHudWidgetsJs.h`), option grids pick their column count from the pane width, both re-fit
+when the inspector column is dragged (`cfgRelayout`), and labels wrap. A single colour field is a full-width bar of its colour, crossed by the custom mark;
 on a palette that allows a custom colour, the custom chip is wider and carries the same mark.
 The tab-row search indexes controls across all tabs. Rail selection persists independently per tab,
 and hidden cards retain their state and render hooks. See the

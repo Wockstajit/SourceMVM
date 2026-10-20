@@ -119,6 +119,7 @@ inline const char* kCameraEditorJs = R"EDJS(
     // first state arrives. The render already re-applies responsiveInspectorW() to the column,
     // the fades, the footer and the tab bar every frame, so changing this moves all of them.
     var edInspW = INSPECTOR_W;
+    var edLayoutW = 0;   // the width the render last applied; rows re-fit when it changes
     function responsiveInspectorW(screenW) {
       var w = edInspW > 0 ? edInspW : INSPECTOR_W;
       // Same cap and floor as InspectorWidth.h, so the column, the preview and the docked bar
@@ -1224,6 +1225,7 @@ R"EDJS(
       if (rawW < 16) { rawW = ctx.actuallayoutwidth || 0; rawH = ctx.actuallayoutheight || 0; }
       var rw = rawW / rsx, rh = rawH / rsy;
       var inspectorW = responsiveInspectorW(rw);
+      if (inspectorW !== edLayoutW) { edLayoutW = inspectorW; edRelayout(); }
       edGrip.place(inspectorW);
       inspector.style.width = inspectorW + 'px';
       // RENDER / CUSTOMIZE PLAYER: built once from UI.col.w, so they need re-sizing with the rest.
