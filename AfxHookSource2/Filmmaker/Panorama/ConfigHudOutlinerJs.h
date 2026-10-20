@@ -17,34 +17,27 @@
 // selected object's card holds the light and mesh inspectors (ConfigHudEnvironmentTabJs.h).
 
 R"CFJS(
-    // ===================== SCENE OBJECTS: + Point / + Spot / + Area / + Camera =====================
-    // A camera object (scene-object-rigs.md) is a viewpoint: attach it, key it, look through it.
+    // ===================== SCENE OBJECTS: + Add =====================
+    // ONE header action (2026-10 sidebar cleanup) that opens a menu: Point, Spot and Area lights,
+    // and a camera object (scene-object-rigs.md: a viewpoint to attach, key and look through).
+    // The four add buttons that used to sit above the tabs are gone; the body holds the tree.
     var ENV_PAGE_OUTLINER = 0, ENV_PAGE_ASSETS = 1;
-    var olLightRow = mk('Panel', envSceneSec);
-    olLightRow.hittest = false; olLightRow.hittestchildren = true;
-    olLightRow.style.width = '100%'; olLightRow.style.flowChildren = 'right'; olLightRow.style.marginTop = '10px';
-    [['Point', 'Shines all around', 'point'], ['Spot', 'A cone of light', 'spot'],
-     ['Area', 'A soft rectangle', 'area'], ['Camera', 'A viewpoint', 'camera']].forEach(function (d, n) {
-      var b = btn(olLightRow, '', function () {
-        // A new light starts ahead of the camera, selected, so its card opens on the Outliner.
-        envCommand('add ' + d[2]);
-        envSceneSec.__setPage(ENV_PAGE_OUTLINER);
-        olMulti = {};
-      }, S.label);
-      b.style.width = 'fill-parent-flow(1.0)'; b.style.flowChildren = 'down';
-      b.style.marginRight = n < 3 ? '6px' : '0px';
-      b.style.padding = '6px 4px';
-      // The caption is drawn below as '+' + name over the hint; the button's own label keeps the
-      // name for search and automation but is not shown.
-      b.__lbl.text = '+ ' + d[0]; b.__lbl.visible = false;
-      var top = mk('Panel', b); top.hittest = false; top.style.flowChildren = 'right'; top.style.horizontalAlign = 'center';
-      var plus = lbl(top, '+ ', '#f2d394ff', 12); plus.hittest = false; plus.style.fontWeight = 'bold';
-      var cap = lbl(top, d[0], S.label, 12); cap.hittest = false; cap.style.fontWeight = 'bold';
-      var sub = lbl(b, d[1], S.muted, 10); sub.hittest = false;
-      sub.style.horizontalAlign = 'center'; sub.style.marginTop = '1px';
-      attachTip(b, d[2] === 'camera' ? 'Adds a camera ahead of the view and selects it. Attach it, key it or look through it.'
-        : 'Adds a ' + d[0].toLowerCase() + ' light ahead of the camera and selects it.');
+    function olAdd(kind) {
+      // A new object starts ahead of the camera, selected, so its card opens on the Outliner.
+      envCommand('add ' + kind);
+      envSceneSec.__setPage(ENV_PAGE_OUTLINER);
+      olMulti = {};
+    }
+    var olAddBtn = envSceneSec.__headerAction('+ Add', function () {
+      cfgMenu([
+        ['Point light', function () { olAdd('point'); }, 'Shines all around'],
+        ['Spot light', function () { olAdd('spot'); }, 'A cone of light'],
+        ['Area light', function () { olAdd('area'); }, 'A soft rectangle'],
+        null,
+        ['Camera', function () { olAdd('camera'); }, 'A viewpoint']
+      ], olAddBtn);
     });
+    attachTip(olAddBtn, 'Adds a light or a camera ahead of the view and selects it. CS2 assets and your meshes come from the Library page.');
 
     // ===================== SCENE OBJECTS > OUTLINER =====================
     var olPage = envSceneSec.__page('Outliner');
@@ -241,31 +234,38 @@ R"CFJS(
 R"CFJS(
     // ---- small drawn icons ---------------------------------------------------------------------
     // CS2 ships no eye icon, so the eye is drawn: an outline, a pupil, and a slash when hidden.
+    // ICONS (2026-10 sidebar cleanup): one consistent outline set, Lucide (ISC licence, see
+    // FX/ui/panorama/images/sourcemvm/LUCIDE-LICENSE), rasterised at 32px and compiled into the
+    // FX pack as Panorama textures (Docs/features/filmmaker_community.md describes the pipeline).
+    // The eye used to be drawn from panels and the lock was a CS2 glyph of another style.
+    var OL_OWN_ICON = 's2r://panorama/images/sourcemvm/ol_';
+    function olIcon(parent, name, size, color) {
+      var im = $.CreatePanel('Image', parent, '', { src: OL_OWN_ICON + name + '_png.vtex', scaling: 'stretch-to-fit-preserve-aspect' });
+      im.hittest = false; im.style.width = size + 'px'; im.style.height = size + 'px';
+      im.style.horizontalAlign = 'center'; im.style.verticalAlign = 'center';
+      if (color) im.style.washColor = color;
+      return im;
+    }
+    // The eye keeps its old shape of handle: __paint(on, color) swaps eye / eye-off and tints.
     function olEye(parent) {
       var e = mk('Panel', parent); e.hittest = false;
-      e.style.width = '18px'; e.style.height = '12px';
+      e.style.width = '16px'; e.style.height = '16px';
       e.style.horizontalAlign = 'center'; e.style.verticalAlign = 'center';
-      var lid = mk('Panel', e); lid.hittest = false;
-      lid.style.width = '18px'; lid.style.height = '11px'; lid.style.borderRadius = '50%';
-      lid.style.border = '1.5px solid #9aa3b0'; lid.style.verticalAlign = 'center';
-      var pupil = mk('Panel', e); pupil.hittest = false;
-      pupil.style.width = '5px'; pupil.style.height = '5px'; pupil.style.borderRadius = '50%';
-      pupil.style.horizontalAlign = 'center'; pupil.style.verticalAlign = 'center';
-      var slash = mk('Panel', e); slash.hittest = false;
-      slash.style.width = '22px'; slash.style.height = '2px'; slash.style.horizontalAlign = 'center';
-      slash.style.verticalAlign = 'center'; slash.style.transform = 'rotateZ(-35deg)';
+      var open = olIcon(e, 'eye', 16), shut = olIcon(e, 'eye_off', 16);
       e.__paint = function (on, color) {
-        lid.style.border = '1.5px solid ' + color; pupil.style.backgroundColor = color;
-        slash.style.backgroundColor = color; slash.visible = !on;
+        open.visible = !!on; shut.visible = !on;
+        open.style.washColor = color; shut.style.washColor = color;
       };
       return e;
     }
     function olImage(parent, name, size) {
+      // CS2's own packed glyphs, still used where our set has no equivalent.
       var im = $.CreatePanel('Image', parent, '', { src: OL_ICON + name + '.vsvg', scaling: 'stretch-to-fit-preserve-aspect' });
       im.hittest = false; im.style.width = size + 'px'; im.style.height = size + 'px';
       im.style.horizontalAlign = 'center'; im.style.verticalAlign = 'center';
       return im;
     }
+    var OL_KIND_ICON = { asset: 'box', light: 'lightbulb', mesh: 'shapes', camera: 'video' };
     // A square icon button in one of the row's three 30px columns.
     function olIconBtn(parent, onClick) {
       var b = mk('Panel', parent);
@@ -301,10 +301,9 @@ R"CFJS(
     var olHeadName = lbl(olHead, 'NAME', S.muted, 11);
     olHeadName.style.width = 'fill-parent-flow(1.0)'; olHeadName.style.verticalAlign = 'center';
     olHeadName.style.fontWeight = 'bold'; olHeadName.style.letterSpacing = '1.5px';
-    [['', 'Shown in the view'], ['camera', 'Kept in renders'], ['locked', 'Locked: cannot be picked or dragged in the view']].forEach(function (c) {
+    [['eye', 'Shown in the view'], ['video', 'Kept in renders'], ['lock', 'Locked: cannot be picked or dragged in the view']].forEach(function (c) {
       var cell = mk('Panel', olHead); cell.style.width = '30px'; cell.style.height = '26px';
-      if (c[0]) olImage(cell, c[0], 14).style.washColor = '#8b95a3ff';
-      else olEye(cell).__paint(true, '#8b95a3ff');
+      olIcon(cell, c[0], 14, '#8b95a3ff');
       attachTip(cell, c[1]);
     });
     // Ten rows (303px) at most; the rest scrolls inside the tree, with no scrollbar.
@@ -351,8 +350,7 @@ R"CFJS(
       }
       if (o.group) {
         var tw = olIconBtn(r, o.toggleOpen); tw.style.width = '22px';
-        var arrow = lbl(tw, o.open ? '▾' : '▸', '#9aa3b0ff', 13);
-        arrow.hittest = false; arrow.style.horizontalAlign = 'center'; arrow.style.verticalAlign = 'center';
+        olIcon(tw, o.open ? 'chevron_down' : 'chevron_right', 14, '#9aa3b0ff');
       }
       var nb = mk('Panel', r);
       nb.hittest = true; nb.style.width = 'fill-parent-flow(1.0)'; nb.style.height = '28px';
@@ -363,12 +361,11 @@ R"CFJS(
       if (o.menu) nb.SetPanelEvent('oncontextmenu', o.menu);
       nb.SetPanelEvent('onmouseover', function () { nb.style.backgroundColor = '#1c222bff'; });
       nb.SetPanelEvent('onmouseout', function () { nb.style.backgroundColor = S.clear; });
-      if (o.group) olImage(nb, 'folder', 15).style.washColor = '#e0b861ff';
+      // The kind is an icon in the kind's colour (box, bulb, shapes, camera), not a dot.
+      if (o.group) olIcon(nb, o.open ? 'folder_open' : 'folder', 15, '#e0b861ff');
       else {
-        var dot = mk('Panel', nb); dot.hittest = false;
-        dot.style.width = '9px'; dot.style.height = '9px'; dot.style.borderRadius = '5px';
-        dot.style.backgroundColor = OL_KIND[o.kind][0]; dot.style.verticalAlign = 'center';
-        dot.style.marginLeft = '3px'; dot.style.marginRight = '3px';
+        var kindIcon = olIcon(nb, OL_KIND_ICON[o.kind] || 'box', 14, OL_KIND[o.kind][0] + 'ff');
+        kindIcon.style.marginLeft = '1px';
       }
       var name = lbl(nb, o.name, o.selected ? ENV_ACCENT : S.value, 13);
       name.hittest = false; name.style.verticalAlign = 'center'; name.style.marginLeft = '8px';
@@ -382,10 +379,10 @@ R"CFJS(
       olEye(eye).__paint(o.visible, o.visible ? '#9aa3b0ff' : '#e6e9eeff');
       attachTip(eye, o.visible ? 'Hide in the view' : 'Show in the view');
       var cam = olIconBtn(r, o.toggleRender);
-      var ci = olImage(cam, 'camera', 15); ci.style.washColor = o.render ? '#9aa3b0ff' : '#e05a5aff';
+      olIcon(cam, o.render ? 'video' : 'video_off', 15, o.render ? '#9aa3b0ff' : '#e05a5aff');
       attachTip(cam, o.render ? 'Leave out of renders' : 'Put back in renders');
       var lk = olIconBtn(r, o.toggleLock);
-      olImage(lk, o.locked ? 'locked' : 'unlocked', 14).style.washColor = o.locked ? '#e0b861ff' : '#5d6672ff';
+      olIcon(lk, o.locked ? 'lock' : 'lock_open', 14, o.locked ? '#e0b861ff' : '#5d6672ff');
       attachTip(lk, o.locked ? 'Unlock' : 'Lock: cannot be picked or dragged in the view');
     }
 )CFJS"

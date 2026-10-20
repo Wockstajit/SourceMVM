@@ -49,6 +49,15 @@ for (let i = 0; i < econ.length; i += 200) {
   console.log(`econ thumbnails: ${Math.min(i + 200, econ.length)} / ${econ.length}`);
 }
 
+// Our own Panorama textures (the outliner icon set, compiled from FX/ui into the FX pack) are
+// copied beside CS2's, under the name the shim derives from `s2r://.../<name>_png.vtex`.
+const OWN_SRC = path.resolve(HERE, '..', 'FX', 'ui', 'panorama', 'images', 'sourcemvm');
+const OWN_DST = path.join(OUT, 'panorama', 'images', 'sourcemvm');
+fs.mkdirSync(OWN_DST, { recursive: true });
+for (const f of fs.existsSync(OWN_SRC) ? fs.readdirSync(OWN_SRC) : []) {
+  if (f.endsWith('.png')) fs.copyFileSync(path.join(OWN_SRC, f), path.join(OWN_DST, f.replace(/\.png$/, '_png.png')));
+}
+
 // Per-player death animations: the picker's clip list and its preview both come from the baked
 // library, which the browser parses itself (shim/preview3d.js), so it is copied as it ships.
 const DEATH_SRC = path.resolve(HERE, '..', 'FX', 'death-animations', 'ragdoll_animations.mvmanim');

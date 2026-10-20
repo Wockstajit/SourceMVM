@@ -29,7 +29,7 @@
 // shut drawers you had to open one at a time to answer "what is switched on".
 
 R"CFJS(
-    var fxSec = section(pageEffects, 'VFX — PARTICLE PACKS', true, true, 'fx.packs', '#80bdffff');
+    var fxSec = section(pageEffects, 'PARTICLE PACKS', true, true, 'fx.packs', '#80bdffff');
     var fxCardReset = fxSec.__headerReset([
       'mirv_filmmaker fx set impacts off quiet', 'mirv_filmmaker fx set tracers off quiet',
       'mirv_filmmaker fx set weaponfx off quiet', 'mirv_filmmaker fx set explosions off quiet',
@@ -96,30 +96,23 @@ R"CFJS(
       'In-flight smoke trail on thrown grenades. Molotov and incendiary get the full trail; '
       + 'Smoke grenades get the smoke ribbon alone. Molotov ground fire always stays CS2 default.');
 
-    // These cells are independent toggles; any combination may be highlighted.
-    function fxDynamicLightRow(parent, proxy) {
-      var items = [['mollylights', 'Molly'], ['flashlights', 'Flashbang'], ['helights', 'Grenade']];
-      var mask = 0;
-      var row = modeRow(parent, 'Dynamic Lights', items, FXSEG_W + 'px', function (key) {
-        for (var i = 0; i < items.length; i++) if (items[i][0] === key) {
-          mask ^= (1 << i);
-          row.sync(mask);
-          cmd('mirv_filmmaker fx ' + key + ((mask & (1 << i)) ? ' on' : ' off'));
-          break;
-        }
-      }, 'Grenade dynamic lights: click each type to toggle it. Highlighted means On. '
-        + 'Molly adds fire lighting; Flashbang and Grenade add brief detonation bursts. '
-        + 'Any combination works with native map lighting.', 12, true);
-      row.sync = function (value) {
-        mask = value || 0;
-        for (var i = 0; i < items.length; i++) setBtnOn(row.btns[items[i][0]], !!(mask & (1 << i)), S.accent);
-        if (row.__search) row.__search.mirror(mask);
-      };
-      if (!proxy) row.__search = cfgSearchAdd('seg', 'Dynamic Lights', row.row,
-        'Grenade Molly Molotov Flashbang', function (host) { return fxDynamicLightRow(host, true); });
-      return row;
+    // Three INDEPENDENT switches (2026-10 sidebar cleanup), not a segment that looked like one
+    // choice: any combination works with native map lighting. `fxDynamicLights.sync(mask)` keeps
+    // the render hook's bitmask contract (1 molly, 2 flashbang, 4 grenade).
+    subHead(fxPageExpl, 'Dynamic lights');
+    var fxDlMask = 0;
+    function fxDlToggle(label, key, bit, tip) {
+      return togglePill(fxPageExpl, label, tip, function () {
+        cmd('mirv_filmmaker fx ' + key + ((fxDlMask & bit) ? ' off' : ' on'));
+      });
     }
-    var fxDynamicLights = fxDynamicLightRow(fxPageExpl, false);
+    var fxDlMolly = fxDlToggle('Molotov', 'mollylights', 1, 'Fire lighting on molotov and incendiary flames.');
+    var fxDlFlash = fxDlToggle('Flashbang', 'flashlights', 2, 'A brief burst of light when a flashbang detonates.');
+    var fxDlNade = fxDlToggle('HE grenade', 'helights', 4, 'A brief burst of light when an HE grenade detonates.');
+    var fxDynamicLights = { row: fxDlMolly.row, sync: function (value) {
+      fxDlMask = value || 0;
+      fxDlMolly.set(!!(fxDlMask & 1)); fxDlFlash.set(!!(fxDlMask & 2)); fxDlNade.set(!!(fxDlMask & 4));
+    } };
 
     var fxWorldNote = lbl(fxPageExpl, 'Off keeps the CS2 default for that category. Smoke grenades are never swapped.',
       S.hint, 12);

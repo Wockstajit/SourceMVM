@@ -210,13 +210,18 @@ R"CFJS(
       b.__accentOn = opts.accent || S.accent;
       if (opts.border) b.__brBase = opts.border;
       if (opts.bg) b.__bgBase = opts.bg;
-      trans(b, 'background-color, border-color');
+      trans(b, 'background-color, border-color, transform', UI.mo.hover);
+      b.style.transformOrigin = '50% 50%';
       b.SetPanelEvent('onmouseover', function () { b.__hot = true; paintBtn(b); });
       b.SetPanelEvent('onmouseout', function () { b.__hot = false; b.__down = false; paintBtn(b); });
       b.SetPanelEvent('onactivate', function () {
         if (b.__off) return;
+        // Press feedback (2026-10 sidebar cleanup): the button dips to 97% for the press flash.
+        // Written here, from the one event that means "pressed", never from paintBtn, which the
+        // render hooks call every frame and which stays free of geometry.
         b.__down = true; paintBtn(b);
-        try { $.Schedule(0.11, function () { b.__down = false; paintBtn(b); }); }
+        try { b.style.transform = 'scale3d(0.97,0.97,1)'; } catch (e0) {}
+        try { $.Schedule(0.11, function () { b.__down = false; paintBtn(b); try { b.style.transform = 'scale3d(1,1,1)'; } catch (e1) {} }); }
         catch (e) { b.__down = false; paintBtn(b); }
         if (onClick) onClick();
       });
@@ -731,13 +736,14 @@ R"CFJS(
       endTileLine(parent);
       var t = mk('Panel', parent);
       t.style.flowChildren = 'right'; t.style.width = '100%';
-      t.style.height = UI.line.h + 'px'; t.style.marginTop = UI.line.gap + 'px';
+      // min-height, not height: a long name wraps to a second line instead of being cut.
+      t.style.minHeight = UI.line.h + 'px'; t.style.marginTop = UI.line.gap + 'px';
       t.style.paddingLeft = UI.line.padH + 'px'; t.style.paddingRight = UI.line.padH + 'px';
       t.style.borderRadius = '3px';
       trans(t, 'background-color, border-color');
       var nl = lbl(t, opts.label, S.label, 13);
       nl.style.width = UI.line.label + 'px'; nl.style.verticalAlign = 'center';
-      nl.style.whiteSpace = 'nowrap'; nl.style.textOverflow = 'ellipsis';
+      nl.style.whiteSpace = 'normal'; nl.style.paddingTop = '4px'; nl.style.paddingBottom = '4px';
       nl.hittest = false;
       if (opts.tip) attachTip(t, opts.tip);
       var ms = makeSlider(t, opts.fill || S.accent, opts);
@@ -805,50 +811,56 @@ R"CFJS(
     }
 )CFJS"
 R"CFJS(
-    // ---- the checkbox chip ---------------------------------------------------------------
-    // On/off as a 28px chip: a 13px checkbox and a 12/700 name. Consecutive chips flow into ONE
-    // wrapping row (cfgChipLine), which is what replaced a full 64px tile per switch.
-    // Same { row, set(on) } contract the tile had, so no render hook changes.
+    // ---- the switch row ------------------------------------------------------------------
+    // On/off is ONE LINE in the same box as a value row (2026-10 sidebar cleanup): the name in the
+    // label column, an optional state text in the middle, and a 34x18 square switch in the value
+    // column. Booleans are switches everywhere -- the checkbox chip that put a feature's master
+    // among its own children is gone. The whole row is the click target.
+    // Same { row, set(on) } contract the chip had, so no render hook changes; `handle.state(text)`
+    // writes the middle text (the Scene Keys strips say "on · no keys yet" there).
     //
     // `hint` feeds the tooltip when no explicit `tip` is given (the parameter order is kept so
     // no caller changes).
     function togglePill(parent, label, hint, onClick, tip, __proxy) {
-      var line = cfgChipLine(parent);
-      var c = mk('Panel', line); c.hittest = true;
-      c.style.flowChildren = 'right'; c.style.height = '28px';
-      c.style.paddingLeft = '8px'; c.style.paddingRight = '11px';
-      c.style.marginRight = '6px'; c.style.marginBottom = UI.line.gap + 'px';
+      endTileLine(parent);
+      var c = mk('Panel', parent); c.hittest = true;
+      c.style.flowChildren = 'right'; c.style.width = '100%';
+      c.style.minHeight = UI.line.h + 'px'; c.style.marginTop = UI.line.gap + 'px';
+      c.style.paddingLeft = UI.line.padH + 'px'; c.style.paddingRight = UI.line.padH + 'px';
       c.style.borderRadius = '3px';
       trans(c, 'background-color, border-color', 0.08);
-      var box = mk('Panel', c); box.hittest = false;
-      box.style.width = '13px'; box.style.height = '13px'; box.style.borderRadius = '2px';
-      box.style.verticalAlign = 'center'; box.style.marginRight = '8px';
-      var mark = lbl(box, '✔', '#0c0e12ff', 9); mark.hittest = false;
-      mark.style.fontWeight = 'bold';
-      mark.style.horizontalAlign = 'center'; mark.style.verticalAlign = 'center';
-      var tl = lbl(c, label, S.hint, 12); tl.hittest = false;
-      tl.style.fontWeight = 'bold'; tl.style.whiteSpace = 'nowrap'; tl.style.verticalAlign = 'center';
+      var tl = lbl(c, label, S.label, 13); tl.hittest = false;
+      tl.style.width = UI.line.label + 'px'; tl.style.verticalAlign = 'center';
+      tl.style.whiteSpace = 'normal'; tl.style.paddingTop = '4px'; tl.style.paddingBottom = '4px';
+      var stateLbl = lbl(c, '', S.muted, 12); stateLbl.hittest = false;
+      stateLbl.style.width = 'fill-parent-flow(1.0)'; stateLbl.style.textAlign = 'right';
+      stateLbl.style.verticalAlign = 'center'; stateLbl.style.whiteSpace = 'nowrap';
+      stateLbl.style.marginLeft = UI.line.colGap + 'px'; stateLbl.style.marginRight = UI.line.colGap + 'px';
+      var vc = mk('Panel', c); vc.hittest = false;
+      vc.style.width = UI.line.value + 'px'; vc.style.flowChildren = 'right';
+      vc.style.verticalAlign = 'center';
+      var sw = cfgSquareSwitch(vc, UI.swSm, null);
+      sw.panel.hittest = false; sw.panel.style.horizontalAlign = 'right';
       var on = false;
       function paint() {
-        var hot = c.__hot || c.__down;
-        c.style.backgroundColor = on ? '#2bb24c1c' : '#ffffff08';
-        c.style.border = '1px solid ' + (hot ? '#ffffff40' : (on ? '#2bb24c80' : '#ffffff1f'));
-        box.style.backgroundColor = on ? '#35cc59ff' : S.clear;
-        box.style.border = '1px solid ' + (on ? '#35cc59ff' : '#ffffff40');
-        mark.visible = on;
-        tl.style.color = on ? S.value : S.hint;
+        paintTile(c);
+        sw.hot(!!c.__hot);
+        tl.style.color = on ? S.value : S.label;
       }
       hoverable(c, paint);
       c.SetPanelEvent('onactivate', function () { pressFlash(c, paint); if (onClick) onClick(); });
       var tipText = tip || hint;
       if (tipText) attachTip(c, tipText);
       paint();
-      var handle = { row: c, pill: box, knob: mark, label: tl, set: function (v) {
+      var handle = { row: c, pill: sw.panel, knob: sw.knob, label: tl, set: function (v) {
         v = !!v;
         handle.__last = v;
         if (handle.__search) handle.__search.mirror(v);
         if (on === v) return;
-        on = v; paint();
+        on = v; sw.set(v); paint();
+      }, state: function (text) {
+        var t = (text === null || text === undefined) ? '' : ('' + text);
+        if (stateLbl.text !== t) stateLbl.text = t;
       } };
       if (!__proxy) handle.__search = cfgSearchAdd('toggle', label, c, null, function (host) {
         return togglePill(host, label, hint, onClick, tip, true);
@@ -899,22 +911,73 @@ R"CFJS(
       };
     }
 
+    // ---- caption fitting ---------------------------------------------------------------------
+    // Nothing truncates (2026-10 sidebar cleanup). The pane is INSPECTOR_W minus the column
+    // padding, the rail and the gap; a row's inside is that minus its own padding; the control
+    // column is what is left after the label. A set of captions that does not fit there drops
+    // UNDER the label at full width instead of being cut. Widths are estimated from the caption
+    // length (UI.line.ch per 12px bold character), the same estimate the browser mockup uses.
+    function cfgPaneInnerW() {
+      var w = (typeof INSPECTOR_W === 'number' && INSPECTOR_W > 0) ? INSPECTOR_W : UI.col.w;
+      return w - 2 * UI.col.pad - UI.rail.w - UI.rail.gap - 2 * UI.line.padH;
+    }
+    function cfgCtlW() { return cfgPaneInnerW() - UI.line.label - UI.line.colGap; }
+    function cfgCaptionW(text) { return ('' + text).length * UI.line.ch + UI.line.padCell; }
+    // A segmented control gives every cell the SAME width, so the row fits only when the widest
+    // caption fits in a cell: widest x count, not the sum of the captions.
+    function cfgCaptionsFit(items) {
+      var widest = 0;
+      for (var i = 0; i < items.length; i++) widest = Math.max(widest, cfgCaptionW(items[i][1]));
+      return widest * items.length <= cfgCtlW();
+    }
+    // Lay a label + control row out as a STACK: the name on its own line, the control under it
+    // at the row's full width. cfgUnstackRow puts it back beside the label.
+    function cfgStackRow(r, nl, ctl) {
+      r.style.flowChildren = 'down';
+      nl.style.width = '100%'; nl.style.marginBottom = '4px';
+      ctl.style.marginLeft = '0px'; ctl.style.width = '100%';
+    }
+    function cfgUnstackRow(r, nl, ctl) {
+      r.style.flowChildren = 'right';
+      nl.style.width = UI.line.label + 'px'; nl.style.marginBottom = '0px';
+      ctl.style.marginLeft = UI.line.colGap + 'px'; ctl.style.width = 'fill-parent-flow(1.0)';
+    }
+    // Rows whose layout depends on the pane width register here; cfgApplyInspectorW runs them
+    // after the operator drags the column, so a stacked row can go back beside its label and
+    // a grid's cells follow the new width instead of keeping the 640px build-time one.
+    var cfgRelayoutHooks = [];
+    function cfgRelayout() {
+      for (var i = 0; i < cfgRelayoutHooks.length; i++) { try { cfgRelayoutHooks[i](); } catch (e) {} }
+    }
+
     // A labelled MODE ROW: the name in the 130px label column, the segmented control filling the
     // rest -- the same column grid the value rows use, so a card's labels line up top to bottom.
+    // In the same box as a value row, so a card reads as one stack of rows. Captions that do not
+    // fit beside the label put the control under it (cfgCaptionsFit).
     // Returns the same { panel, btns, sync } handle segmented() does, plus { row, label }.
     function modeRow(parent, label, items, width, onPick, tip, font, __proxy) {
-      var r = mk('Panel', parent); r.hittest = false; r.hittestchildren = true;
+      var r = mk('Panel', parent); r.hittest = true; r.hittestchildren = true;
       r.style.flowChildren = 'right'; r.style.width = '100%';
-      r.style.marginTop = (UI.line.gap + 1) + 'px';
-      r.style.paddingLeft = UI.line.padH + 'px';
+      r.style.minHeight = UI.line.h + 'px';
+      r.style.marginTop = UI.line.gap + 'px';
+      r.style.paddingLeft = UI.line.padH + 'px'; r.style.paddingRight = UI.line.padH + 'px';
+      r.style.paddingTop = '3px'; r.style.paddingBottom = '3px';
+      r.style.borderRadius = '3px';
+      trans(r, 'background-color, border-color');
       endTileLine(parent);
       var nl = lbl(r, label, S.label, 13);
-      nl.style.width = UI.line.label + 'px'; nl.style.whiteSpace = 'nowrap';
-      nl.style.textOverflow = 'ellipsis'; nl.style.verticalAlign = 'center';
+      nl.style.width = UI.line.label + 'px'; nl.style.whiteSpace = 'normal';
+      nl.style.verticalAlign = 'center'; nl.style.paddingTop = '2px'; nl.style.paddingBottom = '2px';
+      hoverable(r, paintTile);
       nl.hittest = false;
       if (tip) attachTip(r, tip);           // whole row, not just the name
       var seg = segmented(r, items, 'fill-parent-flow(1.0)', onPick, font);
       seg.panel.style.marginLeft = UI.line.colGap + 'px';
+      function layout() {
+        if (cfgCaptionsFit(items)) cfgUnstackRow(r, nl, seg.panel); else cfgStackRow(r, nl, seg.panel);
+      }
+      layout();
+      if (!__proxy) cfgRelayoutHooks.push(layout);
       seg.row = r; seg.label = nl;
       var rawSync = seg.sync;
       seg.sync = function (key) {
@@ -995,11 +1058,12 @@ R"CFJS(
         wrap.style.backgroundColor = isCustom ? '#454b55ff' : (plain ? '#20242bff' : fill);
         wrap.style.boxShadow = 'inset 0px 0px 0px 1px #ffffff26';
         trans(wrap, 'border-color', 0.1);
-        var mark = lbl(wrap, isCustom ? 'Custom' : (plain ? '—' : ''),
-          isCustom ? S.value : S.dim, isCustom ? 10 : 11);
+        var mark = lbl(wrap, plain ? '—' : '', S.dim, 11);
         mark.hittest = false; mark.style.fontWeight = 'bold';
         mark.style.horizontalAlign = 'center'; mark.style.verticalAlign = 'center';
-        if (!plain && !isCustom) mark.visible = false;
+        if (!plain) mark.visible = false;
+        // The custom chip says so with the diagonal mark, not a word: it is wider and crossed.
+        if (isCustom) cfgCustomMark(wrap, isCustom ? 54 : W, H);
         wrap.hittest = true;
         if (payload && payload.length === undefined && typeof payload === 'string') attachTip(wrap, payload);
         wrap.SetPanelEvent('onmouseover', function () { if (!wrap.__on) wrap.style.border = '2px solid #ffffff55'; });
@@ -1026,15 +1090,7 @@ R"CFJS(
       // Keeps the Custom chip showing the colour in use, so it reads as a swatch rather than a
       // permanently grey button.
       api.paintCustom = function (rgb) {
-        if (chips.custom) {
-          chips.custom.inner.style.backgroundColor = rgbHex(rgb);
-          var lum = 0, weights = [0.2126, 0.7152, 0.0722];
-          for (var ci = 0; ci < 3; ci++) {
-            var c = Math.max(0, Math.min(255, rgb[ci])) / 255;
-            lum += weights[ci] * (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
-          }
-          chips.custom.tick.style.color = lum > 0.179 ? '#000000ff' : '#ffffffff';
-        }
+        if (chips.custom) chips.custom.inner.style.backgroundColor = rgbHex(rgb);
       };
       return api;
     }
@@ -1099,7 +1155,38 @@ R"CFJS(
       p.SetPanelEvent('onactivate', function () { if (onClick) onClick(); });
       paint();
       return { panel: p, knob: knob, set: function (v) { v = !!v; if (v === on) return; on = v; paint(); },
-               get: function () { return on; } };
+               get: function () { return on; },
+               // A switch that rides a whole-row click target (the switch row) takes its hover
+               // from the row, since the switch itself is out of the hit path.
+               hot: function (h) { h = !!h; if (h === hot) return; hot = h; paint(); } };
+    }
+    // The CUSTOM mark (2026-10 sidebar cleanup): one diagonal line corner to corner, dark with a
+    // light edge so it reads on any fill, over a chip or a colour bar that is a custom colour.
+    // Two rotated panels, not a gradient: a transform is antialiased, a gradient hairline is not.
+    // `w` x `h` is the box the line crosses; the panels are centred and clipped by the box.
+    // Returns { line, edge, fit(w, h) }: fit() re-lays the mark for a box that changed size, so a
+    // colour bar that follows the inspector width keeps its corner-to-corner line.
+    function cfgCustomMark(box, w, h) {
+      box.style.overflow = 'clip';
+      // ONE rotated panel (the light edge) with the dark line as its centred child: two siblings
+      // would flow side by side in the box and the second would land outside it.
+      var edge = mk('Panel', box); edge.hittest = false;
+      edge.style.height = '4px'; edge.style.borderRadius = '2px';
+      edge.style.backgroundColor = '#ffffff99';
+      edge.style.horizontalAlign = 'center'; edge.style.verticalAlign = 'center';
+      edge.style.transformOrigin = '50% 50%';
+      var line = mk('Panel', edge); line.hittest = false;
+      line.style.width = '100%'; line.style.height = '2px'; line.style.borderRadius = '1px';
+      line.style.backgroundColor = '#0c0e12ff';
+      line.style.verticalAlign = 'center';
+      function fit(bw, bh) {
+        var len = Math.ceil(Math.sqrt(bw * bw + bh * bh)) + 6;
+        var deg = -(Math.atan2(bh, bw) * 180 / Math.PI).toFixed(2);
+        edge.style.width = len + 'px';
+        edge.style.transform = 'rotateZ(' + deg + 'deg)';
+      }
+      fit(w, h);
+      return { line: line, edge: edge, fit: fit };
     }
 
     // ---- the rail ----------------------------------------------------------------------
@@ -1115,8 +1202,8 @@ R"CFJS(
                ['Lens', ['config.section.dof', 'config.section.flare']]],
       effects: [['Particles', ['fx.packs']], ['World', ['light.card', 'atmos.card', 'weather.card']]],
       environment: [['Grade', ['env.looks']], ['Atmosphere', ['env.sky', 'env.light', 'env.fog', 'env.wx']],
-                    ['Scene', ['env.scene']]],
-      ragdolls: [['Bodies', ['ragdoll.model', 'ragdoll.physics']], ['Detail', ['ragdoll.weapon', 'acting']]]
+                    ['Scene', ['env.scene', 'env.heat']]],
+      ragdolls: [['Bodies', ['ragdoll.model', 'ragdoll.nervous', 'ragdoll.physics']], ['Detail', ['ragdoll.weapon', 'acting']]]
     };
     var cfgRails = {};
     var cfgSections = {};
@@ -1132,9 +1219,9 @@ R"CFJS(
         var g = mk('Panel', r.host); g.hittest = false; g.hittestchildren = true;
         g.style.flowChildren = 'down'; g.style.width = '100%';
         if (i) g.style.marginTop = UI.rail.groupGap + 'px';
-        var h = lbl(g, defs[i][0], S.group, 11); h.hittest = false;
+        var h = lbl(g, defs[i][0], S.group, UI.rail.groupFont); h.hittest = false;
         h.style.fontWeight = 'bold'; h.style.letterSpacing = '1.8px'; h.style.textTransform = 'uppercase';
-        h.style.paddingLeft = '2px'; h.style.marginBottom = '2px';
+        h.style.paddingLeft = '2px'; h.style.marginBottom = '3px';
         for (var j = 0; j < defs[i][1].length; j++) r.groups[defs[i][1][j]] = g;
       }
       cfgRails[tab] = r;
@@ -1145,8 +1232,10 @@ R"CFJS(
       var sel = it.rail.sel === it.key, hot = it.row.__hot;
       it.row.style.backgroundColor = sel ? S.railSel : (hot ? S.railHover : S.clear);
       it.row.style.border = '1px solid ' + (sel ? (S.accent.substring(0, 7) + '59') : S.clear);
+      // The accent edge is the row's LEFT BORDER, so it spans a row of any height (a title or a
+      // summary that wraps makes the row taller). Written after the shorthand, which resets it.
+      it.row.style.borderLeft = UI.rail.edge + 'px solid ' + (it.on ? it.accent : S.edgeOff);
       it.title.style.color = sel ? S.value : (it.on ? S.label : S.muted);
-      it.edge.style.backgroundColor = it.on ? it.accent : S.edgeOff;
     }
     function cfgRailAdd(tab, key, title, accent, card) {
       var r = cfgRail(tab);
@@ -1163,27 +1252,31 @@ R"CFJS(
       var it = { rail: r, key: key, accent: accent, card: card, on: true };
       var rw = mk('Panel', g); rw.hittest = true;
       rw.style.flowChildren = 'right'; rw.style.width = '100%';
-      rw.style.height = UI.rail.rowH + 'px'; rw.style.marginTop = UI.rail.rowGap + 'px';
+      rw.style.minHeight = UI.rail.rowH + 'px'; rw.style.marginTop = UI.rail.rowGap + 'px';
       rw.style.borderRadius = '3px'; rw.style.overflow = 'clip';
       trans(rw, 'background-color, border-color', 0.08);
-      var edge = mk('Panel', rw); edge.hittest = false;
-      edge.style.width = UI.rail.edge + 'px'; edge.style.height = '100%';
+      var edge = rw;   // the accent edge is the row's left border (cfgPaintRailRow)
       var col = mk('Panel', rw); col.hittest = false;
       col.style.flowChildren = 'down'; col.style.width = 'fill-parent-flow(1.0)';
-      col.style.verticalAlign = 'center'; col.style.marginLeft = '9px'; col.style.marginRight = '8px';
-      var t = lbl(col, title, S.label, 12); t.hittest = false;
+      col.style.verticalAlign = 'center'; col.style.marginLeft = '8px'; col.style.marginRight = '6px';
+      col.style.paddingTop = '5px'; col.style.paddingBottom = '5px';
+      // The title and the summary WRAP (the 52px row has room for a two-line summary); nothing
+      // in the rail ends in an ellipsis.
+      var t = lbl(col, title, S.label, UI.rail.titleFont); t.hittest = false;
       t.style.fontWeight = 'bold'; t.style.letterSpacing = '0.8px';
-      t.style.whiteSpace = 'nowrap'; t.style.textOverflow = 'ellipsis'; t.style.width = '100%';
-      var sum = lbl(col, '', S.muted, 11); sum.hittest = false;
-      sum.style.marginTop = '2px'; sum.style.whiteSpace = 'nowrap';
-      sum.style.textOverflow = 'ellipsis'; sum.style.width = '100%';
+      t.style.textTransform = 'uppercase';   // casing in the style, copy in natural case
+      t.style.whiteSpace = 'normal'; t.style.width = '100%';
+      var sum = lbl(col, '', S.muted, UI.rail.sumFont); sum.hittest = false;
+      sum.style.marginTop = '3px'; sum.style.whiteSpace = 'normal'; sum.style.width = '100%';
+      // An empty summary is COLLAPSED, not blank: a blank label still takes a line, and the title
+      // of a summary-less row then sits at the top of the row instead of its middle.
+      sum.visible = false;
       var swSlot = mk('Panel', rw); swSlot.hittest = false; swSlot.hittestchildren = true;
       swSlot.style.flowChildren = 'right'; swSlot.style.width = 'fit-children';
-      swSlot.style.verticalAlign = 'center'; swSlot.style.marginRight = '8px';
+      swSlot.style.verticalAlign = 'center'; swSlot.style.marginRight = '6px';
       it.row = rw; it.edge = edge; it.title = t; it.sum = sum; it.swSlot = swSlot;
       hoverable(rw, function () { cfgPaintRailRow(it); });
-      // The title and summary are cut with an ellipsis; the tooltip carries them whole.
-      attachTip(rw, title);
+      // No tooltip on a rail row: its title and summary wrap, so the row already says it all.
       rw.SetPanelEvent('onactivate', function () { cfgSelectCard(tab, key, true); });
       r.items[key] = it;
       if (!r.sel) cfgSelectCard(tab, key, false);
@@ -1208,7 +1301,12 @@ R"CFJS(
         r.items[k].card.visible = (k === key);
         cfgPaintRailRow(r.items[k]);
       }
-      if (changed) { try { cfgScrollY = 0; } catch (e) {} }
+      if (changed) {
+        try { cfgScrollY = 0; } catch (e) {}
+        // The card ARRIVES: the 4px rise every panel entrance in this HUD uses. Fired once, on a
+        // real change (never per frame), which is the Panorama rule at the top of this file.
+        if (persist) moEnter(r.items[key].card, -UI.mo.rise, MO_TAB);
+      }
       if (persist) cmd('mirv_filmmaker settings ui config.' + tab + '.sel ' + key);
       return true;
     }
@@ -1333,6 +1431,25 @@ R"CFJS(
         curPage = i; applyPages();
       };
       body.__pageCount = function () { return pages.length; };
+      // ---- groups ----------------------------------------------------------------------------
+      //   var g = card.__group('Breathing');   // a divider, then a panel to fill
+      // A card is ONE page with group headings as dividers (2026-10 sidebar cleanup); sub-pages
+      // stay only where a page would not fit the pane. A group carries the same __note/__setOpen
+      // surface a page does, so a fragment swaps __page for __group and nothing else changes. The
+      // heading goes in at the call, so groups land in declaration order whatever order the
+      // fragment fills them in.
+      body.__group = function (head) {
+        endTileLine(body);
+        if (head) subHead(body, head);
+        var g = mk('Panel', body); g.hittest = false; g.hittestchildren = true;
+        g.style.flowChildren = 'down'; g.style.width = '100%';
+        g.__note = function () {};
+        g.__setOpen = function () {};
+        g.__getOpen = function () { return true; };
+        g.__card = s;
+        g.__group = body.__group;
+        return g;
+      };
 
       // The summary feeds BOTH the pane header and the rail row. Idempotent: the render hooks
       // call it every frame, and a Label text write that changes nothing still costs layout.
@@ -1345,7 +1462,7 @@ R"CFJS(
         note.visible = v.length > 0;
         // Both copies can be cut with an ellipsis, so both keep the full text on hover.
         if (v) attachTip(note, v); else note.__tipText = null;
-        if (item) { item.sum.text = v; item.row.__tipText = v ? (title + ' — ' + v) : title; }
+        if (item) { item.sum.text = v; item.sum.visible = v.length > 0; }
       };
       body.__card = s;
       body.__summary = function () { return noteSeen || ''; };
@@ -1437,20 +1554,16 @@ R"CFJS(
       var r = mk('Panel', card); r.hittest = true;
       r.style.flowChildren = 'right'; r.style.width = 'fit-children';
       r.style.verticalAlign = 'center';
-      var box = mk('Panel', r); box.hittest = false;
-      box.style.width = '15px'; box.style.height = '15px'; box.style.borderRadius = '2px';
-      box.style.verticalAlign = 'center'; box.style.marginRight = '8px';
-      var mark = lbl(box, '✔', '#0c0e12ff', 10); mark.hittest = false;
-      mark.style.fontWeight = 'bold';
-      mark.style.horizontalAlign = 'center'; mark.style.verticalAlign = 'center';
+      // A square switch, like every other boolean in the panel (2026-10 sidebar cleanup).
+      var sw = cfgSquareSwitch(r, UI.swSm, null);
+      sw.panel.hittest = false; sw.panel.style.marginRight = '10px';
       var t = lbl(r, 'Keep between demos', S.value, 13); t.hittest = false;
       t.style.verticalAlign = 'center'; t.style.whiteSpace = 'nowrap';
       attachTip(r, 'Carries ' + whatItKeeps + ' into the next demo you load. Off, each new demo '
         + 'starts from the defaults.');
       function paint() {
-        box.style.backgroundColor = ui ? '#35cc59ff' : S.clear;
-        box.style.border = '1px solid ' + (ui ? '#35cc59ff' : (hot ? '#ffffff66' : '#ffffff40'));
-        mark.visible = ui;
+        sw.set(ui);
+        sw.hot(hot);
       }
       r.__hoverPaint = function () { hot = !!r.__hot; paint(); };
       r.SetPanelEvent('onactivate', function () {
@@ -1514,36 +1627,59 @@ R"CFJS(
     }
 
     // ---- the option grid -----------------------------------------------------------------
-    // A pick-one where EVERY OPTION IS ON SCREEN: the name in the label column, the options as
-    // wrapping cells beside it. items: [[key, caption], ...]. Returns { row, btns, sync(key) }.
-    // `perRow` is kept for the signature; the cells wrap to whatever the pane has room for.
+    // A pick-one where EVERY OPTION IS ON SCREEN: the name on its own line, the options under it
+    // in equal cells across the row's full width (2026-10 sidebar cleanup). The column count is
+    // `perRow`, reduced until the longest caption fits a cell, so no caption is ever cut.
+    // items: [[key, caption], ...]. Returns { row, btns, sync(key) }.
     function optionGrid(parent, label, items, perRow, tip, onPick, font) {
-      var r = mk('Panel', parent); r.hittest = false; r.hittestchildren = true;
-      r.style.flowChildren = 'right'; r.style.width = '100%';
-      r.style.marginTop = (UI.line.gap + 1) + 'px';
-      r.style.paddingLeft = UI.line.padH + 'px';
+      var r = mk('Panel', parent); r.hittest = true; r.hittestchildren = true;
+      r.style.flowChildren = 'down'; r.style.width = '100%';
+      r.style.marginTop = UI.line.gap + 'px';
+      r.style.paddingLeft = UI.line.padH + 'px'; r.style.paddingRight = UI.line.padH + 'px';
+      r.style.paddingTop = '6px'; r.style.paddingBottom = '3px';
+      r.style.borderRadius = '3px';
+      trans(r, 'background-color, border-color');
       endTileLine(parent);
       var cap = lbl(r, label, S.label, 13);
-      cap.style.width = UI.line.label + 'px'; cap.style.whiteSpace = 'nowrap';
-      cap.style.textOverflow = 'ellipsis'; cap.style.paddingTop = '5px';
+      cap.style.width = '100%'; cap.style.whiteSpace = 'normal';
+      cap.style.marginBottom = '5px';
+      hoverable(r, paintTile);
       cap.hittest = false;
       if (tip) attachTip(r, tip);
       var cells = mk('Panel', r); cells.hittest = false; cells.hittestchildren = true;
-      cells.style.flowChildren = 'right-wrap'; cells.style.width = 'fill-parent-flow(1.0)';
-      cells.style.marginLeft = UI.line.colGap + 'px';
-      var btns = {};
+      cells.style.flowChildren = 'right-wrap'; cells.style.width = '100%';
+      var longest = 0;
+      for (var li = 0; li < items.length; li++) longest = Math.max(longest, cfgCaptionW(items[li][1]));
+      var btns = {}, order = [];
+      // Column count and cell width follow the live pane width (cfgRelayout), not the width the
+      // script was built against.
+      function layout() {
+        var inner = cfgPaneInnerW();
+        var n = Math.max(1, Math.min(perRow || items.length, Math.floor((inner + UI.line.cellGap) / (longest + UI.line.cellGap))));
+        // Each cell carries a 1px border on both sides outside its width, so the row that
+        // exactly fills the pane wraps one cell short. Two pixels per cell keep the last one up.
+        var cellW = Math.floor((inner - UI.line.cellGap * (n - 1)) / n) - 2;
+        for (var k = 0; k < order.length; k++) {
+          order[k].style.width = cellW + 'px';
+          order[k].style.marginRight = ((k + 1) % n === 0 ? 0 : UI.line.cellGap) + 'px';
+        }
+      }
       for (var i = 0; i < items.length; i++) (function (key, caption, i) {
         var b = mk('Panel', cells);
-        b.style.marginRight = '4px'; b.style.marginBottom = '4px';
+        order.push(b);
+        b.style.marginBottom = UI.line.cellGap + 'px';
         b.style.paddingTop = '5px'; b.style.paddingBottom = '5px';
-        b.style.paddingLeft = '10px'; b.style.paddingRight = '10px';
+        b.style.paddingLeft = '4px'; b.style.paddingRight = '4px';
         b.style.borderRadius = '3px';
         var l = lbl(b, caption, S.label, font || 12);
         l.hittest = false; l.style.fontWeight = 'bold'; l.style.whiteSpace = 'nowrap';
+        l.style.horizontalAlign = 'center';
         b.__grid = true;
         makeInteractive(b, l, function () { onPick(key, i); }, { fg: S.label });
         btns[key] = b;
       })(items[i][0], items[i][1], i);
+      layout();
+      cfgRelayoutHooks.push(layout);
       return {
         row: r, btns: btns, label: cap,
         sync: function (key) { for (var k in btns) setBtnOn(btns[k], k === key, S.accent); }

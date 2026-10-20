@@ -295,11 +295,17 @@ R"EDJS(
     // ===================== FRAMING ======================================
     // The drag is driven from the C++ OS-cursor pipe: RELATIVE and damped, so a 512-unit offset
     // is placeable instead of ~5 units per pixel.
-    var folFrameSec = edCard(inspectorBody, 'FRAMING', { edge: S.accent, rail: { tab: 'follow', key: 'fframe', group: 'Shot' } });
-    folFrameSec.__headerReset(function () { cmd('mirv_filmmaker follow reset framing'); });
-    var folFramingPage = folFrameSec;
+    // ONE card for the shot (2026-10 sidebar cleanup): FRAMING and TRACKING as its two sub-tabs,
+    // one Reset for both in the header.
+    var folFrameSec = edCard(inspectorBody, 'FRAMING & TRACKING', { edge: S.accent, rail: { tab: 'follow', key: 'fshot', group: 'Shot' } });
+    folFrameSec.__headerReset(function () {
+      cmd('mirv_filmmaker follow reset framing');
+      cmd('mirv_filmmaker follow reset tracking');
+    });
+    var folFramingPage = folFrameSec.__page('Framing');
     var folFramingNote = edNote(folFramingPage, '');
     folFramingNote.style.marginTop = '0px'; folFramingNote.style.marginBottom = '2px';
+    edSubHead(folFramingPage, 'Offset');
     var xformSliders = [];
     function folTile(parent, sink, name, lo, hi, decimals, unit, getVal, command, color, tip) {
       var handle = edValueTile(parent, {
@@ -319,6 +325,7 @@ R"EDJS(
     folTile(folFramingPage, xformSliders, 'Off Z', -256, 256, 1, 'u',
       function (f) { return f.offset ? f.offset[2] : 0; }, 'offsetz', S.axis[2],
       'Lock-on: world height aim offset. Attached: up / down in the mount axes.');
+    edSubHead(folFramingPage, 'Rotation');
     folTile(folFramingPage, xformSliders, 'Pitch', -180, 180, 0, '°',
       function (f) { return f.rotation ? f.rotation[0] : 0; }, 'rotpitch', S.axis[3],
       'Camera pitch relative to the target.');
@@ -328,6 +335,7 @@ R"EDJS(
     folTile(folFramingPage, xformSliders, 'Roll', -180, 180, 0, '°',
       function (f) { return f.rotation ? f.rotation[2] : 0; }, 'rotroll', S.axis[5],
       'Camera roll relative to the target.');
+    edSubHead(folFramingPage, 'Lens');
     folTile(folFramingPage, xformSliders, 'FOV', 1, 170, 0, '',
       function (f) { return f.fov || 90; }, 'fov', S.axis[6],
       'Field of view for the follow camera.');
@@ -335,12 +343,12 @@ R"EDJS(
     // ===================== TRACKING =====================================
     // Pages Aim / On death (Docs/features/camera-editor-feature.md). Attached is a rigid mount, so only Lock-on exposes aim
     // smoothing and prediction.
-    var folTrackSec = edCard(inspectorBody, 'TRACKING', { edge: S.accent, rail: { tab: 'follow', key: 'ftrack', group: 'Shot' } });
-    folTrackSec.__headerReset(function () { cmd('mirv_filmmaker follow reset tracking'); });
-    var folTrackPage = folTrackSec.__page('Aim');
-    var folDeathPage = folTrackSec.__page('On death');
+    var folTrackSec = folFrameSec;   // the merged card answers to both names
+    var folTrackPage = folFrameSec.__page('Tracking');
     var folTrackingNote = edNote(folTrackPage, '');
     folTrackingNote.style.marginTop = '2px';
+    edSubHead(folTrackPage, 'Aim');
+    var folDeathPage = folTrackPage;
     function folSettingsGroup(parent) {
       edEndTileLine(parent);
       var p = mk('Panel', parent); p.hittest = false; p.hittestchildren = true;
@@ -374,6 +382,7 @@ R"EDJS(
       return optionBtns[key];
     }
     var folDeathSettings = folSettingsGroup(folDeathPage);
+    edSubHead(folDeathSettings, 'On death');
     var folDeathMode = edModeRow(folDeathSettings, 'On death',
       [['keep', 'Keep following'], ['timed', 'Timed hold']], null,
       function (v) { cmd('mirv_filmmaker follow autodead ' + (v === 'timed' ? 1 : 0)); },
@@ -515,8 +524,8 @@ R"EDJS(
         + (haveTarget && !attachModeOn && f.distance ? ' · ' + Math.round(num(f.distance)) + 'u' : ''));
       var off = f.offset || [0, 0, 0];
       folFrameSec.__note('Offset ' + num(off[0]).toFixed(0) + ' / ' + num(off[1]).toFixed(0) + ' / '
-        + num(off[2]).toFixed(0) + ' · FOV ' + num(f.fov || 90).toFixed(0));
-      folTrackSec.__note((attachModeOn ? 'Rigid mount' : ('Smoothing ' + num(f.look).toFixed(2) + 's'))
+        + num(off[2]).toFixed(0) + ' · FOV ' + num(f.fov || 90).toFixed(0) + ' · '
+        + (attachModeOn ? 'rigid mount' : ('smoothing ' + num(f.look).toFixed(2) + 's'))
         + ' · ' + (f.autoDead ? 'timed hold' : 'keep on death'));
     }
 )EDJS"

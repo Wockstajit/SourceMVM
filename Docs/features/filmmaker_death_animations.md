@@ -1,6 +1,6 @@
 # Death Animations
 
-The **Advanced Ragdolls** card on the CONFIG panel's RAGDOLLS tab. A dying player plays a baked
+The **Death Animations** card on the CONFIG panel's RAGDOLLS tab. A dying player plays a baked
 death animation with limb-clearance corrections for CS2 bodies, and the native ragdoll takes over
 once the clip is over.
 

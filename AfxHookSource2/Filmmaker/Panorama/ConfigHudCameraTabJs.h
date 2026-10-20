@@ -20,6 +20,7 @@ R"CFJS(
 
     // The old Effects page held only three switches, so they are a CHIP ROW at the top of the
     // card now (Docs/features/filmmaker_config_panel.md): visible whichever page is open, and one fewer tab to look under.
+    subHead(svSec, 'View');
     var svFalling = togglePill(svSec, 'Fall pitch',
       'Pitches the camera during a fall.',
       function () { cmd('mirv_filmmaker smoothview falling toggle'); });
@@ -31,8 +32,9 @@ R"CFJS(
       'Barrel-distortion wide-angle lens pass.',
       function () { cmd('mirv_filmmaker fisheye toggle'); });
 
-    var svPageBreathing = svSec.__page('Breathing');
-    var svPageTilt = svSec.__page('Tilt');
+    // ONE page, grouped (2026-10 sidebar cleanup): thirteen rows fit the pane without paging.
+    var svPageBreathing = svSec.__group('Breathing');
+    var svPageTilt = svSec.__group('Tilt');
 
     // ---- BREATHING ----
     var svHealthSway = togglePill(svPageBreathing, 'Health Sway',
@@ -82,6 +84,7 @@ R"CFJS(
     var hhToggle = hhSec.__headerPill(
       function () { cmd('mirv_filmmaker handheld toggle'); },
       'Adds natural handheld camera movement.');
+    subHead(hhSec, 'General');
     var hhVmToggle = togglePill(hhSec, 'Decouple Viewmodel',
       'Keeps the weapon independent from handheld movement.',
       function () { cmd('mirv_filmmaker handheld viewmodel toggle'); });
@@ -91,9 +94,9 @@ R"CFJS(
     var hhCenterLock = sliderRow(hhSec, { label: 'Lock Strength', tip: 'How strongly the recorded aim is pulled back to screen centre, so added motion never hides the action.',
       cmd: 'mirv_filmmaker handheld centerlockpct', min: 0, max: 100 });
 
-    var hhPageMovement = hhSec.__page('Movement');
-    var hhPageCurves = hhSec.__page('Curves');
-    var hhPageDetail = hhSec.__page('Detail');
+    var hhPageMovement = hhSec.__group('Movement');
+    var hhPageCurves = hhSec.__group('Curves');
+    var hhPageDetail = hhSec.__group('Detail');
 
     // ---- MOVEMENT ----
     var hhDrift = sliderRow(hhPageMovement, { label: 'Drift', tip: 'Slow sway, jitter and tremble, as if someone is holding the camera.', cmd: 'mirv_filmmaker handheld drift', offAtZero: true });
@@ -366,8 +369,8 @@ R"CFJS(
 
     // Two pages, so neither is a wall of sliders: WEAPON is the gun's own kick, CAMERA SHAKE is
     // how much of that kick reaches the view.
-    var wrPageWeapon = wrSec.__page('Weapon');
-    var wrPageShake = wrSec.__page('Camera Shake');
+    var wrPageWeapon = wrSec.__group('Weapon');
+    var wrPageShake = wrSec.__group('Camera Shake');
 
     // ---- CAMERA SHAKE ----
     // SHARES OF the kick set on the Weapon page, not extra kick: what reaches the screen is
@@ -639,8 +642,8 @@ R"CFJS(
       'The gun sways as the player moves, lags and rotates behind the aim, and breathes at rest. Moves the weapon, not the view.');
 
     // Nine values split into two pages (Docs/features/filmmaker_config_panel.md): WALK is the gait, LOOK is the aim.
-    var wbPageWalk = wbSec.__page('Walk');
-    var wbPageLook = wbSec.__page('Look');
+    var wbPageWalk = wbSec.__group('Walk');
+    var wbPageLook = wbSec.__group('Look');
     var wbAmount = sliderRow(wbPageWalk, { label: 'Amount', tip: 'Master intensity for everything in this card. CS2 adds a little movement of its own underneath.', cmd: 'mirv_filmmaker weaponbob amount',
       min: 0, max: 150, unit: '%', offAtZero: true });
     var wbSway = sliderRow(wbPageWalk, { label: 'Sway', tip: 'How far the gun travels: the side-to-side, up-down and in-out motion of the walk cycle.', cmd: 'mirv_filmmaker weaponbob sway',

@@ -62,10 +62,10 @@ where they are built in game:
 
 | Surface | What it covers |
 |---|---|
-| Config Panel | CAMERA / EFFECTS / RAGDOLLS, all four EFFECTS sub-tabs, every slider, the RESET footer |
-| Camera Editor | Workspace chrome, Path + Follow inspectors, gear settings menu |
+| Config Panel | CAMERA / EFFECTS / ENVIRONMENT / RAGDOLLS, every card as one grouped page, every slider and switch row, the RESET footer |
+| Camera Editor | Workspace chrome, Path (camera list rail, key strip) + Follow + Scene Keys inspectors, gear settings menu |
 | Render Workspace | Range & Camera / Passes / Output tabs, START RENDER, running-job state |
-| Key Editor | Selected camera key: SELECTED CAMERA / TRANSFORM / LENS / PATH / SHORTCUTS |
+| Key Editor | The selected camera's card: nav, This camera, Lens, Curve, Speed |
 | Customize Player | Agent, weapon skin, knife and glove pickers for the selected player |
 | Camera Timeline | The floating bar `camtl open` puts over the HUD: transport, markers, shake menu, speed scrubber (it is never docked; playback Loop controls stay on the Regular Timeline) |
 | Timeline (`grapheditor`) | The editor with its TIMELINE tab up: camera and scene layers, KEYFRAMES / GRAPH, render range, key and property menus, Camera shake row. `scenekeys macro golden` adds scene layers; camera graph verbs are simulated in `shim/commands.js` |
@@ -84,7 +84,7 @@ not stand up, so they build very little here.
 The director keys work in the browser, mirroring `MovieMode::OnKey` (a hand-written table in
 `app.js`, each line citing the branch it follows): **F8** blackout, **Esc** closes the marker card
 / the render workspace / the editor / Config in that order, **Space** plays the path when a path
-editor is up and pauses the demo otherwise, **Left / Right** skip 15 s (a scrub inside the path
+editor is up and pauses the demo otherwise, **Left / Right** skip 5 s (a scrub inside the path
 range when the camera timeline is up), **G** toggles the UI cursor, **K** places a marker, **L**
 deletes the selected one, **J** arms / plays / stops the path preview, **Ctrl+Z / Ctrl+Shift+Z**
 undo / redo on whichever curve surface is open.
@@ -176,7 +176,7 @@ as a dropped binding in that script's report instead of a mockup that silently l
   around it is black, as on screen. Drop a `backdrop.jpg` next to `index.html` for a real capture;
   without one it is a gradient.
 - The 3D character previews (Customize Player, and the per-player death animation picker under
-  RAGDOLLS > Advanced Ragdolls > PER-PLAYER ANIMATIONS) are CS2's native MapPlayerPreviewPanel in
+  RAGDOLLS > Death Animations > PER-PLAYER ANIMATIONS) are CS2's native MapPlayerPreviewPanel in
   game. `shim/preview3d.js` stands in for it with three.js: the agent is the game's own model,
   exported from pak01 by the preview server the first time it is shown
   (`assets/models/agents/models/<agent>/<agent>.glb`, `lib/vrf.mjs`), and a death clip is the

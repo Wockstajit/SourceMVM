@@ -77,9 +77,11 @@ function harness(withLighting = false) {
 
   function section(parent, title, collapsible, startOpen, persistKey, edgeColor) {
     const card = {
-      ...panel(), title, persistKey, edgeColor, note: '', resets: [], pages: [],
+      ...panel(), title, persistKey, edgeColor, note: '', resets: [], pages: [], groups: [],
       __card: panel(),
       __page(head) { const pg = panel(); pg.head = head; pg.__note = () => {}; card.pages.push(pg); return pg; },
+      // A group is a divider plus a panel on the card's one page (2026-10 sidebar cleanup).
+      __group(head) { const g = panel(); g.head = head; g.__note = () => {}; card.groups.push(g); return g; },
       __setPage(i) { card.selectedPage = i; }, __pageCount() { return card.pages.length; },
       __note(text) { card.note = text === undefined || text === null ? '' : String(text); },
       __setOpen() {}, __getOpen() { return true; }, __headerHost() { return panel(); },
@@ -162,7 +164,7 @@ function harness(withLighting = false) {
     paintBtn() {}, cfgDropLayer: panel, cfgDropdownClose() {}, cfgValid: () => true, cfgConfirm() {},
     cfgSelectCard() {}, cfgDropOpen: null,
     // The outliner's right-click menu, its Delete/Ctrl+D hook and its group dropdown.
-    keyHooks: [], cfgMenu() {}, cfgRails: { environment: { sel: 'env.scene' } },
+    keyHooks: [], cfgMenu(items) { context.__menu = items; }, cfgRails: { environment: { sel: 'env.scene' } },
     dropdownRow: () => ({ row: panel(), setItems() {}, sync() {}, close() {} }),
     resetFooter(card, resolve) { context.__footerResolve = resolve; return { paint() {}, disarm() {}, btn: panel() }; },
     configWindowBlur() { context.root.SetAttributeString('textcapture', '0'); },
@@ -227,15 +229,20 @@ function harness(withLighting = false) {
 }
 
 
-test('six task cards and concise pages', () => {
+test('seven task cards, one page each with groups as dividers', () => {
   const h=harness();h.render();
-  assert.deepEqual(h.cards.map(c=>c.title), ['LOOKS','SKY','LIGHTING','FOG','WEATHER','SCENE OBJECTS']);
-  assert.deepEqual(h.card('LOOKS').pages.map(p=>p.head),['Presets','Color','Lens']);
-  assert.deepEqual(h.card('WEATHER').pages.map(p=>p.head),['Weather','Ground','Lightning']);
-  // The redesigned pane (handoff option 2a): two tabs, the lights added from a row above them and
-  // edited in the Outliner's card, presets in the header's menu.
-  assert.deepEqual(h.card('SCENE OBJECTS').pages.map(p=>p.head),['Outliner','Assets & Lights']);
-  for(const kind of ['+ Point','+ Spot','+ Area']) assert.ok(h.buttons.some(b=>b.__lbl.text===kind),kind);
+  assert.deepEqual(h.cards.map(c=>c.title), ['LOOKS','SKY','LIGHTING','FOG','WEATHER','SCENE OBJECTS','ROUND HEAT MAP']);
+  // 2026-10 sidebar cleanup: a card is ONE page with group headings; sub-tabs stay only where a
+  // page would not fit the pane (Scene Objects).
+  assert.deepEqual(h.card('LOOKS').groups.map(p=>p.head),['Presets','Color','Lens']);
+  assert.equal(h.card('LOOKS').pages.length,0);
+  assert.deepEqual(h.card('WEATHER').groups.map(p=>p.head),['Weather','Ground','Lightning']);
+  assert.deepEqual(h.card('SCENE OBJECTS').pages.map(p=>p.head),['Outliner','Library']);
+  // Lights and cameras are added from ONE header menu; the four add buttons are gone.
+  assert.equal(h.card('SCENE OBJECTS').action.__lbl.text,'+ Add');
+  for(const kind of ['+ Point','+ Spot','+ Area']) assert.ok(!h.buttons.some(b=>b.__lbl.text===kind),kind+' is gone');
+  // The scene preset menu lives in the LOOKS header now.
+  assert.ok(h.context.envPresetBtn,'preset button exists');
   assert.equal(h.sent.length,0,'rendering alone changes no state');
 });
 test('Sun page sends independent light and shadow commands and respects takeover',()=>{
@@ -274,7 +281,11 @@ test('weather percent and wind translate to atomic backend edits',()=>{
   assert.equal(h.sent.at(-1),'mirv_filmmaker environment weather set count 3300');
   h.slider('Wind direction').opts.onChange(90);
   assert.equal(h.sent.at(-1),'mirv_filmmaker environment weather wind 40 90');
-  h.press('+ Point');assert.equal(h.sent.at(-1),'mirv_filmmaker environment add point');
+  h.card('SCENE OBJECTS').action.click();
+  const pointItem=h.context.__menu.find(i=>i&&i[0]==='Point light');
+  assert.ok(pointItem,'the + Add menu offers a point light');
+  assert.equal(JSON.stringify(h.context.__menu.filter(Boolean).map(i=>i[0])),JSON.stringify(['Point light','Spot light','Area light','Camera']));
+  pointItem[1]();assert.equal(h.sent.at(-1),'mirv_filmmaker environment add point');
   assert.equal(h.card('SCENE OBJECTS').selectedPage,0,'a new light opens on the Outliner');
 });
 const prop={id:14,kind:'box',asset:'',enabled:true,position:[100,200,300],angles:[10,20,30],
@@ -427,16 +438,16 @@ test('only the Lighting switch takes over the map lighting', () => {
 test('round heat map switch drives the heatmap command and shows the round', () => {
   const h = harness();
   h.render();
-  const sw = h.toggle('Round heat map');
+  // Its own card now (2026-10 sidebar cleanup): the switch is the card's header master.
+  const sw = h.card('ROUND HEAT MAP').pill;
   assert.equal(sw.on, false);
-  assert.equal(h.context.hmMore.visible, false, 'its options wait for the switch');
   assert.equal(h.sent.length, 0, 'rendering alone changes no state');
   sw.click();
   assert.deepEqual(h.sent, ['mirv_filmmaker heatmap on quiet']);
 
   h.render([], 0, { heatmap: { on: true, radius: 2000, teams: 'ct', state: 'ready', round: 4, rounds: 18, players: 0, error: '' } });
   assert.equal(sw.on, true);
-  assert.equal(h.context.hmMore.visible, true);
+  assert.equal(h.card('ROUND HEAT MAP').note, 'CT · 2000u');
   assert.equal(h.slider('Area').value, 2000);
   const teams = h.modes.find((m) => m.label === 'Players');
   assert.equal(teams.value, 'ct');

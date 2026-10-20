@@ -145,6 +145,8 @@
       // not just its tick and lens, so mirror the whole marker rather than a subset.
       sel: Object.assign({}, MARKERS[2], { isLast: false }),
       markers: clone(MARKERS),
+      // Every camera key's tick, in order: the Path rail lists the cameras with their ticks.
+      keyTicks: MARKERS.map(function (m) { return m.tick; }),
       // Per-keyframe shake is an ARRAY of {i, s} (marker index + style key), not a map -- the
       // timeline builds its "has a shake" dots by mapping over it.
       shakes: [{ i: 3, s: 'handheld' }],

@@ -238,33 +238,38 @@ R"CLRJS(
     var cfgColorFields = {};   // by title, for the $.ConfigHud.color() automation helper
     function colorField(parent, title, read, write, scale) {
       var rgb = [255, 255, 255], max = scale || 1, identity, hasIdentity = false;
+      // A COLOUR BAR (2026-10 sidebar cleanup): in the one-line row grammar, the whole control
+      // column IS the colour, crossed by the custom mark, with the hex in the value column. A
+      // single colour field is always a custom colour, which is what the mark says.
       var line = row(parent); line.style.paddingLeft = UI.line.padH + 'px';
-      line.style.marginTop = (UI.line.gap + 1) + 'px';
+      line.style.paddingRight = UI.line.padH + 'px';
+      line.style.minHeight = UI.line.h + 'px'; line.style.marginTop = UI.line.gap + 'px';
+      line.style.borderRadius = '3px'; line.hittest = true;
+      trans(line, 'background-color, border-color');
       var caption = lbl(line, title, S.label, 13); caption.hittest = false;
       caption.style.width = UI.line.label + 'px'; caption.style.verticalAlign = 'center';
-      caption.style.whiteSpace = 'nowrap'; caption.style.textOverflow = 'ellipsis';
-      var field = mk('Panel', line); field.hittest = true;
+      caption.style.whiteSpace = 'normal'; caption.style.paddingTop = '4px'; caption.style.paddingBottom = '4px';
+      var field = mk('Panel', line); field.hittest = false;
       field.style.flowChildren = 'right'; field.style.width = 'fill-parent-flow(1.0)';
-      field.style.height = '32px'; field.style.marginLeft = UI.line.colGap + 'px';
-      field.style.paddingTop = '3px'; field.style.paddingBottom = '3px';
-      field.style.paddingLeft = '3px'; field.style.paddingRight = '6px';
+      field.style.height = '20px'; field.style.marginLeft = UI.line.colGap + 'px';
+      field.style.verticalAlign = 'center';
       field.style.borderRadius = '3px'; field.style.backgroundColor = '#0c0e12ff';
       trans(field, 'border-color', 0.08);
-      var strip = mk('Panel', field); strip.hittest = false;
-      strip.style.width = 'fill-parent-flow(1.0)'; strip.style.height = '100%';
-      strip.style.borderRadius = '2px'; strip.style.boxShadow = 'inset 0px 0px 0px 1px #ffffff1f';
-      var hex = lbl(field, '#FFFFFF', S.label, 12); hex.hittest = false;
+      var strip = field;
+      // The bar is as wide as the control column, so the mark follows the inspector width.
+      function markW() { return cfgCtlW() - UI.line.value - UI.line.colGap; }
+      var mark = cfgCustomMark(field, markW(), 20);
+      if (typeof cfgRelayoutHooks !== 'undefined') cfgRelayoutHooks.push(function () { mark.fit(markW(), 20); });
+      var hex = lbl(line, '#FFFFFF', S.value, 11); hex.hittest = false;
       hex.style.fontWeight = 'bold'; hex.style.fontFamily = S.fontMonodigit;
-      hex.style.verticalAlign = 'center'; hex.style.marginLeft = '8px';
-      var chev = lbl(field, '▾', S.muted, 12); chev.hittest = false;
-      chev.style.verticalAlign = 'center'; chev.style.marginLeft = '8px';
-      chev.style.transformOrigin = '50% 50%';
+      hex.style.width = UI.line.value + 'px'; hex.style.textAlign = 'right';
+      hex.style.verticalAlign = 'center'; hex.style.marginLeft = UI.line.colGap + 'px';
       function paint() {
         var open = picker.visible();
         strip.style.backgroundColor = rgbHex(rgb);
         hex.text = cfgHex6(rgb);
-        field.style.border = '1px solid ' + (open ? (S.accent.substring(0, 7) + '99') : (field.__hot ? '#ffffff40' : '#ffffff1f'));
-        chev.style.transform = open ? 'rotateZ(180deg)' : 'rotateZ(0deg)';
+        paintTile(line);
+        field.style.border = '1px solid ' + (open ? (S.accent.substring(0, 7) + '99') : (line.__hot ? '#ffffff66' : '#ffffff26'));
       }
       var picker = colorPicker(parent, title, rgb, function (value) {
         paint(); write(value.map(function (v) { return +(v / 255 * max).toFixed(4); }));
@@ -272,8 +277,8 @@ R"CLRJS(
       picker.owner.onClose = paint;
       picker.onOpen = paint;
       cfgColorFields[title] = picker;
-      hoverable(field, paint);
-      field.SetPanelEvent('onactivate', function () { picker.show(); });
+      hoverable(line, paint);
+      line.SetPanelEvent('onactivate', function () { picker.show(); });
       renderHooks.push(function () {
         var data = read(); if (!data) { picker.hide(); return; }
         if (!hasIdentity) { identity = data.id; hasIdentity = true; }

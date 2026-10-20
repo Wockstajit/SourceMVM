@@ -38,8 +38,9 @@ objects themselves, and their authored world pose, stay in the map's Environment
 ## Using it
 
 Select a light, mesh or camera in **CONFIG > ENVIRONMENT > Scene Objects > Outliner**. Its card has a
-**RIG** section under the light or mesh inspector. **+ Camera** next to + Point / + Spot / + Area adds
-a camera object 160 units ahead of the view, facing the same way, with the view's field of view.
+**RIG** section under the light or mesh inspector. **Camera** in the card's **+ Add** menu (beside
+the point, spot and area lights) adds a camera object 160 units ahead of the view, facing the same
+way, with the view's field of view.
 
 | Control | What it does |
 | --- | --- |

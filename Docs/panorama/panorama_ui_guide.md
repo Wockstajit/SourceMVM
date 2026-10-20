@@ -40,6 +40,15 @@ Every concept below has shipped. The concrete shape:
   groups; selections and supported options stay visible rather than hiding behind dead dropdowns.
 - Config and Camera Editor inspectors use a rail and one selected pane. Scroll vertically within
   the pane; never scroll the whole workspace sideways or move pinned headers and footers.
+- The rail is 180px wide with 52px rows whose title and summary wrap (`UI.rail` in
+  `PanoramaUiMetricsJs.h`). A card is one page with group headings (`card.__group`); sub-tabs stay
+  only where a page would not fit the pane. Every control is one row in the same box (label 130,
+  control, value 66). Booleans are square switches in that row, never chips.
+- Nothing truncates. A segment or option grid whose captions do not fit beside the label drops
+  under it at full width; buttons size to their caption; labels wrap. Fit beats column alignment.
+- A single colour field is a full-width bar of that colour with the diagonal custom mark; a
+  palette's custom chip is wider and carries the same mark. Icons come from one outline set
+  (Lucide, compiled into the FX pack as `panorama/images/sourcemvm/ol_*`), never drawn from panels.
 - Mouse-wheel input scrolls only. Value drags are relative to the value at press, never jump to
   the click, and retain their finer Shift gain. Every control exposes its tooltip over the control.
 - Card actions, Reset and master switches remain available in the pane header. Selecting a rail

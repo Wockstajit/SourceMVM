@@ -119,6 +119,7 @@ inline const char* kCameraEditorJs = R"EDJS(
     // first state arrives. The render already re-applies responsiveInspectorW() to the column,
     // the fades, the footer and the tab bar every frame, so changing this moves all of them.
     var edInspW = INSPECTOR_W;
+    var edLayoutW = 0;   // the width the render last applied; rows re-fit when it changes
     function responsiveInspectorW(screenW) {
       var w = edInspW > 0 ? edInspW : INSPECTOR_W;
       // Same cap and floor as InspectorWidth.h, so the column, the preview and the docked bar
@@ -619,6 +620,43 @@ R"EDJS(
     edRailHost.style.paddingRight = UI.rail.padR + 'px';
     edRailHost.style.borderRight = '1px solid #ffffff12';
     edRailHost.style.overflow = 'clip';
+    // The rail SCROLLS ON ITS OWN when its rows outgrow the column: the Path rail carries one row
+    // per camera plus the add button, and a long path put the later cameras under the clip with
+    // no way to reach them. A wheel notch while the pointer is over the rail moves the active
+    // tab's rows (edRailWheel, from api.wheel); over the pane it scrolls the pane as before. The
+    // pointer is known from the host's own hover (it bubbles up from the rows) or any hot row.
+    var edRailHot = false, edRailScrollY = 0, edRailAppliedY = -1;
+    edRailHost.hittest = true;
+    edRailHost.SetPanelEvent('onmouseover', function () { edRailHot = true; });
+    edRailHost.SetPanelEvent('onmouseout', function () { edRailHot = false; });
+    function edRailPointerOver() {
+      if (edRailHot) return true;
+      var r = edRails[edActiveTab];
+      if (!r) return false;
+      for (var k in r.items) { var it = r.items[k]; if (it.row && it.row.__hot) return true; }
+      return false;
+    }
+    function edRailApplyScroll() {
+      var r = edRails[edActiveTab];
+      if (!r || !r.host) return;
+      var sy = inspector.actualuiscale_y || 1;
+      var viewH = (edRailHost.actuallayoutheight || 0) / sy, contH = (r.host.actuallayoutheight || 0) / sy;
+      var maxY = contH > viewH ? (contH - viewH + 8) : 0;
+      if (edRailScrollY > maxY) edRailScrollY = maxY;
+      if (edRailScrollY < 0) edRailScrollY = 0;
+      var px = Math.round(edRailScrollY);
+      if (px !== edRailAppliedY) { edRailAppliedY = px; r.host.style.marginTop = (-px) + 'px'; }
+    }
+    // Takes the notch when the pointer is over a rail that overflows; false hands it to the pane.
+    function edRailWheel(n) {
+      var r = edRails[edActiveTab];
+      if (!r || !r.host || !edRailPointerOver()) return false;
+      var sy = inspector.actualuiscale_y || 1;
+      if (((r.host.actuallayoutheight || 0) / sy) <= ((edRailHost.actuallayoutheight || 0) / sy)) return false;
+      edRailScrollY -= n * 90;
+      edRailApplyScroll();
+      return true;
+    }
     scrollView = mk('Panel', edBodyRow);
     scrollView.style.width = 'fill-parent-flow(1.0)';
     scrollView.style.height = '100%';
@@ -630,6 +668,30 @@ R"EDJS(
     scrollWrap.style.height = 'fit-children';
     scrollWrap.style.transitionDuration = '0s';   // never animate the scrolled subtree
     var inspectorBody = scrollWrap;
+
+    // ---- the key strip (PATH tab) -----------------------------------------------------------
+    // The shortcuts, pinned under the body above RENDER (2026-10 sidebar cleanup), in the order
+    // the work happens: K place, J arm the path, then the rest. Checked against MovieMode.cpp:
+    // arrows skip kSkipSeconds (5), Shift+wheel is speed, Ctrl+wheel is FOV, X / Z roll.
+    // Sized to be read at a glance from the game: 13px, key caps with real padding, the words in
+    // the label tier. (The first cut was 11px and muted, and could barely be seen over the map.)
+    var edKeyStrip = mk('Panel', inspector); edKeyStrip.hittest = false;
+    edKeyStrip.style.flowChildren = 'right-wrap'; edKeyStrip.style.width = '100%';
+    edKeyStrip.style.marginTop = '8px'; edKeyStrip.style.paddingTop = '10px'; edKeyStrip.style.paddingBottom = '2px';
+    edKeyStrip.style.borderTop = '1px solid #ffffff14';
+    [['K', 'place'], ['J', 'arm path'], ['L', 'delete'], ['F', 'edit'], ['Space', 'play'], ['← →', '±5 s'],
+     ['Shift+Scroll', 'move speed'], ['Ctrl+Scroll', 'FOV'], ['X / Z', 'roll right / left']].forEach(function (d) {
+      var item = mk('Panel', edKeyStrip); item.hittest = false;
+      item.style.flowChildren = 'right'; item.style.marginRight = '16px'; item.style.marginBottom = '7px';
+      var k = mk('Panel', item); k.hittest = false;
+      k.style.paddingLeft = '8px'; k.style.paddingRight = '8px'; k.style.paddingTop = '3px'; k.style.paddingBottom = '3px';
+      k.style.border = '1px solid #ffffff40'; k.style.borderRadius = '3px'; k.style.marginRight = '7px';
+      k.style.backgroundColor = '#ffffff10';
+      k.style.verticalAlign = 'center';
+      var kl = lbl(k, d[0], S.value, 13); kl.hittest = false; kl.style.fontWeight = 'bold'; kl.style.whiteSpace = 'nowrap';
+      var w = lbl(item, d[1], S.label, 13); w.hittest = false; w.style.verticalAlign = 'center'; w.style.whiteSpace = 'nowrap';
+    });
+    edKeyStrip.visible = false;
 
 )EDJS"
 #include "CameraEditorFollowInspectorJs.h"
@@ -1146,11 +1208,22 @@ R"EDJS(
       var pathMode = !followMode && !sceneMode;
       edApplyRails(inspectorMode);
       edFollowBar.visible = followMode;
+      edKeyStrip.visible = pathMode;
       styleTab(followTab, followMode, workspaceAccent);
       styleTab(pathTab, pathMode, workspaceAccent);
       styleTab(sceneTab, sceneMode, workspaceAccent);
-      // A tab change starts the pane at its top.
-      if (inspectorTabSeen !== inspectorMode) { inspectorTabSeen = inspectorMode; edScrollY = 0; }
+      // A tab change starts the pane at its top, and the new tab ARRIVES: the rail, the tab's
+      // selected card and (on Path) the key strip rise over the shared MO_TAB. Once per real
+      // change, never per frame.
+      if (inspectorTabSeen !== inspectorMode) {
+        inspectorTabSeen = inspectorMode; edScrollY = 0;
+        edRailScrollY = 0; edRailAppliedY = -1;   // each tab's rail starts at its top
+        moEnter(edRailHost, UI.mo.rise, MO_TAB);
+        var tr = edRails[inspectorMode];
+        if (tr && tr.sel && tr.items[tr.sel]) moEnter(tr.items[tr.sel].card, UI.mo.rise, MO_TAB);
+        if (pathMode) moEnter(edKeyStrip, UI.mo.rise, MO_TAB);
+        if (followMode) moEnter(edFollowBar, UI.mo.rise, MO_TAB);
+      }
       var bm = st.bottomMode || (st.graphExp ? 'timeline' : 'native');
       curBottomMode = bm;
       var regularActive = (bm !== 'timeline'); // 'native' (Regular Timeline)
@@ -1190,6 +1263,7 @@ R"EDJS(
       if (rawW < 16) { rawW = ctx.actuallayoutwidth || 0; rawH = ctx.actuallayoutheight || 0; }
       var rw = rawW / rsx, rh = rawH / rsy;
       var inspectorW = responsiveInspectorW(rw);
+      if (inspectorW !== edLayoutW) { edLayoutW = inspectorW; edRelayout(); }
       edGrip.place(inspectorW);
       inspector.style.width = inspectorW + 'px';
       // RENDER / CUSTOMIZE PLAYER: built once from UI.col.w, so they need re-sizing with the rest.
@@ -1223,6 +1297,7 @@ R"EDJS(
       topFade.visible = footerBg.visible && edScrollY > 1;
       topFade.style.marginTop = edScrollTop() + 'px';
       edApplyScroll();   // re-clamps + re-places the thumb as the column's content changes height
+      edRailApplyScroll();   // same for the rail: fewer cameras means less travel
       if (!finitePositive(rw) || !finitePositive(rh)) {
         hidePreviewLayout();
       } else {
@@ -1406,6 +1481,9 @@ R"EDJS(
       // and that stack is what the wheel has to move when the pointer is over it. It answers false
       // everywhere else, so the column keeps the wheel in every other case.
       try { if ($.GraphExp && $.GraphExp.wheel && $.GraphExp.wheel(n)) return; } catch (e) {}
+      // The rail takes the notch while the pointer is over it and its rows overflow the column.
+      if (edRailWheel(n)) return;
+      // (api.railWheel below scrolls the rail without the pointer test, for automation.)
       // A notch over a value tile was proposed to edit that tile (2% of its range, 0.4% with Shift)
       // rather than scroll -- the original design, superseded by Docs/panorama/panorama_ui_guide.md's
       // scroll-only wheel contract shared with the Config panel.
@@ -1413,6 +1491,14 @@ R"EDJS(
       edApplyScroll();
     };
     // ---- automation hooks ----------------------------------------------------------------
+    // Scroll the active rail by notches without the pointer-over test (netcon cannot hover).
+    api.railWheel = function (notches) {
+      var n = parseInt(notches, 10);
+      if (!isFinite(n) || n === 0) return edRailScrollY;
+      edRailScrollY -= n * 90;
+      edRailApplyScroll();
+      return edRailScrollY;
+    };
     // Same reason as the Config panel's: synthetic mouse input does not reach CS2, and
     // st.uiEditorInspector is only read once during hydration, so the stored setting alone moves
     // nothing on screen.

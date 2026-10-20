@@ -53,8 +53,7 @@ current model stays visible in the Mount dropdown.
 |---|---|
 | Persistent header | Live/Stop, Place/Replace and Clear (Lock-on), Reposition, mode selector, status |
 | Target | Type, candidate selection, Go To, player/source for weapons, mount for Attached, recorded events |
-| Framing | Seven value tiles, explanation of the active mode's axes, Reset framing |
-| Tracking | Applicable mode controls, player death policy, lost-target policy, Reset tracking |
+| Framing & Tracking | One card with two sub-tabs and one Reset for both. FRAMING: seven value rows under Offset, Rotation and Lens, with the active mode's axes explained. TRACKING: the Aim rows, the On death policy and the lost-target policy |
 
 Reposition places the Lock-on camera, or captures the freecam pose relative to the current Attached
 mount. Weapon and grenade selection use the event and candidate lists.

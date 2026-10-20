@@ -124,13 +124,13 @@ R"EDJS(
       edEndTileLine(parent);
       var t = mk('Panel', parent);
       t.style.flowChildren = 'right'; t.style.width = '100%';
-      t.style.height = UI.line.h + 'px'; t.style.marginTop = UI.line.gap + 'px';
+      t.style.minHeight = UI.line.h + 'px'; t.style.marginTop = UI.line.gap + 'px';
       t.style.paddingLeft = UI.line.padH + 'px'; t.style.paddingRight = UI.line.padH + 'px';
       t.style.borderRadius = '3px';
       edTrans(t, 'background-color, border-color');
       var nl = lbl(t, opts.label, S.label, 13);
       nl.hittest = false; nl.style.width = UI.line.label + 'px'; nl.style.verticalAlign = 'center';
-      nl.style.whiteSpace = 'nowrap'; nl.style.textOverflow = 'ellipsis';
+      nl.style.whiteSpace = 'normal'; nl.style.paddingTop = '4px'; nl.style.paddingBottom = '4px';
       var mid = mk('Panel', t); mid.hittest = false;
       mid.style.flowChildren = 'right'; mid.style.width = 'fill-parent-flow(1.0)';
       mid.style.height = '16px'; mid.style.verticalAlign = 'center';
@@ -185,37 +185,102 @@ R"EDJS(
     }
 )EDJS"
 R"EDJS(
-    // A checkbox CHIP: 28px, a 13px box and a 12/700 name. Consecutive chips wrap into one row.
-    // Returns { row, set(on) }.
+    // The square switch (Config's cfgSquareSwitch, same colours): the card header's 42x22 and
+    // the switch row's 34x18. `onClick` null leaves the switch out of the hit path, for a switch
+    // that rides a whole-row click target.
+    function edSquareSwitch(parent, m, onClick) {
+      var p = mk('Panel', parent); p.hittest = !!onClick;
+      p.style.width = m.w + 'px'; p.style.height = m.h + 'px';
+      p.style.borderRadius = '3px'; p.style.verticalAlign = 'center';
+      edTrans(p, 'background-color, border-color', 0.08);
+      var knob = mk('Panel', p); knob.hittest = false;
+      knob.style.width = m.knob + 'px'; knob.style.height = m.knob + 'px';
+      knob.style.borderRadius = '2px'; knob.style.backgroundColor = '#dfe5ecff';
+      knob.style.verticalAlign = 'center'; knob.style.horizontalAlign = 'left';
+      knob.style.marginLeft = Math.floor((m.h - 2 - m.knob) / 2) + 'px';
+      knob.style.transitionProperty = 'transform';
+      knob.style.transitionDuration = '0.12s';
+      knob.style.transitionTimingFunction = 'ease-out';
+      var on = false, hot = false;
+      function paint() {
+        p.style.backgroundColor = on ? (hot ? '#35cc59ff' : '#2bb24cff') : (hot ? '#ffffff26' : '#00000088');
+        p.style.border = '1px solid ' + (on ? '#1c8a3aff' : (hot ? '#ffffff44' : '#ffffff26'));
+        knob.style.transform = 'translateX(' + (on ? m.travel : 0) + 'px)';
+      }
+      if (onClick) {
+        p.SetPanelEvent('onmouseover', function () { hot = true; paint(); });
+        p.SetPanelEvent('onmouseout', function () { hot = false; paint(); });
+        p.SetPanelEvent('onactivate', function () { onClick(); });
+      }
+      paint();
+      return { panel: p, knob: knob, set: function (v) { v = !!v; if (v === on) return; on = v; paint(); },
+               hot: function (h) { h = !!h; if (h === hot) return; hot = h; paint(); } };
+    }
+    // A SWITCH ROW (2026-10 sidebar cleanup): on/off in the same box as a value row -- the name
+    // in the label column, an optional state text in the middle, a 34x18 switch in the value
+    // column. The whole row is the click target. Returns { row, pill, set(on), state(text) }.
     function edSwitchTile(parent, label, tip, onClick) {
-      var line = edChipLine(parent);
-      var c = mk('Panel', line); c.hittest = true;
-      c.style.flowChildren = 'right'; c.style.height = '28px';
-      c.style.paddingLeft = '8px'; c.style.paddingRight = '11px';
-      c.style.marginRight = '6px'; c.style.marginBottom = UI.line.gap + 'px';
+      edEndTileLine(parent);
+      var c = mk('Panel', parent); c.hittest = true;
+      c.style.flowChildren = 'right'; c.style.width = '100%';
+      c.style.minHeight = UI.line.h + 'px'; c.style.marginTop = UI.line.gap + 'px';
+      c.style.paddingLeft = UI.line.padH + 'px'; c.style.paddingRight = UI.line.padH + 'px';
       c.style.borderRadius = '3px';
       edTrans(c, 'background-color, border-color', 0.08);
-      var box = mk('Panel', c); box.hittest = false;
-      box.style.width = '13px'; box.style.height = '13px'; box.style.borderRadius = '2px';
-      box.style.verticalAlign = 'center'; box.style.marginRight = '8px';
-      var mark = lbl(box, '✔', '#0c0e12ff', 9); mark.hittest = false;
-      mark.style.fontWeight = 'bold'; mark.style.horizontalAlign = 'center'; mark.style.verticalAlign = 'center';
-      var tl = lbl(c, label, S.hint, 12); tl.hittest = false;
-      tl.style.fontWeight = 'bold'; tl.style.whiteSpace = 'nowrap'; tl.style.verticalAlign = 'center';
+      var tl = lbl(c, label, S.label, 13); tl.hittest = false;
+      tl.style.width = UI.line.label + 'px'; tl.style.verticalAlign = 'center';
+      tl.style.whiteSpace = 'normal'; tl.style.paddingTop = '4px'; tl.style.paddingBottom = '4px';
+      var stateLbl = lbl(c, '', S.muted, 12); stateLbl.hittest = false;
+      stateLbl.style.width = 'fill-parent-flow(1.0)'; stateLbl.style.textAlign = 'right';
+      stateLbl.style.verticalAlign = 'center'; stateLbl.style.whiteSpace = 'nowrap';
+      stateLbl.style.marginLeft = UI.line.colGap + 'px'; stateLbl.style.marginRight = UI.line.colGap + 'px';
+      var vc = mk('Panel', c); vc.hittest = false;
+      vc.style.width = UI.line.value + 'px'; vc.style.flowChildren = 'right'; vc.style.verticalAlign = 'center';
+      var sw = edSquareSwitch(vc, UI.swSm, null);
+      sw.panel.style.horizontalAlign = 'right';
       var on = false;
       function paint() {
-        var hot = c.__hot || c.__down;
-        c.style.backgroundColor = on ? '#2bb24c1c' : '#ffffff08';
-        c.style.border = '1px solid ' + (hot ? '#ffffff40' : (on ? '#2bb24c80' : '#ffffff1f'));
-        box.style.backgroundColor = on ? '#35cc59ff' : S.clear;
-        box.style.border = '1px solid ' + (on ? '#35cc59ff' : '#ffffff40');
-        mark.visible = on;
-        tl.style.color = on ? S.value : S.hint;
+        edPaintTile(c);
+        sw.hot(!!c.__hot);
+        tl.style.color = on ? S.value : S.label;
       }
       if (tip) c.__tipText = tip;
       edHoverable(c, paint);
       c.SetPanelEvent('onactivate', function () { edPressFlash(c, paint); if (onClick) onClick(); });
-      return { row: c, pill: box, set: function (v) { v = !!v; if (v === on) return; on = v; paint(); } };
+      return { row: c, pill: sw.panel, set: function (v) { v = !!v; if (v === on) return; on = v; sw.set(v); paint(); },
+               state: function (text) { var t = (text == null) ? '' : ('' + text); if (stateLbl.text !== t) stateLbl.text = t; } };
+    }
+    // ---- caption fitting (Config's cfgCaptionsFit, same estimate) ---------------------------
+    // Nothing truncates: captions that do not fit beside the label put the control under it.
+    // The pane width is the column the render actually applied (edLayoutW, from
+    // responsiveInspectorW each frame); INSPECTOR_W is only the build-time default.
+    function edPaneInnerW() {
+      var w = (typeof edLayoutW === 'number' && edLayoutW > 0) ? edLayoutW
+        : ((typeof INSPECTOR_W === 'number' && INSPECTOR_W > 0) ? INSPECTOR_W : UI.col.w);
+      return w - 2 * UI.col.pad - UI.rail.w - UI.rail.gap - 2 * UI.line.padH;
+    }
+    function edCaptionW(text) { return ('' + text).length * UI.line.ch + UI.line.padCell; }
+    // Every segmented cell is the same width, so the widest caption x the count must fit.
+    function edCaptionsFit(items) {
+      var widest = 0;
+      for (var i = 0; i < items.length; i++) widest = Math.max(widest, edCaptionW(items[i][1]));
+      return widest * items.length <= edPaneInnerW() - UI.line.label - UI.line.colGap;
+    }
+    function edStackRow(r, nl, ctl) {
+      r.style.flowChildren = 'down';
+      nl.style.width = '100%'; nl.style.marginBottom = '4px';
+      ctl.style.marginLeft = '0px'; ctl.style.width = '100%';
+    }
+    function edUnstackRow(r, nl, ctl) {
+      r.style.flowChildren = 'right';
+      nl.style.width = UI.line.label + 'px'; nl.style.marginBottom = '0px';
+      ctl.style.marginLeft = UI.line.colGap + 'px'; ctl.style.width = 'fill-parent-flow(1.0)';
+    }
+    // Width-dependent rows register here; the render runs them whenever the applied column
+    // width changes (a drag, the stored width arriving, a smaller screen's clamp).
+    var edRelayoutHooks = [];
+    function edRelayout() {
+      for (var i = 0; i < edRelayoutHooks.length; i++) { try { edRelayoutHooks[i](); } catch (e) {} }
     }
 
     // ---- pick-one strips -------------------------------------------------------------------
@@ -254,46 +319,79 @@ R"EDJS(
         sync: function (key) { for (var k in btns) btnSel(btns[k], k === key); }
       };
     }
-    // A labelled MODE ROW: the 130px label column, then the segmented control filling the rest.
+    // A labelled MODE ROW: the 130px label column, then the segmented control filling the rest,
+    // in the same box as a value row. Captions that do not fit go under the label (edCaptionsFit).
     function edModeRow(parent, label, items, width, onPick, tip, font) {
-      var r = mk('Panel', parent); r.hittest = false; r.hittestchildren = true;
+      var r = mk('Panel', parent); r.hittest = true; r.hittestchildren = true;
       r.style.flowChildren = 'right'; r.style.width = '100%';
-      r.style.marginTop = (UI.line.gap + 1) + 'px';
-      r.style.paddingLeft = UI.line.padH + 'px';
+      r.style.minHeight = UI.line.h + 'px'; r.style.marginTop = UI.line.gap + 'px';
+      r.style.paddingLeft = UI.line.padH + 'px'; r.style.paddingRight = UI.line.padH + 'px';
+      r.style.paddingTop = '3px'; r.style.paddingBottom = '3px';
+      r.style.borderRadius = '3px';
+      edTrans(r, 'background-color, border-color');
       edEndTileLine(parent);
       var nl = lbl(r, label, S.label, 13);
-      nl.style.width = UI.line.label + 'px'; nl.style.whiteSpace = 'nowrap';
-      nl.style.textOverflow = 'ellipsis'; nl.style.verticalAlign = 'center';
-      edTip(nl, tip);
+      nl.style.width = UI.line.label + 'px'; nl.style.whiteSpace = 'normal';
+      nl.style.verticalAlign = 'center'; nl.style.paddingTop = '2px'; nl.style.paddingBottom = '2px';
+      nl.hittest = false;
+      edHoverable(r, edPaintTile);
+      if (tip) r.__tipText = tip;
       var seg = edSegmented(r, items, 'fill-parent-flow(1.0)', onPick, font && font < 13 ? font : 12);
       seg.panel.style.marginLeft = UI.line.colGap + 'px';
+      function layout() {
+        if (edCaptionsFit(items)) edUnstackRow(r, nl, seg.panel); else edStackRow(r, nl, seg.panel);
+      }
+      layout();
+      edRelayoutHooks.push(layout);
       seg.row = r; seg.label = nl;
       return seg;
     }
-    // A pick-one with every option on screen: label column + wrapping cells.
+    // A pick-one with every option on screen: the name on its own line, equal cells under it
+    // across the row (2026-10 sidebar cleanup). `perRow` shrinks until the longest caption fits.
     function edOptionGrid(parent, label, items, perRow, tip, onPick, font) {
-      var r = mk('Panel', parent); r.hittest = false; r.hittestchildren = true;
-      r.style.flowChildren = 'right'; r.style.width = '100%';
-      r.style.marginTop = (UI.line.gap + 1) + 'px';
-      r.style.paddingLeft = UI.line.padH + 'px';
+      var r = mk('Panel', parent); r.hittest = true; r.hittestchildren = true;
+      r.style.flowChildren = 'down'; r.style.width = '100%';
+      r.style.marginTop = UI.line.gap + 'px';
+      r.style.paddingLeft = UI.line.padH + 'px'; r.style.paddingRight = UI.line.padH + 'px';
+      r.style.paddingTop = '6px'; r.style.paddingBottom = '3px';
+      r.style.borderRadius = '3px';
+      edTrans(r, 'background-color, border-color');
       edEndTileLine(parent);
       var cap = lbl(r, label, S.label, 13);
-      cap.style.width = UI.line.label + 'px'; cap.style.whiteSpace = 'nowrap'; cap.style.paddingTop = '5px';
-      edTip(cap, tip);
+      cap.style.width = '100%'; cap.style.whiteSpace = 'normal'; cap.style.marginBottom = '5px';
+      cap.hittest = false;
+      edHoverable(r, edPaintTile);
+      if (tip) r.__tipText = tip;
       var cells = mk('Panel', r); cells.hittest = false; cells.hittestchildren = true;
-      cells.style.flowChildren = 'right-wrap'; cells.style.width = 'fill-parent-flow(1.0)';
-      cells.style.marginLeft = UI.line.colGap + 'px';
-      var btns = {};
+      cells.style.flowChildren = 'right-wrap'; cells.style.width = '100%';
+      var longest = 0;
+      for (var li = 0; li < items.length; li++) longest = Math.max(longest, edCaptionW(items[li][1]));
+      var btns = {}, order = [];
+      // Column count and cell width follow the applied pane width (edRelayout).
+      function layout() {
+        var inner = edPaneInnerW();
+        var n = Math.max(1, Math.min(perRow || items.length, Math.floor((inner + UI.line.cellGap) / (longest + UI.line.cellGap))));
+        // 1px borders sit outside the width; two pixels per cell keep the last one on the row.
+        var cellW = Math.floor((inner - UI.line.cellGap * (n - 1)) / n) - 2;
+        for (var k = 0; k < order.length; k++) {
+          order[k].style.width = cellW + 'px';
+          order[k].style.marginRight = ((k + 1) % n === 0 ? 0 : UI.line.cellGap) + 'px';
+        }
+      }
       for (var i = 0; i < items.length; i++) (function (key, caption, idx) {
         var b = btn(cells, caption, function () { onPick(key, idx); }, S.label);
-        b.style.marginRight = '4px'; b.style.marginBottom = '4px';
+        order.push(b);
+        b.style.marginBottom = UI.line.cellGap + 'px';
         b.style.paddingTop = '5px'; b.style.paddingBottom = '5px';
-        b.style.paddingLeft = '10px'; b.style.paddingRight = '10px';
+        b.style.paddingLeft = '4px'; b.style.paddingRight = '4px';
         b.__lbl.style.fontSize = '12px'; b.__lbl.style.fontWeight = 'bold'; b.__lbl.style.whiteSpace = 'nowrap';
+        b.__lbl.style.horizontalAlign = 'center';
         edSegCell(b);
         b.__brBase = '#ffffff1a'; b.__brSel = S.accent.substring(0, 7) + '99'; btnVisual(b);
         btns[key] = b;
       })(items[i][0], items[i][1], i);
+      layout();
+      edRelayoutHooks.push(layout);
       return {
         row: r, btns: btns, label: cap,
         sync: function (key) { for (var k in btns) btnSel(btns[k], k === key); }
@@ -420,9 +518,9 @@ R"EDJS(
       g = mk('Panel', r.host); g.hittest = false; g.hittestchildren = true;
       g.style.flowChildren = 'down'; g.style.width = '100%';
       if (r.groupOrder.length) g.style.marginTop = UI.rail.groupGap + 'px';
-      var h = lbl(g, name, S.group, 11); h.hittest = false;
+      var h = lbl(g, name, S.group, UI.rail.groupFont); h.hittest = false;
       h.style.fontWeight = 'bold'; h.style.letterSpacing = '1.8px'; h.style.textTransform = 'uppercase';
-      h.style.paddingLeft = '2px'; h.style.marginBottom = '2px';
+      h.style.paddingLeft = '2px'; h.style.marginBottom = '3px';
       g.__count = 0;
       r.groups[name] = g; r.groupOrder.push(name);
       return g;
@@ -431,6 +529,8 @@ R"EDJS(
       var sel = it.rail.sel === it.key, hot = it.row.__hot;
       it.row.style.backgroundColor = sel ? S.railSel : (hot ? S.railHover : S.clear);
       it.row.style.border = '1px solid ' + (sel ? (S.accent.substring(0, 7) + '59') : S.clear);
+      // The accent edge is the row's left border, so it spans a row of any height.
+      it.row.style.borderLeft = UI.rail.edge + 'px solid ' + it.accent;
       it.title.style.color = sel ? S.value : S.label;
     }
     function edRailAdd(tab, key, group, title, accent, card) {
@@ -438,21 +538,26 @@ R"EDJS(
       var it = { rail: r, key: key, card: card, group: group };
       var rw = mk('Panel', g); rw.hittest = true;
       rw.style.flowChildren = 'right'; rw.style.width = '100%';
-      rw.style.height = UI.rail.rowH + 'px'; rw.style.marginTop = UI.rail.rowGap + 'px';
+      rw.style.minHeight = UI.rail.rowH + 'px'; rw.style.marginTop = UI.rail.rowGap + 'px';
       rw.style.borderRadius = '3px'; rw.style.overflow = 'clip';
       edTrans(rw, 'background-color, border-color', 0.08);
-      var edge = mk('Panel', rw); edge.hittest = false;
-      edge.style.width = UI.rail.edge + 'px'; edge.style.height = '100%';
-      edge.style.backgroundColor = accent;
+      var edge = rw;   // the accent edge is the row's left border (edPaintRailRow)
+      it.accent = accent;
       var col = mk('Panel', rw); col.hittest = false;
       col.style.flowChildren = 'down'; col.style.width = 'fill-parent-flow(1.0)';
-      col.style.verticalAlign = 'center'; col.style.marginLeft = '9px'; col.style.marginRight = '6px';
-      var t = lbl(col, title, S.label, 12); t.hittest = false;
+      col.style.verticalAlign = 'center'; col.style.marginLeft = '8px'; col.style.marginRight = '6px';
+      col.style.paddingTop = '5px'; col.style.paddingBottom = '5px';
+      // The title and the summary WRAP: the 52px row has room for a two-line summary, and nothing
+      // in the rail ends in an ellipsis.
+      var t = lbl(col, title, S.label, UI.rail.titleFont); t.hittest = false;
       t.style.fontWeight = 'bold'; t.style.letterSpacing = '0.8px';
-      t.style.whiteSpace = 'nowrap'; t.style.textOverflow = 'ellipsis'; t.style.width = '100%';
-      var sum = lbl(col, '', S.muted, 11); sum.hittest = false;
-      sum.style.marginTop = '2px'; sum.style.whiteSpace = 'nowrap';
-      sum.style.textOverflow = 'ellipsis'; sum.style.width = '100%';
+      t.style.textTransform = 'uppercase';   // every rail title, the "Camera N" rows included
+      t.style.whiteSpace = 'normal'; t.style.width = '100%';
+      var sum = lbl(col, '', S.muted, UI.rail.sumFont); sum.hittest = false;
+      sum.style.marginTop = '3px'; sum.style.whiteSpace = 'normal'; sum.style.width = '100%';
+      // An empty summary is COLLAPSED, not blank: a blank label still takes a line, and the title
+      // of a summary-less row then sits at the top of the row instead of its middle.
+      sum.visible = false;
       var badge = mk('Panel', rw); badge.hittest = false; badge.visible = false;
       badge.style.verticalAlign = 'center'; badge.style.marginRight = '8px';
       badge.style.borderRadius = '3px'; badge.style.paddingLeft = '6px'; badge.style.paddingRight = '6px';
@@ -461,15 +566,20 @@ R"EDJS(
       bl.style.fontWeight = 'bold'; bl.style.letterSpacing = '0.6px';
       bl.style.verticalAlign = 'center'; bl.style.fontFamily = S.fontMonodigit;
       it.row = rw; it.edge = edge; it.title = t; it.sum = sum; it.badge = badge; it.badgeLbl = bl;
-      // The title and summary are cut with an ellipsis; the tooltip carries them whole.
-      rw.__tipText = title;
+      // No tooltip on a rail row: its title and summary wrap, so the row already says it all.
       edHoverable(rw, function () { edPaintRailRow(it); });
       rw.SetPanelEvent('onactivate', function () { edSelectCard(tab, key, true); });
       r.items[key] = it; r.order.push(key);
       g.__count++;
       r.host.visible = (tab === edActiveTab);
       if (!r.sel) edSelectCard(tab, key, false);
-      else { card.visible = false; edPaintRailRow(it); }
+      else {
+        // A new row for a card the SELECTED row already shows (the Path rail's cameras all open
+        // the one SELECTED CAMERA card) must not hide that card.
+        var selIt = r.items[r.sel];
+        if (!(selIt && selIt.card === card)) card.visible = false;
+        edPaintRailRow(it);
+      }
       return it;
     }
     // Drop a card's rail row (the Scene Keys catalog rebuilds its cards); an emptied group goes too.
@@ -496,7 +606,14 @@ R"EDJS(
         r.items[k].card.visible = (k === key) && (tab === edActiveTab);
         edPaintRailRow(r.items[k]);
       }
-      if (changed) { try { edScrollY = 0; } catch (e) {} }
+      // Several rows may share ONE card (the Path rail lists the cameras, all of which open the
+      // SELECTED CAMERA card), so the selected row's card is asserted after the loop.
+      r.items[key].card.visible = (tab === edActiveTab);
+      if (changed) {
+        try { edScrollY = 0; } catch (e) {}
+        // The card ARRIVES on a real selection: the 4px rise every entrance in this HUD uses.
+        if (persist) moEnter(r.items[key].card, -UI.mo.rise, MO_TAB);
+      }
       if (persist) cmd('mirv_filmmaker settings ui editor.' + tab + '.sel ' + key);
       return true;
     }
@@ -508,6 +625,8 @@ R"EDJS(
         var r = edRails[k];
         r.host.visible = (k === tab);
         for (var key in r.items) r.items[key].card.visible = (k === tab) && (r.sel === key);
+        // Rows may share one card (the Path rail's cameras): the selected row's card wins.
+        if (r.sel && r.items[r.sel]) r.items[r.sel].card.visible = (k === tab);
       }
     }
 )EDJS"
@@ -552,6 +671,9 @@ R"EDJS(
       body.style.flowChildren = 'down'; body.style.width = '100%';
 
       var item = opts.rail ? edRailAdd(opts.rail.tab, opts.rail.key, opts.rail.group, title, edgeOn, s) : null;
+      // The Path rail replaces this card's own row with one row per camera (edRailRemove), so the
+      // header's summary and badge only write to the row while it is still there.
+      function itemLive() { return !!(item && item.row && panelAlive(item.row)); }
 
       var pages = [], pageTabs = [], curPage = 0;
       var pageKey = opts.rail ? ('editor.' + opts.rail.key + '.page') : '';
@@ -600,6 +722,18 @@ R"EDJS(
       };
       body.__pageCount = function () { return pages.length; };
       body.__pageKey = pageKey;
+      // A GROUP (Config's __group): a divider, then a panel to fill. A card is one page with
+      // group headings; sub-pages stay only where a page would not fit the pane.
+      body.__group = function (head) {
+        edEndTileLine(body);
+        if (head) edSubHead(body, head);
+        var g = mk('Panel', body); g.hittest = false; g.hittestchildren = true;
+        g.style.flowChildren = 'down'; g.style.width = '100%';
+        g.__note = function () {};
+        g.__card = s;
+        g.__group = body.__group;
+        return g;
+      };
 
       var noteSeen = null;
       body.__note = function (text) {
@@ -615,12 +749,12 @@ R"EDJS(
           note.SetPanelEvent('onmouseover', function () { if (note.__tipText) showTip(note, note.__tipText); });
           note.SetPanelEvent('onmouseout', function () { hideTip(); });
         }
-        if (item) { item.sum.text = v; item.row.__tipText = v ? (title + ' — ' + v) : title; }
+        if (itemLive()) { item.sum.text = v; item.sum.visible = v.length > 0; }
       };
       // The rail row's badge: kind 'count' (neutral), 'gold' (animated), 'live' (green).
       var badgeSeen = null;
       body.__badge = function (text, kind) {
-        if (!item) return;
+        if (!itemLive()) return;
         var sig = (text || '') + '|' + (kind || '');
         if (sig === badgeSeen) return;
         badgeSeen = sig;
@@ -636,6 +770,17 @@ R"EDJS(
 
       body.__headerAction = function (cap, onClick) {
         var b = btnPrimary(slots, cap, onClick);
+        b.style.marginLeft = '8px'; b.style.marginRight = '0px';
+        b.style.verticalAlign = 'center';
+        b.style.paddingTop = '5px'; b.style.paddingBottom = '5px';
+        b.style.paddingLeft = '11px'; b.style.paddingRight = '11px';
+        b.__lbl.style.fontSize = '12px'; b.__lbl.style.whiteSpace = 'nowrap';
+        return b;
+      };
+      // A DANGER chip in the header (Clear all): red outline, no fill, beside the primary action.
+      body.__headerDanger = function (cap, onClick) {
+        var b = btnDanger(slots, cap, onClick);
+        b.__bgBase = S.clear; btnVisual(b);
         b.style.marginLeft = '8px'; b.style.marginRight = '0px';
         b.style.verticalAlign = 'center';
         b.style.paddingTop = '5px'; b.style.paddingBottom = '5px';

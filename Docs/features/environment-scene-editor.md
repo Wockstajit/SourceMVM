@@ -23,7 +23,11 @@ implementation and browser mock expose six task-oriented cards:
 | Lighting | Map lights, ambient light, bounce intensity, 1 to 3 bounce steps per frame, shadows and source sizes |
 | Fog | Density, Start distance, Height, Variation, Color |
 | Weather | Type, intensity, fall speed, wind speed/direction; Ground: wetness, puddles, snow; Lightning: enable, intensity, interval |
-| Scene Objects | Round heat map: where the round's players walked ([`round-heatmap.md`](round-heatmap.md)); Outliner: every placed thing in groups, with show/hide, in-renders and lock; Assets: CS2 models and your OBJ meshes; Lights: lit-by, add point/spot/area, the light editor; Presets: save/load |
+| Scene Objects | **+ Add** in the header (point, spot and area lights, a camera object); Outliner: every placed thing in groups, with show/hide, in-renders and lock; Library: CS2 models and your OBJ meshes; the selected object's light or mesh editor and its RIG under the tree |
+| Round heat map | Its own card: where the round's players walked ([`round-heatmap.md`](round-heatmap.md)) |
+
+Scene presets (save/load) are the menu in the **Looks** header. Looks, Sky, Lighting, Fog and
+Weather are each one page with group headings; only Scene Objects keeps sub-tabs.
 
 Bounce steps/frame is an experimental convergence control. 1 keeps the current GPU cost. 2 or 3 run
 more indirect-light propagation work and may reduce FPS. The setting changes the number of
@@ -715,7 +719,8 @@ While an object is rigged, its arrows and turn sliders move it through the rig. 
 
 ## Lights
 
-**Lights** opens with **Lit by**. With Environment lighting on (the Lighting card), added lights
+Lights are added from the card's **+ Add** menu and edited from the Outliner. With Environment
+lighting on (the Lighting card), added lights
 join the native material lighting, shadow atlas, bounce and smoke-lighting paths. With it off,
 they contribute through the environment composite over CS2's lighting. Sky and Lighting are separate
 switches; changing the sky does not remove a placed light. **Change in Lighting** opens the Lighting card.

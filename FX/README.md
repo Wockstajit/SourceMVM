@@ -16,7 +16,11 @@ SOURCE:MVM releases (the installer and runtime packages) carry the compiled pack
 animation library, staged from the maintainer's local copy. Only the source tree leaves them out.
 
 The repository keeps the conversion and bake tools (`tools/`), our own particles (`native/`), render
-materials (`render-materials/`) and the HC Tracker badge texture (`ui/`). The viewer's metadata
+materials (`render-materials/`) and the hook's own Panorama textures (`ui/`: the outliner's Lucide
+icons and the HC Tracker badge, each a power-of-two PNG with a `_png.vtex` beside it).
+`tools/build-ui-textures.ps1` compiles them into `compiled/source_mvm_fx/panorama/images/` when
+Workshop Tools are installed and stages them on every full build; after a hook-only build, run it
+with `-StageRoot` to put new icons into the stage. The viewer's metadata
 (`death-animations/clip-tags.json`, `removed-clips.txt`) sits in the local `death-animations/` folder with the baked library.
 
 Without these folders, a clone still builds and runs. `build-source2.bat` reports that `FX\compiled` is

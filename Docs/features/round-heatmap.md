@@ -1,6 +1,6 @@
 # Round heat map
 
-**CONFIG → ENVIRONMENT → Scene Objects → Round heat map** paints the floor red where the players
+**CONFIG → ENVIRONMENT → Round heat map** (its own card under Scene) paints the floor red where the players
 walked during the round being watched. It covers the whole round, from its start to the next
 round's start, not just the part already played. It only paints around the camera and follows the
 camera as you move. A spot nobody stood on stays unpainted, so you can see where a placed object
@@ -13,8 +13,8 @@ It is a placement aid. Recordings never show it, and it is not part of a saved s
 
 ## Controls
 
-The switch sits at the top of the Scene Objects card, above its tabs, so it works from the
-Outliner and from Assets & Lights. While it is on:
+The switch is the card's header master, and the same switch sits on its rail row, so it can be
+flipped without opening the card. Its settings:
 
 - **Area** (256 to 4096 units, default 1500) is how far around the camera the floor is painted.
 - **Players** paints everyone, T only or CT only.

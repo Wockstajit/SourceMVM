@@ -310,6 +310,10 @@ std::string CameraEditorHud::BuildStateJson() {
 	}
 	o << ",\"count\":" << n;
 	o << ",\"selected\":" << sel;
+	// Every camera's tick, in path order: the Path rail lists the cameras with their ticks.
+	o << ",\"keyTicks\":[";
+	for (int i = 0; i < n; ++i) { if (i) o << ','; o << mk[i].tick; }
+	o << "]";
 	o << ",\"interp\":\"" << cp.InterpName() << "\"";
 	o << ",\"timing\":\"" << cp.TimingName() << "\"";
 	o << ",\"speedMode\":\"" << cp.SpeedModeName() << "\"";

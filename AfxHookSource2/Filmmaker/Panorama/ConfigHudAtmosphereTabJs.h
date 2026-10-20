@@ -31,29 +31,12 @@ R"CFJS(
     ], 'fx.atmosphere');
 
     // ===================== SMOKE ========================================
-    // One card page for the smoke: its colour, its look and its volume as sub-tabs inside it,
-    // instead of three sibling pages that read as unrelated settings.
-    var smokeCard = atmosSec.__page('Smoke');
-    var SMOKE_SUB_KEYS = ['color', 'look', 'volume'];
-    var smokeSubPages = [];
-    var smokeSubTabs = segmented(smokeCard,
-      [['color', 'Color'], ['look', 'Smoke look'], ['volume', 'Smoke volume']], '100%',
-      function (k) { showSmokeSub(k); });
-    smokeSubTabs.panel.style.marginTop = '4px';
-    function smokeSub() {
-      var p = mk('Panel', smokeCard); p.hittest = false; p.hittestchildren = true;
-      p.style.flowChildren = 'down'; p.style.width = '100%';
-      smokeSubPages.push(p);
-      return p;
-    }
-    function showSmokeSub(k) {
-      for (var i = 0; i < smokeSubPages.length; i++) smokeSubPages[i].visible = SMOKE_SUB_KEYS[i] === k;
-      smokeSubTabs.sync(k);
-    }
-    var smokePage = smokeSub();
-    var smokeAppearancePage = smokeSub();
-    var smokeVolumePage = smokeSub();
-    showSmokeSub('color');
+    // ONE page with dividers (2026-10 sidebar cleanup): the smoke's colour, look and volume, then
+    // the world tint, as groups that scroll, instead of a page with sub-tabs inside it.
+    var smokeCard = atmosSec;
+    var smokePage = atmosSec.__group('Smoke colour');
+    var smokeAppearancePage = atmosSec.__group('Smoke look');
+    var smokeVolumePage = atmosSec.__group('Smoke volume');
 
     // Deliberately short: a long swatch grid is harder to scan than a few strong choices plus a
     // real picker for anything else.
@@ -168,7 +151,7 @@ R"CFJS(
     // World Tint belongs with atmosphere: it is an environment-wide grade applied to geometry,
     // props, players, foliage, and the HDR sky. Lighting stays reserved for exposure, the sun,
     // and shadow direction.
-    var modPage = atmosSec.__page('World tint');
+    var modPage = atmosSec.__group('World tint');
 
     var MOD_TINTS = [
       ['off',     '#00000000', '255 255 255'],
