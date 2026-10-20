@@ -160,8 +160,11 @@ inline ScrubDecision ScrubSeekTo(int tick) {
 //     2026-10-19: seek 64094 from 64103 restored 61441 and read 63940, paused=0, for a frame). Ours
 //     while within a full packet's reach of the target; judged Lost there, every re-aim restored
 //     and read 63940 again, until the scrub gave up 162 ticks short and resumed the demo.
-//   * Still playing away from the target after a few frames (a pause can blip false mid-seek):
-//     another command resumed it: Lost.
+//   * Still playing away from the target for a few frames in a row (a pause can blip false
+//     mid-seek, and a replay reads playing for a frame per chunk): another command resumed it: Lost.
+//   * Playing and parked below the range are runs of frames, not the seek's age. A plain demo can
+//     hold the old tick for ~160 frames before its replay shows, and an age limit was used up by then
+//     (the first replay tick was judged Lost at once; review of #64).
 //   * Not moved at all: a seek swallowed by a later one to the same tick. A keyframed copy restores
 //     in one or two frames; without keyframes a long backward replay holds the old tick for up to
 //     ~160 frames (ragdolls.dem, 3000 ticks back), so the wait depends on which file is playing.
@@ -177,7 +180,10 @@ constexpr int kSeekReplayTicksKeyframed = 64;
 // A replay crosses its chunks in a frame each; one parked below the target this long is not ours.
 constexpr int kSeekReplayStallFrames = 30;
 
-inline SeekWait JudgeSeek(int fromTick, int expectTick, int tick, bool paused, int busyFrames, bool keyframed) {
+// busyFrames: frames since the seek went out. playingFrames: frames in a row the demo has read as
+// playing. heldFrames: frames in a row the tick has not changed.
+inline SeekWait JudgeSeek(int fromTick, int expectTick, int tick, bool paused, int busyFrames, int playingFrames,
+	int heldFrames, bool keyframed) {
 	const bool there = tick >= expectTick - 1 && tick <= expectTick + 1;
 	if (there) return paused ? SeekWait::Landed : SeekWait::Waiting; // the driver re-pauses once
 	const int lo = (fromTick < expectTick ? fromTick : expectTick) - 1;
@@ -185,9 +191,9 @@ inline SeekWait JudgeSeek(int fromTick, int expectTick, int tick, bool paused, i
 	if (tick > hi) return SeekWait::Lost;
 	const bool replaying = tick < lo;
 	if (replaying && (tick < expectTick - (keyframed ? kSeekReplayTicksKeyframed : kSeekReplayTicksPlain)
-		|| busyFrames >= kSeekReplayStallFrames))
+		|| heldFrames >= kSeekReplayStallFrames))
 		return SeekWait::Lost;
-	if (!paused && busyFrames >= kSeekPlayingLostFrames) return SeekWait::Lost;
+	if (!paused && playingFrames >= kSeekPlayingLostFrames) return SeekWait::Lost;
 	// Moving through the range is progress (a forward replay into demo not yet played); only a
 	// world still on the tick it started from counts as stalled.
 	const bool unmoved = tick >= fromTick - 1 && tick <= fromTick + 1;

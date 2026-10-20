@@ -59,6 +59,9 @@ int g_busyFrames = 0;
 int g_expectTick = -1;
 bool g_repaused = false;     // a seek landed playing and demo_pause was sent once
 int g_seekFrom = -1;         // the tick a pending seek started from (JudgeSeek)
+int g_playingFrames = 0;     // frames in a row the pending command has seen the demo playing
+int g_heldFrames = 0;        // frames in a row the tick has not changed while it is pending
+int g_pendingTick = -1;      // the tick seen last frame while it is pending
 bool g_keyframed = false;    // the playing file is a keyframed copy: restores take a frame or two
 double g_timescale = 1.0;    // the demo_timescale the scrub last set
 int g_seeks = 0, g_steps = 0, g_plays = 0;
@@ -158,6 +161,9 @@ void Issue(Pending pending, int expectTick, int fromTick = -1) {
 	g_pending = pending;
 	g_seekFrom = fromTick;
 	g_busyFrames = 0;
+	g_playingFrames = 0;
+	g_heldFrames = 0;
+	g_pendingTick = -1;
 	g_expectTick = expectTick;
 	g_repaused = false;
 }
@@ -256,6 +262,9 @@ void DemoScrub_RunFrame() {
 	const bool servingDrag = serving && !g_released;
 	if (g_pending != Pending::None) {
 		++g_busyFrames;
+		g_playingFrames = paused ? 0 : g_playingFrames + 1;
+		g_heldFrames = tick == g_pendingTick ? g_heldFrames + 1 : 0;
+		g_pendingTick = tick;
 		bool landed = false;
 		switch (g_pending) {
 		case Pending::Pause: landed = stopped; break;
@@ -304,7 +313,8 @@ void DemoScrub_RunFrame() {
 				g_repaused = true;
 				Log("seek landed playing at %d (expect %d): pausing", tick, g_expectTick);
 			}
-			const SeekWait wait = JudgeSeek(g_seekFrom, g_expectTick, tick, paused, g_busyFrames, g_keyframed);
+			const SeekWait wait = JudgeSeek(g_seekFrom, g_expectTick, tick, paused, g_busyFrames, g_playingFrames, g_heldFrames,
+				g_keyframed);
 			if (wait == SeekWait::Lost) {
 				// Another seek (CS2's own bar, a click) moved the world, or ours was swallowed: stop
 				// waiting and aim again from where the world is (DemoScrubMath.h JudgeSeek).

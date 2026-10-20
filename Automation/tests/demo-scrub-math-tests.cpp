@@ -239,46 +239,52 @@ void TestNeverPausesAPausedDemo() {
 // scrub waited 1200 frames for a landing that could never come.
 void TestSeekJudgedEveryFrame() {
 	// Landing (paused, +/-1) is the only success; playing there still waits for the re-pause.
-	CHECK(JudgeSeek(74133, 73688, 73688, true, 2, true) == SeekWait::Landed);
-	CHECK(JudgeSeek(74133, 73688, 73689, true, 2, true) == SeekWait::Landed);
-	CHECK(JudgeSeek(74133, 73688, 73688, false, 2, true) == SeekWait::Waiting);
+	CHECK(JudgeSeek(74133, 73688, 73688, true, 2, 0, 2, true) == SeekWait::Landed);
+	CHECK(JudgeSeek(74133, 73688, 73689, true, 2, 0, 2, true) == SeekWait::Landed);
+	CHECK(JudgeSeek(74133, 73688, 73688, false, 2, 2, 2, true) == SeekWait::Waiting);
 	// Mid-replay a backward seek still reads the old tick: wait.
-	CHECK(JudgeSeek(30541, 30007, 30541, true, 1, true) == SeekWait::Waiting);
+	CHECK(JudgeSeek(30541, 30007, 30541, true, 1, 0, 1, true) == SeekWait::Waiting);
 	// Measured: our seek to 30007 landed, then the bar's own seek took the world back to 30541 and
 	// on to 32938 -- outside the range, so lost at once.
-	CHECK(JudgeSeek(30541, 30007, 32938, true, 3, true) == SeekWait::Lost);
-	CHECK(JudgeSeek(9765, 34446, 23173, false, 3, true) == SeekWait::Waiting); // inside, playing briefly
-	CHECK(JudgeSeek(9765, 34446, 5000, true, 3, true) == SeekWait::Lost);
+	CHECK(JudgeSeek(30541, 30007, 32938, true, 3, 0, 3, true) == SeekWait::Lost);
+	CHECK(JudgeSeek(9765, 34446, 23173, false, 3, 3, 3, true) == SeekWait::Waiting); // inside, playing briefly
+	CHECK(JudgeSeek(9765, 34446, 5000, true, 3, 0, 3, true) == SeekWait::Lost);
 	// Playing away from the target after the pause blip window: something resumed it.
-	CHECK(JudgeSeek(9765, 34446, 23173, false, kSeekPlayingLostFrames, true) == SeekWait::Lost);
+	CHECK(JudgeSeek(9765, 34446, 23173, false, kSeekPlayingLostFrames, kSeekPlayingLostFrames, kSeekPlayingLostFrames, true) == SeekWait::Lost);
 	// Measured: seek 73688 from 74133 never ran (swallowed); the world sat on 74133, paused.
-	CHECK(JudgeSeek(74133, 73688, 74133, true, kSeekStallFramesKeyframed - 1, true) == SeekWait::Waiting);
-	CHECK(JudgeSeek(74133, 73688, 74133, true, kSeekStallFramesKeyframed, true) == SeekWait::Lost);
+	CHECK(JudgeSeek(74133, 73688, 74133, true, kSeekStallFramesKeyframed - 1, 0, kSeekStallFramesKeyframed - 1, true) == SeekWait::Waiting);
+	CHECK(JudgeSeek(74133, 73688, 74133, true, kSeekStallFramesKeyframed, 0, kSeekStallFramesKeyframed, true) == SeekWait::Lost);
 	// Without keyframes a long backward replay holds the old tick ~160 frames: keep waiting.
-	CHECK(JudgeSeek(74133, 71000, 74133, true, 160, false) == SeekWait::Waiting);
-	CHECK(JudgeSeek(74133, 71000, 74133, true, kSeekStallFramesPlain, false) == SeekWait::Lost);
+	CHECK(JudgeSeek(74133, 71000, 74133, true, 160, 0, 160, false) == SeekWait::Waiting);
+	CHECK(JudgeSeek(74133, 71000, 74133, true, kSeekStallFramesPlain, 0, kSeekStallFramesPlain, false) == SeekWait::Lost);
 	// A forward replay into demo not yet played moves through the range: progress, not a stall.
-	CHECK(JudgeSeek(1000, 40000, 12000, true, 600, true) == SeekWait::Waiting);
+	CHECK(JudgeSeek(1000, 40000, 12000, true, 600, 0, 600, true) == SeekWait::Waiting);
 }
 
 // 2026-10-19, a plain match demo: seek 64094 from 64103 restored Valve's full packet 61441 and read
 // 63940 (the end of its first 2500-message chunk, playing) for a frame. Judged lost, every re-aim
 // restored and read 63940 again; the scrub gave up 162 ticks short and resumed the demo.
 void TestSeekReplayBelowItsStart() {
-	CHECK(JudgeSeek(64103, 64094, 63940, false, 1, false) == SeekWait::Waiting);
-	CHECK(JudgeSeek(64103, 64094, 61441, true, 1, false) == SeekWait::Waiting); // just restored
+	CHECK(JudgeSeek(64103, 64094, 63940, false, 1, 1, 1, false) == SeekWait::Waiting);
+	CHECK(JudgeSeek(64103, 64094, 61441, true, 1, 0, 1, false) == SeekWait::Waiting); // just restored
 	// The replay then lands on the target like any seek.
-	CHECK(JudgeSeek(64103, 64094, 64094, true, 2, false) == SeekWait::Landed);
+	CHECK(JudgeSeek(64103, 64094, 64094, true, 2, 0, 2, false) == SeekWait::Landed);
 	// No full packet is farther back than Valve's 3840 ticks: below that, another seek moved it.
-	CHECK(JudgeSeek(64103, 64094, 64094 - kSeekReplayTicksPlain - 1, true, 1, false) == SeekWait::Lost);
+	CHECK(JudgeSeek(64103, 64094, 64094 - kSeekReplayTicksPlain - 1, true, 1, 0, 1, false) == SeekWait::Lost);
 	// A keyframed copy restores at most 32 ticks back.
-	CHECK(JudgeSeek(5000, 4900, 4880, false, 1, true) == SeekWait::Waiting);
-	CHECK(JudgeSeek(64103, 64094, 63940, false, 1, true) == SeekWait::Lost);
+	CHECK(JudgeSeek(5000, 4900, 4880, false, 1, 1, 1, true) == SeekWait::Waiting);
+	CHECK(JudgeSeek(64103, 64094, 63940, false, 1, 1, 1, true) == SeekWait::Lost);
 	// A replay crosses a chunk a frame; one parked below the target is someone else's.
-	CHECK(JudgeSeek(64103, 64094, 63940, true, kSeekReplayStallFrames - 1, false) == SeekWait::Waiting);
-	CHECK(JudgeSeek(64103, 64094, 63940, true, kSeekReplayStallFrames, false) == SeekWait::Lost);
+	CHECK(JudgeSeek(64103, 64094, 63940, true, kSeekReplayStallFrames - 1, 0, kSeekReplayStallFrames - 1, false) == SeekWait::Waiting);
+	CHECK(JudgeSeek(64103, 64094, 63940, true, kSeekReplayStallFrames, 0, kSeekReplayStallFrames, false) == SeekWait::Lost);
 	// Above the range is still another seek's world.
-	CHECK(JudgeSeek(64103, 64094, 64200, true, 1, false) == SeekWait::Lost);
+	CHECK(JudgeSeek(64103, 64094, 64200, true, 1, 0, 1, false) == SeekWait::Lost);
+	// Review of #64: a plain demo held the old tick ~160 frames before its replay showed. Playing and
+	// parked are runs of frames, so the first replay tick after that hold is still ours.
+	CHECK(JudgeSeek(74133, 71000, 70500, false, 170, 1, 0, false) == SeekWait::Waiting);
+	CHECK(JudgeSeek(74133, 71000, 72500, false, 170, 1, 0, false) == SeekWait::Waiting);
+	CHECK(JudgeSeek(74133, 71000, 70500, true, 200, 0, kSeekReplayStallFrames, false) == SeekWait::Lost);
+	CHECK(JudgeSeek(74133, 71000, 72500, false, 200, kSeekPlayingLostFrames, 0, false) == SeekWait::Lost);
 }
 
 } // namespace
