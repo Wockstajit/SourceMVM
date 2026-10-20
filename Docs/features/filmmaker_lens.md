@@ -189,6 +189,13 @@ Screen-space, built from the hot spots of the (possibly already blurred) frame: 
 aperture, a ring, an anamorphic streak, diffraction spikes, a soft glow and lens dirt, in a warm tint.
 Fifteen settings, five looks.
 
+**Green screen.** The flare is held back on a key pass (`render greenscreen on` in the live view,
+and the Key passes of a render job), because it adds light over the whole frame: the chroma
+background would take on a halo and the subject's edges a tint that no compositor could key out.
+It comes back on the next frame that is not a key pass, and depth of field keeps running either
+way. `lens state` says `Flare held back on the green screen pass` while this applies, and
+`mvm_debug` logs it under `lens.flare`. Add the flare to the composited picture instead.
+
 **The sun.** The rules below keep only small lights brighter than their surroundings and turn the
 flare down on a frame full of near-white, so a sun on a bright sky never flared. The sun is found
 from the sky instead: its direction is `SolarPosition` on the sky material (where sky.vfx draws its

@@ -3413,9 +3413,12 @@ public:
                         sun.dir[0] = d.x; sun.dir[1] = d.y; sun.dir[2] = d.z;
                         sun.have = true;
                     }
+                    // A key (green screen) frame, live preview or render-job pass, gets no flare:
+                    // it would paint over the chroma background (LensFx.h, keyPass).
+                    const bool keyPass = Filmmaker::RenderPlayersOnlyGreen_Active();
                     Filmmaker::LensFx_Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                         g_EnvironmentFrame.hasWorldToClip ? g_EnvironmentFrame.worldToClip.data() : nullptr,
-                        g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke, sun);
+                        g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke, sun, keyPass);
                 }
                 // Round heat map: a placement aid painted on the floor after the lens, so it stays
                 // sharp. It sits out recordings (the scene objects tab is where it is switched on).

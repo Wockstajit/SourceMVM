@@ -75,6 +75,10 @@ void LensFx_EndDevice();
 // world-to-clip matrix for this frame (16 floats); `depthMin`/`depthMax` are the world viewport's
 // depth band (CS2 keeps the rest for the 3D skybox). Returns true when something was drawn.
 // The sun: a unit direction toward it in world space (see "the sun" in LensFxMath.h).
+// `keyPass` is true while the frame is a key (green screen) pass, live preview or render job:
+// the flare is then held back, because its additive ghosts, glow and dirt would paint over the
+// chroma background and the keyed subject's edges, and nothing in the compositor could key them
+// out again. Depth of field still runs; the flare belongs on the composited picture instead.
 struct LensSun {
 	bool have = false;
 	float dir[3] = {};
@@ -82,6 +86,6 @@ struct LensSun {
 
 bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	ID3D11DepthStencilView* depth, const float* worldToClip, float depthMin, float depthMax,
-	const LensSmoke& smoke, const LensSun& sun);
+	const LensSmoke& smoke, const LensSun& sun, bool keyPass);
 
 } // namespace Filmmaker
