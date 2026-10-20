@@ -1248,8 +1248,7 @@ R"CFJS(
       swSlot.style.verticalAlign = 'center'; swSlot.style.marginRight = '6px';
       it.row = rw; it.edge = edge; it.title = t; it.sum = sum; it.swSlot = swSlot;
       hoverable(rw, function () { cfgPaintRailRow(it); });
-      // The title and summary are cut with an ellipsis; the tooltip carries them whole.
-      attachTip(rw, title);
+      // No tooltip on a rail row: its title and summary wrap, so the row already says it all.
       rw.SetPanelEvent('onactivate', function () { cfgSelectCard(tab, key, true); });
       r.items[key] = it;
       if (!r.sel) cfgSelectCard(tab, key, false);
@@ -1435,7 +1434,7 @@ R"CFJS(
         note.visible = v.length > 0;
         // Both copies can be cut with an ellipsis, so both keep the full text on hover.
         if (v) attachTip(note, v); else note.__tipText = null;
-        if (item) { item.sum.text = v; item.row.__tipText = v ? (title + ' — ' + v) : title; }
+        if (item) item.sum.text = v;
       };
       body.__card = s;
       body.__summary = function () { return noteSeen || ''; };

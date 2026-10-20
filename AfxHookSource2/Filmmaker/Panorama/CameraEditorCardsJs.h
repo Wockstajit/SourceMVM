@@ -533,8 +533,7 @@ R"EDJS(
       bl.style.fontWeight = 'bold'; bl.style.letterSpacing = '0.6px';
       bl.style.verticalAlign = 'center'; bl.style.fontFamily = S.fontMonodigit;
       it.row = rw; it.edge = edge; it.title = t; it.sum = sum; it.badge = badge; it.badgeLbl = bl;
-      // The title and summary are cut with an ellipsis; the tooltip carries them whole.
-      rw.__tipText = title;
+      // No tooltip on a rail row: its title and summary wrap, so the row already says it all.
       edHoverable(rw, function () { edPaintRailRow(it); });
       rw.SetPanelEvent('onactivate', function () { edSelectCard(tab, key, true); });
       r.items[key] = it; r.order.push(key);
@@ -717,7 +716,7 @@ R"EDJS(
           note.SetPanelEvent('onmouseover', function () { if (note.__tipText) showTip(note, note.__tipText); });
           note.SetPanelEvent('onmouseout', function () { hideTip(); });
         }
-        if (itemLive()) { item.sum.text = v; item.row.__tipText = v ? (title + ' — ' + v) : title; }
+        if (itemLive()) item.sum.text = v;
       };
       // The rail row's badge: kind 'count' (neutral), 'gold' (animated), 'live' (green).
       var badgeSeen = null;
