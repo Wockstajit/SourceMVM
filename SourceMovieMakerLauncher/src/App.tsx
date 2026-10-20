@@ -166,6 +166,9 @@ export default function App() {
   const [updateBusy, setUpdateBusy] = useState(true);
   const [launchAllowed, setLaunchAllowed] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateStatus['state']>('checking');
+  // A newer launcher the last check found, offered once per version and never forced.
+  const [pendingUpdate, setPendingUpdate] = useState<UpdateStatus['update'] | null>(null);
+  const [updatePromptDismissed, setUpdatePromptDismissed] = useState('');
   const [payload, setPayload] = useState<PayloadLocalStatus | null>(null);
   // Footer progress bars. percent < 0 = working, no measurable progress (indeterminate).
   const [payloadProgress, setPayloadProgress] = useState<{ label: string; percent: number } | null>(null);
@@ -252,6 +255,7 @@ export default function App() {
       setUpdateState(status.state);
       setUpdateBusy(['checking', 'available', 'downloading', 'downloaded', 'installing'].includes(status.state));
       setUpdateProgress(status.state === 'downloading' ? status.percent ?? 0 : null);
+      if (status.state === 'ready') setPendingUpdate(status.update ?? null);
       const messages: Partial<Record<UpdateStatus['state'], string>> = {
         checking: 'CHECKING FOR UPDATES',
         available: `DOWNLOADING UPDATE ${status.version ?? ''}`.trim(),
@@ -668,20 +672,33 @@ export default function App() {
     }
   };
 
-  const checkForUpdates = async () => {
+  // UPDATES: a check, or the download once a check has found an update. Either way the status
+  // line follows the main process; the renderer only locks GO until the first status arrives.
+  const runUpdates = async (install: boolean) => {
     if (updateBusy || busy || started) return;
     setLaunchAllowed(false);
     setUpdateBusy(true);
-    setMessage('CHECKING FOR UPDATES');
+    setMessage(install ? 'DOWNLOADING UPDATE' : 'CHECKING FOR UPDATES');
     setMessageTone('normal');
     try {
-      await window.sourceMvm.checkForUpdates();
+      if (install) await window.sourceMvm.downloadUpdate();
+      else await window.sourceMvm.checkForUpdates();
     } catch (error) {
       setMessage(error instanceof Error ? error.message.toUpperCase() : 'UPDATE CHECK FAILED / RETRY UPDATES');
       setMessageTone('error');
       setUpdateBusy(false);
     }
   };
+  const updateInstallable = Boolean(pendingUpdate?.installable);
+  // RETRY UPDATES after an error re-checks; otherwise a pending update is downloaded.
+  const checkForUpdates = () => runUpdates(updateInstallable && updateState !== 'error');
+  const installUpdate = () => {
+    setUpdatePromptDismissed(pendingUpdate?.version ?? '');
+    void runUpdates(true);
+  };
+  // Shown once per version: "not now" hides it until a check finds a different version.
+  const updatePrompt = updateInstallable && pendingUpdate && pendingUpdate.version !== updatePromptDismissed
+    && !updateBusy && !busy && !started;
 
   const minimizeWindow = () => window.sourceMvm.minimizeWindow();
   const closeWindow = () => window.sourceMvm.closeWindow();
@@ -875,6 +892,30 @@ export default function App() {
         </div>
       </section>
 
+      {/* A newer launcher is offered, never forced: NOT NOW keeps this version launchable, and the
+          footer button downloads it later. Same dialog styling as the FFmpeg and DLSS prompts. */}
+      {updatePrompt && (
+        <section className="ffmpeg-prompt" role="dialog" aria-labelledby="update-prompt-title">
+          <div className="ffmpeg-prompt-body">
+            <strong id="update-prompt-title">Hey, new update.</strong>
+            <p>
+              SOURCE:MVM {pendingUpdate?.version} is available. Do you want to update? It downloads,
+              installs and restarts the launcher. If not, GO still works and the UPDATES button
+              downloads it whenever you like.
+            </p>
+            <div className="ffmpeg-prompt-actions">
+              <button type="button" className="utility-button is-primary" onClick={installUpdate}>
+                <Download size={13} />
+                <span>UPDATE</span>
+              </button>
+              <button type="button" className="utility-button" onClick={() => setUpdatePromptDismissed(pendingUpdate?.version ?? '')}>
+                <span>NOT NOW</span>
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* FFmpeg is what encodes every render. Missing it does not break the launcher, so this
           asks rather than blocks -- but it asks up front, because the alternative is finding out
           at the end of a render that nothing could be written. */}
@@ -1017,14 +1058,16 @@ export default function App() {
             className={`utility-button ${updateBusy ? 'is-active' : ''}`}
             onClick={checkForUpdates}
             disabled={updateBusy || busy || started}
-            title={runtimeMissing
-              ? 'Download the SOURCE:MVM runtime (hook + FX pack)'
-              : settings.autoUpdate
-                ? 'Check for launcher and runtime updates'
-                : 'Check once for launcher and runtime updates (automatic checks are off)'}
+            title={updateInstallable
+              ? `Download and install SOURCE:MVM ${pendingUpdate?.version ?? ''}, then restart`
+              : runtimeMissing
+                ? 'Download the SOURCE:MVM runtime (hook + FX pack)'
+                : settings.autoUpdate
+                  ? 'Check for launcher and runtime updates'
+                  : 'Check once for launcher and runtime updates (automatic checks are off)'}
           >
             <PanoramaControlIcon name="refresh.png" />
-            <span>{updateState === 'error' ? 'RETRY UPDATES' : runtimeMissing ? 'INSTALL RUNTIME' : 'UPDATES'}</span>
+            <span>{updateState === 'error' ? 'RETRY UPDATES' : updateInstallable ? 'DOWNLOAD UPDATE' : runtimeMissing ? 'INSTALL RUNTIME' : 'UPDATES'}</span>
           </button>
           <button
             ref={advancedButtonRef}
@@ -1122,14 +1165,19 @@ export default function App() {
               />
               <span>
                 <strong>Check for updates automatically</strong>
-                <small>On: every start looks for a new launcher and hook, downloads it and restarts. Off: nothing is checked unless you press UPDATES.</small>
+                <small>On: every start looks for a new launcher and hook and asks before installing. Off: nothing is checked unless you press UPDATES.</small>
               </span>
             </label>
             <div className="setting-status">
               <span className={`setting-dot ${settings.autoUpdate ? 'is-on' : ''}`} aria-hidden="true" />
-              <span>{settings.autoUpdate ? 'AUTOMATIC · CHECKS ON EVERY START' : 'OFF · PRESS UPDATES TO CHECK ONCE'}</span>
+              <span>
+                {pendingUpdate
+                  ? `UPDATE ${pendingUpdate.version} AVAILABLE · ${pendingUpdate.installable ? 'PRESS DOWNLOAD UPDATE' : 'INSTALL THE NEW SETUP EXE'}`
+                  : settings.autoUpdate ? 'AUTOMATIC · CHECKS ON EVERY START' : 'OFF · PRESS UPDATES TO CHECK ONCE'}
+              </span>
             </div>
             <p className="setting-note">
+              An update is never forced: you are asked first, and GO keeps working on this version.
               CS2 starts without internet either way. Steam still has to be open and signed in.
             </p>
           </div>}

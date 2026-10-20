@@ -62,6 +62,8 @@ interface UpdateStatus {
   message?: string;
   /** Ready without a check: the update server could not be reached, so the installed runtime is used. */
   skipped?: boolean;
+  /** A newer launcher the last check found. Nothing is downloaded until the user says yes. */
+  update?: { version: string; installable: boolean };
 }
 
 /** One downloadable piece of the game-side runtime. */
@@ -182,7 +184,8 @@ interface Window {
     getIntroVideoUrl: () => Promise<string>;
     getUpdateStatus: () => Promise<UpdateStatus>;
     checkForUpdates: () => Promise<UpdateStatus>;
-    downloadUpdate: () => Promise<unknown>;
+    /** Download and install the pending update, then restart. */
+    downloadUpdate: () => Promise<UpdateStatus>;
     installUpdate: () => Promise<UpdateStatus>;
     onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void;
     detectFfmpeg: () => Promise<FfmpegStatus>;

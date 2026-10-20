@@ -39,14 +39,28 @@ test('launch is denied before the first check and throughout runtime installatio
   assert.equal((await result).launchAllowed, true);
   assert.doesNotThrow(f.service.assertCanLaunch);
 });
-test('new apps download, restart automatically, and never unlock the older process', async () => {
+test('a found update is offered, not installed: the runtime readies and GO stays open', async () => {
+  const f = fixture({ updater: {
+    checkForUpdates: async () => { f.calls.push('check'); return { isUpdateAvailable: true, updateInfo: { version: '0.1.7' } }; },
+    downloadUpdate: async () => { f.calls.push('download'); return ['verified.exe']; },
+    quitAndInstall: () => f.calls.push('restart'),
+  } });
+  const result = await f.service.check();
+  assert.equal(result.state, 'ready');
+  assert.equal(result.message, 'UPDATE 0.1.7 AVAILABLE');
+  assert.deepEqual(result.update, { version: '0.1.7', installable: true });
+  assert.doesNotThrow(f.service.assertCanLaunch);
+  assert.deepEqual(f.calls, ['check', 'runtime']);
+});
+test('saying yes downloads, restarts automatically, and never unlocks the older process', async () => {
   const calls = [], download = deferred();
   const f = fixture({ updater: {
     checkForUpdates: async () => ({ isUpdateAvailable: true, updateInfo: { version: '0.1.7' } }),
     downloadUpdate: () => download.promise,
     quitAndInstall: (...args) => calls.push(args),
   } });
-  const result = f.service.check();
+  await f.service.check();
+  const result = f.service.install();
   await new Promise(resolve => setImmediate(resolve));
   f.service.progress(37);
   assert.equal(f.service.getStatus().percent, 37);
@@ -54,10 +68,21 @@ test('new apps download, restart automatically, and never unlock the older proce
   download.resolve(['verified.exe']);
   assert.equal((await result).state, 'installing');
   assert.deepEqual(calls, [[false, true]]);
-  assert.equal(f.events.some(event => event.launchAllowed), false);
-  assert.equal(f.calls.includes('runtime'), false);
+  assert.equal(f.events.filter(event => event.launchAllowed).length, 1); // the offer, before yes
   assert.throws(f.service.assertCanLaunch);
   assert.equal((await f.service.check()).state, 'installing');
+  assert.equal((await f.service.install()).state, 'installing');
+});
+test('install with nothing pending, or a check that finds nothing, leaves no offer', async () => {
+  const f = fixture();
+  const result = await f.service.install();
+  assert.equal(result.state, 'ready');
+  assert.match(result.message, /No update is known/);
+  assert.equal(result.update, undefined);
+  assert.doesNotThrow(f.service.assertCanLaunch);
+  assert.deepEqual(f.calls, []);
+  assert.deepEqual(f.logs, ['Update not installed: No update is known. Press UPDATES to check.']);
+  assert.equal((await f.service.check()).update, undefined);
 });
 test('startup and button checks share one in-flight operation', async () => {
   const pending = deferred();
@@ -156,35 +181,50 @@ test('runtime installation failure blocks GO even when the launcher is current',
   assert.match((await f.service.check()).message, /Runtime locked/);
   assert.throws(f.service.assertCanLaunch);
 });
-test('download/check/checksum and installer failures cannot unlock launch', async () => {
-  for (const at of ['check', 'download', 'install', 'empty']) {
-    const f = fixture({ updater: {
-      checkForUpdates: async () => {
-        if (at === 'check') throw new Error('Bad metadata');
-        return { isUpdateAvailable: true };
-      },
+test('a failed metadata check blocks launch; a failed download or install keeps the current app launchable', async () => {
+  const f = fixture({ updater: { checkForUpdates: async () => { throw new Error('Bad metadata'); } } });
+  assert.equal((await f.service.check()).state, 'error');
+  assert.throws(f.service.assertCanLaunch);
+  for (const at of ['download', 'install', 'empty']) {
+    const g = fixture({ updater: {
+      checkForUpdates: async () => ({ isUpdateAvailable: true, updateInfo: { version: '0.1.7' } }),
       downloadUpdate: async () => {
         if (at === 'download') throw new Error('Checksum mismatch');
         return at === 'empty' ? [] : ['verified.exe'];
       },
       quitAndInstall: () => { if (at === 'install') throw new Error('Installer failed'); },
     } });
-    assert.equal((await f.service.check()).state, 'error');
-    assert.throws(f.service.assertCanLaunch);
+    await g.service.check();
+    const result = await g.service.install();
+    assert.equal(result.state, 'ready', at);
+    assert.match(result.message, /^UPDATE NOT INSTALLED: .*PRESS UPDATES TO TRY AGAIN\.$/);
+    assert.deepEqual(result.update, { version: '0.1.7', installable: true });
+    assert.doesNotThrow(g.service.assertCanLaunch);
+    assert.equal(g.logs.length, 1);
   }
 });
-test('a game running at discovery or starting during download prevents restart', async () => {
-  for (const beforeDownload of [true, false]) {
-    let running = beforeDownload, restarts = 0;
-    const f = fixture({ canInstall: () => !running, updater: {
-      checkForUpdates: async () => ({ isUpdateAvailable: true }),
-      downloadUpdate: async () => { running = true; return ['verified.exe']; },
-      quitAndInstall: () => restarts++,
-    } });
-    assert.match((await f.service.check()).message, /Close CS2/);
-    assert.equal(restarts, 0);
-    assert.throws(f.service.assertCanLaunch);
-  }
+test('a game running at discovery blocks readiness; one starting during download prevents restart', async () => {
+  let running = true, restarts = 0;
+  const f = fixture({ canInstall: () => !running, updater: {
+    checkForUpdates: async () => ({ isUpdateAvailable: true }),
+    downloadUpdate: async () => ['verified.exe'],
+    quitAndInstall: () => restarts++,
+  } });
+  assert.match((await f.service.check()).message, /Close CS2/);
+  assert.throws(f.service.assertCanLaunch);
+  running = false;
+  await f.service.check();
+  const g = fixture({ canInstall: () => !running, updater: {
+    checkForUpdates: async () => ({ isUpdateAvailable: true }),
+    downloadUpdate: async () => { running = true; return ['verified.exe']; },
+    quitAndInstall: () => restarts++,
+  } });
+  await g.service.check();
+  const result = await g.service.install();
+  assert.match(result.message, /Close CS2/);
+  assert.equal(restarts, 0);
+  // Nothing was installed, so this version still launches once CS2 is closed.
+  assert.equal(result.state, 'ready');
 });
 test('a named blocker replaces the generic close-CS2 message and still blocks launch', async () => {
   const f = fixture({ canInstall: () => 'cs2.exe (PID 4321) is still running.' });
@@ -199,10 +239,16 @@ test('unpackaged development never attempts app installation or network access',
   assert.equal((await f.service.check()).state, 'ready');
   assert.deepEqual(f.calls, []);
 });
-test('portable app with a known update requires the installer and stays blocked', async () => {
-  const f = fixture({ portable: true, updater: { checkForUpdates: async () => ({ isUpdateAvailable: true }) } });
-  assert.match((await f.service.check()).message, /portable builds/);
-  assert.throws(f.service.assertCanLaunch);
+test('portable app with a known update names the setup exe, cannot self-install, and still launches', async () => {
+  const f = fixture({ portable: true, updater: { checkForUpdates: async () => ({ isUpdateAvailable: true, updateInfo: { version: '0.1.7' } }) } });
+  const result = await f.service.check();
+  assert.equal(result.message, 'UPDATE 0.1.7 AVAILABLE / INSTALL THE NEW SETUP EXE');
+  assert.deepEqual(result.update, { version: '0.1.7', installable: false });
+  assert.doesNotThrow(f.service.assertCanLaunch);
+  const install = await f.service.install();
+  assert.match(install.message, /Portable builds cannot replace themselves/);
+  assert.equal(install.state, 'ready');
+  assert.deepEqual(f.calls, ['runtime']);
 });
 test('new checks lock launch immediately and returned snapshots cannot bypass the gate', async () => {
   const f = fixture();
@@ -290,17 +336,17 @@ test('headless launches without the network when automatic updates are off or th
   }
 });
 
-test('headless app updates leave exit and restart to the installer without launching or prematurely exiting', async () => {
+test('headless launches the installed app when an update is found; nobody is there to say yes', async () => {
   let restarts = 0;
   const next = fixture({ updater: {
-    checkForUpdates: async () => ({ isUpdateAvailable: true }),
+    checkForUpdates: async () => { next.calls.push('check'); return { isUpdateAvailable: true, updateInfo: { version: '0.1.7' } }; },
     downloadUpdate: async () => ['verified.exe'],
     quitAndInstall: () => { restarts++; },
   } });
   const cli = headlessContext(next.service);
   await cli.run();
-  assert.equal(restarts, 1);
-  assert.deepEqual(cli.calls, []);
-  assert.deepEqual(next.calls, []);
-  assert.equal(next.service.getStatus().state, 'installing');
+  assert.equal(restarts, 0);
+  assert.deepEqual(cli.calls, ['launch', ['exit', 0]]);
+  assert.deepEqual(next.calls, ['check', 'runtime']);
+  assert.equal(next.service.getStatus().update.version, '0.1.7');
 });

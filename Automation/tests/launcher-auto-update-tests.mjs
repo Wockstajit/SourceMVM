@@ -179,6 +179,13 @@ test('the renderer carries the setting, the Updates tab and its toggle', () => {
   assert.match(appSource, /checked=\{settings\.autoUpdate\}/);
   assert.match(appSource, /patch\(\{ autoUpdate: event\.target\.checked \}\)/);
   assert.match(appSource, /Check for updates automatically/);
+  // The offer: a prompt with UPDATE and NOT NOW, and the footer button downloads a pending update.
+  assert.match(appSource, /Hey, new update\./);
+  assert.match(appSource, /<span>NOT NOW<\/span>/);
+  assert.match(appSource, /onClick=\{installUpdate\}/);
+  assert.match(appSource, /updateInstallable \? 'DOWNLOAD UPDATE'/);
+  assert.match(typesSource, /update\?: \{ version: string; installable: boolean \};/);
+  assert.match(mainSource, /ipcMain\.handle\('update:download', \(\) => updateService\.install\(\)\)/);
   // Ready-but-skipped is not shown as a green "up to date".
   assert.match(appSource, /status\.state === 'ready' && !status\.skipped \? 'good' : 'normal'/);
   assert.match(mainSource, /^\s*autoUpdate: false,$/m);

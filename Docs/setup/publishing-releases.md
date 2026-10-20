@@ -28,6 +28,8 @@ that once and launches the runtime it has. Everything below applies to launchers
 2. electron-updater runs with `allowPrerelease = true` on a stable version, so it takes the
    **first entry of the repository's releases Atom feed**, whatever its tag, downloads that
    release's `latest.yml`, and offers the installer when that version is higher than its own.
+   The launcher asks the user before downloading; a declined update stays available through the
+   UPDATES button and the current version keeps launching.
 3. So the new release must be the newest release in the feed, must be published (not a draft), and
    must carry `latest.yml`, the installer and its blockmap. Prerelease or stable both work.
 4. A release created later (even a hotfix-only one) becomes the feed's first entry. Never create a

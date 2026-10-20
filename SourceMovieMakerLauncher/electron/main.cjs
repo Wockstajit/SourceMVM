@@ -846,8 +846,9 @@ function registerIpc() {
   ipcMain.handle('update:status', () => updateService.getStatus());
   // The UPDATES button: one check now, whatever the automatic-updates setting says.
   ipcMain.handle('update:check', () => updateService.check({ manual: true }));
-  ipcMain.handle('update:download', () => updateService.check({ manual: true }));
-  ipcMain.handle('update:install', () => updateService.check({ manual: true }));
+  // The user said yes to a pending update: download it, install it and restart.
+  ipcMain.handle('update:download', () => updateService.install());
+  ipcMain.handle('update:install', () => updateService.install());
 
   // FFmpeg. Its own lifecycle: the render pipeline cannot encode without it, but it is a
   // third-party binary the user may already have, so it is detected before it is ever downloaded.
@@ -918,8 +919,10 @@ function registerIpc() {
 async function runHeadless(argv) {
   const { current, commandLine, envValues } = cliSettings(argv);
   try {
+    // A check only reports a pending update; nobody is there to say yes, so automation launches
+    // the installed app. The installer owns exit/restart. Do not exit this process before its
+    // quit callback runs.
     const update = await updateService.check();
-    // The installer owns exit/restart. Do not exit this process before its quit callback runs.
     if (update.state === 'installing') return;
     updateService.assertCanLaunch();
     await launchWithSettings(current, commandLine, envValues);
