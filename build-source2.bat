@@ -121,6 +121,9 @@ if errorlevel 1 (
     echo ERROR: render-pass material build failed.
     exit /b 1
 )
+echo       Compiling the hook's own Panorama textures ^(FX\ui: outliner icons, HC Tracker badge^)...
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0FX\tools\build-ui-textures.ps1" -StageRoot "%FM_FX_STAGE_DIR%"
+if errorlevel 1 echo   WARNING: UI texture build failed; the outliner icons may draw blank.
 
 echo [8/8] Startup video override ^(SOURCE:MVM intro^)...
 powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0Automation\tools\set-startup-video.ps1" -Install -MountDir "%FM_FX_STAGE_DIR%"
