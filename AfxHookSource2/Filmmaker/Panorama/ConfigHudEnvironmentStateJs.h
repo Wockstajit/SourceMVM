@@ -16,7 +16,9 @@ R"CFJS(
     // complete environment; placed objects belong to the map they were placed on. The menu floats
     // on the dropdown layer, so a press outside it closes it like any other popover.
     var envName = '', envNameFocus = false, envPresetMenu = null;
-    var envPresetBtn = mk('Panel', envSceneSec.__headerHost());
+    // In the LOOKS header (2026-10 sidebar cleanup): a scene preset is the whole look, and that is
+    // the card people reach for first. It saves and loads everything, Scene Objects included.
+    var envPresetBtn = mk('Panel', envLooksSec.__headerHost());
     envPresetBtn.hittest = true; envPresetBtn.style.flowChildren = 'right'; envPresetBtn.style.verticalAlign = 'center';
     envPresetBtn.style.padding = '5px 10px'; envPresetBtn.style.border = '1px solid #ffffff1f';
     envPresetBtn.style.borderRadius = '3px'; envPresetBtn.style.maxWidth = '150px'; envPresetBtn.style.marginLeft = '8px';

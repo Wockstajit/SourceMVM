@@ -67,7 +67,7 @@ test("Sun tint amount and mode reach both solar irradiance and glow colour", () 
   assert.match(sun, /SolarIrradiance[\s\S]*ApplyLightTint/);
   assert.match(sun, /g_vColorTint[\s\S]*ApplyLightTint/);
   // Sun is a sub-page of the one LIGHTING card now (Docs/features/filmmaker_config_panel.md).
-  assert.match(lightingUi, /litSec\.__page\('Sun'\)/);
+  assert.match(lightingUi, /litSec\.__(?:page|group)\('Sun'\)/);
   assert.match(lightingUi, /world light mode ' \+ \(lightUniform \? 'uniform' : 'filtered'\)/);
   assert.match(lightingUi, /'Color only'/);
   assert.match(lightingUi, /'Filter \/ dim'/);
@@ -86,7 +86,7 @@ test("Environment pages keep lighting and atmosphere responsibilities separate",
   // this test. Both are sub-pages of their card now rather than cards of their own.
   assert.doesNotMatch(lightingUi, /'World tint'/);
   assert.match(atmosphereUi, /atmosSec = section\(pageEffects, 'ATMOSPHERE'.*atmos\.card/s);
-  assert.match(atmosphereUi, /atmosSec\.__page\('World tint'\)/);
+  assert.match(atmosphereUi, /atmosSec\.__(?:page|group)\('World tint'\)/);
   assert.match(atmosphereUi, /'Match sun'/);
   assert.match(atmosphereUi, /lightGrid\.selected === LIGHT_TINTS/);
 });

@@ -18,17 +18,24 @@ R"CFJS(
     // Death Animations (Movie/DeathAnimations.h): the dying player plays a baked death clip
     // exactly, the way the Blender viewer shows it, and the ragdoll only takes over once the clip
     // is over. One clip family at a time. Names are prefixed `da`: the fragments share one scope.
-    var rgSec = section(pageRagdolls, 'ADVANCED RAGDOLLS', true, true, 'ragdoll.model');
-    // Resets both sub-pages' settings (Death animations and Nervous system). The switch itself is
-    // switched off along with both sub-pages.
-    var rgReset = rgSec.__headerReset(
-      ['mirv_filmmaker deathanim reset', 'mirv_filmmaker nervous reset'], 'rag.deathanim');
+    // Two cards (2026-10 sidebar cleanup): DEATH ANIMATIONS and NERVOUS SYSTEM, each with its own
+    // master switch in the header and on the rail, like every other card. The nervous system
+    // still needs death animations on; its rail summary says so while they are off.
+    var rgSec = section(pageRagdolls, 'DEATH ANIMATIONS', true, true, 'ragdoll.model');
+    var rgReset = rgSec.__headerReset(['mirv_filmmaker deathanim reset'], 'rag.deathanim');
     var daTog = rgSec.__headerPill(function () {
       cmd('mirv_filmmaker deathanim ' + (st && st.daOn ? 'off' : 'on'));
-    }, 'Enables death animations and Nervous System reactions. '
+    }, 'Enables death animations and, with its own switch, the Nervous System. '
       + 'Tune how closely the body follows the clip below.');
-    var daPage = rgSec.__page('Death animations');
-    var nsPage = rgSec.__page('Nervous system');
+    var daPage = rgSec;
+    var nsSec = section(pageRagdolls, 'NERVOUS SYSTEM', true, false, 'ragdoll.nervous');
+    var nsReset = nsSec.__headerReset(['mirv_filmmaker nervous reset'], 'rag.nervous');
+    var nsTog = nsSec.__headerPill(function () {
+      cmd('mirv_filmmaker nervous ' + (st && st.nsOn ? 'off' : 'on'));
+    }, 'Shot players keep reacting on the ground for a few seconds before they go still: a hand goes to '
+      + 'the wound, the chest heaves, the body writhes and twitches. Headshots go limp at once. '
+      + 'Needs Death animations on; reactions start after the body lands and the animation lets go.');
+    var nsPage = nsSec;
     var DA_KEYS = ['mw2019', 'classic', 'extra'];
     var daSource = modeRow(daPage, 'Animations',
       [['mw2019', 'MW2019'], ['classic', 'Classic CoD'], ['extra', 'Extra']], '260px',
@@ -107,16 +114,12 @@ R"CFJS(
 
 )CFJS"
 R"CFJS(
-    // ---- NERVOUS SYSTEM (inside ADVANCED RAGDOLLS) ----------------------
+    // ---- NERVOUS SYSTEM ---------------------------------------------------
     // Movie/NervousSystem.h: a shot body keeps reacting on the ground for a few seconds -- a hand to
     // the wound, a shot leg drawn up, breathing, writhing and twitches -- then fades out.
-    // Headshots go limp at once. The Advanced Ragdolls master gates both sub-pages.
+    // Headshots go limp at once. The Death Animations master gates it (nsTog is its header switch).
     // Prefix `ns`: the fragments share one scope.
-    var nsTog = togglePill(nsPage, 'Nervous system',
-      'Shot players keep reacting on the ground for a few seconds before they go still: a hand goes to '
-        + 'the wound, the chest heaves, the body writhes and twitches. Headshots go limp at once.',
-      function () { cmd('mirv_filmmaker nervous ' + (st && st.nsOn ? 'off' : 'on')); },
-      'Requires Advanced Ragdolls. Reactions start after the body lands and the death animation lets go.');
+    subHead(nsPage, 'Reactions');
     var nsReach = togglePill(nsPage, 'Reach for the wound',
       'Hands go to where the shot landed. A leg hit grabs the leg and draws it up, a stomach hit '
         + 'curls up with both hands on it, an arm hit clutches it with the other hand.',
@@ -133,7 +136,7 @@ R"CFJS(
     var nsRollOver = togglePill(nsPage, 'Roll over',
       'A body that lands face down tries to turn onto its back before reaching for the wound.',
       function () { cmd('mirv_filmmaker nervous rollover ' + (st && st.nsRollOver ? 'off' : 'on')); });
-    // The switches first as one chip row, then the values (Docs/features/filmmaker_config_panel.md).
+    subHead(nsPage, 'Timing');
     var nsStrength = sliderRow(nsPage, {
       label: 'Reaction strength', cmd: 'mirv_filmmaker nervous strength',
       min: 10, max: 200, decimals: 0, unit: '%',
@@ -165,7 +168,6 @@ R"CFJS(
 
     renderHooks.push(function (st) {
       nsTog.set(!!st.nsOn && !!st.daOn);
-      nsTog.row.enabled = !!st.daOn;
       nsStrength.sync(st.nsStrength);
       nsDuration.sync(st.nsDuration);
       nsBlendIn.sync(st.nsBlendIn);
@@ -175,14 +177,21 @@ R"CFJS(
       nsWrithe.set(!!st.nsWrithe);
       nsTwitch.set(!!st.nsTwitch);
       nsRollOver.set(!!st.nsRollOver);
-      nsInfo.text = !st.daOn ? 'Advanced Ragdolls is off. All death animations and reactions are inactive.'
+      nsInfo.text = !st.daOn ? 'Death animations are off, so the nervous system is inactive. Switch them on first.'
         : !st.nsOn ? 'Nervous system off. Bodies go limp when they die.'
         : 'Where the shot landed decides the reaction. Headshots go limp at once.'
           + (st.nsActive > 0 ? ' Reacting: ' + st.nsActive + '.' : '');
-      var parts = [];
-      if (st.daOn) parts.push(['MW2019', 'Classic CoD', 'Extra'][(typeof st.daSource === 'number') ? st.daSource : 0]);
-      if (st.daOn && st.nsOn) parts.push('Nervous');
-      rgSec.__note(parts.length ? parts.join(' + ') : 'Off');
+      // Each card's own summary. The death animations card names its clip source and count; the
+      // nervous system card lists the reactions that are on, or says what it is waiting for.
+      var srcName = ['MW2019', 'Classic CoD', 'Extra'][(typeof st.daSource === 'number') ? st.daSource : 0];
+      var clipCounts = st.daClips || [0, 0, 0], clipN = clipCounts[(typeof st.daSource === 'number') ? st.daSource : 0] || 0;
+      rgSec.__note(st.daOn ? (srcName + (clipN > 0 ? ' · ' + clipN + ' clips' : '')) : 'Off');
+      var reactions = [];
+      if (st.nsReach) reactions.push('reach'); if (st.nsBreath) reactions.push('breathing');
+      if (st.nsWrithe) reactions.push('writhing'); if (st.nsTwitch) reactions.push('twitches');
+      if (st.nsRollOver) reactions.push('roll over');
+      nsSec.__note(!st.daOn ? 'Off · needs Death animations' : (!st.nsOn ? 'Off'
+        : (reactions.length ? reactions.join(' · ') : 'On · no reactions picked')));
     });
 
 )CFJS"
@@ -311,7 +320,8 @@ R"CFJS(
       rwSec.__note(st.ragdollKeepWeapon
         ? (st.ragdollDeathFire ? 'Held · ' + st.ragdollFireChance + '% firing' : 'Held')
         : (st.ragdollDeathFire ? 'Firing armed · enable hold' : 'Off'));
-      rpSec.__note('g ' + (typeof st.rp_gravity === 'number' ? Math.round(st.rp_gravity) : 0)
+      rpSec.__note('Gravity ' + (typeof st.rp_gravity === 'number' ? st.rp_gravity.toFixed(2) : '1.00')
+        + (typeof st.rp_limit === 'number' ? ' · ' + Math.round(st.rp_limit) + ' bodies' : '')
         + (colOn ? ' · collide' : ''));
       rdKeep.sync(st);
       rdReset.paint();

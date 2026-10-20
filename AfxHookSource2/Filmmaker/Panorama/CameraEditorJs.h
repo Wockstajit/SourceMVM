@@ -631,6 +631,30 @@ R"EDJS(
     scrollWrap.style.transitionDuration = '0s';   // never animate the scrolled subtree
     var inspectorBody = scrollWrap;
 
+    // ---- the key strip (PATH tab) -----------------------------------------------------------
+    // The shortcuts, pinned under the body above RENDER (2026-10 sidebar cleanup), in the order
+    // the work happens: K place, J arm the path, then the rest. Checked against MovieMode.cpp:
+    // arrows skip kSkipSeconds (5), Shift+wheel is speed, Ctrl+wheel is FOV, X / Z roll.
+    // Sized to be read at a glance from the game: 13px, key caps with real padding, the words in
+    // the label tier. (The first cut was 11px and muted, and could barely be seen over the map.)
+    var edKeyStrip = mk('Panel', inspector); edKeyStrip.hittest = false;
+    edKeyStrip.style.flowChildren = 'right-wrap'; edKeyStrip.style.width = '100%';
+    edKeyStrip.style.marginTop = '8px'; edKeyStrip.style.paddingTop = '10px'; edKeyStrip.style.paddingBottom = '2px';
+    edKeyStrip.style.borderTop = '1px solid #ffffff14';
+    [['K', 'place'], ['J', 'arm path'], ['L', 'delete'], ['F', 'edit'], ['Space', 'play'], ['← →', '±5 s'],
+     ['Shift+Scroll', 'move speed'], ['Ctrl+Scroll', 'FOV'], ['X / Z', 'roll right / left']].forEach(function (d) {
+      var item = mk('Panel', edKeyStrip); item.hittest = false;
+      item.style.flowChildren = 'right'; item.style.marginRight = '16px'; item.style.marginBottom = '7px';
+      var k = mk('Panel', item); k.hittest = false;
+      k.style.paddingLeft = '8px'; k.style.paddingRight = '8px'; k.style.paddingTop = '3px'; k.style.paddingBottom = '3px';
+      k.style.border = '1px solid #ffffff40'; k.style.borderRadius = '3px'; k.style.marginRight = '7px';
+      k.style.backgroundColor = '#ffffff10';
+      k.style.verticalAlign = 'center';
+      var kl = lbl(k, d[0], S.value, 13); kl.hittest = false; kl.style.fontWeight = 'bold'; kl.style.whiteSpace = 'nowrap';
+      var w = lbl(item, d[1], S.label, 13); w.hittest = false; w.style.verticalAlign = 'center'; w.style.whiteSpace = 'nowrap';
+    });
+    edKeyStrip.visible = false;
+
 )EDJS"
 #include "CameraEditorFollowInspectorJs.h"
 #include "CameraEditorPathInspectorJs.h"
@@ -1146,6 +1170,7 @@ R"EDJS(
       var pathMode = !followMode && !sceneMode;
       edApplyRails(inspectorMode);
       edFollowBar.visible = followMode;
+      edKeyStrip.visible = pathMode;
       styleTab(followTab, followMode, workspaceAccent);
       styleTab(pathTab, pathMode, workspaceAccent);
       styleTab(sceneTab, sceneMode, workspaceAccent);

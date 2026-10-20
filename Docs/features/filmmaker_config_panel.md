@@ -24,7 +24,16 @@ and game-HUD controls available from every tab. The bottom actions open Render o
 ## Layout and files
 
 The panel has four top-level tabs: **CAMERA**, **EFFECTS**, **ENVIRONMENT**, and **RAGDOLLS**.
-Each inspector uses a grouped rail and one selected pane; card sub-pages stay inside that pane.
+Each inspector uses a grouped rail and one selected pane. The rail is 180px wide with 52px rows;
+a row's title and summary wrap rather than being cut, and a card with a master switch carries it
+on its row and in its header. The pane takes the rest of the column (400px at the default width).
+A card is **one page with group headings as dividers**; sub-tabs stay only where one page would
+not fit the pane (Depth of Field, Weather & Sky, Scene Objects). Every control is one row in the
+same box: a 130px label column, the control, a 66px value column. Booleans are square switches in
+that row, never chips. Nothing truncates: a segment or option grid whose captions do not fit
+beside the label drops under it at full width (`cfgCaptionsFit` in `ConfigHudWidgetsJs.h`), and
+labels wrap. A single colour field is a full-width bar of its colour, crossed by the custom mark;
+on a palette that allows a custom colour, the custom chip is wider and carries the same mark.
 The tab-row search indexes controls across all tabs. Rail selection persists independently per tab,
 and hidden cards retain their state and render hooks. See the
 [shared workspace contract](../panorama/panorama_ui_guide.md#shared-workspace-contract).
@@ -117,12 +126,13 @@ Centre Lock. Weapon Recoil kicks the gun itself.
 The CAMERA tab has effect cards for **Smooth View**, **Handheld Camera**, **Weapon Recoil** and **Weapon Bob**.
 Weapon Recoil's camera share is split three ways on its own tab.
 
-Weapon Recoil's card is laid out as two tabs plus a persistent frame:
+Weapon Recoil's card is one page: the scope and style rows at the top, then two groups, then the
+PIVOT drawer at the end (Smooth View, Handheld Camera and Weapon Bob are grouped the same way,
+with their general switches under a first heading):
 
-- **Weapon**: the gun's own kick: Amount, Punch, Rotation, Snappiness, Recovery, Pivot and the
-  pivot marker toggle.
-- **Camera Shake**: under a **CAMERA SHARE** heading, how much of that kick the camera takes with
-  it: **Rotation**, **Punch** and **Barrel Roll**.
+- **Weapon**: the gun's own kick: Amount, Punch, Rotation, Snappiness, Recovery.
+- **Camera Shake**: how much of that kick the camera takes with it: **Rotation**, **Punch** and
+  **Barrel Roll**.
   **These take movement away from the weapon. They add none.** The gun is placed at
   `eyeOrigin + kick` inside `CalcViewModelView`, and that eye origin does NOT contain our camera
   shake. It is bit-identical across a kick on a paused demo. The camera then
@@ -132,9 +142,9 @@ Weapon Recoil's card is laid out as two tabs plus a persistent frame:
   is deliberate. Handheld Camera publishes an explicit viewmodel compensation (`handheldVmComp`)
   precisely so its drift does NOT do this, and Weapon Recoil's share does not.
 
-- **Style** and **Recoil Applies To** sit ABOVE the tab strip, and **Test Shot** below it, so all
-  three are visible whichever tab is open. They are not a third topic. They say what the other
-  pages are editing, and you fire a test while tuning any of them.
+- **Applies to** and **Style** sit at the top of the page, and **Test Shot** is the header action,
+  so all three are visible whatever you are tuning. They are not a third topic. They say what the
+  groups below are editing, and you fire a test while tuning any of them.
 
 The scope picker is **All / Slot / Type**.
 Picking Slot or Type preselects the category of the gun currently in shot, and the note under the
@@ -267,9 +277,11 @@ re-entering the values.
 
 ## RAGDOLLS tab
 
-The **Advanced Ragdolls** card plays death animations 1:1, then hands the body to the ragdoll.
-Its header pill switches the feature on. The **Animations** row picks MW2019, Classic CoD or
-Extra (GMod). **Running above** (default 130 u/s, CS2's walk speed) is the speed past which a dying
+The **Death Animations** card plays death animations 1:1, then hands the body to the ragdoll.
+Its header switch turns the feature on. The **Animations** row picks MW2019, Classic CoD or
+Extra (GMod). The **Nervous System** is its own card beside it, with its own header switch; it
+needs Death Animations on, and its rail summary says so while they are off
+([filmmaker_nervous_system.md](filmmaker_nervous_system.md)). **Running above** (default 130 u/s, CS2's walk speed) is the speed past which a dying
 player only gets running clips. See [filmmaker_death_animations.md](filmmaker_death_animations.md).
 
 The **Death Weapon** card follows the corpse model's `weapon_hand_R` attachment with the
@@ -353,7 +365,10 @@ Nothing in the panel appears by hard cut. All entrances share one curve (`MO_ARR
 exponential ease-out) defined in `ConfigHudWidgetsJs.h`:
 
 - the panel itself slides in when Config opens (`moSlideIn`);
-- top-level tabs (CAMERA/EFFECTS/RAGDOLLS) and every sub-tab page (Smooth View, Handheld) fade and rise on a tab change (`moTabSwap`);
+- the card a rail click selects rises 4px as it arrives (`moEnter` from `cfgSelectCard`), once per
+  real selection, never per frame;
+- a pressed button dips to 97% for the press flash (`makeInteractive`), and switch knobs slide;
+- top-level tabs (CAMERA/EFFECTS/ENVIRONMENT/RAGDOLLS) and sub-tab pages fade and rise on a tab change (`moTabSwap`);
 - collapsible card bodies fade and rise open, and reverse out before hiding, with the chevron
   rotating rather than swapping glyphs;
 - tooltips fade in after a short hover-intent delay and fade back out.

@@ -1,7 +1,8 @@
 # Nervous System
 
-The **NERVOUS SYSTEM** sub-tab sits inside **ADVANCED RAGDOLLS**, beside **DEATH ANIMATIONS**, on
-the CONFIG panel's RAGDOLLS tab. The Advanced Ragdolls master switch gates both features. A shot
+The **NERVOUS SYSTEM** card sits beside **DEATH ANIMATIONS** on the CONFIG panel's RAGDOLLS tab,
+with its own switch in its header and on its rail row. It still needs Death Animations on; while
+they are off its rail summary says "Off · needs Death animations". A shot
 player keeps reacting for a few seconds before the body goes still: a hand goes to the wound, the
 chest heaves, and the limbs writhe and twitch. A headshot does none of this. The body goes limp at
 once.
@@ -171,9 +172,9 @@ contact impulse into whole-body drift.
 
 ## With Death Animations
 
-With Advanced Ragdolls on, a dying player first plays its death clip. The Nervous System waits until
+With Death Animations on, a dying player first plays its death clip. The Nervous System waits until
 `DeathAnimations_Owns(pawn)` is false, meaning the clip has handed off or been released, up to 20 s.
-It then reacts from wherever the clip left the body after it settles. Turning Advanced Ragdolls off
+It then reacts from wherever the clip left the body after it settles. Turning Death Animations off
 drops pending and active reactions, even if the Nervous System preference remains on. Deaths while
 the master is off do not queue reactions. Airborne non-explosion deaths use native falling physics
 instead of grounding a death clip at the victim's starting foot height.

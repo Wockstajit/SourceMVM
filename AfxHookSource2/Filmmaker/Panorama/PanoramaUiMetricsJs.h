@@ -87,9 +87,15 @@ R"UIMJS(
       // ---- the effect rail (Docs/features/camera-editor-feature.md) ------------------
       // Config and the Camera Editor both split their inspector into a RAIL (one row per card,
       // under group headings) and a PANE that shows only the selected card.
-      rail: { w: 200, padR: 14, gap: 16, rowH: 44, groupGap: 14, rowGap: 4, edge: 3 },
+      // 180 wide with 52px rows (2026-10 sidebar cleanup): the row's summary may run to two lines
+      // and say more, and the pane gets the 20px the rail gave up.
+      rail: { w: 180, padR: 12, gap: 14, rowH: 52, groupGap: 14, rowGap: 4, edge: 3 },
       // One-line control rows inside the pane: label column | control | value column.
-      line: { h: 32, label: 130, value: 66, gap: 5, padH: 10, colGap: 12 },
+      line: { h: 32, label: 130, value: 66, gap: 5, padH: 10, colGap: 12,
+              // Caption fitting (2026-10 sidebar cleanup): nothing truncates. A control whose captions
+              // do not fit beside the label drops under it at full width. `ch` is the estimated width
+              // of one 12px bold caption character, `padCell` the padding a cell adds around it.
+              ch: 7.1, padCell: 14, cellGap: 4 },
       // Square switches: the card header's and the rail row's.
       sw: { w: 42, h: 22, knob: 14, travel: 20 },
       swSm: { w: 34, h: 18, knob: 12, travel: 16 },

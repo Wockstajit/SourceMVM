@@ -26,7 +26,7 @@ R"CFJS(
     // ===================== TIME OF DAY ==================================
     // Each one pins the tonemapper to a set exposure. Fixed values, so they do not claim to
     // change the time of day -- they change how the frame is exposed.
-    var todPage = litSec.__page('Time of day');
+    var todPage = litSec.__group('Time of day');
     var TOD = [
       ['dawn',   'Dawn',    0.55],
       ['day',    'Day',     1.00],
@@ -63,7 +63,7 @@ R"CFJS(
     // Tints every light the scene system submits, through World/LightFx.cpp. The same recovered
     // object pointer provides the live sun direction controls below; all writes are bounded and
     // the authored direction is restored on reset.
-    var sunPage = litSec.__page('Sun');
+    var sunPage = litSec.__group('Sun');
     var LIGHT_TINTS = [
       ['default', '#00000000', '255 255 255'],
       ['warm',    '#ffb277ff', '255 178 119'],

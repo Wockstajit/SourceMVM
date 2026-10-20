@@ -133,7 +133,8 @@ R"CFJS(
       }
     }, 'Switches the weather and its wet or snowy ground off together, and puts both back.');
 
-    var envWxType = envWeatherSec.__page('Weather');
+    // ONE page, grouped (2026-10 sidebar cleanup): Weather, Ground and Lightning are twelve rows.
+    var envWxType = envWeatherSec.__group('Weather');
     var envWeatherModes = modeRow(envWxType, 'Weather',
       [['clear', 'Clear'], ['rain', 'Rain'], ['snow', 'Snow'], ['ash', 'Ash']], '236px',
       envChooseWeather,
@@ -169,9 +170,9 @@ R"CFJS(
       onChange: function (v) { cmd('mirv_filmmaker props wind ' + v); }
     });
     renderHooks.push(function (st) { if (st && st.props) envFoliageWind.sync(st.props.wind || 0); });
-    var envCoatPage = envWeatherSec.__page('Ground');
+    var envCoatPage = envWeatherSec.__group('Ground');
     cs(envCoatPage, 'wet'); cs(envCoatPage, 'puddles'); cs(envCoatPage, 'snow');
-    var envStormPage = envWeatherSec.__page('Lightning');
+    var envStormPage = envWeatherSec.__group('Lightning');
     cw(envStormPage, 'Lightning', 'storm', 'Lightning channels, cloud flashes and illuminated surfaces.');
     cs(envStormPage, 'stormStrength'); cs(envStormPage, 'stormInterval');
 )CFJS"

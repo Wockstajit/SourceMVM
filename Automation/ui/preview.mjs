@@ -53,8 +53,14 @@ export function createPreviewServer(dir, missing = null) {
 function cs2Missing(dir) {
   const exportAgent = agentModelExporter(path.join(dir, 'assets', 'models'));
   const clips = path.join(ROOT, 'FX', 'death-animations', 'ragdoll_animations.mvmanim');
+  // Our own Panorama textures (the outliner's icon set) are compiled from PNGs committed under
+  // FX/ui; the shim maps `s2r://panorama/images/sourcemvm/<name>_png.vtex` to
+  // `assets/panorama/images/sourcemvm/<name>_png.png`, which is served straight from that source.
+  const ownImages = path.join(ROOT, 'FX', 'ui', 'panorama', 'images', 'sourcemvm');
   return (rel) => {
     if (rel === 'assets/ragdoll/ragdoll_animations.mvmanim') return clips;
+    const own = /^assets\/panorama\/images\/sourcemvm\/([A-Za-z0-9_]+)_png\.png$/.exec(rel);
+    if (own) return path.join(ownImages, own[1] + '.png');
     return exportAgent(rel);
   };
 }

@@ -16,7 +16,7 @@
 
 R"CFJS(
     // ===================== SCENE OBJECTS > ASSETS & LIGHTS ====================
-    var propsPage = envSceneSec.__page('Assets & Lights');
+    var propsPage = envSceneSec.__page('Library');
     function propsCommand(t) { cmd('mirv_filmmaker props ' + t); }
     // A brush mix as console lines: verb (start|models) with the first models, then paint add for
     // the rest. One console line holds only a few model paths; a long line lost the last models.
@@ -282,9 +282,9 @@ R"CFJS(
       b.SetPanelEvent('onmouseout', function () { b.style.backgroundColor = r.picked ? '#80bdff2e' : (r.inBrush ? '#7fe0d014' : S.clear); });
       b.SetPanelEvent('onactivate', r.click);
       if (r.place) b.SetPanelEvent('ondblclick', r.place);
-      var dot = mk('Panel', b); dot.hittest = false;
-      dot.style.width = '7px'; dot.style.height = '7px'; dot.style.borderRadius = '4px';
-      dot.style.backgroundColor = PROPS_KIND_DOT[r.kind] + 'ff'; dot.style.verticalAlign = 'center'; dot.style.marginRight = '8px';
+      var kindIcon = olIcon(b, r.kind === 'light' ? 'lightbulb' : (r.kind === 'mesh' ? 'shapes' : 'box'), 13,
+        PROPS_KIND_DOT[r.kind] + 'ff');
+      kindIcon.style.marginRight = '8px';
       var n = lbl(b, (r.inBrush ? '✓ ' : '') + r.name, r.picked || r.inBrush ? ENV_ACCENT : S.label, 13);
       n.hittest = false; n.style.verticalAlign = 'center'; n.style.width = 'fill-parent-flow(1.0)';
       n.style.whiteSpace = 'nowrap'; n.style.textOverflow = 'ellipsis';

@@ -2,24 +2,25 @@
 
 // Shared Panorama controls for Looks, Sky, Lighting and the single added fog.
 R"CFJS(
-    var envLooksPage = envLooksSec.__page('Presets');
+    // ONE page, grouped (2026-10 sidebar cleanup): Presets, Color and Lens are ten rows together.
+    var envLooksPage = envLooksSec.__group('Presets');
     actionGroup(envLooksPage, 'Starting looks', [
       ['Storm', function () { envCommand('look storm'); }],
       ['Winter', function () { envCommand('look winter'); }],
       ['Sunset', function () { envCommand('look sunset'); }],
       ['Night', function () { envCommand('look night'); }]
-    ], 2, 'Sets the sky, fog and weather together. Save the result with the preset button on Scene Objects.');
-    var envGradeColour = envLooksSec.__page('Color');
+    ], 4, 'Sets the sky, fog and weather together. Save the result with the preset menu in this card’s header.');
+    var envGradeColour = envLooksSec.__group('Color');
     envSceneSlider(envGradeColour, 'Exposure', 'exposure', 0.05, 4, 'Brightness of the finished frame.');
     cs(envGradeColour, 'saturation'); cs(envGradeColour, 'contrast');
     colorField(envGradeColour, 'Scene tint', function () { var s = envState(); return s && {rgb:s.tint}; }, function (rgb) {
       ['tintR','tintG','tintB'].forEach(function (key,i) { envCommand('set '+key+' '+rgb[i]); });
     });
-    var envGradeLens = envLooksSec.__page('Lens');
+    var envGradeLens = envLooksSec.__group('Lens');
     cs(envGradeLens, 'bloom'); cs(envGradeLens, 'vignette');
     cs(envGradeLens, 'grain'); cs(envGradeLens, 'chromatic');
 
-    var envSkyPage = envSkySec.__page('Sun & sky');
+    var envSkyPage = envSkySec.__group('Sun & sky');
     cs(envSkyPage, 'sunAzimuth'); cs(envSkyPage, 'sunElevation'); cs(envSkyPage, 'sunPower');
     cs(envSkyPage, 'haze'); cs(envSkyPage, 'stars');
     colorField(envSkyPage, 'Sun color', function () { var c=envClimate(); return c && {rgb:[c.sunColorR,c.sunColorG,c.sunColorB]}; }, function (rgb) {
@@ -27,18 +28,18 @@ R"CFJS(
       ['sunColorR','sunColorG','sunColorB'].forEach(function (key,i) { envCommand('climate '+key+' '+rgb[i]); });
     }, 2);
     envNote(envSkyPage, 'Multiplies the sun. 1, 1, 1 is the default warm-to-white ramp; the same colour drives surface lighting, the sun disk, the sky glow and the bounce.');
-    var envCloudPage = envSkySec.__page('Clouds');
+    var envCloudPage = envSkySec.__group('Clouds');
     cw(envCloudPage, 'Clouds', 'clouds', 'Clouds can be used with either the map sky or the added sky.');
     cs(envCloudPage, 'coverage'); cs(envCloudPage, 'cloudBase'); cs(envCloudPage, 'windSpeed');
 
     // Today's one long page split three ways (Docs/features/filmmaker_config_panel.md): what lights the scene, how its
     // shadows look, and which map lights are on.
-    var envRelightPage = envLightSec.__page('Light');
-    var envShadowPage = envLightSec.__page('Shadows');
-    var envMapLightPage = envLightSec.__page('Map lights');
+    var envRelightPage = envLightSec.__group('Light');
+    var envShadowPage = envLightSec.__group('Shadows');
+    var envMapLightPage = envLightSec.__group('Map lights');
     // Eye adaptation (Unreal-style auto exposure): meters the frame and eases the tonemapper toward
     // it, so walking from a dark doorway into sunlight brightens, then settles.
-    var envExposurePage = envLightSec.__page('Exposure');
+    var envExposurePage = envLightSec.__group('Exposure');
     var envAdaptToggle = togglePill(envExposurePage, 'Auto exposure',
       'Meters the scene and adjusts exposure over time, like a camera or an eye. A pinned exposure (Effects > Lighting time of day or Exposure slider) overrides it.',
       function () {
