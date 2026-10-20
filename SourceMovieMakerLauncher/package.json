@@ -1,6 +1,6 @@
 {
   "name": "source-movie-maker-launcher",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Standalone Electron launcher for SOURCE:MVM and Counter-Strike 2.",
   "author": "Wockstajit",
