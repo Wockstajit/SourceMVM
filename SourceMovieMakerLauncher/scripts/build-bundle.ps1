@@ -121,8 +121,7 @@ Get-ChildItem -LiteralPath $runtime -Recurse -File |
 $mapLighting = Join-Path $runtime 'resources\map-lighting'
 Assert-ChildPath $mapLighting $bundle
 if (Test-Path -LiteralPath $mapLighting) { Remove-Item -LiteralPath $mapLighting -Recurse -Force }
-# environment-shaders: `cmake --install` only ever ADDS to the staged folder, so it collects every
-# shader any earlier build produced. Ship exactly the set the current build made.
+# environment-shaders: ship exactly the set the current build made, straight from the build tree.
 $freshShaders = Join-Path $repoRoot 'build\x64-source2-release\AfxHookSource2\Release\environment-shaders'
 if (Test-Path -LiteralPath $freshShaders) {
     $shaders = Join-Path $runtime 'x64\environment-shaders'
