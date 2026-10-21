@@ -174,6 +174,11 @@ add_custom_command(OUTPUT "${ENVIRONMENT_SHADER_BUNDLE}/ready.stamp"
     VERBATIM)
 add_custom_target(EnvironmentShaderBundle DEPENDS "${ENVIRONMENT_SHADER_BUNDLE}/ready.stamp")
 add_dependencies(${PROJECT_NAME} EnvironmentShaderBundle)
+# Bundle file names are content hashes and an install only adds files, so every shader change
+# used to leave its old .cso behind in the staged folder. Clear it first: the staged set is then
+# exactly this build's.
+install(CODE "file(REMOVE_RECURSE \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/bin/x64/environment-shaders\")"
+    COMPONENT x64-source2)
 install(DIRECTORY "${ENVIRONMENT_SHADER_BUNDLE}/"
     DESTINATION "bin/x64/environment-shaders" COMPONENT x64-source2
     FILES_MATCHING PATTERN "*.cso")

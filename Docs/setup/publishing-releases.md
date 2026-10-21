@@ -101,7 +101,8 @@ users already have, instead of a new installer:
    `powershell.exe -File` does not bind comma-separated values to that array parameter. For a few
    added shaders, pass their individual `x64\environment-shaders\<name>.cso` paths with the DLL.
    The build's `environment-shaders/manifest.txt` lists its required programs. Compare those files
-   against the current release bundle. Do not package unrelated bytecode left in a local shader cache.
+   against the current release bundle. The install step clears the staged `environment-shaders`
+   folder first, so it holds only this build's bytecode.
 3. Upload both outputs to the **existing** release of the current version. The script prints the
    `gh release upload <tag> --clobber` command. Do not create a new release, and do not upload a
    `latest.yml`. Either one would make the updater offer an installer.
