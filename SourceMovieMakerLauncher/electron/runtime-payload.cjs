@@ -34,7 +34,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const { HOTFIX_ASSET, pickHotfix, bundleRuntimeWanted } = require('./runtime-hotfix.cjs');
-const { FX_SAVED_SETTINGS, replaceDirectory } = require('./payload-swap.cjs');
+const { FX_SAVED_SETTINGS, recoverInterrupted, replaceDirectory } = require('./payload-swap.cjs');
 
 const RELEASE_OWNER = 'Wockstajit';
 const RELEASE_REPO = 'SourceMVM';
@@ -111,6 +111,10 @@ function componentStamp(info, name) {
 }
 
 async function installBundledOnce(report) {
+  // A start that closed part way through replacing a component is put right before anything looks
+  // at it (payload-swap.cjs): the component may be sitting in <folder>.previous, and the bundle the
+  // installer moves in may be sitting in <folder>.incoming.
+  for (const name of Object.keys(COMPONENTS)) await recoverInterrupted(componentDir(name));
   const info = bundleInfo();
   if (!info) return { state: 'not-bundled' };
   const installed = readInstalledState();
@@ -145,7 +149,7 @@ async function installBundledOnce(report) {
         });
         return null;
       }
-    }, component.keep);
+    }, component.keep, { movedFrom: source });
     installed[name] = { version: info.version, sha256: componentStamp(info, name),
       bundleStamp: componentStamp(info, name), hotfix: 0, bytes: 0 };
     writeInstalledState(installed);

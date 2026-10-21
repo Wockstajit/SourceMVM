@@ -39,6 +39,13 @@ function incomingDir(target) {
   return `${target}.incoming`;
 }
 
+// A move-install (the complete installer's bundle, on the same drive) leaves the only copy of what
+// it moved in <target>.incoming until the swap finishes. This file names where it came from, so
+// recovery can give it back.
+function movedFromFile(target) {
+  return `${incomingDir(target)}.from`;
+}
+
 // Windows can refuse a folder move for a moment while a virus scanner or the search indexer still
 // has a file in it open. Retry briefly (about two seconds) before giving up.
 async function moveFolder(from, to) {
@@ -100,13 +107,26 @@ async function carryOver(from, to, keep, wins) {
 // <target>.incoming and <target>.previous behind. The new folder is built in <target>.incoming and
 // only becomes <target> by one rename once it is complete and holds the player's settings, so:
 // - <target>.incoming may be half copied or still lack the settings: it is discarded, and the
-//   caller installs again.
+//   caller installs again. When it was moved in from a folder that is now gone, it goes back there.
 // - <target>.previous with no target is the last good install: it goes back.
 // - <target>.previous beside a target means the rename finished: the target is complete, and the
 //   old folder goes.
+// replaceDirectory runs this first; a caller that checks its source (the installer's bundle) runs it
+// before that check.
 async function recoverInterrupted(target) {
   const incoming = incomingDir(target);
-  if (fs.existsSync(incoming)) await fsp.rm(incoming, { recursive: true, force: true });
+  const journal = movedFromFile(target);
+  let movedFrom = '';
+  try {
+    movedFrom = (await fsp.readFile(journal, 'utf8')).trim();
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  if (fs.existsSync(incoming)) {
+    if (movedFrom && !fs.existsSync(movedFrom)) await moveFolder(incoming, movedFrom);
+    else await fsp.rm(incoming, { recursive: true, force: true });
+  }
+  await fsp.rm(journal, { force: true });
   const previous = previousDir(target);
   if (!fs.existsSync(previous)) return;
   if (fs.existsSync(target)) await fsp.rm(previous, { recursive: true, force: true });
@@ -117,12 +137,14 @@ async function recoverInterrupted(target) {
  * Replace the folder `target` with a new one. `install(folder)` creates the new folder at the path
  * it is given (by a move or a copy; a staging path beside `target`) and may return an undo
  * function, which runs if a later step fails (a move gives its source back). `keep` lists paths
- * relative to `target` that are copied over from the old folder. Returns { kept }, the number of
- * files carried over.
+ * relative to `target` that are copied over from the old folder. Pass `movedFrom` when `install`
+ * may move that folder in, so a launcher that closes before the swap finishes gets it back.
+ * Returns { kept }, the number of files carried over.
  */
-async function replaceDirectory(target, install, keep = []) {
+async function replaceDirectory(target, install, keep = [], { movedFrom = '' } = {}) {
   const previous = previousDir(target);
   const incoming = incomingDir(target);
+  const journal = movedFromFile(target);
   try {
     await recoverInterrupted(target);
   } catch (error) {
@@ -142,20 +164,23 @@ async function replaceDirectory(target, install, keep = []) {
   let kept = 0;
   try {
     await fsp.mkdir(path.dirname(target), { recursive: true });
+    if (movedFrom) await fsp.writeFile(journal, movedFrom);
     undo = await install(incoming);
     if (hadPrevious) kept = await carryOver(previous, incoming, keep, isCs2Setting);
     await moveFolder(incoming, target);
   } catch (error) {
     if (typeof undo === 'function') await Promise.resolve().then(undo).catch(() => {});
     await fsp.rm(incoming, { recursive: true, force: true }).catch(() => {});
+    await fsp.rm(journal, { force: true }).catch(() => {});
     if (!hadPrevious) throw new Error(`Could not install ${target}.\n${error.message}`);
     const restored = await moveFolder(previous, target).then(() => true, () => false);
     throw new Error(restored
       ? `Could not install ${target} (the previous install was kept).\n${error.message}`
       : `Could not install ${target}. The previous install was left in ${previous}, and the next try uses it.\n${error.message}`);
   }
+  await fsp.rm(journal, { force: true }).catch(() => {});
   await fsp.rm(previous, { recursive: true, force: true }).catch(() => {});
   return { kept };
 }
 
-module.exports = { FX_SAVED_SETTINGS, isCs2Setting, replaceDirectory };
+module.exports = { FX_SAVED_SETTINGS, isCs2Setting, recoverInterrupted, replaceDirectory };

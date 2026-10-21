@@ -12,7 +12,7 @@ import vm from 'node:vm';
 // the old folder as it was.
 const payloadSource = new URL('../../SourceMovieMakerLauncher/electron/runtime-payload.cjs', import.meta.url);
 const launcherRequire = createRequire(payloadSource);
-const { FX_SAVED_SETTINGS, isCs2Setting, replaceDirectory } = launcherRequire('./payload-swap.cjs');
+const { FX_SAVED_SETTINGS, isCs2Setting, recoverInterrupted, replaceDirectory } = launcherRequire('./payload-swap.cjs');
 const payloadScript = fs.readFileSync(payloadSource, 'utf8');
 const releasePayloadPs1 = fs.readFileSync(
   new URL('../../SourceMovieMakerLauncher/scripts/build-release-payload.ps1', import.meta.url), 'utf8');
@@ -221,6 +221,41 @@ test('an install cut short before the carry-over never lets package defaults bea
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('a folder moved in and cut short before the swap goes back to where it came from', async () => {
+  const root = tempRoot();
+  try {
+    const target = path.join(root, 'fx');
+    const bundle = path.join(root, 'bundle');
+    // The installer's bundle was moved in, but the launcher closed before it was renamed into place.
+    writeTree(`${target}.previous`, INSTALLED);
+    writeTree(`${target}.incoming`, NEW_PACK);
+    fs.writeFileSync(`${target}.incoming.from`, bundle);
+    await recoverInterrupted(target);
+    assert.deepEqual(readTree(bundle), NEW_PACK);
+    assert.deepEqual(readTree(target), INSTALLED);
+    for (const leftover of ['.incoming', '.incoming.from', '.previous']) {
+      assert.equal(fs.existsSync(`${target}${leftover}`), false, leftover);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a copy cut short is thrown away and leaves the folder it copied from alone', async () => {
+  const root = tempRoot();
+  try {
+    const target = path.join(root, 'fx');
+    const bundle = path.join(root, 'bundle');
+    writeTree(bundle, NEW_PACK);
+    writeTree(`${target}.previous`, INSTALLED);
+    writeTree(`${target}.incoming`, { 'source_mvm_fx/gameinfo.gi': 'half copied' });
+    fs.writeFileSync(`${target}.incoming.from`, bundle);
+    await recoverInterrupted(target);
+    assert.deepEqual(readTree(bundle), NEW_PACK);
+    assert.deepEqual(readTree(target), INSTALLED);
+    assert.equal(fs.existsSync(`${target}.incoming`), false);
+    assert.equal(fs.existsSync(`${target}.incoming.from`), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('a swap that finished before the old folder was deleted keeps the new folder', async () => {
   const root = tempRoot();
   try {
@@ -287,8 +322,27 @@ test('the complete installer\'s FX update keeps the player\'s CS2 settings', asy
     assert.equal(result.state, 'installed');
     assert.deepEqual(readTree(f.fxDir), UPDATED);
     assert.equal(fs.existsSync(`${f.fxDir}.previous`), false);
+    assert.equal(fs.existsSync(`${f.fxDir}.incoming.from`), false);
     assert.equal(installedState(f.userData).fx.bundleStamp, 'bundle:f2');
     assert.equal(payload.installedFxDir(), path.join(f.fxDir, 'source_mvm_fx'));
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test('the complete installer gets its bundle back from an update cut short before the swap', async () => {
+  const f = bundledFixture();
+  try {
+    // The last start moved the old pack aside and the bundle in, then closed before the rename.
+    fs.renameSync(f.fxDir, `${f.fxDir}.previous`);
+    fs.renameSync(f.bundleFx, `${f.fxDir}.incoming`);
+    fs.writeFileSync(`${f.fxDir}.incoming.from`, f.bundleFx);
+    const payload = loadPayload({ userData: f.userData, resources: f.resources, packaged: true });
+    const result = await payload.installBundled();
+    assert.equal(result.state, 'installed');
+    assert.deepEqual(readTree(f.fxDir), UPDATED);
+    for (const leftover of ['.incoming', '.incoming.from', '.previous']) {
+      assert.equal(fs.existsSync(`${f.fxDir}${leftover}`), false, leftover);
+    }
+    assert.equal(installedState(f.userData).fx.bundleStamp, 'bundle:f2');
   } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });
 
