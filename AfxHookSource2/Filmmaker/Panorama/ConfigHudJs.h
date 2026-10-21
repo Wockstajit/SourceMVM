@@ -43,6 +43,8 @@ inline const char* kConfigHudJs = R"CFJS(
     // Top-level child of ctx (see EditorSettingsPopupJs.h), so a rebuild has to drop the old
     // one explicitly or two cards stack on the next open.
     var existingSettings = $('#ConfigEditorSettingsRoot'); if (existingSettings) existingSettings.DeleteAsync(0);
+    // The popover overlay is a top-level ctx child too (cfgOverlay in ConfigHudWidgetsJs.h).
+    var existingOverlay = $('#ConfigHudOverlayRoot'); if (existingOverlay) existingOverlay.DeleteAsync(0);
     var ctx = $.GetContextPanel();
 
     // Same theme tokens as CameraEditorJs.h, with the panel accent flipped to the theme's
@@ -811,12 +813,19 @@ R"CFJS(
     var lastHookRaw = null;
     var hookHeartbeat = 0;
     var api = {};
+    // The popover overlay (tooltips, dropdowns, menus) is a ctx child, so hiding `root` does not
+    // hide it: it follows root here. Created lazily, so nothing to do until a popover first opens.
+    function overlayFollowRoot() {
+      if (!cfgOverlayPanel || !cfgValid(cfgOverlayPanel)) return;
+      var on = !!root.visible;
+      if (cfgOverlayPanel.visible !== on) cfgOverlayPanel.visible = on;
+    }
     api.render = function () {
       columnGround.sync(INSPECTOR_W, inspector.visible);
       var raw = root.GetAttributeString('state', '');
       // Release the live mouse claim on every path that hides the panel, or the game stays
       // locked out of its own input after the panel is gone.
-      if (!raw) { setLiveMouseCapture(false); if ($.ConfigHudDap && $.ConfigHudDap.isOpen()) $.ConfigHudDap.close(); root.visible = false; inspector.visible = false; hideDemoWorkspace(); return; }
+      if (!raw) { setLiveMouseCapture(false); if ($.ConfigHudDap && $.ConfigHudDap.isOpen()) $.ConfigHudDap.close(); root.visible = false; overlayFollowRoot(); inspector.visible = false; hideDemoWorkspace(); return; }
       try { st = JSON.parse(raw); } catch (e) { return; }
       // Everything from hydration to the chrome labels runs in one guard, because an exception
       // ANYWHERE in it used to skip the per-tab render hooks below -- and those hooks are what
@@ -845,6 +854,7 @@ R"CFJS(
           configUiHydrated = true;
         }
         root.visible = !!st.enabled;
+        overlayFollowRoot();
         if (!st.enabled) {
           configWindowBlur();
           setLiveMouseCapture(false);

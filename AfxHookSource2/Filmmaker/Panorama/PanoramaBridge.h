@@ -43,6 +43,9 @@ namespace Filmmaker {
 //   260 CamEditorCustomizeConfirmRoot (CameraEditorCustomizeJs.h) - "reset to default" confirm; must also
 //                                                          outrank CamEditorCustomizeRoot above it
 //   270 MvmBarTipRoot          (CameraTimelineJs.h)      - demo-bar button hover hint (above the inspector)
+//   280 ConfigHudOverlayRoot   (ConfigHudWidgetsJs.h)    - CONFIG tooltips, dropdowns and menus. As children
+//                                                          of ConfigHudRoot (z52) they drew BEHIND the docked
+//                                                          native demo controller (z58)
 //
 // In-root local layers (children, scoped to their own root - do NOT collide cross-root):
 //   150 CameraEditor debug overlay,

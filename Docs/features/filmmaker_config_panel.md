@@ -358,8 +358,11 @@ footer reset/carry-over behavior.
 Control explanations live on hover, not as printed subtext. Every slider, toggle, effect
 category, and handheld preset row explains itself through a tooltip that appears only when the
 pointer is over the control's **name label** (never the track, pill, or value). The tooltip is a
-single custom fading panel in `ConfigHudWidgetsJs.h` (`attachTip`/`tipShow`/`tipHide`) parented
-to the ConfigHudRoot. Do not add persistent hint lines under controls; dynamic status lines (e.g. "Effects
+single custom fading panel in `ConfigHudWidgetsJs.h` (`attachTip`/`tipShow`/`tipHide`). It lives
+in `ConfigHudOverlayRoot` (`cfgOverlay`), a full-screen child of the HUD context at `z-index: 280`,
+together with the dropdown lists and menus. Panorama compares z-index between siblings only, so as
+children of ConfigHudRoot (z 52) they drew behind the docked demo bar (z 58). `render()` shows and
+hides the overlay with ConfigHudRoot. Do not add persistent hint lines under controls; dynamic status lines (e.g. "Effects
 are still loading.") are the only standing text allowed.
 
 ## Motion
@@ -412,8 +415,8 @@ restoring five cards at once on panel open does not convulse.
 - **The wheel hides any open tooltip** (`api.wheel` calls `tipHide`). Scrolling moves content out
   from under a stationary cursor and Panorama fires no `onmouseout` for that, so the popup would
   otherwise hang over controls it has moved away from. Its label is `hittest = false` as well as
-  the panel's. A Label is hit-testable by default, which at `z-index: 260` would make the tooltip
-  text a live click target over whatever it covered.
+  the panel's. A Label is hit-testable by default, which would make the tooltip text a live click
+  target over whatever it covered.
 - **The TIMELINE dock under Config shares the wheel.** `MovieMode::OnMouseWheel` sends a plain
   notch over a panel to the hosting workspace while the dock is up, and `api.wheel` offers it to
   `$.GraphExp.wheel` first: over the dock it moves the dock's rows (Ctrl zooms, Shift pans),
