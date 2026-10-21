@@ -399,7 +399,6 @@ const DATA_LOCATIONS = [
   { id: 'lights', label: 'Relight lights', detail: 'Lights placed in the light editor', parts: ['source_mvm', 'relight'], kind: 'directory' },
   { id: 'props', label: 'Props', detail: 'Props placed per map', parts: ['source_mvm', 'props'], kind: 'directory' },
   { id: 'skyboxes', label: 'Skyboxes', detail: 'Imported skybox library', parts: ['filmmaker', 'skyboxes'], kind: 'directory' },
-  { id: 'cosmetics', label: 'Cosmetics', detail: 'Loadout and skin profiles', parts: ['cosmetic_profiles.json'], kind: 'file' },
   { id: 'shaders', label: 'Shader cache', detail: 'Compiled lighting shaders, rebuilt automatically', parts: ['source_mvm', 'shader-cache'], kind: 'directory' },
   { id: 'logs', label: 'Debug logs', detail: 'mvm_debug logs, safe to delete', parts: ['debuglogs'], kind: 'directory' },
 ];

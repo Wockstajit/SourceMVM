@@ -26,6 +26,11 @@ Summary and file map below. Deep dives:
 
 Profiles are keyed by SteamID64, not entity index. An override therefore follows the player
 across pawn recreation, round restarts, death, observer switches, and demo seeks.
+
+Picks are saved per demo, in the `cosmetics` section of that demo's `project.mvm`, about half a
+second after the last change. Opening the demo again, even after a restart, loads them. Another
+demo starts from its own saved picks, so one recording's players never get another's skins. Bot
+agent picks stay runtime-only. Startup removes the old global `%APPDATA%\HLAE\cosmetic_profiles.json`.
 **Offline demo playback only.** Never use it against live servers.
 
 Weapon restoration journals paint, seed, wear and StatTrak count in both local and networked
@@ -54,7 +59,8 @@ One responsibility per file. Public headers are the `*.h` without "Internal" in 
 |---|---|
 | `CosmeticOverrideSystem.{h,cpp}` | The per-frame apply loop: entity walk, XUID-to-profile match, fallback and attribute writes, composite refresh gating. The public API everything else drives. |
 | `CosmeticProfile.{h,cpp}` | The SteamID64-keyed profile store (one player's weapon/knife/glove/agent choices). |
-| `CosmeticDemoSync.cpp` | Demo-seek detection, the post-apply "tick nudge" (briefly resume and re-pause so a change made while paused re-renders), and the seek settle window. |
+| `CosmeticDemoSync.cpp` | Demo-seek detection, the post-apply "tick nudge" (briefly resume and re-pause so a change made while paused re-renders), the seek settle window and the seek hold (pause a seek that lands while playing until the skins are redrawn). |
+| `CosmeticDemoProfiles.cpp` | Saves and loads the per-demo picks: the `cosmetics` section of the demo's `project.mvm`, keyed by the original demo through `PlayingDemoPath()`. |
 | `CosmeticPaintKitBridge.cpp` | The `cl_paintkit_override` cvar read and write bridge. It is global and deploy-time, and it is the experimental alternative path. |
 | `CosmeticDirectComposite.{h,cpp}` | The resolved Andromeda composite-rebuild calls (`composite once`). This is the essential render lever. |
 
@@ -170,6 +176,18 @@ reloads.
   change-gated (`autocomposite`, default on).
 - A change made while paused does not re-render on its own. `CosmeticDemoSync`'s tick
   nudge handles it.
+- The skin composite runs on paused frames only. A seek that lands while the demo plays (the tick
+  loop jumping back to In, a camera path restarting) therefore pauses on the landing until every
+  deployed weapon's composite has run and drained, then resumes (`cosmetics.seekhold` in
+  `mvm_debug`, at most 600 frames). A render's pre-roll landing waits for the same refresh before
+  it records, so the first frame of a clip already has its skins. Scrubs are never held.
+  `cosmetics status` reports `seek refresh: pending=… hold=…`.
+- A hold, and the short pause a pick or a newly drawn gun takes while the demo plays, ends as soon
+  as every gun it composited reports its material built (the composite owner's built and pending
+  counters, read through `ReadCompositeOwnerCounts`). A material takes about 11–13 frames; the old
+  fixed wait was 24, which stays as the cap when the counters cannot be read. A pause owed only to
+  a newly drawn gun starts 2 frames after the draw; other changes wait 8 quiet frames so rapid
+  picks share one pause.
 - Whether a weapon skin renders at all can depend on the legacy vs CS2 mesh group
   matching the paint kit. See [cosmetics-legacy-vs-cs2-models.md](cosmetics-legacy-vs-cs2-models.md).
 - An entity spawned while the demo is paused is not drawn at all. The renderer skips entities

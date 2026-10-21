@@ -7,6 +7,7 @@
 #include "CosmeticEntityAccess.h" // SEH-guarded entity reads/writes (was this file's anon namespace)
 
 #include "../Demo/PlayingDemoPath.h"
+#include "../../hlaeFolder.h"          // the retired global profile file, removed at startup
 
 #include "../../ClientEntitySystem.h" // CEntityInstance, entity-list globals, CBaseHandle, AfxGetLocalObserverState
 #include "../../SchemaSystem.h"        // g_clientDllOffsets, g_cosmeticsOffsetsOk
@@ -23,6 +24,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 
 // Engine pointer (same one CameraPath/MovieMode use) for the demo re-seek that forces a renderable
 // rebuild after a cosmetic change (the user-requested "nudge a few ticks" lever).
@@ -40,6 +42,10 @@ constexpr uint64_t kMeshSwitchSettleFrames = 8;
 
 // Uninterrupted settled frames after a seek before knife-type swaps and native mesh switches may run.
 constexpr int kKnifeSwapStableFrames = 8;
+
+// Quiet frames after the last profile edit before the demo's project is written (~0.5s at 60 fps):
+// one write for a burst of picks, never one per edit.
+constexpr uint64_t kProfileSaveQuietFrames = 30;
 
 bool DemoIsPaused() {
 	if (!g_pEngineToClient)
@@ -68,14 +74,32 @@ void Cosmetics_RunFrame() {
 void CosmeticOverrideSystem::Init() {
 	if (m_initialized)
 		return;
-	// Cosmetics are demo-session state, not application preferences. Discard profiles written by
-	// older builds and keep a valid, empty compatibility file so a crash/relaunch cannot resurrect
-	// overrides onto a different demo or recreated player entity.
+	// Picks belong to a demo: they load when that demo opens (LoadDemoProfiles), never at startup.
 	m_store.ClearAll();
 	m_store.SetEnabled(true);
 	m_armed = true;
-	m_store.Save();
+	// Older builds kept one global %APPDATA%\HLAE\cosmetic_profiles.json that nothing reads any more.
+	{
+		std::error_code ec;
+		std::filesystem::remove(std::filesystem::path(GetHlaeRoamingAppDataFolderW()) / L"cosmetic_profiles.json", ec);
+	}
 	m_initialized = true;
+}
+
+bool CosmeticOverrideSystem::CompositedMaterialsBuilt() const {
+	for (const MaterialWatch& m : m_materialWatch) {
+		const SOURCESDK::CS2::CBaseHandle handle(m.handle);
+		CEntityInstance* ent = handle.IsValid() ? CosmeticEntFromIndex(handle.GetEntryIndex()) : nullptr;
+		// Recycled or removed since its composite: nothing of ours is left to wait for.
+		if (!ent || (uintptr_t)ent != m.entity || (uint32_t)ent->GetHandle().ToInt() != m.handle)
+			continue;
+		int built = -1, pending = -1;
+		if (!ReadCompositeOwnerCounts((unsigned char*)ent, &built, &pending))
+			return false;
+		if (pending > 0 || built <= 0)
+			return false;
+	}
+	return true;
 }
 
 void CosmeticOverrideSystem::Shutdown() {
@@ -83,6 +107,8 @@ void CosmeticOverrideSystem::Shutdown() {
 }
 
 void CosmeticOverrideSystem::ResetSessionOverrides(const char* reason) {
+	// The outgoing demo keeps its picks: write them before the store is cleared.
+	FlushProfiles();
 	// Deferred picks belong to the demo that requested them.
 	if (!m_livePicks.empty() && MvmDebugLog_Active())
 		MvmDebugLog_LinefAlways("cosmetics.livepick", "CANCEL session reason=%s removed=%zu",
@@ -120,6 +146,9 @@ void CosmeticOverrideSystem::ResetSessionOverrides(const char* reason) {
 	m_postNudgeMeshRefreshPending = false;
 	m_framesSinceSeek = 0;     // re-arm the knife-swap stability window on demo load/close
 	m_lastDemoTickObserved = -1;
+	m_demoPlayingLastFrame = false;
+	m_lastDirectCompositeFrame = 0;
+	m_materialWatch.clear();
 	m_seekSettleFrames = 0;
 	m_vmMirrorSettleFrames = 0;
 	m_lastCompositeTick = -1;
@@ -127,7 +156,8 @@ void CosmeticOverrideSystem::ResetSessionOverrides(const char* reason) {
 	m_seekCompositePending = false;
 	m_lastSpectatedPawnIndex = -1;
 	m_lastCompositeFrameByIdx.clear();
-	m_store.Save(); // best-effort normalization of the legacy compatibility file
+	m_projectDemoPath.clear(); // LoadDemoProfiles binds the next demo
+	m_profilesDirty = false;
 	if (MvmDebugLog_Active())
 		MvmDebugLog_Linef("cosmetics.session", "cleared runtime overrides: reason=%s enabled=1 profiles=0 armed=1",
 			reason ? reason : "unknown");
@@ -149,7 +179,8 @@ void CosmeticOverrideSystem::SetEnabled(bool e) {
 }
 
 void CosmeticOverrideSystem::Save() {
-	m_store.Save();
+	m_profilesDirty = true;
+	FlushProfiles();
 }
 
 void CosmeticOverrideSystem::SetRecompose(bool e) {
@@ -191,6 +222,7 @@ void CosmeticOverrideSystem::SetWeapon(uint64_t steamId, int defIndex, int paint
 	item.seed = seed;
 	item.statTrak = statTrak;
 	// statTrak is left as-supplied for weapons (unlike SetKnife/SetGloves which force -1).
+	MarkProfilesChanged();
 
 	std::string name = NameForSteamId(steamId);
 	if (!name.empty())
@@ -221,6 +253,7 @@ void CosmeticOverrideSystem::ClearWeapon(uint64_t steamId, int defIndex) {
 	}
 	if (profile->Empty())
 		m_store.ClearPlayer(steamId);
+	MarkProfilesChanged();
 }
 
 void CosmeticOverrideSystem::SetKnife(uint64_t steamId, int defIndex, int paintKit, float wear, int seed) {
@@ -231,6 +264,7 @@ void CosmeticOverrideSystem::SetKnife(uint64_t steamId, int defIndex, int paintK
 	profile.knife.wear = wear;
 	profile.knife.seed = seed;
 	profile.knife.statTrak = -1;
+	MarkProfilesChanged();
 
 	std::string name = NameForSteamId(steamId);
 	if (!name.empty())
@@ -245,6 +279,7 @@ void CosmeticOverrideSystem::SetGloves(uint64_t steamId, int defIndex, int paint
 	profile.gloves.wear = wear;
 	profile.gloves.seed = seed;
 	profile.gloves.statTrak = -1;
+	MarkProfilesChanged();
 
 	std::string name = NameForSteamId(steamId);
 	if (!name.empty())
@@ -268,6 +303,7 @@ void CosmeticOverrideSystem::SetAgent(uint64_t steamId, const char* model, int d
 		profile.agent.model = model;
 		profile.agent.defIndex = defIndex;
 	}
+	MarkProfilesChanged();
 
 	std::string name = NameForSteamId(steamId);
 	if (!name.empty())
@@ -354,6 +390,7 @@ void CosmeticOverrideSystem::ClearPlayer(uint64_t steamId) {
 			(unsigned long long)steamId, queuedBefore - m_livePicks.size(), m_livePicks.size());
 	ForgetWeaponMeshSelections();
 	m_store.ClearPlayer(steamId);
+	MarkProfilesChanged();
 	MarkRecordedWeaponRestores(steamId);
 }
 
@@ -373,6 +410,7 @@ void CosmeticOverrideSystem::ClearAll() {
 	m_livePickRequestFrame = 0;
 	ForgetWeaponMeshSelections();
 	m_store.ClearAll();
+	MarkProfilesChanged();
 	m_botAgents.clear();
 	m_agentState.clear();
 	MarkRecordedWeaponRestores();
@@ -482,9 +520,10 @@ void CosmeticOverrideSystem::AdvanceFrameClocks() {
 	{
 		// An EMPTY path is not proof the demo closed. IsPlayingDemo() blips false for a few frames
 		// during every demo_gototick -- and a timeline scrub IS demo_gototick -- so treating the first
-		// empty frame as a close DELETED the user's picks on every scrub. The store is runtime-only by
-		// design (CosmeticProfile.h), so nothing on disk could bring them back: the skin was gone for
-		// good, which is exactly the reported "scrub back, weapon reverts to its default skin" bug.
+		// empty frame as a close DELETED the user's picks on every scrub. The store was runtime-only
+		// then, so the skin was gone for good: the reported "scrub back, weapon reverts to its default
+		// skin" bug. Picks now reload from the demo's project, but a reset mid-scrub would still strip
+		// every applied skin until the next paused composite.
 		// Debounce it the same way, and for the same reason, as MovieMode::ApplyXrayDefault's
 		// kXrayDemoGoneFrames.
 		//
@@ -505,9 +544,12 @@ void CosmeticOverrideSystem::AdvanceFrameClocks() {
 			if (curDemo != m_lastDemoPath) {
 				m_lastDemoPath = curDemo;
 				ResetSessionOverrides("demo path changed");
+				LoadDemoProfiles();
 			}
 		}
 	}
+	if (m_profilesDirty && m_frameCounter - m_profilesChangedFrame >= kProfileSaveQuietFrames)
+		FlushProfiles();
 	DetectDemoSeekEarly();
 	MaybeFireTickNudge();
 	CommitLivePicks();
@@ -642,16 +684,22 @@ void CosmeticOverrideSystem::RunFrame() {
 	m_lastDemoPausedState = demoPaused;
 	// Pay the composite refresh a seek owes us. Only on a PAUSED frame past the settle window
 	// (ApplyGateOpen filtered that): the burst decrements unconditionally below, so arming it
-	// during live playback would drain it with zero composites fired.
-	if (m_seekCompositePending && demoPaused) {
+	// during live playback would drain it with zero composites fired. And only once the native mesh
+	// switches may run (m_meshSwapStable), so a gun that changes legacy/CS2 mesh composites ONCE, on
+	// its new mesh: composited first and switched eight frames later, it needed a second composite
+	// that the overlap cooldown held back another 64 frames (a 136-frame seek hold on a 300-tick
+	// loop jump, measured 2026-10-21; 87 frames with this gate).
+	if (m_seekCompositePending && demoPaused && m_meshSwapStable) {
 		m_seekCompositePending = false;
 		RequestCompositeRefresh();
 		if (MvmDebugLog_Active())
 			MvmDebugLog_Linef("cosmetics.seek", "post-seek composite burst re-armed on paused frame=%llu",
 				(unsigned long long)m_frameCounter);
 	}
-	const bool allowDirectComposite = m_autoComposite && demoPaused;
-	const bool finalizePostNudgeMesh = demoPaused && m_postNudgeMeshRefreshPending;
+	// Not in the few frames between a seek's settle and m_meshSwapStable: a composite there lands on
+	// the mesh group about to be left, and the seek burst above covers every deployed gun right after.
+	const bool allowDirectComposite = m_autoComposite && demoPaused && m_meshSwapStable;
+	const bool finalizePostNudgeMesh = demoPaused && m_meshSwapStable && m_postNudgeMeshRefreshPending; // see above
 	const bool burstPending = m_compositeBurstRemaining > 0;
 	if (burstPending)
 		--m_compositeBurstRemaining;
@@ -1373,6 +1421,14 @@ int CosmeticOverrideSystem::ApplyMatchedWeapons(bool forceStale, bool fireRebuil
 			if (direct.called) {
 				++m_lastStats.directCompositeCalls;
 				m_lastCompositeFrameByIdx[i] = m_frameCounter;
+				m_lastDirectCompositeFrame = m_frameCounter; // SeekRefreshPending waits out its material drain
+				{
+					const uint32_t handle = (uint32_t)ent->GetHandle().ToInt();
+					bool watched = false;
+					for (const MaterialWatch& m : m_materialWatch)
+						watched = watched || (m.entity == (uintptr_t)w && m.handle == handle);
+					if (!watched) m_materialWatch.push_back({ (uintptr_t)w, handle });
+				}
 				m_compositeOwedIdx.erase(i);
 				if (m_nudgePhase == 2) m_pauseCompositeDoneFrame = m_frameCounter;
 				// Vanilla finish: the world weapon just released its composite, but the first-person HUD model

@@ -29,7 +29,7 @@ const sectionUsers = sourceFiles(filmmakerDirectory)
 
 test("the CS2 project sections are found", () => {
   const names = sectionUsers.map(({ file }) => path.basename(file));
-  for (const expected of ["CameraPath.cpp", "CamPathShake.cpp", "PlaybackLoop.cpp", "SceneKeys.cpp"])
+  for (const expected of ["CameraPath.cpp", "CamPathShake.cpp", "PlaybackLoop.cpp", "SceneKeys.cpp", "CosmeticDemoProfiles.cpp"])
     assert.ok(names.includes(expected), `${expected} writes a project section`);
 });
 

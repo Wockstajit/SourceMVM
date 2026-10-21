@@ -68,6 +68,11 @@ the model they had while alive; new choices apply when the pawn is alive again.
 - **CAP ON** enforces the finish's legal range. **CAP OFF** exposes the full 0..1 range.
 - The cap flag and float are stored per slot and selected finish in `custItemWear`, so switching
   away and back restores the staged value.
+- The bar is driven by the editor's OS-cursor pipe (`attachCursorDrag` in `CameraEditorWidgetsJs.h`),
+  like the inspector sliders: a click jumps to the point under the pointer and a drag maps the
+  pointer across the rail. The native Slider is only value storage and the fallback drag when the
+  pipe is unavailable. While Customize is open, only its own bars (`__modal`) can claim a press,
+  so a click on a wear bar cannot also move an inspector slider hidden under the modal.
 - Default paint-kit-less items hide the wear block and send `wear 0`, preventing a previous
   finish's float from leaking into the default item.
 

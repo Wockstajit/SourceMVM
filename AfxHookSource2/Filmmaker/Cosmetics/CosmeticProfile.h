@@ -8,13 +8,12 @@
 // target switches, demo seeks and entity recreation. The apply loop (CosmeticOverrideSystem)
 // resolves the current owner of each econ entity by XUID and looks the profile up by SteamID.
 //
-// Profiles are RUNTIME-SESSION-SCOPED: they live only for the current demo run and are discarded when
-// the demo path changes or the demo closes (CosmeticOverrideSystem::Init clears the store at startup
-// and ResetSessionOverrides clears it on demo change). The JSON file at
-// %APPDATA%\HLAE\cosmetic_profiles.json (NOT the repo tree, so it never dirties git) is kept only as a
-// normalized/empty compatibility document; cosmetics never auto-load from disk onto a recreated demo
-// player. This is a movie-making tool for OFFLINE demo playback only; it is never used for live/online
-// play. (An explicit user-managed preset export/import could be added later, separate from this scope.)
+// Profiles are PER DEMO. They are saved in the demo's project.mvm ("cosmetics" section, see
+// Demo/DemoProjectStore.h) and loaded again when that demo is opened, so leaving a demo and coming
+// back -- or restarting the game -- keeps every pick. Opening a DIFFERENT demo starts from its own
+// saved picks (or none): SteamIDs are the players of one recording, so nothing leaks between demos.
+// CosmeticOverrideSystem owns when to load and save. This is a movie-making tool for OFFLINE demo
+// playback only; it is never used for live/online play.
 
 #include <cstdint>
 #include <string>
@@ -65,8 +64,7 @@ struct CosmeticProfile {
 	bool Empty() const;
 };
 
-// SteamID64-keyed profile store with JSON persistence. Owns the global "enabled" flag because it is
-// persisted alongside the profiles in the same JSON document.
+// SteamID64-keyed profile store. Owns the global "enabled" flag (runtime only; always on in a demo).
 class CosmeticProfileStore {
 public:
 	// Returns the existing profile for steamId, inserting an empty one if absent.
@@ -87,13 +85,11 @@ public:
 	// Swap the whole profile map (a theme's snapshot / restore; see CosmeticOverrideSystem::BeginTheme).
 	void ReplaceAll(const std::unordered_map<uint64_t, CosmeticProfile>& profiles) { m_profiles = profiles; }
 
-	// Persistence. Path is %APPDATA%\HLAE\cosmetic_profiles.json (GetHlaeRoamingAppDataFolderW()).
-	// Load() is tolerant: a missing/malformed file just yields an empty (disabled) store.
-	bool Load();
-	bool Save() const;
-
-	// Absolute path of the JSON file (for status output / diagnostics).
-	std::wstring FilePath() const;
+	// The demo project's "cosmetics" section. Serialize() is EMPTY when no profile holds anything,
+	// which the caller writes as "remove the section". Deserialize() replaces every profile; false
+	// (and an empty store) for an unreadable section.
+	std::string Serialize() const;
+	bool Deserialize(const std::string& text);
 
 private:
 	std::unordered_map<uint64_t, CosmeticProfile> m_profiles;

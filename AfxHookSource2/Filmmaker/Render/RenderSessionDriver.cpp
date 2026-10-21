@@ -24,6 +24,7 @@
 #include "../Debug/MvmDebugLog.h"
 #include "../Platform/TextEncoding.h"
 #include "../Demo/PlayingDemoPath.h"
+#include "../Cosmetics/CosmeticOverrideSystem.h" // SeekRefreshPending: the pre-roll landing waits for skins
 
 #include "../../MirvTime.h"
 #include "../../RenderSystemDX11Hooks.h"
@@ -825,6 +826,21 @@ void RenderSessionDriver_RunFrame() {
 				if (!DemoPaused()) DemoCmd("demo_pause");
 			}
 			if (++s_settleCount >= s_job.settleFrames) {
+				// SKINS BEFORE THE FIRST FRAME. The pre-roll seek rebuilt every weapon, and a skin
+				// override is redrawn by a composite that runs on paused frames only. This landing is
+				// the last pause before the capture, so it lasts until the redraw is done: releasing it
+				// after the bare settle window rendered the clip with the demo's own skins until some
+				// later pause (user report 2026-10-21). Bounded, so a stuck refresh cannot stall a job.
+				constexpr int kSkinRefreshWaitFrames = 600;
+				const bool skinsPending = CosmeticsRef().SeekRefreshPending();
+				if (skinsPending && s_settleCount < s_job.settleFrames + kSkinRefreshWaitFrames) {
+					if (s_settleCount == s_job.settleFrames)
+						Probe("holding the pre-roll landing for the skin refresh");
+					break;
+				}
+				if (s_settleCount > s_job.settleFrames)
+					Probe("skin refresh %s after %d extra frame(s)", skinsPending ? "STILL PENDING" : "done",
+						s_settleCount - s_job.settleFrames);
 				s_stateFrames = 0;
 				Transition(S::WarmingUp);
 				DemoCmd("demo_resume");

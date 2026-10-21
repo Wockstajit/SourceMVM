@@ -101,7 +101,7 @@ generated caches live under `%APPDATA%\HLAE\source_mvm\demos\cs2\<filename>/`:
 
 | Project file | What it is |
 | --- | --- |
-| `project.mvm` | single container: the `project` info section (canonical demo path + game) plus one authored section per subsystem (`campath`, `camshake`, `loop`, `scenekeys`) |
+| `project.mvm` | single container: the `project` info section (canonical demo path + game) plus one authored section per subsystem (`campath`, `camshake`, `loop`, `scenekeys`, `cosmetics`) |
 | `scoreboard.fmjson` | parsed scoreboard / event cache |
 | `roundpaths.fmbin` | every player's path per round, for the [round heat map](round-heatmap.md) |
 | `demo.info` | recovery copy of Valve's `<name>.dem.info`, used only to restore a missing sidecar |
@@ -226,7 +226,7 @@ cannot have a demo renamed out from under it.
 | `<name>.dem.info` | CS2's native matchmaking metadata; kept beside the demo |
 | the organiser record | folder membership + last-played, keyed by path (`DemoOrganizer_NoteRenamed`) |
 | the added-file / hidden entries | also keyed by path (`DemoLibrary::NoteRenamed`) |
-| the source_mvm project folder | `project.mvm` (campath / camshake / loop / scenekeys) / scoreboard / repair / `demo.info` |
+| the source_mvm project folder | `project.mvm` (campath / camshake / loop / scenekeys / cosmetics) / scoreboard / repair / `demo.info` |
 
 Every sibling whose name starts with the demo's file name moves with it and keeps its suffix. A sidecar
 added later therefore travels too. Verified live by round-tripping a demo: 3 companion files moved

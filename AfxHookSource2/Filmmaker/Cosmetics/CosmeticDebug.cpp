@@ -391,9 +391,10 @@ void Cosmetics_PrintStatus(const char* cmd) {
 		sys.PendingLivePicks(), sys.NudgePhase(), sys.NudgePending() ? 1 : 0,
 		sys.QueuedOwedPauseCount(), sys.OwedCompositeCount());
 
-	const std::wstring wpath = sys.Store().FilePath();
-	const std::string upath = WideToUtf8(wpath);
-	advancedfx::Message("  profiles=%zu file='%s'\n", sys.Store().All().size(), upath.c_str());
+	advancedfx::Message("  seek refresh: pending=%d hold=%d\n",
+		sys.SeekRefreshPending() ? 1 : 0, sys.SeekHoldActive() ? 1 : 0);
+	const std::string upath = WideToUtf8(sys.ProjectDemoPath());
+	advancedfx::Message("  profiles=%zu saved in the project of '%s'\n", sys.Store().All().size(), upath.c_str());
 
 	advancedfx::Message("  lastFrame: scanned=%d matched=%d patched=%d reverted=%d frame=%llu\n",
 		stats.entitiesScanned, stats.entitiesMatched, stats.entitiesPatched, stats.entitiesReverted,

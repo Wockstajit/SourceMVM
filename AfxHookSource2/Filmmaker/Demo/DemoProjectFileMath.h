@@ -1,7 +1,7 @@
 #pragma once
 
 // The project.mvm container: one binary file per demo project folder that carries every
-// authored JSON payload ("project", "campath", "camshake", "loop", "scenekeys") as a
+// authored JSON payload ("project", "campath", "camshake", "loop", "scenekeys", "cosmetics") as a
 // tagged, CRC-checked section. Disk IO lives in DemoProjectStore.cpp; this header is
 // engine-free and unit-tested by Automation/tests/demo-project-file-math-tests.cpp.
 //
@@ -33,6 +33,7 @@ enum class ProjectSection {
 	Camshake,
 	Loop,
 	SceneKeys,
+	Cosmetics, // CS2 skin, knife, glove and agent picks per player (Cosmetics/CosmeticProfile.h)
 };
 
 inline const char* ProjectSectionTag(ProjectSection section) {
@@ -41,6 +42,7 @@ inline const char* ProjectSectionTag(ProjectSection section) {
 	case ProjectSection::Camshake: return "camshake";
 	case ProjectSection::Loop: return "loop";
 	case ProjectSection::SceneKeys: return "scenekeys";
+	case ProjectSection::Cosmetics: return "cosmetics";
 	}
 	return "section";
 }

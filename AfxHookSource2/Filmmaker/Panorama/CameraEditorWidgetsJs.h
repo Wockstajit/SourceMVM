@@ -328,7 +328,7 @@ R"EDJS(
     // A CLICK (press + release without travelling) still jumps to the position under the pointer,
     // so coarse reach costs one click; a DRAG refines from wherever the value already is. Losing
     // jump-to-click along with the absolute mapping would have traded one problem for another.
-    var cursorSliders = [], cursorLastLmb = false;
+    var cursorSliders = [], cursorLastLmb = false, cursorPressDbg = null;
     var DRAG_GAIN_FINE = 0.08;  // Shift held: the same sweep, ~6x finer
     var DRAG_SLOP = 3;          // device px of travel that still reads as a click, not a drag
     // Visible itself AND with every ancestor visible.
@@ -414,6 +414,16 @@ R"EDJS(
       var pressInInspector = (lmb && !cursorLastLmb)
         ? (overPanel(inspector, mx, my) || (typeof renderSettingsCol !== 'undefined' && overPanel(renderSettingsCol, mx, my)))
         : false;
+      // The Customize modal (z230, a ctx child) covers the inspector, and this pump never consults
+      // Panorama's hit testing: while it is open only the modal's own sliders (rec.__modal, the wear
+      // bars) may claim a press, or a click on a wear bar also moved whatever inspector slider sat
+      // underneath it.
+      var modalOpen = typeof custOverlay !== 'undefined' && custOverlay && custOverlay.visible;
+      var pressInModal = (lmb && !cursorLastLmb && modalOpen) ? overPanel(custWin, mx, my) : false;
+      // What the last press resolved to ($.CamEditor.dbgCursorPress): which surface it landed on and
+      // which slider, if any, claimed it.
+      if (lmb && !cursorLastLmb)
+        cursorPressDbg = { mx: mx, my: my, inspector: pressInInspector, modal: modalOpen, inModal: pressInModal, claimed: -1 };
       for (var i = 0; i < cursorSliders.length; i++) {
         var rec = cursorSliders[i], host = rec.__host;
         if (!host || (host.IsValid && !host.IsValid())) continue;
@@ -421,7 +431,9 @@ R"EDJS(
         // native Slider may already have jumped its own value to the click position on that same
         // frame -- which would make every press nudge the value before the drag even started.
         if (!lmb && !rec.__held) rec.__restV = clamp01(rec.sl.value);
-        if (lmb && !cursorLastLmb && pressInInspector && overPanel(host, mx, my)) {
+        var pressHere = rec.__modal ? pressInModal : (pressInInspector && !modalOpen);
+        if (lmb && !cursorLastLmb && pressHere && overPanel(host, mx, my)) {
+          if (cursorPressDbg) cursorPressDbg.claimed = i;
           rec.__held = true; rec.__moved = false; rec.__anchorX = mx; rec.__baseV = rec.__restV;
           rec.__fine = fine;
           if (rec.__tile) { rec.__tile.__held = true; rec.__tile.__down = true; edPaintTile(rec.__tile); }

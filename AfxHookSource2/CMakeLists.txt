@@ -920,6 +920,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Cosmetics/CosmeticOverrideSystem.cpp
     Filmmaker/Cosmetics/CosmeticThemeRestore.cpp
     Filmmaker/Cosmetics/CosmeticDemoSync.cpp
+    Filmmaker/Cosmetics/CosmeticDemoProfiles.cpp
     Filmmaker/Cosmetics/CosmeticPaintKitBridge.cpp
     Filmmaker/Cosmetics/CosmeticModelSwapInternal.h
     Filmmaker/Cosmetics/CosmeticFnResolver.cpp
