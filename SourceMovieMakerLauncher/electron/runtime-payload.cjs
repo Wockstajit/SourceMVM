@@ -243,7 +243,13 @@ function readInstalledState() {
 
 function writeInstalledState(state) {
   fs.mkdirSync(payloadRoot(), { recursive: true });
-  fs.writeFileSync(installedStatePath(), `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  // Written beside the old file and renamed over it: a crash, power loss or full disk part way
+  // through leaves the previous state, never a cut-short file. installBundledOnce depends on its
+  // pending stamp to recognise a bundled install that finished just before a crash.
+  const file = installedStatePath();
+  const temporary = `${file}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', flush: true });
+  fs.renameSync(temporary, file);
 }
 
 async function fetchJson(url) {

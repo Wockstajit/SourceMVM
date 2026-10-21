@@ -321,8 +321,9 @@ test('a swap that finished before the old folder was deleted keeps the new folde
 
 // ---- runtime-payload.cjs itself, with a stand-in for Electron -----------------------------------
 
-function loadPayload({ userData, resources = '', packaged = false, fetch, extract, fsp = {} }) {
+function loadPayload({ userData, resources = '', packaged = false, fetch, extract, fsp = {}, fsSync = {} }) {
   const realFsp = launcherRequire('node:fs/promises');
+  const realFs = launcherRequire('node:fs');
   const context = vm.createContext({
     module: { exports: {} },
     Buffer,
@@ -334,6 +335,7 @@ function loadPayload({ userData, resources = '', packaged = false, fetch, extrac
       }
       if (name === 'node:child_process') return { execFile: extract || (() => { throw new Error('No unpack should run'); }) };
       if (name === 'node:fs/promises') return { ...realFsp, ...fsp };
+      if (name === 'node:fs') return { ...realFs, ...fsSync };
       return launcherRequire(name);
     },
   });
@@ -396,6 +398,35 @@ test('the complete installer records a bundle that was moved into place just bef
     assert.equal(installedState(f.userData).fx.bundleStamp, 'bundle:f2');
     assert.equal(installedState(f.userData).fx.pending, undefined);
     assert.equal((await payload.installBundled()).state, 'current');
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test('a crash while recording a bundled install keeps its pending stamp for the next start', async () => {
+  const f = bundledFixture();
+  try {
+    const realFs = launcherRequire('node:fs');
+    let stateWrites = 0;
+    const payload = loadPayload({ userData: f.userData, resources: f.resources, packaged: true, fsSync: {
+      // The write that records the finished install is cut short: the file it was writing is left
+      // empty, as a power loss or a full disk part way through would leave it.
+      writeFileSync: (file, data, options) => {
+        if (path.basename(String(file)).startsWith('installed.json')) {
+          stateWrites += 1;
+          if (stateWrites === 2) {
+            realFs.writeFileSync(file, '');
+            throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
+          }
+        }
+        return realFs.writeFileSync(file, data, options);
+      },
+    } });
+    await assert.rejects(payload.installBundled(), /ENOSPC/);
+    assert.equal(installedState(f.userData).fx.pending, 'bundle:f2');
+    const next = loadPayload({ userData: f.userData, resources: f.resources, packaged: true });
+    assert.equal((await next.installBundled()).state, 'installed');
+    assert.deepEqual(readTree(f.fxDir), UPDATED);
+    assert.equal(installedState(f.userData).fx.bundleStamp, 'bundle:f2');
+    assert.equal(fs.existsSync(path.join(f.userData, 'payload', 'installed.json.tmp')), false);
   } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });
 
