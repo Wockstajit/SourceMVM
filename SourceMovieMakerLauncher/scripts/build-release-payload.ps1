@@ -211,6 +211,16 @@ if (-not $SkipFx) {
     $fxStage = Join-Path $stagingDir 'fx'
     New-Item -ItemType Directory -Path (Join-Path $fxStage 'source_mvm_fx') -Force | Out-Null
     Copy-Item -Path (Join-Path $FxRoot '*') -Destination (Join-Path $fxStage 'source_mvm_fx') -Recurse -Force
+    # cfg\ and ui_override\ServerConfig.vdf are what CS2 writes into a mounted pack: this machine's
+    # video, sound, bind and bot settings. Never ship them. The launcher keeps each player's own
+    # copies when it installs a new pack (electron/payload-swap.cjs).
+    foreach ($cs2Settings in @('cfg', 'ui_override\ServerConfig.vdf')) {
+        $stagedSettings = Join-Path (Join-Path $fxStage 'source_mvm_fx') $cs2Settings
+        if (Test-Path -LiteralPath $stagedSettings) {
+            Write-Host "Skipping the staged FX pack's $cs2Settings (CS2 settings from this machine)."
+            Remove-Item -LiteralPath $stagedSettings -Recurse -Force
+        }
+    }
     $components['fx'] = New-PayloadZip -Name 'source-mvm-fx' -SourceDir $fxStage
 } else {
     # Carry the FX component over from an already-published release.
