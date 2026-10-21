@@ -162,7 +162,9 @@ void ConfigHud::Teardown() {
 			" var e=$('#ConfigHudRoot'); if(e) e.DeleteAsync(0);"
 			// The Editor Settings fly-out is a TOP-LEVEL child of the context panel, so it does not
 			// go with ConfigHudRoot. Same by-id teardown CameraEditorHud does for its own copy.
-			" var s=$('#ConfigEditorSettingsRoot'); if(s) s.DeleteAsync(0); $.ConfigHud=null;})();");
+			" var s=$('#ConfigEditorSettingsRoot'); if(s) s.DeleteAsync(0);"
+			// So is the popover overlay (tooltips, dropdowns, menus), for the same reason.
+			" var o=$('#ConfigHudOverlayRoot'); if(o) o.DeleteAsync(0); $.ConfigHud=null;})();");
 	}
 	m_built = false;
 	m_root = nullptr;

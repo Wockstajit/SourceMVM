@@ -549,22 +549,37 @@ R"CFJS(
     // attached to the NAME only, never the whole control: hovering a value tile means you are
     // about to drag it, and a popup there sits in the way of the gesture.
     //
-    // ONE floating tooltip panel, parented to the full-screen ConfigHudRoot (created lazily on
-    // first show, because this fragment runs before `root` exists) so no card or scroll region
-    // clips it. Position comes from GetPositionWithinWindow() (scroll- and transform-aware);
-    // height is estimated from the text length only to decide above-vs-below.
+    // ONE floating tooltip panel in the overlay root below (created lazily on first show, because
+    // this fragment runs before `root` exists) so no card or scroll region clips it. Position comes
+    // from GetPositionWithinWindow() (scroll- and transform-aware); height is estimated from the
+    // text length only to decide above-vs-below.
     //
     // WRITING RULE for these strings: one sentence, present tense, says what the control changes
     // and -- where it is not obvious -- what higher means. No "this slider lets you...", no
     // restating the label, no implementation notes.
+    //
+    // THE OVERLAY ROOT. Panorama compares z-index between SIBLINGS only, so a child of ConfigHudRoot
+    // (z52) can never draw over another ctx child, whatever its own z-index. While CONFIG is open the
+    // timeline lifts CS2's docked demo bar to z58, so tooltips and dropdowns parented to `root` drew
+    // BEHIND the bar. Popovers therefore live in their own full-screen ctx child, above every HUD root
+    // (PanoramaBridge.h z-layer map), which render() shows and hides together with `root`.
+    var cfgOverlayPanel = null;
+    function cfgOverlay() {
+      if (cfgOverlayPanel && cfgValid(cfgOverlayPanel)) return cfgOverlayPanel;
+      var o = $.CreatePanel('Panel', ctx, 'ConfigHudOverlayRoot', {});
+      o.hittest = false; o.hittestchildren = true;
+      o.style.width = '100%'; o.style.height = '100%'; o.style.zIndex = '280';
+      cfgOverlayPanel = o;
+      return o;
+    }
     var TIP_W = 300, TIP_DELAY = 0.18, TIP_FADE = 0.14;
     var tipPanel = null, tipLbl = null, tipToken = 0;
     function ensureTipPanel() {
       if (tipPanel && (!tipPanel.IsValid || tipPanel.IsValid())) return;
-      tipPanel = mk('Panel', root);
+      tipPanel = mk('Panel', cfgOverlay());
       tipPanel.hittest = false;
       tipPanel.visible = false;
-      tipPanel.style.zIndex = '260';
+      tipPanel.style.zIndex = '2'; // over the dropdown layer, its sibling in the overlay root
       tipPanel.style.flowChildren = 'down';
       tipPanel.style.width = TIP_W + 'px';
       tipPanel.style.backgroundColor = '#10141af2';
@@ -578,8 +593,8 @@ R"CFJS(
       tipPanel.style.transitionTimingFunction = MO_ARRIVE;
       tipLbl = lbl(tipPanel, '', S.value, 13);
       // hittest OFF on the label too, not only on the popup panel. A Label is hit-testable by
-      // default, so the popup's text was a live click target floating at zIndex 260 over the
-      // column: anything it covered could not be clicked while it was up.
+      // default, so the popup's text was a live click target floating over the column: anything
+      // it covered could not be clicked while it was up.
       tipLbl.hittest = false;
       tipLbl.style.whiteSpace = 'normal';
       tipLbl.style.width = '100%';
@@ -1756,8 +1771,11 @@ R"CFJS(
     var cfgDropLayerPanel = null;
     function cfgDropLayer() {
       if (cfgDropLayerPanel && cfgValid(cfgDropLayerPanel)) return cfgDropLayerPanel;
-      var l = mk('Panel', root); l.hittest = false; l.hittestchildren = true;
-      l.style.width = '100%'; l.style.height = '100%'; l.style.zIndex = '250';
+      // In the overlay root, not `root`: a list opened near the bottom of the column has to cover
+      // the docked demo bar (see cfgOverlay). Both fill the window from its origin, so the
+      // root-relative positions below still hold.
+      var l = mk('Panel', cfgOverlay()); l.hittest = false; l.hittestchildren = true;
+      l.style.width = '100%'; l.style.height = '100%'; l.style.zIndex = '1';
       cfgDropLayerPanel = l;
       return l;
     }

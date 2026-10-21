@@ -80,3 +80,22 @@ test('the diagnostic verbs used to find this are not left in the shipping panel'
       'api.' + verb + ' was a temporary probe and must not ship');
   }
 });
+
+// THE OTHER LAYER BUG. Panorama compares z-index between siblings only, so a CONFIG tooltip or
+// dropdown parented to ConfigHudRoot (z52) drew BEHIND the docked native demo bar (z58), however
+// high its own zIndex was. Popovers live in a top-level ctx child above every HUD root instead.
+test('CONFIG popovers draw above the docked demo bar', () => {
+  const widgets = read('ConfigHudWidgetsJs.h');
+  const timeline = read('CameraTimelineJs.h');
+  const cpp = read('ConfigHud.cpp');
+  const m = /\$\.CreatePanel\('Panel', ctx, 'ConfigHudOverlayRoot'[\s\S]*?o\.style\.zIndex = '(\d+)'/.exec(widgets);
+  assert.ok(m, 'the overlay root must be a direct child of ctx');
+  assert.ok(Number(m[1]) > 65, 'the overlay root must outrank every HUD root, the docked bar (58) included');
+  assert.match(widgets, /tipPanel = mk\('Panel', cfgOverlay\(\)\)/, 'tooltips must live in the overlay root');
+  assert.match(widgets, /var l = mk\('Panel', cfgOverlay\(\)\)/, 'the dropdown layer must live in the overlay root');
+  assert.doesNotMatch(widgets, /tipPanel = mk\('Panel', root\)/);
+  assert.match(config, /cfgOverlayPanel\.visible = on/, 'the overlay must hide with ConfigHudRoot');
+  assert.match(config, /\$\('#ConfigHudOverlayRoot'\)/, 'a rebuild must drop the old overlay');
+  assert.match(cpp, /\$\('#ConfigHudOverlayRoot'\)/, 'teardown must drop the overlay');
+  assert.match(timeline, /'ConfigHudOverlayRoot': 1/, 'Hide All must not hide the overlay');
+});

@@ -1030,7 +1030,7 @@ R"TLJS(
     // also makes them direct ctx children like CamEditorRoot, so they must be whitelisted here too
     // or this "Hide All" sweep force-hides them the instant they open (no visible symptom besides
     // the popup silently vanishing -- it never goes through closeSettings(), so nothing logs it).
-    var OURS = { 'CamTimelineRoot': 1, 'CamTimelineRangeRoot': 1, 'MarkerHudRoot': 1, 'MovieHudRoot': 1, 'CamEditorRoot': 1, 'GraphExpRoot': 1, 'CamEditorConfirmRoot': 1, 'CamEditorSettingsRoot': 1, 'CamEditorRenderRoot': 1, 'ConfigHudRoot': 1, 'CamEditorCustomizeRoot': 1, 'CamEditorCustomizeConfirmRoot': 1, 'MvmBarTipRoot': 1,
+    var OURS = { 'CamTimelineRoot': 1, 'CamTimelineRangeRoot': 1, 'MarkerHudRoot': 1, 'MovieHudRoot': 1, 'CamEditorRoot': 1, 'GraphExpRoot': 1, 'CamEditorConfirmRoot': 1, 'CamEditorSettingsRoot': 1, 'CamEditorRenderRoot': 1, 'ConfigHudRoot': 1, 'ConfigHudOverlayRoot': 1, 'CamEditorCustomizeRoot': 1, 'CamEditorCustomizeConfirmRoot': 1, 'MvmBarTipRoot': 1,
       // The easter-egg overlay: never part of the gameplay HUD the view modes hide.
       'MvmEggRoot': 1,
       // Clippy's onboarding tutorial: it has to stay up while it explains the hidden-HUD views.
