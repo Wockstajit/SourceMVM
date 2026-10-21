@@ -290,7 +290,7 @@
       envBuildStatus: '',
       envOcclusionStatus: 'Map shadow geometry ready (de_dust2, 184k triangles).',
       envRender: 'Compositing 6 passes at half resolution',
-      envSaved: 'Dusk storm', envDirty: true, envMessage: '', envKeep: true,
+      envSaved: 'Dusk storm', envDirty: true, envMessage: '',
       envAssets: ['barrel', 'crate_stack'],
       envTextures: ['concrete_albedo', 'concrete_normal'],
       envPresets: ['Dusk storm', 'Overcast morning'],

@@ -351,11 +351,14 @@ R"CFJS(
         if (isOn()) {
           memo = [];
           for (i = 0; i < keys.length; i++) memo.push(c[keys[i][0]]);
-          var justOff = {};
+          // pass-off, not `climate <key> <neutral>`: the backend keeps each value in `held`, so the
+          // card switched on after a demo change or a restart gets it back. memo only lasts this session.
+          var justOff = {}, pairs = [];
           for (i = 0; i < keys.length; i++) {
-            envCommand('climate ' + keys[i][0] + ' ' + keys[i][1]);
+            pairs.push(keys[i][0] + ' ' + keys[i][1]);
             justOff[keys[i][0]] = keys[i][1];
           }
+          envCommand('pass-off ' + pairs.join(' '));
           envReleaseIfIdle(justOff);
         } else {
           var turnOn = function () {

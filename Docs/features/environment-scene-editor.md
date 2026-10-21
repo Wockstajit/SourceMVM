@@ -763,9 +763,10 @@ geometry is ready, a world camera has rendered, and at least 30 successful prese
 buffer. A render gap longer than 500 ms restarts that buffer. The native scene remains visible while
 waiting, including on same-map reloads. Edits made during the wait cancel restoration.
 
-That restore keeps the saved lighting values (map lights, ambient, shadows, bounce) and leaves dynamic
-lighting switched off, so reopening a demo does not start it again. Turning Lighting on uses those
-saved values. A preset loaded explicitly in that session takes precedence and applies the lighting
+That restore keeps every saved value and leaves sky, lighting, fog and weather switched off, so
+reopening a demo does not start them again. Each pass that was on is kept in the scene's `held` list,
+and switching its card on puts the held value back. Switching a card off yourself holds its value the
+same way (`environment pass-off`), so it also comes back after a restart. Scene objects stay as placed. A preset loaded explicitly in that session takes precedence and applies the lighting
 switch it was saved with. Resets are intentional saved edits. Active gizmo drags are excluded until
 committed.
 
@@ -788,9 +789,16 @@ assets leave the current scene intact. Meshes are referenced by name, so include
 when sharing a preset. Presets contain data, never console scripts or engine addresses.
 
 Placed objects, fixed weather, local fog, local surface tests and puddles bind the scene to its map.
-Changing maps hides the scene when **Keep between demos** is on, and returning to that map restores
-it. With Keep off, changing maps clears added weather and objects. Undo history always ends at a map
-change. Loading a scene on a different map is refused with the required map's name. Weather-only
+**Keep between demos** (the ENVIRONMENT footer shares the EFFECTS tab's switch) decides what a new demo
+starts with:
+
+- On: a map with its own autosave restores it. A map without one takes the previous demo's look, with
+  its passes held off. What belonged to the old map (objects, placed fog and surface volumes, puddles,
+  the storm cell, the bounce volume and a fixed weather centre) stays behind (`UnbindSceneFromMap`).
+- Off: the demo starts from the defaults and the map's autosave is not applied. The file is left as it
+  is until you edit the scene on that map.
+
+Undo history always ends at a map change. Loading a scene on a different map is refused with the required map's name. Weather-only
 camera-following presets are portable across maps.
 The explicit console operation `environment bind` rebinds a scene to the currently loaded map.
 

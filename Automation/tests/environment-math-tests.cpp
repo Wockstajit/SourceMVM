@@ -185,6 +185,20 @@ int main() {
               "The grade survives a restart untouched");
         Scene stored;stored.climate=saved;stored.held=held;Scene back;std::string error;
         Check(ParseScene(SerializeScene(stored),back,error)&&back.held==held,"Held values survive the autosave");
+        // Keep between demos onto a map with no saved scene: the look travels, the map's anchors do not.
+        Scene carried=stored;carried.map="de_inferno";carried.objects.resize(2);carried.nextObjectId=9;
+        carried.weather.follow=false;carried.climate[CL_localFogRadius]=600;carried.climate[CL_surfaceRadius]=600;
+        carried.climate[CL_puddles]=.5f;carried.held["storm"]=1;
+        UnbindSceneFromMap(carried);
+        Check(carried.map.empty()&&carried.objects.empty()&&carried.nextObjectId==1&&carried.weather.follow,
+              "Another map drops the old map's objects and fixed weather centre");
+        Check(carried.climate[CL_localFogRadius]==0&&carried.climate[CL_surfaceRadius]==0&&carried.climate[CL_puddles]==0,
+              "Placed volumes become global or go");
+        Check(!carried.held.count("worldGi")&&!carried.held.count("storm")&&held.count("worldGi"),
+              "Map-anchored passes are not held onto another map");
+        Check(carried.held["relighting"]==1&&carried.held["sky"]==1&&Near(carried.held["fogDensity"],.25f)&&
+              carried.held["weatherType"]==1&&Near(carried.held["snow"],.6f),"Every global pass stays held");
+        Check(carried.climate[CL_mapLightPower]==3.5f&&Near(carried.climate[CL_bloom],.4f),"Tuning and grade travel");
     }
     {
         Check(Near(BakedDaylightScale(-12.f,.08f),.028f),"Night skybox keeps only the ambient floor");

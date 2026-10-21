@@ -105,15 +105,16 @@ R"CFJS(
           snow: c.snow || 0, wet: c.wet || 0, puddles: c.puddles || 0, storm: c.storm || 0
         };
         envWeatherArmed = false;
-        envCommand('weather clear');
-        envCommand('climate snow 0'); envCommand('climate wet 0'); envCommand('climate puddles 0');
-        envCommand('climate storm 0');
+        // Held by the backend (pass-off), so the weather and its ground come back after a restart too.
+        envCommand('pass-off weatherType 0 snow 0 wet 0 puddles 0 storm 0');
         envReleaseIfIdle({ weatherType: 0, snow: 0, wet: 0, puddles: 0, storm: 0 });
       } else {
         var m = envWeatherMemo;
-        // No switch-off this session: a restart held the saved weather instead (HoldRestoredPasses).
+        // The backend holds what was running (a demo change, a restart, or this switch's own pass-off).
+        // Preferred over the session memo: `weather set type` keeps the tuned count and speed, where
+        // re-picking the preset by name would reset them.
         var held = s.held || {};
-        if (!m && (held.weatherType || held.snow || held.wet || held.puddles || held.storm)) {
+        if (held.weatherType || held.snow || held.wet || held.puddles || held.storm) {
           envEnsureEnabled();
           // By number, not by name: `weather rain` re-applies the rain preset's count and speed.
           if (held.weatherType) envCommand('weather set type ' + held.weatherType);

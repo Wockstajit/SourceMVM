@@ -137,7 +137,10 @@ R"CFJS(
 
     // ===================== the tab footer ===============================
     var envFooter = footerCard(pageEnvironment);
-    var envKeep = keepToggle(envFooter, 'effects', 'envKeep', 'environment and VFX overrides');
+    // The EFFECTS tab's flag, shared: one "Keep between demos" covers both tabs (EffectsPersistence).
+    // It read a state key nothing published (`envKeep`), so it always showed ON and a click could
+    // only ever turn the flag OFF.
+    var envKeep = keepToggle(envFooter, 'effects', 'fxKeep', 'environment and VFX overrides');
     // Undo is NOT in the footer. The footer is pinned, so anything in it costs column height on
     // every tab for the whole session -- and the original design's footer is the keep row and the tab
     // RESET, nothing else. Undo lives with the objects it steps back through, on SCENE OBJECTS.

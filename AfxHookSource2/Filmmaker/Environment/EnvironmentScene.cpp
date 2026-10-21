@@ -132,6 +132,11 @@ bool g_restoreSettling = false;
 uint64_t g_restoreFirstPresent = 0;
 std::string g_restoreMap;
 ULONGLONG g_nextAutosavePoll = 0;
+// Keep between demos OFF skipped this map's restore: the periodic poll must not write the default
+// scene over the map's file. It also carries the EFFECTS tab's world look, which settles on its own
+// for a while after a level load, so "unchanged" cannot be judged by comparing snapshots. Only an
+// actual edit (AdoptValidatedScene, QueueCommittedScene) lifts it.
+bool g_autosaveQuiet = false;
 uint64_t g_sceneGeneration = 1;
 unsigned long long g_draws = 0;
 bool g_scanned = false;
@@ -302,6 +307,7 @@ void BindAutosave(const std::string& map) {
 
 void QueueCommittedScene() {
     if (g_drag.active) return;
+    g_autosaveQuiet = false;
     Scene committed = LiveScene();
     if (committed.map.empty()) committed.map = CurrentMap();
     if (!IsSceneMap(committed.map)) return;
@@ -313,6 +319,7 @@ void UpdateAutosave(const std::string& map) {
         FlushAutosave(true);
         BindAutosave(IsSceneMap(map) ? map : "");
         g_restoreAutosave = true;
+        g_autosaveQuiet = false;
         g_restoreGate.Reset();
     }
     if (!IsSceneMap(map)) {FlushAutosave(false);return;}
@@ -336,6 +343,20 @@ void UpdateAutosave(const std::string& map) {
         Scene initial = LiveScene(); initial.map = map;
         g_autosave.Bind(map, SerializeScene(initial));
         MvmDebugLog_LinefAlways("environment.autosave", "restore skipped map=%s (practice session)", map.c_str());
+    }
+    if (g_restoreAutosave && !EffectsPersistence_Keep("effects")) {
+        // Keep between demos OFF: this demo starts from the defaults (OnLevelInit emptied the scene),
+        // so the map's saved scene is not applied. Its FILE stays as it is until the user edits here:
+        // the queue is bound to the empty scene, which therefore never reads as an edit. Restoring
+        // anyway, as this used to, made the switch do nothing, and an edit made before the restore
+        // landed saved the empty scene over the map's file.
+        g_restoreAutosave = false;
+        ++g_sceneGeneration;
+        FlushAutosave(true); // a pending write from before the demo change still lands
+        Scene initial = LiveScene(); initial.map = map;
+        g_autosave.Bind(map, SerializeScene(initial));
+        g_autosaveQuiet = true;
+        MvmDebugLog_LinefAlways("environment.autosave", "restore skipped map=%s (keep between demos off)", map.c_str());
     }
     if (g_restoreAutosave) {
         // Surface objects need map geometry before they can be resolved. Never
@@ -412,14 +433,19 @@ void UpdateAutosave(const std::string& map) {
             std::error_code ec;
             std::filesystem::remove(RestoringMarker(map), ec);
         }
-        // A snapshot from a different map must not be rebound to this map.
-        if (!restored && !g_scene.map.empty() && g_scene.map != map) g_scene = Scene{};
+        // Keep between demos onto a map with no scene of its own: the look carries over, held passes
+        // and all, but a scene bound to the old map leaves that map's objects and placed volumes
+        // behind. It used to be wiped whole, which is why everything came back off AND unsaved.
+        if (!restored && !g_scene.map.empty() && g_scene.map != map) {
+            UnbindSceneFromMap(g_scene);
+            ++g_sceneGeneration;
+        }
         Scene initial = LiveScene(); initial.map = map;
         if(!g_autosave.dirty)g_autosave.Bind(map, SerializeScene(initial));
         MvmDebugLog_LinefAlways("environment.autosave", "restore map=%s success=%d error=%s", map.c_str(), int(restored), error.c_str());
     }
     const auto now = GetTickCount64();
-    if (now >= g_nextAutosavePoll && !g_drag.active) {
+    if (now >= g_nextAutosavePoll && !g_drag.active && !g_autosaveQuiet) {
         g_nextAutosavePoll = now + 250;
         Scene committed = LiveScene();
         if (committed.map.empty() || committed.map == map) {
@@ -659,6 +685,7 @@ void OnLevelInit() {
     g_proof.enabled=false;
     Relight::OnLevelChanged();
     g_restoreAutosave = true;
+    g_autosaveQuiet = false;
     g_restoreGate.Reset();
     ++g_sceneGeneration;
     ResetNativeWater();
@@ -1064,6 +1091,7 @@ namespace {
 // The tail of every committed edit, under g_mutex: the validated scene becomes the live one, and
 // the map's autosave hears about it.
 void AdoptValidatedScene(Scene validated) {
+    g_autosaveQuiet = false; // an edit: from here the map's file follows the scene again
     g_scene = std::move(validated);
     g_restoreAutosave = false;
     ++g_sceneGeneration;
@@ -1195,6 +1223,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 " environment reset [all|lighting|sky|atmosphere|weather|props]\n"
                 " environment weather clear|rain|snow|ash|storm|embers|motes|smoke\n"
                 " environment look clear|storm|winter|sunset|night; climate <field> <value>\n"
+                " environment pass-off <field|weatherType> <neutral> [...] - switch a pass off, keeping its value held\n"
                 " environment surface-center|fog-center|gi-center|reload-geometry\n"
                 " environment weather set "
                 "type|count|seed|radius|height|speed|size|windX|windY|follow|shelter|x|y|z|r|g|b <number>\n"
@@ -1602,6 +1631,31 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             // props and preserved 3D skybox together instead of requiring three hidden toggles.
             CoupleSunToLighting(next.climate, ClimateField(field));
             next.enabled = true;
+        } else if (op == "pass-off") {
+            // A card's switch going OFF: each key goes to its neutral value and the value it had is
+            // kept in `held`, exactly as a demo change holds it (HoldRestoredPasses), so the card
+            // switched on again -- after a restart too -- gets it back. `climate` would drop the held
+            // value, which is why switching fog off used to forget its density for good.
+            if (argc < 5 || (argc - 3) % 2 != 0)
+                throw std::runtime_error("Use pass-off <key> <neutral> [<key> <neutral> ...]");
+            for (int a = 3; a + 1 < argc; a += 2) {
+                const std::string key = arg(a);
+                const double neutral = Number(args->ArgV(a + 1));
+                if (key == HeldWeatherTypeKey()) {
+                    if (next.weather.type != 0) next.held[key] = float(next.weather.type);
+                    next.weather.type = 0;
+                    continue;
+                }
+                int field = -1;
+                for (int i = 0; i < ClimateCount; ++i)
+                    if (key == ClimateSpecs()[i].key)
+                        field = i;
+                if (!ClimateValueValid(field, neutral))
+                    throw std::runtime_error("Unknown or out-of-range climate value");
+                if (std::abs(next.climate.values[field] - float(neutral)) > 1e-4f)
+                    next.held[key] = next.climate.values[field];
+                next.climate.values[field] = float(neutral);
+            }
         } else if (op == "surface-center" || op == "fog-center" || op == "gi-center" || op == "storm-center") {
             // DROP THIS VOLUME WHERE THE CAMERA IS, once. It then stays there: a placed volume that
             // followed the camera would defeat the reason for placing it.

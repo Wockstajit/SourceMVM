@@ -331,7 +331,8 @@ test('weather switch includes standalone lightning',()=>{
   h.context.renderHooks.forEach(fn=>fn(s));
   assert.equal(h.card('WEATHER').pill.on,true);
   h.card('WEATHER').pill.click();
-  assert.ok(h.sent.includes('mirv_filmmaker environment climate storm 0'));
+  // pass-off holds the weather and its ground in the scene, so the switch gets them back after a restart.
+  assert.ok(h.sent.includes('mirv_filmmaker environment pass-off weatherType 0 snow 0 wet 0 puddles 0 storm 0'));
 });
 
 test('switching Sky off releases an otherwise idle renderer despite stale native state',()=>{
@@ -339,8 +340,10 @@ test('switching Sky off releases an otherwise idle renderer despite stale native
   Object.assign(s.climate,{enabled:1,sky:1,clouds:1,relighting:1,snow:0,wet:0,puddles:0});
   s.weather.type=0;
   h.card('SKY').pill.click();
-  assert.ok(h.sent.includes('mirv_filmmaker environment climate sky 0'));
-  assert.ok(h.sent.includes('mirv_filmmaker environment climate clouds 0'));
+  // One pass-off for the card: sky and clouds go off and their values stay held in the scene.
+  const off=h.sent.find(c=>c.startsWith('mirv_filmmaker environment pass-off '));
+  assert.ok(off&&/ sky 0( |$)/.test(off)&&/ clouds 0( |$)/.test(off),off);
+  assert.ok(!h.sent.includes('mirv_filmmaker environment climate sky 0'));
   assert.equal(h.sent.at(-2),'mirv_filmmaker environment climate enabled 0');
   assert.equal(h.sent.at(-1),'mirv_filmmaker environment off');
 });
@@ -465,4 +468,15 @@ test('round heat map switch drives the heatmap command and shows the round', () 
   sw.click();
   assert.deepEqual(h.sent.slice(1),
     ['mirv_filmmaker heatmap radius 1200 quiet', 'mirv_filmmaker heatmap teams t quiet', 'mirv_filmmaker heatmap off quiet']);
+});
+
+// The ENVIRONMENT footer's Keep between demos switch shares the EFFECTS tab's flag. It used to read
+// `envKeep`, a state key nothing published, so it always showed ON and a click could only send OFF.
+test('the Environment keep switch reads the flag the game publishes', () => {
+  const read = (name) => fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/' + name, import.meta.url), 'utf8');
+  const footer = read('ConfigHudEnvironmentStateJs.h');
+  const m = /keepToggle\(envFooter, '(\w+)', '(\w+)'/.exec(footer);
+  assert.ok(m, 'the footer builds a keep toggle');
+  assert.equal(m[1], 'effects');
+  assert.ok(read('ConfigHud.cpp').includes('\\"' + m[2] + '\\":'), 'ConfigHud.cpp publishes ' + m[2]);
 });
