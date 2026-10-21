@@ -170,8 +170,15 @@ async function replaceDirectory(target, install, keep = [], { movedFrom = '' } =
     await moveFolder(incoming, target);
   } catch (error) {
     if (typeof undo === 'function') await Promise.resolve().then(undo).catch(() => {});
-    await fsp.rm(incoming, { recursive: true, force: true }).catch(() => {});
-    await fsp.rm(journal, { force: true }).catch(() => {});
+    // A folder that was moved in and could not be given back is the only copy of it: try again
+    // with the retrying move, and if that fails too, leave it and the journal for the next start
+    // (recoverInterrupted) instead of deleting it.
+    const stranded = movedFrom && !fs.existsSync(movedFrom) && fs.existsSync(incoming);
+    const givenBack = !stranded || await moveFolder(incoming, movedFrom).then(() => true, () => false);
+    if (givenBack) {
+      await fsp.rm(incoming, { recursive: true, force: true }).catch(() => {});
+      await fsp.rm(journal, { force: true }).catch(() => {});
+    }
     if (!hadPrevious) throw new Error(`Could not install ${target}.\n${error.message}`);
     const restored = await moveFolder(previous, target).then(() => true, () => false);
     throw new Error(restored

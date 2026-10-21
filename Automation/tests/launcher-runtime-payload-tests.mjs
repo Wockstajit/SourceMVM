@@ -256,6 +256,53 @@ test('a copy cut short is thrown away and leaves the folder it copied from alone
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('a moved bundle whose own undo fails is still given back', async () => {
+  const root = tempRoot();
+  try {
+    const target = path.join(root, 'fx');
+    const bundle = path.join(root, 'bundle');
+    const badPack = { ...NEW_PACK, 'source_mvm_fx/cfg': 'not a folder' };
+    writeTree(target, INSTALLED);
+    writeTree(bundle, badPack);
+    await assert.rejects(replaceDirectory(target, async (into) => {
+      fs.renameSync(bundle, into);
+      return () => { throw new Error('EPERM: operation not permitted'); };
+    }, FX_SAVED_SETTINGS, { movedFrom: bundle }), /previous install was kept/);
+    assert.deepEqual(readTree(bundle), badPack);
+    assert.deepEqual(readTree(target), INSTALLED);
+    assert.equal(fs.existsSync(`${target}.incoming`), false);
+    assert.equal(fs.existsSync(`${target}.incoming.from`), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// Windows refuses to move a folder while a file in it is open (an antivirus scan, for instance).
+test('a moved bundle that cannot be given back is kept for the next start', { skip: process.platform !== 'win32' }, async () => {
+  const root = tempRoot();
+  try {
+    const target = path.join(root, 'fx');
+    const bundle = path.join(root, 'bundle');
+    const badPack = { ...NEW_PACK, 'source_mvm_fx/cfg': 'not a folder' };
+    writeTree(target, INSTALLED);
+    writeTree(bundle, badPack);
+    let handle = null;
+    try {
+      await assert.rejects(replaceDirectory(target, async (into) => {
+        fs.renameSync(bundle, into);
+        handle = fs.openSync(path.join(into, 'source_mvm_fx', 'source_mvm_fx.vpk'), 'r');
+        return () => fs.renameSync(into, bundle);
+      }, FX_SAVED_SETTINGS, { movedFrom: bundle }), /previous install was kept/);
+      assert.equal(fs.existsSync(bundle), false);
+      assert.deepEqual(readTree(`${target}.incoming`), badPack);
+      assert.equal(fs.readFileSync(`${target}.incoming.from`, 'utf8'), bundle);
+    } finally { if (handle !== null) fs.closeSync(handle); }
+    await recoverInterrupted(target);
+    assert.deepEqual(readTree(bundle), badPack);
+    assert.deepEqual(readTree(target), INSTALLED);
+    assert.equal(fs.existsSync(`${target}.incoming`), false);
+    assert.equal(fs.existsSync(`${target}.incoming.from`), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('a swap that finished before the old folder was deleted keeps the new folder', async () => {
   const root = tempRoot();
   try {
