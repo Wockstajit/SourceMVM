@@ -14,6 +14,8 @@ const payloadSource = new URL('../../SourceMovieMakerLauncher/electron/runtime-p
 const launcherRequire = createRequire(payloadSource);
 const { FX_SAVED_SETTINGS, isCs2Setting, recoverInterrupted, replaceDirectory } = launcherRequire('./payload-swap.cjs');
 const payloadScript = fs.readFileSync(payloadSource, 'utf8');
+const launcherMain = fs.readFileSync(
+  new URL('../../SourceMovieMakerLauncher/electron/main.cjs', import.meta.url), 'utf8');
 const releasePayloadPs1 = fs.readFileSync(
   new URL('../../SourceMovieMakerLauncher/scripts/build-release-payload.ps1', import.meta.url), 'utf8');
 
@@ -373,6 +375,33 @@ test('the complete installer\'s FX update keeps the player\'s CS2 settings', asy
     assert.equal(installedState(f.userData).fx.bundleStamp, 'bundle:f2');
     assert.equal(payload.installedFxDir(), path.join(f.fxDir, 'source_mvm_fx'));
   } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test('a thin launcher gets a runtime cut short in .previous back without the network', async () => {
+  const root = tempRoot();
+  try {
+    const userData = path.join(root, 'user');
+    const runtimeDir = path.join(userData, 'payload', 'runtime');
+    // A downloaded runtime update moved the old one aside, then the launcher closed.
+    writeTree(`${runtimeDir}.previous`, { 'x64/AfxHookSource2.dll': 'hook', 'x64/injector.exe': 'injector' });
+    writeTree(`${runtimeDir}.incoming`, { 'x64/AfxHookSource2.dll': 'half' });
+    const payload = loadPayload({ userData });
+    assert.equal(payload.isBundled(), false);
+    assert.equal(payload.installedRuntimeDir(), '');
+    await payload.recoverInterruptedInstalls();
+    assert.equal(payload.installedRuntimeDir(), runtimeDir);
+    assert.deepEqual(readTree(runtimeDir), { 'x64/AfxHookSource2.dll': 'hook', 'x64/injector.exe': 'injector' });
+    assert.equal(fs.existsSync(`${runtimeDir}.previous`), false);
+    assert.equal(fs.existsSync(`${runtimeDir}.incoming`), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('every launch puts a cut-short install right before it checks the runtime, bundled or not', () => {
+  const prepare = launcherMain.slice(launcherMain.indexOf('prepareRuntime: async'));
+  const recover = prepare.indexOf('runtimePayload.recoverInterruptedInstalls()');
+  assert.ok(recover > 0, 'prepareRuntime recovers interrupted installs');
+  assert.ok(recover < prepare.indexOf('runtimePayload.isBundled()'), 'before the bundled or thin branch');
+  assert.ok(recover < prepare.indexOf('if (online)'), 'whatever the network state');
 });
 
 test('the complete installer gets its bundle back from an update cut short before the swap', async () => {

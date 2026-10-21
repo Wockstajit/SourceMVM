@@ -575,6 +575,9 @@ function configureUpdater() {
       // Runs under the same CS2-closed guard as the runtime install.
       const saves = await resetSavesIfNeeded(path.join(app.getPath('appData'), 'HLAE'));
       if (saves.reset) console.log(`SOURCE:MVM saves reset (epoch ${SAVE_EPOCH}): ${saves.removed.join(', ') || 'nothing to remove'}`);
+      // A runtime or FX update the launcher closed part way through is put right first, bundled
+      // or thin and online or not, so the checks below see the install that is really there.
+      await runtimePayload.recoverInterruptedInstalls();
       if (runtimePayload.isBundled()) {
         await runtimePayload.installBundled(sendPayloadStatus);
         // Hook-only fixes ship as a runtime hotfix on this version's release, not a new installer.

@@ -87,6 +87,16 @@ function isBundled() {
 }
 
 /**
+ * Put right a component replace that a launcher closed part way through (payload-swap.cjs): the
+ * component may be sitting in <folder>.previous, and a bundle the installer moved in may be
+ * sitting in <folder>.incoming. Cheap when there is nothing to do, so every start runs it, bundled
+ * or not and with or without the network, before anything looks at what is installed.
+ */
+async function recoverInterruptedInstalls() {
+  for (const name of Object.keys(COMPONENTS)) await recoverInterrupted(componentDir(name));
+}
+
+/**
  * Copy the bundled components into <userData>/payload when they are not already the installed
  * ones. Cheap when current (one JSON read), so it runs on every start.
  */
@@ -111,10 +121,8 @@ function componentStamp(info, name) {
 }
 
 async function installBundledOnce(report) {
-  // A start that closed part way through replacing a component is put right before anything looks
-  // at it (payload-swap.cjs): the component may be sitting in <folder>.previous, and the bundle the
-  // installer moves in may be sitting in <folder>.incoming.
-  for (const name of Object.keys(COMPONENTS)) await recoverInterrupted(componentDir(name));
+  // Before the bundle is checked: a cut-short install can be holding it in <folder>.incoming.
+  await recoverInterruptedInstalls();
   const info = bundleInfo();
   if (!info) return { state: 'not-bundled' };
   const installed = readInstalledState();
@@ -581,4 +589,5 @@ module.exports = {
   installBundled,
   isBundled,
   bundleRoot,
+  recoverInterruptedInstalls,
 };
