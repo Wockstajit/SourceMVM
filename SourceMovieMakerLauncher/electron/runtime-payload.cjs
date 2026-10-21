@@ -136,10 +136,24 @@ async function installBundledOnce(report) {
   for (const name of wanted) {
     const component = COMPONENTS[name];
     const source = path.join(info.root, component.directory);
+    const stamp = componentStamp(info, name);
+    const committed = { version: info.version, sha256: stamp, bundleStamp: stamp, hotfix: 0, bytes: 0 };
     if (!fs.existsSync(path.join(source, component.probe))) {
+      // The last start moved this bundle into place, then closed before recording it: the bundle
+      // is gone from the installer because it IS the installed folder. Record it now.
+      const present = name === 'runtime' ? installedRuntimeDir() : installedFxDir();
+      if (present && installed[name] && installed[name].pending === stamp) {
+        installed[name] = committed;
+        writeInstalledState(installed);
+        continue;
+      }
       throw new Error(`The installer's ${component.label} is incomplete (${component.probe} missing). Reinstall SourceMovieMaker.`);
     }
     report({ state: 'installing', component: name, label: component.label, percent: 0 });
+    // Noted before the swap: a move takes the bundle out of the installer, and a start that closes
+    // before the line below records the install needs this to recognise it.
+    installed[name] = { ...(installed[name] || {}), pending: stamp };
+    writeInstalledState(installed);
     // The old folder stays until the new one is in place (CS2's saved settings are carried over),
     // and comes back if anything fails.
     await replaceDirectory(componentDir(name), async (target) => {
@@ -158,8 +172,7 @@ async function installBundledOnce(report) {
         return null;
       }
     }, component.keep, { movedFrom: source });
-    installed[name] = { version: info.version, sha256: componentStamp(info, name),
-      bundleStamp: componentStamp(info, name), hotfix: 0, bytes: 0 };
+    installed[name] = committed;
     writeInstalledState(installed);
     report({ state: 'installing', component: name, label: component.label, percent: 100 });
   }

@@ -373,7 +373,40 @@ test('the complete installer\'s FX update keeps the player\'s CS2 settings', asy
     assert.equal(fs.existsSync(`${f.fxDir}.previous`), false);
     assert.equal(fs.existsSync(`${f.fxDir}.incoming.from`), false);
     assert.equal(installedState(f.userData).fx.bundleStamp, 'bundle:f2');
+    assert.equal(installedState(f.userData).fx.pending, undefined);
     assert.equal(payload.installedFxDir(), path.join(f.fxDir, 'source_mvm_fx'));
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test('the complete installer records a bundle that was moved into place just before the launcher closed', async () => {
+  const f = bundledFixture();
+  try {
+    // The swap finished (the bundle is now the installed pack), but installed.json still has the
+    // old stamp and the pending one.
+    fs.rmSync(f.fxDir, { recursive: true, force: true });
+    fs.renameSync(f.bundleFx, f.fxDir);
+    writeTree(f.fxDir, PLAYER_SETTINGS);
+    const state = installedState(f.userData);
+    state.fx.pending = 'bundle:f2';
+    fs.writeFileSync(path.join(f.userData, 'payload', 'installed.json'), JSON.stringify(state));
+    const payload = loadPayload({ userData: f.userData, resources: f.resources, packaged: true });
+    const result = await payload.installBundled();
+    assert.equal(result.state, 'installed');
+    assert.deepEqual(readTree(f.fxDir), UPDATED);
+    assert.equal(installedState(f.userData).fx.bundleStamp, 'bundle:f2');
+    assert.equal(installedState(f.userData).fx.pending, undefined);
+    assert.equal((await payload.installBundled()).state, 'current');
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test('a missing bundle with no install pending still says the installer is incomplete', async () => {
+  const f = bundledFixture();
+  try {
+    fs.rmSync(f.bundleFx, { recursive: true, force: true });
+    const payload = loadPayload({ userData: f.userData, resources: f.resources, packaged: true });
+    await assert.rejects(payload.installBundled(), /FX pack is incomplete/);
+    assert.deepEqual(readTree(f.fxDir), INSTALLED);
+    assert.equal(installedState(f.userData).fx.bundleStamp, 'bundle:f1');
   } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });
 
