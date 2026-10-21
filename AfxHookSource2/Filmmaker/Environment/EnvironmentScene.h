@@ -121,6 +121,9 @@ struct Frame {
 };
 // Engine-free validation/serialization, shared with the native tests.
 void ResetScenePage(Scene &scene, const std::string &page);
+// Strips what belongs to the scene's map (objects, placed volumes, a fixed weather centre) and keeps
+// every global value, so Keep between demos can carry the look onto a map that has no scene saved.
+void UnbindSceneFromMap(Scene &scene);
 bool ValidName(const std::string &name);
 bool ParseScene(const std::string &json, Scene &out, std::string &error);
 std::string SerializeScene(const Scene &scene);

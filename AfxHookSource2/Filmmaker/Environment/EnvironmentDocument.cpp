@@ -82,6 +82,23 @@ void ResetScenePage(Scene &next, const std::string &resetPage) {
     }
 }
 
+// Keep between demos onto ANOTHER map: whatever can travel does. Placed objects, a fixed weather
+// centre and the placed volumes (local fog, local surfaces, puddles, the storm cell, the bounce
+// volume) are positions on the old map, so they go, held values included; every global value --
+// sky, lighting, fog, the weather and its coatings, the grade -- stays, held passes too.
+void UnbindSceneFromMap(Scene &scene) {
+    scene.objects.clear();
+    scene.nextObjectId = 1;
+    scene.weather.follow = true;
+    scene.climate[CL_localFogRadius] = 0;
+    scene.climate[CL_surfaceRadius] = 0;
+    for (ClimateField field : {CL_puddles, CL_storm, CL_worldGi}) {
+        scene.climate[field] = 0;
+        scene.held.erase(ClimateSpecs()[field].key);
+    }
+    scene.map.clear();
+}
+
 bool ValidName(const std::string &n) {
     if (n.empty() || n.size() > 48 || n.front() == ' ' || n.back() == ' ')
         return false;
