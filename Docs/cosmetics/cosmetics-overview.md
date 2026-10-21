@@ -182,6 +182,12 @@ reloads.
   `mvm_debug`, at most 600 frames). A render's pre-roll landing waits for the same refresh before
   it records, so the first frame of a clip already has its skins. Scrubs are never held.
   `cosmetics status` reports `seek refresh: pending=… hold=…`.
+- A hold, and the short pause a pick or a newly drawn gun takes while the demo plays, ends as soon
+  as every gun it composited reports its material built (the composite owner's built and pending
+  counters, read through `ReadCompositeOwnerCounts`). A material takes about 11–13 frames; the old
+  fixed wait was 24, which stays as the cap when the counters cannot be read. A pause owed only to
+  a newly drawn gun starts 2 frames after the draw; other changes wait 8 quiet frames so rapid
+  picks share one pause.
 - Whether a weapon skin renders at all can depend on the legacy vs CS2 mesh group
   matching the paint kit. See [cosmetics-legacy-vs-cs2-models.md](cosmetics-legacy-vs-cs2-models.md).
 - An entity spawned while the demo is paused is not drawn at all. The renderer skips entities

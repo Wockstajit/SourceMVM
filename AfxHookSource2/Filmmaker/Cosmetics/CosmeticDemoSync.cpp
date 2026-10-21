@@ -30,9 +30,13 @@ namespace {
 constexpr int kCompositeBurstShots = 2;
 
 // Seek refresh (SeekRefreshPending / phase 3). A composite's material work drains asynchronously
-// after the call, so the refresh counts as done only after this many quiet frames -- the same
-// allowance phase 2 gives the live-pick composite before it resumes.
+// after the call. The composited guns' own counters end the wait as soon as every material is built
+// (CompositedMaterialsBuilt, ~11-13 frames measured); this is the cap when they cannot be read --
+// the same allowance phase 2 gives the live-pick composite before it resumes.
 constexpr uint64_t kSeekRefreshDrainFrames = 24;
+// Frames after the last composite before its counters are trusted: the call queues its request on
+// the frame it runs, so a read in that same frame could still see the previous material as built.
+constexpr uint64_t kMinDrainFrames = 2;
 // The longest a seek hold keeps the demo paused. A stacked seek settle (128) plus the mesh switch,
 // composite and drain fits several times over; past this the demo plays on regardless.
 constexpr uint64_t kSeekHoldMaxFrames = 600;
@@ -94,7 +98,12 @@ bool CosmeticOverrideSystem::SeekRefreshPending() const {
 	// A deployed weapon is still waiting for its composite (a mesh switch settling, or owed).
 	if (m_weaponMaterialBusy)
 		return true;
-	return m_lastDirectCompositeFrame != 0 && m_frameCounter - m_lastDirectCompositeFrame < kSeekRefreshDrainFrames;
+	if (m_lastDirectCompositeFrame == 0)
+		return false;
+	const uint64_t since = m_frameCounter - m_lastDirectCompositeFrame;
+	if (since >= kSeekRefreshDrainFrames)
+		return false;
+	return !(since >= kMinDrainFrames && CompositedMaterialsBuilt());
 }
 
 void CosmeticOverrideSystem::OnDemoSeekDetected(int tickJump) {
@@ -103,6 +112,7 @@ void CosmeticOverrideSystem::OnDemoSeekDetected(int tickJump) {
 	const bool holding = m_nudgePhase == 3;
 	if (!holding)
 		AbortActiveTickNudge("seek");
+	m_materialWatch.clear(); // those guns are rebuilt from the demo; their composites are owed afresh
 	// Short seeks may preserve themed pawns. Their full identities and live owned-model observations
 	// decide whether to retain the original; no saved pointer is dereferenced across the seek.
 	// A short seek may preserve the live weapon and its in-flight composite. Reconcile each field
@@ -346,6 +356,7 @@ void CosmeticOverrideSystem::MaybeFireTickNudge() {
 			if (g_pEngineToClient)
 				g_pEngineToClient->ExecuteClientCmd(0, "demo_resume", true);
 			m_nudgePhase = 0;
+			m_materialWatch.clear();
 			++m_totalNudges;
 			if (MvmDebugLog_Active())
 				MvmDebugLog_LinefAlways("cosmetics.seekhold", "DONE resumed refreshed=%d timedOut=%d frames=%llu",
@@ -364,14 +375,20 @@ void CosmeticOverrideSystem::MaybeFireTickNudge() {
 			if (auto* demo = g_pEngineToClient->GetDemoFile()) paused = demo->IsDemoPaused();
 		if (paused && !m_postNudgeMeshRefreshPending && m_pauseCompositeDoneFrame == 0)
 			m_pauseCompositeDoneFrame = m_frameCounter;
-		const bool settled = !m_weaponMaterialBusy && m_pauseCompositeDoneFrame != 0
-			&& m_frameCounter - m_pauseCompositeDoneFrame >= kSettleFrames;
+		// Drained once the composited guns report their materials built, or after kSettleFrames when
+		// the counters cannot say (CompositedMaterialsBuilt). The fixed wait alone held every
+		// live-pick and owed-composite pause for 24 frames where ~11-13 were needed.
+		const uint64_t sinceComposite = m_pauseCompositeDoneFrame ? m_frameCounter - m_pauseCompositeDoneFrame : 0;
+		const bool drained = sinceComposite >= kSettleFrames
+			|| (sinceComposite >= kMinDrainFrames && CompositedMaterialsBuilt());
+		const bool settled = !m_weaponMaterialBusy && m_pauseCompositeDoneFrame != 0 && drained;
 		const bool timedOut = (m_frameCounter - m_nudgePlayStartFrame) > 240;
 		if (settled || timedOut) {
 			if (g_pEngineToClient)
 				g_pEngineToClient->ExecuteClientCmd(0, "demo_resume", true);
 			m_postNudgeMeshRefreshPending = false;
 			m_nudgePhase = 0;
+			m_materialWatch.clear();
 			++m_totalNudges;
 			if (MvmDebugLog_Active())
 				MvmDebugLog_Linef("cosmetics.nudge", "DONE live-composite resumed settled=%d timedOut=%d frames=%llu",
@@ -461,8 +478,11 @@ void CosmeticOverrideSystem::MaybeFireTickNudge() {
 	if (m_seekSettleFrames > 0)
 		return; // defer until entity list settles after a seek
 	if (!m_tickNudge) { m_pendingNudge = false; return; } // disabled: drop the request
-	// Debounce: wait for a short quiet period after the last change so rapid re-picks coalesce.
-	const uint64_t kDebounceFrames = 8;
+	// Debounce: wait for a short quiet period after the last change so rapid re-picks coalesce. A
+	// pause owed only to a gun being drawn (or picked up) waits 2 frames, not 8: every frame of the
+	// wait shows that gun without its skin, and more guns needing one simply join the pause it starts
+	// (RequestOwedCompositePause hands them to phase 2).
+	const uint64_t kDebounceFrames = m_pendingNudgeOwedOnly ? 2 : 8;
 	if (m_frameCounter - m_nudgeRequestFrame < kDebounceFrames)
 		return;
 	if (!InDemoContext())

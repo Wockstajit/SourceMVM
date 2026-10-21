@@ -519,6 +519,15 @@ private:
 	// 3 = paused by a seek that landed while PLAYING, until the skins are redrawn (SeekHoldActive).
 	int m_nudgePhase = 0;
 	uint64_t m_lastDirectCompositeFrame = 0; // last frame any direct composite ran (its material drains after)
+	// Guns composited since the current pause began. A pause used to wait a blind 24 frames for their
+	// material; the composite owner's own counters say when it is built (measured 2026-10-21: in flight
+	// for ~11-13 frames, then built=2 pending=0), so a pause ends as soon as every one of them is.
+	struct MaterialWatch { uintptr_t entity; uint32_t handle; };
+	std::vector<MaterialWatch> m_materialWatch;
+	// True once every watched gun's composite material is built (a gun that is gone counts as built).
+	// False while any is in flight, and false when the counters cannot be read: the caller then keeps
+	// its timed wait.
+	bool CompositedMaterialsBuilt() const;
 	uint64_t m_seekHoldStartFrame = 0;  // phase 3: frame the hold began (restarted by a stacked seek)
 	bool m_seekHoldPauseIssued = false; // phase 3: our one demo_pause went out (demo_pause toggles)
 	bool m_seekHoldPaused = false;      // phase 3: the pause was observed, so the resume is ours to send

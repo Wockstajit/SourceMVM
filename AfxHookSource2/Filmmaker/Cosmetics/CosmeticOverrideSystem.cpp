@@ -86,6 +86,22 @@ void CosmeticOverrideSystem::Init() {
 	m_initialized = true;
 }
 
+bool CosmeticOverrideSystem::CompositedMaterialsBuilt() const {
+	for (const MaterialWatch& m : m_materialWatch) {
+		const SOURCESDK::CS2::CBaseHandle handle(m.handle);
+		CEntityInstance* ent = handle.IsValid() ? CosmeticEntFromIndex(handle.GetEntryIndex()) : nullptr;
+		// Recycled or removed since its composite: nothing of ours is left to wait for.
+		if (!ent || (uintptr_t)ent != m.entity || (uint32_t)ent->GetHandle().ToInt() != m.handle)
+			continue;
+		int built = -1, pending = -1;
+		if (!ReadCompositeOwnerCounts((unsigned char*)ent, &built, &pending))
+			return false;
+		if (pending > 0 || built <= 0)
+			return false;
+	}
+	return true;
+}
+
 void CosmeticOverrideSystem::Shutdown() {
 	ResetSessionOverrides("shutdown");
 }
@@ -132,6 +148,7 @@ void CosmeticOverrideSystem::ResetSessionOverrides(const char* reason) {
 	m_lastDemoTickObserved = -1;
 	m_demoPlayingLastFrame = false;
 	m_lastDirectCompositeFrame = 0;
+	m_materialWatch.clear();
 	m_seekSettleFrames = 0;
 	m_vmMirrorSettleFrames = 0;
 	m_lastCompositeTick = -1;
@@ -1405,6 +1422,13 @@ int CosmeticOverrideSystem::ApplyMatchedWeapons(bool forceStale, bool fireRebuil
 				++m_lastStats.directCompositeCalls;
 				m_lastCompositeFrameByIdx[i] = m_frameCounter;
 				m_lastDirectCompositeFrame = m_frameCounter; // SeekRefreshPending waits out its material drain
+				{
+					const uint32_t handle = (uint32_t)ent->GetHandle().ToInt();
+					bool watched = false;
+					for (const MaterialWatch& m : m_materialWatch)
+						watched = watched || (m.entity == (uintptr_t)w && m.handle == handle);
+					if (!watched) m_materialWatch.push_back({ (uintptr_t)w, handle });
+				}
 				m_compositeOwedIdx.erase(i);
 				if (m_nudgePhase == 2) m_pauseCompositeDoneFrame = m_frameCounter;
 				// Vanilla finish: the world weapon just released its composite, but the first-person HUD model
