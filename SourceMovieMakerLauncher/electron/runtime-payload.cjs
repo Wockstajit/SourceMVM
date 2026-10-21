@@ -16,6 +16,7 @@
 //   <userData>/payload/runtime/x64/injector.exe
 //   <userData>/payload/runtime/resources/...
 //   <userData>/payload/fx/source_mvm_fx/...
+//   <userData>/payload/fx/source_mvm_fx/cfg/...   written by CS2 itself, kept across updates
 //   <userData>/payload/installed.json
 //
 // THE SELF-CONTAINED BUILD. A launcher packaged with `npm run package:bundled` carries the whole
@@ -33,6 +34,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const { HOTFIX_ASSET, pickHotfix, bundleRuntimeWanted } = require('./runtime-hotfix.cjs');
+const { FX_SAVED_SETTINGS, replaceDirectory } = require('./payload-swap.cjs');
 
 const RELEASE_OWNER = 'Wockstajit';
 const RELEASE_REPO = 'SourceMVM';
@@ -53,6 +55,9 @@ const COMPONENTS = {
     label: 'FX pack',
     directory: 'fx',
     probe: 'source_mvm_fx',
+    // CS2 saves its video, sound and other settings into this folder (payload-swap.cjs). A new
+    // FX pack must not reset them.
+    keep: FX_SAVED_SETTINGS,
   },
 };
 
@@ -123,24 +128,24 @@ async function installBundledOnce(report) {
       throw new Error(`The installer's ${component.label} is incomplete (${component.probe} missing). Reinstall SourceMovieMaker.`);
     }
     report({ state: 'installing', component: name, label: component.label, percent: 0 });
-    const target = componentDir(name);
-    await removeDirectory(target);
-    await fsp.mkdir(path.dirname(target), { recursive: true });
-    // MOVE when the installer and the payload share a drive (the default per-user install): it is
-    // instant and the installer's copy does not sit on disk twice. A later app update brings the
-    // bundle back. Anything else (another drive, a read-only Program Files) copies, with progress.
-    let moved = false;
-    try {
-      await fsp.rename(source, target);
-      moved = true;
-    } catch {
-      moved = false;
-    }
-    if (!moved) {
-      await copyWithProgress(source, target, (percent) => {
-        report({ state: 'installing', component: name, label: component.label, percent });
-      });
-    }
+    // The old folder stays until the new one is in place (CS2's saved settings are carried over),
+    // and comes back if anything fails.
+    await replaceDirectory(componentDir(name), async (target) => {
+      // MOVE when the installer and the payload share a drive (the default per-user install): it
+      // is instant and the installer's copy does not sit on disk twice. A later app update brings
+      // the bundle back. Anything else (another drive, a read-only Program Files) copies, with
+      // progress.
+      try {
+        await fsp.rename(source, target);
+        // A failed install gives the bundle back, so the next start can try again.
+        return () => fsp.rename(target, source);
+      } catch {
+        await copyWithProgress(source, target, (percent) => {
+          report({ state: 'installing', component: name, label: component.label, percent });
+        });
+        return null;
+      }
+    }, component.keep);
     installed[name] = { version: info.version, sha256: componentStamp(info, name),
       bundleStamp: componentStamp(info, name), hotfix: 0, bytes: 0 };
     writeInstalledState(installed);
@@ -320,19 +325,6 @@ function extractZip(archive, destination) {
   });
 }
 
-async function removeDirectory(directory) {
-  try {
-    await fsp.rm(directory, { recursive: true, force: true });
-  } catch (error) {
-    // The overwhelmingly likely cause on Windows is CS2 still holding AfxHookSource2.dll.
-    throw new Error(
-      `Could not replace ${directory}.\n`
-      + 'Close Counter-Strike 2 and try again.\n'
-      + error.message,
-    );
-  }
-}
-
 async function installComponent(name, entry, report) {
   const component = COMPONENTS[name];
   const stagingRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'smvm-payload-'));
@@ -368,19 +360,20 @@ async function installComponent(name, entry, report) {
       );
     }
 
-    // Swap last, so a failed download never leaves a half-replaced install behind.
-    const target = componentDir(name);
-    await removeDirectory(target);
-    await fsp.mkdir(path.dirname(target), { recursive: true });
-    try {
-      await fsp.rename(unpacked, target);
-    } catch (error) {
-      // EXDEV: staging %TEMP% and userData are on different drives -- the portable build run
-      // from a USB stick or second disk. rename() cannot cross volumes; copy+delete can.
-      if (error.code !== 'EXDEV') throw error;
-      await fsp.cp(unpacked, target, { recursive: true });
-      await fsp.rm(unpacked, { recursive: true, force: true }).catch(() => {});
-    }
+    // Swap last, so a failed download never leaves a half-replaced install behind. The old folder
+    // stays until the new one is in place (CS2's saved settings are carried over), and comes back
+    // if anything fails.
+    await replaceDirectory(componentDir(name), async (target) => {
+      try {
+        await fsp.rename(unpacked, target);
+      } catch (error) {
+        // EXDEV: staging %TEMP% and userData are on different drives -- the portable build run
+        // from a USB stick or second disk. rename() cannot cross volumes; copy+delete can.
+        if (error.code !== 'EXDEV') throw error;
+        await fsp.cp(unpacked, target, { recursive: true });
+        await fsp.rm(unpacked, { recursive: true, force: true }).catch(() => {});
+      }
+    }, component.keep);
 
     return { version: entry.version || '', sha256: entry.sha256, bytes: downloaded.bytes };
   } finally {

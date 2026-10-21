@@ -88,6 +88,11 @@ app's own userData. Thin installers download their runtime separately (see [Upda
 <install>\resources\host\SourceMovieMakerHost.exe
 ```
 
+CS2 saves its own settings into the mounted FX folder: video, sound and binds in
+`source_mvm_fx\cfg\`, bot settings in `source_mvm_fx\ui_override\ServerConfig.vdf`. Installing a
+new FX pack keeps those files (`electron/payload-swap.cjs`). The old folder stays until the new one
+is in place, and a failed install puts it back.
+
 The launcher uses the same runtime an end user gets. `runtimeCandidate()` in `electron/main.cjs`
 uses an explicitly configured `runtimeRoot` (RUNTIME FOLDER) when one is set. Otherwise it uses the
 downloaded payload, and it never searches a repository `build\` tree. The FX mount (`USRLOCALCSGO`)
@@ -310,8 +315,10 @@ Pre-releases are accepted, but downgrades are disabled. Updates preserve launche
 The existing private launcher CI builds artifacts only; it cannot silently publish the smaller
 launcher as a replacement for the complete setup. Publish a tested complete installer explicitly.
 For optional separate runtime updates, `npm run build:payload` reads the staged CS2 build and
-writes `payload-dist/`; it never compiles or launches CS2. Publish its validated manifest and
-component assets together. Only `runtime` and `fx` are installable; destinations are fixed.
+writes `payload-dist/`; it never compiles or launches CS2. It leaves out the staged FX pack's
+`cfg\` and `ui_override\ServerConfig.vdf`, which hold the build machine's own CS2 settings. Publish
+its validated manifest and component assets together. Only `runtime` and `fx` are installable;
+destinations are fixed.
 
 ### Shareable offline bundle
 
