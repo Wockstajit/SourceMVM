@@ -900,6 +900,8 @@ R"EDJS(
       });
     };
     api.previewInfo = function () { return previewState(); };
+    // The last press the cursor-pipe slider pump saw (cursorSliderPump), and which slider it claimed.
+    api.dbgCursorPress = function () { return JSON.stringify({ press: cursorPressDbg, sliders: cursorSliders.length }); };
     // Debug hooks for the customDrop popups (dropdowns are keyed off field.id set in customDrop()):
     //   mirv_filmmaker editor eval "$.Msg($.CamEditor.dbgDropState()+String.fromCharCode(10))"
     //   mirv_filmmaker editor eval "$.Msg($.CamEditor.dbgToggle('FmTargetDrop')+String.fromCharCode(10))"
@@ -1190,6 +1192,8 @@ R"EDJS(
       if (custOverlay.visible && (custTargetKey !== prevTargetKey || custDisplayedLoadoutSig !== nextLoadoutSig)) {
         // Target/loadout changed under the open modal (player switch, or the demo's own state moved
         // on) -- discard any unstaged picks and reseed from the live loadout, same as opening fresh.
+        previewLog('reseed', (custTargetKey !== prevTargetKey ? 'target' : 'loadout') + ' dirty=' + (custDirty ? 1 : 0)
+          + ' was=' + custDisplayedLoadoutSig + ' now=' + nextLoadoutSig);
         custTouched = { agent: false, primary: false, secondary: false, knife: false, gloves: false };
         custDirty = false;
         resetSelectionsFromLoadout();

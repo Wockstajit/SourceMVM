@@ -12,6 +12,7 @@
 #include "../Filmmaker.h"            // PlayingDemoPath()
 #include "../Demo/DemoProjectStore.h"
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_*
+#include "../Cosmetics/CosmeticOverrideSystem.h" // SeekHoldActive: a restart's pause that is not the seek's
 #include "../../MirvTime.h"
 
 #include "../../../Shared/AfxConsole.h"
@@ -1297,9 +1298,15 @@ void CameraPath::RunFrame() {
 		// starts. Re-resume while the guard is active and the demo is paused -- nothing the
 		// USER does pauses during PreviewPlaying (Space is swallowed; the HUD pause button
 		// leaves this mode), so a paused demo here is always the seek, never intentional.
+		// The one exception is the cosmetics seek hold: a loop restart pauses on its landing until
+		// the skins are redrawn, then resumes itself. The guard waits it out rather than undo it.
 		if (m_liveResumeGuard > 0) {
-			if (m_timing == Timing::Live && DemoIsPaused()) DemoCmd("demo_resume");
-			--m_liveResumeGuard;
+			if (CosmeticsRef().SeekHoldActive()) {
+				m_liveResumeGuard = 120;
+			} else {
+				if (m_timing == Timing::Live && DemoIsPaused()) DemoCmd("demo_resume");
+				--m_liveResumeGuard;
+			}
 		}
 		if (m_debug) {
 			static unsigned s_playFrameLogThrottle = 0;

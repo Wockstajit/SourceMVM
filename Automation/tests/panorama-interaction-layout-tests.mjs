@@ -314,6 +314,10 @@ test("Customize wear is a fixed-geometry gradient slider instead of a dropdown o
   assert.match(wearBody, /\$\.CreatePanel\('Slider'/);
   assert.match(wearBody, /gradient\(\s*linear/);
   assert.match(wearBody, /SliderValueChanged/);
+  // A press is the cursor pipe's, like every inspector slider: committing the native Slider's own
+  // SliderValueChanged sent a click on the bar to Factory New. Its event is only the no-pipe fallback.
+  assert.match(wearBody, /attachCursorDrag\(\{ sl: slider, busy: false, __modal: true \}, rail, commitFrac/);
+  assert.match(wearBody, /if \(!cursorDragFallback\(rec, v\)\) return;/);
   assert.doesNotMatch(customizeSource, /kind:\s*'wear'/);
   assert.doesNotMatch(customizeSource, /CustWearFloat/);
   assert.doesNotMatch(customizeSource, /Custom Float/);
@@ -647,7 +651,8 @@ test("dragging the wear slider does not repopulate the whole modal per tick", ()
   const wearBody = functionBody(customizeSource, "wearSliderBlock");
   // Never write the Slider's own value back mid-drag: the frac -> value -> frac round trip does not
   // land on the input, so it yanked the handle away from the cursor and re-fired the event.
-  assert.match(wearBody, /if \(!live && Math\.abs\(\(slider\.value \|\| 0\) - frac\) >= 0\.0005\) slider\.value = frac/);
+  // Nor while the cursor pipe holds it, and mark the write so its echo is not taken for a press.
+  assert.match(wearBody, /if \(!live && !rec\.__held && Math\.abs\(\(slider\.value \|\| 0\) - frac\) >= 0\.0005\) \{\s*rec\.busy = true; slider\.value = frac; rec\.busy = false;/);
   // Handle travel is (rail - handle), so growing the handle on hover cannot slide it off the value.
   assert.match(wearBody, /lastFrac \* \(cssW - handleW\)/);
   assert.match(functionBody(customizeSource, "react"), /seatHandle\(\)/);

@@ -1440,8 +1440,11 @@ R"EDJS(
       // inferred from the value stream and decays on a timer.
       var hot = false, live = false, liveSeq = 0;
       var tierPopSeq = 0;   // settle-guard for the tier-change pop in sync(); same idea as liveSeq
-      slider.SetPanelEvent('onmouseover', function () { hot = true; react(); });
-      slider.SetPanelEvent('onmouseout', function () { hot = false; react(); });
+      // Hover on the RAIL: the native Slider leaves the hit path while the cursor pipe drives it
+      // (syncSliderHitTest), so it no longer receives mouse events of its own.
+      rail.hittest = true;
+      rail.SetPanelEvent('onmouseover', function () { hot = true; react(); });
+      rail.SetPanelEvent('onmouseout', function () { hot = false; react(); });
       function goLive() {
         live = true; liveSeq++;
         var mySeq = liveSeq;
@@ -1534,14 +1537,27 @@ R"EDJS(
         }
         paintZoneText(hot || live);
       }
-      $.RegisterEventHandler('SliderValueChanged', slider, function (panel, v) {
+      function commitFrac(v) {
         var nextFrac = clamp01(v);
         if (last !== null && Math.abs(nextFrac - last) < 0.0005) return;
         last = nextFrac;
+        previewLog('wear', 'slot=' + slot + ' frac=' + nextFrac.toFixed(3));
         goLive();
         if (category) setActiveCategory(category);
         // light = true: the drag must not pay for a full repopulate per tick (see setWear).
         setWear(slot, 'custom', wearFracToValue(slot, nextFrac), true);
+      }
+      // DRIVEN FROM THE OS-CURSOR PIPE, like every inspector slider (attachCursorDrag in
+      // CameraEditorWidgetsJs.h): a click jumps to the point under the pointer, a drag maps the pointer
+      // across the rail. This bar used to commit the native Slider's own SliderValueChanged, which in
+      // this HUD also fires for Panorama's echo of a programmatic `slider.value` write and for its own
+      // idea of a click -- clicking the bar sent the float to the bottom of the range (Factory New)
+      // instead of where you clicked. The native Slider stays only as value storage, and as the drag
+      // when the pipe is unavailable (cursorDragFallback).
+      var rec = attachCursorDrag({ sl: slider, busy: false, __modal: true }, rail, commitFrac, null, null);
+      $.RegisterEventHandler('SliderValueChanged', slider, function (panel, v) {
+        if (!cursorDragFallback(rec, v)) return;   // the pipe is live -> the pump handled it
+        commitFrac(v);
       });
       return {
         slider: slider,
@@ -1567,7 +1583,9 @@ R"EDJS(
           // the input frac, so this wrote a slightly different value straight back into the control
           // being dragged: the handle jumped away from the cursor and the correction re-fired the
           // event. That fight is what made the slider feel like it had a mind of its own.
-          if (!live && Math.abs((slider.value || 0) - frac) >= 0.0005) slider.value = frac;
+          if (!live && !rec.__held && Math.abs((slider.value || 0) - frac) >= 0.0005) {
+            rec.busy = true; slider.value = frac; rec.busy = false;
+          }
           var noCap = wearCapDisabled(slot);
           capBtn.__lbl.text = noCap ? 'Cap off' : 'Cap on';
           btnSel(capBtn, noCap);

@@ -2,12 +2,9 @@
 
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/JsonParser.h"
-#include "../../hlaeFolder.h"
 
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
-#include <filesystem>
 
 namespace Filmmaker {
 
@@ -105,18 +102,15 @@ void CosmeticProfileStore::ClearAll() {
 	m_profiles.clear();
 }
 
-std::wstring CosmeticProfileStore::FilePath() const {
-	std::wstring path = GetHlaeRoamingAppDataFolderW();
-	if (!path.empty() && path.back() != L'\\' && path.back() != L'/')
-		path += L'\\';
-	path += L"cosmetic_profiles.json";
-	return path;
-}
-
-bool CosmeticProfileStore::Save() const {
+std::string CosmeticProfileStore::Serialize() const {
+	bool any = false;
+	for (const auto& [steamId, profile] : m_profiles)
+		if (!profile.Empty()) { any = true; break; }
+	if (!any)
+		return std::string(); // nothing to keep: the caller removes the section
 	JsonBuilder b;
 	b.BeginObject();
-	b.BoolField("enabled", m_enabled);
+	b.IntField("version", 1);
 	b.Key("players");
 	b.BeginObject();
 	for (const auto& [steamId, profile] : m_profiles) {
@@ -155,30 +149,15 @@ bool CosmeticProfileStore::Save() const {
 	}
 	b.EndObject(); // players
 	b.EndObject(); // root
-
-	std::ofstream f(std::filesystem::path(FilePath()), std::ios::binary | std::ios::trunc);
-	if (!f.is_open())
-		return false;
-	f << b.Str();
-	return true;
+	return b.Str();
 }
 
-bool CosmeticProfileStore::Load() {
+bool CosmeticProfileStore::Deserialize(const std::string& text) {
 	ClearAll();
-	m_enabled = false;
-
-	std::ifstream f(std::filesystem::path(FilePath()), std::ios::binary);
-	if (!f.is_open())
-		return false; // No file yet is normal -- not an error.
-
-	std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 
 	JsonValue root;
 	if (!JsonParse(text, root) || root.type != JsonValue::Type::Object)
 		return false;
-
-	if (const JsonValue* enabled = root.Find("enabled"))
-		m_enabled = enabled->AsBool(false);
 
 	const JsonValue* players = root.Find("players");
 	if (players && players->type == JsonValue::Type::Object) {
@@ -225,6 +204,8 @@ bool CosmeticProfileStore::Load() {
 						p.agent.model = model->AsString("");
 				}
 			}
+			if (p.Empty())
+				m_profiles.erase(steamId);
 		}
 	}
 

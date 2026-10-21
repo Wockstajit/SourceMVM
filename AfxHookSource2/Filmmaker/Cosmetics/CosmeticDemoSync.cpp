@@ -10,6 +10,8 @@
 #include "CosmeticOverrideSystem.h"
 
 #include "../Debug/MvmDebugLog.h"
+#include "../Movie/DemoScrub.h"               // a scrub owns the play state: no seek hold
+#include "../Render/RenderSessionDriver.h"    // a render holds its own landing: no seek hold
 
 #include "../../MirvTime.h" // g_MirvTime.GetCurrentDemoTick for the tick nudge
 
@@ -26,6 +28,16 @@ namespace {
 
 // One-shot composite burst after a skin apply (avoids the old 150-frame hammer during playback).
 constexpr int kCompositeBurstShots = 2;
+
+// Seek refresh (SeekRefreshPending / phase 3). A composite's material work drains asynchronously
+// after the call, so the refresh counts as done only after this many quiet frames -- the same
+// allowance phase 2 gives the live-pick composite before it resumes.
+constexpr uint64_t kSeekRefreshDrainFrames = 24;
+// The longest a seek hold keeps the demo paused. A stacked seek settle (128) plus the mesh switch,
+// composite and drain fits several times over; past this the demo plays on regardless.
+constexpr uint64_t kSeekHoldMaxFrames = 600;
+// How long the hold waits for its demo_pause to take before it gives up and lets playback run.
+constexpr uint64_t kSeekHoldPauseWaitFrames = 30;
 
 // demo_pause toggles. Calling it while the demo is already paused starts playback.
 bool DemoIsPaused() {
@@ -72,8 +84,25 @@ void CosmeticOverrideSystem::AbortActiveTickNudge(const char* reason) {
 			(unsigned long long)m_frameCounter);
 }
 
+bool CosmeticOverrideSystem::SeekRefreshPending() const {
+	if (!m_store.Enabled() || !OffsetsAvailable() || m_store.Empty())
+		return false;
+	// Entities still rebuilding, the post-seek composite not yet paid, its burst still firing, or the
+	// mesh selections not yet allowed (they precede their own composite).
+	if (m_seekSettleFrames > 0 || m_seekCompositePending || m_compositeBurstRemaining > 0 || !m_meshSwapStable)
+		return true;
+	// A deployed weapon is still waiting for its composite (a mesh switch settling, or owed).
+	if (m_weaponMaterialBusy)
+		return true;
+	return m_lastDirectCompositeFrame != 0 && m_frameCounter - m_lastDirectCompositeFrame < kSeekRefreshDrainFrames;
+}
+
 void CosmeticOverrideSystem::OnDemoSeekDetected(int tickJump) {
-	AbortActiveTickNudge("seek");
+	// A seek stacked onto a running hold (round-skip spam) keeps that hold: its settle restarts below
+	// and the hold simply lasts until the newest landing is redrawn.
+	const bool holding = m_nudgePhase == 3;
+	if (!holding)
+		AbortActiveTickNudge("seek");
 	// Short seeks may preserve themed pawns. Their full identities and live owned-model observations
 	// decide whether to retain the original; no saved pointer is dereferenced across the seek.
 	// A short seek may preserve the live weapon and its in-flight composite. Reconcile each field
@@ -122,6 +151,25 @@ void CosmeticOverrideSystem::OnDemoSeekDetected(int tickJump) {
 		MvmDebugLog_Linef("cosmetics.seek", "jump=%d settleFrames=%d vmSettle=%d", tickJump, settle, m_vmMirrorSettleFrames);
 		MvmCrashWatch_Arm(-1, "demo-seek"); // widen crash.veh window across seek/settle for round-skip repros
 	}
+
+	// HOLD A SEEK THAT LANDED WHILE PLAYING. m_seekCompositePending is paid on a paused frame only, so
+	// with nothing to pause it the skins stayed off: the tick loop jumped back to In and played the
+	// demo's own skins every pass (user report 2026-10-21, "it goes back to the beginning, some skins
+	// are just gone even though they are selected"). Pause on the landing, redraw, resume.
+	// Not for a scrub (it owns the play state until it lands) or a render job (it holds its own paused
+	// landing and waits on SeekRefreshPending), and not with the nudge or the composite switched off.
+	if (holding) {
+		m_seekHoldStartFrame = m_frameCounter;
+	} else if (m_seekCompositePending && m_demoPlayingLastFrame && m_tickNudge && m_autoComposite
+		&& !DemoScrub_Active() && !RenderSessionDriver_IsActive()) {
+		m_nudgePhase = 3;
+		m_seekHoldStartFrame = m_frameCounter;
+		m_seekHoldPauseIssued = false;
+		m_seekHoldPaused = false;
+		if (MvmDebugLog_Active())
+			MvmDebugLog_LinefAlways("cosmetics.seekhold", "START jump=%d frame=%llu", tickJump,
+				(unsigned long long)m_frameCounter);
+	}
 }
 
 void CosmeticOverrideSystem::DetectDemoSeekEarly() {
@@ -135,10 +183,18 @@ void CosmeticOverrideSystem::DetectDemoSeekEarly() {
 			OnDemoSeekDetected(d);
 	}
 	m_lastDemoTickObserved = curTick;
+	m_demoPlayingLastFrame = !DemoIsPaused(); // read by the NEXT detection: was the seek made while playing?
 }
 
 void CosmeticOverrideSystem::RequestApplyNudge() {
 	RequestCompositeRefresh();
+	// A seek hold is already pausing for a composite pass and resumes into live frames afterwards;
+	// the burst armed above extends it (SeekRefreshPending). A second pause after it would be noise.
+	if (m_nudgePhase == 3) {
+		m_pendingNudge = false;
+		m_pendingNudgeOwedOnly = false;
+		return;
+	}
 	// The pause already in flight serves this edit (including a queued pick cancellation).
 	// Leaving another nudge pending would pause again after this one returns playback.
 	if (m_nudgePhase == 2) {
@@ -163,7 +219,7 @@ void CosmeticOverrideSystem::RequestOwedCompositePause(int entityIndex) {
 	// Only a NEW gun may restart the debounce, or the repeats starve it and the pause never fires.
 	// The current pause already serves these requests. Hand them to its apply pass
 	// directly, without leaving a second pause queued after it completes.
-	if (m_nudgePhase == 2) {
+	if (m_nudgePhase == 2 || m_nudgePhase == 3) {
 		m_compositeOwedIdx.insert(entityIndex);
 		return;
 	}
@@ -254,6 +310,49 @@ void CosmeticOverrideSystem::CommitLivePicks() {
 }
 
 void CosmeticOverrideSystem::MaybeFireTickNudge() {
+	// Phase 3: a seek landed while the demo played (OnDemoSeekDetected). Pause once on the landing,
+	// let the paused frames pay the post-seek composite, resume when SeekRefreshPending() clears.
+	// demo_pause toggles, so it goes out only while the demo is seen playing, and only once.
+	if (m_nudgePhase == 3) {
+		const bool paused = DemoIsPaused();
+		const uint64_t held = m_frameCounter - m_seekHoldStartFrame;
+		if (!m_seekHoldPaused) {
+			if (paused) {
+				m_seekHoldPaused = true; // ours, or the seek's own one-frame pause: either way we resume it
+			} else if (!m_seekHoldPauseIssued) {
+				if (g_pEngineToClient)
+					g_pEngineToClient->ExecuteClientCmd(0, "demo_pause", true);
+				m_seekHoldPauseIssued = true;
+			} else if (held > kSeekHoldPauseWaitFrames) {
+				// The pause never took. Leave playback alone; the next pause pays the composite as before.
+				m_nudgePhase = 0;
+				if (MvmDebugLog_Active())
+					MvmDebugLog_LinefAlways("cosmetics.seekhold", "GIVE UP pause not observed frames=%llu",
+						(unsigned long long)held);
+			}
+			return;
+		}
+		if (!paused) {
+			// Someone else resumed during the hold (the user, or a camera path's own resume): theirs to own.
+			m_nudgePhase = 0;
+			if (MvmDebugLog_Active())
+				MvmDebugLog_LinefAlways("cosmetics.seekhold", "RELEASED externally frames=%llu refreshPending=%d",
+					(unsigned long long)held, SeekRefreshPending() ? 1 : 0);
+			return;
+		}
+		const bool refreshed = !SeekRefreshPending();
+		const bool timedOut = held > kSeekHoldMaxFrames;
+		if (refreshed || timedOut) {
+			if (g_pEngineToClient)
+				g_pEngineToClient->ExecuteClientCmd(0, "demo_resume", true);
+			m_nudgePhase = 0;
+			++m_totalNudges;
+			if (MvmDebugLog_Active())
+				MvmDebugLog_LinefAlways("cosmetics.seekhold", "DONE resumed refreshed=%d timedOut=%d frames=%llu",
+					refreshed ? 1 : 0, timedOut ? 1 : 0, (unsigned long long)held);
+		}
+		return;
+	}
 	// Phase 2: a pick made during PLAYBACK paused the demo for one composite. RunFrame consumes
 	// m_postNudgeMeshRefreshPending on the first frame it observes the pause (mesh write + the proven
 	// paused-only direct composite). Hold the pause a few more frames so the async material work of

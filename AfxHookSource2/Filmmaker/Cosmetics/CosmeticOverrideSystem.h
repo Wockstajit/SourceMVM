@@ -69,8 +69,8 @@ struct CosmeticFrameStats {
 
 class CosmeticOverrideSystem {
 public:
-	// Starts with an empty runtime-only profile store and normalizes the legacy JSON file to empty.
-	// Cosmetic changes are intentionally scoped to the current demo session.
+	// Starts with an empty profile store. Picks are saved per demo, in the "cosmetics" section of the
+	// demo's project.mvm, and loaded when that demo is opened again (LoadDemoProfiles).
 	void Init();
 	void Shutdown();
 
@@ -81,9 +81,8 @@ public:
 	// --- global state ---
 	void SetEnabled(bool e);
 	bool Enabled() const { return m_store.Enabled(); }
-	// START-CLEAN arming: an override only renders after it is applied THIS demo session (a pick /
-	// SetWeapon / enabled 1). Profiles are cleared whenever the demo path changes or playback resets
-	// to the beginning, so a reset/reload cannot reapply stale cosmetics to recreated entities.
+	// Arming: an override renders while armed (always, in a demo). A demo change clears the store
+	// and loads that demo's own saved picks, so one demo's overrides never land on another's players.
 	void Arm() { m_armed = true; }
 	bool Armed() const { return m_armed; }
 	void SetDebug(bool e) { m_debug = e; }
@@ -124,7 +123,8 @@ public:
 	void PrintRecordedWeapons(uint32_t fullHandle = ~0u) const; // read-only journal; no entity dereference
 	void ClearPlayer(uint64_t steamId);
 	void ClearAll();
-	void Save();  // compatibility helper; normal UI mutations are intentionally not persisted
+	void Save();  // write this demo's picks now (every edit is otherwise saved once edits go quiet)
+	const std::wstring& ProjectDemoPath() const { return m_projectDemoPath; } // empty outside a demo
 
 	CosmeticProfileStore& Store() { return m_store; }
 	const CosmeticProfileStore& Store() const { return m_store; }
@@ -283,6 +283,16 @@ public:
 	void SetTickNudgeTicks(int t) { m_tickNudgeTicks = (t < 1) ? 1 : t; }
 	int TickNudgeTicks() const { return m_tickNudgeTicks; }
 	bool TickNudgeActive() const { return m_nudgePhase != 0; } // currently playing out a nudge
+	// SEEK REFRESH. A seek rebuilds every weapon entity from the demo, and the composite that puts an
+	// override's skin back on a gun runs on PAUSED frames only. So a seek that lands while the demo
+	// plays (the tick loop jumping back to In, a camera path restarting) would keep playing with the
+	// demo's own skins until something paused. True from such a seek until every deployed weapon's
+	// composite has run and its material has drained; false at once when there is nothing to redraw.
+	bool SeekRefreshPending() const;
+	// That seek pauses the demo itself and resumes it once SeekRefreshPending() clears (phase 3, see
+	// MaybeFireTickNudge). Anything that auto-resumes after its own seek must leave the demo paused
+	// while this is true. A render job holds its own paused landing instead (RenderSessionDriver).
+	bool SeekHoldActive() const { return m_nudgePhase == 3; }
 	uint64_t TotalNudges() const { return m_totalNudges; }
 	// Read-only enumeration of queued commands and the transport work that owns their pause.
 	size_t PendingLivePicks() const { return m_livePicks.size(); }
@@ -343,6 +353,12 @@ private:
 	void AbortActiveTickNudge(const char* reason);
 	void DetectDemoSeekEarly();
 	void ResetSessionOverrides(const char* reason);
+	// Per-demo persistence (the "cosmetics" section of the playing demo's project.mvm). Every profile
+	// edit marks the store dirty; AdvanceFrameClocks writes it once edits go quiet, and a session change
+	// writes it to the OUTGOING demo before the store is cleared. LoadDemoProfiles binds the new demo.
+	void MarkProfilesChanged() { m_profilesDirty = true; m_profilesChangedFrame = m_frameCounter; }
+	void FlushProfiles();
+	void LoadDemoProfiles();
 	int ResolveSpectatedPaintkitOverride() const;
 	bool SetPaintkitBridgeCvar(int value);
 	void RestorePaintkitBridgeCvar();
@@ -467,10 +483,14 @@ private:
 	uint64_t m_totalNudges = 0;       // cumulative nudges completed (status/proof)
 	bool m_armed = false;             // start-clean: overrides apply only after reapplied this demo
 	std::wstring m_lastDemoPath;      // detect demo load/close (path change) -> clear the runtime store
+	std::wstring m_projectDemoPath;   // the demo whose project the store saves to (PlayingDemoPath)
+	bool m_profilesDirty = false;     // an edit since the last write
+	uint64_t m_profilesChangedFrame = 0; // m_frameCounter of that edit (quiet-period anchor)
 	int m_demoGoneFrames = 0;         // consecutive empty-path frames; a seek blips empty (AdvanceFrameClocks)
 	int m_seekSettleFrames = 0;       // frames to skip apply after a seek (entity list rebuilding; anti-crash)
 	int m_vmMirrorSettleFrames = 0;  // longer post-seek hold before FP viewmodel mirror (arms children rebuild slower)
 	int m_lastDemoTickObserved = -1;  // demo tick last frame (early seek detect, runs before nudge)
+	bool m_demoPlayingLastFrame = false; // the demo was playing on the frame before a detected seek
 	int m_framesSinceSeek = 0;        // applied frames since the last detected seek. The knife model
 	                                  // swap (SetModel/UpdateSubclass -> rebuilds the weapon's animation
 	                                  // set) waits for a LONGER window than the 16-frame general settle
@@ -495,8 +515,13 @@ private:
 	std::unordered_map<int, uint64_t> m_meshFollowupCompositeDue;
 	std::unordered_map<int, uint64_t> m_compositeTraceUntil; // entity index -> last traced frame (debug log only)
 	// Active nudge state machine: 0 = idle, 1 = resumed and waiting to re-pause (a pick made while
-	// PAUSED), 2 = paused for one composite and waiting to resume (a pick made while PLAYING).
+	// PAUSED), 2 = paused for one composite and waiting to resume (a pick made while PLAYING),
+	// 3 = paused by a seek that landed while PLAYING, until the skins are redrawn (SeekHoldActive).
 	int m_nudgePhase = 0;
+	uint64_t m_lastDirectCompositeFrame = 0; // last frame any direct composite ran (its material drains after)
+	uint64_t m_seekHoldStartFrame = 0;  // phase 3: frame the hold began (restarted by a stacked seek)
+	bool m_seekHoldPauseIssued = false; // phase 3: our one demo_pause went out (demo_pause toggles)
+	bool m_seekHoldPaused = false;      // phase 3: the pause was observed, so the resume is ours to send
 	uint64_t m_pauseCompositeDoneFrame = 0; // phase 2: frame the paused composite pass completed
 	int m_nudgeStartTick = 0;         // demo tick when the resume began (to measure ticks played)
 	uint64_t m_nudgePlayStartFrame = 0; // m_frameCounter when the resume began (safety timeout)
