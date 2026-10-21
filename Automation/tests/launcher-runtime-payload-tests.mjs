@@ -187,14 +187,47 @@ test('an install cut short between the two moves is recovered on the next one', 
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('an install cut short before the carry-over still keeps the settings', async () => {
+test('a half-copied new folder is thrown away and the last good install survives a failed retry', async () => {
+  const root = tempRoot();
+  try {
+    const target = path.join(root, 'fx');
+    // The launcher closed while the new pack was still being copied in.
+    writeTree(`${target}.previous`, INSTALLED);
+    writeTree(`${target}.incoming`, { 'source_mvm_fx/gameinfo.gi': 'half copied' });
+    await assert.rejects(replaceDirectory(target, async (into) => {
+      writeTree(into, { 'source_mvm_fx/gameinfo.gi': 'half copied again' });
+      throw new Error('ENOSPC: no space left on device');
+    }, FX_SAVED_SETTINGS), /previous install was kept[\s\S]*ENOSPC/);
+    assert.deepEqual(readTree(target), INSTALLED);
+    assert.equal(fs.existsSync(`${target}.incoming`), false);
+    assert.equal(fs.existsSync(`${target}.previous`), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('an install cut short before the carry-over never lets package defaults beat saved settings', async () => {
   const root = tempRoot();
   try {
     const target = path.join(root, 'fx');
     const staged = path.join(root, 'staged');
-    // The new folder arrived without settings; CS2 has since written one newer file into it.
+    // The new pack was in, with its default video settings, but the player's had not been copied.
+    const packWithDefaults = { ...NEW_PACK, 'source_mvm_fx/cfg/cs2_video.txt': 'package video defaults' };
     writeTree(`${target}.previous`, INSTALLED);
-    writeTree(target, { ...NEW_PACK, 'source_mvm_fx/cfg/cs2_video.txt': 'newer video' });
+    writeTree(`${target}.incoming`, packWithDefaults);
+    writeTree(staged, packWithDefaults);
+    await replaceDirectory(target, moveIn(staged), FX_SAVED_SETTINGS);
+    assert.deepEqual(readTree(target), UPDATED);
+    assert.equal(fs.existsSync(`${target}.incoming`), false);
+    assert.equal(fs.existsSync(`${target}.previous`), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a swap that finished before the old folder was deleted keeps the new folder', async () => {
+  const root = tempRoot();
+  try {
+    const target = path.join(root, 'fx');
+    const staged = path.join(root, 'staged');
+    writeTree(`${target}.previous`, INSTALLED);
+    writeTree(target, { ...UPDATED, 'source_mvm_fx/cfg/cs2_video.txt': 'newer video' });
     writeTree(staged, NEW_PACK);
     await replaceDirectory(target, moveIn(staged), FX_SAVED_SETTINGS);
     assert.deepEqual(readTree(target), { ...UPDATED, 'source_mvm_fx/cfg/cs2_video.txt': 'newer video' });

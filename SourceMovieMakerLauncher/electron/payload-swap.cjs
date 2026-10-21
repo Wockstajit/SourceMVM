@@ -7,8 +7,9 @@
 // ui_override\ServerConfig.vdf (bot settings). Updates used to delete the folder and put the new
 // pack in its place, so every FX update reset the player's CS2 settings.
 //
-// replaceDirectory moves the old folder aside, puts the new one in place, copies the kept paths
-// across, and only then deletes the old folder. Any failure puts the old folder back as it was.
+// replaceDirectory moves the old folder aside, builds the new one beside it, copies the kept paths
+// into it, renames it into place, and only then deletes the old folder. Any failure puts the old
+// folder back as it was.
 //
 // No Electron here, so Automation/tests can run it on temporary folders.
 
@@ -32,6 +33,10 @@ function isCs2Setting(name) {
 
 function previousDir(target) {
   return `${target}.previous`;
+}
+
+function incomingDir(target) {
+  return `${target}.incoming`;
 }
 
 // Windows can refuse a folder move for a moment while a virus scanner or the search indexer still
@@ -91,31 +96,35 @@ async function carryOver(from, to, keep, wins) {
   return copied;
 }
 
-// A replace that was cut short (the launcher closed or crashed part way) leaves <target>.previous
-// behind. With no target it is the last good install, so it goes back. Beside a target it can still
-// hold settings the target lacks: those are copied over (the target's own files are newer and
-// win), then it is removed.
-async function recoverInterrupted(target, keep) {
+// A replace that was cut short (the launcher closed or crashed part way) can leave
+// <target>.incoming and <target>.previous behind. The new folder is built in <target>.incoming and
+// only becomes <target> by one rename once it is complete and holds the player's settings, so:
+// - <target>.incoming may be half copied or still lack the settings: it is discarded, and the
+//   caller installs again.
+// - <target>.previous with no target is the last good install: it goes back.
+// - <target>.previous beside a target means the rename finished: the target is complete, and the
+//   old folder goes.
+async function recoverInterrupted(target) {
+  const incoming = incomingDir(target);
+  if (fs.existsSync(incoming)) await fsp.rm(incoming, { recursive: true, force: true });
   const previous = previousDir(target);
   if (!fs.existsSync(previous)) return;
-  if (!fs.existsSync(target)) {
-    await moveFolder(previous, target);
-    return;
-  }
-  await carryOver(previous, target, keep, () => false);
-  await fsp.rm(previous, { recursive: true, force: true });
+  if (fs.existsSync(target)) await fsp.rm(previous, { recursive: true, force: true });
+  else await moveFolder(previous, target);
 }
 
 /**
- * Replace the folder `target` with a new one. `install(target)` creates it (by a move or a copy)
- * and may return an undo function, which runs if a later step fails (a move gives its source back).
- * `keep` lists paths relative to `target` that are copied over from the old folder. Returns
- * { kept }, the number of files carried over.
+ * Replace the folder `target` with a new one. `install(folder)` creates the new folder at the path
+ * it is given (by a move or a copy; a staging path beside `target`) and may return an undo
+ * function, which runs if a later step fails (a move gives its source back). `keep` lists paths
+ * relative to `target` that are copied over from the old folder. Returns { kept }, the number of
+ * files carried over.
  */
 async function replaceDirectory(target, install, keep = []) {
   const previous = previousDir(target);
+  const incoming = incomingDir(target);
   try {
-    await recoverInterrupted(target, keep);
+    await recoverInterrupted(target);
   } catch (error) {
     throw lockedError(target, error);
   }
@@ -133,11 +142,12 @@ async function replaceDirectory(target, install, keep = []) {
   let kept = 0;
   try {
     await fsp.mkdir(path.dirname(target), { recursive: true });
-    undo = await install(target);
-    if (hadPrevious) kept = await carryOver(previous, target, keep, isCs2Setting);
+    undo = await install(incoming);
+    if (hadPrevious) kept = await carryOver(previous, incoming, keep, isCs2Setting);
+    await moveFolder(incoming, target);
   } catch (error) {
     if (typeof undo === 'function') await Promise.resolve().then(undo).catch(() => {});
-    await fsp.rm(target, { recursive: true, force: true }).catch(() => {});
+    await fsp.rm(incoming, { recursive: true, force: true }).catch(() => {});
     if (!hadPrevious) throw new Error(`Could not install ${target}.\n${error.message}`);
     const restored = await moveFolder(previous, target).then(() => true, () => false);
     throw new Error(restored
