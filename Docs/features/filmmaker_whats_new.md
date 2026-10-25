@@ -59,7 +59,9 @@ the same version (`BugReport.cpp`).
 
 `ChangelogMath.h` reads only this shape, so keep it when editing `CHANGELOG.md`:
 
-- `## Unreleased` first, for work on `main` that no release carries yet.
+- `## Unreleased` first, for work on `main` that no release carries yet. It may name the version it
+  is meant for, `## Unreleased (0.4.0)`: any heading that starts with "Unreleased" counts, and the
+  popup shows the whole heading.
 - `## <version> - <YYYY-MM-DD>` for a release, and `## <version> Hotfix <n> - <YYYY-MM-DD>` for a
   runtime hotfix. Newest first.
 - `### <group>` headings inside a release. The popup prints them as `[ GROUP ]`, the way CS2's

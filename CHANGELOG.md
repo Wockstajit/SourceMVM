@@ -5,13 +5,79 @@ so every release heading keeps the form `## <version> - <date>` (a hotfix is `##
 and every change is one `- ` bullet under a `### ` group. Releases older than 0.2.0 are on the
 [releases page](https://github.com/Wockstajit/SourceMVM/releases).
 
-## Unreleased
+## Unreleased (0.4.0)
+
+### Play a demo on another map
+
+- CONFIG > ENVIRONMENT > World > MAP plays the demo on another map, such as a night or rain version
+  from the Workshop or another map you have installed. Players, weapons, grenades and effects stay
+  where the demo recorded them, and the new map is moved under them.
+- When the two maps don't line up, move and turn the new map with the sliders, or drag and turn it
+  in the map view. AUTO ALIGN lines them up for you, and says so when two maps don't share a layout.
+- The map view colours the paths the players walk: green on the floor, yellow floating above it,
+  purple under it and red over nothing, so you can see at a glance whether they land on the map.
+- Demo map props hides the doors, props and ERROR models the demo brings from its own map. Turn it on
+  to keep them on a remake of the same map, where they sit in the right place.
+- Workshop maps load with all their textures. Reset puts the map back where it was, and BACK TO
+  returns the demo to its own map.
+- Night maps lit by lamps can look dark on another map's demo, because their lamps are not in the
+  demo.
+
+### Customize Player
+
+- The player's name in the title bar opens a menu with every player, one column per team. Dead
+  players stay in it, dimmed. Picking a living player switches to first person on them; picking a
+  dead one shows the view from where they died, with the loadout they last had.
+- CONFIG and the Camera Editor now pick the same player in first person, third person and free cam.
+  CUSTOMIZE PLAYER in CONFIG opens the window over CONFIG.
+- Drag the window by its title bar, and switch it between full size, compact (no 3D preview) and
+  just the title bar. Clicks inside the window no longer close it.
+- Switching players no longer stalls the game for a moment.
+- The picker shows three tiles per row at every window size. Below 1080p the third tile used to drop
+  to the next row.
+
+### Rendering
+
+- Green screen, depth and normal passes no longer pick up depth of field or lens flare. Those
+  effects only touch the Beauty pass now, so Players only and Gun only keys stay clean.
+- The Gun only green screen and depth passes no longer show stray pixels from the world around the
+  gun.
+- The live preview of a pass other than Beauty hides the HUD, so it looks like the render.
+- The Render page can play a sound when a render ends. Switch it with SOUND at the top, next to
+  Back. The volume and a test button are under OUTPUT. A finished render rises, a failed one falls,
+  and a render you cancel stays quiet.
+- PREVIOUS RENDERS on the Render page lists the last renders of the demo you have open. Use loads
+  that render's range, camera, passes and output settings, so you can render a shot again with one
+  change.
+- The In and Last frame of the render range have -1 and +1 buttons that move them one tick, never
+  past the start or end of the demo.
+
+### Timeline
+
+- The In and Out flags are thin lines with small I and O tabs, so they no longer cover the frames
+  around them. Drag a flag to move it and hold Shift for fine steps. A readout shows the exact time
+  while you drag.
+
+### Skins
+
+- Skins on older weapon models, such as the Dragon Lore and Gungnir, stay on the first-person gun
+  after a loop or a jump back.
+
+### Config
+
+- The Atmosphere card in CONFIG > EFFECTS has SMOKE, LOOK, VOLUME and WORLD TINT tabs, so it fits
+  without scrolling.
 
 ### Version and changes
 
 - A WHAT'S NEW button in the top bar, left of INVENTORY, shows which version you have, on the main
   menu and in the pause menu. After an update, CS2's news popup shows what changed, once. The
-  button opens it again.
+  button opens it again. HC TRACKER sits in the matching spot on the right.
+
+### Stability
+
+- Death Animations no longer read a body after the game has removed its ragdoll. With the debug
+  log on (`mvm_debug`), that crashed CS2 within a few minutes on demos with many deaths.
 
 ## 0.3.1 Hotfix 1 - 2026-10-21
 

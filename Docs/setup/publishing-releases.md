@@ -163,7 +163,8 @@ technical build evidence in private documentation. Link the VirusTotal report wi
 that it guarantees safety or covers files it did not scan.
 
 Before the release build, rename the `## Unreleased` section of [`CHANGELOG.md`](../../CHANGELOG.md)
-to `## <version> - <date>` and start a new empty `## Unreleased` above it, in a PR into `main`. The
+(for example `## Unreleased (0.4.0)`) to `## <version> - <date>` and start a new empty
+`## Unreleased` above it, in a PR into `main`. Drop the lines of any change that did not merge. The
 installer ships that file as `resources/CHANGELOG.md`, and the in-game What's new popup shows the
 new section once after the update ([What's new](../features/filmmaker_whats_new.md)). The release
 notes can start from the same text.

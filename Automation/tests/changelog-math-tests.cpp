@@ -92,6 +92,9 @@ void ReadsSections() {
 	// The indented line carries on its bullet, and the bold marks are gone.
 	CHECK(s[0].groups[0].items.size() == 1);
 	CHECK(s[0].groups[0].items[0] == "Green screen passes stay clean, even with depth of field on.");
+	// Unreleased may name the version it is meant for; the popup shows the whole heading.
+	const std::vector<ChangelogSection> next = ParseChangelog("## Unreleased (0.4.0)\n\n### Maps\n\n- Another map.\n");
+	CHECK(next.size() == 1 && next[0].unreleased && !next[0].version.Valid() && next[0].title == "Unreleased (0.4.0)");
 
 	CHECK(s[1].title == "0.3.1 Hotfix 1" && s[1].date == "2026-10-21" && s[1].version.hotfix == 1);
 	CHECK(s[1].groups.size() == 1 && s[1].groups[0].items.size() == 2);
