@@ -36,6 +36,15 @@ struct ComposeParams {
 void BeginDevice(ID3D11Device* device);
 void EndDevice();
 
+// The scene colour of the current render from before the lens post pass (depth of field, flare):
+// Key, Depth and Normal passes and the Gun Only reference are built from it, so the lens reaches
+// Beauty plates only. Kept at the BeforeUi boundary just before the lens draws
+// (CRenderPassCommands::KeepCleanColor) and dropped once that render's captures ran.
+bool KeepCleanColor(ID3D11DeviceContext* immediate, ID3D11Texture2D* color);
+// The kept copy while this render holds one, otherwise `color` itself (borrowed).
+ID3D11Texture2D* CleanColor(ID3D11Texture2D* color);
+void DropCleanColor();
+
 // Keeps the Main render's colour and depth for Gun Only passes rendered later in the same frame.
 bool StoreReference(ID3D11DeviceContext* immediate, ID3D11Texture2D* color, ID3D11DepthStencilView* depth);
 

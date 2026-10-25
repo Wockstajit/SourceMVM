@@ -5,7 +5,7 @@ A render job records one output per **pass**. A pass is an output **type** combi
 | Type | Output |
 | --- | --- |
 | Beauty | the colour image (groups that fill the frame) |
-| Key | the isolated subject in its own colour over the background colour, a green screen (Players only, Gun only). The lens flare sits this pass out so the background stays keyable ([Lens](filmmaker_lens.md#lens-flare)) |
+| Key | the isolated subject in its own colour over the background colour, a green screen (Players only, Gun only). Built without depth of field and the lens flare, so the background stays keyable ([Lens effects](#lens-effects)) |
 | Depth | linear grayscale camera depth (distance along the view axis): white at *near*, black at *far* (world units, default 8 / 4096) |
 | Normal | view-space surface normal reconstructed from depth, RGB = n·0.5+0.5 (+X right = red, +Y up = green, +Z toward the camera = blue) |
 
@@ -41,6 +41,8 @@ A job never needs more than three renders per output frame, whatever it records.
 
 **Gun only** has no render of its own. Its subject is the first-person viewmodel (gun and arms) in Main, found by depth: CS2 draws the viewmodel at raw depth 0.1 or less, so that band is the gun whatever its colour. On top of that comes the per-pixel difference between Main and NoGun of the same frame, which adds what the viewmodel causes outside the band (muzzle flash, first-person particles). Colour and depth come from Main. The difference only works because both renders share one simulation state. The difference alone keyed out every part of the gun as bright as the background behind it: grey sleeve and barrel highlights over grey smoke came out key green (2026-10-17).
 
+The difference counts only within 15% of the frame height of the band. The two renders also differ where the world moves on its own clock: foliage, hanging cables and cloth sway between them. Counted everywhere, that keyed scattered world edges into the plate as dark streaks (de_inferno, 2026-10-24: 6,605 stray pixels in the top half of one Key frame, none after). Depth and Normal take the band alone. A muzzle flash has no depth of its own, so its pixels carried the wall behind it into the gun's depth as white specks.
+
 **Which render is being drawn** is one engine-thread value (`AfxStreams_CurrentPassRenderKey`). It is set when a render begins, before its scene update. It is cleared only after the extra-pass loop has waited for that render to finish (`RenderServiceHooks.cpp` waits for each render before switching). Every draw-level decision (World Only's player drop, Players Only's repaint, the chroma clear, the foliage and indirect-draw skips) reads it.
 
 Two other timing sources are unreliable (measured). The render-thread begin/end queues land late relative to a render's scene draws: Players Only loses its players on 13 of 20 frames behind a World Only render. The in-stream pass ordinal lags a render behind: World Only can draw with no filter, and Players Only with World Only's. Ending one render and priming the next before waiting for the first also leaks state between them.
@@ -58,9 +60,19 @@ Every pass other than a direct Beauty capture goes through [`RenderPassComposito
   No material is swapped in a job. Weapons lying on the ground are dropped by World Only, so they count as subject.
 
   The live workspace view does the same. While a Players only pass is shown, the render loop adds one output-less World Only render per frame, and the next frame is masked against it (identical while paused, one frame behind during playback).
-- Gun only: subject = Main's viewmodel depth band (raw depth 0.1 or less), plus where Main and NoGun differ (smoothstep 0.03 to 0.08). Colour and depth come from Main. The live view has one render, so it shows the band alone (no muzzle flash).
+- Gun only: subject = Main's viewmodel depth band (raw depth 0.1 or less), plus, near the band, where Main and NoGun differ (smoothstep 0.03 to 0.08). Colour and depth come from Main. Depth and Normal use the band alone. The live view has one render, so it shows the band alone (no muzzle flash).
 
 The compositor applies the background colour (`render pass key`), so any colour works.
+
+## Lens effects
+
+Depth of field and the lens flare ([Lens](filmmaker_lens.md)) are Beauty effects. The lens runs over each render at its BeforeUi boundary, before the captures, so the job decides per render what it gets (`CRenderPassCommands::SkipLens`, `KeepCleanColor`, `HoldLensFocus`, set when the render begins):
+
+- A render that feeds a Beauty plate gets the lens. Its captures of Key, Depth and Normal passes, and the Gun only reference taken from Main, read a copy of the scene kept just before the lens (`AfxRenderPass::KeepCleanColor` / `CleanColor`). The copy is dropped once that render's captures ran.
+- A render no Beauty plate reads (Players only and Gun only alone, the output-less World Only reference) gets no lens.
+- Extra renders keep the autofocus distance the Main render settled on. Every Beauty plate of a frame shares one focus, and the extra renders no longer pull the next frame's focus toward a scene without the gun or the players.
+
+Before this, every render got the lens. Main and NoGun were blurred differently, and the Gun only difference keyed the blurred world edges into the plate. The Players only key came out blurred, and the flare painted over the background (tester reports, 2026-10-24).
 
 **Blood.** Blood that the Players only render cannot skip (drawn from command lists the engine recorded before the pass armed) is tinted into the key. The **Blood** toggle removes it at the source instead. Off sets `violence_hblood 0` and `violence_ablood 0` for the whole job. The state guard restores them afterwards, so no blood spawns in any pass, Beauty included. Blood decals already on walls before the job stay.
 
@@ -81,7 +93,9 @@ mirv_filmmaker render pass cameradata 0|1
 mirv_filmmaker render pass blood 0|1                         0: no blood during the job
 ```
 
-**Live view.** The Passes tab lists exactly the passes the job renders (`Normal · World only`, `Depth · Players only`, ...). It shows the chosen one on the camera view while the workspace is open. The view uses the visibility group through the same scene draw policies a job uses. For Depth, Normal and Key, it runs the same pass compositor (`AfxRenderPass::ComposeInto`) over the finished scene before the UI, with the current depth range and key colour. Turning a pass off drops it from the view. A running job stands the live view down.
+**Live view.** The Passes tab lists exactly the passes the job renders (`Normal · World only`, `Depth · Players only`, ...). It shows the chosen one on the camera view while the workspace is open. The view uses the visibility group through the same scene draw policies a job uses. For Depth, Normal and Key, it runs the same pass compositor (`AfxRenderPass::ComposeInto`) over the scene before the UI, with the current depth range and key colour, and without the lens, like the job. Turning a pass off drops it from the view. A running job stands the live view down.
+
+Only Beauty + Everything can carry the game HUD, so the live view of every other plate hides it (`HudView::HideAll` as an override, cleared when the view goes back to Beauty + Everything or the workspace closes). The HUD's bottom shading used to lay a dark gradient over the white gun of a live Depth + Gun only view, which the render never had (tester report).
 
 **HUD none** hides the Panorama HUD and also sets `crosshair 0` for the job. CS2's crosshair is not a Panorama panel, so it would otherwise stay in the plate. The job's state guard restores the viewer's `crosshair` value on every outcome. Game and Full keep the crosshair as part of the HUD.
 
@@ -91,7 +105,8 @@ EXR output (pre-tonemap HDR) records only the Beauty + Everything plate. `render
 
 - Normals are reconstructed from depth, so they are geometric. Normal maps and bump detail are not in them. Alpha-to-coverage surfaces (glass) take the nearest covered MSAA sample. That makes them deterministic, but solid in Depth and Normal.
 - Depth passes are 8-bit gray. Choose *near* / *far* to fit the shot (indoor cs_office reads well at 8 / 1024).
-- Players only keeps world effects drawn over players (muzzle flashes, tracers, smoke). Gun only includes everything the first-person weapon causes, including its muzzle-flash light on the floor, and a few pixels of window reflections that differ between the two renders.
+- Players only keeps world effects drawn over players (muzzle flashes, tracers, smoke). Gun only includes what the first-person weapon causes near the gun, including its muzzle-flash light on a nearby surface. World that sways close to the gun (a few pixels of foliage or a cable) can still differ between the two renders and show, and a tracer is cut 15% of the frame height away from the gun.
+- The first frames after a job's start seek can still differ between Main and NoGun where smoke is settling.
 - The HDR EXR path, the HUD modes and accumulation motion blur apply to Beauty + Everything only.
 
 ## Verification
