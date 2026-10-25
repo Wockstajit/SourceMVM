@@ -508,10 +508,14 @@ struct State {
 	std::atomic<double> autoProgress{ 0 };
 	double autoStarted = 0;
 	bool autoPending = false;
-	// Counts demos opened (OpenDemo). A job keeps the count it started under, and a result from an
-	// earlier demo is dropped: its alignment belongs to that demo's pair of maps.
-	uint64_t demoGeneration = 0;
-	uint64_t autoJobDemo = 0;
+	// Counts demos opened (OpenDemo) and replacement maps picked (Pick). A job keeps the count it
+	// started under, and a result from an earlier demo or map is dropped: its alignment belongs to
+	// that pair of maps.
+	uint64_t selection = 0;
+	uint64_t autoJobSelection = 0;
+	// The demo last asked to open (ResolvePlayable, OpenDemo). A copy written for a demo opened
+	// earlier only plays if it is still this one.
+	std::wstring lastOpen;
 	Fit fit;
 	bool haveFit = false;
 	double fitAt = 0;
@@ -672,11 +676,16 @@ void FinishBuild() {
 		r.swap.worlds, r.swap.skyboxes, (unsigned long long)r.swap.frames, (unsigned long long)r.swap.bytesIn, (unsigned long long)r.swap.bytesOut,
 		r.ms, r.ok ? "" : " error=", r.error.c_str());
 	if (b->cancel) return;
+	// A copy started by opening a demo plays when it is done, unless another demo was opened since.
+	const bool playNow = b->playWhenDone && Copies::SameFile(s.lastOpen, b->original);
+	if (b->playWhenDone && !playNow)
+		MvmDebugLog_LinefAlways("altenv", "build for %s done after %s was opened: not played", WideToUtf8(b->original).c_str(),
+			WideToUtf8(s.lastOpen).c_str());
 	if (!r.ok) {
 		SetStatus("", "The demo could not be rewritten: " + r.error);
 		advancedfx::Warning("mirv_filmmaker altenv: %s\n", r.error.c_str());
 		// Never leave a demo the user asked to watch unplayed.
-		if (b->playWhenDone) PlayResolvedDemo(b->original, b->source);
+		if (playNow) PlayResolvedDemo(b->original, b->source);
 		return;
 	}
 	advancedfx::Message("mirv_filmmaker altenv: %s plays on %s.\n", WideToUtf8(b->original).c_str(), b->settings.map.map.c_str());
@@ -685,7 +694,7 @@ void FinishBuild() {
 	const std::string loading = "Loading " + b->settings.map.title + "...";
 	if (DemoOpen() && Copies::SameFile(PlayingDemoPath(), b->original)) {
 		SwitchTo(b->original, r.copy, b->settings.map.map, loading);
-	} else if (b->playWhenDone) {
+	} else if (playNow) {
 		PlayResolvedDemo(b->original, r.copy);
 		s.awaitLevel = b->settings.map.map;
 		SetStatus(loading);
@@ -698,8 +707,8 @@ void StartAutoAlign() {
 	State& s = S();
 	s.autoPending = false;
 	if (s.autoJob.valid()) {
-		// Still finishing a job for a demo opened earlier: this one starts once that is dropped.
-		if (s.autoJobDemo != s.demoGeneration) s.autoPending = true;
+		// Still finishing a job for an earlier demo or map: this one starts once that is dropped.
+		if (s.autoJobSelection != s.selection) s.autoPending = true;
 		return;
 	}
 	if (!s.demoPic || !s.pickPic || !s.demoPic->error.empty() || !s.pickPic->error.empty()) {
@@ -710,7 +719,7 @@ void StartAutoAlign() {
 	auto feet = s.feet;
 	s.autoProgress = 0;
 	s.autoStarted = NowMs();
-	s.autoJobDemo = s.demoGeneration;
+	s.autoJobSelection = s.selection;
 	s.autoJob = std::async(std::launch::async, [demo, pick, feet] {
 		BackgroundPriority background;
 		AutoAlignOptions options;
@@ -727,7 +736,8 @@ void OpenDemo(const std::wstring& original) {
 	State& s = S();
 	if (s.feetJob.valid()) { s.feetCancel = true; s.feetJob.wait(); s.feetJob = {}; }
 	s.original = original;
-	++s.demoGeneration;   // a running AUTO ALIGN is for the demo before
+	s.lastOpen = original;
+	++s.selection;   // a running AUTO ALIGN is for the demo before
 	s.autoPending = false;
 	s.demoMap = original.empty() ? std::string() : ReadDemoHeader(original).map;
 	s.settings = LoadSettings(original);
@@ -770,9 +780,19 @@ bool PictureFor(const std::shared_ptr<const Picture>& p, const MapInfo& pick) {
 	return p && p->map == pick.map && (p->wish == pick.addon || p->info.addon == pick.addon);
 }
 
+// A new selection voids what was asked for the old one: a PLAY waiting for its picture, an AUTO
+// ALIGN waiting or running. They belonged to the previous map.
+void SelectionChanged() {
+	State& s = S();
+	++s.selection;
+	s.applyPending = false;
+	s.autoPending = false;
+}
+
 void Pick(const std::string& name, const std::string& addon) {
 	State& s = S();
 	if (name.empty() || Lower(name) == "none" || Lower(name) == Lower(s.demoMap)) {
+		if (!s.pick.map.empty()) SelectionChanged();
 		s.pick = MapInfo{};
 		s.pickPic.reset();
 		s.pickJob.reset();
@@ -785,6 +805,7 @@ void Pick(const std::string& name, const std::string& addon) {
 		return;
 	}
 	if (m.map != s.pick.map || m.addon != s.pick.addon) {
+		SelectionChanged();
 		s.pick = m;
 		s.pickPic.reset();
 		s.haveFit = false;
@@ -1083,10 +1104,10 @@ void RunMainThreadFrame() {
 	if (s.autoPending && s.demoPic && s.pickPic) StartAutoAlign();
 	if (Ready(s.autoJob)) {
 		const AutoAlignResult r = s.autoJob.get();
-		const bool stale = s.autoJobDemo != s.demoGeneration;
+		const bool stale = s.autoJobSelection != s.selection;
 		MvmDebugLog_LinefAlways("altenv", "auto align ok=%d identity=%d align=(%.2f %.2f %.2f yaw %.2f) floor=%.3f players=%.3f feet=%zu ms=%.0f%s",
 			r.ok ? 1 : 0, r.identity ? 1 : 0, r.alignment.x, r.alignment.y, r.alignment.z, r.alignment.yaw, r.fit.floor, r.fit.players,
-			s.feet.size(), NowMs() - s.autoStarted, stale ? " (dropped: another demo was opened)" : "");
+			s.feet.size(), NowMs() - s.autoStarted, stale ? " (dropped: the demo or the picked map changed)" : "");
 		if (stale) {
 			// Nothing of it reaches the demo open now.
 		} else if (r.ok) {
@@ -1213,6 +1234,7 @@ std::string HealthLine() {
 std::wstring ResolvePlayable(const std::wstring& original, const std::wstring& playable) {
 	if (original.empty() || playable.empty()) return playable;
 	State& s = S();
+	s.lastOpen = original;   // the open the user asked for last, copy or not
 	const Settings settings = Copies::SameFile(original, s.original) ? s.settings : LoadSettings(original);
 	if (!settings.enabled) return playable;
 	const int slot = Copies::CurrentSlot(original, playable, SpecKey(settings));
