@@ -62,6 +62,19 @@ public:
 	// the label is missing or unrecognised. Read back from the JS each frame.
 	int NativeCameraMode() const { return m_nativeCameraMode; }
 
+	// CS2's own spectator state, read off the native demo bar's panel each frame
+	// (GetDemoControllerState): the spectated PAWN index (-1 in free cam or when unknown) and the
+	// observer mode (2 first person, 3 chase, 4 roaming; -1 unknown). Correct in third person, where
+	// a GOTV demo's local observer reads nothing and the render-eye match cannot see the player.
+	int NativeSpectatedPawn() const { return m_nativeSpecPawn; }
+	int NativeObserverMode() const { return m_nativeObsMode; }
+	// GetDemoPlayers as "controller,pawn,alive,team,slot;..." (CustomizeTargetMath::ParseDemoPlayers).
+	// Empty while no demo controller answers. Refreshed a few times a second.
+	const std::string& NativeDemoPlayers() const { return m_nativeDemoPlayers; }
+	// Main thread: spectate this player controller the way CS2's own player list does. Runs on the
+	// next RunFrame, after the panel is built. The engine ignores a dead player.
+	void RequestNativeSpectate(int controllerIndex) { m_spectateRequest = controllerIndex; }
+
 	// Any thread: whether a client-px point is on CS2's native demo bar (the JS publishes its rect
 	// each frame as 'barrect'). False while the bar is hidden or no demo plays.
 	bool BarContains(int x, int y) const {
@@ -91,11 +104,18 @@ private:
 	bool m_menuOpen = false;        // the keyframe menu is up and owns the wheel
 	short m_symCamMode = -1;        // "cammode" -- the JS publishes CS2's camera button label
 	int m_nativeCameraMode = -1;
+	short m_symSpecState = -1;      // "specstate" -- "<spectated pawn> <observer mode>"
+	short m_symDemoPlayers = -1;    // "demoplayers" -- the native player list, see NativeDemoPlayers
+	int m_nativeSpecPawn = -1;
+	int m_nativeObsMode = -1;
+	std::string m_nativeDemoPlayers;
+	int m_spectateRequest = -1;
 	short m_symBarRect = -1;        // "barrect" -- the native demo bar's on-screen rect
 	std::string m_barRectText;
 	std::atomic<int> m_bar[4] = {};
 	std::atomic<bool> m_barValid{ false };
 	void ReadBarRect();             // main thread
+	void ReadNativeSpectator();     // main thread, after render()
 	int m_pendingWheel = 0;         // guarded by m_wheelMutex
 	std::mutex m_wheelMutex;
 	void DispatchWheel();           // main thread only

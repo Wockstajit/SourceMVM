@@ -30,6 +30,7 @@
 #include "../Movie/DemoTimescale.h"
 #include "../Movie/FollowCamera.h"
 #include "../Movie/MovieMode.h"
+#include "../Panorama/CameraEditorHud.h"
 #include "../Panorama/GraphEditorExperimentHud.h"
 #include "../Demo/DemoHeaderReader.h"
 #include "../Demo/PlayingDemoPath.h"
@@ -154,6 +155,13 @@ void Render_ApplyLivePreview() {
 	// render loop adds while this is on (AfxStreams_SetLivePassPreview) -- no chroma repaint.
 	RenderWorldPlayersNoGun_SetArmed(e == VisibleElements::WorldAndPlayers || e == VisibleElements::OnlyPlayers,
 		"render workspace preview");
+	// Only Beauty + Everything can carry the game HUD (the HUD setting is that plate's alone), so the
+	// live view of any other plate hides it as well. The HUD's own bottom shading laid a dark gradient
+	// over the white gun of a live Depth + Gun only view, which the render never had (tester report).
+	if (live.type != PassType::Beauty || e != VisibleElements::Everything)
+		CameraEditorHudRef().SetHudViewOverride(CameraEditorHud::HudView::HideAll);
+	else
+		CameraEditorHudRef().ClearHudViewOverride();
 }
 
 bool Render_IsCancelRequested() { return RenderSessionRef().IsCancelRequested(); }

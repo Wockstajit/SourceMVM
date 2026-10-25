@@ -6,7 +6,8 @@
 #include "PanoramaPerfProbe.h"
 
 #include "CameraEditorJs.h"
-#include "../Cosmetics/CosmeticUiQueries.h"
+#include "../Cosmetics/CosmeticUiQueries.h" // CustomizeSuppressFlashTick
+#include "../Cosmetics/CustomizeTarget.h"
 #include "CameraTimelineHud.h"
 #include "ConfigHud.h"
 #include "../Movie/HudBlackout.h" // F8: clear every overlay // ConfigHud_Enabled: don't clear the shared viewport-scaler request while Config owns it
@@ -28,7 +29,6 @@
 #include "../Render/RenderRange.h" // Filmmaker::MvmDebugLog_Active (gates JS preview diagnostics)
 
 #include "../../DeathMsg.h" // AfxHookSource2_GetPanoramaHudPanel + PanoramaUIPanel offsets
-#include "../../ClientEntitySystem.h" // AfxGetLocalObserverState (spectator gating for Customize)
 #include "../../MirvTime.h"
 #include "../../SchemaSystem.h"
 #include "WorkspacePreview.h" // the single owner of the scaled-preview viewport
@@ -103,6 +103,7 @@ bool CameraEditorHud::BuildIfNeeded() {
 	m_symRenderWorkspace = m_bridge.MakeSymbol("renderworkspace");
 	m_symRenderHit = m_bridge.MakeSymbol("renderhit");
 	m_symCustomizeOpen = m_bridge.MakeSymbol("customizeopen");
+	m_symCustomizeLayout = m_bridge.MakeSymbol("custlayout");
 	m_symPopupOpen = m_bridge.MakeSymbol("popupopen");
 	m_symTextCapture = m_bridge.MakeSymbol("textcapture");
 	m_root = FindRoot();
@@ -197,8 +198,7 @@ void CameraEditorHud::OnExit() {
 	// after the editor closed, and because AfxGetSpectatedUserId()
 	// resolves the spectated player by MATCHING the camera against a pawn's render eye, a
 	// detached camera silently resolves to 'nobody is being spectated'. Everything keyed off that
-	// then stops without saying why: Customize Player greys itself out (povReady=false) and the
-	// first-person effects (recoil, Smooth View) refuse to fire.
+	// then stops without saying why: the first-person effects (recoil, Smooth View) refuse to fire.
 	//
 	// Re-applying MovieMode's CURRENT mode is the right restore rather than a blind
 	// SetFreeCamEnabled(false): if the user was already flying in free cam before opening the
@@ -325,47 +325,12 @@ std::string CameraEditorHud::BuildStateJson() {
 	o << ",\"constSpeed\":" << r2(cp.ConstSpeed());
 	o << ",\"freeCam\":" << (CameraBridge_GetFreeCamEnabled() ? "true" : "false");
 	o << ",\"freeCamSpeed\":" << r2(CameraBridge_GetFreeCamSpeed());
-	// Spectator state for the "Customize" gating + modal: obsMode 2 (in-eye/first) or 3
-	// (chase/third) means we're watching a player; 4 (roaming) is freecam. obsTarget is the
-	// spectated entity index (-1 if none) so the modal can identify whose loadout to edit.
-	{
-		int obsTargetIndex = -1;
-		uint8_t obsMode = AfxGetLocalObserverState(&obsTargetIndex);
-		// AfxGetLocalObserverState's target reads -1 in POV/GOTV demos (so customizeTarget would be
-		// null and the modal would fall back to a fuzzy nearest-player guess). Use the robust eye-match
-		// resolver so customizeTarget is deterministically the player actually being viewed. Returns -1
-		// in free cam (no single spectated player) -> customizeTarget null, fallback as before.
-		// Held, not raw: the raw eye match drops out for single frames, and on those frames the modal
-		// fell back to another player -- the Customize target (and its [mvmpickup] debug line)
-		// flipped between two players every frame and an open modal kept discarding unstaged picks.
-		const int observerTarget = obsTargetIndex;
-		const int rawSpectated = AfxGetSpectatedPawnIndex();
-		int spectated = AfxGetSpectatedPawnIndexHeld();
-		if (spectated >= 0) obsTargetIndex = spectated;
-		if (Filmmaker::MvmDebugLog_Active()) {
-			static int s_lastPublished = -2, s_lastRaw = -2;
-			static unsigned s_frames = 0, s_rawChanges = 0, s_pubChanges = 0;
-			static ULONGLONG s_windowMs = 0;
-			++s_frames;
-			if (rawSpectated != s_lastRaw) { ++s_rawChanges; s_lastRaw = rawSpectated; }
-			if (obsTargetIndex != s_lastPublished) {
-				++s_pubChanges;
-				Filmmaker::MvmDebugLog_Linef("ui.customize.target", "published=%d (was %d) raw=%d held=%d observer=%d mode=%u",
-					obsTargetIndex, s_lastPublished, rawSpectated, spectated, observerTarget, (unsigned)obsMode);
-				s_lastPublished = obsTargetIndex;
-			}
-			const ULONGLONG now = GetTickCount64();
-			if (now - s_windowMs >= 2000) {
-				Filmmaker::MvmDebugLog_LinefAlways("ui.customize.target.window", "frames=%u rawChanges=%u publishedChanges=%u",
-					s_frames, s_rawChanges, s_pubChanges);
-				s_windowMs = now; s_frames = s_rawChanges = s_pubChanges = 0;
-			}
-		}
-		o << ",\"obsMode\":" << (int)obsMode;
-		o << ",\"obsTarget\":" << obsTargetIndex;
-		o << ",\"customizeTarget\":" << BuildCustomizeTargetJson(obsTargetIndex);
-		o << ",\"customizePlayers\":" << BuildCustomizePlayersJson();
-	}
+	// Customize Player: whose loadout the modal edits and who can be picked. ONE source for both
+	// hosts -- CONFIG's button reads the same module (Cosmetics/CustomizeTarget.h) -- built from CS2's
+	// own demo bar, so third person resolves exactly like first person.
+	o << ",\"customize\":" << CustomizeTarget_StateJson();
+	o << ",\"customizeHost\":\"" << ((m_customizeOverConfig && !m_enabled) ? "config" : "editor") << "\"";
+	o << ",\"customizeLayout\":\"" << m_customizeLayout << "\"";
 	o << ",\"cam\":{\"x\":" << r2(camOrigin[0]) << ",\"y\":" << r2(camOrigin[1]) << ",\"z\":" << r2(camOrigin[2])
 		<< ",\"pitch\":" << r2(camAngles[0]) << ",\"yaw\":" << r2(camAngles[1]) << ",\"roll\":" << r2(camAngles[2])
 		<< ",\"fov\":" << r2(camFov) << "}";
@@ -425,6 +390,7 @@ void CameraEditorHud::RunFrame() {
 		if (m_wasEnabled) { m_enabled = false; OnExit(); m_wasEnabled = false; }
 		else WorkspacePreviewRef().Release(WorkspacePreview::Owner::CameraEditor);
 		m_openCustomizeRequested = false;
+		m_customizeOpenArmed = false;
 		m_built = false; m_root = nullptr; m_hudPanel = nullptr;
 		return;
 	}
@@ -432,12 +398,34 @@ void CameraEditorHud::RunFrame() {
 	m_bridge.SetContextPanel(hud);
 
 	// Enter / exit edge transitions.
+	bool exitedThisFrame = false;
 	if (m_enabled && !m_wasEnabled) { OnEnter(); m_wasEnabled = true; }
-	else if (!m_enabled && m_wasEnabled) { OnExit(); m_wasEnabled = false; }
+	else if (!m_enabled && m_wasEnabled) { OnExit(); m_wasEnabled = false; exitedThisFrame = true; }
 
 	// Latch the previous frame's flag before any early-out can skip it.
 	const bool debugWasOn = m_debugOverlayWasOn;
 	m_debugOverlayWasOn = m_debugOverlay;
+
+	// Customize Player opened from CONFIG belongs to CONFIG until the editor opens (then it is the
+	// editor's modal, nothing to do) or CONFIG closes under it (one more pass so the JS sees the host
+	// gone and closes it).
+	if (m_customizeOverConfig && (m_enabled || !ConfigHud_Enabled())) {
+		m_customizeOverConfig = false;
+		if (!m_enabled && m_built && (m_root = FindRoot()) != nullptr) {
+			const std::string state = BuildStateJson();
+			m_bridge.SetAttributeString(m_root, m_symState, state.c_str());
+			m_lastState = state;
+			m_bridge.RunScriptCached("$.CamEditor && $.CamEditor.render();", "mvm/cameditor.render");
+			UpdateCustomizeModalState();
+		}
+	}
+	if (!m_enabled && m_customizeOverConfig) {
+		// Not on the frame the editor closed: OnExit's Teardown deletes the old roots ASYNC, so a
+		// rebuild now would find the dying CamEditorRoot and feed IT the state, and the new modal
+		// opened onto an empty roster (measured: "Choose a player" with no players, customizeopen=0).
+		if (!exitedThisFrame) RunCustomizeOverConfig();
+		return;
+	}
 
 	if (!m_enabled && !m_debugOverlay) {
 		// The debug panel hides ITSELF from the pushed state (CameraEditorDebugJs::updateDebug:
@@ -537,10 +525,7 @@ void CameraEditorHud::RunFrame() {
 			s_lastProjection = snapshot;
 		}
 	}
-	if (m_openCustomizeRequested) {
-		m_bridge.RunScript("$.CamEditor && $.CamEditor.openCustomize();");
-		m_openCustomizeRequested = false;
-	}
+	OpenCustomizeWhenArmed();
 
 	// Feed any wheel/typed-character input captured off the WndProc thread into the modal JS (only
 	// does work while the modal is open + something is queued). Runs after render() so the panel it
@@ -558,6 +543,39 @@ void CameraEditorHud::RunFrame() {
 	// out the modal UI or the 3D player preview (the flash post-effect covers Panorama too).
 	if (m_customizeOpen)
 		CustomizeSuppressFlashTick();
+}
+
+// CONFIG's Customize Player: the editor's script runs with its workspace closed (st.enabled false,
+// st.customizeHost "config"), so only the modal shows, over CONFIG. Nothing else of the editor's
+// frame runs here: no dock, no scaled preview (CONFIG owns it), no inspector wheel.
+void CameraEditorHud::RunCustomizeOverConfig() {
+	if (!BuildIfNeeded()) return;
+	if (!m_evalQueue.empty()) {
+		for (const std::string& js : m_evalQueue)
+			m_bridge.RunScript(js);
+		m_evalQueue.clear();
+	}
+	// A new root (a rebuild) has never had a state pushed: do not let the unchanged-state check skip it.
+	void* root = FindRoot();
+	if (root != m_root) m_lastState.clear();
+	m_root = root;
+	if (!m_root) { m_built = false; return; }
+	const std::string state = BuildStateJson();
+	if (state != m_lastState) {
+		m_bridge.SetAttributeString(m_root, m_symState, state.c_str());
+		m_lastState = state;
+	}
+	m_bridge.RunScriptCached("$.CamEditor && $.CamEditor.render();", "mvm/cameditor.render");
+	OpenCustomizeWhenArmed();
+	DispatchCustomizeInput();
+	UpdateCustomizeModalState();
+	if (m_customizeOpen) {
+		m_customizeOverConfigFrames = 0;
+		CustomizeSuppressFlashTick();
+	} else if (++m_customizeOverConfigFrames > 30) {
+		// Closed by the user, or it never opened (no UI cursor): hand the frame back.
+		m_customizeOverConfig = false;
+	}
 }
 
 // Reads the "previewrect" fractions the editor JS published this frame and forwards them to
@@ -696,8 +714,24 @@ void CameraEditorHud::DispatchCustomizeInput() {
 // publish (see CameraEditorCustomizeJs.h) so the input layer (MovieMode, GetSuspendMirvInput) can
 // treat the modal as an exclusive surface. m_root is only non-null while the workspace is built,
 // so this naturally reads false (no attribute to read) whenever the editor itself is closed.
+void CameraEditorHud::OpenCustomizeWhenArmed() {
+	if (!m_openCustomizeRequested) return;
+	if (!m_customizeOpenArmed) { m_customizeOpenArmed = true; return; } // reported open from this frame on
+	m_bridge.RunScript("$.CamEditor && $.CamEditor.openCustomize();");
+	m_openCustomizeRequested = false;
+	m_customizeOpenArmed = false;
+}
+
 void CameraEditorHud::UpdateCustomizeModalState() {
-	m_customizeOpen = m_root && (m_bridge.GetAttributeString(m_root, m_symCustomizeOpen, "0") == "1");
+	m_customizeOpen = m_customizeOpenArmed
+		|| (m_root && (m_bridge.GetAttributeString(m_root, m_symCustomizeOpen, "0") == "1"));
+	if (m_customizeOpen) {
+		const std::string layout = m_bridge.GetAttributeString(m_root, m_symCustomizeLayout, "");
+		if (!layout.empty() && layout != m_customizeLayout) {
+			m_customizeLayout = layout;
+			if (MvmDebugLog_Active()) MvmDebugLog_Linef("customize.window", "layout %s", layout.c_str());
+		}
+	}
 	m_popupOpen = m_root && (m_bridge.GetAttributeString(m_root, m_symPopupOpen, "0") == "1");
 	// Same contract for the render workspace's typed fields. Cleared automatically whenever the
 	// workspace tears down, because m_root goes null and there is no attribute left to read.

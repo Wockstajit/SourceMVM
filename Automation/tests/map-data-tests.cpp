@@ -236,6 +236,46 @@ static void TestCommunityMapSources() {
     for (const auto &path : {assets.parent_path(), assets.parent_path().parent_path(), root / "game/csgo/maps", root / "game/csgo", root / "game", root}) fs::remove(path);
 }
 
+// Two Workshop items and a loose package can hold a map of the same name (Nightly Cache and Rainy
+// Cache are both de_cache_n_r). Asked for one item, only that item is read, never the loose package
+// or the newest item.
+static void TestWorkshopItemSources() {
+    namespace fs = std::filesystem;
+    const fs::path base = fs::temp_directory_path() /
+        ("source-mvm-workshop-map-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const fs::path root = base / "common" / "cs2", workshop = base / "workshop" / "content" / "730";
+    const auto write = [](const fs::path &path, const std::vector<uint8_t> &bytes) {
+        fs::create_directories(path.parent_path());
+        std::ofstream out(path, std::ios::binary);
+        out.write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+    };
+    const auto mapWith = [](const char *text) {
+        const auto inner = MakeVpk({{"maps/de_twin/world.txt", text}});
+        return MakeVpk({{"maps/de_twin.vpk", std::string(inner.begin(), inner.end())}});
+    };
+    write(root / "game/csgo/maps/de_twin.vpk", MakeVpk({{"maps/de_twin/world.txt", "loose"}}));
+    write(workshop / "111" / "addon.vpk", mapWith("one"));
+    write(workshop / "222" / "addon.vpk", mapWith("two"));
+    fs::last_write_time(workshop / "222" / "addon.vpk", fs::last_write_time(workshop / "111" / "addon.vpk") + std::chrono::hours(1));
+    { std::ofstream gi(root / "game/csgo/gameinfo.gi"); gi << "FileSystem { SearchPaths { Game csgo } }"; }
+    const auto world = [](const MapSources &s) {
+        std::vector<uint8_t> bytes;
+        return s.package->Read("maps/de_twin/world.txt", bytes) ? std::string(bytes.begin(), bytes.end()) : std::string();
+    };
+    const auto byName = OpenMapSources(root, "de_twin");
+    Check(world(byName) == "loose" && !byName.addon, "by name the loose package comes first");
+    const auto first = OpenMapSources(root, "de_twin", "111");
+    Check(world(first) == "one" && first.addon && first.addon->Path().parent_path().filename() == "111",
+          "an asked-for item is read, not the loose package or the newer item");
+    Check(world(OpenMapSources(root, "de_twin", "222")) == "two", "the other item reads its own map");
+    bool missing = false, invalid = false;
+    try { OpenMapSources(root, "de_twin", "333"); } catch (const MapDataError &) { missing = true; }
+    try { OpenMapSources(root, "de_twin", "1x"); } catch (const MapDataError &) { invalid = true; }
+    Check(missing && invalid, "a missing or malformed item is refused");
+    std::error_code ec;
+    fs::remove_all(base, ec);
+}
+
 // The compressed cache container: byte-exact round trips across block boundaries, incompressible
 // blocks stored as they are, deterministic output, and damaged files refused.
 static void TestCacheCodec() {
@@ -283,6 +323,7 @@ int main() {
     TestStringToken();
     TestVpk();
     TestCommunityMapSources();
+    TestWorkshopItemSources();
     TestKv3();
     TestOccluderBuilder();
     TestTexture();

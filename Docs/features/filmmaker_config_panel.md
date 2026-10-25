@@ -20,6 +20,9 @@ channel. The same throw also kills `cfgApplyScroll()`, so "cards vanish while sc
 preview" are one symptom. When a card changes, update its references in BOTH
 `ConfigHudCameraTabJs.h` and the hydration block in `ConfigHudJs.h`. The header keeps mouse-ownership
 and game-HUD controls available from every tab. The bottom actions open Render or Customize Player.
+Customize Player opens the Camera Editor's modal over Config (`mirv_filmmaker config customize`);
+Config stays open behind it, and the button is live whenever there is a player to customize
+([customize-feature.md](customize-feature.md)).
 
 ## Layout and files
 
@@ -214,7 +217,8 @@ Consequences to preserve:
 - **The VFX mode controls share one fixed 224px column** (`FXSEG_W`) with cells splitting it
   evenly, joined into a single segmented control.
 - **`SHADOWS` and `SKY ORIENTATION` are separate cards.** The skybox card's inner strip is CUSTOM | CS2 only.
-- **ATMOSPHERE → Smoke has one inner strip:** Color | Smoke look | Smoke volume.
+- **ATMOSPHERE has one strip of sub-pages:** Smoke | Look | Volume | World tint, so the card fits
+  the column without scrolling.
 - **Cloud shape sits behind a `Shape…` disclosure.** Density is the primary slider; size, drift and
   brightness open on demand.
 

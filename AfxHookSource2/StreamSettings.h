@@ -85,6 +85,17 @@ public:
     int PassRenderKey() const {
         return IsPass() ? (int)Filmmaker::RenderKeyFor((Filmmaker::VisibleElements)PassElements) : -1;
     }
+    // A pass the pass compositor builds (Key, Depth, Normal, or an output-less reference render)
+    // instead of recording the render as drawn. It reads the scene from before the lens post pass
+    // (depth of field, flare); Beauty plates and every other stream record the finished frame.
+    bool IsComposedPass() const {
+        if (!IsPass()) return false;
+        if (PassReferenceOnly) return true;
+        Filmmaker::PassConfig pass;
+        pass.type = (Filmmaker::PassType)PassType;
+        pass.elements = (Filmmaker::VisibleElements)PassElements;
+        return !Filmmaker::PassIsDirectCapture(pass);
+    }
 
     int CompareRenderPass(const CStreamSettings &  o) const {
         int cmp;

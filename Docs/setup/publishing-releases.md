@@ -102,11 +102,13 @@ users already have, instead of a new installer:
    added shaders, pass their individual `x64\environment-shaders\<name>.cso` paths with the DLL.
    The build's `environment-shaders/manifest.txt` lists its required programs. Compare those files
    against the current release bundle. The install step clears the staged `environment-shaders`
-   folder first, so it holds only this build's bytecode.
+   folder first, so it holds only this build's bytecode. Add `resources\CHANGELOG.md` to `-Files`
+   too, so the in-game What's new popup lists the hotfix.
 3. Upload both outputs to the **existing** release of the current version. The script prints the
    `gh release upload <tag> --clobber` command. Do not create a new release, and do not upload a
    `latest.yml`. Either one would make the updater offer an installer.
-4. Add a short line about the fix to that release's notes.
+4. Add a short line about the fix to that release's notes, and a `## <version> Hotfix <n> - <date>`
+   section to [`CHANGELOG.md`](../../CHANGELOG.md) before step 1, so the staged copy carries it.
 
 Both packaging scripts archive the shipped DLL's PDB before stripping it, in `Automation/symbols/`
 or `SOURCEMVM_SYMBOL_STORE`. Back up that folder after every release, so crash reports from that
@@ -159,6 +161,13 @@ not an in-game test.
 Write brief release notes for users: what changed, what they need, and how to install. Put
 technical build evidence in private documentation. Link the VirusTotal report without claiming
 that it guarantees safety or covers files it did not scan.
+
+Before the release build, rename the `## Unreleased` section of [`CHANGELOG.md`](../../CHANGELOG.md)
+(for example `## Unreleased (0.4.0)`) to `## <version> - <date>` and start a new empty
+`## Unreleased` above it, in a PR into `main`. Drop the lines of any change that did not merge. The
+installer ships that file as `resources/CHANGELOG.md`, and the in-game What's new popup shows the
+new section once after the update ([What's new](../features/filmmaker_whats_new.md)). The release
+notes can start from the same text.
 
 Update the website's fallback download, checksum and direct VirusTotal links in
 `Website/index.html`. The direct report must match the executable from that fallback installer.

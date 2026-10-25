@@ -4,9 +4,12 @@ Two buttons sit on CS2's main menu. The pause menu is the same menu, so both but
 in a map. Both use CS2's own Stratum type (the `stratum-*` classes from `csgostyles`) at the nav
 bar's scale.
 
-- **HC Tracker** sits in the empty right-hand container of the top bar, right of NEWS. It shows the
-  HC Tracker eye logo and wordmark, framed in HC Tracker yellow (`#f5b719`). A click opens
-  <https://www.hctracker.com/> in the default browser.
+- **HC Tracker** sits in the top bar right of NEWS, centred in the stretch between NEWS and the
+  friends column, so the room on both sides is the same (230 px each at 1920 wide). It mirrors the
+  WHAT'S NEW button left of INVENTORY, and both take their spot from one fixed bar layout
+  (`Panorama/HeaderLayoutJs.h`, `mvmHeaderSlot`), so neither moves between the home menu and the
+  pause menu. It shows the HC Tracker eye logo and wordmark, framed in HC Tracker yellow (`#f5b719`).
+  A click opens <https://www.hctracker.com/> in the default browser.
 - **Report a Bug** sits at the bottom right, left of the friends bar's round buttons. It opens a
   dialog: what happened, an optional Discord name for a reply, and **Review report**. It appears on the
   home screen and the pause menu only. When a page is open (Demos, Inventory, ...), CS2 adds

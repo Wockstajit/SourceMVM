@@ -873,6 +873,42 @@ R"TLJS(
       } catch (e) { r = ''; }
       if (r !== lastBarRect) { lastBarRect = r; try { root.SetAttributeString('barrect', r); } catch (e2) {} }
     }
+    // Who CS2 itself is spectating, and its player list, read off the native demo bar's own panel
+    // (HudDemoController). GetDemoControllerState / GetDemoPlayers / SpectatePlayer live on THAT
+    // panel, not on this context panel (Movie/DemoTimescale.h). A GOTV demo reports no local observer
+    // and the render-eye match only works in first person, so this is the one source that names the
+    // spectated player in third person as well. Customize Player reads it back ('specstate' = pawn +
+    // observer mode, 'demoplayers' = controller,pawn,alive,team,slot rows; Cosmetics/CustomizeTarget).
+    var lastSpecState = null, lastDemoPlayers = null, demoPlayersAge = 0;
+    function publishSpectate() {
+      var dc = findNative('HudDemoController');
+      var spec = '-1 -1';
+      try {
+        var s = (dc && dc.GetDemoControllerState) ? dc.GetDemoControllerState() : null;
+        if (s) spec = (s.nSpectatingPlayerId | 0) + ' ' + (s.nObserverMode | 0);
+      } catch (e) { spec = '-1 -1'; }
+      if (spec !== lastSpecState) { lastSpecState = spec; demoPlayersAge = 0; try { root.SetAttributeString('specstate', spec); } catch (e2) {} }
+      // The roster changes on a death or a spawn, not every frame: a few reads a second is plenty.
+      if (demoPlayersAge-- > 0) return;
+      demoPlayersAge = 8;
+      var rows = [];
+      try {
+        var ps = (dc && dc.GetDemoPlayers) ? dc.GetDemoPlayers() : null;
+        for (var i = 0; ps && i < ps.length; i++) {
+          var p = ps[i];
+          rows.push((p.nEntIndex | 0) + ',' + (p.nPawnEntIndex | 0) + ',' + (p.bAlive ? 1 : 0) + ',' + (p.nTeam | 0) + ',' + (p.nPlayerSlot | 0));
+        }
+      } catch (e3) { rows = []; }
+      var players = rows.join(';');
+      if (players !== lastDemoPlayers) { lastDemoPlayers = players; try { root.SetAttributeString('demoplayers', players); } catch (e4) {} }
+    }
+    // CS2's own "spectate this player", what its player list does on a click. The engine refuses a
+    // dead player, so Customize puts the free cam on a dead player's body instead (CustomizeTarget).
+    function spectateNative(controller) {
+      var dc = findNative('HudDemoController');
+      try { if (dc && dc.SpectatePlayer) { dc.SpectatePlayer(controller | 0); return true; } } catch (e) {}
+      return false;
+    }
     function patchNativeBar() {
       patchTimeStep();
       // "End Playback" and the native gear (opens CS2's own X-Ray/True View panel, which our Camera
@@ -897,6 +933,7 @@ R"TLJS(
       if (overview && overview.visible) overview.visible = false;
       publishCameraMode();
       publishBarRect();
+      publishSpectate();
       var host = barGroup();
       if (!host) return;
       function childIndex(p) {
@@ -2128,6 +2165,8 @@ R"TLJS(
       if (!isFinite(n) || n === 0) return;
       shakeMenuWheel(n);
     };
+    // Customize Player's pick of a living player (CameraTimelineHud::RequestNativeSpectate).
+    api.spectate = function (controller) { return spectateNative(controller) ? 'ok' : 'unavailable'; };
     api.dbgRange = function () { return dbgRangeState(); };
     //   mirv_filmmaker camtl eval $.Msg($.CamTimeline.dbgSpeed()+String.fromCharCode(10));
     api.dbgSpeed = function () { return speedScrub.dbg(); };

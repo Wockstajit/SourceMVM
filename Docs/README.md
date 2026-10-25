@@ -15,6 +15,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | Demo browser | [`filmmaker_demos_feature.md`](features/filmmaker_demos_feature.md) |
 | Play page + workshop map sorting | [`filmmaker_play_menu.md`](features/filmmaker_play_menu.md) |
 | HC Tracker link + Report Bugs (main menu, launcher) | [`filmmaker_community.md`](features/filmmaker_community.md) |
+| Version button and the What's new popup (`CHANGELOG.md`) | [`filmmaker_whats_new.md`](features/filmmaker_whats_new.md) |
 | Movie director and cameras | [`filmmaker_movie_controls.md`](features/filmmaker_movie_controls.md), [`camera-editor-feature.md`](features/camera-editor-feature.md) |
 | Recording FPS (mux + host_framerate; dial preview-only) | [`filmmaker_render_fps.md`](features/filmmaker_render_fps.md) |
 | Render passes (Beauty / Depth / Normal × visibility, synchronized multipass) | [`filmmaker_render_passes.md`](features/filmmaker_render_passes.md) |
@@ -30,6 +31,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | Particle FX | [`filmmaker_effects_modifiers.md`](features/filmmaker_effects_modifiers.md), [`../FX/README.md`](../FX/README.md) |
 | Environment, volumetrics, surface tests and props | [`environment-scene-editor.md`](features/environment-scene-editor.md) |
 | Round heat map (where the round's players walked, on the floor) | [`round-heatmap.md`](features/round-heatmap.md) |
+| Alternative environment (play a demo on another map, alignment and AUTO ALIGN) | [`alternative-environment.md`](features/alternative-environment.md) |
 | Scene object rigs: attachments, pose keys and camera objects | [`scene-object-rigs.md`](features/scene-object-rigs.md) |
 | Runtime map lighting, smoke, VFX and shadows | [`whole-map-relighting.md`](effects/whole-map-relighting.md) |
 | GPU cost of the hook's own render passes (`mirv_filmmaker gpuprofile`) | [`gpu-pass-profile.md`](effects/gpu-pass-profile.md) |

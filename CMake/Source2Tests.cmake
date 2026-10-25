@@ -265,6 +265,13 @@ add_executable(RenderTakeImportMathTests
 target_compile_features(RenderTakeImportMathTests PRIVATE cxx_std_17)
 add_test(NAME RenderTakeImportMathTests COMMAND RenderTakeImportMathTests)
 
+add_executable(ChangelogMathTests
+    ../Automation/tests/changelog-math-tests.cpp
+)
+target_compile_features(ChangelogMathTests PRIVATE cxx_std_17)
+target_compile_definitions(ChangelogMathTests PRIVATE CHANGELOG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../CHANGELOG.md")
+add_test(NAME ChangelogMathTests COMMAND ChangelogMathTests)
+
 add_executable(PropsMathTests
     ../Automation/tests/props-math-tests.cpp
 )
@@ -291,6 +298,23 @@ add_executable(DemoKeyframesMathTests
 )
 target_compile_features(DemoKeyframesMathTests PRIVATE cxx_std_17)
 add_test(NAME DemoKeyframesMathTests COMMAND DemoKeyframesMathTests)
+
+add_executable(AltEnvironmentMathTests
+    ../Automation/tests/alt-environment-math-tests.cpp
+    Filmmaker/AltEnvironment/AltEnvironmentMath.h
+    Filmmaker/Platform/PngWrite.h
+)
+target_compile_features(AltEnvironmentMathTests PRIVATE cxx_std_17)
+add_test(NAME AltEnvironmentMathTests COMMAND AltEnvironmentMathTests)
+
+add_executable(DemoWorldSwapTests
+    ../Automation/tests/demo-world-swap-tests.cpp
+    Filmmaker/Demo/DemoWorldSwap.cpp
+    Filmmaker/Demo/DemoWorldSwap.h
+    Filmmaker/Platform/SnappyDecode.h
+)
+target_compile_features(DemoWorldSwapTests PRIVATE cxx_std_17)
+add_test(NAME DemoWorldSwapTests COMMAND DemoWorldSwapTests)
 
 add_executable(VpScaleBreakMathTests
     ../Automation/tests/vp-scale-break-math-tests.cpp
@@ -412,6 +436,10 @@ add_test(NAME AtomicFileTests COMMAND AtomicFileTests)
 add_executable(CosmeticThemeMathTests ../Automation/tests/cosmetic-theme-math-tests.cpp)
 target_compile_features(CosmeticThemeMathTests PRIVATE cxx_std_17)
 add_test(NAME CosmeticThemeMathTests COMMAND CosmeticThemeMathTests)
+
+add_executable(CustomizeTargetMathTests ../Automation/tests/customize-target-math-tests.cpp)
+target_compile_features(CustomizeTargetMathTests PRIVATE cxx_std_17)
+add_test(NAME CustomizeTargetMathTests COMMAND CustomizeTargetMathTests)
 
 add_executable(EasterEggAudioMathTests
     ../Automation/tests/easter-egg-audio-math-tests.cpp

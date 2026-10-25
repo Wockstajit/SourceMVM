@@ -90,9 +90,13 @@ unsigned char* HudArmsForPawn(unsigned char* pawn);
 bool HudArmsOwnedByPawnIndex(unsigned char* arms, int pawnIdx);
 // Mirror a model/mesh write onto the FIRST-PERSON viewmodel of the weapon we just changed
 // (class-matched only -- see the safety comment at its definition). worldWeapon == null means
-// "no model/mesh change, just refresh the renderables".
-void RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t meshMask,
-	unsigned char* worldWeapon, int entityIndex = -1, bool releaseComposite = false);
+// "no model/mesh change, just refresh the renderables". Returns how many first-person copies matched.
+// written (a mirror window, MirrorWeaponMeshToViewmodel): a copy this window already wrote once and
+// that reads back meshMask keeps it untouched, so a repeated mirror never re-invalidates its material.
+// Null forces every write, as a pooled copy's readback alone cannot be trusted.
+int RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t meshMask,
+	unsigned char* worldWeapon, int entityIndex = -1, bool releaseComposite = false,
+	ViewmodelMirrorWrites* written = nullptr);
 
 } // namespace modelswap
 } // namespace Filmmaker

@@ -7,9 +7,10 @@
 //
 // Look: CS2's own type (the stratum-* classes from csgostyles, which the main menu loads) at the
 // nav bar's scale, so the additions read as part of the menu rather than pasted on top of it.
-// The badge sits in the top bar's own empty right-hand container (.mainmenu-top-navbar__right-
-// container, native mainmenu.xml). Its eye is HC Tracker's logo, loaded by URL (Panorama shows
-// web images, as CS2's news page does); without a network the wordmark still reads.
+// The badge is centred in the top bar's empty stretch right of NEWS, the mirror of WHAT'S NEW left
+// of INVENTORY (Panorama/HeaderLayoutJs.h, spliced in below). Its eye is HC Tracker's logo, loaded
+// by URL (Panorama shows web images, as CS2's news page does); without a network the wordmark
+// still reads.
 
 namespace Filmmaker {
 
@@ -51,6 +52,10 @@ inline const char* kCommunityJs = R"CMJS(
     try { if (on) UiToolkitAPI.ShowTextTooltip(p.id, text); else UiToolkitAPI.HideTextTooltip(); } catch (e) {}
   };
   C.sound = function () { try { $.DispatchEvent('CSGOPlaySoundEffect', 'UIPanorama.generic_button_press', 'MOUSE'); } catch (e) {} };
+)CMJS"
+// ---- the top bar's fixed layout, shared with WHAT'S NEW (Panorama/FilmmakerGuiJs.h) ----
+#include "../Panorama/HeaderLayoutJs.h"
+R"CMJS(
 
   // ---- HC Tracker badge (top bar, right of NEWS) --------------------------------------------------
   function findRightContainer() {
@@ -71,12 +76,14 @@ inline const char* kCommunityJs = R"CMJS(
     // bar's right-hand container would put it (vertically centred in the 64px bar).
     var badge = $.CreatePanel('Button', layer, 'MvmHcTracker', {});
     var s = badge.style;
-    // Right-aligned in the bar's empty stretch right of NEWS, clear of the profile button the
-    // friends bar keeps over the last ~190px. The top bar draws ABOVE the friends bar, so when the
-    // bar slides open the badge fades out instead (watchLayers below), the way the native icons
-    // under the bar disappear.
+    // Centred in the bar's empty stretch right of NEWS (mvmHeaderSlot): the same room before and
+    // after it, and the same spot in the home menu and the pause menu. At 1920 wide it spans about
+    // 1437 to 1627. The top bar draws ABOVE the friends bar, so when the bar slides open the badge
+    // fades out instead (watchLayers below), the way the native icons under the bar disappear.
     s.flowChildren = 'right'; s.height = '46px'; s.padding = '0px 18px 0px 12px';
-    s.horizontalAlign = 'right'; s.verticalAlign = 'top'; s.marginTop = '9px'; s.marginRight = '200px'; s.zIndex = '10';
+    s.horizontalAlign = 'left'; s.verticalAlign = 'top'; s.marginTop = '9px'; s.zIndex = '10';
+    // A first guess at its stock 189px width, so it never shows at the bar's left edge first.
+    s.marginLeft = Math.round(mvmHeaderSlot(1, 189, mvmHeaderBarWidth(root)).x) + 'px';
     s.backgroundColor = 'rgba(10,10,11,0.62)'; s.border = '1px solid rgba(245,183,25,0.55)';
     s.borderRadius = '3px';
     s.transitionProperty = 'background-color, box-shadow, border, opacity'; s.transitionDuration = '0.15s';
@@ -101,6 +108,16 @@ inline const char* kCommunityJs = R"CMJS(
     });
     badge.SetPanelEvent('onactivate', function () { C.sound(); C.cmd('hctracker'); });
     C.badge = badge;
+    // Its real width once laid out (the eye image and the wordmark), then kept there.
+    (function placeBadge() {
+      if (!badge.IsValid()) return;
+      var w = (badge.actuallayoutwidth || 0) / (badge.actualuiscale_x || 1);
+      if (w > 0) {
+        C.badgeSlot = mvmHeaderSlot(1, w, mvmHeaderBarWidth(root));
+        badge.style.marginLeft = Math.round(C.badgeSlot.x) + 'px';
+      }
+      $.Schedule(0.1, placeBadge);
+    })();
   }
 
   // ---- Report a bug (bottom right, left of the friends bar's round buttons) -----------------------
@@ -168,7 +185,9 @@ inline const char* kCommunityJs = R"CMJS(
   }
   C.root = root; C.input = input;
   C.report = function () {
+    var slot = C.badgeSlot;
     return 'badge=' + !!$.GetContextPanel().FindChildTraverse('MvmHcTracker') + ' bug=' + !!bug + ' right=' + !!right +
+      ' badgeX=' + (slot ? Math.round(slot.x) : -1) + ' gaps=' + (slot ? Math.round(slot.before) + ',' + Math.round(slot.after) : '-') +
       ' sidebar=' + !!(sidebar && sidebar.IsValid()) + ' sideOpen=' + C.sidebarOpen +
       ' minimized=' + !!(sidebar && sidebar.IsValid() && sidebar.BHasClass('mainmenu-sidebar--minimized'));
   };

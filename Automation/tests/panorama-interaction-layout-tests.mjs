@@ -247,6 +247,44 @@ test("Customize slot rows and picker tiles keep the 7b design geometry", () => {
   assert.match(functionBody(customizeSource, "tileShell"), /\(tileIdx % CUST_TILE_COLS\) === CUST_TILE_COLS - 1/);
 });
 
+test("Customize picker keeps three tiles to a line at every UI scale", () => {
+  // In game at 854 x 480 (UI scale 0.444) the picker grid measured 223 device px, while three 162px
+  // tiles and two 8px gaps snapped to 72 + 4 + 72 + 4 + 72 = 224: the third tile wrapped, and every
+  // row after it staggered. Each line is now its own panel, and sizePane() floors the tile width
+  // to the measured grid (custTileFitW).
+  const itemBody = functionBody(customizeSource, "itemDrop");
+  assert.match(itemBody, /rows\.style\.flowChildren = 'down'/);
+  assert.doesNotMatch(itemBody, /rows\.style\.flowChildren = 'right-wrap'/);
+  const shell = functionBody(customizeSource, "tileShell");
+  assert.match(shell, /if \(\(tileIdx % CUST_TILE_COLS\) === 0\) \{\s*tileLine = mk\('Panel', rows\)/);
+  assert.match(shell, /tileLine\.style\.flowChildren = 'right'/);
+  assert.match(shell, /var t = mk\('Panel', tileLine\)/);
+  assert.match(shell, /t\.style\.width = \(rec\.tileW \|\| CUST_TILE_W\) \+ 'px'/);
+  const sizeBody = functionBody(customizeSource, "sizePane");
+  assert.match(sizeBody, /custTileFitW\(lineW, rec\.rows\.actualuiscale_x/);
+  assert.match(sizeBody, /rec\.fitTiles\(\)/);
+
+  // Run custTileFitW against Panorama's snapping as measured in game: every width and margin
+  // rounds to whole device px (counted here as rounding up), and the card's 1px border stays one
+  // device px at any scale.
+  const constants = /var CUST_TILE_W = [^;]+;/.exec(customizeSource)[0];
+  const fit = new Function(
+    `${constants}\nfunction custTileFitW(lineW, scale) {${functionBody(customizeSource, "custTileFitW")}}\nreturn custTileFitW;`,
+  )();
+  const px = Math.round;
+  assert.equal(fit(504, 1), 162, "1080p keeps the design width");
+  assert.equal(Math.ceil(fit(223, 480 / 1080) * (480 / 1080)), 71, "the measured 854 x 480 grid gets 71px tiles");
+  for (const height of [480, 540, 600, 720, 768, 800, 864, 900, 960, 1024, 1050, 1080, 1200, 1440, 2160]) {
+    const scale = height / 1080;
+    const grid = px(1240 * scale) - 2 - px(262 * scale) - px(440 * scale) - 2 * px(16 * scale);
+    const tile = fit(grid, scale);
+    const used = 3 * Math.ceil(tile * scale) + 2 * Math.ceil(8 * scale);
+    assert.ok(used <= grid, `${height}p: three tiles take ${used} of the ${grid} device px grid`);
+    assert.ok(tile >= 159 && tile <= 162, `${height}p: a ${tile}px tile stays within a device px of the design`);
+  }
+  assert.equal(fit(0, 1), 162, "an unmeasured grid builds at the design width");
+});
+
 test("Customize pickers filter by rarity where it means something and drill down by model where it does not", () => {
   assert.match(customizeSource, /RARITY_FILTERS\s*=\s*\[/);
   // Chips are spelled out; the original three-letter codes (CON/IND/CTB) were unreadable.

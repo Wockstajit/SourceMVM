@@ -15,7 +15,18 @@ test('the gun pass keeps the viewmodel depth band whatever its colour', () => {
   assert.match(shader, /bool ViewmodelBand\(float raw\)/);
   const gun = shader.slice(shader.indexOf('} else if (mask == 2) {'), shader.indexOf('} else if (mask == 4) {'));
   assert.match(gun, /subject = smoothstep\(diff\.x, diff\.y/);               // the muzzle flash still comes from the difference
-  assert.match(gun, /if \(ViewmodelBand\(LoadRaw\(refDepthTex, px\)\)\) subject = 1\.0;/);
+  assert.match(gun, /if \(ViewmodelBand\(LoadRaw\(refDepthTex, px\)\)\) \{\s*subject = 1\.0;/);
+});
+
+// The two renders of a frame also differ where the world sways on its own clock (foliage, cables,
+// cloth) and wherever the lens blurred them differently, which keyed world edges into the gun plate;
+// and a muzzle flash has no depth, so in Depth it carried the wall behind it as white specks
+// (tester reports, 2026-10-24).
+test('the gun difference counts only near the gun, and Depth / Normal take the band alone', () => {
+  const gun = shader.slice(shader.indexOf('} else if (mask == 2) {'), shader.indexOf('} else if (mask == 4) {'));
+  assert.match(shader, /bool NearViewmodelBand\(int2 px, float radius\)/);
+  assert.match(gun, /} else if \(mode == 0 \|\| mode == 3\) \{[\s\S]*?smoothstep\(diff\.x, diff\.y[\s\S]*?!NearViewmodelBand\(px,/);
+  assert.match(gun, /} else \{\s*subject = 0\.0;\s*}/);
 });
 
 test('the live view shows Gun only from its band', () => {

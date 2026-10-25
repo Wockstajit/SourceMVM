@@ -768,7 +768,7 @@ void LensFx_EndDevice() {
 
 bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, ID3D11DepthStencilView* depth,
 	const float* worldToClip, float depthMin, float depthMax, const LensSmoke& smoke, const LensSun& sun,
-	bool keyPass) {
+	bool keyPass, bool holdFocus) {
 	Values L;
 	MaskImage irisPending, dirtPending;
 	bool irisChanged = false, dirtChanged = false;
@@ -845,14 +845,16 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		g.dirtUploaded = dirtPending.serial;
 	}
 
-	const auto now = std::chrono::steady_clock::now();
-	float dt = g.haveLastFrame ? std::chrono::duration<float>(now - g.lastFrame).count() : 0.0f;
-	g.lastFrame = now; g.haveLastFrame = true;
-	dt = std::min(std::max(dt, 0.0f), 0.25f);
-
 	const float W = (float)td.Width, H = (float)td.Height;
 	const bool autoFocus = dofOn && L[DofAuto] > 0.5f;
 	if (!autoFocus) g.focusValid = false;
+	// A held render reads the focus the Main render settled on; with none yet it finds its own.
+	const bool advanceFocus = autoFocus && !(holdFocus && g.focusValid);
+
+	const auto now = std::chrono::steady_clock::now();
+	float dt = g.haveLastFrame ? std::chrono::duration<float>(now - g.lastFrame).count() : 0.0f;
+	if (!holdFocus || advanceFocus) { g.lastFrame = now; g.haveLastFrame = true; }
+	dt = std::min(std::max(dt, 0.0f), 0.25f);
 	const float rad = (float)(kPi / 180.0);
 	const UINT hw = g.halfBright.w, hh = g.halfBright.h, qw = g.quarterBright.w, qh = g.quarterBright.h;
 	const UINT ew = g.eighthBright.w, eh = g.eighthBright.h;
@@ -951,8 +953,8 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 
 	// 2. Depth of field.
 	if (dofOn) {
-		const int cur = autoFocus ? 1 - g.focusCur : g.focusCur;
-		if (autoFocus)
+		const int cur = advanceFocus ? 1 - g.focusCur : g.focusCur;
+		if (advanceFocus)
 			pass(g.focusPS[dms].Get(), g.focus[cur].rtv.Get(), 1, 1,
 				{ { 1, g.depthCopy.srv.Get() }, { 3, g.focus[g.focusCur].srv.Get() }, { 20, smokeSrv } });
 		pass2(g.cocPS[dms].Get(), g.cocRtv[0].Get(), g.worldRtv[0].Get(), td.Width, td.Height,
@@ -966,7 +968,7 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		pass(g.gatherPS.Get(), g.gather.rtv.Get(), td.Width, td.Height,
 			{ { 4, g.cocAll.Get() }, { 5, g.tile[0].srv.Get() }, { 7, g.irisTex.srv.Get() }, { 21, g.worldAll.Get() } });
 		pass(g.denoisePS.Get(), g.soft.rtv.Get(), td.Width, td.Height, { { 4, g.cocAll.Get() }, { 6, g.gather.srv.Get() } });
-		if (autoFocus) g.focusCur = cur;
+		if (advanceFocus) g.focusCur = cur;
 		g.focusValid = autoFocus;
 	}
 

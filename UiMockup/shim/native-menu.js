@@ -224,9 +224,15 @@
     image(button(tools, '', 'native-icon', '', function () { notify('Exit is simulated in this preview.'); }), '', '', icon('power'));
     var tabs = mk('Panel', top, '', 'native-primary-tabs');
     ['INVENTORY', 'LOADOUT', 'PLAY', 'STORE', 'NEWS'].forEach(function (name) {
-      button(tabs, '', name === 'PLAY' ? 'native-main-tab active' : 'native-main-tab', name,
+      // INVENTORY keeps its native id: the What's new header button (WhatsNewJs.h) sits left of it.
+      button(tabs, name === 'INVENTORY' ? 'MainMenuNavBarInventory' : '', name === 'PLAY' ? 'native-main-tab active' : 'native-main-tab', name,
         function () { if (name === 'PLAY') setMode('workshop'); else notify(name + ' is outside this menu preview.'); });
     });
+    // #MainMenuInput: the full-screen layer above the bar where CS2's menu takes input, and where
+    // the HC TRACKER badge and the What's new button are created.
+    var input = mk('Panel', root, 'MainMenuInput', '');
+    Object.assign(input.style, { width: '100%', height: '100%', zIndex: '20' });
+    input.hittest = false;
     var friends = mk('Panel', root, 'MainMenuFriends', 'native-friends');
     var invite = mk('Panel', friends, '', 'native-invite');
     mk('Label', invite, '', '', 'Invite from');
@@ -358,12 +364,67 @@
     var no = button(row, 'NativeMenuConfirmCancel', 'PopupButton', '', function () { close(cancel); }); mk('Label', no, '', '', 'CANCEL');
     dim.el.addEventListener('keydown', function (event) { if (event.key === 'Escape') close(cancel); }); no.el.focus();
   };
+  // The What's new payload as ToolVersion_WhatsNewJson builds it, for an installed 0.3.1 hotfix 1
+  // whose last seen version was 0.3.0: two sections up top, older ones folded away.
+  var WHATS_NEW = { label: '0.3.1 hotfix 1', dev: false, open: true, sections: [
+    { title: '0.3.1 Hotfix 1', date: '2026-10-21', top: true, groups: [{ name: 'Fixed', items: [
+      'Tooltips and dropdown lists in CONFIG draw on top of the demo bar instead of behind it.',
+      'Skins stay on when a loop jumps back to its start, and a render has them from its first frame.',
+      'Clicking the wear bar in Customize sets the wear where you click instead of jumping to Factory New.'] }] },
+    { title: '0.3.1', date: '2026-10-20', top: true, groups: [
+      { name: 'Updates are now up to you', items: [
+        'The launcher no longer checks for updates on its own. Turn checks on under ADVANCED > UPDATES if you want them.',
+        'GO works without internet. If the update server cannot be reached, the launcher says so once and starts CS2 with what is installed.'] },
+      { name: 'Lens flare stays off the green screen', items: [
+        'On a Players only or Gun only green screen frame, the lens flare now sits the frame out, so the chroma background stays clean for keying.'] }] },
+    { title: '0.3.0', date: '2026-10-20', top: false, groups: [{ name: 'Round heat map', items: [
+      'CONFIG > ENVIRONMENT > Scene Objects has a new Round heat map switch.'] }] },
+    { title: '0.2.1', date: '2026-10-16', top: false, groups: [{ name: 'Cameras and mouse', items: [
+      'The scroll wheel now cycles CS2\'s own demo cameras.'] }] }] };
+  // CS2's news popup (layout/popups/popup_news.xml), which What's new opens (WhatsNewJs.h): the same
+  // ids and frame, so the changelog it draws into #HTMLContainer can be reviewed here.
+  UiToolkitAPI.ShowCustomLayoutPopupParameters = function (target, layout, params) {
+    if (!ctx || !/popup_news\.xml$/.test(layout)) return null;
+    var args = {};
+    String(params || '').split('&').forEach(function (pair) { var i = pair.indexOf('='); if (i > 0) args[pair.slice(0, i)] = pair.slice(i + 1); });
+    // Sizes and colours from styles/popups/popup_news.css and popups_shared.
+    var dim = mk('Panel', ctx, 'NativeNewsPopupDim', 'native-popup-dim');
+    var popup = mk('Panel', dim, 'NativeNewsPopup', 'popup-news');
+    Object.assign(dim.style, { width: '100%', height: '100%' });
+    Object.assign(popup.style, { width: '550px', height: '700px', flowChildren: 'down', backgroundColor: '#161616ff',
+      horizontalAlign: 'center', verticalAlign: 'center' });
+    var head = mk('Panel', popup, 'id-header', 'PopupTitle');
+    Object.assign(head.style, { width: '100%', flowChildren: 'right', paddingTop: '16px', paddingBottom: '6px',
+      paddingLeft: '20px', paddingRight: '16px', backgroundColor: '#00000044' });
+    var titles = mk('Panel', head, '', 'news-title-and-date');
+    Object.assign(titles.style, { width: '95%', flowChildren: 'down' });
+    var title = mk('Label', titles, 'id-title', '', args.title || '');
+    Object.assign(title.style, { fontSize: '24px', fontWeight: 'bold', color: '#ffffffff', marginBottom: '10px' });
+    var date = mk('Label', titles, 'id-date', '', String(args.date || '').split(' ')[0]);
+    Object.assign(date.style, { fontSize: '14px', color: '#979797ff' });
+    var link = button(head, 'id-news-url-button', '', '', function () {});
+    Object.assign(link.style, { width: '24px', height: '24px', verticalAlign: 'center' });
+    var glyph = image(link, '', '', icon('link'));
+    Object.assign(glyph.style, { width: '24px', height: '24px', washColor: '#808080' });
+    var body = mk('Panel', popup, 'HTMLContainer', '');
+    Object.assign(body.style, { width: '100%', height: 'fill-parent-flow(1)' });
+    mk('Panel', body, 'spinner', 'Spinner'); mk('Panel', body, 'BlogHTML', '');
+    var foot = mk('Panel', popup, 'id-footer', '');
+    Object.assign(foot.style, { width: '90%', height: '64px', horizontalAlign: 'center' });
+    function close() { popup.DeleteAsync(0); dim.DeleteAsync(0); }
+    var done = button(foot, 'id-close-button', 'PopupButton', '', close); mk('Label', done, '', '', 'CLOSE');
+    Object.assign(done.style, { width: '100%', verticalAlign: 'center' });
+    dim.el.addEventListener('keydown', function (event) { if (event.key === 'Escape') close(); });
+    return popup;
+  };
   function publish() {
     var host = ctx.FindChildTraverse('FilmmakerMenuTab');
     if (host && $.Filmmaker) {
       host.SetAttributeString('demos', JSON.stringify(model.demos));
       host.SetAttributeString('org', JSON.stringify(model.organizer || {}));
+      host.SetAttributeString('whatsnew', JSON.stringify(model.whatsNew || WHATS_NEW));
       $.Filmmaker.render(); $.Filmmaker.renderOrg();
+      if ($.Filmmaker.renderWhatsNew) $.Filmmaker.renderWhatsNew();
     }
     var ws = ctx.FindChildTraverse('MvmPlayMenuHost');
     if (ws && $.MvmPlay) { ws.SetAttributeString('ws', JSON.stringify(model.workshop)); $.MvmPlay.renderWs(); }
@@ -371,7 +432,8 @@
   function handle(line) {
     commands.push(line); notify('Simulated: ' + line);
     var m;
-    if ((m = /^ws sort (\w+)/.exec(line))) model.workshop.sort = m[1];
+    if (line === 'whatsnew seen') model.whatsNew = Object.assign({}, model.whatsNew || WHATS_NEW, { open: false });
+    else if ((m = /^ws sort (\w+)/.exec(line))) model.workshop.sort = m[1];
     else if ((m = /^ws hide (\d)/.exec(line))) model.workshop.hideTraining = m[1] === '1';
     else if ((m = /^ws words (.*)/.exec(line))) model.workshop.words = m[1].split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
     else if (/^ws reset/.test(line)) model.workshop.words = fixture.workshop.words.slice();

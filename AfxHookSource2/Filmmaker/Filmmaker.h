@@ -94,6 +94,17 @@ std::wstring PlayingDemoPath();
 // finishes mid-session is otherwise used from the next open. False when there is nothing to switch to.
 bool DemoKeyframes_SwitchNow();
 
+// Plays `original` from `playable` (the repaired or keyframed copy the caller resolved, or an
+// alternative-environment copy of one): tears down a demo that is open first, and plays the
+// environment copy when the demo's project asks for another map (AltEnvironment/AltEnvironment.h).
+void PlayResolvedDemo(const std::wstring& original, const std::wstring& playable);
+// Reopens the open demo `original` from `file`, one of its copies, landing on the same tick and
+// keeping it playing or paused. waitForQuiet holds the switch until a quiet pause (the keyframes
+// switch); without it the switch runs at once, except during a render job or a scrub.
+bool SwitchPlayingCopy(const std::wstring& original, const std::wstring& file, bool waitForQuiet);
+// A switch is waiting, reloading or landing.
+bool SwitchingPlayingCopy();
+
 // --- Movie director (camera modes + in-game help HUD) ---
 // Input taps, called from the WndProc / input thread. Return true if the event
 // was consumed (the caller should then swallow it). Safe no-ops if unused.
@@ -145,6 +156,13 @@ bool CameraTimeline_MenuOpen();
 void CameraTimeline_PushWheel(int notches); // +1 = wheel up
 // CS2's demo-bar camera button: 0 first person, 1 chase, 2 free cam, -1 unknown. Main thread.
 int CameraTimeline_NativeCameraMode();
+// CS2's own spectator state, read off the native demo bar's panel (CameraTimelineHud.h): the
+// spectated pawn (-1 none), the observer mode (2 first, 3 chase, 4 roaming, -1 unknown), the player
+// list rows, and a request to spectate a player controller the way CS2's player list does.
+int CameraTimeline_NativeSpectatedPawn();
+int CameraTimeline_NativeObserverMode();
+const std::string& CameraTimeline_NativeDemoPlayers();
+void CameraTimeline_RequestNativeSpectate(int controllerIndex);
 
 // True while the offline mvm_test FX menu is open in UI-cursor mode. main.cpp's
 // CCSGOInput::MouseInputEnabled detour returns false while this holds so a LIVE match
@@ -199,6 +217,8 @@ bool CameraEditor_ScaledHud(float& x0, float& y0, float& x1, float& y1);
 // unconditionally while this is true, and main.cpp's GetSuspendMirvInput() ORs it in so free-cam
 // mouse-look can't compete with dragging/scrolling inside the modal.
 bool CameraEditor_CustomizeModalOpen();
+// CONFIG's CUSTOMIZE PLAYER: open the same modal over CONFIG with the editor workspace closed.
+void CameraEditor_OpenCustomizeOverConfig();
 // The Camera Editor's Editor Settings fly-out is up (its overlay takes every click).
 bool CameraEditor_PopupOpen();
 

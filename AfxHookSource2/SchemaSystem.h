@@ -125,6 +125,7 @@ struct ClientDllOffsets_t {
 
 	struct CCSPlayerController {
 		ptrdiff_t m_sSanitizedPlayerName = 0; // CUtlString
+		ptrdiff_t m_hPlayerPawn = 0; // CHandle< C_CSPlayerPawn >; optional (Customize: a dead player's body)
 	} CCSPlayerController;
 
 	struct C_BasePlayerPawn {
@@ -254,6 +255,8 @@ struct ClientDllOffsets_t {
 		// spectated one, which no weapon_fire tap can offer without a userid->pawn map.
 		// Optional/non-fatal: 0 = unresolved, and the facial squint disables itself.
 		ptrdiff_t m_iShotsFired = 0; // int32
+		// Optional: the controller that owned this pawn, kept after death (Customize: a dead player's body).
+		ptrdiff_t m_hOriginalController = 0; // CHandle< CCSPlayerController >
 	} C_CSPlayerPawn;
 
 	// READ-ONLY model-state chain for showing which agent/player-model a spectated player wears

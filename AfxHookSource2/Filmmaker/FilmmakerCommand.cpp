@@ -23,6 +23,7 @@
 #include "Panorama/GraphEditorExperimentHud.h"
 #include "PlayMenu/PlayMenuHud.h"
 #include "Community/CommunityHud.h"
+#include "Community/ToolVersion.h"
 #include "Platform/TextEncoding.h"
 #include "Movie/CamPathShake.h"
 #include "Movie/CameraPath.h"
@@ -61,6 +62,7 @@
 #include "World/WorldCommand.h" // "world": lighting / atmosphere / weather + update-day health
 #include "Environment/EnvironmentScene.h"
 #include "Heatmap/RoundHeatmap.h" // "heatmap": where the round's players walked, on the floor
+#include "AltEnvironment/AltEnvironment.h" // "altenv": the demo plays on another map
 #include "Config/FilmmakerSettingsStore.h"
 #include "Config/EffectsPersistence.h" // "effects": carry EFFECTS settings across a demo change
 #include "Render/RenderCommand.h"
@@ -113,7 +115,9 @@ void PrintHelp(const char* cmd) {
 		"%s health [verbose] - did the version-coupled machinery resolve against THIS CS2\n"
 		"   build? Run it first when things broke after a game update (see\n"
 		"   Docs/agent/cs2-update-recovery.md).\n"
-		, cmd, cmd, cmd, cmd, cmd, cmd, cmd
+		"%s whatsnew [reset] - print the installed version and open the What's new popup on the\n"
+		"   main menu; reset first forgets the version last seen, as after an update.\n"
+		, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd
 	);
 	advancedfx::Message(
 		"%s gpuprofile [on|off|reset] - GPU time of the hook's own render passes, most\n"
@@ -321,6 +325,8 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 		Filmmaker::Environment::RunCommand(args);
 	} else if (0 == _stricmp(sub, "heatmap")) {
 		Filmmaker::Heatmap::RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "altenv")) {
+		Filmmaker::AltEnvironment::RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "ragdollphys")) {
 		Filmmaker::RagdollPhysics_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "deathanim")) {
@@ -368,6 +374,11 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 	} else if (0 == _stricmp(sub, "ui")) {
 		Filmmaker::Menu().RequestShow();
 		advancedfx::Message("mirv_filmmaker: opening demos page (must be in a demo/map).\n");
+	} else if (0 == _stricmp(sub, "whatsnew")) {
+		const bool reset = argc >= 3 && 0 == _stricmp(args->ArgV(2), "reset");
+		Filmmaker::Menu().RequestWhatsNew(reset);
+		advancedfx::Message("mirv_filmmaker: SOURCE:MVM %s%s. What's new opens on the main menu.\n",
+			Filmmaker::ToolVersion_Label().c_str(), reset ? ", last seen version forgotten" : "");
 	} else if (0 == _stricmp(sub, "demoprobe")) {
 		// Diagnostic: dump the demo-path candidates the engine-scan finds for the playing demo,
 		// plus the final resolved path. Used to verify / tune ResolvePlayingDemoPath().

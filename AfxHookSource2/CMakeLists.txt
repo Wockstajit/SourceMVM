@@ -553,6 +553,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Community/HcTrackerFeed.cpp
     Filmmaker/Community/HcTrackerFeed.h
     Filmmaker/Community/HcTrackerFeedMath.h
+    Filmmaker/Community/ChangelogMath.h
+    Filmmaker/Community/ToolVersion.cpp
+    Filmmaker/Community/ToolVersion.h
     Filmmaker/Platform/HttpRequest.cpp
     Filmmaker/Platform/HttpRequest.h
     Filmmaker/Platform/ShellOpen.cpp
@@ -565,6 +568,8 @@ target_sources(${PROJECT_NAME} PRIVATE
 
     Filmmaker/Panorama/DemoOrganizerJs.h
     Filmmaker/Panorama/FilmmakerGuiJs.h
+    Filmmaker/Panorama/HeaderLayoutJs.h
+    Filmmaker/Panorama/WhatsNewJs.h
     Filmmaker/Panorama/FilmmakerMenu.cpp
     Filmmaker/Panorama/FilmmakerMenu.h
     Filmmaker/Panorama/PanoramaBridge.cpp
@@ -676,6 +681,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/MvmTest.h
     Filmmaker/Cosmetics/CosmeticUiQueries.cpp
     Filmmaker/Cosmetics/CosmeticUiQueries.h
+    Filmmaker/Cosmetics/CustomizeTarget.cpp
+    Filmmaker/Cosmetics/CustomizeTarget.h
+    Filmmaker/Cosmetics/CustomizeTargetMath.h
     Filmmaker/FilmmakerDebugCommand.cpp
     Filmmaker/FilmmakerDebugCommand.h
     Filmmaker/FilmmakerHealth.cpp
@@ -687,6 +695,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Panorama/CameraEditorWidgetsJs.h
     Filmmaker/Panorama/CameraEditorCustomizeJs.h
     Filmmaker/Panorama/CameraEditorCustomizePreviewJs.h
+    Filmmaker/Panorama/CameraEditorCustomizePlayersJs.h
+    Filmmaker/Panorama/CameraEditorCustomizeWindowJs.h
     Filmmaker/Panorama/DeathAnimPreview.cpp
     Filmmaker/Panorama/DeathAnimPreview.h
     Filmmaker/Panorama/PreviewSceneProbe.cpp
@@ -806,6 +816,21 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Heatmap/RoundHeatmap.h
     Filmmaker/Heatmap/RoundHeatmapMath.h
     Filmmaker/Heatmap/RoundHeatmapRender.cpp
+    Filmmaker/AltEnvironment/AltEnvironment.cpp
+    Filmmaker/AltEnvironment/AltEnvironment.h
+    Filmmaker/AltEnvironment/AltEnvironmentCopies.cpp
+    Filmmaker/AltEnvironment/AltEnvironmentCopies.h
+    Filmmaker/AltEnvironment/AltEnvironmentProps.cpp
+    Filmmaker/AltEnvironment/AltEnvironmentProps.h
+    Filmmaker/AltEnvironment/AltEnvironmentSceneProbe.cpp
+    Filmmaker/AltEnvironment/AltEnvironmentSceneProbe.h
+    Filmmaker/AltEnvironment/AltEnvironmentMath.h
+    Filmmaker/Demo/DemoWorldSwap.cpp
+    Filmmaker/Demo/DemoWorldSwap.h
+    Filmmaker/Platform/LocalImageServer.cpp
+    Filmmaker/Platform/LocalImageServer.h
+    Filmmaker/Platform/PngWrite.h
+    Filmmaker/Platform/SnappyDecode.h
     Filmmaker/Lens/LensFxMath.h
     Filmmaker/Lens/LensFxShaders.h
     Filmmaker/Movie/RecoilPivotMarker.cpp
@@ -1096,6 +1121,9 @@ foreach(ao_target AfxHookSource2)
 endforeach()
 
 install(FILES ../Resources/LICENSES/DxilHash/LICENSE.txt DESTINATION "bin/resources/LICENSES/DxilHash" COMPONENT x64-source2)
+
+# The What's new popup (the top bar's WHAT'S NEW button) reads the changelog beside the hook (Community/ToolVersion.cpp).
+install(FILES ../CHANGELOG.md DESTINATION "bin/resources" COMPONENT x64-source2)
 
 target_sources(AfxHookSource2 PRIVATE Filmmaker/World/SmokeAppearance.cpp)
 

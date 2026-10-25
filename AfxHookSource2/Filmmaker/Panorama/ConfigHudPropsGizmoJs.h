@@ -216,7 +216,10 @@ R"CFJS(
       // gizmo hook, which picks again when a click misses its arrows).
       // The light dots and the hover outline show on the whole tab, also while a light or mesh is
       // being moved (its own gizmo then owns the clicks).
-      var editing = shown && !s.envEditing;
+      // The MAP view (ConfigHudAltEnvironmentJs.h) covers the preview while it is open: the view
+      // is its, so nothing here picks, hovers or catches clicks under it.
+      var mapView = root.GetAttributeString('mapviewopen', '0') === '1';
+      var editing = shown && !s.envEditing && !mapView;
       propsOverlay.visible = shown;
       if (!shown) {
         if (propsHoverSent) { propsCommand('hoverat -1 -1'); propsHoverSent = false; }
@@ -240,7 +243,7 @@ R"CFJS(
       var u = (mx - x) / w, v = (my - y) / h, aspect = w / h;
       var inside = mx >= x && mx < x + clipW && my >= y && my < y + h;
       // A popup, slider drag, open menu or resize grip owns its press, even over the preview.
-      var free = !!s.cursor && inside && !settingsPopup.isOpen() && !cfgDragging() && !cfgDropOpen;
+      var free = !!s.cursor && inside && !mapView && !settingsPopup.isOpen() && !cfgDragging() && !cfgDropOpen;
       var pressed = down && !propsPointerDown, moved = Math.abs(u - propsLastU) + Math.abs(v - propsLastV) > 0.0015;
       // Hover: what a click here would pick, asked for as the cursor moves (not mid-drag, placing
       // or painting, where the cursor is busy with something else).
@@ -250,7 +253,7 @@ R"CFJS(
       var hover = propsHoverSent ? p.hover : null;
       if (propsMenuRequest) {
         propsMenuRequest = false;
-        if (inside && !placing && !painting && !propsGrabbing) {
+        if (inside && !mapView && !placing && !painting && !propsGrabbing) {
           propsCommand('pick ' + u.toFixed(4) + ' ' + v.toFixed(4));
           propsMenuPending = { was: p.selected || 0, wasEnv: s.envSelected || 0, at: Date.now() };
         }

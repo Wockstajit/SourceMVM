@@ -301,6 +301,7 @@ struct Corpse {
 	int pawnIndex = -1;
 	CEntityInstance* pawn = nullptr;
 	CEntityInstance* carrier = nullptr;
+	int carrierIndex = -1; // BodySet::carrierIndex
 	// Where the bodies came from: 0 = the carrier's model-state aggregate, 1 = the pawn's ragdoll
 	// control. `aggregate` is that object.
 	int route = 0;
@@ -370,8 +371,20 @@ BodySet SetOf(CEntityInstance* carrier, int route, void* object, void* const bod
 	return set;
 }
 
+// Whether the entity that carries a corpse's bodies still exists, decided WITHOUT touching it: the
+// pawn and the carrier (the pawn itself, or its client-side ragdoll) are both still in the entity
+// slots they were acquired from. RagdollBodies::Current alone reads the carrier and then calls into
+// its aggregate; once the game has removed that ragdoll its freed memory can still read like the
+// old one, and the call runs whatever now lives there. That is how the settle watch below
+// corrupted CS2's heap (crash at localize.dll from RagdollBodies::ReadBody, 2026-10-24).
+bool CarrierAlive(int pawnIndex, CEntityInstance* pawn, CEntityInstance* carrier, int carrierIndex) {
+	if (EntityAt(pawnIndex) != pawn) return false;
+	return carrier == pawn || (carrierIndex >= 0 && EntityInSlot(carrierIndex) == carrier);
+}
+
 bool Current(Corpse& c) {
-	return EntityAt(c.pawnIndex) == c.pawn && RagdollBodies::Current(SetOf(c.carrier, c.route, c.aggregate, c.bodies));
+	return CarrierAlive(c.pawnIndex, c.pawn, c.carrier, c.carrierIndex)
+		&& RagdollBodies::Current(SetOf(c.carrier, c.route, c.aggregate, c.bodies));
 }
 
 // The whole clip-space pose at `t`, with the limbs kept out of the body (the donor skeletons fold
@@ -535,6 +548,7 @@ struct Settle {
 	int pawnIndex = -1;
 	CEntityInstance* pawn = nullptr;
 	CEntityInstance* carrier = nullptr;
+	int carrierIndex = -1;
 	int route = 0;
 	void* aggregate = nullptr;
 	void* bodies[kBodies] = {};
@@ -556,7 +570,8 @@ void WatchSettle(const Corpse& c, const char* why) {
 	for (Settle& s : g_settles) {
 		if (s.active) continue;
 		s = Settle{};
-		s.pawnIndex = c.pawnIndex; s.pawn = c.pawn; s.carrier = c.carrier; s.route = c.route; s.aggregate = c.aggregate;
+		s.pawnIndex = c.pawnIndex; s.pawn = c.pawn; s.carrier = c.carrier; s.carrierIndex = c.carrierIndex;
+		s.route = c.route; s.aggregate = c.aggregate;
 		std::memcpy(s.bodies, c.bodies, sizeof(s.bodies));
 		s.clip = c.clip;
 		s.start = g_MirvTime.curtime_get();
@@ -572,6 +587,15 @@ void PumpSettles(double now) {
 	for (Settle& s : g_settles) {
 		if (!s.active) continue;
 		if (now < s.start - 0.05) { s.active = false; continue; }
+		// Every frame, before any body is read: the watch outlives the clip, and the game may remove
+		// the ragdoll at any point of it (see CarrierAlive).
+		if (!CarrierAlive(s.pawnIndex, s.pawn, s.carrier, s.carrierIndex)
+			|| !RagdollBodies::Current(SetOf(s.carrier, s.route, s.aggregate, s.bodies))) {
+			s.active = false;
+			MvmDebugLog_LinefAlways("deathanim.settle", "clip=%s why=%s lost=corpse after=%.2f path=%.1f lateSpeed=%.0f",
+				g_lib.clips[s.clip].name.c_str(), s.why, now - s.start, s.path, s.lateSpeed);
+			continue;
+		}
 		if (now - s.start < kSettleSeconds) {
 			Pose p; int m = 0;
 			if (now > s.lastTime + 1e-4 && ReadBody(s.bodies[kPelvis], p, m)) {
@@ -586,11 +610,6 @@ void PumpSettles(double now) {
 			continue;
 		}
 		s.active = false;
-		if (EntityAt(s.pawnIndex) != s.pawn || !RagdollBodies::Current(SetOf(s.carrier, s.route, s.aggregate, s.bodies))) {
-			MvmDebugLog_LinefAlways("deathanim.settle", "clip=%s why=%s lost=corpse path=%.1f lateSpeed=%.0f",
-				g_lib.clips[s.clip].name.c_str(), s.why, s.path, s.lateSpeed);
-			continue;
-		}
 		Pose rest[kBodies];
 		bool ok = true;
 		for (int i = 0; i < kBodies && ok; ++i) { int m = 0; ok = ReadBody(s.bodies[i], rest[i], m); }
@@ -668,6 +687,7 @@ bool Acquire(Corpse& c, char* why, size_t whySize) {
 	BodySet set;
 	if (!RagdollBodies::Acquire(c.pawn, set, why, whySize)) return false;
 	c.carrier = set.carrier;
+	c.carrierIndex = set.carrierIndex;
 	c.route = set.route;
 	c.aggregate = set.object;
 	std::memcpy(c.bodies, set.bodies, sizeof(c.bodies));
@@ -1306,7 +1326,9 @@ void DeathAnimations_RunFrame() {
 void DeathAnimations_RunLateFrame() {
 	if (!g_enabled || !MvmDebugLog_Active()) return;
 	for (Corpse& c : g_corpses) {
-		if (c.phase != Phase::Playing || (c.frames > 45 && g_traceBody != 12) || EntityAt(c.pawnIndex) != c.pawn) continue;
+		// Current(), not just the pawn: this runs after the engine's own frame handler, which may
+		// have removed the ragdoll since Drive last checked it.
+		if (c.phase != Phase::Playing || (c.frames > 45 && g_traceBody != 12) || !Current(c)) continue;
 		Pose hand; int motion = 0;
 		if (!ReadBody(c.bodies[12], hand, motion)) continue;
 		float att[3] = {}, attQ[4] = {}, origin[3] = {};

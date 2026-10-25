@@ -61,6 +61,9 @@ public:
 
         void Finalize(){
             PassOrdinal = -1;
+            SkipLens = false;
+            KeepCleanColor = false;
+            HoldLensFocus = false;
             BeginReliable.Clear();
 			EndReliable.Clear();
             BeforeUi.Clear();
@@ -82,6 +85,17 @@ public:
         // Set on the ENGINE thread when the pass begins; consumed on the render thread at
         // dequeue to re-sync the in-stream pass ordinal (see RenderThread_PassOrdinal).
         int PassOrdinal = -1;
+
+        // The lens post pass (depth of field, flare) for this render of a recording, set on the
+        // ENGINE thread when the render begins and read at its BeforeUi boundary
+        // (Docs/features/filmmaker_render_passes.md, "Lens effects").
+        //   SkipLens       -- no Beauty plate is taken from this render, so the lens sits it out.
+        //   KeepCleanColor -- Key, Depth and Normal passes and the Gun only reference read this
+        //                     render's colour from before the lens.
+        //   HoldLensFocus  -- autofocus keeps the distance the Main render settled on this frame.
+        bool SkipLens = false;
+        bool KeepCleanColor = false;
+        bool HoldLensFocus = false;
 
         CQueue<Fn> BeginReliable;
         

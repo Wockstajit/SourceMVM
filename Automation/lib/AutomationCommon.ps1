@@ -92,6 +92,129 @@ function Copy-NewerCs2HookBuildDll {
     }
 }
 
+# The hook a checkout would launch on its own, and when it was built: its staged DLL, or a newer
+# completed build the launch stages first (Copy-NewerCs2HookBuildDll). Null when the checkout
+# cannot launch by itself (no staged hook and injector, or no native host): a launch from there
+# would bootstrap a downloaded runtime instead.
+function Get-Cs2CheckoutHook {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot
+    )
+
+    $bin = @('build\source2-release\bin', 'build\staging-release\bin', 'build\portable-runtime\bin') |
+        ForEach-Object { Join-Path $RepositoryRoot $_ } |
+        Where-Object { (Test-Path -LiteralPath (Join-Path $_ 'x64\AfxHookSource2.dll')) -and (Test-Path -LiteralPath (Join-Path $_ 'x64\injector.exe')) } |
+        Select-Object -First 1
+    # The hosts launch-cs2-netcon.ps1 accepts, including the one ensure-packages.ps1 bootstraps.
+    $nativeHost = @('SourceMovieMakerLauncher\host\build\SourceMovieMakerHost.exe',
+        'SourceMovieMakerLauncher\release\win-unpacked\resources\host\SourceMovieMakerHost.exe',
+        'build\portable-runtime\bin\SourceMovieMakerHost.exe') |
+        ForEach-Object { Join-Path $RepositoryRoot $_ } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $bin -or -not $nativeHost) { return $null }
+    $built = (Get-Item -LiteralPath (Join-Path $bin 'x64\AfxHookSource2.dll')).LastWriteTimeUtc
+    $newestBuild = Get-NewestCs2HookBuildDll -RepositoryRoot $RepositoryRoot
+    if ($newestBuild) {
+        $buildTime = (Get-Item -LiteralPath $newestBuild).LastWriteTimeUtc
+        if ($buildTime -gt $built) { $built = $buildTime }
+    }
+    return [pscustomobject]@{ Root = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\'); Built = $built }
+}
+
+# This repository's checkouts a hook may be tested from: the main checkout and every worktree on a
+# branch, as { Root, Branch }. A detached worktree is a release or bisect tree, not work under test.
+function Get-Cs2RepositoryCheckouts {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot
+    )
+
+    $lines = @()
+    try { $lines = @(& git -C $RepositoryRoot worktree list --porcelain 2>$null) } catch { }
+    $global:LASTEXITCODE = 0
+    $checkouts = @()
+    $path = $null; $branch = $null
+    foreach ($line in ($lines + '')) {
+        if ($line -like 'worktree *') { $path = $line.Substring(9); $branch = $null }
+        elseif ($line -like 'branch refs/heads/*') { $branch = $line.Substring(18) }
+        elseif ($line -eq '') {
+            if ($path -and $branch -and (Test-Path -LiteralPath $path)) {
+                $checkouts += [pscustomobject]@{ Root = [IO.Path]::GetFullPath($path).TrimEnd('\'); Branch = $branch }
+            }
+            $path = $null; $branch = $null
+        }
+    }
+    return $checkouts
+}
+
+# The checkout whose hook is the newest launchable build, when that is another checkout than
+# `RepositoryRoot`; null when this checkout's own is newest (ties stay here) or nothing else can
+# launch. `Checkouts` defaults to Get-Cs2RepositoryCheckouts; each candidate is { Root, Branch }.
+# Returns { Root, Branch, Built, OwnBuilt }.
+function Find-NewerCs2HookCheckout {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot,
+        [object[]]$Checkouts
+    )
+
+    if ($null -eq $Checkouts) { $Checkouts = @(Get-Cs2RepositoryCheckouts -RepositoryRoot $RepositoryRoot) }
+    $here = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\')
+    $own = Get-Cs2CheckoutHook -RepositoryRoot $here
+    $best = $null
+    foreach ($checkout in $Checkouts) {
+        if ([IO.Path]::GetFullPath($checkout.Root).TrimEnd('\') -ieq $here) { continue }
+        $hook = Get-Cs2CheckoutHook -RepositoryRoot $checkout.Root
+        if (-not $hook) { continue }
+        if ($own -and $hook.Built -le $own.Built) { continue }
+        if ($best -and $hook.Built -le $best.Built) { continue }
+        $best = [pscustomobject]@{ Root = $hook.Root; Branch = $checkout.Branch; Built = $hook.Built; OwnBuilt = $(if ($own) { $own.Built } else { $null }) }
+    }
+    return $best
+}
+
+# live.bat's -NewestHook. When another checkout of this repository holds a newer launchable hook
+# build, run the same launcher from there, with its own stage, shaders and resources, and return
+# its exit code. Returns $null when this checkout's hook is the newest, so the caller launches as
+# usual. Only live.bat passes the switch: automation launches the checkout it runs in, because an
+# agent's verification has to run the code it just built.
+function Invoke-NewestHookCheckout {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$ScriptName,
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IDictionary]$BoundParameters,
+        [object[]]$Checkouts   # Find-NewerCs2HookCheckout's; tests pass fixtures
+    )
+
+    $newer = Find-NewerCs2HookCheckout -RepositoryRoot $RepositoryRoot -Checkouts $Checkouts
+    if (-not $newer) { return $null }
+    $target = Join-Path $newer.Root (Join-Path 'Automation\launch' $ScriptName)
+    if (-not (Test-Path -LiteralPath $target)) { return $null }
+    $own = if ($newer.OwnBuilt) { $newer.OwnBuilt.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } else { 'none' }
+    Write-Host ("The newest hook build is on {0}, built {1} (this checkout's: {2}). Launching from {3}" -f `
+        $newer.Branch, $newer.Built.ToLocalTime().ToString('yyyy-MM-dd HH:mm'), $own, $newer.Root) -ForegroundColor Cyan
+    $forward = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $target)
+    foreach ($key in $BoundParameters.Keys) {
+        if ($key -eq 'NewestHook') { continue }
+        $value = $BoundParameters[$key]
+        if ($value -is [System.Management.Automation.SwitchParameter]) {
+            if ($value.IsPresent) { $forward += "-$key" }
+        } elseif (-not [string]::IsNullOrEmpty([string]$value)) {
+            # Windows PowerShell drops an empty native argument, which would leave the name without its value.
+            $forward += "-$key"; $forward += [string]$value
+        }
+    }
+    & powershell.exe @forward | Out-Host
+    return $LASTEXITCODE
+}
+
 # Where Counter-Strike 2 is installed on THIS machine.
 #
 # Every launch/verify script used to carry the author's own library path as its parameter

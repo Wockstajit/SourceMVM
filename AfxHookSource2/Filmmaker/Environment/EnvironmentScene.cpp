@@ -18,6 +18,7 @@
 #include "../Panorama/ConfigHud.h"
 #include "EnvironmentBakedLighting.h"
 #include "EnvironmentOcclusion.h"
+#include "../AltEnvironment/AltEnvironment.h" // WorldMoved: the map data no longer matches the world
 #include "EnvironmentSurfaceMath.h"
 #include "../Config/FilmmakerSettingsStore.h"
 #include "../Config/EffectsPersistence.h"
@@ -550,6 +551,7 @@ std::string ObjectName(const Object &o) {
     return name;
 }
 } // namespace
+std::filesystem::path MapDataFolder() { return Root() / "occlusion"; }
 // Overlay a copy: CONFIG, undo snapshots and autosaves retain authored values.
 static Scene AnimatedScene(Scene scene) {
     const auto rig = RigTransient::Read();
@@ -586,7 +588,12 @@ std::map<std::string,std::vector<double>> CaptureAnimationValues() {
 void RunMainThreadFrame() {
     std::lock_guard<std::mutex> lock(g_mutex);
     auto map = CurrentMap();
-    UpdateMapOcclusion(map, Root() / "occlusion");
+    // A replacement world placed at an offset (AltEnvironment.h) is not where its map data says it
+    // is, and shadows or relighting from that data would land beside the walls they belong to.
+    if (AltEnvironment::WorldMoved())
+        HoldMapOcclusion("Map data off: this demo plays on " + map + " moved to line up with the demo, and the map data is not moved with it.");
+    else
+        UpdateMapOcclusion(map, MapDataFolder());
     UpdateAutosave(map);
     if (g_restoreAutosave) return;
     const auto geometry=MapOcclusion();

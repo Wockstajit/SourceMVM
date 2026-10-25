@@ -18,12 +18,16 @@
 
 #include "../../ClientEntitySystem.h" // CEntityInstance, entity-list globals, CBaseHandle
 #include "../../SchemaSystem.h"        // g_clientDllOffsets, g_cosmeticsOffsetsOk
+#include "../../DeathMsg.h"            // g_CurrentGameCamera (observer probe)
+#include "../Filmmaker.h"              // CameraTimeline_NativeCameraMode (observer probe)
+#include "../Debug/MvmDebugLog.h"
 
 #include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
 
 #include "../../../Shared/AfxConsole.h"
 
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -866,6 +870,115 @@ bool Cosmetics_GetSpectatedWeaponMeshHud(CosmeticMeshHudInfo* out) {
 	out->vmMask = vmMesh;
 	out->ok = true;
 	return true;
+}
+
+// ---- Observer probe ("cosmetics observerprobe") ---------------------------------------------------
+// Read-only. Answers "who is the camera on, and which of our resolvers can see it": the local
+// split-screen controller, the pawn its m_hPawn names and that pawn's observer services, then every
+// player pawn with its own observer mode/target, health and render-eye distance to the game camera,
+// next to what AfxGetSpectatedPawnIndex / Held / UserId and the demo bar's camera label return.
+// Written to the console and (always) to the mvm_debug log so a third-person or free-cam session can
+// be compared with first person line by line.
+
+struct ObserverProbeRow {
+	bool ok = false;
+	bool pawn = false;
+	bool controller = false;
+	int health = 0;
+	int team = 0;
+	int obsMode = 0;
+	int obsTarget = -1;
+	int controllerIndex = -1;
+	int originalController = -1;
+	int pawnIndex = -1;
+	int playerPawn = -1;
+	float eye[3] = {};
+	const char* cls = nullptr;
+};
+
+static void ProbeEntity(CEntityInstance* ent, ObserverProbeRow* r) {
+	*r = ObserverProbeRow{};
+	if (!ent) return;
+	__try {
+		r->cls = ent->GetClientClassName();
+		r->pawn = ent->IsPlayerPawn();
+		r->controller = ent->IsPlayerController();
+		r->team = ent->GetTeam();
+		if (r->pawn) {
+			r->health = (int)ent->GetHealth();
+			r->obsMode = ent->GetObserverMode();
+			const SOURCESDK::CS2::CBaseHandle t = ent->GetObserverTarget();
+			r->obsTarget = t.IsValid() ? t.GetEntryIndex() : -1;
+			const SOURCESDK::CS2::CBaseHandle c = ent->GetPlayerControllerHandle();
+			r->controllerIndex = c.IsValid() ? c.GetEntryIndex() : -1;
+			if (g_clientDllOffsets.C_CSPlayerPawn.m_hOriginalController) {
+				const SOURCESDK::CS2::CBaseHandle oc = SOURCESDK::CS2::CEntityHandle::CEntityHandle(*(unsigned int*)((unsigned char*)ent + g_clientDllOffsets.C_CSPlayerPawn.m_hOriginalController));
+				r->originalController = oc.IsValid() ? oc.GetEntryIndex() : -1;
+			}
+			ent->GetRenderEyeOrigin(r->eye);
+		}
+		if (r->controller) {
+			const SOURCESDK::CS2::CBaseHandle p = ent->GetPlayerPawnHandle();
+			r->pawnIndex = p.IsValid() ? p.GetEntryIndex() : -1;
+			if (g_clientDllOffsets.CCSPlayerController.m_hPlayerPawn) {
+				const SOURCESDK::CS2::CBaseHandle pp = SOURCESDK::CS2::CEntityHandle::CEntityHandle(*(unsigned int*)((unsigned char*)ent + g_clientDllOffsets.CCSPlayerController.m_hPlayerPawn));
+				r->playerPawn = pp.IsValid() ? pp.GetEntryIndex() : -1;
+			}
+		}
+		r->ok = true;
+	} __except (1) {
+		r->ok = false;
+	}
+}
+
+void Cosmetics_PrintObserverProbe(const char* cmd) {
+	const double* camO = g_CurrentGameCamera.origin;
+	const double* camA = g_CurrentGameCamera.angles;
+	int observerTarget = -1;
+	const int observerMode = AfxGetLocalObserverState(&observerTarget);
+	const int raw = AfxGetSpectatedPawnIndex();
+	const int held = AfxGetSpectatedPawnIndexHeld();
+	const int userId = AfxGetSpectatedUserId();
+	const int label = CameraTimeline_NativeCameraMode();
+	char line[512];
+	std::snprintf(line, sizeof(line),
+		"camera=%.1f %.1f %.1f ang=%.1f %.1f label=%d localObserver mode=%d target=%d raw=%d held=%d userId=%d",
+		camO[0], camO[1], camO[2], camA[0], camA[1], label, observerMode, observerTarget, raw, held, userId);
+	advancedfx::Message("%s cosmetics observerprobe: %s\n", cmd, line);
+	MvmDebugLog_LinefAlways("customize.observerprobe", "%s", line);
+
+	if (CEntityInstance* viewer = AfxGetLocalViewerPawn()) {
+		const SOURCESDK::CS2::CBaseHandle h = viewer->GetHandle();
+		std::snprintf(line, sizeof(line), "localViewerPawn=%d", h.IsValid() ? h.GetEntryIndex() : -2);
+	} else {
+		std::snprintf(line, sizeof(line), "localViewerPawn=-1");
+	}
+	advancedfx::Message("%s cosmetics observerprobe: %s\n", cmd, line);
+	MvmDebugLog_LinefAlways("customize.observerprobe", "%s", line);
+
+	const int highest = GetHighestEntityIndex();
+	for (int i = 0; i <= highest; ++i) {
+		CEntityInstance* ent = CosmeticDebugRead::EntFromIndex(i);
+		if (!ent) continue;
+		ObserverProbeRow r;
+		ProbeEntity(ent, &r);
+		if (!r.ok || (!r.pawn && !r.controller)) continue;
+		if (r.pawn) {
+			const double dx = r.eye[0] - camO[0], dy = r.eye[1] - camO[1], dz = r.eye[2] - camO[2];
+			std::snprintf(line, sizeof(line),
+				"pawn %d class=%s team=%d health=%d obsMode=%d obsTarget=%d controller=%d originalController=%d eye=%.1f %.1f %.1f eyeDist=%.1f",
+				i, r.cls ? r.cls : "?", r.team, r.health, r.obsMode, r.obsTarget, r.controllerIndex, r.originalController,
+				r.eye[0], r.eye[1], r.eye[2], std::sqrt(dx * dx + dy * dy + dz * dz));
+		} else {
+			const char* name = nullptr;
+			uint64_t steam = 0;
+			__try { name = ent->GetSanitizedPlayerName(); steam = ent->GetSteamId(); } __except (1) { name = nullptr; }
+			std::snprintf(line, sizeof(line), "controller %d class=%s team=%d pawn=%d playerPawn=%d steam=%llu name=%s",
+				i, r.cls ? r.cls : "?", r.team, r.pawnIndex, r.playerPawn, (unsigned long long)steam, name ? name : "?");
+		}
+		advancedfx::Message("%s cosmetics observerprobe: %s\n", cmd, line);
+		MvmDebugLog_LinefAlways("customize.observerprobe", "%s", line);
+	}
 }
 
 } // namespace Filmmaker

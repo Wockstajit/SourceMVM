@@ -6,6 +6,7 @@
 #include "../Demo/DemoLibrary.h"
 #include "../Demo/DemoRepair.h"
 #include "../Demo/DemoOrganizer.h"
+#include "../Community/ToolVersion.h" // What's new payload + its two commands
 
 #include "../../DeathMsg.h" // CS2::PanoramaUIPanel offsets
 #include "../../UiInputGate.h" // pause-menu level for the director input gate
@@ -32,9 +33,11 @@ void FilmmakerMenu::BuildUi() {
 	m_symCmd = m_bridge.MakeSymbol("cmd");
 	m_symDemos = m_bridge.MakeSymbol("demos");
 	m_symOrg = m_bridge.MakeSymbol("org");
+	m_symWhatsNew = m_bridge.MakeSymbol("whatsnew");
 	m_built = (m_rootPanel != nullptr);
 	m_lastVersion = (uint64_t)-1; // force a data push
 	m_lastOrgVersion = (uint64_t)-1;
+	m_whatsNewPushed = false;
 	m_lastRepairSignature.clear();
 
 	// Intentionally do NOT pin the context to our page: $.Filmmaker lives in the
@@ -63,6 +66,25 @@ void FilmmakerMenu::PushOrganizer() {
 	const std::string json = DemoOrganizer_BuildJson();
 	m_bridge.SetAttributeString(m_rootPanel, m_symOrg, json.c_str());
 	m_bridge.RunScript("$.Filmmaker && $.Filmmaker.renderOrg();");
+}
+
+void FilmmakerMenu::PushWhatsNew() {
+	if (!m_rootPanel || m_symWhatsNew < 0)
+		return;
+	const std::string json = ToolVersion_WhatsNewJson();
+	m_bridge.SetAttributeString(m_rootPanel, m_symWhatsNew, json.c_str());
+	m_bridge.RunScript("$.Filmmaker && $.Filmmaker.renderWhatsNew && $.Filmmaker.renderWhatsNew();");
+	if (m_whatsNewOpen) {
+		m_whatsNewOpen = false;
+		m_bridge.RunScript("$.Filmmaker && $.Filmmaker.whatsNew && $.Filmmaker.whatsNew();");
+	}
+	m_whatsNewPushed = true;
+}
+
+void FilmmakerMenu::RequestWhatsNew(bool forget) {
+	if (forget) ToolVersion_ForgetWhatsNewSeen();
+	m_whatsNewPushed = false;
+	m_whatsNewOpen = true;
 }
 
 void FilmmakerMenu::PollCommands(DemoLibrary& library) {
@@ -115,6 +137,10 @@ void FilmmakerMenu::PollCommands(DemoLibrary& library) {
 		} else if (line == "clearall") {
 			// Clears the browser only. Demo files remain on disk and can be restored.
 			library.HideAllVisible();
+		} else if (line == "whatsnew seen") {
+			ToolVersion_MarkWhatsNewSeen();
+		} else if (line == "whatsnew changelog") {
+			ToolVersion_OpenChangelogOnline();
 		}
 	}
 }
@@ -201,6 +227,9 @@ void FilmmakerMenu::RunFrame(DemoLibrary& library) {
 		PushOrganizer();
 		m_lastOrgVersion = orgVersion;
 	}
+
+	if (!m_whatsNewPushed)
+		PushWhatsNew();
 
 	PollCommands(library);
 

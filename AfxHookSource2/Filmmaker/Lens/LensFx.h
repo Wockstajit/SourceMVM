@@ -75,10 +75,15 @@ void LensFx_EndDevice();
 // world-to-clip matrix for this frame (16 floats); `depthMin`/`depthMax` are the world viewport's
 // depth band (CS2 keeps the rest for the 3D skybox). Returns true when something was drawn.
 // The sun: a unit direction toward it in world space (see "the sun" in LensFxMath.h).
-// `keyPass` is true while the frame is a key (green screen) pass, live preview or render job:
-// the flare is then held back, because its additive ghosts, glow and dirt would paint over the
-// chroma background and the keyed subject's edges, and nothing in the compositor could key them
-// out again. Depth of field still runs; the flare belongs on the composited picture instead.
+// `keyPass` is true while the console green screen (render greenscreen) repaints the scene: the
+// flare is then held back, because its additive ghosts, glow and dirt would paint over the chroma
+// background and the keyed subject's edges, and nothing in the compositor could key them out again.
+// A render job's Key, Depth and Normal passes never see the lens at all: they are built from the
+// scene before it (RenderPassCompositor.h, KeepCleanColor).
+// `holdFocus`: an extra render of a recorded frame. Autofocus keeps the distance the Main render
+// found instead of chasing this render's own depth, so every Beauty plate of the frame shares one
+// focus and the extra renders do not drag the next frame's focus toward a scene without the gun
+// or the players.
 struct LensSun {
 	bool have = false;
 	float dir[3] = {};
@@ -86,6 +91,6 @@ struct LensSun {
 
 bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	ID3D11DepthStencilView* depth, const float* worldToClip, float depthMin, float depthMax,
-	const LensSmoke& smoke, const LensSun& sun, bool keyPass);
+	const LensSmoke& smoke, const LensSun& sun, bool keyPass, bool holdFocus);
 
 } // namespace Filmmaker

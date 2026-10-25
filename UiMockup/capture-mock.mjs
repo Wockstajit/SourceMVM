@@ -33,6 +33,15 @@ const VIEWS = {
   sky_orientation: "surface=confighud&live=0&cmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.gotoTab('effects')%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('fx.packs'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('weather.card'%2C1)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.cardPage('weather.card'%2C1)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.scrollTo(0)",
   sky_tint: "surface=confighud&live=0&cmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.gotoTab('effects')%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('fx.packs'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('weather.card'%2C1)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.cardPage('weather.card'%2C2)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.scrollTo(0)",
   sky_clouds: "surface=confighud&live=0&cmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.gotoTab('effects')%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('fx.packs'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('weather.card'%2C1)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.cardPage('weather.card'%2C3)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.scrollTo(0)",
+  // ENVIRONMENT > MAP (alternative environment): the card alone, then the MAP VIEW with a Workshop
+  // remake picked, then after AUTO ALIGN (the mock's floor plans line up at a known offset).
+  altenv_card: "surface=confighud&precmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.gotoTab('environment')%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.map'%2C1)",
+  altenv_view: "surface=confighud&precmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.gotoTab('environment')%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.map'%2C1)%3Bmirv_filmmaker%20altenv%20view%20on%3Bmirv_filmmaker%20altenv%20pick%20de_dust2_n",
+  altenv_aligned: "surface=confighud&precmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.gotoTab('environment')%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.map'%2C1)%3Bmirv_filmmaker%20altenv%20view%20on%3Bmirv_filmmaker%20altenv%20pick%20de_dust2_n%3Bmirv_filmmaker%20altenv%20auto",
+  // The map view left open, then another card selected: the preview comes back.
+  altenv_other_card: "surface=confighud&precmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.gotoTab('environment')%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.map'%2C1)%3Bmirv_filmmaker%20altenv%20view%20on%3Bmirv_filmmaker%20altenv%20pick%20de_dust2_n%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.sky'%2C1)",
+  // EFFECTS > ATMOSPHERE on its LOOK sub-page (the card's longest page), which must fit unscrolled.
+  atmos_look: "surface=confighud&precmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.gotoTab('effects')%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('atmos.card'%2C1)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.cardPage('atmos.card'%2C1)",
   // The boot state: what a person sees when the page (and the game) opens -- nothing of ours up.
   env_overview: "surface=confighud&click=label:ENVIRONMENT&cmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.looks'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.sky'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.light'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.fog'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.wx'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.scene'%2C0)",
   env_looks: "surface=confighud&click=label:ENVIRONMENT&cmd=mirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.looks'%2C1)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.sky'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.light'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.fog'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.wx'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.card('env.scene'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.cardPage('env.looks'%2C0)%3Bmirv_filmmaker%20config%20eval%20%24.ConfigHud.scrollTo(0)",
@@ -100,6 +109,16 @@ const VIEWS = {
   // Design 7b: the always-open picker on a grouped slot (knives, inside one model) and the agent pane.
   customize_knife:        'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeOpenPicker(\x27knife\x27);mirv_filmmaker editor eval $.CamEditor.customizeOpenPicker(\x27knife\x27)') + '&hold=1500',
   customize_agent:        'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeOpenPicker(\x27agent\x27);mirv_filmmaker editor eval $.CamEditor.customizeOpenPicker(\x27agent\x27)') + '&hold=1500',
+  // The player menu behind the name in the title bar: T and CT side by side, dead players dimmed
+  // (zont1x has a last-seen loadout, huNter- only their body's gloves).
+  customize_players:      'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizePlayerMenu(true)') + '&hold=800',
+  customize_dead:         'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker cosmetics pick 15') + '&hold=1500',
+  // The window's other sizes, and one dragged to the corner.
+  customize_compact:      'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeSize(\x27compact\x27)') + '&hold=1500',
+  customize_collapsed:    'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeSize(\x27collapsed\x27);mirv_filmmaker editor eval $.CamEditor.customizePlayerMenu(true)') + '&hold=800',
+  customize_moved:        'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeSize(\x27compact\x27);mirv_filmmaker editor eval $.CamEditor.customizeMove(1100,40)') + '&hold=1500',
+  // CONFIG's CUSTOMIZE PLAYER: the same modal over CONFIG, the editor workspace closed.
+  customize_config:       'surface=confighud&cmd=' + encodeURIComponent('mirv_filmmaker config customize') + '&hold=2500',
   // Per-player death animations (design 8c): the picker with its first clip selected and playing,
   // then with a body-map region filtering the list.
   deathanim_picker:       'surface=confighud&act=Death clip preview&hold=2500',

@@ -289,11 +289,15 @@ LRESULT CALLBACK new_Afx_WindowProc(
 		// Same queue for the Customize search boxes and the Render workspace's typed number
 		// fields: an in-game HUD Panorama TextEntry never gets real keyboard focus, so we
 		// capture the character here and hand it to the JS ourselves.
+		if(Filmmaker::CameraEditor_CustomizeModalOpen()) {
+			Filmmaker::CameraEditor_CustomizePushChar((unsigned)wParam);
+			return 0;
+		}
 		if(Filmmaker::ConfigHud_TextCaptureActive()) {
 			Filmmaker::ConfigHud_PushChar((unsigned)wParam);
 			return 0;
 		}
-		if(Filmmaker::CameraEditor_CustomizeModalOpen() || Filmmaker::CameraEditor_TextCaptureActive()) {
+		if(Filmmaker::CameraEditor_TextCaptureActive()) {
 			Filmmaker::CameraEditor_CustomizePushChar((unsigned)wParam);
 			return 0;
 		}

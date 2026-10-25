@@ -159,6 +159,11 @@ std::filesystem::path Vpk::ArchivePath(uint16_t index) const {
 
 bool Vpk::Contains(const std::string &path) const { return m_entries.count(Lower(path)) != 0; }
 
+uint64_t Vpk::Size(const std::string &path) const {
+    const auto it = m_entries.find(Lower(path));
+    return it == m_entries.end() ? 0 : uint64_t(it->second.preloadBytes) + it->second.length;
+}
+
 bool Vpk::Read(const std::string &path, std::vector<uint8_t> &out) const {
     const auto it = m_entries.find(Lower(path));
     if (it == m_entries.end()) return false;

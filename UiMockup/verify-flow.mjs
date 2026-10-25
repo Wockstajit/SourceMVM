@@ -211,11 +211,11 @@ const CASES = [
     q: 'surface=demobar&drag=MirvSpeedRow,70',
     check: (g, s) => typeof s.state.speed === 'number' && Math.abs(s.state.speed - 1) > 0.05 },
   { name: 'states stack: two at once, both applied',
-    q: 'surface=cameraeditor&act=No POV (free roam)|Mouse: GAME',
-    check: (g, s) => s.state.povReady === false && s.state.cursor === false },
+    q: 'surface=cameraeditor&act=Nobody to customize|Mouse: GAME',
+    check: (g, s) => s.state.customize.players.length === 0 && s.state.cursor === false },
   { name: 'states toggle: pressing one again undoes only that one',
-    q: 'surface=cameraeditor&act=No POV (free roam)|Mouse: GAME|Mouse: GAME',
-    check: (g, s) => s.state.povReady === false && s.state.cursor === true },
+    q: 'surface=cameraeditor&act=Nobody to customize|Mouse: GAME|Mouse: GAME',
+    check: (g, s) => s.state.customize.players.length === 0 && s.state.cursor === true },
   // The demo bar's one swap button: it names the workspace you are NOT in, and takes you there.
   // This is the button the whole CONFIG <-> CAM EDITOR round trip hangs off.
   { name: "Config bar offers CAM EDITOR (not CONFIG)",

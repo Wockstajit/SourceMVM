@@ -4,11 +4,15 @@
 #include "DemoProjectStoreMath.h"
 
 #include <string>
+#include <vector>
 
 namespace Filmmaker {
 
 std::wstring DemoProjectStore_Root();
 std::wstring DemoProjectStore_ProjectDirectory(ProjectGame game, const std::wstring& demoPath);
+// Every other demo's project folder of this game, for the "one demo keeps its copies" cleanups
+// (DemoKeyframes_KeepOnly, AltEnvironment::KeepOnly).
+std::vector<std::wstring> DemoProjectStore_OtherProjectDirectories(ProjectGame game, const std::wstring& demoPath);
 
 // Creates the per-demo folder and its project.mvm container. Empty when AppData cannot be used.
 std::wstring DemoProjectStore_EnsureProjectDirectory(ProjectGame game, const std::wstring& demoPath);

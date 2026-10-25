@@ -53,11 +53,12 @@ const UI = {
 };
 
 function harness(withLighting = false) {
-  const buttons = [], sliders = [], toggles = [], modes = [], sent = [], cards = [], groups = [], pickers = [], colorFields = [];
+  const buttons = [], sliders = [], toggles = [], modes = [], sent = [], cards = [], groups = [], pickers = [], colorFields = [], labels = [], created = [];
   const panel = () => ({
     style: {}, visible: true, hittest: true, hittestchildren: true,
     SetPanelEvent(event, handler) { this[event] = handler; },
     SetAttributeString(key, value) { this[key] = value; },
+    SetImage(url) { this.src = url; },
     RemoveAndDeleteChildren() {},
     GetChild() { return { style: {}, text: '' }; }
   });
@@ -116,7 +117,7 @@ function harness(withLighting = false) {
     S: new Proxy({}, { get: (_, key) => (typeof key === 'string' ? '#000000ff' : undefined) }),
     mk: panel, row: panel, footerCard: panel, subHead: panel, endTileLine() {}, attachTip() {},
     section,
-    lbl: (parent, text) => label(text),
+    lbl: (parent, text) => { const l = label(text); l.parent = parent; labels.push(l); return l; },
     btn: (parent, text, onClick) => button(text, onClick),
     wideBtn: (parent, text, onClick) => button(text, onClick),
     tabify: (b) => b, styleTab() {}, setBtnOn() {},
@@ -172,7 +173,10 @@ function harness(withLighting = false) {
     cmd: (s) => sent.push(s),
     // Panorama globals the CS2-asset preview touches: it registers $.ConfigHudProps and builds its
     // 3D panel only when a model is shown, which these tests never do.
-    $: { Schedule() {}, Msg() {}, CreatePanel: () => panel() }
+    // Images get their load events by hand: `panel.__on.ImageLoaded()` is Panorama finishing a load.
+    $: { Schedule() {}, Msg() {},
+      CreatePanel: (type, parent, id) => { const p = panel(); p.type = type; p.id = id || ''; created.push(p); return p; },
+      RegisterEventHandler(event, p, fn) { (p.__on || (p.__on = {}))[event] = fn; } }
   };
   vm.createContext(context);
   vm.runInContext(nav + climate + fragment + (withLighting ? read('ConfigHudLightingTabJs.h') : ''), context);
@@ -225,13 +229,13 @@ function harness(withLighting = false) {
     assert.ok(c, 'expected a card titled ' + title);
     return c;
   };
-  return { context, buttons, sliders, toggles, modes, sent, cards, groups, pickers, colorFields, render, slider, press, toggle, card };
+  return { context, buttons, sliders, toggles, modes, sent, cards, groups, pickers, colorFields, labels, created, render, slider, press, toggle, card };
 }
 
 
-test('seven task cards, one page each with groups as dividers', () => {
+test('eight task cards, one page each with groups as dividers', () => {
   const h=harness();h.render();
-  assert.deepEqual(h.cards.map(c=>c.title), ['LOOKS','SKY','LIGHTING','FOG','WEATHER','SCENE OBJECTS','ROUND HEAT MAP']);
+  assert.deepEqual(h.cards.map(c=>c.title), ['LOOKS','SKY','LIGHTING','FOG','WEATHER','SCENE OBJECTS','ROUND HEAT MAP','MAP']);
   // 2026-10 sidebar cleanup: a card is ONE page with group headings; sub-tabs stay only where a
   // page would not fit the pane (Scene Objects).
   assert.deepEqual(h.card('LOOKS').groups.map(p=>p.head),['Presets','Color','Lens']);
@@ -244,6 +248,152 @@ test('seven task cards, one page each with groups as dividers', () => {
   // The scene preset menu lives in the LOOKS header now.
   assert.ok(h.context.envPresetBtn,'preset button exists');
   assert.equal(h.sent.length,0,'rendering alone changes no state');
+});
+// ENVIRONMENT > World > MAP (ConfigHudAltEnvironmentJs.h): the card sends `mirv_filmmaker altenv`
+// commands and says what the open demo plays on.
+test('MAP card picks, aligns, plays and goes back through altenv commands', () => {
+  const h = harness();
+  const base = { demo: true, demoMap: 'de_inferno', demoTitle: 'Inferno', pick: '', pickTitle: '', pickAddon: '',
+    enabled: false, copy: false, applied: '', appliedTitle: '', draft: { x: 0, y: 0, z: 0, yaw: 0 }, dirty: false,
+    view: false, building: false, progress: 0, auto: false, autoProgress: 0, status: '', error: '', maps: [] };
+  h.render([], 0, { altenv: { ...base } });
+  assert.equal(h.sent.length, 0, 'rendering alone changes nothing');
+  assert.equal(h.card('MAP').note, 'Its own map');
+  h.press('CHOOSE MAP');
+  assert.deepEqual(h.sent.splice(0), ['mirv_filmmaker altenv view on', 'mirv_filmmaker altenv maps']);
+  // Picked, not played yet: the play button names the map; AUTO ALIGN and the sliders write the draft.
+  h.render([], 0, { altenv: { ...base, pick: 'de_inferno_night', pickTitle: 'Inferno Night', pickAddon: '3124567099', dirty: true,
+    fit: { floor: 0.97, players: 1, samples: 900 } } });
+  assert.equal(h.card('MAP').note, 'Inferno Night \u00b7 not played yet');
+  const play = h.press('PLAY ON INFERNO NIGHT');
+  assert.equal(play.__off, false);
+  h.press('AUTO ALIGN');
+  h.slider('Turn').opts.onChange(37);
+  assert.deepEqual(h.sent.splice(0), ['mirv_filmmaker altenv apply', 'mirv_filmmaker altenv auto',
+    'mirv_filmmaker altenv align 0 0 0 37.00 quiet']);
+  // Playing on it: nothing to play again, and the way back names the demo's own map.
+  h.render([], 0, { altenv: { ...base, pick: 'de_inferno_night', pickTitle: 'Inferno Night', enabled: true, copy: true,
+    applied: 'de_inferno_night', appliedTitle: 'Inferno Night' } });
+  const playing = h.buttons.find((b) => b.__lbl.text === 'PLAYING ON INFERNO NIGHT');
+  assert.ok(playing && playing.__off, 'the play button is spent while the copy plays');
+  h.press('BACK TO INFERNO');
+  assert.deepEqual(h.sent.splice(0), ['mirv_filmmaker altenv off']);
+  // No demo open: nothing to choose for.
+  h.render([], 0, { altenv: { ...base, demo: false } });
+  assert.ok(h.buttons.find((b) => b.__lbl.text === 'CHOOSE MAP').__off);
+});
+test('MAP card Reset clears the alignment on the map it plays on, never the map itself', () => {
+  const h = harness();
+  const base = { demo: true, demoMap: 'de_inferno', demoTitle: 'Inferno', pick: 'de_inferno_night', pickTitle: 'Inferno Night',
+    enabled: true, copy: true, applied: 'de_inferno_night', appliedTitle: 'Inferno Night', draft: { x: 0, y: 0, z: 0, yaw: 0 }, maps: [] };
+  const map = h.card('MAP');
+  assert.deepEqual([...map.resets], ['mirv_filmmaker altenv reset'], 'BACK TO ... is the way back to the demo\'s own map');
+  h.render([], 0, { altenv: { ...base } });
+  assert.ok(map.resetBtn.__off, 'nothing to reset with no offset');
+  h.render([], 0, { altenv: { ...base, draft: { x: 64, y: 0, z: 0, yaw: 0 } } });
+  assert.equal(map.resetBtn.__off, false);
+  assert.ok(!h.buttons.find((b) => b.__lbl.text === 'NO OFFSET'), 'the header Reset is the one way to no offset');
+  // The tab footer runs the same reset; going back to the map is not part of it, so no question.
+  const spec = h.context.__footerResolve();
+  for (const c of map.resets) assert.ok(spec.cmds.includes(c), 'RESET ENVIRONMENT sends ' + c);
+  assert.ok(!spec.cmds.includes('mirv_filmmaker altenv off'));
+  assert.equal(spec.confirm(), null);
+  // The demo map's own props: a switch that applies at once.
+  const props = h.toggle('Demo map props');
+  h.render([], 0, { altenv: { ...base, props: false } });
+  assert.equal(props.on, false);
+  props.click();
+  assert.equal(h.sent.at(-1), 'mirv_filmmaker altenv props toggle');
+  h.render([], 0, { altenv: { ...base, props: true } });
+  assert.equal(props.on, true);
+});
+test('MAP view publishes mapviewopen only while its card is selected', () => {
+  const h = harness();
+  h.context.cfgPreviewRect = { x: 0, y: 0, w: 960, h: 540 };
+  const base = { demo: true, demoMap: 'de_inferno', demoTitle: 'Inferno', pick: '', view: true, draft: { x: 0, y: 0, z: 0, yaw: 0 }, maps: [] };
+  h.context.cfgRails.environment.sel = 'env.map';
+  h.render([], 0, { altenv: base });
+  assert.equal(h.context.root.mapviewopen, '1');
+  h.context.cfgRails.environment.sel = 'env.sky';
+  h.render([], 0, { altenv: base });
+  assert.equal(h.context.root.mapviewopen, '0', 'another card gets its preview back');
+  h.context.cfgRails.environment.sel = 'env.map';
+  h.render([], 0, { altenv: { ...base, view: false } });
+  assert.equal(h.context.root.mapviewopen, '0');
+});
+test('MAP view says where the walked paths land on the picked map', () => {
+  const h = harness();
+  h.context.cfgPreviewRect = { x: 0, y: 0, w: 960, h: 540 };
+  h.context.cfgRails.environment.sel = 'env.map';
+  const pic = (name) => ({ url: 'http://127.0.0.1:1/' + name + '?1', x0: -2000, y0: -1000, w: 4000, h: 3000, pw: 500, ph: 375 });
+  const base = { demo: true, demoMap: 'de_inferno', demoTitle: 'Inferno', pick: 'de_inferno_night', pickTitle: 'Inferno Night', view: true,
+    draft: { x: 0, y: 0, z: 0, yaw: 0 }, maps: [], demoPic: pic('demo.png'), mapPic: pic('map.png') };
+  const chip = (kind) => h.labels.find((l) => l.text.endsWith('% ' + kind));
+  // The shares C++ counted for the alignment being edited (AltEnvironment.cpp "landing").
+  h.render([], 0, { altenv: { ...base, landing: { on: 0.974, floating: 0.006, under: 0.02, outside: 0 } } });
+  assert.deepEqual(['on the map', 'floating', 'under it', 'outside it'].map((k) => chip(k).text),
+    ['97% on the map', '1% floating', '2% under it', '0% outside it']);
+  assert.equal(chip('on the map').parent.visible, true);
+  assert.match(h.labels.find((l) => l.text.startsWith('Grey: ')).text, /Coloured: Inferno's floor and where its players walked, by where they land/);
+  h.render([], 0, { altenv: { ...base, landing: { on: 0.05, floating: 0.32, under: 0.16, outside: 0.47 } } });
+  assert.equal(chip('outside it').text, '47% outside it', 'the chips follow the alignment');
+  // Nothing counted yet, or no map picked: no chips, and the layer is the plain orange one.
+  h.render([], 0, { altenv: { ...base } });
+  assert.equal(chip('on the map').parent.visible, false);
+  assert.match(h.labels.find((l) => l.text.startsWith('Grey: ')).text, /Orange: Inferno's walls/);
+  h.render([], 0, { altenv: { ...base, pick: '', mapPic: undefined, landing: { on: 1, floating: 0, under: 0, outside: 0 } } });
+  assert.equal(chip('on the map').parent.visible, false, 'counts for an unpicked map are not shown');
+  assert.equal(h.sent.length, 0, 'drawing the view changes nothing');
+});
+test('MAP view swaps recoloured pictures only once they have loaded, newest first', () => {
+  const h = harness();
+  h.context.cfgPreviewRect = { x: 0, y: 0, w: 960, h: 540 };
+  h.context.cfgRails.environment.sel = 'env.map';
+  const pic = (v) => ({ url: 'http://127.0.0.1:1/t/altenv/demo.png?v=' + v, x0: -2000, y0: -1000, w: 4000, h: 3000, pw: 500, ph: 375 });
+  const base = { demo: true, demoMap: 'de_inferno', pick: 'de_inferno_night', view: true, draft: { x: 0, y: 0, z: 0, yaw: 0 }, maps: [],
+    mapPic: { ...pic(0), url: 'http://127.0.0.1:1/t/altenv/map.png?v=0' } };
+  const [a, b] = ['MvmAltEnvDemoA', 'MvmAltEnvDemoB'].map((id) => h.created.find((p) => p.id === id));
+  const shown = () => [a, b].filter((p) => p.style.opacity === '1');
+  h.render([], 0, { altenv: { ...base, demoPic: pic(1) } });
+  assert.equal(a.src, pic(1).url, 'the first picture loads into A');
+  assert.equal(shown().length, 0, 'nothing to show before it has loaded');
+  a.__on.ImageLoaded();
+  assert.deepEqual(shown(), [a]);
+  // A recolour loads behind the picture on screen, which stays until the new one is in.
+  h.render([], 0, { altenv: { ...base, demoPic: pic(2) } });
+  assert.equal(b.src, pic(2).url);
+  assert.deepEqual(shown(), [a], 'no blank frame while it loads');
+  // Two more arrive while it loads: the in-between one is skipped, the newest follows.
+  h.render([], 0, { altenv: { ...base, demoPic: pic(3) } });
+  h.render([], 0, { altenv: { ...base, demoPic: pic(4) } });
+  assert.equal(a.src, pic(1).url, 'one load at a time');
+  b.__on.ImageLoaded();
+  assert.deepEqual(shown(), [b]);
+  assert.equal(a.src, pic(4).url, 'the newest picture loads next; v=3 never does');
+  // A failed load keeps the picture on screen and is not asked for again.
+  a.__on.ImageFailedLoad();
+  assert.deepEqual(shown(), [b]);
+  h.render([], 0, { altenv: { ...base, demoPic: pic(4) } });
+  assert.equal(a.src, pic(4).url);
+  h.render([], 0, { altenv: { ...base, demoPic: pic(5) } });
+  assert.equal(a.src, pic(5).url, 'the next picture is tried');
+  a.__on.ImageLoaded();
+  assert.deepEqual(shown(), [a]);
+  const stats = h.context.$.ConfigHudMapView.stats();
+  assert.deepEqual([stats.asked, stats.shown, stats.failed], [4, 3, 1]);
+});
+test('the open MAP view keeps its clicks, drags and wheel from CS2 and the object picker', () => {
+  const src = (p) => fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/' + p, import.meta.url), 'utf8');
+  // C++ treats it as a popup: no camera wheel cycling, no right-press look, no GAME switch.
+  assert.match(src('Panorama/ConfigHud.cpp'), /m_mapViewOpen = m_root && \(m_bridge\.GetAttributeString\(m_root, m_symMapViewOpen, "0"\) == "1"\);\s*m_popupOpen = m_mapViewOpen \|\|/);
+  // A right press over it never reaches CS2's spectator (previous player); the cursor pipe has it.
+  assert.match(src('Movie/MovieMode.cpp'), /button == 1 && IsDemoActive\(\) && ConfigHud_MapViewOpen\(\) && ClickInput\(x, y\)\.preview\.Contains/);
+  // Neither preview editor picks, hovers or hit-tests under it.
+  const props = readOwn('ConfigHudPropsGizmoJs.h'), gizmo = readOwn('ConfigHudEnvironmentGizmoJs.h');
+  assert.match(props, /var editing = shown && !s\.envEditing && !mapView;/);
+  assert.match(props, /var free = !!s\.cursor && inside && !mapView &&/);
+  assert.match(gizmo, /envOverlay\.hittest = editing && !mapView;/);
+  assert.match(gizmo, /var inside = !mapView &&/);
 });
 test('Sun page sends independent light and shadow commands and respects takeover',()=>{
   const h=harness(true);h.render([],0,{engineLights:true,bakedLighting:true,bakedShadows:true,dynamicShadows:false});

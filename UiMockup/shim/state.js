@@ -54,6 +54,45 @@
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
+  // A ten-player roster for Customize Player: donk is spectated, two players are dead (one with a
+  // last-seen loadout, one with nothing but their body's gloves and agent), and one name is long
+  // enough to make the player list wrap.
+  function makeCustomize() {
+    function w(entityIndex, defIndex, paintKit, wear) {
+      return { entityIndex: entityIndex, defIndex: defIndex, paintKit: paintKit, wear: wear, pickup: false, ownerSteamId: '', ownerName: '' };
+    }
+    function loadout(pawn, ctrl, steam, name, team, active, primary, secondary, knife, gloves, agent) {
+      return {
+        pawnIndex: pawn, controllerIndex: ctrl, key: 'steam:' + steam, steamId: steam, name: name, team: team,
+        activeWeaponIndex: primary ? primary.entityIndex : -1, activeWeaponDefIndex: active,
+        activeWeaponOwnerSteamId: '', activeWeaponOwnerName: '', activeWeaponPickup: false,
+        weapons: { primary: primary, secondary: secondary, knife: knife, gloves: gloves }, agentModel: agent
+      };
+    }
+    var T_AGENT = 'agents/models/tm_phoenix/tm_phoenix.vmdl', CT_AGENT = 'agents/models/ctm_sas/ctm_sas.vmdl';
+    var rows = [
+      [12, 3, '76561199063068840', 'donk', 2, true, false, 7, w(214, 7, 675, 0.06), w(215, 61, 38, 0.02), w(216, 42, 0, 0), { defIndex: 5027, paintKit: 10037, wear: 0.15 }, T_AGENT],
+      [13, 4, '76561198034202275', 'sh1ro', 2, true, false, 9, w(220, 9, 344, 0.03), w(221, 4, 0, 0), w(222, 507, 409, 0.01), null, T_AGENT],
+      [15, 6, '76561198146734573', 'zont1x', 2, false, true, 7, w(230, 7, 180, 0.12), w(231, 4, 0, 0), w(232, 42, 0, 0), null, T_AGENT],
+      [16, 7, '76561198995880877', 'xX_FlickGod_Supreme_2026_Xx', 2, true, false, 7, w(240, 7, 0, 0), w(241, 4, 0, 0), w(242, 42, 0, 0), null, T_AGENT],
+      [17, 8, '76561198119236104', 'magixx', 2, true, false, 32, null, w(251, 32, 0, 0), w(252, 42, 0, 0), null, T_AGENT],
+      [14, 5, '76561198386265483', 'm0NESY', 3, true, false, 9, w(233, 9, 344, 0.11), w(234, 1, 0, 0), w(235, 42, 0, 0), { defIndex: 5030, paintKit: 10047, wear: 0.22 }, CT_AGENT],
+      [18, 9, '76561198068422762', 'NiKo', 3, true, false, 7, w(260, 16, 309, 0.07), w(261, 61, 0, 0), w(262, 500, 0, 0), null, CT_AGENT],
+      [19, 10, '76561197991348083', 'huNter-', 3, false, false, 0, null, null, null, { defIndex: 5030, paintKit: 10048, wear: 0.31 }, CT_AGENT],
+      [20, 11, '76561198012872053', 'kyxsan', 3, true, false, 61, null, w(281, 61, 504, 0.04), w(282, 500, 0, 0), null, CT_AGENT],
+      [21, 2, '76561198176878303', 'Snax', 3, true, false, 9, w(290, 9, 0, 0), w(291, 61, 0, 0), w(292, 500, 0, 0), null, CT_AGENT]
+    ];
+    var players = rows.map(function (r) {
+      return {
+        controller: r[0], pawn: r[1], alive: r[5], team: r[4], slot: r[0] - 12, name: r[3],
+        key: 'steam:' + r[2], steamId: r[2], lastSeen: r[6],
+        loadout: loadout(r[1], r[0], r[2], r[3], r[4], r[7], r[8], r[9], r[10], r[11], r[12])
+      };
+    });
+    players.sort(function (a, b) { return (a.team - b.team) || (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1); });
+    return { target: 12, source: 'spectated', spectated: 12, players: players };
+  }
+
   function makeState() {
     var st = {
       // ---- navigation truth ---------------------------------------------------
@@ -73,6 +112,7 @@
         editorOpen: false,      // CameraEditorHud::m_enabled
         renderOpen: false,      // Render_IsModalOpen (a modal ON the editor)
         customizeOpen: false,   // the Customize Player modal was asked for
+        customizeOverConfig: false, // ...over CONFIG ('config customize'), the editor workspace closed
         blackout: false         // HudBlackout_Active (F8)
       },
       // Movie/TimelineDock.cpp: the tab is remembered across closes; host/hosted/visible are what
@@ -106,7 +146,6 @@
       demo: true,              // demo playback (not a live mvm_test map)
       cursor: true,            // UI owns the mouse
       cursorForced: false,
-      povReady: true,
       mvmDebug: false,
       hudView: 'full',
       hudScale: 1.0,
@@ -305,6 +344,25 @@
       envAssets: ['barrel', 'crate_stack'],
       envTextures: ['concrete_albedo', 'concrete_normal'],
       envPresets: ['Dusk storm', 'Overcast morning'],
+      // Filmmaker/AltEnvironment: AltEnvironment.cpp AppendStateJson. The mock demo is on de_dust2; the
+      // maps list mirrors a real install's mix of official maps and Workshop items (titles as published).
+      altenv: { demo: true, demoMap: 'de_dust2', demoTitle: 'Dust2', pick: '', pickTitle: '', pickAddon: '',
+        enabled: false, copy: false, applied: '', appliedTitle: '', draft: { x: 0, y: 0, z: 0, yaw: 0 },
+        saved: { x: 0, y: 0, z: 0, yaw: 0 }, dirty: false, view: false, building: false, progress: 0, auto: false,
+        autoProgress: 0, status: '', error: '', picStatus: '', feetStatus: '', feet: 0, mapsBusy: false,
+        maps: [
+          { m: 'ar_shoots_night', t: 'Shoots Night' }, { m: 'cs_italy', t: 'Italy' }, { m: 'cs_office', t: 'Office' },
+          { m: 'de_ancient', t: 'Ancient' }, { m: 'de_ancient_night', t: 'Ancient Night' }, { m: 'de_anubis', t: 'Anubis' },
+          { m: 'de_inferno', t: 'Inferno' }, { m: 'de_mirage', t: 'Mirage' }, { m: 'de_nuke', t: 'Nuke' },
+          { m: 'de_overpass', t: 'Overpass' }, { m: 'de_train', t: 'Train' }, { m: 'de_vertigo', t: 'Vertigo' },
+          { m: 'de_dust2_n', t: 'Dust 2 Night', a: '3447707473' }, { m: 'dust_2_rain', t: 'Rainy Dust 2', a: '3415606747' },
+          { m: 'de_inferno_night', t: 'Inferno Night', a: '3124567099' }, { m: 'de_inferno_rain', t: 'Rainy Inferno', a: '3488478228' },
+          { m: 'mirage_night', t: 'MIRAGE NIGHT (Ночной мираж)', a: '3654981325', tiny: true },
+          { m: 'de_mirage_rain', t: 'Rainy Mirage', a: '3415616810' }, { m: 'de_overpass_night', t: 'Overpass Night', a: '3285124923' },
+          { m: 'anubis_night', t: 'Anubis Night', a: '3558688961' }, { m: 'cache_rain', t: 'Nightly Cache', a: '3761056512' },
+          { m: 'liminal2', t: 'Liminal 2', a: '3246090357' }, { m: 'cs_motel_night', t: 'Night Motel', a: '3720109255' },
+          { m: 'refrag_warmup', t: 'Refrag.gg - Aim, Movement, Crosshair, Prefire!', a: '3416003536' }
+        ] },
       // Filmmaker/Heatmap: RoundHeatmap.cpp AppendStateJson. players -1 = the grid is still building.
       heatmap: { on: false, radius: 1500, teams: 'all', state: 'off', round: 4, rounds: 18, players: 10, error: '' },
       // Filmmaker/Props: Props_AppendStateJson. total -1 = catalog not loaded until the first search.
@@ -374,45 +432,14 @@
       },
 
       // ---- Customize Player -------------------------------------------------
-      // The modal reads the SELECTED target, not the roster, so it needs its own copy or it
-      // opens onto an empty loadout. Shape: CosmeticUiQueries.cpp BuildCustomizeTargetJson /
-      // BuildCustomizePlayersJson (pawn index keys). The per-player death animation picker lists
-      // these players too (shim/commands.js deathAnimPlayers).
-      customizeTarget: {
-        pawnIndex: 3, controllerIndex: 12, key: 'steam:76561199063068840', steamId: '76561199063068840', name: 'donk', team: 2,
-        activeWeaponIndex: 214, activeWeaponDefIndex: 7, activeWeaponOwnerSteamId: '', activeWeaponOwnerName: '', activeWeaponPickup: false,
-        weapons: {
-          primary: { entityIndex: 214, defIndex: 7, paintKit: 675, wear: 0.06, pickup: false, ownerSteamId: '', ownerName: '' },
-          secondary: { entityIndex: 215, defIndex: 61, paintKit: 38, wear: 0.02, pickup: false, ownerSteamId: '', ownerName: '' },
-          knife: { entityIndex: 216, defIndex: 42, paintKit: 0, wear: 0, pickup: false, ownerSteamId: '', ownerName: '' },
-          gloves: { defIndex: 5027, paintKit: 10037, wear: 0.15 }
-        },
-        agentModel: 'agents/models/tm_phoenix/tm_phoenix.vmdl'
-      },
-      customizePlayers: {
-        '3': {
-          pawnIndex: 3, controllerIndex: 12, key: 'steam:76561199063068840', steamId: '76561199063068840', name: 'donk', team: 2,
-          activeWeaponIndex: 214, activeWeaponDefIndex: 7, activeWeaponOwnerSteamId: '', activeWeaponOwnerName: '', activeWeaponPickup: false,
-          weapons: {
-            primary: { entityIndex: 214, defIndex: 7, paintKit: 675, wear: 0.06, pickup: false, ownerSteamId: '', ownerName: '' },
-            secondary: { entityIndex: 215, defIndex: 61, paintKit: 38, wear: 0.02, pickup: false, ownerSteamId: '', ownerName: '' },
-            knife: { entityIndex: 216, defIndex: 42, paintKit: 0, wear: 0, pickup: false, ownerSteamId: '', ownerName: '' },
-            gloves: { defIndex: 5027, paintKit: 10037, wear: 0.15 }
-          },
-          agentModel: 'agents/models/tm_phoenix/tm_phoenix.vmdl'
-        },
-        '5': {
-          pawnIndex: 5, controllerIndex: 14, key: 'steam:76561198386265483', steamId: '76561198386265483', name: 'm0NESY', team: 3,
-          activeWeaponIndex: 233, activeWeaponDefIndex: 9, activeWeaponOwnerSteamId: '', activeWeaponOwnerName: '', activeWeaponPickup: false,
-          weapons: {
-            primary: { entityIndex: 233, defIndex: 9, paintKit: 344, wear: 0.11, pickup: false, ownerSteamId: '', ownerName: '' },
-            secondary: { entityIndex: 234, defIndex: 1, paintKit: 0, wear: 0, pickup: false, ownerSteamId: '', ownerName: '' },
-            knife: { entityIndex: 235, defIndex: 42, paintKit: 0, wear: 0, pickup: false, ownerSteamId: '', ownerName: '' },
-            gloves: { defIndex: 5030, paintKit: 10047, wear: 0.22 }
-          },
-          agentModel: 'agents/models/ctm_sas/ctm_sas.vmdl'
-        }
-      },
+      // Cosmetics/CustomizeTarget.cpp CustomizeTarget_StateJson: the target controller, where it
+      // came from, the spectated controller, and every T/CT player -- alive or dead -- with the
+      // loadout the modal shows (CosmeticUiQueries.cpp BuildCustomizeTargetJson; a dead player's is
+      // the last one read while alive). The death animation picker lists these players too
+      // (shim/commands.js deathAnimPlayers). customizeHost / customizeLayout are CameraEditorHud's.
+      customize: makeCustomize(),
+      customizeHost: 'editor',
+      customizeLayout: '',
 
       // ---- persisted UI state (tabs + collapsible cards) --------------------
       uiConfigTab: 'camera',

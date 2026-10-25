@@ -29,12 +29,12 @@ These addresses and layouts describe this binary snapshot, not update-stable con
 
 ## Using the controls
 
-Open CONFIG > EFFECTS > ATMOSPHERE > SMOKE SHAPE. Changing a slider enables
+Open CONFIG > EFFECTS > ATMOSPHERE > LOOK. Changing a slider enables
 Custom appearance. Switching it off restores native rendering while keeping the
 slider values; Reset appearance restores the shipped defaults and switches it off.
 Settings are saved with the existing settings store and Effects carry-over preference.
-For cell size, grid count and cloud scale, open ATMOSPHERE > SMOKE > Smoke volume.
-The Smoke page holds the Color, Smoke look and Smoke volume sub-tabs.
+For cell size, grid count and cloud scale, open ATMOSPHERE > VOLUME.
+The card's sub-tabs are SMOKE (colour), LOOK, VOLUME and WORLD TINT.
 Its Custom smoke toggle controls the same override as Custom appearance.
 Reset appearance, Reset smoke, the Atmosphere card reset and the bottom Reset Effects
 button all restore defaults and switch the override off.

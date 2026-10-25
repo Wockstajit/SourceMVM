@@ -187,6 +187,18 @@ R"EDJS(
     // staging, the pickup routing and every command around it are untouched; what changed is where it
     // draws -- a slot row instead of a dropdown bar, a pane instead of a popup.
     var CUST_TILE_W = 162, CUST_TILE_H = 118, CUST_TILE_GAP = 8, CUST_TILE_COLS = 3;
+    // The tile width (layout px) that puts CUST_TILE_COLS tiles and their gaps on a line `lineW`
+    // device px wide at UI scale `scale`, never wider than the design's CUST_TILE_W. Panorama snaps
+    // each width and margin to whole device px and adds them up, and the card's 1px border stays a
+    // whole device px at any scale, so 3 x 162 + 2 x 8 = 502 can stop fitting the 504px column below
+    // 1080p: at 854 x 480 the column is 223 device px and the tiles 72 + 4 + 72 + 4 + 72 = 224. The
+    // tile is floored in device px here instead (sizePane applies it).
+    function custTileFitW(lineW, scale) {
+      if (!(lineW > 0) || !(scale > 0)) return CUST_TILE_W;
+      var gap = Math.ceil(CUST_TILE_GAP * scale);
+      var tile = Math.floor((lineW - (CUST_TILE_COLS - 1) * gap) / CUST_TILE_COLS);
+      return Math.min(CUST_TILE_W, Math.floor(tile / scale * 100) / 100);
+    }
     var CUST_SCROLL_STEP = 64;          // px scrolled per wheel notch
     var custSlotRecs = {};              // slot -> picker rec, for the active-pane plumbing below
     var custActiveSlot = 'primary';     // the slot whose pane is showing (and whose row is gold)
@@ -309,7 +321,7 @@ R"EDJS(
       rowsView.style.width = '100%'; rowsView.style.height = 'fill-parent-flow(1.0)'; rowsView.style.marginTop = '10px';
       rowsView.style.overflow = 'clip'; rowsView.style.flowChildren = 'none';
       var rows = mk('Panel', rowsView); rows.hittest = true;
-      rows.style.width = '100%'; rows.style.flowChildren = 'right-wrap';
+      rows.style.width = '100%'; rows.style.flowChildren = 'down';   // one line of tiles each (tileShell)
       // Scroll cues, shown only in a direction that still has content (see sizePane).
       var fadeTop = mk('Panel', rowsView); fadeTop.hittest = false; fadeTop.visible = false;
       fadeTop.style.width = '100%'; fadeTop.style.height = '22px'; fadeTop.style.verticalAlign = 'top';
@@ -455,17 +467,24 @@ R"EDJS(
 )EDJS"
 R"EDJS(
       // ---- tiles ---------------------------------------------------------------------------
-      // 3 columns of 118px tiles with an 8px gap, built into a right-wrap row at a fixed tile width
-      // (Panorama has no grid). Each tile: the artwork, the name in its rarity colour with a ✔ when
-      // equipped or "N finishes ›" on a model tile, and a 3px rarity bar along the bottom.
+      // 3 tiles of 118px to a line, with an 8px gap (Panorama has no grid). Each line is its own
+      // panel rather than a share of one right-wrap row, so a tile a pixel too wide is never pushed
+      // onto the next row (a wrap also staggered every row after it). The width is CUST_TILE_W until
+      // sizePane() has measured the line, then rec.tileW (custTileFitW).
+      // Each tile: the artwork, the name in its rarity colour with a ✔ when equipped or
+      // "N finishes ›" on a model tile, and a 3px rarity bar along the bottom.
       // Hover/selected paint has to come from onmouseover/onmouseout (there is no :hover here), and
       // ONE resolver owns the paint so a mouseout cannot revert the selected fill.
-      var tileIdx = 0;
+      var tileIdx = 0, tileLine = null;
       function tileShell(color, isSel, tipText) {
-        var t = mk('Panel', rows); t.hittest = true;
-        t.style.width = CUST_TILE_W + 'px'; t.style.height = CUST_TILE_H + 'px';
+        if ((tileIdx % CUST_TILE_COLS) === 0) {
+          tileLine = mk('Panel', rows); tileLine.hittest = false; tileLine.hittestchildren = true;
+          tileLine.style.width = '100%'; tileLine.style.flowChildren = 'right';
+          tileLine.style.marginBottom = CUST_TILE_GAP + 'px';
+        }
+        var t = mk('Panel', tileLine); t.hittest = true;
+        t.style.width = (rec.tileW || CUST_TILE_W) + 'px'; t.style.height = CUST_TILE_H + 'px';
         t.style.marginRight = ((tileIdx % CUST_TILE_COLS) === CUST_TILE_COLS - 1) ? '0px' : (CUST_TILE_GAP + 'px');
-        t.style.marginBottom = CUST_TILE_GAP + 'px';
         t.style.flowChildren = 'down'; t.style.borderRadius = '4px'; t.style.overflow = 'clip';
         tileIdx++;
         t.__hot = false;
@@ -480,6 +499,13 @@ R"EDJS(
         t.__paint();
         return t;
       }
+      // Gives every tile already built the current rec.tileW (sizePane calls it when that changes).
+      rec.fitTiles = function () {
+        for (var i = 0; i < rows.GetChildCount(); i++) {
+          var line = rows.GetChild(i);
+          for (var j = 0; j < line.GetChildCount(); j++) line.GetChild(j).style.width = rec.tileW + 'px';
+        }
+      };
       function tileBody(t, meta, color, name, sub, subColor, dimArt) {
         var art = mk('Panel', t); art.hittest = false;
         art.style.width = '100%'; art.style.height = 'fill-parent-flow(1.0)';
@@ -509,8 +535,8 @@ R"EDJS(
       function isStockMeta(meta) { return rarTierOf(meta) <= 0 && !((parseInt(meta.paint || 0, 10) || 0) > 0) && slot !== 'agent'; }
       // One item tile. Clicking picks it; the pane stays open.
       function buildRow(o) {
-        if (!rowPassesFilters(o)) return;
-        if (rec.grouped && rec.navGroup && groupOf(o) && groupOf(o) !== rec.navGroup) return;
+        if (!rowPassesFilters(o)) return false;
+        if (rec.grouped && rec.navGroup && groupOf(o) && groupOf(o) !== rec.navGroup) return false;
         var meta = o[2] || {};
         var stock = isStockMeta(meta);
         var color = stock ? '#c8d3dfff' : (meta.color || '#e6eaef');
@@ -530,6 +556,7 @@ R"EDJS(
         var t = tileShell(meta.selected ? (stock ? '#ffffff55' : color) : color, !!meta.selected, shortName);
         t.__nameLbl = tileBody(t, meta, color, shortName, meta.selected ? '✔' : '', color, stock);
         t.SetPanelEvent('onactivate', function () { hideTip(); rec.onPick(o[1]); });
+        return true;
       }
       // One MODEL tile in a grouped slot: opens that model's finishes (rec.navGroup).
       function buildNavRow(label, color, sampleMeta, onGo, count, isSel) {
@@ -539,42 +566,62 @@ R"EDJS(
         t.__nameLbl = tileBody(t, sampleMeta || {}, color, label, sub, isSel ? S.accent : '#8b95a3ff', false);
         t.SetPanelEvent('onactivate', function () { hideTip(); onGo(); });
       }
+      // A screenful of tiles is built at once and the rest a few per frame (rec.pumpRows, driven by
+      // custScrollMaintain): one weapon's finishes are ~60 tiles with artwork, and building them in
+      // a single frame measured 70-103 ms when a player pick reseeded the picker (mvm_debug
+      // "reseedCost"). The first 9 fill the visible rows, so what you see does not change.
+      var ROWS_FIRST = 9, ROWS_PER_FRAME = 6;
       function rebuildRows() {
         if (!rec.rows || !rec.rows.IsValid || !rec.rows.IsValid()) return;
         rec.rows.RemoveAndDeleteChildren();
         tileIdx = 0;
-        var i;
+        var i, steps = [];
         paintCrumb();
         // Grouped slot, top level: the stock picks first, then one tile per model.
         if (rec.grouped && !rec.navGroup) {
-          for (i = 0; i < rec.opts.length; i++) if (!groupOf(rec.opts[i])) buildRow(rec.opts[i]);
+          for (i = 0; i < rec.opts.length; i++) if (!groupOf(rec.opts[i])) steps.push(rowStep(rec.opts[i]));
           var names = groupNames(), selGroup = selectedGroup();
           for (i = 0; i < names.length; i++) {
             (function (g) {
-              var sample = null, n = 0, selHere = false;
-              for (var j = 0; j < rec.opts.length; j++) {
-                if (groupOf(rec.opts[j]) !== g) continue;
-                if (!rowPassesFilters(rec.opts[j])) continue;
-                // Prefer the SELECTED variant's artwork, so the tile shows what the player wears.
-                var m = rec.opts[j][2] || {};
-                if (m.selected) { selHere = true; sample = m; }
-                else if (!sample) sample = m;
-                n++;
-              }
-              if (!n) return; // every finish in this model filtered out -- hide the model too
-              buildNavRow(g, (sample && sample.color) || '#e6eaef', sample,
-                function () { rec.navGroup = g; rec.scrollOff = 0; rebuildRows(); sizePane(rec); }, n,
-                selHere || (g === selGroup));
+              steps.push(function () {
+                var sample = null, n = 0, selHere = false;
+                for (var j = 0; j < rec.opts.length; j++) {
+                  if (groupOf(rec.opts[j]) !== g) continue;
+                  if (!rowPassesFilters(rec.opts[j])) continue;
+                  // Prefer the SELECTED variant's artwork, so the tile shows what the player wears.
+                  var m = rec.opts[j][2] || {};
+                  if (m.selected) { selHere = true; sample = m; }
+                  else if (!sample) sample = m;
+                  n++;
+                }
+                if (!n) return false; // every finish in this model filtered out -- hide the model too
+                buildNavRow(g, (sample && sample.color) || '#e6eaef', sample,
+                  function () { rec.navGroup = g; rec.scrollOff = 0; rebuildRows(); sizePane(rec); }, n,
+                  selHere || (g === selGroup));
+                return true;
+              });
             })(names[i]);
           }
         } else {
-          for (i = 0; i < rec.opts.length; i++) buildRow(rec.opts[i]);
+          for (i = 0; i < rec.opts.length; i++) steps.push(rowStep(rec.opts[i]));
         }
+        rec.pending = steps; rec.pendingAt = 0;
+        pumpRows(ROWS_FIRST);
+      }
+      function rowStep(o) { return function () { return buildRow(o); }; }
+      // Builds up to `budget` more tiles of the current rebuild; the empty-list note once all are tried.
+      function pumpRows(budget) {
+        var steps = rec.pending;
+        if (!steps || !rec.rows || !rec.rows.IsValid || !rec.rows.IsValid()) { rec.pending = null; return; }
+        while (rec.pendingAt < steps.length && budget > 0) { if (steps[rec.pendingAt++]()) budget--; }
+        if (rec.pendingAt < steps.length) return;
+        rec.pending = null;
         if (!tileIdx) {
           var none = clbl(rec.rows, 'Nothing matches — try a shorter search', '#8b95a3ff', 13);
           none.hittest = false; none.style.marginTop = '8px'; none.style.marginLeft = '2px';
         }
       }
+      rec.pumpRows = function () { if (rec.pending) { pumpRows(ROWS_PER_FRAME); sizePane(rec); } };
 )EDJS"
 R"EDJS(
       // Rarity chips, under the search box, DERIVED FROM THE ROWS THIS SLOT ACTUALLY HAS. rec.opts is
@@ -748,10 +795,19 @@ R"EDJS(
     var custOverlay = $.CreatePanel('Panel', ctx, 'CamEditorCustomizeRoot', {});
     custOverlay.visible = false; custOverlay.hittest = true;
     custOverlay.style.width = '100%'; custOverlay.style.height = '100%'; custOverlay.style.zIndex = '230';
-    custOverlay.style.backgroundColor = F8.scrim;
-    custOverlay.SetPanelEvent('onactivate', function () { closeCustomize(); }); // click-outside closes
-    // The card: 1240 x 720, the design's own size, centred. A fixed size rather than a percentage so
-    // the three columns (262 | 440 | the picker) and the 3-up tile grid land on their design widths.
+    // A tool window over a CLEAR backdrop (CameraEditorCustomizeWindowJs.h): the game behind it is
+    // what is being changed, so it is no longer dimmed. The backdrop still takes every click outside
+    // the window -- the modal is an exclusive surface, nothing reaches the editor, CONFIG or the game
+    // -- but it never closes the window. Panel events bubble to the parent, and the 3D preview and
+    // the HOLDING chip are root-level children of this backdrop, so the old click-outside close also
+    // fired for a click ON the preview and the window vanished under the pointer. Close is the X,
+    // Cancel or Esc.
+    custOverlay.style.backgroundColor = 'rgba(0,0,0,0)';
+    custOverlay.SetPanelEvent('onactivate', function () { custSetPlayerMenu(false); /* never closes the window */ });
+    var custSize = 'full';   // 'full' | 'compact' | 'collapsed', see CameraEditorCustomizeWindowJs.h
+    // The card at full size: 1240 x 720, the design's own size, centred until it is dragged. A fixed
+    // size rather than a percentage so the three columns (262 | 440 | the picker) and the 3-up tile
+    // grid land on their design widths; custApplySize() sets the compact and collapsed sizes.
     var custWin = mk('Panel', custOverlay); custWin.hittest = true;
     custWin.style.width = '1240px'; custWin.style.height = '720px';
     custWin.style.horizontalAlign = 'center'; custWin.style.verticalAlign = 'center';
@@ -782,13 +838,16 @@ R"EDJS(
       }
       if (typeof positionPreview3d === 'function') positionPreview3d();
     }
-    custWin.SetPanelEvent('onactivate', function () { /* swallow clicks inside the window */ });
+    custWin.SetPanelEvent('onactivate', function () { custSetPlayerMenu(false); /* swallow clicks inside the window */ });
 
-    // Header, 56px: CUSTOMIZE PLAYER · <NAME>, the pickup banner, then Reset to default / Cancel /
-    // Apply and ✕. The action bar lives up here so the body gets the full height.
+    // Header, 56px: CUSTOMIZE PLAYER · <NAME ▾>, the pickup banner, then Reset to default / Cancel /
+    // Apply, the size buttons and ✕. The action bar lives up here so the body gets the full height.
+    // The name is the player menu's button (CameraEditorCustomizePlayersJs.h): every player of the
+    // demo, alive or dead, one click away, at any window size.
     var custHead = mk('Panel', custSurface); custHead.style.flowChildren = 'right'; custHead.style.width = '100%';
     custHead.style.height = '56px'; custHead.style.paddingLeft = '18px'; custHead.style.paddingRight = '18px';
     custHead.style.backgroundColor = F8.chrome; custHead.style.borderBottom = '1px solid ' + F8.hair;
+    var custGrip = custGripDots(custHead);   // the title is the drag handle (custWindowFrame)
     var custTitleWrap = mk('Panel', custHead); custTitleWrap.style.flowChildren = 'right';
     custTitleWrap.style.width = 'fill-parent-flow(1.0)'; custTitleWrap.style.verticalAlign = 'center';
     var custTitlePrefix = clbl(custTitleWrap, 'Customize player', S.value, TYPE.hero); custTitlePrefix.style.fontWeight = 'bold';
@@ -796,13 +855,34 @@ R"EDJS(
     custTitlePrefix.style.textTransform = 'uppercase';   // casing in the style, copy in natural case
     var custTitleDot = clbl(custTitleWrap, '·', '#6b7480ff', TYPE.hero); custTitleDot.style.verticalAlign = 'center';
     custTitleDot.style.marginLeft = '14px'; custTitleDot.style.marginRight = '14px';
-    var custTitleName = clbl(custTitleWrap, 'Player', S.accent, TYPE.hero); custTitleName.style.fontWeight = 'bold';
+    var custPlayerBtn = mk('Panel', custTitleWrap); custPlayerBtn.hittest = true;
+    custPlayerBtn.style.height = '36px'; custPlayerBtn.style.flowChildren = 'right'; custPlayerBtn.style.verticalAlign = 'center';
+    custPlayerBtn.style.borderRadius = '4px'; custPlayerBtn.style.overflow = 'clip';
+    var custPlayerEdge = mk('Panel', custPlayerBtn); custPlayerEdge.hittest = false;
+    custPlayerEdge.style.width = '3px'; custPlayerEdge.style.height = '100%';
+    var custTitleName = clbl(custPlayerBtn, 'Player', S.accent, TYPE.hero); custTitleName.style.fontWeight = 'bold';
     custTitleName.style.letterSpacing = '2px'; custTitleName.style.verticalAlign = 'center';
+    custTitleName.style.marginLeft = '11px'; custTitleName.hittest = false;
+    var custPlayerCaret = clbl(custPlayerBtn, '▾', '#e6eaef', 15); custPlayerCaret.hittest = false;
+    custPlayerCaret.style.verticalAlign = 'center'; custPlayerCaret.style.marginLeft = '10px'; custPlayerCaret.style.marginRight = '11px';
+    caretSpin(custPlayerCaret, false);
+    custPlayerBtn.SetPanelEvent('onmouseover', function () { custPlayerBtn.__hot = true; paintPlayerBtn(); });
+    custPlayerBtn.SetPanelEvent('onmouseout', function () { custPlayerBtn.__hot = false; paintPlayerBtn(); });
+    custPlayerBtn.SetPanelEvent('onactivate', function () { custSetPlayerMenu(!custPlayerMenuOpen); });
     // The player name is demo-supplied: cased by text-transform rather than toUpperCase(), so the raw
     // string stays intact for the ellipsis.
     custTitleName.style.textTransform = 'uppercase';
     custTitleName.style.whiteSpace = 'nowrap'; custTitleName.style.textOverflow = 'ellipsis';
     custTitleName.style.maxWidth = '220px';
+    // A dead player: their weapons dropped with them, so the slots show the last loadout seen while
+    // they were alive (Cosmetics/CustomizeTarget.cpp). Their list entry is dimmed the same way.
+    var custDeadTag = mk('Panel', custTitleWrap); custDeadTag.hittest = false; custDeadTag.visible = false;
+    custDeadTag.style.height = '22px'; custDeadTag.style.verticalAlign = 'center'; custDeadTag.style.marginLeft = '12px';
+    custDeadTag.style.paddingLeft = '8px'; custDeadTag.style.paddingRight = '8px'; custDeadTag.style.borderRadius = '3px';
+    custDeadTag.style.backgroundColor = '#ffffff10'; custDeadTag.style.border = '1px solid #ffffff1f';
+    var custDeadTagLbl = clbl(custDeadTag, 'Dead', S.label, 11); custDeadTagLbl.hittest = false;
+    custDeadTagLbl.style.fontWeight = 'bold'; custDeadTagLbl.style.letterSpacing = '1.2px';
+    custDeadTagLbl.style.textTransform = 'uppercase'; custDeadTagLbl.style.verticalAlign = 'center';
     // Pickup ownership is header metadata beside the target name, unchanged from before.
     var custPickupBanner = mk('Panel', custTitleWrap); custPickupBanner.visible = false; custPickupBanner.hittest = false;
     custPickupBanner.style.width = 'fit-children'; custPickupBanner.style.maxWidth = '470px'; custPickupBanner.style.height = '28px';
@@ -825,6 +905,9 @@ R"EDJS(
     // the ✕ is appended after them there, so it stays the last thing on the line.
     var custHeadActions = mk('Panel', custHead); custHeadActions.style.flowChildren = 'right';
     custHeadActions.style.verticalAlign = 'center'; custHeadActions.style.marginLeft = '14px';
+)EDJS"
+#include "CameraEditorCustomizePlayersJs.h"
+R"EDJS(
 
     // Body: three columns -- the slot list (262), the preview (440, built by the preview fragment),
     // and the picker (the rest).
@@ -925,7 +1008,8 @@ R"EDJS(
       var activeSlot = WEAPON_SLOT_BY_DEF[custActiveWeaponDef] || '';
       if (activeSlot && !custLoadout[activeSlot])
         custLoadout[activeSlot] = { entityIndex: parseInt(ct && ct.activeWeaponIndex || -1, 10), defIndex: custActiveWeaponDef, paintKit: 0, wear: 0.01 };
-      if (activeSlot && custLoadout[activeSlot] && !(parseInt(custLoadout[activeSlot].paintKit || 0, 10) > 0)) {
+      // The HUD's weapon text is the SPECTATED player's: only read it for the target when that is them.
+      if (custTargetOnScreen && activeSlot && custLoadout[activeSlot] && !(parseInt(custLoadout[activeSlot].paintKit || 0, 10) > 0)) {
         var inferred = inferActivePaintFromHud(activeSlot);
         if (inferred) custLoadout[activeSlot].paintKit = inferred.paintKit;
       }
@@ -988,7 +1072,7 @@ R"EDJS(
       if (primaryDrop && primaryDrop.setPickup) primaryDrop.setPickup(slotPickup('primary'));
       if (secondaryDrop && secondaryDrop.setPickup) secondaryDrop.setPickup(slotPickup('secondary'));
       if (!slots.length) {
-        custPickupBanner.visible = false;
+        custPickupPlacement(false);
         logPickupState('banner');
         return;
       }
@@ -1006,7 +1090,8 @@ R"EDJS(
       // so uppercasing could itself push a name into truncation. text-transform cases at draw time and
       // leaves the underlying text intact. '’' is the real apostrophe, not the typewriter one.
       custPickupLbl.text = 'Picked up  ·  changes ' + ownerLoadout + ', not ' + holder + '’s';
-      custPickupBanner.visible = true;
+      custPickupStrip.text = custPickupLbl.text;
+      custPickupPlacement(true);
       logPickupState('banner');
     }
     // Debug: one console line whenever the pickup/warning state changes, so netcon + mvm_debug can
@@ -1135,12 +1220,18 @@ R"EDJS(
     function wearPresetLabel(slot) {
       return (WEAR_PRESETS[presetForWearValue(wearValue(slot))] || WEAR_PRESETS.fn).label;
     }
-    function withWearLabel(slot, label) {
-      if (!label || !custWear[slot]) return label || '';
+    // " · Factory New" while the selected option is a painted finish, else ''. It reads the selected
+    // option, which re-filters the slot's catalog, so a list is decorated with ONE call (wearSuffix)
+    // rather than once per option: per option it was quadratic and cost 77-120 ms on a player pick
+    // whose knife needs a synthesized default entry (mvm_debug "reseedCost ... knife=").
+    function wearSuffix(slot) {
+      if (!custWear[slot]) return '';
       var opt = selOpt(slot, custSel[slot]);
       var meta = opt ? (opt[2] || {}) : {};
-      if (!meta.paint) return label;
-      return label + ' · ' + wearPresetLabel(slot);
+      return meta.paint ? ' · ' + wearPresetLabel(slot) : '';
+    }
+    function withWearLabel(slot, label) {
+      return label ? label + wearSuffix(slot) : '';
     }
     function defaultWearForSlot(slot) {
       return slot === 'gloves' ? { preset: 'ft', custom: 0.22 } : { preset: 'fn', custom: 0.01 };
@@ -1176,11 +1267,11 @@ R"EDJS(
 )EDJS"
 R"EDJS(
     function decoratedOptions(slot) {
-      var src = filteredOptions(slot), out = [];
+      var src = filteredOptions(slot), out = [], suffix = wearSuffix(slot);
       for (var i = 0; i < src.length; i++) {
         var meta = src[i][2] || {};
         var m = {}; for (var k in meta) m[k] = meta[k];
-        out.push([withWearLabel(slot, src[i][0]), src[i][1], m]);
+        out.push([src[i][0] ? src[i][0] + suffix : '', src[i][1], m]);
       }
       return out;
     }
@@ -1827,7 +1918,7 @@ R"EDJS(
     function applyCosmeticCommand(slot) {
       // The agent slot has no wear entry (agents are not skinned), so it must NOT be gated on
       // custWear[slot] -- doing so silently dropped every agent pick (no command was ever sent).
-      if (custTargetIndex < 0) return;
+      if (custTargetController < 0) return;
       if (slot !== 'agent' && !custWear[slot]) return;
       // Target the player by SteamID -- the backend store is SteamID-keyed. Picked-up weapons keep the
       // original owner's econ id, so route finish commands to that owner when editing the held pickup.
@@ -1888,12 +1979,15 @@ R"EDJS(
       var weapon = custLoadout[slot] || null;
       return !!(weapon && (parseInt(weapon.defIndex || 0, 10) > 0));
     }
+    var custPopulateCost = '';   // mvm_debug: where the last populate spent its time (reseedCost)
     function populateCustomize() {
+      var tp = [Date.now()];
       coerceSelection('agent');
       coerceSelection('primary');
       coerceSelection('secondary');
       coerceSelection('knife');
       coerceSelection('gloves');
+      tp.push(Date.now());
       // Firearm sections mirror the player's actual inventory. Knife/gloves/agent remain available
       // regardless, but an empty primary/secondary slot must not expose an unrelated weapon picker.
       primaryBlock.visible = hasCustomizeWeapon('primary');
@@ -1901,19 +1995,25 @@ R"EDJS(
       knifeBlock.visible = true;
       // A slot that just disappeared cannot stay selected.
       ensureActiveSlotVisible();
-      agentDrop.update(decoratedOptions('agent'), custSel.agent);
-      primaryDrop.update(decoratedOptions('primary'), custSel.primary);
-      secondaryDrop.update(decoratedOptions('secondary'), custSel.secondary);
-      knifeDrop.update(decoratedOptions('knife'), custSel.knife);
-      glovesDrop.update(decoratedOptions('gloves'), custSel.gloves);
+      tp.push(Date.now());
+      agentDrop.update(decoratedOptions('agent'), custSel.agent); tp.push(Date.now());
+      primaryDrop.update(decoratedOptions('primary'), custSel.primary); tp.push(Date.now());
+      secondaryDrop.update(decoratedOptions('secondary'), custSel.secondary); tp.push(Date.now());
+      knifeDrop.update(decoratedOptions('knife'), custSel.knife); tp.push(Date.now());
+      glovesDrop.update(decoratedOptions('gloves'), custSel.gloves); tp.push(Date.now());
       updateWearControl('primary');
       updateWearControl('secondary');
       updateWearControl('knife');
       updateWearControl('gloves');
+      tp.push(Date.now());
       updatePickupBanner();
       updateActionBar();
       updateWearControl('agent');
       updateHoldChip();
+      tp.push(Date.now());
+      var names = ['coerce', 'blocks', 'agent', 'primary', 'secondary', 'knife', 'gloves', 'wear', 'rest'];
+      custPopulateCost = '';
+      for (var ti = 1; ti < tp.length; ti++) custPopulateCost += names[ti - 1] + '=' + (tp[ti] - tp[ti - 1]) + ' ';
     }
 )EDJS"
 R"EDJS(
@@ -1935,10 +2035,16 @@ R"EDJS(
       panel['__' + key] = value;
       panel.style[prop] = value;
     }
-    // Clamp the pane's scroll to its content and show each scroll cue only in a direction that
-    // still has tiles (1px of slack absorbs rounding).
+    // Fit the tiles to the grid's measured width (custTileFitW), clamp the pane's scroll to its
+    // content and show each scroll cue only in a direction that still has tiles (1px of slack
+    // absorbs rounding).
     function sizePane(rec) {
       if (!rec || !rec.pane || !rec.pane.visible || !rec.rowsView || !rec.rows) return;
+      var lineW = rec.rows.actuallayoutwidth || 0;
+      if (lineW > 0) {
+        var tileW = custTileFitW(lineW, rec.rows.actualuiscale_x || 0);
+        if (rec.tileW !== tileW) { rec.tileW = tileW; if (rec.fitTiles) rec.fitTiles(); }
+      }
       var viewH = custMeasureH(rec.rowsView), contentH = custMeasureH(rec.rows);
       var maxOff = Math.max(0, contentH - viewH);
       if (rec.scrollOff > maxOff) rec.scrollOff = maxOff;
@@ -1956,7 +2062,9 @@ R"EDJS(
     // (possibly changed) content and blink the search caret. Cheap no-op when the modal is closed.
     function custScrollMaintain() {
       if (!custOverlay.visible) return;
-      sizePane(activeSlotRec());
+      var pumpRec = activeSlotRec();
+      if (pumpRec && pumpRec.pumpRows) pumpRec.pumpRows(); // the rest of a chunked tile rebuild
+      sizePane(pumpRec);
       var wc = wearControls[custActiveSlot];
       if (wc && wc.relayout) wc.relayout();
       custCaretBlink();
@@ -1982,11 +2090,12 @@ R"EDJS(
       return 'ok';
     }
     // One forwarded character (WM_CHAR code) into the selected pane's search. Escape backs out one
-    // step -- out of a model, then out of the modal -- so the user is never trapped with keys captured.
+    // step -- the player menu, a model, then the modal -- so the user is never trapped with keys captured.
     function custChar(code) {
       var rec = activeSlotRec();
       if (code === 27) {
-        if (rec && rec.grouped && rec.navGroup) { rec.navGroup = ''; rec.scrollOff = 0; rec.rebuildRows(); sizePane(rec); }
+        if (custPlayerMenuOpen) custSetPlayerMenu(false);
+        else if (rec && rec.grouped && rec.navGroup) { rec.navGroup = ''; rec.scrollOff = 0; rec.rebuildRows(); sizePane(rec); }
         else closeCustomize();
         return;
       }
@@ -2027,6 +2136,11 @@ R"EDJS(
       custDirty = false;
       resetSelectionsFromLoadout();
       custTitleName.text = custTargetName || 'Player';   // cased by text-transform, see the builder
+      // Where the user left the window and how big, this session (st.customizeLayout).
+      custRestoreLayout();
+      custChromeSig = ''; custPaintSig = '';
+      // Nobody to edit yet (free cam, nothing watched or picked): open straight onto the player menu.
+      if (custTargetController < 0) { try { $.Schedule(0.05, function () { if (custTargetController < 0) custSetPlayerMenu(true); }); } catch (e) {} }
       // Every pane opens fresh: no leftover search, at the top of its model list.
       for (var sk in custSlotRecs) {
         var sr = custSlotRecs[sk];
@@ -2078,6 +2192,8 @@ R"EDJS(
       closeAllDrops();
       destroyPreview3d();
       custOverlay.visible = false;
+      custDrag = null;
+      custSetPlayerMenu(false);
       custResetConfirm.visible = false;
       // Closing (X / click-outside / Cancel) always discards whatever hasn't been committed via
       // Apply/Reset/Clear -- the modal never writes to the demo except through those three paths.
@@ -2191,6 +2307,10 @@ R"EDJS(
       if (custDirty) { commitTouchedSlots(); closeCustomize(); }
     }, { bgHover: S.accentHover, bgDown: S.accentDown, fgDown: '#10141aff' });
     custApplyBtn.style.paddingLeft = '24px'; custApplyBtn.style.paddingRight = '24px';
+)EDJS"
+#include "CameraEditorCustomizeWindowJs.h"
+R"EDJS(
+    custSizeButtons(custHeadActions);   // compact / collapse, before the close button
     var custClose = btn(custHeadActions, '✕', function () { closeCustomize(); }, S.value, { press: true });
     custClose.style.marginRight = '0px'; custClose.style.marginLeft = '8px';
     custClose.style.width = '34px'; custClose.style.height = '34px';
