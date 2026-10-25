@@ -806,6 +806,21 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Heatmap/RoundHeatmap.h
     Filmmaker/Heatmap/RoundHeatmapMath.h
     Filmmaker/Heatmap/RoundHeatmapRender.cpp
+    Filmmaker/AltEnvironment/AltEnvironment.cpp
+    Filmmaker/AltEnvironment/AltEnvironment.h
+    Filmmaker/AltEnvironment/AltEnvironmentCopies.cpp
+    Filmmaker/AltEnvironment/AltEnvironmentCopies.h
+    Filmmaker/AltEnvironment/AltEnvironmentProps.cpp
+    Filmmaker/AltEnvironment/AltEnvironmentProps.h
+    Filmmaker/AltEnvironment/AltEnvironmentSceneProbe.cpp
+    Filmmaker/AltEnvironment/AltEnvironmentSceneProbe.h
+    Filmmaker/AltEnvironment/AltEnvironmentMath.h
+    Filmmaker/Demo/DemoWorldSwap.cpp
+    Filmmaker/Demo/DemoWorldSwap.h
+    Filmmaker/Platform/LocalImageServer.cpp
+    Filmmaker/Platform/LocalImageServer.h
+    Filmmaker/Platform/PngWrite.h
+    Filmmaker/Platform/SnappyDecode.h
     Filmmaker/Lens/LensFxMath.h
     Filmmaker/Lens/LensFxShaders.h
     Filmmaker/Movie/RecoilPivotMarker.cpp

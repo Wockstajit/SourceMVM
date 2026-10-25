@@ -105,9 +105,9 @@ private:
 	// The workspace preview (guarded by m_mutex; written by SetUiClickRegions).
 	bool m_uiPreviewValid = false;
 	float m_uiPreview[4] = {};
-	// A press swallowed because a camera path was playing (UiClick::PathPlaybackSwallowsPress); its
-	// release is swallowed too, even if playback ended in between. Input thread only.
-	bool m_playbackSwallowed[2] = { false, false };
+	// A press swallowed because a camera path was playing (UiClick::PathPlaybackSwallowsPress) or the
+	// MAP view had it; its release is swallowed too, even if that ended in between. Input thread only.
+	bool m_swallowedPress[2] = { false, false };
 	// A right press in the ENVIRONMENT tab's preview took the mouse for looking around
 	// (UiClick::RightPressLooks); its release hands the mouse back to the editor.
 	std::atomic<bool> m_rightLook{ false };

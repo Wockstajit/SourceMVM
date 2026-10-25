@@ -70,6 +70,15 @@ int main() {
 	Expect(IsProjectDemoCopyFileName(L"keyframed-b.dem"), "second keyframed slot is a copy too");
 	Expect(IsKeyframedCopyFileName(L"Keyframed-B.dem") && !IsKeyframedCopyFileName(L"repaired.dem"),
 		"keyframed slots, and only those");
+	ExpectWide(ProjectGeneratedFileName(ProjectGenerated::Environment), L"environment.dem", "environment file");
+	ExpectWide(ProjectGeneratedFileName(ProjectGenerated::EnvironmentB), L"environment-b.dem",
+		"second environment slot");
+	Expect(IsProjectDemoCopyFileName(L"Environment-B.dem") && IsEnvironmentCopyFileName(L"environment.DEM"),
+		"environment slots are copies too");
+	Expect(!IsKeyframedCopyFileName(L"environment.dem") && !IsEnvironmentCopyFileName(L"keyframed.dem"),
+		"environment and keyframed slots stay apart");
+	Expect(PlanDemoCopyLookup(L"D:/demos/match.dem/environment.dem").source == DemoCopySource::ProjectFolder,
+		"an environment copy keys the project it was made for");
 	Expect(!IsProjectDemoCopyFileName(L"match.dem"), "a real demo is not a copy");
 	Expect(IsLegacyRepairedFolderName(L"RePaIrEd"), "legacy repaired folder");
 

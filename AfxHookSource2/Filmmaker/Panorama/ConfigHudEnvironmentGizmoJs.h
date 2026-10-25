@@ -85,11 +85,13 @@ R"CFJS(
       if (!(w > 0 && h > 0)) return;
       envOverlay.style.position = x + 'px ' + y + 'px 0px';
       envOverlay.style.width = clipW + 'px'; envOverlay.style.height = h + 'px';
-      envOverlay.hittest = editing;
+      // Under the open MAP view (ConfigHudAltEnvironmentJs.h) the preview is the view's.
+      var mapView = root.GetAttributeString('mapviewopen', '0') === '1';
+      envOverlay.hittest = editing && !mapView;
       envMoveHint.visible = false; // shown by the props overlay's hint, at the top with the rest
       var origin = root.GetPositionWithinWindow(), mx = (s.mx - origin.x) / scale, my = (s.my - origin.y) / scale;
       var u = (mx - x) / w, v = (my - y) / h, aspect = w / h, g = s.envGizmo;
-      var inside = mx >= x && mx < x + clipW && my >= y && my < y + h;
+      var inside = !mapView && mx >= x && mx < x + clipW && my >= y && my < y + h;
       // A popup, slider drag or resize grip owns its press, even if it overlaps the preview.
       var hit = editing && inside && !settingsPopup.isOpen() && !cfgDragging()
         ? envAxisHit(g, u, v, aspect) : -1;

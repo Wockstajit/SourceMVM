@@ -57,3 +57,14 @@ test("the keyframe builder never deletes or overwrites the copy the engine is pl
   assert.match(text, /if \(SamePath\(copy, playingFile\)\) continue;/,
     "another demo's slot that is being played is not deleted either");
 });
+
+// An alternative-environment copy plays in place of the demo, so it must map back the same way: its
+// .src marker starts with the ORIGINAL demo's size:mtime and a '|', which is all
+// DemoProjectPath.cpp MarkerMatchesSource reads.
+test("an environment copy's marker maps it back to the original demo", () => {
+  const text = fs.readFileSync(path.join(filmmakerDirectory, "AltEnvironment", "AltEnvironmentCopies.cpp"), "utf8");
+  assert.match(text, /out << FileStamp\(original\) << "\|" << kMarkerVersion/,
+    "the marker's first field is the original's stamp");
+  const lookup = fs.readFileSync(path.join(filmmakerDirectory, "Demo", "DemoProjectStoreMath.h"), "utf8");
+  assert.match(lookup, /IsEnvironmentCopyFileName\(fileName\)/, "environment slots are project-folder copies");
+});

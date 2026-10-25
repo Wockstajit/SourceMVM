@@ -218,6 +218,24 @@ std::wstring DemoProjectStore_ProjectDirectory(ProjectGame game, const std::wstr
 	return (fs::path(root) / L"demos" / ProjectGameDir(game) / folder).wstring();
 }
 
+std::vector<std::wstring> DemoProjectStore_OtherProjectDirectories(ProjectGame game, const std::wstring& demoPath) {
+	std::vector<std::wstring> out;
+	const std::wstring keepDir = DemoProjectStore_ProjectDirectory(game, demoPath);
+	const size_t slash = keepDir.find_last_of(L"\\/");
+	if (keepDir.empty() || slash == std::wstring::npos) return out;
+	const std::wstring gameDir = keepDir.substr(0, slash);
+	WIN32_FIND_DATAW fd{};
+	HANDLE h = FindFirstFileW((gameDir + L"\\*").c_str(), &fd);
+	if (h == INVALID_HANDLE_VALUE) return out;
+	do {
+		if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || fd.cFileName[0] == L'.') continue;
+		const std::wstring dir = gameDir + L"\\" + fd.cFileName;
+		if (_wcsicmp(dir.c_str(), keepDir.c_str()) != 0) out.push_back(dir);
+	} while (FindNextFileW(h, &fd));
+	FindClose(h);
+	return out;
+}
+
 std::wstring DemoProjectStore_EnsureProjectDirectory(ProjectGame game, const std::wstring& demoPath) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	std::wstring root;

@@ -147,10 +147,13 @@ R"CFJS(
     // The scene objects (CS2 assets plus the Environment's lights and meshes) go with a full reset,
     // so the footer asks first whenever there are any.
     var envSceneCount = 0;
+    // The MAP card's own reset goes too (aeResetSpec in ConfigHudAltEnvironmentJs.h): the alignment,
+    // never the map it plays on.
     var envResetAll = resetFooter(envFooter, function () {
+      var mapCmds = typeof aeResetSpec !== 'undefined' ? aeResetSpec.cmds : [];
       return { label: 'ENVIRONMENT', cmds: ['mirv_filmmaker environment reset all',
                  'mirv_relight lighteditor off', 'mirv_relight lights reset', 'mirv_relight off',
-                 'mirv_filmmaker props clear', 'mirv_filmmaker props wind 0'],
+                 'mirv_filmmaker props clear', 'mirv_filmmaker props wind 0'].concat(mapCmds),
                confirm: function () {
                  if (!envSceneCount) return null;
                  return { title: 'Reset the environment?',

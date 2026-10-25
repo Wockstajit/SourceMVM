@@ -285,6 +285,23 @@ add_executable(DemoKeyframesMathTests
 target_compile_features(DemoKeyframesMathTests PRIVATE cxx_std_17)
 add_test(NAME DemoKeyframesMathTests COMMAND DemoKeyframesMathTests)
 
+add_executable(AltEnvironmentMathTests
+    ../Automation/tests/alt-environment-math-tests.cpp
+    Filmmaker/AltEnvironment/AltEnvironmentMath.h
+    Filmmaker/Platform/PngWrite.h
+)
+target_compile_features(AltEnvironmentMathTests PRIVATE cxx_std_17)
+add_test(NAME AltEnvironmentMathTests COMMAND AltEnvironmentMathTests)
+
+add_executable(DemoWorldSwapTests
+    ../Automation/tests/demo-world-swap-tests.cpp
+    Filmmaker/Demo/DemoWorldSwap.cpp
+    Filmmaker/Demo/DemoWorldSwap.h
+    Filmmaker/Platform/SnappyDecode.h
+)
+target_compile_features(DemoWorldSwapTests PRIVATE cxx_std_17)
+add_test(NAME DemoWorldSwapTests COMMAND DemoWorldSwapTests)
+
 add_executable(VpScaleBreakMathTests
     ../Automation/tests/vp-scale-break-math-tests.cpp
     Filmmaker/Panorama/VpScaleBreakMath.h

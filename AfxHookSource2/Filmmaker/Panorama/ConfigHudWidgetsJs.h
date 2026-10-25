@@ -1217,7 +1217,7 @@ R"CFJS(
                ['Lens', ['config.section.dof', 'config.section.flare']]],
       effects: [['Particles', ['fx.packs']], ['World', ['light.card', 'atmos.card', 'weather.card']]],
       environment: [['Grade', ['env.looks']], ['Atmosphere', ['env.sky', 'env.light', 'env.fog', 'env.wx']],
-                    ['Scene', ['env.scene', 'env.heat']]],
+                    ['Scene', ['env.scene', 'env.heat']], ['World', ['env.map']]],
       ragdolls: [['Bodies', ['ragdoll.model', 'ragdoll.nervous', 'ragdoll.physics']], ['Detail', ['ragdoll.weapon', 'acting']]]
     };
     var cfgRails = {};

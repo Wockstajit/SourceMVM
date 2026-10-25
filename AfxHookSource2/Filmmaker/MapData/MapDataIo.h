@@ -38,6 +38,8 @@ public:
     bool Contains(const std::string &path) const;
     // Reads one entry's bytes. False when the entry does not exist.
     bool Read(const std::string &path, std::vector<uint8_t> &out) const;
+    // An entry's size in bytes without reading it; 0 when it does not exist.
+    uint64_t Size(const std::string &path) const;
     // Every entry whose extension matches (`"vwnod_c"`), sorted ordinally.
     std::vector<std::string> List(const std::string &extension) const;
     // Every entry path, sorted ordinally.

@@ -44,34 +44,50 @@ struct BackgroundPriority {
     BackgroundPriority() { SetThreadPriority(thread, THREAD_PRIORITY_BELOW_NORMAL); }
     ~BackgroundPriority() { SetThreadPriority(thread, previous); }
 };
+// One extraction at a time: the live loader and ReadMapCollision share the cache folder, and two
+// writers would publish and prune each other's payloads.
+std::mutex extractLock;
+
+// Brings `map`'s cache up to date. Throws MapDataError like ExtractMap.
+void ExtractIfStale(const std::string &map, const std::filesystem::path &folder, const std::atomic<bool> *stop,
+                    const std::function<void(const std::string &)> &progress) {
+    const auto manifestPath = folder / (map + ".json");
+    if (MapData::CacheCurrent(manifestPath, map)) return;
+    std::lock_guard<std::mutex> lock(extractLock);
+    if (MapData::CacheCurrent(manifestPath, map)) return; // the other reader just built it
+    BackgroundPriority background;
+    const auto root = Cs2Root();
+    MvmDebugLog_LinefAlways("environment.occlusion", "extract map=%s root=%s", map.c_str(), root.u8string().c_str());
+    MapData::ExtractOptions options;
+    options.cancel = stop;
+    options.progress = progress;
+    const auto start = GetTickCount64();
+    const auto summary = MapData::ExtractMap(root, map, folder, options);
+    MapData::PruneCache(folder);
+    MvmDebugLog_LinefAlways("environment.occlusion",
+        "extracted map=%s ms=%llu lights=%zu environment=%zu collision=%zu render=%zu batches=%zu cutout=%zu glass=%zu skybox=%d warnings=%zu",
+        map.c_str(), GetTickCount64() - start, summary.lights, summary.environment, summary.collisionTriangles, summary.visual.triangles,
+        summary.visual.batches, summary.visual.cutoutBatches, summary.visual.stainedGlassBatches, summary.skybox ? 1 : 0, summary.warnings.size());
+    for (const auto &warning : summary.warnings) MvmDebugLog_LinefAlways("environment.occlusion", "extract warning: %s", warning.c_str());
+}
+
+bool ReadManifest(const std::filesystem::path &folder, const std::string &map, JsonValue &metadata, std::string &error) {
+    std::string json;
+    if (!ReadCacheManifest(folder / (map + ".json"), json) || !JsonParse(json, metadata)) {
+        error = "map data manifest missing or invalid";
+        return false;
+    }
+    return true;
+}
+
 Result Load(const std::string &map, const std::filesystem::path &folder, uint64_t requestGeneration) {
     Result r;
     r.map = map;
     r.generation = requestGeneration;
-    const auto manifestPath = folder / (map + ".json");
-    if (!MapData::CacheCurrent(manifestPath, map)) {
-        BackgroundPriority background;
-        const auto root = Cs2Root();
-        MvmDebugLog_LinefAlways("environment.occlusion", "extract map=%s root=%s", map.c_str(), root.u8string().c_str());
-        MapData::ExtractOptions options;
-        options.cancel = &cancel;
-        options.progress = [](const std::string &text) { SetStatus("Preparing map data: " + text); };
-        const auto start = GetTickCount64();
-        const auto summary = MapData::ExtractMap(root, map, folder, options);
-        MapData::PruneCache(folder);
-        MvmDebugLog_LinefAlways("environment.occlusion",
-            "extracted map=%s ms=%llu lights=%zu environment=%zu collision=%zu render=%zu batches=%zu cutout=%zu glass=%zu skybox=%d warnings=%zu",
-            map.c_str(), GetTickCount64() - start, summary.lights, summary.environment, summary.collisionTriangles, summary.visual.triangles,
-            summary.visual.batches, summary.visual.cutoutBatches, summary.visual.stainedGlassBatches, summary.skybox ? 1 : 0, summary.warnings.size());
-        for (const auto &warning : summary.warnings) MvmDebugLog_LinefAlways("environment.occlusion", "extract warning: %s", warning.c_str());
-    }
+    ExtractIfStale(map, folder, &cancel, [](const std::string &text) { SetStatus("Preparing map data: " + text); });
     SetStatus("Loading map data");
-    std::string json;
     JsonValue metadata;
-    if (!ReadCacheManifest(manifestPath, json) || !JsonParse(json, metadata)) {
-        r.error = "map data manifest missing or invalid";
-        return r;
-    }
+    if (!ReadManifest(folder, map, metadata, r.error)) return r;
     auto value = [&](const char *key) { auto v = metadata.Find(key); return v ? v->AsString() : std::string(); };
     std::filesystem::path physicsPath, visualPath, lightPath;
     if (!CachePayloadValid(folder, value("physicsDigest"), ".mvmocclusion", 512ull * 1024 * 1024, physicsPath) ||
@@ -168,10 +184,46 @@ void UpdateMapOcclusion(const std::string &map, const std::filesystem::path &fol
         }
     });
 }
+void HoldMapOcclusion(const std::string &reason) {
+    if (requested.empty() && !current) {
+        SetStatus(reason);
+        return;
+    }
+    requested.clear();
+    attempted.clear();
+    ++generation;
+    current.reset();
+    if (pending.valid()) cancel = true;
+    SetStatus(reason);
+    MvmDebugLog_LinefAlways("environment.occlusion", "held: %s", reason.c_str());
+}
 void ReloadMapOcclusion() {
     ++generation;
     attempted.clear();
     // Publish only a successfully loaded replacement; keep current resources usable.
+}
+bool ReadMapCollision(const std::string &map, const std::filesystem::path &folder, OcclusionMesh &out, std::string &error,
+                      const std::atomic<bool> *stop, const std::function<void(const std::string &)> &progress) {
+    try {
+        if (!MapData::ValidMapName(map)) {
+            error = "not a map name";
+            return false;
+        }
+        ExtractIfStale(map, folder, stop, progress);
+        JsonValue metadata;
+        if (!ReadManifest(folder, map, metadata, error)) return false;
+        const auto digest = metadata.Find("physicsDigest");
+        std::filesystem::path physicsPath;
+        if (!CachePayloadValid(folder, digest ? digest->AsString() : std::string(), ".mvmocclusion", 512ull * 1024 * 1024, physicsPath)) {
+            error = "corrupt or interrupted map data payload";
+            return false;
+        }
+        const auto file = MapData::OpenCachePayload(physicsPath, error);
+        return file && ReadOcclusionMesh(*file, out, error);
+    } catch (const std::exception &e) {
+        error = e.what();
+        return false;
+    }
 }
 std::shared_ptr<const OcclusionMesh> MapOcclusion() { return current; }
 std::string MapOcclusionStatus() {

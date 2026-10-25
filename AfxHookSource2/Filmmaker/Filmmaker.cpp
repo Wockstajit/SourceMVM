@@ -93,6 +93,7 @@
 #include "Config/FilmmakerSettingsStore.h"
 #include "Config/EffectsPersistence.h" // EFFECTS state carry-over across a demo change
 #include "Heatmap/RoundHeatmap.h"
+#include "AltEnvironment/AltEnvironment.h" // the demo plays on another map
 #include "Platform/FolderPicker.h"
 #include "Platform/DemoFilePicker.h"
 #include "Platform/TextEncoding.h"
@@ -192,13 +193,22 @@ std::wstring g_currentDemoPath; // last demo launched via Watch (for the marker 
 // finished, and copies finish on every demo open and 5 s after every camera marker change -- so the
 // demo reloaded under the user at the next pause, again and again ("why does the demo keep
 // restarting", 2026-10-17). A finished copy is otherwise used from the next open of the demo.
+//
+// The alternative environment (AltEnvironment.h) reuses it to swap the playing file for its other-map
+// copy and back: then it switches as soon as it is asked (no quiet pause needed) and keeps the demo
+// playing if it was. SwitchPlayingCopy is the one entry point.
 struct CopySwitch {
-	enum class State { Idle, Waiting, Loading, Seeking };
+	enum class State { Idle, Waiting, Loading, Seeking, Settling };
 	State state = State::Idle;
 	std::wstring original, copy;
+	bool waitQuiet = true;      // wait for a quiet pause (the keyframes switch)
+	bool resumePlaying = false; // it was playing when it switched: keep playing after the seek
+	std::wstring next;          // asked for during a reload: runs after it lands
+	bool nextWaits = true;
 	int tick = -1;
 	int frames = 0;       // since the state began (give-up fallbacks)
 	int loadedFrames = 0; // since the copy was seen playing (settle before the seek)
+	int stable = 0, lastToggle = -1000; // Settling: frames the pause state has been right, last toggle
 };
 CopySwitch g_copySwitch;
 
@@ -540,14 +550,15 @@ void IssuePlaydemo(const std::wstring& original, const std::wstring& playable) {
 	g_pEngineToClient->ExecuteClientCmd(0, cmd.c_str(), true);
 }
 
-void PlayResolvedDemo(const std::wstring& original, const std::wstring& playable) {
+void PlayResolvedDemo(const std::wstring& original, const std::wstring& resolved) {
 	if (!g_pEngineToClient) return;
-	// The engine reports the COPY's path while it plays; the folder's project.mvm is what maps
-	// it back to `original` (ResolveDemoProjectPath), so it has to exist before playback starts.
-	if (!WideEqualsI(playable, original))
-		DemoProjectStore_EnsureProjectFile(ProjectGame::Cs2, original);
+	// An alternative-environment copy plays in place of the file it was written from; everything
+	// below about repair and keyframes is about that file, never the copy (AltEnvironment.h).
+	const std::wstring envSource = AltEnvironment::SourceOf(resolved);
+	const std::wstring playable = envSource.empty() ? resolved : envSource;
 	// One copy: opening this demo removes every other demo's (DemoKeyframes.h).
 	DemoKeyframes_KeepOnly(original, ResolvePlayingDemoPath());
+	AltEnvironment::KeepOnly(original, ResolvePlayingDemoPath());
 	// Not the keyframed copy yet, or one that is not dense where the camera markers now are: play
 	// what we have now and build in the background, so the NEXT play of this demo scrubs backward
 	// in one frame. Playback is never held for it. The source is never the keyframed copy itself.
@@ -556,6 +567,14 @@ void PlayResolvedDemo(const std::wstring& original, const std::wstring& playable
 		DemoKeyframes_Build(original, playable, markerTicks);
 	else
 		DemoKeyframes_Build(original, DemoRepair_ResolvePlayable(original), markerTicks);
+	// The file the engine loads: the environment copy when the demo's project plays it on another
+	// map. Empty while that copy is being written; the build starts playback when it is done.
+	const std::wstring file = envSource.empty() ? AltEnvironment::ResolvePlayable(original, playable) : resolved;
+	if (file.empty()) return;
+	// The engine reports the COPY's path while it plays; the folder's project.mvm is what maps
+	// it back to `original` (ResolveDemoProjectPath), so it has to exist before playback starts.
+	if (!WideEqualsI(file, original))
+		DemoProjectStore_EnsureProjectFile(ProjectGame::Cs2, original);
 	// Switching demo-to-demo: tear the current one down FIRST so the native demo bar rebuilds its
 	// round shading and kill markers (see g_pendingSwitch above). The playdemo is issued from the
 	// main pump once the demo is actually gone; issuing both together loses it.
@@ -563,7 +582,7 @@ void PlayResolvedDemo(const std::wstring& original, const std::wstring& playable
 		{
 			std::lock_guard<std::mutex> lock(g_pendingSwitchMutex);
 			g_pendingSwitchOriginal = original;
-			g_pendingSwitchPlayable = playable;
+			g_pendingSwitchPlayable = file;
 			g_pendingSwitchFrames = 0;
 		}
 		g_pEngineToClient->ExecuteClientCmd(0, "disconnect", true);
@@ -576,7 +595,7 @@ void PlayResolvedDemo(const std::wstring& original, const std::wstring& playable
 	// "Last played" for the demo browser's Recently played sort. Recorded against the ORIGINAL
 	// demo (the one the list shows), never the repaired copy it may actually load.
 	DemoOrganizer_NotePlayed(original);
-	std::string cmd = BuildPlaydemoCommand(playable);
+	std::string cmd = BuildPlaydemoCommand(file);
 	advancedfx::Message("mirv_filmmaker: %s\n", cmd.c_str());
 	g_pEngineToClient->ExecuteClientCmd(0, cmd.c_str(), true);
 }
@@ -641,13 +660,39 @@ bool DemoKeyframes_SwitchNow() {
 		advancedfx::Message("mirv_filmmaker: the demo is already playing its newest scrub keyframes.\n");
 		return false;
 	}
-	g_copySwitch = CopySwitch();
-	g_copySwitch.original = demo;
-	g_copySwitch.copy = copy;
-	g_copySwitch.state = CopySwitch::State::Waiting;
+	// On another map, the finer keyframes come as a new environment copy of the keyframed one.
+	// While it is written there is nothing to switch to yet; the build switches when it is done.
+	const std::wstring file = AltEnvironment::ResolvePlayable(demo, copy);
+	if (file.empty()) return true;
+	std::wstring fileTarget = file;
+	for (auto& c : fileTarget) if (c == L'/') c = L'\\';
+	if (_wcsicmp(playing.c_str(), fileTarget.c_str()) == 0) {
+		advancedfx::Message("mirv_filmmaker: the demo is already playing its newest scrub keyframes.\n");
+		return false;
+	}
+	SwitchPlayingCopy(demo, file, true);
 	advancedfx::Message("mirv_filmmaker: switching to the finer scrub keyframes when the demo is paused.\n");
 	return true;
 }
+
+bool SwitchPlayingCopy(const std::wstring& original, const std::wstring& file, bool waitForQuiet) {
+	if (original.empty() || file.empty()) return false;
+	if (g_copySwitch.state == CopySwitch::State::Loading || g_copySwitch.state == CopySwitch::State::Seeking ||
+		g_copySwitch.state == CopySwitch::State::Settling) {
+		// A reload is already under way; land it, then this one runs from the copy it loaded.
+		g_copySwitch.next = file;
+		g_copySwitch.nextWaits = waitForQuiet;
+		return true;
+	}
+	g_copySwitch = CopySwitch();
+	g_copySwitch.original = original;
+	g_copySwitch.copy = file;
+	g_copySwitch.waitQuiet = waitForQuiet;
+	g_copySwitch.state = CopySwitch::State::Waiting;
+	return true;
+}
+
+bool SwitchingPlayingCopy() { return g_copySwitch.state != CopySwitch::State::Idle; }
 
 // g_copySwitch, one step per main-thread frame (see the struct).
 void PumpCopySwitch() {
@@ -675,14 +720,17 @@ void PumpCopySwitch() {
 	case CopySwitch::State::Waiting: {
 		// Gone, or a different demo now: nothing to switch.
 		if (!sameFile(PlayingDemoPath(), s.original)) { log("dropped: demo changed"); s = CopySwitch(); return; }
-		const bool quiet = paused && haveTick && !Render_IsJobActive() && !DemoScrub_Active()
-			&& !TimelinePlayhead_Scrubbing() && !CameraPathRef().IsPlaying() && !CameraPathRef().PlaybackPending();
-		if (!quiet) return;
+		// The keyframes switch waits for a quiet pause. The alternative environment switches when
+		// it is asked to (the user pressed the button), but never inside a render job or a scrub.
+		const bool busy = Render_IsJobActive() || DemoScrub_Active() || TimelinePlayhead_Scrubbing();
+		const bool quiet = paused && haveTick && !busy && !CameraPathRef().IsPlaying() && !CameraPathRef().PlaybackPending();
+		if (s.waitQuiet ? !quiet : (busy || !haveTick || !(playing || paused))) return;
 		s.tick = tick;
+		s.resumePlaying = playing;
 		s.frames = 0;
 		s.state = CopySwitch::State::Loading;
 		log("switching");
-		advancedfx::Message("mirv_filmmaker: switching to the finer scrub keyframes at tick %d...\n", tick);
+		advancedfx::Message("mirv_filmmaker: reopening the demo from %s at tick %d...\n", WideToUtf8(s.copy).c_str(), tick);
 		PlayResolvedDemo(s.original, s.copy);
 		return;
 	}
@@ -692,26 +740,55 @@ void PumpCopySwitch() {
 		if (++s.frames > 64 * 60) { log("gave up: the copy never started"); s = CopySwitch(); return; }
 		if (!sameFile(ResolvePlayingDemoPath(), s.copy) || !haveTick || tick < 1 || !(playing || paused)) { s.loadedFrames = 0; return; }
 		if (++s.loadedFrames < 30) return;
-		// A forward demo_gototick on a PAUSED demo never runs (filmmaker_demo_scrubbing.md), so
-		// seek while playing and pause on arrival.
-		if (paused) g_pEngineToClient->ExecuteClientCmd(0, "demo_resume", true);
+		// A demo_gototick from a PAUSED demo lands paused on its tick (DemoScrubMath.h). One sent
+		// while the demo plays lands under a seek pause that the engine lifts about two seconds
+		// later, long after the switch has finished (measured 2026-10-24). So pause, then seek.
+		if (playing) {
+			if (s.loadedFrames - s.lastToggle > 16) {
+				g_pEngineToClient->ExecuteClientCmd(0, "demo_pause", true); // a toggle: only while playing
+				s.lastToggle = s.loadedFrames;
+			}
+			return;
+		}
 		{
 			char cmd[64];
 			snprintf(cmd, sizeof(cmd), "demo_gototick %d", s.tick);
 			g_pEngineToClient->ExecuteClientCmd(0, cmd, true);
 		}
 		s.frames = 0;
+		s.lastToggle = -1000;
 		s.state = CopySwitch::State::Seeking;
 		log("seeking");
 		return;
 	case CopySwitch::State::Seeking:
 		if (++s.frames > 64 * 10) { log("gave up: the seek never landed"); s = CopySwitch(); return; }
 		if (!haveTick || std::abs(tick - s.tick) > 1) return;
-		if (playing) g_pEngineToClient->ExecuteClientCmd(0, "demo_pause", true); // a toggle: only while playing
-		log("done");
-		advancedfx::Message("mirv_filmmaker: now scrubbing with the finer keyframes (tick %d).\n", tick);
-		s = CopySwitch();
+		s.frames = 0;
+		s.state = CopySwitch::State::Settling;
+		log("landed");
 		return;
+	case CopySwitch::State::Settling: {
+		// Back the way it was: paused stays paused, playing goes on playing. A toggle takes effect a
+		// frame or more after it is sent, so the state is held until it has stayed right for 64 frames.
+		++s.frames;
+		const bool wantPaused = !s.resumePlaying;
+		const bool right = wantPaused ? paused : playing;
+		if (!right && s.frames - s.lastToggle > 16) {
+			// demo_pause is a toggle: only sent while playing, demo_resume only while paused.
+			if (wantPaused && playing) g_pEngineToClient->ExecuteClientCmd(0, "demo_pause", true);
+			else if (!wantPaused && paused) g_pEngineToClient->ExecuteClientCmd(0, "demo_resume", true);
+			s.lastToggle = s.frames;
+		}
+		s.stable = right ? s.stable + 1 : 0;
+		if (s.stable < 64 && s.frames < 64 * 5) return;
+		log(s.stable >= 64 ? "done" : "done, pause state unsettled");
+		advancedfx::Message("mirv_filmmaker: the demo plays from %s (tick %d).\n", WideToUtf8(s.copy).c_str(), tick);
+		const std::wstring original = s.original, next = s.next;
+		const bool nextWaits = s.nextWaits;
+		s = CopySwitch();
+		if (!next.empty()) SwitchPlayingCopy(original, next, nextWaits);
+		return;
+	}
 	default:
 		return;
 	}
@@ -1159,6 +1236,8 @@ void RunMainThreadFrame() {
 	{ PanoramaPerf_Scope _p("props"); Props_RunMainThreadFrame(); }
 	// Round heat map: follows the demo to its round and the camera to its area (inert while off).
 	{ PanoramaPerf_Scope _p("heatmap"); Heatmap::RunMainThreadFrame(); }
+	// Alternative environment: its pictures, AUTO ALIGN and copy builds land here (inert while unused).
+	{ PanoramaPerf_Scope _p("altenv"); AltEnvironment::RunMainThreadFrame(); }
 	// Debounced persistence for reusable Config / Camera Editor preferences. Shot-specific
 	// camera, path and Follow/Attach state stays in its owning subsystem.
 	FilmmakerSettings_RunFrame();
@@ -1180,6 +1259,7 @@ void Shutdown() {
 	FilmmakerSettings_Flush();
 	FollowCameraRef().Shutdown(); // cancel + join the background loadout-event loader
 	Heatmap::Shutdown(); // cancel + join the round paths scan and the grid build
+	AltEnvironment::Shutdown(); // cancel + join the copy build, map pictures and AUTO ALIGN
 	g_library.Shutdown();
 }
 

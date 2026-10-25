@@ -6,6 +6,7 @@
 #include "../Debug/MvmDebugLog.h"
 #include "../Demo/PlayingDemoPath.h"
 #include "../Demo/DemoProjectStoreMath.h" // IsKeyframedCopyFileName: either slot of a keyframed copy
+#include "../AltEnvironment/AltEnvironment.h" // IsKeyframedCopy
 #include "../Render/RenderCommand.h" // Render_IsJobActive: a render job owns the demo clock
 #include "../../ViewportScaler.h"     // AfxViewportScaler::SetHoldPreview: no raw restore on screen
 
@@ -139,7 +140,8 @@ void Begin() {
 	// Per scrub, not per frame: resolving the playing file is not free.
 	const std::wstring file = ResolvePlayingDemoPath();
 	const size_t slash = file.find_last_of(L"\\/");
-	g_keyframed = IsKeyframedCopyFileName(slash == std::wstring::npos ? file : file.substr(slash + 1));
+	g_keyframed = IsKeyframedCopyFileName(slash == std::wstring::npos ? file : file.substr(slash + 1))
+		|| AltEnvironment::IsKeyframedCopy(file); // the other-map copy of a keyframed copy keeps its keyframes
 	Log("begin now=%.3f wasPlaying=%d keyframed=%d", now, g_wasPlaying ? 1 : 0, g_keyframed ? 1 : 0);
 }
 

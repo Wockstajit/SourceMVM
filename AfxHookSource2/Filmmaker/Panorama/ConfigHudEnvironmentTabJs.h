@@ -178,6 +178,7 @@ R"CFJS(
     cs(envStormPage, 'stormStrength'); cs(envStormPage, 'stormInterval');
 )CFJS"
 #include "ConfigHudHeatmapJs.h"
+#include "ConfigHudAltEnvironmentJs.h"
 #include "ConfigHudOutlinerJs.h"
 #include "ConfigHudPropsJs.h"
 R"CFJS(

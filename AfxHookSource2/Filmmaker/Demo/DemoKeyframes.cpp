@@ -276,18 +276,7 @@ bool DemoKeyframes_HelperAvailable() { return !FindKeyframesExe().empty(); }
 // copies nobody had open. Only the demo being opened keeps one; a demo whose copy was deleted
 // rebuilds it in the background the next time it plays.
 void DemoKeyframes_KeepOnly(const std::wstring& demoPath, const std::wstring& playingFile) {
-	const std::wstring keepDir = DemoProjectStore_ProjectDirectory(ProjectGame::Cs2, demoPath);
-	const size_t slash = keepDir.find_last_of(L"\\/");
-	if (keepDir.empty() || slash == std::wstring::npos) return;
-	const std::wstring gameDir = keepDir.substr(0, slash);
-
-	WIN32_FIND_DATAW fd{};
-	HANDLE h = FindFirstFileW((gameDir + L"\\*").c_str(), &fd);
-	if (h == INVALID_HANDLE_VALUE) return;
-	do {
-		if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || fd.cFileName[0] == L'.') continue;
-		const std::wstring dir = gameDir + L"\\" + fd.cFileName;
-		if (_wcsicmp(dir.c_str(), keepDir.c_str()) == 0) continue;
+	for (const std::wstring& dir : DemoProjectStore_OtherProjectDirectories(ProjectGame::Cs2, demoPath)) {
 		bool removed = false;
 		for (int slot = 0; slot < 2; ++slot) {
 			const std::wstring copy = dir + L"\\" + ProjectGeneratedFileName(kSlots[slot]);
@@ -298,8 +287,7 @@ void DemoKeyframes_KeepOnly(const std::wstring& demoPath, const std::wstring& pl
 		if (removed)
 			advancedfx::Message("mirv_filmmaker: removed the scrub keyframes of another demo (%s)\n",
 				WideToUtf8(dir).c_str());
-	} while (FindNextFileW(h, &fd));
-	FindClose(h);
+	}
 
 	// This demo: the newest valid slot and the one the engine is playing stay. A superseded slot
 	// goes once the engine lets go of it (the next RunFrame after the play switches).

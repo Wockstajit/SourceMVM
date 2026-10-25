@@ -18,6 +18,7 @@
 #include "Render/RenderTargetProbe.h"          // RenderOwnedMemory_*: what the hook holds in VRAM
 #include "../ViewportScaler.h"                 // AfxViewportScaler::BreakCounts: scaled-preview breaks
 #include "Movie/ScrubFrameCache.h"             // ScrubFrameCache_PrintHealth
+#include "AltEnvironment/AltEnvironment.h"     // HealthLine: which map the demo plays on
 #include <chrono>
 #include <cstdio>
 #include "../WrpConsole.h"
@@ -166,6 +167,7 @@ void Filmmaker_RunHealthCommand(int argc, advancedfx::ICommandArgs* args, const 
 		cosmetics.InDemoContext() ? "yes" : "no");
 	advancedfx::Message("  demos in list                : %zu   (scanning: %s)\n",
 		Library().Snapshot().size(), Library().IsScanning() ? "yes" : "no");
+	advancedfx::Message("  %s\n", AltEnvironment::HealthLine().c_str());
 
 	if (verbose) {
 		advancedfx::Message("  schema offsets:\n");

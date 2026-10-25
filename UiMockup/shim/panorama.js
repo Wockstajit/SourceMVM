@@ -707,8 +707,21 @@
   };
   Panel.prototype.BLoadLayoutSnippet = function () { return false; };
   // SetImage takes a bare path, not a url(); route it through the same rewrite as the style so a
-  // programmatically-set icon resolves to the extracted asset too.
-  Panel.prototype.SetImage = function (src) { this._setStyle('backgroundImage', 'url("' + src + '")'); };
+  // programmatically-set icon resolves to the extracted asset too. Like Panorama, the panel then
+  // gets ImageLoaded or ImageFailedLoad once the picture has loaded or failed.
+  Panel.prototype.SetImage = function (src) {
+    this._setStyle('backgroundImage', 'url("' + src + '")');
+    var self = this, a = resolveAsset('url("' + src + '")');
+    if (a && a.kind === 'video') return;
+    if (!a || typeof Image === 'undefined') {
+      setTimeout(function () { Shim.fireEvent('ImageFailedLoad', self); }, 0);
+      return;
+    }
+    var probe = new Image();
+    probe.onload = function () { Shim.fireEvent('ImageLoaded', self); };
+    probe.onerror = function () { Shim.fireEvent('ImageFailedLoad', self); };
+    probe.src = a.url;
+  };
   // Image scaling modes. Without this the Customize modal's inventory thumbnails (512x384, drawn
   // into a 92x44 swatch with stretch-to-fit-preserve-aspect) showed only their empty top-left corner.
   var SCALING = {
@@ -900,6 +913,9 @@
         else if (k === 'text') p.text = props[k];
         else if (k === 'style') p.el.setAttribute('style', p.el.getAttribute('style') + ';' + props[k]);
         else if (k === 'src') p._setStyle('backgroundImage', 'url("' + props[k] + '")');
+        // Panorama applies an Image's scaling given at creation (CreatePanel('Image', p, '', { scaling })),
+        // as the osu overlay and the alternative environment's map view rely on.
+        else if (k === 'scaling' && p.SetScaling) p.SetScaling(props[k]);
         else try { p[k] = props[k]; } catch (e) { /* ignore */ }
       }
     }
