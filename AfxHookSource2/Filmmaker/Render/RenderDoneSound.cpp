@@ -73,13 +73,22 @@ void Synthesize(bool finished, std::vector<int16_t>& out) {
 
 void PlayNow(bool finished) {
 	std::lock_guard<std::mutex> lock(g_mx);
+	// The voice must be done with the old buffer before g_pcm is rewritten. Stop and
+	// FlushSourceBuffers do not wait, and the buffer being played stays in use after them, so a chime
+	// still queued (a second play within its 0.95 s) is cut off by destroying the voice: DestroyVoice
+	// returns only once XAudio2 no longer uses it.
+	if (g_voice) {
+		XAUDIO2_VOICE_STATE state{};
+		g_voice->GetState(&state, XAUDIO2_VOICE_NOSAMPLESPLAYED);
+		if (state.BuffersQueued > 0) {
+			g_voice->DestroyVoice();
+			g_voice = nullptr;
+		}
+	}
 	if (!EnsureVoice()) {
 		MvmDebugLog_LinefAlways("render.sound", "XAudio2 unavailable: no chime");
 		return;
 	}
-	// The voice must be done with the old buffer before it is replaced.
-	g_voice->Stop(0);
-	g_voice->FlushSourceBuffers();
 	Synthesize(finished, g_pcm);
 	XAUDIO2_BUFFER buffer{};
 	buffer.AudioBytes = (UINT32)(g_pcm.size() * sizeof(int16_t));

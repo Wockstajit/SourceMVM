@@ -26,7 +26,8 @@ failed. Cancelling a job is the user's own click, so it stays silent.
 - The chime is synthesised in memory and played through its own XAudio2 voice
   (`Filmmaker/Render/RenderDoneSound.{h,cpp}`). It needs no sound file, is heard whatever CS2's own
   volume or mute is, and never touches the game's audio. XAudio2 is only started the first time a
-  chime plays.
+  chime plays. A chime started while one is still sounding cuts the first one off: its voice is
+  destroyed, which waits until XAudio2 has let go of the buffer, before the buffer is rewritten.
 - The switch and volume persist in `filmmaker_settings.json` as `renderDoneSound` and
   `renderDoneSoundVolume` (`Config/FilmmakerSettingsStore.cpp`).
 
