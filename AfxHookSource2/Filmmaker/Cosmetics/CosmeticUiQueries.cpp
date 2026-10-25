@@ -504,24 +504,6 @@ void CustomizeSuppressFlashTick() {
 	}
 }
 
-std::string BuildCustomizePlayersJson() {
-	std::ostringstream o;
-	o << "{";
-	bool first = true;
-	const int highest = GetHighestEntityIndex();
-	for (int i = 0; i <= highest; ++i) {
-		CEntityInstance* entity = EntityFromIndex(i);
-		if (!entity || !entity->IsPlayerPawn())
-			continue;
-		std::string target = BuildCustomizeTargetJson(i);
-		if (target == "null")
-			continue;
-		if (!first) o << ",";
-		first = false;
-		o << "\"" << i << "\":" << target;
-	}
-	o << "}";
-	return o.str();
-}
+std::string CustomizeJsonEscape(const char* value) { return JsonEscape(value); }
 
 } // namespace Filmmaker

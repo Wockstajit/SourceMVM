@@ -378,6 +378,8 @@ R"EDJS(
       previewDragCatcher.style.position = '0px 0px 0px';
       previewDragCatcher.style.zIndex = '1';
       previewDragCatcher.style.backgroundColor = 'rgba(0,0,0,0)';
+      // Its click stops here. Unhandled, it bubbled through previewClip to the backdrop (custOverlay).
+      previewDragCatcher.SetPanelEvent('onactivate', function () {});
       return previewClip;
     }
     // Create the native MapPlayerPreviewPanel with the current scene's attrs (optionally overridden,
@@ -431,7 +433,7 @@ R"EDJS(
     }
     function positionPreview3d() {
       if (!previewClip || !previewClip.IsValid || !previewClip.IsValid()) return;
-      if (!custOverlay.visible || !prevStage || !prevStage.IsValid || !prevStage.IsValid()) {
+      if (!custShowsPreview() || !prevStage || !prevStage.IsValid || !prevStage.IsValid()) {
         previewClip.visible = false;
         return;
       }
@@ -571,6 +573,8 @@ R"EDJS(
     // look the modal used to show). Then EquipPlayerWithItem for the held weapon/knife (ONE at a
     // time, matching whichever slot is active) and the gloves (always, independent of the held item).
     function applyPreview() {
+      // Compact and collapsed sizes have no preview column: the game behind the window is the preview.
+      if (custOverlay.visible && !custShowsPreview()) return;
       var agent = selOpt('agent', custSel.agent), gloves = selOpt('gloves', custSel.gloves);
       var held = activeHeldItemMeta();
       var model = (agent && agent[2] && agent[2].model) ? agent[2].model : teamDefaultModel();
@@ -638,7 +642,7 @@ R"EDJS(
 )EDJS"
 R"EDJS(
     function maintainPreview() {
-      if (!custOverlay.visible) return;
+      if (!custShowsPreview()) return;
       // Keep the composition-layer panel marked ready EVERY frame while the modal is open. Without
       // this continuous (cheap, idempotent) re-assert the scene composites once and then lapses to
       // black after the initial settle burst -- the "appears then disappears" bug. The heavier
@@ -668,7 +672,7 @@ R"EDJS(
     // laid out (deferred via $.Schedule from openCustomize) -- creating it on a 0-sized parent makes
     // it render black even though it reports valid.
     function recreatePreview() {
-      if (!custOverlay.visible) return;
+      if (!custShowsPreview()) return;
       if (!USE_3D_PREVIEW) { preview2d.visible = true; renderLoadoutCard(); return; }
       previewLog('recreate');
       destroyPreview3d();

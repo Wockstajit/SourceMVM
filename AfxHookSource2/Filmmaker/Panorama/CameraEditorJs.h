@@ -873,7 +873,10 @@ R"EDJS(
     api.customizeResetToDefault = function () { resetToDefault(); return 'reset'; };
     api.customizeState = function () {
       return JSON.stringify({
-        visible: !!custOverlay.visible, target: custTargetIndex, key: custTargetKey, name: custTargetName,
+        visible: !!custOverlay.visible, controller: custTargetController, source: custTargetSource,
+        alive: custTargetAlive, lastSeen: custTargetLastSeen, onScreen: custTargetOnScreen,
+        players: ((st && st.customize && st.customize.players) || []).length,
+        target: custTargetIndex, key: custTargetKey, name: custTargetName,
         team: normalizeTeamName(custTargetTeam), activeWeaponDef: custActiveWeaponDef, activeWeaponSlot: custActiveWeaponSlot,
         loadout: custLoadout, sel: custSel, wear: custWear, itemWear: custItemWear, preview: previewState(),
         previewGeom: previewGeom(),
@@ -900,6 +903,26 @@ R"EDJS(
       });
     };
     api.previewInfo = function () { return previewState(); };
+    // The Customize window, for netcon automation (CameraEditorCustomizeWindowJs.h):
+    //   mirv_filmmaker editor eval $.CamEditor.customizeSize('compact')      full | compact | collapsed
+    //   mirv_filmmaker editor eval $.CamEditor.customizeMove(40,60)          top-left, layout px
+    //   mirv_filmmaker editor eval $.Msg($.CamEditor.customizeWindow())
+    api.customizeSize = function (size) { custSetSize('' + size); return custSize; };
+    api.customizeMove = function (x, y) { custPlace(parseFloat(x) || 0, parseFloat(y) || 0); custPublishLayout(); return api.customizeWindow(); };
+    api.customizeWindow = function () {
+      var scr = custScreen(), a = custWin.GetPositionWithinWindow ? custWin.GetPositionWithinWindow() : null;
+      return JSON.stringify({
+        size: custSize, pos: custPos, dragging: !!custDrag,
+        rect: a ? { x: Math.round(a.x / scr.sx), y: Math.round(a.y / scr.sy),
+          w: Math.round((custWin.actuallayoutwidth || 0) / scr.sx), h: Math.round((custWin.actuallayoutheight || 0) / scr.sy) } : null,
+        screen: { w: Math.round(scr.w), h: Math.round(scr.h) },
+        preview: !!(preview3d && preview3d.IsValid && preview3d.IsValid()), previewColumn: !!prevWrap.visible,
+        menu: custPlayerMenuOpen, body: custBody.visible, empty: custNoTarget.visible
+      });
+    };
+    // The same pick a click on the player list makes.
+    api.customizePickPlayer = function (controller) { custPickPlayer(parseInt(controller, 10)); return 'pick ' + controller; };
+    api.customizePlayerMenu = function (open) { custSetPlayerMenu(open === undefined ? !custPlayerMenuOpen : !!open); return custPlayerMenuOpen ? 'open' : 'closed'; };
     // The last press the cursor-pipe slider pump saw (cursorSliderPump), and which slider it claimed.
     api.dbgCursorPress = function () { return JSON.stringify({ press: cursorPressDbg, sliders: cursorSliders.length }); };
     // Debug hooks for the customDrop popups (dropdowns are keyed off field.id set in customDrop()):
@@ -1062,9 +1085,12 @@ R"EDJS(
 
       root.visible = !!(st.enabled || st.debug);
       if (!st.enabled) {
+        // Customize Player opened from CONFIG (CameraEditorHud::RunCustomizeOverConfig): the editor's
+        // workspace stays closed and hidden, and only the modal runs, over CONFIG.
+        var custOverConfig = st.customizeHost === 'config' && !!st.cursor;
 	closeAllDrops();
 	closeSettings('notEnabled');
-	closeCustomize();
+	if (!custOverConfig) closeCustomize();
 	if (renderRoot) renderRoot.visible = false;
 	customizeBtn.visible = false;
 	renderBtnEl.visible = false;
@@ -1085,6 +1111,12 @@ R"EDJS(
         var crw = crawW / crsx, crh = crawH / crsy;
         dbgGeom = (crw > 1 && crh > 1) ? { x0: 0, y0: 0, x1: 1, y1: 1, ox: 0, oy: 0, pw: crw, ph: crh } : null;
         root.SetAttributeString('previewrect', '0 0 1 1');
+        if (custOverConfig) {
+          custScrollMaintain();
+          cursorSliderPump();   // the wear bars (only the modal claims a press while it is open)
+          customizeFrame();
+          publishCustomizeOpenState();
+        }
         updateDebug(st);
         return;
       }
@@ -1144,68 +1176,9 @@ R"EDJS(
 		btnSel(renderBtnEl, st.render.jobActive);
 	}
       var ff = st.follow || {};
-      var prevTargetKey = custTargetKey;
-      var ct = st.customizeTarget || null;
-      custTargetIndex = (typeof st.obsTarget === 'number' && st.obsTarget >= 0) ? st.obsTarget : -1;
-      custTargetKey = custTargetIndex >= 0 ? ('pawn:' + custTargetIndex) : 'pawn:-1';
-      custActiveWeaponDef = 0;
-      custActiveWeaponSlot = '';
-      custActiveWeaponPickup = false;
-      custActiveWeaponOwnerSteam = '';
-      custActiveWeaponOwnerName = '';
-      if (ct && typeof ct.pawnIndex === 'number' && ct.pawnIndex >= 0) {
-        custTargetIndex = ct.pawnIndex;
-        custTargetKey = ct.key || ('pawn:' + ct.pawnIndex);
-        custTargetName = ct.name || ('Player #' + ct.pawnIndex);
-        custTargetTeam = ct.team;
-        custActiveWeaponDef = parseInt(ct.activeWeaponDefIndex || 0, 10) || 0;
-        custActiveWeaponSlot = WEAPON_SLOT_BY_DEF[custActiveWeaponDef] || '';
-        custActiveWeaponPickup = !!ct.activeWeaponPickup;
-        custActiveWeaponOwnerSteam = ct.activeWeaponOwnerSteamId ? ('' + ct.activeWeaponOwnerSteamId) : '';
-        custActiveWeaponOwnerName = ct.activeWeaponOwnerName ? ('' + ct.activeWeaponOwnerName) : '';
-      }
-      if (custTargetIndex < 0 && typeof ff.targetIndex === 'number' && ff.targetIndex >= 0) custTargetIndex = ff.targetIndex;
-      var cand = ff.candidates || [];
-      if (custTargetIndex < 0 && cand.length) custTargetIndex = cand[0].index; // best demo fallback
-      if (!ct && custTargetIndex >= 0 && st.customizePlayers)
-        ct = st.customizePlayers['' + custTargetIndex] || null;
-      if (ct && typeof ct.pawnIndex === 'number' && ct.pawnIndex >= 0) {
-        custTargetIndex = ct.pawnIndex;
-        custTargetKey = ct.key || ('pawn:' + ct.pawnIndex);
-        custTargetName = ct.name || ('Player #' + ct.pawnIndex);
-        custTargetTeam = ct.team;
-        custActiveWeaponDef = parseInt(ct.activeWeaponDefIndex || 0, 10) || 0;
-        custActiveWeaponSlot = WEAPON_SLOT_BY_DEF[custActiveWeaponDef] || '';
-        custActiveWeaponPickup = !!ct.activeWeaponPickup;
-        custActiveWeaponOwnerSteam = ct.activeWeaponOwnerSteamId ? ('' + ct.activeWeaponOwnerSteamId) : '';
-        custActiveWeaponOwnerName = ct.activeWeaponOwnerName ? ('' + ct.activeWeaponOwnerName) : '';
-      }
-      if (!(ct && typeof ct.pawnIndex === 'number' && ct.pawnIndex >= 0))
-        custTargetKey = custTargetIndex >= 0 ? ('pawn:' + custTargetIndex) : 'pawn:-1';
-      var nm = ct && ct.name ? ct.name : null, tm = (ct && ct.team !== undefined) ? ct.team : '';
-      if (!ct) for (var ci = 0; ci < cand.length; ci++) if (cand[ci].index === custTargetIndex) { nm = cand[ci].name; tm = cand[ci].team || ''; break; }
-      custTargetName = nm || (custTargetIndex >= 0 ? ('Player #' + custTargetIndex) : 'Player');
-      custTargetTeam = tm;
-      applyCustomizeTargetLoadout(ct);
-      updatePickupBanner();
-      var nextLoadoutSig = customizeLoadoutSignature();
-      if (custOverlay.visible && (custTargetKey !== prevTargetKey || custDisplayedLoadoutSig !== nextLoadoutSig)) {
-        // Target/loadout changed under the open modal (player switch, or the demo's own state moved
-        // on) -- discard any unstaged picks and reseed from the live loadout, same as opening fresh.
-        previewLog('reseed', (custTargetKey !== prevTargetKey ? 'target' : 'loadout') + ' dirty=' + (custDirty ? 1 : 0)
-          + ' was=' + custDisplayedLoadoutSig + ' now=' + nextLoadoutSig);
-        custTouched = { agent: false, primary: false, secondary: false, knife: false, gloves: false };
-        custDirty = false;
-        resetSelectionsFromLoadout();
-        custTitleName.text = (custTargetName || 'PLAYER').toUpperCase();
-        populateCustomize();
-        // The reseed picked the slot the new loadout holds; the always-open picker follows it.
-        selectSlot(custActiveCategory);
-        updatePreview();
-        pokePreviewSoon();
-        custDisplayedLoadoutSig = nextLoadoutSig;
-      }
-      maintainPreview(); // self-heals the 3D preview for a few frames after it (re)opens
+      // Customize Player: target, roster, reseed, preview upkeep and the window drag, in ONE pass
+      // shared with the CONFIG-hosted modal below (CameraEditorCustomizePlayersJs.h).
+      customizeFrame();
 
       var followMode = inspectorMode === 'follow';
       var sceneMode = inspectorMode === 'scene';

@@ -100,6 +100,16 @@ const VIEWS = {
   // Design 7b: the always-open picker on a grouped slot (knives, inside one model) and the agent pane.
   customize_knife:        'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeOpenPicker(\x27knife\x27);mirv_filmmaker editor eval $.CamEditor.customizeOpenPicker(\x27knife\x27)') + '&hold=1500',
   customize_agent:        'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeOpenPicker(\x27agent\x27);mirv_filmmaker editor eval $.CamEditor.customizeOpenPicker(\x27agent\x27)') + '&hold=1500',
+  // The player menu behind the name in the title bar: T and CT side by side, dead players dimmed
+  // (zont1x has a last-seen loadout, huNter- only their body's gloves).
+  customize_players:      'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizePlayerMenu(true)') + '&hold=800',
+  customize_dead:         'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker cosmetics pick 15') + '&hold=1500',
+  // The window's other sizes, and one dragged to the corner.
+  customize_compact:      'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeSize(\x27compact\x27)') + '&hold=1500',
+  customize_collapsed:    'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeSize(\x27collapsed\x27);mirv_filmmaker editor eval $.CamEditor.customizePlayerMenu(true)') + '&hold=800',
+  customize_moved:        'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeSize(\x27compact\x27);mirv_filmmaker editor eval $.CamEditor.customizeMove(1100,40)') + '&hold=1500',
+  // CONFIG's CUSTOMIZE PLAYER: the same modal over CONFIG, the editor workspace closed.
+  customize_config:       'surface=confighud&cmd=' + encodeURIComponent('mirv_filmmaker config customize') + '&hold=2500',
   // Per-player death animations (design 8c): the picker with its first clip selected and playing,
   // then with a body-map region filtering the list.
   deathanim_picker:       'surface=confighud&act=Death clip preview&hold=2500',

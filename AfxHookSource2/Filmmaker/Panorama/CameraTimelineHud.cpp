@@ -98,6 +98,8 @@ bool CameraTimelineHud::BuildIfNeeded() {
 	m_symMenuOpen = m_bridge.MakeSymbol("menuopen");
 	m_symCamMode = m_bridge.MakeSymbol("cammode");
 	m_symBarRect = m_bridge.MakeSymbol("barrect");
+	m_symSpecState = m_bridge.MakeSymbol("specstate");
+	m_symDemoPlayers = m_bridge.MakeSymbol("demoplayers");
 	m_root = FindRoot();
 	m_built = (m_root != nullptr);
 	m_lastState.clear();
@@ -108,6 +110,10 @@ bool CameraTimelineHud::BuildIfNeeded() {
 
 void CameraTimelineHud::Teardown() {
 	m_nativeCameraMode = -1;
+	m_nativeSpecPawn = -1;
+	m_nativeObsMode = -1;
+	m_nativeDemoPlayers.clear();
+	m_spectateRequest = -1;
 	if (m_built && m_hudPanel && m_bridge.ContextPanel()) {
 		// Hand CS2's own demo bar back FIRST. Our dock writes width/horizontalAlign/background
 		// onto native panels; deleting our root does not revert them, so skipping this orphans
@@ -134,6 +140,18 @@ void CameraTimelineHud::ReadBarRect() {
 	m_barValid.store(false);
 	for (int i = 0; i < 4; ++i) m_bar[i].store(r[i]);
 	m_barValid.store(ok);
+}
+
+// CS2's spectator state from the native demo bar's panel ('specstate' / 'demoplayers', published by
+// publishSpectate in CameraTimelineJs.h). Missing attributes read as "nobody" and an empty roster.
+void CameraTimelineHud::ReadNativeSpectator() {
+	m_nativeSpecPawn = -1;
+	m_nativeObsMode = -1;
+	if (!m_root) { m_nativeDemoPlayers.clear(); return; }
+	const std::string spec = m_bridge.GetAttributeString(m_root, m_symSpecState, "-1 -1");
+	int pawn = -1, mode = -1;
+	if (2 == sscanf_s(spec.c_str(), "%d %d", &pawn, &mode)) { m_nativeSpecPawn = pawn; m_nativeObsMode = mode; }
+	m_nativeDemoPlayers = m_bridge.GetAttributeString(m_root, m_symDemoPlayers, "");
 }
 
 // Declared in Filmmaker.cpp; queried so the timeline yields the curve zone to the experimental
@@ -396,6 +414,13 @@ void CameraTimelineHud::RunFrame() {
 		&& m_bridge.GetAttributeString(m_root, m_symMenuOpen, "0") == "1";
 	m_nativeCameraMode = m_root ? atoi(m_bridge.GetAttributeString(m_root, m_symCamMode, "-1").c_str()) : -1;
 	ReadBarRect();
+	ReadNativeSpectator();
+	if (m_spectateRequest >= 0) {
+		std::ostringstream js;
+		js << "$.CamTimeline && $.CamTimeline.spectate(" << m_spectateRequest << ");";
+		m_bridge.RunScript(js.str().c_str());
+		m_spectateRequest = -1;
+	}
 
 	// After render(), so the list it scrolls has this frame's layout.
 	DispatchWheel();

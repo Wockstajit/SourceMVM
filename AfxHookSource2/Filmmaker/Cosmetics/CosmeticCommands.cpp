@@ -13,6 +13,7 @@
 #include "CosmeticModelSwap.h"
 #include "CosmeticAnimFix.h"
 #include "CosmeticEntityAccess.h" // CosmeticEnumeratePlayers: the "everyone" actions
+#include "CustomizeTarget.h"      // "pick" / "roster": Customize Player's target
 
 #include "../../../Shared/AfxConsole.h"
 
@@ -97,6 +98,9 @@ void PrintUsage(const char* cmd) {
 			"  %s cosmetics diag   (dump the spectated player's live weapon econ state)\n"
 			"  %s cosmetics visualdiag   (read-only: full visual-cache state + flag offsets)\n"
 			"  %s cosmetics spectate <steamId|current>   (first-person spectate by steam; skips dead)\n"
+			"  %s cosmetics roster   (Customize Player: every T/CT player, alive or dead, and the current target)\n"
+			"  %s cosmetics pick <controller|clear>   (Customize Player: target that player, first person on them)\n"
+			"  %s cosmetics observerprobe   (read-only: who the camera is on, per resolver; logs to mvm_debug)\n"
 			"  %s cosmetics skinlog   (log the spectated player's full LIVE skin state to mvm_debug; auto-logs on switch/seek/weapon/loadout change)\n"
 			"  %s cosmetics rebuild once   (re-assert enabled rebuildflags on matched weapons now)\n"
 			"  %s cosmetics rebuild auto [0|1]   (per-frame writing of enabled rebuildflags on change)\n"
@@ -115,7 +119,7 @@ void PrintUsage(const char* cmd) {
 			"  %s cosmetics recompose [0|1]   (force material re-composite after writes)\n"
 			"  %s cosmetics vtidx <comp> <sec>   (tune UpdateComposite vtable indices, -1=skip)\n"
 			"  %s cosmetics vtprobe <idx>   (bisect OnDataChanged: call weapon vtable[idx](this,0) now)\n",
-		cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
+		cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
 }
 
 // Parses ORDER-INDEPENDENT key/value tokens of the form "key=value" (or "key value", to be lenient)
@@ -926,6 +930,12 @@ void Cosmetics_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* 
 		uint64_t id = ResolveSteamIdArg(cmd, args->ArgV(3));
 		if (id != 0)
 			Cosmetics_SpectateSteamId(cmd, id);
+	} else if (TokenIs(sub, "pick")) {
+		CustomizeTarget_RunPickCommand(argc, args, cmd);
+	} else if (TokenIs(sub, "roster")) {
+		CustomizeTarget_PrintRoster(cmd);
+	} else if (TokenIs(sub, "observerprobe")) {
+		Cosmetics_PrintObserverProbe(cmd);
 	} else if (TokenIs(sub, "skinlog")) {
 		// Force one LIVE per-player skin-state snapshot into the mvm_debug log right now. (The same
 		// snapshot fires automatically on player switch / seek / weapon / loadout change while

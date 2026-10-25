@@ -127,8 +127,6 @@ private:
 	bool m_popupOpen = false;
 	bool m_viewEdit = false;
 	bool m_prevMovieHud = false; // movie-director card visibility to restore on exit
-	bool m_povReady = false;     // debounced spectated-player-available flag
-	int m_povReadyHold = 0;      // frames the current reading has held steady
 	std::string m_lastState;
 };
 

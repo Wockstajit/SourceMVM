@@ -287,6 +287,12 @@ void initCosmeticsOffsets()
 	// works) rather than taking down the cosmetics path this function shares.
 	if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_iShotsFired, "client.dll", "C_CSPlayerPawn", "m_iShotsFired"))
 		getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_iShotsFired, "client.dll", "C_CSPlayerPawnBase", "m_iShotsFired");
+	// Customize Player: a dead player's controller moves to its observer pawn, and the body it left
+	// behind drops its controller handle. These two links still name the body. Optional: unresolved
+	// just means a dead player's body cannot be found (no first-person view on it).
+	getOffset(&g_clientDllOffsets.CCSPlayerController.m_hPlayerPawn, "client.dll", "CCSPlayerController", "m_hPlayerPawn");
+	if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_hOriginalController, "client.dll", "C_CSPlayerPawn", "m_hOriginalController"))
+		getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_hOriginalController, "client.dll", "C_CSPlayerPawnBase", "m_hOriginalController");
 	// Read-only model-state chain (agent/player-model display). Off the `ok` chain: a missing field
 	// just disables the agent read, not the whole skin-changer. Guarded by != 0 at the read site.
 	getOffset(&g_clientDllOffsets.ModelChain.m_CBodyComponent, "client.dll", "C_BaseEntity", "m_CBodyComponent");

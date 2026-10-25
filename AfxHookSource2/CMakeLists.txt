@@ -676,6 +676,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/MvmTest.h
     Filmmaker/Cosmetics/CosmeticUiQueries.cpp
     Filmmaker/Cosmetics/CosmeticUiQueries.h
+    Filmmaker/Cosmetics/CustomizeTarget.cpp
+    Filmmaker/Cosmetics/CustomizeTarget.h
+    Filmmaker/Cosmetics/CustomizeTargetMath.h
     Filmmaker/FilmmakerDebugCommand.cpp
     Filmmaker/FilmmakerDebugCommand.h
     Filmmaker/FilmmakerHealth.cpp
@@ -687,6 +690,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Panorama/CameraEditorWidgetsJs.h
     Filmmaker/Panorama/CameraEditorCustomizeJs.h
     Filmmaker/Panorama/CameraEditorCustomizePreviewJs.h
+    Filmmaker/Panorama/CameraEditorCustomizePlayersJs.h
+    Filmmaker/Panorama/CameraEditorCustomizeWindowJs.h
     Filmmaker/Panorama/DeathAnimPreview.cpp
     Filmmaker/Panorama/DeathAnimPreview.h
     Filmmaker/Panorama/PreviewSceneProbe.cpp
