@@ -35,12 +35,18 @@ constexpr int kDynamic = 2;
 // ragdoll control; `object` is that aggregate or control.
 struct BodySet {
 	CEntityInstance* carrier = nullptr;
+	// The carrier's entity slot, read while it was alive: whether it still exists can then be checked
+	// in the entity list without reading the carrier (DeathAnimations.cpp, CarrierAlive).
+	int carrierIndex = -1;
 	int route = 0;
 	void* object = nullptr;
 	void* bodies[kBodies] = {};
 };
 
 CEntityInstance* EntityAt(int index);
+// The entity in any slot of the 15-bit handle range, client-only ones (a client-side ragdoll sits
+// above EntityAt's networked ceiling) included. Null when the slot is empty.
+CEntityInstance* EntityInSlot(int index);
 CEntityInstance* PawnOfUser(int userid, int* pawnIndex);
 CEntityInstance* ClientRagdollOf(CEntityInstance* entity);
 
