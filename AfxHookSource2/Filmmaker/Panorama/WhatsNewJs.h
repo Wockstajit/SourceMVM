@@ -247,15 +247,21 @@ R"FMJS(
     // ONE SPOT for the main menu and the pause menu: centred in the bar's stretch left of INVENTORY
     // (mvmHeaderSlot, HeaderLayoutJs.h), the mirror of HC TRACKER right of NEWS. At 1920 wide it
     // spans 341 to 545, 166px clear on both sides. On a narrow screen (4:3) the version is dropped
-    // before the gaps would close up.
+    // before the gaps would close up, and comes back once the full button fits again.
     var WN_MIN_GAP = 28;
+    var wnFullW = 0;   // the button's width with the version, kept while the version is dropped
     function wnHeaderPlace() {
       if (!wnHeader || !wnHeader.IsValid()) return;
       var uis = wnHeader.actualuiscale_x || 1;
       var w = (wnHeader.actuallayoutwidth || 0) / uis;
       if (w <= 0) return;   // not laid out yet
       var slot = mvmHeaderSlot(-1, w, mvmHeaderBarWidth(root3));
-      if (slot.before < WN_MIN_GAP && wnHeaderVersion.visible) { wnHeaderVersion.visible = false; return; }
+      // Each change of the version's visibility re-measures on the next tick.
+      if (wnHeaderVersion.visible) {
+        if (slot.before < WN_MIN_GAP) { wnFullW = w; wnHeaderVersion.visible = false; return; }
+      } else if (wnFullW > 0 && mvmHeaderSlot(-1, wnFullW, mvmHeaderBarWidth(root3)).before >= WN_MIN_GAP) {
+        wnFullW = 0; wnHeaderVersion.visible = true; return;
+      }
       wnGaps = [Math.round(slot.before), Math.round(slot.after)];
       wnHeader.style.marginLeft = Math.round(slot.x) + 'px';
     }

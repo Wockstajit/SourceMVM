@@ -55,6 +55,31 @@ test('both buttons are centred in their stretch: even room before and after', ()
   assert.ok(narrow.before > 0 && narrow.after > 0);
 });
 
+// wnHeaderPlace, run against stand-ins for the button and the bar (review on #99): the version must
+// come back when the window widens again, not only drop.
+test('the version drops on a narrow bar and comes back when there is room again', () => {
+  const fnStart = whatsNew.indexOf('function wnHeaderPlace(');
+  const src = whatsNew.slice(whatsNew.indexOf('var WN_MIN_GAP'), whatsNew.indexOf('\n    }\n', fnStart) + 6);
+  const bar = { w: 1300 };
+  const version = { visible: true };
+  const header = { IsValid: () => true, actualuiscale_x: 1, actuallayoutwidth: 204, style: {} };
+  const place = new Function('wnHeader', 'wnHeaderVersion', 'root3', 'mvmHeaderSlot', 'mvmHeaderBarWidth',
+    'var wnGaps;\n' + src + '\nreturn wnHeaderPlace;')(header, version, {}, headerSlot(), () => bar.w);
+  place();                                   // 1300 wide: the full 204px button leaves 10px, too tight
+  assert.equal(version.visible, false);
+  header.actuallayoutwidth = 130;            // re-laid out without the version
+  place();
+  assert.equal(version.visible, false, 'still too tight for the full button');
+  assert.ok(header.style.marginLeft, 'the short button is placed');
+  bar.w = 1920;                              // a wider window
+  place();
+  assert.equal(version.visible, true, 'the version comes back');
+  header.actuallayoutwidth = 204;
+  place();
+  assert.equal(version.visible, true);
+  assert.equal(header.style.marginLeft, '341px');
+});
+
 test('one placement loop per button', () => {
   assert.match(whatsNew, /var loop = \+\+wnPlaceLoop;/);
   assert.match(whatsNew, /if \(loop !== wnPlaceLoop \|\| !b\.IsValid\(\)\) return;/);

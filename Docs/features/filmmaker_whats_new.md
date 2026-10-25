@@ -43,7 +43,7 @@ from the left (pause hides the quit icon but leaves home, Movie Making and setti
 INVENTORY starts 250 px left of the bar's centre. At 1920 wide the button spans 341 to 545, with
 166 px on each side. Nothing it reads changes when CS2 pauses: INVENTORY is collapsed then and keeps
 a stale layout, so it is not measured. On a narrow screen (4:3) the version text is dropped before
-the gaps would close up.
+the gaps would close up, and it comes back when the window is widened again.
 
 All hook paths are under `AfxHookSource2/`.
 
