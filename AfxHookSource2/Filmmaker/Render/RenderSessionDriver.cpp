@@ -17,6 +17,8 @@
 #include "RenderWorldPlayersNoGun.h"
 #include "RenderPlayersOnlyGreen.h"
 #include "RenderPassPlan.h"
+#include "RenderDoneSound.h"
+#include "RenderTakeHistory.h"
 #include "../Movie/CameraPath.h"
 #include "../Movie/CameraBridge.h"
 #include "../Movie/DemoTimescale.h"
@@ -341,6 +343,11 @@ void FinishJob(S terminal, const char* status, const std::string& note) {
 	Probe("job %s frames=%d/%d note='%s'", status, s_frameIndex, s_job.framesTotal, note.c_str());
 	advancedfx::Message("mirv_filmmaker render: job %s (%d frame(s), %s).\n",
 		status, s_frameIndex, s_progress.takeDirUtf8.c_str());
+	// A render is often left running while the user is away: tell them it ended. A cancel is the
+	// user's own click, so it stays silent.
+	RenderDoneSound_Play(terminal == S::Completed);
+	// The new take joins PREVIOUS RENDERS.
+	RenderTakeHistory_Refresh();
 }
 
 void FailJob(const std::string& reason) {
@@ -1161,6 +1168,7 @@ void RenderSessionDriver_RunFrame() {
 		SetPhase("canceled");
 		advancedfx::Message("mirv_filmmaker render: job canceled (%d frame(s) kept in %s).\n",
 			s_frameIndex, s_progress.takeDirUtf8.c_str());
+		RenderTakeHistory_Refresh();
 		break;
 	}
 

@@ -24,6 +24,7 @@
 #include "../Debug/MvmDebugLog.h"
 #include "../Render/RenderCommand.h"
 #include "../Render/RenderOutput.h" // RenderOutput_PumpMainThread (folder-picker handover)
+#include "../Render/RenderTakeHistory.h" // earlier takes of this demo (background scan handover)
 #include "../Render/RenderResolution.h" // RenderResolution_PumpMainThread (render.res probe)
 #include "../Render/RenderRange.h" // Filmmaker::MvmDebugLog_Active (gates JS preview diagnostics)
 
@@ -359,6 +360,7 @@ void CameraEditorHud::RunFrame() {
 	// the main thread before the state JSON is built, or the new folder shows up a frame late.
 	RenderOutput_PumpMainThread();
 	RenderResolution_PumpMainThread();
+	RenderTakeHistory_PumpMainThread();
 
 	unsigned char* hud = PlayingDemo() ? AfxHookSource2_GetPanoramaHudPanel() : nullptr;
 	if (MvmDebugLog_Active()) {

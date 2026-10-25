@@ -29,7 +29,17 @@ R"TLJS(
     // ---- render-range overlay on the native demo bar ---------------------
     var RANGE_RAIL_H = 18;    // height of ONE drag rail
     var RANGE_RAIL_GAP = 2;
-    var RANGE_FLAG_W = 24;
+    // A flag is a LINE exactly at its tick with a small I / O tab beside it, on the outside of the
+    // range: In's tab left of its line, Out's right of it. The old 24px flag was centred on its
+    // tick, so it hid the very point it marked, and on a short clip In and Out covered each other
+    // (tester report: a 4K AWP clip, a few pixels long on a 20-minute demo).
+    var RANGE_TAB_W = 15;
+    var RANGE_LINE_W = 2;
+    var RANGE_GRAB_W = 9;     // the line's own grab width, centred on it
+    // Shift while dragging: the flag moves 1/16 as far as the pointer. A 20-minute demo is about 45
+    // ticks per pixel of bar; fine control brings that to about 3, so a flag can be set to the tick.
+    var RANGE_FINE = 16;
+    var RANGE_TICKRATE = 64;
     // Vertical space the two stacked rails occupy inside the native marker strip. The output row
     // remains below the input row, but neither row draws its own track or field.
     //
@@ -60,7 +70,7 @@ R"TLJS(
     rangeBandEl.style.borderLeft = '2px solid ' + S.rangeEdge;
     rangeBandEl.style.borderRight = '2px solid ' + S.rangeEdge;
 
-    var rangeGeom = { w: 0, h: 0, bandY: 0, bandH: RANGE_RAIL_STACK, t0: 0, t1: 1 };
+    var rangeGeom = { w: 0, h: 0, x0: 0, y0: 0, bandY: 0, bandH: RANGE_RAIL_STACK, t0: 0, t1: 1 };
     function rangeTickAt(frac) {
       return Math.round(rangeGeom.t0 + clamp01(frac) * (rangeGeom.t1 - rangeGeom.t0));
     }
@@ -71,27 +81,64 @@ R"TLJS(
     function makeRangeRail(side, onCommit) {
       var rail = mk('Panel', rangeBox); rail.hittest = false; rail.hittestchildren = true;
       rail.style.position = '0px 0px 0px';
-      var flag = mk('Panel', rail); flag.hittest = true;
-      flag.style.position = '0px 0px 0px';
-      flag.style.width = RANGE_FLAG_W + 'px'; flag.style.height = RANGE_RAIL_H + 'px';
-      flag.style.zIndex = '4';
-      flag.style.backgroundColor = S.rangeEdge;
-      flag.style.borderRadius = side < 0 ? '2px 0px 0px 2px' : '0px 2px 2px 0px';
-      var tag = lbl(flag, side < 0 ? 'I' : 'O', '#0b1016ff', 11);
+      var line = mk('Panel', rail); line.hittest = false;
+      line.style.width = RANGE_LINE_W + 'px'; line.style.height = RANGE_RAIL_H + 'px';
+      line.style.zIndex = '4'; line.style.backgroundColor = S.rangeEdge;
+      var tab = mk('Panel', rail); tab.hittest = true;
+      tab.style.width = RANGE_TAB_W + 'px'; tab.style.height = (RANGE_RAIL_H - 4) + 'px';
+      tab.style.zIndex = '4'; tab.style.backgroundColor = S.rangeEdge;
+      tab.style.borderRadius = side < 0 ? '2px 0px 0px 2px' : '0px 2px 2px 0px';
+      var tag = lbl(tab, side < 0 ? 'I' : 'O', '#0b1016ff', 10);
       tag.hittest = false; tag.style.fontWeight = 'bold';
       tag.style.horizontalAlign = 'center'; tag.style.verticalAlign = 'center';
+      // The line can be grabbed too, through a transparent strip wider than the line itself.
+      var grab = mk('Panel', rail); grab.hittest = true;
+      grab.style.width = RANGE_GRAB_W + 'px'; grab.style.height = RANGE_RAIL_H + 'px'; grab.style.zIndex = '5';
       // Consume Panorama's click at exactly the painted flag. Raw cursor state below owns motion.
-      flag.SetPanelEvent('onactivate', function () {});
-      var rec = { rail: rail, flag: flag, side: side, held: false,
-        frac: side < 0 ? 0 : 1, onCommit: onCommit };
-      return rec;
+      tab.SetPanelEvent('onactivate', function () {});
+      grab.SetPanelEvent('onactivate', function () {});
+      return { rail: rail, line: line, tab: tab, grab: grab, side: side, held: false,
+        frac: side < 0 ? 0 : 1, onCommit: onCommit, anchorFrac: 0, anchorMx: 0, anchorFine: false };
     }
     function placeRangeFlag(rec) {
-      var x = clamp01(rec.frac) * rangeGeom.w - RANGE_FLAG_W / 2;
-      if (x < 0) x = 0;
-      var maxX = Math.max(0, rangeGeom.w - RANGE_FLAG_W);
-      if (x > maxX) x = maxX;
-      rec.flag.style.position = x.toFixed(1) + 'px 0px 0px';
+      var w = rangeGeom.w, x = clamp01(rec.frac) * w;
+      rec.line.style.position = (x - RANGE_LINE_W / 2).toFixed(1) + 'px 0px 0px';
+      rec.grab.style.position = (x - RANGE_GRAB_W / 2).toFixed(1) + 'px 0px 0px';
+      // Outside the range; at an end of the bar the tab flips inside rather than leave the bar.
+      var outer = rec.side < 0 ? x - RANGE_LINE_W / 2 - RANGE_TAB_W : x + RANGE_LINE_W / 2;
+      var inner = rec.side < 0 ? x + RANGE_LINE_W / 2 : x - RANGE_LINE_W / 2 - RANGE_TAB_W;
+      var tx = (outer < 0 || outer > w - RANGE_TAB_W) ? inner : outer;
+      rec.tab.style.position = tx.toFixed(1) + 'px 2px 0px';
+    }
+    function paintRangeFlag(rec, colour) {
+      rec.line.style.backgroundColor = colour; rec.tab.style.backgroundColor = colour;
+    }
+
+    // The tick under a held or hovered flag, so a flag can be set to the tick by eye.
+    var rangeReadout = mk('Panel', rangeRoot); rangeReadout.hittest = false; rangeReadout.visible = false;
+    rangeReadout.style.backgroundColor = '#0b1016f2'; rangeReadout.style.border = '1px solid ' + S.rangeEdge;
+    rangeReadout.style.borderRadius = '2px'; rangeReadout.style.zIndex = '6';
+    rangeReadout.style.paddingLeft = '6px'; rangeReadout.style.paddingRight = '6px';
+    rangeReadout.style.paddingTop = '1px'; rangeReadout.style.paddingBottom = '1px';
+    var rangeReadoutL = lbl(rangeReadout, '', '#e6edf3ff', 12); rangeReadoutL.hittest = false;
+    rangeReadoutL.style.whiteSpace = 'nowrap';
+    function rangeClock(ticks) {
+      var s = Math.max(0, ticks) / RANGE_TICKRATE, m = Math.floor(s / 60);
+      var r = s - m * 60;
+      return m + ':' + (r < 10 ? '0' : '') + r.toFixed(2);
+    }
+    function showRangeReadout(rec, fine) {
+      if (!rec) { if (rangeReadout.visible) rangeReadout.visible = false; return; }
+      var tick = rangeTickAt(rec.frac);
+      var text = (rec.side < 0 ? 'IN  ' : 'OUT  ') + tick + '  ·  ' + rangeClock(tick - rangeGeom.t0)
+        + (fine ? '  ·  FINE' : '');
+      if (rangeReadoutL.text !== text) rangeReadoutL.text = text;
+      var uis = rangeReadout.actualuiscale_x || 1;
+      var bw = (rangeReadout.actuallayoutwidth || 0) / uis;
+      var x = rangeGeom.x0 + clamp01(rec.frac) * rangeGeom.w - bw / 2;
+      x = Math.max(rangeGeom.x0, Math.min(rangeGeom.x0 + rangeGeom.w - bw, x));
+      rangeReadout.style.position = x.toFixed(1) + 'px ' + (rangeGeom.y0 - 24).toFixed(1) + 'px 0px';
+      if (!rangeReadout.visible) rangeReadout.visible = true;
     }
 
     // BOTH flags commit through one command built from the two current positions, ordered.
@@ -123,33 +170,42 @@ R"TLJS(
     var railOut = makeRangeRail(1, commitRangeFromRails);
     var rangeLastLmb = false;
 
-    function rangeOverFlag(rec, mx, my) {
-      var a = rec.flag.GetPositionWithinWindow ? rec.flag.GetPositionWithinWindow() : null;
+    function rangeOverPanel(p, mx, my) {
+      var a = p.GetPositionWithinWindow ? p.GetPositionWithinWindow() : null;
       if (!a) return false;
-      var w = rec.flag.actuallayoutwidth || 0, h = rec.flag.actuallayoutheight || 0;
+      var w = p.actuallayoutwidth || 0, h = p.actuallayoutheight || 0;
       return w > 0 && h > 0 && mx >= a.x && mx <= a.x + w && my >= a.y && my <= a.y + h;
+    }
+    function rangeOverFlag(rec, mx, my) {
+      return rangeOverPanel(rec.tab, mx, my) || rangeOverPanel(rec.grab, mx, my);
     }
     function pumpRangeFlags() {
       if (!st || typeof st.mx !== 'number') return;
-      var lmb = !!st.lmb, mx = st.mx, my = st.my;
+      var lmb = !!st.lmb, mx = st.mx, my = st.my, fine = !!st.shift;
       // Do not gate this on CameraTimelineHud's `cursor` bit. In Regular Timeline and Config the
       // editor/config HUD owns UI-mouse mode, so this sibling HUD can report cursor=false even
       // while the OS pointer is visibly clicking Panorama. The exact painted-flag hit test is the
       // authority here and cannot claim an unrelated game click.
-      if (lmb && !rangeLastLmb) {
-        var hit = rangeOverFlag(railIn, mx, my) ? railIn
-          : (rangeOverFlag(railOut, mx, my) ? railOut : null);
-        if (hit) hit.held = true;
+      var over = rangeOverFlag(railIn, mx, my) ? railIn
+        : (rangeOverFlag(railOut, mx, my) ? railOut : null);
+      if (lmb && !rangeLastLmb && over) {
+        over.held = true;
+        over.anchorFrac = over.frac; over.anchorMx = mx; over.anchorFine = fine;
       }
       var active = railIn.held ? railIn : (railOut.held ? railOut : null);
       if (active && lmb) {
-        var a = rangeBox.GetPositionWithinWindow ? rangeBox.GetPositionWithinWindow() : null;
         var w = rangeBox.actuallayoutwidth || 0;
-        if (a && w > 1) {
-          active.frac = clamp01((mx - a.x) / w);
+        if (w > 1) {
+          // From where the flag was grabbed, so grabbing the tab beside the line never jumps it to
+          // the pointer. Pressing or letting go of Shift mid-drag re-anchors instead of jumping.
+          if (fine !== active.anchorFine) {
+            active.anchorFrac = active.frac; active.anchorMx = mx; active.anchorFine = fine;
+          }
+          active.frac = clamp01(active.anchorFrac + (mx - active.anchorMx) / w / (fine ? RANGE_FINE : 1));
           placeRangeFlag(active); redrawRangeBandFromRails();
         }
       }
+      showRangeReadout(active || (lmb ? null : over), !!active && fine);
       if (!lmb && active) {
         active.held = false; redrawRangeBandFromRails();
         active.onCommit();
@@ -195,6 +251,7 @@ R"TLJS(
     function hideRangeOverlay() {
       if (rangeRoot.visible) rangeRoot.visible = false;
       railIn.held = false; railOut.held = false; rangePending = null;
+      if (rangeReadout.visible) rangeReadout.visible = false;
       rangeLastLmb = !!(st && st.lmb);
     }
 )TLJS"
@@ -256,6 +313,7 @@ R"TLJS(
       // Fill the same fixed-height two-row area occupied by the handles. The previous 6px strip
       // sat on the marker field's bottom edge and was visually indistinguishable from a border.
       rangeGeom.w = hw; rangeGeom.h = hh; rangeGeom.bandY = 0;
+      rangeGeom.x0 = a.x / uis; rangeGeom.y0 = a.y / uis;
       rangeGeom.bandH = RANGE_RAIL_STACK;
       rangeGeom.t0 = st.demoStartTick; rangeGeom.t1 = st.demoEndTick;
 
@@ -278,7 +336,8 @@ R"TLJS(
           || (new Date()).getTime() > rangePending.until) rangePending = null;
       }
       var edge = loopMode ? '#7be08eff' : S.rangeEdge;
-      railIn.flag.style.backgroundColor = edge; railOut.flag.style.backgroundColor = edge;
+      paintRangeFlag(railIn, edge); paintRangeFlag(railOut, edge);
+      rangeReadout.style.border = '1px solid ' + edge;
       rangeBandEl.style.backgroundColor = loopMode ? '#7be08e38' : '#59d1b538';
       rangeBandEl.style.borderLeft = '2px solid ' + edge;
       rangeBandEl.style.borderRight = '2px solid ' + edge;
@@ -318,7 +377,7 @@ R"TLJS(
         var a = rec.rail.GetPositionWithinWindow ? rec.rail.GetPositionWithinWindow() : null;
         return {
           n: name, frac: Number(rec.frac.toFixed(4)), held: !!rec.held,
-          fht: !!rec.flag.hittest,
+          fht: !!rec.tab.hittest, tick: rangeTickAt(rec.frac),
           x: a ? Math.round(a.x) : -1, y: a ? Math.round(a.y) : -1,
           w: Math.round(rec.rail.actuallayoutwidth || 0), h: Math.round(rec.rail.actuallayoutheight || 0)
         };

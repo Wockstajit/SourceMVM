@@ -224,6 +224,17 @@
         cameraSource: 4, extension: 0,
         sessionState: 0, prog: {}, warnCount: 0, fatalCount: 0, firstFatal: '',
         captureHide: false, jobActive: false, open: false,
+        // The header's SOUND chip and OUTPUT > WHEN THE RENDER ENDS (RenderDoneSound.h).
+        sound: { on: true, volume: 60 },
+        // PREVIOUS RENDERS (RenderTakeHistory.cpp): this demo's earlier takes, newest first.
+        takes: [
+          { name: 'match730_de_mirage_r12_2026-10-24_11-17-15', when: '2026-10-24T11:17:16', status: 'completed',
+            start: 41800, end: 43900, fps: 60, frames: 1969, format: 'mp4', camera: 'path',
+            passes: [['beauty', 'all'], ['key', 'gun'], ['depth', 'gun']] },
+          { name: 'match730_de_mirage_r12_2026-10-24_10-54-33', when: '2026-10-24T10:54:35', status: 'canceled',
+            start: 34800, end: 34832, fps: 30, frames: 9, format: 'tga', camera: 'pov',
+            passes: [['beauty', 'all']] }
+        ],
         pass: {
           hud: 0, cameraData: true, blood: true, key: [0, 255, 0], depthNear: 8, depthFar: 4096, preview: 'all',
           list: [{ type: 'beauty', elements: 'all', stream: 'beauty' }], rendersPerFrame: 1

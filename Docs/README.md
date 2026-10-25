@@ -19,6 +19,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | Movie director and cameras | [`filmmaker_movie_controls.md`](features/filmmaker_movie_controls.md), [`camera-editor-feature.md`](features/camera-editor-feature.md) |
 | Recording FPS (mux + host_framerate; dial preview-only) | [`filmmaker_render_fps.md`](features/filmmaker_render_fps.md) |
 | Render passes (Beauty / Depth / Normal × visibility, synchronized multipass) | [`filmmaker_render_passes.md`](features/filmmaker_render_passes.md) |
+| Render workspace: range nudges, the done sound, previous renders | [`filmmaker_render_workspace.md`](features/filmmaker_render_workspace.md) |
 | Live demo scrubbing (the world follows timeline and demo-bar drags) | [`filmmaker_demo_scrubbing.md`](features/filmmaker_demo_scrubbing.md) |
 | Follow / Attach camera | [`follow-camera/README.md`](follow-camera/README.md) |
 | Config and camera effects | [`filmmaker_config_panel.md`](features/filmmaker_config_panel.md), [`filmmaker_camera_shake.md`](features/filmmaker_camera_shake.md) |

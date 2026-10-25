@@ -258,6 +258,13 @@ add_executable(RenderPassPlanTests
 target_compile_features(RenderPassPlanTests PRIVATE cxx_std_17)
 add_test(NAME RenderPassPlanTests COMMAND RenderPassPlanTests)
 
+add_executable(RenderTakeImportMathTests
+    ../Automation/tests/render-take-import-math-tests.cpp
+    Filmmaker/Platform/JsonParser.cpp
+)
+target_compile_features(RenderTakeImportMathTests PRIVATE cxx_std_17)
+add_test(NAME RenderTakeImportMathTests COMMAND RenderTakeImportMathTests)
+
 add_executable(ChangelogMathTests
     ../Automation/tests/changelog-math-tests.cpp
 )

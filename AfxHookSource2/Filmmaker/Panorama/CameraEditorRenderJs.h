@@ -181,6 +181,14 @@ R"EDJS(
     var renderTitle = lbl(renderHead, 'RENDER', S.render, 18);
     renderTitle.style.fontWeight = 'bold'; renderTitle.style.letterSpacing = '2.5px';
     renderTitle.style.verticalAlign = 'center'; renderTitle.style.width = 'fill-parent-flow(1.0)';
+    // The chime when a job ends (RenderDoneSound.h). Like every header chip it says its own state;
+    // the volume is in OUTPUT > WHEN THE RENDER ENDS.
+    var renderSoundChip = mvmChromeChip(renderHead,
+      function (parent, t, f) {
+        return btn(parent, t, f, S.label, { tip: 'Play a sound when a render finishes, a lower one if it fails. Volume: OUTPUT tab.' });
+      },
+      btnVisual, 'SOUND: ON', function () { cmd('mirv_filmmaker render sound toggle'); });
+    renderSoundChip.id = 'RndSound';
     var renderBackBtn = mvmChromeChip(renderHead,
       function (parent, t, f) { return btn(parent, t, f, S.label, { tip: 'Return to the Camera Editor.' }); },
       btnVisual, '✕ Back', function () { closeRender(); });
@@ -471,6 +479,39 @@ R"EDJS(
     spanRule.style.marginLeft = '14px'; spanRule.style.verticalAlign = 'bottom';
     var spanLen = spanCell('LENGTH', '86px', 'right', 14);
     var spanTicks = spanCell('TICKS @ ' + DEMO_TICKRATE, '96px', 'right', 14);
+    // One-tick steps under IN and LAST FRAME. A flag on the timeline covers about 45 ticks per pixel
+    // on a 20-minute demo, so the last few ticks are set here (tester report). Each step sends the
+    // whole span, so it works from whatever range mode resolved it, and switches to Custom. A step
+    // never leaves the demo (demoStart to demoEnd, the last tick it plays): a last frame past the end
+    // would have the job wait on frames the demo's end hold never plays.
+    var rsSpanStart = 0, rsSpanEnd = 0, rsDemoStart = -1, rsDemoEnd = -1;
+    function rsSetSpan(a, b) {
+      if (rsDemoStart >= 0 && rsDemoEnd > rsDemoStart) {
+        a = Math.max(a, rsDemoStart);
+        b = Math.min(b, rsDemoEnd + 1);
+      } else {
+        a = Math.max(a, 0);
+      }
+      if (!(b > a) || (a === rsSpanStart && b === rsSpanEnd)) return;
+      cmd('mirv_filmmaker render range custom ' + a + ' ' + b);
+    }
+    function spanNudges(valueLbl, align, what, step) {
+      var row = mk('Panel', valueLbl.GetParent()); row.hittest = false; row.hittestchildren = true;
+      row.style.flowChildren = 'right'; row.style.marginTop = '6px'; row.style.horizontalAlign = align;
+      function nudge(text, d, last) {
+        var b = rsOutlineBtn(row, text, function () { step(d); },
+          'Move ' + what + ' one tick ' + (d < 0 ? 'earlier' : 'later') + '.', true);
+        b.style.height = '22px'; b.style.paddingLeft = '8px'; b.style.paddingRight = '8px';
+        b.style.marginRight = last ? '0px' : '4px';
+        b.__lbl.style.fontSize = '12px';
+        return b;
+      }
+      // ASCII minus: the HUD font is not guaranteed to draw U+2212.
+      nudge('-1', -1, false); nudge('+1', 1, true);
+      return row;
+    }
+    spanNudges(spanIn, 'left', 'In', function (d) { rsSetSpan(rsSpanStart + d, rsSpanEnd); });
+    spanNudges(spanLast, 'center', 'the last frame', function (d) { rsSetSpan(rsSpanStart, rsSpanEnd + d); });
     // The span on the whole demo, with the playhead. Read-only: the span is moved from the
     // playhead bar at the foot of the column, or the I / O flags on the timeline.
     var spanBar = mk('Panel', rangeSpan); spanBar.hittest = false;
@@ -1024,6 +1065,23 @@ R"EDJS(
     }, { width: 'fill-parent-flow(1.0)' });
     var encNote = rsNote(encBody, '');
 
+    // WHEN THE RENDER ENDS: the chime (RenderDoneSound.h), also switched by the header's SOUND chip.
+    var doneSec = rsSection(outputPanel, 'WHEN THE RENDER ENDS');
+    var soundTog = edSwitchTile(doneSec, 'Play a sound',
+      'A chime when the render finishes, a lower one if it fails. Cancelling stays silent.', function () {
+        cmd('mirv_filmmaker render sound toggle');
+      });
+    var soundVol = edValueTile(doneSec, { label: 'Volume', min: 0, max: 100, decimals: 0, unit: '%', fill: S.value,
+      tip: 'How loud the chime is. It plays through Windows, so the game volume does not change it.',
+      onChange: function (v) { cmd('mirv_filmmaker render sound volume ' + Math.round(v)); },
+      onEnd: function () { cmd('mirv_filmmaker render sound test'); } });
+    var soundTestRow = mk('Panel', doneSec); soundTestRow.hittest = false; soundTestRow.hittestchildren = true;
+    soundTestRow.style.flowChildren = 'right'; soundTestRow.style.width = '100%'; soundTestRow.style.marginTop = '8px';
+    var soundTestBtn = rsOutlineBtn(soundTestRow, 'Play the sound', function () {
+      cmd('mirv_filmmaker render sound test');
+    }, 'Hear the chime at this volume.', true);
+    soundTestBtn.style.height = '30px';
+
     // Live game resolution in PHYSICAL pixels (actuallayout* is device px; uiscale only affects
     // how style px map onto it). Read every render, so the readout follows a resolution change.
     function renderGameRes() {
@@ -1082,6 +1140,58 @@ R"EDJS(
     var jobProblem = lbl(jobBody, '', RENDER_ERROR_TEXT, 14);
     jobProblem.style.whiteSpace = 'normal';
     jobProblem.style.width = '100%';
+
+    // PREVIOUS RENDERS: this demo's earlier takes (RenderTakeHistory.h). Use starts the next job
+    // from one -- the same range, camera, passes, frame rate and format -- to re-render a shot with
+    // one change, or to add a pass for exactly the same In / Out.
+    var PREV_ROWS = 3;
+    var prevSec = mk('Panel', jobBody); prevSec.hittest = false; prevSec.hittestchildren = true;
+    prevSec.style.flowChildren = 'down'; prevSec.style.width = '100%'; prevSec.style.marginTop = '16px';
+    prevSec.visible = false;
+    var prevCap = lbl(prevSec, 'PREVIOUS RENDERS', S.hint, 10); prevCap.hittest = false;
+    prevCap.style.letterSpacing = '1px'; prevCap.style.marginBottom = '6px';
+    var prevRows = [];
+    for (var pri = 0; pri < PREV_ROWS; pri++) (function (idx) {
+      var row = mk('Panel', prevSec); row.hittest = false; row.hittestchildren = true;
+      row.style.flowChildren = 'right'; row.style.width = '100%'; row.style.marginBottom = '8px';
+      var txt = mk('Panel', row); txt.hittest = false;
+      txt.style.flowChildren = 'down'; txt.style.width = 'fill-parent-flow(1.0)'; txt.style.verticalAlign = 'center';
+      var l1 = lbl(txt, '', S.value, 13); l1.hittest = false; l1.style.fontWeight = 'bold';
+      l1.style.whiteSpace = 'normal'; l1.style.width = '100%';
+      var l2 = lbl(txt, '', S.hint, 11); l2.hittest = false; l2.style.whiteSpace = 'normal'; l2.style.width = '100%';
+      var use = rsOutlineBtn(row, 'Use', function () {
+        cmd('mirv_filmmaker render import ' + idx);
+        use.__lbl.text = 'Loaded'; use.__loadedUntil = (new Date()).getTime() + 1500;
+      }, 'Start from this take: its range, camera, passes, frame rate and format.', true);
+      use.style.height = '28px'; use.style.marginLeft = '8px'; use.style.verticalAlign = 'center';
+      use.__lbl.style.fontSize = '12px';
+      prevRows.push({ row: row, l1: l1, l2: l2, use: use });
+    })(pri);
+    var PREV_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    function prevWhen(iso) {
+      // "2026-10-24T11:17:16" -> "Oct 24, 11:17"
+      var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso || '');
+      if (!m) return iso || '';
+      return PREV_MONTHS[(parseInt(m[2], 10) - 1) % 12] + ' ' + parseInt(m[3], 10) + ', ' + m[4] + ':' + m[5];
+    }
+    function renderPrevious(takes) {
+      takes = takes || [];
+      prevSec.visible = takes.length > 0;
+      for (var i = 0; i < prevRows.length; i++) {
+        var p = prevRows[i], t = takes[i];
+        p.row.visible = !!t;
+        if (!t) continue;
+        var l1 = prevWhen(t.when) + (t.status && t.status !== 'completed' ? '  ·  ' + t.status : '');
+        var n = (t.passes || []).length;
+        var l2 = rsNum(t.start) + ' → ' + rsNum(t.end - 1) + '  ·  ' + rsClock(t.end - t.start)
+          + '  ·  ' + n + (n === 1 ? ' pass' : ' passes') + '  ·  ' + t.fps + ' fps ' + ('' + t.format).toUpperCase();
+        if (p.l1.text !== l1) p.l1.text = l1;
+        if (p.l2.text !== l2) p.l2.text = l2;
+        if (p.use.__loadedUntil && (new Date()).getTime() > p.use.__loadedUntil) {
+          p.use.__loadedUntil = 0; p.use.__lbl.text = 'Use';
+        }
+      }
+    }
 
     // jobBody flows DOWN, so `verticalAlign: bottom` on the action row would do nothing -- a
     // filling spacer is what actually pushes it to the bottom of the column.
@@ -1209,6 +1319,9 @@ R"EDJS(
       rangeSpan.visible = ticks > 0;
       rangeEmpty.visible = !(ticks > 0);
       if (ticks > 0) {
+        rsSpanStart = start; rsSpanEnd = endExcl;
+        rsDemoStart = typeof r.demoStart === 'number' ? r.demoStart : -1;
+        rsDemoEnd = typeof r.demoEnd === 'number' ? r.demoEnd : -1;
         spanIn.text = rsNum(start);
         spanLast.text = rsNum(endExcl - 1);
         spanLen.text = rsClock(ticks);
@@ -1361,7 +1474,17 @@ R"EDJS(
 R"EDJS(
       if (renderFocusField !== fpsField) renderFieldPaint(fpsField);
 
+      // -- the chime: header chip and OUTPUT > WHEN THE RENDER ENDS --
+      var snd = r.sound || {};
+      var soundOn = snd.on !== false;
+      var soundText = soundOn ? 'SOUND: ON' : 'SOUND: OFF';
+      if (renderSoundChip.__lbl.text !== soundText) renderSoundChip.__lbl.text = soundText;
+      soundTog.set(soundOn);
+      soundVol.sync(typeof snd.volume === 'number' ? snd.volume : 60);
+      soundVol.tile.style.opacity = soundOn ? '1.0' : '0.45';
+
       // -- Job column --
+      renderPrevious(r.takes);
       jobRange.text = ticks > 0 ? (start + '  →  ' + (endExcl - 1)) : 'not set';
       jobRange.style.color = ticks > 0 ? S.value : RENDER_ERROR_TEXT;
       jobLength.text = ticks > 0 ? (fmtDuration(renderTicksToSeconds(ticks)) + '   ·   ' + ticks + ' ticks') : '—';

@@ -32,7 +32,9 @@ const graphJs = read("AfxHookSource2", "Filmmaker", "Panorama", "GraphEditorJs.h
 
 test("regular-timeline loop flags are direct hit targets driven by the cursor pipe", () => {
   assert.doesNotMatch(timeline, /function pumpLoopFlags|function makeLoopFlag/);
-  assert.match(timelineRange, /flag\.hittest\s*=\s*true/);
+  // Each flag's painted tab, and a grab strip over its thin line, take the click themselves.
+  assert.match(timelineRange, /var tab = mk\('Panel', rail\); tab\.hittest\s*=\s*true/);
+  assert.match(timelineRange, /var grab = mk\('Panel', rail\); grab\.hittest\s*=\s*true/);
   assert.match(timelineRange, /function pumpRangeFlags\(\)[\s\S]{0,700}st\.mx[\s\S]{0,300}st\.lmb/);
   assert.doesNotMatch(timelineRange, /!rangeLastLmb\s*&&\s*st\.cursor/);
   assert.match(timelineHud, /publishCursor[^;]*PlaybackLoop_Enabled\(\)/);
