@@ -207,7 +207,8 @@ public:
 	void EndDevice() {
 		m_Color.Release(); m_Depth.Release(); m_RefColor.Release(); m_RefDepth.Release(); m_Out.Release();
 		m_WorldDepth.Release();
-		m_RefValid = false; m_WorldRefValid = false;
+		SafeRelease(m_Clean);
+		m_RefValid = false; m_WorldRefValid = false; m_CleanValid = false;
 		SafeRelease(m_Bs); SafeRelease(m_Ds); SafeRelease(m_Rs);
 		SafeRelease(m_PsCb); SafeRelease(m_VsCb); SafeRelease(m_Vb); SafeRelease(m_Layout);
 		SafeRelease(m_PsPass); SafeRelease(m_PsDepthMs); SafeRelease(m_Vs);
@@ -217,6 +218,39 @@ public:
 	bool Ready() const {
 		return m_Device && m_Ctx && m_Vs && m_Layout && m_PsDepthMs && m_PsPass && m_Vb && m_VsCb && m_PsCb && m_Rs && m_Ds && m_Bs;
 	}
+
+	// A plain copy of the scene target, MSAA and format as they are: the compositor's own capture
+	// resolves it later exactly like the live target.
+	bool KeepCleanColor(ID3D11DeviceContext* immediate, ID3D11Texture2D* color) {
+		m_CleanValid = false;
+		if (!m_Device || !immediate || !color) return Fail("clean colour: not ready");
+		D3D11_TEXTURE2D_DESC d;
+		color->GetDesc(&d);
+		if (m_Clean) {
+			D3D11_TEXTURE2D_DESC c;
+			m_Clean->GetDesc(&c);
+			if (c.Width != d.Width || c.Height != d.Height || c.Format != d.Format || c.MipLevels != d.MipLevels
+				|| c.SampleDesc.Count != d.SampleDesc.Count || c.SampleDesc.Quality != d.SampleDesc.Quality)
+				SafeRelease(m_Clean);
+		}
+		if (!m_Clean) {
+			D3D11_TEXTURE2D_DESC c = d;
+			c.Usage = D3D11_USAGE_DEFAULT;
+			c.BindFlags = d.BindFlags & (D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET);
+			c.CPUAccessFlags = 0;
+			c.MiscFlags = 0;
+			if (FAILED(m_Device->CreateTexture2D(&c, nullptr, &m_Clean)) || !m_Clean) {
+				SafeRelease(m_Clean);
+				return Fail("clean colour: surface");
+			}
+		}
+		immediate->CopyResource(m_Clean, color);
+		m_CleanValid = true;
+		return true;
+	}
+
+	ID3D11Texture2D* CleanColor(ID3D11Texture2D* color) const { return m_CleanValid && m_Clean ? m_Clean : color; }
+	void DropCleanColor() { m_CleanValid = false; }
 
 	bool StoreReference(ID3D11DeviceContext* immediate, ID3D11Texture2D* color, ID3D11DepthStencilView* depth) {
 		m_RefValid = false;
@@ -410,8 +444,10 @@ private:
 
 	Surface m_Color, m_RefColor, m_Out;
 	DepthSurface m_Depth, m_RefDepth, m_WorldDepth;
+	ID3D11Texture2D* m_Clean = nullptr; // this render's colour before the lens (KeepCleanColor)
 	bool m_RefValid = false;
 	bool m_WorldRefValid = false;
+	bool m_CleanValid = false;
 	bool m_Reversed = false;
 };
 
@@ -421,6 +457,14 @@ Compositor g_Compositor;
 
 void BeginDevice(ID3D11Device* device) { g_Compositor.BeginDevice(device); }
 void EndDevice() { g_Compositor.EndDevice(); }
+
+bool KeepCleanColor(ID3D11DeviceContext* immediate, ID3D11Texture2D* color) {
+	return g_Compositor.KeepCleanColor(immediate, color);
+}
+
+ID3D11Texture2D* CleanColor(ID3D11Texture2D* color) { return g_Compositor.CleanColor(color); }
+
+void DropCleanColor() { g_Compositor.DropCleanColor(); }
 
 bool StoreReference(ID3D11DeviceContext* immediate, ID3D11Texture2D* color, ID3D11DepthStencilView* depth) {
 	return g_Compositor.StoreReference(immediate, color, depth);

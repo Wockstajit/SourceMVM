@@ -3202,6 +3202,12 @@ struct AfxLivePassPreview {
 };
 static std::mutex g_LivePassPreviewMutex;
 static AfxLivePassPreview g_LivePassPreview;
+// Whether the live view replaces the scene with a Key, Depth or Normal pass this frame. Render thread.
+static bool AfxLivePassPreviewShown() {
+    if (AfxStreams_IsRcording()) return false;
+    std::lock_guard<std::mutex> lock(g_LivePassPreviewMutex);
+    return g_LivePassPreview.type != (int)Filmmaker::PassType::Beauty;
+}
 // Engine thread: the live view of a Players Only pass needs this frame's World Only depth, so the
 // render loop adds one output-less World Only render per frame while it is on (masked one frame
 // later; identical while paused).
@@ -3388,8 +3394,12 @@ public:
                 const bool wasOwnDraw = g_bInOwnDraw;
                 g_bInOwnDraw = true;
                 // Depth of field / bokeh / lens flare: after every world addition, before the recorder
-                // and the scaled preview, so it is in the recorded frame and never on the HUD.
-                if (Filmmaker::LensFx_Active()) {
+                // and the scaled preview, so it is in the recorded frame and never on the HUD. It is a
+                // Beauty effect: a recorded render no Beauty plate reads sits it out, and the live view
+                // of a Key, Depth or Normal pass (which replaces the scene below) is built without it,
+                // like that pass in a job (CRenderPassCommands::SkipLens / KeepCleanColor).
+                auto pLensCommands = g_RenderCommands.RenderThread_GetCommands();
+                if (Filmmaker::LensFx_Active() && !(pLensCommands && pLensCommands->SkipLens) && !AfxLivePassPreviewShown()) {
                     // The smokes in front of the world, so the blur stops at a smoke instead of showing through it.
                     Filmmaker::LensSmoke smoke;
                     smoke.absorbance = g_SmokeAbsorbance.Get(smoke.width, smoke.height);
@@ -3413,12 +3423,26 @@ public:
                         sun.dir[0] = d.x; sun.dir[1] = d.y; sun.dir[2] = d.z;
                         sun.have = true;
                     }
-                    // A key (green screen) frame, live preview or render-job pass, gets no flare:
-                    // it would paint over the chroma background (LensFx.h, keyPass).
+                    // The console green screen (render greenscreen) repaints the scene itself, so its
+                    // frame gets no flare: it would paint over the chroma background (LensFx.h, keyPass).
                     const bool keyPass = Filmmaker::RenderPlayersOnlyGreen_Active();
+                    // This render also feeds the pass compositor: it reads the scene from before the lens.
+                    if (pLensCommands && pLensCommands->KeepCleanColor) {
+                        ID3D11Resource* pSceneResource = nullptr;
+                        pRenderTargetViews[0]->GetResource(&pSceneResource);
+                        if (pSceneResource) {
+                            ID3D11Texture2D* pSceneTexture = nullptr;
+                            if (SUCCEEDED(pSceneResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&pSceneTexture)) && pSceneTexture) {
+                                AfxRenderPass::KeepCleanColor(pDeviceContext, pSceneTexture);
+                                pSceneTexture->Release();
+                            }
+                            pSceneResource->Release();
+                        }
+                    }
                     Filmmaker::LensFx_Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                         g_EnvironmentFrame.hasWorldToClip ? g_EnvironmentFrame.worldToClip.data() : nullptr,
-                        g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke, sun, keyPass);
+                        g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke, sun, keyPass,
+                        pLensCommands && pLensCommands->HoldLensFocus);
                 }
                 // Round heat map: a placement aid painted on the floor after the lens, so it stays
                 // sharp. It sits out recordings (the scene objects tab is where it is switched on).
@@ -3493,6 +3517,8 @@ public:
 
                     }
                 }
+                // This render's captures ran: its pre-lens copy must not reach the next render.
+                AfxRenderPass::DropCleanColor();
                 // Engine-thread stall (demo seek "Demo Skipping"): no BeforeUi2 command was queued
                 // for this presented frame, so run the sticky scaled-preview blit directly -- no-op
                 // when the queued path already blitted, when no scale is requested, or recording.
@@ -5452,25 +5478,37 @@ public:
     void EngineThread_BeginNextRenderPass() {
         ++m_ExtraPassGroupCounter;
         g_RenderCommands.EngineThread_GetCommands().PassOrdinal = m_ExtraPassGroupCounter;
+        auto & commands = g_RenderCommands.EngineThread_GetCommands();
+        // Every plate of a frame is seen through the lens the Main render focused.
+        commands.HoldLensFocus = true;
         if (m_LiveWorldRefPending && m_RecordingExtraPassesIterator == m_RecordingExtraPasses.end()) {
             // The live Players Only view's World Only reference (never shown: present suppressed).
             BeginPassRender((int)Filmmaker::RenderKey::WorldOnly);
-            g_RenderCommands.EngineThread_GetCommands().BeforeUi.Push([](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture){
+            commands.SkipLens = true;
+            commands.BeforeUi.Push([](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture){
                 AfxRenderPass::StoreWorldReference(pDeviceContext, g_pCurrentDepthStencilView);
             });
             return;
         }
         if (m_RecordingExtraPassesIterator != m_RecordingExtraPasses.end())
             BeginPassRender(m_RecordingExtraPassesIterator->GetSettings().PassRenderKey());
+        bool recordsAsDrawn = false, composes = false;
         auto it = m_RecordingExtraPassesIterator;
         while(it != m_RecordingExtraPasses.end()) {
             it->EngineThread_BeginFrame();
+            if (it->GetSettings().IsComposedPass()) composes = true;
+            else recordsAsDrawn = true;
 
             auto last_it = it;
             it++;
             if(it == m_RecordingExtraPasses.end()) break; // done.
             if(last_it->CompareRenderPass(*it) != 0) break; // done for this render pass.
         }
+        // The lens is for the plates recorded as drawn. A render that only feeds the compositor
+        // (Players only, Gun only, World only depth) gets none; one that feeds both keeps a copy
+        // from before the lens for the compositor.
+        commands.SkipLens = !recordsAsDrawn;
+        commands.KeepCleanColor = recordsAsDrawn && composes;
     }
 
     void EngineThread_EndNextRenderPass() {
@@ -5502,11 +5540,15 @@ public:
         g_RenderCommands.EngineThread_GetCommands().PassOrdinal = 0;
         // The Main render is always the full scene: state it (see BeginPassRender).
         if (m_Recording) BeginPassRender((int)Filmmaker::RenderKey::Main);
+        // The Gun only reference and the Main render's Depth / Normal passes are built from the
+        // scene before the lens; the Beauty plate keeps it.
+        if (m_Recording)
+            g_RenderCommands.EngineThread_GetCommands().KeepCleanColor = m_PassMainComposes || m_PassNeedsMainReference;
         if (m_Recording && m_PassNeedsMainReference) {
             // Gun Only passes are the difference between this Main render and the NoGun render of
             // the SAME frame: keep Main's colour and depth before the extra renders overwrite them.
             g_RenderCommands.EngineThread_GetCommands().BeforeUi.Push([](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture){
-                AfxRenderPass::StoreReference(pDeviceContext, pTexture, g_pCurrentDepthStencilView);
+                AfxRenderPass::StoreReference(pDeviceContext, AfxRenderPass::CleanColor(pTexture), g_pCurrentDepthStencilView);
             });
         }
         for(auto it = m_RecordingMainPass.begin(); it != m_RecordingMainPass.end(); it++) {
@@ -5682,6 +5724,7 @@ public:
     bool m_PassViewmodelSaved = false;
     bool m_PassViewmodelOld = true;
     bool m_PassNeedsMainReference = false;
+    bool m_PassMainComposes = false; // a Depth / Normal pass of Everything (CStreamSettings::IsComposedPass)
     bool m_LiveWorldRefPending = false; // engine thread, per frame (see g_LiveWorldRefWanted)
 
 private:
@@ -5875,7 +5918,8 @@ private:
                                             (void*)g_pCurrentDepthStencilView);
                                 }
                             }
-                            if (ID3D11Texture2D * composed = AfxRenderPass::Compose(pDeviceContext, pTexture, g_pCurrentDepthStencilView, params))
+                            // Built from the scene before the lens: depth of field and the flare are Beauty effects.
+                            if (ID3D11Texture2D * composed = AfxRenderPass::Compose(pDeviceContext, AfxRenderPass::CleanColor(pTexture), g_pCurrentDepthStencilView, params))
                                 capture->OnBeforeGpuPresent(pDeviceContext, composed, 1.0f, 0.0f);
                             else
                                 capture->OnBeforeGpuPresent(pDeviceContext, pTexture, 1.0f, 0.0f); // keeps every stream the same length
@@ -7606,6 +7650,7 @@ void CAfxStreams::RecordStart()
         m_AutoForceFullReSmoke = false;
         m_CompositeSmoke = false;
         m_PassNeedsMainReference = false;
+        m_PassMainComposes = false;
         // Screen recording captures at BeforePresent, so it always counts as after-UI.
         m_RecordingCapturesAfterUi = m_RecordScreen && m_RecordScreen->Enabled;
 
@@ -7618,9 +7663,10 @@ void CAfxStreams::RecordStart()
 
             if(it->second.PassElements == (int)Filmmaker::VisibleElements::OnlyWeapon)
                 m_PassNeedsMainReference = true;
-            if(it->second.CanCaptureInMainPass())
+            if(it->second.CanCaptureInMainPass()) {
                 m_RecordingMainPass.emplace_back(this, it->second);
-            else
+                if (it->second.IsComposedPass()) m_PassMainComposes = true;
+            } else
                 m_RecordingExtraPasses.emplace(this, it->second);
         }
         // Players Only is the NoGun render masked to what is closer than the World Only render of
