@@ -553,6 +553,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Community/HcTrackerFeed.cpp
     Filmmaker/Community/HcTrackerFeed.h
     Filmmaker/Community/HcTrackerFeedMath.h
+    Filmmaker/Community/ChangelogMath.h
+    Filmmaker/Community/ToolVersion.cpp
+    Filmmaker/Community/ToolVersion.h
     Filmmaker/Platform/HttpRequest.cpp
     Filmmaker/Platform/HttpRequest.h
     Filmmaker/Platform/ShellOpen.cpp
@@ -565,6 +568,8 @@ target_sources(${PROJECT_NAME} PRIVATE
 
     Filmmaker/Panorama/DemoOrganizerJs.h
     Filmmaker/Panorama/FilmmakerGuiJs.h
+    Filmmaker/Panorama/HeaderLayoutJs.h
+    Filmmaker/Panorama/WhatsNewJs.h
     Filmmaker/Panorama/FilmmakerMenu.cpp
     Filmmaker/Panorama/FilmmakerMenu.h
     Filmmaker/Panorama/PanoramaBridge.cpp
@@ -1091,6 +1096,9 @@ foreach(ao_target AfxHookSource2)
 endforeach()
 
 install(FILES ../Resources/LICENSES/DxilHash/LICENSE.txt DESTINATION "bin/resources/LICENSES/DxilHash" COMPONENT x64-source2)
+
+# The What's new popup (the top bar's WHAT'S NEW button) reads the changelog beside the hook (Community/ToolVersion.cpp).
+install(FILES ../CHANGELOG.md DESTINATION "bin/resources" COMPONENT x64-source2)
 
 target_sources(AfxHookSource2 PRIVATE Filmmaker/World/SmokeAppearance.cpp)
 

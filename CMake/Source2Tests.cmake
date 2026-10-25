@@ -258,6 +258,13 @@ add_executable(RenderPassPlanTests
 target_compile_features(RenderPassPlanTests PRIVATE cxx_std_17)
 add_test(NAME RenderPassPlanTests COMMAND RenderPassPlanTests)
 
+add_executable(ChangelogMathTests
+    ../Automation/tests/changelog-math-tests.cpp
+)
+target_compile_features(ChangelogMathTests PRIVATE cxx_std_17)
+target_compile_definitions(ChangelogMathTests PRIVATE CHANGELOG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../CHANGELOG.md")
+add_test(NAME ChangelogMathTests COMMAND ChangelogMathTests)
+
 add_executable(PropsMathTests
     ../Automation/tests/props-math-tests.cpp
 )

@@ -15,6 +15,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | Demo browser | [`filmmaker_demos_feature.md`](features/filmmaker_demos_feature.md) |
 | Play page + workshop map sorting | [`filmmaker_play_menu.md`](features/filmmaker_play_menu.md) |
 | HC Tracker link + Report Bugs (main menu, launcher) | [`filmmaker_community.md`](features/filmmaker_community.md) |
+| Version button and the What's new popup (`CHANGELOG.md`) | [`filmmaker_whats_new.md`](features/filmmaker_whats_new.md) |
 | Movie director and cameras | [`filmmaker_movie_controls.md`](features/filmmaker_movie_controls.md), [`camera-editor-feature.md`](features/camera-editor-feature.md) |
 | Recording FPS (mux + host_framerate; dial preview-only) | [`filmmaker_render_fps.md`](features/filmmaker_render_fps.md) |
 | Render passes (Beauty / Depth / Normal × visibility, synchronized multipass) | [`filmmaker_render_passes.md`](features/filmmaker_render_passes.md) |
