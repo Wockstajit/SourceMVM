@@ -90,6 +90,7 @@
 #include "../FisheyePass.h" // AfxFisheye::SetRequest â€” fisheye lens D3D pass (decoupled from deleted ActionCam)
 #include "Cosmetics/CosmeticOverrideSystem.h"
 #include "Cosmetics/CosmeticUiQueries.h"
+#include "Cosmetics/CustomizeTarget.h"
 #include "Config/FilmmakerSettingsStore.h"
 #include "Config/EffectsPersistence.h" // EFFECTS state carry-over across a demo change
 #include "Heatmap/RoundHeatmap.h"
@@ -1096,6 +1097,10 @@ void RunMainThreadFrame() {
 	// Native demo-bar inline speed buttons (replaces the timescale dropdown).
 	{ PanoramaPerf_Scope _p("speedbar"); DemoBarButtonsRef().RunFrame(); }
 
+	// Customize Player's target and roster, from what the timeline just read off CS2's demo bar.
+	// Before CONFIG and the Camera Editor, which both publish it this frame.
+	{ PanoramaPerf_Scope _p("customize"); CustomizeTarget_RunFrame(ConfigHud_Enabled() || CameraEditor_Enabled() || CameraEditor_CustomizeModalOpen()); }
+
 	// Lightweight CONFIG panel (general UI/display settings; no camera tools). Runs before the
 	// Camera Editor so the editor's host orchestration still wins the frame if both got toggled
 	// in the same tick (they are mutually exclusive -- each closes the other on open).
@@ -1304,9 +1309,14 @@ bool CameraEditor_ScaledHud(float& x0, float& y0, float& x1, float& y1) {
 	return WorkspacePreviewRef().Active(x0, y0, x1, y1);
 }
 bool CameraEditor_CustomizeModalOpen() { return CameraEditorHudRef().CustomizeModalOpen(); }
+void CameraEditor_OpenCustomizeOverConfig() { CameraEditorHudRef().RequestOpenCustomizeOverConfig(); }
 bool CameraEditor_PopupOpen() { return CameraEditorHudRef().PopupOpen(); }
 bool CameraTimeline_MenuOpen() { return CameraTimelineHudRef().MenuOpen(); }
 int CameraTimeline_NativeCameraMode() { return CameraTimelineHudRef().NativeCameraMode(); }
+int CameraTimeline_NativeSpectatedPawn() { return CameraTimelineHudRef().NativeSpectatedPawn(); }
+int CameraTimeline_NativeObserverMode() { return CameraTimelineHudRef().NativeObserverMode(); }
+const std::string& CameraTimeline_NativeDemoPlayers() { return CameraTimelineHudRef().NativeDemoPlayers(); }
+void CameraTimeline_RequestNativeSpectate(int controllerIndex) { CameraTimelineHudRef().RequestNativeSpectate(controllerIndex); }
 void CameraTimeline_PushWheel(int notches) { CameraTimelineHudRef().PushWheel(notches); }
 void CameraEditor_CustomizePushWheel(int notches, int x, int y) { CameraEditorHudRef().PushCustomizeWheel(notches, x, y); }
 void CameraEditor_CustomizePushChar(unsigned charCode) { CameraEditorHudRef().PushCustomizeChar(charCode); }

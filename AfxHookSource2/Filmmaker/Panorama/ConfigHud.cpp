@@ -12,6 +12,7 @@
 #include "ConfigHudJs.h"
 #include "CameraTimelineHud.h"
 #include "../Movie/CameraBridge.h" // OS-cursor pipe: relative slider drags (Shift = fine)
+#include "../Cosmetics/CustomizeTarget.h" // CUSTOMIZE PLAYER: is there anybody to customize
 #include "MovieHud.h" // hidden while Config is open (F8 director card must not sit in the preview)
 #include "AimCrosshairHud.h" // Smooth View page: honest recorded-aim reticle toggle
 #include "../Movie/RecoilPivotMarker.h" // CAMERA tab: the two pivot marker toggles
@@ -314,6 +315,9 @@ std::string ConfigHud::BuildStateJson() {
 	{
 		int cmx = 0, cmy = 0; bool clmb = false, crmb = false, cshift = false; unsigned cseq = 0;
 		CameraBridge_GetUiCursor(cmx, cmy, clmb, crmb, cshift, cseq);
+		// Customize Player can sit over this panel (CameraEditorHud::RunCustomizeOverConfig): while it
+		// is up, a press belongs to it, so no CONFIG slider or gizmo under the window may start a drag.
+		if (CameraEditor_CustomizeModalOpen()) clmb = false;
 		o << ",\"mx\":" << cmx << ",\"my\":" << cmy << ",\"lmb\":" << (clmb ? "true" : "false");
 		o << ",\"mseq\":" << cseq << ",\"shift\":" << (cshift ? "true" : "false");
 		o << ",\"rmb\":" << (crmb ? "true" : "false");
@@ -366,10 +370,9 @@ std::string ConfigHud::BuildStateJson() {
 	o << ",\"smoothViewDefault\":"
 		<< (SmoothViewRef().SettingsAreDefault()
 			&& !Fisheye_Enabled() ? "true" : "false");
-	// Follow attach and third-person can only operate with a spectated player. In a GOTV demo
-	// you start in free-roam, so the UI needs this state to explain why the action is unavailable
-	// instead of appearing to ignore a click.
-	o << ",\"povReady\":" << (m_povReady ? "true" : "false");
+	// CUSTOMIZE PLAYER needs somebody to customize, nothing more: the modal picks any player, alive
+	// or dead, from free cam too (Cosmetics/CustomizeTarget.h, the same source the editor reads).
+	o << ",\"customizeReady\":" << (CustomizeTarget_Available() ? "true" : "false");
 	o << ",\"renderOpen\":" << (Render_IsModalOpen() ? "true" : "false");
 	o << ",\"renderJobActive\":" << (Render_IsJobActive() ? "true" : "false");
 	// CAMERA tab, shake layers: each module appends its own fields (leading comma included), so
@@ -550,22 +553,6 @@ void ConfigHud::RunFrame() {
 		return;
 	}
 
-	// Debounce the POV-ready check: AfxGetSpectatedPawnIndex can flicker between frames if the
-	// spectator camera or observer target is momentarily ambiguous. Hold each reading for 15
-	// consecutive frames before publishing, so the button never strobes "needs a player POV".
-	{
-		// AfxGetSpectatedUserId (not ...PawnIndex): it applies the same short hold that the
-		// game-event consumers use, so the button and the effects agree about whether there is
-		// a POV instead of disagreeing on the frames the raw match drops out.
-		const bool raw = AfxGetSpectatedUserId() >= 0;
-		if (raw == m_povReady) {
-			if (m_povReadyHold < 15) ++m_povReadyHold;
-		} else {
-			if (m_povReadyHold > 0) --m_povReadyHold;
-			else m_povReady = raw;
-		}
-	}
-
 	std::string state = BuildStateJson();
 	if (state != m_lastState) {
 		m_bridge.SetAttributeString(m_root, m_symState, state.c_str());
@@ -669,6 +656,14 @@ void ConfigHud_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* 
 		// A quick right-click in the ENVIRONMENT view (MovieMode): the object under the pointer gets
 		// its menu. The JS picks at the cursor and opens the Outliner's menu for it.
 		ConfigHudRef().RequestEval("$.ConfigHud.viewMenu()");
+		return;
+	}
+	if (0 == _stricmp(arg, "customize")) {
+		// CONFIG's CUSTOMIZE PLAYER: the Camera Editor's modal, opened over this panel instead of
+		// switching workspaces. One modal, one target source, for both panels.
+		if (!ConfigHudRef().Enabled()) ConfigHudRef().SetEnabled(true);
+		if (CameraEditor_Active()) CameraEditor_Set(false);
+		CameraEditor_OpenCustomizeOverConfig();
 		return;
 	}
 	if (0 == _stricmp(arg, "eval")) {

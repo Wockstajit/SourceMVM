@@ -406,6 +406,10 @@ add_executable(CosmeticThemeMathTests ../Automation/tests/cosmetic-theme-math-te
 target_compile_features(CosmeticThemeMathTests PRIVATE cxx_std_17)
 add_test(NAME CosmeticThemeMathTests COMMAND CosmeticThemeMathTests)
 
+add_executable(CustomizeTargetMathTests ../Automation/tests/customize-target-math-tests.cpp)
+target_compile_features(CustomizeTargetMathTests PRIVATE cxx_std_17)
+add_test(NAME CustomizeTargetMathTests COMMAND CustomizeTargetMathTests)
+
 add_executable(EasterEggAudioMathTests
     ../Automation/tests/easter-egg-audio-math-tests.cpp
 )

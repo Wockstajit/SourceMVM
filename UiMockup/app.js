@@ -709,6 +709,22 @@
     }
     if (nav.editorOpen) { dockClaim('editor'); dockApply('editor'); }
 
+    // ---- CameraEditorHud::RunCustomizeOverConfig ---------------------------
+    // CONFIG's CUSTOMIZE PLAYER: the editor's script is built with its workspace CLOSED (no
+    // OnEnter: no dock, cursor or director-card change) and only its modal shows, over CONFIG.
+    // It ends when the modal closes, CONFIG closes, or the editor itself opens.
+    var overConfig = !!nav.customizeOverConfig && nav.configOpen && !nav.editorOpen;
+    if (nav.customizeOverConfig && !overConfig) nav.customizeOverConfig = false;
+    if (overConfig && !live.editor && !live.custHost) { live.custHost = true; live.custSeen = false; build('cameraeditor'); }
+    if (live.custHost) {
+      var custUp = customizeVisible();
+      if (custUp) live.custSeen = true;
+      if (!overConfig || (live.custSeen && !custUp)) {
+        nav.customizeOverConfig = false; live.custHost = false;
+        if (!nav.editorOpen) teardown('cameraeditor');
+      }
+    }
+
     // The Customize modal: CameraEditorHud honours m_openCustomizeRequested once the panel has
     // built. The request is consumed here; whether the modal is UP is read off the DOM after that.
     if (nav.customizeOpen && !customizePending) {
@@ -832,11 +848,20 @@
         feed.renderOpen = nav.renderOpen;
         feed.renderJobActive = !!state.renderJobActive;
         feed.daPlayers = window.MvmCommands.deathAnimPlayers(state);
+        // ConfigHud: CUSTOMIZE PLAYER is available whenever the demo has a player (CustomizeTarget_Available).
+        feed.customizeReady = !!(state.customize && state.customize.players && state.customize.players.length);
         // SceneRig_AppendStateJson: what each placed object rides, and the pickers.
         window.MvmCommands.syncRig(state); feed.rig = state.rig;
         break;
       case 'cameraeditor':
         feed.enabled = nav.editorOpen && !nav.blackout;
+        feed.customizeHost = (nav.customizeOverConfig && !nav.editorOpen) ? 'config' : 'editor';
+        // CameraEditorHud::UpdateCustomizeModalState keeps the window's published 'custlayout' for
+        // the session and echoes it back as customizeLayout; the browser keeps it the same way.
+        var custRoot = window.PanoramaShim.findById('CamEditorRoot');
+        var custLayout = custRoot && custRoot.GetAttributeString ? custRoot.GetAttributeString('custlayout', '') : '';
+        if (custLayout) state.customizeLayout = custLayout;
+        feed.customizeLayout = state.customizeLayout || '';
         feed.bottomMode = dock.tab;
         feed.timelineView = 'timeline';
         feed.graphExp = dock.graphEnabled;
@@ -1238,7 +1263,7 @@
       ['Render job RUNNING', { renderJobActive: true, render: { captureHide: false, jobActive: true } }],
       ['Render job idle', { renderJobActive: false, render: { captureHide: false, jobActive: false } }],
       ['Capture: chrome hidden', { render: { captureHide: true, jobActive: true } }],
-      ['No POV (free roam)', { povReady: false }],
+      ['Nobody to customize', { customize: { target: -1, source: 'none', spectated: -1, players: [] } }],
       ['Mouse: GAME', { cursor: false }]
     ] },
     { owner: 'Config', items: [

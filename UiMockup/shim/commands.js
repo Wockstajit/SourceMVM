@@ -423,6 +423,19 @@
       st.engineLights = true; st.lightR = st.lightG = st.lightB = 255;
       st.lightAmount = 1; st.lightUniform = true; st.sunYaw = st.sunPitch = 0; return true;
     }
+    // Narrow mirror of the Customize Player automation helpers ($.CamEditor.customize*, see
+    // CameraEditorJs.h), never arbitrary evaluation. Arguments are numbers or quoted words.
+    if (a === 'editor' && b === 'eval') {
+      var ce = /\$\.CamEditor\.(customize[A-Za-z]*)\(([^)]*)\)/.exec(cmd);
+      if (ce && global.$ && global.$.CamEditor && typeof global.$.CamEditor[ce[1]] === 'function') {
+        var ceArgs = ce[2].trim() ? ce[2].split(',').map(function (s) {
+          s = s.trim().replace(/^'|'$/g, '');
+          return /^-?[0-9.]+$/.test(s) ? +s : (s === 'true' ? true : s === 'false' ? false : s);
+        }) : [];
+        global.$.CamEditor[ce[1]].apply(null, ceArgs); return true;
+      }
+      return true;
+    }
     // Narrow mirror of the registered Config automation helpers, never arbitrary evaluation.
     if (a === 'config' && b === 'eval') {
       var tab = /ConfigHud\.gotoTab\('([^']+)'\)/.exec(cmd);
@@ -517,6 +530,11 @@
     // ---- the workspaces ---------------------------------------------------
     // ConfigHud_RunCommand: on|open|1 / off|close|0 / anything else toggles. Opening Config closes
     // the Camera Editor (they draw the same right-side column).
+    // 'config customize': CONFIG stays open and the Camera Editor's modal opens over it
+    // (CameraEditorHud::RequestOpenCustomizeOverConfig; app.js runs it like RunCustomizeOverConfig).
+    if (a === 'config' && b === 'customize') {
+      setConfig(st, true); st.nav.customizeOverConfig = true; st.nav.customizeOpen = true; return true;
+    }
     if (a === 'config' && (b === undefined || /^(on|open|1|off|close|0|toggle)$/.test(b))) {
       setConfig(st, boolWord(b, st.nav.configOpen));
       return true;
@@ -979,6 +997,16 @@
       applyCosmetics(st, b, t.slice(3));
       return true;
     }
+    // CustomizeTarget_Pick: the picked player becomes the target; a living one is spectated in
+    // first person, a dead one is seen through the free cam (nobody spectated).
+    if (a === 'cosmetics' && b === 'pick') {
+      var cz = st.customize;
+      if (c === 'clear') { cz.source = cz.spectated >= 0 ? 'spectated' : 'none'; cz.target = cz.spectated; return true; }
+      var picked = cz.players.filter(function (p) { return p.controller === +c; })[0];
+      if (!picked) { warn('cosmetics pick: ' + c + ' is not a T or CT player'); return true; }
+      cz.target = picked.controller; cz.source = 'pick'; cz.spectated = picked.alive ? picked.controller : -1;
+      return true;
+    }
     if (a === 'cosmetics') return true;   // enabled / uilog: nothing to show
 
     // ---- derived bindings (sliders / toggles / segmented) -----------------
@@ -1000,10 +1028,10 @@
   // Every reported copy of one player: the roster entry and, when it is the spectated player, the
   // target. `who` is a SteamID or `current` (the spectated player).
   function cosmeticCopies(st, who) {
-    var out = [], target = st.customizeTarget, players = st.customizePlayers || {};
-    var steam = who === 'current' ? (target && target.steamId) : who;
-    for (var k in players) if (players[k] && players[k].steamId && players[k].steamId === steam) out.push(players[k]);
-    if (target && (who === 'current' || target.steamId === steam)) out.push(target);
+    var cz = st.customize || { players: [] }, out = [];
+    var spectated = cz.players.filter(function (p) { return p.controller === cz.spectated; })[0];
+    var steam = who === 'current' ? (spectated && spectated.steamId) : who;
+    cz.players.forEach(function (p) { if (p.loadout && p.steamId && p.steamId === steam) out.push(p.loadout); });
     return out;
   }
   var PISTOL_DEFS = [1, 2, 3, 4, 30, 32, 36, 61, 63, 64];
@@ -1050,9 +1078,11 @@
   // DeathAnimations.cpp AppendPlayersJson: one row per player on a team, keyed by SteamID
   // ("s<id>", or "n<name>" when the demo has none), with their own clip and their agent model.
   function deathAnimPlayers(st) {
-    var out = [], players = st.customizePlayers || {}, clips = st.daPlayerClips || {};
-    Object.keys(players).map(Number).sort(function (x, y) { return x - y; }).forEach(function (k) {
-      var p = players[k];
+    var out = [], clips = st.daPlayerClips || {};
+    var players = ((st.customize && st.customize.players) || []).map(function (r) {
+      return { steamId: r.steamId, name: r.name, team: r.team, agentModel: r.loadout ? r.loadout.agentModel : '' };
+    });
+    players.forEach(function (p) {
       if (!p || !(p.team >= 2)) return;
       var key = p.steamId ? 's' + p.steamId : '';
       if (!key && p.name && p.name !== 'Player') key = 'n' + p.name.replace(/[^A-Za-z0-9-]/g, '_');

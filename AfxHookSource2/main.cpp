@@ -23,6 +23,7 @@
 #include "Filmmaker/Render/RenderEngineSize.h"
 #include "Filmmaker/Movie/CameraBridge.h"
 #include "Filmmaker/Movie/DeathAnimations.h"
+#include "Filmmaker/Cosmetics/CustomizeTarget.h"
 #include "Filmmaker/EasterEggs/EasterEggs.h"
 #include "Filmmaker/Movie/NervousSystem.h"
 #include "Filmmaker/Movie/FollowCamera.h"
@@ -1929,6 +1930,7 @@ void * new_CS2_Client_LevelInitPreEntity(void* This, void * pUnk1, void * pUnk2)
 	Filmmaker::EffectsPersistence_OnLevelInit();
 	// The previous entity graph is gone: forget corpses mid-clip without touching them.
 	Filmmaker::DeathAnimations_LevelInit();
+	Filmmaker::CustomizeTarget_LevelInit(); // the pick, last target and loadouts name old entities
 	Filmmaker::EasterEggs_LevelInit(); // forget old entities/models and queue egg cleanup
 	Filmmaker::NervousSystem_LevelInit();
 	void * result = old_CS2_Client_LevelInitPreEntity(This, pUnk1, pUnk2);

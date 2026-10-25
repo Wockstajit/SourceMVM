@@ -98,6 +98,9 @@ public:
 
 	void RequestEval(const std::string& js) { m_evalQueue.push_back(js); }
 	void RequestOpenCustomize() { m_openCustomizeRequested = true; }
+	// The same Customize Player modal, opened over CONFIG: the editor workspace stays closed and
+	// RunFrame drives the modal on its own (RunCustomizeOverConfig) until it closes or CONFIG does.
+	void RequestOpenCustomizeOverConfig() { m_openCustomizeRequested = true; m_customizeOverConfig = true; m_customizeOverConfigFrames = 0; }
 
 	// Monotonic pulse token. The JS flashes the inspector whenever this changes; a counter rather
 	// than a bool so repeated presses each produce a visible pulse instead of latching.
@@ -141,8 +144,10 @@ private:
 	void OnExit();  // one-shot: un-host the timeline, restore MovieHud, stop scrub
 	void UpdateScaleRequest(); // publish the preview rect to the render-layer viewport scaler
 	void UpdateCustomizeModalState(); // reads the "customizeopen" attribute JS published this frame
+	void OpenCustomizeWhenArmed();     // a requested open: arm the flag one frame, then run the JS
 	void DispatchCustomizeInput();    // main thread: drain the captured-input queue -> RunScript into the modal JS
 	void DispatchWheel();             // main thread: drain the inspector wheel queue -> api.wheel()
+	void RunCustomizeOverConfig();    // main thread: the modal alone, over CONFIG, editor closed
 
 	PanoramaBridge m_bridge;
 	void* m_hudPanel = nullptr; // HUD context we built against (rebuild if it changes)
@@ -153,6 +158,7 @@ private:
 	short m_symRenderWorkspace = -1; // "renderworkspace" -- final JS-projected Render visibility
 	short m_symRenderHit = -1; // "renderhit" -- preview/catcher geometry used for click-boundary diagnostics
 	short m_symCustomizeOpen = -1; // "customizeopen" -- JS publishes custOverlay.visible ("0"/"1")
+	short m_symCustomizeLayout = -1; // "custlayout" -- the window's "<x> <y> <size>", see m_customizeLayout
 	short m_symTextCapture = -1;   // "textcapture" -- JS publishes whether a text field has focus
 	bool m_customizeOpen = false;
 	short m_symPopupOpen = -1;     // "popupopen" -- EditorSettingsPopupJs.h publishes its overlay
@@ -188,6 +194,19 @@ private:
 	std::string m_lastState;
 	std::vector<std::string> m_evalQueue;
 	bool m_openCustomizeRequested = false;
+	// A requested open reports the modal open ONE FRAME before the JS opens it. openCustomize()
+	// creates the 3D preview panel synchronously, and the paused-preview draw (PreviewRenderProbe)
+	// arms itself in that panel's ready hook only if CameraEditor_CustomizeModalOpen() was already
+	// true when Filmmaker::RunMainThreadFrame ran it. On a freshly built script the hook fired in
+	// the open frame itself -- measured: ready 7->8, arms unchanged -- and the paused preview stayed
+	// black over CONFIG.
+	bool m_customizeOpenArmed = false;
+	bool m_customizeOverConfig = false; // the modal is CONFIG's (editor workspace closed)
+	int m_customizeOverConfigFrames = 0; // frames it has been CONFIG's without being open
+	// Where the user left the Customize window and how big: "<x> <y> <full|compact|collapsed>", or
+	// "" for centred and full. Kept here rather than in the JS so it survives a HUD rebuild and a
+	// demo change, and is shared by both hosts. Not saved: it lasts the game session.
+	std::string m_customizeLayout;
 	unsigned m_flashToken = 0;
 };
 

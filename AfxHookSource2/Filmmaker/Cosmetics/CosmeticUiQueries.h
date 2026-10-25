@@ -15,8 +15,9 @@ namespace Filmmaker {
 // CUSTOMIZE modal. Returns the literal string "null" if pawnIndex isn't a valid player pawn.
 std::string BuildCustomizeTargetJson(int pawnIndex);
 
-// { "<pawnIndex>": <BuildCustomizeTargetJson>, ... } for every currently valid player pawn.
-std::string BuildCustomizePlayersJson();
+// A JSON string body (no quotes) for a demo-supplied name. CustomizeTarget.cpp writes its roster
+// with it.
+std::string CustomizeJsonEscape(const char* value);
 
 // Zeroes every pawn's flashbang whiteout fields for this frame. Called per main-thread frame by
 // CameraEditorHud while the Customize modal is open so the flash overlay never covers the modal.

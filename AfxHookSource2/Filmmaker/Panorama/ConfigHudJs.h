@@ -801,7 +801,9 @@ R"CFJS(
     var dockActions = mvmActionRow(root, makeInteractive, [
       { text: 'RENDER', width: 150, onClick: function () { cmd('mirv_filmmaker editor render'); } },
       { text: '\u2726  CUSTOMIZE PLAYER', width: 'fill-parent-flow(1.0)',
-        onClick: function () { cmd('mirv_filmmaker editor customize'); } }
+        // The Camera Editor's own modal, opened OVER this panel (no workspace switch): one
+        // implementation, one target source (Cosmetics/CustomizeTarget.h) for both panels.
+        onClick: function () { cmd('mirv_filmmaker config customize'); } }
     ]);
     var actionRow = dockActions.root;
     var renderAction = dockActions.buttons[0], customizeAction = dockActions.buttons[1];
@@ -902,8 +904,10 @@ R"CFJS(
         // Through setBtnOn, never straight to style: these run every frame and would repaint
         // over the hover fill before it was ever seen (see paintBtn in ConfigHudWidgetsJs.h).
         setBtnOn(renderAction, !!st.renderJobActive, S.accent);
-        customizeAction.style.opacity = st.povReady ? '1.0' : '0.55';
-        customizeAction.hittest = !!st.povReady;
+        // Available whenever the demo has a player: the modal picks anyone, alive or dead, from
+        // first person, third person or free cam alike.
+        customizeAction.style.opacity = st.customizeReady ? '1.0' : '0.55';
+        customizeAction.hittest = !!st.customizeReady;
 
         var cur = !!st.cursor;
         inspector.hittest = cur;

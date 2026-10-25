@@ -20,6 +20,9 @@ channel. The same throw also kills `cfgApplyScroll()`, so "cards vanish while sc
 preview" are one symptom. When a card changes, update its references in BOTH
 `ConfigHudCameraTabJs.h` and the hydration block in `ConfigHudJs.h`. The header keeps mouse-ownership
 and game-HUD controls available from every tab. The bottom actions open Render or Customize Player.
+Customize Player opens the Camera Editor's modal over Config (`mirv_filmmaker config customize`);
+Config stays open behind it, and the button is live whenever there is a player to customize
+([customize-feature.md](customize-feature.md)).
 
 ## Layout and files
 

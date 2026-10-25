@@ -571,6 +571,10 @@ void Cosmetics_PrintVisualDiag(const char* cmd);
 // Spectate a player by SteamID64 without spec_player slot scanning. Skips dead players
 // (health<=0) before touching the observer target. Returns false when skipped/failed.
 bool Cosmetics_SpectateSteamId(const char* cmd, uint64_t targetSteam);
+// Read-only: the local observer chain and every player pawn's observer mode/target, health and
+// render-eye distance to the game camera, beside what the spectated-player resolvers return.
+// Console + mvm_debug ("customize.observerprobe"). "cosmetics observerprobe".
+void Cosmetics_PrintObserverProbe(const char* cmd);
 // Compact ONE-LINE snapshot of a weapon's live econ skin state (class + defIndex, the networked
 // dynamic paint/seed/wear def6/7/8, and the fallback paint/wear), emitted to BOTH the game console
 // and the MVM debug log. `phase` labels the line ("before"/"after") so a UI skin click can log the

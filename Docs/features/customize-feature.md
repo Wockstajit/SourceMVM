@@ -1,8 +1,8 @@
 # Customize Player
 
-The Camera Editor and Config panel share a **Customize Player** modal for changing the spectated
-player's appearance during offline CS2 demo playback. It edits agent, primary/secondary weapon
-finishes, knife type/finish, gloves, and per-finish wear.
+The Camera Editor and Config panel share a **Customize Player** modal for changing any player's
+appearance during offline CS2 demo playback. It edits agent, primary/secondary weapon finishes,
+knife type/finish, gloves, and per-finish wear.
 
 This page covers the UI contract. The native mechanisms and reverse-engineering details are
 in [cosmetics-overview.md](../cosmetics/cosmetics-overview.md) and
@@ -13,7 +13,11 @@ in [cosmetics-overview.md](../cosmetics/cosmetics-overview.md) and
 Implemented:
 
 - generated, localized catalogs for weapon finishes, knife finishes, gloves, and agents;
-- current-loadout detection for the spectated player;
+- one target for both panels: the player CS2's own demo bar is spectating (first or third
+  person), or any player, alive or dead, picked from the menu on the name in the title bar;
+- current-loadout detection for that player, and the last loadout a dead player had alive;
+- a window that can be dragged anywhere and shrunk (full, compact, collapsed), and keeps its place
+  and size for the session;
 - SteamID64-keyed profiles that survive pawn recreation, round changes, seeks, and observer
   switches;
 - weapon paint, knife type/paint, glove, and agent application;
@@ -34,11 +38,18 @@ Panorama, and animation integration depend on engine details that change between
 
 ## User flow
 
-1. Spectate a player in a demo.
-2. Open Camera Editor or Config.
-3. Select **Customize Player**.
+1. Open Camera Editor or Config. In Config the modal opens over the panel; Config stays open
+   behind it.
+2. Select **Customize Player**. It edits the player you are watching, in first or third person.
+   In free cam, or to pick someone else, open the menu on the name in the title bar. With nobody
+   to edit yet, that menu opens by itself.
+3. Picking a player switches the view to them in first person. A dead player stays in the menu,
+   dimmed, and picking them puts the free cam at the eye of their body.
 4. Choose an agent, finish, knife, or gloves. Changes are staged in the preview.
 5. Select **Apply** to write touched slots to the demo.
+
+A click anywhere inside the window, or on the empty screen around it, never closes it. ✕, Cancel
+and Escape do (Escape closes the player menu first).
 
 Primary and secondary sections appear only for weapon slots the player currently owns. Knife,
 gloves, and agent choices remain available. If the held weapon was picked up from another player,
@@ -52,6 +63,78 @@ bots and applies only to the chosen model's team. Bot agent choices are runtime-
 the full controller handle (including its serial) and cleared when the demo session ends.
 They never share a SteamID-zero profile or change bot weapon or glove cosmetics. Dead pawns keep
 the model they had while alive; new choices apply when the pawn is alive again.
+
+## Who is being customized
+
+`Cosmetics/CustomizeTarget.{h,cpp}` answers that once per frame for both panels, and
+`CustomizeTarget_StateJson()` hands the same answer to the Camera Editor's state and to Config's
+**Customize Player** button (`customizeReady`). The rules are engine-free in
+`Cosmetics/CustomizeTargetMath.h` and tested by `Automation/tests/customize-target-math-tests.cpp`.
+
+- **Who is watched comes from CS2's demo bar.** `CameraTimelineJs.h` reads
+  `GetDemoControllerState()` and `GetDemoPlayers()` from the `HudDemoController` panel every frame
+  and publishes them (`specstate`, `demoplayers`). In a GOTV demo the local observer reads mode 0
+  and no target, and matching the camera against a pawn's eye only works in first person. That is
+  why Customize used to grey out or guess the nearest player in third person.
+- **The roster is every T and CT controller**, from the demo bar, with a scan of the controllers as
+  the fallback. A dead player's controller points at an observer pawn, so the body is found
+  through `CCSPlayerController::m_hPlayerPawn`, or a pawn whose `m_hOriginalController` names
+  them. Observer pawns are never a body.
+- **The order is: pick, then watched, then the last target.** A pick holds while the view settles
+  on that player (up to 120 frames), and is dropped when the view later moves to someone else
+  (`spec_next`, a click on CS2's own bar). Free cam watches nobody, so the last target stays.
+  Without a demo bar, the eye match is the fallback, and only onto a living roster player: on its own
+  it lands on bodies and observer pawns.
+- **Picking switches the view.** A living player gets CS2's own first-person spectate
+  (`SpectatePlayer`, run by the demo bar's script). CS2 will not spectate the dead, so a dead
+  player gets free cam at their body's render eye for a few frames.
+- **Dead players keep their last loadout.** While a player is alive with health and holds a gun,
+  their loadout is kept by SteamID. After death the modal shows that copy (`lastSeen`) instead of
+  the weapons on the ground; only the agent and gloves are read off the body when there is no copy.
+  A seek back drops the copies, since they came from later lives. After any seek nothing is
+  saved for 32 frames, while the pawns and their weapons arrive. The gun rule exists because the
+  demo's first frames give pawns health but only a default knife; a seek past those players' deaths
+  made that knife-only read their last loadout (`customize.seek` logs each jump).
+- `customize.target` (on change) and `customize.pick` log every decision to `mvm_debug`.
+
+## The window
+
+`Panorama/CameraEditorCustomizeWindowJs.h` owns size, position and dragging.
+
+| Size | Width | What shows |
+| --- | --- | --- |
+| Full | 1240 × 720 | Slot list, 3D preview, picker |
+| Compact | 800 × 720 | Slot list and picker. The game behind the window is the preview |
+| Collapsed | 800 × 56 | The title bar alone, with its buttons |
+
+- The size buttons sit in the header. Only full size keeps the 3D preview; the other sizes
+  destroy it, and returning to full builds it again (`custShowsPreview()`).
+- Drag the window by its title bar (the grip dots or the title), never by the player button.
+  `custClampPos()` keeps the 56px title bar on screen; the body may hang below the bottom edge.
+- Position and size last the session: the script publishes them as `custlayout`,
+  `CameraEditorHud` keeps them (`m_customizeLayout`), and every rebuild and both panels read them
+  back from the state (`customizeLayout`).
+- The player menu hangs under the title. One column per team, full names, T in gold and CT in
+  blue, dead players at 45% opacity with a `Dead` tag on the title when one is picked.
+- At full size the menu drops over the 3D preview, a native composition-layer panel that took the
+  menu's clicks whatever its z-index. The preview steps aside while the menu is open
+  (`positionPreview3d`) and is re-settled when it closes (`custSetPlayerMenu`).
+
+## Switching players without a hitch
+
+A pick reseeds the whole modal. Three things keep that from stalling a frame:
+
+- The slot lists are decorated with one read of the selected option (`wearSuffix()`), not one
+  per option. Per option it re-filtered the catalog: 77-120 ms for some knife lists.
+- A picker pane builds its first 9 tiles at once and the rest 6 per frame (`pumpRows`).
+- The 3D preview follows on the next frame (`custPreviewDue`), so CS2's own work for the new
+  preview scene does not land on the frame that rebuilt the lists.
+
+Measured on Inferno, paused, Customize at full size over Config, with `mirv_filmmaker health
+resetTiming` before each burst of 8-10 picks: the worst frame went from 154-340 ms to 44-59 ms,
+about one frame over 33 ms per pick. Normal frames there were 15-18 ms. The same picks with the
+window closed stayed under 31 ms. `[mvmpreview] reseedCost` (only while `mvm_debug` records)
+splits each reseed into its parts.
 
 ## Wear control
 
@@ -109,8 +192,13 @@ All paths below are under `AfxHookSource2/Filmmaker/`.
 | --- | --- |
 | Modal, slot list, picker panes, staged state, wear UI | `Panorama/CameraEditorCustomizeJs.h` |
 | 3D preview wiring and fallback | `Panorama/CameraEditorCustomizePreviewJs.h` |
-| Modal input/state bridge | `Panorama/CameraEditorHud.{h,cpp}` |
-| Current spectated loadout queries | `Cosmetics/CosmeticUiQueries.{h,cpp}` |
+| Player menu, target chrome, the per-frame pass both panels run (`customizeFrame()`) | `Panorama/CameraEditorCustomizePlayersJs.h` |
+| Window sizes, drag, session layout | `Panorama/CameraEditorCustomizeWindowJs.h` |
+| Modal input/state bridge; the modal over Config (`RunCustomizeOverConfig`) | `Panorama/CameraEditorHud.{h,cpp}` |
+| Config's button and `config customize` | `Panorama/ConfigHud.cpp`, `ConfigHudJs.h` |
+| Demo bar read and native spectate | `Panorama/CameraTimelineJs.h`, `CameraTimelineHud.{h,cpp}` |
+| Target, roster, picks, last-alive loadouts | `Cosmetics/CustomizeTarget.{h,cpp}`, rules in `CustomizeTargetMath.h` |
+| Loadout reads | `Cosmetics/CosmeticUiQueries.{h,cpp}` |
 | Console grammar | `Cosmetics/CosmeticCommands.cpp` |
 | Profile/application system | `Cosmetics/CosmeticOverrideSystem.{h,cpp}`, `CosmeticProfile.{h,cpp}` |
 | Knife/glove/agent model work | `Cosmetics/CosmeticKnifeSwap.cpp`, `CosmeticGloveSwap.cpp`, `CosmeticModelSwap.{h,cpp}` |
@@ -125,12 +213,12 @@ keyboard characters and wheel input, queues them, and dispatches them to the Pan
 
 ## Layout (design 7b, "always-open picker")
 
-The modal is a fixed **1240 × 720** card with a 56px header and three body columns: slot list,
-preview, and an always-open picker. It has no popups and no footer.
+At full size the modal is a **1240 × 720** card with a 56px header and three body columns: slot
+list, preview, and an always-open picker. Its only popup is the player menu, and it has no footer.
 
 | Band | Contents |
 | --- | --- |
-| Header (56px, `#0f131a`) | `CUSTOMIZE PLAYER · <NAME>` (name in gold), the pickup banner, then `Reset to default`, `Cancel`, `Apply` and ✕. All of them are 34px tall and built into `custHeadActions`. |
+| Header (56px, `#0f131a`) | Grip dots, `CUSTOMIZE PLAYER`, the player button (the name in team colour and ▾, or `Choose a player`), a `Dead` tag, the pickup banner, then `Reset to default`, `Cancel`, `Apply`, the size buttons and ✕. The actions are 34px tall and built into `custHeadActions`. |
 | Slot list (262px) | Five 76px rows (Agent, Primary, Secondary, Melee / knife, Gloves), each with a 3px rarity bar, an 84×56 thumbnail, the caption, the short name in rarity colour and a wear line (`Field-Tested · 0.182`, `Stock`, `CT agent`) |
 | Preview (440px) | The `MapPlayerPreviewPanel` over a radial `#1c2534 → #0c1016` ground, with a `HOLDING · PRIMARY` chip in the corner |
 | Picker (the rest) | The selected slot's pane: crumb, search, rarity chips, a 3-up tile grid, and the wear block pinned to the foot |
@@ -158,7 +246,8 @@ column holds the options.
   current pick is outlined and its count line turns gold.
 - **Search** is a plain panel drawing `[query][caret][placeholder]`: this HUD context never gives a
   TextEntry keyboard focus, so characters arrive through `custChars()` (the C++ WM_CHAR route) and
-  always land in the **selected** pane. Escape backs out of a model, then closes the modal. The
+  always land in the **selected** pane. Escape closes the player menu, then backs out of a model,
+  then closes the modal. The
   caret blinks from the per-frame pump (`custCaretBlink`), time-based.
 - **Scrolling.** The grid sits in a clipped viewport and is translated by `sizePane()`; the wheel is
   consumed in C++ and routed to `custWheel()`, which scrolls the selected pane. `fadeTop`/`fadeBot`
@@ -310,6 +399,10 @@ Full root-cause analysis, the measurements, and the differential method that fou
 The modal emits the same commands available for manual testing:
 
 ```text
+mirv_filmmaker config customize
+mirv_filmmaker cosmetics pick <controller index|clear>
+mirv_filmmaker cosmetics roster
+mirv_filmmaker cosmetics observerprobe
 mirv_filmmaker cosmetics target current
 mirv_filmmaker cosmetics player <steamId|current> weapon <def> paint <id> wear <float> seed <id> stattrak <id>
 mirv_filmmaker cosmetics player <steamId|current> knife <def> paint <id> wear <float> seed <id>
@@ -318,6 +411,11 @@ mirv_filmmaker cosmetics player <steamId|current> agent <modelPath|default>
 mirv_filmmaker cosmetics clearPlayer <steamId|current>
 mirv_filmmaker cosmetics status
 ```
+
+`config customize` opens the modal over Config. `cosmetics pick` makes a player the target and
+switches the view to them, as the menu does; `clear` goes back to the watched player. `roster`
+prints the players with their controller, body, alive state and team, and `observerprobe` prints
+what the demo bar, the local observer and every pawn report, for diagnosing the target.
 
 Run `mirv_filmmaker cosmetics` for diagnostic and recovery subcommands. Use `mvm_debug` for
 per-frame investigation; see the "Diagnose runtime behaviour" section of the repo's `CLAUDE.md`.
@@ -328,12 +426,21 @@ Source-level:
 
 ```batch
 node --test Automation/tests/panorama-interaction-layout-tests.mjs
+node --test Automation/tests/customize-player-picker-tests.mjs
 cmake --build --preset x64-release --parallel --target AfxHookSource2
+ctest --test-dir build/x64-source2-release -C Release -R CustomizeTargetMathTests
 ```
 
 Live verification should cover:
 
-- current target and current loadout detection;
+- current target and current loadout detection, the same in Config and the Camera Editor, in
+  first person, third person and free cam;
+- picking a living and a dead player from the menu: the view goes to first person on them, and a
+  dead player shows the last loadout they had alive;
+- dragging the window, the three sizes, and the layout surviving close, reopen and a switch
+  between Config and the editor;
+- a burst of picks with `mirv_filmmaker health resetTiming` before it and `mirv_filmmaker health`
+  after it, against the numbers in [Switching players without a hitch](#switching-players-without-a-hitch);
 - Apply versus Cancel;
 - legal-range and CAP OFF wear values;
 - default-item wear reset;
