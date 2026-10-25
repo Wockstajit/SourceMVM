@@ -107,8 +107,10 @@ function Get-Cs2CheckoutHook {
         ForEach-Object { Join-Path $RepositoryRoot $_ } |
         Where-Object { (Test-Path -LiteralPath (Join-Path $_ 'x64\AfxHookSource2.dll')) -and (Test-Path -LiteralPath (Join-Path $_ 'x64\injector.exe')) } |
         Select-Object -First 1
+    # The hosts launch-cs2-netcon.ps1 accepts, including the one ensure-packages.ps1 bootstraps.
     $nativeHost = @('SourceMovieMakerLauncher\host\build\SourceMovieMakerHost.exe',
-        'SourceMovieMakerLauncher\release\win-unpacked\resources\host\SourceMovieMakerHost.exe') |
+        'SourceMovieMakerLauncher\release\win-unpacked\resources\host\SourceMovieMakerHost.exe',
+        'build\portable-runtime\bin\SourceMovieMakerHost.exe') |
         ForEach-Object { Join-Path $RepositoryRoot $_ } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     if (-not $bin -or -not $nativeHost) { return $null }
     $built = (Get-Item -LiteralPath (Join-Path $bin 'x64\AfxHookSource2.dll')).LastWriteTimeUtc

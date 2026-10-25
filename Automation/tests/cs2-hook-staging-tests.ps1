@@ -193,6 +193,12 @@ try {
         New-FixtureDll (Join-Path $here 'build/x64-source2-release/AfxHookSource2/Release/AfxHookSource2.dll') 'build' ($baseTime.AddMinutes(5))
         Assert-Equal (Get-Cs2CheckoutHook -RepositoryRoot $here).Built.Ticks $baseTime.AddMinutes(5).Ticks 'A newer build the launch stages counts'
     }
+    Invoke-Case 'a bootstrapped checkout launches with its portable-runtime host' {
+        $here = Join-Path $fixture 'portable'
+        New-FixtureCheckout $here $baseTime -NoHost
+        New-FixtureDll (Join-Path $here 'build/portable-runtime/bin/SourceMovieMakerHost.exe') 'host' $baseTime
+        Assert-Equal (Get-Cs2CheckoutHook -RepositoryRoot $here).Built.Ticks $baseTime.Ticks 'The ensure-packages host counts, as launch-cs2-netcon accepts it'
+    }
     Invoke-Case 'newest checkout wins and ties stay here' {
         $here = Join-Path $fixture 'main'; $a = Join-Path $fixture 'wt a'; $b = Join-Path $fixture 'wt b'
         New-FixtureCheckout $here $baseTime
