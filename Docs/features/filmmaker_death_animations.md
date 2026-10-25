@@ -327,6 +327,25 @@ prefix before use):
 The bodies are found through the pawn's model-state `m_pVPhysicsAggregate` (fifteen bodies,
 `GetBody` at aggregate slot 24), or its client-side ragdoll child.
 
+**A held body is only touched while its ragdoll still exists, and that is decided without touching
+it.** The game removes ragdolls on its own. A removed ragdoll's freed memory can still read like the
+old one, so reading the carrier and then calling into its bodies runs whatever now lives there.
+`__try` only catches access violations, so a call that lands in valid code corrupts the heap and CS2
+crashes later somewhere unrelated. `CarrierAlive` (`DeathAnimations.cpp`) runs first: the pawn is
+still in its entity slot, and so is the carrier (the slot is read from its handle when the bodies
+are acquired, `BodySet::carrierIndex`, and looked up across the whole 15-bit range with
+`EntityInSlot`, because a client-side ragdoll is a client-only entity). Only then does
+`RagdollBodies::Current` compare the aggregate and bodies. Every per-frame read goes through it,
+including the `mvm_debug`-only settle watch and the late-frame hand trace.
+
+Measured 2026-10-24 on `ragdolls.dem` (cs_office, many quick deaths) with `mvm_debug` on: nearly every
+settle watch outlived its ragdoll, which the game removed 0.7 to 2.1 s after the hand-off, and the
+watch read the freed pelvis until its 2.5 s were up. One logged `path=inf`, and one crash stack ran
+from `RagdollBodies::ReadBody` into `localize.dll`. Builds with the watch reading unchecked crashed in
+about half of the 2-minute playbacks (Panorama, tier0, vphysics2, rendersystemdx11), the same build
+with `mvm_debug` off survived 6 of 6, and with the per-frame check builds survived 10 of 10 with
+`mvm_debug` on, every watch then stopping at `lost=corpse after=<seconds>`.
+
 ## Diagnosis
 
 `mvm_debug start`, then read the `deathanim` lines:

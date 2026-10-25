@@ -168,6 +168,13 @@ CEntityInstance* EntityAt(int index) {
 	return (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList, index);
 }
 
+CEntityInstance* EntityInSlot(int index) {
+	if (index < 0 || index >= 0x8000 || !g_pEntityList || !*g_pEntityList || !g_GetEntityFromIndex)
+		return nullptr;
+	__try { return (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList, index); }
+	__except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
+}
+
 CEntityInstance* ClientRagdollOf(CEntityInstance* entity) {
 	const ptrdiff_t off = g_clientDllOffsets.DeathWeaponRagdoll.m_pClientsideRagdoll;
 	if (!entity || !off) return nullptr;
@@ -306,6 +313,13 @@ int JInt(const JsonValue& r, const char* k, int def) { const JsonValue* v = r.Fi
 bool JBool(const JsonValue& r, const char* k) { const JsonValue* v = r.Find(k); return v && (v->AsBool() || v->AsInt(0) != 0); }
 std::string JStr(const JsonValue& r, const char* k) { const JsonValue* v = r.Find(k); return v ? v->AsString() : std::string(); }
 
+static int EntityIndexOf(CEntityInstance* entity) {
+	__try {
+		const auto handle = entity->GetHandle();
+		return handle.IsValid() ? handle.GetEntryIndex() : -1;
+	} __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
+}
+
 bool Acquire(CEntityInstance* pawn, BodySet& out, char* why, size_t whySize) {
 	CEntityInstance* carriers[2] = { pawn, ClientRagdollOf(pawn) };
 	size_t used = 0;
@@ -331,6 +345,7 @@ bool Acquire(CEntityInstance* pawn, BodySet& out, char* why, size_t whySize) {
 			note(" badBody=%d]", bad);
 			if (bad >= 0) continue;
 			out.carrier = carrier;
+			out.carrierIndex = EntityIndexOf(carrier);
 			out.route = route;
 			out.object = object;
 			std::memcpy(out.bodies, bodies, sizeof(bodies));
