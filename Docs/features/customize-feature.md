@@ -116,6 +116,9 @@ the model they had while alive; new choices apply when the pawn is alive again.
   back from the state (`customizeLayout`).
 - The player menu hangs under the title. One column per team, full names, T in gold and CT in
   blue, dead players at 45% opacity with a `Dead` tag on the title when one is picked.
+- At full size the menu drops over the 3D preview, a native composition-layer panel that took the
+  menu's clicks whatever its z-index. The preview steps aside while the menu is open
+  (`positionPreview3d`) and is re-settled when it closes (`custSetPlayerMenu`).
 
 ## Switching players without a hitch
 

@@ -108,11 +108,18 @@ R"EDJS(
       cmd('mirv_filmmaker cosmetics pick ' + controller);
     }
     function custSetPlayerMenu(open) {
+      var was = custPlayerMenuOpen;
       custPlayerMenuOpen = !!open && custOverlay.visible;
       custPlayerMenu.visible = custPlayerMenuOpen;
       caretSpin(custPlayerCaret, custPlayerMenuOpen);
       paintPlayerBtn();
       if (custPlayerMenuOpen) { custPaintSig = ''; renderPlayers(((st && st.customize && st.customize.players) || [])); custPositionPlayerMenu(); }
+      // The full-size 3D preview steps aside under the open menu (positionPreview3d) and comes back,
+      // re-settled, once it closes.
+      if (was !== custPlayerMenuOpen && typeof positionPreview3d === 'function') {
+        positionPreview3d();
+        if (!custPlayerMenuOpen && custShowsPreview() && typeof pokePreviewSoon === 'function') pokePreviewSoon();
+      }
     }
     // Under the name button, kept on screen; re-placed every frame while open (the window can move).
     function custPositionPlayerMenu() {

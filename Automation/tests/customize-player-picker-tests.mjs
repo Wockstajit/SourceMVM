@@ -142,6 +142,33 @@ test('three window sizes, and only full size keeps the 3D preview', () => {
   assert.match(functionSource(windowJs, 'custWindowFrame'), /!custInRect\(custPlayerBtn, mx, my\)/);
 });
 
+// At full size the player menu drops over the native 3D preview, which took its clicks whatever the
+// z-index: the menu picked nobody until the window was made compact (owner report, 2026-10-25).
+// The preview steps aside while the menu is open and is re-settled when it closes.
+test('the 3D preview steps aside while the player menu is open, and comes back re-settled', () => {
+  const calls = [];
+  const box = () => ({ visible: true, style: {}, IsValid: () => true });
+  const ctx = vm.createContext({
+    custShowsPreview: () => true, custScale: () => 1, root: {}, ctx: {}, custPlayerMenuOpen: false,
+    previewClip: box(), custHoldChip: box(), preview3d: box(),
+    prevStage: { IsValid: () => true, GetPositionWithinWindow: () => ({ x: 100, y: 80 }), actuallayoutwidth: 400, actuallayoutheight: 600 },
+    custOverlay: { visible: true }, custPlayerMenu: { visible: false }, custPlayerCaret: {}, st: null,
+    caretSpin() {}, paintPlayerBtn() {}, renderPlayers() {}, custPositionPlayerMenu() {}, custPaintSig: '',
+    pokePreviewSoon: () => calls.push('poke'),
+  });
+  vm.runInContext(functionSource(preview, 'positionPreview3d') + '\n' + functionSource(players, 'custSetPlayerMenu'), ctx);
+  vm.runInContext('positionPreview3d()', ctx);
+  assert.equal(ctx.previewClip.visible, true, 'shown while the menu is closed');
+  vm.runInContext('custSetPlayerMenu(true)', ctx);
+  assert.equal(ctx.previewClip.visible, false, 'out of the way of the open menu');
+  assert.equal(ctx.custHoldChip.visible, false);
+  vm.runInContext('positionPreview3d()', ctx);   // the per-frame pass keeps it hidden
+  assert.equal(ctx.previewClip.visible, false);
+  vm.runInContext('custSetPlayerMenu(false)', ctx);
+  assert.equal(ctx.previewClip.visible, true, 'back once the menu closes');
+  assert.deepEqual(calls, ['poke'], 'and re-settled');
+});
+
 test('position and size last the session, through rebuilds and either host', () => {
   assert.match(functionSource(windowJs, 'custPublishLayout'), /root\.SetAttributeString\('custlayout', v\)/);
   assert.match(editorHud, /m_symCustomizeLayout = m_bridge\.MakeSymbol\("custlayout"\);/);

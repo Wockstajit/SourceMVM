@@ -437,6 +437,15 @@ R"EDJS(
         previewClip.visible = false;
         return;
       }
+      // The player menu drops over the body (CameraEditorCustomizePlayersJs.h). This native
+      // composition-layer panel took the menu's clicks whatever their z-index, so at full size the
+      // menu could not pick anyone; compact size has no preview and worked. It steps aside while the
+      // menu is open, the HOLDING chip with it, and custSetPlayerMenu re-settles it on close.
+      if (custPlayerMenuOpen) {
+        previewClip.visible = false;
+        if (typeof custHoldChip !== 'undefined' && custHoldChip) custHoldChip.visible = false;
+        return;
+      }
       var a = prevStage.GetPositionWithinWindow ? prevStage.GetPositionWithinWindow() : null;
       var rawW = prevStage.actuallayoutwidth || 0, rawH = prevStage.actuallayoutheight || 0;
       if (!a || rawW <= 0 || rawH <= 0) { previewClip.visible = false; return; }
