@@ -116,8 +116,9 @@ in the home menu and the pause menu.
 
 ## Releasing
 
-Before a release, rename `## Unreleased` to the new version heading with its date and start a new
-empty `## Unreleased` above it. A runtime hotfix gets its own `## <version> Hotfix <n>` heading and
+Before a release, rename `## Unreleased` to the new version heading with its date. The next change
+after the release starts a new `## Unreleased` above it; a section with no entries is refused by
+`ChangelogMathTests`, so none is added empty. A runtime hotfix gets its own `## <version> Hotfix <n>` heading and
 ships `resources\CHANGELOG.md` next to the DLL. See
 [Publishing releases](../setup/publishing-releases.md).
 
