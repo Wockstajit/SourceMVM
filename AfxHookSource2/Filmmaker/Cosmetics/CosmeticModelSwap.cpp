@@ -477,8 +477,8 @@ const char* DesiredBodyChoiceName(uint64_t meshMask) {
 // model/mesh change, just refresh the renderables" (PostDataUpdate). Class equality (not the old
 // m_hOwnerEntity owner-match, which is wrong on some builds) is the safe discriminator: the world
 // weapon and its viewmodel share the same entity class (weapon_knife, weapon_ak47, ...). SEH-guarded.
-void RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t meshMask,
-	unsigned char* worldWeapon, int entityIndex, bool releaseComposite) {
+int RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t meshMask,
+	unsigned char* worldWeapon, int entityIndex, bool releaseComposite, ViewmodelMirrorWrites* written) {
 	const ClientDllOffsets_t& o = g_clientDllOffsets;
 	const bool trace = MvmDebugLog_Active();
 	const char* wantBodyChoice = DesiredBodyChoiceName(meshMask);
@@ -487,7 +487,7 @@ void RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t me
 	if (!pawn) {
 		if (trace)
 			MvmDebugLog_LinefAlways("cosmetics.weapon.vm", "ABORT noPawn worldIdx=%d", entityIndex);
-		return;
+		return 0;
 	}
 	if (o.C_CSPlayerPawn.m_hHudModelArms == 0 || o.C_BaseEntity.m_pGameSceneNode == 0 ||
 		o.CGameSceneNode.m_pChild == 0 || o.CGameSceneNode.m_pNextSibling == 0 ||
@@ -497,7 +497,7 @@ void RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t me
 				"ABORT missingOffsets worldIdx=%d offArms=0x%llx offScene=0x%llx",
 				entityIndex, (unsigned long long)o.C_CSPlayerPawn.m_hHudModelArms,
 				(unsigned long long)o.C_BaseEntity.m_pGameSceneNode);
-		return;
+		return 0;
 	}
 
 	const char* wantClass = nullptr;
@@ -523,7 +523,7 @@ void RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t me
 				pawnIdx, entityIndex, (unsigned long long)meshMask, hres.source, hres.hudArmsEntities,
 				wantClass ? wantClass : "?");
 		}
-		return;
+		return 0;
 	}
 
 	// Class of the weapon we are mirroring onto its own first-person viewmodel. Only same-class
@@ -548,9 +548,10 @@ void RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t me
 	// Per-child breadcrumbs are written + flushed BEFORE each renderable is touched, so if the crash is
 	// in a half-built viewmodel during a switch, the LAST "knife.vm child" line names the exact child
 	// (its owner ptr + class + whether it matched and got the model write) we touched before dying.
+	int matches = 0;
 	__try {
 		void* armsNode = *(void**)(arms + o.C_BaseEntity.m_pGameSceneNode);
-		if (!armsNode) return;
+		if (!armsNode) return 0;
 		void* child = *(void**)((unsigned char*)armsNode + o.CGameSceneNode.m_pChild);
 		for (int guard = 0; child && guard < 64; ++guard) {
 			void* owner = *(void**)((unsigned char*)child + o.CGameSceneNode.m_pOwner);
@@ -591,10 +592,15 @@ void RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t me
 				// #endregion
 				if (sameWeapon) {
 					matchedAny = true;
+					++matches;
 					if (model && *model)
 						SafeSetModel((unsigned char*)owner, model);
-					if (meshMask)
-						ForceSetViewmodelMeshMask((unsigned char*)owner, meshMask);
+					// Recorded only once its forced write went through: a half-built copy whose scene
+					// node refused it is forced again next frame, never trusted on its readback.
+					if (meshMask && !(written && written->Has((uintptr_t)owner)
+							&& ReadEntityMeshGroupMask((CEntityInstance*)owner) == meshMask)
+						&& ForceSetViewmodelMeshMask((unsigned char*)owner, meshMask) && written)
+						written->Add((uintptr_t)owner);
 					if (releaseComposite)
 						ReleaseEntityCompositeMaterials((unsigned char*)owner);
 					// Knife viewmodel SetModel/mesh writes are enough for the next render pass.
@@ -607,7 +613,7 @@ void RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t me
 		}
 	} __except (1) {
 		if (trace) MvmDebugLog_LinefAlways("cosmetics.weapon.vm", "walk.FAULT worldIdx=%d (SEH caught during child walk)", entityIndex);
-		return;
+		return matches;
 	}
 
 	// July 2026 client hierarchy: C_CS2HudModelWeapon instances are client-only high-index entities
@@ -640,10 +646,12 @@ void RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t me
 				if (!SameModelPath(wantModel, hudModel))
 					continue;
 				++hudMatches;
+				++matches;
 				if (model && *model)
 					SafeSetModel((unsigned char*)hud, model);
-				if (meshMask)
-					ForceSetViewmodelMeshMask((unsigned char*)hud, meshMask);
+				if (meshMask && !(written && written->Has((uintptr_t)hud) && ReadEntityMeshGroupMask(hud) == meshMask)
+					&& ForceSetViewmodelMeshMask((unsigned char*)hud, meshMask) && written)
+					written->Add((uintptr_t)hud);
 				if (releaseComposite)
 					ReleaseEntityCompositeMaterials((unsigned char*)hud);
 				if (trace)
@@ -668,6 +676,7 @@ void RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t me
 	// Do not force PostDataUpdate on HUD arms; it queues renderer work while the
 	// demo entity is being recreated and can leave CS2 non-responsive.
 	if (trace) MvmDebugLog_LinefAlways("cosmetics.weapon.vm", "walk.end worldIdx=%d", entityIndex);
+	return matches;
 }
 
 } // namespace modelswap
@@ -762,6 +771,15 @@ bool ApplyWeaponMeshMask(unsigned char* weaponEntity, uint64_t meshMask, unsigne
 	if (switched && pawnForViewmodel)
 		RefreshViewmodelWeapons(pawnForViewmodel, nullptr, meshMask, weaponEntity, entityIndex);
 	return switched;
+}
+
+int MirrorWeaponMeshToViewmodel(unsigned char* pawn, unsigned char* worldWeapon, uint64_t meshMask, int entityIndex,
+	ViewmodelMirrorWrites& written) {
+	ResolveModelSwapFns();
+	if (!pawn || !worldWeapon || meshMask == 0)
+		return 0;
+	return RefreshViewmodelWeapons(pawn, nullptr, meshMask, worldWeapon, entityIndex, /*releaseComposite=*/false,
+		&written);
 }
 
 bool HoldWeaponMeshMaskDirect(unsigned char* weaponEntity, uint64_t meshMask) {

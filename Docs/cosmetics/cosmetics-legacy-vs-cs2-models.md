@@ -165,6 +165,27 @@ only while paused, so a pick made while the demo plays uses nudge phase 2 (`Cosm
 A 240-frame cap and a seek abort always hand playback back. The log shows
 `cosmetics.nudge START live-composite` and `DONE live-composite`.
 
+The first-person gun is a separate HUD model (`C_CS2HudModelWeapon`) that CS2 builds anew whenever
+the gun is drawn, on the demo's own mesh group. The one native switch above mirrors the group onto
+the HUD copy that exists at that moment, and only when the gun is in hand. So a gun drawn later
+showed a legacy finish on the CS2 mesh in first person. That happened when the gun was holstered at a
+seek's landing or a loop's In, or was put away and drawn again. This was the AWP Dragon Lore and
+Gungnir report. On de_inferno, every landing with the AWP drawn afterwards read world mask 2 and HUD
+mask 1. Each time the gun comes into first-person view, the apply loop now mirrors the group again
+(`MirrorWeaponMeshToViewmodel`): when the viewed player draws it, or when the view moves to a player
+holding it, or when the game's observer mode changes (chase or roaming to in-eye on the same player
+builds a new copy without a new draw). The mirror runs for 24 frames that found a copy, because the
+HUD copy appears a few frames after the draw, and it waits up to 120 frames for CS2 to build one, so
+a view outside the eye does not use up the window. HUD weapons are a small pooled set reused across
+guns, so a recycled copy can read back the right mask while it still draws its old group. Each copy
+therefore gets one forced write per window (`ViewmodelMirrorWrites`; a write a half-built copy
+refuses is not counted and is tried again next frame), and only after that is a copy
+whose mask already matches left alone, so the mirror never re-invalidates a material that is already
+right. It is limited to the viewed player's gun. HUD copies are matched by model path, so
+another player's draw would otherwise put that player's group on the viewed player's copy. After
+the change both masks read 2 on every landing. The `cosmetics.weapon.vmmirror` log line shows the
+copies found per frame.
+
 A gun that is holstered at the pick (the other weapon is in hand) is still owed its composite. The
 composite runs only for the deployed weapon, so `m_compositeOwedIdx` remembers the entity. The first
 frame it is active while the demo plays requests the same pause-composite pass

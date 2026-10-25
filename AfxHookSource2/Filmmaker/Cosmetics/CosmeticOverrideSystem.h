@@ -28,6 +28,7 @@
 #include <unordered_set>
 #include "CosmeticProfile.h"
 #include "CosmeticRebuildFlags.h" // shared with the SEH-guarded write layer
+#include "CosmeticModelSwap.h" // ViewmodelMirrorWrites
 
 class CEntityInstance;
 namespace advancedfx { class ICommandArgs; }
@@ -405,6 +406,12 @@ private:
 		uintptr_t entity = 0;
 		uint64_t mask = 0;
 		uint64_t recordedMask = 0;
+		// The gun's first-person copy is built anew on every draw; it is mirrored onto `mask` for a
+		// few frames each time the gun comes into first-person view (MirrorWeaponMeshToViewmodel).
+		bool drawn = false; // drawn by the player seen in first person
+		int viewmodelMirrorFrames = 0; // frames left that found a copy
+		int viewmodelWaitFrames = 0;   // frames left to wait for CS2 to build a copy
+		ViewmodelMirrorWrites viewmodelWrites; // copies given their one forced write this window
 	};
 	std::unordered_map<int, WeaponMeshState> m_weaponMeshState;
 	// Live playback can reset the WORLD renderer's cached mesh selection without changing the mask
@@ -502,6 +509,7 @@ private:
 	bool m_seekCompositePending = false; // seek zeroed the burst; re-arm it on the first PAUSED frame after
 	                                     // settle (composite must never fire during live playback)
 	mutable int m_lastSpectatedPawnIndex = -1; // validated sticky target across POV/camera resolver gaps
+	uint8_t m_lastMirrorObserverMode = 0xFF; // observer mode the viewmodel mirror last saw (re-arms on a change)
 	std::unordered_map<int, uint64_t> m_lastCompositeFrameByIdx; // per-entity clobber composite debounce
 	// Weapon entities whose skin changed while HOLSTERED. The composite is deployed-weapon-only, so it
 	// is owed until the gun is next active (measured 2026-09-28: Glock Moonrise -> AXIA switched mesh

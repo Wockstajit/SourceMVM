@@ -120,6 +120,32 @@ bool PrecacheModels();
 // (and tags diagnostics); -1 if unknown.
 bool ApplyWeaponMeshMask(unsigned char* weaponEntity, uint64_t meshMask, unsigned char* pawnForViewmodel, int entityIndex = -1);
 
+// The first-person copies one mirror window has already given a forced write. HUD weapons are a small
+// pooled set reused across guns, so a recycled copy can read back the target mask while it still draws
+// its previous group (ForceSetViewmodelMeshMask): a matching read is only trusted for a copy written
+// earlier in the same window. A full list falls back to forcing every write. POD.
+struct ViewmodelMirrorWrites {
+	static constexpr int kMax = 8;
+	uintptr_t copies[kMax] = {};
+	int count = 0;
+	bool Has(uintptr_t copy) const {
+		for (int i = 0; i < count; ++i)
+			if (copies[i] == copy) return true;
+		return false;
+	}
+	void Add(uintptr_t copy) {
+		if (!Has(copy) && count < kMax) copies[count++] = copy;
+	}
+};
+
+// Put the first-person (HUD) copy of a drawn gun on meshMask. Each copy gets one forced write per
+// window (`written`); after that a copy already showing meshMask is left alone, so repeating this never
+// re-invalidates its material. CS2 builds that copy when the gun is drawn, on the demo's own mesh
+// group, so a finish needing the other group has to be mirrored on every draw.
+// Returns how many HUD copies of the gun were found (0 while the copy does not exist yet).
+int MirrorWeaponMeshToViewmodel(unsigned char* pawn, unsigned char* worldWeapon, uint64_t meshMask, int entityIndex,
+	ViewmodelMirrorWrites& written);
+
 // Drop the composite (skin) materials held by the first-person HUD model(s) of worldWeapon so they show
 // the base finish. Needed when a gun goes back to vanilla on the SAME mesh group: the world weapon
 // releases its composite, but the HUD copy stays until something replaces it.
