@@ -595,10 +595,12 @@ int RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t mes
 					++matches;
 					if (model && *model)
 						SafeSetModel((unsigned char*)owner, model);
+					// Recorded only once its forced write went through: a half-built copy whose scene
+					// node refused it is forced again next frame, never trusted on its readback.
 					if (meshMask && !(written && written->Has((uintptr_t)owner)
-							&& ReadEntityMeshGroupMask((CEntityInstance*)owner) == meshMask))
-						ForceSetViewmodelMeshMask((unsigned char*)owner, meshMask);
-					if (written) written->Add((uintptr_t)owner);
+							&& ReadEntityMeshGroupMask((CEntityInstance*)owner) == meshMask)
+						&& ForceSetViewmodelMeshMask((unsigned char*)owner, meshMask) && written)
+						written->Add((uintptr_t)owner);
 					if (releaseComposite)
 						ReleaseEntityCompositeMaterials((unsigned char*)owner);
 					// Knife viewmodel SetModel/mesh writes are enough for the next render pass.
@@ -647,9 +649,9 @@ int RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t mes
 				++matches;
 				if (model && *model)
 					SafeSetModel((unsigned char*)hud, model);
-				if (meshMask && !(written && written->Has((uintptr_t)hud) && ReadEntityMeshGroupMask(hud) == meshMask))
-					ForceSetViewmodelMeshMask((unsigned char*)hud, meshMask);
-				if (written) written->Add((uintptr_t)hud);
+				if (meshMask && !(written && written->Has((uintptr_t)hud) && ReadEntityMeshGroupMask(hud) == meshMask)
+					&& ForceSetViewmodelMeshMask((unsigned char*)hud, meshMask) && written)
+					written->Add((uintptr_t)hud);
 				if (releaseComposite)
 					ReleaseEntityCompositeMaterials((unsigned char*)hud);
 				if (trace)

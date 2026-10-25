@@ -178,7 +178,8 @@ builds a new copy without a new draw). The mirror runs for 24 frames that found 
 HUD copy appears a few frames after the draw, and it waits up to 120 frames for CS2 to build one, so
 a view outside the eye does not use up the window. HUD weapons are a small pooled set reused across
 guns, so a recycled copy can read back the right mask while it still draws its old group. Each copy
-therefore gets one forced write per window (`ViewmodelMirrorWrites`), and only after that is a copy
+therefore gets one forced write per window (`ViewmodelMirrorWrites`; a write a half-built copy
+refuses is not counted and is tried again next frame), and only after that is a copy
 whose mask already matches left alone, so the mirror never re-invalidates a material that is already
 right. It is limited to the viewed player's gun. HUD copies are matched by model path, so
 another player's draw would otherwise put that player's group on the viewed player's copy. After

@@ -29,11 +29,11 @@ test('a change of view mode re-arms the mirror, and only frames that found a cop
 
 // HUD weapons are pooled, so a recycled copy can read back the target mask while it still draws its
 // previous group (ForceSetViewmodelMeshMask). Each copy gets one forced write per window; only after
-// that may a matching read skip the write (review on #101).
+// that may a matching read skip the write. A forced write that fails (a half-built copy whose scene
+// node is not ready) is not recorded, so it is forced again next frame (reviews on #101).
 test('every copy gets one forced write per window before its readback is trusted', () => {
   assert.match(swap, /return RefreshViewmodelWeapons\(pawn, nullptr, meshMask, worldWeapon, entityIndex, \/\*releaseComposite=\*\/false,\s*&written\);/);
-  const skips = swap.match(/if \(meshMask && !\(written && written->Has\(\(uintptr_t\)\w+\)\s*&& ReadEntityMeshGroupMask\(.*?\) == meshMask\)\)/g) || [];
-  assert.equal(skips.length, 2, 'both the scene-node walk and the HUD-entity fallback trust a readback only after a forced write');
-  const records = swap.match(/if \(written\) written->Add\(\(uintptr_t\)\w+\);/g) || [];
-  assert.equal(records.length, 2, 'both paths record the copy they wrote');
+  const guarded = swap.match(/if \(meshMask && !\(written && written->Has\(\(uintptr_t\)(\w+)\)\s*&& ReadEntityMeshGroupMask\(.*?\) == meshMask\)\s*&& ForceSetViewmodelMeshMask\(\(unsigned char\*\)\1, meshMask\) && written\)\s*written->Add\(\(uintptr_t\)\1\);/g) || [];
+  assert.equal(guarded.length, 2, 'both the scene-node walk and the HUD-entity fallback record a copy only after its forced write succeeded');
+  assert.doesNotMatch(swap, /if \(written\) written->Add\(/, 'no path records a copy whatever the write did');
 });
