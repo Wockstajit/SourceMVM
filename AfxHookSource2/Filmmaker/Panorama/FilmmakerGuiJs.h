@@ -37,11 +37,13 @@
 //
 // A hidden host panel (#FilmmakerMenuTab) carries the C++<->JS bridge attributes
 // (unchanged contract with FilmmakerMenu.cpp):
-//   C++ -> JS : sets host "demos" attribute (JSON), runs $.Filmmaker.render().
+//   C++ -> JS : sets host "demos" attribute (JSON), runs $.Filmmaker.render();
+//               sets host "whatsnew" (JSON), runs $.Filmmaker.renderWhatsNew().
 //   JS  -> C++: appends to host "cmd": "refresh", "addfolder", "watch <index>",
 //               "openfolder <index>", "prepare <index>" (selected legacy demo),
 //               "rounds <index>", "renamedemo <index> <new name>" (name last, may
-//               contain spaces -- it renames the .dem and its sidecars on disk).
+//               contain spaces -- it renames the .dem and its sidecars on disk),
+//               "whatsnew seen", "whatsnew changelog" (WhatsNewJs.h).
 
 namespace Filmmaker {
 
@@ -198,7 +200,9 @@ R"FMJS(
         bg.hittest = false;
         if (iconImg) { iconImg.style.zIndex = '2'; }   // keep the film icon on top
         btn.SetPanelEvent('onmouseover', function () {
-          try { UiToolkitAPI.ShowTextTooltipOnPanel(btn, 'Movie Making'); } catch (e) {}
+          // The installed version rides along (WhatsNewJs.h), so it is one hover away on any menu page.
+          var version = wnVersionText();
+          try { UiToolkitAPI.ShowTextTooltipOnPanel(btn, 'Movie Making' + (version ? '  ·  SOURCE:MVM ' + version : '')); } catch (e) {}
           try { bg.style.brightness = '2.2'; bg.style.boxShadow = 'rgba(240,179,35,0.8) 0px 0px 24px 7px'; } catch (e) {}
         });
         btn.SetPanelEvent('onmouseout', function () {
@@ -1494,6 +1498,10 @@ R"FMJS(
 )FMJS"
 // ---- demo organiser: rail toolbar, folders, drag-to-file (own fragment) ----
 #include "DemoOrganizerJs.h"
+// ---- the top bar's fixed layout, shared with HC TRACKER (Community/CommunityJs.h) ----
+#include "HeaderLayoutJs.h"
+// ---- WHAT'S NEW header button + window (own fragment) ----
+#include "WhatsNewJs.h"
 // ---- bridge API + bootstrap ----
 R"FMJS(
     var api = {};
@@ -1514,6 +1522,10 @@ R"FMJS(
       orgParse();
       applyWatchEdits();
     };
+    // What's new payload (FilmmakerMenu::PushWhatsNew), the native popup, and its probe line.
+    api.renderWhatsNew = whatsNewRender;
+    api.whatsNew = whatsNewOpen;
+    api.whatsNewReport = whatsNewReport;
     api.show = function () {
       if (typeof MainMenu !== 'undefined' && MainMenu.NavigateToTab) MainMenu.NavigateToTab('JsWatch', 'mainmenu_watch');
       var tries = 0; var tick = function () {

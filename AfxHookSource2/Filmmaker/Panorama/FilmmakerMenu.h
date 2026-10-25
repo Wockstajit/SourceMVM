@@ -37,9 +37,16 @@ public:
 
 	bool IsBuilt() const { return m_built; }
 
+	// Opens the What's new window next frame. `forget` first clears the version last seen, so the
+	// payload is rebuilt as a fresh update would see it (it would open by itself).
+	void RequestWhatsNew(bool forget);
+
 private:
 	void BuildUi();
 	void PushData(DemoLibrary& library);
+	// The version + changelog payload (ToolVersion_WhatsNewJson). Pushed once per build: it only
+	// changes when the window is closed, and the page already knows that.
+	void PushWhatsNew();
 	// Pushes the list-organiser payload (sort mode, user folders, last-played times). Separate
 	// from PushData because it changes on its own schedule -- a folder toggle must not wait for
 	// a library rescan, and a rescan must not resend the organiser state.
@@ -59,6 +66,9 @@ private:
 	short m_symCmd = -1;
 	short m_symDemos = -1;
 	short m_symOrg = -1;
+	short m_symWhatsNew = -1;
+	bool m_whatsNewPushed = false;
+	bool m_whatsNewOpen = false;
 	uint64_t m_lastVersion = (uint64_t)-1;
 	uint64_t m_lastOrgVersion = (uint64_t)-1;
 	std::string m_lastRepairSignature;

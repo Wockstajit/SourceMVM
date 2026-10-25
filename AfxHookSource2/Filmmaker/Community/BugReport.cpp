@@ -2,6 +2,7 @@
 #include "BugReportMath.h"
 #include "CrashReportMath.h"   // SymbolStoreKey
 #include "CrashReport.h"
+#include "ToolVersion.h"
 
 #include "../Filmmaker.h"                     // PumpStatus
 #include "../Debug/MvmDebugLog.h"    // MvmDebugLog_Active
@@ -82,7 +83,7 @@ fs::path GameFolder() {
 
 // Which hook this is. __DATE__/__TIME__ only moved when THIS file recompiled, so 0.1.9 and its
 // hotfix both reported "Oct 12 18:39:16" (2026-10-13). The PE header's link time changes on every
-// link; the launcher's installed.json, two folders up from the DLL, names the shipped version.
+// link; the launcher's installed.json names the shipped version (ToolVersion.h).
 std::string HookBuildText() {
 	HMODULE self = nullptr;
 	GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -96,15 +97,7 @@ std::string HookBuildText() {
 		char stamp[64] = "?";
 		if (gmtime_s(&utc, &linked) == 0) strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S UTC", &utc);
 		text = std::string("linked ") + stamp + ", id " + BugReport_HookImageKey();
-		wchar_t dll[MAX_PATH] = {};
-		if (GetModuleFileNameW(self, dll, MAX_PATH)) {
-			const std::string installed = ReadFile(fs::path(dll).parent_path().parent_path().parent_path() / "installed.json");
-			const size_t runtime = installed.find("\"runtime\"");
-			const size_t key = runtime == std::string::npos ? runtime : installed.find("\"version\"", runtime);
-			const size_t open = key == std::string::npos ? key : installed.find('"', installed.find(':', key) + 1);
-			const size_t close = open == std::string::npos ? open : installed.find('"', open + 1);
-			if (close != std::string::npos) text += ", runtime " + installed.substr(open + 1, close - open - 1);
-		}
+		if (!ToolVersion_Runtime().empty()) text += ", runtime " + ToolVersion_Runtime();
 	}
 	return text;
 }
