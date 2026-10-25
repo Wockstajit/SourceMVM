@@ -31,12 +31,13 @@ R"CFJS(
     ], 'fx.atmosphere');
 
     // ===================== SMOKE ========================================
-    // ONE page with dividers (2026-10 sidebar cleanup): the smoke's colour, look and volume, then
-    // the world tint, as groups that scroll, instead of a page with sub-tabs inside it.
+    // Four sub-pages under one strip (the card's own pages, as WEATHER & SKY has): as one long page
+    // of groups the card ran past the column and had to be scrolled (2026-10-24). The smoke pages
+    // drop the "Smoke" prefix so the four tabs fit one line.
     var smokeCard = atmosSec;
-    var smokePage = atmosSec.__group('Smoke colour');
-    var smokeAppearancePage = atmosSec.__group('Smoke look');
-    var smokeVolumePage = atmosSec.__group('Smoke volume');
+    var smokePage = atmosSec.__page('Smoke');
+    var smokeAppearancePage = atmosSec.__page('Look');
+    var smokeVolumePage = atmosSec.__page('Volume');
 
     // Deliberately short: a long swatch grid is harder to scan than a few strong choices plus a
     // real picker for anything else.
@@ -117,7 +118,7 @@ R"CFJS(
       }]
     ], 2);
 
-    // Smoke look and Smoke volume are sub-tabs of the Smoke page (built above with smokePage).
+    // LOOK and VOLUME are the card's next pages (built above with smokePage).
     var smokeAppearance = togglePill(smokeAppearancePage, 'Custom appearance',
       'Adjusts the look of deployed smoke. Switch off to return to the native appearance.',
       function () { cmd('mirv_filmmaker world smoke appearance toggle'); });
@@ -151,7 +152,7 @@ R"CFJS(
     // World Tint belongs with atmosphere: it is an environment-wide grade applied to geometry,
     // props, players, foliage, and the HDR sky. Lighting stays reserved for exposure, the sun,
     // and shadow direction.
-    var modPage = atmosSec.__group('World tint');
+    var modPage = atmosSec.__page('World tint');
 
     var MOD_TINTS = [
       ['off',     '#00000000', '255 255 255'],

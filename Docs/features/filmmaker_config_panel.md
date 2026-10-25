@@ -217,7 +217,8 @@ Consequences to preserve:
 - **The VFX mode controls share one fixed 224px column** (`FXSEG_W`) with cells splitting it
   evenly, joined into a single segmented control.
 - **`SHADOWS` and `SKY ORIENTATION` are separate cards.** The skybox card's inner strip is CUSTOM | CS2 only.
-- **ATMOSPHERE → Smoke has one inner strip:** Color | Smoke look | Smoke volume.
+- **ATMOSPHERE has one strip of sub-pages:** Smoke | Look | Volume | World tint, so the card fits
+  the column without scrolling.
 - **Cloud shape sits behind a `Shape…` disclosure.** Density is the primary slider; size, drift and
   brightness open on demand.
 
