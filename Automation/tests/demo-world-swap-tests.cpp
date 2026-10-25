@@ -7,6 +7,8 @@
 
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -322,6 +324,28 @@ void TestRefusals() {
 	std::stringstream out4(std::ios::in | std::ios::out | std::ios::binary);
 	CHECK(!SwapDemoWorld(in4, out4, Spec()).ok);
 }
+// A copy slot is written again on the third and every later change: the file swap must replace the
+// slot's earlier copy (review on #105).
+void TestFileReplacesSlot() {
+	namespace fs = std::filesystem;
+	const fs::path dir = fs::temp_directory_path() / "mvm-demo-world-swap-test";
+	std::error_code ec;
+	fs::remove_all(dir, ec);
+	fs::create_directories(dir, ec);
+	const fs::path demoPath = dir / "match.dem", slot = dir / "match.altenv1.dem";
+	{
+		const Built demo = BuildDemo();
+		std::ofstream(demoPath, std::ios::binary).write(demo.bytes.data(), std::streamsize(demo.bytes.size()));
+	}
+	const DemoWorldSwapResult first = SwapDemoWorldFile(demoPath, slot, Spec());
+	CHECK(first.ok);
+	const DemoWorldSwapResult again = SwapDemoWorldFile(demoPath, slot, Spec());
+	CHECK(again.ok);
+	if (!again.ok) std::printf("  error: %s\n", again.error.c_str());
+	CHECK(fs::file_size(slot, ec) == again.bytesOut);
+	CHECK(!fs::exists(fs::path(slot) += L".part", ec));
+	fs::remove_all(dir, ec);
+}
 } // namespace
 
 int main() {
@@ -329,6 +353,7 @@ int main() {
 	TestSwap();
 	TestKeepSkybox();
 	TestRefusals();
+	TestFileReplacesSlot();
 	if (g_failed) {
 		std::printf("%d check(s) failed\n", g_failed);
 		return 1;

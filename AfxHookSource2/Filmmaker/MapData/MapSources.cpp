@@ -80,15 +80,16 @@ fs::path ResolveCs2Root() {
     return {};
 }
 
-MapSources OpenMapSources(const fs::path &cs2Root, const std::string &map) {
+MapSources OpenMapSources(const fs::path &cs2Root, const std::string &map, const std::string &addon) {
     if (!ValidMapName(map)) throw MapDataError("invalid map name");
+    if (!addon.empty() && addon.find_first_not_of("0123456789") != std::string::npos) throw MapDataError("invalid Workshop item id");
     MapSources s;
     s.cs2Root = cs2Root;
     s.map = map;
     const std::string entry = "maps/" + map + ".vpk";
     std::error_code ec;
     const fs::path official = cs2Root / "game" / "csgo" / fs::u8path(entry);
-    if (fs::is_regular_file(official, ec)) {
+    if (addon.empty() && fs::is_regular_file(official, ec)) {
         s.package = std::make_shared<Vpk>(official);
         s.files.push_back(official);
         s.mapDigest = Sha256File(official);
@@ -101,6 +102,7 @@ MapSources OpenMapSources(const fs::path &cs2Root, const std::string &map) {
         if (fs::is_directory(workshop, ec)) {
             for (const auto &item : fs::directory_iterator(workshop, ec)) {
                 if (!item.is_directory()) continue;
+                if (!addon.empty() && item.path().filename() != fs::u8path(addon)) continue;
                 for (const auto &file : fs::directory_iterator(item.path(), ec)) {
                     const std::wstring name = file.path().filename().wstring();
                     if (file.path().extension() != L".vpk") continue;
@@ -122,7 +124,8 @@ MapSources OpenMapSources(const fs::path &cs2Root, const std::string &map) {
                 }
             }
         }
-        if (!bestAddon) throw MapDataError("map package not found: " + map);
+        if (!bestAddon)
+            throw MapDataError(addon.empty() ? "map package not found: " + map : "map package not found in Workshop item " + addon + ": " + map);
         std::vector<uint8_t> bytes;
         bestAddon->Read(entry, bytes);
         s.mapDigest = Sha256Bytes(bytes.data(), bytes.size());

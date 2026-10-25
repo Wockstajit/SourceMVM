@@ -20,7 +20,9 @@ std::string MapOcclusionStatus();
 bool MapOcclusionPreparing();
 // Any map's collision, for a map that need not be the one loaded (the alternative environment's
 // top-down pictures). Extracts the cache first when it is stale, on the caller's thread, one
-// extraction at a time with the live loader so two never write the same cache.
+// extraction at a time with the live loader so two never write the same cache. `addon`: the
+// Workshop item to read the map from, when items or a loose package share its name.
 bool ReadMapCollision(const std::string &map, const std::filesystem::path &folder, OcclusionMesh &out, std::string &error,
-                      const std::atomic<bool> *stop, const std::function<void(const std::string &)> &progress);
+                      const std::atomic<bool> *stop, const std::function<void(const std::string &)> &progress,
+                      const std::string &addon = {});
 } // namespace Filmmaker::Environment

@@ -48,19 +48,22 @@ struct BackgroundPriority {
 // writers would publish and prune each other's payloads.
 std::mutex extractLock;
 
-// Brings `map`'s cache up to date. Throws MapDataError like ExtractMap.
+// Brings `map`'s cache up to date. Throws MapDataError like ExtractMap. With `addon`, a cache read
+// from another source counts as stale (the live loader asks for none and takes whichever is there).
 void ExtractIfStale(const std::string &map, const std::filesystem::path &folder, const std::atomic<bool> *stop,
-                    const std::function<void(const std::string &)> &progress) {
+                    const std::function<void(const std::string &)> &progress, const std::string &addon = {}) {
     const auto manifestPath = folder / (map + ".json");
-    if (MapData::CacheCurrent(manifestPath, map)) return;
+    if (MapData::CacheCurrent(manifestPath, map, addon)) return;
     std::lock_guard<std::mutex> lock(extractLock);
-    if (MapData::CacheCurrent(manifestPath, map)) return; // the other reader just built it
+    if (MapData::CacheCurrent(manifestPath, map, addon)) return; // the other reader just built it
     BackgroundPriority background;
     const auto root = Cs2Root();
-    MvmDebugLog_LinefAlways("environment.occlusion", "extract map=%s root=%s", map.c_str(), root.u8string().c_str());
+    MvmDebugLog_LinefAlways("environment.occlusion", "extract map=%s addon=%s root=%s", map.c_str(), addon.empty() ? "-" : addon.c_str(),
+                            root.u8string().c_str());
     MapData::ExtractOptions options;
     options.cancel = stop;
     options.progress = progress;
+    options.addon = addon;
     const auto start = GetTickCount64();
     const auto summary = MapData::ExtractMap(root, map, folder, options);
     MapData::PruneCache(folder);
@@ -203,13 +206,14 @@ void ReloadMapOcclusion() {
     // Publish only a successfully loaded replacement; keep current resources usable.
 }
 bool ReadMapCollision(const std::string &map, const std::filesystem::path &folder, OcclusionMesh &out, std::string &error,
-                      const std::atomic<bool> *stop, const std::function<void(const std::string &)> &progress) {
+                      const std::atomic<bool> *stop, const std::function<void(const std::string &)> &progress,
+                      const std::string &addon) {
     try {
         if (!MapData::ValidMapName(map)) {
             error = "not a map name";
             return false;
         }
-        ExtractIfStale(map, folder, stop, progress);
+        ExtractIfStale(map, folder, stop, progress, addon);
         JsonValue metadata;
         if (!ReadManifest(folder, map, metadata, error)) return false;
         const auto digest = metadata.Find("physicsDigest");

@@ -500,6 +500,9 @@ DemoWorldSwapResult SwapDemoWorldFile(const std::filesystem::path& inPath, const
 		std::filesystem::remove(part, ec);
 		return result;
 	}
+	// The slot's previous copy goes first: the slot written is never the one playing, and a rename
+	// that has to replace an existing file is not something every Windows library does.
+	std::filesystem::remove(outPath, ec);
 	std::filesystem::rename(part, outPath, ec);
 	if (ec) {
 		std::filesystem::remove(part, ec);

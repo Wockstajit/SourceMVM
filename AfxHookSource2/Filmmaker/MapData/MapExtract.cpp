@@ -81,7 +81,7 @@ ExtractSummary ExtractMap(const fs::path &cs2Root, const std::string &map, const
     const auto checkCancel = [&] { if (options.cancel && options.cancel->load()) throw MapDataError("cancelled"); };
     ExtractSummary summary;
     progress("Locating map packages");
-    MapSources sources = OpenMapSources(cs2Root, map);
+    MapSources sources = OpenMapSources(cs2Root, map, options.addon);
     fs::create_directories(outDir);
 
     progress("Reading authored lights and environment");
@@ -189,19 +189,24 @@ ExtractSummary ExtractMap(const fs::path &cs2Root, const std::string &map, const
     return summary;
 }
 
-bool CacheCurrent(const fs::path &manifest, const std::string &map) {
+bool CacheCurrent(const fs::path &manifest, const std::string &map, const std::string &addon) {
     JsonValue doc;
     if (!ReadManifest(manifest, doc) || !CurrentVersion(doc)) return false;
     const JsonValue *name = doc.Find("map"), *files = doc.Find("sources");
     if (!name || name->AsString() != map || !files || files->type != JsonValue::Type::Array || files->arr.empty()) return false;
+    bool fromAddon = addon.empty();
     for (const JsonValue &f : files->arr) {
         const JsonValue *path = f.Find("path"), *size = f.Find("size"), *time = f.Find("writeTime");
         if (!path || !size || !time) return false;
+        const fs::path source = fs::u8path(path->AsString());
         uint64_t actualSize = 0, actualTime = 0;
-        if (!FileStamp(fs::u8path(path->AsString()), actualSize, actualTime)) return false;
+        if (!FileStamp(source, actualSize, actualTime)) return false;
         if (double(actualSize) != size->AsNumber(-1) || std::to_string(actualTime) != time->AsString()) return false;
+        // A Workshop item's package sits in workshop/content/730/<item>/.
+        if (!fromAddon)
+            fromAddon = source.parent_path().filename() == fs::u8path(addon) && source.parent_path().parent_path().filename() == L"730";
     }
-    return true;
+    return fromAddon;
 }
 
 void PruneCache(const fs::path &outDir) {

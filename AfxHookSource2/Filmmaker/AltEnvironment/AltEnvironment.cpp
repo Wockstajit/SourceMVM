@@ -246,9 +246,11 @@ std::vector<MapInfo> ScanMaps() {
 bool ResolveMap(MapInfo& info, std::string& error) {
 	try {
 		const std::string wish = info.addon;
-		MapData::MapSources sources = MapData::OpenMapSources(MapData::ResolveCs2Root(), info.map);
+		const bool wished = !wish.empty() && WorkshopItemHas(wish, info.map);
+		// The picked item is the one mounted, so its own package is read, not a same-named one.
+		MapData::MapSources sources = MapData::OpenMapSources(MapData::ResolveCs2Root(), info.map, wished ? wish : std::string());
 		info.addon.clear();
-		if (!wish.empty() && WorkshopItemHas(wish, info.map)) info.addon = wish;
+		if (wished) info.addon = wish;
 		else if (sources.addon) info.addon = sources.addon->Path().parent_path().filename().u8string();
 		// Found as a bare package in csgo/maps: the Workshop item it came from carries its materials.
 		else info.addon = WorkshopItemFor(info.map);
@@ -293,7 +295,11 @@ std::shared_ptr<Picture> BuildPicture(const std::string& map, const std::string&
 		return p;
 	}
 	Environment::OcclusionMesh mesh;
-	if (!Environment::ReadMapCollision(map, Environment::MapDataFolder(), mesh, p->error, stop, progress)) return p;
+	// The replacement's floor comes from the item the copy mounts (ResolveMap), so the map view and
+	// AUTO ALIGN never measure a same-named map from another item.
+	if (!Environment::ReadMapCollision(map, Environment::MapDataFolder(), mesh, p->error, stop, progress,
+			resolve ? p->info.addon : std::string()))
+		return p;
 	static_assert(sizeof(Environment::Vec3) == 12, "positions are read as float triples");
 	const float* xyz = reinterpret_cast<const float*>(mesh.positions.data());
 	p->align = BuildFloorRaster(xyz, mesh.positions.size(), mesh.indices.data(), mesh.indices.size(), kAlignCell);
@@ -502,6 +508,10 @@ struct State {
 	std::atomic<double> autoProgress{ 0 };
 	double autoStarted = 0;
 	bool autoPending = false;
+	// Counts demos opened (OpenDemo). A job keeps the count it started under, and a result from an
+	// earlier demo is dropped: its alignment belongs to that demo's pair of maps.
+	uint64_t demoGeneration = 0;
+	uint64_t autoJobDemo = 0;
 	Fit fit;
 	bool haveFit = false;
 	double fitAt = 0;
@@ -687,7 +697,11 @@ void FinishBuild() {
 void StartAutoAlign() {
 	State& s = S();
 	s.autoPending = false;
-	if (s.autoJob.valid()) return;
+	if (s.autoJob.valid()) {
+		// Still finishing a job for a demo opened earlier: this one starts once that is dropped.
+		if (s.autoJobDemo != s.demoGeneration) s.autoPending = true;
+		return;
+	}
 	if (!s.demoPic || !s.pickPic || !s.demoPic->error.empty() || !s.pickPic->error.empty()) {
 		s.autoPending = true; // runs when both pictures are in
 		return;
@@ -696,6 +710,7 @@ void StartAutoAlign() {
 	auto feet = s.feet;
 	s.autoProgress = 0;
 	s.autoStarted = NowMs();
+	s.autoJobDemo = s.demoGeneration;
 	s.autoJob = std::async(std::launch::async, [demo, pick, feet] {
 		BackgroundPriority background;
 		AutoAlignOptions options;
@@ -712,6 +727,8 @@ void OpenDemo(const std::wstring& original) {
 	State& s = S();
 	if (s.feetJob.valid()) { s.feetCancel = true; s.feetJob.wait(); s.feetJob = {}; }
 	s.original = original;
+	++s.demoGeneration;   // a running AUTO ALIGN is for the demo before
+	s.autoPending = false;
 	s.demoMap = original.empty() ? std::string() : ReadDemoHeader(original).map;
 	s.settings = LoadSettings(original);
 	s.pick = s.settings.map;
@@ -1066,10 +1083,13 @@ void RunMainThreadFrame() {
 	if (s.autoPending && s.demoPic && s.pickPic) StartAutoAlign();
 	if (Ready(s.autoJob)) {
 		const AutoAlignResult r = s.autoJob.get();
-		MvmDebugLog_LinefAlways("altenv", "auto align ok=%d identity=%d align=(%.2f %.2f %.2f yaw %.2f) floor=%.3f players=%.3f feet=%zu ms=%.0f",
+		const bool stale = s.autoJobDemo != s.demoGeneration;
+		MvmDebugLog_LinefAlways("altenv", "auto align ok=%d identity=%d align=(%.2f %.2f %.2f yaw %.2f) floor=%.3f players=%.3f feet=%zu ms=%.0f%s",
 			r.ok ? 1 : 0, r.identity ? 1 : 0, r.alignment.x, r.alignment.y, r.alignment.z, r.alignment.yaw, r.fit.floor, r.fit.players,
-			s.feet.size(), NowMs() - s.autoStarted);
-		if (r.ok) {
+			s.feet.size(), NowMs() - s.autoStarted, stale ? " (dropped: another demo was opened)" : "");
+		if (stale) {
+			// Nothing of it reaches the demo open now.
+		} else if (r.ok) {
 			s.draft = r.alignment;
 			s.fitDirty = true;
 			SetStatus(r.identity ? "The two maps already line up." : "Matched. Check the layout, then press PLAY ON THIS MAP.");
