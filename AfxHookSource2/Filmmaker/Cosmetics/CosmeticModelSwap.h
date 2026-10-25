@@ -120,6 +120,12 @@ bool PrecacheModels();
 // (and tags diagnostics); -1 if unknown.
 bool ApplyWeaponMeshMask(unsigned char* weaponEntity, uint64_t meshMask, unsigned char* pawnForViewmodel, int entityIndex = -1);
 
+// Put the first-person (HUD) copy of a drawn gun on meshMask; a copy already showing it is left alone,
+// so repeating this never re-invalidates its material. CS2 builds that copy when the gun is drawn, on
+// the demo's own mesh group, so a finish needing the other group has to be mirrored on every draw.
+// Returns how many HUD copies of the gun were found (0 while the copy does not exist yet).
+int MirrorWeaponMeshToViewmodel(unsigned char* pawn, unsigned char* worldWeapon, uint64_t meshMask, int entityIndex);
+
 // Drop the composite (skin) materials held by the first-person HUD model(s) of worldWeapon so they show
 // the base finish. Needed when a gun goes back to vanilla on the SAME mesh group: the world weapon
 // releases its composite, but the HUD copy stays until something replaces it.

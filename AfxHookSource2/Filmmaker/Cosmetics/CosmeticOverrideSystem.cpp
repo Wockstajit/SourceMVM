@@ -42,6 +42,9 @@ constexpr uint64_t kMeshSwitchSettleFrames = 8;
 
 // Uninterrupted settled frames after a seek before knife-type swaps and native mesh switches may run.
 constexpr int kKnifeSwapStableFrames = 8;
+// Frames after a gun is drawn in which its first-person copy is mirrored onto the picked mesh group
+// (WeaponMeshState::viewmodelMirrorFrames); the copy is built a few frames after the draw.
+constexpr int kViewmodelMirrorFrames = 24;
 
 // Quiet frames after the last profile edit before the demo's project is written (~0.5s at 60 fps):
 // one write for a burst of picks, never one per edit.
@@ -921,6 +924,7 @@ int CosmeticOverrideSystem::ApplyMatchedWeapons(bool forceStale, bool fireRebuil
 	bool allowKnifeSwap, bool periodicComposite) {
 	const ClientDllOffsets_t& o = g_clientDllOffsets;
 
+	int viewedPawnIndex = -2; // the pawn seen in first person; resolved on first use this pass
 	const int highest = GetHighestEntityIndex();
 	for (int i = 0; i <= highest; ++i) {
 		CEntityInstance* ent = CosmeticEntFromIndex(i);
@@ -1310,6 +1314,32 @@ int CosmeticOverrideSystem::ApplyMatchedWeapons(bool forceStale, bool fireRebuil
 						m_lateMeshReassert.push_back({(uintptr_t)w, (uint32_t)ent->GetHandle().ToInt(), mask});
 						if (meshState.recordedMask != 0 && meshState.recordedMask != mask)
 							preArmRecordedMeshMask = meshState.recordedMask;
+					}
+					// The first-person gun is a separate HUD model that CS2 builds anew when the gun is
+					// drawn, on the demo's own mesh group. Only the native switch above mirrored the
+					// group onto it, so a gun drawn later (holstered at a seek's landing or a loop's In,
+					// or simply put away and redrawn) showed a legacy finish on the CS2 mesh in first
+					// person: the AWP Dragon Lore / Gungnir report (measured 2026-10-24, de_inferno:
+					// world mask 2, HUD mask 1 on every landing with the AWP drawn afterwards). Each time
+					// the gun comes into first-person view (drawn by the viewed player, or the view moves
+					// to a player holding it) it is mirrored again, over a few frames because the HUD copy
+					// appears after the draw. Only the viewed player's gun: HUD copies are found by model
+					// path, so another player's draw would put its group on the viewed player's copy.
+					bool drawn = false;
+					if (ownerPawn) {
+						if (viewedPawnIndex == -2) viewedPawnIndex = CurrentSpectatedPawnIndex();
+						const SOURCESDK::CS2::CBaseHandle ph = ((CEntityInstance*)ownerPawn)->GetHandle();
+						drawn = ph.IsValid() && ph.GetEntryIndex() == viewedPawnIndex;
+					}
+					if (drawn && !meshState.drawn) meshState.viewmodelMirrorFrames = kViewmodelMirrorFrames;
+					meshState.drawn = drawn;
+					if (drawn && meshState.viewmodelMirrorFrames > 0 && m_meshSwapStable
+						&& meshState.entity == (uintptr_t)w && meshState.mask == mask) {
+						--meshState.viewmodelMirrorFrames;
+						const int copies = MirrorWeaponMeshToViewmodel(ownerPawn, w, mask, i);
+						if (MvmDebugLog_Active())
+							MvmDebugLog_Linef("cosmetics.weapon.vmmirror", "idx=%d def=%d mask=%llu copies=%d framesLeft=%d",
+								i, liveDef, (unsigned long long)mask, copies, meshState.viewmodelMirrorFrames);
 					}
 					if (MvmDebugLog_Active() && (needMesh || dbgMeshLegacy < 0)) {
 						uint64_t postMask = ReadEntityMeshGroupMask(ent);

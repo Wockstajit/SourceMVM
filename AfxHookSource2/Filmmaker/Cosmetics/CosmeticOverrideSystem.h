@@ -405,6 +405,10 @@ private:
 		uintptr_t entity = 0;
 		uint64_t mask = 0;
 		uint64_t recordedMask = 0;
+		// The gun's first-person copy is built anew on every draw; it is mirrored onto `mask` for a
+		// few frames each time the gun comes into first-person view (MirrorWeaponMeshToViewmodel).
+		bool drawn = false; // drawn by the player seen in first person
+		int viewmodelMirrorFrames = 0;
 	};
 	std::unordered_map<int, WeaponMeshState> m_weaponMeshState;
 	// Live playback can reset the WORLD renderer's cached mesh selection without changing the mask
