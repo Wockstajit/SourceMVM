@@ -997,6 +997,11 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Render/RenderEncoderDetect.h
     Filmmaker/Render/RenderSessionDriver.cpp
     Filmmaker/Render/RenderSessionDriver.h
+    Filmmaker/Render/RenderDoneSound.cpp
+    Filmmaker/Render/RenderDoneSound.h
+    Filmmaker/Render/RenderTakeHistory.cpp
+    Filmmaker/Render/RenderTakeHistory.h
+    Filmmaker/Render/RenderTakeImportMath.h
     Filmmaker/Render/RenderWorldOnly.cpp
     Filmmaker/Render/RenderWorldOnly.h
     Filmmaker/Render/RenderWorldPlayersNoGun.cpp

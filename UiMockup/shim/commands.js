@@ -754,6 +754,34 @@
       // state.render.tab.
       if (b === 'tab') { st.render.tab = Math.max(0, Math.min(3, Math.round(num(c, 0)))); return true; }
       if (b === 'cancel' || b === 'stop') { st.render.jobActive = false; st.renderJobActive = false; return true; }
+      // RenderCommand.cpp RunSoundCommand: the chime when a job ends.
+      if (b === 'sound') {
+        var sd = st.render.sound || (st.render.sound = { on: true, volume: 60 });
+        if (c === 'on' || c === '1') sd.on = true;
+        else if (c === 'off' || c === '0') sd.on = false;
+        else if (c === 'toggle') sd.on = !sd.on;
+        else if (c === 'volume') sd.volume = Math.max(0, Math.min(100, Math.round(num(t[4], sd.volume))));
+        return true;
+      }
+      // RenderTakeHistory_Import: replays the take's range, camera, output and pass commands.
+      if (b === 'import') {
+        var tk = (st.render.takes || [])[Math.round(num(c, -1))];
+        if (!tk) { warn('render import: no such take'); return true; }
+        var csiT = ['current', 'pov', 'thirdperson', 'free', 'path', 'follow'].indexOf(tk.camera);
+        if (csiT >= 0) st.render.cameraSource = csiT;
+        st.render.rangeMode = 4; st.render.startTick = tk.start; st.render.endTickExclusive = tk.end;
+        st.render.resStart = tk.start; st.render.resEnd = tk.end; st.render.resOk = true;
+        if (st.render.out) { st.render.out.fps = tk.fps; st.render.out.captureFps = tk.fps; st.render.out.format = tk.format; }
+        if (st.render.pass) {
+          st.render.pass.list = [];
+          for (var tpi = 0; tpi < tk.passes.length; tpi++) {
+            var tpt = tk.passes[tpi][0], tpe = tk.passes[tpi][1];
+            st.render.pass.list.push({ type: tpt, elements: tpe, stream: tpt + (tpe === 'all' ? '' : '_' + tpe) });
+          }
+        }
+        return true;
+      }
+      if (b === 'takes') return true;
       // RenderCommand.cpp's range / camera / extension / In-Out / output verbs, written back as the
       // indices Render_BuildStateJson reports. The resolved span follows the stored In/Out for
       // Custom and keeps the seeded span for the other modes.

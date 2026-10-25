@@ -18,6 +18,8 @@
 #include "RenderWorldPlayersNoGun.h"
 #include "RenderPlayersOnlyGreen.h"
 #include "RenderPassPlan.h"
+#include "RenderDoneSound.h"
+#include "RenderTakeHistory.h"
 #include "../../RenderSystemDX11Hooks.h" // pass key tolerance
 #include "../Filmmaker.h" // CameraEditor_Active (the Render workspace lives inside the editor)
 #include "../Platform/TextEncoding.h" // WideToUtf8 (output folder -> console / state JSON)
@@ -125,8 +127,11 @@ void Render_SetModalOpen(bool open) {
 	// without this the Output tab could only say "GPU encoding not probed yet" until the user
 	// happened to touch the encoder control -- and Auto would fall back to CPU at job start
 	// purely because nothing had asked yet.
-	if (open)
+	if (open) {
 		RenderEncoderDetect_EnsureProbe();
+		// The PREVIOUS RENDERS list: what this demo's earlier jobs left in the output folder.
+		RenderTakeHistory_Refresh();
+	}
 	Render_ApplyLivePreview();
 }
 
@@ -410,7 +415,11 @@ std::string Render_BuildStateJson() {
 		<< ",\"followReady\":" << (FollowCameraRef().State().hasCamera ? "true" : "false")
 		<< ",\"spectating\":" << (AfxGetSpectatedPawnIndex() >= 0 ? "true" : "false")
 		<< "}"
-		<< "}";
+		// The header's SOUND chip and the OUTPUT tab's volume (RenderDoneSound.h).
+		<< ",\"sound\":{\"on\":" << (RenderDoneSound_Enabled() ? "true" : "false")
+		<< ",\"volume\":" << RenderDoneSound_Volume() << "}";
+	RenderTakeHistory_AppendJson(o);
+	o << "}";
 	return o.str();
 }
 
@@ -464,8 +473,33 @@ static void PrintHelp(const char* cmd) {
 		"%s render restorecoverage - what the state-restore guard does and does NOT put back.\n"
 		"%s render start     - begin the recorder-backed render session.\n"
 		"%s render cancel    - request cancellation of active render.\n"
+		"%s render sound on|off|toggle|volume <0..100>|test - the chime when a job finishes or fails.\n"
+		"%s render takes [refresh] - this demo's earlier takes in the output folder, newest first.\n"
+		"%s render import <n> - start from take n's settings: range, camera, passes, fps, format.\n"
 		"%s render waitpresent 0|1 - diagnostic: 1 forces r_wait_on_present while recording (the old behaviour).\n"
-		, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
+		, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
+}
+
+// The chime a job plays when it ends (RenderDoneSound.h): the workspace header's bell and volume.
+static void RunSoundCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
+	const char* what = argc >= 4 ? args->ArgV(3) : "";
+	if (0 == _stricmp(what, "on") || 0 == strcmp(what, "1")) {
+		RenderDoneSound_SetEnabled(true);
+	} else if (0 == _stricmp(what, "off") || 0 == strcmp(what, "0")) {
+		RenderDoneSound_SetEnabled(false);
+	} else if (0 == _stricmp(what, "toggle")) {
+		RenderDoneSound_SetEnabled(!RenderDoneSound_Enabled());
+	} else if (0 == _stricmp(what, "volume") && argc >= 5) {
+		RenderDoneSound_SetVolume(atoi(args->ArgV(4)));
+	} else if (0 == _stricmp(what, "test")) {
+		RenderDoneSound_Preview();
+		return;
+	} else if (*what) {
+		advancedfx::Warning("usage: %s render sound on|off|toggle|volume <0..100>|test\n", cmd);
+		return;
+	}
+	advancedfx::Message("%s: render sound %s, volume %d%%.\n", cmd,
+		RenderDoneSound_Enabled() ? "on" : "off", RenderDoneSound_Volume());
 }
 
 // -- handlers --
@@ -1151,6 +1185,22 @@ void Render_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 			if (!RenderSessionDriver_Start(err))
 				advancedfx::Warning("%s: cannot start: %s.\n", cmd, err.c_str());
 		}
+	} else if (0 == _stricmp(sub, "sound")) {
+		RunSoundCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "takes")) {
+		if (argc >= 4 && 0 == _stricmp(args->ArgV(3), "refresh")) RenderTakeHistory_Refresh();
+		RenderTakeHistory_PrintList(cmd);
+	} else if (0 == _stricmp(sub, "import")) {
+		if (s_jobActive || RenderSessionDriver_IsActive()) {
+			advancedfx::Warning("%s: a render job is running; import its settings after it ends.\n", cmd);
+			return;
+		}
+		if (argc < 4) { advancedfx::Warning("usage: %s render import <n> (from %s render takes)\n", cmd, cmd); return; }
+		std::string summary, error;
+		if (RenderTakeHistory_Import(atoi(args->ArgV(3)), summary, error))
+			advancedfx::Message("%s: settings imported from %s.\n", cmd, summary.c_str());
+		else
+			advancedfx::Warning("%s: cannot import: %s.\n", cmd, error.c_str());
 	} else if (0 == _stricmp(sub, "cancel")) {
 		if (!s_jobActive && !RenderSessionDriver_IsActive()) {
 			advancedfx::Message("%s: no active job to cancel.\n", cmd);

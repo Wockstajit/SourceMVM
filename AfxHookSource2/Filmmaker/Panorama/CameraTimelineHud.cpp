@@ -252,6 +252,8 @@ std::string CameraTimelineHud::BuildStateJson() {
 		int cmx = 0, cmy = 0; bool clmb = false, crmb = false, cshift = false; unsigned cseq = 0;
 		CameraBridge_GetUiCursor(cmx, cmy, clmb, crmb, cshift, cseq);
 		o << ",\"mx\":" << cmx << ",\"my\":" << cmy << ",\"lmb\":" << (clmb ? "true" : "false");
+		// Shift while dragging an In / Out flag is fine control (CameraTimelineRangeJs.h).
+		o << ",\"shift\":" << (cshift ? "true" : "false");
 		// The engine's demo speed, so this dock's scrubber agrees with the native demo bar's and
 		// the graph editor's. Panorama's own GetDemoControllerState() is not available on this
 		// context panel -- see Movie/DemoTimescale.h.

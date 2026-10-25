@@ -31,6 +31,7 @@
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/TextEncoding.h"
 #include "../Render/RenderOutput.h" // the render workspace's last output folder
+#include "../Render/RenderDoneSound.h" // the chime when a render job ends
 #include "../Platform/JsonParser.h"
 #include "../../hlaeFolder.h"
 #include "../../../Shared/AfxConsole.h"
@@ -330,6 +331,8 @@ std::string BuildSnapshot() {
 	WriteSmokeAppearance(b);
 	// The render workspace opens on the last output folder used instead of asking every session.
 	b.StringField("renderOutputFolder", WideToUtf8(RenderOutputSettingsRef().folder));
+	b.BoolField("renderDoneSound", RenderDoneSound_Enabled());
+	b.IntField("renderDoneSoundVolume", RenderDoneSound_Volume());
 	b.BoolField("fisheye", Fisheye_Enabled());
 	b.BoolField("trueAimCrosshair", AimCrosshairHudRef().Enabled());
 	b.BoolField("deathAnimOn", DeathAnimations_Enabled());
@@ -565,6 +568,8 @@ static void ApplySettingsRoot(const JsonValue& root) {
 	if (const JsonValue* folder = root.Find("renderOutputFolder");
 		folder && folder->type == JsonValue::Type::String && !folder->str.empty())
 		RenderOutputSettingsRef().folder = Utf8ToWide(folder->str);
+	ReadBool(&root, "renderDoneSound", RenderDoneSound_SetEnabled);
+	ReadNumber(&root, "renderDoneSoundVolume", [](double v) { RenderDoneSound_SetVolume((int)std::lround(v)); });
 	// Migrate the old stack-wide "shake survives" value into Handheld only. The new control
 	// uses the inverse meaning: 100 is fully centred. Legacy 100 meant no lock, so leave the
 	// new opt-in default alone in that case.
