@@ -25,13 +25,20 @@ param(
     [string]$FxAssetsGameDir = '',
     [string]$OutDir,
     [switch]$NoLaunch,
-    [switch]$FreeMouse
+    [switch]$FreeMouse,
+    # live.bat: launch from whichever checkout of this repository has the newest hook build
+    # (Invoke-NewestHookCheckout). Automation leaves it off and launches its own checkout.
+    [switch]$NewestHook
 )
 
 $ErrorActionPreference = 'Stop'
 $automationRoot = Split-Path -Parent $PSScriptRoot
 $repositoryRoot = Split-Path -Parent $automationRoot
 . (Join-Path $automationRoot 'lib\AutomationCommon.ps1')
+if ($NewestHook) {
+    $handedOff = Invoke-NewestHookCheckout -RepositoryRoot $repositoryRoot -ScriptName 'launch-demo.ps1' -BoundParameters $PSBoundParameters
+    if ($null -ne $handedOff) { exit $handedOff }
+}
 
 # Counter-Strike 2 location. Empty -Cs2Dir means 'work it out', which is the normal path:
 # this used to default to the author's own Steam library, so a fresh clone could not launch

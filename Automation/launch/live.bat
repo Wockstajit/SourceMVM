@@ -11,6 +11,8 @@ REM  Usage:
 REM    live.bat                 (CS2 1920x1080, netcon 29010, web 8765)
 REM    live.bat "F:\path\to\demo.dem"
 REM  A supplied demo is always loaded, even when the dashboard is skipped.
+REM  The newest hook build of any checkout of this repository launches
+REM  (-NewestHook), so a hook built in a worktree is the one that starts.
 REM
 REM  *** WHY THE DASHBOARD IS OPT-IN ***
 REM  The dashboard holds a netcon console connection open for the whole
@@ -53,10 +55,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 REM --- relaunch CS2/netcon fresh (closes any existing cs2.exe) --
 if defined DEMO (
     echo Launching CS2 and loading demo "%DEMO%" ...
-    powershell -NoProfile -ExecutionPolicy Bypass -File "launch-demo.ps1" -Demo "%DEMO%" -Port %PORT% -Width %WIDTH% -Height %HEIGHT%
+    powershell -NoProfile -ExecutionPolicy Bypass -File "launch-demo.ps1" -Demo "%DEMO%" -Port %PORT% -Width %WIDTH% -Height %HEIGHT% -NewestHook
 ) else (
     echo Launching CS2 with netcon at %WIDTH%x%HEIGHT% on port %PORT% ...
-    powershell -NoProfile -ExecutionPolicy Bypass -File "launch-cs2-netcon.ps1" -Port %PORT% -Width %WIDTH% -Height %HEIGHT%
+    powershell -NoProfile -ExecutionPolicy Bypass -File "launch-cs2-netcon.ps1" -Port %PORT% -Width %WIDTH% -Height %HEIGHT% -NewestHook
 )
 if errorlevel 1 (
     echo.

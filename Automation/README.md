@@ -41,6 +41,22 @@ The direct and demo wrappers forward arguments and exit codes. NetCon defaults t
 no DLSS files, driver checks, or DLSS installation. The GUI also defaults to NetCon 29010 unless
 custom launch options name a different port.
 
+### The newest hook wins in live.bat
+
+Both `live.bat` files (the root one and `launch/live.bat`) pass `-NewestHook`. The launch then looks
+at every checkout of this repository: the main checkout and each worktree on a branch (a detached
+worktree is a release or bisect tree and is skipped). It finds the one whose hook build is newest,
+meaning its staged `AfxHookSource2.dll` or a newer build that launch would stage. When that is
+another checkout, the same launcher runs from there, with that checkout's own stage, shaders and
+resources, and prints which branch it picked. So a hook built in a worktree is what the user's
+usual `live.bat` starts. A checkout needs a staged hook, `injector.exe` and the native host to
+count. Ties stay in the checkout `live.bat` ran from.
+
+Only `live.bat` passes the switch. `launch-cs2-netcon.ps1` and `launch-demo.ps1` called directly,
+as agents do, launch the checkout they run in, because a verification has to run the code it just
+built. The pick is `Find-NewerCs2HookCheckout` and the hand-off `Invoke-NewestHookCheckout`
+(`lib/AutomationCommon.ps1`), tested in `tests/cs2-hook-staging-tests.ps1`.
+
 ## Open a demo (recommended for Codex and Claude)
 
 Use the non-interactive demo launcher:
@@ -111,7 +127,7 @@ Per-frame runtime diagnosis still belongs in `mvm_debug`. Netcon is the command 
   to 1 on completion or timeout.
   The script reads every step back from the game (`mirv_filmmaker demoprobe` now reports `tick=` and
   `paused=`) and exits non-zero on the first unconfirmed step. Prefer it over hand-rolled health loops.
-- `launch/live.bat`: interactive human launcher. When given a demo path, it loads the demo whether or not the optional dashboard is selected.
+- `launch/live.bat`: interactive human launcher. When given a demo path, it loads the demo whether or not the optional dashboard is selected. It launches the newest hook build of any checkout ([The newest hook wins in live.bat](#the-newest-hook-wins-in-livebat)).
 
 Agents do not need the dashboard. It holds a long-lived netcon connection, so keep it opt-in. CS2 writes netcon output synchronously, and a slow reader can make the game hitch.
 

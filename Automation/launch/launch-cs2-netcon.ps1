@@ -17,7 +17,10 @@ param(
     [string]$FxAssetsGameDir = '',
     [string]$DebugHelper = '',
     [string]$NativeHostOverride = '',
-    [string]$OutDir
+    [string]$OutDir,
+    # live.bat: launch from whichever checkout of this repository has the newest hook build
+    # (Invoke-NewestHookCheckout). Automation leaves it off and launches its own checkout.
+    [switch]$NewestHook
 )
 $ErrorActionPreference = 'Stop'
 # Steam's SDK IPC belongs to the signed-in Windows user. The Codex sandbox runs as
@@ -32,6 +35,10 @@ $root = Split-Path -Parent $automationRoot
 $agentDebugLog = Join-Path $root 'debug-af2ef9.log'
 . (Join-Path $automationRoot 'lib\AutomationCommon.ps1')
 . (Join-Path $automationRoot 'lib\Cs2StartupStatus.ps1')
+if ($NewestHook) {
+    $handedOff = Invoke-NewestHookCheckout -RepositoryRoot $root -ScriptName 'launch-cs2-netcon.ps1' -BoundParameters $PSBoundParameters
+    if ($null -ne $handedOff) { exit $handedOff }
+}
 
 # Counter-Strike 2 location. Empty -Cs2Dir means 'work it out', which is the normal path:
 # this used to default to the author's own Steam library, so a fresh clone could not launch
