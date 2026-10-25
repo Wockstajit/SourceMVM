@@ -178,6 +178,93 @@ try {
         Assert-Equal $copyState.Messages.Count 0 'Failure never announces staging'
         Assert-Dll $staged 'keep stage' $baseTime
     }
+    # live.bat -NewestHook: which checkout of the repository launches (Find-NewerCs2HookCheckout).
+    function New-FixtureCheckout([string]$Root, [datetime]$Built, [switch]$NoHost, [switch]$NoInjector) {
+        New-FixtureDll (Join-Path $Root 'build/source2-release/bin/x64/AfxHookSource2.dll') 'hook' $Built
+        if (-not $NoInjector) { New-FixtureDll (Join-Path $Root 'build/source2-release/bin/x64/injector.exe') 'injector' $Built }
+        if (-not $NoHost) { New-FixtureDll (Join-Path $Root 'SourceMovieMakerLauncher/host/build/SourceMovieMakerHost.exe') 'host' $Built }
+    }
+    Invoke-Case 'checkout hook needs a stage, an injector and a host' {
+        $here = Join-Path $fixture 'here'
+        New-FixtureCheckout $here $baseTime -NoHost
+        Assert-Equal (Get-Cs2CheckoutHook -RepositoryRoot $here) $null 'No native host: not launchable on its own'
+        New-FixtureDll (Join-Path $here 'SourceMovieMakerLauncher/host/build/SourceMovieMakerHost.exe') 'host' $baseTime
+        Assert-Equal (Get-Cs2CheckoutHook -RepositoryRoot $here).Built.Ticks $baseTime.Ticks 'Built is the staged hook'
+        New-FixtureDll (Join-Path $here 'build/x64-source2-release/AfxHookSource2/Release/AfxHookSource2.dll') 'build' ($baseTime.AddMinutes(5))
+        Assert-Equal (Get-Cs2CheckoutHook -RepositoryRoot $here).Built.Ticks $baseTime.AddMinutes(5).Ticks 'A newer build the launch stages counts'
+    }
+    Invoke-Case 'a bootstrapped checkout launches with its portable-runtime host' {
+        $here = Join-Path $fixture 'portable'
+        New-FixtureCheckout $here $baseTime -NoHost
+        New-FixtureDll (Join-Path $here 'build/portable-runtime/bin/SourceMovieMakerHost.exe') 'host' $baseTime
+        Assert-Equal (Get-Cs2CheckoutHook -RepositoryRoot $here).Built.Ticks $baseTime.Ticks 'The ensure-packages host counts, as launch-cs2-netcon accepts it'
+    }
+    Invoke-Case 'newest checkout wins and ties stay here' {
+        $here = Join-Path $fixture 'main'; $a = Join-Path $fixture 'wt a'; $b = Join-Path $fixture 'wt b'
+        New-FixtureCheckout $here $baseTime
+        New-FixtureCheckout $a ($baseTime.AddMinutes(1))
+        New-FixtureCheckout $b ($baseTime.AddMinutes(2))
+        $checkouts = @(
+            [pscustomobject]@{ Root = $here; Branch = 'main' },
+            [pscustomobject]@{ Root = $a; Branch = 'fix/a' },
+            [pscustomobject]@{ Root = $b; Branch = 'feat/b' })
+        $newer = Find-NewerCs2HookCheckout -RepositoryRoot $here -Checkouts $checkouts
+        Assert-Equal $newer.Branch 'feat/b' 'The newest build wins'
+        Assert-Equal $newer.Root ([IO.Path]::GetFullPath($b)) 'Its checkout root'
+        Assert-Equal $newer.OwnBuilt.Ticks $baseTime.Ticks 'This checkout''s own build is reported'
+        # From the newest checkout itself, nothing is newer: no hand-off, so no ping-pong.
+        Assert-Equal (Find-NewerCs2HookCheckout -RepositoryRoot $b -Checkouts $checkouts) $null 'The newest stays put'
+        [System.IO.File]::SetLastWriteTimeUtc((Join-Path $here 'build/source2-release/bin/x64/AfxHookSource2.dll'), $baseTime.AddMinutes(2))
+        Assert-Equal (Find-NewerCs2HookCheckout -RepositoryRoot $here -Checkouts $checkouts) $null 'A tie stays here'
+    }
+    Invoke-Case 'a checkout that cannot launch is skipped' {
+        $here = Join-Path $fixture 'main'; $a = Join-Path $fixture 'wt a'; $b = Join-Path $fixture 'wt b'
+        New-FixtureCheckout $here $baseTime
+        New-FixtureCheckout $a ($baseTime.AddMinutes(1))
+        New-FixtureCheckout $b ($baseTime.AddMinutes(2)) -NoInjector
+        $checkouts = @(
+            [pscustomobject]@{ Root = $a; Branch = 'fix/a' },
+            [pscustomobject]@{ Root = $b; Branch = 'feat/b' })
+        Assert-Equal (Find-NewerCs2HookCheckout -RepositoryRoot $here -Checkouts $checkouts).Branch 'fix/a' 'No injector: skipped'
+        Assert-Equal (Find-NewerCs2HookCheckout -RepositoryRoot $here -Checkouts @()) $null 'No other checkout'
+    }
+    Invoke-Case 'hand-off runs the newer checkout''s launcher with the same arguments' {
+        $here = Join-Path $fixture 'main'; $newerRoot = Join-Path $fixture 'wt newer'
+        New-FixtureCheckout $here $baseTime
+        New-FixtureCheckout $newerRoot ($baseTime.AddMinutes(1))
+        $received = Join-Path $fixture 'received.txt'
+        $receivedLiteral = $received.Replace("'", "''")   # the case name has an apostrophe
+        $stub = Join-Path $newerRoot 'Automation/launch/stub-launch.ps1'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $stub) -Force | Out-Null
+        [System.IO.File]::WriteAllText($stub, @"
+param([int]`$Port, [int]`$Width, [string]`$Demo = '', [string]`$Cs2Dir = '', [switch]`$FreeMouse, [switch]`$NewestHook)
+[System.IO.File]::WriteAllText('$receivedLiteral', "port=`$Port width=`$Width demo=`$Demo cs2dir=[`$Cs2Dir] free=`$(`$FreeMouse.IsPresent) newest=`$(`$NewestHook.IsPresent)")
+exit 7
+"@)
+        $bound = @{ Port = 29010; Width = 1920; Demo = 'replays\a b.dem'; Cs2Dir = ''; FreeMouse = [switch]::new($true); NewestHook = [switch]::new($true) }
+        $checkouts = @([pscustomobject]@{ Root = $newerRoot; Branch = 'fix/newer' })
+        $code = Invoke-NewestHookCheckout -RepositoryRoot $here -ScriptName 'stub-launch.ps1' -BoundParameters $bound -Checkouts $checkouts 6>$null
+        Assert-Equal $code 7 'The child launcher''s exit code comes back'
+        # The switch is not passed on (the chosen checkout is the newest, so it would not hand off
+        # again anyway), a path with a space survives, and an empty value is left out.
+        Assert-Equal ([System.IO.File]::ReadAllText($received)) 'port=29010 width=1920 demo=replays\a b.dem cs2dir=[] free=True newest=False' 'Forwarded arguments'
+        Assert-Equal (Invoke-NewestHookCheckout -RepositoryRoot $newerRoot -ScriptName 'stub-launch.ps1' -BoundParameters $bound -Checkouts @([pscustomobject]@{ Root = $here; Branch = 'main' })) $null 'No hand-off from the newest checkout'
+    }
+    Invoke-Case 'only live.bat asks for the newest hook' {
+        $repository = Split-Path -Parent $automationRoot
+        $rootLive = [System.IO.File]::ReadAllText((Join-Path $repository 'live.bat'))
+        $automationLive = [System.IO.File]::ReadAllText((Join-Path $automationRoot 'launch/live.bat'))
+        Assert-Equal ($rootLive -match 'launch-cs2-netcon\.ps1" -NewestHook') $true 'Root live.bat passes -NewestHook'
+        Assert-Equal ([regex]::Matches($automationLive, '-NewestHook\r?\n').Count) 2 'Automation live.bat passes it on both launches'
+        foreach ($script in @('launch-cs2-netcon', 'launch-demo')) {
+            $text = [System.IO.File]::ReadAllText((Join-Path $automationRoot "launch/$script.ps1"))
+            Assert-Equal ($text -match "Invoke-NewestHookCheckout -RepositoryRoot \`$\w+ -ScriptName '$script\.ps1'") $true "$script hands off behind the switch"
+        }
+        # launch-demo's own netcon launch must not ask again: it already runs in the chosen checkout.
+        $demo = [System.IO.File]::ReadAllText((Join-Path $automationRoot 'launch/launch-demo.ps1'))
+        $netconCall = $demo.Substring($demo.IndexOf("'launch-cs2-netcon.ps1'"), 400)
+        Assert-Equal ($netconCall -match 'NewestHook') $false 'launch-demo launches netcon in its own checkout'
+    }
     foreach ($name in @('launch-cs2-netcon', 'launch-cs2-tools')) {
         $tokens = $null
         $parseErrors = $null
