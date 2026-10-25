@@ -478,7 +478,7 @@ const char* DesiredBodyChoiceName(uint64_t meshMask) {
 // m_hOwnerEntity owner-match, which is wrong on some builds) is the safe discriminator: the world
 // weapon and its viewmodel share the same entity class (weapon_knife, weapon_ak47, ...). SEH-guarded.
 int RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t meshMask,
-	unsigned char* worldWeapon, int entityIndex, bool releaseComposite, bool onlyIfDiffers) {
+	unsigned char* worldWeapon, int entityIndex, bool releaseComposite, ViewmodelMirrorWrites* written) {
 	const ClientDllOffsets_t& o = g_clientDllOffsets;
 	const bool trace = MvmDebugLog_Active();
 	const char* wantBodyChoice = DesiredBodyChoiceName(meshMask);
@@ -595,8 +595,10 @@ int RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t mes
 					++matches;
 					if (model && *model)
 						SafeSetModel((unsigned char*)owner, model);
-					if (meshMask && !(onlyIfDiffers && ReadEntityMeshGroupMask((CEntityInstance*)owner) == meshMask))
+					if (meshMask && !(written && written->Has((uintptr_t)owner)
+							&& ReadEntityMeshGroupMask((CEntityInstance*)owner) == meshMask))
 						ForceSetViewmodelMeshMask((unsigned char*)owner, meshMask);
+					if (written) written->Add((uintptr_t)owner);
 					if (releaseComposite)
 						ReleaseEntityCompositeMaterials((unsigned char*)owner);
 					// Knife viewmodel SetModel/mesh writes are enough for the next render pass.
@@ -645,8 +647,9 @@ int RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t mes
 				++matches;
 				if (model && *model)
 					SafeSetModel((unsigned char*)hud, model);
-				if (meshMask && !(onlyIfDiffers && ReadEntityMeshGroupMask(hud) == meshMask))
+				if (meshMask && !(written && written->Has((uintptr_t)hud) && ReadEntityMeshGroupMask(hud) == meshMask))
 					ForceSetViewmodelMeshMask((unsigned char*)hud, meshMask);
+				if (written) written->Add((uintptr_t)hud);
 				if (releaseComposite)
 					ReleaseEntityCompositeMaterials((unsigned char*)hud);
 				if (trace)
@@ -768,12 +771,13 @@ bool ApplyWeaponMeshMask(unsigned char* weaponEntity, uint64_t meshMask, unsigne
 	return switched;
 }
 
-int MirrorWeaponMeshToViewmodel(unsigned char* pawn, unsigned char* worldWeapon, uint64_t meshMask, int entityIndex) {
+int MirrorWeaponMeshToViewmodel(unsigned char* pawn, unsigned char* worldWeapon, uint64_t meshMask, int entityIndex,
+	ViewmodelMirrorWrites& written) {
 	ResolveModelSwapFns();
 	if (!pawn || !worldWeapon || meshMask == 0)
 		return 0;
 	return RefreshViewmodelWeapons(pawn, nullptr, meshMask, worldWeapon, entityIndex, /*releaseComposite=*/false,
-		/*onlyIfDiffers=*/true);
+		&written);
 }
 
 bool HoldWeaponMeshMaskDirect(unsigned char* weaponEntity, uint64_t meshMask) {

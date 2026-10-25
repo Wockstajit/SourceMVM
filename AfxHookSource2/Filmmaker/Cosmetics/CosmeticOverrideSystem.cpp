@@ -43,8 +43,11 @@ constexpr uint64_t kMeshSwitchSettleFrames = 8;
 // Uninterrupted settled frames after a seek before knife-type swaps and native mesh switches may run.
 constexpr int kKnifeSwapStableFrames = 8;
 // Frames after a gun is drawn in which its first-person copy is mirrored onto the picked mesh group
-// (WeaponMeshState::viewmodelMirrorFrames); the copy is built a few frames after the draw.
+// (WeaponMeshState::viewmodelMirrorFrames). They count only frames that found a copy; the copy is
+// built a few frames after the draw, and not at all while the view is outside the eye, so the mirror
+// waits up to kViewmodelWaitFrames for one before the count runs down regardless.
 constexpr int kViewmodelMirrorFrames = 24;
+constexpr int kViewmodelWaitFrames = 120;
 
 // Quiet frames after the last profile edit before the demo's project is written (~0.5s at 60 fps):
 // one write for a burst of picks, never one per edit.
@@ -925,6 +928,7 @@ int CosmeticOverrideSystem::ApplyMatchedWeapons(bool forceStale, bool fireRebuil
 	const ClientDllOffsets_t& o = g_clientDllOffsets;
 
 	int viewedPawnIndex = -2; // the pawn seen in first person; resolved on first use this pass
+	int viewModeChanged = -1; // the game's observer mode changed since the last pass; resolved with it
 	const int highest = GetHighestEntityIndex();
 	for (int i = 0; i <= highest; ++i) {
 		CEntityInstance* ent = CosmeticEntFromIndex(i);
@@ -1325,21 +1329,37 @@ int CosmeticOverrideSystem::ApplyMatchedWeapons(bool forceStale, bool fireRebuil
 					// to a player holding it) it is mirrored again, over a few frames because the HUD copy
 					// appears after the draw. Only the viewed player's gun: HUD copies are found by model
 					// path, so another player's draw would put its group on the viewed player's copy.
+					// A change of observer mode re-arms it too: going from chase or roaming to in-eye on
+					// the same player builds a new copy without a new draw. The viewed pawn alone cannot
+					// tell first person apart (it stays the viewer outside the eye, and POV demos report
+					// mode 0 in the eye), so the window waits for a copy instead of spending its frames.
 					bool drawn = false;
 					if (ownerPawn) {
 						if (viewedPawnIndex == -2) viewedPawnIndex = CurrentSpectatedPawnIndex();
 						const SOURCESDK::CS2::CBaseHandle ph = ((CEntityInstance*)ownerPawn)->GetHandle();
 						drawn = ph.IsValid() && ph.GetEntryIndex() == viewedPawnIndex;
 					}
-					if (drawn && !meshState.drawn) meshState.viewmodelMirrorFrames = kViewmodelMirrorFrames;
+					if (drawn && viewModeChanged < 0) {
+						const uint8_t observerMode = CurrentObserverMode();
+						viewModeChanged = observerMode != m_lastMirrorObserverMode ? 1 : 0;
+						m_lastMirrorObserverMode = observerMode;
+					}
+					if (drawn && (!meshState.drawn || viewModeChanged == 1)) {
+						meshState.viewmodelMirrorFrames = kViewmodelMirrorFrames;
+						meshState.viewmodelWaitFrames = kViewmodelWaitFrames;
+						meshState.viewmodelWrites = ViewmodelMirrorWrites{};
+					}
 					meshState.drawn = drawn;
 					if (drawn && meshState.viewmodelMirrorFrames > 0 && m_meshSwapStable
 						&& meshState.entity == (uintptr_t)w && meshState.mask == mask) {
-						--meshState.viewmodelMirrorFrames;
-						const int copies = MirrorWeaponMeshToViewmodel(ownerPawn, w, mask, i);
+						const int copies = MirrorWeaponMeshToViewmodel(ownerPawn, w, mask, i, meshState.viewmodelWrites);
+						if (copies > 0 || --meshState.viewmodelWaitFrames <= 0)
+							--meshState.viewmodelMirrorFrames;
 						if (MvmDebugLog_Active())
-							MvmDebugLog_Linef("cosmetics.weapon.vmmirror", "idx=%d def=%d mask=%llu copies=%d framesLeft=%d",
-								i, liveDef, (unsigned long long)mask, copies, meshState.viewmodelMirrorFrames);
+							MvmDebugLog_Linef("cosmetics.weapon.vmmirror",
+								"idx=%d def=%d mask=%llu copies=%d written=%d framesLeft=%d waitLeft=%d",
+								i, liveDef, (unsigned long long)mask, copies, meshState.viewmodelWrites.count,
+								meshState.viewmodelMirrorFrames, meshState.viewmodelWaitFrames);
 					}
 					if (MvmDebugLog_Active() && (needMesh || dbgMeshLegacy < 0)) {
 						uint64_t postMask = ReadEntityMeshGroupMask(ent);
