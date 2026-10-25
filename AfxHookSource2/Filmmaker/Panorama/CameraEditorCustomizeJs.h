@@ -187,6 +187,18 @@ R"EDJS(
     // staging, the pickup routing and every command around it are untouched; what changed is where it
     // draws -- a slot row instead of a dropdown bar, a pane instead of a popup.
     var CUST_TILE_W = 162, CUST_TILE_H = 118, CUST_TILE_GAP = 8, CUST_TILE_COLS = 3;
+    // The tile width (layout px) that puts CUST_TILE_COLS tiles and their gaps on a line `lineW`
+    // device px wide at UI scale `scale`, never wider than the design's CUST_TILE_W. Panorama snaps
+    // each width and margin to whole device px and adds them up, and the card's 1px border stays a
+    // whole device px at any scale, so 3 x 162 + 2 x 8 = 502 can stop fitting the 504px column below
+    // 1080p: at 854 x 480 the column is 223 device px and the tiles 72 + 4 + 72 + 4 + 72 = 224. The
+    // tile is floored in device px here instead (sizePane applies it).
+    function custTileFitW(lineW, scale) {
+      if (!(lineW > 0) || !(scale > 0)) return CUST_TILE_W;
+      var gap = Math.ceil(CUST_TILE_GAP * scale);
+      var tile = Math.floor((lineW - (CUST_TILE_COLS - 1) * gap) / CUST_TILE_COLS);
+      return Math.min(CUST_TILE_W, Math.floor(tile / scale * 100) / 100);
+    }
     var CUST_SCROLL_STEP = 64;          // px scrolled per wheel notch
     var custSlotRecs = {};              // slot -> picker rec, for the active-pane plumbing below
     var custActiveSlot = 'primary';     // the slot whose pane is showing (and whose row is gold)
@@ -309,7 +321,7 @@ R"EDJS(
       rowsView.style.width = '100%'; rowsView.style.height = 'fill-parent-flow(1.0)'; rowsView.style.marginTop = '10px';
       rowsView.style.overflow = 'clip'; rowsView.style.flowChildren = 'none';
       var rows = mk('Panel', rowsView); rows.hittest = true;
-      rows.style.width = '100%'; rows.style.flowChildren = 'right-wrap';
+      rows.style.width = '100%'; rows.style.flowChildren = 'down';   // one line of tiles each (tileShell)
       // Scroll cues, shown only in a direction that still has content (see sizePane).
       var fadeTop = mk('Panel', rowsView); fadeTop.hittest = false; fadeTop.visible = false;
       fadeTop.style.width = '100%'; fadeTop.style.height = '22px'; fadeTop.style.verticalAlign = 'top';
@@ -455,17 +467,24 @@ R"EDJS(
 )EDJS"
 R"EDJS(
       // ---- tiles ---------------------------------------------------------------------------
-      // 3 columns of 118px tiles with an 8px gap, built into a right-wrap row at a fixed tile width
-      // (Panorama has no grid). Each tile: the artwork, the name in its rarity colour with a ✔ when
-      // equipped or "N finishes ›" on a model tile, and a 3px rarity bar along the bottom.
+      // 3 tiles of 118px to a line, with an 8px gap (Panorama has no grid). Each line is its own
+      // panel rather than a share of one right-wrap row, so a tile a pixel too wide is never pushed
+      // onto the next row (a wrap also staggered every row after it). The width is CUST_TILE_W until
+      // sizePane() has measured the line, then rec.tileW (custTileFitW).
+      // Each tile: the artwork, the name in its rarity colour with a ✔ when equipped or
+      // "N finishes ›" on a model tile, and a 3px rarity bar along the bottom.
       // Hover/selected paint has to come from onmouseover/onmouseout (there is no :hover here), and
       // ONE resolver owns the paint so a mouseout cannot revert the selected fill.
-      var tileIdx = 0;
+      var tileIdx = 0, tileLine = null;
       function tileShell(color, isSel, tipText) {
-        var t = mk('Panel', rows); t.hittest = true;
-        t.style.width = CUST_TILE_W + 'px'; t.style.height = CUST_TILE_H + 'px';
+        if ((tileIdx % CUST_TILE_COLS) === 0) {
+          tileLine = mk('Panel', rows); tileLine.hittest = false; tileLine.hittestchildren = true;
+          tileLine.style.width = '100%'; tileLine.style.flowChildren = 'right';
+          tileLine.style.marginBottom = CUST_TILE_GAP + 'px';
+        }
+        var t = mk('Panel', tileLine); t.hittest = true;
+        t.style.width = (rec.tileW || CUST_TILE_W) + 'px'; t.style.height = CUST_TILE_H + 'px';
         t.style.marginRight = ((tileIdx % CUST_TILE_COLS) === CUST_TILE_COLS - 1) ? '0px' : (CUST_TILE_GAP + 'px');
-        t.style.marginBottom = CUST_TILE_GAP + 'px';
         t.style.flowChildren = 'down'; t.style.borderRadius = '4px'; t.style.overflow = 'clip';
         tileIdx++;
         t.__hot = false;
@@ -480,6 +499,13 @@ R"EDJS(
         t.__paint();
         return t;
       }
+      // Gives every tile already built the current rec.tileW (sizePane calls it when that changes).
+      rec.fitTiles = function () {
+        for (var i = 0; i < rows.GetChildCount(); i++) {
+          var line = rows.GetChild(i);
+          for (var j = 0; j < line.GetChildCount(); j++) line.GetChild(j).style.width = rec.tileW + 'px';
+        }
+      };
       function tileBody(t, meta, color, name, sub, subColor, dimArt) {
         var art = mk('Panel', t); art.hittest = false;
         art.style.width = '100%'; art.style.height = 'fill-parent-flow(1.0)';
@@ -1935,10 +1961,16 @@ R"EDJS(
       panel['__' + key] = value;
       panel.style[prop] = value;
     }
-    // Clamp the pane's scroll to its content and show each scroll cue only in a direction that
-    // still has tiles (1px of slack absorbs rounding).
+    // Fit the tiles to the grid's measured width (custTileFitW), clamp the pane's scroll to its
+    // content and show each scroll cue only in a direction that still has tiles (1px of slack
+    // absorbs rounding).
     function sizePane(rec) {
       if (!rec || !rec.pane || !rec.pane.visible || !rec.rowsView || !rec.rows) return;
+      var lineW = rec.rows.actuallayoutwidth || 0;
+      if (lineW > 0) {
+        var tileW = custTileFitW(lineW, rec.rows.actualuiscale_x || 0);
+        if (rec.tileW !== tileW) { rec.tileW = tileW; if (rec.fitTiles) rec.fitTiles(); }
+      }
       var viewH = custMeasureH(rec.rowsView), contentH = custMeasureH(rec.rows);
       var maxOff = Math.max(0, contentH - viewH);
       if (rec.scrollOff > maxOff) rec.scrollOff = maxOff;
