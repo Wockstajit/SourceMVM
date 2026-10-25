@@ -10,7 +10,10 @@ The RANGE & CAMERA tab shows the resolved span as IN, LAST FRAME and the length.
 each have −1 and +1 buttons that move that end by one tick. A flag on the timeline covers dozens of
 ticks per pixel on a long demo, so the last few ticks are set here. Each step sends the whole span
 as `render range custom <in> <outExclusive>`, so it works from any range mode and switches the
-range to Custom.
+range to Custom. A step stays inside the demo: IN never goes before its first tick and LAST FRAME
+never past its last one (the published `demoStart` / `demoEnd`), so a button at a demo edge does
+nothing. A last frame past the end would leave the job waiting on frames the demo's end hold never
+plays. `render-range-nudge-tests.mjs` runs the buttons' function against the bounds.
 
 ## The sound when a render ends
 

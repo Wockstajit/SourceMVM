@@ -481,10 +481,18 @@ R"EDJS(
     var spanTicks = spanCell('TICKS @ ' + DEMO_TICKRATE, '96px', 'right', 14);
     // One-tick steps under IN and LAST FRAME. A flag on the timeline covers about 45 ticks per pixel
     // on a 20-minute demo, so the last few ticks are set here (tester report). Each step sends the
-    // whole span, so it works from whatever range mode resolved it, and switches to Custom.
-    var rsSpanStart = 0, rsSpanEnd = 0;
+    // whole span, so it works from whatever range mode resolved it, and switches to Custom. A step
+    // never leaves the demo (demoStart to demoEnd, the last tick it plays): a last frame past the end
+    // would have the job wait on frames the demo's end hold never plays.
+    var rsSpanStart = 0, rsSpanEnd = 0, rsDemoStart = -1, rsDemoEnd = -1;
     function rsSetSpan(a, b) {
-      if (!(b > a)) return;
+      if (rsDemoStart >= 0 && rsDemoEnd > rsDemoStart) {
+        a = Math.max(a, rsDemoStart);
+        b = Math.min(b, rsDemoEnd + 1);
+      } else {
+        a = Math.max(a, 0);
+      }
+      if (!(b > a) || (a === rsSpanStart && b === rsSpanEnd)) return;
       cmd('mirv_filmmaker render range custom ' + a + ' ' + b);
     }
     function spanNudges(valueLbl, align, what, step) {
@@ -1312,6 +1320,8 @@ R"EDJS(
       rangeEmpty.visible = !(ticks > 0);
       if (ticks > 0) {
         rsSpanStart = start; rsSpanEnd = endExcl;
+        rsDemoStart = typeof r.demoStart === 'number' ? r.demoStart : -1;
+        rsDemoEnd = typeof r.demoEnd === 'number' ? r.demoEnd : -1;
         spanIn.text = rsNum(start);
         spanLast.text = rsNum(endExcl - 1);
         spanLen.text = rsClock(ticks);
