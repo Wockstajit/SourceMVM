@@ -30,8 +30,9 @@ struct MapSources {
 std::filesystem::path ResolveCs2Root();
 
 // Official game/csgo/maps/<map>.vpk first, then the newest installed Workshop addon that
-// carries maps/<map>.vpk. Throws MapDataError when neither exists.
-MapSources OpenMapSources(const std::filesystem::path &cs2Root, const std::string &map);
+// carries maps/<map>.vpk. With `addon` (a Workshop item id) only that item is read: two items, or
+// an item and a loose package, can hold a map of the same name. Throws MapDataError when none does.
+MapSources OpenMapSources(const std::filesystem::path &cs2Root, const std::string &map, const std::string &addon = {});
 
 // A package referenced by the map (`maps/....vpk`, e.g. a 3D skybox prefab): nested in the
 // mounted resource packages first, then a file under game/csgo. Null when missing. Adds read

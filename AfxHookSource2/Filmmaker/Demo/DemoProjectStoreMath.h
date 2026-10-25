@@ -25,6 +25,8 @@ enum class ProjectGenerated {
 	Keyframed, // the playable copy with dense full packets for fast backward seeks (DemoKeyframes.h)
 	KeyframedB, // its second slot: a rebuild while the engine holds the first one open writes here
 	RoundPaths, // every player's path per round, for the round heat map (Heatmap/RoundHeatmapMath.h)
+	Environment, // the copy that plays on another map (Demo/DemoWorldSwap.h, AltEnvironment/AltEnvironment.h)
+	EnvironmentB, // its second slot, written while the engine holds the first one open
 };
 
 struct ProjectIndexEntry {
@@ -206,6 +208,8 @@ inline const wchar_t* ProjectGeneratedFileName(ProjectGenerated kind) {
 	case ProjectGenerated::Keyframed: return L"keyframed.dem";
 	case ProjectGenerated::KeyframedB: return L"keyframed-b.dem";
 	case ProjectGenerated::RoundPaths: return L"roundpaths.fmbin";
+	case ProjectGenerated::Environment: return L"environment.dem";
+	case ProjectGenerated::EnvironmentB: return L"environment-b.dem";
 	}
 	return L"generated.bin";
 }
@@ -237,9 +241,15 @@ inline bool IsKeyframedCopyFileName(const std::wstring& fileName) {
 	return WideEqualsI(fileName, L"keyframed.dem") || WideEqualsI(fileName, L"keyframed-b.dem");
 }
 
+// Either slot of an alternative-environment copy (AltEnvironment/AltEnvironment.h).
+inline bool IsEnvironmentCopyFileName(const std::wstring& fileName) {
+	return WideEqualsI(fileName, L"environment.dem") || WideEqualsI(fileName, L"environment-b.dem");
+}
+
 // A demo COPY the tool generated into a project folder (not a demo of its own).
 inline bool IsProjectDemoCopyFileName(const std::wstring& fileName) {
-	return WideEqualsI(fileName, L"repaired.dem") || IsKeyframedCopyFileName(fileName);
+	return WideEqualsI(fileName, L"repaired.dem") || IsKeyframedCopyFileName(fileName) ||
+		IsEnvironmentCopyFileName(fileName);
 }
 
 inline bool IsLegacyRepairedFolderName(const std::wstring& folderName) {

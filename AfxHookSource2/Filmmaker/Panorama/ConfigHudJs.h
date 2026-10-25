@@ -190,10 +190,14 @@ R"CFJS(
 // mode is error C2026, "string too big, trailing characters truncated"). Adjacent raw literals
 // concatenate, so the seam is invisible to the script.
 R"CFJS(
+    // The preview rect in root layout pixels ({x, y, w, h}), null while there is none: the MAP
+    // VIEW of the alternative environment covers exactly this area (ConfigHudAltEnvironmentJs.h).
+    var cfgPreviewRect = null;
     function hideDemoWorkspace() {
       shell.hide();
       timelineBand.visible = false;
       root.SetAttributeString('previewrect', '');
+      cfgPreviewRect = null;
     }
 
     function layoutDemoWorkspace(cursorOn) {
@@ -277,6 +281,7 @@ R"CFJS(
       root.SetAttributeString('previewrect',
         (ox / rw).toFixed(5) + ' ' + (oy / rh).toFixed(5) + ' ' +
         (right / rw).toFixed(5) + ' ' + (bottom / rh).toFixed(5));
+      cfgPreviewRect = { x: ox, y: oy, w: pw, h: ph };
     }
 )CFJS"
 R"CFJS(
@@ -813,6 +818,7 @@ R"CFJS(
     // Raw `state` string the render hooks last ran against, and a slow heartbeat so a hook can
     // never stay stale indefinitely. See the gate in render().
     var lastHookRaw = null;
+    var lastHookUi = null; // the selected tab and card at the last sweep
     var hookHeartbeat = 0;
     var api = {};
     // The popover overlay (tooltips, dropdowns, menus) is a ctx child, so hiding `root` does not
@@ -1001,13 +1007,19 @@ R"CFJS(
       // the state changes every frame, so the sweep runs exactly as often as before; it is the
       // idle panel, which is most of the time it is open, that stops paying for itself.
       //
+      // The selected tab and card count as input too: the MAP view (ConfigHudAltEnvironmentJs.h)
+      // shows only while its card is selected, and a card picked without saving the choice (the
+      // automation card() helper) leaves the state string as it was.
+      //
       // The heartbeat is insurance, not the mechanism: if some future hook does grow a
       // dependency the state string cannot see, it still refreshes a few times a second instead
       // of never.
-      var hooksDirty = (raw !== lastHookRaw);
+      var hookUi = activeTab + '|' + (cfgRails[activeTab] ? cfgRails[activeTab].sel : '');
+      var hooksDirty = (raw !== lastHookRaw) || hookUi !== lastHookUi;
       if (!hooksDirty && ++hookHeartbeat >= 30) hooksDirty = true;
       if (hooksDirty) {
         lastHookRaw = raw;
+        lastHookUi = hookUi;
         hookHeartbeat = 0;
         for (var rh2 = 0; rh2 < renderHooks.length; rh2++) {
           try { renderHooks[rh2](st); }
@@ -1034,6 +1046,8 @@ R"CFJS(
       // controls it no longer belongs to. Drop it with the first notch.
       tipHide();
       cfgDropdownClose();   // the popover is anchored to a field the wheel is about to move
+      // Over the alternative environment's MAP VIEW the wheel zooms the map.
+      if (typeof aeWheel === 'function' && aeWheel(n)) return;
       // A list that scrolls on its own (scrollWell) takes the notch while the cursor is over it;
       // at its top or bottom the notch goes on to the column.
       if (cfgWellWheel(n)) return;

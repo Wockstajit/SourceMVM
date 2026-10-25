@@ -19,6 +19,113 @@
   var unhandled = {};
   var configResets = {}, climateDefaults = {}, climateResetOff = [];
 
+  // ---- alternative environment (mock) ----------------------------------------------------------
+  var AE_PLAN = [[0, 0, 1200, 800, 0], [1200, 300, 2600, 500, 0], [2600, -600, 3400, 900, 96],
+                 [400, 800, 600, 2400, -64], [-400, 2400, 1000, 3000, -64], [2800, 600, 3000, 800, 200]];
+  var AE_TRUTH = { de_dust2_n: { x: 812, y: -344, z: 64, yaw: 37 } };
+  function aeRot(x, y, deg) { var r = deg * Math.PI / 180; return [Math.cos(r) * x - Math.sin(r) * y, Math.sin(r) * x + Math.cos(r) * y]; }
+  // The mock's walked paths: across room A, along corridor B, up corridor D.
+  function aeFeet() {
+    var f = [], k;
+    for (k = 0; k < 40; k++) f.push([100 + k * 25, 400]);
+    for (k = 0; k < 30; k++) f.push([1300 + k * 40, 400]);
+    for (k = 0; k < 20; k++) f.push([500, 900 + k * 70]);
+    return f;
+  }
+  // Where a demo point lands under `draft` on the plan placed at `truth`: 'on' inside one of its
+  // rooms, else 'outside' (the mock has one floor height, so no floating or under).
+  function aeLands(draft, truth, x, y) {
+    var q = aeRot(x, y, draft.yaw), mx = q[0] + draft.x - truth.x, my = q[1] + draft.y - truth.y;
+    var l = aeRot(mx, my, -truth.yaw);
+    return AE_PLAN.some(function (r) { return l[0] >= r[0] && l[0] <= r[2] && l[1] >= r[1] && l[1] <= r[3]; }) ? 'on' : 'outside';
+  }
+  // A picture of the plan (moved by `al` when given) as {url, x0, y0, w, h, pw, ph}.
+  function aePicture(al, demoLayer, lands) {
+    var pts = [];
+    AE_PLAN.forEach(function (r) {
+      [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]].forEach(function (p) {
+        var q = al ? aeRot(p[0], p[1], al.yaw) : p; pts.push([q[0] + (al ? al.x : 0), q[1] + (al ? al.y : 0)]);
+      });
+    });
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    pts.forEach(function (p) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); });
+    x0 -= 200; y0 -= 200; x1 += 200; y1 += 200;
+    var cell = 8, pw = Math.ceil((x1 - x0) / cell), ph = Math.ceil((y1 - y0) / cell);
+    var pic = { url: 'about:blank', x0: x0, y0: y0, w: pw * cell, h: ph * cell, pw: pw, ph: ph };
+    if (typeof document === 'undefined') return pic;
+    var c = document.createElement('canvas'); c.width = pw; c.height = ph;
+    var g = c.getContext('2d');
+    AE_PLAN.forEach(function (r) {
+      var shade = Math.round(70 + (r[4] + 64) / 264 * 120);
+      var corners = [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]].map(function (p) {
+        var q = al ? aeRot(p[0], p[1], al.yaw) : p; return [(q[0] + (al ? al.x : 0) - x0) / cell, (y1 - (q[1] + (al ? al.y : 0))) / cell];
+      });
+      g.beginPath(); corners.forEach(function (p, i) { if (i) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); }); g.closePath();
+      if (demoLayer && lands) {
+        var c = lands((r[0] + r[2]) / 2, (r[1] + r[3]) / 2);
+        g.fillStyle = c === 'on' ? 'rgba(74,222,128,0.28)' : 'rgba(248,82,82,0.28)'; g.fill();
+        g.strokeStyle = 'rgba(236,240,244,0.86)'; g.lineWidth = 1.5; g.stroke();
+      }
+      else if (demoLayer) { g.strokeStyle = '#ff9840'; g.lineWidth = 2; g.stroke(); }
+      else { g.fillStyle = 'rgb(' + shade + ',' + (shade + 6) + ',' + (shade + 14) + ')'; g.fill(); g.strokeStyle = '#eef2f6'; g.lineWidth = 1.5; g.stroke(); }
+    });
+    if (demoLayer) {
+      aeFeet().forEach(function (p) {
+        g.fillStyle = !lands ? 'rgba(255,152,64,0.45)' : lands(p[0], p[1]) === 'on' ? 'rgb(74,222,128)' : 'rgb(248,82,82)';
+        g.fillRect((p[0] - x0) / cell, (y1 - p[1]) / cell, 2, 2);
+      });
+    }
+    pic.url = c.toDataURL('image/png');
+    return pic;
+  }
+  function altenv(st, args) {
+    var s = st.altenv, v = args[0], w = args[1];
+    function nums(i) { return [+args[i] || 0, +args[i + 1] || 0, +args[i + 2] || 0, +args[i + 3] || 0]; }
+    function find(m, a) { for (var i = 0; i < s.maps.length; i++) if (s.maps[i].m === m && (!a || s.maps[i].a === a)) return s.maps[i]; return null; }
+    if (v === 'view') s.view = w === 'on' ? true : w === 'off' ? false : !s.view;
+    else if (v === 'maps' || v === 'status') {}
+    else if (v === 'pick') {
+      var m = w === 'none' ? null : find(w, args[2]);
+      s.pick = m ? m.m : ''; s.pickTitle = m ? m.t : ''; s.pickAddon = m && m.a ? m.a : '';
+      s.mapPic = null; s.fit = null;
+    }
+    else if (v === 'align') { var a4 = nums(1); s.draft = { x: a4[0], y: a4[1], z: a4[2], yaw: a4[3] }; }
+    else if (v === 'move') { var m3 = nums(1); s.draft.x += m3[0]; s.draft.y += m3[1]; s.draft.z += m3[2]; }
+    else if (v === 'turn') { s.draft.yaw = ((s.draft.yaw + (+w || 0) + 540) % 360) - 180; }
+    else if (v === 'reset') s.draft = { x: 0, y: 0, z: 0, yaw: 0 };
+    else if (v === 'auto') {
+      var tr = AE_TRUTH[s.pick] || { x: 0, y: 0, z: 0, yaw: 0 };
+      s.draft = { x: tr.x, y: tr.y, z: tr.z, yaw: tr.yaw };
+      s.status = (tr.x || tr.y || tr.yaw) ? 'Matched. Check the layout, then press PLAY ON THIS MAP.' : 'The two maps already line up.';
+    }
+    else if (v === 'apply') {
+      if (!s.pick) { s.error = 'Choose a map first.'; return true; }
+      s.enabled = true; s.copy = true; s.applied = s.pick; s.appliedTitle = s.pickTitle;
+      s.saved = { x: s.draft.x, y: s.draft.y, z: s.draft.z, yaw: s.draft.yaw }; s.status = ''; s.error = '';
+    }
+    else if (v === 'off') { s.enabled = false; s.copy = false; s.applied = ''; s.appliedTitle = ''; }
+    else return false;
+    if (s.view || s.pick) {
+      if (!s.demoPic) s.demoPic = aePicture(null, true);
+      if (s.pick && !s.mapPic) s.mapPic = aePicture(AE_TRUTH[s.pick] || null, false);
+      s.players = [[300, 400, 2], [700, 420, 2], [1500, 400, 3], [2900, 100, 3], [500, 1500, 2]];
+    }
+    // With a map picked, the demo layer is coloured by where it lands under the draft, as C++ does.
+    if (s.pick && s.mapPic) {
+      var truth = AE_TRUTH[s.pick] || { x: 0, y: 0, z: 0, yaw: 0 }, d = s.draft;
+      var lands = function (x, y) { return aeLands(d, truth, x, y); };
+      s.demoPic = aePicture(null, true, lands);
+      var feet = aeFeet(), on = feet.filter(function (p) { return lands(p[0], p[1]) === 'on'; }).length;
+      s.landing = { on: on / feet.length, floating: 0, under: 0, outside: 1 - on / feet.length };
+    } else s.landing = null;
+    var tr2 = AE_TRUTH[s.pick] || { x: 0, y: 0, z: 0, yaw: 0 };
+    var off = Math.hypot(s.draft.x - tr2.x, s.draft.y - tr2.y) / 400 + Math.abs(s.draft.yaw - tr2.yaw) / 20 + Math.abs(s.draft.z - tr2.z) / 48;
+    // C++ counts walked paths on the map the way the landing does, so the two numbers agree.
+    if (s.pick) s.fit = { floor: Math.max(0, 1 - off), players: s.landing ? s.landing.on : Math.max(0, 1 - off * 1.3), samples: 110 };
+    s.dirty = s.pick !== (s.enabled ? s.applied : '') || ['x', 'y', 'z', 'yaw'].some(function (k) { return Math.abs(s.draft[k] - s.saved[k]) > 0.01; });
+    return true;
+  }
+
   function loadBindings(json) {
     bindings = (json && json.bindings) || [];
     configResets = (json && json.configResets) || {};
@@ -467,6 +574,10 @@
     if (t[0] === "mirv_filmmaker" && a === "environment") { var envOk = environment(st, cmd); syncRig(st); return envOk; }
     if (t[0] === 'mirv_filmmaker' && a === 'scenekeys') { var skOk = global.MvmSceneKeys.run(st, t.slice(2)); syncRig(st); return skOk; }
     if (t[0] === 'mirv_filmmaker' && a === 'rig') return rig(st, t.slice(2));
+    // Alternative environment (Filmmaker/AltEnvironment/AltEnvironment.cpp). Both pictures are drawn
+    // here from one made-up floor plan; Dust 2 Night is the plan moved and turned, so AUTO ALIGN in the
+    // mock lands on that offset. Nothing in them comes from game files.
+    if (t[0] === 'mirv_filmmaker' && a === 'altenv') return altenv(st, t.slice(2));
     // Round heat map (Filmmaker/Heatmap/RoundHeatmap.cpp). The mock demo is always read and on round 4.
     if (t[0] === 'mirv_filmmaker' && a === 'heatmap') {
       var hm = st.heatmap = st.heatmap || { radius: 1500, teams: 'all', round: 4, rounds: 18, players: 10, error: '' };

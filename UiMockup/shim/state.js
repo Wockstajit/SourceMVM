@@ -333,6 +333,25 @@
       envAssets: ['barrel', 'crate_stack'],
       envTextures: ['concrete_albedo', 'concrete_normal'],
       envPresets: ['Dusk storm', 'Overcast morning'],
+      // Filmmaker/AltEnvironment: AltEnvironment.cpp AppendStateJson. The mock demo is on de_dust2; the
+      // maps list mirrors a real install's mix of official maps and Workshop items (titles as published).
+      altenv: { demo: true, demoMap: 'de_dust2', demoTitle: 'Dust2', pick: '', pickTitle: '', pickAddon: '',
+        enabled: false, copy: false, applied: '', appliedTitle: '', draft: { x: 0, y: 0, z: 0, yaw: 0 },
+        saved: { x: 0, y: 0, z: 0, yaw: 0 }, dirty: false, view: false, building: false, progress: 0, auto: false,
+        autoProgress: 0, status: '', error: '', picStatus: '', feetStatus: '', feet: 0, mapsBusy: false,
+        maps: [
+          { m: 'ar_shoots_night', t: 'Shoots Night' }, { m: 'cs_italy', t: 'Italy' }, { m: 'cs_office', t: 'Office' },
+          { m: 'de_ancient', t: 'Ancient' }, { m: 'de_ancient_night', t: 'Ancient Night' }, { m: 'de_anubis', t: 'Anubis' },
+          { m: 'de_inferno', t: 'Inferno' }, { m: 'de_mirage', t: 'Mirage' }, { m: 'de_nuke', t: 'Nuke' },
+          { m: 'de_overpass', t: 'Overpass' }, { m: 'de_train', t: 'Train' }, { m: 'de_vertigo', t: 'Vertigo' },
+          { m: 'de_dust2_n', t: 'Dust 2 Night', a: '3447707473' }, { m: 'dust_2_rain', t: 'Rainy Dust 2', a: '3415606747' },
+          { m: 'de_inferno_night', t: 'Inferno Night', a: '3124567099' }, { m: 'de_inferno_rain', t: 'Rainy Inferno', a: '3488478228' },
+          { m: 'mirage_night', t: 'MIRAGE NIGHT (Ночной мираж)', a: '3654981325', tiny: true },
+          { m: 'de_mirage_rain', t: 'Rainy Mirage', a: '3415616810' }, { m: 'de_overpass_night', t: 'Overpass Night', a: '3285124923' },
+          { m: 'anubis_night', t: 'Anubis Night', a: '3558688961' }, { m: 'cache_rain', t: 'Nightly Cache', a: '3761056512' },
+          { m: 'liminal2', t: 'Liminal 2', a: '3246090357' }, { m: 'cs_motel_night', t: 'Night Motel', a: '3720109255' },
+          { m: 'refrag_warmup', t: 'Refrag.gg - Aim, Movement, Crosshair, Prefire!', a: '3416003536' }
+        ] },
       // Filmmaker/Heatmap: RoundHeatmap.cpp AppendStateJson. players -1 = the grid is still building.
       heatmap: { on: false, radius: 1500, teams: 'all', state: 'off', round: 4, rounds: 18, players: 10, error: '' },
       // Filmmaker/Props: Props_AppendStateJson. total -1 = catalog not loaded until the first search.

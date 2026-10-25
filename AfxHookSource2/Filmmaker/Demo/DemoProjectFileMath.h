@@ -34,6 +34,7 @@ enum class ProjectSection {
 	Loop,
 	SceneKeys,
 	Cosmetics, // CS2 skin, knife, glove and agent picks per player (Cosmetics/CosmeticProfile.h)
+	Environment, // CS2: the other map the demo plays on and its alignment (AltEnvironment/AltEnvironment.h)
 };
 
 inline const char* ProjectSectionTag(ProjectSection section) {
@@ -43,6 +44,7 @@ inline const char* ProjectSectionTag(ProjectSection section) {
 	case ProjectSection::Loop: return "loop";
 	case ProjectSection::SceneKeys: return "scenekeys";
 	case ProjectSection::Cosmetics: return "cosmetics";
+	case ProjectSection::Environment: return "environment";
 	}
 	return "section";
 }

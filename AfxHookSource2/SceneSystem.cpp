@@ -6,6 +6,8 @@
 #include "SchemaSystem.h"
 #include "MirvColors.h"
 #include "Filmmaker/Debug/MvmDebugLog.h"
+#include "Filmmaker/AltEnvironment/AltEnvironmentProps.h"
+#include "Filmmaker/AltEnvironment/AltEnvironmentSceneProbe.h"
 #include "Filmmaker/Movie/RagdollWeapon.h"
 #include "Filmmaker/World/LightFx.h"
 #include "Filmmaker/World/SunFx.h"
@@ -813,6 +815,25 @@ void new_DrawBaseSceneObject(void* This, void* a2, CBaseSceneData* sceneData, in
 	// promise. A descriptor with no batch has no material to classify, so pass it straight through
 	// rather than filtering a draw we cannot identify.
 	if (!sceneData) return original(This, a2, sceneData, a4, a5, a6, a7);
+	// The alternative environment's hidden props (the demo map's own entities on another map): a batch
+	// whose draws all belong to hidden entities is not drawn, shadow passes included. A batch that mixes
+	// them with shown draws has the shown ones moved to its front and drawn through the rest of this
+	// hook, then the engine's batch is put back as it was.
+	if (Filmmaker::AltEnvironment::Props::Hiding() && a4 > 0) {
+		const int hidden = Filmmaker::AltEnvironment::Props::HiddenInBatch(sceneData, a4, sizeof(CBaseSceneData), offsetof(CBaseSceneData, sceneObject));
+		if (hidden == a4) return;
+		if (hidden > 0 && a4 <= 4096) {
+			thread_local std::vector<unsigned char> saved;
+			saved.resize(size_t(a4) * sizeof(CBaseSceneData));
+			const int shown = Filmmaker::AltEnvironment::Props::CompactBatch(sceneData, a4, sizeof(CBaseSceneData),
+				offsetof(CBaseSceneData, sceneObject), saved.data());
+			if (shown < a4) {
+				new_DrawBaseSceneObject(This, a2, sceneData, shown, a5, a6, a7);
+				Filmmaker::AltEnvironment::Props::RestoreBatch(sceneData, a4, sizeof(CBaseSceneData), saved.data());
+				return;
+			}
+		}
+	}
 	// SEH-guarded rather than a direct field read. More than one descriptor class routes here now,
 	// and "the batch pointer always has this layout" is an assumption per class, not a fact -- a
 	// bad one must degrade to an unfiltered pass-through, never fault in the render worker.
@@ -821,6 +842,9 @@ void new_DrawBaseSceneObject(void* This, void* a2, CBaseSceneData* sceneData, in
 		return original(This, a2, sceneData, a4, a5, a6, a7);
 	const char* rawMaterialName = batchMaterial ? ProbeReadMaterialName(batchMaterial) : nullptr;
 	Filmmaker::RagdollWeapon_ProbeDraw(sceneData, a4, rawMaterialName);
+	// Research only (`altenv sceneprobe`): which scene objects the world draws through.
+	if (Filmmaker::AltEnvironment_SceneProbeArmed())
+		Filmmaker::AltEnvironment_SceneProbeNote(sceneData, a4, sizeof(CBaseSceneData), offsetof(CBaseSceneData, sceneObject), "base");
 	if (batchMaterial == 0) return original(This, a2, sceneData, a4, a5, a6, a7);
 	// Debug only (`world modulate hide`): drop this batch when its material name falls in the chosen hash
 	// bucket, so a screenshot bisect can name the material behind a pixel.
@@ -917,6 +941,9 @@ void** g_AggregateVtable = nullptr;
 
 void __fastcall new_DrawAggregateSceneObject(void* This, void* a2, CBaseSceneData* sceneData, int a4, int a5, void* a6, void* a7) {
 	if (!g_AggregateOriginal) return;
+	// Research only (`altenv sceneprobe`): which scene objects the world draws through.
+	if (sceneData && Filmmaker::AltEnvironment_SceneProbeArmed())
+		Filmmaker::AltEnvironment_SceneProbeNote(sceneData, a4, sizeof(CBaseSceneData), offsetof(CBaseSceneData, sceneObject), "agg");
 	// Debug only (`world modulate hide`): most of a map draws through this aggregate path, so the
 	// bucket filter has to cover it as well to name the material behind a pixel.
 	if (sceneData) {

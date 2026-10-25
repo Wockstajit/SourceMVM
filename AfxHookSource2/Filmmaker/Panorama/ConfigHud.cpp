@@ -5,6 +5,7 @@
 #include "../Movie/CameraPath.h"   // key count for the dock ribbon's meta
 #include "../Environment/EnvironmentScene.h"
 #include "../Heatmap/RoundHeatmap.h" // ENVIRONMENT > Scene Objects: round heat map
+#include "../AltEnvironment/AltEnvironment.h" // ENVIRONMENT > Map: the demo plays on another map
 
 #include "PanoramaFindPanel.h"
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_Active / _LinefAlways (previewrect probe)
@@ -116,6 +117,7 @@ void ConfigHud_PushChar(unsigned charCode) { ConfigHudRef().PushChar(charCode); 
 void ConfigHud_PushKey(const char* name) { ConfigHudRef().PushKey(name); }
 bool ConfigHud_TextCaptureActive() { return ConfigHudRef().TextCaptureActive(); }
 bool ConfigHud_PopupOpen() { return ConfigHudRef().PopupOpen(); }
+bool ConfigHud_MapViewOpen() { return ConfigHudRef().Enabled() && ConfigHudRef().MapViewOpen(); }
 bool ConfigHud_ViewEditing() { return ConfigHudRef().ViewEditing(); }
 
 bool ConfigHud_ScaledHud(float& x0, float& y0, float& x1, float& y1) {
@@ -142,12 +144,14 @@ bool ConfigHud::BuildIfNeeded() {
 	m_symPreviewRect = m_bridge.MakeSymbol("previewrect");
 	m_symTextCapture = m_bridge.MakeSymbol("textcapture");
 	m_symPopupOpen = m_bridge.MakeSymbol("popupopen");
+	m_symMapViewOpen = m_bridge.MakeSymbol("mapviewopen");
 	m_symViewEdit = m_bridge.MakeSymbol("viewedit");
 	m_root = FindRoot();
 	m_built = (m_root != nullptr);
 	m_lastState.clear();
 	m_textCapture = false;
 	m_popupOpen = false;
+	m_mapViewOpen = false;
 	m_viewEdit = false;
 	return m_built;
 }
@@ -173,6 +177,7 @@ void ConfigHud::Teardown() {
 	m_lastState.clear();
 	m_textCapture = false;
 	m_popupOpen = false;
+	m_mapViewOpen = false;
 	m_viewEdit = false;
 	{
 		std::lock_guard<std::mutex> lk(m_charMutex);
@@ -381,6 +386,7 @@ std::string ConfigHud::BuildStateJson() {
 	Environment::AppendStateJson(o);
 	Props_AppendStateJson(o);
 	Heatmap::AppendStateJson(o);
+	AltEnvironment::AppendStateJson(o);
 	SceneRig_AppendStateJson(o);
 	WeaponRecoilRef().AppendStateJson(o);
 	WeaponBobRef().AppendStateJson(o);
@@ -625,7 +631,10 @@ void ConfigHud::DispatchChars() {
 
 void ConfigHud::UpdateTextCapture() {
 	m_textCapture = m_root && (m_bridge.GetAttributeString(m_root, m_symTextCapture, "0") == "1");
-	m_popupOpen = m_root && (m_bridge.GetAttributeString(m_root, m_symPopupOpen, "0") == "1");
+	// The MAP view (ConfigHudAltEnvironmentJs.h) covers the preview like a popup: its clicks, drags
+	// and wheel are the view's, never the camera's.
+	m_mapViewOpen = m_root && (m_bridge.GetAttributeString(m_root, m_symMapViewOpen, "0") == "1");
+	m_popupOpen = m_mapViewOpen || (m_root && (m_bridge.GetAttributeString(m_root, m_symPopupOpen, "0") == "1"));
 	m_viewEdit = m_root && (m_bridge.GetAttributeString(m_root, m_symViewEdit, "0") == "1");
 }
 

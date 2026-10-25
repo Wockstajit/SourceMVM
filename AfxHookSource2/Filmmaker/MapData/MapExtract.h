@@ -24,6 +24,7 @@ constexpr int kExtractorVersion = 2;
 struct ExtractOptions {
     std::function<void(const std::string &)> progress;
     const std::atomic<bool> *cancel = nullptr;
+    std::string addon; // read the map from this Workshop item only (OpenMapSources)
 };
 
 struct ExtractSummary {
@@ -40,8 +41,9 @@ ExtractSummary ExtractMap(const std::filesystem::path &cs2Root, const std::strin
                           const ExtractOptions &options = {});
 
 // True when `<outDir>/<map>.json` is a current-format manifest whose recorded source files
-// all still have their recorded size and write time.
-bool CacheCurrent(const std::filesystem::path &manifest, const std::string &map);
+// all still have their recorded size and write time. With `addon`, the cache must also have been
+// read from that Workshop item: one cache per map name holds whichever source was asked for last.
+bool CacheCurrent(const std::filesystem::path &manifest, const std::string &map, const std::string &addon = {});
 
 // Removes digest-named payloads in `outDir` that no manifest references, and manifests of an
 // older format or extractor version.

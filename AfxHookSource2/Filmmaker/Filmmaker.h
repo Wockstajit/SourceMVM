@@ -94,6 +94,17 @@ std::wstring PlayingDemoPath();
 // finishes mid-session is otherwise used from the next open. False when there is nothing to switch to.
 bool DemoKeyframes_SwitchNow();
 
+// Plays `original` from `playable` (the repaired or keyframed copy the caller resolved, or an
+// alternative-environment copy of one): tears down a demo that is open first, and plays the
+// environment copy when the demo's project asks for another map (AltEnvironment/AltEnvironment.h).
+void PlayResolvedDemo(const std::wstring& original, const std::wstring& playable);
+// Reopens the open demo `original` from `file`, one of its copies, landing on the same tick and
+// keeping it playing or paused. waitForQuiet holds the switch until a quiet pause (the keyframes
+// switch); without it the switch runs at once, except during a render job or a scrub.
+bool SwitchPlayingCopy(const std::wstring& original, const std::wstring& file, bool waitForQuiet);
+// A switch is waiting, reloading or landing.
+bool SwitchingPlayingCopy();
+
 // --- Movie director (camera modes + in-game help HUD) ---
 // Input taps, called from the WndProc / input thread. Return true if the event
 // was consumed (the caller should then swallow it). Safe no-ops if unused.

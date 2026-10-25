@@ -1,8 +1,7 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <WinSock2.h>
-#include <WS2tcpip.h>
+#include <Windows.h>
 
 #include "OsuSkin.h"
 
@@ -12,6 +11,7 @@
 #include "OsuRealm.h"
 
 #include "../../Platform/JsonBuilder.h"
+#include "../../Platform/LocalImageServer.h"
 #include "../../Platform/TextEncoding.h"
 #include "../../Debug/MvmDebugLog.h"
 
@@ -22,11 +22,8 @@
 #include <fstream>
 #include <map>
 #include <mutex>
-#include <random>
 #include <sstream>
 #include <thread>
-
-#pragma comment(lib, "ws2_32.lib")
 
 namespace Filmmaker {
 namespace OsuSkin {
@@ -47,94 +44,28 @@ bool g_beatmapSkins = true;
 double g_cursorSize = 1.0; // osu!lazer GameplayCursorSize
 
 // ---- HTTP -----------------------------------------------------------------------------------
-std::atomic<int> g_port{ 0 };
-std::string g_token;
-std::atomic<unsigned> g_served{ 0 };
+// The skin's images go to Panorama through the shared loopback server (LocalImageServer.h), as
+// http://127.0.0.1:<port>/<token>/osu/<file>. Only the skin's own files are served.
 
 std::string Lower(std::string s) { for (char& c : s) c = (char)tolower((unsigned char)c); return s; }
 
-void Serve(SOCKET c) {
-	char req[2048];
-	int got = 0;
-	while (got < (int)sizeof(req) - 1) {
-		const int n = recv(c, req + got, (int)sizeof(req) - 1 - got, 0);
-		if (n <= 0) break;
-		got += n;
-		req[got] = 0;
-		if (strstr(req, "\r\n\r\n")) break;
+bool ServeSkinFile(const std::string& request, std::string& body, std::string& type) {
+	const std::string name = Lower(request);
+	fs::path file;
+	{
+		std::lock_guard<std::mutex> lock(g_mx);
+		auto it = g_files.find(name);
+		if (it != g_files.end()) file = it->second;
 	}
-	req[got] = 0;
-	std::string path;
-	if (got > 4 && strncmp(req, "GET ", 4) == 0) {
-		const char* sp = strchr(req + 4, ' ');
-		if (sp) path.assign(req + 4, (size_t)(sp - (req + 4)));
-	}
-	// /<token>/<name>
-	std::string body, type = "application/octet-stream";
-	bool ok = false;
-	const std::string prefix = "/" + g_token + "/";
-	if (!g_token.empty() && path.compare(0, prefix.size(), prefix) == 0) {
-		const std::string name = Lower(path.substr(prefix.size()));
-		fs::path file;
-		{
-			std::lock_guard<std::mutex> lock(g_mx);
-			auto it = g_files.find(name);
-			if (it != g_files.end()) file = it->second;
-		}
-		if (!file.empty()) {
-			body = OsuPlatform::ReadFile(file);
-			ok = !body.empty();
-			if (name.size() > 4 && name.compare(name.size() - 4, 4, ".png") == 0) type = "image/png";
-			else if (name.size() > 4 && (name.compare(name.size() - 4, 4, ".jpg") == 0)) type = "image/jpeg";
-		}
-	}
-	char head[256];
-	if (ok) {
-		snprintf(head, sizeof(head), "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %zu\r\n"
-			"Cache-Control: max-age=86400\r\nConnection: close\r\n\r\n", type.c_str(), body.size());
-		g_served.fetch_add(1);
-	} else {
-		snprintf(head, sizeof(head), "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-	}
-	send(c, head, (int)strlen(head), 0);
-	size_t off = 0;
-	while (off < body.size()) {
-		const int n = send(c, body.data() + off, (int)std::min<size_t>(body.size() - off, 1 << 16), 0);
-		if (n <= 0) break;
-		off += (size_t)n;
-	}
-	shutdown(c, SD_SEND);
-	closesocket(c);
+	if (file.empty()) return false;
+	body = OsuPlatform::ReadFile(file);
+	if (name.size() > 4 && name.compare(name.size() - 4, 4, ".png") == 0) type = "image/png";
+	else if (name.size() > 4 && name.compare(name.size() - 4, 4, ".jpg") == 0) type = "image/jpeg";
+	return !body.empty();
 }
 
 void StartServer() {
-	if (g_port.load() != 0) return;
-	WSADATA wsa;
-	if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return;
-	SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (s == INVALID_SOCKET) return;
-	sockaddr_in a{};
-	a.sin_family = AF_INET;
-	a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); // loopback only: never reachable from the network
-	a.sin_port = 0;                              // any free port
-	int len = sizeof(a);
-	if (bind(s, (sockaddr*)&a, sizeof(a)) != 0 || listen(s, 16) != 0 || getsockname(s, (sockaddr*)&a, &len) != 0) {
-		closesocket(s);
-		return;
-	}
-	std::random_device rd;
-	char tok[33];
-	snprintf(tok, sizeof(tok), "%08x%08x%08x%08x", rd(), rd(), rd(), rd());
-	g_token = tok;
-	g_port.store(ntohs(a.sin_port));
-	std::thread([s] {
-		for (;;) {
-			SOCKET c = accept(s, nullptr, nullptr);
-			if (c == INVALID_SOCKET) { Sleep(50); continue; }
-			Serve(c);
-		}
-	}).detach();
-	MvmDebugLog_LinefAlways("osu.skin", "image server on 127.0.0.1:%d", g_port.load());
+	LocalImageServer::Register("osu", ServeSkinFile);
 }
 
 // ---- skin resolution --------------------------------------------------------------------------
@@ -327,7 +258,7 @@ bool Element(JsonBuilder& j, const std::string& base, const char* key) {
 	const Image im = g_images[*pick];
 	if (im.w <= 0) return false;
 	j.Key(key); j.BeginArray();
-	j.ValueString("http://127.0.0.1:" + std::to_string(g_port.load()) + "/" + g_token + "/" + *pick);
+	j.ValueString(LocalImageServer::Url("osu") + *pick);
 	j.ValueInt(im.w); j.ValueInt(im.h); j.ValueInt(ratio);
 	j.EndArray();
 	return true;
@@ -364,7 +295,7 @@ bool BeatmapSkins() { std::lock_guard<std::mutex> lock(g_mx); return g_beatmapSk
 void AppendJson(JsonBuilder& j) {
 	if (!g_ready.load()) return;
 	std::lock_guard<std::mutex> lock(g_mx);
-	if (g_name.empty() || g_port.load() == 0) return;
+	if (g_name.empty() || LocalImageServer::Port() == 0) return;
 	j.Key("skin"); j.BeginObject();
 	j.StringField("name", g_name);
 	j.Key("el"); j.BeginObject();
@@ -409,7 +340,7 @@ std::string Status() {
 	char b[512];
 	snprintf(b, sizeof(b), "skin '%s' (%s): %zu files, %zu images, %zu combo colours, beatmap skins %s, server %d (%u served)",
 		g_name.c_str(), g_ready.load() ? "ready" : (g_loading.load() ? "loading" : "not loaded"), g_files.size(),
-		g_images.size(), g_combo.size(), g_beatmapSkins ? "on" : "off", g_port.load(), g_served.load());
+		g_images.size(), g_combo.size(), g_beatmapSkins ? "on" : "off", LocalImageServer::Port(), LocalImageServer::Served());
 	return b;
 }
 

@@ -61,6 +61,7 @@ int main() {
 	ExpectString(ProjectSectionTag(ProjectSection::Loop), "loop", "loop tag");
 	ExpectString(ProjectSectionTag(ProjectSection::SceneKeys), "scenekeys", "scenekeys tag");
 	ExpectString(ProjectSectionTag(ProjectSection::Cosmetics), "cosmetics", "cosmetics tag");
+	ExpectString(ProjectSectionTag(ProjectSection::Environment), "environment", "environment tag");
 	ExpectString(kProjectFileInfoTag, "project", "info tag");
 
 	// The zlib CRC-32 reference value for "123456789" is 0xCBF43926.

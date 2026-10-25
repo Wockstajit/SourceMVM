@@ -22,6 +22,14 @@ The format readers are ported from ValveResourceFormat 20.0. Its MIT license shi
 | Placed props, world fragments, foliage, cables, light-blocker brushes | every `.vwnod_c` world node, through its models, meshes, materials and textures | `<sha256>.mvmcasters` (`MVMCAST6`) |
 | 3D skybox casters and `sky_camera` scale/origin | the package named by `skybox_reference` | a second `.mvmcasters` |
 
+By name, the map package is the official `game/csgo/maps/<map>.vpk`, then the newest installed
+Workshop item that holds `maps/<map>.vpk`. A caller can ask for one Workshop item instead
+(`ExtractOptions::addon`, `OpenMapSources(..., addon)`), because two items, or an item and a loose
+package, can hold a map of the same name. The alternative environment does this for the item it
+mounts. There is still one cache per map name: a request for an item treats a cache built from
+another source as stale (`CacheCurrent(..., addon)`), and a request by name takes whichever source
+is cached.
+
 Models, materials and textures resolve through the map package, its Workshop addon, the
 selected map's `game/csgo_community_addons/<map>/<map>_dir.vpk` asset mount, then every
 `Game` search path in `game/csgo/gameinfo.gi`. Community directory packages and numbered

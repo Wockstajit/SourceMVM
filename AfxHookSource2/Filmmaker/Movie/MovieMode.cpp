@@ -352,14 +352,23 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 	// press is swallowed too, even if playback ended while the button was down, so CS2 never sees
 	// half a click. The panels around the preview (pause, stop, the timeline) keep every click.
 	if (button == 0 || button == 1) {
-		if (!down && m_playbackSwallowed[button]) {
-			m_playbackSwallowed[button] = false;
+		if (!down && m_swallowedPress[button]) {
+			m_swallowedPress[button] = false;
 			return true;
 		}
 		if (down && IsDemoActive() && UiClick::PathPlaybackSwallowsPress(ClickInput(x, y), PathPlaybackOwnsView())) {
-			m_playbackSwallowed[button] = true;
+			m_swallowedPress[button] = true;
 			if (MvmDebugLog_Active())
 				MvmDebugLog_Linef("input.uiclick", "button=%d x=%d y=%d swallowed: camera path playing", button, x, y);
+			return true;
+		}
+		// The CONFIG MAP view covers the preview: a right drag there turns the demo on the new map
+		// through the cursor pipe, which has seen the press already (WindowInputHooks). CS2 must not
+		// get it as well -- its spectator steps to the previous player on a right click.
+		if (down && button == 1 && IsDemoActive() && ConfigHud_MapViewOpen() && ClickInput(x, y).preview.Contains((float)x, (float)y)) {
+			m_swallowedPress[button] = true;
+			if (MvmDebugLog_Active())
+				MvmDebugLog_Linef("input.uiclick", "button=1 x=%d y=%d swallowed: the MAP view turns the demo", x, y);
 			return true;
 		}
 	}
