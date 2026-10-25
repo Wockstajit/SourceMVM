@@ -234,9 +234,15 @@ column holds the options.
   it is next selected, so a populate never lays out five grids. A slot that disappears (no primary)
   hands the selection on via `ensureActiveSlotVisible()`, and a loadout reseed under the open modal
   reselects the held slot.
-- **Tiles.** `CUST_TILE_W` × 118px, 8px gap, 3 per row in a `right-wrap` row. Panorama has no grid.
-  The tile width is fixed against the fixed card (`3 × 162 + 2 × 8 = 502` inside the 504px picker
-  column), and the last tile of each row drops its right margin. A tile shows the artwork, the
+- **Tiles.** `CUST_TILE_W` × 118px, 8px gap, 3 per row. Panorama has no grid, so `tileShell()`
+  builds each row as its own `flow-children: right` line of three, and the last tile of a line drops
+  its right margin. At 1080p the tiles are 162px (`3 × 162 + 2 × 8 = 502` inside the 504px picker
+  column). Below that, Panorama snaps every width and gap to whole device pixels, and the card's 1px
+  border stays a whole device pixel. At 854 × 480 the grid measures 223 device px, but the tiles
+  need 72 + 4 + 72 + 4 + 72 = 224, so in a single `right-wrap` row the third tile wrapped. So
+  `sizePane()` measures the grid and gives the tiles `custTileFitW()`: the widest whole-device-pixel
+  tile that fits three to a line, capped at `CUST_TILE_W`. That is 162px at 1080p and above, and never
+  more than one device pixel narrower anywhere. A tile shows the artwork, the
   **short** name (no `M4A1-S |` prefix and no `· Minimal Wear` suffix, since the crumb and the wear block say
   those), a ✔ when equipped, and a 3px rarity bar. Stock rows read grey with dimmed art. `tileShell()`
   owns the tile's fill and border through one painter, so a mouseout cannot revert the selected look.
