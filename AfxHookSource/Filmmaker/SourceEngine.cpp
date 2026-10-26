@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "SourceEngine.h"
+#include "SourceConCommand.h"
 #include "SourceGameProfile.h"
 #include "SourceNetvars.h"
 #include "SourceSdk2013.h"
@@ -15,6 +16,8 @@
 #include <windows.h>
 
 #include <cstddef>
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -31,6 +34,9 @@ typedef void* (*CreateInterfaceFn)(const char* name, int* returnCode);
 
 void* g_client = nullptr;
 void* g_entityList = nullptr;
+void* g_engineVgui = nullptr;
+const unsigned char* g_hltvCamera = nullptr; // C_HLTVCamera, found from spec_mode (FindHltvCamera)
+int g_hltvTries = 0;
 const ClientClass* g_classes = nullptr;
 int g_classCount = 0;
 bool g_ready = false;
@@ -158,6 +164,73 @@ int HandleToIndex(unsigned int handle) {
 	const int index = (int)(handle & kEntityHandleIndexMask);
 	return index > 0 ? index : -1;
 }
+
+// The first call in code[0, scan) to a function that is only `lea rax, [rip + x]; ret` (an accessor
+// returning a global), and that global, when both lie in [lo, hi).
+const unsigned char* GuardedFollowAccessor(const unsigned char* code, size_t scan, uintptr_t lo, uintptr_t hi) {
+	__try {
+		for (size_t i = 0; i + 5 <= scan; ++i) {
+			if (code[i] != 0xE8) continue;
+			int32_t rel;
+			std::memcpy(&rel, code + i + 1, 4);
+			const unsigned char* fn = code + i + 5 + rel;
+			if ((uintptr_t)fn < lo || (uintptr_t)fn + 8 > hi) continue;
+			if (fn[0] != 0x48 || fn[1] != 0x8D || fn[2] != 0x05 || fn[7] != 0xC3) continue;
+			int32_t disp;
+			std::memcpy(&disp, fn + 3, 4);
+			const unsigned char* global = fn + 7 + disp;
+			if ((uintptr_t)global >= lo && (uintptr_t)global + 0x40 <= hi) return global;
+		}
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		InterlockedIncrement64(&g_faults);
+	}
+	return nullptr;
+}
+
+// SourceTV's camera: spec_mode's callback starts with `HLTVCamera()->...`, and HLTVCamera() returns
+// the address of the client's one C_HLTVCamera.
+const unsigned char* FindHltvCamera() {
+	HMODULE client = GetModuleHandleW(L"client.dll");
+	const CommandCallback specMode = ConCommand_Callback("spec_mode");
+	if (!client || !specMode) return nullptr;
+	const IMAGE_DOS_HEADER* dos = (const IMAGE_DOS_HEADER*)client;
+	const IMAGE_NT_HEADERS* nt = (const IMAGE_NT_HEADERS*)((const unsigned char*)client + dos->e_lfanew);
+	const uintptr_t lo = (uintptr_t)client, hi = lo + nt->OptionalHeader.SizeOfImage;
+	if ((uintptr_t)specMode < lo || (uintptr_t)specMode + 0x100 > hi) return nullptr;
+	const unsigned char* camera = GuardedFollowAccessor((const unsigned char*)specMode, 0x100, lo, hi);
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("engine", "SourceTV camera: spec_mode at client.dll+0x%llx, camera %s client.dll+0x%llx",
+			(unsigned long long)((uintptr_t)specMode - lo), camera ? "at" : "NOT FOUND near",
+			(unsigned long long)(camera ? (uintptr_t)camera - lo : 0));
+	return camera;
+}
+
+struct HltvState {
+	bool valid = false;
+	int mode = 0;
+	int target = -1;
+	int cameraMan = 0;
+};
+
+HltvState ReadHltv() {
+	HltvState s;
+	if (!g_hltvCamera && g_hltvTries < 600) {
+		++g_hltvTries;
+		g_hltvCamera = FindHltvCamera();
+	}
+	int mode = 0, target = 0, cameraMan = 0;
+	if (!g_hltvCamera || !ReadBytes(g_hltvCamera, kHltvCameraMode, &mode, 4) || !ReadBytes(g_hltvCamera, kHltvCameraTarget, &target, 4)
+		|| !ReadBytes(g_hltvCamera, kHltvCameraMan, &cameraMan, 4))
+		return s;
+	if (mode < 0 || mode > kObserverModeLast || target < 0 || target > 255) return s; // not what it should be: unused
+	s.valid = true;
+	s.mode = mode;
+	s.target = target > 0 ? target : -1;
+	s.cameraMan = cameraMan;
+	return s;
+}
+
+bool SourceTvPlayback() { return g_VEngineClient && g_VEngineClient->IsInGame() && g_VEngineClient->IsHLTV(); }
 
 } // namespace
 
@@ -308,6 +381,7 @@ int Players_LocalIndex() {
 }
 
 int Players_ObservedIndex() {
+	if (SourceTvPlayback()) return ReadHltv().target;
 	const int local = Players_LocalIndex();
 	if (local < 0 || !Engine_Init()) return -1;
 	unsigned int handle = kInvalidEntityHandle;
@@ -316,11 +390,39 @@ int Players_ObservedIndex() {
 }
 
 int Players_ObserverMode() {
+	if (SourceTvPlayback()) return ReadHltv().mode;
 	const int local = Players_LocalIndex();
 	if (local < 0 || !Engine_Init()) return 0;
 	int mode = 0;
 	ReadField(EntityAt(local), kObserverMode, mode);
 	return mode;
+}
+
+bool Engine_SourceTvPlayback() { return SourceTvPlayback(); }
+
+std::string Engine_SpectatorCameraText() {
+	if (!SourceTvPlayback()) return "the local player's observer fields";
+	const HltvState s = ReadHltv();
+	HMODULE client = GetModuleHandleW(L"client.dll");
+	char text[160];
+	if (!s.valid) {
+		std::snprintf(text, sizeof(text), "SourceTV camera NOT FOUND (%d tries)", g_hltvTries);
+	} else {
+		std::snprintf(text, sizeof(text), "SourceTV camera at client.dll+0x%llx: mode %d, target %d%s",
+			(unsigned long long)((uintptr_t)g_hltvCamera - (uintptr_t)client), s.mode, s.target,
+			s.cameraMan > 0 ? ", following a camera man" : "");
+	}
+	return text;
+}
+
+bool Engine_GameUiVisible() {
+	if (g_VEngineClient && g_VEngineClient->Con_IsVisible()) return true;
+	if (!g_engineVgui) {
+		HMODULE engineDll = GetModuleHandleW(L"engine.dll");
+		auto createInterface = engineDll ? (CreateInterfaceFn)GetProcAddress(engineDll, "CreateInterface") : nullptr;
+		if (createInterface) g_engineVgui = createInterface("VEngineVGui001", nullptr);
+	}
+	return CallBool(g_engineVgui, Slot::EngineVGui_IsGameUIVisible, false);
 }
 
 EngineDiagnostics Engine_Diagnostics() {

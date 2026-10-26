@@ -11,6 +11,12 @@
 //     game has the mouse until the button is released, then the cursor returns where it was.
 //   * ESC closes the workspace.
 //
+// With no workspace open, while a demo plays, the movie director runs instead (SourceDirector.h):
+// the demo bar along the bottom and the director cards, the cursor free, a click stepping the
+// spectated player and a held button looking around (Ui/DirectorMouse.h), the wheel cycling the
+// camera, Space, Left, Right and F8 (Ui/DirectorMath.h). It stands aside while the game's menu or
+// console is up.
+//
 // Threading: everything here runs on the main thread except RenderThreadPresent and DeviceLost,
 // which run on the thread that presents. The cursor and raw-input filters run where the input
 // system calls them, which is the main thread.
@@ -43,5 +49,8 @@ void Ui_FilterRawInput(UINT result, UINT command, LPVOID data);
 // mirv_filmmaker editor [on|off|toggle|state]
 void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args);
 bool Ui_EditorOpen();
+
+// mirv_filmmaker director state: the director's mouse, bar, cards and where each bar control is.
+void Ui_DirectorState();
 
 } // namespace SourceFilmmaker

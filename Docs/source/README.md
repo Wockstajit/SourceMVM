@@ -110,6 +110,9 @@ the hook converts them first. See [Old demos](#old-demos).
 | `mirv_filmmaker editor on\|off\|toggle\|state` | The Camera Editor workspace. `state` reports the mouse mode, tabs, preview rect and fonts, and where each demo bar control is |
 | `mirv_filmmaker loop on\|off\|toggle\|state` | LOOP playback, as the demo bar's LOOP button does |
 | `mirv_filmmaker seek <tick>` | Go to a demo tick the way the demo bar does (back = restart, then forward) |
+| `mirv_filmmaker hud on\|off\|toggle\|state` | The [movie director](#movie-director)'s cards |
+| `mirv_filmmaker blackout on\|off\|toggle\|status` | F8's blackout: no HUD, no bar, no cards |
+| `mirv_filmmaker director state` | The director's mouse, bar, cards and readouts, and where each bar control is |
 | `mvm_debug start\|stop\|status` | The shared runtime debug log, as in CS2: `%APPDATA%\HLAE\debuglogs\mvm_debug_*.log`, every console line and every command received over the port, stamped with demo tick, frame and thread |
 
 `health` is the first check when something stops working. `console capture REPLACED` means the
@@ -131,6 +134,14 @@ counted fault (`health` shows the count) instead of a crash. Networked fields su
 are looked up by name in the client's network tables at startup (`SourceNetvars.h`), so a game
 update that moves them does not need new offsets. `mvm_debug start` writes the resolved offsets to
 the log.
+
+In SourceTV playback the view is SourceTV's own camera (client.dll's `C_HLTVCamera`), whose mode and
+target the client keeps to itself: the networked observer fields belong to the SourceTV bot and do
+not follow the camera. The adapter finds the camera by following `spec_mode`'s callback to
+`HLTVCamera()`, a one-instruction accessor, and reads the mode at +0x10 and the target at +0x30 (the
+2013 SDK layout, checked against the x64 `client.dll`). `health` shows it on its `spectator:` line,
+for example `SourceTV camera at client.dll+0x5b4730: mode 4, target 3`. This SDK numbers the
+observer modes 3 fixed, 4 first person, 5 chase, 6 objective and 7 free cam.
 
 What differs per game is a `GameProfile` (`SourceGameProfile.h`): team names, where eye angles
 are networked, and which game events the demo index keeps. CS:S has its own (`CSS/CssProfile.cpp`);
@@ -178,11 +189,12 @@ markers come from the [demo index](#demo-index).
 | SPECTATING | The spectated player |
 | Speed dial | CS2's dial: logarithmic 0.05x to 20x, the middle exactly 1x; a click in one of five zones gives 0.1x, 0.25x, 1x, 4x or 10x; a drag gives anything in between (`demo_timescale`) |
 | NEXT KILL > | The next kill, 0.6 s early |
-| Camera | FIRST PERSON, CHASE CAM, FREE CAM in CS2's order (`spec_mode`) |
+| Camera | FIRST PERSON, CHASE CAM, FREE CAM in CS2's order (`spec_mode` 4, 5, 7) |
 | LOOP | Seeds In and Out at the playhead and 320 ticks on (CS2's seed), then wraps playback at Out |
 | CAM EDITOR | Opens the Camera Editor. Inside the editor it is not shown, because CS2 puts CONFIG there and Config is a later step |
 
-The bar sits in the Camera Editor's REGULAR TIMELINE dock. Its rules are engine-free in
+The bar sits in the Camera Editor's REGULAR TIMELINE dock and, outside the workspaces, along the
+bottom of the screen (the [movie director](#movie-director)). Its rules are engine-free in
 `Ui/DemoBarMath.h` (`SourceDemoBarMathTests`), the markers in `SourceDemoMarkers.cpp`
 (`SourceDemoMarkersTests`), the drawing in `Ui/DemoBar.cpp`, and the game side in
 `SourceDemoBar.cpp`. `mirv_filmmaker editor state` prints each control's rectangle, so a test can
@@ -194,6 +206,59 @@ test SourceTV demo the engine's own skip sometimes stopped with "CL_PreserveExis
 first-person demos seek cleanly both ways. That is engine playback of that demo, not the bar, and
 is checked again with more SourceTV demos.
 
+## Movie director
+
+While a demo plays and no workspace is open, the hook runs CS2's movie director
+(`AfxHookSource2/Filmmaker/Movie/MovieMode.cpp`, `Panorama/MovieHudJs.h`) in CS:S paint:
+
+- The [demo bar](#demo-bar) along the bottom edge, the full width. Its panel covers CS:S's own
+  bottom spectator bar, whose player name and camera options it replaces.
+- The MOVIE DIRECTOR card in the top-right corner, under CS:S's top spectator bar: camera mode,
+  playback, free cam speed, and the camera's position, angles, FOV, tick and time. The readouts
+  refresh at CS2's 10 Hz.
+- The CONTROLS card on the left, a third of the way down, listing the keys below.
+
+| Input | What it does |
+| --- | --- |
+| Mouse | The cursor stays free and the game gets no mouse. The bar takes its own clicks |
+| Click | Left: the next player (`spec_next`); right: the previous one (`spec_prev`) |
+| Hold or drag | Held 200 ms or moved more than 4 px, a press looks around (chase, free cam) until it comes up; the cursor then returns where the press was. CS2's rule, shared with the workspaces (`UiClickMath.h`) |
+| Wheel | First person, chase, free cam, round again (`spec_mode` 4, 5, 7); up steps forward |
+| Ctrl+wheel | FOV, a degree a notch, wheel up zooms in, 1 to 170 (`demo_fov_override`). It belongs to the camera: a camera change drops it |
+| Shift+wheel | In free cam, its speed on CS2's ladder (0.5x steps, halving below 0.5x); 1x is CS:S's `sv_specspeed` 3 |
+| Space | Pause and play; the game never sees the key, so nothing jumps |
+| Left / Right | Five seconds back and on (back restarts and seeks forward, as the bar does) |
+| F8 | Blackout: no HUD, crosshair or spectator bars (`cl_drawhud 0`), no bar, no cards. Again for everything back. With the cards switched off, F8 brings them back |
+
+The director stands aside while the game's menu or console is up (`IEngineVGui::IsGameUIVisible`,
+`Con_IsVisible`), leaving the game the mouse and the keys. When the demo ends, the blackout, the FOV
+and the free cam speed go back to the game's. Demo playback accepts `cl_drawhud` even when the
+demo's server had cheats off. Ctrl+wheel's FOV is the hook's view FOV override (`mirv_fov`'s),
+because `demo_fov_override` does not reach SourceTV's camera.
+
+SourceTV's camera resets whenever a demo starts or a backward seek restarts it. The director
+remembers the camera mode and the player it follows, twice a second, and after a restart puts both
+back (`spec_mode`, `spec_player <user id>`), as CS2 keeps the watched player across a seek. A demo
+whose camera starts at the map origin following nobody (old demos, and the self-recorded test demo)
+opens in first person on the first player instead.
+
+The rules are engine-free in `Ui/DirectorMath.h` and `Ui/DirectorMouse.h`
+(`SourceDirectorMathTests`), the drawing in `Ui/DirectorHud.cpp`, and the game side in
+`SourceDirector.cpp`. The browser mockup runs the same code with a stand-in spectator camera.
+
+What comes from HLAE's inherited Source 1 hook, and what does not. The director uses HLAE's view
+FOV override (`Hook_VClient_RenderView::FovOverride`, `mirv_fov`'s), the game's and the rendered
+view and the demo state (`Hook_VClient_RenderView`, `GetDemoInfoEx`), and HLAE's window, cursor and
+raw-input hooks, where the filmmaker's handlers run first. HLAE has no x64 CS:S counterpart for the
+rest: its SourceTV camera scan (`s_HLTVCamera`) and spectator tools are 32-bit CS:GO code, its
+command hook (`Cmd_ExecuteCommand`) is CS:GO and TF2 only, `WrpConVarRef` reads only CS:GO's cvar
+interface, and its HUD switches (`mirv_streams` drawHud) are 32-bit only. So the camera is read
+through `spec_mode`'s callback, and the HUD, cameras and speed go through console commands. HLAE's
+free camera, `mirv_input`, does run on x64 CS:S; the free cam step builds on it.
+
+CS2's X-ray (X) has no CS:S counterpart. The camera-path keys (K, J, L, F) come with the Camera
+Editor's paths, and Z/X roll with the free cam step.
+
 ## Old demos
 
 Most classic CS:S movie demos were recorded before the Orange Box engine update, on the "v34"
@@ -202,8 +267,8 @@ network protocol 7 outdated, engine version is 24"). With the hook loaded they p
 demo, for example `playdemo replays/old_match`:
 
 - The hook wraps the engine's `playdemo` command (`SourceOldDemos.cpp`). When the file is an old
-  demo, it converts it once on a worker thread and plays the converted copy. A 3 MB SourceTV demo
-  takes about 50 ms.
+  demo, it converts it once on a worker thread and plays the converted copy. A 0.8 MB SourceTV demo
+  took 46 ms, reading the map included.
 - The copy goes to `cstrike/source_mvm/converted/`, under the same path as the original, with a
   `.src` stamp beside it: the original's size and write time and the converter version. Later
   plays reuse the copy until the original or the converter changes.
@@ -213,9 +278,8 @@ demo, for example `playdemo replays/old_match`:
 - A demo recorded on a map that is not installed is not converted. The console names the map to
   put in `cstrike/maps`.
 - Old SourceTV demos carry no director camera events, so the SourceTV camera would open at the
-  map origin, following nobody. Once a player is alive the hook puts it in first person on the
-  first player (`spec_mode 4; spec_next`), again after a backward seek restarts the demo. A
-  player's own (first-person) recording is left alone.
+  map origin, following nobody. The [movie director](#movie-director) opens them in first person
+  on the first player.
 
 The converter (`AfxHookSource/Filmmaker/DemoConvert/`, engine-free) keeps the demo's own network
 tables and writes them in the new layout, so the game decodes every value the way the old one did,
@@ -273,8 +337,6 @@ Limits:
   current client reads fog from a fog controller), the spread in bullet effects, the Dual Elites'
   firing side, the size and lifetime of entity flames, projected-texture colour, and the colour
   correction weight.
-- A backward seek restarts the demo, which resets the SourceTV camera, so it opens on the first
-  player again rather than on the one being watched.
 
 ## Workspace UI
 

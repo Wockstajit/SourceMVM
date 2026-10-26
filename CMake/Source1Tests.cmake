@@ -60,6 +60,14 @@ add_executable(SourceDemoBarMathTests
 target_compile_features(SourceDemoBarMathTests PRIVATE cxx_std_17)
 add_test(NAME SourceDemoBarMathTests COMMAND SourceDemoBarMathTests)
 
+add_executable(SourceDirectorMathTests
+    ../Automation/tests/source-director-math-tests.cpp
+    Filmmaker/Ui/DirectorMath.h
+    Filmmaker/Ui/DirectorMouse.h
+)
+target_compile_features(SourceDirectorMathTests PRIVATE cxx_std_17)
+add_test(NAME SourceDirectorMathTests COMMAND SourceDirectorMathTests)
+
 # The old-demo converter as a command-line tool, for converting a folder and checking the output
 # outside the game. The hook runs the same code when an old demo is played.
 add_executable(SourceDemoConvertTool

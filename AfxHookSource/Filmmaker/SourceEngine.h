@@ -65,10 +65,20 @@ int Players_Snapshot(std::vector<PlayerState>& out);
 // The local player's entity index (the demo's recorder during playback), or -1.
 int Players_LocalIndex();
 
-// Who the local player is spectating, or -1, and the observer mode (0 none, 4 in eye, 5 chase,
-// 6 roaming in CS:S).
+// Who the view follows, or -1, and the observer mode (0 none, 3 fixed, 4 in eye, 5 chase, 7 roaming;
+// Ui/DirectorMath.h). In SourceTV playback that is SourceTV's own camera, which the client keeps
+// apart from the networked observer fields; otherwise the local player's.
 int Players_ObservedIndex();
 int Players_ObserverMode();
+
+// A SourceTV demo is playing: the view is SourceTV's camera.
+bool Engine_SourceTvPlayback();
+
+// "SourceTV camera at client.dll+0x5b4730: mode 4, target 2", for health.
+std::string Engine_SpectatorCameraText();
+
+// The game's own menu or console is up: the director stands aside and leaves the game the mouse.
+bool Engine_GameUiVisible();
 
 // Diagnostics for health: client classes found, networked fields resolved of those asked for, and
 // how many guarded calls faulted.

@@ -4,6 +4,7 @@
 #include "SourceConsole.h"
 #include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
+#include "SourceDirector.h"
 #include "SourceEngine.h"
 #include "SourceGameProfile.h"
 #include "SourceNetcon.h"
@@ -107,6 +108,7 @@ void PrintHealth() {
 	DemoIndex_PrintHealth();
 	OldDemos_PrintHealth();
 	if (!g_VEngineClient->IsInGame()) return;
+	Director_PrintHealth();
 
 	const ViewPose game = View_Game();
 	const ViewPose rendered = View_Rendered();
@@ -153,7 +155,10 @@ void PrintUsage() {
 		"mirv_filmmaker engine  - the networked fields the engine adapter resolved, with offsets.\n"
 		"mirv_filmmaker editor  - on|off|toggle|state: the Camera Editor workspace (ESC closes it).\n"
 		"mirv_filmmaker loop    - on|off|toggle|state: LOOP playback between the demo bar's In and Out.\n"
-		"mirv_filmmaker seek    - <tick>: go to a demo tick as the demo bar does (back = restart, then forward).\n");
+		"mirv_filmmaker seek    - <tick>: go to a demo tick as the demo bar does (back = restart, then forward).\n"
+		"mirv_filmmaker hud     - on|off|toggle|state: the movie director's cards during a demo.\n"
+		"mirv_filmmaker blackout - on|off|toggle|status: F8's blackout (no HUD, no bar, no cards).\n"
+		"mirv_filmmaker director - state: the movie director's mouse, cards, and where each bar control is.\n");
 }
 
 } // namespace
@@ -197,6 +202,12 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::DemoBar_LoopCommand(argc >= 3 ? args->ArgV(2) : "state");
 	} else if (0 == _stricmp(sub, "seek") && argc >= 3) {
 		SourceFilmmaker::DemoBar_SeekTo(atoi(args->ArgV(2)));
+	} else if (0 == _stricmp(sub, "hud")) {
+		SourceFilmmaker::Director_HudCommand(argc >= 3 ? args->ArgV(2) : "state");
+	} else if (0 == _stricmp(sub, "blackout")) {
+		SourceFilmmaker::Director_BlackoutCommand(argc >= 3 ? args->ArgV(2) : "status");
+	} else if (0 == _stricmp(sub, "director")) {
+		SourceFilmmaker::Ui_DirectorState();
 	} else {
 		SourceFilmmaker::PrintUsage();
 	}

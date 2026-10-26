@@ -101,6 +101,8 @@
   }
   // DOM buttons are left 0, middle 1, right 2; the workspace's are left 0, right 1, middle 2.
   function buttonOf(e) { return e.button === 1 ? 2 : (e.button === 2 ? 1 : 0); }
+  // Modifier bits the director's wheel reads: 1 Ctrl, 2 Shift.
+  function modsOf(e) { return (e.ctrlKey ? 1 : 0) | (e.shiftKey ? 2 : 0); }
 
   // The game holds the mouse in Game and Look: ask for pointer lock then, give it back otherwise.
   function syncLock() {
@@ -131,7 +133,7 @@
     if (Module._mockup_mode() !== 0) Module._mockup_motion(e.movementX || 0, e.movementY || 0);
     if (document.pointerLockElement === canvas) return; // the position is frozen while locked
     var p = canvasPoint(e);
-    Module._mockup_mouse(0, 0, p.x, p.y, 0);
+    Module._mockup_mouse(0, 0, p.x, p.y, 0, 0);
     syncLock();
   });
   canvas.addEventListener('mousedown', function (e) {
@@ -139,20 +141,20 @@
     canvas.focus();
     lockFailed = false; // a press is a fresh user gesture
     var p = canvasPoint(e);
-    if (Module._mockup_mouse(1, buttonOf(e), p.x, p.y, 0) !== 1 || state().open) e.preventDefault();
+    if (Module._mockup_mouse(1, buttonOf(e), p.x, p.y, 0, modsOf(e)) !== 1 || state().open) e.preventDefault();
     syncLock();
   });
   window.addEventListener('mouseup', function (e) {
     if (!ready) return;
     var p = canvasPoint(e);
-    Module._mockup_mouse(2, buttonOf(e), p.x, p.y, 0);
+    Module._mockup_mouse(2, buttonOf(e), p.x, p.y, 0, modsOf(e));
     syncLock();
   });
   canvas.addEventListener('wheel', function (e) {
     if (!ready) return;
     var p = canvasPoint(e);
-    Module._mockup_mouse(3, 0, p.x, p.y, e.deltaY < 0 ? 1 : -1);
-    if (state().open) e.preventDefault();
+    // Ctrl+wheel would zoom the page: whatever the UI or the director takes, the page keeps.
+    if (Module._mockup_mouse(3, 0, p.x, p.y, e.deltaY < 0 ? 1 : -1, modsOf(e)) !== 1 || state().open) e.preventDefault();
   }, { passive: false });
   canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 

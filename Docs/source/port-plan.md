@@ -78,7 +78,7 @@ Measured on the installed game on 2026-10-26:
 | 4 | Shared code and tests | Shared CS2 code builds into the Source 1 hook; native tests pass for both; CS2 still works; `mvm_debug` writes a log from CS:S | Done 2026-10-26 |
 | 5 | Engine adapter | Health shows live view, demo time and player values during a CS:S demo | Done 2026-10-26 |
 | 6 | UI foundation | The CS:S-themed UI clicks through in the browser mockup and draws in CS:S at 480p, with CS2's mouse model; captures of open, tab switch and exit | Done 2026-10-26 |
-| 7 | Demo bar and director card | Scrubber with kill, death and round markers read from the demo file; speed dial, -5s/+5s, LOOP, CAM EDITOR and CONFIG; scroll cycles cameras; the director cards; F8 blackout | |
+| 7 | Demo bar and director card | Scrubber with kill, death and round markers read from the demo file; speed dial, -5s/+5s, LOOP, CAM EDITOR and CONFIG; scroll cycles cameras; the director cards; F8 blackout | Done 2026-10-26, CONFIG with the Config workspace |
 | 8 | Free cam and smooth view | | |
 | 9 | Camera Editor | Paths, markers, inspector, preview viewport, shortcut strip | |
 | 10 | Timelines | TIMELINE dock, regular timeline, loop, In/Out flags | |
@@ -140,9 +140,15 @@ test demo, with ticks that match the game's own kill lines. Second part (2026-10
 ([README.md](README.md#demo-bar)) in the REGULAR TIMELINE dock. Every control was clicked in the
 browser mockup and in CS:S at 854x480 with real window messages, at the positions the bar reports:
 play and pause, +5S (+335 ticks), -5S through the restart, NEXT KILL, < ROUND, the dial at 4x and
-1x, the camera button, a scrub click, a kill marker, and LOOP wrapping from 763 back to 476. Still
-to come in step 7: the bar outside the workspaces with CS2's director mouse, wheel cameras and keys,
-and the director cards with F8.
+1x, the camera button, a scrub click, a kill marker, and LOOP wrapping from 763 back to 476. Third
+part (2026-10-26): the [movie director](README.md#movie-director) outside the workspaces: the bar
+along the bottom, CS2's two cards, its mouse (a click steps the player, a held press looks), the
+wheel's cameras with Ctrl for FOV and Shift for speed, Space, Left, Right and F8. Checked in the
+browser mockup and in CS:S at 854x480 with real window messages, against health and the SourceTV
+camera's own mode and target, with captures: each input did what CS2's does; the camera opened in
+first person on a demo that starts at the map origin and came back to the same player and mode after
+a backward seek; CAM EDITOR, ESC and the game menu handed over and back. The CONFIG button comes
+with the Config workspace. Not checked: looking around with a physical mouse.
 
 Old demos, added during step 7 at the owner's request (2026-10-26): demos from the v34 engine
 (network protocol 7) play on the 64-bit game. `playdemo` converts them once into the current format,
@@ -164,8 +170,7 @@ best-effort. GoldSrc is a separate DLL (`AfxHookGoldSrc`) that reuses the engine
 ## Known follow-ups
 
 - Old demos: demos of network protocols other than 7 and 24 (one test demo used 17) are not
-  converted, and a backward seek in an old SourceTV demo reopens the camera on the first player.
-  [README.md](README.md#old-demos) lists the values the converter cannot carry over.
+  converted. [README.md](README.md#old-demos) lists the values the converter cannot carry over.
 
 - The command port's socket server is `Shared/NetconServer`, generalized from Deadlock's
   `DeadlockNetcon.cpp`, and the client is `Automation/netcon/hook-netcon.ps1`, generalized from

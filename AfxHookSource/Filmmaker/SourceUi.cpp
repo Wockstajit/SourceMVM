@@ -2,14 +2,18 @@
 
 #include "SourceUi.h"
 #include "SourceDemoBar.h"
+#include "SourceDirector.h"
 
 #include "Ui/CameraEditorShell.h"
+#include "Ui/DirectorHud.h"
+#include "Ui/DirectorMouse.h"
 #include "Ui/UiRenderDx9.h"
 #include "Ui/UiKeys.h"
 #include "Ui/UiStyle.h"
 #include "Ui/WorkspaceMouse.h"
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
+#include <AfxHookSource2/Filmmaker/Panorama/HudReadoutCadenceMath.h>
 #include <Shared/AfxConsole.h>
 
 #include <imgui.h>
@@ -35,6 +39,8 @@ using namespace Ui;
 
 using Mode = WorkspaceMouse::Mode;
 using Route = WorkspaceMouse::Route;
+using DirectorMode = DirectorMouse::Mode;
+using DirectorRoute = DirectorMouse::Route;
 
 const char* ModeName(Mode m) {
 	switch (m) {
@@ -43,6 +49,8 @@ const char* ModeName(Mode m) {
 	default: return "look";
 	}
 }
+
+const char* DirectorModeName(DirectorMode m) { return m == DirectorMode::Look ? "look" : "free"; }
 
 int64_t NowMs() {
 	return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -57,6 +65,11 @@ struct Host {
 	CameraEditorState editor;
 	HWND window = nullptr;
 	WorkspaceMouse mouse;  // who has the mouse (CS2's rules)
+	DirectorMouse directorMouse; // the same outside the workspaces, while the director runs
+	DirectorCardsModel cards;    // the director cards' readouts, refreshed at CS2's 10 Hz
+	Filmmaker::HudReadoutCadence cadence;
+	Rect bar;              // last frame's director bar panel, client px
+	int wheelRemainder = 0; // wheel delta short of a notch
 	Rect preview;          // last frame's preview, client px
 	bool panelHovered = false; // last frame: the pointer is over a panel
 	POINT gameCursor = { 0, 0 };
@@ -70,6 +83,7 @@ Host g;
 
 // Read by the cursor and raw-input filters.
 std::atomic<bool> g_open{ false };
+std::atomic<bool> g_director{ false }; // the movie director runs (a demo, no workspace)
 std::atomic<bool> g_uiOwnsMouse{ false };
 
 // Hand-off to the render thread.
@@ -147,6 +161,168 @@ void Close(const char* reason) {
 	ShowArrow(false);
 	Publish(nullptr);
 	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("ui.editor", "close reason=%s", reason);
+}
+
+// The director's cursor side: while it is free the arrow shows and the game gets no mouse; a look
+// gives the game the mouse, and its end puts the cursor back where the press was.
+void ApplyDirectorMode(DirectorMode before, const char* reason) {
+	const DirectorMode now = g.directorMouse.GetMode();
+	if (now == before) return;
+	const bool uiOwns = g_director.load() && now == DirectorMode::Free;
+	g_uiOwnsMouse.store(uiOwns);
+	g.haveGameCursor = false;
+	ShowArrow(uiOwns);
+	if (before == DirectorMode::Look && now == DirectorMode::Free && g.window) {
+		POINT p = { (LONG)g.directorMouse.LookX(), (LONG)g.directorMouse.LookY() };
+		ClientToScreen(g.window, &p);
+		SetCursorPos(p.x, p.y);
+	}
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("director.mouse", "mode=%s reason=%s", DirectorModeName(now), reason);
+}
+
+void EnterDirector() {
+	g_director.store(true);
+	g.directorMouse.Reset();
+	g.wheelRemainder = 0;
+	g_uiOwnsMouse.store(true);
+	g.haveGameCursor = false;
+	ShowArrow(true);
+	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("director", "on");
+}
+
+void LeaveDirector() {
+	g_director.store(false);
+	g.directorMouse.Reset();
+	g.bar = Rect();
+	if (!g_open.load()) { // a workspace that opened keeps the mouse
+		g_uiOwnsMouse.store(false);
+		ShowArrow(false);
+		Publish(nullptr);
+	}
+	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("director", "off");
+}
+
+bool OnDirectorMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
+	const int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+	ImGuiIO* io = g.context ? &ImGui::GetIO() : nullptr;
+	const int64_t now = NowMs();
+	const DirectorMode before = g.directorMouse.GetMode();
+	DirectorRoute route = DirectorRoute::Swallow;
+	const char* reason = "input";
+	switch (msg) {
+	case WM_MOUSEMOVE:
+		route = g.directorMouse.Move((float)x, (float)y, now);
+		if (route == DirectorRoute::Ui && io) io->AddMousePosEvent((float)x, (float)y);
+		reason = "drag";
+		break;
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONDBLCLK:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONDBLCLK:
+	case WM_MBUTTONDOWN: {
+		const int button = (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) ? DirectorMouse::Left
+			: (msg == WM_MBUTTONDOWN ? DirectorMouse::Middle : DirectorMouse::Right);
+		route = g.directorMouse.ButtonDown(button, (float)x, (float)y, now, g.bar);
+		if (route == DirectorRoute::Ui && io) {
+			io->AddMousePosEvent((float)x, (float)y);
+			io->AddMouseButtonEvent(button, true);
+		}
+		break;
+	}
+	case WM_LBUTTONUP:
+	case WM_RBUTTONUP:
+	case WM_MBUTTONUP: {
+		const int button = msg == WM_LBUTTONUP ? DirectorMouse::Left : (msg == WM_MBUTTONUP ? DirectorMouse::Middle : DirectorMouse::Right);
+		DirectorMouse::Click click = DirectorMouse::Click::None;
+		route = g.directorMouse.ButtonUp(button, now, click);
+		if (route == DirectorRoute::Ui && io) io->AddMouseButtonEvent(button, false);
+		Director_Click(click);
+		reason = "look released";
+		break;
+	}
+	case WM_MOUSEWHEEL: {
+		// Every notch is the director's while a demo plays, over the bar too (CS2's MovieMode).
+		g.wheelRemainder += GET_WHEEL_DELTA_WPARAM(wParam);
+		const int notches = g.wheelRemainder / WHEEL_DELTA;
+		g.wheelRemainder -= notches * WHEEL_DELTA;
+		const WORD keys = GET_KEYSTATE_WPARAM(wParam);
+		Director_Wheel(notches, (keys & MK_CONTROL) || GetKeyState(VK_CONTROL) < 0, (keys & MK_SHIFT) || GetKeyState(VK_SHIFT) < 0);
+		break;
+	}
+	default:
+		return false;
+	}
+	ApplyDirectorMode(before, reason);
+	if (msg != WM_MOUSEMOVE && Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("director.input", "msg=0x%x x=%d y=%d mode=%s->%s route=%d", msg, x, y,
+			DirectorModeName(before), DirectorModeName(g.directorMouse.GetMode()), (int)route);
+	return route != DirectorRoute::Game;
+}
+
+bool OnDirectorMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+	switch (msg) {
+	case WM_KEYDOWN:
+	case WM_KEYUP: {
+		const DirectorMath::Key key = DirectorMath::KeyFor((int)wParam);
+		if (key == DirectorMath::Key::None) return false;
+		if (msg == WM_KEYDOWN && !(lParam & (1 << 30))) Director_Key(key); // auto-repeat is ignored
+		return true; // both edges are the director's, so Space never jumps
+	}
+	case WM_SETCURSOR:
+		if (g_uiOwnsMouse.load() && LOWORD(lParam) == HTCLIENT) {
+			SetCursor(LoadCursor(nullptr, IDC_ARROW));
+			return true;
+		}
+		return false;
+	case WM_KILLFOCUS: {
+		const DirectorMode before = g.directorMouse.GetMode();
+		g.directorMouse.FocusLost();
+		ApplyDirectorMode(before, "focus lost");
+		return false;
+	}
+	case WM_MOUSEMOVE:
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONUP:
+	case WM_LBUTTONDBLCLK:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONUP:
+	case WM_RBUTTONDBLCLK:
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONUP:
+	case WM_MOUSEWHEEL:
+		return OnDirectorMouse(msg, wParam, lParam);
+	default:
+		return false;
+	}
+}
+
+// The director's frame: the bar and the cards over the game.
+void DirectorFrameBuild(float w, float h) {
+	ImGuiIO& io = ImGui::GetIO();
+	{
+		const DirectorMode before = g.directorMouse.GetMode();
+		g.directorMouse.Tick(NowMs()); // a press held long enough looks even without moving
+		ApplyDirectorMode(before, "hold");
+	}
+	if (g.directorMouse.GetMode() != DirectorMode::Free) io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+
+	DemoBarModel demo;
+	DemoBar_BuildModel(demo);
+	if (g.cadence.Ready((uint64_t)NowMs(), 10, false)) Director_BuildCards(g.cards);
+	const float spectatorBar = Director_SpectatorBarHeight(h);
+	ImGui::NewFrame();
+	const DirectorFrame frame = DrawDirector(Director_State(), demo, g.cards, g.fonts, w, h, spectatorBar, spectatorBar);
+	ImGui::Render();
+	g.bar = frame.bar;
+	++g.frames;
+	if (DemoBar_Apply(frame.demoActions)) {
+		Open("cam editor button");
+		return;
+	}
+	std::shared_ptr<DrawSnapshot> snapshot = TakeSnapshot(ImGui::GetDrawData());
+	snapshot->letterbox = false;
+	Publish(std::move(snapshot));
 }
 
 void EnsureContext() {
@@ -249,7 +425,7 @@ bool OnMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 
 bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	if (!g.window) g.window = hwnd;
-	if (!g_open.load()) return false;
+	if (!g_open.load()) return g_director.load() && OnDirectorMessage(msg, wParam, lParam);
 
 	switch (msg) {
 	case WM_KEYDOWN:
@@ -317,7 +493,14 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 void Ui_MainThreadFrame() {
-	if (!g_open.load() || !g.window) return;
+	Director_Frame();
+	if (!g.window) return;
+	const bool director = !g_open.load() && Director_Wanted();
+	if (director != g_director.load()) {
+		if (director) EnterDirector();
+		else LeaveDirector();
+	}
+	if (!g_open.load() && !director) return;
 	RECT rc;
 	if (!GetClientRect(g.window, &rc)) return;
 	const float w = (float)(rc.right - rc.left), h = (float)(rc.bottom - rc.top);
@@ -333,6 +516,10 @@ void Ui_MainThreadFrame() {
 	float dt = g.frequency.QuadPart > 0 ? (float)(now.QuadPart - g.lastTime.QuadPart) / (float)g.frequency.QuadPart : 0.0f;
 	g.lastTime = now;
 	io.DeltaTime = dt > 0.0f ? (dt < 0.25f ? dt : 0.25f) : 1.0f / 60.0f;
+	if (director) {
+		DirectorFrameBuild(w, h);
+		return;
+	}
 	{
 		const Mode before = g.mouse.GetMode();
 		g.mouse.Tick(NowMs()); // a right press held long enough looks even without moving
@@ -412,6 +599,15 @@ void Ui_FilterRawInput(UINT result, UINT command, LPVOID data) {
 }
 
 bool Ui_EditorOpen() { return g_open.load(); }
+
+void Ui_DirectorState() {
+	advancedfx::Message("director: %s, mouse %s, bar (%.0f %.0f %.0f %.0f), cards %s, blackout %s, frames %u\n",
+		g_director.load() ? "on" : "off", DirectorModeName(g.directorMouse.GetMode()), g.bar.x0, g.bar.y0, g.bar.x1, g.bar.y1,
+		Director_State().cards ? "on" : "off", Director_State().blackout ? "on" : "off", g.frames);
+	advancedfx::Message("cards: %s\n", DirectorCardsText(g.cards).c_str());
+	if (g_director.load() && g.bar.Valid())
+		advancedfx::Message("demo bar: %s\n", DemoBarLayoutText(Director_State().bar.layout).c_str());
+}
 
 void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args) {
 	const char* action = argc >= 3 ? args->ArgV(2) : "state";

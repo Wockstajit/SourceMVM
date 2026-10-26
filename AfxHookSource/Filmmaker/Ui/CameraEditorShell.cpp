@@ -114,7 +114,7 @@ CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& font
 	// The docked editor: the demo bar on REGULAR TIMELINE, opaque as CS2's docked bar is; the
 	// TIMELINE dock comes with its own step.
 	const Rect dock = ToClient(l.dock, stage);
-	BeginPanel("##dock", dock, state.dock == DockTab::Timeline ? Rgba(10, 10, 10, 240) : Rgba(0, 0, 0, 235));
+	BeginPanel("##dock", dock, state.dock == DockTab::Timeline ? Rgba(10, 10, 10, 240) : Theme::DockBg);
 	if (state.dock == DockTab::RegularTimeline) {
 		DemoBarModel inEditor = demo;
 		inEditor.showCamEditorButton = false; // CS2 swaps it for CONFIG inside the editor

@@ -4,6 +4,7 @@
 #include "SourceDemoBarModel.h"
 #include "SourceDemoIndex.h"
 #include "SourceDemoMarkers.h"
+#include "SourceDirector.h"
 #include "SourceEngine.h"
 
 #include "WrpVEngineClient.h"
@@ -129,7 +130,7 @@ void DemoBar_BuildModel(DemoBarModel& model) {
 	UpdateMarkers(index, demo.totalTicks);
 	RefreshPlayers();
 	model.observed = g.observedName;
-	model.cameraMode = DemoBarCameraName(Players_ObserverMode());
+	model.cameraMode = DirectorMath::CameraButtonName(Players_ObserverMode());
 	DemoBarFillMarkers(model, g.markers, &LookupPlayer);
 	switch (index.status) {
 	case DemoIndex::Status::Scanning: model.markerNote = "Reading the demo's kills and rounds..."; break;
@@ -163,8 +164,7 @@ bool DemoBar_Apply(const std::vector<DemoBarAction>& actions) {
 			cameraEditor = true;
 			break;
 		case DemoBarAction::Kind::NextCamera:
-			std::snprintf(command, sizeof(command), "spec_mode %d", DemoBarNextCameraMode(Players_ObserverMode()));
-			Command(command);
+			Director_StepCamera(1);
 			break;
 		}
 	}

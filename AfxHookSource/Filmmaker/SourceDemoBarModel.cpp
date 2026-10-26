@@ -69,24 +69,4 @@ void DemoBarFillMarkers(Ui::DemoBarModel& model, const DemoMarkers& markers, con
 	}
 }
 
-const char* DemoBarCameraName(int mode) {
-	switch (mode) {
-	case 1: return "DEATH CAM";
-	case 2: return "FREEZE CAM";
-	case 3: return "FIXED CAM";
-	case 4: return "FIRST PERSON";
-	case 5: return "CHASE CAM";
-	case 6: return "FREE CAM";
-	default: return "CAMERA";
-	}
-}
-
-int DemoBarNextCameraMode(int mode) {
-	switch (mode) {
-	case 4: return 5;
-	case 5: return 6;
-	default: return 4;
-	}
-}
-
 } // namespace SourceFilmmaker

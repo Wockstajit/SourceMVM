@@ -127,6 +127,8 @@ target_sources(AfxHookSource PRIVATE
     d3d9Hooks.h
     D3D9ImageBuffer.h
     Filmmaker/CSS/CssProfile.cpp
+    Filmmaker/SourceConCommand.cpp
+    Filmmaker/SourceConCommand.h
     Filmmaker/SourceConsole.cpp
     Filmmaker/SourceConsole.h
     Filmmaker/DemoConvert/ConvertV34.cpp
@@ -147,6 +149,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceDemoIndex.h
     Filmmaker/SourceDemoMarkers.cpp
     Filmmaker/SourceDemoMarkers.h
+    Filmmaker/SourceDirector.cpp
+    Filmmaker/SourceDirector.h
     Filmmaker/SourceEngine.cpp
     Filmmaker/SourceEngine.h
     Filmmaker/SourceFilmmaker.cpp
@@ -166,6 +170,10 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/Ui/DemoBar.cpp
     Filmmaker/Ui/DemoBar.h
     Filmmaker/Ui/DemoBarMath.h
+    Filmmaker/Ui/DirectorHud.cpp
+    Filmmaker/Ui/DirectorHud.h
+    Filmmaker/Ui/DirectorMath.h
+    Filmmaker/Ui/DirectorMouse.h
     Filmmaker/Ui/UiImConfig.h
     Filmmaker/Ui/UiKeys.h
     Filmmaker/Ui/UiRenderDx9.cpp

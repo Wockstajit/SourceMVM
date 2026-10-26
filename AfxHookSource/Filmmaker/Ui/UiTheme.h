@@ -38,7 +38,8 @@ constexpr Color TeamT = Rgba(255, 63, 63);
 
 // Semantic roles, so widgets ask for "border" rather than for a scheme name.
 namespace Theme {
-constexpr Color PanelBg = Palette::TransparentBlack;          // inspector column, dock
+constexpr Color PanelBg = Palette::TransparentBlack;          // inspector column, director cards
+constexpr Color DockBg = Rgba(0, 0, 0, 235);                 // the demo bar's panel, docked and on its own
 constexpr Color CardBg = Palette::TransparentLightBlack;      // cards and insets inside a panel
 constexpr Color Border = Palette::LightOrange;
 constexpr Color Accent = Palette::Orange;                     // titles, active tab, preview frame

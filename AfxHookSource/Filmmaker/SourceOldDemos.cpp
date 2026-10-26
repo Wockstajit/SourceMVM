@@ -3,16 +3,12 @@
 #include "SourceOldDemos.h"
 
 #include "DemoConvert/ConvertV34.h"
-#include "SourceDemoIndex.h"
-#include "SourceEngine.h"
+#include "SourceConCommand.h"
 
 #include "WrpVEngineClient.h"
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
 #include <Shared/AfxConsole.h>
-
-#include <css/sdk_src/public/icvar.h>
-#include <css/sdk_src/public/tier1/convar.h>
 
 #include <windows.h>
 
@@ -37,31 +33,6 @@ namespace fs = std::filesystem;
 
 const char kConvertedFolder[] = "source_mvm/converted/";
 
-// tier1/convar.h's ConCommand data, which the SDK keeps private: the base's vtable, next, registered,
-// name, help and flags, then the callback union, the completion union and the callback-kind bits.
-struct ConCommandData {
-	void* vtable;
-	void* next;
-	bool registered;
-	const char* name;
-	const char* help;
-	int flags;
-	void* callback;
-	void* completion;
-	unsigned char bits; // bit 1: m_bUsingNewCommandCallback, bit 2: m_bUsingCommandCallbackInterface
-};
-
-// tier1/convar.h's CCommand.
-struct CommandArgs {
-	int argc;
-	int argv0Size;
-	char argS[512];
-	char argvBuffer[512];
-	const char* argv[64];
-};
-
-typedef void (*CommandCallback)(const CommandArgs& args);
-
 CommandCallback g_playdemo = nullptr;
 bool g_installed = false;
 int g_installTries = 0;
@@ -78,58 +49,6 @@ bool g_busy = false;
 bool g_haveResult = false;
 Job g_result;
 std::string g_last; // the last finished conversion, for health
-
-// Old SourceTV demos carry no director camera events (no hltv_fixed or hltv_chase; only
-// hltv_status), so the SourceTV camera opens fixed with nowhere to put it: the map origin, under
-// the floor, following nobody. Each time a converted SourceTV demo starts (also when a backward
-// seek restarts it), once a player is alive, the camera goes into first person on the first
-// player, as a fresh CS2 demo opens. spec_mode alone is not enough: with no target the in-eye
-// camera stays where it is. The user's own choice afterwards stands.
-bool g_cameraArmed = true;
-int g_lastTick = 0;
-int g_armedFrames = 0;
-
-void OpenInFirstPerson() {
-	const DemoState demo = Demo_State();
-	if (!demo.playing) {
-		g_cameraArmed = true;
-		g_armedFrames = 0;
-		return;
-	}
-	if (demo.tick + 10 < g_lastTick) { // restarted
-		g_cameraArmed = true;
-		g_armedFrames = 0;
-	}
-	g_lastTick = demo.tick;
-	if (!g_cameraArmed || !g_VEngineClient) return;
-	if (DemoIndex_Get().file.compare(0, sizeof(kConvertedFolder) - 1, kConvertedFolder) != 0) {
-		g_cameraArmed = false;
-		return;
-	}
-	std::vector<PlayerState> players;
-	Players_Snapshot(players);
-	const int local = Players_LocalIndex();
-	bool haveLocal = false, sourceTv = false, someoneAlive = false;
-	for (const PlayerState& p : players) {
-		if (p.index == local) {
-			haveLocal = true;
-			sourceTv = p.hltv;
-		} else if (p.alive && !p.hltv) {
-			someoneAlive = true;
-		}
-	}
-	if (!haveLocal) return; // still loading
-	if (!sourceTv || ++g_armedFrames > 1200) {
-		g_cameraArmed = false; // a player's own recording (the view is theirs), or no one came alive
-		return;
-	}
-	const ViewPose view = View_Game();
-	if (!someoneAlive || view.origin[0] != 0 || view.origin[1] != 0 || view.origin[2] != 0) return;
-	g_VEngineClient->ClientCmd_Unrestricted("spec_mode 4; spec_next");
-	g_cameraArmed = false;
-	if (Filmmaker::MvmDebugLog_Active())
-		Filmmaker::MvmDebugLog_Linef("demo.convert", "SourceTV camera at the map origin at tick %d: first person on the first player", demo.tick);
-}
 
 std::string GameDir() {
 	const char* dir = g_VEngineClient ? g_VEngineClient->GetGameDirectory() : nullptr;
@@ -272,25 +191,15 @@ void PlaydemoHook(const CommandArgs& args) {
 } // namespace
 
 void OldDemos_Init() {
-	if (g_installed || g_installTries > 600 || !SOURCESDK::CSS::g_pCVar) return;
-	++g_installTries;
-	SOURCESDK::CSS::ConCommand* command = SOURCESDK::CSS::g_pCVar->FindCommand("playdemo");
-	if (!command) return;
-	ConCommandData* data = (ConCommandData*)command;
-	// Only a command whose layout reads back as expected is touched.
-	if (!data->name || std::strcmp(data->name, "playdemo") != 0 || !(data->bits & 2) || (data->bits & 4) || !data->callback) {
-		g_installTries = 1000;
-		if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("demo.convert", "playdemo not wrapped: unexpected layout");
-		return;
-	}
-	g_playdemo = (CommandCallback)data->callback;
-	data->callback = (void*)&PlaydemoHook;
-	g_installed = true;
+	if (g_installed || g_installTries > 600) return;
+	if (++g_installTries > 600 && Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("demo.convert", "playdemo not wrapped: not found, or an unexpected layout");
+	g_playdemo = ConCommand_Wrap("playdemo", &PlaydemoHook);
+	g_installed = g_playdemo != nullptr;
 }
 
 void OldDemos_Frame() {
 	OldDemos_Init();
-	OpenInFirstPerson();
 	Job job;
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);

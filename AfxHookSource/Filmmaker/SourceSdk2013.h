@@ -106,7 +106,18 @@ const int Entity_GetAbsAngles = 10;
 // IClientNetworkable.
 const int Networkable_GetClientClass = 2;
 const int Networkable_IsDormant = 8;
+// IEngineVGui (VEngineVGui001): the destructor, GetPanel, IsGameUIVisible.
+const int EngineVGui_IsGameUIVisible = 2;
 } // namespace Slot
+
+// client/hltvcamera.h's C_HLTVCamera, SourceTV playback's camera, whose mode and target are not
+// networked: CGameEventListener's vtable and flag, then m_nCameraMode, m_iCameraMan, m_vCamOrigin,
+// m_aCamAngle, m_iTraget1. Measured in CS:S's x64 client.dll on 2026-10-26: SetMode writes +0x10 and
+// fires hltv_changed_mode with "obs_target" read from +0x30.
+const int kHltvCameraMode = 0x10;
+const int kHltvCameraMan = 0x14;
+const int kHltvCameraTarget = 0x30;
+const int kObserverModeLast = 7; // OBS_MODE_ROAMING in this SDK, which added OBS_MODE_POI at 6
 
 } // namespace Sdk2013
 } // namespace SourceFilmmaker

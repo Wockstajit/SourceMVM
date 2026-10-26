@@ -6,7 +6,9 @@
 //     letterboxed into the preview exactly where the game renderer puts the real frame, and turned
 //     by the mouse while the game has it;
 //   - the demo: a playback clock over the SourceTV test demo's real length and events (stand-in
-//     player names), so the demo bar's buttons, dial, scrubber and markers all respond;
+//     player names), so the demo bar's buttons, dial, scrubber and markers all respond, and a
+//     stand-in spectator camera (mode, player, FOV, speed) for the movie director outside the
+//     workspaces;
 //   - the window: index.html forwards DOM mouse and key events here as the game host's window
 //     procedure forwards window messages, and asks for pointer lock while the game has the mouse.
 //
@@ -15,8 +17,12 @@
 
 #include "../AfxHookSource/Filmmaker/SourceDemoBarModel.h"
 #include "../AfxHookSource/Filmmaker/Ui/CameraEditorShell.h"
+#include "../AfxHookSource/Filmmaker/Ui/DirectorHud.h"
+#include "../AfxHookSource/Filmmaker/Ui/DirectorMath.h"
+#include "../AfxHookSource/Filmmaker/Ui/DirectorMouse.h"
 #include "../AfxHookSource/Filmmaker/Ui/UiKeys.h"
 #include "../AfxHookSource/Filmmaker/Ui/WorkspaceMouse.h"
+#include "../AfxHookSource2/Filmmaker/Panorama/HudReadoutCadenceMath.h"
 
 #include <imgui.h>
 #include <imgui_impl_opengl3.h>
@@ -41,6 +47,8 @@ namespace {
 
 using Mode = WorkspaceMouse::Mode;
 using Route = WorkspaceMouse::Route;
+using DirectorMode = DirectorMouse::Mode;
+using DirectorRoute = DirectorMouse::Route;
 
 const char* ModeName(Mode m) {
 	switch (m) {
@@ -59,7 +67,11 @@ struct SimDemo {
 	int total = 4410;
 	double interval = 0.015;
 	double timescale = 1;
-	int observerMode = 4;
+	int observerMode = DirectorMath::kInEye;
+	int target = 0;      // index into spectatable
+	double fov = 0;      // Ctrl+wheel's FOV, 0 while the camera's own
+	double speed = 1;    // the free cam's speed, x
+	std::vector<std::string> spectatable = { "Josh", "Xander", "Kurt", "Nate", "Eli" };
 	bool loopOn = false;
 	DemoBarMath::LoopRegion loop;
 	DemoMarkers markers;
@@ -109,6 +121,11 @@ struct Host {
 	FontSet fonts;
 	CameraEditorState editor;
 	WorkspaceMouse mouse;
+	DirectorState director;
+	DirectorMouse directorMouse;
+	DirectorCardsModel cards;   // the cards' readouts, refreshed at CS2's 10 Hz
+	Filmmaker::HudReadoutCadence cadence;
+	Rect bar;                   // last frame's director bar, client px
 	Rect preview;               // last frame's preview, client px
 	bool panelHovered = false;  // last frame: the pointer is over a panel
 	int width = 854, height = 480;
@@ -124,6 +141,11 @@ Host g;
 
 // The game host logs these as mvm_debug lines; here they go to the browser console.
 void LogLine(const char* channel, const char* text) { std::printf("[%s] %s\n", channel, text); }
+
+// The movie director runs while a demo plays and no workspace is open.
+bool DirectorActive() { return !g.editor.open && g.demo.playing; }
+
+const char* DirectorModeName(DirectorMode m) { return m == DirectorMode::Look ? "look" : "free"; }
 
 void ApplyMode(Mode before, const char* reason) {
 	const Mode now = g.mouse.GetMode();
@@ -199,8 +221,8 @@ void BuildDemoModel(DemoBarModel& model) {
 	model.lastTick = d.total;
 	model.intervalPerTick = d.interval;
 	model.timescale = d.timescale;
-	model.observed = "Josh";
-	model.cameraMode = DemoBarCameraName(d.observerMode);
+	model.observed = d.spectatable[(size_t)d.target];
+	model.cameraMode = DirectorMath::CameraButtonName(d.observerMode);
 	DemoBarFillMarkers(model, d.markers, [](int userId, std::string& name, int& team) {
 		auto it = g.demo.players.find(userId);
 		if (it == g.demo.players.end()) return false;
@@ -215,6 +237,73 @@ void BuildDemoModel(DemoBarModel& model) {
 void SeekSim(int tick) {
 	g.demo.tick = tick < 0 ? 0 : (tick > g.demo.total ? g.demo.total : tick);
 	LogLine("demo.bar", ("seek " + std::to_string((int)g.demo.tick)).c_str());
+}
+
+// A camera change drops the Ctrl+wheel FOV, which belongs to the camera it was set in (CS2).
+void SetCamera(int mode) {
+	if (mode == g.demo.observerMode) return;
+	g.demo.observerMode = mode;
+	g.demo.fov = 0;
+	LogLine("director", (std::string("camera ") + DirectorMath::CameraButtonName(mode)).c_str());
+}
+
+void StepPlayer(int direction) {
+	SimDemo& d = g.demo;
+	const int n = (int)d.spectatable.size();
+	d.target = ((d.target + direction) % n + n) % n;
+	LogLine("director", ("spectating " + d.spectatable[(size_t)d.target]).c_str());
+}
+
+void DirectorWheel(int notches, bool ctrl, bool shift) {
+	SimDemo& d = g.demo;
+	char line[96];
+	switch (DirectorMath::WheelFor(ctrl, shift, d.observerMode)) {
+	case DirectorMath::Wheel::Camera: SetCamera(DirectorMath::StepCamera(d.observerMode, notches)); return;
+	case DirectorMath::Wheel::Fov:
+		d.fov = DirectorMath::StepFov(d.fov > 0 ? d.fov : 90, notches);
+		std::snprintf(line, sizeof(line), "fov %.0f", d.fov);
+		LogLine("director", line);
+		return;
+	case DirectorMath::Wheel::Speed:
+		d.speed = DirectorMath::StepSpeed(d.speed, notches);
+		std::snprintf(line, sizeof(line), "speed %.3f", d.speed);
+		LogLine("director", line);
+		return;
+	case DirectorMath::Wheel::Nothing: return;
+	}
+}
+
+void DirectorKey(DirectorMath::Key key) {
+	SimDemo& d = g.demo;
+	switch (key) {
+	case DirectorMath::Key::TogglePause: d.paused = !d.paused; LogLine("director", d.paused ? "pause" : "resume"); break;
+	case DirectorMath::Key::SkipBack: SeekSim(DirectorMath::SkipTarget((int)d.tick, -1, d.interval, d.total)); break;
+	case DirectorMath::Key::SkipForward: SeekSim(DirectorMath::SkipTarget((int)d.tick, 1, d.interval, d.total)); break;
+	case DirectorMath::Key::Blackout: {
+		DirectorMath::HudState s = { g.director.cards, g.director.blackout };
+		s = DirectorMath::PressF8(s);
+		g.director.cards = s.cards;
+		g.director.blackout = s.blackout;
+		LogLine("director", g.director.blackout ? "blackout on" : "blackout off");
+		break;
+	}
+	case DirectorMath::Key::None: break;
+	}
+}
+
+void BuildCards(DirectorCardsModel& cards) {
+	const SimDemo& d = g.demo;
+	cards = DirectorCardsModel();
+	cards.mode = DirectorMath::CameraCardName(d.observerMode);
+	cards.playing = d.playing;
+	cards.paused = d.paused;
+	cards.speed = d.speed;
+	cards.pos[0] = -412.5; cards.pos[1] = 1296.0; cards.pos[2] = 64.0; // a stand-in spot on de_dust2
+	cards.ang[0] = g.pitch; cards.ang[1] = g.yaw;
+	cards.fov = d.fov > 0 ? d.fov : 90;
+	cards.haveTick = true;
+	cards.tick = (int)d.tick;
+	cards.time = d.tick * d.interval;
 }
 
 void ApplyDemoActions(const std::vector<DemoBarAction>& actions) {
@@ -232,8 +321,8 @@ void ApplyDemoActions(const std::vector<DemoBarAction>& actions) {
 			}
 			LogLine("demo.bar", d.loopOn ? "loop on" : "loop off");
 			break;
-		case DemoBarAction::Kind::NextCamera: d.observerMode = DemoBarNextCameraMode(d.observerMode); break;
-		case DemoBarAction::Kind::CameraEditor: break;
+		case DemoBarAction::Kind::NextCamera: SetCamera(DirectorMath::StepCamera(d.observerMode, 1)); break;
+		case DemoBarAction::Kind::CameraEditor: Open("cam editor button"); break;
 		}
 	}
 }
@@ -274,16 +363,29 @@ void Frame() {
 		g.mouse.Tick((int64_t)nowMs); // a right press held long enough looks even without moving
 		ApplyMode(before, "right hold");
 	}
-	if (g.mouse.GetMode() != Mode::Ui) io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); // nothing hovers while the game has the mouse
+	g.directorMouse.Tick((int64_t)nowMs);
+	const bool director = DirectorActive();
+	if (g.editor.open ? g.mouse.GetMode() != Mode::Ui : (director && g.directorMouse.GetMode() != DirectorMode::Free))
+		io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); // nothing hovers while the game has the mouse
 
 	ImGui::NewFrame();
 	AdvanceDemo(io.DeltaTime);
 	DemoBarModel demo;
 	BuildDemoModel(demo);
 	CameraEditorFrame frame;
-	if (g.editor.open) frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo);
+	DirectorFrame directorFrame;
+	if (g.editor.open) {
+		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo);
+	} else if (director) {
+		if (g.cadence.Ready((uint64_t)nowMs, 10, false)) BuildCards(g.cards);
+		// The backdrop is a CS:S spectator capture, so its spectator bars are where the game's are.
+		const float spectatorBar = (float)g.height * DirectorMath::kSpectatorBarShare;
+		directorFrame = DrawDirector(g.director, demo, g.cards, g.fonts, (float)g.width, (float)g.height, spectatorBar, spectatorBar);
+	}
 	ImGui::Render();
 	ApplyDemoActions(frame.demoActions);
+	ApplyDemoActions(directorFrame.demoActions);
+	g.bar = directorFrame.bar;
 	g.preview = frame.previewClient;
 	g.panelHovered = g.editor.open && io.WantCaptureMouse;
 	++g.frames;
@@ -297,7 +399,7 @@ void Frame() {
 	game.PushTextureID(io.Fonts->TexID);
 	DrawGame(&game, g.editor.open ? frame.previewClient : MakeRect(0, 0, (float)g.width, (float)g.height));
 	RenderList(game);
-	if (g.editor.open) ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+	if (g.editor.open || director) ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 	if (frame.exitClicked) Close("exit chip");
 }
@@ -317,8 +419,16 @@ std::string StateJson() {
 		g.demo.playing ? "true" : "false", g.demo.paused ? "true" : "false", (int)g.demo.tick, g.demo.timescale,
 		g.demo.observerMode, g.demo.loopOn ? "true" : "false", g.demo.loop.in, g.demo.loop.out);
 	std::string json = buf;
-	json.pop_back(); // reopen the object for the bar's layout
-	const DemoBarLayout& l = g.editor.demoBar.layout;
+	json.pop_back(); // reopen the object for the director and the bar's layout
+	const bool director = DirectorActive();
+	std::snprintf(buf, sizeof(buf),
+		",\"director\":{\"active\":%s,\"mouse\":\"%s\",\"cards\":%s,\"blackout\":%s,\"target\":\"%s\",\"fov\":%.1f,\"speed\":%.3f,"
+		"\"bar\":[%.1f,%.1f,%.1f,%.1f]}",
+		director ? "true" : "false", DirectorModeName(g.directorMouse.GetMode()), g.director.cards ? "true" : "false",
+		g.director.blackout ? "true" : "false", g.demo.spectatable[(size_t)g.demo.target].c_str(), g.demo.fov, g.demo.speed,
+		g.bar.x0, g.bar.y0, g.bar.x1, g.bar.y1);
+	json += buf;
+	const DemoBarLayout& l = director ? g.director.bar.layout : g.editor.demoBar.layout;
 	auto add = [&](const char* name, const Rect& r) {
 		if (!r.Valid()) return;
 		char part[96];
@@ -337,10 +447,49 @@ std::string StateJson() {
 
 extern "C" {
 
+// The movie director's mouse (DirectorMouse.h), as SourceUi.cpp routes it.
+int DirectorMouseEvent(int type, int button, float x, float y, float wheel, int mods) {
+	ImGuiIO& io = ImGui::GetIO();
+	const int64_t now = (int64_t)emscripten_get_now();
+	const DirectorMode before = g.directorMouse.GetMode();
+	DirectorRoute route = DirectorRoute::Swallow;
+	DirectorMouse::Click click = DirectorMouse::Click::None;
+	switch (type) {
+	case 0:
+		route = g.directorMouse.Move(x, y, now);
+		if (route == DirectorRoute::Ui) io.AddMousePosEvent(x, y);
+		break;
+	case 1:
+		route = g.directorMouse.ButtonDown(button, x, y, now, g.bar);
+		if (route == DirectorRoute::Ui) {
+			io.AddMousePosEvent(x, y);
+			io.AddMouseButtonEvent(button, true);
+		}
+		break;
+	case 2:
+		route = g.directorMouse.ButtonUp(button, now, click);
+		if (route == DirectorRoute::Ui) io.AddMouseButtonEvent(button, false);
+		if (click == DirectorMouse::Click::NextPlayer) StepPlayer(1);
+		if (click == DirectorMouse::Click::PreviousPlayer) StepPlayer(-1);
+		break;
+	case 3:
+		DirectorWheel(wheel > 0 ? 1 : -1, (mods & 1) != 0, (mods & 2) != 0);
+		route = DirectorRoute::Swallow;
+		break;
+	default:
+		return 1;
+	}
+	if (g.directorMouse.GetMode() != before) {
+		LogLine("director.mouse", (std::string("mode=") + DirectorModeName(g.directorMouse.GetMode())).c_str());
+	}
+	return route == DirectorRoute::Ui ? 0 : (route == DirectorRoute::Game ? 1 : 2);
+}
+
 // Mouse input in canvas px. type: 0 move, 1 button down, 2 button up, 3 wheel (delta in notches,
-// positive away from the user). Returns where the event went: 0 the UI, 1 the game, 2 nowhere.
-EMSCRIPTEN_KEEPALIVE int mockup_mouse(int type, int button, float x, float y, float wheel) {
-	if (!g.editor.open) return 1;
+// positive away from the user); mods: 1 Ctrl, 2 Shift. Returns where the event went: 0 the UI,
+// 1 the game, 2 nowhere.
+EMSCRIPTEN_KEEPALIVE int mockup_mouse(int type, int button, float x, float y, float wheel, int mods) {
+	if (!g.editor.open) return DirectorActive() ? DirectorMouseEvent(type, button, x, y, wheel, mods) : 1;
 	ImGuiIO& io = ImGui::GetIO();
 	const int64_t now = (int64_t)emscripten_get_now();
 	const Mode before = g.mouse.GetMode();
@@ -390,7 +539,9 @@ EMSCRIPTEN_KEEPALIVE int mockup_mouse(int type, int button, float x, float y, fl
 // Relative mouse motion while the game has the mouse (pointer lock or not): turns the stand-in
 // camera, as the game's mouse look would.
 EMSCRIPTEN_KEEPALIVE void mockup_motion(float dx, float dy) {
-	if (g.editor.open && g.mouse.GetMode() == Mode::Ui) return;
+	const bool gameHasMouse = g.editor.open ? g.mouse.GetMode() != Mode::Ui
+		: (DirectorActive() && g.directorMouse.GetMode() == DirectorMode::Look);
+	if (!gameHasMouse) return;
 	g.yaw += dx * 0.1f;
 	g.pitch += dy * 0.1f;
 	if (g.pitch > 60) g.pitch = 60;
@@ -399,7 +550,13 @@ EMSCRIPTEN_KEEPALIVE void mockup_motion(float dx, float dy) {
 
 // A key, as a DOM keyCode (the Windows virtual-key number). Returns 1 when the workspace used it.
 EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
-	if (!g.editor.open) return 0;
+	if (!g.editor.open) {
+		if (!DirectorActive()) return 0;
+		const DirectorMath::Key key = DirectorMath::KeyFor(vk);
+		if (key == DirectorMath::Key::None) return 0;
+		if (down && !repeat) DirectorKey(key); // both edges are the director's; auto-repeat is ignored
+		return 1;
+	}
 	ImGuiIO& io = ImGui::GetIO();
 	const WorkspaceKey key = WorkspaceKeyFor(vk, io.WantTextInput);
 	if (down) {
@@ -427,6 +584,7 @@ EMSCRIPTEN_KEEPALIVE void mockup_focus_lost() {
 	const Mode before = g.mouse.GetMode();
 	g.mouse.FocusLost();
 	ApplyMode(before, "focus lost");
+	g.directorMouse.FocusLost();
 }
 
 // The browser let go of the pointer lock on its own (Esc, or the tab lost focus) while the game had
@@ -436,9 +594,14 @@ EMSCRIPTEN_KEEPALIVE void mockup_lock_lost() {
 	if (before == Mode::Game) g.mouse.ToggleGame();
 	else g.mouse.FocusLost();
 	ApplyMode(before, "pointer lock lost");
+	g.directorMouse.FocusLost();
 }
 
-EMSCRIPTEN_KEEPALIVE int mockup_mode() { return (int)g.mouse.GetMode(); }
+// 0 while the UI has the mouse; otherwise the game has it (the page locks the pointer).
+EMSCRIPTEN_KEEPALIVE int mockup_mode() {
+	if (g.editor.open) return (int)g.mouse.GetMode();
+	return DirectorActive() && g.directorMouse.GetMode() == DirectorMode::Look ? (int)Mode::Look : 0;
+}
 
 // Runs frames now, for test scripts: a background browser tab gets about one animation frame a
 // second, so a script steps the UI itself between the events it sends.
@@ -478,6 +641,16 @@ EMSCRIPTEN_KEEPALIVE const char* mockup_command(const char* command) {
 		else if (0 == std::strcmp(what, "pause")) g.demo.paused = true;
 		else if (0 == std::strncmp(what, "seek ", 5)) SeekSim(std::atoi(what + 5));
 		g.reply = "demo: " + StateJson();
+		return g.reply.c_str();
+	}
+	if (0 == std::strncmp(action, "hud ", 4) || 0 == std::strncmp(action, "blackout ", 9)) {
+		const bool hud = action[0] == 'h';
+		const char* what = action + (hud ? 4 : 9);
+		bool& flag = hud ? g.director.cards : g.director.blackout;
+		if (0 == std::strcmp(what, "on")) flag = true;
+		else if (0 == std::strcmp(what, "off")) flag = false;
+		else if (0 == std::strcmp(what, "toggle")) flag = !flag;
+		g.reply = std::string(hud ? "hud: " : "blackout: ") + (flag ? "on" : "off");
 		return g.reply.c_str();
 	}
 	if (0 == std::strncmp(action, "editor", 6)) action += 6;
