@@ -27,6 +27,7 @@
 #include "AfxStreams.h"
 #include "hlaeFolder.h"
 #include "CampathDrawer.h"
+#include "Filmmaker/SourceFilmmaker.h" // SOURCE:MVM
 
 #ifndef _WIN64
 #include "asmClassTools.h"
@@ -678,6 +679,8 @@ void MySetup(SOURCESDK::CreateInterfaceFn appSystemFactory, WrpGlobals *pGlobals
 
 		PrintInfo();
 
+		SourceFilmmaker::Init(); // SOURCE:MVM
+
 		CAfxStreams::AfxStreamsInit();
 	}
 }
@@ -828,6 +831,8 @@ int __fastcall new_CVClient_Init_Garrysmod(void* This,
 void Shared_BeforeFrameRenderStart(void)
 {
 	g_MirvTime.OnFrameRenderStart();
+
+	SourceFilmmaker::OnFrameRenderStart(); // SOURCE:MVM
 
 	if (CClientTools * instance = CClientTools::Instance()) instance->OnBeforeFrameRenderStart();
 }
@@ -2332,6 +2337,9 @@ LRESULT CALLBACK new_Afx_WindowProc(
 	__in LPARAM lParam
 )
 {
+	if (SourceFilmmaker::OnWindowMessage(hwnd, uMsg, wParam, lParam)) // SOURCE:MVM
+		return 0;
+
 	if (AfxHookSource::Gui::WndProcHandler(hwnd, uMsg, wParam, lParam))
 		return 0;
 
@@ -2490,7 +2498,7 @@ LONG_PTR WINAPI new_SetWindowLongPtrW(
 {
 	if(nIndex == GWLP_WNDPROC)
 	{
-		LONG lResult = SetWindowLongPtrW(hWnd, nIndex, (LONG_PTR)new_Afx_WindowProc);
+		LONG_PTR lResult = SetWindowLongPtrW(hWnd, nIndex, (LONG_PTR)new_Afx_WindowProc);
 
 		if(!g_afxWindowProcSet)
 		{
@@ -2740,7 +2748,7 @@ void CommonHooks()
 		{
 			g_SourceSdkVer = SourceSdkVer_HL2MP;
 		}
-		else if (StringIEndsWith(filePath, "cstrike.exe"))
+		else if (StringIEndsWith(filePath, "cstrike.exe") || StringIEndsWith(filePath, "cstrike_win64.exe"))
 		{
 			g_SourceSdkVer = SourceSdkVer_CSS;
 		}

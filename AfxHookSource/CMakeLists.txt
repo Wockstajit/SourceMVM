@@ -121,6 +121,10 @@ target_sources(AfxHookSource PRIVATE
     d3d9Hooks.cpp
     d3d9Hooks.h
     D3D9ImageBuffer.h
+    Filmmaker/SourceFilmmaker.cpp
+    Filmmaker/SourceFilmmaker.h
+    Filmmaker/SourceNetcon.cpp
+    Filmmaker/SourceNetcon.h
     Gui.cpp
     Gui.h
     hlaeFolder.cpp
@@ -297,6 +301,8 @@ target_sources(AfxHookSource PRIVATE
     ../Shared/MirvCampath.h
     ../Shared/MirvInput.cpp
     ../Shared/MirvInput.h
+    ../Shared/NetconServer.cpp
+    ../Shared/NetconServer.h
 	../Shared/MirvSkip.cpp
 	../Shared/MirvSkip.h
     ../Shared/OpenExrOutput.cpp
@@ -316,6 +322,7 @@ target_sources(AfxHookSource PRIVATE
 
 # This is far form proper, but it will do for now:
 source_group("AfxHookSource" REGULAR_EXPRESSION "/AfxHookSource/")
+source_group("AfxHookSource/Filmmaker" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/")
 source_group("AfxHookSource/tf2" REGULAR_EXPRESSION "/AfxHookSource/tf2/")
 source_group("deps" REGULAR_EXPRESSION "/Deps/")
 source_group("Deps/release" REGULAR_EXPRESSION "/Deps/release/")
