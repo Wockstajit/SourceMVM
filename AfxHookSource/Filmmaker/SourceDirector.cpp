@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "SourceDirector.h"
+#include "SourceCameraPath.h"
 #include "SourceConCommand.h"
 #include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
@@ -261,6 +262,7 @@ void Director_SetSlow(bool slow) {
 }
 
 void Director_StepCamera(int notches) {
+	if (CameraPath_OwnsView()) CameraPath_Stop(); // one of the game's cameras takes the view from the path
 	if (Director_FreeCamOn()) {
 		FreeCam()->SetCameraControlMode(false); // one of the game's cameras takes the view back
 		if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("director", "free cam off");

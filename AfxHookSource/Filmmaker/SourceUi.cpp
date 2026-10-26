@@ -1,8 +1,11 @@
 #include "stdafx.h"
 
 #include "SourceUi.h"
+#include "SourceCameraPath.h"
+#include "SourceCapture.h"
 #include "SourceDemoBar.h"
 #include "SourceDirector.h"
+#include "SourceMainThread.h"
 
 #include "Ui/CameraEditorShell.h"
 #include "Ui/DirectorHud.h"
@@ -223,6 +226,10 @@ bool OnDirectorMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 	case WM_MBUTTONDOWN: {
 		const int button = (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) ? DirectorMouse::Left
 			: (msg == WM_MBUTTONDOWN ? DirectorMouse::Middle : DirectorMouse::Right);
+		if (CameraPath_OwnsView() && !g.bar.Contains((float)x, (float)y) && g.directorMouse.GetMode() == DirectorMode::Free) {
+			route = DirectorRoute::Swallow; // the path flies the view: a press is no look and no player step (CS2)
+			break;
+		}
 		route = g.directorMouse.ButtonDown(button, (float)x, (float)y, now, g.bar, Director_FreeCamOn());
 		if (route == DirectorRoute::Ui && io) {
 			io->AddMousePosEvent((float)x, (float)y);
@@ -237,7 +244,7 @@ bool OnDirectorMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 		DirectorMouse::Click click = DirectorMouse::Click::None;
 		route = g.directorMouse.ButtonUp(button, now, click);
 		if (route == DirectorRoute::Ui && io) io->AddMouseButtonEvent(button, false);
-		Director_Click(click);
+		if (click != DirectorMouse::Click::None) MainThread_Run([click] { Director_Click(click); });
 		reason = "look released";
 		break;
 	}
@@ -247,7 +254,8 @@ bool OnDirectorMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 		const int notches = g.wheelRemainder / WHEEL_DELTA;
 		g.wheelRemainder -= notches * WHEEL_DELTA;
 		const WORD keys = GET_KEYSTATE_WPARAM(wParam);
-		Director_Wheel(notches, (keys & MK_CONTROL) || GetKeyState(VK_CONTROL) < 0, (keys & MK_SHIFT) || GetKeyState(VK_SHIFT) < 0);
+		const bool ctrl = (keys & MK_CONTROL) || GetKeyState(VK_CONTROL) < 0, shift = (keys & MK_SHIFT) || GetKeyState(VK_SHIFT) < 0;
+		if (notches) MainThread_Run([notches, ctrl, shift] { Director_Wheel(notches, ctrl, shift); });
 		break;
 	}
 	default:
@@ -265,13 +273,15 @@ bool OnDirectorMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 	case WM_KEYDOWN:
 	case WM_KEYUP: {
 		if (wParam == VK_SHIFT) {
-			Director_SetSlow(msg == WM_KEYDOWN); // not used up: the game and mirv_input see it too
+			const bool slow = msg == WM_KEYDOWN;
+			MainThread_Run([slow] { Director_SetSlow(slow); }); // not used up: the game and mirv_input see it too
 			return false;
 		}
+		if (CameraPath_OnKey((int)wParam, msg == WM_KEYDOWN, msg == WM_KEYDOWN && (lParam & (1 << 30)))) return true;
 		if (Director_RollKey((int)wParam, msg == WM_KEYDOWN, GetKeyState(VK_CONTROL) < 0)) return true;
 		const DirectorMath::Key key = DirectorMath::KeyFor((int)wParam);
 		if (key == DirectorMath::Key::None) return false;
-		if (msg == WM_KEYDOWN && !(lParam & (1 << 30))) Director_Key(key); // auto-repeat is ignored
+		if (msg == WM_KEYDOWN && !(lParam & (1 << 30))) MainThread_Run([key] { Director_Key(key); }); // auto-repeat is ignored
 		return true; // both edges are the director's, so Space never jumps
 	}
 	case WM_SETCURSOR:
@@ -435,6 +445,8 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	switch (msg) {
 	case WM_KEYDOWN:
 	case WM_SYSKEYDOWN:
+		if (!(g.context && ImGui::GetIO().WantTextInput) && CameraPath_OnKey((int)wParam, true, (lParam & (1 << 30)) != 0))
+			return true;
 		switch (WorkspaceKeyFor((int)wParam, g.context && ImGui::GetIO().WantTextInput)) {
 		case WorkspaceKey::Close:
 			Close("esc");
@@ -453,6 +465,7 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 		return g.context && ImGui::GetIO().WantCaptureKeyboard;
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
+		if (!(g.context && ImGui::GetIO().WantTextInput) && CameraPath_OnKey((int)wParam, false, false)) return true;
 		FeedKey(wParam, false);
 		if (WorkspaceKeyFor((int)wParam, g.context && ImGui::GetIO().WantTextInput) != WorkspaceKey::None) return true;
 		return g.context && ImGui::GetIO().WantCaptureKeyboard;
@@ -563,8 +576,8 @@ void Ui_RenderThreadPresent(IDirect3DDevice9* device) {
 		snapshot = g_latest;
 		if (snapshot && g_renderFont.version != g_fontPixels.version) g_renderFont = g_fontPixels;
 	}
-	if (!snapshot) return;
-	g_renderer.Render(device, *snapshot, g_renderFont);
+	if (snapshot) g_renderer.Render(device, *snapshot, g_renderFont);
+	Capture_RenderThread(device); // a requested frame, the UI just drawn into it
 }
 
 void Ui_DeviceLost() { g_renderer.ReleaseDeviceObjects(); }

@@ -113,6 +113,8 @@ the hook converts them first. See [Old demos](#old-demos).
 | `mirv_filmmaker hud on\|off\|toggle\|state` | The [movie director](#movie-director)'s cards |
 | `mirv_filmmaker blackout on\|off\|toggle\|status` | F8's blackout: no HUD, no bar, no cards |
 | `mirv_filmmaker director state` | The director's mouse, bar, cards and readouts, and where each bar control is |
+| `mirv_filmmaker marker ...` | [Camera paths](#camera-paths): `place`, `delete <i>`, `deleteall confirm`, `select <i>\|next\|prev`, `arm`, `play`, `pause`, `stop`, `timing live\|freeze\|toggle`, `interp linear\|smooth\|cycle`, `speedmode manual\|constant\|persegment`, `constspeed <0.2..1>`, `speedmul <v>`, `autosnap`, `list` |
+| `mirv_filmmaker capture "<file.bmp>"` | The next frame as the game shows it, the filmmaker's UI included, from the back buffer at Present. Quote the path: the console splits arguments at `:` |
 | `mvm_debug start\|stop\|status` | The shared runtime debug log, as in CS2: `%APPDATA%\HLAE\debuglogs\mvm_debug_*.log`, every console line and every command received over the port, stamped with demo tick, frame and thread |
 
 `health` is the first check when something stops working. `console capture REPLACED` means the
@@ -313,6 +315,43 @@ In the game's free cam (`spec_mode` 7), X and Z held roll right and left at 90 d
 in CS2; the roll belongs to that camera, so a camera change clears it. CS2's X-ray (X in first
 person and chase) has no CS:S counterpart. The camera-path keys (K, J, L, F) come with the Camera
 Editor's paths.
+
+## Camera paths
+
+CS2's camera paths run in CS:S from CS2's own code. The marker list (`CamMarkers`), the path built
+on HLAE's `CamPath` spline (`CamPathEval`), its playback with the predicted demo clock and the
+smoothed pose (`CamPlayback`) and aim picking (`CamMarkerPickMath.h`) are compiled from
+`AfxHookSource2/Filmmaker/Movie/` into both hooks. CS2's camera bridge (`CameraBridge.h`) is what
+they ask the game: CS:S answers in `SourceCameraBridge.cpp` with HLAE's free camera, which flies
+the path as it does in CS2, HLAE's view hook and HLAE's demo clock (`GetCurrentDemoTick/Time`).
+`SourceCameraPath.cpp` is the facade, as CS2's `CameraPath` and Deadlock's `DeadlockShot` are.
+The path builds on its own `CamPath`, so `mirv_campath` keeps HLAE's separate path in the view hook.
+
+| Key | Outside the workspaces and in the Camera Editor |
+| --- | --- |
+| K | A marker at the view as it is (position, angles, roll, FOV) and the demo's tick; one per tick, so a second press on the same tick re-poses it |
+| L | Deletes the marker the view aims at (a cone of about 5 degrees that widens up close); with none aimed at, the key is the game's |
+| J | Arms the path: the demo goes paused to the first marker and holds its pose. J or Space then plays, Esc cancels, the arrows are held |
+| Space, Esc | While playing: Space pauses, J or Esc stops; W, A, S or D stop the path and move the free cam on the same press |
+
+A path needs two markers. Live timing plays it against the demo's ticks, so the camera flies
+while the demo plays and the demo stops paused on the last marker, where the game's camera takes the
+view back. Freeze plays it on the wall clock with the demo held. With the demo bar's LOOP on, a path
+that ends plays again. Speed modes (Manual, Constant, Per-segment), the curve (Linear, Smooth) and
+per-marker ease are CS2's. While a path flies the view, presses neither look nor step players and a
+camera change stops it. Markers belong to the demo they were placed in; another demo starts with an
+empty path until paths are saved per demo.
+
+Input that CS:S hands the window procedure on its second thread (it does while a demo restarts or
+seeks) runs on the main thread: the handlers decide on the spot and post their action
+(`SourceMainThread.h`).
+
+Checked in CS:S on 2026-10-26 in an old dust2 SourceTV demo: K placed markers at three ticks while
+it played; J armed at the first, paused, with its pose; Space played the path through the markers
+while the demo ran and stopped paused on the last marker, the game's camera back; Freeze timing with
+a Smooth constant-speed path flew with the demo held; another demo started with an empty path. In
+the self-recorded test demo the resume after arming hit the engine's "missing client entity 62"
+again (see [Demo bar](#demo-bar)).
 
 ## Old demos
 

@@ -94,9 +94,12 @@ void UpdateMarkers(const DemoIndex& index, int lastTick) {
 
 } // namespace
 
-void DemoBar_SeekTo(int target) {
+bool DemoBar_LoopOn() { return g.loopOn; }
+
+void DemoBar_SeekTo(int target, int pause) {
 	const DemoState demo = Demo_State();
 	if (!demo.playing) return;
+	const bool paused = pause < 0 ? demo.paused : pause == 1;
 	const DemoBarMath::Seek seek = DemoBarMath::PlanSeek(demo.tick, target, demo.totalTicks);
 	const DemoIndex index = DemoIndex_Get();
 	char command[600];
@@ -104,13 +107,13 @@ void DemoBar_SeekTo(int target) {
 		// Back: restart now, seek forward once it plays (DemoBarMath::Seek says why).
 		g.restartPending = true;
 		g.restartTarget = seek.tick;
-		g.restartPaused = demo.paused;
+		g.restartPaused = paused;
 		g.restartTimescale = demo.timescale;
 		g.restartSawStop = false;
 		g.restartAt = Clock::now();
 		std::snprintf(command, sizeof(command), "playdemo \"%s\"", index.file.c_str());
 	} else {
-		std::snprintf(command, sizeof(command), "demo_gototick %d 0 %d", seek.tick, demo.paused ? 1 : 0);
+		std::snprintf(command, sizeof(command), "demo_gototick %d 0 %d", seek.tick, paused ? 1 : 0);
 	}
 	Command(command);
 }

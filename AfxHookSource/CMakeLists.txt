@@ -127,6 +127,11 @@ target_sources(AfxHookSource PRIVATE
     d3d9Hooks.h
     D3D9ImageBuffer.h
     Filmmaker/CSS/CssProfile.cpp
+    Filmmaker/SourceCameraBridge.cpp
+    Filmmaker/SourceCameraPath.cpp
+    Filmmaker/SourceCameraPath.h
+    Filmmaker/SourceCapture.cpp
+    Filmmaker/SourceCapture.h
     Filmmaker/SourceConCommand.cpp
     Filmmaker/SourceConCommand.h
     Filmmaker/SourceConsole.cpp
@@ -157,6 +162,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceFilmmaker.h
     Filmmaker/SourceGameProfile.cpp
     Filmmaker/SourceGameProfile.h
+    Filmmaker/SourceMainThread.cpp
+    Filmmaker/SourceMainThread.h
     Filmmaker/SourceNetcon.cpp
     Filmmaker/SourceNetcon.h
     Filmmaker/SourceNetvars.h
@@ -201,8 +208,23 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Debug/MvmDebugLog.cpp
     ../AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h
     ../AfxHookSource2/Filmmaker/Debug/MvmDebugLogHost.h
+    ../AfxHookSource2/Filmmaker/Platform/JsonBuilder.cpp
+    ../AfxHookSource2/Filmmaker/Platform/JsonBuilder.h
+    ../AfxHookSource2/Filmmaker/Platform/JsonParser.cpp
+    ../AfxHookSource2/Filmmaker/Platform/JsonParser.h
     ../AfxHookSource2/Filmmaker/Platform/TextEncoding.cpp
     ../AfxHookSource2/Filmmaker/Platform/TextEncoding.h
+    ../AfxHookSource2/Filmmaker/Movie/CamMarkerPickMath.h
+    ../AfxHookSource2/Filmmaker/Movie/CamMarkers.cpp
+    ../AfxHookSource2/Filmmaker/Movie/CamMarkers.h
+    ../AfxHookSource2/Filmmaker/Movie/CamPathEval.cpp
+    ../AfxHookSource2/Filmmaker/Movie/CamPathEval.h
+    ../AfxHookSource2/Filmmaker/Movie/CamPathTimingMath.h
+    ../AfxHookSource2/Filmmaker/Movie/CamPlayback.cpp
+    ../AfxHookSource2/Filmmaker/Movie/CamPlayback.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraBridge.h
+    ../AfxHookSource2/Filmmaker/Movie/GraphCurveMath.h
+    ../AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h
     ../AfxHookSource2/Filmmaker/Movie/SmoothView.cpp
     ../AfxHookSource2/Filmmaker/Movie/SmoothView.h
     ../AfxHookSource2/Filmmaker/Movie/SmoothViewAirMotionMath.h

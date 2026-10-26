@@ -738,6 +738,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/CamPlayback.h
     Filmmaker/Movie/CameraPath.cpp
     Filmmaker/Movie/CameraPathPicking.cpp
+    Filmmaker/Movie/CamMarkerPickMath.h
     Filmmaker/Movie/CameraPath.h
     Filmmaker/Movie/SceneKeyframeCatalog.cpp
     Filmmaker/Movie/SceneKeys.cpp

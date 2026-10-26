@@ -1,12 +1,15 @@
 #include "stdafx.h"
 
 #include "SourceFilmmaker.h"
+#include "SourceCameraPath.h"
+#include "SourceCapture.h"
 #include "SourceConsole.h"
 #include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
 #include "SourceDirector.h"
 #include "SourceEngine.h"
 #include "SourceGameProfile.h"
+#include "SourceMainThread.h"
 #include "SourceNetcon.h"
 #include "SourceOldDemos.h"
 #include "SourceSmoothView.h"
@@ -112,6 +115,7 @@ void PrintHealth() {
 	OldDemos_PrintHealth();
 	if (!g_VEngineClient->IsInGame()) return;
 	Director_PrintHealth();
+	CameraPath_PrintHealth();
 
 	const ViewPose game = View_Game();
 	const ViewPose rendered = View_Rendered();
@@ -162,7 +166,9 @@ void PrintUsage() {
 		"mirv_filmmaker hud     - on|off|toggle|state: the movie director's cards during a demo.\n"
 		"mirv_filmmaker blackout - on|off|toggle|status: F8's blackout (no HUD, no bar, no cards).\n"
 		"mirv_filmmaker director - state: the movie director's mouse, cards, and where each bar control is.\n"
-		"mirv_filmmaker smoothview - on|off|toggle|state|reset|<setting> <value>: CS2's Smooth View.\n");
+		"mirv_filmmaker smoothview - on|off|toggle|state|reset|<setting> <value>: CS2's Smooth View.\n"
+		"mirv_filmmaker marker  - place|delete|select|arm|play|pause|stop|timing|interp|speedmode|...: camera paths.\n"
+		"mirv_filmmaker capture - <file.bmp>: the next frame as the game shows it, the filmmaker's UI included.\n");
 }
 
 } // namespace
@@ -191,9 +197,11 @@ void OnViewOverride(float tx, float ty, float tz, float& rx, float& ry, float& r
 
 void OnFrameRenderStart() {
 	g_frameRenderStarts.fetch_add(1);
+	MainThread_Frame();
 	DemoIndex_Frame();
 	OldDemos_Frame();
 	DemoBar_Frame();
+	CameraPath_Frame();
 	Ui_MainThreadFrame();
 }
 
@@ -223,6 +231,10 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::Ui_DirectorState();
 	} else if (0 == _stricmp(sub, "smoothview")) {
 		SourceFilmmaker::SmoothView_Command(argc, args);
+	} else if (0 == _stricmp(sub, "marker")) {
+		SourceFilmmaker::CameraPath_Command(argc, args);
+	} else if (0 == _stricmp(sub, "capture")) {
+		SourceFilmmaker::Capture_Request(argc >= 3 ? args->ArgV(2) : "");
 	} else {
 		SourceFilmmaker::PrintUsage();
 	}
