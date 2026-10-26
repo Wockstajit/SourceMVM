@@ -28,3 +28,10 @@ add_executable(SourceWorkspaceLayoutMathTests
 )
 target_compile_features(SourceWorkspaceLayoutMathTests PRIVATE cxx_std_17)
 add_test(NAME SourceWorkspaceLayoutMathTests COMMAND SourceWorkspaceLayoutMathTests)
+
+add_executable(SourceWorkspaceMouseTests
+    ../Automation/tests/source-workspace-mouse-tests.cpp
+    Filmmaker/Ui/WorkspaceMouse.h
+)
+target_compile_features(SourceWorkspaceMouseTests PRIVATE cxx_std_17)
+add_test(NAME SourceWorkspaceMouseTests COMMAND SourceWorkspaceMouseTests)

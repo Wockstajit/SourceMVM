@@ -154,6 +154,7 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/Ui/UiWidgets.cpp
     Filmmaker/Ui/UiWidgets.h
     Filmmaker/Ui/WorkspaceLayoutMath.h
+    Filmmaker/Ui/WorkspaceMouse.h
 
     # Dear ImGui (MIT), the Source 1 UI's widget layer.
     ../Deps/release/imgui/imgui.cpp
