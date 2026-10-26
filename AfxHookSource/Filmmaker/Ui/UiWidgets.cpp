@@ -18,21 +18,36 @@ void BeginPanel(const char* name, const Rect& client, Color bg) {
 	ImGui::PopStyleColor();
 }
 
+namespace {
+
+// The length in bytes of the UTF-8 character at p (1 for a stray continuation byte).
+int CharBytes(const char* p) {
+	const unsigned char c = (unsigned char)*p;
+	const int n = c < 0x80 ? 1 : ((c >> 5) == 0x6 ? 2 : ((c >> 4) == 0xE ? 3 : ((c >> 3) == 0x1E ? 4 : 1)));
+	for (int i = 1; i < n; ++i)
+		if (!p[i]) return i; // cut short by the end of the text
+	return n;
+}
+
+} // namespace
+
 float SpacedTextWidth(ImFont* font, const char* text, float spacing) {
 	float w = 0;
 	int n = 0;
-	for (const char* p = text; *p; ++p, ++n) {
-		char c[2] = { *p, 0 };
-		w += font->CalcTextSizeA(font->FontSize, 1e9f, 0, c).x;
+	for (const char* p = text; *p; ++n) {
+		const int bytes = CharBytes(p);
+		w += font->CalcTextSizeA(font->FontSize, 1e9f, 0, p, p + bytes).x;
+		p += bytes;
 	}
 	return n > 1 ? w + spacing * (n - 1) : w;
 }
 
 void DrawSpacedText(ImDrawList* draw, ImFont* font, ImVec2 pos, ImU32 color, const char* text, float spacing) {
-	for (const char* p = text; *p; ++p) {
-		char c[2] = { *p, 0 };
-		draw->AddText(font, font->FontSize, pos, color, c);
-		pos.x += font->CalcTextSizeA(font->FontSize, 1e9f, 0, c).x + spacing;
+	for (const char* p = text; *p;) {
+		const int bytes = CharBytes(p);
+		draw->AddText(font, font->FontSize, pos, color, p, p + bytes);
+		pos.x += font->CalcTextSizeA(font->FontSize, 1e9f, 0, p, p + bytes).x + spacing;
+		p += bytes;
 	}
 }
 

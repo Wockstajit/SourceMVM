@@ -10,7 +10,8 @@
 //     stand-in spectator camera (mode, player, FOV, speed) for the movie director outside the
 //     workspaces;
 //   - the world: a stand-in camera path ("markers on") ahead of the stand-in camera, drawn by the
-//     game's own path overlay (Ui/PathOverlay.h) over the frame;
+//     game's own path overlay (Ui/PathOverlay.h) over the frame, and a stand-in list of its
+//     cameras that the PATH CAMERA inspector edits (Ui/PathInspector.h) as the game's path would;
 //   - the window: index.html forwards DOM mouse and key events here as the game host's window
 //     procedure forwards window messages, and asks for pointer lock while the game has the mouse.
 //
@@ -143,6 +144,7 @@ struct Host {
 	float yaw = 0, pitch = 0;   // the stand-in game camera, degrees
 	bool pathOn = false;        // the stand-in camera path is drawn
 	bool pathFreeze = false;    // in Freeze blue, else Live gold
+	PathInspectorModel path;    // the cameras the PATH CAMERA tab edits
 	SimDemo demo = MakeSimDemo();
 	std::string reply;          // backing store for strings handed to JavaScript
 };
@@ -414,6 +416,67 @@ void DrawStandInPath(ImDrawList& list, const Rect& r, ImFont* digits) {
 	}
 }
 
+// The PATH CAMERA tab's requests, applied to the stand-in list as SourceCameraPath.cpp applies them
+// to the game's path.
+void ApplyPathActions(const std::vector<PathInspectorAction>& actions) {
+	using Kind = PathInspectorAction::Kind;
+	PathInspectorModel& p = g.path;
+	const int count = (int)p.keys.size();
+	for (const PathInspectorAction& a : actions) {
+		const bool valid = a.index >= 0 && a.index < count;
+		switch (a.kind) {
+		case Kind::Select: if (valid) { p.selected = a.index; SeekSim(p.keys[(size_t)a.index].tick); } break;
+		case Kind::SelectDelta:
+			if (count > 0) {
+				int next = (p.selected < 0 ? 0 : p.selected) + a.index;
+				p.selected = next < 0 ? 0 : (next >= count ? count - 1 : next);
+				SeekSim(p.keys[(size_t)p.selected].tick);
+			}
+			break;
+		case Kind::Add: {
+			PathInspectorKey k;
+			k.tick = (int)g.demo.tick;
+			k.fov = g.demo.freeCamFov;
+			size_t at = 0;
+			while (at < p.keys.size() && p.keys[at].tick < k.tick) ++at;
+			if (at < p.keys.size() && p.keys[at].tick == k.tick) { p.selected = (int)at; break; } // one per tick
+			p.keys.insert(p.keys.begin() + (long)at, k);
+			p.selected = (int)at;
+			break;
+		}
+		case Kind::ClearAll: p.keys.clear(); p.selected = -1; break;
+		case Kind::Delete:
+			if (valid) {
+				p.keys.erase(p.keys.begin() + a.index);
+				if (p.selected >= (int)p.keys.size()) p.selected = (int)p.keys.size() - 1;
+			}
+			break;
+		case Kind::MoveToPlayhead:
+			if (valid) {
+				int t = a.tick;
+				if (a.index > 0 && t <= p.keys[(size_t)a.index - 1].tick) t = p.keys[(size_t)a.index - 1].tick + 1;
+				if (a.index < count - 1 && t >= p.keys[(size_t)a.index + 1].tick) t = p.keys[(size_t)a.index + 1].tick - 1;
+				p.keys[(size_t)a.index].tick = t;
+			}
+			break;
+		case Kind::EditValue:
+			if (valid) (a.channel == 6 ? p.keys[(size_t)a.index].fov : p.keys[(size_t)a.index].roll) = a.value;
+			break;
+		case Kind::Reposition: p.repositioning = valid; break;
+		case Kind::Interp: p.interp = a.index; break;
+		case Kind::Ease: if (valid) p.keys[(size_t)a.index].ease = (int)a.value; break;
+		case Kind::SpeedMode: p.speedMode = a.index; break;
+		case Kind::SpeedMul: if (valid && a.index < count - 1) p.keys[(size_t)a.index].speedMul = (float)a.value; break;
+		case Kind::ConstSpeed: p.constSpeed = (float)a.value; break;
+		case Kind::Timing: p.timing = a.index; break;
+		default: break;
+		}
+		char line[96];
+		std::snprintf(line, sizeof(line), "kind=%d index=%d value=%.2f", (int)a.kind, a.index, a.value);
+		LogLine("path.inspector", line);
+	}
+}
+
 // Renders a draw list built outside the ImGui frame through the same backend as the UI.
 void RenderList(ImDrawList& list) {
 	ImDrawData data;
@@ -451,7 +514,8 @@ void Frame() {
 	CameraEditorFrame frame;
 	DirectorFrame directorFrame;
 	if (g.editor.open) {
-		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo);
+		g.path.tick = (int)g.demo.tick;
+		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo, g.path);
 	} else if (director) {
 		if (g.cadence.Ready((uint64_t)nowMs, 10, false)) BuildCards(g.cards);
 		// The backdrop is a CS:S spectator capture, so its spectator bars are where the game's are.
@@ -461,8 +525,9 @@ void Frame() {
 	ImGui::Render();
 	ApplyDemoActions(frame.demoActions);
 	ApplyDemoActions(directorFrame.demoActions);
+	ApplyPathActions(frame.pathActions);
 	g.bar = directorFrame.bar;
-	g.preview = frame.previewClient;
+	g.preview = frame.modal ? Rect() : frame.previewClient;
 	g.panelHovered = g.editor.open && io.WantCaptureMouse;
 	++g.frames;
 
@@ -636,6 +701,11 @@ EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
 		return 1;
 	}
 	ImGuiIO& io = ImGui::GetIO();
+	if (g.path.repositioning && down && !repeat && (vk == 'F' || vk == 27)) { // F drops the camera, Esc cancels
+		g.path.repositioning = false;
+		LogLine("path.inspector", vk == 'F' ? "reposition placed" : "reposition cancelled");
+		return 1;
+	}
 	const WorkspaceKey key = WorkspaceKeyFor(vk, io.WantTextInput);
 	if (down) {
 		switch (key) {
@@ -728,7 +798,18 @@ EMSCRIPTEN_KEEPALIVE const char* mockup_command(const char* command) {
 	}
 	if (0 == std::strncmp(action, "markers ", 8)) { // the stand-in camera path: on | off | freeze | live
 		const char* what = action + 8;
-		if (0 == std::strcmp(what, "on")) g.pathOn = true;
+		if (0 == std::strcmp(what, "on")) {
+			g.pathOn = true;
+			if (g.path.keys.empty()) { // the stand-in path's three cameras for the inspector
+				const int ticks[] = { 3000, 3300, 3600 };
+				for (int tick : ticks) {
+					PathInspectorKey k;
+					k.tick = tick;
+					g.path.keys.push_back(k);
+				}
+				g.path.selected = 1;
+			}
+		}
 		else if (0 == std::strcmp(what, "off")) g.pathOn = false;
 		else if (0 == std::strcmp(what, "freeze")) g.pathFreeze = true;
 		else if (0 == std::strcmp(what, "live")) g.pathFreeze = false;

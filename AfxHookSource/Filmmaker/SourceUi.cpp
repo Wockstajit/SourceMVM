@@ -75,7 +75,7 @@ struct Host {
 	Filmmaker::HudReadoutCadence cadence;
 	Rect bar;              // last frame's director bar panel, client px
 	int wheelRemainder = 0; // wheel delta short of a notch
-	Rect preview;          // last frame's preview, client px
+	Rect preview;          // last frame's preview, client px; empty while a dialog is up, so clicks stay the UI's
 	bool panelHovered = false; // last frame: the pointer is over a panel
 	POINT gameCursor = { 0, 0 };
 	bool haveGameCursor = false;
@@ -83,6 +83,7 @@ struct Host {
 	LARGE_INTEGER lastTime = {};
 	LARGE_INTEGER frequency = {};
 	unsigned frames = 0;
+	bool wasRepositioning = false; // last frame: a camera was being repositioned
 	std::unique_ptr<ImDrawList> worldList; // the camera path in the world, built with each rendered view
 	unsigned worldFrames = 0;
 	int worldVertices = 0;
@@ -281,6 +282,23 @@ bool OnDirectorMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 	return route != DirectorRoute::Game;
 }
 
+// The director's keys inside the editor, as CS2's MovieMode keeps them there: Space, Left and Right
+// on the demo, X and Z roll the free cam, Shift slows it. F8's blackout stays the director's own.
+bool EditorDirectorKey(UINT msg, WPARAM wParam, LPARAM lParam) {
+	const bool down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+	if (wParam == VK_SHIFT) {
+		MainThread_Run([down] { Director_SetSlow(down); }); // not used up: ImGui's fine drag needs it too
+		return false;
+	}
+	if (Director_RollKey((int)wParam, down, GetKeyState(VK_CONTROL) < 0)) return true;
+	const DirectorMath::Key key = DirectorMath::KeyFor((int)wParam);
+	if (key != DirectorMath::Key::TogglePause && key != DirectorMath::Key::SkipBack && key != DirectorMath::Key::SkipForward)
+		return false;
+	if (g.context && ImGui::GetIO().WantCaptureKeyboard) return false; // a focused control has it
+	if (down && !(lParam & (1 << 30))) MainThread_Run([key] { Director_Key(key); });
+	return true;
+}
+
 bool OnDirectorMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 	switch (msg) {
 	case WM_KEYDOWN:
@@ -413,6 +431,11 @@ bool OnMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 	case WM_RBUTTONDOWN:
 	case WM_RBUTTONDBLCLK: {
 		const int button = (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) ? WorkspaceMouse::Left : WorkspaceMouse::Right;
+		if (button == WorkspaceMouse::Left && before != Mode::Ui && CameraPath_Repositioning()) {
+			// Repositioning while the game has the mouse: the click drops the camera where the view is.
+			MainThread_Run(&CameraPath_PlaceReposition);
+			return true;
+		}
 		route = g.mouse.ButtonDown(button, (float)x, (float)y, now, g.preview);
 		if (route == Route::Ui && io) {
 			io->AddMousePosEvent((float)x, (float)y);
@@ -440,6 +463,17 @@ bool OnMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 		route = g.mouse.Wheel((float)p.x, (float)p.y, g.preview);
 		if (route == Route::Ui && io)
 			io->AddMouseWheelEvent(0.0f, (float)GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA);
+		if (route == Route::Game) {
+			// Over the game, the wheel is the director's here too, as CS2's MovieMode keeps it in the
+			// editor: Ctrl is FOV, Shift the free cam's speed, a plain notch the camera.
+			g.wheelRemainder += GET_WHEEL_DELTA_WPARAM(wParam);
+			const int notches = g.wheelRemainder / WHEEL_DELTA;
+			g.wheelRemainder -= notches * WHEEL_DELTA;
+			const WORD keys = GET_KEYSTATE_WPARAM(wParam);
+			const bool ctrl = (keys & MK_CONTROL) || GetKeyState(VK_CONTROL) < 0, shift = (keys & MK_SHIFT) || GetKeyState(VK_SHIFT) < 0;
+			if (notches) MainThread_Run([notches, ctrl, shift] { Director_Wheel(notches, ctrl, shift); });
+			route = Route::Swallow;
+		}
 		break;
 	}
 	default:
@@ -447,6 +481,67 @@ bool OnMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 	}
 	ApplyMode(before, reason);
 	return route != Route::Game;
+}
+
+// The PATH CAMERA tab's model, read from the camera path.
+PathInspectorModel BuildPathModel() {
+	PathInspectorModel m;
+	const Filmmaker::CamMarkers& markers = CameraPath_Markers();
+	const PathState s = CameraPath_State();
+	m.keys.resize((size_t)markers.Count());
+	for (int i = 0; i < markers.Count(); ++i) {
+		const Filmmaker::CamMarker& marker = markers.At(i);
+		PathInspectorKey& k = m.keys[(size_t)i];
+		k.tick = marker.tick;
+		k.fov = marker.fov;
+		k.roll = marker.roll;
+		k.ease = (int)marker.ease;
+		k.speedMul = marker.speedMul;
+	}
+	m.selected = s.selected;
+	m.interp = s.settings.interp;
+	m.speedMode = s.settings.speedMode;
+	m.timing = s.settings.timing;
+	m.constSpeed = s.settings.constSpeed;
+	m.tick = Demo_State().tick;
+	m.repositioning = s.mode == PathMode::Reposition;
+	return m;
+}
+
+// What the PATH CAMERA tab asked for, through the camera path as CS2's tab goes through its own.
+void ApplyPathActions(const std::vector<PathInspectorAction>& actions) {
+	using Kind = PathInspectorAction::Kind;
+	for (const PathInspectorAction& a : actions) {
+		if (Filmmaker::MvmDebugLog_Active() && a.kind != Kind::EditValue)
+			Filmmaker::MvmDebugLog_Linef("path.inspector", "kind=%d index=%d channel=%d tick=%d value=%.3f", (int)a.kind, a.index,
+				a.channel, a.tick, a.value);
+		switch (a.kind) {
+		case Kind::Select: CameraPath_SelectForEditor(a.index); break;
+		case Kind::SelectDelta: CameraPath_SelectDelta(a.index); break;
+		case Kind::Add: CameraPath_Place(); break;
+		case Kind::ClearAll: CameraPath_DeleteAll(); break;
+		case Kind::Reposition:
+			CameraPath_BeginReposition();
+			if (CameraPath_Repositioning() && g.mouse.GetMode() == Mode::Ui) { // the free cam is the user's to fly
+				const Mode before = g.mouse.GetMode();
+				g.mouse.ToggleGame();
+				ApplyMode(before, "reposition");
+			}
+			break;
+		case Kind::MoveToPlayhead: CameraPath_MoveKey(a.index, a.tick); break;
+		case Kind::Delete: CameraPath_Delete(a.index); break;
+		case Kind::EditBegin: CameraPath_EditBegin(); break;
+		case Kind::EditValue: CameraPath_EditValue(a.index, a.channel, a.value); break;
+		case Kind::EditEnd: CameraPath_EditEnd(); break;
+		case Kind::Interp: CameraPath_SetInterp(a.index); break;
+		case Kind::Ease: CameraPath_SetEase(a.index, (Filmmaker::Ease)(int)a.value); break;
+		case Kind::SpeedMode: CameraPath_SetSpeedMode(a.index); break;
+		case Kind::SpeedMul: CameraPath_SetSpeedMul(a.index, (float)a.value); break;
+		case Kind::ConstSpeed: CameraPath_SetConstSpeed((float)a.value); break;
+		case Kind::Timing: CameraPath_SetTiming(a.index); break;
+		default: break;
+		}
+	}
 }
 
 } // namespace
@@ -458,8 +553,10 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	switch (msg) {
 	case WM_KEYDOWN:
 	case WM_SYSKEYDOWN:
-		if (!(g.context && ImGui::GetIO().WantTextInput) && CameraPath_OnKey((int)wParam, true, (lParam & (1 << 30)) != 0))
-			return true;
+		if (!(g.context && ImGui::GetIO().WantTextInput)) {
+			if (CameraPath_OnKey((int)wParam, true, (lParam & (1 << 30)) != 0)) return true;
+			if (EditorDirectorKey(msg, wParam, lParam)) return true;
+		}
 		switch (WorkspaceKeyFor((int)wParam, g.context && ImGui::GetIO().WantTextInput)) {
 		case WorkspaceKey::Close:
 			Close("esc");
@@ -478,7 +575,10 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 		return g.context && ImGui::GetIO().WantCaptureKeyboard;
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
-		if (!(g.context && ImGui::GetIO().WantTextInput) && CameraPath_OnKey((int)wParam, false, false)) return true;
+		if (!(g.context && ImGui::GetIO().WantTextInput)) {
+			if (CameraPath_OnKey((int)wParam, false, false)) return true;
+			if (EditorDirectorKey(msg, wParam, lParam)) return true;
+		}
 		FeedKey(wParam, false);
 		if (WorkspaceKeyFor((int)wParam, g.context && ImGui::GetIO().WantTextInput) != WorkspaceKey::None) return true;
 		return g.context && ImGui::GetIO().WantCaptureKeyboard;
@@ -558,14 +658,25 @@ void Ui_MainThreadFrame() {
 	}
 	if (g.mouse.GetMode() != Mode::Ui) io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); // nothing hovers while the game has the mouse
 
+	// A camera placed by F (or cancelled) while the game had the mouse for it: the cursor comes back.
+	const bool repositioning = CameraPath_Repositioning();
+	if (g.wasRepositioning && !repositioning && g.mouse.GetMode() == Mode::Game) {
+		const Mode before = g.mouse.GetMode();
+		g.mouse.ToggleGame();
+		ApplyMode(before, "reposition done");
+	}
+	g.wasRepositioning = repositioning;
+
 	DemoBarModel demo;
 	DemoBar_BuildModel(demo);
+	const PathInspectorModel path = BuildPathModel();
 	ImGui::NewFrame();
-	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo);
+	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo, path);
 	ImGui::Render();
 	DemoBar_Apply(frame.demoActions); // CAM EDITOR is not on the bar inside the editor
+	ApplyPathActions(frame.pathActions);
 
-	g.preview = frame.previewClient;
+	g.preview = frame.modal ? Rect() : frame.previewClient;
 	if (g.panelHovered != io.WantCaptureMouse && Filmmaker::MvmDebugLog_Active())
 		Filmmaker::MvmDebugLog_Linef("ui.hover", "panelHovered=%d mouse=(%.0f %.0f) tab=%d dock=%d",
 			io.WantCaptureMouse ? 1 : 0, io.MousePos.x, io.MousePos.y, (int)g.editor.tab, (int)g.editor.dock);

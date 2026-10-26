@@ -113,7 +113,7 @@ the hook converts them first. See [Old demos](#old-demos).
 | `mirv_filmmaker hud on\|off\|toggle\|state` | The [movie director](#movie-director)'s cards |
 | `mirv_filmmaker blackout on\|off\|toggle\|status` | F8's blackout: no HUD, no bar, no cards |
 | `mirv_filmmaker director state` | The director's mouse, bar, cards and readouts, and where each bar control is |
-| `mirv_filmmaker marker ...` | [Camera paths](#camera-paths): `place`, `delete <i>`, `deleteall confirm`, `select <i>\|next\|prev`, `arm`, `play`, `pause`, `stop`, `timing live\|freeze\|toggle`, `interp linear\|smooth\|cycle`, `speedmode manual\|constant\|persegment`, `constspeed <0.2..1>`, `speedmul <v>`, `autosnap`, `list` |
+| `mirv_filmmaker marker ...` | [Camera paths](#camera-paths): `place`, `delete <i>`, `deleteall confirm`, `select <i>\|next\|prev`, `selectdelta <d>`, `movekey <i> <tick>`, `setval <i> <channel> <v>`, `fov <v>`, `roll <v>`, `undo`, `redo`, `ease <i> none\|in\|out\|inout`, `speed <i> <0.2..1>`, `reposition`, `placereposition`, `cancelreposition`, `arm`, `play`, `pause`, `stop`, `timing live\|freeze\|toggle`, `interp linear\|smooth\|cycle`, `speedmode manual\|constant\|persegment`, `constspeed <0.2..1>`, `speedmul <v>`, `autosnap`, `list` |
 | `mirv_filmmaker capture "<file.bmp>"` | The next frame as the game shows it, the filmmaker's UI included, from the back buffer at Present. Quote the path: the console splits arguments at `:` |
 | `mvm_debug start\|stop\|status` | The shared runtime debug log, as in CS2: `%APPDATA%\HLAE\debuglogs\mvm_debug_*.log`, every console line and every command received over the port, stamped with demo tick, frame and thread |
 
@@ -346,6 +346,39 @@ Input that CS:S hands the window procedure on its second thread (it does while a
 seeks) runs on the main thread: the handlers decide on the spot and post their action
 (`SourceMainThread.h`).
 
+### In the Camera Editor
+
+The PATH CAMERA tab is CS2's (`CameraEditorPathInspectorJs.h`), drawn by `Ui/PathInspector.cpp`
+with CS2's card grammar (`Ui/InspectorCards.cpp`, from `CameraEditorCardsJs.h`). The rail lists
+the cameras, CAMERA 1 to N with each one's tick and curve (and the selected one's FOV), then
++ Add camera. The SELECTED CAMERA card carries Clear all and + Add in its header, then:
+
+| Rows | What they do |
+| --- | --- |
+| The camera switcher | Previous and next, which camera of how many, and its tick |
+| THIS CAMERA | Reposition, Move to playhead, Delete |
+| LENS | FOV and roll of the selected camera, dragged from where they are (Shift is fine control) |
+| CURVE . WHOLE PATH | Linear or Smooth for the path, and the selected camera's ease |
+| SPEED | Manual, Per-Seg or Constant, the amount (0.20, 0.50, 0.80, 1.00), Live or Freeze |
+
+Selecting a camera, on the rail or with the switcher, sends the demo paused to its tick and holds
+the free cam on its pose until the seek lands; then the free cam is the user's again. Reposition
+sends the demo to the camera's tick and gives the game the mouse to fly the free cam; a left click
+or F drops the camera there, Esc cancels. A value drag and a retime are one undo step each
+(`mirv_filmmaker marker undo`, `redo`). Clear all asks first, as CS2 does. Rows that do not apply
+are disabled in place, and the card's summary keeps two lines, so nothing moves under the pointer.
+
+Under the body the tab pins CS2's key strip. Those keys work in the editor as in the director:
+Space, Left and Right drive the demo, X and Z roll the free cam, and over the preview the wheel is
+the director's (Ctrl for FOV, Shift for the free cam's speed, a plain notch steps the camera).
+
+Checked in CS:S on 2026-10-26 at 1600x900 by clicking each control with posted window messages:
+a rail row and the switcher selected and seeked; a 30-pixel FOV drag went from 90 to 127.4 as one
+undo step; Smooth, ease In, Per-Seg with its amount, Freeze and back, Move to playhead and its
+undo, Reposition then F, + Add, Delete, and Clear all with No then Yes each did what they say.
+The browser mockup draws the same tab from a stand-in list; with the Claude window off screen its
+browser pane does not draw, so the review used the game's captures.
+
 ### In the world
 
 The path is drawn in the world as CS2 draws it (`Ui/PathOverlay.{h,cpp}`, CS2's
@@ -478,6 +511,9 @@ The engine-free part lives in `AfxHookSource/Filmmaker/Ui/`:
 | `UiTheme.h` | CS:S colours (ClientScheme / SourceScheme), Verdana and Tahoma, and CS2's UI metrics |
 | `UiStyle.cpp`, `UiWidgets.cpp` | The ImGui style, fonts at the stage scale, CS2's text tabs and chips |
 | `CameraEditorShell.cpp` | The Camera Editor: preview, inspector tabs, dock ribbon, ESC EXIT |
+| `InspectorCards.cpp` | CS2's inspector card grammar: rail rows, card header, value, mode and action rows, key strip |
+| `PathInspector.cpp` | The PATH CAMERA tab and its Clear all dialog |
+| `PathOverlay.cpp` | The camera path drawn in the world |
 | `UiRenderDx9.cpp` | Draws a finished frame on the render thread, and letterboxes the game into the preview |
 
 `SourceUi.cpp` is the game host. The UI is built on the main thread at `FRAME_RENDER_START`, copied,
@@ -492,7 +528,10 @@ The mouse follows CS2's workspace rules (`UiClickMath.h`, shared with CS2):
 - A left click in the preview hands the mouse to the game. G hands it back.
 - A right press in the preview that is held for 200 ms or dragged 4 px looks around until it is
   released, then the cursor returns where it was. A quicker right click stays a click.
-- The wheel over the preview is the game's; over a panel it scrolls the panel.
+- The wheel over the preview is the director's, as CS2's MovieMode keeps it in the editor: Ctrl
+  for FOV, Shift for the free cam's speed, a plain notch steps the camera. Over a panel it scrolls
+  the panel.
+- While a dialog is up (Clear all) the preview takes no clicks.
 - ESC closes the workspace.
 
 `mvm_debug` logs every button the UI sees (`ui.input`), mode changes (`ui.mouse`), hover changes

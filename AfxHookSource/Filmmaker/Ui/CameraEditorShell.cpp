@@ -18,7 +18,7 @@ float DockEditorHeight(DockTab dock) {
 }
 
 CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& fonts, float clientW, float clientH,
-	const DemoBarModel& demo) {
+	const DemoBarModel& demo, const PathInspectorModel& path) {
 	CameraEditorFrame frame;
 	frame.layout = CameraEditorLayout(clientW, clientH, state.inspectorW, DockEditorHeight(state.dock));
 	const WorkspaceLayout& l = frame.layout;
@@ -84,10 +84,21 @@ CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& font
 			Metrics::tabTop, s, innerW))
 			state.tab = (InspectorTab)tab;
 
-		// The selected pane. Empty until the steps that fill it.
+		// The body: the rail on the left, the selected card beside it (CS2's edBodyRow), with PATH
+		// CAMERA's keys pinned under it.
 		const ImVec2 body = ImGui::GetCursorScreenPos();
-		draw->AddText(fonts.Get(FontRole::Body), fonts.Get(FontRole::Body)->FontSize,
-			ImVec2(body.x, body.y + 16 * s), ToU32(Theme::TextDim), kInspectorEmpty[(int)state.tab]);
+		if (state.tab == InspectorTab::PathCamera) {
+			const float stripH = PathKeyStripHeight(fonts, s, innerW);
+			const float bottom = inspector.y1 - 10 * s;
+			const float bodyTop = body.y + 14 * s, bodyBottom = bottom - stripH - 8 * s;
+			const Rect rail = MakeRect(body.x, bodyTop, body.x + Metrics::rail.w * s, bodyBottom);
+			const Rect pane = MakeRect(rail.x1 + Metrics::rail.gap * s, bodyTop, inspector.x1 - pad, bodyBottom);
+			DrawPathInspector(state.path, path, fonts, s, rail, pane, frame.pathActions);
+			DrawPathKeyStrip(draw, fonts, s, MakeRect(body.x, bottom - stripH, inspector.x1 - pad, bottom));
+		} else {
+			draw->AddText(fonts.Get(FontRole::Body), fonts.Get(FontRole::Body)->FontSize,
+				ImVec2(body.x, body.y + 16 * s), ToU32(Theme::TextDim), kInspectorEmpty[(int)state.tab]);
+		}
 	}
 	ImGui::End();
 
@@ -122,6 +133,8 @@ CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& font
 	}
 	ImGui::End();
 
+	DrawPathClearConfirm(state.path, fonts, s, clientW, clientH, frame.pathActions); // over everything
+	frame.modal = state.path.confirmClear;
 	return frame;
 }
 

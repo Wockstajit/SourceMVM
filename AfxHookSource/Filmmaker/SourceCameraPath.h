@@ -10,6 +10,10 @@
 // the demo held. Speed modes Manual, Constant and Per-segment, curve Linear or Smooth, per-marker
 // ease. A path needs two markers to play.
 //
+// The Camera Editor's PATH CAMERA inspector edits the path through the same calls CS2's does: select
+// a camera (the demo goes to its tick and the view to its pose), move it to the playhead, change its
+// FOV, roll, ease and segment speed, and reposition it by flying the free cam there.
+//
 // Main thread only.
 
 #include <AfxHookSource2/Filmmaker/Movie/CamMarkers.h>
@@ -20,7 +24,11 @@ namespace SourceFilmmaker {
 
 namespace Ui { struct PathOverlayModel; }
 
-enum class PathMode { Editing, Armed, Playing };
+enum class PathMode { Editing, Reposition, Armed, Playing };
+const char* PathModeName(PathMode mode);
+
+// CS2's marker channels (CameraPath::SetChannelValue): x, y, z, pitch, yaw, roll, FOV.
+enum PathChannel { kChannelX = 0, kChannelY, kChannelZ, kChannelPitch, kChannelYaw, kChannelRoll, kChannelFov };
 
 struct PathState {
 	int count = 0;
@@ -50,6 +58,30 @@ bool CameraPath_DeleteAimed();     // L: false when no marker is aimed at
 void CameraPath_Delete(int index);
 void CameraPath_DeleteAll();
 void CameraPath_Select(int index);
+// The editor's selection (CS2's SelectForEditor): the demo goes paused to the camera's tick and the
+// free cam holds its pose until the seek lands, then the free cam is the user's again.
+void CameraPath_SelectForEditor(int index);
+void CameraPath_SelectDelta(int delta);
+// Retimes a camera, held between its neighbours' ticks (CS2's MoveKey).
+void CameraPath_MoveKey(int index, int tick);
+// A value edit as one undo step: begin, any number of previews (the camera shows each), end.
+void CameraPath_EditBegin();
+void CameraPath_EditValue(int index, int channel, double value);
+void CameraPath_EditEnd();
+void CameraPath_Undo();
+void CameraPath_Redo();
+void CameraPath_SetEase(int index, Filmmaker::Ease ease);
+void CameraPath_SetSpeedMul(int index, float mul); // its outgoing segment, 0.2..1 (Per-segment)
+void CameraPath_SetConstSpeed(float mul);          // the whole path, 0.2..1 (Constant)
+void CameraPath_SetInterp(int interp);             // 0 Linear, 1 Smooth
+void CameraPath_SetSpeedMode(int mode);            // 0 Manual, 1 Constant, 2 Per-segment
+void CameraPath_SetTiming(int timing);             // 0 Live, 1 Freeze
+// Reposition (CS2's): the demo goes to the selected camera's tick and the free cam is the user's;
+// F or a left click puts the camera where the view is, Esc cancels.
+void CameraPath_BeginReposition();
+void CameraPath_PlaceReposition();
+void CameraPath_CancelReposition();
+bool CameraPath_Repositioning();
 void CameraPath_Arm();             // jump to the first marker, paused, its pose held
 void CameraPath_Play();            // from armed (or arms first)
 void CameraPath_Pause();

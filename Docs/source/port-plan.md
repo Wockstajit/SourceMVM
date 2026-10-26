@@ -80,7 +80,7 @@ Measured on the installed game on 2026-10-26:
 | 6 | UI foundation | The CS:S-themed UI clicks through in the browser mockup and draws in CS:S at 480p, with CS2's mouse model; captures of open, tab switch and exit | Done 2026-10-26 |
 | 7 | Demo bar and director card | Scrubber with kill, death and round markers read from the demo file; speed dial, -5s/+5s, LOOP, CAM EDITOR and CONFIG; scroll cycles cameras; the director cards; F8 blackout | Done 2026-10-26, CONFIG with the Config workspace |
 | 8 | Free cam and smooth view | HLAE's `mirv_input` flies as CS2's free cam does; Smooth View runs from CS2's code | Done 2026-10-26, Smooth View's Config card with the Config workspace |
-| 9 | Camera Editor | Paths, markers, inspector, preview viewport, shortcut strip | In progress: paths, their keys and the markers in the world done 2026-10-26 |
+| 9 | Camera Editor | Paths, markers, inspector, preview viewport, shortcut strip | In progress: paths, their keys, the markers in the world and the PATH CAMERA inspector done 2026-10-26 |
 | 10 | Timelines | TIMELINE dock, regular timeline, loop, In/Out flags | |
 | 11 | Follow camera | | |
 | 12 | Camera shakes | Handheld, path shake, recoil, bob, rage | |

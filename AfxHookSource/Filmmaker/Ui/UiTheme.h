@@ -62,6 +62,14 @@ enum class FontRole {
 	Small,     // Tahoma 13
 	Title,     // Verdana Bold 16, card and panel titles
 	Display,   // Verdana Bold 44, the workspace name under the preview
+	// The inspector cards' tiers, at CS2's sizes (CameraEditorCardsJs.h).
+	Caption,   // Verdana Bold 11, sub-heads and the action rows' headings
+	Note,      // Verdana 12, notes and the card header's summary
+	Button,    // Verdana Bold 12, card buttons and segmented captions
+	RowLabel,  // Verdana 13, a row's name
+	Value,     // Verdana Bold 14, a row's value
+	RailSum,   // Verdana 14, a rail row's summary
+	CardTitle, // Verdana Bold 17, the card's title
 	Count
 };
 
@@ -79,6 +87,13 @@ inline FontSpec FontSpecFor(FontRole role) {
 	case FontRole::Small: return { L"Tahoma", 13, false };
 	case FontRole::Title: return { L"Verdana", 16, true };
 	case FontRole::Display: return { L"Verdana", 44, true };
+	case FontRole::Caption: return { L"Verdana", 11, true };
+	case FontRole::Note: return { L"Verdana", 12, false };
+	case FontRole::Button: return { L"Verdana", 12, true };
+	case FontRole::RowLabel: return { L"Verdana", 13, false };
+	case FontRole::Value: return { L"Verdana", 14, true };
+	case FontRole::RailSum: return { L"Verdana", 14, false };
+	case FontRole::CardTitle: return { L"Verdana", 17, true };
 	default: return { L"Verdana", 15, false };
 	}
 }

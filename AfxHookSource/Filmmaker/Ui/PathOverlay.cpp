@@ -104,7 +104,11 @@ void CameraMarker(ImDrawList& list, const Viewer& v, const PathOverlayMarker& m,
 	const Vec f = V(basis.forward), r = V(basis.right), u = V(basis.up);
 	const Vec eye = V(m.pos);
 
-	const double radius = kCameraRadius * ScreenScale(std::sqrt(Dot(eye - v.eye, eye - v.eye)));
+	const double distance = std::sqrt(Dot(eye - v.eye, eye - v.eye));
+	const double radius = kCameraRadius * ScreenScale(distance);
+	// The view looking out of this camera (the editor holds the view on a selected camera): its frame
+	// would be drawn across the whole screen, so it is left out.
+	if (distance < radius) return;
 	const double a = std::sin(fov * kPi / 360.0) * radius;
 	const double b = a * (screenW > 0 ? screenH / screenW : 1.0);
 	const Vec frame = eye + radius * f;
