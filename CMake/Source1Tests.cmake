@@ -35,3 +35,11 @@ add_executable(SourceWorkspaceMouseTests
 )
 target_compile_features(SourceWorkspaceMouseTests PRIVATE cxx_std_17)
 add_test(NAME SourceWorkspaceMouseTests COMMAND SourceWorkspaceMouseTests)
+
+add_executable(SourceDemoFileTests
+    ../Automation/tests/source-demo-file-tests.cpp
+    Filmmaker/SourceDemoFile.cpp
+    Filmmaker/SourceDemoFile.h
+)
+target_compile_features(SourceDemoFileTests PRIVATE cxx_std_17)
+add_test(NAME SourceDemoFileTests COMMAND SourceDemoFileTests)

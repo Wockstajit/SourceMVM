@@ -26,6 +26,7 @@ bool g_installed = false;
 
 std::atomic<bool> g_netcon{ false };
 std::atomic<bool> g_debugLog{ false };
+std::atomic<ConsoleLineObserver> g_observer{ nullptr };
 
 const char* LevelName(int spewType) {
 	switch (spewType) {
@@ -43,6 +44,7 @@ int ConsoleSpew(int spewType, const char* message) {
 			advancedfx::NetconServer::Write(message);
 		if (g_debugLog.load(std::memory_order_relaxed))
 			Filmmaker::MvmDebugLog_ConsoleLine(LevelName(spewType), -1, message);
+		if (ConsoleLineObserver observer = g_observer.load(std::memory_order_relaxed)) observer(message);
 	}
 	return g_previousSpew ? g_previousSpew(spewType, message) : kSpewContinue;
 }
@@ -70,5 +72,7 @@ void Console_SetNetconEnabled(bool enabled) { g_netcon.store(enabled); }
 
 void Console_SetDebugLogEnabled(bool enabled) { g_debugLog.store(enabled); }
 bool Console_DebugLogEnabled() { return g_debugLog.load(); }
+
+void Console_SetLineObserver(ConsoleLineObserver observer) { g_observer.store(observer); }
 
 } // namespace SourceFilmmaker

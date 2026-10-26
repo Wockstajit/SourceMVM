@@ -130,6 +130,10 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceConsole.cpp
     Filmmaker/SourceConsole.h
     Filmmaker/SourceDebugLog.cpp
+    Filmmaker/SourceDemoFile.cpp
+    Filmmaker/SourceDemoFile.h
+    Filmmaker/SourceDemoIndex.cpp
+    Filmmaker/SourceDemoIndex.h
     Filmmaker/SourceEngine.cpp
     Filmmaker/SourceEngine.h
     Filmmaker/SourceFilmmaker.cpp

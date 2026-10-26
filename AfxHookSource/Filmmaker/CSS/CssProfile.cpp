@@ -19,6 +19,11 @@ const char* CssTeamName(int team) {
 	}
 }
 
+// Kills and deaths, rounds, the bomb, and team changes (so a kill marker can take the victim's team
+// colour at the time).
+const char* const kCssDemoEvents[] = { "player_death", "player_team", "round_start", "round_freeze_end",
+	"round_end", "bomb_planted", "bomb_defused", "bomb_exploded", nullptr };
+
 // C_CSPlayer networks the eye angles itself (RecvPropFloat m_angEyeAngles[0] / [1] in DT_CSPlayer);
 // the entity's own angles carry only the body yaw.
 const GameProfile kCss = {
@@ -27,6 +32,7 @@ const GameProfile kCss = {
 	"m_angEyeAngles[0]",
 	"m_angEyeAngles[1]",
 	&CssTeamName,
+	kCssDemoEvents,
 };
 
 } // namespace

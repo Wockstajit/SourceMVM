@@ -78,7 +78,7 @@ Measured on the installed game on 2026-10-26:
 | 4 | Shared code and tests | Shared CS2 code builds into the Source 1 hook; native tests pass for both; CS2 still works; `mvm_debug` writes a log from CS:S | Done 2026-10-26 |
 | 5 | Engine adapter | Health shows live view, demo time and player values during a CS:S demo | Done 2026-10-26 |
 | 6 | UI foundation | The CS:S-themed UI clicks through in the browser mockup and draws in CS:S at 480p, with CS2's mouse model; captures of open, tab switch and exit | Done 2026-10-26 |
-| 7 | Demo bar and director card | MOUSE, CAM EDITOR, CONFIG and LOOP; scroll cycles cameras; F8 hides the HUD | |
+| 7 | Demo bar and director card | Scrubber with kill, death and round markers read from the demo file; speed dial, -5s/+5s, LOOP, CAM EDITOR and CONFIG; scroll cycles cameras; the director cards; F8 blackout | |
 | 8 | Free cam and smooth view | | |
 | 9 | Camera Editor | Paths, markers, inspector, preview viewport, shortcut strip | |
 | 10 | Timelines | TIMELINE dock, regular timeline, loop, In/Out flags | |
@@ -130,6 +130,13 @@ the game in the same state, the inspector differed by 0.21 on average (of 255) a
 dock by under 3. That comparison allowed a one-pixel shift: the game's client area measures
 855x481 although the launcher asks for 854x480. The mouse rules and the key rules
 (`WorkspaceMouse.h`, `UiKeys.h`) are shared by both hosts.
+
+Step 7 is done in parts. CS2's demo bar is mostly CS2's own Panorama, with SOURCE:MVM's speed dial,
+LOOP, CAM EDITOR and CONFIG added; its kill, death and round markers are CS2's, drawn from the
+`.dem.info` sidecar Valve writes. CS:S has neither, so the port draws the whole bar and reads the
+markers out of the demo file. First part (2026-10-26): the demo index
+([README.md](README.md#demo-index)) reads a demo's events when playback starts, in 4 ms for the
+test demo, with ticks that match the game's own kill lines.
 
 Step 17's death animations follow the CS2 pass in
 [filmmaker_death_animations.md](../features/filmmaker_death_animations.md): headless Blender on the

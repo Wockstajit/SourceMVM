@@ -18,12 +18,16 @@ const char* GenericTeamName(int team) {
 	}
 }
 
+// player_death and player_team are in every Source 1 multiplayer game's event list.
+const char* const kGenericDemoEvents[] = { "player_death", "player_team", nullptr };
+
 const GameProfile kGeneric = {
 	"generic Source 1 (best effort)",
 	nullptr,
 	nullptr,
 	nullptr,
 	&GenericTeamName,
+	kGenericDemoEvents,
 };
 
 } // namespace

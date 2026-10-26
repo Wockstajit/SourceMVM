@@ -40,7 +40,7 @@ those files use to leave out their CS2-only parts, as Deadlock does with `GAME_D
 ## Test
 
 ```batch
-ctest --test-dir build/x64-release -C Release --output-on-failure -R "NetconServerTests|SourceNetvarsTests"
+ctest --test-dir build/x64-release -C Release --output-on-failure -R "NetconServerTests|Source"
 ```
 
 The Source 1 tests are registered in `CMake/Source1Tests.cmake`, included from
@@ -104,7 +104,7 @@ play on the current game: it stops with "demo network protocol 7 outdated, engin
 
 | Command | What it does |
 | --- | --- |
-| `mirv_filmmaker health` | Hook build, game, engine interfaces, command port counters, `mvm_debug` state, pump counts, the engine adapter, connection, map, demo time, the game's and the rendered view, and a player summary |
+| `mirv_filmmaker health` | Hook build, game, engine interfaces, command port counters, `mvm_debug` state, pump counts, the engine adapter, connection, map, demo time, the demo index, the game's and the rendered view, and a player summary |
 | `mirv_filmmaker players` | One line per player: index, name, team, health, alive, dormant, origin, eye angles, class, bot and SourceTV flags. `>` marks the spectated player |
 | `mirv_filmmaker engine` | The networked fields the engine adapter resolved, with their offsets |
 | `mirv_filmmaker editor on\|off\|toggle\|state` | The Camera Editor workspace. `state` reports the mouse mode, tabs, preview rect and fonts |
@@ -130,9 +130,34 @@ are looked up by name in the client's network tables at startup (`SourceNetvars.
 update that moves them does not need new offsets. `mvm_debug start` writes the resolved offsets to
 the log.
 
-What differs per game is a `GameProfile` (`SourceGameProfile.h`): team names and where eye angles
-are networked. CS:S has its own (`CSS/CssProfile.cpp`); any other Source 1 game gets the generic
-one, which reads only fields every Source 1 multiplayer game has.
+What differs per game is a `GameProfile` (`SourceGameProfile.h`): team names, where eye angles
+are networked, and which game events the demo index keeps. CS:S has its own (`CSS/CssProfile.cpp`);
+any other Source 1 game gets the generic one, which reads only fields every Source 1 multiplayer
+game has.
+
+## Demo index
+
+CS:S writes no event sidecar next to a demo, the way CS2 writes `.dem.info`, so the hook reads the
+events out of the demo file itself (`SourceDemoFile.{h,cpp}`). That gives the demo bar every kill,
+death, round and bomb event from the first frame, not only the ones playback has reached.
+
+- The engine prints `Playing demo from <file>.` whenever a demo starts, however it was started.
+  The console capture passes that line to `SourceDemoIndex.cpp`, which finds the file under the
+  game directory and reads it on a worker thread. A 3.4 MB SourceTV demo takes about 4 ms.
+- The reader handles the Orange Box format (demo protocol 3, network protocol 24) that current
+  CS:S, TF2, DoD:S and HL2:DM write. It reads or skips every network message by its layout, so an
+  unknown message stops the scan with an error rather than misreading the rest. Events read before
+  the stop are kept.
+- Which events are kept comes from the game profile. CS:S keeps `player_death`, `player_team`,
+  `round_start`, `round_freeze_end`, `round_end` and the bomb events.
+- Ticks are demo ticks, the same numbers `demo_gototick` and `health` use. Checked in game: the
+  reader put the first kill of the test demo at tick 490, and the game printed it at tick 490.
+- Restarting the same demo (a backward seek replays it from the start) does not read it again.
+
+`health` shows the index (`demo index: mvm_css_tv.dem, 6 events (3 deaths, 1 round starts) in
+3.7 ms`), and `mvm_debug` logs each event under `demo.index`. `SourceDemoFileTests` writes small
+demos bit by bit to test the reader; set `SOURCEMVM_SOURCE1_TEST_DEMO` to a real demo to also scan
+that one and print its events.
 
 ## Workspace UI
 

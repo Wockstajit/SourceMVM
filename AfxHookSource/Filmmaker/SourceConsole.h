@@ -20,4 +20,9 @@ void Console_SetNetconEnabled(bool enabled);
 void Console_SetDebugLogEnabled(bool enabled);
 bool Console_DebugLogEnabled();
 
+// Called with every console line, on whatever thread printed it, for the few engine messages the
+// filmmaker reacts to (the demo index watches for "Playing demo from"). Keep it cheap.
+typedef void (*ConsoleLineObserver)(const char* line);
+void Console_SetLineObserver(ConsoleLineObserver observer);
+
 } // namespace SourceFilmmaker

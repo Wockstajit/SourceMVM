@@ -14,6 +14,9 @@ struct GameProfile {
 	const char* eyeYawProp;
 	// Display name of a team number. Never null.
 	const char* (*teamName)(int team);
+	// The game events the demo index reads out of a demo file for the demo bar's markers,
+	// null-terminated.
+	const char* const* demoEvents;
 };
 
 // The profile for the running game, chosen from the detected Source SDK version.
