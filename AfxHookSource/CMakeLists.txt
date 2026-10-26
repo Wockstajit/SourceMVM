@@ -123,13 +123,20 @@ target_sources(AfxHookSource PRIVATE
     d3d9Hooks.cpp
     d3d9Hooks.h
     D3D9ImageBuffer.h
+    Filmmaker/CSS/CssProfile.cpp
     Filmmaker/SourceConsole.cpp
     Filmmaker/SourceConsole.h
     Filmmaker/SourceDebugLog.cpp
+    Filmmaker/SourceEngine.cpp
+    Filmmaker/SourceEngine.h
     Filmmaker/SourceFilmmaker.cpp
     Filmmaker/SourceFilmmaker.h
+    Filmmaker/SourceGameProfile.cpp
+    Filmmaker/SourceGameProfile.h
     Filmmaker/SourceNetcon.cpp
     Filmmaker/SourceNetcon.h
+    Filmmaker/SourceNetvars.h
+    Filmmaker/SourceSdk2013.h
 
     # Shared with the CS2 and Deadlock hooks, compiled from the CS2 tree.
     ../AfxHookSource2/Filmmaker/Debug/DebugLogDedupMath.h
@@ -336,6 +343,7 @@ target_sources(AfxHookSource PRIVATE
 # This is far form proper, but it will do for now:
 source_group("AfxHookSource" REGULAR_EXPRESSION "/AfxHookSource/")
 source_group("AfxHookSource/Filmmaker" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/")
+source_group("AfxHookSource/Filmmaker/CSS" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/CSS/")
 source_group("AfxHookSource2/Filmmaker" REGULAR_EXPRESSION "/AfxHookSource2/Filmmaker/")
 source_group("AfxHookSource/tf2" REGULAR_EXPRESSION "/AfxHookSource/tf2/")
 source_group("deps" REGULAR_EXPRESSION "/Deps/")

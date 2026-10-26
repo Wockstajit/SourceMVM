@@ -40,7 +40,7 @@ those files use to leave out their CS2-only parts, as Deadlock does with `GAME_D
 ## Test
 
 ```batch
-ctest --test-dir build/x64-release -C Release --output-on-failure -R NetconServerTests
+ctest --test-dir build/x64-release -C Release --output-on-failure -R "NetconServerTests|SourceNetvarsTests"
 ```
 
 The Source 1 tests are registered in `CMake/Source1Tests.cmake`, included from
@@ -79,24 +79,34 @@ window procedure queues each command into the engine's command buffer, as if it 
 
 ## Test demo
 
-Runtime checks use a self-recorded demo, because no CS:S demo ships with the repository. Record one
-with bots over the command port. Wait for `in-game=1` in `health` between the second and third
-lines, and about 40 seconds before `stop`:
+Runtime checks use a self-recorded SourceTV demo, because no CS:S demo ships with the repository
+and SourceTV demos carry every player, which is what movie work starts from. Record one with bots
+over the command port. Wait for `in-game=1` in `health` after the first line, a few seconds after
+the second for the bots to spawn, and about 45 seconds before the last:
 
 ```text
-sv_lan 1;;maxplayers 12;;map de_dust2
-bot_quota 10;;mp_freezetime 1;;mp_roundtime 3;;spectate;;mp_restartgame 1
-record mvm_css_test
-stop;;disconnect
+sv_lan 1;;maxplayers 14;;tv_enable 1;;tv_delay 0;;tv_autorecord 0;;map de_dust2
+bot_join_after_player 0;;bot_quota 10;;mp_freezetime 1;;mp_roundtime 3;;spectate;;mp_restartgame 1
+tv_record mvm_css_tv
+tv_stoprecord;;disconnect
 ```
 
-The demo lands in `cstrike\mvm_css_test.dem` and plays with `playdemo mvm_css_test`.
+SourceTV has to be enabled before the map loads. `bot_join_after_player 0` matters: by default CS:S
+bots wait for a human to join a team, and the recorder is spectating. The demo lands in
+`cstrike\mvm_css_tv.dem` and plays with `playdemo mvm_css_tv`. In playback the SourceTV camera
+starts unattached (at the map origin) until it is pointed at someone, for example with
+`spec_mode 4;;spec_next`.
+
+Demos recorded on CS:S before the Orange Box engine (network protocol 7, the "v34" era) do not
+play on the current game: it stops with "demo network protocol 7 outdated, engine version is 24".
 
 ## Console commands
 
 | Command | What it does |
 | --- | --- |
-| `mirv_filmmaker health` | Hook build, game, engine interfaces, command port counters, `mvm_debug` state, pump counts, and connection, map and demo state |
+| `mirv_filmmaker health` | Hook build, game, engine interfaces, command port counters, `mvm_debug` state, pump counts, the engine adapter, connection, map, demo time, the game's and the rendered view, and a player summary |
+| `mirv_filmmaker players` | One line per player: index, name, team, health, alive, dormant, origin, eye angles, class, bot and SourceTV flags. `>` marks the spectated player |
+| `mirv_filmmaker engine` | The networked fields the engine adapter resolved, with their offsets |
 | `mvm_debug start\|stop\|status` | The shared runtime debug log, as in CS2: `%APPDATA%\HLAE\debuglogs\mvm_debug_*.log`, every console line and every command received over the port, stamped with demo tick, frame and thread |
 
 `health` is the first check when something stops working. `console capture REPLACED` means the
@@ -106,3 +116,23 @@ running.
 
 Console capture is one spew function chained in front of the engine's (`SourceConsole.cpp`). It
 stays installed once the port or the log has asked for it, and feeds whichever of the two is on.
+While SourceTV records on a listen server, `health` reads `REPLACED` and port output can arrive out
+of order; both recover when the recording stops.
+
+## Engine adapter
+
+`SourceEngine.{h,cpp}` is what later steps read the game through: the game's and the rendered view,
+demo state, the map, and players. It talks to the engine only through the 2013 SDK layouts and
+virtual slots in `SourceSdk2013.h`, each call guarded so a wrong slot or a stale entity costs a
+counted fault (`health` shows the count) instead of a crash. Networked fields such as `m_iHealth`
+are looked up by name in the client's network tables at startup (`SourceNetvars.h`), so a game
+update that moves them does not need new offsets. `mvm_debug start` writes the resolved offsets to
+the log.
+
+What differs per game is a `GameProfile` (`SourceGameProfile.h`): team names and where eye angles
+are networked. CS:S has its own (`CSS/CssProfile.cpp`); any other Source 1 game gets the generic
+one, which reads only fields every Source 1 multiplayer game has.
+
+During playback, `local` and `observing` describe the demo's recorder. In a SourceTV demo that is
+the SourceTV bot, so `observing` is the director's pick at record time. The playback camera itself
+is read through the view.

@@ -13,3 +13,11 @@ target_compile_features(NetconServerTests PRIVATE cxx_std_17)
 # Shared/*.cpp opens with #include "stdafx.h"; this hook's is the minimal one.
 target_include_directories(NetconServerTests PRIVATE ./)
 add_test(NAME NetconServerTests COMMAND NetconServerTests)
+
+add_executable(SourceNetvarsTests
+    ../Automation/tests/source-netvars-tests.cpp
+    Filmmaker/SourceNetvars.h
+    Filmmaker/SourceSdk2013.h
+)
+target_compile_features(SourceNetvarsTests PRIVATE cxx_std_17)
+add_test(NAME SourceNetvarsTests COMMAND SourceNetvarsTests)

@@ -76,7 +76,7 @@ Measured on the installed game on 2026-10-26:
 | 2 | Run the hook in CS:S 64-bit | A demo plays with the hook loaded and the inherited `mirv_` commands answer | Done 2026-10-26 |
 | 3 | Automation | A script launches CS:S, gets `mirv_filmmaker health` back over the command port, and quits it | Done 2026-10-26 |
 | 4 | Shared code and tests | Shared CS2 code builds into the Source 1 hook; native tests pass for both; CS2 still works; `mvm_debug` writes a log from CS:S | Done 2026-10-26 |
-| 5 | Engine adapter | Health shows live view, demo time and player values during a CS:S demo | |
+| 5 | Engine adapter | Health shows live view, demo time and player values during a CS:S demo | Done 2026-10-26 |
 | 6 | UI foundation | The CS:S-themed UI clicks through in the browser mockup and draws in CS:S at 480p, with CS2's mouse model; captures of open, tab switch and exit | |
 | 7 | Demo bar and director card | MOUSE, CAM EDITOR, CONFIG and LOOP; scroll cycles cameras; F8 hides the HUD | |
 | 8 | Free cam and smooth view | | |
@@ -108,6 +108,15 @@ passes; the CS2 suite passes (123 tests, one hardware test skipped); CS2 and Dea
 and CS:S both write `mvm_debug` logs with console capture, and the CS:S log carries advancing
 demo ticks during playback.
 
+Step 5 added the engine adapter ([README.md](README.md#engine-adapter)). Checked on 2026-10-26 in a
+live bot game and in the SourceTV test demo: 200 client classes and all 7 networked fields resolved
+with no faults; 12 players with names, teams, health, origins and eye angles; with playback paused
+at tick 1000 and the camera locked on one bot, the view sat at that bot's origin plus 64 units of
+eye height, with its eye angles, and `getpos` agreed. The first live run caught two wrong virtual
+slots: `GetAbsOrigin` and `GetAbsAngles` are 9 and 10, not 10 and 11, because `IClientEntity::Release`
+overrides its secondary bases and takes no slot of its own. `SourceNetvarsTests` covers the
+network-table walker, and the 32-bit Source 1 hook still builds.
+
 Step 17's death animations follow the CS2 pass in
 [filmmaker_death_animations.md](../features/filmmaker_death_animations.md): headless Blender on the
 CS:S player model, the clip tags ported, the ragdoll bodies mapped, and the match percentages
@@ -119,6 +128,11 @@ render view, cvars, material system, D3D9). A game without a profile runs that t
 best-effort. GoldSrc is a separate DLL (`AfxHookGoldSrc`) that reuses the engine-free code.
 
 ## Known follow-ups
+
+- Old demos. Demos recorded before the Orange Box engine update (network protocol 7, the CS:S "v34"
+  era, which includes many classic movie demos) do not play on the current 64-bit game. Playing them
+  needs either the old v34 client, which the inherited 32-bit hook already detects
+  (`SourceSdkVer_CSSV34`), or a demo converter. Which one is the owner's call.
 
 - The command port's socket server is `Shared/NetconServer`, generalized from Deadlock's
   `DeadlockNetcon.cpp`, and the client is `Automation/netcon/hook-netcon.ps1`, generalized from

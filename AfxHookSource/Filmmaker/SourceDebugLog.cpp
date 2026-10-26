@@ -5,6 +5,7 @@
 // command with CS2's subcommands and messages.
 
 #include "SourceConsole.h"
+#include "SourceEngine.h"
 
 #include "hlaeFolder.h"
 #include "MirvTime.h"
@@ -68,6 +69,7 @@ CON_COMMAND(mvm_debug, "Control the SOURCE:MVM debug log (mvm_debug start|stop|s
 			const bool consoleCapture = Filmmaker::MvmConsoleCapture_Start();
 			Filmmaker::MvmDebugLog_Linef("command", "mvm_debug start");
 			Filmmaker::MvmDebugLog_Linef("system", "fullConsoleCapture=%d", consoleCapture ? 1 : 0);
+			SourceFilmmaker::Engine_LogFields();
 			advancedfx::Message("mvm_debug: STARTED. file: %s (type 'mvm_debug stop' when done).\n", file.c_str());
 		} else
 			advancedfx::Warning("mvm_debug: already running (or file could not be opened).\n");
