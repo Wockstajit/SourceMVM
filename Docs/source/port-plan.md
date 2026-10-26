@@ -117,6 +117,13 @@ slots: `GetAbsOrigin` and `GetAbsAngles` are 9 and 10, not 10 and 11, because `I
 overrides its secondary bases and takes no slot of its own. `SourceNetvarsTests` covers the
 network-table walker, and the 32-bit Source 1 hook still builds.
 
+Step 6, in game (2026-10-26): the Camera Editor shell draws in CS:S at 854x480 with the CS:S
+theme, the game letterboxed into the preview. Captured and logged: open, the inspector tab and the
+dock tab switching (TIMELINE re-centres the preview above the 440 px dock), a quick right click
+staying a click, a 450 ms right hold becoming a look and returning on release, a left click in the
+preview handing the mouse to the game, G taking it back, and ESC closing with no leftovers. The
+browser mockup is the rest of step 6.
+
 Step 17's death animations follow the CS2 pass in
 [filmmaker_death_animations.md](../features/filmmaker_death_animations.md): headless Blender on the
 CS:S player model, the clip tags ported, the ragdoll bodies mapped, and the match percentages

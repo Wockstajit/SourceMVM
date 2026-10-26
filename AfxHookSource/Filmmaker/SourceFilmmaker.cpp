@@ -5,6 +5,7 @@
 #include "SourceEngine.h"
 #include "SourceGameProfile.h"
 #include "SourceNetcon.h"
+#include "SourceUi.h"
 
 #include "addresses.h"
 #include "WrpConsole.h"
@@ -144,7 +145,8 @@ void PrintUsage() {
 	advancedfx::Message(
 		"mirv_filmmaker health  - hook build, game, interfaces, command port, engine, view, demo and players.\n"
 		"mirv_filmmaker players - one line per player: team, health, origin, eye angles, class.\n"
-		"mirv_filmmaker engine  - the networked fields the engine adapter resolved, with offsets.\n");
+		"mirv_filmmaker engine  - the networked fields the engine adapter resolved, with offsets.\n"
+		"mirv_filmmaker editor  - on|off|toggle|state: the Camera Editor workspace (ESC closes it).\n");
 }
 
 } // namespace
@@ -155,14 +157,14 @@ void Init() {
 }
 
 bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-	(void)wParam;
-	(void)lParam;
 	g_windowMessages.fetch_add(1);
-	return Netcon_OnWindowMessage(hwnd, msg);
+	if (Netcon_OnWindowMessage(hwnd, msg)) return true;
+	return Ui_OnWindowMessage(hwnd, msg, wParam, lParam);
 }
 
 void OnFrameRenderStart() {
 	g_frameRenderStarts.fetch_add(1);
+	Ui_MainThreadFrame();
 }
 
 } // namespace SourceFilmmaker
@@ -177,6 +179,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::PrintPlayers();
 	} else if (0 == _stricmp(sub, "engine")) {
 		SourceFilmmaker::Engine_PrintFields();
+	} else if (0 == _stricmp(sub, "editor")) {
+		SourceFilmmaker::Ui_EditorCommand(argc, args);
 	} else {
 		SourceFilmmaker::PrintUsage();
 	}

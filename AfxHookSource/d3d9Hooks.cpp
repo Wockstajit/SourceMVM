@@ -9,6 +9,7 @@
 #include "Gui.h"
 #include "SourceInterfaces.h"
 #include "CampathDrawer.h"
+#include "Filmmaker/SourceUi.h" // SOURCE:MVM
 #include "AfxShaders.h"
 
 #ifndef _WIN64
@@ -184,6 +185,8 @@ void Shared_Direct3DDevice9_Init(
 
 void Shared_Direct3DDevice9_Shutdown()
 {
+	SourceFilmmaker::Ui_DeviceLost(); // SOURCE:MVM
+
 	g_CampathDrawer.EndDevice();
 
 	g_AfxShaders.EndDevice();
@@ -4776,6 +4779,8 @@ public:
 
 		AfxHookSource::Gui::On_Direct3DDevice9_Reset_Before();
 
+		SourceFilmmaker::Ui_DeviceLost(); // SOURCE:MVM
+
 		g_CampathDrawer.Reset();
 
 		if (NULL != m_CurrentState)
@@ -4918,6 +4923,8 @@ public:
 		}
 
 		Afx_Present_Before(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, 0);
+
+		SourceFilmmaker::Ui_RenderThreadPresent(g_OldDirect3DDevice9); // SOURCE:MVM
 
 		HRESULT result = g_OldDirect3DDevice9->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 
@@ -6035,6 +6042,8 @@ public:
 	STDMETHOD(PresentEx)(THIS_ CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
 	{
 		Afx_Present_Before(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+
+		SourceFilmmaker::Ui_RenderThreadPresent(g_OldDirect3DDevice9Ex); // SOURCE:MVM
 
 		HRESULT hResult = g_OldDirect3DDevice9Ex->PresentEx(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
 

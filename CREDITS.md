@@ -474,3 +474,5 @@ Thanks to our donors:
 ## Additonal Credits
 
 Additional credits are included with e.g. the main download in the readme.txt file [(or see version on github.com)](https://github.com/advancedfx/advancedfx/blob/master/misc/readme_head.txt).
+
+The Source 1 hook's workspace UI is drawn with [Dear ImGui](https://github.com/ocornut/imgui) by Omar Cornut (MIT license, `Deps/release/imgui/LICENSE.txt`, shipped as `bin/resources/LICENSES/DearImGui/LICENSE.txt`).

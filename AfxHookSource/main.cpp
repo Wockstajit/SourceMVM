@@ -28,6 +28,7 @@
 #include "hlaeFolder.h"
 #include "CampathDrawer.h"
 #include "Filmmaker/SourceFilmmaker.h" // SOURCE:MVM
+#include "Filmmaker/SourceUi.h" // SOURCE:MVM
 
 #ifndef _WIN64
 #include "asmClassTools.h"
@@ -2525,6 +2526,9 @@ BOOL WINAPI new_GetCursorPos(
 {
 	BOOL result = GetCursorPos(lpPoint);
 
+	if (SourceFilmmaker::Ui_OnGetCursorPos(lpPoint)) // SOURCE:MVM
+		return TRUE;
+
 	if (AfxHookSource::Gui::OnGetCursorPos(lpPoint))
 		return TRUE;
 
@@ -2538,6 +2542,9 @@ BOOL WINAPI new_SetCursorPos(
 	__in int Y
 )
 {
+	if (SourceFilmmaker::Ui_OnSetCursorPos(X, Y)) // SOURCE:MVM
+		return TRUE;
+
 	if (AfxHookSource::Gui::OnSetCursorPos(X, Y))
 		return TRUE;
 
@@ -2549,6 +2556,9 @@ BOOL WINAPI new_SetCursorPos(
 HCURSOR WINAPI new_SetCursor(__in_opt HCURSOR hCursor)
 {
 	HCURSOR result;
+
+	if (SourceFilmmaker::Ui_OnSetCursor(hCursor, result)) // SOURCE:MVM
+		return result;
 
 	if (AfxHookSource::Gui::OnSetCursor(hCursor, result))
 		return result;
@@ -3046,6 +3056,8 @@ UINT WINAPI New_GetRawInputData(
 
 	UINT result = g_Import_inputsystem_USER32_GetRawInputData.GetTrueFuncValue()(hRawInput,uiCommand,pData,pcbSize,cbSizeHeader);
 
+	SourceFilmmaker::Ui_FilterRawInput(result, uiCommand, pData); // SOURCE:MVM
+
 	result = g_Hook_VClient_RenderView.m_MirvInput->Supply_RawInputData(result, hRawInput, uiCommand,pData,pcbSize,cbSizeHeader);
 
 	return result;
@@ -3083,6 +3095,8 @@ UINT WINAPI New_GetRawInputData2(
     _In_ UINT cbSizeHeader) {
 
 	UINT result = g_Old_New_GetRawInputData2(hRawInput,uiCommand,pData,pcbSize,cbSizeHeader);
+
+	SourceFilmmaker::Ui_FilterRawInput(result, uiCommand, pData); // SOURCE:MVM
 
 	result = g_Hook_VClient_RenderView.m_MirvInput->Supply_RawInputData(result, hRawInput, uiCommand,pData,pcbSize,cbSizeHeader);
 

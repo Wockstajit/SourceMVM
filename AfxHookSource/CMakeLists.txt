@@ -78,6 +78,8 @@ target_compile_definitions(AfxHookSource PRIVATE
     _CRT_SECURE_NO_WARNINGS
     # Shared SOURCE:MVM filmmaker files compiled into this hook leave out their CS2-only parts.
     GAME_SOURCE1
+    # Dear ImGui reads the Source 1 UI's configuration (Filmmaker/Ui/UiImConfig.h).
+    IMGUI_USER_CONFIG="Filmmaker/Ui/UiImConfig.h"
 )
 
 # generate PDB in release too:
@@ -88,6 +90,7 @@ target_include_directories(AfxHookSource PRIVATE
     ./
     ../Deps/release/prop/AfxHookSource
     ../
+    ../Deps/release/imgui
     ../Deps/release/prop
     "${AFX_OPENEXR_INCLUDE_DIRECTORIES}"
     "${CMAKE_CURRENT_BINARY_DIR}"
@@ -137,6 +140,27 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceNetcon.h
     Filmmaker/SourceNetvars.h
     Filmmaker/SourceSdk2013.h
+    Filmmaker/SourceUi.cpp
+    Filmmaker/SourceUi.h
+    Filmmaker/Ui/CameraEditorShell.cpp
+    Filmmaker/Ui/CameraEditorShell.h
+    Filmmaker/Ui/UiImConfig.h
+    Filmmaker/Ui/UiRenderDx9.cpp
+    Filmmaker/Ui/UiRenderDx9.h
+    Filmmaker/Ui/UiStyle.cpp
+    Filmmaker/Ui/UiStyle.h
+    Filmmaker/Ui/UiTheme.h
+    Filmmaker/Ui/UiTypes.h
+    Filmmaker/Ui/UiWidgets.cpp
+    Filmmaker/Ui/UiWidgets.h
+    Filmmaker/Ui/WorkspaceLayoutMath.h
+
+    # Dear ImGui (MIT), the Source 1 UI's widget layer.
+    ../Deps/release/imgui/imgui.cpp
+    ../Deps/release/imgui/imgui.h
+    ../Deps/release/imgui/imgui_draw.cpp
+    ../Deps/release/imgui/imgui_tables.cpp
+    ../Deps/release/imgui/imgui_widgets.cpp
 
     # Shared with the CS2 and Deadlock hooks, compiled from the CS2 tree.
     ../AfxHookSource2/Filmmaker/Debug/DebugLogDedupMath.h
@@ -344,6 +368,8 @@ target_sources(AfxHookSource PRIVATE
 source_group("AfxHookSource" REGULAR_EXPRESSION "/AfxHookSource/")
 source_group("AfxHookSource/Filmmaker" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/")
 source_group("AfxHookSource/Filmmaker/CSS" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/CSS/")
+source_group("AfxHookSource/Filmmaker/Ui" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/Ui/")
+source_group("Deps/release/imgui" REGULAR_EXPRESSION "/Deps/release/imgui/")
 source_group("AfxHookSource2/Filmmaker" REGULAR_EXPRESSION "/AfxHookSource2/Filmmaker/")
 source_group("AfxHookSource/tf2" REGULAR_EXPRESSION "/AfxHookSource/tf2/")
 source_group("deps" REGULAR_EXPRESSION "/Deps/")
@@ -458,6 +484,11 @@ if(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
     install(
         FILES "${CMAKE_CURRENT_SOURCE_DIR}/../Resources/resources/hexfont.tga"
         DESTINATION "bin/resources"
+        COMPONENT x64-source1
+    )
+    install(
+        FILES "${CMAKE_CURRENT_SOURCE_DIR}/../Deps/release/imgui/LICENSE.txt"
+        DESTINATION "bin/resources/LICENSES/DearImGui"
         COMPONENT x64-source1
     )
 endif()

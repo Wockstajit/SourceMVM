@@ -107,6 +107,7 @@ play on the current game: it stops with "demo network protocol 7 outdated, engin
 | `mirv_filmmaker health` | Hook build, game, engine interfaces, command port counters, `mvm_debug` state, pump counts, the engine adapter, connection, map, demo time, the game's and the rendered view, and a player summary |
 | `mirv_filmmaker players` | One line per player: index, name, team, health, alive, dormant, origin, eye angles, class, bot and SourceTV flags. `>` marks the spectated player |
 | `mirv_filmmaker engine` | The networked fields the engine adapter resolved, with their offsets |
+| `mirv_filmmaker editor on\|off\|toggle\|state` | The Camera Editor workspace. `state` reports the mouse mode, tabs, preview rect and fonts |
 | `mvm_debug start\|stop\|status` | The shared runtime debug log, as in CS2: `%APPDATA%\HLAE\debuglogs\mvm_debug_*.log`, every console line and every command received over the port, stamped with demo tick, frame and thread |
 
 `health` is the first check when something stops working. `console capture REPLACED` means the
@@ -132,6 +133,42 @@ the log.
 What differs per game is a `GameProfile` (`SourceGameProfile.h`): team names and where eye angles
 are networked. CS:S has its own (`CSS/CssProfile.cpp`); any other Source 1 game gets the generic
 one, which reads only fields every Source 1 multiplayer game has.
+
+## Workspace UI
+
+The workspaces are native C++ drawn with [Dear ImGui](https://github.com/ocornut/imgui)
+(`Deps/release/imgui`, a submodule pinned to v1.91.9), laid out like CS2's and painted like CS:S.
+The engine-free part lives in `AfxHookSource/Filmmaker/Ui/`:
+
+| File | What it holds |
+| --- | --- |
+| `WorkspaceLayoutMath.h` | CS2's stage scaling, inspector column, dock measure and centred preview fit |
+| `UiTheme.h` | CS:S colours (ClientScheme / SourceScheme), Verdana and Tahoma, and CS2's UI metrics |
+| `UiStyle.cpp`, `UiWidgets.cpp` | The ImGui style, fonts at the stage scale, CS2's text tabs and chips |
+| `CameraEditorShell.cpp` | The Camera Editor: preview, inspector tabs, dock ribbon, ESC EXIT |
+| `UiRenderDx9.cpp` | Draws a finished frame on the render thread, and letterboxes the game into the preview |
+
+`SourceUi.cpp` is the game host. The UI is built on the main thread at `FRAME_RENDER_START`, copied,
+and drawn by the thread that presents, just before `Present`, so no D3D call leaves that thread.
+While a workspace is open the finished game frame is copied out of the back buffer and drawn into
+the preview rect, black around it, as CS2's preview viewport does.
+
+The mouse follows CS2's workspace rules (`UiClickMath.h`, shared with CS2):
+
+- While a workspace is open the cursor is free and the game sees no mouse movement or buttons:
+  the hook swallows the game's cursor recentring and zeroes raw mouse input.
+- A left click in the preview hands the mouse to the game. G hands it back.
+- A right press in the preview that is held for 200 ms or dragged 4 px looks around until it is
+  released, then the cursor returns where it was. A quicker right click stays a click.
+- The wheel over the preview is the game's; over a panel it scrolls the panel.
+- ESC closes the workspace.
+
+`mvm_debug` logs every button the UI sees (`ui.input`), mode changes (`ui.mouse`), hover changes
+(`ui.hover`), the font build (`ui.fonts`) and open and close (`ui.editor`).
+
+`Automation\capture\send-click.ps1 -Process cstrike_win64 -Button Left|Right -HoldMs <ms>` drives
+the UI with real window messages. Post from a per-monitor DPI-aware thread, as that script does:
+otherwise posted coordinates arrive scaled by the display's scale factor.
 
 During playback, `local` and `observing` describe the demo's recorder. In a SourceTV demo that is
 the SourceTV bot, so `observing` is the director's pick at record time. The playback camera itself
