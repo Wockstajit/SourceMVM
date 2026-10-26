@@ -7,8 +7,10 @@
 // returns where the press was. CS:S does none of this itself, so the hook does it.
 //
 // Press and hold are told apart by CS2's look rule (UiClickMath.h RightPressBecomesLook: 200 ms or
-// more than 4 px), the one the workspaces already use. Engine-free and header-only;
-// Automation/tests/source-director-math-tests.cpp pins it.
+// more than 4 px), the one the workspaces already use. While HLAE's free camera (mirv_input) flies
+// the view, a press steers it at once and steps no player, as CS2's own free cam does.
+//
+// Engine-free and header-only; Automation/tests/source-director-math-tests.cpp pins it.
 
 #include "UiTypes.h"
 
@@ -39,7 +41,8 @@ public:
 		m_barPress[Left] = m_barPress[Right] = false;
 	}
 
-	Route ButtonDown(int button, float x, float y, int64_t nowMs, const Rect& bar) {
+	// steer: the free camera flies the view, so the press looks at once.
+	Route ButtonDown(int button, float x, float y, int64_t nowMs, const Rect& bar, bool steer = false) {
 		if (button != Left && button != Right) return m_mode == Mode::Look ? Route::Game : Route::Swallow;
 		if (m_mode == Mode::Look) return Route::Game;
 		if (bar.Contains(x, y)) {
@@ -47,6 +50,13 @@ public:
 			return Route::Ui;
 		}
 		if (m_pending >= 0) return Route::Swallow; // the other button while one waits: ignored
+		if (steer) {
+			m_mode = Mode::Look;
+			m_lookButton = button;
+			m_x = x;
+			m_y = y;
+			return Route::Swallow; // the press itself steps no player
+		}
 		m_pending = button;
 		m_x = x;
 		m_y = y;

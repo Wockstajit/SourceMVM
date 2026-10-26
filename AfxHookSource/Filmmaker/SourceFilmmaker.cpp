@@ -176,6 +176,8 @@ bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	return Ui_OnWindowMessage(hwnd, msg, wParam, lParam);
 }
 
+bool SuspendMirvInput() { return Ui_SuspendMirvInput(); }
+
 void OnFrameRenderStart() {
 	g_frameRenderStarts.fetch_add(1);
 	DemoIndex_Frame();

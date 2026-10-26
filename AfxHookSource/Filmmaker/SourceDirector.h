@@ -41,6 +41,12 @@ void Director_BuildCards(Ui::DirectorCardsModel& cards);
 // shows them: a spectator's view, HUD on. 0 otherwise.
 float Director_SpectatorBarHeight(float clientH);
 
+// HLAE's free camera (mirv_input camera) flies the view: a press steers it at once (Ui/DirectorMouse.h),
+// Ctrl and Shift on the wheel are its FOV and speed, Shift held slows it, and stepping to one of the
+// game's cameras ends it, as CS2's free cam does.
+bool Director_FreeCamOn();
+void Director_SetSlow(bool slow);
+
 void Director_Click(Ui::DirectorMouse::Click click);
 void Director_Wheel(int notches, bool ctrl, bool shift);
 void Director_Key(Ui::DirectorMath::Key key);

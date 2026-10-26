@@ -62,6 +62,11 @@ static void TestFovAndSpeed() {
 	CHECK(WheelFor(false, true, kRoaming) == Wheel::Speed);
 	CHECK(WheelFor(false, true, kChase) == Wheel::Nothing); // used up, as in CS2
 	CHECK(WheelFor(false, false, kChase) == Wheel::Camera);
+	// HLAE's free camera on: Ctrl and Shift are its own, in any game camera; a plain notch still
+	// steps the game's cameras.
+	CHECK(WheelFor(true, false, kChase, true) == Wheel::FreeCamFov);
+	CHECK(WheelFor(false, true, kInEye, true) == Wheel::FreeCamSpeed);
+	CHECK(WheelFor(false, false, kRoaming, true) == Wheel::Camera);
 }
 
 static void TestF8() {
@@ -141,6 +146,19 @@ static void TestBarKeepsItsClicks() {
 	CHECK(m.ButtonDown(DirectorMouse::Middle, 300, 200, 0, kBar) == Route::Swallow);
 }
 
+static void TestFreeCamSteersAtOnce() {
+	DirectorMouse m;
+	Click click = Click::None;
+	CHECK(m.ButtonDown(DirectorMouse::Left, 400, 200, 0, kBar, true) == Route::Swallow);
+	CHECK(m.GetMode() == Mode::Look && !m.Pending()); // no 200 ms wait, no player step pending
+	CHECK(m.Move(410, 205, 5) == Route::Game);
+	CHECK(m.ButtonUp(DirectorMouse::Left, 30, click) == Route::Swallow);
+	CHECK(click == Click::None && m.GetMode() == Mode::Free);
+	CHECK(m.LookX() == 400 && m.LookY() == 200);
+	CHECK(m.ButtonDown(DirectorMouse::Right, 300, 460, 40, kBar, true) == Route::Ui); // the bar is still the bar's
+	CHECK(m.ButtonUp(DirectorMouse::Right, 50, click) == Route::Ui);
+}
+
 static void TestFocusLost() {
 	DirectorMouse m;
 	Click click = Click::None;
@@ -165,6 +183,7 @@ int main() {
 	TestClickStepsPlayers();
 	TestHoldLooks();
 	TestBarKeepsItsClicks();
+	TestFreeCamSteersAtOnce();
 	TestFocusLost();
 	if (g_failed) { std::printf("%d check(s) failed\n", g_failed); return 1; }
 	std::printf("SourceDirectorMathTests passed\n");

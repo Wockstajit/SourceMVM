@@ -53,4 +53,9 @@ bool Ui_EditorOpen();
 // mirv_filmmaker director state: the director's mouse, bar, cards and where each bar control is.
 void Ui_DirectorState();
 
+// HLAE's free camera (mirv_input) waits while the cursor is ours: a workspace's UI mode, or the
+// director's free cursor. It flies while the game has the mouse (a held press, GAME mode), as CS2's
+// free cam does, and its held keys are dropped while it waits.
+bool Ui_SuspendMirvInput();
+
 } // namespace SourceFilmmaker

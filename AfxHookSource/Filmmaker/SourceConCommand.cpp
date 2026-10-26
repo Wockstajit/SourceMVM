@@ -8,6 +8,9 @@
 #include <css/sdk_src/public/icvar.h>
 #include <css/sdk_src/public/tier1/convar.h>
 
+#include <windows.h>
+
+#include <cmath>
 #include <cstring>
 
 namespace SourceFilmmaker {
@@ -40,7 +43,26 @@ ConCommandData* Find(const char* name) {
 	return data;
 }
 
+// The variable's value, guarded: read only when the variable's name reads back, and a layout that
+// does not match faults into false rather than a crash.
+bool ReadFloat(SOURCESDK::CSS::ConVar* var, const char* name, float& value) {
+	__try {
+		const ConCommandData* data = (const ConCommandData*)var;
+		if (!data->name || std::strcmp(data->name, name) != 0) return false;
+		value = var->GetFloat();
+		return std::isfinite(value);
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		return false;
+	}
+}
+
 } // namespace
+
+bool ConVar_GetFloat(const char* name, float& value) {
+	if (!SOURCESDK::CSS::g_pCVar) return false;
+	SOURCESDK::CSS::ConVar* var = SOURCESDK::CSS::g_pCVar->FindVar(name);
+	return var && ReadFloat(var, name, value);
+}
 
 CommandCallback ConCommand_Callback(const char* name) {
 	ConCommandData* data = Find(name);

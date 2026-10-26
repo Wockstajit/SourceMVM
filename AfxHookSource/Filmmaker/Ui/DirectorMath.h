@@ -5,7 +5,7 @@
 // and the browser mockup decide the same way; Automation/tests/source-director-math-tests.cpp pins it.
 //
 //   wheel        cycles first person, chase and free cam; Ctrl+wheel is the FOV, Shift+wheel the
-//                free cam's speed
+//                free cam's speed (with HLAE's own free camera, mirv_input, on: its FOV and speed)
 //   Space        pause / play
 //   Left, Right  5 seconds back / on
 //   F8           blackout: no HUD, no bar, no cards (or, with the cards hidden, the cards back)
@@ -109,13 +109,20 @@ inline double StepSpeed(double speed, int notches) {
 }
 
 // What a wheel notch does, by modifier: Ctrl is the FOV in any camera; Shift is the speed, in the free
-// cam only (elsewhere the notch is used up and does nothing, as in CS2); otherwise the camera.
-enum class Wheel { Camera, Fov, Speed, Nothing };
-inline Wheel WheelFor(bool ctrl, bool shift, int mode) {
+// cam only (elsewhere the notch is used up and does nothing, as in CS2); otherwise the camera. With
+// HLAE's free camera (mirv_input) flying the view, Ctrl and Shift are its FOV and speed instead; a
+// plain notch still steps the game's cameras, which ends that free camera (CS2's MovieMode).
+enum class Wheel { Camera, Fov, Speed, FreeCamFov, FreeCamSpeed, Nothing };
+inline Wheel WheelFor(bool ctrl, bool shift, int mode, bool ownFreeCam = false) {
+	if (ownFreeCam && ctrl) return Wheel::FreeCamFov;
+	if (ownFreeCam && shift) return Wheel::FreeCamSpeed;
 	if (ctrl) return Wheel::Fov;
 	if (shift) return mode == kRoaming ? Wheel::Speed : Wheel::Nothing;
 	return Wheel::Camera;
 }
+
+// Shift held slows HLAE's free camera to a quarter (CS2's CameraBridge_SetFreeCamSlow).
+constexpr double kFreeCamSlowFactor = 0.25;
 
 // F8: with the cards hidden it brings them back (and ends a blackout); otherwise it toggles the
 // blackout.

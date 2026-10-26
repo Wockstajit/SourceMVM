@@ -165,7 +165,7 @@ DirectorFrame DrawDirector(DirectorState& state, const DemoBarModel& bar, const 
 	right.Header("MOVIE DIRECTOR");
 	right.Separator();
 	right.SectionStart();
-	right.Row("Mode", cards.mode, Theme::Text);
+	right.Row("Mode", cards.mode, cards.freeCam ? Theme::Accent : Theme::Text);
 	right.Row("Playback", cards.playing ? (cards.paused ? "Paused" : "Playing") : "No demo", cards.paused ? Theme::Accent : Theme::Text);
 	if (cards.speed >= 0) {
 		F1(cards.speed, a, sizeof(a));

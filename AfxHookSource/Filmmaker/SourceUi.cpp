@@ -223,7 +223,7 @@ bool OnDirectorMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 	case WM_MBUTTONDOWN: {
 		const int button = (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) ? DirectorMouse::Left
 			: (msg == WM_MBUTTONDOWN ? DirectorMouse::Middle : DirectorMouse::Right);
-		route = g.directorMouse.ButtonDown(button, (float)x, (float)y, now, g.bar);
+		route = g.directorMouse.ButtonDown(button, (float)x, (float)y, now, g.bar, Director_FreeCamOn());
 		if (route == DirectorRoute::Ui && io) {
 			io->AddMousePosEvent((float)x, (float)y);
 			io->AddMouseButtonEvent(button, true);
@@ -264,6 +264,10 @@ bool OnDirectorMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 	switch (msg) {
 	case WM_KEYDOWN:
 	case WM_KEYUP: {
+		if (wParam == VK_SHIFT) {
+			Director_SetSlow(msg == WM_KEYDOWN); // not used up: the game and mirv_input see it too
+			return false;
+		}
 		const DirectorMath::Key key = DirectorMath::KeyFor((int)wParam);
 		if (key == DirectorMath::Key::None) return false;
 		if (msg == WM_KEYDOWN && !(lParam & (1 << 30))) Director_Key(key); // auto-repeat is ignored
@@ -599,6 +603,11 @@ void Ui_FilterRawInput(UINT result, UINT command, LPVOID data) {
 }
 
 bool Ui_EditorOpen() { return g_open.load(); }
+
+bool Ui_SuspendMirvInput() {
+	if (g_open.load()) return g.mouse.GetMode() == Mode::Ui;
+	return g_director.load() && g.directorMouse.GetMode() == DirectorMode::Free;
+}
 
 void Ui_DirectorState() {
 	advancedfx::Message("director: %s, mouse %s, bar (%.0f %.0f %.0f %.0f), cards %s, blackout %s, frames %u\n",

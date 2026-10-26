@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "SourceDirector.h"
+#include "SourceConCommand.h"
 #include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
 #include "SourceEngine.h"
@@ -10,6 +11,9 @@
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
 #include <Shared/AfxConsole.h>
+#include <Shared/MirvInput.h>
+
+#include <windows.h>
 
 #include <cstdio>
 #include <cstring>
@@ -144,6 +148,28 @@ void TrackCamera() {
 
 int CameraMode() { return g.expectFrames > 0 ? g.expectMode : Players_ObserverMode(); }
 
+// HLAE's free camera: mirv_input's camera control mode, which the view override chain applies
+// (RenderView.cpp Override_Input).
+MirvInput* FreeCam() { return g_Hook_VClient_RenderView.m_MirvInput; }
+
+// The free camera turns with the game's own aim sensitivity (sensitivity * m_yaw / m_pitch, read once
+// a second), as CS2's does: the same hand movement turns the camera as far as it turns the aim.
+void FeedSensitivity() {
+	static ULONGLONG lastRead = 0;
+	const ULONGLONG now = GetTickCount64();
+	if (now - lastRead < 1000 || !FreeCam()) return;
+	lastRead = now;
+	float sensitivity = 0, yaw = 0, pitch = 0;
+	if (!ConVar_GetFloat("sensitivity", sensitivity) || !ConVar_GetFloat("m_yaw", yaw) || !ConVar_GetFloat("m_pitch", pitch)) return;
+	if (sensitivity <= 0 || yaw <= 0 || pitch <= 0) return;
+	FreeCam()->SetGameMouseDegreesPerCount((double)sensitivity * yaw, (double)sensitivity * pitch);
+	static float logged = -1;
+	if (logged != sensitivity && Filmmaker::MvmDebugLog_Active()) {
+		logged = sensitivity;
+		Filmmaker::MvmDebugLog_Linef("director", "free cam mouse: sensitivity %.3f m_yaw %.4f m_pitch %.4f", sensitivity, yaw, pitch);
+	}
+}
+
 bool DemoPlaying() { return Demo_State().playing && g_VEngineClient && g_VEngineClient->IsInGame(); }
 
 } // namespace
@@ -151,6 +177,7 @@ bool DemoPlaying() { return Demo_State().playing && g_VEngineClient && g_VEngine
 DirectorState& Director_State() { return g.ui; }
 
 void Director_Frame() {
+	FeedSensitivity();
 	if (g.expectFrames > 0 && (--g.expectFrames == 0 || Players_ObserverMode() == g.expectMode)) g.expectFrames = 0;
 	if (DemoPlaying()) {
 		ApplyBlackout();
@@ -176,10 +203,11 @@ bool Director_Wanted() { return DemoPlaying() && !Engine_GameUiVisible(); }
 void Director_BuildCards(DirectorCardsModel& cards) {
 	cards = DirectorCardsModel();
 	const DemoState demo = Demo_State();
-	cards.mode = DirectorMath::CameraCardName(CameraMode());
+	cards.freeCam = Director_FreeCamOn();
+	cards.mode = cards.freeCam ? "Free cam" : DirectorMath::CameraCardName(CameraMode());
 	cards.playing = demo.playing;
 	cards.paused = demo.paused;
-	cards.speed = g.speed;
+	cards.speed = cards.freeCam ? FreeCam()->GetCamSpeed() : g.speed;
 	const ViewPose view = View_Rendered(); // what is on screen, the director's FOV included
 	for (int i = 0; i < 3; ++i) {
 		cards.pos[i] = view.origin[i];
@@ -201,7 +229,17 @@ void Director_Click(DirectorMouse::Click click) {
 	else if (click == DirectorMouse::Click::PreviousPlayer) Command("spec_prev");
 }
 
+bool Director_FreeCamOn() { return FreeCam() && FreeCam()->GetCameraControlMode(); }
+
+void Director_SetSlow(bool slow) {
+	if (FreeCam()) FreeCam()->SetSlowFactor(slow ? DirectorMath::kFreeCamSlowFactor : 1.0);
+}
+
 void Director_StepCamera(int notches) {
+	if (Director_FreeCamOn()) {
+		FreeCam()->SetCameraControlMode(false); // one of the game's cameras takes the view back
+		if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("director", "free cam off");
+	}
 	const int mode = DirectorMath::StepCamera(CameraMode(), notches);
 	char command[64];
 	std::snprintf(command, sizeof(command), "spec_mode %d", mode);
@@ -214,7 +252,7 @@ void Director_StepCamera(int notches) {
 void Director_Wheel(int notches, bool ctrl, bool shift) {
 	if (!notches) return;
 	char command[64];
-	switch (DirectorMath::WheelFor(ctrl, shift, CameraMode())) {
+	switch (DirectorMath::WheelFor(ctrl, shift, CameraMode(), Director_FreeCamOn())) {
 	case DirectorMath::Wheel::Camera:
 		Director_StepCamera(notches);
 		break;
@@ -231,6 +269,13 @@ void Director_Wheel(int notches, bool ctrl, bool shift) {
 		g.speedSet = true;
 		std::snprintf(command, sizeof(command), "sv_specspeed %g", g.speed * kDefaultSpecSpeed);
 		Command(command);
+		break;
+	case DirectorMath::Wheel::FreeCamFov:
+		for (int i = 0; i < (notches < 0 ? -notches : notches); ++i)
+			FreeCam()->NudgeFov(notches > 0 ? -Filmmaker::kFreeCamFovStepDeg : Filmmaker::kFreeCamFovStepDeg); // up zooms in
+		break;
+	case DirectorMath::Wheel::FreeCamSpeed:
+		FreeCam()->SetCamSpeed(DirectorMath::StepSpeed(FreeCam()->GetCamSpeed(), notches));
 		break;
 	case DirectorMath::Wheel::Nothing:
 		break;

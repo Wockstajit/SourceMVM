@@ -224,8 +224,8 @@ While a demo plays and no workspace is open, the hook runs CS2's movie director
 | Click | Left: the next player (`spec_next`); right: the previous one (`spec_prev`) |
 | Hold or drag | Held 200 ms or moved more than 4 px, a press looks around (chase, free cam) until it comes up; the cursor then returns where the press was. CS2's rule, shared with the workspaces (`UiClickMath.h`) |
 | Wheel | First person, chase, free cam, round again (`spec_mode` 4, 5, 7); up steps forward |
-| Ctrl+wheel | FOV, a degree a notch, wheel up zooms in, 1 to 170 (`demo_fov_override`). It belongs to the camera: a camera change drops it |
-| Shift+wheel | In free cam, its speed on CS2's ladder (0.5x steps, halving below 0.5x); 1x is CS:S's `sv_specspeed` 3 |
+| Ctrl+wheel | FOV, a degree a notch, wheel up zooms in, 1 to 170 (HLAE's view FOV override). It belongs to the camera: a camera change drops it |
+| Shift+wheel | In the game's free cam (`spec_mode` 7), its speed on CS2's ladder (0.5x steps, halving below 0.5x); 1x is CS:S's `sv_specspeed` 3. With HLAE's [free cam](#free-cam) on, that camera's speed |
 | Space | Pause and play; the game never sees the key, so nothing jumps |
 | Left / Right | Five seconds back and on (back restarts and seeks forward, as the bar does) |
 | F8 | Blackout: no HUD, crosshair or spectator bars (`cl_drawhud 0`), no bar, no cards. Again for everything back. With the cards switched off, F8 brings them back |
@@ -254,7 +254,35 @@ rest: its SourceTV camera scan (`s_HLTVCamera`) and spectator tools are 32-bit C
 command hook (`Cmd_ExecuteCommand`) is CS:GO and TF2 only, `WrpConVarRef` reads only CS:GO's cvar
 interface, and its HUD switches (`mirv_streams` drawHud) are 32-bit only. So the camera is read
 through `spec_mode`'s callback, and the HUD, cameras and speed go through console commands. HLAE's
-free camera, `mirv_input`, does run on x64 CS:S; the free cam step builds on it.
+free camera, `mirv_input`, does run on x64 CS:S, and it is the [free cam](#free-cam).
+
+### Free cam
+
+HLAE's own free camera, `mirv_input` (`Shared/MirvInput`), is the filmmaker's free cam in CS:S, as
+it is in CS2 (`Movie/CameraBridge.cpp` wraps the same class). `mirv_input camera` turns it on and
+`mirv_input end` off, and HLAE's keys fly it: W, A, S, D, numpad 9 and 3 up and down, X and Z roll,
+Up and Down pitch, PgUp and PgDn the FOV, Home back to level (the HLAE manual has the rest). HLAE's
+view hook applies it (`Hook_VClient_RenderView`, the `Input` override). The director adds what CS2
+adds around it:
+
+| Input | With the free cam on |
+| --- | --- |
+| Press outside the bar | Steers at once, no player step: the camera has the mouse and the keys until the button comes up, then the cursor returns where the press was |
+| Cursor free | The free cam waits and its held keys are dropped, so it flies only while a button is held, as in CS2. HLAE's `GetSuspendMirvInput` asks the filmmaker (one marked line in `RenderView.cpp`) |
+| Ctrl+wheel | Its FOV, a degree a notch, wheel up zooms in (`MirvInput::NudgeFov`) |
+| Shift+wheel | Its speed on CS2's ladder (`FreeCamStepMath.h`) |
+| Shift held | A quarter of the speed |
+| Wheel, bar camera button | One of the game's cameras takes the view back, and the free cam ends |
+
+It turns with the game's own aim: degrees per mouse count are `sensitivity` times `m_yaw` and
+`m_pitch`, read once a second from CS:S's console variables through the CS:S SDK's `ConVar`, because
+HLAE's `WrpConVarRef` reads only CS:GO's. The MOVIE DIRECTOR card shows Free cam in orange with its
+speed.
+
+Checked in CS:S on 2026-10-26 with a paused demo: the read sensitivity matched the console (1.12,
+0.022, 0.022); Ctrl+wheel took the FOV to 87 and Shift+wheel the speed to 2x; held with W for 0.8 s
+it flew about 535 units (320 x 2 x 0.8); with the cursor free W did nothing; a plain wheel notch
+returned to chase cam. Not checked: turning it with a physical mouse.
 
 CS2's X-ray (X) has no CS:S counterpart. The camera-path keys (K, J, L, F) come with the Camera
 Editor's paths, and Z/X roll with the free cam step.

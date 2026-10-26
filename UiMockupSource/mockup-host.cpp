@@ -71,6 +71,9 @@ struct SimDemo {
 	int target = 0;      // index into spectatable
 	double fov = 0;      // Ctrl+wheel's FOV, 0 while the camera's own
 	double speed = 1;    // the free cam's speed, x
+	bool freeCam = false;   // HLAE's free camera (mirv_input camera) flies the view
+	double freeCamSpeed = 1;
+	double freeCamFov = 90;
 	std::vector<std::string> spectatable = { "Josh", "Xander", "Kurt", "Nate", "Eli" };
 	bool loopOn = false;
 	DemoBarMath::LoopRegion loop;
@@ -241,6 +244,10 @@ void SeekSim(int tick) {
 
 // A camera change drops the Ctrl+wheel FOV, which belongs to the camera it was set in (CS2).
 void SetCamera(int mode) {
+	if (g.demo.freeCam) {
+		g.demo.freeCam = false; // one of the game's cameras takes the view back
+		LogLine("director", "free cam off");
+	}
 	if (mode == g.demo.observerMode) return;
 	g.demo.observerMode = mode;
 	g.demo.fov = 0;
@@ -257,7 +264,7 @@ void StepPlayer(int direction) {
 void DirectorWheel(int notches, bool ctrl, bool shift) {
 	SimDemo& d = g.demo;
 	char line[96];
-	switch (DirectorMath::WheelFor(ctrl, shift, d.observerMode)) {
+	switch (DirectorMath::WheelFor(ctrl, shift, d.observerMode, d.freeCam)) {
 	case DirectorMath::Wheel::Camera: SetCamera(DirectorMath::StepCamera(d.observerMode, notches)); return;
 	case DirectorMath::Wheel::Fov:
 		d.fov = DirectorMath::StepFov(d.fov > 0 ? d.fov : 90, notches);
@@ -267,6 +274,16 @@ void DirectorWheel(int notches, bool ctrl, bool shift) {
 	case DirectorMath::Wheel::Speed:
 		d.speed = DirectorMath::StepSpeed(d.speed, notches);
 		std::snprintf(line, sizeof(line), "speed %.3f", d.speed);
+		LogLine("director", line);
+		return;
+	case DirectorMath::Wheel::FreeCamFov:
+		d.freeCamFov -= notches * Filmmaker::kFreeCamFovStepDeg; // up zooms in, as MirvInput::NudgeFov
+		std::snprintf(line, sizeof(line), "free cam fov %.0f", d.freeCamFov);
+		LogLine("director", line);
+		return;
+	case DirectorMath::Wheel::FreeCamSpeed:
+		d.freeCamSpeed = DirectorMath::StepSpeed(d.freeCamSpeed, notches);
+		std::snprintf(line, sizeof(line), "free cam speed %.3f", d.freeCamSpeed);
 		LogLine("director", line);
 		return;
 	case DirectorMath::Wheel::Nothing: return;
@@ -294,13 +311,14 @@ void DirectorKey(DirectorMath::Key key) {
 void BuildCards(DirectorCardsModel& cards) {
 	const SimDemo& d = g.demo;
 	cards = DirectorCardsModel();
-	cards.mode = DirectorMath::CameraCardName(d.observerMode);
+	cards.freeCam = d.freeCam;
+	cards.mode = d.freeCam ? "Free cam" : DirectorMath::CameraCardName(d.observerMode);
 	cards.playing = d.playing;
 	cards.paused = d.paused;
-	cards.speed = d.speed;
+	cards.speed = d.freeCam ? d.freeCamSpeed : d.speed;
 	cards.pos[0] = -412.5; cards.pos[1] = 1296.0; cards.pos[2] = 64.0; // a stand-in spot on de_dust2
 	cards.ang[0] = g.pitch; cards.ang[1] = g.yaw;
-	cards.fov = d.fov > 0 ? d.fov : 90;
+	cards.fov = d.freeCam ? d.freeCamFov : (d.fov > 0 ? d.fov : 90);
 	cards.haveTick = true;
 	cards.tick = (int)d.tick;
 	cards.time = d.tick * d.interval;
@@ -423,10 +441,10 @@ std::string StateJson() {
 	const bool director = DirectorActive();
 	std::snprintf(buf, sizeof(buf),
 		",\"director\":{\"active\":%s,\"mouse\":\"%s\",\"cards\":%s,\"blackout\":%s,\"target\":\"%s\",\"fov\":%.1f,\"speed\":%.3f,"
-		"\"bar\":[%.1f,%.1f,%.1f,%.1f]}",
+		"\"freecam\":%s,\"freecamSpeed\":%.3f,\"freecamFov\":%.1f,\"bar\":[%.1f,%.1f,%.1f,%.1f]}",
 		director ? "true" : "false", DirectorModeName(g.directorMouse.GetMode()), g.director.cards ? "true" : "false",
 		g.director.blackout ? "true" : "false", g.demo.spectatable[(size_t)g.demo.target].c_str(), g.demo.fov, g.demo.speed,
-		g.bar.x0, g.bar.y0, g.bar.x1, g.bar.y1);
+		g.demo.freeCam ? "true" : "false", g.demo.freeCamSpeed, g.demo.freeCamFov, g.bar.x0, g.bar.y0, g.bar.x1, g.bar.y1);
 	json += buf;
 	const DemoBarLayout& l = director ? g.director.bar.layout : g.editor.demoBar.layout;
 	auto add = [&](const char* name, const Rect& r) {
@@ -460,7 +478,7 @@ int DirectorMouseEvent(int type, int button, float x, float y, float wheel, int 
 		if (route == DirectorRoute::Ui) io.AddMousePosEvent(x, y);
 		break;
 	case 1:
-		route = g.directorMouse.ButtonDown(button, x, y, now, g.bar);
+		route = g.directorMouse.ButtonDown(button, x, y, now, g.bar, g.demo.freeCam);
 		if (route == DirectorRoute::Ui) {
 			io.AddMousePosEvent(x, y);
 			io.AddMouseButtonEvent(button, true);
@@ -641,6 +659,11 @@ EMSCRIPTEN_KEEPALIVE const char* mockup_command(const char* command) {
 		else if (0 == std::strcmp(what, "pause")) g.demo.paused = true;
 		else if (0 == std::strncmp(what, "seek ", 5)) SeekSim(std::atoi(what + 5));
 		g.reply = "demo: " + StateJson();
+		return g.reply.c_str();
+	}
+	if (0 == std::strncmp(action, "mirv_input ", 11)) { // HLAE's free camera: camera | end
+		g.demo.freeCam = 0 == std::strcmp(action + 11, "camera");
+		g.reply = std::string("free cam: ") + (g.demo.freeCam ? "on" : "off");
 		return g.reply.c_str();
 	}
 	if (0 == std::strncmp(action, "hud ", 4) || 0 == std::strncmp(action, "blackout ", 9)) {

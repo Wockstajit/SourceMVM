@@ -21,6 +21,7 @@ namespace Ui {
 
 struct DirectorCardsModel {
 	const char* mode = "-";     // "First person", "Chase cam", "Free cam"
+	bool freeCam = false;       // HLAE's free camera flies the view: the mode in the accent colour
 	bool playing = false;
 	bool paused = false;
 	double speed = -1;          // the free cam's speed, x; below 0 when it has none

@@ -18,4 +18,8 @@ bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 // From the client's FRAME_RENDER_START.
 void OnFrameRenderStart();
 
+// From HLAE's Hook_VClient_RenderView::GetSuspendMirvInput: the cursor is the filmmaker's, so HLAE's
+// free camera waits (SourceUi.h Ui_SuspendMirvInput).
+bool SuspendMirvInput();
+
 } // namespace SourceFilmmaker
