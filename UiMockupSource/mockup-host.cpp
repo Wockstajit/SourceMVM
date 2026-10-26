@@ -9,6 +9,8 @@
 //     player names), so the demo bar's buttons, dial, scrubber and markers all respond, and a
 //     stand-in spectator camera (mode, player, FOV, speed) for the movie director outside the
 //     workspaces;
+//   - the world: a stand-in camera path ("markers on") ahead of the stand-in camera, drawn by the
+//     game's own path overlay (Ui/PathOverlay.h) over the frame;
 //   - the window: index.html forwards DOM mouse and key events here as the game host's window
 //     procedure forwards window messages, and asks for pointer lock while the game has the mouse.
 //
@@ -20,8 +22,10 @@
 #include "../AfxHookSource/Filmmaker/Ui/DirectorHud.h"
 #include "../AfxHookSource/Filmmaker/Ui/DirectorMath.h"
 #include "../AfxHookSource/Filmmaker/Ui/DirectorMouse.h"
+#include "../AfxHookSource/Filmmaker/Ui/PathOverlay.h"
 #include "../AfxHookSource/Filmmaker/Ui/UiKeys.h"
 #include "../AfxHookSource/Filmmaker/Ui/WorkspaceMouse.h"
+#include "../AfxHookSource2/Deadlock/DeadlockOverlayMath.h"
 #include "../AfxHookSource2/Filmmaker/Panorama/HudReadoutCadenceMath.h"
 
 #include <imgui.h>
@@ -137,6 +141,8 @@ struct Host {
 	GLuint backdrop = 0;
 	int backdropW = 0, backdropH = 0;
 	float yaw = 0, pitch = 0;   // the stand-in game camera, degrees
+	bool pathOn = false;        // the stand-in camera path is drawn
+	bool pathFreeze = false;    // in Freeze blue, else Live gold
 	SimDemo demo = MakeSimDemo();
 	std::string reply;          // backing store for strings handed to JavaScript
 };
@@ -356,6 +362,58 @@ void AdvanceDemo(float dt) {
 	}
 }
 
+// The stand-in camera path: three markers ahead of the stand-in camera (Source axes, X ahead, Z up)
+// and a Catmull-Rom line through them; the playhead runs along it with the demo's tick. The game
+// fills the same model from its real path (SourceCameraPath.cpp CameraPath_Overlay).
+PathOverlayModel StandInPath() {
+	PathOverlayModel model;
+	const double keys[3][6] = { // x y z pitch yaw roll
+		{ 230, 110, 40, 5, -25, 0 }, { 340, 10, 70, 12, 0, 0 }, { 270, -120, 45, 4, 30, 0 } };
+	for (const auto& k : keys) {
+		PathOverlayMarker m;
+		for (int i = 0; i < 3; ++i) { m.pos[i] = k[i]; m.ang[i] = k[3 + i]; }
+		m.fov = 106.26; // 90 at 4:3, widened for 16:9
+		model.markers.push_back(m);
+	}
+	const auto at = [&](int i, int c) { return keys[i < 0 ? 0 : (i > 2 ? 2 : i)][c]; };
+	for (int seg = 0; seg < 2; ++seg)
+		for (int s = seg == 0 ? 0 : 1; s <= 24; ++s) {
+			const double t = s / 24.0, t2 = t * t, t3 = t2 * t;
+			for (int c = 0; c < 3; ++c) {
+				const double p0 = at(seg - 1, c), p1 = at(seg, c), p2 = at(seg + 1, c), p3 = at(seg + 2, c);
+				model.trajectory.push_back(0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (3 * p1 - p0 - 3 * p2 + p3) * t3));
+			}
+		}
+	const size_t points = model.trajectory.size() / 3;
+	const size_t head = (size_t)(g.demo.tick / 8) % points;
+	model.head = true;
+	for (int c = 0; c < 3; ++c) model.headPos[c] = model.trajectory[head * 3 + c];
+	Deadlock::OverlayVec3 aim[3];
+	for (int i = 0; i < 3; ++i) aim[i] = { keys[i][0], keys[i][1], keys[i][2] };
+	model.aimed = Deadlock::PickAimedMarker({ 0, 0, 64 }, g.pitch, -g.yaw, aim, 3);
+	model.freeze = g.pathFreeze;
+	return model;
+}
+
+// The path over the game frame in r, as the game lays it over the whole back buffer before its
+// letterbox scales the frame into the preview.
+void DrawStandInPath(ImDrawList& list, const Rect& r, ImFont* digits) {
+	PathOverlayView view;
+	view.origin[2] = 64;
+	view.angles[0] = g.pitch; // the backdrop scrolls up as the stand-in camera looks down
+	view.angles[1] = -g.yaw;  // and left as it turns right
+	view.width = (float)g.width;
+	view.height = (float)g.height;
+	view.fov = 2.0 * std::atan(std::tan(45.0 * 3.14159265358979323846 / 180.0) * (view.width / view.height) * 0.75) * 180.0 / 3.14159265358979323846;
+	const int first = list.VtxBuffer.Size;
+	DrawPathOverlay(list, StandInPath(), view, digits);
+	const float sx = r.W() / view.width, sy = r.H() / view.height;
+	for (int i = first; i < list.VtxBuffer.Size; ++i) {
+		ImDrawVert& v = list.VtxBuffer[i];
+		v.pos = ImVec2(r.x0 + v.pos.x * sx, r.y0 + v.pos.y * sy);
+	}
+}
+
 // Renders a draw list built outside the ImGui frame through the same backend as the UI.
 void RenderList(ImDrawList& list) {
 	ImDrawData data;
@@ -415,7 +473,9 @@ void Frame() {
 	game._ResetForNewFrame();
 	game.PushClipRect(ImVec2(0, 0), ImVec2((float)g.width, (float)g.height));
 	game.PushTextureID(io.Fonts->TexID);
-	DrawGame(&game, g.editor.open ? frame.previewClient : MakeRect(0, 0, (float)g.width, (float)g.height));
+	const Rect gameRect = g.editor.open ? frame.previewClient : MakeRect(0, 0, (float)g.width, (float)g.height);
+	DrawGame(&game, gameRect);
+	if (g.pathOn && !g.director.blackout && (g.editor.open || director)) DrawStandInPath(game, gameRect, g.fonts.Get(FontRole::Display));
 	RenderList(game);
 	if (g.editor.open || director) ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
@@ -664,6 +724,15 @@ EMSCRIPTEN_KEEPALIVE const char* mockup_command(const char* command) {
 	if (0 == std::strncmp(action, "mirv_input ", 11)) { // HLAE's free camera: camera | end
 		g.demo.freeCam = 0 == std::strcmp(action + 11, "camera");
 		g.reply = std::string("free cam: ") + (g.demo.freeCam ? "on" : "off");
+		return g.reply.c_str();
+	}
+	if (0 == std::strncmp(action, "markers ", 8)) { // the stand-in camera path: on | off | freeze | live
+		const char* what = action + 8;
+		if (0 == std::strcmp(what, "on")) g.pathOn = true;
+		else if (0 == std::strcmp(what, "off")) g.pathOn = false;
+		else if (0 == std::strcmp(what, "freeze")) g.pathFreeze = true;
+		else if (0 == std::strcmp(what, "live")) g.pathFreeze = false;
+		g.reply = std::string("markers: ") + (g.pathOn ? "on" : "off") + (g.pathFreeze ? ", freeze" : ", live");
 		return g.reply.c_str();
 	}
 	if (0 == std::strncmp(action, "hud ", 4) || 0 == std::strncmp(action, "blackout ", 9)) {

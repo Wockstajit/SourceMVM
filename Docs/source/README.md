@@ -346,12 +346,44 @@ Input that CS:S hands the window procedure on its second thread (it does while a
 seeks) runs on the main thread: the handlers decide on the spot and post their action
 (`SourceMainThread.h`).
 
+### In the world
+
+The path is drawn in the world as CS2 draws it (`Ui/PathOverlay.{h,cpp}`, CS2's
+`CampathDrawer.cpp` marker style): each marker a small camera with a shaded body, a glass lens out
+to its field of view and a triangle for up, its index beside it; the line along the path, sampled
+from the evaluator that flies it; and the playhead, a dot where the path puts the camera at the
+demo's tick. Live paths are gold and Freeze paths blue, and the marker the view aims at turns white.
+It shows outside the workspaces and in the Camera Editor's preview, and hides while a path plays and
+during F8's blackout.
+
+CS2 draws these with its own line shader in the world pass. CS:S has no such pass on x64 (HLAE's
+Source 1 campath drawer hooks the 32-bit material system), so the overlay projects on the CPU with
+Deadlock's projection (`DeadlockOverlayMath.h`) and CS2's marker shading (`SceneMarkerMath.h`) into
+a draw list. The view hook builds it from the view the game is about to render, after every
+override, and the renderer lays it over the game's frame before the UI, so the Camera Editor's
+letterbox scales it into the preview with the frame. Nothing in it has depth: markers show through
+walls, as CS2's do.
+
+The projection needs the FOV the engine renders, not the one the view hook sees. CS:S widens its
+4:3 FOV for the screen as Alien Swarm does, which HLAE's table for the 64-bit game leaves out:
+`health` prints the engine's own matrix (`engine matrix fov 106.30 x 73.74` for FOV 90 at 854x480),
+and `View_ScreenFov` in `SourceEngine.h` widens to match. `health` also counts the overlay's frames
+and vertices (`path overlay:`); `mvm_debug` logs its inputs once a second (`path.overlay`).
+
 Checked in CS:S on 2026-10-26 in an old dust2 SourceTV demo: K placed markers at three ticks while
 it played; J armed at the first, paused, with its pose; Space played the path through the markers
 while the demo ran and stopped paused on the last marker, the game's camera back; Freeze timing with
 a Smooth constant-speed path flew with the demo held; another demo started with an empty path. In
 the self-recorded test demo the resume after arming hit the engine's "missing client entity 62"
 again (see [Demo bar](#demo-bar)).
+
+The in-world drawing was checked the same day in the same demo, from back-buffer captures: three
+markers and the line and playhead from behind and from the side; a marker placed at a T's feet
+landed on the model's feet from a view that put him well off centre (with FOV 90 unwidened it missed
+by about 80 pixels); the aimed marker turned white and Freeze turned the path blue; the overlay
+scaled into the Camera Editor's preview; `health` counted no vertices during F8's blackout and while
+the path played, and the overlay came back after. Fast turns were not measured: with the material
+system's queued rendering the overlay can be a frame apart from the image it is laid over.
 
 ## Old demos
 

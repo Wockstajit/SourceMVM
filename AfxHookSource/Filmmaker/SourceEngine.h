@@ -28,6 +28,16 @@ ViewPose View_Game();
 // The view that was actually rendered, after overrides.
 ViewPose View_Rendered();
 
+// The fields of view in the engine's own world-to-screen matrix, of the last view it rendered: the
+// FOV above as the engine widened it for the screen. False before a view is rendered.
+bool Engine_ViewMatrixFov(double& horizontal, double& vertical);
+
+// The horizontal FOV the engine renders fov at on a width x height screen. CS:S widens its 4:3 FOV
+// for the screen as Alien Swarm does: measured 2026-10-26 from the engine's own matrix
+// (Engine_ViewMatrixFov), FOV 90 renders at 106.30 at 854x480. HLAE's table (GetDefaultFovScaling)
+// has no scaling for the 64-bit game, so it is not asked.
+double View_ScreenFov(double fov, double width, double height);
+
 struct DemoState {
 	bool playing = false;
 	bool paused = false;

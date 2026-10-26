@@ -35,7 +35,13 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 // Builds this frame's UI. Main thread, once per frame (FRAME_RENDER_START).
 void Ui_MainThreadFrame();
 
-// Draws the latest UI frame (and the preview letterbox) into the back buffer. Present's thread.
+// The view the game just rendered, after every override: the camera path drawn in the world
+// (Ui/PathOverlay.h) is projected with it, so it moves with the frame it is laid over. Main thread.
+void Ui_ViewRendered(const double origin[3], const double angles[3], double fov);
+void Ui_PrintOverlayHealth();
+
+// Draws the latest UI frame (and the preview letterbox) into the back buffer, the camera path's
+// world overlay under both. Present's thread.
 void Ui_RenderThreadPresent(IDirect3DDevice9* device);
 void Ui_DeviceLost();
 

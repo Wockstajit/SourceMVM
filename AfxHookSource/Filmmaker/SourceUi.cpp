@@ -5,11 +5,13 @@
 #include "SourceCapture.h"
 #include "SourceDemoBar.h"
 #include "SourceDirector.h"
+#include "SourceEngine.h"
 #include "SourceMainThread.h"
 
 #include "Ui/CameraEditorShell.h"
 #include "Ui/DirectorHud.h"
 #include "Ui/DirectorMouse.h"
+#include "Ui/PathOverlay.h"
 #include "Ui/UiRenderDx9.h"
 #include "Ui/UiKeys.h"
 #include "Ui/UiStyle.h"
@@ -81,6 +83,10 @@ struct Host {
 	LARGE_INTEGER lastTime = {};
 	LARGE_INTEGER frequency = {};
 	unsigned frames = 0;
+	std::unique_ptr<ImDrawList> worldList; // the camera path in the world, built with each rendered view
+	unsigned worldFrames = 0;
+	int worldVertices = 0;
+	int64_t worldLogAt = 0;
 };
 Host g;
 
@@ -92,6 +98,7 @@ std::atomic<bool> g_uiOwnsMouse{ false };
 // Hand-off to the render thread.
 std::mutex g_frameMutex;
 std::shared_ptr<DrawSnapshot> g_latest;
+std::shared_ptr<DrawSnapshot> g_latestWorld; // drawn over the game's frame, under the UI and its letterbox
 FontPixels g_fontPixels;
 // Render thread only.
 RendererDx9 g_renderer;
@@ -113,7 +120,13 @@ std::string FontsFolder() {
 
 void Publish(std::shared_ptr<DrawSnapshot> snapshot) {
 	std::lock_guard<std::mutex> lock(g_frameMutex);
+	if (!snapshot) g_latestWorld.reset(); // nothing of ours over the game
 	g_latest = std::move(snapshot);
+}
+
+void PublishWorld(std::shared_ptr<DrawSnapshot> world) {
+	std::lock_guard<std::mutex> lock(g_frameMutex);
+	g_latestWorld = std::move(world);
 }
 
 // While the UI owns the mouse the arrow must be visible even if the game hid it with ShowCursor.
@@ -570,13 +583,14 @@ void Ui_MainThreadFrame() {
 }
 
 void Ui_RenderThreadPresent(IDirect3DDevice9* device) {
-	std::shared_ptr<DrawSnapshot> snapshot;
+	std::shared_ptr<DrawSnapshot> snapshot, world;
 	{
 		std::lock_guard<std::mutex> lock(g_frameMutex);
 		snapshot = g_latest;
-		if (snapshot && g_renderFont.version != g_fontPixels.version) g_renderFont = g_fontPixels;
+		world = g_latestWorld;
+		if ((snapshot || world) && g_renderFont.version != g_fontPixels.version) g_renderFont = g_fontPixels;
 	}
-	if (snapshot) g_renderer.Render(device, *snapshot, g_renderFont);
+	if (snapshot || world) g_renderer.Render(device, world.get(), snapshot.get(), g_renderFont);
 	Capture_RenderThread(device); // a requested frame, the UI just drawn into it
 }
 
@@ -617,6 +631,51 @@ void Ui_FilterRawInput(UINT result, UINT command, LPVOID data) {
 }
 
 bool Ui_EditorOpen() { return g_open.load(); }
+
+void Ui_ViewRendered(const double origin[3], const double angles[3], double fov) {
+	std::shared_ptr<DrawSnapshot> world;
+	PathOverlayModel model;
+	const ImVec2 size = g.context ? ImGui::GetIO().DisplaySize : ImVec2(0, 0);
+	// Built from the first UI frame on (it sets the draw lists' shared data), while ours is on screen.
+	if (g.frames > 0 && (g_open.load() || g_director.load()) && !Director_State().blackout && size.x > 0 && size.y > 0
+		&& CameraPath_Overlay(model, size.x, size.y)) {
+		PathOverlayView view;
+		for (int i = 0; i < 3; ++i) {
+			view.origin[i] = origin[i];
+			view.angles[i] = angles[i];
+		}
+		view.fov = View_ScreenFov(fov, size.x, size.y);
+		view.width = size.x;
+		view.height = size.y;
+		if (!g.worldList) g.worldList = std::make_unique<ImDrawList>(ImGui::GetDrawListSharedData());
+		ImDrawList& list = *g.worldList;
+		list._ResetForNewFrame();
+		list.PushTextureID(ImGui::GetIO().Fonts->TexID);
+		list.PushClipRect(ImVec2(0, 0), size);
+		DrawPathOverlay(list, model, view, g.fonts.Get(FontRole::Display));
+		ImDrawData data;
+		data.Valid = true;
+		data.DisplaySize = size;
+		data.AddDrawList(&list);
+		world = TakeSnapshot(&data);
+		++g.worldFrames;
+		g.worldVertices = (int)world->vertices.size();
+		const int64_t now = NowMs();
+		if (Filmmaker::MvmDebugLog_Active() && now - g.worldLogAt >= 1000) {
+			g.worldLogAt = now;
+			Filmmaker::MvmDebugLog_Linef("path.overlay", "markers=%d line=%d aimed=%d head=%d vertices=%d view=(%.1f %.1f %.1f) (%.1f %.1f %.1f) fov %.1f->%.1f %.0fx%.0f",
+				(int)model.markers.size(), (int)model.trajectory.size() / 3, model.aimed, model.head ? 1 : 0, g.worldVertices,
+				origin[0], origin[1], origin[2], angles[0], angles[1], angles[2], fov, view.fov, size.x, size.y);
+		}
+	} else {
+		g.worldVertices = 0;
+	}
+	PublishWorld(std::move(world));
+}
+
+void Ui_PrintOverlayHealth() {
+	advancedfx::Message("  path overlay: %u frames built, %d vertices last frame\n", g.worldFrames, g.worldVertices);
+}
 
 bool Ui_SuspendMirvInput() {
 	if (g_open.load()) return g.mouse.GetMode() == Mode::Ui;

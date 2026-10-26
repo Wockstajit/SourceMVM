@@ -6,6 +6,8 @@
 #include "SourceEngine.h"
 #include "SourceMainThread.h"
 
+#include "Ui/PathOverlay.h"
+
 #include "WrpVEngineClient.h"
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
@@ -54,6 +56,7 @@ struct State {
 	const char* notice = "";
 	Clock::time_point noticeAt;
 	std::string demo;         // the demo the markers were placed in
+	std::vector<double> trajectory; // the in-world line: x, y, z along the path
 };
 State g;
 
@@ -68,7 +71,23 @@ void Notify(const char* text) {
 	advancedfx::Message("[campath] %s\n", text);
 }
 
-void Rebuild() { g.eval.Rebuild(g.markers, g.settings); }
+// The path, and its in-world line sampled along each segment with the evaluator that flies it, so the
+// line follows the Smooth spline and the graph's curves as the camera will.
+void Rebuild() {
+	g.eval.Rebuild(g.markers, g.settings);
+	g.trajectory.clear();
+	if (g.markers.Count() < 2 || !g.eval.CanEval()) return;
+	constexpr int kSamplesPerSegment = 24;
+	for (int seg = 0; seg < g.eval.SegmentCount(); ++seg) {
+		for (int k = seg == 0 ? 0 : 1; k <= kSamplesPerSegment; ++k) { // a segment's start is the last one's end
+			const CamPathEval::Pose p = g.eval.EvalSegP(g.markers, seg, (double)k / kSamplesPerSegment);
+			if (!p.valid) continue;
+			g.trajectory.push_back(p.x);
+			g.trajectory.push_back(p.y);
+			g.trajectory.push_back(p.z);
+		}
+	}
+}
 
 CamPlayback::Context MakeContext() {
 	CamPlayback::Context ctx;
@@ -136,6 +155,33 @@ PathState CameraPath_State() {
 }
 
 bool CameraPath_OwnsView() { return g.mode != PathMode::Editing; }
+
+bool CameraPath_Overlay(Ui::PathOverlayModel& out, float width, float height) {
+	if (g.markers.Empty() || g.mode == PathMode::Playing) return false;
+	out.markers.resize((size_t)g.markers.Count());
+	for (int i = 0; i < g.markers.Count(); ++i) {
+		const CamMarker& m = g.markers.At(i);
+		Ui::PathOverlayMarker& o = out.markers[(size_t)i];
+		o.pos[0] = m.x; o.pos[1] = m.y; o.pos[2] = m.z;
+		o.ang[0] = m.pitch; o.ang[1] = m.yaw; o.ang[2] = m.roll;
+		o.fov = View_ScreenFov(m.fov, width, height); // the frame the marker films, as on screen
+	}
+	out.trajectory = g.trajectory;
+	out.aimed = g.aimed;
+	out.freeze = g.settings.timing == kTimingFreeze;
+	// The playhead: where the path puts the camera at the demo's tick, inside the path's ticks.
+	const DemoState demo = Demo_State();
+	out.head = false;
+	if (demo.playing && g.markers.Count() >= 2 && g.eval.CanEval()
+		&& demo.tick >= g.markers.Front().tick && demo.tick <= g.markers.Back().tick) {
+		const CamPathEval::Pose p = g.eval.EvalAtTick(g.markers, demo.tick);
+		if (p.valid) {
+			out.head = true;
+			out.headPos[0] = p.x; out.headPos[1] = p.y; out.headPos[2] = p.z;
+		}
+	}
+	return true;
+}
 
 void CameraPath_Place() {
 	CamMarker m;

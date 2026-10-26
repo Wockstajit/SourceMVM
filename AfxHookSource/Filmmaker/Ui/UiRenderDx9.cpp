@@ -256,9 +256,11 @@ void RendererDx9::DrawCommands(IDirect3DDevice9* device, const DrawSnapshot& sna
 	device->SetTexture(0, nullptr);
 }
 
-void RendererDx9::Render(IDirect3DDevice9* device, const DrawSnapshot& snapshot, const FontPixels& font) {
+void RendererDx9::Render(IDirect3DDevice9* device, const DrawSnapshot* world, const DrawSnapshot* ui, const FontPixels& font) {
 	if (!device) return;
-	if (snapshot.commands.empty() && !snapshot.letterbox) return;
+	const bool drawWorld = world && !world->commands.empty();
+	const bool drawUi = ui && (!ui->commands.empty() || ui->letterbox);
+	if (!drawWorld && !drawUi) return;
 
 	IDirect3DSurface9* backBuffer = nullptr;
 	if (FAILED(device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer)) || !backBuffer) return;
@@ -278,10 +280,16 @@ void RendererDx9::Render(IDirect3DDevice9* device, const DrawSnapshot& snapshot,
 	device->SetDepthStencilSurface(nullptr);
 
 	if (SUCCEEDED(device->BeginScene())) {
-		if (snapshot.letterbox && snapshot.preview.Valid()) DrawLetterbox(device, backBuffer, desc, snapshot.preview);
-		if (!snapshot.commands.empty() && EnsureFont(device, font)
-			&& EnsureBuffers(device, (int)snapshot.vertices.size(), (int)snapshot.indices.size()))
-			DrawCommands(device, snapshot);
+		const auto draw = [&](const DrawSnapshot& snapshot) {
+			if (!snapshot.commands.empty() && EnsureFont(device, font)
+				&& EnsureBuffers(device, (int)snapshot.vertices.size(), (int)snapshot.indices.size()))
+				DrawCommands(device, snapshot);
+		};
+		if (drawWorld) draw(*world);
+		if (drawUi) {
+			if (ui->letterbox && ui->preview.Valid()) DrawLetterbox(device, backBuffer, desc, ui->preview);
+			draw(*ui);
+		}
 		device->EndScene();
 	}
 

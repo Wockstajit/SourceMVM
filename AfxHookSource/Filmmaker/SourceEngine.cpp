@@ -12,9 +12,11 @@
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
 #include <Shared/AfxConsole.h>
+#include <Shared/FovScaling.h>
 
 #include <windows.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -424,6 +426,24 @@ bool Engine_GameUiVisible() {
 	}
 	return CallBool(g_engineVgui, Slot::EngineVGui_IsGameUIVisible, false);
 }
+
+bool Engine_ViewMatrixFov(double& horizontal, double& vertical) {
+	if (!g_VEngineClient || !g_VEngineClient->IsInGame()) return false;
+	const SOURCESDK::VMatrix& m = g_VEngineClient->WorldToScreenMatrix();
+	const auto length = [&m](int row) {
+		return std::sqrt((double)m.m[row][0] * m.m[row][0] + (double)m.m[row][1] * m.m[row][1] + (double)m.m[row][2] * m.m[row][2]);
+	};
+	// Row 0 is the view's right over tan(horizontal / 2), row 1 its up over tan(vertical / 2), row 3
+	// its forward: the depth the others are divided by.
+	const double x = length(0), y = length(1), w = length(3);
+	if (!(x > 0) || !(y > 0) || !(w > 0)) return false;
+	constexpr double kDeg = 180.0 / 3.14159265358979323846;
+	horizontal = 2.0 * std::atan(w / x) * kDeg;
+	vertical = 2.0 * std::atan(w / y) * kDeg;
+	return std::isfinite(horizontal) && std::isfinite(vertical);
+}
+
+double View_ScreenFov(double fov, double width, double height) { return AlienSwarm_FovScaling(width, height, fov); }
 
 EngineDiagnostics Engine_Diagnostics() {
 	EngineDiagnostics d;

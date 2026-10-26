@@ -116,6 +116,7 @@ void PrintHealth() {
 	if (!g_VEngineClient->IsInGame()) return;
 	Director_PrintHealth();
 	CameraPath_PrintHealth();
+	Ui_PrintOverlayHealth();
 
 	const ViewPose game = View_Game();
 	const ViewPose rendered = View_Rendered();
@@ -124,6 +125,9 @@ void PrintHealth() {
 	advancedfx::Message("              rendered (%.1f %.1f %.1f) (%.1f %.1f %.1f) fov %.1f\n",
 		rendered.origin[0], rendered.origin[1], rendered.origin[2],
 		rendered.angles[0], rendered.angles[1], rendered.angles[2], rendered.fov);
+	double matrixH = 0, matrixV = 0;
+	if (Engine_ViewMatrixFov(matrixH, matrixV))
+		advancedfx::Message("              engine matrix fov %.2f x %.2f\n", matrixH, matrixV);
 
 	std::vector<PlayerState> players;
 	Players_Snapshot(players);
@@ -189,10 +193,13 @@ bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 bool SuspendMirvInput() { return Ui_SuspendMirvInput(); }
 
 void OnViewOverride(float tx, float ty, float tz, float& rx, float& ry, float& rz, float& fov, bool cameraOverridden) {
-	if (cameraOverridden) return; // HLAE's free camera or a campath has the view
-	WrpGlobals* globals = g_Hook_VClient_RenderView.GetGlobals();
-	Director_ApplyRoll(rz, globals ? globals->absoluteframetime_get() : 0.0);
-	SmoothView_OnView(tx, ty, tz, rx, ry, rz, fov, cameraOverridden);
+	if (!cameraOverridden) { // else HLAE's free camera or a campath has the view
+		WrpGlobals* globals = g_Hook_VClient_RenderView.GetGlobals();
+		Director_ApplyRoll(rz, globals ? globals->absoluteframetime_get() : 0.0);
+		SmoothView_OnView(tx, ty, tz, rx, ry, rz, fov, cameraOverridden);
+	}
+	const double origin[3] = { tx, ty, tz }, angles[3] = { rx, ry, rz };
+	Ui_ViewRendered(origin, angles, fov); // the view as rendered: the path's markers drawn over it
 }
 
 void OnFrameRenderStart() {

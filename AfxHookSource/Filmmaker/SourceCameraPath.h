@@ -18,6 +18,8 @@ namespace advancedfx { class ICommandArgs; }
 
 namespace SourceFilmmaker {
 
+namespace Ui { struct PathOverlayModel; }
+
 enum class PathMode { Editing, Armed, Playing };
 
 struct PathState {
@@ -37,6 +39,11 @@ const Filmmaker::CamMarkers& CameraPath_Markers();
 PathState CameraPath_State();
 // The path flies the view: armed or playing. The director then leaves the mouse and wheel alone.
 bool CameraPath_OwnsView();
+
+// The path in the world (Ui/PathOverlay.h) for a width x height screen: its markers, its line and the
+// playhead at the demo's tick. False when there is nothing to draw: no markers, or a path playing
+// (CS2 hides its markers while the path owns the shot).
+bool CameraPath_Overlay(Ui::PathOverlayModel& out, float width, float height);
 
 void CameraPath_Place();           // K: a marker at the current view and tick (one per tick)
 bool CameraPath_DeleteAimed();     // L: false when no marker is aimed at

@@ -40,6 +40,7 @@ without the preview server, run `node UiMockupSource/build-mockup.mjs`. The outp
 | The game | A still frame, letterboxed into the preview where the game renderer puts the real frame |
 | The console | The `mirv_filmmaker` box runs the mockup's `editor on`, `off`, `toggle` and `state` |
 | The demo | A playback clock over the test SourceTV demo's real length, tick rate and events, with stand-in names, so the demo bar responds. `demo on`, `demo off`, `demo pause` and `demo seek <tick>` drive it |
+| The world | `markers on` draws a stand-in camera path ahead of the stand-in camera with the game's own path overlay (`PathOverlay.cpp`); `markers freeze` and `markers live` switch its colour, `markers off` hides it |
 
 The game frame is `assets/backdrop.png` when it exists: a capture of CS:S, which stays local
 because game pixels are not ours to commit. Take one with the editor closed:

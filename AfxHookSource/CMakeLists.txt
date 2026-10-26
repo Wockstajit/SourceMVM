@@ -183,6 +183,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/Ui/DirectorHud.h
     Filmmaker/Ui/DirectorMath.h
     Filmmaker/Ui/DirectorMouse.h
+    Filmmaker/Ui/PathOverlay.cpp
+    Filmmaker/Ui/PathOverlay.h
     Filmmaker/Ui/UiImConfig.h
     Filmmaker/Ui/UiKeys.h
     Filmmaker/Ui/UiRenderDx9.cpp

@@ -56,9 +56,10 @@ class RendererDx9 {
 public:
 	~RendererDx9();
 
-	// Draws snapshot into the back buffer and leaves the device state as it found it.
+	// Draws world (drawn over the game's frame, so a letterbox carries it into the preview) and then
+	// ui into the back buffer, and leaves the device state as it found it. Either may be null.
 	// Render thread, between the game's last draw and Present.
-	void Render(IDirect3DDevice9* device, const DrawSnapshot& snapshot, const FontPixels& font);
+	void Render(IDirect3DDevice9* device, const DrawSnapshot* world, const DrawSnapshot* ui, const FontPixels& font);
 
 	// Before a device reset or shutdown: every D3DPOOL_DEFAULT resource goes.
 	void ReleaseDeviceObjects();

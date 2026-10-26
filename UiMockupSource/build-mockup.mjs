@@ -29,13 +29,15 @@ export const SHARED_HEADERS = [
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'TimelineDock.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Panorama', 'HudReadoutCadenceMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Panorama', 'InspectorWidthMath.h'),
+  path.join(ROOT, 'AfxHookSource2', 'Deadlock', 'DeadlockOverlayMath.h'),
+  path.join(ROOT, 'AfxHookSource2', 'SceneMarkerMath.h'),
 ];
 
 // ImGui itself changes only with the submodule, so its objects are kept between builds.
 const IMGUI_SOURCES = ['imgui.cpp', 'imgui_draw.cpp', 'imgui_tables.cpp', 'imgui_widgets.cpp',
   path.join('backends', 'imgui_impl_opengl3.cpp')].map((f) => path.join(IMGUI, f));
 const OWN_SOURCES = [path.join(import.meta.dirname, 'mockup-host.cpp'),
-  ...['CameraEditorShell.cpp', 'DemoBar.cpp', 'DirectorHud.cpp', 'UiStyle.cpp', 'UiWidgets.cpp'].map((f) => path.join(UI, f)),
+  ...['CameraEditorShell.cpp', 'DemoBar.cpp', 'DirectorHud.cpp', 'PathOverlay.cpp', 'UiStyle.cpp', 'UiWidgets.cpp'].map((f) => path.join(UI, f)),
   ...['SourceDemoBarModel.cpp', 'SourceDemoFile.cpp', 'SourceDemoMarkers.cpp'].map((f) => path.join(FILMMAKER, f))];
 
 const EXPORTS = ['_main', '_malloc', '_free', '_mockup_mouse', '_mockup_motion', '_mockup_key',
