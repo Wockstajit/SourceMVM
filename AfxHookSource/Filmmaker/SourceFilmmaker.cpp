@@ -7,6 +7,7 @@
 #include "SourceEngine.h"
 #include "SourceGameProfile.h"
 #include "SourceNetcon.h"
+#include "SourceOldDemos.h"
 #include "SourceUi.h"
 
 #include "addresses.h"
@@ -104,6 +105,7 @@ void PrintHealth() {
 			demo.intervalPerTick > 0 ? 1.0 / demo.intervalPerTick : 0.0, demo.timescale, demo.paused ? 1 : 0);
 	}
 	DemoIndex_PrintHealth();
+	OldDemos_PrintHealth();
 	if (!g_VEngineClient->IsInGame()) return;
 
 	const ViewPose game = View_Game();
@@ -160,6 +162,7 @@ void Init() {
 	Netcon_Init();
 	Engine_Init();
 	DemoIndex_Init();
+	OldDemos_Init();
 }
 
 bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -171,6 +174,7 @@ bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 void OnFrameRenderStart() {
 	g_frameRenderStarts.fetch_add(1);
 	DemoIndex_Frame();
+	OldDemos_Frame();
 	DemoBar_Frame();
 	Ui_MainThreadFrame();
 }

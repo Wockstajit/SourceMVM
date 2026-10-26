@@ -59,3 +59,32 @@ add_executable(SourceDemoBarMathTests
 )
 target_compile_features(SourceDemoBarMathTests PRIVATE cxx_std_17)
 add_test(NAME SourceDemoBarMathTests COMMAND SourceDemoBarMathTests)
+
+# The old-demo converter as a command-line tool, for converting a folder and checking the output
+# outside the game. The hook runs the same code when an old demo is played.
+add_executable(SourceDemoConvertTool
+    ../Automation/tools/source-demo-convert.cpp
+    Filmmaker/DemoConvert/ConvertV34.cpp
+    Filmmaker/DemoConvert/ConvertV34.h
+    Filmmaker/DemoConvert/DemoBits.h
+    Filmmaker/DemoConvert/DemoTables.cpp
+    Filmmaker/DemoConvert/DemoTables.h
+    Filmmaker/DemoConvert/MapModels.cpp
+    Filmmaker/DemoConvert/MapModels.h
+)
+target_compile_features(SourceDemoConvertTool PRIVATE cxx_std_17)
+
+add_executable(SourceDemoConvertTests
+    ../Automation/tests/source-demo-convert-tests.cpp
+    Filmmaker/DemoConvert/ConvertV34.cpp
+    Filmmaker/DemoConvert/ConvertV34.h
+    Filmmaker/DemoConvert/DemoBits.h
+    Filmmaker/DemoConvert/DemoTables.cpp
+    Filmmaker/DemoConvert/DemoTables.h
+    Filmmaker/DemoConvert/MapModels.cpp
+    Filmmaker/DemoConvert/MapModels.h
+    Filmmaker/SourceDemoFile.cpp
+    Filmmaker/SourceDemoFile.h
+)
+target_compile_features(SourceDemoConvertTests PRIVATE cxx_std_17)
+add_test(NAME SourceDemoConvertTests COMMAND SourceDemoConvertTests)

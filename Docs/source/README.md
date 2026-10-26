@@ -97,8 +97,8 @@ bots wait for a human to join a team, and the recorder is spectating. The demo l
 starts unattached (at the map origin) until it is pointed at someone, for example with
 `spec_mode 4;;spec_next`.
 
-Demos recorded on CS:S before the Orange Box engine (network protocol 7, the "v34" era) do not
-play on the current game: it stops with "demo network protocol 7 outdated, engine version is 24".
+Demos recorded on CS:S before the Orange Box engine (network protocol 7, the "v34" era) play too:
+the hook converts them first. See [Old demos](#old-demos).
 
 ## Console commands
 
@@ -193,6 +193,88 @@ test SourceTV demo the engine's own skip sometimes stopped with "CL_PreserveExis
 "CL_CopyExistingEntity: missing client entity 62", in either direction and from the console too;
 first-person demos seek cleanly both ways. That is engine playback of that demo, not the bar, and
 is checked again with more SourceTV demos.
+
+## Old demos
+
+Most classic CS:S movie demos were recorded before the Orange Box engine update, on the "v34"
+engine (demo protocol 3, network protocol 7). The current game refuses them on its own ("demo
+network protocol 7 outdated, engine version is 24"). With the hook loaded they play like any other
+demo, for example `playdemo replays/old_match`:
+
+- The hook wraps the engine's `playdemo` command (`SourceOldDemos.cpp`). When the file is an old
+  demo, it converts it once on a worker thread and plays the converted copy. A 3 MB SourceTV demo
+  takes about 50 ms.
+- The copy goes to `cstrike/source_mvm/converted/`, under the same path as the original, with a
+  `.src` stamp beside it: the original's size and write time and the converter version. Later
+  plays reuse the copy until the original or the converter changes.
+- The console reports each conversion, for example `converted replays/x.dem (old CS:S v34 demo) in
+  46 ms: 2959 frames, map de_dust2, brushes 3 kept, 0 moved, 1 gone`. `health` shows the last one on
+  its `old demos:` line.
+- A demo recorded on a map that is not installed is not converted. The console names the map to
+  put in `cstrike/maps`.
+- Old SourceTV demos carry no director camera events, so the SourceTV camera would open at the
+  map origin, following nobody. Once a player is alive the hook puts it in first person on the
+  first player (`spec_mode 4; spec_next`), again after a backward seek restarts the demo. A
+  player's own (first-person) recording is left alone.
+
+The converter (`AfxHookSource/Filmmaker/DemoConvert/`, engine-free) keeps the demo's own network
+tables and writes them in the new layout, so the game decodes every value the way the old one did,
+and the values are copied bit for bit. It rewrites what changed between the two engines:
+
+| Part | What changes |
+| --- | --- |
+| Messages | Message ids grow from 5 to 6 bits. `net_Tick` gains the frame time. `svc_ServerInfo` swaps the map CRC for an MD5 (left empty; playback does not check it) and gains a replay flag. Length and index fields in temp entities, string table updates, decals and prefetches widen |
+| Entities | Entity and property index steps use the new encoding. `SPROP_NORMAL` is cleared on integers, because the new engine reads it there as a varint |
+| Network tables | The new layout (wider property count, flags and bit count). DT_Beam's two arrays become tables, as the current client declares them. DT_Team's player array grows from 64 to 65 entries. Five properties Valve renamed get their new names: the rope material, the model scale, the ragdoll count, and the M3 and XM1014 reload state. `CWeaponCubemap`, which the current client lacks, is dropped |
+| String tables | Entry data lengths widen. Three tables the current client expects are added empty |
+| Sounds | Re-encoded field by field: flags, sound index, sequence, volume and origin |
+| User messages | Renumbered to the current client's order. VoiceMask is dropped, and HintText loses the count byte the old one led with |
+| Voice and user commands | Dropped. The 64-bit game has no Speex, and playback does not use user commands |
+
+Valve rebuilt the CS:S maps after v34, so a demo's brush models ("*N": doors, glass, breakables,
+trigger volumes) can have other numbers in the installed map, or be gone. Loading one the map does
+not have stops the game with "bad inline model number". The converter reads the installed BSP's
+models and entities (`MapModels.cpp`) and matches each brush entity, by where the demo puts it
+(origin and collision bounds), to an installed model, in this order:
+
+1. The same number, in the same place.
+2. The same place under another number.
+3. The nearest brush of about the same size (a door Valve moved a little).
+4. For brushes built around their own origin, such as doors and moving parts, the same shape
+   anywhere (a door first seen open).
+
+A brush the map no longer has is left out, together with the entities that use it. On the maps
+checked: cs_office, de_cbble and de_train keep every brush, de_inferno moves 18, de_nuke swaps 4
+identical parts, and de_dust2 loses one volume that blocks smoke.
+
+`SourceDemoConvertTool`, built with the Source 1 tests, converts outside the game.
+`--dir <folder> <out folder>` converts a folder, and `SOURCEMVM_CONVERT_VERBOSE=1` lists which
+brushes moved:
+
+```batch
+build\x64-release\AfxHookSource\Release\SourceDemoConvertTool.exe --maps "<cstrike folder>\maps" old.dem converted.dem
+```
+
+`SourceDemoConvertTests` covers the bit encodings, the table layouts, brush matching, and a whole
+conversion of a small v34 demo written bit by bit, read back with the [demo index](#demo-index)
+reader.
+
+Checked on 2026-10-26: all 59 v34 demos in a test folder convert. Independent decoders read every
+entity, string table and sound of the converted demos with the same values as the originals. Demos
+on de_inferno, de_dust2, de_nuke, cs_office, de_cbble and de_train play in first person and chase
+with no errors, de_train's cables draw, and the demo bar shows their kills and rounds.
+
+Limits:
+
+- Only network protocol 7 is converted. Demos of other protocols (one test demo used 17) are not.
+- A demo that ends in a cut or broken frame is converted up to that frame, and the console says
+  the recording ends early.
+- Values the current client has no property for are lost: the old per-player fog settings (the
+  current client reads fog from a fog controller), the spread in bullet effects, the Dual Elites'
+  firing side, the size and lifetime of entity flames, projected-texture colour, and the colour
+  correction weight.
+- A backward seek restarts the demo, which resets the SourceTV camera, so it opens on the first
+  player again rather than on the one being watched.
 
 ## Workspace UI
 

@@ -144,6 +144,13 @@ play and pause, +5S (+335 ticks), -5S through the restart, NEXT KILL, < ROUND, t
 to come in step 7: the bar outside the workspaces with CS2's director mouse, wheel cameras and keys,
 and the director cards with F8.
 
+Old demos, added during step 7 at the owner's request (2026-10-26): demos from the v34 engine
+(network protocol 7) play on the 64-bit game. `playdemo` converts them once into the current format,
+with their brush models matched to the installed maps, and plays the copy
+([README.md](README.md#old-demos)). All 59 v34 demos in the test folder convert, and demos on
+de_inferno, de_dust2, de_nuke, cs_office, de_cbble and de_train play in game in first person and
+chase, with the demo bar's markers.
+
 Step 17's death animations follow the CS2 pass in
 [filmmaker_death_animations.md](../features/filmmaker_death_animations.md): headless Blender on the
 CS:S player model, the clip tags ported, the ragdoll bodies mapped, and the match percentages
@@ -156,10 +163,9 @@ best-effort. GoldSrc is a separate DLL (`AfxHookGoldSrc`) that reuses the engine
 
 ## Known follow-ups
 
-- Old demos. Demos recorded before the Orange Box engine update (network protocol 7, the CS:S "v34"
-  era, which includes many classic movie demos) do not play on the current 64-bit game. Playing them
-  needs either the old v34 client, which the inherited 32-bit hook already detects
-  (`SourceSdkVer_CSSV34`), or a demo converter. Which one is the owner's call.
+- Old demos: demos of network protocols other than 7 and 24 (one test demo used 17) are not
+  converted, and a backward seek in an old SourceTV demo reopens the camera on the first player.
+  [README.md](README.md#old-demos) lists the values the converter cannot carry over.
 
 - The command port's socket server is `Shared/NetconServer`, generalized from Deadlock's
   `DeadlockNetcon.cpp`, and the client is `Automation/netcon/hook-netcon.ps1`, generalized from

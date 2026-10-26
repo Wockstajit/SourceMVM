@@ -129,6 +129,13 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/CSS/CssProfile.cpp
     Filmmaker/SourceConsole.cpp
     Filmmaker/SourceConsole.h
+    Filmmaker/DemoConvert/ConvertV34.cpp
+    Filmmaker/DemoConvert/ConvertV34.h
+    Filmmaker/DemoConvert/DemoBits.h
+    Filmmaker/DemoConvert/DemoTables.cpp
+    Filmmaker/DemoConvert/DemoTables.h
+    Filmmaker/DemoConvert/MapModels.cpp
+    Filmmaker/DemoConvert/MapModels.h
     Filmmaker/SourceDebugLog.cpp
     Filmmaker/SourceDemoBar.cpp
     Filmmaker/SourceDemoBar.h
@@ -149,6 +156,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceNetcon.cpp
     Filmmaker/SourceNetcon.h
     Filmmaker/SourceNetvars.h
+    Filmmaker/SourceOldDemos.cpp
+    Filmmaker/SourceOldDemos.h
     Filmmaker/SourceSdk2013.h
     Filmmaker/SourceUi.cpp
     Filmmaker/SourceUi.h
@@ -383,6 +392,7 @@ target_sources(AfxHookSource PRIVATE
 source_group("AfxHookSource" REGULAR_EXPRESSION "/AfxHookSource/")
 source_group("AfxHookSource/Filmmaker" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/")
 source_group("AfxHookSource/Filmmaker/CSS" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/CSS/")
+source_group("AfxHookSource/Filmmaker/DemoConvert" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/DemoConvert/")
 source_group("AfxHookSource/Filmmaker/Ui" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/Ui/")
 source_group("Deps/release/imgui" REGULAR_EXPRESSION "/Deps/release/imgui/")
 source_group("AfxHookSource2/Filmmaker" REGULAR_EXPRESSION "/AfxHookSource2/Filmmaker/")
