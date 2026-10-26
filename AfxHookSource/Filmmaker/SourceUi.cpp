@@ -268,6 +268,7 @@ bool OnDirectorMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 			Director_SetSlow(msg == WM_KEYDOWN); // not used up: the game and mirv_input see it too
 			return false;
 		}
+		if (Director_RollKey((int)wParam, msg == WM_KEYDOWN, GetKeyState(VK_CONTROL) < 0)) return true;
 		const DirectorMath::Key key = DirectorMath::KeyFor((int)wParam);
 		if (key == DirectorMath::Key::None) return false;
 		if (msg == WM_KEYDOWN && !(lParam & (1 << 30))) Director_Key(key); // auto-repeat is ignored

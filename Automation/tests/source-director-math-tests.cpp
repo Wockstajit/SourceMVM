@@ -69,6 +69,17 @@ static void TestFovAndSpeed() {
 	CHECK(WheelFor(false, false, kRoaming, true) == Wheel::Camera);
 }
 
+static void TestRoll() {
+	CHECK(RollKeysApply(kRoaming, false, false));
+	CHECK(!RollKeysApply(kChase, false, false));   // only the game's free cam rolls
+	CHECK(!RollKeysApply(kRoaming, true, false));  // HLAE's free camera rolls itself
+	CHECK(!RollKeysApply(kRoaming, false, true));  // Ctrl held: not a roll
+	CHECK(std::fabs(StepRoll(0, 1, 0.5) - 45) < 1e-9);
+	CHECK(std::fabs(StepRoll(170, 1, 0.5) - (-145)) < 1e-9); // wraps
+	CHECK(std::fabs(StepRoll(-170, -1, 0.5) - 145) < 1e-9);
+	CHECK(StepRoll(30, 0, 1) == 30);
+}
+
 static void TestF8() {
 	HudState s;
 	s = PressF8(s);
@@ -178,6 +189,7 @@ int main() {
 	TestKeys();
 	TestSkip();
 	TestFovAndSpeed();
+	TestRoll();
 	TestF8();
 	TestPlacement();
 	TestClickStepsPlayers();

@@ -56,6 +56,8 @@ struct State {
 	bool wasPlaying = false;
 	int lastTick = 0;
 	unsigned frame = 0;
+	bool rollRight = false, rollLeft = false; // X, Z held in the game's free cam
+	double roll = 0;                          // its roll, degrees
 };
 State g;
 
@@ -231,6 +233,29 @@ void Director_Click(DirectorMouse::Click click) {
 
 bool Director_FreeCamOn() { return FreeCam() && FreeCam()->GetCameraControlMode(); }
 
+bool Director_RollKey(int vk, bool down, bool ctrl) {
+	if (vk != 'X' && vk != 'Z') return false;
+	bool& held = vk == 'X' ? g.rollRight : g.rollLeft;
+	if (!down) { // a release always clears, so a camera change mid-hold cannot leave it rolling
+		const bool was = held;
+		held = false;
+		return was;
+	}
+	if (!DirectorMath::RollKeysApply(CameraMode(), Director_FreeCamOn(), ctrl)) return false;
+	held = true;
+	return true;
+}
+
+void Director_ApplyRoll(float& roll, double frameTime) {
+	if (CameraMode() != DirectorMath::kRoaming || Director_FreeCamOn()) {
+		g.roll = 0;
+		return;
+	}
+	const int direction = (g.rollRight ? 1 : 0) - (g.rollLeft ? 1 : 0);
+	if (direction && frameTime > 0 && frameTime <= 0.5) g.roll = DirectorMath::StepRoll(g.roll, direction, frameTime);
+	roll += (float)g.roll;
+}
+
 void Director_SetSlow(bool slow) {
 	if (FreeCam()) FreeCam()->SetSlowFactor(slow ? DirectorMath::kFreeCamSlowFactor : 1.0);
 }
@@ -246,6 +271,7 @@ void Director_StepCamera(int notches) {
 	Command(command);
 	g.expectMode = mode;
 	g.expectFrames = kExpectFrames;
+	g.roll = 0;
 	DropFov(); // the FOV belongs to the camera it was set in (CS2)
 }
 

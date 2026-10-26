@@ -9,6 +9,9 @@
 #include "SourceGameProfile.h"
 #include "SourceNetcon.h"
 #include "SourceOldDemos.h"
+#include "SourceSmoothView.h"
+#include "RenderView.h"
+#include "WrpGlobals.h"
 #include "SourceUi.h"
 
 #include "addresses.h"
@@ -158,7 +161,8 @@ void PrintUsage() {
 		"mirv_filmmaker seek    - <tick>: go to a demo tick as the demo bar does (back = restart, then forward).\n"
 		"mirv_filmmaker hud     - on|off|toggle|state: the movie director's cards during a demo.\n"
 		"mirv_filmmaker blackout - on|off|toggle|status: F8's blackout (no HUD, no bar, no cards).\n"
-		"mirv_filmmaker director - state: the movie director's mouse, cards, and where each bar control is.\n");
+		"mirv_filmmaker director - state: the movie director's mouse, cards, and where each bar control is.\n"
+		"mirv_filmmaker smoothview - on|off|toggle|state|reset|<setting> <value>: CS2's Smooth View.\n");
 }
 
 } // namespace
@@ -177,6 +181,13 @@ bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 bool SuspendMirvInput() { return Ui_SuspendMirvInput(); }
+
+void OnViewOverride(float tx, float ty, float tz, float& rx, float& ry, float& rz, float& fov, bool cameraOverridden) {
+	if (cameraOverridden) return; // HLAE's free camera or a campath has the view
+	WrpGlobals* globals = g_Hook_VClient_RenderView.GetGlobals();
+	Director_ApplyRoll(rz, globals ? globals->absoluteframetime_get() : 0.0);
+	SmoothView_OnView(tx, ty, tz, rx, ry, rz, fov, cameraOverridden);
+}
 
 void OnFrameRenderStart() {
 	g_frameRenderStarts.fetch_add(1);
@@ -210,6 +221,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::Director_BlackoutCommand(argc >= 3 ? args->ArgV(2) : "status");
 	} else if (0 == _stricmp(sub, "director")) {
 		SourceFilmmaker::Ui_DirectorState();
+	} else if (0 == _stricmp(sub, "smoothview")) {
+		SourceFilmmaker::SmoothView_Command(argc, args);
 	} else {
 		SourceFilmmaker::PrintUsage();
 	}

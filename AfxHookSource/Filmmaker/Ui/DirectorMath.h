@@ -9,6 +9,7 @@
 //   Space        pause / play
 //   Left, Right  5 seconds back / on
 //   F8           blackout: no HUD, no bar, no cards (or, with the cards hidden, the cards back)
+//   X, Z held    in the game's free cam, roll right / left
 //
 // The mouse is DirectorMouse.h.
 
@@ -119,6 +120,18 @@ inline Wheel WheelFor(bool ctrl, bool shift, int mode, bool ownFreeCam = false) 
 	if (ctrl) return Wheel::Fov;
 	if (shift) return mode == kRoaming ? Wheel::Speed : Wheel::Nothing;
 	return Wheel::Camera;
+}
+
+// X and Z held roll the game's own free cam (spec_mode 7) at 90 degrees a second, right and left,
+// wrapping at +-180, unless Ctrl is held (CS2's MovieMode). HLAE's free camera rolls on the same keys
+// itself. The roll belongs to that camera: any other camera has none.
+constexpr double kRollDegPerSec = 90;
+inline bool RollKeysApply(int mode, bool ownFreeCam, bool ctrl) { return mode == kRoaming && !ownFreeCam && !ctrl; }
+inline double StepRoll(double roll, int direction, double dt) {
+	roll += direction * kRollDegPerSec * dt;
+	while (roll > 180) roll -= 360;
+	while (roll < -180) roll += 360;
+	return roll;
 }
 
 // Shift held slows HLAE's free camera to a quarter (CS2's CameraBridge_SetFreeCamSlow).

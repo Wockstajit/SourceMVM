@@ -1,7 +1,6 @@
 #include "SmoothView.h"
-#include "CameraShakeStack.h" // CameraShake_ViewedPawnMotion: the pawn's real velocity + ground flag
+#include "SmoothViewHost.h" // the pawn's real velocity + ground flag, the render frame (CS2 and Source 1)
 #include "SmoothViewTiltMath.h" // strafe lean: leans INTO the strafe, sign pinned by tests
-#include "../../MirvTime.h"
 #include "../Debug/MvmDebugLog.h"
 #include "../../../Shared/AfxConsole.h"
 #include <cmath>
@@ -166,7 +165,7 @@ SmoothView::MotionSample SmoothView::SampleMotion(double curTime,double x,double
 	// lean jittering, and often leaning the wrong way. The derived values stay only as the fallback
 	// for when no pawn is under the camera.
 	double pv[3]={0,0,0};bool pawnGround=true;
-	const bool havePawn=CameraShake_ViewedPawnMotion(x,y,z,pv,&pawnGround);
+	const bool havePawn=SmoothViewHost_PawnMotion(x,y,z,pv,&pawnGround);
 	double speed=m_motionSpeed,lateral=m_motionLateral,vzOut=m_motionVz;
 	bool groundOut=std::fabs(m_motionVz)<50.0; // eye Z is the only ground signal without a pawn
 	if(havePawn){
@@ -208,8 +207,9 @@ void SmoothView::ApplyCamera(double& p,double& y,double& r,double& f,double dt,d
 	// tick repeatedly would make the result depend on frame rate and would animate a paused demo.
 	const bool integrate = (dt>0.0&&dt<=0.5);
 	if(!integrate)dt=0.0;
-	const double renderDt=g_MirvTime.absoluteframetime_get();
-	const int responseFrame=g_MirvTime.framecount_get();
+	double renderDt=0.0;
+	int responseFrame=0;
+	SmoothViewHost_RenderFrame(renderDt,responseFrame);
 
 	// Cosmetic motion advances once per render frame and freezes during demo pause.
 	double oscDt = 0.0;

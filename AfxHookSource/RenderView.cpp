@@ -458,6 +458,8 @@ void Hook_VClient_RenderView::OnViewOverride(float &Tx, float &Ty, float &Tz, fl
 		if (Fov < 1) Fov = 1;
 		else if (Fov > 179) Fov = 179;
 	}
+
+	SourceFilmmaker::OnViewOverride(Tx, Ty, Tz, Rx, Ry, Rz, Fov, originOrAnglesOverriden); // SOURCE:MVM
 	
 	static bool viewOverriding = false;
 

@@ -284,8 +284,35 @@ Checked in CS:S on 2026-10-26 with a paused demo: the read sensitivity matched t
 it flew about 535 units (320 x 2 x 0.8); with the cursor free W did nothing; a plain wheel notch
 returned to chase cam. Not checked: turning it with a physical mouse.
 
-CS2's X-ray (X) has no CS:S counterpart. The camera-path keys (K, J, L, F) come with the Camera
-Editor's paths, and Z/X roll with the free cam step.
+### Smooth View
+
+CS2's Smooth View runs in CS:S from the same code: `AfxHookSource2/Filmmaker/Movie/SmoothView.cpp`
+is compiled into both hooks, and `SmoothViewHost.h` is what it asks the game it runs in (CS2 answers
+in `SmoothViewHostSource2.cpp`, CS:S in `SourceSmoothView.cpp`). It adds breathing, a lean into
+strafes, and a pitch while falling or jumping to the game's camera; it never moves the camera or
+changes the FOV. It runs from HLAE's view hook after HLAE's overrides (one marked line in
+`RenderView.cpp`), only when none of them moved the camera, so the free cam and campaths stay as
+they are, as in CS2.
+
+CS:S sends a player's velocity only to that player, so a SourceTV demo has none for the player it
+watches; Smooth View measures the camera's own movement instead, which is its fallback in CS2. CS:S
+moves its client clock every frame rather than every tick, so that measurement is smooth.
+
+`mirv_filmmaker smoothview` takes CS2's subcommands: `on`, `off`, `toggle`, `state`, `reset`,
+`breathX`, `breathY`, `standAmp`, `walkAmp`, `runAmp`, `tiltEnabled`, `tilt`, `tiltSpeed`,
+`tiltInv`, `falling`, `jumping`, `healthSway`. Its Config card and the saved settings come with the
+Config workspace.
+
+Checked in CS:S on 2026-10-26 in the SourceTV test demo: with it on, the rendered view drew away
+from the game's by fractions of a degree, with up to a degree of roll in strafes, and breathing at
+the running amplitude; over 5,600 logged frames no frame moved the roll by more than 0.08 degrees
+except a camera cut from the free cam, where it starts afresh; with the free cam flying it did
+nothing.
+
+In the game's free cam (`spec_mode` 7), X and Z held roll right and left at 90 degrees a second, as
+in CS2; the roll belongs to that camera, so a camera change clears it. CS2's X-ray (X in first
+person and chase) has no CS:S counterpart. The camera-path keys (K, J, L, F) come with the Camera
+Editor's paths.
 
 ## Old demos
 

@@ -47,6 +47,11 @@ float Director_SpectatorBarHeight(float clientH);
 bool Director_FreeCamOn();
 void Director_SetSlow(bool slow);
 
+// X / Z held in the game's free cam: true when the key was the director's (Ui/DirectorMath.h).
+bool Director_RollKey(int vk, bool down, bool ctrl);
+// After HLAE's view overrides: adds the held-key roll of the game's free cam to the view.
+void Director_ApplyRoll(float& roll, double frameTime);
+
 void Director_Click(Ui::DirectorMouse::Click click);
 void Director_Wheel(int notches, bool ctrl, bool shift);
 void Director_Key(Ui::DirectorMath::Key key);

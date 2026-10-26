@@ -766,6 +766,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/PlaybackLoop.h
     Filmmaker/Movie/SmoothView.cpp
     Filmmaker/Movie/SmoothView.h
+    Filmmaker/Movie/SmoothViewHost.h
+    Filmmaker/Movie/SmoothViewHostSource2.cpp
     Filmmaker/Movie/DemoAimResampler.cpp
     Filmmaker/Movie/DemoAimResampler.h
     Filmmaker/Movie/DemoAimResamplerMath.h

@@ -163,6 +163,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceOldDemos.cpp
     Filmmaker/SourceOldDemos.h
     Filmmaker/SourceSdk2013.h
+    Filmmaker/SourceSmoothView.cpp
+    Filmmaker/SourceSmoothView.h
     Filmmaker/SourceUi.cpp
     Filmmaker/SourceUi.h
     Filmmaker/Ui/CameraEditorShell.cpp
@@ -201,6 +203,11 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Debug/MvmDebugLogHost.h
     ../AfxHookSource2/Filmmaker/Platform/TextEncoding.cpp
     ../AfxHookSource2/Filmmaker/Platform/TextEncoding.h
+    ../AfxHookSource2/Filmmaker/Movie/SmoothView.cpp
+    ../AfxHookSource2/Filmmaker/Movie/SmoothView.h
+    ../AfxHookSource2/Filmmaker/Movie/SmoothViewAirMotionMath.h
+    ../AfxHookSource2/Filmmaker/Movie/SmoothViewHost.h
+    ../AfxHookSource2/Filmmaker/Movie/SmoothViewTiltMath.h
     Gui.cpp
     Gui.h
     hlaeFolder.cpp
