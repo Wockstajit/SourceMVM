@@ -18,7 +18,7 @@ macro(add_shader name profile)
             shaderbuilder
             "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/${name}.fxc"
         COMMAND
-            ShaderBuilder.exe --profile "${profile}" --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/${name}.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/${name}"
+            "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile "${profile}" --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/${name}.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/${name}"
     )
     target_sources(AfxHookSourceShaders
         PRIVATE
@@ -414,6 +414,22 @@ if(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
 
     target_link_libraries(AfxHookSource PRIVATE
        "${AfxHookSource_BINARY_DIR}/afx_iface_passthrough_x64.obj"
+    )
+
+    # The hook loads these from <bin>/resources at runtime (AfxShaders.cpp, CampathDrawer.cpp), so
+    # the x64-source1 stage carries them next to the DLL, the way AfxHookSource2 stages its own.
+    install(
+        FILES
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_line_vs20.acs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_line_ps20.acs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_drawtexture_ps20.acs"
+        DESTINATION "bin/resources/shaders"
+        COMPONENT x64-source1
+    )
+    install(
+        FILES "${CMAKE_CURRENT_SOURCE_DIR}/../Resources/resources/hexfont.tga"
+        DESTINATION "bin/resources"
+        COMPONENT x64-source1
     )
 endif()
 
