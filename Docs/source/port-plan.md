@@ -75,7 +75,7 @@ Measured on the installed game on 2026-10-26:
 | 1 | Build the x64 Source 1 hook as it is | `AfxHookSource` builds in `x64-release` | Done 2026-10-26 |
 | 2 | Run the hook in CS:S 64-bit | A demo plays with the hook loaded and the inherited `mirv_` commands answer | Done 2026-10-26 |
 | 3 | Automation | A script launches CS:S, gets `mirv_filmmaker health` back over the command port, and quits it | Done 2026-10-26 |
-| 4 | Shared code and tests | CS2's engine-free code builds into the Source 1 hook; native tests pass for both; CS2 still works; `mvm_debug` writes a log from CS:S | |
+| 4 | Shared code and tests | Shared CS2 code builds into the Source 1 hook; native tests pass for both; CS2 still works; `mvm_debug` writes a log from CS:S | Done 2026-10-26 |
 | 5 | Engine adapter | Health shows live view, demo time and player values during a CS:S demo | |
 | 6 | UI foundation | The CS:S-themed UI clicks through in the browser mockup and draws in CS:S at 480p, with CS2's mouse model; captures of open, tab switch and exit | |
 | 7 | Demo bar and director card | MOUSE, CAM EDITOR, CONFIG and LOOP; scroll cycles cameras; F8 hides the HUD | |
@@ -97,6 +97,16 @@ Steps 2 and 3 were checked together, because step 2 needed a way to send command
 CS:S demo on the machine, so the check recorded one with bots on de_dust2 over the command port
 (`record mvm_css_test`, 40.8 s), played it back, and ran `mirv_campath add` and `print` against the
 live view. `mvm_debug` moved into step 4: its logger is CS2 code that has to become shared first.
+
+Step 4 set up the sharing, not a bulk copy. The Source 1 hook compiles CS2 files from the CS2 tree
+under `GAME_SOURCE1`, beside Deadlock's `GAME_DEADLOCK`. The first ones are the `mvm_debug` logger
+and its text helper. The logger's three engine reads (log folder, demo tick, frame) moved behind
+`MvmDebugLogHost.h`; CS2 and Deadlock answer them in `MvmDebugLogHostSource2.cpp` with the same
+calls as before, and CS:S in `AfxHookSource/Filmmaker/SourceDebugLog.cpp`. Later steps bring in
+the CS2 math and models they use, when they use them. Checked on 2026-10-26: `NetconServerTests`
+passes; the CS2 suite passes (123 tests, one hardware test skipped); CS2 and Deadlock build; CS2
+and CS:S both write `mvm_debug` logs with console capture, and the CS:S log carries advancing
+demo ticks during playback.
 
 Step 17's death animations follow the CS2 pass in
 [filmmaker_death_animations.md](../features/filmmaker_death_animations.md): headless Blender on the

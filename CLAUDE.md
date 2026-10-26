@@ -13,8 +13,11 @@ into `deadlock.exe`. Both draw native Panorama UI inside the running game. The E
   integration lives in `AfxHookSource2/Deadlock/`, and its features live in
   `AfxHookSource2/Filmmaker/Deadlock/`. Pick the build, commands, and runtime for the game you are
   changing.
-- `AfxHookGoldSrc/`, `AfxHookSource/` (Source 1), `HLAE/`, and `Installer/` are inherited upstream
-  code, kept for compatibility. Leave them alone unless the task explicitly requires a change.
+- Counter-Strike: Source (64-bit) is being ported on the `feat/css-port` branch, in order, per
+  [Docs/source/port-plan.md](Docs/source/port-plan.md). Its code lives in `AfxHookSource/Filmmaker/`,
+  and the inherited Source 1 files only call into it at marked `// SOURCE:MVM` lines.
+- `AfxHookGoldSrc/`, the rest of `AfxHookSource/` (Source 1), `HLAE/`, and `Installer/` are inherited
+  upstream code, kept for compatibility. Leave them alone unless the task explicitly requires a change.
 - This is for offline demo and movie work only. Never wire the DLL up to VAC-protected or online
   servers.
 
@@ -75,6 +78,10 @@ cmake --build build/x64-deadlock-release --config Release --target AfxHookDeadlo
 The Deadlock launcher injects the DLL directly from
 `build/x64-deadlock-release/AfxHookSource2/Deadlock/Release/`. A Deadlock-only hook change does not
 need a CS2 install step. Injector and host setup is in [Docs/deadlock/README.md](Docs/deadlock/README.md).
+
+For the CS:S (Source 1) hook, build the `AfxHookSource` target of the `x64-release` preset and install
+the `x64-runtime` and `x64-source1` components into `build/source1-release`. The commands are in
+[Docs/source/README.md](Docs/source/README.md).
 
 To build only the launcher, without touching the CS2 build, run `SourceMovieMakerLauncher\build-app.bat`
 (add `-Package` for the installer). The legacy full HLAE package is built with `build-hlae.bat`.
@@ -177,8 +184,9 @@ probes, event ordering, and "what happened 200 frames ago" exist only in the log
 
 1. Start with the existing health output and `mvm_debug` probes. Reproduce the problem and read the
    log. Where evidence is missing, add `MvmDebugLog_Linef` instrumentation. The API is in
-   `AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h`, and CS2 and Deadlock share it across the whole
-   filmmaker surface.
+   `AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h`, and CS2, Deadlock and the CS:S hook share it
+   across the whole filmmaker surface. Each hook supplies the folder, tick and frame through
+   `MvmDebugLogHost.h`.
 2. Log the inputs, the intermediate state, and the final written value. For engine-memory writes, log
    the resolved offset and target pointer. A stale schema offset looks exactly like broken math.
 3. Gate logging on `MvmDebugLog_Active()` and throttle it. The logger flushes after every line.
@@ -245,6 +253,18 @@ The launcher finds the game through `Automation/lib/Resolve-DeadlockDir.ps1`. Us
 not support Vulkan. Close Deadlock with the console `quit` command. Never use `taskkill /F`, because
 it can break the Steam pipe and leave the next launch with a black screen. See
 [Docs/deadlock/README.md](Docs/deadlock/README.md) as needed.
+
+## Launch and drive Counter-Strike: Source
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File Automation\launch\launch-css.ps1
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File Automation\netcon\css-netcon.ps1 -CommandBatch "mvm_debug start;;mirv_filmmaker health"
+```
+
+The 64-bit CS:S engine has no `-netconport`, so the hook serves its own command port on 29030 when
+launched with `-mvmnetconport`. Launch offline with `-insecure` and D3D9, never `-vulkan`. Close
+CS:S with the console `quit` command. Closing its window only opens the game's quit dialog. See
+[Docs/source/README.md](Docs/source/README.md), including how to record the bot test demo.
 
 ## Version-coupled engine values
 

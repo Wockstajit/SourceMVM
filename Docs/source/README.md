@@ -31,7 +31,21 @@ cmake --install build/x64-release --config Release --prefix build/source1-releas
 ```
 
 The stage holds `bin/x64/AfxHookSource.dll` with its runtime DLLs, and `bin/resources/` with the
-shaders and the hex font the hook loads at runtime. The injector and the launch host come from the
+shaders and the hex font the hook loads at runtime.
+
+Code shared with the CS2 and Deadlock hooks is compiled from where it lives in the CS2 tree (for
+example `AfxHookSource2/Filmmaker/Debug/MvmDebugLog.cpp`). The target defines `GAME_SOURCE1`, which
+those files use to leave out their CS2-only parts, as Deadlock does with `GAME_DEADLOCK`.
+
+## Test
+
+```batch
+ctest --test-dir build/x64-release -C Release --output-on-failure -R NetconServerTests
+```
+
+The Source 1 tests are registered in `CMake/Source1Tests.cmake`, included from
+`AfxHookSource/CMakeLists.txt`. The `x64-release` build also holds the CS2 tests, because that preset
+builds both hooks; `-R` picks one suite. The injector and the launch host come from the
 CS2 stage (`build.bat -NoLaunch` once) and from `SourceMovieMakerLauncher\scripts\build-host.ps1`.
 Both are game-agnostic.
 
@@ -82,8 +96,13 @@ The demo lands in `cstrike\mvm_css_test.dem` and plays with `playdemo mvm_css_te
 
 | Command | What it does |
 | --- | --- |
-| `mirv_filmmaker health` | Hook build, game, engine interfaces, command port counters, pump counts, and connection, map and demo state |
+| `mirv_filmmaker health` | Hook build, game, engine interfaces, command port counters, `mvm_debug` state, pump counts, and connection, map and demo state |
+| `mvm_debug start\|stop\|status` | The shared runtime debug log, as in CS2: `%APPDATA%\HLAE\debuglogs\mvm_debug_*.log`, every console line and every command received over the port, stamped with demo tick, frame and thread |
 
 `health` is the first check when something stops working. `console capture REPLACED` means the
-engine installed its own spew function after ours, so command output no longer reaches the port.
-A `frame render starts` count that stays at 0 means the client frame hook is not running.
+engine installed its own spew function after ours, so command output no longer reaches the port
+or the log. A `frame render starts` count that stays at 0 means the client frame hook is not
+running.
+
+Console capture is one spew function chained in front of the engine's (`SourceConsole.cpp`). It
+stays installed once the port or the log has asked for it, and feeds whichever of the two is on.

@@ -76,6 +76,8 @@ target_compile_definitions(AfxHookSource PRIVATE
     AFX_INTEROP
     AFX_MIRV_PGL
     _CRT_SECURE_NO_WARNINGS
+    # Shared SOURCE:MVM filmmaker files compiled into this hook leave out their CS2-only parts.
+    GAME_SOURCE1
 )
 
 # generate PDB in release too:
@@ -121,10 +123,21 @@ target_sources(AfxHookSource PRIVATE
     d3d9Hooks.cpp
     d3d9Hooks.h
     D3D9ImageBuffer.h
+    Filmmaker/SourceConsole.cpp
+    Filmmaker/SourceConsole.h
+    Filmmaker/SourceDebugLog.cpp
     Filmmaker/SourceFilmmaker.cpp
     Filmmaker/SourceFilmmaker.h
     Filmmaker/SourceNetcon.cpp
     Filmmaker/SourceNetcon.h
+
+    # Shared with the CS2 and Deadlock hooks, compiled from the CS2 tree.
+    ../AfxHookSource2/Filmmaker/Debug/DebugLogDedupMath.h
+    ../AfxHookSource2/Filmmaker/Debug/MvmDebugLog.cpp
+    ../AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h
+    ../AfxHookSource2/Filmmaker/Debug/MvmDebugLogHost.h
+    ../AfxHookSource2/Filmmaker/Platform/TextEncoding.cpp
+    ../AfxHookSource2/Filmmaker/Platform/TextEncoding.h
     Gui.cpp
     Gui.h
     hlaeFolder.cpp
@@ -323,6 +336,7 @@ target_sources(AfxHookSource PRIVATE
 # This is far form proper, but it will do for now:
 source_group("AfxHookSource" REGULAR_EXPRESSION "/AfxHookSource/")
 source_group("AfxHookSource/Filmmaker" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/")
+source_group("AfxHookSource2/Filmmaker" REGULAR_EXPRESSION "/AfxHookSource2/Filmmaker/")
 source_group("AfxHookSource/tf2" REGULAR_EXPRESSION "/AfxHookSource/tf2/")
 source_group("deps" REGULAR_EXPRESSION "/Deps/")
 source_group("Deps/release" REGULAR_EXPRESSION "/Deps/release/")
@@ -540,3 +554,5 @@ if(CMAKE_GENERATOR_PLATFORM STREQUAL "Win32")
     source_group("AfxHookSource/garrysmod" REGULAR_EXPRESSION "/AfxHookSource/garrysmod/")
     source_group("AfxHookSource/momentum" REGULAR_EXPRESSION "/AfxHookSource/momentum/")
 endif()
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/../CMake/Source1Tests.cmake")

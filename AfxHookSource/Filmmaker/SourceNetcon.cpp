@@ -1,9 +1,11 @@
 #include "stdafx.h"
 
 #include "SourceNetcon.h"
+#include "SourceConsole.h"
 
 #include "WrpVEngineClient.h"
 
+#include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
 #include <Shared/AfxCommandLine.h>
 #include <Shared/AfxConsole.h>
 #include <Shared/NetconServer.h>
@@ -21,37 +23,10 @@ namespace {
 
 const unsigned short kDefaultPort = 29030;
 
-// tier0's spew contract (dbg.h): the return value tells tier0 whether to break, continue or abort.
-typedef int (*SpewOutputFunc_t)(int spewType, const char* message);
-typedef void (*SetSpewOutputFunc_t)(SpewOutputFunc_t func);
-typedef SpewOutputFunc_t (*GetSpewOutputFunc_t)();
-const int kSpewContinue = 1;
-
-SpewOutputFunc_t g_previousSpew = nullptr;
-GetSpewOutputFunc_t g_getSpew = nullptr;
-
 std::atomic<HWND> g_window{ nullptr };
 UINT g_wakeMessage = 0;
 std::atomic<bool> g_wakePosted{ false };
 std::atomic<unsigned long long> g_pumps{ 0 };
-
-int NetconSpew(int spewType, const char* message) {
-	advancedfx::NetconServer::Write(message);
-	return g_previousSpew ? g_previousSpew(spewType, message) : kSpewContinue;
-}
-
-void InstallConsoleCapture() {
-	HMODULE tier0 = GetModuleHandleW(L"tier0.dll");
-	if (!tier0) return;
-	auto setSpew = (SetSpewOutputFunc_t)GetProcAddress(tier0, "SpewOutputFunc");
-	g_getSpew = (GetSpewOutputFunc_t)GetProcAddress(tier0, "GetSpewOutputFunc");
-	if (!setSpew || !g_getSpew) {
-		advancedfx::Warning("AfxHookSource: netcon cannot capture console output (tier0 spew exports missing).\n");
-		return;
-	}
-	g_previousSpew = g_getSpew();
-	setSpew(&NetconSpew);
-}
 
 // Listener thread. One wake-up message in flight at a time is enough: the pump drains everything.
 void OnLineReceived() {
@@ -71,6 +46,8 @@ void PumpMainThread() {
 		std::string command;
 		if (!advancedfx::NetconServer::PopCommand(command)) return;
 		if (!g_VEngineClient) continue;
+		if (Filmmaker::MvmDebugLog_Active())
+			Filmmaker::MvmDebugLog_Linef("netcon", "exec %s", command.c_str());
 		// Queued into the engine's command buffer, which runs it on this thread at the frame's
 		// normal command point, as if it had been typed into the console.
 		g_VEngineClient->ClientCmd_Unrestricted(command.c_str());
@@ -105,7 +82,8 @@ void Netcon_Init() {
 	config.onLineReceived = &OnLineReceived;
 	if (!advancedfx::NetconServer::Start(config)) return;
 
-	InstallConsoleCapture();
+	if (Console_Install()) Console_SetNetconEnabled(true);
+	else advancedfx::Warning("AfxHookSource: netcon cannot capture console output (tier0 spew exports missing).\n");
 	advancedfx::Message("AfxHookSource: netcon listening on 127.0.0.1:%u\n", (unsigned)port);
 }
 
@@ -118,10 +96,6 @@ bool Netcon_OnWindowMessage(HWND hwnd, UINT msg) {
 	if (!g_wakeMessage || msg != g_wakeMessage) return false;
 	PumpMainThread();
 	return true;
-}
-
-bool Netcon_ConsoleCaptured() {
-	return g_getSpew && g_getSpew() == &NetconSpew;
 }
 
 unsigned long long Netcon_PumpCount() { return g_pumps.load(); }

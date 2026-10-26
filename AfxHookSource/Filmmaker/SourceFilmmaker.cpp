@@ -1,12 +1,14 @@
 #include "stdafx.h"
 
 #include "SourceFilmmaker.h"
+#include "SourceConsole.h"
 #include "SourceNetcon.h"
 
 #include "addresses.h"
 #include "WrpConsole.h"
 #include "WrpVEngineClient.h"
 
+#include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
 #include <Shared/AfxConsole.h>
 #include <Shared/NetconServer.h>
 
@@ -61,10 +63,15 @@ void PrintHealth() {
 	if (netcon.active) {
 		advancedfx::Message("  netcon:     127.0.0.1:%u, %d client(s), %llu received, %llu executed, %llu lines sent, %llu dropped; console capture %s\n",
 			(unsigned)netcon.port, netcon.clients, netcon.commandsReceived, netcon.commandsExecuted,
-			netcon.linesSent, netcon.linesDropped, Netcon_ConsoleCaptured() ? "on" : "REPLACED");
+			netcon.linesSent, netcon.linesDropped, Console_Captured() ? "on" : "REPLACED");
 	} else {
 		advancedfx::Message("  netcon:     off (start the game with -mvmnetconport <port>)\n");
 	}
+
+	const Filmmaker::MvmDebugLogStats log = Filmmaker::MvmDebugLog_GetStats();
+	advancedfx::Message("  mvm_debug:  %s, %llu events, console capture %s\n",
+		Filmmaker::MvmDebugLog_Active() ? "running" : "stopped", (unsigned long long)log.eventsReceived,
+		Filmmaker::MvmConsoleCapture_Active() ? "on" : "off");
 
 	advancedfx::Message("  pumps:      %llu window messages, %llu netcon drains, %llu frame render starts\n",
 		g_windowMessages.load(), Netcon_PumpCount(), g_frameRenderStarts.load());

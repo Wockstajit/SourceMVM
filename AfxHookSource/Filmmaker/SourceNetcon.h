@@ -4,9 +4,9 @@
 // the same protocol itself (Shared/NetconServer) when the game is started with
 // `-mvmnetconport <port>`. Without that flag nothing listens.
 //
-// Console output reaches clients through tier0's spew function, chained in front of the engine's.
-// Commands run on the main thread: the listener posts a registered message to the game window,
-// and the hook's window procedure drains the queue into the engine's command buffer.
+// Console output reaches clients through SourceConsole's spew chain. Commands run on the main
+// thread: the listener posts a registered message to the game window, and the hook's window
+// procedure drains the queue into the engine's command buffer.
 
 #include <windows.h>
 
@@ -18,9 +18,6 @@ void Netcon_Init();
 // From the hook's window procedure, for every message. Returns true when the message was the
 // netcon wake-up and has been handled.
 bool Netcon_OnWindowMessage(HWND hwnd, UINT msg);
-
-// Whether our spew function is still the one tier0 calls. The engine may install its own later.
-bool Netcon_ConsoleCaptured();
 
 // Main-thread drains of the command queue so far.
 unsigned long long Netcon_PumpCount();
