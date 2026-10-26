@@ -43,3 +43,19 @@ add_executable(SourceDemoFileTests
 )
 target_compile_features(SourceDemoFileTests PRIVATE cxx_std_17)
 add_test(NAME SourceDemoFileTests COMMAND SourceDemoFileTests)
+
+add_executable(SourceDemoMarkersTests
+    ../Automation/tests/source-demo-markers-tests.cpp
+    Filmmaker/SourceDemoFile.cpp
+    Filmmaker/SourceDemoMarkers.cpp
+    Filmmaker/SourceDemoMarkers.h
+)
+target_compile_features(SourceDemoMarkersTests PRIVATE cxx_std_17)
+add_test(NAME SourceDemoMarkersTests COMMAND SourceDemoMarkersTests)
+
+add_executable(SourceDemoBarMathTests
+    ../Automation/tests/source-demo-bar-math-tests.cpp
+    Filmmaker/Ui/DemoBarMath.h
+)
+target_compile_features(SourceDemoBarMathTests PRIVATE cxx_std_17)
+add_test(NAME SourceDemoBarMathTests COMMAND SourceDemoBarMathTests)

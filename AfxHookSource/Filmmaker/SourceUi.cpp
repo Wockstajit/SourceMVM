@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "SourceUi.h"
+#include "SourceDemoBar.h"
 
 #include "Ui/CameraEditorShell.h"
 #include "Ui/UiRenderDx9.h"
@@ -339,9 +340,12 @@ void Ui_MainThreadFrame() {
 	}
 	if (g.mouse.GetMode() != Mode::Ui) io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); // nothing hovers while the game has the mouse
 
+	DemoBarModel demo;
+	DemoBar_BuildModel(demo);
 	ImGui::NewFrame();
-	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h);
+	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo);
 	ImGui::Render();
+	DemoBar_Apply(frame.demoActions); // CAM EDITOR is not on the bar inside the editor
 
 	g.preview = frame.previewClient;
 	if (g.panelHovered != io.WantCaptureMouse && Filmmaker::MvmDebugLog_Active())
@@ -423,6 +427,8 @@ void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args) {
 		g.editor.dock == DockTab::Timeline ? "timeline" : "regular",
 		g.preview.x0, g.preview.y0, g.preview.x1, g.preview.y1, g.panelHovered ? 1 : 0,
 		g.fonts.ok ? "ok" : (g.fonts.scale > 0 ? "FALLBACK" : "not built"), g.fonts.scale, g.frames);
+	if (g_open.load() && g.editor.dock == DockTab::RegularTimeline)
+		advancedfx::Message("demo bar: %s\n", DemoBarLayoutText(g.editor.demoBar.layout).c_str());
 }
 
 } // namespace SourceFilmmaker

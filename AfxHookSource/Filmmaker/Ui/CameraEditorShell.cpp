@@ -7,20 +7,6 @@ namespace Ui {
 
 namespace {
 
-const ImGuiWindowFlags kPanelFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
-	| ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings
-	| ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoNav;
-
-void BeginPanel(const char* name, const Rect& client, Color bg) {
-	ImGui::SetNextWindowPos(ImVec2(client.x0, client.y0));
-	ImGui::SetNextWindowSize(ImVec2(client.W(), client.H()));
-	ImGui::PushStyleColor(ImGuiCol_WindowBg, ToU32(bg));
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-	ImGui::Begin(name, nullptr, kPanelFlags);
-	ImGui::PopStyleVar();
-	ImGui::PopStyleColor();
-}
-
 const char* kInspectorTabs[] = { "PATH CAMERA", "FOLLOW CAMERA", "SCENE KEYS" };
 const char* kInspectorEmpty[] = { "No cameras yet.", "No follow target.", "No scene keys." };
 const char* kDockTabs[] = { "REGULAR TIMELINE", "TIMELINE" };
@@ -31,7 +17,8 @@ float DockEditorHeight(DockTab dock) {
 	return dock == DockTab::Timeline ? kTimelineEditorHeight : kDemoBarHeight;
 }
 
-CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& fonts, float clientW, float clientH) {
+CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& fonts, float clientW, float clientH,
+	const DemoBarModel& demo) {
 	CameraEditorFrame frame;
 	frame.layout = CameraEditorLayout(clientW, clientH, state.inspectorW, DockEditorHeight(state.dock));
 	const WorkspaceLayout& l = frame.layout;
@@ -124,10 +111,15 @@ CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& font
 	}
 	ImGui::End();
 
-	// The docked editor: the demo bar on REGULAR TIMELINE (translucent over the game, as CS2's
-	// native bar is), the TIMELINE dock otherwise. Their contents come with their own steps.
+	// The docked editor: the demo bar on REGULAR TIMELINE, opaque as CS2's docked bar is; the
+	// TIMELINE dock comes with its own step.
 	const Rect dock = ToClient(l.dock, stage);
-	BeginPanel("##dock", dock, state.dock == DockTab::Timeline ? Rgba(10, 10, 10, 240) : Rgba(0, 0, 0, 110));
+	BeginPanel("##dock", dock, state.dock == DockTab::Timeline ? Rgba(10, 10, 10, 240) : Rgba(0, 0, 0, 235));
+	if (state.dock == DockTab::RegularTimeline) {
+		DemoBarModel inEditor = demo;
+		inEditor.showCamEditorButton = false; // CS2 swaps it for CONFIG inside the editor
+		frame.demoActions = DrawDemoBar(state.demoBar, inEditor, fonts, dock, s);
+	}
 	ImGui::End();
 
 	return frame;

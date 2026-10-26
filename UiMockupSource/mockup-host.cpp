@@ -5,12 +5,15 @@
 //   - the game: a still frame (assets/backdrop.png, a local CS:S capture) or a drawn stand-in,
 //     letterboxed into the preview exactly where the game renderer puts the real frame, and turned
 //     by the mouse while the game has it;
+//   - the demo: a playback clock over the SourceTV test demo's real length and events (stand-in
+//     player names), so the demo bar's buttons, dial, scrubber and markers all respond;
 //   - the window: index.html forwards DOM mouse and key events here as the game host's window
 //     procedure forwards window messages, and asks for pointer lock while the game has the mouse.
 //
 // Everything else, from which panel takes a click to when a right press becomes a look, is the
 // game's code. Built by build-mockup.mjs.
 
+#include "../AfxHookSource/Filmmaker/SourceDemoBarModel.h"
 #include "../AfxHookSource/Filmmaker/Ui/CameraEditorShell.h"
 #include "../AfxHookSource/Filmmaker/Ui/UiKeys.h"
 #include "../AfxHookSource/Filmmaker/Ui/WorkspaceMouse.h"
@@ -26,9 +29,12 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 
+using namespace SourceFilmmaker;
 using namespace SourceFilmmaker::Ui;
 
 namespace {
@@ -44,6 +50,60 @@ const char* ModeName(Mode m) {
 	}
 }
 
+// The demo the mockup plays: mvm_css_tv.dem's length, tick rate and events (Docs/source/README.md
+// has how it was recorded); names and teams are stand-ins.
+struct SimDemo {
+	bool playing = true;
+	bool paused = false;
+	double tick = 0;
+	int total = 4410;
+	double interval = 0.015;
+	double timescale = 1;
+	int observerMode = 4;
+	bool loopOn = false;
+	DemoBarMath::LoopRegion loop;
+	DemoMarkers markers;
+	std::unordered_map<int, std::pair<std::string, int>> players; // user id -> name, team
+};
+
+DemoFile::Field IntField(const char* key, int value) {
+	DemoFile::Field f;
+	f.key = key;
+	f.value = value;
+	return f;
+}
+
+DemoFile::Field TextField(const char* key, const char* text) {
+	DemoFile::Field f;
+	f.key = key;
+	f.type = DemoFile::Field::Type::String;
+	f.text = text;
+	return f;
+}
+
+DemoFile::Event SimEvent(int tick, const char* name, std::vector<DemoFile::Field> fields) {
+	DemoFile::Event e;
+	e.tick = tick;
+	e.name = name;
+	e.fields = std::move(fields);
+	return e;
+}
+
+SimDemo MakeSimDemo() {
+	SimDemo demo;
+	const std::vector<DemoFile::Event> events = {
+		SimEvent(490, "player_death", { IntField("userid", 21), IntField("attacker", 15), TextField("weapon", "usp"), IntField("headshot", 1) }),
+		SimEvent(490, "round_end", { IntField("winner", 3) }),
+		SimEvent(917, "round_start", {}),
+		SimEvent(3284, "bomb_planted", { IntField("userid", 21) }),
+		SimEvent(4250, "player_death", { IntField("userid", 14), IntField("attacker", 16), TextField("weapon", "m4a1") }),
+		SimEvent(4310, "player_death", { IntField("userid", 16), IntField("attacker", 17), TextField("weapon", "mp5navy") }),
+	};
+	demo.markers = BuildDemoMarkers(events, demo.total);
+	demo.players = { { 15, { "Josh", 3 } }, { 21, { "Xander", 2 } }, { 14, { "Kurt", 3 } }, { 16, { "Nate", 2 } }, { 17, { "Eli", 3 } } };
+	return demo;
+}
+
 struct Host {
 	EMSCRIPTEN_WEBGL_CONTEXT_HANDLE gl = 0;
 	FontSet fonts;
@@ -57,6 +117,7 @@ struct Host {
 	GLuint backdrop = 0;
 	int backdropW = 0, backdropH = 0;
 	float yaw = 0, pitch = 0;   // the stand-in game camera, degrees
+	SimDemo demo = MakeSimDemo();
 	std::string reply;          // backing store for strings handed to JavaScript
 };
 Host g;
@@ -129,6 +190,65 @@ void DrawGame(ImDrawList* list, const Rect& r) {
 	}
 }
 
+void BuildDemoModel(DemoBarModel& model) {
+	const SimDemo& d = g.demo;
+	model = DemoBarModel();
+	model.demo = d.playing;
+	model.paused = d.paused;
+	model.tick = (int)d.tick;
+	model.lastTick = d.total;
+	model.intervalPerTick = d.interval;
+	model.timescale = d.timescale;
+	model.observed = "Josh";
+	model.cameraMode = DemoBarCameraName(d.observerMode);
+	DemoBarFillMarkers(model, d.markers, [](int userId, std::string& name, int& team) {
+		auto it = g.demo.players.find(userId);
+		if (it == g.demo.players.end()) return false;
+		name = it->second.first;
+		team = it->second.second;
+		return true;
+	});
+	model.loopOn = d.loopOn;
+	model.loop = d.loop;
+}
+
+void SeekSim(int tick) {
+	g.demo.tick = tick < 0 ? 0 : (tick > g.demo.total ? g.demo.total : tick);
+	LogLine("demo.bar", ("seek " + std::to_string((int)g.demo.tick)).c_str());
+}
+
+void ApplyDemoActions(const std::vector<DemoBarAction>& actions) {
+	SimDemo& d = g.demo;
+	for (const DemoBarAction& a : actions) {
+		switch (a.kind) {
+		case DemoBarAction::Kind::TogglePause: d.paused = !d.paused; LogLine("demo.bar", d.paused ? "pause" : "resume"); break;
+		case DemoBarAction::Kind::Seek: SeekSim(a.tick); break;
+		case DemoBarAction::Kind::Speed: d.timescale = a.value; LogLine("demo.bar", ("timescale " + std::to_string(a.value)).c_str()); break;
+		case DemoBarAction::Kind::ToggleLoop:
+			d.loopOn = !d.loopOn;
+			if (d.loopOn) {
+				if (!d.loop.Valid()) d.loop = DemoBarMath::SeedLoop((int)d.tick, d.total);
+				if (d.tick < d.loop.in || d.tick >= d.loop.out) SeekSim(d.loop.in);
+			}
+			LogLine("demo.bar", d.loopOn ? "loop on" : "loop off");
+			break;
+		case DemoBarAction::Kind::NextCamera: d.observerMode = DemoBarNextCameraMode(d.observerMode); break;
+		case DemoBarAction::Kind::CameraEditor: break;
+		}
+	}
+}
+
+void AdvanceDemo(float dt) {
+	SimDemo& d = g.demo;
+	if (!d.playing || d.paused) return;
+	d.tick += dt / d.interval * d.timescale;
+	if (DemoBarMath::LoopWraps(d.loop, (int)d.tick, d.loopOn)) SeekSim(d.loop.in);
+	if (d.tick >= d.total) {
+		d.tick = d.total;
+		d.paused = true;
+	}
+}
+
 // Renders a draw list built outside the ImGui frame through the same backend as the UI.
 void RenderList(ImDrawList& list) {
 	ImDrawData data;
@@ -157,9 +277,13 @@ void Frame() {
 	if (g.mouse.GetMode() != Mode::Ui) io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); // nothing hovers while the game has the mouse
 
 	ImGui::NewFrame();
+	AdvanceDemo(io.DeltaTime);
+	DemoBarModel demo;
+	BuildDemoModel(demo);
 	CameraEditorFrame frame;
-	if (g.editor.open) frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height);
+	if (g.editor.open) frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo);
 	ImGui::Render();
+	ApplyDemoActions(frame.demoActions);
 	g.preview = frame.previewClient;
 	g.panelHovered = g.editor.open && io.WantCaptureMouse;
 	++g.frames;
@@ -179,17 +303,34 @@ void Frame() {
 }
 
 std::string StateJson() {
-	char buf[512];
+	char buf[1024];
 	std::snprintf(buf, sizeof(buf),
 		"{\"open\":%s,\"mode\":\"%s\",\"rightPending\":%s,\"tab\":%d,\"dock\":\"%s\","
 		"\"preview\":[%.1f,%.1f,%.1f,%.1f],\"panelHovered\":%s,\"fonts\":\"%s\",\"scale\":%.4f,"
-		"\"width\":%d,\"height\":%d,\"frames\":%u,\"yaw\":%.1f,\"pitch\":%.1f,\"backdrop\":%s}",
+		"\"width\":%d,\"height\":%d,\"frames\":%u,\"yaw\":%.1f,\"pitch\":%.1f,\"backdrop\":%s,"
+		"\"demo\":{\"playing\":%s,\"paused\":%s,\"tick\":%d,\"timescale\":%.4f,\"camera\":%d,\"loop\":%s,\"in\":%d,\"out\":%d}}",
 		g.editor.open ? "true" : "false", ModeName(g.mouse.GetMode()), g.mouse.RightPending() ? "true" : "false",
 		(int)g.editor.tab, g.editor.dock == DockTab::Timeline ? "timeline" : "regular",
 		g.preview.x0, g.preview.y0, g.preview.x1, g.preview.y1, g.panelHovered ? "true" : "false",
 		g.fonts.ok ? "ok" : (g.fonts.scale > 0 ? "fallback" : "not built"), g.fonts.scale,
-		g.width, g.height, g.frames, g.yaw, g.pitch, g.backdrop ? "true" : "false");
-	return buf;
+		g.width, g.height, g.frames, g.yaw, g.pitch, g.backdrop ? "true" : "false",
+		g.demo.playing ? "true" : "false", g.demo.paused ? "true" : "false", (int)g.demo.tick, g.demo.timescale,
+		g.demo.observerMode, g.demo.loopOn ? "true" : "false", g.demo.loop.in, g.demo.loop.out);
+	std::string json = buf;
+	json.pop_back(); // reopen the object for the bar's layout
+	const DemoBarLayout& l = g.editor.demoBar.layout;
+	auto add = [&](const char* name, const Rect& r) {
+		if (!r.Valid()) return;
+		char part[96];
+		std::snprintf(part, sizeof(part), ",\"%s\":[%.1f,%.1f,%.1f,%.1f]", name, r.x0, r.y0, r.x1, r.y1);
+		json += part;
+	};
+	json += ",\"bar\":{\"_\":0";
+	add("band", l.band); add("play", l.play); add("back", l.back); add("forward", l.forward);
+	add("roundprev", l.roundPrev); add("roundnext", l.roundNext); add("nextkill", l.nextKill);
+	add("camera", l.camera); add("loop", l.loop); add("dial", l.dial);
+	json += "}}";
+	return json;
 }
 
 } // namespace
@@ -299,6 +440,12 @@ EMSCRIPTEN_KEEPALIVE void mockup_lock_lost() {
 
 EMSCRIPTEN_KEEPALIVE int mockup_mode() { return (int)g.mouse.GetMode(); }
 
+// Runs frames now, for test scripts: a background browser tab gets about one animation frame a
+// second, so a script steps the UI itself between the events it sends.
+EMSCRIPTEN_KEEPALIVE void mockup_step(int frames) {
+	for (int i = 0; i < frames && i < 600; ++i) Frame();
+}
+
 EMSCRIPTEN_KEEPALIVE void mockup_resize(int width, int height) {
 	if (width < 64 || height < 64) return;
 	g.width = width;
@@ -324,6 +471,15 @@ EMSCRIPTEN_KEEPALIVE void mockup_set_backdrop(const unsigned char* rgba, int wid
 // mirv_filmmaker editor takes it. Returns the reply line.
 EMSCRIPTEN_KEEPALIVE const char* mockup_command(const char* command) {
 	const char* action = command ? command : "";
+	if (0 == std::strncmp(action, "demo ", 5)) {
+		const char* what = action + 5;
+		if (0 == std::strcmp(what, "on")) g.demo.playing = true;
+		else if (0 == std::strcmp(what, "off")) g.demo.playing = false;
+		else if (0 == std::strcmp(what, "pause")) g.demo.paused = true;
+		else if (0 == std::strncmp(what, "seek ", 5)) SeekSim(std::atoi(what + 5));
+		g.reply = "demo: " + StateJson();
+		return g.reply.c_str();
+	}
 	if (0 == std::strncmp(action, "editor", 6)) action += 6;
 	while (*action == ' ') ++action;
 	if (0 == std::strcmp(action, "on")) Open("command");

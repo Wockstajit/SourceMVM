@@ -31,6 +31,9 @@ constexpr Color OffWhite = Rgba(221, 221, 221);
 constexpr Color DimText = Rgba(160, 170, 149);
 constexpr Color DisabledText = Rgba(117, 128, 111);
 constexpr Color Black = Rgba(0, 0, 0);
+// cstrike's chat and scoreboard team colours (hud_basechat.cpp g_ColorBlue / g_ColorRed).
+constexpr Color TeamCT = Rgba(153, 204, 255);
+constexpr Color TeamT = Rgba(255, 63, 63);
 } // namespace Palette
 
 // Semantic roles, so widgets ask for "border" rather than for a scheme name.
@@ -47,6 +50,7 @@ constexpr Color ButtonBg = Palette::ButtonBg;
 constexpr Color ButtonHoverBg = Rgba(188, 112, 0, 60);
 constexpr Color ButtonArmedBg = Palette::Red;                 // pressed, like a VGUI armed button
 constexpr Color Letterbox = Palette::Black;                   // around the game preview
+constexpr Color Loop = Rgba(124, 224, 142);                   // CS2's LOOP green: the loop region and its lit button
 } // namespace Theme
 
 // Fonts the theme asks for. Faces are Windows' Verdana and Tahoma; sizes are stage px.

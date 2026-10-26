@@ -5,6 +5,19 @@
 namespace SourceFilmmaker {
 namespace Ui {
 
+void BeginPanel(const char* name, const Rect& client, Color bg) {
+	const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
+		| ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings
+		| ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoNav;
+	ImGui::SetNextWindowPos(ImVec2(client.x0, client.y0));
+	ImGui::SetNextWindowSize(ImVec2(client.W(), client.H()));
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, ToU32(bg));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+	ImGui::Begin(name, nullptr, flags);
+	ImGui::PopStyleVar();
+	ImGui::PopStyleColor();
+}
+
 float SpacedTextWidth(ImFont* font, const char* text, float spacing) {
 	float w = 0;
 	int n = 0;

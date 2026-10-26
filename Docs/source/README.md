@@ -107,7 +107,9 @@ play on the current game: it stops with "demo network protocol 7 outdated, engin
 | `mirv_filmmaker health` | Hook build, game, engine interfaces, command port counters, `mvm_debug` state, pump counts, the engine adapter, connection, map, demo time, the demo index, the game's and the rendered view, and a player summary |
 | `mirv_filmmaker players` | One line per player: index, name, team, health, alive, dormant, origin, eye angles, class, bot and SourceTV flags. `>` marks the spectated player |
 | `mirv_filmmaker engine` | The networked fields the engine adapter resolved, with their offsets |
-| `mirv_filmmaker editor on\|off\|toggle\|state` | The Camera Editor workspace. `state` reports the mouse mode, tabs, preview rect and fonts |
+| `mirv_filmmaker editor on\|off\|toggle\|state` | The Camera Editor workspace. `state` reports the mouse mode, tabs, preview rect and fonts, and where each demo bar control is |
+| `mirv_filmmaker loop on\|off\|toggle\|state` | LOOP playback, as the demo bar's LOOP button does |
+| `mirv_filmmaker seek <tick>` | Go to a demo tick the way the demo bar does (back = restart, then forward) |
 | `mvm_debug start\|stop\|status` | The shared runtime debug log, as in CS2: `%APPDATA%\HLAE\debuglogs\mvm_debug_*.log`, every console line and every command received over the port, stamped with demo tick, frame and thread |
 
 `health` is the first check when something stops working. `console capture REPLACED` means the
@@ -158,6 +160,39 @@ death, round and bomb event from the first frame, not only the ones playback has
 3.7 ms`), and `mvm_debug` logs each event under `demo.index`. `SourceDemoFileTests` writes small
 demos bit by bit to test the reader; set `SOURCEMVM_SOURCE1_TEST_DEMO` to a real demo to also scan
 that one and print its events.
+
+## Demo bar
+
+CS:S has no demo bar of its own, so the hook draws one: CS2's layout in CS:S paint. CS2's bar is
+mostly CS2's own Panorama with SOURCE:MVM's speed dial, LOOP, CAM EDITOR and CONFIG added, and its
+kill and round markers come from Valve's `.dem.info` sidecar. Here the whole bar is ours, and the
+markers come from the [demo index](#demo-index).
+
+| Part | What it does |
+| --- | --- |
+| Marker band | Round cells (R1, R2, ...) with a rule in the winner's colour at each round's end; a dot per kill in the victim's team colour (CS:S's chat blue and red), ringed for a headshot; an orange square per bomb event. Hover for "Josh killed Xander (usp, headshot)" and the time |
+| Scrubber | Click or drag and release to seek there. A click on a kill goes 0.6 s before it, as CS2's Go To Event does |
+| Play / pause, time | `demo_togglepause`; the time, the length, and the tick |
+| -5S / +5S | Five seconds at the demo's tick rate (335 ticks at 66.7 tick) |
+| < ROUND / ROUND > | The start of this round (or the one before, when already there), and the next round's start |
+| SPECTATING | The spectated player |
+| Speed dial | CS2's dial: logarithmic 0.05x to 20x, the middle exactly 1x; a click in one of five zones gives 0.1x, 0.25x, 1x, 4x or 10x; a drag gives anything in between (`demo_timescale`) |
+| NEXT KILL > | The next kill, 0.6 s early |
+| Camera | FIRST PERSON, CHASE CAM, FREE CAM in CS2's order (`spec_mode`) |
+| LOOP | Seeds In and Out at the playhead and 320 ticks on (CS2's seed), then wraps playback at Out |
+| CAM EDITOR | Opens the Camera Editor. Inside the editor it is not shown, because CS2 puts CONFIG there and Config is a later step |
+
+The bar sits in the Camera Editor's REGULAR TIMELINE dock. Its rules are engine-free in
+`Ui/DemoBarMath.h` (`SourceDemoBarMathTests`), the markers in `SourceDemoMarkers.cpp`
+(`SourceDemoMarkersTests`), the drawing in `Ui/DemoBar.cpp`, and the game side in
+`SourceDemoBar.cpp`. `mirv_filmmaker editor state` prints each control's rectangle, so a test can
+click it by name.
+
+Seeking backwards restarts the demo, waits until it plays again, and then seeks forward. In the
+test SourceTV demo the engine's own skip sometimes stopped with "CL_PreserveExistingEntity" or
+"CL_CopyExistingEntity: missing client entity 62", in either direction and from the console too;
+first-person demos seek cleanly both ways. That is engine playback of that demo, not the bar, and
+is checked again with more SourceTV demos.
 
 ## Workspace UI
 

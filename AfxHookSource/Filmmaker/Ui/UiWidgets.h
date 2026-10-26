@@ -9,6 +9,10 @@
 namespace SourceFilmmaker {
 namespace Ui {
 
+// A borderless, fixed ImGui window over client rect, filled with bg: the panels the workspaces are
+// built from. Pair with ImGui::End().
+void BeginPanel(const char* name, const Rect& client, Color bg);
+
 // Text drawn with extra space after every character, as CS2's tab captions are (letter-spacing).
 float SpacedTextWidth(ImFont* font, const char* text, float spacing);
 void DrawSpacedText(ImDrawList* draw, ImFont* font, ImVec2 pos, ImU32 color, const char* text, float spacing);

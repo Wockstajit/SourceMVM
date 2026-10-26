@@ -246,7 +246,8 @@
       watchBuild();
     },
   };
-  window.mockup = { command: command, state: state };
+  // step(n) runs n UI frames at once, so test scripts do not depend on a background tab's frame rate.
+  window.mockup = { command: command, state: state, step: function (n) { Module._mockup_step(n || 1); } };
 })();
 </script>
 <script src="mockup.js"></script>

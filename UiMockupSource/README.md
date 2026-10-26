@@ -34,11 +34,12 @@ without the preview server, run `node UiMockupSource/build-mockup.mjs`. The outp
 
 | Part | In the mockup |
 | --- | --- |
-| Workspace layout, paint, fonts, widgets | The game's code (`CameraEditorShell.cpp`, `UiStyle.cpp`, `UiWidgets.cpp`) |
+| Workspace layout, paint, fonts, widgets, the demo bar | The game's code (`CameraEditorShell.cpp`, `DemoBar.cpp`, `UiStyle.cpp`, `UiWidgets.cpp`, `SourceDemoBarModel.cpp`) |
 | Who gets the mouse, look, G, Esc | The game's code (`WorkspaceMouse.h`, `UiKeys.h`, CS2's `UiClickMath.h`) |
 | Verdana and Tahoma | Read from this machine's Windows Fonts folder at build time and packed into the build output |
 | The game | A still frame, letterboxed into the preview where the game renderer puts the real frame |
 | The console | The `mirv_filmmaker` box runs the mockup's `editor on`, `off`, `toggle` and `state` |
+| The demo | A playback clock over the test SourceTV demo's real length, tick rate and events, with stand-in names, so the demo bar responds. `demo on`, `demo off`, `demo pause` and `demo seek <tick>` drive it |
 
 The game frame is `assets/backdrop.png` when it exists: a capture of CS:S, which stays local
 because game pixels are not ours to commit. Take one with the editor closed:
@@ -63,10 +64,12 @@ like G. A second Esc closes the editor, as Esc does in the game.
 
 ## Checking it
 
-`window.mockup.state()` returns the host's state (open, mouse mode, tabs, preview rect, fonts), and
-`window.mockup.command('editor on')` runs a command. The browser console carries the same
-`ui.input`, `ui.mouse` and `ui.editor` lines the game writes to its `mvm_debug` log, so a click
-sequence can be compared line by line. With `preserveDrawingBuffer` on, the canvas can be read
+`window.mockup.state()` returns the host's state (open, mouse mode, tabs, preview rect, fonts, the
+simulated demo, and where each demo bar control is), and `window.mockup.command('editor on')` runs a
+command. A browser tab in the background gets about one animation frame a second, so a test script
+calls `window.mockup.step(n)` to run frames itself between the events it sends. The browser
+console carries the same `ui.input`, `ui.mouse` and `ui.editor` lines the game writes to its
+`mvm_debug` log, so a click sequence can be compared line by line. With `preserveDrawingBuffer` on, the canvas can be read
 back and compared against a capture of the game at the same window size.
 
 `Automation/tests/source-ui-mockup-tests.mjs` checks that the mockup compiles every UI source the

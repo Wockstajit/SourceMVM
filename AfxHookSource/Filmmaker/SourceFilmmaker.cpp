@@ -2,6 +2,7 @@
 
 #include "SourceFilmmaker.h"
 #include "SourceConsole.h"
+#include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
 #include "SourceEngine.h"
 #include "SourceGameProfile.h"
@@ -148,7 +149,9 @@ void PrintUsage() {
 		"mirv_filmmaker health  - hook build, game, interfaces, command port, engine, view, demo and players.\n"
 		"mirv_filmmaker players - one line per player: team, health, origin, eye angles, class.\n"
 		"mirv_filmmaker engine  - the networked fields the engine adapter resolved, with offsets.\n"
-		"mirv_filmmaker editor  - on|off|toggle|state: the Camera Editor workspace (ESC closes it).\n");
+		"mirv_filmmaker editor  - on|off|toggle|state: the Camera Editor workspace (ESC closes it).\n"
+		"mirv_filmmaker loop    - on|off|toggle|state: LOOP playback between the demo bar's In and Out.\n"
+		"mirv_filmmaker seek    - <tick>: go to a demo tick as the demo bar does (back = restart, then forward).\n");
 }
 
 } // namespace
@@ -168,6 +171,7 @@ bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 void OnFrameRenderStart() {
 	g_frameRenderStarts.fetch_add(1);
 	DemoIndex_Frame();
+	DemoBar_Frame();
 	Ui_MainThreadFrame();
 }
 
@@ -185,6 +189,10 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::Engine_PrintFields();
 	} else if (0 == _stricmp(sub, "editor")) {
 		SourceFilmmaker::Ui_EditorCommand(argc, args);
+	} else if (0 == _stricmp(sub, "loop")) {
+		SourceFilmmaker::DemoBar_LoopCommand(argc >= 3 ? args->ArgV(2) : "state");
+	} else if (0 == _stricmp(sub, "seek") && argc >= 3) {
+		SourceFilmmaker::DemoBar_SeekTo(atoi(args->ArgV(2)));
 	} else {
 		SourceFilmmaker::PrintUsage();
 	}

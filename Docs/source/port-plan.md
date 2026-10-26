@@ -136,7 +136,13 @@ LOOP, CAM EDITOR and CONFIG added; its kill, death and round markers are CS2's, 
 `.dem.info` sidecar Valve writes. CS:S has neither, so the port draws the whole bar and reads the
 markers out of the demo file. First part (2026-10-26): the demo index
 ([README.md](README.md#demo-index)) reads a demo's events when playback starts, in 4 ms for the
-test demo, with ticks that match the game's own kill lines.
+test demo, with ticks that match the game's own kill lines. Second part (2026-10-26): the demo bar
+([README.md](README.md#demo-bar)) in the REGULAR TIMELINE dock. Every control was clicked in the
+browser mockup and in CS:S at 854x480 with real window messages, at the positions the bar reports:
+play and pause, +5S (+335 ticks), -5S through the restart, NEXT KILL, < ROUND, the dial at 4x and
+1x, the camera button, a scrub click, a kill marker, and LOOP wrapping from 763 back to 476. Still
+to come in step 7: the bar outside the workspaces with CS2's director mouse, wheel cameras and keys,
+and the director cards with F8.
 
 Step 17's death animations follow the CS2 pass in
 [filmmaker_death_animations.md](../features/filmmaker_death_animations.md): headless Blender on the
