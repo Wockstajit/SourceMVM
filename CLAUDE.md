@@ -266,6 +266,11 @@ launched with `-mvmnetconport`. Launch offline with `-insecure` and D3D9, never 
 CS:S with the console `quit` command. Closing its window only opens the game's quit dialog. See
 [Docs/source/README.md](Docs/source/README.md), including how to record the bot test demo.
 
+The CS:S workspaces are native C++ drawn with Dear ImGui (`AfxHookSource/Filmmaker/Ui/`), not
+Panorama. Their browser mockup, [UiMockupSource](UiMockupSource/README.md), compiles that same C++
+to WebAssembly (`node Automation/ui/preview.mjs css`). Review UI changes there first, as with the
+other mockups.
+
 ## Version-coupled engine values
 
 `addresses.cpp`, `addresses.h`, `SchemaSystem.cpp`, and the pattern scans across `AfxHookSource2/` are

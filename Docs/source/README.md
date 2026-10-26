@@ -144,6 +144,7 @@ The engine-free part lives in `AfxHookSource/Filmmaker/Ui/`:
 | --- | --- |
 | `WorkspaceLayoutMath.h` | CS2's stage scaling, inspector column, dock measure and centred preview fit |
 | `WorkspaceMouse.h` | Who has the mouse (UI, game, look), CS2's rules as one state machine both hosts use |
+| `UiKeys.h` | ESC closes, G trades the mouse, and the key mapping into ImGui, for both hosts |
 | `UiTheme.h` | CS:S colours (ClientScheme / SourceScheme), Verdana and Tahoma, and CS2's UI metrics |
 | `UiStyle.cpp`, `UiWidgets.cpp` | The ImGui style, fonts at the stage scale, CS2's text tabs and chips |
 | `CameraEditorShell.cpp` | The Camera Editor: preview, inspector tabs, dock ribbon, ESC EXIT |
@@ -170,6 +171,20 @@ The mouse follows CS2's workspace rules (`UiClickMath.h`, shared with CS2):
 `Automation\capture\send-click.ps1 -Process cstrike_win64 -Button Left|Right -HoldMs <ms>` drives
 the UI with real window messages. Post from a per-monitor DPI-aware thread, as that script does:
 otherwise posted coordinates arrive scaled by the display's scale factor.
+
+### Browser mockup
+
+[UiMockupSource](../../UiMockupSource/README.md) compiles the same UI files to WebAssembly and runs
+them in a browser, with a still capture of the game in the preview:
+
+```batch
+node Automation/ui/preview.mjs css --open
+```
+
+It needs [Emscripten](https://emscripten.org/docs/getting_started/downloads.html) (emsdk in
+`%USERPROFILE%\emsdk`, or `SOURCEMVM_EMSDK`). Saving a UI source rebuilds it and reloads the page.
+Review a UI change there first, then build it into the game and compare captures at the same window
+size, as the [mockup-first workflow](../panorama/mockup-first-workflow.md) describes for CS2.
 
 During playback, `local` and `observing` describe the demo's recorder. In a SourceTV demo that is
 the SourceTV bot, so `observing` is the director's pick at record time. The playback camera itself

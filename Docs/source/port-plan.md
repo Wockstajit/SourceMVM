@@ -77,7 +77,7 @@ Measured on the installed game on 2026-10-26:
 | 3 | Automation | A script launches CS:S, gets `mirv_filmmaker health` back over the command port, and quits it | Done 2026-10-26 |
 | 4 | Shared code and tests | Shared CS2 code builds into the Source 1 hook; native tests pass for both; CS2 still works; `mvm_debug` writes a log from CS:S | Done 2026-10-26 |
 | 5 | Engine adapter | Health shows live view, demo time and player values during a CS:S demo | Done 2026-10-26 |
-| 6 | UI foundation | The CS:S-themed UI clicks through in the browser mockup and draws in CS:S at 480p, with CS2's mouse model; captures of open, tab switch and exit | |
+| 6 | UI foundation | The CS:S-themed UI clicks through in the browser mockup and draws in CS:S at 480p, with CS2's mouse model; captures of open, tab switch and exit | Done 2026-10-26 |
 | 7 | Demo bar and director card | MOUSE, CAM EDITOR, CONFIG and LOOP; scroll cycles cameras; F8 hides the HUD | |
 | 8 | Free cam and smooth view | | |
 | 9 | Camera Editor | Paths, markers, inspector, preview viewport, shortcut strip | |
@@ -121,8 +121,15 @@ Step 6, in game (2026-10-26): the Camera Editor shell draws in CS:S at 854x480 w
 theme, the game letterboxed into the preview. Captured and logged: open, the inspector tab and the
 dock tab switching (TIMELINE re-centres the preview above the 440 px dock), a quick right click
 staying a click, a 450 ms right hold becoming a look and returning on release, a left click in the
-preview handing the mouse to the game, G taking it back, and ESC closing with no leftovers. The
-browser mockup is the rest of step 6.
+preview handing the mouse to the game, G taking it back, and ESC closing with no leftovers.
+
+Step 6, browser mockup (2026-10-26): [UiMockupSource](../../UiMockupSource/README.md) compiles the
+same UI files to WebAssembly. The same nine-stage walk passed in the browser, and its console log
+matched the game's `mvm_debug` lines in order. Read back at 854x480 and compared with a capture of
+the game in the same state, the inspector differed by 0.21 on average (of 255) and the ribbon and
+dock by under 3. That comparison allowed a one-pixel shift: the game's client area measures
+855x481 although the launcher asks for 854x480. The mouse rules and the key rules
+(`WorkspaceMouse.h`, `UiKeys.h`) are shared by both hosts.
 
 Step 17's death animations follow the CS2 pass in
 [filmmaker_death_animations.md](../features/filmmaker_death_animations.md): headless Blender on the

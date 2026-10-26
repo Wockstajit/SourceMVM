@@ -30,6 +30,11 @@ node Automation/ui/preview.mjs deadlock --open
 
 CS2 uses port 8823; Deadlock uses 8824. `--port N` overrides the port.
 
+Counter-Strike: Source has no Panorama. Its workspaces are native C++, and
+[its mockup](../../UiMockupSource/README.md) (`node Automation/ui/preview.mjs css`, port 8825)
+compiles that C++ to WebAssembly, rebuilding on save. There are no drafts to apply there: edit the
+C++, review it in the browser, then build it into the game and compare captures.
+
 ## Make the change once
 
 Edit `AfxHookSource2/Filmmaker/Panorama/*Js.h` for CS2 or `AfxHookSource2/Filmmaker/Deadlock/*Js.h`

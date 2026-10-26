@@ -145,6 +145,7 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/Ui/CameraEditorShell.cpp
     Filmmaker/Ui/CameraEditorShell.h
     Filmmaker/Ui/UiImConfig.h
+    Filmmaker/Ui/UiKeys.h
     Filmmaker/Ui/UiRenderDx9.cpp
     Filmmaker/Ui/UiRenderDx9.h
     Filmmaker/Ui/UiStyle.cpp

@@ -4,6 +4,7 @@
 
 #include "Ui/CameraEditorShell.h"
 #include "Ui/UiRenderDx9.h"
+#include "Ui/UiKeys.h"
 #include "Ui/UiStyle.h"
 #include "Ui/WorkspaceMouse.h"
 
@@ -185,36 +186,8 @@ void EnsureFonts(float clientH) {
 			g.fonts.ok ? "ok" : "MISSING (built-in fallback)", g.fontDir.c_str());
 }
 
-ImGuiKey VirtualKeyToImGui(WPARAM vk) {
-	if (vk >= '0' && vk <= '9') return (ImGuiKey)(ImGuiKey_0 + (vk - '0'));
-	if (vk >= 'A' && vk <= 'Z') return (ImGuiKey)(ImGuiKey_A + (vk - 'A'));
-	switch (vk) {
-	case VK_TAB: return ImGuiKey_Tab;
-	case VK_LEFT: return ImGuiKey_LeftArrow;
-	case VK_RIGHT: return ImGuiKey_RightArrow;
-	case VK_UP: return ImGuiKey_UpArrow;
-	case VK_DOWN: return ImGuiKey_DownArrow;
-	case VK_HOME: return ImGuiKey_Home;
-	case VK_END: return ImGuiKey_End;
-	case VK_DELETE: return ImGuiKey_Delete;
-	case VK_BACK: return ImGuiKey_Backspace;
-	case VK_SPACE: return ImGuiKey_Space;
-	case VK_RETURN: return ImGuiKey_Enter;
-	case VK_SHIFT: return ImGuiKey_LeftShift;
-	case VK_CONTROL: return ImGuiKey_LeftCtrl;
-	case VK_MENU: return ImGuiKey_LeftAlt;
-	default: return ImGuiKey_None;
-	}
-}
-
 void FeedKey(WPARAM vk, bool down) {
-	if (!g.context) return;
-	ImGuiIO& io = ImGui::GetIO();
-	if (vk == VK_SHIFT) io.AddKeyEvent(ImGuiMod_Shift, down);
-	if (vk == VK_CONTROL) io.AddKeyEvent(ImGuiMod_Ctrl, down);
-	if (vk == VK_MENU) io.AddKeyEvent(ImGuiMod_Alt, down);
-	const ImGuiKey key = VirtualKeyToImGui(vk);
-	if (key != ImGuiKey_None) io.AddKeyEvent(key, down);
+	if (g.context) FeedImGuiKey(ImGui::GetIO(), (int)vk, down);
 }
 
 bool OnMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -280,21 +253,26 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	switch (msg) {
 	case WM_KEYDOWN:
 	case WM_SYSKEYDOWN:
-		if (wParam == VK_ESCAPE) { Close("esc"); return true; }
-		if (wParam == 'G' && !(g.context && ImGui::GetIO().WantTextInput)) {
+		switch (WorkspaceKeyFor((int)wParam, g.context && ImGui::GetIO().WantTextInput)) {
+		case WorkspaceKey::Close:
+			Close("esc");
+			return true;
+		case WorkspaceKey::ToggleGame:
 			if (!(lParam & (1 << 30))) { // not auto-repeat
 				const Mode before = g.mouse.GetMode();
 				g.mouse.ToggleGame();
 				ApplyMode(before, "G");
 			}
 			return true;
+		default:
+			break;
 		}
 		FeedKey(wParam, true);
 		return g.context && ImGui::GetIO().WantCaptureKeyboard;
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
 		FeedKey(wParam, false);
-		if (wParam == VK_ESCAPE || wParam == 'G') return true;
+		if (WorkspaceKeyFor((int)wParam, g.context && ImGui::GetIO().WantTextInput) != WorkspaceKey::None) return true;
 		return g.context && ImGui::GetIO().WantCaptureKeyboard;
 	case WM_CHAR:
 		if (g.context && ImGui::GetIO().WantTextInput) {

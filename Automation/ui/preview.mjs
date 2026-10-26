@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Local, read-only preview server + source watcher. Never builds, launches, or controls a game.
-// node Automation/ui/preview.mjs cs2|deadlock [--port 8823] [--open]
+// node Automation/ui/preview.mjs cs2|deadlock|css [--port 8823] [--open]
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,11 +10,14 @@ import { digest } from '../lib/ui-source-sync.mjs';
 import { extractAll } from '../../UiMockup/extract-ui.mjs';
 import { extract } from '../../UiMockupDeadlock/extract-deadlock-ui.mjs';
 import { agentModelExporter } from '../../UiMockup/lib/vrf.mjs';
+import { build as buildSourceMockup, OUT as SOURCE_MOCKUP_OUT, SOURCE_DIRS, SHARED_HEADERS } from '../../UiMockupSource/build-mockup.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
   '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
-  '.svg': 'image/svg+xml', '.glb': 'model/gltf-binary', '.otf': 'font/otf', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.webm': 'video/webm' };
+  '.svg': 'image/svg+xml', '.glb': 'model/gltf-binary', '.otf': 'font/otf', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.webm': 'video/webm',
+  '.wasm': 'application/wasm' };
+const DEFAULT_PORTS = { cs2: 8823, deadlock: 8824, css: 8825 };
 
 // `missing(rel)` may produce a file the tree does not hold yet (a path, or a promise of one). It is
 // only asked about a path that already passed the traversal checks and does not exist.
@@ -90,9 +93,8 @@ export function watchSources({ stamp, refresh, log = console.log, interval = 100
   return () => clearInterval(timer);
 }
 
-export async function startPreview(game, { port = game === 'cs2' ? 8823 : 8824, open = false } = {}) {
-  if (!['cs2', 'deadlock'].includes(game)) throw new Error('Usage: node Automation/ui/preview.mjs cs2|deadlock [--port N] [--open]');
-  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid preview port.');
+// CS2 and Deadlock: the Panorama script is extracted from the C++ headers into generated/.
+function watchPanoramaMockup(game) {
   const dir = path.join(ROOT, game === 'cs2' ? 'UiMockup' : 'UiMockupDeadlock');
   const sources = [path.join(ROOT, 'AfxHookSource2', 'Filmmaker', game === 'cs2' ? 'Panorama' : 'Deadlock')];
   if (game === 'cs2') sources.push(path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'PlayMenu'));
@@ -112,12 +114,43 @@ export async function startPreview(game, { port = game === 'cs2' ? 8823 : 8824, 
     try { (game === 'cs2' ? extractAll : extract)(); }
     finally { derive(); }
   } });
-  const server = createPreviewServer(dir, game === 'cs2' ? cs2Missing(dir) : null);
+  return { dir, stopWatch, missing: game === 'cs2' ? cs2Missing(dir) : null,
+    note: 'Source changes refresh automatically. Mockup drafts stay local until applied.' };
+}
+
+// Counter-Strike: Source: the hook's UI C++ is rebuilt to WebAssembly when it changes, and the page
+// reloads onto the new build. The build output lives under build/ and is served beside the page.
+async function watchSourceMockup({ log = console.log, interval = 1000 } = {}) {
+  const dir = path.join(ROOT, 'UiMockupSource');
+  const stamp = () => digest(inputStamp(SOURCE_DIRS) + SHARED_HEADERS.map((f) => digest(fs.readFileSync(f))).join(''));
+  let built, busy = false;
+  const rebuild = async () => {
+    if (busy) return;
+    const current = stamp();
+    if (current === built) return;
+    busy = true;
+    try { await buildSourceMockup({ log }); }
+    catch (e) { log(`Mockup build failed; fix the source and save again.\n${e.message}`); }
+    finally { built = current; busy = false; }
+  };
+  await rebuild();
+  const timer = setInterval(() => { rebuild().catch(() => {}); }, interval);
+  const served = new Set(['mockup.js', 'mockup.wasm', 'mockup.data', 'stamp.json']);
+  return { dir, stopWatch: () => clearInterval(timer),
+    missing: (rel) => (served.has(rel) ? path.join(SOURCE_MOCKUP_OUT, rel) : null),
+    note: 'Source changes rebuild the WebAssembly and reload the page.' };
+}
+
+export async function startPreview(game, { port = DEFAULT_PORTS[game], open = false } = {}) {
+  if (!Object.hasOwn(DEFAULT_PORTS, game)) throw new Error('Usage: node Automation/ui/preview.mjs cs2|deadlock|css [--port N] [--open]');
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid preview port.');
+  const { dir, stopWatch, missing, note } = game === 'css' ? await watchSourceMockup() : watchPanoramaMockup(game);
+  const server = createPreviewServer(dir, missing);
   try {
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
   } catch (e) { stopWatch(); throw e; }
   const url = `http://127.0.0.1:${server.address().port}/`;
-  console.log(`\n${game.toUpperCase()} mockup: ${url}\nSource changes refresh automatically. Mockup drafts stay local until applied.\nClose this window or press Ctrl+C to stop.`);
+  console.log(`\n${game.toUpperCase()} mockup: ${url}\n${note}\nClose this window or press Ctrl+C to stop.`);
   if (open && process.platform === 'win32') {
     // Fixed localhost URL only; no user text passed through a shell.
     const child = spawn('cmd.exe', ['/d', '/c', 'start', '', url], { windowsHide: true, stdio: 'ignore' });
