@@ -21,3 +21,10 @@ add_executable(SourceNetvarsTests
 )
 target_compile_features(SourceNetvarsTests PRIVATE cxx_std_17)
 add_test(NAME SourceNetvarsTests COMMAND SourceNetvarsTests)
+
+add_executable(SourceWorkspaceLayoutMathTests
+    ../Automation/tests/source-workspace-layout-math-tests.cpp
+    Filmmaker/Ui/WorkspaceLayoutMath.h
+)
+target_compile_features(SourceWorkspaceLayoutMathTests PRIVATE cxx_std_17)
+add_test(NAME SourceWorkspaceLayoutMathTests COMMAND SourceWorkspaceLayoutMathTests)

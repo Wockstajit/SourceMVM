@@ -114,6 +114,15 @@ void TestViewEdit() {
 	CHECK(ClickSwitchesToUiMode(back));
 }
 
+void TestRightHold() {
+	CHECK(!RightPressBecomesLook(0, 0, 0));                        // a fresh press is still a click
+	CHECK(!RightPressBecomesLook(kRightLookHoldMs - 1, 2, -2));    // short and inside the slop
+	CHECK(RightPressBecomesLook(kRightLookHoldMs, 0, 0));          // held long enough
+	CHECK(!RightPressBecomesLook(10, kRightLookSlopPx, 0));        // the slop itself is still a click
+	CHECK(RightPressBecomesLook(10, kRightLookSlopPx + 1, 0));     // one pixel past it is a drag
+	CHECK(RightPressBecomesLook(10, -3, 2));                       // Manhattan distance, either sign
+}
+
 void TestFractions() {
 	const Rect r = FromFractions(0.25f, 0.5f, 0.75f, 1.0f, 1920, 1080);
 	CHECK(r.valid && r.x0 == 480 && r.y0 == 540 && r.x1 == 1440 && r.y1 == 1080);
@@ -130,6 +139,7 @@ int main() {
 	TestPopupOverPreview();
 	TestPathPlayback();
 	TestViewEdit();
+	TestRightHold();
 	TestFractions();
 	if (g_failed) { std::printf("%d check(s) failed\n", g_failed); return 1; }
 	std::printf("ui-click-math-tests: all passed\n");

@@ -24,6 +24,7 @@ const configHud = read("AfxHookSource2", "Filmmaker", "Panorama", "ConfigHud.cpp
 const configHudHeader = read("AfxHookSource2", "Filmmaker", "Panorama", "ConfigHud.h");
 const windowResizeHeader = read("AfxHookSource2", "Filmmaker", "Window", "WindowResize.h");
 const movieMode = read("AfxHookSource2", "Filmmaker", "Movie", "MovieMode.cpp");
+const uiClickMath = read("AfxHookSource2", "Filmmaker", "Movie", "UiClickMath.h");
 const viewFx = read("AfxHookSource2", "Filmmaker", "Movie", "ViewFx.cpp");
 const filmmaker = read("AfxHookSource2", "Filmmaker", "Filmmaker.cpp");
 const configJs = read("AfxHookSource2", "Filmmaker", "Panorama", "ConfigHudJs.h");
@@ -162,7 +163,9 @@ test("a quick right-click in the ENVIRONMENT view opens the object's menu, a hol
   // The view's pick menu was dropped for the right-hold look (#42); the user wants both. The press
   // waits: released within 200 ms and 4 px it is a click (the menu), held or moved it is the look.
   assert.match(movieMode, /UiClick::RightPressLooks\(ClickInput\(x, y\)\)\) \{\s*\{\s*std::lock_guard<std::mutex> lk\(m_rightMutex\);\s*m_rightPress\.pending = true;/);
-  assert.match(movieMode, /void MovieMode::StartRightLookIfHeld\(\) \{\s*constexpr int kRightClickSlopPx = 4;\s*constexpr int kRightClickHoldMs = 200;/);
+  // The 200 ms / 4 px rule is UiClickMath.h's, shared with the CS:S hook.
+  assert.match(uiClickMath, /constexpr int kRightLookHoldMs = 200;\s*constexpr int kRightLookSlopPx = 4;/);
+  assert.match(movieMode, /void MovieMode::StartRightLookIfHeld\(\) \{[\s\S]{0,700}if \(!UiClick::RightPressBecomesLook\(heldMs, x - m_rightPress\.x, y - m_rightPress\.y\)\) return;/);
   assert.match(movieMode, /if \(!rmb\) \{ m_rightPress\.pending = false; return; \}/);
   assert.match(movieMode, /void MovieMode::FlushActions\(\) \{\s*StartRightLookIfHeld\(\);/);
   assert.match(movieMode, /if \(click\) \{[\s\S]{0,200}EnqueueCmd\("mirv_filmmaker config viewmenu"\);/);
