@@ -917,10 +917,62 @@ void StandInConfigCommand(const std::string& command) {
 		else if (a == "camera") set(m.wbCam, 0, 100);
 		else if (a == "stepsync") set(m.wbStep, 0, 100);
 		else if (a == "rate") set(m.wbRate, 25, 400);
+	} else if (module == "weaponrecoil") {
+		auto resetRecoil = [&]() {
+			m.wrOn = d.wrOn; m.wrAmount = d.wrAmount; m.wrPunch = d.wrPunch; m.wrRot = d.wrRot; m.wrSnap = d.wrSnap;
+			m.wrRecovery = d.wrRecovery; m.wrCamRot = d.wrCamRot; m.wrCamPos = d.wrCamPos; m.wrCamRoll = d.wrCamRoll;
+			m.wrStyle = d.wrStyle; m.wrScope = d.wrScope; m.wrScopeKey = d.wrScopeKey; m.wrScopeOwn = false; m.wrOverrides = 0;
+		};
+		auto knob = [&](double& field, double lo, double hi) {
+			set(field, lo, hi);
+			if (m.wrScope != "all" && !m.wrScopeOwn) { m.wrScopeOwn = true; ++m.wrOverrides; } // the first write makes the override
+		};
+		if (a == "toggle") m.wrOn = !m.wrOn;
+		else if (a == "reset") resetRecoil();
+		else if (a == "style" && t.size() > 3) m.wrStyle = t[3];
+		else if (a == "scope" && t.size() > 3) {
+			m.wrScope = t[3];
+			m.wrScopeKey = m.wrScope == "all" || t.size() < 5 || t[4] == "quiet" ? std::string() : t[4];
+			m.wrScopeOwn = false;
+		} else if (a == "scopeclear" && m.wrScopeOwn) { m.wrScopeOwn = false; --m.wrOverrides; }
+		else if (a == "amount") knob(m.wrAmount, 0, 150);
+		else if (a == "punch") knob(m.wrPunch, 0, 150);
+		else if (a == "rotation") knob(m.wrRot, 0, 150);
+		else if (a == "snap") knob(m.wrSnap, 25, 400);
+		else if (a == "recovery") knob(m.wrRecovery, 25, 400);
+		else if (a == "camerarot") knob(m.wrCamRot, 0, 100);
+		else if (a == "camerapos") knob(m.wrCamPos, 0, 100);
+		else if (a == "cameraroll") knob(m.wrCamRoll, 0, 100);
+		else if (a == "preset" && t.size() > 4) {
+			// The name is quoted and may hold spaces: everything after the verb, quotes stripped.
+			std::string name = command.substr(command.find(t[3]) + t[3].size());
+			name.erase(std::remove(name.begin(), name.end(), '"'), name.end());
+			while (!name.empty() && name.front() == ' ') name.erase(name.begin());
+			auto at = std::find_if(m.wrPresets.begin(), m.wrPresets.end(), [&](const ConfigPreset& p) { return p.name == name; });
+			if (t[3] == "save") {
+				if (at == m.wrPresets.end()) m.wrPresets.push_back({ name, m.wrScope, m.wrScopeKey });
+			} else if (t[3] == "delete" && at != m.wrPresets.end()) {
+				m.wrPresets.erase(at);
+			}
+		}
+	} else if (module == "pivot" && t.size() > 3) {
+		ConfigPivot& pv = t[2] == "bob" ? m.pvb : m.pvr;
+		static const char* const kScopes[8] = { "all", "rifle", "smg", "pistol", "shotgun", "sniper", "knife", "utility" };
+		if (t[3] == "reset") pv = ConfigPivot();
+		else if (t[3] == "set" && t.size() > 6) {
+			for (int i = 0; i < 8; ++i)
+				if (t[4] == kScopes[i]) pv.hinge[i][t[5] == "fwd" ? 0 : (t[5] == "right" ? 1 : 2)] = std::clamp(std::atof(t[6].c_str()), -30.0, 30.0);
+			pv.atDefault = false;
+		}
 	} else if (module == "effects" && a == "reset") {
 		resetSmoothView();
 		resetHandheld();
 		resetWeaponBob();
+		m.wrOn = d.wrOn; m.wrAmount = d.wrAmount; m.wrPunch = d.wrPunch; m.wrRot = d.wrRot; m.wrSnap = d.wrSnap;
+		m.wrRecovery = d.wrRecovery; m.wrCamRot = d.wrCamRot; m.wrCamPos = d.wrCamPos; m.wrCamRoll = d.wrCamRoll;
+		m.wrStyle = d.wrStyle; m.wrScope = d.wrScope; m.wrScopeKey = d.wrScopeKey; m.wrScopeOwn = false; m.wrOverrides = 0;
+		m.pvr = ConfigPivot();
+		m.pvb = ConfigPivot();
 	}
 	// The cards' Reset buttons dim while a module is at its defaults.
 	m.smoothViewDefault = m.svOn == d.svOn && m.svFalling == d.svFalling && m.svJumping == d.svJumping
@@ -933,7 +985,10 @@ void StandInConfigCommand(const std::string& command) {
 		&& m.hhPeriod == d.hhPeriod && m.hhIdle == d.hhIdle && m.hhWalk == d.hhWalk && m.hhRun == d.hhRun;
 	m.weaponBobDefault = m.wbOn == d.wbOn && m.wbAmount == d.wbAmount && m.wbSway == d.wbSway && m.wbTilt == d.wbTilt
 		&& m.wbRate == d.wbRate && m.wbStep == d.wbStep && m.wbLook == d.wbLook && m.wbInertia == d.wbInertia && m.wbIdle == d.wbIdle
-		&& m.wbCam == d.wbCam;
+		&& m.wbCam == d.wbCam && m.pvb.atDefault;
+	m.weaponRecoilDefault = m.wrOn == d.wrOn && m.wrAmount == d.wrAmount && m.wrPunch == d.wrPunch && m.wrRot == d.wrRot
+		&& m.wrSnap == d.wrSnap && m.wrRecovery == d.wrRecovery && m.wrCamRot == d.wrCamRot && m.wrCamPos == d.wrCamPos
+		&& m.wrCamRoll == d.wrCamRoll && m.wrStyle == d.wrStyle && m.wrOverrides == 0 && m.pvr.atDefault;
 }
 
 // The dock's camera shake edits on the stand-in track, as "mirv_filmmaker pathshake" applies them
@@ -1149,6 +1204,13 @@ void Frame() {
 		g.path.tick = (int)g.demo.tick;
 		StandInFollowFrame();
 		g.config.demo = g.demo.playing;
+		// The stand-in demo's watched player holds an AK-47: the gun in shot for Weapon Recoil and the pivots.
+		g.config.wrLive = "weapon_ak47";
+		g.config.wrLiveType = "rifle";
+		g.config.wrLiveSlot = "primary";
+		g.config.wrScopeCovers = g.config.wrScope == "all" || g.config.wrScopeKey == (g.config.wrScope == "slot" ? "primary" : "rifle");
+		g.config.pvr.cls = g.config.pvb.cls = "rifle";
+		g.config.pvr.weapon = g.config.pvb.weapon = "weapon_ak47";
 		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo, g.path, g.follow, BuildTimelineModel(), g.config);
 	} else if (director) {
 		if (g.cadence.Ready((uint64_t)nowMs, 10, false)) BuildCards(g.cards);
@@ -1359,6 +1421,10 @@ EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
 		return 1;
 	}
 	ImGuiIO& io = ImGui::GetIO();
+	if (ConfigOpen() && vk == 'T' && !io.WantTextInput) { // a Weapon Recoil test shot, as in game
+		if (down && !repeat) StandInConfigCommand("mirv_filmmaker weaponrecoil test");
+		return 1;
+	}
 	const WorkspaceKey key = WorkspaceKeyFor(vk, io.WantTextInput);
 	if (down) {
 		switch (key) {
@@ -1509,10 +1575,7 @@ EMSCRIPTEN_KEEPALIVE const char* mockup_command(const char* command) {
 		if (0 == std::strcmp(what, "on")) Open(Workspace::Config, "command");
 		else if (0 == std::strcmp(what, "off")) { if (ConfigOpen()) Close("command"); }
 		else if (0 == std::strcmp(what, "toggle") || !*what) { if (ConfigOpen()) Close("command"); else Open(Workspace::Config, "command"); }
-		static const char* const kCards[] = { "smoothview", "handheld", "weaponbob" };
-		const int card = (int)g.editor.config.card;
-		g.reply = std::string("config: ") + (ConfigOpen() ? "open" : "closed") + ", card "
-			+ (card >= 0 && card < (int)ConfigCard::Count ? kCards[card] : "?");
+		g.reply = std::string("config: ") + (ConfigOpen() ? "open" : "closed") + ", card " + ConfigCardName(g.editor.config.card);
 		return g.reply.c_str();
 	}
 	if (0 == std::strncmp(action, "editor", 6)) action += 6;

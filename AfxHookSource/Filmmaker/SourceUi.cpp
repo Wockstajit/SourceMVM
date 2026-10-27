@@ -796,6 +796,11 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 			// The camera path's and follow camera's keys are the Camera Editor's (its key strip).
 			if (!g_config.load() && FollowCamera_OnKey((int)wParam, true)) return true;
 			if (!g_config.load() && CameraPath_OnKey((int)wParam, true, (lParam & (1 << 30)) != 0)) return true;
+			// T fires a Weapon Recoil test shot while Config is open, as CS2's MovieMode does.
+			if (g_config.load() && wParam == 'T') {
+				if (!(lParam & (1 << 30))) Config_RunCommands({ "mirv_filmmaker weaponrecoil test" });
+				return true;
+			}
 			if (EditorDirectorKey(msg, wParam, lParam)) return true;
 		}
 		switch (WorkspaceKeyFor((int)wParam, g.context && ImGui::GetIO().WantTextInput)) {
@@ -1106,10 +1111,8 @@ void Ui_ConfigCommand(int argc, advancedfx::ICommandArgs* args) {
 		advancedfx::Message("mirv_filmmaker config [on|off|toggle|state]\n");
 		return;
 	}
-	static const char* const kCards[] = { "smoothview", "handheld", "weaponbob" };
-	const int card = (int)g.editor.config.card;
 	advancedfx::Message("config: %s, card %s, mouse %s, dock %s\n", g_open.load() && g_config.load() ? "open" : "closed",
-		card >= 0 && card < (int)ConfigCard::Count ? kCards[card] : "?", ModeName(g.mouse.GetMode()),
+		ConfigCardName(g.editor.config.card), ModeName(g.mouse.GetMode()),
 		g.editor.dock == DockTab::Timeline ? "timeline" : "regular");
 	if (g_open.load() && g.editor.dock == DockTab::RegularTimeline)
 		advancedfx::Message("demo bar: %s\n", DemoBarLayoutText(g.editor.demoBar.layout).c_str());

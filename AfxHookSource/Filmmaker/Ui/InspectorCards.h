@@ -109,6 +109,13 @@ ValueEdit ValueRow(CardColumn& c, const char* id, const char* label, double valu
 int ModeRow(CardColumn& c, const char* id, const char* label, const char* const* captions, int count, int selected,
 	bool enabled);
 
+// A segmented strip across the column with no label (CS2's segmented): one cell per caption, the
+// selected one tinted. A cell whose live[] entry is false is drawn at 35% and takes no click (live
+// null for all live). Returns the clicked cell, -1 for none.
+int Segmented(CardColumn& c, const char* id, const char* const* captions, int count, int selected, const bool* live = nullptr);
+// Cells as wide as their captions that wrap onto more lines (CS2's grid cells): the selected one
+// tinted and outlined. Returns the clicked cell, -1 for none.
+int CellRow(CardColumn& c, const char* id, const char* const* captions, int count, int selected);
 // Equal buttons under a small heading (edEvenActions). Returns the clicked button, -1 for none.
 int ActionRow(CardColumn& c, const char* id, const char* heading, const CardAction* buttons, int count);
 // Equal buttons in the value column beside a label (edActionGroup). Returns the clicked button.
@@ -138,6 +145,10 @@ struct DropOption {
 // closed turns true when a pick or a click outside closed it.
 int DropList(const char* id, const Rect& field, const std::vector<DropOption>& options, const FontSet& fonts, float s,
 	float clientW, float clientH, bool& closed);
+// The same list with an x at each row's end (CS2's per-row delete): a click on it sets deleted to the
+// row and leaves the list open.
+int DropList(const char* id, const Rect& field, const std::vector<DropOption>& options, const FontSet& fonts, float s,
+	float clientW, float clientH, bool& closed, int& deleted);
 
 // The rail: a group heading, a row per card or camera (title and wrapped summary, the accent on its
 // left edge, an optional badge such as CS2's green LIVE at the right of the title), and the add

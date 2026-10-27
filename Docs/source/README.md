@@ -774,8 +774,8 @@ the weapon pivots and the stack that tracks the view and sums them
 (`AfxHookSource2/Filmmaker/Movie/CameraShakeStack.cpp`; [filmmaker_camera_shake.md](../features/filmmaker_camera_shake.md)).
 What the stack asks the game goes through `CameraShakeHost.h`, which `Filmmaker/SourceCameraShake.cpp`
 answers. They run from the console, with CS2's commands: `mirv_filmmaker handheld`, `weaponrecoil`,
-`weaponbob`, `pivot`, `pivotorb` and `camshake`. Handheld and Weapon Bob also have their cards in
-the [Config workspace](#config-workspace).
+`weaponbob`, `pivot`, `pivotorb` and `camshake`. Handheld, Weapon Recoil and Weapon Bob also have
+their cards in the [Config workspace](#config-workspace).
 
 - The shake rides on whatever has the view, after the follow camera and Smooth View, with CS2's
   gate: the game's own view (first person, or SourceTV's camera) and an attached follow camera are
@@ -873,7 +873,7 @@ closes it.
 
 So far it has CS2's CAMERA tab with the cards whose effects run in CS:S. The rail groups them as CS2
 does, each row with the card's summary and its master switch: MOTION holds SMOOTH VIEW and HANDHELD
-CAMERA, and WEAPON holds WEAPON BOB. The pane shows the selected card with CS2's header: the edge in
+CAMERA, and WEAPON holds WEAPON RECOIL and WEAPON BOB. The pane shows the selected card with CS2's header: the edge in
 the card's colour (dim while it is off), the summary, Reset (dim at the defaults) and the switch.
 Every row is CS2's, with CS2's label, tooltip and command. A slider is dragged from where it was
 across one bar width, Shift a fifth as fast, and the minimum of an "Off at zero" slider reads Off.
@@ -881,17 +881,27 @@ A switch row flips on a click anywhere on it. A tooltip shows after the pointer 
 row, left of the column. RESET CAMERA in the pinned footer sends `mirv_filmmaker effects reset
 camera`, which resets Smooth View, Handheld, Weapon Recoil, Weapon Bob and both pivot tables.
 
+WEAPON RECOIL has CS2's Test Shot in its header, and T fires one too while Config is open. Above
+its sliders are CS2's scope controls. Applies to picks All, a slot or a type, and a slot or type
+starts on the gun in shot's own. Style picks Springy or Snappy, and a line says what the scope
+reaches: that it inherits until a slider moves, that it owns its settings, or that it does not
+cover the gun in shot. A scope that owns settings has Clear Override. Preset lists the saved
+tunings, each with an x to delete it. Save turns the field into a name to type, and Enter or Save
+again saves it. WEAPON RECOIL and WEAPON BOB end in CS2's PIVOT drawer, shut by default. Its head
+says the class in shot, its gun and its hinge. Under it are the seven classes, of which only the
+class in shot can be edited, and its Forward, Right and Up from -30 to 30 units.
+
 What the cards show is read from the modules each frame (`SourceConfig.cpp`), through the same
 `AppendStateJson` calls CS2's Config panel is built from, so a card says what CS2's says. What
 differs from CS2:
 
-- Decouple Viewmodel is disabled and Weapon Bob's card says only its camera share shows, because
-  CS:S has no viewmodel channel yet.
+- Decouple Viewmodel is disabled, and Weapon Recoil's and Weapon Bob's cards say only their camera
+  share shows, because CS:S has no viewmodel channel yet.
+- The PIVOT drawers' marker switch is disabled, because CS:S does not draw the pivot markers yet.
 - Smooth View has no Fisheye Lens row and RESET CAMERA leaves out the lens, the crosshair, the
   viewmodel and the shot FOV: those come with the [Lens](port-plan.md) step.
-- WEAPON RECOIL, the PIVOT drawers, VIEWMODEL, the lens cards, the other tabs, the search box, the
-  GAME UI chip and Keep between demos are not there yet, and the settings are not saved between
-  sessions.
+- VIEWMODEL, the lens cards, the other tabs, the search box, the GAME UI chip and Keep between
+  demos are not there yet, and the settings are not saved between sessions.
 
 `mvm_debug` logs each command the cards send (`config.ui`) and each workspace change (`ui.editor`).
 

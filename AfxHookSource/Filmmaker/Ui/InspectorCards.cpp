@@ -388,6 +388,67 @@ int ModeRow(CardColumn& c, const char* id, const char* label, const char* const*
 	return clicked;
 }
 
+int Segmented(CardColumn& c, const char* id, const char* const* captions, int count, int selected, const bool* live) {
+	const float s = c.s;
+	ImFont* capFont = c.Font(FontRole::Button);
+	const float cellH = capFont->FontSize + 12 * s;
+	const Rect strip = MakeRect(c.x0, c.y, c.x1, c.y + cellH);
+	const float cellW = count > 0 ? strip.W() / count : 0;
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	int clicked = -1;
+	ImGui::PushID(id);
+	for (int i = 0; i < count; ++i) {
+		const bool on = !live || live[i];
+		const Rect cell = MakeRect(strip.x0 + cellW * i, strip.y0, strip.x0 + cellW * (i + 1), strip.y1);
+		ImGui::PushID(i);
+		const Hit h = HitArea("cell", cell, on);
+		ImGui::PopID();
+		if (h.clicked) clicked = i;
+		const bool sel = i == selected;
+		Color bg = Rgba(0, 0, 0, 0);
+		if (sel) bg = h.hovered ? Paint::SegSelHover : Paint::SegSel;
+		else if (h.held) bg = Paint::Down;
+		else if (h.hovered) bg = Paint::Hover;
+		Box(draw, cell, bg, Rgba(0, 0, 0, 0));
+		const Color ink = sel ? Paint::Value : Paint::Muted;
+		CenteredText(draw, capFont, cell, on ? ink : Faded(ink, 0.35f), captions[i]);
+	}
+	ImGui::PopID();
+	Box(draw, strip, Rgba(0, 0, 0, 0), Paint::Outline);
+	c.y += cellH;
+	return clicked;
+}
+
+int CellRow(CardColumn& c, const char* id, const char* const* captions, int count, int selected) {
+	const float s = c.s;
+	ImFont* capFont = c.Font(FontRole::Button);
+	const float cellH = capFont->FontSize + 10 * s, gap = 4 * s;
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	float x = c.x0, y = c.y;
+	int clicked = -1;
+	ImGui::PushID(id);
+	for (int i = 0; i < count; ++i) {
+		const float w = TextSize(capFont, captions[i]).x + 20 * s;
+		if (x > c.x0 && x + w > c.x1) { // wrap
+			x = c.x0;
+			y += cellH + gap;
+		}
+		const Rect cell = MakeRect(x, y, x + w, y + cellH);
+		ImGui::PushID(i);
+		const Hit h = HitArea("cell", cell, true);
+		ImGui::PopID();
+		if (h.clicked) clicked = i;
+		const bool sel = i == selected;
+		Box(draw, cell, sel ? (h.hovered ? Paint::SegSelHover : Paint::SegSel) : (h.hovered ? Paint::Hover : Rgba(0, 0, 0, 0)),
+			sel ? Theme::Accent : (h.hovered ? Faded(Paint::Value, 0.25f) : Paint::Outline));
+		CenteredText(draw, capFont, cell, sel || h.hovered ? Paint::Value : Paint::Label, captions[i]);
+		x += w + gap;
+	}
+	ImGui::PopID();
+	c.y = y + cellH;
+	return clicked;
+}
+
 int ActionRow(CardColumn& c, const char* id, const char* heading, const CardAction* buttons, int count) {
 	const float s = c.s;
 	ImFont* headFont = c.Font(FontRole::Caption);
@@ -505,8 +566,26 @@ DropClick DropRow(CardColumn& c, const char* id, const char* label, const char* 
 	return out;
 }
 
+namespace {
+int DropListImpl(const char* id, const Rect& field, const std::vector<DropOption>& options, const FontSet& fonts, float s,
+	float clientW, float clientH, bool& closed, int* deleted);
+} // namespace
+
 int DropList(const char* id, const Rect& field, const std::vector<DropOption>& options, const FontSet& fonts, float s,
 	float clientW, float clientH, bool& closed) {
+	return DropListImpl(id, field, options, fonts, s, clientW, clientH, closed, nullptr);
+}
+
+int DropList(const char* id, const Rect& field, const std::vector<DropOption>& options, const FontSet& fonts, float s,
+	float clientW, float clientH, bool& closed, int& deleted) {
+	deleted = -1;
+	return DropListImpl(id, field, options, fonts, s, clientW, clientH, closed, &deleted);
+}
+
+namespace {
+
+int DropListImpl(const char* id, const Rect& field, const std::vector<DropOption>& options, const FontSet& fonts, float s,
+	float clientW, float clientH, bool& closed, int* deleted) {
 	closed = false;
 	ImFont* font = fonts.Get(FontRole::Value);
 	const float itemPad = 8 * s, gap = 2 * s, maxH = 340 * s;
@@ -541,24 +620,35 @@ int DropList(const char* id, const Rect& field, const std::vector<DropOption>& o
 	// Rows wrap at the width they were measured at, less the scrollbar only when there is one: a row
 	// that wraps once more than measured would run off the list's end.
 	const float innerW = menu.W() - (scrolls ? ImGui::GetStyle().ScrollbarSize : 0.0f);
+	const float delW = deleted ? 22 * s : 0; // the x's column
 	ImDrawList* list = ImGui::GetWindowDrawList();
 	float iy = ImGui::GetCursorScreenPos().y + gap;
 	for (int i = 0; i < (int)options.size(); ++i) {
 		const DropOption& o = options[(size_t)i];
-		const float th = TextSize(font, o.text.c_str(), innerW - 2 * itemPad).y;
-		const Rect item = MakeRect(menu.x0 + gap, iy, menu.x0 + innerW - gap, iy + th + 2 * itemPad * 0.75f);
+		const float th = TextSize(font, o.text.c_str(), innerW - 2 * itemPad - delW).y;
+		const Rect row = MakeRect(menu.x0 + gap, iy, menu.x0 + innerW - gap, iy + th + 2 * itemPad * 0.75f);
+		const Rect item = MakeRect(row.x0, row.y0, row.x1 - delW, row.y1);
 		ImGui::PushID(i);
 		const Hit hit = HitArea("item", item, true);
+		Hit del;
+		if (deleted) del = HitArea("delete", MakeRect(item.x1, row.y0, row.x1, row.y1), true);
 		ImGui::PopID();
 		if (o.selected || hit.hovered)
-			list->AddRectFilled(ImVec2(item.x0, item.y0), ImVec2(item.x1, item.y1), ToU32(o.selected ? Paint::SegSel : Paint::Hover), 3 * s);
+			list->AddRectFilled(ImVec2(row.x0, row.y0), ImVec2(row.x1, row.y1), ToU32(o.selected ? Paint::SegSel : Paint::Hover), 3 * s);
 		Text(list, font, ImVec2(item.x0 + itemPad, item.y0 + itemPad * 0.75f), o.selected ? Theme::Accent : o.color, o.text.c_str(),
-			innerW - 2 * itemPad);
+			innerW - 2 * itemPad - delW);
+		if (deleted) {
+			const float cx = (item.x1 + row.x1) * 0.5f, cy = (row.y0 + row.y1) * 0.5f, k = 3.5f * s;
+			const ImU32 ink = ToU32(del.hovered ? Paint::DangerText : Paint::Muted);
+			list->AddLine(ImVec2(cx - k, cy - k), ImVec2(cx + k, cy + k), ink, 1.5f * s);
+			list->AddLine(ImVec2(cx - k, cy + k), ImVec2(cx + k, cy - k), ink, 1.5f * s);
+			if (del.clicked) *deleted = i;
+		}
 		if (hit.clicked) {
 			picked = i;
 			closed = true;
 		}
-		iy = item.y1;
+		iy = row.y1;
 	}
 	// The content ends where the list does, so a list that fits has nothing to scroll.
 	ImGui::SetCursorScreenPos(ImVec2(menu.x0, iy + gap));
@@ -567,6 +657,8 @@ int DropList(const char* id, const Rect& field, const std::vector<DropOption>& o
 	ImGui::End();
 	return picked;
 }
+
+} // namespace
 
 void RailGroup(CardColumn& c, const char* name, bool first) {
 	ImFont* font = c.Font(FontRole::Label);

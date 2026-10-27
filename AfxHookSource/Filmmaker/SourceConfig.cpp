@@ -7,8 +7,11 @@
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
 #include <AfxHookSource2/Filmmaker/Movie/HandheldCam.h>
+#include <AfxHookSource2/Filmmaker/Movie/RecoilPivotMarker.h>
 #include <AfxHookSource2/Filmmaker/Movie/SmoothView.h>
 #include <AfxHookSource2/Filmmaker/Movie/WeaponBob.h>
+#include <AfxHookSource2/Filmmaker/Movie/WeaponPivot.h>
+#include <AfxHookSource2/Filmmaker/Movie/WeaponRecoil.h>
 #include <AfxHookSource2/Filmmaker/Platform/JsonParser.h>
 #include <Shared/AfxConsole.h>
 
@@ -52,6 +55,23 @@ std::string String(const Filmmaker::JsonValue& root, const char* key, const std:
 	return v ? v->AsString(fallback.c_str()) : fallback;
 }
 
+// A PIVOT drawer from a pivot store's fields under its prefix ("pvr", "pvb"): the class in shot, its
+// gun, and the hinge per scope from its table.
+void ReadPivot(const Filmmaker::JsonValue& root, const std::string& prefix, Ui::ConfigPivot& pv) {
+	static const char* const kScopes[8] = { "all", "rifle", "smg", "pistol", "shotgun", "sniper", "knife", "utility" };
+	pv.cls = String(root, (prefix + "Class").c_str(), "");
+	pv.weapon = String(root, (prefix + "Weapon").c_str(), "");
+	pv.atDefault = Bool(root, (prefix + "Default").c_str(), true);
+	const Filmmaker::JsonValue* table = root.Find((prefix + "Table").c_str());
+	if (!table) return;
+	for (int i = 0; i < 8; ++i) {
+		const Filmmaker::JsonValue* row = table->Find(kScopes[i]);
+		const Filmmaker::JsonValue* hinge = row ? row->Find("p") : nullptr;
+		if (!hinge || hinge->type != Filmmaker::JsonValue::Type::Array || hinge->arr.size() < 3) continue;
+		for (int a = 0; a < 3; ++a) pv.hinge[i][a] = hinge->arr[(size_t)a].AsNumber(pv.hinge[i][a]);
+	}
+}
+
 } // namespace
 
 void Config_BuildModel(Ui::ConfigModel& m) {
@@ -79,7 +99,10 @@ void Config_BuildModel(Ui::ConfigModel& m) {
 	std::ostringstream o;
 	o << "{\"_\":0";
 	Filmmaker::HandheldCamRef().AppendStateJson(o);
+	Filmmaker::WeaponRecoilRef().AppendStateJson(o);
 	Filmmaker::WeaponBobRef().AppendStateJson(o);
+	Filmmaker::WeaponPivotRecoilRef().AppendStateJson(o, "pvr");
+	Filmmaker::WeaponPivotBobRef().AppendStateJson(o, "pvb");
 	o << "}";
 	Filmmaker::JsonValue root;
 	if (!Filmmaker::JsonParse(o.str(), root)) {
@@ -103,6 +126,35 @@ void Config_BuildModel(Ui::ConfigModel& m) {
 	m.hhRun = String(root, "hhRun", m.hhRun);
 	m.handheldDefault = Filmmaker::HandheldCamRef().SettingsAreDefault();
 	m.viewmodelChannel = false; // no viewmodel hook in CS:S yet (SourceCameraShake.cpp)
+	m.pivotMarkers = false;     // nor a drawer for the pivot markers (ShakeHost_DrawPivotOrb)
+
+	m.wrOn = Bool(root, "wrOn", m.wrOn);
+	m.wrAmount = Number(root, "wrAmount", m.wrAmount);
+	m.wrPunch = Number(root, "wrPunch", m.wrPunch);
+	m.wrRot = Number(root, "wrRot", m.wrRot);
+	m.wrCamRot = Number(root, "wrCamRot", m.wrCamRot);
+	m.wrCamPos = Number(root, "wrCamPos", m.wrCamPos);
+	m.wrCamRoll = Number(root, "wrCamRoll", m.wrCamRoll);
+	m.wrSnap = Number(root, "wrSnap", m.wrSnap);
+	m.wrRecovery = Number(root, "wrRecovery", m.wrRecovery);
+	m.wrStyle = String(root, "wrStyle", m.wrStyle);
+	m.wrScope = String(root, "wrScope", m.wrScope);
+	m.wrScopeKey = String(root, "wrScopeKey", m.wrScopeKey);
+	m.wrScopeOwn = Bool(root, "wrScopeOwn", m.wrScopeOwn);
+	m.wrScopeCovers = Bool(root, "wrScopeCovers", m.wrScopeCovers);
+	if (const Filmmaker::JsonValue* overrides = root.Find("wrOverrides")) m.wrOverrides = (int)overrides->arr.size();
+	m.wrLive = String(root, "wrLive", m.wrLive);
+	m.wrLiveType = String(root, "wrLiveType", m.wrLiveType);
+	m.wrLiveSlot = String(root, "wrLiveSlot", m.wrLiveSlot);
+	m.wrPresets.clear();
+	if (const Filmmaker::JsonValue* presets = root.Find("wrPresets"))
+		for (const Filmmaker::JsonValue& preset : presets->arr)
+			m.wrPresets.push_back({ String(preset, "name", ""), String(preset, "scope", "all"), String(preset, "key", "") });
+	m.weaponRecoilDefault = Filmmaker::WeaponRecoilRef().SettingsAreDefault();
+	ReadPivot(root, "pvr", m.pvr);
+	m.pvr.orb = Filmmaker::RecoilPivotMarkerRef().Enabled(Filmmaker::WeaponPivotOwner::Recoil);
+	ReadPivot(root, "pvb", m.pvb);
+	m.pvb.orb = Filmmaker::RecoilPivotMarkerRef().Enabled(Filmmaker::WeaponPivotOwner::Bob);
 
 	m.wbOn = Bool(root, "wbOn", m.wbOn);
 	m.wbAmount = Number(root, "wbAmount", m.wbAmount);
