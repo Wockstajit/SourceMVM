@@ -82,7 +82,7 @@ Measured on the installed game on 2026-10-26:
 | 8 | Free cam and smooth view | HLAE's `mirv_input` flies as CS2's free cam does; Smooth View runs from CS2's code | Done 2026-10-26, Smooth View's Config card with the Config workspace |
 | 9 | Camera Editor | Paths, markers, inspector, preview viewport, shortcut strip | Done 2026-10-26 |
 | 10 | Timelines | TIMELINE dock, regular timeline, loop, In/Out flags | Done 2026-10-26; the TIMELINE dock's camera shake rows with step 12, its Cache with step 13 and its render range with step 14 |
-| 11 | Follow camera | Lock-on and Attached; players, weapons, the C4 and grenades; death and lost-target policy; the FOLLOW CAMERA tab; the Events list; the in-world marker and target box | In parts. Done 2026-10-26: CS2's follow camera split into shared code and a game host, and Lock-on on players, weapons and the C4, with the Events list and the in-world marker and target box, from the console and the FOLLOW CAMERA tab ([README.md](README.md#follow-camera)). Done 2026-10-27: Attached on players' bones (living or ragdoll) and weapons' muzzles, with Reposition. Left: grenades, which need a demo with a throw |
+| 11 | Follow camera | Lock-on and Attached; players, weapons, the C4 and grenades; death and lost-target policy; the FOLLOW CAMERA tab; the Events list; the in-world marker and target box | Done 2026-10-27. On 2026-10-26: CS2's follow camera split into shared code and a game host, and Lock-on on players, weapons and the C4, with the Events list and the in-world marker and target box, from the console and the FOLLOW CAMERA tab ([README.md](README.md#follow-camera)). On 2026-10-27: Attached on players' bones (living or ragdoll) and weapons' muzzles, with Reposition; and grenades, dated from their flight, with Go To Throw, checked in the grenade test demo |
 | 12 | Camera shakes | Handheld, path shake, recoil, bob, rage | |
 | 13 | Demo tools | Demos browser, scrubbing, timescale, end hold | |
 | 14 | Render workspace | Range, camera, HUD and output tabs; passes; FPS; done sound; previous renders | |
@@ -177,6 +177,17 @@ render view, cvars, material system, D3D9). A game without a profile runs that t
 best-effort. GoldSrc is a separate DLL (`AfxHookGoldSrc`) that reuses the engine-free code.
 
 ## Known follow-ups
+
+- Demos that stop in plain playback, found on 2026-10-27 with the grenade test demo
+  ([README.md](README.md#test-demo)). `mvm_css_nades` stops at its second `round_start` (tick
+  6396). In one frame the client drops about 100 entities; the map's own come straight back with
+  new serials, as a round restart re-creates them. A `CWeaponGlock` lying on the ground since the
+  first tick does not, and four ticks later the engine stops on `missing client entity 71`.
+  `mirv_filmmaker entities watch c` logged it. A recording that started with three HE grenades in
+  the air stopped six seconds in, on one of them (`missing client entity 93`). Both happen with
+  the Camera Editor closed. Neither is checked without the hook yet, and the client code that drops
+  them is not found yet. `mvm_css_tv` crosses no second round start, so any CS:S demo of more
+  than one round may stop the same way: this needs fixing before multi-round demos are usable.
 
 - Old demos: demos of network protocols other than 7 and 24 (one test demo used 17) are not
   converted. [README.md](README.md#old-demos) lists the values the converter cannot carry over.

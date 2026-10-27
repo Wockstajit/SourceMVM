@@ -503,10 +503,13 @@ int DropList(const char* id, const Rect& field, const std::vector<DropOption>& o
 	ImGui::SetCursorScreenPos(ImVec2(menu.x0, menu.y0));
 	// No window padding: the entries start at the list's top, as its height counts them.
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+	const bool scrolls = contentH > maxH;
 	ImGui::BeginChild("##list", ImVec2(menu.W(), menu.H()), ImGuiChildFlags_None,
-		ImGuiWindowFlags_NoBackground | (contentH <= maxH ? ImGuiWindowFlags_NoScrollbar : 0));
+		ImGuiWindowFlags_NoBackground | (scrolls ? 0 : ImGuiWindowFlags_NoScrollbar));
 	ImGui::PopStyleVar();
-	const float innerW = menu.W() - (ImGui::GetScrollMaxY() > 0 ? ImGui::GetStyle().ScrollbarSize : 0.0f);
+	// Rows wrap at the width they were measured at, less the scrollbar only when there is one: a row
+	// that wraps once more than measured would run off the list's end.
+	const float innerW = menu.W() - (scrolls ? ImGui::GetStyle().ScrollbarSize : 0.0f);
 	ImDrawList* list = ImGui::GetWindowDrawList();
 	float iy = ImGui::GetCursorScreenPos().y + gap;
 	for (int i = 0; i < (int)options.size(); ++i) {
@@ -526,8 +529,9 @@ int DropList(const char* id, const Rect& field, const std::vector<DropOption>& o
 		}
 		iy = item.y1;
 	}
+	// The content ends where the list does, so a list that fits has nothing to scroll.
 	ImGui::SetCursorScreenPos(ImVec2(menu.x0, iy + gap));
-	ImGui::Dummy(ImVec2(1, 1));
+	ImGui::Dummy(ImVec2(1, 0));
 	ImGui::EndChild();
 	ImGui::End();
 	return picked;

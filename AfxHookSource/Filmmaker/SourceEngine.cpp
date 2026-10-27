@@ -51,6 +51,8 @@ enum FieldId {
 	kTeam, kHealth, kLifeState, kObserverTarget, kObserverMode, kEyePitch, kEyeYaw,
 	// The follow camera's targets (step 11): links between entities, and a player's stance.
 	kOwnerEntity, kWeaponOwner, kThrower, kActiveWeapon, kFlags, kPlayerRagdoll, kRagdollPlayer,
+	// A thrown grenade's velocity now and at its launch, which date its throw.
+	kGrenadeVelocity, kGrenadeLaunch,
 	kFieldCount
 };
 
@@ -171,6 +173,19 @@ int GuardedFindBone(const unsigned char* hdr, const char* name) {
 		InterlockedIncrement64(&g_faults);
 	}
 	return -1;
+}
+
+// A studio header's model name ("weapons/w_eq_flashbang_thrown.mdl"), copied out; false on a bad read.
+bool GuardedStudioName(const unsigned char* hdr, char (&out)[kStudioNameSize]) {
+	if (!hdr) return false;
+	__try {
+		std::memcpy(out, hdr + kStudioName, kStudioNameSize);
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		InterlockedIncrement64(&g_faults);
+		return false;
+	}
+	out[kStudioNameSize - 1] = 0;
+	return out[0] != 0;
 }
 
 bool ReadBytes(const void* base, int offset, void* out, size_t size) {
@@ -338,6 +353,8 @@ bool Engine_Init() {
 	g_fields[kFlags] = { "DT_BasePlayer", "m_fFlags", -1 };
 	g_fields[kPlayerRagdoll] = { profile.ragdollTable, profile.ragdollProp, -1 };
 	g_fields[kRagdollPlayer] = { profile.ragdollPlayerTable, profile.ragdollPlayerProp, -1 };
+	g_fields[kGrenadeVelocity] = { "DT_BaseGrenade", "m_vecVelocity", -1 };
+	g_fields[kGrenadeLaunch] = { profile.grenadeLaunchTable, profile.grenadeLaunchProp, -1 };
 	for (Field& field : g_fields) {
 		if (field.table && field.prop) field.offset = GuardedFindNetvar(g_classes, field.table, field.prop);
 	}
@@ -513,6 +530,14 @@ bool FillEntity(int index, void* entity, EntityState& e) {
 		e.ragdollPlayerIndex = LinkedIndex(entity, kRagdollPlayer);
 	} else if (profile.isGrenadeClass && profile.isGrenadeClass(c.c_str())) {
 		e.throwerIndex = LinkedIndex(entity, kThrower);
+		float v[3] = {}, launch[3] = {};
+		if (ReadField(entity, kGrenadeVelocity, v) && ReadField(entity, kGrenadeLaunch, launch)) {
+			e.hasFlight = true;
+			for (int i = 0; i < 3; ++i) {
+				e.velocity[i] = v[i];
+				e.launchVelocity[i] = launch[i];
+			}
+		}
 	} else if (profile.isWeaponClass && profile.isWeaponClass(c.c_str())) {
 		e.weaponOwnerIndex = LinkedIndex(entity, kWeaponOwner);
 	}
@@ -549,19 +574,31 @@ void* RenderableAt(int index) {
 	return CallPtr(EntityAt(index), Slot::Unknown_GetClientRenderable);
 }
 
-} // namespace
-
-bool Entity_Bone(int index, const char* bone, double pos[3], double axes[3][3]) {
-	void* renderable = RenderableAt(index);
-	if (!renderable) return false;
+// The studio header of the model a renderable draws, or null.
+const unsigned char* StudioHeaderOf(void* renderable) {
+	if (!renderable) return nullptr;
 	if (!g_modelInfo) {
 		HMODULE engineDll = GetModuleHandleW(L"engine.dll");
 		auto createInterface = engineDll ? (CreateInterfaceFn)GetProcAddress(engineDll, "CreateInterface") : nullptr;
 		if (createInterface) g_modelInfo = createInterface("VModelInfoClient006", nullptr);
 	}
 	const void* model = CallPtr(renderable, Slot::Renderable_GetModel);
-	const unsigned char* hdr = model ? (const unsigned char*)CallPtrPtr(g_modelInfo, Slot::ModelInfo_GetStudiomodel, model) : nullptr;
-	const int i = GuardedFindBone(hdr, bone);
+	return model ? (const unsigned char*)CallPtrPtr(g_modelInfo, Slot::ModelInfo_GetStudiomodel, model) : nullptr;
+}
+
+} // namespace
+
+bool Entity_ModelName(int index, std::string& out) {
+	char name[kStudioNameSize] = {};
+	if (!GuardedStudioName(StudioHeaderOf(RenderableAt(index)), name)) return false;
+	out = name;
+	return true;
+}
+
+bool Entity_Bone(int index, const char* bone, double pos[3], double axes[3][3]) {
+	void* renderable = RenderableAt(index);
+	if (!renderable) return false;
+	const int i = GuardedFindBone(StudioHeaderOf(renderable), bone);
 	if (i < 0) return false;
 	// The game's own bone setup: it caches the bones once a frame, so asking again costs a copy.
 	static float matrices[kMaxStudioBones][3][4];
@@ -701,7 +738,7 @@ void Entities_Print(bool includeDormant, const char* classFilter) {
 		std::string lower = e.className;
 		for (char& ch : lower) ch = (char)tolower((unsigned char)ch);
 		if (!filter.empty() && lower.find(filter) == std::string::npos) continue;
-		char links[160] = "";
+		char links[320] = "";
 		size_t at = 0;
 		auto link = [&](const char* name, int value) {
 			if (value >= 0 && at < sizeof(links)) at += (size_t)std::snprintf(links + at, sizeof(links) - at, " %s %d", name, value);
@@ -716,6 +753,12 @@ void Entities_Print(bool includeDormant, const char* classFilter) {
 			if (at < sizeof(links))
 				at += (size_t)std::snprintf(links + at, sizeof(links) - at, " hp %d%s%s", e.health, e.alive ? "" : " dead",
 					(e.flags & kFlagDucking) ? " ducking" : "");
+		}
+		std::string model;
+		if (e.hasFlight && at < sizeof(links)) {
+			Entity_ModelName(e.index, model);
+			at += (size_t)std::snprintf(links + at, sizeof(links) - at, " vel (%.1f %.1f %.1f) launch (%.1f %.1f %.1f) %s",
+				e.velocity[0], e.velocity[1], e.velocity[2], e.launchVelocity[0], e.launchVelocity[1], e.launchVelocity[2], model.c_str());
 		}
 		advancedfx::Message("%5d  %08x  %-24.24s (%8.1f %8.1f %8.1f)  (%6.1f %6.1f %6.1f)  %4d %s%s\n", e.index, e.handle,
 			e.className.c_str(), e.origin[0], e.origin[1], e.origin[2], e.angles[0], e.angles[1], e.angles[2], e.team, links,

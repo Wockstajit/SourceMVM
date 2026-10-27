@@ -41,6 +41,7 @@
 #include <emscripten.h>
 #include <emscripten/html5.h>
 
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -151,6 +152,8 @@ struct Host {
 	bool pathFreeze = false;    // in Freeze blue, else Live gold
 	PathInspectorModel path;    // the cameras the PATH CAMERA tab edits
 	FollowInspectorModel follow; // the follow camera the FOLLOW CAMERA tab edits
+	std::vector<FollowInspectorCandidate> followPlayers; // the Player list; the Grenade list is StandInThrows
+	int followThrowTick = -1;     // the throw Go To Throw waits for, -1 for none
 	double followPickedMs = -1e9; // when a target was last picked: its box shows for five seconds
 	bool cardOpen = false;      // the CAMERA MARKER card (F)
 	bool autoSnap = false;
@@ -430,7 +433,11 @@ bool StandInFollowAids(PathOverlayModel& model) {
 		model.followMarker.fov = 106.26;
 	}
 	model.targetBox = f.targetIndex >= 0 && !f.enabled && emscripten_get_now() - g.followPickedMs < 5000;
-	if (model.targetBox) {
+	if (model.targetBox && f.type == 1) {
+		model.boxPos[0] = 380; model.boxPos[1] = 20; model.boxPos[2] = 21; // around a grenade in the air
+		model.boxHalf = 9;
+		model.boxHeight = 18;
+	} else if (model.targetBox) {
 		model.boxPos[0] = 420; model.boxPos[1] = 40; model.boxPos[2] = -20; // a player's feet
 		model.boxHalf = 18;
 		model.boxHeight = 72;
@@ -520,8 +527,75 @@ void SeedFollow() {
 		}
 		f.candidates.push_back(c);
 	}
+	g.followPlayers = f.candidates;
 	f.eventStatus = 3;
 	f.eventError = "no demo event scan for this game yet";
+}
+
+// The Grenade list. The stand-in demo has no grenades (neither has mvm_css_tv.dem), so these are
+// placed in it the way a round's grenades fall, and listed as the game's grenade index lists them
+// (SourceFollowCamera.cpp FollowHost_GrenadeSightings): the ones played past, in the air now or seen
+// earlier, nearest the playhead first.
+struct StandInThrow {
+	uint64_t handle;
+	int tick;
+	const char* type;
+	const char* thrower;
+	const char* team;
+	int flightTicks; // how long it is in the world
+};
+const StandInThrow kStandInThrows[] = {
+	{ 0x20005a, 640, "Flashbang", "Chris", "T", 110 },
+	{ 0x20005c, 1180, "HE Grenade", "Brad", "CT", 110 },
+	{ 0x20005d, 1215, "Smoke", "Greg", "T", 1300 },
+	{ 0x200061, 3020, "HE Grenade", "Jason", "T", 110 },
+};
+
+void StandInThrows(FollowInspectorModel& f) {
+	f.candidates.clear();
+	const int now = (int)g.demo.tick;
+	// The index remembers what it has seen, so a seek back still lists the throws played past.
+	static int seenUpTo = 0;
+	if (now > seenUpTo) seenUpTo = now;
+	for (const StandInThrow& t : kStandInThrows) {
+		if (t.tick > seenUpTo) continue;
+		FollowInspectorCandidate c;
+		const bool active = now <= t.tick + t.flightTicks;
+		c.index = active ? (int)(t.handle & 0xFFF) : -1;
+		c.handle = t.handle;
+		c.name = t.type;
+		c.grenadeType = t.type;
+		c.className = "CBaseCSGrenadeProjectile";
+		c.ownerName = t.thrower;
+		c.team = t.team;
+		c.throwTick = t.tick;
+		c.tickDelta = t.tick - now;
+		c.status = active ? "active projectile" : "recorded nearby";
+		c.alive = active;
+		FollowInspectorPoint entity;
+		entity.id = "entity";
+		entity.label = "Entity";
+		entity.kind = "entity";
+		entity.valid = true;
+		c.attachPoints.push_back(entity);
+		f.candidates.push_back(c);
+	}
+	std::sort(f.candidates.begin(), f.candidates.end(), [](const FollowInspectorCandidate& a, const FollowInspectorCandidate& b) {
+		const int ad = std::abs(a.tickDelta), bd = std::abs(b.tickDelta);
+		return ad == bd ? a.throwTick < b.throwTick : ad < bd;
+	});
+}
+
+// Each frame: the type's list, and a Go To Throw that waits for its throw.
+void StandInFollowFrame() {
+	FollowInspectorModel& f = g.follow;
+	if (f.type == 1) StandInThrows(f);
+	else f.candidates = g.followPlayers;
+	if (g.followThrowTick >= 0 && (int)g.demo.tick >= g.followThrowTick) {
+		f.grenadePending = false;
+		f.message = "Tracking " + f.targetName + " from throw tick " + std::to_string(g.followThrowTick) + ".";
+		g.followThrowTick = -1;
+	}
 }
 
 const FollowInspectorCandidate* FollowCandidate(int index) {
@@ -563,11 +637,48 @@ void ApplyFollowCommands(const std::vector<std::string>& commands) {
 			else f.enabled = true;
 		}
 		else if (verb == "stop") { f.enabled = false; f.message = "Tracking stopped: user."; }
-		else if (verb == "type") { f.type = arg == "grenade" ? 1 : (arg == "weapon" ? 2 : 0); f.typeName = f.type == 1 ? "Grenade" : (f.type == 2 ? "Weapon / C4" : "Player"); }
+		else if (verb == "type") {
+			const int type = arg == "grenade" ? 1 : (arg == "weapon" ? 2 : 0);
+			if (type != f.type) {
+				// As FollowCamera::SetTargetType: a new type starts with no target.
+				f.targetIndex = -1;
+				f.targetHandle = 0;
+				f.targetValid = false;
+				f.targetName.clear();
+				f.grenadePending = false;
+				g.followThrowTick = -1;
+				f.attachment = type == 0 ? "head" : "entity";
+			}
+			f.type = type;
+			f.typeName = f.type == 1 ? "Grenade" : (f.type == 2 ? "Weapon / C4" : "Player");
+			StandInFollowFrame();
+		}
 		else if (verb == "select") { if (const FollowInspectorCandidate* c = FollowCandidate(std::atoi(arg.c_str()))) FollowSelect(*c); }
+		else if (verb == "selecthandle") {
+			const uint64_t handle = std::strtoull(arg.c_str(), nullptr, 10);
+			for (const FollowInspectorCandidate& c : f.candidates)
+				if (c.handle == handle) { FollowSelect(c); break; }
+		}
 		else if (verb == "nearest") {
 			for (const FollowInspectorCandidate& c : f.candidates)
-				if (c.alive) { FollowSelect(c); break; }
+				if (c.alive || f.type == 1) { FollowSelect(c); break; }
+		}
+		else if (verb == "previewtick" && f.type == 1) {
+			// As FollowCamera::TrackSelectedGrenade: seek 40 ticks before the throw, then wait for it.
+			const FollowInspectorCandidate* picked = nullptr;
+			for (const FollowInspectorCandidate& c : f.candidates)
+				if (f.targetValid && c.handle == f.targetHandle) picked = &c;
+			if (!f.hasCamera) f.message = "Place the Follow Camera before tracking a grenade.";
+			else if (!picked) f.message = "Select a grenade from the nearby list first.";
+			else {
+				const int seek = picked->throwTick - 40 < 0 ? 0 : picked->throwTick - 40;
+				g.followThrowTick = picked->throwTick;
+				f.grenadePending = true;
+				f.enabled = true;
+				SeekSim(seek);
+				g.demo.paused = false;
+				f.message = "Seeking to tick " + std::to_string(seek) + ", 40 ticks before the throw.";
+			}
 		}
 		else if (verb == "goto") f.message = "Moved the camera to the selected target.";
 		else if (verb == "weaponplayer") { f.weaponPlayerIndex = f.weaponFilterPlayer = std::atoi(arg.c_str()); f.message = "Weapon target scoped to the selected player."; }
@@ -863,6 +974,7 @@ void Frame() {
 	DirectorFrame directorFrame;
 	if (g.editor.open) {
 		g.path.tick = (int)g.demo.tick;
+		StandInFollowFrame();
 		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo, g.path, g.follow, BuildTimelineModel());
 	} else if (director) {
 		if (g.cadence.Ready((uint64_t)nowMs, 10, false)) BuildCards(g.cards);

@@ -97,6 +97,18 @@ bots wait for a human to join a team, and the recorder is spectating. The demo l
 starts unattached (at the map origin) until it is pointed at someone, for example with
 `spec_mode 4;;spec_next`.
 
+`mvm_css_tv` has no grenade thrown, so the grenade checks use a second demo, `mvm_css_nades`,
+recorded the same way with money for grenades. Its second line is
+`bot_join_after_player 0;;bot_quota 10;;mp_startmoney 16000;;bot_allow_grenades 1;;mp_freezetime 6;;mp_roundtime 3;;spectate;;mp_restartgame 1`,
+and `tv_record mvm_css_nades` follows within three seconds, inside the freeze time, so no grenade
+is in the air when the recording starts. Round 1 has the throws the checks use: Yahn's HE at tick
+480, Norm's flashbang at 528, Erik's HE at 568 and Will's HE at 741. Two things stop playback,
+both open (see [port-plan.md](port-plan.md#known-follow-ups)). A recording that starts with
+grenades in the air stopped six seconds in, on `CL_PreserveExistingEntity: missing client entity
+93`, one of those grenades. `mvm_css_nades` stops at its second round start, tick 6396, on
+`missing client entity 71`, a Glock that had lain on the ground since the first tick. Both
+happen with the Camera Editor closed.
+
 Demos recorded on CS:S before the Orange Box engine (network protocol 7, the "v34" era) play too:
 the hook converts them first. See [Old demos](#old-demos).
 
@@ -172,8 +184,16 @@ its active weapon, every held weapon its owner, and the carried C4 its carrier; 
 deaths five `CCSRagdoll`s each named their player, and the dropped C4 had no owner; the planted
 C4 appeared at tick 3284, the tick of the demo's `bomb_planted` event; the eye heights came out
 64.00 standing and 47.00 ducking, within about a unit while moving, because an origin read at
-frame start is a frame apart from the interpolated view. Neither test demo has a grenade thrown,
-so the projectile's fields wait for a demo with a throw. All 14 fields resolved, with no faults.
+frame start is a frame apart from the interpolated view. All 14 fields resolved, with no faults.
+
+A thrown grenade adds two fields, read by name like the rest: its velocity now (`DT_BaseGrenade`'s
+`m_vecVelocity`) and the velocity it was thrown with (the profile's launch field, CS:S's
+`DT_BaseCSGrenadeProjectile.m_vInitialVelocity`). Every thrown grenade in CS:S is the one class
+`CBaseCSGrenadeProjectile`, so its kind comes from its model's name, which `Entity_ModelName`
+reads from the studio header (`name` at +12, 64 bytes): `w_eq_fraggrenade_thrown`,
+`w_eq_flashbang_thrown` and `w_eq_smokegrenade_thrown` are an HE grenade, a flashbang and a
+smoke. `mirv_filmmaker entities Projectile` prints both velocities and the model. With them the
+adapter resolves 16 fields.
 
 For Attached mounts the adapter also reads a model's bones and attachments, through the entity's
 renderable (`IClientUnknown` slot 5), all measured in the x64 `client.dll` and `engine.dll`
@@ -660,8 +680,18 @@ the FOLLOW CAMERA tab.
   purple while it is not live, and a picked target gets a cyan glass box for five seconds, standing
   on a player's feet or around a weapon. Both are part of the path overlay (`Ui/PathOverlay.cpp`),
   so they show while the Camera Editor is open, and neither shows over a live shot.
-- Not yet: grenades, which need a demo with a throw. `health` shows the follow camera's state, and
-  whether its marker and box show, on its `follow:` line.
+- Grenades are CS2's Grenade type. While the Camera Editor is open, every frame of playback looks
+  for thrown grenades, and the list holds each one seen this session, in the air now or earlier,
+  nearest the playhead first, with its kind, thrower and throw tick. CS:S does not network where a
+  grenade was thrown from, so the throw tick comes from its flight: until its first bounce a
+  grenade keeps its throw's sideways speed while gravity (0.4 of `sv_gravity`) slows its climb, so
+  its launch and current upward speeds give how long it has flown (`FollowGrenadeFlightSeconds` in
+  `FollowCameraMath.h`). After a bounce only the tick it was first seen at is left, and a grenade
+  keeps the earliest tick it was ever dated with. Go To Throw seeks 40 ticks before the throw,
+  plays, and takes the grenade when it is thrown: the same handle, or the same kind thrown within
+  four ticks. Lock-on and Attached follow the grenade itself, which has no other mount.
+- `health` shows the follow camera's state, and whether its marker and box show, on its `follow:`
+  line.
 
 Checked in the SourceTV test demo on 2026-10-26: the placed camera's aim matched the look-at to the
 target's eyes to a hundredth of a degree; the eyes CS:S's own first-person view sits at matched the
@@ -687,8 +717,19 @@ placed with a real click saved the offset (-47.6, 63.8, 17.5), the live camera c
 the free camera had been, and the framing held while the demo played; Esc cancelled another and gave
 the mouse back. On his USP the muzzle read the model's `muzzle_flash`, about 19 units ahead of the
 gun's origin.
-Going to an event sent the right seek, but this SourceTV demo cannot seek forward: the engine stops
-with `CL_PreserveExistingEntity: missing client entity`, as it does for the demo bar's seeks.
+Going to an event sends the right seek, and since the hook keeps bodies made during a seek
+([Bodies made during a seek](#bodies-made-during-a-seek)) the demo plays on from it.
+Grenades, checked on 2026-10-27 in `mvm_css_nades` at 854x480: playing round 1 with the editor
+open listed its four throws, each named by kind and thrower and dated two or three ticks before
+it was first seen (its flight already 0.030 to 0.045 s old). A seek straight into Yahn's HE, at
+tick 503, dated it from its flight alone: its upward speed had fallen from 14.4 to -96.0 units/s,
+0.345 s at 320 units/s^2, which is tick 480, the tick forward playback gave, under the same
+handle. Go To Throw on it sought to tick 440, played, and took the grenade at tick 483 by its
+handle. The placed Lock-on camera turned to keep it in view as it flew and rolled, and held its
+last aim after it went off. Attached rode it, turning as the grenade spins. With Will's HE in the
+air at tick 760, the Target list held all four throws, Will's as the active projectile. Each row
+wraps onto three lines at 480p, and the list grows to show them whole. Before, a list of wrapped
+rows ended a line short, because it laid them out a scrollbar narrower than it measured them.
 
 ## Old demos
 

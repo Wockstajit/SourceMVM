@@ -130,9 +130,11 @@ const int Networkable_IsDormant = 8;
 const int EngineVGui_IsGameUIVisible = 2;
 } // namespace Slot
 
-// studiohdr_t, as the MDL file holds it (CS:S's models are version 44): the bone count and the
-// offset of the bone array, each mstudiobone_t 216 bytes with its name's offset (from the bone)
-// first. SetupBones' mask for every bone, and the most bones a model has.
+// studiohdr_t, as the MDL file holds it (CS:S's models are version 44): the model's name, the bone
+// count and the offset of the bone array, each mstudiobone_t 216 bytes with its name's offset (from
+// the bone) first. SetupBones' mask for every bone, and the most bones a model has.
+const int kStudioName = 12;
+const int kStudioNameSize = 64;
 const int kStudioNumBones = 156;
 const int kStudioBoneIndex = 160;
 const int kStudioBoneSize = 216;

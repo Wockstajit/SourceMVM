@@ -129,17 +129,6 @@ bool IsWeaponOrBomb(const std::string& className) {
 	return IsWeaponClass(className) || IsBombClass(className);
 }
 
-std::string GrenadeTypeName(const std::string& className) {
-	const std::string s = Lower(className);
-	if (s.find("flash") != std::string::npos) return "Flashbang";
-	if (s.find("smoke") != std::string::npos) return "Smoke";
-	if (s.find("hegrenade") != std::string::npos || s.find("frag") != std::string::npos) return "HE Grenade";
-	if (s.find("molotov") != std::string::npos) return "Molotov";
-	if (s.find("incendiary") != std::string::npos) return "Incendiary";
-	if (s.find("decoy") != std::string::npos) return "Decoy";
-	return "Grenade";
-}
-
 // Friendly weapon name from an engine class (C_AK47, C_WeaponM4A1, ...) so the UI
 // reads "AK-47" / "M4A4" / "M4A1-S" instead of the raw class. Order matters: test the
 // more specific variants (silencer) before the base token they contain.

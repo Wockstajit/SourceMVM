@@ -49,13 +49,13 @@ virtual bool GetWorldTransform(FollowVec3& pos, FollowAngles& ang); // true = or
 
 | Provider | File | Notes |
 |---|---|---|
-| `PlayerTargetProvider` | [FollowTargetProviders.h:68](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h#L68) | Player pawn; eye origin/angles give an orientation. |
-| `EntityTargetProvider` | [FollowTargetProviders.h:113](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h#L113) | Dropped weapon / grenade / C4 by handle; render angles when reachable. |
-| `AttachmentTargetProvider` | [FollowTargetProviders.h:146](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h#L146) (extends `EntityTargetProvider`) | `LookupAttachment(name)` + `GetAttachment(idx, origin, quat)`; quat to angles via `FollowQuatToAngles`. Attachment points only, with no bone-matrix work. |
-| `HeldWeaponProvider` | [FollowTargetProviders.h:201](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h#L201) | Resolves `pawn->GetActiveWeaponHandle()` each frame, so it tracks the *currently held* weapon across switches. |
+| `PlayerTargetProvider` | [FollowTargetProviders.h:76](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h#L76) | Player pawn; eye origin/angles give an orientation. |
+| `EntityTargetProvider` | [FollowTargetProviders.h:114](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h#L114) | Dropped weapon / grenade / C4 by handle; render angles when reachable. |
+| `AttachmentTargetProvider` | [FollowTargetProviders.h:147](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h#L147) (extends `EntityTargetProvider`) | `LookupAttachment(name)` + `GetAttachment(idx, origin, quat)`; quat to angles via `FollowQuatToAngles`. Attachment points only, with no bone-matrix work. |
+| `HeldWeaponProvider` | [FollowTargetProviders.h:195](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h#L195) | Resolves `pawn->GetActiveWeaponHandle()` each frame, so it tracks the *currently held* weapon across switches. |
 
 [`MakeProvider`](../../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp#L447) asks the host for the provider
-for `(type, mode, weaponSource)`. [`Candidates`](../../AfxHookSource2/Filmmaker/Movie/FollowTargetDiscovery.cpp#L60)
+for `(type, mode, weaponSource)`. [`Candidates`](../../AfxHookSource2/Filmmaker/Movie/FollowTargetDiscovery.cpp#L73)
 builds the selectable list (players, grenades, held and dropped weapons, and C4) from the host's scan.
 
 ## RunFrame: two paths
@@ -149,8 +149,8 @@ serialization each have their own translation unit (see the Components table abo
 | [FollowCameraHost.h](../../AfxHookSource2/Filmmaker/Movie/FollowCameraHost.h) | whole file | what the follow camera asks the game |
 | [FollowCameraHostSource2.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowCameraHostSource2.cpp) | 125 `FollowHost_MakeProvider` · 151 `FollowHost_FindTargets` · 238 `FollowHost_AttachPoints` | CS2's answers |
 | [FollowCamera.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp) | 386 `SetMode` · 404 `SetWeaponSource` · 410 `SetWeaponPlayer` · 430 `GoToTarget` · 447 `MakeProvider` · 491 `RunFrame` · 667 attach path · 789 lock-on solve · 903 `SetOffsetAxis` · 909 `SetRotationOffset` · 986 `PrintStatus` · 1002 `PrintCamPose` | placement, mode/type setters, the per-frame solve |
-| [FollowTargetProviders.h](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h) | 77 `PlayerTargetProvider` · 115 `EntityTargetProvider` · 148 `AttachmentTargetProvider` · 196 `HeldWeaponProvider` (all defined inline in the header) | CS2's target providers |
-| [FollowTargetDiscovery.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowTargetDiscovery.cpp) | 60 `Candidates` · 166 `Players` · 207 `SelectNearest` · 221 `SelectEntity` · 231 `SelectHandle` · 257 `TrackSelectedGrenade` · 299 `ResolvePendingGrenade` · 327 `TryDeathRetarget` | candidate scoping + selection |
+| [FollowTargetProviders.h](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h) | 76 `PlayerTargetProvider` · 114 `EntityTargetProvider` · 147 `AttachmentTargetProvider` · 195 `HeldWeaponProvider` (all defined inline in the header) | CS2's target providers |
+| [FollowTargetDiscovery.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowTargetDiscovery.cpp) | 73 `Candidates` · 179 `Players` · 220 `SelectNearest` · 234 `SelectEntity` · 244 `SelectHandle` · 270 `TrackSelectedGrenade` · 312 `ResolvePendingGrenade` · 340 `TryDeathRetarget` | candidate scoping + selection |
 | [FollowEventIndex.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowEventIndex.cpp) | 13 `EnsureEventsLoaded` · 72 `SelectEvent` · 85 `PreviewTick` | demo event index |
 | [FollowCameraStateJson.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowCameraStateJson.cpp) | 51 `BuildStateJson` | state to JSON |
 | [FollowCameraMath.h](../../AfxHookSource2/Filmmaker/Movie/FollowCameraMath.h) / [.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowCameraMath.cpp) | `FollowQuatToAngles` (.cpp:47), `FollowRotateVector` (.cpp:62), `FollowInverseRotateVector` (.cpp:77) | math helpers |

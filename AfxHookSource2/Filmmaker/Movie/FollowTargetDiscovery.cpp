@@ -5,6 +5,7 @@
 #include "../../../Shared/AfxConsole.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 
@@ -37,6 +38,18 @@ const char* FollowTargetTypeName(FollowTargetType type) {
 	case FollowTargetType::Weapon: return "Weapon / C4";
 	default: return "Player";
 	}
+}
+
+std::string GrenadeTypeName(const std::string& className) {
+	std::string s = className;
+	for (char& ch : s) ch = (char)std::tolower((unsigned char)ch);
+	if (s.find("flash") != std::string::npos) return "Flashbang";
+	if (s.find("smoke") != std::string::npos) return "Smoke";
+	if (s.find("hegrenade") != std::string::npos || s.find("frag") != std::string::npos) return "HE Grenade";
+	if (s.find("molotov") != std::string::npos) return "Molotov";
+	if (s.find("incendiary") != std::string::npos) return "Incendiary";
+	if (s.find("decoy") != std::string::npos) return "Decoy";
+	return "Grenade";
 }
 
 // The grenades come from the game's sightings (FollowHost_GrenadeSightings). In CS2 that is the

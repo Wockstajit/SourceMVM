@@ -397,6 +397,8 @@ private:
 
 FollowCamera& FollowCameraRef();
 const char* FollowTargetTypeName(FollowTargetType type);
+// A thrown grenade's kind ("HE Grenade", "Flashbang", "Smoke"...) from its class or model name.
+std::string GrenadeTypeName(const std::string& className);
 
 FollowAttachPoint MakeAttachPoint(const char* id, const char* label, const char* kind,
 	bool valid, int index, const char* source);

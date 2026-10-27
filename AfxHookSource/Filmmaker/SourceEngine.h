@@ -105,6 +105,10 @@ struct EntityState {
 	int ragdollIndex = -1;      // m_hRagdoll, once dead
 	// Ragdolls: the player they were.
 	int ragdollPlayerIndex = -1;
+	// Thrown grenades: the velocity now and the one it was thrown with, when the game networks both.
+	bool hasFlight = false;
+	double velocity[3] = { 0, 0, 0 };
+	double launchVelocity[3] = { 0, 0, 0 };
 };
 
 // Every entity from 1 to the client's highest index; dormant ones only when asked. Returns the count.
@@ -118,6 +122,9 @@ bool Entity_Get(int index, EntityState& out);
 // faults.
 bool Entity_Bone(int index, const char* bone, double pos[3], double axes[3][3]);
 bool Entity_Attachment(int index, const char* attachment, double pos[3], double angles[3]);
+// The name the entity's model was compiled with ("weapons/w_eq_flashbang_thrown.mdl"); false when it
+// has no model or the read faults. CS:S has one thrown grenade class, so its model tells the kind.
+bool Entity_ModelName(int index, std::string& out);
 
 // mirv_filmmaker entities [all] [class filter]: one line per entity.
 void Entities_Print(bool includeDormant, const char* classFilter);

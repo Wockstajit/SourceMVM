@@ -41,6 +41,9 @@ const GameProfile kGeneric = {
 	// Source SDK 2013's g_DefaultViewVectors: VEC_VIEW and VEC_DUCK_VIEW.
 	64.0,
 	28.0,
+	nullptr,
+	nullptr,
+	0.0,
 };
 
 } // namespace

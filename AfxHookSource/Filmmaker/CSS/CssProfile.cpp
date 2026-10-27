@@ -96,6 +96,11 @@ const GameProfile kCss = {
 	// ducking one's.
 	64.0,
 	47.0,
+	// C_BaseCSGrenadeProjectile's m_vInitialVelocity, and the 0.4 of sv_gravity that CS:S's
+	// grenades fall with (CBaseCSGrenade::GetGrenadeGravity).
+	"DT_BaseCSGrenadeProjectile",
+	"m_vInitialVelocity",
+	0.4,
 };
 
 } // namespace

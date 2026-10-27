@@ -6,12 +6,14 @@
 // carried weapon's origin (measured in the SourceTV test demo, 2026-10-26: the owner's origin raised
 // 31 units). Attached rides a mount: a bone of the player's skeleton (its ragdoll's once dead), a
 // weapon model's attachment, or the entity itself. The Events list is the demo index's deaths, item
-// pickups and the C4's drops, pickups and plant. Grenades come with the rest of step 11.
+// pickups and the C4's drops, pickups and plant. Thrown grenades are kept in a session index
+// (FollowHost_GrenadeSightings), dated from their flight.
 
 #include "stdafx.h"
 
 #include "SourceFollowCamera.h"
 #include "SourceCameraPath.h"
+#include "SourceConCommand.h"
 #include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
 #include "SourceEngine.h"
@@ -33,6 +35,9 @@
 #include <AfxHookSource2/Filmmaker/Platform/JsonParser.h>
 #include <Shared/AfxConsole.h>
 
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -597,9 +602,67 @@ int FollowHost_SpectatedPlayer() {
 // The player's slot, as CS2 reports it.
 int FollowHost_PlayerUserId(int entityIndex) { return entityIndex >= 1 ? entityIndex - 1 : -1; }
 
+// Thrown grenades seen this session, kept as CS2 keeps them (FollowTargetProviders.cpp
+// GrenadeIndex_Update), so the Grenade list holds the ones in the air and the ones seen earlier. CS:S
+// networks one class for every thrown grenade, so the kind comes from its model
+// ("weapons/w_eq_flashbang_thrown.mdl"). The throw tick comes from the flight while the grenade is still
+// on its throw's line (FollowGrenadeFlightSeconds), else from the tick it is seen at. A seek can land
+// after a throw, so a grenade keeps the earliest tick it was ever dated with.
 const std::vector<GrenadeSighting>& FollowHost_GrenadeSightings() {
-	static const std::vector<GrenadeSighting> none;
-	return none;
+	static std::vector<GrenadeSighting> sightings;
+	static int lastFrame = -1;
+	static unsigned lastDemo = 0;
+	const int frame = FollowHost_FrameCount();
+	if (frame == lastFrame) return sightings;
+	lastFrame = frame;
+	// Another demo: its grenades are not this one's.
+	const unsigned demo = SourceFilmmaker::DemoIndex_Get().generation;
+	if (demo != lastDemo) {
+		sightings.clear();
+		lastDemo = demo;
+	}
+	for (GrenadeSighting& s : sightings) { s.active = false; s.entityIndex = -1; }
+	const int tick = FollowHost_DemoTick();
+	const double interval = FollowHost_IntervalPerTick();
+	float gravity = 800.f;
+	SourceFilmmaker::ConVar_GetFloat("sv_gravity", gravity);
+	std::vector<EntityState> entities;
+	SourceFilmmaker::Entities_Snapshot(entities);
+	for (const EntityState& e : entities) {
+		if (!Profile().isGrenadeClass || !Profile().isGrenadeClass(e.className.c_str()) || e.handle == 0xFFFFFFFFu) continue;
+		GrenadeSighting* s = nullptr;
+		for (GrenadeSighting& known : sightings)
+			if (known.handle == e.handle) { s = &known; break; }
+		const bool fresh = !s;
+		if (fresh) {
+			sightings.emplace_back();
+			s = &sightings.back();
+			s->handle = e.handle;
+			std::string model;
+			SourceFilmmaker::Entity_ModelName(e.index, model);
+			s->type = GrenadeTypeName(model);
+		}
+		s->entityIndex = e.index;
+		s->className = e.className;
+		const double flown = e.hasFlight
+			? FollowGrenadeFlightSeconds(Vec(e.launchVelocity), Vec(e.velocity), gravity * Profile().grenadeGravity) : -1.0;
+		const int dated = flown >= 0.0 && interval > 0.0 ? tick - (int)std::llround(flown / interval) : tick;
+		s->throwTick = s->throwTick < 0 ? dated : (std::min)(s->throwTick, dated);
+		s->active = true;
+		s->throwerIndex = e.throwerIndex;
+		s->thrower = e.throwerIndex >= 0 ? PlayerName(e.throwerIndex) : std::string();
+		EntityState thrower;
+		s->team = e.throwerIndex >= 0 && SourceFilmmaker::Entity_Get(e.throwerIndex, thrower) ? thrower.team : e.team;
+		if (fresh && MvmDebugLog_Active())
+			MvmDebugLog_Linef("follow.grenade", "seen tick=%d index=%d handle=%08x type=%s thrower=%d (%s) flown=%.3f throwTick=%d",
+				tick, e.index, e.handle, s->type.c_str(), e.throwerIndex, s->thrower.c_str(), flown, s->throwTick);
+	}
+	// Forgotten five minutes of demo either side, as CS2 forgets them.
+	const int forget = interval > 0.0 ? (int)(300.0 / interval) : 64 * 300;
+	sightings.erase(std::remove_if(sightings.begin(), sightings.end(), [&](const GrenadeSighting& s) {
+		return s.throwTick < 0 || std::abs(s.throwTick - tick) > forget;
+	}), sightings.end());
+	return sightings;
 }
 
 std::vector<FollowAttachPoint> FollowHost_AttachPoints(int entityIndex, FollowTargetType type) {
@@ -803,7 +866,12 @@ void FollowCamera_RunCommands(const std::vector<std::string>& commands) {
 	}
 }
 
-void FollowCamera_Frame() { Filmmaker::FollowCameraRef().RunFrame(Ui_EditorOpen()); }
+void FollowCamera_Frame() {
+	// Every frame of playback while the editor is open, so a grenade a second and a half in the air is
+	// in the list later.
+	if (Ui_EditorOpen() && Demo_State().playing) Filmmaker::FollowHost_GrenadeSightings();
+	Filmmaker::FollowCameraRef().RunFrame(Ui_EditorOpen());
+}
 
 bool FollowCamera_OnView(float& x, float& y, float& z, float& pitch, float& yaw, float& roll, float& fov) {
 	Filmmaker::FollowCamera& follow = Filmmaker::FollowCameraRef();

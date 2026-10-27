@@ -29,7 +29,6 @@ bool IsBombClass(const std::string& className);
 bool IsWeaponClass(const std::string& className);
 bool IsDroppedWeapon(CEntityInstance* entity, const std::string& className);
 bool IsWeaponOrBomb(const std::string& className);
-std::string GrenadeTypeName(const std::string& className);
 
 // ---- thrown grenades: ONE index for every picker (the Follow Camera's Grenade target, the scene
 // objects' "attach to a grenade") -------------------------------------------------------------

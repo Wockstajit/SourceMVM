@@ -34,6 +34,11 @@ struct GameProfile {
 	// A player's eyes above its origin, standing and ducking (the game's view vectors).
 	double eyeHeight;
 	double duckEyeHeight;
+	// A thrown grenade's networked launch velocity, which dates its throw, and the share of
+	// sv_gravity that pulls it down in flight. Null and 0 when the game has none.
+	const char* grenadeLaunchTable;
+	const char* grenadeLaunchProp;
+	double grenadeGravity;
 };
 
 // The profile for the running game, chosen from the detected Source SDK version.

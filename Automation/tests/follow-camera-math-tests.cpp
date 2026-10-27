@@ -151,6 +151,14 @@ int main() {
 	const FollowAngles frozenAngles = FollowSmoothAngles({4, 5, 6}, {40, 50, 60}, 0.0, 0.25, 0.0, 0.0);
 	Check(Near(frozenAngles.pitch, 4.0) && Near(frozenAngles.yaw, 5.0), "zero-dt angle hold");
 
+	// A grenade thrown at 600 u/s forward and 300 up, falling at CS:S's 0.4 of sv_gravity 800.
+	const FollowVec3 launch{600, 0, 300};
+	Check(Near(FollowGrenadeFlightSeconds(launch, launch, 320.0), 0.0), "grenade just thrown");
+	Check(Near(FollowGrenadeFlightSeconds(launch, {600, 0, -20}, 320.0), 1.0), "grenade a second into its flight");
+	Check(FollowGrenadeFlightSeconds(launch, {270, 0, 50}, 320.0) < 0.0, "a bounce changed its sideways speed");
+	Check(FollowGrenadeFlightSeconds(launch, {600, 0, 400}, 320.0) < 0.0, "rising faster than thrown is no flight");
+	Check(FollowGrenadeFlightSeconds(launch, {600, 0, 0}, 0.0) < 0.0, "no gravity, no clock");
+
 	std::cout << "FollowCameraMathTests: all checks passed\n";
 	return 0;
 }
