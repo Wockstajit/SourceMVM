@@ -14,6 +14,7 @@ namespace Filmmaker {
 enum class ProjectGame {
 	Cs2,
 	Deadlock,
+	Css, // Counter-Strike: Source (AfxHookSource/Filmmaker)
 };
 
 // Generated caches beside project.mvm. MatchInfo identifies only the Valve sidecars moved by
@@ -64,11 +65,19 @@ inline std::wstring JoinPath(const std::wstring& a, const std::wstring& b) {
 }
 
 inline const wchar_t* ProjectGameDir(ProjectGame game) {
-	return game == ProjectGame::Deadlock ? L"deadlock" : L"cs2";
+	switch (game) {
+	case ProjectGame::Deadlock: return L"deadlock";
+	case ProjectGame::Css: return L"css";
+	default: return L"cs2";
+	}
 }
 
 inline const char* ProjectGameKey(ProjectGame game) {
-	return game == ProjectGame::Deadlock ? "deadlock" : "cs2";
+	switch (game) {
+	case ProjectGame::Deadlock: return "deadlock";
+	case ProjectGame::Css: return "css";
+	default: return "cs2";
+	}
 }
 
 inline char AsciiLower(char c) {
@@ -92,6 +101,10 @@ inline bool ParseProjectGame(const char* key, ProjectGame& out) {
 	}
 	if (AsciiEqualsI(key, "deadlock")) {
 		out = ProjectGame::Deadlock;
+		return true;
+	}
+	if (AsciiEqualsI(key, "css")) {
+		out = ProjectGame::Css;
 		return true;
 	}
 	return false;

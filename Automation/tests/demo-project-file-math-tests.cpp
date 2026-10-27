@@ -56,6 +56,7 @@ bool Rejected(const std::string& bytes, ProjectGame game, const char* label) {
 int main() {
 	Expect(ProjectFileGameFlag(ProjectGame::Cs2) == kProjectFileGameCs2, "cs2 game flag");
 	Expect(ProjectFileGameFlag(ProjectGame::Deadlock) == kProjectFileGameDeadlock, "deadlock flag");
+	Expect(ProjectFileGameFlag(ProjectGame::Css) == kProjectFileGameCss, "css flag");
 	ExpectString(ProjectSectionTag(ProjectSection::Campath), "campath", "campath tag");
 	ExpectString(ProjectSectionTag(ProjectSection::Camshake), "camshake", "camshake tag");
 	ExpectString(ProjectSectionTag(ProjectSection::Loop), "loop", "loop tag");
@@ -106,6 +107,12 @@ int main() {
 	{
 		std::string bad = good; PatchU32(bad, 12, 7);
 		Expect(Rejected(bad, ProjectGame::Cs2, "unknown game flag"), "unknown game flag");
+		bad = good; PatchU32(bad, 12, kProjectFileGameCss);
+		{
+			ProjectFile out;
+			Expect(!Decodes(bad, ProjectGame::Cs2, out), "a CS:S project does not open as CS2's");
+			Expect(Decodes(bad, ProjectGame::Css, out), "a CS:S project opens for CS:S");
+		}
 		bad = good; PatchU32(bad, 12, kProjectFileGameDeadlock);
 		Expect(Rejected(bad, ProjectGame::Cs2, "game mismatch"), "game mismatch");
 		{

@@ -5,12 +5,15 @@
 #include "SourceDemoIndex.h"
 #include "SourceEngine.h"
 #include "SourceMainThread.h"
+#include "SourceOldDemos.h"
 
 #include "Ui/PathOverlay.h"
 
 #include "WrpVEngineClient.h"
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
+#include <AfxHookSource2/Filmmaker/Demo/DemoProjectStore.h>
+#include <AfxHookSource2/Filmmaker/Platform/TextEncoding.h>
 #include <AfxHookSource2/Filmmaker/Movie/CamMarkerPickMath.h>
 #include <AfxHookSource2/Filmmaker/Movie/CamPathEval.h>
 #include <AfxHookSource2/Filmmaker/Movie/CamPlayback.h>
@@ -55,7 +58,9 @@ struct State {
 	int startPauseGuard = 0;  // frames in which a stray pause cannot stop a start
 	const char* notice = "";
 	Clock::time_point noticeAt;
-	std::string demo;         // the demo the markers were placed in
+	std::string demo;         // the demo the markers were placed in, as the engine names it
+	std::wstring project;     // the demo the user played, whose project.mvm keeps the path
+	bool dirty = false;       // an edit not saved yet
 	std::vector<double> trajectory; // the in-world line: x, y, z along the path
 	// The editor's selection: the camera whose pose holds while the seek to its tick lands.
 	bool menuOpen = false;    // the CAMERA MARKER card
@@ -87,6 +92,47 @@ void Notify(const char* text) {
 
 // The path, and its in-world line sampled along each segment with the evaluator that flies it, so the
 // line follows the Smooth spline and the graph's curves as the camera will.
+// An edit to save: the path goes to the demo's project.mvm at the end of the frame, as CS2's does.
+void MarkDirty() { g.dirty = true; }
+
+// The demo's project, as CS2 keeps it (Demo/DemoProjectStore.h) under %APPDATA%\HLAE\source_mvm\demos\css\:
+// keyed on the file the user played, the original of a converted old demo.
+std::wstring ProjectDemoPath(const std::string& engineName) {
+	const char* dir = g_VEngineClient ? g_VEngineClient->GetGameDirectory() : nullptr;
+	if (!dir || !*dir || engineName.empty()) return {};
+	std::string path = std::string(dir) + "/" + OldDemos_PlayedName(engineName);
+	for (char& c : path) if (c == '/') c = '\\';
+	return Utf8ToWide(path);
+}
+
+void Rebuild();
+
+void Save() {
+	g.dirty = false;
+	if (g.project.empty()) return; // no demo: memory only
+	DemoProjectStore_WriteSection(ProjectGame::Css, g.project, ProjectSection::Campath, g.markers.Serialize(g.settings, g.markers.Selected()));
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("campath", "saved %d markers to %s", g.markers.Count(), WideToUtf8(g.project).c_str());
+}
+
+// The playing demo's path from its project, or an empty one.
+void Load() {
+	g.markers.DeleteAll();
+	g.undo.clear();
+	g.redo.clear();
+	g.menuOpen = false;
+	std::string payload;
+	PathSettings settings = g.settings;
+	int selected = -1;
+	if (!g.project.empty() && DemoProjectStore_ReadSection(ProjectGame::Css, g.project, ProjectSection::Campath, payload)
+		&& !payload.empty() && g.markers.Parse(payload, settings, selected)) {
+		g.settings = settings;
+		advancedfx::Message("[campath] loaded %d markers from the demo's project.mvm.\n", g.markers.Count());
+	}
+	Rebuild();
+	g.dirty = false;
+}
+
 void Rebuild() {
 	g.eval.Rebuild(g.markers, g.settings);
 	g.trajectory.clear();
@@ -271,12 +317,14 @@ void CameraPath_Place() {
 		existing.pitch = m.pitch; existing.yaw = m.yaw; existing.roll = m.roll; existing.fov = m.fov;
 		g.markers.SetSelected(i);
 		Rebuild();
+		MarkDirty();
 		advancedfx::Message("[campath] marker #%d re-posed @ tick %d (%.1f %.1f %.1f) fov %.1f -- one marker per tick.\n",
 			i, m.tick, m.x, m.y, m.z, m.fov);
 		return;
 	}
 	const int index = g.markers.Add(m);
 	Rebuild();
+	MarkDirty();
 	advancedfx::Message("[campath] marker #%d placed @ tick %d (%.1f %.1f %.1f) fov %.1f.\n", index, m.tick, m.x, m.y, m.z, m.fov);
 }
 
@@ -284,6 +332,7 @@ void CameraPath_Delete(int index) {
 	if (!g.markers.DeleteIndex(index)) return;
 	if (CameraPath_OwnsView()) CameraPath_Stop();
 	Rebuild();
+	MarkDirty();
 	advancedfx::Message("[campath] marker #%d deleted, %d left.\n", index, g.markers.Count());
 }
 
@@ -299,6 +348,7 @@ void CameraPath_DeleteAll() {
 	g.menuOpen = false;
 	g.markers.DeleteAll();
 	Rebuild();
+	MarkDirty();
 	advancedfx::Message("[campath] all markers deleted.\n");
 }
 
@@ -350,6 +400,7 @@ void CameraPath_MoveKey(int index, int tick) {
 	const double interval = Demo_State().intervalPerTick;
 	if (interval > 0) m.time = tick * interval;
 	Rebuild();
+	MarkDirty();
 	advancedfx::Message("[campath] marker #%d moved to tick %d.\n", index, tick);
 }
 
@@ -378,6 +429,7 @@ void CameraPath_EditEnd() {
 	if (g.editChanged) {
 		PushSnapshot(g.undo, std::move(g.editStart));
 		g.redo.clear();
+		MarkDirty();
 	}
 	g.editActive = false;
 	g.editChanged = false;
@@ -394,6 +446,7 @@ void CameraPath_Undo() {
 	g.undo.pop_back();
 	g.markers.Restore(s.markers, s.selected);
 	Rebuild();
+	MarkDirty();
 	advancedfx::Message("[campath] undo: %d markers.\n", g.markers.Count());
 }
 
@@ -408,12 +461,14 @@ void CameraPath_Redo() {
 	g.redo.pop_back();
 	g.markers.Restore(s.markers, s.selected);
 	Rebuild();
+	MarkDirty();
 	advancedfx::Message("[campath] redo: %d markers.\n", g.markers.Count());
 }
 
 void CameraPath_SetEase(int index, Ease ease) {
 	if (!g.markers.ValidIndex(index)) return;
 	g.markers.At(index).ease = ease; // eased at evaluation: the line keeps its shape
+	MarkDirty();
 	advancedfx::Message("[campath] marker #%d ease -> %d.\n", index, (int)ease);
 }
 
@@ -425,35 +480,41 @@ void CameraPath_SetSpeedMul(int index, float mul) {
 	}
 	g.markers.At(index).speedMul = mul < 0.2f ? 0.2f : (mul > 1.0f ? 1.0f : mul);
 	Rebuild();
+	MarkDirty();
 	advancedfx::Message("[campath] marker #%d outgoing segment speed x%.2f.\n", index, g.markers.At(index).speedMul);
 }
 
 void CameraPath_SetConstSpeed(float mul) {
 	g.settings.constSpeed = mul < 0.2f ? 0.2f : (mul > 1.0f ? 1.0f : mul);
 	Rebuild();
+	MarkDirty();
 	advancedfx::Message("[campath] constant speed x%.2f (whole path).\n", g.settings.constSpeed);
 }
 
 void CameraPath_SetInterp(int interp) {
 	g.settings.interp = interp == 1 ? 1 : 0;
 	Rebuild();
+	MarkDirty();
 	advancedfx::Message("[campath] interpolation -> %s.\n", kInterpNames[g.settings.interp]);
 }
 
 void CameraPath_SetSpeedMode(int mode) {
 	g.settings.speedMode = mode >= 0 && mode < 3 ? mode : 0;
 	Rebuild();
+	MarkDirty();
 	advancedfx::Message("[campath] speed mode -> %s.\n", kSpeedModeNames[g.settings.speedMode]);
 }
 
 void CameraPath_SetTiming(int timing) {
 	g.settings.timing = timing == kTimingFreeze ? kTimingFreeze : kTimingLive;
 	Rebuild();
+	MarkDirty();
 	advancedfx::Message("[campath] timing -> %s (all cameras).\n", kTimingNames[g.settings.timing]);
 }
 
 void CameraPath_SetAutoSnap(bool on) {
 	g.settings.autoSnap = on;
+	MarkDirty();
 	advancedfx::Message("[campath] auto-snap to selected camera -> %s.\n", on ? "ON" : "OFF");
 }
 
@@ -499,6 +560,7 @@ void CameraPath_PlaceReposition() {
 	g.markers.DeleteIndex(sel);
 	const int index = g.markers.Add(m); // back in tick order
 	Rebuild();
+	MarkDirty();
 	advancedfx::Message("[campath] marker #%d repositioned @ tick %d (%.1f %.1f %.1f).\n", index, m.tick, m.x, m.y, m.z);
 }
 
@@ -569,23 +631,21 @@ void CameraPath_Stop() {
 }
 
 void CameraPath_Frame() {
+	if (g.dirty && !g.editActive) Save(); // last frame's edits, once a drag has ended
 	if (!Demo_State().playing) {
 		if (g.mode != PathMode::Editing) CameraPath_Stop();
 		g.aimed = -1;
 		return;
 	}
-	// Markers belong to the demo they were placed in: another demo starts with an empty path. (A
-	// backward seek replays the same file and keeps them.)
+	// Markers belong to the demo they were placed in, saved in its project.mvm: another demo brings
+	// its own path back, or starts empty. (A backward seek replays the same file and keeps them.)
 	const std::string demo = DemoIndex_Get().file;
 	if (!demo.empty() && demo != g.demo) {
-		if (!g.demo.empty() && !g.markers.Empty()) {
-			g.markers.DeleteAll();
-			g.undo.clear();
-			g.redo.clear();
-			Rebuild();
-			advancedfx::Message("[campath] another demo: its camera path starts empty.\n");
-		}
+		if (g.dirty) Save(); // the outgoing demo's last edit
+		if (g.mode != PathMode::Editing) CameraPath_Stop();
 		g.demo = demo;
+		g.project = ProjectDemoPath(demo);
+		Load();
 	}
 	if (g.startPauseGuard > 0) --g.startPauseGuard;
 

@@ -6,6 +6,8 @@
 // source_mvm/converted/ under the game directory, and the converted copy is played. Later plays
 // reuse the copy until the original file changes. Conversion runs on a worker thread.
 
+#include <string>
+
 namespace SourceFilmmaker {
 
 // Wraps playdemo. Safe to call every frame; it retries until the command exists.
@@ -16,5 +18,9 @@ void OldDemos_Frame();
 
 // One line for mirv_filmmaker health.
 void OldDemos_PrintHealth();
+
+// The demo the user played, for a demo the engine plays: a converted copy's original, else the name
+// itself. Both relative to the game directory, '/' separated.
+std::string OldDemos_PlayedName(const std::string& engineName);
 
 } // namespace SourceFilmmaker

@@ -95,7 +95,8 @@ std::wstring ReadProjectDemoPath(const std::filesystem::path& projectFile) {
 	ProjectFile file;
 	std::string error;
 	if (!DecodeProjectFile(bytes.data(), bytes.size(), ProjectGame::Cs2, file, error)
-		&& !DecodeProjectFile(bytes.data(), bytes.size(), ProjectGame::Deadlock, file, error))
+		&& !DecodeProjectFile(bytes.data(), bytes.size(), ProjectGame::Deadlock, file, error)
+		&& !DecodeProjectFile(bytes.data(), bytes.size(), ProjectGame::Css, file, error))
 		return {};
 	const ProjectFileSection* info = FindProjectSection(file, kProjectFileInfoTag);
 	if (!info) return {};

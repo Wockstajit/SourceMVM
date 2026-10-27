@@ -110,6 +110,9 @@ int main() {
 	ProjectGame parsed = ProjectGame::Deadlock;
 	Expect(ParseProjectGame("cs2", parsed) && parsed == ProjectGame::Cs2, "parse cs2");
 	Expect(ParseProjectGame("Deadlock", parsed) && parsed == ProjectGame::Deadlock, "parse deadlock");
+	Expect(ParseProjectGame("css", parsed) && parsed == ProjectGame::Css, "parse css");
+	Expect(std::wstring(ProjectGameDir(ProjectGame::Css)) == L"css", "css projects have their own folder");
+	Expect(std::string(ProjectGameKey(ProjectGame::Css)) == "css", "css key");
 	Expect(!ParseProjectGame("hl2", parsed), "reject unknown game");
 
 	ProjectIndex index;

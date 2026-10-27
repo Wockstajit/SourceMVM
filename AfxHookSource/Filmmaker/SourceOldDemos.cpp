@@ -139,6 +139,17 @@ void Convert(std::string gameDir, std::string name, std::string converted) {
 	g_busy = false;
 }
 
+} // namespace
+
+std::string OldDemos_PlayedName(const std::string& engineName) {
+	std::string name = engineName;
+	for (char& c : name) if (c == '\\') c = '/';
+	const size_t prefix = sizeof(kConvertedFolder) - 1;
+	return name.compare(0, prefix, kConvertedFolder) == 0 ? name.substr(prefix) : name;
+}
+
+namespace {
+
 // True when it took the command: an old demo that is converted (or being converted) first.
 bool InterceptPlaydemo(const char* typed) {
 	if (!typed || !*typed) return false;

@@ -217,6 +217,13 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Debug/MvmDebugLog.cpp
     ../AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h
     ../AfxHookSource2/Filmmaker/Debug/MvmDebugLogHost.h
+    ../AfxHookSource2/Filmmaker/Demo/DemoMatchInfoFile.h
+    ../AfxHookSource2/Filmmaker/Demo/DemoProjectFileMath.h
+    ../AfxHookSource2/Filmmaker/Demo/DemoProjectPath.cpp
+    ../AfxHookSource2/Filmmaker/Demo/DemoProjectPath.h
+    ../AfxHookSource2/Filmmaker/Demo/DemoProjectStore.cpp
+    ../AfxHookSource2/Filmmaker/Demo/DemoProjectStore.h
+    ../AfxHookSource2/Filmmaker/Demo/DemoProjectStoreMath.h
     ../AfxHookSource2/Filmmaker/Platform/JsonBuilder.cpp
     ../AfxHookSource2/Filmmaker/Platform/JsonBuilder.h
     ../AfxHookSource2/Filmmaker/Platform/JsonParser.cpp

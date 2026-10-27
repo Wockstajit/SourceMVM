@@ -340,8 +340,15 @@ while the demo plays and the demo stops paused on the last marker, where the gam
 view back. Freeze plays it on the wall clock with the demo held. With the demo bar's LOOP on, a path
 that ends plays again. Speed modes (Manual, Constant, Per-segment), the curve (Linear, Smooth) and
 per-marker ease are CS2's. While a path flies the view, presses neither look nor step players and a
-camera change stops it. Markers belong to the demo they were placed in; another demo starts with an
-empty path until paths are saved per demo.
+camera change stops it.
+
+Each demo keeps its own path, saved where CS2 saves its own: the `campath` section of the demo's
+`project.mvm` (`Demo/DemoProjectStore.h`, shared with CS2 and Deadlock), under
+`%APPDATA%\HLAE\source_mvm\demos\css\`. The project is keyed on the file the user played, so an old
+v34 demo's path belongs to the original, not to its converted copy. An edit is saved at the next
+frame (a drag once it ends); playing another demo saves the outgoing path and loads the new demo's,
+or starts empty. Checked on 2026-10-26: three markers, an ease and Freeze timing came back after
+quitting and relaunching CS:S, and after switching to another demo and back.
 
 Input that CS:S hands the window procedure on its second thread (it does while a demo restarts or
 seeks) runs on the main thread: the handlers decide on the spot and post their action
@@ -522,6 +529,12 @@ Limits:
   current client reads fog from a fog controller), the spread in bullet effects, the Dual Elites'
   firing side, the size and lifetime of entity flames, projected-texture colour, and the colour
   correction weight.
+
+Open: once on 2026-10-26, playing a converted demo straight after the self-recorded test demo, in
+a session that had played the converted demo before, crashed the game two ticks in, inside the
+engine's entity decoding (`engine.dll+0x18a298`, a property index with no decoder). Five more
+switches in both directions, in the same order, did not crash. It needs another repro before a cause
+can be named.
 
 ## Workspace UI
 
