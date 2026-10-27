@@ -1204,6 +1204,7 @@ void Frame() {
 		g.path.tick = (int)g.demo.tick;
 		StandInFollowFrame();
 		g.config.demo = g.demo.playing;
+		g.config.viewmodelChannel = true; // the game moves the gun (SourceViewModel.cpp)
 		// The stand-in demo's watched player holds an AK-47: the gun in shot for Weapon Recoil and the pivots.
 		g.config.wrLive = "weapon_ak47";
 		g.config.wrLiveType = "rifle";

@@ -792,10 +792,19 @@ their cards in the [Config workspace](#config-workspace).
   profile names the temp entity. With no footsteps, Weapon Bob's step sync keeps its own clock.
 - SourceTV sends no velocity for the watched player, so the body's speed is measured from its origin
   over the demo clock. Its flags give on the ground and ducking, as in CS2.
-- CS:S has no viewmodel channel yet, so Weapon Recoil and Weapon Bob cannot move the gun. Their
-  camera shares still move the view (Recoil's rotation share defaults to 20%, Bob's to 12%), and
-  turning either on says so. The magazine is not read, so every shot counts. The pivot orbs are not
-  drawn yet. The settings are not saved between sessions.
+- The gun moves as in CS2 (`Filmmaker/SourceViewModel.cpp`). CS2 shakes the eye before it builds
+  the viewmodel, so the gun rides the shake, and adds Weapon Recoil's and Weapon Bob's weapon motion
+  to the viewmodel's eye inputs. CS:S builds the viewmodel inside `CalcView`, before the view reaches
+  `SetupEngineView`, where HLAE's overrides and the shake run, so left alone the gun would sit where
+  the unshaken eye put it and never kick. The hook detours `C_BaseViewModel::CalcViewModelView`
+  (found by RTTI as the one slot that loads 0.1, its `ApplyShake(origin, angles, 0.1)`; slot 212 in
+  the 2026 x64 client). While a shake layer is on it holds the call back, and the view override
+  runs it once the shake is known: from the eye moved by the shake, less Handheld while its
+  viewmodel is decoupled, plus the weapon's kick. That is one call a frame from this frame's
+  numbers, as in CS2. A call no view override picked up is run at the next frame's start as the
+  game would have. `health` reports it on its `viewmodel:` line.
+- The magazine is not read, so every shot counts. The pivot orbs are not drawn yet. The settings
+  are not saved between sessions.
 - `health` shows the layers and the shot source on its `shakes:` line, for example
   `handheld on, recoil on, bob on; shots from CTEFireBullets (m_iPlayer +0x20), 41 shots`.
 
@@ -895,8 +904,6 @@ What the cards show is read from the modules each frame (`SourceConfig.cpp`), th
 `AppendStateJson` calls CS2's Config panel is built from, so a card says what CS2's says. What
 differs from CS2:
 
-- Decouple Viewmodel is disabled, and Weapon Recoil's and Weapon Bob's cards say only their camera
-  share shows, because CS:S has no viewmodel channel yet.
 - The PIVOT drawers' marker switch is disabled, because CS:S does not draw the pivot markers yet.
 - Smooth View has no Fisheye Lens row and RESET CAMERA leaves out the lens, the crosshair, the
   viewmodel and the shot FOV: those come with the [Lens](port-plan.md) step.

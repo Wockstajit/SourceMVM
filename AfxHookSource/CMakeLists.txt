@@ -188,6 +188,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceTimelinePlayhead.h
     Filmmaker/SourceUi.cpp
     Filmmaker/SourceUi.h
+    Filmmaker/SourceViewModel.cpp
+    Filmmaker/SourceViewModel.h
     Filmmaker/Ui/CameraEditorShell.cpp
     Filmmaker/Ui/CameraEditorShell.h
     Filmmaker/Ui/ConfigInspector.cpp

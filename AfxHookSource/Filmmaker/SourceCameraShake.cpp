@@ -6,7 +6,7 @@
 // round_start. So a shot comes from the profile's shot temp entity (TEFireBullets in CS:S), which the
 // game sends every client for each shot, for its sounds and tracers: the shooter is its m_iPlayer
 // plus one, the gun the shooter's active weapon. Footsteps have no source, so Weapon Bob's step sync
-// keeps its own clock. CS:S has no viewmodel hook yet, so Recoil and Bob move the camera only.
+// keeps its own clock. The gun moves through SourceViewModel.cpp's CalcViewModelView hook, as CS2's.
 // SourceTV sends no velocity for the watched player, so the body's speed is measured from its origin
 // over the demo clock.
 
@@ -19,6 +19,7 @@
 #include "SourceGameProfile.h"
 #include "SourceNetvars.h"
 #include "SourceSdk2013.h"
+#include "SourceViewModel.h"
 #include "Ui/DirectorMath.h"
 
 #include "AfxStreams.h"
@@ -30,6 +31,7 @@
 #include <AfxHookSource2/Filmmaker/Movie/CameraShakeHost.h>
 #include <AfxHookSource2/Filmmaker/Movie/CameraShakeStack.h>
 #include <AfxHookSource2/Filmmaker/Movie/FollowCamera.h>
+#include <AfxHookSource2/Filmmaker/Movie/FollowCameraMath.h>
 #include <AfxHookSource2/Filmmaker/Movie/HandheldCam.h>
 #include <AfxHookSource2/Filmmaker/Movie/WeaponBob.h>
 #include <AfxHookSource2/Filmmaker/Movie/WeaponRecoil.h>
@@ -243,11 +245,14 @@ bool ShakeHost_BodyAt(double x, double y, double z, double outVelocity[3], bool*
 }
 
 bool ShakeHost_EnsureWeaponChannel(const char** whyNot) {
-	if (whyNot) *whyNot = "CS:S has no viewmodel channel yet";
+	if (SourceFilmmaker::ViewModel_Installed()) return true;
+	if (whyNot) *whyNot = SourceFilmmaker::ViewModel_Status();
 	return false;
 }
 
-void ShakeHost_SetWeaponKick(double, double, double, double, double, double) {}
+void ShakeHost_SetWeaponKick(double x, double y, double z, double pitch, double yaw, double roll) {
+	SourceFilmmaker::ViewModel_SetWeaponKick(x, y, z, pitch, yaw, roll);
+}
 
 void ShakeHost_DrawPivotOrb(WeaponPivotOwner, bool, double, double, double, double) {}
 
@@ -302,7 +307,16 @@ void CameraShake_OnView(float& x, float& y, float& z, float& pitch, float& yaw, 
 	else if (cameraOverridden)
 		mode = CameraPath_OwnsView() ? Filmmaker::ShakeCamMode::CameraPath : Filmmaker::ShakeCamMode::FreeCam;
 	WrpGlobals* globals = g_Hook_VClient_RenderView.GetGlobals();
-	Filmmaker::CameraShake_Apply(globals ? globals->curtime_get() : 0.0, mode, x, y, z, pitch, yaw, roll, fov);
+	const float x0 = x, y0 = y, z0 = z, pitch0 = pitch, yaw0 = yaw, roll0 = roll;
+	Filmmaker::ShakePose decoupled; // Handheld's part, while its viewmodel is decoupled
+	Filmmaker::CameraShake_Apply(globals ? globals->curtime_get() : 0.0, mode, x, y, z, pitch, yaw, roll, fov, &decoupled);
+	// The gun rides the shake, as in CS2, where the shake moves the eye the viewmodel is built from;
+	// a decoupled Handheld's part is taken back out (CS2's camera compensation), in the pre-shake basis.
+	const Filmmaker::FollowVec3 comp = Filmmaker::FollowRotateVector(Filmmaker::FollowVec3{ decoupled.fwd, decoupled.right, decoupled.up },
+		Filmmaker::FollowAngles{ pitch0, yaw0, roll0 });
+	auto turn = [](double d) { return std::remainder(d, 360.0); };
+	ViewModel_SetCameraDelta(x - x0 - comp.x, y - y0 - comp.y, z - z0 - comp.z, turn(pitch - pitch0) - decoupled.pitch,
+		turn(yaw - yaw0) - decoupled.yaw, turn(roll - roll0) - decoupled.roll);
 }
 
 void CameraShake_PrintHealth() {

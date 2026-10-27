@@ -2,6 +2,7 @@
 
 #include "SourceConfig.h"
 #include "SourceEngine.h"
+#include "SourceViewModel.h"
 
 #include "WrpVEngineClient.h"
 
@@ -125,7 +126,7 @@ void Config_BuildModel(Ui::ConfigModel& m) {
 	m.hhWalk = String(root, "hhWalk", m.hhWalk);
 	m.hhRun = String(root, "hhRun", m.hhRun);
 	m.handheldDefault = Filmmaker::HandheldCamRef().SettingsAreDefault();
-	m.viewmodelChannel = false; // no viewmodel hook in CS:S yet (SourceCameraShake.cpp)
+	m.viewmodelChannel = ViewModel_Installed(); // the gun moves through SourceViewModel.cpp
 	m.pivotMarkers = false;     // nor a drawer for the pivot markers (ShakeHost_DrawPivotOrb)
 
 	m.wrOn = Bool(root, "wrOn", m.wrOn);

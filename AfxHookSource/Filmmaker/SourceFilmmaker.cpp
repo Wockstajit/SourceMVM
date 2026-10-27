@@ -9,6 +9,7 @@
 #include "SourceDemoIndex.h"
 #include "SourceCameraShake.h"
 #include "SourceDemoDeletions.h"
+#include "SourceViewModel.h"
 #include "SourceDemoSkip.h"
 #include "SourceDirector.h"
 #include "SourceEngine.h"
@@ -130,6 +131,7 @@ void PrintHealth() {
 	DemoSkip_PrintHealth();
 	DemoDeletions_PrintHealth();
 	CameraShake_PrintHealth();
+	ViewModel_PrintHealth();
 	if (!g_VEngineClient->IsInGame()) return;
 	Director_PrintHealth();
 	CameraPath_PrintHealth();
@@ -229,6 +231,7 @@ void OnViewOverride(float& tx, float& ty, float& tz, float& rx, float& ry, float
 		SmoothView_OnView(tx, ty, tz, rx, ry, rz, fov, cameraOverridden);
 	}
 	CameraShake_OnView(tx, ty, tz, rx, ry, rz, fov, followOwns, overriddenBefore); // rides on whatever has the view
+	ViewModel_OnView(); // the gun, from the eye the shake moved, with the weapon's kick
 	Filmmaker::CamPathShake_ApplyToView(tx, ty, tz, rx, ry, rz, fov, 0); // a camera path's keys' shakes, while it plays or scrubs
 	const double origin[3] = { tx, ty, tz }, angles[3] = { rx, ry, rz };
 	Ui_ViewRendered(origin, angles, fov); // the view as rendered: the path's markers drawn over it
@@ -236,12 +239,14 @@ void OnViewOverride(float& tx, float& ty, float& tz, float& rx, float& ry, float
 
 void OnFrameRenderStart() {
 	g_frameRenderStarts.fetch_add(1);
+	ViewModel_Frame(); // a viewmodel no view override built last frame
 	MainThread_Frame();
 	DemoIndex_Frame();
 	OldDemos_Frame();
 	DemoSkip_Init();
 	DemoDeletions_Init();
 	CameraShake_Init();
+	ViewModel_Init();
 	Entities_WatchFrame();
 	DemoBar_Frame();
 	CameraPath_Frame();
