@@ -6,6 +6,7 @@
 #include "SourceConsole.h"
 #include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
+#include "SourceDemoDeletions.h"
 #include "SourceDemoSkip.h"
 #include "SourceDirector.h"
 #include "SourceEngine.h"
@@ -118,6 +119,7 @@ void PrintHealth() {
 	DemoIndex_PrintHealth();
 	OldDemos_PrintHealth();
 	DemoSkip_PrintHealth();
+	DemoDeletions_PrintHealth();
 	if (!g_VEngineClient->IsInGame()) return;
 	Director_PrintHealth();
 	CameraPath_PrintHealth();
@@ -193,6 +195,7 @@ void Init() {
 	DemoIndex_Init();
 	OldDemos_Init();
 	DemoSkip_Init();
+	DemoDeletions_Init();
 }
 
 bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -220,6 +223,7 @@ void OnFrameRenderStart() {
 	DemoIndex_Frame();
 	OldDemos_Frame();
 	DemoSkip_Init();
+	DemoDeletions_Init();
 	Entities_WatchFrame();
 	DemoBar_Frame();
 	CameraPath_Frame();
@@ -243,6 +247,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		else SourceFilmmaker::Engine_PrintFields();
 	} else if (0 == _stricmp(sub, "entities") && argc >= 3 && 0 == _stricmp(args->ArgV(2), "watch")) {
 		SourceFilmmaker::Entities_Watch(argc >= 4 ? args->ArgV(3) : "off");
+	} else if (0 == _stricmp(sub, "entities") && argc >= 4 && 0 == _stricmp(args->ArgV(2), "releases")) {
+		SourceFilmmaker::Entities_WatchReleases(atoi(args->ArgV(3)));
 	} else if (0 == _stricmp(sub, "entities")) {
 		const bool all = argc >= 3 && 0 == _stricmp(args->ArgV(2), "all");
 		const int filterArg = all ? 3 : 2;

@@ -102,12 +102,11 @@ recorded the same way with money for grenades. Its second line is
 `bot_join_after_player 0;;bot_quota 10;;mp_startmoney 16000;;bot_allow_grenades 1;;mp_freezetime 6;;mp_roundtime 3;;spectate;;mp_restartgame 1`,
 and `tv_record mvm_css_nades` follows within three seconds, inside the freeze time, so no grenade
 is in the air when the recording starts. Round 1 has the throws the checks use: Yahn's HE at tick
-480, Norm's flashbang at 528, Erik's HE at 568 and Will's HE at 741. Two things stop playback,
-both open (see [port-plan.md](port-plan.md#known-follow-ups)). A recording that starts with
-grenades in the air stopped six seconds in, on `CL_PreserveExistingEntity: missing client entity
-93`, one of those grenades. `mvm_css_nades` stops at its second round start, tick 6396, on
-`missing client entity 71`, a Glock that had lain on the ground since the first tick. Both
-happen with the Camera Editor closed.
+480, Norm's flashbang at 528, Erik's HE at 568 and Will's HE at 741. Without the hook, the game
+stops `mvm_css_nades` at its second round start, tick 6396, and a recording that starts with
+grenades in the air six seconds in, both on `CL_PreserveExistingEntity: missing client entity`.
+The hook keeps them playing ([Entities a demo deletes while still sending
+them](#entities-a-demo-deletes-while-still-sending-them)).
 
 Demos recorded on CS:S before the Orange Box engine (network protocol 7, the "v34" era) play too:
 the hook converts them first. See [Old demos](#old-demos).
@@ -121,6 +120,7 @@ the hook converts them first. See [Old demos](#old-demos).
 | `mirv_filmmaker engine` | The networked fields the engine adapter resolved, with their offsets. `engine classes [filter]` lists the game's network class names |
 | `mirv_filmmaker entities [all] [class]` | One line per entity: index, handle, network class, origin, angles, team, and its links (owner, weapon owner, thrower, active weapon, ragdoll, the ragdoll's player). `all` includes dormant ones |
 | `mirv_filmmaker entities watch <class>\|eye\|off` | Logs (`mvm_debug`, `entities.watch`) each entity of a matching class the frame it appears and the frame it goes. `eye` logs the spectated player's view height in first person instead (`entities.eye`) |
+| `mirv_filmmaker entities releases <index>` | Logs (`mvm_debug`, `entities.release`) every deletion of an entity of that entity's class, with the entity and the three calls that led to it as module and offset: `engine.dll` for a demo packet that deletes it, `client.dll` for the client deleting it on its own. One class per game session |
 | `mirv_filmmaker editor on\|off\|toggle\|state` | The Camera Editor workspace. `state` reports the mouse mode, tabs, preview rect and fonts, and where each demo bar control is |
 | `mirv_filmmaker loop on\|off\|toggle\|state` | LOOP playback, as the demo bar's LOOP button does |
 | `mirv_filmmaker seek <tick>` | Go to a demo tick the way the demo bar does (back = restart, then forward) |
@@ -296,6 +296,40 @@ a scrubber click from 2336 to 4058 and one from 2776 back to 194; and the engine
 `demo_gototick 300` from 1349, which keeps the five bodies that are there from the start. After the
 seek to 600 the body of the tick-490 kill is in the entity list, in view, and on the ground 40
 ticks later.
+
+### Entities a demo deletes while still sending them
+
+A delta packet's entity updates end with a list of entities to delete, and the engine deletes each
+one (`CClientState::ReadDeletions`, `engine.dll+0xa3620`, then `CL_DeleteDLLEntity`). The SDK only
+asserts that a listed entity is not one the packet's new frame still sends; the x64 engine has no
+check. CS:S's SourceTV breaks that rule. In the grenade test demo, the packet at the second
+`round_start` (tick 6396) lists four `CWeaponGlock`s lying on the ground, and a fifth weapon, for
+deletion while the same frame keeps them. The engine deletes them, and the next packet, which keeps
+them unchanged, stops the game with `Host_Error: CL_PreserveExistingEntity: missing client entity
+71`. The same happens to a grenade in the air when a recording starts (entity 93, six seconds in) and
+to bodies and weapons later in a round. So any SourceTV demo longer than a round could stop. The game
+without the hook stops the same way: started directly, with a `.vdm` demo action playing the demo at
+4×, it ended on `missing client entity 71`. `mirv_filmmaker entities releases 71` showed who deleted
+the Glocks: `engine.dll`'s `CL_DeleteDLLEntity` (`+0x880b0`), called from `ReadDeletions`, not the
+client. The CS client mode's `round_start` handler releases only the hostage ragdolls it keeps
+itself (`g_HostageRagdolls`).
+
+The hook keeps those entities (`SourceDemoDeletions.cpp`). It wraps `ReadDeletions`, the
+`CClientState` virtual that passes `"ReadDeletions"` to `CL_DeleteDLLEntity`, found by that string
+so a game update that moves the slot is still found (`CClientState` slot 28 today). Before the list
+is read, it reads the list ahead from the packet: a set bit and an 11-bit index per entity. For an
+entity the new frame still sends (`CClientFrame::transmit_entity`), the client entity list's
+`GetClientNetworkable` answers null on that thread while the list is read, and `CL_DeleteDLLEntity`
+leaves an entity it cannot find alone. Every other deletion goes through unchanged. `health` shows
+it on its `deletions:` line, for example `entities a packet deletes while still sending them are kept
+(ReadDeletions: CClientState slot 28, engine.dll+0xa3620), 9 kept`, and `mvm_debug` logs each one
+under `demo.deletions`.
+
+Checked in CS:S on 2026-10-27, without an error: `mvm_css_nades` played at 4× from its start to its
+end (15036 ticks, both round starts), keeping nine entities; the recording that starts with grenades
+in the air played to its end, keeping entity 93 at tick 69 and 24 more; and in `mvm_css_nades`
+a `demo_gototick 6700` from the start, a `demo_gototick 3000` back and a `demo_gototick 9000`
+forward, each across the round start, all played on.
 
 ## Movie director
 

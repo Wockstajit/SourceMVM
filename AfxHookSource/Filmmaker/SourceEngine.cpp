@@ -12,6 +12,7 @@
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
 #include <Shared/AfxConsole.h>
+#include <Shared/AfxDetours.h>
 #include <Shared/FovScaling.h>
 
 #include <windows.h>
@@ -688,6 +689,67 @@ void Entities_WatchFrame() {
 		if (std::find(current.begin(), current.end(), s) == current.end())
 			Filmmaker::MvmDebugLog_Linef("entities.watch", "gone tick=%d index=%d handle=%08x", tick, s.first, s.second);
 	g_watch.seen.swap(current);
+}
+
+namespace {
+
+typedef void (*NetworkableReleaseFn)(void* networkable);
+NetworkableReleaseFn g_trueRelease = nullptr;
+void** g_releaseSlot = nullptr;
+
+// Who released an entity: the engine dropping it from a snapshot, or client code on its own. The
+// module and offset of the caller and the two calls above it.
+void LogRelease(void* networkable) {
+	int index = -1;
+	const int highest = HighestEntityIndex();
+	for (int i = 1; i <= highest; ++i)
+		if (CallPtr(EntityAt(i), Slot::Unknown_GetClientNetworkable) == networkable) { index = i; break; }
+	void* frames[3] = {};
+	const USHORT count = RtlCaptureStackBackTrace(2, 3, frames, nullptr);
+	char callers[256] = "";
+	size_t at = 0;
+	for (USHORT f = 0; f < count && at < sizeof(callers); ++f) {
+		HMODULE module = nullptr;
+		GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+			(LPCWSTR)frames[f], &module);
+		wchar_t path[MAX_PATH] = L"?";
+		if (module) GetModuleFileNameW(module, path, MAX_PATH);
+		const wchar_t* name = wcsrchr(path, L'\\');
+		at += (size_t)std::snprintf(callers + at, sizeof(callers) - at, " %ls+0x%llx", name ? name + 1 : path,
+			(unsigned long long)((uintptr_t)frames[f] - (uintptr_t)module));
+	}
+	Filmmaker::MvmDebugLog_Linef("entities.release", "tick=%d index=%d callers%s", Demo_State().tick, index, callers);
+}
+
+void HookedRelease(void* networkable) {
+	if (Filmmaker::MvmDebugLog_Active()) LogRelease(networkable);
+	g_trueRelease(networkable);
+}
+
+} // namespace
+
+void Entities_WatchReleases(int index) {
+	void* entity = EntityAt(index);
+	if (!entity) {
+		advancedfx::Message("entities releases: no entity %d\n", index);
+		return;
+	}
+	if (g_releaseSlot) {
+		advancedfx::Message("entities releases: already watching one class\n");
+		return;
+	}
+	void* networkable = CallPtr(entity, Slot::Unknown_GetClientNetworkable);
+	if (!networkable) {
+		advancedfx::Message("entities releases: entity %d has no networkable\n", index);
+		return;
+	}
+	g_releaseSlot = &(*(void***)networkable)[Slot::Networkable_Release];
+	if (!AfxDetourPtr((PVOID*)g_releaseSlot, (PVOID)&HookedRelease, (PVOID*)&g_trueRelease)) {
+		g_releaseSlot = nullptr;
+		advancedfx::Message("entities releases: could not wrap Release\n");
+		return;
+	}
+	advancedfx::Message("entities releases: logging every release of entity %d's class (mvm_debug entities.release)\n", index);
 }
 
 void Engine_PrintClasses(const char* filter) {

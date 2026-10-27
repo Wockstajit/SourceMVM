@@ -135,6 +135,11 @@ void Entities_Print(bool includeDormant, const char* classFilter);
 void Entities_Watch(const char* classFilter);
 void Entities_WatchFrame(); // main thread, once a frame
 
+// mirv_filmmaker entities releases <index>: logs (mvm_debug "entities.release") every Release of an
+// entity of that entity's class, with the index and the module and offset that called it. A snapshot
+// drops an entity through engine.dll; anything from client.dll is the client deleting it on its own.
+void Entities_WatchReleases(int index);
+
 // The local player's entity index (the demo's recorder during playback), or -1.
 int Players_LocalIndex();
 

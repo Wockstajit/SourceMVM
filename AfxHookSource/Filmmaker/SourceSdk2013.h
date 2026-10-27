@@ -97,7 +97,9 @@ const int EngineClient_GetPlayerInfo = 8;
 // ... GetGamestatsData 126, ServerCmdKeyValues 127, IsSkippingPlayback 128 (the 2013 SDK's list;
 // CS:S's client.dll calls it as [vtable + 0x400], measured 2026-10-27).
 const int EngineClient_IsSkippingPlayback = 128;
-// IClientEntityList (VClientEntityList003).
+// IClientEntityList (VClientEntityList003). The engine finds the entity it deletes through
+// GetClientNetworkable.
+const int EntityList_GetClientNetworkable = 0;
 const int EntityList_GetClientEntity = 3;
 const int EntityList_GetHighestEntityIndex = 6;
 // IHandleEntity: the destructor, SetRefEHandle, GetRefEHandle (which returns a reference: the
@@ -123,12 +125,27 @@ const int ModelInfo_GetStudiomodel = 28;
 // slot 10 returned the local player's view angles.
 const int Entity_GetAbsOrigin = 9;
 const int Entity_GetAbsAngles = 10;
-// IClientNetworkable.
+// IClientNetworkable. Release is how the engine deletes an entity a snapshot drops, and how client
+// code deletes one on its own.
+const int Networkable_Release = 1;
 const int Networkable_GetClientClass = 2;
 const int Networkable_IsDormant = 8;
 // IEngineVGui (VEngineVGui001): the destructor, GetPanel, IsGameUIVisible.
 const int EngineVGui_IsGameUIVisible = 2;
 } // namespace Slot
+
+// The engine's packet entity reading, measured in the x64 engine.dll on 2026-10-27 from
+// CClientState::ReadPreserveEnt and ReadDeletions. CEntityReadInfo: m_pTo, the frame being built, at
+// +0x18 and m_pBuf, the packet's bf_read, at +0x38. CClientFrame: transmit_entity, a bit per entity
+// the frame sends, at +0x10. bf_read: the data as 32-bit words at +0, its size in bits at +0xC and
+// the read position in bits at +0x10, read low bit first. A deleted entity's index is 11 bits.
+const int kReadInfoTo = 0x18;
+const int kReadInfoBuffer = 0x38;
+const int kFrameTransmitBits = 0x10;
+const int kBitReadData = 0x0;
+const int kBitReadSize = 0xC;
+const int kBitReadPosition = 0x10;
+const int kEdictIndexBits = 11;
 
 // studiohdr_t, as the MDL file holds it (CS:S's models are version 44): the model's name, the bone
 // count and the offset of the bone array, each mstudiobone_t 216 bytes with its name's offset (from

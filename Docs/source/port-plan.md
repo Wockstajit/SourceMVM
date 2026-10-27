@@ -166,6 +166,14 @@ hook, the game stopped the same way. With it, the bar's +5S, -5S, scrubber seeks
 Go To Event and typed `demo_gototick` seeks across the tick-490 kill all played on without an
 error in CS:S at 854x480.
 
+Demos that stopped in plain playback, fixed after step 11 (2026-10-27): the grenade test demo
+stopped at its second round start with `Host_Error: CL_PreserveExistingEntity: missing client
+entity 71`, and a recording that began with grenades in the air stopped six seconds in, on one of
+them. CS:S's SourceTV lists entities for deletion in a packet whose frame still sends them, and the
+engine deletes them ([README.md](README.md#entities-a-demo-deletes-while-still-sending-them)).
+Without the hook, the game stopped the same way. With it, both demos played to their ends, and seeks
+forward and back across the round start played on, all without an error.
+
 Step 17's death animations follow the CS2 pass in
 [filmmaker_death_animations.md](../features/filmmaker_death_animations.md): headless Blender on the
 CS:S player model, the clip tags ported, the ragdoll bodies mapped, and the match percentages
@@ -177,17 +185,6 @@ render view, cvars, material system, D3D9). A game without a profile runs that t
 best-effort. GoldSrc is a separate DLL (`AfxHookGoldSrc`) that reuses the engine-free code.
 
 ## Known follow-ups
-
-- Demos that stop in plain playback, found on 2026-10-27 with the grenade test demo
-  ([README.md](README.md#test-demo)). `mvm_css_nades` stops at its second `round_start` (tick
-  6396). In one frame the client drops about 100 entities; the map's own come straight back with
-  new serials, as a round restart re-creates them. A `CWeaponGlock` lying on the ground since the
-  first tick does not, and four ticks later the engine stops on `missing client entity 71`.
-  `mirv_filmmaker entities watch c` logged it. A recording that started with three HE grenades in
-  the air stopped six seconds in, on one of them (`missing client entity 93`). Both happen with
-  the Camera Editor closed. Neither is checked without the hook yet, and the client code that drops
-  them is not found yet. `mvm_css_tv` crosses no second round start, so any CS:S demo of more
-  than one round may stop the same way: this needs fixing before multi-round demos are usable.
 
 - Old demos: demos of network protocols other than 7 and 24 (one test demo used 17) are not
   converted. [README.md](README.md#old-demos) lists the values the converter cannot carry over.
