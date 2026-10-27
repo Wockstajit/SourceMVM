@@ -34,6 +34,8 @@ export const SHARED_HEADERS = [
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'RageShake.cpp'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'RageShake.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'RageShakeStyles.cpp'),
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'RecoilPivotMarkerMath.h'),
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'WeaponPivot.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Panorama', 'HudReadoutCadenceMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Panorama', 'InspectorWidthMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Deadlock', 'DeadlockOverlayMath.h'),

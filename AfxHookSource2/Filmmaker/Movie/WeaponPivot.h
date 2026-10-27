@@ -20,6 +20,7 @@
 // tested directly (Automation/tests/weapon-pivot-tests.cpp).
 
 #include <cstring>
+#include <iosfwd> // std::ostringstream is a typedef: it cannot be declared by hand
 #include <string>
 
 namespace advancedfx { class ICommandArgs; }
@@ -160,7 +161,7 @@ public:
 	std::string DebugStateJson() const;
 	// `prefix` keys the emitted fields ("pvr" / "pvb"), so both stores can write into the one
 	// CONFIG state object without colliding.
-	void AppendStateJson(class std::ostringstream& o, const char* prefix) const;
+	void AppendStateJson(std::ostringstream& o, const char* prefix) const;
 
 private:
 	WeaponPivotPoint m_all;

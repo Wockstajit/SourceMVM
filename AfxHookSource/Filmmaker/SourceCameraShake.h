@@ -6,6 +6,8 @@
 
 namespace SourceFilmmaker {
 
+namespace Ui { struct PathOverlayModel; }
+
 // Installs the shot listener (the profile's shot temp entity). Safe to call every frame; it retries
 // until the client classes are there.
 void CameraShake_Init();
@@ -17,6 +19,12 @@ void CameraShake_Frame();
 // follow camera has the view; cameraOverridden: HLAE's free camera or a camera path has it.
 void CameraShake_OnView(float& x, float& y, float& z, float& pitch, float& yaw, float& roll, float& fov,
 	bool followOwns, bool cameraOverridden);
+
+// The pivot markers the stack publishes each frame (ShakeHost_DrawPivotOrb), one per WeaponPivotOwner:
+// where to draw it and how big, or hidden.
+void CameraShake_SetPivotMarker(int owner, bool shown, double x, double y, double z, double radius);
+// Adds the shown ones to the world overlay (Ui/PathOverlay.h), in their owners' colours. True when one is.
+bool CameraShake_PivotMarkers(Ui::PathOverlayModel& model);
 
 // One line for mirv_filmmaker health.
 void CameraShake_PrintHealth();

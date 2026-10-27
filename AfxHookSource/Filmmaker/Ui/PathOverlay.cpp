@@ -22,6 +22,7 @@ constexpr double kCameraRadius = 18.0;       // c_CameraRadius
 constexpr float kTrajectoryWidth = 5.0f;     // c_MarkerTrajectoryPixelWidth
 constexpr float kEdgeWidth = 2.5f;           // c_MarkerEdgePixelWidth
 constexpr double kIndexSize = 18.0;          // CameraBridge_SetMarkerStyle's keyframe index size
+constexpr float kPivotWidth = 4.0f;          // c_CampathCrossPixelWidth, the pivot marker's circles
 const ImU32 kUnderline = IM_COL32(0, 0, 0, 150); // c_MarkerUnderline
 
 ImU32 Col(Rgb c, int alpha) { return IM_COL32(c.r, c.g, c.b, alpha); }
@@ -209,7 +210,9 @@ void Index(ImDrawList& list, const Viewer& v, Vec at, int index, ImFont* font) {
 } // namespace
 
 void DrawPathOverlay(ImDrawList& list, const PathOverlayModel& model, const PathOverlayView& view, ImFont* digits) {
-	if ((model.markers.empty() && !model.followCamera && !model.targetBox) || !(view.width > 0) || !(view.height > 0)) return;
+	if ((model.markers.empty() && !model.followCamera && !model.targetBox && model.pivots.empty()) || !(view.width > 0)
+		|| !(view.height > 0))
+		return;
 	if (!(view.fov > 1.0 && view.fov < 179.0)) return;
 
 	Viewer v;
@@ -256,6 +259,26 @@ void DrawPathOverlay(ImDrawList& list, const PathOverlayModel& model, const Path
 			{ c[0], c[4] }, { c[1], c[5] }, { c[2], c[6] }, { c[3], c[7] },
 		};
 		Edges(list, v, edges, 12, Col(kFollowTarget, 230), kEdgeWidth * 0.8f);
+	}
+	// The weapon pivots (CampathDrawer.cpp's pivot marker): three world-axis great circles of 24
+	// segments, a wide faint pass under a thin bright one, over everything else.
+	static const struct { float widthMul; int alpha; } kPivotGlow[] = { { 3.0f, 40 }, { 1.0f, 210 } };
+	for (const PathOverlayPivot& p : model.pivots) {
+		if (!(p.radius > 0)) continue;
+		for (const auto& pass : kPivotGlow) {
+			const ImU32 colour = IM_COL32(p.rgb[0], p.rgb[1], p.rgb[2], pass.alpha);
+			for (int axis = 0; axis < 3; ++axis)
+				for (int seg = 0; seg < 24; ++seg) {
+					const double a0 = 2.0 * kPi * seg / 24, a1 = 2.0 * kPi * (seg + 1) / 24;
+					const double c0 = std::cos(a0) * p.radius, s0 = std::sin(a0) * p.radius;
+					const double c1 = std::cos(a1) * p.radius, s1 = std::sin(a1) * p.radius;
+					Vec q0 = V(p.pos), q1 = V(p.pos);
+					if (axis == 0) { q0.x += c0; q0.y += s0; q1.x += c1; q1.y += s1; }
+					else if (axis == 1) { q0.x += c0; q0.z += s0; q1.x += c1; q1.z += s1; }
+					else { q0.y += c0; q0.z += s0; q1.y += c1; q1.z += s1; }
+					Line(list, v, q0, q1, colour, kPivotWidth * pass.widthMul);
+				}
+		}
 	}
 }
 

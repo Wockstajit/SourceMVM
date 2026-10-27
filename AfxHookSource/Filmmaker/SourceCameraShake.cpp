@@ -21,6 +21,7 @@
 #include "SourceSdk2013.h"
 #include "SourceViewModel.h"
 #include "Ui/DirectorMath.h"
+#include "Ui/PathOverlay.h"
 
 #include "AfxStreams.h"
 #include "RenderView.h"
@@ -136,6 +137,14 @@ bool g_done = false;
 int g_tries = 0;
 std::string g_status = "not installed yet";
 unsigned long long g_shots = 0;
+
+// The pivot markers (ShakeHost_DrawPivotOrb), per WeaponPivotOwner.
+struct PivotMarker {
+	bool shown = false;
+	double pos[3] = { 0, 0, 0 };
+	double radius = 0;
+};
+PivotMarker g_pivots[Filmmaker::kWeaponPivotOwnerCount];
 
 // The temp entity's object (its IClientUnknown) and the shooter field in it. Guarded.
 int ReadShooter(void* networkable) {
@@ -254,7 +263,9 @@ void ShakeHost_SetWeaponKick(double x, double y, double z, double pitch, double 
 	SourceFilmmaker::ViewModel_SetWeaponKick(x, y, z, pitch, yaw, roll);
 }
 
-void ShakeHost_DrawPivotOrb(WeaponPivotOwner, bool, double, double, double, double) {}
+void ShakeHost_DrawPivotOrb(WeaponPivotOwner owner, bool enabled, double x, double y, double z, double radius) {
+	SourceFilmmaker::CameraShake_SetPivotMarker((int)owner, enabled && radius > 0.0, x, y, z, radius);
+}
 
 bool ShakeHost_OverlaysHidden() { return SourceFilmmaker::Director_State().blackout; }
 
@@ -317,6 +328,34 @@ void CameraShake_OnView(float& x, float& y, float& z, float& pitch, float& yaw, 
 	auto turn = [](double d) { return std::remainder(d, 360.0); };
 	ViewModel_SetCameraDelta(x - x0 - comp.x, y - y0 - comp.y, z - z0 - comp.z, turn(pitch - pitch0) - decoupled.pitch,
 		turn(yaw - yaw0) - decoupled.yaw, turn(roll - roll0) - decoupled.roll);
+}
+
+void CameraShake_SetPivotMarker(int owner, bool shown, double x, double y, double z, double radius) {
+	if (owner < 0 || owner >= Filmmaker::kWeaponPivotOwnerCount) return;
+	PivotMarker& m = g_pivots[owner];
+	m.shown = shown;
+	m.pos[0] = x;
+	m.pos[1] = y;
+	m.pos[2] = z;
+	m.radius = radius;
+}
+
+bool CameraShake_PivotMarkers(Ui::PathOverlayModel& model) {
+	bool any = false;
+	for (int owner = 0; owner < Filmmaker::kWeaponPivotOwnerCount; ++owner) {
+		const PivotMarker& m = g_pivots[owner];
+		if (!m.shown) continue;
+		Ui::PathOverlayPivot p;
+		for (int i = 0; i < 3; ++i) p.pos[i] = m.pos[i];
+		p.radius = m.radius;
+		const Filmmaker::WeaponPivotColour c = Filmmaker::WeaponPivotOwnerColour((Filmmaker::WeaponPivotOwner)owner);
+		p.rgb[0] = c.r;
+		p.rgb[1] = c.g;
+		p.rgb[2] = c.b;
+		model.pivots.push_back(p);
+		any = true;
+	}
+	return any;
 }
 
 void CameraShake_PrintHealth() {

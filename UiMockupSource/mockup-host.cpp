@@ -33,6 +33,8 @@
 #include "../AfxHookSource2/Filmmaker/Movie/CamMarkers.h"
 #include "../AfxHookSource2/Filmmaker/Movie/GraphExpModel.h"
 #include "../AfxHookSource2/Filmmaker/Movie/RageShake.h"
+#include "../AfxHookSource2/Filmmaker/Movie/RecoilPivotMarkerMath.h"
+#include "../AfxHookSource2/Filmmaker/Movie/WeaponPivot.h"
 #include "../AfxHookSource2/Filmmaker/Panorama/HudReadoutCadenceMath.h"
 
 #include <imgui.h>
@@ -462,11 +464,38 @@ bool StandInFollowAids(PathOverlayModel& model) {
 
 bool StandInWorldShown() {
 	PathOverlayModel aids;
-	return g.pathOn || StandInFollowAids(aids);
+	return g.pathOn || StandInFollowAids(aids) || (g.config.pvr.orb && g.config.wrOn) || (g.config.pvb.orb && g.config.wbOn);
 }
 
 // The path over the game frame in r, as the game lays it over the whole back buffer before its
 // letterbox scales the frame into the preview.
+// The weapon pivots' markers the Config cards' eye switches show (CS2's RecoilPivotMarker): at the
+// stand-in rifle's hinge in front of the stand-in camera, slid out past the near plane with the game's
+// own math, while the effect is on.
+void StandInPivots(PathOverlayModel& model, const PathOverlayView& view) {
+	const double kDeg = 3.14159265358979323846 / 180.0;
+	const double p = view.angles[0] * kDeg, y = view.angles[1] * kDeg;
+	const double fwd[3] = { std::cos(p) * std::cos(y), std::cos(p) * std::sin(y), -std::sin(p) };
+	const double right[3] = { std::sin(y), -std::cos(y), 0 };
+	const double up[3] = { std::sin(p) * std::cos(y), std::sin(p) * std::sin(y), std::cos(p) };
+	for (int owner = 0; owner < 2; ++owner) {
+		const ConfigPivot& pv = owner == 0 ? g.config.pvr : g.config.pvb;
+		if (!pv.orb || !(owner == 0 ? g.config.wrOn : g.config.wbOn)) continue;
+		const double* h = pv.hinge[1]; // the rifle's
+		const Filmmaker::RecoilPivotDrawPoint place =
+			Filmmaker::RecoilPivotPlaceMarker(h[0], h[1], h[2], Filmmaker::kRecoilPivotMarkerRadius);
+		if (!place.visible) continue;
+		PathOverlayPivot m;
+		for (int i = 0; i < 3; ++i) m.pos[i] = view.origin[i] + fwd[i] * place.fwd + right[i] * place.right + up[i] * place.up;
+		m.radius = place.radius;
+		const Filmmaker::WeaponPivotColour c = Filmmaker::WeaponPivotOwnerColour((Filmmaker::WeaponPivotOwner)owner);
+		m.rgb[0] = c.r;
+		m.rgb[1] = c.g;
+		m.rgb[2] = c.b;
+		model.pivots.push_back(m);
+	}
+}
+
 void DrawStandInPath(ImDrawList& list, const Rect& r, ImFont* digits) {
 	PathOverlayView view;
 	view.origin[2] = 64;
@@ -478,6 +507,7 @@ void DrawStandInPath(ImDrawList& list, const Rect& r, ImFont* digits) {
 	const int first = list.VtxBuffer.Size;
 	PathOverlayModel model = g.pathOn ? StandInPath() : PathOverlayModel();
 	StandInFollowAids(model);
+	StandInPivots(model, view);
 	DrawPathOverlay(list, model, view, digits);
 	const float sx = r.W() / view.width, sy = r.H() / view.height;
 	for (int i = first; i < list.VtxBuffer.Size; ++i) {
@@ -955,6 +985,11 @@ void StandInConfigCommand(const std::string& command) {
 				m.wrPresets.erase(at);
 			}
 		}
+	} else if (module == "pivotorb" && t.size() > 3) {
+		ConfigPivot& pv = t[2] == "bob" ? m.pvb : m.pvr;
+		if (t[3] == "toggle") pv.orb = !pv.orb;
+		else if (t[3] == "on") pv.orb = true;
+		else if (t[3] == "off") pv.orb = false;
 	} else if (module == "pivot" && t.size() > 3) {
 		ConfigPivot& pv = t[2] == "bob" ? m.pvb : m.pvr;
 		static const char* const kScopes[8] = { "all", "rifle", "smg", "pistol", "shotgun", "sniper", "knife", "utility" };
@@ -1207,6 +1242,7 @@ void Frame() {
 		StandInFollowFrame();
 		g.config.demo = g.demo.playing;
 		g.config.viewmodelChannel = true; // the game moves the gun (SourceViewModel.cpp)
+		g.config.pivotMarkers = true;     // and draws the pivot markers
 		// The stand-in demo's watched player holds an AK-47: the gun in shot for Weapon Recoil and the pivots.
 		g.config.wrLive = "weapon_ak47";
 		g.config.wrLiveType = "rifle";

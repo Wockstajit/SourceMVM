@@ -129,7 +129,7 @@ void Config_BuildModel(Ui::ConfigModel& m) {
 	m.hhRun = String(root, "hhRun", m.hhRun);
 	m.handheldDefault = Filmmaker::HandheldCamRef().SettingsAreDefault();
 	m.viewmodelChannel = ViewModel_Installed(); // the gun moves through SourceViewModel.cpp
-	m.pivotMarkers = false;     // nor a drawer for the pivot markers (ShakeHost_DrawPivotOrb)
+	m.pivotMarkers = true;      // drawn in the world overlay (SourceCameraShake.cpp, Ui/PathOverlay.h)
 
 	m.wrOn = Bool(root, "wrOn", m.wrOn);
 	m.wrAmount = Number(root, "wrAmount", m.wrAmount);

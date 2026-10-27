@@ -803,8 +803,16 @@ their cards in the [Config workspace](#config-workspace).
   viewmodel is decoupled, plus the weapon's kick. That is one call a frame from this frame's
   numbers, as in CS2. A call no view override picked up is run at the next frame's start as the
   game would have. `health` reports it on its `viewmodel:` line.
-- The magazine is not read, so every shot counts. The pivot orbs are not drawn yet. The settings
-  are [saved between sessions](#saved-settings).
+- The pivot markers (`pivotorb recoil|bob`, or the PIVOT drawers' eye) show where Weapon Recoil and
+  Weapon Bob hinge the gun. Each is CS2's wireframe sphere of three world-axis circles, with a faint
+  wide pass under a bright thin one, amber for recoil and cyan for bob, at the point and size the
+  shake stack publishes after its near-plane escape. CS2 draws it with depth testing off so the
+  viewmodel cannot bury it. CS:S draws it in the same world overlay as the camera path (projected
+  with the rendered view and laid over the frame), which comes to the same thing. A hinge low on
+  the gun can sit below the frame: a pistol's (4 forward, 3.5 down) lands about 41 degrees under
+  the view axis, as it does in CS2.
+- The magazine is not read, so every shot counts. The settings are
+  [saved between sessions](#saved-settings).
 - `health` shows the layers and the shot source on its `shakes:` line, for example
   `handheld on, recoil on, bob on; shots from CTEFireBullets (m_iPlayer +0x20), 41 shots`.
 
@@ -904,7 +912,6 @@ What the cards show is read from the modules each frame (`SourceConfig.cpp`), th
 `AppendStateJson` calls CS2's Config panel is built from, so a card says what CS2's says. What
 differs from CS2:
 
-- The PIVOT drawers' marker switch is disabled, because CS:S does not draw the pivot markers yet.
 - Smooth View has no Fisheye Lens row and RESET CAMERA leaves out the lens, the crosshair, the
   viewmodel and the shot FOV: those come with the [Lens](port-plan.md) step.
 - VIEWMODEL, the lens cards, the other tabs, the search box and the GAME UI chip are not there yet,
