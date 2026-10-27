@@ -44,6 +44,9 @@ const GameProfile kGeneric = {
 	nullptr,
 	nullptr,
 	0.0,
+	nullptr,
+	nullptr,
+	nullptr,
 };
 
 } // namespace

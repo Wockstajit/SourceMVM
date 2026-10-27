@@ -112,10 +112,10 @@ void WeaponRecoil::SetEnabled(bool on) {
 	// The transform rides on the CalcViewModelView input detour; install it up front so the
 	// first shot does not race the lazy install. A pattern miss warns inside and the feature
 	// degrades to nothing rather than crashing.
-	if (on && !ShakeHost_EnsureWeaponChannel())
+	const char* whyNot = "";
+	if (on && !ShakeHost_EnsureWeaponChannel(&whyNot))
 		advancedfx::Warning(
-			"mirv_filmmaker: weapon recoil could not install the viewmodel hook "
-			"(CalcViewModelView caller not resolved) -- the gun will not move.\n");
+			"mirv_filmmaker: weapon recoil cannot move the gun: %s. Its camera share still kicks the view.\n", whyNot);
 }
 
 // Every knob writes the SELECTED scope. EditTuning() materialises its override on this first

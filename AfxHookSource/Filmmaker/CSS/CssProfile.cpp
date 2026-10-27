@@ -101,6 +101,11 @@ const GameProfile kCss = {
 	"DT_BaseCSGrenadeProjectile",
 	"m_vInitialVelocity",
 	0.4,
+	// TE_FireBullets: the server sends it to every client for each shot (cs_player.cpp), the
+	// shooter in m_iPlayer as the entity index less one.
+	"CTEFireBullets",
+	"DT_TEFireBullets",
+	"m_iPlayer",
 };
 
 } // namespace

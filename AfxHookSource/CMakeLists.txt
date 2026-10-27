@@ -154,6 +154,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceDemoIndex.h
     Filmmaker/SourceDemoMarkers.cpp
     Filmmaker/SourceDemoMarkers.h
+    Filmmaker/SourceCameraShake.cpp
+    Filmmaker/SourceCameraShake.h
     Filmmaker/SourceDemoDeletions.cpp
     Filmmaker/SourceDemoDeletions.h
     Filmmaker/SourceDemoSkip.cpp
@@ -248,6 +250,13 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Platform/JsonParser.h
     ../AfxHookSource2/Filmmaker/Platform/TextEncoding.cpp
     ../AfxHookSource2/Filmmaker/Platform/TextEncoding.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraCenterLockMath.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraShakeHost.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraShakePhaseClockMath.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraShakeStack.cpp
+    ../AfxHookSource2/Filmmaker/Movie/CameraShakeStack.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraShakeTrackerMath.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraShakeTypes.h
     ../AfxHookSource2/Filmmaker/Movie/CamMarkerPickMath.h
     ../AfxHookSource2/Filmmaker/Movie/CamMarkers.cpp
     ../AfxHookSource2/Filmmaker/Movie/CamMarkers.h
@@ -270,12 +279,30 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Movie/GraphCurveMath.h
     ../AfxHookSource2/Filmmaker/Movie/GraphExpModel.cpp
     ../AfxHookSource2/Filmmaker/Movie/GraphExpModel.h
+    ../AfxHookSource2/Filmmaker/Movie/GunWeaponMath.h
+    ../AfxHookSource2/Filmmaker/Movie/HandheldCam.cpp
+    ../AfxHookSource2/Filmmaker/Movie/HandheldCam.h
+    ../AfxHookSource2/Filmmaker/Movie/HandheldCamCurves.cpp
+    ../AfxHookSource2/Filmmaker/Movie/RecoilPivotMarker.cpp
+    ../AfxHookSource2/Filmmaker/Movie/RecoilPivotMarker.h
+    ../AfxHookSource2/Filmmaker/Movie/RecoilPivotMarkerMath.h
     ../AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h
     ../AfxHookSource2/Filmmaker/Movie/SmoothView.cpp
     ../AfxHookSource2/Filmmaker/Movie/SmoothView.h
     ../AfxHookSource2/Filmmaker/Movie/SmoothViewAirMotionMath.h
     ../AfxHookSource2/Filmmaker/Movie/SmoothViewHost.h
     ../AfxHookSource2/Filmmaker/Movie/SmoothViewTiltMath.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponBob.cpp
+    ../AfxHookSource2/Filmmaker/Movie/WeaponBob.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponBobMath.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponPivot.cpp
+    ../AfxHookSource2/Filmmaker/Movie/WeaponPivot.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponRecoil.cpp
+    ../AfxHookSource2/Filmmaker/Movie/WeaponRecoil.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponRecoilMath.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponRecoilPresets.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponRecoilScope.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponRecoilStyles.h
     Gui.cpp
     Gui.h
     hlaeFolder.cpp

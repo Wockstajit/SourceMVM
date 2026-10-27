@@ -40,9 +40,9 @@ int ShakeHost_SpectatedClip(int* outWeaponIndex);
 bool ShakeHost_BodyAt(double x, double y, double z, double outVelocity[3], bool* outOnGround, bool* outDucking);
 
 // The gun's own transform channel, which Weapon Recoil and Weapon Bob move the viewmodel through.
-// Ensure installs it and returns false when the game has none; the layers then move the camera
-// only.
-bool ShakeHost_EnsureWeaponChannel();
+// Ensure installs it and returns false when the game has none, with why in whyNot; the layers then
+// move the camera only.
+bool ShakeHost_EnsureWeaponChannel(const char** whyNot);
 void ShakeHost_SetWeaponKick(double x, double y, double z, double pitch, double yaw, double roll);
 
 // Draws a pivot orb in the world in its owner's colour (WeaponPivotOwnerColour), or hides it.

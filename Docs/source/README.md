@@ -765,6 +765,45 @@ air at tick 760, the Target list held all four throws, Will's as the active proj
 wraps onto three lines at 480p, and the list grows to show them whole. Before, a list of wrapped
 rows ended a line short, because it laid them out a scrollbar narrower than it measured them.
 
+## Camera shakes
+
+CS2's camera shake layers run in CS:S from the same code: Handheld, Weapon Recoil and Weapon Bob,
+the weapon pivots and the stack that tracks the view and sums them
+(`AfxHookSource2/Filmmaker/Movie/CameraShakeStack.cpp`; [filmmaker_camera_shake.md](../features/filmmaker_camera_shake.md)).
+What the stack asks the game goes through `CameraShakeHost.h`, which `Filmmaker/SourceCameraShake.cpp`
+answers. So far they run from the console, with CS2's commands: `mirv_filmmaker handheld`,
+`weaponrecoil`, `weaponbob`, `pivot`, `pivotorb` and `camshake`.
+
+- The shake rides on whatever has the view, after the follow camera and Smooth View, with CS2's
+  gate: the game's own view (first person, or SourceTV's camera) and an attached follow camera are
+  shaken, and HLAE's free camera, a camera path and a placed Lock-on camera are not.
+- The watched player is the one SourceTV's camera follows in first person. Its gun's class name is
+  made from the network class, as CS2's recoil table and gun test read it: `CWeaponM4A1` and `CAK47`
+  are `weapon_m4a1` and `weapon_ak47`. The recoil table has CS:S's own guns too (scout, SG 550,
+  SG 552, M3, TMP, P228), tuned as their CS2 counterparts.
+- CS:S's SourceTV demos carry no `weapon_fire` or `player_footstep` event. A 10-bot SourceTV demo
+  held only `hltv_status`, `player_death`, `bomb_planted`, `round_end` and `round_start`. So a shot
+  comes from the `TEFireBullets` temp entity the game sends every client for each shot, for its
+  sounds and tracers. The hook wraps that class's `PostDataUpdate` (`IClientNetworkable` slot 7). The
+  shooter is its `m_iPlayer` (+0x20) plus one, and the gun is the shooter's active weapon. The game
+  profile names the temp entity. With no footsteps, Weapon Bob's step sync keeps its own clock.
+- SourceTV sends no velocity for the watched player, so the body's speed is measured from its origin
+  over the demo clock. Its flags give on the ground and ducking, as in CS2.
+- CS:S has no viewmodel channel yet, so Weapon Recoil and Weapon Bob cannot move the gun. Their
+  camera shares still move the view (Recoil's rotation share defaults to 20%, Bob's to 12%), and
+  turning either on says so. The magazine is not read, so every shot counts. The pivot orbs are not
+  drawn yet. The settings are not saved between sessions.
+- `health` shows the layers and the shot source on its `shakes:` line, for example
+  `handheld on, recoil on, bob on; shots from CTEFireBullets (m_iPlayer +0x20), 41 shots`.
+
+Checked in CS:S on 2026-10-27 in the grenade test demo. With all three layers on and SourceTV in
+first person, the stack tracked the view as a POV, the rendered view drew off the game's by about
+half a unit and a degree of yaw with a degree of roll, and the shot hook saw round 1's 41 shots, each
+named with its gun (TMP, M4A1, SG 552, Galil, AWP). It sent the watched player's AWP shot to recoil
+and counted the other 38 as other players'. A Test Shot on the paused demo kicked the camera about
+1.0° up, 0.7° sideways and 2.4° in roll, settling over about 60 frames. With HLAE's free camera on,
+the stack's gate turned the shake off, and with the follow camera attached it shook as Attach.
+
 ## Old demos
 
 Most classic CS:S movie demos were recorded before the Orange Box engine update, on the "v34"

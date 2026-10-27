@@ -129,6 +129,8 @@ const int Entity_GetAbsAngles = 10;
 // code deletes one on its own.
 const int Networkable_Release = 1;
 const int Networkable_GetClientClass = 2;
+// After the engine unpacks an entity's fields; a temp entity gets it once per event.
+const int Networkable_PostDataUpdate = 7;
 const int Networkable_IsDormant = 8;
 // IEngineVGui (VEngineVGui001): the destructor, GetPanel, IsGameUIVisible.
 const int EngineVGui_IsGameUIVisible = 2;

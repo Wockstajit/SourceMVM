@@ -264,7 +264,11 @@ bool ShakeHost_BodyAt(double x, double y, double z, double outVelocity[3], bool*
 	}
 }
 
-bool ShakeHost_EnsureWeaponChannel() { return ViewFxVm_EnsureCameraCompensationHook(); }
+bool ShakeHost_EnsureWeaponChannel(const char** whyNot) {
+	if (ViewFxVm_EnsureCameraCompensationHook()) return true;
+	if (whyNot) *whyNot = "the viewmodel hook could not install (CalcViewModelView caller not resolved); it retries while enabled";
+	return false;
+}
 
 void ShakeHost_SetWeaponKick(double x, double y, double z, double pitch, double yaw, double roll) {
 	ViewFxVm_SetWeaponKick(x, y, z, pitch, yaw, roll);

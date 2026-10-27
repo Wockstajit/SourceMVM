@@ -39,6 +39,12 @@ struct GameProfile {
 	const char* grenadeLaunchTable;
 	const char* grenadeLaunchProp;
 	double grenadeGravity;
+	// The temp entity the game sends for every shot, and its field naming the shooter (the entity
+	// index less one). The camera shake layers' Weapon Recoil fires from it, because SourceTV demos
+	// carry no weapon_fire event. Null when the game has none.
+	const char* shotTempEntityClass;
+	const char* shotTempEntityTable;
+	const char* shotTempEntityPlayerProp;
 };
 
 // The profile for the running game, chosen from the detected Source SDK version.

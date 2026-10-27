@@ -79,10 +79,10 @@ void WeaponBob::SetEnabled(bool on) {
 	// move at all, while the camera share (which writes the view directly) and the pivot marker
 	// (published by the stack) both moved -- exactly the "pivot moves but the gun does not"
 	// report. Reported live 2026-09-04.
-	if (on && !ShakeHost_EnsureWeaponChannel())
+	const char* whyNot = "";
+	if (on && !ShakeHost_EnsureWeaponChannel(&whyNot))
 		advancedfx::Warning(
-			"mirv_filmmaker: weapon bob could not install the viewmodel hook "
-			"(CalcViewModelView caller not resolved) -- the gun will not move.\n");
+			"mirv_filmmaker: weapon bob cannot move the gun: %s. Its camera share still moves the view.\n", whyNot);
 }
 
 void WeaponBob::ResetSettings() {
