@@ -964,6 +964,8 @@ void StandInConfigCommand(const std::string& command) {
 				if (t[4] == kScopes[i]) pv.hinge[i][t[5] == "fwd" ? 0 : (t[5] == "right" ? 1 : 2)] = std::clamp(std::atof(t[6].c_str()), -30.0, 30.0);
 			pv.atDefault = false;
 		}
+	} else if (module == "effects" && a == "keep" && t.size() > 4) {
+		m.keepCamera = t[4] == "on" || (t[4] == "toggle" && !m.keepCamera);
 	} else if (module == "effects" && a == "reset") {
 		resetSmoothView();
 		resetHandheld();

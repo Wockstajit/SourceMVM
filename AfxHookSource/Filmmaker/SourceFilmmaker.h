@@ -12,6 +12,9 @@ namespace SourceFilmmaker {
 // Once the engine interfaces exist (MySetup).
 void Init();
 
+// When the client shuts down: the settings reach their file.
+void Shutdown();
+
 // From the hook's window procedure, for every message. Returns true when the message was ours.
 bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 

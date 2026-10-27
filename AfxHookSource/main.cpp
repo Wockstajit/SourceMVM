@@ -1344,6 +1344,8 @@ void CAfxBaseClientDll::Shutdown(void)
 	AfxInterop::Shutdown();
 #endif
 
+	SourceFilmmaker::Shutdown(); // SOURCE:MVM
+
 	Shared_Shutdown();
 
 	m_Parent->Shutdown();

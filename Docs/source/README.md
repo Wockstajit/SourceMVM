@@ -426,7 +426,7 @@ moves its client clock every frame rather than every tick, so that measurement i
 `mirv_filmmaker smoothview` takes CS2's subcommands: `on`, `off`, `toggle`, `state`, `reset`,
 `breathX`, `breathY`, `standAmp`, `walkAmp`, `runAmp`, `tiltEnabled`, `tilt`, `tiltSpeed`,
 `tiltInv`, `falling`, `jumping`, `healthSway`. Its card is in the [Config workspace](#config-workspace).
-The settings are not saved between sessions yet.
+The settings are [saved between sessions](#saved-settings).
 
 Checked in CS:S on 2026-10-26 in the SourceTV test demo: with it on, the rendered view drew away
 from the game's by fractions of a degree, with up to a degree of roll in strafes, and breathing at
@@ -633,8 +633,8 @@ workspace. Tips show after the pointer rests 2 s. The camera path's shake rows a
 [Path shake](#path-shake). CS2's
 frame cache and render range are steps 13 and 14, so Cache is disabled and the footer says the whole
 demo. The toolbar's CAM EDITOR and CONFIG buttons swap workspaces, the open one lit, and are left out
-when the dock is too narrow for them beside the tabs. The window, snap and the rows' state are not kept between sessions,
-because CS:S has no settings store yet. CS2 clamps a typed camera value to the GRAPH's display
+when the dock is too narrow for them beside the tabs. The window, snap and the rows' state are not kept between sessions:
+the [settings store](#saved-settings) holds only the camera feel so far. CS2 clamps a typed camera value to the GRAPH's display
 range around the channel's keys, so 500 typed into an unkeyed X lands near 32; the CS:S dock keys
 what was typed.
 
@@ -804,7 +804,7 @@ their cards in the [Config workspace](#config-workspace).
   numbers, as in CS2. A call no view override picked up is run at the next frame's start as the
   game would have. `health` reports it on its `viewmodel:` line.
 - The magazine is not read, so every shot counts. The pivot orbs are not drawn yet. The settings
-  are not saved between sessions.
+  are [saved between sessions](#saved-settings).
 - `health` shows the layers and the shot source on its `shakes:` line, for example
   `handheld on, recoil on, bob on; shots from CTEFireBullets (m_iPlayer +0x20), 41 shots`.
 
@@ -907,10 +907,33 @@ differs from CS2:
 - The PIVOT drawers' marker switch is disabled, because CS:S does not draw the pivot markers yet.
 - Smooth View has no Fisheye Lens row and RESET CAMERA leaves out the lens, the crosshair, the
   viewmodel and the shot FOV: those come with the [Lens](port-plan.md) step.
-- VIEWMODEL, the lens cards, the other tabs, the search box, the GAME UI chip and Keep between
-  demos are not there yet, and the settings are not saved between sessions.
+- VIEWMODEL, the lens cards, the other tabs, the search box and the GAME UI chip are not there yet,
+  and the selected card and the PIVOT drawers' open state are not saved.
 
 `mvm_debug` logs each command the cards send (`config.ui`) and each workspace change (`ui.editor`).
+
+### Saved settings
+
+The camera feel is kept between sessions, as CS2 keeps it: Smooth View, Handheld Camera, Weapon
+Recoil with its presets, and Weapon Bob, with Keep between demos. They go to
+`%APPDATA%\HLAE\filmmaker_settings_source1.json` (`Filmmaker/SourceSettings.cpp`). It is a file of
+its own because CS2's store rewrites `filmmaker_settings.json` from its own modules, and the two would
+drop each other's settings. Both games write and read the four groups through the same code
+(`AfxHookSource2/Filmmaker/Config/CameraFeelSettings.cpp`), so a group looks the same in either
+file.
+
+As in CS2, the modules' defaults are kept before the file is read, a change is written 500 ms after
+the last edit, and the file is written once more when the game shuts down. The weapon pivots and
+their markers stay for the session, as in CS2. `mirv_filmmaker settings save` writes now, `settings
+reset <smoothView|handheld|weaponRecoil|weaponBob|all>` puts a group back to its defaults, and
+`health` shows the file and its state on its `settings:` line.
+
+Keep between demos sits at the left of Config's footer while a demo plays
+(`mirv_filmmaker effects keep camera on|off|toggle`). On, a new demo keeps the camera feel. Off, each
+new demo starts from the defaults, the same reset RESET CAMERA does, but the file never hears of it.
+The file holds the saved feel until you change something, so turning keep back on, or restarting,
+brings it back.
+
 
 Checked in CS:S on 2026-10-27 in the SourceTV test demo: `config on` opened the CAMERA tab on SMOOTH
 VIEW; its header switch turned Smooth View on; a 20-pixel drag on Freq X set 1.52x, which the card

@@ -2,6 +2,7 @@
 
 #include "SourceConfig.h"
 #include "SourceEngine.h"
+#include "SourceSettings.h"
 #include "SourceViewModel.h"
 
 #include "WrpVEngineClient.h"
@@ -78,6 +79,7 @@ void ReadPivot(const Filmmaker::JsonValue& root, const std::string& prefix, Ui::
 void Config_BuildModel(Ui::ConfigModel& m) {
 	const DemoState demo = Demo_State();
 	m.demo = demo.playing || demo.paused;
+	m.keepCamera = Settings_KeepCamera();
 
 	// SMOOTH VIEW: CS2's ConfigHud writes these fields itself.
 	const Filmmaker::SmoothView& sv = Filmmaker::SmoothViewRef();
@@ -185,7 +187,15 @@ void Config_EffectsCommand(int argc, advancedfx::ICommandArgs* args) {
 		advancedfx::Message("effects: camera reset.\n");
 		return;
 	}
-	advancedfx::Message("mirv_filmmaker effects reset camera\n");
+	if (0 == _stricmp(action, "keep") && 0 == _stricmp(group, "camera")) {
+		const char* how = argc >= 5 ? args->ArgV(4) : "toggle";
+		const bool keep = 0 == _stricmp(how, "on") || 0 == _stricmp(how, "1")
+			|| (0 != _stricmp(how, "off") && 0 != _stricmp(how, "0") && !Settings_KeepCamera());
+		Settings_SetKeepCamera(keep);
+		advancedfx::Message("effects: keep camera between demos %s.\n", keep ? "on" : "off");
+		return;
+	}
+	advancedfx::Message("mirv_filmmaker effects reset camera | keep camera on|off|toggle\n");
 }
 
 } // namespace SourceFilmmaker

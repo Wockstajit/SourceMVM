@@ -492,6 +492,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/FollowCommand.cpp
     Filmmaker/GraphEditorCommand.cpp
 
+    Filmmaker/Config/CameraFeelSettings.cpp
+    Filmmaker/Config/CameraFeelSettings.h
     Filmmaker/Config/DemoFileStore.cpp
     Filmmaker/Config/DemoFileStore.h
     Filmmaker/Config/DemoFolderStore.cpp

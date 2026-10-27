@@ -42,6 +42,7 @@ struct ConfigPreset {
 // What the cards show: CS2's state JSON fields, named the same. The defaults are the modules'.
 struct ConfigModel {
 	bool demo = false;
+	bool keepCamera = true; // the footer's Keep between demos
 	// SMOOTH VIEW
 	bool svOn = false;
 	bool svFalling = true, svJumping = true, svHealthSway = true, svTiltEnabled = true, svTiltInv = false;

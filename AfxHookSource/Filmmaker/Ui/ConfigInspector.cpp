@@ -709,15 +709,43 @@ void Rail(ConfigState& st, const ConfigModel& m, const FontSet& fonts, float s, 
 
 void DrawConfigInspector(ConfigState& state, const ConfigModel& model, const FontSet& fonts, float s, const Rect& body,
 	std::vector<std::string>& commands) {
-	// The pinned footer: RESET CAMERA at the right.
+	// The pinned footer: Keep between demos at the left while a demo plays, RESET CAMERA at the right.
 	ImFont* button = fonts.Get(FontRole::Button);
 	const float footH = button->FontSize + 14 * s;
 	const Rect foot = MakeRect(body.x0, body.y1 - 2 * s - footH, body.x1, body.y1 - 2 * s);
+	const char* footTip = nullptr;
+	Rect footTipRect;
 	{
 		const char* caption = "RESET CAMERA";
 		const float w = CardButtonWidth(caption, button, s) + 2 * s;
 		if (CardButton("##cfgresetcamera", caption, MakeRect(foot.x1 - w, foot.y0, foot.x1, foot.y1), ButtonKind::Danger, true, button))
 			commands.push_back("mirv_filmmaker effects reset camera");
+		if (model.demo) {
+			// The whole row is the switch (CS2's keep toggle): a small switch and its caption.
+			ImFont* label = fonts.Get(FontRole::RowLabel);
+			const char* text = "Keep between demos";
+			const float sw = Metrics::swSm.w * s, sh = Metrics::swSm.h * s;
+			const float textW = label->CalcTextSizeA(label->FontSize, FLT_MAX, 0, text).x;
+			const Rect row = MakeRect(foot.x0, foot.y0, (std::min)(foot.x0 + sw + 10 * s + textW, foot.x1 - w - 10 * s), foot.y1);
+			ImGui::SetCursorScreenPos(ImVec2(row.x0, row.y0));
+			const bool clicked = ImGui::InvisibleButton("##cfgkeepcamera", ImVec2((std::max)(1.0f, row.W()), row.H()));
+			const bool hot = ImGui::IsItemHovered();
+			ImDrawList* draw = ImGui::GetWindowDrawList();
+			const float cy = (row.y0 + row.y1) * 0.5f;
+			const Rect track = MakeRect(row.x0, cy - sh * 0.5f, row.x0 + sw, cy + sh * 0.5f);
+			const bool on = model.keepCamera;
+			draw->AddRectFilled(ImVec2(track.x0, track.y0), ImVec2(track.x1, track.y1), ToU32(on ? Rgba(255, 176, 0, 46) : Rgba(0, 0, 0, 0)));
+			draw->AddRect(ImVec2(track.x0, track.y0), ImVec2(track.x1, track.y1), ToU32(on ? Theme::Accent : (hot ? Theme::Text : Theme::Border)));
+			const float knob = Metrics::swSm.knob * s, inset = (sh - knob) * 0.5f, kx = on ? track.x1 - inset - knob : track.x0 + inset;
+			draw->AddRectFilled(ImVec2(kx, track.y0 + inset), ImVec2(kx + knob, track.y0 + inset + knob), ToU32(on ? Theme::Accent : Theme::TextDim));
+			draw->AddText(label, label->FontSize, ImVec2(track.x1 + 10 * s, std::floor(cy - label->FontSize * 0.5f)), ToU32(Theme::Text), text);
+			if (clicked) commands.push_back(on ? "mirv_filmmaker effects keep camera off" : "mirv_filmmaker effects keep camera on");
+			if (hot) {
+				footTip = "Carries Smooth View, Handheld, Weapon Recoil and Weapon Bob into the next demo you load. Off, each new demo starts "
+				          "from the defaults.";
+				footTipRect = row;
+			}
+		}
 	}
 
 	// The rail and the selected card above it.
@@ -746,6 +774,10 @@ void DrawConfigInspector(ConfigState& state, const ConfigModel& model, const Fon
 	EndCardScroll(p.c.x0, p.c.y + 10 * s);
 
 	// The tooltip waits on one row; a new row starts the wait again.
+	if (footTip) {
+		p.tip = footTip;
+		p.tipRect = footTipRect;
+	}
 	const std::string tip = p.tip ? p.tip : "";
 	if (tip != state.tipText) {
 		state.tipText = tip;

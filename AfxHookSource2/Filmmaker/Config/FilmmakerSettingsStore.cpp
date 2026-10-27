@@ -1,5 +1,6 @@
 #include "FilmmakerSettingsStore.h"
 
+#include "CameraFeelSettings.h"
 #include "../Filmmaker.h"
 #include "EffectsPersistence.h"
 #include "../EasterEggs/EasterEggWorld.h"
@@ -122,83 +123,6 @@ void WriteViewFx(JsonBuilder& b) {
 	b.EndObject();
 }
 
-void WriteSmoothView(JsonBuilder& b) {
-	SmoothView& sv = SmoothViewRef();
-	b.Key("smoothView"); b.BeginObject();
-	b.BoolField("enabled", sv.Enabled());
-	b.DoubleField("breathX", sv.BreathFreqX());
-	b.DoubleField("breathY", sv.BreathFreqY());
-	b.DoubleField("standBreath", sv.StandBreathAmp());
-	b.DoubleField("walkBreath", sv.WalkBreathAmp());
-	b.DoubleField("runBreath", sv.RunBreathAmp());
-	b.BoolField("tiltEnabled", sv.TiltEnabled());
-	b.DoubleField("tilt", sv.TiltFactor());
-	b.DoubleField("tiltSpeed", sv.TiltSmoothSpeed());
-	b.BoolField("tiltInvert", sv.TiltInvert());
-	b.BoolField("fallingEnabled", sv.FallingEnabled());
-	b.BoolField("jumpingEnabled", sv.JumpingEnabled());
-	b.BoolField("healthSwayEnabled", sv.HealthSwayEnabled());
-	b.EndObject();
-}
-
-void WriteHandheld(JsonBuilder& b) {
-	HandheldCam& hh = HandheldCamRef();
-	b.Key("handheld"); b.BeginObject();
-	b.BoolField("enabled", hh.Enabled());
-	b.BoolField("viewmodelDecoupled", hh.ViewmodelDecoupled());
-	b.BoolField("centerLockEnabled", hh.CenterLockEnabled());
-	b.DoubleField("centerLock", hh.CenterLockStrength());
-	b.DoubleField("drift", hh.DriftIntensity());
-	b.DoubleField("driftDir", hh.DriftDirection());
-	b.DoubleField("curve", hh.CurveIntensity());
-	b.DoubleField("tilt", hh.TiltIntensity());
-	b.DoubleField("regrip", hh.RegripIntensity());
-	b.DoubleField("speed", hh.Speed());
-	b.DoubleField("variance", hh.Variance());
-	b.DoubleField("period", hh.RegripPeriod());
-	b.StringField("idleCurve", hh.StateCurveKey(HandheldState::Idle));
-	b.StringField("walkCurve", hh.StateCurveKey(HandheldState::Walk));
-	b.StringField("runCurve", hh.StateCurveKey(HandheldState::Run));
-	b.EndObject();
-}
-
-
-// CAMERA tab, WEAPON BOB card. The per-class multipliers stay console-only and are not saved.
-void WriteWeaponBob(JsonBuilder& b) {
-	WeaponBob& bob = WeaponBobRef();
-	b.Key("weaponBob"); b.BeginObject();
-	b.BoolField("enabled", bob.Enabled());
-	b.DoubleField("amount", bob.Amount());
-	b.DoubleField("sway", bob.Sway());
-	b.DoubleField("tilt", bob.Tilt());
-	b.DoubleField("lookSway", bob.LookSway());
-	b.DoubleField("inertia", bob.Inertia());
-	b.DoubleField("idle", bob.Idle());
-	b.DoubleField("cameraShare", bob.CameraShare());
-	b.DoubleField("stepSync", bob.StepSync());
-	b.DoubleField("rate", bob.Rate());
-	b.EndObject();
-}
-
-void LoadWeaponBob(const JsonValue* object) {
-	if (!object) return;
-	WeaponBob& bob = WeaponBobRef();
-	auto number = [&](const char* key, auto setter) {
-		if (const JsonValue* value = object->Find(key); value && value->type == JsonValue::Type::Number)
-			setter(value->number);
-	};
-	number("amount", [&](double v) { bob.SetAmount(v); });
-	number("sway", [&](double v) { bob.SetSway(v); });
-	number("tilt", [&](double v) { bob.SetTilt(v); });
-	number("lookSway", [&](double v) { bob.SetLookSway(v); });
-	number("inertia", [&](double v) { bob.SetInertia(v); });
-	number("idle", [&](double v) { bob.SetIdle(v); });
-	number("cameraShare", [&](double v) { bob.SetCameraShare(v); });
-	number("stepSync", [&](double v) { bob.SetStepSync(v); });
-	number("rate", [&](double v) { bob.SetRate(v); });
-	// Last: the master switch reads as off while Amount is 0.
-	if (const JsonValue* on = object->Find("enabled"); on && on->type == JsonValue::Type::Bool) bob.SetEnabled(on->boolean);
-}
 
 // CAMERA tab, VIEWMODEL card. Per-field ownership is saved alongside the values: a released
 // axis and an axis that merely happens to sit at zero are different states, and only the
@@ -318,13 +242,7 @@ std::string BuildSnapshot() {
 	b.BeginObject();
 	b.IntField("version", 1);
 	WriteViewFx(b);
-	WriteSmoothView(b);
-	WriteHandheld(b);
-	// Weapon Recoil and Weapon Bob persist like the rest of the CAMERA tab (they used to be
-	// session-only, and a restart silently dropped them).
-	WeaponRecoilRef().WriteState(b);
-	WeaponRecoilRef().WritePresets(b);
-	WriteWeaponBob(b);
+	CameraFeel_Write(b); // Smooth View, Handheld, Weapon Recoil and its presets, Weapon Bob
 	WriteViewmodel(b);
 	WriteCamFov(b);
 	WriteLighting(b);
@@ -417,69 +335,6 @@ void LoadViewFx(const JsonValue* object) {
 	boolean("deadzoneCrosshairLock", [&](bool v) { fx.DeadzoneAim().SetLockCrosshair(v); });
 }
 
-void LoadSmoothView(const JsonValue* object) {
-	if (!object) return;
-	SmoothView& sv = SmoothViewRef();
-	auto number = [&](const char* key, auto setter) {
-		if (const JsonValue* value = object->Find(key); value && value->type == JsonValue::Type::Number)
-			setter(value->number);
-	};
-	auto boolean = [&](const char* key, auto setter) {
-		if (const JsonValue* value = object->Find(key); value && value->type == JsonValue::Type::Bool)
-			setter(value->boolean);
-	};
-	number("breathX", [&](double v) { sv.SetBreathFreqX(v); });
-	number("breathY", [&](double v) { sv.SetBreathFreqY(v); });
-	number("standBreath", [&](double v) { sv.SetStandBreathAmp(v); });
-	number("walkBreath", [&](double v) { sv.SetWalkBreathAmp(v); });
-	number("runBreath", [&](double v) { sv.SetRunBreathAmp(v); });
-	boolean("tiltEnabled", [&](bool v) { sv.SetTiltEnabled(v); });
-	number("tilt", [&](double v) { sv.SetTiltFactor(v); });
-	number("tiltSpeed", [&](double v) { sv.SetTiltSmoothSpeed(v); });
-	boolean("tiltInvert", [&](bool v) { sv.SetTiltInvert(v); });
-	boolean("fallingEnabled", [&](bool v) { sv.SetFallingEnabled(v); });
-	boolean("jumpingEnabled", [&](bool v) { sv.SetJumpingEnabled(v); });
-	boolean("healthSwayEnabled", [&](bool v) { sv.SetHealthSwayEnabled(v); });
-	boolean("enabled", [&](bool v) { sv.SetEnabled(v); });
-}
-
-void LoadHandheld(const JsonValue* object) {
-	if (!object) return;
-	HandheldCam& hh = HandheldCamRef();
-	auto number = [&](const char* key, auto setter) {
-		if (const JsonValue* value = object->Find(key); value && value->type == JsonValue::Type::Number)
-			setter(value->number);
-	};
-	number("drift", [&](double v) { hh.SetDriftIntensity(v); });
-	number("driftDir", [&](double v) { hh.SetDriftDirection(v); });
-	number("curve", [&](double v) { hh.SetCurveIntensity(v); });
-	number("tilt", [&](double v) { hh.SetTiltIntensity(v); });
-	number("regrip", [&](double v) { hh.SetRegripIntensity(v); });
-	number("speed", [&](double v) { hh.SetSpeed(v); });
-	number("variance", [&](double v) { hh.SetVariance(v); });
-	number("period", [&](double v) { hh.SetRegripPeriod(v); });
-	number("centerLock", [&](double v) { hh.SetCenterLockStrength(v); });
-	struct CurveSetting {
-		const char* key;
-		HandheldState state;
-	};
-	const CurveSetting curves[] = {
-		{ "idleCurve", HandheldState::Idle },
-		{ "walkCurve", HandheldState::Walk },
-		{ "runCurve", HandheldState::Run },
-	};
-	for (const CurveSetting& item : curves) {
-		if (const JsonValue* value = object->Find(item.key); value && value->type == JsonValue::Type::String)
-			hh.SetStateCurve(item.state, value->str.c_str());
-	}
-	if (const JsonValue* value = object->Find("viewmodelDecoupled"); value && value->type == JsonValue::Type::Bool)
-		hh.SetViewmodelDecoupled(value->boolean);
-	if (const JsonValue* value = object->Find("centerLockEnabled"); value && value->type == JsonValue::Type::Bool)
-		hh.SetCenterLockEnabled(value->boolean);
-	if (const JsonValue* value = object->Find("enabled"); value && value->type == JsonValue::Type::Bool)
-		hh.SetEnabled(value->boolean);
-}
-
 
 void LoadLighting(const JsonValue* object) {
 	if (!object) return;
@@ -554,12 +409,8 @@ static bool ReadSettingsFile(JsonValue& root) {
 static void ApplySettingsRoot(const JsonValue& root) {
 	g_ui.clear();
 	LoadViewFx(Object(root, "viewFx"));
-	LoadSmoothView(Object(root, "smoothView"));
+	CameraFeel_Load(root);
 	const JsonValue* handheld = Object(root, "handheld");
-	LoadHandheld(handheld);
-	WeaponRecoilRef().LoadPresets(root.Find("weaponRecoilPresets"));
-	WeaponRecoilRef().LoadState(Object(root, "weaponRecoil"));
-	LoadWeaponBob(Object(root, "weaponBob"));
 	LoadViewmodel(Object(root, "viewmodel"));
 	LoadCamFov(root);
 	LoadLighting(Object(root, "lighting"));
@@ -798,10 +649,10 @@ bool FilmmakerSettings_ResetGroup(const char* group) {
 	// own list of setters would be a second description of every setting, free to fall behind the
 	// first one; this cannot.
 	if (all || 0 == _stricmp(group, "viewFx")) { LoadViewFx(Object(root, "viewFx")); matched = true; }
-	if (all || 0 == _stricmp(group, "smoothView")) { LoadSmoothView(Object(root, "smoothView")); matched = true; }
-	if (all || 0 == _stricmp(group, "handheld")) { LoadHandheld(Object(root, "handheld")); matched = true; }
+	if (all || 0 == _stricmp(group, "smoothView")) { CameraFeel_LoadSmoothView(Object(root, "smoothView")); matched = true; }
+	if (all || 0 == _stricmp(group, "handheld")) { CameraFeel_LoadHandheld(Object(root, "handheld")); matched = true; }
 	if (all || 0 == _stricmp(group, "viewmodel")) { LoadViewmodel(Object(root, "viewmodel")); matched = true; }
-	if (all || 0 == _stricmp(group, "weaponBob")) { LoadWeaponBob(Object(root, "weaponBob")); matched = true; }
+	if (all || 0 == _stricmp(group, "weaponBob")) { CameraFeel_LoadWeaponBob(Object(root, "weaponBob")); matched = true; }
 	if (all || 0 == _stricmp(group, "weaponRecoil")) { WeaponRecoilRef().LoadState(Object(root, "weaponRecoil")); matched = true; }
 	if (all || 0 == _stricmp(group, "camFov")) { LoadCamFov(root); matched = true; }
 	if (all || 0 == _stricmp(group, "smokeAppearance")) { LoadSmokeAppearance(Object(root, "smokeAppearance")); matched = true; }

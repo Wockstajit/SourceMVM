@@ -180,6 +180,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceOldDemos.cpp
     Filmmaker/SourceOldDemos.h
     Filmmaker/SourceSdk2013.h
+    Filmmaker/SourceSettings.cpp
+    Filmmaker/SourceSettings.h
     Filmmaker/SourceSmoothView.cpp
     Filmmaker/SourceSmoothView.h
     Filmmaker/SourceTimelineDock.cpp
@@ -250,6 +252,8 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/FilmmakerCommandUtil.cpp
     ../AfxHookSource2/Filmmaker/FilmmakerCommandUtil.h
     ../AfxHookSource2/Filmmaker/FollowCommand.cpp
+    ../AfxHookSource2/Filmmaker/Config/CameraFeelSettings.cpp
+    ../AfxHookSource2/Filmmaker/Config/CameraFeelSettings.h
     ../AfxHookSource2/Filmmaker/Platform/JsonBuilder.cpp
     ../AfxHookSource2/Filmmaker/Platform/JsonBuilder.h
     ../AfxHookSource2/Filmmaker/Platform/JsonParser.cpp
