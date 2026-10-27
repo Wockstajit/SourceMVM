@@ -32,6 +32,7 @@
 #include "../AfxHookSource2/Deadlock/DeadlockOverlayMath.h"
 #include "../AfxHookSource2/Filmmaker/Movie/CamMarkers.h"
 #include "../AfxHookSource2/Filmmaker/Movie/GraphExpModel.h"
+#include "../AfxHookSource2/Filmmaker/Movie/RageShake.h"
 #include "../AfxHookSource2/Filmmaker/Panorama/HudReadoutCadenceMath.h"
 
 #include <imgui.h>
@@ -48,6 +49,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <string>
 #include <unordered_map>
 
@@ -159,6 +161,8 @@ struct Host {
 	bool autoSnap = false;
 	MarkerCardState card;
 	Filmmaker::GraphExpModel timeline; // the TIMELINE dock's keys
+	struct Shake { int s = 0, n = 5, p = 50; };
+	std::map<int, Shake> shakes;       // the camera path's shake keys, by tick (StandInShakeCommand)
 	unsigned timelineEpoch = 1;        // bumps when the keys are seeded: the dock re-fits its window
 	bool timelineDrive = true, timelineAuto = false;
 	bool timelineScrubbing = false;    // the dock's playhead is held by a drag
@@ -819,6 +823,51 @@ void SeedTimeline() {
 	++g.timelineEpoch;
 }
 
+// The stand-in camera keys: the ticks of the stand-in path's keys.
+std::vector<double> StandInCameraTicks() {
+	std::vector<double> ticks;
+	for (const auto& key : g.timeline.GetChannel(0).keys) ticks.push_back(std::round(key.tick));
+	std::sort(ticks.begin(), ticks.end());
+	ticks.erase(std::unique(ticks.begin(), ticks.end()), ticks.end());
+	return ticks;
+}
+
+// The dock's camera shake edits on the stand-in track, as "mirv_filmmaker pathshake" applies them
+// (CamPathShakeCommand.cpp): a key sits on a camera key; set, intensity, speed, stop, clear, applyall.
+void StandInShakeCommand(const std::string& text) {
+	LogLine("timeline.shake", ("pathshake " + text).c_str());
+	char verb[16] = {};
+	int tick = 0, a = 0, b = -1, c = -1;
+	const int got = std::sscanf(text.c_str(), "%15s @%d %d %d %d", verb, &tick, &a, &b, &c);
+	if (got < 2) return;
+	const std::vector<double> cams = StandInCameraTicks();
+	if (std::find(cams.begin(), cams.end(), (double)tick) == cams.end()) return;
+	const std::string v = verb;
+	auto& shakes = g.shakes;
+	if (v == "clear") { shakes.erase(tick); return; }
+	auto seeded = [&]() -> Host::Shake& {
+		auto it = shakes.find(tick);
+		if (it == shakes.end() || it->second.s < 0) {
+			Host::Shake fresh;
+			fresh.s = Filmmaker::RageShake_MenuStyle(0);
+			it = shakes.insert_or_assign(tick, fresh).first;
+		}
+		return it->second;
+	};
+	if (v == "set" && got >= 3) {
+		Host::Shake& k = seeded();
+		k.s = a;
+		if (got >= 4) k.n = std::clamp(b, 1, 10);
+		if (got >= 5) k.p = std::clamp(c, 10, 100);
+	} else if (v == "intensity" && got >= 3) seeded().n = std::clamp(a, 1, 10);
+	else if (v == "speed" && got >= 3) seeded().p = std::clamp(a, 10, 100);
+	else if (v == "stop") { Host::Shake stop; stop.s = TimelineDockMath::kShakeStop; shakes[tick] = stop; }
+	else if (v == "applyall" && shakes.count(tick)) {
+		const Host::Shake from = shakes[tick];
+		for (double t : cams) shakes[(int)t] = from;
+	}
+}
+
 TimelineDockModel BuildTimelineModel() {
 	TimelineDockModel m;
 	m.keys = &g.timeline;
@@ -844,6 +893,23 @@ TimelineDockModel BuildTimelineModel() {
 	m.timescale = g.demo.timescale;
 	const double live[7] = { 0, 0, 64, g.pitch, -g.yaw, 0, g.demo.freeCamFov };
 	for (int c = 0; c < 7; ++c) m.live[c] = live[c];
+	// The shake track, as the game's CamPathShake_AppendDockJson gives it, on RageShake's own styles.
+	m.pathKeys = StandInCameraTicks();
+	for (const auto& e : g.shakes) {
+		TimelineDockMath::ShakeKey k;
+		k.t = e.first;
+		k.s = e.second.s;
+		k.n = e.second.n;
+		k.p = e.second.p;
+		k.oneShot = k.s >= 0 && Filmmaker::RageShake_Finished(Filmmaker::RageShake_Style(k.s), 1e6, 1.0);
+		m.shakes.push_back(k);
+		m.shakeLabels.push_back(k.s < 0 ? "Stop" : Filmmaker::RageShake_StyleLabel(k.s));
+	}
+	for (int i = 0; i < Filmmaker::RageShake_MenuCount(); ++i) {
+		const int style = Filmmaker::RageShake_MenuStyle(i);
+		m.shakeStyles.emplace_back(style, Filmmaker::RageShake_StyleLabel(style));
+	}
+	m.shakeEssentials = Filmmaker::RageShake_RockstarEditorCount();
 	return m;
 }
 
@@ -895,6 +961,7 @@ void ApplyTimelineActions(const std::vector<TimelineDockAction>& actions) {
 		case Kind::PlayheadRelease: g.timelineScrubbing = false; SeekSim((int)a.a); break;
 		case Kind::PlayPause: g.demo.paused = !g.demo.paused; break;
 		case Kind::Speed: g.demo.timescale = a.a; break;
+		case Kind::ShakeCommand: StandInShakeCommand(a.text); break;
 		}
 		k.RefreshAutoTangents();
 		if (a.kind != Kind::Playhead) {

@@ -629,7 +629,8 @@ rules in `Ui/TimelineDockMath.h` (`SourceTimelineDockMathTests`):
 Ctrl+wheel over the dock zooms about the pointer, Shift+wheel pans, the wheel scrolls the rows. The
 dock takes Ctrl+Z, Ctrl+Shift+Z, Ctrl+A, Delete and F9 (Shift+F9 eases in, Ctrl+Shift+F9 out), as
 CS2's does. Esc closes a menu, then the SNAP menu, then leaves typing, before it closes the
-workspace. Tips show after the pointer rests 2 s. The camera shake rows come with step 12; CS2's
+workspace. Tips show after the pointer rests 2 s. The camera path's shake rows are described under
+[Path shake](#path-shake). CS2's
 frame cache and render range are steps 13 and 14, so Cache is disabled and the footer says the whole
 demo. CS2's CAM EDITOR and CONFIG buttons come with the Config workspace. The window, snap and the rows' state are not kept between sessions,
 because CS:S has no settings store yet. CS2 clamps a typed camera value to the GRAPH's display
@@ -817,6 +818,18 @@ shake the view only while the path plays or scrubs, after the live layers. CS:S 
 objects, so the per-object tracks are unused. The console command is CS2's `mirv_filmmaker
 pathshake` (`set <key> <style> [intensity] [speed]`, `style`, `intensity`, `speed`, `stop`, `clear`,
 `clearall`, `applyall`, `styles`, `state`, `on`/`off`).
+
+In the TIMELINE dock, as in CS2's, the CAMERA PATH layer has a Path group with a Camera shake row,
+and once its track has a key, Intensity and Speed rows under it. The Camera shake row shows the style
+running under the playhead (or Off), and Intensity and Speed the values there, eased between keys of
+the same style as the view plays them. Each row's navigator steps between shake keys, and its diamond
+adds or removes the key on the camera key under the playhead: a new key continues the shake running
+into it, else takes the menu's first style (Hand) at intensity 5 and speed 50. On the track, a light
+blue bar shows how far each shake runs, to the next key or to the last camera key; the keys are
+squares on the Camera shake row and CS2's ease marks on Intensity and Speed, a Stop dim. A click on a
+key selects it and moves the playhead there, Shift toggles it, a box picks shake keys with the
+others, and Delete clears the selected ones. Every edit is a `pathshake` command. The run and ramp
+rules are CS2's dock model in `Ui/TimelineDockMath.h`, tested on the fixture CS2's dock test uses.
 
 Checked in CS:S on 2026-10-27 in the SourceTV test demo: a two-key path from tick 580 to 703 with a
 Hand shake (`REPLAY_HAND_SHAKE`, intensity 8, speed 60) on its first key swayed the view by up to 2.5

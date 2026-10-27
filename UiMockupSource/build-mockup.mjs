@@ -31,6 +31,9 @@ export const SHARED_HEADERS = [
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'GraphCurveMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'GraphExpModel.cpp'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'GraphExpModel.h'),
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'RageShake.cpp'),
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'RageShake.h'),
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'RageShakeStyles.cpp'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Panorama', 'HudReadoutCadenceMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Panorama', 'InspectorWidthMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Deadlock', 'DeadlockOverlayMath.h'),
@@ -44,8 +47,10 @@ const OWN_SOURCES = [path.join(import.meta.dirname, 'mockup-host.cpp'),
   ...['CameraEditorShell.cpp', 'DemoBar.cpp', 'DirectorHud.cpp', 'FollowInspector.cpp', 'InspectorCards.cpp', 'MarkerPopup.cpp', 'PathInspector.cpp',
     'PathOverlay.cpp', 'TimelineDock.cpp', 'UiStyle.cpp', 'UiWidgets.cpp'].map((f) => path.join(UI, f)),
   ...['SourceDemoBarModel.cpp', 'SourceDemoFile.cpp', 'SourceDemoMarkers.cpp'].map((f) => path.join(FILMMAKER, f)),
-  // The TIMELINE dock's keys are CS2's own model.
-  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'GraphExpModel.cpp')];
+  // The TIMELINE dock's keys are CS2's own model, and its camera shake styles RageShake's own list.
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'GraphExpModel.cpp'),
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'RageShake.cpp'),
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'RageShakeStyles.cpp')];
 
 const EXPORTS = ['_main', '_malloc', '_free', '_mockup_mouse', '_mockup_motion', '_mockup_key', '_mockup_char',
   '_mockup_focus_lost', '_mockup_lock_lost', '_mockup_mode', '_mockup_resize', '_mockup_set_backdrop',
@@ -77,6 +82,8 @@ function run(tool, args) {
 
 const COMPILE_FLAGS = ['-std=c++17', '-O2', '-Wno-nontrivial-memaccess',
   '-DIMGUI_USER_CONFIG="Filmmaker/Ui/UiImConfig.h"', '-DIMGUI_IMPL_OPENGL_ES3',
+  // MSVC's case-blind compare, which shared code such as RageShakeStyles.cpp calls, is POSIX's here.
+  '-include', 'strings.h', '-D_stricmp=strcasecmp',
   '-I', path.join(ROOT, 'AfxHookSource'), '-I', IMGUI, '-I', path.join(IMGUI, 'backends')];
 
 function stampOf(files) {

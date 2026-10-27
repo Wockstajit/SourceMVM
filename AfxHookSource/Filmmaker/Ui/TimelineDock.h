@@ -39,6 +39,14 @@ struct TimelineDockModel {
 	double tickRate = 64;
 	double timescale = 1;
 	double live[7] = { 0, 0, 0, 0, 0, 0, 90 }; // the rendered camera, per channel
+	// The camera path's camera shake track (CamPathShake's dock JSON: CS2's pathKeys, shakes and
+	// shakeStyles): its camera keys' ticks, its keys in tick order with each one's style label, and
+	// the styles the menu offers (index, label), the first shakeEssentials of them on the menu itself.
+	std::vector<double> pathKeys;
+	std::vector<TimelineDockMath::ShakeKey> shakes;
+	std::vector<std::string> shakeLabels;
+	std::vector<std::pair<int, std::string>> shakeStyles;
+	int shakeEssentials = 5;
 };
 
 struct TimelineDockAction {
@@ -63,12 +71,14 @@ struct TimelineDockAction {
 		PlayheadRelease, // a = tick: the demo goes there and the playhead holds it
 		PlayPause,       // the demo, or the camera path while it plays
 		Speed,           // a = demo speed
+		ShakeCommand,    // text: a camera shake edit, as "mirv_filmmaker pathshake <text>" takes it
 	};
 	Kind kind = Kind::Select;
 	int ch = 0, id = 0, side = 0;
 	double a = 0, b = 0;
 	bool flag = false;
 	std::vector<std::pair<int, int>> keys; // SelectSet: (channel, key id)
+	std::string text;                      // ShakeCommand
 };
 
 enum class TimelineView { Keys = 0, Graph = 1 };
@@ -83,9 +93,11 @@ struct TimelineDockState {
 	double fitT0 = -1, fitT1 = -1;      // what FIT framed last: pressed again it frames every key
 	int snap = TimelineDockMath::kSnapOff;
 	bool snapMenu = false;
-	bool open[11] = { true, true, true, true, true, true, true, true, true, true, true }; // per row node
+	bool open[15] = { true, true, true, true, true, true, true, true, true, true, true, true, true, true, true }; // per row node
 	bool split[2] = { false, false };   // Position and Rotation on one row per channel
 	int selRow = -1;                    // the selected row's node, -1 for none
+	std::vector<double> shakeSel;       // the selected camera shake keys' ticks
+	bool hasShakes = false;             // this frame: the shake track has a key (its Intensity and Speed rows show)
 	float rowScroll = 0;
 
 	enum class Gesture { None, Scrub, Keys, Box, Overview, FooterBar, RowsBar, Value, Handle };

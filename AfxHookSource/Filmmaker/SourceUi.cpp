@@ -20,7 +20,11 @@
 #include "Ui/UiStyle.h"
 #include "Ui/WorkspaceMouse.h"
 
+#include "WrpVEngineClient.h"
+
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
+#include <AfxHookSource2/Filmmaker/Movie/CamPathShake.h>
+#include <AfxHookSource2/Filmmaker/Platform/JsonParser.h>
 #include <AfxHookSource2/Filmmaker/Panorama/HudReadoutCadenceMath.h>
 #include <Shared/AfxConsole.h>
 
@@ -37,7 +41,10 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <string>
+
+extern WrpVEngineClient* g_VEngineClient;
 
 namespace SourceFilmmaker {
 
@@ -597,6 +604,35 @@ void DrawMarkerPopups(const Rect& gameArea, float w, float h, std::vector<Marker
 }
 
 // The TIMELINE dock's model: its keys and what the game side knows.
+// The camera path's shake track, as CS2's dock reads it: CamPathShake's dock JSON (pathKeys, shakes,
+// shakeEssentials, shakeStyles).
+void FillShakeTrack(TimelineDockModel& m) {
+	std::ostringstream o;
+	Filmmaker::CamPathShake_AppendDockJson(o);
+	const std::string fields = o.str();
+	Filmmaker::JsonValue root;
+	if (fields.size() < 2 || !Filmmaker::JsonParse("{" + fields.substr(1) + "}", root)) return;
+	if (const Filmmaker::JsonValue* keys = root.Find("pathKeys"))
+		for (const Filmmaker::JsonValue& t : keys->arr) m.pathKeys.push_back(t.AsNumber());
+	if (const Filmmaker::JsonValue* shakes = root.Find("shakes")) {
+		for (const Filmmaker::JsonValue& j : shakes->arr) {
+			TimelineDockMath::ShakeKey k;
+			if (const Filmmaker::JsonValue* v = j.Find("t")) k.t = v->AsNumber();
+			if (const Filmmaker::JsonValue* v = j.Find("s")) k.s = v->AsInt();
+			if (const Filmmaker::JsonValue* v = j.Find("n")) k.n = v->AsInt();
+			if (const Filmmaker::JsonValue* v = j.Find("p")) k.p = v->AsInt();
+			if (const Filmmaker::JsonValue* v = j.Find("o")) k.oneShot = v->AsInt() != 0;
+			const Filmmaker::JsonValue* label = j.Find("l");
+			m.shakes.push_back(k);
+			m.shakeLabels.push_back(label ? label->AsString() : std::string());
+		}
+	}
+	if (const Filmmaker::JsonValue* v = root.Find("shakeEssentials")) m.shakeEssentials = v->AsInt(5);
+	if (const Filmmaker::JsonValue* styles = root.Find("shakeStyles"))
+		for (const Filmmaker::JsonValue& st : styles->arr)
+			if (st.arr.size() >= 2) m.shakeStyles.emplace_back(st.arr[0].AsInt(), st.arr[1].AsString());
+}
+
 TimelineDockModel BuildTimelineModel() {
 	TimelineDockModel m;
 	const TimelineDockInfo info = TimelineDock_Info();
@@ -618,6 +654,7 @@ TimelineDockModel BuildTimelineModel() {
 	m.tickRate = info.tickRate;
 	m.timescale = demo.timescale;
 	for (int c = 0; c < 7; ++c) m.live[c] = info.live[c];
+	FillShakeTrack(m);
 	return m;
 }
 
@@ -655,6 +692,9 @@ void ApplyTimelineActions(const std::vector<TimelineDockAction>& actions) {
 			DemoBar_Apply({ speed });
 			break;
 		}
+		case Kind::ShakeCommand:
+			if (g_VEngineClient) g_VEngineClient->ClientCmd_Unrestricted(("mirv_filmmaker pathshake " + a.text).c_str());
+			break;
 		}
 	}
 }
