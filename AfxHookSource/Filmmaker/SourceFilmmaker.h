@@ -19,10 +19,10 @@ bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 void OnFrameRenderStart();
 
 // From HLAE's Hook_VClient_RenderView::OnViewOverride after its own overrides: the view (pitch yaw
-// roll in rx ry rz) for the filmmaker's view effects (Smooth View), then, final, for the camera
-// path's markers drawn in the world. cameraOverridden when an HLAE override (mirv_input, a campath)
-// moved the camera.
-void OnViewOverride(float tx, float ty, float tz, float& rx, float& ry, float& rz, float& fov, bool cameraOverridden);
+// roll in rx ry rz) for the follow camera's aim and the filmmaker's view effects (Smooth View), then,
+// final, for the camera path's markers drawn in the world. cameraOverridden when an HLAE override
+// (mirv_input, a campath) moved the camera; the follow camera sets it when it does.
+void OnViewOverride(float& tx, float& ty, float& tz, float& rx, float& ry, float& rz, float& fov, bool& cameraOverridden);
 
 // From HLAE's Hook_VClient_RenderView::GetSuspendMirvInput: the cursor is the filmmaker's, so HLAE's
 // free camera waits (SourceUi.h Ui_SuspendMirvInput).

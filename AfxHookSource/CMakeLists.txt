@@ -158,6 +158,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceDirector.h
     Filmmaker/SourceEngine.cpp
     Filmmaker/SourceEngine.h
+    Filmmaker/SourceFollowCamera.cpp
+    Filmmaker/SourceFollowCamera.h
     Filmmaker/SourceFilmmaker.cpp
     Filmmaker/SourceFilmmaker.h
     Filmmaker/SourceGameProfile.cpp
@@ -231,6 +233,9 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Demo/DemoProjectStore.cpp
     ../AfxHookSource2/Filmmaker/Demo/DemoProjectStore.h
     ../AfxHookSource2/Filmmaker/Demo/DemoProjectStoreMath.h
+    ../AfxHookSource2/Filmmaker/FilmmakerCommandUtil.cpp
+    ../AfxHookSource2/Filmmaker/FilmmakerCommandUtil.h
+    ../AfxHookSource2/Filmmaker/FollowCommand.cpp
     ../AfxHookSource2/Filmmaker/Platform/JsonBuilder.cpp
     ../AfxHookSource2/Filmmaker/Platform/JsonBuilder.h
     ../AfxHookSource2/Filmmaker/Platform/JsonParser.cpp
@@ -246,6 +251,16 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Movie/CamPlayback.cpp
     ../AfxHookSource2/Filmmaker/Movie/CamPlayback.h
     ../AfxHookSource2/Filmmaker/Movie/CameraBridge.h
+    ../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp
+    ../AfxHookSource2/Filmmaker/Movie/FollowCamera.h
+    ../AfxHookSource2/Filmmaker/Movie/FollowCameraHost.h
+    ../AfxHookSource2/Filmmaker/Movie/FollowCameraMath.cpp
+    ../AfxHookSource2/Filmmaker/Movie/FollowCameraMath.h
+    ../AfxHookSource2/Filmmaker/Movie/FollowCameraStateJson.cpp
+    ../AfxHookSource2/Filmmaker/Movie/FollowEventIndex.cpp
+    ../AfxHookSource2/Filmmaker/Movie/FollowEventIndex.h
+    ../AfxHookSource2/Filmmaker/Movie/FollowTargetDiscovery.cpp
+    ../AfxHookSource2/Filmmaker/Movie/FollowTargetDiscovery.h
     ../AfxHookSource2/Filmmaker/Movie/GraphCurveMath.h
     ../AfxHookSource2/Filmmaker/Movie/GraphExpModel.cpp
     ../AfxHookSource2/Filmmaker/Movie/GraphExpModel.h

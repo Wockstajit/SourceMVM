@@ -4,6 +4,7 @@
 #include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
 #include "SourceEngine.h"
+#include "SourceFollowCamera.h"
 #include "SourceMainThread.h"
 #include "SourceOldDemos.h"
 #include "SourceTimelineDock.h"
@@ -225,13 +226,14 @@ void RunAutoPath() {
 	const DemoState d = Demo_State();
 	int seekTarget = 0;
 	const bool seeking = DemoBar_SeekTarget(seekTarget); // a backward seek replays from the start: not playback
+	const bool following = FollowCamera_OwnsView();
 	const bool want = g.autoPath && TimelineDock_Enabled() && g.settings.timing == kTimingLive && g.markers.Count() >= 2
-		&& d.playing && !d.paused && !seeking;
+		&& d.playing && !d.paused && !seeking && !following;
 	if (g.autoPlaying) {
 		if (g.mode != PathMode::Playing) { g.autoPlaying = false; return; } // J, Esc or a pause ended it
 		if (!want) EndAutoPath(!g.autoPath ? "AUTO off" : !TimelineDock_Enabled() ? "the TIMELINE dock closed"
 			: g.settings.timing != kTimingLive ? "Freeze timing" : g.markers.Count() < 2 ? "under two camera keys"
-			: !d.playing ? "the demo stopped" : seeking ? "a seek" : "the demo paused");
+			: !d.playing ? "the demo stopped" : seeking ? "a seek" : following ? "the follow camera" : "the demo paused");
 		return;
 	}
 	if (!want || g.mode != PathMode::Editing || g.holdFrames > 0) return;
@@ -347,7 +349,7 @@ void CameraPath_SetAutoPath(bool on) {
 bool CameraPath_Repositioning() { return g.mode == PathMode::Reposition; }
 
 bool CameraPath_Overlay(Ui::PathOverlayModel& out, float width, float height) {
-	if (g.markers.Empty() || g.mode == PathMode::Playing) return false;
+	if (g.markers.Empty() || g.mode == PathMode::Playing || FollowCamera_OwnsView()) return false; // nothing over a live shot
 	out.markers.resize((size_t)g.markers.Count());
 	for (int i = 0; i < g.markers.Count(); ++i) {
 		const CamMarker& m = g.markers.At(i);

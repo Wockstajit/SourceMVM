@@ -5,6 +5,7 @@
 #include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
 #include "SourceEngine.h"
+#include "SourceFollowCamera.h"
 #include "SourceTimelinePlayhead.h"
 #include "SourceUi.h"
 
@@ -159,7 +160,7 @@ void DriveCameraThisFrame() {
 	if (g.releaseDrive && !DemoBar_SeekTarget(target)) g.releaseDrive = false; // this frame still flies it
 	if (!g.enabled || !g.drive || g.model.TotalKeys() == 0) return;
 	if (!ScrubDrives() && !editDrive) return;
-	if (CameraPath_OwnsView()) return; // the path's own playback has the view
+	if (CameraPath_OwnsView() || FollowCamera_OwnsView()) return; // the path's own playback, or the follow camera, has the view
 	// Only inside the path's ticks: outside them the path would pin the view to its end key.
 	const Filmmaker::CamMarkers& markers = CameraPath_Markers();
 	const double tick = TimelinePlayhead_Tick();

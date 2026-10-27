@@ -55,6 +55,10 @@ void Ui_FilterRawInput(UINT result, UINT command, LPVOID data);
 // mirv_filmmaker editor [on|off|toggle|state]
 void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args);
 bool Ui_EditorOpen();
+// The open Camera Editor's mouse: the UI's (true) or the game's, to fly the free cam, as G trades
+// it. The follow camera's reposition hands it to the game and back (CS2's CameraEditor_SetCursorMode).
+// A right-button look in progress keeps it.
+void Ui_SetEditorMouse(bool ui);
 // Opens the Camera Editor on its TIMELINE dock, or puts the REGULAR TIMELINE dock back.
 void Ui_ShowTimelineDock(bool show);
 

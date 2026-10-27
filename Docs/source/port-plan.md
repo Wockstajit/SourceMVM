@@ -82,7 +82,7 @@ Measured on the installed game on 2026-10-26:
 | 8 | Free cam and smooth view | HLAE's `mirv_input` flies as CS2's free cam does; Smooth View runs from CS2's code | Done 2026-10-26, Smooth View's Config card with the Config workspace |
 | 9 | Camera Editor | Paths, markers, inspector, preview viewport, shortcut strip | Done 2026-10-26 |
 | 10 | Timelines | TIMELINE dock, regular timeline, loop, In/Out flags | Done 2026-10-26; the TIMELINE dock's camera shake rows with step 12, its Cache with step 13 and its render range with step 14 |
-| 11 | Follow camera | | |
+| 11 | Follow camera | Lock-on and Attached; players, weapons, the C4 and grenades; death and lost-target policy; the FOLLOW CAMERA tab; the Events list; the in-world marker and target box | In parts. Done 2026-10-26: CS2's follow camera split into shared code and a game host, and Lock-on on players from the console ([README.md](README.md#follow-camera)) |
 | 12 | Camera shakes | Handheld, path shake, recoil, bob, rage | |
 | 13 | Demo tools | Demos browser, scrubbing, timescale, end hold | |
 | 14 | Render workspace | Range, camera, HUD and output tabs; passes; FPS; done sound; previous renders | |

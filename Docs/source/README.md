@@ -117,6 +117,7 @@ the hook converts them first. See [Old demos](#old-demos).
 | `mirv_filmmaker director state` | The director's mouse, bar, cards and readouts, and where each bar control is |
 | `mirv_filmmaker marker ...` | [Camera paths](#camera-paths): `place`, `delete <i>`, `deleteall confirm`, `select <i>\|next\|prev`, `selectdelta <d>`, `next`, `prev`, `open [i]`, `close`, `movekey <i> <tick>`, `setval <i> <channel> <v>`, `fov <v>`, `roll <v>`, `undo`, `redo`, `ease <i> none\|in\|out\|inout`, `speed <i> <0.2..1>`, `reposition`, `placereposition`, `cancelreposition`, `arm`, `play`, `pause`, `stop`, `timing live\|freeze\|toggle`, `interp linear\|smooth\|cycle`, `speedmode manual\|constant\|persegment`, `constspeed <0.2..1>`, `speedmul <v>`, `autosnap`, `list` |
 | `mirv_filmmaker grapheditor ...` | The [TIMELINE dock](#the-timeline-dock)'s keys: `on`, `select`, `movesel`, `addkey`, `delsel`, `handle`, `ease`, `smooth`, `linear`, `align`, `undo`, `redo`, `playhead`, `autopath` and the rest of CS2's verbs |
+| `mirv_filmmaker follow ...` | The [follow camera](#follow-camera), CS2's own command: `type player`, `nearest`, `select <i>`, `place`, `reposition`, `preview`, `stop`, `status`, `campose`, `targetprobe`, `look`, `position`, `deadzone`, `maxturn`, `fov`, `autodead`, `deathhold`, `debug`, `state64` and the rest of CS2's verbs |
 | `mirv_filmmaker capture "<file.bmp>"` | The next frame as the game shows it, the filmmaker's UI included, from the back buffer at Present. Quote the path: the console splits arguments at `:` |
 | `mvm_debug start\|stop\|status` | The shared runtime debug log, as in CS2: `%APPDATA%\HLAE\debuglogs\mvm_debug_*.log`, every console line and every command received over the port, stamped with demo tick, frame and thread |
 
@@ -563,6 +564,32 @@ so the path flies the curve GRAPH draws. A drag on the layer's bar moved all 21 
 The same pass fixed where pop-ups sit: ImGui puts a new panel at the bottom of its stack, so the
 CAMERA MARKER card and the clear-all dialog only took clicks where no panel covered them. They now
 open as overlays (`BeginOverlay` in `Ui/UiWidgets.h`), as the SNAP menu does.
+
+## Follow camera
+
+CS2's follow camera runs in CS:S from the same code: its behaviour, target selection, state JSON and
+console command (`AfxHookSource2/Filmmaker/Movie/Follow*.cpp`, `Filmmaker/FollowCommand.cpp`) compile
+into both hooks. What it asks the game goes through `FollowCameraHost.h`, which
+`Filmmaker/SourceFollowCamera.cpp` answers from the [engine adapter](#engine-adapter). Step 11 brings it
+over in parts; the first is Lock-on on players, from the console.
+
+- Targets are the players on a team, read with `Entities_Snapshot`. A living player is followed at its
+  eyes: its origin raised 64 units, 47 while ducking. A dead one is followed at its `CCSRagdoll`. CS:S
+  has no skeleton reads yet, so a running player's head leans a few units ahead of the aim point.
+- Lock-on is solved where CS2 solves it, in the view hook once per rendered frame, against the target
+  where the game draws it. `SourceFilmmaker::OnViewOverride` gives the follow camera the view before
+  Smooth View and the path markers, over HLAE's free camera, which the follow camera turns on.
+- While the follow camera is Live, the camera path's playback stops, AUTO and the TIMELINE dock's drive
+  stand aside, and the path's markers are not drawn. Closing the Camera Editor stops Live, as in CS2.
+- Not yet: the FOLLOW CAMERA tab, weapons and the C4, grenades, Attached's body mounts, the Events
+  list and the in-world marker and target box. `health` shows the follow camera's state on its
+  `follow:` line.
+
+Checked in the SourceTV test demo on 2026-10-26: the placed camera's aim matched the look-at to the
+target's eyes to a hundredth of a degree; the eyes CS:S's own first-person view sits at matched the
+computed ones; the solve read a new interpolated position every rendered frame; a narrow FOV capture
+put the target's feet under the aim point; and when the target died at tick 4310 the camera followed
+the ragdoll, and a one-second death hold stopped it at tick 4376, one second of playback later.
 
 ## Old demos
 

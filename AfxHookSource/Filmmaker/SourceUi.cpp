@@ -920,6 +920,14 @@ void Ui_FilterRawInput(UINT result, UINT command, LPVOID data) {
 
 bool Ui_EditorOpen() { return g_open.load(); }
 
+void Ui_SetEditorMouse(bool ui) {
+	if (!g_open.load()) return;
+	const Mode before = g.mouse.GetMode();
+	if (before == Mode::Look || (before == Mode::Ui) == ui) return;
+	g.mouse.ToggleGame();
+	ApplyMode(before, ui ? "follow: ui" : "follow: game");
+}
+
 void Ui_ShowTimelineDock(bool show) {
 	if (show) Open("timeline dock");
 	g.editor.dock = show ? DockTab::Timeline : DockTab::RegularTimeline;

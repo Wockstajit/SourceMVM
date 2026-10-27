@@ -8,6 +8,7 @@
 #include "SourceDemoIndex.h"
 #include "SourceDirector.h"
 #include "SourceEngine.h"
+#include "SourceFollowCamera.h"
 #include "SourceGameProfile.h"
 #include "SourceMainThread.h"
 #include "SourceNetcon.h"
@@ -23,6 +24,7 @@
 #include "WrpVEngineClient.h"
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
+#include <AfxHookSource2/Filmmaker/Movie/FollowCamera.h>
 #include <Shared/AfxConsole.h>
 #include <Shared/NetconServer.h>
 
@@ -118,6 +120,7 @@ void PrintHealth() {
 	Director_PrintHealth();
 	CameraPath_PrintHealth();
 	TimelineDock_PrintHealth();
+	FollowCamera_PrintHealth();
 	Ui_PrintOverlayHealth();
 
 	const ViewPose game = View_Game();
@@ -176,6 +179,7 @@ void PrintUsage() {
 		"mirv_filmmaker smoothview - on|off|toggle|state|reset|<setting> <value>: CS2's Smooth View.\n"
 		"mirv_filmmaker marker  - place|delete|select|arm|play|pause|stop|timing|interp|speedmode|...: camera paths.\n"
 		"mirv_filmmaker grapheditor - on|off|state|select|movesel|addkey|ease|undo|playhead|...: the TIMELINE dock's keys.\n"
+		"mirv_filmmaker follow  - place|nearest|select|preview|stop|status|campose|...: CS2's follow camera (players).\n"
 		"mirv_filmmaker capture - <file.bmp>: the next frame as the game shows it, the filmmaker's UI included.\n");
 }
 
@@ -196,7 +200,8 @@ bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
 bool SuspendMirvInput() { return Ui_SuspendMirvInput(); }
 
-void OnViewOverride(float tx, float ty, float tz, float& rx, float& ry, float& rz, float& fov, bool cameraOverridden) {
+void OnViewOverride(float& tx, float& ty, float& tz, float& rx, float& ry, float& rz, float& fov, bool& cameraOverridden) {
+	if (FollowCamera_OnView(tx, ty, tz, rx, ry, rz, fov)) cameraOverridden = true; // over the free cam it drives
 	if (!cameraOverridden) { // else HLAE's free camera or a campath has the view
 		WrpGlobals* globals = g_Hook_VClient_RenderView.GetGlobals();
 		Director_ApplyRoll(rz, globals ? globals->absoluteframetime_get() : 0.0);
@@ -216,6 +221,7 @@ void OnFrameRenderStart() {
 	CameraPath_Frame();
 	Ui_MainThreadFrame();
 	TimelineDock_Frame(); // after the UI: its playhead and edits drive this frame's camera
+	FollowCamera_Frame();
 }
 
 } // namespace SourceFilmmaker
@@ -257,6 +263,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::CameraPath_Command(argc, args);
 	} else if (0 == _stricmp(sub, "grapheditor")) {
 		SourceFilmmaker::TimelineDock_Command(argc, args);
+	} else if (0 == _stricmp(sub, "follow")) {
+		Filmmaker::Follow_RunCommand(argc, args, "mirv_filmmaker");
 	} else if (0 == _stricmp(sub, "capture")) {
 		SourceFilmmaker::Capture_Request(argc >= 3 ? args->ArgV(2) : "");
 	} else {
