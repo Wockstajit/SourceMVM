@@ -187,6 +187,10 @@ static void TestTimeText() {
 	CHECK(0 == std::strcmp(text, "0:00.00"));
 	FormatTime(66.666, 0, text, sizeof(text)); // no rate yet: 64
 	CHECK(0 == std::strcmp(text, "0:01.04"));
+	FormatTime(3272, 64, text, sizeof(text)); // 51.125 s: a half rounds up, as CS2's toFixed does
+	CHECK(0 == std::strcmp(text, "0:51.13"));
+	FormatTime(59.996 * 64, 64, text, sizeof(text)); // never "0:60.00"
+	CHECK(0 == std::strcmp(text, "1:00.00"));
 	CHECK(CleanValue(-0.04, 1) == 0 && Near(CleanValue(-0.06, 1), -0.06));
 	CHECK(CleanValue(0.4, 0) == 0 && Near(CleanValue(0.6, 0), 0.6));
 }

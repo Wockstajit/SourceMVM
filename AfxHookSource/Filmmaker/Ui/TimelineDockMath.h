@@ -221,11 +221,13 @@ inline RulerStep RulerSteps(const Span& view, float cw, double tickRate) {
 }
 
 // "m:ss.cc" counted from tick 0 (fmtTime); the short form drops a trailing ".00".
+// Hundredths round half up, as JavaScript's toFixed does (printf would round 51.125 to even), and
+// 59.996 s reads 1:00.00.
 inline void FormatTime(double tick, double tickRate, char* out, size_t size, bool shortForm = false) {
-	double s = (std::max)(0.0, tick) / (tickRate > 1 ? tickRate : 64);
-	const int m = (int)std::floor(s / 60);
-	s -= m * 60;
-	std::snprintf(out, size, "%d:%05.2f", m, s);
+	const double s = (std::max)(0.0, tick) / (tickRate > 1 ? tickRate : 64);
+	const long long hundredths = (long long)std::floor(s * 100 + 0.5);
+	const long long m = hundredths / 6000, rest = hundredths % 6000;
+	std::snprintf(out, size, "%lld:%02lld.%02lld", m, rest / 100, rest % 100);
 	if (shortForm) {
 		const size_t len = std::strlen(out);
 		if (len > 3 && out[len - 3] == '.' && out[len - 2] == '0' && out[len - 1] == '0') out[len - 3] = 0;
