@@ -28,6 +28,12 @@ bool FollowCamera_OwnsView();
 // while it is not live, and the box around a target for five seconds after it is picked. False when
 // neither shows.
 bool FollowCamera_Overlay(Ui::PathOverlayModel& out, float width, float height);
+// Reposition (CS2's): the free cam is flown to the new place; a left click while the game has the
+// mouse saves it (Lock-on's camera, or Attached's pose on its mount), Esc cancels. OnKey is true when
+// the key was the reposition's.
+bool FollowCamera_Repositioning();
+void FollowCamera_PlaceReposition();
+bool FollowCamera_OnKey(int vk, bool down);
 void FollowCamera_PrintHealth();
 
 } // namespace SourceFilmmaker

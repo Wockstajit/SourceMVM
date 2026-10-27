@@ -93,6 +93,7 @@ struct EntityState {
 	bool alive = false;
 	int flags = 0;              // m_fFlags: ducking, on the ground
 	double eye[3] = { 0, 0, 0 }; // the eyes: the origin raised by the profile's standing or ducking height
+	double eyeAngles[3] = { 0, 0, 0 }; // where it looks: the profile's eye angles, else its angles
 	int activeWeaponIndex = -1; // m_hActiveWeapon
 	int ragdollIndex = -1;      // m_hRagdoll, once dead
 	// Ragdolls: the player they were.
@@ -103,6 +104,13 @@ struct EntityState {
 int Entities_Snapshot(std::vector<EntityState>& out, bool includeDormant = false);
 // One entity; false when there is none at that index.
 bool Entity_Get(int index, EntityState& out);
+// An entity's model as the game draws it this frame, for the follow camera's Attached mounts. A bone
+// by name ("ValveBiped.Bip01_Head1"): where it is, and its axes as the bone matrix's columns (the
+// bone's x, y and z in the world). An attachment by name ("muzzle_flash"): where it is and its
+// angles. False when the entity has no model, the model has no such bone or attachment, or a read
+// faults.
+bool Entity_Bone(int index, const char* bone, double pos[3], double axes[3][3]);
+bool Entity_Attachment(int index, const char* attachment, double pos[3], double angles[3]);
 
 // mirv_filmmaker entities [all] [class filter]: one line per entity.
 void Entities_Print(bool includeDormant, const char* classFilter);

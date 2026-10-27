@@ -39,6 +39,7 @@ typedef void* (*CreateInterfaceFn)(const char* name, int* returnCode);
 void* g_client = nullptr;
 void* g_entityList = nullptr;
 void* g_engineVgui = nullptr;
+void* g_modelInfo = nullptr; // VModelInfoClient006, for the bone names of a model
 const unsigned char* g_hltvCamera = nullptr; // C_HLTVCamera, found from spec_mode (FindHltvCamera)
 int g_hltvTries = 0;
 const ClientClass* g_classes = nullptr;
@@ -106,6 +107,70 @@ bool CallBoolIntPtr(void* object, int slot, int arg, void* out) {
 		InterlockedIncrement64(&g_faults);
 		return false;
 	}
+}
+
+int CallIntStr(void* object, int slot, const char* arg, int fallback) {
+	if (!object) return fallback;
+	__try {
+		typedef int (__thiscall* Fn)(void*, const char*);
+		return ((Fn)(*(void***)object)[slot])(object, arg);
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		InterlockedIncrement64(&g_faults);
+		return fallback;
+	}
+}
+
+void* CallPtrPtr(void* object, int slot, const void* arg) {
+	if (!object) return nullptr;
+	__try {
+		typedef void* (__thiscall* Fn)(void*, const void*);
+		return ((Fn)(*(void***)object)[slot])(object, arg);
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		InterlockedIncrement64(&g_faults);
+		return nullptr;
+	}
+}
+
+bool CallBoolIntPtrPtr(void* object, int slot, int arg, void* a, void* b) {
+	if (!object) return false;
+	__try {
+		typedef bool (__thiscall* Fn)(void*, int, void*, void*);
+		return ((Fn)(*(void***)object)[slot])(object, arg, a, b);
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		InterlockedIncrement64(&g_faults);
+		return false;
+	}
+}
+
+bool CallSetupBones(void* renderable, float (*out)[3][4], int maxBones, int mask, float time) {
+	if (!renderable) return false;
+	__try {
+		typedef bool (__thiscall* Fn)(void*, void*, int, int, float);
+		return ((Fn)(*(void***)renderable)[Slot::Renderable_SetupBones])(renderable, out, maxBones, mask, time);
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		InterlockedIncrement64(&g_faults);
+		return false;
+	}
+}
+
+// The index of a bone of a studio header by name, -1 when it has none.
+int GuardedFindBone(const unsigned char* hdr, const char* name) {
+	if (!hdr || !name) return -1;
+	__try {
+		int count = 0, offset = 0;
+		std::memcpy(&count, hdr + kStudioNumBones, 4);
+		std::memcpy(&offset, hdr + kStudioBoneIndex, 4);
+		if (count <= 0 || count > kMaxStudioBones || offset <= 0) return -1;
+		for (int i = 0; i < count; ++i) {
+			const unsigned char* bone = hdr + offset + i * kStudioBoneSize;
+			int nameOffset = 0;
+			std::memcpy(&nameOffset, bone, 4);
+			if (0 == std::strcmp((const char*)bone + nameOffset, name)) return i;
+		}
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		InterlockedIncrement64(&g_faults);
+	}
+	return -1;
 }
 
 bool ReadBytes(const void* base, int offset, void* out, size_t size) {
@@ -435,6 +500,13 @@ bool FillEntity(int index, void* entity, EntityState& e) {
 		e.eye[2] += (e.flags & kFlagDucking) ? profile.duckEyeHeight : profile.eyeHeight;
 		e.activeWeaponIndex = LinkedIndex(entity, kActiveWeapon);
 		e.ragdollIndex = LinkedIndex(entity, kPlayerRagdoll);
+		float pitch = 0, yaw = 0;
+		if (ReadField(entity, kEyePitch, pitch) && ReadField(entity, kEyeYaw, yaw)) {
+			e.eyeAngles[0] = pitch;
+			e.eyeAngles[1] = yaw;
+		} else {
+			for (int i = 0; i < 3; ++i) e.eyeAngles[i] = e.angles[i];
+		}
 	} else if (profile.isRagdollClass && profile.isRagdollClass(c.c_str())) {
 		e.ragdollPlayerIndex = LinkedIndex(entity, kRagdollPlayer);
 	} else if (profile.isGrenadeClass && profile.isGrenadeClass(c.c_str())) {
@@ -466,6 +538,54 @@ bool Entity_Get(int index, EntityState& out) {
 	if (index <= 0 || !Engine_Init() || !g_VEngineClient || !g_VEngineClient->IsInGame()) return false;
 	void* entity = EntityAt(index);
 	return entity && FillEntity(index, entity, out);
+}
+
+namespace {
+
+void* RenderableAt(int index) {
+	if (index <= 0 || !Engine_Init() || !g_VEngineClient || !g_VEngineClient->IsInGame()) return nullptr;
+	return CallPtr(EntityAt(index), Slot::Unknown_GetClientRenderable);
+}
+
+} // namespace
+
+bool Entity_Bone(int index, const char* bone, double pos[3], double axes[3][3]) {
+	void* renderable = RenderableAt(index);
+	if (!renderable) return false;
+	if (!g_modelInfo) {
+		HMODULE engineDll = GetModuleHandleW(L"engine.dll");
+		auto createInterface = engineDll ? (CreateInterfaceFn)GetProcAddress(engineDll, "CreateInterface") : nullptr;
+		if (createInterface) g_modelInfo = createInterface("VModelInfoClient006", nullptr);
+	}
+	const void* model = CallPtr(renderable, Slot::Renderable_GetModel);
+	const unsigned char* hdr = model ? (const unsigned char*)CallPtrPtr(g_modelInfo, Slot::ModelInfo_GetStudiomodel, model) : nullptr;
+	const int i = GuardedFindBone(hdr, bone);
+	if (i < 0) return false;
+	// The game's own bone setup: it caches the bones once a frame, so asking again costs a copy.
+	static float matrices[kMaxStudioBones][3][4];
+	WrpGlobals* globals = g_Hook_VClient_RenderView.GetGlobals();
+	if (!CallSetupBones(renderable, matrices, kMaxStudioBones, kBoneUsedByAnything, globals ? globals->curtime_get() : 0.f))
+		return false;
+	for (int r = 0; r < 3; ++r) {
+		pos[r] = matrices[i][r][3];
+		for (int c = 0; c < 3; ++c) axes[c][r] = matrices[i][r][c];
+	}
+	return std::isfinite(pos[0]) && std::isfinite(pos[1]) && std::isfinite(pos[2]);
+}
+
+bool Entity_Attachment(int index, const char* attachment, double pos[3], double angles[3]) {
+	void* renderable = RenderableAt(index);
+	if (!renderable || !attachment) return false;
+	// LookupAttachment counts from 1; 0 is no such attachment, -1 no model.
+	const int number = CallIntStr(renderable, Slot::Renderable_LookupAttachment, attachment, -1);
+	if (number <= 0) return false;
+	float origin[3] = { 0, 0, 0 }, ang[3] = { 0, 0, 0 };
+	if (!CallBoolIntPtrPtr(renderable, Slot::Renderable_GetAttachment, number, origin, ang)) return false;
+	for (int i = 0; i < 3; ++i) {
+		pos[i] = origin[i];
+		angles[i] = ang[i];
+	}
+	return std::isfinite(pos[0]) && std::isfinite(pos[1]) && std::isfinite(pos[2]);
 }
 
 namespace {

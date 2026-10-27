@@ -1,12 +1,12 @@
 // CS:S's answers to the follow camera's host (AfxHookSource2/Filmmaker/Movie/FollowCameraHost.h), and
 // where the hook runs it. Targets come from the entity adapter: a player is followed at its eyes
-// while it lives and at its ragdoll once dead. CS:S has no skeleton reads yet, so the eyes are the
-// origin raised by the profile's standing or ducking height (SourceEngine.h EntityState::eye). A
-// weapon or the C4 is followed at its origin: on the ground where it lies; in a player's hands at the
-// player's hips, where CS:S puts a carried weapon's origin (measured in the SourceTV test demo,
-// 2026-10-26: the owner's origin raised 31 units). The Events list is the demo index's deaths, item
-// pickups and the C4's drops, pickups and plant. Grenades and Attached's body mounts come with the
-// rest of step 11.
+// while it lives and at its ragdoll once dead. The eyes are the origin raised by the profile's
+// standing or ducking height (SourceEngine.h EntityState::eye). A weapon or the C4 is followed at its
+// origin: on the ground where it lies; in a player's hands at the player's hips, where CS:S puts a
+// carried weapon's origin (measured in the SourceTV test demo, 2026-10-26: the owner's origin raised
+// 31 units). Attached rides a mount: a bone of the player's skeleton (its ragdoll's once dead), a
+// weapon model's attachment, or the entity itself. The Events list is the demo index's deaths, item
+// pickups and the C4's drops, pickups and plant. Grenades come with the rest of step 11.
 
 #include "stdafx.h"
 
@@ -16,6 +16,7 @@
 #include "SourceDemoIndex.h"
 #include "SourceEngine.h"
 #include "SourceGameProfile.h"
+#include "SourceMainThread.h"
 #include "SourceUi.h"
 #include "Ui/DirectorMath.h"
 #include "Ui/FollowInspector.h"
@@ -32,6 +33,7 @@
 #include <AfxHookSource2/Filmmaker/Platform/JsonParser.h>
 #include <Shared/AfxConsole.h>
 
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -92,6 +94,131 @@ bool PlayerPoint(int index, Filmmaker::FollowVec3& out, const char** source = nu
 	return Filmmaker::IsFiniteOrigin(out);
 }
 
+// Attached's mounts, CS2's ids on CS:S's models. CS:S's player models have no head, chest or hand
+// attachment (their attachments are holsters, feet and the like, read from the models in
+// cstrike_pak_dir.vpk on 2026-10-26), so CS2's clip_limit, c4, grenade0 and weapon_hand points are the
+// ValveBiped bones here; a weapon's world model has one attachment, muzzle_flash.
+// A bone's axes are its own (x runs along the bone), and each ValveBiped bone turns them its own
+// way. forward and up name the bone axes (1-based, negative for the opposite way) that point where
+// the body faces and up, so a mount's frame faces the way the body does. Measured on a running CT
+// in the SourceTV test demo (2026-10-26), against where the player looked: every pair lined up
+// within 40 degrees and made a right-handed frame.
+struct Mount {
+	const char* id;
+	const char* label;
+	const char* kind;
+	const char* bone;       // a bone of the model, or
+	const char* attachment; // an attachment of it; neither: the entity or a virtual point
+	int forward, up;        // a bone's axes for the mount's forward and up
+};
+const Mount kPlayerMounts[] = {
+	{ "entity", "Entity", "entity", nullptr, nullptr, 0, 0 },
+	{ "eyes", "Eyes", "virtual", nullptr, nullptr, 0, 0 },
+	{ "head", "Head", "body-mount", "ValveBiped.Bip01_Head1", nullptr, -2, 1 },
+	{ "chest", "Chest", "body-mount", "ValveBiped.Bip01_Spine2", nullptr, 2, 1 },
+	{ "pelvis", "Pelvis", "body-mount", "ValveBiped.Bip01_Pelvis", nullptr, 3, 2 },
+	{ "feet", "Feet", "virtual", nullptr, nullptr, 0, 0 },
+	{ "weapon_hand_R", "Right hand", "attachment", "ValveBiped.Bip01_R_Hand", nullptr, 1, -3 },
+	{ "weapon_hand_L", "Left hand", "attachment", "ValveBiped.Bip01_L_Hand", nullptr, 1, 3 },
+};
+const Mount kWeaponMounts[] = {
+	{ "entity", "Entity", "entity", nullptr, nullptr, 0, 0 },
+	{ "muzzle", "Muzzle", "attachment", nullptr, "muzzle_flash", 0, 0 },
+	{ "muzzle_flash", "Muzzle flash", "attachment", nullptr, "muzzle_flash", 0, 0 },
+};
+
+const Mount* FindMount(const Mount* mounts, size_t count, const std::string& id) {
+	for (size_t i = 0; i < count; ++i)
+		if (id == mounts[i].id) return &mounts[i];
+	return nullptr;
+}
+
+// Where a mount is this frame. A bone's frame is its matrix: x along the bone, y and z across it.
+struct MountPose {
+	bool valid = false;
+	bool oriented = false;
+	Filmmaker::FollowVec3 pos;
+	Filmmaker::FollowAngles ang;
+	int entity = -1;  // whose model it was read from: the player's, or its ragdoll's once dead
+	const char* source = "none";
+};
+
+Filmmaker::FollowVec3 Axis(const double axes[3][3], int which) {
+	const int i = (which < 0 ? -which : which) - 1;
+	const double sign = which < 0 ? -1.0 : 1.0;
+	return Filmmaker::FollowVec3{ sign * axes[i][0], sign * axes[i][1], sign * axes[i][2] };
+}
+
+MountPose BonePose(int entity, const Mount& mount) {
+	MountPose m;
+	double pos[3], axes[3][3];
+	if (!SourceFilmmaker::Entity_Bone(entity, mount.bone, pos, axes)) return m;
+	m.valid = true;
+	m.oriented = true;
+	m.pos = Vec(pos);
+	m.ang = Filmmaker::FollowAnglesFromBasis(Axis(axes, mount.forward), Axis(axes, mount.up));
+	m.entity = entity;
+	m.source = "bone";
+	return m;
+}
+
+MountPose ResolveMount(int index, Filmmaker::FollowTargetType type, const std::string& id) {
+	MountPose m;
+	EntityState e;
+	if (!SourceFilmmaker::Entity_Get(index, e) || e.dormant) return m;
+	if (type == Filmmaker::FollowTargetType::Player && IsPlayer(e)) {
+		const Mount* mount = FindMount(kPlayerMounts, sizeof(kPlayerMounts) / sizeof(kPlayerMounts[0]), id.empty() ? "eyes" : id);
+		if (!mount) return m;
+		// A dead player is its ragdoll: the same skeleton, falling. Never the dead player's eyes.
+		int body = index;
+		EntityState ragdoll;
+		if (!e.alive) {
+			if (e.ragdollIndex < 0 || !SourceFilmmaker::Entity_Get(e.ragdollIndex, ragdoll) || ragdoll.dormant) return m;
+			body = e.ragdollIndex;
+		}
+		if (mount->bone) return BonePose(body, *mount);
+		const EntityState& b = e.alive ? e : ragdoll;
+		if (0 == std::strcmp(mount->id, "eyes")) {
+			if (!e.alive) return BonePose(body, kPlayerMounts[2]); // the head
+			m.pos = Vec(e.eye);
+			m.ang = Filmmaker::FollowAngles{ e.eyeAngles[0], e.eyeAngles[1], 0.0 };
+			m.source = "player-eye";
+		} else if (0 == std::strcmp(mount->id, "feet")) {
+			m.pos = Vec(b.origin);
+			m.ang = Filmmaker::FollowAngles{ 0.0, e.alive ? e.eyeAngles[1] : b.angles[1], 0.0 };
+			m.source = "player-feet";
+		} else {
+			m.pos = Vec(b.origin);
+			m.ang = Filmmaker::FollowAngles{ b.angles[0], b.angles[1], b.angles[2] };
+			m.source = "entity-origin";
+		}
+		m.valid = Filmmaker::IsFiniteOrigin(m.pos);
+		m.oriented = m.valid;
+		m.entity = body;
+		return m;
+	}
+	// A weapon, the C4 or a grenade: its own model's attachment, else the entity itself.
+	const Mount* mount = FindMount(kWeaponMounts, sizeof(kWeaponMounts) / sizeof(kWeaponMounts[0]), id.empty() ? "entity" : id);
+	if (mount && mount->attachment) {
+		double pos[3], ang[3];
+		if (SourceFilmmaker::Entity_Attachment(index, mount->attachment, pos, ang)) {
+			m.valid = m.oriented = true;
+			m.pos = Vec(pos);
+			m.ang = Filmmaker::FollowAngles{ ang[0], ang[1], ang[2] };
+			m.entity = index;
+			m.source = "model-attachment";
+			return m;
+		}
+	}
+	// No such point on this model (a knife has no muzzle): its own root, as CS2 falls back.
+	m.pos = Vec(e.origin);
+	m.ang = Filmmaker::FollowAngles{ e.angles[0], e.angles[1], e.angles[2] };
+	m.valid = m.oriented = Filmmaker::IsFiniteOrigin(m.pos);
+	m.entity = index;
+	m.source = mount && mount->attachment ? "fallback-entity-transform" : "entity-transform";
+	return m;
+}
+
 class PlayerProvider final : public Filmmaker::IFollowTargetProvider {
 public:
 	explicit PlayerProvider(int index) : m_index(index) {}
@@ -140,23 +267,60 @@ private:
 	int m_index;
 };
 
+// Attached on a mount (CS2's AttachmentTargetProvider): the mount's position and orientation.
+class AttachmentProvider final : public Filmmaker::IFollowTargetProvider {
+public:
+	AttachmentProvider(int index, Filmmaker::FollowTargetType type, std::string mount)
+		: m_index(index), m_type(type), m_mount(std::move(mount)) {}
+	bool IsValid() override { return ResolveMount(m_index, m_type, m_mount).valid; }
+	Filmmaker::FollowVec3 GetWorldPosition() override { return ResolveMount(m_index, m_type, m_mount).pos; }
+	bool GetWorldTransform(Filmmaker::FollowVec3& pos, Filmmaker::FollowAngles& ang) override {
+		const MountPose m = ResolveMount(m_index, m_type, m_mount);
+		pos = m.pos;
+		ang = m.ang;
+		return m.valid && m.oriented;
+	}
+	std::string GetDisplayName() override {
+		EntityState e;
+		if (!SourceFilmmaker::Entity_Get(m_index, e)) return "Entity";
+		return IsPlayer(e) ? PlayerName(m_index) : (IsWeaponOrBomb(e) ? WeaponName(e.className) : e.className);
+	}
+	Filmmaker::FollowTargetStatus GetStatus() override {
+		EntityState e;
+		if (!SourceFilmmaker::Entity_Get(m_index, e)) return Filmmaker::FollowTargetStatus::Missing;
+		if (m_type == Filmmaker::FollowTargetType::Player && IsPlayer(e))
+			return e.alive ? Filmmaker::FollowTargetStatus::Active : Filmmaker::FollowTargetStatus::Dead;
+		return IsValid() ? Filmmaker::FollowTargetStatus::Active : Filmmaker::FollowTargetStatus::Missing;
+	}
+	int EntityIndex() const override { return m_index; }
+private:
+	int m_index;
+	Filmmaker::FollowTargetType m_type;
+	std::string m_mount;
+};
+
 // A player's weapon in hand, whichever it is (CS2's HeldWeaponProvider): it re-reads the active
-// weapon every frame, so the camera stays on the player's gun through a switch.
+// weapon every frame, so the camera stays on the player's gun through a switch. With a mount, the
+// mount on that gun (its muzzle), retried on each gun it switches to.
 class HeldWeaponProvider final : public Filmmaker::IFollowTargetProvider {
 public:
-	explicit HeldWeaponProvider(int playerIndex) : m_player(playerIndex) {}
+	HeldWeaponProvider(int playerIndex, std::string mount) : m_player(playerIndex), m_mount(std::move(mount)) {}
 	int ActiveWeapon() const {
 		EntityState p;
 		return SourceFilmmaker::Entity_Get(m_player, p) && IsPlayer(p) ? p.activeWeaponIndex : -1;
 	}
 	bool IsValid() override {
-		EntityState w;
 		const int index = ActiveWeapon();
-		return index >= 0 && SourceFilmmaker::Entity_Get(index, w) && !w.dormant && Filmmaker::IsFiniteOrigin(Vec(w.origin));
+		return index >= 0 && ResolveMount(index, Filmmaker::FollowTargetType::Weapon, m_mount).valid;
 	}
 	Filmmaker::FollowVec3 GetWorldPosition() override {
-		EntityState w;
-		return SourceFilmmaker::Entity_Get(ActiveWeapon(), w) ? Vec(w.origin) : Filmmaker::FollowVec3{};
+		return ResolveMount(ActiveWeapon(), Filmmaker::FollowTargetType::Weapon, m_mount).pos;
+	}
+	bool GetWorldTransform(Filmmaker::FollowVec3& pos, Filmmaker::FollowAngles& ang) override {
+		const MountPose m = ResolveMount(ActiveWeapon(), Filmmaker::FollowTargetType::Weapon, m_mount);
+		pos = m.pos;
+		ang = m.ang;
+		return m.valid && m.oriented;
 	}
 	std::string GetDisplayName() override {
 		EntityState w;
@@ -171,6 +335,7 @@ public:
 	int EntityIndex() const override { return ActiveWeapon(); }
 private:
 	int m_player;
+	std::string m_mount;
 };
 
 // The C4 a player carries, read once per demo tick: the follow camera asks every frame while it
@@ -334,14 +499,23 @@ void FollowHost_TakeViewFromOtherCameras() {
 
 void FollowHost_ReturnViewToTimeline() {}
 
+// As CS2 chooses (FollowCameraHostSource2.cpp): Attached rides a mount; Lock-on watches a player's
+// eyes or an entity; a weapon is the player's gun in hand (Held, or Auto with a player picked).
 std::unique_ptr<IFollowTargetProvider> FollowHost_MakeProvider(const FollowCameraState& state, FollowPlayerPose*) {
-	if (state.targetType == FollowTargetType::Player) return std::make_unique<PlayerProvider>(state.targetEntityIndex);
+	const bool attach = state.mode == FollowMode::Attach;
+	if (state.targetType == FollowTargetType::Player) {
+		if (attach) return std::make_unique<AttachmentProvider>(state.targetEntityIndex, FollowTargetType::Player, state.attachmentName);
+		return std::make_unique<PlayerProvider>(state.targetEntityIndex);
+	}
 	if (state.targetType == FollowTargetType::Weapon) {
-		// As CS2 chooses: the player's gun in hand (Held, or Auto with a player picked), else the entity.
 		const bool held = state.weaponSource == WeaponSource::Held
 			|| (state.weaponSource == WeaponSource::Auto && state.weaponPlayerIndex >= 0);
-		if (held && state.weaponPlayerIndex >= 0) return std::make_unique<HeldWeaponProvider>(state.weaponPlayerIndex);
+		if (held && state.weaponPlayerIndex >= 0)
+			return std::make_unique<HeldWeaponProvider>(state.weaponPlayerIndex, attach ? state.attachmentName : std::string());
+		if (attach && !state.attachmentName.empty())
+			return std::make_unique<AttachmentProvider>(state.targetEntityIndex, FollowTargetType::Weapon, state.attachmentName);
 	}
+	if (attach) return std::make_unique<AttachmentProvider>(state.targetEntityIndex, state.targetType, state.attachmentName);
 	return std::make_unique<EntityProvider>(state.targetEntityIndex);
 }
 
@@ -432,9 +606,18 @@ std::vector<FollowAttachPoint> FollowHost_AttachPoints(int entityIndex, FollowTa
 	std::vector<FollowAttachPoint> out;
 	EntityState e;
 	if (!SourceFilmmaker::Entity_Get(entityIndex, e)) return out;
-	out.push_back(MakeAttachPoint("entity", "Entity", "entity", true, 0, "entity-origin"));
-	if (type == FollowTargetType::Player && IsPlayer(e))
-		out.push_back(MakeAttachPoint("eyes", "Eyes", "virtual", true, -1, "player-eye"));
+	const bool player = type == FollowTargetType::Player && IsPlayer(e);
+	const Mount* mounts = player ? kPlayerMounts : kWeaponMounts;
+	const size_t count = player ? sizeof(kPlayerMounts) / sizeof(kPlayerMounts[0])
+		: (type == FollowTargetType::Grenade || IsBomb(e) ? 1 : sizeof(kWeaponMounts) / sizeof(kWeaponMounts[0]));
+	for (size_t i = 0; i < count; ++i) {
+		const Mount& m = mounts[i];
+		const MountPose pose = ResolveMount(entityIndex, type, m.id);
+		// A point the model lacks is listed unavailable; the entity and virtual points always resolve.
+		const bool valid = pose.valid && (m.bone || m.attachment ? 0 != std::strcmp(pose.source, "fallback-entity-transform") : true);
+		out.push_back(MakeAttachPoint(m.id, m.label, m.kind, valid, m.bone || m.attachment ? (int)i : -1,
+			m.bone ? "bone" : (m.attachment ? "model-attachment" : pose.source)));
+	}
 	return out;
 }
 
@@ -459,35 +642,46 @@ bool FollowHost_LivePlayerItems(int entityIndex, int& activeWeaponIndex, int& bo
 	return true;
 }
 
-FollowMountDescription FollowHost_DescribeMount(int entityIndex, FollowTargetType type, const std::string&,
+FollowMountDescription FollowHost_DescribeMount(int entityIndex, FollowTargetType type, const std::string& mount,
 	FollowPlayerPose*, bool) {
 	FollowMountDescription d;
 	EntityState e;
 	if (!SourceFilmmaker::Entity_Get(entityIndex, e)) return d;
 	d.entityHandle = e.handle != 0xFFFFFFFFu ? e.handle : 0;
 	d.className = e.className;
-	d.attachKind = "virtual";
-	FollowVec3 p;
-	const char* source = "entity-origin";
-	d.valid = type == FollowTargetType::Player && IsPlayer(e) ? PlayerPoint(entityIndex, p, &source)
-		: !e.dormant && IsFiniteOrigin(Vec(e.origin));
-	d.source = source;
+	const bool player = type == FollowTargetType::Player && IsPlayer(e);
+	const Mount* m = player ? FindMount(kPlayerMounts, sizeof(kPlayerMounts) / sizeof(kPlayerMounts[0]), mount.empty() ? "eyes" : mount)
+		: FindMount(kWeaponMounts, sizeof(kWeaponMounts) / sizeof(kWeaponMounts[0]), mount.empty() ? "entity" : mount);
+	d.attachKind = m ? m->kind : "entity";
+	const MountPose pose = ResolveMount(entityIndex, type, mount);
+	d.valid = pose.valid;
+	d.source = pose.source;
 	return d;
 }
 
+// Every mount of the target: where it resolves, its angles, and a bone's raw axes, against where the
+// player looks, so a mount's frame can be checked against the model on screen.
 void FollowHost_PrintTargetProbe(int entityIndex) {
 	EntityState e;
 	if (!SourceFilmmaker::Entity_Get(entityIndex, e)) {
 		advancedfx::Message("[followcam][probe] entity=%d: none\n", entityIndex);
 		return;
 	}
-	FollowVec3 p;
-	const char* source = "none";
-	const bool valid = PlayerPoint(entityIndex, p, &source);
-	advancedfx::Message("[followcam][probe] entity=%d class=%s health=%d alive=%d dormant=%d flags=%d origin=(%.3f %.3f %.3f) "
-		"eye=(%.3f %.3f %.3f) ragdoll=%d target=%s valid=%d pos=(%.3f %.3f %.3f)\n",
-		entityIndex, e.className.c_str(), e.health, e.alive, e.dormant, e.flags, e.origin[0], e.origin[1], e.origin[2],
-		e.eye[0], e.eye[1], e.eye[2], e.ragdollIndex, source, valid, p.x, p.y, p.z);
+	const bool player = IsPlayer(e);
+	advancedfx::Message("[followcam][probe] entity=%d class=%s health=%d alive=%d dormant=%d flags=%d origin=(%.2f %.2f %.2f) "
+		"eye=(%.2f %.2f %.2f) eyeAngles=(%.2f %.2f) ragdoll=%d\n", entityIndex, e.className.c_str(), e.health, e.alive, e.dormant,
+		e.flags, e.origin[0], e.origin[1], e.origin[2], e.eye[0], e.eye[1], e.eye[2], e.eyeAngles[0], e.eyeAngles[1], e.ragdollIndex);
+	const Mount* mounts = player ? kPlayerMounts : kWeaponMounts;
+	const size_t count = player ? sizeof(kPlayerMounts) / sizeof(kPlayerMounts[0]) : sizeof(kWeaponMounts) / sizeof(kWeaponMounts[0]);
+	for (size_t i = 0; i < count; ++i) {
+		const MountPose m = ResolveMount(entityIndex, player ? FollowTargetType::Player : FollowTargetType::Weapon, mounts[i].id);
+		advancedfx::Message("[followcam][probe]   %-14s valid=%d source=%s from=%d pos=(%.2f %.2f %.2f) ang=(%.2f %.2f %.2f)\n",
+			mounts[i].id, m.valid, m.source, m.entity, m.pos.x, m.pos.y, m.pos.z, m.ang.pitch, m.ang.yaw, m.ang.roll);
+		double pos[3], axes[3][3];
+		if (mounts[i].bone && SourceFilmmaker::Entity_Bone(m.entity >= 0 ? m.entity : entityIndex, mounts[i].bone, pos, axes))
+			advancedfx::Message("[followcam][probe]   %-14s bone x=(%.3f %.3f %.3f) y=(%.3f %.3f %.3f) z=(%.3f %.3f %.3f)\n",
+				"", axes[0][0], axes[0][1], axes[0][2], axes[1][0], axes[1][1], axes[1][2], axes[2][0], axes[2][1], axes[2][2]);
+	}
 }
 
 void CameraBridge_SetFollowCameraMarker(bool enabled, double x, double y, double z, double pitch, double yaw, double roll, double fov) {
@@ -627,6 +821,16 @@ bool FollowCamera_OnView(float& x, float& y, float& z, float& pitch, float& yaw,
 }
 
 bool FollowCamera_OwnsView() { return Filmmaker::FollowCameraRef().OwnsView(); }
+
+bool FollowCamera_Repositioning() { return Filmmaker::FollowCameraRef().Repositioning(); }
+
+void FollowCamera_PlaceReposition() { Filmmaker::FollowCameraRef().PlaceReposition(); }
+
+bool FollowCamera_OnKey(int vk, bool down) {
+	if (vk != VK_ESCAPE || !FollowCamera_Repositioning()) return false;
+	if (down) MainThread_Run([] { Filmmaker::FollowCameraRef().CancelReposition(); });
+	return true;
+}
 
 bool FollowCamera_Overlay(Ui::PathOverlayModel& out, float width, float height) {
 	out.followCamera = g_aids.marker;

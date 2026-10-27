@@ -469,6 +469,11 @@ bool OnMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 			MainThread_Run(&CameraPath_PlaceReposition);
 			return true;
 		}
+		if (button == WorkspaceMouse::Left && before != Mode::Ui && FollowCamera_Repositioning()) {
+			// The follow camera's reposition: the click saves the pose where the view is.
+			MainThread_Run(&FollowCamera_PlaceReposition);
+			return true;
+		}
 		route = g.mouse.ButtonDown(button, (float)x, (float)y, now, g.preview);
 		if (route == Route::Ui && io) {
 			io->AddMousePosEvent((float)x, (float)y);
@@ -725,6 +730,7 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	case WM_KEYDOWN:
 	case WM_SYSKEYDOWN:
 		if (!(g.context && ImGui::GetIO().WantTextInput)) {
+			if (FollowCamera_OnKey((int)wParam, true)) return true;
 			if (CameraPath_OnKey((int)wParam, true, (lParam & (1 << 30)) != 0)) return true;
 			if (EditorDirectorKey(msg, wParam, lParam)) return true;
 		}
@@ -748,6 +754,7 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
 		if (!(g.context && ImGui::GetIO().WantTextInput)) {
+			if (FollowCamera_OnKey((int)wParam, false)) return true;
 			if (CameraPath_OnKey((int)wParam, false, false)) return true;
 			if (EditorDirectorKey(msg, wParam, lParam)) return true;
 		}

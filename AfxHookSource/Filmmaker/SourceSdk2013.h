@@ -102,6 +102,18 @@ const int EntityList_GetHighestEntityIndex = 6;
 const int Handle_GetRefEHandle = 2;
 // IClientUnknown, after IHandleEntity's destructor, SetRefEHandle and GetRefEHandle.
 const int Unknown_GetClientNetworkable = 4;
+const int Unknown_GetClientRenderable = 5;
+// IClientRenderable, measured in the x64 client.dll's C_BaseAnimating (2026-10-26): GetModel (9,
+// returns m_pModel) and SetupBones (16) sit where the 2013 SDK puts them; the x64 game has three
+// slots more before LookupAttachment (35, -1 without a model), GetAttachment with a matrix (36) and
+// GetAttachment with an origin and angles (37, which falls back to the entity's own and returns false).
+const int Renderable_GetModel = 9;
+const int Renderable_SetupBones = 16;
+const int Renderable_LookupAttachment = 35;
+const int Renderable_GetAttachment = 37;
+// IVModelInfoClient (VModelInfoClient006), measured in the x64 engine.dll's CModelInfoClient: 28 is
+// GetStudiomodel (a studio model's MDLCache GetStudioHdr).
+const int ModelInfo_GetStudiomodel = 28;
 // IClientEntity, after IClientUnknown's nine slots. Its Release overrides the Release of its
 // secondary bases (IClientNetworkable, IClientThinkable), so MSVC gives it no slot of its own in
 // the primary table: GetAbsOrigin is 9 and GetAbsAngles 10. Measured in CS:S on 2026-10-26, when
@@ -114,6 +126,15 @@ const int Networkable_IsDormant = 8;
 // IEngineVGui (VEngineVGui001): the destructor, GetPanel, IsGameUIVisible.
 const int EngineVGui_IsGameUIVisible = 2;
 } // namespace Slot
+
+// studiohdr_t, as the MDL file holds it (CS:S's models are version 44): the bone count and the
+// offset of the bone array, each mstudiobone_t 216 bytes with its name's offset (from the bone)
+// first. SetupBones' mask for every bone, and the most bones a model has.
+const int kStudioNumBones = 156;
+const int kStudioBoneIndex = 160;
+const int kStudioBoneSize = 216;
+const int kBoneUsedByAnything = 0x0007FF00;
+const int kMaxStudioBones = 128;
 
 // client/hltvcamera.h's C_HLTVCamera, SourceTV playback's camera, whose mode and target are not
 // networked: CGameEventListener's vtable and flag, then m_nCameraMode, m_iCameraMan, m_vCamOrigin,

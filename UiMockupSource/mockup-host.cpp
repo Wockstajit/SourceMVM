@@ -505,6 +505,19 @@ void SeedFollow() {
 		c.status = p.alive ? "alive" : "dead";
 		c.distance = p.distance;
 		c.distanceLevel = DistanceLevel(p.distance);
+		// The mounts the game offers on a CS:S player (SourceFollowCamera.cpp kPlayerMounts). A dead
+		// player keeps them all on its ragdoll, its eyes on the ragdoll's head.
+		const char* const mounts[][3] = { { "entity", "Entity", "entity" }, { "eyes", "Eyes", "virtual" },
+			{ "head", "Head", "body-mount" }, { "chest", "Chest", "body-mount" }, { "pelvis", "Pelvis", "body-mount" },
+			{ "feet", "Feet", "virtual" }, { "weapon_hand_R", "Right hand", "attachment" }, { "weapon_hand_L", "Left hand", "attachment" } };
+		for (const auto& m : mounts) {
+			FollowInspectorPoint point;
+			point.id = m[0];
+			point.label = m[1];
+			point.kind = m[2];
+			point.valid = true;
+			c.attachPoints.push_back(point);
+		}
 		f.candidates.push_back(c);
 	}
 	f.eventStatus = 3;
@@ -526,6 +539,7 @@ void FollowSelect(const FollowInspectorCandidate& c) {
 	f.targetName = c.name;
 	f.targetDistance = c.distance;
 	f.distanceLevel = c.distanceLevel;
+	f.attachPoints = c.attachPoints;
 	f.message = "Selected " + c.name + ".";
 }
 

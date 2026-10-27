@@ -175,6 +175,17 @@ C4 appeared at tick 3284, the tick of the demo's `bomb_planted` event; the eye h
 frame start is a frame apart from the interpolated view. Neither test demo has a grenade thrown,
 so the projectile's fields wait for a demo with a throw. All 14 fields resolved, with no faults.
 
+For Attached mounts the adapter also reads a model's bones and attachments, through the entity's
+renderable (`IClientUnknown` slot 5), all measured in the x64 `client.dll` and `engine.dll`
+(`SourceSdk2013.h`). `Entity_Bone` finds the bone by name in the studio header
+(`VModelInfoClient006`'s `GetStudiomodel`, slot 28; `numbones` at +156, `boneindex` at +160,
+216-byte bones), then has the model set up its own bones (`SetupBones`, slot 16) and returns that
+bone's matrix. `Entity_Attachment` asks the model (`LookupAttachment`, slot 35, then
+`GetAttachment`, slot 37). Both run guarded, so a bad read counts a fault instead of crashing.
+CS:S's player models have only the gear attachments (grenades, pistol, primary, C4, feet,
+`muzzle_flash`), none on the head or hands, so body mounts read ValveBiped bones; a weapon's world
+model has one attachment, `muzzle_flash`, and `w_c4` has none.
+
 ## Demo index
 
 CS:S writes no event sidecar next to a demo, the way CS2 writes `.dem.info`, so the hook reads the
@@ -571,12 +582,13 @@ CS2's follow camera runs in CS:S from the same code: its behaviour, target selec
 console command (`AfxHookSource2/Filmmaker/Movie/Follow*.cpp`, `Filmmaker/FollowCommand.cpp`) compile
 into both hooks. What it asks the game goes through `FollowCameraHost.h`, which
 `Filmmaker/SourceFollowCamera.cpp` answers from the [engine adapter](#engine-adapter). Step 11 brings it
-over in parts; so far, Lock-on on players, weapons and the C4, from the console and the FOLLOW
-CAMERA tab.
+over in parts; so far, Lock-on and Attached on players, weapons and the C4, from the console and
+the FOLLOW CAMERA tab.
 
 - Targets are the players on a team, read with `Entities_Snapshot`. A living player is followed at its
-  eyes: its origin raised 64 units, 47 while ducking. A dead one is followed at its `CCSRagdoll`. CS:S
-  has no skeleton reads yet, so a running player's head leans a few units ahead of the aim point.
+  eyes: its origin raised 64 units, 47 while ducking. A dead one is followed at its `CCSRagdoll`.
+  Lock-on aims at those eyes, not at the head bone, so a running player's head leans a few units
+  ahead of the aim point.
 - Weapons and the C4 are the profile's weapon and bomb classes, named as CS:S names them (AK-47,
   M4A1, MP5 Navy...). A carried weapon or C4 is its owner's (`m_hOwner`); the planted bomb,
   `CPlantedC4`, is nobody's, though it links to its planter. A weapon is followed at its origin: where
@@ -589,6 +601,19 @@ CAMERA tab.
 - Lock-on is solved where CS2 solves it, in the view hook once per rendered frame, against the target
   where the game draws it. `SourceFilmmaker::OnViewOverride` gives the follow camera the view before
   Smooth View and the path markers, over HLAE's free camera, which the follow camera turns on.
+- Attached rides a mount, with CS2's mount names and CS2's framing. A player's head, chest, pelvis
+  and hands are bones of its skeleton; its eyes are the eyes above, looking where the player looks;
+  its feet are its origin, turned the way it faces. A dead player's mounts are its ragdoll's bones,
+  and its eyes become the ragdoll's head. A weapon's muzzle is its world model's `muzzle_flash`;
+  a knife, the C4 and anything else without one ride the weapon itself, as CS2 falls back, and
+  `targetprobe` names the source of each mount.
+- A bone's own axes run along and across it, and each ValveBiped bone turns them its own way. The
+  mount table (`kPlayerMounts`) names which bone axis points where the body faces and which points
+  up, so every mount's frame faces the way the body does and an offset behind the head stays behind
+  it. Measured on a running CT: head (-y, x), chest (y, x), pelvis (z, y), right hand (x, -z), left
+  hand (x, z); every pair lined up with where the player looked within 40 degrees.
+- Reposition works as in CS2: the free camera flies to the new spot and a click saves the offset
+  against the mount. Esc cancels it. Either way the mouse goes back to the editor.
 - While the follow camera is Live, the camera path's playback stops, AUTO and the TIMELINE dock's drive
   stand aside, and the path's markers are not drawn. Closing the Camera Editor stops Live, as in CS2.
 - The FOLLOW CAMERA tab is CS2's follow inspector (`Ui/FollowInspector.cpp`): the pinned bar with Live
@@ -602,7 +627,7 @@ CAMERA tab.
   purple while it is not live, and a picked target gets a cyan glass box for five seconds, standing
   on a player's feet or around a weapon. Both are part of the path overlay (`Ui/PathOverlay.cpp`),
   so they show while the Camera Editor is open, and neither shows over a live shot.
-- Not yet: grenades and Attached's body mounts. `health` shows the follow camera's state, and
+- Not yet: grenades, which need a demo with a throw. `health` shows the follow camera's state, and
   whether its marker and box show, on its `follow:` line.
 
 Checked in the SourceTV test demo on 2026-10-26: the placed camera's aim matched the look-at to the
@@ -621,6 +646,14 @@ one-second hold. The Events list held the demo's three deaths and the plant with
 in-world aids, in the mockup and then in CS:S: the placed camera's marker drew where it was placed,
 seen from elsewhere; picking Brad boxed him on his feet and the box went after five seconds; Live
 hid both, and Stop brought the marker back.
+Attached, checked on 2026-10-27: `targetprobe` resolved every player and weapon mount from its bone
+or attachment, with no faults. On Brad's head the camera moved with the head every frame, within a
+unit; turned around (`rotyaw 180`) it kept his face in frame while he ran. Through his death the
+head mount switched to the ragdoll's bone and followed the head down about 52 units. A Reposition
+placed with a real click saved the offset (-47.6, 63.8, 17.5), the live camera came out exactly where
+the free camera had been, and the framing held while the demo played; Esc cancelled another and gave
+the mouse back. On his USP the muzzle read the model's `muzzle_flash`, about 19 units ahead of the
+gun's origin.
 Going to an event sent the right seek, but this SourceTV demo cannot seek forward: the engine stops
 with `CL_PreserveExistingEntity: missing client entity`, as it does for the demo bar's seeks.
 
