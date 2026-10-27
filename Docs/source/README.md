@@ -238,11 +238,44 @@ bottom of the screen (the [movie director](#movie-director)). Its rules are engi
 `SourceDemoBar.cpp`. `mirv_filmmaker editor state` prints each control's rectangle, so a test can
 click it by name.
 
-Seeking backwards restarts the demo, waits until it plays again, and then seeks forward. In the
-test SourceTV demo the engine's own skip sometimes stopped with "CL_PreserveExistingEntity" or
-"CL_CopyExistingEntity: missing client entity 62", in either direction and from the console too;
-first-person demos seek cleanly both ways. That is engine playback of that demo, not the bar, and
-is checked again with more SourceTV demos.
+Seeking backwards restarts the demo, waits until it plays again, and then seeks forward.
+
+### Bodies made during a seek
+
+Every seek, the bar's and a typed `demo_gototick` alike, is the engine skipping through the demo,
+and CS:S's own client drops a body that is made during a skip. The `CCSRagdoll` client class
+stores the engine's `IsSkippingPlayback` when the body is created, and `C_CSRagdoll::OnDataChanged`
+then releases the entity on its first update. The body is a networked entity, so the engine still
+has it in its last snapshot, and the next packet that keeps it stops the game with
+`Host_Error: CL_PreserveExistingEntity: missing client entity N` (one that changes it:
+`CL_CopyExistingEntity`). So any seek across a death could stop the game; in the SourceTV test
+demo, entity 62 is the body of the kill at tick 490. Read from the 64-bit `client.dll` on
+2026-10-27: the create function (`client.dll+0x1edad0`) is the only caller of `IsSkippingPlayback`
+there, and `OnDataChanged` (`client.dll+0x1ec060`) does the release. The game without the hook
+stops the same way: a `.vdm` demo action that sent `demo_gototick 600 0 0` at tick 300 ended in
+`Host_Error: CL_PreserveExistingEntity: missing client entity 62`.
+
+The hook keeps those bodies (`SourceDemoSkip.cpp`). It wraps the ragdoll class's create function,
+and while that runs, the engine client's `IsSkippingPlayback` (slot 128) answers false on that
+thread, so the body is made as it is in normal playback. The game profile names the class. `health`
+shows it on its `demo skip:` line, for example `CCSRagdoll kept when made during a skip (create
+client.dll+0x1edad0, IsSkippingPlayback engine.dll+0x70960), 3 kept`, and `mvm_debug` logs each
+body under `demo.skip`. A body made during a seek starts in the player's last pose and falls once
+the demo plays on, where in normal playback it would already lie on the ground.
+
+A skip that stops on that error leaves the engine still skipping: `CDemoPlayer` clears its skip
+target only when a skip arrives (`engine.dll`, `m_nSkipToTick` at +0x5bc), not when a demo starts.
+Without the fix, the next `playdemo` of the demo jumped from its first ticks towards the old target
+and stopped on a body that is there from the start, with no seek sent.
+
+Checked in CS:S on 2026-10-27 with the SourceTV test demo, each seek crossing a death and playback
+then running on, all without an error: a typed `demo_gototick 600 0 0` from tick 314; the bar's
+seek to 600 while paused and then to 900; the follow camera's Go To Event from tick 272 to 4210;
+real clicks on +5S (328 to 663 across the kill, and 591 to 926), -5S (2170, restart, then 1835),
+a scrubber click from 2336 to 4058 and one from 2776 back to 194; and the engine's own backward
+`demo_gototick 300` from 1349, which keeps the five bodies that are there from the start. After the
+seek to 600 the body of the tick-490 kill is in the entity list, in view, and on the ground 40
+ticks later.
 
 ## Movie director
 

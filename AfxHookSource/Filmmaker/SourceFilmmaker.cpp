@@ -6,6 +6,7 @@
 #include "SourceConsole.h"
 #include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
+#include "SourceDemoSkip.h"
 #include "SourceDirector.h"
 #include "SourceEngine.h"
 #include "SourceFollowCamera.h"
@@ -116,6 +117,7 @@ void PrintHealth() {
 	}
 	DemoIndex_PrintHealth();
 	OldDemos_PrintHealth();
+	DemoSkip_PrintHealth();
 	if (!g_VEngineClient->IsInGame()) return;
 	Director_PrintHealth();
 	CameraPath_PrintHealth();
@@ -190,6 +192,7 @@ void Init() {
 	Engine_Init();
 	DemoIndex_Init();
 	OldDemos_Init();
+	DemoSkip_Init();
 }
 
 bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -216,6 +219,7 @@ void OnFrameRenderStart() {
 	MainThread_Frame();
 	DemoIndex_Frame();
 	OldDemos_Frame();
+	DemoSkip_Init();
 	Entities_WatchFrame();
 	DemoBar_Frame();
 	CameraPath_Frame();

@@ -154,6 +154,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceDemoIndex.h
     Filmmaker/SourceDemoMarkers.cpp
     Filmmaker/SourceDemoMarkers.h
+    Filmmaker/SourceDemoSkip.cpp
+    Filmmaker/SourceDemoSkip.h
     Filmmaker/SourceDirector.cpp
     Filmmaker/SourceDirector.h
     Filmmaker/SourceEngine.cpp

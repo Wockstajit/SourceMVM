@@ -108,8 +108,9 @@ inline int TicksForSeconds(double seconds, double intervalPerTick) {
 struct Seek {
 	int tick = 0;
 	// Restart the demo and seek forward instead of seeking back. The engine's own backward seek
-	// stops SourceTV demos with "CL_PreserveExistingEntity: missing client entity" (measured in
-	// CS:S, 2026-10-26); a restart followed by a forward seek lands on the same tick in any demo.
+	// restarts and skips from tick 0, and CS:S dropped the bodies made during that skip, which
+	// stopped the game with "CL_PreserveExistingEntity: missing client entity" (measured 2026-10-26).
+	// SourceDemoSkip.h keeps those bodies since 2026-10-27, so both ways now land on the same tick.
 	bool restart = false;
 };
 

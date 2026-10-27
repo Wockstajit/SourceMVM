@@ -12,10 +12,17 @@
 
 namespace SourceFilmmaker {
 
+namespace Sdk2013 {
+struct ClientClass;
+}
+
 // Resolves the client interfaces, the class list and the networked fields. Safe to call
 // repeatedly; it retries until it succeeds.
 bool Engine_Init();
 bool Engine_Ready();
+
+// The client's class list (IBaseClientDLL::GetAllClasses), or null until Engine_Init succeeds.
+const Sdk2013::ClientClass* Engine_ClientClasses();
 
 struct ViewPose {
 	double origin[3] = { 0, 0, 0 };

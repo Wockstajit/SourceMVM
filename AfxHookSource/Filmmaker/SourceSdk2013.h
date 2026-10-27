@@ -94,6 +94,9 @@ namespace Slot {
 const int Client_GetAllClasses = 8;
 // IVEngineClient (VEngineClient013): ... ServerCmd 6, ClientCmd 7, GetPlayerInfo 8.
 const int EngineClient_GetPlayerInfo = 8;
+// ... GetGamestatsData 126, ServerCmdKeyValues 127, IsSkippingPlayback 128 (the 2013 SDK's list;
+// CS:S's client.dll calls it as [vtable + 0x400], measured 2026-10-27).
+const int EngineClient_IsSkippingPlayback = 128;
 // IClientEntityList (VClientEntityList003).
 const int EntityList_GetClientEntity = 3;
 const int EntityList_GetHighestEntityIndex = 6;

@@ -348,6 +348,8 @@ bool Engine_Init() {
 
 bool Engine_Ready() { return g_ready; }
 
+const ClientClass* Engine_ClientClasses() { return Engine_Init() ? g_classes : nullptr; }
+
 ViewPose View_Game() {
 	ViewPose pose;
 	for (int i = 0; i < 3; ++i) {

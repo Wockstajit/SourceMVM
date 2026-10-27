@@ -157,6 +157,15 @@ with their brush models matched to the installed maps, and plays the copy
 de_inferno, de_dust2, de_nuke, cs_office, de_cbble and de_train play in game in first person and
 chase, with the demo bar's markers.
 
+Seeks across a death, fixed during step 11 (2026-10-27): seeking the SourceTV test demo stopped the
+game with `Host_Error: CL_PreserveExistingEntity: missing client entity 62`, from the demo bar, the
+follow camera's Go To Event and a typed `demo_gototick` alike. CS:S's own client releases a body
+that is made while the demo skips, and the engine then misses that networked entity
+([README.md](README.md#bodies-made-during-a-seek)). The hook now keeps those bodies. Without the
+hook, the game stopped the same way. With it, the bar's +5S, -5S, scrubber seeks forward and back,
+Go To Event and typed `demo_gototick` seeks across the tick-490 kill all played on without an
+error in CS:S at 854x480.
+
 Step 17's death animations follow the CS2 pass in
 [filmmaker_death_animations.md](../features/filmmaker_death_animations.md): headless Blender on the
 CS:S player model, the clip tags ported, the ragdoll bodies mapped, and the match percentages
@@ -172,10 +181,11 @@ best-effort. GoldSrc is a separate DLL (`AfxHookGoldSrc`) that reuses the engine
 - Old demos: demos of network protocols other than 7 and 24 (one test demo used 17) are not
   converted. [README.md](README.md#old-demos) lists the values the converter cannot carry over.
 
-- Seeking forward in the SourceTV test demo (`mvm_css_tv.dem`) stops the engine with
-  `Host_Error: CL_PreserveExistingEntity: missing client entity`, whether the demo bar or the follow
-  camera's Go To Event sends the `demo_gototick`. Once it has happened, the next playback of the demo
-  can hit it at its start. Playing through works. Not yet investigated.
+- The demo bar seeks back by restarting the demo itself and waiting for it to play before it seeks
+  forward (`SourceDemoBar.cpp`), because the engine's own backward seek used to stop on dropped
+  bodies. Since the hook keeps them, the engine's own `demo_gototick` back works too (checked
+  2026-10-27). Moving the bar onto it removes the restart wait, and needs the bar, LOOP, camera
+  path and TIMELINE seeks checked again.
 
 - The command port's socket server is `Shared/NetconServer`, generalized from Deadlock's
   `DeadlockNetcon.cpp`, and the client is `Automation/netcon/hook-netcon.ps1`, generalized from
