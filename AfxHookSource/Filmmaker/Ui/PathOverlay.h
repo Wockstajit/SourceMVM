@@ -5,7 +5,9 @@
 //   * the trajectory: a dark underline, then the line in the path's Live gold or Freeze blue;
 //   * each marker as a small camera: its solid body and glass lens shaded by the viewer's key
 //     light, its edges over a dark underline, the aimed-at one whitened, its index beside it;
-//   * the playhead: where the path puts the camera at the demo's tick, a dot on the line.
+//   * the playhead: where the path puts the camera at the demo's tick, a dot on the line;
+//   * the follow camera's aids: its placed Lock-on camera as a camera marker in the follow colour,
+//     and a cyan glass box around the target it was just given.
 //
 // CS2 draws these in the world with its own line shader. CS:S has no such pass on x64, so they are
 // projected on the CPU (DeadlockOverlayMath.h, as Deadlock's overlay does) into a draw list the
@@ -32,6 +34,12 @@ struct PathOverlayModel {
 	bool freeze = false;            // Freeze blue, else Live gold
 	bool head = false;              // the playhead is inside the path's ticks
 	double headPos[3] = { 0, 0, 0 };
+	// The follow camera's (CS2's FollowCameraMarker and FollowTargetBox).
+	bool followCamera = false;
+	PathOverlayMarker followMarker;
+	bool targetBox = false;
+	double boxPos[3] = { 0, 0, 0 };  // the middle of its floor
+	double boxHalf = 0, boxHeight = 0;
 };
 
 // The view the game rendered this frame.

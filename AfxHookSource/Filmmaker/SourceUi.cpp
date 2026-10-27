@@ -941,9 +941,12 @@ void Ui_ViewRendered(const double origin[3], const double angles[3], double fov)
 	std::shared_ptr<DrawSnapshot> world;
 	PathOverlayModel model;
 	const ImVec2 size = g.context ? ImGui::GetIO().DisplaySize : ImVec2(0, 0);
-	// Built from the first UI frame on (it sets the draw lists' shared data), while ours is on screen.
-	if (g.frames > 0 && (g_open.load() || g_director.load()) && !Director_State().blackout && size.x > 0 && size.y > 0
-		&& CameraPath_Overlay(model, size.x, size.y)) {
+	// Built from the first UI frame on (it sets the draw lists' shared data), while ours is on screen:
+	// the camera path, and the follow camera's marker and target box.
+	const bool shown = g.frames > 0 && (g_open.load() || g_director.load()) && !Director_State().blackout && size.x > 0 && size.y > 0;
+	const bool path = shown && CameraPath_Overlay(model, size.x, size.y);
+	const bool follow = shown && FollowCamera_Overlay(model, size.x, size.y);
+	if (path || follow) {
 		PathOverlayView view;
 		for (int i = 0; i < 3; ++i) {
 			view.origin[i] = origin[i];
@@ -968,8 +971,9 @@ void Ui_ViewRendered(const double origin[3], const double angles[3], double fov)
 		const int64_t now = NowMs();
 		if (Filmmaker::MvmDebugLog_Active() && now - g.worldLogAt >= 1000) {
 			g.worldLogAt = now;
-			Filmmaker::MvmDebugLog_Linef("path.overlay", "markers=%d line=%d aimed=%d head=%d vertices=%d view=(%.1f %.1f %.1f) (%.1f %.1f %.1f) fov %.1f->%.1f %.0fx%.0f",
-				(int)model.markers.size(), (int)model.trajectory.size() / 3, model.aimed, model.head ? 1 : 0, g.worldVertices,
+			Filmmaker::MvmDebugLog_Linef("path.overlay", "markers=%d line=%d aimed=%d head=%d follow=%d box=%d vertices=%d view=(%.1f %.1f %.1f) (%.1f %.1f %.1f) fov %.1f->%.1f %.0fx%.0f",
+				(int)model.markers.size(), (int)model.trajectory.size() / 3, model.aimed, model.head ? 1 : 0, model.followCamera ? 1 : 0,
+				model.targetBox ? 1 : 0, g.worldVertices,
 				origin[0], origin[1], origin[2], angles[0], angles[1], angles[2], fov, view.fov, size.x, size.y);
 		}
 	} else {

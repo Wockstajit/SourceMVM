@@ -19,6 +19,7 @@
 #include "SourceUi.h"
 #include "Ui/DirectorMath.h"
 #include "Ui/FollowInspector.h"
+#include "Ui/PathOverlay.h"
 
 #include "RenderView.h"
 #include "WrpGlobals.h"
@@ -238,12 +239,13 @@ std::vector<SourceFilmmaker::Ui::FollowInspectorPoint> Points(const JsonValue& o
 	return out;
 }
 
-// The placed camera's marker and the target box, kept for the in-world aids (not drawn yet).
+// The placed camera's marker and the target box, for the path overlay (FollowCamera_Overlay).
 struct Aids {
 	bool marker = false;
-	double markerPos[3] = { 0, 0, 0 };
+	double markerPose[7] = { 0, 0, 0, 0, 0, 0, 90 }; // x y z, pitch yaw roll, fov
 	bool box = false;
 	float boxPos[3] = { 0, 0, 0 };
+	float boxHalf = 0, boxHeight = 0;
 } g_aids;
 
 } // namespace
@@ -488,14 +490,17 @@ void FollowHost_PrintTargetProbe(int entityIndex) {
 		e.eye[0], e.eye[1], e.eye[2], e.ragdollIndex, source, valid, p.x, p.y, p.z);
 }
 
-void CameraBridge_SetFollowCameraMarker(bool enabled, double x, double y, double z, double, double, double, double) {
+void CameraBridge_SetFollowCameraMarker(bool enabled, double x, double y, double z, double pitch, double yaw, double roll, double fov) {
 	g_aids.marker = enabled;
-	g_aids.markerPos[0] = x; g_aids.markerPos[1] = y; g_aids.markerPos[2] = z;
+	const double pose[7] = { x, y, z, pitch, yaw, roll, fov };
+	for (int i = 0; i < 7; ++i) g_aids.markerPose[i] = pose[i];
 }
 
-void CameraBridge_SetFollowTargetBox(bool enabled, float x, float y, float z, float, float) {
+void CameraBridge_SetFollowTargetBox(bool enabled, float x, float y, float z, float halfWidth, float height) {
 	g_aids.box = enabled;
 	g_aids.boxPos[0] = x; g_aids.boxPos[1] = y; g_aids.boxPos[2] = z;
+	g_aids.boxHalf = halfWidth;
+	g_aids.boxHeight = height;
 }
 
 } // namespace Filmmaker
@@ -622,6 +627,24 @@ bool FollowCamera_OnView(float& x, float& y, float& z, float& pitch, float& yaw,
 }
 
 bool FollowCamera_OwnsView() { return Filmmaker::FollowCameraRef().OwnsView(); }
+
+bool FollowCamera_Overlay(Ui::PathOverlayModel& out, float width, float height) {
+	out.followCamera = g_aids.marker;
+	if (g_aids.marker) {
+		for (int i = 0; i < 3; ++i) {
+			out.followMarker.pos[i] = g_aids.markerPose[i];
+			out.followMarker.ang[i] = g_aids.markerPose[3 + i];
+		}
+		out.followMarker.fov = View_ScreenFov(g_aids.markerPose[6], width, height); // the frame it films, as on screen
+	}
+	out.targetBox = g_aids.box;
+	if (g_aids.box) {
+		for (int i = 0; i < 3; ++i) out.boxPos[i] = g_aids.boxPos[i];
+		out.boxHalf = g_aids.boxHalf;
+		out.boxHeight = g_aids.boxHeight;
+	}
+	return g_aids.marker || g_aids.box;
+}
 
 void FollowCamera_PrintHealth() {
 	const Filmmaker::FollowCamera& follow = Filmmaker::FollowCameraRef();

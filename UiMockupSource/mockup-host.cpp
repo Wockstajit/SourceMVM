@@ -151,6 +151,7 @@ struct Host {
 	bool pathFreeze = false;    // in Freeze blue, else Live gold
 	PathInspectorModel path;    // the cameras the PATH CAMERA tab edits
 	FollowInspectorModel follow; // the follow camera the FOLLOW CAMERA tab edits
+	double followPickedMs = -1e9; // when a target was last picked: its box shows for five seconds
 	bool cardOpen = false;      // the CAMERA MARKER card (F)
 	bool autoSnap = false;
 	MarkerCardState card;
@@ -416,6 +417,32 @@ PathOverlayModel StandInPath() {
 	return model;
 }
 
+// The follow camera's aids, as the game's follow camera publishes them (FollowCamera.cpp): its
+// placed Lock-on camera while it is not live, at a stand-in spot looking back at the stand-in
+// camera, and a box around the picked target for five seconds, at a stand-in spot ahead.
+bool StandInFollowAids(PathOverlayModel& model) {
+	const FollowInspectorModel& f = g.follow;
+	if (!g.editor.open) return false;
+	model.followCamera = f.hasCamera && f.mode == 0 && !f.enabled;
+	if (model.followCamera) {
+		const double pose[6] = { 300, -60, 110, 12, 160, 0 };
+		for (int i = 0; i < 3; ++i) { model.followMarker.pos[i] = pose[i]; model.followMarker.ang[i] = pose[3 + i]; }
+		model.followMarker.fov = 106.26;
+	}
+	model.targetBox = f.targetIndex >= 0 && !f.enabled && emscripten_get_now() - g.followPickedMs < 5000;
+	if (model.targetBox) {
+		model.boxPos[0] = 420; model.boxPos[1] = 40; model.boxPos[2] = -20; // a player's feet
+		model.boxHalf = 18;
+		model.boxHeight = 72;
+	}
+	return model.followCamera || model.targetBox;
+}
+
+bool StandInWorldShown() {
+	PathOverlayModel aids;
+	return g.pathOn || StandInFollowAids(aids);
+}
+
 // The path over the game frame in r, as the game lays it over the whole back buffer before its
 // letterbox scales the frame into the preview.
 void DrawStandInPath(ImDrawList& list, const Rect& r, ImFont* digits) {
@@ -427,7 +454,9 @@ void DrawStandInPath(ImDrawList& list, const Rect& r, ImFont* digits) {
 	view.height = (float)g.height;
 	view.fov = 2.0 * std::atan(std::tan(45.0 * 3.14159265358979323846 / 180.0) * (view.width / view.height) * 0.75) * 180.0 / 3.14159265358979323846;
 	const int first = list.VtxBuffer.Size;
-	DrawPathOverlay(list, StandInPath(), view, digits);
+	PathOverlayModel model = g.pathOn ? StandInPath() : PathOverlayModel();
+	StandInFollowAids(model);
+	DrawPathOverlay(list, model, view, digits);
 	const float sx = r.W() / view.width, sy = r.H() / view.height;
 	for (int i = first; i < list.VtxBuffer.Size; ++i) {
 		ImDrawVert& v = list.VtxBuffer[i];
@@ -490,6 +519,7 @@ const FollowInspectorCandidate* FollowCandidate(int index) {
 
 void FollowSelect(const FollowInspectorCandidate& c) {
 	FollowInspectorModel& f = g.follow;
+	g.followPickedMs = emscripten_get_now();
 	f.targetIndex = c.index;
 	f.targetHandle = c.handle;
 	f.targetValid = true;
@@ -850,7 +880,7 @@ void Frame() {
 	game.PushTextureID(io.Fonts->TexID);
 	const Rect gameRect = g.editor.open ? frame.previewClient : MakeRect(0, 0, (float)g.width, (float)g.height);
 	DrawGame(&game, gameRect);
-	if (g.pathOn && !g.director.blackout && (g.editor.open || director)) DrawStandInPath(game, gameRect, g.fonts.Get(FontRole::Display));
+	if (StandInWorldShown() && !g.director.blackout && (g.editor.open || director)) DrawStandInPath(game, gameRect, g.fonts.Get(FontRole::Display));
 	RenderList(game);
 	if (g.editor.open || director) ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 

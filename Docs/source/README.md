@@ -598,8 +598,12 @@ CAMERA tab.
   control sends CS2's command, which `mvm_debug` logs as `follow.ui`. Rows that belong to another mode
   or target type are left out, as in CS2. The card's summary shows the target's distance, which
   CS2's reads from a field it is never sent.
-- Not yet: grenades, Attached's body mounts and the in-world marker and target box. `health` shows
-  the follow camera's state on its `follow:` line.
+- In the world, as in CS2: the placed Lock-on camera is drawn as a camera marker in the follow
+  purple while it is not live, and a picked target gets a cyan glass box for five seconds, standing
+  on a player's feet or around a weapon. Both are part of the path overlay (`Ui/PathOverlay.cpp`),
+  so they show while the Camera Editor is open, and neither shows over a live shot.
+- Not yet: grenades and Attached's body mounts. `health` shows the follow camera's state, and
+  whether its marker and box show, on its `follow:` line.
 
 Checked in the SourceTV test demo on 2026-10-26: the placed camera's aim matched the look-at to the
 target's eyes to a hundredth of a degree; the eyes CS:S's own first-person view sits at matched the
@@ -613,7 +617,10 @@ PATH CAMERA kept it live; Esc closed the editor and stopped Live. Weapons, in th
 list named every weapon with its owner, the carried C4 and later the planted one; the camera on
 Josh's gun followed it from the USP to the M3 and on through the next round's buy; and with Retarget
 dropped weapon on, Brad's death at tick 4310 handed the camera to his dropped M4A1 at 4376, after the
-one-second hold. The Events list held the demo's three deaths and the plant with their players.
+one-second hold. The Events list held the demo's three deaths and the plant with their players. The
+in-world aids, in the mockup and then in CS:S: the placed camera's marker drew where it was placed,
+seen from elsewhere; picking Brad boxed him on his feet and the box went after five seconds; Live
+hid both, and Stop brought the marker back.
 Going to an event sent the right seek, but this SourceTV demo cannot seek forward: the engine stops
 with `CL_PreserveExistingEntity: missing client entity`, as it does for the demo bar's seeks.
 
@@ -719,7 +726,7 @@ The engine-free part lives in `AfxHookSource/Filmmaker/Ui/`:
 | `InspectorCards.cpp` | CS2's inspector card grammar: rail rows and badges, card header, value, mode, action, switch and dropdown rows, key strip |
 | `PathInspector.cpp` | The PATH CAMERA tab and its Clear all dialog |
 | `FollowInspector.cpp` | The FOLLOW CAMERA tab: pinned bar, rail, CAMERA & TARGET and FRAMING & TRACKING cards, dropdown lists |
-| `PathOverlay.cpp` | The camera path drawn in the world |
+| `PathOverlay.cpp` | The camera path drawn in the world, and the follow camera's marker and target box |
 | `UiRenderDx9.cpp` | Draws a finished frame on the render thread, and letterboxes the game into the preview |
 
 `SourceUi.cpp` is the game host. The UI is built on the main thread at `FRAME_RENDER_START`, copied,

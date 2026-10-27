@@ -79,15 +79,15 @@ void Tri(ImDrawList& list, const Viewer& v, Vec a, ImU32 ca, Vec b, ImU32 cb, Ve
 	list.PrimWriteVtx(pc, uv, cc);
 }
 
-// DrawMarkerBox: the faces turned to the viewer, each shaded by its facing.
-void Box(ImDrawList& list, const Viewer& v, Vec centre, const Vec axes[3], const double half[3], Rgb rgb) {
+// DrawMarkerBox: the faces turned to the viewer, each shaded by its facing; alpha below 255 is glass.
+void Box(ImDrawList& list, const Viewer& v, Vec centre, const Vec axes[3], const double half[3], Rgb rgb, int alpha = 255) {
 	for (int i = 0; i < 3; ++i) {
 		const int j = (i + 1) % 3, k = (i + 2) % 3;
 		for (int side = -1; side <= 1; side += 2) {
 			const Vec n = double(side) * axes[i];
 			const Vec c = centre + (side * half[i]) * axes[i];
 			if (!FacesViewer(n, c, v.eye)) continue;
-			const ImU32 colour = Col(Shade(rgb, n, v.light), 255);
+			const ImU32 colour = Col(Shade(rgb, n, v.light), alpha);
 			const Vec du = half[j] * axes[j], dv = half[k] * axes[k];
 			Tri(list, v, c - du - dv, colour, c + du - dv, colour, c + du + dv, colour);
 			Tri(list, v, c - du - dv, colour, c + du + dv, colour, c - du + dv, colour);
@@ -209,7 +209,7 @@ void Index(ImDrawList& list, const Viewer& v, Vec at, int index, ImFont* font) {
 } // namespace
 
 void DrawPathOverlay(ImDrawList& list, const PathOverlayModel& model, const PathOverlayView& view, ImFont* digits) {
-	if (model.markers.empty() || !(view.width > 0) || !(view.height > 0)) return;
+	if ((model.markers.empty() && !model.followCamera && !model.targetBox) || !(view.width > 0) || !(view.height > 0)) return;
 	if (!(view.fov > 1.0 && view.fov < 179.0)) return;
 
 	Viewer v;
@@ -236,6 +236,26 @@ void DrawPathOverlay(ImDrawList& list, const PathOverlayModel& model, const Path
 			Disc(list, v, at, 6.0 * s, Col(rgb, 255));
 			Disc(list, v, at, 3.0 * s, IM_COL32(255, 255, 255, 255));
 		}
+	}
+	if (model.followCamera) CameraMarker(list, v, model.followMarker, kFollowCamera, false, view.width, view.height);
+	if (model.targetBox && model.boxHalf > 0 && model.boxHeight > 0) {
+		// A glass box around the follow target: its near faces faintly filled, its edges crisp. Cyan,
+		// so it never reads as a camera marker.
+		const double x = model.boxPos[0], y = model.boxPos[1], z = model.boxPos[2], h = model.boxHalf, top = z + model.boxHeight;
+		const Vec c[8] = {
+			{ x - h, y - h, z }, { x + h, y - h, z }, { x + h, y + h, z }, { x - h, y + h, z },
+			{ x - h, y - h, top }, { x + h, y - h, top }, { x + h, y + h, top }, { x - h, y + h, top },
+		};
+		const Vec centre{ x, y, z + model.boxHeight * 0.5 };
+		const Vec axes[3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+		const double half[3] = { h, h, model.boxHeight * 0.5 };
+		if (v.WhollyInFront(centre, h + model.boxHeight)) Box(list, v, centre, axes, half, kFollowTarget, 30);
+		const Edge edges[12] = {
+			{ c[0], c[1] }, { c[1], c[2] }, { c[2], c[3] }, { c[3], c[0] },
+			{ c[4], c[5] }, { c[5], c[6] }, { c[6], c[7] }, { c[7], c[4] },
+			{ c[0], c[4] }, { c[1], c[5] }, { c[2], c[6] }, { c[3], c[7] },
+		};
+		Edges(list, v, edges, 12, Col(kFollowTarget, 230), kEdgeWidth * 0.8f);
 	}
 }
 

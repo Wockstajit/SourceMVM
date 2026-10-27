@@ -8,7 +8,7 @@
 
 namespace SourceFilmmaker {
 
-namespace Ui { struct FollowInspectorModel; }
+namespace Ui { struct FollowInspectorModel; struct PathOverlayModel; }
 
 // The FOLLOW CAMERA tab's model: the follow camera's state JSON, the payload CS2's inspector reads.
 void FollowCamera_InspectorModel(Ui::FollowInspectorModel& out);
@@ -24,6 +24,10 @@ void FollowCamera_Frame();
 bool FollowCamera_OnView(float& x, float& y, float& z, float& pitch, float& yaw, float& roll, float& fov);
 // Live: the follow camera has the view, so the path's playback, AUTO and the dock's drive stand aside.
 bool FollowCamera_OwnsView();
+// Adds the in-world aids to the path overlay for a width x height screen: the placed Lock-on camera
+// while it is not live, and the box around a target for five seconds after it is picked. False when
+// neither shows.
+bool FollowCamera_Overlay(Ui::PathOverlayModel& out, float width, float height);
 void FollowCamera_PrintHealth();
 
 } // namespace SourceFilmmaker
