@@ -34,6 +34,7 @@
 #include <AfxHookSource2/Filmmaker/Movie/CameraShakeStack.h>
 #include <AfxHookSource2/Filmmaker/Movie/FollowCamera.h>
 #include <AfxHookSource2/Filmmaker/Movie/HandheldCam.h>
+#include <AfxHookSource2/Filmmaker/Movie/DemoEndHold.h>
 #include <AfxHookSource2/Filmmaker/Movie/RecoilPivotMarker.h>
 #include <AfxHookSource2/Filmmaker/Movie/WeaponBob.h>
 #include <AfxHookSource2/Filmmaker/Movie/WeaponPivot.h>
@@ -255,6 +256,7 @@ void OnFrameRenderStart() {
 	ViewModel_Init();
 	Entities_WatchFrame();
 	DemoBar_Frame();
+	Filmmaker::DemoEndHold_RunFrame(); // stop a second before the demo runs out
 	CameraPath_Frame();
 	Ui_MainThreadFrame();
 	TimelineDock_Frame(); // after the UI: its playhead and edits drive this frame's camera
@@ -292,6 +294,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::Config_EffectsCommand(argc, args);
 	} else if (0 == _stricmp(sub, "settings")) {
 		SourceFilmmaker::Settings_Command(argc, args);
+	} else if (0 == _stricmp(sub, "endhold")) {
+		Filmmaker::DemoEndHold_RunCommand(argc, args, "mirv_filmmaker");
 	} else if (0 == _stricmp(sub, "loop")) {
 		std::string action = argc >= 3 ? args->ArgV(2) : "state";
 		for (int i = 3; i < argc; ++i) action += std::string(" ") + args->ArgV(i); // range <in> <out>

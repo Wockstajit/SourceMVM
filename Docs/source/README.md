@@ -260,6 +260,20 @@ click it by name.
 
 Seeking backwards restarts the demo, waits until it plays again, and then seeks forward.
 
+### End of demo hold
+
+As in CS2, playback stops a second before a demo runs out, so it never reaches the stop record and
+drops to the main menu (`AfxHookSource2/Filmmaker/Movie/DemoEndHold.cpp`, shared with CS2). What it
+asks the game goes through `DemoEndHoldHost.h`, which `Filmmaker/SourceDemoEndHold.cpp` answers: the
+demo's state, tick and length from the engine's demo player, its file from the demo index. The hold
+sits 64 ticks before the last tick. Pressing play there pauses again, and a seek back plays on and
+re-arms it. CS:S has no end-of-match line-up and no game phase to read, so CS2's earlier postgame
+hold never fires. `mirv_filmmaker endhold on|off|toggle|status` controls it.
+
+Checked in CS:S on 2026-10-27 in the SourceTV test demo (4410 ticks): played from tick 4150, it held
+at 4346 with the demo still loaded; play from there paused again at once, and after a seek back to
+3900 the demo played on and held at 4346 again.
+
 ### Bodies made during a seek
 
 Every seek, the bar's and a typed `demo_gototick` alike, is the engine skipping through the demo,

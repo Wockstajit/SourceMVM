@@ -254,8 +254,11 @@ test("the end-of-demo hold stays put, a second after the final round, and never 
   assert.doesNotMatch(hold, /"demo_gototick %d"/, "no seek back to the start");
   assert.match(hold, /constexpr int kPostGameTailTicks = 64;/);
   assert.match(hold, /holdTick = s_postGameTick \+ kPostGameTailTicks;/);
-  assert.match(hold, /if \(DemoScrub_Active\(\)\) return;\s*\n[\s\S]{0,700}DemoCmd\("demo_pause"\);/,
+  assert.match(hold, /if \(EndHoldHost_ScrubActive\(\)\) return;\s*\n[\s\S]{0,700}EndHoldHost_Pause\(\);/,
     "a scrub's own steps are left alone; anything else playing past the hold is paused");
+  const host = read("AfxHookSource2", "Filmmaker", "Movie", "DemoEndHoldHostSource2.cpp");
+  assert.match(host, /bool EndHoldHost_ScrubActive\(\) \{ return DemoScrub_Active\(\); \}/);
+  assert.match(host, /void EndHoldHost_Pause\(\) \{ DemoCmd\("demo_pause"\); \}/);
 });
 
 // 2026-10-17 (mvm_debug: clickMode=0 free=1): a click while a camera path played, or on Clippy,

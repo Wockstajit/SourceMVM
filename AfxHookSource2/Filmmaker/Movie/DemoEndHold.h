@@ -21,8 +21,9 @@
 // to the beginning. A timeline scrub's own seeks are left alone. Scrubbing BACK from a hold works
 // normally -- the hold only ever re-arms when you are past its tick again.
 //
-// Driven once per frame from Filmmaker::RunMainThreadFrame(). Always on while a demo is active;
-// `mirv_filmmaker endhold 0/1` toggles it at runtime, `endhold status` reports what it sees.
+// Driven once per frame from Filmmaker::RunMainThreadFrame() (CS:S: SourceFilmmaker's frame). Always
+// on while a demo is active; `mirv_filmmaker endhold 0/1` toggles it at runtime, `endhold status`
+// reports what it sees. What it asks the game goes through DemoEndHoldHost.h.
 
 namespace advancedfx { class ICommandArgs; }
 

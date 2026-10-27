@@ -769,6 +769,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/FollowCameraStateJson.cpp
     Filmmaker/Movie/DemoEndHold.cpp
     Filmmaker/Movie/DemoEndHold.h
+    Filmmaker/Movie/DemoEndHoldHost.h
+    Filmmaker/Movie/DemoEndHoldHostSource2.cpp
     Filmmaker/Movie/PlaybackLoop.cpp
     Filmmaker/Movie/PlaybackLoop.h
     Filmmaker/Movie/SmoothView.cpp

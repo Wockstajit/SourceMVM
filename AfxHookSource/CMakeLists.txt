@@ -150,6 +150,7 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceDemoBar.h
     Filmmaker/SourceDemoBarModel.cpp
     Filmmaker/SourceDemoBarModel.h
+    Filmmaker/SourceDemoEndHold.cpp
     Filmmaker/SourceDemoFile.cpp
     Filmmaker/SourceDemoFile.h
     Filmmaker/SourceDemoIndex.cpp
@@ -281,6 +282,9 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Movie/CamPathShakeHost.h
     ../AfxHookSource2/Filmmaker/Movie/CamPathShakeRampMath.h
     ../AfxHookSource2/Filmmaker/Movie/CameraBridge.h
+    ../AfxHookSource2/Filmmaker/Movie/DemoEndHold.cpp
+    ../AfxHookSource2/Filmmaker/Movie/DemoEndHold.h
+    ../AfxHookSource2/Filmmaker/Movie/DemoEndHoldHost.h
     ../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp
     ../AfxHookSource2/Filmmaker/Movie/FollowCamera.h
     ../AfxHookSource2/Filmmaker/Movie/FollowCameraHost.h
