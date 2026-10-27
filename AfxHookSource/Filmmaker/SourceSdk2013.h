@@ -82,8 +82,10 @@ const int kPlayerInfoBufferSize = 512;
 const unsigned int kEntityHandleIndexMask = 0xFFF;
 const unsigned int kInvalidEntityHandle = 0xFFFFFFFF;
 
-// public/const.h, m_lifeState.
+// public/const.h, m_lifeState and m_fFlags.
 const int kLifeAlive = 0;
+const int kFlagOnGround = 1 << 0;
+const int kFlagDucking = 1 << 1;
 
 // Virtual slots, counted from each interface's first virtual function.
 namespace Slot {
@@ -95,6 +97,9 @@ const int EngineClient_GetPlayerInfo = 8;
 // IClientEntityList (VClientEntityList003).
 const int EntityList_GetClientEntity = 3;
 const int EntityList_GetHighestEntityIndex = 6;
+// IHandleEntity: the destructor, SetRefEHandle, GetRefEHandle (which returns a reference: the
+// address of the entity's CBaseHandle).
+const int Handle_GetRefEHandle = 2;
 // IClientUnknown, after IHandleEntity's destructor, SetRefEHandle and GetRefEHandle.
 const int Unknown_GetClientNetworkable = 4;
 // IClientEntity, after IClientUnknown's nine slots. Its Release overrides the Release of its

@@ -28,6 +28,17 @@ const GameProfile kGeneric = {
 	nullptr,
 	&GenericTeamName,
 	kGenericDemoEvents,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	// Source SDK 2013's g_DefaultViewVectors: VEC_VIEW and VEC_DUCK_VIEW.
+	64.0,
+	28.0,
 };
 
 } // namespace

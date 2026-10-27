@@ -106,7 +106,9 @@ the hook converts them first. See [Old demos](#old-demos).
 | --- | --- |
 | `mirv_filmmaker health` | Hook build, game, engine interfaces, command port counters, `mvm_debug` state, pump counts, the engine adapter, connection, map, demo time, the demo index, the game's and the rendered view, and a player summary |
 | `mirv_filmmaker players` | One line per player: index, name, team, health, alive, dormant, origin, eye angles, class, bot and SourceTV flags. `>` marks the spectated player |
-| `mirv_filmmaker engine` | The networked fields the engine adapter resolved, with their offsets |
+| `mirv_filmmaker engine` | The networked fields the engine adapter resolved, with their offsets. `engine classes [filter]` lists the game's network class names |
+| `mirv_filmmaker entities [all] [class]` | One line per entity: index, handle, network class, origin, angles, team, and its links (owner, weapon owner, thrower, active weapon, ragdoll, the ragdoll's player). `all` includes dormant ones |
+| `mirv_filmmaker entities watch <class>\|eye\|off` | Logs (`mvm_debug`, `entities.watch`) each entity of a matching class the frame it appears and the frame it goes. `eye` logs the spectated player's view height in first person instead (`entities.eye`) |
 | `mirv_filmmaker editor on\|off\|toggle\|state` | The Camera Editor workspace. `state` reports the mouse mode, tabs, preview rect and fonts, and where each demo bar control is |
 | `mirv_filmmaker loop on\|off\|toggle\|state` | LOOP playback, as the demo bar's LOOP button does |
 | `mirv_filmmaker seek <tick>` | Go to a demo tick the way the demo bar does (back = restart, then forward) |
@@ -147,9 +149,30 @@ for example `SourceTV camera at client.dll+0x5b4730: mode 4, target 3`. This SDK
 observer modes 3 fixed, 4 first person, 5 chase, 6 objective and 7 free cam.
 
 What differs per game is a `GameProfile` (`SourceGameProfile.h`): team names, where eye angles
-are networked, and which game events the demo index keeps. CS:S has its own (`CSS/CssProfile.cpp`);
-any other Source 1 game gets the generic one, which reads only fields every Source 1 multiplayer
-game has.
+are networked, which game events the demo index keeps, which network classes are players, weapons,
+thrown grenades and ragdolls, how a player links to its ragdoll, and the eye heights. CS:S has its
+own (`CSS/CssProfile.cpp`); any other Source 1 game gets the generic one, which reads only fields
+every Source 1 multiplayer game has.
+
+Since step 11 the adapter reads any entity, not only players (`Entities_Snapshot`), for the follow
+camera's targets: its handle (the index in the low 12 bits, a serial above), network class, origin,
+angles and team, and the handles that link it to others, read by name like the rest:
+`m_hOwnerEntity`, a weapon's `m_hOwner`, a grenade's `m_hThrower`, a player's `m_hActiveWeapon`,
+`m_fFlags` and `m_hRagdoll`, and a ragdoll's `m_hPlayer`. A link is read only on the classes that
+network it. CS:S's classes, from the game's own list: `CCSPlayer`; weapons are `CWeapon<Name>`
+(`CWeaponUSP`, `CWeaponM4A1`, ...) plus the older `CAK47`, `CC4`, `CDEagle`, `CFlashbang`,
+`CHEGrenade`, `CKnife` and `CSmokeGrenade`; every thrown grenade is one class,
+`CBaseCSGrenadeProjectile`, so its kind is not in the class; the planted bomb is `CPlantedC4`; and
+a dead player's body is a separate `CCSRagdoll` entity. A player's eyes are 64 units above its
+origin standing and 47 ducking (`m_fFlags` bit 1), the heights CS:S's first-person view sat at.
+
+Checked in the SourceTV test demo on 2026-10-26 (`entities`, `entities watch`): every player listed
+its active weapon, every held weapon its owner, and the carried C4 its carrier; after round 1's
+deaths five `CCSRagdoll`s each named their player, and the dropped C4 had no owner; the planted
+C4 appeared at tick 3284, the tick of the demo's `bomb_planted` event; the eye heights came out
+64.00 standing and 47.00 ducking, within about a unit while moving, because an origin read at
+frame start is a frame apart from the interpolated view. Neither test demo has a grenade thrown,
+so the projectile's fields wait for a demo with a throw. All 14 fields resolved, with no faults.
 
 ## Demo index
 

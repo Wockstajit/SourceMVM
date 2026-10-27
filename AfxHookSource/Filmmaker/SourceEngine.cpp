@@ -16,6 +16,8 @@
 
 #include <windows.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -44,7 +46,12 @@ int g_classCount = 0;
 bool g_ready = false;
 volatile LONG64 g_faults = 0;
 
-enum FieldId { kTeam, kHealth, kLifeState, kObserverTarget, kObserverMode, kEyePitch, kEyeYaw, kFieldCount };
+enum FieldId {
+	kTeam, kHealth, kLifeState, kObserverTarget, kObserverMode, kEyePitch, kEyeYaw,
+	// The follow camera's targets (step 11): links between entities, and a player's stance.
+	kOwnerEntity, kWeaponOwner, kThrower, kActiveWeapon, kFlags, kPlayerRagdoll, kRagdollPlayer,
+	kFieldCount
+};
 
 struct Field {
 	const char* table;
@@ -259,6 +266,13 @@ bool Engine_Init() {
 	g_fields[kObserverMode] = { "DT_BasePlayer", "m_iObserverMode", -1 };
 	g_fields[kEyePitch] = { profile.eyeAnglesTable, profile.eyePitchProp, -1 };
 	g_fields[kEyeYaw] = { profile.eyeAnglesTable, profile.eyeYawProp, -1 };
+	g_fields[kOwnerEntity] = { "DT_BaseEntity", "m_hOwnerEntity", -1 };
+	g_fields[kWeaponOwner] = { "DT_BaseCombatWeapon", "m_hOwner", -1 };
+	g_fields[kThrower] = { "DT_BaseGrenade", "m_hThrower", -1 };
+	g_fields[kActiveWeapon] = { "DT_BaseCombatCharacter", "m_hActiveWeapon", -1 };
+	g_fields[kFlags] = { "DT_BasePlayer", "m_fFlags", -1 };
+	g_fields[kPlayerRagdoll] = { profile.ragdollTable, profile.ragdollProp, -1 };
+	g_fields[kRagdollPlayer] = { profile.ragdollPlayerTable, profile.ragdollPlayerProp, -1 };
 	for (Field& field : g_fields) {
 		if (field.table && field.prop) field.offset = GuardedFindNetvar(g_classes, field.table, field.prop);
 	}
@@ -374,6 +388,220 @@ int Players_Snapshot(std::vector<PlayerState>& out) {
 		out.push_back(player);
 	}
 	return (int)out.size();
+}
+
+namespace {
+
+int HighestEntityIndex() {
+	const int highest = (int)(intptr_t)CallPtr(g_entityList, Slot::EntityList_GetHighestEntityIndex);
+	return highest > 0 && highest < 8192 ? highest : 0;
+}
+
+// A field holding another entity's handle, as that entity's index.
+int LinkedIndex(const void* entity, FieldId id) {
+	unsigned int handle = kInvalidEntityHandle;
+	return ReadField(entity, id, handle) ? HandleToIndex(handle) : -1;
+}
+
+// Network class names are only read for entities whose class carries the field: a read of a field
+// another class networks would be garbage, so links are read where the class table has them.
+bool FillEntity(int index, void* entity, EntityState& e) {
+	e.index = index;
+	if (const unsigned int* handle = (const unsigned int*)CallPtr(entity, Slot::Handle_GetRefEHandle)) ReadBytes(handle, 0, &e.handle, 4);
+	if (void* networkable = CallPtr(entity, Slot::Unknown_GetClientNetworkable)) {
+		e.dormant = CallBool(networkable, Slot::Networkable_IsDormant, true);
+		if (const ClientClass* cls = (const ClientClass*)CallPtr(networkable, Slot::Networkable_GetClientClass)) {
+			const char* networkName = nullptr;
+			char nameBuffer[64];
+			if (ReadBytes(cls, (int)offsetof(ClientClass, m_pNetworkName), &networkName, sizeof(networkName))
+				&& CopyString(networkName, nameBuffer, sizeof(nameBuffer)))
+				e.className = nameBuffer;
+		}
+	}
+	if (e.className.empty()) return false;
+	ReadVector(CallPtr(entity, Slot::Entity_GetAbsOrigin), e.origin);
+	ReadVector(CallPtr(entity, Slot::Entity_GetAbsAngles), e.angles);
+	ReadField(entity, kTeam, e.team);
+	e.ownerIndex = LinkedIndex(entity, kOwnerEntity);
+	const GameProfile& profile = GameProfile_Current();
+	const std::string& c = e.className;
+	if (profile.isPlayerClass && profile.isPlayerClass(c.c_str())) {
+		ReadField(entity, kHealth, e.health);
+		unsigned char lifeState = 1;
+		ReadField(entity, kLifeState, lifeState);
+		e.alive = lifeState == kLifeAlive && e.health > 0;
+		ReadField(entity, kFlags, e.flags);
+		for (int i = 0; i < 3; ++i) e.eye[i] = e.origin[i];
+		e.eye[2] += (e.flags & kFlagDucking) ? profile.duckEyeHeight : profile.eyeHeight;
+		e.activeWeaponIndex = LinkedIndex(entity, kActiveWeapon);
+		e.ragdollIndex = LinkedIndex(entity, kPlayerRagdoll);
+	} else if (profile.isRagdollClass && profile.isRagdollClass(c.c_str())) {
+		e.ragdollPlayerIndex = LinkedIndex(entity, kRagdollPlayer);
+	} else if (profile.isGrenadeClass && profile.isGrenadeClass(c.c_str())) {
+		e.throwerIndex = LinkedIndex(entity, kThrower);
+	} else if (profile.isWeaponClass && profile.isWeaponClass(c.c_str())) {
+		e.weaponOwnerIndex = LinkedIndex(entity, kWeaponOwner);
+	}
+	return true;
+}
+
+} // namespace
+
+int Entities_Snapshot(std::vector<EntityState>& out, bool includeDormant) {
+	out.clear();
+	if (!Engine_Init() || !g_VEngineClient || !g_VEngineClient->IsInGame()) return 0;
+	const int highest = HighestEntityIndex();
+	for (int index = 1; index <= highest; ++index) {
+		void* entity = EntityAt(index);
+		if (!entity) continue;
+		EntityState e;
+		if (!FillEntity(index, entity, e) || (e.dormant && !includeDormant)) continue;
+		out.push_back(e);
+	}
+	return (int)out.size();
+}
+
+bool Entity_Get(int index, EntityState& out) {
+	out = EntityState();
+	if (index <= 0 || !Engine_Init() || !g_VEngineClient || !g_VEngineClient->IsInGame()) return false;
+	void* entity = EntityAt(index);
+	return entity && FillEntity(index, entity, out);
+}
+
+namespace {
+
+struct Watch {
+	std::string filter; // lower case; empty: off
+	std::vector<std::pair<int, unsigned int>> seen; // index, handle
+	unsigned frames = 0;
+} g_watch;
+
+bool ClassMatches(const std::string& className, const std::string& lowerFilter) {
+	std::string lower = className;
+	for (char& ch : lower) ch = (char)tolower((unsigned char)ch);
+	return lower.find(lowerFilter) != std::string::npos;
+}
+
+} // namespace
+
+void Entities_Watch(const char* classFilter) {
+	g_watch = Watch();
+	std::string f = classFilter ? classFilter : "";
+	if (0 == _stricmp(f.c_str(), "off")) f.clear();
+	for (char& ch : f) ch = (char)tolower((unsigned char)ch);
+	g_watch.filter = f;
+	advancedfx::Message("entities watch: %s%s\n", f.empty() ? "off" : f.c_str(),
+		f.empty() || Filmmaker::MvmDebugLog_Active() ? "" : " (mvm_debug is off: start it to see the log)");
+}
+
+void Entities_WatchFrame() {
+	if (g_watch.filter.empty() || !Filmmaker::MvmDebugLog_Active()) return;
+	if (g_watch.filter == "eye") {
+		// The eye height: in first person the game's view sits at the spectated player's eyes.
+		static int lastIndex = -1, lastDuck = -1;
+		static double lastHeight = -1e9;
+		const int observed = Players_ObservedIndex();
+		EntityState e;
+		if (observed <= 0 || Players_ObserverMode() != 4 || !Entity_Get(observed, e)) return;
+		const double height = View_Game().origin[2] - e.origin[2];
+		const int duck = (e.flags & kFlagDucking) ? 1 : 0;
+		if (observed == lastIndex && duck == lastDuck && std::fabs(height - lastHeight) < 0.5) return;
+		Filmmaker::MvmDebugLog_Linef("entities.eye", "tick=%d index=%d ducking=%d onground=%d flags=0x%x height=%.2f", Demo_State().tick,
+			observed, duck, (e.flags & kFlagOnGround) ? 1 : 0, e.flags, height);
+		lastIndex = observed;
+		lastDuck = duck;
+		lastHeight = height;
+		return;
+	}
+	std::vector<EntityState> now;
+	Entities_Snapshot(now, false);
+	const int tick = Demo_State().tick;
+	std::vector<std::pair<int, unsigned int>> current;
+	for (const EntityState& e : now) {
+		if (!ClassMatches(e.className, g_watch.filter)) continue;
+		current.emplace_back(e.index, e.handle);
+		if (std::find(g_watch.seen.begin(), g_watch.seen.end(), std::make_pair(e.index, e.handle)) != g_watch.seen.end()) continue;
+		Filmmaker::MvmDebugLog_Linef("entities.watch", "appear tick=%d index=%d handle=%08x class=%s origin=(%.1f %.1f %.1f) owner=%d "
+			"thrower=%d weaponowner=%d player=%d team=%d", tick, e.index, e.handle, e.className.c_str(), e.origin[0], e.origin[1],
+			e.origin[2], e.ownerIndex, e.throwerIndex, e.weaponOwnerIndex, e.ragdollPlayerIndex, e.team);
+	}
+	for (const auto& s : g_watch.seen)
+		if (std::find(current.begin(), current.end(), s) == current.end())
+			Filmmaker::MvmDebugLog_Linef("entities.watch", "gone tick=%d index=%d handle=%08x", tick, s.first, s.second);
+	g_watch.seen.swap(current);
+}
+
+void Engine_PrintClasses(const char* filter) {
+	if (!Engine_Init()) {
+		advancedfx::Message("engine: not ready (client.dll interfaces or class list missing)\n");
+		return;
+	}
+	std::string want = filter ? filter : "";
+	for (char& ch : want) ch = (char)tolower((unsigned char)ch);
+	std::string line;
+	int shown = 0, guard = 0;
+	for (const ClientClass* cls = g_classes; cls && guard < 4096; ++guard) {
+		const char* networkName = nullptr;
+		char name[64];
+		if (!ReadBytes(cls, (int)offsetof(ClientClass, m_pNetworkName), &networkName, sizeof(networkName))
+			|| !CopyString(networkName, name, sizeof(name)))
+			break;
+		std::string lower = name;
+		for (char& ch : lower) ch = (char)tolower((unsigned char)ch);
+		if (want.empty() || lower.find(want) != std::string::npos) {
+			line += line.empty() ? "  " : " ";
+			line += name;
+			if (line.size() > 100) {
+				advancedfx::Message("%s\n", line.c_str());
+				line.clear();
+			}
+			++shown;
+		}
+		const ClientClass* next = nullptr;
+		if (!ReadBytes(cls, (int)offsetof(ClientClass, m_pNext), &next, sizeof(next))) break;
+		cls = next;
+	}
+	if (!line.empty()) advancedfx::Message("%s\n", line.c_str());
+	advancedfx::Message("engine: %d of %d client classes\n", shown, g_classCount);
+}
+
+void Entities_Print(bool includeDormant, const char* classFilter) {
+	std::vector<EntityState> entities;
+	if (!Entities_Snapshot(entities, includeDormant)) {
+		advancedfx::Message("entities: none (not in game, or the engine adapter is not ready)\n");
+		return;
+	}
+	std::string filter = classFilter ? classFilter : "";
+	for (char& ch : filter) ch = (char)tolower((unsigned char)ch);
+	int shown = 0;
+	advancedfx::Message("    #  handle    class                     origin (x y z)              angles (p y r)        team  links\n");
+	for (const EntityState& e : entities) {
+		std::string lower = e.className;
+		for (char& ch : lower) ch = (char)tolower((unsigned char)ch);
+		if (!filter.empty() && lower.find(filter) == std::string::npos) continue;
+		char links[160] = "";
+		size_t at = 0;
+		auto link = [&](const char* name, int value) {
+			if (value >= 0 && at < sizeof(links)) at += (size_t)std::snprintf(links + at, sizeof(links) - at, " %s %d", name, value);
+		};
+		link("owner", e.ownerIndex);
+		link("weaponowner", e.weaponOwnerIndex);
+		link("thrower", e.throwerIndex);
+		link("weapon", e.activeWeaponIndex);
+		link("ragdoll", e.ragdollIndex);
+		link("player", e.ragdollPlayerIndex);
+		if (e.health || e.flags) {
+			if (at < sizeof(links))
+				at += (size_t)std::snprintf(links + at, sizeof(links) - at, " hp %d%s%s", e.health, e.alive ? "" : " dead",
+					(e.flags & kFlagDucking) ? " ducking" : "");
+		}
+		advancedfx::Message("%5d  %08x  %-24.24s (%8.1f %8.1f %8.1f)  (%6.1f %6.1f %6.1f)  %4d %s%s\n", e.index, e.handle,
+			e.className.c_str(), e.origin[0], e.origin[1], e.origin[2], e.angles[0], e.angles[1], e.angles[2], e.team, links,
+			e.dormant ? " dormant" : "");
+		++shown;
+	}
+	advancedfx::Message("entities: %d shown of %d%s, highest index %d\n", shown, (int)entities.size(),
+		includeDormant ? " (dormant included)" : "", HighestEntityIndex());
 }
 
 int Players_LocalIndex() {

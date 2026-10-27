@@ -17,6 +17,19 @@ struct GameProfile {
 	// The game events the demo index reads out of a demo file for the demo bar's markers,
 	// null-terminated.
 	const char* const* demoEvents;
+	// Where a player's ragdoll is linked, and a ragdoll's player. Null when the game has none.
+	const char* ragdollTable;
+	const char* ragdollProp;
+	const char* ragdollPlayerTable;
+	const char* ragdollPlayerProp;
+	// Which network classes are players, weapons, thrown grenades and ragdolls. Null: none known.
+	bool (*isPlayerClass)(const char* networkClass);
+	bool (*isWeaponClass)(const char* networkClass);
+	bool (*isGrenadeClass)(const char* networkClass);
+	bool (*isRagdollClass)(const char* networkClass);
+	// A player's eyes above its origin, standing and ducking (the game's view vectors).
+	double eyeHeight;
+	double duckEyeHeight;
 };
 
 // The profile for the running game, chosen from the detected Source SDK version.

@@ -166,6 +166,7 @@ void PrintUsage() {
 		"mirv_filmmaker health  - hook build, game, interfaces, command port, engine, view, demo and players.\n"
 		"mirv_filmmaker players - one line per player: team, health, origin, eye angles, class.\n"
 		"mirv_filmmaker engine  - the networked fields the engine adapter resolved, with offsets.\n"
+		"mirv_filmmaker entities - [all] [class]: every entity: handle, class, origin, angles, team, links.\n"
 		"mirv_filmmaker editor  - on|off|toggle|state: the Camera Editor workspace (ESC closes it).\n"
 		"mirv_filmmaker loop    - on|off|toggle|state: LOOP playback between the demo bar's In and Out.\n"
 		"mirv_filmmaker seek    - <tick>: go to a demo tick as the demo bar does (back = restart, then forward).\n"
@@ -210,6 +211,7 @@ void OnFrameRenderStart() {
 	MainThread_Frame();
 	DemoIndex_Frame();
 	OldDemos_Frame();
+	Entities_WatchFrame();
 	DemoBar_Frame();
 	CameraPath_Frame();
 	Ui_MainThreadFrame();
@@ -227,7 +229,14 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 	} else if (0 == _stricmp(sub, "players")) {
 		SourceFilmmaker::PrintPlayers();
 	} else if (0 == _stricmp(sub, "engine")) {
-		SourceFilmmaker::Engine_PrintFields();
+		if (argc >= 3 && 0 == _stricmp(args->ArgV(2), "classes")) SourceFilmmaker::Engine_PrintClasses(argc >= 4 ? args->ArgV(3) : "");
+		else SourceFilmmaker::Engine_PrintFields();
+	} else if (0 == _stricmp(sub, "entities") && argc >= 3 && 0 == _stricmp(args->ArgV(2), "watch")) {
+		SourceFilmmaker::Entities_Watch(argc >= 4 ? args->ArgV(3) : "off");
+	} else if (0 == _stricmp(sub, "entities")) {
+		const bool all = argc >= 3 && 0 == _stricmp(args->ArgV(2), "all");
+		const int filterArg = all ? 3 : 2;
+		SourceFilmmaker::Entities_Print(all, argc > filterArg ? args->ArgV(filterArg) : "");
 	} else if (0 == _stricmp(sub, "editor")) {
 		SourceFilmmaker::Ui_EditorCommand(argc, args);
 	} else if (0 == _stricmp(sub, "loop")) {

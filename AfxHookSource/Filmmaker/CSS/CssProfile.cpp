@@ -4,6 +4,8 @@
 
 #include "../SourceGameProfile.h"
 
+#include <cstring>
+
 namespace SourceFilmmaker {
 
 namespace {
@@ -24,6 +26,31 @@ const char* CssTeamName(int team) {
 const char* const kCssDemoEvents[] = { "player_death", "player_team", "round_start", "round_freeze_end",
 	"round_end", "bomb_planted", "bomb_defused", "bomb_exploded", nullptr };
 
+bool StartsWith(const char* s, const char* prefix) { return s && 0 == std::strncmp(s, prefix, std::strlen(prefix)); }
+bool EndsWith(const char* s, const char* suffix) {
+	if (!s) return false;
+	const size_t n = std::strlen(s), m = std::strlen(suffix);
+	return n >= m && 0 == std::strcmp(s + n - m, suffix);
+}
+
+// CS:S's network classes, from the game's own class list (mirv_filmmaker engine classes, 2026-10-26):
+// CCSPlayer; a weapon is CWeapon<Name> (CWeaponUSP, CWeaponM4A1...) or one of the older names CAK47,
+// CC4, CDEagle, CFlashbang, CHEGrenade, CKnife and CSmokeGrenade; every thrown grenade is one class,
+// CBaseCSGrenadeProjectile; the dead player's body is CCSRagdoll. The planted bomb, CPlantedC4, is
+// no weapon (it carries no weapon fields).
+bool CssIsPlayer(const char* c) { return c && 0 == std::strcmp(c, "CCSPlayer"); }
+bool CssIsGrenade(const char* c) { return EndsWith(c, "Projectile"); }
+bool CssIsRagdoll(const char* c) { return c && 0 == std::strcmp(c, "CCSRagdoll"); }
+bool CssIsWeapon(const char* c) {
+	if (!c || CssIsGrenade(c)) return false;
+	if (StartsWith(c, "CWeapon")) return true;
+	static const char* const kClassic[] = { "CAK47", "CC4", "CDEagle", "CFlashbang", "CHEGrenade", "CKnife", "CSmokeGrenade",
+		nullptr };
+	for (int i = 0; kClassic[i]; ++i)
+		if (0 == std::strcmp(c, kClassic[i])) return true;
+	return false;
+}
+
 // C_CSPlayer networks the eye angles itself (RecvPropFloat m_angEyeAngles[0] / [1] in DT_CSPlayer);
 // the entity's own angles carry only the body yaw.
 const GameProfile kCss = {
@@ -33,6 +60,20 @@ const GameProfile kCss = {
 	"m_angEyeAngles[1]",
 	&CssTeamName,
 	kCssDemoEvents,
+	// C_CSPlayer's m_hRagdoll, and C_CSRagdoll's m_hPlayer.
+	"DT_CSPlayer",
+	"m_hRagdoll",
+	"DT_CSRagdoll",
+	"m_hPlayer",
+	&CssIsPlayer,
+	&CssIsWeapon,
+	&CssIsGrenade,
+	&CssIsRagdoll,
+	// CS:S's view vectors, measured in the SourceTV test demo on 2026-10-26 (mirv_filmmaker entities
+	// watch eye): the first-person view sat 64.00 above a standing player's origin and 47.00 above a
+	// ducking one's.
+	64.0,
+	47.0,
 };
 
 } // namespace
