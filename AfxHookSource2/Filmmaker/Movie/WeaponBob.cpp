@@ -1,6 +1,6 @@
 #include "WeaponBob.h"
 
-#include "ViewFxVm.h" // ViewFxVm_EnsureCameraCompensationHook: the channel the gun moves on
+#include "CameraShakeHost.h" // ShakeHost_EnsureWeaponChannel: the channel the gun moves on
 
 #include "CameraShakeStack.h"   // CameraShake_SpectatedWeapon
 #include "WeaponPivot.h"        // the shared hinge + the one weapon classifier
@@ -75,11 +75,11 @@ void WeaponBob::SetEnabled(bool on) {
 	// INSTALL THE VIEWMODEL HOOK. Everything this module computes reaches the gun through the
 	// CalcViewModelView input detour, and that detour is installed LAZILY by whoever needs it --
 	// previously only Weapon Recoil and Handheld Camera. With just Weapon Bob enabled nothing
-	// installed it, so ViewFxVm_SetWeaponKick wrote to atomics no one read and the weapon did not
+	// installed it, so the weapon kick wrote to atomics no one read and the weapon did not
 	// move at all, while the camera share (which writes the view directly) and the pivot marker
 	// (published by the stack) both moved -- exactly the "pivot moves but the gun does not"
 	// report. Reported live 2026-09-04.
-	if (on && !ViewFxVm_EnsureCameraCompensationHook())
+	if (on && !ShakeHost_EnsureWeaponChannel())
 		advancedfx::Warning(
 			"mirv_filmmaker: weapon bob could not install the viewmodel hook "
 			"(CalcViewModelView caller not resolved) -- the gun will not move.\n");

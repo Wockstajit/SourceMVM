@@ -2,6 +2,7 @@
 
 #include "CameraShakeTypes.h"
 
+#include <functional>
 #include <string>
 
 namespace SOURCESDK { namespace CS2 { class CGameEvent; } }
@@ -47,10 +48,22 @@ bool CameraShake_Apply(
 	float& pitch, float& yaw, float& roll,
 	float& fov, ShakePose* appliedHandheld = nullptr);
 
-// Game-event fan-in. Called from GameEvents.cpp on both the server and client-side paths (demo
-// events arrive on the client-side one). Filters to the spectated player, de-duplicates the
-// double delivery, and forwards to whichever module cares:
-//   weapon_fire -> WeaponRecoil
+// The fields of a weapon_fire or player_footstep event the stack reads: who, and with which gun.
+struct ShakeEventFields {
+	int userId = -1;
+	std::string weapon;
+};
+
+// Game-event fan-in, from the game's event listener. `read` fills the event's fields and is called
+// only once they are needed, because reading them costs something (CS2 converts KV3 to JSON).
+// Filters to the spectated player, de-duplicates a double delivery, and forwards to whichever
+// module cares:
+//   weapon_fire     -> WeaponRecoil
+//   player_footstep -> WeaponBob's step sync
+void CameraShake_OnEvent(const char* name, const std::function<bool(ShakeEventFields&)>& read);
+
+// CS2's listener entry (CameraShakeHostSource2.cpp). Called from GameEvents.cpp on both the server
+// and client-side paths (demo events arrive on the client-side one).
 void CameraShake_OnGameEvent(SOURCESDK::CS2::CGameEvent* event);
 
 // Main-thread per-frame pump: drops integrated state when no demo is playing, so re-opening a

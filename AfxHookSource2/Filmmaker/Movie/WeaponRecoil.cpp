@@ -2,7 +2,7 @@
 #include "WeaponRecoilMath.h"
 #include "CameraShakeStack.h" // CameraShake_ShakeVisible: can this kick be seen?
 
-#include "ViewFxVm.h" // ViewFxVm_EnsureCameraCompensationHook: the transform channel
+#include "CameraShakeHost.h" // ShakeHost_EnsureWeaponChannel: the transform channel
 #include "WeaponPivot.h" // the shared hinge -- recoil and bob rotate about ONE point
 #include "RecoilPivotMarker.h" // the card's orb: part of whether its Reset may dim
 #include "../Debug/MvmDebugLog.h"
@@ -112,7 +112,7 @@ void WeaponRecoil::SetEnabled(bool on) {
 	// The transform rides on the CalcViewModelView input detour; install it up front so the
 	// first shot does not race the lazy install. A pattern miss warns inside and the feature
 	// degrades to nothing rather than crashing.
-	if (on && !ViewFxVm_EnsureCameraCompensationHook())
+	if (on && !ShakeHost_EnsureWeaponChannel())
 		advancedfx::Warning(
 			"mirv_filmmaker: weapon recoil could not install the viewmodel hook "
 			"(CalcViewModelView caller not resolved) -- the gun will not move.\n");

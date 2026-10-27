@@ -1,7 +1,7 @@
 #include "HandheldCam.h"
 
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_Active / MvmDebugLog_Linef
-#include "ViewFxVm.h"
+#include "CameraShakeHost.h" // ShakeHost_EnsureWeaponChannel
 
 #include "../../../Shared/AfxConsole.h"
 
@@ -160,7 +160,7 @@ void HandheldCam::SetViewmodelDecoupled(bool on) {
 	m_viewmodelDecoupled = on;
 	// A pattern miss degrades to nothing rather than crashing; say so instead of leaving the
 	// toggle silently inert (the per-frame compensation path also retries the install).
-	if (on && !ViewFxVm_EnsureCameraCompensationHook())
+	if (on && !ShakeHost_EnsureWeaponChannel())
 		advancedfx::Warning(
 			"mirv_filmmaker: handheld viewmodel decoupling could not install the viewmodel hook "
 			"(CalcViewModelView caller not resolved) -- it will retry while enabled.\n");

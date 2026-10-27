@@ -2,8 +2,7 @@
 
 #include "WeaponRecoil.h"          // read-only: is recoil running (the amber orb's owner)
 #include "WeaponBob.h"             // read-only: is bob running (the cyan orb's owner)
-#include "HudBlackout.h"           // F8 clears every overlay, ours included
-#include "../../CampathDrawer.h"   // the world-space gizmo drawer this marker rides on
+#include "CameraShakeHost.h"       // the game draws the orb, and blacks it out with every overlay (F8)
 #include "../Debug/MvmDebugLog.h"
 #include "../../../Shared/AfxConsole.h"
 
@@ -34,17 +33,7 @@ bool OwnerEffectEnabled(WeaponPivotOwner owner) {
 
 void PushToDrawer(WeaponPivotOwner owner, bool enabled, double x, double y, double z,
 	double radius) {
-	CCampathDrawer::PivotMarker marker;
-	marker.enabled = enabled && radius > 0.0;
-	marker.x = (float)x;
-	marker.y = (float)y;
-	marker.z = (float)z;
-	marker.radius = marker.enabled ? (float)radius : 0.0f;
-	// The colour is the whole point of the split: the drawer paints whatever it is handed, so
-	// the owner-to-colour mapping lives in one place (WeaponPivot.h) and both orbs get it here.
-	const WeaponPivotColour c = WeaponPivotOwnerColour(owner);
-	marker.r = c.r; marker.g = c.g; marker.b = c.b;
-	g_CampathDrawer.PivotMarker_set((int)owner, marker);
+	ShakeHost_DrawPivotOrb(owner, enabled, x, y, z, radius);
 }
 
 } // namespace
@@ -55,7 +44,7 @@ RecoilPivotMarker& RecoilPivotMarkerRef() {
 }
 
 bool RecoilPivotMarker::Showing(WeaponPivotOwner o) const {
-	if (HudBlackout_Active()) return false;
+	if (ShakeHost_OverlaysHidden()) return false;
 	if (!OwnerEffectEnabled(o)) return false;
 	const MarkerSlot& s = Slot(o);
 	if (s.enabled) return true;

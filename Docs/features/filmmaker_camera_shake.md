@@ -10,6 +10,13 @@ SOURCE:MVM has three additive shake modules. All are off by default and integrat
 | Weapon bob | `AfxHookSource2/Filmmaker/Movie/WeaponBob.{h,cpp}`, `WeaponBobMath.h` | ARC9 walk bob (style 0), look sway, idle breath |
 | Weapon pivot | `AfxHookSource2/Filmmaker/Movie/WeaponPivot.{h,cpp}` | SOURCE:MVM (one per-weapon hinge per effect) |
 | Integration | `AfxHookSource2/Filmmaker/Movie/CameraShakeStack.{h,cpp}`, `CameraShakeTypes.h` | SOURCE:MVM |
+| Game host | `AfxHookSource2/Filmmaker/Movie/CameraShakeHost.h`; CS2's answers in `CameraShakeHostSource2.cpp` | SOURCE:MVM |
+
+The stack and the three layers are engine-free. What they ask the game goes through
+`CameraShakeHost.h`: the demo clock, whether a render is recording, the watched player's user id,
+gun and magazine, the body under the camera, the gun's transform channel and the pivot orbs. CS2
+answers in `CameraShakeHostSource2.cpp`, which also turns CS2's game events into the fields
+`CameraShake_OnEvent` reads.
 
 See [filmmaker_config_panel.md](filmmaker_config_panel.md) for the CAMERA tab.
 
@@ -377,10 +384,10 @@ above, independent of Weapon Recoil's.
 slows in the air. Crouching multiplies the vertical channel, and the jump term lifts and dips the gun
 on takeoff and landing. The camera's own vertical motion cannot tell a staircase, a kerb or a weapon lying on the floor from a jump or a duck. The stack reads
 `FL_ONGROUND`, `FL_DUCKING` and the vertical velocity from `m_fFlags` / `m_vecVelocity`
-(`SampleBody` in `CameraShakeStack.cpp`; `ShakeInput.haveBody`). Ground contact must be lost for
+(`SampleBody` in `CameraShakeStack.cpp`, through the host's `ShakeHost_BodyAt`; `ShakeInput.haveBody`). Ground contact must be lost for
 60 ms before it counts as airborne (`WeaponBobAirTimeAdvance`), because walking down stairs drops the
 flag for a tick or two. On the ground, the jump term reads zero. The pawn is held across frames
-(`ResolveBodyPawn`), because the spectated-pawn lookup (the pawn eye nearest the camera, within
+(`ResolveBodyPawn` in `CameraShakeHostSource2.cpp`), because the spectated-pawn lookup (the pawn eye nearest the camera, within
 12 units) can drop a frame during a spectator switch or a seek. A pawn whose flags
 are all zero is dead or unspawned and counts as no pawn. With no pawn, the position-derived estimate is
 the fallback, with the climb a slope explains taken out (`WeaponBobFreeVz`).

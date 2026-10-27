@@ -798,6 +798,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/CameraShakeTypes.h
     Filmmaker/Movie/HudBlackout.cpp
     Filmmaker/Movie/HudBlackout.h
+    Filmmaker/Movie/CameraShakeHost.h
+    Filmmaker/Movie/CameraShakeHostSource2.cpp
     Filmmaker/Movie/CameraShakeStack.cpp
     Filmmaker/Movie/CameraShakeStack.h
     Filmmaker/Movie/GunWeaponMath.h
