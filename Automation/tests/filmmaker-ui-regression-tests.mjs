@@ -273,6 +273,23 @@ test("the end-of-demo hold's margin is the game's: a second in CS2, a few frames
   assert.match(css, /return \(std::min\)\(\(std::max\)\(3 \* ticksPerFrame, 8\), 64\);/);
 });
 
+// 2026-10-27: the CS:S window could not be resized. It gets CS2's free resize on the shared window
+// arithmetic, and the engine's custom windowed size is written before mat_setvideomode, which on its
+// own falls back to 640x480 for any size that is not a display mode.
+test("CS:S free resize shares CS2's window arithmetic and fills the custom windowed size first", () => {
+  const sizing = /WindowSizing\(hwnd, wParam, \*proposed, s_snapMode, kMinClientW, kMinClientH\)/;
+  const cs2 = read("AfxHookSource2", "Filmmaker", "Window", "WindowResize.cpp");
+  assert.match(cs2, /#include "WindowGeometry.h"/);
+  assert.match(cs2, sizing);
+  const css = read("AfxHookSource", "Filmmaker", "SourceWindow.cpp");
+  assert.match(css, sizing);
+  assert.match(css, /if \(!Engine_SetWindowedModeSize\(s_commitW, s_commitH\)\) \{[\s\S]{0,1200}"mat_setvideomode %d %d 1"/,
+    "the custom size goes in before the engine is asked, and nothing is asked when it cannot");
+  const engine = read("AfxHookSource", "Filmmaker", "SourceEngine.cpp");
+  assert.match(engine, /constexpr int kVideoModeCustomWidth = 0x201C;/);
+  assert.match(engine, /if \(width != screenW \|\| height != screenH\) \{/, "the video mode is used only when its mode is the screen's");
+});
+
 // 2026-10-17 (mvm_debug: clickMode=0 free=1): a click while a camera path played, or on Clippy,
 // called MouseCapture_SetFree(true), which also switches click-to-capture off for good -- after
 // that no click gave CS2 the mouse back and looking around was dead until a restart.

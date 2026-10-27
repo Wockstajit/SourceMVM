@@ -134,6 +134,17 @@ void* CallPtrPtr(void* object, int slot, const void* arg) {
 	}
 }
 
+bool WriteBytes(void* base, int offset, const void* in, size_t size) {
+	if (!base || offset < 0) return false;
+	__try {
+		std::memcpy((unsigned char*)base + offset, in, size);
+		return true;
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		InterlockedIncrement64(&g_faults);
+		return false;
+	}
+}
+
 bool CallBoolIntPtrPtr(void* object, int slot, int arg, void* a, void* b) {
 	if (!object) return false;
 	__try {
@@ -275,6 +286,76 @@ const unsigned char* GuardedFollowAccessor(const unsigned char* code, size_t sca
 		InterlockedIncrement64(&g_faults);
 	}
 	return nullptr;
+}
+
+// The pointer variable code[0, scan) loads with `mov rcx, [rip + x]` shortly before calling
+// `[rax + 0x100]` on it (16 bytes after the load ends, in the build measured), when it lies in [lo, hi).
+void* const* GuardedFollowSetModeCaller(const unsigned char* code, size_t scan, uintptr_t lo, uintptr_t hi) {
+	static const unsigned char kCallSetMode[6] = { 0xFF, 0x90, 0x00, 0x01, 0x00, 0x00 };
+	__try {
+		for (size_t i = 0; i + 7 <= scan; ++i) {
+			if (code[i] != 0x48 || code[i + 1] != 0x8B || code[i + 2] != 0x0D) continue;
+			int32_t disp;
+			std::memcpy(&disp, code + i + 3, 4);
+			const unsigned char* variable = code + i + 7 + disp;
+			if ((uintptr_t)variable < lo || (uintptr_t)variable + 8 > hi) continue;
+			for (size_t j = i + 7; j <= i + 7 + 32 && j + sizeof(kCallSetMode) <= scan; ++j)
+				if (0 == std::memcmp(code + j, kCallSetMode, sizeof(kCallSetMode))) return (void* const*)variable;
+		}
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		InterlockedIncrement64(&g_faults);
+	}
+	return nullptr;
+}
+
+// The engine's video mode (CVideoMode_Common). mat_setvideomode's callback loads it with
+// `mov rcx, [rip + x]` and calls its SetMode at [vtable + 0x100] (engine.dll+0xf9960, the pointer at
+// +0x795358, measured 2026-10-27). SetMode looks the size up with FindVideoMode, which answers a
+// window's custom size as mode -2 before it tries the display's modes and falls back to 640x480.
+// Startup fills that custom size from -w and -h. Next to it, the mode in use, which has to match the
+// engine's screen size before anything is written.
+constexpr int kVideoModeCustomWidth = 0x201C;
+constexpr int kVideoModeCustomHeight = 0x2020;
+constexpr int kVideoModeWidth = 0x2030;
+constexpr int kVideoModeHeight = 0x2034;
+void* g_videoMode = nullptr;
+int g_videoModeTries = 0;
+std::string g_videoModeText = "not looked for yet";
+
+void* FindVideoMode() {
+	HMODULE engine = GetModuleHandleW(L"engine.dll");
+	const CommandCallback setVideoMode = ConCommand_Callback("mat_setvideomode");
+	if (!engine || !setVideoMode || !g_VEngineClient) {
+		g_videoModeText = "mat_setvideomode not found";
+		return nullptr;
+	}
+	const IMAGE_DOS_HEADER* dos = (const IMAGE_DOS_HEADER*)engine;
+	const IMAGE_NT_HEADERS* nt = (const IMAGE_NT_HEADERS*)((const unsigned char*)engine + dos->e_lfanew);
+	const uintptr_t lo = (uintptr_t)engine, hi = lo + nt->OptionalHeader.SizeOfImage;
+	if ((uintptr_t)setVideoMode < lo || (uintptr_t)setVideoMode + 0xC0 > hi) {
+		g_videoModeText = "mat_setvideomode is not engine.dll's";
+		return nullptr;
+	}
+	void* const* variable = GuardedFollowSetModeCaller((const unsigned char*)setVideoMode, 0xC0, lo, hi);
+	void* mode = nullptr;
+	int width = 0, height = 0, screenW = 0, screenH = 0;
+	if (!variable || !ReadBytes(variable, 0, &mode, sizeof(mode)) || !mode || !ReadBytes(mode, kVideoModeWidth, &width, 4)
+		|| !ReadBytes(mode, kVideoModeHeight, &height, 4)) {
+		g_videoModeText = "NOT FOUND in mat_setvideomode's code";
+		return nullptr;
+	}
+	g_VEngineClient->GetScreenSize(screenW, screenH);
+	char text[160];
+	if (width != screenW || height != screenH) {
+		std::snprintf(text, sizeof(text), "found at engine.dll+0x%llx, but its mode %dx%d is not the screen's %dx%d: not used",
+			(unsigned long long)((uintptr_t)variable - lo), width, height, screenW, screenH);
+		g_videoModeText = text;
+		return nullptr;
+	}
+	std::snprintf(text, sizeof(text), "engine.dll+0x%llx (custom size at +0x%x)", (unsigned long long)((uintptr_t)variable - lo),
+		kVideoModeCustomWidth);
+	g_videoModeText = text;
+	return mode;
 }
 
 // SourceTV's camera: spec_mode's callback starts with `HLTVCamera()->...`, and HLTVCamera() returns
@@ -881,6 +962,21 @@ bool Engine_GameUiVisible() {
 	}
 	return CallBool(g_engineVgui, Slot::EngineVGui_IsGameUIVisible, false);
 }
+
+bool Engine_SetWindowedModeSize(int width, int height) {
+	if (!g_videoMode && g_videoModeTries < 8) {
+		++g_videoModeTries;
+		g_videoMode = FindVideoMode();
+	}
+	if (!g_videoMode || width <= 0 || height <= 0) return false;
+	const bool ok = WriteBytes(g_videoMode, kVideoModeCustomWidth, &width, 4) && WriteBytes(g_videoMode, kVideoModeCustomHeight, &height, 4);
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("window.videomode", "custom windowed size %dx%d written=%d (%s)", width, height, ok ? 1 : 0,
+			g_videoModeText.c_str());
+	return ok;
+}
+
+std::string Engine_VideoModeText() { return g_videoModeText; }
 
 bool Engine_ViewMatrixFov(double& horizontal, double& vertical) {
 	if (!g_VEngineClient || !g_VEngineClient->IsInGame()) return false;

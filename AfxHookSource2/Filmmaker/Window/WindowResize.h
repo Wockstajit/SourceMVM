@@ -17,6 +17,8 @@
 // See Docs/features/filmmaker_window_resize.md for the reverse-engineering notes behind the SDL route and
 // for what still has to be proven live.
 
+#include "WindowGeometry.h" // WindowSnapMode, shared with CS:S
+
 #include <string>
 
 namespace advancedfx { class ICommandArgs; }
@@ -35,14 +37,6 @@ enum class WindowResizeCommit {
 	Auto,      // observe; if the backbuffer has not followed in time, re-assert once through SDL
 	Off,       // observe and log only, never touch the window again
 	Sdl,       // always re-assert the finished size through SDL immediately
-};
-
-// What holding Shift while dragging an edge does.
-enum class WindowSnapMode {
-	Both,       // snap the shape to a named ratio, and land exactly on a standard resolution when close
-	Ratio,      // snap the shape only -- a perfect 2.39:1 at whatever size you drag to
-	Resolution, // land on standard resolutions only, leave the shape alone
-	Off,        // Shift does nothing
 };
 
 // Called from the hooked game WndProc (WindowInputHooks.cpp) for every message. It consumes no

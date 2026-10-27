@@ -1050,6 +1050,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Render/RenderPlayersOnlyGreen.h
 
     Filmmaker/Window/AspectRatioMath.h
+    Filmmaker/Window/WindowGeometry.h
     Filmmaker/Window/WindowPrecisionGuard.h
     Filmmaker/Window/EngineVideoMode.cpp
     Filmmaker/Window/EngineVideoMode.h

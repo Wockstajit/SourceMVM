@@ -195,6 +195,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceUi.h
     Filmmaker/SourceViewModel.cpp
     Filmmaker/SourceViewModel.h
+    Filmmaker/SourceWindow.cpp
+    Filmmaker/SourceWindow.h
     Filmmaker/Ui/CameraEditorShell.cpp
     Filmmaker/Ui/CameraEditorShell.h
     Filmmaker/Ui/ConfigInspector.cpp
@@ -282,6 +284,12 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Platform/ShellOpen.h
     ../AfxHookSource2/Filmmaker/Platform/TextEncoding.cpp
     ../AfxHookSource2/Filmmaker/Platform/TextEncoding.h
+    ../AfxHookSource2/Filmmaker/Window/AspectRatioMath.h
+    ../AfxHookSource2/Filmmaker/Window/WindowGeometry.h
+    ../AfxHookSource2/Filmmaker/Window/WindowPrecisionGuard.h
+    ../AfxHookSource2/Filmmaker/Window/WindowSizeOverlay.cpp
+    ../AfxHookSource2/Filmmaker/Window/WindowSizeOverlay.h
+    ../AfxHookSource2/Filmmaker/Window/WindowSnapMath.h
     ../AfxHookSource2/Filmmaker/Movie/CameraCenterLockMath.h
     ../AfxHookSource2/Filmmaker/Movie/CameraShakeHost.h
     ../AfxHookSource2/Filmmaker/Movie/CameraShakePhaseClockMath.h

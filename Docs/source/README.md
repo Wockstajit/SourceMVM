@@ -115,7 +115,7 @@ the hook converts them first. See [Old demos](#old-demos).
 
 | Command | What it does |
 | --- | --- |
-| `mirv_filmmaker health` | Hook build, game, engine interfaces, command port counters, `mvm_debug` state, pump counts, the engine adapter, connection, map, demo time, the demo index, the game's and the rendered view, and a player summary |
+| `mirv_filmmaker health` | Hook build, game, engine interfaces, command port counters, `mvm_debug` state, pump counts, the engine adapter, connection, map, demo time, the demo index, who may have the mouse, the window and what the engine renders, the game's and the rendered view, and a player summary |
 | `mirv_filmmaker players` | One line per player: index, name, team, health, alive, dormant, origin, eye angles, class, bot and SourceTV flags. `>` marks the spectated player |
 | `mirv_filmmaker engine` | The networked fields the engine adapter resolved, with their offsets. `engine classes [filter]` lists the game's network class names |
 | `mirv_filmmaker entities [all] [class]` | One line per entity: index, handle, network class, origin, angles, team, and its links (owner, weapon owner, thrower, active weapon, ragdoll, the ragdoll's player). `all` includes dormant ones |
@@ -132,6 +132,7 @@ the hook converts them first. See [Old demos](#old-demos).
 | `mirv_filmmaker grapheditor ...` | The [TIMELINE dock](#the-timeline-dock)'s keys: `on`, `select`, `movesel`, `addkey`, `delsel`, `handle`, `ease`, `smooth`, `linear`, `align`, `undo`, `redo`, `playhead`, `autopath` and the rest of CS2's verbs |
 | `mirv_filmmaker follow ...` | The [follow camera](#follow-camera), CS2's own command: `type player`, `nearest`, `select <i>`, `place`, `reposition`, `preview`, `stop`, `status`, `campose`, `targetprobe`, `look`, `position`, `deadzone`, `maxturn`, `fov`, `autodead`, `deathhold`, `debug`, `state64` and the rest of CS2's verbs |
 | `mirv_filmmaker capture "<file.bmp>"` | The next frame as the game shows it, the filmmaker's UI included, from the back buffer at Present. Quote the path: the console splits arguments at `:` |
+| `mirv_filmmaker window ...` | [Window resize](#window-resize): `status`, `resizable on\|off`, `size <w> <h>`, `aspect <r>`, `ratios`, `snap both\|ratio\|resolution\|off`, `overlay on\|off\|test` |
 | `mvm_debug start\|stop\|status` | The shared runtime debug log, as in CS2: `%APPDATA%\HLAE\debuglogs\mvm_debug_*.log`, every console line and every command received over the port, stamped with demo tick, frame and thread |
 
 `health` is the first check when something stops working. `console capture REPLACED` means the
@@ -1129,6 +1130,60 @@ a session that had played the converted demo before, crashed the game two ticks 
 engine's entity decoding (`engine.dll+0x18a298`, a property index with no decoder). Five more
 switches in both directions, in the same order, did not crash. It needs another repro before a cause
 can be named.
+
+## Window resize
+
+Drag an edge or a corner of the CS:S window to any size, as in CS2
+([Docs/features/filmmaker_window_resize.md](../features/filmmaker_window_resize.md)). While you drag,
+a card in the middle of the window shows the size and the closest named aspect ratio. Hold Shift to
+snap to a named ratio, and onto a standard resolution of that ratio when one is close. When you let
+go, the engine renders at the new size. The ratio table, the snap, the guard against Windows Snap
+taking a Shift drag and the card are CS2's own (`AfxHookSource2/Filmmaker/Window/`); `WindowGeometry.h`
+there holds the window arithmetic both games share. `Filmmaker/SourceWindow.cpp` is the CS:S side.
+
+CS:S draws its own plain Win32 window with a fixed frame and no SDL, so the CS:S side differs from
+CS2's in four places:
+
+- **The border.** While the game is windowed, the hook adds a sizing border and keeps the client
+  area exactly where and how big it was. It checks twice a second and puts the border back, because
+  the engine sets the window's style again when it changes mode. Fullscreen and `-noborder` windows
+  are left alone.
+- **The commit.** When a drag ends, the hook asks for the new size with `mat_setvideomode w h 1`.
+  The engine only sets a size it has as a mode: one of the display's modes, or in a window the
+  custom size that `-w` and `-h` fill at startup. Any other size falls back to 640x480. So the hook
+  first writes the size into that custom slot. The engine's video mode object is found by following
+  `mat_setvideomode`'s own code to the pointer it loads before calling `SetMode` (engine.dll
+  `+0x795358`, the slot at `+0x201C`). The hook only uses it when the mode it holds matches the
+  engine's screen size. If it is not found, nothing is asked and the window goes back to the size the
+  engine renders, so the picture is never scaled.
+- **The place.** The engine centres the window on the main monitor when it sets a mode. For the
+  commit's cooldown, the hook answers every move with the place the drag left the window, so it stays
+  on the monitor you dragged it on.
+- **The HUD.** The mode change lays the game's HUD out again and shows panels that stay hidden until
+  used: the freeze cam's, the round's win panel, an achievement. The next tick the demo reads hides
+  them, and a paused demo reads none, so a paused demo steps one tick at 0.05x and pauses again.
+  SourceTV's spectator bar along the top keeps its old width until the observer mode changes, and
+  only a change with frames in between lays it out again. In first person and chase, the hook
+  switches to the other mode for four frames and back. Roaming and fixed cameras would lose their
+  place, so they keep the short bar until the next camera change.
+
+`mirv_filmmaker window status` and the `window:` line in `health` show the client size, the aspect,
+what the engine renders, where the video mode was found, and how the last resize went. `mvm_debug`
+logs each step of a drag (`window.resize`), the custom size written (`window.videomode`), and any
+Windows Snap the Shift guard refused (`window.snapguard`). The minimum size is 640x360, and sizes are
+made even.
+
+Checked in CS:S on 2026-10-27 at 1280x720 with real mouse drags on the paused SourceTV test demo:
+
+- A plain corner drag ended at 1500x681. It was committed as 1500x682, and the engine rendered it,
+  with the window still on the left monitor.
+- A Shift drag snapped through 2.20:1 to exactly 21:9, 1666x714. Another snapped to 2.76:1, 1656x600.
+  The card read `1656 × 600 · 2.76:1 · Ultra Panavision 70 · SNAP` while dragging.
+- `window size 1504 846` set 1504x846 the same way.
+- Each paused resize stepped the demo exactly one tick, and its 1.00x speed came back. The frames
+  afterwards showed no stray HUD panels and a full-width spectator bar.
+- Before the hook wrote the custom size, `mat_setvideomode 1504 846 1` alone gave 640x480. Display
+  modes (1600x900, 1366x768) worked, and each one moved the window to the main monitor.
 
 ## Workspace UI
 

@@ -25,6 +25,7 @@
 #include "RenderView.h"
 #include "WrpGlobals.h"
 #include "SourceUi.h"
+#include "SourceWindow.h"
 
 #include "addresses.h"
 #include "WrpConsole.h"
@@ -138,6 +139,7 @@ void PrintHealth() {
 	Settings_PrintHealth();
 	Demos_PrintHealth();
 	Ui_PrintMouseHealth();
+	Window_PrintHealth();
 	if (!g_VEngineClient->IsInGame()) return;
 	Director_PrintHealth();
 	CameraPath_PrintHealth();
@@ -207,7 +209,8 @@ void PrintUsage() {
 		"mirv_filmmaker grapheditor - on|off|state|select|movesel|addkey|ease|undo|playhead|...: the TIMELINE dock's keys.\n"
 		"mirv_filmmaker follow  - place|nearest|select|preview|stop|status|campose|...: CS2's follow camera (players).\n"
 		"mirv_filmmaker handheld|weaponrecoil|weaponbob|pivot|pivotorb|camshake|pathshake - CS2's camera shake layers.\n"
-		"mirv_filmmaker capture - <file.bmp>: the next frame as the game shows it, the filmmaker's UI included.\n");
+		"mirv_filmmaker capture - <file.bmp>: the next frame as the game shows it, the filmmaker's UI included.\n"
+		"mirv_filmmaker window  - status|resizable|size|aspect|ratios|snap|overlay: drag the window to any size (SHIFT snaps).\n");
 }
 
 } // namespace
@@ -227,10 +230,12 @@ void Init() {
 void Shutdown() {
 	Settings_Flush();
 	Demos_Shutdown();
+	Window_Shutdown();
 }
 
 bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	g_windowMessages.fetch_add(1);
+	Window_OnMessage(hwnd, msg, wParam, lParam); // consumes none
 	if (Netcon_OnWindowMessage(hwnd, msg)) return true;
 	return Ui_OnWindowMessage(hwnd, msg, wParam, lParam);
 }
@@ -257,6 +262,7 @@ void OnFrameRenderStart() {
 	g_frameRenderStarts.fetch_add(1);
 	ViewModel_Frame(); // a viewmodel no view override built last frame
 	MainThread_Frame();
+	Window_Frame(); // a finished resize reaches the engine before the UI lays out
 	DemoIndex_Frame();
 	OldDemos_Frame();
 	DemoSkip_Init();
@@ -265,7 +271,7 @@ void OnFrameRenderStart() {
 	ViewModel_Init();
 	Entities_WatchFrame();
 	DemoBar_Frame();
-	Filmmaker::DemoEndHold_RunFrame(); // stop a second before the demo runs out
+	Filmmaker::DemoEndHold_RunFrame(); // stop just before the demo runs out
 	Demos_Frame();
 	CameraPath_Frame();
 	Ui_MainThreadFrame();
@@ -306,6 +312,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::Config_EffectsCommand(argc, args);
 	} else if (0 == _stricmp(sub, "settings")) {
 		SourceFilmmaker::Settings_Command(argc, args);
+	} else if (0 == _stricmp(sub, "window")) {
+		SourceFilmmaker::Window_Command(argc, args);
 	} else if (0 == _stricmp(sub, "endhold")) {
 		Filmmaker::DemoEndHold_RunCommand(argc, args, "mirv_filmmaker");
 	} else if (0 == _stricmp(sub, "loop")) {

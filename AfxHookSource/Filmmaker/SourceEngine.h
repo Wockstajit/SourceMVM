@@ -158,6 +158,14 @@ std::string Engine_SpectatorCameraText();
 // The game's own menu or console is up: the director stands aside and leaves the game the mouse.
 bool Engine_GameUiVisible();
 
+// The engine sets only a size it has as a video mode: one of the display's modes, or in a window the
+// custom size that -w and -h fill at startup. Writes width x height into that custom size, so
+// `mat_setvideomode width height 1` that follows sets exactly it (free resizing, SourceWindow.h).
+// False when the engine's video mode was not found or did not check out.
+bool Engine_SetWindowedModeSize(int width, int height);
+// Where the video mode was found, or why it was not, for health.
+std::string Engine_VideoModeText();
+
 // Diagnostics for health: client classes found, networked fields resolved of those asked for, and
 // how many guarded calls faulted.
 struct EngineDiagnostics {
