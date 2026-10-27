@@ -726,6 +726,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/TimelineDock.cpp
     Filmmaker/Movie/TimelinePlayhead.cpp
     Filmmaker/Movie/TimelinePlayhead.h
+    Filmmaker/Movie/CamPathShakeHost.h
+    Filmmaker/Movie/CamPathShakeHostSource2.cpp
     Filmmaker/Movie/CamPathShake.cpp
     Filmmaker/Movie/CamPathShake.h
     Filmmaker/Movie/RageShake.cpp

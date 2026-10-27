@@ -18,6 +18,8 @@
 #include <AfxHookSource2/Filmmaker/Platform/TextEncoding.h>
 #include <AfxHookSource2/Filmmaker/Movie/CamMarkerPickMath.h>
 #include <AfxHookSource2/Filmmaker/Movie/CamPathEval.h>
+#include <AfxHookSource2/Filmmaker/Movie/CamPathShake.h>
+#include <AfxHookSource2/Filmmaker/Movie/CamPathShakeHost.h>
 #include <AfxHookSource2/Filmmaker/Movie/CamPlayback.h>
 #include <AfxHookSource2/Filmmaker/Movie/CameraBridge.h>
 #include <Shared/AfxConsole.h>
@@ -721,6 +723,7 @@ void CameraPath_Stop() {
 }
 
 void CameraPath_Frame() {
+	Filmmaker::CamPathShake_RunFrame(); // the keys' shakes follow this path's demo and retimes
 	if (g.dirty && !g.editActive) Save(); // last frame's edits, once a drag has ended
 	if (!Demo_State().playing) {
 		if (g.mode != PathMode::Editing) CameraPath_Stop();
@@ -911,3 +914,28 @@ void CameraPath_PrintHealth() {
 }
 
 } // namespace SourceFilmmaker
+
+// Path shake's host (CamPathShakeHost.h): this path's keys, its playback tick and its demo's project.
+// CS:S has no camera objects to look through.
+namespace Filmmaker {
+
+const std::vector<CamMarker>& PathShakeHost_Markers() { return SourceFilmmaker::g.markers.All(); }
+
+bool PathShakeHost_PathTick(double& outTick) {
+	if (!SourceFilmmaker::g.play.Playing() && !SourceFilmmaker::g.play.Scrubbing()) return false;
+	outTick = SourceFilmmaker::g.play.LastEvalTick();
+	return true;
+}
+
+double PathShakeHost_ObjectTick() { return 0.0; }
+
+std::wstring PathShakeHost_DemoPath() { return SourceFilmmaker::g.project; }
+
+ProjectGame PathShakeHost_Game() { return ProjectGame::Css; }
+
+double PathShakeHost_IntervalPerTick() {
+	const double interval = SourceFilmmaker::Demo_State().intervalPerTick;
+	return interval > 0.0 ? interval : 0.015;
+}
+
+} // namespace Filmmaker

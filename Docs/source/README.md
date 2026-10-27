@@ -804,6 +804,25 @@ and counted the other 38 as other players'. A Test Shot on the paused demo kicke
 1.0° up, 0.7° sideways and 2.4° in roll, settling over about 60 frames. With HLAE's free camera on,
 the stack's gate turned the shake off, and with the follow camera attached it shook as Attach.
 
+### Path shake
+
+A camera path's keys carry CS2's path shakes: a RAGE-style shake per key, run until the next key of
+the path (the same style ramps to it) or to the end of the shot
+(`AfxHookSource2/Filmmaker/Movie/CamPathShake.cpp`, evaluated by `RageShake`;
+[filmmaker_camera_path_shake.md](../features/filmmaker_camera_path_shake.md)). What it asks the game goes
+through `CamPathShakeHost.h`, which the CS:S camera path answers (`SourceCameraPath.cpp`): its keys,
+the tick its playback drives the view at, and the demo's project. The shakes are saved in the demo's
+`project.mvm` in their own `camshake` section, next to the path, and follow a retimed key. They
+shake the view only while the path plays or scrubs, after the live layers. CS:S has no camera
+objects, so the per-object tracks are unused. The console command is CS2's `mirv_filmmaker
+pathshake` (`set <key> <style> [intensity] [speed]`, `style`, `intensity`, `speed`, `stop`, `clear`,
+`clearall`, `applyall`, `styles`, `state`, `on`/`off`).
+
+Checked in CS:S on 2026-10-27 in the SourceTV test demo: a two-key path from tick 580 to 703 with a
+Hand shake (`REPLAY_HAND_SHAKE`, intensity 8, speed 60) on its first key swayed the view by up to 2.5
+units and 2 degrees through the shot (`mvm_debug` `pathshake.view`), and the demo's `project.mvm`
+held the `camshake` section with `"game":"css"`.
+
 ## Old demos
 
 Most classic CS:S movie demos were recorded before the Orange Box engine update, on the "v34"

@@ -27,6 +27,7 @@
 #include "WrpVEngineClient.h"
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
+#include <AfxHookSource2/Filmmaker/Movie/CamPathShake.h>
 #include <AfxHookSource2/Filmmaker/Movie/CameraShakeStack.h>
 #include <AfxHookSource2/Filmmaker/Movie/FollowCamera.h>
 #include <AfxHookSource2/Filmmaker/Movie/HandheldCam.h>
@@ -192,7 +193,7 @@ void PrintUsage() {
 		"mirv_filmmaker marker  - place|delete|select|arm|play|pause|stop|timing|interp|speedmode|...: camera paths.\n"
 		"mirv_filmmaker grapheditor - on|off|state|select|movesel|addkey|ease|undo|playhead|...: the TIMELINE dock's keys.\n"
 		"mirv_filmmaker follow  - place|nearest|select|preview|stop|status|campose|...: CS2's follow camera (players).\n"
-		"mirv_filmmaker handheld|weaponrecoil|weaponbob|pivot|pivotorb|camshake - CS2's camera shake layers.\n"
+		"mirv_filmmaker handheld|weaponrecoil|weaponbob|pivot|pivotorb|camshake|pathshake - CS2's camera shake layers.\n"
 		"mirv_filmmaker capture - <file.bmp>: the next frame as the game shows it, the filmmaker's UI included.\n");
 }
 
@@ -225,6 +226,7 @@ void OnViewOverride(float& tx, float& ty, float& tz, float& rx, float& ry, float
 		SmoothView_OnView(tx, ty, tz, rx, ry, rz, fov, cameraOverridden);
 	}
 	CameraShake_OnView(tx, ty, tz, rx, ry, rz, fov, followOwns, overriddenBefore); // rides on whatever has the view
+	Filmmaker::CamPathShake_ApplyToView(tx, ty, tz, rx, ry, rz, fov, 0); // a camera path's keys' shakes, while it plays or scrubs
 	const double origin[3] = { tx, ty, tz }, angles[3] = { rx, ry, rz };
 	Ui_ViewRendered(origin, angles, fov); // the view as rendered: the path's markers drawn over it
 }
@@ -301,6 +303,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		Filmmaker::RecoilPivotMarker_RunCommand(argc, args, "mirv_filmmaker");
 	} else if (0 == _stricmp(sub, "camshake")) {
 		Filmmaker::CameraShake_RunCommand(argc, args, "mirv_filmmaker");
+	} else if (0 == _stricmp(sub, "pathshake")) {
+		Filmmaker::CamPathShake_RunCommand(argc, args, "mirv_filmmaker");
 	} else if (0 == _stricmp(sub, "capture")) {
 		SourceFilmmaker::Capture_Request(argc >= 3 ? args->ArgV(2) : "");
 	} else {

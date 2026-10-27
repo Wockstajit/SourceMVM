@@ -11,6 +11,7 @@ This is a **separate additive layer over the camera path**. It is not part of th
 | RAGE shake evaluator (oscillator + envelope + frame components) | `AfxHookSource2/Filmmaker/Movie/RageShake.{h,cpp}` |
 | The 86-style table | `AfxHookSource2/Filmmaker/Movie/RageShakeStyles.cpp` |
 | Per-keyframe store, project.mvm section, blending, apply | `AfxHookSource2/Filmmaker/Movie/CamPathShake.{h,cpp}` |
+| What it asks the game (the camera path's keys and tick, the project store) | `AfxHookSource2/Filmmaker/Movie/CamPathShakeHost.h`; CS2's answers in `CamPathShakeHostSource2.cpp`, CS:S's in `AfxHookSource/Filmmaker/SourceCameraPath.cpp` |
 | Console surface | `AfxHookSource2/Filmmaker/CamPathShakeCommand.cpp` |
 | Timeline right-click menu | `AfxHookSource2/Filmmaker/Panorama/CameraTimelineShakeMenuJs.h` |
 | Source material, provenance, `cameras.ymt` extraction recipe | Not in the repository |

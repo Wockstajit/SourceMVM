@@ -29,8 +29,21 @@ const sectionUsers = sourceFiles(filmmakerDirectory)
 
 test("the CS2 project sections are found", () => {
   const names = sectionUsers.map(({ file }) => path.basename(file));
-  for (const expected of ["CameraPath.cpp", "CamPathShake.cpp", "PlaybackLoop.cpp", "SceneKeys.cpp", "CosmeticDemoProfiles.cpp"])
+  for (const expected of ["CameraPath.cpp", "PlaybackLoop.cpp", "SceneKeys.cpp", "CosmeticDemoProfiles.cpp"])
     assert.ok(names.includes(expected), `${expected} writes a project section`);
+});
+
+// Path shake is shared with CS:S, so it asks its game host for the store and the key
+// (CamPathShakeHost.h). CS2's host must hand it CS2's store, keyed by the original demo.
+test("path shake keys its section through its host, and CS2's host keys it by the original demo", () => {
+  const shake = fs.readFileSync(path.join(filmmakerDirectory, "Movie", "CamPathShake.cpp"), "utf8");
+  const host = fs.readFileSync(path.join(filmmakerDirectory, "Movie", "CamPathShakeHostSource2.cpp"), "utf8");
+  assert.match(shake, /DemoProjectStore_WriteSection\(PathShakeHost_Game\(\), s\.demoPath,/);
+  assert.match(shake, /DemoProjectStore_ReadSection\(PathShakeHost_Game\(\), s\.demoPath,/);
+  assert.match(shake, /std::wstring cur = PathShakeHost_DemoPath\(\);/);
+  assert.match(host, /std::wstring PathShakeHost_DemoPath\(\) \{ return PlayingDemoPath\(\); \}/);
+  assert.match(host, /ProjectGame PathShakeHost_Game\(\) \{ return ProjectGame::Cs2; \}/);
+  assert.ok(!/ResolvePlayingDemoPath\(/.test(host), "CS2's path shake host must not key by the raw playing file");
 });
 
 test("every CS2 project section is keyed by the original demo, never a copy", () => {

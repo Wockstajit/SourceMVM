@@ -258,6 +258,7 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Movie/CameraShakeTrackerMath.h
     ../AfxHookSource2/Filmmaker/Movie/CameraShakeTypes.h
     ../AfxHookSource2/Filmmaker/Movie/CamMarkerPickMath.h
+    ../AfxHookSource2/Filmmaker/CamPathShakeCommand.cpp
     ../AfxHookSource2/Filmmaker/Movie/CamMarkers.cpp
     ../AfxHookSource2/Filmmaker/Movie/CamMarkers.h
     ../AfxHookSource2/Filmmaker/Movie/CamPathEval.cpp
@@ -265,6 +266,10 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Movie/CamPathTimingMath.h
     ../AfxHookSource2/Filmmaker/Movie/CamPlayback.cpp
     ../AfxHookSource2/Filmmaker/Movie/CamPlayback.h
+    ../AfxHookSource2/Filmmaker/Movie/CamPathShake.cpp
+    ../AfxHookSource2/Filmmaker/Movie/CamPathShake.h
+    ../AfxHookSource2/Filmmaker/Movie/CamPathShakeHost.h
+    ../AfxHookSource2/Filmmaker/Movie/CamPathShakeRampMath.h
     ../AfxHookSource2/Filmmaker/Movie/CameraBridge.h
     ../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp
     ../AfxHookSource2/Filmmaker/Movie/FollowCamera.h
@@ -286,6 +291,9 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Movie/RecoilPivotMarker.cpp
     ../AfxHookSource2/Filmmaker/Movie/RecoilPivotMarker.h
     ../AfxHookSource2/Filmmaker/Movie/RecoilPivotMarkerMath.h
+    ../AfxHookSource2/Filmmaker/Movie/RageShake.cpp
+    ../AfxHookSource2/Filmmaker/Movie/RageShake.h
+    ../AfxHookSource2/Filmmaker/Movie/RageShakeStyles.cpp
     ../AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h
     ../AfxHookSource2/Filmmaker/Movie/SmoothView.cpp
     ../AfxHookSource2/Filmmaker/Movie/SmoothView.h

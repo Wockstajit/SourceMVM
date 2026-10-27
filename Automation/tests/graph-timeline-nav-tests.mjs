@@ -346,8 +346,11 @@ test('shake values ramp between keys and run until the next key, or to the end',
   assert.match(cam, /clock\[\(size_t\)j\]\.rampsToNext = k\.Active\(\) && j \+ 1 < m && keys\[\(size_t\)sk\[\(size_t\)j \+ 1\]\]\.style == k\.style && !oneShot\(j\);/);
   assert.match(cam, /auto endOf = \[&\]\(int j\) \{ return j \+ 1 < m \? clock\[\(size_t\)j \+ 1\]\.tick : 1\.0e300; \};/);
   assert.match(cam, /ShakeRamp::ClockSeconds\(clock\.data\(\), m, runStartOf\(j\), lookupTick, spt\)/);
-  // A looked-through camera object takes its own track at the scene keys' tick.
-  assert.match(cam, /if \(owner\) lookupTick = SceneKeys_AppliedTick\(\);/);
+  // A looked-through camera object takes its own track at the scene keys' tick (through the game
+  // host; CS2's answers with SceneKeys_AppliedTick).
+  assert.match(cam, /if \(owner\) lookupTick = PathShakeHost_ObjectTick\(\);/);
+  assert.match(read('AfxHookSource2/Filmmaker/Movie/CamPathShakeHostSource2.cpp'),
+    /double PathShakeHost_ObjectTick\(\) \{ return SceneKeys_AppliedTick\(\); \}/);
   assert.match(main, /CamPathShake_ApplyToView\(Tx, Ty, Tz, Rx, Ry, Rz, Fov,\s*owner\.sceneCamera \? Filmmaker::SceneRig_LookThrough\(\) : 0\)/);
 });
 
