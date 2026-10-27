@@ -571,7 +571,7 @@ CS2's follow camera runs in CS:S from the same code: its behaviour, target selec
 console command (`AfxHookSource2/Filmmaker/Movie/Follow*.cpp`, `Filmmaker/FollowCommand.cpp`) compile
 into both hooks. What it asks the game goes through `FollowCameraHost.h`, which
 `Filmmaker/SourceFollowCamera.cpp` answers from the [engine adapter](#engine-adapter). Step 11 brings it
-over in parts; the first is Lock-on on players, from the console.
+over in parts; so far, Lock-on on players, from the console and the FOLLOW CAMERA tab.
 
 - Targets are the players on a team, read with `Entities_Snapshot`. A living player is followed at its
   eyes: its origin raised 64 units, 47 while ducking. A dead one is followed at its `CCSRagdoll`. CS:S
@@ -581,15 +581,25 @@ over in parts; the first is Lock-on on players, from the console.
   Smooth View and the path markers, over HLAE's free camera, which the follow camera turns on.
 - While the follow camera is Live, the camera path's playback stops, AUTO and the TIMELINE dock's drive
   stand aside, and the path's markers are not drawn. Closing the Camera Editor stops Live, as in CS2.
-- Not yet: the FOLLOW CAMERA tab, weapons and the C4, grenades, Attached's body mounts, the Events
-  list and the in-world marker and target box. `health` shows the follow camera's state on its
-  `follow:` line.
+- The FOLLOW CAMERA tab is CS2's follow inspector (`Ui/FollowInspector.cpp`): the pinned bar with Live
+  and Stop, the CAMERA & TARGET card (mode, Place, Reposition, Clear, type, target list with Go To,
+  Select Nearest and the far-target question, mount, events) and the FRAMING & TRACKING card with its
+  two pages. It reads the follow camera's state JSON, the payload CS2's inspector reads, and every
+  control sends CS2's command, which `mvm_debug` logs as `follow.ui`. Rows that belong to another mode
+  or target type are left out, as in CS2. The card's summary shows the target's distance, which
+  CS2's reads from a field it is never sent.
+- Not yet: weapons and the C4, grenades, Attached's body mounts, the Events list and the in-world
+  marker and target box. `health` shows the follow camera's state on its `follow:` line.
 
 Checked in the SourceTV test demo on 2026-10-26: the placed camera's aim matched the look-at to the
 target's eyes to a hundredth of a degree; the eyes CS:S's own first-person view sits at matched the
 computed ones; the solve read a new interpolated position every rendered frame; a narrow FOV capture
 put the target's feet under the aim point; and when the target died at tick 4310 the camera followed
 the ragdoll, and a one-second death hold stopped it at tick 4376, one second of playback later.
+The tab, checked in the browser mockup at 1600x900 and 854x480 and then in CS:S at 854x480 with real
+window messages: Place, the target list, a pick, Live and Stop each sent its command and the card
+followed the state; the camera kept the picked player framed while the demo played; switching to
+PATH CAMERA kept it live; Esc closed the editor and stopped Live.
 
 ## Old demos
 
@@ -690,8 +700,9 @@ The engine-free part lives in `AfxHookSource/Filmmaker/Ui/`:
 | `UiTheme.h` | CS:S colours (ClientScheme / SourceScheme), Verdana and Tahoma, and CS2's UI metrics |
 | `UiStyle.cpp`, `UiWidgets.cpp` | The ImGui style, fonts at the stage scale, CS2's text tabs and chips |
 | `CameraEditorShell.cpp` | The Camera Editor: preview, inspector tabs, dock ribbon, ESC EXIT |
-| `InspectorCards.cpp` | CS2's inspector card grammar: rail rows, card header, value, mode and action rows, key strip |
+| `InspectorCards.cpp` | CS2's inspector card grammar: rail rows and badges, card header, value, mode, action, switch and dropdown rows, key strip |
 | `PathInspector.cpp` | The PATH CAMERA tab and its Clear all dialog |
+| `FollowInspector.cpp` | The FOLLOW CAMERA tab: pinned bar, rail, CAMERA & TARGET and FRAMING & TRACKING cards, dropdown lists |
 | `PathOverlay.cpp` | The camera path drawn in the world |
 | `UiRenderDx9.cpp` | Draws a finished frame on the render thread, and letterboxes the game into the preview |
 

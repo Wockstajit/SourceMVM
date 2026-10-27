@@ -29,9 +29,9 @@ FontSet BuildFonts(ImFontAtlas* atlas, const std::string& fontDir, float scale) 
 	set.scale = scale;
 	set.ok = true;
 	atlas->Clear();
-	// Latin-1 covers every caption the UI writes; the dash, bullet, ellipsis, angle quote and arrows
-	// are for ranges, lists, cut-off lines, breadcrumbs and chevrons.
-	static const ImWchar ranges[] = { 0x0020, 0x00FF, 0x2013, 0x2013, 0x2022, 0x2022, 0x2026, 0x2026, 0x203A, 0x203A,
+	// Latin-1 covers every caption the UI writes; the dashes, bullet, ellipsis, angle quote and arrows
+	// are for ranges and status lines, lists, cut-off lines, breadcrumbs and chevrons.
+	static const ImWchar ranges[] = { 0x0020, 0x00FF, 0x2013, 0x2014, 0x2022, 0x2022, 0x2026, 0x2026, 0x203A, 0x203A,
 		0x2190, 0x2193, 0x25B2, 0x25BC, 0 };
 	ImFontConfig config;
 	config.OversampleH = 2;

@@ -14,14 +14,17 @@
 #include "SourceGameProfile.h"
 #include "SourceUi.h"
 #include "Ui/DirectorMath.h"
+#include "Ui/FollowInspector.h"
 
 #include "RenderView.h"
 #include "WrpGlobals.h"
 #include "WrpVEngineClient.h"
 
+#include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
 #include <AfxHookSource2/Filmmaker/Movie/CameraBridge.h>
 #include <AfxHookSource2/Filmmaker/Movie/FollowCamera.h>
 #include <AfxHookSource2/Filmmaker/Movie/FollowCameraHost.h>
+#include <AfxHookSource2/Filmmaker/Platform/JsonParser.h>
 #include <Shared/AfxConsole.h>
 
 #include <memory>
@@ -112,6 +115,45 @@ public:
 private:
 	int m_index;
 };
+
+// The state JSON's pieces (FollowCameraStateJson.cpp) into the tab's model.
+using Filmmaker::JsonValue;
+
+double Num(const JsonValue& o, const char* key, double def = 0) {
+	const JsonValue* v = o.Find(key);
+	return v ? v->AsNumber(def) : def;
+}
+int Int(const JsonValue& o, const char* key, int def = 0) { return (int)Num(o, key, def); }
+bool Bool(const JsonValue& o, const char* key) {
+	const JsonValue* v = o.Find(key);
+	return v && v->AsBool();
+}
+std::string Str(const JsonValue& o, const char* key) {
+	const JsonValue* v = o.Find(key);
+	return v ? v->AsString() : std::string();
+}
+void Vec3(const JsonValue& o, const char* key, double out[3]) {
+	const JsonValue* v = o.Find(key);
+	for (int i = 0; i < 3; ++i)
+		out[i] = v && v->type == JsonValue::Type::Array && v->arr.size() > (size_t)i ? v->arr[(size_t)i].AsNumber() : 0.0;
+}
+const std::vector<JsonValue>& Arr(const JsonValue& o, const char* key) {
+	static const std::vector<JsonValue> none;
+	const JsonValue* v = o.Find(key);
+	return v && v->type == JsonValue::Type::Array ? v->arr : none;
+}
+std::vector<SourceFilmmaker::Ui::FollowInspectorPoint> Points(const JsonValue& o, const char* key) {
+	std::vector<SourceFilmmaker::Ui::FollowInspectorPoint> out;
+	for (const JsonValue& p : Arr(o, key)) {
+		SourceFilmmaker::Ui::FollowInspectorPoint point;
+		point.id = Str(p, "id");
+		point.label = Str(p, "label");
+		point.kind = Str(p, "kind");
+		point.valid = Bool(p, "valid");
+		out.push_back(point);
+	}
+	return out;
+}
 
 // The placed camera's marker and the target box, kept for the in-world aids (not drawn yet).
 struct Aids {
@@ -293,6 +335,108 @@ void CameraBridge_SetFollowTargetBox(bool enabled, float x, float y, float z, fl
 } // namespace Filmmaker
 
 namespace SourceFilmmaker {
+
+void FollowCamera_InspectorModel(Ui::FollowInspectorModel& m) {
+	m = Ui::FollowInspectorModel();
+	JsonValue f;
+	if (!Filmmaker::JsonParse(Filmmaker::FollowCameraRef().BuildStateJson(), f)) return;
+	m.enabled = Bool(f, "enabled");
+	m.hasCamera = Bool(f, "hasCamera");
+	m.repositioning = Bool(f, "repositioning");
+	m.type = Int(f, "type");
+	m.typeName = Str(f, "typeName");
+	m.mode = Int(f, "mode");
+	m.weaponSource = Int(f, "weaponSource");
+	m.weaponPlayerIndex = Int(f, "weaponPlayerIndex", -1);
+	m.weaponFilterPlayer = Int(f, "weaponFilterPlayer", -1);
+	m.targetIndex = Int(f, "targetIndex", -1);
+	m.targetHandle = (uint64_t)Num(f, "targetHandle");
+	m.targetValid = Bool(f, "targetValid");
+	m.targetName = Str(f, "targetName");
+	m.targetDistance = Num(f, "targetDistance");
+	m.distanceLevel = Int(f, "distanceLevel");
+	Vec3(f, "offset", m.offset);
+	Vec3(f, "rotation", m.rotation);
+	m.fov = Num(f, "fov", 90);
+	m.look = Num(f, "look");
+	m.position = Num(f, "position");
+	m.prediction = Num(f, "prediction");
+	m.deadzone = Num(f, "deadzone");
+	m.maxTurn = Num(f, "maxTurn");
+	m.deathHold = Num(f, "deathHold");
+	m.autoDead = Bool(f, "autoDead");
+	m.switchWeapon = Bool(f, "switchWeapon");
+	m.switchBomb = Bool(f, "switchBomb");
+	m.holdLast = Bool(f, "holdLast");
+	m.attachment = Str(f, "attachment");
+	m.attachPoints = Points(f, "attachPoints");
+	m.message = Str(f, "message");
+	m.grenadePending = Bool(f, "grenadePending");
+	m.debug = Bool(f, "debug");
+	if (const JsonValue* d = f.Find("attachDebug")) {
+		m.attachDebugActive = Bool(*d, "active");
+		m.attachDebugEntity = Int(*d, "entityIndex", -1);
+		m.attachDebugId = Str(*d, "attachId");
+		m.attachDebugSource = Str(*d, "source");
+		Vec3(*d, "rawTarget", m.attachDebugTarget);
+		Vec3(*d, "camera", m.attachDebugCamera);
+		m.attachDebugDistance = Num(*d, "distance");
+		m.attachDebugAim = Num(*d, "aimError");
+		m.attachDebugJitter = Num(*d, "jitter");
+		m.attachDebugCameraDelta = Num(*d, "cameraDelta");
+		m.attachDebugTargetDelta = Num(*d, "targetDelta");
+	}
+	for (const JsonValue& p : Arr(f, "players")) {
+		Ui::FollowInspectorPlayer player;
+		player.index = Int(p, "index", -1);
+		player.name = Str(p, "name");
+		player.team = Str(p, "team");
+		player.alive = Bool(p, "alive");
+		m.players.push_back(player);
+	}
+	for (const JsonValue& c : Arr(f, "candidates")) {
+		Ui::FollowInspectorCandidate cand;
+		cand.index = Int(c, "index", -1);
+		cand.handle = (uint64_t)Num(c, "handle");
+		cand.name = Str(c, "name");
+		cand.className = Str(c, "className");
+		cand.team = Str(c, "team");
+		cand.status = Str(c, "status");
+		cand.grenadeType = Str(c, "grenadeType");
+		cand.ownerName = Str(c, "ownerName");
+		cand.alive = Bool(c, "alive");
+		cand.isWeapon = Bool(c, "isWeapon");
+		cand.isBomb = Bool(c, "isBomb");
+		cand.dropped = Bool(c, "dropped");
+		cand.throwTick = Int(c, "throwTick", -1);
+		cand.tickDelta = Int(c, "tickDelta");
+		cand.distance = Num(c, "distance");
+		cand.distanceLevel = Int(c, "distanceLevel");
+		cand.attachPoints = Points(c, "attachPoints");
+		for (const JsonValue& a : Arr(c, "attachments")) cand.attachments.push_back(a.AsString());
+		m.candidates.push_back(cand);
+	}
+	m.eventStatus = Int(f, "eventStatus");
+	m.eventScanElapsedMs = (unsigned long long)Num(f, "eventScanElapsedMs");
+	m.eventError = Str(f, "eventError");
+	m.selectedEvent = Int(f, "selectedEvent", -1);
+	for (const JsonValue& e : Arr(f, "events")) {
+		Ui::FollowInspectorEvent ev;
+		ev.index = Int(e, "index", -1);
+		ev.tick = Int(e, "tick");
+		ev.type = Str(e, "type");
+		ev.item = Str(e, "item");
+		ev.ownerName = Str(e, "ownerName");
+		m.events.push_back(ev);
+	}
+}
+
+void FollowCamera_RunCommands(const std::vector<std::string>& commands) {
+	for (const std::string& command : commands) {
+		if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("follow.ui", "%s", command.c_str());
+		if (g_VEngineClient) g_VEngineClient->ClientCmd_Unrestricted(command.c_str());
+	}
+}
 
 void FollowCamera_Frame() { Filmmaker::FollowCameraRef().RunFrame(Ui_EditorOpen()); }
 

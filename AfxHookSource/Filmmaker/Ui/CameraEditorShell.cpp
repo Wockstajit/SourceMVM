@@ -12,7 +12,7 @@ namespace Ui {
 namespace {
 
 const char* kInspectorTabs[] = { "PATH CAMERA", "FOLLOW CAMERA", "SCENE KEYS" };
-const char* kInspectorEmpty[] = { "No cameras yet.", "No follow target.", "No scene keys." };
+const char* kSceneKeysEmpty = "No scene keys.";
 const char* kDockTabs[] = { "REGULAR TIMELINE", "TIMELINE" };
 
 } // namespace
@@ -22,7 +22,7 @@ float DockEditorHeight(DockTab dock) {
 }
 
 CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& fonts, float clientW, float clientH,
-	const DemoBarModel& demo, const PathInspectorModel& path, const TimelineDockModel& timeline) {
+	const DemoBarModel& demo, const PathInspectorModel& path, const FollowInspectorModel& follow, const TimelineDockModel& timeline) {
 	CameraEditorFrame frame;
 	frame.layout = CameraEditorLayout(clientW, clientH, state.inspectorW, DockEditorHeight(state.dock));
 	const WorkspaceLayout& l = frame.layout;
@@ -99,9 +99,13 @@ CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& font
 			const Rect pane = MakeRect(rail.x1 + Metrics::rail.gap * s, bodyTop, inspector.x1 - pad, bodyBottom);
 			DrawPathInspector(state.path, path, fonts, s, rail, pane, frame.pathActions);
 			DrawPathKeyStrip(draw, fonts, s, MakeRect(body.x, bottom - stripH, inspector.x1 - pad, bottom));
+		} else if (state.tab == InspectorTab::FollowCamera) {
+			// No key strip on this tab; the pinned bar sits over the rail and the card.
+			DrawFollowInspector(state.follow, follow, fonts, s, MakeRect(body.x, body.y, inspector.x1 - pad, inspector.y1 - 10 * s),
+				frame.followCommands);
 		} else {
 			draw->AddText(fonts.Get(FontRole::Body), fonts.Get(FontRole::Body)->FontSize,
-				ImVec2(body.x, body.y + 16 * s), ToU32(Theme::TextDim), kInspectorEmpty[(int)state.tab]);
+				ImVec2(body.x, body.y + 16 * s), ToU32(Theme::TextDim), kSceneKeysEmpty);
 		}
 	}
 	ImGui::End();
@@ -157,7 +161,9 @@ CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& font
 	ImGui::End();
 
 	DrawPathClearConfirm(state.path, fonts, s, clientW, clientH, frame.pathActions); // over everything
-	frame.modal = state.path.confirmClear;
+	if (state.tab == InspectorTab::FollowCamera) DrawFollowDropList(state.follow, fonts, s, clientW, clientH, frame.followCommands);
+	else state.follow.openDrop = -1;
+	frame.modal = state.path.confirmClear || state.follow.openDrop >= 0;
 	return frame;
 }
 

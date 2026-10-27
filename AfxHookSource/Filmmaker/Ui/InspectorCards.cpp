@@ -187,6 +187,20 @@ int CardHeader(CardColumn& c, const char* id, const char* title, const char* sum
 	return clicked;
 }
 
+float BeginCardScroll(const char* id, const Rect& r, float& width) {
+	ImGui::SetCursorScreenPos(ImVec2(r.x0, r.y0));
+	ImGui::BeginChild(id, ImVec2(r.W(), r.H()), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+	// One pixel in from the clip, so an outline on the right edge is not cut off.
+	width = r.W() - 1.0f - (ImGui::GetScrollMaxY() > 0 ? ImGui::GetStyle().ScrollbarSize : 0.0f);
+	return ImGui::GetCursorScreenPos().y;
+}
+
+void EndCardScroll(float x0, float contentBottom) {
+	ImGui::SetCursorScreenPos(ImVec2(x0, contentBottom));
+	ImGui::Dummy(ImVec2(1, 1)); // the content's height, for the scroll range
+	ImGui::EndChild();
+}
+
 void SubHead(CardColumn& c, const char* text) {
 	ImFont* font = c.Font(FontRole::Caption);
 	c.y += 10 * c.s;
@@ -194,13 +208,15 @@ void SubHead(CardColumn& c, const char* text) {
 	c.y += font->FontSize + 1 * c.s;
 }
 
-void Note(CardColumn& c, const char* text) {
+void Note(CardColumn& c, const char* text) { Note(c, text, Paint::Muted); }
+
+void Note(CardColumn& c, const char* text, Color color) {
 	if (!text || !*text) return;
 	ImFont* font = c.Font(FontRole::Note);
 	const float pad = Metrics::line.padH * c.s;
 	c.y += 6 * c.s;
 	const float wrap = c.W() - 2 * pad;
-	Text(ImGui::GetWindowDrawList(), font, ImVec2(c.x0 + pad, c.y), Paint::Muted, text, wrap);
+	Text(ImGui::GetWindowDrawList(), font, ImVec2(c.x0 + pad, c.y), color, text, wrap);
 	c.y += TextSize(font, text, wrap).y;
 }
 
@@ -363,6 +379,157 @@ int ActionRow(CardColumn& c, const char* id, const char* heading, const CardActi
 	return clicked;
 }
 
+int LabeledActionRow(CardColumn& c, const char* id, const char* label, const CardAction* buttons, int count) {
+	const float s = c.s;
+	ImFont* labelFont = c.Font(FontRole::RowLabel);
+	ImFont* buttonFont = c.Font(FontRole::Button);
+	const float pad = Metrics::line.padH * s, labelW = Metrics::line.label * s, colGap = Metrics::line.colGap * s;
+	const float btnH = 32 * s, gap = 6 * s;
+	c.y += (Metrics::line.gap + 3) * s;
+	const float x0 = c.x0 + pad + labelW + colGap, w = c.x1 - x0;
+	const float equalW = count > 0 ? (w - gap * (count - 1)) / count : 0;
+	bool fits = true;
+	for (int i = 0; i < count; ++i) fits = fits && CardButtonWidth(buttons[i].caption, buttonFont, s) <= equalW;
+	// The label is centred on the first row of buttons (edActionGroup's 32 px box).
+	const float labelH = TextSize(labelFont, label, labelW).y;
+	Text(ImGui::GetWindowDrawList(), labelFont, ImVec2(c.x0 + pad, c.y + (btnH - labelH) * 0.5f), Paint::Label, label, labelW);
+	int clicked = -1;
+	ImGui::PushID(id);
+	for (int i = 0; i < count; ++i) {
+		const Rect r = fits ? MakeRect(x0 + (equalW + gap) * i, c.y, x0 + (equalW + gap) * i + equalW, c.y + btnH)
+		                    : MakeRect(x0, c.y + (btnH + gap) * i, c.x1, c.y + (btnH + gap) * i + btnH);
+		ImGui::PushID(i);
+		if (CardButton("action", buttons[i].caption, r, buttons[i].kind, buttons[i].enabled, buttonFont)) clicked = i;
+		ImGui::PopID();
+	}
+	ImGui::PopID();
+	c.y += fits || count == 0 ? btnH : (btnH + gap) * count - gap;
+	return clicked;
+}
+
+bool SwitchRow(CardColumn& c, const char* id, const char* label, bool on, bool enabled) {
+	const float s = c.s;
+	ImFont* labelFont = c.Font(FontRole::RowLabel);
+	const float pad = Metrics::line.padH * s, labelW = Metrics::line.label * s;
+	c.y += Metrics::line.gap * s;
+	const float labelH = TextSize(labelFont, label, labelW).y + 8 * s;
+	const float rowH = labelH > Metrics::line.h * s ? labelH : Metrics::line.h * s;
+	const Rect row = MakeRect(c.x0, c.y, c.x1, c.y + rowH);
+	ImGui::PushID(id);
+	const Hit h = HitArea("row", row, enabled);
+	ImGui::PopID();
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	Box(draw, row, h.hovered || h.held ? Paint::TileHover : Paint::TileBg, Rgba(0, 0, 0, 0));
+	Text(draw, labelFont, ImVec2(row.x0 + pad, row.y0 + (rowH - (labelH - 8 * s)) * 0.5f),
+		!enabled ? Paint::Disabled : (on ? Paint::Value : Paint::Label), label, labelW);
+	// CS2's small square switch (swSm), right in the value column: a track and a knob that slides.
+	const float sw = Metrics::swSm.w * s, sh = Metrics::swSm.h * s, knob = Metrics::swSm.knob * s;
+	const Rect track = MakeRect(row.x1 - pad - sw, row.y0 + (rowH - sh) * 0.5f, row.x1 - pad, row.y0 + (rowH + sh) * 0.5f);
+	const Color edge = !enabled ? Faded(Paint::Outline, 0.45f) : (on ? Theme::Accent : Paint::Outline);
+	Box(draw, track, on && enabled ? Paint::SegSel : Rgba(0, 0, 0, 0), edge);
+	const float inset = (sh - knob) * 0.5f;
+	const float kx = on ? track.x1 - inset - knob : track.x0 + inset;
+	draw->AddRectFilled(ImVec2(kx, track.y0 + inset), ImVec2(kx + knob, track.y0 + inset + knob),
+		ToU32(!enabled ? Paint::Disabled : (on ? Theme::Accent : Paint::Muted)));
+	c.y += rowH;
+	return h.clicked;
+}
+
+DropClick DropRow(CardColumn& c, const char* id, const char* label, const char* shown, Color shownColor, const char* side,
+	bool enabled) {
+	const float s = c.s;
+	DropClick out;
+	ImFont* labelFont = c.Font(FontRole::RowLabel);
+	ImFont* valueFont = c.Font(FontRole::Value);
+	ImFont* buttonFont = c.Font(FontRole::Button);
+	const float pad = Metrics::line.padH * s, labelW = Metrics::line.label * s, colGap = Metrics::line.colGap * s;
+	const float fieldH = 30 * s;
+	c.y += (Metrics::line.gap + 1) * s;
+	const float sideW = side ? CardButtonWidth(side, buttonFont, s) : 0;
+	const float fieldX0 = c.x0 + pad + labelW + colGap, fieldX1 = c.x1 - (side ? sideW + 6 * s : 0);
+	// The field's text wraps rather than being cut (a long target line takes a second line).
+	const float caret = 14 * s, textW = fieldX1 - fieldX0 - 10 * s - caret;
+	const float textH = TextSize(valueFont, shown, textW).y;
+	const float rowH = textH + 10 * s > fieldH ? textH + 10 * s : fieldH;
+	const Rect field = MakeRect(fieldX0, c.y, fieldX1, c.y + rowH);
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const float labelH = TextSize(labelFont, label, labelW).y;
+	Text(draw, labelFont, ImVec2(c.x0 + pad, c.y + (rowH - labelH) * 0.5f), enabled ? Paint::Label : Paint::Disabled, label, labelW);
+	ImGui::PushID(id);
+	const Hit h = HitArea("field", field, enabled);
+	if (side && CardButton("side", side, MakeRect(c.x1 - sideW, c.y + (rowH - fieldH) * 0.5f, c.x1, c.y + (rowH + fieldH) * 0.5f),
+		ButtonKind::Normal, enabled, buttonFont))
+		out.side = true;
+	ImGui::PopID();
+	out.field = h.clicked;
+	out.fieldRect = field;
+	draw->AddRectFilled(ImVec2(field.x0, field.y0), ImVec2(field.x1, field.y1), ToU32(h.hovered || h.held ? Paint::TileHover : Paint::TileBg),
+		4 * s);
+	draw->AddRect(ImVec2(field.x0, field.y0), ImVec2(field.x1, field.y1), ToU32(enabled ? Paint::Outline : Faded(Paint::Outline, 0.45f)), 4 * s);
+	Text(draw, valueFont, ImVec2(field.x0 + 10 * s, field.y0 + (rowH - textH) * 0.5f), enabled ? shownColor : Paint::Disabled, shown, textW);
+	const float cx = field.x1 - 6 * s - caret * 0.5f, cy = field.y0 + rowH * 0.5f;
+	draw->AddTriangleFilled(ImVec2(cx - 4 * s, cy - 2 * s), ImVec2(cx + 4 * s, cy - 2 * s), ImVec2(cx, cy + 3 * s),
+		ToU32(enabled ? Paint::Label : Paint::Disabled));
+	c.y += rowH;
+	return out;
+}
+
+int DropList(const char* id, const Rect& field, const std::vector<DropOption>& options, const FontSet& fonts, float s,
+	float clientW, float clientH, bool& closed) {
+	closed = false;
+	ImFont* font = fonts.Get(FontRole::Value);
+	const float itemPad = 8 * s, gap = 2 * s, maxH = 340 * s;
+	const float w = field.W();
+	float contentH = 2 * gap;
+	for (const DropOption& o : options) contentH += TextSize(font, o.text.c_str(), w - 2 * itemPad).y + 2 * itemPad * 0.75f;
+	const float h = contentH < maxH ? contentH : maxH;
+	float y = field.y1 + 2 * s;
+	if (y + h > clientH - 2 && field.y0 - 2 * s - h >= 2) y = field.y0 - 2 * s - h; // no room below: above the field
+	const Rect menu = MakeRect(field.x0, y, field.x1, y + h);
+
+	// A click anywhere outside the list closes it, and is not passed on.
+	const std::string catchName = std::string(id) + "catch", menuName = std::string(id) + "menu";
+	BeginOverlay(catchName.c_str(), MakeRect(0, 0, clientW, clientH), Rgba(0, 0, 0, 0));
+	ImGui::SetCursorScreenPos(ImVec2(0, 0));
+	if (ImGui::InvisibleButton("##catch", ImVec2(clientW, clientH))) closed = true;
+	ImGui::End();
+
+	int picked = -1;
+	BeginOverlay(menuName.c_str(), menu, Rgba(0, 0, 0, 0));
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	// Opaque, so the rows under the list do not show through it.
+	draw->AddRectFilled(ImVec2(menu.x0, menu.y0), ImVec2(menu.x1, menu.y1), ToU32(Rgba(10, 10, 10)), 4 * s);
+	draw->AddRect(ImVec2(menu.x0, menu.y0), ImVec2(menu.x1, menu.y1), ToU32(Paint::Outline), 4 * s);
+	ImGui::SetCursorScreenPos(ImVec2(menu.x0, menu.y0));
+	ImGui::BeginChild("##list", ImVec2(menu.W(), menu.H()), ImGuiChildFlags_None,
+		ImGuiWindowFlags_NoBackground | (contentH <= maxH ? ImGuiWindowFlags_NoScrollbar : 0));
+	const float innerW = menu.W() - (ImGui::GetScrollMaxY() > 0 ? ImGui::GetStyle().ScrollbarSize : 0.0f);
+	ImDrawList* list = ImGui::GetWindowDrawList();
+	float iy = ImGui::GetCursorScreenPos().y + gap;
+	for (int i = 0; i < (int)options.size(); ++i) {
+		const DropOption& o = options[(size_t)i];
+		const float th = TextSize(font, o.text.c_str(), innerW - 2 * itemPad).y;
+		const Rect item = MakeRect(menu.x0 + gap, iy, menu.x0 + innerW - gap, iy + th + 2 * itemPad * 0.75f);
+		ImGui::PushID(i);
+		const Hit hit = HitArea("item", item, true);
+		ImGui::PopID();
+		if (o.selected || hit.hovered)
+			list->AddRectFilled(ImVec2(item.x0, item.y0), ImVec2(item.x1, item.y1), ToU32(o.selected ? Paint::SegSel : Paint::Hover), 3 * s);
+		Text(list, font, ImVec2(item.x0 + itemPad, item.y0 + itemPad * 0.75f), o.selected ? Theme::Accent : o.color, o.text.c_str(),
+			innerW - 2 * itemPad);
+		if (hit.clicked) {
+			picked = i;
+			closed = true;
+		}
+		iy = item.y1;
+	}
+	ImGui::SetCursorScreenPos(ImVec2(menu.x0, iy + gap));
+	ImGui::Dummy(ImVec2(1, 1));
+	ImGui::EndChild();
+	ImGui::End();
+	return picked;
+}
+
 void RailGroup(CardColumn& c, const char* name, bool first) {
 	ImFont* font = c.Font(FontRole::Label);
 	if (!first) c.y += Metrics::rail.groupGap * c.s;
@@ -370,16 +537,51 @@ void RailGroup(CardColumn& c, const char* name, bool first) {
 	c.y += font->FontSize + 3 * c.s;
 }
 
-bool RailRow(CardColumn& c, const char* id, const char* title, const char* summary, bool selected, Color accent) {
+namespace {
+
+// A spaced caption broken at spaces into lines no wider than width (a word wider than the line
+// keeps a line of its own: nothing is cut).
+std::vector<std::string> WrapSpaced(ImFont* font, const std::string& text, float spacing, float width) {
+	std::vector<std::string> lines;
+	std::string line;
+	size_t i = 0;
+	while (i < text.size()) {
+		size_t j = text.find(' ', i);
+		if (j == std::string::npos) j = text.size();
+		const std::string word = text.substr(i, j - i);
+		const std::string tried = line.empty() ? word : line + " " + word;
+		if (!line.empty() && SpacedTextWidth(font, tried.c_str(), spacing) > width) {
+			lines.push_back(line);
+			line = word;
+		} else {
+			line = tried;
+		}
+		i = j + 1;
+	}
+	if (!line.empty() || lines.empty()) lines.push_back(line);
+	return lines;
+}
+
+} // namespace
+
+bool RailRow(CardColumn& c, const char* id, const char* title, const char* summary, bool selected, Color accent,
+	const char* badge, Color badgeColor) {
 	const float s = c.s;
 	ImFont* titleFont = c.Font(FontRole::Title);
 	ImFont* sumFont = c.Font(FontRole::RailSum);
+	ImFont* badgeFont = c.Font(FontRole::Caption);
 	c.y += Metrics::rail.rowGap * s;
 	const float edge = Metrics::rail.edge * s;
-	const float textX = c.x0 + edge + 8 * s, textW = c.x1 - 6 * s - textX;
+	// CS2's badge is a column of its own at the row's right (18 px tall, 6 px side padding), so the
+	// title and summary wrap in what is left.
+	const bool hasBadge = badge && *badge;
+	const float badgeW = hasBadge ? SpacedTextWidth(badgeFont, badge, 0.6f * s) + 12 * s : 0;
+	const float textX = c.x0 + edge + 8 * s, textR = c.x1 - 6 * s - (hasBadge ? badgeW + 8 * s : 0), textW = textR - textX;
+	const std::vector<std::string> titleLines = WrapSpaced(titleFont, Upper(title), 0.8f * s, textW);
+	const float titleH = titleFont->FontSize * (float)titleLines.size();
 	const bool hasSummary = summary && *summary;
 	const float sumH = hasSummary ? TextSize(sumFont, summary, textW).y + 3 * s : 0;
-	const float contentH = titleFont->FontSize + sumH;
+	const float contentH = titleH + sumH;
 	const float minH = Metrics::rail.rowH * s;
 	const float rowH = contentH + 10 * s > minH ? contentH + 10 * s : minH;
 	const Rect row = MakeRect(c.x0, c.y, c.x1, c.y + rowH);
@@ -391,8 +593,18 @@ bool RailRow(CardColumn& c, const char* id, const char* title, const char* summa
 		selected ? Paint::RailSelBorder : Rgba(0, 0, 0, 0));
 	draw->AddRectFilled(ImVec2(row.x0, row.y0), ImVec2(row.x0 + edge, row.y1), ToU32(accent));
 	const float textY = row.y0 + (rowH - contentH) * 0.5f;
-	DrawSpacedText(draw, titleFont, ImVec2(textX, textY), ToU32(selected ? Paint::Value : Paint::Label), Upper(title).c_str(), 0.8f * s);
-	if (hasSummary) Text(draw, sumFont, ImVec2(textX, textY + titleFont->FontSize + 3 * s), Paint::Muted, summary, textW);
+	for (size_t i = 0; i < titleLines.size(); ++i)
+		DrawSpacedText(draw, titleFont, ImVec2(textX, textY + titleFont->FontSize * (float)i), ToU32(selected ? Paint::Value : Paint::Label),
+			titleLines[i].c_str(), 0.8f * s);
+	if (hasSummary) Text(draw, sumFont, ImVec2(textX, textY + titleH + 3 * s), Paint::Muted, summary, textW);
+	if (hasBadge) {
+		// Solid, with dark text, as CS2's 'live' badge.
+		const float bh = 18 * s;
+		const Rect box = MakeRect(row.x1 - 8 * s - badgeW, row.y0 + (rowH - bh) * 0.5f, row.x1 - 8 * s, row.y0 + (rowH + bh) * 0.5f);
+		draw->AddRectFilled(ImVec2(box.x0, box.y0), ImVec2(box.x1, box.y1), ToU32(badgeColor), 3 * s);
+		DrawSpacedText(draw, badgeFont, ImVec2(box.x0 + 6 * s, std::floor(box.y0 + (bh - badgeFont->FontSize) * 0.5f)),
+			ToU32(Rgba(0x0c, 0x0e, 0x12)), badge, 0.6f * s);
+	}
 	c.y += rowH;
 	return h.clicked;
 }

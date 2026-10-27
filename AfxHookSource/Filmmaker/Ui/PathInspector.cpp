@@ -62,22 +62,6 @@ float StepSpeed(float current, int direction) {
 	return kSpeedSteps[best < 0 ? 0 : (best > 3 ? 3 : best)];
 }
 
-// A child window over r that scrolls when what is drawn into it outgrows it. Returns the content's
-// top (scrolled) and the width left beside a showing scrollbar.
-float BeginScrollArea(const char* id, const Rect& r, float& width) {
-	ImGui::SetCursorScreenPos(ImVec2(r.x0, r.y0));
-	ImGui::BeginChild(id, ImVec2(r.W(), r.H()), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
-	// One pixel in from the clip, so an outline on the right edge is not cut off.
-	width = r.W() - 1.0f - (ImGui::GetScrollMaxY() > 0 ? ImGui::GetStyle().ScrollbarSize : 0.0f);
-	return ImGui::GetCursorScreenPos().y;
-}
-
-void EndScrollArea(float x0, float contentBottom) {
-	ImGui::SetCursorScreenPos(ImVec2(x0, contentBottom));
-	ImGui::Dummy(ImVec2(1, 1)); // the content's height, for the scroll range
-	ImGui::EndChild();
-}
-
 void Triangle(ImDrawList* draw, const Rect& r, bool left, Color color, float s) {
 	const float cx = (r.x0 + r.x1) * 0.5f, cy = (r.y0 + r.y1) * 0.5f, h = 6 * s, w = 5 * s;
 	if (left) draw->AddTriangleFilled(ImVec2(cx + w * 0.5f, cy - h), ImVec2(cx + w * 0.5f, cy + h), ImVec2(cx - w, cy), ToU32(color));
@@ -93,7 +77,7 @@ void Rail(const PathInspectorModel& m, const FontSet& fonts, float s, const Rect
 	c.fonts = &fonts;
 	c.s = s;
 	c.x0 = inner.x0;
-	c.y = BeginScrollArea("##pathrail", inner, width);
+	c.y = BeginCardScroll("##pathrail", inner, width);
 	c.x1 = inner.x0 + width;
 	RailGroup(c, "Keys", true);
 	const int count = (int)m.keys.size();
@@ -110,7 +94,7 @@ void Rail(const PathInspectorModel& m, const FontSet& fonts, float s, const Rect
 		ImGui::PopID();
 	}
 	if (RailAddButton(c, "addcamera", "+ Add camera")) Push(actions, PathInspectorAction::Kind::Add);
-	EndScrollArea(c.x0, c.y + 8 * s);
+	EndCardScroll(c.x0, c.y + 8 * s);
 }
 
 void Card(PathInspectorState& state, const PathInspectorModel& m, const FontSet& fonts, float s, const Rect& pane,
@@ -127,7 +111,7 @@ void Card(PathInspectorState& state, const PathInspectorModel& m, const FontSet&
 	c.fonts = &fonts;
 	c.s = s;
 	c.x0 = pane.x0;
-	c.y = BeginScrollArea("##pathpane", pane, width);
+	c.y = BeginCardScroll("##pathpane", pane, width);
 	c.x1 = pane.x0 + width;
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 
@@ -256,7 +240,7 @@ void Card(PathInspectorState& state, const PathInspectorModel& m, const FontSet&
 	Note(c, perSeg ? "Per-Segment: each key carries its own speed into the next one."
 	               : (constMode ? "Constant: one speed for the whole path." : "Manual: the path follows the demo timeline."));
 
-	EndScrollArea(c.x0, c.y + 10 * s);
+	EndCardScroll(c.x0, c.y + 10 * s);
 }
 
 } // namespace

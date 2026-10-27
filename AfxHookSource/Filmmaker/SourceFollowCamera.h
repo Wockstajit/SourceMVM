@@ -3,7 +3,18 @@
 // host (FollowCameraHost.h) from the entity adapter (SourceEngine.h) and runs it from the hook's
 // frame and view. The console surface is CS2's own: mirv_filmmaker follow ... Main thread.
 
+#include <string>
+#include <vector>
+
 namespace SourceFilmmaker {
+
+namespace Ui { struct FollowInspectorModel; }
+
+// The FOLLOW CAMERA tab's model: the follow camera's state JSON, the payload CS2's inspector reads.
+void FollowCamera_InspectorModel(Ui::FollowInspectorModel& out);
+// Runs the tab's commands (mirv_filmmaker follow ...) through the console, as CS2's inspector does,
+// and logs each to mvm_debug ("follow.ui").
+void FollowCamera_RunCommands(const std::vector<std::string>& commands);
 
 // Once a frame at render start, after the TIMELINE dock: the camera's frame while the Camera Editor
 // is open. Closing the editor stops Live, as in CS2.

@@ -6,6 +6,7 @@
 #include "SourceDemoBar.h"
 #include "SourceDirector.h"
 #include "SourceEngine.h"
+#include "SourceFollowCamera.h"
 #include "SourceMainThread.h"
 #include "SourceTimelineDock.h"
 
@@ -843,13 +844,16 @@ void Ui_MainThreadFrame() {
 	DemoBar_BuildModel(demo);
 	const PathInspectorModel path = BuildPathModel();
 	const TimelineDockModel timeline = BuildTimelineModel();
+	FollowInspectorModel follow; // read only while its tab shows: the state lists every player
+	if (g.editor.tab == InspectorTab::FollowCamera) FollowCamera_InspectorModel(follow);
 	ImGui::NewFrame();
-	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo, path, timeline);
+	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo, path, follow, timeline);
 	std::vector<MarkerCardAction> markerActions;
 	DrawMarkerPopups(frame.previewClient, w, h, markerActions);
 	ImGui::Render();
 	DemoBar_Apply(frame.demoActions); // CAM EDITOR is not on the bar inside the editor
 	ApplyPathActions(frame.pathActions);
+	FollowCamera_RunCommands(frame.followCommands);
 	ApplyTimelineActions(frame.timelineActions);
 	ApplyMarkerActions(markerActions);
 

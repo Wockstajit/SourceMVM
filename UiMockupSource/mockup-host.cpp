@@ -150,6 +150,7 @@ struct Host {
 	bool pathOn = false;        // the stand-in camera path is drawn
 	bool pathFreeze = false;    // in Freeze blue, else Live gold
 	PathInspectorModel path;    // the cameras the PATH CAMERA tab edits
+	FollowInspectorModel follow; // the follow camera the FOLLOW CAMERA tab edits
 	bool cardOpen = false;      // the CAMERA MARKER card (F)
 	bool autoSnap = false;
 	MarkerCardState card;
@@ -434,6 +435,124 @@ void DrawStandInPath(ImDrawList& list, const Rect& r, ImFont* digits) {
 	}
 }
 
+// ---- the FOLLOW CAMERA tab's stand-in -------------------------------------------------------
+// The players of the stand-in demo as the follow camera lists them (FollowCameraStateJson.cpp):
+// nearest first, with CS2's distance levels. The tab's commands (mirv_filmmaker follow ...) are
+// applied here as FollowCommand.cpp applies them to the follow camera.
+
+int DistanceLevel(double d) { return d >= 7000 ? 3 : (d >= 3500 ? 2 : (d >= 1800 ? 1 : 0)); }
+
+void SeedFollow() {
+	FollowInspectorModel& f = g.follow;
+	f = FollowInspectorModel();
+	f.typeName = "Player";
+	f.look = 0.10;
+	f.position = 0.04;
+	f.maxTurn = 720;
+	f.deathHold = 3;
+	f.autoDead = true;
+	f.holdLast = true;
+	f.attachment = "head";
+	struct P { int index; const char* name; const char* team; bool alive; double distance; };
+	const P players[] = {
+		{ 4, "Josh", "CT", true, 345 }, { 5, "Brad", "CT", true, 568 }, { 12, "Mike", "CT", true, 1210 },
+		{ 9, "Ted", "CT", true, 2150 }, { 3, "Chris", "T", true, 3246 }, { 6, "Greg", "T", true, 3466 },
+		{ 11, "Jason", "T", true, 3532 }, { 8, "Doug", "T", false, 3480 }, { 10, "Xander", "T", false, 7420 },
+	};
+	for (const P& p : players) {
+		FollowInspectorPlayer pl;
+		pl.index = p.index;
+		pl.name = p.name;
+		pl.team = p.team;
+		pl.alive = p.alive;
+		f.players.push_back(pl);
+		FollowInspectorCandidate c;
+		c.index = p.index;
+		c.handle = 0x100000u + (uint64_t)p.index;
+		c.name = p.name;
+		c.className = "CCSPlayer";
+		c.team = p.team;
+		c.alive = p.alive;
+		c.status = p.alive ? "alive" : "dead";
+		c.distance = p.distance;
+		c.distanceLevel = DistanceLevel(p.distance);
+		f.candidates.push_back(c);
+	}
+	f.eventStatus = 3;
+	f.eventError = "no demo event scan for this game yet";
+}
+
+const FollowInspectorCandidate* FollowCandidate(int index) {
+	for (const FollowInspectorCandidate& c : g.follow.candidates)
+		if (c.index == index) return &c;
+	return nullptr;
+}
+
+void FollowSelect(const FollowInspectorCandidate& c) {
+	FollowInspectorModel& f = g.follow;
+	f.targetIndex = c.index;
+	f.targetHandle = c.handle;
+	f.targetValid = true;
+	f.targetName = c.name;
+	f.targetDistance = c.distance;
+	f.distanceLevel = c.distanceLevel;
+	f.message = "Selected " + c.name + ".";
+}
+
+void ApplyFollowCommands(const std::vector<std::string>& commands) {
+	FollowInspectorModel& f = g.follow;
+	for (const std::string& line : commands) {
+		LogLine("follow.ui", line.c_str());
+		const std::string prefix = "mirv_filmmaker follow ";
+		if (line.compare(0, prefix.size(), prefix) != 0) continue;
+		const std::string rest = line.substr(prefix.size());
+		const size_t space = rest.find(' ');
+		const std::string verb = rest.substr(0, space), arg = space == std::string::npos ? "" : rest.substr(space + 1);
+		const double v = std::atof(arg.c_str());
+		if (verb == "mode") f.mode = arg == "attach" ? 1 : 0;
+		else if (verb == "place") { f.hasCamera = true; f.message = "Follow Camera placed @ tick " + std::to_string((int)g.demo.tick) + "."; }
+		else if (verb == "reposition") f.repositioning = !f.repositioning;
+		else if (verb == "clear") { f.hasCamera = false; f.enabled = false; f.targetIndex = -1; f.targetValid = false; f.targetName.clear(); f.message = "Follow Camera cleared."; }
+		else if (verb == "preview") {
+			if (f.mode == 0 && !f.hasCamera) f.message = "Place the camera first, or switch to Attach mode.";
+			else if (f.targetIndex < 0) f.message = "Select a target first.";
+			else f.enabled = true;
+		}
+		else if (verb == "stop") { f.enabled = false; f.message = "Tracking stopped: user."; }
+		else if (verb == "type") { f.type = arg == "grenade" ? 1 : (arg == "weapon" ? 2 : 0); f.typeName = f.type == 1 ? "Grenade" : (f.type == 2 ? "Weapon / C4" : "Player"); }
+		else if (verb == "select") { if (const FollowInspectorCandidate* c = FollowCandidate(std::atoi(arg.c_str()))) FollowSelect(*c); }
+		else if (verb == "nearest") {
+			for (const FollowInspectorCandidate& c : f.candidates)
+				if (c.alive) { FollowSelect(c); break; }
+		}
+		else if (verb == "goto") f.message = "Moved the camera to the selected target.";
+		else if (verb == "weaponplayer") { f.weaponPlayerIndex = f.weaponFilterPlayer = std::atoi(arg.c_str()); f.message = "Weapon target scoped to the selected player."; }
+		else if (verb == "weaponsource") f.weaponSource = arg == "held" ? 1 : (arg == "dropped" ? 2 : 0);
+		else if (verb == "offsetx") f.offset[0] = v;
+		else if (verb == "offsety") f.offset[1] = v;
+		else if (verb == "offsetz") f.offset[2] = v;
+		else if (verb == "rotpitch") f.rotation[0] = v;
+		else if (verb == "rotyaw") f.rotation[1] = v;
+		else if (verb == "rotroll") f.rotation[2] = v;
+		else if (verb == "fov") f.fov = v;
+		else if (verb == "look") f.look = v;
+		else if (verb == "position") f.position = v;
+		else if (verb == "prediction") f.prediction = v;
+		else if (verb == "deadzone") f.deadzone = v;
+		else if (verb == "maxturn") f.maxTurn = v;
+		else if (verb == "autodead") f.autoDead = v != 0;
+		else if (verb == "deathhold") f.deathHold = v;
+		else if (verb == "switchweapon") f.switchWeapon = v != 0;
+		else if (verb == "switchbomb") f.switchBomb = v != 0;
+		else if (verb == "hold") f.holdLast = v != 0;
+		else if (verb == "bone") f.attachment = arg;
+		else if (verb == "reset") {
+			if (arg == "framing") { f.offset[0] = f.offset[1] = f.offset[2] = 0; f.rotation[0] = f.rotation[1] = f.rotation[2] = 0; f.fov = 90; }
+			else { f.look = 0.10; f.position = 0.04; f.prediction = 0; f.deadzone = 0; f.maxTurn = 720; f.autoDead = true; f.deathHold = 3; f.switchWeapon = f.switchBomb = false; f.holdLast = true; }
+		}
+	}
+}
+
 // The PATH CAMERA tab's requests, applied to the stand-in list as SourceCameraPath.cpp applies them
 // to the game's path.
 void ApplyPathActions(const std::vector<PathInspectorAction>& actions) {
@@ -700,7 +819,7 @@ void Frame() {
 	DirectorFrame directorFrame;
 	if (g.editor.open) {
 		g.path.tick = (int)g.demo.tick;
-		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo, g.path, BuildTimelineModel());
+		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo, g.path, g.follow, BuildTimelineModel());
 	} else if (director) {
 		if (g.cadence.Ready((uint64_t)nowMs, 10, false)) BuildCards(g.cards);
 		// The backdrop is a CS:S spectator capture, so its spectator bars are where the game's are.
@@ -715,6 +834,7 @@ void Frame() {
 	ApplyDemoActions(frame.demoActions);
 	ApplyDemoActions(directorFrame.demoActions);
 	ApplyPathActions(frame.pathActions);
+	ApplyFollowCommands(frame.followCommands);
 	ApplyTimelineActions(frame.timelineActions);
 	g.bar = directorFrame.bar;
 	g.preview = frame.modal || g.cardOpen ? Rect() : frame.previewClient;
@@ -1091,6 +1211,7 @@ int main() {
 	}
 	emscripten_webgl_make_context_current(g.gl);
 	emscripten_set_canvas_element_size("#canvas", g.width, g.height);
+	SeedFollow();
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();

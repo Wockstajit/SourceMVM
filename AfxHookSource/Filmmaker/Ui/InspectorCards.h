@@ -7,12 +7,17 @@
 // where it was (Shift is fine control); a pick-one is a mode row, label then a segmented strip;
 // actions are a row of equal buttons under a small heading. A row that does not apply is
 // disabled in place, never hidden, so nothing moves under the pointer, and no caption is cut:
-// a strip that does not fit goes under its label, buttons that do not fit stack.
+// a strip that does not fit goes under its label, buttons that do not fit stack. Rows that belong
+// to another mode or target type are left out, as CS2 leaves them out: the switch that changes
+// them sits above them.
 //
 // Sizes are CS2's stage px (Metrics in UiTheme.h) times the caller's scale. Engine-free: the game
 // host and the browser mockup both draw with it, inside an ImGui window.
 
 #include "UiStyle.h"
+
+#include <string>
+#include <vector>
 
 namespace SourceFilmmaker {
 namespace Ui {
@@ -54,10 +59,17 @@ float CardButtonWidth(const char* caption, ImFont* font, float s);
 // index, -1 for none.
 int CardHeader(CardColumn& c, const char* id, const char* title, const char* summary, const CardAction* buttons, int count);
 
+// A child window over r that scrolls when what is drawn into it outgrows it. Returns the content's
+// top (scrolled) and sets width to what is left beside a showing scrollbar. End it with the
+// content's bottom, for the scroll range.
+float BeginCardScroll(const char* id, const Rect& r, float& width);
+void EndCardScroll(float x0, float contentBottom);
+
 // A small uppercase caption grouping the rows under it (edSubHead).
 void SubHead(CardColumn& c, const char* text);
-// A wrapped hint line (edNote).
+// A wrapped hint line (edNote), in the hint colour or the given one (CS2's yellow warning line).
 void Note(CardColumn& c, const char* text);
+void Note(CardColumn& c, const char* text, Color color);
 
 // A value row (edValueTile). began on the press, changed with the new value while dragging, ended
 // on the release; the caller turns them into one undoable edit.
@@ -77,11 +89,40 @@ int ModeRow(CardColumn& c, const char* id, const char* label, const char* const*
 
 // Equal buttons under a small heading (edEvenActions). Returns the clicked button, -1 for none.
 int ActionRow(CardColumn& c, const char* id, const char* heading, const CardAction* buttons, int count);
+// Equal buttons in the value column beside a label (edActionGroup). Returns the clicked button.
+int LabeledActionRow(CardColumn& c, const char* id, const char* label, const CardAction* buttons, int count);
+
+// A switch row (edSwitchTile): the label, and a small switch at the right. True when clicked.
+bool SwitchRow(CardColumn& c, const char* id, const char* label, bool on, bool enabled);
+
+// A dropdown row (CS2's folDropRow): the label, a field showing the current choice with a caret,
+// and an optional side button (side null for none). field holds the field's rect for its list.
+struct DropClick {
+	bool field = false;
+	bool side = false;
+	Rect fieldRect;
+};
+DropClick DropRow(CardColumn& c, const char* id, const char* label, const char* shown, Color shownColor, const char* side,
+	bool enabled);
+
+// One entry of a dropdown's list: its text, colour, and whether it is the current choice.
+struct DropOption {
+	std::string text;
+	Color color = Theme::Text;
+	bool selected = false;
+};
+// A dropdown's open list, over everything, under the field (above it when there is no room below),
+// scrolling past CS2's 340 px. Draw it after the panels. Returns the picked entry, -1 for none;
+// closed turns true when a pick or a click outside closed it.
+int DropList(const char* id, const Rect& field, const std::vector<DropOption>& options, const FontSet& fonts, float s,
+	float clientW, float clientH, bool& closed);
 
 // The rail: a group heading, a row per card or camera (title and wrapped summary, the accent on its
-// left edge), and the add button closing a list.
+// left edge, an optional badge such as CS2's green LIVE at the right of the title), and the add
+// button closing a list.
 void RailGroup(CardColumn& c, const char* name, bool first);
-bool RailRow(CardColumn& c, const char* id, const char* title, const char* summary, bool selected, Color accent);
+bool RailRow(CardColumn& c, const char* id, const char* title, const char* summary, bool selected, Color accent,
+	const char* badge = nullptr, Color badgeColor = Theme::Accent);
 bool RailAddButton(CardColumn& c, const char* id, const char* caption);
 
 // The key strip under the inspector's body: key caps and what they do, wrapping.
