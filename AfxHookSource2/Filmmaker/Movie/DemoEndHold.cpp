@@ -11,14 +11,17 @@ namespace Filmmaker {
 
 namespace {
 
-// How many ticks BEFORE the header's playback_ticks we freeze. The check runs once per rendered
-// frame, so at high demo timescale the tick can advance a chunk between checks (64 tps * 16x /
-// 60 fps ~= 17 ticks/frame); one second of headroom means we still catch it before the engine
-// processes the DEM_Stop record and disconnects to the main menu.
-constexpr int kEndMarginTicks = 64;
-// Demos shorter than this (a couple of seconds) aren't worth guarding -- and a tiny/garbage
+// How many ticks BEFORE the header's playback_ticks we freeze is the host's (EndHoldHost_EndMarginTicks).
+// The check runs once per rendered frame, so at high demo timescale the tick can advance a chunk
+// between checks (64 tps * 16x / 60 fps ~= 17 ticks/frame); the margin has to cover that so we still
+// catch it before the engine processes the DEM_Stop record and disconnects to the main menu. What a
+// frame plays is measured over the last kFrameWindow frames; a jump of more than kMaxFrameTicks is a
+// seek, not playback.
+constexpr int kFrameWindow = 32;
+constexpr int kMaxFrameTicks = 128;
+// Demos shorter than this (a few seconds) aren't worth guarding -- and a tiny/garbage
 // playback_ticks would put the hold point at/near tick 0 and freeze playback instantly.
-constexpr int kMinTotalTicks = 4 * kEndMarginTicks;
+constexpr int kMinTotalTicks = 256;
 // How long after the match-over phase starts the hold stops (~1 s at 64 tick). The phase starts the
 // instant the final round ends -- often the last kill itself -- and holding right there froze some
 // demos on the killing frame, with no time after it to film. CS2's line-up comes seconds later.
@@ -28,6 +31,10 @@ bool s_enabled = true;
 std::wstring s_path;        // demo the cached tick count belongs to
 int s_totalTicks = -1;      // header playback_ticks; -1 = unusable for this demo -> feature inert
 bool s_holding = false;     // paused at the end hold; playing on from here is paused again
+int s_lastTick = -1;        // last frame's tick, to measure what a frame plays
+int s_frameTicks[kFrameWindow] = {}; // the ticks each of the last frames played
+int s_frameSlot = 0;
+int s_marginTicks = -1;     // the margin in use; kept while holding, so the hold point stays put
 
 // ---- postgame phase ---------------------------------------------------------------------
 // CCSGameRules::m_gamePhase. The values are NOT guessed: the probe below logs every transition
@@ -49,8 +56,17 @@ void Reset() {
 	s_path.clear();
 	s_totalTicks = -1;
 	s_holding = false;
+	s_lastTick = -1;
+	for (int& t : s_frameTicks) t = 0;
+	s_marginTicks = -1;
 	s_lastPhase = -1;
 	s_postGameTick = -1;
+}
+
+int PeakFrameTicks() {
+	int peak = 0;
+	for (int t : s_frameTicks) if (t > peak) peak = t;
+	return peak;
 }
 
 } // namespace
@@ -89,9 +105,20 @@ void DemoEndHold_RunFrame() {
 	if (!EndHoldHost_Tick(tick))
 		return;
 
+	if (s_lastTick >= 0 && playing) {
+		const int played = tick - s_lastTick;
+		if (played >= 0 && played <= kMaxFrameTicks) {
+			s_frameTicks[s_frameSlot] = played;
+			s_frameSlot = (s_frameSlot + 1) % kFrameWindow;
+		}
+	}
+	s_lastTick = tick;
+	if (!s_holding || s_marginTicks < 0) s_marginTicks = EndHoldHost_EndMarginTicks(PeakFrameTicks());
+
 	int startTick = EndHoldHost_StartTick();
 	if (startTick < 0) startTick = 0;
-	int holdTick = startTick + s_totalTicks - kEndMarginTicks;
+	const int lastHoldTick = startTick + s_totalTicks - s_marginTicks;
+	int holdTick = lastHoldTick;
 
 	// POSTGAME. Read every frame (the phase is what moves, not the tick), logged only on change.
 	const int phase = EndHoldHost_GamePhase();
@@ -141,9 +168,9 @@ void DemoEndHold_RunFrame() {
 	EndHoldHost_Pause();
 	const bool again = s_holding;
 	s_holding = true;
-	MvmDebugLog_LinefAlways("endhold", "%s at tick %d (hold %d, postgame %d, last %d)",
+	MvmDebugLog_LinefAlways("endhold", "%s at tick %d (hold %d, postgame %d, last %d, margin %d, frame plays %d)",
 		again ? "playing past the hold: paused again" : "hold", tick, holdTick, s_postGameTick,
-		startTick + s_totalTicks - kEndMarginTicks);
+		lastHoldTick, s_marginTicks, PeakFrameTicks());
 	if (again) return;
 	const bool postgame = (s_postGameTick >= 0 && s_postGameTick + kPostGameTailTicks <= holdTick);
 	advancedfx::Message(postgame
@@ -162,11 +189,13 @@ void DemoEndHold_RunCommand(int argc, advancedfx::ICommandArgs* args, const char
 			"end-of-demo hold: %s\n"
 			"  postgame hold: %s (phase >= %d)   live gamePhase: %d%s\n"
 			"  postgame first seen at tick: %d\n"
-			"  demo playback_ticks: %d   holding: %s\n",
+			"  demo playback_ticks: %d   holding: %s\n"
+			"  margin: %d ticks before the last (a frame plays up to %d)\n",
 			s_enabled ? "on" : "off",
 			s_postGameEnabled ? "on" : "off", s_postGamePhase, phase,
 			phase < 0 ? "  (unreadable -- last-tick guard only)" : "",
-			s_postGameTick, s_totalTicks, s_holding ? "yes" : "no");
+			s_postGameTick, s_totalTicks, s_holding ? "yes" : "no",
+			s_marginTicks, PeakFrameTicks());
 		return;
 	}
 	if (0 == _stricmp(op, "postgame")) {

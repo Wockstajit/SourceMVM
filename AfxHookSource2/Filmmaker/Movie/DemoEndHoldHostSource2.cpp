@@ -66,6 +66,10 @@ int EndHoldHost_PlaybackTicks(const std::wstring& path) {
 	return hi.ok ? hi.playbackTicks : -1;
 }
 
+// A second at 64 tick, whatever the speed: at 16x and 60 fps a frame plays ~17 ticks, and CS2's
+// pause can take more than a frame to land.
+int EndHoldHost_EndMarginTicks(int) { return 64; }
+
 bool EndHoldHost_Tick(int& tick) { return g_MirvTime.GetCurrentDemoTick(tick); }
 
 int EndHoldHost_StartTick() {

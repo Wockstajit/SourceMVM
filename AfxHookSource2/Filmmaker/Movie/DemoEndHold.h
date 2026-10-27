@@ -12,9 +12,10 @@
 //     stops matching the preview rect, the game fills the screen and the timeline stops taking
 //     scrubs. There is nothing to film after this point, so playback stops before it.
 //
-//   LAST TICK -- the original guard, a second before the header's playback_ticks, for demos
-//     where the phase is never reported (POV demos, unfinished matches, a CS2 update moving
-//     the schema field). Also the backstop if you scrub past the postgame hold by hand.
+//   LAST TICK -- the original guard, just before the header's playback_ticks (a second in CS2, a
+//     few frames' worth of ticks in CS:S: EndHoldHost_EndMarginTicks), for demos where the phase
+//     is never reported (POV demos, unfinished matches, a CS2 update moving the schema field).
+//     Also the backstop if you scrub past the postgame hold by hand.
 //
 // Either way the demo stays there: playing on from the hold (play, a camera path) is paused again,
 // so it never runs into the stop record and disconnects to the main menu, and it never jumps back

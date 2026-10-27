@@ -1,7 +1,7 @@
 // CS:S's answers to the end-of-demo hold (AfxHookSource2/Filmmaker/Movie/DemoEndHold.cpp, the rules
 // shared with CS2): the demo's state and length from the engine's demo player (SourceEngine.h
 // Demo_State, whose tick counts from the demo's start, as the demo bar reads it), its file from the
-// demo index. CS:S has no game phase to read and no end-of-match line-up, so the hold stops a second
+// demo index. CS:S has no game phase to read and no end-of-match line-up, so the hold stops just
 // before the last tick, before the engine reaches the demo's stop record and drops to the menu.
 
 #include "stdafx.h"
@@ -38,6 +38,11 @@ int EndHoldHost_PlaybackTicks(const std::wstring&) {
 	const int ticks = (std::max)(SourceFilmmaker::Demo_State().totalTicks, fromFile);
 	return ticks > 0 ? ticks : -1;
 }
+
+// The pause is queued before the next frame reads the demo, so a frame's worth of ticks would do;
+// three cover a hitch. At normal speed that stops a few ticks before the end, not a second. Never
+// under 8 ticks, never over CS2's second.
+int EndHoldHost_EndMarginTicks(int ticksPerFrame) { return (std::min)((std::max)(3 * ticksPerFrame, 8), 64); }
 
 bool EndHoldHost_Tick(int& tick) {
 	const SourceFilmmaker::DemoState demo = SourceFilmmaker::Demo_State();

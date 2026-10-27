@@ -2572,6 +2572,9 @@ HWND WINAPI new_SetCapture(__in HWND hWnd)
 {
 	HWND result;
 
+	if (SourceFilmmaker::Ui_OnSetCapture(hWnd, result)) // SOURCE:MVM
+		return result;
+
 	if (AfxHookSource::Gui::OnSetCapture(hWnd, result))
 		return result;
 

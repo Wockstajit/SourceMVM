@@ -261,6 +261,18 @@ test("the end-of-demo hold stays put, a second after the final round, and never 
   assert.match(host, /void EndHoldHost_Pause\(\) \{ DemoCmd\("demo_pause"\); \}/);
 });
 
+// 2026-10-27: CS:S held a second before the end, CS2's margin for 16x, which cut the last second of
+// every CS:S demo. The margin is the host's: CS2 keeps its second, CS:S covers what a frame plays.
+test("the end-of-demo hold's margin is the game's: a second in CS2, a few frames in CS:S", () => {
+  const hold = read("AfxHookSource2", "Filmmaker", "Movie", "DemoEndHold.cpp");
+  assert.match(hold, /if \(!s_holding \|\| s_marginTicks < 0\) s_marginTicks = EndHoldHost_EndMarginTicks\(PeakFrameTicks\(\)\);/,
+    "the margin follows what a frame plays, and stays put while holding");
+  const cs2 = read("AfxHookSource2", "Filmmaker", "Movie", "DemoEndHoldHostSource2.cpp");
+  assert.match(cs2, /int EndHoldHost_EndMarginTicks\(int\) \{ return 64; \}/);
+  const css = read("AfxHookSource", "Filmmaker", "SourceDemoEndHold.cpp");
+  assert.match(css, /return \(std::min\)\(\(std::max\)\(3 \* ticksPerFrame, 8\), 64\);/);
+});
+
 // 2026-10-17 (mvm_debug: clickMode=0 free=1): a click while a camera path played, or on Clippy,
 // called MouseCapture_SetFree(true), which also switches click-to-capture off for good -- after
 // that no click gave CS2 the mouse back and looking around was dead until a restart.

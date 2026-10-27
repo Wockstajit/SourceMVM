@@ -31,6 +31,7 @@
 #include <AfxHookSource2/Filmmaker/Platform/JsonParser.h>
 #include <AfxHookSource2/Filmmaker/Panorama/HudReadoutCadenceMath.h>
 #include <Shared/AfxConsole.h>
+#include <Shared/AfxDetours.h>
 
 #include <imgui.h>
 
@@ -119,6 +120,15 @@ std::atomic<bool> g_demos{ false };    // the demos browser is open
 std::atomic<bool> g_menu{ false };     // the main menu shows the DEMOS button
 std::atomic<bool> g_uiOwnsMouse{ false };
 std::atomic<bool> g_markerMenu{ false }; // the CAMERA MARKER card is up: every press and notch is the card's
+// Click-to-capture, as CS2's MouseCapture: the game may not hide, move or capture the cursor until a
+// click in its window reaches it (or a look or GAME mode hands it the mouse), and losing focus frees
+// it again. Launching, a demo opening and Alt+Tab never take the cursor from another window.
+std::atomic<bool> g_mouseFree{ true };
+// What the filters kept from the game, for health.
+std::atomic<unsigned> g_heldMoves{ 0 };
+std::atomic<unsigned> g_heldHides{ 0 };
+std::atomic<unsigned> g_heldCaptures{ 0 };
+std::string g_cursorHookModules; // the modules whose cursor calls the hooks below see
 
 // Hand-off to the render thread.
 std::mutex g_frameMutex;
@@ -164,6 +174,39 @@ void ShowArrow(bool show) {
 	}
 }
 
+// The game may not have the mouse: the UI has it, or nothing clicked into the game since it got focus.
+bool GameMouseHeld() { return g_uiOwnsMouse.load() || g_mouseFree.load(); }
+
+bool GameInFront() { return g.window && GetForegroundWindow() == g.window; }
+
+// At most 8 cursor lines a second in the debug log: the game sets the cursor every frame.
+bool CursorLogSlot() {
+	if (!Filmmaker::MvmDebugLog_Active()) return false;
+	static int64_t second = 0;
+	static int lines = 0;
+	const int64_t now = NowMs();
+	if (now - second >= 1000) {
+		second = now;
+		lines = 0;
+	}
+	return ++lines <= 8;
+}
+
+// The UI taking the mouse frees it (the game waits for a click again once the UI lets go); a click in
+// the game, a look or GAME mode give it to the game.
+void SetMouseFree(bool free, const char* reason) {
+	if (g_mouseFree.exchange(free) == free) return;
+	if (!free && g.haveGameCursor && !g_uiOwnsMouse.load() && g.window && g_VEngineClient && g_VEngineClient->IsInGame()) {
+		// The game recentred the cursor for mouse look while it waited: put it there, so the first
+		// frame it reads the cursor again measures no movement and the view does not jump.
+		POINT p = g.gameCursor;
+		SetCursorPos(p.x, p.y);
+	}
+	if (!free) g.haveGameCursor = false;
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("input.capture", "%s free=%d front=%d", reason, free ? 1 : 0, GameInFront() ? 1 : 0);
+}
+
 // Applies the cursor side of a mode change: the arrow is visible while the UI has the mouse, the
 // game's own capture is left alone otherwise, and a finished look puts the cursor back where the
 // right press started.
@@ -172,6 +215,7 @@ void ApplyMode(Mode before, const char* reason) {
 	if (now == before) return;
 	const bool uiOwns = g_open.load() && now == Mode::Ui;
 	g_uiOwnsMouse.store(uiOwns);
+	if (g_open.load()) SetMouseFree(uiOwns, uiOwns ? "workspace ui" : "workspace game");
 	g.haveGameCursor = false;
 	ShowArrow(uiOwns);
 	if (before == Mode::Look && now == Mode::Ui && g.window) {
@@ -199,6 +243,7 @@ void Open(Workspace ws, const char* reason) {
 	g.editor.open = true;
 	g.mouse.Reset();
 	g_uiOwnsMouse.store(true);
+	SetMouseFree(true, "workspace open");
 	ShowArrow(true);
 	if (Filmmaker::MvmDebugLog_Active())
 		Filmmaker::MvmDebugLog_Linef("ui.editor", "open workspace=%s reason=%s", WorkspaceName(ws), reason);
@@ -227,6 +272,7 @@ void OpenDemos(const char* reason) {
 	Close("demos browser");
 	g_demos.store(true);
 	g_uiOwnsMouse.store(true);
+	SetMouseFree(true, "demos browser");
 	g.haveGameCursor = false;
 	ShowArrow(true);
 	Demos_Command("refresh");
@@ -331,6 +377,7 @@ void ApplyDirectorMode(DirectorMode before, const char* reason) {
 	if (now == before) return;
 	const bool uiOwns = g_director.load() && now == DirectorMode::Free;
 	g_uiOwnsMouse.store(uiOwns);
+	if (g_director.load()) SetMouseFree(uiOwns, uiOwns ? "director cursor" : "director look");
 	g.haveGameCursor = false;
 	ShowArrow(uiOwns);
 	if (before == DirectorMode::Look && now == DirectorMode::Free && g.window) {
@@ -347,6 +394,7 @@ void EnterDirector() {
 	g.directorMouse.Reset();
 	g.wheelRemainder = 0;
 	g_uiOwnsMouse.store(true);
+	SetMouseFree(true, "director");
 	g.haveGameCursor = false;
 	ShowArrow(true);
 	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("director", "on");
@@ -929,10 +977,7 @@ void ApplyPathActions(const std::vector<PathInspectorAction>& actions) {
 	}
 }
 
-} // namespace
-
-bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-	if (!g.window) g.window = hwnd;
+bool UiWindowMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 	if (g_demos.load()) return OnDemosMessage(msg, wParam, lParam);
 	if (!g_open.load()) {
 		if (g_menu.load() && OnMenuButtonMessage(msg, lParam)) return true;
@@ -1020,6 +1065,83 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	default:
 		return false;
 	}
+}
+
+// Cursor calls from modules main.cpp's import hooks leave out: vguimatsurface and client.dll hide the
+// in-game cursor with SetCursor and capture it with SetCapture, the engine counts it with ShowCursor.
+HCURSOR WINAPI HookSetCursor(HCURSOR cursor) {
+	HCURSOR result;
+	return Ui_OnSetCursor(cursor, result) ? result : SetCursor(cursor);
+}
+
+HWND WINAPI HookSetCapture(HWND window) {
+	HWND result;
+	return Ui_OnSetCapture(window, result) ? result : SetCapture(window);
+}
+
+int WINAPI HookShowCursor(BOOL show) {
+	const int count = ShowCursor(show);
+	if (CursorLogSlot())
+		Filmmaker::MvmDebugLog_Linef("ui.cursor", "ShowCursor %d -> %d uiOwns=%d free=%d front=%d", show ? 1 : 0, count,
+			g_uiOwnsMouse.load() ? 1 : 0, g_mouseFree.load() ? 1 : 0, GameInFront() ? 1 : 0);
+	return count;
+}
+
+CAfxImportFuncHook<HCURSOR(WINAPI*)(HCURSOR)> g_surfaceSetCursor("SetCursor", &HookSetCursor);
+CAfxImportFuncHook<HWND(WINAPI*)(HWND)> g_surfaceSetCapture("SetCapture", &HookSetCapture);
+CAfxImportDllHook g_surfaceUser32("USER32.dll", CAfxImportDllHooks({ &g_surfaceSetCursor, &g_surfaceSetCapture }));
+CAfxImportsHook g_surfaceImports(CAfxImportsHooks({ &g_surfaceUser32 }));
+
+CAfxImportFuncHook<HCURSOR(WINAPI*)(HCURSOR)> g_clientSetCursor("SetCursor", &HookSetCursor);
+CAfxImportDllHook g_clientUser32("USER32.dll", CAfxImportDllHooks({ &g_clientSetCursor }));
+CAfxImportsHook g_clientImports(CAfxImportsHooks({ &g_clientUser32 }));
+
+CAfxImportFuncHook<int(WINAPI*)(BOOL)> g_engineShowCursor("ShowCursor", &HookShowCursor);
+CAfxImportDllHook g_engineUser32("USER32.dll", CAfxImportDllHooks({ &g_engineShowCursor }));
+CAfxImportsHook g_engineImports(CAfxImportsHooks({ &g_engineUser32 }));
+
+void ApplyCursorHooks(const char* module, CAfxImportsHook& hook) {
+	HMODULE handle = GetModuleHandleA(module);
+	if (!handle || !hook.Apply(handle)) {
+		advancedfx::Warning("SOURCE:MVM: %s's cursor calls are not hooked; the game may hide the cursor under the UI.\n", module);
+		return;
+	}
+	if (!g_cursorHookModules.empty()) g_cursorHookModules += ", ";
+	g_cursorHookModules += module;
+}
+
+} // namespace
+
+bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+	if (!g.window) g.window = hwnd;
+	const bool used = UiWindowMessage(msg, wParam, lParam);
+	switch (msg) {
+	case WM_ACTIVATE:
+		if (LOWORD(wParam) == WA_INACTIVE) SetMouseFree(true, "deactivate");
+		break;
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONDBLCLK:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONDBLCLK:
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONDBLCLK:
+	case WM_XBUTTONDOWN:
+	case WM_XBUTTONDBLCLK:
+		if (!used) SetMouseFree(false, "game click"); // a press the UI did not take is the game's
+		break;
+	default:
+		break;
+	}
+	return used;
+}
+
+void Ui_InstallCursorHooks() {
+	static bool installed = false;
+	if (installed) return;
+	installed = true;
+	ApplyCursorHooks("vguimatsurface.dll", g_surfaceImports);
+	ApplyCursorHooks("client.dll", g_clientImports);
+	ApplyCursorHooks("engine.dll", g_engineImports);
 }
 
 void Ui_MainThreadFrame() {
@@ -1137,30 +1259,52 @@ void Ui_RenderThreadPresent(IDirect3DDevice9* device) {
 void Ui_DeviceLost() { g_renderer.ReleaseDeviceObjects(); }
 
 bool Ui_OnSetCursorPos(int x, int y) {
-	if (!g_uiOwnsMouse.load()) return false;
-	// The game recentres the cursor for mouse look; while the UI has the mouse it may not move it.
+	const bool held = GameMouseHeld();
+	if (CursorLogSlot())
+		Filmmaker::MvmDebugLog_Linef("ui.cursor", "SetCursorPos %d %d %s uiOwns=%d free=%d front=%d", x, y, held ? "kept" : "passed",
+			g_uiOwnsMouse.load() ? 1 : 0, g_mouseFree.load() ? 1 : 0, GameInFront() ? 1 : 0);
+	if (!held) return false;
+	// The game recentres the cursor for mouse look; while it may not have the mouse it may not move it.
 	g.gameCursor.x = x;
 	g.gameCursor.y = y;
 	g.haveGameCursor = true;
+	g_heldMoves.fetch_add(1);
 	return true;
 }
 
 bool Ui_OnGetCursorPos(LPPOINT point) {
-	if (!g_uiOwnsMouse.load() || !g.haveGameCursor || !point) return false;
+	if (!GameMouseHeld() || !g.haveGameCursor || !point) return false;
 	// Where the game last put the cursor, so it measures no movement.
 	*point = g.gameCursor;
 	return true;
 }
 
 bool Ui_OnSetCursor(HCURSOR cursor, HCURSOR& result) {
-	(void)cursor;
-	if (!g_uiOwnsMouse.load()) return false;
+	// The UI's arrow while it has the mouse. Until the game is clicked into it may change the cursor's
+	// shape but not hide it.
+	const bool held = g_uiOwnsMouse.load() || (!cursor && g_mouseFree.load());
+	if (!cursor && CursorLogSlot())
+		Filmmaker::MvmDebugLog_Linef("ui.cursor", "SetCursor hide %s uiOwns=%d free=%d front=%d", held ? "kept" : "passed",
+			g_uiOwnsMouse.load() ? 1 : 0, g_mouseFree.load() ? 1 : 0, GameInFront() ? 1 : 0);
+	if (!held) return false;
+	if (!cursor) g_heldHides.fetch_add(1);
 	result = SetCursor(LoadCursor(nullptr, IDC_ARROW));
 	return true;
 }
 
+bool Ui_OnSetCapture(HWND window, HWND& result) {
+	(void)window;
+	if (!GameMouseHeld()) return false;
+	if (CursorLogSlot())
+		Filmmaker::MvmDebugLog_Linef("ui.cursor", "SetCapture kept uiOwns=%d free=%d front=%d", g_uiOwnsMouse.load() ? 1 : 0,
+			g_mouseFree.load() ? 1 : 0, GameInFront() ? 1 : 0);
+	g_heldCaptures.fetch_add(1);
+	result = GetCapture();
+	return true;
+}
+
 void Ui_FilterRawInput(UINT result, UINT command, LPVOID data) {
-	if (!g_uiOwnsMouse.load() || command != RID_INPUT || !data || result == (UINT)-1 || result < sizeof(RAWINPUTHEADER))
+	if (!GameMouseHeld() || command != RID_INPUT || !data || result == (UINT)-1 || result < sizeof(RAWINPUTHEADER))
 		return;
 	RAWINPUT* input = (RAWINPUT*)data;
 	if (input->header.dwType != RIM_TYPEMOUSE) return;
@@ -1235,6 +1379,14 @@ void Ui_ViewRendered(const double origin[3], const double angles[3], double fov)
 
 void Ui_PrintOverlayHealth() {
 	advancedfx::Message("  path overlay: %u frames built, %d vertices last frame\n", g.worldFrames, g.worldVertices);
+}
+
+void Ui_PrintMouseHealth() {
+	advancedfx::Message("  mouse:      %s, %s; kept from the game: %u moves, %u hides, %u captures; hooked: %s\n",
+		g_mouseFree.load() ? "free until a click in the game" : "the game was clicked into",
+		g_uiOwnsMouse.load() ? "the UI has it" : (GameMouseHeld() ? "nobody has it" : "the game has it"),
+		g_heldMoves.load(), g_heldHides.load(), g_heldCaptures.load(),
+		g_cursorHookModules.empty() ? "none" : g_cursorHookModules.c_str());
 }
 
 bool Ui_SuspendMirvInput() {

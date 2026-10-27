@@ -48,12 +48,19 @@ void Ui_PrintOverlayHealth();
 void Ui_RenderThreadPresent(IDirect3DDevice9* device);
 void Ui_DeviceLost();
 
-// Cursor and input filters. Each returns true when it decided the call's outcome.
+// Cursor and input filters. Each returns true when it decided the call's outcome. Besides the UI's
+// own rules they follow CS2's click-to-capture (MouseCapture.h): the game may not hide, move or
+// capture the cursor until a click in its window reaches it, and losing focus frees it again.
 bool Ui_OnSetCursorPos(int x, int y);
 bool Ui_OnGetCursorPos(LPPOINT point);
 bool Ui_OnSetCursor(HCURSOR cursor, HCURSOR& result);
-// Zeroes the mouse part of a raw input packet while the UI owns the mouse.
+bool Ui_OnSetCapture(HWND window, HWND& result);
+// Zeroes the mouse part of a raw input packet while the game may not have the mouse.
 void Ui_FilterRawInput(UINT result, UINT command, LPVOID data);
+// Routes the cursor calls of the modules main.cpp's import hooks leave out (vguimatsurface, client,
+// the engine's ShowCursor) through the filters above. Once, after the client loaded.
+void Ui_InstallCursorHooks();
+void Ui_PrintMouseHealth();
 
 // mirv_filmmaker editor [on|off|toggle|state]
 void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args);

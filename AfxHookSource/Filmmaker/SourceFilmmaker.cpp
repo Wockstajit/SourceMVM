@@ -137,6 +137,7 @@ void PrintHealth() {
 	ViewModel_PrintHealth();
 	Settings_PrintHealth();
 	Demos_PrintHealth();
+	Ui_PrintMouseHealth();
 	if (!g_VEngineClient->IsInGame()) return;
 	Director_PrintHealth();
 	CameraPath_PrintHealth();
@@ -220,6 +221,7 @@ void Init() {
 	DemoDeletions_Init();
 	Settings_Load(); // before anything can change a module: the defaults are taken first
 	Demos_Init();
+	Ui_InstallCursorHooks();
 }
 
 void Shutdown() {

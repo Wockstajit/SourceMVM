@@ -16,6 +16,10 @@ bool EndHoldHost_DemoState(bool& playing, bool& paused);
 std::wstring EndHoldHost_DemoPath();
 // How many ticks the demo plays (its header's playback ticks), -1 when unknown. Asked once a demo.
 int EndHoldHost_PlaybackTicks(const std::wstring& path);
+// How many ticks before the last one the hold stops. The hold is checked once a frame and the pause
+// lands a frame later, so the margin has to cover what a frame plays: ticksPerFrame is the most any
+// of the last frames played.
+int EndHoldHost_EndMarginTicks(int ticksPerFrame);
 // The demo's current tick, and the tick its playback starts at.
 bool EndHoldHost_Tick(int& tick);
 int EndHoldHost_StartTick();

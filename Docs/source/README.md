@@ -263,17 +263,24 @@ Seeking backwards restarts the demo, waits until it plays again, and then seeks 
 
 ### End of demo hold
 
-As in CS2, playback stops a second before a demo runs out, so it never reaches the stop record and
+As in CS2, playback stops just before a demo runs out, so it never reaches the stop record and
 drops to the main menu (`AfxHookSource2/Filmmaker/Movie/DemoEndHold.cpp`, shared with CS2). What it
 asks the game goes through `DemoEndHoldHost.h`, which `Filmmaker/SourceDemoEndHold.cpp` answers: the
-demo's state, tick and length from the engine's demo player, its file from the demo index. The hold
-sits 64 ticks before the last tick. Pressing play there pauses again, and a seek back plays on and
-re-arms it. CS:S has no end-of-match line-up and no game phase to read, so CS2's earlier postgame
-hold never fires. `mirv_filmmaker endhold on|off|toggle|status` controls it.
+demo's state, tick and length from the engine's demo player, its file from the demo index. Pressing
+play at the hold pauses again, and a seek back plays on and re-arms it. CS:S has no end-of-match
+line-up and no game phase to read, so CS2's earlier postgame hold never fires.
+`mirv_filmmaker endhold on|off|toggle|status` controls it, and `status` prints the margin.
 
-Checked in CS:S on 2026-10-27 in the SourceTV test demo (4410 ticks): played from tick 4150, it held
-at 4346 with the demo still loaded; play from there paused again at once, and after a seek back to
-3900 the demo played on and held at 4346 again.
+How far before the last tick it stops is the game's choice (`EndHoldHost_EndMarginTicks`). The hold
+is checked once a frame, so the margin has to cover what one frame plays, measured over the last 32
+frames. CS2 keeps a second (64 ticks), sized for 16x. CS:S queues its `demo_pause` before the next
+frame reads the demo, so it stops three frames' worth of ticks before the end: never under 8 ticks
+and never over 64. At normal speed that is 8 ticks, about a tenth of a second.
+
+Checked in CS:S on 2026-10-27 in the SourceTV test demo (4410 ticks): at normal speed it held at
+4402 (it used to hold at 4346, a second early). At 16x a frame played up to 5 ticks, the margin
+grew to 15, it held at 4396, and play from there paused again by 4401. The demo stayed loaded both
+times.
 
 ### Bodies made during a seek
 
@@ -1163,9 +1170,26 @@ The mouse follows CS2's workspace rules (`UiClickMath.h`, shared with CS2):
 - While a dialog is up (Clear all) the preview takes no clicks.
 - ESC closes the workspace.
 
+Outside the UI's own rules the hook follows CS2's click-to-capture (`MouseCapture.h`). The game may
+not hide, move or capture the cursor until a click in its window reaches the game, or a look or
+GAME mode hands it the mouse. Losing focus frees it again, and so does the UI taking the mouse. So
+a launch, a demo opening or Alt+Tab never take the cursor from another window. The game hides its
+cursor every frame through `vguimatsurface.dll`, `client.dll` and the engine's `ShowCursor`, which
+`main.cpp`'s import hooks leave out; `Ui_InstallCursorHooks` routes those through the same filters
+at startup. `mirv_filmmaker health` prints a `mouse:` line: whether the game waits for a click, who
+has the mouse, what was kept from the game, and which modules are hooked.
+
+Checked in CS:S on 2026-10-27: before this, a demo starting from the main menu blanked the cursor
+over the game for 10 to 30 ms at a time, six times in nine seconds with the game in front and once
+with another window in front (the engine hides the cursor as the demo starts, before the director
+shows it again). After it, the cursor stayed visible in all 1,146 samples of the same two runs. A
+right-drag look, G in the Camera Editor and a click in the main menu each gave the game the mouse,
+and putting another window in front freed it again (`input.capture` in the log).
+
 `mvm_debug` logs every button the UI sees (`ui.input`), mode changes (`ui.mouse`), hover changes
-(`ui.hover`), the font build (`ui.fonts`), open and close (`ui.editor`), and the demos browser
-(`ui.demos`).
+(`ui.hover`), the font build (`ui.fonts`), open and close (`ui.editor`), the demos browser
+(`ui.demos`), who may have the mouse (`input.capture`), and the cursor calls the filters kept or
+passed, at most 8 a second (`ui.cursor`).
 
 `Automation\capture\send-click.ps1 -Process cstrike_win64 -Button Left|Right -HoldMs <ms>` drives
 the UI with real window messages. Post from a per-monitor DPI-aware thread, as that script does:
