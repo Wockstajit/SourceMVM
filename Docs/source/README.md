@@ -571,11 +571,21 @@ CS2's follow camera runs in CS:S from the same code: its behaviour, target selec
 console command (`AfxHookSource2/Filmmaker/Movie/Follow*.cpp`, `Filmmaker/FollowCommand.cpp`) compile
 into both hooks. What it asks the game goes through `FollowCameraHost.h`, which
 `Filmmaker/SourceFollowCamera.cpp` answers from the [engine adapter](#engine-adapter). Step 11 brings it
-over in parts; so far, Lock-on on players, from the console and the FOLLOW CAMERA tab.
+over in parts; so far, Lock-on on players, weapons and the C4, from the console and the FOLLOW
+CAMERA tab.
 
 - Targets are the players on a team, read with `Entities_Snapshot`. A living player is followed at its
   eyes: its origin raised 64 units, 47 while ducking. A dead one is followed at its `CCSRagdoll`. CS:S
   has no skeleton reads yet, so a running player's head leans a few units ahead of the aim point.
+- Weapons and the C4 are the profile's weapon and bomb classes, named as CS:S names them (AK-47,
+  M4A1, MP5 Navy...). A carried weapon or C4 is its owner's (`m_hOwner`); the planted bomb,
+  `CPlantedC4`, is nobody's, though it links to its planter. A weapon is followed at its origin: where
+  it lies, or at its owner's hips while carried, where CS:S puts a carried weapon (the owner's origin
+  raised 31 units). As in CS2, a weapon picked from a player's hands follows whatever that player
+  holds, through a switch, and a player's death can hand the camera to the weapon or C4 they dropped.
+- The Events list is the [demo index](#demo-index)'s: each death (CS:S records no weapon drop, and a
+  death is where the victim's weapons fall), item pickups, and the C4's drops, pickups and plant,
+  named by the player's name. Go To Event seeks 40 ticks before it, as the demo bar seeks.
 - Lock-on is solved where CS2 solves it, in the view hook once per rendered frame, against the target
   where the game draws it. `SourceFilmmaker::OnViewOverride` gives the follow camera the view before
   Smooth View and the path markers, over HLAE's free camera, which the follow camera turns on.
@@ -588,8 +598,8 @@ over in parts; so far, Lock-on on players, from the console and the FOLLOW CAMER
   control sends CS2's command, which `mvm_debug` logs as `follow.ui`. Rows that belong to another mode
   or target type are left out, as in CS2. The card's summary shows the target's distance, which
   CS2's reads from a field it is never sent.
-- Not yet: weapons and the C4, grenades, Attached's body mounts, the Events list and the in-world
-  marker and target box. `health` shows the follow camera's state on its `follow:` line.
+- Not yet: grenades, Attached's body mounts and the in-world marker and target box. `health` shows
+  the follow camera's state on its `follow:` line.
 
 Checked in the SourceTV test demo on 2026-10-26: the placed camera's aim matched the look-at to the
 target's eyes to a hundredth of a degree; the eyes CS:S's own first-person view sits at matched the
@@ -599,7 +609,13 @@ the ragdoll, and a one-second death hold stopped it at tick 4376, one second of 
 The tab, checked in the browser mockup at 1600x900 and 854x480 and then in CS:S at 854x480 with real
 window messages: Place, the target list, a pick, Live and Stop each sent its command and the card
 followed the state; the camera kept the picked player framed while the demo played; switching to
-PATH CAMERA kept it live; Esc closed the editor and stopped Live.
+PATH CAMERA kept it live; Esc closed the editor and stopped Live. Weapons, in the same demo: the
+list named every weapon with its owner, the carried C4 and later the planted one; the camera on
+Josh's gun followed it from the USP to the M3 and on through the next round's buy; and with Retarget
+dropped weapon on, Brad's death at tick 4310 handed the camera to his dropped M4A1 at 4376, after the
+one-second hold. The Events list held the demo's three deaths and the plant with their players.
+Going to an event sent the right seek, but this SourceTV demo cannot seek forward: the engine stops
+with `CL_PreserveExistingEntity: missing client entity`, as it does for the demo bar's seeks.
 
 ## Old demos
 

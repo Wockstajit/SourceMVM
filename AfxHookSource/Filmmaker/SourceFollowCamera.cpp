@@ -1,15 +1,19 @@
 // CS:S's answers to the follow camera's host (AfxHookSource2/Filmmaker/Movie/FollowCameraHost.h), and
 // where the hook runs it. Targets come from the entity adapter: a player is followed at its eyes
 // while it lives and at its ragdoll once dead. CS:S has no skeleton reads yet, so the eyes are the
-// origin raised by the profile's standing or ducking height (SourceEngine.h EntityState::eye).
-// Players only for now: weapons, the C4, grenades, Attached's body mounts and the demo's recorded
-// events come with the rest of step 11.
+// origin raised by the profile's standing or ducking height (SourceEngine.h EntityState::eye). A
+// weapon or the C4 is followed at its origin: on the ground where it lies; in a player's hands at the
+// player's hips, where CS:S puts a carried weapon's origin (measured in the SourceTV test demo,
+// 2026-10-26: the owner's origin raised 31 units). The Events list is the demo index's deaths, item
+// pickups and the C4's drops, pickups and plant. Grenades and Attached's body mounts come with the
+// rest of step 11.
 
 #include "stdafx.h"
 
 #include "SourceFollowCamera.h"
 #include "SourceCameraPath.h"
 #include "SourceDemoBar.h"
+#include "SourceDemoIndex.h"
 #include "SourceEngine.h"
 #include "SourceGameProfile.h"
 #include "SourceUi.h"
@@ -28,7 +32,9 @@
 #include <Shared/AfxConsole.h>
 
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 extern WrpVEngineClient* g_VEngineClient;
@@ -37,9 +43,25 @@ namespace {
 
 using SourceFilmmaker::EntityState;
 
-bool IsPlayer(const EntityState& e) {
-	const SourceFilmmaker::GameProfile& profile = SourceFilmmaker::GameProfile_Current();
-	return profile.isPlayerClass && profile.isPlayerClass(e.className.c_str());
+const SourceFilmmaker::GameProfile& Profile() { return SourceFilmmaker::GameProfile_Current(); }
+
+bool IsPlayer(const EntityState& e) { return Profile().isPlayerClass && Profile().isPlayerClass(e.className.c_str()); }
+bool IsBomb(const EntityState& e) { return Profile().isBombClass && Profile().isBombClass(e.className.c_str()); }
+// A weapon that is not the bomb (CS2's IsWeaponClass keeps the C4 apart too).
+bool IsWeapon(const EntityState& e) {
+	return Profile().isWeaponClass && Profile().isWeaponClass(e.className.c_str()) && !IsBomb(e);
+}
+bool IsWeaponOrBomb(const EntityState& e) { return IsWeapon(e) || IsBomb(e); }
+
+std::string WeaponName(const std::string& networkClass) {
+	const char* name = Profile().weaponName ? Profile().weaponName(networkClass.c_str()) : nullptr;
+	return name ? name : networkClass;
+}
+
+// Who holds a weapon or the carried C4, -1 for nobody. The planted bomb is nobody's.
+int WeaponOwner(const EntityState& e) {
+	if (!Profile().isWeaponClass || !Profile().isWeaponClass(e.className.c_str())) return -1;
+	return e.weaponOwnerIndex >= 0 ? e.weaponOwnerIndex : e.ownerIndex;
 }
 
 std::string PlayerName(int index) {
@@ -92,7 +114,7 @@ private:
 	int m_index;
 };
 
-// Any other entity, at its origin.
+// A weapon, the C4 or any other entity, at its origin.
 class EntityProvider final : public Filmmaker::IFollowTargetProvider {
 public:
 	explicit EntityProvider(int index) : m_index(index) {}
@@ -106,7 +128,8 @@ public:
 	}
 	std::string GetDisplayName() override {
 		EntityState e;
-		return SourceFilmmaker::Entity_Get(m_index, e) ? e.className : std::string("Entity");
+		if (!SourceFilmmaker::Entity_Get(m_index, e)) return "Entity";
+		return IsWeaponOrBomb(e) ? WeaponName(e.className) : e.className;
 	}
 	Filmmaker::FollowTargetStatus GetStatus() override {
 		return IsValid() ? Filmmaker::FollowTargetStatus::Active : Filmmaker::FollowTargetStatus::Missing;
@@ -115,6 +138,66 @@ public:
 private:
 	int m_index;
 };
+
+// A player's weapon in hand, whichever it is (CS2's HeldWeaponProvider): it re-reads the active
+// weapon every frame, so the camera stays on the player's gun through a switch.
+class HeldWeaponProvider final : public Filmmaker::IFollowTargetProvider {
+public:
+	explicit HeldWeaponProvider(int playerIndex) : m_player(playerIndex) {}
+	int ActiveWeapon() const {
+		EntityState p;
+		return SourceFilmmaker::Entity_Get(m_player, p) && IsPlayer(p) ? p.activeWeaponIndex : -1;
+	}
+	bool IsValid() override {
+		EntityState w;
+		const int index = ActiveWeapon();
+		return index >= 0 && SourceFilmmaker::Entity_Get(index, w) && !w.dormant && Filmmaker::IsFiniteOrigin(Vec(w.origin));
+	}
+	Filmmaker::FollowVec3 GetWorldPosition() override {
+		EntityState w;
+		return SourceFilmmaker::Entity_Get(ActiveWeapon(), w) ? Vec(w.origin) : Filmmaker::FollowVec3{};
+	}
+	std::string GetDisplayName() override {
+		EntityState w;
+		return SourceFilmmaker::Entity_Get(ActiveWeapon(), w) ? WeaponName(w.className) : std::string("Held weapon");
+	}
+	Filmmaker::FollowTargetStatus GetStatus() override {
+		EntityState p;
+		if (!SourceFilmmaker::Entity_Get(m_player, p) || !IsPlayer(p)) return Filmmaker::FollowTargetStatus::Missing;
+		if (!p.alive) return Filmmaker::FollowTargetStatus::Dead;
+		return IsValid() ? Filmmaker::FollowTargetStatus::Active : Filmmaker::FollowTargetStatus::Missing;
+	}
+	int EntityIndex() const override { return ActiveWeapon(); }
+private:
+	int m_player;
+};
+
+// The C4 a player carries, read once per demo tick: the follow camera asks every frame while it
+// follows a living player, for the retarget after a death.
+int CarriedBomb(int playerIndex) {
+	static int s_tick = -1, s_player = -1, s_bomb = -1;
+	const SourceFilmmaker::DemoState demo = SourceFilmmaker::Demo_State();
+	if (demo.tick == s_tick && playerIndex == s_player) return s_bomb;
+	s_tick = demo.tick;
+	s_player = playerIndex;
+	s_bomb = -1;
+	std::vector<EntityState> entities;
+	SourceFilmmaker::Entities_Snapshot(entities);
+	for (const EntityState& e : entities)
+		if (IsBomb(e) && WeaponOwner(e) == playerIndex) {
+			s_bomb = e.index;
+			break;
+		}
+	return s_bomb;
+}
+
+// The demo index's events for the Events list. The main thread hands over the scan and the names its
+// user ids had (FollowHost_DemoPath); the follow camera reads them on its worker thread.
+struct EventSource {
+	std::mutex mutex;
+	std::shared_ptr<const SourceFilmmaker::DemoFile::Scan> scan;
+	std::unordered_map<int, std::string> names; // user id -> name
+} g_events;
 
 // The state JSON's pieces (FollowCameraStateJson.cpp) into the tab's model.
 using Filmmaker::JsonValue;
@@ -188,15 +271,53 @@ void FollowHost_ResumeDemo() {
 // As the demo bar seeks: back restarts the demo, then goes forward.
 void FollowHost_SeekDemo(int tick) { SourceFilmmaker::DemoBar_SeekTo(tick); }
 
-// No event scan for CS:S demos yet, so the Events list stays empty.
-std::string FollowHost_DemoPath() { return std::string(); }
+// The demo index's file, once it has read the demo: a new demo, or the same one read again, is a new
+// key, so the follow camera reloads its events.
+std::string FollowHost_DemoPath() {
+	const SourceFilmmaker::DemoIndex index = SourceFilmmaker::DemoIndex_Get();
+	if (index.status != SourceFilmmaker::DemoIndex::Status::Ready || !index.scan) return std::string();
+	std::lock_guard<std::mutex> lock(g_events.mutex);
+	if (g_events.scan != index.scan) {
+		g_events.scan = index.scan;
+		std::vector<SourceFilmmaker::PlayerState> players;
+		SourceFilmmaker::Players_Snapshot(players);
+		for (const SourceFilmmaker::PlayerState& p : players)
+			if (p.userId >= 0 && !p.name.empty()) g_events.names[p.userId] = p.name;
+	}
+	return index.file + "#" + std::to_string(index.generation);
+}
 
-bool FollowHost_ReadDemoEvents(const std::string&, std::atomic<bool>*, std::vector<FollowEventRecord>& events,
+// CS:S records no weapon_drop: a death is where the victim's weapons fall, so it stands for CS2's
+// death drop. The rest keep CS2's names.
+bool FollowHost_ReadDemoEvents(const std::string&, std::atomic<bool>* cancel, std::vector<FollowEventRecord>& events,
 	std::string& helperPath, std::string& error) {
 	events.clear();
-	helperPath.clear();
-	error = "no demo event scan for this game yet";
-	return false;
+	helperPath = "demo index";
+	std::shared_ptr<const SourceFilmmaker::DemoFile::Scan> scan;
+	std::unordered_map<int, std::string> names;
+	{
+		std::lock_guard<std::mutex> lock(g_events.mutex);
+		scan = g_events.scan;
+		names = g_events.names;
+	}
+	if (!scan) {
+		error = "the demo index has not read this demo";
+		return false;
+	}
+	for (const SourceFilmmaker::DemoFile::Event& e : scan->events) {
+		if (cancel && cancel->load()) return false;
+		FollowEventRecord f;
+		if (e.name == "player_death") f.type = "weapon_drop";
+		else if (e.name == "bomb_dropped" || e.name == "bomb_pickup" || e.name == "bomb_planted" || e.name == "item_pickup") f.type = e.name;
+		else continue;
+		f.tick = e.tick;
+		if (e.name == "item_pickup") f.item = e.Text("item");
+		else if (e.name != "player_death") f.item = "c4";
+		const auto name = names.find(e.Int("userid"));
+		if (name != names.end()) f.ownerName = name->second;
+		events.push_back(std::move(f));
+	}
+	return true;
 }
 
 bool FollowHost_EditorActive() { return SourceFilmmaker::Ui_EditorOpen(); }
@@ -213,16 +334,62 @@ void FollowHost_ReturnViewToTimeline() {}
 
 std::unique_ptr<IFollowTargetProvider> FollowHost_MakeProvider(const FollowCameraState& state, FollowPlayerPose*) {
 	if (state.targetType == FollowTargetType::Player) return std::make_unique<PlayerProvider>(state.targetEntityIndex);
+	if (state.targetType == FollowTargetType::Weapon) {
+		// As CS2 chooses: the player's gun in hand (Held, or Auto with a player picked), else the entity.
+		const bool held = state.weaponSource == WeaponSource::Held
+			|| (state.weaponSource == WeaponSource::Auto && state.weaponPlayerIndex >= 0);
+		if (held && state.weaponPlayerIndex >= 0) return std::make_unique<HeldWeaponProvider>(state.weaponPlayerIndex);
+	}
 	return std::make_unique<EntityProvider>(state.targetEntityIndex);
 }
 
 std::vector<FollowTargetCandidate> FollowHost_FindTargets(FollowTargetType type, bool attachPoints, const FollowVec3& from) {
 	std::vector<FollowTargetCandidate> out;
-	if (type != FollowTargetType::Player) return out;
+	if (type == FollowTargetType::Grenade) return out;
 	std::vector<EntityState> entities;
 	SourceFilmmaker::Entities_Snapshot(entities);
 	std::vector<SourceFilmmaker::PlayerState> players;
 	SourceFilmmaker::Players_Snapshot(players);
+	if (type == FollowTargetType::Weapon) {
+		std::unordered_map<int, const EntityState*> byIndex;
+		for (const EntityState& e : entities) byIndex[e.index] = &e;
+		for (const EntityState& e : entities) {
+			if (!IsWeaponOrBomb(e)) continue;
+			FollowTargetCandidate c;
+			c.entityIndex = e.index;
+			c.handle = e.handle != 0xFFFFFFFFu ? e.handle : 0;
+			c.className = e.className;
+			c.isWeapon = IsWeapon(e);
+			c.isBomb = IsBomb(e);
+			c.ownerIndex = WeaponOwner(e);
+			c.held = c.ownerIndex >= 0;
+			c.dropped = !c.held;
+			if (c.held) {
+				for (const SourceFilmmaker::PlayerState& p : players)
+					if (p.index == c.ownerIndex) c.ownerName = p.name;
+				const auto owner = byIndex.find(c.ownerIndex);
+				if (owner != byIndex.end()) {
+					c.team = owner->second->team;
+					c.current = owner->second->activeWeaponIndex == e.index;
+				}
+			}
+			c.name = c.isBomb ? "C4" : WeaponName(e.className);
+			c.alive = true;
+			// CS2's wording, middle dots and all.
+			if (c.held)
+				c.status = std::string(c.current ? "current \xC2\xB7 " : "inventory \xC2\xB7 ") + (c.isBomb ? "C4 carried by " : "held by ")
+					+ (c.ownerName.empty() ? "player" : c.ownerName);
+			else
+				c.status = c.isBomb ? "C4 on the ground" : "dropped on floor";
+			c.distance = FollowDistance(from, Vec(e.origin));
+			if (attachPoints) {
+				c.attachPoints = FollowHost_AttachPoints(e.index, FollowTargetType::Weapon);
+				c.attachments = AttachPointIds(c.attachPoints);
+			}
+			out.push_back(std::move(c));
+		}
+		return out;
+	}
 	for (const EntityState& e : entities) {
 		// Spectators and SourceTV (team 0 and 1 in every Source game) are no one to follow.
 		if (!IsPlayer(e) || e.team < 2) continue;
@@ -282,12 +449,11 @@ bool FollowHost_EntityOrigin(int entityIndex, FollowVec3& origin, bool& isPlayer
 	return IsFiniteOrigin(origin);
 }
 
-// The C4 a player carries comes with the weapons.
 bool FollowHost_LivePlayerItems(int entityIndex, int& activeWeaponIndex, int& bombIndex) {
 	EntityState e;
 	if (!SourceFilmmaker::Entity_Get(entityIndex, e) || !IsPlayer(e) || !e.alive) return false;
 	activeWeaponIndex = e.activeWeaponIndex;
-	bombIndex = -1;
+	bombIndex = CarriedBomb(entityIndex);
 	return true;
 }
 

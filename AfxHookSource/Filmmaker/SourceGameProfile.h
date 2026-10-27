@@ -27,6 +27,10 @@ struct GameProfile {
 	bool (*isWeaponClass)(const char* networkClass);
 	bool (*isGrenadeClass)(const char* networkClass);
 	bool (*isRagdollClass)(const char* networkClass);
+	// Which network classes are the bomb, carried or planted. Null: none known.
+	bool (*isBombClass)(const char* networkClass);
+	// A weapon or bomb class's name as the game shows it ("AK-47"); null when unknown.
+	const char* (*weaponName)(const char* networkClass);
 	// A player's eyes above its origin, standing and ducking (the game's view vectors).
 	double eyeHeight;
 	double duckEyeHeight;

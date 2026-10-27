@@ -501,8 +501,11 @@ int DropList(const char* id, const Rect& field, const std::vector<DropOption>& o
 	draw->AddRectFilled(ImVec2(menu.x0, menu.y0), ImVec2(menu.x1, menu.y1), ToU32(Rgba(10, 10, 10)), 4 * s);
 	draw->AddRect(ImVec2(menu.x0, menu.y0), ImVec2(menu.x1, menu.y1), ToU32(Paint::Outline), 4 * s);
 	ImGui::SetCursorScreenPos(ImVec2(menu.x0, menu.y0));
+	// No window padding: the entries start at the list's top, as its height counts them.
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 	ImGui::BeginChild("##list", ImVec2(menu.W(), menu.H()), ImGuiChildFlags_None,
 		ImGuiWindowFlags_NoBackground | (contentH <= maxH ? ImGuiWindowFlags_NoScrollbar : 0));
+	ImGui::PopStyleVar();
 	const float innerW = menu.W() - (ImGui::GetScrollMaxY() > 0 ? ImGui::GetStyle().ScrollbarSize : 0.0f);
 	ImDrawList* list = ImGui::GetWindowDrawList();
 	float iy = ImGui::GetCursorScreenPos().y + gap;

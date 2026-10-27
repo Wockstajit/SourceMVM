@@ -82,7 +82,7 @@ Measured on the installed game on 2026-10-26:
 | 8 | Free cam and smooth view | HLAE's `mirv_input` flies as CS2's free cam does; Smooth View runs from CS2's code | Done 2026-10-26, Smooth View's Config card with the Config workspace |
 | 9 | Camera Editor | Paths, markers, inspector, preview viewport, shortcut strip | Done 2026-10-26 |
 | 10 | Timelines | TIMELINE dock, regular timeline, loop, In/Out flags | Done 2026-10-26; the TIMELINE dock's camera shake rows with step 12, its Cache with step 13 and its render range with step 14 |
-| 11 | Follow camera | Lock-on and Attached; players, weapons, the C4 and grenades; death and lost-target policy; the FOLLOW CAMERA tab; the Events list; the in-world marker and target box | In parts. Done 2026-10-26: CS2's follow camera split into shared code and a game host, and Lock-on on players from the console and the FOLLOW CAMERA tab ([README.md](README.md#follow-camera)) |
+| 11 | Follow camera | Lock-on and Attached; players, weapons, the C4 and grenades; death and lost-target policy; the FOLLOW CAMERA tab; the Events list; the in-world marker and target box | In parts. Done 2026-10-26: CS2's follow camera split into shared code and a game host, and Lock-on on players, weapons and the C4, with the Events list, from the console and the FOLLOW CAMERA tab ([README.md](README.md#follow-camera)) |
 | 12 | Camera shakes | Handheld, path shake, recoil, bob, rage | |
 | 13 | Demo tools | Demos browser, scrubbing, timescale, end hold | |
 | 14 | Render workspace | Range, camera, HUD and output tabs; passes; FPS; done sound; previous renders | |
@@ -171,6 +171,11 @@ best-effort. GoldSrc is a separate DLL (`AfxHookGoldSrc`) that reuses the engine
 
 - Old demos: demos of network protocols other than 7 and 24 (one test demo used 17) are not
   converted. [README.md](README.md#old-demos) lists the values the converter cannot carry over.
+
+- Seeking forward in the SourceTV test demo (`mvm_css_tv.dem`) stops the engine with
+  `Host_Error: CL_PreserveExistingEntity: missing client entity`, whether the demo bar or the follow
+  camera's Go To Event sends the `demo_gototick`. Once it has happened, the next playback of the demo
+  can hit it at its start. Playing through works. Not yet investigated.
 
 - The command port's socket server is `Shared/NetconServer`, generalized from Deadlock's
   `DeadlockNetcon.cpp`, and the client is `Automation/netcon/hook-netcon.ps1`, generalized from
