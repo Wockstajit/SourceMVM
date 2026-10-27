@@ -8,8 +8,10 @@
 // rewritten is the framing that changed between the engines: message type width, the messages
 // whose fields changed (tick, server info, string tables, sounds, decals, temp entities, prefetch),
 // the entity and property index encoding, string table entry lengths, and the user message
-// numbering. Voice and user commands are dropped; the three string tables the new client expects
-// and the old server never made are added empty. Docs/source/README.md has the full list.
+// numbering, and the user commands' layout (the recorder's own commands, which playback of a
+// first-person demo predicts the player's gun from). Voice is dropped; the three string tables the
+// new client expects and the old server never made are added empty. Docs/source/README.md has the
+// full list.
 //
 // Given the installed map's brush models, the demo's "*N" models are matched to them (MapModels.h):
 // renumbered where Valve moved them, and entities whose brush the map no longer has are left out.
@@ -25,12 +27,13 @@ namespace DemoConvert {
 
 // Part of the stamp next to every converted copy: bump it when the output changes, and copies made
 // by an older converter are made again.
-constexpr int kV34ConverterVersion = 1;
+constexpr int kV34ConverterVersion = 2;
 
 struct ConvertStats {
 	int framesIn = 0;
 	int framesOut = 0;
-	int userCmdsDropped = 0;
+	int userCmdsConverted = 0;
+	int userCmdsDropped = 0; // commands that are not exactly one command in the old layout
 	long long messages = 0;
 	long long packetEntities = 0;
 	long long entityUpdates = 0;
@@ -74,6 +77,13 @@ std::string DemoMapName(const unsigned char* data, size_t size);
 // recording) is converted up to that frame and closed normally; stats.stoppedEarly says so.
 ConvertResult ConvertV34Demo(const unsigned char* data, size_t size, std::vector<unsigned char>& out,
 	const ConvertOptions& options = ConvertOptions());
+
+// One user command (a usercmd frame's payload, a delta against an empty command) rewritten in the
+// current layout. The old engine writes pitch and yaw as 16-bit angles, roll as an 8-bit angle and the
+// three moves as 16-bit integers where the current one writes floats; every other field is the same
+// (measured: all 629,752 commands of 59 v34 demos decode to exactly their recorded length). False when
+// data is not exactly one command in the old layout.
+bool ConvertV34UserCmd(const unsigned char* data, size_t size, std::vector<unsigned char>& out);
 
 } // namespace DemoConvert
 } // namespace SourceFilmmaker

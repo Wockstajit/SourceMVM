@@ -170,6 +170,62 @@ void TestMatching() {
 	CHECK(MatchInlineModels(open, 2, doorMap).target[1] == 1);
 }
 
+// ---- user commands ------------------------------------------------------------------------------
+
+// A command in the v34 layout, as the recorder's client wrote it against an empty command: command
+// 100, tick 200, pitch 90 and yaw 180 as 16-bit angles, roll 270 as an 8-bit angle, forward 400 and
+// side -400 as 16-bit integers, buttons 8, weapon 5 of subtype 2, mouse dx 3.
+BitWriter OldUserCmd() {
+	BitWriter w;
+	w.Bit(true); w.Bits(100, 32);
+	w.Bit(true); w.Bits(200, 32);
+	w.Bit(true); w.Bits(16384, 16);
+	w.Bit(true); w.Bits(32768, 16);
+	w.Bit(true); w.Bits(192, 8);
+	w.Bit(true); w.Signed(400, 16);
+	w.Bit(true); w.Signed(-400, 16);
+	w.Bit(false);
+	w.Bit(true); w.Bits(8, 32);
+	w.Bit(false);
+	w.Bit(true); w.Bits(5, 11); w.Bit(true); w.Bits(2, 6);
+	w.Bit(true); w.Bits(3, 16);
+	w.Bit(false);
+	return w;
+}
+
+// Reads a command in the current layout (the 2013 engine's ReadUsercmd: floats for the angles and the
+// moves) and checks it is the one above.
+void CheckCurrentUserCmd(const std::vector<unsigned char>& data) {
+	BitReader r(data.data(), data.size());
+	CHECK(r.Bit() && r.Bits(32) == 100);
+	CHECK(r.Bit() && r.Bits(32) == 200);
+	CHECK(r.Bit() && r.Float() == 90.0f);
+	CHECK(r.Bit() && r.Float() == 180.0f);
+	CHECK(r.Bit() && r.Float() == 270.0f);
+	CHECK(r.Bit() && r.Float() == 400.0f);
+	CHECK(r.Bit() && r.Float() == -400.0f);
+	CHECK(!r.Bit());
+	CHECK(r.Bit() && r.Bits(32) == 8);
+	CHECK(!r.Bit());
+	CHECK(r.Bit() && r.Bits(11) == 5 && r.Bit() && r.Bits(6) == 2);
+	CHECK(r.Bit() && r.Bits(16) == 3);
+	CHECK(!r.Bit());
+	CHECK(!r.Overrun() && (r.Position() + 7) / 8 == data.size());
+}
+
+void TestUserCmd() {
+	const BitWriter old = OldUserCmd();
+	std::vector<unsigned char> bytes(old.Data().begin(), old.Data().begin() + (long)old.Bytes());
+	std::vector<unsigned char> out;
+	CHECK(ConvertV34UserCmd(bytes.data(), bytes.size(), out));
+	CheckCurrentUserCmd(out);
+	// Anything that is not exactly one old command is refused: a byte too many, a byte short.
+	std::vector<unsigned char> longer = bytes;
+	longer.push_back(0);
+	CHECK(!ConvertV34UserCmd(longer.data(), longer.size(), out));
+	CHECK(!ConvertV34UserCmd(bytes.data(), bytes.size() - 1, out));
+}
+
 // ---- a whole v34 demo -------------------------------------------------------------------------
 
 void PutInt(std::vector<unsigned char>& out, int32_t v) {
@@ -290,6 +346,12 @@ std::vector<unsigned char> V34Demo() {
 	death.Bits(23, 9); death.Bits(5, 16); death.Bits(6, 16);
 	packet.Bits(25, 5); packet.Bits((uint32_t)death.Size(), 11); packet.Append(death);
 	PutFrame(demo, 2, 10, &packet);
+	const BitWriter command = OldUserCmd();            // usercmd: sequence, length, the command
+	demo.push_back(5);
+	PutInt(demo, 10);
+	PutInt(demo, 77);
+	PutInt(demo, (int32_t)command.Bytes());
+	demo.insert(demo.end(), command.Data().begin(), command.Data().begin() + (long)command.Bytes());
 	PutFrame(demo, 7, 11, nullptr);
 	return demo;
 }
@@ -303,6 +365,7 @@ std::vector<std::string> OutputModels(const std::vector<unsigned char>& out) {
 		at += 5;
 		if (command == 3 || command == 7) continue;
 		if (command == 1 || command == 2) at += 84;
+		if (command == 5) at += 4; // a user command's sequence number
 		int32_t length;
 		std::memcpy(&length, &out[at], 4);
 		at += 4;
@@ -354,6 +417,23 @@ void TestConversion() {
 	}
 	CHECK(result.stats.mapMatched && result.stats.brushMoved == 1 && result.stats.brushMissing == 0);
 	CHECK(result.stats.entityUpdates == 1 && result.stats.baselines == 1 && result.stats.classesOut == 1);
+	CHECK(result.stats.userCmdsConverted == 1 && result.stats.userCmdsDropped == 0);
+	// The command frame is kept, with its sequence number, in the current layout, right before the
+	// stop frame (1 + 4 bytes).
+	{
+		const BitWriter old = OldUserCmd();
+		std::vector<unsigned char> converted;
+		std::vector<unsigned char> bytes(old.Data().begin(), old.Data().begin() + (long)old.Bytes());
+		ConvertV34UserCmd(bytes.data(), bytes.size(), converted);
+		const size_t frame = out.size() - 5 - (13 + converted.size());
+		int32_t tick, sequence, length;
+		std::memcpy(&tick, &out[frame + 1], 4);
+		std::memcpy(&sequence, &out[frame + 5], 4);
+		std::memcpy(&length, &out[frame + 9], 4);
+		CHECK(out[frame] == 5 && tick == 10 && sequence == 77 && length == (int32_t)converted.size());
+		if (length == (int32_t)converted.size())
+			CheckCurrentUserCmd(std::vector<unsigned char>(out.begin() + (long)frame + 13, out.begin() + (long)frame + 13 + length));
+	}
 	int32_t protocol;
 	std::memcpy(&protocol, &out[12], 4);
 	CHECK(protocol == 24 && !IsV34Demo(out.data(), out.size()));
@@ -375,7 +455,8 @@ void TestConversion() {
 	CHECK(recorded.size() == 3 && recorded[2] == "*2");
 
 	// A demo cut inside its last packet still converts, closed at the cut.
-	std::vector<unsigned char> cut(demo.begin(), demo.end() - 9);
+	// The cut skips the stop frame (5 bytes) and the user command frame (13 + its bytes).
+	std::vector<unsigned char> cut(demo.begin(), demo.end() - (long)(5 + 13 + OldUserCmd().Bytes() + 4));
 	std::vector<unsigned char> cutOut;
 	const ConvertResult partial = ConvertV34Demo(cut.data(), cut.size(), cutOut);
 	CHECK(partial.ok && !partial.stats.stoppedEarly.empty());
@@ -390,6 +471,7 @@ int main() {
 	TestBits();
 	TestTablesRoundTrip();
 	TestMatching();
+	TestUserCmd();
 	TestConversion();
 	if (g_failed) { std::printf("%d check(s) failed\n", g_failed); return 1; }
 	std::printf("SourceDemoConvertTests passed\n");

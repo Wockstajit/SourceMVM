@@ -361,7 +361,9 @@ void Converter::WriteFrame(int command, int32_t tick, const unsigned char* info,
 	m_out.push_back((unsigned char)command);
 	PutInt32(m_out, tick);
 	if (command == kSignon || command == kPacket) m_out.insert(m_out.end(), info, info + kCommandInfoSize + 8);
-	if (command == kSignon || command == kPacket || command == kConsoleCmd || command == kDataTables || command == kStringTables) {
+	if (command == kUserCmd) m_out.insert(m_out.end(), info, info + 4); // the outgoing sequence number
+	if (command == kSignon || command == kPacket || command == kConsoleCmd || command == kDataTables || command == kStringTables
+		|| command == kUserCmd) {
 		PutInt32(m_out, (int32_t)length);
 		if (length) m_out.insert(m_out.end(), payload, payload + length);
 	}
@@ -1062,14 +1064,23 @@ ConvertResult Converter::Run() {
 			break;
 		}
 		case kUserCmd: {
-			// The old engine's user commands use a different layout, and playback does not need them.
+			// The recorder's own commands. A first-person demo needs them: playback predicts the
+			// player's gun from them, and without them it stays at the first frame of its draw
+			// animation, out of sight. One that is not exactly one old-layout command is left out.
 			if (at + 8 > m_size) { why = "truncated user command"; break; }
+			const unsigned char* sequence = m_data + at;
 			at += 4;
 			const int32_t length = GetInt32(m_data + at);
 			at += 4;
 			if (length < 0 || at + (size_t)length > m_size) { why = "truncated user command"; break; }
+			std::vector<unsigned char> command;
+			if (ConvertV34UserCmd(m_data + at, (size_t)length, command)) {
+				WriteFrame(kUserCmd, tick, sequence, command.data(), command.size());
+				++m_stats.userCmdsConverted;
+			} else {
+				++m_stats.userCmdsDropped;
+			}
 			at += (size_t)length;
-			++m_stats.userCmdsDropped;
 			break;
 		}
 		case kDataTables: {
@@ -1115,6 +1126,41 @@ ConvertResult Converter::Run() {
 }
 
 } // namespace
+
+bool ConvertV34UserCmd(const unsigned char* data, size_t size, std::vector<unsigned char>& out) {
+	if (!data || !size) return false;
+	BitReader in(data, size);
+	BitWriter w;
+	// Each field is a "changed" bit, then the value when it changed (CUserCmd delta coding).
+	auto same = [&](int bits) {
+		const bool set = in.Bit();
+		w.Bit(set);
+		if (set) w.Bits(in.Bits(bits), bits);
+		return set;
+	};
+	same(32); // command_number
+	same(32); // tick_count
+	const int angleBits[3] = { 16, 16, 8 }; // pitch, yaw, roll as bit angles then, floats now
+	for (int i = 0; i < 3; ++i) {
+		const bool set = in.Bit();
+		w.Bit(set);
+		if (set) w.Float((float)in.Bits(angleBits[i]) * (360.0f / (float)(1 << angleBits[i])));
+	}
+	for (int i = 0; i < 3; ++i) { // forward, side and up move: 16-bit integers then, floats now
+		const bool set = in.Bit();
+		w.Bit(set);
+		if (set) w.Float((float)in.Signed(16));
+	}
+	same(32);              // buttons
+	same(8);               // impulse
+	if (same(11)) same(6); // weapon select (edict bits), then its subtype
+	same(16);              // mouse dx
+	same(16);              // mouse dy
+	if (in.Overrun() || (in.Position() + 7) / 8 != size) return false;
+	out = w.Data();
+	out.resize(w.Bytes());
+	return true;
+}
 
 bool IsV34Demo(const unsigned char* data, size_t size) {
 	return data && size >= kHeaderSize && std::memcmp(data, "HL2DEMO\0", 8) == 0 && GetInt32(data + 8) == 3 && GetInt32(data + 12) == 7;

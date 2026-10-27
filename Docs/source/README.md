@@ -1065,7 +1065,8 @@ and the values are copied bit for bit. It rewrites what changed between the two 
 | String tables | Entry data lengths widen. Three tables the current client expects are added empty |
 | Sounds | Re-encoded field by field: flags, sound index, sequence, volume and origin |
 | User messages | Renumbered to the current client's order. VoiceMask is dropped, and HintText loses the count byte the old one led with |
-| Voice and user commands | Dropped. The 64-bit game has no Speex, and playback does not use user commands |
+| User commands | Rewritten in the current layout. The old engine wrote pitch and yaw as 16-bit angles, roll as an 8-bit angle and the three moves as 16-bit integers; the current one writes floats, and every other field is the same. A demo recorded in first person needs them: playback predicts the player's own gun from them, and without them the gun stays at the first frame of its draw animation, below and behind the camera, so no gun or hands show |
+| Voice | Dropped. The 64-bit game has no Speex |
 
 Valve rebuilt the CS:S maps after v34, so a demo's brush models ("*N": doors, glass, breakables,
 trigger volumes) can have other numbers in the installed map, or be gone. Loading one the map does
@@ -1099,6 +1100,12 @@ Checked on 2026-10-26: all 59 v34 demos in a test folder convert. Independent de
 entity, string table and sound of the converted demos with the same values as the originals. Demos
 on de_inferno, de_dust2, de_nuke, cs_office, de_cbble and de_train play in first person and chase
 with no errors, de_train's cables draw, and the demo bar shows their kills and rounds.
+
+Checked on 2026-10-27: all 629,752 user commands of the 59 demos decode to exactly their recorded
+length in the old layout, and the converted ones read back exactly in the current layout. In two
+first-person demos (an AWP and USP demo on de_dust2 and a knife and AK-47 demo on cs_office) the
+gun and hands now draw and animate where none showed before. The converter version went to 2, so
+copies made before are converted again on their next play.
 
 Limits:
 

@@ -61,11 +61,11 @@ static bool ConvertOne(const fs::path& in, const fs::path& out) {
 	f.write((const char*)converted.data(), (std::streamsize)converted.size());
 	const ConvertStats& s = result.stats;
 	std::printf("%s: ok %.0f ms, %d -> %d frames, %lld messages, %lld entity packets, %lld updates, %lld props, "
-		"%lld temp ents, %lld sounds, %lld baselines, user msgs %lld (%lld dropped), voice %lld dropped, usercmds %d dropped, "
+		"%lld temp ents, %lld sounds, %lld baselines, user msgs %lld (%lld dropped), voice %lld dropped, usercmds %d converted (%d dropped), "
 		"classes %d -> %d%s%s, int NORMAL cleared %d, brushes kept %d moved %d missing %d unused %d, "
 		"entity updates left out %lld%s%s%s\n",
 		in.filename().string().c_str(), ms, s.framesIn, s.framesOut, s.messages, s.packetEntities, s.entityUpdates, s.props,
-		s.tempEntities, s.sounds, s.baselines, s.userMessages, s.userMessagesDropped, s.voiceDropped, s.userCmdsDropped,
+		s.tempEntities, s.sounds, s.baselines, s.userMessages, s.userMessagesDropped, s.voiceDropped, s.userCmdsConverted, s.userCmdsDropped,
 		s.classesIn, s.classesOut, s.droppedClasses.empty() ? "" : " dropped: ", s.droppedClasses.c_str(), s.intNormalCleared,
 		s.brushKept, s.brushMoved, s.brushMissing, s.brushUnused, s.entitiesDropped, mapNote.c_str(),
 		s.stoppedEarly.empty() ? "" : ", STOPPED EARLY: ", s.stoppedEarly.c_str());
