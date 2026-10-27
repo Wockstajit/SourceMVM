@@ -57,6 +57,11 @@ struct Scan {
 	int messages = 0;   // network messages read or skipped
 };
 
+// The demo's 1072-byte header (HL2DEMO, protocols, server, client, map, game directory, length). False
+// when data is not a Source 1 demo. A list of demos reads just these bytes of each file.
+constexpr size_t kHeaderBytes = 1072;
+bool ReadHeader(const unsigned char* data, size_t size, Header& out);
+
 // Scans a demo held in memory and keeps the events whose names are in wanted (all when empty).
 Scan ScanDemo(const unsigned char* data, size_t size, const std::vector<std::string>& wanted);
 

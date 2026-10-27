@@ -157,6 +157,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceDemoIndex.h
     Filmmaker/SourceDemoMarkers.cpp
     Filmmaker/SourceDemoMarkers.h
+    Filmmaker/SourceDemos.cpp
+    Filmmaker/SourceDemos.h
     Filmmaker/SourceCameraShake.cpp
     Filmmaker/SourceCameraShake.h
     Filmmaker/SourceDemoDeletions.cpp
@@ -200,6 +202,9 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/Ui/DemoBar.cpp
     Filmmaker/Ui/DemoBar.h
     Filmmaker/Ui/DemoBarMath.h
+    Filmmaker/Ui/DemosBrowser.cpp
+    Filmmaker/Ui/DemosBrowser.h
+    Filmmaker/Ui/DemosBrowserMath.h
     Filmmaker/Ui/DirectorHud.cpp
     Filmmaker/Ui/DirectorHud.h
     Filmmaker/Ui/DirectorMath.h
@@ -250,15 +255,31 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Demo/DemoProjectStore.cpp
     ../AfxHookSource2/Filmmaker/Demo/DemoProjectStore.h
     ../AfxHookSource2/Filmmaker/Demo/DemoProjectStoreMath.h
+    ../AfxHookSource2/Filmmaker/Demo/DemoScanner.cpp
+    ../AfxHookSource2/Filmmaker/Demo/DemoScanner.h
     ../AfxHookSource2/Filmmaker/FilmmakerCommandUtil.cpp
     ../AfxHookSource2/Filmmaker/FilmmakerCommandUtil.h
     ../AfxHookSource2/Filmmaker/FollowCommand.cpp
     ../AfxHookSource2/Filmmaker/Config/CameraFeelSettings.cpp
     ../AfxHookSource2/Filmmaker/Config/CameraFeelSettings.h
+    ../AfxHookSource2/Filmmaker/Config/DemoFileStore.cpp
+    ../AfxHookSource2/Filmmaker/Config/DemoFileStore.h
+    ../AfxHookSource2/Filmmaker/Config/DemoFolderStore.cpp
+    ../AfxHookSource2/Filmmaker/Config/DemoFolderStore.h
+    ../AfxHookSource2/Filmmaker/Config/DemoOrganizerStore.cpp
+    ../AfxHookSource2/Filmmaker/Config/DemoOrganizerStore.h
+    ../AfxHookSource2/Filmmaker/Config/HiddenDemoStore.cpp
+    ../AfxHookSource2/Filmmaker/Config/HiddenDemoStore.h
     ../AfxHookSource2/Filmmaker/Platform/JsonBuilder.cpp
     ../AfxHookSource2/Filmmaker/Platform/JsonBuilder.h
     ../AfxHookSource2/Filmmaker/Platform/JsonParser.cpp
     ../AfxHookSource2/Filmmaker/Platform/JsonParser.h
+    ../AfxHookSource2/Filmmaker/Platform/DemoFilePicker.cpp
+    ../AfxHookSource2/Filmmaker/Platform/DemoFilePicker.h
+    ../AfxHookSource2/Filmmaker/Platform/FolderPicker.cpp
+    ../AfxHookSource2/Filmmaker/Platform/FolderPicker.h
+    ../AfxHookSource2/Filmmaker/Platform/ShellOpen.cpp
+    ../AfxHookSource2/Filmmaker/Platform/ShellOpen.h
     ../AfxHookSource2/Filmmaker/Platform/TextEncoding.cpp
     ../AfxHookSource2/Filmmaker/Platform/TextEncoding.h
     ../AfxHookSource2/Filmmaker/Movie/CameraCenterLockMath.h

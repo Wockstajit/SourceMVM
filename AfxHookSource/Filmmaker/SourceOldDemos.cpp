@@ -32,6 +32,8 @@ namespace {
 namespace fs = std::filesystem;
 
 const char kConvertedFolder[] = "source_mvm/converted/";
+// Copies of demos outside the game directory ("D:/clips/x.dem") keep the drive as a folder under this.
+const char kOutsideFolder[] = "outside-game-dir/";
 
 CommandCallback g_playdemo = nullptr;
 bool g_installed = false;
@@ -49,6 +51,7 @@ bool g_busy = false;
 bool g_haveResult = false;
 Job g_result;
 std::string g_last; // the last finished conversion, for health
+bool g_lastOk = false;
 
 std::string GameDir() {
 	const char* dir = g_VEngineClient ? g_VEngineClient->GetGameDirectory() : nullptr;
@@ -73,6 +76,23 @@ std::string SourceStamp(const fs::path& path) {
 	std::snprintf(text, sizeof(text), "v34-converter %d size %llu time %lld", DemoConvert::kV34ConverterVersion,
 		(unsigned long long)size, (long long)time);
 	return text;
+}
+
+// The converted copy's name, relative to the game directory, for a normalized demo name.
+std::string ConvertedName(const std::string& name) {
+	if (name.size() > 2 && name[1] == ':') return std::string(kConvertedFolder) + kOutsideFolder + name.substr(0, 1) + name.substr(2);
+	return kConvertedFolder + name;
+}
+
+// The copy exists and was made from the original as it is now.
+bool CopyReady(const fs::path& source, const fs::path& target) {
+	std::string stamp;
+	{
+		std::ifstream f(fs::path(target.string() + ".src"));
+		std::getline(f, stamp);
+	}
+	std::error_code ec;
+	return fs::exists(target, ec) && stamp == SourceStamp(source);
 }
 
 bool ReadAll(const fs::path& path, std::vector<unsigned char>& data) {
@@ -145,7 +165,28 @@ std::string OldDemos_PlayedName(const std::string& engineName) {
 	std::string name = engineName;
 	for (char& c : name) if (c == '\\') c = '/';
 	const size_t prefix = sizeof(kConvertedFolder) - 1;
-	return name.compare(0, prefix, kConvertedFolder) == 0 ? name.substr(prefix) : name;
+	if (name.compare(0, prefix, kConvertedFolder) != 0) return name;
+	name = name.substr(prefix);
+	const size_t outside = sizeof(kOutsideFolder) - 1;
+	if (name.compare(0, outside, kOutsideFolder) == 0 && name.size() > outside + 1 && name[outside + 1] == '/')
+		return name.substr(outside, 1) + ":" + name.substr(outside + 1);
+	return name;
+}
+
+bool OldDemos_Converted(const std::string& gameDir, const std::string& name) {
+	const std::string n = Normalized(name);
+	return CopyReady(fs::u8path(gameDir) / fs::u8path(n), fs::u8path(gameDir) / fs::u8path(ConvertedName(n)));
+}
+
+bool OldDemos_Busy() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_busy;
+}
+
+bool OldDemos_Last(std::string& message) {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	message = g_last;
+	return g_lastOk;
 }
 
 namespace {
@@ -168,15 +209,9 @@ bool InterceptPlaydemo(const char* typed) {
 	std::memcpy(full, header, sizeof(header));
 	if (!DemoConvert::IsV34Demo(full, sizeof(full))) return false;
 
-	const std::string converted = kConvertedFolder + name;
+	const std::string converted = ConvertedName(name);
 	const fs::path target = fs::u8path(gameDir) / fs::u8path(converted);
-	std::string stamp;
-	{
-		std::ifstream f(fs::path(target.string() + ".src"));
-		std::getline(f, stamp);
-	}
-	std::error_code ec;
-	if (fs::exists(target, ec) && stamp == SourceStamp(source)) {
+	if (CopyReady(source, target)) {
 		const std::string command = "playdemo \"" + converted + "\"";
 		g_VEngineClient->ClientCmd_Unrestricted(command.c_str());
 		return true;
@@ -218,6 +253,7 @@ void OldDemos_Frame() {
 		job = g_result;
 		g_haveResult = false;
 		g_last = job.message;
+		g_lastOk = job.ok;
 	}
 	advancedfx::Message("SOURCE:MVM: %s\n", job.message.c_str());
 	if (job.ok && g_VEngineClient) {

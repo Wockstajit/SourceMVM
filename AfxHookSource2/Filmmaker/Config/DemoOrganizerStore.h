@@ -51,6 +51,9 @@ std::wstring NormalizeDemoKey(const std::wstring& path);
 
 class DemoOrganizerStore {
 public:
+	// fileName is the store's file in %APPDATA%\HLAE\; CS:S keeps its own beside CS2's.
+	explicit DemoOrganizerStore(const wchar_t* fileName = L"filmmaker_demo_organizer.txt") : m_fileName(fileName) {}
+
 	void Load();
 	bool Save() const;
 
@@ -83,6 +86,11 @@ public:
 
 	int64_t LastPlayed(const std::wstring& path) const;
 
+	// One organiser command, the part after "org ": sort <mode>, newfolder <name>, rename <id> <name>,
+	// delfolder <id>, collapse <id|-1> <0|1> (-1 is the No folder bucket), assign <id|-1> <demo key>
+	// (the key last, so it may hold spaces). True when it changed something; the caller saves.
+	bool Apply(const std::string& command);
+
 private:
 	std::wstring FilePath() const;
 	DemoOrganizerRecord* Find(const std::wstring& key);
@@ -90,6 +98,7 @@ private:
 	// Drops records that carry no information (never played, no folder).
 	void PruneEmpty();
 
+	const wchar_t* m_fileName;
 	std::string m_sort = "date";
 	bool m_rootCollapsed = false;
 	std::vector<DemoOrganizerGroup> m_groups;

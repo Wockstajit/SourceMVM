@@ -11,6 +11,9 @@
 //     game has the mouse until the button is released, then the cursor returns where it was.
 //   * ESC closes the workspace.
 //
+// At the main menu a DEMOS button opens the demos browser (Ui/DemosBrowser.h), a full page that has
+// the mouse and the keys until ESC or a demo plays.
+//
 // With no workspace open, while a demo plays, the movie director runs instead (SourceDirector.h):
 // the demo bar along the bottom and the director cards, the cursor free, a click stepping the
 // spectated player and a held button looking around (Ui/DirectorMouse.h), the wheel cycling the
@@ -57,6 +60,9 @@ void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args);
 // mirv_filmmaker config [on|off|toggle|state]: the Config workspace, which shares the Camera
 // Editor's preview and dock; opening one closes the other, as in CS2.
 void Ui_ConfigCommand(int argc, advancedfx::ICommandArgs* args);
+// mirv_filmmaker demos [on|off|toggle|state|<library command>]: the demos browser, a full page the
+// main menu's DEMOS button opens (SourceDemos.h has the library's commands).
+void Ui_DemosCommand(int argc, advancedfx::ICommandArgs* args);
 // The Camera Editor is the open workspace.
 bool Ui_EditorOpen();
 // A workspace is open: the Camera Editor or Config.

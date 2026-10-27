@@ -6,6 +6,7 @@
 #include "SourceConfig.h"
 #include "SourceConsole.h"
 #include "SourceDemoBar.h"
+#include "SourceDemos.h"
 #include "SourceDemoIndex.h"
 #include "SourceCameraShake.h"
 #include "SourceDemoDeletions.h"
@@ -135,6 +136,7 @@ void PrintHealth() {
 	CameraShake_PrintHealth();
 	ViewModel_PrintHealth();
 	Settings_PrintHealth();
+	Demos_PrintHealth();
 	if (!g_VEngineClient->IsInGame()) return;
 	Director_PrintHealth();
 	CameraPath_PrintHealth();
@@ -191,6 +193,7 @@ void PrintUsage() {
 		"mirv_filmmaker entities - [all] [class]: every entity: handle, class, origin, angles, team, links.\n"
 		"mirv_filmmaker editor  - on|off|toggle|state: the Camera Editor workspace (ESC closes it).\n"
 		"mirv_filmmaker config  - on|off|toggle|state: the Config workspace, the camera feel cards (ESC closes it).\n"
+		"mirv_filmmaker demos   - on|off|toggle|state: the demos browser (the main menu's DEMOS button); demos alone lists the rest.\n"
 		"mirv_filmmaker effects - reset camera: every Config CAMERA card back to its defaults; keep camera on|off|toggle: carry them into the next demo.\n"
 		"mirv_filmmaker settings - save | reset <group> | state: the saved camera feel (filmmaker_settings_source1.json).\n"
 		"mirv_filmmaker loop    - on|off|toggle|state: LOOP playback between the demo bar's In and Out.\n"
@@ -216,9 +219,13 @@ void Init() {
 	DemoSkip_Init();
 	DemoDeletions_Init();
 	Settings_Load(); // before anything can change a module: the defaults are taken first
+	Demos_Init();
 }
 
-void Shutdown() { Settings_Flush(); }
+void Shutdown() {
+	Settings_Flush();
+	Demos_Shutdown();
+}
 
 bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	g_windowMessages.fetch_add(1);
@@ -257,6 +264,7 @@ void OnFrameRenderStart() {
 	Entities_WatchFrame();
 	DemoBar_Frame();
 	Filmmaker::DemoEndHold_RunFrame(); // stop a second before the demo runs out
+	Demos_Frame();
 	CameraPath_Frame();
 	Ui_MainThreadFrame();
 	TimelineDock_Frame(); // after the UI: its playhead and edits drive this frame's camera
@@ -290,6 +298,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::Ui_EditorCommand(argc, args);
 	} else if (0 == _stricmp(sub, "config")) {
 		SourceFilmmaker::Ui_ConfigCommand(argc, args);
+	} else if (0 == _stricmp(sub, "demos")) {
+		SourceFilmmaker::Ui_DemosCommand(argc, args);
 	} else if (0 == _stricmp(sub, "effects")) {
 		SourceFilmmaker::Config_EffectsCommand(argc, args);
 	} else if (0 == _stricmp(sub, "settings")) {

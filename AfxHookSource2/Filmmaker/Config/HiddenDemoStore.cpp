@@ -46,7 +46,7 @@ std::wstring HiddenDemoStore::FilePath() const {
 	std::wstring path = GetHlaeRoamingAppDataFolderW();
 	if (!path.empty() && path.back() != L'\\' && path.back() != L'/')
 		path += L'\\';
-	path += L"filmmaker_hidden_demos.txt";
+	path += m_fileName;
 	return path;
 }
 

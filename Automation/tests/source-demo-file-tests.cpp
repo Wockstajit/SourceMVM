@@ -233,6 +233,20 @@ void TestRejectsOtherFormats() {
 	CHECK(!ScanDemo(nullptr, 0, kMarkers).ok);
 }
 
+// The header alone, as the demos browser reads it for every file: an old v34 demo (network protocol
+// 7) still has its map and length read, though its body is not scanned.
+void TestReadsHeaderAlone() {
+	SourceFilmmaker::DemoFile::Header h; // the test's own Header() builds the bytes
+	std::vector<unsigned char> demo = Header(7);
+	CHECK(ReadHeader(demo.data(), demo.size(), h));
+	CHECK(h.demoProtocol == 3 && h.networkProtocol == 7);
+	CHECK(h.mapName == "de_dust2" && h.gameDirectory == "cstrike");
+	CHECK(h.playbackTicks == 4410);
+	CHECK(!ReadHeader(demo.data(), 1071, h));
+	demo[0] = 'X';
+	CHECK(!ReadHeader(demo.data(), demo.size(), h));
+}
+
 void TestUnknownMessageStops() {
 	std::vector<unsigned char> demo = Header();
 	BitWriter signon;
@@ -265,6 +279,7 @@ int main() {
 	TestAllEventsWhenNoneNamed();
 	TestCutShortDemoKeepsWhatWasRead();
 	TestRejectsOtherFormats();
+	TestReadsHeaderAlone();
 	TestUnknownMessageStops();
 	ScanLocalDemo();
 	if (g_failed) { std::printf("%d check(s) failed\n", g_failed); return 1; }

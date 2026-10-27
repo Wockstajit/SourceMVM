@@ -12,6 +12,9 @@ namespace Filmmaker {
 
 class DemoFolderStore {
 public:
+	// fileName is the store's file in %APPDATA%\HLAE\; CS:S keeps its own beside CS2's.
+	explicit DemoFolderStore(const wchar_t* fileName = L"filmmaker_demo_folders.txt") : m_fileName(fileName) {}
+
 	// Loads the saved folders from disk into memory.
 	void Load();
 
@@ -29,6 +32,7 @@ public:
 private:
 	std::wstring FilePath() const;
 
+	const wchar_t* m_fileName;
 	std::vector<std::wstring> m_folders;
 };
 

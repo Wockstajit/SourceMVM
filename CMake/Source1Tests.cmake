@@ -60,6 +60,13 @@ add_executable(SourceDemoBarMathTests
 target_compile_features(SourceDemoBarMathTests PRIVATE cxx_std_17)
 add_test(NAME SourceDemoBarMathTests COMMAND SourceDemoBarMathTests)
 
+add_executable(SourceDemosBrowserMathTests
+    ../Automation/tests/source-demos-browser-math-tests.cpp
+    Filmmaker/Ui/DemosBrowserMath.h
+)
+target_compile_features(SourceDemosBrowserMathTests PRIVATE cxx_std_17)
+add_test(NAME SourceDemosBrowserMathTests COMMAND SourceDemosBrowserMathTests)
+
 add_executable(SourceTimelineDockMathTests
     ../Automation/tests/source-timeline-dock-math-tests.cpp
     Filmmaker/Ui/TimelineDockMath.h

@@ -10,8 +10,7 @@ namespace DemoFile {
 
 namespace {
 
-// demofile.h: the header is 1072 bytes, every frame starts with a command byte and a tick.
-const size_t kHeaderSize = 1072;
+// demofile.h: the header is kHeaderBytes, every frame starts with a command byte and a tick.
 const size_t kPathLength = 260;
 // democmdinfo_t with one split screen slot: flags, then origin, angles and local angles twice.
 const size_t kCommandInfoSize = 76;
@@ -319,13 +318,8 @@ std::string Event::Text(const char* key) const {
 	return field && field->type == Field::Type::String ? field->text : std::string();
 }
 
-Scan ScanDemo(const unsigned char* data, size_t size, const std::vector<std::string>& wanted) {
-	Scan scan;
-	if (!data || size < kHeaderSize || std::memcmp(data, "HL2DEMO\0", 8) != 0) {
-		scan.error = "not a Source 1 demo (no HL2DEMO header)";
-		return scan;
-	}
-	Header& h = scan.header;
+bool ReadHeader(const unsigned char* data, size_t size, Header& h) {
+	if (!data || size < kHeaderBytes || std::memcmp(data, "HL2DEMO\0", 8) != 0) return false;
 	h.demoProtocol = ReadInt32(data + 8);
 	h.networkProtocol = ReadInt32(data + 12);
 	h.serverName = ReadPath(data + 16);
@@ -335,6 +329,16 @@ Scan ScanDemo(const unsigned char* data, size_t size, const std::vector<std::str
 	std::memcpy(&h.playbackTime, data + 1056, sizeof(float));
 	h.playbackTicks = ReadInt32(data + 1060);
 	h.playbackFrames = ReadInt32(data + 1064);
+	return true;
+}
+
+Scan ScanDemo(const unsigned char* data, size_t size, const std::vector<std::string>& wanted) {
+	Scan scan;
+	if (!ReadHeader(data, size, scan.header)) {
+		scan.error = "not a Source 1 demo (no HL2DEMO header)";
+		return scan;
+	}
+	const Header& h = scan.header;
 	if (h.demoProtocol != 3 || h.networkProtocol != 24) {
 		char text[96];
 		std::snprintf(text, sizeof(text), "demo protocol %d, network protocol %d (only 3 and 24 are read)", h.demoProtocol, h.networkProtocol);
@@ -344,7 +348,7 @@ Scan ScanDemo(const unsigned char* data, size_t size, const std::vector<std::str
 
 	Scanner scanner(scan, wanted);
 	auto stop = [&](const char* why) { scan.error = why; return scan; };
-	size_t at = kHeaderSize;
+	size_t at = kHeaderBytes;
 	auto need = [&](size_t bytes) { return at + bytes <= size; };
 	auto block = [&](size_t& length) -> bool {
 		if (!need(4)) return false;

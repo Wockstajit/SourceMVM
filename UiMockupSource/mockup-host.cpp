@@ -22,6 +22,7 @@
 
 #include "../AfxHookSource/Filmmaker/SourceDemoBarModel.h"
 #include "../AfxHookSource/Filmmaker/Ui/CameraEditorShell.h"
+#include "../AfxHookSource/Filmmaker/Ui/DemosBrowser.h"
 #include "../AfxHookSource/Filmmaker/Ui/DirectorHud.h"
 #include "../AfxHookSource/Filmmaker/Ui/DirectorMath.h"
 #include "../AfxHookSource/Filmmaker/Ui/DirectorMouse.h"
@@ -51,6 +52,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <map>
 #include <sstream>
 #include <string>
@@ -172,6 +174,18 @@ struct Host {
 	double timelineTick = 0;
 	SimDemo demo = MakeSimDemo();
 	ConfigModel config;         // the Config cards' stand-in camera modules (StandInConfigCommand)
+	// The demos browser over the stand-in main menu (no demo playing): its library and organiser,
+	// answered by StandInDemosCommand as SourceDemos.cpp answers the game's.
+	bool demosOpen = false;
+	DemosBrowserState demosState;
+	DemosBrowserModel demos;
+	std::vector<bool> demoHidden;     // by library slot, as the game's hidden list
+	std::vector<DemosBrowserMath::DemoRow> library; // every stand-in demo, hidden ones too
+	int nextGroup = 1;
+	double convertDoneMs = -1;        // an old demo's stand-in conversion finishes then
+	int convertIndex = -1;
+	Rect menuButton;                  // the main menu's DEMOS button, last frame
+	bool menuButtonHover = false;
 	std::string reply;          // backing store for strings handed to JavaScript
 };
 Host g;
@@ -179,8 +193,11 @@ Host g;
 // The game host logs these as mvm_debug lines; here they go to the browser console.
 void LogLine(const char* channel, const char* text) { std::printf("[%s] %s\n", channel, text); }
 
-// The movie director runs while a demo plays and no workspace is open.
-bool DirectorActive() { return !g.editor.open && g.demo.playing; }
+// The movie director runs while a demo plays and no workspace or the demos browser is open.
+bool DirectorActive() { return !g.editor.open && !g.demosOpen && g.demo.playing; }
+
+// The main menu: no demo plays and nothing is open over it.
+bool MainMenu() { return !g.editor.open && !g.demosOpen && !g.demo.playing; }
 
 const char* DirectorModeName(DirectorMode m) { return m == DirectorMode::Look ? "look" : "free"; }
 
@@ -1201,6 +1218,188 @@ void DrawCardAndBanner(const Rect& game, std::vector<MarkerCardAction>& actions)
 	DrawPathBanner(ImGui::GetForegroundDrawList(), banner, g.fonts, game);
 }
 
+// ---- the demos browser's stand-in ---------------------------------------------------------------
+// A library as the game's scan lists it from a CS:S install: the test demos Docs/source/README.md
+// records (SourceTV on de_dust2), SourceTV recordings and old v34 demos in replays\, and one demo added
+// from elsewhere. Dates are days before now; names, servers and lengths are stand-ins.
+const char kStandInGameDir[] = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Counter-Strike Source\\cstrike";
+
+void AddStandInDemo(const std::string& folder, const char* file, const char* map, float seconds, double daysAgo, int protocol,
+	const char* recorder, const char* server, int64_t now) {
+	DemosBrowserMath::DemoRow d;
+	d.fileName = file;
+	d.folder = folder;
+	d.key = DemosBrowserMath::Lower(folder + "\\" + file);
+	d.map = map;
+	d.recorder = recorder;
+	d.server = server;
+	d.seconds = seconds;
+	d.ticks = (int)(seconds * (protocol == 7 ? 100.0f : 66.67f));
+	d.date = now - (int64_t)(daysAgo * 86400);
+	d.protocol = protocol;
+	d.compat = protocol == 24 ? DemosBrowserMath::Compat::Current
+		: (protocol == 7 ? DemosBrowserMath::Compat::Old : DemosBrowserMath::Compat::Other);
+	g.library.push_back(d);
+}
+
+void SeedDemos() {
+	const int64_t now = (int64_t)std::time(nullptr);
+	const std::string game = kStandInGameDir, replays = game + "\\replays", added = "D:\\Frag movies\\source";
+	AddStandInDemo(game, "mvm_css_tv.dem", "de_dust2", 66.1f, 0.2, 24, "SourceTV", "Counter-Strike: Source", now);
+	AddStandInDemo(game, "mvm_css_nades.dem", "de_dust2", 96.4f, 0.3, 24, "SourceTV", "Counter-Strike: Source", now);
+	AddStandInDemo(game, "mvm_css_test.dem", "de_dust2", 41.0f, 1.4, 24, "Player", "Counter-Strike: Source", now);
+	AddStandInDemo(replays, "scrim_inferno_half1.dem", "de_inferno", 1712, 3.1, 24, "SourceTV", "Scrim server #2", now);
+	AddStandInDemo(replays, "scrim_inferno_half2.dem", "de_inferno", 1655, 3.0, 24, "SourceTV", "Scrim server #2", now);
+	AddStandInDemo(replays, "office_pug.dem", "cs_office", 2290, 9.5, 24, "SourceTV", "Friday PUG", now);
+	AddStandInDemo(replays, "aim_map_warmup.dem", "aim_map", 512, 12.2, 24, "Player", "Aim practice", now);
+	AddStandInDemo(replays, "cal_final_nuke_2007.dem", "de_nuke", 2861, 6400, 7, "SourceTV", "CAL-i final", now);
+	AddStandInDemo(replays, "cal_final_train_2007.dem", "de_train", 2740, 6399, 7, "SourceTV", "CAL-i final", now);
+	AddStandInDemo(replays, "lan_aztec_2006.dem", "de_aztec", 2108, 7100, 7, "SourceTV", "LAN 2006", now);
+	AddStandInDemo(replays, "broken_header.dem", "", 0, 30, 0, "", "", now);
+	AddStandInDemo(added, "ace_dust2_ak.dem", "de_dust2", 135, 2.0, 24, "Player", "Public server", now);
+	g.library[10].compat = DemosBrowserMath::Compat::Unknown; // broken_header.dem: no HL2DEMO header
+	std::sort(g.library.begin(), g.library.end(), [](const DemosBrowserMath::DemoRow& a, const DemosBrowserMath::DemoRow& b) { return a.date > b.date; });
+	for (size_t i = 0; i < g.library.size(); ++i) g.library[i].index = (int)i;
+	g.demoHidden.assign(g.library.size(), false);
+	g.library[1].played = now - 3600; // mvm_css_nades, an hour ago: the gold edge
+	g.library[2].played = now - 2 * 86400;
+}
+
+// The model the page draws, as SourceDemos.cpp builds it: the listed (not hidden) demos.
+void BuildDemosModel() {
+	DemosBrowserModel& m = g.demos;
+	m.demos.clear();
+	m.hidden = 0;
+	for (size_t i = 0; i < g.library.size(); ++i) {
+		if (g.demoHidden[i]) ++m.hidden;
+		else m.demos.push_back(g.library[i]);
+	}
+	m.now = (int64_t)std::time(nullptr);
+	m.converting = g.convertIndex >= 0;
+}
+
+DemosBrowserMath::DemoRow* StandInDemo(int index) {
+	return index >= 0 && index < (int)g.library.size() ? &g.library[(size_t)index] : nullptr;
+}
+
+void OpenDemos(bool open, const char* reason) {
+	if (open == g.demosOpen) return;
+	g.demosOpen = open;
+	if (open && g.editor.open) Close("demos browser");
+	LogLine("ui.demos", (std::string(open ? "open" : "close") + " reason=" + reason).c_str());
+}
+
+// The page's commands on the stand-in library and organiser, as SourceDemos.cpp applies them (the
+// organiser's verbs are DemoOrganizerStore::Apply's).
+void StandInDemosCommand(const std::string& line) {
+	LogLine("demos.cmd", line.c_str());
+	std::istringstream in(line);
+	std::string verb;
+	in >> verb;
+	DemosBrowserModel& m = g.demos;
+	auto rest = [&in]() {
+		std::string r;
+		std::getline(in, r);
+		if (!r.empty() && r[0] == ' ') r.erase(0, 1);
+		return r;
+	};
+	if (verb == "watch") {
+		int index = -1;
+		in >> index;
+		DemosBrowserMath::DemoRow* d = StandInDemo(index);
+		if (!d) return;
+		d->played = (int64_t)std::time(nullptr);
+		if (d->compat == DemosBrowserMath::Compat::Old) { // converted on a worker first, then played
+			g.convertIndex = index;
+			g.convertDoneMs = emscripten_get_now() + 2500;
+			return;
+		}
+		g.demo.playing = true;
+		g.demo.tick = 0;
+		OpenDemos(false, "watch");
+	} else if (verb == "hide") {
+		int index = -1;
+		in >> index;
+		if (index >= 0 && index < (int)g.demoHidden.size()) g.demoHidden[(size_t)index] = true;
+	} else if (verb == "clearall") {
+		g.demoHidden.assign(g.library.size(), true);
+	} else if (verb == "unhideall") {
+		g.demoHidden.assign(g.library.size(), false);
+	} else if (verb == "renamedemo") {
+		int index = -1;
+		in >> index;
+		const std::string file = DemosBrowserMath::DemoFileName(rest());
+		if (DemosBrowserMath::DemoRow* d = StandInDemo(index)) {
+			if (!file.empty()) {
+				d->fileName = file;
+				d->key = DemosBrowserMath::Lower(d->folder + "\\" + file);
+			}
+		}
+	} else if (verb == "org") {
+		std::string what;
+		in >> what;
+		const std::string args = rest();
+		if (what == "sort") m.sort = args;
+		else if (what == "newfolder" && !args.empty()) m.groups.push_back({ g.nextGroup++, args.substr(0, 40), false });
+		else if (what == "rename" || what == "delfolder" || what == "collapse") {
+			std::istringstream a(args);
+			int id = -1;
+			a >> id;
+			std::string tail;
+			std::getline(a, tail);
+			if (!tail.empty() && tail[0] == ' ') tail.erase(0, 1);
+			if (what == "collapse" && id < 0) m.rootCollapsed = std::atoi(tail.c_str()) != 0;
+			for (size_t i = 0; i < m.groups.size(); ++i) {
+				if (m.groups[i].id != id) continue;
+				if (what == "rename" && !tail.empty()) m.groups[i].name = tail.substr(0, 40);
+				else if (what == "collapse") m.groups[i].collapsed = std::atoi(tail.c_str()) != 0;
+				else if (what == "delfolder") {
+					m.groups.erase(m.groups.begin() + (long)i);
+					for (auto& d : g.library)
+						if (d.group == id) d.group = -1;
+				}
+				break;
+			}
+		} else if (what == "assign") {
+			std::istringstream a(args);
+			int id = -1;
+			a >> id;
+			std::string key;
+			std::getline(a, key);
+			if (!key.empty() && key[0] == ' ') key.erase(0, 1);
+			for (auto& d : g.library)
+				if (d.key == key) d.group = id;
+		}
+	}
+	// refresh, adddemo, addfolder and openfolder have nothing to stand in for: a scan, Windows' pickers
+	// and Explorer are the game's. They are logged above.
+}
+
+// Each frame: a stand-in conversion finishing plays its demo, as SourceOldDemos.cpp does.
+void StandInDemosFrame() {
+	if (g.convertIndex >= 0 && emscripten_get_now() >= g.convertDoneMs) {
+		if (DemosBrowserMath::DemoRow* d = StandInDemo(g.convertIndex)) d->compat = DemosBrowserMath::Compat::Converted;
+		g.convertIndex = -1;
+		g.demo.playing = true;
+		g.demo.tick = 0;
+		OpenDemos(false, "old demo converted and playing");
+	}
+}
+
+// The main menu while no demo plays: the backdrop dimmed, a few menu lines where CS:S puts them,
+// and the DEMOS button.
+void DrawMainMenu(ImDrawList* list) {
+	const float s = (float)g.height / kStageHeight;
+	list->AddRectFilled(ImVec2(0, 0), ImVec2((float)g.width, (float)g.height), IM_COL32(0, 0, 0, 120));
+	ImFont* body = g.fonts.Get(FontRole::Body);
+	const char* items[] = { "Find Servers", "Create Server", "Achievements", "Options", "Quit" };
+	float y = g.height * 0.55f;
+	for (const char* item : items) {
+		list->AddText(body, body->FontSize * 1.2f, ImVec2(64 * s, y), IM_COL32(221, 221, 221, 230), item);
+		y += body->FontSize * 1.9f;
+	}
+}
+
 // Renders a draw list built outside the ImGui frame through the same backend as the UI.
 void RenderList(ImDrawList& list) {
 	ImDrawData data;
@@ -1233,6 +1432,15 @@ void Frame() {
 
 	ImGui::NewFrame();
 	AdvanceDemo(io.DeltaTime);
+	StandInDemosFrame();
+	DemosBrowserFrame demosFrame;
+	const bool mainMenu = MainMenu();
+	if (g.demosOpen) {
+		BuildDemosModel();
+		demosFrame = DrawDemosBrowser(g.demosState, g.fonts, (float)g.width, (float)g.height, g.demos);
+	} else if (mainMenu) {
+		g.menuButton = DrawDemosMenuButton(g.fonts, (float)g.width, (float)g.height, g.menuButtonHover);
+	}
 	DemoBarModel demo;
 	BuildDemoModel(demo);
 	CameraEditorFrame frame;
@@ -1261,6 +1469,8 @@ void Frame() {
 	if ((g.editor.open || director) && !g.director.blackout)
 		DrawCardAndBanner(g.editor.open ? frame.previewClient : MakeRect(0, 0, (float)g.width, (float)g.height), cardActions);
 	ImGui::Render();
+	for (const std::string& command : demosFrame.commands) StandInDemosCommand(command);
+	if (demosFrame.close) OpenDemos(false, "close chip");
 	ApplyCardActions(cardActions);
 	ApplyDemoActions(frame.demoActions);
 	ApplyDemoActions(directorFrame.demoActions);
@@ -1283,8 +1493,9 @@ void Frame() {
 	const Rect gameRect = g.editor.open ? frame.previewClient : MakeRect(0, 0, (float)g.width, (float)g.height);
 	DrawGame(&game, gameRect);
 	if (StandInWorldShown() && !g.director.blackout && (g.editor.open || director)) DrawStandInPath(game, gameRect, g.fonts.Get(FontRole::Display));
+	if (!g.demo.playing && !g.editor.open) DrawMainMenu(&game);
 	RenderList(game);
-	if (g.editor.open || director) ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+	if (g.editor.open || director || g.demosOpen || mainMenu) ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 	if (frame.exitClicked) Close("exit chip");
 }
@@ -1374,6 +1585,19 @@ int DirectorMouseEvent(int type, int button, float x, float y, float wheel, int 
 // positive away from the user); mods: 1 Ctrl, 2 Shift. Returns where the event went: 0 the UI,
 // 1 the game, 2 nowhere.
 EMSCRIPTEN_KEEPALIVE int mockup_mouse(int type, int button, float x, float y, float wheel, int mods) {
+	if (g.demosOpen) { // the page has the whole window and the mouse, as in game
+		ImGuiIO& io = ImGui::GetIO();
+		io.AddMousePosEvent(x, y);
+		if (type == 1 || type == 2) io.AddMouseButtonEvent(button, type == 1);
+		if (type == 3) io.AddMouseWheelEvent(0.0f, wheel);
+		return 0;
+	}
+	if (MainMenu()) { // only the DEMOS button is ours; the rest is the game's menu
+		const bool over = g.menuButton.Contains(x, y);
+		g.menuButtonHover = over;
+		if (type == 1 && button == 0 && over) OpenDemos(true, "menu button");
+		return over ? 0 : 1;
+	}
 	if (!g.editor.open) return DirectorActive() ? DirectorMouseEvent(type, button, x, y, wheel, mods) : 1;
 	ImGuiIO& io = ImGui::GetIO();
 	const int64_t now = (int64_t)emscripten_get_now();
@@ -1435,6 +1659,14 @@ EMSCRIPTEN_KEEPALIVE void mockup_motion(float dx, float dy) {
 
 // A key, as a DOM keyCode (the Windows virtual-key number). Returns 1 when the workspace used it.
 EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
+	if (g.demosOpen) { // Esc closes what is open on the page, then the page; every key is the page's
+		if (WorkspaceKeyFor(vk, true) == WorkspaceKey::Close) {
+			if (down && !repeat && !DemosBrowserEscape(g.demosState)) OpenDemos(false, "esc");
+			return 1;
+		}
+		FeedImGuiKey(ImGui::GetIO(), vk, down != 0);
+		return 1;
+	}
 	if ((g.editor.open && !ConfigOpen()) || DirectorActive()) { // the camera path's keys come first, in both places
 		if (g.path.repositioning && (vk == 'F' || vk == 27)) { // F drops the camera, Esc cancels
 			if (down && !repeat) {
@@ -1490,7 +1722,7 @@ EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
 
 // A typed character, for a text field that is taking typing (the game gets WM_CHAR).
 EMSCRIPTEN_KEEPALIVE int mockup_char(int codepoint) {
-	if (!g.editor.open || !ImGui::GetIO().WantTextInput) return 0;
+	if (!(g.editor.open || g.demosOpen) || !ImGui::GetIO().WantTextInput) return 0;
 	ImGui::GetIO().AddInputCharacter((unsigned)codepoint);
 	return 1;
 }
@@ -1514,6 +1746,7 @@ EMSCRIPTEN_KEEPALIVE void mockup_lock_lost() {
 
 // 0 while the UI has the mouse; otherwise the game has it (the page locks the pointer).
 EMSCRIPTEN_KEEPALIVE int mockup_mode() {
+	if (g.demosOpen) return 0;
 	if (g.editor.open) return (int)g.mouse.GetMode();
 	return DirectorActive() && g.directorMouse.GetMode() == DirectorMode::Look ? (int)Mode::Look : 0;
 }
@@ -1617,6 +1850,22 @@ EMSCRIPTEN_KEEPALIVE const char* mockup_command(const char* command) {
 		g.reply = std::string("config: ") + (ConfigOpen() ? "open" : "closed") + ", card " + ConfigCardName(g.editor.config.card);
 		return g.reply.c_str();
 	}
+	if (0 == std::strncmp(action, "demos", 5)) { // the demos browser: on | off | toggle | state, or a page command
+		const char* what = action + 5;
+		while (*what == ' ') ++what;
+		if (0 == std::strcmp(what, "on")) OpenDemos(true, "command");
+		else if (0 == std::strcmp(what, "off")) OpenDemos(false, "command");
+		else if (0 == std::strcmp(what, "toggle")) OpenDemos(!g.demosOpen, "command");
+		else if (*what && 0 != std::strcmp(what, "state")) StandInDemosCommand(what);
+		BuildDemosModel();
+		char buf[256];
+		std::snprintf(buf, sizeof(buf), "demos: %s, %d listed, %d hidden, %d folders, sort %s, selected %s%s",
+			g.demosOpen ? "open" : "closed", (int)g.demos.demos.size(), g.demos.hidden, (int)g.demos.groups.size(),
+			g.demos.sort.c_str(), g.demosState.selected.empty() ? "none" : g.demosState.selected.c_str(),
+			g.convertIndex >= 0 ? ", converting" : "");
+		g.reply = buf;
+		return g.reply.c_str();
+	}
 	if (0 == std::strncmp(action, "editor", 6)) action += 6;
 	while (*action == ' ') ++action;
 	const bool editorOpen = g.editor.open && !ConfigOpen();
@@ -1659,6 +1908,7 @@ int main() {
 	emscripten_webgl_make_context_current(g.gl);
 	emscripten_set_canvas_element_size("#canvas", g.width, g.height);
 	SeedFollow();
+	SeedDemos();
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();

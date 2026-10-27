@@ -6,6 +6,7 @@
 #include "SourceCapture.h"
 #include "SourceConfig.h"
 #include "SourceDemoBar.h"
+#include "SourceDemos.h"
 #include "SourceDirector.h"
 #include "SourceEngine.h"
 #include "SourceFollowCamera.h"
@@ -13,6 +14,7 @@
 #include "SourceTimelineDock.h"
 
 #include "Ui/CameraEditorShell.h"
+#include "Ui/DemosBrowser.h"
 #include "Ui/DirectorHud.h"
 #include "Ui/DirectorMouse.h"
 #include "Ui/MarkerPopup.h"
@@ -99,6 +101,10 @@ struct Host {
 	MarkerCardState markerCard;    // the CAMERA MARKER card (F on an aimed marker)
 	int64_t repositionPressAt = -1; // a left press while repositioning outside the editor, ms
 	std::unique_ptr<ImDrawList> worldList; // the camera path in the world, built with each rendered view
+	DemosBrowserState demos;      // the demos browser page
+	DemosBrowserModel demosModel; // what it lists (SourceDemos.cpp rebuilds it when something changed)
+	Rect menuButton;              // the main menu's DEMOS button, last frame; empty while it is not shown
+	bool menuButtonHover = false;
 	unsigned worldFrames = 0;
 	int worldVertices = 0;
 	int64_t worldLogAt = 0;
@@ -109,6 +115,8 @@ Host g;
 std::atomic<bool> g_open{ false };   // a workspace is open
 std::atomic<bool> g_config{ false }; // and it is Config
 std::atomic<bool> g_director{ false }; // the movie director runs (a demo, no workspace)
+std::atomic<bool> g_demos{ false };    // the demos browser is open
+std::atomic<bool> g_menu{ false };     // the main menu shows the DEMOS button
 std::atomic<bool> g_uiOwnsMouse{ false };
 std::atomic<bool> g_markerMenu{ false }; // the CAMERA MARKER card is up: every press and notch is the card's
 
@@ -212,6 +220,110 @@ void Close(const char* reason) {
 	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("ui.editor", "close reason=%s", reason);
 }
 
+// The demos browser: a full page over the main menu (or over the game, from the console) that has the
+// mouse and the keys until ESC or a demo plays. Opening it closes a workspace and looks for demos again.
+void OpenDemos(const char* reason) {
+	if (g_demos.load()) return;
+	Close("demos browser");
+	g_demos.store(true);
+	g_uiOwnsMouse.store(true);
+	g.haveGameCursor = false;
+	ShowArrow(true);
+	Demos_Command("refresh");
+	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("ui.demos", "open reason=%s", reason);
+}
+
+void CloseDemos(const char* reason) {
+	if (!g_demos.load()) return;
+	g_demos.store(false);
+	while (DemosBrowserEscape(g.demos)) {} // nothing half-done is left open for the next time
+	if (!g_director.load()) {
+		g_uiOwnsMouse.store(false);
+		ShowArrow(false);
+	}
+	Publish(nullptr);
+	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("ui.demos", "close reason=%s", reason);
+}
+
+// The page has every mouse button, the wheel and the keys (Alt combinations stay the game's, so Alt+F4
+// still quits). ESC closes what is open on the page, then the page.
+bool OnDemosMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+	ImGuiIO* io = g.context ? &ImGui::GetIO() : nullptr;
+	const float x = (float)GET_X_LPARAM(lParam), y = (float)GET_Y_LPARAM(lParam);
+	switch (msg) {
+	case WM_KEYDOWN:
+		if (WorkspaceKeyFor((int)wParam, true) == WorkspaceKey::Close) {
+			if (!(lParam & (1 << 30)) && !DemosBrowserEscape(g.demos)) CloseDemos("esc");
+			return true;
+		}
+		if (io) FeedImGuiKey(*io, (int)wParam, true);
+		return true;
+	case WM_KEYUP:
+		if (io) FeedImGuiKey(*io, (int)wParam, false);
+		return true;
+	case WM_CHAR:
+		if (io && io->WantTextInput) io->AddInputCharacterUTF16((unsigned short)wParam);
+		return true;
+	case WM_SETCURSOR:
+		if (LOWORD(lParam) != HTCLIENT) return false;
+		SetCursor(LoadCursor(nullptr, IDC_ARROW));
+		return true;
+	case WM_MOUSEMOVE:
+		if (io) io->AddMousePosEvent(x, y);
+		return true;
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONDBLCLK:
+	case WM_LBUTTONUP:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONDBLCLK:
+	case WM_RBUTTONUP:
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONUP: {
+		const bool down = msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK || msg == WM_RBUTTONDOWN || msg == WM_RBUTTONDBLCLK
+			|| msg == WM_MBUTTONDOWN;
+		const int button = (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK || msg == WM_LBUTTONUP) ? 0
+			: ((msg == WM_RBUTTONDOWN || msg == WM_RBUTTONDBLCLK || msg == WM_RBUTTONUP) ? 1 : 2);
+		if (io) {
+			io->AddMousePosEvent(x, y);
+			io->AddMouseButtonEvent(button, down);
+		}
+		if (Filmmaker::MvmDebugLog_Active())
+			Filmmaker::MvmDebugLog_Linef("ui.input", "demos msg=0x%x x=%.0f y=%.0f", msg, x, y);
+		return true;
+	}
+	case WM_MOUSEWHEEL:
+		if (io) io->AddMouseWheelEvent(0.0f, (float)GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA);
+		return true;
+	default:
+		return false;
+	}
+}
+
+// The main menu's DEMOS button: a click on it opens the browser; everything else is the game's menu.
+bool OnMenuButtonMessage(UINT msg, LPARAM lParam) {
+	const float x = (float)GET_X_LPARAM(lParam), y = (float)GET_Y_LPARAM(lParam);
+	const bool over = g.menuButton.Contains(x, y);
+	switch (msg) {
+	case WM_MOUSEMOVE:
+		g.menuButtonHover = over;
+		return false;
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONDBLCLK:
+		if (over) OpenDemos("menu button");
+		return over;
+	case WM_LBUTTONUP:
+		return over;
+	default:
+		return false;
+	}
+}
+
+// The main menu with no map or demo loaded, and the console shut.
+bool MainMenuShown() {
+	return g_VEngineClient && !g_VEngineClient->IsConnected() && !g_VEngineClient->IsPlayingDemo() && !g_VEngineClient->IsInGame()
+		&& !g_VEngineClient->Con_IsVisible();
+}
+
 // The director's cursor side: while it is free the arrow shows and the game gets no mouse; a look
 // gives the game the mouse, and its end puts the cursor back where the press was.
 void ApplyDirectorMode(DirectorMode before, const char* reason) {
@@ -244,7 +356,7 @@ void LeaveDirector() {
 	g_director.store(false);
 	g.directorMouse.Reset();
 	g.bar = Rect();
-	if (!g_open.load()) { // a workspace that opened keeps the mouse
+	if (!g_open.load() && !g_demos.load()) { // a workspace or the demos browser that opened keeps the mouse
 		g_uiOwnsMouse.store(false);
 		ShowArrow(false);
 		Publish(nullptr);
@@ -398,6 +510,39 @@ bool OnDirectorMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
 void DrawMarkerPopups(const Rect& gameArea, float w, float h, std::vector<MarkerCardAction>& actions);
 void ApplyMarkerActions(const std::vector<MarkerCardAction>& actions);
+
+// The demos browser's frame: the page, then what it asked for.
+void DemosFrameBuild(float w, float h) {
+	Demos_BuildModel(g.demosModel);
+	ImGui::NewFrame();
+	const DemosBrowserFrame frame = DrawDemosBrowser(g.demos, g.fonts, w, h, g.demosModel);
+	ImGui::Render();
+	++g.frames;
+	bool close = frame.close;
+	for (const std::string& command : frame.commands) {
+		if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("ui.demos", "command %s", command.c_str());
+		if (Demos_Command(command)) close = true;
+	}
+	if (Demos_PageDone()) close = true;
+	if (close) {
+		CloseDemos(frame.close ? "close chip" : "demo playing");
+		return;
+	}
+	std::shared_ptr<DrawSnapshot> snapshot = TakeSnapshot(ImGui::GetDrawData());
+	snapshot->letterbox = false;
+	Publish(std::move(snapshot));
+}
+
+// The main menu's frame: the DEMOS button alone.
+void MenuButtonFrame(float w, float h) {
+	ImGui::NewFrame();
+	g.menuButton = DrawDemosMenuButton(g.fonts, w, h, g.menuButtonHover);
+	ImGui::Render();
+	++g.frames;
+	std::shared_ptr<DrawSnapshot> snapshot = TakeSnapshot(ImGui::GetDrawData());
+	snapshot->letterbox = false;
+	Publish(std::move(snapshot));
+}
 
 // The director's frame: the bar and the cards over the game.
 void DirectorFrameBuild(float w, float h) {
@@ -788,7 +933,11 @@ void ApplyPathActions(const std::vector<PathInspectorAction>& actions) {
 
 bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	if (!g.window) g.window = hwnd;
-	if (!g_open.load()) return g_director.load() && OnDirectorMessage(msg, wParam, lParam);
+	if (g_demos.load()) return OnDemosMessage(msg, wParam, lParam);
+	if (!g_open.load()) {
+		if (g_menu.load() && OnMenuButtonMessage(msg, lParam)) return true;
+		return g_director.load() && OnDirectorMessage(msg, wParam, lParam);
+	}
 
 	switch (msg) {
 	case WM_KEYDOWN:
@@ -877,12 +1026,21 @@ void Ui_MainThreadFrame() {
 	Director_Frame();
 	TimelineDock_SetEnabled(g_open.load() && g.editor.dock == DockTab::Timeline);
 	if (!g.window) return;
-	const bool director = !g_open.load() && Director_Wanted();
+	const bool director = !g_open.load() && !g_demos.load() && Director_Wanted();
 	if (director != g_director.load()) {
 		if (director) EnterDirector();
 		else LeaveDirector();
 	}
-	if (!g_open.load() && !director) return;
+	const bool menu = !g_open.load() && !g_demos.load() && !director && MainMenuShown();
+	if (menu != g_menu.load()) {
+		g_menu.store(menu);
+		if (!menu) {
+			g.menuButton = Rect();
+			g.menuButtonHover = false;
+			Publish(nullptr);
+		}
+	}
+	if (!g_open.load() && !director && !g_demos.load() && !menu) return;
 	RECT rc;
 	if (!GetClientRect(g.window, &rc)) return;
 	const float w = (float)(rc.right - rc.left), h = (float)(rc.bottom - rc.top);
@@ -898,6 +1056,14 @@ void Ui_MainThreadFrame() {
 	float dt = g.frequency.QuadPart > 0 ? (float)(now.QuadPart - g.lastTime.QuadPart) / (float)g.frequency.QuadPart : 0.0f;
 	g.lastTime = now;
 	io.DeltaTime = dt > 0.0f ? (dt < 0.25f ? dt : 0.25f) : 1.0f / 60.0f;
+	if (g_demos.load()) {
+		DemosFrameBuild(w, h);
+		return;
+	}
+	if (menu) {
+		MenuButtonFrame(w, h);
+		return;
+	}
 	if (director) {
 		DirectorFrameBuild(w, h);
 		return;
@@ -1072,6 +1238,7 @@ void Ui_PrintOverlayHealth() {
 }
 
 bool Ui_SuspendMirvInput() {
+	if (g_demos.load()) return true;
 	if (g_open.load()) return g.mouse.GetMode() == Mode::Ui;
 	return g_director.load() && g.directorMouse.GetMode() == DirectorMode::Free;
 }
@@ -1101,6 +1268,23 @@ void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args) {
 		g.fonts.ok ? "ok" : (g.fonts.scale > 0 ? "FALLBACK" : "not built"), g.fonts.scale, g.frames);
 	if (g_open.load() && g.editor.dock == DockTab::RegularTimeline)
 		advancedfx::Message("demo bar: %s\n", DemoBarLayoutText(g.editor.demoBar.layout).c_str());
+}
+
+void Ui_DemosCommand(int argc, advancedfx::ICommandArgs* args) {
+	const char* action = argc >= 3 ? args->ArgV(2) : "state";
+	if (0 == _stricmp(action, "on")) OpenDemos("command");
+	else if (0 == _stricmp(action, "off")) CloseDemos("command");
+	else if (0 == _stricmp(action, "toggle")) { if (g_demos.load()) CloseDemos("command"); else OpenDemos("command"); }
+	else if (0 != _stricmp(action, "state")) {
+		if (Demos_ConsoleCommand(argc, args)) CloseDemos("demo playing");
+		return;
+	}
+	Demos_BuildModel(g.demosModel);
+	const DemosBrowserModel& m = g.demosModel;
+	advancedfx::Message("demos: %s, %d listed, %d removed, %d folders, sort %s, selected %s%s; menu button %s (%.0f %.0f %.0f %.0f)\n",
+		g_demos.load() ? "open" : "closed", (int)m.demos.size(), m.hidden, (int)m.groups.size(), m.sort.c_str(),
+		g.demos.selected.empty() ? "none" : g.demos.selected.c_str(), m.scanning ? ", scanning" : "",
+		g_menu.load() ? "shown" : "hidden", g.menuButton.x0, g.menuButton.y0, g.menuButton.x1, g.menuButton.y1);
 }
 
 void Ui_ConfigCommand(int argc, advancedfx::ICommandArgs* args) {

@@ -20,7 +20,16 @@ void OldDemos_Frame();
 void OldDemos_PrintHealth();
 
 // The demo the user played, for a demo the engine plays: a converted copy's original, else the name
-// itself. Both relative to the game directory, '/' separated.
+// itself. Both relative to the game directory (or absolute, for a demo outside it), '/' separated.
 std::string OldDemos_PlayedName(const std::string& engineName);
+
+// The old demo name (relative to gameDir, or absolute) has its converted copy ready. Any thread.
+bool OldDemos_Converted(const std::string& gameDir, const std::string& name);
+
+// A conversion is running.
+bool OldDemos_Busy();
+
+// The last finished conversion's console line; true when it worked (the copy then plays).
+bool OldDemos_Last(std::string& message);
 
 } // namespace SourceFilmmaker

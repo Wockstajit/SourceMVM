@@ -121,6 +121,7 @@ the hook converts them first. See [Old demos](#old-demos).
 | `mirv_filmmaker entities [all] [class]` | One line per entity: index, handle, network class, origin, angles, team, and its links (owner, weapon owner, thrower, active weapon, ragdoll, the ragdoll's player). `all` includes dormant ones |
 | `mirv_filmmaker entities watch <class>\|eye\|off` | Logs (`mvm_debug`, `entities.watch`) each entity of a matching class the frame it appears and the frame it goes. `eye` logs the spectated player's view height in first person instead (`entities.eye`) |
 | `mirv_filmmaker entities releases <index>` | Logs (`mvm_debug`, `entities.release`) every deletion of an entity of that entity's class, with the entity and the three calls that led to it as module and offset: `engine.dll` for a demo packet that deletes it, `client.dll` for the client deleting it on its own. One class per game session |
+| `mirv_filmmaker demos on\|off\|toggle\|state` | The [demos browser](#demos-browser). `demos` alone lists its library commands: `list`, `folders`, `addfolder [path]`, `removefolder <i>`, `hidden`, and the page's own |
 | `mirv_filmmaker editor on\|off\|toggle\|state` | The Camera Editor workspace. `state` reports the mouse mode, tabs, preview rect and fonts, and where each demo bar control is |
 | `mirv_filmmaker loop on\|off\|toggle\|state` | LOOP playback, as the demo bar's LOOP button does |
 | `mirv_filmmaker seek <tick>` | Go to a demo tick the way the demo bar does (back = restart, then forward) |
@@ -962,6 +963,72 @@ read back from the module; a tooltip showed on the row; the Handheld row's switc
 with the module's own Drift 35% and Motion Curves 75%; the demo bar's CAM EDITOR swapped to the
 editor; and RESET CAMERA turned both layers off.
 
+## Demos browser
+
+CS2's demos page (the Watch page's Downloaded tab, which SOURCE:MVM takes over) is a full page here,
+drawn by the hook over the main menu. The page is `Filmmaker/Ui/DemosBrowser.cpp`, with its list
+rules in `Ui/DemosBrowserMath.h`; the library behind it is `Filmmaker/SourceDemos.cpp`.
+
+- The main menu's DEMOS button, at the top right, opens it. The button is hidden while the console
+  is open and while a map or demo is loaded. `mirv_filmmaker demos on|off|toggle|state` opens and
+  closes it from the console, over a playing demo too. The page has the mouse and the keys while it
+  is up (Alt combinations stay the game's, so Alt+F4 still quits). ESC closes what is open on the
+  page (a question, a menu, a field, the search), then the page.
+- It lists every demo under `cstrike`, in all its folders, and in the folders and files the user
+  added. A worker thread scans when the game starts and each time the page opens. Each demo is read
+  for its 1072-byte header only: map, length, ticks, who recorded it and the server. The date is the
+  file's write time, because a CS:S demo has no match time. The converted copies of
+  [old demos](#old-demos) (`source_mvm/converted`) are not listed.
+- The rail has the sort (Recently played, Newest first, Oldest first, Map name, Demo name), the +
+  menu (New folder, Add demo file, Add demo folder, and Show removed demos while some are removed),
+  and the demos as tiles under the user's folders. A click on a folder header collapses it, and a
+  right click offers Rename folder and Delete folder. A tile dragged onto a header goes into that
+  folder. A tile's right-click menu renames the demo, moves it into or out of a folder, and says when
+  it was last played. The demo played last has an orange edge.
+- Old v34 demos carry a V34 tag: gold until their first play converts them, green once the converted
+  copy is ready. A demo of another protocol, or one with no readable header, carries a ? and cannot
+  be watched.
+- The right side shows the selected demo: its name (click it to rename the file), its folder, Map,
+  Length and Date, and what its header says (map file, recorded by, server, ticks and tick rate,
+  version, last played, file). WATCH plays it. A loaded map or demo is left first, and for an old
+  demo the page stays up with CONVERTING until its copy plays. The folder button shows the file in
+  Explorer. The trash button asks, then removes the demo from the list. No file is ever deleted.
+- SEARCH jumps to a demo by map, name, recorder or server (12 matches at most, opening a shut
+  folder). REFRESH scans again. CLEAR ALL asks, then removes every demo from the list.
+
+Renaming moves the `.dem` first. When that fails (for example the demo is playing), nothing else
+changes and the page's header says why. Otherwise the demo's folder, last-played time and project
+folder (`source_mvm\demos\css`) follow it to the new name, and the list is scanned again.
+
+The user's side is kept by CS2's stores (`AfxHookSource2/Filmmaker/Config/`), under CS:S's own file
+names in `%APPDATA%\HLAE\`, so the two games' lists stay apart:
+
+| File | What it holds |
+| --- | --- |
+| `filmmaker_demo_folders_source1.txt` | Folders added to the scan |
+| `filmmaker_demo_files_source1.txt` | Demos added one at a time |
+| `filmmaker_hidden_demos_source1.txt` | Demos removed from the list. Adding their folder again brings them back |
+| `filmmaker_demo_organizer_source1.txt` | The sort, the user's folders, and each demo's folder and last-played time |
+
+Last played counts every demo that starts, from the page or from the console, checked once a second
+as CS2 does.
+
+`mirv_filmmaker demos` also takes the library's commands. `list` prints each demo's index, map,
+length, protocol, whether it plays here, and file. `folders` and `hidden` print the scanned folders
+and the removed demos. `addfolder [path]` adds a folder (Windows' folder picker without a path), and
+`removefolder <i>` drops one. The page's own commands work too: `refresh`, `clearall`, `unhideall`,
+`adddemo`, `watch <i>`, `hide <i>`, `openfolder <i>`, `renamedemo <i> <name>`, and CS2's organiser
+lines `org sort|newfolder|rename|delfolder|collapse|assign`. `<i>` is the index `list` prints.
+`health` has a `demos:` line, and `mvm_debug` logs the page's commands (`ui.demos`) and the
+library's notes (`demos`).
+
+Checked in CS:S on 2026-10-27: the scan found 64 demos in 273 ms. WATCH on `mvm_css_nades` played
+it and closed the page. An old v34 demo (`DFS_fMR_dust2_3kAWP_OLD_POV`) converted in 20 ms, played,
+and the page closed. Back at the menu, `mvm_css_nades` showed Last played "just now". From the
+console, adding a folder listed the demo in it, a rename changed the file on disk, `hide` and
+`unhideall` removed the demo and brought it back, `removefolder` dropped the folder, and the
+organiser file held the new sort and folder.
+
 ## Old demos
 
 Most classic CS:S movie demos were recorded before the Orange Box engine update, on the "v34"
@@ -974,7 +1041,9 @@ demo, for example `playdemo replays/old_match`:
   took 46 ms, reading the map included.
 - The copy goes to `cstrike/source_mvm/converted/`, under the same path as the original, with a
   `.src` stamp beside it: the original's size and write time and the converter version. Later
-  plays reuse the copy until the original or the converter changes.
+  plays reuse the copy until the original or the converter changes. A demo outside the game folder
+  is copied to `converted/outside-game-dir/`, under its drive letter and path. The
+  [demos browser](#demos-browser) tags each old demo V34, green once its copy is ready.
 - The console reports each conversion, for example `converted replays/x.dem (old CS:S v34 demo) in
   46 ms: 2959 frames, map de_dust2, brushes 3 kept, 0 moved, 1 gone`. `health` shows the last one on
   its `old demos:` line.
@@ -1061,6 +1130,7 @@ The engine-free part lives in `AfxHookSource/Filmmaker/Ui/`:
 | `UiTheme.h` | CS:S colours (ClientScheme / SourceScheme), Verdana and Tahoma, and CS2's UI metrics |
 | `UiStyle.cpp`, `UiWidgets.cpp` | The ImGui style, fonts at the stage scale, CS2's text tabs and chips |
 | `CameraEditorShell.cpp` | The workspaces: preview, inspector tabs, dock ribbon, ESC EXIT, with the Camera Editor's or Config's column |
+| `DemosBrowser.cpp`, `DemosBrowserMath.h` | The demos browser page and the main menu's DEMOS button; the list's order, folders, sorts, search and the text it derives |
 | `ConfigInspector.cpp` | Config's CAMERA tab: the rail with its switches, the cards, the curve lists, tooltips and the pinned footer |
 | `InspectorCards.cpp` | CS2's inspector card grammar: rail rows with badges or switches, card header with an optional master switch, value, mode, action, switch and dropdown rows, key strip |
 | `PathInspector.cpp` | The PATH CAMERA tab and its Clear all dialog |
@@ -1087,7 +1157,8 @@ The mouse follows CS2's workspace rules (`UiClickMath.h`, shared with CS2):
 - ESC closes the workspace.
 
 `mvm_debug` logs every button the UI sees (`ui.input`), mode changes (`ui.mouse`), hover changes
-(`ui.hover`), the font build (`ui.fonts`) and open and close (`ui.editor`).
+(`ui.hover`), the font build (`ui.fonts`), open and close (`ui.editor`), and the demos browser
+(`ui.demos`).
 
 `Automation\capture\send-click.ps1 -Process cstrike_win64 -Button Left|Right -HoldMs <ms>` drives
 the UI with real window messages. Post from a per-monitor DPI-aware thread, as that script does:
