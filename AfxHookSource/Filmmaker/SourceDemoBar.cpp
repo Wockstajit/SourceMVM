@@ -163,6 +163,9 @@ bool DemoBar_Apply(const std::vector<DemoBarAction>& actions) {
 		case DemoBarAction::Kind::ToggleLoop:
 			DemoBar_LoopCommand("toggle");
 			break;
+		case DemoBarAction::Kind::LoopRange:
+			DemoBar_SetLoop(action.tick, (int)action.value);
+			break;
 		case DemoBarAction::Kind::CameraEditor:
 			cameraEditor = true;
 			break;
@@ -208,14 +211,30 @@ void DemoBar_Frame() {
 	}
 }
 
+void DemoBar_SetLoop(int in, int out) {
+	const DemoState demo = Demo_State();
+	const DemoBarMath::LoopRegion r = DemoBarMath::LoopFromFlags(in < 0 ? 0 : in, out < 0 ? 0 : out);
+	g.loop = r;
+	if (demo.totalTicks > 0 && g.loop.out > demo.totalTicks) g.loop.out = demo.totalTicks;
+	if (!g.loop.Valid()) g.loop = r;
+	g.wrapPending = false;
+	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("demo.loop", "range in=%d out=%d", g.loop.in, g.loop.out);
+}
+
 void DemoBar_LoopCommand(const char* action) {
 	const DemoState demo = Demo_State();
 	bool on = g.loopOn;
+	if (0 == _strnicmp(action, "range ", 6)) { // range <in> <out>
+		int in = 0, out = 0;
+		if (std::sscanf(action + 6, "%d %d", &in, &out) == 2) DemoBar_SetLoop(in, out);
+		advancedfx::Message("loop: %s, in %d, out %d\n", g.loopOn ? "on" : "off", g.loop.in, g.loop.out);
+		return;
+	}
 	if (0 == _stricmp(action, "on")) on = true;
 	else if (0 == _stricmp(action, "off")) on = false;
 	else if (0 == _stricmp(action, "toggle")) on = !on;
 	else if (0 != _stricmp(action, "state")) {
-		advancedfx::Message("mirv_filmmaker loop on|off|toggle|state\n");
+		advancedfx::Message("mirv_filmmaker loop on|off|toggle|state | range <in> <out>\n");
 		return;
 	}
 	if (on && !g.loopOn) {

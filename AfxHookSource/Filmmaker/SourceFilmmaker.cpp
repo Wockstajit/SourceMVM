@@ -227,7 +227,9 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 	} else if (0 == _stricmp(sub, "editor")) {
 		SourceFilmmaker::Ui_EditorCommand(argc, args);
 	} else if (0 == _stricmp(sub, "loop")) {
-		SourceFilmmaker::DemoBar_LoopCommand(argc >= 3 ? args->ArgV(2) : "state");
+		std::string action = argc >= 3 ? args->ArgV(2) : "state";
+		for (int i = 3; i < argc; ++i) action += std::string(" ") + args->ArgV(i); // range <in> <out>
+		SourceFilmmaker::DemoBar_LoopCommand(action.c_str());
 	} else if (0 == _stricmp(sub, "seek") && argc >= 3) {
 		SourceFilmmaker::DemoBar_SeekTo(atoi(args->ArgV(2)));
 	} else if (0 == _stricmp(sub, "hud")) {

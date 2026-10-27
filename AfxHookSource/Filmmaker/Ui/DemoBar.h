@@ -55,10 +55,10 @@ struct DemoBarModel {
 };
 
 struct DemoBarAction {
-	enum class Kind { TogglePause, Seek, Speed, ToggleLoop, CameraEditor, NextCamera };
+	enum class Kind { TogglePause, Seek, Speed, ToggleLoop, LoopRange, CameraEditor, NextCamera };
 	Kind kind = Kind::TogglePause;
-	int tick = 0;      // Seek
-	double value = 0;  // Speed
+	int tick = 0;      // Seek; LoopRange's In
+	double value = 0;  // Speed; LoopRange's Out
 };
 
 // Where each control was drawn last frame, client px. Hosts report it (mirv_filmmaker editor state,
@@ -77,6 +77,11 @@ struct DemoBarUi {
 	float dialPressX = 0;
 	double dialValue = 0.5;
 	double lastSentSpeed = 0;
+	int loopFlag = -1;          // the LOOP flag being dragged: 0 In, 1 Out
+	double loopFrac[2] = { 0, 0 };
+	double loopAnchorFrac = 0;
+	float loopAnchorX = 0;
+	bool loopAnchorFine = false;
 	DemoBarLayout layout;
 };
 

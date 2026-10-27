@@ -93,6 +93,20 @@ static void TestLoop() {
 	CHECK(r.in == 0 && r.out == 100);
 	r = SeedLoop(1000, 4410);
 	CHECK(!LoopWraps(r, 1319, true) && LoopWraps(r, 1320, true) && !LoopWraps(r, 1400, false));
+
+	// The flags: crossing swaps their roles, a region keeps a tick, the drag is relative and fine
+	// with Shift, and a tab sits outside the region until that would leave the bar.
+	r = LoopFromFlags(900, 300);
+	CHECK(r.in == 300 && r.out == 900);
+	r = LoopFromFlags(500, 500);
+	CHECK(r.in == 500 && r.out == 501);
+	CHECK(std::fabs(LoopFlagDrag(0.25, 100, 150, 1000, false) - 0.30) < 1e-9);
+	CHECK(std::fabs(LoopFlagDrag(0.25, 100, 260, 1000, true) - 0.26) < 1e-9);
+	CHECK(LoopFlagDrag(0.9, 0, 500, 1000, false) == 1.0 && LoopFlagDrag(0.1, 500, 0, 1000, false) == 0.0);
+	CHECK(LoopFlagTabX(200, true, 0, 1000, 15, 2) == 200 - 1 - 15);
+	CHECK(LoopFlagTabX(200, false, 0, 1000, 15, 2) == 201);
+	CHECK(LoopFlagTabX(5, true, 0, 1000, 15, 2) == 6);       // no room left of the bar: inside
+	CHECK(LoopFlagTabX(995, false, 0, 1000, 15, 2) == 979);  // no room right of it: inside
 	CHECK(!LoopWraps(LoopRegion(), 50, true));
 }
 

@@ -352,6 +352,11 @@ void ApplyDemoActions(const std::vector<DemoBarAction>& actions) {
 			}
 			LogLine("demo.bar", d.loopOn ? "loop on" : "loop off");
 			break;
+		case DemoBarAction::Kind::LoopRange:
+			d.loop.in = a.tick;
+			d.loop.out = (int)a.value;
+			LogLine("demo.loop", ("range " + std::to_string(a.tick) + " " + std::to_string((int)a.value)).c_str());
+			break;
 		case DemoBarAction::Kind::NextCamera: SetCamera(DirectorMath::StepCamera(d.observerMode, 1)); break;
 		case DemoBarAction::Kind::CameraEditor: Open("cam editor button"); break;
 		}
@@ -780,6 +785,10 @@ EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
 	}
 	if (!g.editor.open) {
 		if (!DirectorActive()) return 0;
+		if (vk == 16) { // Shift: the bar's fine drag reads it, and the game sees it too
+			FeedImGuiKey(ImGui::GetIO(), vk, down != 0);
+			return 0;
+		}
 		const DirectorMath::Key key = DirectorMath::KeyFor(vk);
 		if (key == DirectorMath::Key::None) return 0;
 		if (down && !repeat) DirectorKey(key); // both edges are the director's; auto-repeat is ignored

@@ -116,12 +116,88 @@ void Scrubber(Draw& d, DemoBarUi& ui, const DemoBarModel& m, const Rect& band, c
 	if (m.kills.empty() && m.rounds.empty() && !m.markerNote.empty())
 		d.Text(FontRole::Small, ImVec2(band.x0 + 6 * s, band.y0 + (band.H() - d.Size(FontRole::Small)) * 0.5f), Theme::TextDim, m.markerNote.c_str());
 
-	// LOOP region.
-	if (m.loopOn && m.loop.Valid()) {
-		const float x0 = xAt(m.loop.in), x1 = xAt(m.loop.out);
+	// LOOP region, between its In and Out flags. A held flag is where the drag has it.
+	const ImVec2 mouse = ImGui::GetIO().MousePos;
+	const bool loopShown = m.loopOn && m.loop.Valid();
+	int loopHover = -1;
+	if (loopShown) {
+		const double span = (double)(last - first);
+		if (ui.loopFlag < 0) {
+			ui.loopFrac[0] = (m.loop.in - first) / span;
+			ui.loopFrac[1] = (m.loop.out - first) / span;
+		}
+		const float fx[2] = { band.x0 + (float)ui.loopFrac[0] * band.W(), band.x0 + (float)ui.loopFrac[1] * band.W() };
+		const float x0 = fx[0] < fx[1] ? fx[0] : fx[1], x1 = fx[0] < fx[1] ? fx[1] : fx[0];
 		l->AddRectFilled(ImVec2(x0, band.y0), ImVec2(x1, groove.y1), ToU32(Faded(Theme::Loop, 0.16f)));
-		l->AddRectFilled(ImVec2(x0 - 1 * s, band.y0), ImVec2(x0 + 1 * s, groove.y1), ToU32(Theme::Loop));
-		l->AddRectFilled(ImVec2(x1 - 1 * s, band.y0), ImVec2(x1 + 1 * s, groove.y1), ToU32(Theme::Loop));
+		// Two rails in the band, In over Out, each a line at its tick and a tab outside the region.
+		const float railH = (band.H() - 2 * s) * 0.5f;
+		const bool fine = ImGui::GetIO().KeyShift;
+		for (int f = 0; f < 2; ++f) {
+			const float ry = band.y0 + f * (railH + 2 * s);
+			const float lw = kLoopFlagLineW * s, tw = kLoopFlagTabW * s, gw = kLoopFlagGrabW * s;
+			const float tx = LoopFlagTabX(fx[f], f == 0, band.x0, band.x1, tw, lw);
+			const bool held = ui.loopFlag == f;
+			// Hit targets: the tab and a strip wider than the line. Submitted before the scrubber, so a
+			// press on a flag is the flag's.
+			ImGui::PushID(f);
+			ImGui::SetCursorScreenPos(ImVec2(tx, ry));
+			ImGui::InvisibleButton("##looptab", ImVec2(tw, railH));
+			bool hovered = ImGui::IsItemHovered(), pressed = ImGui::IsItemActivated(), active = ImGui::IsItemActive();
+			ImGui::SetCursorScreenPos(ImVec2(fx[f] - gw * 0.5f, ry));
+			ImGui::InvisibleButton("##loopline", ImVec2(gw, railH));
+			hovered = hovered || ImGui::IsItemHovered();
+			pressed = pressed || ImGui::IsItemActivated();
+			active = active || ImGui::IsItemActive();
+			ImGui::PopID();
+			if (pressed) {
+				ui.loopFlag = f;
+				ui.loopAnchorFrac = ui.loopFrac[f];
+				ui.loopAnchorX = mouse.x;
+				ui.loopAnchorFine = fine;
+			}
+			if (ui.loopFlag == f && active) {
+				// Pressing or letting go of Shift mid-drag re-anchors, so the flag never jumps.
+				if (fine != ui.loopAnchorFine) {
+					ui.loopAnchorFrac = ui.loopFrac[f];
+					ui.loopAnchorX = mouse.x;
+					ui.loopAnchorFine = fine;
+				}
+				ui.loopFrac[f] = LoopFlagDrag(ui.loopAnchorFrac, ui.loopAnchorX, mouse.x, band.W(), fine);
+			}
+			if (ui.loopFlag == f && !active) { // let go: both flags commit, in order
+				ui.loopFlag = -1;
+				const LoopRegion r = LoopFromFlags((int)std::lround(first + ui.loopFrac[0] * span),
+					(int)std::lround(first + ui.loopFrac[1] * span));
+				d.Emit(DemoBarAction::Kind::LoopRange, r.in, r.out);
+			}
+			if (hovered || held) loopHover = f;
+			const float x = band.x0 + (float)ui.loopFrac[f] * band.W();
+			const Color c = hovered || held ? Rgba(170, 255, 190) : Theme::Loop;
+			l->AddRectFilled(ImVec2(x - lw * 0.5f, ry), ImVec2(x + lw * 0.5f, ry + railH), ToU32(c));
+			const float tab = LoopFlagTabX(x, f == 0, band.x0, band.x1, tw, lw);
+			l->AddRectFilled(ImVec2(tab, ry + 1 * s), ImVec2(tab + tw, ry + railH - 1 * s), ToU32(c));
+			const char* letter = f == 0 ? "I" : "O";
+			const float lx = tab + (tw - d.TextW(FontRole::Label, letter)) * 0.5f;
+			d.Text(FontRole::Label, ImVec2(lx, ry + (railH - d.Size(FontRole::Label)) * 0.5f), Rgba(11, 16, 22), letter);
+		}
+		// The tick under a held or hovered flag, so it can be set to the tick by eye.
+		if (loopHover >= 0) {
+			const int tick = (int)std::lround(first + ui.loopFrac[loopHover] * span);
+			char time[24], text[96];
+			FormatTime(tick * m.intervalPerTick, time, sizeof(time));
+			std::snprintf(text, sizeof(text), "%s  %d  \xC2\xB7  %s%s", loopHover == 0 ? "IN" : "OUT", tick, time,
+				ui.loopFlag >= 0 && fine ? "  \xC2\xB7  FINE" : "");
+			const float w = d.TextW(FontRole::Small, text) + 12 * s, h = d.Size(FontRole::Small) + 6 * s;
+			float x = band.x0 + (float)ui.loopFrac[loopHover] * band.W() - w * 0.5f;
+			x = x < band.x0 ? band.x0 : (x + w > band.x1 ? band.x1 - w : x);
+			const float y = band.y0 - h - 4 * s;
+			ImDrawList* fg = ImGui::GetForegroundDrawList();
+			fg->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), ToU32(Theme::PanelBg));
+			fg->AddRect(ImVec2(x, y), ImVec2(x + w, y + h), ToU32(Theme::Loop));
+			fg->AddText(d.Font(FontRole::Small), d.Size(FontRole::Small), ImVec2(x + 6 * s, y + 3 * s), ToU32(Theme::Text), text);
+		}
+	} else {
+		ui.loopFlag = -1;
 	}
 
 	// Bomb events: a small orange square with its label.
@@ -131,7 +207,6 @@ void Scrubber(Draw& d, DemoBarUi& ui, const DemoBarModel& m, const Rect& band, c
 	}
 
 	// Kills: a stem from the groove up to a head in the victim's team colour; a headshot gets a ring.
-	const ImVec2 mouse = ImGui::GetIO().MousePos;
 	const bool overBand = mouse.x >= band.x0 && mouse.x <= band.x1 && mouse.y >= band.y0 && mouse.y <= groove.y1;
 	int hoveredKill = -1;
 	float hoveredDist = kMarkerHitPx * s + 1;
@@ -172,8 +247,8 @@ void Scrubber(Draw& d, DemoBarUi& ui, const DemoBarModel& m, const Rect& band, c
 	l->AddTriangleFilled(ImVec2(playX - 5 * s, band.y0 - 3 * s), ImVec2(playX + 5 * s, band.y0 - 3 * s),
 		ImVec2(playX, band.y0 + 3 * s), ToU32(Theme::Accent));
 
-	// Hover readout: the kill under the pointer, or the time and tick there.
-	if (overBand || ui.scrubbing) {
+	// Hover readout: the kill under the pointer, or the time and tick there (a flag shows its own).
+	if ((overBand || ui.scrubbing) && loopHover < 0) {
 		char text[160];
 		if (hoveredKill >= 0 && !ui.scrubbing) {
 			char time[24];

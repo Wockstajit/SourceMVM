@@ -192,7 +192,7 @@ markers come from the [demo index](#demo-index).
 | Speed dial | CS2's dial: logarithmic 0.05x to 20x, the middle exactly 1x; a click in one of five zones gives 0.1x, 0.25x, 1x, 4x or 10x; a drag gives anything in between (`demo_timescale`) |
 | NEXT KILL > | The next kill, 0.6 s early |
 | Camera | FIRST PERSON, CHASE CAM, FREE CAM in CS2's order (`spec_mode` 4, 5, 7) |
-| LOOP | Seeds In and Out at the playhead and 320 ticks on (CS2's seed), then wraps playback at Out |
+| LOOP | Seeds In and Out at the playhead and 320 ticks on (CS2's seed), then wraps playback at Out. While it is on, the region has CS2's In and Out flags on the marker band: a line with an I or O tab outside the region, dragged from where it was grabbed (Shift moves it 1/16 as far), with its tick and time shown while held or hovered. Both commit together on release, so dragging In past Out swaps them. `mirv_filmmaker loop range <in> <out>` sets them from the console |
 | CAM EDITOR | Opens the Camera Editor. Inside the editor it is not shown, because CS2 puts CONFIG there and Config is a later step |
 
 The bar sits in the Camera Editor's REGULAR TIMELINE dock and, outside the workspaces, along the

@@ -306,6 +306,8 @@ bool OnDirectorMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 
 // The director's keys inside the editor, as CS2's MovieMode keeps them there: Space, Left and Right
 // on the demo, X and Z roll the free cam, Shift slows it. F8's blackout stays the director's own.
+void FeedKey(WPARAM vk, bool down);
+
 bool EditorDirectorKey(UINT msg, WPARAM wParam, LPARAM lParam) {
 	const bool down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
 	if (wParam == VK_SHIFT) {
@@ -328,6 +330,7 @@ bool OnDirectorMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 		if (wParam == VK_SHIFT) {
 			const bool slow = msg == WM_KEYDOWN;
 			MainThread_Run([slow] { Director_SetSlow(slow); }); // not used up: the game and mirv_input see it too
+			FeedKey(wParam, slow); // the bar's fine drag (the LOOP flags) reads it too
 			return false;
 		}
 		if (CameraPath_OnKey((int)wParam, msg == WM_KEYDOWN, msg == WM_KEYDOWN && (lParam & (1 << 30)))) return true;
