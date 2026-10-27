@@ -630,6 +630,7 @@ void ApplyTimelineActions(const std::vector<TimelineDockAction>& actions) {
 		case Kind::Ease: TimelineDock_Ease(a.id, a.flag); break;
 		case Kind::Interp: TimelineDock_SetInterp(a.flag, a.id == 1); break;
 		case Kind::AlignKey: TimelineDock_AlignToKey(a.ch, a.id); break;
+		case Kind::Handle: TimelineDock_SetHandle(a.ch, a.id, a.side, a.a, a.b, a.flag); break;
 		case Kind::Undo: TimelineDock_Undo(); break;
 		case Kind::Redo: TimelineDock_Redo(); break;
 		case Kind::Drive: TimelineDock_SetDrive(a.flag); break;

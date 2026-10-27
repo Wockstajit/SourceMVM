@@ -1,9 +1,11 @@
 // TimelineDockMath, the CS:S TIMELINE dock's rules from CS2's dock: widths, the time window and its
 // navigation, playback paging, time snap, ruler steps, the time format, merged key times, key jumps,
-// the key glyph's kinds, a camera channel's display range, and the scrollbars.
+// the key glyph's kinds, a camera channel's display range, the scrollbars, and GRAPH's handles,
+// curve ranges and handle drags.
 
 #include "../../AfxHookSource/Filmmaker/Ui/TimelineDockMath.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -266,6 +268,67 @@ static void TestScrollbars() {
 	CHECK(Near(y, 151));
 }
 
+static void TestGraph() {
+	using Filmmaker::GraphCurve::Handle;
+	Handle none, h;
+	h.active = true;
+	h.tx = 0.5;
+	h.dv = 10;
+	// A right handle into a 300-tick segment: half way along it, 10 up.
+	HandlePoint p = HandleEndpoint(1000, 50, 1, h, true, 1300, 2000);
+	CHECK(Near(p.t, 1150) && Near(p.v, 60) && Near(p.span, 300));
+	// A left handle toward a key 200 ticks back.
+	p = HandleEndpoint(1000, 50, -1, h, true, 800, 2000);
+	CHECK(Near(p.t, 900) && Near(p.v, 60) && Near(p.span, 200));
+	// No handle: flat, a third of the way; no neighbour: 6 % of the window.
+	p = HandleEndpoint(1000, 50, 1, none, false, 0, 2000);
+	CHECK(Near(p.span, 120) && Near(p.t, 1040) && Near(p.v, 50));
+
+	// Straight segments keep the channel's own range.
+	std::vector<CurveKey> keys(2);
+	keys[1].t = 100;
+	keys[1].v = 10;
+	double lo = 0, hi = 0;
+	FitCurveRange(keys, -50, 60, lo, hi);
+	CHECK(Near(lo, -50) && Near(hi, 60));
+	// An eased segment bulging over the top widens the top only, by 8 % of the new extent.
+	keys[0].out.active = true;
+	keys[0].out.dv = 200;
+	FitCurveRange(keys, -50, 60, lo, hi);
+	double top = -1e9;
+	const Filmmaker::GraphCurve::Segment s = Filmmaker::GraphCurve::MakeSegment(0, 0, keys[0].out, 100, 10, keys[1].in);
+	for (int j = 1; j < 16; ++j) top = std::max(top, Filmmaker::GraphCurve::Bez(s.y[0], s.y[1], s.y[2], s.y[3], j / 16.0));
+	CHECK(top > 60 && Near(lo, -50) && Near(hi, top + (top + 50) * 0.08));
+	// A handle reaching out of the range widens it only while its key is selected.
+	std::vector<CurveKey> one(1);
+	one[0].in.active = true;
+	one[0].in.dv = -300;
+	FitCurveRange(one, -50, 60, lo, hi);
+	CHECK(Near(lo, -50) && Near(hi, 60));
+	one[0].sel = true;
+	FitCurveRange(one, -50, 60, lo, hi);
+	CHECK(Near(lo, -300 - 360 * 0.08) && Near(hi, 60));
+
+	// Handle drags: the right side measures forward from the key, the left side back.
+	HandleDrag d = DragHandle(1000, 50, 1, 300, 1150, 70, false, 600, 2);
+	CHECK(Near(d.tx, 0.5) && Near(d.dv, 20));
+	d = DragHandle(1000, 50, -1, 300, 925, 50, false, 600, 2);
+	CHECK(Near(d.tx, 0.25) && Near(d.dv, 0));
+	// Shift straightens it.
+	d = DragHandle(1000, 50, 1, 300, 1150, 70, true, 600, 2);
+	CHECK(Near(d.tx, 0.5) && Near(d.dv, 0));
+	// It never goes past the neighbour.
+	d = DragHandle(1000, 50, 1, 300, 1600, 50, false, 600, 2);
+	CHECK(Near(d.tx, 1));
+	// Dropped on the key it is pushed out to 16 px along the segment; near it, scaled out to 16 px.
+	d = DragHandle(1000, 50, 1, 300, 1000, 50, false, 600, 2);
+	CHECK(Near(d.tx, 16.0 / 600) && Near(d.dv, 0));
+	d = DragHandle(1000, 50, 1, 300, 1003, 52, false, 600, 2);
+	CHECK(Near(std::sqrt((d.tx * 600) * (d.tx * 600) + (d.dv * 2) * (d.dv * 2)), 16, 1e-6));
+	CHECK(Near(d.dv / (d.tx * 300), 2.0 / 3.0, 1e-9)); // the same direction
+	CHECK(Near(kGraphBandH, 246));
+}
+
 int main() {
 	TestWidths();
 	TestTickMapping();
@@ -281,6 +344,7 @@ int main() {
 	TestGlyphKinds();
 	TestChannelRange();
 	TestScrollbars();
+	TestGraph();
 	if (g_failed) {
 		std::printf("%d check(s) failed\n", g_failed);
 		return 1;

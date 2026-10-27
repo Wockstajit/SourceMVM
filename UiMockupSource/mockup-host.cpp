@@ -590,6 +590,7 @@ void ApplyTimelineActions(const std::vector<TimelineDockAction>& actions) {
 		case Kind::EditBegin: k.BeginEdit(); break;
 		case Kind::MoveSelected: k.MoveSelectedBy(a.a, a.b); break;
 		case Kind::AddKey: k.Select(a.ch, k.AddKey(a.ch, a.a, a.b), false); break;
+		case Kind::Handle: k.SetHandle(a.ch, a.id, a.side, a.a, a.b, a.flag); break;
 		case Kind::AlignKey:
 			if (const Filmmaker::GraphExpModel::Keyframe* key = k.FindKeyConst(a.ch, a.id)) {
 				k.BeginEdit();

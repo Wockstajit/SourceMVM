@@ -494,21 +494,22 @@ rules in `Ui/TimelineDockMath.h` (`SourceTimelineDockMathTests`):
 | Part | What it does |
 | --- | --- |
 | Ribbon | REGULAR TIMELINE and TIMELINE, 150 wide; on TIMELINE, how many layers and keys it holds |
-| Toolbar | The timecode and tick; KEYFRAMES; the selection; previous and next key (on the selected row, else every key), play, CS2's speed dial; the interpolation strip (Smooth, Linear, Ease In, Ease Out, In/Out: with keys selected it shapes them, with none Smooth and Linear set the whole path); SNAP with its menu (Auto, 1, 10, 100, 1000 ticks, Off; Alt places finely); Undo, Redo and Delete |
+| Toolbar | The timecode and tick; KEYFRAMES and GRAPH; the selection; previous and next key (on the selected row, else every key), play, CS2's speed dial; the interpolation strip (Smooth, Linear, Ease In, Ease Out, In/Out: with keys selected it shapes them, with none Smooth and Linear set the whole path); SNAP with its menu (Auto, 1, 10, 100, 1000 ticks, Off; Alt places finely); Undo, Redo and Delete |
 | Overview | The whole demo, its keys, the playhead and the window: drag the box to scroll, an end to zoom, empty track to jump |
 | Ruler | Labels about 70 px apart. A press scrubs; past either end the window creeps; release seeks |
 | Rows | CAMERA PATH with its key count, AUTO and the switch (on: scrubs and edits show the path; off: the free cam stays yours), Transform, Position, Rotation and Field of view with their values at the playhead in each channel's colour, and the previous, add or remove, next buttons |
 | Values | Drag a value to scrub it (1 unit, 0.25 degree or 0.1 FOV a pixel; Shift a fifth as fast), click it to type one (Enter or a click elsewhere keys it, Esc leaves it). It is keyed at the snapped playhead; the first key at a tick keys all seven channels at the values they have, as CS2's does, so a camera key is always a whole camera |
 | Menus | Right-click a key: its values and place, Go to this key, Delete Keyframe, Align selected keys here, and the Keyframe Assistant (Easy Ease, In, Out, Smooth, Linear). Right-click a row: Separate Dimensions (X, Y and Z, or pitch, yaw and roll, on their own rows) and Join Dimensions, Add or Re-key at playhead, Select all keys, Turn layer off or on |
 | Track | A glyph per key time whose halves show how the curve meets it (diamond Linear, disc Smooth, notch eased), the layer's bar. Click a key to select it, Shift adds, drag moves (3 px, snapped), a double-click goes to it, a drag on empty track box-selects, the layer's bar moves every key |
+| GRAPH | The curves of the selected row (the whole layer with none), each on its own value scale with a legend: the grid, the first curve's values, the keys, and the selected keys' handles. Drag a key to move it in time and value (Shift for time only), a handle to shape its side of the curve (Shift levels it; it stays 16 px out from the key), a box to select. Right-click a key for its menu. Each scale refits between gestures, never under the pointer. Show in Graph on a row's menu opens it on that row |
 | Footer | The visible span, FIT (the selection, else the row, else every key; again for every key), zoom out and in, and the scrollbar |
 
 Ctrl+wheel over the dock zooms about the pointer, Shift+wheel pans, the wheel scrolls the rows. The
 dock takes Ctrl+Z, Ctrl+Shift+Z, Ctrl+A, Delete and F9 (Shift+F9 eases in, Ctrl+Shift+F9 out), as
 CS2's does. Esc closes a menu, then the SNAP menu, then leaves typing, before it closes the
-workspace. Tips show after the pointer rests 2 s. GRAPH comes in the next part and the camera shake
-rows with step 12; CS2's frame cache and render range are steps 13 and 14, so Cache is disabled and
-the footer says the whole demo. The window, snap and the rows' state are not kept between sessions,
+workspace. Tips show after the pointer rests 2 s. The camera shake rows come with step 12; CS2's
+frame cache and render range are steps 13 and 14, so Cache is disabled and the footer says the whole
+demo. CS2's CAM EDITOR and CONFIG buttons come with the Config workspace. The window, snap and the rows' state are not kept between sessions,
 because CS:S has no settings store yet. CS2 clamps a typed camera value to the GRAPH's display
 range around the channel's keys, so 500 typed into an unkeyed X lands near 32; the CS:S dock keys
 what was typed.
@@ -529,6 +530,12 @@ eased the key; Esc closed the menu with the editor still open; Separate Dimensio
 row menu split it into X, Y and Z rows; a 40 px drag on X keyed all seven channels at the playhead
 (1150 in game, X 40 units on) and put a path marker there; typing 2000 into Y set that marker's Y; two
 undos took the path back to its three cameras.
+
+GRAPH was checked the same way: on the layer it drew all seven curves, on Position X, Y and Z; a
+selected key showed both handles; dragging the key moved its value as one undo step; dragging its
+right handle up bent the curve into an eased bulge and the strip read Ease Out; in CS:S, with AUTO on,
+the camera path's X at tick 1350 went from -1913.3 (the straight segment) to -1871.2 after that drag,
+so the path flies the curve GRAPH draws. A drag on the layer's bar moved all 21 keys.
 
 The same pass fixed where pop-ups sit: ImGui puts a new panel at the bottom of its stack, so the
 CAMERA MARKER card and the clear-all dialog only took clicks where no panel covered them. They now

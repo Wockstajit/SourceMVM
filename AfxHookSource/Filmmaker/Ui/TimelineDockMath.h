@@ -3,10 +3,13 @@
 // The TIMELINE dock's rules: CS2's dock (GraphEditorJs.h) in C++, so the CS:S dock lays out,
 // navigates and snaps as CS2's does. The bands and widths of the dock, the time window (the
 // navigator, zoom, FIT, reveal and playback paging), time snap, ruler steps, the time format, key
-// times merged per row, the halves of a key's glyph, and a camera channel's display range.
+// times merged per row, the halves of a key's glyph, a camera channel's display range, and GRAPH's
+// handles, curve ranges and handle drags.
 //
 // Everything is in CS2's stage px (1080-tall stage). Engine-free;
 // Automation/tests/source-timeline-dock-math-tests.cpp pins it.
+
+#include "../../../AfxHookSource2/Filmmaker/Movie/GraphCurveMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -349,6 +352,96 @@ inline void RowsThumb(float scroll, float contentH, float& y, float& h) {
 	h = (std::max)(24.0f, kRowsH * kRowsH / (std::max)(contentH, kRowsH));
 	const float travel = contentH - kRowsH;
 	y = travel > 0 ? (kRowsH - h) * (scroll / travel) : 0;
+}
+
+// ---- GRAPH ----------------------------------------------------------------------------------------
+
+// The band the curves fill, rows-local (band): under the legend, over the footer.
+constexpr float kGraphBandH = kRowsH - kGraphTop - kGraphBottom; // 246
+
+// A key side's handle in ticks and value as GRAPH draws it (handleEndpoint): a fraction of the
+// neighbouring segment (6 % of the window when there is none) and an offset from the key's value. A
+// side without a handle is drawn flat, a third of the way.
+struct HandlePoint {
+	double t = 0, v = 0, span = 0;
+};
+
+inline HandlePoint HandleEndpoint(double keyT, double keyV, int side, const Filmmaker::GraphCurve::Handle& h,
+	bool hasNeighbour, double neighbourT, double windowSpan) {
+	HandlePoint p;
+	p.span = hasNeighbour ? (side > 0 ? neighbourT - keyT : keyT - neighbourT) : windowSpan * 0.06;
+	const double f = Filmmaker::GraphCurve::Clamp01(h.active ? h.tx : 1.0 / 3.0);
+	p.t = keyT + (side > 0 ? 1 : -1) * f * p.span;
+	p.v = keyV + (h.active ? h.dv : 0);
+	return p;
+}
+
+// A key as GRAPH fits its curve.
+struct CurveKey {
+	double t = 0, v = 0;
+	bool sel = false;
+	Filmmaker::GraphCurve::Handle in, out; // toward the previous key, toward the next
+};
+
+// The value range a camera curve is drawn in (fitCamRange): the channel's range around its keys
+// (ChannelRange) as the floor, widened to take an eased segment's bulge and the selected keys'
+// handles, with 8 % of the widened extent added on each side that grew.
+inline void FitCurveRange(const std::vector<CurveKey>& keys, double floorLo, double floorHi, double& lo, double& hi) {
+	double a = floorLo, b = floorHi;
+	auto take = [&](double v) {
+		if (!std::isfinite(v)) return;
+		a = (std::min)(a, v);
+		b = (std::max)(b, v);
+	};
+	for (size_t i = 0; i < keys.size(); ++i) {
+		const CurveKey& k = keys[i];
+		if (k.sel) {
+			if (k.in.active) take(k.v + k.in.dv);
+			if (k.out.active) take(k.v + k.out.dv);
+		}
+		if (i + 1 < keys.size() && (k.out.active || keys[i + 1].in.active)) {
+			const Filmmaker::GraphCurve::Segment s =
+				Filmmaker::GraphCurve::MakeSegment(k.t, k.v, k.out, keys[i + 1].t, keys[i + 1].v, keys[i + 1].in);
+			for (int j = 1; j < 16; ++j) take(Filmmaker::GraphCurve::Bez(s.y[0], s.y[1], s.y[2], s.y[3], j / 16.0));
+		}
+	}
+	if (a >= floorLo && b <= floorHi) {
+		lo = floorLo;
+		hi = floorHi;
+		return;
+	}
+	const double pad = (b - a) * 0.08;
+	lo = a < floorLo ? a - pad : floorLo;
+	hi = b > floorHi ? b + pad : floorHi;
+}
+
+// A handle dragged to tick th and value vh: its fraction of the segment and its value offset. Shift
+// straightens it level with the key, and it stays 16 px (kKeyHit + 8) out from the key so the key
+// never covers it. spanPx is the segment's width on screen, pxPerValue the curve's scale.
+struct HandleDrag {
+	double tx = 0, dv = 0;
+};
+
+inline HandleDrag DragHandle(double keyT, double keyV, int side, double span, double th, double vh, bool straighten,
+	double spanPx, double pxPerValue) {
+	using Filmmaker::GraphCurve::Clamp01;
+	HandleDrag h;
+	if (!(span > 1e-9)) span = 1;
+	h.tx = Clamp01(side > 0 ? (th - keyT) / span : (keyT - th) / span);
+	h.dv = straighten ? 0 : vh - keyV;
+	const double hpx = h.tx * spanPx, vpx = h.dv * pxPerValue, dist = std::sqrt(hpx * hpx + vpx * vpx);
+	const double minPx = kKeyHit + 8;
+	if (dist < minPx) {
+		if (dist < 1e-3) {
+			h.tx = Clamp01(minPx / (spanPx > 0 ? spanPx : 1));
+			h.dv = 0;
+		} else {
+			const double scale = minPx / dist;
+			h.tx = Clamp01(h.tx * scale);
+			h.dv *= scale;
+		}
+	}
+	return h;
 }
 
 } // namespace TimelineDockMath

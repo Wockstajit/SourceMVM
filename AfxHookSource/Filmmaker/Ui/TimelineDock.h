@@ -54,6 +54,7 @@ struct TimelineDockAction {
 		Ease,            // id: 0 in, 1 out, 2 in and out; flag: the selected keys only
 		Interp,          // flag: Smooth (else Linear); id = 1: the selected keys only, else the whole path
 		AlignKey,        // ch, id: every selected key moves to that key's tick
+		Handle,          // ch, id, side (-1 left, 1 right): a = tx, b = dv; flag: mirror the other side
 		Undo,
 		Redo,
 		Drive,           // flag
@@ -64,7 +65,7 @@ struct TimelineDockAction {
 		Speed,           // a = demo speed
 	};
 	Kind kind = Kind::Select;
-	int ch = 0, id = 0;
+	int ch = 0, id = 0, side = 0;
 	double a = 0, b = 0;
 	bool flag = false;
 	std::vector<std::pair<int, int>> keys; // SelectSet: (channel, key id)
@@ -87,13 +88,20 @@ struct TimelineDockState {
 	int selRow = -1;                    // the selected row's node, -1 for none
 	float rowScroll = 0;
 
-	enum class Gesture { None, Scrub, Keys, Box, Overview, FooterBar, RowsBar, Value };
+	enum class Gesture { None, Scrub, Keys, Box, Overview, FooterBar, RowsBar, Value, Handle };
 	Gesture gesture = Gesture::None;
 	float pressX = 0, pressY = 0;       // dock-local stage px
 	bool dragStarted = false;           // a key drag passed its 3 px
 	bool narrow = false;                // a click on a selected key without a drag selects only it
 	std::vector<std::pair<int, int>> narrowTo;
 	double leadTick = 0, lastDt = 0;
+	int leadCh = -1;                    // a key dragged in GRAPH: its channel's scale moves the values
+	double lastDv = 0;
+	bool shiftLock = false;             // Shift holds the value where it was: timing only
+	double lockDv = 0;
+	int handleCh = -1, handleId = 0, handleSide = 0; // the GRAPH handle being dragged
+	double rangeLo[7] = {}, rangeHi[7] = {};          // GRAPH: each curve's value range, kept during a gesture
+	bool rangeSet[7] = {};
 	int overviewPart = 0;               // 1 the left edge, 2 the right edge, 3 the box
 	double grabT0 = 0, grabT1 = 0;      // the window when an overview or scrollbar drag began
 	float grabScroll = 0;

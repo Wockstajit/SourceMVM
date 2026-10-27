@@ -2,6 +2,8 @@
 
 #include "UiWidgets.h"
 
+#include "../../../AfxHookSource2/Filmmaker/Movie/GraphCurveMath.h"
+
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -67,6 +69,10 @@ constexpr Color ScrollThumb = Rgba(255, 255, 255, 51);
 constexpr Color TipBg = Rgba(8, 10, 14, 248);
 constexpr Color MenuBg = Rgba(16, 20, 26, 252);
 constexpr Color Underline = Rgba(255, 255, 255, 51);
+constexpr Color GraphBg = Rgba(0, 0, 0, 250);
+constexpr Color Grid = Rgba(255, 255, 255, 12);
+constexpr Color GridMid = Rgba(255, 255, 255, 32);
+constexpr Color HandleColor = Rgba(255, 255, 255, 204);
 } // namespace Paint
 
 // CS2's camera channel colours (GraphEditorExperimentHud.cpp): x, y, z, pitch, yaw, roll, FOV.
@@ -223,6 +229,12 @@ const GraphExpModel::Keyframe* KeyOnTick(const GraphExpModel& m, int ch, double 
 
 // How far a dragged value moves per screen pixel (scrubStep): world units, degrees, FOV.
 double ScrubStep(int ch) { return ch < 3 ? 1.0 : (ch < 6 ? 0.25 : 0.1); }
+
+// A GRAPH curve's value range, never zero.
+double RangeSpan(const TimelineDockState& st, int c) {
+	const double s = st.rangeHi[c] - st.rangeLo[c];
+	return std::fabs(s) < 1e-9 ? 1.0 : s;
+}
 
 // The decimals and unit a channel's value shows with (CAM_PROPS).
 int DecimalsOf(int ch) { return ch < 3 ? 0 : 1; }
@@ -735,7 +747,7 @@ float DrawToolbar(D& d) {
 		const char* tips[2] = { "Every key, one row per property", "Curves of the selected layer or property" };
 		for (int i = 0; i < 2; ++i) {
 			const float tw = d.TextW(FontRole::BodyBold, tabs[i], 1.4f);
-			const bool enabled = i == 0; // GRAPH comes with its own part of this step
+			const bool enabled = true;
 			Hit h;
 			if (enabled) {
 				h = HitBox(i == 0 ? "##tlkeys" : "##tlgraph", d, x, top, x + tw, top + tabH);
@@ -1175,6 +1187,9 @@ void StartKeyDrag(D& d, double lead, float tx, float gy) {
 	st.pressY = gy;
 	st.leadTick = lead;
 	st.lastDt = 0;
+	st.lastDv = 0;
+	st.leadCh = -1;
+	st.shiftLock = false;
 	st.dragStarted = false;
 }
 
@@ -1243,12 +1258,28 @@ void DragKeys(D& d) {
 		st.dragStarted = true;
 		d.Emit(Action::Kind::EditBegin);
 	}
-	double dt = dx / d.g.cw * st.window.Len();
+	double dt = dx / d.g.cw * st.window.Len(), dv = 0;
+	if (st.leadCh >= 0) {
+		// GRAPH moves values too, on the lead key's scale; Shift holds the value where it was.
+		dv = -(dy / kGraphBandH) * RangeSpan(st, st.leadCh);
+		if (ImGui::GetIO().KeyShift) {
+			if (!st.shiftLock) {
+				st.shiftLock = true;
+				st.lockDv = st.lastDv;
+			}
+			dv = st.lockDv;
+		} else if (st.shiftLock) {
+			st.shiftLock = false;
+			st.pressY = gy + (float)(st.lockDv * kGraphBandH / RangeSpan(st, st.leadCh));
+			dv = st.lockDv;
+		}
+	}
 	const double step = SnapStep(st.snap, st.window);
 	if (step > 0) dt = SnapTick(st.leadTick + dt, step, ImGui::GetIO().KeyAlt) - st.leadTick;
-	if (dt != st.lastDt) {
-		d.Emit(Action::Kind::MoveSelected, 0, 0, dt - st.lastDt, 0);
+	if (dt != st.lastDt || dv != st.lastDv) {
+		d.Emit(Action::Kind::MoveSelected, 0, 0, dt - st.lastDt, dv - st.lastDv);
 		st.lastDt = dt;
+		st.lastDv = dv;
 	}
 }
 
@@ -1318,14 +1349,16 @@ void DrawRows(D& d, const std::vector<Row>& rows) {
 		d.HLine(0, d.w, y + kRowH - 1, Paint::RowLine);
 		d.VLine(kLeftW - 1, y, y + kRowH, Paint::Border);
 	}
-	// The track side, clipped to the track.
-	d.l->PushClipRect(d.P(kLeftW, kRowsY), d.P(kLeftW + d.g.tw, kRowsY + kRowsH), true);
-	for (size_t i = 0; i < rows.size(); ++i) {
-		const float y = kRowsY + i * kRowH - st.rowScroll;
-		if (y + kRowH < kRowsY || y > kRowsY + kRowsH) continue;
-		DrawTrackCell(d, rows[i], y);
+	// The track side, clipped to the track; GRAPH covers it with the curves instead.
+	if (st.view == TimelineView::Keys) {
+		d.l->PushClipRect(d.P(kLeftW, kRowsY), d.P(kLeftW + d.g.tw, kRowsY + kRowsH), true);
+		for (size_t i = 0; i < rows.size(); ++i) {
+			const float y = kRowsY + i * kRowH - st.rowScroll;
+			if (y + kRowH < kRowsY || y > kRowsY + kRowsH) continue;
+			DrawTrackCell(d, rows[i], y);
+		}
+		d.l->PopClipRect();
 	}
-	d.l->PopClipRect();
 	for (size_t i = 0; i < rows.size(); ++i) {
 		const float y = kRowsY + i * kRowH - st.rowScroll;
 		if (y + kRowH < kRowsY || y > kRowsY + kRowsH) continue;
@@ -1408,6 +1441,328 @@ void DrawFooter(D& d) {
 
 void RightClick(D& d, const std::vector<Row>& rows); // with the menus, below
 
+// ---- GRAPH ------------------------------------------------------------------------------------------
+// The curves of the selected row (the whole layer with none), each on its own value scale across the
+// band: grid, curves, keys, and the selected keys' handles, with a legend (drawGraph).
+
+const char* kChannelNames[7] = { "X Position", "Y Position", "Z Position", "Pitch", "Yaw", "Roll", "Field of view" };
+
+// The property rows under a node, a split property's own rows in its place (propsOf).
+void LeafProps(const TimelineDockState& st, int node, std::vector<int>& out) {
+	if (kNodes[node].kind == NodeKind::Prop && !IsSplit(st, node)) {
+		out.push_back(node);
+		return;
+	}
+	for (int c : ChildrenOf(st, node)) LeafProps(st, c, out);
+	if (kNodes[node].kind == NodeKind::Prop && IsSplit(st, node) && ChildrenOf(st, node).empty()) out.push_back(node);
+}
+
+// The channels GRAPH draws (graphChans): the properties of the selected row that have keys, else its
+// first one, up to eight channels.
+std::vector<int> GraphChannels(const TimelineDockState& st, const GraphExpModel& keys) {
+	std::vector<int> props, keyed, chans;
+	LeafProps(st, st.selRow >= 0 ? st.selRow : kLayerNode, props);
+	for (int p : props) {
+		bool any = false;
+		for (int c : ChansOf(p)) any = any || !keys.GetChannel(c).keys.empty();
+		if (any) keyed.push_back(p);
+	}
+	if (keyed.empty() && !props.empty()) keyed.push_back(props.front());
+	for (int p : keyed)
+		for (int c : ChansOf(p))
+			if (chans.size() < 8 && std::find(chans.begin(), chans.end(), c) == chans.end()) chans.push_back(c);
+	return chans;
+}
+
+Filmmaker::GraphCurve::Handle CurveHandle(const GraphExpModel::ControlPoint& cp) {
+	Filmmaker::GraphCurve::Handle h;
+	h.active = cp.active;
+	h.tx = cp.tx;
+	h.dv = cp.dv;
+	h.autoTan = cp.autoTan;
+	return h;
+}
+
+// Each listed curve's value range: the channel's range around its keys, widened for bulges and the
+// selected handles. Refitted only between gestures, so the scale never moves under the pointer.
+void FitRanges(D& d, const std::vector<int>& chans) {
+	TimelineDockState& st = d.st;
+	for (int c : chans) {
+		if (st.rangeSet[c] && st.gesture != Gesture::None) continue;
+		const std::vector<GraphExpModel::Keyframe>& ks = d.keys.GetChannel(c).keys;
+		std::vector<double> values;
+		std::vector<CurveKey> curve;
+		for (const GraphExpModel::Keyframe& k : ks) {
+			values.push_back(k.value);
+			CurveKey ck;
+			ck.t = k.tick;
+			ck.v = k.value;
+			ck.sel = d.keys.IsSelected(c, k.id);
+			ck.in = CurveHandle(k.cpLeft);
+			ck.out = CurveHandle(k.cpRight);
+			curve.push_back(ck);
+		}
+		double floorLo = 0, floorHi = 1;
+		ChannelRange(values, c, floorLo, floorHi);
+		FitCurveRange(curve, floorLo, floorHi, st.rangeLo[c], st.rangeHi[c]);
+		st.rangeSet[c] = true;
+	}
+}
+
+// Rows-local y of a value on a curve's scale, and back.
+float ValToY(const TimelineDockState& st, int c, double v) {
+	return kGraphTop + (float)((1.0 - (v - st.rangeLo[c]) / RangeSpan(st, c)) * kGraphBandH);
+}
+double YToVal(const TimelineDockState& st, int c, float y) {
+	return st.rangeLo[c] + (1.0 - (y - kGraphTop) / kGraphBandH) * RangeSpan(st, c);
+}
+
+// A selected key's handle on one side, from its neighbour on that side.
+HandlePoint KeyHandle(const D& d, int c, size_t i, int side) {
+	const std::vector<GraphExpModel::Keyframe>& ks = d.keys.GetChannel(c).keys;
+	const GraphExpModel::Keyframe& k = ks[i];
+	const bool hasNeighbour = side > 0 ? i + 1 < ks.size() : i > 0;
+	const double neighbourT = hasNeighbour ? ks[side > 0 ? i + 1 : i - 1].tick : 0;
+	return HandleEndpoint(k.tick, k.value, side, CurveHandle(side > 0 ? k.cpRight : k.cpLeft), hasNeighbour, neighbourT,
+		d.st.window.Len());
+}
+
+void DrawGraph(D& d, const std::vector<int>& chans) {
+	TimelineDockState& st = d.st;
+	const float ox = kLeftW, oy = kRowsY;
+	auto X = [&](double t) { return ox + (float)TickToX(st.window, d.g.cw, t); };
+	auto Y = [&](int c, double v) { return oy + ValToY(st, c, v); };
+	d.Fill(ox, oy, ox + d.g.ow, oy + kRowsH, Paint::GraphBg);
+	d.l->PushClipRect(d.P(ox, oy), d.P(ox + d.g.ow, oy + kRowsH), true);
+	auto Line = [&](float x0, float y0, float x1, float y1, Color c, float thick) {
+		d.l->AddLine(d.P(x0, y0), d.P(x1, y1), ToU32(c), (std::max)(1.0f, thick * d.s));
+	};
+
+	// The grid: the snap step while it is coarse enough to see, the ruler's steps, five levels.
+	const double span = st.window.Len(), pxPerTick = d.g.cw / (std::max)(1e-9, span);
+	const double snap = SnapStep(st.snap, st.window);
+	if (snap > 0 && snap * pxPerTick >= 4 && span / snap <= 140)
+		for (double t = std::ceil(st.window.t0 / snap) * snap; t <= st.window.t1; t += snap) d.VLine(X(t), oy, oy + kRowsH, Paint::Grid);
+	const RulerStep r = RulerSteps(st.window, d.g.cw, d.m.tickRate);
+	for (double t = std::ceil(st.window.t0 / r.minor) * r.minor; t <= st.window.t1; t += r.minor) {
+		const bool major = std::fabs(t / r.major - std::round(t / r.major)) < 1e-6;
+		d.VLine(X(t), oy, oy + kRowsH, major ? Paint::GridMid : Paint::Grid);
+	}
+	for (int i = 0; i <= 4; ++i) {
+		const float y = kGraphTop + i * kGraphBandH / 4;
+		d.HLine(ox, ox + d.g.ow, oy + y, i == 2 ? Paint::GridMid : Rgba(255, 255, 255, 16));
+		if (!chans.empty()) {
+			const double axSpan = std::fabs(RangeSpan(st, chans[0]));
+			const int dec = axSpan >= 100 ? 0 : axSpan >= 10 ? 1 : axSpan >= 1 ? 2 : 3;
+			char label[32];
+			std::snprintf(label, sizeof(label), "%.*f", dec, YToVal(st, chans[0], y));
+			d.Text(FontRole::Hint, ox + 3, oy + y - 12, Paint::Hint, label);
+		}
+	}
+
+	// Each curve in its channel's colour: flat before the first key and after the last, straight or
+	// Bezier between, the keys, and the selected keys' handles.
+	bool anyKeys = false;
+	for (int c : chans) {
+		const std::vector<GraphExpModel::Keyframe>& ks = d.keys.GetChannel(c).keys;
+		if (ks.empty()) continue;
+		anyKeys = true;
+		const Color col = kChannel[c];
+		Line(ox, Y(c, ks.front().value), X(ks.front().tick), Y(c, ks.front().value), Faded(col, 0.333f), 1);
+		Line(X(ks.back().tick), Y(c, ks.back().value), ox + d.g.ow, Y(c, ks.back().value), Faded(col, 0.333f), 1);
+		for (size_t i = 0; i + 1 < ks.size(); ++i) {
+			const GraphExpModel::Keyframe& a = ks[i];
+			const GraphExpModel::Keyframe& b = ks[i + 1];
+			if (!a.cpRight.active && !b.cpLeft.active) {
+				Line(X(a.tick), Y(c, a.value), X(b.tick), Y(c, b.value), col, 2);
+				continue;
+			}
+			const Filmmaker::GraphCurve::Segment s =
+				Filmmaker::GraphCurve::MakeSegment(a.tick, a.value, CurveHandle(a.cpRight), b.tick, b.value, CurveHandle(b.cpLeft));
+			float px = X(a.tick), py = Y(c, a.value);
+			for (int k = 1; k <= 14; ++k) {
+				const double u = k / 14.0;
+				const float qx = X(Filmmaker::GraphCurve::Bez(s.x[0], s.x[1], s.x[2], s.x[3], u));
+				const float qy = Y(c, Filmmaker::GraphCurve::Bez(s.y[0], s.y[1], s.y[2], s.y[3], u));
+				Line(px, py, qx, qy, col, 2);
+				px = qx;
+				py = qy;
+			}
+		}
+		for (size_t i = 0; i < ks.size(); ++i) {
+			const float kx = X(ks[i].tick), ky = Y(c, ks[i].value);
+			if (kx < ox - 10 || kx > ox + d.g.tw + 10) continue;
+			const bool sel = d.keys.IsSelected(c, ks[i].id);
+			Diamond(d, kx, ky, 9, sel ? Paint::Accent : col);
+			Diamond(d, kx, ky, 9, Paint::GraphBg, false);
+			if (!sel) continue;
+			for (int side = -1; side <= 1; side += 2) {
+				const HandlePoint h = KeyHandle(d, c, i, side);
+				const float hx = X(h.t), hy = Y(c, h.v);
+				Line(kx, ky, hx, hy, Paint::HandleColor, 1);
+				d.l->AddCircleFilled(d.P(hx, hy), 3.5f * d.s, ToU32(Paint::HandleColor), 12);
+			}
+		}
+	}
+
+	// The legend, and what to do when there is nothing to draw.
+	{
+		float lw = 10;
+		for (int c : chans) lw += 10 + 6 + d.TextW(FontRole::Hint, kChannelNames[c]) + 14;
+		lw += 10 - 14;
+		const float lx = ox + 12, ly = oy + 10, lh = d.Size(FontRole::Hint) + 10;
+		d.Fill(lx, ly, lx + lw, ly + lh, Rgba(8, 10, 14, 230), 3);
+		d.Outline(lx, ly, lx + lw, ly + lh, Paint::Border, 3);
+		float x = lx + 10;
+		for (int c : chans) {
+			d.Fill(x, ly + (lh - 10) * 0.5f, x + 10, ly + (lh + 10) * 0.5f, kChannel[c], 2);
+			x += 16;
+			d.Text(FontRole::Hint, x, ly + 5, Paint::Value, kChannelNames[c]);
+			x += d.TextW(FontRole::Hint, kChannelNames[c]) + 14;
+		}
+	}
+	if (!anyKeys) {
+		char text[160];
+		std::snprintf(text, sizeof(text), "No keys on %s yet. Press a row's key button to add one at the playhead.",
+			kNodes[st.selRow >= 0 ? st.selRow : kLayerNode].name);
+		d.TextIn(FontRole::Label, ox, oy, ox + d.g.ow, oy + kRowsH, Paint::Hint, text);
+	}
+	d.l->PopClipRect();
+}
+
+// The key point nearest the pointer within reach, or the selected key's handle (pressGraph,
+// hitGraphHandle, hitGraphKey). Rows-local y.
+struct GraphHit {
+	int ch = -1, id = 0, side = 0;
+	double t = 0;
+};
+
+GraphHit HitGraphHandle(const D& d, const std::vector<int>& chans, float tx, float gy) {
+	GraphHit best;
+	float bestD = kHandleR * kHandleR;
+	for (int c : chans) {
+		const std::vector<GraphExpModel::Keyframe>& ks = d.keys.GetChannel(c).keys;
+		for (size_t i = 0; i < ks.size(); ++i) {
+			if (!d.keys.IsSelected(c, ks[i].id)) continue;
+			for (int side = -1; side <= 1; side += 2) {
+				const HandlePoint h = KeyHandle(d, c, i, side);
+				const float dx = (float)TickToX(d.st.window, d.g.cw, h.t) - tx, dy = ValToY(d.st, c, h.v) - gy;
+				if (dx * dx + dy * dy <= bestD) {
+					bestD = dx * dx + dy * dy;
+					best.ch = c;
+					best.id = ks[i].id;
+					best.side = side;
+					best.t = ks[i].tick;
+				}
+			}
+		}
+	}
+	return best;
+}
+
+GraphHit HitGraphKey(const D& d, const std::vector<int>& chans, float tx, float gy) {
+	GraphHit best;
+	float bestD = kKeyHit * kKeyHit;
+	for (int c : chans)
+		for (const GraphExpModel::Keyframe& k : d.keys.GetChannel(c).keys) {
+			const float dx = (float)TickToX(d.st.window, d.g.cw, k.tick) - tx, dy = ValToY(d.st, c, k.value) - gy;
+			if (dx * dx + dy * dy <= bestD) {
+				bestD = dx * dx + dy * dy;
+				best.ch = c;
+				best.id = k.id;
+				best.t = k.tick;
+			}
+		}
+	return best;
+}
+
+void PressGraph(D& d, float tx, float gy) {
+	TimelineDockState& st = d.st;
+	const std::vector<int> chans = GraphChannels(st, d.keys);
+	const bool shift = ImGui::GetIO().KeyShift;
+	st.narrow = false;
+	const GraphHit h = HitGraphHandle(d, chans, tx, gy);
+	if (h.ch >= 0) {
+		d.Emit(Action::Kind::EditBegin); // on the press, as CS2's handle drag opens its step
+		st.gesture = Gesture::Handle;
+		st.handleCh = h.ch;
+		st.handleId = h.id;
+		st.handleSide = h.side;
+		st.lastDt = st.lastDv = -1e300;
+		return;
+	}
+	const GraphHit k = HitGraphKey(d, chans, tx, gy);
+	if (k.ch >= 0) {
+		if (DoubleClick(st, k.t)) {
+			SeekTo(d, k.t);
+			st.gesture = Gesture::None;
+			return;
+		}
+		const std::vector<std::pair<int, int>> members = { std::make_pair(k.ch, k.id) };
+		const bool wasSelected = d.keys.IsSelected(k.ch, k.id);
+		if (!wasSelected) SelectMembers(d, members, shift);
+		if (wasSelected && !shift) {
+			st.narrow = true;
+			st.narrowTo = members;
+		}
+		StartKeyDrag(d, k.t, tx, gy);
+		st.leadCh = k.ch;
+		return;
+	}
+	if (std::fabs(tx - (float)TickToX(st.window, d.g.cw, d.m.playhead)) <= 4) {
+		st.gesture = Gesture::Scrub;
+		return;
+	}
+	st.gesture = Gesture::Box;
+	st.pressX = tx;
+	st.pressY = gy;
+}
+
+void DragGraphHandle(D& d) {
+	TimelineDockState& st = d.st;
+	const std::vector<GraphExpModel::Keyframe>& ks = d.keys.GetChannel(st.handleCh).keys;
+	size_t i = 0;
+	while (i < ks.size() && ks[i].id != st.handleId) ++i;
+	if (i == ks.size()) return;
+	const float tx = d.mouse.x - kLeftW, gy = d.mouse.y - kRowsY;
+	const HandlePoint e = KeyHandle(d, st.handleCh, i, st.handleSide);
+	const double spanPx = e.span / st.window.Len() * d.g.cw, pxPerValue = kGraphBandH / RangeSpan(st, st.handleCh);
+	const HandleDrag h = DragHandle(ks[i].tick, ks[i].value, st.handleSide, e.span, XToTick(st.window, d.g.cw, tx),
+		YToVal(st, st.handleCh, gy), ImGui::GetIO().KeyShift, spanPx, pxPerValue);
+	if (h.tx == st.lastDt && h.dv == st.lastDv) return;
+	Action a;
+	a.kind = Action::Kind::Handle;
+	a.ch = st.handleCh;
+	a.id = st.handleId;
+	a.side = st.handleSide;
+	a.a = h.tx;
+	a.b = h.dv;
+	a.flag = false; // each side on its own, as CS2's dock edits them
+	d.out.push_back(a);
+	st.lastDt = h.tx;
+	st.lastDv = h.dv;
+}
+
+void ReleaseGraphBox(D& d) {
+	TimelineDockState& st = d.st;
+	const bool shift = ImGui::GetIO().KeyShift;
+	const float tx = d.mouse.x - kLeftW, gy = d.mouse.y - kRowsY;
+	if (std::fabs(tx - st.pressX) < kDragPx && std::fabs(gy - st.pressY) < kDragPx) {
+		if (!shift) d.Emit(Action::Kind::SelectClear);
+		return;
+	}
+	const float x0 = (std::min)(st.pressX, tx), x1 = (std::max)(st.pressX, tx);
+	const float y0 = (std::min)(st.pressY, gy), y1 = (std::max)(st.pressY, gy);
+	std::vector<std::pair<int, int>> picked;
+	for (int c : GraphChannels(st, d.keys))
+		for (const GraphExpModel::Keyframe& k : d.keys.GetChannel(c).keys) {
+			const float x = (float)TickToX(st.window, d.g.cw, k.tick), y = ValToY(st, c, k.value);
+			if (x >= x0 && x <= x1 && y >= y0 && y <= y1) picked.emplace_back(c, k.id);
+		}
+	if (!picked.empty()) SelectMembers(d, picked, shift);
+	else if (!shift) d.Emit(Action::Kind::SelectClear);
+}
+
 // ---- input that is not a button ----------------------------------------------------------------
 
 void HandleRegions(D& d, const std::vector<Row>& rows) {
@@ -1451,7 +1806,10 @@ void HandleRegions(D& d, const std::vector<Row>& rows) {
 	}
 	// The track: keys, a layer's bar, the playhead, else a box selection.
 	HitBox("##tltrack", d, kLeftW, kRowsY, kLeftW + d.g.tw, kRowsY + kRowsH);
-	if (ImGui::IsItemActivated()) PressTrack(d, rows, tx, d.mouse.y - kRowsY);
+	if (ImGui::IsItemActivated()) {
+		if (st.view == TimelineView::Graph) PressGraph(d, tx, d.mouse.y - kRowsY);
+		else PressTrack(d, rows, tx, d.mouse.y - kRowsY);
+	}
 
 	// The gesture in progress.
 	const bool down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
@@ -1473,9 +1831,14 @@ void HandleRegions(D& d, const std::vector<Row>& rows) {
 		break;
 	case Gesture::Box:
 		if (!down) {
-			ReleaseBox(d, rows);
+			if (st.view == TimelineView::Graph) ReleaseGraphBox(d);
+			else ReleaseBox(d, rows);
 			st.gesture = Gesture::None;
 		}
+		break;
+	case Gesture::Handle:
+		if (down) DragGraphHandle(d);
+		else st.gesture = Gesture::None;
 		break;
 	case Gesture::Overview:
 		if (down) {
@@ -1699,6 +2062,7 @@ std::vector<MenuItem> RowMenuItems(const D& d) {
 			for (int i = 0; i < n.count; ++i) comps += std::string(i ? " / " : "") + n.comps[i];
 			items.push_back(MenuEntry("separate", "Separate Dimensions", comps + " on their own rows"));
 		}
+		if (d.st.view == TimelineView::Keys) items.push_back(MenuEntry("graph", "Show in Graph"));
 		if (!IsSplit(d.st, node)) {
 			bool at = false;
 			for (int c : ChansOf(node))
@@ -1711,6 +2075,7 @@ std::vector<MenuItem> RowMenuItems(const D& d) {
 		MenuItem all = MenuEntry("selall", "Select all keys");
 		all.disabled = d.keys.TotalKeys() == 0;
 		items.push_back(all);
+		if (d.st.view == TimelineView::Keys) items.push_back(MenuEntry("graph", "Show in Graph"));
 		if (n.kind == NodeKind::Layer) {
 			const bool on = d.m.drive;
 			items.push_back(MenuEntry("toggle", on ? "Turn layer off" : "Turn layer on",
@@ -1763,6 +2128,9 @@ void PickMenu(D& d, const std::string& id) {
 	} else if (id == "joinparent") {
 		st.split[kNodes[n.parent].split] = false;
 		st.selRow = n.parent;
+	} else if (id == "graph") {
+		st.selRow = M.node;
+		st.view = TimelineView::Graph;
 	} else if (id == "addkey") {
 		AddKeyAt(d, M.node);
 	} else if (id == "selall") {
@@ -1910,6 +2278,17 @@ void RightClick(D& d, const std::vector<Row>& rows) {
 		CloseMenu(st);
 		return;
 	}
+	if (st.view == TimelineView::Graph && lx >= kLeftW) {
+		const GraphHit k = HitGraphKey(d, GraphChannels(st, d.keys), lx - kLeftW, ly - kRowsY);
+		if (k.ch < 0) {
+			CloseMenu(st);
+			return;
+		}
+		const std::vector<std::pair<int, int>> members = { std::make_pair(k.ch, k.id) };
+		if (!d.keys.IsSelected(k.ch, k.id)) SelectMembers(d, members, false);
+		OpenMenu(d, true, NodeOfChan(st, k.ch), k.t, members);
+		return;
+	}
 	const Row& row = rows[ri];
 	if (lx >= kLeftW && kNodes[row.node].kind == NodeKind::Prop && !IsSplit(st, row.node)) {
 		const std::vector<MergedKey> keys = MergedOf(d.keys, row.node);
@@ -1981,6 +2360,11 @@ std::vector<TimelineDockAction> DrawTimelineDock(TimelineDockState& state, const
 	const float snapRight = DrawToolbar(d);
 	DrawHeaderBand(d);
 	DrawRows(d, rows);
+	if (state.view == TimelineView::Graph) {
+		const std::vector<int> chans = GraphChannels(state, *model.keys);
+		FitRanges(d, chans);
+		DrawGraph(d, chans);
+	}
 	HandleRegions(d, rows);
 	DrawOverlays(d);
 	DrawFooter(d);
