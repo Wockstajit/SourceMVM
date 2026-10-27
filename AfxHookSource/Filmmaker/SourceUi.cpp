@@ -7,6 +7,7 @@
 #include "SourceDirector.h"
 #include "SourceEngine.h"
 #include "SourceMainThread.h"
+#include "SourceTimelineDock.h"
 
 #include "Ui/CameraEditorShell.h"
 #include "Ui/DirectorHud.h"
@@ -731,6 +732,7 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
 void Ui_MainThreadFrame() {
 	Director_Frame();
+	TimelineDock_SetEnabled(g_open.load() && g.editor.dock == DockTab::Timeline);
 	if (!g.window) return;
 	const bool director = !g_open.load() && Director_Wanted();
 	if (director != g_director.load()) {
@@ -851,6 +853,11 @@ void Ui_FilterRawInput(UINT result, UINT command, LPVOID data) {
 }
 
 bool Ui_EditorOpen() { return g_open.load(); }
+
+void Ui_ShowTimelineDock(bool show) {
+	if (show) Open("timeline dock");
+	g.editor.dock = show ? DockTab::Timeline : DockTab::RegularTimeline;
+}
 
 void Ui_ViewRendered(const double origin[3], const double angles[3], double fov) {
 	std::shared_ptr<DrawSnapshot> world;

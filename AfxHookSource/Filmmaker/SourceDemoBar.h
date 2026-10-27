@@ -24,6 +24,9 @@ void DemoBar_LoopCommand(const char* action);
 // The LOOP region's In and Out, as its flags set it (mirv_filmmaker loop range <in> <out>).
 void DemoBar_SetLoop(int in, int out);
 void DemoBar_SeekTo(int tick, int pause = -1);
+// A seek the bar sent is still on its way: target is where it goes. False once the demo has landed
+// within a tick of it (or the seek was given up).
+bool DemoBar_SeekTarget(int& target);
 
 // LOOP is on: a camera path reaching its end plays again (CS2).
 bool DemoBar_LoopOn();

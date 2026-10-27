@@ -114,6 +114,7 @@ the hook converts them first. See [Old demos](#old-demos).
 | `mirv_filmmaker blackout on\|off\|toggle\|status` | F8's blackout: no HUD, no bar, no cards |
 | `mirv_filmmaker director state` | The director's mouse, bar, cards and readouts, and where each bar control is |
 | `mirv_filmmaker marker ...` | [Camera paths](#camera-paths): `place`, `delete <i>`, `deleteall confirm`, `select <i>\|next\|prev`, `selectdelta <d>`, `next`, `prev`, `open [i]`, `close`, `movekey <i> <tick>`, `setval <i> <channel> <v>`, `fov <v>`, `roll <v>`, `undo`, `redo`, `ease <i> none\|in\|out\|inout`, `speed <i> <0.2..1>`, `reposition`, `placereposition`, `cancelreposition`, `arm`, `play`, `pause`, `stop`, `timing live\|freeze\|toggle`, `interp linear\|smooth\|cycle`, `speedmode manual\|constant\|persegment`, `constspeed <0.2..1>`, `speedmul <v>`, `autosnap`, `list` |
+| `mirv_filmmaker grapheditor ...` | The [TIMELINE dock](#the-timeline-dock)'s keys: `on`, `select`, `movesel`, `addkey`, `delsel`, `handle`, `ease`, `smooth`, `linear`, `align`, `undo`, `redo`, `playhead`, `autopath` and the rest of CS2's verbs |
 | `mirv_filmmaker capture "<file.bmp>"` | The next frame as the game shows it, the filmmaker's UI included, from the back buffer at Present. Quote the path: the console splits arguments at `:` |
 | `mvm_debug start\|stop\|status` | The shared runtime debug log, as in CS2: `%APPDATA%\HLAE\debuglogs\mvm_debug_*.log`, every console line and every command received over the port, stamped with demo tick, frame and thread |
 
@@ -450,6 +451,43 @@ by about 80 pixels); the aimed marker turned white and Freeze turned the path bl
 scaled into the Camera Editor's preview; `health` counted no vertices during F8's blackout and while
 the path played, and the overlay came back after. Fast turns were not measured: with the material
 system's queued rendering the overlay can be a frame apart from the image it is laid over.
+
+### The TIMELINE dock
+
+The Camera Editor's TIMELINE dock edits the camera path as keyframes, one row per camera value, as
+CS2's does. The keys and their curves are CS2's own model (`GraphExpModel`, shared with CS2), and
+`SourceTimelineDock.cpp` keeps them and the path in step, as CS2's `GraphEditorExperimentHud` does:
+
+- Every edit writes the keys back into the path: one marker per whole tick, with each value's curve
+  handles, so the camera flies what the dock draws. One drag or one click is one undo step on the
+  path.
+- A path change the dock did not make (K, the PATH CAMERA tab, an undo, a project load) is read back
+  into the keys every frame. Keys that still exist keep their curves and selection. The dock's own
+  undo history is dropped then, so an undo can never write an old path back.
+- The playhead is CS2's (`SourceTimelinePlayhead.cpp`). While it is dragged it is the dragged tick and
+  the world stays put. On release the demo seeks there, backwards through the restart, and the
+  playhead holds that tick until the demo lands and while it sits there.
+- AUTO, the CAMERA PATH layer's button: a scrub inside the path's keys shows the path's camera at the
+  playhead, and playback through the keys flies the path. Before the first key and after the last the
+  view is the game's, and a seek in progress does not count as playback. An edit, and a release until
+  the demo lands, show the path's camera with AUTO off too.
+
+`mirv_filmmaker grapheditor` keeps CS2's verbs for automation: `on|off|toggle`, `drive`, `autopath`,
+`select <ch> <id> [add]`, `selset <ch> <id> ...`, `selall`, `selclear`, `editbegin`,
+`movesel <dTick> <dValue>`, `addkey <ch> <tick> <value>`, `delsel`,
+`handle <ch> <id> left|right <tx> <dv> [reflect]`, `ease in|out|inout [all]`, `smooth|linear [sel]`,
+`align <ch> <id>|playhead`, `undo`, `redo`, `reseed` and `playhead <tick>|release`. The channels are
+0 x, 1 y, 2 z, 3 pitch, 4 yaw, 5 roll and 6 FOV. Each verb prints the dock's `health` line and every
+key, with `*` on the selected ones. `mvm_debug` logs `graph.adopt`, `graph.sync`, `graph.drive`,
+`graph.playhead`, `playhead.hold` and `campath.auto`.
+
+Checked in CS:S on 2026-10-26 in the test demo, from the console with `mvm_debug`: three markers
+placed with `marker place` became three keys on each of the seven values; moving the middle X key by
+100 moved marker 1 by 100; Easy Ease on every key and two undos put the path back, and the log showed
+no read-back of the dock's own writes; with AUTO on, a scrub to the moved key flew the view there and
+halfway between showed the halfway point; a release backwards from 1500 to 1150 held 1150 through the
+restart; playback from 900 flew the path from 1000 and gave the view back at 1600. The dock's drawing
+is the next part of step 10.
 
 ## Old demos
 

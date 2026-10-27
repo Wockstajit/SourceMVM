@@ -18,6 +18,8 @@
 
 #include <AfxHookSource2/Filmmaker/Movie/CamMarkers.h>
 
+#include <vector>
+
 namespace advancedfx { class ICommandArgs; }
 
 namespace SourceFilmmaker {
@@ -84,6 +86,18 @@ void CameraPath_BeginReposition();
 void CameraPath_PlaceReposition();
 void CameraPath_CancelReposition();
 bool CameraPath_Repositioning();
+
+// The TIMELINE dock bakes its keys into the path (CS2's ReplaceMarkersFromGraph): the whole marker
+// list replaced, the selection kept, the path rebuilt and saved. pushUndo makes it one undo step, the
+// first bake of a gesture.
+void CameraPath_ReplaceMarkersFromGraph(const std::vector<Filmmaker::CamMarker>& markers, bool pushUndo);
+// The path's pose at a demo tick (x, y, z, pitch, yaw, roll, FOV); false under two markers.
+bool CameraPath_EvalPoseAtTick(double tick, double out[7]);
+// AUTO, the CAMERA PATH layer's button on the TIMELINE dock (CS2's RunAutoPath): while the dock is
+// open and the demo plays through the path's keys in Live timing, the view follows the path; before
+// the first key and after the last it is the game's. J plays the path either way.
+bool CameraPath_AutoPath();
+void CameraPath_SetAutoPath(bool on);
 // The CAMERA MARKER card (CS2's marker menu): F on an aimed marker opens it for that marker, F or Esc
 // closes it. While it is up the cursor is the card's.
 void CameraPath_OpenMenu(int index);

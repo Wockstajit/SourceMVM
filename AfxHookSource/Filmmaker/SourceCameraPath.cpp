@@ -6,6 +6,7 @@
 #include "SourceEngine.h"
 #include "SourceMainThread.h"
 #include "SourceOldDemos.h"
+#include "SourceTimelineDock.h"
 
 #include "Ui/PathOverlay.h"
 
@@ -64,6 +65,8 @@ struct State {
 	std::vector<double> trajectory; // the in-world line: x, y, z along the path
 	// The editor's selection: the camera whose pose holds while the seek to its tick lands.
 	bool menuOpen = false;    // the CAMERA MARKER card
+	bool autoPath = false;    // AUTO on the TIMELINE dock's CAMERA PATH layer
+	bool autoPlaying = false; // the path is playing because of AUTO
 	int holdIndex = -1;
 	int holdFrames = 0;       // at most this many more frames
 	int holdSettled = 0;      // frames the demo has been on the camera's tick
@@ -206,6 +209,43 @@ void FinishAtLastKey() {
 	advancedfx::Message("[campath] end of path: the view is back on the game's camera.\n");
 }
 
+void EndAutoPath(const char* why) {
+	if (!g.autoPlaying) return;
+	g.autoPlaying = false;
+	g.play.Stop();
+	g.resumeGuard = 0;
+	SetMode(PathMode::Editing, "auto end");
+	CameraBridge_SetFreeCamEnabled(false);
+	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("campath.auto", "end (%s): the view is the game's again", why);
+}
+
+// CS2's RunAutoPath: with AUTO on and the TIMELINE dock open, Live playback through the path's keys
+// flies them, range-gated (CamPlayback: the view is the game's before the first key).
+void RunAutoPath() {
+	const DemoState d = Demo_State();
+	int seekTarget = 0;
+	const bool seeking = DemoBar_SeekTarget(seekTarget); // a backward seek replays from the start: not playback
+	const bool want = g.autoPath && TimelineDock_Enabled() && g.settings.timing == kTimingLive && g.markers.Count() >= 2
+		&& d.playing && !d.paused && !seeking;
+	if (g.autoPlaying) {
+		if (g.mode != PathMode::Playing) { g.autoPlaying = false; return; } // J, Esc or a pause ended it
+		if (!want) EndAutoPath(!g.autoPath ? "AUTO off" : !TimelineDock_Enabled() ? "the TIMELINE dock closed"
+			: g.settings.timing != kTimingLive ? "Freeze timing" : g.markers.Count() < 2 ? "under two camera keys"
+			: !d.playing ? "the demo stopped" : seeking ? "a seek" : "the demo paused");
+		return;
+	}
+	if (!want || g.mode != PathMode::Editing || g.holdFrames > 0) return;
+	if (d.tick >= g.markers.Back().tick) return; // past it this pass
+	Rebuild();
+	if (!g.eval.CanEval()) return;
+	g.play.StartPlay(g.eval.Duration(), /*rangeGated*/ true);
+	SetMode(PathMode::Playing, "auto");
+	g.autoPlaying = true;
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("campath.auto", "start at tick %d: the view follows the path inside %d..%d", d.tick,
+			g.markers.Front().tick, g.markers.Back().tick);
+}
+
 void RestartPath() {
 	g.play.Stop();
 	if (g.settings.timing == kTimingLive && !g.markers.Empty()) {
@@ -270,7 +310,39 @@ void CameraPath_SelectStep(int delta) {
 	advancedfx::Message("[campath] selected marker #%d%s.\n", sel, g.settings.autoSnap ? "" : " (auto-snap off, view not moved)");
 }
 
-bool CameraPath_OwnsView() { return g.mode == PathMode::Armed || g.mode == PathMode::Playing; }
+// AUTO is playing but the demo is not inside the path yet: the view, and the mouse, are the game's.
+bool AutoWaiting() { return g.autoPlaying && g.mode == PathMode::Playing && !CameraBridge_GetFreeCamEnabled(); }
+
+bool CameraPath_OwnsView() { return g.mode == PathMode::Armed || (g.mode == PathMode::Playing && !AutoWaiting()); }
+
+void CameraPath_ReplaceMarkersFromGraph(const std::vector<CamMarker>& markers, bool pushUndo) {
+	if (pushUndo) PushUndo();
+	int sel = g.markers.Selected();
+	if (sel >= (int)markers.size()) sel = (int)markers.size() - 1;
+	if (!markers.empty() && sel < 0) sel = 0;
+	g.markers.Restore(markers, sel);
+	Rebuild();
+	MarkDirty();
+}
+
+bool CameraPath_EvalPoseAtTick(double tick, double out[7]) {
+	if (g.markers.Count() < 2 || !g.eval.CanEval()) return false;
+	const CamPathEval::Pose p = g.eval.EvalAtTick(g.markers, tick);
+	if (!p.valid) return false;
+	out[0] = p.x; out[1] = p.y; out[2] = p.z;
+	out[3] = p.pitch; out[4] = p.yaw; out[5] = p.roll;
+	out[6] = p.fov;
+	return true;
+}
+
+bool CameraPath_AutoPath() { return g.autoPath; }
+
+void CameraPath_SetAutoPath(bool on) {
+	g.autoPath = on;
+	advancedfx::Message("[campath] AUTO %s: %s\n", on ? "on" : "off", on
+		? "while the timeline plays, the view follows the camera path inside its keys."
+		: "Space plays the demo; J plays the camera path.");
+}
 
 bool CameraPath_Repositioning() { return g.mode == PathMode::Reposition; }
 
@@ -322,7 +394,9 @@ void CameraPath_Place() {
 			i, m.tick, m.x, m.y, m.z, m.fov);
 		return;
 	}
+	const bool curves = CamMarkersHaveCurves(g.markers);
 	const int index = g.markers.Add(m);
+	if (curves && g.settings.interp == 1) CamMarkersAutoTangent(g.markers, index); // joins the curve, no corner
 	Rebuild();
 	MarkDirty();
 	advancedfx::Message("[campath] marker #%d placed @ tick %d (%.1f %.1f %.1f) fov %.1f.\n", index, m.tick, m.x, m.y, m.z, m.fov);
@@ -493,6 +567,20 @@ void CameraPath_SetConstSpeed(float mul) {
 
 void CameraPath_SetInterp(int interp) {
 	g.settings.interp = interp == 1 ? 1 : 0;
+	// A path that follows the graph's curves takes the mode as a reshape of those curves, the way the
+	// graph's own Smooth and Linear do; a path the graph never shaped keeps its spline.
+	if (CamMarkersHaveCurves(g.markers)) {
+		if (g.settings.interp == 1) {
+			CamMarkersAutoTangent(g.markers, -1);
+		} else {
+			for (int k = 0; k < g.markers.Count(); ++k)
+				for (int c = 0; c < 7; ++c) {
+					g.markers.At(k).in[c] = GraphCurve::Handle();
+					g.markers.At(k).out[c] = GraphCurve::Handle();
+				}
+		}
+	}
+	TimelineDock_MirrorPathInterp(g.settings.interp == 1);
 	Rebuild();
 	MarkDirty();
 	advancedfx::Message("[campath] interpolation -> %s.\n", kInterpNames[g.settings.interp]);
@@ -675,10 +763,15 @@ void CameraPath_Frame() {
 			--g.resumeGuard;
 		}
 		const bool done = g.play.TickPlay(g.markers, g.eval, MakeContext());
-		if (g.settings.timing == kTimingLive && g.play.LiveEndSettling() && !done && !Demo_State().paused) Command("demo_pause");
-		if (done && DemoBar_LoopOn() && g.markers.Count() >= 2 && g.eval.CanEval()) RestartPath(); // LOOP replays the path
-		else if (done) FinishAtLastKey();
+		if (g.autoPlaying) {
+			if (done) EndAutoPath("end of path"); // the demo plays on, the game's camera takes the view
+		} else {
+			if (g.settings.timing == kTimingLive && g.play.LiveEndSettling() && !done && !Demo_State().paused) Command("demo_pause");
+			if (done && DemoBar_LoopOn() && g.markers.Count() >= 2 && g.eval.CanEval()) RestartPath(); // LOOP replays the path
+			else if (done) FinishAtLastKey();
+		}
 	}
+	RunAutoPath();
 }
 
 bool CameraPath_OnKey(int vk, bool down, bool repeat) {

@@ -13,6 +13,7 @@
 #include "SourceNetcon.h"
 #include "SourceOldDemos.h"
 #include "SourceSmoothView.h"
+#include "SourceTimelineDock.h"
 #include "RenderView.h"
 #include "WrpGlobals.h"
 #include "SourceUi.h"
@@ -116,6 +117,7 @@ void PrintHealth() {
 	if (!g_VEngineClient->IsInGame()) return;
 	Director_PrintHealth();
 	CameraPath_PrintHealth();
+	TimelineDock_PrintHealth();
 	Ui_PrintOverlayHealth();
 
 	const ViewPose game = View_Game();
@@ -172,6 +174,7 @@ void PrintUsage() {
 		"mirv_filmmaker director - state: the movie director's mouse, cards, and where each bar control is.\n"
 		"mirv_filmmaker smoothview - on|off|toggle|state|reset|<setting> <value>: CS2's Smooth View.\n"
 		"mirv_filmmaker marker  - place|delete|select|arm|play|pause|stop|timing|interp|speedmode|...: camera paths.\n"
+		"mirv_filmmaker grapheditor - on|off|state|select|movesel|addkey|ease|undo|playhead|...: the TIMELINE dock's keys.\n"
 		"mirv_filmmaker capture - <file.bmp>: the next frame as the game shows it, the filmmaker's UI included.\n");
 }
 
@@ -210,6 +213,7 @@ void OnFrameRenderStart() {
 	DemoBar_Frame();
 	CameraPath_Frame();
 	Ui_MainThreadFrame();
+	TimelineDock_Frame(); // after the UI: its playhead and edits drive this frame's camera
 }
 
 } // namespace SourceFilmmaker
@@ -242,6 +246,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::SmoothView_Command(argc, args);
 	} else if (0 == _stricmp(sub, "marker")) {
 		SourceFilmmaker::CameraPath_Command(argc, args);
+	} else if (0 == _stricmp(sub, "grapheditor")) {
+		SourceFilmmaker::TimelineDock_Command(argc, args);
 	} else if (0 == _stricmp(sub, "capture")) {
 		SourceFilmmaker::Capture_Request(argc >= 3 ? args->ArgV(2) : "");
 	} else {

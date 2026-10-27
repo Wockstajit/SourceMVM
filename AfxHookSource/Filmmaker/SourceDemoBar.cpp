@@ -52,6 +52,10 @@ struct State {
 	double restartTimescale = 1;
 	bool restartSawStop = false;
 	Clock::time_point restartAt;
+	// The last forward seek, until the demo lands on it (DemoBar_SeekTarget).
+	bool seekPending = false;
+	int seekTarget = 0;
+	Clock::time_point seekAt;
 };
 State g;
 
@@ -115,7 +119,26 @@ void DemoBar_SeekTo(int target, int pause) {
 	} else {
 		std::snprintf(command, sizeof(command), "demo_gototick %d 0 %d", seek.tick, paused ? 1 : 0);
 	}
+	g.seekPending = true;
+	g.seekTarget = seek.tick;
+	g.seekAt = Clock::now();
 	Command(command);
+}
+
+bool DemoBar_SeekTarget(int& target) {
+	if (g.restartPending) {
+		target = g.restartTarget;
+		return true;
+	}
+	if (!g.seekPending) return false;
+	const DemoState demo = Demo_State();
+	if (!demo.playing || (demo.tick >= g.seekTarget - 1 && demo.tick <= g.seekTarget + 1)
+		|| Clock::now() - g.seekAt > std::chrono::seconds(5)) {
+		g.seekPending = false;
+		return false;
+	}
+	target = g.seekTarget;
+	return true;
 }
 
 void DemoBar_BuildModel(DemoBarModel& model) {
@@ -191,6 +214,7 @@ void DemoBar_Frame() {
 			if (std::fabs(g.restartTimescale - 1.0) > 0.0001 && n > 0 && n < (int)sizeof(command))
 				std::snprintf(command + n, sizeof(command) - n, "; demo_timescale %.4f", g.restartTimescale);
 			Command(command);
+			g.seekAt = Clock::now(); // the forward half of the seek starts now
 		} else if (Clock::now() - g.restartAt > std::chrono::seconds(20)) {
 			g.restartPending = false;
 		}

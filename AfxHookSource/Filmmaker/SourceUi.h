@@ -55,6 +55,8 @@ void Ui_FilterRawInput(UINT result, UINT command, LPVOID data);
 // mirv_filmmaker editor [on|off|toggle|state]
 void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args);
 bool Ui_EditorOpen();
+// Opens the Camera Editor on its TIMELINE dock, or puts the REGULAR TIMELINE dock back.
+void Ui_ShowTimelineDock(bool show);
 
 // mirv_filmmaker director state: the director's mouse, bar, cards and where each bar control is.
 void Ui_DirectorState();

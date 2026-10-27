@@ -139,4 +139,35 @@ private:
 	int m_selected = -1;
 };
 
+// A marker's value on one of the graph's channels: x, y, z, pitch, yaw, roll, fov.
+inline double CamMarkerChannelValue(const CamMarker& m, int c) {
+	switch (c) {
+	case 0: return m.x; case 1: return m.y; case 2: return m.z;
+	case 3: return m.pitch; case 4: return m.yaw; case 5: return m.roll;
+	default: return m.fov;
+	}
+}
+
+// The path flies the graph's curves: some marker carries handles (CamPathEval::EvalCurves).
+inline bool CamMarkersHaveCurves(const CamMarkers& data) {
+	for (int i = 0; i < data.Count(); ++i) if (data.At(i).HasCurve()) return true;
+	return false;
+}
+
+// The graph's Smooth on the markers themselves: Catmull-Rom handles per channel
+// (GraphCurve::AutoTangent, the function GraphExpModel uses), on marker `only` or on all (-1).
+inline void CamMarkersAutoTangent(CamMarkers& data, int only) {
+	const int n = data.Count();
+	std::vector<double> ticks(n), values(n);
+	for (int i = 0; i < n; ++i) ticks[i] = (double)data.At(i).tick;
+	for (int c = 0; c < 7; ++c) {
+		for (int i = 0; i < n; ++i) {
+			values[i] = CamMarkerChannelValue(data.At(i), c);
+			if (i > 0 && GraphCurve::IsAngleChannel(c)) values[i] = GraphCurve::Unwrap(values[i - 1], values[i]);
+		}
+		for (int i = 0; i < n; ++i)
+			if (only < 0 || i == only) GraphCurve::AutoTangent(ticks.data(), values.data(), n, i, data.At(i).in[c], data.At(i).out[c]);
+	}
+}
+
 } // namespace Filmmaker

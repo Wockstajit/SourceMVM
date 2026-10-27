@@ -172,6 +172,10 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceSdk2013.h
     Filmmaker/SourceSmoothView.cpp
     Filmmaker/SourceSmoothView.h
+    Filmmaker/SourceTimelineDock.cpp
+    Filmmaker/SourceTimelineDock.h
+    Filmmaker/SourceTimelinePlayhead.cpp
+    Filmmaker/SourceTimelinePlayhead.h
     Filmmaker/SourceUi.cpp
     Filmmaker/SourceUi.h
     Filmmaker/Ui/CameraEditorShell.cpp
@@ -240,6 +244,8 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Movie/CamPlayback.h
     ../AfxHookSource2/Filmmaker/Movie/CameraBridge.h
     ../AfxHookSource2/Filmmaker/Movie/GraphCurveMath.h
+    ../AfxHookSource2/Filmmaker/Movie/GraphExpModel.cpp
+    ../AfxHookSource2/Filmmaker/Movie/GraphExpModel.h
     ../AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h
     ../AfxHookSource2/Filmmaker/Movie/SmoothView.cpp
     ../AfxHookSource2/Filmmaker/Movie/SmoothView.h
