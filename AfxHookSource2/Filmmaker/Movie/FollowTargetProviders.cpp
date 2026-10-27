@@ -51,11 +51,6 @@ std::string EntityClass(CEntityInstance* entity) {
 	return cls ? cls : "";
 }
 
-bool IsFiniteOrigin(const FollowVec3& p) {
-	return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z)
-		&& std::fabs(p.x) < FLT_MAX && std::fabs(p.y) < FLT_MAX && std::fabs(p.z) < FLT_MAX;
-}
-
 bool ReadOrigin(CEntityInstance* entity, FollowVec3& out) {
 	if (!entity) return false;
 	float x = FLT_MAX, y = FLT_MAX, z = FLT_MAX;
@@ -368,18 +363,6 @@ uint64_t EntityHandleValue(CEntityInstance* entity) {
 	return h.IsValid() ? (uint64_t)(uint32_t)h.ToInt() : 0;
 }
 
-FollowAttachPoint MakeAttachPoint(const char* id, const char* label, const char* kind,
-	bool valid, int index, const char* source) {
-	FollowAttachPoint out;
-	out.id = id ? id : "";
-	out.label = label ? label : out.id;
-	out.kind = kind ? kind : "";
-	out.valid = valid;
-	out.index = index;
-	out.source = source ? source : "";
-	return out;
-}
-
 void AddAttachmentIfValid(std::vector<FollowAttachPoint>& out, CEntityInstance* entity,
 	const char* id, const char* label, const char* kind) {
 	if (!entity || !id || !*id) return;
@@ -428,15 +411,6 @@ std::vector<FollowAttachPoint> AvailableAttachPoints(CEntityInstance* entity, Fo
 		AddAttachmentIfValid(out, entity, "bolt", "Bolt", "attachment");
 		AddAttachmentIfValid(out, entity, "slide", "Slide", "attachment");
 	}
-	return out;
-}
-
-std::vector<std::string> AttachPointIds(const std::vector<FollowAttachPoint>& points) {
-	std::vector<std::string> out;
-	out.reserve(points.size());
-	for (const auto& point : points)
-		if (point.valid)
-			out.push_back(point.id);
 	return out;
 }
 
@@ -619,44 +593,6 @@ AttachTransformResult ResolveAttachTransform(CEntityInstance* entity, int entity
 	out.oriented = out.valid && ReadSceneAngles(entity, out.ang);
 	if (out.oriented) out.source = out.attachId == "entity" ? "entity-transform" : "fallback-entity-transform";
 	return out;
-}
-
-std::string JsonEscape(const std::string& value) {
-	std::ostringstream out;
-	for (unsigned char c : value) {
-		switch (c) {
-		case '\\': out << "\\\\"; break;
-		case '"': out << "\\\""; break;
-		case '\n': out << "\\n"; break;
-		case '\r': out << "\\r"; break;
-		case '\t': out << "\\t"; break;
-		default:
-			if (c < 0x20) out << '?';
-			else out << (char)c;
-		}
-	}
-	return out.str();
-}
-
-void AppendAttachPointJson(std::ostringstream& o, const FollowAttachPoint& point) {
-	o << "{\"id\":\"" << JsonEscape(point.id) << "\""
-		<< ",\"label\":\"" << JsonEscape(point.label) << "\""
-		<< ",\"kind\":\"" << JsonEscape(point.kind) << "\""
-		<< ",\"valid\":" << (point.valid ? "true" : "false")
-		<< ",\"index\":" << point.index
-		<< ",\"source\":\"" << JsonEscape(point.source) << "\"}";
-}
-
-const char* TeamName(int team) {
-	return team == 2 ? "T" : (team == 3 ? "CT" : "-");
-}
-
-const char* FollowTargetTypeName(FollowTargetType type) {
-	switch (type) {
-	case FollowTargetType::Grenade: return "Grenade";
-	case FollowTargetType::Weapon: return "Weapon / C4";
-	default: return "Player";
-	}
 }
 
 } // namespace Filmmaker

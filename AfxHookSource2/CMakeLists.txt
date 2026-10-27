@@ -752,6 +752,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/GraphExpModel.h
     Filmmaker/Movie/FollowCamera.cpp
     Filmmaker/Movie/FollowCamera.h
+    Filmmaker/Movie/FollowCameraHost.h
+    Filmmaker/Movie/FollowCameraHostSource2.cpp
     Filmmaker/Movie/FollowCameraMath.cpp
     Filmmaker/Movie/FollowCameraMath.h
     Filmmaker/Movie/FollowTargetProviders.cpp

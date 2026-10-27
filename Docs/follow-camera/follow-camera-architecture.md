@@ -5,10 +5,11 @@
 | Layer | Where | Responsibility |
 |---|---|---|
 | State + logic | `FollowCamera.cpp` (the `FollowCamera` singleton) | Owns `FollowCameraState` and runs the per-frame solve. The class spans several translation units, and its other duties live in the files below. |
+| Game host | `FollowCameraHost.h`, answered by `FollowCameraHostSource2.cpp` (CS2) and `AfxHookSource/Filmmaker/SourceFollowCamera.cpp` (CS:S) | Everything the follow camera asks the game: the demo clock and seeks, the editor's mouse, the other cameras it takes the view from, the target providers, the entity scan behind the candidate list, grenade sightings, mount points and the demo's recorded events. The files above and below it are shared and compile into both hooks. |
 | Math | `FollowCameraMath.{h,cpp}` | Pure functions: look-at, smoothing, quat to angles, local-offset rotation. No engine deps (also compiled standalone by the test target). |
-| Target providers | `FollowTargetProviders.{h,cpp}` (providers defined inline in the header) | Adapt a player / entity / attachment / held-weapon into a position (+ optional orientation) each frame. |
-| Target discovery | `FollowTargetDiscovery.{h,cpp}` | Picking *what* to follow: `Candidates`, `SelectNearest`, `SelectEntity`, `SelectHandle`, `ResolvePendingGrenade`. |
-| Demo event index | `FollowEventIndex.{h,cpp}` | `EnsureEventsLoaded` / `EventsSnapshot` / `SelectEvent`, the background `.fmjson` load, and the Preview-Tick seek. |
+| Target providers | `FollowTargetProviders.{h,cpp}` (CS2; providers defined inline in the header) | Adapt a player / entity / attachment / held-weapon into a position (+ optional orientation) each frame. |
+| Target discovery | `FollowTargetDiscovery.{h,cpp}` | Picking *what* to follow from the host's scan: `Candidates` (scoping and order), `Players`, `SelectNearest`, `SelectEntity`, `SelectHandle`, grenade tracking, the death retarget. |
+| Demo event index | `FollowEventIndex.{h,cpp}` | `EnsureEventsLoaded` / `EventsSnapshot` / `SelectEvent`, the background load of the host's event scan, and the Preview-Tick seek. |
 | State JSON | `FollowCameraStateJson.cpp` | `BuildStateJson`: the payload the Camera Editor's Follow inspector reads. |
 | Commands | `FollowCommand.cpp` `Follow_RunCommand` | The `mirv_filmmaker follow ...` console surface (the automation API; routed from the `FilmmakerCommand.cpp` dispatcher). |
 | UI | `CameraEditorFollowInspectorJs.h` (Panorama JS, `#include`d into `CameraEditorJs.h`'s script body) | The editor's Follow inspector. Reads the pushed state JSON, issues console commands back. |
@@ -53,18 +54,19 @@ virtual bool GetWorldTransform(FollowVec3& pos, FollowAngles& ang); // true = or
 | `AttachmentTargetProvider` | [FollowTargetProviders.h:146](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h#L146) (extends `EntityTargetProvider`) | `LookupAttachment(name)` + `GetAttachment(idx, origin, quat)`; quat to angles via `FollowQuatToAngles`. Attachment points only, with no bone-matrix work. |
 | `HeldWeaponProvider` | [FollowTargetProviders.h:201](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h#L201) | Resolves `pawn->GetActiveWeaponHandle()` each frame, so it tracks the *currently held* weapon across switches. |
 
-[`MakeProvider`](../../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp#L464) chooses the provider from
-`(type, mode, weaponSource)`. [`Candidates`](../../AfxHookSource2/Filmmaker/Movie/FollowTargetDiscovery.cpp#L100)
-builds the selectable list (players, grenades, held and dropped weapons, and C4).
+[`MakeProvider`](../../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp#L447) asks the host for the provider
+for `(type, mode, weaponSource)`. [`Candidates`](../../AfxHookSource2/Filmmaker/Movie/FollowTargetDiscovery.cpp#L60)
+builds the selectable list (players, grenades, held and dropped weapons, and C4) from the host's scan.
 
 ## RunFrame: two paths
 
-[`RunFrame`](../../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp#L521) is called from
+[`RunFrame`](../../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp#L491) is called from
 `Filmmaker::RunMainThreadFrame`, and only while the camera editor is active.
 
-- **Lock-on**: the turret solve (`FollowLookAt` and `FollowSmoothAngles`). The placed camera
-  stays put, and `rotationOffset` is added as an aim trim after the look-at
-  ([FollowCamera.cpp:853](../../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp#L853)).
+- **Lock-on**: the turret solve (`FollowLookAt` and `FollowSmoothAngles`), run once per rendered frame
+  at view setup ([`ViewSetupLockOnOverride`](../../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp#L789))
+  against the interpolated target. The placed camera stays put, and `rotationOffset` is added as an aim
+  trim after the look-at.
 - **Attach**: `provider->GetWorldTransform()` gives `basePos,baseAng`. `finalPos = basePos + FollowRotateVector(offset, baseAng)`
   (local-space offset), and `finalAng = FollowComposeRotation(baseAng, rotationOffset)`. Smoothing and
   prediction stay at zero, and render-time sampling rebases the mount onto the interpolated body pose.
@@ -130,9 +132,9 @@ up vectors must stay constant through animation and weapon-return cycles.
 ```
 
 The demo event list flows separately. `FollowCamera::EnsureEventsLoaded`
-([FollowEventIndex.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowEventIndex.cpp)) starts a detached
-worker that calls `ReadDemoInfoViaHelper` (which reads and refreshes `scoreboard.fmjson`), keyed on the
-engine's `GetDemoFilePath()`. The events are merged into the state JSON only for the Weapon type, nearest
+([FollowEventIndex.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowEventIndex.cpp)) starts a joinable
+worker that calls `FollowHost_ReadDemoEvents`, keyed on `FollowHost_DemoPath()`. In CS2 that is
+`ReadDemoInfoViaHelper` (which reads and refreshes `scoreboard.fmjson`) on the engine's `GetDemoFilePath()`. The events are merged into the state JSON only for the Weapon type, nearest
 the playhead first ([FollowCameraStateJson.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowCameraStateJson.cpp)).
 
 ## File map
@@ -143,12 +145,14 @@ serialization each have their own translation unit (see the Components table abo
 
 | File | Lines | What |
 |---|---|---|
-| [FollowCamera.h](../../AfxHookSource2/Filmmaker/Movie/FollowCamera.h) | 20/29/36 enums (+ 42 `FollowTargetStatus`) · 83 `FollowEventRecord` · 91 `FollowCameraState` · 120 provider iface · 138 class | model, state, interface, instrumentation decls |
-| [FollowCamera.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp) | 388 `SetMode` · 418 `SetWeaponSource` · 424 `SetWeaponPlayer` · 447 `GoToTarget` · 464 `MakeProvider` · 521 `RunFrame` · 724 attach path · 853 lock-on path · 920 `SetOffsetAxis` · 926 `SetRotationOffset` · 1022 `PrintStatus` · 1037 `PrintCamPose` | placement, mode/type setters, the per-frame solve |
-| [FollowTargetProviders.h](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h) | 68 `PlayerTargetProvider` · 113 `EntityTargetProvider` · 146 `AttachmentTargetProvider` · 201 `HeldWeaponProvider` (all defined inline in the header) | target providers |
-| [FollowTargetDiscovery.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowTargetDiscovery.cpp) | 100 `Candidates` · 277 `Players` · 356 `SelectNearest` · 370 `SelectEntity` · 380 `SelectHandle` · 454 `ResolvePendingGrenade` | candidate discovery + selection |
-| [FollowEventIndex.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowEventIndex.cpp) | 22 `EnsureEventsLoaded` · 93 `SelectEvent` · 106 `PreviewTick` | demo event index |
-| [FollowCameraStateJson.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowCameraStateJson.cpp) | 25 `BuildStateJson` | state to JSON |
+| [FollowCamera.h](../../AfxHookSource2/Filmmaker/Movie/FollowCamera.h) | 21/30/37 enums (+ 43 `FollowTargetStatus`) · 84 `FollowEventRecord` · 128 `FollowCameraState` · 150 provider iface · 168 class | model, state, interface, instrumentation decls |
+| [FollowCameraHost.h](../../AfxHookSource2/Filmmaker/Movie/FollowCameraHost.h) | whole file | what the follow camera asks the game |
+| [FollowCameraHostSource2.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowCameraHostSource2.cpp) | 125 `FollowHost_MakeProvider` · 151 `FollowHost_FindTargets` · 238 `FollowHost_AttachPoints` | CS2's answers |
+| [FollowCamera.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp) | 386 `SetMode` · 404 `SetWeaponSource` · 410 `SetWeaponPlayer` · 430 `GoToTarget` · 447 `MakeProvider` · 491 `RunFrame` · 667 attach path · 789 lock-on solve · 903 `SetOffsetAxis` · 909 `SetRotationOffset` · 986 `PrintStatus` · 1002 `PrintCamPose` | placement, mode/type setters, the per-frame solve |
+| [FollowTargetProviders.h](../../AfxHookSource2/Filmmaker/Movie/FollowTargetProviders.h) | 77 `PlayerTargetProvider` · 115 `EntityTargetProvider` · 148 `AttachmentTargetProvider` · 196 `HeldWeaponProvider` (all defined inline in the header) | CS2's target providers |
+| [FollowTargetDiscovery.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowTargetDiscovery.cpp) | 60 `Candidates` · 166 `Players` · 207 `SelectNearest` · 221 `SelectEntity` · 231 `SelectHandle` · 257 `TrackSelectedGrenade` · 299 `ResolvePendingGrenade` · 327 `TryDeathRetarget` | candidate scoping + selection |
+| [FollowEventIndex.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowEventIndex.cpp) | 13 `EnsureEventsLoaded` · 72 `SelectEvent` · 85 `PreviewTick` | demo event index |
+| [FollowCameraStateJson.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowCameraStateJson.cpp) | 51 `BuildStateJson` | state to JSON |
 | [FollowCameraMath.h](../../AfxHookSource2/Filmmaker/Movie/FollowCameraMath.h) / [.cpp](../../AfxHookSource2/Filmmaker/Movie/FollowCameraMath.cpp) | `FollowQuatToAngles` (.cpp:47), `FollowRotateVector` (.cpp:62), `FollowInverseRotateVector` (.cpp:77) | math helpers |
 | [FollowCommand.cpp](../../AfxHookSource2/Filmmaker/FollowCommand.cpp) | `Follow_RunCommand` (whole file; routed from `FilmmakerCommand.cpp`) | command surface |
 | [CameraEditorFollowInspectorJs.h](../../AfxHookSource2/Filmmaker/Panorama/CameraEditorFollowInspectorJs.h) | n/a | Follow inspector UI: one card with a persistent mode selector and Target, Framing and Tracking pages. Lock-on aim controls are hidden in Attached. Both modes expose death/lost-target behavior. |

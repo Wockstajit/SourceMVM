@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cfloat>
 #include <cmath>
 
 namespace Filmmaker {
@@ -58,6 +59,12 @@ struct FollowAngles {
 	double yaw = 0.0;
 	double roll = 0.0;
 };
+
+// A usable world position: finite, and not the FLT_MAX an engine read leaves when it fails.
+inline bool IsFiniteOrigin(const FollowVec3& p) {
+	return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z)
+		&& std::fabs(p.x) < FLT_MAX && std::fabs(p.y) < FLT_MAX && std::fabs(p.z) < FLT_MAX;
+}
 
 double FollowWrapDegrees(double value);
 double FollowHalfTimeAlpha(double halfTimeSeconds, double deltaSeconds);
