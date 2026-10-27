@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <vector>
 
 namespace SourceFilmmaker {
@@ -444,6 +445,115 @@ inline HandleDrag DragHandle(double keyT, double keyV, int side, double span, do
 		}
 	}
 	return h;
+}
+
+// ---- camera shake keys (GraphEditorJs.h shakeKeys .. shakeKeyFrom) ----------------------------
+// The camera path's shake track: a key on a camera key, with a style (kShakeStop ends a shake), an
+// intensity n (1-10), a speed p (10-100) and whether it is a one-shot. As
+// CamPathShake_EvalSnapshot plays them: a key and the next key with the same style are one run whose
+// values glide along an eased ramp (a one-shot never chains); any other key runs until the next key
+// of the track or to the end of the shot. Camera keys without a shake play no part.
+constexpr int kShakeStop = -2;
+constexpr int kShakeN0 = 5, kShakeP0 = 50; // a new key's intensity and speed with nothing running
+struct ShakeKey {
+	double t = 0;
+	int s = 0;            // the style's index; kShakeStop for a Stop
+	int n = kShakeN0, p = kShakeP0;
+	bool oneShot = false;
+	double Param(char param) const { return param == 'n' ? n : p; }
+};
+
+// The keys in tick order (the dock hands them over sorted).
+inline const ShakeKey* ShakeKeyAtTick(const std::vector<ShakeKey>& keys, double t) {
+	const double want = std::round(t);
+	for (const ShakeKey& k : keys) if (std::round(k.t) == want) return &k;
+	return nullptr;
+}
+
+inline const ShakeKey* ShakeNextKey(const std::vector<ShakeKey>& keys, const ShakeKey& k) {
+	for (const ShakeKey& q : keys) if (q.t > k.t + 0.25) return &q;
+	return nullptr;
+}
+
+// The key the run from k ramps to (the next key, when it has the same style), or null.
+inline const ShakeKey* ShakeRun(const std::vector<ShakeKey>& keys, const ShakeKey& k) {
+	const ShakeKey* next = ShakeNextKey(keys, k);
+	return next && k.s >= 0 && next->s == k.s && !k.oneShot ? next : nullptr;
+}
+
+inline double ShakeEase(double u) {
+	u = u < 0 ? 0 : (u > 1 ? 1 : u);
+	return u * u * (3 - 2 * u);
+}
+
+// The shake key running at tick t: the last key at or before it, unless that is a Stop.
+inline const ShakeKey* ShakeRunningAt(const std::vector<ShakeKey>& keys, double t) {
+	const ShakeKey* a = nullptr;
+	for (const ShakeKey& k : keys) if (k.t <= t + 0.5) a = &k;
+	return a && a->s >= 0 ? a : nullptr;
+}
+
+// Intensity ('n') or speed ('p') at tick t; false when no shake runs there.
+inline bool ShakeValueAt(const std::vector<ShakeKey>& keys, char param, double t, double& out) {
+	const ShakeKey* a = ShakeRunningAt(keys, t);
+	if (!a) return false;
+	const ShakeKey* b = ShakeRun(keys, *a);
+	out = !b || !(b->t > a->t) ? a->Param(param)
+		: a->Param(param) + (b->Param(param) - a->Param(param)) * ShakeEase((t - a->t) / (b->t - a->t));
+	return true;
+}
+
+// The camera key at tick t (as the shake command numbers them), or -1.
+inline int ShakePathIndexAt(const std::vector<double>& pathKeys, double t) {
+	const double want = std::round(t);
+	for (size_t i = 0; i < pathKeys.size(); ++i) if (std::round(pathKeys[i]) == want) return (int)i;
+	return -1;
+}
+
+// Where the shake under the playhead is edited: the camera key under the playhead, else the key whose
+// shake runs here; false for neither.
+inline bool ShakeEditTick(const std::vector<ShakeKey>& keys, const std::vector<double>& pathKeys, double playhead, double& out) {
+	const int i = ShakePathIndexAt(pathKeys, playhead);
+	if (i >= 0) { out = pathKeys[(size_t)i]; return true; }
+	const ShakeKey* a = ShakeRunningAt(keys, playhead);
+	if (a) { out = a->t; return true; }
+	return false;
+}
+
+// A shake key goes on a camera key only.
+inline bool ShakeCanKey(const std::vector<double>& pathKeys, double t) { return ShakePathIndexAt(pathKeys, t) >= 0; }
+
+// The pathshake command (after "mirv_filmmaker pathshake ") that puts a key at t continuing the shake
+// running into it (else the menu's first style), at the values it reads there, with param ('n' or
+// 'p', or 0 for neither) set to v. False when there is no style to use.
+inline bool ShakeKeyFromCommand(const std::vector<ShakeKey>& keys, int firstStyle, double t, char param, int v, std::string& out) {
+	const ShakeKey* run = ShakeRunningAt(keys, t - 1);
+	const int style = run ? run->s : firstStyle;
+	if (style < 0) return false;
+	double n = 0, p = 0;
+	const int nv = ShakeValueAt(keys, 'n', t - 1, n) && std::lround(n) ? (int)std::lround(n) : kShakeN0;
+	const int pv = ShakeValueAt(keys, 'p', t - 1, p) && std::lround(p) ? (int)std::lround(p) : kShakeP0;
+	char text[96];
+	std::snprintf(text, sizeof(text), "set @%ld %d %d %d", std::lround(t), style, param == 'n' ? v : nv, param == 'p' ? v : pv);
+	out = text;
+	return true;
+}
+
+// The command that sets intensity or speed at t (clamped and rounded to [lo, hi]): the key there,
+// or a new key continuing the run. False when no key can go at t.
+inline bool ShakeParamSetCommand(const std::vector<ShakeKey>& keys, const std::vector<double>& pathKeys, int firstStyle,
+	char param, double lo, double hi, double t, double v, std::string& out) {
+	const double c = v < lo ? lo : (v > hi ? hi : v);
+	const int value = (int)std::lround(c);
+	if (!std::isfinite(v) || !ShakeCanKey(pathKeys, t)) return false;
+	const ShakeKey* k = ShakeKeyAtTick(keys, t);
+	if (k && k->s >= 0) {
+		char text[64];
+		std::snprintf(text, sizeof(text), "%s @%ld %d", param == 'n' ? "intensity" : "speed", std::lround(t), value);
+		out = text;
+		return true;
+	}
+	return ShakeKeyFromCommand(keys, firstStyle, t, param, value, out);
 }
 
 } // namespace TimelineDockMath

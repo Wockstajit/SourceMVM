@@ -333,7 +333,43 @@ static void TestGraph() {
 	CHECK(Near(kGraphBandH, 246));
 }
 
+// The fixture CS2's dock test runs its shake model on (graph-timeline-nav-tests.mjs), so the two agree.
+static void TestShakeKeys() {
+	const std::vector<double> path = { 100, 200, 300, 400, 500, 600 };
+	std::vector<ShakeKey> keys(3);
+	keys[0].t = 100; keys[0].s = 301; keys[0].n = 2; keys[0].p = 20;
+	keys[1].t = 300; keys[1].s = 301; keys[1].n = 8; keys[1].p = 80;
+	keys[2].t = 400; keys[2].s = 302; keys[2].n = 5; keys[2].p = 50; keys[2].oneShot = true;
+	double v = 0;
+	CHECK(ShakeValueAt(keys, 'n', 100, v) && Near(v, 2));
+	CHECK(ShakeValueAt(keys, 'n', 200, v) && Near(v, 5)); // half way, across the camera key with no shake
+	CHECK(ShakeValueAt(keys, 'p', 110, v) && v < 20 + 60 * 0.05); // eased: it leaves the key gently
+	CHECK(ShakeValueAt(keys, 'n', 350, v) && Near(v, 8)); // the run's last key holds until the next key
+	CHECK(ShakeValueAt(keys, 'n', 450, v) && Near(v, 5)); // a one-shot runs from its key
+	CHECK(ShakeValueAt(keys, 'n', 590, v) && Near(v, 5)); // past camera keys without a shake: still running
+	CHECK(!ShakeValueAt(keys, 'n', 50, v));               // nothing runs before the first key
+	std::vector<ShakeKey> stopped = keys;
+	stopped.push_back(ShakeKey());
+	stopped.back().t = 500; stopped.back().s = kShakeStop;
+	CHECK(!ShakeValueAt(stopped, 'n', 520, v));           // a Stop ends it
+	// Setting intensity on camera key 1, which has no shake yet: it joins the run at the speed there.
+	std::string cmd;
+	CHECK(ShakeParamSetCommand(stopped, path, 301, 'n', 1, 10, 200, 6, cmd) && cmd == "set @200 301 6 50");
+	// On a key that has one, only the value changes; clamped to the range.
+	CHECK(ShakeParamSetCommand(stopped, path, 301, 'p', 10, 100, 300, 250, cmd) && cmd == "speed @300 100");
+	CHECK(!ShakeCanKey(path, 150)); // a path shake key sits on a camera key
+	CHECK(!ShakeParamSetCommand(stopped, path, 301, 'n', 1, 10, 150, 6, cmd));
+	// Where an edit lands: the camera key under the playhead, else the key whose shake runs here.
+	double at = 0;
+	CHECK(ShakeEditTick(keys, path, 200, at) && Near(at, 200));
+	CHECK(ShakeEditTick(keys, path, 250, at) && Near(at, 100));
+	CHECK(!ShakeEditTick(keys, path, 50, at));
+	// A new key with nothing running takes the menu's first style at 5 and 50.
+	CHECK(ShakeKeyFromCommand(std::vector<ShakeKey>(), 300, 100, 0, 0, cmd) && cmd == "set @100 300 5 50");
+}
+
 int main() {
+	TestShakeKeys();
 	TestWidths();
 	TestTickMapping();
 	TestNormalize();
