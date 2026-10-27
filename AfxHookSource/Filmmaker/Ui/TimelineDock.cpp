@@ -2153,6 +2153,8 @@ struct MenuItem {
 	std::string id, label, hint, shortcut, value;
 	int check = -1; // -1 no check, 0 unchecked, 1 checked
 	bool danger = false, disabled = false;
+	bool pick = false; // with a submenu: a click picks it too (the submenu opens on hover)
+	bool keep = false; // picking it leaves the menu open, rebuilt from what it changed
 	std::vector<MenuItem> sub;
 	float subW = 224;
 };
@@ -2187,6 +2189,110 @@ std::string KeyValueText(int ch, double v) {
 	char text[32];
 	std::snprintf(text, sizeof(text), "%.*f%s", DecimalsOf(ch), CleanValue(v, DecimalsOf(ch)), UnitOf(ch));
 	return text;
+}
+
+// ---- the camera shake menu (CS2's shakeItems) ----------------------------------------------------
+// The shake key on a camera key: a style (the essentials, then More shakes), each picked by a click
+// and stepped Stronger / Weaker / Faster / Slower in its submenu, which keeps the menu open; a Stop;
+// every camera key; or none. Every item's id is "shk:" and the pathshake command.
+
+MenuItem ShakeStyleItem(double t, int style, const std::string& label, const ShakeKey* k) {
+	const bool active = k && k->s >= 0;
+	const bool current = active && k->s == style;
+	const int n = active ? k->n : kShakeN0, p = active ? k->p : kShakeP0;
+	auto id = [&](int nn, int pp) {
+		char text[64];
+		std::snprintf(text, sizeof(text), "shk:set @%ld %d %d %d", std::lround(t), style, nn, pp);
+		return std::string(text);
+	};
+	MenuItem it = MenuEntry("", label);
+	it.id = id(n, p);
+	it.pick = it.keep = true;
+	it.check = current ? 1 : 0;
+	it.subW = 236;
+	MenuItem head;
+	head.kind = MenuItem::Kind::Head;
+	head.value = label;
+	char strength[64];
+	std::snprintf(strength, sizeof(strength), "Strength %d of 10 %s speed %d", n, kMiddot, p);
+	head.label = current ? std::string(strength) : std::string("Click to put it on this key");
+	it.sub.push_back(head);
+	it.sub.push_back(MenuSep());
+	auto step = [&](const char* name, int nn, int pp, const char* hintFormat, int hintValue, bool atLimit) {
+		char hint[48];
+		std::snprintf(hint, sizeof(hint), hintFormat, hintValue);
+		MenuItem s = MenuEntry("", name, hint);
+		s.id = id(nn, pp);
+		s.keep = true;
+		s.disabled = current && atLimit;
+		return s;
+	};
+	it.sub.push_back(step("Stronger", (std::min)(10, n + 1), p, "strength %d of 10", (std::min)(10, n + 1), n >= 10));
+	it.sub.push_back(step("Weaker", (std::max)(1, n - 1), p, "strength %d of 10", (std::max)(1, n - 1), n <= 1));
+	it.sub.push_back(MenuSep());
+	it.sub.push_back(step("Faster", n, (std::min)(100, p + 10), "speed %d", (std::min)(100, p + 10), p >= 100));
+	it.sub.push_back(step("Slower", n, (std::max)(10, p - 10), "speed %d", (std::max)(10, p - 10), p <= 10));
+	return it;
+}
+
+std::vector<MenuItem> ShakeMenuItems(const D& d, double t) {
+	const TimelineDockModel& m = d.m;
+	std::vector<MenuItem> items;
+	if (!ShakeCanKey(m.pathKeys, t)) {
+		MenuItem title;
+		title.kind = MenuItem::Kind::Title;
+		title.label = "CAMERA SHAKE";
+		items.push_back(title);
+		MenuItem none = MenuEntry("", "Add a camera key first", "a path shake key sits on a camera key");
+		none.disabled = true;
+		items.push_back(none);
+		return items;
+	}
+	const ShakeKey* k = ShakeKeyAtTick(m.shakes, t);
+	const bool active = k && k->s >= 0;
+	MenuItem head;
+	head.kind = MenuItem::Kind::Head;
+	head.value = k ? ShakeLabel(m, k) : std::string("No shake key");
+	char title[64];
+	if (active) std::snprintf(title, sizeof(title), "Strength %d of 10 %s speed %d", k->n, kMiddot, k->p);
+	else std::snprintf(title, sizeof(title), "Camera key %d", ShakePathIndexAt(m.pathKeys, t) + 1);
+	head.label = title;
+	items.push_back(head);
+	items.push_back(MenuSep());
+	const size_t essentials = (std::min)(m.shakeStyles.size(), (size_t)(std::max)(0, m.shakeEssentials));
+	for (size_t i = 0; i < essentials; ++i)
+		items.push_back(ShakeStyleItem(t, m.shakeStyles[i].first, m.shakeStyles[i].second, k));
+	if (m.shakeStyles.size() > essentials) {
+		MenuItem more = MenuEntry("shkmore", "More shakes");
+		more.subW = 210;
+		bool among = false;
+		for (size_t i = essentials; i < m.shakeStyles.size(); ++i) {
+			more.sub.push_back(ShakeStyleItem(t, m.shakeStyles[i].first, m.shakeStyles[i].second, k));
+			if (active && k->s == m.shakeStyles[i].first) among = true;
+		}
+		more.check = among ? 1 : 0;
+		items.push_back(more);
+	}
+	items.push_back(MenuSep());
+	char id[48];
+	std::snprintf(id, sizeof(id), "shk:stop @%ld", std::lround(t));
+	MenuItem stop = MenuEntry("", "Stop the shake here");
+	stop.id = id;
+	stop.check = k && k->s < 0 ? 1 : 0;
+	stop.disabled = !ShakeRunningAt(m.shakes, t - 1) && !active;
+	items.push_back(stop);
+	std::snprintf(id, sizeof(id), "shk:applyall @%ld", std::lround(t));
+	MenuItem all = MenuEntry("", "Use on every camera key");
+	all.id = id;
+	all.disabled = !active;
+	items.push_back(all);
+	std::snprintf(id, sizeof(id), "shk:clear @%ld", std::lround(t));
+	MenuItem remove = MenuEntry("", "Remove this shake key");
+	remove.id = id;
+	remove.danger = true;
+	remove.disabled = !k;
+	items.push_back(remove);
+	return items;
 }
 
 std::vector<MenuItem> KeyMenuItems(const D& d) {
@@ -2237,6 +2343,13 @@ std::vector<MenuItem> KeyMenuItems(const D& d) {
 	hold.disabled = true; // scene keys only
 	assist.sub.push_back(hold);
 	items.push_back(assist);
+	// A camera key carries the camera path's shake: its menu, a level down.
+	if (ShakeCanKey(d.m.pathKeys, M.tick)) {
+		MenuItem shake = MenuEntry("shake", "Camera Shake");
+		shake.sub = ShakeMenuItems(d, M.tick);
+		shake.subW = 236;
+		items.push_back(shake);
+	}
 	return items;
 }
 
@@ -2292,6 +2405,7 @@ void OpenMenu(D& d, bool keyMenu, int node, double tick, const std::vector<std::
 	TimelineDockState::Menu& M = d.st.menu;
 	M.open = true;
 	M.keyMenu = keyMenu;
+	M.shake = false;
 	M.node = node;
 	M.tick = tick;
 	M.members = members;
@@ -2305,6 +2419,10 @@ void PickMenu(D& d, const std::string& id) {
 	TimelineDockState& st = d.st;
 	const TimelineDockState::Menu M = st.menu;
 	CloseMenu(st);
+	if (id.compare(0, 4, "shk:") == 0) {
+		d.EmitShake(id.substr(4));
+		return;
+	}
 	if (M.keyMenu) {
 		if (id == "goto") SeekTo(d, M.tick);
 		else if (id == "delete") d.Emit(Action::Kind::DeleteSelected);
@@ -2344,7 +2462,7 @@ void DrawMenus(D& d) {
 	TimelineDockState& st = d.st;
 	TimelineDockState::Menu& M = st.menu;
 	if (!M.open) return;
-	const std::vector<MenuItem> root = M.keyMenu ? KeyMenuItems(d) : RowMenuItems(d);
+	const std::vector<MenuItem> root = M.shake ? ShakeMenuItems(d, M.tick) : (M.keyMenu ? KeyMenuItems(d) : RowMenuItems(d));
 
 	const ImVec2 dock0 = d.P(0, 0), dock1 = d.P(d.w, kDockH);
 	BeginOverlay("##tlmenucatch", MakeRect(dock0.x, dock0.y, dock1.x, dock1.y), Rgba(0, 0, 0, 0));
@@ -2354,6 +2472,7 @@ void DrawMenus(D& d) {
 	ImGui::End();
 
 	std::string pick;
+	bool pickKeep = false;
 	const std::vector<MenuItem>* items = &root;
 	float x = M.x, y = M.y, w = M.keyMenu ? 230.0f : 236.0f;
 	for (int level = 0; items && level < 6; ++level) {
@@ -2434,11 +2553,12 @@ void DrawMenus(D& d) {
 						Paint::Muted, it.shortcut.c_str());
 				}
 				if (hit.clicked && !it.disabled) {
-					if (!it.sub.empty()) {
+					if (!it.sub.empty() && !it.pick) {
 						M.path.resize((size_t)level);
 						M.path.push_back((int)i);
 					} else {
 						pick = it.id;
+						pickKeep = it.keep;
 					}
 				}
 				if (shownOpen == (int)i && !it.sub.empty() && !it.disabled) {
@@ -2458,7 +2578,8 @@ void DrawMenus(D& d) {
 		y = ny;
 		w = nw;
 	}
-	if (!pick.empty()) PickMenu(d, pick);
+	if (!pick.empty() && pickKeep && pick.compare(0, 4, "shk:") == 0) d.EmitShake(pick.substr(4)); // the menu stays, rebuilt from the track
+	else if (!pick.empty()) PickMenu(d, pick);
 	else if (outside) CloseMenu(st);
 }
 
@@ -2488,6 +2609,23 @@ void RightClick(D& d, const std::vector<Row>& rows) {
 		return;
 	}
 	const Row& row = rows[ri];
+	if (IsShakeRow(row.node)) {
+		// The shake menu, for the shake key under the pointer on the track, else the one the playhead edits.
+		double t = d.m.playhead;
+		bool have = false;
+		if (lx >= kLeftW) {
+			float best = 9;
+			for (const ShakeKey& k : d.m.shakes) {
+				const float dx = std::fabs((float)TickToX(st.window, d.g.cw, k.t) - (lx - kLeftW));
+				if (dx <= 8 && dx < best) { best = dx; t = k.t; have = true; }
+			}
+		}
+		if (!have) ShakeEditTick(d.m.shakes, d.m.pathKeys, d.m.playhead, t);
+		st.selRow = row.node;
+		OpenMenu(d, false, row.node, t, std::vector<std::pair<int, int>>());
+		st.menu.shake = true;
+		return;
+	}
 	if (lx >= kLeftW && kNodes[row.node].kind == NodeKind::Prop && !IsSplit(st, row.node)) {
 		const std::vector<MergedKey> keys = MergedOf(d.keys, row.node);
 		if (const MergedKey* k = KeyNear(keys, d, lx - kLeftW)) {

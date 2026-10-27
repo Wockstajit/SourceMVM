@@ -129,6 +129,7 @@ struct TimelineDockState {
 	struct Menu {
 		bool open = false;
 		bool keyMenu = false;            // a key's menu, else the row's
+		bool shake = false;              // the camera shake menu for the shake key at tick
 		int node = -1;
 		double tick = 0;                 // the key's time
 		std::vector<std::pair<int, int>> members; // the key's channels and ids

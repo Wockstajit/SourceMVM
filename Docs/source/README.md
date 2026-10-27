@@ -802,7 +802,7 @@ first person, the stack tracked the view as a POV, the rendered view drew off th
 half a unit and a degree of yaw with a degree of roll, and the shot hook saw round 1's 41 shots, each
 named with its gun (TMP, M4A1, SG 552, Galil, AWP). It sent the watched player's AWP shot to recoil
 and counted the other 38 as other players'. A Test Shot on the paused demo kicked the camera about
-1.0° up, 0.7° sideways and 2.4° in roll, settling over about 60 frames. With HLAE's free camera on,
+1.0Â° up, 0.7Â° sideways and 2.4Â° in roll, settling over about 60 frames. With HLAE's free camera on,
 the stack's gate turned the shake off, and with the follow camera attached it shook as Attach.
 
 ### Path shake
@@ -828,13 +828,23 @@ into it, else takes the menu's first style (Hand) at intensity 5 and speed 50. O
 blue bar shows how far each shake runs, to the next key or to the last camera key; the keys are
 squares on the Camera shake row and CS2's ease marks on Intensity and Speed, a Stop dim. A click on a
 key selects it and moves the playhead there, Shift toggles it, a box picks shake keys with the
-others, and Delete clears the selected ones. Every edit is a `pathshake` command. The run and ramp
-rules are CS2's dock model in `Ui/TimelineDockMath.h`, tested on the fixture CS2's dock test uses.
+others, and Delete clears the selected ones. A right-click on a shake row opens CS2's camera shake
+menu for the shake key under the pointer, else for the camera key under the playhead. Its head names
+the key's style, strength and speed. Under it are the five main styles and More shakes with the rest
+of RAGE's list, each style with Stronger, Weaker, Faster and Slower, then Stop the shake here, Use on
+every camera key, and Remove this shake key. Picking a style or a step keeps the menu open for the
+next pick. Off a camera key the menu only says to add one first. A camera
+key's own menu carries the same menu under Camera Shake. Every edit is a `pathshake` command. The run
+and ramp rules are CS2's dock model in `Ui/TimelineDockMath.h`, tested on the fixture CS2's dock test
+uses.
 
 Checked in CS:S on 2026-10-27 in the SourceTV test demo: a two-key path from tick 580 to 703 with a
 Hand shake (`REPLAY_HAND_SHAKE`, intensity 8, speed 60) on its first key swayed the view by up to 2.5
 units and 2 degrees through the shot (`mvm_debug` `pathshake.view`), and the demo's `project.mvm`
-held the `camshake` section with `"game":"css"`.
+held the `camshake` section with `"game":"css"`. The dock's shake menu was checked the same day: a
+right-click on the Camera shake row opened it on the first key's Drunk shake (strength 6, speed 40),
+picking Hand changed the key to `REPLAY_HAND_SHAKE` with the same values and left the menu open, and
+Esc closed the menu without closing the editor.
 
 ## Old demos
 
