@@ -40,6 +40,7 @@ constexpr Color DangerHover = Rgba(192, 28, 0, 60);
 constexpr Color KeyCapBg = Rgba(255, 255, 255, 16);
 constexpr Color KeyCapBorder = Rgba(255, 255, 255, 64);
 constexpr Color Rule = Rgba(255, 255, 255, 20);
+constexpr Color EdgeOff = Rgba(42, 48, 55); // a switched-off card's edge (CS2's edgeOff)
 } // namespace Paint
 
 std::string Upper(const char* text) {
@@ -95,6 +96,16 @@ double Quantize(double v, int decimals) {
 	return std::round(v * mul) / mul;
 }
 
+// CS2's square switch in CS:S paint: a track, and a square knob that slides right when on.
+void DrawSwitch(ImDrawList* draw, const Rect& track, bool on, bool enabled, float knob) {
+	const Color edge = !enabled ? Faded(Paint::Outline, 0.45f) : (on ? Theme::Accent : Paint::Outline);
+	Box(draw, track, on && enabled ? Paint::SegSel : Rgba(0, 0, 0, 0), edge);
+	const float inset = (track.H() - knob) * 0.5f;
+	const float kx = on ? track.x1 - inset - knob : track.x0 + inset;
+	draw->AddRectFilled(ImVec2(kx, track.y0 + inset), ImVec2(kx + knob, track.y0 + inset + knob),
+		ToU32(!enabled ? Paint::Disabled : (on ? Theme::Accent : Paint::Muted)));
+}
+
 } // namespace
 
 float CardButtonWidth(const char* caption, ImFont* font, float s) { return TextSize(font, caption).x + 22.0f * s; }
@@ -136,13 +147,19 @@ bool CardButton(const char* id, const char* caption, const Rect& r, ButtonKind k
 }
 
 int CardHeader(CardColumn& c, const char* id, const char* title, const char* summary, const CardAction* buttons, int count) {
+	return CardHeader(c, id, title, summary, buttons, count, Theme::Accent, CardSwitch());
+}
+
+int CardHeader(CardColumn& c, const char* id, const char* title, const char* summary, const CardAction* buttons, int count,
+	Color edge, CardSwitch master) {
 	const float s = c.s;
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	ImFont* titleFont = c.Font(FontRole::CardTitle);
 	ImFont* noteFont = c.Font(FontRole::Note);
 	ImFont* buttonFont = c.Font(FontRole::Button);
 	const float btnH = buttonFont->FontSize + 10 * s;
-	float slotsW = 0;
+	const float swW = Metrics::sw.w * s, swH = Metrics::sw.h * s;
+	float slotsW = master.show ? swW + 8 * s : 0;
 	for (int i = 0; i < count; ++i) slotsW += CardButtonWidth(buttons[i].caption, buttonFont, s) + 8 * s;
 	const float edgeW = 3 * s, edgeH = 30 * s;
 	const float textX = c.x0 + edgeW + 10 * s;
@@ -150,7 +167,7 @@ int CardHeader(CardColumn& c, const char* id, const char* title, const char* sum
 	const float titleW = SpacedTextWidth(titleFont, caption.c_str(), 1.2f * s);
 	// The buttons share the title's line while the title fits beside them; otherwise they get a line
 	// of their own under the header, so neither is cut.
-	const bool ownLine = count > 0 && textX + titleW > c.x1 - slotsW;
+	const bool ownLine = slotsW > 0 && textX + titleW > c.x1 - slotsW;
 	const float textR = ownLine ? c.x1 : c.x1 - slotsW;
 	const bool hasSummary = summary && *summary;
 	// The summary keeps two lines whatever it says, so the rows under the header stay put as it
@@ -161,7 +178,7 @@ int CardHeader(CardColumn& c, const char* id, const char* title, const char* sum
 	const float contentH = titleFont->FontSize + summaryH;
 	const float blockH = contentH > edgeH ? contentH : edgeH;
 	draw->AddRectFilled(ImVec2(c.x0, c.y + (blockH - edgeH) * 0.5f), ImVec2(c.x0 + edgeW, c.y + (blockH + edgeH) * 0.5f),
-		ToU32(Theme::Accent));
+		ToU32(master.show && !master.on ? Paint::EdgeOff : edge));
 	const float textY = c.y + (blockH - contentH) * 0.5f;
 	DrawSpacedText(draw, titleFont, ImVec2(textX, textY), ToU32(Paint::Value), caption.c_str(), 1.2f * s);
 	if (hasSummary)
@@ -181,6 +198,14 @@ int CardHeader(CardColumn& c, const char* id, const char* title, const char* sum
 			clicked = i;
 		ImGui::PopID();
 		bx += w + 8 * s;
+	}
+	if (master.show) {
+		const float sy = ownLine ? by + (btnH - swH) * 0.5f : c.y + (blockH - swH) * 0.5f;
+		const Rect track = MakeRect(bx, sy, bx + swW, sy + swH);
+		const Hit h = HitArea("switch", track, true);
+		DrawSwitch(draw, track, master.on, true, Metrics::sw.knob * s);
+		if (h.hovered) draw->AddRect(ImVec2(track.x0, track.y0), ImVec2(track.x1, track.y1), ToU32(Paint::Value));
+		if (h.clicked) clicked = count;
 	}
 	ImGui::PopID();
 	c.y += blockH + (ownLine ? btnH + 6 * s : 0) + 6 * s;
@@ -222,7 +247,13 @@ void Note(CardColumn& c, const char* text, Color color) {
 
 ValueEdit ValueRow(CardColumn& c, const char* id, const char* label, double value, double min, double max, int decimals,
 	const char* unit, Color fill, bool enabled) {
+	return ValueRow(c, id, label, value, min, max, decimals, unit, fill, enabled, ValueRowStyle());
+}
+
+ValueEdit ValueRow(CardColumn& c, const char* id, const char* label, double value, double min, double max, int decimals,
+	const char* unit, Color fill, bool enabled, const ValueRowStyle& style) {
 	const float s = c.s;
+	const float ink = style.dim ? 0.4f : 1.0f; // a dimmed row keeps working at 40% (CS2's opacity 0.4)
 	ValueEdit out;
 	out.value = value;
 	ImFont* labelFont = c.Font(FontRole::RowLabel);
@@ -254,7 +285,7 @@ ValueEdit ValueRow(CardColumn& c, const char* id, const char* label, double valu
 		const ImGuiIO& io = ImGui::GetIO();
 		float raw = storage->GetFloat(key, (float)value);
 		if (io.MouseDelta.x != 0.0f && barW > 0) {
-			raw += (float)(io.MouseDelta.x * span / barW * (io.KeyShift ? 0.08 : 1.0));
+			raw += (float)(io.MouseDelta.x * span / barW * (io.KeyShift ? style.fine : 1.0));
 			raw = raw < (float)min ? (float)min : (raw > (float)max ? (float)max : raw);
 			storage->SetFloat(key, raw);
 			storage->SetBool(movedKey, true);
@@ -271,22 +302,27 @@ ValueEdit ValueRow(CardColumn& c, const char* id, const char* label, double valu
 
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	Box(draw, row, h.hovered || h.held ? Paint::TileHover : Paint::TileBg, moved ? Faded(Theme::Accent, 0.5f) : Rgba(0, 0, 0, 0));
-	const Color text = enabled ? Paint::Label : Paint::Disabled;
+	const Color text = enabled ? Faded(Paint::Label, ink) : Paint::Disabled;
 	Text(draw, labelFont, ImVec2(row.x0 + pad, row.y0 + (rowH - (labelH - 8 * s)) * 0.5f), text, label, labelW);
 	if (barW > 0) {
 		double frac = (out.value - min) / span;
 		frac = frac < 0 ? 0 : (frac > 1 ? 1 : frac);
 		const float cy = row.y0 + rowH * 0.5f;
-		draw->AddRectFilled(ImVec2(barX0, cy - 2 * s), ImVec2(barX1, cy + 2 * s), ToU32(Paint::TrackBg));
+		draw->AddRectFilled(ImVec2(barX0, cy - 2 * s), ImVec2(barX1, cy + 2 * s), ToU32(Faded(Paint::TrackBg, ink)));
+		if (style.centreTick) {
+			const float mx = std::floor((barX0 + barX1) * 0.5f);
+			draw->AddRectFilled(ImVec2(mx, cy - 5 * s), ImVec2(mx + 1, cy + 5 * s), ToU32(Faded(Rgba(255, 255, 255, 64), ink)));
+		}
 		const float fx = barX0 + (float)frac * barW;
-		draw->AddRectFilled(ImVec2(barX0, cy - 2 * s), ImVec2(fx, cy + 2 * s), ToU32(enabled ? fill : Faded(fill, 0.35f)));
+		if (!style.noFill)
+			draw->AddRectFilled(ImVec2(barX0, cy - 2 * s), ImVec2(fx, cy + 2 * s), ToU32(Faded(enabled ? fill : Faded(fill, 0.35f), ink)));
 		const float knob = 4 * s;
 		draw->AddRectFilled(ImVec2(fx - knob, cy - 7 * s), ImVec2(fx + knob, cy + 7 * s),
-			ToU32(enabled ? Paint::Value : Paint::Disabled));
+			ToU32(enabled ? Faded(style.knob, ink) : Paint::Disabled));
 	}
-	const std::string shown = FormatValue(out.value, decimals, unit);
+	const std::string shown = style.atMin && min == 0 && out.value <= min ? std::string(style.atMin) : FormatValue(out.value, decimals, unit);
 	const ImVec2 vs = TextSize(valueFont, shown.c_str());
-	Text(draw, valueFont, ImVec2(row.x1 - pad - vs.x, row.y0 + (rowH - vs.y) * 0.5f), enabled ? Paint::Value : Paint::Disabled,
+	Text(draw, valueFont, ImVec2(row.x1 - pad - vs.x, row.y0 + (rowH - vs.y) * 0.5f), enabled ? Faded(Paint::Value, ink) : Paint::Disabled,
 		shown.c_str());
 	c.y += rowH;
 	return out;
@@ -423,14 +459,9 @@ bool SwitchRow(CardColumn& c, const char* id, const char* label, bool on, bool e
 	Text(draw, labelFont, ImVec2(row.x0 + pad, row.y0 + (rowH - (labelH - 8 * s)) * 0.5f),
 		!enabled ? Paint::Disabled : (on ? Paint::Value : Paint::Label), label, labelW);
 	// CS2's small square switch (swSm), right in the value column: a track and a knob that slides.
-	const float sw = Metrics::swSm.w * s, sh = Metrics::swSm.h * s, knob = Metrics::swSm.knob * s;
+	const float sw = Metrics::swSm.w * s, sh = Metrics::swSm.h * s;
 	const Rect track = MakeRect(row.x1 - pad - sw, row.y0 + (rowH - sh) * 0.5f, row.x1 - pad, row.y0 + (rowH + sh) * 0.5f);
-	const Color edge = !enabled ? Faded(Paint::Outline, 0.45f) : (on ? Theme::Accent : Paint::Outline);
-	Box(draw, track, on && enabled ? Paint::SegSel : Rgba(0, 0, 0, 0), edge);
-	const float inset = (sh - knob) * 0.5f;
-	const float kx = on ? track.x1 - inset - knob : track.x0 + inset;
-	draw->AddRectFilled(ImVec2(kx, track.y0 + inset), ImVec2(kx + knob, track.y0 + inset + knob),
-		ToU32(!enabled ? Paint::Disabled : (on ? Theme::Accent : Paint::Muted)));
+	DrawSwitch(draw, track, on, enabled, Metrics::swSm.knob * s);
 	c.y += rowH;
 	return h.clicked;
 }
@@ -571,8 +602,10 @@ std::vector<std::string> WrapSpaced(ImFont* font, const std::string& text, float
 
 } // namespace
 
-bool RailRow(CardColumn& c, const char* id, const char* title, const char* summary, bool selected, Color accent,
-	const char* badge, Color badgeColor) {
+namespace {
+
+RailHit RailRowDraw(CardColumn& c, const char* id, const char* title, const char* summary, bool selected, Color accent,
+	const char* badge, Color badgeColor, CardSwitch master) {
 	const float s = c.s;
 	ImFont* titleFont = c.Font(FontRole::Title);
 	ImFont* sumFont = c.Font(FontRole::RailSum);
@@ -580,10 +613,12 @@ bool RailRow(CardColumn& c, const char* id, const char* title, const char* summa
 	c.y += Metrics::rail.rowGap * s;
 	const float edge = Metrics::rail.edge * s;
 	// CS2's badge is a column of its own at the row's right (18 px tall, 6 px side padding), so the
-	// title and summary wrap in what is left.
+	// title and summary wrap in what is left; a Config card's switch takes the same place.
 	const bool hasBadge = badge && *badge;
 	const float badgeW = hasBadge ? SpacedTextWidth(badgeFont, badge, 0.6f * s) + 12 * s : 0;
-	const float textX = c.x0 + edge + 8 * s, textR = c.x1 - 6 * s - (hasBadge ? badgeW + 8 * s : 0), textW = textR - textX;
+	const float swW = Metrics::swSm.w * s, swH = Metrics::swSm.h * s;
+	const float sideW = hasBadge ? badgeW + 8 * s : (master.show ? swW + 6 * s : 0);
+	const float textX = c.x0 + edge + 8 * s, textR = c.x1 - 6 * s - sideW, textW = textR - textX;
 	const std::vector<std::string> titleLines = WrapSpaced(titleFont, Upper(title), 0.8f * s, textW);
 	const float titleH = titleFont->FontSize * (float)titleLines.size();
 	const bool hasSummary = summary && *summary;
@@ -592,16 +627,26 @@ bool RailRow(CardColumn& c, const char* id, const char* title, const char* summa
 	const float minH = Metrics::rail.rowH * s;
 	const float rowH = contentH + 10 * s > minH ? contentH + 10 * s : minH;
 	const Rect row = MakeRect(c.x0, c.y, c.x1, c.y + rowH);
+	const Rect track = MakeRect(row.x1 - 6 * s - swW, row.y0 + (rowH - swH) * 0.5f, row.x1 - 6 * s, row.y0 + (rowH + swH) * 0.5f);
 	ImGui::PushID(id);
 	const Hit h = HitArea("row", row, true);
 	ImGui::PopID();
+	RailHit hit = RailHit::None;
+	if (h.clicked) {
+		const ImVec2 at = ImGui::GetIO().MousePos;
+		const bool onSwitch = master.show && at.x >= track.x0 - 4 * s && at.x <= track.x1 + 4 * s && at.y >= track.y0 - 4 * s
+			&& at.y <= track.y1 + 4 * s;
+		hit = onSwitch ? RailHit::Switch : RailHit::Row;
+	}
+	const bool off = master.show && !master.on;
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	Box(draw, row, selected ? Paint::RailSel : (h.hovered ? Paint::RailHover : Rgba(0, 0, 0, 0)),
 		selected ? Paint::RailSelBorder : Rgba(0, 0, 0, 0));
-	draw->AddRectFilled(ImVec2(row.x0, row.y0), ImVec2(row.x0 + edge, row.y1), ToU32(accent));
+	draw->AddRectFilled(ImVec2(row.x0, row.y0), ImVec2(row.x0 + edge, row.y1), ToU32(off ? Paint::EdgeOff : accent));
 	const float textY = row.y0 + (rowH - contentH) * 0.5f;
+	const Color titleColor = selected ? Paint::Value : (off ? Paint::Muted : Paint::Label);
 	for (size_t i = 0; i < titleLines.size(); ++i)
-		DrawSpacedText(draw, titleFont, ImVec2(textX, textY + titleFont->FontSize * (float)i), ToU32(selected ? Paint::Value : Paint::Label),
+		DrawSpacedText(draw, titleFont, ImVec2(textX, textY + titleFont->FontSize * (float)i), ToU32(titleColor),
 			titleLines[i].c_str(), 0.8f * s);
 	if (hasSummary) Text(draw, sumFont, ImVec2(textX, textY + titleH + 3 * s), Paint::Muted, summary, textW);
 	if (hasBadge) {
@@ -611,9 +656,23 @@ bool RailRow(CardColumn& c, const char* id, const char* title, const char* summa
 		draw->AddRectFilled(ImVec2(box.x0, box.y0), ImVec2(box.x1, box.y1), ToU32(badgeColor), 3 * s);
 		DrawSpacedText(draw, badgeFont, ImVec2(box.x0 + 6 * s, std::floor(box.y0 + (bh - badgeFont->FontSize) * 0.5f)),
 			ToU32(Rgba(0x0c, 0x0e, 0x12)), badge, 0.6f * s);
+	} else if (master.show) {
+		DrawSwitch(draw, track, master.on, true, Metrics::swSm.knob * s);
 	}
 	c.y += rowH;
-	return h.clicked;
+	return hit;
+}
+
+} // namespace
+
+bool RailRow(CardColumn& c, const char* id, const char* title, const char* summary, bool selected, Color accent,
+	const char* badge, Color badgeColor) {
+	return RailRowDraw(c, id, title, summary, selected, accent, badge, badgeColor, CardSwitch()) == RailHit::Row;
+}
+
+RailHit RailRow(CardColumn& c, const char* id, const char* title, const char* summary, bool selected, Color accent,
+	CardSwitch master) {
+	return RailRowDraw(c, id, title, summary, selected, accent, nullptr, Theme::Accent, master);
 }
 
 bool RailAddButton(CardColumn& c, const char* id, const char* caption) {

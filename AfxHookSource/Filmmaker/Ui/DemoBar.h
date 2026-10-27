@@ -51,11 +51,14 @@ struct DemoBarModel {
 	std::string markerNote; // shown in the marker band when there are no markers ("reading demo...")
 	bool loopOn = false;
 	DemoBarMath::LoopRegion loop;
-	bool showCamEditorButton = true;
+	// The workspace open over the bar: none shows CAM EDITOR and CONFIG; inside one, a single button
+	// swaps to the other (CS2's ModeSwapBtn).
+	enum class Workspace { None, Editor, Config };
+	Workspace workspace = Workspace::None;
 };
 
 struct DemoBarAction {
-	enum class Kind { TogglePause, Seek, Speed, ToggleLoop, LoopRange, CameraEditor, NextCamera };
+	enum class Kind { TogglePause, Seek, Speed, ToggleLoop, LoopRange, CameraEditor, Config, NextCamera };
 	Kind kind = Kind::TogglePause;
 	int tick = 0;      // Seek; LoopRange's In
 	double value = 0;  // Speed; LoopRange's Out
@@ -64,7 +67,7 @@ struct DemoBarAction {
 // Where each control was drawn last frame, client px. Hosts report it (mirv_filmmaker editor state,
 // the mockup's state) so test scripts click controls by name.
 struct DemoBarLayout {
-	Rect bar, band, play, back, forward, roundPrev, roundNext, nextKill, camera, loop, camEditor, dial;
+	Rect bar, band, play, back, forward, roundPrev, roundNext, nextKill, camera, loop, camEditor, config, dial;
 };
 
 // CS2's speed dial, which the demo bar and the TIMELINE dock's toolbar share: logarithmic 0.05x to

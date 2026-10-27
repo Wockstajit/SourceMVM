@@ -13,7 +13,7 @@ namespace SourceFilmmaker {
 void DemoBar_BuildModel(Ui::DemoBarModel& model);
 
 // Main thread. Runs the bar's actions. Returns true when one asked for the Camera Editor.
-bool DemoBar_Apply(const std::vector<Ui::DemoBarAction>& actions);
+Ui::DemoBarModel::Workspace DemoBar_Apply(const std::vector<Ui::DemoBarAction>& actions);
 
 // Main thread, once a frame: wraps LOOP playback at Out.
 void DemoBar_Frame();

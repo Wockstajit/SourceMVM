@@ -3,6 +3,7 @@
 #include "SourceUi.h"
 #include "SourceCameraPath.h"
 #include "SourceCapture.h"
+#include "SourceConfig.h"
 #include "SourceDemoBar.h"
 #include "SourceDirector.h"
 #include "SourceEngine.h"
@@ -104,7 +105,8 @@ struct Host {
 Host g;
 
 // Read by the cursor and raw-input filters.
-std::atomic<bool> g_open{ false };
+std::atomic<bool> g_open{ false };   // a workspace is open
+std::atomic<bool> g_config{ false }; // and it is Config
 std::atomic<bool> g_director{ false }; // the movie director runs (a demo, no workspace)
 std::atomic<bool> g_uiOwnsMouse{ false };
 std::atomic<bool> g_markerMenu{ false }; // the CAMERA MARKER card is up: every press and notch is the card's
@@ -172,14 +174,30 @@ void ApplyMode(Mode before, const char* reason) {
 		Filmmaker::MvmDebugLog_Linef("ui.mouse", "mode=%s reason=%s", ModeName(now), reason);
 }
 
-void Open(const char* reason) {
-	if (g_open.load()) return;
+const char* WorkspaceName(Workspace ws) { return ws == Workspace::Config ? "config" : "editor"; }
+
+// Opens a workspace, or swaps the open one for it: the preview, the dock and the mouse stay as they
+// are, only the column changes.
+void Open(Workspace ws, const char* reason) {
+	g.editor.workspace = ws;
+	g_config.store(ws == Workspace::Config);
+	if (g_open.load()) {
+		if (Filmmaker::MvmDebugLog_Active())
+			Filmmaker::MvmDebugLog_Linef("ui.editor", "workspace=%s reason=%s", WorkspaceName(ws), reason);
+		return;
+	}
 	g_open.store(true);
 	g.editor.open = true;
 	g.mouse.Reset();
 	g_uiOwnsMouse.store(true);
 	ShowArrow(true);
-	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("ui.editor", "open reason=%s", reason);
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("ui.editor", "open workspace=%s reason=%s", WorkspaceName(ws), reason);
+}
+
+void Open(DemoBarModel::Workspace ws, const char* reason) {
+	if (ws == DemoBarModel::Workspace::Editor) Open(Workspace::Editor, reason);
+	else if (ws == DemoBarModel::Workspace::Config) Open(Workspace::Config, reason);
 }
 
 void Close(const char* reason) {
@@ -402,8 +420,9 @@ void DirectorFrameBuild(float w, float h) {
 	g.bar = frame.bar;
 	++g.frames;
 	ApplyMarkerActions(markerActions);
-	if (DemoBar_Apply(frame.demoActions)) {
-		Open("cam editor button");
+	const DemoBarModel::Workspace open = DemoBar_Apply(frame.demoActions);
+	if (open != DemoBarModel::Workspace::None) {
+		Open(open, "demo bar");
 		return;
 	}
 	std::shared_ptr<DrawSnapshot> snapshot = TakeSnapshot(ImGui::GetDrawData());
@@ -639,6 +658,7 @@ TimelineDockModel BuildTimelineModel() {
 	const DemoState demo = Demo_State();
 	m.keys = &TimelineDock_Model();
 	m.demo = demo.playing;
+	m.configOpen = g.editor.workspace == Workspace::Config;
 	m.viewEpoch = info.viewEpoch;
 	m.viewT0 = info.viewT0;
 	m.viewT1 = info.viewT1;
@@ -692,6 +712,9 @@ void ApplyTimelineActions(const std::vector<TimelineDockAction>& actions) {
 			DemoBar_Apply({ speed });
 			break;
 		}
+		case Kind::Workspace:
+			Open(a.flag ? Workspace::Config : Workspace::Editor, "dock");
+			break;
 		case Kind::ShakeCommand:
 			if (g_VEngineClient) g_VEngineClient->ClientCmd_Unrestricted(("mirv_filmmaker pathshake " + a.text).c_str());
 			break;
@@ -770,13 +793,15 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	case WM_KEYDOWN:
 	case WM_SYSKEYDOWN:
 		if (!(g.context && ImGui::GetIO().WantTextInput)) {
-			if (FollowCamera_OnKey((int)wParam, true)) return true;
-			if (CameraPath_OnKey((int)wParam, true, (lParam & (1 << 30)) != 0)) return true;
+			// The camera path's and follow camera's keys are the Camera Editor's (its key strip).
+			if (!g_config.load() && FollowCamera_OnKey((int)wParam, true)) return true;
+			if (!g_config.load() && CameraPath_OnKey((int)wParam, true, (lParam & (1 << 30)) != 0)) return true;
 			if (EditorDirectorKey(msg, wParam, lParam)) return true;
 		}
 		switch (WorkspaceKeyFor((int)wParam, g.context && ImGui::GetIO().WantTextInput)) {
 		case WorkspaceKey::Close:
 			if (g.editor.dock == DockTab::Timeline && TimelineDockEscape(g.editor.timeline)) return true;
+			if (g_config.load() && ConfigEscape(g.editor.config)) return true;
 			Close("esc");
 			return true;
 		case WorkspaceKey::ToggleGame:
@@ -794,8 +819,8 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
 		if (!(g.context && ImGui::GetIO().WantTextInput)) {
-			if (FollowCamera_OnKey((int)wParam, false)) return true;
-			if (CameraPath_OnKey((int)wParam, false, false)) return true;
+			if (!g_config.load() && FollowCamera_OnKey((int)wParam, false)) return true;
+			if (!g_config.load() && CameraPath_OnKey((int)wParam, false, false)) return true;
 			if (EditorDirectorKey(msg, wParam, lParam)) return true;
 		}
 		FeedKey(wParam, false);
@@ -891,17 +916,21 @@ void Ui_MainThreadFrame() {
 	DemoBar_BuildModel(demo);
 	const PathInspectorModel path = BuildPathModel();
 	const TimelineDockModel timeline = BuildTimelineModel();
+	const bool configOpen = g.editor.workspace == Workspace::Config;
 	FollowInspectorModel follow; // read only while its tab shows: the state lists every player
-	if (g.editor.tab == InspectorTab::FollowCamera) FollowCamera_InspectorModel(follow);
+	if (!configOpen && g.editor.tab == InspectorTab::FollowCamera) FollowCamera_InspectorModel(follow);
+	ConfigModel config;
+	if (configOpen) Config_BuildModel(config);
 	ImGui::NewFrame();
-	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo, path, follow, timeline);
+	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo, path, follow, timeline, config);
 	std::vector<MarkerCardAction> markerActions;
 	DrawMarkerPopups(frame.previewClient, w, h, markerActions);
 	ImGui::Render();
-	DemoBar_Apply(frame.demoActions); // CAM EDITOR is not on the bar inside the editor
+	Open(DemoBar_Apply(frame.demoActions), "swap button"); // inside a workspace the bar swaps to the other
 	ApplyPathActions(frame.pathActions);
 	FollowCamera_RunCommands(frame.followCommands);
 	ApplyTimelineActions(frame.timelineActions);
+	Config_RunCommands(frame.configCommands);
 	ApplyMarkerActions(markerActions);
 
 	g.preview = frame.modal || g_markerMenu.load() ? Rect() : frame.previewClient;
@@ -969,7 +998,9 @@ void Ui_FilterRawInput(UINT result, UINT command, LPVOID data) {
 	input->data.mouse.usButtonData = 0;
 }
 
-bool Ui_EditorOpen() { return g_open.load(); }
+bool Ui_EditorOpen() { return g_open.load() && !g_config.load(); }
+
+bool Ui_WorkspaceOpen() { return g_open.load(); }
 
 void Ui_SetEditorMouse(bool ui) {
 	if (!g_open.load()) return;
@@ -980,7 +1011,7 @@ void Ui_SetEditorMouse(bool ui) {
 }
 
 void Ui_ShowTimelineDock(bool show) {
-	if (show) Open("timeline dock");
+	if (show) Open(Workspace::Editor, "timeline dock");
 	g.editor.dock = show ? DockTab::Timeline : DockTab::RegularTimeline;
 }
 
@@ -1049,18 +1080,37 @@ void Ui_DirectorState() {
 
 void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args) {
 	const char* action = argc >= 3 ? args->ArgV(2) : "state";
-	if (0 == _stricmp(action, "on")) Open("command");
-	else if (0 == _stricmp(action, "off")) Close("command");
-	else if (0 == _stricmp(action, "toggle")) { if (g_open.load()) Close("command"); else Open("command"); }
+	if (0 == _stricmp(action, "on")) Open(Workspace::Editor, "command");
+	else if (0 == _stricmp(action, "off")) { if (Ui_EditorOpen()) Close("command"); }
+	else if (0 == _stricmp(action, "toggle")) { if (Ui_EditorOpen()) Close("command"); else Open(Workspace::Editor, "command"); }
 	else if (0 != _stricmp(action, "state")) {
 		advancedfx::Message("mirv_filmmaker editor [on|off|toggle|state]\n");
 		return;
 	}
 	advancedfx::Message("editor: %s, mouse %s, tab %d, dock %s, preview (%.0f %.0f %.0f %.0f), panel hovered %d, fonts %s at scale %.3f, frames %u\n",
-		g_open.load() ? "open" : "closed", ModeName(g.mouse.GetMode()), (int)g.editor.tab,
+		Ui_EditorOpen() ? "open" : (g_open.load() ? "closed (config open)" : "closed"), ModeName(g.mouse.GetMode()), (int)g.editor.tab,
 		g.editor.dock == DockTab::Timeline ? "timeline" : "regular",
 		g.preview.x0, g.preview.y0, g.preview.x1, g.preview.y1, g.panelHovered ? 1 : 0,
 		g.fonts.ok ? "ok" : (g.fonts.scale > 0 ? "FALLBACK" : "not built"), g.fonts.scale, g.frames);
+	if (g_open.load() && g.editor.dock == DockTab::RegularTimeline)
+		advancedfx::Message("demo bar: %s\n", DemoBarLayoutText(g.editor.demoBar.layout).c_str());
+}
+
+void Ui_ConfigCommand(int argc, advancedfx::ICommandArgs* args) {
+	const char* action = argc >= 3 ? args->ArgV(2) : "toggle";
+	const bool open = g_open.load() && g_config.load();
+	if (0 == _stricmp(action, "on") || 0 == _stricmp(action, "open") || 0 == _stricmp(action, "1")) Open(Workspace::Config, "command");
+	else if (0 == _stricmp(action, "off") || 0 == _stricmp(action, "close") || 0 == _stricmp(action, "0")) { if (open) Close("command"); }
+	else if (0 == _stricmp(action, "toggle")) { if (open) Close("command"); else Open(Workspace::Config, "command"); }
+	else if (0 != _stricmp(action, "state")) {
+		advancedfx::Message("mirv_filmmaker config [on|off|toggle|state]\n");
+		return;
+	}
+	static const char* const kCards[] = { "smoothview", "handheld", "weaponbob" };
+	const int card = (int)g.editor.config.card;
+	advancedfx::Message("config: %s, card %s, mouse %s, dock %s\n", g_open.load() && g_config.load() ? "open" : "closed",
+		card >= 0 && card < (int)ConfigCard::Count ? kCards[card] : "?", ModeName(g.mouse.GetMode()),
+		g.editor.dock == DockTab::Timeline ? "timeline" : "regular");
 	if (g_open.load() && g.editor.dock == DockTab::RegularTimeline)
 		advancedfx::Message("demo bar: %s\n", DemoBarLayoutText(g.editor.demoBar.layout).c_str());
 }

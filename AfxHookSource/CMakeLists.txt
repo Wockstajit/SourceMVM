@@ -132,6 +132,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceCameraPath.h
     Filmmaker/SourceCapture.cpp
     Filmmaker/SourceCapture.h
+    Filmmaker/SourceConfig.cpp
+    Filmmaker/SourceConfig.h
     Filmmaker/SourceConCommand.cpp
     Filmmaker/SourceConCommand.h
     Filmmaker/SourceConsole.cpp
@@ -188,6 +190,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceUi.h
     Filmmaker/Ui/CameraEditorShell.cpp
     Filmmaker/Ui/CameraEditorShell.h
+    Filmmaker/Ui/ConfigInspector.cpp
+    Filmmaker/Ui/ConfigInspector.h
     Filmmaker/Ui/DemoBar.cpp
     Filmmaker/Ui/DemoBar.h
     Filmmaker/Ui/DemoBarMath.h

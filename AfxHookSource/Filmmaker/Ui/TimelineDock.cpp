@@ -861,6 +861,31 @@ float DrawToolbar(D& d) {
 			if (h.clicked) st.view = (TimelineView)i;
 			x += tw + 16;
 		}
+		// CAM EDITOR and CONFIG at the row's end (CS2's wsBtn): the open workspace's lit, a click on the
+		// other swaps to it. Left out when the tabs leave no room for them.
+		{
+			const char* names[2] = { "CAM EDITOR", "CONFIG" };
+			const char* wsTips[2] = { "The Camera Editor: camera paths, follow cameras and scene keys",
+				"Config: how the camera feels" };
+			const Color fg[2] = { Paint::Accent, Palette::TeamCT };
+			const float bh = d.Size(FontRole::Hint) + 8, gap = 6;
+			float bw[2], total = gap;
+			for (int i = 0; i < 2; ++i) total += bw[i] = d.TextW(FontRole::Hint, names[i], 1.0f) + 20;
+			if (x + 8 + total <= x1) {
+				float bx = x1 - total + gap;
+				const float by = top + (tabH - bh) * 0.5f;
+				for (int i = 0; i < 2; ++i) {
+					const bool on = (i == 1) == d.m.configOpen;
+					const Hit h = HitBox(i == 0 ? "##wseditor" : "##wsconfig", d, bx, by, bx + bw[i], by + bh);
+					d.Tip(wsTips[i]);
+					d.Fill(bx, by, bx + bw[i], by + bh, on ? Faded(fg[i], 0.22f) : (h.hovered ? Paint::BtnHover : Paint::BtnBg), 3);
+					d.Outline(bx, by, bx + bw[i], by + bh, on ? fg[i] : Rgba(255, 255, 255, 20), 3);
+					d.TextIn(FontRole::Hint, bx, by, bx + bw[i], by + bh, fg[i], names[i], 1.0f);
+					if (h.clicked && !on) d.Emit(Action::Kind::Workspace, 0, 0, 0, 0, i == 1);
+					bx += bw[i] + gap;
+				}
+			}
+		}
 		const std::string info = Fit(d, FontRole::Hint, SelectionInfo(d), (std::max)(0.0f, x1 - x0), 0.5f);
 		d.Text(FontRole::Hint, x0, top + tabH + 6, Paint::Hint, info.c_str(), 0.5f);
 	}

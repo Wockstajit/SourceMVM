@@ -249,7 +249,7 @@ markers come from the [demo index](#demo-index).
 | NEXT KILL > | The next kill, 0.6 s early |
 | Camera | FIRST PERSON, CHASE CAM, FREE CAM in CS2's order (`spec_mode` 4, 5, 7) |
 | LOOP | Seeds In and Out at the playhead and 320 ticks on (CS2's seed), then wraps playback at Out. While it is on, the region has CS2's In and Out flags on the marker band: a line with an I or O tab outside the region, dragged from where it was grabbed (Shift moves it 1/16 as far), with its tick and time shown while held or hovered. Both commit together on release, so dragging In past Out swaps them. `mirv_filmmaker loop range <in> <out>` sets them from the console |
-| CAM EDITOR | Opens the Camera Editor. Inside the editor it is not shown, because CS2 puts CONFIG there and Config is a later step |
+| CAM EDITOR, CONFIG | Open the Camera Editor and the [Config workspace](#config-workspace). Inside a workspace one button swaps to the other: CONFIG in the editor, CAM EDITOR in Config. CONFIG is in CS:S's CT blue, as CS2's is blue |
 
 The bar sits in the Camera Editor's REGULAR TIMELINE dock and, outside the workspaces, along the
 bottom of the screen (the [movie director](#movie-director)). Its rules are engine-free in
@@ -425,8 +425,8 @@ moves its client clock every frame rather than every tick, so that measurement i
 
 `mirv_filmmaker smoothview` takes CS2's subcommands: `on`, `off`, `toggle`, `state`, `reset`,
 `breathX`, `breathY`, `standAmp`, `walkAmp`, `runAmp`, `tiltEnabled`, `tilt`, `tiltSpeed`,
-`tiltInv`, `falling`, `jumping`, `healthSway`. Its Config card and the saved settings come with the
-Config workspace.
+`tiltInv`, `falling`, `jumping`, `healthSway`. Its card is in the [Config workspace](#config-workspace).
+The settings are not saved between sessions yet.
 
 Checked in CS:S on 2026-10-26 in the SourceTV test demo: with it on, the rendered view drew away
 from the game's by fractions of a degree, with up to a degree of roll in strafes, and breathing at
@@ -632,7 +632,8 @@ CS2's does. Esc closes a menu, then the SNAP menu, then leaves typing, before it
 workspace. Tips show after the pointer rests 2 s. The camera path's shake rows are described under
 [Path shake](#path-shake). CS2's
 frame cache and render range are steps 13 and 14, so Cache is disabled and the footer says the whole
-demo. CS2's CAM EDITOR and CONFIG buttons come with the Config workspace. The window, snap and the rows' state are not kept between sessions,
+demo. The toolbar's CAM EDITOR and CONFIG buttons swap workspaces, the open one lit, and are left out
+when the dock is too narrow for them beside the tabs. The window, snap and the rows' state are not kept between sessions,
 because CS:S has no settings store yet. CS2 clamps a typed camera value to the GRAPH's display
 range around the channel's keys, so 500 typed into an unkeyed X lands near 32; the CS:S dock keys
 what was typed.
@@ -772,8 +773,9 @@ CS2's camera shake layers run in CS:S from the same code: Handheld, Weapon Recoi
 the weapon pivots and the stack that tracks the view and sums them
 (`AfxHookSource2/Filmmaker/Movie/CameraShakeStack.cpp`; [filmmaker_camera_shake.md](../features/filmmaker_camera_shake.md)).
 What the stack asks the game goes through `CameraShakeHost.h`, which `Filmmaker/SourceCameraShake.cpp`
-answers. So far they run from the console, with CS2's commands: `mirv_filmmaker handheld`,
-`weaponrecoil`, `weaponbob`, `pivot`, `pivotorb` and `camshake`.
+answers. They run from the console, with CS2's commands: `mirv_filmmaker handheld`, `weaponrecoil`,
+`weaponbob`, `pivot`, `pivotorb` and `camshake`. Handheld and Weapon Bob also have their cards in
+the [Config workspace](#config-workspace).
 
 - The shake rides on whatever has the view, after the follow camera and Smooth View, with CS2's
   gate: the game's own view (first person, or SourceTV's camera) and an attached follow camera are
@@ -858,6 +860,46 @@ picking Hand changed the key to `REPLAY_HAND_SHAKE` with the same values and lef
 Esc closed the menu without closing the editor. In GRAPH, the Camera shake row drew the Drunk key's
 intensity and speed out to the last camera key, a drag on the Intensity value set it from 6 to 9,
 and dragging the key down in GRAPH set it to 5, with the playhead moved to the key.
+
+## Config workspace
+
+CS2's Config workspace is the Camera Editor's sibling: it shares the preview, the dock ribbon and the
+docked editor, and only the inspector column changes (`Ui/ConfigInspector.cpp`, drawn by
+`Ui/CameraEditorShell.cpp`; [filmmaker_config_panel.md](../features/filmmaker_config_panel.md)). The
+demo bar shows CAM EDITOR and CONFIG outside the workspaces and one button that swaps to the other
+inside them, CONFIG in CS:S's CT blue. The TIMELINE dock's toolbar has the same pair, the open one
+lit. `mirv_filmmaker config on|off|toggle|state` opens and closes it from the console, and ESC
+closes it.
+
+So far it has CS2's CAMERA tab with the cards whose effects run in CS:S. The rail groups them as CS2
+does, each row with the card's summary and its master switch: MOTION holds SMOOTH VIEW and HANDHELD
+CAMERA, and WEAPON holds WEAPON BOB. The pane shows the selected card with CS2's header: the edge in
+the card's colour (dim while it is off), the summary, Reset (dim at the defaults) and the switch.
+Every row is CS2's, with CS2's label, tooltip and command. A slider is dragged from where it was
+across one bar width, Shift a fifth as fast, and the minimum of an "Off at zero" slider reads Off.
+A switch row flips on a click anywhere on it. A tooltip shows after the pointer rests 0.18 s on a
+row, left of the column. RESET CAMERA in the pinned footer sends `mirv_filmmaker effects reset
+camera`, which resets Smooth View, Handheld, Weapon Recoil, Weapon Bob and both pivot tables.
+
+What the cards show is read from the modules each frame (`SourceConfig.cpp`), through the same
+`AppendStateJson` calls CS2's Config panel is built from, so a card says what CS2's says. What
+differs from CS2:
+
+- Decouple Viewmodel is disabled and Weapon Bob's card says only its camera share shows, because
+  CS:S has no viewmodel channel yet.
+- Smooth View has no Fisheye Lens row and RESET CAMERA leaves out the lens, the crosshair, the
+  viewmodel and the shot FOV: those come with the [Lens](port-plan.md) step.
+- WEAPON RECOIL, the PIVOT drawers, VIEWMODEL, the lens cards, the other tabs, the search box, the
+  GAME UI chip and Keep between demos are not there yet, and the settings are not saved between
+  sessions.
+
+`mvm_debug` logs each command the cards send (`config.ui`) and each workspace change (`ui.editor`).
+
+Checked in CS:S on 2026-10-27 in the SourceTV test demo: `config on` opened the CAMERA tab on SMOOTH
+VIEW; its header switch turned Smooth View on; a 20-pixel drag on Freq X set 1.52x, which the card
+read back from the module; a tooltip showed on the row; the Handheld row's switch turned Handheld on
+with the module's own Drift 35% and Motion Curves 75%; the demo bar's CAM EDITOR swapped to the
+editor; and RESET CAMERA turned both layers off.
 
 ## Old demos
 
@@ -957,8 +999,9 @@ The engine-free part lives in `AfxHookSource/Filmmaker/Ui/`:
 | `UiKeys.h` | ESC closes, G trades the mouse, and the key mapping into ImGui, for both hosts |
 | `UiTheme.h` | CS:S colours (ClientScheme / SourceScheme), Verdana and Tahoma, and CS2's UI metrics |
 | `UiStyle.cpp`, `UiWidgets.cpp` | The ImGui style, fonts at the stage scale, CS2's text tabs and chips |
-| `CameraEditorShell.cpp` | The Camera Editor: preview, inspector tabs, dock ribbon, ESC EXIT |
-| `InspectorCards.cpp` | CS2's inspector card grammar: rail rows and badges, card header, value, mode, action, switch and dropdown rows, key strip |
+| `CameraEditorShell.cpp` | The workspaces: preview, inspector tabs, dock ribbon, ESC EXIT, with the Camera Editor's or Config's column |
+| `ConfigInspector.cpp` | Config's CAMERA tab: the rail with its switches, the cards, the curve lists, tooltips and the pinned footer |
+| `InspectorCards.cpp` | CS2's inspector card grammar: rail rows with badges or switches, card header with an optional master switch, value, mode, action, switch and dropdown rows, key strip |
 | `PathInspector.cpp` | The PATH CAMERA tab and its Clear all dialog |
 | `FollowInspector.cpp` | The FOLLOW CAMERA tab: pinned bar, rail, CAMERA & TARGET and FRAMING & TRACKING cards, dropdown lists |
 | `PathOverlay.cpp` | The camera path drawn in the world, and the follow camera's marker and target box |

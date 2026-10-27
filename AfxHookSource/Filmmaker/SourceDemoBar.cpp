@@ -168,8 +168,8 @@ void DemoBar_BuildModel(DemoBarModel& model) {
 	model.loop = g.loop;
 }
 
-bool DemoBar_Apply(const std::vector<DemoBarAction>& actions) {
-	bool cameraEditor = false;
+DemoBarModel::Workspace DemoBar_Apply(const std::vector<DemoBarAction>& actions) {
+	DemoBarModel::Workspace open = DemoBarModel::Workspace::None;
 	for (const DemoBarAction& action : actions) {
 		char command[96];
 		switch (action.kind) {
@@ -190,14 +190,17 @@ bool DemoBar_Apply(const std::vector<DemoBarAction>& actions) {
 			DemoBar_SetLoop(action.tick, (int)action.value);
 			break;
 		case DemoBarAction::Kind::CameraEditor:
-			cameraEditor = true;
+			open = DemoBarModel::Workspace::Editor;
+			break;
+		case DemoBarAction::Kind::Config:
+			open = DemoBarModel::Workspace::Config;
 			break;
 		case DemoBarAction::Kind::NextCamera:
 			Director_StepCamera(1);
 			break;
 		}
 	}
-	return cameraEditor;
+	return open;
 }
 
 void DemoBar_Frame() {

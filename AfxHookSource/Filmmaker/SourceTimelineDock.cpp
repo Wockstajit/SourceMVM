@@ -411,7 +411,7 @@ void TimelineDock_Command(int argc, advancedfx::ICommandArgs* args) {
 	if (0 == _stricmp(verb, "on") || 0 == _stricmp(verb, "off") || 0 == _stricmp(verb, "toggle")) {
 		const bool on = onOff(verb, g.enabled);
 		Ui_ShowTimelineDock(on);
-		g.enabled = on && Ui_EditorOpen(); // the UI frame keeps it from here
+		g.enabled = on && Ui_WorkspaceOpen(); // the UI frame keeps it from here
 	} else if (0 == _stricmp(verb, "drive")) {
 		TimelineDock_SetDrive(onOff(arg(3), g.drive));
 	} else if (0 == _stricmp(verb, "autopath")) {

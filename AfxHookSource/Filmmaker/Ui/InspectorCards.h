@@ -58,6 +58,15 @@ float CardButtonWidth(const char* caption, ImFont* font, float s);
 // for it), and the header buttons right-aligned in the given order. Returns the clicked button's
 // index, -1 for none.
 int CardHeader(CardColumn& c, const char* id, const char* title, const char* summary, const CardAction* buttons, int count);
+// A card's master switch (CS2's Config cards): shown or not, and on or off.
+struct CardSwitch {
+	bool show = false;
+	bool on = false;
+};
+// The same header in the card's own edge colour (dim while its switch is off), with the master
+// switch after the buttons. Returns the clicked button's index, count for the switch, -1 for none.
+int CardHeader(CardColumn& c, const char* id, const char* title, const char* summary, const CardAction* buttons, int count,
+	Color edge, CardSwitch master);
 
 // A child window over r that scrolls when what is drawn into it outgrows it. Returns the content's
 // top (scrolled) and sets width to what is left beside a showing scrollbar. End it with the
@@ -81,6 +90,19 @@ struct ValueEdit {
 };
 ValueEdit ValueRow(CardColumn& c, const char* id, const char* label, double value, double min, double max, int decimals,
 	const char* unit, Color fill, bool enabled);
+// CS2's Config slider (sliderRow) on the same row: Shift moves it a fifth as fast, the minimum can
+// read as a word ("Off"), a dimmed row still takes drags, and a pivot row has no fill, a centre tick
+// and a knob in its card's colour.
+struct ValueRowStyle {
+	double fine = 0.08;           // Shift's share of a drag
+	const char* atMin = nullptr;  // shown instead of the value at the minimum
+	bool dim = false;             // drawn at 40%, still live
+	bool noFill = false;
+	bool centreTick = false;
+	Color knob = Theme::Text;
+};
+ValueEdit ValueRow(CardColumn& c, const char* id, const char* label, double value, double min, double max, int decimals,
+	const char* unit, Color fill, bool enabled, const ValueRowStyle& style);
 
 // A mode row (edModeRow): the label, then one cell per caption, the selected one tinted. Returns the
 // clicked cell, -1 for none. selected -1 lights none.
@@ -123,6 +145,12 @@ int DropList(const char* id, const Rect& field, const std::vector<DropOption>& o
 void RailGroup(CardColumn& c, const char* name, bool first);
 bool RailRow(CardColumn& c, const char* id, const char* title, const char* summary, bool selected, Color accent,
 	const char* badge = nullptr, Color badgeColor = Theme::Accent);
+// A Config card's rail row (CS2's cfgRail): the card's master switch at its right when it has one,
+// and while that is off a dim edge and a muted title. The row selects the card; the switch turns it
+// on or off without selecting it.
+enum class RailHit { None, Row, Switch };
+RailHit RailRow(CardColumn& c, const char* id, const char* title, const char* summary, bool selected, Color accent,
+	CardSwitch master);
 bool RailAddButton(CardColumn& c, const char* id, const char* caption);
 
 // The key strip under the inspector's body: key caps and what they do, wrapping.

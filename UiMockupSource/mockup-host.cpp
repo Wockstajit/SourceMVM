@@ -50,6 +50,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 
@@ -168,6 +169,7 @@ struct Host {
 	bool timelineScrubbing = false;    // the dock's playhead is held by a drag
 	double timelineTick = 0;
 	SimDemo demo = MakeSimDemo();
+	ConfigModel config;         // the Config cards' stand-in camera modules (StandInConfigCommand)
 	std::string reply;          // backing store for strings handed to JavaScript
 };
 Host g;
@@ -188,12 +190,20 @@ void ApplyMode(Mode before, const char* reason) {
 	LogLine("ui.mouse", line);
 }
 
-void Open(const char* reason) {
-	if (g.editor.open) return;
+// Opens a workspace, or swaps the open one for it, as the game host does.
+void Open(Workspace ws, const char* reason) {
+	const char* name = ws == Workspace::Config ? "config" : "editor";
+	g.editor.workspace = ws;
+	if (g.editor.open) {
+		LogLine("ui.editor", (std::string("workspace=") + name + " reason=" + reason).c_str());
+		return;
+	}
 	g.editor.open = true;
 	g.mouse.Reset();
-	LogLine("ui.editor", (std::string("open reason=") + reason).c_str());
+	LogLine("ui.editor", (std::string("open workspace=") + name + " reason=" + reason).c_str());
 }
+
+bool ConfigOpen() { return g.editor.open && g.editor.workspace == Workspace::Config; }
 
 void Close(const char* reason) {
 	if (!g.editor.open) return;
@@ -375,7 +385,8 @@ void ApplyDemoActions(const std::vector<DemoBarAction>& actions) {
 			LogLine("demo.loop", ("range " + std::to_string(a.tick) + " " + std::to_string((int)a.value)).c_str());
 			break;
 		case DemoBarAction::Kind::NextCamera: SetCamera(DirectorMath::StepCamera(d.observerMode, 1)); break;
-		case DemoBarAction::Kind::CameraEditor: Open("cam editor button"); break;
+		case DemoBarAction::Kind::CameraEditor: Open(Workspace::Editor, "demo bar"); break;
+		case DemoBarAction::Kind::Config: Open(Workspace::Config, "demo bar"); break;
 		}
 	}
 }
@@ -832,6 +843,99 @@ std::vector<double> StandInCameraTicks() {
 	return ticks;
 }
 
+// The Config cards' commands on the stand-in camera modules, as the game's handlers apply them
+// (SmoothView, HandheldCam and WeaponBob's RunCommand): "<setting> <value> quiet" clamps to the
+// setting's range, "<switch> toggle" flips it, reset puts the module back. Logged as config.ui.
+void StandInConfigCommand(const std::string& command) {
+	LogLine("config.ui", command.c_str());
+	std::istringstream in(command);
+	std::vector<std::string> t;
+	for (std::string w; in >> w;) t.push_back(w);
+	if (t.size() < 3 || t[0] != "mirv_filmmaker") return;
+	ConfigModel& m = g.config;
+	const ConfigModel d;
+	const std::string& module = t[1];
+	const std::string& a = t[2];
+	const double v = t.size() > 3 ? std::atof(t[3].c_str()) : 0;
+	auto set = [&](double& field, double lo, double hi) { field = std::clamp(v, lo, hi); };
+	auto resetSmoothView = [&]() {
+		m.svOn = d.svOn; m.svFalling = d.svFalling; m.svJumping = d.svJumping; m.svHealthSway = d.svHealthSway;
+		m.svTiltEnabled = d.svTiltEnabled; m.svTiltInv = d.svTiltInv; m.svBreathX = d.svBreathX; m.svBreathY = d.svBreathY;
+		m.svStandAmp = d.svStandAmp; m.svWalkAmp = d.svWalkAmp; m.svRunAmp = d.svRunAmp; m.svTilt = d.svTilt; m.svTiltSpeed = d.svTiltSpeed;
+	};
+	auto resetHandheld = [&]() {
+		m.handheldOn = d.handheldOn; m.hhVmDecoupled = d.hhVmDecoupled; m.hhCenterLockOn = d.hhCenterLockOn;
+		m.hhCenterLock = d.hhCenterLock; m.hhDrift = d.hhDrift; m.hhDriftDir = d.hhDriftDir; m.hhTilt = d.hhTilt;
+		m.hhVariance = d.hhVariance; m.hhCurve = d.hhCurve; m.hhSpeed = d.hhSpeed; m.hhRegrip = d.hhRegrip; m.hhPeriod = d.hhPeriod;
+		m.hhIdle = d.hhIdle; m.hhWalk = d.hhWalk; m.hhRun = d.hhRun;
+	};
+	auto resetWeaponBob = [&]() {
+		m.wbOn = d.wbOn; m.wbAmount = d.wbAmount; m.wbSway = d.wbSway; m.wbTilt = d.wbTilt; m.wbRate = d.wbRate;
+		m.wbStep = d.wbStep; m.wbLook = d.wbLook; m.wbInertia = d.wbInertia; m.wbIdle = d.wbIdle; m.wbCam = d.wbCam;
+	};
+	if (module == "smoothview") {
+		if (a == "toggle") m.svOn = !m.svOn;
+		else if (a == "reset") resetSmoothView();
+		else if (a == "falling") m.svFalling = !m.svFalling;
+		else if (a == "jumping") m.svJumping = !m.svJumping;
+		else if (a == "healthSway") m.svHealthSway = !m.svHealthSway;
+		else if (a == "tiltEnabled") m.svTiltEnabled = !m.svTiltEnabled;
+		else if (a == "tiltInv") m.svTiltInv = !m.svTiltInv;
+		else if (a == "breathX") set(m.svBreathX, 0.1, 2);
+		else if (a == "breathY") set(m.svBreathY, 0.1, 2);
+		else if (a == "standAmp") set(m.svStandAmp, 0, 2);
+		else if (a == "walkAmp") set(m.svWalkAmp, 0, 2);
+		else if (a == "runAmp") set(m.svRunAmp, 0, 2);
+		else if (a == "tilt") set(m.svTilt, 0, 60);
+		else if (a == "tiltSpeed") set(m.svTiltSpeed, 0.5, 30);
+	} else if (module == "handheld") {
+		if (a == "toggle") {
+			m.handheldOn = !m.handheldOn;
+			if (m.handheldOn && m.hhDrift == 0 && m.hhCurve == 0) { m.hhDrift = 35; m.hhCurve = 75; } // the backend's seed
+		} else if (a == "reset") resetHandheld();
+		else if (a == "viewmodel") m.hhVmDecoupled = !m.hhVmDecoupled;
+		else if (a == "centerlock") m.hhCenterLockOn = !m.hhCenterLockOn;
+		else if (a == "centerlockpct") set(m.hhCenterLock, 0, 100);
+		else if (a == "drift") set(m.hhDrift, 0, 150);
+		else if (a == "driftdir") m.hhDriftDir = std::fmod(std::fmod(v, 360) + 360, 360);
+		else if (a == "tilt") set(m.hhTilt, 0, 150);
+		else if (a == "variance") set(m.hhVariance, 0, 100);
+		else if (a == "curve") set(m.hhCurve, 0, 150);
+		else if (a == "speed") set(m.hhSpeed, 25, 300);
+		else if (a == "regrip") set(m.hhRegrip, 0, 150);
+		else if (a == "period") set(m.hhPeriod, 2, 60);
+		else if (a == "preset" && t.size() > 4) (t[3] == "idle" ? m.hhIdle : (t[3] == "walk" ? m.hhWalk : m.hhRun)) = t[4];
+	} else if (module == "weaponbob") {
+		if (a == "toggle") m.wbOn = !m.wbOn;
+		else if (a == "reset") resetWeaponBob();
+		else if (a == "amount") set(m.wbAmount, 0, 150);
+		else if (a == "sway") set(m.wbSway, 0, 150);
+		else if (a == "tilt") set(m.wbTilt, 0, 150);
+		else if (a == "looksway") set(m.wbLook, 0, 150);
+		else if (a == "inertia") set(m.wbInertia, 0, 150);
+		else if (a == "idle") set(m.wbIdle, 0, 150);
+		else if (a == "camera") set(m.wbCam, 0, 100);
+		else if (a == "stepsync") set(m.wbStep, 0, 100);
+		else if (a == "rate") set(m.wbRate, 25, 400);
+	} else if (module == "effects" && a == "reset") {
+		resetSmoothView();
+		resetHandheld();
+		resetWeaponBob();
+	}
+	// The cards' Reset buttons dim while a module is at its defaults.
+	m.smoothViewDefault = m.svOn == d.svOn && m.svFalling == d.svFalling && m.svJumping == d.svJumping
+		&& m.svHealthSway == d.svHealthSway && m.svTiltEnabled == d.svTiltEnabled && m.svTiltInv == d.svTiltInv
+		&& m.svBreathX == d.svBreathX && m.svBreathY == d.svBreathY && m.svStandAmp == d.svStandAmp && m.svWalkAmp == d.svWalkAmp
+		&& m.svRunAmp == d.svRunAmp && m.svTilt == d.svTilt && m.svTiltSpeed == d.svTiltSpeed;
+	m.handheldDefault = m.handheldOn == d.handheldOn && m.hhVmDecoupled == d.hhVmDecoupled && m.hhCenterLockOn == d.hhCenterLockOn
+		&& m.hhCenterLock == d.hhCenterLock && m.hhDrift == d.hhDrift && m.hhDriftDir == d.hhDriftDir && m.hhTilt == d.hhTilt
+		&& m.hhVariance == d.hhVariance && m.hhCurve == d.hhCurve && m.hhSpeed == d.hhSpeed && m.hhRegrip == d.hhRegrip
+		&& m.hhPeriod == d.hhPeriod && m.hhIdle == d.hhIdle && m.hhWalk == d.hhWalk && m.hhRun == d.hhRun;
+	m.weaponBobDefault = m.wbOn == d.wbOn && m.wbAmount == d.wbAmount && m.wbSway == d.wbSway && m.wbTilt == d.wbTilt
+		&& m.wbRate == d.wbRate && m.wbStep == d.wbStep && m.wbLook == d.wbLook && m.wbInertia == d.wbInertia && m.wbIdle == d.wbIdle
+		&& m.wbCam == d.wbCam;
+}
+
 // The dock's camera shake edits on the stand-in track, as "mirv_filmmaker pathshake" applies them
 // (CamPathShakeCommand.cpp): a key sits on a camera key; set, intensity, speed, stop, clear, applyall.
 void StandInShakeCommand(const std::string& text) {
@@ -872,6 +976,7 @@ TimelineDockModel BuildTimelineModel() {
 	TimelineDockModel m;
 	m.keys = &g.timeline;
 	m.demo = g.demo.playing;
+	m.configOpen = g.editor.workspace == Workspace::Config;
 	m.viewEpoch = g.timelineEpoch;
 	if (g.timeline.TotalKeys() > 0) {
 		const double lo = g.timeline.MinTick(), hi = std::max(g.timeline.MaxTick(), lo + 1), pad = (hi - lo) * 0.04 + 64;
@@ -962,6 +1067,7 @@ void ApplyTimelineActions(const std::vector<TimelineDockAction>& actions) {
 		case Kind::PlayPause: g.demo.paused = !g.demo.paused; break;
 		case Kind::Speed: g.demo.timescale = a.a; break;
 		case Kind::ShakeCommand: StandInShakeCommand(a.text); break;
+		case Kind::Workspace: Open(a.flag ? Workspace::Config : Workspace::Editor, "dock"); break;
 		}
 		k.RefreshAutoTangents();
 		if (a.kind != Kind::Playhead) {
@@ -1042,7 +1148,8 @@ void Frame() {
 	if (g.editor.open) {
 		g.path.tick = (int)g.demo.tick;
 		StandInFollowFrame();
-		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo, g.path, g.follow, BuildTimelineModel());
+		g.config.demo = g.demo.playing;
+		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo, g.path, g.follow, BuildTimelineModel(), g.config);
 	} else if (director) {
 		if (g.cadence.Ready((uint64_t)nowMs, 10, false)) BuildCards(g.cards);
 		// The backdrop is a CS:S spectator capture, so its spectator bars are where the game's are.
@@ -1059,6 +1166,7 @@ void Frame() {
 	ApplyPathActions(frame.pathActions);
 	ApplyFollowCommands(frame.followCommands);
 	ApplyTimelineActions(frame.timelineActions);
+	for (const std::string& command : frame.configCommands) StandInConfigCommand(command);
 	g.bar = directorFrame.bar;
 	g.preview = frame.modal || g.cardOpen ? Rect() : frame.previewClient;
 	g.panelHovered = g.editor.open && io.WantCaptureMouse;
@@ -1226,7 +1334,7 @@ EMSCRIPTEN_KEEPALIVE void mockup_motion(float dx, float dy) {
 
 // A key, as a DOM keyCode (the Windows virtual-key number). Returns 1 when the workspace used it.
 EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
-	if (g.editor.open || DirectorActive()) { // the camera path's keys come first, in both places
+	if ((g.editor.open && !ConfigOpen()) || DirectorActive()) { // the camera path's keys come first, in both places
 		if (g.path.repositioning && (vk == 'F' || vk == 27)) { // F drops the camera, Esc cancels
 			if (down && !repeat) {
 				g.path.repositioning = false;
@@ -1256,6 +1364,7 @@ EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
 		switch (key) {
 		case WorkspaceKey::Close:
 			if (g.editor.dock == DockTab::Timeline && TimelineDockEscape(g.editor.timeline)) return 1;
+			if (ConfigOpen() && ConfigEscape(g.editor.config)) return 1;
 			Close("esc");
 			return 1;
 		case WorkspaceKey::ToggleGame:
@@ -1374,7 +1483,7 @@ EMSCRIPTEN_KEEPALIVE const char* mockup_command(const char* command) {
 		const bool state = 0 == std::strcmp(action + 12, "state");
 		const bool on = state ? g.editor.dock == DockTab::Timeline : 0 == std::strcmp(action + 12, "on");
 		if (!state) {
-			if (on) Open("timeline dock");
+			if (on) Open(Workspace::Editor, "timeline dock");
 			g.editor.dock = on ? DockTab::Timeline : DockTab::RegularTimeline;
 		}
 		char buf[160];
@@ -1394,18 +1503,31 @@ EMSCRIPTEN_KEEPALIVE const char* mockup_command(const char* command) {
 		g.reply = std::string(hud ? "hud: " : "blackout: ") + (flag ? "on" : "off");
 		return g.reply.c_str();
 	}
+	if (0 == std::strncmp(action, "config", 6)) { // the Config workspace: on | off | toggle | state, as in game
+		const char* what = action + 6;
+		while (*what == ' ') ++what;
+		if (0 == std::strcmp(what, "on")) Open(Workspace::Config, "command");
+		else if (0 == std::strcmp(what, "off")) { if (ConfigOpen()) Close("command"); }
+		else if (0 == std::strcmp(what, "toggle") || !*what) { if (ConfigOpen()) Close("command"); else Open(Workspace::Config, "command"); }
+		static const char* const kCards[] = { "smoothview", "handheld", "weaponbob" };
+		const int card = (int)g.editor.config.card;
+		g.reply = std::string("config: ") + (ConfigOpen() ? "open" : "closed") + ", card "
+			+ (card >= 0 && card < (int)ConfigCard::Count ? kCards[card] : "?");
+		return g.reply.c_str();
+	}
 	if (0 == std::strncmp(action, "editor", 6)) action += 6;
 	while (*action == ' ') ++action;
-	if (0 == std::strcmp(action, "on")) Open("command");
-	else if (0 == std::strcmp(action, "off")) Close("command");
-	else if (0 == std::strcmp(action, "toggle")) { if (g.editor.open) Close("command"); else Open("command"); }
+	const bool editorOpen = g.editor.open && !ConfigOpen();
+	if (0 == std::strcmp(action, "on")) Open(Workspace::Editor, "command");
+	else if (0 == std::strcmp(action, "off")) { if (editorOpen) Close("command"); }
+	else if (0 == std::strcmp(action, "toggle")) { if (editorOpen) Close("command"); else Open(Workspace::Editor, "command"); }
 	else if (*action && 0 != std::strcmp(action, "state")) {
 		g.reply = "mirv_filmmaker editor [on|off|toggle|state]";
 		return g.reply.c_str();
 	}
 	char buf[256];
 	std::snprintf(buf, sizeof(buf), "editor: %s, mouse %s, tab %d, dock %s, preview (%.0f %.0f %.0f %.0f), panel hovered %d, fonts %s at scale %.3f, frames %u",
-		g.editor.open ? "open" : "closed", ModeName(g.mouse.GetMode()), (int)g.editor.tab,
+		editorOpen ? "open" : (g.editor.open ? "closed (config open)" : "closed"), ModeName(g.mouse.GetMode()), (int)g.editor.tab,
 		g.editor.dock == DockTab::Timeline ? "timeline" : "regular",
 		g.preview.x0, g.preview.y0, g.preview.x1, g.preview.y1, g.panelHovered ? 1 : 0,
 		g.fonts.ok ? "ok" : (g.fonts.scale > 0 ? "FALLBACK" : "not built"), g.fonts.scale, g.frames);

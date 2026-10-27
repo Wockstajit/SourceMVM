@@ -366,7 +366,7 @@ std::string DemoBarLayoutText(const DemoBarLayout& l) {
 	};
 	add("bar", l.bar); add("band", l.band); add("play", l.play); add("back", l.back); add("forward", l.forward);
 	add("roundprev", l.roundPrev); add("roundnext", l.roundNext); add("nextkill", l.nextKill); add("camera", l.camera);
-	add("loop", l.loop); add("cameditor", l.camEditor); add("dial", l.dial);
+	add("loop", l.loop); add("cameditor", l.camEditor); add("config", l.config); add("dial", l.dial);
 	return text;
 }
 
@@ -401,7 +401,8 @@ std::vector<DemoBarAction> DrawDemoBar(DemoBarUi& ui, const DemoBarModel& m, con
 		w += LabelButtonW(dd, "-5S") + kTightGap * dd.s + LabelButtonW(dd, "+5S") + kGap * dd.s;
 		w += LabelButtonW(dd, roundPrev) + kTightGap * dd.s + LabelButtonW(dd, roundNext) + kGap * dd.s + kPlayerW * dd.s;
 		w += LabelButtonW(dd, nextKill) + kTightGap * dd.s + LabelButtonW(dd, camera) + kGap * dd.s + kRowH * dd.s;
-		if (m.showCamEditorButton) w += kTightGap * dd.s + LabelButtonW(dd, "CAM EDITOR");
+		if (m.workspace != DemoBarModel::Workspace::Config) w += kTightGap * dd.s + LabelButtonW(dd, "CONFIG");
+		if (m.workspace != DemoBarModel::Workspace::Editor) w += kTightGap * dd.s + LabelButtonW(dd, "CAM EDITOR");
 		return w + 2 * 16 * dd.s + kDialMinW * dd.s; // the dial at its smallest, with its margins
 	};
 	const float avail = rect.W() - 2 * kPadX * s;
@@ -478,7 +479,14 @@ std::vector<DemoBarAction> DrawDemoBar(DemoBarUi& ui, const DemoBarModel& m, con
 	// Right group, laid out from the right edge.
 	float rx = rect.x1 - kPadX * s;
 	auto rbox = [&](float w) { rx -= w; const Rect b = MakeRect(rx, rowY0, rx + w, rowY1); return b; };
-	if (m.showCamEditorButton) {
+	// CAM EDITOR in the spectator orange and CONFIG in the CT blue, so the two workspaces read as
+	// siblings (CS2's gold and blue); inside one, only the button to the other.
+	if (m.workspace != DemoBarModel::Workspace::Config) {
+		ui.layout.config = rbox(LabelButtonW(r, "CONFIG"));
+		if (LabelButton(r, "##config", ui.layout.config, "CONFIG", Palette::TeamCT)) r.Emit(DemoBarAction::Kind::Config);
+		rx -= kTightGap * rs;
+	}
+	if (m.workspace != DemoBarModel::Workspace::Editor) {
 		ui.layout.camEditor = rbox(LabelButtonW(r, "CAM EDITOR"));
 		if (LabelButton(r, "##cameditor", ui.layout.camEditor, "CAM EDITOR")) r.Emit(DemoBarAction::Kind::CameraEditor);
 		rx -= kTightGap * rs;

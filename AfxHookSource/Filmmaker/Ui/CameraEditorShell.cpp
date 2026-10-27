@@ -12,6 +12,7 @@ namespace Ui {
 namespace {
 
 const char* kInspectorTabs[] = { "PATH CAMERA", "FOLLOW CAMERA", "SCENE KEYS" };
+const char* kConfigTabs[] = { "CAMERA" }; // EFFECTS, ENVIRONMENT and RAGDOLLS come with their steps
 const char* kSceneKeysEmpty = "No scene keys.";
 const char* kDockTabs[] = { "REGULAR TIMELINE", "TIMELINE" };
 
@@ -22,7 +23,9 @@ float DockEditorHeight(DockTab dock) {
 }
 
 CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& fonts, float clientW, float clientH,
-	const DemoBarModel& demo, const PathInspectorModel& path, const FollowInspectorModel& follow, const TimelineDockModel& timeline) {
+	const DemoBarModel& demo, const PathInspectorModel& path, const FollowInspectorModel& follow, const TimelineDockModel& timeline,
+	const ConfigModel& config) {
+	const bool configOpen = state.workspace == Workspace::Config;
 	CameraEditorFrame frame;
 	frame.layout = CameraEditorLayout(clientW, clientH, state.inspectorW, DockEditorHeight(state.dock));
 	const WorkspaceLayout& l = frame.layout;
@@ -47,8 +50,8 @@ CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& font
 		DrawSpacedText(back, tag, tagPos, ToU32(Theme::Accent), "PREVIEW", 1.4f * s);
 	}
 
-	// The workspace's name in the letterbox under the preview (CS2: "CAMERA / EDITOR" with its
-	// code line), dim so it reads as a watermark rather than a control.
+	// The workspace's name in the letterbox under the preview (CS2: "CAMERA / EDITOR" or
+	// "CONFIG / SYSTEM" with its code line), dim so it reads as a watermark rather than a control.
 	{
 		ImFont* display = fonts.Get(FontRole::Display);
 		ImFont* small = fonts.Get(FontRole::Small);
@@ -57,7 +60,8 @@ CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& font
 		const float x = area.x0 + Metrics::col.pad * s;
 		const float y = area.y1 - display->FontSize - small->FontSize - 14 * s;
 		if (y > bandTop) {
-			DrawSpacedText(back, display, ImVec2(x, y), ToU32(Faded(Theme::Accent, 0.32f)), "CAMERA / EDITOR", 2.0f * s);
+			DrawSpacedText(back, display, ImVec2(x, y), ToU32(Faded(Theme::Accent, 0.32f)), configOpen ? "CONFIG / SYSTEM" : "CAMERA / EDITOR",
+				2.0f * s);
 			DrawSpacedText(back, small, ImVec2(x + 2 * s, y + display->FontSize + 4 * s),
 				ToU32(Faded(Theme::Accent, 0.55f)), "SOURCE // MVM FILMMAKER", 1.6f * s);
 		}
@@ -76,22 +80,30 @@ CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& font
 
 		// Header: the workspace title and ESC EXIT.
 		const ImVec2 head(inspector.x0 + pad, inspector.y0 + pad);
-		DrawSpacedText(draw, title, head, ToU32(Theme::Accent), "CAMERA EDITOR", 1.2f * s);
+		DrawSpacedText(draw, title, head, ToU32(Theme::Accent), configOpen ? "CONFIG" : "CAMERA EDITOR", 1.2f * s);
 		const float chipW = ChipWidth("ESC EXIT", label, s);
 		if (Chip("##exit", "ESC EXIT", ImVec2(inspector.x1 - pad - chipW, head.y - Metrics::chip.padV * s), label, s))
 			frame.exitClicked = true;
 
 		// The inspector's own tabs.
 		ImGui::SetCursorScreenPos(ImVec2(head.x, head.y + title->FontSize + 18 * s));
-		int tab = (int)state.tab;
-		if (TextTabs("##inspectortabs", kInspectorTabs, (int)InspectorTab::Count, tab, fonts.Get(FontRole::Label),
-			Metrics::tabTop, s, innerW))
-			state.tab = (InspectorTab)tab;
+		if (configOpen) {
+			int tab = 0;
+			TextTabs("##configtabs", kConfigTabs, 1, tab, fonts.Get(FontRole::Label), Metrics::tabTop, s, innerW);
+		} else {
+			int tab = (int)state.tab;
+			if (TextTabs("##inspectortabs", kInspectorTabs, (int)InspectorTab::Count, tab, fonts.Get(FontRole::Label),
+				Metrics::tabTop, s, innerW))
+				state.tab = (InspectorTab)tab;
+		}
 
 		// The body: the rail on the left, the selected card beside it (CS2's edBodyRow), with PATH
 		// CAMERA's keys pinned under it.
 		const ImVec2 body = ImGui::GetCursorScreenPos();
-		if (state.tab == InspectorTab::PathCamera) {
+		if (configOpen) {
+			DrawConfigInspector(state.config, config, fonts, s, MakeRect(body.x, body.y, inspector.x1 - pad, inspector.y1 - 10 * s),
+				frame.configCommands);
+		} else if (state.tab == InspectorTab::PathCamera) {
 			const float stripH = PathKeyStripHeight(fonts, s, innerW);
 			const float bottom = inspector.y1 - 10 * s;
 			const float bodyTop = body.y + 14 * s, bodyBottom = bottom - stripH - 8 * s;
@@ -152,18 +164,25 @@ CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& font
 	const Rect dock = ToClient(l.dock, stage);
 	BeginPanel("##dock", dock, Theme::DockBg);
 	if (state.dock == DockTab::RegularTimeline) {
-		DemoBarModel inEditor = demo;
-		inEditor.showCamEditorButton = false; // CS2 swaps it for CONFIG inside the editor
-		frame.demoActions = DrawDemoBar(state.demoBar, inEditor, fonts, dock, s);
+		DemoBarModel inWorkspace = demo;
+		inWorkspace.workspace = configOpen ? DemoBarModel::Workspace::Config : DemoBarModel::Workspace::Editor;
+		frame.demoActions = DrawDemoBar(state.demoBar, inWorkspace, fonts, dock, s);
 	} else {
 		frame.timelineActions = DrawTimelineDock(state.timeline, timeline, fonts, dock, s);
 	}
 	ImGui::End();
 
-	DrawPathClearConfirm(state.path, fonts, s, clientW, clientH, frame.pathActions); // over everything
-	if (state.tab == InspectorTab::FollowCamera) DrawFollowDropList(state.follow, fonts, s, clientW, clientH, frame.followCommands);
-	else state.follow.openDrop = -1;
-	frame.modal = state.path.confirmClear || state.follow.openDrop >= 0;
+	// Over everything.
+	if (configOpen) {
+		DrawConfigOverlays(state.config, config, fonts, s, clientW, clientH, frame.configCommands);
+		state.follow.openDrop = -1;
+	} else {
+		DrawPathClearConfirm(state.path, fonts, s, clientW, clientH, frame.pathActions);
+		if (state.tab == InspectorTab::FollowCamera) DrawFollowDropList(state.follow, fonts, s, clientW, clientH, frame.followCommands);
+		else state.follow.openDrop = -1;
+		state.config.openDrop = -1;
+	}
+	frame.modal = state.path.confirmClear || state.follow.openDrop >= 0 || ConfigModal(state.config);
 	return frame;
 }
 

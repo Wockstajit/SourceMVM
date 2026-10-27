@@ -54,7 +54,13 @@ void Ui_FilterRawInput(UINT result, UINT command, LPVOID data);
 
 // mirv_filmmaker editor [on|off|toggle|state]
 void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args);
+// mirv_filmmaker config [on|off|toggle|state]: the Config workspace, which shares the Camera
+// Editor's preview and dock; opening one closes the other, as in CS2.
+void Ui_ConfigCommand(int argc, advancedfx::ICommandArgs* args);
+// The Camera Editor is the open workspace.
 bool Ui_EditorOpen();
+// A workspace is open: the Camera Editor or Config.
+bool Ui_WorkspaceOpen();
 // The open Camera Editor's mouse: the UI's (true) or the game's, to fly the free cam, as G trades
 // it. The follow camera's reposition hands it to the game and back (CS2's CameraEditor_SetCursorMode).
 // A right-button look in progress keeps it.

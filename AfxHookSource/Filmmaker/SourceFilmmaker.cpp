@@ -3,6 +3,7 @@
 #include "SourceFilmmaker.h"
 #include "SourceCameraPath.h"
 #include "SourceCapture.h"
+#include "SourceConfig.h"
 #include "SourceConsole.h"
 #include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
@@ -184,6 +185,8 @@ void PrintUsage() {
 		"mirv_filmmaker engine  - the networked fields the engine adapter resolved, with offsets.\n"
 		"mirv_filmmaker entities - [all] [class]: every entity: handle, class, origin, angles, team, links.\n"
 		"mirv_filmmaker editor  - on|off|toggle|state: the Camera Editor workspace (ESC closes it).\n"
+		"mirv_filmmaker config  - on|off|toggle|state: the Config workspace, the camera feel cards (ESC closes it).\n"
+		"mirv_filmmaker effects - reset camera: every Config CAMERA card back to its defaults.\n"
 		"mirv_filmmaker loop    - on|off|toggle|state: LOOP playback between the demo bar's In and Out.\n"
 		"mirv_filmmaker seek    - <tick>: go to a demo tick as the demo bar does (back = restart, then forward).\n"
 		"mirv_filmmaker hud     - on|off|toggle|state: the movie director's cards during a demo.\n"
@@ -271,6 +274,10 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::Entities_Print(all, argc > filterArg ? args->ArgV(filterArg) : "");
 	} else if (0 == _stricmp(sub, "editor")) {
 		SourceFilmmaker::Ui_EditorCommand(argc, args);
+	} else if (0 == _stricmp(sub, "config")) {
+		SourceFilmmaker::Ui_ConfigCommand(argc, args);
+	} else if (0 == _stricmp(sub, "effects")) {
+		SourceFilmmaker::Config_EffectsCommand(argc, args);
 	} else if (0 == _stricmp(sub, "loop")) {
 		std::string action = argc >= 3 ? args->ArgV(2) : "state";
 		for (int i = 3; i < argc; ++i) action += std::string(" ") + args->ArgV(i); // range <in> <out>

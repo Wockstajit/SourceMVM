@@ -39,6 +39,7 @@ struct TimelineDockModel {
 	double tickRate = 64;
 	double timescale = 1;
 	double live[7] = { 0, 0, 0, 0, 0, 0, 90 }; // the rendered camera, per channel
+	bool configOpen = false;    // the open workspace is Config (the toolbar's CAM EDITOR and CONFIG buttons)
 	// The camera path's camera shake track (CamPathShake's dock JSON: CS2's pathKeys, shakes and
 	// shakeStyles): its camera keys' ticks, its keys in tick order with each one's style label, and
 	// the styles the menu offers (index, label), the first shakeEssentials of them on the menu itself.
@@ -72,6 +73,7 @@ struct TimelineDockAction {
 		PlayPause,       // the demo, or the camera path while it plays
 		Speed,           // a = demo speed
 		ShakeCommand,    // text: a camera shake edit, as "mirv_filmmaker pathshake <text>" takes it
+		Workspace,       // flag: open Config, else the Camera Editor
 	};
 	Kind kind = Kind::Select;
 	int ch = 0, id = 0, side = 0;
