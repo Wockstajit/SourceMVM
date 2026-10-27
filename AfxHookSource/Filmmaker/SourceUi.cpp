@@ -11,6 +11,7 @@
 #include "Ui/CameraEditorShell.h"
 #include "Ui/DirectorHud.h"
 #include "Ui/DirectorMouse.h"
+#include "Ui/MarkerPopup.h"
 #include "Ui/PathOverlay.h"
 #include "Ui/UiRenderDx9.h"
 #include "Ui/UiKeys.h"
@@ -84,6 +85,8 @@ struct Host {
 	LARGE_INTEGER frequency = {};
 	unsigned frames = 0;
 	bool wasRepositioning = false; // last frame: a camera was being repositioned
+	MarkerCardState markerCard;    // the CAMERA MARKER card (F on an aimed marker)
+	int64_t repositionPressAt = -1; // a left press while repositioning outside the editor, ms
 	std::unique_ptr<ImDrawList> worldList; // the camera path in the world, built with each rendered view
 	unsigned worldFrames = 0;
 	int worldVertices = 0;
@@ -95,6 +98,7 @@ Host g;
 std::atomic<bool> g_open{ false };
 std::atomic<bool> g_director{ false }; // the movie director runs (a demo, no workspace)
 std::atomic<bool> g_uiOwnsMouse{ false };
+std::atomic<bool> g_markerMenu{ false }; // the CAMERA MARKER card is up: every press and notch is the card's
 
 // Hand-off to the render thread.
 std::mutex g_frameMutex;
@@ -244,7 +248,10 @@ bool OnDirectorMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 			route = DirectorRoute::Swallow; // the path flies the view: a press is no look and no player step (CS2)
 			break;
 		}
-		route = g.directorMouse.ButtonDown(button, (float)x, (float)y, now, g.bar, Director_FreeCamOn());
+		// While the CAMERA MARKER card is up, the whole window is the UI's (its catcher).
+		const Rect ui = g_markerMenu.load() ? MakeRect(-1e6f, -1e6f, 1e6f, 1e6f) : g.bar;
+		if (button == DirectorMouse::Left && CameraPath_Repositioning() && !ui.Contains((float)x, (float)y)) g.repositionPressAt = now;
+		route = g.directorMouse.ButtonDown(button, (float)x, (float)y, now, ui, Director_FreeCamOn());
 		if (route == DirectorRoute::Ui && io) {
 			io->AddMousePosEvent((float)x, (float)y);
 			io->AddMouseButtonEvent(button, true);
@@ -258,11 +265,26 @@ bool OnDirectorMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 		DirectorMouse::Click click = DirectorMouse::Click::None;
 		route = g.directorMouse.ButtonUp(button, now, click);
 		if (route == DirectorRoute::Ui && io) io->AddMouseButtonEvent(button, false);
-		if (click != DirectorMouse::Click::None) MainThread_Run([click] { Director_Click(click); });
+		if (CameraPath_Repositioning()) {
+			// A click drops the camera being repositioned where the view is; a held press still looks.
+			// The free cam turns every press into a look at once (DirectorMouse's steer), so a click
+			// is a left press let go before it would have become one (UiClickMath.h's 200 ms).
+			const bool quick = button == DirectorMouse::Left && g.repositionPressAt >= 0
+				&& !Filmmaker::UiClick::RightPressBecomesLook((int)(now - g.repositionPressAt), 0, 0);
+			if (click == DirectorMouse::Click::NextPlayer || quick) MainThread_Run(&CameraPath_PlaceReposition);
+			if (button == DirectorMouse::Left) g.repositionPressAt = -1;
+		} else if (click != DirectorMouse::Click::None) {
+			MainThread_Run([click] { Director_Click(click); });
+		}
 		reason = "look released";
 		break;
 	}
 	case WM_MOUSEWHEEL: {
+		if (g_markerMenu.load()) { // the card is up: the notch is its own
+			if (io) io->AddMouseWheelEvent(0.0f, (float)GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA);
+			route = DirectorRoute::Ui;
+			break;
+		}
 		// Every notch is the director's while a demo plays, over the bar too (CS2's MovieMode).
 		g.wheelRemainder += GET_WHEEL_DELTA_WPARAM(wParam);
 		const int notches = g.wheelRemainder / WHEEL_DELTA;
@@ -343,6 +365,9 @@ bool OnDirectorMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 	}
 }
 
+void DrawMarkerPopups(const Rect& gameArea, float w, float h, std::vector<MarkerCardAction>& actions);
+void ApplyMarkerActions(const std::vector<MarkerCardAction>& actions);
+
 // The director's frame: the bar and the cards over the game.
 void DirectorFrameBuild(float w, float h) {
 	ImGuiIO& io = ImGui::GetIO();
@@ -359,9 +384,12 @@ void DirectorFrameBuild(float w, float h) {
 	const float spectatorBar = Director_SpectatorBarHeight(h);
 	ImGui::NewFrame();
 	const DirectorFrame frame = DrawDirector(Director_State(), demo, g.cards, g.fonts, w, h, spectatorBar, spectatorBar);
+	std::vector<MarkerCardAction> markerActions;
+	if (!Director_State().blackout) DrawMarkerPopups(MakeRect(0, 0, w, h), w, h, markerActions);
 	ImGui::Render();
 	g.bar = frame.bar;
 	++g.frames;
+	ApplyMarkerActions(markerActions);
 	if (DemoBar_Apply(frame.demoActions)) {
 		Open("cam editor button");
 		return;
@@ -481,6 +509,81 @@ bool OnMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 	}
 	ApplyMode(before, reason);
 	return route != Route::Game;
+}
+
+// The CAMERA MARKER card's model, read from the camera path.
+MarkerCardModel BuildMarkerModel() {
+	MarkerCardModel m;
+	const PathState s = CameraPath_State();
+	const Filmmaker::CamMarkers& markers = CameraPath_Markers();
+	m.selected = s.selected;
+	m.count = s.count;
+	m.speedMode = s.settings.speedMode;
+	m.interp = s.settings.interp;
+	m.timing = s.settings.timing;
+	m.autoSnap = s.settings.autoSnap;
+	m.constSpeed = s.settings.constSpeed;
+	if (markers.ValidIndex(s.selected)) {
+		m.speedMul = markers.At(s.selected).speedMul;
+		m.isLast = s.selected == markers.Count() - 1;
+	}
+	return m;
+}
+
+void ApplyMarkerActions(const std::vector<MarkerCardAction>& actions) {
+	using Kind = MarkerCardAction::Kind;
+	for (const MarkerCardAction& a : actions) {
+		const PathState s = CameraPath_State();
+		if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("path.card", "kind=%d value=%.2f", (int)a.kind, a.value);
+		switch (a.kind) {
+		case Kind::Previous: CameraPath_SelectStep(-1); break;
+		case Kind::Next: CameraPath_SelectStep(1); break;
+		case Kind::CycleSpeedMode: CameraPath_SetSpeedMode((s.settings.speedMode + 1) % 3); break;
+		case Kind::CycleInterp: CameraPath_SetInterp(s.settings.interp == 1 ? 0 : 1); break;
+		case Kind::ToggleTiming: CameraPath_SetTiming(s.settings.timing == 1 ? 0 : 1); break;
+		case Kind::ToggleAutoSnap: CameraPath_SetAutoSnap(!s.settings.autoSnap); break;
+		case Kind::ConstSpeed: CameraPath_SetConstSpeed(a.value); break;
+		case Kind::SpeedMul: CameraPath_SetSpeedMul(s.selected, a.value); break;
+		case Kind::Reposition:
+			CameraPath_BeginReposition();
+			if (g_open.load() && CameraPath_Repositioning() && g.mouse.GetMode() == Mode::Ui) { // the free cam is the user's to fly
+				const Mode before = g.mouse.GetMode();
+				g.mouse.ToggleGame();
+				ApplyMode(before, "reposition");
+			}
+			break;
+		case Kind::Remove: CameraPath_Delete(s.selected); break;
+		case Kind::RemoveAll: CameraPath_DeleteAll(); break;
+		case Kind::Close: CameraPath_CloseMenu(); break;
+		default: break;
+		}
+	}
+}
+
+// Over the game (gameArea, client px): the CAMERA MARKER card while it is up, else CS2's prompt
+// banner for a notice or a camera being repositioned. Inside an ImGui frame.
+void DrawMarkerPopups(const Rect& gameArea, float w, float h, std::vector<MarkerCardAction>& actions) {
+	const PathState s = CameraPath_State();
+	g_markerMenu.store(s.menuOpen);
+	if (s.menuOpen) {
+		DrawMarkerCard(g.markerCard, BuildMarkerModel(), g.fonts, w, h, actions);
+		return;
+	}
+	g.markerCard.confirmRemoveAll = false;
+	char title[64];
+	PathBanner banner;
+	if (*s.notice) {
+		banner.title = "CAMERA PATH";
+		banner.line = s.notice;
+	} else if (s.mode == PathMode::Reposition) {
+		std::snprintf(title, sizeof(title), "REPOSITIONING CAMERA #%d", s.selected + 1);
+		banner.title = title;
+		banner.line = "Move to the new position, then left-click to place.";
+		banner.keys = "LEFT CLICK / F  place        ESC  cancel";
+	} else {
+		return;
+	}
+	DrawPathBanner(ImGui::GetForegroundDrawList(), banner, g.fonts, gameArea);
 }
 
 // The PATH CAMERA tab's model, read from the camera path.
@@ -672,11 +775,14 @@ void Ui_MainThreadFrame() {
 	const PathInspectorModel path = BuildPathModel();
 	ImGui::NewFrame();
 	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo, path);
+	std::vector<MarkerCardAction> markerActions;
+	DrawMarkerPopups(frame.previewClient, w, h, markerActions);
 	ImGui::Render();
 	DemoBar_Apply(frame.demoActions); // CAM EDITOR is not on the bar inside the editor
 	ApplyPathActions(frame.pathActions);
+	ApplyMarkerActions(markerActions);
 
-	g.preview = frame.modal ? Rect() : frame.previewClient;
+	g.preview = frame.modal || g_markerMenu.load() ? Rect() : frame.previewClient;
 	if (g.panelHovered != io.WantCaptureMouse && Filmmaker::MvmDebugLog_Active())
 		Filmmaker::MvmDebugLog_Linef("ui.hover", "panelHovered=%d mouse=(%.0f %.0f) tab=%d dock=%d",
 			io.WantCaptureMouse ? 1 : 0, io.MousePos.x, io.MousePos.y, (int)g.editor.tab, (int)g.editor.dock);

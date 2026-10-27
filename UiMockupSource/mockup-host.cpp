@@ -11,7 +11,8 @@
 //     workspaces;
 //   - the world: a stand-in camera path ("markers on") ahead of the stand-in camera, drawn by the
 //     game's own path overlay (Ui/PathOverlay.h) over the frame, and a stand-in list of its
-//     cameras that the PATH CAMERA inspector edits (Ui/PathInspector.h) as the game's path would;
+//     cameras that the PATH CAMERA inspector edits (Ui/PathInspector.h) as the game's path would,
+//     with F opening the CAMERA MARKER card and its banner (Ui/MarkerPopup.h) on them;
 //   - the window: index.html forwards DOM mouse and key events here as the game host's window
 //     procedure forwards window messages, and asks for pointer lock while the game has the mouse.
 //
@@ -23,6 +24,7 @@
 #include "../AfxHookSource/Filmmaker/Ui/DirectorHud.h"
 #include "../AfxHookSource/Filmmaker/Ui/DirectorMath.h"
 #include "../AfxHookSource/Filmmaker/Ui/DirectorMouse.h"
+#include "../AfxHookSource/Filmmaker/Ui/MarkerPopup.h"
 #include "../AfxHookSource/Filmmaker/Ui/PathOverlay.h"
 #include "../AfxHookSource/Filmmaker/Ui/UiKeys.h"
 #include "../AfxHookSource/Filmmaker/Ui/WorkspaceMouse.h"
@@ -145,6 +147,9 @@ struct Host {
 	bool pathOn = false;        // the stand-in camera path is drawn
 	bool pathFreeze = false;    // in Freeze blue, else Live gold
 	PathInspectorModel path;    // the cameras the PATH CAMERA tab edits
+	bool cardOpen = false;      // the CAMERA MARKER card (F)
+	bool autoSnap = false;
+	MarkerCardState card;
 	SimDemo demo = MakeSimDemo();
 	std::string reply;          // backing store for strings handed to JavaScript
 };
@@ -477,6 +482,69 @@ void ApplyPathActions(const std::vector<PathInspectorAction>& actions) {
 	}
 }
 
+// The CAMERA MARKER card's requests on the stand-in list, as SourceUi.cpp applies them to the path.
+void ApplyCardActions(const std::vector<MarkerCardAction>& actions) {
+	using Kind = MarkerCardAction::Kind;
+	PathInspectorModel& p = g.path;
+	const int count = (int)p.keys.size();
+	for (const MarkerCardAction& a : actions) {
+		switch (a.kind) {
+		case Kind::Previous: if (count) p.selected = p.selected > 0 ? p.selected - 1 : 0; break;
+		case Kind::Next: if (count) p.selected = p.selected < count - 1 ? p.selected + 1 : count - 1; break;
+		case Kind::CycleSpeedMode: p.speedMode = (p.speedMode + 1) % 3; break;
+		case Kind::CycleInterp: p.interp = 1 - p.interp; break;
+		case Kind::ToggleTiming: p.timing = 1 - p.timing; break;
+		case Kind::ToggleAutoSnap: g.autoSnap = !g.autoSnap; break;
+		case Kind::ConstSpeed: p.constSpeed = a.value; break;
+		case Kind::SpeedMul: if (p.selected >= 0 && p.selected < count) p.keys[(size_t)p.selected].speedMul = a.value; break;
+		case Kind::Reposition: p.repositioning = p.selected >= 0; g.cardOpen = false; break;
+		case Kind::Remove:
+			if (p.selected >= 0 && p.selected < count) {
+				p.keys.erase(p.keys.begin() + p.selected);
+				if (p.selected >= (int)p.keys.size()) p.selected = (int)p.keys.size() - 1;
+			}
+			if (p.keys.empty()) g.cardOpen = false;
+			break;
+		case Kind::RemoveAll: p.keys.clear(); p.selected = -1; g.cardOpen = false; break;
+		case Kind::Close: g.cardOpen = false; break;
+		default: break;
+		}
+		char line[64];
+		std::snprintf(line, sizeof(line), "kind=%d value=%.2f", (int)a.kind, a.value);
+		LogLine("path.card", line);
+	}
+}
+
+// The card while it is up, else the reposition banner over the game rect.
+void DrawCardAndBanner(const Rect& game, std::vector<MarkerCardAction>& actions) {
+	const PathInspectorModel& p = g.path;
+	if (g.cardOpen) {
+		MarkerCardModel m;
+		m.selected = p.selected;
+		m.count = (int)p.keys.size();
+		m.speedMode = p.speedMode;
+		m.interp = p.interp;
+		m.timing = p.timing;
+		m.autoSnap = g.autoSnap;
+		m.constSpeed = p.constSpeed;
+		if (p.selected >= 0 && p.selected < m.count) {
+			m.speedMul = p.keys[(size_t)p.selected].speedMul;
+			m.isLast = p.selected == m.count - 1;
+		}
+		DrawMarkerCard(g.card, m, g.fonts, (float)g.width, (float)g.height, actions);
+		return;
+	}
+	g.card.confirmRemoveAll = false;
+	if (!p.repositioning) return;
+	char title[64];
+	std::snprintf(title, sizeof(title), "REPOSITIONING CAMERA #%d", p.selected + 1);
+	PathBanner banner;
+	banner.title = title;
+	banner.line = "Move to the new position, then left-click to place.";
+	banner.keys = "LEFT CLICK / F  place        ESC  cancel";
+	DrawPathBanner(ImGui::GetForegroundDrawList(), banner, g.fonts, game);
+}
+
 // Renders a draw list built outside the ImGui frame through the same backend as the UI.
 void RenderList(ImDrawList& list) {
 	ImDrawData data;
@@ -522,12 +590,16 @@ void Frame() {
 		const float spectatorBar = (float)g.height * DirectorMath::kSpectatorBarShare;
 		directorFrame = DrawDirector(g.director, demo, g.cards, g.fonts, (float)g.width, (float)g.height, spectatorBar, spectatorBar);
 	}
+	std::vector<MarkerCardAction> cardActions;
+	if ((g.editor.open || director) && !g.director.blackout)
+		DrawCardAndBanner(g.editor.open ? frame.previewClient : MakeRect(0, 0, (float)g.width, (float)g.height), cardActions);
 	ImGui::Render();
+	ApplyCardActions(cardActions);
 	ApplyDemoActions(frame.demoActions);
 	ApplyDemoActions(directorFrame.demoActions);
 	ApplyPathActions(frame.pathActions);
 	g.bar = directorFrame.bar;
-	g.preview = frame.modal ? Rect() : frame.previewClient;
+	g.preview = frame.modal || g.cardOpen ? Rect() : frame.previewClient;
 	g.panelHovered = g.editor.open && io.WantCaptureMouse;
 	++g.frames;
 
@@ -693,6 +765,19 @@ EMSCRIPTEN_KEEPALIVE void mockup_motion(float dx, float dy) {
 
 // A key, as a DOM keyCode (the Windows virtual-key number). Returns 1 when the workspace used it.
 EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
+	if (g.editor.open || DirectorActive()) { // the camera path's keys come first, in both places
+		if (g.path.repositioning && (vk == 'F' || vk == 27)) { // F drops the camera, Esc cancels
+			if (down && !repeat) {
+				g.path.repositioning = false;
+				LogLine("path.inspector", vk == 'F' ? "reposition placed" : "reposition cancelled");
+			}
+			return 1;
+		}
+		if (g.pathOn && (vk == 'F' || (vk == 27 && g.cardOpen))) { // the CAMERA MARKER card
+			if (down && !repeat) g.cardOpen = vk == 'F' ? !g.cardOpen && !g.path.keys.empty() : false;
+			return 1;
+		}
+	}
 	if (!g.editor.open) {
 		if (!DirectorActive()) return 0;
 		const DirectorMath::Key key = DirectorMath::KeyFor(vk);
@@ -701,11 +786,6 @@ EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
 		return 1;
 	}
 	ImGuiIO& io = ImGui::GetIO();
-	if (g.path.repositioning && down && !repeat && (vk == 'F' || vk == 27)) { // F drops the camera, Esc cancels
-		g.path.repositioning = false;
-		LogLine("path.inspector", vk == 'F' ? "reposition placed" : "reposition cancelled");
-		return 1;
-	}
 	const WorkspaceKey key = WorkspaceKeyFor(vk, io.WantTextInput);
 	if (down) {
 		switch (key) {

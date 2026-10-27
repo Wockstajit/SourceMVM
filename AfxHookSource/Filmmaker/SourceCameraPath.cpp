@@ -58,6 +58,7 @@ struct State {
 	std::string demo;         // the demo the markers were placed in
 	std::vector<double> trajectory; // the in-world line: x, y, z along the path
 	// The editor's selection: the camera whose pose holds while the seek to its tick lands.
+	bool menuOpen = false;    // the CAMERA MARKER card
 	int holdIndex = -1;
 	int holdFrames = 0;       // at most this many more frames
 	int holdSettled = 0;      // frames the demo has been on the camera's tick
@@ -197,7 +198,30 @@ PathState CameraPath_State() {
 	s.settings = g.settings;
 	s.duration = g.eval.Duration();
 	s.notice = Clock::now() - g.noticeAt < std::chrono::milliseconds(3500) ? g.notice : "";
+	s.menuOpen = CameraPath_MenuOpen();
 	return s;
+}
+
+bool CameraPath_MenuOpen() { return g.menuOpen && g.mode == PathMode::Editing && !g.markers.Empty(); }
+
+void CameraPath_OpenMenu(int index) {
+	if (!g.markers.ValidIndex(index)) return;
+	if (g.mode != PathMode::Editing) CameraPath_Stop();
+	g.markers.SetSelected(index);
+	CameraBridge_SetFreeCamEnabled(true);
+	g.menuOpen = true;
+	advancedfx::Message("[campath] edit menu open for marker #%d.\n", index);
+}
+
+void CameraPath_CloseMenu() { g.menuOpen = false; }
+
+void CameraPath_SelectStep(int delta) {
+	if (g.markers.Empty()) return;
+	const int base = g.markers.Selected() < 0 ? 0 : g.markers.Selected();
+	g.markers.SetSelected(base + delta);
+	const int sel = g.markers.Selected();
+	if (g.settings.autoSnap) PushPose(g.markers.At(sel)); // only with auto-snap does the view follow
+	advancedfx::Message("[campath] selected marker #%d%s.\n", sel, g.settings.autoSnap ? "" : " (auto-snap off, view not moved)");
 }
 
 bool CameraPath_OwnsView() { return g.mode == PathMode::Armed || g.mode == PathMode::Playing; }
@@ -272,6 +296,7 @@ bool CameraPath_DeleteAimed() {
 
 void CameraPath_DeleteAll() {
 	CameraPath_Stop();
+	g.menuOpen = false;
 	g.markers.DeleteAll();
 	Rebuild();
 	advancedfx::Message("[campath] all markers deleted.\n");
@@ -427,12 +452,18 @@ void CameraPath_SetTiming(int timing) {
 	advancedfx::Message("[campath] timing -> %s (all cameras).\n", kTimingNames[g.settings.timing]);
 }
 
+void CameraPath_SetAutoSnap(bool on) {
+	g.settings.autoSnap = on;
+	advancedfx::Message("[campath] auto-snap to selected camera -> %s.\n", on ? "ON" : "OFF");
+}
+
 void CameraPath_BeginReposition() {
 	const int sel = g.markers.Selected();
 	if (!g.markers.ValidIndex(sel)) {
 		Notify("Select a camera to reposition.");
 		return;
 	}
+	g.menuOpen = false;
 	if (g.mode != PathMode::Editing) CameraPath_Stop();
 	CameraPath_EditEnd();
 	g.holdFrames = 0;
@@ -612,6 +643,16 @@ bool CameraPath_OnKey(int vk, bool down, bool repeat) {
 		}
 		return false;
 	default:
+		if (CameraPath_MenuOpen()) { // the card is up: F and Esc close it, nothing else is the path's
+			if (vk == 'F' || vk == VK_ESCAPE) { act(&CameraPath_CloseMenu); return true; }
+			return false;
+		}
+		if (vk == 'F') {
+			const int aimed = g.aimed;
+			if (aimed < 0) return false; // nothing aimed at: the key is the game's
+			if (fresh) MainThread_Run([aimed] { CameraPath_OpenMenu(aimed); });
+			return true;
+		}
 		if (vk == 'K') { act(&CameraPath_Place); return true; }
 		if (vk == 'J') { act(&CameraPath_Arm); return true; }
 		if (vk == 'L') {
@@ -656,6 +697,10 @@ void CameraPath_Command(int argc, advancedfx::ICommandArgs* args) {
 		CameraPath_SetEase(atoi(value), e);
 	} else if (0 == _stricmp(sub, "speed") && argc >= 5) CameraPath_SetSpeedMul(atoi(value), (float)atof(value2));
 	else if (0 == _stricmp(sub, "speedmul") && argc >= 4) CameraPath_SetSpeedMul(sel, (float)atof(value));
+	else if (0 == _stricmp(sub, "next")) CameraPath_SelectStep(1);
+	else if (0 == _stricmp(sub, "prev")) CameraPath_SelectStep(-1);
+	else if (0 == _stricmp(sub, "open")) CameraPath_OpenMenu(argc >= 4 ? atoi(value) : (g.aimed >= 0 ? g.aimed : sel));
+	else if (0 == _stricmp(sub, "close")) CameraPath_CloseMenu();
 	else if (0 == _stricmp(sub, "reposition")) CameraPath_BeginReposition();
 	else if (0 == _stricmp(sub, "placereposition")) CameraPath_PlaceReposition();
 	else if (0 == _stricmp(sub, "cancelreposition")) CameraPath_CancelReposition();
@@ -680,13 +725,14 @@ void CameraPath_Command(int argc, advancedfx::ICommandArgs* args) {
 	else if (0 == _stricmp(sub, "autosnap")) {
 		bool on = !g.settings.autoSnap;
 		Parse01(value, on);
-		g.settings.autoSnap = on;
+		CameraPath_SetAutoSnap(on);
 	} else if (0 != _stricmp(sub, "list")) {
 		advancedfx::Message(
 			"mirv_filmmaker marker place | delete <i> | deleteall confirm | select <i>|next|prev | selectdelta <d> | movekey <i> <tick>\n"
 			"mirv_filmmaker marker setval <i> <channel 0-6> <v> | fov <v> | roll <v> | undo | redo | ease <i> none|in|out|inout\n"
 			"mirv_filmmaker marker speed <i> <0.2..1> | speedmul <v> | constspeed <0.2..1> | reposition | placereposition | cancelreposition\n"
-			"mirv_filmmaker marker arm | play | pause | stop | timing live|freeze|toggle | interp linear|smooth|cycle\n"
+			"mirv_filmmaker marker open [i] | close | next | prev | arm | play | pause | stop | timing live|freeze|toggle\n"
+			"mirv_filmmaker marker interp linear|smooth|cycle\n"
 			"mirv_filmmaker marker speedmode manual|constant|persegment | autosnap [0|1] | list\n");
 		return;
 	}

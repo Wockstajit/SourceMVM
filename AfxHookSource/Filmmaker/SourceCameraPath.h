@@ -38,6 +38,7 @@ struct PathState {
 	Filmmaker::PathSettings settings;
 	double duration = 0;       // the timing axis's length (Freeze pacing), seconds
 	const char* notice = "";   // the last refusal ("Need at least 2 camera markers..."), for 3.5 s
+	bool menuOpen = false;     // the CAMERA MARKER card is up (F on an aimed marker)
 };
 
 // Once a frame: aim, the armed hold, playback and the end of the path.
@@ -76,20 +77,30 @@ void CameraPath_SetConstSpeed(float mul);          // the whole path, 0.2..1 (Co
 void CameraPath_SetInterp(int interp);             // 0 Linear, 1 Smooth
 void CameraPath_SetSpeedMode(int mode);            // 0 Manual, 1 Constant, 2 Per-segment
 void CameraPath_SetTiming(int timing);             // 0 Live, 1 Freeze
+void CameraPath_SetAutoSnap(bool on);              // the card's arrows move the view to the marker
 // Reposition (CS2's): the demo goes to the selected camera's tick and the free cam is the user's;
 // F or a left click puts the camera where the view is, Esc cancels.
 void CameraPath_BeginReposition();
 void CameraPath_PlaceReposition();
 void CameraPath_CancelReposition();
 bool CameraPath_Repositioning();
+// The CAMERA MARKER card (CS2's marker menu): F on an aimed marker opens it for that marker, F or Esc
+// closes it. While it is up the cursor is the card's.
+void CameraPath_OpenMenu(int index);
+void CameraPath_CloseMenu();
+bool CameraPath_MenuOpen();
+// The card's arrows (CS2's SelectDelta): the next or previous marker, the view moved to it when
+// auto-snap is on.
+void CameraPath_SelectStep(int delta);
 void CameraPath_Arm();             // jump to the first marker, paused, its pose held
 void CameraPath_Play();            // from armed (or arms first)
 void CameraPath_Pause();
 void CameraPath_Stop();
 
-// The path's keys outside the workspaces (CS2's MovieMode): K, J, L; while armed Space plays, Esc
-// cancels and the arrows are held; while playing Space pauses, Esc stops, W A S D stop the path and
-// still move the free cam. True when the key was the path's.
+// The path's keys outside the workspaces (CS2's MovieMode): K, J, L, F on an aimed marker; while
+// armed Space plays, Esc cancels and the arrows are held; while playing Space pauses, Esc stops,
+// W A S D stop the path and still move the free cam; while the card is up F and Esc close it.
+// True when the key was the path's.
 bool CameraPath_OnKey(int vk, bool down, bool repeat);
 
 // mirv_filmmaker marker ...

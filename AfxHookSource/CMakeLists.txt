@@ -183,8 +183,11 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/Ui/DirectorHud.h
     Filmmaker/Ui/DirectorMath.h
     Filmmaker/Ui/DirectorMouse.h
+    Filmmaker/Ui/HudCard.h
     Filmmaker/Ui/InspectorCards.cpp
     Filmmaker/Ui/InspectorCards.h
+    Filmmaker/Ui/MarkerPopup.cpp
+    Filmmaker/Ui/MarkerPopup.h
     Filmmaker/Ui/PathOverlay.cpp
     Filmmaker/Ui/PathInspector.cpp
     Filmmaker/Ui/PathInspector.h

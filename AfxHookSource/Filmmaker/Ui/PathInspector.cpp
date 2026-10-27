@@ -32,7 +32,7 @@ const char* const kTiming[] = { "Live", "Freeze" };
 const float kSpeedSteps[] = { 0.2f, 0.5f, 0.8f, 1.0f };
 
 const KeyHint kPathKeys[] = {
-	{ "K", "place" }, { "J", "arm path" }, { "L", "delete" }, { "Space", "play" }, { "Left / Right", PLUSMINUS "5 s" },
+	{ "K", "place" }, { "J", "arm path" }, { "L", "delete" }, { "F", "edit" }, { "Space", "play" }, { "Left / Right", PLUSMINUS "5 s" },
 	{ "Shift+Scroll", "move speed" }, { "Ctrl+Scroll", "FOV" }, { "X / Z", "roll right / left" },
 };
 

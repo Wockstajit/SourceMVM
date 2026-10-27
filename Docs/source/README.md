@@ -113,7 +113,7 @@ the hook converts them first. See [Old demos](#old-demos).
 | `mirv_filmmaker hud on\|off\|toggle\|state` | The [movie director](#movie-director)'s cards |
 | `mirv_filmmaker blackout on\|off\|toggle\|status` | F8's blackout: no HUD, no bar, no cards |
 | `mirv_filmmaker director state` | The director's mouse, bar, cards and readouts, and where each bar control is |
-| `mirv_filmmaker marker ...` | [Camera paths](#camera-paths): `place`, `delete <i>`, `deleteall confirm`, `select <i>\|next\|prev`, `selectdelta <d>`, `movekey <i> <tick>`, `setval <i> <channel> <v>`, `fov <v>`, `roll <v>`, `undo`, `redo`, `ease <i> none\|in\|out\|inout`, `speed <i> <0.2..1>`, `reposition`, `placereposition`, `cancelreposition`, `arm`, `play`, `pause`, `stop`, `timing live\|freeze\|toggle`, `interp linear\|smooth\|cycle`, `speedmode manual\|constant\|persegment`, `constspeed <0.2..1>`, `speedmul <v>`, `autosnap`, `list` |
+| `mirv_filmmaker marker ...` | [Camera paths](#camera-paths): `place`, `delete <i>`, `deleteall confirm`, `select <i>\|next\|prev`, `selectdelta <d>`, `next`, `prev`, `open [i]`, `close`, `movekey <i> <tick>`, `setval <i> <channel> <v>`, `fov <v>`, `roll <v>`, `undo`, `redo`, `ease <i> none\|in\|out\|inout`, `speed <i> <0.2..1>`, `reposition`, `placereposition`, `cancelreposition`, `arm`, `play`, `pause`, `stop`, `timing live\|freeze\|toggle`, `interp linear\|smooth\|cycle`, `speedmode manual\|constant\|persegment`, `constspeed <0.2..1>`, `speedmul <v>`, `autosnap`, `list` |
 | `mirv_filmmaker capture "<file.bmp>"` | The next frame as the game shows it, the filmmaker's UI included, from the back buffer at Present. Quote the path: the console splits arguments at `:` |
 | `mvm_debug start\|stop\|status` | The shared runtime debug log, as in CS2: `%APPDATA%\HLAE\debuglogs\mvm_debug_*.log`, every console line and every command received over the port, stamped with demo tick, frame and thread |
 
@@ -331,6 +331,7 @@ The path builds on its own `CamPath`, so `mirv_campath` keeps HLAE's separate pa
 | --- | --- |
 | K | A marker at the view as it is (position, angles, roll, FOV) and the demo's tick; one per tick, so a second press on the same tick re-poses it |
 | L | Deletes the marker the view aims at (a cone of about 5 degrees that widens up close); with none aimed at, the key is the game's |
+| F | Opens the CAMERA MARKER card on the marker the view aims at; F or Esc closes it. While a camera is being repositioned, F drops it |
 | J | Arms the path: the demo goes paused to the first marker and holds its pose. J or Space then plays, Esc cancels, the arrows are held |
 | Space, Esc | While playing: Space pauses, J or Esc stops; W, A, S or D stop the path and move the free cam on the same press |
 
@@ -378,6 +379,31 @@ undo step; Smooth, ease In, Per-Seg with its amount, Freeze and back, Move to pl
 undo, Reposition then F, + Add, Delete, and Clear all with No then Yes each did what they say.
 The browser mockup draws the same tab from a stand-in list; with the Claude window off screen its
 browser pane does not draw, so the review used the game's captures.
+
+### The marker card and banner
+
+F on an aimed marker opens CS2's CAMERA MARKER card (`MarkerHudJs.h`), drawn by
+`Ui/MarkerPopup.cpp` in the director cards' language (`Ui/HudCard.h`, which `DirectorHud.cpp` now
+shares). It works outside the workspaces and over the Camera Editor:
+
+| Part | What it holds |
+| --- | --- |
+| Header | Previous and next around CAMERA MARKER #n . N TOTAL; with auto-snap on the view moves to the marker |
+| PLAYBACK | Speed mode, path curve, timing (Live gold, Freeze blue) and auto-snap as one-click selectors; the constant speed in Constant and the segment speed in Per-Segment (not on the last marker); a line on what the mode does |
+| ACTIONS | Reposition Camera, Remove Marker, Remove All Markers (a second click confirms) |
+| CONTROLS, Done | K, J, L and F, then F / ESC Done |
+
+While the card is up every press and wheel notch is its own, so the spectated player cannot change
+under it. A banner in CS2's place, centred 11% down the game (the window, or the editor's
+preview), shows the path's notices ("Need at least 2 camera markers to play path.") and
+REPOSITIONING CAMERA #n while a camera is moved. Outside the editor the free cam makes every press a
+look, so while repositioning a left press let go within 200 ms is the placing click.
+
+Checked in CS:S on 2026-10-26 at 1600x900: F opened the card on the aimed marker; the arrows
+selected, and with auto-snap on moved the view to the marker; speed mode, timing and auto-snap
+switched; Reposition Camera showed the banner and a quick left click placed the camera at the free
+cam; Remove All needed its second click; J with no markers showed the notice banner; in the editor
+F opened the card over the workspace and Esc closed the card, not the editor.
 
 ### In the world
 
