@@ -57,7 +57,7 @@ void TimelineDock_SelectSet(const std::vector<std::pair<int, int>>& keys); // (c
 void TimelineDock_SelectAll();
 void TimelineDock_SelectClear();
 void TimelineDock_MoveSelectedBy(double dTick, double dValue);
-int TimelineDock_AddKey(int ch, double tick, double value); // bracket with EditBegin
+int TimelineDock_AddKey(int ch, double tick, double value); // bracket with EditBegin; selects only the new key
 void TimelineDock_DeleteSelected();
 void TimelineDock_SetHandle(int ch, int id, int side, double tx, double dv, bool reflect);
 void TimelineDock_Ease(int mode /*0 in, 1 out, 2 in/out*/, bool selectedOnly);

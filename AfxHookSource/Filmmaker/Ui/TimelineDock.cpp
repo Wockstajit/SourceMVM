@@ -5,8 +5,11 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 
 namespace SourceFilmmaker {
 namespace Ui {
@@ -201,12 +204,29 @@ std::vector<std::pair<int, int>> MembersOf(const MergedKey& k) {
 Side LeftSide(const GraphExpModel::Keyframe& k) { return SideOf(k.cpLeft.active, k.cpLeft.autoTan); }
 Side RightSide(const GraphExpModel::Keyframe& k) { return SideOf(k.cpRight.active, k.cpRight.autoTan); }
 
-// A channel's value at the playhead: its curve, or the live camera on a channel with no keys.
-double ChannelValue(const TimelineDockModel& m, int ch) {
+// A channel's value at a tick: its curve, or the live camera on a channel with no keys.
+double ChannelValueAt(const TimelineDockModel& m, int ch, double tick) {
 	double v = 0;
-	if (m.keys->SampleChannel(ch, m.playhead, v)) return v;
+	if (m.keys->SampleChannel(ch, tick, v)) return v;
 	return m.live[ch];
 }
+
+double ChannelValue(const TimelineDockModel& m, int ch) { return ChannelValueAt(m, ch, m.playhead); }
+
+// The channel's key on tick's whole tick (keyAtTick).
+const GraphExpModel::Keyframe* KeyOnTick(const GraphExpModel& m, int ch, double tick) {
+	const double want = std::floor(tick + 0.5);
+	for (const GraphExpModel::Keyframe& k : m.GetChannel(ch).keys)
+		if (std::floor(k.tick + 0.5) == want) return &k;
+	return nullptr;
+}
+
+// How far a dragged value moves per screen pixel (scrubStep): world units, degrees, FOV.
+double ScrubStep(int ch) { return ch < 3 ? 1.0 : (ch < 6 ? 0.25 : 0.1); }
+
+// The decimals and unit a channel's value shows with (CAM_PROPS).
+int DecimalsOf(int ch) { return ch < 3 ? 0 : 1; }
+const char* UnitOf(int ch) { return ch >= 3 && ch < 6 ? kDegree : ""; }
 
 // ---- drawing -----------------------------------------------------------------------------------
 
@@ -448,11 +468,34 @@ void TimeText(const TimelineDockModel& m, double tick, char* out, size_t size, b
 
 void ManualView(D& d) { NoteManualView(d.st.paging, d.m.playing); }
 
-void SeekTo(D& d, double t) {
+// releasePlayhead: the demo goes to the tick and the playhead holds it.
+void ReleasePlayhead(D& d, double t) {
 	t = (std::max)(0.0, std::round(t));
 	d.Emit(Action::Kind::Playhead, 0, 0, t);
 	d.Emit(Action::Kind::PlayheadRelease, 0, 0, t);
+}
+
+void SeekTo(D& d, double t) {
+	ReleasePlayhead(d, t);
+	t = (std::max)(0.0, std::round(t));
 	Reveal(d.st.window, d.domain, t, t);
+}
+
+// A typed or dragged value (setPropValue), keyed at the snapped playhead. A camera key is the whole
+// camera: the first key at a tick keys every channel there at the value it has (camKeyAt), later
+// edits at that tick this channel only. A playhead off the snapped tick follows it there.
+void SetValue(D& d, int ch, double v) {
+	const double tick = SnapTick(d.m.playhead, SnapStep(d.st.snap, d.st.window), ImGui::GetIO().KeyAlt);
+	bool anyAt = false;
+	for (int c = 0; c < GraphExpModel::kChannelCount; ++c)
+		if (KeyOnTick(d.keys, c, tick)) anyAt = true;
+	if (anyAt) {
+		d.Emit(Action::Kind::AddKey, ch, 0, tick, v);
+	} else {
+		for (int c = 0; c < GraphExpModel::kChannelCount; ++c)
+			d.Emit(Action::Kind::AddKey, c, 0, tick, c == ch ? v : ChannelValueAt(d.m, c, tick));
+	}
+	if (std::fabs(tick - d.m.playhead) > 0.25) ReleasePlayhead(d, tick);
 }
 
 void FitAll(D& d) {
@@ -831,8 +874,15 @@ void PickRow(D& d, int node) {
 	else d.Emit(Action::Kind::SelectClear);
 }
 
-// ◇: the row's keys on the playhead's whole tick go; with none there, every channel of the row is
-// keyed at the snapped playhead with the value you are looking at.
+// Every channel of the row keyed at the snapped playhead with the live camera's value (addKeyAt).
+void AddKeyAt(D& d, int node) {
+	const double at = SnapTick(d.m.playhead, SnapStep(d.st.snap, d.st.window), ImGui::GetIO().KeyAlt);
+	d.Emit(Action::Kind::EditBegin);
+	for (int c : ChansOf(node)) d.Emit(Action::Kind::AddKey, c, 0, at, d.m.live[c]);
+}
+
+// The key button between a row's arrows: the row's keys on the playhead's whole tick go; with none
+// there, the row is keyed as AddKeyAt does.
 void ToggleKeyAt(D& d, int node) {
 	const double tick = std::floor(d.m.playhead + 0.5);
 	std::vector<std::pair<int, int>> hits;
@@ -844,9 +894,7 @@ void ToggleKeyAt(D& d, int node) {
 		d.Emit(Action::Kind::DeleteSelected);
 		return;
 	}
-	const double at = SnapTick(d.m.playhead, SnapStep(d.st.snap, d.st.window), ImGui::GetIO().KeyAlt);
-	d.Emit(Action::Kind::EditBegin);
-	for (int c : ChansOf(node)) d.Emit(Action::Kind::AddKey, c, 0, at, d.m.live[c]);
+	AddKeyAt(d, node);
 }
 
 void NavButton(D& d, const char* id, float x, float y, int kind, Color c, const char* tip, bool& clicked) {
@@ -858,6 +906,54 @@ void NavButton(D& d, const char* id, float x, float y, int kind, Color c, const 
 	if (kind < 0) d.l->AddTriangleFilled(d.P(cx + 3, cy - 4), d.P(cx + 3, cy + 4), d.P(cx - 3.5f, cy), col);
 	else if (kind > 0) d.l->AddTriangleFilled(d.P(cx - 3, cy - 4), d.P(cx - 3, cy + 4), d.P(cx + 3.5f, cy), col);
 	clicked = h.clicked;
+}
+
+// The typing field over a value (CS2 makes its TextEntry inside the number's cell): Enter or a click
+// elsewhere keys what was typed, Esc leaves it.
+void CommitTyping(D& d) {
+	TimelineDockState& st = d.st;
+	st.editing = false;
+	std::string text = st.editText;
+	for (char& ch : text) if (ch == ',') ch = '.';
+	char* end = nullptr;
+	const double v = std::strtod(text.c_str(), &end);
+	if (end == text.c_str() || !std::isfinite(v) || st.editCh < 0) return;
+	d.Emit(Action::Kind::EditBegin);
+	SetValue(d, st.editCh, v);
+}
+
+void TypeField(D& d, float x0, float y0, float x1, float y1) {
+	TimelineDockState& st = d.st;
+	ImFont* font = d.F(FontRole::Button);
+	ImGui::SetCursorScreenPos(d.P(x0, y0));
+	ImGui::PushFont(font);
+	ImGui::PushStyleColor(ImGuiCol_FrameBg, ToU32(Rgba(5, 7, 10)));
+	ImGui::PushStyleColor(ImGuiCol_Border, ToU32(Paint::Accent));
+	ImGui::PushStyleColor(ImGuiCol_Text, ToU32(Paint::Value));
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2 * d.s);
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(3 * d.s, (std::max)(0.0f, ((y1 - y0) * d.s - font->FontSize) * 0.5f)));
+	ImGui::SetNextItemWidth((x1 - x0) * d.s);
+	if (st.editFocus) {
+		ImGui::SetKeyboardFocusHere();
+		st.editFocus = false;
+	}
+	const bool enter = ImGui::InputText("##tltype", st.editText, sizeof(st.editText),
+		ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+	const bool left = ImGui::IsItemDeactivated();
+	ImGui::PopStyleVar(3);
+	ImGui::PopStyleColor(3);
+	ImGui::PopFont();
+	if (enter || left) CommitTyping(d);
+}
+
+void OpenTyping(TimelineDockState& st, int node, int ch, double value) {
+	st.editing = true;
+	st.editFocus = true;
+	st.editNode = node;
+	st.editCh = ch;
+	const int dec = (std::max)(1, DecimalsOf(ch) + 1);
+	std::snprintf(st.editText, sizeof(st.editText), "%.*f", dec, CleanValue(value, dec));
 }
 
 void DrawLeftCell(D& d, const Row& r, int index, float y) {
@@ -947,19 +1043,38 @@ void DrawLeftCell(D& d, const Row& r, int index, float y) {
 				ToggleKeyAt(d, r.node);
 			}
 		}
-		// The values, right-aligned in front of the navigator, in each channel's colour.
+		// The values, right-aligned in front of the navigator, in each channel's colour: drag one to
+		// scrub it, click it to type.
 		const FontRole vr = n.count > 2 ? FontRole::Caption : FontRole::Button;
 		float vx = navX0 - 6;
 		if (!IsSplit(st, r.node)) {
 			for (int i = n.count - 1; i >= 0; --i) {
 				const int c = n.chans[i];
+				const double value = ChannelValue(d.m, c);
 				char text[32];
-				std::snprintf(text, sizeof(text), "%.*f%s", n.dec, CleanValue(ChannelValue(d.m, c), n.dec), n.unit);
+				std::snprintf(text, sizeof(text), "%.*f%s", n.dec, CleanValue(value, n.dec), n.unit);
 				const float tw = d.TextW(vr, text);
-				vx -= tw;
+				const bool typing = st.editing && st.editNode == r.node && st.editCh == c;
+				vx -= typing ? (std::max)(tw, 52.0f) : tw;
 				const float ty = midY - d.Size(vr) * 0.5f;
-				d.Text(vr, vx, ty, kChannel[c], text);
-				d.Dotted(vx, vx + tw, ty + d.Size(vr) + 1, Paint::Underline); // CS2's dotted underline
+				if (typing) {
+					TypeField(d, vx, midY - 9, vx + (std::max)(tw, 52.0f), midY + 9);
+				} else {
+					ImGui::PushID(c);
+					HitBox("##value", d, vx - 3, y, vx + tw + 3, y + kRowH);
+					ImGui::PopID();
+					const bool held = st.gesture == Gesture::Value && st.valueNode == r.node && st.valueCh == c;
+					if (ImGui::IsItemActivated()) {
+						st.gesture = Gesture::Value;
+						st.valueNode = r.node;
+						st.valueCh = c;
+						st.valueStart = st.valueLast = value;
+						st.valuePressX = ImGui::GetIO().MousePos.x;
+						st.valueScrub = false;
+					}
+					d.Text(vr, vx, ty, kChannel[c], text);
+					d.Dotted(vx, vx + tw, ty + d.Size(vr) + 1, ImGui::IsItemHovered() || held ? Faded(kChannel[c], 0.8f) : Paint::Underline);
+				}
 				vx -= 5;
 			}
 			vx += 5;
@@ -1291,6 +1406,8 @@ void DrawFooter(D& d) {
 	if (fit) FitAll(d);
 }
 
+void RightClick(D& d, const std::vector<Row>& rows); // with the menus, below
+
 // ---- input that is not a button ----------------------------------------------------------------
 
 void HandleRegions(D& d, const std::vector<Row>& rows) {
@@ -1386,9 +1503,34 @@ void HandleRegions(D& d, const std::vector<Row>& rows) {
 		if (down) st.rowScroll = ClampRowScroll(st.grabScroll + (d.mouse.y - st.pressY) * contentH / kRowsH, contentH);
 		else st.gesture = Gesture::None;
 		break;
+	case Gesture::Value: {
+		// A drag past 4 screen pixels scrubs the value (one undo step), Shift a fifth as fast; a
+		// click opens it for typing.
+		const ImGuiIO& vio = ImGui::GetIO();
+		const float dx = vio.MousePos.x - st.valuePressX;
+		if (down) {
+			if (!st.valueScrub && std::fabs(dx) >= 4) {
+				st.valueScrub = true;
+				d.Emit(Action::Kind::EditBegin);
+			}
+			if (st.valueScrub) {
+				const double v = st.valueStart + dx * ScrubStep(st.valueCh) * (vio.KeyShift ? 0.2 : 1.0);
+				if (v != st.valueLast) {
+					SetValue(d, st.valueCh, v);
+					st.valueLast = v;
+				}
+			}
+		} else {
+			if (!st.valueScrub) OpenTyping(st, st.valueNode, st.valueCh, st.valueStart);
+			st.gesture = Gesture::None;
+		}
+		break;
+	}
 	default:
 		break;
 	}
+
+	if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && ImGui::IsWindowHovered()) RightClick(d, rows);
 
 	// The wheel over the dock: Ctrl zooms about the pointer, Shift pans, plain scrolls the rows.
 	const ImGuiIO& io = ImGui::GetIO();
@@ -1437,6 +1579,349 @@ void DrawOverlays(D& d) {
 		d.Fill(kLeftW + x - 1, top, kLeftW + x + 1, kRowsY + kRowsH, Paint::Playhead);
 		d.Fill(kLeftW + x - 6, top, kLeftW + x + 6, top + 10, Paint::Playhead, 3);
 	}
+}
+
+// ---- right-click menus ---------------------------------------------------------------------------
+// CS2's one menu engine for the key and row menus: items with a hint under them, a shortcut or a
+// submenu on the right, a check, danger and disabled states, titles, heads and separators.
+// Submenus open on hover and nest; a click picks, opens a submenu, or (outside) closes.
+
+struct MenuItem {
+	enum class Kind { Item, Title, Head, Sep };
+	Kind kind = Kind::Item;
+	std::string id, label, hint, shortcut, value;
+	int check = -1; // -1 no check, 0 unchecked, 1 checked
+	bool danger = false, disabled = false;
+	std::vector<MenuItem> sub;
+	float subW = 224;
+};
+
+constexpr float kMenuPad = 5, kMenuItem = 27, kMenuHint = 40, kMenuTitle = 22, kMenuHead = 44, kMenuSep = 9;
+
+float MenuItemH(const MenuItem& it) {
+	switch (it.kind) {
+	case MenuItem::Kind::Sep: return kMenuSep;
+	case MenuItem::Kind::Title: return kMenuTitle;
+	case MenuItem::Kind::Head: return kMenuHead;
+	default: return it.hint.empty() ? kMenuItem : kMenuHint;
+	}
+}
+
+MenuItem MenuEntry(const char* id, const std::string& label, const std::string& hint = std::string(), const char* shortcut = "") {
+	MenuItem it;
+	it.id = id;
+	it.label = label;
+	it.hint = hint;
+	it.shortcut = shortcut;
+	return it;
+}
+
+MenuItem MenuSep() {
+	MenuItem it;
+	it.kind = MenuItem::Kind::Sep;
+	return it;
+}
+
+std::string KeyValueText(int ch, double v) {
+	char text[32];
+	std::snprintf(text, sizeof(text), "%.*f%s", DecimalsOf(ch), CleanValue(v, DecimalsOf(ch)), UnitOf(ch));
+	return text;
+}
+
+std::vector<MenuItem> KeyMenuItems(const D& d) {
+	const TimelineDockState::Menu& M = d.st.menu;
+	const std::vector<MergedKey> list = MergedOf(d.keys, M.node);
+	int idx = 0;
+	for (size_t i = 0; i < list.size(); ++i)
+		if (std::fabs(list[i].t - M.tick) < 0.26) idx = (int)i + 1;
+	std::string values;
+	EaseKind cur = EaseKind::Linear;
+	for (size_t i = 0; i < M.members.size(); ++i) {
+		const GraphExpModel::Keyframe* k = d.keys.FindKeyConst(M.members[i].first, M.members[i].second);
+		if (!k) continue;
+		if (!values.empty()) values += ", ";
+		values += KeyValueText(M.members[i].first, k->value);
+		if (i == 0) cur = EaseOfSides(LeftSide(*k), RightSide(*k));
+	}
+	char time[24], title[160];
+	TimeText(d.m, M.tick, time, sizeof(time));
+	std::snprintf(title, sizeof(title), "%s \xC2\xB7 keyframe %d of %d \xC2\xB7 %s", kNodes[M.node].name, idx, (int)list.size(), time);
+	std::vector<MenuItem> items;
+	MenuItem head;
+	head.kind = MenuItem::Kind::Head;
+	head.value = values;
+	head.label = title;
+	items.push_back(head);
+	items.push_back(MenuSep());
+	items.push_back(MenuEntry("goto", "Go to this key", "", "Double-click"));
+	items.push_back(MenuEntry("delete", "Delete Keyframe", "", "Del"));
+	MenuItem align = MenuEntry("align", "Align selected keys here");
+	align.disabled = d.keys.SelectionCount() < 2;
+	items.push_back(align);
+	items.push_back(MenuSep());
+	MenuItem assist = MenuEntry("assist", "Keyframe Assistant");
+	auto ease = [&](const char* id, const char* label, const char* shortcut, EaseKind kind) {
+		MenuItem it = MenuEntry(id, label, "", shortcut);
+		it.check = cur == kind ? 1 : 0;
+		return it;
+	};
+	assist.sub.push_back(ease("inout", "Easy Ease", "F9", EaseKind::InOut));
+	assist.sub.push_back(ease("in", "Easy Ease In", "Shift+F9", EaseKind::In));
+	assist.sub.push_back(ease("out", "Easy Ease Out", "Ctrl+Shift+F9", EaseKind::Out));
+	assist.sub.push_back(MenuSep());
+	assist.sub.push_back(ease("smooth", "Smooth", "", EaseKind::Smooth));
+	assist.sub.push_back(ease("linear", "Linear", "", EaseKind::Linear));
+	assist.sub.push_back(MenuSep());
+	MenuItem hold = ease("hold", "Hold", "", EaseKind::Hold);
+	hold.disabled = true; // scene keys only
+	assist.sub.push_back(hold);
+	items.push_back(assist);
+	return items;
+}
+
+std::vector<MenuItem> RowMenuItems(const D& d) {
+	const int node = d.st.menu.node;
+	const Node& n = kNodes[node];
+	std::vector<MenuItem> items;
+	MenuItem title;
+	title.kind = MenuItem::Kind::Title;
+	title.label = n.name;
+	for (char& ch : title.label) ch = (char)std::toupper((unsigned char)ch);
+	items.push_back(title);
+	if (n.kind == NodeKind::Prop) {
+		const bool child = n.parent >= 0 && kNodes[n.parent].kind == NodeKind::Prop;
+		if (IsSplit(d.st, node)) {
+			items.push_back(MenuEntry("join", "Join Dimensions", std::string("back to one ") + n.name + " row"));
+		} else if (child) {
+			items.push_back(MenuEntry("joinparent", "Join Dimensions", std::string("merge into ") + kNodes[n.parent].name));
+		} else if (n.split >= 0) {
+			std::string comps;
+			for (int i = 0; i < n.count; ++i) comps += std::string(i ? " / " : "") + n.comps[i];
+			items.push_back(MenuEntry("separate", "Separate Dimensions", comps + " on their own rows"));
+		}
+		if (!IsSplit(d.st, node)) {
+			bool at = false;
+			for (int c : ChansOf(node))
+				if (KeyOnTick(d.keys, c, d.m.playhead)) at = true;
+			std::string what = n.name;
+			for (char& ch : what) ch = (char)std::tolower((unsigned char)ch);
+			items.push_back(MenuEntry("addkey", at ? "Re-key at playhead" : "Add key at playhead", "the live camera's " + what));
+		}
+	} else {
+		MenuItem all = MenuEntry("selall", "Select all keys");
+		all.disabled = d.keys.TotalKeys() == 0;
+		items.push_back(all);
+		if (n.kind == NodeKind::Layer) {
+			const bool on = d.m.drive;
+			items.push_back(MenuEntry("toggle", on ? "Turn layer off" : "Turn layer on",
+				on ? "scrubbing leaves the free cam alone" : "scrubbing previews the path"));
+		}
+	}
+	return items;
+}
+
+void CloseMenu(TimelineDockState& st) {
+	st.menu.open = false;
+	st.menu.path.clear();
+}
+
+void OpenMenu(D& d, bool keyMenu, int node, double tick, const std::vector<std::pair<int, int>>& members) {
+	TimelineDockState::Menu& M = d.st.menu;
+	M.open = true;
+	M.keyMenu = keyMenu;
+	M.node = node;
+	M.tick = tick;
+	M.members = members;
+	M.x = d.mouse.x;
+	M.y = d.mouse.y;
+	M.path.clear();
+	d.st.snapMenu = false;
+}
+
+void PickMenu(D& d, const std::string& id) {
+	TimelineDockState& st = d.st;
+	const TimelineDockState::Menu M = st.menu;
+	CloseMenu(st);
+	if (M.keyMenu) {
+		if (id == "goto") SeekTo(d, M.tick);
+		else if (id == "delete") d.Emit(Action::Kind::DeleteSelected);
+		else if (id == "align" && !M.members.empty()) d.Emit(Action::Kind::AlignKey, M.members[0].first, M.members[0].second);
+		else if (id == "inout") ApplyEase(d, EaseKind::InOut);
+		else if (id == "in") ApplyEase(d, EaseKind::In);
+		else if (id == "out") ApplyEase(d, EaseKind::Out);
+		else if (id == "smooth") ApplyEase(d, EaseKind::Smooth);
+		else if (id == "linear") ApplyEase(d, EaseKind::Linear);
+		return;
+	}
+	const Node& n = kNodes[M.node];
+	if (id == "separate") {
+		st.split[n.split] = true;
+		st.open[M.node] = true;
+	} else if (id == "join") {
+		st.split[n.split] = false;
+		st.selRow = M.node;
+	} else if (id == "joinparent") {
+		st.split[kNodes[n.parent].split] = false;
+		st.selRow = n.parent;
+	} else if (id == "addkey") {
+		AddKeyAt(d, M.node);
+	} else if (id == "selall") {
+		st.selRow = M.node;
+		d.Emit(Action::Kind::SelectAll);
+	} else if (id == "toggle") {
+		d.Emit(Action::Kind::Drive, 0, 0, 0, 0, !d.m.drive);
+	}
+}
+
+// The menu and its open submenus, each its own overlay over a catcher that closes them.
+void DrawMenus(D& d) {
+	TimelineDockState& st = d.st;
+	TimelineDockState::Menu& M = st.menu;
+	if (!M.open) return;
+	const std::vector<MenuItem> root = M.keyMenu ? KeyMenuItems(d) : RowMenuItems(d);
+
+	const ImVec2 dock0 = d.P(0, 0), dock1 = d.P(d.w, kDockH);
+	BeginOverlay("##tlmenucatch", MakeRect(dock0.x, dock0.y, dock1.x, dock1.y), Rgba(0, 0, 0, 0));
+	ImGui::SetCursorScreenPos(dock0);
+	const bool outside = ImGui::InvisibleButton("##catch", ImVec2(dock1.x - dock0.x, dock1.y - dock0.y),
+		ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+	ImGui::End();
+
+	std::string pick;
+	const std::vector<MenuItem>* items = &root;
+	float x = M.x, y = M.y, w = M.keyMenu ? 230.0f : 236.0f;
+	for (int level = 0; items && level < 6; ++level) {
+		float h = 2 * kMenuPad;
+		bool hasCheck = false;
+		for (const MenuItem& it : *items) {
+			h += MenuItemH(it);
+			if (it.check >= 0) hasCheck = true;
+		}
+		if (x + w > d.w - 2) x = d.w - w - 2;
+		if (x < 2) x = 2;
+		if (y + h > kDockH - 2) y = kDockH - h - 2;
+		if (y < 2) y = 2;
+		char name[24];
+		std::snprintf(name, sizeof(name), "##tlmenu%d", level);
+		const ImVec2 a = d.P(x, y), b = d.P(x + w, y + h);
+		BeginOverlay(name, MakeRect(a.x, a.y, b.x, b.y), Rgba(0, 0, 0, 0));
+		D md = d;
+		md.l = ImGui::GetWindowDrawList();
+		md.l->PushClipRect(a, b, false);
+		md.Fill(x, y, x + w, y + h, Paint::MenuBg, 5);
+		md.Outline(x, y, x + w, y + h, Paint::Border, 5);
+		const int openIdx = level < (int)M.path.size() ? M.path[level] : -1;
+		const std::vector<MenuItem>* next = nullptr;
+		float nx = 0, ny = 0, nw = 0;
+		float cy = y + kMenuPad;
+		for (size_t i = 0; i < items->size(); ++i) {
+			const MenuItem& it = (*items)[i];
+			const float ih = MenuItemH(it);
+			const float rx0 = x + kMenuPad, rx1 = x + w - kMenuPad;
+			if (it.kind == MenuItem::Kind::Sep) {
+				md.Fill(x, cy + 4, x + w, cy + 5, Rgba(255, 255, 255, 26));
+			} else if (it.kind == MenuItem::Kind::Title) {
+				md.Text(FontRole::Caption, x + 11, cy + (ih - md.Size(FontRole::Caption)) * 0.5f, Paint::Hint, it.label.c_str(), 1.4f);
+			} else if (it.kind == MenuItem::Kind::Head) {
+				md.Text(FontRole::RowLabel, rx0 + 8, cy + 6, Paint::Value, Fit(md, FontRole::RowLabel, it.value, rx1 - rx0 - 16).c_str());
+				md.Text(FontRole::Hint, rx0 + 8, cy + 6 + md.Size(FontRole::RowLabel) + 3, Paint::Muted,
+					Fit(md, FontRole::Hint, it.label, rx1 - rx0 - 16).c_str());
+			} else {
+				ImGui::PushID((int)i);
+				const Hit hit = HitBox("##item", md, rx0, cy, rx1, cy + ih);
+				ImGui::PopID();
+				int shownOpen = openIdx;
+				if (hit.hovered) {
+					if (!it.sub.empty() && !it.disabled) {
+						if (openIdx != (int)i) {
+							M.path.resize((size_t)level);
+							M.path.push_back((int)i);
+						}
+						shownOpen = (int)i;
+					} else if ((int)M.path.size() > level) {
+						M.path.resize((size_t)level);
+						shownOpen = -1;
+					}
+				}
+				const bool lit = (hit.hovered || shownOpen == (int)i) && !it.disabled;
+				if (lit) md.Fill(rx0, cy, rx1, cy + ih, it.danger ? Paint::DangerBg : Paint::BtnOn, 3);
+				float tx = rx0 + 8;
+				if (hasCheck) {
+					if (it.check == 1) {
+						const ImU32 c = ToU32(Paint::Accent);
+						const float mid = cy + ih * 0.5f, t = 1.5f * md.s > 1 ? 1.5f * md.s : 1.0f;
+						md.l->AddLine(md.P(tx + 1, mid), md.P(tx + 4.5f, mid + 3.5f), c, t);
+						md.l->AddLine(md.P(tx + 4.5f, mid + 3.5f), md.P(tx + 11, mid - 4), c, t);
+					}
+					tx += 12 + 8;
+				}
+				const Color lc = it.disabled ? Paint::Dim : (it.danger ? Paint::DangerText : Paint::Value);
+				const float labelY = it.hint.empty() ? cy + (ih - md.Size(FontRole::RowLabel)) * 0.5f
+					: cy + (ih - md.Size(FontRole::RowLabel) - 2 - md.Size(FontRole::Hint)) * 0.5f;
+				md.Text(FontRole::RowLabel, tx, labelY, lc, it.label.c_str());
+				if (!it.hint.empty()) md.Text(FontRole::Hint, tx, labelY + md.Size(FontRole::RowLabel) + 2, Paint::Muted, it.hint.c_str());
+				if (!it.sub.empty()) {
+					const float mx = rx1 - 8 - 4, my = cy + ih * 0.5f;
+					md.l->AddTriangleFilled(md.P(mx, my - 4), md.P(mx, my + 4), md.P(mx + 4, my), ToU32(it.disabled ? Paint::Dim : Paint::Hint));
+				} else if (!it.shortcut.empty()) {
+					md.Text(FontRole::Hint, rx1 - 8 - md.TextW(FontRole::Hint, it.shortcut.c_str()), cy + (ih - md.Size(FontRole::Hint)) * 0.5f,
+						Paint::Muted, it.shortcut.c_str());
+				}
+				if (hit.clicked && !it.disabled) {
+					if (!it.sub.empty()) {
+						M.path.resize((size_t)level);
+						M.path.push_back((int)i);
+					} else {
+						pick = it.id;
+					}
+				}
+				if (shownOpen == (int)i && !it.sub.empty() && !it.disabled) {
+					next = &it.sub;
+					nw = it.subW;
+					nx = rx1 + 2;
+					if (nx + nw > d.w - 2) nx = rx0 - nw - 2; // flip left at the dock's edge
+					ny = cy - 6;
+				}
+			}
+			cy += ih;
+		}
+		md.l->PopClipRect();
+		ImGui::End();
+		items = next;
+		x = nx;
+		y = ny;
+		w = nw;
+	}
+	if (!pick.empty()) PickMenu(d, pick);
+	else if (outside) CloseMenu(st);
+}
+
+// A right-click in the rows (rightClick): on a key, its menu (the key joins the selection first);
+// elsewhere on a row, the row's menu.
+void RightClick(D& d, const std::vector<Row>& rows) {
+	TimelineDockState& st = d.st;
+	const float lx = d.mouse.x, ly = d.mouse.y;
+	if (ly < kRowsY || ly >= kRowsY + kRowsH || lx >= kLeftW + d.g.tw) {
+		CloseMenu(st);
+		return;
+	}
+	const int ri = (int)std::floor((ly - kRowsY + st.rowScroll) / kRowH);
+	if (ri < 0 || ri >= (int)rows.size()) {
+		CloseMenu(st);
+		return;
+	}
+	const Row& row = rows[ri];
+	if (lx >= kLeftW && kNodes[row.node].kind == NodeKind::Prop && !IsSplit(st, row.node)) {
+		const std::vector<MergedKey> keys = MergedOf(d.keys, row.node);
+		if (const MergedKey* k = KeyNear(keys, d, lx - kLeftW)) {
+			st.selRow = row.node;
+			if (!AllSelected(*k)) SelectMembers(d, MembersOf(*k), false);
+			OpenMenu(d, true, row.node, k->t, MembersOf(*k));
+			return;
+		}
+	}
+	st.selRow = row.node;
+	OpenMenu(d, false, row.node, 0, std::vector<std::pair<int, int>>());
 }
 
 void DrawTip(D& d) {
@@ -1501,13 +1986,24 @@ std::vector<TimelineDockAction> DrawTimelineDock(TimelineDockState& state, const
 	DrawFooter(d);
 	DrawTip(d);
 	DrawSnapMenu(d, snapRight); // over everything, with a catcher that closes it
+	DrawMenus(d);
 	return out;
 }
 
 bool TimelineDockEscape(TimelineDockState& state) {
-	if (!state.snapMenu) return false;
-	state.snapMenu = false;
-	return true;
+	if (state.menu.open) {
+		CloseMenu(state);
+		return true;
+	}
+	if (state.snapMenu) {
+		state.snapMenu = false;
+		return true;
+	}
+	if (state.editing) {
+		state.editing = false; // the field is not drawn again, so ImGui lets it go uncommitted
+		return true;
+	}
+	return false;
 }
 
 std::string TimelineDockRibbonMeta(const TimelineDockModel& model) {

@@ -161,6 +161,7 @@
   function onKey(e, down) {
     if (!ready || (e.target && e.target.tagName === 'INPUT')) return;
     if (Module._mockup_key(e.keyCode, down ? 1 : 0, e.repeat ? 1 : 0)) e.preventDefault();
+    if (down && e.key && e.key.length === 1 && !e.ctrlKey && Module._mockup_char(e.key.charCodeAt(0))) e.preventDefault();
     syncLock();
     showState();
   }

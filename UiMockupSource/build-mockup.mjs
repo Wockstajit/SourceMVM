@@ -47,7 +47,7 @@ const OWN_SOURCES = [path.join(import.meta.dirname, 'mockup-host.cpp'),
   // The TIMELINE dock's keys are CS2's own model.
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'GraphExpModel.cpp')];
 
-const EXPORTS = ['_main', '_malloc', '_free', '_mockup_mouse', '_mockup_motion', '_mockup_key',
+const EXPORTS = ['_main', '_malloc', '_free', '_mockup_mouse', '_mockup_motion', '_mockup_key', '_mockup_char',
   '_mockup_focus_lost', '_mockup_lock_lost', '_mockup_mode', '_mockup_resize', '_mockup_set_backdrop',
   '_mockup_command', '_mockup_state', '_mockup_step'];
 

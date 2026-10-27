@@ -294,7 +294,7 @@ void TimelineDock_MoveSelectedBy(double dTick, double dValue) {
 
 int TimelineDock_AddKey(int ch, double tick, double value) {
 	const int id = g.model.AddKey(ch, tick, value);
-	g.model.Select(ch, id, true);
+	g.model.Select(ch, id, false);
 	BumpRev();
 	SyncToCameraPath();
 	return id;

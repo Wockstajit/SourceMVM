@@ -498,16 +498,20 @@ rules in `Ui/TimelineDockMath.h` (`SourceTimelineDockMathTests`):
 | Overview | The whole demo, its keys, the playhead and the window: drag the box to scroll, an end to zoom, empty track to jump |
 | Ruler | Labels about 70 px apart. A press scrubs; past either end the window creeps; release seeks |
 | Rows | CAMERA PATH with its key count, AUTO and the switch (on: scrubs and edits show the path; off: the free cam stays yours), Transform, Position, Rotation and Field of view with their values at the playhead in each channel's colour, and the previous, add or remove, next buttons |
+| Values | Drag a value to scrub it (1 unit, 0.25 degree or 0.1 FOV a pixel; Shift a fifth as fast), click it to type one (Enter or a click elsewhere keys it, Esc leaves it). It is keyed at the snapped playhead; the first key at a tick keys all seven channels at the values they have, as CS2's does, so a camera key is always a whole camera |
+| Menus | Right-click a key: its values and place, Go to this key, Delete Keyframe, Align selected keys here, and the Keyframe Assistant (Easy Ease, In, Out, Smooth, Linear). Right-click a row: Separate Dimensions (X, Y and Z, or pitch, yaw and roll, on their own rows) and Join Dimensions, Add or Re-key at playhead, Select all keys, Turn layer off or on |
 | Track | A glyph per key time whose halves show how the curve meets it (diamond Linear, disc Smooth, notch eased), the layer's bar. Click a key to select it, Shift adds, drag moves (3 px, snapped), a double-click goes to it, a drag on empty track box-selects, the layer's bar moves every key |
 | Footer | The visible span, FIT (the selection, else the row, else every key; again for every key), zoom out and in, and the scrollbar |
 
 Ctrl+wheel over the dock zooms about the pointer, Shift+wheel pans, the wheel scrolls the rows. The
 dock takes Ctrl+Z, Ctrl+Shift+Z, Ctrl+A, Delete and F9 (Shift+F9 eases in, Ctrl+Shift+F9 out), as
-CS2's does; Esc closes the SNAP menu before the workspace. Tips show after the pointer rests 2 s.
-GRAPH, the context menus, typing and scrubbing the values, Separate Dimensions and the camera shake
-rows come in the next parts; CS2's frame cache and render range are steps 13 and 14, so Cache is
-disabled and the footer says the whole demo. The window, snap and the rows' state are not kept
-between sessions, because CS:S has no settings store yet.
+CS2's does. Esc closes a menu, then the SNAP menu, then leaves typing, before it closes the
+workspace. Tips show after the pointer rests 2 s. GRAPH comes in the next part and the camera shake
+rows with step 12; CS2's frame cache and render range are steps 13 and 14, so Cache is disabled and
+the footer says the whole demo. The window, snap and the rows' state are not kept between sessions,
+because CS:S has no settings store yet. CS2 clamps a typed camera value to the GRAPH's display
+range around the channel's keys, so 500 typed into an unkeyed X lands near 32; the CS:S dock keys
+what was typed.
 
 Checked on 2026-10-26 in the browser mockup at 1600x900 (headless Chrome over the DevTools
 protocol, because the browser pane had no WebGL) and in CS:S at 1600x900 with posted window
@@ -518,6 +522,13 @@ opened over the dock and Esc closed it with the editor still open; Ctrl+wheel zo
 selection, Delete and Ctrl+Z round-tripped, the FOV row's add button keyed the live FOV at the
 playhead and revealed it; with AUTO on, the playhead held on the ruler at 1210 flew the view to the
 path's pose there with the demo still at 1150, and the release seeked to 1210 and held it.
+
+The menus and values were checked the same way: a right-click on a key opened its menu at the
+pointer and the Keyframe Assistant's submenu opened beside it, kept inside the dock; Easy Ease from it
+eased the key; Esc closed the menu with the editor still open; Separate Dimensions from Position's
+row menu split it into X, Y and Z rows; a 40 px drag on X keyed all seven channels at the playhead
+(1150 in game, X 40 units on) and put a path marker there; typing 2000 into Y set that marker's Y; two
+undos took the path back to its three cameras.
 
 The same pass fixed where pop-ups sit: ImGui puts a new panel at the bottom of its stack, so the
 CAMERA MARKER card and the clear-all dialog only took clicks where no panel covered them. They now

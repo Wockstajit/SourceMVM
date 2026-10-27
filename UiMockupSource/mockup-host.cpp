@@ -589,7 +589,13 @@ void ApplyTimelineActions(const std::vector<TimelineDockAction>& actions) {
 		case Kind::SelectClear: k.ClearSelection(); break;
 		case Kind::EditBegin: k.BeginEdit(); break;
 		case Kind::MoveSelected: k.MoveSelectedBy(a.a, a.b); break;
-		case Kind::AddKey: k.Select(a.ch, k.AddKey(a.ch, a.a, a.b), true); break;
+		case Kind::AddKey: k.Select(a.ch, k.AddKey(a.ch, a.a, a.b), false); break;
+		case Kind::AlignKey:
+			if (const Filmmaker::GraphExpModel::Keyframe* key = k.FindKeyConst(a.ch, a.id)) {
+				k.BeginEdit();
+				k.AlignSelectionToTick(key->tick);
+			}
+			break;
 		case Kind::DeleteSelected: {
 			k.BeginEdit();
 			std::vector<std::pair<int, int>> doomed;
@@ -922,6 +928,13 @@ EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
 	FeedImGuiKey(io, vk, down != 0);
 	if (key != WorkspaceKey::None) return 1;
 	return io.WantCaptureKeyboard ? 1 : 0;
+}
+
+// A typed character, for a text field that is taking typing (the game gets WM_CHAR).
+EMSCRIPTEN_KEEPALIVE int mockup_char(int codepoint) {
+	if (!g.editor.open || !ImGui::GetIO().WantTextInput) return 0;
+	ImGui::GetIO().AddInputCharacter((unsigned)codepoint);
+	return 1;
 }
 
 EMSCRIPTEN_KEEPALIVE void mockup_focus_lost() {

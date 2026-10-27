@@ -53,6 +53,7 @@ struct TimelineDockAction {
 		DeleteSelected,
 		Ease,            // id: 0 in, 1 out, 2 in and out; flag: the selected keys only
 		Interp,          // flag: Smooth (else Linear); id = 1: the selected keys only, else the whole path
+		AlignKey,        // ch, id: every selected key moves to that key's tick
 		Undo,
 		Redo,
 		Drive,           // flag
@@ -86,7 +87,7 @@ struct TimelineDockState {
 	int selRow = -1;                    // the selected row's node, -1 for none
 	float rowScroll = 0;
 
-	enum class Gesture { None, Scrub, Keys, Box, Overview, FooterBar, RowsBar };
+	enum class Gesture { None, Scrub, Keys, Box, Overview, FooterBar, RowsBar, Value };
 	Gesture gesture = Gesture::None;
 	float pressX = 0, pressY = 0;       // dock-local stage px
 	bool dragStarted = false;           // a key drag passed its 3 px
@@ -103,16 +104,38 @@ struct TimelineDockState {
 	SpeedDialState speed;
 	unsigned tipId = 0;
 	double tipSince = 0;
+
+	// A right-click menu: what it is about, where it opened, and the submenu open at each level.
+	struct Menu {
+		bool open = false;
+		bool keyMenu = false;            // a key's menu, else the row's
+		int node = -1;
+		double tick = 0;                 // the key's time
+		std::vector<std::pair<int, int>> members; // the key's channels and ids
+		float x = 0, y = 0;              // dock-local stage px
+		std::vector<int> path;           // the item whose submenu is open, per level
+	} menu;
+
+	// A value cell: dragged it scrubs, clicked it opens for typing.
+	int valueNode = -1, valueCh = -1;
+	double valueStart = 0, valueLast = 0;
+	float valuePressX = 0;               // client px: the drag threshold and the scrub run in screen pixels
+	bool valueScrub = false;
+	bool editing = false;                // the typing field is open
+	bool editFocus = false;              // focus it on the next frame
+	int editNode = -1, editCh = -1;
+	char editText[32] = {};
 };
 
 // Draws the dock into the dock rect (client px) at the stage scale and returns what the user did.
 std::vector<TimelineDockAction> DrawTimelineDock(TimelineDockState& state, const TimelineDockModel& model,
 	const FontSet& fonts, const Rect& dock, float scale);
 
-// Esc with the dock's SNAP menu open closes the menu rather than the workspace. True when it did.
+// Esc closes the dock's menu, else its SNAP menu, else cancels typing, rather than closing the
+// workspace. True when it did.
 bool TimelineDockEscape(TimelineDockState& state);
 
-// The ribbon's note on the TIMELINE tab: "1 layer · 5 keys".
+// The ribbon's note on the TIMELINE tab: how many layers and keys it holds.
 std::string TimelineDockRibbonMeta(const TimelineDockModel& model);
 
 } // namespace Ui
