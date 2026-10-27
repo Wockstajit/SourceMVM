@@ -100,7 +100,7 @@ struct TimelineDockState {
 	bool hasShakes = false;             // this frame: the shake track has a key (its Intensity and Speed rows show)
 	float rowScroll = 0;
 
-	enum class Gesture { None, Scrub, Keys, Box, Overview, FooterBar, RowsBar, Value, Handle };
+	enum class Gesture { None, Scrub, Keys, Box, Overview, FooterBar, RowsBar, Value, Handle, ShakeValue, ShakeGraph };
 	Gesture gesture = Gesture::None;
 	float pressX = 0, pressY = 0;       // dock-local stage px
 	bool dragStarted = false;           // a key drag passed its 3 px
@@ -137,8 +137,12 @@ struct TimelineDockState {
 		std::vector<int> path;           // the item whose submenu is open, per level
 	} menu;
 
-	// A value cell: dragged it scrubs, clicked it opens for typing.
+	// A value cell: dragged it scrubs, clicked it opens for typing. An Intensity or Speed cell, or a
+	// shake key dragged in GRAPH, sets the shake key at shakeAt (valueCh -1; shakeCurve 0 Intensity,
+	// 1 Speed).
 	int valueNode = -1, valueCh = -1;
+	double shakeAt = 0;
+	int shakeCurve = 0;
 	double valueStart = 0, valueLast = 0;
 	float valuePressX = 0;               // client px: the drag threshold and the scrub run in screen pixels
 	bool valueScrub = false;

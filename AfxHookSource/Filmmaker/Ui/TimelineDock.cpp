@@ -133,6 +133,8 @@ constexpr int kLayerNode = 0;
 constexpr int kTransformNode = 1;
 constexpr int kPathNode = 11;
 constexpr int kShakeNode = 12;
+constexpr int kIntensityNode = 13;
+constexpr int kSpeedNode = 14;
 static_assert(kNodeCount == (int)(sizeof(TimelineDockState::open) / sizeof(bool)), "one open flag per row node");
 
 bool IsShakeRow(int n) { return kNodes[n].kind == NodeKind::Shake || kNodes[n].kind == NodeKind::ShakeParam; }
@@ -664,13 +666,41 @@ void DeleteShakes(D& d) {
 	d.st.shakeSel.clear();
 }
 
+// Intensity or Speed (a ShakeParam node) set to v at the shake key t, or a new key there continuing
+// the run (shakeParamSet).
+void ShakeParamSet(D& d, int node, double t, double v) {
+	const Node& n = kNodes[node];
+	std::string cmd;
+	if (ShakeParamSetCommand(d.m.shakes, d.m.pathKeys, FirstShakeStyle(d.m), n.param, n.lo, n.hi, t, v, cmd)) d.EmitShake(cmd);
+}
+
+// GRAPH on a camera shake row or the Path group (CS2's SHAKE_GRAPH): Intensity and Speed as curves,
+// each on its own 0..max scale. The nodes are the Intensity and Speed rows.
+struct ShakeCurve {
+	int node;
+	const char* name;
+	Color color;
+};
+const ShakeCurve kShakeCurves[2] = { { kIntensityNode, "Shake intensity (0-10)", Rgba(255, 179, 71) },
+	{ kSpeedNode, "Shake speed (0-100)", Rgba(128, 189, 255) } };
+
+// Which shake curves GRAPH draws for the selected row (shakeGraphOf): bit 0 Intensity, bit 1 Speed.
+int ShakeCurvesOf(const TimelineDockState& st) {
+	if (st.selRow == kPathNode || st.selRow == kShakeNode) return 3;
+	for (int i = 0; i < 2; ++i) if (st.selRow == kShakeCurves[i].node) return 1 << i;
+	return 0;
+}
+
+// Rows-local y of a shake value on its curve's 0..max scale.
+float ShakeGraphY(int curve, double v) { return kGraphTop + (float)((1.0 - v / kNodes[kShakeCurves[curve].node].hi) * kGraphBandH); }
+
 std::string SelectionInfo(const D& d) {
 	const int n = d.keys.SelectionCount();
 	char buf[256];
 	if (!d.st.shakeSel.empty() && n == 0) {
 		const int s = (int)d.st.shakeSel.size();
 		std::snprintf(buf, sizeof(buf), "%d shake key%s selected", s, s == 1 ? "" : "s");
-		return std::string(buf) + "  " + kMiddot + "  Del removes";
+		return std::string(buf) + "  " + kMiddot + "  GRAPH sets Intensity / Speed  " + kMiddot + "  Del removes";
 	}
 	int ch = 0, id = 0;
 	if (n == 1 && d.keys.FirstSelected(ch, id)) {
@@ -1000,7 +1030,16 @@ void CommitTyping(D& d) {
 	for (char& ch : text) if (ch == ',') ch = '.';
 	char* end = nullptr;
 	const double v = std::strtod(text.c_str(), &end);
-	if (end == text.c_str() || !std::isfinite(v) || st.editCh < 0) return;
+	if (end == text.c_str() || !std::isfinite(v)) return;
+	if (st.editNode >= 0 && kNodes[st.editNode].kind == NodeKind::ShakeParam) {
+		// Intensity or Speed: set on the shake under the playhead, as long as one runs there.
+		double at = 0, now = 0;
+		if (ShakeEditTick(d.m.shakes, d.m.pathKeys, d.m.playhead, at) && ShakeCanKey(d.m.pathKeys, at)
+			&& ShakeValueAt(d.m.shakes, kNodes[st.editNode].param, d.m.playhead, now))
+			ShakeParamSet(d, st.editNode, at, v);
+		return;
+	}
+	if (st.editCh < 0) return;
 	d.Emit(Action::Kind::EditBegin);
 	SetValue(d, st.editCh, v);
 }
@@ -1035,6 +1074,10 @@ void OpenTyping(TimelineDockState& st, int node, int ch, double value) {
 	st.editFocus = true;
 	st.editNode = node;
 	st.editCh = ch;
+	if (kNodes[node].kind == NodeKind::ShakeParam) {
+		std::snprintf(st.editText, sizeof(st.editText), "%ld", std::lround(value));
+		return;
+	}
 	const int dec = (std::max)(1, DecimalsOf(ch) + 1);
 	std::snprintf(st.editText, sizeof(st.editText), "%.*f", dec, CleanValue(value, dec));
 }
@@ -1138,27 +1181,55 @@ void DrawLeftCell(D& d, const Row& r, int index, float y) {
 		}
 		std::string value;
 		Color vc = Paint::Value;
+		double pv = 0;
+		bool hasValue = false;
 		if (n.kind == NodeKind::Shake) {
 			const ShakeKey* run = ShakeRunningAt(ks, ph);
 			value = run ? ShakeLabel(d.m, run) : std::string("Off");
 			if (!run) vc = Paint::Muted;
+		} else if (ShakeValueAt(ks, n.param, ph, pv)) {
+			hasValue = true;
+			char text[16];
+			std::snprintf(text, sizeof(text), "%g", std::round(pv * 10) / 10);
+			value = text;
 		} else {
-			double v = 0;
-			if (ShakeValueAt(ks, n.param, ph, v)) {
-				char text[16];
-				std::snprintf(text, sizeof(text), "%g", std::round(v * 10) / 10);
-				value = text;
-			} else {
-				value = "-";
-				vc = Paint::Muted;
-				nameMuted = true;
-			}
+			value = "-";
+			vc = Paint::Muted;
+			nameMuted = true;
 		}
 		const FontRole vr = FontRole::Button;
 		value = Fit(d, vr, value, (std::max)(0.0f, navX0 - 6 - (x + 70)));
-		const float vx = navX0 - 6 - d.TextW(vr, value.c_str());
-		d.Text(vr, vx, midY - d.Size(vr) * 0.5f, vc, value.c_str());
-		nameX1 = vx - 6;
+		const float tw = d.TextW(vr, value.c_str()), ty = midY - d.Size(vr) * 0.5f;
+		if (n.kind == NodeKind::ShakeParam && st.editing && st.editNode == r.node) {
+			const float w = (std::max)(tw, 52.0f), vx = navX0 - 6 - w;
+			TypeField(d, vx, midY - 9, vx + w, midY + 9);
+			nameX1 = vx - 6;
+		} else {
+			const float vx = navX0 - 6 - tw;
+			if (n.kind == NodeKind::ShakeParam) {
+				// Intensity and Speed scrub and type like any number, on the shake under the playhead:
+				// its camera key, or the key whose shake runs here.
+				HitBox("##svalue", d, vx - 3, y, vx + tw + 3, y + kRowH);
+				const bool held = st.gesture == Gesture::ShakeValue && st.valueNode == r.node;
+				if (ImGui::IsItemActivated()) {
+					st.selRow = r.node;
+					double at = 0;
+					if (hasValue && ShakeEditTick(ks, d.m.pathKeys, ph, at) && ShakeCanKey(d.m.pathKeys, at)) {
+						st.gesture = Gesture::ShakeValue;
+						st.valueNode = r.node;
+						st.valueCh = -1;
+						st.shakeAt = at;
+						st.valueStart = pv;
+						st.valueLast = std::round(pv);
+						st.valuePressX = ImGui::GetIO().MousePos.x;
+						st.valueScrub = false;
+					}
+				}
+				d.Dotted(vx, vx + tw, ty + d.Size(vr) + 1, ImGui::IsItemHovered() || held ? Faded(Paint::Value, 0.8f) : Paint::Underline);
+			}
+			d.Text(vr, vx, ty, vc, value.c_str());
+			nameX1 = vx - 6;
+		}
 	}
 	if (n.kind == NodeKind::Prop) {
 		// The key navigator: previous, add or remove at the playhead, next.
@@ -1800,23 +1871,65 @@ void DrawGraph(D& d, const std::vector<int>& chans) {
 		}
 	}
 
+	// The camera shake's Intensity and Speed (drawShakeGraph): eased between the keys of a run as the
+	// camera plays them and flat until the next key, with a gap after a Stop and past the last camera
+	// key, where the path's shake stops playing. The keys are where a shake's values are set.
+	const int shakeCurves = ShakeCurvesOf(st);
+	bool anyShake = false;
+	for (const ShakeKey& k : d.m.shakes) anyShake = anyShake || k.s >= 0;
+	for (int i = 0; i < 2; ++i) {
+		if (!(shakeCurves & (1 << i))) continue;
+		const ShakeCurve& sc = kShakeCurves[i];
+		const char param = kNodes[sc.node].param;
+		bool prev = false;
+		float px = 0, py = 0;
+		for (int s = 0; s <= 240; ++s) {
+			const double t = st.window.t0 + span * s / 240;
+			double v = 0;
+			if ((!d.m.pathKeys.empty() && t > d.m.pathKeys.back() + 0.5) || !ShakeValueAt(d.m.shakes, param, t, v)) {
+				prev = false;
+				continue;
+			}
+			const float qx = X(t), qy = oy + ShakeGraphY(i, v);
+			if (prev) Line(px, py, qx, qy, sc.color, 2);
+			px = qx;
+			py = qy;
+			prev = true;
+		}
+		for (const ShakeKey& k : d.m.shakes) {
+			if (k.s < 0) continue;
+			const float kx = X(k.t), ky = oy + ShakeGraphY(i, k.Param(param));
+			if (kx < ox - 10 || kx > ox + d.g.tw + 10) continue;
+			Diamond(d, kx, ky, 9, ShakeSelected(st, k.t) ? Paint::Accent : sc.color);
+			Diamond(d, kx, ky, 9, Paint::GraphBg, false);
+		}
+	}
+
 	// The legend, and what to do when there is nothing to draw.
 	{
+		std::vector<std::pair<Color, const char*>> items;
+		for (int c : chans) items.emplace_back(kChannel[c], kChannelNames[c]);
+		for (int i = 0; i < 2; ++i)
+			if (shakeCurves & (1 << i)) items.emplace_back(kShakeCurves[i].color, kShakeCurves[i].name);
 		float lw = 10;
-		for (int c : chans) lw += 10 + 6 + d.TextW(FontRole::Hint, kChannelNames[c]) + 14;
+		for (const auto& it : items) lw += 10 + 6 + d.TextW(FontRole::Hint, it.second) + 14;
 		lw += 10 - 14;
 		const float lx = ox + 12, ly = oy + 10, lh = d.Size(FontRole::Hint) + 10;
 		d.Fill(lx, ly, lx + lw, ly + lh, Rgba(8, 10, 14, 230), 3);
 		d.Outline(lx, ly, lx + lw, ly + lh, Paint::Border, 3);
 		float x = lx + 10;
-		for (int c : chans) {
-			d.Fill(x, ly + (lh - 10) * 0.5f, x + 10, ly + (lh + 10) * 0.5f, kChannel[c], 2);
+		for (const auto& it : items) {
+			d.Fill(x, ly + (lh - 10) * 0.5f, x + 10, ly + (lh + 10) * 0.5f, it.first, 2);
 			x += 16;
-			d.Text(FontRole::Hint, x, ly + 5, Paint::Value, kChannelNames[c]);
-			x += d.TextW(FontRole::Hint, kChannelNames[c]) + 14;
+			d.Text(FontRole::Hint, x, ly + 5, Paint::Value, it.second);
+			x += d.TextW(FontRole::Hint, it.second) + 14;
 		}
 	}
-	if (!anyKeys) {
+	if (shakeCurves) {
+		if (!anyShake)
+			d.TextIn(FontRole::Label, ox, oy, ox + d.g.ow, oy + kRowsH, Paint::Hint,
+				"No camera shake yet. Right-click the Camera shake row to pick one.");
+	} else if (!anyKeys) {
 		char text[160];
 		std::snprintf(text, sizeof(text), "No keys on %s yet. Press a row's key button to add one at the playhead.",
 			kNodes[st.selRow >= 0 ? st.selRow : kLayerNode].name);
@@ -1871,11 +1984,52 @@ GraphHit HitGraphKey(const D& d, const std::vector<int>& chans, float tx, float 
 	return best;
 }
 
+// The shake key nearest the pointer on a drawn shake curve, within reach (hitShakeGraph). Rows-local y.
+bool HitShakeGraph(const D& d, float tx, float gy, double& t, int& curve) {
+	const int curves = ShakeCurvesOf(d.st);
+	float bestD = kKeyHit * kKeyHit;
+	curve = -1;
+	for (int i = 0; i < 2; ++i) {
+		if (!(curves & (1 << i))) continue;
+		for (const ShakeKey& k : d.m.shakes) {
+			if (k.s < 0) continue;
+			const float dx = (float)TickToX(d.st.window, d.g.cw, k.t) - tx;
+			const float dy = ShakeGraphY(i, k.Param(kNodes[kShakeCurves[i].node].param)) - gy;
+			if (dx * dx + dy * dy <= bestD) {
+				bestD = dx * dx + dy * dy;
+				t = k.t;
+				curve = i;
+			}
+		}
+	}
+	return curve >= 0;
+}
+
 void PressGraph(D& d, float tx, float gy) {
 	TimelineDockState& st = d.st;
 	const std::vector<int> chans = GraphChannels(st, d.keys);
 	const bool shift = ImGui::GetIO().KeyShift;
 	st.narrow = false;
+	// A shake key: selected (Shift adds it), the playhead goes to it, and a drag sets its value.
+	double sht = 0;
+	int curve = -1;
+	if (HitShakeGraph(d, tx, gy, sht, curve)) {
+		if (shift) {
+			if (!ShakeSelected(st, sht)) st.shakeSel.push_back(sht);
+		} else if (!ShakeSelected(st, sht)) {
+			d.Emit(Action::Kind::SelectClear);
+			st.shakeSel.assign(1, sht);
+		}
+		SeekTo(d, sht);
+		const ShakeKey* k = ShakeKeyAtTick(d.m.shakes, sht);
+		st.gesture = Gesture::ShakeGraph;
+		st.shakeAt = sht;
+		st.shakeCurve = curve;
+		st.pressY = gy;
+		st.valueStart = st.valueLast = k ? k->Param(kNodes[kShakeCurves[curve].node].param) : 0;
+		st.dragStarted = false;
+		return;
+	}
 	const GraphHit h = HitGraphHandle(d, chans, tx, gy);
 	if (h.ch >= 0) {
 		d.Emit(Action::Kind::EditBegin); // on the press, as CS2's handle drag opens its step
@@ -2081,6 +2235,50 @@ void HandleRegions(D& d, const std::vector<Row>& rows) {
 		} else {
 			if (!st.valueScrub) OpenTyping(st, st.valueNode, st.valueCh, st.valueStart);
 			st.gesture = Gesture::None;
+		}
+		break;
+	}
+	case Gesture::ShakeValue: {
+		// Intensity or Speed: a drag past 4 screen pixels sweeps the whole range over 200 of them (Shift
+		// a fifth as fast), one command per whole step; a click opens it for typing.
+		const ImGuiIO& vio = ImGui::GetIO();
+		const Node& n = kNodes[st.valueNode];
+		const float dx = vio.MousePos.x - st.valuePressX;
+		if (down) {
+			if (!st.valueScrub && std::fabs(dx) > 4) st.valueScrub = true;
+			if (st.valueScrub) {
+				const double raw = st.valueStart + dx * (n.hi - n.lo) / 200 * (vio.KeyShift ? 0.2 : 1.0);
+				const double v = std::round((std::max)((double)n.lo, (std::min)((double)n.hi, raw)));
+				if (v != st.valueLast) {
+					st.valueLast = v;
+					ShakeParamSet(d, st.valueNode, st.shakeAt, v);
+				}
+			}
+		} else {
+			if (!st.valueScrub) OpenTyping(st, st.valueNode, -1, st.valueStart);
+			st.gesture = Gesture::None;
+		}
+		break;
+	}
+	case Gesture::ShakeGraph: {
+		// A shake key dragged up or down in GRAPH: its value on that curve's 0..max scale, Shift a
+		// quarter as fast.
+		const Node& n = kNodes[kShakeCurves[st.shakeCurve].node];
+		const float gdy = st.pressY - (d.mouse.y - kRowsY);
+		if (!down) {
+			st.gesture = Gesture::None;
+		} else {
+			if (!st.dragStarted && std::fabs(gdy) > kDragPx) st.dragStarted = true;
+			if (st.dragStarted) {
+				const double raw = st.valueStart + gdy / kGraphBandH * n.hi * (ImGui::GetIO().KeyShift ? 0.25 : 1.0);
+				const double v = std::round((std::max)((double)n.lo, (std::min)((double)n.hi, raw)));
+				if (v != st.valueLast) {
+					st.valueLast = v;
+					char text[64];
+					std::snprintf(text, sizeof(text), "%s @%ld %ld", n.verb, std::lround(st.shakeAt), std::lround(v));
+					d.EmitShake(text);
+				}
+			}
 		}
 		break;
 	}
