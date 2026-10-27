@@ -12,6 +12,10 @@ namespace Ui {
 // A borderless, fixed ImGui window over client rect, filled with bg: the panels the workspaces are
 // built from. Pair with ImGui::End().
 void BeginPanel(const char* name, const Rect& client, Color bg);
+// The same for what must sit over the panels (menus, cards, dialogs). ImGui puts a new panel at the
+// bottom of its window stack and an overlay at the top, so an overlay draws over every panel and
+// takes the clicks there. Pair with ImGui::End().
+void BeginOverlay(const char* name, const Rect& client, Color bg);
 
 // The length in bytes of the UTF-8 character at p (1 for a stray continuation byte).
 int Utf8CharBytes(const char* p);

@@ -196,6 +196,9 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/Ui/PathInspector.cpp
     Filmmaker/Ui/PathInspector.h
     Filmmaker/Ui/PathOverlay.h
+    Filmmaker/Ui/TimelineDock.cpp
+    Filmmaker/Ui/TimelineDock.h
+    Filmmaker/Ui/TimelineDockMath.h
     Filmmaker/Ui/UiImConfig.h
     Filmmaker/Ui/UiKeys.h
     Filmmaker/Ui/UiRenderDx9.cpp

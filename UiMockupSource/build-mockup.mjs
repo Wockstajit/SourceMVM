@@ -27,6 +27,10 @@ export const SHARED_HEADERS = [
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'UiClickMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'FreeCamStepMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'TimelineDock.h'),
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'CamMarkers.h'),
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'GraphCurveMath.h'),
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'GraphExpModel.cpp'),
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'GraphExpModel.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Panorama', 'HudReadoutCadenceMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Panorama', 'InspectorWidthMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Deadlock', 'DeadlockOverlayMath.h'),
@@ -38,8 +42,10 @@ const IMGUI_SOURCES = ['imgui.cpp', 'imgui_draw.cpp', 'imgui_tables.cpp', 'imgui
   path.join('backends', 'imgui_impl_opengl3.cpp')].map((f) => path.join(IMGUI, f));
 const OWN_SOURCES = [path.join(import.meta.dirname, 'mockup-host.cpp'),
   ...['CameraEditorShell.cpp', 'DemoBar.cpp', 'DirectorHud.cpp', 'InspectorCards.cpp', 'MarkerPopup.cpp', 'PathInspector.cpp',
-    'PathOverlay.cpp', 'UiStyle.cpp', 'UiWidgets.cpp'].map((f) => path.join(UI, f)),
-  ...['SourceDemoBarModel.cpp', 'SourceDemoFile.cpp', 'SourceDemoMarkers.cpp'].map((f) => path.join(FILMMAKER, f))];
+    'PathOverlay.cpp', 'TimelineDock.cpp', 'UiStyle.cpp', 'UiWidgets.cpp'].map((f) => path.join(UI, f)),
+  ...['SourceDemoBarModel.cpp', 'SourceDemoFile.cpp', 'SourceDemoMarkers.cpp'].map((f) => path.join(FILMMAKER, f)),
+  // The TIMELINE dock's keys are CS2's own model.
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'GraphExpModel.cpp')];
 
 const EXPORTS = ['_main', '_malloc', '_free', '_mockup_mouse', '_mockup_motion', '_mockup_key',
   '_mockup_focus_lost', '_mockup_lock_lost', '_mockup_mode', '_mockup_resize', '_mockup_set_backdrop',

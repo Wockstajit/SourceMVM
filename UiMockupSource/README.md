@@ -41,6 +41,7 @@ without the preview server, run `node UiMockupSource/build-mockup.mjs`. The outp
 | The console | The `mirv_filmmaker` box runs the mockup's `editor on`, `off`, `toggle` and `state` |
 | The demo | A playback clock over the test SourceTV demo's real length, tick rate and events, with stand-in names, so the demo bar responds. `demo on`, `demo off`, `demo pause` and `demo seek <tick>` drive it |
 | The world | `markers on` draws a stand-in camera path ahead of the stand-in camera with the game's own path overlay (`PathOverlay.cpp`) and gives the PATH CAMERA tab three cameras to edit; F opens the CAMERA MARKER card on them (`MarkerPopup.cpp`); `markers freeze` and `markers live` switch the colour, `markers off` hides it |
+| The TIMELINE dock | The game's dock (`TimelineDock.cpp`) on the stand-in cameras' keys in CS2's own key model (`GraphExpModel.cpp`), seeded by `markers on`. Edits change the keys there; nothing writes them into a path. `grapheditor on`, `off` and `state` open it, close it and report its window, selection and snap |
 
 The game frame is `assets/backdrop.png` when it exists: a capture of CS:S, which stays local
 because game pixels are not ours to commit. Take one with the editor closed:

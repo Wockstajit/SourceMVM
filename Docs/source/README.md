@@ -486,8 +486,42 @@ placed with `marker place` became three keys on each of the seven values; moving
 100 moved marker 1 by 100; Easy Ease on every key and two undos put the path back, and the log showed
 no read-back of the dock's own writes; with AUTO on, a scrub to the moved key flew the view there and
 halfway between showed the halfway point; a release backwards from 1500 to 1150 held 1150 through the
-restart; playback from 900 flew the path from 1000 and gave the view back at 1600. The dock's drawing
-is the next part of step 10.
+restart; playback from 900 flew the path from 1000 and gave the view back at 1600.
+
+The dock itself is `Ui/TimelineDock.cpp`, CS2's dock (`GraphEditorJs.h`) in CS:S paint, with its
+rules in `Ui/TimelineDockMath.h` (`SourceTimelineDockMathTests`):
+
+| Part | What it does |
+| --- | --- |
+| Ribbon | REGULAR TIMELINE and TIMELINE, 150 wide; on TIMELINE, how many layers and keys it holds |
+| Toolbar | The timecode and tick; KEYFRAMES; the selection; previous and next key (on the selected row, else every key), play, CS2's speed dial; the interpolation strip (Smooth, Linear, Ease In, Ease Out, In/Out: with keys selected it shapes them, with none Smooth and Linear set the whole path); SNAP with its menu (Auto, 1, 10, 100, 1000 ticks, Off; Alt places finely); Undo, Redo and Delete |
+| Overview | The whole demo, its keys, the playhead and the window: drag the box to scroll, an end to zoom, empty track to jump |
+| Ruler | Labels about 70 px apart. A press scrubs; past either end the window creeps; release seeks |
+| Rows | CAMERA PATH with its key count, AUTO and the switch (on: scrubs and edits show the path; off: the free cam stays yours), Transform, Position, Rotation and Field of view with their values at the playhead in each channel's colour, and the previous, add or remove, next buttons |
+| Track | A glyph per key time whose halves show how the curve meets it (diamond Linear, disc Smooth, notch eased), the layer's bar. Click a key to select it, Shift adds, drag moves (3 px, snapped), a double-click goes to it, a drag on empty track box-selects, the layer's bar moves every key |
+| Footer | The visible span, FIT (the selection, else the row, else every key; again for every key), zoom out and in, and the scrollbar |
+
+Ctrl+wheel over the dock zooms about the pointer, Shift+wheel pans, the wheel scrolls the rows. The
+dock takes Ctrl+Z, Ctrl+Shift+Z, Ctrl+A, Delete and F9 (Shift+F9 eases in, Ctrl+Shift+F9 out), as
+CS2's does; Esc closes the SNAP menu before the workspace. Tips show after the pointer rests 2 s.
+GRAPH, the context menus, typing and scrubbing the values, Separate Dimensions and the camera shake
+rows come in the next parts; CS2's frame cache and render range are steps 13 and 14, so Cache is
+disabled and the footer says the whole demo. The window, snap and the rows' state are not kept
+between sessions, because CS:S has no settings store yet.
+
+Checked on 2026-10-26 in the browser mockup at 1600x900 (headless Chrome over the DevTools
+protocol, because the browser pane had no WebGL) and in CS:S at 1600x900 with posted window
+messages, from captures: a click selected a Position key's three channels; a 49 px drag moved them
+to tick 1348.2 and the path split at 1300 and 1348 as CS2's bake does; F9 gave them the In/Out
+glyph; two Ctrl+Z put the path back; SNAP 100 made a drag land on 3400 in the mockup; SNAP's menu
+opened over the dock and Esc closed it with the editor still open; Ctrl+wheel zoomed, FIT framed the
+selection, Delete and Ctrl+Z round-tripped, the FOV row's add button keyed the live FOV at the
+playhead and revealed it; with AUTO on, the playhead held on the ruler at 1210 flew the view to the
+path's pose there with the demo still at 1150, and the release seeked to 1210 and held it.
+
+The same pass fixed where pop-ups sit: ImGui puts a new panel at the bottom of its stack, so the
+CAMERA MARKER card and the clear-all dialog only took clicks where no panel covered them. They now
+open as overlays (`BeginOverlay` in `Ui/UiWidgets.h`), as the SNAP menu does.
 
 ## Old demos
 

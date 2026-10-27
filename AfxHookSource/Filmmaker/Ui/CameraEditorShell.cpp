@@ -2,6 +2,10 @@
 
 #include "UiWidgets.h"
 
+#include <cfloat>
+#include <cmath>
+#include <string>
+
 namespace SourceFilmmaker {
 namespace Ui {
 
@@ -18,7 +22,7 @@ float DockEditorHeight(DockTab dock) {
 }
 
 CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& fonts, float clientW, float clientH,
-	const DemoBarModel& demo, const PathInspectorModel& path) {
+	const DemoBarModel& demo, const PathInspectorModel& path, const TimelineDockModel& timeline) {
 	CameraEditorFrame frame;
 	frame.layout = CameraEditorLayout(clientW, clientH, state.inspectorW, DockEditorHeight(state.dock));
 	const WorkspaceLayout& l = frame.layout;
@@ -102,34 +106,53 @@ CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& font
 	}
 	ImGui::End();
 
-	// Dock ribbon: REGULAR TIMELINE / TIMELINE, left of the inspector.
+	// Dock ribbon: REGULAR TIMELINE / TIMELINE, left of the inspector (TimelineDockRibbonJs.h): two
+	// 150-wide tabs, and on TIMELINE how many layers and keys it holds.
 	const Rect ribbon = ToClient(l.ribbon, stage);
-	BeginPanel("##ribbon", ribbon, Rgba(0, 0, 0, 150));
+	const bool onTimeline = state.dock == DockTab::Timeline;
+	BeginPanel("##ribbon", ribbon, onTimeline ? Theme::DockBg : Rgba(0, 0, 0, 150));
 	{
 		ImDrawList* draw = ImGui::GetWindowDrawList();
-		draw->AddLine(ImVec2(ribbon.x0, ribbon.y0), ImVec2(ribbon.x1, ribbon.y0), ToU32(Theme::Border), 1.0f);
+		draw->AddRectFilled(ImVec2(ribbon.x0, ribbon.y0), ImVec2(ribbon.x1, ribbon.y0 + 1), ToU32(Theme::AccentDim));
+		draw->AddRectFilled(ImVec2(ribbon.x0, ribbon.y1 - 1), ImVec2(ribbon.x1, ribbon.y1), ToU32(Theme::AccentDim));
 		ImFont* label = fonts.Get(FontRole::Label);
-		float x = ribbon.x0 + Metrics::col.pad * s;
+		float x = ribbon.x0 + 12 * s;
+		const float tabW = 150 * s, tabH = label->FontSize + 18 * s;
 		for (int i = 0; i < 2; ++i) {
-			const float w = ChipWidth(kDockTabs[i], label, s);
-			const float h = label->FontSize + 2 * Metrics::chip.padV * s;
-			const ImVec2 p(x, ribbon.y0 + (ribbon.H() - h) * 0.5f);
+			const Rect tab = MakeRect(x, ribbon.y0 + (ribbon.H() - tabH) * 0.5f, x + tabW, ribbon.y0 + (ribbon.H() + tabH) * 0.5f);
+			ImGui::SetCursorScreenPos(ImVec2(tab.x0, tab.y0));
+			if (ImGui::InvisibleButton(i == 0 ? "##dockregular" : "##docktimeline", ImVec2(tab.W(), tab.H()))) state.dock = (DockTab)i;
+			const bool hovered = ImGui::IsItemHovered();
 			const bool on = (int)state.dock == i;
-			if (Chip(i == 0 ? "##dockregular" : "##docktimeline", kDockTabs[i], p, label, s, on))
-				state.dock = (DockTab)i;
-			x += w + Metrics::tabGap * s * 2;
+			const Color bg = on ? Rgba(255, 176, 0, 51) : (hovered ? Rgba(255, 255, 255, 38) : Rgba(255, 255, 255, 20));
+			const Color edge = on ? Theme::Accent : Rgba(255, 255, 255, 26);
+			draw->AddRectFilled(ImVec2(tab.x0, tab.y0), ImVec2(tab.x1, tab.y1), ToU32(bg), 3 * s);
+			draw->AddRect(ImVec2(tab.x0, tab.y0), ImVec2(tab.x1, tab.y1), ToU32(edge), 3 * s);
+			const float tw = SpacedTextWidth(label, kDockTabs[i], 1.4f * s);
+			DrawSpacedText(draw, label, ImVec2(std::round(tab.x0 + (tab.W() - tw) * 0.5f), std::round(tab.y0 + (tab.H() - label->FontSize) * 0.5f)),
+				ToU32(on ? Theme::Accent : Theme::Text), kDockTabs[i], 1.4f * s);
+			x += tabW + 4 * s;
+		}
+		if (onTimeline) {
+			ImFont* meta = fonts.Get(FontRole::Note);
+			const std::string text = TimelineDockRibbonMeta(timeline);
+			const float mw = meta->CalcTextSizeA(meta->FontSize, FLT_MAX, 0, text.c_str()).x;
+			draw->AddText(meta, meta->FontSize, ImVec2(std::round(ribbon.x1 - 12 * s - mw), std::round(ribbon.y0 + (ribbon.H() - meta->FontSize) * 0.5f)),
+				ToU32(Theme::TextDim), text.c_str());
 		}
 	}
 	ImGui::End();
 
-	// The docked editor: the demo bar on REGULAR TIMELINE, opaque as CS2's docked bar is; the
-	// TIMELINE dock comes with its own step.
+	// The docked editor: the demo bar on REGULAR TIMELINE, opaque as CS2's docked bar is, and the
+	// keyframe editor on TIMELINE.
 	const Rect dock = ToClient(l.dock, stage);
-	BeginPanel("##dock", dock, state.dock == DockTab::Timeline ? Rgba(10, 10, 10, 240) : Theme::DockBg);
+	BeginPanel("##dock", dock, Theme::DockBg);
 	if (state.dock == DockTab::RegularTimeline) {
 		DemoBarModel inEditor = demo;
 		inEditor.showCamEditorButton = false; // CS2 swaps it for CONFIG inside the editor
 		frame.demoActions = DrawDemoBar(state.demoBar, inEditor, fonts, dock, s);
+	} else {
+		frame.timelineActions = DrawTimelineDock(state.timeline, timeline, fonts, dock, s);
 	}
 	ImGui::End();
 

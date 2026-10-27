@@ -16,6 +16,9 @@
 
 #include <AfxHookSource2/Filmmaker/Movie/GraphExpModel.h>
 
+#include <utility>
+#include <vector>
+
 namespace advancedfx { class ICommandArgs; }
 
 namespace SourceFilmmaker {
@@ -50,6 +53,7 @@ TimelineDockInfo TimelineDock_Info();
 void TimelineDock_EditBegin(); // the next bake is one undo step
 void TimelineDock_Select(int ch, int id, bool add);
 void TimelineDock_SelectAdd(int ch, int id);
+void TimelineDock_SelectSet(const std::vector<std::pair<int, int>>& keys); // (channel, id): replaces the selection
 void TimelineDock_SelectAll();
 void TimelineDock_SelectClear();
 void TimelineDock_MoveSelectedBy(double dTick, double dValue);

@@ -154,7 +154,7 @@ std::string Explanation(const MarkerCardModel& m) {
 void DrawMarkerCard(MarkerCardState& state, const MarkerCardModel& m, const FontSet& fonts, float clientW, float clientH,
 	std::vector<MarkerCardAction>& actions) {
 	// The catcher: a clear window over everything, so a click that misses the card is the card's.
-	BeginPanel("##markercard", MakeRect(0, 0, clientW, clientH), Rgba(0, 0, 0, 0));
+	BeginOverlay("##markercard", MakeRect(0, 0, clientW, clientH), Rgba(0, 0, 0, 0));
 	const float k = clientH / kStageHeight * DirectorMath::kCardScale;
 	const float w = std::floor(kCardW * k);
 	const float x = std::floor((clientW - w) * 0.5f);

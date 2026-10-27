@@ -5,10 +5,12 @@
 namespace SourceFilmmaker {
 namespace Ui {
 
-void BeginPanel(const char* name, const Rect& client, Color bg) {
+namespace {
+
+void BeginFixed(const char* name, const Rect& client, Color bg, ImGuiWindowFlags extra) {
 	const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
 		| ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings
-		| ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoNav;
+		| ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoNav | extra;
 	ImGui::SetNextWindowPos(ImVec2(client.x0, client.y0));
 	ImGui::SetNextWindowSize(ImVec2(client.W(), client.H()));
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ToU32(bg));
@@ -17,6 +19,16 @@ void BeginPanel(const char* name, const Rect& client, Color bg) {
 	ImGui::PopStyleVar();
 	ImGui::PopStyleColor();
 }
+
+} // namespace
+
+// A window with NoBringToFrontOnFocus is created at the back of ImGui's stack and stays there; one
+// without it is created at the front, and a click on a panel never moves a panel over it.
+void BeginPanel(const char* name, const Rect& client, Color bg) {
+	BeginFixed(name, client, bg, ImGuiWindowFlags_NoBringToFrontOnFocus);
+}
+
+void BeginOverlay(const char* name, const Rect& client, Color bg) { BeginFixed(name, client, bg, 0); }
 
 int Utf8CharBytes(const char* p) {
 	const unsigned char c = (unsigned char)*p;

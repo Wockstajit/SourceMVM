@@ -590,6 +590,67 @@ void DrawMarkerPopups(const Rect& gameArea, float w, float h, std::vector<Marker
 	DrawPathBanner(ImGui::GetForegroundDrawList(), banner, g.fonts, gameArea);
 }
 
+// The TIMELINE dock's model: its keys and what the game side knows.
+TimelineDockModel BuildTimelineModel() {
+	TimelineDockModel m;
+	const TimelineDockInfo info = TimelineDock_Info();
+	const DemoState demo = Demo_State();
+	m.keys = &TimelineDock_Model();
+	m.demo = demo.playing;
+	m.viewEpoch = info.viewEpoch;
+	m.viewT0 = info.viewT0;
+	m.viewT1 = info.viewT1;
+	m.domainT0 = info.domainT0;
+	m.domainT1 = info.domainT1;
+	m.playhead = info.playhead;
+	m.scrubbing = info.scrubbing;
+	m.playing = info.playing;
+	m.pathPlaying = info.pathPlaying;
+	m.drive = info.drive;
+	m.autoPath = info.autoPath;
+	m.smoothPath = info.smoothPath;
+	m.tickRate = info.tickRate;
+	m.timescale = demo.timescale;
+	for (int c = 0; c < 7; ++c) m.live[c] = info.live[c];
+	return m;
+}
+
+void ApplyTimelineActions(const std::vector<TimelineDockAction>& actions) {
+	using Kind = TimelineDockAction::Kind;
+	for (const TimelineDockAction& a : actions) {
+		switch (a.kind) {
+		case Kind::Select: TimelineDock_Select(a.ch, a.id, a.flag); break;
+		case Kind::SelectSet: TimelineDock_SelectSet(a.keys); break;
+		case Kind::SelectAll: TimelineDock_SelectAll(); break;
+		case Kind::SelectClear: TimelineDock_SelectClear(); break;
+		case Kind::EditBegin: TimelineDock_EditBegin(); break;
+		case Kind::MoveSelected: TimelineDock_MoveSelectedBy(a.a, a.b); break;
+		case Kind::AddKey: TimelineDock_AddKey(a.ch, a.a, a.b); break;
+		case Kind::DeleteSelected: TimelineDock_DeleteSelected(); break;
+		case Kind::Ease: TimelineDock_Ease(a.id, a.flag); break;
+		case Kind::Interp: TimelineDock_SetInterp(a.flag, a.id == 1); break;
+		case Kind::Undo: TimelineDock_Undo(); break;
+		case Kind::Redo: TimelineDock_Redo(); break;
+		case Kind::Drive: TimelineDock_SetDrive(a.flag); break;
+		case Kind::AutoPath: CameraPath_SetAutoPath(a.flag); break;
+		case Kind::Playhead: TimelineDock_Playhead(a.a, false); break;
+		case Kind::PlayheadRelease: TimelineDock_Playhead(a.a, true); break;
+		case Kind::PlayPause:
+			// Space's rule: the demo plays; a camera path that is playing pauses.
+			if (CameraPath_State().mode == PathMode::Playing) CameraPath_Pause();
+			else DemoBar_Apply({ DemoBarAction{ DemoBarAction::Kind::TogglePause } });
+			break;
+		case Kind::Speed: {
+			DemoBarAction speed;
+			speed.kind = DemoBarAction::Kind::Speed;
+			speed.value = a.a;
+			DemoBar_Apply({ speed });
+			break;
+		}
+		}
+	}
+}
+
 // The PATH CAMERA tab's model, read from the camera path.
 PathInspectorModel BuildPathModel() {
 	PathInspectorModel m;
@@ -666,6 +727,7 @@ bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 		}
 		switch (WorkspaceKeyFor((int)wParam, g.context && ImGui::GetIO().WantTextInput)) {
 		case WorkspaceKey::Close:
+			if (g.editor.dock == DockTab::Timeline && TimelineDockEscape(g.editor.timeline)) return true;
 			Close("esc");
 			return true;
 		case WorkspaceKey::ToggleGame:
@@ -778,13 +840,15 @@ void Ui_MainThreadFrame() {
 	DemoBarModel demo;
 	DemoBar_BuildModel(demo);
 	const PathInspectorModel path = BuildPathModel();
+	const TimelineDockModel timeline = BuildTimelineModel();
 	ImGui::NewFrame();
-	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo, path);
+	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo, path, timeline);
 	std::vector<MarkerCardAction> markerActions;
 	DrawMarkerPopups(frame.previewClient, w, h, markerActions);
 	ImGui::Render();
 	DemoBar_Apply(frame.demoActions); // CAM EDITOR is not on the bar inside the editor
 	ApplyPathActions(frame.pathActions);
+	ApplyTimelineActions(frame.timelineActions);
 	ApplyMarkerActions(markerActions);
 
 	g.preview = frame.modal || g_markerMenu.load() ? Rect() : frame.previewClient;

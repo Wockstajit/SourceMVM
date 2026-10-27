@@ -278,6 +278,12 @@ void TimelineDock_EditBegin() {
 void TimelineDock_Select(int ch, int id, bool add) { g.model.Select(ch, id, add); BumpRev(); }
 void TimelineDock_SelectAdd(int ch, int id) { g.model.SelectAdd(ch, id); BumpRev(); }
 void TimelineDock_SelectAll() { g.model.SelectAll(); BumpRev(); }
+
+void TimelineDock_SelectSet(const std::vector<std::pair<int, int>>& keys) {
+	g.model.ClearSelection();
+	for (const auto& k : keys) g.model.SelectAdd(k.first, k.second);
+	BumpRev();
+}
 void TimelineDock_SelectClear() { g.model.ClearSelection(); BumpRev(); }
 
 void TimelineDock_MoveSelectedBy(double dTick, double dValue) {
@@ -412,9 +418,9 @@ void TimelineDock_Command(int argc, advancedfx::ICommandArgs* args) {
 	} else if (0 == _stricmp(verb, "select") && argc >= 5) {
 		TimelineDock_Select(atoi(arg(3)), atoi(arg(4)), 0 == _stricmp(arg(5), "add"));
 	} else if (0 == _stricmp(verb, "selset")) {
-		g.model.ClearSelection();
-		for (int i = 3; i + 1 < argc; i += 2) g.model.SelectAdd(atoi(arg(i)), atoi(arg(i + 1)));
-		BumpRev();
+		std::vector<std::pair<int, int>> keys;
+		for (int i = 3; i + 1 < argc; i += 2) keys.emplace_back(atoi(arg(i)), atoi(arg(i + 1)));
+		TimelineDock_SelectSet(keys);
 	} else if (0 == _stricmp(verb, "selall")) {
 		TimelineDock_SelectAll();
 	} else if (0 == _stricmp(verb, "selclear")) {

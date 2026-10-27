@@ -273,47 +273,50 @@ void Scrubber(Draw& d, DemoBarUi& ui, const DemoBarModel& m, const Rect& band, c
 	}
 }
 
-// CS2's speed dial: logarithmic 0.05x..20x, five click zones (0.1x, 0.25x, 1x, 4x, 10x), drag for
-// anything in between, the readout pill in the middle.
-void SpeedDial(Draw& d, DemoBarUi& ui, const DemoBarModel& m, const Rect& r) {
+} // namespace
+
+bool DrawSpeedDial(ImDrawList* list, const FontSet& fonts, float scale, SpeedDialState& ui, double timescale,
+	const Rect& r, const char* id, double& speed) {
+	std::vector<DemoBarAction> sent;
+	Draw d{ list, fonts, scale, sent };
 	ImDrawList* l = d.list;
 	const float s = d.s;
 	const ImVec2 mouse = ImGui::GetIO().MousePos;
-	if (!ui.dialActive) ui.dialValue = SliderFor(m.timescale);
+	if (!ui.active) ui.value = SliderFor(timescale);
 
 	ImGui::SetCursorScreenPos(ImVec2(r.x0, r.y0));
-	ImGui::InvisibleButton("##speed", ImVec2(r.W(), r.H()));
+	ImGui::InvisibleButton(id, ImVec2(r.W(), r.H()));
 	const bool hovered = ImGui::IsItemHovered();
 	auto valueAt = [&](float x) { return Clamp01((x - r.x0) / (double)r.W()); };
 	if (ImGui::IsItemActivated()) {
-		ui.dialActive = true;
-		ui.dialDragged = false;
-		ui.dialPressX = mouse.x;
+		ui.active = true;
+		ui.dragged = false;
+		ui.pressX = mouse.x;
 	}
-	if (ui.dialActive && ImGui::IsItemActive()) {
-		if (std::fabs(mouse.x - ui.dialPressX) > kClickSlopPx * s) ui.dialDragged = true;
-		if (ui.dialDragged) {
-			ui.dialValue = valueAt(mouse.x);
-			const double speed = SpeedFor(ui.dialValue);
-			if (SpeedChanged(speed, ui.lastSentSpeed)) {
-				d.Emit(DemoBarAction::Kind::Speed, 0, speed);
-				ui.lastSentSpeed = speed;
+	if (ui.active && ImGui::IsItemActive()) {
+		if (std::fabs(mouse.x - ui.pressX) > kClickSlopPx * s) ui.dragged = true;
+		if (ui.dragged) {
+			ui.value = valueAt(mouse.x);
+			const double dragged = SpeedFor(ui.value);
+			if (SpeedChanged(dragged, ui.lastSent)) {
+				d.Emit(DemoBarAction::Kind::Speed, 0, dragged);
+				ui.lastSent = dragged;
 			}
 		}
 	}
-	if (ui.dialActive && ImGui::IsItemDeactivated()) {
-		ui.dialActive = false;
-		const double speed = ui.dialDragged ? SpeedFor(valueAt(mouse.x)) : kZoneSpeeds[ZoneAt(valueAt(ui.dialPressX))];
-		ui.dialValue = SliderFor(speed);
-		d.Emit(DemoBarAction::Kind::Speed, 0, speed);
-		ui.lastSentSpeed = speed;
+	if (ui.active && ImGui::IsItemDeactivated()) {
+		ui.active = false;
+		const double released = ui.dragged ? SpeedFor(valueAt(mouse.x)) : kZoneSpeeds[ZoneAt(valueAt(ui.pressX))];
+		ui.value = SliderFor(released);
+		d.Emit(DemoBarAction::Kind::Speed, 0, released);
+		ui.lastSent = released;
 	}
 
 	// The strip, its zones (labelled while hovered), the 1x centre mark and the handle.
 	l->AddRectFilled(ImVec2(r.x0, r.y0), ImVec2(r.x1, r.y1), ToU32(Rgba(0, 0, 0, 150)));
 	l->AddRect(ImVec2(r.x0, r.y0), ImVec2(r.x1, r.y1), ToU32(Theme::Border));
 	const float cx = (r.x0 + r.x1) * 0.5f;
-	const bool atOne = std::fabs(m.timescale - 1.0) < 0.005;
+	const bool atOne = std::fabs(timescale - 1.0) < 0.005;
 	l->AddLine(ImVec2(cx, r.y0 + 3 * s), ImVec2(cx, r.y1 - 3 * s), ToU32(Faded(Theme::Text, atOne ? 0.6f : 0.18f)));
 	const int hoveredZone = hovered ? ZoneAt(valueAt(mouse.x)) : -1;
 	for (int i = 0; i < kZoneCount; ++i) {
@@ -321,7 +324,7 @@ void SpeedDial(Draw& d, DemoBarUi& ui, const DemoBarModel& m, const Rect& r) {
 		if (i > 0 && hovered) l->AddLine(ImVec2(zx0, r.y0 + 6 * s), ImVec2(zx0, r.y1 - 6 * s), ToU32(Faded(Theme::Text, 0.24f)));
 		const float mark = r.x0 + (float)SliderFor(kZoneSpeeds[i]) * r.W();
 		l->AddLine(ImVec2(mark, r.y1 - 7 * s), ImVec2(mark, r.y1 - 3 * s), ToU32(Faded(Theme::Text, 0.35f)));
-		if (hovered && !ui.dialDragged) {
+		if (hovered && !ui.dragged) {
 			const float w = d.TextW(FontRole::Small, kZoneLabels[i]);
 			const float zoneCx = zx0 + r.W() / kZoneCount * 0.5f;
 			d.Text(FontRole::Small, ImVec2(std::round(zoneCx - w * 0.5f), r.y0 + 2 * s),
@@ -329,28 +332,29 @@ void SpeedDial(Draw& d, DemoBarUi& ui, const DemoBarModel& m, const Rect& r) {
 		}
 	}
 	// Slow is the menu's dim green-grey, 1x off-white, fast the HUD orange.
-	const double v = ui.dialValue;
+	const double v = ui.value;
 	const Color slow = Palette::DimText, mid = Palette::OffWhite, fast = Palette::Orange;
 	const Color a = v < 0.5 ? slow : mid, b = v < 0.5 ? mid : fast;
 	const float t = (float)(v < 0.5 ? v / 0.5 : (v - 0.5) / 0.5);
 	const Color tint = Rgba((int)(a.r + (b.r - a.r) * t), (int)(a.g + (b.g - a.g) * t), (int)(a.b + (b.b - a.b) * t));
-	const float hw = (ui.dialActive ? 9 : (hovered ? 7 : 4)) * s;
+	const float hw = (ui.active ? 9 : (hovered ? 7 : 4)) * s;
 	const float hx = r.x0 + (float)v * (r.W() - hw);
 	l->AddRectFilled(ImVec2(hx, r.y0 + 2 * s), ImVec2(hx + hw, r.y1 - 2 * s), ToU32(tint));
 	// The readout pill, faded while the zone labels are showing.
 	char text[16];
-	FormatSpeed(ui.dialActive ? SpeedFor(v) : m.timescale, text, sizeof(text));
+	FormatSpeed(ui.active ? SpeedFor(v) : timescale, text, sizeof(text));
 	const float pw = 70 * s, ph = 20 * s;
 	const Rect pill = MakeRect(cx - pw * 0.5f, r.y0 + (r.H() - ph) * 0.5f, cx + pw * 0.5f, r.y0 + (r.H() + ph) * 0.5f);
-	const float fade = hovered && !ui.dialDragged ? 0.25f : 1.0f;
+	const float fade = hovered && !ui.dragged ? 0.25f : 1.0f;
 	l->AddRectFilled(ImVec2(pill.x0, pill.y0), ImVec2(pill.x1, pill.y1), ToU32(Faded(Rgba(0, 0, 0, 230), fade)));
 	l->AddRect(ImVec2(pill.x0, pill.y0), ImVec2(pill.x1, pill.y1), ToU32(Faded(Theme::Border, fade)));
 	const float tw = d.TextW(FontRole::Label, text);
 	d.Text(FontRole::Label, ImVec2(std::round(cx - tw * 0.5f), std::round(pill.y0 + (ph - d.Size(FontRole::Label)) * 0.5f)),
 		Faded(tint, fade), text);
+	if (sent.empty()) return false;
+	speed = sent.back().value;
+	return true;
 }
-
-} // namespace
 
 std::string DemoBarLayoutText(const DemoBarLayout& l) {
 	std::string text;
@@ -505,7 +509,9 @@ std::vector<DemoBarAction> DrawDemoBar(DemoBarUi& ui, const DemoBarModel& m, con
 	if (free > dialW + 2 * 16 * rs) {
 		const float cx = (leftEnd + rightStart) * 0.5f;
 		ui.layout.dial = MakeRect(cx - dialW * 0.5f, rowY0, cx + dialW * 0.5f, rowY1);
-		SpeedDial(r, ui, m, ui.layout.dial);
+		double speed = 0;
+		if (DrawSpeedDial(r.list, fonts, r.s, ui.dial, m.timescale, ui.layout.dial, "##speed", speed))
+			r.Emit(DemoBarAction::Kind::Speed, 0, speed);
 	}
 
 	ImGui::PopID();

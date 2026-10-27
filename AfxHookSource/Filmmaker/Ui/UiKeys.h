@@ -37,6 +37,7 @@ inline ImGuiKey ImGuiKeyFromVirtualKey(int vk) {
 	case 0x10: return ImGuiKey_LeftShift;
 	case 0x11: return ImGuiKey_LeftCtrl;
 	case 0x12: return ImGuiKey_LeftAlt;
+	case 0x78: return ImGuiKey_F9;
 	default: return ImGuiKey_None;
 	}
 }

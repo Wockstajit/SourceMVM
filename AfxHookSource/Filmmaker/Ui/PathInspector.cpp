@@ -279,7 +279,7 @@ void DrawPathClearConfirm(PathInspectorState& state, const FontSet& fonts, float
 	std::vector<PathInspectorAction>& actions) {
 	if (!state.confirmClear) return;
 	// CS2's confirm overlay: the window dims, the dialog takes every click until it is answered.
-	BeginPanel("##pathclearconfirm", MakeRect(0, 0, clientW, clientH), Rgba(0, 0, 0, 150));
+	BeginOverlay("##pathclearconfirm", MakeRect(0, 0, clientW, clientH), Rgba(0, 0, 0, 150));
 	ImFont* title = fonts.Get(FontRole::CardTitle);
 	ImFont* body = fonts.Get(FontRole::RowLabel);
 	ImFont* button = fonts.Get(FontRole::Button);

@@ -5,11 +5,12 @@
 // (REGULAR TIMELINE / TIMELINE) and the docked editor under the preview, ESC EXIT.
 //
 // Engine-free: the game host and the browser mockup both call Draw inside an ImGui frame. PATH
-// CAMERA is CS2's rail and card (PathInspector.h); FOLLOW CAMERA and SCENE KEYS stay empty until the
-// steps that fill them.
+// CAMERA is CS2's rail and card (PathInspector.h), the TIMELINE dock CS2's keyframe editor
+// (TimelineDock.h); FOLLOW CAMERA and SCENE KEYS stay empty until the steps that fill them.
 
 #include "DemoBar.h"
 #include "PathInspector.h"
+#include "TimelineDock.h"
 #include "UiStyle.h"
 #include "WorkspaceLayoutMath.h"
 
@@ -26,6 +27,7 @@ struct CameraEditorState {
 	double inspectorW = Filmmaker::InspectorWidthMath::kDefault; // the operator's stored width
 	DemoBarUi demoBar;
 	PathInspectorState path;
+	TimelineDockState timeline;
 };
 
 struct CameraEditorFrame {
@@ -35,13 +37,15 @@ struct CameraEditorFrame {
 	bool exitClicked = false;
 	std::vector<DemoBarAction> demoActions; // from the demo bar in the REGULAR TIMELINE dock
 	std::vector<PathInspectorAction> pathActions; // from the PATH CAMERA tab
+	std::vector<TimelineDockAction> timelineActions; // from the TIMELINE dock
 };
 
 // Lays out and draws the workspace for a clientW x clientH window, with the demo bar in the
-// REGULAR TIMELINE dock and the camera path in the PATH CAMERA tab. Call between ImGui::NewFrame and
-// ImGui::Render; fonts must have been built for the layout scale (FontSet::scale).
+// REGULAR TIMELINE dock, the keys in the TIMELINE dock and the camera path in the PATH CAMERA tab.
+// Call between ImGui::NewFrame and ImGui::Render; fonts must have been built for the layout scale
+// (FontSet::scale).
 CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& fonts, float clientW, float clientH,
-	const DemoBarModel& demo, const PathInspectorModel& path);
+	const DemoBarModel& demo, const PathInspectorModel& path, const TimelineDockModel& timeline);
 
 // Stage height of the docked editor for a dock tab.
 float DockEditorHeight(DockTab dock);

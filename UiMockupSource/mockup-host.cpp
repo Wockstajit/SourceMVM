@@ -12,7 +12,8 @@
 //   - the world: a stand-in camera path ("markers on") ahead of the stand-in camera, drawn by the
 //     game's own path overlay (Ui/PathOverlay.h) over the frame, and a stand-in list of its
 //     cameras that the PATH CAMERA inspector edits (Ui/PathInspector.h) as the game's path would,
-//     with F opening the CAMERA MARKER card and its banner (Ui/MarkerPopup.h) on them;
+//     with F opening the CAMERA MARKER card and its banner (Ui/MarkerPopup.h) on them; its keys,
+//     in CS2's own key model, for the TIMELINE dock (Ui/TimelineDock.h) to edit;
 //   - the window: index.html forwards DOM mouse and key events here as the game host's window
 //     procedure forwards window messages, and asks for pointer lock while the game has the mouse.
 //
@@ -29,6 +30,8 @@
 #include "../AfxHookSource/Filmmaker/Ui/UiKeys.h"
 #include "../AfxHookSource/Filmmaker/Ui/WorkspaceMouse.h"
 #include "../AfxHookSource2/Deadlock/DeadlockOverlayMath.h"
+#include "../AfxHookSource2/Filmmaker/Movie/CamMarkers.h"
+#include "../AfxHookSource2/Filmmaker/Movie/GraphExpModel.h"
 #include "../AfxHookSource2/Filmmaker/Panorama/HudReadoutCadenceMath.h"
 
 #include <imgui.h>
@@ -150,6 +153,11 @@ struct Host {
 	bool cardOpen = false;      // the CAMERA MARKER card (F)
 	bool autoSnap = false;
 	MarkerCardState card;
+	Filmmaker::GraphExpModel timeline; // the TIMELINE dock's keys
+	unsigned timelineEpoch = 1;        // bumps when the keys are seeded: the dock re-fits its window
+	bool timelineDrive = true, timelineAuto = false;
+	bool timelineScrubbing = false;    // the dock's playhead is held by a drag
+	double timelineTick = 0;
 	SimDemo demo = MakeSimDemo();
 	std::string reply;          // backing store for strings handed to JavaScript
 };
@@ -520,6 +528,103 @@ void ApplyCardActions(const std::vector<MarkerCardAction>& actions) {
 	}
 }
 
+// The stand-in path's keys for the TIMELINE dock: the three cameras StandInPath draws, at the ticks
+// the PATH CAMERA tab lists, seeded the way the game seeds the dock from its path.
+void SeedTimeline() {
+	const double keys[3][7] = { { 230, 110, 40, 5, -25, 0, 90 }, { 340, 10, 70, 12, 0, 0, 75 }, { 270, -120, 45, 4, 30, 0, 90 } };
+	std::vector<Filmmaker::CamMarker> markers;
+	for (size_t i = 0; i < 3 && i < g.path.keys.size(); ++i) {
+		Filmmaker::CamMarker m;
+		m.x = keys[i][0]; m.y = keys[i][1]; m.z = keys[i][2];
+		m.pitch = keys[i][3]; m.yaw = keys[i][4]; m.roll = keys[i][5]; m.fov = keys[i][6];
+		m.tick = g.path.keys[i].tick;
+		markers.push_back(m);
+	}
+	g.timeline.SeedFromMarkers(markers);
+	if (g.path.interp == 1) g.timeline.SetInterpAll(true, false);
+	++g.timelineEpoch;
+}
+
+TimelineDockModel BuildTimelineModel() {
+	TimelineDockModel m;
+	m.keys = &g.timeline;
+	m.demo = g.demo.playing;
+	m.viewEpoch = g.timelineEpoch;
+	if (g.timeline.TotalKeys() > 0) {
+		const double lo = g.timeline.MinTick(), hi = std::max(g.timeline.MaxTick(), lo + 1), pad = (hi - lo) * 0.04 + 64;
+		m.viewT0 = std::max(0.0, lo - pad);
+		m.viewT1 = hi + pad;
+	} else {
+		m.viewT0 = g.demo.tick - 1000;
+		m.viewT1 = g.demo.tick + 1000;
+	}
+	m.domainT0 = 0;
+	m.domainT1 = g.demo.total;
+	m.playhead = g.timelineScrubbing ? g.timelineTick : g.demo.tick;
+	m.scrubbing = g.timelineScrubbing;
+	m.playing = g.demo.playing && !g.demo.paused;
+	m.drive = g.timelineDrive;
+	m.autoPath = g.timelineAuto;
+	m.smoothPath = g.path.interp == 1;
+	m.tickRate = 1.0 / g.demo.interval;
+	m.timescale = g.demo.timescale;
+	const double live[7] = { 0, 0, 64, g.pitch, -g.yaw, 0, g.demo.freeCamFov };
+	for (int c = 0; c < 7; ++c) m.live[c] = live[c];
+	return m;
+}
+
+// The TIMELINE dock's requests on the stand-in keys, as SourceTimelineDock.cpp applies them before
+// it writes them into the path.
+void ApplyTimelineActions(const std::vector<TimelineDockAction>& actions) {
+	using Kind = TimelineDockAction::Kind;
+	Filmmaker::GraphExpModel& k = g.timeline;
+	for (const TimelineDockAction& a : actions) {
+		switch (a.kind) {
+		case Kind::Select: k.Select(a.ch, a.id, a.flag); break;
+		case Kind::SelectSet:
+			k.ClearSelection();
+			for (const auto& m : a.keys) k.SelectAdd(m.first, m.second);
+			break;
+		case Kind::SelectAll: k.SelectAll(); break;
+		case Kind::SelectClear: k.ClearSelection(); break;
+		case Kind::EditBegin: k.BeginEdit(); break;
+		case Kind::MoveSelected: k.MoveSelectedBy(a.a, a.b); break;
+		case Kind::AddKey: k.Select(a.ch, k.AddKey(a.ch, a.a, a.b), true); break;
+		case Kind::DeleteSelected: {
+			k.BeginEdit();
+			std::vector<std::pair<int, int>> doomed;
+			for (int c = 0; c < Filmmaker::GraphExpModel::kChannelCount; ++c)
+				for (const auto& key : k.GetChannel(c).keys)
+					if (k.IsSelected(c, key.id)) doomed.emplace_back(c, key.id);
+			for (const auto& d : doomed) k.DeleteKey(d.first, d.second);
+			k.ClearSelection();
+			break;
+		}
+		case Kind::Ease: k.BeginEdit(); k.SetEase(a.id, a.flag); break;
+		case Kind::Interp:
+			k.BeginEdit();
+			k.SetInterpAll(a.flag, a.id == 1);
+			if (a.id != 1) g.path.interp = a.flag ? 1 : 0;
+			break;
+		case Kind::Undo: k.Undo(); break;
+		case Kind::Redo: k.Redo(); break;
+		case Kind::Drive: g.timelineDrive = a.flag; break;
+		case Kind::AutoPath: g.timelineAuto = a.flag; break;
+		case Kind::Playhead: g.timelineScrubbing = true; g.timelineTick = a.a; break;
+		case Kind::PlayheadRelease: g.timelineScrubbing = false; SeekSim((int)a.a); break;
+		case Kind::PlayPause: g.demo.paused = !g.demo.paused; break;
+		case Kind::Speed: g.demo.timescale = a.a; break;
+		}
+		k.RefreshAutoTangents();
+		if (a.kind != Kind::Playhead) {
+			char line[96];
+			std::snprintf(line, sizeof(line), "kind=%d ch=%d id=%d a=%.2f b=%.2f flag=%d keys=%d", (int)a.kind, a.ch, a.id, a.a, a.b,
+				a.flag ? 1 : 0, (int)a.keys.size());
+			LogLine("timeline.dock", line);
+		}
+	}
+}
+
 // The card while it is up, else the reposition banner over the game rect.
 void DrawCardAndBanner(const Rect& game, std::vector<MarkerCardAction>& actions) {
 	const PathInspectorModel& p = g.path;
@@ -588,7 +693,7 @@ void Frame() {
 	DirectorFrame directorFrame;
 	if (g.editor.open) {
 		g.path.tick = (int)g.demo.tick;
-		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo, g.path);
+		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo, g.path, BuildTimelineModel());
 	} else if (director) {
 		if (g.cadence.Ready((uint64_t)nowMs, 10, false)) BuildCards(g.cards);
 		// The backdrop is a CS:S spectator capture, so its spectator bars are where the game's are.
@@ -603,6 +708,7 @@ void Frame() {
 	ApplyDemoActions(frame.demoActions);
 	ApplyDemoActions(directorFrame.demoActions);
 	ApplyPathActions(frame.pathActions);
+	ApplyTimelineActions(frame.timelineActions);
 	g.bar = directorFrame.bar;
 	g.preview = frame.modal || g.cardOpen ? Rect() : frame.previewClient;
 	g.panelHovered = g.editor.open && io.WantCaptureMouse;
@@ -799,6 +905,7 @@ EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
 	if (down) {
 		switch (key) {
 		case WorkspaceKey::Close:
+			if (g.editor.dock == DockTab::Timeline && TimelineDockEscape(g.editor.timeline)) return 1;
 			Close("esc");
 			return 1;
 		case WorkspaceKey::ToggleGame:
@@ -898,11 +1005,26 @@ EMSCRIPTEN_KEEPALIVE const char* mockup_command(const char* command) {
 				}
 				g.path.selected = 1;
 			}
+			if (g.timeline.TotalKeys() == 0) SeedTimeline();
 		}
 		else if (0 == std::strcmp(what, "off")) g.pathOn = false;
 		else if (0 == std::strcmp(what, "freeze")) g.pathFreeze = true;
 		else if (0 == std::strcmp(what, "live")) g.pathFreeze = false;
 		g.reply = std::string("markers: ") + (g.pathOn ? "on" : "off") + (g.pathFreeze ? ", freeze" : ", live");
+		return g.reply.c_str();
+	}
+	if (0 == std::strncmp(action, "grapheditor ", 12)) { // the TIMELINE dock: on | off | state, as in game
+		const bool state = 0 == std::strcmp(action + 12, "state");
+		const bool on = state ? g.editor.dock == DockTab::Timeline : 0 == std::strcmp(action + 12, "on");
+		if (!state) {
+			if (on) Open("timeline dock");
+			g.editor.dock = on ? DockTab::Timeline : DockTab::RegularTimeline;
+		}
+		char buf[160];
+		std::snprintf(buf, sizeof(buf), "timeline: dock %s, keys %d, selected %d, view %.0f..%.0f, snap %d%s", on ? "open" : "closed",
+			g.timeline.TotalKeys(), g.timeline.SelectionCount(), g.editor.timeline.window.t0, g.editor.timeline.window.t1,
+			g.editor.timeline.snap, g.editor.timeline.snapMenu ? " (menu open)" : "");
+		g.reply = buf;
 		return g.reply.c_str();
 	}
 	if (0 == std::strncmp(action, "hud ", 4) || 0 == std::strncmp(action, "blackout ", 9)) {

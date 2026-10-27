@@ -67,16 +67,28 @@ struct DemoBarLayout {
 	Rect bar, band, play, back, forward, roundPrev, roundNext, nextKill, camera, loop, camEditor, dial;
 };
 
+// CS2's speed dial, which the demo bar and the TIMELINE dock's toolbar share: logarithmic 0.05x to
+// 20x with the middle exactly 1x; a click in one of five zones gives 0.1x, 0.25x, 1x, 4x or 10x, a
+// drag anything in between.
+struct SpeedDialState {
+	bool active = false;
+	bool dragged = false;
+	float pressX = 0;
+	double value = 0.5; // 0..1 along the strip
+	double lastSent = 0;
+};
+
+// Draws the dial into r (client px) at the stage scale. True when the demo's speed should become
+// speed this frame.
+bool DrawSpeedDial(ImDrawList* list, const FontSet& fonts, float scale, SpeedDialState& state, double timescale,
+	const Rect& r, const char* id, double& speed);
+
 // What the bar keeps between frames: a drag on the scrubber or the dial, and the last layout.
 struct DemoBarUi {
 	bool scrubbing = false;
 	float scrubPressX = 0;
 	int scrubTick = 0;
-	bool dialActive = false;
-	bool dialDragged = false;
-	float dialPressX = 0;
-	double dialValue = 0.5;
-	double lastSentSpeed = 0;
+	SpeedDialState dial;
 	int loopFlag = -1;          // the LOOP flag being dragged: 0 In, 1 Out
 	double loopFrac[2] = { 0, 0 };
 	double loopAnchorFrac = 0;
