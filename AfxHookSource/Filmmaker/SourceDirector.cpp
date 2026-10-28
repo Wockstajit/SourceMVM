@@ -35,8 +35,8 @@ const double kDefaultSpecSpeed = 3;
 // steps from the mode it asked for until then (CS2 holds it 30 frames too).
 const int kExpectFrames = 30;
 
-// SourceTV's camera, between frames: a demo start and a backward seek's restart reset it, and old
-// demos (and some new ones) start it at the map origin following nobody.
+// SourceTV's camera, between frames: a demo start resets it, a seek back may, and old demos (and
+// some new ones) start it at the map origin following nobody.
 struct Follow {
 	int mode = 0;
 	int userId = -1; // the player it follows
@@ -51,8 +51,8 @@ struct State {
 	int expectMode = 0;
 	int expectFrames = 0;
 	Follow follow;              // what SourceTV's camera did last
-	std::string followFile;     // in which demo (a backward seek replays the same file)
-	bool restore = false;       // a start or restart whose camera is still to be put right
+	std::string followFile;     // in which demo (a seek back plays on in the same file)
+	bool restore = false;       // a start or seek back whose camera is still to be put right
 	int restoreFrames = 0;
 	bool wasPlaying = false;
 	int lastTick = 0;
@@ -87,7 +87,7 @@ int UserIdOf(const std::vector<PlayerState>& players, int index) {
 	return -1;
 }
 
-// A demo starts, or a backward seek restarted it: once a player is alive, the camera goes back to
+// A demo starts, or a seek went back: once a player is alive, the camera goes back to
 // the mode and the player it had (CS2 keeps the watched player across a seek). A demo that starts
 // with the camera at the map origin following nobody goes into first person on the first player,
 // as a fresh CS2 demo opens. Gives up after 1200 frames.
@@ -115,7 +115,7 @@ void RestoreCamera() {
 	g.expectFrames = 0;
 }
 
-// Once a frame during a demo: notices starts and restarts, and twice a second remembers what
+// Once a frame during a demo: notices starts and seeks back, and twice a second remembers what
 // SourceTV's camera follows.
 void TrackCamera() {
 	const DemoState demo = Demo_State();
@@ -124,7 +124,7 @@ void TrackCamera() {
 		g.restore = true;
 		g.restoreFrames = 0;
 	} else if (demo.tick + 10 < g.lastTick) {
-		g.restore = true; // restarted
+		g.restore = true; // went back
 		g.restoreFrames = 0;
 	}
 	g.wasPlaying = true;

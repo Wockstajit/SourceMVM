@@ -58,10 +58,12 @@ struct DemoBarModel {
 };
 
 struct DemoBarAction {
-	enum class Kind { TogglePause, Seek, Speed, ToggleLoop, LoopRange, CameraEditor, Config, NextCamera };
+	// Scrub: the scrubber is dragged to tick (value 0), or let go there (value 1), and the world follows
+	// it live (CS2's DemoScrub). Seek: a button's jump (-5S, +5S, a round, a kill).
+	enum class Kind { TogglePause, Seek, Scrub, Speed, ToggleLoop, LoopRange, CameraEditor, Config, NextCamera };
 	Kind kind = Kind::TogglePause;
-	int tick = 0;      // Seek; LoopRange's In
-	double value = 0;  // Speed; LoopRange's Out
+	int tick = 0;      // Seek, Scrub; LoopRange's In
+	double value = 0;  // Speed; Scrub's release; LoopRange's Out
 };
 
 // Where each control was drawn last frame, client px. Hosts report it (mirv_filmmaker editor state,
@@ -90,6 +92,7 @@ bool DrawSpeedDial(ImDrawList* list, const FontSet& fonts, float scale, SpeedDia
 struct DemoBarUi {
 	bool scrubbing = false;
 	float scrubPressX = 0;
+	bool scrubDragged = false; // moved past a click: the world follows the drag
 	int scrubTick = 0;
 	SpeedDialState dial;
 	int loopFlag = -1;          // the LOOP flag being dragged: 0 In, 1 Out

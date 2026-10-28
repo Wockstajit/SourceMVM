@@ -59,8 +59,4 @@ void CameraBridge_GetDemoClock(double& outDemoTime, int& outDemoTick) {
 // while the follow camera has the view (CameraPath_Overlay), so there is nothing to switch.
 void CameraBridge_SetPathDrawEnabled(bool) {}
 
-double ScrubFrameCache_CameraTick(double playheadTick) { return playheadTick; }
-
-void ScrubFrameCache_NoteCamera(double, const double[7], const double*, bool) {}
-
 } // namespace Filmmaker

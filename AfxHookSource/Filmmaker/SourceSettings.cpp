@@ -29,6 +29,8 @@ constexpr unsigned long long kSaveDebounceMs = 500;
 
 bool g_loaded = false;
 bool g_keepCamera = true;
+bool g_scrubCache = true; // the TIMELINE dock's Cache: backward drags over played ticks from kept frames
+unsigned long long g_pictureRevision = 0; // the latest snapshot's hash: the camera feel changes the picture
 std::string g_defaults;  // the modules as constructed, before the file
 std::string g_saved;     // what the file holds
 std::string g_pending;   // the latest snapshot
@@ -53,6 +55,7 @@ std::string BuildSnapshot() {
 	b.IntField("version", 1);
 	Filmmaker::CameraFeel_Write(b);
 	b.BoolField("keepCameraAcrossDemos", g_keepCamera);
+	b.BoolField("scrubCache", g_scrubCache);
 	b.EndObject();
 	return b.Str();
 }
@@ -127,6 +130,8 @@ void Settings_Load() {
 			Filmmaker::CameraFeel_Load(root);
 			if (const Filmmaker::JsonValue* keep = root.Find("keepCameraAcrossDemos"); keep && keep->type == Filmmaker::JsonValue::Type::Bool)
 				g_keepCamera = keep->boolean;
+			if (const Filmmaker::JsonValue* cache = root.Find("scrubCache"); cache && cache->type == Filmmaker::JsonValue::Type::Bool)
+				g_scrubCache = cache->boolean;
 		} else {
 			g_lastError = "the file did not parse; the defaults are in use";
 		}
@@ -147,6 +152,7 @@ void Settings_Frame() {
 		if (!g_keepCamera && generation != 0) QuietCameraReset();
 	}
 	const std::string snapshot = BuildSnapshot();
+	g_pictureRevision = std::hash<std::string>()(snapshot);
 	const unsigned long long now = GetTickCount64();
 	if (g_quiet) {
 		if (snapshot == g_quietSnapshot) return; // still what the reset left: the file keeps the user's feel
@@ -172,6 +178,12 @@ void Settings_Flush() {
 }
 
 bool Settings_KeepCamera() { return g_keepCamera; }
+
+bool Settings_ScrubCache() { return g_scrubCache; }
+
+void Settings_SetScrubCache(bool on) { g_scrubCache = on; }
+
+unsigned long long Settings_PictureRevision() { return g_pictureRevision; }
 
 void Settings_SetKeepCamera(bool keep) {
 	g_keepCamera = keep;

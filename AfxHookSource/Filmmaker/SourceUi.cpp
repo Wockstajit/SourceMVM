@@ -11,6 +11,7 @@
 #include "SourceEngine.h"
 #include "SourceFollowCamera.h"
 #include "SourceMainThread.h"
+#include "SourceScrubFrameCache.h"
 #include "SourceTimelineDock.h"
 
 #include "Ui/CameraEditorShell.h"
@@ -28,6 +29,7 @@
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
 #include <AfxHookSource2/Filmmaker/Movie/CamPathShake.h>
+#include <AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h>
 #include <AfxHookSource2/Filmmaker/Platform/JsonParser.h>
 #include <AfxHookSource2/Filmmaker/Panorama/HudReadoutCadenceMath.h>
 #include <Shared/AfxConsole.h>
@@ -867,6 +869,7 @@ TimelineDockModel BuildTimelineModel() {
 	m.smoothPath = info.smoothPath;
 	m.tickRate = info.tickRate;
 	m.timescale = demo.timescale;
+	m.scrubCache = Filmmaker::ScrubFrameCache_Enabled();
 	for (int c = 0; c < 7; ++c) m.live[c] = info.live[c];
 	FillShakeTrack(m);
 	return m;
@@ -909,6 +912,7 @@ void ApplyTimelineActions(const std::vector<TimelineDockAction>& actions) {
 		case Kind::Workspace:
 			Open(a.flag ? Workspace::Config : Workspace::Editor, "dock");
 			break;
+		case Kind::ScrubCache: Filmmaker::ScrubFrameCache_SetEnabled(a.flag); break;
 		case Kind::ShakeCommand:
 			if (g_VEngineClient) g_VEngineClient->ClientCmd_Unrestricted(("mirv_filmmaker pathshake " + a.text).c_str());
 			break;
@@ -1252,11 +1256,15 @@ void Ui_RenderThreadPresent(IDirect3DDevice9* device) {
 		world = g_latestWorld;
 		if ((snapshot || world) && g_renderFont.version != g_fontPixels.version) g_renderFont = g_fontPixels;
 	}
+	g_renderer.SetPreviewSource(&ScrubFrames_PreviewTexture); // the scrub frame cache picks what the preview shows
 	if (snapshot || world) g_renderer.Render(device, world.get(), snapshot.get(), g_renderFont);
 	Capture_RenderThread(device); // a requested frame, the UI just drawn into it
 }
 
-void Ui_DeviceLost() { g_renderer.ReleaseDeviceObjects(); }
+void Ui_DeviceLost() {
+	g_renderer.ReleaseDeviceObjects();
+	ScrubFrames_DeviceLost();
+}
 
 bool Ui_OnSetCursorPos(int x, int y) {
 	const bool held = GameMouseHeld();

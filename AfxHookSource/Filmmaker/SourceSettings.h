@@ -29,6 +29,11 @@ void Settings_Flush();
 
 bool Settings_KeepCamera();
 void Settings_SetKeepCamera(bool keep);
+// The TIMELINE dock's Cache (the scrub frame cache, CS2's camtl.scrubCache), saved with the rest.
+bool Settings_ScrubCache();
+void Settings_SetScrubCache(bool on);
+// Changes whenever a saved setting does: the camera feel changes what a frame shows.
+unsigned long long Settings_PictureRevision();
 
 // mirv_filmmaker settings save | reset <smoothView|handheld|weaponRecoil|weaponBob|all> | state
 void Settings_Command(int argc, advancedfx::ICommandArgs* args);

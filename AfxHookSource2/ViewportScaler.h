@@ -3,6 +3,7 @@
 #include <d3d11.h>
 
 #include "Filmmaker/Movie/ScrubFrameCacheMath.h"
+#include "Filmmaker/Movie/ScrubFrameCacheHost.h" // the frame identity and stats types, shared with CS:S
 
 // CViewportScaler -- render-layer post-process that scales the just-rendered full-screen
 // world frame down into a sub-rectangle of the backbuffer, so the Panorama camera-editor
@@ -140,12 +141,7 @@ namespace AfxViewportScaler {
 	// What one main-thread frame renders, published once per frame (main thread). The engine
 	// thread hands it to the render thread with that frame's scale blit, so a capture always
 	// carries the identity of the frame it copies.
-	struct ScrubCacheFrame {
-		Filmmaker::ScrubCache::FrameId id;
-		bool serve = false;     // show the cached frame for serveTick instead of the world
-		double serveTick = 0.0;
-		double nearTick = 0.0;  // where the user is: a full cache evicts the frames farthest away
-	};
+	using ScrubCacheFrame = Filmmaker::ScrubFramePublish;
 	void ScrubCache_Publish(const ScrubCacheFrame& frame);
 	// Main thread. Off releases every frame (and its VRAM) at the next present.
 	void ScrubCache_Configure(bool enabled, int budgetMb);
@@ -156,13 +152,7 @@ namespace AfxViewportScaler {
 	int ScrubCache_DropSlot(int slot);
 	int ScrubCache_Clear();
 
-	struct ScrubCacheStats {
-		bool enabled = false;
-		int frames = 0, capacity = 0;
-		unsigned width = 0, height = 0;      // one frame, px
-		unsigned long long bytes = 0;        // VRAM held by frame textures
-		unsigned long long stores = 0, served = 0, serveMissing = 0, evictions = 0, poseMismatches = 0;
-	};
+	using ScrubCacheStats = Filmmaker::ScrubFrameStats;
 	void ScrubCache_GetStats(ScrubCacheStats& out);
 
 } // namespace AfxViewportScaler

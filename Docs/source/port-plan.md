@@ -84,7 +84,7 @@ Measured on the installed game on 2026-10-26:
 | 10 | Timelines | TIMELINE dock, regular timeline, loop, In/Out flags | Done 2026-10-26; the TIMELINE dock's camera shake rows with step 12, its Cache with step 13 and its render range with step 14 |
 | 11 | Follow camera | Lock-on and Attached; players, weapons, the C4 and grenades; death and lost-target policy; the FOLLOW CAMERA tab; the Events list; the in-world marker and target box | Done 2026-10-27. On 2026-10-26: CS2's follow camera split into shared code and a game host, and Lock-on on players, weapons and the C4, with the Events list and the in-world marker and target box, from the console and the FOLLOW CAMERA tab ([README.md](README.md#follow-camera)). On 2026-10-27: Attached on players' bones (living or ragdoll) and weapons' muzzles, with Reposition; and grenades, dated from their flight, with Go To Throw, checked in the grenade test demo |
 | 12 | Camera shakes | Handheld, path shake, recoil, bob, rage | Done 2026-10-27: CS2's shake stack split into shared code and a game host, and Handheld, Weapon Recoil and Weapon Bob in CS:S from the console, recoil firing from the shot temp entity ([README.md](README.md#camera-shakes)); and path shake (RAGE styles) on the camera path's keys, saved in the demo's project ([README.md](README.md#path-shake)). Also done: the TIMELINE dock's shake rows, their right-click menu, GRAPH curves and value editing ([README.md](README.md#path-shake)); and the Config workspace with the Smooth View, Handheld Camera, Weapon Recoil and Weapon Bob cards and their PIVOT drawers ([README.md](README.md#config-workspace)). Also done: the viewmodel channel, so Weapon Recoil and Weapon Bob move the gun and the gun rides the shake ([README.md](README.md#camera-shakes)). Also done: the camera feel saved between sessions, with Keep between demos ([README.md](README.md#saved-settings)), and the pivot markers ([README.md](README.md#camera-shakes)) |
-| 13 | Demo tools | Demos browser, scrubbing, timescale, end hold | In parts. Done 2026-10-27: the end of demo hold, shared with CS2 through a game host, stopping a few frames' worth of ticks before the end ([README.md](README.md#end-of-demo-hold)); timescale is the demo bar's and the dock's speed dial (step 7); and the demos browser, a page the main menu's DEMOS button opens, on CS2's scanner and stores ([README.md](README.md#demos-browser)). Left: live scrubbing and the dock's Cache |
+| 13 | Demo tools | Demos browser, scrubbing, timescale, end hold | Done 2026-10-27: the end of demo hold, shared with CS2 through a game host, stopping a few frames' worth of ticks before the end ([README.md](README.md#end-of-demo-hold)); timescale is the demo bar's and the dock's speed dial (step 7); and the demos browser, a page the main menu's DEMOS button opens, on CS2's scanner and stores ([README.md](README.md#demos-browser)). Done later the same day: live scrubbing of the demo bar's scrubber and the dock's ruler, the dock's Cache, and seeks back that rewind in place instead of starting the demo over ([README.md](README.md#live-scrub), [README.md](README.md#seeking-back)) |
 | 14 | Render workspace | Range, camera, HUD and output tabs; passes; FPS; done sound; previous renders | |
 | 15 | Lens | Depth of field, bokeh, flare, fisheye | |
 | 16 | Effects | Config effects, view and weapon effects, particles converted for CS:S and precached | |
@@ -189,11 +189,10 @@ best-effort. GoldSrc is a separate DLL (`AfxHookGoldSrc`) that reuses the engine
 - Old demos: demos of network protocols other than 7 and 24 (one test demo used 17) are not
   converted. [README.md](README.md#old-demos) lists the values the converter cannot carry over.
 
-- The demo bar seeks back by restarting the demo itself and waiting for it to play before it seeks
-  forward (`SourceDemoBar.cpp`), because the engine's own backward seek used to stop on dropped
-  bodies. Since the hook keeps them, the engine's own `demo_gototick` back works too (checked
-  2026-10-27). Moving the bar onto it removes the restart wait, and needs the bar, LOOP, camera
-  path and TIMELINE seeks checked again.
+- A seek back replays the demo from its start in the frame it is asked in (`SourceDemoRewind.cpp`),
+  so it costs more the later the tick: about 14 ms at tick 600 of the test demo. A long match demo
+  needs snapshots along the way, as CS2's keyframed copies give it, before seeks back late in the
+  demo stay that quick.
 
 - The command port's socket server is `Shared/NetconServer`, generalized from Deadlock's
   `DeadlockNetcon.cpp`, and the client is `Automation/netcon/hook-netcon.ps1`, generalized from

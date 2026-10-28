@@ -2,7 +2,6 @@
 
 #include "SourceTimelineDock.h"
 #include "SourceCameraPath.h"
-#include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
 #include "SourceEngine.h"
 #include "SourceFollowCamera.h"
@@ -11,6 +10,8 @@
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
 #include <AfxHookSource2/Filmmaker/Movie/CameraBridge.h>
+#include <AfxHookSource2/Filmmaker/Movie/DemoScrub.h>
+#include <AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h>
 #include <Shared/AfxConsole.h>
 
 #include <algorithm>
@@ -156,8 +157,7 @@ bool DrivingNow() { return ScrubDrives() || g.editDriveFrames > 0 || g.releaseDr
 void DriveCameraThisFrame() {
 	const bool editDrive = g.editDriveFrames > 0 || g.releaseDrive;
 	if (g.editDriveFrames > 0) --g.editDriveFrames;
-	int target = 0;
-	if (g.releaseDrive && !DemoBar_SeekTarget(target)) g.releaseDrive = false; // this frame still flies it
+	if (g.releaseDrive && !Filmmaker::DemoScrub_Active()) g.releaseDrive = false; // this frame still flies it
 	if (!g.enabled || !g.drive || g.model.TotalKeys() == 0) return;
 	if (!ScrubDrives() && !editDrive) return;
 	if (CameraPath_OwnsView() || FollowCamera_OwnsView()) return; // the path's own playback, or the follow camera, has the view
@@ -170,11 +170,14 @@ void DriveCameraThisFrame() {
 	const double defaults[7] = { origin[0], origin[1], origin[2], angles[0], angles[1], angles[2], fov };
 	double pose[7];
 	// One camera, one curve: the path's pose, which is what plays and renders. The model only when the
-	// path cannot evaluate (under two markers).
-	const bool onPath = CameraPath_EvalPoseAtTick(tick, pose);
+	// path cannot evaluate (under two markers). With the scrub frame cache on, a drag flies the WORLD's
+	// time (ScrubFrameCache_CameraTick), so every frame shows one tick as a render would and can be kept.
+	const double camTick = Filmmaker::ScrubFrameCache_CameraTick(tick);
+	const bool onPath = CameraPath_EvalPoseAtTick(camTick, pose);
 	if (!onPath) g.model.SamplePose(tick, defaults, pose);
 	CameraBridge_SetFreeCamEnabled(true);
 	CameraBridge_SetCameraPose(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6]);
+	if (onPath) Filmmaker::ScrubFrameCache_NoteCamera(camTick, pose);
 	if (Filmmaker::MvmDebugLog_Active()) {
 		static unsigned n = 0;
 		if ((n++ % 30) == 0)
@@ -373,13 +376,16 @@ void TimelineDock_SetDrive(bool on) {
 }
 
 void TimelineDock_Playhead(double tick, bool release) {
+	// The world follows the playhead (DemoScrub: glides forward, lands a release exactly), as CS2's
+	// graph does.
 	if (release) {
 		const bool wasScrubbing = TimelinePlayhead_Scrubbing();
-		DemoBar_SeekTo((int)std::floor(tick + 0.5)); // the world goes there first, then the hold
+		Filmmaker::DemoScrub_Release(std::floor(tick + 0.5)); // the world goes there first, then the hold
 		TimelinePlayhead_EndScrub();
 		if (wasScrubbing && CameraPath_AutoPath()) g.releaseDrive = true;
 	} else {
 		TimelinePlayhead_BeginScrub(tick);
+		Filmmaker::DemoScrub_Drag(tick);
 	}
 	if (Filmmaker::MvmDebugLog_Active()) {
 		static unsigned n = 0;

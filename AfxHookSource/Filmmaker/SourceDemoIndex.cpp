@@ -45,8 +45,8 @@ bool FileExists(const std::string& path) {
 	return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
 }
 
-// Size and write time, to tell a demo the engine restarted (a backward seek replays it from the
-// start) from a new recording under the same name.
+// Size and write time, to tell the same demo played again from a new recording under the same
+// name.
 std::string FileStamp(const std::string& path) {
 	WIN32_FILE_ATTRIBUTE_DATA data;
 	if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &data)) return std::string();

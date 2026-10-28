@@ -1,10 +1,10 @@
 #include "stdafx.h"
 
 #include "SourceTimelinePlayhead.h"
-#include "SourceDemoBar.h"
 #include "SourceEngine.h"
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
+#include <AfxHookSource2/Filmmaker/Movie/DemoScrub.h>
 
 #include <cmath>
 
@@ -46,8 +46,11 @@ void TimelinePlayhead_EndScrub() {
 	if (!g.scrubbing) return; // only a drag in progress is released
 	g.scrubbing = false;
 	g.held = true;
-	int target = 0;
-	g.heldTick = DemoBar_SeekTarget(target) ? (double)target : std::floor(g.tick + 0.5);
+	// The tick the release sent the world to (DemoScrub_Release), else the last dragged one; a release
+	// lands on the nearest whole tick.
+	double target = g.tick;
+	Filmmaker::DemoScrub_Target(target);
+	g.heldTick = std::floor(target + 0.5);
 	g.landedTick = -1;
 	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("playhead.hold", "hold tick=%.0f", g.heldTick);
 }
@@ -58,8 +61,8 @@ double TimelinePlayhead_Tick() {
 	if (g.scrubbing) return g.tick;
 	const int demoTick = Demo_State().tick;
 	if (g.held) {
-		int target = 0;
-		if (DemoBar_SeekTarget(target)) { // still travelling: the demo tick is the old place
+		double target = 0.0;
+		if (Filmmaker::DemoScrub_Target(target)) { // still travelling: the demo tick is the old place
 			if (std::fabs(target - g.heldTick) <= 0.5) return g.heldTick;
 			Drop("rescrubbed", demoTick);
 			return (double)demoTick;

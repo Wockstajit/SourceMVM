@@ -1,18 +1,9 @@
 #include "ScrubFrameCache.h"
 
 #include "ScrubFrameCacheMath.h"
+#include "ScrubFrameCacheHost.h"           // what the cache asks the game: CS2's answers or CS:S's
 #include "DemoScrub.h"
-#include "CameraPath.h"                    // EvalPoseAtTick / PathRevision: the pose a frame was taken with
-#include "CamPathShake.h"                  // CamPathShake_Revision: per-key shake edits change the picture
-#include "SceneKeys.h"                     // SceneKeys_Revision: scene key edits change the picture
-#include "TimelinePlayhead.h"              // a camera-path surface (timeline, graph) is being dragged
-#include "CameraBridge.h"                  // a parked frame lets go when the camera moves
-#include "../Config/FilmmakerSettingsStore.h" // the Cache toggle; PictureRevision
 #include "../Debug/MvmDebugLog.h"
-#include "../Environment/EnvironmentScene.h"  // SceneGeneration: lights, sky, map lighting
-#include "../Heatmap/RoundHeatmap.h"           // the round heat map painted on the floor
-#include "../Props/SceneUndoClock.h"       // every scene object edit
-#include "../../ViewportScaler.h"          // the frames themselves (render thread)
 
 #include "../../../Shared/AfxConsole.h"
 
@@ -26,7 +17,6 @@
 namespace Filmmaker {
 namespace {
 
-constexpr const char* kUiKey = "camtl.scrubCache";
 // How far path playback's predicted clock may trail the world and its frame still be kept (CamPlayback
 // starts ~13 ticks behind while it learns the tick rate; beyond its own seek snap, 16, it is a seek).
 constexpr double kPlaybackLagTicks = 16.0;
@@ -69,33 +59,14 @@ constexpr double kParkCameraTolerance = 0.5; // units / degrees
 unsigned long long g_hits = 0, g_misses = 0, g_poseDrops = 0, g_revisionDrops = 0, g_takesStarted = 0;
 unsigned long long g_servedFrames = 0, g_notedFrames = 0, g_cacheableFrames = 0, g_parks = 0;
 
-uint64_t Mix(uint64_t h, uint64_t v) {
-	h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
-	return h;
-}
-
-// Everything other than time and the camera that changes what a frame shows.
-uint64_t PictureRevision() {
-	uint64_t h = 0x84222325cbf29ce4ull;
-	h = Mix(h, FilmmakerSettings_PictureRevision());
-	h = Mix(h, (uint64_t)(int64_t)SceneKeys_Revision());
-	h = Mix(h, g_sceneUndoClock.load(std::memory_order_relaxed));
-	h = Mix(h, Environment::SceneGeneration());
-	h = Mix(h, CameraPathRef().PathRevision());
-	// The per-key shake is a view-stage layer the pose check cannot see (it compares the path).
-	h = Mix(h, CamPathShake_Revision());
-	h = Mix(h, Heatmap::PictureRevision());
-	return h ? h : 1;
-}
-
-// The toggle lives in the settings store (it may load after the first frame, and the UI writes it),
-// so it is read every frame; a change reaches the render thread at once.
+// The toggle lives in the game's settings (it may load after the first frame, and the UI writes it),
+// so it is read every frame; a change reaches the render side at once.
 void ReadToggle() {
-	const bool want = FilmmakerSettings_UiBool(kUiKey, true);
+	const bool want = ScrubCacheHost_Enabled();
 	if (g_configured && want == g_enabled) return;
 	g_configured = true;
 	g_enabled = want;
-	AfxViewportScaler::ScrubCache_Configure(g_enabled, g_budgetMb);
+	ScrubFrames_Configure(g_enabled, g_budgetMb);
 }
 
 void Log(const char* fmt, ...) {
@@ -111,20 +82,17 @@ void Log(const char* fmt, ...) {
 // Read at the start of the frame (DemoScrub's lookups) and again at its end: an edit made during
 // the frame (a graph drag bakes into the path) must not stamp this frame with the old revision.
 void UpdateRevision() {
-	const uint64_t rev = PictureRevision();
+	uint64_t rev = ScrubCacheHost_PictureRevision();
+	if (!rev) rev = 1; // 0 means none yet
 	if (rev == g_revision) return;
 	const bool first = g_revision == 0;
 	g_revision = rev;
-	const int n = AfxViewportScaler::ScrubCache_DropOtherRevisions(rev);
+	const int n = ScrubFrames_DropOtherRevisions(rev);
 	g_revisionDrops += (unsigned long long)n;
 	if (n > 0 && !first) Log("revision changed: dropped %d frame(s)", n);
 }
 
-void ReadCamera(double out[7]) {
-	double o[3], a[3], fov = 90.0;
-	CameraBridge_GetCurrentCamera(o, a, fov);
-	out[0] = o[0]; out[1] = o[1]; out[2] = o[2]; out[3] = a[0]; out[4] = a[1]; out[5] = a[2]; out[6] = fov;
-}
+void ReadCamera(double out[7]) { ScrubCacheHost_Camera(out); }
 
 void Unpark(const char* why) {
 	if (!g_parked) return;
@@ -136,18 +104,18 @@ void Unpark(const char* why) {
 // it was kept with. `pathCamera`: the caller knows the camera is the path's.
 bool Find(double tick, bool pathCamera) {
 	if (!g_enabled || !g_haveWorld) return false;
-	if (!pathCamera && !(g_framesSinceNote <= kPathCameraFrames || TimelinePlayhead_Scrubbing())) return false;
+	if (!pathCamera && !(g_framesSinceNote <= kPathCameraFrames || ScrubCacheHost_PathScrubbing())) return false;
 	ScrubCache::Index::Entry e;
-	const int slot = AfxViewportScaler::ScrubCache_Find(tick, g_revision, &e);
+	const int slot = ScrubFrames_Find(tick, g_revision, &e);
 	if (slot < 0) return false;
 	// The revision follows every path edit; this catches anything it missed: the path must still
 	// fly the pose the frame was taken with.
 	double p[7];
-	if (CameraPathRef().EvalPoseAtTick(e.worldTime, p)) {
+	if (ScrubCacheHost_PathPose(e.worldTime, p)) {
 		float fp[ScrubCache::kPoseValues];
 		for (int i = 0; i < ScrubCache::kPoseValues; ++i) fp[i] = (float)p[i];
 		if (!ScrubCache::PoseNear(fp, e.pathPose)) {
-			AfxViewportScaler::ScrubCache_DropSlot(slot);
+			ScrubFrames_DropSlot(slot);
 			++g_poseDrops;
 			Log("pose changed at tick %d: dropped", e.tick);
 			return false;
@@ -163,7 +131,7 @@ bool ScrubFrameCache_Enabled() {
 }
 
 void ScrubFrameCache_SetEnabled(bool enabled) {
-	FilmmakerSettings_SetUi(kUiKey, enabled ? "1" : "0");
+	ScrubCacheHost_SetEnabled(enabled);
 	const bool changed = enabled != g_enabled;
 	ReadToggle();
 	if (changed) Log("toggle %s", enabled ? "on" : "off");
@@ -203,9 +171,9 @@ void ScrubFrameCache_BeginFrame() {
 }
 
 bool ScrubFrameCache_Recording() {
-	const CameraPath& cp = CameraPathRef();
-	if (!cp.HasPathRange()) return true;
-	return ScrubCache::Recording(g_takes.start, (double)cp.FirstPathTick());
+	double first = 0.0;
+	if (!ScrubCacheHost_PathFirstTick(first)) return true;
+	return ScrubCache::Recording(g_takes.start, first);
 }
 
 void ScrubFrameCache_Park(double tick) {
@@ -255,7 +223,7 @@ void ScrubFrameCache_NoteSeek() {
 }
 
 void ScrubFrameCache_EndFrame() {
-	AfxViewportScaler::ScrubCacheFrame f;
+	ScrubFramePublish f;
 	if (g_parked && !g_serve) {
 		if (Find(g_parkTick, true)) { g_serve = true; g_serveTick = g_parkTick; }
 		else Unpark("frame no longer valid");
@@ -272,7 +240,7 @@ void ScrubFrameCache_EndFrame() {
 		// beyond kPlaybackLagTicks it is a seek snap, not playback.
 		if (g_camNoted && g_camClock) {
 			double p[7];
-			if (std::fabs(g_camTick - g_now) <= kPlaybackLagTicks && CameraPathRef().EvalPoseAtTick(g_now, p)) {
+			if (std::fabs(g_camTick - g_now) <= kPlaybackLagTicks && ScrubCacheHost_PathPose(g_now, p)) {
 				f.id.cameraTick = g_now;
 				for (int i = 0; i < ScrubCache::kPoseValues; ++i) g_camPathPose[i] = (float)p[i];
 			} else {
@@ -294,7 +262,7 @@ void ScrubFrameCache_EndFrame() {
 		if (g_camNoted) ++g_notedFrames;
 		if (ScrubCache::Cacheable(f.id)) ++g_cacheableFrames;
 	}
-	AfxViewportScaler::ScrubCache_Publish(f);
+	ScrubFrames_Publish(f);
 
 	// Once a second while anything happened: the main-thread half of the story (the render thread
 	// logs stored/served per present as `scrub.cache present`).
@@ -317,7 +285,7 @@ void ScrubFrameCache_RunCommand(int argc, advancedfx::ICommandArgs* args, const 
 	if (0 == _stricmp(sub, "on") || 0 == _stricmp(sub, "off")) {
 		ScrubFrameCache_SetEnabled(0 == _stricmp(sub, "on"));
 	} else if (0 == _stricmp(sub, "clear")) {
-		const int n = AfxViewportScaler::ScrubCache_Clear();
+		const int n = ScrubFrames_Clear();
 		advancedfx::Message("%s scrub cache: cleared %d frame(s)\n", cmd, n);
 		return;
 	} else if (0 == _stricmp(sub, "budget") && argc >= 5) {
@@ -325,7 +293,7 @@ void ScrubFrameCache_RunCommand(int argc, advancedfx::ICommandArgs* args, const 
 		if (mb < 16) mb = 16;
 		if (mb > 4096) mb = 4096;
 		g_budgetMb = mb;
-		AfxViewportScaler::ScrubCache_Configure(g_enabled, g_budgetMb);
+		ScrubFrames_Configure(g_enabled, g_budgetMb);
 	} else if (0 != _stricmp(sub, "status")) {
 		advancedfx::Message("%s scrub cache on|off|clear|budget <MB>\n", cmd);
 		return;
@@ -334,8 +302,8 @@ void ScrubFrameCache_RunCommand(int argc, advancedfx::ICommandArgs* args, const 
 }
 
 void ScrubFrameCache_PrintHealth() {
-	AfxViewportScaler::ScrubCacheStats cs;
-	AfxViewportScaler::ScrubCache_GetStats(cs);
+	ScrubFrameStats cs;
+	ScrubFrames_GetStats(cs);
 	advancedfx::Message("  scrub frame cache            : %s, %d/%d frames %ux%u, %llu MB VRAM (budget %d MB), take %d\n"
 		"                                 hits %llu misses %llu, stored %llu served %llu (missing %llu), evicted %llu,\n"
 		"                                 dropped: edits %llu, pose %llu; pose mismatches %llu; parks %llu%s\n",

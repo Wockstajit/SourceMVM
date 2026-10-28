@@ -91,7 +91,7 @@ void LoopIcon(Draw& d, const Rect& r, Color color) {
 }
 
 // The marker band and the groove: round cells, kills, bomb events, the LOOP region, the playhead,
-// and scrubbing. Scrubbing seeks on release; the ghost playhead follows the drag until then.
+// and scrubbing. A drag scrubs the world live and lands where it is let go; a click lands there.
 void Scrubber(Draw& d, DemoBarUi& ui, const DemoBarModel& m, const Rect& band, const Rect& groove) {
 	ImDrawList* l = d.list;
 	const float s = d.s;
@@ -232,14 +232,21 @@ void Scrubber(Draw& d, DemoBarUi& ui, const DemoBarModel& m, const Rect& band, c
 	if (ImGui::IsItemActivated()) {
 		ui.scrubbing = true;
 		ui.scrubPressX = mouse.x;
+		ui.scrubDragged = false;
 	}
-	if (ui.scrubbing && ImGui::IsItemActive()) ui.scrubTick = TickAtX(mouse.x, band.x0, band.x1, first, last);
+	if (ui.scrubbing && ImGui::IsItemActive()) {
+		const int tick = TickAtX(mouse.x, band.x0, band.x1, first, last);
+		ui.scrubDragged = ui.scrubDragged || std::fabs(mouse.x - ui.scrubPressX) > kClickSlopPx * s;
+		// The world follows a drag as it goes (CS2's DemoScrub); a click waits for the release.
+		if (ui.scrubDragged && tick != ui.scrubTick) d.Emit(DemoBarAction::Kind::Scrub, tick, 0);
+		ui.scrubTick = tick;
+	}
 	if (ui.scrubbing && ImGui::IsItemDeactivated()) {
 		ui.scrubbing = false;
-		const bool click = std::fabs(mouse.x - ui.scrubPressX) <= kClickSlopPx * s;
-		// A click on a kill plays into it; any other click or drag goes where it was let go.
+		const bool click = !ui.scrubDragged && std::fabs(mouse.x - ui.scrubPressX) <= kClickSlopPx * s;
+		// A click on a kill plays into it; any other click or drag lands where it was let go.
 		if (click && hoveredKill >= 0) d.Emit(DemoBarAction::Kind::Seek, m.kills[hoveredKill].tick - EventLeadTicks(m.intervalPerTick));
-		else d.Emit(DemoBarAction::Kind::Seek, TickAtX(mouse.x, band.x0, band.x1, first, last));
+		else d.Emit(DemoBarAction::Kind::Scrub, TickAtX(mouse.x, band.x0, band.x1, first, last), 1);
 	}
 
 	// The playhead over everything.

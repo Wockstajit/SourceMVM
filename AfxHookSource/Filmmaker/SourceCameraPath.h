@@ -93,6 +93,11 @@ bool CameraPath_Repositioning();
 void CameraPath_ReplaceMarkersFromGraph(const std::vector<Filmmaker::CamMarker>& markers, bool pushUndo);
 // The path's pose at a demo tick (x, y, z, pitch, yaw, roll, FOV); false under two markers.
 bool CameraPath_EvalPoseAtTick(double tick, double out[7]);
+// Counts every rebuild of the path (an edit, a load), so a frame taken with another path is dropped
+// (the scrub frame cache's picture revision).
+unsigned long long CameraPath_Revision();
+// The first key's tick; false under two markers.
+bool CameraPath_FirstTick(double& tick);
 // AUTO, the CAMERA PATH layer's button on the TIMELINE dock (CS2's RunAutoPath): while the dock is
 // open and the demo plays through the path's keys in Live timing, the view follows the path; before
 // the first key and after the last it is the game's. J plays the path either way.

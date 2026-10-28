@@ -12,6 +12,7 @@
 #include "SourceDemoDeletions.h"
 #include "SourceSettings.h"
 #include "SourceViewModel.h"
+#include "SourceDemoRewind.h"
 #include "SourceDemoSkip.h"
 #include "SourceDirector.h"
 #include "SourceEngine.h"
@@ -38,6 +39,8 @@
 #include <AfxHookSource2/Filmmaker/Movie/FollowCamera.h>
 #include <AfxHookSource2/Filmmaker/Movie/HandheldCam.h>
 #include <AfxHookSource2/Filmmaker/Movie/DemoEndHold.h>
+#include <AfxHookSource2/Filmmaker/Movie/DemoScrub.h>
+#include <AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h>
 #include <AfxHookSource2/Filmmaker/Movie/RecoilPivotMarker.h>
 #include <AfxHookSource2/Filmmaker/Movie/WeaponBob.h>
 #include <AfxHookSource2/Filmmaker/Movie/WeaponPivot.h>
@@ -133,6 +136,7 @@ void PrintHealth() {
 	}
 	DemoIndex_PrintHealth();
 	OldDemos_PrintHealth();
+	DemoRewind_PrintHealth();
 	DemoSkip_PrintHealth();
 	DemoDeletions_PrintHealth();
 	CameraShake_PrintHealth();
@@ -147,6 +151,7 @@ void PrintHealth() {
 	TimelineDock_PrintHealth();
 	FollowCamera_PrintHealth();
 	Ui_PrintOverlayHealth();
+	Filmmaker::ScrubFrameCache_PrintHealth();
 
 	const ViewPose game = View_Game();
 	const ViewPose rendered = View_Rendered();
@@ -201,7 +206,7 @@ void PrintUsage() {
 		"mirv_filmmaker effects - reset camera: every Config CAMERA card back to its defaults; keep camera on|off|toggle: carry them into the next demo.\n"
 		"mirv_filmmaker settings - save | reset <group> | state: the saved camera feel (filmmaker_settings_source1.json).\n"
 		"mirv_filmmaker loop    - on|off|toggle|state: LOOP playback between the demo bar's In and Out.\n"
-		"mirv_filmmaker seek    - <tick>: go to a demo tick as the demo bar does (back = restart, then forward).\n"
+		"mirv_filmmaker seek    - <tick>: go to a demo tick as the demo bar does (back, in place).\n"
 		"mirv_filmmaker hud     - on|off|toggle|state: the movie director's cards during a demo.\n"
 		"mirv_filmmaker blackout - on|off|toggle|status: F8's blackout (no HUD, no bar, no cards).\n"
 		"mirv_filmmaker director - state: the movie director's mouse, cards, and where each bar control is.\n"
@@ -211,7 +216,8 @@ void PrintUsage() {
 		"mirv_filmmaker follow  - place|nearest|select|preview|stop|status|campose|...: CS2's follow camera (players).\n"
 		"mirv_filmmaker handheld|weaponrecoil|weaponbob|pivot|pivotorb|camshake|pathshake - CS2's camera shake layers.\n"
 		"mirv_filmmaker capture - <file.bmp>: the next frame as the game shows it, the filmmaker's UI included.\n"
-		"mirv_filmmaker window  - status|resizable|size|aspect|ratios|snap|overlay: drag the window to any size (SHIFT snaps).\n");
+		"mirv_filmmaker window  - status|resizable|size|aspect|ratios|snap|overlay: drag the window to any size (SHIFT snaps).\n"
+		"mirv_filmmaker scrub   - drag|release <tick>|status|cache on|off|clear|budget <MB>: the world follows a timeline drag.\n");
 }
 
 // The 64-bit CS:S never calls the client's Shutdown through HLAE's wrapper (main.cpp), so the
@@ -247,6 +253,7 @@ void Init() {
 	Engine_Init();
 	DemoIndex_Init();
 	OldDemos_Init();
+	DemoRewind_Init();
 	DemoSkip_Init();
 	DemoDeletions_Init();
 	Settings_Load(); // before anything can change a module: the defaults are taken first
@@ -299,11 +306,16 @@ void OnFrameRenderStart() {
 	Window_Frame(); // a finished resize reaches the engine before the UI lays out
 	DemoIndex_Frame();
 	OldDemos_Frame();
+	DemoRewind_Init();
 	DemoSkip_Init();
 	DemoDeletions_Init();
 	CameraShake_Init();
 	ViewModel_Init();
 	Entities_WatchFrame();
+	// The scrub frame cache and the live scrub before anything flies the camera (CS2's order):
+	// BeginFrame, the scrub, the camera drivers, then EndFrame publishes what this frame shows.
+	Filmmaker::ScrubFrameCache_BeginFrame();
+	Filmmaker::DemoScrub_RunFrame();
 	DemoBar_Frame();
 	Filmmaker::DemoEndHold_RunFrame(); // stop just before the demo runs out
 	Demos_Frame();
@@ -312,6 +324,7 @@ void OnFrameRenderStart() {
 	TimelineDock_Frame(); // after the UI: its playhead and edits drive this frame's camera
 	FollowCamera_Frame();
 	CameraShake_Frame();
+	Filmmaker::ScrubFrameCache_EndFrame(); // after the camera drivers noted the camera
 	Settings_Frame(); // after everything that edits a setting this frame
 }
 
@@ -346,6 +359,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::Config_EffectsCommand(argc, args);
 	} else if (0 == _stricmp(sub, "settings")) {
 		SourceFilmmaker::Settings_Command(argc, args);
+	} else if (0 == _stricmp(sub, "scrub")) {
+		Filmmaker::DemoScrub_RunCommand(argc, args, "mirv_filmmaker");
 	} else if (0 == _stricmp(sub, "window")) {
 		SourceFilmmaker::Window_Command(argc, args);
 	} else if (0 == _stricmp(sub, "endhold")) {

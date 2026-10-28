@@ -64,6 +64,11 @@ public:
 	// Before a device reset or shutdown: every D3DPOOL_DEFAULT resource goes.
 	void ReleaseDeviceObjects();
 
+	// What the letterbox draws into the preview, given the game's finished frame: the frame itself,
+	// or one the scrub frame cache shows instead (SourceScrubFrameCache.h). Unset, the frame.
+	typedef IDirect3DTexture9* (*PreviewSource)(IDirect3DDevice9* device, IDirect3DTexture9* frame, const Rect& preview);
+	void SetPreviewSource(PreviewSource source) { m_previewSource = source; }
+
 private:
 	bool EnsureBuffers(IDirect3DDevice9* device, int vertices, int indices);
 	bool EnsureFont(IDirect3DDevice9* device, const FontPixels& font);
@@ -81,6 +86,7 @@ private:
 	UINT m_frameW = 0;
 	UINT m_frameH = 0;
 	D3DFORMAT m_frameFormat = D3DFMT_UNKNOWN;
+	PreviewSource m_previewSource = nullptr;
 };
 
 } // namespace Ui

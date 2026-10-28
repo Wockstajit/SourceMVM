@@ -137,7 +137,8 @@ the hook converts them first. See [Old demos](#old-demos).
 | `mirv_filmmaker demos on\|off\|toggle\|state` | The [demos browser](#demos-browser). `demos` alone lists its library commands: `list`, `folders`, `addfolder [path]`, `removefolder <i>`, `hidden`, and the page's own |
 | `mirv_filmmaker editor on\|off\|toggle\|state` | The Camera Editor workspace. `state` reports the mouse mode, tabs, preview rect and fonts, and where each demo bar control is |
 | `mirv_filmmaker loop on\|off\|toggle\|state` | LOOP playback, as the demo bar's LOOP button does |
-| `mirv_filmmaker seek <tick>` | Go to a demo tick the way the demo bar does (back = restart, then forward) |
+| `mirv_filmmaker seek <tick>` | Go to a demo tick the way the demo bar does (back, [in place](#seeking-back)) |
+| `mirv_filmmaker scrub drag\|release <tick>`, `scrub cache [on\|off\|clear\|budget <MB>]` | The [live scrub](#live-scrub) and its frame cache, as a playhead drag and release do |
 | `mirv_filmmaker hud on\|off\|toggle\|state` | The [movie director](#movie-director)'s cards |
 | `mirv_filmmaker blackout on\|off\|toggle\|status` | F8's blackout: no HUD, no bar, no cards |
 | `mirv_filmmaker director state` | The director's mouse, bar, cards and readouts, and where each bar control is |
@@ -238,7 +239,7 @@ death, round and bomb event from the first frame, not only the ones playback has
   `round_start`, `round_freeze_end`, `round_end` and the bomb events.
 - Ticks are demo ticks, the same numbers `demo_gototick` and `health` use. Checked in game: the
   reader put the first kill of the test demo at tick 490, and the game printed it at tick 490.
-- Restarting the same demo (a backward seek replays it from the start) does not read it again.
+- Playing the same demo again does not read it again.
 
 `health` shows the index (`demo index: mvm_css_tv.dem, 6 events (3 deaths, 1 round starts) in
 3.7 ms`), and `mvm_debug` logs each event under `demo.index`. `SourceDemoFileTests` writes small
@@ -255,7 +256,7 @@ markers come from the [demo index](#demo-index).
 | Part | What it does |
 | --- | --- |
 | Marker band | Round cells (R1, R2, ...) with a rule in the winner's colour at each round's end; a dot per kill in the victim's team colour (CS:S's chat blue and red), ringed for a headshot; an orange square per bomb event. Hover for "Josh killed Xander (usp, headshot)" and the time |
-| Scrubber | Click or drag and release to seek there. A click on a kill goes 0.6 s before it, as CS2's Go To Event does |
+| Scrubber | Click to seek there; drag and the world follows (the [live scrub](#live-scrub)), landing on the tick at release. A click on a kill goes 0.6 s before it, as CS2's Go To Event does |
 | Play / pause, time | `demo_togglepause`; the time, the length, and the tick |
 | -5S / +5S | Five seconds at the demo's tick rate (335 ticks at 66.7 tick) |
 | < ROUND / ROUND > | The start of this round (or the one before, when already there), and the next round's start |
@@ -273,7 +274,72 @@ bottom of the screen (the [movie director](#movie-director)). Its rules are engi
 `SourceDemoBar.cpp`. `mirv_filmmaker editor state` prints each control's rectangle, so a test can
 click it by name.
 
-Seeking backwards restarts the demo, waits until it plays again, and then seeks forward.
+### Seeking back
+
+CS:S's own demo player seeks back by starting the demo over. `demo_gototick` disconnects, signs on
+and loads the level again, so the loading screen and the game's menu flash by for about half a
+second before the demo skips forward to the tick. The hook seeks back in place instead
+(`SourceDemoRewind.cpp`), the way the engine goes on after that reload:
+
+- the client frees its entity baselines, as `cl_fullupdate` does;
+- the demo file goes back to its first command after the sign-on data, a sync tick at tick 0 in
+  every demo measured, and the skip runs from there;
+- the demo's first packet is a full snapshot, and on one the engine deletes every entity and builds
+  them again, so nothing from later in the demo stays behind.
+
+Every skip, forward ones too, may run for up to 250 ms in the frame it was asked in, where the engine
+stops at 100 packets a frame. A seek therefore lands in that frame, and no frame of the skip is shown.
+The bar, a typed `demo_gototick`, Go To Event and the [live scrub](#live-scrub) all go through it. The
+offsets are checked against the engine's own code first; if they do not match, the engine's reload
+stays and `health` says so.
+
+A seek stops on the demo's first packet at or after its tick. A SourceTV demo has one every 4 to 10
+ticks (a player's own demo has one every tick), so a seek can land that far past. The rewind keeps the
+gaps the skips cross, and the scrub aims short by the largest of nearly all of them.
+
+`health` shows it as `rewind: in place (...); 26 in place, 0 reloads; seeks land up to 7 past (3407
+packet gaps); last rewind 1251 -> 400: 84 packets in 8.8 ms over 1 frame(s)`, and `mvm_debug` logs
+each seek as `demo.rewind`.
+
+Checked in CS:S on 2026-10-27 in the SourceTV test demo. A seek from 2503 back to 600 replayed 125
+packets in 14.5 ms, and the next frame already showed tick 604, with no loading screen or menu in
+between. After a seek back from 1500, all 183 `players` and `entities` rows at tick 1206 matched a
+fresh load at 1206, handles included; only the first-person viewmodel's sway, which runs on the
+clock, differed. Thirty seeks back and forth left no engine error and grew the game's memory by
+2 MB, and a seek back while playing kept playing.
+
+A seek back replays the demo from its start, so it costs more the later the tick: about 14 ms at
+tick 600 of the test demo, roughly a millisecond per 50 ticks. A long match demo will need snapshots
+along the way, as CS2's keyframed copies give it.
+
+### Live scrub
+
+Dragging a playhead moves the demo world with it, as in CS2: the demo bar's scrubber and the TIMELINE
+dock's ruler. The rules and the driver are CS2's (`AfxHookSource2/Filmmaker/Movie/DemoScrub.cpp`,
+[live demo scrubbing](../features/filmmaker_demo_scrubbing.md)). What they ask the game goes through
+`DemoScrubHost.h`, which `SourceDemoScrub.cpp` answers.
+
+Dragged forward, the world plays toward the playhead at a speed that closes the gap in about a tenth
+of a second, and stops inside the tick under it. Dragged back, it seeks back a little short of the
+playhead and plays the last ticks in, so the frame shown has been played. A release lands on the
+whole tick. CS:S has no `demo_step_tick`, so the last ticks play at the step's speed with
+`demo_pauseatservertick`. Its server tick is the demo tick plus an offset fixed per demo, which the
+scrub learns from the client's clock while the demo is paused on a whole tick.
+
+Cache, on the dock's toolbar, keeps the frames the camera path's take has played
+(`SourceScrubFrameCache.cpp`, CS2's rules in `ScrubFrameCacheMath.h`), at the preview's size, in
+D3D9 textures, up to 384 MB. A drag back over them shows them from memory while the world stays
+where it is, and a release lands the world under the frame. A change to the settings, the path or
+its shake starts a new take. `health` prints the cache's line, and `mvm_debug` logs `demo.scrub` and
+`scrub.cache`.
+
+Checked in CS:S on 2026-10-27 in the SourceTV test demo, with window messages posted to the dock. A
+drag from 615 forward to about 720 glided and seeked forward. Dragged back to 512, the world rewound
+in place 12 times, 12 to 15 ms each, each followed by a two-tick play-in, and the release landed on
+512 exactly; no frame of the demo's start or the menu showed in between. After the camera path
+played its shot (533 to 1421; 353 frames kept, 383 MB), a drag back from 1486 served 492 frames from
+the cache while the world stayed at 1422; the release at 887 rewound in place in 15 ms and landed on
+887.
 
 ### End of demo hold
 
@@ -388,7 +454,7 @@ While a demo plays and no workspace is open, the hook runs CS2's movie director
 | Ctrl+wheel | FOV, a degree a notch, wheel up zooms in, 1 to 170 (HLAE's view FOV override). It belongs to the camera: a camera change drops it |
 | Shift+wheel | In the game's free cam (`spec_mode` 7), its speed on CS2's ladder (0.5x steps, halving below 0.5x); 1x is CS:S's `sv_specspeed` 3. With HLAE's [free cam](#free-cam) on, that camera's speed |
 | Space | Pause and play; the game never sees the key, so nothing jumps |
-| Left / Right | Five seconds back and on (back restarts and seeks forward, as the bar does) |
+| Left / Right | Five seconds back and on, as the bar's -5S and +5S |
 | F8 | Blackout: no HUD, crosshair or spectator bars (`cl_drawhud 0`), no bar, no cards. Again for everything back. With the cards switched off, F8 brings them back |
 
 The director stands aside while the game's menu or console is up (`IEngineVGui::IsGameUIVisible`,
@@ -397,9 +463,8 @@ and the free cam speed go back to the game's. Demo playback accepts `cl_drawhud`
 demo's server had cheats off. Ctrl+wheel's FOV is the hook's view FOV override (`mirv_fov`'s),
 because `demo_fov_override` does not reach SourceTV's camera.
 
-SourceTV's camera resets whenever a demo starts or a backward seek restarts it. The director
-remembers the camera mode and the player it follows, twice a second, and after a restart puts both
-back (`spec_mode`, `spec_player <user id>`), as CS2 keeps the watched player across a seek. A demo
+SourceTV's camera resets whenever a demo starts. The director remembers the camera mode and the
+player it follows, twice a second, and after a start or a seek back puts both back (`spec_mode`, `spec_player <user id>`), as CS2 keeps the watched player across a seek. A demo
 whose camera starts at the map origin following nobody (old demos, and the self-recorded test demo)
 opens in first person on the first player instead.
 
@@ -509,7 +574,7 @@ frame (a drag once it ends); playing another demo saves the outgoing path and lo
 or starts empty. Checked on 2026-10-26: three markers, an ease and Freeze timing came back after
 quitting and relaunching CS:S, and after switching to another demo and back.
 
-Input that CS:S hands the window procedure on its second thread (it does while a demo restarts or
+Input that CS:S hands the window procedure on its second thread (it does while a demo loads or
 seeks) runs on the main thread: the handlers decide on the spot and post their action
 (`SourceMainThread.h`).
 
@@ -623,8 +688,8 @@ CS2's does. The keys and their curves are CS2's own model (`GraphExpModel`, shar
   into the keys every frame. Keys that still exist keep their curves and selection. The dock's own
   undo history is dropped then, so an undo can never write an old path back.
 - The playhead is CS2's (`SourceTimelinePlayhead.cpp`). While it is dragged it is the dragged tick and
-  the world stays put. On release the demo seeks there, backwards through the restart, and the
-  playhead holds that tick until the demo lands and while it sits there.
+  the world follows it (the [live scrub](#live-scrub)). On release the demo lands on that tick, and
+  the playhead holds it until the demo is there and while it sits there.
 - AUTO, the CAMERA PATH layer's button: a scrub inside the path's keys shows the path's camera at the
   playhead, and playback through the keys flies the path. Before the first key and after the last the
   view is the game's, and a seek in progress does not count as playback. An edit, and a release until

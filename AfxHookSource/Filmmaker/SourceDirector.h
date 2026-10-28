@@ -9,7 +9,7 @@
 // bars. Demo playback accepts them even where the demo's server had cheats off. Ctrl+wheel's FOV is
 // the view's FOV override (mirv_fov's), because demo_fov_override does not reach SourceTV's camera.
 //
-// SourceTV's camera resets when a demo starts or a backward seek restarts it. The director puts back
+// SourceTV's camera resets when a demo starts, and may on a seek back. The director puts back
 // the mode and the player it followed, and opens a demo whose camera starts at the map origin
 // following nobody (old demos, some new ones) in first person on the first player.
 //

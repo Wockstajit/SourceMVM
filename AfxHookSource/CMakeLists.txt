@@ -151,12 +151,15 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceDemoBarModel.cpp
     Filmmaker/SourceDemoBarModel.h
     Filmmaker/SourceDemoEndHold.cpp
+    Filmmaker/SourceDemoScrub.cpp
     Filmmaker/SourceDemoFile.cpp
     Filmmaker/SourceDemoFile.h
     Filmmaker/SourceDemoIndex.cpp
     Filmmaker/SourceDemoIndex.h
     Filmmaker/SourceDemoMarkers.cpp
     Filmmaker/SourceDemoMarkers.h
+    Filmmaker/SourceDemoRewind.cpp
+    Filmmaker/SourceDemoRewind.h
     Filmmaker/SourceDemos.cpp
     Filmmaker/SourceDemos.h
     Filmmaker/SourceCameraShake.cpp
@@ -187,6 +190,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceSettings.h
     Filmmaker/SourceSmoothView.cpp
     Filmmaker/SourceSmoothView.h
+    Filmmaker/SourceScrubFrameCache.cpp
+    Filmmaker/SourceScrubFrameCache.h
     Filmmaker/SourceTimelineDock.cpp
     Filmmaker/SourceTimelineDock.h
     Filmmaker/SourceTimelinePlayhead.cpp
@@ -338,6 +343,13 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Movie/RageShake.h
     ../AfxHookSource2/Filmmaker/Movie/RageShakeStyles.cpp
     ../AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h
+    ../AfxHookSource2/Filmmaker/Movie/DemoScrub.cpp
+    ../AfxHookSource2/Filmmaker/Movie/DemoScrub.h
+    ../AfxHookSource2/Filmmaker/Movie/DemoScrubHost.h
+    ../AfxHookSource2/Filmmaker/Movie/DemoScrubMath.h
+    ../AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.cpp
+    ../AfxHookSource2/Filmmaker/Movie/ScrubFrameCacheHost.h
+    ../AfxHookSource2/Filmmaker/Movie/ScrubFrameCacheMath.h
     ../AfxHookSource2/Filmmaker/Movie/SmoothView.cpp
     ../AfxHookSource2/Filmmaker/Movie/SmoothView.h
     ../AfxHookSource2/Filmmaker/Movie/SmoothViewAirMotionMath.h

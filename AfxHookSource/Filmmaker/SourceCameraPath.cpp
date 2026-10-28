@@ -65,6 +65,7 @@ struct State {
 	std::string demo;         // the demo the markers were placed in, as the engine names it
 	std::wstring project;     // the demo the user played, whose project.mvm keeps the path
 	bool dirty = false;       // an edit not saved yet
+	unsigned long long revision = 0; // every rebuild of the path: the scrub cache drops frames of another
 	std::vector<double> trajectory; // the in-world line: x, y, z along the path
 	// The editor's selection: the camera whose pose holds while the seek to its tick lands.
 	bool menuOpen = false;    // the CAMERA MARKER card
@@ -140,6 +141,7 @@ void Load() {
 }
 
 void Rebuild() {
+	++g.revision;
 	g.eval.Rebuild(g.markers, g.settings);
 	g.trajectory.clear();
 	if (g.markers.Count() < 2 || !g.eval.CanEval()) return;
@@ -227,7 +229,7 @@ void EndAutoPath(const char* why) {
 void RunAutoPath() {
 	const DemoState d = Demo_State();
 	int seekTarget = 0;
-	const bool seeking = DemoBar_SeekTarget(seekTarget); // a backward seek replays from the start: not playback
+	const bool seeking = DemoBar_SeekTarget(seekTarget); // a seek skips through ticks: not playback
 	const bool following = FollowCamera_OwnsView();
 	const bool want = g.autoPath && TimelineDock_Enabled() && g.settings.timing == kTimingLive && g.markers.Count() >= 2
 		&& d.playing && !d.paused && !seeking && !following;
@@ -341,6 +343,14 @@ bool CameraPath_EvalPoseAtTick(double tick, double out[7]) {
 
 bool CameraPath_AutoPath() { return g.autoPath; }
 
+unsigned long long CameraPath_Revision() { return g.revision; }
+
+bool CameraPath_FirstTick(double& tick) {
+	if (g.markers.Count() < 2) return false;
+	tick = (double)g.markers.Front().tick;
+	return true;
+}
+
 void CameraPath_SetAutoPath(bool on) {
 	g.autoPath = on;
 	advancedfx::Message("[campath] AUTO %s: %s\n", on ? "on" : "off", on
@@ -443,8 +453,8 @@ void CameraPath_SelectForEditor(int index) {
 	const CamMarker& m = g.markers.At(g.markers.Selected());
 	PushPose(m);
 	DemoBar_SeekTo(m.tick, 1); // paused on the camera's tick
-	// The pose holds until the seek lands (a backward seek restarts the demo first), then the free
-	// cam is the user's again: selecting must not pin the view to the camera.
+	// The pose holds until the seek lands, then the free cam is the user's again: selecting must not
+	// pin the view to the camera.
 	g.holdIndex = g.markers.Selected();
 	g.holdFrames = 1200;
 	g.holdSettled = 0;

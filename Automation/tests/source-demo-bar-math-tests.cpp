@@ -73,15 +73,6 @@ static void TestSeeking() {
 	CHECK(TicksForSeconds(5, 0.015) == 335);        // CS:S 66.67 tick: 5 x 67
 	CHECK(TicksForSeconds(5, 1.0 / 64) == 320);
 	CHECK(TicksForSeconds(5, 0) == 0);
-	Seek s = PlanSeek(1000, 1335, 4410);
-	CHECK(s.tick == 1335 && !s.restart);
-	s = PlanSeek(1000, 665, 4410);
-	CHECK(s.tick == 665 && s.restart);              // backward: restart, then forward
-	s = PlanSeek(100, -235, 4410);
-	CHECK(s.tick == 0 && s.restart);
-	s = PlanSeek(4300, 4635, 4410);
-	CHECK(s.tick == 4410 && !s.restart);
-	CHECK(!PlanSeek(1000, 1000, 4410).restart);
 }
 
 static void TestLoop() {

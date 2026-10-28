@@ -7,7 +7,8 @@ import test from 'node:test';
 const read = (p) => fs.readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 const hooks = read('AfxHookSource2/RenderSystemDX11Hooks.cpp');
 const main = read('AfxHookSource2/main.cpp');
-const cache = read('AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.cpp');
+// CS2's answers to the cache (ScrubFrameCacheHost.h), the picture revision among them.
+const cacheHost = read('AfxHookSource2/Filmmaker/Movie/ScrubFrameCacheHostSource2.cpp');
 const shake = read('AfxHookSource2/Filmmaker/Movie/CamPathShake.cpp');
 
 test('the pose check compares the FOV the frame rendered with, before the shake layers', () => {
@@ -29,7 +30,7 @@ test('turning the cache off frees its frames even while no preview is active', (
 });
 
 test('a camera-shake edit changes the picture revision', () => {
-  const revision = cache.slice(cache.indexOf('uint64_t PictureRevision()'), cache.indexOf('return h ? h : 1;'));
+  const revision = cacheHost.slice(cacheHost.indexOf('uint64_t ScrubCacheHost_PictureRevision()'), cacheHost.indexOf('return h ? h : 1;'));
   assert.match(revision, /Mix\(h, CamPathShake_Revision\(\)\)/);
   const publish = shake.slice(shake.indexOf('void PublishSnapshot()'), shake.indexOf('bool ReadSnapshot('));
   for (const field of ['k.tick', 'k.style', 'k.intensity', 'k.speed']) assert.ok(publish.includes(field), field);

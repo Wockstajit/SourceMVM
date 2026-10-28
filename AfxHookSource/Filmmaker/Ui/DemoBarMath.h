@@ -105,22 +105,12 @@ inline int TicksForSeconds(double seconds, double intervalPerTick) {
 	return (int)std::lround(seconds) * (int)std::lround(1.0 / intervalPerTick);
 }
 
-struct Seek {
-	int tick = 0;
-	// Restart the demo and seek forward instead of seeking back. The engine's own backward seek
-	// restarts and skips from tick 0, and CS:S dropped the bodies made during that skip, which
-	// stopped the game with "CL_PreserveExistingEntity: missing client entity" (measured 2026-10-26).
-	// SourceDemoSkip.h keeps those bodies since 2026-10-27, so both ways now land on the same tick.
-	bool restart = false;
-};
-
-inline Seek PlanSeek(int currentTick, int targetTick, int totalTicks) {
-	Seek seek;
+// The tick a seek goes to: the target, held inside the demo. Both ways are the engine's own seek
+// (backward, rewound in place: SourceDemoRewind.h).
+inline int SeekTick(int targetTick, int totalTicks) {
 	if (targetTick < 0) targetTick = 0;
 	if (totalTicks > 0 && targetTick > totalTicks) targetTick = totalTicks;
-	seek.tick = targetTick;
-	seek.restart = targetTick < currentTick;
-	return seek;
+	return targetTick;
 }
 
 // ---- LOOP ---------------------------------------------------------------------------------------

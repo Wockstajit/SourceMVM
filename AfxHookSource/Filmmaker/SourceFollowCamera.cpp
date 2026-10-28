@@ -440,7 +440,7 @@ void FollowHost_ResumeDemo() {
 	if (g_VEngineClient) g_VEngineClient->ClientCmd_Unrestricted("demo_resume");
 }
 
-// As the demo bar seeks: back restarts the demo, then goes forward.
+// As the demo bar seeks (back, in place: SourceDemoRewind.h).
 void FollowHost_SeekDemo(int tick) { SourceFilmmaker::DemoBar_SeekTo(tick); }
 
 // The demo index's file, once it has read the demo: a new demo, or the same one read again, is a new

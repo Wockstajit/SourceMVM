@@ -781,8 +781,11 @@ float DrawToolbar(D& d) {
 		if (ToolButton(d, "##tlnext", x, y, nextW, btnH, "", Icon::Next, Paint::Value, false, "Next keyframe on the selected layer"))
 			JumpKey(d, 1);
 		x += nextW + 11;
-		// CS2's frame cache keeps every frame played for instant scrubbing; CS:S has no cache yet.
-		ToolButton(d, "##tlcache", x, y, cacheW, btnH, "Cache", Icon::None, Paint::Value, false, nullptr, false);
+		// CS2's scrub frame cache: a backward drag over ticks the world played is shown from kept frames.
+		if (ToolButton(d, "##tlcache", x, y, cacheW, btnH, "Cache", Icon::None, Paint::Value, m.scrubCache,
+			"Cache on: every frame the timeline plays is kept, so dragging back over it shows those frames at once "
+			"instead of seeking the demo"))
+			d.Emit(Action::Kind::ScrubCache, 0, 0, 0, 0, !m.scrubCache);
 		x += cacheW + 11;
 		double speed = 0;
 		const ImVec2 a = d.P(x, topY), b = d.P(x + speedW, topY + 30);

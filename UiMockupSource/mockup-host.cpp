@@ -171,6 +171,7 @@ struct Host {
 	unsigned timelineEpoch = 1;        // bumps when the keys are seeded: the dock re-fits its window
 	bool timelineDrive = true, timelineAuto = false;
 	bool timelineScrubbing = false;    // the dock's playhead is held by a drag
+	bool scrubCache = true;            // the dock's Cache
 	double timelineTick = 0;
 	SimDemo demo = MakeSimDemo();
 	ConfigModel config;         // the Config cards' stand-in camera modules (StandInConfigCommand)
@@ -389,6 +390,7 @@ void ApplyDemoActions(const std::vector<DemoBarAction>& actions) {
 		switch (a.kind) {
 		case DemoBarAction::Kind::TogglePause: d.paused = !d.paused; LogLine("demo.bar", d.paused ? "pause" : "resume"); break;
 		case DemoBarAction::Kind::Seek: SeekSim(a.tick); break;
+		case DemoBarAction::Kind::Scrub: SeekSim(a.tick); break; // the simulated world follows the drag at once
 		case DemoBarAction::Kind::Speed: d.timescale = a.value; LogLine("demo.bar", ("timescale " + std::to_string(a.value)).c_str()); break;
 		case DemoBarAction::Kind::ToggleLoop:
 			d.loopOn = !d.loopOn;
@@ -1105,6 +1107,7 @@ TimelineDockModel BuildTimelineModel() {
 	m.smoothPath = g.path.interp == 1;
 	m.tickRate = 1.0 / g.demo.interval;
 	m.timescale = g.demo.timescale;
+	m.scrubCache = g.scrubCache;
 	const double live[7] = { 0, 0, 64, g.pitch, -g.yaw, 0, g.demo.freeCamFov };
 	for (int c = 0; c < 7; ++c) m.live[c] = live[c];
 	// The shake track, as the game's CamPathShake_AppendDockJson gives it, on RageShake's own styles.
@@ -1175,6 +1178,7 @@ void ApplyTimelineActions(const std::vector<TimelineDockAction>& actions) {
 		case Kind::PlayheadRelease: g.timelineScrubbing = false; SeekSim((int)a.a); break;
 		case Kind::PlayPause: g.demo.paused = !g.demo.paused; break;
 		case Kind::Speed: g.demo.timescale = a.a; break;
+		case Kind::ScrubCache: g.scrubCache = a.flag; LogLine("scrub.cache", a.flag ? "toggle on" : "toggle off"); break;
 		case Kind::ShakeCommand: StandInShakeCommand(a.text); break;
 		case Kind::Workspace: Open(a.flag ? Workspace::Config : Workspace::Editor, "dock"); break;
 		}

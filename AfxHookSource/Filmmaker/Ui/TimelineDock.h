@@ -38,6 +38,7 @@ struct TimelineDockModel {
 	bool smoothPath = false;    // the path's interpolation is Smooth
 	double tickRate = 64;
 	double timescale = 1;
+	bool scrubCache = true;     // Cache: backward drags over played ticks are shown from kept frames
 	double live[7] = { 0, 0, 0, 0, 0, 0, 90 }; // the rendered camera, per channel
 	bool configOpen = false;    // the open workspace is Config (the toolbar's CAM EDITOR and CONFIG buttons)
 	// The camera path's camera shake track (CamPathShake's dock JSON: CS2's pathKeys, shakes and
@@ -72,6 +73,7 @@ struct TimelineDockAction {
 		PlayheadRelease, // a = tick: the demo goes there and the playhead holds it
 		PlayPause,       // the demo, or the camera path while it plays
 		Speed,           // a = demo speed
+		ScrubCache,      // flag: the scrub frame cache on
 		ShakeCommand,    // text: a camera shake edit, as "mirv_filmmaker pathshake <text>" takes it
 		Workspace,       // flag: open Config, else the Camera Editor
 	};

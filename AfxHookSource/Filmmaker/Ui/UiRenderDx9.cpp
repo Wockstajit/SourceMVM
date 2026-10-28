@@ -200,12 +200,14 @@ void RendererDx9::DrawLetterbox(IDirect3DDevice9* device, IDirect3DSurface9* bac
 	const HRESULT copied = device->StretchRect(backBuffer, nullptr, frameSurface, nullptr, D3DTEXF_NONE);
 	frameSurface->Release();
 	if (FAILED(copied)) return;
+	IDirect3DTexture9* shown = m_previewSource ? m_previewSource(device, m_frame, preview) : m_frame;
+	if (!shown) shown = m_frame;
 
 	device->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
 	SetupState(device, 0, 0, (float)desc.Width, (float)desc.Height);
 	device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
 	device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-	device->SetTexture(0, m_frame);
+	device->SetTexture(0, shown);
 	const D3DCOLOR white = D3DCOLOR_ARGB(255, 255, 255, 255);
 	Vertex quad[4] = {
 		{ { preview.x0, preview.y0, 0 }, white, { 0, 0 } },

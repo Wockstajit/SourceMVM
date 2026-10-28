@@ -4,12 +4,14 @@
 #include "SourceDemoBarModel.h"
 #include "SourceDemoIndex.h"
 #include "SourceDemoMarkers.h"
+#include "SourceDemoRewind.h"
 #include "SourceDirector.h"
 #include "SourceEngine.h"
 
 #include "WrpVEngineClient.h"
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
+#include <AfxHookSource2/Filmmaker/Movie/DemoScrub.h>
 #include <Shared/AfxConsole.h>
 
 #include <chrono>
@@ -44,15 +46,7 @@ struct State {
 	DemoBarMath::LoopRegion loop;
 	bool wrapPending = false;
 	Clock::time_point wrapAt;
-	// A backward seek restarts the demo first; the forward seek is sent once playback is running
-	// again, because a demo_gototick queued behind playdemo runs before the demo is ready.
-	bool restartPending = false;
-	int restartTarget = 0;
-	bool restartPaused = false;
-	double restartTimescale = 1;
-	bool restartSawStop = false;
-	Clock::time_point restartAt;
-	// The last forward seek, until the demo lands on it (DemoBar_SeekTarget).
+	// The last seek, until the demo lands on it (DemoBar_SeekTarget).
 	bool seekPending = false;
 	int seekTarget = 0;
 	Clock::time_point seekAt;
@@ -104,35 +98,22 @@ void DemoBar_SeekTo(int target, int pause) {
 	const DemoState demo = Demo_State();
 	if (!demo.playing) return;
 	const bool paused = pause < 0 ? demo.paused : pause == 1;
-	const DemoBarMath::Seek seek = DemoBarMath::PlanSeek(demo.tick, target, demo.totalTicks);
-	const DemoIndex index = DemoIndex_Get();
-	char command[600];
-	if (seek.restart && !index.file.empty()) {
-		// Back: restart now, seek forward once it plays (DemoBarMath::Seek says why).
-		g.restartPending = true;
-		g.restartTarget = seek.tick;
-		g.restartPaused = paused;
-		g.restartTimescale = demo.timescale;
-		g.restartSawStop = false;
-		g.restartAt = Clock::now();
-		std::snprintf(command, sizeof(command), "playdemo \"%s\"", index.file.c_str());
-	} else {
-		std::snprintf(command, sizeof(command), "demo_gototick %d 0 %d", seek.tick, paused ? 1 : 0);
-	}
+	const int tick = DemoBarMath::SeekTick(target, demo.totalTicks);
+	// Both ways are the engine's own seek; back, it rewinds in place (SourceDemoRewind.h).
+	char command[64];
+	std::snprintf(command, sizeof(command), "demo_gototick %d 0 %d", tick, paused ? 1 : 0);
 	g.seekPending = true;
-	g.seekTarget = seek.tick;
+	g.seekTarget = tick;
 	g.seekAt = Clock::now();
 	Command(command);
 }
 
 bool DemoBar_SeekTarget(int& target) {
-	if (g.restartPending) {
-		target = g.restartTarget;
-		return true;
-	}
 	if (!g.seekPending) return false;
 	const DemoState demo = Demo_State();
-	if (!demo.playing || (demo.tick >= g.seekTarget - 1 && demo.tick <= g.seekTarget + 1)
+	// A seek stops on the demo's next packet, up to a few ticks past its tick (SourceDemoRewind.h).
+	const int past = DemoRewind_Installed() ? DemoRewind_SeekLandsPast() : 1;
+	if (!demo.playing || (demo.tick >= g.seekTarget - 1 && demo.tick <= g.seekTarget + past)
 		|| Clock::now() - g.seekAt > std::chrono::seconds(5)) {
 		g.seekPending = false;
 		return false;
@@ -179,6 +160,11 @@ DemoBarModel::Workspace DemoBar_Apply(const std::vector<DemoBarAction>& actions)
 		case DemoBarAction::Kind::Seek:
 			DemoBar_SeekTo(action.tick);
 			break;
+		case DemoBarAction::Kind::Scrub:
+			// The world follows the scrubber live and lands a release exactly (CS2's DemoScrub).
+			if (action.value != 0) Filmmaker::DemoScrub_Release((double)action.tick);
+			else Filmmaker::DemoScrub_Drag((double)action.tick);
+			break;
 		case DemoBarAction::Kind::Speed:
 			std::snprintf(command, sizeof(command), "demo_timescale %.4f", action.value);
 			Command(command);
@@ -204,25 +190,6 @@ DemoBarModel::Workspace DemoBar_Apply(const std::vector<DemoBarAction>& actions)
 }
 
 void DemoBar_Frame() {
-	if (g.restartPending) {
-		// The restart is under way until the old playback has stopped and the new one is running
-		// from its first ticks; then the forward seek goes out. Give up after 20 s.
-		const DemoState demo = Demo_State();
-		if (!demo.playing || demo.tick < 0) g.restartSawStop = true;
-		const bool fresh = demo.playing && demo.tick >= 0 && demo.tick < g.restartTarget && (g.restartSawStop || demo.tick < 200);
-		if (fresh && Clock::now() - g.restartAt > std::chrono::milliseconds(100)) {
-			g.restartPending = false;
-			char command[160];
-			int n = std::snprintf(command, sizeof(command), "demo_gototick %d 0 %d", g.restartTarget, g.restartPaused ? 1 : 0);
-			if (std::fabs(g.restartTimescale - 1.0) > 0.0001 && n > 0 && n < (int)sizeof(command))
-				std::snprintf(command + n, sizeof(command) - n, "; demo_timescale %.4f", g.restartTimescale);
-			Command(command);
-			g.seekAt = Clock::now(); // the forward half of the seek starts now
-		} else if (Clock::now() - g.restartAt > std::chrono::seconds(20)) {
-			g.restartPending = false;
-		}
-		return;
-	}
 	if (!g.loopOn || !g.loop.Valid()) return;
 	const DemoState demo = Demo_State();
 	if (!demo.playing) return;
