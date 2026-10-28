@@ -20,6 +20,8 @@ struct ClientClass;
 // repeatedly; it retries until it succeeds.
 bool Engine_Init();
 bool Engine_Ready();
+// HLAE's actual D3D9 output surface; the engine screen query can include a window border pixel.
+bool Engine_RenderSize(int& width,int& height);
 
 // The client's class list (IBaseClientDLL::GetAllClasses), or null until Engine_Init succeeds.
 const Sdk2013::ClientClass* Engine_ClientClasses();
@@ -59,6 +61,13 @@ DemoState Demo_State();
 
 // "de_dust2" from "maps/de_dust2.bsp"; empty when no map is loaded.
 std::string Engine_MapName();
+
+struct MatchState {
+    bool haveScores = false, haveRoundTime = false, freeze = false;
+    int ctScore = 0, tScore = 0, roundSeconds = 0;
+};
+MatchState Match_Snapshot();
+void Match_PrintHealth();
 
 struct PlayerState {
 	int index = -1;

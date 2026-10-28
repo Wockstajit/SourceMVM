@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include <AfxHookSource2/Filmmaker/Render/RenderSessionDriver.h>
 
 #include "SourceDemoBar.h"
 #include "SourceDemoBarModel.h"
@@ -194,7 +195,7 @@ DemoBarModel::Workspace DemoBar_Apply(const std::vector<DemoBarAction>& actions)
 }
 
 void DemoBar_Frame() {
-	if (!g.loopOn || !g.loop.Valid()) return;
+	if (Filmmaker::RenderSessionDriver_IsActive() || !g.loopOn || !g.loop.Valid()) return;
 	const DemoState demo = Demo_State();
 	if (!demo.playing) return;
 	if (g.wrapPending) {

@@ -47,7 +47,11 @@ struct RenderWorkspaceModel {
 	int pathKeys = 0;
 	int extension = 0; // CameraPathExtension
 
-	// PASSES: CS:S renders Beauty · Everything; its game HUD, the camera sidecar and blood.
+	// PASSES: the shared type/group grid, the key colour and the linear depth range.
+	bool selectedPass[4][5] = {{ true }};
+	int keyColor[3] = { 0, 205, 0 };
+	float depthNear = 8, depthFar = 4096;
+    int previewType = 0, previewGroup = 0;
 	int hud = 0; // RenderHudMode
 	bool cameraData = true;
 	bool blood = true;
@@ -81,6 +85,8 @@ struct RenderWorkspaceModel {
 };
 
 struct RenderWorkspaceState {
+	char depthNearText[32] = "8", depthFarText[32] = "4096";
+	float depthNearSeed = -1, depthFarSeed = -1;
 	bool fpsCustom = false;     // the frame rate's Custom field is open
 	char fpsText[8] = "";
 	bool bitrateCustom = false; // the quality's Bitrate field is open

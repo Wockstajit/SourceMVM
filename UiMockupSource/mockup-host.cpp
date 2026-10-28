@@ -21,6 +21,8 @@
 // game's code. Built by build-mockup.mjs.
 
 #include "../AfxHookSource/Filmmaker/SourceDemoBarModel.h"
+#include "../AfxHookSource/Filmmaker/SourceRenderPassTable.h"
+#include "../AfxHookSource2/Filmmaker/Render/RenderPassPlan.h"
 #include "../AfxHookSource/Filmmaker/Ui/CameraEditorShell.h"
 #include "../AfxHookSource/Filmmaker/Ui/DemosBrowser.h"
 #include "../AfxHookSource/Filmmaker/Ui/DirectorHud.h"
@@ -172,6 +174,7 @@ struct Host {
 	DirectorMouse directorMouse;
 	DirectorCardsModel cards;   // the cards' readouts, refreshed at CS2's 10 Hz
 	Filmmaker::HudReadoutCadence cadence;
+	Rect roster;
 	Rect bar;                   // last frame's director bar, client px
 	Rect preview;               // last frame's preview, client px
 	bool panelHovered = false;  // last frame: the pointer is over a panel
@@ -180,6 +183,8 @@ struct Host {
 	unsigned frames = 0;
 	GLuint backdrop = 0;
 	int backdropW = 0, backdropH = 0;
+	CameraAdjustModel adjust;
+	double adjustAtMs = -10000;
 	float yaw = 0, pitch = 0;   // the stand-in game camera, degrees
 	bool pathOn = false;        // the stand-in camera path is drawn
 	bool pathFreeze = false;    // in Freeze blue, else Live gold
@@ -342,6 +347,7 @@ void SetCamera(int mode) {
 	}
 	if (mode == g.demo.observerMode) return;
 	g.demo.observerMode = mode;
+	g.demo.freeCam = mode == DirectorMath::kRoaming;
 	g.demo.fov = 0;
 	LogLine("director", (std::string("camera ") + DirectorMath::CameraButtonName(mode)).c_str());
 }
@@ -356,7 +362,11 @@ void StepPlayer(int direction) {
 void DirectorWheel(int notches, bool ctrl, bool shift) {
 	SimDemo& d = g.demo;
 	char line[96];
-	switch (DirectorMath::WheelFor(ctrl, shift, d.observerMode, d.freeCam)) {
+    const DirectorMath::Wheel action = DirectorMath::WheelFor(ctrl, shift, d.observerMode, d.freeCam);
+    const bool fov = action == DirectorMath::Wheel::Fov || action == DirectorMath::Wheel::FreeCamFov;
+    const bool speed = action == DirectorMath::Wheel::Speed || action == DirectorMath::Wheel::FreeCamSpeed;
+    if (fov || speed) { g.adjust.kind = speed ? 1 : 2; g.adjust.direction = notches > 0 ? 1 : -1; g.adjustAtMs = emscripten_get_now(); }
+	switch (action) {
 	case DirectorMath::Wheel::Camera: SetCamera(DirectorMath::StepCamera(d.observerMode, notches)); return;
 	case DirectorMath::Wheel::Fov:
 		d.fov = DirectorMath::StepFov(d.fov > 0 ? d.fov : 90, notches);
@@ -411,9 +421,18 @@ void BuildCards(DirectorCardsModel& cards) {
 	cards.pos[0] = -412.5; cards.pos[1] = 1296.0; cards.pos[2] = 64.0; // a stand-in spot on de_dust2
 	cards.ang[0] = g.pitch; cards.ang[1] = g.yaw;
 	cards.fov = d.freeCam ? d.freeCamFov : (d.fov > 0 ? d.fov : 90);
+	cards.haveScores = true; cards.ctScore = 1; cards.tScore = 0;
+	cards.haveRoundTime = true; cards.roundSeconds = (std::max)(0, 180 - (int)(d.tick * d.interval));
 	cards.haveTick = true;
 	cards.tick = (int)d.tick;
 	cards.time = d.tick * d.interval;
+	for (int team : { 3, 2 }) for (int i = 0; i < 5; ++i) {
+		DirectorPlayer p;
+		p.userId = team * 10 + i; p.name = d.spectatable[(size_t)i]; p.team = team;
+		p.health = i == 4 ? 0 : 100 - i * 17; p.alive = p.health > 0;
+		p.observed = team == 3 && i == d.target;
+		cards.players.push_back(std::move(p));
+	}
 }
 
 void StandInRenderCommand(const std::string& command);
@@ -959,6 +978,13 @@ void StandInRenderDerive() {
 		: (m.format == 0 ? "H.264 MP4 with adjustable quality (CRF or bitrate) and optional NVENC GPU encoding." : "");
 	m.fatalCount = (m.rangeOk ? 0 : 1) + (m.folder.empty() ? 1 : 0) + (m.formatOk[m.format & 7] ? 0 : 1);
 	m.firstFatal = !m.rangeOk ? "Render range is unresolved or invalid." : (m.folder.empty() ? "no output folder chosen" : m.formatNote);
+    int passCount = 0;
+    for (int type = 0; type < kPassTypes; ++type) for (int group = 0; group < kPassGroups; ++group) if (m.selectedPass[type][group]) {
+        ++passCount;
+        const PassRoute route = RoutePass(type, group);
+        if (route.way != PassWay::Main && route.way != PassWay::Extra) { ++m.fatalCount; if (route.why) m.firstFatal = route.why; }
+    }
+    if (!passCount) { ++m.fatalCount; m.firstFatal = "No render pass selected."; }
 	m.warnCount = m.rangeOk ? 1 : 0; // 66.67 ticks never divide into whole frames
 	if (m.running) {
 		g.renderFrame += 1;
@@ -1030,6 +1056,25 @@ void StandInRenderCommand(const std::string& command) {
 		if (b == "hud") m.hud = v == "none" ? 0 : 1;
 		else if (b == "cameradata") m.cameraData = v == "1";
 		else if (b == "blood") m.blood = v == "1";
+        else if ((b == "toggle" || b == "add" || b == "remove") && t.size() > 5) {
+            Filmmaker::PassType type; Filmmaker::VisibleElements group;
+            if (Filmmaker::PassTypeFromToken(t[4].c_str(), type) && Filmmaker::VisibleElementsFromToken(t[5].c_str(), group)
+                && Filmmaker::PassAllowed({type, group})) {
+                bool& on = m.selectedPass[(int)type][(int)group]; on = b == "add" || (b == "toggle" && !on);
+            }
+        } else if (b == "clear") { for (auto& type : m.selectedPass) for (bool& on : type) on = false; m.previewType = m.previewGroup = 0; }
+        else if (b == "preview") {
+            Filmmaker::PassType type; Filmmaker::VisibleElements group;
+            if (v == "off") m.previewType = m.previewGroup = 0;
+            else if (t.size()>5 && Filmmaker::PassTypeFromToken(t[4].c_str(),type) && Filmmaker::VisibleElementsFromToken(t[5].c_str(),group)) {
+                m.previewType=(int)type; m.previewGroup=(int)group;
+            }
+        }
+        else if (b == "key" && t.size() > 6) { for (int c = 0; c < 3; ++c) m.keyColor[c] = (std::max)(0, (std::min)(255, std::atoi(t[4+c].c_str()))); }
+        else if (b == "depth" && t.size() > 5) {
+            const float n = std::atof(t[4].c_str()), f = std::atof(t[5].c_str());
+            if (n >= 0 && f > n) { m.depthNear = n; m.depthFar = f; }
+        }
 	} else if (a == "sound") {
 		if (b == "toggle") m.soundOn = !m.soundOn;
 		else if (b == "volume" && t.size() > 4) m.volume = std::atoi(t[4].c_str());
@@ -1629,9 +1674,20 @@ void Frame() {
 	} else if (director) {
 		if (g.cadence.Ready((uint64_t)nowMs, 10, false)) BuildCards(g.cards);
 		// The backdrop is a CS:S spectator capture, so its spectator bars are where the game's are.
-		const float spectatorBar = (float)g.height * DirectorMath::kSpectatorBarShare;
-		directorFrame = DrawDirector(g.director, demo, g.cards, g.fonts, (float)g.width, (float)g.height, spectatorBar, spectatorBar);
+		const float spectatorBar = (float)g.height * 64.0f / kStageHeight;
+		directorFrame = DrawDirector(g.director, demo, g.cards, g.fonts, (float)g.width, (float)g.height, spectatorBar, 0);
 	}
+    if (g.editor.open && !g.director.blackout) {
+        BuildCards(g.cards);
+        const DirectorFrame hud = DrawMatchHud(g.cards, g.fonts, (float)g.height, frame.previewClient, !frame.modal);
+        directorFrame.roster = hud.roster; directorFrame.observeUserId = hud.observeUserId;
+    }
+    if (g.editor.open || director) {
+        g.adjust.age = (emscripten_get_now() - g.adjustAtMs) / 1000.0;
+        g.adjust.value = g.adjust.kind == 1 ? (g.demo.freeCam ? g.demo.freeCamSpeed : g.demo.speed)
+            : (g.demo.freeCam ? g.demo.freeCamFov : (g.demo.fov > 0 ? g.demo.fov : 90));
+        DrawCameraAdjust(g.adjust, g.fonts, (float)g.height, g.editor.open ? frame.previewClient : MakeRect(0, 0, (float)g.width, (float)g.height));
+    }
 	std::vector<MarkerCardAction> cardActions;
 	if ((g.editor.open || director) && !g.director.blackout)
 		DrawCardAndBanner(g.editor.open ? frame.previewClient : MakeRect(0, 0, (float)g.width, (float)g.height), cardActions);
@@ -1640,7 +1696,9 @@ void Frame() {
 	if (demosFrame.close) OpenDemos(false, "close chip");
 	ApplyCardActions(cardActions);
 	ApplyDemoActions(frame.demoActions);
+	g.roster = directorFrame.roster;
 	ApplyDemoActions(directorFrame.demoActions);
+	if (directorFrame.observeUserId >= 0) { SetCamera(DirectorMath::kInEye); g.demo.target = directorFrame.observeUserId % 10; }
 	ApplyPathActions(frame.pathActions);
 	ApplyFollowCommands(frame.followCommands);
 	ApplyTimelineActions(frame.timelineActions);
@@ -1724,7 +1782,7 @@ int DirectorMouseEvent(int type, int button, float x, float y, float wheel, int 
 		if (route == DirectorRoute::Ui) io.AddMousePosEvent(x, y);
 		break;
 	case 1:
-		route = g.directorMouse.ButtonDown(button, x, y, now, g.bar, g.demo.freeCam);
+		route = g.directorMouse.ButtonDown(button, x, y, now, g.roster.Contains(x, y) ? g.roster : g.bar, g.demo.freeCam);
 		if (route == DirectorRoute::Ui) {
 			io.AddMousePosEvent(x, y);
 			io.AddMouseButtonEvent(button, true);
@@ -1782,7 +1840,7 @@ EMSCRIPTEN_KEEPALIVE int mockup_mouse(int type, int button, float x, float y, fl
 		if (button == WorkspaceMouse::Middle) {
 			route = before == Mode::Ui ? Route::Ui : Route::Game;
 		} else {
-			route = g.mouse.ButtonDown(button, x, y, now, g.preview);
+			route = g.mouse.ButtonDown(button, x, y, now, g.roster.Contains(x, y) ? Rect() : g.preview);
 			reason = button == WorkspaceMouse::Left ? "click in preview" : "right press";
 		}
 		if (route == Route::Ui) {
@@ -1799,6 +1857,7 @@ EMSCRIPTEN_KEEPALIVE int mockup_mouse(int type, int button, float x, float y, fl
 	case 3:
 		route = g.mouse.Wheel(x, y, g.preview);
 		if (route == Route::Ui) io.AddMouseWheelEvent(0.0f, wheel);
+		else { DirectorWheel((int)wheel, (mods & 1) != 0, (mods & 2) != 0); route = Route::Swallow; }
 		break;
 	default:
 		return 1;

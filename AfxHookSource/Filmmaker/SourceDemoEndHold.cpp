@@ -13,6 +13,7 @@
 
 #include <AfxHookSource2/Filmmaker/Movie/DemoEndHoldHost.h>
 #include <AfxHookSource2/Filmmaker/Movie/DemoScrub.h>
+#include <AfxHookSource2/Filmmaker/Render/RenderSessionDriver.h>
 #include <AfxHookSource2/Filmmaker/Platform/TextEncoding.h>
 
 #include <algorithm>
@@ -56,7 +57,7 @@ int EndHoldHost_StartTick() { return 0; } // Demo_State's tick already counts fr
 
 int EndHoldHost_GamePhase() { return -1; }
 
-bool EndHoldHost_ScrubActive() { return DemoScrub_Active(); } // a live scrub's own steps are left alone
+bool EndHoldHost_ScrubActive() { return DemoScrub_Active() || RenderSessionDriver_IsActive(); }
 
 void EndHoldHost_Pause() {
 	if (g_VEngineClient) g_VEngineClient->ClientCmd_Unrestricted("demo_pause");

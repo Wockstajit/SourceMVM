@@ -21,7 +21,7 @@ namespace NetvarDetail {
 const int kMaxDepth = 32;
 
 inline bool FindInTable(const Sdk2013::RecvTable* table, const char* tableName, const char* propName,
-	bool insideWantedTable, int baseOffset, int depth, int& outOffset) {
+	bool insideWantedTable, int baseOffset, int depth, int& outOffset, const Sdk2013::RecvProp** outProp = nullptr) {
 	if (!table || depth > kMaxDepth || !table->m_pProps || table->m_nProps <= 0) return false;
 	const bool wanted = insideWantedTable
 		|| (table->m_pNetTableName && 0 == std::strcmp(table->m_pNetTableName, tableName));
@@ -29,6 +29,7 @@ inline bool FindInTable(const Sdk2013::RecvTable* table, const char* tableName, 
 		const Sdk2013::RecvProp& prop = table->m_pProps[i];
 		if (wanted && prop.m_pVarName && 0 == std::strcmp(prop.m_pVarName, propName)) {
 			outOffset = baseOffset + prop.m_Offset;
+			if (outProp) *outProp = &prop;
 			return true;
 		}
 	}
@@ -40,7 +41,7 @@ inline bool FindInTable(const Sdk2013::RecvTable* table, const char* tableName, 
 		if (prop.m_RecvType != Sdk2013::DPT_DataTable || !prop.m_pDataTable) continue;
 		const bool memberOfWanted = wanted && prop.m_pVarName && 0 != std::strcmp(prop.m_pVarName, "baseclass");
 		if (FindInTable(prop.m_pDataTable, tableName, propName, memberOfWanted, baseOffset + prop.m_Offset,
-			depth + 1, outOffset))
+			depth + 1, outOffset, outProp))
 			return true;
 	}
 	return false;
@@ -59,6 +60,19 @@ inline int FindNetvarOffset(const Sdk2013::ClientClass* classes, const char* tab
 			return offset;
 	}
 	return -1;
+}
+
+// The property itself, for datatable proxies whose destination is a singleton rather than bytes
+// inside the entity (CS:S's cs_gamerules_data). Uses the same bounded table walk as offsets.
+inline const Sdk2013::RecvProp* FindNetvarProperty(const Sdk2013::ClientClass* classes, const char* table, const char* name) {
+    if (!table || !name) return nullptr;
+    int guard = 0;
+    for (const Sdk2013::ClientClass* cls = classes; cls && guard++ < 4096; cls = cls->m_pNext) {
+        int offset = -1;
+        const Sdk2013::RecvProp* prop = nullptr;
+        if (NetvarDetail::FindInTable(cls->m_pRecvTable, table, name, false, 0, 0, offset, &prop)) return prop;
+    }
+    return nullptr;
 }
 
 // Number of classes in the list, bounded the same way, for health reports.

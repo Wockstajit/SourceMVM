@@ -4,9 +4,11 @@
 #include "SourceConCommand.h"
 #include "SourceGameProfile.h"
 #include "SourceNetvars.h"
+#include "SourceMatchMath.h"
 #include "SourceSdk2013.h"
 
 #include "RenderView.h"
+#include "d3d9Hooks.h"
 #include "WrpGlobals.h"
 #include "WrpVEngineClient.h"
 
@@ -344,7 +346,7 @@ void* FindVideoMode() {
 		g_videoModeText = "NOT FOUND in mat_setvideomode's code";
 		return nullptr;
 	}
-	g_VEngineClient->GetScreenSize(screenW, screenH);
+	if (!Engine_RenderSize(screenW,screenH)) g_VEngineClient->GetScreenSize(screenW, screenH);
 	char text[160];
 	if (width != screenW || height != screenH) {
 		std::snprintf(text, sizeof(text), "found at engine.dll+0x%llx, but its mode %dx%d is not the screen's %dx%d: not used",
@@ -640,6 +642,90 @@ int Entities_Snapshot(std::vector<EntityState>& out, bool includeDormant) {
 		out.push_back(e);
 	}
 	return (int)out.size();
+}
+
+namespace {
+
+// dt_recv.h's DataTableRecvVarProxyFn supplies the destination of a data table. The CS game rules
+// proxy returns the client's rules singleton; its receive offsets belong to that object, not to
+// the CCSGameRulesProxy entity that carries it over the network.
+void* GameRulesData(const RecvProp* prop) {
+    if (!prop) return nullptr;
+    __try {
+        if (prop->m_RecvType != DPT_DataTable || !prop->m_DataTableProxyFn) return nullptr;
+        using Proxy = void (*)(const RecvProp*, void**, void*, int);
+        void* rules = nullptr;
+        ((Proxy)prop->m_DataTableProxyFn)(prop, &rules, nullptr, 0);
+        return rules;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { InterlockedIncrement64(&g_faults); return nullptr; }
+}
+
+struct MatchFields {
+    int team = -1, score = -1, duration = -1, start = -1, freeze = -1;
+    const RecvProp* proxy = nullptr;
+    bool resolved = false;
+};
+MatchFields g_match;
+
+void ResolveMatch() {
+    if (g_match.resolved) return;
+    g_match.resolved = true;
+    g_match.team = GuardedFindNetvar(g_classes, "DT_Team", "m_iTeamNum");
+    g_match.score = GuardedFindNetvar(g_classes, "DT_Team", "m_iScore");
+    g_match.duration = GuardedFindNetvar(g_classes, "DT_CSGameRules", "m_iRoundTime");
+    g_match.start = GuardedFindNetvar(g_classes, "DT_CSGameRules", "m_fRoundStartTime");
+    g_match.freeze = GuardedFindNetvar(g_classes, "DT_CSGameRules", "m_bFreezePeriod");
+    g_match.proxy = FindNetvarProperty(g_classes, "DT_CSGameRulesProxy", "cs_gamerules_data");
+    if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("match.fields",
+        "team=%d score=%d duration=%d start=%d freeze=%d proxy=%p", g_match.team, g_match.score,
+        g_match.duration, g_match.start, g_match.freeze, g_match.proxy);
+}
+
+} // namespace
+
+MatchState Match_Snapshot() {
+    MatchState state;
+    if (!Engine_Init() || !g_VEngineClient || !g_VEngineClient->IsInGame()) return state;
+    ResolveMatch();
+    int readTeams = 0;
+    if (g_match.team >= 0 && g_match.score >= 0) for (int i = 1, n = HighestEntityIndex(); i <= n; ++i) {
+        void* entity = EntityAt(i);
+        if (!entity) continue;
+        void* network = CallPtr(entity, Slot::Unknown_GetClientNetworkable);
+        const ClientClass* cls = (const ClientClass*)CallPtr(network, Slot::Networkable_GetClientClass);
+        const char* name = nullptr;
+        char text[64];
+        if (!ReadBytes(cls, (int)offsetof(ClientClass, m_pNetworkName), &name, sizeof(name))
+            || !CopyString(name, text, sizeof(text)) || std::strcmp(text, "CCSTeam") != 0) continue;
+        int team = 0, score = 0;
+        if (!ReadBytes(entity, g_match.team, &team, sizeof(team)) || !ReadBytes(entity, g_match.score, &score, sizeof(score))) continue;
+        if (team == 3) { state.ctScore = score; readTeams |= 1; }
+        if (team == 2) { state.tScore = score; readTeams |= 2; }
+    }
+    state.haveScores = readTeams == 3;
+    if (void* rules = GameRulesData(g_match.proxy)) {
+        int duration = 0;
+        float start = 0;
+        unsigned char freeze = 0;
+        if (ReadBytes(rules, g_match.duration, &duration, sizeof(duration)) && duration >= 0 && duration <= 3600
+            && ReadBytes(rules, g_match.start, &start, sizeof(start)) && std::isfinite(start)
+            && ReadBytes(rules, g_match.freeze, &freeze, sizeof(freeze))) {
+            if (WrpGlobals* globals = g_Hook_VClient_RenderView.GetGlobals()) {
+                state.freeze = freeze != 0;
+                state.roundSeconds = RoundSecondsRemaining(state.freeze, start, duration, globals->curtime_get());
+                state.haveRoundTime = true;
+            }
+        }
+    }
+    return state;
+}
+
+void Match_PrintHealth() {
+    const MatchState s = Match_Snapshot();
+    advancedfx::Message("  match:      CT %d / T %d, %d:%02d%s; scores %s, clock %s; fields team=0x%x score=0x%x duration=0x%x start=0x%x freeze=0x%x proxy=%p\n",
+        s.ctScore, s.tScore, s.roundSeconds / 60, s.roundSeconds % 60, s.freeze ? " freeze" : "",
+        s.haveScores ? "live" : "unavailable", s.haveRoundTime ? "live" : "unavailable", g_match.team, g_match.score,
+        g_match.duration, g_match.start, g_match.freeze, g_match.proxy);
 }
 
 bool Entity_Get(int index, EntityState& out) {
@@ -961,6 +1047,14 @@ bool Engine_GameUiVisible() {
 		if (createInterface) g_engineVgui = createInterface("VEngineVGui001", nullptr);
 	}
 	return CallBool(g_engineVgui, Slot::EngineVGui_IsGameUIVisible, false);
+}
+
+bool Engine_RenderSize(int& width,int& height) {
+    D3DSURFACE_DESC desc = {};
+    IDirect3DSurface9* surface = AfxGetRenderTargetSurface(); // borrowed from HLAE
+    if (!surface || FAILED(surface->GetDesc(&desc))) return false;
+    width = (int)desc.Width; height = (int)desc.Height;
+    return width > 0 && height > 0;
 }
 
 bool Engine_SetWindowedModeSize(int width, int height) {

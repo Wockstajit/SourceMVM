@@ -149,6 +149,7 @@ void PrintHealth() {
 	Window_PrintHealth();
 	if (!g_VEngineClient->IsInGame()) return;
 	Director_PrintHealth();
+	Match_PrintHealth();
 	CameraPath_PrintHealth();
 	TimelineDock_PrintHealth();
 	FollowCamera_PrintHealth();
@@ -340,6 +341,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 	const char* sub = argc >= 2 ? args->ArgV(1) : "";
 	if (0 == _stricmp(sub, "health")) {
 		SourceFilmmaker::PrintHealth();
+	} else if (0 == _stricmp(sub, "match")) {
+		SourceFilmmaker::Match_PrintHealth();
 	} else if (0 == _stricmp(sub, "players")) {
 		SourceFilmmaker::PrintPlayers();
 	} else if (0 == _stricmp(sub, "engine")) {
@@ -353,6 +356,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		const bool all = argc >= 3 && 0 == _stricmp(args->ArgV(2), "all");
 		const int filterArg = all ? 3 : 2;
 		SourceFilmmaker::Entities_Print(all, argc > filterArg ? args->ArgV(filterArg) : "");
+	} else if (0 == _stricmp(sub, "ui")) {
+		SourceFilmmaker::Ui_InputCommand(argc, args);
 	} else if (0 == _stricmp(sub, "editor")) {
 		SourceFilmmaker::Ui_EditorCommand(argc, args);
 	} else if (0 == _stricmp(sub, "config")) {

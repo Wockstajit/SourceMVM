@@ -1,6 +1,7 @@
 #include "RenderManifest.h"
 #include "RenderPassPlan.h"
 #include "RenderJob.h"
+#include "RenderHost.h"
 
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/TextEncoding.h"
@@ -105,7 +106,7 @@ bool WriteManifest(const RenderJob& job, const std::string& demoPathUtf8,
 			b.EndObject();
 		}
 		b.EndArray();
-		b.IntField("rendersPerFrame", plan.PhysicalRendersPerFrame());
+		b.IntField("rendersPerFrame", RenderHost_PhysicalRendersPerFrame(plan.passes));
 		b.Key("keyColor");
 		b.BeginArray();
 		for (int k = 0; k < 3; ++k) b.ValueDouble(job.passes.keyColor[k]);

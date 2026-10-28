@@ -73,6 +73,8 @@ int main() {
 	playerClass.m_pNext = &worldClass;
 
 	Check(CountClientClasses(&playerClass) == 2, "class count");
+	Check(FindNetvarProperty(&playerClass, "DT_BasePlayer", "m_iHealth") == &basePlayerProps[1], "property identity survives embedded tables");
+	Check(FindNetvarProperty(&playerClass, "DT_BasePlayer", "missing") == nullptr, "unknown property has no proxy");
 	Check(FindNetvarOffset(&playerClass, "DT_CSPlayer", "m_angEyeAngles[0]") == 0x1400, "field of the class's own table");
 	Check(FindNetvarOffset(&playerClass, "DT_BasePlayer", "m_iHealth") == 0xD0, "field of a base class table");
 	Check(FindNetvarOffset(&playerClass, "DT_BaseEntity", "m_iTeamNum") == 0x90, "field two base classes down");

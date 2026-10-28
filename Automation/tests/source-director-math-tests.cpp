@@ -6,6 +6,7 @@
 #include "../../AfxHookSource/Filmmaker/Ui/DirectorMouse.h"
 
 #include <cmath>
+#include "../../AfxHookSource/Filmmaker/SourceMatchMath.h"
 #include <cstdio>
 #include <string>
 
@@ -98,7 +99,7 @@ static void TestPlacement() {
 	const CardPlacement d = DirectorCard(1920, 1080, 50);
 	CHECK(std::fabs(d.w - 222.4f) < 0.01f);
 	CHECK(std::fabs(d.x - (1920 - 20 - 222.4f)) < 0.01f);
-	CHECK(std::fabs(d.y - 54) < 0.01f);
+	CHECK(std::fabs(d.y - 66) < 0.01f);
 	const CardPlacement c = ControlsCard(1920, 1080);
 	CHECK(std::fabs(c.w - 201.6f) < 0.01f && c.x == 20 && c.y == 367);
 	// 480p scales by height.
@@ -132,8 +133,9 @@ static void TestHoldLooks() {
 	m.Tick(200);                                  // held 200 ms: a look
 	CHECK(m.GetMode() == Mode::Look);
 	CHECK(m.Move(500, 260, 220) == Route::Game);
-	CHECK(m.ButtonDown(DirectorMouse::Right, 0, 0, 230, kBar) == Route::Game); // the game has the mouse
-	CHECK(m.ButtonUp(DirectorMouse::Right, 240, click) == Route::Game && click == Click::None);
+	CHECK(m.ButtonDown(DirectorMouse::Right, 0, 0, 230, kBar) == Route::Swallow); // the game has the mouse
+	CHECK(m.ButtonUp(DirectorMouse::Right, 240, click) == Route::Swallow && click == Click::None);
+	CHECK(m.GetMode() == Mode::Look);
 	CHECK(m.ButtonUp(DirectorMouse::Left, 300, click) == Route::Swallow);
 	CHECK(click == Click::None && m.GetMode() == Mode::Free);
 	CHECK(m.LookX() == 400 && m.LookY() == 200); // the cursor goes back here
@@ -170,6 +172,20 @@ static void TestFreeCamSteersAtOnce() {
 	CHECK(m.ButtonUp(DirectorMouse::Right, 50, click) == Route::Ui);
 }
 
+static void TestBothButtonsKeepSteering() {
+    for (int first = DirectorMouse::Left; first <= DirectorMouse::Right; ++first) {
+        DirectorMouse m;
+        Click click = Click::None;
+        const int second = first == DirectorMouse::Left ? DirectorMouse::Right : DirectorMouse::Left;
+        m.ButtonDown(first, 400, 200, 0, kBar, true);
+        m.ButtonDown(second, 400, 200, 10, kBar, true);
+        m.ButtonUp(first, 20, click);
+        CHECK(m.GetMode() == Mode::Look && click == Click::None);
+        m.ButtonUp(second, 30, click);
+        CHECK(m.GetMode() == Mode::Free && click == Click::None);
+    }
+}
+
 static void TestFocusLost() {
 	DirectorMouse m;
 	Click click = Click::None;
@@ -185,6 +201,9 @@ static void TestFocusLost() {
 }
 
 int main() {
+    CHECK(SourceFilmmaker::RoundSecondsRemaining(false, 100, 180, 127.2) == 152);
+    CHECK(SourceFilmmaker::RoundSecondsRemaining(true, 110, 180, 104.2) == 5);
+    CHECK(SourceFilmmaker::RoundSecondsRemaining(false, 100, 180, 300) == 0);
 	TestCameraRing();
 	TestKeys();
 	TestSkip();
@@ -196,6 +215,7 @@ int main() {
 	TestHoldLooks();
 	TestBarKeepsItsClicks();
 	TestFreeCamSteersAtOnce();
+	TestBothButtonsKeepSteering();
 	TestFocusLost();
 	if (g_failed) { std::printf("%d check(s) failed\n", g_failed); return 1; }
 	std::printf("SourceDirectorMathTests passed\n");

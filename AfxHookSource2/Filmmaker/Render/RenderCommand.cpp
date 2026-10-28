@@ -195,6 +195,10 @@ static RenderValidationResult ValidateCurrentJob() {
 	RenderValidateRepeatability(result,
 		RenderCaptureFps(out.fps), RenderHost_TickRate());
 	const PassPlan plan = BuildPassPlan(RenderPassesRef().passes);
+	for (const PassConfig& pass : plan.passes) {
+		if (const char* why = RenderHost_PassUnavailable(pass))
+			result.AddFatal(std::string(PassTypeLabel(pass.type)) + " / " + VisibleElementsLabel(pass.elements) + ": " + why);
+	}
 	if (plan.StreamCount() == 0)
 		result.AddFatal("no render pass selected (add at least one pass)");
 	// The pre-tonemap EXR sequence is written at the BeforeUi boundary of the ONE recorded render;
@@ -301,7 +305,7 @@ std::string Render_BuildStateJson() {
 			first = false;
 		}
 		const PassPlan plan = BuildPassPlan(passes.passes);
-		o << "],\"rendersPerFrame\":" << plan.PhysicalRendersPerFrame() << "}";
+		o << "],\"rendersPerFrame\":" << RenderHost_PhysicalRendersPerFrame(plan.passes) << "}";
 	}
 
 	// Live job progress, so the JOB column can show a real progress readout, and the chrome-hide
@@ -772,7 +776,7 @@ static void PrintPasses(const char* cmd) {
 	const RenderPasses& p = RenderPassesRef();
 	const PassPlan plan = BuildPassPlan(p.passes);
 	advancedfx::Message("%s: %d pass(es), %d render(s) per output frame, hud=%d cameraData=%d blood=%d preview=%s\n", cmd,
-		plan.StreamCount(), plan.PhysicalRendersPerFrame(), (int)p.hud, p.cameraData ? 1 : 0, p.blood ? 1 : 0,
+		plan.StreamCount(), RenderHost_PhysicalRendersPerFrame(plan.passes), (int)p.hud, p.cameraData ? 1 : 0, p.blood ? 1 : 0,
 		p.preview == PassConfig{} ? "off" : PassStreamName(p.preview).c_str());
 	for (const PassConfig& pc : plan.passes)
 		advancedfx::Message("   %-22s %s + %s\n", PassStreamName(pc).c_str(), PassTypeLabel(pc.type),

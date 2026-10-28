@@ -17,6 +17,7 @@
 #include "WrpVEngineClient.h"
 
 #include <AfxHookSource2/Filmmaker/Movie/DemoScrubHost.h>
+#include <AfxHookSource2/Filmmaker/Render/RenderSessionDriver.h>
 
 #include <cmath>
 #include <cstdio>
@@ -71,7 +72,7 @@ bool ScrubHost_FastRestores() { return SourceFilmmaker::DemoRewind_Installed(); 
 
 int ScrubHost_SeekLandsPast() { return SourceFilmmaker::DemoRewind_SeekLandsPast(); }
 
-bool ScrubHost_RenderActive() { return false; } // no render job yet (port step 14)
+bool ScrubHost_RenderActive() { return RenderSessionDriver_IsActive(); }
 
 void ScrubHost_RestoreUserTimescale() {
 	char command[48];

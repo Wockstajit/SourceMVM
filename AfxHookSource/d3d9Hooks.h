@@ -167,11 +167,19 @@ enum AfxDrawDepthEncode
 	AfxDrawDepthEncode_Gray,
 	AfxDrawDepthEncode_Rgb,
 	AfxDrawDepthEncode_Rgba,
-	AfxDrawDepthEncode_Dithered
+	AfxDrawDepthEncode_Dithered,
+	AfxDrawDepthEncode_Normal, // SOURCE:MVM: shared view-space normal reconstruction
+    AfxDrawDepthEncode_MaskedLinear // SOURCE:MVM
+};
+
+// SOURCE:MVM: optional subject mask for the normal/linear depth draw.
+struct AfxDepthPassExtras {
+    int mask = 0; // 0 whole view, 1 first-person band, 2 closer than the world reference
+    IDirect3DTexture9* worldDepth = nullptr;
 };
 
 /// <param name="projectionMatrix">Can currently be null if AfxDrawDepthMode_Inverse, otherwise has to be projection matrix from engine.</param>
-void AfxDrawDepth(AfxDrawDepthEncode encode, AfxDrawDepthMode mode, bool clip, float depthVal, float depthValMax, int x, int y, int width, int height, float zNear, float zFar, float projectionMatrix[4][4]);
+void AfxDrawDepth(AfxDrawDepthEncode encode, AfxDrawDepthMode mode, bool clip, float depthVal, float depthValMax, int x, int y, int width, int height, float zNear, float zFar, float projectionMatrix[4][4], const AfxDepthPassExtras* extras = nullptr);
 
 void AfxDrawGuides(int x, int y, int width, int height, bool phiGrid, bool ruleOfThirds);
 

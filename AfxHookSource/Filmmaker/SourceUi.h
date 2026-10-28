@@ -6,7 +6,7 @@
 //
 //   * UI mode (default while a workspace is open): the cursor is free and visible, panels take
 //     clicks, and the game sees no mouse movement or buttons.
-//   * A left click in the preview hands the mouse to the game (GAME mode); G hands it back.
+//   * A left press steers the preview until release. G explicitly latches GAME mode.
 //   * A right press in the preview that is held or dragged (RightPressBecomesLook) is a look: the
 //     game has the mouse until the button is released, then the cursor returns where it was.
 //   * ESC closes the workspace.
@@ -61,6 +61,9 @@ void Ui_FilterRawInput(UINT result, UINT command, LPVOID data);
 // the engine's ShowCursor) through the filters above. Once, after the client loaded.
 void Ui_InstallCursorHooks();
 void Ui_PrintMouseHealth();
+
+// Netcon input replay through the real UI handlers; does not activate a window or post OS input.
+void Ui_InputCommand(int argc, advancedfx::ICommandArgs* args);
 
 // mirv_filmmaker editor [on|off|toggle|state]
 void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args);

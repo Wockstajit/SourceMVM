@@ -29,7 +29,7 @@ namespace Paint {
 constexpr Color Panel = Theme::DockBg;
 constexpr Color Border = Rgba(255, 255, 255, 31);
 constexpr Color Chip = Rgba(255, 255, 255, 26);
-constexpr Color RowLine = Rgba(255, 255, 255, 8);
+constexpr Color RowLine = Rgba(255, 255, 255, 24);
 constexpr Color LayerBg = Rgba(255, 255, 255, 10);
 constexpr Color LayerSel = Rgba(255, 176, 0, 38);
 constexpr Color RowSel = Rgba(255, 176, 0, 28);
@@ -1646,6 +1646,13 @@ void DrawRows(D& d, const std::vector<Row>& rows) {
 	// The track side, clipped to the track; GRAPH covers it with the curves instead.
 	if (st.view == TimelineView::Keys) {
 		d.l->PushClipRect(d.P(kLeftW, kRowsY), d.P(kLeftW + d.g.tw, kRowsY + kRowsH), true);
+		// Carry the ruler through the tracks so keys can be read against time in either view.
+		const RulerStep ruler = RulerSteps(st.window, d.g.cw, d.m.tickRate);
+		for (double t = std::ceil(st.window.t0 / ruler.minor) * ruler.minor; t <= st.window.t1; t += ruler.minor) {
+			const float x = kLeftW + (float)TickToX(st.window, d.g.cw, t);
+			const bool major = std::fabs(t / ruler.major - std::round(t / ruler.major)) < 1e-6;
+			d.VLine(x, kRowsY, kRowsY + kRowsH, major ? Paint::GridMid : Paint::Grid);
+		}
 		for (size_t i = 0; i < rows.size(); ++i) {
 			const float y = kRowsY + i * kRowH - st.rowScroll;
 			if (y + kRowH < kRowsY || y > kRowsY + kRowsH) continue;

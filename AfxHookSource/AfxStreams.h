@@ -3839,6 +3839,11 @@ private:
 
 	};
 
+public:
+	// SOURCE:MVM: the Render workspace's extra passes (Filmmaker/SourceRenderPasses.cpp) write each pass through the screen recorder's output.
+	static ICaptureOutput* NewScreenOutput(advancedfx::COutVideoStreamCreator* creator) { return new CDrawingRecordScreenOutput(creator); } // SOURCE:MVM
+private:
+
 	class CDrawingRecordScreen  {
 	public:
 		CDrawingRecordScreen(advancedfx::COutVideoStreamCreator* outVideoStreamCreator, advancedfx::StreamCaptureType captureType)

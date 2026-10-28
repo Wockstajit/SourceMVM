@@ -10,6 +10,7 @@
 #include "RenderView.h"
 
 #include <AfxHookSource2/Filmmaker/Movie/CameraBridge.h>
+#include <AfxHookSource2/Filmmaker/Movie/FreeCamStepMath.h>
 #include <AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h>
 #include <Shared/MirvInput.h>
 
@@ -22,6 +23,7 @@ namespace Filmmaker {
 
 namespace {
 MirvInput* FreeCam() { return g_Hook_VClient_RenderView.m_MirvInput; }
+int g_adjustSeq = 0, g_adjustKind = 0, g_adjustDirection = 0;
 } // namespace
 
 bool CameraBridge_GetFreeCamEnabled() { return FreeCam() && FreeCam()->GetCameraControlMode(); }
@@ -29,6 +31,11 @@ bool CameraBridge_GetFreeCamEnabled() { return FreeCam() && FreeCam()->GetCamera
 void CameraBridge_SetFreeCamEnabled(bool enable) {
 	if (FreeCam() && FreeCam()->GetCameraControlMode() != enable) FreeCam()->SetCameraControlMode(enable);
 }
+
+void CameraBridge_NoteFreeCamAdjust(int kind, int dir) { ++g_adjustSeq; g_adjustKind = kind; g_adjustDirection = dir; }
+void CameraBridge_LastFreeCamAdjust(int& seq, int& kind, int& dir) { seq = g_adjustSeq; kind = g_adjustKind; dir = g_adjustDirection; }
+float CameraBridge_GetFreeCamSpeed() { return FreeCam() ? (float)FreeCam()->GetCamSpeed() : 1; }
+float CameraBridge_GetGameCameraFov() { return (float)SourceFilmmaker::View_Rendered().fov; }
 
 void CameraBridge_GetCurrentCamera(double outOrigin[3], double outAngles[3], double& outFov) {
 	const SourceFilmmaker::ViewPose view = SourceFilmmaker::View_Rendered();

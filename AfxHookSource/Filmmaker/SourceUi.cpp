@@ -12,6 +12,7 @@
 #include "SourceFollowCamera.h"
 #include "SourceMainThread.h"
 #include "SourceRender.h"
+#include "SourceRenderPasses.h"
 #include "SourceScrubFrameCache.h"
 #include "SourceTimelineDock.h"
 
@@ -27,9 +28,12 @@
 #include "Ui/WorkspaceMouse.h"
 
 #include "WrpVEngineClient.h"
+#include "RenderView.h"
+#include <Shared/MirvInput.h>
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
 #include <AfxHookSource2/Filmmaker/Movie/CamPathShake.h>
+#include <AfxHookSource2/Filmmaker/Movie/CameraBridge.h>
 #include <AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h>
 #include <AfxHookSource2/Filmmaker/Platform/JsonParser.h>
 #include <AfxHookSource2/Filmmaker/Render/RenderCommand.h>
@@ -90,8 +94,12 @@ struct Host {
 	HWND window = nullptr;
 	WorkspaceMouse mouse;  // who has the mouse (CS2's rules)
 	DirectorMouse directorMouse; // the same outside the workspaces, while the director runs
+	int adjustSeq = 0;
+	int64_t adjustAt = -10000;
+	CameraAdjustModel adjust;
 	DirectorCardsModel cards;    // the director cards' readouts, refreshed at CS2's 10 Hz
 	Filmmaker::HudReadoutCadence cadence;
+	Rect roster;
 	Rect bar;              // last frame's director bar panel, client px
 	int wheelRemainder = 0; // wheel delta short of a notch
 	Rect preview;          // last frame's preview, client px; empty while a dialog is up, so clicks stay the UI's
@@ -437,12 +445,12 @@ bool OnDirectorMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 	case WM_MBUTTONDOWN: {
 		const int button = (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) ? DirectorMouse::Left
 			: (msg == WM_MBUTTONDOWN ? DirectorMouse::Middle : DirectorMouse::Right);
-		if (CameraPath_OwnsView() && !g.bar.Contains((float)x, (float)y) && g.directorMouse.GetMode() == DirectorMode::Free) {
+		if (CameraPath_OwnsView() && !g.bar.Contains((float)x, (float)y) && !g.roster.Contains((float)x, (float)y) && g.directorMouse.GetMode() == DirectorMode::Free) {
 			route = DirectorRoute::Swallow; // the path flies the view: a press is no look and no player step (CS2)
 			break;
 		}
 		// While the CAMERA MARKER card is up, the whole window is the UI's (its catcher).
-		const Rect ui = g_markerMenu.load() ? MakeRect(-1e6f, -1e6f, 1e6f, 1e6f) : g.bar;
+		const Rect ui = g_markerMenu.load() ? MakeRect(-1e6f, -1e6f, 1e6f, 1e6f) : (g.roster.Contains((float)x, (float)y) ? g.roster : g.bar);
 		if (button == DirectorMouse::Left && CameraPath_Repositioning() && !ui.Contains((float)x, (float)y)) g.repositionPressAt = now;
 		route = g.directorMouse.ButtonDown(button, (float)x, (float)y, now, ui, Director_FreeCamOn());
 		if (route == DirectorRoute::Ui && io) {
@@ -597,6 +605,19 @@ void MenuButtonFrame(float w, float h) {
 	Publish(std::move(snapshot));
 }
 
+CameraAdjustModel CurrentAdjust() {
+    int seq = 0, kind = 0, dir = 0;
+    Filmmaker::CameraBridge_LastFreeCamAdjust(seq, kind, dir);
+    if (seq != g.adjustSeq) {
+        g.adjustSeq = seq; g.adjustAt = NowMs();
+        g.adjust.kind = kind; g.adjust.direction = dir;
+        Director_BuildCards(g.cards);
+    }
+    g.adjust.age = (NowMs() - g.adjustAt) / 1000.0;
+    g.adjust.value = g.adjust.kind == 1 ? g.cards.speed : View_Rendered().fov;
+    return g.adjust;
+}
+
 // The director's frame: the bar and the cards over the game.
 void DirectorFrameBuild(float w, float h) {
 	ImGuiIO& io = ImGui::GetIO();
@@ -612,7 +633,10 @@ void DirectorFrameBuild(float w, float h) {
 	if (g.cadence.Ready((uint64_t)NowMs(), 10, false)) Director_BuildCards(g.cards);
 	const float spectatorBar = Director_SpectatorBarHeight(h);
 	ImGui::NewFrame();
-	const DirectorFrame frame = DrawDirector(Director_State(), demo, g.cards, g.fonts, w, h, spectatorBar, spectatorBar);
+	const DirectorFrame frame = DrawDirector(Director_State(), demo, g.cards, g.fonts, w, h, spectatorBar, 0);
+	g.roster = frame.roster;
+	DrawCameraAdjust(CurrentAdjust(), g.fonts, h, MakeRect(0, 0, w, h));
+	if (frame.observeUserId >= 0) MainThread_Run([id = frame.observeUserId] { Director_WatchPlayer(id); });
 	std::vector<MarkerCardAction> markerActions;
 	if (!Director_State().blackout) DrawMarkerPopups(MakeRect(0, 0, w, h), w, h, markerActions);
 	ImGui::Render();
@@ -699,7 +723,7 @@ bool OnMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
 			MainThread_Run(&FollowCamera_PlaceReposition);
 			return true;
 		}
-		route = g.mouse.ButtonDown(button, (float)x, (float)y, now, g.preview);
+		route = g.mouse.ButtonDown(button, (float)x, (float)y, now, g.roster.Contains((float)x, (float)y) ? Rect() : g.preview);
 		if (route == Route::Ui && io) {
 			io->AddMousePosEvent((float)x, (float)y);
 			io->AddMouseButtonEvent(button, true);
@@ -1238,8 +1262,13 @@ void Ui_MainThreadFrame() {
 	demo.renderRangeSet = render.rangeOk;
 	demo.renderRange.in = render.in;
 	demo.renderRange.out = render.out - 1;
+	if (g.cadence.Ready((uint64_t)NowMs(), 10, false)) Director_BuildCards(g.cards);
 	ImGui::NewFrame();
 	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo, path, follow, timeline, config, render);
+	const DirectorFrame hud = DrawMatchHud(g.cards, g.fonts, h, frame.previewClient, !frame.modal);
+	g.roster = frame.modal ? Rect() : hud.roster;
+	if (hud.observeUserId >= 0) MainThread_Run([id = hud.observeUserId] { Director_WatchPlayer(id); });
+	DrawCameraAdjust(CurrentAdjust(), g.fonts, h, frame.previewClient);
 	std::vector<MarkerCardAction> markerActions;
 	DrawMarkerPopups(frame.previewClient, w, h, markerActions);
 	ImGui::Render();
@@ -1282,6 +1311,7 @@ void Ui_RenderThreadPresent(IDirect3DDevice9* device) {
 }
 
 void Ui_DeviceLost() {
+    RenderPasses_DeviceLost();
 	g_renderer.ReleaseDeviceObjects();
 	ScrubFrames_DeviceLost();
 }
@@ -1430,6 +1460,71 @@ void Ui_DirectorState() {
 	advancedfx::Message("cards: %s\n", DirectorCardsText(g.cards).c_str());
 	if (g_director.load() && g.bar.Valid())
 		advancedfx::Message("demo bar: %s\n", DemoBarLayoutText(Director_State().bar.layout).c_str());
+}
+
+// Netcon replays input through the same routing and ImGui queue as real window messages. It does
+// not post OS input, activate a window, or change focus. Raw counts retain the normal focus gate.
+void Ui_InputCommand(int argc, advancedfx::ICommandArgs* args) {
+    if (!g.window || argc < 3) return;
+    const char* action = args->ArgV(2);
+    MirvInput* input = g_Hook_VClient_RenderView.m_MirvInput;
+    if (0 == _stricmp(action, "state")) {
+        Ui_PrintMouseHealth();
+        Ui_DirectorState();
+        advancedfx::Message("ui input: front=%d suspended=%d raw-wanted=%d; roster (%.0f %.0f %.0f %.0f), adjust kind=%d value=%.3g age=%.2f\n", GameInFront() ? 1 : 0,
+            Ui_SuspendMirvInput() ? 1 : 0, input && input->WantsRawMouse() ? 1 : 0,
+            g.roster.x0, g.roster.y0, g.roster.x1, g.roster.y1, g.adjust.kind, g.adjust.value, g.adjust.age);
+        return;
+    }
+    UINT msg = 0;
+    WPARAM wp = 0;
+    LPARAM lp = 0;
+    if (0 == _stricmp(action, "mouse") && argc >= 6) {
+        const char* kind = args->ArgV(3);
+        const int x = atoi(args->ArgV(4)), y = atoi(args->ArgV(5));
+        lp = MAKELPARAM(x, y);
+        if (0 == _stricmp(kind, "move")) msg = WM_MOUSEMOVE;
+        else if (0 == _stricmp(kind, "leftdown")) msg = WM_LBUTTONDOWN;
+        else if (0 == _stricmp(kind, "leftup")) msg = WM_LBUTTONUP;
+        else if (0 == _stricmp(kind, "rightdown")) msg = WM_RBUTTONDOWN;
+        else if (0 == _stricmp(kind, "rightup")) msg = WM_RBUTTONUP;
+        else if (0 == _stricmp(kind, "wheel") && argc >= 7) {
+            msg = WM_MOUSEWHEEL;
+            POINT p = { x, y }; ClientToScreen(g.window, &p);
+            lp = MAKELPARAM(p.x, p.y);
+            wp = MAKEWPARAM(argc >= 8 ? atoi(args->ArgV(7)) : 0, atoi(args->ArgV(6)) * WHEEL_DELTA);
+        }
+    } else if (0 == _stricmp(action, "key") && argc >= 5) {
+        const char* kind = args->ArgV(3);
+        if (0 == _stricmp(kind, "down")) msg = WM_KEYDOWN;
+        else if (0 == _stricmp(kind, "up")) msg = WM_KEYUP;
+        wp = (WPARAM)atoi(args->ArgV(4));
+        lp = msg == WM_KEYUP ? (LPARAM)0xC0000001 : 1;
+    } else if (0 == _stricmp(action, "raw") && argc >= 5 && input) {
+        RAWINPUT raw = {};
+        raw.header.dwType = RIM_TYPEMOUSE;
+        raw.header.dwSize = sizeof(raw);
+        raw.data.mouse.lLastX = atoi(args->ArgV(3));
+        raw.data.mouse.lLastY = atoi(args->ArgV(4));
+        UINT size = sizeof(raw);
+        Ui_FilterRawInput(size, RID_INPUT, &raw);
+        const bool wanted = input->WantsRawMouse();
+        input->Supply_RawInputData(size, (HRAWINPUT)&raw, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER));
+        advancedfx::Message("ui input: raw %s, counts %s %s\n", wanted ? "accepted" : "gated (focus or cursor)", args->ArgV(3), args->ArgV(4));
+        if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("ui.replay", "raw wanted=%d dx=%s dy=%s", wanted ? 1 : 0, args->ArgV(3), args->ArgV(4));
+        return;
+    }
+    if (!msg) {
+        advancedfx::Message("mirv_filmmaker ui state | mouse move|leftdown|leftup|rightdown|rightup <x> <y> | mouse wheel <x> <y> <notches> [modifier bits] | key down|up <virtual key> | raw <dx> <dy>\n");
+        return;
+    }
+    const bool consumed = Ui_OnWindowMessage(g.window, msg, wp, lp);
+    if (!consumed && input) {
+        if (msg == WM_KEYDOWN || msg == WM_KEYUP) input->Supply_KeyEvent(msg == WM_KEYDOWN ? MirvInput::KS_DOWN : MirvInput::KS_UP, wp, lp);
+        else input->Supply_MouseEvent(msg, wp, lp);
+    }
+    advancedfx::Message("ui input: 0x%x consumed=%d workspace=%s director=%s\n", msg, consumed ? 1 : 0,
+        ModeName(g.mouse.GetMode()), DirectorModeName(g.directorMouse.GetMode()));
 }
 
 void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args) {

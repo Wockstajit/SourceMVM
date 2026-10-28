@@ -2,6 +2,8 @@
 
 #include "InspectorCards.h"
 #include "UiWidgets.h"
+#include "../SourceRenderPassTable.h"
+#include "../../../AfxHookSource2/Filmmaker/Render/RenderPassPlan.h"
 
 #include <algorithm>
 #include <cmath>
@@ -175,6 +177,23 @@ bool NumberField(const char* id, char* text, size_t size, const Rect& r, int& va
 	return true;
 }
 
+std::string PassSummary(const RenderWorkspaceModel& m) {
+    std::string text;
+    const char* groups[5] = {"Everything", "No gun", "World", "Players", "Gun"};
+    for (int t = 0; t < kPassTypes; ++t) {
+        std::string row;
+        for (int g = 0; g < kPassGroups; ++g) if (m.selectedPass[t][g]) {
+            if (!row.empty()) row += ", ";
+            row += groups[g];
+        }
+        if (row.empty()) continue;
+        if (!text.empty()) text += "\n";
+        text += Filmmaker::PassTypeLabel((Filmmaker::PassType)t);
+        text += ": " + row;
+    }
+    return text.empty() ? "No passes selected" : text;
+}
+
 std::string Plural(int n, const char* one, const char* many) { return Format("%d %s", n, n == 1 ? one : many); }
 
 // ---- the JOB column -------------------------------------------------------------------------------
@@ -213,7 +232,8 @@ void JobColumn(RenderWorkspaceState&, const RenderWorkspaceModel& m, const FontS
 	JobRow(c, "LENGTH", ticks > 0 ? Duration(ticks / m.tickRate) + "   \xC2\xB7   " + Plural(ticks, "tick", "ticks") : "\xE2\x80\x94", Theme::Text);
 	JobRow(c, "FRAMES", m.frames > 0 ? Format("%d   \xC2\xB7   %d fps", m.frames, m.fps) : "\xE2\x80\x94", Theme::Text);
 	JobRow(c, "CAMERA", kCameras[m.camera >= 0 && m.camera < 6 ? m.camera : 0], Theme::Text);
-	JobRow(c, "PASSES", std::string("beauty   \xC2\xB7   ") + (m.hud == 0 ? "No HUD" : "Game HUD") + "   \xC2\xB7   "
+	JobRow(c, "PASSES", PassSummary(m), Theme::Text);
+	JobRow(c, "CAPTURE", std::string(m.hud == 0 ? "No HUD" : "Game HUD") + "   \xC2\xB7   "
 		+ (m.cameraData ? "camera metadata" : "no camera metadata") + (m.blood ? "" : "   \xC2\xB7   no blood"), Theme::Text);
 	JobRow(c, "OUTPUT", m.formatName + Format("   \xC2\xB7   %d\xC3\x97%d", m.width, m.height), m.formatOk[m.format & 7] ? Theme::Text : kError);
 	JobRow(c, "FOLDER", m.folder.empty() ? "not chosen" : m.folder, m.folder.empty() ? kError : Theme::Text);
@@ -298,49 +318,74 @@ void RangeAndCamera(RenderWorkspaceState&, const RenderWorkspaceModel& m, CardCo
 	Section(c, "RANGE");
 	const int mode = Segmented(c, "##rangemode", kRangeModes, 5, m.rangeMode, m.modeLive);
 	if (mode >= 0) out.push_back(std::string("mirv_filmmaker render range ") + kRangeTokens[mode]);
-	if (m.rangeOk) {
-		// The span: IN and LAST FRAME, each a tick earlier or later; the length and its ticks.
-		ImDrawList* draw = ImGui::GetWindowDrawList();
-		ImFont* cap = c.Font(FontRole::Caption);
-		ImFont* value = c.Font(FontRole::Value);
-		ImFont* button = c.Font(FontRole::Button);
-		const float colW = c.W() / 4;
-		const char* caps[4] = { "IN", "LAST FRAME", "LENGTH", nullptr };
-		const std::string ticksCap = Format("TICKS @ %.4g", m.tickRate);
-		caps[3] = ticksCap.c_str();
-		const int ticks = m.out - m.in;
-		const std::string values[4] = { Format("%d", m.in), Format("%d", m.out - 1), Duration(ticks / m.tickRate), Format("%d", ticks) };
-		c.y += 6 * s;
-		for (int i = 0; i < 4; ++i) {
-			const float x = c.x0 + i * colW;
-			DrawSpacedText(draw, cap, ImVec2(x, c.y), ToU32(Theme::TextDim), caps[i], 1.0f * s);
-			draw->AddText(value, value->FontSize, ImVec2(x, c.y + cap->FontSize + 4 * s), ToU32(Theme::Text), values[i].c_str());
-		}
-		// -1 / +1 under IN and LAST FRAME, kept inside the demo (render-range-nudge-tests.mjs's rule).
-		const float by = c.y + cap->FontSize + 8 * s + value->FontSize, bw = 30 * s, bh = button->FontSize + 8 * s;
-		for (int end = 0; end < 2; ++end)
-			for (int d = 0; d < 2; ++d) {
-				const int delta = d == 0 ? -1 : 1;
-				int a = m.in, b = m.out;
-				if (end == 0) a += delta; else b += delta;
-				const bool ok = a >= m.demoStart && b - 1 <= m.demoEnd && b > a;
-				const Rect r = MakeRect(c.x0 + end * colW + d * (bw + 4 * s), by, c.x0 + end * colW + d * (bw + 4 * s) + bw, by + bh);
-				ImGui::PushID(end * 2 + d);
-				if (CardButton("##nudge", delta < 0 ? "-1" : "+1", r, ButtonKind::Normal, ok, button))
-					out.push_back(Format("mirv_filmmaker render range custom %d %d", a, b));
-				ImGui::PopID();
-			}
-		c.y = by + bh + 8 * s;
-		Note(c, kRangeHelp[m.rangeMode >= 0 && m.rangeMode < 5 ? m.rangeMode : 4]);
-	} else {
-		const char* why = m.rangeMode == 4 ? "No In / Out set. Move the playhead and use Set In and Set Out below."
-			: (m.rangeMode == 2 ? "Camera Path needs 2+ camera keys. Place them with K."
-			: (m.rangeMode == 3 ? "Segment needs a camera key selected that has a NEXT key."
-			: (m.rangeMode == 1 ? "No round contains the playhead." : "The demo's length is not known.")));
-		c.y += 4 * s;
-		Note(c, why, kError);
-		Note(c, kRangeHelp[m.rangeMode >= 0 && m.rangeMode < 5 ? m.rangeMode : 4]);
-	}
+    if (m.rangeOk) {
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        ImFont* cap = c.Font(FontRole::Caption);
+        ImFont* value = c.Font(FontRole::SpanValue);
+        ImFont* button = c.Font(FontRole::Button);
+        const float top = c.y + 8 * s, pad = 14 * s;
+        const float left = c.x0 + pad, right = c.x1 - pad;
+        const float innerW = right - left;
+        const float statW = innerW * 0.22f, divider = right - statW * 2 - 14 * s;
+        const float endpointW = (divider - left - 34 * s) / 2;
+        const float x[4] = { left, left + endpointW + 34 * s, divider + 14 * s, right - statW };
+        const int ticks = m.out - m.in;
+        const std::string caps[4] = { "IN", "LAST FRAME", "LENGTH", Format("TICKS @ %.4g", m.tickRate) };
+        const std::string values[4] = { Format("%d", m.in), Format("%d", m.out - 1), Duration(ticks / m.tickRate), Format("%d", ticks) };
+        const float labelY = top + pad, valueY = labelY + cap->FontSize + 4 * s;
+        const float nudgeY = valueY + value->FontSize + 6 * s, bw = 30 * s, bh = button->FontSize + 8 * s;
+        const float barY = nudgeY + bh + 10 * s, barH = 18 * s;
+        const float bottom = barY + barH + cap->FontSize + 4 * s + pad;
+        draw->AddRectFilled(ImVec2(c.x0, top), ImVec2(c.x1, bottom), ToU32(kCardTileBg));
+        draw->AddRect(ImVec2(c.x0, top), ImVec2(c.x1, bottom), ToU32(Rgba(255,255,255,20)));
+        for (int i = 0; i < 4; ++i) {
+            const float cellW = i < 2 ? endpointW : statW;
+            const float cw = SpacedTextWidth(cap, caps[i].c_str(), 1.0f * s);
+            const float vw = value->CalcTextSizeA(value->FontSize, FLT_MAX, 0, values[i].c_str()).x;
+            const float align = i == 1 ? 0.5f : (i >= 2 ? 1.0f : 0.0f);
+            DrawSpacedText(draw, cap, ImVec2(x[i] + (cellW-cw)*align, labelY), ToU32(Theme::TextDim), caps[i].c_str(), 1.0f*s);
+            draw->AddText(value, value->FontSize, ImVec2(x[i] + (cellW-vw)*align, valueY), ToU32(Theme::Text), values[i].c_str());
+        }
+        const float arrowX = left + endpointW + 17*s, arrowY = valueY + value->FontSize*0.6f;
+        draw->AddLine(ImVec2(arrowX-7*s,arrowY),ImVec2(arrowX+7*s,arrowY),ToU32(Theme::TextDim));
+        draw->AddLine(ImVec2(arrowX+3*s,arrowY-4*s),ImVec2(arrowX+7*s,arrowY),ToU32(Theme::TextDim));
+        draw->AddLine(ImVec2(arrowX+3*s,arrowY+4*s),ImVec2(arrowX+7*s,arrowY),ToU32(Theme::TextDim));
+        draw->AddLine(ImVec2(divider,labelY),ImVec2(divider,nudgeY+bh),ToU32(Theme::Border));
+        for (int end = 0; end < 2; ++end) for (int d = 0; d < 2; ++d) {
+            const int delta = d == 0 ? -1 : 1;
+            int a = m.in, b = m.out;
+            if (end == 0) a += delta; else b += delta;
+            const bool ok = !m.running && a >= m.demoStart && b - 1 <= m.demoEnd && b > a;
+            const float nx = x[end] + (end ? (endpointW - 2*bw - 4*s)*0.5f : 0) + d*(bw+4*s);
+            ImGui::PushID(end*2+d);
+            if (CardButton("##nudge",delta<0?"-1":"+1",MakeRect(nx,nudgeY,nx+bw,nudgeY+bh),ButtonKind::Normal,ok,button))
+                out.push_back(Format("mirv_filmmaker render range custom %d %d",a,b));
+            ImGui::PopID();
+        }
+        const float span = (float)(std::max)(1,m.demoEnd-m.demoStart);
+        auto at = [&](int tick) { return left + innerW*(std::max)(0.0f,(std::min)(1.0f,(tick-m.demoStart)/span)); };
+        draw->AddRectFilled(ImVec2(left,barY+4*s),ImVec2(right,barY+14*s),ToU32(Rgba(255,255,255,15)));
+        draw->AddRectFilled(ImVec2(at(m.in),barY+4*s),ImVec2((std::min)(right,(std::max)(at(m.out),at(m.in)+3*s)),barY+14*s),ToU32(Theme::RenderRange));
+        const float head = (std::min)(right-2*s,at(m.playhead));
+        draw->AddRectFilled(ImVec2(head,barY),ImVec2(head+2*s,barY+barH),ToU32(Theme::Accent));
+        draw->AddText(cap,cap->FontSize,ImVec2(left,barY+barH+3*s),ToU32(Theme::TextDim),"0:00");
+        const std::string duration = Duration((m.demoEnd-m.demoStart)/m.tickRate);
+        const float dw = cap->CalcTextSizeA(cap->FontSize,FLT_MAX,0,duration.c_str()).x;
+        draw->AddText(cap,cap->FontSize,ImVec2(right-dw,barY+barH+3*s),ToU32(Theme::TextDim),duration.c_str());
+        c.y = bottom + 8*s;
+    } else {
+        const char* why = m.rangeMode == 4 ? "No In / Out set. Move the playhead and use Set In and Set Out below."
+            : (m.rangeMode == 2 ? "Camera Path needs 2+ camera keys. Place them with K."
+            : (m.rangeMode == 3 ? "Segment needs a camera key selected that has a NEXT key."
+            : (m.rangeMode == 1 ? "No round contains the playhead." : "The demo's length is not known.")));
+        const float top = c.y + 8*s;
+        CardColumn empty = c; empty.x0 += 14*s; empty.x1 -= 14*s; empty.y = top+14*s;
+        Wrapped(empty,c.Font(FontRole::Note),kError,why);
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        draw->AddRect(ImVec2(c.x0,top),ImVec2(c.x1,empty.y+10*s),ToU32(kError));
+        c.y = empty.y+18*s;
+    }
+    Note(c,kRangeHelp[m.rangeMode >= 0 && m.rangeMode < 5 ? m.rangeMode : 4]);
 
 	Section(c, "CAMERA");
 	std::string subs[6];
@@ -358,13 +403,103 @@ void RangeAndCamera(RenderWorkspaceState&, const RenderWorkspaceModel& m, CardCo
 	}
 }
 
-void Passes(RenderWorkspaceState&, const RenderWorkspaceModel& m, CardColumn& c, std::vector<std::string>& out) {
-	Section(c, "PASSES");
-	const std::string sub[1] = { "The scene as the game draws it, written to beauty\\everything." };
-	const char* const title[1] = { "Beauty  \xC2\xB7  Everything" };
-	Tiles(c, "##pass", title, sub, nullptr, 1, 1, 0);
-	Note(c, "CS:S renders the Beauty pass of everything. Depth, normal and key passes need the scene split into "
-		"world, players and gun, which CS:S does not do yet.");
+void Passes(RenderWorkspaceState& st, const RenderWorkspaceModel& m, CardColumn& c, std::vector<std::string>& out) {
+    const float s = c.s;
+    Section(c, "PASSES");
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImFont* caption = c.Font(FontRole::Caption);
+    ImFont* label = c.Font(FontRole::Button);
+    const bool viewing = m.previewType != 0 || m.previewGroup != 0;
+    const float viewH = label->FontSize + 14*s, viewW = 116*s;
+    const Rect view = MakeRect(c.x1-viewW,c.y-caption->FontSize-18*s,c.x1,c.y-caption->FontSize-18*s+viewH);
+    if (CardButton("##passview",viewing ? "Viewing live" : "View",view,viewing ? ButtonKind::Primary : ButtonKind::Normal,!m.running,label)) {
+        if (viewing) out.push_back("mirv_filmmaker render pass preview off");
+        else {
+            bool picked=false;
+            for (int t=0;t<kPassTypes && !picked;++t) for (int g=0;g<kPassGroups && !picked;++g)
+                if (m.selectedPass[t][g] && (t!=0 || g!=0)) {
+                    out.push_back(std::string("mirv_filmmaker render pass preview ")+Filmmaker::PassTypeToken((Filmmaker::PassType)t)+" "+Filmmaker::VisibleElementsToken((Filmmaker::VisibleElements)g)); picked=true;
+                }
+        }
+    }
+    c.y += 8*s;
+    if (viewing) {
+        Note(c,"LIVE IN CAMERA",Theme::Accent);
+        float x=c.x0;
+        for(int t=0;t<kPassTypes;++t) for(int g=0;g<kPassGroups;++g) if(m.selectedPass[t][g] && (t!=0 || g!=0)) {
+            const char* groups[5]={"All","No gun","World","Players","Gun"};
+            const std::string text=std::string(Filmmaker::PassTypeLabel((Filmmaker::PassType)t))+" / "+groups[g];
+            const float w=CardButtonWidth(text.c_str(),label,s)+12*s;
+            if(x+w>c.x1 && x>c.x0) {x=c.x0;c.y+=viewH+5*s;}
+            if(CardButton(Format("##view%d_%d",t,g).c_str(),text.c_str(),MakeRect(x,c.y,x+w,c.y+viewH),
+                m.previewType==t && m.previewGroup==g ? ButtonKind::Primary : ButtonKind::Normal,!m.running,label))
+                out.push_back(std::string("mirv_filmmaker render pass preview ")+Filmmaker::PassTypeToken((Filmmaker::PassType)t)+" "+Filmmaker::VisibleElementsToken((Filmmaker::VisibleElements)g));
+            x+=w+5*s;
+        }
+        c.y+=viewH+12*s;
+    }
+    const float rowLabel = 158 * s, gap = 5 * s, colW = (c.W() - rowLabel - gap * 3) / 4;
+    const float rowH = label->FontSize + 20 * s;
+    for (int t = 0; t < kPassTypes; ++t) {
+        const char* title = Filmmaker::PassTypeLabel((Filmmaker::PassType)t);
+        const float tw = caption->CalcTextSizeA(caption->FontSize, FLT_MAX, 0, title).x;
+        draw->AddText(caption, caption->FontSize, ImVec2(c.x0 + rowLabel + t * (colW + gap) + (colW - tw) / 2, c.y), ToU32(Theme::TextDim), title);
+    }
+    c.y += caption->FontSize + 8 * s;
+    const char* const rows[5] = { "Everything", "World + players", "World only", "Players only", "Gun only" };
+    for (int g = 0; g < kPassGroups; ++g) {
+        draw->AddText(label, label->FontSize, ImVec2(c.x0, c.y + (rowH - label->FontSize) / 2), ToU32(Theme::Text), rows[g]);
+        for (int t = 0; t < kPassTypes; ++t) {
+            const PassRoute route = RoutePass(t, g);
+            const Rect r = MakeRect(c.x0 + rowLabel + t * (colW + gap), c.y,
+                c.x0 + rowLabel + t * (colW + gap) + colW, c.y + rowH);
+            if (route.way == PassWay::NotAPass) continue;
+            const bool available = route.way == PassWay::Main || route.way == PassWay::Extra;
+            const std::string id = Format("##pass_%d_%d", t, g);
+            if (CardButton(id.c_str(), available ? "" : "-", r,
+                m.selectedPass[t][g] ? ButtonKind::Primary : ButtonKind::Normal, available && !m.running, label))
+                out.push_back(std::string("mirv_filmmaker render pass toggle ") + Filmmaker::PassTypeToken((Filmmaker::PassType)t)
+                    + " " + Filmmaker::VisibleElementsToken((Filmmaker::VisibleElements)g));
+            if (available) CheckBox(draw, r.x0+(r.W()-12*s)*0.5f, r.y0+(r.H()-12*s)*0.5f, 12*s, m.selectedPass[t][g]);
+            if (!available && route.why && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", route.why);
+        }
+        c.y += rowH + gap;
+    }
+    Section(c, "KEYING & DEPTH");
+    const int colors[4][3] = { {0,205,0}, {0,0,255}, {255,0,255}, {0,0,0} };
+    const char* const names[4] = { "Green", "Blue", "Magenta", "Black" };
+    const float chipW = (c.W() - gap * 3) / 4;
+    for (int i = 0; i < 4; ++i) {
+        const bool on = m.keyColor[0] == colors[i][0] && m.keyColor[1] == colors[i][1] && m.keyColor[2] == colors[i][2];
+        const Rect r = MakeRect(c.x0 + i * (chipW + gap), c.y, c.x0 + i * (chipW + gap) + chipW, c.y + rowH);
+        draw->AddRectFilled(ImVec2(r.x0+10*s,r.y0+10*s),ImVec2(r.x0+18*s,r.y1-10*s),IM_COL32(colors[i][0],colors[i][1],colors[i][2],255));
+        if (CardButton(Format("##key%d", i).c_str(), names[i], r, on ? ButtonKind::Primary : ButtonKind::Normal, !m.running, label))
+            out.push_back(Format("mirv_filmmaker render pass key %d %d %d", colors[i][0], colors[i][1], colors[i][2]));
+    }
+    c.y += rowH + 10 * s;
+    // Keep text edits stable while the model refreshes every frame; reseed only when the live
+    // setting changed and no field is being edited. Enter or leaving a field commits the pair.
+    if (!ImGui::IsAnyItemActive()) {
+        if (st.depthNearSeed != m.depthNear) { st.depthNearSeed = m.depthNear; std::snprintf(st.depthNearText, sizeof(st.depthNearText), "%g", m.depthNear); }
+        if (st.depthFarSeed != m.depthFar) { st.depthFarSeed = m.depthFar; std::snprintf(st.depthFarText, sizeof(st.depthFarText), "%g", m.depthFar); }
+    }
+    bool commit = false;
+    ImGui::BeginDisabled(m.running);
+    for (int i = 0; i < 2; ++i) {
+        const float x = c.x0 + i * (c.W() + gap) / 2;
+        draw->AddText(caption, caption->FontSize, ImVec2(x, c.y), ToU32(Theme::TextDim), i == 0 ? "NEAR · WHITE" : "FAR · BLACK");
+        ImGui::SetCursorScreenPos(ImVec2(x, c.y + caption->FontSize + 5 * s));
+        ImGui::SetNextItemWidth((c.W() - gap) / 2);
+        commit |= ImGui::InputText(i == 0 ? "##depthnear" : "##depthfar", i == 0 ? st.depthNearText : st.depthFarText,
+            sizeof(st.depthNearText), ImGuiInputTextFlags_CharsDecimal | ImGuiInputTextFlags_EnterReturnsTrue);
+        commit |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    ImGui::EndDisabled();
+    const float nearDistance = (float)std::atof(st.depthNearText), farDistance = (float)std::atof(st.depthFarText);
+    if (commit && std::isfinite(nearDistance) && std::isfinite(farDistance) && nearDistance >= 0 && farDistance > nearDistance)
+        out.push_back(Format("mirv_filmmaker render pass depth %g %g", nearDistance, farDistance));
+    c.y += caption->FontSize + ImGui::GetFrameHeight() + 12 * s;
+    if (!(nearDistance >= 0 && farDistance > nearDistance)) Note(c, "Depth needs 0 ≤ near < far.", kError);
 
 	Section(c, "GAME HUD", "Beauty \xC2\xB7 Everything");
 	const std::string subs[2] = { kHudSubs[0], kHudSubs[1] };

@@ -6920,7 +6920,7 @@ void CAfxStreams::Console_Record_Start2()
 		}
 #endif //#ifndef _WIN64	
 
-		if (!m_HostFrameRate)
+		if (!m_HostFrameRate && !m_OverrideFps) // SOURCE:MVM: an explicit job FPS needs no engine cvar wrapper
 			m_HostFrameRate = new WrpConVarRef("host_framerate");
 
 		float host_framerate = m_OverrideFps ? m_OverrideFpsValue : m_HostFrameRate->GetFloat();
@@ -10267,5 +10267,5 @@ void CAfxStreams::CDrawingRecordScreenOutput::ProcessingThreadFunc() {
 		}
 	}
 	if (m_OutVideoStream) m_OutVideoStream->Release();
-	m_OutVideoStreamCreator->Release();
+	// SOURCE:MVM: the output destructor releases its creator after joining this worker.
 }

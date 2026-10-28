@@ -50,6 +50,7 @@ set(AFXHOOKSOURCE2_SHADERS_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_contact_shadow_ps_5_0.fxc"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depthms_ps_5_0.fxc"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_render_pass_ps_5_0.fxc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_pass_normals.hlsli"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depth_vs_5_0.fxc"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depth_ps_5_0.fxc"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_deadlock_overlay_vs_5_0.fxc"

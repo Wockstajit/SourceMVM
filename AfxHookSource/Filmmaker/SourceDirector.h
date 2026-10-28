@@ -52,6 +52,7 @@ bool Director_RollKey(int vk, bool down, bool ctrl);
 // After HLAE's view overrides: adds the held-key roll of the game's free cam to the view.
 void Director_ApplyRoll(float& roll, double frameTime);
 
+void Director_WatchPlayer(int userId);
 void Director_Click(Ui::DirectorMouse::Click click);
 void Director_Wheel(int notches, bool ctrl, bool shift);
 void Director_Key(Ui::DirectorMath::Key key);
@@ -59,6 +60,15 @@ void Director_Key(Ui::DirectorMath::Key key);
 void Director_StepCamera(int notches);
 // One camera by its spec_mode (DirectorMath::kInEye, kChase, kRoaming), as the steps set it.
 void Director_SetCamera(int mode);
+
+// A render job's temporary camera must leave the user's view intact on every outcome.
+struct DirectorCameraSnapshot {
+    int mode = 0, userId = -1;
+    bool freeCam = false, fovOverride = false;
+    double pose[7] = {}, overrideFov = 90, directorFov = 0;
+};
+DirectorCameraSnapshot Director_SaveCamera();
+void Director_RestoreCamera(const DirectorCameraSnapshot& camera);
 
 // mirv_filmmaker hud on|off|toggle|state, blackout on|off|toggle|status.
 void Director_HudCommand(const char* action);

@@ -57,8 +57,10 @@ struct UtlBuffer {
 	int offset; // the file position of memory[0]
 	bool (*getOverflow)(UtlBuffer* self, int size); // brings the file around get into memory
 };
+#ifdef _WIN64 // This adapter resolves only the measured CS:S x64 ABI.
 static_assert(offsetof(UtlBuffer, get) == 0x10 && offsetof(UtlBuffer, error) == 0x18, "CUtlBuffer layout");
 static_assert(offsetof(UtlBuffer, maxPut) == 0x20 && offsetof(UtlBuffer, getOverflow) == 0x28, "CUtlBuffer layout");
+#endif
 constexpr unsigned char kGetOverflow = 2;
 
 typedef int (*TickFn)(void* player);

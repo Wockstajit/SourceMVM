@@ -8,6 +8,8 @@
 // wrapper (WrpConVarRef) reads only CS:GO's cvar interface, so values come from the CS:S SDK's
 // ConVar here.
 
+#include <string>
+
 namespace SourceFilmmaker {
 
 // tier1/convar.h's CCommand, as a ConCommand callback receives it.
@@ -30,5 +32,13 @@ CommandCallback ConCommand_Wrap(const char* name, CommandCallback wrapper);
 
 // The value of console variable name. False when it does not exist or does not read back as one.
 bool ConVar_GetFloat(const char* name, float& value);
+
+// A console variable found once and then read and set by handle, for code that changes the same
+// variables every frame (the render passes). nullptr when the game has no variable of that name.
+void* ConVar_Find(const char* name);
+// Its value as text. False when the handle does not read back as a variable.
+bool ConVar_GetString(void* var, std::string& value);
+// Sets it as the console would, past FCVAR_CHEAT (the cheat check belongs to the console's parser).
+void ConVar_SetString(void* var, const char* value);
 
 } // namespace SourceFilmmaker

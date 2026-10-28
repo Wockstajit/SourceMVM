@@ -96,6 +96,11 @@ void Render_BuildModel(Ui::RenderWorkspaceModel& m, const Ui::DemoBarModel& bar)
 	m.extension = (int)Render_GetExtension();
 
 	const RenderPasses& passes = RenderPassesRef();
+	for (auto& type : m.selectedPass) for (bool& on : type) on = false;
+	for (const PassConfig& pass : passes.passes) m.selectedPass[(int)pass.type][(int)pass.elements] = true;
+	for (int c = 0; c < 3; ++c) m.keyColor[c] = (int)std::lround(passes.keyColor[c] * 255);
+	m.depthNear = passes.depthNear; m.depthFar = passes.depthFar;
+    m.previewType = (int)passes.preview.type; m.previewGroup = (int)passes.preview.elements;
 	m.hud = (int)passes.hud;
 	m.cameraData = passes.cameraData;
 	m.blood = passes.blood;
@@ -114,7 +119,7 @@ void Render_BuildModel(Ui::RenderWorkspaceModel& m, const Ui::DemoBarModel& bar)
 	m.speed = (int)out.speed;
 	m.nvenc = (int)RenderEncoderDetect_State();
 	m.nvencNote = RenderEncoderDetect_Describe();
-	if (g_VEngineClient) g_VEngineClient->GetScreenSize(m.width, m.height);
+	if (!Engine_RenderSize(m.width,m.height) && g_VEngineClient) g_VEngineClient->GetScreenSize(m.width, m.height);
 	m.soundOn = RenderDoneSound_Enabled();
 	m.volume = RenderDoneSound_Volume();
 

@@ -14,6 +14,14 @@ target_compile_features(NetconServerTests PRIVATE cxx_std_17)
 target_include_directories(NetconServerTests PRIVATE ./)
 add_test(NAME NetconServerTests COMMAND NetconServerTests)
 
+add_executable(SourceRenderPassMathTests
+    ../Automation/tests/source-render-pass-math-tests.cpp
+    Filmmaker/SourceRenderPassMath.h
+    Filmmaker/SourceRenderPassTable.h
+)
+target_compile_features(SourceRenderPassMathTests PRIVATE cxx_std_17)
+add_test(NAME SourceRenderPassMathTests COMMAND SourceRenderPassMathTests)
+
 add_executable(SourceNetvarsTests
     ../Automation/tests/source-netvars-tests.cpp
     Filmmaker/SourceNetvars.h

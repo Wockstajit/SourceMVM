@@ -53,6 +53,10 @@ void RenderHost_WorkspaceOpened();
 void RenderHost_ApplyLivePreview(const RenderPasses& passes, bool open);
 // Why an output format cannot be made in this game, or nullptr when it can.
 const char* RenderHost_FormatUnavailable(RenderOutputFormat format);
+// Why a selected pass cannot be produced by this game, or nullptr.
+const char* RenderHost_PassUnavailable(const PassConfig& pass);
+// Physical scene draws, including any final Beauty redraw, for these logical output streams.
+int RenderHost_PhysicalRendersPerFrame(const std::vector<PassConfig>& passes);
 
 // ---- the console --------------------------------------------------------------------------------
 

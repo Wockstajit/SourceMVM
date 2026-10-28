@@ -10,6 +10,10 @@
 #include "SourceEngine.h"
 #include "SourceFollowCamera.h"
 #include "SourceUi.h"
+#include "SourceTimelineDock.h"
+#include <AfxHookSource2/Filmmaker/Movie/FollowCamera.h>
+#include "SourceRenderPassTable.h"
+#include "SourceRenderPasses.h"
 
 #include "Ui/DirectorMath.h"
 #include "Ui/FollowInspector.h"
@@ -60,7 +64,7 @@ void RenderHost_PathCoverage(int& firstTick, int& lastTick) {
 bool RenderHost_FollowReady() {
 	SourceFilmmaker::Ui::FollowInspectorModel follow;
 	SourceFilmmaker::FollowCamera_InspectorModel(follow);
-	return follow.enabled && follow.hasCamera;
+	return FollowCameraRef().State().hasCamera || FollowCameraRef().State().mode == FollowMode::Attach;
 }
 
 bool RenderHost_Spectating() { return SourceFilmmaker::Players_ObservedIndex() > 0; }
@@ -70,6 +74,14 @@ bool RenderHost_Spectating() { return SourceFilmmaker::Players_ObservedIndex() >
 // starts nothing, as in CS2.
 void RenderHost_ApplyCameraSource(RenderCameraSource source, const char* cmd) {
 	using namespace SourceFilmmaker::Ui;
+    // As in CS2, another owner must release the view before the selected source takes it.
+    if (source != RenderCameraSource::CurrentViewer) {
+        if (source != RenderCameraSource::FollowCamera && FollowCameraRef().State().enabled)
+            FollowCameraRef().StopPreview("render camera source");
+        SourceFilmmaker::TimelineDock_SetDrive(false);
+        if (source != RenderCameraSource::CameraPath && SourceFilmmaker::CameraPath_OwnsView())
+            SourceFilmmaker::CameraPath_Stop();
+    }
 	switch (source) {
 	case RenderCameraSource::Pov: SourceFilmmaker::Director_SetCamera(DirectorMath::kInEye); break;
 	case RenderCameraSource::ThirdPerson: SourceFilmmaker::Director_SetCamera(DirectorMath::kChase); break;
@@ -79,8 +91,7 @@ void RenderHost_ApplyCameraSource(RenderCameraSource source, const char* cmd) {
 			advancedfx::Warning("%s: Camera Path source needs 2+ camera keys (place them with K).\n", cmd);
 		break;
 	case RenderCameraSource::FollowCamera:
-		if (!RenderHost_FollowReady())
-			advancedfx::Warning("%s: Follow Camera source needs a follow camera placed (the FOLLOW CAMERA tab).\n", cmd);
+        FollowCameraRef().Preview();
 		break;
 	case RenderCameraSource::CurrentViewer:
 		break;
@@ -91,13 +102,36 @@ bool RenderHost_EditorActive() { return SourceFilmmaker::Ui_EditorOpen(); }
 
 void RenderHost_WorkspaceOpened() {} // the workspaces always keep the mouse until the game is clicked
 
-// CS:S renders Beauty only so far: there is no other pass to show live.
-void RenderHost_ApplyLivePreview(const RenderPasses&, bool) {}
+void RenderHost_ApplyLivePreview(const RenderPasses& passes, bool open) {
+    using namespace SourceFilmmaker;
+    const auto route = RoutePass((int)passes.preview.type,(int)passes.preview.elements);
+    ExtraPassLook look; look.depthNear = passes.depthNear; look.depthFar = passes.depthFar;
+    for (int c=0;c<3;++c) look.key[c] = (unsigned char)std::lround(passes.keyColor[c]*255);
+    RenderPasses_Preview(route.extra,look,open && route.way == PassWay::Extra);
+}
 
 const char* RenderHost_FormatUnavailable(RenderOutputFormat format) {
 	if (format == RenderOutputFormat::Exr)
 		return "EXR keeps the scene from before tone mapping, which the CS:S frame no longer has. Use PNG or TGA.";
 	return nullptr;
+}
+
+const char* RenderHost_PassUnavailable(const PassConfig& pass) {
+    const SourceFilmmaker::PassRoute route = SourceFilmmaker::RoutePass((int)pass.type, (int)pass.elements);
+    if (route.way == SourceFilmmaker::PassWay::Unavailable) return route.why;
+    if (route.way == SourceFilmmaker::PassWay::NotAPass) return "This pass combination does not exist.";
+    return nullptr;
+}
+
+int RenderHost_PhysicalRendersPerFrame(const std::vector<PassConfig>& passes) {
+    int extra = 0; bool reference = false;
+    for (const PassConfig& pass : passes) {
+        const auto route = SourceFilmmaker::RoutePass((int)pass.type,(int)pass.elements);
+        if (route.way == SourceFilmmaker::PassWay::Extra) {
+            ++extra; reference |= SourceFilmmaker::PassDepthMask(route.extra) == 2;
+        }
+    }
+    return 1 + extra + (extra ? 1 : 0) + (reference ? 1 : 0);
 }
 
 bool RenderHost_RunCommand(const char*, int, advancedfx::ICommandArgs*, const char*) { return false; }
@@ -110,13 +144,13 @@ bool RenderHost_SetPassDepthDebug(bool) { return false; }
 
 // SourceRenderDriver.cpp's job puts these back on every outcome.
 void RenderHost_RestoreCoverage(std::size_t& covered, std::size_t& uncovered) {
-	covered = 6;
+	covered = 10;
 	uncovered = 0;
 }
 
 std::string RenderHost_RestoreCoverageReport() {
 	return "render state restore (CS:S): host_framerate, demo_timescale, mat_queue_mode, cl_drawhud and the blood cvars "
-		"as they were; the camera's mode; the demo paused where the job ended.\n";
+		"as they were; camera mode, watched player, free-camera pose and FOV; the demo's tick and paused/playing state.\n";
 }
 
 } // namespace Filmmaker

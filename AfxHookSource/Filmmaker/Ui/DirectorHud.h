@@ -19,6 +19,14 @@
 namespace SourceFilmmaker {
 namespace Ui {
 
+struct DirectorPlayer {
+	int userId = -1;
+	std::string name;
+	int team = 0; // 2 T, 3 CT
+	int health = 0;
+	bool alive = false, observed = false;
+};
+
 struct DirectorCardsModel {
 	const char* mode = "-";     // "First person", "Chase cam", "Free cam"
 	bool freeCam = false;       // HLAE's free camera flies the view: the mode in the accent colour
@@ -31,6 +39,9 @@ struct DirectorCardsModel {
 	bool haveTick = false;
 	int tick = 0;
 	double time = 0;            // seconds
+	std::vector<DirectorPlayer> players;
+	bool haveScores = false, haveRoundTime = false, freeze = false;
+	int ctScore = 0, tScore = 0, roundSeconds = 0;
 };
 
 struct DirectorState {
@@ -40,9 +51,21 @@ struct DirectorState {
 };
 
 struct DirectorFrame {
+	Rect roster;
+	int observeUserId = -1;
 	Rect bar; // the panel behind the demo bar, client px; empty while blacked out
 	std::vector<DemoBarAction> demoActions;
 };
+
+struct CameraAdjustModel {
+    int kind = 0, direction = 0; // 1 speed, 2 FOV
+    double value = 0, age = 10;
+};
+
+// The same compact, clickable match HUD in the live view and every workspace preview.
+DirectorFrame DrawMatchHud(const DirectorCardsModel& model, const FontSet& fonts, float clientH,
+    const Rect& picture, bool interactive = true);
+void DrawCameraAdjust(const CameraAdjustModel& model, const FontSet& fonts, float clientH, const Rect& picture);
 
 // Draws the director for a clientW x clientH window. topReserve and bottomReserve are the client-px
 // heights of game chrome along the top and bottom edges (CS:S's spectator bars, DirectorMath.h):

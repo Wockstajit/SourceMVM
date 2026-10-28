@@ -56,7 +56,45 @@ bool ReadFloat(SOURCESDK::CSS::ConVar* var, const char* name, float& value) {
 	}
 }
 
+bool ReadString(SOURCESDK::CSS::ConVar* var, const char*& value) {
+	__try {
+		const ConCommandData* data = (const ConCommandData*)var;
+		if (!data->name) return false;
+		value = var->GetString();
+		return value != nullptr;
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		return false;
+	}
+}
+
+bool WriteString(SOURCESDK::CSS::ConVar* var, const char* value) {
+	__try {
+		var->SetValue(value);
+		return true;
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		return false;
+	}
+}
+
 } // namespace
+
+void* ConVar_Find(const char* name) {
+	if (!SOURCESDK::CSS::g_pCVar) return nullptr;
+	SOURCESDK::CSS::ConVar* var = SOURCESDK::CSS::g_pCVar->FindVar(name);
+	const ConCommandData* data = (const ConCommandData*)var;
+	return var && data->name && std::strcmp(data->name, name) == 0 ? var : nullptr;
+}
+
+bool ConVar_GetString(void* var, std::string& value) {
+	const char* text = nullptr;
+	if (!var || !ReadString((SOURCESDK::CSS::ConVar*)var, text)) return false;
+	value = text;
+	return true;
+}
+
+void ConVar_SetString(void* var, const char* value) {
+	if (var) WriteString((SOURCESDK::CSS::ConVar*)var, value);
+}
 
 bool ConVar_GetFloat(const char* name, float& value) {
 	if (!SOURCESDK::CSS::g_pCVar) return false;

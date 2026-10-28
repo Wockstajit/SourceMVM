@@ -6,6 +6,9 @@
 #include "SourceDemoBar.h"
 #include "SourceDemoIndex.h"
 #include "SourceEngine.h"
+#include "SourceUi.h"
+#include <AfxHookSource2/Filmmaker/Render/RenderSessionDriver.h>
+#include <AfxHookSource2/Filmmaker/Movie/CameraBridge.h>
 
 #include "RenderView.h"
 #include "WrpVEngineClient.h"
@@ -44,7 +47,10 @@ struct Follow {
 
 struct State {
 	DirectorState ui;
-	bool hudHidden = false;     // cl_drawhud 0 is the blackout's
+	bool hudHidden = false;     // the filmmaker owns cl_drawhud while its demo UI is active
+	std::string savedHud;
+	bool gunHidden = false;
+	std::string savedGun;
 	double speed = 1;           // the free cam's speed, x
 	bool speedSet = false;      // sv_specspeed is ours
 	double fov = 0;             // Ctrl+wheel's FOV (the view's FOV override), 0 while off
@@ -69,9 +75,14 @@ void Command(const char* command) {
 }
 
 void ApplyBlackout() {
-	if (g.ui.blackout == g.hudHidden) return;
-	g.hudHidden = g.ui.blackout;
-	Command(g.hudHidden ? "cl_drawhud 0" : "cl_drawhud 1");
+	// The render job owns its HUD setting until it restores the saved value.
+	if (Filmmaker::RenderSessionDriver_IsActive()) return;
+	const bool hidden = g.ui.blackout || (Demo_State().playing && (Ui_WorkspaceOpen() || Director_Wanted()));
+	if (hidden == g.hudHidden) return;
+	void* hud = ConVar_Find("cl_drawhud");
+	if (hidden) ConVar_GetString(hud, g.savedHud);
+	ConVar_SetString(hud, hidden ? "0" : g.savedHud.c_str());
+	g.hudHidden = hidden;
 }
 
 void DropFov() {
@@ -137,7 +148,7 @@ void TrackCamera() {
 		RestoreCamera();
 		return;
 	}
-	if (++g.frame % 30) return;
+	if (++g.frame % 30 || Filmmaker::RenderSessionDriver_IsActive()) return;
 	const int target = Players_ObservedIndex();
 	if (target <= 0) return;
 	std::vector<PlayerState> players;
@@ -180,7 +191,14 @@ bool DemoPlaying() { return Demo_State().playing && g_VEngineClient && g_VEngine
 DirectorState& Director_State() { return g.ui; }
 
 void Director_Frame() {
-	FeedSensitivity();
+    FeedSensitivity();
+    const bool hideGun = DemoPlaying() && CameraMode() == DirectorMath::kRoaming && Director_FreeCamOn();
+    if (hideGun != g.gunHidden) {
+        void* gun = ConVar_Find("r_drawviewmodel");
+        if (hideGun) ConVar_GetString(gun, g.savedGun);
+        ConVar_SetString(gun, hideGun ? "0" : g.savedGun.c_str());
+        g.gunHidden = hideGun;
+    }
 	if (g.expectFrames > 0 && (--g.expectFrames == 0 || Players_ObserverMode() == g.expectMode)) g.expectFrames = 0;
 	if (DemoPlaying()) {
 		ApplyBlackout();
@@ -206,6 +224,9 @@ bool Director_Wanted() { return DemoPlaying() && !Engine_GameUiVisible(); }
 void Director_BuildCards(DirectorCardsModel& cards) {
 	cards = DirectorCardsModel();
 	const DemoState demo = Demo_State();
+	const MatchState match = Match_Snapshot();
+	cards.haveScores = match.haveScores; cards.haveRoundTime = match.haveRoundTime;
+	cards.ctScore = match.ctScore; cards.tScore = match.tScore; cards.roundSeconds = match.roundSeconds; cards.freeze = match.freeze;
 	cards.freeCam = Director_FreeCamOn();
 	cards.mode = cards.freeCam ? "Free cam" : DirectorMath::CameraCardName(CameraMode());
 	cards.playing = demo.playing;
@@ -220,11 +241,28 @@ void Director_BuildCards(DirectorCardsModel& cards) {
 	cards.haveTick = demo.playing;
 	cards.tick = demo.tick;
 	cards.time = demo.tick * demo.intervalPerTick;
+	std::vector<PlayerState> players;
+	Players_Snapshot(players);
+	const int observed = Players_ObservedIndex();
+	for (const PlayerState& p : players) {
+		if (p.hltv || p.team < 2 || p.team > 3) continue;
+		DirectorPlayer player;
+		player.userId = p.userId; player.name = p.name; player.team = p.team; player.health = p.health;
+		player.alive = p.alive; player.observed = p.index == observed;
+		cards.players.push_back(std::move(player));
+	}
 }
 
 float Director_SpectatorBarHeight(float clientH) {
-	if (g.ui.blackout || Players_ObserverMode() == 0) return 0;
-	return clientH * DirectorMath::kSpectatorBarShare;
+	if (g.ui.blackout) return 0;
+	return clientH * 64.0f / Ui::kStageHeight;
+}
+
+void Director_WatchPlayer(int userId) {
+	Director_SetCamera(DirectorMath::kInEye);
+	char command[64];
+	std::snprintf(command, sizeof(command), "spec_player %d", userId);
+	Command(command);
 }
 
 void Director_Click(DirectorMouse::Click click) {
@@ -266,6 +304,7 @@ void Director_StepCamera(int notches) {
 }
 
 void Director_SetCamera(int mode) {
+	const ViewPose from = View_Rendered();
 	if (CameraPath_OwnsView()) CameraPath_Stop(); // one of the game's cameras takes the view from the path
 	if (Director_FreeCamOn()) {
 		FreeCam()->SetCameraControlMode(false); // one of the game's cameras takes the view back
@@ -278,12 +317,61 @@ void Director_SetCamera(int mode) {
 	g.expectFrames = kExpectFrames;
 	g.roll = 0;
 	DropFov(); // the FOV belongs to the camera it was set in (CS2)
+	if (mode == DirectorMath::kRoaming && FreeCam()) {
+		// SourceTV's roaming camera does not accept look input reliably in a paused demo.
+		// Use the same HLAE camera as path repositioning, seeded from the view the user saw.
+		FreeCam()->SetCameraControlMode(true);
+		FreeCam()->SetTx((float)from.origin[0]); FreeCam()->SetTy((float)from.origin[1]); FreeCam()->SetTz((float)from.origin[2]);
+		FreeCam()->SetRx((float)from.angles[0]); FreeCam()->SetRy((float)from.angles[1]); FreeCam()->SetRz((float)from.angles[2]);
+		FreeCam()->SetFov((float)from.fov);
+		if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("director", "roaming uses HLAE free cam");
+	}
+}
+
+DirectorCameraSnapshot Director_SaveCamera() {
+    DirectorCameraSnapshot camera;
+    camera.mode = CameraMode();
+    std::vector<PlayerState> players;
+    Players_Snapshot(players);
+    camera.userId = UserIdOf(players,Players_ObservedIndex());
+    camera.freeCam = Director_FreeCamOn();
+    const ViewPose view = View_Rendered();
+    for (int i=0;i<3;++i) { camera.pose[i] = view.origin[i]; camera.pose[i+3] = view.angles[i]; }
+    camera.pose[6] = view.fov;
+    camera.fovOverride = g_Hook_VClient_RenderView.GetFovOverride(camera.overrideFov);
+    camera.directorFov = g.fov;
+    return camera;
+}
+
+void Director_RestoreCamera(const DirectorCameraSnapshot& camera) {
+    if (DemoPlaying()) {
+        Director_SetCamera(camera.mode);
+        // Seek restoration reads this before remembering another camera. Update it now, so the
+        // job's last spectator target cannot replace the user's target while the seek lands.
+        g.follow.mode = camera.mode; g.follow.userId = camera.userId;
+        g.followFile = DemoIndex_Get().file;
+        g.restore = true; g.restoreFrames = 0;
+    }
+    if (FreeCam()) {
+        FreeCam()->SetCameraControlMode(camera.freeCam);
+        FreeCam()->SetTx((float)camera.pose[0]); FreeCam()->SetTy((float)camera.pose[1]); FreeCam()->SetTz((float)camera.pose[2]);
+        FreeCam()->SetRx((float)camera.pose[3]); FreeCam()->SetRy((float)camera.pose[4]); FreeCam()->SetRz((float)camera.pose[5]);
+        FreeCam()->SetFov((float)camera.pose[6]);
+    }
+    g.fov = camera.directorFov;
+    if (camera.fovOverride) g_Hook_VClient_RenderView.FovOverride(camera.overrideFov);
+    else g_Hook_VClient_RenderView.FovDefault();
+    if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("render.restore",
+        "camera mode %d player %d free %d pose %.3f %.3f %.3f / %.3f %.3f %.3f fov %.3f override %d %.3f",
+        camera.mode,camera.userId,camera.freeCam,camera.pose[0],camera.pose[1],camera.pose[2],
+        camera.pose[3],camera.pose[4],camera.pose[5],camera.pose[6],camera.fovOverride,camera.overrideFov);
 }
 
 void Director_Wheel(int notches, bool ctrl, bool shift) {
 	if (!notches) return;
 	char command[64];
-	switch (DirectorMath::WheelFor(ctrl, shift, CameraMode(), Director_FreeCamOn())) {
+	const DirectorMath::Wheel action = DirectorMath::WheelFor(ctrl, shift, CameraMode(), Director_FreeCamOn());
+	switch (action) {
 	case DirectorMath::Wheel::Camera:
 		Director_StepCamera(notches);
 		break;
@@ -311,6 +399,10 @@ void Director_Wheel(int notches, bool ctrl, bool shift) {
 	case DirectorMath::Wheel::Nothing:
 		break;
 	}
+	if (action == DirectorMath::Wheel::Fov || action == DirectorMath::Wheel::FreeCamFov)
+		Filmmaker::CameraBridge_NoteFreeCamAdjust(2, notches > 0 ? 1 : -1);
+	else if (action == DirectorMath::Wheel::Speed || action == DirectorMath::Wheel::FreeCamSpeed)
+		Filmmaker::CameraBridge_NoteFreeCamAdjust(1, notches > 0 ? 1 : -1);
 }
 
 void Director_Key(DirectorMath::Key key) {

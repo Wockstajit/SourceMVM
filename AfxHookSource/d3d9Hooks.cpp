@@ -2995,6 +2995,7 @@ public:
 					IDirect3DSurface9* replacement = nullptr;
 					if (SUCCEEDED(texture->GetSurfaceLevel(0, &replacement)))
 					{
+                        texture->Release(); // SOURCE:MVM: GetSurfaceLevel owns the returned reference.
 						return replacement;
 					}
 
@@ -3073,7 +3074,7 @@ public:
 	}
 
 
-	void AfxDrawDepth(AfxDrawDepthEncode encode, AfxDrawDepthMode mode, bool clip, float depthVal, float depthValMax, int x, int y, int width, int height, float zNear, float zFar, float projectionMatrix[4][4])
+	void AfxDrawDepth(AfxDrawDepthEncode encode, AfxDrawDepthMode mode, bool clip, float depthVal, float depthValMax, int x, int y, int width, int height, float zNear, float zFar, float projectionMatrix[4][4], const AfxDepthPassExtras* extras = nullptr)
 	{
 		if (!g_bSupportsIntz) return;
 
@@ -3116,7 +3117,10 @@ public:
 			break;
 		}
 
-		IAfxPixelShader * afxPixelShader = g_AfxShaders.GetAcsPixelShader(L"afx_depth_ps20.acs", ShaderCombo_afx_depth_ps20::GetCombo(
+		const bool sourcePass = encode == AfxDrawDepthEncode_Normal || encode == AfxDrawDepthEncode_MaskedLinear; // SOURCE:MVM
+		IAfxPixelShader * afxPixelShader = sourcePass
+            ? g_AfxShaders.GetAcsPixelShader(L"afx_source_normal_ps30.acs",0) // SOURCE:MVM
+            : g_AfxShaders.GetAcsPixelShader(L"afx_depth_ps20.acs", ShaderCombo_afx_depth_ps20::GetCombo(
 			clip ? ShaderCombo_afx_depth_ps20::AFXCLIP_1 : ShaderCombo_afx_depth_ps20::AFXCLIP_0,
 			afxDepthMode,
 			afxEncode
@@ -3168,6 +3172,13 @@ public:
 			g_OldDirect3DDevice9->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
 
 			g_OldDirect3DDevice9->SetVertexShader(NULL);
+            // SOURCE:MVM: the fixed-function vertex stage supplies no SM3 TEXCOORD semantics.
+            if (sourcePass) {
+                auto* vertex = g_AfxShaders.GetAcsVertexShader(L"afx_source_pass_vs30.acs",0);
+                g_OldDirect3DDevice9->SetVertexShader(vertex->GetVertexShader());
+                const float viewport[4] = {(float)width,(float)height,0,0};
+                g_OldDirect3DDevice9->SetVertexShaderConstantF(0,viewport,1);
+            }
 			g_OldDirect3DDevice9->SetPixelShader(pixelShader);
 
 			g_OldDirect3DDevice9->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
@@ -3183,8 +3194,9 @@ public:
 			g_OldDirect3DDevice9->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
 			g_OldDirect3DDevice9->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
 			g_OldDirect3DDevice9->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-			g_OldDirect3DDevice9->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-			g_OldDirect3DDevice9->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+            // SOURCE:MVM: point samples keep depth edges sharp for normal reconstruction.
+			g_OldDirect3DDevice9->SetSamplerState(0, D3DSAMP_MINFILTER, sourcePass ? D3DTEXF_POINT : D3DTEXF_LINEAR);
+			g_OldDirect3DDevice9->SetSamplerState(0, D3DSAMP_MAGFILTER, sourcePass ? D3DTEXF_POINT : D3DTEXF_LINEAR);
 			g_OldDirect3DDevice9->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
 
 			// Setup orthographic projection matrix
@@ -3219,6 +3231,15 @@ public:
 
 			// Bind depth as texture:
 			g_OldDirect3DDevice9->SetTexture(0, depthTexture);
+            // SOURCE:MVM: the second depth surface holds this frame with player draws omitted.
+            if (sourcePass) {
+                g_OldDirect3DDevice9->SetTexture(1,extras ? extras->worldDepth : nullptr);
+                g_OldDirect3DDevice9->SetSamplerState(1,D3DSAMP_MINFILTER,D3DTEXF_POINT);
+                g_OldDirect3DDevice9->SetSamplerState(1,D3DSAMP_MAGFILTER,D3DTEXF_POINT);
+                g_OldDirect3DDevice9->SetSamplerState(1,D3DSAMP_SRGBTEXTURE,FALSE);
+                const float pass[4] = {encode == AfxDrawDepthEncode_Normal ? 1.0f : 0.0f,extras ? (float)extras->mask : 0,0,0};
+                g_OldDirect3DDevice9->SetPixelShaderConstantF(6,pass,1);
+            }
 
 			FLOAT overFac[4] = { zNear, zFar, depthVal, depthValMax };
 			g_OldDirect3DDevice9->SetPixelShaderConstantF(0, overFac, 1);
@@ -3267,7 +3288,7 @@ public:
 				}
 			}
 
-			if (encode == AfxDrawDepthEncode_Dithered) {
+			if (encode == AfxDrawDepthEncode_Dithered || sourcePass) { // SOURCE:MVM
 				FLOAT facs2[4] = { (float)width, (float)height, 0, 0 };
 				g_OldDirect3DDevice9->SetPixelShaderConstantF(5, facs2, 1);
 			}
@@ -6836,11 +6857,11 @@ bool AfxD3d9_DrawDepthSupported(void)
 	return g_OldDirect3DDevice9 && g_bSupportsIntz;
 }
 
-void AfxDrawDepth(AfxDrawDepthEncode encode, AfxDrawDepthMode mode, bool clip, float depthVal, float depthValMax, int x, int y, int width, int height, float zNear, float zFar, float projectionMatrix[4][4])
+void AfxDrawDepth(AfxDrawDepthEncode encode, AfxDrawDepthMode mode, bool clip, float depthVal, float depthValMax, int x, int y, int width, int height, float zNear, float zFar, float projectionMatrix[4][4], const AfxDepthPassExtras* extras)
 {
 	if (!g_bSupportsIntz) return;
 
-	g_NewDirect3DDevice9.AfxDrawDepth(encode, mode, clip, depthVal, depthValMax, x, y, width, height, zNear, zFar, projectionMatrix);
+	g_NewDirect3DDevice9.AfxDrawDepth(encode, mode, clip, depthVal, depthValMax, x, y, width, height, zNear, zFar, projectionMatrix, extras);
 }
 
 void AfxDrawGuides(int x, int y, int width, int height, bool phiGrid, bool ruleOfThirds)

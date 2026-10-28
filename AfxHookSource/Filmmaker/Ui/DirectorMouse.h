@@ -38,13 +38,17 @@ public:
 	void Reset() {
 		m_mode = Mode::Free;
 		m_pending = -1;
+		m_lookButtons = 0;
 		m_barPress[Left] = m_barPress[Right] = false;
 	}
 
 	// steer: the free camera flies the view, so the press looks at once.
 	Route ButtonDown(int button, float x, float y, int64_t nowMs, const Rect& bar, bool steer = false) {
 		if (button != Left && button != Right) return m_mode == Mode::Look ? Route::Game : Route::Swallow;
-		if (m_mode == Mode::Look) return Route::Game;
+		if (m_mode == Mode::Look) {
+			m_lookButtons |= 1 << button;
+			return Route::Swallow;
+		}
 		if (bar.Contains(x, y)) {
 			m_barPress[button] = true; // its release goes to the bar too
 			return Route::Ui;
@@ -52,7 +56,7 @@ public:
 		if (m_pending >= 0) return Route::Swallow; // the other button while one waits: ignored
 		if (steer) {
 			m_mode = Mode::Look;
-			m_lookButton = button;
+			m_lookButtons = 1 << button;
 			m_x = x;
 			m_y = y;
 			return Route::Swallow; // the press itself steps no player
@@ -82,8 +86,8 @@ public:
 			return Route::Ui;
 		}
 		if (m_mode == Mode::Look) {
-			if (button != m_lookButton) return Route::Game;
-			m_mode = Mode::Free;
+			m_lookButtons &= ~(1 << button);
+			if (!m_lookButtons) m_mode = Mode::Free;
 			return Route::Swallow;
 		}
 		if (button == m_pending) {
@@ -95,9 +99,7 @@ public:
 
 	// The window lost focus: a press whose release will never come is dropped, a look ends.
 	void FocusLost() {
-		m_pending = -1;
-		m_barPress[Left] = m_barPress[Right] = false;
-		m_mode = Mode::Free;
+		Reset();
 	}
 
 private:
@@ -107,14 +109,14 @@ private:
 		const int dx = moved ? (int)(x - m_x) : 0;
 		const int dy = moved ? (int)(y - m_y) : 0;
 		if (!Filmmaker::UiClick::RightPressBecomesLook(heldMs, dx, dy)) return;
-		m_lookButton = m_pending;
+		m_lookButtons = 1 << m_pending;
 		m_pending = -1;
 		m_mode = Mode::Look;
 	}
 
 	Mode m_mode = Mode::Free;
 	int m_pending = -1;     // the button whose press waits to become a click or a look
-	int m_lookButton = -1;  // the button holding the current look
+	int m_lookButtons = 0;  // keep looking until every held look button is released
 	bool m_barPress[2] = { false, false };
 	float m_x = 0, m_y = 0;
 	int64_t m_atMs = 0;

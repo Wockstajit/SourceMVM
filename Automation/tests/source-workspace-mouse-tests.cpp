@@ -4,6 +4,7 @@
 #include "../../AfxHookSource/Filmmaker/Ui/WorkspaceMouse.h"
 
 #include <cstdio>
+#include <initializer_list>
 
 using namespace SourceFilmmaker::Ui;
 using Mode = WorkspaceMouse::Mode;
@@ -23,17 +24,21 @@ static void TestPanelClicksStayInUi() {
 	CHECK(!m.RightPending());
 }
 
-static void TestLeftClickInPreviewGoesToGame() {
+static void TestPreviewReleaseReturnsToPanels() {
 	WorkspaceMouse m;
-	CHECK(m.ButtonDown(WorkspaceMouse::Left, 200, 200, 0, kPreview) == Route::Game);
-	CHECK(m.GetMode() == Mode::Game);
-	CHECK(m.ButtonUp(WorkspaceMouse::Left, 10) == Route::Game);       // the release follows the press
-	CHECK(m.Move(300, 300, 20) == Route::Game);
-	CHECK(m.ButtonDown(WorkspaceMouse::Left, 700, 20, 30, kPreview) == Route::Game); // no panel clicks now
-	m.ToggleGame();                                                    // G
-	CHECK(m.GetMode() == Mode::Ui);
-	m.ToggleGame();
-	CHECK(m.GetMode() == Mode::Game);
+	CHECK(m.ButtonDown(WorkspaceMouse::Left, 200, 200, 0, kPreview) == Route::Swallow);
+    CHECK(m.GetMode() == Mode::Look);
+    CHECK(m.Move(300, 300, 5) == Route::Game);
+    CHECK(m.ButtonUp(WorkspaceMouse::Left, 10) == Route::Swallow);
+    CHECK(m.GetMode() == Mode::Ui);
+    CHECK(m.ButtonDown(WorkspaceMouse::Left, 700, 20, 30, kPreview) == Route::Ui);
+    CHECK(m.ButtonUp(WorkspaceMouse::Left, 40) == Route::Ui);
+    m.ToggleGame(); // G is still an explicit, persistent capture
+    CHECK(m.GetMode() == Mode::Game);
+    CHECK(m.ButtonUp(WorkspaceMouse::Left, 50) == Route::Game);
+    CHECK(m.GetMode() == Mode::Game);
+    m.ToggleGame();
+    CHECK(m.GetMode() == Mode::Ui);
 }
 
 static void TestQuickRightClickStaysAClick() {
@@ -97,6 +102,24 @@ static void TestFocusLostAndReset() {
 	CHECK(m.GetMode() == Mode::Ui && !m.RightPending());
 }
 
+static void TestBothButtonsAndFocusLoss() {
+    for (int first : { WorkspaceMouse::Left, WorkspaceMouse::Right }) {
+        WorkspaceMouse m;
+        const int second = first == WorkspaceMouse::Left ? WorkspaceMouse::Right : WorkspaceMouse::Left;
+        m.ButtonDown(first, 200, 200, 0, kPreview);
+        m.Tick(250);
+        m.ButtonDown(second, 200, 200, 260, kPreview);
+        m.ButtonUp(first, 270);
+        CHECK(m.GetMode() == Mode::Look);
+        m.ButtonUp(second, 280);
+        CHECK(m.GetMode() == Mode::Ui);
+    }
+    WorkspaceMouse m;
+    m.ToggleGame();
+    m.FocusLost();
+    CHECK(m.GetMode() == Mode::Ui);
+}
+
 static void TestNoPreview() {
 	WorkspaceMouse m;
 	CHECK(m.ButtonDown(WorkspaceMouse::Left, 200, 200, 0, Rect()) == Route::Ui); // cannot place it: stay
@@ -106,7 +129,8 @@ static void TestNoPreview() {
 
 int main() {
 	TestPanelClicksStayInUi();
-	TestLeftClickInPreviewGoesToGame();
+	TestPreviewReleaseReturnsToPanels();
+	TestBothButtonsAndFocusLoss();
 	TestQuickRightClickStaysAClick();
 	TestRightHoldLooks();
 	TestRightDragLooks();

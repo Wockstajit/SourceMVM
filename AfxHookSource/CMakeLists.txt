@@ -17,6 +17,7 @@ macro(add_shader name profile)
         DEPENDS
             shaderbuilder
             "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/${name}.fxc"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_pass_normals.hlsli"
         COMMAND
             "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile "${profile}" --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/${name}.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/${name}"
     )
@@ -30,11 +31,13 @@ endmacro()
 add_shader("afx_line_vs20" "vs_2_0")
 add_shader("afx_line_ps20" "ps_2_0")
 add_shader("afx_drawtexture_ps20" "ps_2_0")
+add_shader("afx_depth_ps20" "ps_2_0") # SOURCE:MVM: HLAE depth is also used by CS:S x64.
+add_shader("afx_source_pass_vs30" "vs_3_0")
+add_shader("afx_source_normal_ps30" "ps_3_0") # SOURCE:MVM: shares CS2's normal reconstruction.
 
 if(CMAKE_GENERATOR_PLATFORM STREQUAL "Win32")
     add_shader("afx_pgldraw_vs20" "vs_2_0")
     add_shader("afx_pgldraw_ps20" "ps_2_0")
-    add_shader("afx_depth_ps20" "ps_2_0")
 endif()
 
 ## END Shaders
@@ -162,6 +165,11 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceDemoRewind.h
     Filmmaker/SourceRender.h
     Filmmaker/SourceRenderDriver.cpp
+    Filmmaker/SourceRenderPasses.cpp
+    Filmmaker/SourceRenderPasses.h
+    Filmmaker/SourceRenderPassMath.h
+    Filmmaker/SourceRenderPassTable.h
+    Filmmaker/SourceMatchMath.h
     Filmmaker/SourceRenderHost.cpp
     Filmmaker/SourceRenderModel.cpp
     Filmmaker/SourceDemos.cpp
@@ -709,6 +717,9 @@ if(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
             "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_line_vs20.acs"
             "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_line_ps20.acs"
             "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_drawtexture_ps20.acs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_depth_ps20.acs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_source_normal_ps30.acs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_source_pass_vs30.acs"
         DESTINATION "bin/resources/shaders"
         COMPONENT x64-source1
     )

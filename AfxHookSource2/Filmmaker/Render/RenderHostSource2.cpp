@@ -214,6 +214,11 @@ void RenderHost_ApplyLivePreview(const RenderPasses& passes, bool open) {
 }
 
 const char* RenderHost_FormatUnavailable(RenderOutputFormat) { return nullptr; }
+const char* RenderHost_PassUnavailable(const PassConfig&) { return nullptr; }
+
+int RenderHost_PhysicalRendersPerFrame(const std::vector<PassConfig>& passes) {
+    return BuildPassPlan(passes).PhysicalRendersPerFrame();
+}
 
 bool RenderHost_RunCommand(const char* sub, int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 	if (0 == _stricmp(sub, "hdrgrab")) {

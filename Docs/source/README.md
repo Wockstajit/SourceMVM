@@ -441,9 +441,13 @@ While a demo plays and no workspace is open, the hook runs CS2's movie director
 
 - The [demo bar](#demo-bar) along the bottom edge, the full width. Its panel covers CS:S's own
   bottom spectator bar, whose player name and camera options it replaces.
-- The MOVIE DIRECTOR card in the top-right corner, under CS:S's top spectator bar: camera mode,
-  playback, free cam speed, and the camera's position, angles, FOV, tick and time. The readouts
-  refresh at CS2's 10 Hz.
+- A compact roster centred at the top: one square per player, with initials, health, a dead mark
+  and a selected outline. The round clock and CT/T round wins sit between the teams. Scores come
+  from `CCSTeam`, the round clock from `CCSGameRulesProxy`. Clicking a square watches that player.
+  The roster also stays visible and clickable over the preview in Config, Camera Editor and Render.
+- The MOVIE DIRECTOR card at the top-right, inset 16 stage pixels: camera mode, playback, free cam
+  speed, position, angles, FOV, tick and time. The readouts refresh at CS2's 10 Hz. The native
+  spectator bars are hidden while the filmmaker owns the HUD.
 - The CONTROLS card on the left, a third of the way down, listing the keys below.
 
 | Input | What it does |
@@ -1088,7 +1092,10 @@ The job is CS:S's own (`SourceRenderDriver.cpp`, behind CS2's `RenderSessionDriv
    writer for TGA and BMP. The job starts the recorder just before the first frame in range renders
    and ends it just before the frame after the last, so it holds exactly the job's frames.
 5. When the writer has finished, it puts back what it saved, HLAE's recorder settings included,
-   plays the done sound and lists the new take.
+   plays the done sound and lists the new take. Completion, cancellation and failure all restore
+   the camera mode, watched player, free-camera pose and FOV. The return seek lands paused before
+   the saved playback speed and pause state are reapplied, because Source resets speed during a seek.
+   LOOP, live scrub and end hold leave the render job's clock alone.
 
 A take holds what a CS2 take holds: `manifest.json`, `beauty\everything.mp4` (or a folder of
 frames for a sequence), `frames.csv`, and from HLAE's recorder `cam_main.cam` (when camera data is
@@ -1107,9 +1114,23 @@ x64 or the job's folders:
 
 What differs from CS2:
 
-- There is one pass, Beauty · Everything, with no HUD or with the game's HUD. HLAE's depth, matte,
-  normal and baseFx streams are CS:GO code that the x64 build leaves out (`#ifndef _WIN64` in
-  `AfxStreams.cpp` and `MirvCommands.cpp`), so HLAE has no Depth, Normal or Key pass for CS:S x64.
+- All 15 cells of CS2's pass grid are available: Beauty for Everything, World + players and World;
+  Depth and Normal for all five groups; Key for Players and Gun. HLAE's high-level baseFx streams
+  are CS:GO code excluded from x64, so `SourceRenderPasses.cpp` draws the extra views in the same
+  engine frame. HLAE still owns their capture nodes, image buffers, presets, writers and encoders.
+- Depth uses HLAE's INTZ depth surface and shader. Normal uses that surface with the same normal
+  reconstruction as CS2 (`Shaders/afx_pass_normals.hlsli`). World skips player, body and equipment
+  model draws and their shadows. Players Depth and Normal compare against a separate World depth
+  draw from the same camera, preserving world occlusion. Gun uses the viewmodel's depth band.
+- Key fills the world and sky with one colour, default RGB 0,205,0. The fog draws at a fixed linear
+  HDR scale, while the subject keeps Beauty's scale. This prevents different green shades on sky
+  and geometry. All fog, sky, shadow and tone settings are restored after each pass.
+- View in PASSES previews an enabled pass without starting a writer. The live-camera chips select
+  among enabled passes. Turning View off, closing Render or removing the pass restores Beauty and
+  the earlier `mat_queue_mode`. A device reset releases and rebuilds the World reference surface;
+  a reset during a job fails it safely instead of mixing frame sizes.
+- RANGE & CAMERA shows CS2's framed In, Last frame, length and tick count, its one-tick nudges,
+  whole-demo bar, selected span and playhead. The job summary groups passes by type.
 - EXR is greyed out, because the CS:S frame is already tone mapped.
 - CS:S runs 66.67 ticks a second, which no output frame rate divides. A job's frame count is the
   range's length in frames rounded up, and validation warns that frames and ticks do not line up.
@@ -1118,7 +1139,8 @@ What differs from CS2:
   a camera imported from it does not spin.
 
 `mvm_debug` logs the panel's commands (`render.ui`), the job's phases (`render.job`), the encoder
-settings (`render.output`), the done sound (`render.sound`) and the take scan (`render.takes`).
+settings (`render.output`), pass draws (`render.passes`), live preview (`render.preview`), camera
+restoration (`render.restore`), the done sound (`render.sound`) and the take scan (`render.takes`).
 `health` shows the job and whether HLAE's recorder is recording on its `render:` line.
 
 Checked in CS:S on 2026-10-28 in the SourceTV test demo at 1280 x 720. RENDER opened the workspace on
@@ -1130,6 +1152,16 @@ to 1702 at 60 fps gave 183 frames of H.264 (3.05 s) with no UI or HUD in them, `
 3.04 s of `audio.wav`; and a PNG sequence of ticks 600 to 700 at 30 fps, flown on the camera path
 with the game's HUD, gave 45 frames. Both manifests were marked completed, and HLAE's record name
 was back to its own afterwards.
+
+The pass build was checked the same day through netcon, with `mvm_debug` and captures including
+ImGui: all 15 PNG streams wrote five frames at 854x480, with matching manifest dimensions; the
+most common background pixel in both Key streams was exactly RGB 0,205,0. Beauty, Players Depth,
+Normal and Gun Key also wrote four MP4 files, each 30 frames at 30 fps (1 second), checked with
+ffprobe. A longer camera-path take wrote 401 matching frames in four streams. Complete, cancel
+and an interrupted recorder restored the camera and clock, including a previously playing demo.
+Players Depth live preview survived resizing from 1280x720 to 854x480. The three tabs were reviewed
+in the native C++ WebAssembly mockup at both sizes. CS2's shared normal shader was rebuilt and
+checked with a four-frame Beauty/Normal/Gun Normal take. No release was deployed.
 
 ## Demos browser
 
@@ -1377,12 +1409,14 @@ The mouse follows CS2's workspace rules (`UiClickMath.h`, shared with CS2):
 
 - While a workspace is open the cursor is free and the game sees no mouse movement or buttons:
   the hook swallows the game's cursor recentring and zeroes raw mouse input.
-- A left click in the preview hands the mouse to the game. G hands it back.
+- A left press in the preview looks until release, then returns the cursor. A held right press
+  uses the same temporary look. With both held, the last release returns the cursor. G switches
+  persistent GAME mode on or off; losing focus always clears held input.
 - A right press in the preview that is held for 200 ms or dragged 4 px looks around until it is
   released, then the cursor returns where it was. A quicker right click stays a click.
 - The wheel over the preview is the director's, as CS2's MovieMode keeps it in the editor: Ctrl
-  for FOV, Shift for the free cam's speed, a plain notch steps the camera. Over a panel it scrolls
-  the panel.
+  for FOV, Shift for the free cam's speed, a plain notch steps the camera. The speed or FOV toast
+  also draws over Config and Camera Editor. Over a panel the wheel scrolls the panel.
 - While a dialog is up (Clear all) the preview takes no clicks.
 - ESC closes the workspace.
 

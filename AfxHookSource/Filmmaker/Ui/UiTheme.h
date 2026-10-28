@@ -72,6 +72,7 @@ enum class FontRole {
 	RailSum,   // Verdana 14, a rail row's summary
 	CardTitle, // Verdana Bold 17, the card's title
 	// The TIMELINE dock's, at CS2's sizes (GraphEditorJs.h).
+	SpanValue, // Verdana Bold 24, the resolved render span
 	Timecode,  // Verdana Bold 22, the timecode
 	Hint,      // Tahoma 11, captions, ruler labels, the footer and tips
 	Count
@@ -98,6 +99,7 @@ inline FontSpec FontSpecFor(FontRole role) {
 	case FontRole::Value: return { L"Verdana", 14, true };
 	case FontRole::RailSum: return { L"Verdana", 14, false };
 	case FontRole::CardTitle: return { L"Verdana", 17, true };
+	case FontRole::SpanValue: return { L"Verdana", 24, true };
 	case FontRole::Timecode: return { L"Verdana", 22, true };
 	case FontRole::Hint: return { L"Tahoma", 11, false };
 	default: return { L"Verdana", 15, false };

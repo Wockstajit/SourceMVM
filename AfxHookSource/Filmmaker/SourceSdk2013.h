@@ -92,6 +92,28 @@ namespace Slot {
 // IBaseClientDLL (VClient017): Init, PostInit, Shutdown, ReplayInit, ReplayPostInit,
 // LevelInitPreEntity, LevelInitPostEntity, LevelShutdown, GetAllClasses.
 const int Client_GetAllClasses = 8;
+// ... View_Render 26, RenderView 27, FrameStageNotify 35 (the slot HLAE hooks), GetPlayerView 59.
+// Measured in CS:S's x64 client.dll's CHLClient on 2026-10-28: View_Render returns at once on an empty
+// vrect_t (width +8, height +0xC), RenderView forwards to the view renderer's RenderView, and
+// GetPlayerView copies the view renderer's player view (kViewSetupSize bytes) and returns true.
+const int Client_View_Render = 26;
+const int Client_RenderView = 27;
+const int Client_GetPlayerView = 59;
+// IMaterialSystem (VMaterialSystem080), measured in the x64 materialsystem.dll's CMaterialSystem:
+// GetRenderContext (98) takes the thread's render context (else the hardware one) and AddRefs it.
+const int MaterialSystem_GetRenderContext = 98;
+// IMatRenderContext, measured in CMatRenderContext: IRefCounted's Release (1); the fog calls in a run,
+// FogMode 43, FogStart, FogEnd, SetFogZ, GetFogMode 47, the FogColor setters, GetFogColor 52;
+// ClearColor3ub (72) and ClearColor4ub (73), which forward to the shader API, 4ub with its fourth
+// byte from the stack.
+const int RenderContext_Release = 1;
+const int RenderContext_FogMode = 43;
+const int RenderContext_GetFogMode = 47;
+const int RenderContext_ClearColor4ub = 73;
+// CS:S x64 CMatRenderContext: SetToneMappingScaleLinear (153) forwards to the shader API;
+// GetToneMappingScaleLinear (154) returns the active vector at +0x27C. Measured 2026-10-28.
+const int RenderContext_SetToneMappingScaleLinear = 153;
+const int RenderContext_GetToneMappingScaleLinear = 154;
 // IVEngineClient (VEngineClient013): ... ServerCmd 6, ClientCmd 7, GetPlayerInfo 8.
 const int EngineClient_GetPlayerInfo = 8;
 // ... GetGamestatsData 126, ServerCmdKeyValues 127, IsSkippingPlayback 128 (the 2013 SDK's list;
@@ -119,6 +141,10 @@ const int Renderable_GetAttachment = 37;
 // IVModelInfoClient (VModelInfoClient006), measured in the x64 engine.dll's CModelInfoClient: 28 is
 // GetStudiomodel (a studio model's MDLCache GetStudioHdr).
 const int ModelInfo_GetStudiomodel = 28;
+// CS:S x64 VEngineModel016: DrawModelEx (16) calls Setup (18) and Execute (19).
+// Execute reads flags at ModelRenderInfo +0x40, entity index +0x44, instance +0x54.
+// Measured in engine.dll CModelRender on 2026-10-28.
+const int ModelRender_DrawModelExecute = 19;
 // IClientEntity, after IClientUnknown's nine slots. Its Release overrides the Release of its
 // secondary bases (IClientNetworkable, IClientThinkable), so MSVC gives it no slot of its own in
 // the primary table: GetAbsOrigin is 9 and GetAbsAngles 10. Measured in CS:S on 2026-10-26, when
@@ -135,6 +161,27 @@ const int Networkable_IsDormant = 8;
 // IEngineVGui (VEngineVGui001): the destructor, GetPanel, IsGameUIVisible.
 const int EngineVGui_IsGameUIVisible = 2;
 } // namespace Slot
+
+const int kModelRenderEntityIndex = 0x44;
+
+// view_shared.h's CViewSetup in the x64 client: 0xC8 bytes, copied whole by GetPlayerView. The ints
+// x, unscaled x, y, unscaled y, width (0x10), unscaled width, height (0x18), the stereo eye and the
+// unscaled height; the ortho flag and box; fov (0x38) and the viewmodel's; origin (0x40) and angles
+// (0x4C); the near and far planes; the subrect flag and the aspect ratio; the off-centre flag and box;
+// then m_bDoBloomAndToneMapping (0x84), two more flags, and the view-to-projection matrix at 0x88.
+const int kViewSetupSize = 0xC8;
+const int kViewWidth = 0x10;
+const int kViewHeight = 0x18;
+const int kViewFov = 0x38;
+const int kViewNear = 0x58;
+const int kViewFar = 0x5C;
+const int kViewBloomAndToneMapping = 0x84;
+// ivrenderview.h's clear flags and view_shared.h's RenderViewInfo_t.
+const int kViewClearColor = 0x1;
+const int kViewClearDepth = 0x2;
+const int kViewClearStencil = 0x20;
+const int kRenderViewDrawViewModel = 1 << 0;
+const int kRenderViewDrawHud = 1 << 1;
 
 // The engine's packet entity reading, measured in the x64 engine.dll on 2026-10-27 from
 // CClientState::ReadPreserveEnt and ReadDeletions. CEntityReadInfo: m_pTo, the frame being built, at

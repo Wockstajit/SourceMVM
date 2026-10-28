@@ -8,7 +8,7 @@
 // is the camera, and records it with HLAE's screen recorder (mirv_streams record screen, with its
 // cam_main.cam), ffmpeg or the classic image writer, with the manifest and frame map beside it.
 //
-// CS:S renders the Beauty · Everything pass, with or without the game's HUD. Main thread only.
+// CS:S draws the shared pass grid through SourceRenderPasses.h. Main thread only.
 
 #include <string>
 #include <vector>

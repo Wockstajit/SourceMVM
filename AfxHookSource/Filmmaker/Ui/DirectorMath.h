@@ -159,7 +159,7 @@ inline HudState PressF8(HudState s) {
 constexpr float kCardScale = 0.8f;
 constexpr float kDirectorCardW = 278;
 constexpr float kControlsCardW = 252;
-constexpr float kCardTop = 4;
+constexpr float kCardTop = 16;
 constexpr float kCardInset = 20;
 constexpr float kControlsCardTopShare = 0.34f;
 constexpr float kCardFadeH = 52;
