@@ -697,6 +697,12 @@ void RenderSessionDriver_RunFrame() {
 				VisibleElementsLabel(pass.elements));
 		}
 
+		{
+			unsigned width = 0, height = 0;
+			RenderResolution_SwapChainSize(width, height);
+			s_job.width = (int)width;
+			s_job.height = (int)height;
+		}
 		if (!RenderManifest_WriteStart(s_job, s_demoPathUtf8, s_manifestNotes)) {
 			FailJob("could not write manifest.json into the output directory");
 			return;

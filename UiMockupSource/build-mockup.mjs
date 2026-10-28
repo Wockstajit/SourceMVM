@@ -47,7 +47,7 @@ const IMGUI_SOURCES = ['imgui.cpp', 'imgui_draw.cpp', 'imgui_tables.cpp', 'imgui
   path.join('backends', 'imgui_impl_opengl3.cpp')].map((f) => path.join(IMGUI, f));
 const OWN_SOURCES = [path.join(import.meta.dirname, 'mockup-host.cpp'),
   ...['CameraEditorShell.cpp', 'ConfigInspector.cpp', 'DemoBar.cpp', 'DemosBrowser.cpp', 'DirectorHud.cpp', 'FollowInspector.cpp', 'InspectorCards.cpp', 'MarkerPopup.cpp', 'PathInspector.cpp',
-    'PathOverlay.cpp', 'TimelineDock.cpp', 'UiStyle.cpp', 'UiWidgets.cpp'].map((f) => path.join(UI, f)),
+    'PathOverlay.cpp', 'RenderWorkspace.cpp', 'TimelineDock.cpp', 'UiStyle.cpp', 'UiWidgets.cpp'].map((f) => path.join(UI, f)),
   ...['SourceDemoBarModel.cpp', 'SourceDemoFile.cpp', 'SourceDemoMarkers.cpp'].map((f) => path.join(FILMMAKER, f)),
   // The TIMELINE dock's keys are CS2's own model, and its camera shake styles RageShake's own list.
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'GraphExpModel.cpp'),

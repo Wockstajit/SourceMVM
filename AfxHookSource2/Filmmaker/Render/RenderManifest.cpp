@@ -1,7 +1,6 @@
 #include "RenderManifest.h"
 #include "RenderPassPlan.h"
 #include "RenderJob.h"
-#include "RenderResolution.h"
 
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/TextEncoding.h"
@@ -76,10 +75,8 @@ bool WriteManifest(const RenderJob& job, const std::string& demoPathUtf8,
 	b.DoubleField("timescale", job.timescale);
 	b.IntField("captureFps", job.captureFps);
 	// The size frames were captured at: always the game resolution.
-	unsigned width = 0, height = 0;
-	RenderResolution_SwapChainSize(width, height);
-	b.IntField("width", (int)width);
-	b.IntField("height", (int)height);
+	b.IntField("width", job.width);
+	b.IntField("height", job.height);
 	b.StringField("cameraSource", CameraSourceName(job.camera));
 	b.StringField("cameraPathExtension", ExtensionName(job.extension));
 	b.StringField("format", RenderFormatToken(job.out.format));

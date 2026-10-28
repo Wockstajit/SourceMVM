@@ -175,6 +175,10 @@ DemoBarModel::Workspace DemoBar_Apply(const std::vector<DemoBarAction>& actions)
 		case DemoBarAction::Kind::LoopRange:
 			DemoBar_SetLoop(action.tick, (int)action.value);
 			break;
+		case DemoBarAction::Kind::RenderRange: // the flags give the last frame; the range's Out excludes it
+			std::snprintf(command, sizeof(command), "mirv_filmmaker render range custom %d %d", action.tick, (int)action.value + 1);
+			Command(command);
+			break;
 		case DemoBarAction::Kind::CameraEditor:
 			open = DemoBarModel::Workspace::Editor;
 			break;

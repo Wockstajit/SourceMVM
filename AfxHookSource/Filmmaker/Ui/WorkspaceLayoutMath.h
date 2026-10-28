@@ -15,6 +15,7 @@
 #include "../../../AfxHookSource2/Filmmaker/Movie/TimelineDock.h"
 #include "../../../AfxHookSource2/Filmmaker/Panorama/InspectorWidthMath.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace SourceFilmmaker {
@@ -86,7 +87,8 @@ inline Rect FitPreview(const Rect& area, float aspect) {
 struct WorkspaceLayout {
 	Stage stage;
 	float inspectorW = 0;
-	Rect inspector; // right column, full height
+	Rect job;       // the Render workspace's JOB column, left (empty in the other workspaces)
+	Rect inspector; // right column, full height (the Render workspace's: down to the ribbon)
 	Rect ribbon;    // the dock's tab ribbon, left of the inspector
 	Rect dock;      // the docked editor, flush at the bottom, left of the inspector
 	Rect area;      // left of the inspector, above the ribbon
@@ -108,6 +110,31 @@ inline WorkspaceLayout CameraEditorLayout(float clientW, float clientH, double s
 	l.ribbon = MakeRect(0, dm.tabY, left, dm.tabY + kDockRibbon);
 	l.dock = MakeRect(0, sh - editorTop, left, sh);
 	l.area = MakeRect(0, 0, left, sh - dm.bottomH);
+	l.preview = FitPreview(l.area, clientW / clientH);
+	return l;
+}
+
+// CS2's Render workspace (CameraEditorRenderLayoutJs.h): the JOB column at the left (340, at most 30%
+// of the stage), the RENDER column at the right as wide as the editor's inspector (at most 34%), both
+// down to the dock's ribbon, the preview between them, and the ribbon and the docked editor across
+// the whole width under all three.
+constexpr float kRenderJobW = 340.0f;
+
+inline WorkspaceLayout RenderLayout(float clientW, float clientH, double storedInspectorW, float editorTop) {
+	WorkspaceLayout l;
+	l.stage = StageFor(clientW, clientH);
+	if (!(l.stage.width > 0)) return l;
+	const float sw = l.stage.width, sh = l.stage.height;
+	const double stored = Filmmaker::InspectorWidthMath::ClampStored(storedInspectorW);
+	const float inspectorW = (float)std::floor(Filmmaker::InspectorWidthMath::Resolve(stored, sw));
+	const float jobW = (std::min)(kRenderJobW, std::floor(sw * 0.30f));
+	l.inspectorW = (std::min)(inspectorW, std::floor(sw * 0.34f));
+	const DockMeasure dm = MeasureDock(sh, editorTop);
+	l.job = MakeRect(0, 0, jobW, dm.tabY);
+	l.inspector = MakeRect(sw - l.inspectorW, 0, sw, dm.tabY);
+	l.ribbon = MakeRect(0, dm.tabY, sw, dm.tabY + kDockRibbon);
+	l.dock = MakeRect(0, sh - editorTop, sw, sh);
+	l.area = MakeRect(jobW, 0, sw - l.inspectorW, dm.tabY);
 	l.preview = FitPreview(l.area, clientW / clientH);
 	return l;
 }

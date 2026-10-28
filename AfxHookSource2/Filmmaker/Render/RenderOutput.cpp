@@ -1,4 +1,5 @@
 #include "RenderOutput.h"
+#include "RenderHost.h"
 
 #include "../Platform/FolderPicker.h"
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_* (render.output probes)
@@ -82,8 +83,12 @@ bool DirectoryExists(const std::wstring& path) {
 
 const char* RenderFormatName(RenderOutputFormat format) { return Info(format).name; }
 const char* RenderFormatToken(RenderOutputFormat format) { return Info(format).token; }
-bool RenderFormatSupported(RenderOutputFormat format) { return Info(format).supported; }
-const char* RenderFormatNote(RenderOutputFormat format) { return Info(format).note; }
+// A format the bundled path makes can still be one this game cannot feed (RenderHost.h).
+bool RenderFormatSupported(RenderOutputFormat format) { return Info(format).supported && !RenderHost_FormatUnavailable(format); }
+const char* RenderFormatNote(RenderOutputFormat format) {
+	const char* unavailable = RenderHost_FormatUnavailable(format);
+	return unavailable ? unavailable : Info(format).note;
+}
 bool RenderFormatIsSequence(RenderOutputFormat format) { return Info(format).sequence; }
 
 bool RenderFormatFromToken(const char* token, RenderOutputFormat& out) {

@@ -12,6 +12,9 @@
 #include <AfxHookSource2/Filmmaker/Movie/WeaponRecoil.h>
 #include <AfxHookSource2/Filmmaker/Platform/JsonBuilder.h>
 #include <AfxHookSource2/Filmmaker/Platform/JsonParser.h>
+#include <AfxHookSource2/Filmmaker/Platform/TextEncoding.h>
+#include <AfxHookSource2/Filmmaker/Render/RenderDoneSound.h>
+#include <AfxHookSource2/Filmmaker/Render/RenderOutput.h>
 #include <Shared/AfxConsole.h>
 
 #include <windows.h>
@@ -49,13 +52,20 @@ std::wstring SettingsPath() {
 	return path + L"filmmaker_settings_source1.json";
 }
 
-std::string BuildSnapshot() {
+// render false leaves out the Render workspace's fields, which change no picture (the revision).
+std::string BuildSnapshot(bool render = true) {
 	Filmmaker::JsonBuilder b;
 	b.BeginObject();
 	b.IntField("version", 1);
 	Filmmaker::CameraFeel_Write(b);
 	b.BoolField("keepCameraAcrossDemos", g_keepCamera);
 	b.BoolField("scrubCache", g_scrubCache);
+	if (render) {
+		// CS2's keys (FilmmakerSettingsStore.cpp): the workspace opens on the last output folder.
+		b.StringField("renderOutputFolder", Filmmaker::WideToUtf8(Filmmaker::RenderOutputSettingsRef().folder));
+		b.BoolField("renderDoneSound", Filmmaker::RenderDoneSound_Enabled());
+		b.IntField("renderDoneSoundVolume", Filmmaker::RenderDoneSound_Volume());
+	}
 	b.EndObject();
 	return b.Str();
 }
@@ -132,6 +142,14 @@ void Settings_Load() {
 				g_keepCamera = keep->boolean;
 			if (const Filmmaker::JsonValue* cache = root.Find("scrubCache"); cache && cache->type == Filmmaker::JsonValue::Type::Bool)
 				g_scrubCache = cache->boolean;
+			// Empty never overwrites: a settings reset must not forget where renders go.
+			if (const Filmmaker::JsonValue* folder = root.Find("renderOutputFolder");
+				folder && folder->type == Filmmaker::JsonValue::Type::String && !folder->str.empty())
+				Filmmaker::RenderOutputSettingsRef().folder = Filmmaker::Utf8ToWide(folder->str);
+			if (const Filmmaker::JsonValue* sound = root.Find("renderDoneSound"); sound && sound->type == Filmmaker::JsonValue::Type::Bool)
+				Filmmaker::RenderDoneSound_SetEnabled(sound->boolean);
+			if (const Filmmaker::JsonValue* volume = root.Find("renderDoneSoundVolume"); volume && volume->type == Filmmaker::JsonValue::Type::Number)
+				Filmmaker::RenderDoneSound_SetVolume((int)volume->number);
 		} else {
 			g_lastError = "the file did not parse; the defaults are in use";
 		}
@@ -152,7 +170,7 @@ void Settings_Frame() {
 		if (!g_keepCamera && generation != 0) QuietCameraReset();
 	}
 	const std::string snapshot = BuildSnapshot();
-	g_pictureRevision = std::hash<std::string>()(snapshot);
+	g_pictureRevision = std::hash<std::string>()(BuildSnapshot(false));
 	const unsigned long long now = GetTickCount64();
 	if (g_quiet) {
 		if (snapshot == g_quietSnapshot) return; // still what the reset left: the file keeps the user's feel

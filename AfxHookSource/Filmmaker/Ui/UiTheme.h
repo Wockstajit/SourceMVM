@@ -52,6 +52,7 @@ constexpr Color ButtonHoverBg = Rgba(188, 112, 0, 60);
 constexpr Color ButtonArmedBg = Palette::Red;                 // pressed, like a VGUI armed button
 constexpr Color Letterbox = Palette::Black;                   // around the game preview
 constexpr Color Loop = Rgba(124, 224, 142);                   // CS2's LOOP green: the loop region and its lit button
+constexpr Color RenderRange = Rgba(89, 209, 181);             // CS2's render range teal: Render's In and Out flags
 } // namespace Theme
 
 // Fonts the theme asks for. Faces are Windows' Verdana and Tahoma; sizes are stage px.

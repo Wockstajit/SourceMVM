@@ -262,12 +262,15 @@ void Director_SetSlow(bool slow) {
 }
 
 void Director_StepCamera(int notches) {
+	Director_SetCamera(DirectorMath::StepCamera(CameraMode(), notches));
+}
+
+void Director_SetCamera(int mode) {
 	if (CameraPath_OwnsView()) CameraPath_Stop(); // one of the game's cameras takes the view from the path
 	if (Director_FreeCamOn()) {
 		FreeCam()->SetCameraControlMode(false); // one of the game's cameras takes the view back
 		if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("director", "free cam off");
 	}
-	const int mode = DirectorMath::StepCamera(CameraMode(), notches);
 	char command[64];
 	std::snprintf(command, sizeof(command), "spec_mode %d", mode);
 	Command(command);

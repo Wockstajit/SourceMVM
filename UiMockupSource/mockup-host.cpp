@@ -78,6 +78,32 @@ const char* ModeName(Mode m) {
 
 // The demo the mockup plays: mvm_css_tv.dem's length, tick rate and events (Docs/source/README.md
 // has how it was recorded); names and teams are stand-ins.
+RenderWorkspaceModel MakeRenderModel() {
+	RenderWorkspaceModel m;
+	m.demo = true;
+	m.tickRate = 1.0 / 0.015;
+	m.demoStart = 0;
+	m.demoEnd = 4410;
+	m.rangeMode = 4; // Custom In/Out, nothing set yet
+	m.formatName = "MP4 (H.264)";
+	m.formatNote = "H.264 MP4 with adjustable quality (CRF or bitrate) and optional NVENC GPU encoding.";
+	m.formatOk[7] = false; // EXR: CS:S's frame is already tone mapped
+	m.nvenc = 2;
+	m.nvencNote = "GPU encoding available (NVENC)";
+	m.project = "mvm_css_tv";
+	m.cameraBlock[5] = "Place a follow camera first";
+	RenderTake t;
+	t.when = "Oct 27, 23:58";
+	t.status = "completed";
+	t.detail = "1000 \xE2\x86\x92 1199 \xC2\xB7 0:03 \xC2\xB7 1 pass \xC2\xB7 60 fps MP4";
+	m.takes.push_back(t);
+	t.when = "Oct 27, 23:41";
+	t.status = "canceled";
+	t.detail = "600 \xE2\x86\x92 899 \xC2\xB7 0:04 \xC2\xB7 1 pass \xC2\xB7 30 fps PNG";
+	m.takes.push_back(t);
+	return m;
+}
+
 struct SimDemo {
 	bool playing = true;
 	bool paused = false;
@@ -175,6 +201,11 @@ struct Host {
 	double timelineTick = 0;
 	SimDemo demo = MakeSimDemo();
 	ConfigModel config;         // the Config cards' stand-in camera modules (StandInConfigCommand)
+	// The Render workspace's stand-in (StandInRenderCommand): the shared render settings the game
+	// keeps, changed by the panel's own commands, and a job that counts its frames.
+	bool renderOpen = false;
+	RenderWorkspaceModel render = MakeRenderModel();
+	double renderFrame = 0;     // frames the stand-in job has written
 	// The demos browser over the stand-in main menu (no demo playing): its library and organiser,
 	// answered by StandInDemosCommand as SourceDemos.cpp answers the game's.
 	bool demosOpen = false;
@@ -212,7 +243,7 @@ void ApplyMode(Mode before, const char* reason) {
 
 // Opens a workspace, or swaps the open one for it, as the game host does.
 void Open(Workspace ws, const char* reason) {
-	const char* name = ws == Workspace::Config ? "config" : "editor";
+	const char* name = ws == Workspace::Config ? "config" : (ws == Workspace::Render ? "render" : "editor");
 	g.editor.workspace = ws;
 	if (g.editor.open) {
 		LogLine("ui.editor", (std::string("workspace=") + name + " reason=" + reason).c_str());
@@ -227,6 +258,7 @@ bool ConfigOpen() { return g.editor.open && g.editor.workspace == Workspace::Con
 
 void Close(const char* reason) {
 	if (!g.editor.open) return;
+	g.renderOpen = false; // the Render workspace lives inside the editor
 	g.editor.open = false;
 	g.mouse.Reset();
 	g.preview = Rect();
@@ -384,6 +416,8 @@ void BuildCards(DirectorCardsModel& cards) {
 	cards.time = d.tick * d.interval;
 }
 
+void StandInRenderCommand(const std::string& command);
+
 void ApplyDemoActions(const std::vector<DemoBarAction>& actions) {
 	SimDemo& d = g.demo;
 	for (const DemoBarAction& a : actions) {
@@ -404,6 +438,9 @@ void ApplyDemoActions(const std::vector<DemoBarAction>& actions) {
 			d.loop.in = a.tick;
 			d.loop.out = (int)a.value;
 			LogLine("demo.loop", ("range " + std::to_string(a.tick) + " " + std::to_string((int)a.value)).c_str());
+			break;
+		case DemoBarAction::Kind::RenderRange: // the flags give the last frame; the range's Out excludes it
+			StandInRenderCommand("mirv_filmmaker render range custom " + std::to_string(a.tick) + " " + std::to_string((int)a.value + 1));
 			break;
 		case DemoBarAction::Kind::NextCamera: SetCamera(DirectorMath::StepCamera(d.observerMode, 1)); break;
 		case DemoBarAction::Kind::CameraEditor: Open(Workspace::Editor, "demo bar"); break;
@@ -895,6 +932,122 @@ std::vector<double> StandInCameraTicks() {
 // The Config cards' commands on the stand-in camera modules, as the game's handlers apply them
 // (SmoothView, HandheldCam and WeaponBob's RunCommand): "<setting> <value> quiet" clamps to the
 // setting's range, "<switch> toggle" flips it, reset puts the module back. Logged as config.ui.
+// The Render workspace's commands on the stand-in, as the shared RenderCommand.cpp applies them in
+// the game, and what the game derives from them each frame (SourceRenderModel.cpp).
+void StandInRenderDerive() {
+	RenderWorkspaceModel& m = g.render;
+	m.demo = g.demo.playing;
+	m.playhead = (int)g.demo.tick;
+	m.width = g.width;
+	m.height = g.height;
+	m.pathKeys = (int)g.path.keys.size();
+	m.modeLive[2] = m.pathKeys >= 2;
+	m.modeLive[3] = g.path.selected >= 0 && g.path.selected + 1 < m.pathKeys;
+	m.cameraBlock[4] = m.pathKeys >= 2 ? "" : "Needs 2+ camera keys";
+	if (m.rangeMode == 0) { m.in = 0; m.out = g.demo.total + 1; m.rangeOk = true; }
+	else if (m.rangeMode == 1) { m.in = 0; m.out = 2210; m.rangeOk = true; } // the stand-in's first round
+	else if (m.rangeMode == 2) { m.rangeOk = m.pathKeys >= 2; if (m.rangeOk) { m.in = g.path.keys.front().tick; m.out = g.path.keys.back().tick + 1; } }
+	else if (m.rangeMode == 3) {
+		m.rangeOk = m.modeLive[3];
+		if (m.rangeOk) { m.in = g.path.keys[g.path.selected].tick; m.out = g.path.keys[g.path.selected + 1].tick + 1; }
+	}
+	if (m.rangeOk && m.out <= m.in) m.rangeOk = false;
+	m.frames = m.rangeOk ? (int)std::ceil((m.out - m.in) * m.fps / m.tickRate - 1e-6) : 0;
+	static const char* const kNames[8] = { "MP4 (H.264)", "AVI (HuffYUV)", "GIF", "PNG sequence", "TIFF sequence", "TGA sequence", "BMP sequence", "EXR sequence" };
+	m.formatName = kNames[m.format & 7];
+	m.formatNote = m.format == 7 ? "EXR keeps the scene from before tone mapping, which the CS:S frame no longer has. Use PNG or TGA."
+		: (m.format == 0 ? "H.264 MP4 with adjustable quality (CRF or bitrate) and optional NVENC GPU encoding." : "");
+	m.fatalCount = (m.rangeOk ? 0 : 1) + (m.folder.empty() ? 1 : 0) + (m.formatOk[m.format & 7] ? 0 : 1);
+	m.firstFatal = !m.rangeOk ? "Render range is unresolved or invalid." : (m.folder.empty() ? "no output folder chosen" : m.formatNote);
+	m.warnCount = m.rangeOk ? 1 : 0; // 66.67 ticks never divide into whole frames
+	if (m.running) {
+		g.renderFrame += 1;
+		m.framesDone = (int)g.renderFrame;
+		m.percent = m.framesTotal > 0 ? (int)(100.0 * m.framesDone / m.framesTotal + 0.5) : 0;
+		m.curTick = m.in + (int)(m.framesDone * m.tickRate / m.fps);
+		m.phase = "rendering";
+		if (m.framesDone >= m.framesTotal) {
+			m.running = false;
+			m.sessionState = 11;
+			m.phase = "completed";
+			RenderTake t;
+			t.when = "Oct 28, 00:30";
+			t.status = "completed";
+			char detail[120];
+			std::snprintf(detail, sizeof(detail), "%d \xE2\x86\x92 %d \xC2\xB7 0:%02d \xC2\xB7 1 pass \xC2\xB7 %d fps MP4", m.in, m.out - 1,
+				(int)((m.out - m.in) / m.tickRate), m.fps);
+			t.detail = detail;
+			m.takes.insert(m.takes.begin(), t);
+			LogLine("render.job", "completed");
+		}
+	}
+}
+
+void StandInRenderCommand(const std::string& command) {
+	LogLine("render.ui", command.c_str());
+	std::istringstream in(command);
+	std::vector<std::string> t;
+	for (std::string w; in >> w;) t.push_back(w);
+	if (t.size() < 3 || t[0] != "mirv_filmmaker" || t[1] != "render") return;
+	RenderWorkspaceModel& m = g.render;
+	const std::string& a = t[2];
+	const std::string b = t.size() > 3 ? t[3] : "";
+	const int n = t.size() > 3 ? std::atoi(t[3].c_str()) : 0;
+	if (a == "open") { if (g.editor.open && !ConfigOpen()) g.renderOpen = true; }
+	else if (a == "close") g.renderOpen = false;
+	else if (a == "tab") m.tab = n <= 1 ? 0 : (n == 2 ? 1 : 2);
+	else if (a == "range") {
+		static const char* const kModes[5] = { "full", "round", "path", "segment", "custom" };
+		for (int i = 0; i < 5; ++i)
+			if (b == kModes[i]) m.rangeMode = i;
+		if (b == "custom" && t.size() > 5) { m.in = std::atoi(t[4].c_str()); m.out = std::atoi(t[5].c_str()); m.rangeOk = m.out > m.in; }
+		if (b == "path" && m.pathKeys >= 2) m.camera = 4;
+	} else if (a == "in") { m.rangeMode = 4; m.in = n; if (m.out <= m.in) m.out = m.in + 1; m.rangeOk = true; }
+	else if (a == "out") { m.rangeMode = 4; m.out = n; if (m.in >= m.out) m.in = m.out - 1; m.rangeOk = true; }
+	else if (a == "clearrange") { m.rangeMode = 4; m.rangeOk = false; m.in = m.out = 0; }
+	else if (a == "camera") {
+		static const char* const kCams[6] = { "current", "pov", "thirdperson", "free", "path", "follow" };
+		for (int i = 0; i < 6; ++i)
+			if (b == kCams[i]) m.camera = i;
+	} else if (a == "extension") {
+		static const char* const kExt[4] = { "fail", "holdfirst", "holdlast", "clamp" };
+		for (int i = 0; i < 4; ++i)
+			if (b == kExt[i]) m.extension = i;
+	} else if (a == "output") {
+		const std::string v = t.size() > 4 ? t[4] : "";
+		if (b == "folder") m.folder = "C:\\Users\\Example\\Videos\\SourceMVM";
+		else if (b == "format") {
+			static const char* const kFormats[8] = { "mp4", "avi", "gif", "png", "tiff", "tga", "bmp", "exr" };
+			for (int i = 0; i < 8; ++i)
+				if (v == kFormats[i]) m.format = i;
+		} else if (b == "fps") m.fps = std::atoi(v.c_str());
+		else if (b == "quality") { m.crf = std::atoi(v.c_str()); m.bitrateKbps = 0; }
+		else if (b == "bitrate") m.bitrateKbps = std::atoi(v.c_str());
+		else if (b == "encoder") m.encoder = v == "cpu" ? 0 : (v == "gpu" ? 1 : 2);
+		else if (b == "speed") m.speed = v == "fast" ? 2 : (v == "balanced" ? 1 : 0);
+	} else if (a == "pass") {
+		const std::string v = t.size() > 4 ? t[4] : "";
+		if (b == "hud") m.hud = v == "none" ? 0 : 1;
+		else if (b == "cameradata") m.cameraData = v == "1";
+		else if (b == "blood") m.blood = v == "1";
+	} else if (a == "sound") {
+		if (b == "toggle") m.soundOn = !m.soundOn;
+		else if (b == "volume" && t.size() > 4) m.volume = std::atoi(t[4].c_str());
+	} else if (a == "start") {
+		if (m.fatalCount == 0 && !m.running) {
+			m.running = true;
+			m.framesTotal = m.frames;
+			m.framesDone = 0;
+			g.renderFrame = 0;
+			m.takeDir = m.folder + "\\" + m.project + "_2026-10-28_00-30-00";
+		}
+	} else if (a == "cancel") {
+		if (m.running) { m.running = false; m.sessionState = 14; m.phase = "canceled"; }
+	} else if (a == "import") {
+		if (n >= 0 && n < (int)m.takes.size()) { m.rangeMode = 4; m.in = 1000; m.out = 1200; m.rangeOk = true; }
+	}
+}
+
 void StandInConfigCommand(const std::string& command) {
 	LogLine("config.ui", command.c_str());
 	std::istringstream in(command);
@@ -1462,7 +1615,17 @@ void Frame() {
 		g.config.wrScopeCovers = g.config.wrScope == "all" || g.config.wrScopeKey == (g.config.wrScope == "slot" ? "primary" : "rifle");
 		g.config.pvr.cls = g.config.pvb.cls = "rifle";
 		g.config.pvr.weapon = g.config.pvb.weapon = "weapon_ak47";
-		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo, g.path, g.follow, BuildTimelineModel(), g.config);
+		// The Render workspace follows the stand-in's open flag, as the game's follows the shared one.
+		if (ConfigOpen()) g.renderOpen = false;
+		if (g.renderOpen && g.editor.workspace == Workspace::Editor) g.editor.workspace = Workspace::Render;
+		else if (!g.renderOpen && g.editor.workspace == Workspace::Render) g.editor.workspace = Workspace::Editor;
+		StandInRenderDerive();
+		demo.renderOpen = g.editor.workspace == Workspace::Render; // the bar's flags become the render range
+		demo.renderRangeSet = g.render.rangeOk;
+		demo.renderRange.in = g.render.in;
+		demo.renderRange.out = g.render.out - 1;
+		frame = DrawCameraEditor(g.editor, g.fonts, (float)g.width, (float)g.height, demo, g.path, g.follow, BuildTimelineModel(), g.config,
+			g.render);
 	} else if (director) {
 		if (g.cadence.Ready((uint64_t)nowMs, 10, false)) BuildCards(g.cards);
 		// The backdrop is a CS:S spectator capture, so its spectator bars are where the game's are.
@@ -1482,6 +1645,7 @@ void Frame() {
 	ApplyFollowCommands(frame.followCommands);
 	ApplyTimelineActions(frame.timelineActions);
 	for (const std::string& command : frame.configCommands) StandInConfigCommand(command);
+	for (const std::string& command : frame.renderCommands) StandInRenderCommand(command);
 	g.bar = directorFrame.bar;
 	g.preview = frame.modal || g.cardOpen ? Rect() : frame.previewClient;
 	g.panelHovered = g.editor.open && io.WantCaptureMouse;
@@ -1706,6 +1870,10 @@ EMSCRIPTEN_KEEPALIVE int mockup_key(int vk, int down, int repeat) {
 		case WorkspaceKey::Close:
 			if (g.editor.dock == DockTab::Timeline && TimelineDockEscape(g.editor.timeline)) return 1;
 			if (ConfigOpen() && ConfigEscape(g.editor.config)) return 1;
+			if (g.renderOpen) { // ESC leaves Render for the editor, as its BACK does
+				g.renderOpen = false;
+				return 1;
+			}
 			Close("esc");
 			return 1;
 		case WorkspaceKey::ToggleGame:
@@ -1843,6 +2011,15 @@ EMSCRIPTEN_KEEPALIVE const char* mockup_command(const char* command) {
 		else if (0 == std::strcmp(what, "off")) flag = false;
 		else if (0 == std::strcmp(what, "toggle")) flag = !flag;
 		g.reply = std::string(hud ? "hud: " : "blackout: ") + (flag ? "on" : "off");
+		return g.reply.c_str();
+	}
+	if (0 == std::strncmp(action, "render", 6)) { // the Render workspace: mirv_filmmaker render ..., as in game
+		StandInRenderCommand(std::string("mirv_filmmaker ") + action);
+		char buf[200];
+		std::snprintf(buf, sizeof(buf), "render: %s, tab %d, range %d (%d..%d, ok %d), camera %d, format %d, fps %d, %s",
+			g.renderOpen ? "open" : "closed", g.render.tab, g.render.rangeMode, g.render.in, g.render.out, g.render.rangeOk ? 1 : 0,
+			g.render.camera, g.render.format, g.render.fps, g.render.running ? "running" : "idle");
+		g.reply = buf;
 		return g.reply.c_str();
 	}
 	if (0 == std::strncmp(action, "config", 6)) { // the Config workspace: on | off | toggle | state, as in game

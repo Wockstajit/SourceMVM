@@ -1015,6 +1015,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Render/RenderRange.h
     Filmmaker/Render/RenderCommand.cpp
     Filmmaker/Render/RenderCommand.h
+    Filmmaker/Render/RenderHost.h
+    Filmmaker/Render/RenderHostSource2.cpp
     Filmmaker/Render/RenderSession.cpp
     Filmmaker/Render/RenderSession.h
     Filmmaker/Render/RenderValidation.cpp

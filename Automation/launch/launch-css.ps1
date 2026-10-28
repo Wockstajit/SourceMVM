@@ -60,6 +60,10 @@ AfxHookSource.dll is not staged. Run:
 "@
 }
 
+# The Render workspace encodes through the stage's ffmpeg (AutomationCommon.ps1).
+. (Join-Path $automationRoot 'lib\AutomationCommon.ps1')
+Initialize-StagedFfmpeg -StageBin (Join-Path $repoRoot 'build\source1-release\bin') -RepositoryRoot $repoRoot
+
 $injector = $null
 foreach ($candidate in @(
     (Join-Path $repoRoot 'build\source2-release\bin\x64\injector.exe'),

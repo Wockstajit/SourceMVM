@@ -44,6 +44,14 @@ FontSet BuildFonts(ImFontAtlas* atlas, const std::string& fontDir, float scale) 
 		const std::string path = fontDir + "/" + FontFile(spec.face, spec.bold);
 		ImFont* font = nullptr;
 		if (FileExists(path)) font = atlas->AddFontFromFileTTF(path.c_str(), px, &config, ranges);
+		// Verdana has no arrows or triangles; Tahoma, its VGUI sibling, lends them at the same size.
+		const std::string lender = fontDir + "/" + FontFile(L"Tahoma", spec.bold);
+		if (font && 0 != std::wcscmp(spec.face, L"Tahoma") && FileExists(lender)) {
+			static const ImWchar lent[] = { 0x2190, 0x2193, 0x25B2, 0x25BC, 0 };
+			ImFontConfig merge = config;
+			merge.MergeMode = true;
+			atlas->AddFontFromFileTTF(lender.c_str(), px, &merge, lent);
+		}
 		if (!font) {
 			set.ok = false;
 			ImFontConfig fallback;

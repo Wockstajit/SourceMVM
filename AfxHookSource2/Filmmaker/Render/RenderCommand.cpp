@@ -1,56 +1,27 @@
 #include "RenderCommand.h"
 
+// The render workspace's settings, console surface and state, shared by CS2 and CS:S. What it asks
+// the game goes through RenderHost.h; the job is the game's own (RenderSessionDriver.h).
+
 #include <algorithm>
 #include "RenderTypes.h"
 #include "RenderRange.h"
-#include "RenderStateGuard.h"
+#include "RenderHost.h"
 #include "RenderSession.h"
 #include "RenderSessionDriver.h"
 #include "RenderValidation.h"
 #include "RenderOutput.h"
-#include "RenderResolution.h"
 #include "RenderEncoderDetect.h"
-#include "RenderTargetProbe.h"
-#include "RenderSupersample.h"
-#include "RenderEngineSize.h"
-#include "RenderHdrCapture.h"
-#include "RenderWorldOnly.h"
-#include "RenderWorldPlayersNoGun.h"
-#include "RenderPlayersOnlyGreen.h"
 #include "RenderPassPlan.h"
 #include "RenderDoneSound.h"
 #include "RenderTakeHistory.h"
-#include "../../RenderSystemDX11Hooks.h" // pass key tolerance
-#include "../Filmmaker.h" // CameraEditor_Active (the Render workspace lives inside the editor)
 #include "../Platform/TextEncoding.h" // WideToUtf8 (output folder -> console / state JSON)
 #include "../Platform/JsonBuilder.h"   // JsonBuilder::Escape (paths/messages carry backslashes + quotes)
 #include "../Debug/MvmDebugLog.h"
-#include "../Movie/CameraBridge.h" // CameraBridge_GetFreeCamEnabled (camera-source probe)
-#include "../Movie/CameraPath.h"
-#include "../Movie/DemoTimescale.h"
-#include "../Movie/FollowCamera.h"
-#include "../Movie/MovieMode.h"
-#include "../Panorama/CameraEditorHud.h"
-#include "../Panorama/GraphEditorExperimentHud.h"
-#include "../Demo/DemoHeaderReader.h"
-#include "../Demo/PlayingDemoPath.h"
 
-#include "../../ClientEntitySystem.h" // AfxGetSpectatedPawnIndex (POV source availability)
-
-#include "../../MirvTime.h"
-#include "../../WrpConsole.h"
-
-#include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
-#include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
-
+#include <cmath>
 #include <sstream>
-#include <atomic>
 #include <string>
-
-extern SOURCESDK::CS2::ISource2EngineToClient* g_pEngineToClient;
-
-// RenderSystemDX11Hooks.cpp: whether a recording forces r_wait_on_present (diagnostic).
-extern std::atomic<bool> g_RecordWaitOnPresent;
 
 namespace Filmmaker {
 
@@ -76,12 +47,6 @@ static CameraPathExtension s_extension = CameraPathExtension::Fail;
 static bool s_jobActive = false;
 static int s_modalTab = 0;
 static bool s_modalOpen = false;
-
-// Demo tick bounds for FullDemo resolution + the timeline range highlight. Cached per demo
-// path (the header read is a small bounded file read -- same pattern as DemoEndHold).
-static std::wstring s_boundsPath;
-static int s_demoStartTick = -1;
-static int s_demoEndTick = -1;
 
 // -- accessors --
 
@@ -117,8 +82,8 @@ void Render_SetModalOpen(bool open) {
 	// Render is an all-UI workspace. A completed job can restore a camera mode that normally
 	// returns the mouse to CS2; opening (or re-opening) Render must always hand it back to
 	// Panorama so dropdowns and output controls are physically clickable.
-	if (open && CameraEditor_Active())
-		CameraEditor_SetCursorMode(true);
+	if (open && RenderHost_EditorActive())
+		RenderHost_WorkspaceOpened();
 	if (s_modalOpen == open)
 		return;
 	if (MvmDebugLog_Active())
@@ -136,32 +101,13 @@ void Render_SetModalOpen(bool open) {
 	Render_ApplyLivePreview();
 }
 
-// The workspace shows ONE pass live on the game view -- its visibility group through the scene
-// draw policies, and for Depth / Normal the pass compositor over the finished scene -- so a shot
-// can be framed against the plate it will deliver. Scoped to the open workspace on purpose (leaving an altered
-// scene after closing Render reads as the game being broken), and never during a job: a job's
-// isolation renders are extra renders of their own, and the view the user sees stays the full
-// scene. Gun only shows its viewmodel depth band live (a job also adds the muzzle flash, which
-// needs a second render of the frame).
+// The workspace shows ONE pass live on the game view, so a shot can be framed against the plate it
+// will deliver (RenderHost_ApplyLivePreview). Scoped to the open workspace on purpose, and never
+// during a job: the job owns what is drawn.
 void Render_ApplyLivePreview() {
 	if (RenderSessionDriver_IsActive())
 		return;
-	const RenderPasses& passes = RenderPassesRef();
-	const PassConfig live = s_modalOpen ? passes.preview : PassConfig{};
-	const VisibleElements e = live.elements;
-	AfxStreams_SetLivePassPreview((int)live.type, (int)live.elements, passes.depthNear, passes.depthFar, passes.keyColor);
-	RenderWorldOnly_SetArmed(e == VisibleElements::OnlyWorld, "render workspace preview");
-	// Players Only is the no-gun view masked by depth against a World Only reference render the
-	// render loop adds while this is on (AfxStreams_SetLivePassPreview) -- no chroma repaint.
-	RenderWorldPlayersNoGun_SetArmed(e == VisibleElements::WorldAndPlayers || e == VisibleElements::OnlyPlayers,
-		"render workspace preview");
-	// Only Beauty + Everything can carry the game HUD (the HUD setting is that plate's alone), so the
-	// live view of any other plate hides it as well. The HUD's own bottom shading laid a dark gradient
-	// over the white gun of a live Depth + Gun only view, which the render never had (tester report).
-	if (live.type != PassType::Beauty || e != VisibleElements::Everything)
-		CameraEditorHudRef().SetHudViewOverride(CameraEditorHud::HudView::HideAll);
-	else
-		CameraEditorHudRef().ClearHudViewOverride();
+	RenderHost_ApplyLivePreview(RenderPassesRef(), s_modalOpen);
 }
 
 bool Render_IsCancelRequested() { return RenderSessionRef().IsCancelRequested(); }
@@ -169,35 +115,7 @@ void Render_RequestCancel() { RenderSessionRef().RequestCancel(); }
 
 bool Render_GetDemoBounds(int& outStartTick, int& outEndTick) {
 	outStartTick = -1; outEndTick = -1;
-	if (!g_pEngineToClient) return false;
-	auto* demo = g_pEngineToClient->GetDemoFile();
-	if (!demo || !(demo->IsPlayingDemo() || demo->IsDemoPaused())) { s_boundsPath.clear(); return false; }
-	std::wstring path = ResolvePlayingDemoPath();
-	if (path.empty()) return false;
-	if (path != s_boundsPath) {
-		s_boundsPath = path;
-		DemoHeaderInfo hi = ReadDemoHeader(path);
-		int start = demo->GetDemoStartTick();
-		if (start < 0) start = 0;
-		if (hi.ok && hi.playbackTicks > 0) {
-			s_demoStartTick = start;
-			s_demoEndTick = start + hi.playbackTicks;
-		} else {
-			s_demoStartTick = s_demoEndTick = -1;
-		}
-		// Only on a cache miss (once per demo), so it is free per frame. Carries the INPUTS
-		// (engine start tick, header ok + playback_ticks) next to the cached result: a Full
-		// Demo range that comes out empty is either a bad header or a bad start tick, and
-		// this line says which.
-		if (MvmDebugLog_Active())
-			MvmDebugLog_Linef("ui.render.bounds",
-				"resolve headerOk=%d playbackTicks=%d engineStart=%d -> start=%d end=%d",
-				hi.ok ? 1 : 0, hi.playbackTicks, start, s_demoStartTick, s_demoEndTick);
-	}
-	if (s_demoStartTick < 0 || s_demoEndTick <= s_demoStartTick) return false;
-	outStartTick = s_demoStartTick;
-	outEndTick = s_demoEndTick;
-	return true;
+	return RenderHost_DemoBounds(outStartTick, outEndTick);
 }
 
 static bool ResolveRangeForDisplayImpl(RenderRange& out) {
@@ -211,18 +129,17 @@ static bool ResolveRangeForDisplayImpl(RenderRange& out) {
 		return true;
 	}
 	case RenderRangeMode::CameraPathBounds: {
-		CameraPath& cp = CameraPathRef();
-		if (cp.Count() < 2) return false;
-		out.startTick = cp.Markers().front().tick;
-		out.endTickExclusive = cp.Markers().back().tick + 1;
+		const int keys = RenderHost_PathKeyCount();
+		if (keys < 2) return false;
+		out.startTick = RenderHost_PathKeyTick(0);
+		out.endTickExclusive = RenderHost_PathKeyTick(keys - 1) + 1;
 		return true;
 	}
 	case RenderRangeMode::SelectedCameraSegment: {
-		CameraPath& cp = CameraPathRef();
-		const int sel = cp.Selected();
-		if (sel < 0 || sel + 1 >= cp.Count()) return false;
-		out.startTick = cp.Markers()[sel].tick;
-		out.endTickExclusive = cp.Markers()[sel + 1].tick + 1;
+		const int sel = RenderHost_PathSelected();
+		if (sel < 0 || sel + 1 >= RenderHost_PathKeyCount()) return false;
+		out.startTick = RenderHost_PathKeyTick(sel);
+		out.endTickExclusive = RenderHost_PathKeyTick(sel + 1) + 1;
 		return true;
 	}
 	case RenderRangeMode::CurrentRound:
@@ -263,25 +180,20 @@ static RenderValidationResult ValidateCurrentJob() {
 	// Camera-path coverage is looked up HERE, not in RenderValidation -- that file is kept free of
 	// engine headers so it can be unit-tested standalone.
 	RenderCameraPathCoverage coverage;
-	{
-		CameraPath& cp = CameraPathRef();
-		coverage.resolved = true;
-		coverage.keyCount = cp.Count();
-		if (coverage.keyCount >= 2) {
-			coverage.firstTick = cp.FirstPathTick();
-			coverage.lastTick = cp.LastPathTick();
-		}
-	}
+	coverage.resolved = true;
+	coverage.keyCount = RenderHost_PathKeyCount();
+	if (coverage.keyCount >= 2)
+		RenderHost_PathCoverage(coverage.firstTick, coverage.lastTick);
 	// Validate against the capture rate (= output fps). Frame count is ticks * fps / tickRate.
 	RenderValidationResult result = RenderValidate(s_range, s_camera, s_extension,
-		RenderCaptureFps(out.fps), 64.0, coverage);
+		RenderCaptureFps(out.fps), RenderHost_TickRate(), coverage);
 	RenderValidateOutput(result,
 		!out.folder.empty(),
 		RenderFormatSupported(out.format),
 		RenderFormatName(out.format),
 		RenderFormatNote(out.format));
 	RenderValidateRepeatability(result,
-		RenderCaptureFps(out.fps), 64.0);
+		RenderCaptureFps(out.fps), RenderHost_TickRate());
 	const PassPlan plan = BuildPassPlan(RenderPassesRef().passes);
 	if (plan.StreamCount() == 0)
 		result.AddFatal("no render pass selected (add at least one pass)");
@@ -418,10 +330,10 @@ std::string Render_BuildStateJson() {
 		// console nobody has open -- which is what made Camera Path and Follow Camera look like
 		// dead buttons.
 		<< ",\"avail\":{"
-		<< "\"pathKeys\":" << CameraPathRef().Count()
-		<< ",\"pathSel\":" << CameraPathRef().Selected()
-		<< ",\"followReady\":" << (FollowCameraRef().State().hasCamera ? "true" : "false")
-		<< ",\"spectating\":" << (AfxGetSpectatedPawnIndex() >= 0 ? "true" : "false")
+		<< "\"pathKeys\":" << RenderHost_PathKeyCount()
+		<< ",\"pathSel\":" << RenderHost_PathSelected()
+		<< ",\"followReady\":" << (RenderHost_FollowReady() ? "true" : "false")
+		<< ",\"spectating\":" << (RenderHost_Spectating() ? "true" : "false")
 		<< "}"
 		// The header's SOUND chip and the OUTPUT tab's volume (RenderDoneSound.h).
 		<< ",\"sound\":{\"on\":" << (RenderDoneSound_Enabled() ? "true" : "false")
@@ -455,8 +367,8 @@ std::string Render_DebugStateLine() {
 		<< " extension=" << (int)s_extension
 		<< " validation=" << v.Token() << " fatal=" << v.FatalCount() << " warn=" << v.WarningCount()
 		<< " firstFatal='" << v.FirstFatal() << "'"
-		<< " pathCount=" << CameraPathRef().Count()
-		<< " pathSel=" << CameraPathRef().Selected();
+		<< " pathCount=" << RenderHost_PathKeyCount()
+		<< " pathSel=" << RenderHost_PathSelected();
 	return o.str();
 }
 
@@ -484,8 +396,8 @@ static void PrintHelp(const char* cmd) {
 		"%s render sound on|off|toggle|volume <0..100>|test - the chime when a job finishes or fails.\n"
 		"%s render takes [refresh] - this demo's earlier takes in the output folder, newest first.\n"
 		"%s render import <n> - start from take n's settings: range, camera, passes, fps, format.\n"
-		"%s render waitpresent 0|1 - diagnostic: 1 forces r_wait_on_present while recording (the old behaviour).\n"
-		, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
+		, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
+	RenderHost_PrintHelp(cmd);
 }
 
 // The chime a job plays when it ends (RenderDoneSound.h): the workspace header's bell and volume.
@@ -514,14 +426,14 @@ static void RunSoundCommand(int argc, advancedfx::ICommandArgs* args, const char
 
 // Range = the camera path's first key to its last. False (range untouched) without 2+ keys.
 static bool SetCameraPathRange(const char* cmd) {
-	CameraPath& cp = CameraPathRef();
-	if (cp.Count() < 2) {
+	const int keys = RenderHost_PathKeyCount();
+	if (keys < 2) {
 		advancedfx::Warning("%s: Camera Path Bounds needs 2+ camera keys (place them with K).\n", cmd);
 		return false;
 	}
 	s_range.mode = RenderRangeMode::CameraPathBounds;
-	s_range.startTick = cp.Markers().front().tick;
-	s_range.endTickExclusive = cp.Markers().back().tick + 1;
+	s_range.startTick = RenderHost_PathKeyTick(0);
+	s_range.endTickExclusive = RenderHost_PathKeyTick(keys - 1) + 1;
 	advancedfx::Message("%s: range CameraPathBounds (%d .. %d).\n",
 		cmd, s_range.startTick, s_range.endTickExclusive - 1);
 	return true;
@@ -563,11 +475,10 @@ static void RunRangeCommand(int argc, advancedfx::ICommandArgs* args, const char
 		}
 	} else if (0 == _stricmp(mode, "segment")) {
 		s_range.mode = RenderRangeMode::SelectedCameraSegment;
-		CameraPath& cp = CameraPathRef();
-		const int sel = cp.Selected();
-		if (sel >= 0 && sel + 1 < cp.Count()) {
-			s_range.startTick = cp.Markers()[sel].tick;
-			s_range.endTickExclusive = cp.Markers()[sel + 1].tick + 1;
+		const int sel = RenderHost_PathSelected();
+		if (sel >= 0 && sel + 1 < RenderHost_PathKeyCount()) {
+			s_range.startTick = RenderHost_PathKeyTick(sel);
+			s_range.endTickExclusive = RenderHost_PathKeyTick(sel + 1) + 1;
 			advancedfx::Message("%s: range SelectedCameraSegment (%d .. %d).\n",
 				cmd, s_range.startTick, s_range.endTickExclusive - 1);
 		} else {
@@ -588,10 +499,9 @@ static void RunRangeCommand(int argc, advancedfx::ICommandArgs* args, const char
 		} else if (!s_range.Valid()) {
 			// Reactive default: clicking "Custom Ticks" with no usable In/Out yet seeds a
 			// 10-second window starting at the playhead, so the button visibly does something.
-			int cur = 0;
-			g_MirvTime.GetCurrentDemoTick(cur);
+			const int cur = RenderHost_CurrentTick();
 			s_range.startTick = cur;
-			s_range.endTickExclusive = cur + 640;
+			s_range.endTickExclusive = cur + (int)std::lround(10.0 * RenderHost_TickRate());
 		}
 		advancedfx::Message("%s: range CustomTicks start=%d end=%d\n",
 			cmd, s_range.startTick, s_range.endTickExclusive);
@@ -686,85 +596,17 @@ static void RunStatusCommand(const char* cmd) {
 	// Surfaced in plain status, not behind a debug flag: the guard covers only part of the state a
 	// job will eventually touch, and a caller assuming full coverage is exactly the failure this
 	// is meant to prevent.
+	std::size_t covered = 0, uncovered = 0;
+	RenderHost_RestoreCoverage(covered, uncovered);
 	advancedfx::Message("  state restore  : %zu categories covered, %zu NOT covered"
 		" (see \"%s render restorecoverage\")\n",
-		RenderStateRestoreGuard::Covered().size(),
-		RenderStateRestoreGuard::Uncovered().size(),
-		cmd);
+		covered, uncovered, cmd);
 }
 
-// Make the LIVE view match the chosen render source, so the workspace preview is WYSIWYG
-// ("click Third-Person -> go to third person"). Graph drive and any follow preview are
-// disengaged first (they would otherwise keep owning the camera); the mode switch keeps the
-// UI cursor on so the workspace stays clickable.
+// Make the LIVE view match the chosen render source, so the workspace preview is WYSIWYG ("click
+// Third-Person -> go to third person"). The game decides how (RenderHost_ApplyCameraSource).
 void Render_ApplyCameraSourceLive(RenderCameraSource src, const char* cmd) {
-	FollowCamera& fc = FollowCameraRef();
-	GraphEditorExperimentHud& ge = GraphEditorExperimentHudRef();
-	MovieMode& mm = MovieModeRef();
-	CameraPath& cp = CameraPathRef();
-
-	// Camera-path playback is a THIRD camera owner beside follow-preview and graph drive, and it
-	// was the only one no source released. Picking any non-path source while a path was playing
-	// (or parked after a play) left the dolly still driving the view -- so a POV/third-person
-	// render captured the path's last keyframe pose instead of the source the user chose. Release
-	// it exactly like the other two owners.
-	auto releaseCameraPath = [&](const char* why) {
-		if (cp.IsPlaying() || cp.PlaybackPending() || cp.OwnsView())
-			cp.StopPreview(); // Esc: stop playback and hand the view back to editing
-		(void)why;
-	};
-
-	switch (src) {
-	case RenderCameraSource::CurrentViewer:
-		// Freeze whatever is on screen right now: deliberately no live switch, and deliberately
-		// no path release -- "current viewer" means exactly what is on screen, path included.
-		break;
-	case RenderCameraSource::Pov:
-		fc.StopPreview("render camera pov");
-		ge.SetDrive(false);
-		releaseCameraPath("render camera pov");
-		mm.SetMode(MovieMode::Mode::Default); // CS2 first person
-		break;
-	case RenderCameraSource::ThirdPerson:
-		fc.StopPreview("render camera thirdperson");
-		ge.SetDrive(false);
-		releaseCameraPath("render camera thirdperson");
-		mm.SetMode(MovieMode::Mode::ThirdPerson); // CS2 chase cam
-		break;
-	case RenderCameraSource::FreeCamera:
-		fc.StopPreview("render camera freecam");
-		ge.SetDrive(false);
-		releaseCameraPath("render camera freecam");
-		mm.SetMode(MovieMode::Mode::FreeCam); // CS2 free cam
-		break;
-	case RenderCameraSource::CameraPath:
-		fc.StopPreview("render camera path");
-		ge.SetDrive(false);
-		// Selecting the source must NOT start playback. Auto-playing here seeked the demo and
-		// parked the camera on the path's last keyframe as a side effect of a dropdown change,
-		// and there is already a Play button that owns this: the camera timeline's. Selecting
-		// the source only says "this shot is the dolly"; pressing Play runs it.
-		if (cp.Count() < 2)
-			advancedfx::Warning("%s: Camera Path source needs 2+ camera keys (place them with K).\n", cmd);
-		else
-			advancedfx::Message("%s: camera source = Camera Path (%d keys). Press Play on the camera "
-				"timeline to run the dolly; selecting the source no longer starts it.\n", cmd, cp.Count());
-		break;
-	case RenderCameraSource::FollowCamera:
-		ge.SetDrive(false);
-		releaseCameraPath("render camera follow");
-		fc.Preview(); // warns itself when no target/camera is set up
-		break;
-	}
-	// The bare "applied live" line could not distinguish "we switched" from "we asked and
-	// nothing happened" (POV with nobody spectated, Path with <2 keys, Follow with no target).
-	// Log the preconditions and the resulting mode alongside the request.
-	if (MvmDebugLog_Active())
-		MvmDebugLog_Linef("ui.render.camera",
-			"source=%d applied mode=%d freeCam=%d pathKeys=%d pathPlaying=%d followPreview=%d graphDrive=%d",
-			(int)src, (int)mm.GetMode(), CameraBridge_GetFreeCamEnabled() ? 1 : 0,
-			cp.Count(), (cp.IsPlaying() || cp.PlaybackPending()) ? 1 : 0,
-			fc.State().hasCamera ? 1 : 0, ge.Drive() ? 1 : 0);
+	RenderHost_ApplyCameraSource(src, cmd);
 }
 
 static void RunCameraCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
@@ -793,7 +635,7 @@ static void RunCameraCommand(int argc, advancedfx::ICommandArgs* args, const cha
 	advancedfx::Message("%s: camera source=%d\n", cmd, (int)s_camera);
 	// Playing the path renders the path's span, unless a piece of it is already chosen.
 	if (s_camera == RenderCameraSource::CameraPath && PathCameraTakesPathRange(s_range.mode)
-		&& CameraPathRef().Count() >= 2)
+		&& RenderHost_PathKeyCount() >= 2)
 		SetCameraPathRange(cmd);
 }
 
@@ -935,8 +777,13 @@ static void PrintPasses(const char* cmd) {
 	for (const PassConfig& pc : plan.passes)
 		advancedfx::Message("   %-22s %s + %s\n", PassStreamName(pc).c_str(), PassTypeLabel(pc.type),
 			VisibleElementsLabel(pc.elements));
-	advancedfx::Message("   key=%.3f %.3f %.3f  depth near=%g far=%g  keytolerance=%.3f\n",
-		p.keyColor[0], p.keyColor[1], p.keyColor[2], p.depthNear, p.depthFar, AfxStreams_GetPassKeyTolerance());
+	float tolerance = 0.0f;
+	if (RenderHost_PassKeyTolerance(tolerance))
+		advancedfx::Message("   key=%.3f %.3f %.3f  depth near=%g far=%g  keytolerance=%.3f\n",
+			p.keyColor[0], p.keyColor[1], p.keyColor[2], p.depthNear, p.depthFar, tolerance);
+	else
+		advancedfx::Message("   key=%.3f %.3f %.3f  depth near=%g far=%g\n",
+			p.keyColor[0], p.keyColor[1], p.keyColor[2], p.depthNear, p.depthFar);
 }
 
 static void RunPassCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
@@ -994,10 +841,10 @@ static void RunPassCommand(int argc, advancedfx::ICommandArgs* args, const char*
 		p.depthNear = n; p.depthFar = f;
 	} else if (0 == _stricmp(sub, "depthdebug")) {
 		if (!val) { advancedfx::Warning("usage: %s render pass depthdebug 0|1\n", cmd); return; }
-		AfxStreams_SetPassDepthDebug(0 != atoi(val));
+		if (!RenderHost_SetPassDepthDebug(0 != atoi(val))) { advancedfx::Warning("%s: this game has no depth debug.\n", cmd); return; }
 	} else if (0 == _stricmp(sub, "keytolerance")) {
 		if (!val) { advancedfx::Warning("usage: %s render pass keytolerance <0..1>\n", cmd); return; }
-		AfxStreams_SetPassKeyTolerance((float)atof(val));
+		if (!RenderHost_SetPassKeyTolerance((float)atof(val))) { advancedfx::Warning("%s: this game has no key tolerance.\n", cmd); return; }
 	} else if (0 == _stricmp(sub, "preview")) {
 		PassConfig pc;
 		if (val && 0 == _stricmp(val, "off")) {
@@ -1093,7 +940,7 @@ void Render_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 	if (0 == _stricmp(sub, "open")) {
 		// The workspace lives inside the Camera Editor; "open" outside it would set state for a
 		// UI that does not exist and make the console path diverge from what a user can see.
-		if (!CameraEditor_Active()) {
+		if (!RenderHost_EditorActive()) {
 			advancedfx::Warning("%s: open the Camera Editor first (\"%s editor on\"), then Render.\n", cmd, cmd);
 			return;
 		}
@@ -1109,17 +956,7 @@ void Render_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 	} else if (0 == _stricmp(sub, "status")) {
 		RunStatusCommand(cmd);
 	} else if (0 == _stricmp(sub, "restorecoverage")) {
-		advancedfx::Message("%s", RenderStateRestoreGuard::CoverageReport().c_str());
-	} else if (0 == _stricmp(sub, "hdrgrab")) {
-		RenderHdrCapture_RunCommand(argc, args, cmd);
-	} else if (0 == _stricmp(sub, "waitpresent")) {
-		if (argc >= 4) {
-			const char* v = args->ArgV(3);
-			if (0 == strcmp(v, "0") || 0 == strcmp(v, "1")) ::g_RecordWaitOnPresent.store(v[0] == '1', std::memory_order_relaxed);
-			else { advancedfx::Warning("usage: %s render waitpresent 0|1\n", cmd); return; }
-		}
-		advancedfx::Message("%s: waitpresent=%d (transient diagnostic; 1 forces r_wait_on_present while recording, the old behaviour)\n",
-			cmd, ::g_RecordWaitOnPresent.load(std::memory_order_relaxed) ? 1 : 0);
+		advancedfx::Message("%s", RenderHost_RestoreCoverageReport().c_str());
 	} else if (0 == _stricmp(sub, "range")) {
 		RunRangeCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "in")) {
@@ -1161,20 +998,6 @@ void Render_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 		RunOutputCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "pass")) {
 		RunPassCommand(argc, args, cmd);
-	} else if (0 == _stricmp(sub, "worldonly")) {
-		RenderWorldOnly_RunCommand(argc, args, cmd);
-	} else if (0 == _stricmp(sub, "playersonlygreen")
-		|| 0 == _stricmp(sub, "playersgreen")
-		|| 0 == _stricmp(sub, "greenscreen")) {
-		RenderPlayersOnlyGreen_RunCommand(argc, args, cmd);
-	} else if (0 == _stricmp(sub, "res")) {
-		RenderResolution_RunCommand(argc, args, cmd);
-	} else if (0 == _stricmp(sub, "rtprobe")) {
-		RenderTargetProbe_RunCommand(argc, args, cmd);
-	} else if (0 == _stricmp(sub, "supersample") || 0 == _stricmp(sub, "ss")) {
-		RenderSupersample_RunCommand(argc, args, cmd);
-	} else if (0 == _stricmp(sub, "enginesize")) {
-		RenderEngineSize_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "tab")) {
 		RunTabCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "extension")) {
@@ -1218,7 +1041,7 @@ void Render_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 			RenderSessionRef().RequestCancel();
 			advancedfx::Message("%s: cancellation requested. The job will finalize safely.\n", cmd);
 		}
-	} else {
+	} else if (!RenderHost_RunCommand(sub, argc, args, cmd)) {
 		PrintHelp(cmd);
 	}
 }

@@ -116,19 +116,25 @@ void Scrubber(Draw& d, DemoBarUi& ui, const DemoBarModel& m, const Rect& band, c
 	if (m.kills.empty() && m.rounds.empty() && !m.markerNote.empty())
 		d.Text(FontRole::Small, ImVec2(band.x0 + 6 * s, band.y0 + (band.H() - d.Size(FontRole::Small)) * 0.5f), Theme::TextDim, m.markerNote.c_str());
 
-	// LOOP region, between its In and Out flags. A held flag is where the drag has it.
+	// The region between the In and Out flags: Render's range while its workspace is open, else LOOP's.
+	// A held flag is where the drag has it.
 	const ImVec2 mouse = ImGui::GetIO().MousePos;
-	const bool loopShown = m.loopOn && m.loop.Valid();
+	const bool renderFlags = m.renderOpen;
+	const bool regionSet = renderFlags ? m.renderRangeSet : m.loop.Valid();
+	const DemoBarMath::LoopRegion& region = renderFlags ? m.renderRange : m.loop;
+	const Color edge = renderFlags ? Theme::RenderRange : Theme::Loop;
+	const Color edgeLit = renderFlags ? Rgba(160, 240, 222) : Rgba(170, 255, 190);
+	const bool loopShown = renderFlags || (m.loopOn && m.loop.Valid());
 	int loopHover = -1;
 	if (loopShown) {
 		const double span = (double)(last - first);
 		if (ui.loopFlag < 0) {
-			ui.loopFrac[0] = (m.loop.in - first) / span;
-			ui.loopFrac[1] = (m.loop.out - first) / span;
+			ui.loopFrac[0] = regionSet ? (region.in - first) / span : 0;
+			ui.loopFrac[1] = regionSet ? (region.out - first) / span : 1;
 		}
 		const float fx[2] = { band.x0 + (float)ui.loopFrac[0] * band.W(), band.x0 + (float)ui.loopFrac[1] * band.W() };
 		const float x0 = fx[0] < fx[1] ? fx[0] : fx[1], x1 = fx[0] < fx[1] ? fx[1] : fx[0];
-		l->AddRectFilled(ImVec2(x0, band.y0), ImVec2(x1, groove.y1), ToU32(Faded(Theme::Loop, 0.16f)));
+		if (regionSet || ui.loopFlag >= 0) l->AddRectFilled(ImVec2(x0, band.y0), ImVec2(x1, groove.y1), ToU32(Faded(edge, 0.16f)));
 		// Two rails in the band, In over Out, each a line at its tick and a tab outside the region.
 		const float railH = (band.H() - 2 * s) * 0.5f;
 		const bool fine = ImGui::GetIO().KeyShift;
@@ -168,11 +174,11 @@ void Scrubber(Draw& d, DemoBarUi& ui, const DemoBarModel& m, const Rect& band, c
 				ui.loopFlag = -1;
 				const LoopRegion r = LoopFromFlags((int)std::lround(first + ui.loopFrac[0] * span),
 					(int)std::lround(first + ui.loopFrac[1] * span));
-				d.Emit(DemoBarAction::Kind::LoopRange, r.in, r.out);
+				d.Emit(renderFlags ? DemoBarAction::Kind::RenderRange : DemoBarAction::Kind::LoopRange, r.in, r.out);
 			}
 			if (hovered || held) loopHover = f;
 			const float x = band.x0 + (float)ui.loopFrac[f] * band.W();
-			const Color c = hovered || held ? Rgba(170, 255, 190) : Theme::Loop;
+			const Color c = hovered || held ? edgeLit : edge;
 			l->AddRectFilled(ImVec2(x - lw * 0.5f, ry), ImVec2(x + lw * 0.5f, ry + railH), ToU32(c));
 			const float tab = LoopFlagTabX(x, f == 0, band.x0, band.x1, tw, lw);
 			l->AddRectFilled(ImVec2(tab, ry + 1 * s), ImVec2(tab + tw, ry + railH - 1 * s), ToU32(c));
@@ -193,7 +199,7 @@ void Scrubber(Draw& d, DemoBarUi& ui, const DemoBarModel& m, const Rect& band, c
 			const float y = band.y0 - h - 4 * s;
 			ImDrawList* fg = ImGui::GetForegroundDrawList();
 			fg->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), ToU32(Theme::PanelBg));
-			fg->AddRect(ImVec2(x, y), ImVec2(x + w, y + h), ToU32(Theme::Loop));
+			fg->AddRect(ImVec2(x, y), ImVec2(x + w, y + h), ToU32(edge));
 			fg->AddText(d.Font(FontRole::Small), d.Size(FontRole::Small), ImVec2(x + 6 * s, y + 3 * s), ToU32(Theme::Text), text);
 		}
 	} else {

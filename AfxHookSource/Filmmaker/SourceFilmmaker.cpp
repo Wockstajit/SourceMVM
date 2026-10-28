@@ -13,6 +13,7 @@
 #include "SourceSettings.h"
 #include "SourceViewModel.h"
 #include "SourceDemoRewind.h"
+#include "SourceRender.h"
 #include "SourceDemoSkip.h"
 #include "SourceDirector.h"
 #include "SourceEngine.h"
@@ -137,6 +138,7 @@ void PrintHealth() {
 	DemoIndex_PrintHealth();
 	OldDemos_PrintHealth();
 	DemoRewind_PrintHealth();
+	Render_PrintHealth();
 	DemoSkip_PrintHealth();
 	DemoDeletions_PrintHealth();
 	CameraShake_PrintHealth();
@@ -217,7 +219,8 @@ void PrintUsage() {
 		"mirv_filmmaker handheld|weaponrecoil|weaponbob|pivot|pivotorb|camshake|pathshake - CS2's camera shake layers.\n"
 		"mirv_filmmaker capture - <file.bmp>: the next frame as the game shows it, the filmmaker's UI included.\n"
 		"mirv_filmmaker window  - status|resizable|size|aspect|ratios|snap|overlay: drag the window to any size (SHIFT snaps).\n"
-		"mirv_filmmaker scrub   - drag|release <tick>|status|cache on|off|clear|budget <MB>: the world follows a timeline drag.\n");
+		"mirv_filmmaker scrub   - drag|release <tick>|status|cache on|off|clear|budget <MB>: the world follows a timeline drag.\n"
+		"mirv_filmmaker render  - open|range|camera|output|pass|start|cancel|sound|takes|...: the Render workspace and its jobs.\n");
 }
 
 // The 64-bit CS:S never calls the client's Shutdown through HLAE's wrapper (main.cpp), so the
@@ -324,6 +327,7 @@ void OnFrameRenderStart() {
 	TimelineDock_Frame(); // after the UI: its playhead and edits drive this frame's camera
 	FollowCamera_Frame();
 	CameraShake_Frame();
+	Render_Frame(); // a render job flies its camera last, so its pose is the frame's
 	Filmmaker::ScrubFrameCache_EndFrame(); // after the camera drivers noted the camera
 	Settings_Frame(); // after everything that edits a setting this frame
 }
@@ -361,6 +365,8 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::Settings_Command(argc, args);
 	} else if (0 == _stricmp(sub, "scrub")) {
 		Filmmaker::DemoScrub_RunCommand(argc, args, "mirv_filmmaker");
+	} else if (0 == _stricmp(sub, "render")) {
+		SourceFilmmaker::Render_Command(argc, args);
 	} else if (0 == _stricmp(sub, "window")) {
 		SourceFilmmaker::Window_Command(argc, args);
 	} else if (0 == _stricmp(sub, "endhold")) {

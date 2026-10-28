@@ -11,6 +11,8 @@
 #include "SourceEngine.h"
 #include "SourceFollowCamera.h"
 #include "SourceMainThread.h"
+#include "SourceRender.h"
+#include "SourceRenderCapture.h"
 #include "SourceScrubFrameCache.h"
 #include "SourceTimelineDock.h"
 
@@ -31,6 +33,7 @@
 #include <AfxHookSource2/Filmmaker/Movie/CamPathShake.h>
 #include <AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h>
 #include <AfxHookSource2/Filmmaker/Platform/JsonParser.h>
+#include <AfxHookSource2/Filmmaker/Render/RenderCommand.h>
 #include <AfxHookSource2/Filmmaker/Panorama/HudReadoutCadenceMath.h>
 #include <Shared/AfxConsole.h>
 #include <Shared/AfxDetours.h>
@@ -229,7 +232,7 @@ void ApplyMode(Mode before, const char* reason) {
 		Filmmaker::MvmDebugLog_Linef("ui.mouse", "mode=%s reason=%s", ModeName(now), reason);
 }
 
-const char* WorkspaceName(Workspace ws) { return ws == Workspace::Config ? "config" : "editor"; }
+const char* WorkspaceName(Workspace ws) { return ws == Workspace::Config ? "config" : (ws == Workspace::Render ? "render" : "editor"); }
 
 // Opens a workspace, or swaps the open one for it: the preview, the dock and the mouse stay as they
 // are, only the column changes.
@@ -258,6 +261,7 @@ void Open(DemoBarModel::Workspace ws, const char* reason) {
 
 void Close(const char* reason) {
 	if (!g_open.load()) return;
+	Filmmaker::Render_SetModalOpen(false); // the Render workspace lives inside the editor
 	g_open.store(false);
 	g.editor.open = false;
 	g_uiOwnsMouse.store(false);
@@ -1006,6 +1010,10 @@ bool UiWindowMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 		case WorkspaceKey::Close:
 			if (g.editor.dock == DockTab::Timeline && TimelineDockEscape(g.editor.timeline)) return true;
 			if (g_config.load() && ConfigEscape(g.editor.config)) return true;
+			if (Filmmaker::Render_IsModalOpen()) { // ESC leaves Render for the editor, as its BACK does
+				Filmmaker::Render_SetModalOpen(false);
+				return true;
+			}
 			Close("esc");
 			return true;
 		case WorkspaceKey::ToggleGame:
@@ -1210,6 +1218,12 @@ void Ui_MainThreadFrame() {
 	}
 	g.wasRepositioning = repositioning;
 
+	// The Render workspace follows the shared render state (`render open` / `close`, the editor's RENDER
+	// button, its BACK and ESC); Config closes it.
+	if (g.editor.workspace == Workspace::Config && Filmmaker::Render_IsModalOpen()) Filmmaker::Render_SetModalOpen(false);
+	if (Filmmaker::Render_IsModalOpen() && g.editor.workspace == Workspace::Editor) g.editor.workspace = Workspace::Render;
+	else if (!Filmmaker::Render_IsModalOpen() && g.editor.workspace == Workspace::Render) g.editor.workspace = Workspace::Editor;
+
 	DemoBarModel demo;
 	DemoBar_BuildModel(demo);
 	const PathInspectorModel path = BuildPathModel();
@@ -1219,8 +1233,14 @@ void Ui_MainThreadFrame() {
 	if (!configOpen && g.editor.tab == InspectorTab::FollowCamera) FollowCamera_InspectorModel(follow);
 	ConfigModel config;
 	if (configOpen) Config_BuildModel(config);
+	RenderWorkspaceModel render;
+	Render_BuildModel(render, demo);
+	demo.renderOpen = g.editor.workspace == Workspace::Render; // the bar's flags become the render range
+	demo.renderRangeSet = render.rangeOk;
+	demo.renderRange.in = render.in;
+	demo.renderRange.out = render.out - 1;
 	ImGui::NewFrame();
-	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo, path, follow, timeline, config);
+	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo, path, follow, timeline, config, render);
 	std::vector<MarkerCardAction> markerActions;
 	DrawMarkerPopups(frame.previewClient, w, h, markerActions);
 	ImGui::Render();
@@ -1229,6 +1249,7 @@ void Ui_MainThreadFrame() {
 	FollowCamera_RunCommands(frame.followCommands);
 	ApplyTimelineActions(frame.timelineActions);
 	Config_RunCommands(frame.configCommands);
+	Render_RunCommands(frame.renderCommands);
 	ApplyMarkerActions(markerActions);
 
 	g.preview = frame.modal || g_markerMenu.load() ? Rect() : frame.previewClient;
@@ -1256,6 +1277,7 @@ void Ui_RenderThreadPresent(IDirect3DDevice9* device) {
 		world = g_latestWorld;
 		if ((snapshot || world) && g_renderFont.version != g_fontPixels.version) g_renderFont = g_fontPixels;
 	}
+	RenderCapture_Present(device); // a render job's frame: the game's picture, before the UI goes over it
 	g_renderer.SetPreviewSource(&ScrubFrames_PreviewTexture); // the scrub frame cache picks what the preview shows
 	if (snapshot || world) g_renderer.Render(device, world.get(), snapshot.get(), g_renderFont);
 	Capture_RenderThread(device); // a requested frame, the UI just drawn into it
@@ -1264,6 +1286,7 @@ void Ui_RenderThreadPresent(IDirect3DDevice9* device) {
 void Ui_DeviceLost() {
 	g_renderer.ReleaseDeviceObjects();
 	ScrubFrames_DeviceLost();
+	RenderCapture_DeviceLost();
 }
 
 bool Ui_OnSetCursorPos(int x, int y) {

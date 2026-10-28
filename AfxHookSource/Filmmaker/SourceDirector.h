@@ -57,6 +57,8 @@ void Director_Wheel(int notches, bool ctrl, bool shift);
 void Director_Key(Ui::DirectorMath::Key key);
 // The camera, notches steps around the director's ring (the bar's camera button is one step).
 void Director_StepCamera(int notches);
+// One camera by its spec_mode (DirectorMath::kInEye, kChase, kRoaming), as the steps set it.
+void Director_SetCamera(int mode);
 
 // mirv_filmmaker hud on|off|toggle|state, blackout on|off|toggle|status.
 void Director_HudCommand(const char* action);

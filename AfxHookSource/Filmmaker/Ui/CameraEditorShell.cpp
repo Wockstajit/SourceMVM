@@ -24,10 +24,12 @@ float DockEditorHeight(DockTab dock) {
 
 CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& fonts, float clientW, float clientH,
 	const DemoBarModel& demo, const PathInspectorModel& path, const FollowInspectorModel& follow, const TimelineDockModel& timeline,
-	const ConfigModel& config) {
+	const ConfigModel& config, const RenderWorkspaceModel& render) {
 	const bool configOpen = state.workspace == Workspace::Config;
+	const bool renderOpen = state.workspace == Workspace::Render;
 	CameraEditorFrame frame;
-	frame.layout = CameraEditorLayout(clientW, clientH, state.inspectorW, DockEditorHeight(state.dock));
+	frame.layout = renderOpen ? RenderLayout(clientW, clientH, state.inspectorW, DockEditorHeight(state.dock))
+		: CameraEditorLayout(clientW, clientH, state.inspectorW, DockEditorHeight(state.dock));
 	const WorkspaceLayout& l = frame.layout;
 	const Stage& stage = l.stage;
 	const float s = stage.scale;
@@ -60,67 +62,83 @@ CameraEditorFrame DrawCameraEditor(CameraEditorState& state, const FontSet& font
 		const float x = area.x0 + Metrics::col.pad * s;
 		const float y = area.y1 - display->FontSize - small->FontSize - 14 * s;
 		if (y > bandTop) {
-			DrawSpacedText(back, display, ImVec2(x, y), ToU32(Faded(Theme::Accent, 0.32f)), configOpen ? "CONFIG / SYSTEM" : "CAMERA / EDITOR",
-				2.0f * s);
+			DrawSpacedText(back, display, ImVec2(x, y), ToU32(Faded(Theme::Accent, 0.32f)),
+				renderOpen ? "RENDER / OUTPUT" : (configOpen ? "CONFIG / SYSTEM" : "CAMERA / EDITOR"), 2.0f * s);
 			DrawSpacedText(back, small, ImVec2(x + 2 * s, y + display->FontSize + 4 * s),
 				ToU32(Faded(Theme::Accent, 0.55f)), "SOURCE // MVM FILMMAKER", 1.6f * s);
 		}
 	}
 
+	// Render: the JOB column and the RENDER column (RenderWorkspace.h) in place of the inspector.
+	if (renderOpen) DrawRenderWorkspace(state.render, render, fonts, s, ToClient(l.job, stage), ToClient(l.inspector, stage), frame.renderCommands);
+
 	// Inspector column.
 	const Rect inspector = ToClient(l.inspector, stage);
-	BeginPanel("##inspector", inspector, Theme::PanelBg);
-	{
-		ImDrawList* draw = ImGui::GetWindowDrawList();
-		draw->AddLine(ImVec2(inspector.x0, inspector.y0), ImVec2(inspector.x0, inspector.y1), ToU32(Theme::Border), 1.0f);
-		const float pad = Metrics::col.pad * s;
-		const float innerW = inspector.W() - 2 * pad;
-		ImFont* title = fonts.Get(FontRole::Title);
-		ImFont* label = fonts.Get(FontRole::Label);
+	if (!renderOpen) {
+		BeginPanel("##inspector", inspector, Theme::PanelBg);
+		{
+			ImDrawList* draw = ImGui::GetWindowDrawList();
+			draw->AddLine(ImVec2(inspector.x0, inspector.y0), ImVec2(inspector.x0, inspector.y1), ToU32(Theme::Border), 1.0f);
+			const float pad = Metrics::col.pad * s;
+			const float innerW = inspector.W() - 2 * pad;
+			ImFont* title = fonts.Get(FontRole::Title);
+			ImFont* label = fonts.Get(FontRole::Label);
 
-		// Header: the workspace title and ESC EXIT.
-		const ImVec2 head(inspector.x0 + pad, inspector.y0 + pad);
-		DrawSpacedText(draw, title, head, ToU32(Theme::Accent), configOpen ? "CONFIG" : "CAMERA EDITOR", 1.2f * s);
-		const float chipW = ChipWidth("ESC EXIT", label, s);
-		if (Chip("##exit", "ESC EXIT", ImVec2(inspector.x1 - pad - chipW, head.y - Metrics::chip.padV * s), label, s))
-			frame.exitClicked = true;
+			// Header: the workspace title and ESC EXIT.
+			const ImVec2 head(inspector.x0 + pad, inspector.y0 + pad);
+			DrawSpacedText(draw, title, head, ToU32(Theme::Accent), configOpen ? "CONFIG" : "CAMERA EDITOR", 1.2f * s);
+			const float chipW = ChipWidth("ESC EXIT", label, s);
+			if (Chip("##exit", "ESC EXIT", ImVec2(inspector.x1 - pad - chipW, head.y - Metrics::chip.padV * s), label, s))
+				frame.exitClicked = true;
 
-		// The inspector's own tabs.
-		ImGui::SetCursorScreenPos(ImVec2(head.x, head.y + title->FontSize + 18 * s));
-		if (configOpen) {
-			int tab = 0;
-			TextTabs("##configtabs", kConfigTabs, 1, tab, fonts.Get(FontRole::Label), Metrics::tabTop, s, innerW);
-		} else {
-			int tab = (int)state.tab;
-			if (TextTabs("##inspectortabs", kInspectorTabs, (int)InspectorTab::Count, tab, fonts.Get(FontRole::Label),
-				Metrics::tabTop, s, innerW))
-				state.tab = (InspectorTab)tab;
+			// The inspector's own tabs.
+			ImGui::SetCursorScreenPos(ImVec2(head.x, head.y + title->FontSize + 18 * s));
+			if (configOpen) {
+				int tab = 0;
+				TextTabs("##configtabs", kConfigTabs, 1, tab, fonts.Get(FontRole::Label), Metrics::tabTop, s, innerW);
+			} else {
+				int tab = (int)state.tab;
+				if (TextTabs("##inspectortabs", kInspectorTabs, (int)InspectorTab::Count, tab, fonts.Get(FontRole::Label),
+					Metrics::tabTop, s, innerW))
+					state.tab = (InspectorTab)tab;
+			}
+
+			// The body: the rail on the left, the selected card beside it (CS2's edBodyRow), with PATH
+			// CAMERA's keys pinned under it. Its top is taken before the foot's button moves the cursor.
+			const ImVec2 body = ImGui::GetCursorScreenPos();
+			// The editor's foot: RENDER (RENDER PROGRESS while a job runs), CS2's mvmActionRow, opening the
+			// Render workspace.
+			ImFont* footFont = fonts.Get(FontRole::Button);
+			const float footH = configOpen ? 0.0f : footFont->FontSize + 22 * s;
+			if (!configOpen) {
+				const Rect foot = MakeRect(inspector.x0 + pad, inspector.y1 - 10 * s - footH, inspector.x1 - pad, inspector.y1 - 10 * s);
+				if (CardButton("##renderopen", render.running ? "RENDER PROGRESS" : "RENDER", foot, ButtonKind::Primary, true, footFont))
+					frame.renderCommands.push_back("mirv_filmmaker render open");
+				ImGui::SetCursorScreenPos(body);
+			}
+			const float bodyBottom = inspector.y1 - 10 * s - (footH > 0 ? footH + 12 * s : 0.0f);
+			if (configOpen) {
+				DrawConfigInspector(state.config, config, fonts, s, MakeRect(body.x, body.y, inspector.x1 - pad, inspector.y1 - 10 * s),
+					frame.configCommands);
+			} else if (state.tab == InspectorTab::PathCamera) {
+				const float stripH = PathKeyStripHeight(fonts, s, innerW);
+				const float bottom = bodyBottom;
+				const float bodyTop = body.y + 14 * s, bodyBottom = bottom - stripH - 8 * s;
+				const Rect rail = MakeRect(body.x, bodyTop, body.x + Metrics::rail.w * s, bodyBottom);
+				const Rect pane = MakeRect(rail.x1 + Metrics::rail.gap * s, bodyTop, inspector.x1 - pad, bodyBottom);
+				DrawPathInspector(state.path, path, fonts, s, rail, pane, frame.pathActions);
+				DrawPathKeyStrip(draw, fonts, s, MakeRect(body.x, bottom - stripH, inspector.x1 - pad, bottom));
+			} else if (state.tab == InspectorTab::FollowCamera) {
+				// No key strip on this tab; the pinned bar sits over the rail and the card.
+				DrawFollowInspector(state.follow, follow, fonts, s, MakeRect(body.x, body.y, inspector.x1 - pad, bodyBottom),
+					frame.followCommands);
+			} else {
+				draw->AddText(fonts.Get(FontRole::Body), fonts.Get(FontRole::Body)->FontSize,
+					ImVec2(body.x, body.y + 16 * s), ToU32(Theme::TextDim), kSceneKeysEmpty);
+			}
 		}
-
-		// The body: the rail on the left, the selected card beside it (CS2's edBodyRow), with PATH
-		// CAMERA's keys pinned under it.
-		const ImVec2 body = ImGui::GetCursorScreenPos();
-		if (configOpen) {
-			DrawConfigInspector(state.config, config, fonts, s, MakeRect(body.x, body.y, inspector.x1 - pad, inspector.y1 - 10 * s),
-				frame.configCommands);
-		} else if (state.tab == InspectorTab::PathCamera) {
-			const float stripH = PathKeyStripHeight(fonts, s, innerW);
-			const float bottom = inspector.y1 - 10 * s;
-			const float bodyTop = body.y + 14 * s, bodyBottom = bottom - stripH - 8 * s;
-			const Rect rail = MakeRect(body.x, bodyTop, body.x + Metrics::rail.w * s, bodyBottom);
-			const Rect pane = MakeRect(rail.x1 + Metrics::rail.gap * s, bodyTop, inspector.x1 - pad, bodyBottom);
-			DrawPathInspector(state.path, path, fonts, s, rail, pane, frame.pathActions);
-			DrawPathKeyStrip(draw, fonts, s, MakeRect(body.x, bottom - stripH, inspector.x1 - pad, bottom));
-		} else if (state.tab == InspectorTab::FollowCamera) {
-			// No key strip on this tab; the pinned bar sits over the rail and the card.
-			DrawFollowInspector(state.follow, follow, fonts, s, MakeRect(body.x, body.y, inspector.x1 - pad, inspector.y1 - 10 * s),
-				frame.followCommands);
-		} else {
-			draw->AddText(fonts.Get(FontRole::Body), fonts.Get(FontRole::Body)->FontSize,
-				ImVec2(body.x, body.y + 16 * s), ToU32(Theme::TextDim), kSceneKeysEmpty);
-		}
+		ImGui::End();
 	}
-	ImGui::End();
 
 	// Dock ribbon: REGULAR TIMELINE / TIMELINE, left of the inspector (TimelineDockRibbonJs.h): two
 	// 150-wide tabs, and on TIMELINE how many layers and keys it holds.

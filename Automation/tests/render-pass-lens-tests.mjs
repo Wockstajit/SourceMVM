@@ -37,7 +37,8 @@ test('the lens sits out renders no Beauty plate reads, and extra renders keep th
 // The live view drew the game HUD over a Depth + Gun only plate, and the HUD's bottom shading laid a
 // dark gradient over the white gun that the render never had.
 test('the live view of a plate without the HUD hides the HUD', () => {
-  const command = read('AfxHookSource2/Filmmaker/Render/RenderCommand.cpp');
+  // CS2's live pass view (RenderHost_ApplyLivePreview).
+  const command = read('AfxHookSource2/Filmmaker/Render/RenderHostSource2.cpp');
   assert.match(command,
     /if \(live\.type != PassType::Beauty \|\| e != VisibleElements::Everything\)\s*CameraEditorHudRef\(\)\.SetHudViewOverride\(CameraEditorHud::HudView::HideAll\);\s*else\s*CameraEditorHudRef\(\)\.ClearHudViewOverride\(\);/);
 });

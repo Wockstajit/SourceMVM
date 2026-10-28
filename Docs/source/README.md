@@ -145,6 +145,7 @@ the hook converts them first. See [Old demos](#old-demos).
 | `mirv_filmmaker marker ...` | [Camera paths](#camera-paths): `place`, `delete <i>`, `deleteall confirm`, `select <i>\|next\|prev`, `selectdelta <d>`, `next`, `prev`, `open [i]`, `close`, `movekey <i> <tick>`, `setval <i> <channel> <v>`, `fov <v>`, `roll <v>`, `undo`, `redo`, `ease <i> none\|in\|out\|inout`, `speed <i> <0.2..1>`, `reposition`, `placereposition`, `cancelreposition`, `arm`, `play`, `pause`, `stop`, `timing live\|freeze\|toggle`, `interp linear\|smooth\|cycle`, `speedmode manual\|constant\|persegment`, `constspeed <0.2..1>`, `speedmul <v>`, `autosnap`, `list` |
 | `mirv_filmmaker grapheditor ...` | The [TIMELINE dock](#the-timeline-dock)'s keys: `on`, `select`, `movesel`, `addkey`, `delsel`, `handle`, `ease`, `smooth`, `linear`, `align`, `undo`, `redo`, `playhead`, `autopath` and the rest of CS2's verbs |
 | `mirv_filmmaker follow ...` | The [follow camera](#follow-camera), CS2's own command: `type player`, `nearest`, `select <i>`, `place`, `reposition`, `preview`, `stop`, `status`, `campose`, `targetprobe`, `look`, `position`, `deadzone`, `maxturn`, `fov`, `autodead`, `deathhold`, `debug`, `state64` and the rest of CS2's verbs |
+| `mirv_filmmaker render ...` | The [Render workspace](#render-workspace), CS2's command: `open`, `close`, `tab`, `range`, `in`, `out`, `camera`, `pass`, `output`, `sound`, `start`, `cancel`, `status`, `validate`, `takes`, `import` and the rest of CS2's verbs |
 | `mirv_filmmaker capture "<file.bmp>"` | The next frame as the game shows it, the filmmaker's UI included, from the back buffer at Present. Quote the path: the console splits arguments at `:` |
 | `mirv_filmmaker window ...` | [Window resize](#window-resize): `status`, `resizable on\|off`, `size <w> <h>`, `aspect <r>`, `ratios`, `snap both\|ratio\|resolution\|off`, `overlay on\|off\|test` |
 | `mvm_debug start\|stop\|status` | The shared runtime debug log, as in CS2: `%APPDATA%\HLAE\debuglogs\mvm_debug_*.log`, every console line and every command received over the port, stamped with demo tick, frame and thread |
@@ -1049,6 +1050,65 @@ read back from the module; a tooltip showed on the row; the Handheld row's switc
 with the module's own Drift 35% and Motion Curves 75%; the demo bar's CAM EDITOR swapped to the
 editor; and RESET CAMERA turned both layers off.
 
+## Render workspace
+
+CS2's Render workspace renders a range of the demo to a video or an image sequence. In CS:S it opens
+from the RENDER button at the foot of the Camera Editor's inspector (RENDER PROGRESS while a job
+runs), or with `mirv_filmmaker render open`. BACK and ESC go back to the editor, and opening Config
+closes it.
+
+It has CS2's layout (`Ui/RenderWorkspace.cpp`, placed by `RenderLayout` in
+`Ui/WorkspaceLayoutMath.h`). The JOB column on the left sums up the job, says what stops it from
+starting, lists PREVIOUS RENDERS with Use, and holds START RENDER and CANCEL RENDER. The preview sits
+in the middle. The RENDER column on the right has CS2's three tabs, RANGE & CAMERA, PASSES and
+OUTPUT, the SOUND chip and BACK, and a footer with the playhead and Set In, Set Out and Clear. While
+the workspace is open, the demo bar's In and Out flags show the render range in CS2's teal in place
+of LOOP's region. They wait at the bar's ends until a range is set, and dragging one sets a custom
+range.
+
+The settings, the console command, validation, the take folder and its manifest, and the previous
+renders are CS2's code (`AfxHookSource2/Filmmaker/Render/`). Where the games differ, that code asks
+the game through `RenderHost.h`: the demo's bounds and tick rate, the camera path, the camera
+sources, and the formats the game cannot write. CS2 answers in `RenderHostSource2.cpp` and CS:S in
+`Filmmaker/SourceRenderHost.cpp`. `SourceRenderModel.cpp` fills the panel from the shared state each
+frame.
+
+The job is CS:S's own (`SourceRenderDriver.cpp`, behind CS2's `RenderSessionDriver.h`):
+
+1. It saves `host_framerate`, `mat_queue_mode`, `cl_drawhud`, blood, the timescale, the pause, the
+   playhead and the free cam. Then it sets `mat_queue_mode 0`, `demo_timescale 1`, and the HUD and
+   blood the job asks for.
+2. It seeks, paused, to 64 ticks before the range, then plays with `host_framerate` at the output
+   frame rate, so one engine frame is one output frame.
+3. Close to the range it applies the camera source. Camera Path flies the path with CS2's
+   evaluator.
+4. From the range's first tick it captures every frame (`SourceRenderCapture.cpp`): the back buffer
+   at Present, before the filmmaker's UI draws, copied to system memory and handed to a worker thread.
+   The worker feeds HLAE's recorder: ffmpeg for video, or the classic writer for TGA and BMP.
+5. When the writer has finished, it puts back what it saved, plays the done sound and lists the
+   new take.
+
+What differs from CS2:
+
+- There is one pass, Beauty · Everything, with no HUD or with the game's HUD. Depth, normal, key and
+  the split into world and players need the scene drawn in parts, which the CS:S hook does not do
+  yet.
+- EXR is greyed out, because the CS:S frame is already tone mapped.
+- CS:S runs 66.67 ticks a second, which no output frame rate divides. A job's frame count is the
+  range's length in frames rounded up, and validation warns that frames and ticks do not line up.
+- The view can give one direction as -1 degrees one frame and 359 the next. The frame map
+  (`frames.csv`) moves each row's angles by whole turns to within half a turn of the row before, so
+  a camera imported from it does not spin.
+
+`mvm_debug` logs the panel's commands (`render.ui`), the job's phases (`render.job`), the encoder
+settings (`render.output`), the done sound (`render.sound`) and the take scan (`render.takes`).
+
+Checked in CS:S on 2026-10-28 in the SourceTV test demo at 1280 x 720. RENDER opened the workspace on
+RANGE & CAMERA. Set In and Set Out at the playhead set ticks 1500 to 1702, and the flags appeared on
+the demo bar. START RENDER wrote `beauty\everything.mp4`: 183 frames of H.264 from NVENC at 60 fps,
+3.05 s, with the manifest marked completed and 183 rows in the frame map. The new take then headed
+PREVIOUS RENDERS. Dragging the flags set custom ranges.
+
 ## Demos browser
 
 CS2's demos page (the Watch page's Downloaded tab, which SOURCE:MVM takes over) is a full page here,
@@ -1275,9 +1335,10 @@ The engine-free part lives in `AfxHookSource/Filmmaker/Ui/`:
 | `WorkspaceMouse.h` | Who has the mouse (UI, game, look), CS2's rules as one state machine both hosts use |
 | `UiKeys.h` | ESC closes, G trades the mouse, and the key mapping into ImGui, for both hosts |
 | `UiTheme.h` | CS:S colours (ClientScheme / SourceScheme), Verdana and Tahoma, and CS2's UI metrics |
-| `UiStyle.cpp`, `UiWidgets.cpp` | The ImGui style, fonts at the stage scale, CS2's text tabs and chips |
+| `UiStyle.cpp`, `UiWidgets.cpp` | The ImGui style, fonts at the stage scale, CS2's text tabs and chips. Verdana has no arrows or triangles, so each Verdana font borrows them from Tahoma at the same size |
 | `CameraEditorShell.cpp` | The workspaces: preview, inspector tabs, dock ribbon, ESC EXIT, with the Camera Editor's or Config's column |
 | `DemosBrowser.cpp`, `DemosBrowserMath.h` | The demos browser page and the main menu's DEMOS button; the list's order, folders, sorts, search and the text it derives |
+| `RenderWorkspace.cpp` | The Render workspace: the JOB column, the RENDER column's three tabs and the playhead footer |
 | `ConfigInspector.cpp` | Config's CAMERA tab: the rail with its switches, the cards, the curve lists, tooltips and the pinned footer |
 | `InspectorCards.cpp` | CS2's inspector card grammar: rail rows with badges or switches, card header with an optional master switch, value, mode, action, switch and dropdown rows, key strip |
 | `PathInspector.cpp` | The PATH CAMERA tab and its Clear all dialog |

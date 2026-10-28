@@ -79,6 +79,26 @@ static void TestFitPreview() {
 	CHECK(Near(r.W(), 300) && Near(r.H(), 300) && Near(r.x0, 60) && Near(r.y0, 20));
 }
 
+// Render: JOB at the left, RENDER at the right, the preview between them, the ribbon and dock across
+// the whole width.
+static void TestRenderLayout() {
+	const WorkspaceLayout l = RenderLayout(1920, 1080, 640, kDemoBarHeight);
+	CHECK(Near(l.job.x0, 0) && Near(l.job.x1, 340) && Near(l.job.y1, 944));
+	CHECK(Near(l.inspectorW, 640) && Near(l.inspector.x0, 1280) && Near(l.inspector.y1, 944));
+	CHECK(Near(l.area.x0, 340) && Near(l.area.x1, 1280) && Near(l.area.y1, 944));
+	CHECK(Near(l.ribbon.x0, 0) && Near(l.ribbon.x1, 1920) && Near(l.dock.x1, 1920));
+	// A 16:9 frame in the 940 x 944 area fills its width, centred top to bottom.
+	CHECK(Near(l.preview.x0, 340) && Near(l.preview.x1, 1280));
+	CHECK(Near(l.preview.y0 + l.preview.y1, 944));
+	// The RENDER column keeps to 34% of the stage however wide the editor's inspector was dragged.
+	CHECK(Near(RenderLayout(1920, 1080, 1100, kDemoBarHeight).inspectorW, std::floor(1920 * 0.34f)));
+	// A 4:3 window's narrower stage: JOB stays 340, RENDER shrinks to 34%, the preview keeps the rest.
+	const WorkspaceLayout n = RenderLayout(1024, 768, 640, kDemoBarHeight);
+	CHECK(Near(n.stage.width, 1440) && Near(n.job.x1, 340) && Near(n.inspectorW, std::floor(1440 * 0.34f)));
+	CHECK(n.preview.Valid() && n.preview.x0 >= n.job.x1 && n.preview.x1 <= n.inspector.x0);
+	CHECK(!RenderLayout(0, 0, 640, kDemoBarHeight).preview.Valid());
+}
+
 int main() {
 	TestStage();
 	TestDockMeasure();
@@ -87,6 +107,7 @@ int main() {
 	TestInspectorClamp();
 	TestSmallWindow();
 	TestFitPreview();
+	TestRenderLayout();
 	if (g_failed) { std::printf("%d check(s) failed\n", g_failed); return 1; }
 	std::printf("SourceWorkspaceLayoutMathTests passed\n");
 	return 0;

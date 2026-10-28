@@ -160,6 +160,12 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceDemoMarkers.h
     Filmmaker/SourceDemoRewind.cpp
     Filmmaker/SourceDemoRewind.h
+    Filmmaker/SourceRender.h
+    Filmmaker/SourceRenderCapture.cpp
+    Filmmaker/SourceRenderCapture.h
+    Filmmaker/SourceRenderDriver.cpp
+    Filmmaker/SourceRenderHost.cpp
+    Filmmaker/SourceRenderModel.cpp
     Filmmaker/SourceDemos.cpp
     Filmmaker/SourceDemos.h
     Filmmaker/SourceCameraShake.cpp
@@ -227,6 +233,8 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/Ui/PathInspector.cpp
     Filmmaker/Ui/PathInspector.h
     Filmmaker/Ui/PathOverlay.h
+    Filmmaker/Ui/RenderWorkspace.cpp
+    Filmmaker/Ui/RenderWorkspace.h
     Filmmaker/Ui/TimelineDock.cpp
     Filmmaker/Ui/TimelineDock.h
     Filmmaker/Ui/TimelineDockMath.h
@@ -289,6 +297,33 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Platform/ShellOpen.h
     ../AfxHookSource2/Filmmaker/Platform/TextEncoding.cpp
     ../AfxHookSource2/Filmmaker/Platform/TextEncoding.h
+    ../AfxHookSource2/Filmmaker/Render/RenderCaptureMath.h
+    ../AfxHookSource2/Filmmaker/Render/RenderCommand.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderCommand.h
+    ../AfxHookSource2/Filmmaker/Render/RenderDoneSound.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderDoneSound.h
+    ../AfxHookSource2/Filmmaker/Render/RenderEncoderDetect.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderEncoderDetect.h
+    ../AfxHookSource2/Filmmaker/Render/RenderEncoding.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderEtaMath.h
+    ../AfxHookSource2/Filmmaker/Render/RenderHost.h
+    ../AfxHookSource2/Filmmaker/Render/RenderJob.h
+    ../AfxHookSource2/Filmmaker/Render/RenderManifest.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderManifest.h
+    ../AfxHookSource2/Filmmaker/Render/RenderOutput.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderOutput.h
+    ../AfxHookSource2/Filmmaker/Render/RenderPassPlan.h
+    ../AfxHookSource2/Filmmaker/Render/RenderRange.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderRange.h
+    ../AfxHookSource2/Filmmaker/Render/RenderSession.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderSession.h
+    ../AfxHookSource2/Filmmaker/Render/RenderSessionDriver.h
+    ../AfxHookSource2/Filmmaker/Render/RenderTakeHistory.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderTakeHistory.h
+    ../AfxHookSource2/Filmmaker/Render/RenderTakeImportMath.h
+    ../AfxHookSource2/Filmmaker/Render/RenderTypes.h
+    ../AfxHookSource2/Filmmaker/Render/RenderValidation.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderValidation.h
     ../AfxHookSource2/Filmmaker/Window/AspectRatioMath.h
     ../AfxHookSource2/Filmmaker/Window/WindowGeometry.h
     ../AfxHookSource2/Filmmaker/Window/WindowPrecisionGuard.h

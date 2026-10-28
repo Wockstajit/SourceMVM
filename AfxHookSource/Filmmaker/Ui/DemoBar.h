@@ -51,6 +51,11 @@ struct DemoBarModel {
 	std::string markerNote; // shown in the marker band when there are no markers ("reading demo...")
 	bool loopOn = false;
 	DemoBarMath::LoopRegion loop;
+	// While the Render workspace is open the flags are its range instead of LOOP's (CS2's render-range
+	// overlay): In and the last frame it renders. Until a range is set they wait at the bar's ends.
+	bool renderOpen = false;
+	bool renderRangeSet = false;
+	DemoBarMath::LoopRegion renderRange;
 	// The workspace open over the bar: none shows CAM EDITOR and CONFIG; inside one, a single button
 	// swaps to the other (CS2's ModeSwapBtn).
 	enum class Workspace { None, Editor, Config };
@@ -60,10 +65,10 @@ struct DemoBarModel {
 struct DemoBarAction {
 	// Scrub: the scrubber is dragged to tick (value 0), or let go there (value 1), and the world follows
 	// it live (CS2's DemoScrub). Seek: a button's jump (-5S, +5S, a round, a kill).
-	enum class Kind { TogglePause, Seek, Scrub, Speed, ToggleLoop, LoopRange, CameraEditor, Config, NextCamera };
+	enum class Kind { TogglePause, Seek, Scrub, Speed, ToggleLoop, LoopRange, RenderRange, CameraEditor, Config, NextCamera };
 	Kind kind = Kind::TogglePause;
-	int tick = 0;      // Seek, Scrub; LoopRange's In
-	double value = 0;  // Speed; Scrub's release; LoopRange's Out
+	int tick = 0;      // Seek, Scrub; LoopRange's and RenderRange's In
+	double value = 0;  // Speed; Scrub's release; LoopRange's Out; RenderRange's last frame
 };
 
 // Where each control was drawn last frame, client px. Hosts report it (mirv_filmmaker editor state,
@@ -95,7 +100,7 @@ struct DemoBarUi {
 	bool scrubDragged = false; // moved past a click: the world follows the drag
 	int scrubTick = 0;
 	SpeedDialState dial;
-	int loopFlag = -1;          // the LOOP flag being dragged: 0 In, 1 Out
+	int loopFlag = -1;          // the In/Out flag being dragged (LOOP's, or Render's): 0 In, 1 Out
 	double loopFrac[2] = { 0, 0 };
 	double loopAnchorFrac = 0;
 	float loopAnchorX = 0;

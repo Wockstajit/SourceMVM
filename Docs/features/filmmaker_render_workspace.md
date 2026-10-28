@@ -4,6 +4,11 @@ Three parts of the Render workspace (the Camera Editor's Render tool) that sit o
 passes and the recorder. Passes are in [Render passes](filmmaker_render_passes.md), frame rates in
 [Recording FPS](filmmaker_render_fps.md).
 
+The settings, the console command, validation, the manifest and the previous renders are shared with
+the Counter-Strike: Source hook. Where the games differ, `Render/RenderCommand.cpp` asks the game
+through `Render/RenderHost.h`: CS2 answers in `Render/RenderHostSource2.cpp`, CS:S in its own host
+([CS:S Render workspace](../source/README.md#render-workspace)).
+
 ## Range nudges
 
 The RANGE & CAMERA tab shows the resolved span as IN, LAST FRAME and the length. IN and LAST FRAME
