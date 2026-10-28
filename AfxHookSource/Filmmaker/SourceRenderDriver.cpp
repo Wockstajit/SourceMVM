@@ -4,8 +4,8 @@
 #include "SourceCameraPath.h"
 #include "SourceConCommand.h"
 #include "SourceEngine.h"
-#include "SourceRenderCapture.h"
 
+#include "AfxStreams.h"
 #include "WrpVEngineClient.h"
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
@@ -34,18 +34,12 @@
 #include <string>
 
 extern WrpVEngineClient* g_VEngineClient;
+extern bool Hook_MaterialSystem(void);
 
 namespace Filmmaker {
 
 namespace {
 
-using SourceFilmmaker::RenderCapture_Arm;
-using SourceFilmmaker::RenderCapture_Begin;
-using SourceFilmmaker::RenderCapture_Captured;
-using SourceFilmmaker::RenderCapture_End;
-using SourceFilmmaker::RenderCapture_Failures;
-using SourceFilmmaker::RenderCapture_Finished;
-using SourceFilmmaker::RenderCapture_Written;
 using S = RenderSessionState;
 using Clock = std::chrono::steady_clock;
 
@@ -56,18 +50,15 @@ constexpr int kWarmupTicks = 64;
 constexpr int kLandFrames = 600;
 const char* const kPresetName = "mvmCssRender";
 
-// The recorder's view of the job's one stream: its folder, and BMP or TGA for the classic writer.
-class StreamSettings : public advancedfx::IRecordStreamSettings {
-public:
-	std::wstring folder;
-	bool bmp = false;
-	bool GetStreamFolder(std::wstring& out) const override {
-		out = folder;
-		return true;
-	}
-	advancedfx::StreamCaptureType GetCaptureType() const override { return advancedfx::StreamCaptureType::Normal; }
-	advancedfx::CGrowingBufferPoolThreadSafe* GetImageBufferPool() const override { return nullptr; }
-	bool GetFormatBmpNotTga() const override { return bmp; }
+// Frames the recorder gets after it ends to hand its last frames to the writer.
+constexpr int kFinishFrames = 10;
+
+// HLAE's recorder (mirv_streams record) as the user had it, put back on every outcome.
+struct SavedRecorder {
+	bool valid = false;
+	std::string name, format, screenSettings, screenSuffix;
+	bool screen = false, takeSubfolder = true, cam = false, overrideFps = false;
+	float overrideFpsValue = 60;
 };
 
 // What the job changes and puts back on every outcome.
@@ -82,10 +73,11 @@ struct Saved {
 RenderJob g_job;
 RenderProgress g_progress;
 Saved g_saved;
-StreamSettings g_stream;
+SavedRecorder g_savedRecorder;
+std::wstring g_passFolder; // where the recorder writes the Beauty pass
 std::string g_demoPathUtf8;
 std::string g_notes;
-int g_frame = 0;        // frames armed
+int g_frame = 0;        // frames recorded
 int g_wait = 0;         // frames spent in the current phase
 int g_preRollTick = 0;  // where the seek lands before the range
 bool g_rowPending = false;
@@ -175,19 +167,83 @@ void RestoreState() {
 	Probe("restored");
 }
 
+// HLAE's recorder set up for the job: the take folder is the record name itself, the screen goes to
+// the Beauty pass folder in it with the job's preset, at the job's frame rate, with HLAE's cam_main.cam
+// when the job keeps camera data.
+bool RecorderSetUp(std::string& error) {
+	if (!Hook_MaterialSystem()) {
+		error = "HLAE's screen recorder does not support this game's materialsystem.dll";
+		return false;
+	}
+	CAfxStreams& rec = g_AfxStreams;
+	g_savedRecorder.name = rec.Console_RecordName_get();
+	g_savedRecorder.format = rec.Console_RecordFormat_get();
+	g_savedRecorder.screen = rec.RecordScreen_Enabled_get();
+	g_savedRecorder.screenSettings = rec.RecordScreen_Settings_get();
+	g_savedRecorder.screenSuffix = rec.m_RecordScreenPathSuffix;
+	g_savedRecorder.takeSubfolder = rec.m_RecordTakeSubfolder;
+	g_savedRecorder.cam = rec.CamExport_get();
+	g_savedRecorder.overrideFps = rec.GetOverrideFps();
+	g_savedRecorder.overrideFpsValue = rec.GetOverrideFpsValue();
+	g_savedRecorder.valid = true;
+	if (!rec.RecordScreen_Settings_set(g_job.presetName.c_str())) {
+		error = "the recorder has no preset for this format";
+		return false;
+	}
+	const PassConfig beauty{};
+	rec.Console_RecordName_set(WideToUtf8(g_job.takeDir).c_str());
+	rec.m_RecordTakeSubfolder = false;
+	rec.m_RecordScreenPathSuffix = "\\" + PassOutputFolder(beauty, RenderFormatIsSequence(g_job.out.format));
+	rec.RecordScreen_Enabled_set(true);
+	rec.Console_RecordFormat_set(g_job.out.format == RenderOutputFormat::Bmp ? "bmp" : "tga");
+	rec.CamExport_set(g_job.passes.cameraData);
+	rec.SetOverrideFps(true);
+	rec.SetOverrideFpsValue((float)g_job.captureFps);
+	return true;
+}
+
+void RecorderEnd() {
+	if (g_AfxStreams.IsRecording()) g_AfxStreams.Console_Record_End();
+}
+
+void RecorderRestore() {
+	if (!g_savedRecorder.valid) return;
+	g_savedRecorder.valid = false;
+	CAfxStreams& rec = g_AfxStreams;
+	rec.Console_RecordName_set(g_savedRecorder.name.c_str());
+	rec.Console_RecordFormat_set(g_savedRecorder.format.c_str());
+	rec.RecordScreen_Settings_set(g_savedRecorder.screenSettings.c_str());
+	rec.RecordScreen_Enabled_set(g_savedRecorder.screen);
+	rec.m_RecordScreenPathSuffix = g_savedRecorder.screenSuffix;
+	rec.m_RecordTakeSubfolder = g_savedRecorder.takeSubfolder;
+	rec.CamExport_set(g_savedRecorder.cam);
+	rec.SetOverrideFps(g_savedRecorder.overrideFps);
+	rec.SetOverrideFpsValue(g_savedRecorder.overrideFpsValue);
+}
+
+// What the recorder left in the pass folder: the frames of a sequence, or 1 for a video file that
+// has data.
+int PassFilesWritten() {
+	int files = 0;
+	std::error_code ec;
+	for (std::filesystem::directory_iterator it(g_passFolder, ec), end; !ec && it != end; it.increment(ec))
+		if (it->is_regular_file(ec) && it->file_size(ec) > 0) ++files;
+	return files;
+}
+
 // Ends the job: the state put back, the manifest's outcome, the chime, the earlier takes rescanned.
-void FinishJob(S terminal, const char* status, const std::string& note) {
-	RenderCapture_End();
+void FinishJob(S terminal, const char* status, const std::string& note, int written = 0) {
+	RecorderEnd();
+	RecorderRestore();
 	RenderFrameMap_Close();
 	RestoreState();
 	if (!note.empty()) g_notes += note;
-	RenderManifest_WriteFinal(g_job, g_demoPathUtf8, status, RenderCapture_Written(), g_notes);
+	RenderManifest_WriteFinal(g_job, g_demoPathUtf8, status, written, g_notes);
 	Move(terminal);
 	Render_SetJobActive(false);
 	g_progress.phase = status;
 	const double seconds = std::chrono::duration<double>(Clock::now() - g_startedAt).count();
-	Probe("job %s: %d frames captured, %d written, %d failed, in %.1f s. %s", status, RenderCapture_Captured(),
-		RenderCapture_Written(), RenderCapture_Failures(), seconds, note.c_str());
+	Probe("job %s: %d frames recorded, %d written, in %.1f s. %s", status, g_frame, written, seconds, note.c_str());
 	if (terminal == S::Completed) RenderDoneSound_Play(true);
 	else if (terminal == S::Failed) RenderDoneSound_Play(false);
 	RenderTakeHistory_Refresh();
@@ -199,14 +255,13 @@ void FailJob(const std::string& why) {
 	FinishJob(S::Failed, "failed", why);
 }
 
-// Opens the take folder and the recorder's stream. False with the reason when it cannot.
+// Makes the take folder and sets HLAE's recorder up for it. False with the reason when it cannot.
 bool PrepareOutput(std::string& error) {
 	const PassConfig beauty{};
 	const bool sequence = RenderFormatIsSequence(g_job.out.format);
-	g_stream.folder = g_job.takeDir + L"\\" + Utf8ToWide(PassOutputFolder(beauty, sequence));
-	g_stream.bmp = g_job.out.format == RenderOutputFormat::Bmp;
+	g_passFolder = g_job.takeDir + L"\\" + Utf8ToWide(PassOutputFolder(beauty, sequence));
 	std::error_code ec;
-	std::filesystem::create_directories(g_stream.folder, ec);
+	std::filesystem::create_directories(g_passFolder, ec);
 	if (ec) {
 		error = "could not make the take folder";
 		return false;
@@ -215,17 +270,15 @@ bool PrepareOutput(std::string& error) {
 	const bool nvenc = RenderEncoderDetect_State() == NvencProbe::Available;
 	g_job.presetName = RenderOutput_PrepareRecorderPreset(g_job.out, nvenc, kPresetName, PassFileStem(beauty.elements), note);
 	g_notes += note;
-	advancedfx::CRecordingSettings* settings =
-		g_job.presetName.empty() ? nullptr : advancedfx::CRecordingSettings::GetByName(g_job.presetName.c_str());
-	if (!settings) {
+	if (g_job.presetName.empty()) {
 		error = "the recorder has no preset for this format";
 		return false;
 	}
-	advancedfx::COutVideoStreamCreator* creator =
-		settings->CreateOutVideoStreamCreator(g_stream, g_stream, (float)g_job.captureFps, "");
-	const bool ok = RenderCapture_Begin(creator, error);
-	if (creator) creator->Release();
-	return ok;
+	if (!RecorderSetUp(error)) {
+		RecorderRestore();
+		return false;
+	}
+	return true;
 }
 
 void FlyPath(double tickTime) {
@@ -240,7 +293,7 @@ void UpdateProgress() {
 	double time = 0;
 	DemoClock(tick, time);
 	g_progress.curTick = tick;
-	g_progress.framesDone = RenderCapture_Captured();
+	g_progress.framesDone = g_frame;
 	g_progress.framesTotal = g_job.framesTotal;
 	g_progress.percent = g_job.framesTotal > 0 ? 100.0 * g_progress.framesDone / g_job.framesTotal : 0.0;
 	g_progress.passes = 1;
@@ -268,9 +321,10 @@ void RunJobFrame() {
 	switch (session.State()) {
 	case S::SavingState:
 		SaveState();
-		// The engine renders on the main thread (one Present per frame, the frame that armed it), the
-		// demo at its own speed, no blood when asked, the HUD as the job says.
-		Cmdf("mat_queue_mode 0; demo_timescale 1; cl_drawhud %d%s", g_job.passes.hud == RenderHudMode::None ? 0 : 1,
+		// The engine renders on the main thread (one SwapBuffers per frame, which HLAE's recorder takes),
+		// the demo at its own speed, no blood when asked, the HUD as the job says, and no console: the
+		// recorder takes no frame while it shows.
+		Cmdf("hideconsole; mat_queue_mode 0; demo_timescale 1; cl_drawhud %d%s", g_job.passes.hud == RenderHudMode::None ? 0 : 1,
 			g_job.passes.blood ? "" : "; violence_hblood 0; violence_ablood 0");
 		g_sourceApplied = false;
 		g_preRollTick = g_job.range.startTick - kWarmupTicks;
@@ -325,7 +379,7 @@ void RunJobFrame() {
 		int tick = 0;
 		double time = 0;
 		DemoClock(tick, time);
-		// The frame armed last frame has rendered: its row, with the view it showed.
+		// Last frame has rendered and been recorded: its row, with the view it showed.
 		if (g_rowPending) {
 			const SourceFilmmaker::ViewPose view = SourceFilmmaker::View_Rendered();
 			for (int i = 0; i < 3; ++i)
@@ -334,14 +388,21 @@ void RunJobFrame() {
 			g_rowPending = false;
 		}
 		if (g_frame >= g_job.framesTotal) {
-			RenderCapture_End();
+			// Before this frame's SwapBuffers: the recorder has exactly the job's frames.
+			RecorderEnd();
 			Move(S::FlushingGpu);
 			Move(S::FinalizingStreams);
 			SetPhase("finishing");
 			break;
 		}
 		if (g_job.camera == RenderCameraSource::CameraPath) FlyPath(time);
-		RenderCapture_Arm();
+		// HLAE's recorder takes every frame at SwapBuffers once it runs: started here, before the first
+		// frame in range renders, it takes that frame first.
+		if (g_frame == 0) g_AfxStreams.Console_Record_Start2();
+		if (!g_AfxStreams.IsRecording()) {
+			FailJob("HLAE's recorder did not start");
+			break;
+		}
 		g_rowPending = true;
 		g_rowTick = tick;
 		g_rowTime = time;
@@ -349,19 +410,22 @@ void RunJobFrame() {
 		break;
 	}
 	case S::FinalizingStreams:
-		if (RenderCapture_Finished()) {
-			Cmd("demo_pause");
+		// The recorder has ended (a queued end once it is done); its writer gets a few frames for the
+		// last of them.
+		if (g_wait == 1) Cmd("demo_pause");
+		if (!g_AfxStreams.IsRecording() && g_wait > kFinishFrames) {
 			Move(S::PostProcessing);
 			Move(S::RestoringState);
-			const int written = RenderCapture_Written(), failed = RenderCapture_Failures();
+			const int files = PassFilesWritten();
+			const int written = RenderFormatIsSequence(g_job.out.format) ? files : (files > 0 ? g_frame : 0);
 			std::string note;
-			if (failed > 0 || written != g_job.framesTotal) {
+			if (written != g_job.framesTotal) {
 				char buf[160];
-				std::snprintf(buf, sizeof(buf), "%d of %d frames written, %d refused. ", written, g_job.framesTotal, failed);
+				std::snprintf(buf, sizeof(buf), "%d of %d frames written. ", written, g_job.framesTotal);
 				note = buf;
 			}
-			if (written == 0) FailJob(note.empty() ? "no frame was written" : note);
-			else FinishJob(S::Completed, "completed", note);
+			if (written == 0) FailJob(note);
+			else FinishJob(S::Completed, "completed", note, written);
 		}
 		break;
 	default:
@@ -438,7 +502,7 @@ bool RenderSessionDriver_Start(std::string& outError) {
 		return false;
 	}
 	if (!RenderManifest_WriteStart(g_job, g_demoPathUtf8, g_notes)) {
-		RenderCapture_End();
+		RecorderRestore();
 		Move(S::Failed);
 		outError = "could not write manifest.json into the take folder";
 		return false;
@@ -464,7 +528,8 @@ bool RenderSessionDriver_IsActive() { return RenderSessionRef().IsBusy(); }
 
 const RenderProgress& RenderSessionDriver_Progress() { return g_progress; }
 
-// The capture reads the frame before the filmmaker's UI is drawn, so the UI never needs hiding.
+// HLAE's recorder takes the frame at SwapBuffers, before the filmmaker's UI draws at Present, so the
+// UI never needs hiding.
 bool RenderSessionDriver_WantsChromeHidden() { return false; }
 
 } // namespace Filmmaker
@@ -482,10 +547,10 @@ void Render_Frame() {
 void Render_PrintHealth() {
 	const Filmmaker::RenderSession& session = Filmmaker::RenderSessionRef();
 	const Filmmaker::RenderProgress& p = Filmmaker::RenderSessionDriver_Progress();
-	advancedfx::Message("  render:     %s%s, %d/%d frames (%d written, %d refused), phase %s, encoder %s\n",
+	advancedfx::Message("  render:     %s%s, %d/%d frames, phase %s, encoder %s; HLAE's screen recorder %s\n",
 		Filmmaker::RenderSession::StateName(session.State()), Filmmaker::Render_IsModalOpen() ? ", workspace open" : "",
-		p.framesDone, p.framesTotal, RenderCapture_Written(), RenderCapture_Failures(), p.phase.empty() ? "-" : p.phase.c_str(),
-		Filmmaker::RenderEncoderDetect_Describe());
+		p.framesDone, p.framesTotal, p.phase.empty() ? "-" : p.phase.c_str(), Filmmaker::RenderEncoderDetect_Describe(),
+		g_AfxStreams.IsRecording() ? "recording" : "idle");
 }
 
 } // namespace SourceFilmmaker

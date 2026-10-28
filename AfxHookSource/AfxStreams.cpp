@@ -6903,8 +6903,8 @@ void CAfxStreams::Console_Record_Start()
 void CAfxStreams::Console_Record_Start2()
 {
 	if(UTF8StringToWideString(m_RecordName.c_str(), m_TakeDir)
-		&& (m_TakeDir.append(L"\\take"), SuggestTakePath(m_TakeDir.c_str(), 4, m_TakeDir))
-		&& CreatePath(m_TakeDir.c_str(), m_TakeDir)
+		&& (!m_RecordTakeSubfolder || (m_TakeDir.append(L"\\take"), SuggestTakePath(m_TakeDir.c_str(), 4, m_TakeDir))) // SOURCE:MVM
+		&& CreatePath(m_TakeDir.c_str(), m_TakeDir, !m_RecordTakeSubfolder) // SOURCE:MVM: the job's take folder already exists
 	)
 	{
 		m_Recording = true;
@@ -6946,7 +6946,7 @@ void CAfxStreams::Console_Record_Start2()
 				*this,
 				*this,
 				GetStartHostFrameRate(),
-				""
+				m_RecordScreenPathSuffix.c_str() // SOURCE:MVM
 			);
 			m_DrawingRecordScreen = new CDrawingRecordScreen(
 				videoStreamCreator, advancedfx::StreamCaptureType::Normal

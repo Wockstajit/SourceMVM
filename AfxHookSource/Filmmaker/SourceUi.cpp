@@ -12,7 +12,6 @@
 #include "SourceFollowCamera.h"
 #include "SourceMainThread.h"
 #include "SourceRender.h"
-#include "SourceRenderCapture.h"
 #include "SourceScrubFrameCache.h"
 #include "SourceTimelineDock.h"
 
@@ -1277,7 +1276,6 @@ void Ui_RenderThreadPresent(IDirect3DDevice9* device) {
 		world = g_latestWorld;
 		if ((snapshot || world) && g_renderFont.version != g_fontPixels.version) g_renderFont = g_fontPixels;
 	}
-	RenderCapture_Present(device); // a render job's frame: the game's picture, before the UI goes over it
 	g_renderer.SetPreviewSource(&ScrubFrames_PreviewTexture); // the scrub frame cache picks what the preview shows
 	if (snapshot || world) g_renderer.Render(device, world.get(), snapshot.get(), g_renderFont);
 	Capture_RenderThread(device); // a requested frame, the UI just drawn into it
@@ -1286,7 +1284,6 @@ void Ui_RenderThreadPresent(IDirect3DDevice9* device) {
 void Ui_DeviceLost() {
 	g_renderer.ReleaseDeviceObjects();
 	ScrubFrames_DeviceLost();
-	RenderCapture_DeviceLost();
 }
 
 bool Ui_OnSetCursorPos(int x, int y) {

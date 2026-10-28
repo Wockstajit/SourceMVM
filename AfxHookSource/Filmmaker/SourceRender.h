@@ -5,8 +5,8 @@
 // SourceRenderHost.cpp answers). The job is CS:S's own (SourceRenderDriver.cpp implements
 // RenderSessionDriver.h): it seeks a little before the range, plays it at the output frame rate
 // (host_framerate, demo_timescale 1, the engine single-threaded), flies the camera path when that
-// is the camera, and captures one frame per engine frame (SourceRenderCapture.h) into the shared
-// recorder, ffmpeg or the classic image writer, with the manifest and frame map beside it.
+// is the camera, and records it with HLAE's screen recorder (mirv_streams record screen, with its
+// cam_main.cam), ffmpeg or the classic image writer, with the manifest and frame map beside it.
 //
 // CS:S renders the Beauty · Everything pass, with or without the game's HUD. Main thread only.
 

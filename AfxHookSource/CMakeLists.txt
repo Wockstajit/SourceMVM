@@ -161,8 +161,6 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceDemoRewind.cpp
     Filmmaker/SourceDemoRewind.h
     Filmmaker/SourceRender.h
-    Filmmaker/SourceRenderCapture.cpp
-    Filmmaker/SourceRenderCapture.h
     Filmmaker/SourceRenderDriver.cpp
     Filmmaker/SourceRenderHost.cpp
     Filmmaker/SourceRenderModel.cpp

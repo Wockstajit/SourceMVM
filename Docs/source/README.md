@@ -1082,17 +1082,34 @@ The job is CS:S's own (`SourceRenderDriver.cpp`, behind CS2's `RenderSessionDriv
    frame rate, so one engine frame is one output frame.
 3. Close to the range it applies the camera source. Camera Path flies the path with CS2's
    evaluator.
-4. From the range's first tick it captures every frame (`SourceRenderCapture.cpp`): the back buffer
-   at Present, before the filmmaker's UI draws, copied to system memory and handed to a worker thread.
-   The worker feeds HLAE's recorder: ffmpeg for video, or the classic writer for TGA and BMP.
-5. When the writer has finished, it puts back what it saved, plays the done sound and lists the
-   new take.
+4. From the range's first tick, HLAE's screen recorder (`mirv_streams record screen`, in
+   `AfxStreams.cpp`) records every frame. It takes the frame at the material system's SwapBuffers,
+   before the filmmaker's UI draws at Present, and hands it to ffmpeg for video or to the classic
+   writer for TGA and BMP. The job starts the recorder just before the first frame in range renders
+   and ends it just before the frame after the last, so it holds exactly the job's frames.
+5. When the writer has finished, it puts back what it saved, HLAE's recorder settings included,
+   plays the done sound and lists the new take.
+
+A take holds what a CS2 take holds: `manifest.json`, `beauty\everything.mp4` (or a folder of
+frames for a sequence), `frames.csv`, and from HLAE's recorder `cam_main.cam` (when camera data is
+on) and `audio.wav`.
+
+The job uses HLAE as it is, with marked lines (`// SOURCE:MVM`) where HLAE needed to know CS:S
+x64 or the job's folders:
+
+- `addresses.cpp`: HLAE found the material system's render queue on x64 for TF2 only, so its screen
+  recorder refused CS:S. CS:S x64 ships TF2's x64 `materialsystem.dll` (the same `CMaterialSystem`
+  vtable, checked 2026-10-28), so it takes TF2's case.
+- `AfxStreams.h` / `.cpp`: the recorder can write straight into the job's take folder instead of a
+  new `takeNNNN` folder inside it, and put the screen into the Beauty pass's folder. CS2's recorder
+  has the same two switches. The job also reads and sets the screen recorder's switch and settings
+  through marked accessors, so it can put them back.
 
 What differs from CS2:
 
-- There is one pass, Beauty · Everything, with no HUD or with the game's HUD. Depth, normal, key and
-  the split into world and players need the scene drawn in parts, which the CS:S hook does not do
-  yet.
+- There is one pass, Beauty · Everything, with no HUD or with the game's HUD. HLAE's depth, matte,
+  normal and baseFx streams are CS:GO code that the x64 build leaves out (`#ifndef _WIN64` in
+  `AfxStreams.cpp` and `MirvCommands.cpp`), so HLAE has no Depth, Normal or Key pass for CS:S x64.
 - EXR is greyed out, because the CS:S frame is already tone mapped.
 - CS:S runs 66.67 ticks a second, which no output frame rate divides. A job's frame count is the
   range's length in frames rounded up, and validation warns that frames and ticks do not line up.
@@ -1102,12 +1119,17 @@ What differs from CS2:
 
 `mvm_debug` logs the panel's commands (`render.ui`), the job's phases (`render.job`), the encoder
 settings (`render.output`), the done sound (`render.sound`) and the take scan (`render.takes`).
+`health` shows the job and whether HLAE's recorder is recording on its `render:` line.
 
 Checked in CS:S on 2026-10-28 in the SourceTV test demo at 1280 x 720. RENDER opened the workspace on
 RANGE & CAMERA. Set In and Set Out at the playhead set ticks 1500 to 1702, and the flags appeared on
 the demo bar. START RENDER wrote `beauty\everything.mp4`: 183 frames of H.264 from NVENC at 60 fps,
 3.05 s, with the manifest marked completed and 183 rows in the frame map. The new take then headed
-PREVIOUS RENDERS. Dragging the flags set custom ranges.
+PREVIOUS RENDERS. Dragging the flags set custom ranges. The same day, on HLAE's recorder: ticks 1500
+to 1702 at 60 fps gave 183 frames of H.264 (3.05 s) with no UI or HUD in them, `cam_main.cam` and
+3.04 s of `audio.wav`; and a PNG sequence of ticks 600 to 700 at 30 fps, flown on the camera path
+with the game's HUD, gave 45 frames. Both manifests were marked completed, and HLAE's record name
+was back to its own afterwards.
 
 ## Demos browser
 

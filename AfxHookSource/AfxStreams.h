@@ -3440,6 +3440,21 @@ public:
 	bool CamExport_get(void) { return m_CamExport;  }
 	void CamExport_set(bool value) { m_CamExport = value;  }
 
+	// SOURCE:MVM: the Render workspace's job (Filmmaker/SourceRenderDriver.cpp) records the screen
+	// into its own take folder: no takeNNNN folder in it, the screen into a pass folder inside it,
+	// and the screen recorder's switch and settings put back after the job.
+	bool m_RecordTakeSubfolder = true; // SOURCE:MVM
+	std::string m_RecordScreenPathSuffix; // SOURCE:MVM
+	bool RecordScreen_Enabled_get() const { return m_RecordScreen->Enabled; } // SOURCE:MVM
+	void RecordScreen_Enabled_set(bool value) { m_RecordScreen->Enabled = value; } // SOURCE:MVM
+	const char* RecordScreen_Settings_get() const { return m_RecordScreen->Settings->GetName(); } // SOURCE:MVM
+	bool RecordScreen_Settings_set(const char* name) { // SOURCE:MVM
+		advancedfx::CRecordingSettings* settings = advancedfx::CRecordingSettings::GetByName(name); // SOURCE:MVM
+		if (!settings) return false; // SOURCE:MVM
+		settings->AddRef(); m_RecordScreen->Settings->Release(); m_RecordScreen->Settings = settings; // SOURCE:MVM
+		return true; // SOURCE:MVM
+	} // SOURCE:MVM
+
 	void Console_GameRecording(IWrpCommandArgs * args);
 
 
