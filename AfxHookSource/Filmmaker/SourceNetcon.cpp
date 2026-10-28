@@ -87,6 +87,13 @@ void Netcon_Init() {
 	advancedfx::Message("AfxHookSource: netcon listening on 127.0.0.1:%u\n", (unsigned)port);
 }
 
+void Netcon_Shutdown() {
+	// The port's two threads are joined here, while the client shuts down. Left running, their
+	// std::thread objects were still joinable when the process ran its static destructors, and each
+	// quit ended in std::terminate (an abort in ucrtbase, 0xc0000409, on every quit since step 3).
+	advancedfx::NetconServer::Stop();
+}
+
 bool Netcon_OnWindowMessage(HWND hwnd, UINT msg) {
 	if (!g_window.load()) {
 		g_window.store(hwnd);

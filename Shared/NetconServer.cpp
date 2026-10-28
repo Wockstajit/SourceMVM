@@ -48,6 +48,15 @@ std::deque<std::string> g_inQueue;
 
 std::thread g_acceptThread;
 std::thread g_writeThread;
+// A process that exits without Stop() must not abort: Windows ends the threads before this module's
+// destructors run, and a std::thread destroyed while joinable calls std::terminate. Declared after the
+// threads, so it is destroyed first.
+struct DetachAtExit {
+	~DetachAtExit() {
+		if (g_acceptThread.joinable()) g_acceptThread.detach();
+		if (g_writeThread.joinable()) g_writeThread.detach();
+	}
+} g_detachAtExit;
 
 std::atomic<unsigned long long> g_commandsReceived{ 0 };
 std::atomic<unsigned long long> g_commandsExecuted{ 0 };

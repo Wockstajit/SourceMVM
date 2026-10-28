@@ -63,6 +63,11 @@ double g_scanMs = 0;
 std::atomic<bool> g_scanning{ false };
 std::atomic<bool> g_cancel{ false };
 std::thread g_worker;
+// Exiting without Demos_Shutdown must not abort on a finished scan's worker (still joinable): see
+// NetconServer.cpp's DetachAtExit. Declared after it, so destroyed first.
+struct DetachWorkerAtExit {
+	~DetachWorkerAtExit() { if (g_worker.joinable()) g_worker.detach(); }
+} g_detachWorkerAtExit;
 bool g_scanWanted = false;
 bool g_loaded = false;
 std::wstring g_gameDir; // cstrike, from the engine

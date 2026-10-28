@@ -18,6 +18,8 @@ void Netcon_Init();
 // From the hook's window procedure, for every message. Returns true when the message was the
 // netcon wake-up and has been handled.
 bool Netcon_OnWindowMessage(HWND hwnd, UINT msg);
+// Stops the port and joins its threads, as the client shuts down.
+void Netcon_Shutdown();
 
 // Main-thread drains of the command queue so far.
 unsigned long long Netcon_PumpCount();

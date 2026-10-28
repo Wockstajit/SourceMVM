@@ -24,6 +24,7 @@
 #include "SourceTimelineDock.h"
 #include "RenderView.h"
 #include "WrpGlobals.h"
+#include "SourceConCommand.h"
 #include "SourceUi.h"
 #include "SourceWindow.h"
 
@@ -213,6 +214,32 @@ void PrintUsage() {
 		"mirv_filmmaker window  - status|resizable|size|aspect|ratios|snap|overlay: drag the window to any size (SHIFT snaps).\n");
 }
 
+// The 64-bit CS:S never calls the client's Shutdown through HLAE's wrapper (main.cpp), so the
+// filmmaker shuts down when quit or exit runs: on the main thread, before the engine does.
+CommandCallback g_quit = nullptr;
+CommandCallback g_exit = nullptr;
+
+void QuitHook(const CommandArgs& args) {
+	Shutdown();
+	if (g_quit) g_quit(args);
+}
+
+void ExitHook(const CommandArgs& args) {
+	Shutdown();
+	if (g_exit) g_exit(args);
+}
+
+int g_wrapQuitTries = 0;
+
+void WrapQuit() {
+	if ((g_quit && g_exit) || g_wrapQuitTries > 600) return;
+	if (!g_quit) g_quit = ConCommand_Wrap("quit", &QuitHook);
+	if (!g_exit) g_exit = ConCommand_Wrap("exit", &ExitHook);
+	if (++g_wrapQuitTries > 600)
+		advancedfx::Warning("SOURCE:MVM: %s%s not wrapped; the filmmaker cannot save and stop when the game quits.\n",
+			g_quit ? "" : "quit ", g_exit ? "" : "exit");
+}
+
 } // namespace
 
 void Init() {
@@ -225,12 +252,18 @@ void Init() {
 	Settings_Load(); // before anything can change a module: the defaults are taken first
 	Demos_Init();
 	Ui_InstallCursorHooks();
+	WrapQuit();
 }
 
 void Shutdown() {
+	static bool done = false; // quit and the client's Shutdown can both come
+	if (done) return;
+	done = true;
+	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("filmmaker", "shutdown");
 	Settings_Flush();
 	Demos_Shutdown();
 	Window_Shutdown();
+	Netcon_Shutdown(); // last: the quit itself may have come over the port
 }
 
 bool OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -260,6 +293,7 @@ void OnViewOverride(float& tx, float& ty, float& tz, float& rx, float& ry, float
 
 void OnFrameRenderStart() {
 	g_frameRenderStarts.fetch_add(1);
+	WrapQuit(); // the commands may not exist yet when Init runs, as with playdemo (SourceOldDemos.cpp)
 	ViewModel_Frame(); // a viewmodel no view override built last frame
 	MainThread_Frame();
 	Window_Frame(); // a finished resize reaches the engine before the UI lays out

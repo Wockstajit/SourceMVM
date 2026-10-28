@@ -77,6 +77,19 @@ Console output reaches the client through tier0's spew function, which the hook 
 the engine's. Commands run on the main thread: the listener posts a window message, and the hook's
 window procedure queues each command into the engine's command buffer, as if it had been typed.
 
+### Quitting
+
+The 64-bit game never calls the client's `Shutdown` through HLAE's wrapper, so the hook wraps the
+`quit` and `exit` commands instead: the filmmaker saves its settings, stops the demos scan, closes
+the size card and stops the command port, and then the engine quits. Before this, every quit of a
+game with the hook ended in an abort (`ucrtbase.dll`, 0xc0000409): the port's threads were still
+running when the process ran its static destructors, and a `std::thread` destroyed while joinable
+calls `std::terminate`. The port and the demos worker also detach a thread still joinable at exit,
+in case the game ends some other way. `mvm_debug` logs `filmmaker shutdown`.
+
+Checked on 2026-10-27: three quits during demo playback each logged the shutdown, and Windows logged
+no crash. Without the hook, the game exits cleanly.
+
 ## Test demo
 
 Runtime checks use a self-recorded SourceTV demo, because no CS:S demo ships with the repository
