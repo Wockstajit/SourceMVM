@@ -47,6 +47,7 @@ line in a commit is a record. GitHub does not interpret it.
 | `area: cs2` | `0052cc` | CS2 hook and filmmaker features in AfxHookSource2 |
 | `area: lighting` | `d4a017` | Environment, Relight, shadows and irradiance |
 | `area: deadlock` | `5319e7` | Deadlock hook and filmmaker integration |
+| `area: source` | `b60205` | Source 1 hook (AfxHookSource) and the Counter-Strike: Source port |
 | `area: launcher` | `087f8c` | SourceMovieMakerLauncher host, app and packaging |
 | `area: panorama` | `c260b5` | In-game Panorama panels and ui-mockup |
 | `area: fx` | `b45f06` | FX conversion pipeline and shipped particle assets |

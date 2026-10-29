@@ -21,7 +21,7 @@ import zlib
 
 ALLOWED_ROOT = Path(os.path.abspath(Path(__file__).parent.parent / "runs"))
 CHUNK_BYTES = 1024 * 1024
-LOG_NAME = re.compile(r"mvm_debug_([0-9]{8}_[0-9]{6})\.log\Z")
+LOG_NAME = re.compile(r"mvm_debug_([0-9]{8}_[0-9]{6})(?:_p[1-9][0-9]*_s[0-9]+)?\.log\Z")
 STOPPED_FOOTER = re.compile(
     rb"\r?\n=== stopped ([0-9]{2}):([0-9]{2}):([0-9]{2}) "
     rb"events=(0|[1-9][0-9]{0,19}) unique=(0|[1-9][0-9]{0,19}) "
@@ -322,7 +322,7 @@ def archive_log(value: str | Path, *, remove_original: bool = False) -> dict:
     path = _checked_path(value)
     match = LOG_NAME.fullmatch(path.name)
     if not match:
-        raise ArchiveError("Expected an explicit mvm_debug_YYYYMMDD_HHMMSS.log filename")
+        raise ArchiveError("Expected an explicit timestamped mvm_debug log filename")
     try:
         started = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S")
     except ValueError as exc:

@@ -1,13 +1,12 @@
 #include "RenderTakeHistory.h"
 
 #include "RenderCommand.h"
+#include "RenderHost.h"
 #include "RenderOutput.h"
 #include "RenderTakeImportMath.h"
 
-#include "../Filmmaker.h" // PlayingDemoPath
 #include "../Debug/MvmDebugLog.h"
 #include "../Demo/DemoProjectPath.h"
-#include "../Demo/PlayingDemoPath.h"
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/TextEncoding.h"
 
@@ -81,7 +80,7 @@ void StartScan() {
 // The playing demo's takes, newest first, as published.
 std::vector<const Take*> Listed() {
 	std::vector<const Take*> out;
-	const std::wstring playing = DemoKey(PlayingDemoPath());
+	const std::wstring playing = DemoKey(RenderHost_PlayingDemoPath());
 	if (playing.empty()) return out;
 	for (const Take& t : g_takes) {
 		if (t.demoKey != playing) continue;
@@ -133,6 +132,12 @@ void RenderTakeHistory_AppendJson(std::ostringstream& o) {
 		o << "]}";
 	}
 	o << "]";
+}
+
+std::vector<RenderTakeSettings> RenderTakeHistory_Listed() {
+	std::vector<RenderTakeSettings> out;
+	for (const Take* t : Listed()) out.push_back(t->settings);
+	return out;
 }
 
 bool RenderTakeHistory_Import(int index, std::string& outSummary, std::string& outError) {

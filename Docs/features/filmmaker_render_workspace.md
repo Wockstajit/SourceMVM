@@ -4,6 +4,11 @@ Three parts of the Render workspace (the Camera Editor's Render tool) that sit o
 passes and the recorder. Passes are in [Render passes](filmmaker_render_passes.md), frame rates in
 [Recording FPS](filmmaker_render_fps.md).
 
+The settings, the console command, validation, the manifest and the previous renders are shared with
+the Counter-Strike: Source hook. Where the games differ, `Render/RenderCommand.cpp` asks the game
+through `Render/RenderHost.h`: CS2 answers in `Render/RenderHostSource2.cpp`, CS:S in its own host
+([CS:S Render workspace](../source/README.md#render-workspace)).
+
 ## Range nudges
 
 The RANGE & CAMERA tab shows the resolved span as IN, LAST FRAME and the length. IN and LAST FRAME
@@ -68,6 +73,21 @@ mirv_filmmaker render import <n>         start from take n's settings
 
 The workspace state JSON carries `sound` (`on`, `volume`) and `takes` (the listed rows) for the
 panel (`CameraEditorRenderJs.h`).
+
+## Counter-Strike: Source
+
+CS:S runs the shared settings, validation, manifest and take history through `RenderHost.h`, with
+its native C++ workspace compiled unchanged into the WebAssembly mockup. Its Range & Camera tab
+uses the same In/Last frame nudges and a whole-demo bar. PASSES has the same 15 valid cells and
+live preview; the job summary groups the selected cells by pass type.
+
+The Source 1 host renders the extra views before simulation advances, captures each with HLAE's
+nodes and writers, then restores Beauty before HLAE's screen recording. It adds a World reference
+draw only when Players Depth or Normal needs it. The host reports its physical render count to
+the shared UI and manifest; CS2 keeps its existing pass plan. Depth uses HLAE's INTZ path, Normal
+shares CS2's reconstruction, and Key defaults to RGB 0,205,0 with a fixed background HDR scale.
+The render driver restores the camera and clock on every outcome, after the return seek lands.
+See [the CS:S render contract](../source/README.md#render-workspace) for formats and verification.
 
 ## Verification
 

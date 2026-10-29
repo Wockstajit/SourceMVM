@@ -87,7 +87,6 @@
 #include "Window/WindowResize.h"
 #include "Window/UnfocusedRate.h"
 #include "../EngineLogQuiet.h"
-#include "../FisheyePass.h" // AfxFisheye::SetRequest â€” fisheye lens D3D pass (decoupled from deleted ActionCam)
 #include "Cosmetics/CosmeticOverrideSystem.h"
 #include "Cosmetics/CosmeticUiQueries.h"
 #include "Cosmetics/CustomizeTarget.h"
@@ -129,16 +128,6 @@ std::atomic<bool> g_rescanRequested{ false };
 // inside-the-player shot, which is a normal filmmaking move. `mirv_filmmaker fphide on`
 // restores the old behaviour (no floating arms / camera-anchored muzzle FX at distance).
 bool g_fpHideWhenDetached = false;
-
-// --- Fisheye lens toggle (decoupled from deleted ActionCam) ---
-bool s_fisheyeEnabled = false;
-bool s_fisheyeRequested = false;
-
-void PublishFisheye() {
-	if (s_fisheyeEnabled == s_fisheyeRequested) return;
-	s_fisheyeRequested = s_fisheyeEnabled;
-	AfxFisheye::SetRequest(s_fisheyeEnabled, 1.0f);
-}
 
 // Pump heartbeats. RunFrame() rides the render thread (Before_Present) and is what actually
 // STARTS every demo scan; RunMainThreadFrame() rides the main thread. When the demo list stays
@@ -1071,8 +1060,7 @@ void RunMainThreadFrame() {
 	// Camera Editor (they share the right column), but that swap must not kill a running
 	// Follow Live preview -- Config's scaled workspace shows the same follow-driven camera.
 	{ PanoramaPerf_Scope _p("follow"); FollowCameraRef().RunFrame(CameraEditorHudRef().Enabled() || ConfigHud_Enabled()); }
-	// Fisheye lens D3D pass â€” publish the current toggle state every main-thread frame.
-	PublishFisheye();
+
 	// ViewFxVm write-site 2 (main-thread pump; viewmodel-rotation experiment).
 	ViewFxVm_MainPump();
 	// Camera-shake layers: housekeeping only (drops integrated springs when the demo closes).
@@ -1424,20 +1412,5 @@ bool GraphEditorExperiment_WantsCursor() {
 	return true;
 }
 
-// --- Fisheye lens (barrel-distortion D3D pass, decoupled from deleted ActionCam) ---
-bool Fisheye_Enabled() { return s_fisheyeEnabled; }
-void Fisheye_SetEnabled(bool on) { s_fisheyeEnabled = on; PublishFisheye(); }
-void Fisheye_Toggle() { Fisheye_SetEnabled(!s_fisheyeEnabled); }
-void Fisheye_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
-	const char* arg = (argc >= 3) ? args->ArgV(2) : "toggle";
-	if (0 == _stricmp(arg, "state")) {
-		advancedfx::Message("[fisheye][state] %s\n", s_fisheyeEnabled ? "on" : "off");
-		return;
-	}
-	if (0 == _stricmp(arg, "on") || 0 == _stricmp(arg, "1")) Fisheye_SetEnabled(true);
-	else if (0 == _stricmp(arg, "off") || 0 == _stricmp(arg, "0")) Fisheye_SetEnabled(false);
-	else Fisheye_Toggle();
-	advancedfx::Message("mirv_filmmaker: fisheye lens %s.\n", s_fisheyeEnabled ? "ON" : "off");
-}
 
 } // namespace Filmmaker

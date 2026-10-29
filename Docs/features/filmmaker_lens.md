@@ -146,6 +146,10 @@ A reference simulation of the pass (a numpy port of the gather on a synthetic fr
 
 **The iris.** This is what a point of light becomes: Circle, Polygon (3 to 12 blades, blade curve), Star,
 Heart, Ring (mirror lens with a hole), or Custom (five built-in shapes, or your own black-and-white image).
+File masks and dirt images use the shared area reducer in
+[`LensMaskMath.h`](../../AfxHookSource2/Filmmaker/Lens/LensMaskMath.h): luminance times alpha, with
+at most 512 pixels on the long side. It keeps the full source extent, partial edge pixels and a
+one-pixel short side; a wide or tall image never becomes an empty mask.
 Anamorphic squeeze stretches every disc into a vertical oval at constant area. *Blade curve* runs from -1
 to 1: 1 is a circle, 0 hard blades, and below 0 the blades bow inward into a curved star with the same
 number of points (every vertex stays on the circle, a side's middle comes in to `2 cos(pi/n) - 1` at -1).
@@ -309,8 +313,10 @@ gather LOD, masks, presets and the flare math. The flare math covers the luminan
 monotonicity in the threshold, the isolation and border fade, the limiter and the bounded blend, ghost
 placement on the source-to-centre line, the halo and spike geometry, the palettes and the panel's
 swatches, and the five looks. The same file statically checks that the HLSL still carries the same
-constants and shapes, and that the constant buffer in the shader and the `Constants` struct in
-`LensFx.cpp` list the same members in the same order.
+constants and shapes, and that the constant buffer in the shader and `GpuConstants` in
+`LensFxConstants.h` list the same members in the same order. Mask-reduction cases cover thin images,
+non-integral area boundaries, alpha and colour, and complete source coverage. `SourceLensStateTests`
+checks the real shared WIC path for 4,096-by-1 and 1-by-4,096 iris and dirt images.
 
 `python Automation/verify/compile-lens-shaders.py` compiles every shader entry with fxc exactly as the
 hook does (it parses `ShaderSource()` and `ShaderRequests()` from `LensFx.cpp`), one PASS/FAIL line each.
@@ -319,8 +325,9 @@ A shader typo or constant-buffer slip shows up without launching the game. `mvm_
 is sitting). Live captures are under `Automation/runs/lens/`.
 
 `LensFlareGpuTests` renders the real shaders against a one-pixel lamp and checks streak continuity, a single
-smooth peak across its width, and a filled ghost interior. These GPU checks supplement the engine-free math
-suite.
+smooth peak across its width, and a filled ghost interior. Its real 4x MSAA composite cases cover sharp
+and blurred samples, lifted-highlight clamping, flare and preserved alpha. These GPU checks supplement
+the engine-free math suite.
 
 ## Limits
 

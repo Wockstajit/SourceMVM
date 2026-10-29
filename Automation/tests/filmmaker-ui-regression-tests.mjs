@@ -24,6 +24,7 @@ const configHud = read("AfxHookSource2", "Filmmaker", "Panorama", "ConfigHud.cpp
 const configHudHeader = read("AfxHookSource2", "Filmmaker", "Panorama", "ConfigHud.h");
 const windowResizeHeader = read("AfxHookSource2", "Filmmaker", "Window", "WindowResize.h");
 const movieMode = read("AfxHookSource2", "Filmmaker", "Movie", "MovieMode.cpp");
+const uiClickMath = read("AfxHookSource2", "Filmmaker", "Movie", "UiClickMath.h");
 const viewFx = read("AfxHookSource2", "Filmmaker", "Movie", "ViewFx.cpp");
 const filmmaker = read("AfxHookSource2", "Filmmaker", "Filmmaker.cpp");
 const configJs = read("AfxHookSource2", "Filmmaker", "Panorama", "ConfigHudJs.h");
@@ -162,7 +163,9 @@ test("a quick right-click in the ENVIRONMENT view opens the object's menu, a hol
   // The view's pick menu was dropped for the right-hold look (#42); the user wants both. The press
   // waits: released within 200 ms and 4 px it is a click (the menu), held or moved it is the look.
   assert.match(movieMode, /UiClick::RightPressLooks\(ClickInput\(x, y\)\)\) \{\s*\{\s*std::lock_guard<std::mutex> lk\(m_rightMutex\);\s*m_rightPress\.pending = true;/);
-  assert.match(movieMode, /void MovieMode::StartRightLookIfHeld\(\) \{\s*constexpr int kRightClickSlopPx = 4;\s*constexpr int kRightClickHoldMs = 200;/);
+  // The 200 ms / 4 px rule is UiClickMath.h's, shared with the CS:S hook.
+  assert.match(uiClickMath, /constexpr int kRightLookHoldMs = 200;\s*constexpr int kRightLookSlopPx = 4;/);
+  assert.match(movieMode, /void MovieMode::StartRightLookIfHeld\(\) \{[\s\S]{0,700}if \(!UiClick::RightPressBecomesLook\(heldMs, x - m_rightPress\.x, y - m_rightPress\.y\)\) return;/);
   assert.match(movieMode, /if \(!rmb\) \{ m_rightPress\.pending = false; return; \}/);
   assert.match(movieMode, /void MovieMode::FlushActions\(\) \{\s*StartRightLookIfHeld\(\);/);
   assert.match(movieMode, /if \(click\) \{[\s\S]{0,200}EnqueueCmd\("mirv_filmmaker config viewmenu"\);/);
@@ -251,8 +254,40 @@ test("the end-of-demo hold stays put, a second after the final round, and never 
   assert.doesNotMatch(hold, /"demo_gototick %d"/, "no seek back to the start");
   assert.match(hold, /constexpr int kPostGameTailTicks = 64;/);
   assert.match(hold, /holdTick = s_postGameTick \+ kPostGameTailTicks;/);
-  assert.match(hold, /if \(DemoScrub_Active\(\)\) return;\s*\n[\s\S]{0,700}DemoCmd\("demo_pause"\);/,
+  assert.match(hold, /if \(EndHoldHost_ScrubActive\(\)\) return;\s*\n[\s\S]{0,700}EndHoldHost_Pause\(\);/,
     "a scrub's own steps are left alone; anything else playing past the hold is paused");
+  const host = read("AfxHookSource2", "Filmmaker", "Movie", "DemoEndHoldHostSource2.cpp");
+  assert.match(host, /bool EndHoldHost_ScrubActive\(\) \{ return DemoScrub_Active\(\); \}/);
+  assert.match(host, /void EndHoldHost_Pause\(\) \{ DemoCmd\("demo_pause"\); \}/);
+});
+
+// 2026-10-27: CS:S held a second before the end, CS2's margin for 16x, which cut the last second of
+// every CS:S demo. The margin is the host's: CS2 keeps its second, CS:S covers what a frame plays.
+test("the end-of-demo hold's margin is the game's: a second in CS2, a few frames in CS:S", () => {
+  const hold = read("AfxHookSource2", "Filmmaker", "Movie", "DemoEndHold.cpp");
+  assert.match(hold, /if \(!s_holding \|\| s_marginTicks < 0\) s_marginTicks = EndHoldHost_EndMarginTicks\(PeakFrameTicks\(\)\);/,
+    "the margin follows what a frame plays, and stays put while holding");
+  const cs2 = read("AfxHookSource2", "Filmmaker", "Movie", "DemoEndHoldHostSource2.cpp");
+  assert.match(cs2, /int EndHoldHost_EndMarginTicks\(int\) \{ return 64; \}/);
+  const css = read("AfxHookSource", "Filmmaker", "SourceDemoEndHold.cpp");
+  assert.match(css, /return \(std::min\)\(\(std::max\)\(3 \* ticksPerFrame, 8\), 64\);/);
+});
+
+// 2026-10-27: the CS:S window could not be resized. It gets CS2's free resize on the shared window
+// arithmetic, and the engine's custom windowed size is written before mat_setvideomode, which on its
+// own falls back to 640x480 for any size that is not a display mode.
+test("CS:S free resize shares CS2's window arithmetic and fills the custom windowed size first", () => {
+  const sizing = /WindowSizing\(hwnd, wParam, \*proposed, s_snapMode, kMinClientW, kMinClientH\)/;
+  const cs2 = read("AfxHookSource2", "Filmmaker", "Window", "WindowResize.cpp");
+  assert.match(cs2, /#include "WindowGeometry.h"/);
+  assert.match(cs2, sizing);
+  const css = read("AfxHookSource", "Filmmaker", "SourceWindow.cpp");
+  assert.match(css, sizing);
+  assert.match(css, /if \(!Engine_SetWindowedModeSize\(s_commitW, s_commitH\)\) \{[\s\S]{0,1200}"mat_setvideomode %d %d 1"/,
+    "the custom size goes in before the engine is asked, and nothing is asked when it cannot");
+  const engine = read("AfxHookSource", "Filmmaker", "SourceEngine.cpp");
+  assert.match(engine, /constexpr int kVideoModeCustomWidth = 0x201C;/);
+  assert.match(engine, /if \(width != screenW \|\| height != screenH\) \{/, "the video mode is used only when its mode is the screen's");
 });
 
 // 2026-10-17 (mvm_debug: clickMode=0 free=1): a click while a camera path played, or on Clippy,

@@ -169,35 +169,7 @@ if ($ragdollSource) {
     Write-Host 'No ragdoll animation library in this checkout or the main one: Death Animations has no clips.' -ForegroundColor Yellow
 }
 
-# Rendering encodes through <bin>\ffmpeg: ffmpeg.ini's [Ffmpeg] Path, else the bundled
-# ffmpeg\bin\ffmpeg.exe (RenderEncoderDetect.cpp). Neither is in git, and a worktree's stage had no
-# ffmpeg folder at all, so every render stream failed to start ("refusing a completed manifest",
-# 2026-10-17). When this stage cannot reach an encoder, borrow the setup of a stage that can.
-function Test-StagedFfmpeg([string]$StageBin) {
-    $ini = Join-Path $StageBin 'ffmpeg\ffmpeg.ini'
-    if (Test-Path -LiteralPath $ini) {
-        $line = Get-Content -LiteralPath $ini | Where-Object { $_ -match '^\s*Path\s*=' } | Select-Object -First 1
-        if ($line) { return (Test-Path -LiteralPath ($line -replace '^\s*Path\s*=\s*', '').Trim()) }
-    }
-    return (Test-Path -LiteralPath (Join-Path $StageBin 'ffmpeg\bin\ffmpeg.exe'))
-}
-if (-not (Test-StagedFfmpeg $bin)) {
-    $ffmpegDonor = Get-PrivateAssetRoots -RepositoryRoot $root | ForEach-Object {
-        $assetRoot = $_
-        'build\source2-release\bin', 'build\staging-release\bin', 'build\portable-runtime\bin' | ForEach-Object { Join-Path $assetRoot $_ }
-    } | Where-Object { ($_ -ine $bin) -and (Test-StagedFfmpeg $_) } | Select-Object -First 1
-    if ($ffmpegDonor) {
-        robocopy (Join-Path $ffmpegDonor 'ffmpeg') (Join-Path $bin 'ffmpeg') /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
-        $global:LASTEXITCODE = 0
-        Write-Host "Staged the FFmpeg setup from $ffmpegDonor"
-    } elseif ($onPath = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue | Select-Object -First 1) {
-        New-Item -ItemType Directory -Force -Path (Join-Path $bin 'ffmpeg') | Out-Null
-        Set-Content -LiteralPath (Join-Path $bin 'ffmpeg\ffmpeg.ini') -Value @('[Ffmpeg]', "Path=$($onPath.Source)") -Encoding ASCII
-        Write-Host "Pointed rendering at $($onPath.Source)"
-    } else {
-        Write-Host 'No FFmpeg found for this stage: renders will fail until bin\ffmpeg has one (see bin\ffmpeg\readme.advancedfx.txt).' -ForegroundColor Yellow
-    }
-}
+Initialize-StagedFfmpeg -StageBin $bin -RepositoryRoot $root
 
 # A pipeline that matches nothing yields AutomationNull, not $null. It compares -eq $null as
 # True, but contributes ZERO elements to an array concatenation (a real $null contributes one).

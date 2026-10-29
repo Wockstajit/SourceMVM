@@ -14,6 +14,7 @@ Dragging any timeline playhead moves the demo **world** with it, forward and bac
 | TIMELINE dock ruler, key jumps and key drags (camera and scene keys) | `GraphEditorExperimentHud.cpp` `CmdPlayhead`, `GraphEditorJs.h` `playheadTo` / `releasePlayhead` |
 | CS2's own demo bar | `Panorama/DemoBarScrubJs.h`, injected by `DemoBarButtons.cpp` |
 | Console | `mirv_filmmaker scrub drag <tick>`, `scrub release <tick>`, `scrub status`, `keyframes` |
+| What the driver and the cache ask the game | `Movie/DemoScrubHost.h` and `Movie/ScrubFrameCacheHost.h`, answered by `Movie/DemoScrubHostSource2.cpp` and `Movie/ScrubFrameCacheHostSource2.cpp` in CS2, and by CS:S's hook ([Counter-Strike: Source](#counter-strike-source)) |
 
 ## How CS2 seeks
 
@@ -166,6 +167,26 @@ The native bar (`huddemocontroller.js`) only updates its label while you drag (`
 - Drag events are forwarded **only while `slider.mousedown`**. The native `FrameUpdate` writes `slider.value` every frame when the mouse is up, and those writes fire `SliderValueChanged` too.
 - Release forwards `floor(value)`, but only after a forwarded drag. A click counts: the value jumps to the clicked spot while the button is down, so the scrub gets one drag and a release. The native `GotoTick(floor(value))` runs as well, a frame behind the scrub's own seek. Both seek a paused demo to the same tick, so they agree: the native one is a no-op, or a one-tick forward skip from the whole tick before it. Before 2026-10-19 the scrub resumed the demo for its forward seek, the two seeks raced a playing world, and a paused demo came out of the click playing.
 - A `mirvscrub` panel attribute stops a re-injection from registering the handlers twice.
+
+## Counter-Strike: Source
+
+The CS:S port runs the same policy, driver and cache rules. Its hook answers the two host headers in
+`AfxHookSource/Filmmaker/SourceDemoScrub.cpp` and `SourceScrubFrameCache.cpp`; the TIMELINE dock and
+the demo bar's scrubber drag and release it. What differs, measured on 2026-10-27
+([CS:S README](../source/README.md#live-scrub)):
+
+- CS:S has no `demo_step_tick`. A step plays at the step's speed with `demo_pauseatservertick` on its
+  last tick. The server tick is the demo tick plus an offset fixed per demo, learned from the client's
+  clock while the demo is paused on a whole tick.
+- The engine's seek back starts the demo over. The hook rewinds in place instead
+  ([seeking back](../source/README.md#seeking-back)), so a seek back lands in the frame it is asked
+  in, as on a keyframed copy (`ScrubHost_FastRestores`).
+- A seek stops on the demo's next packet, every 4 to 10 ticks in a SourceTV demo. The host says how
+  far past its tick a seek may land (`ScrubHost_SeekLandsPast`, from the gaps the skips crossed):
+  seeks aim that far short, and a landing inside it counts. CS2's answer, one tick, keeps its rules
+  as they were.
+- The cache keeps preview-sized frames in D3D9 textures, and the render thread swaps the held or
+  cached frame into the preview as the dock draws it.
 
 ## Diagnosing
 

@@ -47,6 +47,48 @@ function Find-PrivateAsset {
     return ''
 }
 
+# Rendering encodes through <stage bin>\ffmpeg: ffmpeg.ini's [Ffmpeg] Path, else the bundled
+# ffmpeg\bin\ffmpeg.exe (RenderEncoderDetect.cpp, Shared/AfxOutStreams.cpp). Neither is in git, and a
+# worktree's stage had no ffmpeg folder at all, so every render stream failed to start ("refusing a
+# completed manifest", 2026-10-17). When the stage cannot reach an encoder, this borrows the setup of
+# a stage that can, or points it at an ffmpeg on PATH. CS2's and CS:S's launchers both call it.
+function Test-StagedFfmpeg([string]$StageBin) {
+    $ini = Join-Path $StageBin 'ffmpeg\ffmpeg.ini'
+    if (Test-Path -LiteralPath $ini) {
+        $line = Get-Content -LiteralPath $ini | Where-Object { $_ -match '^\s*Path\s*=' } | Select-Object -First 1
+        if ($line) { return (Test-Path -LiteralPath ($line -replace '^\s*Path\s*=\s*', '').Trim()) }
+    }
+    return (Test-Path -LiteralPath (Join-Path $StageBin 'ffmpeg\bin\ffmpeg.exe'))
+}
+
+function Initialize-StagedFfmpeg {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$StageBin,
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot
+    )
+
+    if (Test-StagedFfmpeg $StageBin) { return }
+    $ffmpegDonor = Get-PrivateAssetRoots -RepositoryRoot $RepositoryRoot | ForEach-Object {
+        $assetRoot = $_
+        'build\source2-release\bin', 'build\source1-release\bin', 'build\staging-release\bin', 'build\portable-runtime\bin' |
+            ForEach-Object { Join-Path $assetRoot $_ }
+    } | Where-Object { ($_ -ine $StageBin) -and (Test-StagedFfmpeg $_) } | Select-Object -First 1
+    if ($ffmpegDonor) {
+        robocopy (Join-Path $ffmpegDonor 'ffmpeg') (Join-Path $StageBin 'ffmpeg') /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+        $global:LASTEXITCODE = 0
+        Write-Host "Staged the FFmpeg setup from $ffmpegDonor"
+    } elseif ($onPath = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue | Select-Object -First 1) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $StageBin 'ffmpeg') | Out-Null
+        Set-Content -LiteralPath (Join-Path $StageBin 'ffmpeg\ffmpeg.ini') -Value @('[Ffmpeg]', "Path=$($onPath.Source)") -Encoding ASCII
+        Write-Host "Pointed rendering at $($onPath.Source)"
+    } else {
+        Write-Host 'No FFmpeg found for this stage: renders will fail until bin\ffmpeg has one (see bin\ffmpeg\readme.advancedfx.txt).' -ForegroundColor Yellow
+    }
+}
+
 function Get-NewestCs2HookBuildDll {
     [CmdletBinding()]
     param(

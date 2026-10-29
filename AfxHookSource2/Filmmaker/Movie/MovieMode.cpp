@@ -1039,11 +1039,9 @@ bool MovieMode::OwnsWheel() {
 	return IsDemoActive() && !ConfigHud_IsLive();
 }
 
-// A right press in the ENVIRONMENT view held for kRightClickHoldMs, or moved more than
-// kRightClickSlopPx, starts the look. Main thread, every frame.
+// A right press in the ENVIRONMENT view that is held or dragged starts the look
+// (UiClick::RightPressBecomesLook). Main thread, every frame.
 void MovieMode::StartRightLookIfHeld() {
-	constexpr int kRightClickSlopPx = 4;
-	constexpr int kRightClickHoldMs = 200;
 	int x = 0, y = 0;
 	bool lmb = false, rmb = false, shift = false;
 	unsigned seq = 0;
@@ -1054,9 +1052,9 @@ void MovieMode::StartRightLookIfHeld() {
 		// The release normally ends a waiting press (OnButtonUp). One whose release never came
 		// (focus lost mid-press clears the probe's button) is dropped instead of becoming a look.
 		if (!rmb) { m_rightPress.pending = false; return; }
-		const bool moved = std::abs(x - m_rightPress.x) + std::abs(y - m_rightPress.y) > kRightClickSlopPx;
-		const bool held = std::chrono::steady_clock::now() - m_rightPress.at >= std::chrono::milliseconds(kRightClickHoldMs);
-		if (!moved && !held) return;
+		const int heldMs = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - m_rightPress.at).count();
+		if (!UiClick::RightPressBecomesLook(heldMs, x - m_rightPress.x, y - m_rightPress.y)) return;
 		m_rightPress.pending = false;
 	}
 	m_rightLook = true;

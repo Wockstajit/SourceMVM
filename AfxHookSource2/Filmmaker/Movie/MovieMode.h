@@ -111,8 +111,8 @@ private:
 	// A right press in the ENVIRONMENT tab's preview took the mouse for looking around
 	// (UiClick::RightPressLooks); its release hands the mouse back to the editor.
 	std::atomic<bool> m_rightLook{ false };
-	// A right press in the ENVIRONMENT view waits to see what it is. Let go within kRightClickHoldMs
-	// without moving more than kRightClickSlopPx and it is a click: the object under it gets its
+	// A right press in the ENVIRONMENT view waits to see what it is. Let go within kRightLookHoldMs
+	// without moving more than kRightLookSlopPx (UiClickMath.h) and it is a click: the object under it gets its
 	// menu (the Outliner's, `config viewmenu`). Held or moved, it becomes the look
 	// (StartRightLookIfHeld). Guarded by m_rightMutex: written on the input thread, read on the main.
 	struct RightPress { bool pending = false; int x = 0, y = 0; std::chrono::steady_clock::time_point at; };

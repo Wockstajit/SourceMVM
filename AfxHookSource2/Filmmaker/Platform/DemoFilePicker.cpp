@@ -6,7 +6,7 @@
 
 namespace Filmmaker {
 
-bool PickDemoFilesBlocking(std::vector<std::wstring>& out, const wchar_t* title) {
+bool PickDemoFilesBlocking(std::vector<std::wstring>& out, const wchar_t* title, const wchar_t* filterCaption) {
 	out.clear();
 
 	const HRESULT coInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
@@ -25,7 +25,7 @@ bool PickDemoFilesBlocking(std::vector<std::wstring>& out, const wchar_t* title)
 		// A second "All files" entry on purpose: demos that arrived with an odd extension
 		// still read fine, and a filter the user cannot escape is worse than one they can.
 		const COMDLG_FILTERSPEC filters[] = {
-			{ L"Source 2 demos (*.dem)", L"*.dem" },
+			{ filterCaption, L"*.dem" },
 			{ L"All files", L"*.*" },
 		};
 		dialog->SetFileTypes((UINT)(sizeof(filters) / sizeof(filters[0])), filters);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cfloat>
 #include <cmath>
 
 namespace Filmmaker {
@@ -59,6 +60,12 @@ struct FollowAngles {
 	double roll = 0.0;
 };
 
+// A usable world position: finite, and not the FLT_MAX an engine read leaves when it fails.
+inline bool IsFiniteOrigin(const FollowVec3& p) {
+	return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z)
+		&& std::fabs(p.x) < FLT_MAX && std::fabs(p.y) < FLT_MAX && std::fabs(p.z) < FLT_MAX;
+}
+
 double FollowWrapDegrees(double value);
 double FollowHalfTimeAlpha(double halfTimeSeconds, double deltaSeconds);
 FollowAngles FollowLookAt(const FollowVec3& camera, const FollowVec3& target);
@@ -113,5 +120,17 @@ FollowVec3 FollowSmoothPosition(
 	double deltaSeconds,
 	double halfTimeSeconds);
 double FollowDistance(const FollowVec3& a, const FollowVec3& b);
+
+// How long a thrown grenade has flown, from its velocity at the throw and now, for a game that
+// networks both but not where it was thrown from (CS:S). Until its first bounce a grenade keeps its
+// throw's sideways speed while gravity (units/s^2) slows its climb by the same amount every second.
+// -1 once a bounce has changed its sideways speed (a tenth of a unit/s of slack for float
+// rounding), or when the numbers do not make a flight.
+inline double FollowGrenadeFlightSeconds(const FollowVec3& launch, const FollowVec3& now, double gravity) {
+	if (!(gravity > 0.0) || !IsFiniteOrigin(launch) || !IsFiniteOrigin(now)) return -1.0;
+	if (std::fabs(now.x - launch.x) > 0.1 || std::fabs(now.y - launch.y) > 0.1) return -1.0;
+	const double t = (launch.z - now.z) / gravity;
+	return t >= 0.0 && t < 30.0 ? t : -1.0;
+}
 
 } // namespace Filmmaker

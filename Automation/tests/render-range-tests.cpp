@@ -110,6 +110,21 @@ int main() {
 		Check(r.FrameCount(120, 64.0) == 2, "1 tick 120fps = 2 frames");
 	}
 
+	// FrameCount at CS:S's 66.67 tick rate (a 0.015 s tick): ticks * fps / rate, rounded up, with
+	// the floating-point error of a whole number of frames kept out.
+	{
+		const double css = 1.0 / 0.015;
+		RenderRange r;
+		r.startTick = 1000;
+		r.endTickExclusive = 1200; // 3 s
+		Check(r.FrameCount(60, css) == 180, "200 ticks 60fps @66.67tr = 180 frames");
+		Check(r.FrameCount(30, css) == 90, "200 ticks 30fps @66.67tr = 90 frames");
+		r.endTickExclusive = 1001;
+		Check(r.FrameCount(60, css) == 1, "1 tick 60fps @66.67tr = 1 frame");
+		r.endTickExclusive = 1100; // 1.5 s
+		Check(r.FrameCount(24, css) == 36, "100 ticks 24fps @66.67tr = 36 frames");
+	}
+
 	// FrameCount: zero fps -> 0.
 	{
 		RenderRange r;
@@ -150,12 +165,12 @@ int main() {
 		Check(r.FrameCount(60, INFINITY) == 0, "Inf tickrate = zero frames");
 	}
 
-	// FrameCount: non-integer tickrate -> 0.
+	// FrameCount: a tick rate that is not whole counts too (CS:S): ceil(100 * 60 / 63.5) = 95.
 	{
 		RenderRange r;
 		r.startTick = 0;
 		r.endTickExclusive = 100;
-		Check(r.FrameCount(60, 63.5) == 0, "non-integer tickrate rejected");
+		Check(r.FrameCount(60, 63.5) == 95, "non-integer tickrate counts");
 	}
 
 	// FrameCount: valid range but zero ticks (width zero).

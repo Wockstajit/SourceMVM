@@ -50,6 +50,8 @@ set(AFXHOOKSOURCE2_SHADERS_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_contact_shadow_ps_5_0.fxc"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depthms_ps_5_0.fxc"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_render_pass_ps_5_0.fxc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_pass_normals.hlsli"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_fisheye_uv.hlsli"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depth_vs_5_0.fxc"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depth_ps_5_0.fxc"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_deadlock_overlay_vs_5_0.fxc"
@@ -492,6 +494,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/FollowCommand.cpp
     Filmmaker/GraphEditorCommand.cpp
 
+    Filmmaker/Config/CameraFeelSettings.cpp
+    Filmmaker/Config/CameraFeelSettings.h
     Filmmaker/Config/DemoFileStore.cpp
     Filmmaker/Config/DemoFileStore.h
     Filmmaker/Config/DemoFolderStore.cpp
@@ -597,8 +601,12 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Panorama/SpeedScrubberJs.h
     Filmmaker/Movie/DemoTimescale.cpp
     Filmmaker/Movie/DemoScrub.cpp
+    Filmmaker/Movie/DemoScrubHost.h
+    Filmmaker/Movie/DemoScrubHostSource2.cpp
     Filmmaker/Movie/ScrubFrameCache.cpp
     Filmmaker/Movie/ScrubFrameCache.h
+    Filmmaker/Movie/ScrubFrameCacheHost.h
+    Filmmaker/Movie/ScrubFrameCacheHostSource2.cpp
     Filmmaker/Movie/ScrubFrameCacheMath.h
     Filmmaker/Movie/DemoTimescale.h
     Filmmaker/Panorama/CameraEditorHud.cpp
@@ -726,6 +734,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/TimelineDock.cpp
     Filmmaker/Movie/TimelinePlayhead.cpp
     Filmmaker/Movie/TimelinePlayhead.h
+    Filmmaker/Movie/CamPathShakeHost.h
+    Filmmaker/Movie/CamPathShakeHostSource2.cpp
     Filmmaker/Movie/CamPathShake.cpp
     Filmmaker/Movie/CamPathShake.h
     Filmmaker/Movie/RageShake.cpp
@@ -738,6 +748,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/CamPlayback.h
     Filmmaker/Movie/CameraPath.cpp
     Filmmaker/Movie/CameraPathPicking.cpp
+    Filmmaker/Movie/CamMarkerPickMath.h
     Filmmaker/Movie/CameraPath.h
     Filmmaker/Movie/SceneKeyframeCatalog.cpp
     Filmmaker/Movie/SceneKeys.cpp
@@ -751,6 +762,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/GraphExpModel.h
     Filmmaker/Movie/FollowCamera.cpp
     Filmmaker/Movie/FollowCamera.h
+    Filmmaker/Movie/FollowCameraHost.h
+    Filmmaker/Movie/FollowCameraHostSource2.cpp
     Filmmaker/Movie/FollowCameraMath.cpp
     Filmmaker/Movie/FollowCameraMath.h
     Filmmaker/Movie/FollowTargetProviders.cpp
@@ -762,10 +775,14 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/FollowCameraStateJson.cpp
     Filmmaker/Movie/DemoEndHold.cpp
     Filmmaker/Movie/DemoEndHold.h
+    Filmmaker/Movie/DemoEndHoldHost.h
+    Filmmaker/Movie/DemoEndHoldHostSource2.cpp
     Filmmaker/Movie/PlaybackLoop.cpp
     Filmmaker/Movie/PlaybackLoop.h
     Filmmaker/Movie/SmoothView.cpp
     Filmmaker/Movie/SmoothView.h
+    Filmmaker/Movie/SmoothViewHost.h
+    Filmmaker/Movie/SmoothViewHostSource2.cpp
     Filmmaker/Movie/DemoAimResampler.cpp
     Filmmaker/Movie/DemoAimResampler.h
     Filmmaker/Movie/DemoAimResamplerMath.h
@@ -793,6 +810,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/CameraShakeTypes.h
     Filmmaker/Movie/HudBlackout.cpp
     Filmmaker/Movie/HudBlackout.h
+    Filmmaker/Movie/CameraShakeHost.h
+    Filmmaker/Movie/CameraShakeHostSource2.cpp
     Filmmaker/Movie/CameraShakeStack.cpp
     Filmmaker/Movie/CameraShakeStack.h
     Filmmaker/Movie/GunWeaponMath.h
@@ -810,6 +829,12 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/WeaponBobMath.h
     Filmmaker/Movie/WeaponRecoilPresets.h
     Filmmaker/Movie/WeaponRecoilStyles.h
+    Filmmaker/Lens/LensFxState.cpp
+    Filmmaker/Lens/FisheyeState.cpp
+    Filmmaker/Lens/FisheyeState.h
+    Filmmaker/Lens/FisheyeMath.h
+    Filmmaker/Lens/LensFxConstants.h
+    Filmmaker/Lens/LensFxState.h
     Filmmaker/Lens/LensFx.cpp
     Filmmaker/Lens/LensFx.h
     Filmmaker/Heatmap/RoundHeatmap.cpp
@@ -832,6 +857,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Platform/PngWrite.h
     Filmmaker/Platform/SnappyDecode.h
     Filmmaker/Lens/LensFxMath.h
+    Filmmaker/Lens/LensMaskMath.h
     Filmmaker/Lens/LensFxShaders.h
     Filmmaker/Movie/RecoilPivotMarker.cpp
     Filmmaker/Movie/RecoilPivotMarker.h
@@ -964,6 +990,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Cosmetics/CosmeticDebugEvents.cpp
     Filmmaker/Debug/MvmDebugLog.cpp
     Filmmaker/Debug/MvmDebugLog.h
+    Filmmaker/Debug/MvmDebugLogHost.h
+    Filmmaker/Debug/MvmDebugLogHostSource2.cpp
     Filmmaker/Debug/GpuPassProfiler.cpp
     Filmmaker/Debug/GpuPassProfiler.h
     Filmmaker/Debug/GpuPassProfileMath.h
@@ -996,6 +1024,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Render/RenderRange.h
     Filmmaker/Render/RenderCommand.cpp
     Filmmaker/Render/RenderCommand.h
+    Filmmaker/Render/RenderHost.h
+    Filmmaker/Render/RenderHostSource2.cpp
     Filmmaker/Render/RenderSession.cpp
     Filmmaker/Render/RenderSession.h
     Filmmaker/Render/RenderValidation.cpp
@@ -1035,6 +1065,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Render/RenderPlayersOnlyGreen.h
 
     Filmmaker/Window/AspectRatioMath.h
+    Filmmaker/Window/WindowGeometry.h
     Filmmaker/Window/WindowPrecisionGuard.h
     Filmmaker/Window/EngineVideoMode.cpp
     Filmmaker/Window/EngineVideoMode.h

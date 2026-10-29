@@ -24,8 +24,12 @@ test("opening the Render workspace always hands the mouse to Panorama", () => {
   const end = commandSource.indexOf("bool Render_IsCancelRequested", begin);
   const body = commandSource.slice(begin, end);
   assert.ok(begin >= 0 && end > begin);
-  assert.match(body, /if \(open && CameraEditor_Active\(\)\)/);
-  assert.match(body, /CameraEditor_SetCursorMode\(true\)/);
+  assert.match(body, /if \(open && RenderHost_EditorActive\(\)\)\s*RenderHost_WorkspaceOpened\(\);/);
+  // CS2's answer (RenderHost.h): the editor's mouse goes to Panorama.
+  const host = fs.readFileSync(
+    path.join(repositoryRoot, "AfxHookSource2", "Filmmaker", "Render", "RenderHostSource2.cpp"), "utf8");
+  assert.match(host, /bool RenderHost_EditorActive\(\) \{ return CameraEditor_Active\(\); \}/);
+  assert.match(host, /void RenderHost_WorkspaceOpened\(\) \{ CameraEditor_SetCursorMode\(true\); \}/);
 });
 
 test("render state restoration preserves the pre-job UI cursor", () => {

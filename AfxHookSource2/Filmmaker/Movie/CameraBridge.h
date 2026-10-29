@@ -55,6 +55,10 @@ float CameraBridge_GetGameCameraFov();
 // pitch, yaw, roll (degrees) to match the engine view-angle order.
 void CameraBridge_GetCurrentCamera(double outOrigin[3], double outAngles[3], double& outFov);
 
+// The playing demo's time (seconds) and tick, for camera-path playback (CamPlayback). Both stay 0
+// when no demo plays.
+void CameraBridge_GetDemoClock(double& outDemoTime, int& outDemoTick);
+
 // Push an ABSOLUTE camera pose for camera-path playback. Applied on the next
 // camera override (MirvInput::Override) and consumed once, so it must be called
 // every frame while a path is playing. Works whether or not free cam is on.

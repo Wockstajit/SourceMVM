@@ -38,6 +38,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | Interior lighting camera validation, map sweep and authored-light audit | [`interior-lighting-testing.md`](effects/interior-lighting-testing.md) |
 | Map lights, collision and shadow casters (native extraction on map load) | [`map-data-extraction.md`](effects/map-data-extraction.md) |
 | Deadlock port | [`deadlock/README.md`](deadlock/README.md) |
+| Counter-Strike: Source port (Source 1 hook) | [`source/README.md`](source/README.md), [`source/port-plan.md`](source/port-plan.md) |
 
 ## Document classes
 
@@ -55,6 +56,8 @@ Every document lives in exactly one of these folders. Nothing but this index sit
 - `Docs/effects/`: ragdolls, map lighting and its map data, and other effect subsystems.
 - `Docs/deadlock/`: the Deadlock port, with resolved signatures and offsets, the UI style contract,
   and how the Panorama reference is extracted.
+- `Docs/source/`: the Source 1 port, starting with Counter-Strike: Source: build, launch, the hook's
+  command port, and the ordered port plan.
 
 **Rules and operations**
 

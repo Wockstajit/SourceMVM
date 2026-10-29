@@ -33,3 +33,6 @@
 [submodule "deps/release/injector"]
 	path = Deps/release/injector
 	url = https://github.com/advancedfx/injector.git
+[submodule "Deps/release/imgui"]
+	path = Deps/release/imgui
+	url = https://github.com/ocornut/imgui.git

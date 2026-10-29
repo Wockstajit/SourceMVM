@@ -172,6 +172,7 @@ target_sources(AfxHookDeadlock PRIVATE
 	../Globals.cpp
 	../WrpConsole.cpp
 	../Filmmaker/Debug/MvmDebugLog.cpp
+	../Filmmaker/Debug/MvmDebugLogHostSource2.cpp
 	../Filmmaker/MouseCapture.cpp
 	../Filmmaker/Movie/CamMarkers.cpp
 	../Filmmaker/Movie/CamPathEval.cpp

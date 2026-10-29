@@ -1,0 +1,1584 @@
+#include "stdafx.h"
+
+#include "SourceUi.h"
+#include "SourceCameraPath.h"
+#include "SourceCameraShake.h"
+#include "SourceCapture.h"
+#include "SourceConfig.h"
+#include "SourceDemoBar.h"
+#include "SourceDemos.h"
+#include "SourceDirector.h"
+#include "SourceEngine.h"
+#include "SourceFollowCamera.h"
+#include "SourceMainThread.h"
+#include "SourceRender.h"
+#include "SourceRenderPasses.h"
+#include "SourceLens.h"
+#include "SourceScrubFrameCache.h"
+#include "SourceTimelineDock.h"
+
+#include "Ui/CameraEditorShell.h"
+#include "Ui/DemosBrowser.h"
+#include "Ui/DirectorHud.h"
+#include "Ui/DirectorMouse.h"
+#include "Ui/MarkerPopup.h"
+#include "Ui/PathOverlay.h"
+#include "Ui/UiRenderDx9.h"
+#include "Ui/UiKeys.h"
+#include "Ui/UiStyle.h"
+#include "Ui/WorkspaceMouse.h"
+
+#include "WrpVEngineClient.h"
+#include "RenderView.h"
+#include <Shared/MirvInput.h>
+
+#include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
+#include <AfxHookSource2/Filmmaker/Movie/CamPathShake.h>
+#include <AfxHookSource2/Filmmaker/Movie/CameraBridge.h>
+#include <AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h>
+#include <AfxHookSource2/Filmmaker/Platform/JsonParser.h>
+#include <AfxHookSource2/Filmmaker/Render/RenderCommand.h>
+#include <AfxHookSource2/Filmmaker/Panorama/HudReadoutCadenceMath.h>
+#include <Shared/AfxConsole.h>
+#include <Shared/AfxDetours.h>
+
+#include <imgui.h>
+
+#include <windows.h>
+#include <windowsx.h>
+#include <shlobj.h>
+
+#include <atomic>
+#include <cfloat>
+#include <chrono>
+#include <cmath>
+#include <cstring>
+#include <memory>
+#include <mutex>
+#include <sstream>
+#include <string>
+
+extern WrpVEngineClient* g_VEngineClient;
+
+namespace SourceFilmmaker {
+
+namespace {
+
+using namespace Ui;
+
+using Mode = WorkspaceMouse::Mode;
+using Route = WorkspaceMouse::Route;
+using DirectorMode = DirectorMouse::Mode;
+using DirectorRoute = DirectorMouse::Route;
+
+const char* ModeName(Mode m) {
+	switch (m) {
+	case Mode::Ui: return "ui";
+	case Mode::Game: return "game";
+	default: return "look";
+	}
+}
+
+const char* DirectorModeName(DirectorMode m) { return m == DirectorMode::Look ? "look" : "free"; }
+
+int64_t NowMs() {
+	return std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// Main-thread state.
+struct Host {
+	ImGuiContext* context = nullptr;
+	FontSet fonts;
+	std::string fontDir;
+	CameraEditorState editor;
+	HWND window = nullptr;
+	WorkspaceMouse mouse;  // who has the mouse (CS2's rules)
+	DirectorMouse directorMouse; // the same outside the workspaces, while the director runs
+	int adjustSeq = 0;
+	int64_t adjustAt = -10000;
+	CameraAdjustModel adjust;
+	DirectorCardsModel cards;    // the director cards' readouts, refreshed at CS2's 10 Hz
+	Filmmaker::HudReadoutCadence cadence;
+	Rect roster;
+	Rect bar;              // last frame's director bar panel, client px
+	int wheelRemainder = 0; // wheel delta short of a notch
+	Rect preview;          // last frame's preview, client px; empty while a dialog is up, so clicks stay the UI's
+	bool panelHovered = false; // last frame: the pointer is over a panel
+	POINT gameCursor = { 0, 0 };
+	bool haveGameCursor = false;
+	int shownCursorSteps = 0;  // ShowCursor(TRUE) calls we made to make the arrow visible
+	LARGE_INTEGER lastTime = {};
+	LARGE_INTEGER frequency = {};
+	unsigned frames = 0;
+	bool wasRepositioning = false; // last frame: a camera was being repositioned
+	MarkerCardState markerCard;    // the CAMERA MARKER card (F on an aimed marker)
+	int64_t repositionPressAt = -1; // a left press while repositioning outside the editor, ms
+	std::unique_ptr<ImDrawList> worldList; // the camera path in the world, built with each rendered view
+	DemosBrowserState demos;      // the demos browser page
+	DemosBrowserModel demosModel; // what it lists (SourceDemos.cpp rebuilds it when something changed)
+	Rect menuButton;              // the main menu's DEMOS button, last frame; empty while it is not shown
+	bool menuButtonHover = false;
+	unsigned worldFrames = 0;
+	int worldVertices = 0;
+	int64_t worldLogAt = 0;
+};
+Host g;
+
+// Read by the cursor and raw-input filters.
+std::atomic<bool> g_open{ false };   // a workspace is open
+std::atomic<bool> g_config{ false }; // and it is Config
+std::atomic<bool> g_director{ false }; // the movie director runs (a demo, no workspace)
+std::atomic<bool> g_demos{ false };    // the demos browser is open
+std::atomic<bool> g_menu{ false };     // the main menu shows the DEMOS button
+std::atomic<bool> g_uiOwnsMouse{ false };
+std::atomic<bool> g_markerMenu{ false }; // the CAMERA MARKER card is up: every press and notch is the card's
+// Click-to-capture, as CS2's MouseCapture: the game may not hide, move or capture the cursor until a
+// click in its window reaches it (or a look or GAME mode hands it the mouse), and losing focus frees
+// it again. Launching, a demo opening and Alt+Tab never take the cursor from another window.
+std::atomic<bool> g_mouseFree{ true };
+// What the filters kept from the game, for health.
+std::atomic<unsigned> g_heldMoves{ 0 };
+std::atomic<unsigned> g_heldHides{ 0 };
+std::atomic<unsigned> g_heldCaptures{ 0 };
+std::string g_cursorHookModules; // the modules whose cursor calls the hooks below see
+
+// Hand-off to the render thread.
+std::mutex g_frameMutex;
+std::shared_ptr<DrawSnapshot> g_latest;
+std::shared_ptr<DrawSnapshot> g_latestWorld; // drawn over the game's frame, under the UI and its letterbox
+FontPixels g_fontPixels;
+// Render thread only.
+RendererDx9 g_renderer;
+FontPixels g_renderFont;
+
+std::string FontsFolder() {
+	PWSTR path = nullptr;
+	std::string out;
+	if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Fonts, 0, nullptr, &path)) && path) {
+		const int n = WideCharToMultiByte(CP_UTF8, 0, path, -1, nullptr, 0, nullptr, nullptr);
+		if (n > 1) {
+			out.resize((size_t)n - 1);
+			WideCharToMultiByte(CP_UTF8, 0, path, -1, &out[0], n, nullptr, nullptr);
+		}
+	}
+	if (path) CoTaskMemFree(path);
+	return out.empty() ? std::string("C:\\Windows\\Fonts") : out;
+}
+
+void Publish(std::shared_ptr<DrawSnapshot> snapshot) {
+	std::lock_guard<std::mutex> lock(g_frameMutex);
+	if (!snapshot) g_latestWorld.reset(); // nothing of ours over the game
+	g_latest = std::move(snapshot);
+}
+
+void PublishWorld(std::shared_ptr<DrawSnapshot> world) {
+	std::lock_guard<std::mutex> lock(g_frameMutex);
+	g_latestWorld = std::move(world);
+}
+
+// While the UI owns the mouse the arrow must be visible even if the game hid it with ShowCursor.
+void ShowArrow(bool show) {
+	if (show) {
+		while (ShowCursor(TRUE) < 0 && g.shownCursorSteps < 16) ++g.shownCursorSteps;
+		SetCursor(LoadCursor(nullptr, IDC_ARROW));
+	} else {
+		for (; g.shownCursorSteps > 0; --g.shownCursorSteps) ShowCursor(FALSE);
+	}
+}
+
+// The game may not have the mouse: the UI has it, or nothing clicked into the game since it got focus.
+bool GameMouseHeld() { return g_uiOwnsMouse.load() || g_mouseFree.load(); }
+
+bool GameInFront() { return g.window && GetForegroundWindow() == g.window; }
+
+// At most 8 cursor lines a second in the debug log: the game sets the cursor every frame.
+bool CursorLogSlot() {
+	if (!Filmmaker::MvmDebugLog_Active()) return false;
+	static int64_t second = 0;
+	static int lines = 0;
+	const int64_t now = NowMs();
+	if (now - second >= 1000) {
+		second = now;
+		lines = 0;
+	}
+	return ++lines <= 8;
+}
+
+// The UI taking the mouse frees it (the game waits for a click again once the UI lets go); a click in
+// the game, a look or GAME mode give it to the game.
+void SetMouseFree(bool free, const char* reason) {
+	if (g_mouseFree.exchange(free) == free) return;
+	if (!free && g.haveGameCursor && !g_uiOwnsMouse.load() && g.window && g_VEngineClient && g_VEngineClient->IsInGame()) {
+		// The game recentred the cursor for mouse look while it waited: put it there, so the first
+		// frame it reads the cursor again measures no movement and the view does not jump.
+		POINT p = g.gameCursor;
+		SetCursorPos(p.x, p.y);
+	}
+	if (!free) g.haveGameCursor = false;
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("input.capture", "%s free=%d front=%d", reason, free ? 1 : 0, GameInFront() ? 1 : 0);
+}
+
+// Applies the cursor side of a mode change: the arrow is visible while the UI has the mouse, the
+// game's own capture is left alone otherwise, and a finished look puts the cursor back where the
+// right press started.
+void ApplyMode(Mode before, const char* reason) {
+	const Mode now = g.mouse.GetMode();
+	if (now == before) return;
+	const bool uiOwns = g_open.load() && now == Mode::Ui;
+	g_uiOwnsMouse.store(uiOwns);
+	if (g_open.load()) SetMouseFree(uiOwns, uiOwns ? "workspace ui" : "workspace game");
+	g.haveGameCursor = false;
+	ShowArrow(uiOwns);
+	if (before == Mode::Look && now == Mode::Ui && g.window) {
+		POINT p = { (LONG)g.mouse.LookX(), (LONG)g.mouse.LookY() };
+		ClientToScreen(g.window, &p);
+		SetCursorPos(p.x, p.y);
+	}
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("ui.mouse", "mode=%s reason=%s", ModeName(now), reason);
+}
+
+const char* WorkspaceName(Workspace ws) { return ws == Workspace::Config ? "config" : (ws == Workspace::Render ? "render" : "editor"); }
+
+// Opens a workspace, or swaps the open one for it: the preview, the dock and the mouse stay as they
+// are, only the column changes.
+void Open(Workspace ws, const char* reason) {
+	g.editor.workspace = ws;
+	g_config.store(ws == Workspace::Config);
+	if (g_open.load()) {
+		if (Filmmaker::MvmDebugLog_Active())
+			Filmmaker::MvmDebugLog_Linef("ui.editor", "workspace=%s reason=%s", WorkspaceName(ws), reason);
+		return;
+	}
+	g_open.store(true);
+	g.editor.open = true;
+	g.mouse.Reset();
+	g_uiOwnsMouse.store(true);
+	SetMouseFree(true, "workspace open");
+	ShowArrow(true);
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("ui.editor", "open workspace=%s reason=%s", WorkspaceName(ws), reason);
+}
+
+void Open(DemoBarModel::Workspace ws, const char* reason) {
+	if (ws == DemoBarModel::Workspace::Editor) Open(Workspace::Editor, reason);
+	else if (ws == DemoBarModel::Workspace::Config) Open(Workspace::Config, reason);
+}
+
+void Close(const char* reason) {
+	if (!g_open.load()) return;
+	Filmmaker::Render_SetModalOpen(false); // the Render workspace lives inside the editor
+	g_open.store(false);
+	g.editor.open = false;
+	g_uiOwnsMouse.store(false);
+	g.mouse.Reset();
+	ShowArrow(false);
+	Publish(nullptr);
+	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("ui.editor", "close reason=%s", reason);
+}
+
+// The demos browser: a full page over the main menu (or over the game, from the console) that has the
+// mouse and the keys until ESC or a demo plays. Opening it closes a workspace and looks for demos again.
+void OpenDemos(const char* reason) {
+	if (g_demos.load()) return;
+	Close("demos browser");
+	g_demos.store(true);
+	g_uiOwnsMouse.store(true);
+	SetMouseFree(true, "demos browser");
+	g.haveGameCursor = false;
+	ShowArrow(true);
+	Demos_Command("refresh");
+	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("ui.demos", "open reason=%s", reason);
+}
+
+void CloseDemos(const char* reason) {
+	if (!g_demos.load()) return;
+	g_demos.store(false);
+	while (DemosBrowserEscape(g.demos)) {} // nothing half-done is left open for the next time
+	if (!g_director.load()) {
+		g_uiOwnsMouse.store(false);
+		ShowArrow(false);
+	}
+	Publish(nullptr);
+	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("ui.demos", "close reason=%s", reason);
+}
+
+// The page has every mouse button, the wheel and the keys (Alt combinations stay the game's, so Alt+F4
+// still quits). ESC closes what is open on the page, then the page.
+bool OnDemosMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+	ImGuiIO* io = g.context ? &ImGui::GetIO() : nullptr;
+	const float x = (float)GET_X_LPARAM(lParam), y = (float)GET_Y_LPARAM(lParam);
+	switch (msg) {
+	case WM_KEYDOWN:
+		if (WorkspaceKeyFor((int)wParam, true) == WorkspaceKey::Close) {
+			if (!(lParam & (1 << 30)) && !DemosBrowserEscape(g.demos)) CloseDemos("esc");
+			return true;
+		}
+		if (io) FeedImGuiKey(*io, (int)wParam, true);
+		return true;
+	case WM_KEYUP:
+		if (io) FeedImGuiKey(*io, (int)wParam, false);
+		return true;
+	case WM_CHAR:
+		if (io && io->WantTextInput) io->AddInputCharacterUTF16((unsigned short)wParam);
+		return true;
+	case WM_SETCURSOR:
+		if (LOWORD(lParam) != HTCLIENT) return false;
+		SetCursor(LoadCursor(nullptr, IDC_ARROW));
+		return true;
+	case WM_MOUSEMOVE:
+		if (io) io->AddMousePosEvent(x, y);
+		return true;
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONDBLCLK:
+	case WM_LBUTTONUP:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONDBLCLK:
+	case WM_RBUTTONUP:
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONUP: {
+		const bool down = msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK || msg == WM_RBUTTONDOWN || msg == WM_RBUTTONDBLCLK
+			|| msg == WM_MBUTTONDOWN;
+		const int button = (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK || msg == WM_LBUTTONUP) ? 0
+			: ((msg == WM_RBUTTONDOWN || msg == WM_RBUTTONDBLCLK || msg == WM_RBUTTONUP) ? 1 : 2);
+		if (io) {
+			io->AddMousePosEvent(x, y);
+			io->AddMouseButtonEvent(button, down);
+		}
+		if (Filmmaker::MvmDebugLog_Active())
+			Filmmaker::MvmDebugLog_Linef("ui.input", "demos msg=0x%x x=%.0f y=%.0f", msg, x, y);
+		return true;
+	}
+	case WM_MOUSEWHEEL:
+		if (io) io->AddMouseWheelEvent(0.0f, (float)GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA);
+		return true;
+	default:
+		return false;
+	}
+}
+
+// The main menu's DEMOS button: a click on it opens the browser; everything else is the game's menu.
+bool OnMenuButtonMessage(UINT msg, LPARAM lParam) {
+	const float x = (float)GET_X_LPARAM(lParam), y = (float)GET_Y_LPARAM(lParam);
+	const bool over = g.menuButton.Contains(x, y);
+	switch (msg) {
+	case WM_MOUSEMOVE:
+		g.menuButtonHover = over;
+		return false;
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONDBLCLK:
+		if (over) OpenDemos("menu button");
+		return over;
+	case WM_LBUTTONUP:
+		return over;
+	default:
+		return false;
+	}
+}
+
+// The main menu with no map or demo loaded, and the console shut.
+bool MainMenuShown() {
+	return g_VEngineClient && !g_VEngineClient->IsConnected() && !g_VEngineClient->IsPlayingDemo() && !g_VEngineClient->IsInGame()
+		&& !g_VEngineClient->Con_IsVisible();
+}
+
+// The director's cursor side: while it is free the arrow shows and the game gets no mouse; a look
+// gives the game the mouse, and its end puts the cursor back where the press was.
+void ApplyDirectorMode(DirectorMode before, const char* reason) {
+	const DirectorMode now = g.directorMouse.GetMode();
+	if (now == before) return;
+	const bool uiOwns = g_director.load() && now == DirectorMode::Free;
+	g_uiOwnsMouse.store(uiOwns);
+	if (g_director.load()) SetMouseFree(uiOwns, uiOwns ? "director cursor" : "director look");
+	g.haveGameCursor = false;
+	ShowArrow(uiOwns);
+	if (before == DirectorMode::Look && now == DirectorMode::Free && g.window) {
+		POINT p = { (LONG)g.directorMouse.LookX(), (LONG)g.directorMouse.LookY() };
+		ClientToScreen(g.window, &p);
+		SetCursorPos(p.x, p.y);
+	}
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("director.mouse", "mode=%s reason=%s", DirectorModeName(now), reason);
+}
+
+void EnterDirector() {
+	g_director.store(true);
+	g.directorMouse.Reset();
+	g.wheelRemainder = 0;
+	g_uiOwnsMouse.store(true);
+	SetMouseFree(true, "director");
+	g.haveGameCursor = false;
+	ShowArrow(true);
+	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("director", "on");
+}
+
+void LeaveDirector() {
+	g_director.store(false);
+	g.directorMouse.Reset();
+	g.bar = Rect();
+	if (!g_open.load() && !g_demos.load()) { // a workspace or the demos browser that opened keeps the mouse
+		g_uiOwnsMouse.store(false);
+		ShowArrow(false);
+		Publish(nullptr);
+	}
+	if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("director", "off");
+}
+
+bool OnDirectorMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
+	const int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+	ImGuiIO* io = g.context ? &ImGui::GetIO() : nullptr;
+	const int64_t now = NowMs();
+	const DirectorMode before = g.directorMouse.GetMode();
+	DirectorRoute route = DirectorRoute::Swallow;
+	const char* reason = "input";
+	switch (msg) {
+	case WM_MOUSEMOVE:
+		route = g.directorMouse.Move((float)x, (float)y, now);
+		if (route == DirectorRoute::Ui && io) io->AddMousePosEvent((float)x, (float)y);
+		reason = "drag";
+		break;
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONDBLCLK:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONDBLCLK:
+	case WM_MBUTTONDOWN: {
+		const int button = (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) ? DirectorMouse::Left
+			: (msg == WM_MBUTTONDOWN ? DirectorMouse::Middle : DirectorMouse::Right);
+		if (CameraPath_OwnsView() && !g.bar.Contains((float)x, (float)y) && !g.roster.Contains((float)x, (float)y) && g.directorMouse.GetMode() == DirectorMode::Free) {
+			route = DirectorRoute::Swallow; // the path flies the view: a press is no look and no player step (CS2)
+			break;
+		}
+		// While the CAMERA MARKER card is up, the whole window is the UI's (its catcher).
+		const Rect ui = g_markerMenu.load() ? MakeRect(-1e6f, -1e6f, 1e6f, 1e6f) : (g.roster.Contains((float)x, (float)y) ? g.roster : g.bar);
+		if (button == DirectorMouse::Left && CameraPath_Repositioning() && !ui.Contains((float)x, (float)y)) g.repositionPressAt = now;
+		route = g.directorMouse.ButtonDown(button, (float)x, (float)y, now, ui, Director_FreeCamOn());
+		if (route == DirectorRoute::Ui && io) {
+			io->AddMousePosEvent((float)x, (float)y);
+			io->AddMouseButtonEvent(button, true);
+		}
+		break;
+	}
+	case WM_LBUTTONUP:
+	case WM_RBUTTONUP:
+	case WM_MBUTTONUP: {
+		const int button = msg == WM_LBUTTONUP ? DirectorMouse::Left : (msg == WM_MBUTTONUP ? DirectorMouse::Middle : DirectorMouse::Right);
+		DirectorMouse::Click click = DirectorMouse::Click::None;
+		route = g.directorMouse.ButtonUp(button, now, click);
+		if (route == DirectorRoute::Ui && io) io->AddMouseButtonEvent(button, false);
+		if (CameraPath_Repositioning()) {
+			// A click drops the camera being repositioned where the view is; a held press still looks.
+			// The free cam turns every press into a look at once (DirectorMouse's steer), so a click
+			// is a left press let go before it would have become one (UiClickMath.h's 200 ms).
+			const bool quick = button == DirectorMouse::Left && g.repositionPressAt >= 0
+				&& !Filmmaker::UiClick::RightPressBecomesLook((int)(now - g.repositionPressAt), 0, 0);
+			if (click == DirectorMouse::Click::NextPlayer || quick) MainThread_Run(&CameraPath_PlaceReposition);
+			if (button == DirectorMouse::Left) g.repositionPressAt = -1;
+		} else if (click != DirectorMouse::Click::None) {
+			MainThread_Run([click] { Director_Click(click); });
+		}
+		reason = "look released";
+		break;
+	}
+	case WM_MOUSEWHEEL: {
+		if (g_markerMenu.load()) { // the card is up: the notch is its own
+			if (io) io->AddMouseWheelEvent(0.0f, (float)GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA);
+			route = DirectorRoute::Ui;
+			break;
+		}
+		// Every notch is the director's while a demo plays, over the bar too (CS2's MovieMode).
+		g.wheelRemainder += GET_WHEEL_DELTA_WPARAM(wParam);
+		const int notches = g.wheelRemainder / WHEEL_DELTA;
+		g.wheelRemainder -= notches * WHEEL_DELTA;
+		const WORD keys = GET_KEYSTATE_WPARAM(wParam);
+		const bool ctrl = (keys & MK_CONTROL) || GetKeyState(VK_CONTROL) < 0, shift = (keys & MK_SHIFT) || GetKeyState(VK_SHIFT) < 0;
+		if (notches) MainThread_Run([notches, ctrl, shift] { Director_Wheel(notches, ctrl, shift); });
+		break;
+	}
+	default:
+		return false;
+	}
+	ApplyDirectorMode(before, reason);
+	if (msg != WM_MOUSEMOVE && Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("director.input", "msg=0x%x x=%d y=%d mode=%s->%s route=%d", msg, x, y,
+			DirectorModeName(before), DirectorModeName(g.directorMouse.GetMode()), (int)route);
+	return route != DirectorRoute::Game;
+}
+
+// The director's keys inside the editor, as CS2's MovieMode keeps them there: Space, Left and Right
+// on the demo, X and Z roll the free cam, Shift slows it. F8's blackout stays the director's own.
+void FeedKey(WPARAM vk, bool down);
+
+bool EditorDirectorKey(UINT msg, WPARAM wParam, LPARAM lParam) {
+	const bool down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+	if (wParam == VK_SHIFT) {
+		MainThread_Run([down] { Director_SetSlow(down); }); // not used up: ImGui's fine drag needs it too
+		return false;
+	}
+	if (Director_RollKey((int)wParam, down, GetKeyState(VK_CONTROL) < 0)) return true;
+	const DirectorMath::Key key = DirectorMath::KeyFor((int)wParam);
+	if (key != DirectorMath::Key::TogglePause && key != DirectorMath::Key::SkipBack && key != DirectorMath::Key::SkipForward)
+		return false;
+	if (g.context && ImGui::GetIO().WantCaptureKeyboard) return false; // a focused control has it
+	if (down && !(lParam & (1 << 30))) MainThread_Run([key] { Director_Key(key); });
+	return true;
+}
+
+bool OnDirectorMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+	switch (msg) {
+	case WM_KEYDOWN:
+	case WM_KEYUP: {
+		if (wParam == VK_SHIFT) {
+			const bool slow = msg == WM_KEYDOWN;
+			MainThread_Run([slow] { Director_SetSlow(slow); }); // not used up: the game and mirv_input see it too
+			FeedKey(wParam, slow); // the bar's fine drag (the LOOP flags) reads it too
+			return false;
+		}
+		if (CameraPath_OnKey((int)wParam, msg == WM_KEYDOWN, msg == WM_KEYDOWN && (lParam & (1 << 30)))) return true;
+		if (Director_RollKey((int)wParam, msg == WM_KEYDOWN, GetKeyState(VK_CONTROL) < 0)) return true;
+		const DirectorMath::Key key = DirectorMath::KeyFor((int)wParam);
+		if (key == DirectorMath::Key::None) return false;
+		if (msg == WM_KEYDOWN && !(lParam & (1 << 30))) MainThread_Run([key] { Director_Key(key); }); // auto-repeat is ignored
+		return true; // both edges are the director's, so Space never jumps
+	}
+	case WM_SETCURSOR:
+		if (g_uiOwnsMouse.load() && LOWORD(lParam) == HTCLIENT) {
+			SetCursor(LoadCursor(nullptr, IDC_ARROW));
+			return true;
+		}
+		return false;
+	case WM_KILLFOCUS: {
+		const DirectorMode before = g.directorMouse.GetMode();
+		g.directorMouse.FocusLost();
+		ApplyDirectorMode(before, "focus lost");
+		return false;
+	}
+	case WM_MOUSEMOVE:
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONUP:
+	case WM_LBUTTONDBLCLK:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONUP:
+	case WM_RBUTTONDBLCLK:
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONUP:
+	case WM_MOUSEWHEEL:
+		return OnDirectorMouse(msg, wParam, lParam);
+	default:
+		return false;
+	}
+}
+
+void DrawMarkerPopups(const Rect& gameArea, float w, float h, std::vector<MarkerCardAction>& actions);
+void ApplyMarkerActions(const std::vector<MarkerCardAction>& actions);
+
+// The demos browser's frame: the page, then what it asked for.
+void DemosFrameBuild(float w, float h) {
+	Demos_BuildModel(g.demosModel);
+	ImGui::NewFrame();
+	const DemosBrowserFrame frame = DrawDemosBrowser(g.demos, g.fonts, w, h, g.demosModel);
+	ImGui::Render();
+	++g.frames;
+	bool close = frame.close;
+	for (const std::string& command : frame.commands) {
+		if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("ui.demos", "command %s", command.c_str());
+		if (Demos_Command(command)) close = true;
+	}
+	if (Demos_PageDone()) close = true;
+	if (close) {
+		CloseDemos(frame.close ? "close chip" : "demo playing");
+		return;
+	}
+	std::shared_ptr<DrawSnapshot> snapshot = TakeSnapshot(ImGui::GetDrawData());
+	snapshot->letterbox = false;
+	Publish(std::move(snapshot));
+}
+
+// The main menu's frame: the DEMOS button alone.
+void MenuButtonFrame(float w, float h) {
+	ImGui::NewFrame();
+	g.menuButton = DrawDemosMenuButton(g.fonts, w, h, g.menuButtonHover);
+	ImGui::Render();
+	++g.frames;
+	std::shared_ptr<DrawSnapshot> snapshot = TakeSnapshot(ImGui::GetDrawData());
+	snapshot->letterbox = false;
+	Publish(std::move(snapshot));
+}
+
+CameraAdjustModel CurrentAdjust() {
+    int seq = 0, kind = 0, dir = 0;
+    Filmmaker::CameraBridge_LastFreeCamAdjust(seq, kind, dir);
+    if (seq != g.adjustSeq) {
+        g.adjustSeq = seq; g.adjustAt = NowMs();
+        g.adjust.kind = kind; g.adjust.direction = dir;
+        Director_BuildCards(g.cards);
+    }
+    g.adjust.age = (NowMs() - g.adjustAt) / 1000.0;
+    g.adjust.value = g.adjust.kind == 1 ? g.cards.speed : View_Rendered().fov;
+    return g.adjust;
+}
+
+// The director's frame: the bar and the cards over the game.
+void DirectorFrameBuild(float w, float h) {
+	ImGuiIO& io = ImGui::GetIO();
+	{
+		const DirectorMode before = g.directorMouse.GetMode();
+		g.directorMouse.Tick(NowMs()); // a press held long enough looks even without moving
+		ApplyDirectorMode(before, "hold");
+	}
+	if (g.directorMouse.GetMode() != DirectorMode::Free) io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+
+	DemoBarModel demo;
+	DemoBar_BuildModel(demo);
+	if (g.cadence.Ready((uint64_t)NowMs(), 10, false)) Director_BuildCards(g.cards);
+	const float spectatorBar = Director_SpectatorBarHeight(h);
+	ImGui::NewFrame();
+	const DirectorFrame frame = DrawDirector(Director_State(), demo, g.cards, g.fonts, w, h, spectatorBar, 0);
+	g.roster = frame.roster;
+	DrawCameraAdjust(CurrentAdjust(), g.fonts, h, MakeRect(0, 0, w, h));
+	if (frame.observeUserId >= 0) MainThread_Run([id = frame.observeUserId] { Director_WatchPlayer(id); });
+	std::vector<MarkerCardAction> markerActions;
+	if (!Director_State().blackout) DrawMarkerPopups(MakeRect(0, 0, w, h), w, h, markerActions);
+	ImGui::Render();
+	g.bar = frame.bar;
+	++g.frames;
+	ApplyMarkerActions(markerActions);
+	const DemoBarModel::Workspace open = DemoBar_Apply(frame.demoActions);
+	if (open != DemoBarModel::Workspace::None) {
+		Open(open, "demo bar");
+		return;
+	}
+	std::shared_ptr<DrawSnapshot> snapshot = TakeSnapshot(ImGui::GetDrawData());
+	snapshot->letterbox = false;
+	Publish(std::move(snapshot));
+}
+
+void EnsureContext() {
+	if (g.context) return;
+	IMGUI_CHECKVERSION();
+	g.context = ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO();
+	io.IniFilename = nullptr;
+	io.LogFilename = nullptr;
+	io.BackendPlatformName = "AfxHookSource";
+	io.BackendRendererName = "AfxHookSource DX9";
+	io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+	g.fontDir = FontsFolder();
+	QueryPerformanceFrequency(&g.frequency);
+	QueryPerformanceCounter(&g.lastTime);
+}
+
+// Builds the font atlas and style for this window height when the scale changed.
+void EnsureFonts(float clientH) {
+	const float scale = clientH / kStageHeight;
+	if (g.fonts.scale > 0 && std::fabs(g.fonts.scale - scale) < 0.001f) return;
+	ImGuiIO& io = ImGui::GetIO();
+	g.fonts = BuildFonts(io.Fonts, g.fontDir, scale);
+	ApplyStyle(ImGui::GetStyle(), scale);
+	unsigned char* pixels = nullptr;
+	int w = 0, h = 0;
+	io.Fonts->GetTexDataAsRGBA32(&pixels, &w, &h);
+	io.Fonts->SetTexID(kFontTextureId);
+	{
+		std::lock_guard<std::mutex> lock(g_frameMutex);
+		g_fontPixels.width = w;
+		g_fontPixels.height = h;
+		g_fontPixels.rgba.assign(pixels, pixels + (size_t)w * h * 4);
+		++g_fontPixels.version;
+	}
+	if (Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("ui.fonts", "scale=%.3f atlas=%dx%d files=%s dir=%s", scale, w, h,
+			g.fonts.ok ? "ok" : "MISSING (built-in fallback)", g.fontDir.c_str());
+}
+
+void FeedKey(WPARAM vk, bool down) {
+	if (g.context) FeedImGuiKey(ImGui::GetIO(), (int)vk, down);
+}
+
+bool OnMouse(UINT msg, WPARAM wParam, LPARAM lParam) {
+	const int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+	ImGuiIO* io = g.context ? &ImGui::GetIO() : nullptr;
+	const int64_t now = NowMs();
+	const Mode before = g.mouse.GetMode();
+	Route route = Route::Game;
+	const char* reason = "input";
+	switch (msg) {
+	case WM_MOUSEMOVE:
+		route = g.mouse.Move((float)x, (float)y, now);
+		if (route == Route::Ui && io) io->AddMousePosEvent((float)x, (float)y);
+		reason = "right drag";
+		break;
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONDBLCLK:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONDBLCLK: {
+		const int button = (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) ? WorkspaceMouse::Left : WorkspaceMouse::Right;
+		if (button == WorkspaceMouse::Left && before != Mode::Ui && CameraPath_Repositioning()) {
+			// Repositioning while the game has the mouse: the click drops the camera where the view is.
+			MainThread_Run(&CameraPath_PlaceReposition);
+			return true;
+		}
+		if (button == WorkspaceMouse::Left && before != Mode::Ui && FollowCamera_Repositioning()) {
+			// The follow camera's reposition: the click saves the pose where the view is.
+			MainThread_Run(&FollowCamera_PlaceReposition);
+			return true;
+		}
+		route = g.mouse.ButtonDown(button, (float)x, (float)y, now, g.roster.Contains((float)x, (float)y) ? Rect() : g.preview);
+		if (route == Route::Ui && io) {
+			io->AddMousePosEvent((float)x, (float)y);
+			io->AddMouseButtonEvent(button, true);
+		}
+		reason = button == WorkspaceMouse::Left ? "click in preview" : "right press";
+		break;
+	}
+	case WM_LBUTTONUP:
+	case WM_RBUTTONUP: {
+		const int button = msg == WM_LBUTTONUP ? WorkspaceMouse::Left : WorkspaceMouse::Right;
+		route = g.mouse.ButtonUp(button, now);
+		if (route == Route::Ui && io) io->AddMouseButtonEvent(button, false);
+		reason = "look released";
+		break;
+	}
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONUP:
+		route = before == Mode::Ui ? Route::Ui : Route::Game;
+		if (route == Route::Ui && io) io->AddMouseButtonEvent(WorkspaceMouse::Middle, msg == WM_MBUTTONDOWN);
+		break;
+	case WM_MOUSEWHEEL: {
+		POINT p = { x, y };
+		if (g.window) ScreenToClient(g.window, &p); // wheel coordinates are screen coordinates
+		route = g.mouse.Wheel((float)p.x, (float)p.y, g.preview);
+		if (route == Route::Ui && io)
+			io->AddMouseWheelEvent(0.0f, (float)GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA);
+		if (route == Route::Game) {
+			// Over the game, the wheel is the director's here too, as CS2's MovieMode keeps it in the
+			// editor: Ctrl is FOV, Shift the free cam's speed, a plain notch the camera.
+			g.wheelRemainder += GET_WHEEL_DELTA_WPARAM(wParam);
+			const int notches = g.wheelRemainder / WHEEL_DELTA;
+			g.wheelRemainder -= notches * WHEEL_DELTA;
+			const WORD keys = GET_KEYSTATE_WPARAM(wParam);
+			const bool ctrl = (keys & MK_CONTROL) || GetKeyState(VK_CONTROL) < 0, shift = (keys & MK_SHIFT) || GetKeyState(VK_SHIFT) < 0;
+			if (notches) MainThread_Run([notches, ctrl, shift] { Director_Wheel(notches, ctrl, shift); });
+			route = Route::Swallow;
+		}
+		break;
+	}
+	default:
+		return false;
+	}
+	ApplyMode(before, reason);
+	return route != Route::Game;
+}
+
+// The CAMERA MARKER card's model, read from the camera path.
+MarkerCardModel BuildMarkerModel() {
+	MarkerCardModel m;
+	const PathState s = CameraPath_State();
+	const Filmmaker::CamMarkers& markers = CameraPath_Markers();
+	m.selected = s.selected;
+	m.count = s.count;
+	m.speedMode = s.settings.speedMode;
+	m.interp = s.settings.interp;
+	m.timing = s.settings.timing;
+	m.autoSnap = s.settings.autoSnap;
+	m.constSpeed = s.settings.constSpeed;
+	if (markers.ValidIndex(s.selected)) {
+		m.speedMul = markers.At(s.selected).speedMul;
+		m.isLast = s.selected == markers.Count() - 1;
+	}
+	return m;
+}
+
+void ApplyMarkerActions(const std::vector<MarkerCardAction>& actions) {
+	using Kind = MarkerCardAction::Kind;
+	for (const MarkerCardAction& a : actions) {
+		const PathState s = CameraPath_State();
+		if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("path.card", "kind=%d value=%.2f", (int)a.kind, a.value);
+		switch (a.kind) {
+		case Kind::Previous: CameraPath_SelectStep(-1); break;
+		case Kind::Next: CameraPath_SelectStep(1); break;
+		case Kind::CycleSpeedMode: CameraPath_SetSpeedMode((s.settings.speedMode + 1) % 3); break;
+		case Kind::CycleInterp: CameraPath_SetInterp(s.settings.interp == 1 ? 0 : 1); break;
+		case Kind::ToggleTiming: CameraPath_SetTiming(s.settings.timing == 1 ? 0 : 1); break;
+		case Kind::ToggleAutoSnap: CameraPath_SetAutoSnap(!s.settings.autoSnap); break;
+		case Kind::ConstSpeed: CameraPath_SetConstSpeed(a.value); break;
+		case Kind::SpeedMul: CameraPath_SetSpeedMul(s.selected, a.value); break;
+		case Kind::Reposition:
+			CameraPath_BeginReposition();
+			if (g_open.load() && CameraPath_Repositioning() && g.mouse.GetMode() == Mode::Ui) { // the free cam is the user's to fly
+				const Mode before = g.mouse.GetMode();
+				g.mouse.ToggleGame();
+				ApplyMode(before, "reposition");
+			}
+			break;
+		case Kind::Remove: CameraPath_Delete(s.selected); break;
+		case Kind::RemoveAll: CameraPath_DeleteAll(); break;
+		case Kind::Close: CameraPath_CloseMenu(); break;
+		default: break;
+		}
+	}
+}
+
+// Over the game (gameArea, client px): the CAMERA MARKER card while it is up, else CS2's prompt
+// banner for a notice or a camera being repositioned. Inside an ImGui frame.
+void DrawMarkerPopups(const Rect& gameArea, float w, float h, std::vector<MarkerCardAction>& actions) {
+	const PathState s = CameraPath_State();
+	g_markerMenu.store(s.menuOpen);
+	if (s.menuOpen) {
+		DrawMarkerCard(g.markerCard, BuildMarkerModel(), g.fonts, w, h, actions);
+		return;
+	}
+	g.markerCard.confirmRemoveAll = false;
+	char title[64];
+	PathBanner banner;
+	if (*s.notice) {
+		banner.title = "CAMERA PATH";
+		banner.line = s.notice;
+	} else if (s.mode == PathMode::Reposition) {
+		std::snprintf(title, sizeof(title), "REPOSITIONING CAMERA #%d", s.selected + 1);
+		banner.title = title;
+		banner.line = "Move to the new position, then left-click to place.";
+		banner.keys = "LEFT CLICK / F  place        ESC  cancel";
+	} else {
+		return;
+	}
+	DrawPathBanner(ImGui::GetForegroundDrawList(), banner, g.fonts, gameArea);
+}
+
+// The TIMELINE dock's model: its keys and what the game side knows.
+// The camera path's shake track, as CS2's dock reads it: CamPathShake's dock JSON (pathKeys, shakes,
+// shakeEssentials, shakeStyles).
+void FillShakeTrack(TimelineDockModel& m) {
+	std::ostringstream o;
+	Filmmaker::CamPathShake_AppendDockJson(o);
+	const std::string fields = o.str();
+	Filmmaker::JsonValue root;
+	if (fields.size() < 2 || !Filmmaker::JsonParse("{" + fields.substr(1) + "}", root)) return;
+	if (const Filmmaker::JsonValue* keys = root.Find("pathKeys"))
+		for (const Filmmaker::JsonValue& t : keys->arr) m.pathKeys.push_back(t.AsNumber());
+	if (const Filmmaker::JsonValue* shakes = root.Find("shakes")) {
+		for (const Filmmaker::JsonValue& j : shakes->arr) {
+			TimelineDockMath::ShakeKey k;
+			if (const Filmmaker::JsonValue* v = j.Find("t")) k.t = v->AsNumber();
+			if (const Filmmaker::JsonValue* v = j.Find("s")) k.s = v->AsInt();
+			if (const Filmmaker::JsonValue* v = j.Find("n")) k.n = v->AsInt();
+			if (const Filmmaker::JsonValue* v = j.Find("p")) k.p = v->AsInt();
+			if (const Filmmaker::JsonValue* v = j.Find("o")) k.oneShot = v->AsInt() != 0;
+			const Filmmaker::JsonValue* label = j.Find("l");
+			m.shakes.push_back(k);
+			m.shakeLabels.push_back(label ? label->AsString() : std::string());
+		}
+	}
+	if (const Filmmaker::JsonValue* v = root.Find("shakeEssentials")) m.shakeEssentials = v->AsInt(5);
+	if (const Filmmaker::JsonValue* styles = root.Find("shakeStyles"))
+		for (const Filmmaker::JsonValue& st : styles->arr)
+			if (st.arr.size() >= 2) m.shakeStyles.emplace_back(st.arr[0].AsInt(), st.arr[1].AsString());
+}
+
+TimelineDockModel BuildTimelineModel() {
+	TimelineDockModel m;
+	const TimelineDockInfo info = TimelineDock_Info();
+	const DemoState demo = Demo_State();
+	m.keys = &TimelineDock_Model();
+	m.demo = demo.playing;
+	m.configOpen = g.editor.workspace == Workspace::Config;
+	m.viewEpoch = info.viewEpoch;
+	m.viewT0 = info.viewT0;
+	m.viewT1 = info.viewT1;
+	m.domainT0 = info.domainT0;
+	m.domainT1 = info.domainT1;
+	m.playhead = info.playhead;
+	m.scrubbing = info.scrubbing;
+	m.playing = info.playing;
+	m.pathPlaying = info.pathPlaying;
+	m.drive = info.drive;
+	m.autoPath = info.autoPath;
+	m.smoothPath = info.smoothPath;
+	m.tickRate = info.tickRate;
+	m.timescale = demo.timescale;
+	m.scrubCache = Filmmaker::ScrubFrameCache_Enabled();
+	for (int c = 0; c < 7; ++c) m.live[c] = info.live[c];
+	FillShakeTrack(m);
+	return m;
+}
+
+void ApplyTimelineActions(const std::vector<TimelineDockAction>& actions) {
+	using Kind = TimelineDockAction::Kind;
+	for (const TimelineDockAction& a : actions) {
+		switch (a.kind) {
+		case Kind::Select: TimelineDock_Select(a.ch, a.id, a.flag); break;
+		case Kind::SelectSet: TimelineDock_SelectSet(a.keys); break;
+		case Kind::SelectAll: TimelineDock_SelectAll(); break;
+		case Kind::SelectClear: TimelineDock_SelectClear(); break;
+		case Kind::EditBegin: TimelineDock_EditBegin(); break;
+		case Kind::MoveSelected: TimelineDock_MoveSelectedBy(a.a, a.b); break;
+		case Kind::AddKey: TimelineDock_AddKey(a.ch, a.a, a.b); break;
+		case Kind::DeleteSelected: TimelineDock_DeleteSelected(); break;
+		case Kind::Ease: TimelineDock_Ease(a.id, a.flag); break;
+		case Kind::Interp: TimelineDock_SetInterp(a.flag, a.id == 1); break;
+		case Kind::AlignKey: TimelineDock_AlignToKey(a.ch, a.id); break;
+		case Kind::Handle: TimelineDock_SetHandle(a.ch, a.id, a.side, a.a, a.b, a.flag); break;
+		case Kind::Undo: TimelineDock_Undo(); break;
+		case Kind::Redo: TimelineDock_Redo(); break;
+		case Kind::Drive: TimelineDock_SetDrive(a.flag); break;
+		case Kind::AutoPath: CameraPath_SetAutoPath(a.flag); break;
+		case Kind::Playhead: TimelineDock_Playhead(a.a, false); break;
+		case Kind::PlayheadRelease: TimelineDock_Playhead(a.a, true); break;
+		case Kind::PlayPause:
+			// Space's rule: the demo plays; a camera path that is playing pauses.
+			if (CameraPath_State().mode == PathMode::Playing) CameraPath_Pause();
+			else DemoBar_Apply({ DemoBarAction{ DemoBarAction::Kind::TogglePause } });
+			break;
+		case Kind::Speed: {
+			DemoBarAction speed;
+			speed.kind = DemoBarAction::Kind::Speed;
+			speed.value = a.a;
+			DemoBar_Apply({ speed });
+			break;
+		}
+		case Kind::Workspace:
+			Open(a.flag ? Workspace::Config : Workspace::Editor, "dock");
+			break;
+		case Kind::ScrubCache: Filmmaker::ScrubFrameCache_SetEnabled(a.flag); break;
+		case Kind::ShakeCommand:
+			if (g_VEngineClient) g_VEngineClient->ClientCmd_Unrestricted(("mirv_filmmaker pathshake " + a.text).c_str());
+			break;
+		}
+	}
+}
+
+// The PATH CAMERA tab's model, read from the camera path.
+PathInspectorModel BuildPathModel() {
+	PathInspectorModel m;
+	const Filmmaker::CamMarkers& markers = CameraPath_Markers();
+	const PathState s = CameraPath_State();
+	m.keys.resize((size_t)markers.Count());
+	for (int i = 0; i < markers.Count(); ++i) {
+		const Filmmaker::CamMarker& marker = markers.At(i);
+		PathInspectorKey& k = m.keys[(size_t)i];
+		k.tick = marker.tick;
+		k.fov = marker.fov;
+		k.roll = marker.roll;
+		k.ease = (int)marker.ease;
+		k.speedMul = marker.speedMul;
+	}
+	m.selected = s.selected;
+	m.interp = s.settings.interp;
+	m.speedMode = s.settings.speedMode;
+	m.timing = s.settings.timing;
+	m.constSpeed = s.settings.constSpeed;
+	m.tick = Demo_State().tick;
+	m.repositioning = s.mode == PathMode::Reposition;
+	return m;
+}
+
+// What the PATH CAMERA tab asked for, through the camera path as CS2's tab goes through its own.
+void ApplyPathActions(const std::vector<PathInspectorAction>& actions) {
+	using Kind = PathInspectorAction::Kind;
+	for (const PathInspectorAction& a : actions) {
+		if (Filmmaker::MvmDebugLog_Active() && a.kind != Kind::EditValue)
+			Filmmaker::MvmDebugLog_Linef("path.inspector", "kind=%d index=%d channel=%d tick=%d value=%.3f", (int)a.kind, a.index,
+				a.channel, a.tick, a.value);
+		switch (a.kind) {
+		case Kind::Select: CameraPath_SelectForEditor(a.index); break;
+		case Kind::SelectDelta: CameraPath_SelectDelta(a.index); break;
+		case Kind::Add: CameraPath_Place(); break;
+		case Kind::ClearAll: CameraPath_DeleteAll(); break;
+		case Kind::Reposition:
+			CameraPath_BeginReposition();
+			if (CameraPath_Repositioning() && g.mouse.GetMode() == Mode::Ui) { // the free cam is the user's to fly
+				const Mode before = g.mouse.GetMode();
+				g.mouse.ToggleGame();
+				ApplyMode(before, "reposition");
+			}
+			break;
+		case Kind::MoveToPlayhead: CameraPath_MoveKey(a.index, a.tick); break;
+		case Kind::Delete: CameraPath_Delete(a.index); break;
+		case Kind::EditBegin: CameraPath_EditBegin(); break;
+		case Kind::EditValue: CameraPath_EditValue(a.index, a.channel, a.value); break;
+		case Kind::EditEnd: CameraPath_EditEnd(); break;
+		case Kind::Interp: CameraPath_SetInterp(a.index); break;
+		case Kind::Ease: CameraPath_SetEase(a.index, (Filmmaker::Ease)(int)a.value); break;
+		case Kind::SpeedMode: CameraPath_SetSpeedMode(a.index); break;
+		case Kind::SpeedMul: CameraPath_SetSpeedMul(a.index, (float)a.value); break;
+		case Kind::ConstSpeed: CameraPath_SetConstSpeed((float)a.value); break;
+		case Kind::Timing: CameraPath_SetTiming(a.index); break;
+		default: break;
+		}
+	}
+}
+
+bool UiWindowMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+	if (g_demos.load()) return OnDemosMessage(msg, wParam, lParam);
+	if (!g_open.load()) {
+		if (g_menu.load() && OnMenuButtonMessage(msg, lParam)) return true;
+		return g_director.load() && OnDirectorMessage(msg, wParam, lParam);
+	}
+
+	switch (msg) {
+	case WM_KEYDOWN:
+	case WM_SYSKEYDOWN:
+		if (!(g.context && ImGui::GetIO().WantTextInput)) {
+			// The camera path's and follow camera's keys are the Camera Editor's (its key strip).
+			if (!g_config.load() && FollowCamera_OnKey((int)wParam, true)) return true;
+			if (!g_config.load() && CameraPath_OnKey((int)wParam, true, (lParam & (1 << 30)) != 0)) return true;
+			// T fires a Weapon Recoil test shot while Config is open, as CS2's MovieMode does.
+			if (g_config.load() && wParam == 'T') {
+				if (!(lParam & (1 << 30))) Config_RunCommands({ "mirv_filmmaker weaponrecoil test" });
+				return true;
+			}
+			if (EditorDirectorKey(msg, wParam, lParam)) return true;
+		}
+		switch (WorkspaceKeyFor((int)wParam, g.context && ImGui::GetIO().WantTextInput)) {
+		case WorkspaceKey::Close:
+			if (g.editor.dock == DockTab::Timeline && TimelineDockEscape(g.editor.timeline)) return true;
+			if (g_config.load() && ConfigEscape(g.editor.config)) return true;
+			if (Filmmaker::Render_IsModalOpen()) { // ESC leaves Render for the editor, as its BACK does
+				Filmmaker::Render_SetModalOpen(false);
+				return true;
+			}
+			Close("esc");
+			return true;
+		case WorkspaceKey::ToggleGame:
+			if (!(lParam & (1 << 30))) { // not auto-repeat
+				const Mode before = g.mouse.GetMode();
+				g.mouse.ToggleGame();
+				ApplyMode(before, "G");
+			}
+			return true;
+		default:
+			break;
+		}
+		FeedKey(wParam, true);
+		return g.context && ImGui::GetIO().WantCaptureKeyboard;
+	case WM_KEYUP:
+	case WM_SYSKEYUP:
+		if (!(g.context && ImGui::GetIO().WantTextInput)) {
+			if (!g_config.load() && FollowCamera_OnKey((int)wParam, false)) return true;
+			if (!g_config.load() && CameraPath_OnKey((int)wParam, false, false)) return true;
+			if (EditorDirectorKey(msg, wParam, lParam)) return true;
+		}
+		FeedKey(wParam, false);
+		if (WorkspaceKeyFor((int)wParam, g.context && ImGui::GetIO().WantTextInput) != WorkspaceKey::None) return true;
+		return g.context && ImGui::GetIO().WantCaptureKeyboard;
+	case WM_CHAR:
+		if (g.context && ImGui::GetIO().WantTextInput) {
+			ImGui::GetIO().AddInputCharacterUTF16((unsigned short)wParam);
+			return true;
+		}
+		return false;
+	case WM_SETCURSOR:
+		if (g_uiOwnsMouse.load() && LOWORD(lParam) == HTCLIENT) {
+			SetCursor(LoadCursor(nullptr, IDC_ARROW));
+			return true;
+		}
+		return false;
+	case WM_KILLFOCUS: {
+		const Mode before = g.mouse.GetMode();
+		g.mouse.FocusLost();
+		ApplyMode(before, "focus lost");
+		return false;
+	}
+	case WM_MOUSEMOVE:
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONUP:
+	case WM_LBUTTONDBLCLK:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONUP:
+	case WM_RBUTTONDBLCLK:
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONUP:
+	case WM_MOUSEWHEEL: {
+		const Mode before = g.mouse.GetMode();
+		const bool consumed = OnMouse(msg, wParam, lParam);
+		if (msg != WM_MOUSEMOVE && Filmmaker::MvmDebugLog_Active())
+			Filmmaker::MvmDebugLog_Linef("ui.input", "msg=0x%x x=%d y=%d mode=%s->%s consumed=%d panelHovered=%d",
+				msg, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), ModeName(before), ModeName(g.mouse.GetMode()),
+				consumed ? 1 : 0, g.panelHovered ? 1 : 0);
+		return consumed;
+	}
+	default:
+		return false;
+	}
+}
+
+// Cursor calls from modules main.cpp's import hooks leave out: vguimatsurface and client.dll hide the
+// in-game cursor with SetCursor and capture it with SetCapture, the engine counts it with ShowCursor.
+HCURSOR WINAPI HookSetCursor(HCURSOR cursor) {
+	HCURSOR result;
+	return Ui_OnSetCursor(cursor, result) ? result : SetCursor(cursor);
+}
+
+HWND WINAPI HookSetCapture(HWND window) {
+	HWND result;
+	return Ui_OnSetCapture(window, result) ? result : SetCapture(window);
+}
+
+int WINAPI HookShowCursor(BOOL show) {
+	const int count = ShowCursor(show);
+	if (CursorLogSlot())
+		Filmmaker::MvmDebugLog_Linef("ui.cursor", "ShowCursor %d -> %d uiOwns=%d free=%d front=%d", show ? 1 : 0, count,
+			g_uiOwnsMouse.load() ? 1 : 0, g_mouseFree.load() ? 1 : 0, GameInFront() ? 1 : 0);
+	return count;
+}
+
+CAfxImportFuncHook<HCURSOR(WINAPI*)(HCURSOR)> g_surfaceSetCursor("SetCursor", &HookSetCursor);
+CAfxImportFuncHook<HWND(WINAPI*)(HWND)> g_surfaceSetCapture("SetCapture", &HookSetCapture);
+CAfxImportDllHook g_surfaceUser32("USER32.dll", CAfxImportDllHooks({ &g_surfaceSetCursor, &g_surfaceSetCapture }));
+CAfxImportsHook g_surfaceImports(CAfxImportsHooks({ &g_surfaceUser32 }));
+
+CAfxImportFuncHook<HCURSOR(WINAPI*)(HCURSOR)> g_clientSetCursor("SetCursor", &HookSetCursor);
+CAfxImportDllHook g_clientUser32("USER32.dll", CAfxImportDllHooks({ &g_clientSetCursor }));
+CAfxImportsHook g_clientImports(CAfxImportsHooks({ &g_clientUser32 }));
+
+CAfxImportFuncHook<int(WINAPI*)(BOOL)> g_engineShowCursor("ShowCursor", &HookShowCursor);
+CAfxImportDllHook g_engineUser32("USER32.dll", CAfxImportDllHooks({ &g_engineShowCursor }));
+CAfxImportsHook g_engineImports(CAfxImportsHooks({ &g_engineUser32 }));
+
+void ApplyCursorHooks(const char* module, CAfxImportsHook& hook) {
+	HMODULE handle = GetModuleHandleA(module);
+	if (!handle || !hook.Apply(handle)) {
+		advancedfx::Warning("SOURCE:MVM: %s's cursor calls are not hooked; the game may hide the cursor under the UI.\n", module);
+		return;
+	}
+	if (!g_cursorHookModules.empty()) g_cursorHookModules += ", ";
+	g_cursorHookModules += module;
+}
+
+} // namespace
+
+bool Ui_OnWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+	if (!g.window) g.window = hwnd;
+	const bool used = UiWindowMessage(msg, wParam, lParam);
+	switch (msg) {
+	case WM_ACTIVATE:
+		if (LOWORD(wParam) == WA_INACTIVE) SetMouseFree(true, "deactivate");
+		break;
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONDBLCLK:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONDBLCLK:
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONDBLCLK:
+	case WM_XBUTTONDOWN:
+	case WM_XBUTTONDBLCLK:
+		if (!used) SetMouseFree(false, "game click"); // a press the UI did not take is the game's
+		break;
+	default:
+		break;
+	}
+	return used;
+}
+
+void Ui_InstallCursorHooks() {
+	static bool installed = false;
+	if (installed) return;
+	installed = true;
+	ApplyCursorHooks("vguimatsurface.dll", g_surfaceImports);
+	ApplyCursorHooks("client.dll", g_clientImports);
+	ApplyCursorHooks("engine.dll", g_engineImports);
+}
+
+void Ui_MainThreadFrame() {
+	Director_Frame();
+	TimelineDock_SetEnabled(g_open.load() && g.editor.dock == DockTab::Timeline);
+	if (!g.window) return;
+	const bool director = !g_open.load() && !g_demos.load() && Director_Wanted();
+	if (director != g_director.load()) {
+		if (director) EnterDirector();
+		else LeaveDirector();
+	}
+	const bool menu = !g_open.load() && !g_demos.load() && !director && MainMenuShown();
+	if (menu != g_menu.load()) {
+		g_menu.store(menu);
+		if (!menu) {
+			g.menuButton = Rect();
+			g.menuButtonHover = false;
+			Publish(nullptr);
+		}
+	}
+	if (!g_open.load() && !director && !g_demos.load() && !menu) return;
+	RECT rc;
+	if (!GetClientRect(g.window, &rc)) return;
+	const float w = (float)(rc.right - rc.left), h = (float)(rc.bottom - rc.top);
+	if (!(w > 0) || !(h > 0)) return;
+
+	EnsureContext();
+	EnsureFonts(h);
+
+	ImGuiIO& io = ImGui::GetIO();
+	io.DisplaySize = ImVec2(w, h);
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	float dt = g.frequency.QuadPart > 0 ? (float)(now.QuadPart - g.lastTime.QuadPart) / (float)g.frequency.QuadPart : 0.0f;
+	g.lastTime = now;
+	io.DeltaTime = dt > 0.0f ? (dt < 0.25f ? dt : 0.25f) : 1.0f / 60.0f;
+	if (g_demos.load()) {
+		DemosFrameBuild(w, h);
+		return;
+	}
+	if (menu) {
+		MenuButtonFrame(w, h);
+		return;
+	}
+	if (director) {
+		DirectorFrameBuild(w, h);
+		return;
+	}
+	{
+		const Mode before = g.mouse.GetMode();
+		g.mouse.Tick(NowMs()); // a right press held long enough looks even without moving
+		ApplyMode(before, "right hold");
+	}
+	if (g.mouse.GetMode() != Mode::Ui) io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); // nothing hovers while the game has the mouse
+
+	// A camera placed by F (or cancelled) while the game had the mouse for it: the cursor comes back.
+	const bool repositioning = CameraPath_Repositioning();
+	if (g.wasRepositioning && !repositioning && g.mouse.GetMode() == Mode::Game) {
+		const Mode before = g.mouse.GetMode();
+		g.mouse.ToggleGame();
+		ApplyMode(before, "reposition done");
+	}
+	g.wasRepositioning = repositioning;
+
+	// The Render workspace follows the shared render state (`render open` / `close`, the editor's RENDER
+	// button, its BACK and ESC); Config closes it.
+	if (g.editor.workspace == Workspace::Config && Filmmaker::Render_IsModalOpen()) Filmmaker::Render_SetModalOpen(false);
+	if (Filmmaker::Render_IsModalOpen() && g.editor.workspace == Workspace::Editor) g.editor.workspace = Workspace::Render;
+	else if (!Filmmaker::Render_IsModalOpen() && g.editor.workspace == Workspace::Render) g.editor.workspace = Workspace::Editor;
+
+	DemoBarModel demo;
+	DemoBar_BuildModel(demo);
+	const PathInspectorModel path = BuildPathModel();
+	const TimelineDockModel timeline = BuildTimelineModel();
+	const bool configOpen = g.editor.workspace == Workspace::Config;
+	FollowInspectorModel follow; // read only while its tab shows: the state lists every player
+	if (!configOpen && g.editor.tab == InspectorTab::FollowCamera) FollowCamera_InspectorModel(follow);
+	ConfigModel config;
+	if (configOpen) Config_BuildModel(config);
+	RenderWorkspaceModel render;
+	Render_BuildModel(render, demo);
+	demo.renderOpen = g.editor.workspace == Workspace::Render; // the bar's flags become the render range
+	demo.renderRangeSet = render.rangeOk;
+	demo.renderRange.in = render.in;
+	demo.renderRange.out = render.out - 1;
+	if (g.cadence.Ready((uint64_t)NowMs(), 10, false)) Director_BuildCards(g.cards);
+	ImGui::NewFrame();
+	const CameraEditorFrame frame = DrawCameraEditor(g.editor, g.fonts, w, h, demo, path, follow, timeline, config, render);
+	const DirectorFrame hud = DrawMatchHud(g.cards, g.fonts, h, frame.previewClient, !frame.modal);
+	g.roster = frame.modal ? Rect() : hud.roster;
+	if (hud.observeUserId >= 0) MainThread_Run([id = hud.observeUserId] { Director_WatchPlayer(id); });
+	DrawCameraAdjust(CurrentAdjust(), g.fonts, h, frame.previewClient);
+	std::vector<MarkerCardAction> markerActions;
+	DrawMarkerPopups(frame.previewClient, w, h, markerActions);
+	ImGui::Render();
+	Open(DemoBar_Apply(frame.demoActions), "swap button"); // inside a workspace the bar swaps to the other
+	ApplyPathActions(frame.pathActions);
+	FollowCamera_RunCommands(frame.followCommands);
+	ApplyTimelineActions(frame.timelineActions);
+	Config_RunCommands(frame.configCommands);
+	Render_RunCommands(frame.renderCommands);
+	ApplyMarkerActions(markerActions);
+
+	g.preview = frame.modal || g_markerMenu.load() ? Rect() : frame.previewClient;
+	if (g.panelHovered != io.WantCaptureMouse && Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("ui.hover", "panelHovered=%d mouse=(%.0f %.0f) tab=%d dock=%d",
+			io.WantCaptureMouse ? 1 : 0, io.MousePos.x, io.MousePos.y, (int)g.editor.tab, (int)g.editor.dock);
+	g.panelHovered = io.WantCaptureMouse;
+	++g.frames;
+
+	if (frame.exitClicked) {
+		Close("exit chip");
+		return;
+	}
+	std::shared_ptr<DrawSnapshot> snapshot = TakeSnapshot(ImGui::GetDrawData());
+	snapshot->letterbox = true;
+	snapshot->preview = frame.previewClient;
+	Publish(std::move(snapshot));
+}
+
+void Ui_RenderThreadPresent(IDirect3DDevice9* device) {
+	std::shared_ptr<DrawSnapshot> snapshot, world;
+	{
+		std::lock_guard<std::mutex> lock(g_frameMutex);
+		snapshot = g_latest;
+		world = g_latestWorld;
+		if ((snapshot || world) && g_renderFont.version != g_fontPixels.version) g_renderFont = g_fontPixels;
+	}
+	g_renderer.SetPreviewSource(&ScrubFrames_PreviewTexture); // the scrub frame cache picks what the preview shows
+	if (snapshot || world) g_renderer.Render(device, world.get(), snapshot.get(), g_renderFont);
+	Capture_RenderThread(device); // a requested frame, the UI just drawn into it
+}
+
+void Ui_DeviceLost() {
+    RenderPasses_DeviceLost();
+    Lens_DeviceLost();
+	g_renderer.ReleaseDeviceObjects();
+	ScrubFrames_DeviceLost();
+}
+
+bool Ui_OnSetCursorPos(int x, int y) {
+	const bool held = GameMouseHeld();
+	if (CursorLogSlot())
+		Filmmaker::MvmDebugLog_Linef("ui.cursor", "SetCursorPos %d %d %s uiOwns=%d free=%d front=%d", x, y, held ? "kept" : "passed",
+			g_uiOwnsMouse.load() ? 1 : 0, g_mouseFree.load() ? 1 : 0, GameInFront() ? 1 : 0);
+	if (!held) return false;
+	// The game recentres the cursor for mouse look; while it may not have the mouse it may not move it.
+	g.gameCursor.x = x;
+	g.gameCursor.y = y;
+	g.haveGameCursor = true;
+	g_heldMoves.fetch_add(1);
+	return true;
+}
+
+bool Ui_OnGetCursorPos(LPPOINT point) {
+	if (!GameMouseHeld() || !g.haveGameCursor || !point) return false;
+	// Where the game last put the cursor, so it measures no movement.
+	*point = g.gameCursor;
+	return true;
+}
+
+bool Ui_OnSetCursor(HCURSOR cursor, HCURSOR& result) {
+	// The UI's arrow while it has the mouse. Until the game is clicked into it may change the cursor's
+	// shape but not hide it.
+	const bool held = g_uiOwnsMouse.load() || (!cursor && g_mouseFree.load());
+	if (!cursor && CursorLogSlot())
+		Filmmaker::MvmDebugLog_Linef("ui.cursor", "SetCursor hide %s uiOwns=%d free=%d front=%d", held ? "kept" : "passed",
+			g_uiOwnsMouse.load() ? 1 : 0, g_mouseFree.load() ? 1 : 0, GameInFront() ? 1 : 0);
+	if (!held) return false;
+	if (!cursor) g_heldHides.fetch_add(1);
+	result = SetCursor(LoadCursor(nullptr, IDC_ARROW));
+	return true;
+}
+
+bool Ui_OnSetCapture(HWND window, HWND& result) {
+	(void)window;
+	if (!GameMouseHeld()) return false;
+	if (CursorLogSlot())
+		Filmmaker::MvmDebugLog_Linef("ui.cursor", "SetCapture kept uiOwns=%d free=%d front=%d", g_uiOwnsMouse.load() ? 1 : 0,
+			g_mouseFree.load() ? 1 : 0, GameInFront() ? 1 : 0);
+	g_heldCaptures.fetch_add(1);
+	result = GetCapture();
+	return true;
+}
+
+void Ui_FilterRawInput(UINT result, UINT command, LPVOID data) {
+	if (!GameMouseHeld() || command != RID_INPUT || !data || result == (UINT)-1 || result < sizeof(RAWINPUTHEADER))
+		return;
+	RAWINPUT* input = (RAWINPUT*)data;
+	if (input->header.dwType != RIM_TYPEMOUSE) return;
+	input->data.mouse.lLastX = 0;
+	input->data.mouse.lLastY = 0;
+	input->data.mouse.usButtonFlags = 0;
+	input->data.mouse.usButtonData = 0;
+}
+
+bool Ui_EditorOpen() { return g_open.load() && !g_config.load(); }
+
+bool Ui_WorkspaceOpen() { return g_open.load(); }
+
+void Ui_SetEditorMouse(bool ui) {
+	if (!g_open.load()) return;
+	const Mode before = g.mouse.GetMode();
+	if (before == Mode::Look || (before == Mode::Ui) == ui) return;
+	g.mouse.ToggleGame();
+	ApplyMode(before, ui ? "follow: ui" : "follow: game");
+}
+
+void Ui_ShowTimelineDock(bool show) {
+	if (show) Open(Workspace::Editor, "timeline dock");
+	g.editor.dock = show ? DockTab::Timeline : DockTab::RegularTimeline;
+}
+
+void Ui_ViewRendered(const double origin[3], const double angles[3], double fov) {
+	std::shared_ptr<DrawSnapshot> world;
+	PathOverlayModel model;
+	const ImVec2 size = g.context ? ImGui::GetIO().DisplaySize : ImVec2(0, 0);
+	// Built from the first UI frame on (it sets the draw lists' shared data), while ours is on screen:
+	// the camera path, and the follow camera's marker and target box.
+	const bool shown = g.frames > 0 && (g_open.load() || g_director.load()) && !Director_State().blackout && size.x > 0 && size.y > 0;
+	const bool path = shown && CameraPath_Overlay(model, size.x, size.y);
+	const bool follow = shown && FollowCamera_Overlay(model, size.x, size.y);
+	const bool pivots = shown && CameraShake_PivotMarkers(model);
+	if (path || follow || pivots) {
+		PathOverlayView view;
+		for (int i = 0; i < 3; ++i) {
+			view.origin[i] = origin[i];
+			view.angles[i] = angles[i];
+		}
+		view.fov = View_ScreenFov(fov, size.x, size.y);
+		view.width = size.x;
+		view.height = size.y;
+		if (!g.worldList) g.worldList = std::make_unique<ImDrawList>(ImGui::GetDrawListSharedData());
+		ImDrawList& list = *g.worldList;
+		list._ResetForNewFrame();
+		list.PushTextureID(ImGui::GetIO().Fonts->TexID);
+		list.PushClipRect(ImVec2(0, 0), size);
+		DrawPathOverlay(list, model, view, g.fonts.Get(FontRole::Display));
+		ImDrawData data;
+		data.Valid = true;
+		data.DisplaySize = size;
+		data.AddDrawList(&list);
+		world = TakeSnapshot(&data);
+		++g.worldFrames;
+		g.worldVertices = (int)world->vertices.size();
+		const int64_t now = NowMs();
+		if (Filmmaker::MvmDebugLog_Active() && now - g.worldLogAt >= 1000) {
+			g.worldLogAt = now;
+			Filmmaker::MvmDebugLog_Linef("path.overlay", "markers=%d line=%d aimed=%d head=%d follow=%d box=%d pivots=%d vertices=%d view=(%.1f %.1f %.1f) (%.1f %.1f %.1f) fov %.1f->%.1f %.0fx%.0f",
+				(int)model.markers.size(), (int)model.trajectory.size() / 3, model.aimed, model.head ? 1 : 0, model.followCamera ? 1 : 0,
+				model.targetBox ? 1 : 0, (int)model.pivots.size(), g.worldVertices,
+				origin[0], origin[1], origin[2], angles[0], angles[1], angles[2], fov, view.fov, size.x, size.y);
+		}
+	} else {
+		g.worldVertices = 0;
+	}
+	PublishWorld(std::move(world));
+}
+
+void Ui_PrintOverlayHealth() {
+	advancedfx::Message("  path overlay: %u frames built, %d vertices last frame\n", g.worldFrames, g.worldVertices);
+}
+
+void Ui_PrintMouseHealth() {
+	advancedfx::Message("  mouse:      %s, %s; kept from the game: %u moves, %u hides, %u captures; hooked: %s\n",
+		g_mouseFree.load() ? "free until a click in the game" : "the game was clicked into",
+		g_uiOwnsMouse.load() ? "the UI has it" : (GameMouseHeld() ? "nobody has it" : "the game has it"),
+		g_heldMoves.load(), g_heldHides.load(), g_heldCaptures.load(),
+		g_cursorHookModules.empty() ? "none" : g_cursorHookModules.c_str());
+}
+
+bool Ui_SuspendMirvInput() {
+	if (g_demos.load()) return true;
+	if (g_open.load()) return g.mouse.GetMode() == Mode::Ui;
+	return g_director.load() && g.directorMouse.GetMode() == DirectorMode::Free;
+}
+
+void Ui_DirectorState() {
+	advancedfx::Message("director: %s, mouse %s, bar (%.0f %.0f %.0f %.0f), cards %s, blackout %s, frames %u\n",
+		g_director.load() ? "on" : "off", DirectorModeName(g.directorMouse.GetMode()), g.bar.x0, g.bar.y0, g.bar.x1, g.bar.y1,
+		Director_State().cards ? "on" : "off", Director_State().blackout ? "on" : "off", g.frames);
+	advancedfx::Message("cards: %s\n", DirectorCardsText(g.cards).c_str());
+	if (g_director.load() && g.bar.Valid())
+		advancedfx::Message("demo bar: %s\n", DemoBarLayoutText(Director_State().bar.layout).c_str());
+}
+
+// Netcon replays input through the same routing and ImGui queue as real window messages. It does
+// not post OS input, activate a window, or change focus. Raw counts retain the normal focus gate.
+void Ui_InputCommand(int argc, advancedfx::ICommandArgs* args) {
+    if (!g.window || argc < 3) return;
+    const char* action = args->ArgV(2);
+    MirvInput* input = g_Hook_VClient_RenderView.m_MirvInput;
+    if (0 == _stricmp(action, "state")) {
+        Ui_PrintMouseHealth();
+        Ui_DirectorState();
+        advancedfx::Message("ui input: front=%d suspended=%d raw-wanted=%d; roster (%.0f %.0f %.0f %.0f), adjust kind=%d value=%.3g age=%.2f\n", GameInFront() ? 1 : 0,
+            Ui_SuspendMirvInput() ? 1 : 0, input && input->WantsRawMouse() ? 1 : 0,
+            g.roster.x0, g.roster.y0, g.roster.x1, g.roster.y1, g.adjust.kind, g.adjust.value, g.adjust.age);
+        return;
+    }
+    UINT msg = 0;
+    WPARAM wp = 0;
+    LPARAM lp = 0;
+    if (0 == _stricmp(action, "mouse") && argc >= 6) {
+        const char* kind = args->ArgV(3);
+        const int x = atoi(args->ArgV(4)), y = atoi(args->ArgV(5));
+        lp = MAKELPARAM(x, y);
+        if (0 == _stricmp(kind, "move")) msg = WM_MOUSEMOVE;
+        else if (0 == _stricmp(kind, "leftdown")) msg = WM_LBUTTONDOWN;
+        else if (0 == _stricmp(kind, "leftup")) msg = WM_LBUTTONUP;
+        else if (0 == _stricmp(kind, "rightdown")) msg = WM_RBUTTONDOWN;
+        else if (0 == _stricmp(kind, "rightup")) msg = WM_RBUTTONUP;
+        else if (0 == _stricmp(kind, "wheel") && argc >= 7) {
+            msg = WM_MOUSEWHEEL;
+            POINT p = { x, y }; ClientToScreen(g.window, &p);
+            lp = MAKELPARAM(p.x, p.y);
+            wp = MAKEWPARAM(argc >= 8 ? atoi(args->ArgV(7)) : 0, atoi(args->ArgV(6)) * WHEEL_DELTA);
+        }
+    } else if (0 == _stricmp(action, "key") && argc >= 5) {
+        const char* kind = args->ArgV(3);
+        if (0 == _stricmp(kind, "down")) msg = WM_KEYDOWN;
+        else if (0 == _stricmp(kind, "up")) msg = WM_KEYUP;
+        wp = (WPARAM)atoi(args->ArgV(4));
+        lp = msg == WM_KEYUP ? (LPARAM)0xC0000001 : 1;
+    } else if (0 == _stricmp(action, "raw") && argc >= 5 && input) {
+        RAWINPUT raw = {};
+        raw.header.dwType = RIM_TYPEMOUSE;
+        raw.header.dwSize = sizeof(raw);
+        raw.data.mouse.lLastX = atoi(args->ArgV(3));
+        raw.data.mouse.lLastY = atoi(args->ArgV(4));
+        UINT size = sizeof(raw);
+        Ui_FilterRawInput(size, RID_INPUT, &raw);
+        const bool wanted = input->WantsRawMouse();
+        input->Supply_RawInputData(size, (HRAWINPUT)&raw, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER));
+        advancedfx::Message("ui input: raw %s, counts %s %s\n", wanted ? "accepted" : "gated (focus or cursor)", args->ArgV(3), args->ArgV(4));
+        if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("ui.replay", "raw wanted=%d dx=%s dy=%s", wanted ? 1 : 0, args->ArgV(3), args->ArgV(4));
+        return;
+    }
+    if (!msg) {
+        advancedfx::Message("mirv_filmmaker ui state | mouse move|leftdown|leftup|rightdown|rightup <x> <y> | mouse wheel <x> <y> <notches> [modifier bits] | key down|up <virtual key> | raw <dx> <dy>\n");
+        return;
+    }
+    const bool consumed = Ui_OnWindowMessage(g.window, msg, wp, lp);
+    if (!consumed && input) {
+        if (msg == WM_KEYDOWN || msg == WM_KEYUP) input->Supply_KeyEvent(msg == WM_KEYDOWN ? MirvInput::KS_DOWN : MirvInput::KS_UP, wp, lp);
+        else input->Supply_MouseEvent(msg, wp, lp);
+    }
+    advancedfx::Message("ui input: 0x%x consumed=%d workspace=%s director=%s\n", msg, consumed ? 1 : 0,
+        ModeName(g.mouse.GetMode()), DirectorModeName(g.directorMouse.GetMode()));
+}
+
+void Ui_EditorCommand(int argc, advancedfx::ICommandArgs* args) {
+	const char* action = argc >= 3 ? args->ArgV(2) : "state";
+	if (0 == _stricmp(action, "on")) Open(Workspace::Editor, "command");
+	else if (0 == _stricmp(action, "off")) { if (Ui_EditorOpen()) Close("command"); }
+	else if (0 == _stricmp(action, "toggle")) { if (Ui_EditorOpen()) Close("command"); else Open(Workspace::Editor, "command"); }
+	else if (0 != _stricmp(action, "state")) {
+		advancedfx::Message("mirv_filmmaker editor [on|off|toggle|state]\n");
+		return;
+	}
+	advancedfx::Message("editor: %s, mouse %s, tab %d, dock %s, preview (%.0f %.0f %.0f %.0f), panel hovered %d, fonts %s at scale %.3f, frames %u\n",
+		Ui_EditorOpen() ? "open" : (g_open.load() ? "closed (config open)" : "closed"), ModeName(g.mouse.GetMode()), (int)g.editor.tab,
+		g.editor.dock == DockTab::Timeline ? "timeline" : "regular",
+		g.preview.x0, g.preview.y0, g.preview.x1, g.preview.y1, g.panelHovered ? 1 : 0,
+		g.fonts.ok ? "ok" : (g.fonts.scale > 0 ? "FALLBACK" : "not built"), g.fonts.scale, g.frames);
+	if (g_open.load() && g.editor.dock == DockTab::RegularTimeline)
+		advancedfx::Message("demo bar: %s\n", DemoBarLayoutText(g.editor.demoBar.layout).c_str());
+}
+
+void Ui_DemosCommand(int argc, advancedfx::ICommandArgs* args) {
+	const char* action = argc >= 3 ? args->ArgV(2) : "state";
+	if (0 == _stricmp(action, "on")) OpenDemos("command");
+	else if (0 == _stricmp(action, "off")) CloseDemos("command");
+	else if (0 == _stricmp(action, "toggle")) { if (g_demos.load()) CloseDemos("command"); else OpenDemos("command"); }
+	else if (0 != _stricmp(action, "state")) {
+		if (Demos_ConsoleCommand(argc, args)) CloseDemos("demo playing");
+		return;
+	}
+	Demos_BuildModel(g.demosModel);
+	const DemosBrowserModel& m = g.demosModel;
+	advancedfx::Message("demos: %s, %d listed, %d removed, %d folders, sort %s, selected %s%s; menu button %s (%.0f %.0f %.0f %.0f)\n",
+		g_demos.load() ? "open" : "closed", (int)m.demos.size(), m.hidden, (int)m.groups.size(), m.sort.c_str(),
+		g.demos.selected.empty() ? "none" : g.demos.selected.c_str(), m.scanning ? ", scanning" : "",
+		g_menu.load() ? "shown" : "hidden", g.menuButton.x0, g.menuButton.y0, g.menuButton.x1, g.menuButton.y1);
+}
+
+void Ui_ConfigCommand(int argc, advancedfx::ICommandArgs* args) {
+	const char* action = argc >= 3 ? args->ArgV(2) : "toggle";
+	const bool open = g_open.load() && g_config.load();
+	if (0 == _stricmp(action, "on") || 0 == _stricmp(action, "open") || 0 == _stricmp(action, "1")) Open(Workspace::Config, "command");
+	else if (0 == _stricmp(action, "off") || 0 == _stricmp(action, "close") || 0 == _stricmp(action, "0")) { if (open) Close("command"); }
+	else if (0 == _stricmp(action, "toggle")) { if (open) Close("command"); else Open(Workspace::Config, "command"); }
+	else if (0 != _stricmp(action, "state")) {
+		advancedfx::Message("mirv_filmmaker config [on|off|toggle|state]\n");
+		return;
+	}
+	advancedfx::Message("config: %s, card %s, mouse %s, dock %s\n", g_open.load() && g_config.load() ? "open" : "closed",
+		ConfigCardName(g.editor.config.card), ModeName(g.mouse.GetMode()),
+		g.editor.dock == DockTab::Timeline ? "timeline" : "regular");
+	if (g_open.load() && g.editor.dock == DockTab::RegularTimeline)
+		advancedfx::Message("demo bar: %s\n", DemoBarLayoutText(g.editor.demoBar.layout).c_str());
+}
+
+} // namespace SourceFilmmaker

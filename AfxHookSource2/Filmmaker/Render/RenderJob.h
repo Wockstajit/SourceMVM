@@ -51,6 +51,9 @@ struct RenderJob {
 	int captureFps = 60;
 	// range.FrameCount(captureFps, tickRate), cached for progress math.
 	int framesTotal = 0;
+	// The size frames are captured at: the game's resolution when the job starts.
+	int width = 0;
+	int height = 0;
 
 };
 

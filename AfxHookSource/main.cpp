@@ -27,6 +27,8 @@
 #include "AfxStreams.h"
 #include "hlaeFolder.h"
 #include "CampathDrawer.h"
+#include "Filmmaker/SourceFilmmaker.h" // SOURCE:MVM
+#include "Filmmaker/SourceUi.h" // SOURCE:MVM
 
 #ifndef _WIN64
 #include "asmClassTools.h"
@@ -678,6 +680,8 @@ void MySetup(SOURCESDK::CreateInterfaceFn appSystemFactory, WrpGlobals *pGlobals
 
 		PrintInfo();
 
+		SourceFilmmaker::Init(); // SOURCE:MVM
+
 		CAfxStreams::AfxStreamsInit();
 	}
 }
@@ -828,6 +832,8 @@ int __fastcall new_CVClient_Init_Garrysmod(void* This,
 void Shared_BeforeFrameRenderStart(void)
 {
 	g_MirvTime.OnFrameRenderStart();
+
+	SourceFilmmaker::OnFrameRenderStart(); // SOURCE:MVM
 
 	if (CClientTools * instance = CClientTools::Instance()) instance->OnBeforeFrameRenderStart();
 }
@@ -1337,6 +1343,8 @@ void CAfxBaseClientDll::Shutdown(void)
 #ifdef AFX_INTEROP
 	AfxInterop::Shutdown();
 #endif
+
+	SourceFilmmaker::Shutdown(); // SOURCE:MVM
 
 	Shared_Shutdown();
 
@@ -2332,6 +2340,9 @@ LRESULT CALLBACK new_Afx_WindowProc(
 	__in LPARAM lParam
 )
 {
+	if (SourceFilmmaker::OnWindowMessage(hwnd, uMsg, wParam, lParam)) // SOURCE:MVM
+		return 0;
+
 	if (AfxHookSource::Gui::WndProcHandler(hwnd, uMsg, wParam, lParam))
 		return 0;
 
@@ -2490,7 +2501,7 @@ LONG_PTR WINAPI new_SetWindowLongPtrW(
 {
 	if(nIndex == GWLP_WNDPROC)
 	{
-		LONG lResult = SetWindowLongPtrW(hWnd, nIndex, (LONG_PTR)new_Afx_WindowProc);
+		LONG_PTR lResult = SetWindowLongPtrW(hWnd, nIndex, (LONG_PTR)new_Afx_WindowProc);
 
 		if(!g_afxWindowProcSet)
 		{
@@ -2517,6 +2528,9 @@ BOOL WINAPI new_GetCursorPos(
 {
 	BOOL result = GetCursorPos(lpPoint);
 
+	if (SourceFilmmaker::Ui_OnGetCursorPos(lpPoint)) // SOURCE:MVM
+		return TRUE;
+
 	if (AfxHookSource::Gui::OnGetCursorPos(lpPoint))
 		return TRUE;
 
@@ -2530,6 +2544,9 @@ BOOL WINAPI new_SetCursorPos(
 	__in int Y
 )
 {
+	if (SourceFilmmaker::Ui_OnSetCursorPos(X, Y)) // SOURCE:MVM
+		return TRUE;
+
 	if (AfxHookSource::Gui::OnSetCursorPos(X, Y))
 		return TRUE;
 
@@ -2542,6 +2559,9 @@ HCURSOR WINAPI new_SetCursor(__in_opt HCURSOR hCursor)
 {
 	HCURSOR result;
 
+	if (SourceFilmmaker::Ui_OnSetCursor(hCursor, result)) // SOURCE:MVM
+		return result;
+
 	if (AfxHookSource::Gui::OnSetCursor(hCursor, result))
 		return result;
 
@@ -2551,6 +2571,9 @@ HCURSOR WINAPI new_SetCursor(__in_opt HCURSOR hCursor)
 HWND WINAPI new_SetCapture(__in HWND hWnd)
 {
 	HWND result;
+
+	if (SourceFilmmaker::Ui_OnSetCapture(hWnd, result)) // SOURCE:MVM
+		return result;
 
 	if (AfxHookSource::Gui::OnSetCapture(hWnd, result))
 		return result;
@@ -2740,7 +2763,7 @@ void CommonHooks()
 		{
 			g_SourceSdkVer = SourceSdkVer_HL2MP;
 		}
-		else if (StringIEndsWith(filePath, "cstrike.exe"))
+		else if (StringIEndsWith(filePath, "cstrike.exe") || StringIEndsWith(filePath, "cstrike_win64.exe"))
 		{
 			g_SourceSdkVer = SourceSdkVer_CSS;
 		}
@@ -3038,6 +3061,8 @@ UINT WINAPI New_GetRawInputData(
 
 	UINT result = g_Import_inputsystem_USER32_GetRawInputData.GetTrueFuncValue()(hRawInput,uiCommand,pData,pcbSize,cbSizeHeader);
 
+	SourceFilmmaker::Ui_FilterRawInput(result, uiCommand, pData); // SOURCE:MVM
+
 	result = g_Hook_VClient_RenderView.m_MirvInput->Supply_RawInputData(result, hRawInput, uiCommand,pData,pcbSize,cbSizeHeader);
 
 	return result;
@@ -3075,6 +3100,8 @@ UINT WINAPI New_GetRawInputData2(
     _In_ UINT cbSizeHeader) {
 
 	UINT result = g_Old_New_GetRawInputData2(hRawInput,uiCommand,pData,pcbSize,cbSizeHeader);
+
+	SourceFilmmaker::Ui_FilterRawInput(result, uiCommand, pData); // SOURCE:MVM
 
 	result = g_Hook_VClient_RenderView.m_MirvInput->Supply_RawInputData(result, hRawInput, uiCommand,pData,pcbSize,cbSizeHeader);
 

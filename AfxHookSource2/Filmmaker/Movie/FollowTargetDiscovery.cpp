@@ -1,58 +1,62 @@
 #include "FollowTargetDiscovery.h"
 
 #include "CameraBridge.h"
-#include "CameraPath.h"
-#include "FollowTargetProviders.h"
-#include "../Panorama/GraphEditorExperimentHud.h"
-#include "../../ClientEntitySystem.h"
-#include "../../MirvTime.h"
+#include "FollowCameraHost.h"
 #include "../../../Shared/AfxConsole.h"
 
-#include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
-#include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
-
 #include <algorithm>
+#include <cctype>
 #include <cmath>
-#include <sstream>
-
-extern SOURCESDK::CS2::ISource2EngineToClient* g_pEngineToClient;
+#include <cstdlib>
 
 namespace Filmmaker {
 
-namespace {
-
-// A weapon's owner, for the Weapon list (Candidates below).
-void ResolveOwner(CEntityInstance* entity, int& ownerIndex, std::string& ownerName, int& ownerTeam) {
-	ownerIndex = -1;
-	ownerName.clear();
-	ownerTeam = 0;
-	if (!entity) return;
-	const auto ownerHandle = entity->GetOwnerEntityHandle();
-	if (!ownerHandle.IsValid()) return;
-	ownerIndex = ownerHandle.GetEntryIndex();
-	CEntityInstance* owner = EntityAt(ownerIndex);
-	if (!owner) return;
-	ownerTeam = owner->GetTeam();
-	CEntityInstance* controller = owner;
-	if (owner->IsPlayerPawn()) {
-		const auto controllerHandle = owner->GetPlayerControllerHandle();
-		controller = controllerHandle.IsValid() ? EntityAt(controllerHandle.GetEntryIndex()) : nullptr;
-	}
-	if (controller && controller->IsPlayerController()) {
-		const char* name = controller->GetPlayerName();
-		if (name && *name) ownerName = name;
-	}
-	if (ownerName.empty())
-		ownerName = owner->IsPlayerPawn() ? "Player pawn" : "Entity";
+FollowAttachPoint MakeAttachPoint(const char* id, const char* label, const char* kind,
+	bool valid, int index, const char* source) {
+	FollowAttachPoint out;
+	out.id = id ? id : "";
+	out.label = label ? label : out.id;
+	out.kind = kind ? kind : "";
+	out.valid = valid;
+	out.index = index;
+	out.source = source ? source : "";
+	return out;
 }
 
-} // namespace
+std::vector<std::string> AttachPointIds(const std::vector<FollowAttachPoint>& points) {
+	std::vector<std::string> out;
+	out.reserve(points.size());
+	for (const auto& point : points)
+		if (point.valid)
+			out.push_back(point.id);
+	return out;
+}
 
-// The grenades come from the shared index (GrenadeIndex_Update, FollowTargetProviders.h) -- the
-// same one the scene objects' grenade picker reads -- so both find the same projectiles.
+const char* FollowTargetTypeName(FollowTargetType type) {
+	switch (type) {
+	case FollowTargetType::Grenade: return "Grenade";
+	case FollowTargetType::Weapon: return "Weapon / C4";
+	default: return "Player";
+	}
+}
+
+std::string GrenadeTypeName(const std::string& className) {
+	std::string s = className;
+	for (char& ch : s) ch = (char)std::tolower((unsigned char)ch);
+	if (s.find("flash") != std::string::npos) return "Flashbang";
+	if (s.find("smoke") != std::string::npos) return "Smoke";
+	if (s.find("hegrenade") != std::string::npos || s.find("frag") != std::string::npos) return "HE Grenade";
+	if (s.find("molotov") != std::string::npos) return "Molotov";
+	if (s.find("incendiary") != std::string::npos) return "Incendiary";
+	if (s.find("decoy") != std::string::npos) return "Decoy";
+	return "Grenade";
+}
+
+// The grenades come from the game's sightings (FollowHost_GrenadeSightings). In CS2 that is the
+// shared index the scene objects' grenade picker reads too, so both find the same projectiles.
 void FollowCamera::UpdateGrenadeCache() const {
 	m_grenadeCache.clear();
-	for (const GrenadeSighting& s : GrenadeIndex_Update()) {
+	for (const GrenadeSighting& s : FollowHost_GrenadeSightings()) {
 		GrenadeRecord& record = m_grenadeCache[s.handle];
 		record.handle = s.handle;
 		record.entityIndex = s.active ? s.entityIndex : -1;
@@ -67,10 +71,6 @@ void FollowCamera::UpdateGrenadeCache() const {
 }
 
 std::vector<FollowTargetCandidate> FollowCamera::Candidates() const {
-	std::vector<FollowTargetCandidate> out;
-	if (!g_pEntityList || !*g_pEntityList || !g_GetEntityFromIndex)
-		return out;
-
 	// Distance is measured from the LIVE view (where the operator is flying / looking), not the
 	// placed lock-on camera -- so "Select Nearest" picks the target nearest the current shot and
 	// the list readout reflects how close the operator is. Falls back to the placed camera only
@@ -84,9 +84,9 @@ std::vector<FollowTargetCandidate> FollowCamera::Candidates() const {
 	}
 
 	if (m_state.targetType == FollowTargetType::Grenade) {
+		std::vector<FollowTargetCandidate> out;
 		UpdateGrenadeCache();
-		int currentTick = 0;
-		g_MirvTime.GetCurrentDemoTick(currentTick);
+		const int currentTick = FollowHost_DemoTick();
 		for (const auto& pair : m_grenadeCache) {
 			const GrenadeRecord& record = pair.second;
 			// Browse window: grenades thrown within kGrenadeBrowseTicks either side of the playhead
@@ -107,11 +107,11 @@ std::vector<FollowTargetCandidate> FollowCamera::Candidates() const {
 			candidate.status = record.active ? "active projectile" : "recorded nearby";
 			candidate.alive = record.active;
 			if (record.active) {
-				CEntityInstance* grenade = EntityAt(record.entityIndex);
-				candidate.attachPoints = AvailableAttachPoints(grenade, FollowTargetType::Grenade, false, false);
+				candidate.attachPoints = FollowHost_AttachPoints(record.entityIndex, FollowTargetType::Grenade);
 				candidate.attachments = AttachPointIds(candidate.attachPoints);
 				FollowVec3 position;
-				if (ReadOrigin(grenade, position))
+				bool isPlayer = false;
+				if (FollowHost_EntityOrigin(record.entityIndex, position, isPlayer))
 					candidate.distance = FollowDistance(reference, position);
 			} else {
 				candidate.attachPoints.push_back(MakeAttachPoint("entity", "Entity", "entity", true, 0, "recorded-grenade"));
@@ -126,82 +126,15 @@ std::vector<FollowTargetCandidate> FollowCamera::Candidates() const {
 		return out;
 	}
 
-	for (int i = 0; i <= GetHighestEntityIndex(); ++i) {
-		CEntityInstance* entity = EntityAt(i);
-		if (!entity) continue;
+	std::vector<FollowTargetCandidate> out =
+		FollowHost_FindTargets(m_state.targetType, m_state.mode == FollowMode::Attach, reference);
 
-		FollowTargetCandidate candidate;
-		CEntityInstance* target = entity;
-		if (m_state.targetType == FollowTargetType::Player) {
-			if (!entity->IsPlayerController()) continue;
-			const auto pawnHandle = entity->GetPlayerPawnHandle();
-			if (!pawnHandle.IsValid()) continue;
-			target = EntityAt(pawnHandle.GetEntryIndex());
-			if (!target || !target->IsPlayerPawn()) continue;
-			candidate.entityIndex = pawnHandle.GetEntryIndex();
-			const char* playerName = entity->GetPlayerName();
-			candidate.name = playerName && *playerName ? playerName : "Player";
-			candidate.team = target->GetTeam();
-			candidate.alive = target->GetHealth() > 0;
-			candidate.status = candidate.alive ? "alive" : "dead";
-			if (m_state.mode == FollowMode::Attach) {
-				candidate.attachPoints = AvailableAttachPoints(target, FollowTargetType::Player, false, false);
-				candidate.attachments = AttachPointIds(candidate.attachPoints);
-			}
-		} else { // Weapon: dropped + held weapons and the C4
-			// Classify and name off the DESIGNER class ("weapon_ak47"): the client class is
-			// "C_CSWeaponBaseGun" for nearly every gun, which named most of this list
-			// "CSWeaponBaseGun". Falls back to the client class when the designer name is missing.
-			const std::string designer = DesignerClass(entity);
-			const std::string cls = designer.empty() ? EntityClass(entity) : designer;
-			if (!IsWeaponOrBomb(cls)) continue;
-			candidate.entityIndex = i;
-			candidate.className = cls;
-			candidate.isWeapon = IsWeaponClass(cls);
-			candidate.isBomb = IsBombClass(cls);
-			ResolveOwner(entity, candidate.ownerIndex, candidate.ownerName, candidate.team);
-			candidate.held = candidate.ownerIndex >= 0;
-			candidate.dropped = !candidate.held;
-			if (candidate.held) {
-				if (CEntityInstance* ownerPawn = EntityAt(candidate.ownerIndex)) {
-					const auto active = ownerPawn->GetActiveWeaponHandle();
-					candidate.current = active.IsValid() && active.GetEntryIndex() == i;
-				}
-			}
-			candidate.name = candidate.isBomb ? "C4" : (cls.empty() ? "Weapon" : PrettyWeaponName(cls));
-			candidate.alive = true;
-			if (candidate.held)
-				candidate.status = std::string(candidate.current ? "current · " : "inventory · ")
-					+ (candidate.isBomb ? "C4 carried by " : "held by ")
-					+ (candidate.ownerName.empty() ? "player" : candidate.ownerName);
-			else
-				candidate.status = candidate.isBomb ? "C4 on the ground" : "dropped on floor";
-			if (m_state.mode == FollowMode::Attach) {
-				candidate.attachPoints = AvailableAttachPoints(entity, FollowTargetType::Weapon, candidate.isWeapon, candidate.isBomb);
-				candidate.attachments = AttachPointIds(candidate.attachPoints);
-			}
-		}
-
-		FollowVec3 position;
-		if (m_state.targetType == FollowTargetType::Player) {
-			float eye[3] = {};
-			target->GetRenderEyeOrigin(eye);
-			position = FollowVec3{ eye[0], eye[1], eye[2] };
-		} else if (!ReadOrigin(target, position)) {
-			continue;
-		}
-		candidate.distance = FollowDistance(reference, position);
-		const auto handle = target->GetHandle();
-		candidate.handle = handle.IsValid() ? (uint64_t)(uint32_t)handle.ToInt() : 0;
-		out.push_back(candidate);
-	}
-
-	// Weapon list: keep it to the player being watched. The scan above walks the WHOLE entity
-	// list, so on a full server it returns every gun in the round -- dozens of entries, capped at
-	// 24 for the UI, in which the one weapon you actually want (the gun in the hands of the guy on
-	// screen) is just one row among strangers'. Dropped weapons and the C4 have no owner and are
-	// deliberately kept: they belong to nobody, so they are never the clutter being complained
-	// about, and they are the whole point of the "Dropped" source mode.
+	// Weapon list: keep it to the player being watched. The scan walks the WHOLE entity list, so
+	// on a full server it returns every gun in the round -- dozens of entries, capped at 24 for the
+	// UI, in which the one weapon you actually want (the gun in the hands of the guy on screen) is
+	// just one row among strangers'. Dropped weapons and the C4 have no owner and are deliberately
+	// kept: they belong to nobody, so they are never the clutter being complained about, and they
+	// are the whole point of the "Dropped" source mode.
 	//
 	// The filter is skipped when the spectated pawn cannot be resolved, and when it owns nothing
 	// in this list, so it can only ever remove rows that a still-populated list makes redundant --
@@ -209,18 +142,18 @@ std::vector<FollowTargetCandidate> FollowCamera::Candidates() const {
 	if (m_state.targetType == FollowTargetType::Weapon) {
 		// WHICH player scopes the list.
 		//
-		// The first version keyed this on AfxGetSpectatedPawnIndex() alone, and measuring it on a
-		// live demo showed the filter silently never applying: that helper returns -1 in third
-		// person and free cam BY DESIGN (there is no single spectated player then) -- and free cam
-		// is exactly the mode the camera editor puts you in. The guard below then skipped the
-		// filter every time, so the list stayed scene-wide.
+		// The first version keyed this on the spectated player alone, and measuring it on a live
+		// demo showed the filter silently never applying: there is no single spectated player in
+		// third person and free cam BY DESIGN -- and free cam is exactly the mode the camera editor
+		// puts you in. The guard below then skipped the filter every time, so the list stayed
+		// scene-wide.
 		//
 		// The player you last picked in Player mode is the better answer anyway: it is the
 		// report's own workflow (choose a player, then choose their weapon), it survives free cam,
 		// and it is an explicit choice rather than an inference. The spectated pawn stays as the
 		// fallback for when no player has been picked yet.
 		int watched = m_lastPlayerIndex;
-		if (watched < 0) watched = AfxGetSpectatedPawnIndex();
+		if (watched < 0) watched = FollowHost_SpectatedPlayer();
 		if (watched >= 0)
 			out.erase(std::remove_if(out.begin(), out.end(), [this, watched](const FollowTargetCandidate& c) {
 				if (m_state.weaponSource == WeaponSource::Held && !c.held) return true;
@@ -244,27 +177,10 @@ std::vector<FollowTargetCandidate> FollowCamera::Candidates() const {
 }
 
 std::vector<FollowTargetCandidate> FollowCamera::Players() const {
-	std::vector<FollowTargetCandidate> out;
-	if (!g_pEntityList || !*g_pEntityList || !g_GetEntityFromIndex) return out;
 	double pos[3] = {}, ang[3] = {}, fov = 90.0;
 	CameraBridge_GetCurrentCamera(pos, ang, fov);
-	const FollowVec3 reference{ pos[0], pos[1], pos[2] };
-	for (int i = 0; i <= GetHighestEntityIndex(); ++i) {
-		CEntityInstance* controller = EntityAt(i);
-		if (!controller || !controller->IsPlayerController()) continue;
-		const auto pawnHandle = controller->GetPlayerPawnHandle();
-		if (!pawnHandle.IsValid()) continue;
-		CEntityInstance* pawn = EntityAt(pawnHandle.GetEntryIndex());
-		if (!pawn || !pawn->IsPlayerPawn()) continue;
-		FollowTargetCandidate c;
-		c.entityIndex = pawnHandle.GetEntryIndex();
-		const char* name = controller->GetPlayerName();
-		c.name = name && *name ? name : "Player";
-		c.team = pawn->GetTeam(); c.alive = pawn->GetHealth() > 0;
-		float eye[3] = {}; pawn->GetRenderEyeOrigin(eye);
-		c.distance = FollowDistance(reference, FollowVec3{ eye[0], eye[1], eye[2] });
-		out.push_back(std::move(c));
-	}
+	std::vector<FollowTargetCandidate> out =
+		FollowHost_FindTargets(FollowTargetType::Player, false, FollowVec3{ pos[0], pos[1], pos[2] });
 	std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a.distance < b.distance; });
 	return out;
 }
@@ -380,17 +296,11 @@ bool FollowCamera::TrackSelectedGrenade() {
 	m_grenadeResumeIssued = false;
 	m_state.enabled = true;
 	ResetMotion();
-	CameraPathRef().StopPreview();
-	CameraPathRef().StopScrub();
-	GraphEditorExperimentHudRef().SetDrive(false);
+	FollowHost_TakeViewFromOtherCameras();
 	CameraBridge_SetPathDrawEnabled(false);
 	CameraBridge_SetFreeCamEnabled(true);
 
-	if (g_pEngineToClient) {
-		std::ostringstream command;
-		command << "demo_gototick " << m_grenadeSeekTick;
-		g_pEngineToClient->ExecuteClientCmd(0, command.str().c_str(), true);
-	}
+	FollowHost_SeekDemo(m_grenadeSeekTick);
 	m_lastMessage = "Seeking to tick " + std::to_string(m_grenadeSeekTick)
 		+ ", 40 ticks before the throw.";
 	advancedfx::Message("[followcam] grenade track armed: %s by %s, throwTick=%d seekTick=%d handle=%llu.\n",

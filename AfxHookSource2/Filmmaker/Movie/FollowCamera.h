@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <iosfwd>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -87,6 +88,19 @@ struct FollowEventRecord {
 	uint32_t accountId = 0;  // player involved (Steam account id; 0 = unknown)
 	std::string ownerName;   // resolved from the scoreboard when available
 };
+
+// A thrown grenade the game has seen this session, by its handle (FollowHost_GrenadeSightings).
+struct GrenadeSighting {
+	uint64_t handle = 0;
+	int entityIndex = -1;       // where it is now, while active
+	std::string className, type, thrower;
+	int throwerIndex = -1, team = 0, throwTick = -1;
+	bool active = false;        // in the world at this tick
+};
+// The pickers list grenades thrown this far either side of the playhead: the ones in the air now
+// and the ones seen earlier this session. Wide on purpose -- a picker that only knew the last few
+// seconds hid the grenade the user was looking for.
+constexpr int kGrenadeBrowseTicks = 64 * 60;
 
 // Framing and tracking belong to a mode; target selection and camera placement are shared.
 struct FollowCameraSettings {
@@ -383,6 +397,16 @@ private:
 
 FollowCamera& FollowCameraRef();
 const char* FollowTargetTypeName(FollowTargetType type);
+// A thrown grenade's kind ("HE Grenade", "Flashbang", "Smoke"...) from its class or model name.
+std::string GrenadeTypeName(const std::string& className);
+
+FollowAttachPoint MakeAttachPoint(const char* id, const char* label, const char* kind,
+	bool valid, int index, const char* source);
+// The ids of the points that resolve.
+std::vector<std::string> AttachPointIds(const std::vector<FollowAttachPoint>& points);
+std::string JsonEscape(const std::string& value);
+void AppendAttachPointJson(std::ostringstream& o, const FollowAttachPoint& point);
+const char* TeamName(int team);
 
 // Console command entry: handles "mirv_filmmaker follow ...". argc/args/cmd are forwarded
 // from FilmmakerCommand.cpp's dispatcher (args->ArgV(0) == "mirv_filmmaker", ArgV(1) == "follow").

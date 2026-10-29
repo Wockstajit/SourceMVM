@@ -15,7 +15,7 @@ Filmmaker/
     DemoEntry.h              data structs (demo + scoreboard player)
     DemoHeaderReader.{h,cpp} parse .dem header -> map + duration  (validated)
     DemoInfoReader.{h,cpp}   parse .dem.info -> scoreboard         (validated)
-    DemoScanner.{h,cpp}      recursive *.dem discovery
+    DemoScanner.{h,cpp}      recursive *.dem discovery, with folders to skip
     DemoLibrary.{h,cpp}      owns the list, runs the background scan, builds JSON
     DemoOrganizer.{h,cpp}    sort mode, user folders, last-played history
     DemoProjectPath.{h,cpp}  repaired-cache copies map back to the original .dem
@@ -25,7 +25,8 @@ Filmmaker/
   Config/
     DemoFolderStore.{h,cpp}  saved folder list (%APPDATA%\HLAE\filmmaker_demo_folders.txt)
     DemoFileStore.{h,cpp}    individually added demos (…\filmmaker_demo_files.txt)
-    DemoOrganizerStore.{h,cpp} organiser state (…\filmmaker_demo_organizer.txt)
+    DemoOrganizerStore.{h,cpp} organiser state (…\filmmaker_demo_organizer.txt) and its "org" verbs
+    HiddenDemoStore.{h,cpp}  demos removed from the list (…\filmmaker_hidden_demos.txt)
   Platform/
     ProtobufWire.{h,cpp}     minimal protobuf wire reader (no protobuf dependency)
     TextEncoding.{h,cpp}     UTF-8 <-> UTF-16
@@ -38,6 +39,12 @@ Filmmaker/
     DemoOrganizerJs.h        organiser rail JS fragment (toolbar, folders, drag)
     FilmmakerMenu.{h,cpp}    builds the UI, pushes data, polls the command queue
 ```
+
+The scanner, the four stores and the file picker are shared with the Counter-Strike: Source demos
+browser ([Docs/source/README.md](../source/README.md#demos-browser)). Each store takes its file
+name; CS:S passes `*_source1.txt` names, so the two games keep separate lists.
+`DemoOrganizerStore::Apply` parses the organiser's `org` verbs for both games, and
+`DemoOrganizer_HandleCommand` hands it the line.
 
 ## What works (console-driven, validated)
 

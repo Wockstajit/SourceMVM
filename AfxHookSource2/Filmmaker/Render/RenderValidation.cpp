@@ -2,6 +2,7 @@
 
 #include "RenderRange.h"
 
+#include <cmath>
 #include <sstream>
 
 namespace Filmmaker {
@@ -125,6 +126,15 @@ void RenderValidateRepeatability(RenderValidationResult& result, int captureFps,
 	const int rate = (int)(tickRate + 0.5);
 	if (captureFps <= 0 || rate <= 0)
 		return;
+	if (std::abs(tickRate - rate) > 0.001) {
+		// CS:S's 66.67 tick: no whole frame rate lands every frame on a whole tick.
+		std::ostringstream why;
+		why << "At this speed each output frame spans " << tickRate / (double)captureFps
+			<< " demo ticks, so re-running this exact range can sample a few individual frames one "
+			   "tick apart. Passes captured together in one take are unaffected.";
+		result.AddWarning(why.str());
+		return;
+	}
 	if (captureFps % rate == 0 || rate % captureFps == 0)
 		return; // whole ticks per frame (or whole frames per tick): exactly repeatable
 	std::ostringstream why;

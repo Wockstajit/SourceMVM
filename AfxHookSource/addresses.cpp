@@ -3216,7 +3216,10 @@ void Addresses_InitMaterialsystemDll(AfxAddr materialsystemDll, SourceSdkVer sou
 			materialsystem_GetRenderCallQueue_vtable_offset = 179; // 3rd last
 			AFXADDR_SET(materialsystem_CFunctor_vtable_size, 4);
 			break;
-#endif //#ifndef _WIN64			
+#endif //#ifndef _WIN64
+#ifdef _WIN64
+		case SourceSdkVer_CSS: // SOURCE:MVM: CS:S x64 ships TF2 x64's materialsystem.dll (same CMaterialSystem vtable, checked 2026-10-28)
+#endif
 		case SourceSdkVer_TF2Classified:
 		case SourceSdkVer_TF2:
 			// Checked 2024-04-22.

@@ -25,11 +25,24 @@ std::wstring KeyFor(const fs::path& p) {
 	return s;
 }
 
+// A folder's key for the skip list: lower case, backslash separators, no trailing separator.
+std::wstring FolderKey(const fs::path& p) {
+	std::wstring s = KeyFor(p.lexically_normal());
+	std::replace(s.begin(), s.end(), L'/', L'\\');
+	while (s.size() > 1 && s.back() == L'\\')
+		s.pop_back();
+	return s;
+}
+
 } // namespace
 
-std::vector<std::wstring> DemoScanner::Scan(const std::vector<std::wstring>& roots, const std::atomic<bool>& cancel) {
+std::vector<std::wstring> DemoScanner::Scan(const std::vector<std::wstring>& roots, const std::atomic<bool>& cancel,
+	const std::vector<std::wstring>& skip) {
 	std::vector<std::wstring> found;
 	std::unordered_set<std::wstring> seen;
+	std::unordered_set<std::wstring> skipped;
+	for (const auto& folder : skip)
+		skipped.insert(FolderKey(fs::path(folder)));
 
 	for (const auto& root : roots) {
 		if (cancel.load())
@@ -54,7 +67,8 @@ std::vector<std::wstring> DemoScanner::Scan(const std::vector<std::wstring>& roo
 			// Generated copies are not demos: skip leftover "repaired\" folders and the source_mvm
 			// project copies (repaired.dem, keyframed.dem -- those sit next to project.mvm).
 			if (entry.is_directory(statEc)) {
-				if (IsLegacyRepairedFolderName(entry.path().filename().wstring())) {
+				if (IsLegacyRepairedFolderName(entry.path().filename().wstring())
+					|| (!skipped.empty() && skipped.count(FolderKey(entry.path())))) {
 					it.disable_recursion_pending();
 				}
 				continue;

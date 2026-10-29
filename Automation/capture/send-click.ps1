@@ -23,6 +23,8 @@ param(
     [int]$SurfaceH = 0,
     [int]$HoldMs = 60,
     [string]$Process = 'cs2',
+    # Right presses drive CS2-style look-around holds (a right press held past 200 ms looks).
+    [ValidateSet('Left', 'Right')][string]$Button = 'Left',
     [switch]$SendInput
 )
 $ErrorActionPreference = 'Stop'
@@ -40,7 +42,9 @@ public static class Win32Click {
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, int dx, int dy, int data, UIntPtr extra);
     [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr ctx);
     public const uint WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201, WM_LBUTTONUP = 0x0202;
+    public const uint WM_RBUTTONDOWN = 0x0204, WM_RBUTTONUP = 0x0205;
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002, MOUSEEVENTF_LEFTUP = 0x0004;
+    public const uint MOUSEEVENTF_RIGHTDOWN = 0x0008, MOUSEEVENTF_RIGHTUP = 0x0010;
 }
 '@
 
@@ -65,6 +69,8 @@ if ($cx -lt 0 -or $cy -lt 0 -or $cx -ge $cw -or $cy -ge $ch) {
     throw "send-click: point ($cx,$cy) is outside the ${cw}x${ch} client area."
 }
 $lparam = [IntPtr](($cy -shl 16) -bor ($cx -band 0xFFFF))
+$right = $Button -eq 'Right'
+$name = $Button.ToLower()
 
 if ($SendInput) {
     $pt = New-Object Win32Click+POINT
@@ -72,17 +78,23 @@ if ($SendInput) {
     [void][Win32Click]::ClientToScreen($hwnd, [ref]$pt)
     [void][Win32Click]::SetCursorPos($pt.X, $pt.Y)
     Start-Sleep -Milliseconds 40
-    [Win32Click]::mouse_event([Win32Click]::MOUSEEVENTF_LEFTDOWN, 0, 0, 0, [UIntPtr]::Zero)
+    [Win32Click]::mouse_event($(if ($right) { [Win32Click]::MOUSEEVENTF_RIGHTDOWN } else { [Win32Click]::MOUSEEVENTF_LEFTDOWN }), 0, 0, 0, [UIntPtr]::Zero)
     Start-Sleep -Milliseconds $HoldMs
-    [Win32Click]::mouse_event([Win32Click]::MOUSEEVENTF_LEFTUP, 0, 0, 0, [UIntPtr]::Zero)
-    Write-Host "send-click: SendInput left click at client ($cx,$cy) of ${cw}x${ch}"
+    [Win32Click]::mouse_event($(if ($right) { [Win32Click]::MOUSEEVENTF_RIGHTUP } else { [Win32Click]::MOUSEEVENTF_LEFTUP }), 0, 0, 0, [UIntPtr]::Zero)
+    Write-Host "send-click: SendInput $name click at client ($cx,$cy) of ${cw}x${ch}"
 } else {
     # A move first: Panorama resolves hover (and therefore the panel under the cursor) from the
     # last motion it saw, so a bare down/up on a panel it thinks is not hovered can be discarded.
     [void][Win32Click]::PostMessage($hwnd, [Win32Click]::WM_MOUSEMOVE, [IntPtr]::Zero, $lparam)
     Start-Sleep -Milliseconds 40
-    [void][Win32Click]::PostMessage($hwnd, [Win32Click]::WM_LBUTTONDOWN, [IntPtr]1, $lparam)
-    Start-Sleep -Milliseconds $HoldMs
-    [void][Win32Click]::PostMessage($hwnd, [Win32Click]::WM_LBUTTONUP, [IntPtr]::Zero, $lparam)
-    Write-Host "send-click: posted left click at client ($cx,$cy) of ${cw}x${ch}"
+    if ($right) {
+        [void][Win32Click]::PostMessage($hwnd, [Win32Click]::WM_RBUTTONDOWN, [IntPtr]2, $lparam)
+        Start-Sleep -Milliseconds $HoldMs
+        [void][Win32Click]::PostMessage($hwnd, [Win32Click]::WM_RBUTTONUP, [IntPtr]::Zero, $lparam)
+    } else {
+        [void][Win32Click]::PostMessage($hwnd, [Win32Click]::WM_LBUTTONDOWN, [IntPtr]1, $lparam)
+        Start-Sleep -Milliseconds $HoldMs
+        [void][Win32Click]::PostMessage($hwnd, [Win32Click]::WM_LBUTTONUP, [IntPtr]::Zero, $lparam)
+    }
+    Write-Host "send-click: posted $name click at client ($cx,$cy) of ${cw}x${ch}"
 }

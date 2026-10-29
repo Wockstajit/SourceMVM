@@ -8,6 +8,7 @@
 
 
 #include "RenderView.h"
+#include "Filmmaker/SourceFilmmaker.h" // SOURCE:MVM
 
 #include "MirvTime.h"
 
@@ -110,7 +111,8 @@ Hook_VClient_RenderView::~Hook_VClient_RenderView() {
 }
 
 bool Hook_VClient_RenderView::GetSuspendMirvInput() {
-	return g_VEngineClient && g_VEngineClient->Con_IsVisible();
+	return g_VEngineClient && g_VEngineClient->Con_IsVisible()
+		|| SourceFilmmaker::SuspendMirvInput(); // SOURCE:MVM
 }
 
 void Hook_VClient_RenderView::GetLastCameraData(double & x, double & y, double & z, double & rX, double & rY, double & rZ, double & fov) {
@@ -456,6 +458,8 @@ void Hook_VClient_RenderView::OnViewOverride(float &Tx, float &Ty, float &Tz, fl
 		if (Fov < 1) Fov = 1;
 		else if (Fov > 179) Fov = 179;
 	}
+
+	SourceFilmmaker::OnViewOverride(Tx, Ty, Tz, Rx, Ry, Rz, Fov, originOrAnglesOverriden); // SOURCE:MVM
 	
 	static bool viewOverriding = false;
 
