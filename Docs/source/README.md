@@ -160,6 +160,9 @@ stays installed once the port or the log has asked for it, and feeds whichever o
 While SourceTV records on a listen server, `health` reads `REPLACED` and port output can arrive out
 of order; both recover when the recording stops.
 
+Debug-log names include a process ID and session number. Starting two games, or starting logging
+twice in one second, creates separate files and never truncates an existing report.
+
 ## Engine adapter
 
 `SourceEngine.{h,cpp}` is what later steps read the game through: the game's and the rendered view,
@@ -996,13 +999,14 @@ closes it.
 
 So far it has CS2's CAMERA tab with the cards whose effects run in CS:S. The rail groups them as CS2
 does, each row with the card's summary and its master switch: MOTION holds SMOOTH VIEW and HANDHELD
-CAMERA, and WEAPON holds WEAPON RECOIL and WEAPON BOB. The pane shows the selected card with CS2's header: the edge in
+CAMERA, WEAPON holds WEAPON RECOIL and WEAPON BOB, and LENS holds DEPTH OF FIELD and LENS FLARE.
+The pane shows the selected card with CS2's header: the edge in
 the card's colour (dim while it is off), the summary, Reset (dim at the defaults) and the switch.
 Every row is CS2's, with CS2's label, tooltip and command. A slider is dragged from where it was
 across one bar width, Shift a fifth as fast, and the minimum of an "Off at zero" slider reads Off.
 A switch row flips on a click anywhere on it. A tooltip shows after the pointer rests 0.18 s on a
 row, left of the column. RESET CAMERA in the pinned footer sends `mirv_filmmaker effects reset
-camera`, which resets Smooth View, Handheld, Weapon Recoil, Weapon Bob and both pivot tables.
+camera`, which resets Smooth View, Handheld, Weapon Recoil, Weapon Bob, both pivot tables and both lens effects.
 
 WEAPON RECOIL has CS2's Test Shot in its header, and T fires one too while Config is open. Above
 its sliders are CS2's scope controls. Applies to picks All, a slot or a type, and a slot or type
@@ -1018,9 +1022,9 @@ What the cards show is read from the modules each frame (`SourceConfig.cpp`), th
 `AppendStateJson` calls CS2's Config panel is built from, so a card says what CS2's says. What
 differs from CS2:
 
-- Smooth View has no Fisheye Lens row and RESET CAMERA leaves out the lens, the crosshair, the
-  viewmodel and the shot FOV: those come with the [Lens](port-plan.md) step.
-- VIEWMODEL, the lens cards, the other tabs, the search box and the GAME UI chip are not there yet,
+- RESET CAMERA leaves out the crosshair, viewmodel and shot FOV. The Fisheye Lens row and both
+  lens cards are included; Smooth View's own Reset also switches fisheye off.
+- VIEWMODEL, the other tabs, the search box and the GAME UI chip are not there yet,
   and the selected card and the PIVOT drawers' open state are not saved.
 
 `mvm_debug` logs each command the cards send (`config.ui`) and each workspace change (`ui.editor`).
@@ -1028,17 +1032,17 @@ differs from CS2:
 ### Saved settings
 
 The camera feel is kept between sessions, as CS2 keeps it: Smooth View, Handheld Camera, Weapon
-Recoil with its presets, and Weapon Bob, with Keep between demos. They go to
+Recoil with its presets, Weapon Bob and the fisheye toggle, with Keep between demos. They go to
 `%APPDATA%\HLAE\filmmaker_settings_source1.json` (`Filmmaker/SourceSettings.cpp`). It is a file of
 its own because CS2's store rewrites `filmmaker_settings.json` from its own modules, and the two would
 drop each other's settings. Both games write and read the four groups through the same code
 (`AfxHookSource2/Filmmaker/Config/CameraFeelSettings.cpp`), so a group looks the same in either
-file.
+file. Fisheye is a root flag, as in CS2's store; it is saved alongside those groups.
 
 As in CS2, the modules' defaults are kept before the file is read, a change is written 500 ms after
 the last edit, and the file is written once more when the game shuts down. The weapon pivots and
 their markers stay for the session, as in CS2. `mirv_filmmaker settings save` writes now, `settings
-reset <smoothView|handheld|weaponRecoil|weaponBob|all>` puts a group back to its defaults, and
+reset <smoothView|handheld|weaponRecoil|weaponBob|lens|flags|all>` puts a group back to its defaults, and
 `health` shows the file and its state on its `settings:` line.
 
 Keep between demos sits at the left of Config's footer while a demo plays
@@ -1053,6 +1057,95 @@ VIEW; its header switch turned Smooth View on; a 20-pixel drag on Freq X set 1.5
 read back from the module; a tooltip showed on the row; the Handheld row's switch turned Handheld on
 with the module's own Drift 35% and Motion Curves 75%; the demo bar's CAM EDITOR swapped to the
 editor; and RESET CAMERA turned both layers off.
+
+## Lens
+
+Depth of field, bokeh and lens flare use CS2's shared settings, presets, masks, constant packing
+and effect shaders ([parameter and behaviour contract](../features/filmmaker_lens.md)). They ship
+off. Config's CAMERA tab has DEPTH OF FIELD (Focus / Bokeh) and LENS FLARE (Look / Detail), with the
+same presets and conditional controls as CS2. Reset on a card disables that effect and restores
+its tuning; RESET CAMERA resets both. DOF and flare settings remain session-local, as in CS2;
+Keep between demos includes them, but they are not written to the camera-feel file.
+
+Fisheye Lens is a separate row in Smooth View, independent of its motion toggle:
+`mirv_filmmaker fisheye on|off|toggle|state`. It uses the same corner-anchored radial mapping and
+coefficients as CS2. The image warp runs after DOF/flare, before the HUD and movie capture; it
+reaches Beauty and leaves the other plates clean. The camera's FOV remains separate. Smooth View's
+Reset and RESET CAMERA turn it off. Its toggle is saved between sessions, as in CS2.
+
+`mirv_filmmaker lens help` lists the command surface. For example:
+
+```text
+mirv_filmmaker lens dof on
+mirv_filmmaker lens preset dof cinematic
+mirv_filmmaker lens focus auto
+mirv_filmmaker lens iris mask crescent
+mirv_filmmaker lens flare on
+mirv_filmmaker lens state
+```
+
+`SourceLens.cpp` queues the passes through HLAE before `VEngineVGui001::Paint` draws the HUD.
+`SourceLensGpu.cpp` uses HLAE's INTZ depth surface, quad/state restoration and vertex shader cache,
+plus the shared background pixel-shader compiler/cache. Its
+Shader Model 3 adapter changes syntax and resource bindings, retaining the shared algorithms and
+sample counts. The CoC/world mip chains use separate intermediate surfaces to avoid sampling a
+render target while writing it. Masks are uploaded only when changed, shader compilation runs
+in the background, and surfaces are prepared before either effect is enabled.
+
+The lens reaches Beauty, including extra world/no-gun Beauty draws. Normal, Depth and Key bypass
+it. Extra Beauty draws hold the focus settled by the main view. The sun's direction is read from
+`DT_Sun`, with visibility tested against world depth. `mvm_debug` records shader preparation,
+surface sizes, autofocus distance, held-focus draws, sun projection and draw failures.
+
+Source 1 supplies depth through a separate view, using HLAE's single-sample INTZ target and
+discarding that view's colour. The original Beauty colour keeps its MSAA coverage samples. The
+shared composite produces a multiply term and an added term; D3D9 applies both to each original
+sample through hardware blending, preserving alpha. Fisheye alone needs no extra depth view.
+The render workspace includes these helper views in its per-frame cost.
+
+Smoke uses the same distance and coverage model as CS2. The host reads the actual expanding
+`ParticleSmokeGrenade` centres and radii. During the depth view, the real smoke shader and geometry
+multiply transmittance into a separate texture's alpha, with opaque depth testing still active.
+The shared shader converts this to absorbance for DOF, autofocus and sun visibility. This adds
+no particle simulation and does not change the Beauty draw's materials. Ordinary demo seeks can
+skip transient particle creation; play through the smoke's creation before checking it, as in CS2.
+
+Checked in CS:S on 2026-10-28: the four card pages at 480p, a real slider drag and tint selection,
+RESET CAMERA disabling both effects, autofocus while paused, a sun flare, target resize and 4x
+MSAA reset. A five-frame take wrote Beauty, World Beauty, Normal and Players Key; the key's modal
+pixel stayed RGB 0,205,0, and extra Beauty draws logged the held autofocus distance. D3D9 hardware
+fixtures checked the autofocus step and open-sky/occluded sun visibility. CS2 completed a separate
+four-frame Beauty/Normal take after the shared state and constants were extracted. A later take
+also verified fisheye in recorded CS2 Beauty: it previously ran after capture and reached only the
+preview. The CS:S fisheye take wrote six streams, including both Key plates with the same darker
+green background. Uploaded iris and dirt images changed the live output. Canceling with all lens
+effects enabled restored the camera/clock and retained the effects; partial PNG counts and decoded
+MP4 frame counts matched their canceled manifests.
+
+Later checks covered the MSAA/smoke integration: a real D3D9 fixture retained distinct coverage
+samples through the composite and preserved alpha; overlapping smoke layers produced transmittance
+0.375, a layer behind opaque depth contributed nothing, autofocus selected the cloud, and the sun's
+visibility fell to 0.375. Dense smoke moved the live autofocus toward the cloud while the HUD
+stayed sharp. A three-stream MP4 take wrote and decoded 2,034 frames per stream, including smoke
+in both Beauty plates and clean Normal. Another take wrote all 15 plates with DOF, flare, fisheye
+and 4x MSAA enabled; both Key plates kept RGB 0,205,0. The shared math and D3D11 GPU fixtures pass;
+D3D11's real 4x MSAA branch also passes sharp, blurred, lifted-highlight clamping and flare cases,
+including preservation of alpha. A device reset during a Beauty-only MP4 job failed safely,
+finalized five decoded frames matching the manifest, and restored the camera/clock; the next
+five-frame take completed after resources rebuilt. Final live CS2 regression confirmed 4x MSAA
+colour and depth through the shared composite. A six-stream PNG take wrote four frames each with
+DOF, flare, custom iris/dirt and fisheye in Beauty, while Normal, Depth and both Key plates stayed
+clean. Thin black/white masks changed the bokeh in CS2 too. An offline smoke grenade supplied real
+coverage and a sphere to the shader; autofocus moved from the wall to the dense cloud. The short
+practice recording was not usable for seek-based output (missing delta snapshots); it is not
+counted as a successful movie check. The regular-demo recordings completed.
+
+The mask audit also reproduced a shared loader bug: a 4,096-by-1 or 1-by-4,096 image reported as
+loaded but became zero pixels on its short side. The shared area reducer now keeps a non-empty
+mask, all source pixels and full available resolution. Real WIC tests cover both orientations and
+dirt. In CS:S, the formerly identical black/white narrow masks now change the bokeh, tall and wide
+white masks agree, and tall dirt changes the sun flare. A five-frame take confirms the mask in
+Beauty with clean Normal and the same darker-green Key background.
 
 ## Render workspace
 

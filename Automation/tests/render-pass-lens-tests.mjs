@@ -42,3 +42,13 @@ test('the live view of a plate without the HUD hides the HUD', () => {
   assert.match(command,
     /if \(live\.type != PassType::Beauty \|\| e != VisibleElements::Everything\)\s*CameraEditorHudRef\(\)\.SetHudViewOverride\(CameraEditorHud::HudView::HideAll\);\s*else\s*CameraEditorHudRef\(\)\.ClearHudViewOverride\(\);/);
 });
+
+test('fisheye changes Beauty before capture and leaves compositor inputs clean', () => {
+  const boundary=hooks.slice(hooks.indexOf('class CAfxRenderCallbackBeforeUi'));
+  const keep=boundary.indexOf('AfxRenderPass::KeepCleanColor(pDeviceContext');
+  const fisheye=boundary.indexOf('g_FisheyePass.Apply(');
+  const capture=boundary.indexOf('pRenderPassCommands->OnBeforeUi(pTexture)');
+  assert.ok(keep>0 && keep<fisheye && fisheye<capture);
+  assert.match(boundary,/if\(beautyLens && Filmmaker::Fisheye_Enabled\(\)\)/);
+  assert.doesNotMatch(hooks,/AfxFisheye::EngineThread_RunFrame/);
+});

@@ -14,6 +14,7 @@
 #include "SourceViewModel.h"
 #include "SourceDemoRewind.h"
 #include "SourceRender.h"
+#include "SourceLens.h"
 #include "SourceDemoSkip.h"
 #include "SourceDirector.h"
 #include "SourceEngine.h"
@@ -35,6 +36,8 @@
 #include "WrpVEngineClient.h"
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
+#include <AfxHookSource2/Filmmaker/Lens/LensFxState.h>
+#include <AfxHookSource2/Filmmaker/Lens/FisheyeState.h>
 #include <AfxHookSource2/Filmmaker/Movie/CamPathShake.h>
 #include <AfxHookSource2/Filmmaker/Movie/CameraShakeStack.h>
 #include <AfxHookSource2/Filmmaker/Movie/FollowCamera.h>
@@ -139,6 +142,7 @@ void PrintHealth() {
 	OldDemos_PrintHealth();
 	DemoRewind_PrintHealth();
 	Render_PrintHealth();
+    Lens_PrintHealth();
 	DemoSkip_PrintHealth();
 	DemoDeletions_PrintHealth();
 	CameraShake_PrintHealth();
@@ -221,6 +225,8 @@ void PrintUsage() {
 		"mirv_filmmaker capture - <file.bmp>: the next frame as the game shows it, the filmmaker's UI included.\n"
 		"mirv_filmmaker window  - status|resizable|size|aspect|ratios|snap|overlay: drag the window to any size (SHIFT snaps).\n"
 		"mirv_filmmaker scrub   - drag|release <tick>|status|cache on|off|clear|budget <MB>: the world follows a timeline drag.\n"
+        "mirv_filmmaker lens    - help|dof|flare|focus|iris|preset|state: depth of field, bokeh and flare.\n"
+        "mirv_filmmaker fisheye - on|off|toggle|state: barrel-distortion lens.\n"
 		"mirv_filmmaker render  - open|range|camera|output|pass|start|cancel|sound|takes|...: the Render workspace and its jobs.\n");
 }
 
@@ -329,6 +335,7 @@ void OnFrameRenderStart() {
 	FollowCamera_Frame();
 	CameraShake_Frame();
 	Render_Frame(); // a render job flies its camera last, so its pose is the frame's
+    Lens_Frame();
 	Filmmaker::ScrubFrameCache_EndFrame(); // after the camera drivers noted the camera
 	Settings_Frame(); // after everything that edits a setting this frame
 }
@@ -347,6 +354,7 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::PrintPlayers();
 	} else if (0 == _stricmp(sub, "engine")) {
 		if (argc >= 3 && 0 == _stricmp(args->ArgV(2), "classes")) SourceFilmmaker::Engine_PrintClasses(argc >= 4 ? args->ArgV(3) : "");
+        else if (argc>=4 && !_stricmp(args->ArgV(2),"props")) SourceFilmmaker::Engine_PrintProperties(args->ArgV(3));
 		else SourceFilmmaker::Engine_PrintFields();
 	} else if (0 == _stricmp(sub, "entities") && argc >= 3 && 0 == _stricmp(args->ArgV(2), "watch")) {
 		SourceFilmmaker::Entities_Watch(argc >= 4 ? args->ArgV(3) : "off");
@@ -370,6 +378,10 @@ CON_COMMAND(mirv_filmmaker, "SOURCE:MVM filmmaker. mirv_filmmaker health for a s
 		SourceFilmmaker::Settings_Command(argc, args);
 	} else if (0 == _stricmp(sub, "scrub")) {
 		Filmmaker::DemoScrub_RunCommand(argc, args, "mirv_filmmaker");
+    } else if (0 == _stricmp(sub,"fisheye")) {
+        Filmmaker::Fisheye_RunCommand(argc,args,"mirv_filmmaker");
+	} else if (0 == _stricmp(sub, "lens")) {
+        Filmmaker::LensFx_RunCommand(argc,args,"mirv_filmmaker");
 	} else if (0 == _stricmp(sub, "render")) {
 		SourceFilmmaker::Render_Command(argc, args);
 	} else if (0 == _stricmp(sub, "window")) {

@@ -7,6 +7,8 @@
 
 #include <AfxHookSource2/Filmmaker/Config/CameraFeelSettings.h>
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
+#include <AfxHookSource2/Filmmaker/Lens/LensFxState.h>
+#include <AfxHookSource2/Filmmaker/Lens/FisheyeState.h>
 #include <AfxHookSource2/Filmmaker/Movie/RecoilPivotMarker.h>
 #include <AfxHookSource2/Filmmaker/Movie/WeaponPivot.h>
 #include <AfxHookSource2/Filmmaker/Movie/WeaponRecoil.h>
@@ -58,6 +60,7 @@ std::string BuildSnapshot(bool render = true) {
 	b.BeginObject();
 	b.IntField("version", 1);
 	Filmmaker::CameraFeel_Write(b);
+    b.BoolField("fisheye",Filmmaker::Fisheye_Enabled());
 	b.BoolField("keepCameraAcrossDemos", g_keepCamera);
 	b.BoolField("scrubCache", g_scrubCache);
 	if (render) {
@@ -106,6 +109,12 @@ bool ResetGroup(const char* group) {
 	if (all || 0 == _stricmp(group, "handheld")) { Filmmaker::CameraFeel_LoadHandheld(Object(root, "handheld")); matched = true; }
 	if (all || 0 == _stricmp(group, "weaponRecoil")) { Filmmaker::WeaponRecoilRef().LoadState(Object(root, "weaponRecoil")); matched = true; }
 	if (all || 0 == _stricmp(group, "weaponBob")) { Filmmaker::CameraFeel_LoadWeaponBob(Object(root, "weaponBob")); matched = true; }
+    if (all || !_stricmp(group,"lens")) {
+        Filmmaker::LensFx_ResetGroup(Filmmaker::Lens::Group::Dof);
+        Filmmaker::LensFx_ResetGroup(Filmmaker::Lens::Group::Flare);
+        matched = true;
+    }
+    if(all || !_stricmp(group,"flags")) { Filmmaker::Fisheye_SetEnabled(false);matched=true; }
 	return matched;
 }
 
@@ -138,6 +147,7 @@ void Settings_Load() {
 		Filmmaker::JsonValue root;
 		if (Parse(text.str(), root)) {
 			Filmmaker::CameraFeel_Load(root);
+            if(const auto* fish=root.Find("fisheye");fish && fish->type==Filmmaker::JsonValue::Type::Bool) Filmmaker::Fisheye_SetEnabled(fish->boolean);
 			if (const Filmmaker::JsonValue* keep = root.Find("keepCameraAcrossDemos"); keep && keep->type == Filmmaker::JsonValue::Type::Bool)
 				g_keepCamera = keep->boolean;
 			if (const Filmmaker::JsonValue* cache = root.Find("scrubCache"); cache && cache->type == Filmmaker::JsonValue::Type::Bool)
@@ -170,7 +180,7 @@ void Settings_Frame() {
 		if (!g_keepCamera && generation != 0) QuietCameraReset();
 	}
 	const std::string snapshot = BuildSnapshot();
-	g_pictureRevision = std::hash<std::string>()(BuildSnapshot(false));
+	g_pictureRevision = std::hash<std::string>()(BuildSnapshot(false)) ^ (Filmmaker::LensFx_PictureRevision()*0x9e3779b97f4a7c15ULL);
 	const unsigned long long now = GetTickCount64();
 	if (g_quiet) {
 		if (snapshot == g_quietSnapshot) return; // still what the reset left: the file keeps the user's feel
@@ -220,11 +230,11 @@ void Settings_Command(int argc, advancedfx::ICommandArgs* args) {
 	if (0 == _stricmp(action, "reset")) {
 		const char* group = argc >= 4 ? args->ArgV(3) : "";
 		if (ResetGroup(group)) advancedfx::Message("settings: %s back to the defaults.\n", group);
-		else advancedfx::Message("settings: unknown group \"%s\". Groups: smoothView, handheld, weaponRecoil, weaponBob, all.\n", group);
+		else advancedfx::Message("settings: unknown group \"%s\". Groups: smoothView, handheld, weaponRecoil, weaponBob, lens, flags, all.\n", group);
 		return;
 	}
 	if (0 != _stricmp(action, "state")) {
-		advancedfx::Message("mirv_filmmaker settings save | reset <smoothView|handheld|weaponRecoil|weaponBob|all> | state\n");
+		advancedfx::Message("mirv_filmmaker settings save | reset <smoothView|handheld|weaponRecoil|weaponBob|lens|flags|all> | state\n");
 		return;
 	}
 	Settings_PrintHealth();

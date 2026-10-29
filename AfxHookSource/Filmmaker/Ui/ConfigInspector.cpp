@@ -76,7 +76,7 @@ const std::string& CurveOf(const ConfigModel& m, int state) { return state == 0 
 std::string SmoothViewSummary(const ConfigModel& m) {
 	if (!m.svOn) return "Off";
 	const std::string tilt = m.svTiltEnabled ? Format("%ld", Round(m.svTilt)) : std::string("off");
-	return "Breathing " MIDDOT " tilt " + tilt + " " MIDDOT " effects " + (m.svFalling || m.svJumping ? "on" : "off");
+	return "Breathing " MIDDOT " tilt " + tilt + " " MIDDOT " effects " + (m.svFalling || m.svJumping || m.fisheye ? "on" : "off");
 }
 
 std::string HandheldSummary(const ConfigModel& m) {
@@ -181,12 +181,13 @@ void Header(Pane& p, const char* id, const char* title, const std::string& summa
 // ---- the cards -------------------------------------------------------------------------------------
 
 void SmoothViewCard(Pane& p, const ConfigModel& m) {
-	const char* reset[] = { "mirv_filmmaker smoothview reset" };
-	Header(p, "smoothview", "Smooth View", SmoothViewSummary(m), kMotion, m.svOn, m.smoothViewDefault, reset, 1,
+	const char* reset[] = { "mirv_filmmaker smoothview reset", "mirv_filmmaker fisheye off" };
+	Header(p, "smoothview", "Smooth View", SmoothViewSummary(m), kMotion, m.svOn, m.smoothViewDefault && !m.fisheye, reset, 2,
 		"mirv_filmmaker smoothview toggle");
 	Group(p, "View");
 	Toggle(p, "falling", "Fall pitch", "Pitches the camera during a fall.", m.svFalling, "mirv_filmmaker smoothview falling toggle");
 	Toggle(p, "jumping", "Jump kick", "Kicks the camera on take-off and landing.", m.svJumping, "mirv_filmmaker smoothview jumping toggle");
+    Toggle(p,"fisheye","Fisheye Lens","Barrel-distortion wide-angle lens pass.",m.fisheye,"mirv_filmmaker fisheye toggle");
 	Group(p, "Breathing");
 	Toggle(p, "healthsway", "Health Sway", "Breathing gets heavier as health drops.", m.svHealthSway,
 		"mirv_filmmaker smoothview healthSway toggle");
@@ -655,6 +656,8 @@ void WeaponBobCard(Pane& p, const ConfigModel& m) {
 	PivotDrawer(p, m, m.pvb, 1);
 }
 
+#include "ConfigLensCards.h"
+
 // ---- the rail --------------------------------------------------------------------------------------
 
 void Rail(ConfigState& st, const ConfigModel& m, const FontSet& fonts, float s, const Rect& rail, std::vector<std::string>& out) {
@@ -681,6 +684,8 @@ void Rail(ConfigState& st, const ConfigModel& m, const FontSet& fonts, float s, 
 		{ ConfigCard::Handheld, "Motion", "Handheld Camera", kMotion, m.handheldOn, HandheldSummary(m), "mirv_filmmaker handheld toggle" },
 		{ ConfigCard::WeaponRecoil, "Weapon", "Weapon Recoil", kRecoilAmber, m.wrOn, WeaponRecoilSummary(m), "mirv_filmmaker weaponrecoil toggle" },
 		{ ConfigCard::WeaponBob, "Weapon", "Weapon Bob", kBobCyan, m.wbOn, WeaponBobSummary(m), "mirv_filmmaker weaponbob toggle" },
+        { ConfigCard::DepthOfField, "Lens", "Depth of field", kDof, m.lens[Lx::DofOn]>.5f, LensSummary(m,false), "mirv_filmmaker lens dof toggle quiet" },
+        { ConfigCard::LensFlare, "Lens", "Lens flare", kFlare, m.lens[Lx::FlareOn]>.5f, LensSummary(m,true), "mirv_filmmaker lens flare toggle quiet" },
 	};
 	const char* group = nullptr;
 	for (const Entry& e : entries) {
@@ -741,7 +746,7 @@ void DrawConfigInspector(ConfigState& state, const ConfigModel& model, const Fon
 			draw->AddText(label, label->FontSize, ImVec2(track.x1 + 10 * s, std::floor(cy - label->FontSize * 0.5f)), ToU32(Theme::Text), text);
 			if (clicked) commands.push_back(on ? "mirv_filmmaker effects keep camera off" : "mirv_filmmaker effects keep camera on");
 			if (hot) {
-				footTip = "Carries Smooth View, Handheld, Weapon Recoil and Weapon Bob into the next demo you load. Off, each new demo starts "
+				footTip = "Carries camera motion and lens effects into the next demo you load. Off, each new demo starts "
 				          "from the defaults.";
 				footTipRect = row;
 			}
@@ -768,6 +773,8 @@ void DrawConfigInspector(ConfigState& state, const ConfigModel& model, const Fon
 	case ConfigCard::Handheld: HandheldCard(p, model); break;
 	case ConfigCard::WeaponRecoil: WeaponRecoilCard(p, model); break;
 	case ConfigCard::WeaponBob: WeaponBobCard(p, model); break;
+    case ConfigCard::DepthOfField: LensDofCard(p,model); break;
+    case ConfigCard::LensFlare: LensFlareCard(p,model); break;
 	default: SmoothViewCard(p, model); break;
 	}
 	ImGui::PopID();
@@ -870,6 +877,8 @@ const char* ConfigCardName(ConfigCard card) {
 	case ConfigCard::Handheld: return "handheld";
 	case ConfigCard::WeaponRecoil: return "weaponrecoil";
 	case ConfigCard::WeaponBob: return "weaponbob";
+    case ConfigCard::DepthOfField: return "dof";
+    case ConfigCard::LensFlare: return "flare";
 	default: return "?";
 	}
 }

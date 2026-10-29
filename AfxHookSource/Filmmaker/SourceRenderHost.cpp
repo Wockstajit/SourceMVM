@@ -14,6 +14,9 @@
 #include <AfxHookSource2/Filmmaker/Movie/FollowCamera.h>
 #include "SourceRenderPassTable.h"
 #include "SourceRenderPasses.h"
+#include "SourceLensGpu.h"
+#include <AfxHookSource2/Filmmaker/Lens/LensFxState.h>
+#include <AfxHookSource2/Filmmaker/Lens/FisheyeState.h>
 
 #include "Ui/DirectorMath.h"
 #include "Ui/FollowInspector.h"
@@ -120,18 +123,22 @@ const char* RenderHost_PassUnavailable(const PassConfig& pass) {
     const SourceFilmmaker::PassRoute route = SourceFilmmaker::RoutePass((int)pass.type, (int)pass.elements);
     if (route.way == SourceFilmmaker::PassWay::Unavailable) return route.why;
     if (route.way == SourceFilmmaker::PassWay::NotAPass) return "This pass combination does not exist.";
+    if(pass.type==PassType::Beauty && ((LensFx_Active() && !SourceFilmmaker::LensGpu_DepthPrepared())
+        || (Fisheye_Enabled() && !SourceFilmmaker::LensGpu_Prepared())))
+        return "The lens renderer is not ready. Check mirv_filmmaker lens state before starting.";
     return nullptr;
 }
 
 int RenderHost_PhysicalRendersPerFrame(const std::vector<PassConfig>& passes) {
-    int extra = 0; bool reference = false;
+    int extra = 0,beauty = 1; bool reference = false;
     for (const PassConfig& pass : passes) {
         const auto route = SourceFilmmaker::RoutePass((int)pass.type,(int)pass.elements);
         if (route.way == SourceFilmmaker::PassWay::Extra) {
             ++extra; reference |= SourceFilmmaker::PassDepthMask(route.extra) == 2;
+            beauty += pass.type==PassType::Beauty;
         }
     }
-    return 1 + extra + (extra ? 1 : 0) + (reference ? 1 : 0);
+    return 1 + extra + (extra ? 1 : 0) + (reference ? 1 : 0) + (LensFx_Active() ? beauty+(extra ? 1 : 0) : 0);
 }
 
 bool RenderHost_RunCommand(const char*, int, advancedfx::ICommandArgs*, const char*) { return false; }

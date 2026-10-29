@@ -51,6 +51,7 @@ set(AFXHOOKSOURCE2_SHADERS_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depthms_ps_5_0.fxc"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_render_pass_ps_5_0.fxc"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_pass_normals.hlsli"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_fisheye_uv.hlsli"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depth_vs_5_0.fxc"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_depth_ps_5_0.fxc"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_deadlock_overlay_vs_5_0.fxc"
@@ -828,6 +829,12 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/WeaponBobMath.h
     Filmmaker/Movie/WeaponRecoilPresets.h
     Filmmaker/Movie/WeaponRecoilStyles.h
+    Filmmaker/Lens/LensFxState.cpp
+    Filmmaker/Lens/FisheyeState.cpp
+    Filmmaker/Lens/FisheyeState.h
+    Filmmaker/Lens/FisheyeMath.h
+    Filmmaker/Lens/LensFxConstants.h
+    Filmmaker/Lens/LensFxState.h
     Filmmaker/Lens/LensFx.cpp
     Filmmaker/Lens/LensFx.h
     Filmmaker/Heatmap/RoundHeatmap.cpp
@@ -850,6 +857,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Platform/PngWrite.h
     Filmmaker/Platform/SnappyDecode.h
     Filmmaker/Lens/LensFxMath.h
+    Filmmaker/Lens/LensMaskMath.h
     Filmmaker/Lens/LensFxShaders.h
     Filmmaker/Movie/RecoilPivotMarker.cpp
     Filmmaker/Movie/RecoilPivotMarker.h

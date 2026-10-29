@@ -160,6 +160,9 @@ const int Networkable_PostDataUpdate = 7;
 const int Networkable_IsDormant = 8;
 // IEngineVGui (VEngineVGui001): the destructor, GetPanel, IsGameUIVisible.
 const int EngineVGui_IsGameUIVisible = 2;
+// CS:S x64 CEngineVGui RTTI vtable, measured 2026-10-28: Paint at slot 14, labelled
+// CEngineVGui::Paint by VProf. Bit 2 paints in-game panels, after the world.
+const int EngineVGui_Paint = 14;
 } // namespace Slot
 
 const int kModelRenderEntityIndex = 0x44;
@@ -169,6 +172,12 @@ const int kModelRenderEntityIndex = 0x44;
 // unscaled height; the ortho flag and box; fov (0x38) and the viewmodel's; origin (0x40) and angles
 // (0x4C); the near and far planes; the subrect flag and the aspect ratio; the off-centre flag and box;
 // then m_bDoBloomAndToneMapping (0x84), two more flags, and the view-to-projection matrix at 0x88.
+// CS:S x64 ParticleSmokeGrenade: FillVolume writes stage 1, copies its origin to
+// +0x8C4 and clears the expansion clock/radius at +0x1498/+0x149C. Update reads
+// that radius through its IParticleEffect subobject (+0x788). Measured 2026-10-28.
+const int kSmokeStage = 0x8C0;
+const int kSmokeBaseOrigin = 0x8C4;
+const int kSmokeExpansionRadius = 0x149C;
 const int kViewSetupSize = 0xC8;
 const int kViewWidth = 0x10;
 const int kViewHeight = 0x18;

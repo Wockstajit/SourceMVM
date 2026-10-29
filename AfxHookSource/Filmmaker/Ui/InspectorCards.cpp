@@ -419,7 +419,7 @@ int Segmented(CardColumn& c, const char* id, const char* const* captions, int co
 	return clicked;
 }
 
-int CellRow(CardColumn& c, const char* id, const char* const* captions, int count, int selected) {
+int CellRow(CardColumn& c, const char* id, const char* const* captions, int count, int selected, int columns) {
 	const float s = c.s;
 	ImFont* capFont = c.Font(FontRole::Button);
 	const float cellH = capFont->FontSize + 10 * s, gap = 4 * s;
@@ -428,8 +428,8 @@ int CellRow(CardColumn& c, const char* id, const char* const* captions, int coun
 	int clicked = -1;
 	ImGui::PushID(id);
 	for (int i = 0; i < count; ++i) {
-		const float w = TextSize(capFont, captions[i]).x + 20 * s;
-		if (x > c.x0 && x + w > c.x1) { // wrap
+        const float w = columns>0 ? (c.W()-gap*(columns-1))/columns : TextSize(capFont,captions[i]).x+20*s;
+        if ((columns>0 && i>0 && i%columns==0) || (columns<=0 && x>c.x0 && x+w>c.x1)) { // wrap
 			x = c.x0;
 			y += cellH + gap;
 		}

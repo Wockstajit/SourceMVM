@@ -183,7 +183,17 @@ void AfxDrawDepth(AfxDrawDepthEncode encode, AfxDrawDepthMode mode, bool clip, f
 
 void AfxDrawGuides(int x, int y, int width, int height, bool phiGrid, bool ruleOfThirds);
 
-void AfxDrawRect(IDirect3DTexture9* texture, int x, int y, int width, int height, float x0, float y0, float x1, float y1);
+// SOURCE:MVM: optional Shader Model 3 pass using HLAE's quad and state restoration.
+struct AfxRectPass {
+    IDirect3DVertexShader9* vertex = nullptr;
+    IDirect3DPixelShader9* pixel = nullptr;
+    const float* constants = nullptr;
+    unsigned constantCount = 0, pointSamplers = 0;
+    enum Blend { Replace, Multiply, Add } blend = Replace;
+    HRESULT* result = nullptr;
+    IDirect3DTexture9* textures[16] = {};
+};
+void AfxDrawRect(IDirect3DTexture9* texture, int x, int y, int width, int height, float x0, float y0, float x1, float y1, const AfxRectPass* pass = nullptr);
 
 //
 

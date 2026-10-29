@@ -40,6 +40,12 @@ ViewPose View_Rendered();
 // The fields of view in the engine's own world-to-screen matrix, of the last view it rendered: the
 // FOV above as the engine widened it for the screen. False before a view is rendered.
 bool Engine_ViewMatrixFov(double& horizontal, double& vertical);
+// Actual row-major projection for the world currently being rendered.
+bool Engine_WorldToClip(float* matrix);
+// Unit direction toward the visible CSun disc, resolved through DT_Sun fields.
+bool Engine_SunDirection(float* direction);
+// Actual expanding smoke clouds, bounded to capacity xyzw values (centre and radius).
+int Engine_SmokeVolumes(float* spheres,int capacity);
 
 // The horizontal FOV the engine renders fov at on a width x height screen. CS:S widens its 4:3 FOV
 // for the screen as Alien Swarm does: measured 2026-10-26 from the engine's own matrix
@@ -191,6 +197,8 @@ EngineDiagnostics Engine_Diagnostics();
 void Engine_PrintFields();
 // Prints the game's client class names containing filter (mirv_filmmaker engine classes [filter]).
 void Engine_PrintClasses(const char* filter);
+// Read-only diagnostics for the named network class: measured property types and offsets.
+void Engine_PrintProperties(const char* className);
 
 // Writes the same into the mvm_debug log, so a game update that moves a field is visible there.
 void Engine_LogFields();

@@ -111,8 +111,8 @@ CRenderCommands g_RenderCommands;
 // g_CampathDrawer; driven through the AfxViewportScaler bridge at the bottom of this file.
 CViewportScaler g_ViewportScaler;
 
-// Standalone fisheye barrel-distortion post-process. Same lifecycle as g_ViewportScaler; driven
-// through the AfxFisheye bridge at the bottom of this file.
+// Standalone fisheye barrel-distortion post-process, applied before the recorder snapshot.
+// Shares the controls and UV mapping with Source 1; device lifecycle matches g_ViewportScaler.
 CFisheyePass g_FisheyePass;
 
 bool g_bEnableReShade = true;
@@ -3399,6 +3399,23 @@ public:
                 // of a Key, Depth or Normal pass (which replaces the scene below) is built without it,
                 // like that pass in a job (CRenderPassCommands::SkipLens / KeepCleanColor).
                 auto pLensCommands = g_RenderCommands.RenderThread_GetCommands();
+                const bool beautyLens=!(pLensCommands && pLensCommands->SkipLens) && !AfxLivePassPreviewShown();
+                // Snapshot the compositor's clean input before either optical effect changes Beauty.
+                if(beautyLens && (Filmmaker::LensFx_Active() || Filmmaker::Fisheye_Enabled())) {
+                    // This render also feeds the pass compositor: it reads the scene from before the lens.
+                    if (pLensCommands && pLensCommands->KeepCleanColor) {
+                        ID3D11Resource* pSceneResource = nullptr;
+                        pRenderTargetViews[0]->GetResource(&pSceneResource);
+                        if (pSceneResource) {
+                            ID3D11Texture2D* pSceneTexture = nullptr;
+                            if (SUCCEEDED(pSceneResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&pSceneTexture)) && pSceneTexture) {
+                                AfxRenderPass::KeepCleanColor(pDeviceContext, pSceneTexture);
+                                pSceneTexture->Release();
+                            }
+                            pSceneResource->Release();
+                        }
+                    }
+                }
                 if (Filmmaker::LensFx_Active() && !(pLensCommands && pLensCommands->SkipLens) && !AfxLivePassPreviewShown()) {
                     // The smokes in front of the world, so the blur stops at a smoke instead of showing through it.
                     Filmmaker::LensSmoke smoke;
@@ -3426,24 +3443,15 @@ public:
                     // The console green screen (render greenscreen) repaints the scene itself, so its
                     // frame gets no flare: it would paint over the chroma background (LensFx.h, keyPass).
                     const bool keyPass = Filmmaker::RenderPlayersOnlyGreen_Active();
-                    // This render also feeds the pass compositor: it reads the scene from before the lens.
-                    if (pLensCommands && pLensCommands->KeepCleanColor) {
-                        ID3D11Resource* pSceneResource = nullptr;
-                        pRenderTargetViews[0]->GetResource(&pSceneResource);
-                        if (pSceneResource) {
-                            ID3D11Texture2D* pSceneTexture = nullptr;
-                            if (SUCCEEDED(pSceneResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&pSceneTexture)) && pSceneTexture) {
-                                AfxRenderPass::KeepCleanColor(pDeviceContext, pSceneTexture);
-                                pSceneTexture->Release();
-                            }
-                            pSceneResource->Release();
-                        }
-                    }
                     Filmmaker::LensFx_Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                         g_EnvironmentFrame.hasWorldToClip ? g_EnvironmentFrame.worldToClip.data() : nullptr,
                         g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke, sun, keyPass,
                         pLensCommands && pLensCommands->HoldLensFocus);
                 }
+                // Fisheye is a Beauty effect too. This must precede OnBeforeUi's movie snapshot;
+                // the old BeforeUi2 queue changed only the preview after the recorder had copied it.
+                if(beautyLens && Filmmaker::Fisheye_Enabled())
+                    g_FisheyePass.Apply(pDeviceContext,pRenderTargetViews[0],1.f);
                 // Round heat map: a placement aid painted on the floor after the lens, so it stays
                 // sharp. It sits out recordings (the scene objects tab is where it is switched on).
                 {
@@ -8447,45 +8455,6 @@ namespace AfxViewportScaler {
 
 } // namespace AfxViewportScaler
 
-// --- Fisheye bridge --------------------------------------------------------------------------
-// Same request/push contract as AfxViewportScaler above: the Filmmaker module on the main/UI
-// thread only publishes a request; the BeforeUi2 push happens on the engine
-// thread. Runs BEFORE the viewport-scaler push (see RenderSystemDX11_EngineThread_Prepare) so
-// a scaled Config/editor preview shows the distortion inside the preview rect. Unlike the
-// scaler, this pass is NOT gated on recording: the fisheye is a look effect that should bake
-// into captures.
-namespace AfxFisheye {
-
-    static std::mutex s_RequestMutex;
-    static bool s_Active = false;
-    static float s_Strength = 1.0f;
-
-    void SetRequest(bool active, float strength) {
-        std::unique_lock<std::mutex> lock(s_RequestMutex);
-        s_Active = active;
-        s_Strength = strength;
-    }
-
-    void EngineThread_RunFrame() {
-        bool active; float strength;
-        {
-            std::unique_lock<std::mutex> lock(s_RequestMutex);
-            active = s_Active;
-            strength = s_Strength;
-        }
-
-        if (!active || !g_FisheyePass.Ready())
-            return;
-
-        CFisheyePass* pass = &g_FisheyePass;
-        g_RenderCommands.EngineThread_GetCommands().BeforeUi2.Push(
-            [pass, strength](ID3D11DeviceContext* pDeviceContext, ID3D11RenderTargetView* pTarget) {
-                pass->Apply(pDeviceContext, pTarget, strength);
-            });
-    }
-
-} // namespace AfxFisheye
-
 const wchar_t * AfxStreams_GetTakeDir() {
     return g_AfxStreams.GetTakeDir();
 }
@@ -8551,10 +8520,6 @@ void RenderSystemDX11_EngineThread_Prepare() {
             }
         }
     }
-
-    // Queue this frame's fisheye pass next, so a scaled
-    // Config/editor preview blit below snapshots the already-distorted frame.
-    AfxFisheye::EngineThread_RunFrame();
 
     // Queue this frame's camera-editor scaled-preview blit (if requested + not recording).
     AfxViewportScaler::EngineThread_RunFrame();

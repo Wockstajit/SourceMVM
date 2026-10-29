@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "SourceRenderPasses.h"
+#include "SourceLens.h"
 #include "SourceRenderPassMath.h"
 #include <algorithm>
 #include "SourceConCommand.h"
@@ -281,7 +282,10 @@ void DrawPasses(void* client, const std::vector<Pass>& passes, const ExtraPassLo
         }
         ClearColor(context,fog ? look.key : black);
         g_passContext = context; g_activePass = pass.kind; g_linearTone = fog;
+        const bool beauty = !depth && !fog;
+        if (beauty) Lens_ViewBegin(true,flags);
         const bool drawn = DrawView(client,extra,flags);
+        if (beauty) Lens_ViewEnd();
         g_linearTone = false; g_passContext = nullptr;
         float projection[4][4] = {};
         const float zn = *(const float*)(view+kViewNear), zf = *(const float*)(view+kViewFar);
@@ -306,7 +310,11 @@ void DrawPasses(void* client, const std::vector<Pass>& passes, const ExtraPassLo
 	Restore();
     ToneScale(context, savedTone, true);
 	ClearColor(context, black);
-	if (!preview && !DrawView(client, view, kRenderViewDrawViewModel | kRenderViewDrawHud)) g_failure->Set("the Beauty view could not be restored");
+    if (!preview) {
+        Lens_ViewBegin(true);
+        if (!DrawView(client,view,kRenderViewDrawViewModel | kRenderViewDrawHud)) g_failure->Set("the Beauty view could not be restored");
+        Lens_ViewEnd();
+    }
     ToneScale(context, savedTone, true);
 	ReleaseContext(context);
 	if (preview) return;
@@ -321,7 +329,9 @@ void __fastcall HookViewRender(void* client,
 	void*,
 #endif
 	void* rect) {
+    Lens_ViewBegin();
 	g_original(client, rect);
+    Lens_ViewEnd();
     if (g_armed) {
         g_armed = false;
         if (!g_passes.empty()) DrawPasses(client,g_passes,g_look,false);
@@ -351,6 +361,21 @@ void RenderPasses_Install() {
 }
 
 bool RenderPasses_Installed() { return g_original != nullptr; }
+
+bool RenderPasses_LensDepth(int drawFlags,bool smoke) {
+    alignas(16) unsigned char view[kViewSetupSize]={};
+    if(!g_client || !PlayerView(g_client,view)) return false;
+    void* context=Context();if(!context) return false;
+    float tone[3];const bool saved=ToneScale(context,tone,false);
+    // The helper supplies depth, never another exposure measurement or a second HUD.
+    view[kViewBloomAndToneMapping]=0;
+    if(smoke) Lens_DepthMaterialScope(context,true);
+    const bool drawn=saved && DrawView(g_client,view,drawFlags & ~kRenderViewDrawHud);
+    if(smoke) Lens_DepthMaterialScope(context,false);
+    if(saved) ToneScale(context,tone,true);
+    ReleaseContext(context);
+    return drawn;
+}
 
 bool RenderPasses_Begin(const std::vector<ExtraPassJob>& passes, const ExtraPassLook& look, std::string& error) {
 	RenderPasses_End();
@@ -405,7 +430,7 @@ void RenderPasses_Preview(ExtraPass kind, const ExtraPassLook& look, bool enable
 void RenderPasses_DeviceLost() {
     if (g_worldDepth) { g_worldDepth->Release(); g_worldDepth = nullptr; }
     if (g_worldSurface) { g_worldSurface->Release(); g_worldSurface = nullptr; }
-    if (!g_passes.empty()) g_failure->Set("the render device was reset during capture; start the job again");
+    if (Filmmaker::RenderSessionDriver_IsActive()) g_failure->Set("the render device was reset during capture; start the job again");
 }
 
 void RenderPasses_End() {

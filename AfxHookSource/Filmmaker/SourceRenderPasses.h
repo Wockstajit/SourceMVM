@@ -32,6 +32,8 @@ struct ExtraPassLook {
 // Once a frame until the client is up and View_Render is hooked.
 void RenderPasses_Install();
 bool RenderPasses_Installed();
+// Current Beauty camera/filter, without the HUD; Lens redirects and discards its colour.
+bool RenderPasses_LensDepth(int drawFlags,bool smoke);
 // Opens a capture for each pass (each keeps its creator). False with the reason when it cannot.
 bool RenderPasses_Begin(const std::vector<ExtraPassJob>& passes, const ExtraPassLook& look, std::string& error);
 // This frame's View_Render draws and captures the passes.

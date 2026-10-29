@@ -8,6 +8,8 @@
 #include "WrpVEngineClient.h"
 
 #include <AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h>
+#include <AfxHookSource2/Filmmaker/Lens/LensFxState.h>
+#include <AfxHookSource2/Filmmaker/Lens/FisheyeState.h>
 #include <AfxHookSource2/Filmmaker/Movie/HandheldCam.h>
 #include <AfxHookSource2/Filmmaker/Movie/RecoilPivotMarker.h>
 #include <AfxHookSource2/Filmmaker/Movie/SmoothView.h>
@@ -25,10 +27,11 @@ namespace SourceFilmmaker {
 
 namespace {
 
-// CS2's kCameraReset (EffectsPersistence.cpp) for what CS:S has: no fisheye, true-aim crosshair,
-// viewmodel card, shot FOV or lens yet.
+// CS2's kCameraReset (EffectsPersistence.cpp) for what CS:S has: no true-aim crosshair,
+// viewmodel card or shot FOV yet.
 const char* const kCameraReset[] = {
 	"mirv_filmmaker smoothview reset",
+    "mirv_filmmaker fisheye off",
 	"mirv_filmmaker handheld reset quiet",
 	"mirv_filmmaker weaponrecoil reset quiet",
 	"mirv_filmmaker weaponbob reset",
@@ -36,6 +39,7 @@ const char* const kCameraReset[] = {
 	"mirv_filmmaker pivot bob reset",
 	"mirv_filmmaker pivotorb recoil off quiet",
 	"mirv_filmmaker pivotorb bob off quiet",
+    "mirv_filmmaker lens reset all quiet",
 };
 
 void Run(const char* command) {
@@ -80,10 +84,12 @@ void Config_BuildModel(Ui::ConfigModel& m) {
 	const DemoState demo = Demo_State();
 	m.demo = demo.playing || demo.paused;
 	m.keepCamera = Settings_KeepCamera();
+    m.lens=Filmmaker::LensFx_Get();
 
 	// SMOOTH VIEW: CS2's ConfigHud writes these fields itself.
 	const Filmmaker::SmoothView& sv = Filmmaker::SmoothViewRef();
 	m.svOn = sv.Enabled();
+    m.fisheye=Filmmaker::Fisheye_Enabled();
 	m.svBreathX = sv.BreathFreqX();
 	m.svBreathY = sv.BreathFreqY();
 	m.svStandAmp = sv.StandBreathAmp();
@@ -104,6 +110,7 @@ void Config_BuildModel(Ui::ConfigModel& m) {
 	Filmmaker::HandheldCamRef().AppendStateJson(o);
 	Filmmaker::WeaponRecoilRef().AppendStateJson(o);
 	Filmmaker::WeaponBobRef().AppendStateJson(o);
+    Filmmaker::LensFx_AppendStateJson(o);
 	Filmmaker::WeaponPivotRecoilRef().AppendStateJson(o, "pvr");
 	Filmmaker::WeaponPivotBobRef().AppendStateJson(o, "pvb");
 	o << "}";
@@ -112,6 +119,7 @@ void Config_BuildModel(Ui::ConfigModel& m) {
 		if (Filmmaker::MvmDebugLog_Active()) Filmmaker::MvmDebugLog_Linef("config.model", "state json did not parse");
 		return;
 	}
+    if(const auto* lens=root.Find("lens")) m.irisMask=String(*lens,"irisMask",m.irisMask);
 	m.handheldOn = Bool(root, "handheldOn", m.handheldOn);
 	m.hhVmDecoupled = Bool(root, "hhVmDecoupled", m.hhVmDecoupled);
 	m.hhCenterLockOn = Bool(root, "hhCenterLockOn", m.hhCenterLockOn);

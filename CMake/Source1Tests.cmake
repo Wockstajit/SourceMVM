@@ -14,6 +14,30 @@ target_compile_features(NetconServerTests PRIVATE cxx_std_17)
 target_include_directories(NetconServerTests PRIVATE ./)
 add_test(NAME NetconServerTests COMMAND NetconServerTests)
 
+add_executable(SourceLensShaderTests
+    ../Automation/tests/source-lens-shader-tests.cpp
+    Filmmaker/SourceLensShaders.cpp
+    Filmmaker/SourceLensSmoke.cpp
+)
+target_compile_features(SourceLensShaderTests PRIVATE cxx_std_17)
+target_include_directories(SourceLensShaderTests PRIVATE ../)
+target_link_libraries(SourceLensShaderTests PRIVATE d3dcompiler d3d9 user32)
+add_test(NAME SourceLensShaderTests COMMAND SourceLensShaderTests)
+add_test(NAME SourceLensGpuTests COMMAND SourceLensShaderTests --gpu)
+set_tests_properties(SourceLensGpuTests PROPERTIES SKIP_RETURN_CODE 77)
+
+add_executable(SourceLensStateTests
+    ../Automation/tests/lens-fx-state-tests.cpp
+    ../AfxHookSource2/Filmmaker/Lens/LensFxState.cpp
+    ../AfxHookSource2/Filmmaker/Lens/FisheyeState.cpp
+    ../AfxHookSource2/Filmmaker/Environment/EnvironmentMaterialImage.cpp
+    ../Shared/AfxConsole.cpp
+)
+target_compile_features(SourceLensStateTests PRIVATE cxx_std_17)
+target_include_directories(SourceLensStateTests PRIVATE ./)
+target_link_libraries(SourceLensStateTests PRIVATE windowscodecs ole32)
+add_test(NAME SourceLensStateTests COMMAND SourceLensStateTests)
+
 add_executable(SourceRenderPassMathTests
     ../Automation/tests/source-render-pass-math-tests.cpp
     Filmmaker/SourceRenderPassMath.h

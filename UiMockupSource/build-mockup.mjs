@@ -24,6 +24,7 @@ const FONTS = ['verdana.ttf', 'verdanab.ttf', 'tahoma.ttf', 'tahomabd.ttf'];
 // Everything the build reads, for the preview's change watcher.
 export const SOURCE_DIRS = [UI, FILMMAKER, import.meta.dirname];
 export const SHARED_HEADERS = [
+  path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Lens', 'LensFxMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'UiClickMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'FreeCamStepMath.h'),
   path.join(ROOT, 'AfxHookSource2', 'Filmmaker', 'Movie', 'TimelineDock.h'),

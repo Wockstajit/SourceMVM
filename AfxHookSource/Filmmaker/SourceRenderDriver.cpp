@@ -257,9 +257,23 @@ int PassFilesWritten(const PassOutput& pass) {
 	return files;
 }
 
+// All selected streams must have a frame. HLAE has drained the writers before this is called.
+// Sequences count actual files; a finalized video keeps the recorder's submitted frame count.
+int FramesWritten(int submitted) {
+    int written=submitted;
+    for(const auto& pass:g_passOutputs) {
+        const int files=PassFilesWritten(pass);
+        const int count=RenderFormatIsSequence(g_job.out.format) ? files : (files>0 ? submitted : 0);
+        written=(std::min)(written,count);
+        Probe("pass %s: %d frame(s) written",PassStreamName(pass.pass).c_str(),count);
+    }
+    return written;
+}
+
 // Ends the job: the state put back, the manifest's outcome, the chime, the earlier takes rescanned.
-void FinishJob(S terminal, const char* status, const std::string& note, int written = 0) {
+void FinishJob(S terminal, const char* status, const std::string& note, int written = -1) {
 	RecorderEnd();
+    if(written<0) written=FramesWritten(g_frame);
 	RecorderRestore();
 	RenderFrameMap_Close();
 	RestoreState();
@@ -475,13 +489,7 @@ void RunJobFrame() {
 			Move(S::PostProcessing);
 			Move(S::RestoringState);
             if (!SourceFilmmaker::RenderPasses_Error().empty()) { FailJob(SourceFilmmaker::RenderPasses_Error()); break; }
-            int written = g_job.framesTotal;
-            for (const PassOutput& pass : g_passOutputs) {
-                const int files = PassFilesWritten(pass);
-                const int count = RenderFormatIsSequence(g_job.out.format) ? files : (files > 0 ? g_frame : 0);
-                written = (std::min)(written, count);
-                Probe("pass %s: %d frame(s) written", PassStreamName(pass.pass).c_str(), count);
-            }
+            const int written=FramesWritten(g_job.framesTotal);
             if (g_extraRenders && SourceFilmmaker::RenderPasses_Frames() != g_frame) {
                 FailJob("not every frame reached the extra pass renderer"); break;
             }

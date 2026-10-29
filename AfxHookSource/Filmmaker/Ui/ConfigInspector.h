@@ -12,6 +12,7 @@
 
 #include "InspectorCards.h"
 #include "UiStyle.h"
+#include "../../../AfxHookSource2/Filmmaker/Lens/LensFxMath.h"
 
 #include <string>
 #include <vector>
@@ -20,7 +21,7 @@ namespace SourceFilmmaker {
 namespace Ui {
 
 // The CAMERA tab's cards, in rail order.
-enum class ConfigCard { SmoothView = 0, Handheld, WeaponRecoil, WeaponBob, Count };
+enum class ConfigCard { SmoothView = 0, Handheld, WeaponRecoil, WeaponBob, DepthOfField, LensFlare, Count };
 
 // A PIVOT drawer's hinges (a WeaponPivotStore's state JSON under its prefix): the weapon class in
 // shot and its gun, and per scope (0 every class, then rifle, smg, pistol, shotgun, sniper, knife,
@@ -45,6 +46,7 @@ struct ConfigModel {
 	bool keepCamera = true; // the footer's Keep between demos
 	// SMOOTH VIEW
 	bool svOn = false;
+    bool fisheye = false;
 	bool svFalling = true, svJumping = true, svHealthSway = true, svTiltEnabled = true, svTiltInv = false;
 	double svBreathX = 1, svBreathY = 1, svStandAmp = 0.2, svWalkAmp = 0.4, svRunAmp = 0.8, svTilt = 40, svTiltSpeed = 5;
 	bool smoothViewDefault = true;
@@ -77,11 +79,14 @@ struct ConfigModel {
 	double wbLook = 100, wbInertia = 100, wbIdle = 100, wbCam = 12;
 	bool weaponBobDefault = true;
 	ConfigPivot pvb;
+    Filmmaker::Lens::Values lens;
+    std::string irisMask="diamond";
 };
 
 // What the inspector keeps between frames.
 struct ConfigState {
 	ConfigCard card = ConfigCard::SmoothView;
+    int lensPage[2]={0,0};
 	// The open list: 0 to 2 Handheld's Standing, Walking and Running curves, 3 Weapon Recoil's presets.
 	int openDrop = -1;
 	Rect dropField;         // its field, client px

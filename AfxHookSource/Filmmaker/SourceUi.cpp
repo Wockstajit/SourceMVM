@@ -13,6 +13,7 @@
 #include "SourceMainThread.h"
 #include "SourceRender.h"
 #include "SourceRenderPasses.h"
+#include "SourceLens.h"
 #include "SourceScrubFrameCache.h"
 #include "SourceTimelineDock.h"
 
@@ -1312,6 +1313,7 @@ void Ui_RenderThreadPresent(IDirect3DDevice9* device) {
 
 void Ui_DeviceLost() {
     RenderPasses_DeviceLost();
+    Lens_DeviceLost();
 	g_renderer.ReleaseDeviceObjects();
 	ScrubFrames_DeviceLost();
 }

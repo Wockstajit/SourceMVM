@@ -2,10 +2,10 @@
 #include "LensFx.h"
 #include "../Debug/GpuPassProfiler.h"
 #include "LensFxShaders.h"
+#include "LensFxConstants.h"
 
 #include "../Environment/EnvironmentShaderCompiler.h"
 #include "../Environment/EnvironmentMath.h"
-#include "../Environment/EnvironmentMaterialMath.h" // LoadMaterialImage: the WIC decoder for custom iris / dirt images
 #include "../Debug/MvmDebugLog.h"
 #include "../../../Shared/AfxConsole.h"
 
@@ -31,91 +31,13 @@ using namespace Lens;
 
 namespace {
 
-// ================================================================================================
-// Settings (main thread writes, render thread reads a copy)
-// ================================================================================================
-
-struct MaskImage {
-	unsigned width = 0, height = 0;
-	std::vector<unsigned char> pixels; // one byte per texel, 255 = light passes
-	unsigned serial = 0;
-	std::string label;
-};
-
-std::mutex g_mutex;
-Values g_values;
-MaskImage g_iris;
-MaskImage g_dirt;
-std::string g_status = "Off";
-std::atomic<unsigned long long> g_frames{0};
-
-const int kBuiltInMaskSize = 128;
-
-MaskImage BuildBuiltInMask(int id) {
-	MaskImage m;
-	m.width = m.height = kBuiltInMaskSize;
-	m.pixels.resize((size_t)kBuiltInMaskSize * kBuiltInMaskSize);
-	for (int y = 0; y < kBuiltInMaskSize; ++y)
-		for (int x = 0; x < kBuiltInMaskSize; ++x) {
-			const float fx = ((x + 0.5f) / kBuiltInMaskSize) * 2.0f - 1.0f;
-			const float fy = 1.0f - ((y + 0.5f) / kBuiltInMaskSize) * 2.0f;
-			m.pixels[(size_t)y * kBuiltInMaskSize + x] = IrisMaskCoverage(id, fx, fy) > 0.5f ? 255 : 0;
-		}
-	m.label = IrisMaskName(id);
-	return m;
-}
-
-// Box-downsample anything larger than 512 on a side so a 4k image cannot cost 16 MB of GPU memory
-// for a mask the gather samples a few dozen times.
-MaskImage MaskFromRgba(const Environment::MaterialImage& img, const std::string& label) {
-	unsigned step = 1;
-	while (img.width / step > 512 || img.height / step > 512) ++step;
-	MaskImage m;
-	m.width = img.width / step; m.height = img.height / step;
-	m.pixels.resize((size_t)m.width * m.height);
-	for (unsigned y = 0; y < m.height; ++y)
-		for (unsigned x = 0; x < m.width; ++x) {
-			unsigned sum = 0, n = 0;
-			for (unsigned dy = 0; dy < step; ++dy)
-				for (unsigned dx = 0; dx < step; ++dx) {
-					const unsigned char* p = &img.rgba[((size_t)(y * step + dy) * img.width + (x * step + dx)) * 4];
-					// Luminance times alpha: a white shape on transparent black and a white shape on
-					// opaque black both mean the same thing.
-					sum += (unsigned)(((p[0] * 54 + p[1] * 183 + p[2] * 19) >> 8) * p[3] / 255);
-					++n;
-				}
-			m.pixels[(size_t)y * m.width + x] = (unsigned char)(sum / std::max(n, 1u));
-		}
-	m.label = label;
-	return m;
-}
-
-struct Once {
-	Once() {
-		g_iris = BuildBuiltInMask(MaskDiamond);
-		g_iris.serial = 1;
-	}
-} s_once;
-
-const char* const kShapeNames[IrisShapeCount] = { "circle", "polygon", "star", "heart", "ring", "custom" };
+using MaskImage = LensMaskImage;
 
 // ================================================================================================
 // GPU
 // ================================================================================================
 
-// Must match LensConstants in LensFxShaders.h, member for member.
-struct F4 { float x = 0, y = 0, z = 0, w = 0; };
-struct Constants {
-	float inverseViewProjection[16];
-	F4 dims, depthInfo, frame, dofA, dofB, dofC, irisA, irisB;
-	F4 flareA, flareB, flareC, flareTint, streakTint;
-	F4 lowRes, tileInfo, passInfo, modes;
-	F4 dofBand, smokeInfo, cameraPos;
-	F4 smokeSpheres[8]; // kLensMaxSmokes; the shader's cbuffer spells the 8 out
-	F4 sunInfo;
-};
-static_assert(kLensMaxSmokes == 8, "LensConstants.smokeSpheres holds 8 spheres");
-static_assert(sizeof(Constants) % 16 == 0, "D3D constant buffers are 16-byte aligned");
+using Constants = GpuConstants;
 
 struct PreparedShader {
 	std::string entry;
@@ -473,273 +395,22 @@ bool PumpDevice() {
 			g_prepared = g_pending.get();
 			if (g.device && CreateObjects()) {
 				g.ready = true;
-				g_status = "Ready";
+				LensFx_SetRenderStatus("Ready");
 				MvmDebugLog_LinefAlways("lens.shader", "device ready");
 			} else {
 				g_prepFailed = true;
-				g_status = "Could not create lens render objects";
+				LensFx_SetRenderStatus("Could not create lens render objects");
 			}
 		} catch (const std::exception& e) {
 			g_prepFailed = true;
-			g_status = "Lens shader preparation failed; see mvm_debug";
+			LensFx_SetRenderStatus("Lens shader preparation failed; see mvm_debug");
 			MvmDebugLog_LinefAlways("lens.shader", "background preparation failed: %s", e.what());
 		}
 	}
 	return g.ready;
 }
 
-std::string JsonSafe(const std::string& s) {
-	std::string r;
-	for (char c : s) {
-		if (c == '\\') r += '/';
-		else if (c == '"' || (unsigned char)c < 32) r += ' ';
-		else r += c;
-	}
-	return r;
-}
-
-std::wstring Widen(const std::string& s) {
-	if (s.empty()) return L"";
-	const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-	std::wstring w((size_t)std::max(n, 1), L'\0');
-	MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], n);
-	w.resize((size_t)std::max(n - 1, 0));
-	return w;
-}
-
-int ShapeFromName(const char* s) {
-	if (!s) return -1;
-	for (int i = 0; i < IrisShapeCount; ++i)
-		if (0 == _stricmp(kShapeNames[i], s)) return i;
-	char* end = nullptr;
-	const long v = std::strtol(s, &end, 10);
-	return (end && !*end && v >= 0 && v < IrisShapeCount) ? (int)v : -1;
-}
-
 } // namespace
-
-// ================================================================================================
-// Main-thread API
-// ================================================================================================
-
-Values LensFx_Get() {
-	std::lock_guard<std::mutex> lock(g_mutex);
-	return g_values;
-}
-
-bool LensFx_Set(const char* key, double value) {
-	const int p = FindParam(key);
-	if (p < 0) return false;
-	std::lock_guard<std::mutex> lock(g_mutex);
-	g_values[p] = ClampParam(p, value);
-	return true;
-}
-
-void LensFx_ResetGroup(Group group) {
-	std::lock_guard<std::mutex> lock(g_mutex);
-	ResetGroup(g_values, group);
-	g_values[group == Group::Dof ? DofOn : FlareOn] = 0;
-}
-
-bool LensFx_Preset(Group group, const char* name) {
-	std::lock_guard<std::mutex> lock(g_mutex);
-	return group == Group::Dof ? ApplyDofPreset(g_values, name) : ApplyFlarePreset(g_values, name);
-}
-
-bool LensFx_Active() {
-	std::lock_guard<std::mutex> lock(g_mutex);
-	return g_values[DofOn] > 0.5f || g_values[FlareOn] > 0.5f;
-}
-
-bool LensFx_DofOn() {
-	std::lock_guard<std::mutex> lock(g_mutex);
-	return g_values[DofOn] > 0.5f;
-}
-
-bool LensFx_FlareOn() {
-	std::lock_guard<std::mutex> lock(g_mutex);
-	return g_values[FlareOn] > 0.5f;
-}
-
-bool LensFx_SetBuiltInIris(const char* name) {
-	const int id = IrisMaskFromName(name);
-	if (id < 0) return false;
-	std::lock_guard<std::mutex> lock(g_mutex);
-	const unsigned serial = g_iris.serial + 1;
-	g_iris = BuildBuiltInMask(id);
-	g_iris.serial = serial;
-	g_values[DofShape] = (float)IrisCustom;
-	return true;
-}
-
-bool LensFx_LoadIrisFile(const char* path, std::string* error) {
-	Environment::MaterialImage img;
-	std::string err;
-	if (!Environment::LoadMaterialImage(Widen(path ? path : ""), img, err)) {
-		if (error) *error = err;
-		return false;
-	}
-	MaskImage m = MaskFromRgba(img, "file");
-	std::lock_guard<std::mutex> lock(g_mutex);
-	m.serial = g_iris.serial + 1;
-	g_iris = std::move(m);
-	g_values[DofShape] = (float)IrisCustom;
-	return true;
-}
-
-static bool LoadDirtFile(const char* path, std::string* error) {
-	Environment::MaterialImage img;
-	std::string err;
-	if (!Environment::LoadMaterialImage(Widen(path ? path : ""), img, err)) {
-		if (error) *error = err;
-		return false;
-	}
-	MaskImage m = MaskFromRgba(img, "file");
-	std::lock_guard<std::mutex> lock(g_mutex);
-	m.serial = g_dirt.serial + 1;
-	g_dirt = std::move(m);
-	return true;
-}
-static void ClearDirt() {
-	std::lock_guard<std::mutex> lock(g_mutex);
-	const unsigned serial = g_dirt.serial + 1;
-	g_dirt = MaskImage{};
-	g_dirt.serial = serial;
-}
-
-void LensFx_AppendStateJson(std::ostringstream& out) {
-	std::lock_guard<std::mutex> lock(g_mutex);
-	out << ",\"lens\":{";
-	for (int i = 0; i < ParamCount; ++i) {
-		if (i) out << ",";
-		out << "\"" << Specs()[i].key << "\":" << g_values[i];
-	}
-	// "At defaults" per group, including the off switch, so a card's Reset can dim itself.
-	for (Group grp : { Group::Dof, Group::Flare }) {
-		bool atDefault = true;
-		for (int i = 0; i < ParamCount; ++i)
-			if (InGroup(i, grp) && g_values[i] != Specs()[i].def) atDefault = false;
-		out << ",\"" << (grp == Group::Dof ? "dofDefault" : "flareDefault") << "\":" << (atDefault ? "true" : "false");
-	}
-	out << ",\"irisMask\":\"" << JsonSafe(g_iris.label) << "\""
-		<< ",\"dirtLoaded\":" << (g_dirt.pixels.empty() ? "false" : "true")
-		<< ",\"status\":\"" << JsonSafe(g_status) << "\""
-		<< ",\"frames\":" << g_frames.load() << "}";
-}
-
-void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
-	auto arg = [&](int i) -> const char* { return i < argc ? args->ArgV(i) : ""; };
-	auto quiet = [&]() { for (int i = 2; i < argc; ++i) if (0 == _stricmp(arg(i), "quiet")) return true; return false; };
-	auto state = [&]() {
-		std::ostringstream o;
-		LensFx_AppendStateJson(o);
-		std::string s = o.str();
-		advancedfx::Message("[lens][state] {%s}\n", s.size() > 1 ? s.c_str() + 1 : "");
-	};
-	const char* sub = arg(2);
-
-	if (!*sub || 0 == _stricmp(sub, "help")) {
-		advancedfx::Message(
-			"%s lens - depth of field, bokeh and lens flare, a post pass over the finished world frame.\n"
-			"  lens dof|flare on|off|toggle       switch one effect\n"
-			"  lens set <key> <value>             set any parameter (keys below); values are clamped to range\n"
-			"  lens <key> <value>                 same, e.g. lens dof.focus 350\n"
-			"  lens reset [dof|flare|all]         back to defaults and switches the group off\n"
-			"  lens preset dof cinematic|anamorphic|portrait|miniature|hearts|stars\n"
-			"  lens preset flare cinematic|anamorphic|classic|star|dreamy\n"
-			"  lens iris shape circle|polygon|star|heart|ring|custom\n"
-			"  lens iris mask diamond|cross|crescent|clover|smile   built-in custom shape\n"
-			"  lens iris file <path>              your own black-and-white image as the iris\n"
-			"  lens dirt <path>|off               your own lens-dirt image for the flare\n"
-			"  lens focus <units>|auto            fixed focus distance, or focus on the middle of the screen\n"
-			"  lens flare.tint <name>|<0..7>      flare colour: warm white gold cool teal rose violet ember\n"
-			"  lens flare.streakTint <name>|<0..5>  streak colour: blue cyan white amber red magenta\n"
-			"  lens state                         every value as JSON\n"
-			"Parameters:", cmd);
-		for (int i = 0; i < ParamCount; ++i)
-			advancedfx::Message("%s%s [%g..%g]", (i % 4) ? "  " : "\n    ", Specs()[i].key, Specs()[i].min, Specs()[i].max);
-		advancedfx::Message("\n");
-		return;
-	}
-	if (0 == _stricmp(sub, "state")) { state(); return; }
-
-	if (0 == _stricmp(sub, "dof") || 0 == _stricmp(sub, "flare")) {
-		const bool dof = 0 == _stricmp(sub, "dof");
-		const int p = dof ? DofOn : FlareOn;
-		const char* a = arg(3);
-		const bool cur = LensFx_Get()[p] > 0.5f;
-		const bool on = (0 == _stricmp(a, "toggle") || !*a) ? !cur : (0 == _stricmp(a, "on") || 0 == _stricmp(a, "1"));
-		LensFx_Set(Specs()[p].key, on ? 1 : 0);
-		if (!quiet()) advancedfx::Message("lens: %s %s.\n", sub, on ? "ON" : "off");
-		return;
-	}
-	if (0 == _stricmp(sub, "set") || FindParam(sub) >= 0) {
-		const bool viaSet = 0 == _stricmp(sub, "set");
-		const char* key = viaSet ? arg(3) : sub;
-		const char* val = viaSet ? arg(4) : arg(3);
-		if (FindParam(key) < 0) { advancedfx::Message("lens: unknown parameter '%s' (run `lens help`).\n", key); return; }
-		if (!*val) { advancedfx::Message("lens: %s = %g\n", key, LensFx_Get()[FindParam(key)]); return; }
-		// The two flare colours are palette indices; their names are accepted too.
-		int named = -1;
-		if (0 == _stricmp(key, "flare.tint")) named = FlareTintFromName(val);
-		else if (0 == _stricmp(key, "flare.streakTint")) named = StreakTintFromName(val);
-		LensFx_Set(key, named >= 0 ? (double)named : atof(val));
-		if (!quiet()) advancedfx::Message("lens: %s = %g\n", key, LensFx_Get()[FindParam(key)]);
-		return;
-	}
-	if (0 == _stricmp(sub, "reset")) {
-		const char* w = arg(3);
-		if (!*w || 0 == _stricmp(w, "all") || 0 == _stricmp(w, "quiet")) { LensFx_ResetGroup(Group::Dof); LensFx_ResetGroup(Group::Flare); }
-		else if (0 == _stricmp(w, "dof")) LensFx_ResetGroup(Group::Dof);
-		else if (0 == _stricmp(w, "flare")) LensFx_ResetGroup(Group::Flare);
-		if (!quiet()) advancedfx::Message("lens: reset.\n");
-		return;
-	}
-	if (0 == _stricmp(sub, "preset")) {
-		const bool dof = 0 == _stricmp(arg(3), "dof");
-		if (!dof && 0 != _stricmp(arg(3), "flare")) { advancedfx::Message("lens: preset dof|flare <name>\n"); return; }
-		if (!LensFx_Preset(dof ? Group::Dof : Group::Flare, arg(4))) advancedfx::Message("lens: unknown %s preset '%s'.\n", arg(3), arg(4));
-		else if (!quiet()) advancedfx::Message("lens: %s preset %s applied.\n", arg(3), arg(4));
-		return;
-	}
-	if (0 == _stricmp(sub, "iris")) {
-		const char* what = arg(3);
-		if (0 == _stricmp(what, "shape")) {
-			const int s = ShapeFromName(arg(4));
-			if (s < 0) { advancedfx::Message("lens: iris shape circle|polygon|star|heart|ring|custom\n"); return; }
-			LensFx_Set("dof.shape", s);
-			if (!quiet()) advancedfx::Message("lens: iris shape %s.\n", kShapeNames[s]);
-		} else if (0 == _stricmp(what, "mask")) {
-			if (!LensFx_SetBuiltInIris(arg(4))) advancedfx::Message("lens: masks are diamond|cross|crescent|clover|smile\n");
-			else if (!quiet()) advancedfx::Message("lens: iris mask %s.\n", arg(4));
-		} else if (0 == _stricmp(what, "file")) {
-			std::string path;
-			for (int i = 4; i < argc; ++i) { if (0 == _stricmp(arg(i), "quiet")) continue; if (!path.empty()) path += ' '; path += arg(i); }
-			std::string err;
-			if (!LensFx_LoadIrisFile(path.c_str(), &err)) advancedfx::Message("lens: could not load '%s': %s\n", path.c_str(), err.c_str());
-			else if (!quiet()) advancedfx::Message("lens: iris image loaded.\n");
-		} else {
-			advancedfx::Message("lens iris shape <name> | mask <name> | file <path>\n");
-		}
-		return;
-	}
-	if (0 == _stricmp(sub, "dirt")) {
-		if (0 == _stricmp(arg(3), "off")) { ClearDirt(); if (!quiet()) advancedfx::Message("lens: dirt image cleared.\n"); return; }
-		std::string path;
-		for (int i = 3; i < argc; ++i) { if (0 == _stricmp(arg(i), "quiet")) continue; if (!path.empty()) path += ' '; path += arg(i); }
-		std::string err;
-		if (!LoadDirtFile(path.c_str(), &err)) advancedfx::Message("lens: could not load '%s': %s\n", path.c_str(), err.c_str());
-		else if (!quiet()) advancedfx::Message("lens: dirt image loaded.\n");
-		return;
-	}
-	if (0 == _stricmp(sub, "focus")) {
-		if (0 == _stricmp(arg(3), "auto")) LensFx_Set("dof.auto", 1);
-		else if (*arg(3)) { LensFx_Set("dof.auto", 0); LensFx_Set("dof.focus", atof(arg(3))); }
-		if (!quiet()) advancedfx::Message("lens: focus %s.\n", LensFx_Get()[DofAuto] > 0.5f ? "auto" : arg(3));
-		return;
-	}
-	advancedfx::Message("%s lens: unknown subcommand '%s' (run `%s lens help`).\n", cmd, sub, cmd);
-}
 
 // ================================================================================================
 // Render thread
@@ -754,11 +425,11 @@ void LensFx_BeginDevice(ID3D11Device* device) {
 		if (g_prepFailed) return;
 		g_devicePending = true;
 		if (!g_pending.valid()) g_pending = std::async(std::launch::async, PrepareShaders);
-		g_status = "Preparing lens shaders in the background";
+		LensFx_SetRenderStatus("Preparing lens shaders in the background");
 		return;
 	}
-	if (CreateObjects()) { g.ready = true; g_status = "Ready"; }
-	else g_status = "Could not create lens render objects";
+	if (CreateObjects()) { g.ready = true; LensFx_SetRenderStatus("Ready"); }
+	else LensFx_SetRenderStatus("Could not create lens render objects");
 }
 
 void LensFx_EndDevice() {
@@ -769,15 +440,11 @@ void LensFx_EndDevice() {
 bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, ID3D11DepthStencilView* depth,
 	const float* worldToClip, float depthMin, float depthMax, const LensSmoke& smoke, const LensSun& sun,
 	bool keyPass, bool holdFocus) {
-	Values L;
-	MaskImage irisPending, dirtPending;
-	bool irisChanged = false, dirtChanged = false;
-	{
-		std::lock_guard<std::mutex> lock(g_mutex);
-		L = g_values;
-		if (g_iris.serial != g.irisUploaded) { irisPending = g_iris; irisChanged = true; }
-		if (g_dirt.serial != g.dirtUploaded) { dirtPending = g_dirt; dirtChanged = true; }
-	}
+	const LensRenderState state = LensFx_ReadRenderState(g.irisUploaded,g.dirtUploaded);
+    const Values& L = state.values;
+    const MaskImage& irisPending = state.iris;
+    const MaskImage& dirtPending = state.dirt;
+    const bool irisChanged = state.irisChanged, dirtChanged = state.dirtChanged;
 	bool dofOn = L[DofOn] > 0.5f;
 	const bool flareWanted = L[FlareOn] > 0.5f;
 	// A key (green screen) frame keeps its chroma clean: the flare is additive light over the
@@ -791,8 +458,7 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 	}
 	if (!dofOn && !flareOn) {
 		g.focusValid = false;
-		std::lock_guard<std::mutex> lock(g_mutex);
-		g_status = flareWanted ? "Flare held back on the green screen pass" : "Off";
+		LensFx_SetRenderStatus(flareWanted ? "Flare held back on the green screen pass" : "Off");
 		return false;
 	}
 	if (!immediate || !target) return false;
@@ -826,14 +492,12 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 	}
 	if (dofOn && !haveDepth) {
 		dofOn = false;
-		std::lock_guard<std::mutex> lock(g_mutex);
-		g_status = "Waiting for world depth";
+		LensFx_SetRenderStatus("Waiting for world depth");
 		if (!flareOn) return false;
 	}
 
 	if (!EnsureTargets(td, haveDepth ? &dd : nullptr, fmt)) {
-		std::lock_guard<std::mutex> lock(g_mutex);
-		g_status = "Could not allocate lens surfaces";
+		LensFx_SetRenderStatus("Could not allocate lens surfaces");
 		return false;
 	}
 	if (irisChanged) {
@@ -855,32 +519,14 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 	float dt = g.haveLastFrame ? std::chrono::duration<float>(now - g.lastFrame).count() : 0.0f;
 	if (!holdFocus || advanceFocus) { g.lastFrame = now; g.haveLastFrame = true; }
 	dt = std::min(std::max(dt, 0.0f), 0.25f);
-	const float rad = (float)(kPi / 180.0);
 	const UINT hw = g.halfBright.w, hh = g.halfBright.h, qw = g.quarterBright.w, qh = g.quarterBright.h;
 	const UINT ew = g.eighthBright.w, eh = g.eighthBright.h;
 
-	Constants k{};
-	for (int i = 0; i < 16; ++i) k.inverseViewProjection[i] = inv[i];
-	k.dims = { W, H, (float)dd.Width, (float)dd.Height };
-	k.depthInfo = { depthMin, depthMax, 0, 0 };
-	k.frame = { dt, L[DofFocusSpeed], 0, g.focusValid ? 0.f : 1.f };
-	k.dofA = { L[DofMode], L[DofFocus], L[DofFstop], autoFocus ? 1.f : 0.f };
-	k.dofB = { L[DofNearStart], L[DofNearEnd], L[DofFarStart], L[DofFarEnd] };
-	const float maxPx = L[DofMaxBlur] * H / kReferenceHeightPx;
-	k.dofC = { maxPx, L[DofGamma], L[DofWeapon], L[DofDebug] };
-	k.irisA = { L[DofShape], L[DofBlades], L[DofRotation] * rad, L[DofRoundness] };
-	k.irisB = { L[DofSqueeze], L[DofEdge], (float)TapCount(L), (g.irisLoaded && (int)L[DofShape] == IrisCustom) ? 1.f : 0.f };
-	const FlareConstants fc = MakeFlareConstants(L, g.dirtLoaded);
-	k.flareA = { fc.a[0], fc.a[1], fc.a[2], fc.a[3] };
-	k.flareB = { fc.b[0], fc.b[1], fc.b[2], fc.b[3] };
-	k.flareC = { fc.c[0], fc.c[1], fc.c[2], fc.c[3] };
-	k.flareTint = { fc.tint[0], fc.tint[1], fc.tint[2], fc.tint[3] };
-	k.streakTint = { fc.streakTint[0], fc.streakTint[1], fc.streakTint[2], fc.streakTint[3] };
-	k.lowRes = { (float)qw, (float)qh, (float)ew, (float)eh };
-	const UINT gw = g.tile[0].w, gh = g.tile[0].h;
-	k.tileInfo = { (float)gw, (float)gh, std::ceil(maxPx / 16.0f) + 1.0f, 0 };
-	k.modes = { dofOn ? 1.f : 0.f, flareOn ? 1.f : 0.f, W / H, 0 };
-	k.dofBand = { L[DofRange], 0, 0, 0 };
+    Constants k=MakeGpuConstants(L,td.Width,td.Height,dd.Width,dd.Height,inv.data(),dt,g.focusValid,
+        g.irisLoaded,g.dirtLoaded,dofOn,flareOn,autoFocus);
+    k.depthInfo = { depthMin, depthMax, 0, 0 };
+    const UINT gw=g.tile[0].w,gh=g.tile[0].h;
+    const float maxPx=k.dofC.x;
 	// Smoke: only with all three parts (coverage, where the smokes are, where the camera is).
 	const int smokeCount = (smoke.absorbance && smoke.width && smoke.height && smoke.haveCamera && smoke.spheres)
 		? std::min(smoke.count, kLensMaxSmokes) : 0;
@@ -1010,12 +656,11 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 
 	ComPtr<ID3D11CommandList> list;
 	if (FAILED(c->FinishCommandList(FALSE, &list))) {
-		std::lock_guard<std::mutex> lock(g_mutex);
-		g_status = "Could not submit lens frame";
+		LensFx_SetRenderStatus("Could not submit lens frame");
 		return false;
 	}
 	{ GPU_PASS_SCOPE(immediate, "lens: depth of field, flare"); immediate->ExecuteCommandList(list.Get(), TRUE); }
-	g_frames.fetch_add(1);
+	LensFx_NoteRenderedFrame();
 
 	// Diagnostics: while mvm_debug runs, read back where autofocus is sitting and say what was drawn.
 	if (MvmDebugLog_Active()) {
@@ -1038,8 +683,7 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 				smoke.absorbance ? smoke.width : 0u, smoke.absorbance ? smoke.height : 0u, smoke.count, (int)smoke.haveCamera, smokeCount,
 				(int)sun.have, sun.dir[0], sun.dir[1], sun.dir[2], (int)sunOn, sunU, sunV);
 	}
-	std::lock_guard<std::mutex> lock(g_mutex);
-	g_status = "Rendering";
+	LensFx_SetRenderStatus("Rendering");
 	return true;
 }
 

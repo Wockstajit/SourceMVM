@@ -5,6 +5,7 @@
 
 #include <string>
 #include <cstddef>
+#include "Lens/FisheyeState.h"
 
 namespace advancedfx { class ICommandArgs; }
 
@@ -252,12 +253,6 @@ bool GraphEditorExperiment_WantsCursor();
 // --- mvm_test offline live-match FX testing ---
 bool MvmTest_Active();
 bool MvmTest_CanUseMenu();
-
-// --- Fisheye lens (standalone barrel-distortion D3D pass, GoPro-style look) ---
-bool Fisheye_Enabled();
-void Fisheye_SetEnabled(bool on);
-void Fisheye_Toggle();
-void Fisheye_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);
 
 // True when non-preview UI should be hidden: always during full path playback,
 // and while the armed preview has its background HUD toggled off with Tab.

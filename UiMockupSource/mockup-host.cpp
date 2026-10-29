@@ -1120,7 +1120,23 @@ void StandInConfigCommand(const std::string& command) {
 		m.wbOn = d.wbOn; m.wbAmount = d.wbAmount; m.wbSway = d.wbSway; m.wbTilt = d.wbTilt; m.wbRate = d.wbRate;
 		m.wbStep = d.wbStep; m.wbLook = d.wbLook; m.wbInertia = d.wbInertia; m.wbIdle = d.wbIdle; m.wbCam = d.wbCam;
 	};
-	if (module == "smoothview") {
+    if(module=="fisheye") m.fisheye=a=="toggle" ? !m.fisheye : a=="on";
+    else if(module=="lens") {
+        using namespace Filmmaker::Lens;
+        if(a=="set" && t.size()>4) {
+            const int id=FindParam(t[3].c_str());if(id>=0) SetClamped(m.lens,id,std::atof(t[4].c_str()));
+        } else if((a=="dof" || a=="flare") && t.size()>3) {
+            const int id=a=="dof" ? DofOn : FlareOn;
+            m.lens[id]=t[3]=="toggle" ? (m.lens[id]>.5f ? 0.f : 1.f) : (t[3]=="on" ? 1.f : 0.f);
+        } else if(a=="reset" && t.size()>3) {
+            if(t[3]=="all" || t[3]=="dof") {ResetGroup(m.lens,Group::Dof);m.lens[DofOn]=0;}
+            if(t[3]=="all" || t[3]=="flare") {ResetGroup(m.lens,Group::Flare);m.lens[FlareOn]=0;}
+        } else if(a=="preset" && t.size()>4) {
+            if(t[3]=="dof") ApplyDofPreset(m.lens,t[4].c_str());else ApplyFlarePreset(m.lens,t[4].c_str());
+        } else if(a=="iris" && t.size()>4 && t[3]=="mask") {
+            m.irisMask=t[4];m.lens[DofShape]=IrisCustom;
+        }
+    } else if (module == "smoothview") {
 		if (a == "toggle") m.svOn = !m.svOn;
 		else if (a == "reset") resetSmoothView();
 		else if (a == "falling") m.svFalling = !m.svFalling;
@@ -1222,6 +1238,7 @@ void StandInConfigCommand(const std::string& command) {
 		resetSmoothView();
 		resetHandheld();
 		resetWeaponBob();
+        m.lens.Reset();m.fisheye=false;
 		m.wrOn = d.wrOn; m.wrAmount = d.wrAmount; m.wrPunch = d.wrPunch; m.wrRot = d.wrRot; m.wrSnap = d.wrSnap;
 		m.wrRecovery = d.wrRecovery; m.wrCamRot = d.wrCamRot; m.wrCamPos = d.wrCamPos; m.wrCamRoll = d.wrCamRoll;
 		m.wrStyle = d.wrStyle; m.wrScope = d.wrScope; m.wrScopeKey = d.wrScopeKey; m.wrScopeOwn = false; m.wrOverrides = 0;
@@ -1749,7 +1766,14 @@ std::string StateJson() {
 		director ? "true" : "false", DirectorModeName(g.directorMouse.GetMode()), g.director.cards ? "true" : "false",
 		g.director.blackout ? "true" : "false", g.demo.spectatable[(size_t)g.demo.target].c_str(), g.demo.fov, g.demo.speed,
 		g.demo.freeCam ? "true" : "false", g.demo.freeCamSpeed, g.demo.freeCamFov, g.bar.x0, g.bar.y0, g.bar.x1, g.bar.y1);
-	json += buf;
+    json += buf;
+    std::snprintf(buf,sizeof(buf),",\"config\":{\"card\":\"%s\",\"dofPage\":%d,\"flarePage\":%d,\"fisheye\":%s,\"lens\":{\"_\":0",
+        ConfigCardName(g.editor.config.card),g.editor.config.lensPage[0],g.editor.config.lensPage[1],g.config.fisheye ? "true" : "false");
+    json+=buf;
+    for(int i=0;i<Filmmaker::Lens::ParamCount;++i) {
+        std::snprintf(buf,sizeof(buf),",\"%s\":%.6g",Filmmaker::Lens::Specs()[i].key,g.config.lens[i]);json+=buf;
+    }
+    json+="}}";
 	const DemoBarLayout& l = director ? g.director.bar.layout : g.editor.demoBar.layout;
 	auto add = [&](const char* name, const Rect& r) {
 		if (!r.Valid()) return;

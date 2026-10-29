@@ -953,6 +953,34 @@ void Engine_PrintClasses(const char* filter) {
 	advancedfx::Message("engine: %d of %d client classes\n", shown, g_classCount);
 }
 
+namespace {
+void PrintProperties(const RecvTable* table,int base,int depth) {
+    RecvTable copy{};
+    if (depth>8 || !table || !ReadBytes(table,0,&copy,sizeof(copy)) || copy.m_nProps<0 || copy.m_nProps>4096) return;
+    char tableName[96]={};
+    if (!CopyString(copy.m_pNetTableName,tableName,sizeof(tableName))) return;
+    for (int i=0;i<copy.m_nProps;++i) {
+        RecvProp prop{}; char name[96]={};
+        if (!ReadBytes(copy.m_pProps,(int)(i*sizeof(prop)),&prop,sizeof(prop)) || !CopyString(prop.m_pVarName,name,sizeof(name))) return;
+        advancedfx::Message("  %s.%s type=%d offset=0x%x stride=%d count=%d\n",tableName,name,
+            (int)prop.m_RecvType,base+prop.m_Offset,prop.m_ElementStride,prop.m_nElements);
+        if (prop.m_RecvType==DPT_DataTable) PrintProperties(prop.m_pDataTable,base+prop.m_Offset,depth+1);
+    }
+}
+} // namespace
+
+void Engine_PrintProperties(const char* className) {
+    if (!Engine_Init() || !className || !*className) return;
+    const ClientClass* cls=g_classes;
+    for (int guard=0;cls && guard<4096;++guard) {
+        ClientClass copy{}; char name[96]={};
+        if (!ReadBytes(cls,0,&copy,sizeof(copy)) || !CopyString(copy.m_pNetworkName,name,sizeof(name))) return;
+        if (!_stricmp(name,className)) { PrintProperties(copy.m_pRecvTable,0,0); return; }
+        cls=copy.m_pNext;
+    }
+    advancedfx::Message("engine: network class %s not found\n",className);
+}
+
 void Entities_Print(bool includeDormant, const char* classFilter) {
 	std::vector<EntityState> entities;
 	if (!Entities_Snapshot(entities, includeDormant)) {
@@ -1071,6 +1099,67 @@ bool Engine_SetWindowedModeSize(int width, int height) {
 }
 
 std::string Engine_VideoModeText() { return g_videoModeText; }
+
+bool Engine_SunDirection(float* direction) {
+    if(!direction || !Engine_Ready()) return false;
+    const int vectorOffset=GuardedFindNetvar(g_classes,"DT_Sun","m_vDirection");
+    const int onOffset=GuardedFindNetvar(g_classes,"DT_Sun","m_bOn");
+    if(vectorOffset<0 || onOffset<0) return false;
+    for(int i=1,n=HighestEntityIndex();i<=n;++i) {
+        void* entity=EntityAt(i); if(!entity) continue;
+        void* network=CallPtr(entity,Slot::Unknown_GetClientNetworkable);
+        const ClientClass* cls=(const ClientClass*)CallPtr(network,Slot::Networkable_GetClientClass);
+        const char* name=nullptr;char text[64];
+        if(!ReadBytes(cls,(int)offsetof(ClientClass,m_pNetworkName),&name,sizeof(name))
+            || !CopyString(name,text,sizeof(text)) || std::strcmp(text,"CSun")) continue;
+        unsigned char on=0;float vector[3]={};
+        if(!ReadBytes(entity,onOffset,&on,1) || !on || !ReadBytes(entity,vectorOffset,vector,sizeof(vector))) continue;
+        const float length=std::sqrt(vector[0]*vector[0]+vector[1]*vector[1]+vector[2]*vector[2]);
+        if(!std::isfinite(length) || length<.001f) continue;
+        for(int axis=0;axis<3;++axis) direction[axis]=vector[axis]/length;
+        return true;
+    }
+    return false;
+}
+
+int Engine_SmokeVolumes(float* spheres,int capacity) {
+    if(!spheres || capacity<=0 || sizeof(void*)!=8 || !Engine_Ready()) return 0;
+    // Fail closed if the version-coupled class layout no longer matches its networked anchor.
+    const int stageOffset=GuardedFindNetvar(g_classes,"DT_ParticleSmokeGrenade","m_CurrentStage");
+    if(stageOffset!=kSmokeStage) return 0;
+    int count=0;
+    for(int i=1,n=HighestEntityIndex();i<=n && count<capacity;++i) {
+        void* entity=EntityAt(i);if(!entity) continue;
+        void* network=CallPtr(entity,Slot::Unknown_GetClientNetworkable);
+        const ClientClass* cls=(const ClientClass*)CallPtr(network,Slot::Networkable_GetClientClass);
+        const char* name=nullptr;char text[64];
+        if(!ReadBytes(cls,(int)offsetof(ClientClass,m_pNetworkName),&name,sizeof(name))
+            || !CopyString(name,text,sizeof(text)) || std::strcmp(text,"ParticleSmokeGrenade")
+            || CallBool(network,Slot::Networkable_IsDormant,true)) continue;
+        unsigned char stage=0;float sphere[4]={};
+        if(!ReadBytes(entity,stageOffset,&stage,1) || stage!=1
+            || !ReadBytes(entity,kSmokeBaseOrigin,sphere,12)
+            || !ReadBytes(entity,kSmokeExpansionRadius,sphere+3,4)) continue;
+        bool valid=sphere[3]>.01f && sphere[3]<4096;
+        for(float v:sphere) valid=valid && std::isfinite(v);
+        if(!valid) continue;
+        std::copy(sphere,sphere+4,spheres+4*count++);
+    }
+    return count;
+}
+
+bool Engine_WorldToClip(float* matrix) {
+    if (!matrix || !g_VEngineClient) return false;
+    __try {
+        const auto& value=g_VEngineClient->WorldToScreenMatrix();
+        for(int row=0;row<4;++row) for(int column=0;column<4;++column) {
+            const float x=value.m[row][column];
+            if(!std::isfinite(x)) return false;
+            matrix[row*4+column]=x;
+        }
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { InterlockedIncrement64(&g_faults); return false; }
+}
 
 bool Engine_ViewMatrixFov(double& horizontal, double& vertical) {
 	if (!g_VEngineClient || !g_VEngineClient->IsInGame()) return false;

@@ -18,6 +18,7 @@ macro(add_shader name profile)
             shaderbuilder
             "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/${name}.fxc"
             "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_pass_normals.hlsli"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_fisheye_uv.hlsli"
         COMMAND
             "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile "${profile}" --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/${name}.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/${name}"
     )
@@ -33,6 +34,7 @@ add_shader("afx_line_ps20" "ps_2_0")
 add_shader("afx_drawtexture_ps20" "ps_2_0")
 add_shader("afx_depth_ps20" "ps_2_0") # SOURCE:MVM: HLAE depth is also used by CS:S x64.
 add_shader("afx_source_pass_vs30" "vs_3_0")
+add_shader("afx_source_fisheye_ps30" "ps_3_0") # SOURCE:MVM: shared barrel mapping.
 add_shader("afx_source_normal_ps30" "ps_3_0") # SOURCE:MVM: shares CS2's normal reconstruction.
 
 if(CMAKE_GENERATOR_PLATFORM STREQUAL "Win32")
@@ -105,6 +107,8 @@ target_link_directories(AfxHookSource PRIVATE
 
 target_link_libraries(AfxHookSource PRIVATE
     "${AFX_OPENEXR_LINK_LIBRARIES}"
+    windowscodecs.lib
+    ole32.lib
 )
 
 target_sources(AfxHookSource PRIVATE   
@@ -165,6 +169,14 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/SourceDemoRewind.h
     Filmmaker/SourceRender.h
     Filmmaker/SourceRenderDriver.cpp
+    Filmmaker/SourceLensSmoke.cpp
+    Filmmaker/SourceLensSmoke.h
+    Filmmaker/SourceLensGpu.cpp
+    Filmmaker/SourceLensGpu.h
+    Filmmaker/SourceLens.cpp
+    Filmmaker/SourceLens.h
+    Filmmaker/SourceLensShaders.cpp
+    Filmmaker/SourceLensShaders.h
     Filmmaker/SourceRenderPasses.cpp
     Filmmaker/SourceRenderPasses.h
     Filmmaker/SourceRenderPassMath.h
@@ -218,6 +230,7 @@ target_sources(AfxHookSource PRIVATE
     Filmmaker/Ui/CameraEditorShell.h
     Filmmaker/Ui/ConfigInspector.cpp
     Filmmaker/Ui/ConfigInspector.h
+    Filmmaker/Ui/ConfigLensCards.h
     Filmmaker/Ui/DemoBar.cpp
     Filmmaker/Ui/DemoBar.h
     Filmmaker/Ui/DemoBarMath.h
@@ -394,6 +407,15 @@ target_sources(AfxHookSource PRIVATE
     ../AfxHookSource2/Filmmaker/Movie/SmoothView.cpp
     ../AfxHookSource2/Filmmaker/Movie/SmoothView.h
     ../AfxHookSource2/Filmmaker/Movie/SmoothViewAirMotionMath.h
+    ../AfxHookSource2/Filmmaker/Lens/LensFxState.cpp
+    ../AfxHookSource2/Filmmaker/Lens/FisheyeState.cpp
+    ../AfxHookSource2/Filmmaker/Lens/FisheyeState.h
+    ../AfxHookSource2/Filmmaker/Lens/FisheyeMath.h
+    ../AfxHookSource2/Filmmaker/Lens/LensFxConstants.h
+    ../AfxHookSource2/Filmmaker/Lens/LensFxState.h
+    ../AfxHookSource2/Filmmaker/Lens/LensFxMath.h
+    ../AfxHookSource2/Filmmaker/Lens/LensMaskMath.h
+    ../AfxHookSource2/Filmmaker/Environment/EnvironmentMaterialImage.cpp
     ../AfxHookSource2/Filmmaker/Movie/SmoothViewHost.h
     ../AfxHookSource2/Filmmaker/Movie/SmoothViewTiltMath.h
     ../AfxHookSource2/Filmmaker/Movie/WeaponBob.cpp
@@ -720,6 +742,7 @@ if(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
             "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_depth_ps20.acs"
             "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_source_normal_ps30.acs"
             "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_source_pass_vs30.acs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_source_fisheye_ps30.acs"
         DESTINATION "bin/resources/shaders"
         COMPONENT x64-source1
     )

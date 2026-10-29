@@ -115,7 +115,7 @@ int ModeRow(CardColumn& c, const char* id, const char* label, const char* const*
 int Segmented(CardColumn& c, const char* id, const char* const* captions, int count, int selected, const bool* live = nullptr);
 // Cells as wide as their captions that wrap onto more lines (CS2's grid cells): the selected one
 // tinted and outlined. Returns the clicked cell, -1 for none.
-int CellRow(CardColumn& c, const char* id, const char* const* captions, int count, int selected);
+int CellRow(CardColumn& c, const char* id, const char* const* captions, int count, int selected, int columns = 0);
 // Equal buttons under a small heading (edEvenActions). Returns the clicked button, -1 for none.
 int ActionRow(CardColumn& c, const char* id, const char* heading, const CardAction* buttons, int count);
 // Equal buttons in the value column beside a label (edActionGroup). Returns the clicked button.
