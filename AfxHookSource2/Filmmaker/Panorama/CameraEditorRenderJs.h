@@ -1116,10 +1116,15 @@ R"EDJS(
     jobBody.style.paddingLeft = '18px'; jobBody.style.paddingRight = '18px';
     jobBody.style.paddingTop = '12px'; jobBody.style.paddingBottom = '12px';
 
+    // Every part of the summary with the vertical margin it adds, so fitPrevious can tell how much
+    // room is left without depending on how the engine reports a scrolled panel's content height.
+    var jobParts = [];
+    function jobPart(panel, margin) { jobParts.push({ p: panel, m: margin }); return panel; }
+
     // Deliberately generous: this column is the answer to "what will happen if I press go", so it
     // gets real type sizes and breathing room rather than a dense readout.
     function jobRow(label) {
-      var r = mk('Panel', jobBody);
+      var r = jobPart(mk('Panel', jobBody), 13);
       r.style.flowChildren = 'down'; r.style.width = '100%'; r.style.marginBottom = '13px';
       var k = lbl(r, label.toUpperCase(), S.hint, 10);
       k.style.letterSpacing = '1px'; k.style.marginBottom = '2px';
@@ -1135,14 +1140,14 @@ R"EDJS(
     var jobFolder = jobRow('Folder');
     jobFolder.style.fontSize = '13px'; // paths are long; keep them on one readable line
 
-    var jobDivider = mk('Panel', jobBody); jobDivider.hittest = false;
+    var jobDivider = jobPart(mk('Panel', jobBody), 18); jobDivider.hittest = false;
     jobDivider.style.width = '100%'; jobDivider.style.height = '1px';
     jobDivider.style.backgroundColor = S.panelBorder;
     jobDivider.style.marginTop = '4px'; jobDivider.style.marginBottom = '14px';
 
-    var jobStatus = lbl(jobBody, '', S.value, 15);
+    var jobStatus = jobPart(lbl(jobBody, '', S.value, 15), 6);
     jobStatus.style.fontWeight = 'bold'; jobStatus.style.marginBottom = '6px';
-    var jobProblem = lbl(jobBody, '', RENDER_ERROR_TEXT, 14);
+    var jobProblem = jobPart(lbl(jobBody, '', RENDER_ERROR_TEXT, 14), 0);
     jobProblem.style.whiteSpace = 'normal';
     jobProblem.style.width = '100%';
 
@@ -1150,7 +1155,7 @@ R"EDJS(
     // from one -- the same range, camera, passes, frame rate and format -- to re-render a shot with
     // one change, or to add a pass for exactly the same In / Out.
     var PREV_ROWS = 3;
-    var prevSec = mk('Panel', jobBody); prevSec.hittest = false; prevSec.hittestchildren = true;
+    var prevSec = jobPart(mk('Panel', jobBody), 16); prevSec.hittest = false; prevSec.hittestchildren = true;
     prevSec.style.flowChildren = 'down'; prevSec.style.width = '100%'; prevSec.style.marginTop = '16px';
     prevSec.visible = false;
     var prevCap = lbl(prevSec, 'PREVIOUS RENDERS', S.hint, 10); prevCap.hittest = false;
@@ -1179,13 +1184,36 @@ R"EDJS(
       if (!m) return iso || '';
       return PREV_MONTHS[(parseInt(m[2], 10) - 1) % 12] + ' ' + parseInt(m[3], 10) + ', ' + m[4] + ':' + m[5];
     }
+    // Only previous renders that fit WHOLE are shown. A row the column's edge cut in half (and its
+    // clipped Use button) read as broken at 480p with the TIMELINE dock up (owner, 2026-11-01). The
+    // oldest go first and come back once there is room for a whole row; the caption says how many
+    // are showing. Showing and hiding use the same measure, so the list cannot flicker.
+    var prevFit = PREV_ROWS;
+    var prevRowH = 0, prevCapH = 0; // last measured, in layout pixels
+    function fitPrevious(total) {
+      var sy = root.actualuiscale_y || ctx.actualuiscale_y || 1;
+      var used = 24; // jobBody's top and bottom padding
+      for (var j = 0; j < jobParts.length; j++)
+        if (jobParts[j].p.visible) used += (jobParts[j].p.actuallayoutheight || 0) / sy + jobParts[j].m;
+      var free = (jobBody.actuallayoutheight || 0) / sy - used;
+      for (var i = 0; i < prevRows.length; i++)
+        if (prevRows[i].row.visible) prevRowH = Math.max(prevRowH, (prevRows[i].row.actuallayoutheight || 0) / sy + 8);
+      if (prevSec.visible) prevCapH = (prevCap.actuallayoutheight || 0) / sy + 6 + 16;
+      var shown = Math.min(prevFit, total);
+      if (free < -0.5 && shown > 0) { prevFit = shown - 1; return; }
+      var need = (prevRowH || 48) + (shown === 0 ? (prevCapH || 40) : 0);
+      if (shown < total && free > need + 4) prevFit = shown + 1;
+    }
     function renderPrevious(takes) {
       takes = takes || [];
-      prevSec.visible = takes.length > 0;
+      var total = Math.min(takes.length, PREV_ROWS), shown = Math.min(prevFit, total);
+      prevSec.visible = shown > 0;
+      var cap = 'PREVIOUS RENDERS' + (shown < total ? '  ·  ' + shown + ' OF ' + total : '');
+      if (prevCap.text !== cap) prevCap.text = cap;
       for (var i = 0; i < prevRows.length; i++) {
         var p = prevRows[i], t = takes[i];
-        p.row.visible = !!t;
-        if (!t) continue;
+        p.row.visible = !!t && i < shown;
+        if (!p.row.visible) continue;
         var l1 = prevWhen(t.when) + (t.status && t.status !== 'completed' ? '  ·  ' + t.status : '');
         var n = (t.passes || []).length;
         var l2 = rsNum(t.start) + ' → ' + rsNum(t.end - 1) + '  ·  ' + rsClock(t.end - t.start)
@@ -1196,6 +1224,7 @@ R"EDJS(
           p.use.__loadedUntil = 0; p.use.__lbl.text = 'Use';
         }
       }
+      fitPrevious(total);
     }
 
     // A child of the column, after jobBody: jobBody fills what is left above it.

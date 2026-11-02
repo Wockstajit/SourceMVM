@@ -161,4 +161,8 @@ test('START RENDER stays pinned below a scrolling job summary', () => {
     'the action row must be a child of the column, not of the summary that grows');
   assert.match(renderJs, /jobBody\.style\.overflow = 'squish scroll';/);
   assert.doesNotMatch(renderJs, /jobSpacer/);
+  // 2026-11-01: a scrolled list cut the next take in half at 480p. Only whole rows are shown.
+  assert.match(renderJs, /p\.row\.visible = !!t && i < shown;/);
+  assert.match(renderJs, /' OF ' \+ total/);
+  assert.match(renderJs, /fitPrevious\(total\);/);
 });
