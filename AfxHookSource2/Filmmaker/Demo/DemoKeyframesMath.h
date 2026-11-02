@@ -92,4 +92,48 @@ inline std::vector<Window> Parse(const std::string& text) {
 }
 
 } // namespace KeyframeWindows
+
+// What the keyframes helper may take beside a running game. Measured 2026-11-01: a 445 MB demo
+// peaks at about 1.05 GB in the helper and writes a 1.02 GB copy. Four crash reports ran out of
+// system commit with CS2 at 10-17 GB on 16 GB PCs, three of them with the helper running.
+namespace KeyframeHelperBudget {
+
+constexpr unsigned long long kMB = 1024ull * 1024ull;
+// Commit that must stay free for CS2 itself after the helper takes its whole cap.
+constexpr unsigned long long kGameCommitReserve = 2048 * kMB;
+
+// The helper's hard cap (a job object limit): about three times the demo, 1 to 6 GB.
+inline unsigned long long HardCapBytes(unsigned long long demoBytes) {
+	return std::clamp(demoBytes * 3 + 512 * kMB, 1024 * kMB, 6144 * kMB);
+}
+
+// The soft heap limit the helper's garbage collector works toward (GOMEMLIMIT).
+inline unsigned long long SoftLimitMB(unsigned long long demoBytes) {
+	return HardCapBytes(demoBytes) / 4 * 3 / kMB;
+}
+
+// Free disk the copy needs (about 2.3 times the demo) with some slack.
+inline unsigned long long DiskNeedBytes(unsigned long long demoBytes) {
+	return demoBytes / 2 * 5 + 256 * kMB;
+}
+
+// "" when the helper may start now, otherwise why not, for the status line.
+inline std::string WhyNotEnough(unsigned long long demoBytes, unsigned long long freeDiskBytes,
+	unsigned long long availCommitBytes) {
+	char text[160];
+	if (freeDiskBytes < DiskNeedBytes(demoBytes)) {
+		std::snprintf(text, sizeof(text), "not enough free disk (%llu MB free, %llu MB needed)",
+			freeDiskBytes / kMB, DiskNeedBytes(demoBytes) / kMB);
+		return text;
+	}
+	const unsigned long long need = HardCapBytes(demoBytes) + kGameCommitReserve;
+	if (availCommitBytes < need) {
+		std::snprintf(text, sizeof(text), "not enough free memory (%llu MB free, %llu MB needed)",
+			availCommitBytes / kMB, need / kMB);
+		return text;
+	}
+	return std::string();
+}
+
+} // namespace KeyframeHelperBudget
 } // namespace Filmmaker

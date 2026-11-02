@@ -25,12 +25,28 @@ const (
 	tickNone        = 0xFFFFFFFF
 )
 
+// A frame points into the source file; its payload is decompressed only while it is processed.
+// Keeping every decompressed payload at once held about twice the demo in memory on top of the
+// file itself, and CS2 crashed out of memory beside the helper on 16 GB PCs (crash reports
+// 2026-10-27 to 2026-11-01).
 type frame struct {
-	cmd     uint64 // without the compressed flag
-	tick    uint64
-	off     int    // offset of the frame in the source file
-	raw     []byte // the whole frame, verbatim
-	payload []byte // decompressed payload
+	cmd        uint64 // without the compressed flag
+	tick       uint64
+	off        int    // offset of the frame in the source file
+	raw        []byte // the whole frame, verbatim
+	body       []byte // the payload as stored
+	compressed bool
+}
+
+func (f frame) payload() ([]byte, error) {
+	if !f.compressed {
+		return f.body, nil
+	}
+	p, err := snappy.Decode(nil, f.body)
+	if err != nil {
+		return nil, fmt.Errorf("frame at %d: %v", f.off, err)
+	}
+	return p, nil
 }
 
 func uvarint(b []byte, i int) (uint64, int, error) {
@@ -85,13 +101,7 @@ func readFrames(data []byte) ([]frame, error) {
 		if end > len(data) {
 			return out, fmt.Errorf("frame at %d runs past the end of the file", off)
 		}
-		p := data[j:end]
-		if cmd&demIsCompressed != 0 {
-			if p, err = snappy.Decode(nil, p); err != nil {
-				return out, fmt.Errorf("frame at %d: %v", off, err)
-			}
-		}
-		out = append(out, frame{cmd &^ demIsCompressed, tick, off, data[off:end], p})
+		out = append(out, frame{cmd &^ demIsCompressed, tick, off, data[off:end], data[j:end], cmd&demIsCompressed != 0})
 		i = end
 		if cmd&^demIsCompressed == demStop {
 			break

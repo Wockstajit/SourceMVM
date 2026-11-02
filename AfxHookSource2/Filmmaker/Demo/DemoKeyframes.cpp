@@ -15,6 +15,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <map>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -144,6 +145,7 @@ void WriteMarker(const std::wstring& demoPath, const std::wstring& copyPath, con
 bool DeleteSlot(const std::wstring& copy) {
 	DeleteFileW((copy + L".part").c_str());
 	DeleteFileW((copy + L".log").c_str());
+	DeleteFileW((copy + L".failed").c_str());
 	if (FileExists(copy) && !DeleteFileW(copy.c_str())) return false;
 	if (DeleteFileW(MarkerPath(copy).c_str())) InvalidateDemoProjectPathCache();
 	return true;
@@ -155,9 +157,32 @@ void SetState(KeyframeState s, const std::string& text) {
 	g_status = text;
 }
 
+// This process's environment with `name` set to `value`, as a sorted CreateProcess block.
+std::vector<wchar_t> EnvironmentWith(const std::wstring& name, const std::wstring& value) {
+	std::vector<std::wstring> entries;
+	if (LPWCH env = GetEnvironmentStringsW()) {
+		for (const wchar_t* p = env; *p; p += wcslen(p) + 1)
+			if (_wcsnicmp(p, (name + L"=").c_str(), name.size() + 1) != 0) entries.emplace_back(p);
+		FreeEnvironmentStringsW(env);
+	}
+	entries.push_back(name + L"=" + value);
+	std::sort(entries.begin(), entries.end(), [](const std::wstring& a, const std::wstring& b) {
+		return _wcsicmp(a.c_str(), b.c_str()) < 0;
+	});
+	std::vector<wchar_t> block;
+	for (const std::wstring& e : entries) block.insert(block.end(), e.c_str(), e.c_str() + e.size() + 1);
+	block.push_back(L'\0');
+	return block;
+}
+
 // The helper's output goes to `logPath`: on failure its last line is "FAILED: <why>". Only that file's
-// handle is inherited, never the game's own handles.
-int RunHelper(const std::wstring& exe, const std::wstring& args, const std::wstring& logPath) {
+// handle is inherited, never the game's own handles. It runs in a job capped at `capBytes` of
+// commit, so it can never take the memory CS2 needs, and the job ends it if the game goes first.
+// GOMEMLIMIT (`softLimitMB`) is read by the Go runtime itself, so any helper build collects harder
+// before it reaches the cap; a runtime hotfix that ships only the hook still runs the old helper.
+int RunHelper(const std::wstring& exe, const std::wstring& args, const std::wstring& logPath,
+	unsigned long long capBytes, unsigned long long softLimitMB) {
+	std::vector<wchar_t> environment = EnvironmentWith(L"GOMEMLIMIT", std::to_wstring(softLimitMB) + L"MiB");
 	std::wstring cmd = L"\"" + exe + L"\" " + args;
 	std::vector<wchar_t> buf(cmd.begin(), cmd.end());
 	buf.push_back(L'\0');
@@ -182,19 +207,34 @@ int RunHelper(const std::wstring& exe, const std::wstring& args, const std::wstr
 		}
 	}
 	PROCESS_INFORMATION pi{};
-	// Below normal: it is background work beside a running game.
+	// Below normal: it is background work beside a running game. Suspended until it is in its job.
 	const bool redirected = si.lpAttributeList != nullptr;
 	const BOOL started = CreateProcessW(exe.c_str(), buf.data(), nullptr, nullptr, redirected,
-		CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS | (redirected ? EXTENDED_STARTUPINFO_PRESENT : 0),
-		nullptr, nullptr, &si.StartupInfo, &pi);
+		CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT
+			| (redirected ? EXTENDED_STARTUPINFO_PRESENT : 0),
+		environment.data(), nullptr, &si.StartupInfo, &pi);
 	if (redirected) DeleteProcThreadAttributeList(si.lpAttributeList);
 	if (log != INVALID_HANDLE_VALUE) CloseHandle(log);
 	if (!started) return -1;
+	HANDLE job = CreateJobObjectW(nullptr, nullptr);
+	if (job) {
+		JOBOBJECT_EXTENDED_LIMIT_INFORMATION limit{};
+		limit.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+		limit.ProcessMemoryLimit = (SIZE_T)capBytes;
+		if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limit, sizeof(limit))
+			|| !AssignProcessToJobObject(job, pi.hProcess)) {
+			advancedfx::Warning("mirv_filmmaker: scrub keyframes helper runs without its memory cap (error %lu)\n", GetLastError());
+			CloseHandle(job);
+			job = nullptr;
+		}
+	}
+	ResumeThread(pi.hThread);
 	WaitForSingleObject(pi.hProcess, INFINITE);
 	DWORD code = 1;
 	GetExitCodeProcess(pi.hProcess, &code);
 	CloseHandle(pi.hThread);
 	CloseHandle(pi.hProcess);
+	if (job) CloseHandle(job);
 	return (int)code;
 }
 
@@ -210,8 +250,11 @@ std::string LastLogLine(const std::wstring& logPath) {
 	}
 	fclose(f);
 	while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) text.pop_back();
-	const size_t start = text.find_last_of('\n');
+	// A Go runtime failure (out of its memory cap) ends in a stack dump; its "fatal error:" line says why.
+	const size_t fatal = text.rfind("fatal error: ");
+	const size_t start = fatal != std::string::npos ? fatal - 1 : text.find_last_of('\n');
 	std::string line = start == std::string::npos ? text : text.substr(start + 1);
+	if (fatal != std::string::npos) line = line.substr(0, line.find('\n'));
 	if (!line.empty() && line.back() == '\r') line.pop_back();
 	if (line.size() > 200) line = line.substr(0, 200) + "...";
 	return line;
@@ -261,6 +304,70 @@ bool SamePath(std::wstring a, std::wstring b) {
 // Set by a finished build, read by DemoKeyframes_RunFrame on the main thread.
 std::atomic<bool> g_announce{ false };
 std::wstring g_announceDemo; // guarded by g_mx
+
+// A demo the helper failed on is not rebuilt until the demo or the helper changes. A failing demo
+// used to rebuild after every marker change and every reopen, each run loading the whole demo
+// beside the game: one crash report shows 12 runs in 15 minutes, then CS2 out of memory. The
+// helper's own verdict (exit 1, "FAILED: ...") is kept beside the demo's copies across sessions;
+// no room to run (memory, disk) is retried after kRoomRetryMs in the same session.
+constexpr unsigned long long kRoomRetryMs = 10 * 60 * 1000;
+struct SessionFailure { std::string stamps, why; unsigned long long atMs = 0; };
+std::map<std::wstring, SessionFailure> g_sessionFailures; // demo path -> failure, under g_mx
+
+std::string FailureStamps(const std::wstring& demoPath, const std::wstring& exe) {
+	return FileStamp(demoPath) + "|" + FileStamp(exe);
+}
+
+std::wstring FailureMarkerPath(const std::wstring& demoPath, bool forSave) {
+	const std::wstring slot = SlotPath(demoPath, 0, forSave);
+	return slot.empty() ? std::wstring() : slot + L".failed";
+}
+
+// Why this demo's last build failed, while that still holds; "" when it may be built.
+std::string KnownFailure(const std::wstring& demoPath, const std::wstring& exe) {
+	const std::string stamps = FailureStamps(demoPath, exe);
+	{
+		std::lock_guard<std::mutex> lock(g_mx);
+		auto it = g_sessionFailures.find(demoPath);
+		if (it != g_sessionFailures.end() && it->second.stamps == stamps
+			&& GetTickCount64() - it->second.atMs < kRoomRetryMs)
+			return it->second.why;
+	}
+	const std::wstring marker = FailureMarkerPath(demoPath, false);
+	FILE* f = marker.empty() ? nullptr : _wfopen(marker.c_str(), L"rb");
+	if (!f) return std::string();
+	std::string stored;
+	char buf[1024];
+	for (size_t n; (n = fread(buf, 1, sizeof(buf), f)) > 0 && stored.size() < 8192;) stored.append(buf, n);
+	fclose(f);
+	const size_t newline = stored.find('\n');
+	if (newline == std::string::npos || stored.substr(0, newline) != stamps) return std::string();
+	return stored.substr(newline + 1);
+}
+
+void RecordFailure(const std::wstring& demoPath, const std::wstring& exe, const std::string& why, bool helperVerdict) {
+	const std::string stamps = FailureStamps(demoPath, exe);
+	if (helperVerdict) {
+		const std::wstring marker = FailureMarkerPath(demoPath, true);
+		if (FILE* f = marker.empty() ? nullptr : _wfopen(marker.c_str(), L"wb")) {
+			const std::string value = stamps + "\n" + why;
+			fwrite(value.data(), 1, value.size(), f);
+			fclose(f);
+		}
+		return;
+	}
+	std::lock_guard<std::mutex> lock(g_mx);
+	g_sessionFailures[demoPath] = { stamps, why, GetTickCount64() };
+}
+
+void ForgetFailure(const std::wstring& demoPath) {
+	{
+		std::lock_guard<std::mutex> lock(g_mx);
+		g_sessionFailures.erase(demoPath);
+	}
+	const std::wstring marker = FailureMarkerPath(demoPath, false);
+	if (!marker.empty()) DeleteFileW(marker.c_str());
+}
 
 } // namespace
 
@@ -312,6 +419,11 @@ void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourc
 		SetState(KeyframeState::Failed, "FilmmakerDemoKeyframes.exe not found; backward seeks stay slow");
 		return;
 	}
+	const std::string failedBefore = KnownFailure(demoPath, exe);
+	if (!failedBefore.empty()) {
+		SetState(KeyframeState::Failed, "scrub keyframes not rebuilt for this demo: " + failedBefore);
+		return;
+	}
 	bool expected = false;
 	if (!g_busy.compare_exchange_strong(expected, true))
 		return; // one build at a time; the next play, prepare or marker change asks again
@@ -346,6 +458,22 @@ void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourc
 			g_busy.store(false);
 			return;
 		}
+		// Only with room to spare: the helper beside a game that has already used up the PC's
+		// memory is what ran CS2 out of it.
+		const unsigned long long demoBytes = FileSize(sourcePath);
+		ULARGE_INTEGER freeDisk{};
+		if (!GetDiskFreeSpaceExW(copy.substr(0, copy.find_last_of(L"\\/")).c_str(), &freeDisk, nullptr, nullptr))
+			freeDisk.QuadPart = ~0ull; // unknown: the helper's own write fails cleanly if it is short
+		MEMORYSTATUSEX memory{ sizeof(memory) };
+		if (!GlobalMemoryStatusEx(&memory)) memory.ullAvailPageFile = ~0ull;
+		const std::string noRoom = KeyframeHelperBudget::WhyNotEnough(demoBytes, freeDisk.QuadPart, memory.ullAvailPageFile);
+		if (!noRoom.empty()) {
+			RecordFailure(demoPath, exe, noRoom + ", retried in 10 minutes", false);
+			SetState(KeyframeState::Failed, "scrub keyframes not built: " + noRoom);
+			advancedfx::Warning("mirv_filmmaker: scrub keyframes not built: %s\n", noRoom.c_str());
+			g_busy.store(false);
+			return;
+		}
 		// Write beside the final name, then swap in: a half-written copy is never visible under
 		// the name the next play would pick up.
 		const std::wstring temp = copy + L".part";
@@ -357,7 +485,8 @@ void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourc
 		std::wstring args = L"-verify-every 16";
 		if (!plan.windows.empty())
 			args += L" -dense " + Utf8ToWide(windows) + L" -dense-every " + std::to_wstring(plan.step);
-		const int code = RunHelper(exe, args + L" \"" + sourcePath + L"\" \"" + temp + L"\"", log);
+		const int code = RunHelper(exe, args + L" \"" + sourcePath + L"\" \"" + temp + L"\"", log,
+			KeyframeHelperBudget::HardCapBytes(demoBytes), KeyframeHelperBudget::SoftLimitMB(demoBytes));
 		const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 		// A player report only said "exit 1" (2026-10-15); the helper's own last line says why.
 		const std::string helperSaid = code != 0 ? LastLogLine(log) : std::string();
@@ -372,11 +501,16 @@ void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourc
 		else if (FileSize(temp) < FileSize(sourcePath)) why = "the copy is smaller than its source";
 		if (!why.empty()) {
 			DeleteFileW(temp.c_str());
+			// Exit 1 is the helper's verdict on this demo (its checks failed): the same demo and
+			// helper fail again. Anything else (out of its memory cap, killed) may pass later.
+			RecordFailure(demoPath, exe, why + (code == 1 ? "; not retried until the demo or the helper changes"
+				: ", retried in 10 minutes"), code == 1);
 			SetState(KeyframeState::Failed, "scrub keyframes failed: " + why);
 			advancedfx::Warning("mirv_filmmaker: scrub keyframes failed: %s\n", why.c_str());
 			g_busy.store(false);
 			return;
 		}
+		ForgetFailure(demoPath);
 		DeleteFileW(MarkerPath(copy).c_str());
 		if (!MoveFileExW(temp.c_str(), copy.c_str(), MOVEFILE_REPLACE_EXISTING)) {
 			DeleteFileW(temp.c_str());

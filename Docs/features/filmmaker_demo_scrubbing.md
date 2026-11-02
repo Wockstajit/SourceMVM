@@ -58,6 +58,17 @@ Read from `engine2.dll` (Ghidra) and measured:
 When a build fails, the console warning and the crash-report history carry the helper's own last line
 (`FAILED: <reason>`), read from `keyframed.dem.log` beside the copy. The log is deleted after each run.
 
+**Memory and retries.** The helper runs beside the game, so it is kept small and capped. It decodes one
+frame at a time and streams the copy to disk. A 445 MB demo peaks at about 1.05 GB, down from 2 GB.
+It starts only when the disk has about 2.5 times the demo free and the PC still has the helper's cap
+plus 2 GB of commit free. It runs in a job capped at about three times the demo (1 to 6 GB), and the
+job ends it if the game closes first. A failed build is not repeated on every marker change or reopen:
+
+- The helper's own verdict (exit 1, `FAILED: <reason>`) is stored in `keyframed.dem.failed` beside the
+  copies, with the demo and helper stamps. That demo is not rebuilt until one of them changes, or
+  until opening another demo clears its folder.
+- No room to run, or a run that ran out of its cap, is retried after 10 minutes in the same session.
+
 **One copy.** Only the demo you have open keeps a keyframed copy. Opening a demo deletes every other demo's copy, along with its marker, log and unfinished build. That happens whether or not the opened demo needs a build. A copy that is open in another game instance stays until it is free. `repaired.dem` copies are never pruned.
 
 ## Dense keyframes around the shot

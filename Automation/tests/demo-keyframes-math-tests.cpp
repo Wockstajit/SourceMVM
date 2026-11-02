@@ -53,6 +53,22 @@ void TestFormat() {
 	CHECK(Parse("garbage").empty());
 	CHECK(Parse("10-5").empty()); // reversed range is refused
 }
+
+void TestHelperBudget() {
+	using namespace Filmmaker::KeyframeHelperBudget;
+	const unsigned long long demo = 445 * kMB; // the measured 445 MB demo peaked at ~1.05 GB
+	CHECK(HardCapBytes(demo) > 1100 * kMB && HardCapBytes(demo) < 2048 * kMB);
+	CHECK(HardCapBytes(10 * kMB) == 1024 * kMB);   // small demos still get a workable cap
+	CHECK(HardCapBytes(4000 * kMB) == 6144 * kMB); // huge ones are bounded
+	CHECK(SoftLimitMB(demo) * kMB < HardCapBytes(demo));
+	CHECK(DiskNeedBytes(demo) > demo * 2);          // the copy alone is ~2.3x the demo
+	CHECK(WhyNotEnough(demo, 100000 * kMB, 64000 * kMB).empty());
+	// The reports' machines: a few MB of page file left. The helper must not start there.
+	CHECK(WhyNotEnough(demo, 100000 * kMB, 5 * kMB).find("memory") != std::string::npos);
+	CHECK(WhyNotEnough(demo, 500 * kMB, 64000 * kMB).find("disk") != std::string::npos);
+	// Exactly enough commit for the cap plus the game's reserve is enough.
+	CHECK(WhyNotEnough(demo, 100000 * kMB, HardCapBytes(demo) + kGameCommitReserve).empty());
+}
 } // namespace
 
 int main() {
@@ -60,6 +76,7 @@ int main() {
 	TestClusters();
 	TestCap();
 	TestFormat();
+	TestHelperBudget();
 	if (g_failed) { std::printf("%d check(s) failed\n", g_failed); return 1; }
 	std::printf("demo-keyframes-math-tests: all passed\n");
 	return 0;

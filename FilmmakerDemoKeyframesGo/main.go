@@ -11,6 +11,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"os"
@@ -388,7 +389,7 @@ func main() {
 	}
 }
 
-func run(inPath, outPath string, g grid, verifyEvery int) error {
+func run(inPath, outPath string, g grid, verifyEvery int) (err error) {
 	t0 := time.Now()
 	data, err := os.ReadFile(inPath)
 	if err != nil {
@@ -404,18 +405,49 @@ func run(inPath, outPath string, g grid, verifyEvery int) error {
 	}
 	s := &state{ents: st2.NewParser(nil), tables: newStringTables(), valveDiffs: map[string]int{}}
 	st2.TraceField = os.Getenv("KF_TRACE")
-	out := make([]byte, 0, len(data)+len(data)/3)
-	out = append(out, data[:demHeaderSize]...)
+	// The copy streams to disk and only the header is patched at the end. Building the whole ~2x
+	// copy in memory first was most of the helper's peak.
+	file, err := os.Create(outPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := file.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			os.Remove(outPath)
+		}
+	}()
+	out := bufio.NewWriterSize(file, 4<<20)
+	written := 0
+	write := func(b []byte) error {
+		n, err := out.Write(b)
+		written += n
+		return err
+	}
+	if err := write(data[:demHeaderSize]); err != nil {
+		return err
+	}
 	type insertion struct{ at, n int }
 	var inserts []insertion
 	made, verified, valveChecks := 0, 0, 0
 	for i, f := range frames {
 		st2.TraceTick = f.tick
-		out = append(out, f.raw...)
+		if err := write(f.raw); err != nil {
+			return err
+		}
+		var payload []byte
+		switch f.cmd {
+		case demSendTables, demClassInfo, demStringTables, demPacket, demSignonPacket, demFullPacket:
+			if payload, err = f.payload(); err != nil {
+				return err
+			}
+		}
 		switch f.cmd {
 		case demSendTables:
 			var m msg.CDemoSendTables
-			if err := proto.Unmarshal(f.payload, &m); err != nil {
+			if err := proto.Unmarshal(payload, &m); err != nil {
 				return err
 			}
 			if err := s.ents.ParsePacket(m.GetData()); err != nil {
@@ -423,7 +455,7 @@ func run(inPath, outPath string, g grid, verifyEvery int) error {
 			}
 		case demClassInfo:
 			var m msg.CDemoClassInfo
-			if err := proto.Unmarshal(f.payload, &m); err != nil {
+			if err := proto.Unmarshal(payload, &m); err != nil {
 				return err
 			}
 			if err := s.ents.OnDemoClassInfo(&m); err != nil {
@@ -431,14 +463,14 @@ func run(inPath, outPath string, g grid, verifyEvery int) error {
 			}
 		case demStringTables:
 			var m msg.CDemoStringTables
-			if err := proto.Unmarshal(f.payload, &m); err != nil {
+			if err := proto.Unmarshal(payload, &m); err != nil {
 				return err
 			}
 			s.tables.load(&m)
 			s.refreshBaselines("instancebaseline")
 		case demPacket, demSignonPacket:
 			var m msg.CDemoPacket
-			if err := proto.Unmarshal(f.payload, &m); err != nil {
+			if err := proto.Unmarshal(payload, &m); err != nil {
 				return err
 			}
 			if err := s.onPacket(m.GetData(), false); err != nil {
@@ -446,7 +478,7 @@ func run(inPath, outPath string, g grid, verifyEvery int) error {
 			}
 		case demFullPacket:
 			var m msg.CDemoFullPacket
-			if err := proto.Unmarshal(f.payload, &m); err != nil {
+			if err := proto.Unmarshal(payload, &m); err != nil {
 				return err
 			}
 			if s.haveFull {
@@ -471,7 +503,9 @@ func run(inPath, outPath string, g grid, verifyEvery int) error {
 		}
 		fr := encodeFrame(demFullPacket, f.tick, payload)
 		inserts = append(inserts, insertion{f.off + len(f.raw), len(fr)})
-		out = append(out, fr...)
+		if err := write(fr); err != nil {
+			return err
+		}
 		made++
 		if verify {
 			verified++
@@ -480,9 +514,15 @@ func run(inPath, outPath string, g grid, verifyEvery int) error {
 	// FileInfo and SpawnGroups follow the Stop frame; the header points at them.
 	if len(frames) > 0 {
 		last := frames[len(frames)-1]
-		out = append(out, data[last.off+len(last.raw):]...)
+		if err := write(data[last.off+len(last.raw):]); err != nil {
+			return err
+		}
 	}
-	patchHeader(out[:demHeaderSize], func(old int) int {
+	if err := out.Flush(); err != nil {
+		return err
+	}
+	header := append([]byte(nil), data[:demHeaderSize]...)
+	patchHeader(header, func(old int) int {
 		n := old
 		for _, in := range inserts {
 			if in.at <= old {
@@ -491,13 +531,13 @@ func run(inPath, outPath string, g grid, verifyEvery int) error {
 		}
 		return n
 	})
-	if err := os.WriteFile(outPath, out, 0o644); err != nil {
+	if _, err := file.WriteAt(header, 0); err != nil {
 		return err
 	}
 	fmt.Printf("keyframes: %d written %s (%d re-decoded and matched)\n", made, g.describe(), verified)
 	fmt.Printf("valve: %d full packets checked, same entities, %d of %d fields differ, plus %d scoreboard or stale-time fields (client-held stale values, listed below)\n",
 		valveChecks, s.valveDiffering, s.valveFields, s.valveExplained)
-	fmt.Printf("size: %.1f MB -> %.1f MB in %.1fs\n", float64(len(data))/1e6, float64(len(out))/1e6, time.Since(t0).Seconds())
+	fmt.Printf("size: %.1f MB -> %.1f MB in %.1fs\n", float64(len(data))/1e6, float64(written)/1e6, time.Since(t0).Seconds())
 	keys := make([]string, 0, len(s.valveDiffs))
 	for k := range s.valveDiffs {
 		keys = append(keys, k)
