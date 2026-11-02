@@ -1105,9 +1105,14 @@ R"EDJS(
     var jobRule = mk('Panel', renderJobCol); jobRule.hittest = false;
     jobRule.style.width = '100%'; jobRule.style.height = '1px'; jobRule.style.backgroundColor = S.panelBorder;
 
+    // The summary scrolls when it outgrows the column; START RENDER sits below it, pinned to the
+    // column's bottom, so a long Output or Folder line or three previous renders can never push it
+    // out of view (bug report 2026-10-29 at 1080p: "the render button disappears under all of the
+    // other previous renders").
     var jobBody = mk('Panel', renderJobCol);
     jobBody.style.flowChildren = 'down'; jobBody.style.width = '100%';
     jobBody.style.height = 'fill-parent-flow(1.0)';
+    jobBody.style.overflow = 'squish scroll';
     jobBody.style.paddingLeft = '18px'; jobBody.style.paddingRight = '18px';
     jobBody.style.paddingTop = '12px'; jobBody.style.paddingBottom = '12px';
 
@@ -1193,13 +1198,11 @@ R"EDJS(
       }
     }
 
-    // jobBody flows DOWN, so `verticalAlign: bottom` on the action row would do nothing -- a
-    // filling spacer is what actually pushes it to the bottom of the column.
-    var jobSpacer = mk('Panel', jobBody); jobSpacer.hittest = false;
-    jobSpacer.style.width = '100%'; jobSpacer.style.height = 'fill-parent-flow(1.0)';
-
-    var jobActionRow = mk('Panel', jobBody);
+    // A child of the column, after jobBody: jobBody fills what is left above it.
+    var jobActionRow = mk('Panel', renderJobCol);
     jobActionRow.style.flowChildren = 'right'; jobActionRow.style.width = '100%';
+    jobActionRow.style.paddingLeft = '18px'; jobActionRow.style.paddingRight = '18px';
+    jobActionRow.style.paddingTop = '8px'; jobActionRow.style.paddingBottom = '12px';
     // ONE button: START RENDER while idle, CANCEL RENDER while a job runs.
     var jobBtnRunning = false;
     var jobBtn = btnPrimary(jobActionRow, 'START RENDER', function () {

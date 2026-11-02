@@ -154,3 +154,11 @@ test('the Render job has one Start/Cancel button and its refresh only reads live
   // curW/curH went with custom resolution; a stale read threw and stopped the whole job refresh.
   assert.doesNotMatch(renderJs, /\bcurW\b|\bcurH\b/);
 });
+
+// Bug report 2026-10-29: three previous renders pushed START RENDER under the bottom dock at 1080p.
+test('START RENDER stays pinned below a scrolling job summary', () => {
+  assert.match(renderJs, /var jobActionRow = mk\('Panel', renderJobCol\);/,
+    'the action row must be a child of the column, not of the summary that grows');
+  assert.match(renderJs, /jobBody\.style\.overflow = 'squish scroll';/);
+  assert.doesNotMatch(renderJs, /jobSpacer/);
+});
