@@ -153,9 +153,24 @@ std::atomic<unsigned long long> g_persistentRotationWrites{ 0 };
 
 // Fallback for maps/builds that do not enter the engine's optional shadow-builder path. The
 // scene-submit hook is guaranteed to receive the persistent light object; retain one authored
-// direction per live pointer so repeated submits do not compound the requested yaw/pitch.
+// direction per pointer so repeated submits do not compound the requested yaw/pitch.
+//
+// A remembered pointer is only ever written while the engine is submitting it, because only then is
+// it provably a live light. Lights the engine drops (dynamic lights, entities rebuilt by a seek) stay
+// in the table but are never written again. Restoring them all from LightFx_Reset wrote into freed
+// memory; float 1.0 at +4 of a reused interpolation slot matches four 0.2.0-0.4.0 crash reports.
+struct TrackedLightDirection {
+	SunRotationMath::Vec3 base{};
+	SunRotationMath::Vec3 written{};
+	bool hasWritten = false;
+	unsigned long long lastSubmitMs = 0;
+};
+constexpr size_t kTrackedLightSoftCap = 16384;
+constexpr unsigned long long kTrackedLightIdleMs = 60000;
+std::atomic<unsigned long long> g_rotationRestores{ 0 };
+std::atomic<unsigned long long> g_rotationForeign{ 0 };
 std::mutex g_rotationObjectMutex;
-std::unordered_map<void*, SunRotationMath::Vec3> g_rotationObjectBases;
+std::unordered_map<void*, TrackedLightDirection> g_rotationObjectBases;
 
 std::atomic<float> g_yaw{ 0.0f }, g_pitch{ 0.0f };
 std::atomic<float> g_referenceX{ 0.0f }, g_referenceY{ 0.0f }, g_referenceZ{ 0.0f };
@@ -320,42 +335,74 @@ static bool WriteUnitDirection(void* object, const SunRotationMath::Vec3& value)
 	}
 }
 
+// Caller holds g_rotationObjectMutex. Only reached when lights are created faster than the allocator
+// reuses addresses; an idle entry is dropped without writing, since its light may be gone.
+static void PruneIdleTrackedLightsLocked(unsigned long long nowMs) {
+	if (g_rotationObjectBases.size() < kTrackedLightSoftCap) return;
+	const size_t before = g_rotationObjectBases.size();
+	for (auto it = g_rotationObjectBases.begin(); it != g_rotationObjectBases.end();) {
+		if (nowMs - it->second.lastSubmitMs > kTrackedLightIdleMs) it = g_rotationObjectBases.erase(it);
+		else ++it;
+	}
+	MvmDebugLog_LinefAlways("world.light.rotation", "pruned %zu idle tracked lights (%zu left)",
+		before - g_rotationObjectBases.size(), g_rotationObjectBases.size());
+}
+
+// Runs inside the engine's submit of `object`, so the pointer is a live light here.
 static bool RotateSubmittedDirection(void* object, float yaw, float pitch,
 	SunRotationMath::Vec3* baseOut = nullptr, SunRotationMath::Vec3* rotatedOut = nullptr) {
-	SunRotationMath::Vec3 base{};
-	bool inserted = false;
+	SunRotationMath::Vec3 current{};
+	if (!ReadUnitDirection(object, &current)) return false;
+	const unsigned long long now = GetTickCount64();
+	SunRotationMath::Vec3 base = current;
 	{
 		std::lock_guard<std::mutex> lock(g_rotationObjectMutex);
 		auto found = g_rotationObjectBases.find(object);
+		// A field holding neither our value nor the remembered authored one belongs to a different
+		// light at a reused address (or the engine rewrote it): its current value is the authored one.
 		if (found != g_rotationObjectBases.end()) {
-			base = found->second;
-		} else {
-			if (!ReadUnitDirection(object, &base)) return false;
-			g_rotationObjectBases.emplace(object, base);
-			inserted = true;
+			if (SunRotationMath::ClassifyTrackedDirection(current, found->second.base, found->second.written,
+				found->second.hasWritten) != SunRotationMath::TrackedDirection::Foreign)
+				base = found->second.base;
+			else
+				g_rotationForeign.fetch_add(1, std::memory_order_relaxed);
 		}
 	}
 	const SunRotationMath::Vec3 rotated = SunRotationMath::Rotate(base, yaw, pitch, SunReferenceFor(base));
 	if (baseOut) *baseOut = base;
 	if (rotatedOut) *rotatedOut = rotated;
-	if (WriteUnitDirection(object, rotated)) return true;
-	if (inserted) {
-		std::lock_guard<std::mutex> lock(g_rotationObjectMutex);
+	const bool wrote = WriteUnitDirection(object, rotated);
+	std::lock_guard<std::mutex> lock(g_rotationObjectMutex);
+	if (!wrote) {
 		g_rotationObjectBases.erase(object);
+		return false;
 	}
-	return false;
+	PruneIdleTrackedLightsLocked(now);
+	g_rotationObjectBases[object] = { base, rotated, true, now };
+	return true;
 }
 
+// Also runs inside the engine's submit of `object`. Puts the authored direction back only while the
+// field still holds the value we wrote; anything else is no longer ours to touch.
 static bool RestoreSubmittedDirection(void* object) {
-	SunRotationMath::Vec3 base{};
+	TrackedLightDirection entry{};
 	{
 		std::lock_guard<std::mutex> lock(g_rotationObjectMutex);
 		auto found = g_rotationObjectBases.find(object);
 		if (found == g_rotationObjectBases.end()) return false;
-		base = found->second;
+		entry = found->second;
 		g_rotationObjectBases.erase(found);
 	}
-	return WriteUnitDirection(object, base);
+	SunRotationMath::Vec3 current{};
+	if (!ReadUnitDirection(object, &current)) return false;
+	if (SunRotationMath::ClassifyTrackedDirection(current, entry.base, entry.written, entry.hasWritten)
+		!= SunRotationMath::TrackedDirection::Ours) {
+		g_rotationForeign.fetch_add(1, std::memory_order_relaxed);
+		return false;
+	}
+	if (!WriteUnitDirection(object, entry.base)) return false;
+	g_rotationRestores.fetch_add(1, std::memory_order_relaxed);
+	return true;
 }
 
 void* __fastcall new_LightSubmit(void* a1, void* lightObject, void* a3) {
@@ -707,11 +754,15 @@ void LightFx_Reset() {
 	g_tintR.store(255); g_tintG.store(255); g_tintB.store(255);
 	g_amount.store(1.0f); g_uniform.store(true);
     g_yaw.store(0.0f); g_pitch.store(0.0f);
+    // No writes here: each live tracked light gets its authored direction back at its next submit
+    // (RestoreSubmittedDirection). Lights the engine already freed are never touched.
+    size_t tracked = 0;
     {
         std::lock_guard<std::mutex> lock(g_rotationObjectMutex);
-        for(const auto& original:g_rotationObjectBases) WriteUnitDirection(original.first,original.second);
-        g_rotationObjectBases.clear();
+        tracked = g_rotationObjectBases.size();
     }
+    if (tracked)
+        MvmDebugLog_LinefAlways("world.light.rotation", "reset: %zu tracked lights restore on their next submit", tracked);
     ReleaseRotationCvar();
 	g_bakedIndexForceNone.store(false, std::memory_order_relaxed);
 	RestoreBakedIndexOriginals();
@@ -777,6 +828,12 @@ void LightFx_AppendStateJson(std::ostringstream& o) {
 	o << ",\"lightRotationBuilds\":" << g_rotationBuilds.load();
 	o << ",\"lightShadowBuildParents\":" << g_shadowBuildParents.load();
 	o << ",\"lightPersistentRotationWrites\":" << g_persistentRotationWrites.load();
+	{
+		std::lock_guard<std::mutex> lock(g_rotationObjectMutex);
+		o << ",\"lightTrackedRotations\":" << g_rotationObjectBases.size();
+	}
+	o << ",\"lightRotationRestores\":" << g_rotationRestores.load();
+	o << ",\"lightRotationForeign\":" << g_rotationForeign.load();
 	o << ",\"lightBakedIndexLog\":" << (g_bakedIndexLog.load() ? "true" : "false");
 	o << ",\"lightBakedIndexForceNone\":" << (g_bakedIndexForceNone.load() ? "true" : "false");
 	o << ",\"lightBakedIndexWrites\":" << g_bakedIndexWrites.load();
@@ -915,6 +972,11 @@ void LightFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 	}
 
 	int r, g, b; LightFx_GetTint(&r, &g, &b);
+	size_t tracked = 0;
+	{
+		std::lock_guard<std::mutex> lock(g_rotationObjectMutex);
+		tracked = g_rotationObjectBases.size();
+	}
 	advancedfx::Message(
 		"mirv_filmmaker world light - tints every light the scene system submits.\n"
 		"Usage:\n"
@@ -927,12 +989,13 @@ void LightFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 		"  %s world light pitch <degrees>   - raise/lower the engine light (-90..90)\n"
 		"  %s world light reset\n"
 		"Both modes preserve the source light's HDR ceiling instead of adding glow.\n"
-		"Current: tint %d %d %d, amount %.2f, mode %s | yaw %.1f pitch %.1f | hook %s, %llu light submissions, %llu rotations.\n",
+		"Current: tint %d %d %d, amount %.2f, mode %s | yaw %.1f pitch %.1f | hook %s, %llu light submissions, %llu rotations"
+		" | %zu tracked lights, %llu restored, %llu foreign.\n",
 		cmd, cmd, cmd, cmd, cmd, cmd, cmd, r, g, b, LightFx_Amount(),
 		g_uniform.load() ? "uniform" : "filtered",
 		g_yaw.load(), g_pitch.load(),
 		g_installed ? "installed" : "NOT installed",
-		LightFx_LightsSeen(), g_lightsRotated.load());
+		LightFx_LightsSeen(), g_lightsRotated.load(), tracked, g_rotationRestores.load(), g_rotationForeign.load());
 }
 
 } // namespace Filmmaker

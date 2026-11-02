@@ -14,6 +14,8 @@ using Filmmaker::SunRotationMath::Quat;
 using Filmmaker::SunRotationMath::Rotate;
 using Filmmaker::SunRotationMath::RotateAroundPoint;
 using Filmmaker::SunRotationMath::BoundsContain;
+using Filmmaker::SunRotationMath::ClassifyTrackedDirection;
+using Filmmaker::SunRotationMath::TrackedDirection;
 using Filmmaker::SunRotationMath::Vec3;
 using Filmmaker::SunRotationMath::WrapYaw;
 
@@ -117,5 +119,21 @@ int main() {
 	assert(BoundsContain({ -1801.2f, -3767.4f, 3266.6f },
 		{ 7581.9f, 1544.5f, 6840.5f }, discAnchor));
 	assert(!BoundsContain({ -10.0f, -10.0f, -10.0f }, { 10.0f, 10.0f, 10.0f }, discAnchor));
+
+	// A remembered light is only restored or re-rotated while its field still holds our value or its
+	// authored one. Anything else is a freed-and-reused address or an engine rewrite.
+	{
+		const Vec3 authored = AnglesToDirection(20.0f, 50.0f);
+		const Vec3 written = Rotate(authored, 30.0f, 0.0f, authored);
+		assert(ClassifyTrackedDirection(written, authored, written, true) == TrackedDirection::Ours);
+		assert(ClassifyTrackedDirection(authored, authored, written, true) == TrackedDirection::Authored);
+		assert(ClassifyTrackedDirection(authored, authored, {}, false) == TrackedDirection::Authored);
+		// Nothing written yet, so a field equal to an all-zero `written` is not ours.
+		assert(ClassifyTrackedDirection({}, authored, {}, false) == TrackedDirection::Foreign);
+		const Vec3 otherLight = AnglesToDirection(200.0f, 10.0f);
+		assert(ClassifyTrackedDirection(otherLight, authored, written, true) == TrackedDirection::Foreign);
+		const Vec3 nudged{ written.x + 5.0e-5f, written.y, written.z };
+		assert(ClassifyTrackedDirection(nudged, authored, written, true) == TrackedDirection::Ours);
+	}
 	return 0;
 }
