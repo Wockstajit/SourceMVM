@@ -25,23 +25,28 @@ constexpr unsigned long long kMenuStaleMs = 1000;
 // `reshade_open_overlay` open/close event and exports the level. The key mirror below is only
 // the FALLBACK when the addon is not installed -- mirroring the toggle key was measured
 // unreliable (double/missed toggles desynced it, 2026-08-31).
+//
+// ReShade loads and frees its add-ons itself (at the latest while CS2 quits), so no pointer into
+// the addon may outlive one call: a cached export called after ReShade freed the addon crashed in
+// SDL's SetCursor during quit (crash report 1565165641030439023). Each query holds a module
+// reference for just the call. A lasting reference would stop ReShade's own unload, and a reload
+// would then skip the addon's DllMain and never register it again.
 typedef unsigned long long (*MvmReShadeOverlayOpen_t)();
-std::atomic<MvmReShadeOverlayOpen_t> g_overlayOpenFn{nullptr};
-std::atomic<unsigned long long> g_overlayFnNextProbeMs{0};
 
-MvmReShadeOverlayOpen_t ResolveOverlayOpenFn() {
-	MvmReShadeOverlayOpen_t fn = g_overlayOpenFn.load(std::memory_order_relaxed);
-	if (fn) return fn;
-	// The addon loads with ReShade shortly after startup; probe until found, throttled so the
-	// per-message cost stays negligible when it is not installed at all.
-	const unsigned long long now = GetTickCount64();
-	if (now < g_overlayFnNextProbeMs.load(std::memory_order_relaxed)) return nullptr;
-	g_overlayFnNextProbeMs.store(now + 2000, std::memory_order_relaxed);
-	if (HMODULE m = GetModuleHandleW(L"mvm_reshade_state.addon64")) {
-		fn = (MvmReShadeOverlayOpen_t)GetProcAddress(m, "MvmReShadeOverlayOpen");
-		if (fn) g_overlayOpenFn.store(fn, std::memory_order_relaxed);
+std::atomic<bool> g_addonSeen{false};
+
+// 1 = open, 0 = closed, -1 = the addon is not loaded right now.
+int QueryReShadeAddonOverlay() {
+	HMODULE m = nullptr;
+	int open = -1;
+	if (GetModuleHandleExW(0, L"mvm_reshade_state.addon64", &m) && m) {
+		if (auto fn = (MvmReShadeOverlayOpen_t)GetProcAddress(m, "MvmReShadeOverlayOpen"))
+			open = fn() != 0 ? 1 : 0;
+		FreeLibrary(m);
 	}
-	return fn;
+	if (g_addonSeen.exchange(open >= 0, std::memory_order_relaxed) != (open >= 0) && Filmmaker::MvmDebugLog_Active())
+		Filmmaker::MvmDebugLog_Linef("input.capture", "reshade state addon %s", open >= 0 ? "loaded" : "gone (key mirror fallback)");
+	return open;
 }
 
 std::atomic<bool> g_overlayOpen{false};
@@ -85,8 +90,9 @@ bool Filmmaker::UiInputGate_Active() {
 	// the wheel over an open console moved the camera instead of scrolling the console).
 	if (AfxConsoleVisible())
 		return true;
-	if (MvmReShadeOverlayOpen_t fn = ResolveOverlayOpenFn()) {
-		if (fn() != 0)
+	const int addonOverlay = QueryReShadeAddonOverlay();
+	if (addonOverlay >= 0) {
+		if (addonOverlay != 0)
 			return true;
 	} else if (g_overlayOpen.load(std::memory_order_relaxed)) {
 		return true; // key-mirror fallback, only without the state addon

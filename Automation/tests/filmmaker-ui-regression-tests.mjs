@@ -305,6 +305,16 @@ test("the open developer console keeps its own wheel, clicks and keys", () => {
   assert.match(main, /bool AfxConsoleVisible\(\) \{ return g_pGameUIService && g_pGameUIService->Con_IsVisible\(\); \}/);
 });
 
+// Crash report 1565165641030439023 (v0.4.0): ReShade freed our state add-on during quit and SDL's
+// SetCursor called the gate, which still held the add-on's export, into unloaded memory.
+test("the ReShade overlay gate never keeps a pointer into the state add-on", () => {
+  const gate = read("AfxHookSource2", "UiInputGate.cpp");
+  assert.match(gate, /GetModuleHandleExW\(0, L"mvm_reshade_state\.addon64", &m\)/);
+  assert.match(gate, /open = fn\(\) != 0 \? 1 : 0;\s*FreeLibrary\(m\);/);
+  assert.doesNotMatch(gate, /GET_MODULE_HANDLE_EX_FLAG_PIN/);
+  assert.doesNotMatch(gate, /std::atomic<MvmReShadeOverlayOpen_t>/);
+});
+
 // 2026-10-18: a camera riding a gun made the player look jittery. Smooth View's breathing, lean and
 // sway (logged up to 4 degrees with pov=0) were added to our own cameras after they wrote the pose.
 test("Smooth View leaves our own cameras alone", () => {
