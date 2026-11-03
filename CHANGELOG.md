@@ -5,7 +5,7 @@ so every release heading keeps the form `## <version> - <date>` (a hotfix is `##
 and every change is one `- ` bullet under a `### ` group. Releases older than 0.2.0 are on the
 [releases page](https://github.com/Wockstajit/SourceMVM/releases).
 
-## Unreleased
+## 0.4.1 - 2026-11-03
 
 ### Crash fixes
 
