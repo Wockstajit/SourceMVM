@@ -163,10 +163,13 @@ struct TrackedLightDirection {
 	SunRotationMath::Vec3 base{};
 	SunRotationMath::Vec3 written{};
 	bool hasWritten = false;
-	unsigned long long lastSubmitMs = 0;
 };
-constexpr size_t kTrackedLightSoftCap = 16384;
-constexpr unsigned long long kTrackedLightIdleMs = 60000;
+// Entries are never dropped before the next map: a light can sit unsubmitted (culled, dormant) for
+// any length of time, and forgetting its authored direction would make its next submit rotate our
+// already-rotated value a second time. When the table is full, a light it has never seen is left as
+// authored instead.
+constexpr size_t kTrackedLightCap = 16384;
+std::atomic<bool> g_trackedLightsFull{ false };
 std::atomic<unsigned long long> g_rotationRestores{ 0 };
 std::atomic<unsigned long long> g_rotationForeign{ 0 };
 std::mutex g_rotationObjectMutex;
@@ -335,30 +338,11 @@ static bool WriteUnitDirection(void* object, const SunRotationMath::Vec3& value)
 	}
 }
 
-// Caller holds g_rotationObjectMutex. Only reached when lights are created faster than the allocator
-// reuses addresses; an idle entry is dropped without writing, since its light may be gone. At most
-// one scan a second: with the cap full of lights that are all still submitting, nothing is old
-// enough to drop, and scanning on every submit would cost a 16K-entry walk per light.
-static void PruneIdleTrackedLightsLocked(unsigned long long nowMs) {
-	static unsigned long long s_lastScanMs = 0;
-	if (g_rotationObjectBases.size() < kTrackedLightSoftCap || nowMs - s_lastScanMs < 1000) return;
-	s_lastScanMs = nowMs;
-	const size_t before = g_rotationObjectBases.size();
-	for (auto it = g_rotationObjectBases.begin(); it != g_rotationObjectBases.end();) {
-		if (nowMs - it->second.lastSubmitMs > kTrackedLightIdleMs) it = g_rotationObjectBases.erase(it);
-		else ++it;
-	}
-	if (g_rotationObjectBases.size() != before)
-		MvmDebugLog_LinefAlways("world.light.rotation", "pruned %zu idle tracked lights (%zu left)",
-			before - g_rotationObjectBases.size(), g_rotationObjectBases.size());
-}
-
 // Runs inside the engine's submit of `object`, so the pointer is a live light here.
 static bool RotateSubmittedDirection(void* object, float yaw, float pitch,
 	SunRotationMath::Vec3* baseOut = nullptr, SunRotationMath::Vec3* rotatedOut = nullptr) {
 	SunRotationMath::Vec3 current{};
 	if (!ReadUnitDirection(object, &current)) return false;
-	const unsigned long long now = GetTickCount64();
 	SunRotationMath::Vec3 base = current;
 	{
 		std::lock_guard<std::mutex> lock(g_rotationObjectMutex);
@@ -371,6 +355,13 @@ static bool RotateSubmittedDirection(void* object, float yaw, float pitch,
 				base = found->second.base;
 			else
 				g_rotationForeign.fetch_add(1, std::memory_order_relaxed);
+		} else if (g_rotationObjectBases.size() >= kTrackedLightCap) {
+			// Only reached when lights are created faster than the allocator reuses addresses.
+			if (!g_trackedLightsFull.exchange(true, std::memory_order_relaxed))
+				MvmDebugLog_LinefAlways("world.light.rotation",
+					"tracked light table full (%zu): new lights stay unrotated until the next map",
+					g_rotationObjectBases.size());
+			return false;
 		}
 	}
 	const SunRotationMath::Vec3 rotated = SunRotationMath::Rotate(base, yaw, pitch, SunReferenceFor(base));
@@ -382,8 +373,7 @@ static bool RotateSubmittedDirection(void* object, float yaw, float pitch,
 		g_rotationObjectBases.erase(object);
 		return false;
 	}
-	PruneIdleTrackedLightsLocked(now);
-	g_rotationObjectBases[object] = { base, rotated, true, now };
+	g_rotationObjectBases[object] = { base, rotated, true };
 	return true;
 }
 
@@ -751,6 +741,7 @@ static void ReleaseRotationCvar() {
 void LightFx_OnLevelInit() {
     // Scene objects are level-owned. Never reuse a prior map's pointer snapshot.
     {std::lock_guard<std::mutex> lock(g_rotationObjectMutex);g_rotationObjectBases.clear();}
+    g_trackedLightsFull.store(false, std::memory_order_relaxed);
     ReleaseRotationCvar();
     g_referenceValid.store(false, std::memory_order_relaxed); // the new map publishes its own sun
 }
