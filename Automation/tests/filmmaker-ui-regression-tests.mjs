@@ -305,6 +305,23 @@ test("the open developer console keeps its own wheel, clicks and keys", () => {
   assert.match(main, /bool AfxConsoleVisible\(\) \{ return g_pGameUIService && g_pGameUIService->Con_IsVisible\(\); \}/);
 });
 
+// Crash report 1565165641030439023 (v0.4.0): ReShade freed our state add-on during quit and SDL's
+// SetCursor called the gate, which still held the add-on's export, into unloaded memory.
+test("the ReShade overlay gate never keeps a pointer into the state add-on", () => {
+  const gate = read("AfxHookSource2", "UiInputGate.cpp");
+  // No loader reference at all: one of ours could make ReShade's FreeLibrary skip the add-on's
+  // detach and run it later on our thread, against ReShade's own unload bookkeeping (review on #120).
+  assert.match(gate, /GetModuleHandleExW\(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"mvm_reshade_state\.addon64", &m\)/);
+  // Without a reference the handle can go stale before it is used, so the export lookup runs
+  // under the same guard as the call (review on #120).
+  assert.match(gate, /__try \{\s*auto fn = \(MvmReShadeOverlayOpen_t\)GetProcAddress\(addon, "MvmReShadeOverlayOpen"\);\s*return fn \? \(fn\(\) != 0 \? 1 : 0\) : -1;\s*\} __except \(EXCEPTION_EXECUTE_HANDLER\)/);
+  assert.equal((gate.match(/GetProcAddress\(\w+, "MvmReShadeOverlayOpen"\)/g) || []).length, 1,
+    'the export is looked up only inside the guard');
+  assert.doesNotMatch(gate, /FreeLibrary\(/);
+  assert.doesNotMatch(gate, /GET_MODULE_HANDLE_EX_FLAG_PIN/);
+  assert.doesNotMatch(gate, /std::atomic<MvmReShadeOverlayOpen_t>/);
+});
+
 // 2026-10-18: a camera riding a gun made the player look jittery. Smooth View's breathing, lean and
 // sway (logged up to 4 degrees with pov=0) were added to our own cameras after they wrote the pose.
 test("Smooth View leaves our own cameras alone", () => {
