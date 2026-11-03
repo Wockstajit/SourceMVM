@@ -84,7 +84,9 @@
     sk.canUndo=!!sk.undo.length;sk.canRedo=!!sk.redo.length;
   }
   // The named values the dock offers in its value menu (SceneKeys.cpp OptionsJson).
-  var OPTIONS={'env.weather.type':['Clear','Rain','Snow','Ash','Embers','Motes','Smoke'].map(function(l,i){return {value:i,label:l};})};
+  var OPTIONS={'env.weather.type':['Clear','Rain','Snow','Ash','Embers','Motes','Smoke'].map(function(l,i){return {value:i,label:l};}),
+    // Map default, then SkyboxLibrary.cpp's built-in skies in order (a user's custom skies follow in game).
+    sky:[['default','Map default'],['sky_de_mirage','Mirage'],['sky_de_dust2','Dust II'],['sky_de_nuke','Nuke'],['sky_de_vertigo','Vertigo'],['sky_de_overpass_01','Overpass'],['sky_de_annubis','Anubis'],['sky_de_train03','Train'],['sky_hr_aztec_02','Aztec'],['sky_ar_baggage_01','Baggage'],['sky_cs15_daylight01_hdr','Daylight'],['sky_csgo_cloudy01','Cloudy'],['sky_overcast_01','Overcast'],['sky_rain_night_01','Rainy Night'],['sky_black','Black']].map(function(o){return {value:o[0],label:o[1]};})};
   function put(sk,s,tick,value) {
     if(!s||!isFinite(tick)||tick<0)return;var vals=Array.isArray(value)?value:[value];
     if(s.type==='asset'){if(typeof value!=='string'||!/^[a-zA-Z0-9_-]*$/.test(value))return;}

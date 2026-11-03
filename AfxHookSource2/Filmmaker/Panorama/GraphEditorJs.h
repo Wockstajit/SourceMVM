@@ -2380,7 +2380,8 @@ R"GEJS(
       }
       return null;
     }
-
+)GEJS"
+R"GEJS(
     // ---- menus --------------------------------------------------------------------
     // One menu engine for the property, layer and keyframe menus, driven off the raw cursor pipe
     // (hover and click are hit-tested here). Items: {kind:'title'|'head'|'sep'} or {id, label,
@@ -2401,7 +2402,21 @@ R"GEJS(
       dropLevels(0);
       menu = null;
     }
+    // A list taller than the room above the footer keeps what fits and lists the rest under More,
+    // which fits itself the same way when it opens. The Sky menu (Map default and 14 built-in skies,
+    // plus any custom ones) ran under CS2's demo line, and its last skies could not be picked.
+    function fitMenuItems(items, w) {
+      var room = DOCK_H - FOOTER_H - 4 - M_PAD * 2, h = 0, keep = 0;
+      items.forEach(function (it) { h += itemH(it); });
+      if (h <= room) return items;
+      for (h = M_ITEM; keep < items.length && h + itemH(items[keep]) <= room; keep++) h += itemH(items[keep]);
+      keep = Math.max(1, keep);
+      var rest = items.slice(keep), picked = rest.some(function (it) { return !!it.check; });
+      // More carries the check when the current value is one of the items it holds.
+      return items.slice(0, keep).concat([{ id: 'menumore', key: 'menumore', label: 'More', subW: w, sub: rest, check: picked ? true : null }]);
+    }
     function buildMenuPanel(x, y, w, items, level) {
+      items = fitMenuItems(items, w);
       var p = mk('Panel', dock); p.hittest = false; p.style.zIndex = '' + (26 + level);
       p.style.flowChildren = 'down'; p.style.paddingTop = M_PAD + 'px'; p.style.paddingBottom = M_PAD + 'px';
       p.style.backgroundColor = 'rgba(16,20,26,0.99)'; p.style.border = '1px solid ' + S.border;
