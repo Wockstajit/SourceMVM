@@ -22,7 +22,7 @@ and every change is one `- ` bullet under a `### ` group. Releases older than 0.
 ### Rendering
 
 - START RENDER stays at the bottom of the job column. Previous renders show as many whole rows as fit,
-  and the heading says how many are hidden. Before, a few renders pushed the button out of sight.
+  and ◀ ▶ in their heading page through the rest. Before, a few renders pushed the button out of sight.
 
 ### Timeline
 
@@ -30,7 +30,8 @@ and every change is one `- ` bullet under a `### ` group. Releases older than 0.
   cancels. Typed keys no longer reached it.
 - Weather type shows its name and changes from a menu of names. It could not be changed before.
 - A typed field of view stays what you typed, instead of snapping to the edge of the graph.
-- The dock's menus stay above its bottom edge in a small window.
+- The dock's menus stay above its bottom edge in a small window. A long one, such as Sky, lists the
+  rest under More.
 
 ## 0.4.0 - 2026-10-25
 
