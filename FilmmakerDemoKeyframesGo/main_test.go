@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // The Valve full-packet check must not fail a long match on scoreboard bookkeeping (it grows with
 // every round), and must still count anything that could be a tracking bug.
@@ -31,5 +36,27 @@ func TestValveDiffExplained(t *testing.T) {
 		if valveDiffExplained(k) {
 			t.Errorf("%q must count toward the 1%% bar", k)
 		}
+	}
+}
+
+// A demo the helper cannot read is an I/O failure (exit 3, retried later), not a verdict on the demo
+// (exit 1, which the game remembers until the demo or the helper changes).
+func TestReadFailureIsIO(t *testing.T) {
+	g, err := newGrid(32, 2, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = run(filepath.Join(t.TempDir(), "missing.dem"), filepath.Join(t.TempDir(), "out.dem"), g, 1)
+	var ioe ioError
+	if !errors.As(err, &ioe) {
+		t.Fatalf("a missing input should be an ioError, got %v", err)
+	}
+	bad := filepath.Join(t.TempDir(), "bad.dem")
+	if err := os.WriteFile(bad, []byte("not a demo at all"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = run(bad, filepath.Join(t.TempDir(), "out2.dem"), g, 1)
+	if err == nil || errors.As(err, &ioe) {
+		t.Fatalf("a file that is not a demo is a verdict, not an ioError: %v", err)
 	}
 }

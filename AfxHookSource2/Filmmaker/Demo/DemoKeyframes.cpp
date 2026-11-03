@@ -388,7 +388,8 @@ void DemoKeyframes_KeepOnly(const std::wstring& demoPath, const std::wstring& pl
 		for (int slot = 0; slot < 2; ++slot) {
 			const std::wstring copy = dir + L"\\" + ProjectGeneratedFileName(kSlots[slot]);
 			if (SamePath(copy, playingFile)) continue;
-			if (FileExists(copy) || FileExists(MarkerPath(copy)) || FileExists(copy + L".part"))
+			// A first build that failed leaves only its .failed marker; opening this demo clears it too.
+			if (FileExists(copy) || FileExists(MarkerPath(copy)) || FileExists(copy + L".part") || FileExists(copy + L".failed"))
 				removed = DeleteSlot(copy) || removed;
 		}
 		if (removed)
@@ -502,7 +503,8 @@ void DemoKeyframes_Build(const std::wstring& demoPath, const std::wstring& sourc
 		if (!why.empty()) {
 			DeleteFileW(temp.c_str());
 			// Exit 1 is the helper's verdict on this demo (its checks failed): the same demo and
-			// helper fail again. Anything else (out of its memory cap, killed) may pass later.
+			// helper fail again. Anything else may pass later: exit 3 is a read or write that failed
+			// (the disk filled up after the check), exit 2 is out of its memory cap or killed.
 			RecordFailure(demoPath, exe, why + (code == 1 ? "; not retried until the demo or the helper changes"
 				: ", retried in 10 minutes"), code == 1);
 			SetState(KeyframeState::Failed, "scrub keyframes failed: " + why);

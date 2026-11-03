@@ -67,7 +67,8 @@ job ends it if the game closes first. A failed build is not repeated on every ma
 - The helper's own verdict (exit 1, `FAILED: <reason>`) is stored in `keyframed.dem.failed` beside the
   copies, with the demo and helper stamps. That demo is not rebuilt until one of them changes, or
   until opening another demo clears its folder.
-- No room to run, or a run that ran out of its cap, is retried after 10 minutes in the same session.
+- No room to run, a run that ran out of its cap, and a read or write that failed (exit 3, say a disk
+  that filled up after the check) are retried after 10 minutes in the same session.
 
 **One copy.** Only the demo you have open keeps a keyframed copy. Opening a demo deletes every other demo's copy, along with its marker, log and unfinished build. That happens whether or not the opened demo needs a build. A copy that is open in another game instance stays until it is free. `repaired.dem` copies are never pruned.
 

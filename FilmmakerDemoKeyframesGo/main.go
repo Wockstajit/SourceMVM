@@ -12,6 +12,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -385,15 +386,28 @@ func main() {
 	}
 	if err := run(flag.Arg(0), flag.Arg(1), g, *verifyEvery); err != nil {
 		fmt.Fprintln(os.Stderr, "FAILED:", err)
+		// Exit 1 is a verdict on this demo: the game does not rebuild it until the demo or the
+		// helper changes. A read or write that failed may pass on a later try, so it exits 3.
+		var ioe ioError
+		if errors.As(err, &ioe) {
+			os.Exit(3)
+		}
 		os.Exit(1)
 	}
 }
+
+// ioError marks a failure reading the demo or writing the copy, as opposed to a demo that cannot
+// be keyframed.
+type ioError struct{ err error }
+
+func (e ioError) Error() string { return e.err.Error() }
+func (e ioError) Unwrap() error { return e.err }
 
 func run(inPath, outPath string, g grid, verifyEvery int) (err error) {
 	t0 := time.Now()
 	data, err := os.ReadFile(inPath)
 	if err != nil {
-		return err
+		return ioError{err}
 	}
 	frames, err := readFrames(data)
 	if err != nil {
@@ -409,11 +423,11 @@ func run(inPath, outPath string, g grid, verifyEvery int) (err error) {
 	// copy in memory first was most of the helper's peak.
 	file, err := os.Create(outPath)
 	if err != nil {
-		return err
+		return ioError{err}
 	}
 	defer func() {
-		if cerr := file.Close(); err == nil {
-			err = cerr
+		if cerr := file.Close(); err == nil && cerr != nil {
+			err = ioError{cerr}
 		}
 		if err != nil {
 			os.Remove(outPath)
@@ -424,7 +438,10 @@ func run(inPath, outPath string, g grid, verifyEvery int) (err error) {
 	write := func(b []byte) error {
 		n, err := out.Write(b)
 		written += n
-		return err
+		if err != nil {
+			return ioError{err}
+		}
+		return nil
 	}
 	if err := write(data[:demHeaderSize]); err != nil {
 		return err
@@ -519,7 +536,7 @@ func run(inPath, outPath string, g grid, verifyEvery int) (err error) {
 		}
 	}
 	if err := out.Flush(); err != nil {
-		return err
+		return ioError{err}
 	}
 	header := append([]byte(nil), data[:demHeaderSize]...)
 	patchHeader(header, func(old int) int {
@@ -532,7 +549,7 @@ func run(inPath, outPath string, g grid, verifyEvery int) (err error) {
 		return n
 	})
 	if _, err := file.WriteAt(header, 0); err != nil {
-		return err
+		return ioError{err}
 	}
 	fmt.Printf("keyframes: %d written %s (%d re-decoded and matched)\n", made, g.describe(), verified)
 	fmt.Printf("valve: %d full packets checked, same entities, %d of %d fields differ, plus %d scoreboard or stale-time fields (client-held stale values, listed below)\n",
