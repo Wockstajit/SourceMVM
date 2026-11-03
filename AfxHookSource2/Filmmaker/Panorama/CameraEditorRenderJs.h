@@ -1105,16 +1105,27 @@ R"EDJS(
     var jobRule = mk('Panel', renderJobCol); jobRule.hittest = false;
     jobRule.style.width = '100%'; jobRule.style.height = '1px'; jobRule.style.backgroundColor = S.panelBorder;
 
+    // The summary scrolls when it outgrows the column; START RENDER sits below it, pinned to the
+    // column's bottom, so a long Output or Folder line or three previous renders can never push it
+    // out of view (bug report 2026-10-29 at 1080p: "the render button disappears under all of the
+    // other previous renders").
     var jobBody = mk('Panel', renderJobCol);
     jobBody.style.flowChildren = 'down'; jobBody.style.width = '100%';
     jobBody.style.height = 'fill-parent-flow(1.0)';
+    jobBody.style.overflow = 'squish scroll';
     jobBody.style.paddingLeft = '18px'; jobBody.style.paddingRight = '18px';
     jobBody.style.paddingTop = '12px'; jobBody.style.paddingBottom = '12px';
+
+    // Every part of the summary above PREVIOUS RENDERS with the vertical margin it adds, so
+    // fitPrevious can tell how much room is left without depending on how the engine reports a
+    // scrolled panel's content height.
+    var jobParts = [];
+    function jobPart(panel, margin) { jobParts.push({ p: panel, m: margin }); return panel; }
 
     // Deliberately generous: this column is the answer to "what will happen if I press go", so it
     // gets real type sizes and breathing room rather than a dense readout.
     function jobRow(label) {
-      var r = mk('Panel', jobBody);
+      var r = jobPart(mk('Panel', jobBody), 13);
       r.style.flowChildren = 'down'; r.style.width = '100%'; r.style.marginBottom = '13px';
       var k = lbl(r, label.toUpperCase(), S.hint, 10);
       k.style.letterSpacing = '1px'; k.style.marginBottom = '2px';
@@ -1130,14 +1141,14 @@ R"EDJS(
     var jobFolder = jobRow('Folder');
     jobFolder.style.fontSize = '13px'; // paths are long; keep them on one readable line
 
-    var jobDivider = mk('Panel', jobBody); jobDivider.hittest = false;
+    var jobDivider = jobPart(mk('Panel', jobBody), 18); jobDivider.hittest = false;
     jobDivider.style.width = '100%'; jobDivider.style.height = '1px';
     jobDivider.style.backgroundColor = S.panelBorder;
     jobDivider.style.marginTop = '4px'; jobDivider.style.marginBottom = '14px';
 
-    var jobStatus = lbl(jobBody, '', S.value, 15);
+    var jobStatus = jobPart(lbl(jobBody, '', S.value, 15), 6);
     jobStatus.style.fontWeight = 'bold'; jobStatus.style.marginBottom = '6px';
-    var jobProblem = lbl(jobBody, '', RENDER_ERROR_TEXT, 14);
+    var jobProblem = jobPart(lbl(jobBody, '', RENDER_ERROR_TEXT, 14), 0);
     jobProblem.style.whiteSpace = 'normal';
     jobProblem.style.width = '100%';
 
@@ -1148,10 +1159,22 @@ R"EDJS(
     var prevSec = mk('Panel', jobBody); prevSec.hittest = false; prevSec.hittestchildren = true;
     prevSec.style.flowChildren = 'down'; prevSec.style.width = '100%'; prevSec.style.marginTop = '16px';
     prevSec.visible = false;
-    var prevCap = lbl(prevSec, 'PREVIOUS RENDERS', S.hint, 10); prevCap.hittest = false;
-    prevCap.style.letterSpacing = '1px'; prevCap.style.marginBottom = '6px';
+    var prevHead = mk('Panel', prevSec); prevHead.hittest = false; prevHead.hittestchildren = true;
+    prevHead.style.flowChildren = 'right'; prevHead.style.width = '100%'; prevHead.style.marginBottom = '6px';
+    var prevCap = lbl(prevHead, 'PREVIOUS RENDERS', S.hint, 10); prevCap.hittest = false;
+    prevCap.style.letterSpacing = '1px'; prevCap.style.width = 'fill-parent-flow(1.0)'; prevCap.style.verticalAlign = 'center';
+    var prevOffset = 0, prevTakes = [];
+    function prevPageBtn(glyph, step, tip) {
+      var b = rsOutlineBtn(prevHead, glyph, function () { prevOffset += step; renderPrevious(prevTakes); }, tip, true);
+      b.style.height = '20px'; b.style.marginLeft = '4px';
+      b.style.paddingLeft = '7px'; b.style.paddingRight = '7px'; b.__lbl.style.fontSize = '10px';
+      return b;
+    }
+    var prevNewer = prevPageBtn('◀', -1, 'Newer renders');
+    var prevOlder = prevPageBtn('▶', 1, 'Older renders');
     var prevRows = [];
-    for (var pri = 0; pri < PREV_ROWS; pri++) (function (idx) {
+    for (var pri = 0; pri < PREV_ROWS; pri++) (function () {
+      var rec = { take: 0 };
       var row = mk('Panel', prevSec); row.hittest = false; row.hittestchildren = true;
       row.style.flowChildren = 'right'; row.style.width = '100%'; row.style.marginBottom = '8px';
       var txt = mk('Panel', row); txt.hittest = false;
@@ -1160,13 +1183,14 @@ R"EDJS(
       l1.style.whiteSpace = 'normal'; l1.style.width = '100%';
       var l2 = lbl(txt, '', S.hint, 11); l2.hittest = false; l2.style.whiteSpace = 'normal'; l2.style.width = '100%';
       var use = rsOutlineBtn(row, 'Use', function () {
-        cmd('mirv_filmmaker render import ' + idx);
+        cmd('mirv_filmmaker render import ' + rec.take);   // the take this row shows right now
         use.__lbl.text = 'Loaded'; use.__loadedUntil = (new Date()).getTime() + 1500;
       }, 'Start from this take: its range, camera, passes, frame rate and format.', true);
       use.style.height = '28px'; use.style.marginLeft = '8px'; use.style.verticalAlign = 'center';
       use.__lbl.style.fontSize = '12px';
-      prevRows.push({ row: row, l1: l1, l2: l2, use: use });
-    })(pri);
+      rec.row = row; rec.l1 = l1; rec.l2 = l2; rec.use = use;
+      prevRows.push(rec);
+    })();
     var PREV_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     function prevWhen(iso) {
       // "2026-10-24T11:17:16" -> "Oct 24, 11:17"
@@ -1174,13 +1198,45 @@ R"EDJS(
       if (!m) return iso || '';
       return PREV_MONTHS[(parseInt(m[2], 10) - 1) % 12] + ' ' + parseInt(m[3], 10) + ', ' + m[4] + ':' + m[5];
     }
+    // Only previous renders that fit WHOLE are shown. A row the column's edge cut in half (and its
+    // clipped Use button) read as broken at 480p with the TIMELINE dock up (owner, 2026-11-01). When
+    // they do not all fit, the heading pages through them (◀ ▶), so every take stays usable; with no
+    // room for even one row, the heading still says how many there are.
+    // The count comes from the room the rest of the summary leaves, never from the rows on screen.
+    // Panorama lays a change out a frame or two late, so a count that measured its own rows kept
+    // chasing a stale layout and flickered between 0, 1 and 2 rows (live at 480p, 2026-11-03).
+    var prevFit = 0;
+    var prevRowH = 0; // the tallest row seen, in layout pixels
+    function fitPrevious() {
+      var sy = root.actualuiscale_y || ctx.actualuiscale_y || 1;
+      // jobBody's padding, the section's top margin, and the heading at its paged height
+      var used = 24 + 16 + Math.max(20, (prevHead.actuallayoutheight || 0) / sy) + 6;
+      for (var j = 0; j < jobParts.length; j++)
+        if (jobParts[j].p.visible) used += (jobParts[j].p.actuallayoutheight || 0) / sy + jobParts[j].m;
+      for (var i = 0; i < prevRows.length; i++)
+        if (prevRows[i].row.visible) prevRowH = Math.max(prevRowH, (prevRows[i].row.actuallayoutheight || 0) / sy + 8);
+      var free = (jobBody.actuallayoutheight || 0) / sy - used;
+      prevFit = Math.max(0, Math.min(PREV_ROWS, Math.floor(free / (prevRowH || 40))));
+    }
     function renderPrevious(takes) {
       takes = takes || [];
-      prevSec.visible = takes.length > 0;
+      prevTakes = takes;
+      var total = Math.min(takes.length, PREV_ROWS), shown = Math.min(prevFit, total);
+      prevOffset = Math.max(0, Math.min(prevOffset, total - shown));
+      prevSec.visible = total > 0;
+      var paged = shown > 0 && shown < total;
+      var cap = 'PREVIOUS RENDERS';
+      if (shown === 0 && total > 0) cap += '  ·  ' + total + '  ·  NEED MORE ROOM';
+      else if (paged) cap += '  ·  ' + (prevOffset + 1) + (shown > 1 ? '-' + (prevOffset + shown) : '') + ' OF ' + total;
+      if (prevCap.text !== cap) prevCap.text = cap;
+      prevNewer.visible = paged; prevOlder.visible = paged;
+      prevNewer.style.opacity = prevOffset > 0 ? '1' : '0.35';
+      prevOlder.style.opacity = prevOffset + shown < total ? '1' : '0.35';
       for (var i = 0; i < prevRows.length; i++) {
-        var p = prevRows[i], t = takes[i];
+        var p = prevRows[i], t = i < shown ? takes[prevOffset + i] : null;
         p.row.visible = !!t;
         if (!t) continue;
+        p.take = prevOffset + i;
         var l1 = prevWhen(t.when) + (t.status && t.status !== 'completed' ? '  ·  ' + t.status : '');
         var n = (t.passes || []).length;
         var l2 = rsNum(t.start) + ' → ' + rsNum(t.end - 1) + '  ·  ' + rsClock(t.end - t.start)
@@ -1191,15 +1247,14 @@ R"EDJS(
           p.use.__loadedUntil = 0; p.use.__lbl.text = 'Use';
         }
       }
+      fitPrevious();
     }
 
-    // jobBody flows DOWN, so `verticalAlign: bottom` on the action row would do nothing -- a
-    // filling spacer is what actually pushes it to the bottom of the column.
-    var jobSpacer = mk('Panel', jobBody); jobSpacer.hittest = false;
-    jobSpacer.style.width = '100%'; jobSpacer.style.height = 'fill-parent-flow(1.0)';
-
-    var jobActionRow = mk('Panel', jobBody);
+    // A child of the column, after jobBody: jobBody fills what is left above it.
+    var jobActionRow = mk('Panel', renderJobCol);
     jobActionRow.style.flowChildren = 'right'; jobActionRow.style.width = '100%';
+    jobActionRow.style.paddingLeft = '18px'; jobActionRow.style.paddingRight = '18px';
+    jobActionRow.style.paddingTop = '8px'; jobActionRow.style.paddingBottom = '12px';
     // ONE button: START RENDER while idle, CANCEL RENDER while a job runs.
     var jobBtnRunning = false;
     var jobBtn = btnPrimary(jobActionRow, 'START RENDER', function () {
