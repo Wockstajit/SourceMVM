@@ -248,6 +248,9 @@ bool GraphEditorExperiment_OwnsView();
 // The TIMELINE dock's CAMERA PATH layer switch: may scrubbing and Space fly the camera path.
 bool GraphEditorExperiment_Drive();
 bool GraphEditorExperiment_WantsCursor();
+// A TIMELINE dock value field is being typed into: WM_CHAR goes to it and the keys stay off the demo.
+bool GraphEditorExperiment_TextCaptureActive();
+void GraphEditorExperiment_PushChar(unsigned charCode); // WM_CHAR code unit, any thread
 
 // --- mvm_test offline live-match FX testing ---
 bool MvmTest_Active();

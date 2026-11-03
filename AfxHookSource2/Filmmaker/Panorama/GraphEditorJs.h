@@ -570,9 +570,13 @@ R"GEJS(
     // ---- time-snap dropdown ---------------------------------------------
     // Real panels with onactivate because Custom… hosts a text field. It opens UNDER the SNAP pill.
     var snapMenu = null, snapRows = [], snapCustomBox = null, snapCustomEntry = null, snapRect = null;
+    var snapTyping = null;   // { buf } while the custom box takes typed digits (see typeChars)
     var SNAP_W = 168, SNAP_HEAD = 22, SNAP_ITEM = 26, SNAP_PAD = 5;
     function snapMenuOpen() { return !!(snapMenu && snapMenu.visible); }
-    function hideSnapMenu() { if (snapMenu) { snapMenu.visible = false; if (snapCustomBox) snapCustomBox.visible = false; } }
+    function hideSnapMenu() {
+      if (snapMenu) { snapMenu.visible = false; if (snapCustomBox) snapCustomBox.visible = false; }
+      if (snapTyping) { snapTyping = null; publishTextCapture(); }
+    }
     function applySnap(v) { setSnap(v); hideSnapMenu(); }
     function refreshSnapRows() {
       var cur = snapSetting();
@@ -616,7 +620,7 @@ R"GEJS(
           if (mode === 'custom') {
             if (snapCustomBox) {
               snapCustomBox.visible = true; layoutSnapMenu();
-              if (snapCustomEntry) { snapCustomEntry.SetFocus(); try { snapCustomEntry.RaiseSelectAll && snapCustomEntry.RaiseSelectAll(); } catch (e) {} }
+              if (snapCustomEntry) { snapTyping = { buf: '' }; paintEdit(); publishTextCapture(); }
             }
             return;
           }
@@ -629,14 +633,11 @@ R"GEJS(
       snapCustomBox = mk('Panel', snapMenu); snapCustomBox.visible = false; snapCustomBox.hittest = true;
       snapCustomBox.style.width = (SNAP_W - 2 * SNAP_PAD) + 'px'; snapCustomBox.style.height = SNAP_ITEM + 'px';
       snapCustomBox.style.horizontalAlign = 'center';
-      snapCustomEntry = $.CreatePanel('TextEntry', snapCustomBox, 'SnapCustomTick', {});
+      snapCustomEntry = $.CreatePanel('Label', snapCustomBox, 'SnapCustomTick', {});
       snapCustomEntry.style.width = (SNAP_W - 2 * SNAP_PAD - 24) + 'px'; snapCustomEntry.style.height = '20px';
       snapCustomEntry.style.verticalAlign = 'center'; snapCustomEntry.style.fontSize = '12px'; snapCustomEntry.style.color = S.value;
       snapCustomEntry.style.backgroundColor = 'rgba(0,0,0,0.6)'; snapCustomEntry.style.border = '1px solid ' + S.border;
-      snapCustomEntry.SetPanelEvent('oninputsubmit', function () {
-        var n = parseFloat(snapCustomEntry.text);
-        if (isFinite(n) && n >= 1) applySnap('' + Math.round(n)); else hideSnapMenu();
-      });
+      snapCustomEntry.style.paddingLeft = '4px';
     }
     function showSnapMenu() {
       buildSnapMenu();
@@ -1567,9 +1568,16 @@ R"GEJS(
     function shakeCmd(owner, tail) { rawCmd('mirv_filmmaker pathshake ' + (owner ? 'obj ' + owner + ' ' : '') + tail); }
 
     // Per-frame refresh of what the rows SAY: values, the diamond, switches, counts, selection.
+    function optionOf(c, v) {
+      var o = c.options || [];
+      for (var i = 0; i < o.length; i++) if (o[i].value === v || String(o[i].value) === String(v)) return o[i];
+      return null;
+    }
     function sceneValueText(c) {
       var v = c.value;
       if (c.type === 'bool') return v ? 'On' : 'Off';
+      var named = optionOf(c, v);
+      if (named) return named.label;
       if (c.type === 'asset') return (v === '' || v == null) ? 'Default' : ('' + v);
       if (v instanceof Array) return v.map(function (x) { return typeof x === 'number' ? String(Math.round(x * 1000) / 1000) : String(x); }).join(' ');
       return typeof v === 'number' ? String(Math.round(v * 1000) / 1000) : String(v || '');
@@ -2173,10 +2181,14 @@ R"GEJS(
         camCmd('addkey ' + chNum(c.uid) + ' ' + tick.toFixed(2) + ' ' + num(val).toFixed(3));
       });
     }
+    // A typed or dragged number is bounded by the property's own coded range (vmin/vmax). min/max
+    // is only the strip's drawing window: camera channels and scene objects fit what they hold, and
+    // bounding by it turned a typed FOV of 45 into 10.5. The camera has no such range here; the path
+    // itself keeps FOV inside 1..179 (CamMarkers.h).
     function clampToSpec(ch, v) {
       if (!ch || !isFinite(v)) return v;
-      if (typeof ch.min === 'number' && v < ch.min) v = ch.min;
-      if (typeof ch.max === 'number' && v > ch.max) v = ch.max;
+      if (typeof ch.vmin === 'number' && v < ch.vmin) v = ch.vmin;
+      if (typeof ch.vmax === 'number' && v > ch.vmax) v = ch.vmax;
       return v;
     }
     // inGesture: a scrub already opened the camera edit (one undo step for the whole drag).
@@ -2254,32 +2266,71 @@ R"GEJS(
 )GEJS"
 R"GEJS(
     // ---- typing a value ---------------------------------------------------------
-    // The number you clicked is where you type: a TextEntry is created INSIDE that number's cell and
-    // destroyed on commit, which is also what drops the keyboard focus (a hidden focused entry
-    // swallowed Space). Enter or a click away commits.
-    var editState = null;   // { entry, comp, node, done }
+    // The number you clicked is where you type. CS2 never gives a Panorama TextEntry on the in-game
+    // HUD the keyboard, so a native entry here took no keys at all (bug report 2026-11-01: "cant type
+    // in values in timeline"). The field is a label we own instead: the root's "textcapture"
+    // attribute asks C++ to send typed characters here (typeChars) and to keep the same keys from
+    // driving the demo, as the Render and Config fields do. The first key replaces the old value,
+    // Enter or a click away commits, Esc cancels.
+    var editState = null;   // { entry, comp, node, done, buf, fresh }
+    function publishTextCapture() { try { root.SetAttributeString('textcapture', editState || snapTyping ? '1' : '0'); } catch (e) {} }
+    function paintEdit() {
+      var caret = ((new Date()).getTime() % 1000) < 500 ? '|' : ' ';
+      if (snapTyping && snapCustomEntry) {
+        var st2 = snapTyping.buf + caret;
+        if (snapCustomEntry.text !== st2) snapCustomEntry.text = st2;
+      }
+      if (!editState) return;
+      var t = editState.fresh ? editState.buf : editState.buf + caret;
+      if (editState.entry.text !== t) editState.entry.text = t;
+      var bg = editState.fresh ? S.accent.slice(0, 7) + '55' : '#05070aff';
+      if (editState.entry.__bg !== bg) { editState.entry.__bg = bg; editState.entry.style.backgroundColor = bg; }
+    }
+    function typeChars(csv) {
+      var codes = ('' + csv).split(',');
+      // The snap menu's custom box: whole ticks only.
+      for (var k = 0; k < codes.length && snapTyping; k++) {
+        var sc = parseInt(codes[k], 10);
+        if (sc === 13) { var n = parseInt(snapTyping.buf, 10); if (n >= 1) applySnap('' + n); else hideSnapMenu(); return; }
+        if (sc === 27) { hideSnapMenu(); return; }
+        if (sc === 8) snapTyping.buf = snapTyping.buf.slice(0, -1);
+        else if (sc >= 48 && sc <= 57 && snapTyping.buf.length < 6) snapTyping.buf += String.fromCharCode(sc);
+      }
+      if (snapTyping) { paintEdit(); return; }
+      for (var i = 0; i < codes.length && editState; i++) {
+        var code = parseInt(codes[i], 10), es = editState;
+        if (!(code >= 0)) continue;
+        if (code === 13) { commitEdit(); return; }
+        if (code === 27) { cancelEdit(); return; }
+        if (code === 8) { es.buf = es.fresh ? '' : es.buf.slice(0, -1); es.fresh = false; continue; }
+        if (code < 32 || code === 127) continue;
+        if (es.fresh) { es.buf = ''; es.fresh = false; }
+        if (es.buf.length < 24) es.buf += String.fromCharCode(code);
+      }
+      paintEdit();
+    }
     function beginCellEdit(r, comp, initial) {
       if (editState) commitEdit();
-      var e = $.CreatePanel('TextEntry', comp.wrap, 'TimelineType', {});
+      var e = $.CreatePanel('Label', comp.wrap, 'TimelineType', {});
       e.hittest = true;
       e.style.width = '52px'; e.style.height = '18px'; e.style.verticalAlign = 'center';
       e.style.fontSize = '12px'; e.style.textAlign = 'right'; e.style.fontWeight = 'bold';
       e.style.fontFamily = S.fontMonodigit;
       e.style.color = S.value; e.style.backgroundColor = '#05070aff';
       e.style.border = '1px solid ' + S.accent; e.style.borderRadius = '2px';
-      e.text = initial;
+      e.style.paddingLeft = '3px'; e.style.paddingRight = '3px';
       comp.lbl.visible = false;
-      editState = { entry: e, comp: comp, node: r.node, done: false };
-      e.SetPanelEvent('oninputsubmit', function () { commitEdit(); });
-      e.SetPanelEvent('onblur', function () { commitEdit(); });
-      e.SetFocus(); try { e.RaiseSelectAll && e.RaiseSelectAll(); } catch (err) {}
+      editState = { entry: e, comp: comp, node: r.node, done: false, buf: '' + initial, fresh: true };
+      paintEdit();
+      publishTextCapture();
     }
     function finishEdit(apply) {
       if (!editState || editState.done) return;
       var es = editState; es.done = true; editState = null;
-      var text = es.entry.text;
+      publishTextCapture();
+      var text = es.buf;
       try { if (es.comp.lbl && es.comp.lbl.IsValid && es.comp.lbl.IsValid()) es.comp.lbl.visible = true; } catch (e0) {}
-      try { es.entry.DeleteAsync(0); } catch (err) {}   // deletion is what drops the focus grab
+      try { es.entry.DeleteAsync(0); } catch (err) {}
       hideTip();
       if (!apply) return;
       if (es.node.kind === 'shakep') {
@@ -2300,8 +2351,21 @@ R"GEJS(
     function commitEdit() { finishEdit(true); }
     function cancelEdit() { finishEdit(false); }
     function editHit(lx, ly) { return !!editState && overPanel(editState.entry, lx, ly); }
+    // A property with named values (Weather type, Sky) picks from a menu at the cell: an enum cannot
+    // be dragged, so before this its keys could not be changed at all (bug report 2026-11-01).
+    function openOptions(r, comp, c) {
+      var rc = panelRect(comp.wrap), cur = optionOf(c, c.value);
+      var items = [{ kind: 'title', label: ('' + (c.name || 'VALUE')).toUpperCase() }].concat((c.options || []).map(function (o, i) {
+        return { id: 'o' + i, label: o.label, check: !!cur && cur === o };
+      }));
+      showMenu(rc ? rc.x0 : LEFTW - 180, rc ? rc.y1 + 2 : ROWS_Y, 180, items, function (id) {
+        var o = (c.options || [])[parseInt(('' + id).slice(1), 10)];
+        if (o) setPropValue(r.node, comp.uid, String(o.value));
+      });
+    }
     function openType(r, comp) {
       var c = chU(comp.uid); if (!c) return;
+      if (r.node.dom === 'scene' && c.options && c.options.length) { openOptions(r, comp, c); return; }
       var init = r.node.dom === 'cam' ? fmtNum(camValue(c), Math.max(1, r.node.dec + 1)) : sceneValueText(c);
       if (r.node.dom === 'scene' && c.type === 'bool') init = c.value ? 'On' : 'Off';
       beginCellEdit(r, comp, init);
@@ -2345,7 +2409,9 @@ R"GEJS(
       var h = M_PAD * 2;
       items.forEach(function (it) { h += itemH(it); });
       if (x + w > G.rw - 2) x = G.rw - w - 2; if (x < 2) x = 2;
-      if (y + h > DOCK_H - 2) y = DOCK_H - h - 2; if (y < 2) y = 2;
+      // Above the footer: at 480p CS2's own demo line draws over the dock's bottom edge, and a
+      // menu's last item (Weather type's Smoke) sat under it.
+      if (y + h > DOCK_H - FOOTER_H - 2) y = DOCK_H - FOOTER_H - h - 2; if (y < 2) y = 2;
       p.style.position = x.toFixed(0) + 'px ' + y.toFixed(0) + 'px 0px';
       p.style.width = w + 'px'; p.style.height = h + 'px';
       var hasCheck = items.some(function (it) { return it.check != null; });
@@ -3161,6 +3227,22 @@ R"GEJS(
       graphInspWOverride = (isFinite(n) && n > 0) ? n : 0;
     };
     api.key = function (name) { if (st && st.enabled) onKey('' + name); };
+    api.typeChars = function (csv) { typeChars(csv); };
+    // Opens a value cell the way a click does, for automation that cannot move the player's mouse:
+    //   mirv_filmmaker grapheditor eval $.GraphExp.typeInto(0,6)   (camera channel 6, field of view)
+    // dom 0 = camera, 1 = scene channel `ch`. Numbers only: the netcon argument parser eats quotes.
+    api.typeInto = function (dom, ch) {
+      var uid = (dom ? 's' : 'c') + ch;
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        if (r.broken || !r.comps) continue;
+        for (var k = 0; k < r.comps.length; k++) if (r.comps[k].uid === uid) {
+          openType(r, r.comps[k]);
+          return uid + ' textcapture=' + root.GetAttributeString('textcapture', '?') + ' menu=' + (menu ? 1 : 0);
+        }
+      }
+      return uid + ' has no row';
+    };
     // What the shared ribbon says on the right while TIMELINE is up.
     api.ribbonMeta = function () {
       if (!st || !tree.length) return '';
@@ -3173,6 +3255,7 @@ R"GEJS(
     api.render = function () {
       var raw = root.GetAttributeString('state', ''); if (!raw) { root.visible = false; return; }
       try { st = JSON.parse(raw); } catch (e) { return; }
+      paintEdit();   // the typing caret blinks off the frame clock
       // A live drag outranks the published width, and hands back once state has caught up.
       if (graphInspWOverride > 0) {
         graphInspW = graphInspWOverride;

@@ -153,14 +153,38 @@ test('playback pages the window to keep the playhead on screen; scrubbing does n
 
 test('numbers are typed INSIDE their cell, and the editor is destroyed on commit', () => {
   assert.match(graph, /function beginCellEdit\(r, comp, initial\)/);
-  assert.match(graph, /\$\.CreatePanel\('TextEntry', comp\.wrap, 'TimelineType', \{\}\)/);
+  // Bug report 2026-11-01: a HUD TextEntry never gets the keyboard, so typed values never arrived.
+  // The cell is a label the dock owns and the hook sends it the characters.
+  assert.match(graph, /\$\.CreatePanel\('Label', comp\.wrap, 'TimelineType', \{\}\)/);
+  assert.doesNotMatch(graph, /CreatePanel\('TextEntry'/);
+  assert.match(graph, /root\.SetAttributeString\('textcapture', editState \|\| snapTyping \? '1' : '0'\)/);
+  // The snap menu's custom tick box types through the same route.
+  assert.match(graph, /snapCustomEntry = \$\.CreatePanel\('Label', snapCustomBox, 'SnapCustomTick', \{\}\);/);
+  assert.match(graph, /api\.typeChars = function \(csv\)/);
   assert.match(graph, /function commitEdit\(\)/);
-  // Deletion is what drops the keyboard focus grab that was swallowing Space.
   assert.match(graph, /es\.entry\.DeleteAsync\(0\)/);
   assert.doesNotMatch(graph, /\btypeBox\b/);
   // Values are clamped to the property's coded range before they are sent.
   assert.match(graph, /function clampToSpec\(ch, v\)/);
   assert.match(graph, /clampToSpec\(c, v\)\.toFixed\(3\)/);
+});
+
+test('typed characters reach the dock and stay off the demo while a value is typed', () => {
+  const hudCpp = read('AfxHookSource2/Filmmaker/Panorama/GraphEditorExperimentHud.cpp');
+  const input = read('AfxHookSource2/WindowInputHooks.cpp');
+  const movie = read('AfxHookSource2/Filmmaker/Movie/MovieMode.cpp');
+  assert.match(hudCpp, /m_symTextCapture = m_bridge\.MakeSymbol\("textcapture"\);/);
+  assert.match(hudCpp, /\$\.GraphExp && \$\.GraphExp\.typeChars\('/);
+  assert.match(input, /if\(Filmmaker::GraphEditorExperiment_TextCaptureActive\(\)\) \{\s*Filmmaker::GraphEditorExperiment_PushChar/);
+  assert.match(movie, /if \(CameraEditor_TextCaptureActive\(\) \|\| GraphEditorExperiment_TextCaptureActive\(\)\)/);
+});
+
+test('a property with named values picks them from a menu in the dock', () => {
+  const sceneKeys = read('AfxHookSource2/Filmmaker/Movie/SceneKeys.cpp');
+  // The dock's channels carry the names (Weather type: Clear, Rain, Snow ...), not only the catalog.
+  assert.equal((sceneKeys.match(/OptionsJson\(j, s\);/g) || []).length, 2);
+  assert.match(graph, /if \(r\.node\.dom === 'scene' && c\.options && c\.options\.length\) \{ openOptions\(r, comp, c\); return; \}/);
+  assert.match(graph, /var named = optionOf\(c, v\);/);
 });
 
 test('the strip value axis is the coded min/max, with no padding past it', () => {

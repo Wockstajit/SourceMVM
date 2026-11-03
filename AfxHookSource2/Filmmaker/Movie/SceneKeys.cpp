@@ -213,22 +213,26 @@ void EventsJson(JsonBuilder& j) {
         for (const auto& id : ev.fields) { j.BeginObject(); j.StringField("id",id); j.EndObject(); } j.EndArray(); j.EndObject();
     } j.EndArray();
 }
+// The named values of a property that has them, for the inspector and the TIMELINE dock's value
+// menu (an enum cannot be dragged, so picking a name is how its key changes).
+void OptionsJson(JsonBuilder& j, const ChannelSpec& s) {
+    if (s.id != "env.weather.type" && s.type != ChannelType::SkyId) return;
+    j.Key("options"); j.BeginArray();
+    if (s.type == ChannelType::SkyId) {
+        j.BeginObject(); j.StringField("value","default"); j.StringField("label","Map default"); j.EndObject();
+        for (const auto& e : SkyboxLibrary_Entries()) { j.BeginObject(); j.StringField("value",e.name); j.StringField("label",e.label); j.EndObject(); }
+    } else {
+        const char* names[] = {"Clear","Rain","Snow","Ash","Embers","Motes","Smoke"};
+        for (int i=0; i<7; ++i) { j.BeginObject(); j.IntField("value",i); j.StringField("label",names[i]); j.EndObject(); }
+    }
+    j.EndArray();
+}
 void CatalogJson(JsonBuilder& j) {
     j.BeginArray();
     for (const auto& s : Catalog()) {
         j.BeginObject(); j.StringField("id",s.id); j.StringField("label",s.label); j.StringField("family",s.family); j.StringField("group",s.group); j.StringField("groupId",s.groupId);
         j.StringField("type",TypeName(s.type)); j.IntField("components",s.components); j.DoubleField("min",s.min); j.DoubleField("max",s.max);
-        if (s.id == "env.weather.type" || s.type == ChannelType::SkyId) {
-            j.Key("options"); j.BeginArray();
-            if (s.type == ChannelType::SkyId) {
-                j.BeginObject(); j.StringField("value","default"); j.StringField("label","Map default"); j.EndObject();
-                for (const auto& e : SkyboxLibrary_Entries()) { j.BeginObject(); j.StringField("value",e.name); j.StringField("label",e.label); j.EndObject(); }
-            } else {
-                const char* names[] = {"Clear","Rain","Snow","Ash","Embers","Motes","Smoke"};
-                for (int i=0; i<7; ++i) { j.BeginObject(); j.IntField("value",i); j.StringField("label",names[i]); j.EndObject(); }
-            }
-            j.EndArray();
-        }
+        OptionsJson(j, s);
         j.EndObject();
     }
     j.EndArray();
@@ -306,6 +310,9 @@ std::string SceneKeys_ChannelsJson() {
         j.StringField("type",TypeName(s.type)); j.StringField("color",colors[ch%6]); j.BoolField("vis",!g_track.hidden[s.id] && edit); j.BoolField("solo",g_track.solo[s.id]); j.BoolField("edit",edit);
         j.StringField("groupId",(s.family+"."+s.groupId).c_str()); j.BoolField("muted",g_track.data.muted.count(s.id)!=0); j.BoolField("live",live);
         j.DoubleField("min",lo); j.DoubleField("max",hi); j.Key("value"); WriteValue(j,Editable(s,TimelinePlayhead_Tick(),base),s.type==ChannelType::SkyId);
+        // The coded range a typed number is held to; min/max above only frames the strip.
+        j.DoubleField("vmin",s.min); j.DoubleField("vmax",s.max);
+        OptionsJson(j, s);
         j.Key("keys"); j.BeginArray();
         for (size_t i=0; i<keys.size(); ++i) { const auto& k=keys[i]; j.BeginObject(); j.IntField("id",k.id); j.DoubleField("t",k.tick);
             const double scale = 1.0 / std::max(size_t(1),keys.size()-1);
