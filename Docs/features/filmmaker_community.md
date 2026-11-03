@@ -247,6 +247,13 @@ the file name and what the report holds, and offers **Show file**, **Don't send*
 minidump, and then deletes all of their files. **Don't send** renames them `.declined` and deletes
 their dump; the report text stays on the PC and is never offered again.
 
+**Crashes during startup.** A game that dies at every start never reaches the main menu, so it can
+never show the prompt. The hook still writes the report and its dump: it points the report folder at
+`%APPDATA%\HLAE\bugreports\` when it loads, and the dump writer looks up `dbghelp` at crash time when
+the session has not started yet. When the launcher's startup watch sees the game exit, its error names
+the newest crash report written since the launch, with the report's summary and the `.dmp` beside it,
+so the player has a file to send instead of only `launch.log`.
+
 **The minidump.** At crash time the worker also writes `<base>.dmp` through CS2's own `dbghelp`
 (`MiniDumpNormal | MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules`, typically under 1 MB).
 It holds every thread's stack and registers, the module list and the exception, but no heap. The

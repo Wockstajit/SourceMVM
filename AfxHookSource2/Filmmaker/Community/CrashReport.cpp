@@ -169,8 +169,24 @@ int WalkStack(const CONTEXT* start, uint64_t* frames, int maxFrames) {
 // module list and the exception, so a crash opens in a debugger at the faulting function and line
 // (against the archived PDB). No heap or full memory. Sent only with the report, when the player
 // presses Send.
+// CS2's own dbghelp beside cs2.exe (the one its crash handler loads), else the system one.
+MiniDumpWriteDump_t ResolveMiniDumpWriteDump() {
+	wchar_t exe[MAX_PATH] = {};
+	GetModuleFileNameW(nullptr, exe, MAX_PATH);
+	std::wstring path = exe;
+	path = path.substr(0, path.find_last_of(L"\\/") + 1) + L"dbghelp.dll";
+	HMODULE dbghelp = LoadLibraryW(path.c_str());
+	if (!dbghelp) dbghelp = LoadLibraryW(L"dbghelp.dll");
+	return dbghelp ? (MiniDumpWriteDump_t)GetProcAddress(dbghelp, "MiniDumpWriteDump") : nullptr;
+}
+
 void WriteCrashDump() {
-	MiniDumpWriteDump_t write = g_origMiniDumpWriteDump; // CS2's dbghelp, already loaded at session start
+	MiniDumpWriteDump_t write = g_origMiniDumpWriteDump; // CS2's dbghelp, loaded by DumpWriterHookThread
+	// A crash in the first moments, before that thread ran, comes before that (a player whose every
+	// launch died with 0xC0000005 had a report and no dump). Look it up now. This is the crash
+	// worker, after the report text is on disk, so a loader lock the crashed thread holds can cost the
+	// dump (the wait for this worker times out) but never the report.
+	if (!write) write = ResolveMiniDumpWriteDump();
 	if (!write) return;
 	wchar_t path[MAX_PATH + 96];
 	swprintf(path, sizeof(path) / sizeof(path[0]), L"%s%hs.dmp", g_dir, g_base);
@@ -360,21 +376,28 @@ BOOL WINAPI New_MiniDumpWriteDump(HANDLE process, DWORD pid, HANDLE file, MINIDU
 	return written;
 }
 
-// Hooks the dbghelp.dll CS2 ships in game\bin\win64 (the one its crash handler loads).
+// Hooks the dbghelp.dll CS2 ships in game\bin\win64 (the one its crash handler loads). CS2 handles
+// most crashes itself, so without this hook a crash it catches leaves no SOURCE:MVM report. It goes
+// in from DumpWriterHookThread, right after the DLL loads, so crashes CS2 handles during startup are
+// caught too; StartSession calls it again in case that thread could not start. The lock makes the
+// two calls one install.
 void InstallDumpWriterHook() {
+	static std::mutex s_lock;
+	std::lock_guard<std::mutex> lock(s_lock);
 	if (g_origMiniDumpWriteDump) return;
-	wchar_t exe[MAX_PATH] = {};
-	GetModuleFileNameW(nullptr, exe, MAX_PATH);
-	std::wstring path = exe;
-	path = path.substr(0, path.find_last_of(L"\\/") + 1) + L"dbghelp.dll";
-	HMODULE dbghelp = LoadLibraryW(path.c_str());
-	if (!dbghelp) dbghelp = LoadLibraryW(L"dbghelp.dll");
-	g_origMiniDumpWriteDump = dbghelp ? (MiniDumpWriteDump_t)GetProcAddress(dbghelp, "MiniDumpWriteDump") : nullptr;
+	g_origMiniDumpWriteDump = ResolveMiniDumpWriteDump();
 	if (!g_origMiniDumpWriteDump) return;
 	DetourTransactionBegin();
 	DetourUpdateThread(GetCurrentThread());
 	DetourAttach(&(PVOID&)g_origMiniDumpWriteDump, New_MiniDumpWriteDump);
 	if (DetourTransactionCommit() != NO_ERROR) g_origMiniDumpWriteDump = nullptr;
+}
+
+// LoadLibrary must not run under the loader lock DllMain holds. A thread started there runs as soon
+// as the loader lets go, long before the first main-thread frame. Nothing waits for it.
+DWORD WINAPI DumpWriterHookThread(LPVOID) {
+	InstallDumpWriterHook();
+	return 0;
 }
 
 // CS2 (or a library) installing its own top-level filter keeps ours on top: theirs is chained.
@@ -785,7 +808,7 @@ void StartSession() {
 	g_mainThreadId = GetCurrentThreadId();
 	CopyText(g_hookModule, sizeof(g_hookModule), BugReport_HookModuleName());
 	CopyText(g_hookId, sizeof(g_hookId), g_hookModule + std::string("/") + BugReport_HookImageKey());
-	InstallDumpWriterHook(); // LoadLibrary: never under the loader lock, so here and not in DllMain
+	InstallDumpWriterHook(); // normally in already (DumpWriterHookThread); covers a thread that never started
 
 	RecordUnexpectedExit();
 	CopyText(g_modules, sizeof(g_modules), ScanNotableModules());
@@ -831,6 +854,8 @@ void CrashReport_InstallHandlers() {
 		DetourAttach(&(PVOID&)g_origTerminateProcess, New_TerminateProcess);
 		DetourTransactionCommit();
 	}
+	// The dump-writer hook needs LoadLibrary, which our caller (DllMain) must not do.
+	if (const HANDLE t = CreateThread(nullptr, 0, DumpWriterHookThread, nullptr, 0, nullptr)) CloseHandle(t);
 }
 
 void CrashReport_MainThreadFrame() {
