@@ -4443,15 +4443,29 @@ HRESULT WINAPI New_D3D11CreateDevice(
     ID3D11DeviceContext **ppImmediateContext
     ) {
 
+    // Only CS2's own render system gets the engine treatment below. NVIDIA's overlays (Ansel's
+    // NvCamera64, NvPresent64, nvapi) and Direct2D create devices in this process too, and Ansel's
+    // can come first. Forcing our flag onto Ansel's device crashed CS2 at startup (issue #114), and
+    // "first device wins" then hooked Ansel's device instead of the engine's.
+    char caller[MAX_PATH] = "?";
+    HMODULE callerModule = nullptr;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            (LPCSTR)_ReturnAddress(), &callerModule) && callerModule)
+        GetModuleFileNameA(callerModule, caller, MAX_PATH);
+    const char* callerName = caller;
+    for (const char* p = caller; *p; ++p)
+        if (*p == '\\' || *p == '/') callerName = p + 1;
+    const bool engineCaller = 0 == _stricmp(callerName, "rendersystemdx11.dll");
+
     // NVIDIA's parallel compiler intermittently crashes when a newly modified
     // native material first links to CS2's HDR/MSAA targets. Serial driver work
     // preserves application-side device thread safety and avoids that compiler
     // race; other adapters retain their normal device settings.
     UINT lightingAdapterVendor = 0;
     DXGI_ADAPTER_DESC lightingAdapterDesc{};
-    if (pAdapter && SUCCEEDED(pAdapter->GetDesc(&lightingAdapterDesc))) {
+    if (engineCaller && pAdapter && SUCCEEDED(pAdapter->GetDesc(&lightingAdapterDesc))) {
         lightingAdapterVendor = lightingAdapterDesc.VendorId;
-    } else if (!pAdapter && DriverType == D3D_DRIVER_TYPE_HARDWARE) {
+    } else if (engineCaller && !pAdapter && DriverType == D3D_DRIVER_TYPE_HARDWARE) {
         IDXGIFactory1* lightingFactory = nullptr;
         if (SUCCEEDED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&lightingFactory)))) {
             IDXGIAdapter1* lightingAdapter = nullptr;
@@ -4463,8 +4477,8 @@ HRESULT WINAPI New_D3D11CreateDevice(
         }
     }
     if (lightingAdapterVendor == 0x10de) Flags |= D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS;
-    Filmmaker::MvmDebugLog_LinefAlways("relight.device", "vendor=%04x creationFlags=%08x serialDriver=%u",
-        lightingAdapterVendor, Flags, UINT((Flags & D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS) != 0));
+    Filmmaker::MvmDebugLog_LinefAlways("relight.device", "caller=%s vendor=%04x creationFlags=%08x serialDriver=%u",
+        callerName, lightingAdapterVendor, Flags, UINT((Flags & D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS) != 0));
 
 #ifdef _DEBUG
     //Flags = Flags | D3D11_CREATE_DEVICE_DEBUG;
@@ -4472,23 +4486,15 @@ HRESULT WINAPI New_D3D11CreateDevice(
     HRESULT result = g_Old_D3D11CreateDevice(
         pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion, ppDevice, pFeatureLevel, ppImmediateContext);
 
-    // Only the first device, the engine's, is detoured. Detours patch the implementation's code, so
+    // Only the engine's first device is detoured. Detours patch the implementation's code, so
     // later devices of the same implementation are covered already. Re-detouring for a later one (the
     // shell's folder picker, an overlay, a video decoder) frees trampolines the render thread may be
     // executing, and can move the hooks between a wrapper (ReShade's proxy) and the native device.
     // Every ExecuteCommandList relies on the hooked device and the hooked context being the same
     // layer: a proxy command list executed on the native context faults inside d3d11.dll.
     static std::atomic<bool> s_engineDeviceHooked(false);
-    const bool hookDevice = SUCCEEDED(result) && ppDevice && *ppDevice && !s_engineDeviceHooked.exchange(true);
+    const bool hookDevice = engineCaller && SUCCEEDED(result) && ppDevice && *ppDevice && !s_engineDeviceHooked.exchange(true);
     {
-        char caller[MAX_PATH] = "?";
-        HMODULE callerModule = nullptr;
-        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                (LPCSTR)_ReturnAddress(), &callerModule) && callerModule)
-            GetModuleFileNameA(callerModule, caller, MAX_PATH);
-        const char* callerName = caller;
-        for (const char* p = caller; *p; ++p)
-            if (*p == '\\' || *p == '/') callerName = p + 1;
         char line[256];
         snprintf(line, sizeof(line), "caller=%s thread=%lu flags=%08x hr=%08x device=%p hooked=%d",
             callerName, GetCurrentThreadId(), Flags, (unsigned)result, ppDevice ? (void*)*ppDevice : nullptr, hookDevice ? 1 : 0);
