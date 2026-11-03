@@ -184,5 +184,19 @@ inline float Length(Vec3 v) {
 	return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 }
 
+inline bool SameDirection(Vec3 a, Vec3 b, float tolerance = 1.0e-4f) {
+	return std::fabs(a.x - b.x) <= tolerance && std::fabs(a.y - b.y) <= tolerance && std::fabs(a.z - b.z) <= tolerance;
+}
+
+// Who owns a remembered light's direction field right now. The submit hook keeps the light's
+// authored direction and the rotated value it last wrote. A field holding neither means the engine
+// rewrote it or that address now belongs to a different light, so the remembered base is stale.
+enum class TrackedDirection { Ours, Authored, Foreign };
+inline TrackedDirection ClassifyTrackedDirection(Vec3 current, Vec3 base, Vec3 written, bool hasWritten) {
+	if (hasWritten && SameDirection(current, written)) return TrackedDirection::Ours;
+	if (SameDirection(current, base)) return TrackedDirection::Authored;
+	return TrackedDirection::Foreign;
+}
+
 } // namespace SunRotationMath
 } // namespace Filmmaker

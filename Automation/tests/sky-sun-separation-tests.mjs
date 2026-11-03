@@ -210,3 +210,18 @@ test("Baked shadows drive lb_enable_baked_shadows only", () => {
   assert.ok(targets, "expected g_targets initializer");
   assert.doesNotMatch(targets[1], /lb_csm_override_staticgeo|lb_precomputed|sparseshadowtree/);
 });
+
+// Codex review on PR #118: an entry dropped for not submitting lost a dormant light's authored
+// direction, and its next submit rotated our rotated value a second time.
+test("tracked light directions are kept until the next map", () => {
+  const lightFx = fs.readFileSync(
+    path.join(root, "AfxHookSource2", "Filmmaker", "World", "LightFx.cpp"),
+    "utf8",
+  );
+  assert.doesNotMatch(lightFx, /PruneIdleTrackedLights|lastSubmitMs|kTrackedLightIdleMs/);
+  // The only erases: a failed write, the restore that hands the light back, and the map change.
+  assert.equal((lightFx.match(/g_rotationObjectBases\.erase\(/g) || []).length, 2);
+  assert.match(lightFx, /g_rotationObjectBases\.clear\(\);\}\r?\n\s+g_trackedLightsFull\.store\(false/);
+  // A full table leaves a light it has never seen as authored rather than forgetting another one.
+  assert.match(lightFx, /\} else if \(g_rotationObjectBases\.size\(\) >= kTrackedLightCap\) \{[\s\S]{0,400}?return false;/);
+});
