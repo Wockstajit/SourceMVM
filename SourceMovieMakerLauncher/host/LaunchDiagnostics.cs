@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -49,8 +50,24 @@ namespace SourceMovieMakerHost
             throw new InvalidOperationException(message + " If DLSS 5 is enabled, try once with it off.");
         }
 
-        // The newest SourceMVM-crash-*.txt the hook wrote since `sinceUtc`, and its Summary line.
-        private static string FindCrashReport(DateTime sinceUtc, out string summary)
+        // When the crash happened, from the name the hook gives the report
+        // (SourceMVM-crash-2026-11-03_08-43-59, local time). Not the file's write time: a later
+        // session rebuilds an earlier crash's .pending into a fresh .txt, and that old crash must not
+        // be named as this start's failure.
+        internal static DateTime? CrashTime(string fileName)
+        {
+            const string prefix = "SourceMVM-crash-";
+            string stamp = Path.GetFileNameWithoutExtension(fileName);
+            DateTime at;
+            if (!stamp.StartsWith(prefix, StringComparison.Ordinal)
+                || !DateTime.TryParseExact(stamp.Substring(prefix.Length), "yyyy-MM-dd_HH-mm-ss",
+                    CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out at))
+                return null;
+            return at;
+        }
+
+        // The newest SourceMVM-crash-*.txt from a crash since `sinceUtc`, and its Summary line.
+        internal static string FindCrashReport(DateTime sinceUtc, out string summary)
         {
             summary = "";
             try
@@ -63,12 +80,15 @@ namespace SourceMovieMakerHost
                 // The full report, else the header the crash handler writes first (<base>.pending):
                 // when the report itself cannot be finished, only a later session that reaches the
                 // menu rebuilds it, and a game that dies at every start never gets there.
+                DateTime sinceLocal = sinceUtc.ToLocalTime();
                 FileInfo newest = null;
                 foreach (string pattern in new[] { "SourceMVM-crash-*.txt", "SourceMVM-crash-*.pending" })
                 {
                     newest = new DirectoryInfo(folder).GetFiles(pattern)
-                        .Where(f => f.LastWriteTimeUtc >= sinceUtc)
-                        .OrderByDescending(f => f.LastWriteTimeUtc)
+                        .Select(f => new { File = f, At = CrashTime(f.Name) })
+                        .Where(c => c.At.HasValue && c.At.Value >= sinceLocal)
+                        .OrderByDescending(c => c.At.Value)
+                        .Select(c => c.File)
                         .FirstOrDefault();
                     if (newest != null) break;
                 }

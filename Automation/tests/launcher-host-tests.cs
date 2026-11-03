@@ -31,6 +31,13 @@ internal static class LauncherHostTests
         }
         try
         {
+            // A startup failure names a crash report from %APPDATA%\HLAE\bugreports. Point it at this
+            // disposable folder, so the tests never read (or name) the player's real reports.
+            string appData = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "appdata");
+            string reports = Path.Combine(appData, "HLAE", "bugreports");
+            Directory.CreateDirectory(reports);
+            Environment.SetEnvironmentVariable("APPDATA", appData);
+
             foreach (int code in new[] { 0, 42, 259, unchecked((int)0xc0000135) })
             {
                 using (var child = Child("--child-exit " + code))
@@ -67,6 +74,23 @@ internal static class LauncherHostTests
             }
             catch (Win32Exception) { }
             Console.WriteLine("PASS: monitoring errors are raised for the host to report separately.");
+
+            // A later session rebuilds an earlier crash's .pending into a fresh .txt: its write time
+            // is new, but the crash time in its name is not, so it is not this start's failure.
+            DateTime since = DateTime.UtcNow.AddSeconds(-5);
+            string summary;
+            string old = Path.Combine(reports, "SourceMVM-crash-" + DateTime.Now.AddDays(-1).ToString("yyyy-MM-dd_HH-mm-ss") + ".txt");
+            File.WriteAllText(old, "SOURCE:MVM crash report\nSummary   : old crash\n");
+            Check(LaunchDiagnostics.FindCrashReport(since, out summary) == null, "A rebuilt report from an earlier session was named.");
+            string stamp = "SourceMVM-crash-" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+            File.WriteAllText(Path.Combine(reports, stamp + ".pending"), "SOURCE:MVM crash report\nSummary   : header only\n");
+            Check(LaunchDiagnostics.FindCrashReport(since, out summary) == Path.Combine(reports, stamp + ".pending")
+                && summary == "header only", "This start's .pending header was not named.");
+            File.WriteAllText(Path.Combine(reports, stamp + ".txt"), "SOURCE:MVM crash report\nSummary   : full report\n");
+            Check(LaunchDiagnostics.FindCrashReport(since, out summary) == Path.Combine(reports, stamp + ".txt")
+                && summary == "full report", "The full report must win over its header.");
+            Check(LaunchDiagnostics.CrashTime("SourceMVM-exit-2026-11-03_08-43-59.txt") == null, "Only crash reports count.");
+            Console.WriteLine("PASS: a startup failure names only a crash from this start, the full report first.");
 
             // Reproduce error 5 on our own disposable executable, never on a game/user file.
             string blocked = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "blocked.exe");
