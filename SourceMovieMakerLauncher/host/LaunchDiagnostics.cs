@@ -60,10 +60,18 @@ namespace SourceMovieMakerHost
                 if (string.IsNullOrEmpty(appData)) appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
                 string folder = Path.Combine(appData, "HLAE", "bugreports");
                 if (!Directory.Exists(folder)) return null;
-                FileInfo newest = new DirectoryInfo(folder).GetFiles("SourceMVM-crash-*.txt")
-                    .Where(f => f.LastWriteTimeUtc >= sinceUtc)
-                    .OrderByDescending(f => f.LastWriteTimeUtc)
-                    .FirstOrDefault();
+                // The full report, else the header the crash handler writes first (<base>.pending):
+                // when the report itself cannot be finished, only a later session that reaches the
+                // menu rebuilds it, and a game that dies at every start never gets there.
+                FileInfo newest = null;
+                foreach (string pattern in new[] { "SourceMVM-crash-*.txt", "SourceMVM-crash-*.pending" })
+                {
+                    newest = new DirectoryInfo(folder).GetFiles(pattern)
+                        .Where(f => f.LastWriteTimeUtc >= sinceUtc)
+                        .OrderByDescending(f => f.LastWriteTimeUtc)
+                        .FirstOrDefault();
+                    if (newest != null) break;
+                }
                 if (newest == null) return null;
                 foreach (string line in File.ReadLines(newest.FullName).Take(40))
                 {
