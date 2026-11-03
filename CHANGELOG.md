@@ -5,6 +5,34 @@ so every release heading keeps the form `## <version> - <date>` (a hotfix is `##
 and every change is one `- ` bullet under a `### ` group. Releases older than 0.2.0 are on the
 [releases page](https://github.com/Wockstajit/SourceMVM/releases).
 
+## Unreleased
+
+### Crash fixes
+
+- Resetting the lighting after turning the sun could crash CS2 a moment later. The reset wrote into
+  lights the game had already removed. Loading a demo restores the lighting this way too.
+- CS2 no longer crashes while quitting when the ReShade overlay add-on is installed.
+- CS2 no longer crashes at startup on NVIDIA PCs with Ansel (photo mode) turned on.
+- The scrub keyframe builder uses about half the memory, starts only when the PC has room, and no
+  longer reruns on every marker change for a demo it already failed on. On 16 GB PCs it could push
+  CS2 out of memory.
+- When CS2 crashes during startup, the launcher now names the crash report to send, and that crash
+  also saves its dump file. It used to only say to verify the game files.
+
+### Rendering
+
+- START RENDER stays at the bottom of the job column. Previous renders show as many whole rows as fit,
+  and ◀ ▶ in their heading page through the rest. Before, a few renders pushed the button out of sight.
+
+### Timeline
+
+- Typing a value in the TIMELINE dock works: the first key replaces the number, Enter keeps it, Esc
+  cancels. Typed keys no longer reached it.
+- Weather type shows its name and changes from a menu of names. It could not be changed before.
+- A typed field of view stays what you typed, instead of snapping to the edge of the graph.
+- The dock's menus stay above its bottom edge in a small window. A long one, such as Sky, lists the
+  rest under More.
+
 ## 0.4.0 - 2026-10-25
 
 ### Play a demo on another map
