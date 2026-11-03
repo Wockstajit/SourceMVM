@@ -119,3 +119,14 @@ test("the committed allowlist parses", () => {
   const allowlistFile = fileURLToPath(new URL("../verify/repo-policy-allowlist.txt", import.meta.url));
   assert.doesNotThrow(() => parseAllowlist(readFileSync(allowlistFile, "utf8")));
 });
+
+// Issue #115: 0.4.0 shipped 22 commercial osu! song sets and the UwU song, staged from untracked
+// local copies. Easter-egg media reaches a build only from files git tracks.
+test("easter-egg songs are staged from tracked files only", () => {
+  const stage = readFileSync(fileURLToPath(new URL("../tools/stage-easter-egg-media.ps1", import.meta.url)), "utf8");
+  assert.match(stage, /git -C \$repoRoot ls-files -z/);
+  assert.match(stage, /Copy-TrackedTree 'Assets\\easter-eggs\\osu' \$osuDest/);
+  assert.match(stage, /Copy-TrackedTree 'Assets\\easter-eggs\\uwu'/);
+  assert.doesNotMatch(stage, /Get-ChildItem -LiteralPath \$osuSrc/);
+  assert.doesNotMatch(stage, /Get-ChildItem -LiteralPath \$uwuSrc/);
+});

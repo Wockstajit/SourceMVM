@@ -48,16 +48,31 @@ function Get-FFmpeg {
 # <stage root>\bin\osu\Songs\ -- the hook reads them from GetHlaeFolder()\osu\Songs. The stage root
 # is two levels above the content mount (build\source2-release\fx\source_mvm_fx).
 $stageRoot = Split-Path -Parent (Split-Path -Parent $MountDir)
-$osuSrc = Join-Path $repoRoot 'Assets\easter-eggs\osu'
-if (Test-Path -LiteralPath $osuSrc) {
-    $osuDest = Join-Path $stageRoot 'bin\osu\Songs'
-    New-Item -ItemType Directory -Force -Path $osuDest | Out-Null
-    Get-ChildItem -LiteralPath $osuSrc -Directory | ForEach-Object {
-        $dest = Join-Path $osuDest $_.Name
-        New-Item -ItemType Directory -Force -Path $dest | Out-Null
-        Get-ChildItem -LiteralPath $_.FullName -File | Copy-Item -Destination $dest -Force
-        Write-Host "  osu map: $($_.Name)" -ForegroundColor DarkGray
+
+# Only files committed to git are staged. Other people's songs (osu! beatmap sets, the UwU song) can
+# sit in a working tree but must never reach a release: 0.4.0 shipped 22 commercial song sets and the
+# UwU music this way, staged from the maintainer's untracked copies (issue #115).
+function Get-TrackedFiles([string]$relativeDir) {
+    $listed = & git -C $repoRoot ls-files -z -- $relativeDir.Replace('\', '/') 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "git ls-files failed for $relativeDir; easter-egg media is staged from tracked files only." }
+    return @(($listed -join '') -split "`0" | Where-Object { $_ } | ForEach-Object { Join-Path $repoRoot $_.Replace('/', '\') })
+}
+function Copy-TrackedTree([string]$relativeDir, [string]$dest) {
+    # The staged folder is rebuilt, so files an older build staged (untracked songs) do not linger.
+    if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
+    $srcRoot = Join-Path $repoRoot $relativeDir
+    foreach ($file in Get-TrackedFiles $relativeDir) {
+        if (-not (Test-Path -LiteralPath $file)) { continue }
+        $target = Join-Path $dest $file.Substring($srcRoot.Length + 1)
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+        Copy-Item -LiteralPath $file -Destination $target -Force
     }
+}
+
+$osuDest = Join-Path $stageRoot 'bin\osu\Songs'
+Copy-TrackedTree 'Assets\easter-eggs\osu' $osuDest
+Get-ChildItem -LiteralPath $osuDest -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "  osu map: $($_.Name)" -ForegroundColor DarkGray
 }
 
 # The bundled default osu! skin (Assets\easter-eggs\osu-skin\<skin>\) goes beside the hook in
@@ -74,13 +89,9 @@ if (Test-Path -LiteralPath $skinSrc) {
 }
 
 # The UwU egg's sounds (Assets\easter-eggs\uwu\) go beside the hook in <stage root>\bin\easter-eggs\uwu\.
-$uwuSrc = Join-Path $repoRoot 'Assets\easter-eggs\uwu'
-if (Test-Path -LiteralPath $uwuSrc) {
-    $uwuDest = Join-Path $stageRoot 'bin\easter-eggs\uwu'
-    New-Item -ItemType Directory -Force -Path $uwuDest | Out-Null
-    Get-ChildItem -LiteralPath $uwuSrc -File -Filter *.mp3 | Copy-Item -Destination $uwuDest -Force
-    Write-Host '  uwu sounds staged' -ForegroundColor DarkGray
-}
+# The bang and pops are tracked; music.mp3 is someone else's song and stays out (UwU plays without it).
+Copy-TrackedTree 'Assets\easter-eggs\uwu' (Join-Path $stageRoot 'bin\easter-eggs\uwu')
+Write-Host '  uwu sounds staged' -ForegroundColor DarkGray
 
 New-Item -ItemType Directory -Force -Path $videoDir | Out-Null
 foreach ($clip in $clips) {
