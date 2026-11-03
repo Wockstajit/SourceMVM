@@ -292,6 +292,13 @@ add_executable(CamPathTimingMathTests
 target_compile_features(CamPathTimingMathTests PRIVATE cxx_std_17)
 add_test(NAME CamPathTimingMathTests COMMAND CamPathTimingMathTests)
 
+add_executable(CamMarkerPickMathTests
+    ../Automation/tests/cam-marker-pick-math-tests.cpp
+    Filmmaker/Movie/CamMarkerPickMath.h
+)
+target_compile_features(CamMarkerPickMathTests PRIVATE cxx_std_17)
+add_test(NAME CamMarkerPickMathTests COMMAND CamMarkerPickMathTests)
+
 add_executable(DemoKeyframesMathTests
     ../Automation/tests/demo-keyframes-math-tests.cpp
     Filmmaker/Demo/DemoKeyframesMath.h

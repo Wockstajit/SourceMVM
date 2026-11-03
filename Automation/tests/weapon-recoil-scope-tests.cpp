@@ -40,6 +40,14 @@ static void TestTaxonomy() {
 	Check(RecoilWeaponTypeOf("nova") == RecoilWeaponType::Shotgun, "nova is a shotgun");
 	Check(RecoilWeaponTypeOf("negev") == RecoilWeaponType::Lmg, "negev is an lmg");
 	Check(RecoilWeaponTypeOf("mp9") == RecoilWeaponType::Smg, "mp9 is an smg");
+	// CS:S's guns, as the CS:S hook names them from their network classes.
+	Check(RecoilWeaponTypeOf("weapon_scout") == RecoilWeaponType::Sniper, "CS:S scout is a sniper");
+	Check(RecoilWeaponTypeOf("weapon_sg550") == RecoilWeaponType::Sniper, "CS:S sg550 is a sniper");
+	Check(RecoilWeaponTypeOf("weapon_sg552") == RecoilWeaponType::Rifle, "CS:S sg552 is a rifle");
+	Check(RecoilWeaponTypeOf("weapon_m3") == RecoilWeaponType::Shotgun, "CS:S m3 is a shotgun");
+	Check(RecoilWeaponTypeOf("weapon_tmp") == RecoilWeaponType::Smg, "CS:S tmp is an smg");
+	Check(RecoilWeaponTypeOf("weapon_mp5navy") == RecoilWeaponType::Smg, "CS:S mp5navy is an smg");
+	Check(RecoilWeaponTypeOf("weapon_p228") == RecoilWeaponType::Pistol, "CS:S p228 is a pistol");
 	Check(RecoilWeaponTypeOf("") == RecoilWeaponType::Unknown, "empty weapon has no type");
 	Check(RecoilWeaponTypeOf("frobnicator9000") == RecoilWeaponType::Unknown,
 		"a weapon CS2 has not shipped yet has no type");

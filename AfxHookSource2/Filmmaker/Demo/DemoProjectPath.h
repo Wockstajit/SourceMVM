@@ -13,4 +13,9 @@ std::wstring ResolveDemoProjectPath(const std::wstring& playingDemoPath);
 uint64_t DemoProjectPathRevision();
 void InvalidateDemoProjectPathCache();
 
+// Canonicalize a path to the filesystem's true-cased absolute form (GetFinalPathNameByHandle,
+// \\?\ prefix stripped) so two independently-derived strings for the SAME file compare equal
+// and produce the same sidecar. Falls back to GetFullPathName when the file can't be opened.
+std::wstring CanonicalDemoPath(const std::wstring& path);
+
 } // namespace Filmmaker

@@ -1,12 +1,11 @@
 #include "MvmDebugLog.h"
+#include "MvmDebugLogHost.h"           // log folder, demo tick and frame from the hook linking this
 #include "DebugLogDedupMath.h"
-#ifndef GAME_DEADLOCK
+#if !defined(GAME_DEADLOCK) && !defined(GAME_SOURCE1)
 #include "../../ConsoleLoggingListener.h"
 #include "../Community/BugReport.h" // BugReport_Record: the always-on recorder
 #endif
 
-#include "../../hlaeFolder.h"          // GetHlaeRoamingAppDataFolderW
-#include "../../MirvTime.h"
 #include "../Platform/TextEncoding.h"  // WideToUtf8
 #include "../../../Shared/AfxConsole.h"
 
@@ -19,6 +18,8 @@
 #include <winioctl.h>
 #pragma comment(lib, "winhttp.lib")
 #include <cstdio>
+#include <io.h>
+#include <fcntl.h>
 #include <cstdarg>
 #include <cstdlib>
 #include <algorithm>
@@ -228,9 +229,9 @@ EventMeta CaptureMetaLocked() {
 	GetLocalTime(&out.time);
 	out.threadId = GetCurrentThreadId();
 	int tick = -1;
-	if (g_MirvTime.GetCurrentDemoTick(tick))
+	if (MvmDebugLogHost_DemoTick(tick))
 		out.tick = tick;
-	out.frame = g_MirvTime.framecount_get();
+	out.frame = MvmDebugLogHost_FrameCount();
 	out.sequence = ++g_sequence;
 	return out;
 }
@@ -298,7 +299,7 @@ std::string SingleLine(const char* text) {
 }
 
 void LineV(const char* category, bool dedup, const char* fmt, va_list args) {
-#ifndef GAME_DEADLOCK
+#if !defined(GAME_DEADLOCK) && !defined(GAME_SOURCE1)
     Cs2ConsoleLogScope callback;
     if(!callback)return;
 #endif
@@ -360,7 +361,7 @@ void LineV(const char* category, bool dedup, const char* fmt, va_list args) {
 
 namespace {
 // Logs were never removed and reached 1.3 GB across ~90 sessions. Names sort by start time
-// (mvm_debug_YYYYMMDD_HHMMSS.log), so keep the newest ones and delete the rest at each start.
+// (timestamp first, with a process/session suffix), so keep the newest ones and delete the rest at each start.
 constexpr size_t kKeptDebugLogs = 20;
 
 void PruneOldLogs(const std::wstring& folder) {
@@ -417,7 +418,7 @@ bool MvmDebugLog_Start(std::string* outFile) {
 	if (g_file)
 		return false;
 
-	std::wstring folder = GetHlaeRoamingAppDataFolderW();
+	std::wstring folder = MvmDebugLogHost_RoamingFolder();
 	if (!folder.empty() && folder.back() != L'\\' && folder.back() != L'/')
 		folder += L'\\';
 	folder += L"debuglogs";
@@ -427,15 +428,25 @@ bool MvmDebugLog_Start(std::string* outFile) {
 
 	SYSTEMTIME st;
 	GetLocalTime(&st);
-	wchar_t name[160];
-	swprintf(name, 160, L"\\mvm_debug_%04d%02d%02d_%02d%02d%02d.log",
-		st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-
-	g_folderW = folder;
-	g_fileW = folder + name;
-	g_file = _wfopen(g_fileW.c_str(), L"w");
-	if (!g_file)
-		return false;
+    // Different hooked games can start in the same second. Reserve a unique path without
+    // truncating an existing log, including repeated starts or a recycled process ID.
+    static unsigned long serial=0;
+    g_folderW=folder;
+    HANDLE handle=INVALID_HANDLE_VALUE;
+    for(unsigned attempt=0;attempt<1000;++attempt) {
+        wchar_t name[160];
+        swprintf(name,160,L"\\mvm_debug_%04d%02d%02d_%02d%02d%02d_p%lu_s%04lu.log",
+            st.wYear,st.wMonth,st.wDay,st.wHour,st.wMinute,st.wSecond,GetCurrentProcessId(),++serial);
+        g_fileW=folder+name;
+        handle=CreateFileW(g_fileW.c_str(),GENERIC_WRITE,FILE_SHARE_READ,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+        if(handle!=INVALID_HANDLE_VALUE) break;
+        if(GetLastError()!=ERROR_FILE_EXISTS && GetLastError()!=ERROR_ALREADY_EXISTS) return false;
+    }
+    if(handle==INVALID_HANDLE_VALUE) return false;
+    const int descriptor=_open_osfhandle((intptr_t)handle,_O_WRONLY|_O_TEXT);
+    if(descriptor<0) { CloseHandle(handle);return false; }
+    g_file=_fdopen(descriptor,"w");
+    if(!g_file) { _close(descriptor);return false; }
 
 	g_eventsByIdentity.Clear();
 	g_stats = {};
@@ -602,7 +613,7 @@ void MvmDebugLog_ConsoleLine(const char* level, int devLevel, const char* text) 
 		snprintf(category, sizeof(category), "console.%s.dev%d", level ? level : "message", devLevel);
 	else
 		snprintf(category, sizeof(category), "console.%s", level ? level : "message");
-#ifndef GAME_DEADLOCK
+#if !defined(GAME_DEADLOCK) && !defined(GAME_SOURCE1)
 	// Every console line also goes to the bug report's always-on recorder, log file or not.
 	BugReport_Record(category, line);
 #endif

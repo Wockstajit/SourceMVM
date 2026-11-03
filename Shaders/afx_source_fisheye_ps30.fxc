@@ -1,0 +1,7 @@
+// SOURCE:MVM: the same fisheye mapping, with legacy shader syntax only.
+#include "afx_fisheye_uv.hlsli"
+float4 params : register(c0);
+sampler2D texture0 : register(s0);
+float4 main(float2 uv : TEXCOORD0) : COLOR0 {
+    return float4(tex2D(texture0,AfxFisheyeUv(uv,params)).rgb,1);
+}

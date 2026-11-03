@@ -1,27 +1,17 @@
 #include "FollowEventIndex.h"
 
-#include "FollowTargetProviders.h"
-#include "../Demo/DemoInfoHelper.h"
-#include "../Platform/TextEncoding.h"
+#include "FollowCameraHost.h"
 #include "../../../Shared/AfxConsole.h"
-
-#include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
-#include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
 
 #include <Windows.h>
 #include <algorithm>
 #include <mutex>
-#include <sstream>
 #include <thread>
-#include <unordered_map>
-
-extern SOURCESDK::CS2::ISource2EngineToClient* g_pEngineToClient;
 
 namespace Filmmaker {
 
 void FollowCamera::EnsureEventsLoaded() const {
-	const char* p = g_pEngineToClient ? g_pEngineToClient->GetDemoFilePath() : nullptr;
-	std::string path = p ? p : "";
+	const std::string path = FollowHost_DemoPath();
 	if (path.empty()) return;
 
 	{
@@ -42,39 +32,28 @@ void FollowCamera::EnsureEventsLoaded() const {
 
 	// Join any previous worker before starting a new one (done OUTSIDE m_eventMutex so the
 	// old worker's final commit, which takes that lock, can't deadlock the join). Cancelling
-	// aborts its in-flight helper process promptly so the join is bounded.
+	// aborts its in-flight scan promptly so the join is bounded.
 	if (m_eventThread.joinable()) {
 		m_eventCancel.store(true);
 		m_eventThread.join();
 	}
 	m_eventCancel.store(false);
 
-	// Full parse on a joinable worker (multi-second); the demo path is keyed so a demo
-	// change relaunches. ReadDemoInfoViaHelper reuses/refreshes the "<demo>.fmjson" cache
-	// and honors m_eventCancel so Shutdown() can stop it.
+	// Full scan on a joinable worker (multi-second); the demo path is keyed so a demo change
+	// relaunches. The game's scan honors m_eventCancel so Shutdown() can stop it.
 	m_eventThread = std::thread([this, path]() {
-		const std::wstring wpath = Utf8ToWide(path);
-		DemoHelperResult result = ReadDemoInfoViaHelper(wpath, {}, &m_eventCancel);
-		if (m_eventCancel.load()) return; // shutdown / superseded: don't touch shared state
-		std::unordered_map<uint32_t, std::string> names;
-		for (const auto& pl : result.players) names[pl.accountId] = pl.name;
 		std::vector<FollowEventRecord> evs;
-		evs.reserve(result.events.size());
-		for (const auto& e : result.events) {
-			FollowEventRecord f;
-			f.tick = e.tick; f.type = e.type; f.item = e.item; f.accountId = e.accountId;
-			auto it = names.find(e.accountId);
-			f.ownerName = (it != names.end()) ? it->second : std::string();
-			evs.push_back(std::move(f));
-		}
+		std::string helperPath, error;
+		const bool ok = FollowHost_ReadDemoEvents(path, &m_eventCancel, evs, helperPath, error);
+		if (m_eventCancel.load()) return; // shutdown / superseded: don't touch shared state
 		std::lock_guard<std::mutex> lk(m_eventMutex);
 		if (m_eventLoadingPath == path) {
 			m_events = std::move(evs);
 			m_eventDemoPath = path;
-			m_eventHelperPath = result.helperPath;
-			m_eventError = result.ok ? std::string() : (result.error.empty() ? "demo event scan failed" : result.error);
+			m_eventHelperPath = helperPath;
+			m_eventError = ok ? std::string() : (error.empty() ? "demo event scan failed" : error);
 			m_eventScanStartMs = 0;
-			m_eventStatus.store(result.ok ? (int)EventStatus::Ready : (int)EventStatus::Failed);
+			m_eventStatus.store(ok ? (int)EventStatus::Ready : (int)EventStatus::Failed);
 		}
 	});
 }
@@ -120,10 +99,7 @@ bool FollowCamera::PreviewTick() {
 	// candidate list around this tick then exposes it for selection / attach.
 	if (e.type == "weapon_drop" || e.type == "bomb_dropped")
 		m_state.weaponSource = WeaponSource::Dropped;
-	if (g_pEngineToClient) {
-		std::ostringstream cmd; cmd << "demo_gototick " << seekTick;
-		g_pEngineToClient->ExecuteClientCmd(0, cmd.str().c_str(), true);
-	}
+	FollowHost_SeekDemo(seekTick);
 	m_lastMessage = "Seeking to tick " + std::to_string(seekTick) + " ("
 		+ e.type + (e.ownerName.empty() ? "" : (" - " + e.ownerName)) + ").";
 	advancedfx::Message("[followcam] preview tick: %s item=%s seek=%d.\n",

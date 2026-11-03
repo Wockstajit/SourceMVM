@@ -1,17 +1,13 @@
 #include "CamPathShake.h"
 
-#include "CameraPath.h"
-#include "../Render/RenderCommand.h"
+#include "CamPathShakeHost.h" // the camera path and project store of the game it runs in
 #include "RageShake.h"
 #include "CamPathShakeRampMath.h" // eased intensity/speed ramps and the integrated shake clock
-#include "../Filmmaker.h"            // PlayingDemoPath()
 #include "../Demo/DemoProjectStore.h"
-#include "../../MirvTime.h"          // interval_per_tick_get: the tick->seconds rate
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/JsonParser.h"
 #include "../Platform/TextEncoding.h"
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_*
-#include "SceneKeys.h"              // SceneKeys_AppliedTick: a looked-through camera object's tick
 
 #include "../../../Shared/AfxConsole.h"
 
@@ -107,7 +103,7 @@ void Save() {
 
 	// Its OWN section, deliberately not folded into the campath payload: the camera
 	// path data is the graph's, and this data must never travel inside it.
-	if (!DemoProjectStore_WriteSection(ProjectGame::Cs2, s.demoPath,
+	if (!DemoProjectStore_WriteSection(PathShakeHost_Game(), s.demoPath,
 		ProjectSection::Camshake, jb.Str()))
 		advancedfx::Warning("[pathshake] could not write project.mvm for %s\n",
 			WideToUtf8(s.demoPath).c_str());
@@ -119,7 +115,7 @@ void Load() {
 	if (s.demoPath.empty()) return;
 
 	std::string text;
-	if (!DemoProjectStore_ReadSection(ProjectGame::Cs2, s.demoPath,
+	if (!DemoProjectStore_ReadSection(PathShakeHost_Game(), s.demoPath,
 		ProjectSection::Camshake, text))
 		return; // no camshake section yet
 
@@ -168,7 +164,7 @@ void Load() {
 // Marker index -> tick, and back. Both go through the live marker list so they can never
 // disagree with what the timeline is drawing.
 int TickForIndex(int markerIndex) {
-	const std::vector<CamMarker>& mk = CameraPathRef().Markers();
+	const std::vector<CamMarker>& mk = PathShakeHost_Markers();
 	if (markerIndex < 0 || markerIndex >= (int)mk.size()) return INT32_MIN;
 	return mk[(size_t)markerIndex].tick;
 }
@@ -180,7 +176,7 @@ int TickForIndex(int markerIndex) {
 // are the one axis every editor surface agrees on, so seconds are derived from them directly --
 // the same `tick * interval_per_tick` mapping CameraPath::MoveKey itself uses.
 double SecondsPerTick() {
-	const float ipt = g_MirvTime.interval_per_tick_get();
+	const float ipt = (float)PathShakeHost_IntervalPerTick();
 	// No demo / engine not resolved: fall back to CS2's 64-tick rate rather than a zero rate
 	// (which would freeze every shake at its t=0 pose and look exactly like "not working").
 	return (ipt > 0.0f) ? (double)ipt : (1.0 / 64.0);
@@ -190,7 +186,7 @@ double SecondsPerTick() {
 // whoever moved the key -- the timeline's "Tick->Here", a graph drag, or an undo.
 void SyncToMarkers() {
 	Store& s = S();
-	const std::vector<CamMarker>& mk = CameraPathRef().Markers();
+	const std::vector<CamMarker>& mk = PathShakeHost_Markers();
 
 	std::vector<int> ticks;
 	ticks.reserve(mk.size());
@@ -278,7 +274,7 @@ uint64_t g_snapRevision = 0;                // main thread only: hash of what th
 // Main thread, once per frame from CamPathShake_RunFrame.
 void PublishSnapshot() {
 	Store& s = S();
-	const std::vector<CamMarker>& mk = CameraPathRef().Markers();
+	const std::vector<CamMarker>& mk = PathShakeHost_Markers();
 
 	// Only the shake keys: a key runs to the next key of its track, so camera keys without a shake
 	// play no part (they used to end a shake, which is why one stopped at the path's second key).
@@ -387,7 +383,7 @@ void CamPathShake_RunFrame() {
 
 	// Follow the demo the ENGINE is playing, matching CameraPath::RunFrame, so the shakes and the
 	// keyframes they belong to are always loaded from the same .dem.
-	std::wstring cur = PlayingDemoPath();
+	std::wstring cur = PathShakeHost_DemoPath();
 	if (cur != s.demoPath || !s.loaded) {
 		if (s.dirty && !s.demoPath.empty()) { Save(); s.dirty = false; }
 		s.demoPath = cur;
@@ -428,7 +424,7 @@ bool CamPathShake_SetAt(int owner, int tick, const CamPathShakeSetting& in) {
 	// The path's keys sit on its camera keys: anywhere else there is no diamond to turn it off.
 	if (!owner) {
 		bool onMarker = false;
-		for (const CamMarker& m : CameraPathRef().Markers()) if (m.tick == tick) { onMarker = true; break; }
+		for (const CamMarker& m : PathShakeHost_Markers()) if (m.tick == tick) { onMarker = true; break; }
 		if (!onMarker) return false;
 	}
 	CamPathShakeSetting cfg = in;
@@ -480,7 +476,7 @@ int CamPathShake_ApplyToAll(int fromMarkerIndex) {
 	if (!src.Active())
 		return 0;
 	Store& s = S();
-	const std::vector<CamMarker>& mk = CameraPathRef().Markers();
+	const std::vector<CamMarker>& mk = PathShakeHost_Markers();
 	int written = 0;
 	for (const CamMarker& m : mk) {
 		auto it = s.byTick.find(m.tick);
@@ -634,18 +630,16 @@ bool CamPathShake_ApplyToView(
 	// `owner.freeCam`. So a filmmaker dolly shot resolves to ShakeCamMode::FreeCam, the check
 	// never matched, and the shake never ran once.
 	//
-	// The authoritative question is "is the dolly driving the view right now?", and CameraPath
-	// answers it directly: CurrentPathTick() succeeds only while playing or scrubbing, which is
-	// exactly when the pose in x/y/z/pitch/yaw/roll came from the path.
+	// The authoritative question is "is the dolly driving the view right now?", and the camera path
+	// answers it directly (PathShakeHost_PathTick): it succeeds only while the path plays or scrubs,
+	// or a render evaluates it, which is exactly when the pose in x/y/z/pitch/yaw/roll came from the path.
 	double lookupTick = 0.0;
 	// A looked-through camera object outranks the path (scene-object-rigs.md): its own track shakes
 	// it at the scene keys' tick -- the tick its pose keys use, so scrubbing and rendering agree --
 	// and the path's shake never reaches it.
 	const int owner = sceneCamera > 0 ? sceneCamera : 0;
-	if (owner) lookupTick = SceneKeys_AppliedTick();
-	// During a Camera Path render the job drives the path itself and the editor is not playing,
-	// so CurrentPathTick() is false there: take the tick the render is evaluating instead.
-	else if (!CameraPathRef().CurrentPathTick(lookupTick) && !Render_PathCameraTick(lookupTick))
+	if (owner) lookupTick = PathShakeHost_ObjectTick();
+	else if (!PathShakeHost_PathTick(lookupTick))
 		return false;
 
 	// EVERYTHING below runs on the view thread, so it touches only the published snapshot and
@@ -683,7 +677,7 @@ bool CamPathShake_ApplyToView(
 
 void CamPathShake_AppendDockJson(std::ostringstream& o) {
 	Store& s = S();
-	const std::vector<CamMarker>& mk = CameraPathRef().Markers();
+	const std::vector<CamMarker>& mk = PathShakeHost_Markers();
 	auto key = [&o](int tick, const CamPathShakeSetting& k) {
 		o << "\"t\":" << tick << ",\"s\":" << k.style << ",\"l\":\"" << (k.Stop() ? "Stop" : RageShake_StyleLabel(k.style))
 			<< "\",\"n\":" << k.intensity << ",\"p\":" << k.speed
@@ -730,7 +724,7 @@ void CamPathShake_AppendDockJson(std::ostringstream& o) {
 
 std::string CamPathShake_StateJsonArray() {
 	Store& s = S();
-	const std::vector<CamMarker>& mk = CameraPathRef().Markers();
+	const std::vector<CamMarker>& mk = PathShakeHost_Markers();
 	std::ostringstream o;
 	o << "[";
 	bool first = true;

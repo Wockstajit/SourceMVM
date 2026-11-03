@@ -94,6 +94,15 @@ class DebugLogArchiveTests(unittest.TestCase):
             with self.subTest(header=header):
                 self.assert_rejected(header + b"event\n" + FOOTER)
 
+    def test_process_and_session_suffix_keeps_the_verified_start_time(self):
+        name="mvm_debug_20261012_150001_p1234_s0002.log"
+        path=self.folder/name
+        data=HEADER+b"[event]\n"+FOOTER
+        path.write_bytes(data)
+        result=archive.archive_log(path)
+        self.assertEqual(gzip.decompress(path.with_name(name+".gz").read_bytes()),data)
+        self.assertEqual(result["sha256"],hashlib.sha256(data).hexdigest())
+
     def test_filename_and_date_must_be_explicit_and_valid(self):
         data = self.fixture()
         for name in ("active.log", "mvm_debug_20261012_150001.log.gz", "mvm_debug_20260230_150001.log", "mvm_debug_20261012_250001.log", "mvm_debug_*.log"):

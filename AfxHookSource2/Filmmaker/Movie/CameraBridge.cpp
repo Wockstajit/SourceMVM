@@ -71,6 +71,13 @@ namespace Filmmaker {
 		outFov = g_MirvInputEx.LastCameraFov;
 	}
 
+	void CameraBridge_GetDemoClock(double& outDemoTime, int& outDemoTick) {
+		outDemoTime = 0.0;
+		outDemoTick = 0;
+		g_MirvTime.GetCurrentDemoTime(outDemoTime);
+		g_MirvTime.GetCurrentDemoTick(outDemoTick);
+	}
+
 	void CameraBridge_SetCameraPose(double x, double y, double z,
 		double pitch, double yaw, double roll, double fov) {
 		MirvInput* mi = g_MirvInputEx.m_MirvInput;

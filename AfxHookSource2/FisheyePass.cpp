@@ -2,6 +2,8 @@
 #include "Filmmaker/Debug/GpuPassProfiler.h"
 
 #include "FisheyePass.h"
+#include "Filmmaker/Lens/FisheyeMath.h"
+#include <cstring>
 
 #include "AfxShaders.h"
 #include "WrpConsole.h" // advancedfx::Message (outcome-change diagnostics)
@@ -13,11 +15,6 @@
 #include <DirectXMath.h>
 
 namespace {
-
-// Reference distortion at strength 1.0 — tuned for a subtle GoPro-style wide-lens
-// look. strength scales both linearly.
-constexpr float kBaseK1 = 0.22f;
-constexpr float kBaseK2 = 0.10f;
 
 // Same 52-byte vertex layout afx_drawtexture_vs_5_0 expects (POSITION + COLOR + 3x TEXCOORD).
 // Only POSITION (NDC) and TEXCOORD0.xy (UV) are filled; the rest is padding the VS ignores.
@@ -312,10 +309,9 @@ void CFisheyePass::Apply(ID3D11DeviceContext* pImmediateContext, ID3D11RenderTar
 	// 2. Update the distortion constants for this frame.
 	{
 		PS_CONSTANT_BUFFER cb = {};
-		cb.k1 = kBaseK1 * strength;
-		cb.k2 = kBaseK2 * strength;
-		cb.aspect = bbDesc.Height > 0 ? (float)bbDesc.Width / (float)bbDesc.Height : 1.0f;
-		cb.unused = 0.0f;
+        const auto values=Filmmaker::Lens::FisheyeParameters(bbDesc.Width,bbDesc.Height,strength);
+        static_assert(sizeof(cb)==sizeof(values),"fisheye constants are one float4");
+        std::memcpy(&cb,values.data(),sizeof(cb));
 		m_DeviceContext->UpdateSubresource(m_PsConstantBuffer, 0, nullptr, &cb, 0, 0);
 	}
 

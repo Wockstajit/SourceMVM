@@ -138,8 +138,10 @@ test('the dock mode is shared state, not a panel-private copy', () => {
   // The shared per-tab dock heights (Docs/features/camera-editor-feature.md) have to live with the mode that selects them.
   const impl = fs.readFileSync(
     new URL('../../AfxHookSource2/Filmmaker/Movie/TimelineDock.cpp', import.meta.url), 'utf8');
-  for (const h of ['126', '476']) {
-    assert.match(impl, new RegExp('= ' + h + ';'), 'dock height ' + h + ' is missing');
+  // The numbers are public in the header (the CS:S hook lays out with them); the module uses them.
+  for (const [name, h] of [['kTimelineDockHeightNative', '126'], ['kTimelineDockHeightTimeline', '476']]) {
+    assert.match(header, new RegExp(name + ' = ' + h + ';'), 'dock height ' + h + ' is missing');
+    assert.match(impl, new RegExp('= ' + name + ';'), name + ' is not what TimelineDock.cpp uses');
   }
   const editorHud = fs.readFileSync(
     new URL('../../AfxHookSource2/Filmmaker/Panorama/CameraEditorHud.h', import.meta.url), 'utf8');

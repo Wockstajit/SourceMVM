@@ -132,7 +132,8 @@ Check 'G/game-mouse mode releases graph camera drive' ($gameMouse -and -not $gam
 Send 'mirv_filmmaker camtl cursor on' | Out-Null
 $uiMouse = Read-EditorState
 Check 'UI mouse mode restores cursor' ($uiMouse -and $uiMouse.cursor)
-Check 'UI mouse mode restores graph drive' ($uiMouse -and $uiMouse.graphDrive)
+# Handing the cursor back never re-arms the graph's camera drive (CameraEditor_SetCursorMode).
+Check 'UI mouse mode leaves graph drive off' ($uiMouse -and -not $uiMouse.graphDrive)
 
 Send 'mirv_filmmaker follow reposition' | Out-Null
 $reposition = Read-State
@@ -143,7 +144,7 @@ Send 'mirv_filmmaker follow repositioncancel' | Out-Null
 $afterCancel = Read-State
 $afterCancelEditor = Read-EditorState
 Check 'Reposition cancel exits placement mode' ($afterCancel -and -not $afterCancel.repositioning)
-Check 'Reposition cancel restores normal editor mouse' ($afterCancelEditor -and $afterCancelEditor.cursor -and $afterCancelEditor.graphDrive)
+Check 'Reposition cancel restores normal editor mouse' ($afterCancelEditor -and $afterCancelEditor.cursor -and -not $afterCancelEditor.graphDrive)
 
 $previewOutput = Send 'mirv_filmmaker follow preview' 0.8
 $telemetry = Drain 1.5

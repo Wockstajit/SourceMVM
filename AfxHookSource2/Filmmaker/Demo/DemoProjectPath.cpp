@@ -95,7 +95,8 @@ std::wstring ReadProjectDemoPath(const std::filesystem::path& projectFile) {
 	ProjectFile file;
 	std::string error;
 	if (!DecodeProjectFile(bytes.data(), bytes.size(), ProjectGame::Cs2, file, error)
-		&& !DecodeProjectFile(bytes.data(), bytes.size(), ProjectGame::Deadlock, file, error))
+		&& !DecodeProjectFile(bytes.data(), bytes.size(), ProjectGame::Deadlock, file, error)
+		&& !DecodeProjectFile(bytes.data(), bytes.size(), ProjectGame::Css, file, error))
 		return {};
 	const ProjectFileSection* info = FindProjectSection(file, kProjectFileInfoTag);
 	if (!info) return {};
@@ -122,6 +123,27 @@ std::wstring ResolveDemoProjectPath(const std::wstring& playingDemoPath) {
 	if (!original.empty() && MarkerMatchesSource(original, playingDemoPath))
 		return original;
 	return playingDemoPath;
+}
+
+std::wstring CanonicalDemoPath(const std::wstring& path) {
+	if (path.empty()) return path;
+	HANDLE h = CreateFileW(path.c_str(), 0,
+		FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+		OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+	if (h != INVALID_HANDLE_VALUE) {
+		wchar_t buf[1024];
+		DWORD n = GetFinalPathNameByHandleW(h, buf, 1024, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+		CloseHandle(h);
+		if (n > 0 && n < 1024) {
+			std::wstring r(buf, n);
+			if (0 == r.compare(0, 4, L"\\\\?\\")) r.erase(0, 4); // strip the long-path prefix
+			return r;
+		}
+	}
+	wchar_t full[1024];
+	DWORD n = GetFullPathNameW(path.c_str(), 1024, full, nullptr);
+	if (n > 0 && n < 1024) return std::wstring(full, n);
+	return path;
 }
 
 } // namespace Filmmaker

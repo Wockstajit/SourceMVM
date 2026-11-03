@@ -45,8 +45,14 @@ int RenderRange::FrameCount(int outputFps, double demoTickRate) const {
 
 	const double roundedRate = std::round(demoTickRate);
 
-	if (std::abs(demoTickRate - roundedRate) > 0.001)
-		return 0;
+	// A tick rate that is not whole (CS:S's 66.67, a 0.015 s tick): frames = ceil(ticks * fps / rate),
+	// in floating point with the rounding error a whole number of frames picks up kept out of the ceil.
+	if (std::abs(demoTickRate - roundedRate) > 0.001) {
+		const double exact = static_cast<double>(ticks) * outputFps / demoTickRate;
+		if (!(exact > 0.0) || exact > static_cast<double>(INT_MAX))
+			return 0;
+		return static_cast<int>(std::ceil(exact - 1e-6));
+	}
 
 	const int64_t tickRate = static_cast<int64_t>(roundedRate);
 

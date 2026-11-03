@@ -3,6 +3,7 @@
 #include "AspectRatioMath.h"
 #include "EngineVideoMode.h"
 #include "Sdl3Window.h"
+#include "WindowGeometry.h" // client size, frame insets, the Shift snap and the card's text, shared with CS:S
 #include "WindowSizeOverlay.h"
 #include "WindowSnapMath.h"
 #include "WindowPrecisionGuard.h" // Shift-drag vs Windows Snap: whose rect wins
@@ -122,146 +123,24 @@ constexpr int kCommitCooldownFrames = 240;  // ~4s: a video-mode change is not i
 constexpr int kVideoModeRetryFrames = 180;  // ~3s waiting for a UI context before falling back
 constexpr unsigned long long kStyleCheckIntervalMs = 500;
 
-// UTF-8 byte sequences, written out so the file's source charset can never change what ships.
-const char* const kTimesSign = "\xC3\x97";      // U+00D7 MULTIPLICATION SIGN
-const char* const kMiddleDot = "\xC2\xB7";      // U+00B7 MIDDLE DOT
-const char* const kAlmostEqual = "\xE2\x89\x88"; // U+2248 ALMOST EQUAL TO
-
 HWND GameWindow() {
 	if (s_hwnd)
 		return s_hwnd;
 	return g_UiCursorProbe.hwnd;
 }
 
-bool ClientSizeOf(HWND hwnd, int& outW, int& outH) {
-	RECT client = {};
-	if (!hwnd || !GetClientRect(hwnd, &client))
-		return false;
-	outW = client.right - client.left;
-	outH = client.bottom - client.top;
-	return outW > 0 && outH > 0;
-}
-
-// The non-client border thickness on each side, measured from the live window. Needed to turn the
-// WINDOW rect that WM_SIZING carries into the CLIENT rect the user actually cares about, and back.
-struct FrameInsets { int left = 0, top = 0, right = 0, bottom = 0; };
-
-bool GetFrameInsets(HWND hwnd, FrameInsets& out) {
-	RECT window = {};
-	RECT client = {};
-	POINT clientOrigin = { 0, 0 };
-	if (!hwnd || !GetWindowRect(hwnd, &window) || !GetClientRect(hwnd, &client)
-		|| !ClientToScreen(hwnd, &clientOrigin))
-		return false;
-	out.left = clientOrigin.x - window.left;
-	out.top = clientOrigin.y - window.top;
-	out.right = window.right - (clientOrigin.x + (client.right - client.left));
-	out.bottom = window.bottom - (clientOrigin.y + (client.bottom - client.top));
-	return true;
-}
-
-bool ClientCenterOf(HWND hwnd, int& outX, int& outY) {
-	RECT client = {};
-	POINT origin = { 0, 0 };
-	if (!hwnd || !GetClientRect(hwnd, &client) || !ClientToScreen(hwnd, &origin))
-		return false;
-	outX = origin.x + (client.right - client.left) / 2;
-	outY = origin.y + (client.bottom - client.top) / 2;
-	return true;
-}
-
-// Which axis leads while this edge is dragged. The dragged axis is kept and the other is derived,
-// so a snap follows the mouse on the edge under the cursor instead of fighting it.
-SnapAxis AxisForEdge(unsigned long long edge) {
-	switch (edge) {
-	case WMSZ_TOP:
-	case WMSZ_BOTTOM:
-		return SnapAxis::KeepHeight;
-	default:
-		return SnapAxis::KeepWidth;
-	}
-}
-
-// Writes a client size back into the proposed WINDOW rect, keeping the edges the user is NOT
-// dragging pinned. Dragging the left edge has to grow leftwards, not drag the whole window right.
-void ApplyClientSizeToWindowRect(unsigned long long edge, const FrameInsets& insets,
-	int clientWidth, int clientHeight, RECT& rect) {
-	const int windowWidth = clientWidth + insets.left + insets.right;
-	const int windowHeight = clientHeight + insets.top + insets.bottom;
-
-	switch (edge) {
-	case WMSZ_LEFT:
-	case WMSZ_TOPLEFT:
-	case WMSZ_BOTTOMLEFT:
-		rect.left = rect.right - windowWidth;
-		break;
-	default:
-		rect.right = rect.left + windowWidth;
-		break;
-	}
-
-	switch (edge) {
-	case WMSZ_TOP:
-	case WMSZ_TOPLEFT:
-	case WMSZ_TOPRIGHT:
-		rect.top = rect.bottom - windowHeight;
-		break;
-	default:
-		rect.bottom = rect.top + windowHeight;
-		break;
-	}
-}
-
-std::string FormatSize(int width, int height) {
-	char buf[64];
-	snprintf(buf, sizeof(buf), "%d %s %d", width, kTimesSign, height);
-	return buf;
-}
-
-// The second line of the card. Three shapes, in decreasing order of how satisfying they are:
-//   exact table hit          -> "16:9 . Widescreen HD"
-//   exact but unnamed ratio  -> "7:5 . closest 1.43:1 (-2.1%)"
-//   nothing exact            -> "~ 16:9 . Widescreen HD (+0.4%)"
-std::string FormatAspect(const AspectMatch& match) {
-	if (!match.valid || !match.entry)
-		return std::string();
-
-	char buf[192];
-	if (match.exact) {
-		snprintf(buf, sizeof(buf), "%s %s %s", match.entry->label, kMiddleDot, match.entry->name);
-		return buf;
-	}
-	if (match.reducedWidth > 0 && match.reducedHeight > 0) {
-		snprintf(buf, sizeof(buf), "%d:%d %s closest %s (%+.1f%%)",
-			match.reducedWidth, match.reducedHeight, kMiddleDot,
-			match.entry->label, match.errorPercent);
-		return buf;
-	}
-	snprintf(buf, sizeof(buf), "%s %s %s %s (%+.1f%%)",
-		kAlmostEqual, match.entry->label, kMiddleDot, match.entry->name, match.errorPercent);
-	return buf;
-}
-
 // `note` is appended to the aspect line: the live snap state, or the hint that Shift can snap.
 void ShowOverlayAt(HWND hwnd, int centerX, int centerY, int width, int height, const char* note) {
 	if (!s_overlayEnabled || width <= 0 || height <= 0)
 		return;
-	const AspectMatch match = AspectRatio_Match(width, height);
-	std::string secondary = FormatAspect(match);
-	if (note && *note) {
-		secondary += ' ';
-		secondary += kMiddleDot;
-		secondary += ' ';
-		secondary += note;
-	}
-	WindowSizeOverlay_Show(hwnd, centerX, centerY, FormatSize(width, height), secondary);
+	WindowSizeOverlay_Show(hwnd, centerX, centerY, FormatWindowSize(width, height), FormatWindowReadout(width, height, note));
 }
 
 // For the paths where the window already IS the size being reported (maximise, restore, the
 // engine's own resize, the console test): centre on the live client rect.
 void ShowOverlayCentered(HWND hwnd, int width, int height, const char* note) {
 	int centerX = 0, centerY = 0;
-	if (!ClientCenterOf(hwnd, centerX, centerY))
+	if (!WindowClientCenter(hwnd, centerX, centerY))
 		return;
 	ShowOverlayAt(hwnd, centerX, centerY, width, height, note);
 }
@@ -344,7 +223,7 @@ bool ReassertThroughSdl(int width, int height) {
 	s_commitCooldownFrames = kCommitCooldownFrames;
 
 	int currentW = 0, currentH = 0;
-	if (ClientSizeOf(GameWindow(), currentW, currentH) && currentW == width && currentH == height) {
+	if (WindowClientSize(GameWindow(), currentW, currentH) && currentW == width && currentH == height) {
 		if (!Sdl3_SetWindowSize(window, width, height + 2))
 			return false;
 		Sdl3_SyncWindow(window);
@@ -546,42 +425,6 @@ void PumpApplyStyle() {
 			(unsigned long long)flags);
 }
 
-double ParseRatio(const char* text) {
-	if (!text || !*text)
-		return 0.0;
-	// Accept "2.39", "16:9" and "16x9".
-	const char* separator = strpbrk(text, ":xX/");
-	if (separator) {
-		const double numerator = atof(text);
-		const double denominator = atof(separator + 1);
-		if (numerator > 0.0 && denominator > 0.0)
-			return numerator / denominator;
-		return 0.0;
-	}
-	const double value = atof(text);
-	return value > 0.0 ? value : 0.0;
-}
-
-// Accepts a table label ("16:9", "2.39:1", "2.39") as well as a bare number.
-double ResolveRatioArgument(const char* text) {
-	std::size_t count = 0;
-	const AspectRatioEntry* table = AspectRatio_Table(count);
-	for (std::size_t i = 0; i < count; ++i) {
-		if (0 == _stricmp(text, table[i].label))
-			return table[i].ratio;
-	}
-	return ParseRatio(text);
-}
-
-const char* SnapModeName(WindowSnapMode mode) {
-	switch (mode) {
-	case WindowSnapMode::Both: return "both (ratio + standard resolutions)";
-	case WindowSnapMode::Ratio: return "ratio";
-	case WindowSnapMode::Resolution: return "resolution";
-	default: return "off";
-	}
-}
-
 const char* CommitName(WindowResizeCommit commit) {
 	switch (commit) {
 	case WindowResizeCommit::VideoMode: return "videomode (BROKEN on this build -- falls back to sdl)";
@@ -700,7 +543,7 @@ void WindowResize_OnWindowMessage(void* hwndRaw, unsigned msg, unsigned long lon
 		s_lastNote[0] = 0;
 		PrecisionGuard_Release(s_precision);
 		s_precisionDefends = 0;
-		ClientSizeOf(hwnd, s_modalEnterW, s_modalEnterH);
+		WindowClientSize(hwnd, s_modalEnterW, s_modalEnterH);
 		LogSize("modal enter", s_modalEnterW, s_modalEnterH);
 		break;
 	}
@@ -709,35 +552,16 @@ void WindowResize_OnWindowMessage(void* hwndRaw, unsigned msg, unsigned long lon
 		RECT* proposed = (RECT*)(INT_PTR)lParam;
 		if (!proposed)
 			break;
-		FrameInsets insets;
-		if (!GetFrameInsets(hwnd, insets))
+		// Shift-to-snap edits the proposed rect in place; the message still goes on to SDL and
+		// DefWindowProc, which apply their own minimum-size clamp on top, so SDL's bookkeeping stays
+		// correct.
+		const WindowSizingStep step = WindowSizing(hwnd, wParam, *proposed, s_snapMode, kMinClientW, kMinClientH);
+		if (!step.valid)
 			break;
-		int width = (proposed->right - proposed->left) - insets.left - insets.right;
-		int height = (proposed->bottom - proposed->top) - insets.top - insets.bottom;
-		if (width <= 0 || height <= 0)
-			break;
-
-		// Shift-to-snap. Constraining a resize on Windows means editing the proposed rect in
-		// place; the message still goes on to SDL and DefWindowProc, which apply their own
-		// minimum-size clamp on top, so SDL's bookkeeping stays correct.
-		char note[64] = { 0 };
-		const bool shiftHeld = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-		if (shiftHeld && s_snapMode != WindowSnapMode::Off) {
-			const SnapResult snap = WindowSnap_Solve(width, height, AxisForEdge(wParam),
-				s_snapMode != WindowSnapMode::Resolution,
-				s_snapMode != WindowSnapMode::Ratio);
-			if (snap.valid && snap.width >= kMinClientW && snap.height >= kMinClientH) {
-				width = snap.width;
-				height = snap.height;
-				ApplyClientSizeToWindowRect(wParam, insets, width, height, *proposed);
-				if (snap.snappedResolution && snap.resolutionLabel)
-					snprintf(note, sizeof(note), "SNAP %s", snap.resolutionLabel);
-				else
-					snprintf(note, sizeof(note), "SNAP");
-			}
-		} else if (!shiftHeld) {
-			snprintf(note, sizeof(note), "SHIFT to snap");
-		}
+		const int width = step.width;
+		const int height = step.height;
+		const bool shiftHeld = step.shiftHeld;
+		const char* note = step.note;
 
 		s_clientW = width;
 		s_clientH = height;
@@ -753,9 +577,7 @@ void WindowResize_OnWindowMessage(void* hwndRaw, unsigned msg, unsigned long lon
 
 		// Centre on the rect Windows is ABOUT to apply, not the one it still has: dragging a left
 		// or top edge moves the origin too, so the live rect would leave the card lagging.
-		const int centerX = proposed->left + insets.left + width / 2;
-		const int centerY = proposed->top + insets.top + height / 2;
-		ShowOverlayAt(hwnd, centerX, centerY, width, height, note);
+		ShowOverlayAt(hwnd, step.centerX, step.centerY, width, height, note);
 		snprintf(s_lastNote, sizeof(s_lastNote), "%s", note);
 		LogSize(shiftHeld ? "sizing (snap)" : "sizing", width, height);
 		break;
@@ -883,7 +705,7 @@ void WindowResize_OnWindowMessage(void* hwndRaw, unsigned msg, unsigned long lon
 			break;
 		FrameInsets insets;
 		int width = 0, height = 0;
-		if (!GetFrameInsets(hwnd, insets) || !ClientSizeOf(hwnd, width, height))
+		if (!WindowFrameInsets(hwnd, insets) || !WindowClientSize(hwnd, width, height))
 			break;
 		// A move does not change the size, so the live client size is the right one; only the
 		// origin comes from the rect Windows is about to apply.
@@ -898,7 +720,7 @@ void WindowResize_OnWindowMessage(void* hwndRaw, unsigned msg, unsigned long lon
 		if (!WindowSizeOverlay_Visible())
 			break;
 		int centerX = 0, centerY = 0;
-		if (!ClientCenterOf(hwnd, centerX, centerY))
+		if (!WindowClientCenter(hwnd, centerX, centerY))
 			break;
 		WindowSizeOverlay_MoveTo(centerX, centerY);
 		break;
@@ -912,7 +734,7 @@ void WindowResize_OnWindowMessage(void* hwndRaw, unsigned msg, unsigned long lon
 		s_resizedInModalLoop = false;
 
 		int width = 0, height = 0;
-		if (ClientSizeOf(hwnd, width, height)) {
+		if (WindowClientSize(hwnd, width, height)) {
 			s_clientW = width;
 			s_clientH = height;
 		}
@@ -994,7 +816,7 @@ bool WindowResize_Enabled() {
 }
 
 bool WindowResize_GetClientSize(int& outWidth, int& outHeight) {
-	return ClientSizeOf(GameWindow(), outWidth, outHeight);
+	return WindowClientSize(GameWindow(), outWidth, outHeight);
 }
 
 void WindowResize_SetEnabled(bool enabled) {
@@ -1013,14 +835,14 @@ std::string WindowResize_Describe() {
 	const unsigned long long flags = window ? Sdl3_GetWindowFlags(window) : 0ull;
 
 	int clientW = 0, clientH = 0;
-	ClientSizeOf(hwnd, clientW, clientH);
+	WindowClientSize(hwnd, clientW, clientH);
 	const AspectMatch match = AspectRatio_Match(clientW, clientH);
 
 	out << "mirv_filmmaker window:\n";
 	out << "  resizable      : " << (s_enabled ? "ON" : "off")
 		<< " (style re-applied " << s_styleReapplies << " times this session)\n";
 	out << "  overlay        : " << (s_overlayEnabled ? "ON" : "off") << "\n";
-	out << "  shift snap     : " << SnapModeName(s_snapMode) << "\n";
+	out << "  shift snap     : " << WindowSnapModeName(s_snapMode) << "\n";
 	// Only interesting after a drag, and 0 is the answer you want: it means Windows Snap never
 	// tried to take a precision drag away (or you never held Shift near a screen edge).
 	out << "  snaps refused  : " << s_precisionDefends << " (last Shift drag)" << "\n";
@@ -1040,7 +862,7 @@ std::string WindowResize_Describe() {
 		char line[192];
 		snprintf(line, sizeof(line), "  client size    : %dx%d (%.4f)\n", clientW, clientH, match.ratio);
 		out << line;
-		out << "  aspect         : " << FormatAspect(match) << "\n";
+		out << "  aspect         : " << FormatWindowAspect(match) << "\n";
 	}
 
 	unsigned swapWidth = 0, swapHeight = 0;
@@ -1110,14 +932,14 @@ void WindowResize_RunCommand(int argc, advancedfx::ICommandArgs* args, const cha
 				"width and sets the height.\n", cmd);
 			return;
 		}
-		const double ratio = ResolveRatioArgument(args->ArgV(3));
+		const double ratio = ResolveWindowRatioArgument(args->ArgV(3));
 		if (!(ratio > 0.0)) {
 			advancedfx::Warning("%s window: could not read an aspect ratio from \"%s\". "
 				"Try \"%s window ratios\".\n", cmd, args->ArgV(3), cmd);
 			return;
 		}
 		int clientW = 0, clientH = 0;
-		if (!ClientSizeOf(GameWindow(), clientW, clientH)) {
+		if (!WindowClientSize(GameWindow(), clientW, clientH)) {
 			advancedfx::Warning("%s window: no game window yet.\n", cmd);
 			return;
 		}
@@ -1147,7 +969,7 @@ void WindowResize_RunCommand(int argc, advancedfx::ICommandArgs* args, const cha
 	if (0 == _stricmp(sub, "overlay")) {
 		if (argc >= 4 && 0 == _stricmp(args->ArgV(3), "test")) {
 			int clientW = 0, clientH = 0;
-			ClientSizeOf(GameWindow(), clientW, clientH);
+			WindowClientSize(GameWindow(), clientW, clientH);
 			if (clientW > 0) {
 				ShowOverlayCentered(GameWindow(), clientW, clientH, "SHIFT to snap");
 				WindowSizeOverlay_HideAfter(2000);
@@ -1169,18 +991,13 @@ void WindowResize_RunCommand(int argc, advancedfx::ICommandArgs* args, const cha
 
 	if (0 == _stricmp(sub, "snap")) {
 		if (argc >= 4) {
-			const char* value = args->ArgV(3);
-			if (0 == _stricmp(value, "both") || 0 == _stricmp(value, "on")) s_snapMode = WindowSnapMode::Both;
-			else if (0 == _stricmp(value, "ratio")) s_snapMode = WindowSnapMode::Ratio;
-			else if (0 == _stricmp(value, "resolution") || 0 == _stricmp(value, "res")) s_snapMode = WindowSnapMode::Resolution;
-			else if (0 == _stricmp(value, "off")) s_snapMode = WindowSnapMode::Off;
-			else {
+			if (!ParseWindowSnapMode(args->ArgV(3), s_snapMode)) {
 				advancedfx::Warning("%s window: snap takes both | ratio | resolution | off.\n", cmd);
 				return;
 			}
 		}
 		advancedfx::Message("%s window: hold SHIFT while dragging to snap -- mode %s.\n",
-			cmd, SnapModeName(s_snapMode));
+			cmd, WindowSnapModeName(s_snapMode));
 		return;
 	}
 

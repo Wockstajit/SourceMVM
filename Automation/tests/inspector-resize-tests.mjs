@@ -18,6 +18,8 @@ const pan = (name) =>
 
 const widthH = pan('InspectorWidth.h');
 const widthCpp = pan('InspectorWidth.cpp');
+// The numbers live in the engine-free header InspectorWidth.cpp and the CS:S hook both use.
+const widthMath = pan('InspectorWidthMath.h');
 const grip = pan('InspectorResizeJs.h');
 const config = pan('ConfigHudJs.h');
 const editor = pan('CameraEditorJs.h');
@@ -59,8 +61,9 @@ test('no panel keeps a private hard-coded column width', () => {
 test('the three surfaces share one floor and one screen cap', () => {
   // C++ and both JS copies must agree, or the column, the preview and the docked bar disagree
   // about where the edge is on a screen too narrow for the stored width.
-  assert.match(widthCpp, /kMin = 600\.0/);
-  assert.match(widthCpp, /kMaxScreenFraction = 0\.62/);
+  assert.match(widthMath, /kMin = 600\.0/);
+  assert.match(widthMath, /kMaxScreenFraction = 0\.62/);
+  assert.match(widthCpp, /InspectorWidthMath::Resolve\(InspectorWidth_Get\(\), screenW\)/);
   for (const [name, src] of [['CameraEditorJs.h', editor], ['CameraTimelineJs.h', timeline]]) {
     assert.match(src, /screenW \* 0\.62/, `${name}: screen cap must match InspectorWidth.h`);
     assert.match(src, /Math\.max\(600,/, `${name}: floor must match InspectorWidth.h`);

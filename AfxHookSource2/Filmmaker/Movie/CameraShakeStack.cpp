@@ -1,38 +1,23 @@
 #include "CameraShakeStack.h"
 
 #include "CameraCenterLockMath.h"
+#include "CameraShakeHost.h" // what this asks the game: the watched player, the demo clock, the gun channel
 #include "CameraShakePhaseClockMath.h" // phase-locked oscillator clock over the demo clock
 #include "CameraShakeTrackerMath.h"    // is this sample continuous, or a cut?
 #include "FollowCameraMath.h" // FollowRotateVector: camera-basis offset -> world
 #include "HandheldCam.h"
-#include "ViewFxVm.h" // ViewFxVm_SetWeaponKick: Weapon Recoil's viewmodel transform channel
 #include "RecoilPivotMarker.h" // pivot marker: where the gun hinges, drawn in the world
 #include "WeaponRecoil.h"
 #include "WeaponBob.h"
-#include "DemoTimescale.h"
 #include "WeaponPivot.h" // the two independent hinges (recoil / bob)
-#include "../MvmTest.h"  // offline live-match harness: a loaded map with no demo
 
 #include "../Debug/MvmDebugLog.h"
-#include "../Platform/JsonParser.h"
-#include "../../ClientEntitySystem.h" // AfxGetSpectatedUserId
-#include "../Cosmetics/CosmeticEntityAccess.h" // CosmeticEntFromIndex: reach the firing weapon
-#include "../../SchemaSystem.h" // C_BasePlayerWeapon::m_iClip1 -- did a bullet actually leave?
 #include "GunWeaponMath.h"
-#include "../../MirvTime.h"          // GetCurrentDemoTick: the shot de-dup discriminator
 #include "../../../Shared/AfxConsole.h"
 
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
-
-// Recorder state, from RenderSystemDX11Hooks.cpp. While a capture runs the oscillator clock is
-// locked to the demo dt so the output never depends on wall time.
-bool AfxStreams_IsRcording();
-#include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
-#include "../../../Deps/release/prop/cs2/sdk_src/public/igameevents.h"
-#include "../../../Deps/release/prop/cs2/sdk_src/public/tier1/utlstring.h"
 
 #include <atomic>
 #include <cmath>
@@ -41,8 +26,6 @@ bool AfxStreams_IsRcording();
 #include <cctype>
 #include <string>
 #include <sstream>
-
-extern SOURCESDK::CS2::ISource2EngineToClient* g_pEngineToClient;
 
 namespace Filmmaker {
 
@@ -146,7 +129,7 @@ ShakeInput Track(double now, double x, double y, double z, double pitch, double 
 		// Oscillators are the exception. Holding their phase here is what made the viewmodel
 		// repeat a frame and then jump -- at 110 fps against a 64-tick demo that is ~40% of
 		// frames. They get a subdivided step instead, which still sums to this tick's own dt.
-		in.phaseDt = PhaseClockStep(g_tracker.phaseClock, 0.0, in.wallDt, AfxStreams_IsRcording());
+		in.phaseDt = PhaseClockStep(g_tracker.phaseClock, 0.0, in.wallDt, ShakeHost_Recording());
 		in.vx = g_tracker.velX; in.vy = g_tracker.velY;
 		in.vz = g_tracker.velZ;
 		in.speed = std::sqrt(g_tracker.velX * g_tracker.velX + g_tracker.velY * g_tracker.velY);
@@ -186,7 +169,7 @@ ShakeInput Track(double now, double x, double y, double z, double pitch, double 
 	in.dt = dt;
 	// Issue only what the held frames inside this tick have not already advanced, so the phase
 	// stays locked to demo time across every tick boundary.
-	in.phaseDt = PhaseClockStep(g_tracker.phaseClock, dt, in.wallDt, AfxStreams_IsRcording());
+	in.phaseDt = PhaseClockStep(g_tracker.phaseClock, dt, in.wallDt, ShakeHost_Recording());
 	in.vx = g_tracker.velX; in.vy = g_tracker.velY;
 	in.vz = g_tracker.velZ;
 	in.speed = std::sqrt(g_tracker.velX * g_tracker.velX + g_tracker.velY * g_tracker.velY);
@@ -220,39 +203,6 @@ bool ModeAllowed(ShakeCamMode mode) {
 
 // ---- game-event fan-in ---------------------------------------------------------------------
 
-typedef bool (*SaveKV3AsJSON_t)(const SOURCESDK::CS2::KeyValues3* kv,
-	SOURCESDK::CS2::CUtlString* error, SOURCESDK::CS2::CUtlString* output);
-
-SaveKV3AsJSON_t GetSaveKV3AsJSON() {
-	static bool s_tried = false;
-	static SaveKV3AsJSON_t s_fn = nullptr;
-	if (!s_tried) {
-		s_tried = true;
-		if (HMODULE tier0 = GetModuleHandleA("tier0.dll"))
-			s_fn = (SaveKV3AsJSON_t)GetProcAddress(tier0, "?SaveKV3AsJSON@@YA_NPEBVKeyValues3@@PEAVCUtlString@@1@Z");
-	}
-	return s_fn;
-}
-
-// One parse for both fields we care about. `weapon_fire` carries the firing player AND the
-// weapon; the KV3->JSON conversion is the expensive part, so reading them separately would pay
-// for it twice per shot.
-struct FireEvent {
-	int userId = -1;
-	std::string weapon;
-};
-bool ParseFireEvent(SOURCESDK::CS2::CGameEvent* event, FireEvent& out) {
-	SaveKV3AsJSON_t fn = GetSaveKV3AsJSON();
-	if (!fn) return false;
-	SOURCESDK::CS2::CUtlString error;
-	SOURCESDK::CS2::CUtlString text;
-	if (!fn(event->GetDataKeys(), &error, &text) || !text.Get()) return false;
-	JsonValue root;
-	if (!JsonParse(text.Get(), root) || root.type != JsonValue::Type::Object) return false;
-	if (const JsonValue* v = root.Find("userid")) out.userId = v->AsInt(-1);
-	if (const JsonValue* w = root.Find("weapon")) out.weapon = w->AsString("");
-	return true;
-}
 
 // Recoil is the camera's answer to a GUN going off: IsGunFire (GunWeaponMath.h) drops grenade
 // throws, knife swings and the other non-gun weapon_fire events.
@@ -300,201 +250,27 @@ bool IsDuplicate(unsigned long long signature) {
 	return false;
 }
 
-bool DemoIsLoaded() {
-	if (!g_pEngineToClient) return false;
-	// A PAUSED demo is still an active demo -- IsPlayingDemo() alone flips false on pause, which
-	// would drop every spring the moment the user hits pause to compose a shot.
-	if (auto pDemo = g_pEngineToClient->GetDemoFile())
-		return pDemo->IsPlayingDemo() || pDemo->IsDemoPaused();
-	return false;
-}
-
-// Is there a map loaded whose entity system can be walked? Demo playback OR the offline
-// live-match harness -- and NOT the main menu or a level load, where the reads below are
-// undefined. Broader than DemoIsLoaded() on purpose; see the note in CameraShake_RunFrame.
-bool EntityContextLive() {
-	if (DemoIsLoaded()) return true;
-	return MvmTest_Active() && MvmTest_LevelLoaded();
-}
-
-// ROUNDS IN THE SPECTATED PLAYER'S MAGAZINE, or -1 when it cannot be read.
-//
-// This is what makes "a bullet actually left the gun" answerable. CS2 raises weapon_fire off the
-// attack input, so a dry click on an empty magazine -- and the trailing clicks after a fast pistol
-// burst empties it -- raise the event exactly like a real shot does. The event alone therefore
-// cannot tell a shot from a click, and the camera kicked on both.
-//
-// -1 means "unknown", never "empty": the offset is optional (a CS2 rename resolves it to 0) and a
-// missing schema field must not silently swallow every real shot. Callers treat -1 as "allow".
-// outWeaponIndex receives the active weapon's entity index (-1 if unresolved) so the caller can
-// tell "same gun as the previous shot" from a weapon switch, which must never look like a dry fire.
-int SpectatedClipCount(int* outWeaponIndex = nullptr) {
-	if (outWeaponIndex) *outWeaponIndex = -1;
-	const ptrdiff_t clipOff = g_clientDllOffsets.C_BasePlayerWeapon.m_iClip1;
-	if (0 == clipOff) return -1;
-
-	const int pawnIndex = AfxGetSpectatedPawnIndex();
-	if (pawnIndex < 0) return -1;
-	CEntityInstance* pawn = CosmeticEntFromIndex(pawnIndex);
-	if (!pawn) return -1;
-
-	SOURCESDK::CS2::CBaseHandle wh = pawn->GetActiveWeaponHandle();
-	if (!wh.IsValid()) return -1;
-	const int weaponIndex = wh.GetEntryIndex();
-	CEntityInstance* weapon = CosmeticEntFromIndex(weaponIndex);
-	if (!weapon) return -1;
-	if (outWeaponIndex) *outWeaponIndex = weaponIndex;
-
-	// SEH: a stale entity pointer or a moved offset faults HERE and reads as "unknown" rather
-	// than taking the render thread down mid-shot.
-	int clip = -1;
-	__try {
-		clip = *(int*)((unsigned char*)weapon + clipOff);
-	} __except (EXCEPTION_EXECUTE_HANDLER) {
-		return -1;
-	}
-	// Weapons with no magazine (knife) report a negative sentinel; treat as unknown, not empty.
-	return clip < 0 ? -1 : clip;
-}
-
-// The classname of the gun the spectated player is HOLDING, e.g. "weapon_ak47".
-//
-// This is a second, independent answer to "which gun is this shot", and it exists because the
-// first one is not guaranteed. `weapon_fire`'s `weapon` field is optional in the KV3 payload:
-// when it is absent the recoil scope resolver gets an empty token, which matches no slot and no
-// type, so every Slot/Type override silently falls through to All. That reads exactly like the
-// scopes not working -- only "All weapons" ever appears to do anything.
-//
-// SEH-guarded for the same reason SpectatedClipCount is: a stale entity pointer or a moved
-// offset faults HERE and reads as "unknown" rather than taking the render thread down mid-shot.
-// Split in two so the __try half touches nothing that needs unwinding.
-bool SpectatedWeaponNameRaw(char* buf, size_t bufSize) {
-	buf[0] = 0;
-	const int pawnIndex = AfxGetSpectatedPawnIndex();
-	if (pawnIndex < 0) return false;
-	CEntityInstance* pawn = CosmeticEntFromIndex(pawnIndex);
-	if (!pawn) return false;
-	SOURCESDK::CS2::CBaseHandle wh = pawn->GetActiveWeaponHandle();
-	if (!wh.IsValid()) return false;
-	CEntityInstance* weapon = CosmeticEntFromIndex(wh.GetEntryIndex());
-	if (!weapon) return false;
-	__try {
-		const char* name = weapon->GetClassName();
-		if (name) {
-			size_t n = 0;
-			while (n + 1 < bufSize && name[n]) { buf[n] = name[n]; ++n; }
-			buf[n] = 0;
-		}
-	} __except (EXCEPTION_EXECUTE_HANDLER) {
-		buf[0] = 0;
-		return false;
-	}
-	return 0 != buf[0];
-}
-
-bool SpectatedWeaponName(std::string& out) {
-	char buf[64];
-	if (!SpectatedWeaponNameRaw(buf, sizeof(buf))) { out.clear(); return false; }
-	out = buf;
-	return true;
-}
-
-// ---- the viewed pawn's own movement state -------------------------------------------------
-//
-// AfxGetSpectatedPawnIndex matches a pawn's render eye to the game camera within 0.2 units, so it
-// only answers on frames where the eye has barely moved -- measured, it resolved on about half the
-// frames and almost only while standing, which is useless for movement state. The pawn being
-// watched does not change from one frame to the next, so this keeps hold of it: the previous pawn
-// stays the answer for as long as its eye is still near the camera, and the engine's resolver (or,
-// failing that, a scan for the pawn under the camera) is consulted only when it stops being so.
-constexpr float kBodyNearRadius = 96.f;    // eye-to-camera distance that still counts as "this pawn"
-constexpr float kBodyScanRadius = 24.f;    // a scan must be much stricter: any pawn could be in range
-int g_bodyPawn = -1;
-unsigned g_bodyScanCooldown = 0;
-
-bool PawnEyeNear(CEntityInstance* pawn, double x, double y, double z, float radius) {
-	if (!pawn || !pawn->IsPlayerPawn()) return false;
-	float o[3] = {};
-	pawn->GetRenderEyeOrigin(o);
-	const double dx = o[0] - x, dy = o[1] - y, dz = o[2] - z;
-	return dx * dx + dy * dy + dz * dz <= (double)radius * radius;
-}
-
-CEntityInstance* ResolveBodyPawn(double x, double y, double z) {
-	if (g_bodyPawn >= 0) {
-		CEntityInstance* held = CosmeticEntFromIndex(g_bodyPawn);
-		if (PawnEyeNear(held, x, y, z, kBodyNearRadius)) return held;
-		g_bodyPawn = -1;
-	}
-	int idx = AfxGetSpectatedPawnIndex();
-	CEntityInstance* pawn = idx >= 0 ? CosmeticEntFromIndex(idx) : nullptr;
-	if (!PawnEyeNear(pawn, x, y, z, kBodyNearRadius)) {
-		pawn = nullptr;
-		// A failed scan costs a walk over every player, so a camera that is not on any pawn (an
-		// attach shot) only pays for it a few times a second.
-		if (g_bodyScanCooldown > 0) { --g_bodyScanCooldown; return nullptr; }
-		g_bodyScanCooldown = 12;
-		const int highest = GetHighestEntityIndex();
-		for (int i = 0; i <= highest && !pawn; ++i) {
-			CEntityInstance* ent = CosmeticEntFromIndex(i);
-			if (PawnEyeNear(ent, x, y, z, kBodyScanRadius)) { pawn = ent; idx = i; }
-		}
-		if (!pawn) return nullptr;
-	}
-	g_bodyPawn = idx;
-	return pawn;
-}
-
-// FL_ONGROUND (bit 0) and FL_DUCKING (bit 1) of m_fFlags, plus m_vecVelocity.z. SEH-guarded like
-// every other raw pawn read: a schema offset that moved in an update faults here and reads as
-// "no body", not as a crash.
+// FL_ONGROUND and FL_DUCKING of the body under the camera, and its vertical speed. No body (an
+// attach shot, a dead player) reads as such rather than as "in the air", which would silence the bob.
 void SampleBody(ShakeInput& in) {
 	in.haveBody = false;
-	const ptrdiff_t offVel = g_clientDllOffsets.C_BaseEntity.m_vecVelocity;
-	const ptrdiff_t offFlags = g_clientDllOffsets.C_BaseEntity.m_fFlags;
-	if (!offVel || !offFlags) return;
-	CEntityInstance* pawn = ResolveBodyPawn(in.x, in.y, in.z);
-	if (!pawn) return;
-	__try {
-		const unsigned char* base = (const unsigned char*)pawn;
-		const unsigned flags = *(const unsigned*)(base + offFlags);
-		const float vz = *(const float*)(base + offVel + 2 * sizeof(float));
-		// A living pawn always carries some flag bits (a pawn in the air still reads 0x...80). All
-		// zero is a dead or not-yet-spawned pawn -- measured: 632 consecutive frames of flags 0,
-		// velocity 0 -- and "not on the ground" would silence the bob for it, so it counts as no body.
-		if (flags == 0) return;
-		in.onGround = (flags & 1u) != 0;
-		in.ducking = (flags & 2u) != 0;
-		in.bodyVz = vz;
-		in.haveBody = true;
-	} __except (EXCEPTION_EXECUTE_HANDLER) {
-		in.haveBody = false;
-	}
+	double velocity[3] = {};
+	bool onGround = false, ducking = false;
+	if (!ShakeHost_BodyAt(in.x, in.y, in.z, velocity, &onGround, &ducking)) return;
+	in.onGround = onGround;
+	in.ducking = ducking;
+	in.bodyVz = velocity[2];
+	in.haveBody = true;
 }
 
 } // namespace
 
 bool CameraShake_SpectatedWeapon(std::string& out) {
-	return SpectatedWeaponName(out);
+	return ShakeHost_SpectatedWeapon(out);
 }
 
 bool CameraShake_ViewedPawnMotion(double x, double y, double z, double outVel[3], bool* outOnGround) {
-	const ptrdiff_t offVel = g_clientDllOffsets.C_BaseEntity.m_vecVelocity;
-	const ptrdiff_t offFlags = g_clientDllOffsets.C_BaseEntity.m_fFlags;
-	if (!offVel || !offFlags) return false;
-	CEntityInstance* pawn = ResolveBodyPawn(x, y, z);
-	if (!pawn) return false;
-	__try {
-		const unsigned char* base = (const unsigned char*)pawn;
-		const unsigned flags = *(const unsigned*)(base + offFlags);
-		if (flags == 0) return false; // dead / unspawned
-		const float* v = (const float*)(base + offVel);
-		outVel[0] = v[0]; outVel[1] = v[1]; outVel[2] = v[2];
-		if (outOnGround) *outOnGround = (flags & 1u) != 0;
-		return true;
-	} __except (EXCEPTION_EXECUTE_HANDLER) {
-		return false;
-	}
+	return ShakeHost_BodyAt(x, y, z, outVel, outOnGround, nullptr);
 }
 
 // ============================== public API =========================================
@@ -528,7 +304,7 @@ void CameraShake_Reset() {
 	HandheldCamRef().Reset();
 	WeaponRecoilRef().Reset();
 	WeaponBobRef().Reset();
-	ViewFxVm_SetWeaponKick(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+	ShakeHost_SetWeaponKick(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 }
 
 bool CameraShake_Apply(
@@ -545,7 +321,7 @@ bool CameraShake_Apply(
 		// rather than integrating across however long it was off. The weapon kick is a
 		// replace-every-frame contract, so a skipped frame must also publish zero.
 		g_tracker.have = false;
-		ViewFxVm_SetWeaponKick(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+		ShakeHost_SetWeaponKick(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 		RecoilPivotMarker_ClearAll();
 		return false;
 	}
@@ -554,15 +330,15 @@ bool CameraShake_Apply(
 		// Gated. Invalidate the tracker so returning to POV/attach is a fresh sample -- a free
 		// cam fly-by must never poison the velocity estimate the modules read.
 		g_tracker.have = false;
-		ViewFxVm_SetWeaponKick(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+		ShakeHost_SetWeaponKick(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 		RecoilPivotMarker_ClearAll();
 		return false;
 	}
 
 	ShakeInput in = Track(curTime, x, y, z, pitch, yaw, roll);
-    auto* demo=g_pEngineToClient?g_pEngineToClient->GetDemoFile():nullptr;
-    in.aimDt=WeaponBobAimInterval(in.dt,in.wallDt,demo?DemoTimescale_Get():1.0,
-        AfxStreams_IsRcording(),demo&&demo->IsDemoPaused());
+    const bool demo=ShakeHost_DemoLoaded();
+    in.aimDt=WeaponBobAimInterval(in.dt,in.wallDt,demo?ShakeHost_DemoTimescale():1.0,
+        ShakeHost_Recording(),demo&&ShakeHost_DemoPaused());
 	if (!in.fresh) SampleBody(in);
 	if (MvmDebugLog_Active()) {
 		// Every frame, not throttled: the clock jitter this diagnoses is a per-frame pattern.
@@ -591,7 +367,7 @@ bool CameraShake_Apply(
 	ShakePose weaponRecoilCam = WeaponRecoilRef().Advance(in);
 	// Weapon Bob rides the same transport: recoil is an impulse response, bob is a continuous
 	// function of movement, and the two are summed HERE rather than in either module so
-	// ViewFxVm_SetWeaponKick keeps exactly one writer per frame.
+	// ShakeHost_SetWeaponKick keeps exactly one writer per frame.
 	ShakePose weaponBobCam = WeaponBobRef().Advance(in);
 	{
 		double wFwd = 0.0, wRight = 0.0, wUp = 0.0;
@@ -665,9 +441,9 @@ bool CameraShake_Apply(
 			const FollowAngles basis{ (double)pitch, (double)yaw, (double)roll };
 			const FollowVec3 world = FollowRotateVector(
 				FollowVec3{ wFwd, wRight, wUp }, basis);
-			ViewFxVm_SetWeaponKick(world.x, world.y, world.z, wPitch, wYaw, wRoll);
+			ShakeHost_SetWeaponKick(world.x, world.y, world.z, wPitch, wYaw, wRoll);
 		} else {
-			ViewFxVm_SetWeaponKick(0.0, 0.0, 0.0, wPitch, wYaw, wRoll);
+			ShakeHost_SetWeaponKick(0.0, 0.0, 0.0, wPitch, wYaw, wRoll);
 		}
 	}
 
@@ -717,10 +493,7 @@ bool CameraShake_Apply(
 	return true;
 }
 
-void CameraShake_OnGameEvent(SOURCESDK::CS2::CGameEvent* event) {
-	if (!event) return;
-
-	const char* name = event->GetName();
+void CameraShake_OnEvent(const char* name, const std::function<bool(ShakeEventFields&)>& read) {
 	if (!name) return;
 
 	// Footsteps drive Weapon Bob's step sync -- the walk clock is pulled onto the player's real
@@ -728,9 +501,9 @@ void CameraShake_OnGameEvent(SOURCESDK::CS2::CGameEvent* event) {
 	// spectated player below, same as fire.
 	if (0 == _stricmp(name, "player_footstep")) {
 		if (WeaponBobRef().Enabled()) {
-			const int spectated = AfxGetSpectatedUserId();
-			FireEvent fs;
-			if (spectated >= 0 && ParseFireEvent(event, fs) && fs.userId == spectated)
+			const int spectated = ShakeHost_SpectatedUserId();
+			ShakeEventFields fs;
+			if (spectated >= 0 && read(fs) && fs.userId == spectated)
 				WeaponBobRef().OnFootstep();
 		}
 		return;
@@ -743,17 +516,17 @@ void CameraShake_OnGameEvent(SOURCESDK::CS2::CGameEvent* event) {
 	// is disabled. Otherwise an effects-off reproduction contains no marker telling us which
 	// motion-field samples coincide with a real shot.
 	if (MvmDebugLog_Active()) {
-		FireEvent debugEvent;
-		const bool parsed = ParseFireEvent(event, debugEvent);
+		ShakeEventFields debugEvent;
+		const bool parsed = read(debugEvent);
 		MvmDebugLog_Linef("shake.fire",
 			// One specifier per argument. This carried a stale `recoil=%d` from the removed
 			// RecoilShake module, so `clip=%d` read PAST the varargs and printed stack garbage
 			// (measured: clip=-751760480) -- the one field a dry-fire investigation depends on.
 			"parsed=%d userid=%d watched=%d weapon=%s camshake=%d weaponrecoil=%d clip=%d",
-			parsed ? 1 : 0, parsed ? debugEvent.userId : -1, AfxGetSpectatedUserId(),
+			parsed ? 1 : 0, parsed ? debugEvent.userId : -1, ShakeHost_SpectatedUserId(),
 			parsed ? debugEvent.weapon.c_str() : "", CameraShake_Active() ? 1 : 0,
 			WeaponRecoilRef().Enabled() ? 1 : 0,
-			SpectatedClipCount());
+			ShakeHost_SpectatedClip(nullptr));
 	}
 
 	if (!CameraShake_Active()) return;
@@ -763,7 +536,7 @@ void CameraShake_OnGameEvent(SOURCESDK::CS2::CGameEvent* event) {
 
 	g_evSeen.fetch_add(1, std::memory_order_relaxed);
 
-	const int watched = AfxGetSpectatedUserId();
+	const int watched = ShakeHost_SpectatedUserId();
 	if (watched < 0) {
 		// No resolvable POV: these effects are first-person by definition, so there is nothing
 		// to attach them to. Counted so "camshake state" can say this instead of looking dead.
@@ -771,8 +544,8 @@ void CameraShake_OnGameEvent(SOURCESDK::CS2::CGameEvent* event) {
 		return;
 	}
 
-	FireEvent fe;
-	if (!ParseFireEvent(event, fe)) return;
+	ShakeEventFields fe;
+	if (!read(fe)) return;
 	if (fe.userId != watched) {
 		g_evOtherPlayer.fetch_add(1, std::memory_order_relaxed);
 		return;
@@ -807,7 +580,7 @@ void CameraShake_OnGameEvent(SOURCESDK::CS2::CGameEvent* event) {
 	// than silently killing every kick.
 	{
 		int weaponIndex = -1;
-		const int clipNow = SpectatedClipCount(&weaponIndex);
+		const int clipNow = ShakeHost_SpectatedClip(&weaponIndex);
 		const bool sameWeapon = (weaponIndex >= 0 && weaponIndex == g_lastFireWeaponIndex);
 		// All four must hold, and the last one is what keeps this from ever eating a real shot:
 		// we only trust a zero from a weapon we have already watched count DOWN.
@@ -825,8 +598,7 @@ void CameraShake_OnGameEvent(SOURCESDK::CS2::CGameEvent* event) {
 	// userid in the low 32 bits, demo tick above it. A tick of -1 (tick unavailable) still works:
 	// it simply means consecutive shots in that state dedupe on userid alone, which is the old
 	// behaviour and only reachable outside demo playback.
-	int fireTick = -1;
-	g_MirvTime.GetCurrentDemoTick(fireTick);
+	const int fireTick = ShakeHost_DemoTick();
 	const unsigned long long signature =
 		((unsigned long long)(unsigned int)fireTick << 32) | (unsigned long long)(unsigned int)uid;
 	if (IsDuplicate(signature)) {
@@ -848,7 +620,7 @@ void CameraShake_OnGameEvent(SOURCESDK::CS2::CGameEvent* event) {
 	std::string weaponToken = fe.weapon;
 	if (!RecoilFindWeapon(weaponToken)) {
 		std::string live;
-		if (SpectatedWeaponName(live) && RecoilFindWeapon(live))
+		if (ShakeHost_SpectatedWeapon(live) && RecoilFindWeapon(live))
 			weaponToken = live;
 	}
 	if (WeaponRecoilRef().Enabled()) WeaponRecoilRef().OnFire(weaponToken.c_str());
@@ -857,7 +629,7 @@ void CameraShake_OnGameEvent(SOURCESDK::CS2::CGameEvent* event) {
 void CameraShake_RunFrame() {
 	// Demo closed / swapped: drop everything so a new demo never inherits live springs.
 	static bool s_wasLoaded = false;
-	const bool loaded = DemoIsLoaded();
+	const bool loaded = ShakeHost_DemoLoaded();
 	if (s_wasLoaded && !loaded) CameraShake_Reset();
 	s_wasLoaded = loaded;
 
@@ -882,7 +654,7 @@ void CameraShake_RunFrame() {
 	// pawn -> active weapon handle -> class name), so it must not run during level load or in
 	// the main menu -- that is not a state it is defined for.
 	//
-	// The gate used to be DemoIsLoaded() alone, and that was too narrow: the offline live-match
+	// The gate used to be ShakeHost_DemoLoaded() alone, and that was too narrow: the offline live-match
 	// harness (mvm_test, the Insert panel) is a loaded map with a real local pawn and no demo, so
 	// nothing was ever published there and BOTH pivot strips froze on whatever class they last
 	// resolved. Reported as "in demos the Config tab reads the weapons fine, but in the Insert
@@ -892,7 +664,7 @@ void CameraShake_RunFrame() {
 	// Same predicate shape as ParticleFx's FxMainThreadContextActive(), deliberately rewritten
 	// here rather than shared: they are unrelated features that happen to need the same question
 	// answered, and the read below is the thing that defines what "usable" means for this one.
-	if (EntityContextLive()) {
+	if (ShakeHost_EntitiesLive()) {
 		std::string live;
 		if (CameraShake_SpectatedWeapon(live) && !live.empty()) {
 			const WeaponPivotClass c = WeaponPivotClassOf(live);
@@ -912,7 +684,7 @@ void CameraShake_RunCommand(int argc, advancedfx::ICommandArgs* args, const char
 			<< ",\"speed\":" << (float)std::sqrt(g_tracker.velX * g_tracker.velX + g_tracker.velY * g_tracker.velY)
 			<< ",\"vz\":" << (float)g_tracker.velZ
 			<< ",\"lastDt\":" << (float)g_tracker.lastDt
-			<< ",\"watchedUserId\":" << AfxGetSpectatedUserId()
+			<< ",\"watchedUserId\":" << ShakeHost_SpectatedUserId()
 			<< ",\"camMode\":\"" << ShakeCamModeName((ShakeCamMode)g_lastMode.load(std::memory_order_relaxed)) << "\""
 			<< ",\"modeAllowed\":" << (ModeAllowed((ShakeCamMode)g_lastMode.load(std::memory_order_relaxed)) ? "true" : "false")
 			<< ",\"applyCalls\":" << g_applyCalls.load(std::memory_order_relaxed)
@@ -924,7 +696,7 @@ void CameraShake_RunCommand(int argc, advancedfx::ICommandArgs* args, const char
 			<< ",\"evDuplicate\":" << g_evDuplicate.load(std::memory_order_relaxed)
 			<< ",\"evDryFire\":" << g_evDryFire.load(std::memory_order_relaxed) << "}";
 		advancedfx::Message("[camshake][state] %s\n", o.str().c_str());
-		if (AfxGetSpectatedUserId() < 0)
+		if (ShakeHost_SpectatedUserId() < 0)
 			advancedfx::Warning("[camshake] no spectated player: recoil cannot fire. Spectate someone (it is a first-person effect).\n");
 		advancedfx::Message("[camshake][handheld] %s\n", HandheldCamRef().DebugStateJson().c_str());
 		advancedfx::Message("[camshake][weaponrecoil] %s\n", WeaponRecoilRef().DebugStateJson().c_str());

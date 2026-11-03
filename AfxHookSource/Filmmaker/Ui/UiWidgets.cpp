@@ -1,0 +1,121 @@
+#include "UiWidgets.h"
+
+#include <cstring>
+
+namespace SourceFilmmaker {
+namespace Ui {
+
+namespace {
+
+void BeginFixed(const char* name, const Rect& client, Color bg, ImGuiWindowFlags extra) {
+	const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
+		| ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings
+		| ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoNav | extra;
+	ImGui::SetNextWindowPos(ImVec2(client.x0, client.y0));
+	ImGui::SetNextWindowSize(ImVec2(client.W(), client.H()));
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, ToU32(bg));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+	ImGui::Begin(name, nullptr, flags);
+	ImGui::PopStyleVar();
+	ImGui::PopStyleColor();
+}
+
+} // namespace
+
+// A window with NoBringToFrontOnFocus is created at the back of ImGui's stack and stays there; one
+// without it is created at the front, and a click on a panel never moves a panel over it.
+void BeginPanel(const char* name, const Rect& client, Color bg) {
+	BeginFixed(name, client, bg, ImGuiWindowFlags_NoBringToFrontOnFocus);
+}
+
+void BeginOverlay(const char* name, const Rect& client, Color bg) { BeginFixed(name, client, bg, 0); }
+
+int Utf8CharBytes(const char* p) {
+	const unsigned char c = (unsigned char)*p;
+	const int n = c < 0x80 ? 1 : ((c >> 5) == 0x6 ? 2 : ((c >> 4) == 0xE ? 3 : ((c >> 3) == 0x1E ? 4 : 1)));
+	for (int i = 1; i < n; ++i)
+		if (!p[i]) return i; // cut short by the end of the text
+	return n;
+}
+
+float SpacedTextWidth(ImFont* font, const char* text, float spacing) {
+	float w = 0;
+	int n = 0;
+	for (const char* p = text; *p; ++n) {
+		const int bytes = Utf8CharBytes(p);
+		w += font->CalcTextSizeA(font->FontSize, 1e9f, 0, p, p + bytes).x;
+		p += bytes;
+	}
+	return n > 1 ? w + spacing * (n - 1) : w;
+}
+
+void DrawSpacedText(ImDrawList* draw, ImFont* font, ImVec2 pos, ImU32 color, const char* text, float spacing) {
+	for (const char* p = text; *p;) {
+		const int bytes = Utf8CharBytes(p);
+		draw->AddText(font, font->FontSize, pos, color, p, p + bytes);
+		pos.x += font->CalcTextSizeA(font->FontSize, 1e9f, 0, p, p + bytes).x + spacing;
+		p += bytes;
+	}
+}
+
+bool TextTabs(const char* id, const char* const* labels, int count, int& active, ImFont* font,
+	const Metrics::Tab& metrics, float scale, float width) {
+	ImGui::PushID(id);
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const ImVec2 origin = ImGui::GetCursorScreenPos();
+	const float spacing = metrics.ls * scale;
+	const float textH = font->FontSize;
+	const float rowH = textH + metrics.padBottom * scale;
+	bool changed = false;
+	float x = origin.x;
+	for (int i = 0; i < count; ++i) {
+		const float w = SpacedTextWidth(font, labels[i], spacing);
+		ImGui::SetCursorScreenPos(ImVec2(x, origin.y));
+		ImGui::PushID(i);
+		if (ImGui::InvisibleButton("tab", ImVec2(w, rowH)) && active != i) {
+			active = i;
+			changed = true;
+		}
+		const bool hovered = ImGui::IsItemHovered();
+		ImGui::PopID();
+		const bool on = active == i;
+		const ImU32 color = ToU32(on ? Theme::Accent : (hovered ? Theme::Text : Theme::TextDim));
+		DrawSpacedText(draw, font, ImVec2(x, origin.y), color, labels[i], spacing);
+		if (on) {
+			const float u = metrics.underline * scale;
+			draw->AddRectFilled(ImVec2(x, origin.y + rowH - u), ImVec2(x + w, origin.y + rowH), ToU32(Theme::Accent));
+		}
+		x += w + metrics.gap * scale;
+	}
+	// The rule the tabs sit on.
+	draw->AddLine(ImVec2(origin.x, origin.y + rowH), ImVec2(origin.x + width, origin.y + rowH), ToU32(Theme::Border), 1.0f);
+	ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + rowH + 1));
+	ImGui::Dummy(ImVec2(width, 0));
+	ImGui::PopID();
+	return changed;
+}
+
+float ChipWidth(const char* label, ImFont* font, float scale) {
+	return SpacedTextWidth(font, label, 0.5f * scale) + 2 * Metrics::chip.padH * scale;
+}
+
+bool Chip(const char* id, const char* label, ImVec2 pos, ImFont* font, float scale, bool selected) {
+	const float w = ChipWidth(label, font, scale);
+	const float h = font->FontSize + 2 * Metrics::chip.padV * scale;
+	ImGui::SetCursorScreenPos(pos);
+	const bool clicked = ImGui::InvisibleButton(id, ImVec2(w, h));
+	const bool hovered = ImGui::IsItemHovered();
+	const bool held = ImGui::IsItemActive();
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	const ImVec2 p1(pos.x + w, pos.y + h);
+	const Color bg = held ? Theme::ButtonArmedBg
+		: (selected ? Theme::Border : (hovered ? Theme::ButtonHoverBg : Theme::ButtonBg));
+	draw->AddRectFilled(pos, p1, ToU32(bg));
+	draw->AddRect(pos, p1, ToU32(hovered || selected ? Theme::Accent : Theme::Border));
+	DrawSpacedText(draw, font, ImVec2(pos.x + Metrics::chip.padH * scale, pos.y + Metrics::chip.padV * scale),
+		ToU32(Theme::Accent), label, 0.5f * scale);
+	return clicked;
+}
+
+} // namespace Ui
+} // namespace SourceFilmmaker

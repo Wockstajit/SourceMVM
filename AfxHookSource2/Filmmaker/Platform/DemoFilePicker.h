@@ -18,7 +18,8 @@ namespace Filmmaker {
 
 // Shows a multi-select open dialog filtered to *.dem. Returns true and fills `out` with the
 // chosen absolute paths when the user confirms; returns false (leaving `out` empty) when the
-// user cancels or the dialog cannot be created.
-bool PickDemoFilesBlocking(std::vector<std::wstring>& out, const wchar_t* title = L"Select demo files");
+// user cancels or the dialog cannot be created. filterCaption names the *.dem filter for the game.
+bool PickDemoFilesBlocking(std::vector<std::wstring>& out, const wchar_t* title = L"Select demo files",
+	const wchar_t* filterCaption = L"Source 2 demos (*.dem)");
 
 } // namespace Filmmaker

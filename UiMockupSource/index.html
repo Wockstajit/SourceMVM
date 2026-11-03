@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CS:S UI Mockup</title>
+<style>
+  :root {
+    --bg: #0e0f0d;
+    --panel: #1a1b18;
+    --text: #dddddd;
+    --dim: #a0aa95;
+    --accent: #ffb000;
+    --accent-dim: rgba(255, 176, 0, 0.47);
+    --rule: #3a3c36;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 12px/1.45 Tahoma, Verdana, sans-serif; padding: 12px 16px 24px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 10px; }
+  h1 { margin: 0; font-size: 13px; letter-spacing: 0.12em; color: var(--accent); font-weight: bold; }
+  header p { margin: 0; color: var(--dim); }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+  button, select, input {
+    font: inherit; color: var(--accent); background: transparent; border: 1px solid var(--accent-dim);
+    border-radius: 0; padding: 3px 8px; min-height: 26px;
+  }
+  button { text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--accent); }
+  button:active { color: #fff; background: rgba(192, 28, 0, 0.55); }
+  select option { background: var(--panel); color: var(--text); }
+  input { color: var(--text); min-width: 0; width: 280px; max-width: 100%; }
+  :focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+  label { color: var(--dim); }
+  .stage { overflow: auto; max-width: 100%; border: 1px solid var(--rule); width: fit-content; background: #000; }
+  canvas { display: block; outline: none; }
+  #state { font-family: Consolas, "Lucida Console", monospace; color: var(--dim); margin: 8px 0 0; white-space: pre-wrap; }
+  #state b { color: var(--accent); font-weight: normal; }
+  #reply { color: var(--text); font-family: Consolas, "Lucida Console", monospace; min-height: 1.45em; margin: 0 0 8px; overflow-wrap: anywhere; }
+  .help { color: var(--dim); margin: 10px 0 0; max-width: 72ch; }
+  .help kbd { color: var(--accent); font: inherit; border: 1px solid var(--rule); padding: 0 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SOURCE:MVM &middot; COUNTER-STRIKE: SOURCE UI</h1>
+  <p>The hook's own UI code, compiled for the browser. The game view is a stand-in.</p>
+</header>
+<div class="bar">
+  <button id="toggle" type="button">Open Camera Editor</button>
+  <label for="size">Window</label>
+  <select id="size">
+    <option value="854x480">854 &times; 480</option>
+    <option value="1280x720">1280 &times; 720</option>
+    <option value="1600x900">1600 &times; 900</option>
+    <option value="1920x1080">1920 &times; 1080</option>
+    <option value="1024x768">1024 &times; 768 (4:3)</option>
+  </select>
+  <form id="console" class="bar" style="margin:0">
+    <label for="command">mirv_filmmaker</label>
+    <input id="command" autocomplete="off" spellcheck="false" placeholder="editor on | off | toggle | state">
+    <button type="submit">Run</button>
+  </form>
+</div>
+<p id="reply" aria-live="polite"></p>
+<div class="stage"><canvas id="canvas" tabindex="0" width="854" height="480"></canvas></div>
+<p id="state">loading&hellip;</p>
+<p class="help">
+  Left click the preview and the game takes the mouse; <kbd>G</kbd> gives it back. Hold right in the
+  preview (200 ms, or drag 4 px) to look around until you let go. <kbd>Esc</kbd> closes the editor.
+  In the browser, <kbd>Esc</kbd> while the game has the mouse first releases the browser's pointer
+  lock, which hands the mouse back like <kbd>G</kbd>.
+</p>
+<script>
+'use strict';
+(function () {
+  var canvas = document.getElementById('canvas');
+  var stateLine = document.getElementById('state');
+  var reply = document.getElementById('reply');
+  var toggle = document.getElementById('toggle');
+  var sizeSelect = document.getElementById('size');
+  var ready = false;
+  var wantLock = false, weLocked = false, lockFailed = false;
+
+  function remember(key, value) { try { localStorage.setItem('mockupSource.' + key, value); } catch (e) {} }
+  function recall(key) { try { return localStorage.getItem('mockupSource.' + key); } catch (e) { return null; } }
+
+  function command(text) {
+    var ptr = Module.ccall('mockup_command', 'number', ['string'], [text]);
+    var line = Module.UTF8ToString(ptr);
+    reply.textContent = line;
+    syncLock();
+    return line;
+  }
+  function state() { return JSON.parse(Module.UTF8ToString(Module._mockup_state())); }
+
+  // Canvas px for a DOM event; the canvas is shown 1:1, but a zoomed page still maps correctly.
+  function canvasPoint(e) {
+    var r = canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * canvas.width / r.width, y: (e.clientY - r.top) * canvas.height / r.height };
+  }
+  // DOM buttons are left 0, middle 1, right 2; the workspace's are left 0, right 1, middle 2.
+  function buttonOf(e) { return e.button === 1 ? 2 : (e.button === 2 ? 1 : 0); }
+  // Modifier bits the director's wheel reads: 1 Ctrl, 2 Shift.
+  function modsOf(e) { return (e.ctrlKey ? 1 : 0) | (e.shiftKey ? 2 : 0); }
+
+  // The game holds the mouse in Game and Look: ask for pointer lock then, give it back otherwise.
+  function syncLock() {
+    if (!ready) return;
+    var mode = Module._mockup_mode();
+    wantLock = mode !== 0;
+    var locked = document.pointerLockElement === canvas;
+    if (wantLock && !locked && !lockFailed) {
+      try {
+        var p = canvas.requestPointerLock();
+        if (p && p.catch) p.catch(function () { lockFailed = true; });
+      } catch (err) { lockFailed = true; }
+    } else if (!wantLock && locked) {
+      weLocked = false;
+      document.exitPointerLock();
+    }
+  }
+  document.addEventListener('pointerlockchange', function () {
+    if (document.pointerLockElement === canvas) { weLocked = true; return; }
+    if (weLocked && wantLock) Module._mockup_lock_lost(); // the browser let go (Esc, focus)
+    weLocked = false;
+    syncLock();
+  });
+  document.addEventListener('pointerlockerror', function () { lockFailed = true; });
+
+  canvas.addEventListener('mousemove', function (e) {
+    if (!ready) return;
+    if (Module._mockup_mode() !== 0) Module._mockup_motion(e.movementX || 0, e.movementY || 0);
+    if (document.pointerLockElement === canvas) return; // the position is frozen while locked
+    var p = canvasPoint(e);
+    Module._mockup_mouse(0, 0, p.x, p.y, 0, 0);
+    syncLock();
+  });
+  canvas.addEventListener('mousedown', function (e) {
+    if (!ready) return;
+    canvas.focus();
+    lockFailed = false; // a press is a fresh user gesture
+    var p = canvasPoint(e);
+    if (Module._mockup_mouse(1, buttonOf(e), p.x, p.y, 0, modsOf(e)) !== 1 || state().open) e.preventDefault();
+    syncLock();
+  });
+  window.addEventListener('mouseup', function (e) {
+    if (!ready) return;
+    var p = canvasPoint(e);
+    Module._mockup_mouse(2, buttonOf(e), p.x, p.y, 0, modsOf(e));
+    syncLock();
+  });
+  canvas.addEventListener('wheel', function (e) {
+    if (!ready) return;
+    var p = canvasPoint(e);
+    // Ctrl+wheel would zoom the page: whatever the UI or the director takes, the page keeps.
+    if (Module._mockup_mouse(3, 0, p.x, p.y, e.deltaY < 0 ? 1 : -1, modsOf(e)) !== 1 || state().open) e.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+  function onKey(e, down) {
+    if (!ready || (e.target && e.target.tagName === 'INPUT')) return;
+    if (Module._mockup_key(e.keyCode, down ? 1 : 0, e.repeat ? 1 : 0)) e.preventDefault();
+    if (down && e.key && e.key.length === 1 && !e.ctrlKey && Module._mockup_char(e.key.charCodeAt(0))) e.preventDefault();
+    syncLock();
+    showState();
+  }
+  window.addEventListener('keydown', function (e) { onKey(e, true); });
+  window.addEventListener('keyup', function (e) { onKey(e, false); });
+  window.addEventListener('blur', function () { if (ready) { Module._mockup_focus_lost(); syncLock(); } });
+
+  toggle.addEventListener('click', function () { command('editor toggle'); canvas.focus(); });
+  document.getElementById('console').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var input = document.getElementById('command');
+    command(input.value.replace(/^\s*mirv_filmmaker\s+/, '').trim() || 'editor state');
+  });
+  // A game window of 854 x 480 is that many screen pixels, so the canvas is shown at one canvas
+  // pixel per device pixel: same text sharpness as the game, smaller in CSS px on a scaled display.
+  function applySize() {
+    var parts = sizeSelect.value.split('x');
+    var dpr = window.devicePixelRatio || 1;
+    Module._mockup_resize(+parts[0], +parts[1]);
+    canvas.style.width = (+parts[0] / dpr) + 'px';
+    canvas.style.height = (+parts[1] / dpr) + 'px';
+    remember('size', sizeSelect.value);
+  }
+  window.matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)').addEventListener('change', function () {
+    if (ready) applySize();
+  });
+  sizeSelect.addEventListener('change', function () { if (ready) applySize(); });
+
+  function showState() {
+    if (!ready) return;
+    var s = state();
+    var tabs = ['PATH CAMERA', 'FOLLOW CAMERA', 'SCENE KEYS'];
+    toggle.textContent = s.open ? 'Close Camera Editor' : 'Open Camera Editor';
+    stateLine.innerHTML = 'editor <b>' + (s.open ? 'open' : 'closed') + '</b>  mouse <b>' + s.mode +
+      '</b>' + (s.rightPending ? ' (right pending)' : '') + '  tab <b>' + tabs[s.tab] + '</b>  dock <b>' + s.dock +
+      '</b>\npreview ' + s.preview.map(Math.round).join(' ') + '  window ' + s.width + 'x' + s.height +
+      '  fonts ' + s.fonts + ' @ ' + s.scale.toFixed(3) + '  game ' + (s.backdrop ? 'capture' : 'stand-in') +
+      ' (yaw ' + s.yaw.toFixed(0) + ', pitch ' + s.pitch.toFixed(0) + ')';
+    remember('open', s.open ? '1' : '0');
+  }
+
+  // assets/backdrop.png, when present, is a local capture of the game: the stand-in game frame.
+  function loadBackdrop() {
+    fetch('assets/backdrop.png', { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) return null;
+      return r.blob().then(createImageBitmap);
+    }).then(function (bitmap) {
+      if (!bitmap) return;
+      var c = document.createElement('canvas');
+      c.width = bitmap.width; c.height = bitmap.height;
+      var ctx = c.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0);
+      var pixels = ctx.getImageData(0, 0, c.width, c.height).data;
+      var ptr = Module._malloc(pixels.length);
+      Module.HEAPU8.set(pixels, ptr);
+      Module._mockup_set_backdrop(ptr, c.width, c.height);
+      Module._free(ptr);
+    }).catch(function () {});
+  }
+
+  // The preview server rebuilds the WebAssembly when the UI source changes; reload onto it.
+  var builtStamp = null;
+  function watchBuild() {
+    fetch('stamp.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : null; }).then(function (t) {
+      if (t === null) return;
+      if (builtStamp === null) builtStamp = t;
+      else if (t !== builtStamp) location.reload();
+    }).catch(function () {});
+  }
+
+  window.Module = {
+    canvas: canvas,
+    print: function (text) { console.log(text); },
+    printErr: function (text) { console.warn(text); },
+    onRuntimeInitialized: function () {
+      ready = true;
+      var size = recall('size');
+      if (size && sizeSelect.querySelector('option[value="' + size + '"]')) sizeSelect.value = size;
+      applySize();
+      loadBackdrop();
+      if (recall('open') === '1' || /[?&]open=1\b/.test(location.search)) command('editor on');
+      showState();
+      setInterval(showState, 200);
+      setInterval(watchBuild, 1500);
+      watchBuild();
+    },
+  };
+  // step(n) runs n UI frames at once, so test scripts do not depend on a background tab's frame rate.
+  window.mockup = { command: command, state: state, step: function (n) { Module._mockup_step(n || 1); } };
+})();
+</script>
+<script src="mockup.js"></script>
+</body>
+</html>

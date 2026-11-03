@@ -49,6 +49,7 @@ mirv_filmmaker window probe 0|1           - per-message logging into the mvm_deb
 | `AfxHookSource2/Filmmaker/Window/EngineVideoMode.{h,cpp}` | Engine-sanctioned resolution change (the settings-menu path). |
 | `AfxHookSource2/Filmmaker/Window/Sdl3Window.{h,cpp}` | By-name binding to the SDL3 CS2 already loads. |
 | `AfxHookSource2/Filmmaker/Window/WindowSnapMath.h` | Header-only Shift-snap maths + the standard-resolution table. |
+| `AfxHookSource2/Filmmaker/Window/WindowGeometry.h` | Header-only window arithmetic shared with CS:S: client size, frame insets, one `WM_SIZING` step with the Shift snap, the card's text, ratio arguments. |
 | `AfxHookSource2/Filmmaker/Window/WindowSizeOverlay.{h,cpp}` | The layered Win32 readout card. Knows nothing about CS2. |
 | `AfxHookSource2/Filmmaker/Window/WindowResize.{h,cpp}` | The feature: message tap, style application, follow-up check, console surface. |
 | `Automation/tests/aspect-ratio-math-tests.cpp` | `AspectRatioMathTests`: table integrity and match behaviour. |
@@ -56,6 +57,11 @@ mirv_filmmaker window probe 0|1           - per-message logging into the mvm_deb
 
 Two existing files hook into this feature. `WindowInputHooks.cpp` forwards every window message,
 and `Filmmaker.cpp` calls the main-thread pump.
+
+Counter-Strike: Source has the same feature on its plain Win32 window, with its own sizing border
+and its own commit through `mat_setvideomode`. Everything but `WindowResize`, `Sdl3Window` and
+`EngineVideoMode` is shared. [Docs/source/README.md](../source/README.md#window-resize) describes
+the CS:S side.
 
 ## The aspect table
 

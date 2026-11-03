@@ -9,6 +9,8 @@
 #include "Gui.h"
 #include "SourceInterfaces.h"
 #include "CampathDrawer.h"
+#include "Filmmaker/SourceUi.h" // SOURCE:MVM
+#include "Filmmaker/SourceLensSmoke.h" // SOURCE:MVM
 #include "AfxShaders.h"
 
 #ifndef _WIN64
@@ -184,6 +186,8 @@ void Shared_Direct3DDevice9_Init(
 
 void Shared_Direct3DDevice9_Shutdown()
 {
+	SourceFilmmaker::Ui_DeviceLost(); // SOURCE:MVM
+
 	g_CampathDrawer.EndDevice();
 
 	g_AfxShaders.EndDevice();
@@ -2992,6 +2996,7 @@ public:
 					IDirect3DSurface9* replacement = nullptr;
 					if (SUCCEEDED(texture->GetSurfaceLevel(0, &replacement)))
 					{
+                        texture->Release(); // SOURCE:MVM: GetSurfaceLevel owns the returned reference.
 						return replacement;
 					}
 
@@ -3070,7 +3075,7 @@ public:
 	}
 
 
-	void AfxDrawDepth(AfxDrawDepthEncode encode, AfxDrawDepthMode mode, bool clip, float depthVal, float depthValMax, int x, int y, int width, int height, float zNear, float zFar, float projectionMatrix[4][4])
+	void AfxDrawDepth(AfxDrawDepthEncode encode, AfxDrawDepthMode mode, bool clip, float depthVal, float depthValMax, int x, int y, int width, int height, float zNear, float zFar, float projectionMatrix[4][4], const AfxDepthPassExtras* extras = nullptr)
 	{
 		if (!g_bSupportsIntz) return;
 
@@ -3113,7 +3118,10 @@ public:
 			break;
 		}
 
-		IAfxPixelShader * afxPixelShader = g_AfxShaders.GetAcsPixelShader(L"afx_depth_ps20.acs", ShaderCombo_afx_depth_ps20::GetCombo(
+		const bool sourcePass = encode == AfxDrawDepthEncode_Normal || encode == AfxDrawDepthEncode_MaskedLinear; // SOURCE:MVM
+		IAfxPixelShader * afxPixelShader = sourcePass
+            ? g_AfxShaders.GetAcsPixelShader(L"afx_source_normal_ps30.acs",0) // SOURCE:MVM
+            : g_AfxShaders.GetAcsPixelShader(L"afx_depth_ps20.acs", ShaderCombo_afx_depth_ps20::GetCombo(
 			clip ? ShaderCombo_afx_depth_ps20::AFXCLIP_1 : ShaderCombo_afx_depth_ps20::AFXCLIP_0,
 			afxDepthMode,
 			afxEncode
@@ -3165,6 +3173,13 @@ public:
 			g_OldDirect3DDevice9->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
 
 			g_OldDirect3DDevice9->SetVertexShader(NULL);
+            // SOURCE:MVM: the fixed-function vertex stage supplies no SM3 TEXCOORD semantics.
+            if (sourcePass) {
+                auto* vertex = g_AfxShaders.GetAcsVertexShader(L"afx_source_pass_vs30.acs",0);
+                g_OldDirect3DDevice9->SetVertexShader(vertex->GetVertexShader());
+                const float viewport[4] = {(float)width,(float)height,0,0};
+                g_OldDirect3DDevice9->SetVertexShaderConstantF(0,viewport,1);
+            }
 			g_OldDirect3DDevice9->SetPixelShader(pixelShader);
 
 			g_OldDirect3DDevice9->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
@@ -3180,8 +3195,9 @@ public:
 			g_OldDirect3DDevice9->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
 			g_OldDirect3DDevice9->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
 			g_OldDirect3DDevice9->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-			g_OldDirect3DDevice9->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-			g_OldDirect3DDevice9->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+            // SOURCE:MVM: point samples keep depth edges sharp for normal reconstruction.
+			g_OldDirect3DDevice9->SetSamplerState(0, D3DSAMP_MINFILTER, sourcePass ? D3DTEXF_POINT : D3DTEXF_LINEAR);
+			g_OldDirect3DDevice9->SetSamplerState(0, D3DSAMP_MAGFILTER, sourcePass ? D3DTEXF_POINT : D3DTEXF_LINEAR);
 			g_OldDirect3DDevice9->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
 
 			// Setup orthographic projection matrix
@@ -3216,6 +3232,15 @@ public:
 
 			// Bind depth as texture:
 			g_OldDirect3DDevice9->SetTexture(0, depthTexture);
+            // SOURCE:MVM: the second depth surface holds this frame with player draws omitted.
+            if (sourcePass) {
+                g_OldDirect3DDevice9->SetTexture(1,extras ? extras->worldDepth : nullptr);
+                g_OldDirect3DDevice9->SetSamplerState(1,D3DSAMP_MINFILTER,D3DTEXF_POINT);
+                g_OldDirect3DDevice9->SetSamplerState(1,D3DSAMP_MAGFILTER,D3DTEXF_POINT);
+                g_OldDirect3DDevice9->SetSamplerState(1,D3DSAMP_SRGBTEXTURE,FALSE);
+                const float pass[4] = {encode == AfxDrawDepthEncode_Normal ? 1.0f : 0.0f,extras ? (float)extras->mask : 0,0,0};
+                g_OldDirect3DDevice9->SetPixelShaderConstantF(6,pass,1);
+            }
 
 			FLOAT overFac[4] = { zNear, zFar, depthVal, depthValMax };
 			g_OldDirect3DDevice9->SetPixelShaderConstantF(0, overFac, 1);
@@ -3264,7 +3289,7 @@ public:
 				}
 			}
 
-			if (encode == AfxDrawDepthEncode_Dithered) {
+			if (encode == AfxDrawDepthEncode_Dithered || sourcePass) { // SOURCE:MVM
 				FLOAT facs2[4] = { (float)width, (float)height, 0, 0 };
 				g_OldDirect3DDevice9->SetPixelShaderConstantF(5, facs2, 1);
 			}
@@ -3461,12 +3486,14 @@ public:
 		}
 	}
 
-	void AfxDrawRect(IDirect3DTexture9* texture, int x, int y, int width, int height, float x0, float y0, float x1, float y1)
+	void AfxDrawRect(IDirect3DTexture9* texture, int x, int y, int width, int height, float x0, float y0, float x1, float y1, const AfxRectPass* pass)
 	{
+        // SOURCE:MVM
+        if (pass && pass->result) *pass->result=E_FAIL;
 		IAfxPixelShader* afxPixelShader = g_AfxShaders.GetAcsPixelShader(L"afx_drawtexture_ps20.acs", ShaderCombo_afx_pgldraw_ps20::GetCombo(
 		));
 
-		IDirect3DPixelShader9* pixelShader = afxPixelShader->GetPixelShader();
+		IDirect3DPixelShader9* pixelShader = pass ? pass->pixel : afxPixelShader->GetPixelShader();
 
 		if (pixelShader)
 		{		
@@ -3516,6 +3543,33 @@ public:
 			// texture:
 			g_OldDirect3DDevice9->SetTexture(0, texture);
 
+            // SOURCE:MVM: bindings belong after the initial clean state has been applied.
+            if (pass) {
+                const float viewport[4] = {(float)width,(float)height,0,0};
+                g_OldDirect3DDevice9->SetVertexShader(pass->vertex);
+                g_OldDirect3DDevice9->SetVertexShaderConstantF(0,viewport,1);
+                g_OldDirect3DDevice9->SetRenderState(D3DRS_ALPHABLENDENABLE,pass->blend!=AfxRectPass::Replace);
+                if(pass->blend!=AfxRectPass::Replace) {
+                    // SOURCE:MVM: affine Lens composite on every original coverage sample.
+                    g_OldDirect3DDevice9->SetRenderState(D3DRS_BLENDOP,D3DBLENDOP_ADD);
+                    g_OldDirect3DDevice9->SetRenderState(D3DRS_SRCBLEND,pass->blend==AfxRectPass::Multiply ? D3DBLEND_ZERO : D3DBLEND_ONE);
+                    g_OldDirect3DDevice9->SetRenderState(D3DRS_DESTBLEND,pass->blend==AfxRectPass::Multiply ? D3DBLEND_SRCCOLOR : D3DBLEND_ONE);
+                    g_OldDirect3DDevice9->SetRenderState(D3DRS_COLORWRITEENABLE,7); // preserve the original alpha
+                }
+                g_OldDirect3DDevice9->SetRenderState(D3DRS_COLORWRITEENABLE1,15);
+                if (pass->constants) g_OldDirect3DDevice9->SetPixelShaderConstantF(0,pass->constants,pass->constantCount);
+                for (unsigned i=0;i<16;++i) {
+                    g_OldDirect3DDevice9->SetTexture(i,pass->textures[i]);
+                    const auto filter = pass->pointSamplers&(1u<<i) ? D3DTEXF_POINT : D3DTEXF_LINEAR;
+                    g_OldDirect3DDevice9->SetSamplerState(i,D3DSAMP_MINFILTER,filter);
+                    g_OldDirect3DDevice9->SetSamplerState(i,D3DSAMP_MAGFILTER,filter);
+                    g_OldDirect3DDevice9->SetSamplerState(i,D3DSAMP_MIPFILTER,filter);
+                    g_OldDirect3DDevice9->SetSamplerState(i,D3DSAMP_ADDRESSU,D3DTADDRESS_CLAMP);
+                    g_OldDirect3DDevice9->SetSamplerState(i,D3DSAMP_ADDRESSV,D3DTADDRESS_CLAMP);
+                    g_OldDirect3DDevice9->SetSamplerState(i,D3DSAMP_SRGBTEXTURE,FALSE);
+                }
+            }
+
 			// Setup orthographic projection matrix
 			{
 				const float L = 0.5f + x, R = 0.5f + x + width, T = 0.5f + y, B = 0.5f + y + height;
@@ -3541,7 +3595,9 @@ public:
 					{{(float)width,0,0}, {x1,y1}},
 				};
 
-				g_OldDirect3DDevice9->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, &vertexData, sizeof(AFXDRAWDEPTHVERTEX));
+                // SOURCE:MVM: let the optional pass report device/draw failures.
+                const HRESULT drawn=g_OldDirect3DDevice9->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, &vertexData, sizeof(AFXDRAWDEPTHVERTEX));
+                if (pass && pass->result) *pass->result=drawn;
 			}
 
 			//
@@ -4776,6 +4832,8 @@ public:
 
 		AfxHookSource::Gui::On_Direct3DDevice9_Reset_Before();
 
+		SourceFilmmaker::Ui_DeviceLost(); // SOURCE:MVM
+
 		g_CampathDrawer.Reset();
 
 		if (NULL != m_CurrentState)
@@ -4918,6 +4976,8 @@ public:
 		}
 
 		Afx_Present_Before(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, 0);
+
+		SourceFilmmaker::Ui_RenderThreadPresent(g_OldDirect3DDevice9); // SOURCE:MVM
 
 		HRESULT result = g_OldDirect3DDevice9->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 
@@ -5607,10 +5667,10 @@ public:
     IFACE_PASSTHROUGH_DECL(IDirect3DDevice9, GetSoftwareVertexProcessing);
     IFACE_PASSTHROUGH_DECL(IDirect3DDevice9, SetNPatchMode);
     IFACE_PASSTHROUGH_DECL(IDirect3DDevice9, GetNPatchMode);
-    IFACE_PASSTHROUGH_DECL(IDirect3DDevice9, DrawPrimitive);
-    IFACE_PASSTHROUGH_DECL(IDirect3DDevice9, DrawIndexedPrimitive);
-    IFACE_PASSTHROUGH_DECL(IDirect3DDevice9, DrawPrimitiveUP);
-    IFACE_PASSTHROUGH_DECL(IDirect3DDevice9, DrawIndexedPrimitiveUP);
+    virtual HRESULT STDMETHODCALLTYPE IDirect3DDevice9DrawPrimitive(D3DPRIMITIVETYPE type,UINT start,UINT count); // SOURCE:MVM
+    virtual HRESULT STDMETHODCALLTYPE IDirect3DDevice9DrawIndexedPrimitive(D3DPRIMITIVETYPE type,INT base,UINT min,UINT vertices,UINT start,UINT count); // SOURCE:MVM
+    virtual HRESULT STDMETHODCALLTYPE IDirect3DDevice9DrawPrimitiveUP(D3DPRIMITIVETYPE type,UINT count,const void* vertices,UINT stride); // SOURCE:MVM
+    virtual HRESULT STDMETHODCALLTYPE IDirect3DDevice9DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE type,UINT min,UINT vertices,UINT count,const void* indices,D3DFORMAT format,const void* data,UINT stride); // SOURCE:MVM
 	
 
 	IFACE_PASSTHROUGH_DECL(IDirect3DDevice9, ProcessVertices);
@@ -6036,6 +6096,8 @@ public:
 	{
 		Afx_Present_Before(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
 
+		SourceFilmmaker::Ui_RenderThreadPresent(g_OldDirect3DDevice9Ex); // SOURCE:MVM
+
 		HRESULT hResult = g_OldDirect3DDevice9Ex->PresentEx(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
 
 		Afx_Present_After(hResult);
@@ -6124,10 +6186,34 @@ IFACE_PASSTHROUGH_DEF(IDirect3DDevice9, SetSoftwareVertexProcessing, NewDirect3D
 IFACE_PASSTHROUGH_DEF(IDirect3DDevice9, GetSoftwareVertexProcessing, NewDirect3DDevice9, g_OldDirect3DDevice9);
 IFACE_PASSTHROUGH_DEF(IDirect3DDevice9, SetNPatchMode, NewDirect3DDevice9, g_OldDirect3DDevice9);
 IFACE_PASSTHROUGH_DEF(IDirect3DDevice9, GetNPatchMode, NewDirect3DDevice9, g_OldDirect3DDevice9);
-IFACE_PASSTHROUGH_DEF(IDirect3DDevice9, DrawPrimitive, NewDirect3DDevice9, g_OldDirect3DDevice9);
-IFACE_PASSTHROUGH_DEF(IDirect3DDevice9, DrawIndexedPrimitive, NewDirect3DDevice9, g_OldDirect3DDevice9);
-IFACE_PASSTHROUGH_DEF(IDirect3DDevice9, DrawPrimitiveUP, NewDirect3DDevice9, g_OldDirect3DDevice9);
-IFACE_PASSTHROUGH_DEF(IDirect3DDevice9, DrawIndexedPrimitiveUP, NewDirect3DDevice9, g_OldDirect3DDevice9);
+// SOURCE:MVM: capture smoke alpha only during Lens's discarded depth view.
+HRESULT STDMETHODCALLTYPE NewDirect3DDevice9::IDirect3DDevice9DrawPrimitive(D3DPRIMITIVETYPE type,UINT start,UINT count) {
+    const bool smoke=SourceFilmmaker::LensSmoke_BeforeDraw(g_OldDirect3DDevice9);
+    const HRESULT result=g_OldDirect3DDevice9->DrawPrimitive(type,start,count);
+    if(smoke) SourceFilmmaker::LensSmoke_AfterDraw();
+    return result;
+}
+// SOURCE:MVM: capture smoke alpha only during Lens's discarded depth view.
+HRESULT STDMETHODCALLTYPE NewDirect3DDevice9::IDirect3DDevice9DrawIndexedPrimitive(D3DPRIMITIVETYPE type,INT base,UINT min,UINT vertices,UINT start,UINT count) {
+    const bool smoke=SourceFilmmaker::LensSmoke_BeforeDraw(g_OldDirect3DDevice9);
+    const HRESULT result=g_OldDirect3DDevice9->DrawIndexedPrimitive(type,base,min,vertices,start,count);
+    if(smoke) SourceFilmmaker::LensSmoke_AfterDraw();
+    return result;
+}
+// SOURCE:MVM: capture smoke alpha only during Lens's discarded depth view.
+HRESULT STDMETHODCALLTYPE NewDirect3DDevice9::IDirect3DDevice9DrawPrimitiveUP(D3DPRIMITIVETYPE type,UINT count,const void* vertices,UINT stride) {
+    const bool smoke=SourceFilmmaker::LensSmoke_BeforeDraw(g_OldDirect3DDevice9);
+    const HRESULT result=g_OldDirect3DDevice9->DrawPrimitiveUP(type,count,vertices,stride);
+    if(smoke) SourceFilmmaker::LensSmoke_AfterDraw();
+    return result;
+}
+// SOURCE:MVM: capture smoke alpha only during Lens's discarded depth view.
+HRESULT STDMETHODCALLTYPE NewDirect3DDevice9::IDirect3DDevice9DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE type,UINT min,UINT vertices,UINT count,const void* indices,D3DFORMAT format,const void* data,UINT stride) {
+    const bool smoke=SourceFilmmaker::LensSmoke_BeforeDraw(g_OldDirect3DDevice9);
+    const HRESULT result=g_OldDirect3DDevice9->DrawIndexedPrimitiveUP(type,min,vertices,count,indices,format,data,stride);
+    if(smoke) SourceFilmmaker::LensSmoke_AfterDraw();
+    return result;
+}
 IFACE_PASSTHROUGH_DEF(IDirect3DDevice9, ProcessVertices, NewDirect3DDevice9, g_OldDirect3DDevice9);
 IFACE_PASSTHROUGH_DEF(IDirect3DDevice9, CreateVertexDeclaration, NewDirect3DDevice9, g_OldDirect3DDevice9);
 IFACE_PASSTHROUGH_DEF(IDirect3DDevice9, SetVertexDeclaration, NewDirect3DDevice9, g_OldDirect3DDevice9);
@@ -6827,11 +6913,11 @@ bool AfxD3d9_DrawDepthSupported(void)
 	return g_OldDirect3DDevice9 && g_bSupportsIntz;
 }
 
-void AfxDrawDepth(AfxDrawDepthEncode encode, AfxDrawDepthMode mode, bool clip, float depthVal, float depthValMax, int x, int y, int width, int height, float zNear, float zFar, float projectionMatrix[4][4])
+void AfxDrawDepth(AfxDrawDepthEncode encode, AfxDrawDepthMode mode, bool clip, float depthVal, float depthValMax, int x, int y, int width, int height, float zNear, float zFar, float projectionMatrix[4][4], const AfxDepthPassExtras* extras)
 {
 	if (!g_bSupportsIntz) return;
 
-	g_NewDirect3DDevice9.AfxDrawDepth(encode, mode, clip, depthVal, depthValMax, x, y, width, height, zNear, zFar, projectionMatrix);
+	g_NewDirect3DDevice9.AfxDrawDepth(encode, mode, clip, depthVal, depthValMax, x, y, width, height, zNear, zFar, projectionMatrix, extras);
 }
 
 void AfxDrawGuides(int x, int y, int width, int height, bool phiGrid, bool ruleOfThirds)
@@ -6839,9 +6925,9 @@ void AfxDrawGuides(int x, int y, int width, int height, bool phiGrid, bool ruleO
 	g_NewDirect3DDevice9.AfxDrawGuides(x, y, width, height, phiGrid, ruleOfThirds);
 }
 
-void AfxDrawRect(IDirect3DTexture9* texture, int x, int y, int width, int height, float x0, float y0, float x1, float y1)
+void AfxDrawRect(IDirect3DTexture9* texture, int x, int y, int width, int height, float x0, float y0, float x1, float y1, const AfxRectPass* pass)
 {
-	g_NewDirect3DDevice9.AfxDrawRect(texture, x, y, width, height, x0, y0, x1, y1);
+	g_NewDirect3DDevice9.AfxDrawRect(texture, x, y, width, height, x0, y0, x1, y1, pass);
 }
 
 IDirect3DDevice9* AfxGetDirect3DDevice9()

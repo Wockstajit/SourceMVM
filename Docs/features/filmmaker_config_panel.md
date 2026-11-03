@@ -60,6 +60,7 @@ All paths below are under `AfxHookSource2/Filmmaker/`.
 | `Panorama/ConfigHudRagdollsTabJs.h` | RAGDOLLS tab |
 | `Panorama/ConfigHudEnvironmentTabJs.h` | ENVIRONMENT: weather, props, extra lights and scene presets |
 | `Config/FilmmakerSettingsStore.{h,cpp}` | Persistent feature and UI preferences |
+| `Config/CameraFeelSettings.{h,cpp}` | The camera feel groups (Smooth View, Handheld, Weapon Recoil and its presets, Weapon Bob), written and read the same by CS2's store and the Source 1 hook's |
 | `Config/EffectsPersistence.{h,cpp}` | Carrying EFFECTS state across a demo change |
 
 ## Persistence

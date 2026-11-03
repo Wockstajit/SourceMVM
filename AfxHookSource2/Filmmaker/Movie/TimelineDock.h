@@ -54,7 +54,11 @@ const char* TimelineDock_TabName();
 bool TimelineDock_ParseTab(const char* name, DockTab& out);
 
 // Dock design heights in the 1080-tall stage, ribbon included: 126 native (translucent, overlays
-// the render), 476 timeline (the 440px dock under the 36px ribbon).
+// the render), 476 timeline (the 440px dock under the 36px ribbon). Public so the CS:S hook's
+// workspace layout uses the same numbers.
+constexpr int kTimelineDockHeightNative = 126;
+constexpr int kTimelineDockHeightTimeline = 476;
+constexpr int kTimelineDockRibbonHeight = 36;
 int TimelineDock_Height();
 int TimelineDock_HeightFor(DockTab tab);
 

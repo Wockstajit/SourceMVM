@@ -20,6 +20,7 @@ struct Engine {
 	bool pausePending = false;
 	int seeks = 0, steps = 0, plays = 0, pauses = 0;
 	bool seekLandsPast = false;
+	int packetGap = 0; // > 1: a seek stops on the next packet, one every packetGap ticks (CS:S)
 	double maxBackwardJump = 0.0; // how far one frame ever moved the world backward
 	double dt = 1.0 / 144.0;
 
@@ -28,7 +29,11 @@ struct Engine {
 		case ScrubAction::Play: timescale = d.timescale; paused = false; ++plays; break;
 		case ScrubAction::Pause: pausePending = true; ++pauses; break;
 		case ScrubAction::Step: now = std::floor(now + 1e-9) + d.ticks; paused = true; ++steps; break;
-		case ScrubAction::Seek: now = d.seekTick + (seekLandsPast ? 1 : 0); paused = true; ++seeks; break;
+		case ScrubAction::Seek:
+			now = packetGap > 1 ? std::ceil((double)d.seekTick / packetGap) * packetGap : d.seekTick + (seekLandsPast ? 1 : 0);
+			paused = true;
+			++seeks;
+			break;
 		default: break;
 		}
 	}
@@ -45,6 +50,7 @@ struct Engine {
 			in.target = target; in.now = now; in.paused = paused && !pausePending;
 			in.busy = pausePending; in.released = released; in.settled = settled;
 			in.frameSeconds = dt; in.timescale = timescale;
+			in.seekLandsPast = packetGap > 1 ? packetGap - 1 : 1;
 			const ScrubDecision d = DecideScrub(in);
 			if (d.action == ScrubAction::Seek && released) settled = true;
 			last = d.action;
@@ -289,6 +295,27 @@ void TestSeekReplayBelowItsStart() {
 
 } // namespace
 
+// CS:S stops a seek on the demo's next packet, 4 to 10 ticks apart in a SourceTV demo. Told how late a
+// seek may land, the controller aims that far short and still lands exactly.
+void TestSeeksThatLandAPacketLate() {
+	for (int gap : { 4, 7, 10 }) {
+		Engine back; back.now = 1000.0; back.packetGap = gap;
+		CHECK(back.Run(512.0, true) == ScrubAction::Done);
+		CHECK(back.now == 512.0);
+		Engine ahead; ahead.now = 1000.0; ahead.packetGap = gap;
+		CHECK(ahead.Run(1500.0, true) == ScrubAction::Done);
+		CHECK(ahead.now == 1500.0);
+		// Dragged far ahead: the seek lands at or short of the playhead, and the world glides in.
+		Engine drag; drag.now = 1000.0; drag.packetGap = gap;
+		drag.Run(1500.3, false);
+		CHECK(std::fabs(drag.now - 1500.3) <= kScrubArriveTicks + 0.01);
+	}
+	// A seek landing inside the window has landed; past it, another seek moved the world.
+	CHECK(JudgeSeek(600, 2500, 2506, true, 2, 0, 2, true, 6) == SeekWait::Landed);
+	CHECK(JudgeSeek(600, 2500, 2507, true, 2, 0, 2, true, 6) == SeekWait::Lost);
+	CHECK(JudgeSeek(600, 2500, 2502, true, 2, 0, 2, true) == SeekWait::Lost); // CS2: one past at most
+}
+
 void TestBackStepNeverRunsPastAFrame() {
 	// A slow frame must not carry the play-in step past its goal: at ~60 ms frames (heavy
 	// Environment effects) 4x played 15 ticks a frame and a 2-tick step ended 6 ticks on.
@@ -340,6 +367,7 @@ int main() {
 	TestBusyWaits();
 	TestNeverPausesAPausedDemo();
 	TestBackStepNeverRunsPastAFrame();
+	TestSeeksThatLandAPacketLate();
 	TestCacheServesTheRecordedTake();
 	if (g_failed) { std::cerr << g_failed << " check(s) failed\n"; return 1; }
 	std::cout << "demo scrub math tests passed\n";

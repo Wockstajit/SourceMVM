@@ -9,6 +9,8 @@
 // (the sampler is linear CLAMP). Pairs with afx_drawtexture_vs_5_0 (identity matrix ->
 // screen-space NDC pass-through), same as afx_blit_ps_5_0.
 
+#include "afx_fisheye_uv.hlsli"
+
 cbuffer PS_CONSTANT_BUFFER : register(b0)
 {
 	// x = k1, y = k2 (distortion coefficients, >0 = barrel), z = aspect (width/height), w = unused.
@@ -26,22 +28,5 @@ struct PS_INPUT
 
 float4 main( PS_INPUT i ) : SV_TARGET
 {
-	float k1 = params.x;
-	float k2 = params.y;
-	float aspect = params.z;
-
-	float2 c = i.t0 - 0.5;
-	c.x *= aspect; // circular radius on a widescreen frame
-
-	float r2 = dot(c, c);
-	float f = 1.0 + r2 * (k1 + k2 * r2);
-
-	// Corner anchor: the corner sits at (0.5*aspect, 0.5) -> rMax^2 = 0.25*(aspect^2+1).
-	float rMax2 = 0.25 * (aspect * aspect + 1.0);
-	float fMax = 1.0 + rMax2 * (k1 + k2 * rMax2);
-
-	c *= f / fMax;
-	c.x /= aspect;
-
-	return float4(texture0.Sample(sampler0, c + 0.5).rgb, 1);
+	return float4(texture0.Sample(sampler0,AfxFisheyeUv(i.t0,params)).rgb,1);
 }

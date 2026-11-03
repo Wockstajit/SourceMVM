@@ -8,7 +8,7 @@
 // path playback. This one is "pathshake": authored, per keyframe, part of the shot.
 
 #include "Movie/CamPathShake.h"
-#include "Movie/CameraPath.h"
+#include "Movie/CamPathShakeHost.h"
 #include "Movie/RageShake.h"
 
 #include "../../Shared/AfxConsole.h"
@@ -26,7 +26,7 @@ int ClampInt(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 // A camera key's tick by its 0-based index, -1 when there is no such key.
 int TickForMarker(int index) {
-	const std::vector<CamMarker>& mk = CameraPathRef().Markers();
+	const std::vector<CamMarker>& mk = PathShakeHost_Markers();
 	return index >= 0 && index < (int)mk.size() ? mk[(size_t)index].tick : -1;
 }
 
@@ -48,7 +48,7 @@ CamPathShakeSetting GetOrSeed(int owner, int tick) {
 // Where a key sits, for messages: "key #3" on the path, "camera 7 @1500" on a camera object.
 std::string Where(int owner, int tick) {
 	if (!owner) {
-		const std::vector<CamMarker>& mk = CameraPathRef().Markers();
+		const std::vector<CamMarker>& mk = PathShakeHost_Markers();
 		for (size_t i = 0; i < mk.size(); ++i) if (mk[i].tick == tick) return "key #" + std::to_string(i + 1);
 		return "tick " + std::to_string(tick);
 	}
@@ -162,8 +162,8 @@ void CamPathShake_RunCommand(int argc, advancedfx::ICommandArgs* args, const cha
 
 	if (0 == _stricmp(a, "state")) {
 		advancedfx::Message("[pathshake] layer %s; the path has %d shake key(s) over %d camera key(s).\n",
-			CamPathShake_Enabled() ? "ON" : "OFF", CamPathShake_Count(), CameraPathRef().Count());
-		for (const CamMarker& m : CameraPathRef().Markers()) {
+			CamPathShake_Enabled() ? "ON" : "OFF", CamPathShake_Count(), (int)PathShakeHost_Markers().size());
+		for (const CamMarker& m : PathShakeHost_Markers()) {
 			const CamPathShakeSetting cfg = CamPathShake_GetAt(0, m.tick);
 			if (cfg.IsKey()) Report(0, m.tick, cfg);
 		}
@@ -188,7 +188,7 @@ void CamPathShake_RunCommand(int argc, advancedfx::ICommandArgs* args, const cha
 	if (a3[0] == '@' && IsAllDigits(a3 + 1)) tick = atoi(a3 + 1);
 	else if (IsAllDigits(a3)) tick = owner ? atoi(a3) : TickForMarker(atoi(a3)); // atoi("abc")==0 would be key #0
 	if (tick < 0) {
-		advancedfx::Warning("[pathshake] '%s' is not a key here (the path has %d camera keys).\n", a3, CameraPathRef().Count());
+		advancedfx::Warning("[pathshake] '%s' is not a key here (the path has %d camera keys).\n", a3, (int)PathShakeHost_Markers().size());
 		return;
 	}
 	// The path's keys sit on its camera keys (CamPathShake_SetAt refuses any other tick).
@@ -215,7 +215,7 @@ void CamPathShake_RunCommand(int argc, advancedfx::ICommandArgs* args, const cha
 
 	if (0 == _stricmp(a, "applyall")) {
 		int index = -1;
-		const std::vector<CamMarker>& mk = CameraPathRef().Markers();
+		const std::vector<CamMarker>& mk = PathShakeHost_Markers();
 		for (size_t i = 0; i < mk.size(); ++i) if (mk[i].tick == tick) index = (int)i;
 		const int written = (owner || index < 0) ? 0 : CamPathShake_ApplyToAll(index);
 		if (written <= 0) {

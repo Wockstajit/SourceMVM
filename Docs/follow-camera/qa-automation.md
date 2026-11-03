@@ -83,18 +83,20 @@ the victim's demo user ID. It checks both modes, independent settings and resets
 tracking, pause, and timed holds at normal and quarter speed:
 
 ```powershell
-Automation/verify/verify-follow-death.ps1 -DeathTick 13811 -UserId 4
+Automation/verify/verify-follow-death.ps1 -DeathTick 14240 -UserId 4
 ```
 
-Those example values identify Pulse's death in the Nuke demo ending in `_129`. The script writes
-complete NetCon transcripts and `results.json` under `build/verification/follow-death`, and it leaves
-playback paused.
+Those example values identify user 4's death in the demo ending in `_129` (measured 2026-10-26: alive
+at tick 14185, dead by 14262). The death must fall between 80 ticks before the given tick and 35 after
+it. The script writes complete NetCon transcripts and `results.json` under
+`build/verification/follow-death`, and it leaves playback paused.
 
 For attachment drift, run [verify-follow-mount.ps1](../../Automation/verify/verify-follow-mount.ps1) on the
-same Nuke demo. It replays head motion, both hands, a death, and weapon swaps:
+same demo. It replays head motion, both hands, a death, and weapon swaps. The weapon case needs a player
+holding a gun who lives for 13 seconds from its tick; user 1 holds an M4A4 at 13900:
 
 ```powershell
-Automation/verify/verify-follow-mount.ps1 -UserId 4 -MovementTick 13000 -DeathTick 13811 -WeaponSwitchTick 10000
+Automation/verify/verify-follow-mount.ps1 -UserId 1 -MovementTick 13000 -DeathTick 14240 -WeaponSwitchTick 13900
 python Automation/tools/analyze_follow_mount_probe.py <mvm_debug_log> --assert-stable
 ```
 

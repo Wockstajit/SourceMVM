@@ -54,6 +54,16 @@ inline bool RightPressLooks(const Input& in) {
 	return in.workspace && in.viewEdit && in.uiModeOn && !in.popupOpen && in.preview.Contains(in.x, in.y);
 }
 
+// A right press that waits to see what it is (RightPressLooks): let go within kRightLookHoldMs
+// without moving more than kRightLookSlopPx (Manhattan) and it is a click; held or moved, it
+// becomes the look. Shared by CS2 (MovieMode) and the CS:S hook, so both games feel the same.
+constexpr int kRightLookHoldMs = 200;
+constexpr int kRightLookSlopPx = 4;
+inline bool RightPressBecomesLook(int heldMs, int dx, int dy) {
+	const int moved = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+	return heldMs >= kRightLookHoldMs || moved > kRightLookSlopPx;
+}
+
 // While a camera path PLAYS (or is about to), the path flies the camera. A press in the preview
 // must neither flip the workspace to GAME mode -- free-look would fight the path for the view --
 // nor reach CS2, whose right-click look-around and left-click player step both take the pointer.

@@ -61,7 +61,7 @@ std::wstring DemoOrganizerStore::FilePath() const {
 	std::wstring path = GetHlaeRoamingAppDataFolderW();
 	if (!path.empty() && path.back() != L'\\' && path.back() != L'/')
 		path += L'\\';
-	path += L"filmmaker_demo_organizer.txt";
+	path += m_fileName;
 	return path;
 }
 
@@ -317,6 +317,38 @@ bool DemoOrganizerStore::SetLastPlayed(const std::wstring& path, int64_t whenUni
 int64_t DemoOrganizerStore::LastPlayed(const std::wstring& path) const {
 	const DemoOrganizerRecord* r = Find(NormalizeDemoKey(path));
 	return r ? r->lastPlayed : 0;
+}
+
+bool DemoOrganizerStore::Apply(const std::string& command) {
+	std::string verb, rest;
+	if (!SplitFirst(command, verb, rest))
+		return false;
+
+	if (verb == "sort")
+		return SetSort(rest);
+	if (verb == "newfolder")
+		return CreateGroup(rest) >= 0;
+	if (verb == "rename") {
+		std::string idText, name;
+		return SplitFirst(rest, idText, name) && RenameGroup(std::atoi(idText.c_str()), name);
+	}
+	if (verb == "delfolder")
+		return DeleteGroup(std::atoi(rest.c_str()));
+	if (verb == "collapse") {
+		// "collapse <id|-1> <0|1>"; -1 is the ungrouped bucket's own header.
+		std::string idText, stateText;
+		if (!SplitFirst(rest, idText, stateText))
+			return false;
+		const int id = std::atoi(idText.c_str());
+		const bool collapsed = (std::atoi(stateText.c_str()) != 0);
+		return id < 0 ? SetRootCollapsed(collapsed) : SetGroupCollapsed(id, collapsed);
+	}
+	if (verb == "assign") {
+		// "assign <groupId|-1> <normalised demo key>" - the key is last so it may contain spaces.
+		std::string idText, key;
+		return SplitFirst(rest, idText, key) && !key.empty() && Assign(Utf8ToWide(key), std::atoi(idText.c_str()));
+	}
+	return false;
 }
 
 } // namespace Filmmaker

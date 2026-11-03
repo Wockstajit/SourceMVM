@@ -22,6 +22,7 @@ const read = (name) =>
 
 const stack = read('CameraShakeStack.cpp');
 const bob = read('WeaponBob.cpp');
+const cs2Host = read('CameraShakeHostSource2.cpp');
 
 test('exactly one place publishes the active weapon', () => {
   // Across the whole feature there are two NoteActive calls, and they are the pair below.
@@ -63,8 +64,11 @@ test('the publisher runs unconditionally, in RunFrame', () => {
   // It IS gated, though: the read walks the entity system (spectated pawn -> active weapon handle
   // -> class name), which is only meaningful on a loaded map. The gate was DemoIsLoaded() and was widened to EntityContextLive() so the offline live-match
   // harness (mvm_test, a loaded map with no demo) publishes too -- both pivot strips froze there.
-  assert.match(body, /if \(EntityContextLive\(\)\) \{/,
+  // The stack asks its game host (CameraShakeHost.h); CS2's host answers with EntityContextLive().
+  assert.match(body, /if \(ShakeHost_EntitiesLive\(\)\) \{/,
     'the publish must be gated on a live entity context -- it walks the entity system');
+  assert.match(cs2Host, /bool ShakeHost_EntitiesLive\(\) \{ return EntityContextLive\(\); \}/,
+    "CS2's host must answer the gate with EntityContextLive(), which covers the offline harness");
 });
 
 test('WeaponBob still resolves its own class for its own profile', () => {

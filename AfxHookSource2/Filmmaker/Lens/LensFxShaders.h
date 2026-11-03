@@ -68,7 +68,7 @@ Texture2D<float4> ghostSrcTex : register(t16);
 Texture2D<float4> sourceTex : register(t17);   // the source map, quarter resolution
 Texture2D<float4> source8Tex : register(t18);  // the source map, eighth resolution
 Texture2D<float4> sourceHTex : register(t19);  // the source map, eighth width x half height (Gaussian-filtered streak)
-Texture2D<float> smokeAbsorb : register(t20);  // CS2's OIT absorbance b0 in front of each surface
+Texture2D<float4> smokeAbsorb : register(t20); // R: CS2 OIT b0, A: Source 1 transmittance
 Texture2D<float> worldMask : register(t21);    // 1 world, 0 the sharp first-person weapon; mips like cocTex
 Texture2D<float> sunVisTex : register(t22);    // 1x1: how much of the sun's disc is open sky (SunPS)
 
@@ -172,6 +172,10 @@ float3 RayDir(float2 pixel) {
     float4 h = mul(inverseViewProjection, float4(ndc, .5, 1));
     return normalize(h.xyz / h.w - cameraPos.xyz);
 }
+float SmokeAbsorbance(int2 q) {
+    float4 value=smokeAbsorb.Load(int3(q,0));
+    return smokeInfo.y>1.5 ? -log(clamp(value.a,1e-6,1)) : value.r;
+}
 float SmokeSeenDepth(float span, float b0) {
     if (span <= 0) return 0;
     if (b0 <= 1e-3) return .5 * span;
@@ -190,7 +194,7 @@ bool SmokeAt(float2 pixel, float surfaceAxis, out float cover, out float axis) {
     int count = (int)smokeInfo.x;
     if (count <= 0 || smokeInfo.y < .5) return false;
     int2 q = clamp(int2(pixel * smokeInfo.zw / dims.xy), int2(0, 0), int2(smokeInfo.zw) - 1);
-    float b0 = smokeAbsorb.Load(int3(q, 0));
+    float b0 = SmokeAbsorbance(q);
     if (!(b0 > 0 && b0 < 1e6)) return false;
     cover = 1 - exp(-b0);
     if (cover < kSmokeMinCover) return false;
@@ -271,7 +275,7 @@ float SunPS(VOut i) : SV_Target {
             // A smoke in front of the sun hides it as much as it hides anything.
             if (smokeInfo.y > .5) {
                 int2 q = clamp(int2(pix * smokeInfo.zw / dims.xy), int2(0, 0), int2(smokeInfo.zw) - 1);
-                float b0 = smokeAbsorb.Load(int3(q, 0));
+                float b0 = SmokeAbsorbance(q);
                 if (b0 > 0 && b0 < 1e6) open *= exp(-b0);
             }
             vis += open;
@@ -859,34 +863,27 @@ float BrightArea() {
             m += smoothstep(kFlareBudgetLo, kFlareBudgetHi, bright8Tex.SampleLevel(linearClamp, (float2(x, y) + .5) / 16, 0).a);
     return m / 256;
 }
-float4 CompositePS(VOut i
-#if COLOR_MS
-    , uint sampleIndex : SV_SampleIndex
-#endif
-) : SV_Target {
+// The same affine transform serves sample-frequency D3D11 and D3D9's per-sample hardware
+// blending. A zero blur keeps the engine's original coverage samples and alpha intact.
+struct LensComposite { float3 factor; float3 add; };
+LensComposite CompositeAffine(VOut i) {
     int2 p = int2(i.pos.xy);
-#if COLOR_MS
-    float4 origA = msaaColor.Load(p, sampleIndex);
-#else
-    float4 origA = colorTex.Load(int3(p, 0));
-#endif
-    float3 orig = origA.rgb;
-    float3 col = orig;
+    LensComposite outc; outc.factor = 1; outc.add = 0;
     if (modes.x > .5) {
         float4 g = gatherTex.Load(int3(p, 0));
-        col = lerp(orig, ToDisplay(g.rgb), g.a);
+        outc.factor = (1 - g.a).xxx; outc.add = ToDisplay(g.rgb) * g.a;
         float coc = cocTex.Load(int3(p, 0)).a;
         int dbg = (int)dofC.w;
         if (dbg == 1) {
             float m = saturate(abs(coc) / max(dofC.x, 1));
-            col = orig * .3 + (coc < 0 ? float3(1, .25, .1) : float3(.1, .6, 1)) * (.15 + m * .85);
+            outc.factor = .3; outc.add = (coc < 0 ? float3(1, .25, .1) : float3(.1, .6, 1)) * (.15 + m * .85);
         } else if (dbg == 2) {
             float f = saturate(1 - abs(coc) / .75);
-            col = lerp(orig * .5, float3(1, 0, .8), f * .7);
+            outc.factor = (.5 * (1 - f * .7)).xxx; outc.add = float3(1, 0, .8) * (f * .7);
         } else if (dbg == 3) {
             // Zebra: diagonal stripes over what is sharp (blur under half a pixel), on the finished picture.
             int band = ((p.x + p.y) / 6) % 4;
-            if (abs(coc) < .5) col = band == 0 ? float3(1, 1, 1) : (band == 2 ? float3(.18, .18, .18) : col);
+            if (abs(coc) < .5 && (band == 0 || band == 2)) { outc.factor = 0; outc.add = band == 0 ? 1 : .18; }
         }
     }
     if (modes.y > .5) {
@@ -905,10 +902,27 @@ float4 CompositePS(VOut i
         // The sun sits on a bright sky, which is exactly what the budget turns down: while it shows it keeps the flare.
         if (sunInfo.z > 0) budget = max(budget, sunVisTex.Load(int3(0, 0, 0)));
         float3 f = 1 - exp(-max(((gh + gl) * flareTint.rgb * dirt + st) * flareA.x * budget, 0));
-        col = flareC.w > .5 ? f : 1 - (1 - col) * (1 - f);
-        if (flareC.w > 1.5) col = float3(area * 10, budget, 0);
+        if(flareC.w > .5) { outc.factor = 0; outc.add = f; }
+        else { outc.factor *= 1 - f; outc.add = 1 - (1 - outc.add) * (1 - f); }
+        if (flareC.w > 1.5) { outc.factor = 0; outc.add = float3(area * 10, budget, 0); }
     }
-    return float4(saturate(col), origA.a);
+    return outc;
+}
+float4 CompositeFactorPS(VOut i) : SV_Target { return float4(CompositeAffine(i).factor, 1); }
+float4 CompositeAddPS(VOut i) : SV_Target { return float4(CompositeAffine(i).add, 0); }
+float4 CompositePS(VOut i
+#if COLOR_MS
+    , uint sampleIndex : SV_SampleIndex
+#endif
+) : SV_Target {
+    int2 p = int2(i.pos.xy);
+#if COLOR_MS
+    float4 origA = msaaColor.Load(p, sampleIndex);
+#else
+    float4 origA = colorTex.Load(int3(p, 0));
+#endif
+    LensComposite outc = CompositeAffine(i);
+    return float4(saturate(origA.rgb * outc.factor + outc.add), origA.a);
 }
 )HLSL";
 

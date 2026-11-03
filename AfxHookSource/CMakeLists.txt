@@ -17,8 +17,10 @@ macro(add_shader name profile)
         DEPENDS
             shaderbuilder
             "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/${name}.fxc"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_pass_normals.hlsli"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/afx_fisheye_uv.hlsli"
         COMMAND
-            ShaderBuilder.exe --profile "${profile}" --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/${name}.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/${name}"
+            "${shaderbuilder_BINARY_DIR}/ShaderBuilder.exe" --profile "${profile}" --in "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/${name}.fxc" --outPrefix "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/${name}"
     )
     target_sources(AfxHookSourceShaders
         PRIVATE
@@ -30,11 +32,14 @@ endmacro()
 add_shader("afx_line_vs20" "vs_2_0")
 add_shader("afx_line_ps20" "ps_2_0")
 add_shader("afx_drawtexture_ps20" "ps_2_0")
+add_shader("afx_depth_ps20" "ps_2_0") # SOURCE:MVM: HLAE depth is also used by CS:S x64.
+add_shader("afx_source_pass_vs30" "vs_3_0")
+add_shader("afx_source_fisheye_ps30" "ps_3_0") # SOURCE:MVM: shared barrel mapping.
+add_shader("afx_source_normal_ps30" "ps_3_0") # SOURCE:MVM: shares CS2's normal reconstruction.
 
 if(CMAKE_GENERATOR_PLATFORM STREQUAL "Win32")
     add_shader("afx_pgldraw_vs20" "vs_2_0")
     add_shader("afx_pgldraw_ps20" "ps_2_0")
-    add_shader("afx_depth_ps20" "ps_2_0")
 endif()
 
 ## END Shaders
@@ -76,6 +81,10 @@ target_compile_definitions(AfxHookSource PRIVATE
     AFX_INTEROP
     AFX_MIRV_PGL
     _CRT_SECURE_NO_WARNINGS
+    # Shared SOURCE:MVM filmmaker files compiled into this hook leave out their CS2-only parts.
+    GAME_SOURCE1
+    # Dear ImGui reads the Source 1 UI's configuration (Filmmaker/Ui/UiImConfig.h).
+    IMGUI_USER_CONFIG="Filmmaker/Ui/UiImConfig.h"
 )
 
 # generate PDB in release too:
@@ -86,6 +95,7 @@ target_include_directories(AfxHookSource PRIVATE
     ./
     ../Deps/release/prop/AfxHookSource
     ../
+    ../Deps/release/imgui
     ../Deps/release/prop
     "${AFX_OPENEXR_INCLUDE_DIRECTORIES}"
     "${CMAKE_CURRENT_BINARY_DIR}"
@@ -97,6 +107,8 @@ target_link_directories(AfxHookSource PRIVATE
 
 target_link_libraries(AfxHookSource PRIVATE
     "${AFX_OPENEXR_LINK_LIBRARIES}"
+    windowscodecs.lib
+    ole32.lib
 )
 
 target_sources(AfxHookSource PRIVATE   
@@ -121,6 +133,302 @@ target_sources(AfxHookSource PRIVATE
     d3d9Hooks.cpp
     d3d9Hooks.h
     D3D9ImageBuffer.h
+    Filmmaker/CSS/CssProfile.cpp
+    Filmmaker/SourceCameraBridge.cpp
+    Filmmaker/SourceCameraPath.cpp
+    Filmmaker/SourceCameraPath.h
+    Filmmaker/SourceCapture.cpp
+    Filmmaker/SourceCapture.h
+    Filmmaker/SourceConfig.cpp
+    Filmmaker/SourceConfig.h
+    Filmmaker/SourceConCommand.cpp
+    Filmmaker/SourceConCommand.h
+    Filmmaker/SourceConsole.cpp
+    Filmmaker/SourceConsole.h
+    Filmmaker/DemoConvert/ConvertV34.cpp
+    Filmmaker/DemoConvert/ConvertV34.h
+    Filmmaker/DemoConvert/DemoBits.h
+    Filmmaker/DemoConvert/DemoTables.cpp
+    Filmmaker/DemoConvert/DemoTables.h
+    Filmmaker/DemoConvert/MapModels.cpp
+    Filmmaker/DemoConvert/MapModels.h
+    Filmmaker/SourceDebugLog.cpp
+    Filmmaker/SourceDemoBar.cpp
+    Filmmaker/SourceDemoBar.h
+    Filmmaker/SourceDemoBarModel.cpp
+    Filmmaker/SourceDemoBarModel.h
+    Filmmaker/SourceDemoEndHold.cpp
+    Filmmaker/SourceDemoScrub.cpp
+    Filmmaker/SourceDemoFile.cpp
+    Filmmaker/SourceDemoFile.h
+    Filmmaker/SourceDemoIndex.cpp
+    Filmmaker/SourceDemoIndex.h
+    Filmmaker/SourceDemoMarkers.cpp
+    Filmmaker/SourceDemoMarkers.h
+    Filmmaker/SourceDemoRewind.cpp
+    Filmmaker/SourceDemoRewind.h
+    Filmmaker/SourceRender.h
+    Filmmaker/SourceRenderDriver.cpp
+    Filmmaker/SourceLensSmoke.cpp
+    Filmmaker/SourceLensSmoke.h
+    Filmmaker/SourceLensGpu.cpp
+    Filmmaker/SourceLensGpu.h
+    Filmmaker/SourceLens.cpp
+    Filmmaker/SourceLens.h
+    Filmmaker/SourceLensShaders.cpp
+    Filmmaker/SourceLensShaders.h
+    Filmmaker/SourceRenderPasses.cpp
+    Filmmaker/SourceRenderPasses.h
+    Filmmaker/SourceRenderPassMath.h
+    Filmmaker/SourceRenderPassTable.h
+    Filmmaker/SourceMatchMath.h
+    Filmmaker/SourceRenderHost.cpp
+    Filmmaker/SourceRenderModel.cpp
+    Filmmaker/SourceDemos.cpp
+    Filmmaker/SourceDemos.h
+    Filmmaker/SourceCameraShake.cpp
+    Filmmaker/SourceCameraShake.h
+    Filmmaker/SourceDemoDeletions.cpp
+    Filmmaker/SourceDemoDeletions.h
+    Filmmaker/SourceDemoSkip.cpp
+    Filmmaker/SourceDemoSkip.h
+    Filmmaker/SourceDirector.cpp
+    Filmmaker/SourceDirector.h
+    Filmmaker/SourceEngine.cpp
+    Filmmaker/SourceEngine.h
+    Filmmaker/SourceFollowCamera.cpp
+    Filmmaker/SourceFollowCamera.h
+    Filmmaker/SourceFilmmaker.cpp
+    Filmmaker/SourceFilmmaker.h
+    Filmmaker/SourceGameProfile.cpp
+    Filmmaker/SourceGameProfile.h
+    Filmmaker/SourceMainThread.cpp
+    Filmmaker/SourceMainThread.h
+    Filmmaker/SourceNetcon.cpp
+    Filmmaker/SourceNetcon.h
+    Filmmaker/SourceNetvars.h
+    Filmmaker/SourceOldDemos.cpp
+    Filmmaker/SourceOldDemos.h
+    Filmmaker/SourceSdk2013.h
+    Filmmaker/SourceSettings.cpp
+    Filmmaker/SourceSettings.h
+    Filmmaker/SourceSmoothView.cpp
+    Filmmaker/SourceSmoothView.h
+    Filmmaker/SourceScrubFrameCache.cpp
+    Filmmaker/SourceScrubFrameCache.h
+    Filmmaker/SourceTimelineDock.cpp
+    Filmmaker/SourceTimelineDock.h
+    Filmmaker/SourceTimelinePlayhead.cpp
+    Filmmaker/SourceTimelinePlayhead.h
+    Filmmaker/SourceUi.cpp
+    Filmmaker/SourceUi.h
+    Filmmaker/SourceViewModel.cpp
+    Filmmaker/SourceViewModel.h
+    Filmmaker/SourceWindow.cpp
+    Filmmaker/SourceWindow.h
+    Filmmaker/Ui/CameraEditorShell.cpp
+    Filmmaker/Ui/CameraEditorShell.h
+    Filmmaker/Ui/ConfigInspector.cpp
+    Filmmaker/Ui/ConfigInspector.h
+    Filmmaker/Ui/ConfigLensCards.h
+    Filmmaker/Ui/DemoBar.cpp
+    Filmmaker/Ui/DemoBar.h
+    Filmmaker/Ui/DemoBarMath.h
+    Filmmaker/Ui/DemosBrowser.cpp
+    Filmmaker/Ui/DemosBrowser.h
+    Filmmaker/Ui/DemosBrowserMath.h
+    Filmmaker/Ui/DirectorHud.cpp
+    Filmmaker/Ui/DirectorHud.h
+    Filmmaker/Ui/DirectorMath.h
+    Filmmaker/Ui/DirectorMouse.h
+    Filmmaker/Ui/FollowInspector.cpp
+    Filmmaker/Ui/FollowInspector.h
+    Filmmaker/Ui/HudCard.h
+    Filmmaker/Ui/InspectorCards.cpp
+    Filmmaker/Ui/InspectorCards.h
+    Filmmaker/Ui/MarkerPopup.cpp
+    Filmmaker/Ui/MarkerPopup.h
+    Filmmaker/Ui/PathOverlay.cpp
+    Filmmaker/Ui/PathInspector.cpp
+    Filmmaker/Ui/PathInspector.h
+    Filmmaker/Ui/PathOverlay.h
+    Filmmaker/Ui/RenderWorkspace.cpp
+    Filmmaker/Ui/RenderWorkspace.h
+    Filmmaker/Ui/TimelineDock.cpp
+    Filmmaker/Ui/TimelineDock.h
+    Filmmaker/Ui/TimelineDockMath.h
+    Filmmaker/Ui/UiImConfig.h
+    Filmmaker/Ui/UiKeys.h
+    Filmmaker/Ui/UiRenderDx9.cpp
+    Filmmaker/Ui/UiRenderDx9.h
+    Filmmaker/Ui/UiStyle.cpp
+    Filmmaker/Ui/UiStyle.h
+    Filmmaker/Ui/UiTheme.h
+    Filmmaker/Ui/UiTypes.h
+    Filmmaker/Ui/UiWidgets.cpp
+    Filmmaker/Ui/UiWidgets.h
+    Filmmaker/Ui/WorkspaceLayoutMath.h
+    Filmmaker/Ui/WorkspaceMouse.h
+
+    # Dear ImGui (MIT), the Source 1 UI's widget layer.
+    ../Deps/release/imgui/imgui.cpp
+    ../Deps/release/imgui/imgui.h
+    ../Deps/release/imgui/imgui_draw.cpp
+    ../Deps/release/imgui/imgui_tables.cpp
+    ../Deps/release/imgui/imgui_widgets.cpp
+
+    # Shared with the CS2 and Deadlock hooks, compiled from the CS2 tree.
+    ../AfxHookSource2/Filmmaker/Debug/DebugLogDedupMath.h
+    ../AfxHookSource2/Filmmaker/Debug/MvmDebugLog.cpp
+    ../AfxHookSource2/Filmmaker/Debug/MvmDebugLog.h
+    ../AfxHookSource2/Filmmaker/Debug/MvmDebugLogHost.h
+    ../AfxHookSource2/Filmmaker/Demo/DemoMatchInfoFile.h
+    ../AfxHookSource2/Filmmaker/Demo/DemoProjectFileMath.h
+    ../AfxHookSource2/Filmmaker/Demo/DemoProjectPath.cpp
+    ../AfxHookSource2/Filmmaker/Demo/DemoProjectPath.h
+    ../AfxHookSource2/Filmmaker/Demo/DemoProjectStore.cpp
+    ../AfxHookSource2/Filmmaker/Demo/DemoProjectStore.h
+    ../AfxHookSource2/Filmmaker/Demo/DemoProjectStoreMath.h
+    ../AfxHookSource2/Filmmaker/Demo/DemoScanner.cpp
+    ../AfxHookSource2/Filmmaker/Demo/DemoScanner.h
+    ../AfxHookSource2/Filmmaker/FilmmakerCommandUtil.cpp
+    ../AfxHookSource2/Filmmaker/FilmmakerCommandUtil.h
+    ../AfxHookSource2/Filmmaker/FollowCommand.cpp
+    ../AfxHookSource2/Filmmaker/Config/CameraFeelSettings.cpp
+    ../AfxHookSource2/Filmmaker/Config/CameraFeelSettings.h
+    ../AfxHookSource2/Filmmaker/Config/DemoFileStore.cpp
+    ../AfxHookSource2/Filmmaker/Config/DemoFileStore.h
+    ../AfxHookSource2/Filmmaker/Config/DemoFolderStore.cpp
+    ../AfxHookSource2/Filmmaker/Config/DemoFolderStore.h
+    ../AfxHookSource2/Filmmaker/Config/DemoOrganizerStore.cpp
+    ../AfxHookSource2/Filmmaker/Config/DemoOrganizerStore.h
+    ../AfxHookSource2/Filmmaker/Config/HiddenDemoStore.cpp
+    ../AfxHookSource2/Filmmaker/Config/HiddenDemoStore.h
+    ../AfxHookSource2/Filmmaker/Platform/JsonBuilder.cpp
+    ../AfxHookSource2/Filmmaker/Platform/JsonBuilder.h
+    ../AfxHookSource2/Filmmaker/Platform/JsonParser.cpp
+    ../AfxHookSource2/Filmmaker/Platform/JsonParser.h
+    ../AfxHookSource2/Filmmaker/Platform/DemoFilePicker.cpp
+    ../AfxHookSource2/Filmmaker/Platform/DemoFilePicker.h
+    ../AfxHookSource2/Filmmaker/Platform/FolderPicker.cpp
+    ../AfxHookSource2/Filmmaker/Platform/FolderPicker.h
+    ../AfxHookSource2/Filmmaker/Platform/ShellOpen.cpp
+    ../AfxHookSource2/Filmmaker/Platform/ShellOpen.h
+    ../AfxHookSource2/Filmmaker/Platform/TextEncoding.cpp
+    ../AfxHookSource2/Filmmaker/Platform/TextEncoding.h
+    ../AfxHookSource2/Filmmaker/Render/RenderCaptureMath.h
+    ../AfxHookSource2/Filmmaker/Render/RenderCommand.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderCommand.h
+    ../AfxHookSource2/Filmmaker/Render/RenderDoneSound.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderDoneSound.h
+    ../AfxHookSource2/Filmmaker/Render/RenderEncoderDetect.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderEncoderDetect.h
+    ../AfxHookSource2/Filmmaker/Render/RenderEncoding.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderEtaMath.h
+    ../AfxHookSource2/Filmmaker/Render/RenderHost.h
+    ../AfxHookSource2/Filmmaker/Render/RenderJob.h
+    ../AfxHookSource2/Filmmaker/Render/RenderManifest.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderManifest.h
+    ../AfxHookSource2/Filmmaker/Render/RenderOutput.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderOutput.h
+    ../AfxHookSource2/Filmmaker/Render/RenderPassPlan.h
+    ../AfxHookSource2/Filmmaker/Render/RenderRange.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderRange.h
+    ../AfxHookSource2/Filmmaker/Render/RenderSession.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderSession.h
+    ../AfxHookSource2/Filmmaker/Render/RenderSessionDriver.h
+    ../AfxHookSource2/Filmmaker/Render/RenderTakeHistory.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderTakeHistory.h
+    ../AfxHookSource2/Filmmaker/Render/RenderTakeImportMath.h
+    ../AfxHookSource2/Filmmaker/Render/RenderTypes.h
+    ../AfxHookSource2/Filmmaker/Render/RenderValidation.cpp
+    ../AfxHookSource2/Filmmaker/Render/RenderValidation.h
+    ../AfxHookSource2/Filmmaker/Window/AspectRatioMath.h
+    ../AfxHookSource2/Filmmaker/Window/WindowGeometry.h
+    ../AfxHookSource2/Filmmaker/Window/WindowPrecisionGuard.h
+    ../AfxHookSource2/Filmmaker/Window/WindowSizeOverlay.cpp
+    ../AfxHookSource2/Filmmaker/Window/WindowSizeOverlay.h
+    ../AfxHookSource2/Filmmaker/Window/WindowSnapMath.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraCenterLockMath.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraShakeHost.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraShakePhaseClockMath.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraShakeStack.cpp
+    ../AfxHookSource2/Filmmaker/Movie/CameraShakeStack.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraShakeTrackerMath.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraShakeTypes.h
+    ../AfxHookSource2/Filmmaker/Movie/CamMarkerPickMath.h
+    ../AfxHookSource2/Filmmaker/CamPathShakeCommand.cpp
+    ../AfxHookSource2/Filmmaker/Movie/CamMarkers.cpp
+    ../AfxHookSource2/Filmmaker/Movie/CamMarkers.h
+    ../AfxHookSource2/Filmmaker/Movie/CamPathEval.cpp
+    ../AfxHookSource2/Filmmaker/Movie/CamPathEval.h
+    ../AfxHookSource2/Filmmaker/Movie/CamPathTimingMath.h
+    ../AfxHookSource2/Filmmaker/Movie/CamPlayback.cpp
+    ../AfxHookSource2/Filmmaker/Movie/CamPlayback.h
+    ../AfxHookSource2/Filmmaker/Movie/CamPathShake.cpp
+    ../AfxHookSource2/Filmmaker/Movie/CamPathShake.h
+    ../AfxHookSource2/Filmmaker/Movie/CamPathShakeHost.h
+    ../AfxHookSource2/Filmmaker/Movie/CamPathShakeRampMath.h
+    ../AfxHookSource2/Filmmaker/Movie/CameraBridge.h
+    ../AfxHookSource2/Filmmaker/Movie/DemoEndHold.cpp
+    ../AfxHookSource2/Filmmaker/Movie/DemoEndHold.h
+    ../AfxHookSource2/Filmmaker/Movie/DemoEndHoldHost.h
+    ../AfxHookSource2/Filmmaker/Movie/FollowCamera.cpp
+    ../AfxHookSource2/Filmmaker/Movie/FollowCamera.h
+    ../AfxHookSource2/Filmmaker/Movie/FollowCameraHost.h
+    ../AfxHookSource2/Filmmaker/Movie/FollowCameraMath.cpp
+    ../AfxHookSource2/Filmmaker/Movie/FollowCameraMath.h
+    ../AfxHookSource2/Filmmaker/Movie/FollowCameraStateJson.cpp
+    ../AfxHookSource2/Filmmaker/Movie/FollowEventIndex.cpp
+    ../AfxHookSource2/Filmmaker/Movie/FollowEventIndex.h
+    ../AfxHookSource2/Filmmaker/Movie/FollowTargetDiscovery.cpp
+    ../AfxHookSource2/Filmmaker/Movie/FollowTargetDiscovery.h
+    ../AfxHookSource2/Filmmaker/Movie/GraphCurveMath.h
+    ../AfxHookSource2/Filmmaker/Movie/GraphExpModel.cpp
+    ../AfxHookSource2/Filmmaker/Movie/GraphExpModel.h
+    ../AfxHookSource2/Filmmaker/Movie/GunWeaponMath.h
+    ../AfxHookSource2/Filmmaker/Movie/HandheldCam.cpp
+    ../AfxHookSource2/Filmmaker/Movie/HandheldCam.h
+    ../AfxHookSource2/Filmmaker/Movie/HandheldCamCurves.cpp
+    ../AfxHookSource2/Filmmaker/Movie/RecoilPivotMarker.cpp
+    ../AfxHookSource2/Filmmaker/Movie/RecoilPivotMarker.h
+    ../AfxHookSource2/Filmmaker/Movie/RecoilPivotMarkerMath.h
+    ../AfxHookSource2/Filmmaker/Movie/RageShake.cpp
+    ../AfxHookSource2/Filmmaker/Movie/RageShake.h
+    ../AfxHookSource2/Filmmaker/Movie/RageShakeStyles.cpp
+    ../AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.h
+    ../AfxHookSource2/Filmmaker/Movie/DemoScrub.cpp
+    ../AfxHookSource2/Filmmaker/Movie/DemoScrub.h
+    ../AfxHookSource2/Filmmaker/Movie/DemoScrubHost.h
+    ../AfxHookSource2/Filmmaker/Movie/DemoScrubMath.h
+    ../AfxHookSource2/Filmmaker/Movie/ScrubFrameCache.cpp
+    ../AfxHookSource2/Filmmaker/Movie/ScrubFrameCacheHost.h
+    ../AfxHookSource2/Filmmaker/Movie/ScrubFrameCacheMath.h
+    ../AfxHookSource2/Filmmaker/Movie/SmoothView.cpp
+    ../AfxHookSource2/Filmmaker/Movie/SmoothView.h
+    ../AfxHookSource2/Filmmaker/Movie/SmoothViewAirMotionMath.h
+    ../AfxHookSource2/Filmmaker/Lens/LensFxState.cpp
+    ../AfxHookSource2/Filmmaker/Lens/FisheyeState.cpp
+    ../AfxHookSource2/Filmmaker/Lens/FisheyeState.h
+    ../AfxHookSource2/Filmmaker/Lens/FisheyeMath.h
+    ../AfxHookSource2/Filmmaker/Lens/LensFxConstants.h
+    ../AfxHookSource2/Filmmaker/Lens/LensFxState.h
+    ../AfxHookSource2/Filmmaker/Lens/LensFxMath.h
+    ../AfxHookSource2/Filmmaker/Lens/LensMaskMath.h
+    ../AfxHookSource2/Filmmaker/Environment/EnvironmentMaterialImage.cpp
+    ../AfxHookSource2/Filmmaker/Movie/SmoothViewHost.h
+    ../AfxHookSource2/Filmmaker/Movie/SmoothViewTiltMath.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponBob.cpp
+    ../AfxHookSource2/Filmmaker/Movie/WeaponBob.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponBobMath.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponPivot.cpp
+    ../AfxHookSource2/Filmmaker/Movie/WeaponPivot.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponRecoil.cpp
+    ../AfxHookSource2/Filmmaker/Movie/WeaponRecoil.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponRecoilMath.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponRecoilPresets.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponRecoilScope.h
+    ../AfxHookSource2/Filmmaker/Movie/WeaponRecoilStyles.h
     Gui.cpp
     Gui.h
     hlaeFolder.cpp
@@ -297,6 +605,8 @@ target_sources(AfxHookSource PRIVATE
     ../Shared/MirvCampath.h
     ../Shared/MirvInput.cpp
     ../Shared/MirvInput.h
+    ../Shared/NetconServer.cpp
+    ../Shared/NetconServer.h
 	../Shared/MirvSkip.cpp
 	../Shared/MirvSkip.h
     ../Shared/OpenExrOutput.cpp
@@ -316,6 +626,12 @@ target_sources(AfxHookSource PRIVATE
 
 # This is far form proper, but it will do for now:
 source_group("AfxHookSource" REGULAR_EXPRESSION "/AfxHookSource/")
+source_group("AfxHookSource/Filmmaker" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/")
+source_group("AfxHookSource/Filmmaker/CSS" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/CSS/")
+source_group("AfxHookSource/Filmmaker/DemoConvert" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/DemoConvert/")
+source_group("AfxHookSource/Filmmaker/Ui" REGULAR_EXPRESSION "/AfxHookSource/Filmmaker/Ui/")
+source_group("Deps/release/imgui" REGULAR_EXPRESSION "/Deps/release/imgui/")
+source_group("AfxHookSource2/Filmmaker" REGULAR_EXPRESSION "/AfxHookSource2/Filmmaker/")
 source_group("AfxHookSource/tf2" REGULAR_EXPRESSION "/AfxHookSource/tf2/")
 source_group("deps" REGULAR_EXPRESSION "/Deps/")
 source_group("Deps/release" REGULAR_EXPRESSION "/Deps/release/")
@@ -414,6 +730,31 @@ if(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
 
     target_link_libraries(AfxHookSource PRIVATE
        "${AfxHookSource_BINARY_DIR}/afx_iface_passthrough_x64.obj"
+    )
+
+    # The hook loads these from <bin>/resources at runtime (AfxShaders.cpp, CampathDrawer.cpp), so
+    # the x64-source1 stage carries them next to the DLL, the way AfxHookSource2 stages its own.
+    install(
+        FILES
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_line_vs20.acs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_line_ps20.acs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_drawtexture_ps20.acs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_depth_ps20.acs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_source_normal_ps30.acs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_source_pass_vs30.acs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Shaders/build/afx_source_fisheye_ps30.acs"
+        DESTINATION "bin/resources/shaders"
+        COMPONENT x64-source1
+    )
+    install(
+        FILES "${CMAKE_CURRENT_SOURCE_DIR}/../Resources/resources/hexfont.tga"
+        DESTINATION "bin/resources"
+        COMPONENT x64-source1
+    )
+    install(
+        FILES "${CMAKE_CURRENT_SOURCE_DIR}/../Deps/release/imgui/LICENSE.txt"
+        DESTINATION "bin/resources/LICENSES/DearImGui"
+        COMPONENT x64-source1
     )
 endif()
 
@@ -517,3 +858,5 @@ if(CMAKE_GENERATOR_PLATFORM STREQUAL "Win32")
     source_group("AfxHookSource/garrysmod" REGULAR_EXPRESSION "/AfxHookSource/garrysmod/")
     source_group("AfxHookSource/momentum" REGULAR_EXPRESSION "/AfxHookSource/momentum/")
 endif()
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/../CMake/Source1Tests.cmake")

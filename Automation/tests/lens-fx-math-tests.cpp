@@ -2,6 +2,8 @@
 // parameters). The HLSL mirrors this maths; a static check at the bottom keeps the constants the
 // shader carries in step with the ones pinned here.
 #include "../../AfxHookSource2/Filmmaker/Lens/LensFxMath.h"
+#include "../../AfxHookSource2/Filmmaker/Lens/LensMaskMath.h"
+#include "../../AfxHookSource2/Filmmaker/Lens/FisheyeMath.h"
 #include "../../AfxHookSource2/Filmmaker/Lens/LensFxShaders.h"
 
 #include <cmath>
@@ -858,7 +860,7 @@ static void TestShaderSource() {
 	CHECK(src.find("exp(-dot(d, d) / (2 * kSunSourceRadius * kSunSourceRadius)) * vis * sunInfo.z") != std::string::npos);
 	CHECK(src.find("if (sunInfo.z > 0) budget = max(budget, sunVisTex.Load(int3(0, 0, 0)));") != std::string::npos);
 	// The zebra marks what blurs less than half a pixel.
-	CHECK(src.find("dbg == 3") != std::string::npos && src.find("if (abs(coc) < .5) col = band == 0") != std::string::npos);
+	CHECK(src.find("dbg == 3") != std::string::npos && src.find("if (abs(coc) < .5 && (band == 0 || band == 2))") != std::string::npos);
 	CHECK(src.find("/ 36.0") != std::string::npos);
 	CHECK(src.find("kFarSky = 60000.0") != std::string::npos);
 	CHECK(kFarSky == 60000.0f && kMillimetresPerUnit == 25.4f && kSensorWidthMm == 36.0f);
@@ -1007,7 +1009,7 @@ static void TestShaderSource() {
 	CHECK(src.find("1 - exp(-kGhostBlobGain * acc / wsum)") != std::string::npos);
 	// Bounded composite: a soft limiter on the flare sum, screen-blended onto the picture.
 	CHECK(src.find("float3 f = 1 - exp(-max(((gh + gl) * flareTint.rgb * dirt + st) * flareA.x * budget, 0));") != std::string::npos);
-	CHECK(src.find("col = flareC.w > .5 ? f : 1 - (1 - col) * (1 - f);") != std::string::npos);
+	CHECK(src.find("outc.factor *= 1 - f; outc.add = 1 - (1 - outc.add) * (1 - f);") != std::string::npos);
 	// What was removed from the shaders is gone.
 	for (const char* gone : { "Spectrum(", "WarpUv", "SampleGhost", "float4 flareD", "float4 flareE", "float4 flareF", "float4 flareG",
 		"float4 flareH", "float4 flareI", "float Rnd(", "flareG.", "flareH.", "flareI." })
@@ -1015,7 +1017,7 @@ static void TestShaderSource() {
 
 }
 
-// The constant buffer is written by LensFx.cpp's Constants struct and read by the cbuffer in the shader:
+// The constant buffer is written by LensFxConstants.h's GpuConstants struct and read by the cbuffer in the shader:
 // the two lists must have the same members in the same order, or every shader reads shifted values.
 static void TestConstantBufferLockStep() {
 	const std::string src = std::string(kShaderCommon);
@@ -1035,13 +1037,14 @@ static void TestConstantBufferLockStep() {
 			hlsl.push_back(line.substr(nameStart, nameEnd - nameStart));
 		}
 	}
-	const std::string cpp = ReadRepoFile("AfxHookSource2/Filmmaker/Lens/LensFx.cpp");
+	const std::string cpp = ReadRepoFile("AfxHookSource2/Filmmaker/Lens/LensFxConstants.h");
 	CHECK(!cpp.empty());
 	std::vector<std::string> host;
 	{
-		const size_t open = cpp.find("struct Constants {");
+		const size_t open = cpp.find("struct GpuConstants {");
 		const size_t close = cpp.find("};", open);
 		CHECK(open != std::string::npos && close != std::string::npos);
+        if(open==std::string::npos || close==std::string::npos) return;
 		std::istringstream lines(cpp.substr(open, close - open));
 		std::string line;
 		while (std::getline(lines, line)) {
@@ -1061,7 +1064,7 @@ static void TestConstantBufferLockStep() {
 	}
 	CHECK(!hlsl.empty() && hlsl.size() == host.size());
 	for (size_t i = 0; i < hlsl.size() && i < host.size(); ++i) {
-		if (hlsl[i] != host[i]) std::printf("constant buffer member %zu: shader '%s' vs LensFx.cpp '%s'\n", i, hlsl[i].c_str(), host[i].c_str());
+		if (hlsl[i] != host[i]) std::printf("constant buffer member %zu: shader '%s' vs LensFxConstants.h '%s'\n", i, hlsl[i].c_str(), host[i].c_str());
 		CHECK(hlsl[i] == host[i]);
 	}
 	// The flare block is the five members MakeFlareConstants fills.
@@ -1070,7 +1073,62 @@ static void TestConstantBufferLockStep() {
 	CHECK(flareMembers == 5);
 }
 
+static void TestFisheyeMapping() {
+    for(float aspect : {1.f,16.f/9,9.f/16,32.f/9}) {
+        for(float u : {0.f,1.f}) for(float v : {0.f,1.f}) {
+            const auto corner=FisheyeUv(u,v,aspect);
+            CHECK_NEAR(corner[0],u,1e-6);CHECK_NEAR(corner[1],v,1e-6);
+        }
+        const auto centre=FisheyeUv(.5f,.5f,aspect);
+        CHECK_NEAR(centre[0],.5f,1e-6);CHECK_NEAR(centre[1],.5f,1e-6);
+        for(int y=0;y<=16;++y) {
+            float last=-1;
+            for(int x=0;x<=16;++x) {
+                const float u=x/16.f,v=y/16.f;
+                const auto uv=FisheyeUv(u,v,aspect),identity=FisheyeUv(u,v,aspect,0);
+                CHECK(uv[0]>=0 && uv[0]<=1 && uv[1]>=0 && uv[1]<=1);
+                CHECK(uv[0]>last);last=uv[0]; // no fold-over on a scanline
+                CHECK_NEAR(identity[0],u,1e-6);CHECK_NEAR(identity[1],v,1e-6);
+            }
+        }
+        const auto edge=FisheyeUv(1,.5f,aspect);
+        CHECK(edge[0]>.5f && edge[0]<1); // centre zoom without clamped-edge streaks
+    }
+    const auto parameters=FisheyeParameters(854,480);
+    CHECK_NEAR(parameters[0],.22f,1e-7);CHECK_NEAR(parameters[1],.10f,1e-7);
+    CHECK_NEAR(parameters[2],854.f/480,1e-6);
+}
+
+
+static void TestMaskReduction() {
+    for(const auto size : {std::array<unsigned,2>{4096,1},{1,4096},{1025,3},{257,1025}}) {
+        const std::vector<unsigned char> rgba(size_t(size[0])*size[1]*4,255);
+        const auto image=ReduceMaskRgba(size[0],size[1],rgba);
+        CHECK(image.width>0 && image.height>0 && image.width<=512 && image.height<=512);
+        CHECK(image.pixels.size()==size_t(image.width)*image.height);
+        CHECK(std::all_of(image.pixels.begin(),image.pixels.end(),[](unsigned char v){return v==255;}));
+    }
+    // A non-divisible final row AND column contain a real one-pixel feature.
+    std::vector<unsigned char> corner(513*513*4,0);
+    std::fill(corner.end()-4,corner.end(),255);
+    const auto edge=ReduceMaskRgba(513,513,corner);
+    CHECK(edge.width==512 && edge.height==512);
+    CHECK(edge.pixels.front()==0 && edge.pixels.back()==254);
+    // A thin feature at a non-integral box boundary keeps its area-weighted energy.
+    std::vector<unsigned char> stripe(1025*3*4,0);
+    for(unsigned y=0;y<3;++y) std::fill_n(stripe.begin()+(y*1025+1024)*4,4,255);
+    const auto partial=ReduceMaskRgba(1025,3,stripe);
+    CHECK(partial.width==512 && partial.height==1 && partial.pixels.back()==127);
+    // Existing small-image colour/alpha semantics are preserved.
+    const auto alpha=ReduceMaskRgba(2,1,{255,255,255,128,255,0,0,255});
+    CHECK(alpha.pixels==std::vector<unsigned char>({128,53}));
+    CHECK(ReduceMaskRgba(0,1,{}).pixels.empty());
+    CHECK(ReduceMaskRgba(2,1,{255,255,255,255}).pixels.empty());
+}
+
 int main() {
+    TestMaskReduction();
+    TestFisheyeMapping();
 	TestParameterTable();
 	TestCircleOfConfusion();
 	TestSharpBand();

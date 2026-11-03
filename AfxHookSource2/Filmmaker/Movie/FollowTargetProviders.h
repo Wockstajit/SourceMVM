@@ -21,7 +21,6 @@ std::string Lower(std::string value);
 // client class "C_CSWeaponBaseGun".
 std::string DesignerClass(CEntityInstance* entity);
 std::string EntityClass(CEntityInstance* entity);
-bool IsFiniteOrigin(const FollowVec3& p);
 bool ReadOrigin(CEntityInstance* entity, FollowVec3& out);
 // Any grenade, held or thrown; IsGrenadeClass is the thrown-projectile subset.
 bool IsGrenadeFamily(const std::string& className);
@@ -30,7 +29,6 @@ bool IsBombClass(const std::string& className);
 bool IsWeaponClass(const std::string& className);
 bool IsDroppedWeapon(CEntityInstance* entity, const std::string& className);
 bool IsWeaponOrBomb(const std::string& className);
-std::string GrenadeTypeName(const std::string& className);
 
 // ---- thrown grenades: ONE index for every picker (the Follow Camera's Grenade target, the scene
 // objects' "attach to a grenade") -------------------------------------------------------------
@@ -41,17 +39,7 @@ std::string GrenadeTypeName(const std::string& className);
 std::string ThrownGrenadeClass(CEntityInstance* entity);
 // The demo tick a projectile was thrown: its age in game time carried onto the demo tick.
 int GrenadeThrowTick(CEntityInstance* entity);
-struct GrenadeSighting {
-	uint64_t handle = 0;
-	int entityIndex = -1;       // where it is now, while active
-	std::string className, type, thrower;
-	int throwerIndex = -1, team = 0, throwTick = -1;
-	bool active = false;        // in the world at this tick
-};
-// The pickers list grenades thrown this far either side of the playhead: the ones in the air now
-// and the ones seen earlier this session. Wide on purpose -- a picker that only knew the last few
-// seconds hid the grenade the user was looking for.
-constexpr int kGrenadeBrowseTicks = 64 * 60;
+// GrenadeSighting and kGrenadeBrowseTicks are in FollowCamera.h.
 // Sightings further than this from the playhead are forgotten.
 constexpr int kGrenadeForgetTicks = 64 * 300;
 // Main thread. Scans the entities once per frame however many callers ask, remembers every
@@ -61,12 +49,9 @@ void GrenadeIndex_Reset(); // a new map or demo: nothing seen yet
 std::string PrettyWeaponName(const std::string& className);
 std::string EntityFriendlyName(CEntityInstance* entity);
 uint64_t EntityHandleValue(CEntityInstance* entity);
-FollowAttachPoint MakeAttachPoint(const char* id, const char* label, const char* kind,
-	bool valid, int index, const char* source);
 void AddAttachmentIfValid(std::vector<FollowAttachPoint>& out, CEntityInstance* entity,
 	const char* id, const char* label, const char* kind);
 std::vector<FollowAttachPoint> AvailableAttachPoints(CEntityInstance* entity, FollowTargetType type, bool weapon, bool bomb);
-std::vector<std::string> AttachPointIds(const std::vector<FollowAttachPoint>& points);
 
 struct AttachTransformResult {
 	bool valid = false;
@@ -87,10 +72,6 @@ struct AttachTransformResult {
 bool ResolvePlayerVirtualPoint(CEntityInstance* pawn, const std::string& id, AttachTransformResult& out);
 AttachTransformResult ResolveAttachTransform(CEntityInstance* entity, int entityIndex,
 	FollowTargetType type, const std::string& requestedAttachId, FollowPlayerPose* playerPose = nullptr, bool rigid = false);
-
-std::string JsonEscape(const std::string& value);
-void AppendAttachPointJson(std::ostringstream& o, const FollowAttachPoint& point);
-const char* TeamName(int team);
 
 class PlayerTargetProvider final : public IFollowTargetProvider {
 public:

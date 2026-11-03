@@ -1,0 +1,2984 @@
+#include "TimelineDock.h"
+
+#include "UiWidgets.h"
+
+#include "../../../AfxHookSource2/Filmmaker/Movie/GraphCurveMath.h"
+
+#include <algorithm>
+#include <cfloat>
+#include <cmath>
+#include <cctype>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+
+namespace SourceFilmmaker {
+namespace Ui {
+
+namespace {
+
+using namespace TimelineDockMath;
+using Filmmaker::GraphExpModel;
+using Action = TimelineDockAction;
+using Gesture = TimelineDockState::Gesture;
+
+// CS2's dock colours (GraphEditorJs.h `S`) in CS:S paint: CS2's gold is CS:S's HUD orange, the text
+// tiers are the menu scheme's, and the white hairlines and button washes stay.
+namespace Paint {
+constexpr Color Panel = Theme::DockBg;
+constexpr Color Border = Rgba(255, 255, 255, 31);
+constexpr Color Chip = Rgba(255, 255, 255, 26);
+constexpr Color RowLine = Rgba(255, 255, 255, 24);
+constexpr Color LayerBg = Rgba(255, 255, 255, 10);
+constexpr Color LayerSel = Rgba(255, 176, 0, 38);
+constexpr Color RowSel = Rgba(255, 176, 0, 28);
+constexpr Color Value = Theme::Text;
+constexpr Color Label = Theme::Text;
+constexpr Color Hint = Theme::TextDim;
+constexpr Color Muted = Theme::TextDim;
+constexpr Color Dim = Theme::TextDisabled;
+constexpr Color Accent = Theme::Accent;
+constexpr Color DangerText = Rgba(255, 96, 72);
+constexpr Color DangerBg = Rgba(192, 28, 0, 38);
+constexpr Color DangerBorder = Rgba(192, 28, 0, 102);
+constexpr Color Playhead = Rgba(255, 90, 90, 238);
+constexpr Color Glyph = Theme::Text;
+constexpr Color ShakeKey = Rgba(128, 189, 255); // CS2's camera shake keys and their runs (#80bdff)
+constexpr Color Summary = Rgba(255, 255, 255, 140);
+constexpr Color BtnBg = Rgba(255, 255, 255, 20);
+constexpr Color BtnOn = Rgba(255, 176, 0, 51);
+constexpr Color BtnHover = Rgba(255, 255, 255, 38);
+constexpr Color BtnDown = Rgba(255, 255, 255, 61);
+constexpr Color BtnOnHover = Rgba(255, 176, 0, 82);
+constexpr Color EaseOn = Rgba(255, 176, 0, 46);
+constexpr Color EaseHover = Rgba(255, 255, 255, 13);
+constexpr Color OvBg = Rgba(0, 0, 0, 64);
+constexpr Color OvTrack = Rgba(255, 255, 255, 13);
+constexpr Color OvView = Rgba(255, 255, 255, 32);
+constexpr Color OvViewHot = Rgba(255, 255, 255, 51);
+constexpr Color OvViewBorder = Rgba(255, 255, 255, 77);
+constexpr Color OvViewBorderHot = Rgba(255, 176, 0, 204);
+constexpr Color OvKey = Rgba(255, 255, 255, 102);
+constexpr Color Grip = Rgba(48, 55, 64);
+constexpr Color RulerBg = Rgba(0, 0, 0, 64);
+constexpr Color TickMajor = Rgba(255, 255, 255, 85);
+constexpr Color TickMinor = Rgba(255, 255, 255, 38);
+constexpr Color BoxFill = Rgba(255, 176, 0, 34);
+constexpr Color ScrollTrack = Rgba(0, 0, 0, 115);
+constexpr Color ScrollThumb = Rgba(255, 255, 255, 51);
+constexpr Color TipBg = Rgba(8, 10, 14, 248);
+constexpr Color MenuBg = Rgba(16, 20, 26, 252);
+constexpr Color Underline = Rgba(255, 255, 255, 51);
+constexpr Color GraphBg = Rgba(0, 0, 0, 250);
+constexpr Color Grid = Rgba(255, 255, 255, 12);
+constexpr Color GridMid = Rgba(255, 255, 255, 32);
+constexpr Color HandleColor = Rgba(255, 255, 255, 204);
+} // namespace Paint
+
+// CS2's camera channel colours (GraphEditorExperimentHud.cpp): x, y, z, pitch, yaw, roll, FOV.
+const Color kChannel[7] = { Rgba(255, 136, 133), Rgba(128, 214, 128), Rgba(105, 167, 255), Rgba(253, 150, 215),
+	Rgba(200, 156, 255), Rgba(37, 200, 255), Rgba(255, 154, 90) };
+
+constexpr float kPi = 3.14159265358979f;
+constexpr float kTipDelay = 2.0f;
+constexpr double kDoubleClickSeconds = 0.4;
+constexpr float kCompactStripW = 1180; // under this dock width the strip shows its glyphs only
+
+// ---- the CAMERA PATH tree (buildTree) ----------------------------------------------------------
+// The layer, its Transform group, Position, Rotation and Field of view, and a split property's
+// one-channel rows; then its Path group, with the Camera shake row and, once that track has a key,
+// its Intensity and Speed rows. The shake rows carry no camera channels: their keys are the shake
+// track's (TimelineDockModel::shakes).
+
+enum class NodeKind { Layer, Group, Prop, Shake, ShakeParam };
+
+struct Node {
+	NodeKind kind;
+	const char* name;
+	int parent;
+	int count;           // channels of a property; the layer and the Transform group stand for all seven
+	int chans[3];
+	const char* comps[3];
+	int dec;
+	const char* unit;
+	int split;           // a splittable property's index into TimelineDockState::split, else -1
+	char param;          // a shake parameter row: 'n' intensity or 'p' speed, its range and its verb
+	int lo, hi;
+	const char* verb;
+};
+
+const char kDegree[] = "\xC2\xB0";
+const char kMiddot[] = "\xC2\xB7";
+
+const Node kNodes[] = {
+	{ NodeKind::Layer, "CAMERA PATH", -1, 0, { 0, 0, 0 }, { "", "", "" }, 0, "", -1 },
+	{ NodeKind::Group, "Transform", 0, 0, { 0, 0, 0 }, { "", "", "" }, 0, "", -1 },
+	{ NodeKind::Prop, "Position", 1, 3, { 0, 1, 2 }, { "X", "Y", "Z" }, 0, "", 0 },
+	{ NodeKind::Prop, "Rotation", 1, 3, { 3, 4, 5 }, { "Pitch", "Yaw", "Roll" }, 1, kDegree, 1 },
+	{ NodeKind::Prop, "Field of view", 1, 1, { 6, 0, 0 }, { "FOV", "", "" }, 1, "", -1 },
+	{ NodeKind::Prop, "X Position", 2, 1, { 0, 0, 0 }, { "X", "", "" }, 0, "", -1 },
+	{ NodeKind::Prop, "Y Position", 2, 1, { 1, 0, 0 }, { "Y", "", "" }, 0, "", -1 },
+	{ NodeKind::Prop, "Z Position", 2, 1, { 2, 0, 0 }, { "Z", "", "" }, 0, "", -1 },
+	{ NodeKind::Prop, "Pitch", 3, 1, { 3, 0, 0 }, { "Pitch", "", "" }, 1, kDegree, -1 },
+	{ NodeKind::Prop, "Yaw", 3, 1, { 4, 0, 0 }, { "Yaw", "", "" }, 1, kDegree, -1 },
+	{ NodeKind::Prop, "Roll", 3, 1, { 5, 0, 0 }, { "Roll", "", "" }, 1, kDegree, -1 },
+	{ NodeKind::Group, "Path", 0, 0, { 0, 0, 0 }, { "", "", "" }, 0, "", -1 },
+	{ NodeKind::Shake, "Camera shake", 11, 0, { 0, 0, 0 }, { "", "", "" }, 0, "", -1 },
+	{ NodeKind::ShakeParam, "Intensity", 12, 0, { 0, 0, 0 }, { "", "", "" }, 0, "", -1, 'n', 1, 10, "intensity" },
+	{ NodeKind::ShakeParam, "Speed", 12, 0, { 0, 0, 0 }, { "", "", "" }, 0, "", -1, 'p', 10, 100, "speed" },
+};
+constexpr int kNodeCount = (int)(sizeof(kNodes) / sizeof(kNodes[0]));
+constexpr int kLayerNode = 0;
+constexpr int kTransformNode = 1;
+constexpr int kPathNode = 11;
+constexpr int kShakeNode = 12;
+constexpr int kIntensityNode = 13;
+constexpr int kSpeedNode = 14;
+static_assert(kNodeCount == (int)(sizeof(TimelineDockState::open) / sizeof(bool)), "one open flag per row node");
+
+bool IsShakeRow(int n) { return kNodes[n].kind == NodeKind::Shake || kNodes[n].kind == NodeKind::ShakeParam; }
+bool IsSplit(const TimelineDockState& st, int n) { return kNodes[n].split >= 0 && st.split[kNodes[n].split]; }
+bool Expandable(const TimelineDockState& st, int n) {
+	switch (kNodes[n].kind) {
+	case NodeKind::Prop: return IsSplit(st, n);
+	case NodeKind::Shake: return st.hasShakes;
+	case NodeKind::ShakeParam: return false;
+	default: return true;
+	}
+}
+
+std::vector<int> ChildrenOf(const TimelineDockState& st, int n) {
+	std::vector<int> out;
+	if (!Expandable(st, n)) return out;
+	for (int i = 0; i < kNodeCount; ++i)
+		if (kNodes[i].parent == n) out.push_back(i);
+	return out;
+}
+
+std::vector<int> ChansOf(int n) {
+	std::vector<int> out;
+	if (n == kLayerNode || n == kTransformNode) {
+		for (int c = 0; c < GraphExpModel::kChannelCount; ++c) out.push_back(c);
+	} else if (kNodes[n].kind == NodeKind::Prop) {
+		for (int i = 0; i < kNodes[n].count; ++i) out.push_back(kNodes[n].chans[i]);
+	}
+	return out;
+}
+
+// The row a channel's keys are listed on.
+int NodeOfChan(const TimelineDockState& st, int ch) {
+	if (ch < 3) return st.split[0] ? 5 + ch : 2;
+	if (ch < 6) return st.split[1] ? 8 + (ch - 3) : 3;
+	return 4;
+}
+
+struct Row {
+	int node = 0;
+	int depth = 0;
+};
+
+std::vector<Row> Flatten(const TimelineDockState& st) {
+	std::vector<Row> rows;
+	struct Walk {
+		const TimelineDockState& st;
+		std::vector<Row>& rows;
+		void Go(int n, int depth) {
+			Row r;
+			r.node = n;
+			r.depth = depth;
+			rows.push_back(r);
+			if (Expandable(st, n) && st.open[n])
+				for (int c : ChildrenOf(st, n)) Go(c, depth + 1);
+		}
+	};
+	Walk{ st, rows }.Go(kLayerNode, 0);
+	return rows;
+}
+
+float RowPad(const Row& r) {
+	if (kNodes[r.node].kind == NodeKind::Layer) return 6;
+	if (kNodes[r.node].kind == NodeKind::Group) return 24;
+	return 10 + r.depth * 18.0f;
+}
+
+// ---- keys ------------------------------------------------------------------------------------
+
+std::vector<KeyRef> KeysOf(const GraphExpModel& m, const std::vector<int>& chans) {
+	std::vector<KeyRef> out;
+	for (int c : chans)
+		for (const GraphExpModel::Keyframe& k : m.GetChannel(c).keys) {
+			KeyRef r;
+			r.ch = c;
+			r.id = k.id;
+			r.t = k.tick;
+			r.sel = m.IsSelected(c, k.id);
+			out.push_back(r);
+		}
+	return out;
+}
+
+std::vector<MergedKey> MergedOf(const GraphExpModel& m, int node) { return MergeKeys(KeysOf(m, ChansOf(node))); }
+
+std::vector<double> TimesOf(const std::vector<MergedKey>& keys) {
+	std::vector<double> out;
+	for (const MergedKey& k : keys) out.push_back(k.t);
+	return out;
+}
+
+std::vector<std::pair<int, int>> MembersOf(const MergedKey& k) {
+	std::vector<std::pair<int, int>> out;
+	for (const KeyRef& r : k.members) out.emplace_back(r.ch, r.id);
+	return out;
+}
+
+Side LeftSide(const GraphExpModel::Keyframe& k) { return SideOf(k.cpLeft.active, k.cpLeft.autoTan); }
+Side RightSide(const GraphExpModel::Keyframe& k) { return SideOf(k.cpRight.active, k.cpRight.autoTan); }
+
+// A channel's value at a tick: its curve, or the live camera on a channel with no keys.
+double ChannelValueAt(const TimelineDockModel& m, int ch, double tick) {
+	double v = 0;
+	if (m.keys->SampleChannel(ch, tick, v)) return v;
+	return m.live[ch];
+}
+
+double ChannelValue(const TimelineDockModel& m, int ch) { return ChannelValueAt(m, ch, m.playhead); }
+
+// The channel's key on tick's whole tick (keyAtTick).
+const GraphExpModel::Keyframe* KeyOnTick(const GraphExpModel& m, int ch, double tick) {
+	const double want = std::floor(tick + 0.5);
+	for (const GraphExpModel::Keyframe& k : m.GetChannel(ch).keys)
+		if (std::floor(k.tick + 0.5) == want) return &k;
+	return nullptr;
+}
+
+// How far a dragged value moves per screen pixel (scrubStep): world units, degrees, FOV.
+double ScrubStep(int ch) { return ch < 3 ? 1.0 : (ch < 6 ? 0.25 : 0.1); }
+
+// A GRAPH curve's value range, never zero.
+double RangeSpan(const TimelineDockState& st, int c) {
+	const double s = st.rangeHi[c] - st.rangeLo[c];
+	return std::fabs(s) < 1e-9 ? 1.0 : s;
+}
+
+// The decimals and unit a channel's value shows with (CAM_PROPS).
+int DecimalsOf(int ch) { return ch < 3 ? 0 : 1; }
+const char* UnitOf(int ch) { return ch >= 3 && ch < 6 ? kDegree : ""; }
+
+// ---- camera shake keys (TimelineDockMath.h ShakeKey; CS2's st.shakes) ----------------------------
+
+constexpr float kShakeGlyph = 10; // a shake key's mark, smaller than a camera key's
+
+std::string ShakeLabel(const TimelineDockModel& m, const ShakeKey* k) {
+	const size_t i = (size_t)(k - m.shakes.data());
+	return i < m.shakeLabels.size() ? m.shakeLabels[i] : std::string();
+}
+
+int FirstShakeStyle(const TimelineDockModel& m) { return m.shakeStyles.empty() ? -1 : m.shakeStyles.front().first; }
+
+bool ShakeSelected(const TimelineDockState& st, double t) {
+	for (double s : st.shakeSel) if (std::fabs(s - t) < 0.5) return true;
+	return false;
+}
+
+void ToggleShakeSelected(TimelineDockState& st, double t) {
+	for (size_t i = 0; i < st.shakeSel.size(); ++i)
+		if (std::fabs(st.shakeSel[i] - t) < 0.5) { st.shakeSel.erase(st.shakeSel.begin() + (long long)i); return; }
+	st.shakeSel.push_back(t);
+}
+
+// ---- drawing -----------------------------------------------------------------------------------
+
+struct D {
+	TimelineDockState& st;
+	const TimelineDockModel& m;
+	const GraphExpModel& keys;
+	const FontSet& fonts;
+	ImDrawList* l;
+	float s;            // client px per stage px
+	float ox, oy;       // the dock's top left, client px
+	float w;            // the dock's width, stage px
+	Widths g;
+	Span domain;
+	std::vector<Action>& out;
+	ImVec2 mouse;       // dock-local stage px
+	const char* tip = nullptr;
+	ImGuiID tipItem = 0;
+	float tipX0 = 0, tipY0 = 0, tipX1 = 0;
+
+	ImVec2 P(float x, float y) const { return ImVec2(ox + x * s, oy + y * s); }
+	ImFont* F(FontRole r) const { return fonts.Get(r); }
+	float Size(FontRole r) const { return FontSpecFor(r).size; }
+	float TextW(FontRole r, const char* t, float spacing = 0) const { return SpacedTextWidth(F(r), t, spacing * s) / s; }
+	void Text(FontRole r, float x, float y, Color c, const char* t, float spacing = 0) const {
+		const ImVec2 p = P(x, y);
+		DrawSpacedText(l, F(r), ImVec2(std::round(p.x), std::round(p.y)), ToU32(c), t, spacing * s);
+	}
+	// Text centred in a box, vertically and (with x1 > x0) horizontally.
+	void TextIn(FontRole r, float x0, float y0, float x1, float y1, Color c, const char* t, float spacing = 0) const {
+		const float tw = TextW(r, t, spacing);
+		Text(r, x1 > x0 ? x0 + (x1 - x0 - tw) * 0.5f : x0, y0 + (y1 - y0 - Size(r)) * 0.5f, c, t, spacing);
+	}
+	void Fill(float x0, float y0, float x1, float y1, Color c, float radius = 0) const {
+		if (c.a == 0 || x1 <= x0 || y1 <= y0) return;
+		l->AddRectFilled(P(x0, y0), P(x1, y1), ToU32(c), radius * s);
+	}
+	void Outline(float x0, float y0, float x1, float y1, Color c, float radius = 0) const {
+		if (c.a == 0) return;
+		const ImVec2 a = P(x0, y0), b = P(x1, y1);
+		l->AddRect(ImVec2(std::floor(a.x) + 0.5f, std::floor(a.y) + 0.5f), ImVec2(std::floor(b.x) - 0.5f, std::floor(b.y) - 0.5f),
+			ToU32(c), radius * s, 0, 1.0f);
+	}
+	// One-pixel rules, whatever the scale.
+	void HLine(float x0, float x1, float y, Color c) const {
+		const float py = std::floor(P(0, y).y);
+		l->AddRectFilled(ImVec2(P(x0, 0).x, py), ImVec2(P(x1, 0).x, py + 1), ToU32(c));
+	}
+	void Dotted(float x0, float x1, float y, Color c) const {
+		const float py = std::floor(P(0, y).y), end = P(x1, 0).x;
+		for (float px = std::floor(P(x0, 0).x); px < end; px += 2) l->AddRectFilled(ImVec2(px, py), ImVec2(px + 1, py + 1), ToU32(c));
+	}
+	void VLine(float x, float y0, float y1, Color c) const {
+		const float px = std::floor(P(x, 0).x);
+		l->AddRectFilled(ImVec2(px, P(0, y0).y), ImVec2(px + 1, P(0, y1).y), ToU32(c));
+	}
+	void Emit(Action::Kind kind, int ch = 0, int id = 0, double a = 0, double b = 0, bool flag = false) {
+		if (kind == Action::Kind::SelectClear) st.shakeSel.clear(); // a cleared selection drops the shake keys too
+		Action act;
+		act.kind = kind;
+		act.ch = ch;
+		act.id = id;
+		act.a = a;
+		act.b = b;
+		act.flag = flag;
+		out.push_back(act);
+	}
+	// A camera shake edit: the text "mirv_filmmaker pathshake" takes.
+	void EmitShake(const std::string& text) {
+		Action act;
+		act.kind = Action::Kind::ShakeCommand;
+		act.text = text;
+		out.push_back(act);
+	}
+	void EmitSelectSet(const std::vector<std::pair<int, int>>& keys) {
+		Action act;
+		act.kind = Action::Kind::SelectSet;
+		act.keys = keys;
+		out.push_back(act);
+	}
+	// The shared hover tip, for the item just submitted.
+	void Tip(const char* text) {
+		if (!text || !ImGui::IsItemHovered()) return;
+		tip = text;
+		tipItem = ImGui::GetItemID();
+		const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+		tipX0 = (a.x - ox) / s;
+		tipY0 = (a.y - oy) / s;
+		tipX1 = (b.x - ox) / s;
+	}
+};
+
+struct Hit {
+	bool clicked = false, hovered = false, held = false;
+};
+
+// An invisible button over a stage rect.
+Hit HitBox(const char* id, const D& d, float x0, float y0, float x1, float y1) {
+	Hit h;
+	if (x1 - x0 <= 0 || y1 - y0 <= 0) return h;
+	ImGui::SetCursorScreenPos(d.P(x0, y0));
+	h.clicked = ImGui::InvisibleButton(id, ImVec2((x1 - x0) * d.s, (y1 - y0) * d.s));
+	h.hovered = ImGui::IsItemHovered();
+	h.held = ImGui::IsItemActive();
+	return h;
+}
+
+// ---- shapes --------------------------------------------------------------------------------------
+
+enum class Icon { None, Prev, Next, Play, Pause, Undo, Redo, Close };
+
+void DrawIcon(const D& d, Icon icon, float cx, float cy, Color c) {
+	const ImU32 col = ToU32(c);
+	ImDrawList* l = d.l;
+	const float s = d.s;
+	auto P = [&](float x, float y) { return d.P(cx + x, cy + y); };
+	switch (icon) {
+	case Icon::Prev:
+		l->AddRectFilled(P(-5, -5), P(-3.5f, 5), col);
+		l->AddTriangleFilled(P(5, -5), P(5, 5), P(-2, 0), col);
+		break;
+	case Icon::Next:
+		l->AddTriangleFilled(P(-5, -5), P(-5, 5), P(2, 0), col);
+		l->AddRectFilled(P(3.5f, -5), P(5, 5), col);
+		break;
+	case Icon::Play:
+		l->AddTriangleFilled(P(-4, -6), P(-4, 6), P(6, 0), col);
+		break;
+	case Icon::Pause:
+		l->AddRectFilled(P(-4.5f, -6), P(-1.5f, 6), col);
+		l->AddRectFilled(P(1.5f, -6), P(4.5f, 6), col);
+		break;
+	case Icon::Undo:
+	case Icon::Redo: {
+		// An open circle, three quarters round, its head at the top: pointing left for Undo (the gap
+		// upper left), right for Redo (the gap upper right).
+		const float r = 4.5f, dir = icon == Icon::Undo ? -1.0f : 1.0f;
+		const float a0 = icon == Icon::Undo ? -0.5f * kPi : 0.0f;
+		l->PathArcTo(P(0, 1), r * s, a0, a0 + 1.5f * kPi, 18);
+		l->PathStroke(col, 0, 1.5f * s > 1 ? 1.5f * s : 1.0f);
+		const float ty = 1 - r;
+		l->AddTriangleFilled(P(dir * 3.0f, ty), P(-dir * 1.5f, ty - 3.0f), P(-dir * 1.5f, ty + 3.0f), col);
+		break;
+	}
+	case Icon::Close: {
+		const float t = 1.5f * s > 1 ? 1.5f * s : 1.0f;
+		l->AddLine(P(-4, -4), P(4, 4), col, t);
+		l->AddLine(P(-4, 4), P(4, -4), col, t);
+		break;
+	}
+	default:
+		break;
+	}
+}
+
+// One half of a key glyph (glyphHalf), centred on (cx, cy) with the glyph's full size.
+void GlyphHalf(ImDrawList* l, ImVec2 c, float size, int side, Side kind, ImU32 col) {
+	const float h = size * 0.5f, sx = side < 0 ? -1.0f : 1.0f;
+	const float outer = c.x + sx * h;
+	switch (kind) {
+	case Side::Linear:
+		l->AddTriangleFilled(ImVec2(c.x, c.y - h), ImVec2(outer, c.y), ImVec2(c.x, c.y + h), col);
+		break;
+	case Side::Auto:
+		l->PathArcTo(c, h, side < 0 ? 0.5f * kPi : -0.5f * kPi, side < 0 ? 1.5f * kPi : 0.5f * kPi, 10);
+		l->PathFillConvex(col);
+		break;
+	case Side::Ease: {
+		// The half square less a notch on its outer edge, its apex 62 % of the way in: a bar on the
+		// inner side and a triangle above and below the apex, as CS2 builds it.
+		const float apex = c.x + sx * 0.38f * h;
+		l->AddRectFilled(ImVec2((std::min)(c.x, apex), c.y - h), ImVec2((std::max)(c.x, apex), c.y + h), col);
+		l->AddTriangleFilled(ImVec2(outer, c.y - h), ImVec2(apex, c.y - h), ImVec2(apex, c.y), col);
+		l->AddTriangleFilled(ImVec2(outer, c.y + h), ImVec2(apex, c.y), ImVec2(apex, c.y + h), col);
+		break;
+	}
+	case Side::Hold:
+		l->AddRectFilled(ImVec2((std::min)(c.x, outer), c.y - h), ImVec2((std::max)(c.x, outer), c.y + h), col);
+		break;
+	}
+}
+
+void DrawGlyph(const D& d, float x, float y, float size, Side left, Side right, Color c) {
+	const ImVec2 p = d.P(x, y);
+	GlyphHalf(d.l, p, size * d.s, -1, left, ToU32(c));
+	GlyphHalf(d.l, p, size * d.s, 1, right, ToU32(c));
+}
+
+// A 45-degree diamond of side `side` (CS2's dot(..., rotated)), filled or outlined.
+void Diamond(const D& d, float x, float y, float side, Color c, bool filled = true) {
+	const float r = side * 0.70710678f;
+	const ImVec2 p = d.P(x, y);
+	const float k = r * d.s;
+	const ImVec2 pts[4] = { ImVec2(p.x, p.y - k), ImVec2(p.x + k, p.y), ImVec2(p.x, p.y + k), ImVec2(p.x - k, p.y) };
+	if (filled) d.l->AddConvexPolyFilled(pts, 4, ToU32(c));
+	else d.l->AddPolyline(pts, 4, ToU32(c), ImDrawFlags_Closed, 1.2f * d.s > 1 ? 1.2f * d.s : 1.0f);
+}
+
+// ---- small widgets ------------------------------------------------------------------------------
+
+// CS2's toolbar button (btn): radius 3, compact padding, bold 13 px, lit while on.
+bool ToolButton(D& d, const char* id, float x, float y, float w, float h, const char* label, Icon icon, Color fg,
+	bool on, const char* tip, bool enabled = true) {
+	Hit hit;
+	if (enabled) {
+		hit = HitBox(id, d, x, y, x + w, y + h);
+		d.Tip(tip);
+	}
+	Color bg = Paint::BtnBg;
+	if (hit.held) bg = Paint::BtnDown;
+	else if (on) bg = hit.hovered ? Paint::BtnOnHover : Paint::BtnOn;
+	else if (hit.hovered) bg = Paint::BtnHover;
+	d.Fill(x, y, x + w, y + h, bg, 3);
+	const Color c = !enabled ? Paint::Dim : (on ? Paint::Accent : fg);
+	const float lw = label && *label ? d.TextW(FontRole::Label, label) : 0;
+	const float iconW = icon != Icon::None ? 12.0f : 0.0f, gap = icon != Icon::None && lw > 0 ? 5.0f : 0.0f;
+	const float x0 = x + (w - iconW - gap - lw) * 0.5f;
+	if (icon != Icon::None) DrawIcon(d, icon, x0 + iconW * 0.5f, y + h * 0.5f, c);
+	if (lw > 0) d.Text(FontRole::Label, x0 + iconW + gap, y + (h - d.Size(FontRole::Label)) * 0.5f, c, label);
+	return hit.clicked && enabled;
+}
+
+float ToolButtonW(const D& d, const char* label, Icon icon) {
+	const float lw = label && *label ? d.TextW(FontRole::Label, label) : 0;
+	const float iconW = icon != Icon::None ? 12.0f : 0.0f, gap = icon != Icon::None && lw > 0 ? 5.0f : 0.0f;
+	return 9 + iconW + gap + lw + 9;
+}
+
+// Ellipsised to fit maxW (stage px), as CS2's one-line labels are.
+std::string Fit(const D& d, FontRole role, const std::string& text, float maxW, float spacing = 0) {
+	if (d.TextW(role, text.c_str(), spacing) <= maxW) return text;
+	std::string t = text;
+	while (!t.empty()) {
+		t.pop_back();
+		while (!t.empty() && ((unsigned char)t.back() & 0xC0) == 0x80) t.pop_back();
+		const std::string candidate = t + "\xE2\x80\xA6";
+		if (d.TextW(role, candidate.c_str(), spacing) <= maxW) return candidate;
+	}
+	return std::string();
+}
+
+void TimeText(const TimelineDockModel& m, double tick, char* out, size_t size, bool shortForm = false) {
+	FormatTime(tick, m.tickRate, out, size, shortForm);
+}
+
+// ---- the window ---------------------------------------------------------------------------------
+
+void ManualView(D& d) { NoteManualView(d.st.paging, d.m.playing); }
+
+// releasePlayhead: the demo goes to the tick and the playhead holds it.
+void ReleasePlayhead(D& d, double t) {
+	t = (std::max)(0.0, std::round(t));
+	d.Emit(Action::Kind::Playhead, 0, 0, t);
+	d.Emit(Action::Kind::PlayheadRelease, 0, 0, t);
+}
+
+void SeekTo(D& d, double t) {
+	ReleasePlayhead(d, t);
+	t = (std::max)(0.0, std::round(t));
+	Reveal(d.st.window, d.domain, t, t);
+}
+
+// A typed or dragged value (setPropValue), keyed at the snapped playhead. A camera key is the whole
+// camera: the first key at a tick keys every channel there at the value it has (camKeyAt), later
+// edits at that tick this channel only. A playhead off the snapped tick follows it there.
+void SetValue(D& d, int ch, double v) {
+	const double tick = SnapTick(d.m.playhead, SnapStep(d.st.snap, d.st.window), ImGui::GetIO().KeyAlt);
+	bool anyAt = false;
+	for (int c = 0; c < GraphExpModel::kChannelCount; ++c)
+		if (KeyOnTick(d.keys, c, tick)) anyAt = true;
+	if (anyAt) {
+		d.Emit(Action::Kind::AddKey, ch, 0, tick, v);
+	} else {
+		for (int c = 0; c < GraphExpModel::kChannelCount; ++c)
+			d.Emit(Action::Kind::AddKey, c, 0, tick, c == ch ? v : ChannelValueAt(d.m, c, tick));
+	}
+	if (std::fabs(tick - d.m.playhead) > 0.25) ReleasePlayhead(d, tick);
+}
+
+void FitAll(D& d) {
+	TimelineDockState& st = d.st;
+	const bool again = st.fitT0 == st.window.t0 && st.fitT1 == st.window.t1;
+	double a = DBL_MAX, b = -DBL_MAX;
+	auto take = [&](double t) { a = (std::min)(a, t); b = (std::max)(b, t); };
+	const std::vector<KeyRef> all = KeysOf(d.keys, ChansOf(kLayerNode));
+	if (!again) {
+		for (const KeyRef& k : all) if (k.sel) take(k.t);
+		if (b < a && st.selRow >= 0)
+			for (const MergedKey& k : MergedOf(d.keys, st.selRow)) take(k.t);
+	}
+	if (b < a) for (const KeyRef& k : all) take(k.t);
+	if (b < a) { a = d.m.playhead - 500; b = d.m.playhead + 500; }
+	st.window = FrameTicks(a, b, d.domain);
+	st.fitT0 = st.window.t0;
+	st.fitT1 = st.window.t1;
+}
+
+// Keys that were not in the model last frame and sit outside the window are revealed: the only way
+// to make one off screen is from a playhead you cannot see.
+void RevealNewKeys(D& d) {
+	std::vector<std::pair<int, int>> seen;
+	double a = DBL_MAX, b = -DBL_MAX;
+	for (int c = 0; c < GraphExpModel::kChannelCount; ++c)
+		for (const GraphExpModel::Keyframe& k : d.keys.GetChannel(c).keys) {
+			seen.emplace_back(c, k.id);
+			if (d.st.knownValid && !d.st.window.Contains(k.tick)
+				&& std::find(d.st.knownKeys.begin(), d.st.knownKeys.end(), std::make_pair(c, k.id)) == d.st.knownKeys.end()) {
+				a = (std::min)(a, k.tick);
+				b = (std::max)(b, k.tick);
+			}
+		}
+	d.st.knownKeys.swap(seen);
+	d.st.knownValid = true;
+	if (b >= a) Reveal(d.st.window, d.domain, a, b);
+}
+
+// ---- toolbar (y 0..72) --------------------------------------------------------------------------
+
+struct EaseItem {
+	EaseKind kind;
+	const char* label;
+	Side left, right;
+	const char* tip;
+};
+
+const EaseItem kEaseItems[] = {
+	{ EaseKind::Smooth, "Smooth", Side::Auto, Side::Auto, "Smooth tangents (no selection: the whole camera path)" },
+	{ EaseKind::Linear, "Linear", Side::Linear, Side::Linear, "Straight lines between keys (no selection: the whole camera path)" },
+	{ EaseKind::In, "Ease In", Side::Ease, Side::Linear, "Ease into the selected keys (Shift+F9)" },
+	{ EaseKind::Out, "Ease Out", Side::Linear, Side::Ease, "Ease out of the selected keys (Ctrl+Shift+F9)" },
+	{ EaseKind::InOut, "In/Out", Side::Ease, Side::Ease, "Easy Ease the selected keys (F9)" },
+	{ EaseKind::Hold, "Hold", Side::Linear, Side::Hold, "Hold the value until the next key, then jump (scene keys)" },
+};
+
+// applyEase: with keys selected it shapes those keys; with none, Smooth and Linear set the camera
+// path's own interpolation and the eases do nothing.
+void ApplyEase(D& d, EaseKind kind) {
+	const bool sel = d.keys.SelectionCount() > 0;
+	switch (kind) {
+	case EaseKind::Smooth:
+	case EaseKind::Linear:
+		d.Emit(Action::Kind::Interp, 0, sel ? 1 : 0, 0, 0, kind == EaseKind::Smooth);
+		break;
+	case EaseKind::In:
+	case EaseKind::Out:
+	case EaseKind::InOut:
+		if (sel) d.Emit(Action::Kind::Ease, 0, kind == EaseKind::In ? 0 : (kind == EaseKind::Out ? 1 : 2), 0, 0, true);
+		break;
+	default:
+		break;
+	}
+}
+
+// The lead key's kind, or the path's interpolation with nothing selected.
+EaseKind CurrentEase(const D& d) {
+	int ch = 0, id = 0;
+	if (d.keys.FirstSelected(ch, id)) {
+		if (const GraphExpModel::Keyframe* k = d.keys.FindKeyConst(ch, id)) return EaseOfSides(LeftSide(*k), RightSide(*k));
+	}
+	return d.m.smoothPath ? EaseKind::Smooth : EaseKind::Linear;
+}
+
+std::vector<double> AllTimes(const D& d) { return TimesOf(MergedOf(d.keys, kLayerNode)); }
+
+void JumpKey(D& d, int dir) {
+	const std::vector<double> times = d.st.selRow >= 0 ? TimesOf(MergedOf(d.keys, d.st.selRow)) : AllTimes(d);
+	double t = 0;
+	if (NeighbourTime(times, d.m.playhead, dir, t)) SeekTo(d, t);
+}
+
+// Del on the selected shake keys: each one is cleared (CS2's deleteSelection).
+void DeleteShakes(D& d) {
+	for (double t : d.st.shakeSel) {
+		char text[32];
+		std::snprintf(text, sizeof(text), "clear @%ld", std::lround(t));
+		d.EmitShake(text);
+	}
+	d.st.shakeSel.clear();
+}
+
+// Intensity or Speed (a ShakeParam node) set to v at the shake key t, or a new key there continuing
+// the run (shakeParamSet).
+void ShakeParamSet(D& d, int node, double t, double v) {
+	const Node& n = kNodes[node];
+	std::string cmd;
+	if (ShakeParamSetCommand(d.m.shakes, d.m.pathKeys, FirstShakeStyle(d.m), n.param, n.lo, n.hi, t, v, cmd)) d.EmitShake(cmd);
+}
+
+// GRAPH on a camera shake row or the Path group (CS2's SHAKE_GRAPH): Intensity and Speed as curves,
+// each on its own 0..max scale. The nodes are the Intensity and Speed rows.
+struct ShakeCurve {
+	int node;
+	const char* name;
+	Color color;
+};
+const ShakeCurve kShakeCurves[2] = { { kIntensityNode, "Shake intensity (0-10)", Rgba(255, 179, 71) },
+	{ kSpeedNode, "Shake speed (0-100)", Rgba(128, 189, 255) } };
+
+// Which shake curves GRAPH draws for the selected row (shakeGraphOf): bit 0 Intensity, bit 1 Speed.
+int ShakeCurvesOf(const TimelineDockState& st) {
+	if (st.selRow == kPathNode || st.selRow == kShakeNode) return 3;
+	for (int i = 0; i < 2; ++i) if (st.selRow == kShakeCurves[i].node) return 1 << i;
+	return 0;
+}
+
+// Rows-local y of a shake value on its curve's 0..max scale.
+float ShakeGraphY(int curve, double v) { return kGraphTop + (float)((1.0 - v / kNodes[kShakeCurves[curve].node].hi) * kGraphBandH); }
+
+std::string SelectionInfo(const D& d) {
+	const int n = d.keys.SelectionCount();
+	char buf[256];
+	if (!d.st.shakeSel.empty() && n == 0) {
+		const int s = (int)d.st.shakeSel.size();
+		std::snprintf(buf, sizeof(buf), "%d shake key%s selected", s, s == 1 ? "" : "s");
+		return std::string(buf) + "  " + kMiddot + "  GRAPH sets Intensity / Speed  " + kMiddot + "  Del removes";
+	}
+	int ch = 0, id = 0;
+	if (n == 1 && d.keys.FirstSelected(ch, id)) {
+		const GraphExpModel::Keyframe* k = d.keys.FindKeyConst(ch, id);
+		const int node = NodeOfChan(d.st, ch);
+		const std::vector<MergedKey> list = MergedOf(d.keys, node);
+		int idx = 0;
+		for (size_t i = 0; i < list.size(); ++i)
+			if (k && std::fabs(list[i].t - k->tick) < 0.26) idx = (int)i + 1;
+		char time[24];
+		TimeText(d.m, k ? k->tick : 0, time, sizeof(time));
+		std::snprintf(buf, sizeof(buf), "%s  \xE2\x80\xBA  %s  \xC2\xB7  key %d of %d  \xC2\xB7  %s", kNodes[kLayerNode].name,
+			kNodes[node].name, idx, (int)list.size(), time);
+		return buf;
+	}
+	if (n > 1) {
+		std::snprintf(buf, sizeof(buf), "%d keys selected  \xC2\xB7  drag to move  \xC2\xB7  F9 eases  \xC2\xB7  Del deletes", n);
+		return buf;
+	}
+	if (d.st.selRow >= 0) {
+		const Node& node = kNodes[d.st.selRow];
+		std::snprintf(buf, sizeof(buf), "%s%s%s  \xC2\xB7  click a key to select it", node.kind == NodeKind::Layer ? "" : kNodes[kLayerNode].name,
+			node.kind == NodeKind::Layer ? "" : "  \xE2\x80\xBA  ", node.name);
+		return buf;
+	}
+	return "Click a key to select it  \xC2\xB7  drag to move";
+}
+
+// Draws the toolbar; returns SNAP's right edge, which its dropdown lines up with.
+float DrawToolbar(D& d) {
+	TimelineDockState& st = d.st;
+	const TimelineDockModel& m = d.m;
+	const float right = d.w - 14;
+
+	// The timecode column, 150 wide.
+	{
+		char tc[24], tick[64];
+		TimeText(m, m.playhead, tc, sizeof(tc));
+		std::snprintf(tick, sizeof(tick), "tick %.0f  \xC2\xB7  %.0f tps", std::floor(m.playhead + 0.5), m.tickRate);
+		const float top = (kHeaderH - (d.Size(FontRole::Timecode) + 4 + d.Size(FontRole::Hint))) * 0.5f;
+		d.Text(FontRole::Timecode, 14, top, Paint::Accent, tc);
+		d.Text(FontRole::Hint, 14, top + d.Size(FontRole::Timecode) + 4, Paint::Hint, tick, 0.5f);
+	}
+
+	// The right column: transport and speed over the interpolation strip, SNAP and history.
+	const bool compact = d.w < kCompactStripW;
+	const float btnH = 24;
+	float topW = 0, botW = 0;
+	const float prevW = 34, playW = 46, nextW = 34, cacheW = ToolButtonW(d, "Cache", Icon::None), speedW = 250;
+	topW = prevW + 5 + playW + 5 + nextW + 11 + cacheW + 11 + speedW;
+	float itemW[6];
+	float stripW = 0;
+	for (int i = 0; i < 6; ++i) {
+		itemW[i] = compact ? 28 : 9 + 10 + 6 + d.TextW(FontRole::Button, kEaseItems[i].label) + 9;
+		stripW += itemW[i];
+	}
+	char snapLabel[32];
+	if (st.snap == kSnapOff) std::snprintf(snapLabel, sizeof(snapLabel), "SNAP");
+	else if (st.snap == kSnapAuto) std::snprintf(snapLabel, sizeof(snapLabel), "SNAP \xC2\xB7 Auto");
+	else std::snprintf(snapLabel, sizeof(snapLabel), "SNAP \xC2\xB7 %d", st.snap);
+	const float snapW = ToolButtonW(d, snapLabel, Icon::None), undoW = ToolButtonW(d, "Undo", Icon::Undo),
+		redoW = ToolButtonW(d, "Redo", Icon::Redo), delW = 28;
+	botW = 2 + stripW + 9 + snapW + 5 + undoW + 5 + redoW + 5 + delW;
+	const float rightColW = (std::max)(topW, botW);
+	const float topY = 6, botY = topY + 30 + 5;
+	float snapRight = right;
+
+	{
+		float x = right - topW;
+		const float y = topY + (30 - btnH) * 0.5f;
+		if (ToolButton(d, "##tlprev", x, y, prevW, btnH, "", Icon::Prev, Paint::Value, false, "Previous keyframe on the selected layer"))
+			JumpKey(d, -1);
+		x += prevW + 5;
+		const bool playing = (m.drive && m.pathPlaying) || m.playing;
+		if (ToolButton(d, "##tlplay", x, y, playW, btnH, "", playing ? Icon::Pause : Icon::Play, Paint::Value, playing, "Play / pause (Space)"))
+			d.Emit(Action::Kind::PlayPause);
+		x += playW + 5;
+		if (ToolButton(d, "##tlnext", x, y, nextW, btnH, "", Icon::Next, Paint::Value, false, "Next keyframe on the selected layer"))
+			JumpKey(d, 1);
+		x += nextW + 11;
+		// CS2's scrub frame cache: a backward drag over ticks the world played is shown from kept frames.
+		if (ToolButton(d, "##tlcache", x, y, cacheW, btnH, "Cache", Icon::None, Paint::Value, m.scrubCache,
+			"Cache on: every frame the timeline plays is kept, so dragging back over it shows those frames at once "
+			"instead of seeking the demo"))
+			d.Emit(Action::Kind::ScrubCache, 0, 0, 0, 0, !m.scrubCache);
+		x += cacheW + 11;
+		double speed = 0;
+		const ImVec2 a = d.P(x, topY), b = d.P(x + speedW, topY + 30);
+		if (DrawSpeedDial(d.l, d.fonts, d.s, st.speed, m.timescale, MakeRect(a.x, a.y, b.x, b.y), "##tlspeed", speed))
+			d.Emit(Action::Kind::Speed, 0, 0, speed);
+	}
+	{
+		float x = right - botW;
+		const float y = botY;
+		const float stripH = 24;
+		const bool anySel = d.keys.SelectionCount() > 0 || !st.shakeSel.empty();
+		const EaseKind cur = CurrentEase(d);
+		d.Outline(x, y, x + stripW + 2, y + stripH, Paint::Chip, 3);
+		float ix = x + 1;
+		for (int i = 0; i < 6; ++i) {
+			const EaseItem& it = kEaseItems[i];
+			const bool enabled = it.kind == EaseKind::Hold ? false
+				: (anySel ? true : (it.kind == EaseKind::Smooth || it.kind == EaseKind::Linear));
+			const bool on = enabled && it.kind == cur;
+			ImGui::PushID(i);
+			const Hit h = HitBox("##tlease", d, ix, y + 1, ix + itemW[i], y + stripH - 1);
+			d.Tip(it.tip);
+			ImGui::PopID();
+			d.Fill(ix, y + 1, ix + itemW[i], y + stripH - 1, on ? Paint::EaseOn : (h.hovered && enabled ? Paint::EaseHover : Rgba(0, 0, 0, 0)));
+			const float fade = enabled ? 1.0f : 0.45f;
+			DrawGlyph(d, ix + 9 + 5, y + stripH * 0.5f, 10, it.left, it.right, Faded(on ? Paint::Accent : Paint::Glyph, fade));
+			if (!compact)
+				d.Text(FontRole::Button, ix + 9 + 10 + 6, y + (stripH - d.Size(FontRole::Button)) * 0.5f,
+					Faded(on ? Paint::Value : Paint::Label, fade), it.label);
+			if (h.clicked && enabled) ApplyEase(d, it.kind);
+			ix += itemW[i];
+		}
+		x += stripW + 2 + 9;
+		if (ToolButton(d, "##tlsnap", x, y, snapW, btnH, snapLabel, Icon::None, Paint::Value, st.snap != kSnapOff,
+				"Time snap: quantise the playhead and key placement to a tick grid"))
+			st.snapMenu = !st.snapMenu;
+		snapRight = x + snapW;
+		x += snapW + 5;
+		const Color undoC = d.keys.CanUndo() ? Paint::Value : Paint::Dim, redoC = d.keys.CanRedo() ? Paint::Value : Paint::Dim;
+		if (ToolButton(d, "##tlundo", x, y, undoW, btnH, "Undo", Icon::Undo, undoC, false, "Undo (Ctrl+Z)")) d.Emit(Action::Kind::Undo);
+		x += undoW + 5;
+		if (ToolButton(d, "##tlredo", x, y, redoW, btnH, "Redo", Icon::Redo, redoC, false, "Redo (Ctrl+Shift+Z)")) d.Emit(Action::Kind::Redo);
+		x += redoW + 5;
+		{
+			const Hit h = HitBox("##tldelete", d, x, y, x + delW, y + btnH);
+			d.Tip("Delete the selected keyframes (Del)");
+			d.Fill(x, y, x + delW, y + btnH, anySel ? (h.held ? Paint::DangerBorder : Paint::DangerBg) : (h.hovered ? Paint::BtnHover : Paint::BtnBg), 3);
+			d.Outline(x, y, x + delW, y + btnH, anySel ? Paint::DangerBorder : Paint::Border, 3);
+			DrawIcon(d, Icon::Close, x + delW * 0.5f, y + btnH * 0.5f, anySel ? Paint::DangerText : Paint::Dim);
+			if (h.clicked && anySel) {
+				if (d.keys.SelectionCount() > 0) d.Emit(Action::Kind::DeleteSelected);
+				DeleteShakes(d);
+			}
+		}
+	}
+
+	// The middle column: KEYFRAMES and GRAPH over what you have hold of.
+	{
+		const float x0 = 14 + 150 + 18, x1 = right - rightColW - 18;
+		const float tabH = 27, top = (kHeaderH - (tabH + 6 + d.Size(FontRole::Hint))) * 0.5f;
+		float x = x0;
+		const char* tabs[2] = { "KEYFRAMES", "GRAPH" };
+		const char* tips[2] = { "Every key, one row per property", "Curves of the selected layer or property" };
+		for (int i = 0; i < 2; ++i) {
+			const float tw = d.TextW(FontRole::BodyBold, tabs[i], 1.4f);
+			const bool enabled = true;
+			Hit h;
+			if (enabled) {
+				h = HitBox(i == 0 ? "##tlkeys" : "##tlgraph", d, x, top, x + tw, top + tabH);
+				d.Tip(tips[i]);
+			}
+			const bool sel = (int)st.view == i;
+			const Color c = !enabled ? Paint::Dim : (sel ? Paint::Accent : (h.hovered ? Paint::Value : Paint::Muted));
+			d.Text(FontRole::BodyBold, x, top + 4, c, tabs[i], 1.4f);
+			if (sel || h.hovered) d.Fill(x, top + tabH - 2, x + tw, top + tabH, sel ? Paint::Accent : Faded(Paint::Accent, 0.4f));
+			if (h.clicked) st.view = (TimelineView)i;
+			x += tw + 16;
+		}
+		// CAM EDITOR and CONFIG at the row's end (CS2's wsBtn): the open workspace's lit, a click on the
+		// other swaps to it. Left out when the tabs leave no room for them.
+		{
+			const char* names[2] = { "CAM EDITOR", "CONFIG" };
+			const char* wsTips[2] = { "The Camera Editor: camera paths, follow cameras and scene keys",
+				"Config: how the camera feels" };
+			const Color fg[2] = { Paint::Accent, Palette::TeamCT };
+			const float bh = d.Size(FontRole::Hint) + 8, gap = 6;
+			float bw[2], total = gap;
+			for (int i = 0; i < 2; ++i) total += bw[i] = d.TextW(FontRole::Hint, names[i], 1.0f) + 20;
+			if (x + 8 + total <= x1) {
+				float bx = x1 - total + gap;
+				const float by = top + (tabH - bh) * 0.5f;
+				for (int i = 0; i < 2; ++i) {
+					const bool on = (i == 1) == d.m.configOpen;
+					const Hit h = HitBox(i == 0 ? "##wseditor" : "##wsconfig", d, bx, by, bx + bw[i], by + bh);
+					d.Tip(wsTips[i]);
+					d.Fill(bx, by, bx + bw[i], by + bh, on ? Faded(fg[i], 0.22f) : (h.hovered ? Paint::BtnHover : Paint::BtnBg), 3);
+					d.Outline(bx, by, bx + bw[i], by + bh, on ? fg[i] : Rgba(255, 255, 255, 20), 3);
+					d.TextIn(FontRole::Hint, bx, by, bx + bw[i], by + bh, fg[i], names[i], 1.0f);
+					if (h.clicked && !on) d.Emit(Action::Kind::Workspace, 0, 0, 0, 0, i == 1);
+					bx += bw[i] + gap;
+				}
+			}
+		}
+		const std::string info = Fit(d, FontRole::Hint, SelectionInfo(d), (std::max)(0.0f, x1 - x0), 0.5f);
+		d.Text(FontRole::Hint, x0, top + tabH + 6, Paint::Hint, info.c_str(), 0.5f);
+	}
+	d.HLine(0, d.w, kHeaderH - 1, Paint::Border);
+	return snapRight;
+}
+
+// The SNAP dropdown: its own window, over the dock, with a catcher behind it that closes it.
+void DrawSnapMenu(D& d, float anchorRight) {
+	const float anchorBottom = 6 + 30 + 5 + 24;
+	TimelineDockState& st = d.st;
+	if (!st.snapMenu) return;
+	const float mw = 168, headH = 22, itemH = 26;
+	const int values[] = { kSnapAuto, 1, 10, 100, 1000, kSnapOff };
+	const char* labels[] = { "Auto", "1", "10", "100", "1000", "Off" };
+	const int n = 6;
+	const float mh = 5 + headH + n * itemH + 5;
+	float x = (std::min)(anchorRight, d.w - 2) - mw, y = anchorBottom + 2;
+	if (x < 2) x = 2;
+	if (y + mh > kDockH - 2) y = kDockH - 2 - mh;
+
+	const ImVec2 dock0 = d.P(0, 0), dock1 = d.P(d.w, kDockH);
+	BeginOverlay("##tlsnapcatch", MakeRect(dock0.x, dock0.y, dock1.x, dock1.y), Rgba(0, 0, 0, 0));
+	ImGui::SetCursorScreenPos(dock0);
+	if (ImGui::InvisibleButton("##catch", ImVec2(dock1.x - dock0.x, dock1.y - dock0.y))) st.snapMenu = false;
+	ImGui::End();
+
+	const ImVec2 a = d.P(x, y), b = d.P(x + mw, y + mh);
+	BeginOverlay("##tlsnapmenu", MakeRect(a.x, a.y, b.x, b.y), Rgba(0, 0, 0, 0));
+	D md = d;
+	md.l = ImGui::GetWindowDrawList();
+	md.Fill(x, y, x + mw, y + mh, Paint::MenuBg, 5);
+	md.Outline(x, y, x + mw, y + mh, Paint::Border, 5);
+	md.Text(FontRole::Caption, x + 5 + 11, y + 5 + (headH - md.Size(FontRole::Caption)) * 0.5f, Paint::Hint, "TIME SNAP (TICKS)", 1.4f);
+	for (int i = 0; i < n; ++i) {
+		const float iy = y + 5 + headH + i * itemH;
+		ImGui::PushID(i);
+		const Hit h = HitBox("##snapitem", md, x + 5, iy, x + mw - 5, iy + itemH);
+		ImGui::PopID();
+		const bool current = st.snap == values[i];
+		md.Fill(x + 5, iy, x + mw - 5, iy + itemH, current ? Paint::BtnOn : (h.hovered ? Paint::BtnHover : Rgba(0, 0, 0, 0)), 3);
+		md.Text(FontRole::Label, x + 5 + 11, iy + (itemH - md.Size(FontRole::Label)) * 0.5f, current ? Paint::Accent : Paint::Value, labels[i]);
+		if (h.clicked) {
+			st.snap = values[i];
+			st.snapMenu = false;
+		}
+	}
+	ImGui::End();
+}
+
+// ---- column header, overview and ruler (y 72..112) ---------------------------------------------
+
+void DrawHeaderBand(D& d) {
+	const TimelineDockState& st = d.st;
+	// The column header over the layer list.
+	{
+		const float y0 = kHeaderH, y1 = kRowsY;
+		d.VLine(kLeftW - 1, y0, y1, Paint::Border);
+		d.HLine(0, kLeftW, y1 - 1, Paint::Border);
+		const float y = y0 + (y1 - y0 - d.Size(FontRole::Caption)) * 0.5f;
+		const float navX0 = kLeftW - 8 - kNavW, valX1 = navX0 - 6;
+		d.Text(FontRole::Caption, 10, y, Paint::Hint, "LAYERS", 2);
+		d.Text(FontRole::Caption, valX1 - d.TextW(FontRole::Caption, "VALUE", 2), y, Paint::Hint, "VALUE", 2);
+		d.Text(FontRole::Caption, navX0 + (kNavW - d.TextW(FontRole::Caption, "KEY", 2)) * 0.5f, y, Paint::Hint, "KEY", 2);
+	}
+	const float ox = kLeftW;
+	// The overview: the whole demo, its keys, the playhead and the window box.
+	{
+		const float y0 = kHeaderH;
+		d.Fill(ox, y0, ox + d.g.ow, y0 + kOverviewH, Paint::OvBg);
+		d.l->PushClipRect(d.P(ox, y0), d.P(ox + d.g.ow, y0 + kOverviewH), true);
+		d.Fill(ox, y0 + 3, ox + d.g.ow, y0 + 11, Paint::OvTrack);
+		for (const MergedKey& k : MergedOf(d.keys, kLayerNode)) {
+			const float x = (float)DomToX(d.domain, d.g.ow, k.t);
+			if (x < 0 || x > d.g.ow) continue;
+			d.Fill(ox + x, y0 + 5, ox + x + 1, y0 + 9, k.sel ? Rgba(255, 255, 255) : Paint::OvKey);
+		}
+		const float px = (float)DomToX(d.domain, d.g.ow, d.m.playhead);
+		if (px >= 0 && px <= d.g.ow) d.Fill(ox + px, y0, ox + px + 1, y0 + kOverviewH, Paint::Playhead);
+		float bx0 = 0, bx1 = 0;
+		OverviewBox(st.window, d.domain, d.g.ow, d.g.tw, bx0, bx1);
+		const float tx = d.mouse.x - ox;
+		const bool over = d.mouse.y >= y0 && d.mouse.y < y0 + kOverviewH && tx >= 0 && tx <= d.g.ow && ImGui::IsWindowHovered();
+		const bool dragging = st.gesture == Gesture::Overview;
+		const bool hot = (over && tx >= bx0 && tx <= bx1) || (dragging && st.overviewPart == 3);
+		const bool hotL = (over && std::fabs(tx - bx0) <= 6) || (dragging && st.overviewPart == 1);
+		const bool hotR = (over && std::fabs(tx - bx1) <= 6) || (dragging && st.overviewPart == 2);
+		d.Fill(ox + bx0, y0 + 1, ox + (std::max)(bx0 + 3, bx1), y0 + 13, hot ? Paint::OvViewHot : Paint::OvView, 2);
+		d.Outline(ox + bx0, y0 + 1, ox + (std::max)(bx0 + 3, bx1), y0 + 13, hot ? Paint::OvViewBorderHot : Paint::OvViewBorder, 2);
+		const float gl = (std::max)(0.0f, (std::min)(d.g.ow - 6, bx0 - 1)), gr = (std::max)(0.0f, (std::min)(d.g.ow - 6, bx1 - 5));
+		d.Fill(ox + gl, y0 + 1, ox + gl + 6, y0 + 13, hotL ? Paint::Accent : Paint::Grip, 2);
+		d.Fill(ox + gr, y0 + 1, ox + gr + 6, y0 + 13, hotR ? Paint::Accent : Paint::Grip, 2);
+		d.l->PopClipRect();
+	}
+	// The ruler: ticks that follow the zoom, labelled about 70 px apart.
+	{
+		const float y0 = kHeaderH + kOverviewH;
+		d.Fill(ox, y0, ox + d.g.ow, y0 + kRulerH, Paint::RulerBg);
+		d.l->PushClipRect(d.P(ox, y0), d.P(ox + d.g.ow, y0 + kRulerH), true);
+		const RulerStep r = RulerSteps(st.window, d.g.cw, d.m.tickRate);
+		for (double t = std::ceil(st.window.t0 / r.minor) * r.minor; t <= st.window.t1; t += r.minor) {
+			const float x = (float)TickToX(st.window, d.g.cw, t);
+			if (x < 0 || x > d.g.tw) continue;
+			const bool major = std::fabs(t / r.major - std::round(t / r.major)) < 1e-6;
+			d.Fill(ox + x, y0 + kRulerH - (major ? 10 : 5), ox + x + 1, y0 + kRulerH, major ? Paint::TickMajor : Paint::TickMinor);
+			if (major) {
+				char text[24];
+				TimeText(d.m, t, text, sizeof(text), true);
+				d.Text(FontRole::Hint, ox + x + 4, y0 + 9 - 2, Paint::Hint, text);
+			}
+		}
+		d.l->PopClipRect();
+		d.HLine(ox, ox + d.g.ow, y0 + kRulerH - 1, Paint::Border);
+	}
+}
+
+// ---- rows (y 112..414) ------------------------------------------------------------------------
+
+void PickRow(D& d, int node) {
+	d.st.selRow = node;
+	if (kNodes[node].kind != NodeKind::Layer) return;
+	// A layer's name picks the whole layer: every key in it lights up, so Delete removes them.
+	if (d.keys.TotalKeys() > 0) d.Emit(Action::Kind::SelectAll);
+	else d.Emit(Action::Kind::SelectClear);
+}
+
+// Every channel of the row keyed at the snapped playhead with the live camera's value (addKeyAt).
+void AddKeyAt(D& d, int node) {
+	const double at = SnapTick(d.m.playhead, SnapStep(d.st.snap, d.st.window), ImGui::GetIO().KeyAlt);
+	d.Emit(Action::Kind::EditBegin);
+	for (int c : ChansOf(node)) d.Emit(Action::Kind::AddKey, c, 0, at, d.m.live[c]);
+}
+
+// The key button between a row's arrows: the row's keys on the playhead's whole tick go; with none
+// there, the row is keyed as AddKeyAt does.
+void ToggleKeyAt(D& d, int node) {
+	const double tick = std::floor(d.m.playhead + 0.5);
+	std::vector<std::pair<int, int>> hits;
+	for (int c : ChansOf(node))
+		for (const GraphExpModel::Keyframe& k : d.keys.GetChannel(c).keys)
+			if (std::floor(k.tick + 0.5) == tick) hits.emplace_back(c, k.id);
+	if (!hits.empty()) {
+		d.EmitSelectSet(hits);
+		d.Emit(Action::Kind::DeleteSelected);
+		return;
+	}
+	AddKeyAt(d, node);
+}
+
+void NavButton(D& d, const char* id, float x, float y, int kind, Color c, const char* tip, bool& clicked) {
+	const Hit h = HitBox(id, d, x, y, x + 17, y + 20);
+	d.Tip(tip);
+	if (h.hovered) d.Fill(x, y, x + 17, y + 20, Paint::BtnHover, 3);
+	const float cx = x + 8.5f, cy = y + 10;
+	const ImU32 col = ToU32(c);
+	if (kind < 0) d.l->AddTriangleFilled(d.P(cx + 3, cy - 4), d.P(cx + 3, cy + 4), d.P(cx - 3.5f, cy), col);
+	else if (kind > 0) d.l->AddTriangleFilled(d.P(cx - 3, cy - 4), d.P(cx - 3, cy + 4), d.P(cx + 3.5f, cy), col);
+	clicked = h.clicked;
+}
+
+// The typing field over a value (CS2 makes its TextEntry inside the number's cell): Enter or a click
+// elsewhere keys what was typed, Esc leaves it.
+void CommitTyping(D& d) {
+	TimelineDockState& st = d.st;
+	st.editing = false;
+	std::string text = st.editText;
+	for (char& ch : text) if (ch == ',') ch = '.';
+	char* end = nullptr;
+	const double v = std::strtod(text.c_str(), &end);
+	if (end == text.c_str() || !std::isfinite(v)) return;
+	if (st.editNode >= 0 && kNodes[st.editNode].kind == NodeKind::ShakeParam) {
+		// Intensity or Speed: set on the shake under the playhead, as long as one runs there.
+		double at = 0, now = 0;
+		if (ShakeEditTick(d.m.shakes, d.m.pathKeys, d.m.playhead, at) && ShakeCanKey(d.m.pathKeys, at)
+			&& ShakeValueAt(d.m.shakes, kNodes[st.editNode].param, d.m.playhead, now))
+			ShakeParamSet(d, st.editNode, at, v);
+		return;
+	}
+	if (st.editCh < 0) return;
+	d.Emit(Action::Kind::EditBegin);
+	SetValue(d, st.editCh, v);
+}
+
+void TypeField(D& d, float x0, float y0, float x1, float y1) {
+	TimelineDockState& st = d.st;
+	ImFont* font = d.F(FontRole::Button);
+	ImGui::SetCursorScreenPos(d.P(x0, y0));
+	ImGui::PushFont(font);
+	ImGui::PushStyleColor(ImGuiCol_FrameBg, ToU32(Rgba(5, 7, 10)));
+	ImGui::PushStyleColor(ImGuiCol_Border, ToU32(Paint::Accent));
+	ImGui::PushStyleColor(ImGuiCol_Text, ToU32(Paint::Value));
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2 * d.s);
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(3 * d.s, (std::max)(0.0f, ((y1 - y0) * d.s - font->FontSize) * 0.5f)));
+	ImGui::SetNextItemWidth((x1 - x0) * d.s);
+	if (st.editFocus) {
+		ImGui::SetKeyboardFocusHere();
+		st.editFocus = false;
+	}
+	const bool enter = ImGui::InputText("##tltype", st.editText, sizeof(st.editText),
+		ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+	const bool left = ImGui::IsItemDeactivated();
+	ImGui::PopStyleVar(3);
+	ImGui::PopStyleColor(3);
+	ImGui::PopFont();
+	if (enter || left) CommitTyping(d);
+}
+
+void OpenTyping(TimelineDockState& st, int node, int ch, double value) {
+	st.editing = true;
+	st.editFocus = true;
+	st.editNode = node;
+	st.editCh = ch;
+	if (kNodes[node].kind == NodeKind::ShakeParam) {
+		std::snprintf(st.editText, sizeof(st.editText), "%ld", std::lround(value));
+		return;
+	}
+	const int dec = (std::max)(1, DecimalsOf(ch) + 1);
+	std::snprintf(st.editText, sizeof(st.editText), "%.*f", dec, CleanValue(value, dec));
+}
+
+void DrawLeftCell(D& d, const Row& r, int index, float y) {
+	TimelineDockState& st = d.st;
+	const Node& n = kNodes[r.node];
+	const float pad = RowPad(r), x1 = kLeftW - 8;
+	const float midY = y + kRowH * 0.5f;
+	ImGui::PushID(index);
+	float x = pad;
+	// The chevron.
+	if (Expandable(st, r.node)) {
+		const Hit h = HitBox("##chev", d, x, y, x + 14, y + kRowH);
+		const ImU32 col = ToU32(h.hovered ? Paint::Value : Paint::Hint);
+		const float cx = x + 7;
+		if (st.open[r.node]) d.l->AddTriangleFilled(d.P(cx - 4, midY - 2), d.P(cx + 4, midY - 2), d.P(cx, midY + 3), col);
+		else d.l->AddTriangleFilled(d.P(cx - 2, midY - 4), d.P(cx - 2, midY + 4), d.P(cx + 3, midY), col);
+		if (h.clicked) st.open[r.node] = !st.open[r.node];
+	}
+	x += 14 + 6;
+	if (n.kind == NodeKind::Layer) {
+		d.Fill(x, midY - 5, x + 10, midY + 5, Paint::Accent, 2);
+		x += 10 + 6;
+	}
+	float nameX1 = x1;
+	if (n.kind == NodeKind::Layer) {
+		const bool on = d.m.drive;
+		// The switch: on, scrubbing and key edits preview the path; off, the free cam stays yours.
+		const float swX = x1 - 4 - 34;
+		{
+			const Hit h = HitBox("##switch", d, swX, midY - 9, swX + 34, midY + 9);
+			d.Tip("Camera path on: scrubbing and key edits preview the path. Off: the free cam stays yours.");
+			d.Fill(swX, midY - 9, swX + 34, midY + 9, on ? Paint::BtnOn : Paint::BtnBg, 2);
+			d.Outline(swX, midY - 9, swX + 34, midY + 9, on ? Paint::Accent : (h.hovered ? Paint::Value : Paint::Chip), 2);
+			const float kx = swX + (on ? 18 : 2);
+			d.Fill(kx, midY - 7, kx + 12, midY + 5, on ? Paint::Accent : Paint::Dim, 1);
+			if (h.clicked) d.Emit(Action::Kind::Drive, 0, 0, 0, 0, !on);
+		}
+		// AUTO: while the timeline plays, the view follows the camera path inside its keys.
+		const float apW = 5 + d.TextW(FontRole::Caption, "AUTO", 0.5f) + 5, apX = swX - 6 - apW;
+		{
+			const Hit h = HitBox("##auto", d, apX, midY - 9, apX + apW, midY + 9);
+			d.Tip("AUTO on: while the timeline plays, the view follows the camera path whenever the playhead is inside its keys. "
+				"Off: Space only plays the demo. J plays the path either way.");
+			const bool ap = d.m.autoPath;
+			d.Fill(apX, midY - 9, apX + apW, midY + 9, ap ? Paint::BtnOn : (h.hovered ? Paint::BtnHover : Paint::BtnBg), 2);
+			d.Outline(apX, midY - 9, apX + apW, midY + 9, ap ? Paint::Accent : Paint::Chip, 2);
+			d.TextIn(FontRole::Caption, apX, midY - 9, apX + apW, midY + 9, ap ? Paint::Accent : Paint::Muted, "AUTO", 0.5f);
+			if (h.clicked) d.Emit(Action::Kind::AutoPath, 0, 0, 0, 0, !ap);
+		}
+		// The key count.
+		const int nk = (int)MergedOf(d.keys, r.node).size();
+		char meta[24];
+		std::snprintf(meta, sizeof(meta), "%d %s", nk, nk == 1 ? "key" : "keys");
+		const float metaX1 = apX - 6;
+		d.Text(FontRole::Hint, metaX1 - d.TextW(FontRole::Hint, meta), midY - d.Size(FontRole::Hint) * 0.5f, Paint::Muted, meta);
+		nameX1 = metaX1 - 60 - 6;
+	}
+	bool nameMuted = false;
+	if (IsShakeRow(r.node)) {
+		// CS2's Camera shake cells: the shake running under the playhead (its style, or Off), or the
+		// value it has there, and a navigator over the shake keys whose diamond adds or removes the
+		// key on the camera key under the playhead.
+		const std::vector<ShakeKey>& ks = d.m.shakes;
+		const double ph = d.m.playhead;
+		const int pathIdx = ShakePathIndexAt(d.m.pathKeys, ph);
+		const double keyT = pathIdx >= 0 ? d.m.pathKeys[(size_t)pathIdx] : 0.0;
+		const bool at = pathIdx >= 0 && ShakeKeyAtTick(ks, keyT) != nullptr;
+		const float navX0 = x1 - kNavW;
+		const float bx = navX0 + (kNavW - 51) * 0.5f, by = y + 1;
+		bool prev = false, dia = false, next = false;
+		NavButton(d, "##sprev", bx, by, -1, ks.empty() ? Paint::Dim : Paint::Hint, "Previous shake key", prev);
+		{
+			const Hit h = HitBox("##sdia", d, bx + 17, by, bx + 34, by + 20);
+			d.Tip(n.kind == NodeKind::Shake ? "Add or remove a shake key on the camera key at the playhead"
+				: "Add a shake key here (it continues the shake running here), or remove it");
+			if (h.hovered) d.Fill(bx + 17, by, bx + 34, by + 20, Paint::BtnHover, 3);
+			Diamond(d, bx + 25.5f, by + 10, 6.5f, at ? Paint::Accent : (pathIdx >= 0 ? Paint::Hint : Paint::Dim), at);
+			dia = h.clicked;
+		}
+		NavButton(d, "##snext", bx + 34, by, 1, ks.empty() ? Paint::Dim : Paint::Hint, "Next shake key", next);
+		if (prev || next) {
+			st.selRow = r.node;
+			std::vector<double> times;
+			for (const ShakeKey& k : ks) times.push_back(k.t);
+			double t = 0;
+			if (NeighbourTime(times, ph, prev ? -1 : 1, t)) SeekTo(d, t);
+		}
+		if (dia && pathIdx >= 0) {
+			st.selRow = r.node;
+			std::string cmd;
+			if (at) {
+				char text[32];
+				std::snprintf(text, sizeof(text), "clear @%ld", std::lround(keyT));
+				cmd = text;
+			} else {
+				ShakeKeyFromCommand(ks, FirstShakeStyle(d.m), keyT, 0, 0, cmd);
+			}
+			if (!cmd.empty()) d.EmitShake(cmd);
+		}
+		std::string value;
+		Color vc = Paint::Value;
+		double pv = 0;
+		bool hasValue = false;
+		if (n.kind == NodeKind::Shake) {
+			const ShakeKey* run = ShakeRunningAt(ks, ph);
+			value = run ? ShakeLabel(d.m, run) : std::string("Off");
+			if (!run) vc = Paint::Muted;
+		} else if (ShakeValueAt(ks, n.param, ph, pv)) {
+			hasValue = true;
+			char text[16];
+			std::snprintf(text, sizeof(text), "%g", std::round(pv * 10) / 10);
+			value = text;
+		} else {
+			value = "-";
+			vc = Paint::Muted;
+			nameMuted = true;
+		}
+		const FontRole vr = FontRole::Button;
+		value = Fit(d, vr, value, (std::max)(0.0f, navX0 - 6 - (x + 70)));
+		const float tw = d.TextW(vr, value.c_str()), ty = midY - d.Size(vr) * 0.5f;
+		if (n.kind == NodeKind::ShakeParam && st.editing && st.editNode == r.node) {
+			const float w = (std::max)(tw, 52.0f), vx = navX0 - 6 - w;
+			TypeField(d, vx, midY - 9, vx + w, midY + 9);
+			nameX1 = vx - 6;
+		} else {
+			const float vx = navX0 - 6 - tw;
+			if (n.kind == NodeKind::ShakeParam) {
+				// Intensity and Speed scrub and type like any number, on the shake under the playhead:
+				// its camera key, or the key whose shake runs here.
+				HitBox("##svalue", d, vx - 3, y, vx + tw + 3, y + kRowH);
+				const bool held = st.gesture == Gesture::ShakeValue && st.valueNode == r.node;
+				if (ImGui::IsItemActivated()) {
+					st.selRow = r.node;
+					double at = 0;
+					if (hasValue && ShakeEditTick(ks, d.m.pathKeys, ph, at) && ShakeCanKey(d.m.pathKeys, at)) {
+						st.gesture = Gesture::ShakeValue;
+						st.valueNode = r.node;
+						st.valueCh = -1;
+						st.shakeAt = at;
+						st.valueStart = pv;
+						st.valueLast = std::round(pv);
+						st.valuePressX = ImGui::GetIO().MousePos.x;
+						st.valueScrub = false;
+					}
+				}
+				d.Dotted(vx, vx + tw, ty + d.Size(vr) + 1, ImGui::IsItemHovered() || held ? Faded(Paint::Value, 0.8f) : Paint::Underline);
+			}
+			d.Text(vr, vx, ty, vc, value.c_str());
+			nameX1 = vx - 6;
+		}
+	}
+	if (n.kind == NodeKind::Prop) {
+		// The key navigator: previous, add or remove at the playhead, next.
+		const float navX0 = x1 - kNavW;
+		if (!IsSplit(st, r.node)) {
+			const double tick = std::floor(d.m.playhead + 0.5);
+			bool any = false, at = false;
+			for (int c : ChansOf(r.node))
+				for (const GraphExpModel::Keyframe& k : d.keys.GetChannel(c).keys) {
+					any = true;
+					if (std::floor(k.tick + 0.5) == tick) at = true;
+				}
+			const float bx = navX0 + (kNavW - 51) * 0.5f, by = y + 1;
+			bool prev = false, dia = false, next = false;
+			NavButton(d, "##prev", bx, by, -1, any ? Paint::Hint : Paint::Dim, "Previous keyframe", prev);
+			{
+				const Hit h = HitBox("##dia", d, bx + 17, by, bx + 34, by + 20);
+				d.Tip("Add or remove a keyframe at the playhead");
+				if (h.hovered) d.Fill(bx + 17, by, bx + 34, by + 20, Paint::BtnHover, 3);
+				Diamond(d, bx + 25.5f, by + 10, 6.5f, at ? Paint::Accent : Paint::Hint, at);
+				dia = h.clicked;
+			}
+			NavButton(d, "##next", bx + 34, by, 1, any ? Paint::Hint : Paint::Dim, "Next keyframe", next);
+			if (prev || next) {
+				st.selRow = r.node;
+				double t = 0;
+				if (NeighbourTime(TimesOf(MergedOf(d.keys, r.node)), d.m.playhead, prev ? -1 : 1, t)) SeekTo(d, t);
+			}
+			if (dia) {
+				st.selRow = r.node;
+				ToggleKeyAt(d, r.node);
+			}
+		}
+		// The values, right-aligned in front of the navigator, in each channel's colour: drag one to
+		// scrub it, click it to type.
+		const FontRole vr = n.count > 2 ? FontRole::Caption : FontRole::Button;
+		float vx = navX0 - 6;
+		if (!IsSplit(st, r.node)) {
+			for (int i = n.count - 1; i >= 0; --i) {
+				const int c = n.chans[i];
+				const double value = ChannelValue(d.m, c);
+				char text[32];
+				std::snprintf(text, sizeof(text), "%.*f%s", n.dec, CleanValue(value, n.dec), n.unit);
+				const float tw = d.TextW(vr, text);
+				const bool typing = st.editing && st.editNode == r.node && st.editCh == c;
+				vx -= typing ? (std::max)(tw, 52.0f) : tw;
+				const float ty = midY - d.Size(vr) * 0.5f;
+				if (typing) {
+					TypeField(d, vx, midY - 9, vx + (std::max)(tw, 52.0f), midY + 9);
+				} else {
+					ImGui::PushID(c);
+					HitBox("##value", d, vx - 3, y, vx + tw + 3, y + kRowH);
+					ImGui::PopID();
+					const bool held = st.gesture == Gesture::Value && st.valueNode == r.node && st.valueCh == c;
+					if (ImGui::IsItemActivated()) {
+						st.gesture = Gesture::Value;
+						st.valueNode = r.node;
+						st.valueCh = c;
+						st.valueStart = st.valueLast = value;
+						st.valuePressX = ImGui::GetIO().MousePos.x;
+						st.valueScrub = false;
+					}
+					d.Text(vr, vx, ty, kChannel[c], text);
+					d.Dotted(vx, vx + tw, ty + d.Size(vr) + 1, ImGui::IsItemHovered() || held ? Faded(kChannel[c], 0.8f) : Paint::Underline);
+				}
+				vx -= 5;
+			}
+			vx += 5;
+		}
+		nameX1 = vx - 6;
+	}
+	// The name: a click picks the row (a layer's, every key in it).
+	{
+		const Hit h = HitBox("##name", d, x, y, (std::max)(x + 1, nameX1), y + kRowH);
+		if (std::strlen(n.name) > 18) d.Tip(n.name);
+		const bool bold = n.kind == NodeKind::Layer || n.kind == NodeKind::Group;
+		const FontRole role = bold ? FontRole::Button : FontRole::Note;
+		const float spacing = n.kind == NodeKind::Layer ? 1.0f : (n.kind == NodeKind::Group ? 0.5f : 0.0f);
+		Color c = n.kind == NodeKind::Group ? Paint::Label : Paint::Value;
+		if ((n.kind == NodeKind::Layer && !d.m.drive) || nameMuted) c = Paint::Muted;
+		const std::string name = Fit(d, role, n.name, (std::max)(0.0f, nameX1 - x), spacing);
+		d.Text(role, x, midY - d.Size(role) * 0.5f, c, name.c_str(), spacing);
+		if (h.clicked) PickRow(d, r.node);
+	}
+	ImGui::PopID();
+}
+
+void DrawTrackCell(D& d, const Row& r, float y) {
+	const TimelineDockState& st = d.st;
+	const Node& n = kNodes[r.node];
+	const float ox = kLeftW, midY = y + kRowH * 0.5f;
+	auto summary = [&](const std::vector<MergedKey>& ks) {
+		for (const MergedKey& k : ks) {
+			const float x = (float)TickToX(st.window, d.g.cw, k.t);
+			if (x < -8 || x > d.g.tw + 8) continue;
+			Diamond(d, ox + x, midY, 7, k.sel ? Paint::Accent : Paint::Summary);
+		}
+	};
+	if (n.kind == NodeKind::Layer) {
+		const std::vector<MergedKey> ks = MergedOf(d.keys, r.node);
+		if (!ks.empty()) {
+			const bool on = d.m.drive;
+			const float x0 = (float)TickToX(st.window, d.g.cw, ks.front().t), x1 = (std::max)(x0 + 4, (float)TickToX(st.window, d.g.cw, ks.back().t));
+			const float bx0 = (std::max)(-6.0f, x0), bx1 = (std::min)(d.g.tw + 6, x1);
+			if (bx1 > bx0) {
+				d.Fill(ox + bx0, y + 4, ox + bx1, y + 17, Faded(Paint::Accent, on ? 0.25f : 0.094f), 3);
+				d.Outline(ox + bx0, y + 4, ox + bx1, y + 17, Faded(Paint::Accent, on ? 0.667f : 0.267f), 3);
+			}
+			if (!st.open[r.node]) summary(ks);
+		}
+		return;
+	}
+	if (IsShakeRow(r.node)) {
+		const std::vector<ShakeKey>& ks = d.m.shakes;
+		if (n.kind == NodeKind::Shake) {
+			// How far each shake runs: to the next key of the track, any style or a Stop, else to the
+			// end of the shot (the last camera key).
+			const double end = d.m.pathKeys.empty() ? st.window.t1 : d.m.pathKeys.back();
+			for (const ShakeKey& k : ks) {
+				if (k.s < 0) continue;
+				const ShakeKey* next = ShakeNextKey(ks, k);
+				const float x0 = (std::max)(-6.0f, (float)TickToX(st.window, d.g.cw, k.t));
+				const float x1 = (std::min)(d.g.tw + 6, (float)TickToX(st.window, d.g.cw, next ? next->t : end));
+				if (x1 > x0) d.Fill(ox + x0, midY - 2, ox + x1, midY + 2, Faded(Paint::ShakeKey, 0.25f), 0);
+			}
+		}
+		// A key's mark: a square on the Camera shake row, CS2's ease glyph on Intensity and Speed; a Stop dim.
+		const Side side = n.kind == NodeKind::Shake ? Side::Hold : Side::Ease;
+		for (const ShakeKey& k : ks) {
+			const float x = (float)TickToX(st.window, d.g.cw, k.t);
+			if (x < -kShakeGlyph || x > d.g.tw + kShakeGlyph) continue;
+			DrawGlyph(d, ox + x, midY, kShakeGlyph, side, side,
+				ShakeSelected(st, k.t) ? Paint::Accent : (k.s < 0 ? Paint::Dim : Paint::ShakeKey));
+		}
+		return;
+	}
+	if (n.kind == NodeKind::Group || IsSplit(st, r.node)) {
+		if (!st.open[r.node]) summary(MergedOf(d.keys, r.node));
+		return;
+	}
+	for (const MergedKey& k : MergedOf(d.keys, r.node)) {
+		const float x = (float)TickToX(st.window, d.g.cw, k.t);
+		if (x < -kGlyph || x > d.g.tw + kGlyph) continue;
+		const KeyRef& lead = k.members.front();
+		const GraphExpModel::Keyframe* kf = d.keys.FindKeyConst(lead.ch, lead.id);
+		DrawGlyph(d, ox + x, midY, kGlyph, kf ? LeftSide(*kf) : Side::Linear, kf ? RightSide(*kf) : Side::Linear,
+			k.sel ? Paint::Accent : Paint::Glyph);
+	}
+}
+
+// The key under the pointer on a property row, within reach: the nearest drawn one.
+const MergedKey* KeyNear(const std::vector<MergedKey>& keys, const D& d, float tx) {
+	const MergedKey* best = nullptr;
+	float bestD = kKeyHit;
+	for (const MergedKey& k : keys) {
+		const float dx = std::fabs((float)TickToX(d.st.window, d.g.cw, k.t) - tx);
+		if (dx <= bestD) { bestD = dx; best = &k; }
+	}
+	return best;
+}
+
+bool AllSelected(const MergedKey& k) {
+	for (const KeyRef& r : k.members) if (!r.sel) return false;
+	return true;
+}
+
+void SelectMembers(D& d, const std::vector<std::pair<int, int>>& members, bool add) {
+	if (!add) d.st.shakeSel.clear();
+	if (add) {
+		for (const auto& m : members) d.Emit(Action::Kind::Select, m.first, m.second, 0, 0, true);
+	} else {
+		d.EmitSelectSet(members);
+	}
+}
+
+bool DoubleClick(TimelineDockState& st, double t) {
+	const double now = ImGui::GetTime();
+	const bool dbl = st.lastKeyPressTime >= 0 && now - st.lastKeyPressTime <= kDoubleClickSeconds && std::fabs(st.lastKeyPressTick - t) <= 0.5;
+	st.lastKeyPressTime = dbl ? -1 : now;
+	st.lastKeyPressTick = t;
+	return dbl;
+}
+
+void StartKeyDrag(D& d, double lead, float tx, float gy) {
+	TimelineDockState& st = d.st;
+	st.gesture = Gesture::Keys;
+	st.pressX = tx;
+	st.pressY = gy;
+	st.leadTick = lead;
+	st.lastDt = 0;
+	st.lastDv = 0;
+	st.leadCh = -1;
+	st.shiftLock = false;
+	st.dragStarted = false;
+}
+
+// A press on the KEYFRAMES track (pressTrackKeys): a key, a layer's bar, the playhead, else a box.
+void PressTrack(D& d, const std::vector<Row>& rows, float tx, float gy) {
+	TimelineDockState& st = d.st;
+	const bool shift = ImGui::GetIO().KeyShift;
+	const int ri = (int)std::floor((gy + st.rowScroll) / kRowH);
+	const Row* row = ri >= 0 && ri < (int)rows.size() ? &rows[ri] : nullptr;
+	st.narrow = false;
+	if (row && IsShakeRow(row->node)) {
+		// A shake key's mark: it is selected (Shift toggles it) and the playhead goes to it. Shake keys
+		// do not drag; their values are set in GRAPH and the value cells.
+		const ShakeKey* hit = nullptr;
+		float best = 9;
+		for (const ShakeKey& k : d.m.shakes) {
+			const float dx = std::fabs((float)TickToX(st.window, d.g.cw, k.t) - tx);
+			if (dx <= 8 && dx < best) { best = dx; hit = &k; }
+		}
+		if (hit) {
+			st.selRow = row->node;
+			if (shift) {
+				ToggleShakeSelected(st, hit->t);
+			} else if (!ShakeSelected(st, hit->t)) {
+				d.Emit(Action::Kind::SelectClear);
+				st.shakeSel.assign(1, hit->t);
+			}
+			SeekTo(d, hit->t);
+			st.gesture = Gesture::None;
+			return;
+		}
+	}
+	if (row && kNodes[row->node].kind == NodeKind::Prop && !IsSplit(st, row->node)) {
+		const std::vector<MergedKey> keys = MergedOf(d.keys, row->node);
+		if (const MergedKey* k = KeyNear(keys, d, tx)) {
+			st.selRow = row->node;
+			if (DoubleClick(st, k->t)) {
+				SeekTo(d, k->t);
+				st.gesture = Gesture::None;
+				return;
+			}
+			const bool wasSelected = AllSelected(*k);
+			if (!wasSelected) SelectMembers(d, MembersOf(*k), shift);
+			if (wasSelected && !shift) {
+				st.narrow = true;
+				st.narrowTo = MembersOf(*k);
+			}
+			StartKeyDrag(d, k->t, tx, gy);
+			return;
+		}
+	}
+	if (row && kNodes[row->node].kind == NodeKind::Layer) {
+		const std::vector<MergedKey> keys = MergedOf(d.keys, row->node);
+		if (!keys.empty()) {
+			const float x0 = (float)TickToX(st.window, d.g.cw, keys.front().t);
+			const float x1 = (std::max)(x0 + 4, (float)TickToX(st.window, d.g.cw, keys.back().t));
+			if (tx >= x0 - 3 && tx <= x1 + 3) {
+				if (const MergedKey* k = KeyNear(keys, d, tx)) {
+					if (DoubleClick(st, k->t)) {
+						SeekTo(d, k->t);
+						st.gesture = Gesture::None;
+						return;
+					}
+				}
+				PickRow(d, row->node);
+				StartKeyDrag(d, keys.front().t, tx, gy);
+				return;
+			}
+		}
+	}
+	const float px = (float)TickToX(st.window, d.g.cw, d.m.playhead);
+	if (std::fabs(tx - px) <= 4) {
+		st.gesture = Gesture::Scrub;
+		return;
+	}
+	if (row) st.selRow = row->node;
+	st.gesture = Gesture::Box;
+	st.pressX = tx;
+	st.pressY = gy;
+}
+
+void DragKeys(D& d) {
+	TimelineDockState& st = d.st;
+	const float tx = d.mouse.x - kLeftW, gy = d.mouse.y - kRowsY;
+	const float dx = tx - st.pressX, dy = gy - st.pressY;
+	if (!st.dragStarted) {
+		if (std::sqrt(dx * dx + dy * dy) < kDragPx) return;
+		st.dragStarted = true;
+		d.Emit(Action::Kind::EditBegin);
+	}
+	double dt = dx / d.g.cw * st.window.Len(), dv = 0;
+	if (st.leadCh >= 0) {
+		// GRAPH moves values too, on the lead key's scale; Shift holds the value where it was.
+		dv = -(dy / kGraphBandH) * RangeSpan(st, st.leadCh);
+		if (ImGui::GetIO().KeyShift) {
+			if (!st.shiftLock) {
+				st.shiftLock = true;
+				st.lockDv = st.lastDv;
+			}
+			dv = st.lockDv;
+		} else if (st.shiftLock) {
+			st.shiftLock = false;
+			st.pressY = gy + (float)(st.lockDv * kGraphBandH / RangeSpan(st, st.leadCh));
+			dv = st.lockDv;
+		}
+	}
+	const double step = SnapStep(st.snap, st.window);
+	if (step > 0) dt = SnapTick(st.leadTick + dt, step, ImGui::GetIO().KeyAlt) - st.leadTick;
+	if (dt != st.lastDt || dv != st.lastDv) {
+		d.Emit(Action::Kind::MoveSelected, 0, 0, dt - st.lastDt, dv - st.lastDv);
+		st.lastDt = dt;
+		st.lastDv = dv;
+	}
+}
+
+void ReleaseBox(D& d, const std::vector<Row>& rows) {
+	TimelineDockState& st = d.st;
+	const bool shift = ImGui::GetIO().KeyShift;
+	const float tx = d.mouse.x - kLeftW, gy = d.mouse.y - kRowsY;
+	if (std::fabs(tx - st.pressX) < kDragPx && std::fabs(gy - st.pressY) < kDragPx) {
+		if (!shift) d.Emit(Action::Kind::SelectClear);
+		return;
+	}
+	const float x0 = (std::min)(st.pressX, tx), x1 = (std::max)(st.pressX, tx);
+	const float y0 = (std::min)(st.pressY, gy), y1 = (std::max)(st.pressY, gy);
+	std::vector<std::pair<int, int>> picked;
+	std::vector<double> shakes; // shake keys in the box, on the shake rows
+	for (size_t i = 0; i < rows.size(); ++i) {
+		const Row& r = rows[i];
+		const bool shakeRow = IsShakeRow(r.node);
+		if (!shakeRow && (kNodes[r.node].kind != NodeKind::Prop || IsSplit(st, r.node))) continue;
+		const float ry0 = i * kRowH - st.rowScroll, ry1 = ry0 + kRowH;
+		if (ry1 < y0 || ry0 > y1) continue;
+		if (shakeRow) {
+			for (const ShakeKey& k : d.m.shakes) {
+				const float x = (float)TickToX(st.window, d.g.cw, k.t);
+				if (x >= x0 - 4 && x <= x1 + 4) shakes.push_back(k.t);
+			}
+			continue;
+		}
+		for (const MergedKey& k : MergedOf(d.keys, r.node)) {
+			const float x = (float)TickToX(st.window, d.g.cw, k.t);
+			if (x >= x0 - 4 && x <= x1 + 4)
+				for (const auto& m : MembersOf(k)) picked.push_back(m);
+		}
+	}
+	if (!picked.empty()) SelectMembers(d, picked, shift);
+	else if (!shift) d.Emit(Action::Kind::SelectClear);
+	for (double t : shakes)
+		if (!ShakeSelected(st, t)) st.shakeSel.push_back(t);
+}
+
+void ScrubTo(D& d, float tx) {
+	TimelineDockState& st = d.st;
+	const double step = SnapStep(st.snap, st.window);
+	const bool alt = ImGui::GetIO().KeyAlt;
+	const float lo = kPad, hi = kPad + d.g.cw;
+	if (tx > hi || tx < lo) {
+		// Past the track's time edges the window creeps and the playhead stays on its edge.
+		const float over = tx > hi ? tx - hi : tx - lo;
+		const double span = st.window.Len();
+		st.window = Pan(st.window, d.domain, (over > 0 ? 1 : -1) * span * (std::min)(0.012, std::fabs(over) * 0.00012) * 0.6);
+		d.Emit(Action::Kind::Playhead, 0, 0, SnapTick(over > 0 ? st.window.t1 : st.window.t0, step, alt));
+		return;
+	}
+	d.Emit(Action::Kind::Playhead, 0, 0, SnapTick(XToTick(st.window, d.g.cw, tx), step, alt));
+}
+
+void ReleaseScrub(D& d, float tx) {
+	const TimelineDockState& st = d.st;
+	const double t = SnapTick(XToTick(st.window, d.g.cw, (std::max)(kPad, (std::min)(kPad + d.g.cw, tx))),
+		SnapStep(st.snap, st.window), ImGui::GetIO().KeyAlt);
+	const double at = (std::max)(0.0, std::round(t));
+	d.Emit(Action::Kind::Playhead, 0, 0, at);
+	d.Emit(Action::Kind::PlayheadRelease, 0, 0, at);
+}
+
+void DrawRows(D& d, const std::vector<Row>& rows) {
+	TimelineDockState& st = d.st;
+	const float contentH = rows.size() * kRowH;
+	st.rowScroll = ClampRowScroll(st.rowScroll, contentH);
+	d.l->PushClipRect(d.P(0, kRowsY), d.P(d.w, kRowsY + kRowsH), true);
+	for (size_t i = 0; i < rows.size(); ++i) {
+		const float y = kRowsY + i * kRowH - st.rowScroll;
+		if (y + kRowH < kRowsY || y > kRowsY + kRowsH) continue;
+		const Row& r = rows[i];
+		const bool sel = st.selRow == r.node;
+		const bool layer = kNodes[r.node].kind == NodeKind::Layer;
+		d.Fill(0, y, d.w, y + kRowH, layer ? (sel ? Paint::LayerSel : Paint::LayerBg) : (sel ? Paint::RowSel : Rgba(0, 0, 0, 0)));
+		d.HLine(0, d.w, y + kRowH - 1, Paint::RowLine);
+		d.VLine(kLeftW - 1, y, y + kRowH, Paint::Border);
+	}
+	// The track side, clipped to the track; GRAPH covers it with the curves instead.
+	if (st.view == TimelineView::Keys) {
+		d.l->PushClipRect(d.P(kLeftW, kRowsY), d.P(kLeftW + d.g.tw, kRowsY + kRowsH), true);
+		// Carry the ruler through the tracks so keys can be read against time in either view.
+		const RulerStep ruler = RulerSteps(st.window, d.g.cw, d.m.tickRate);
+		for (double t = std::ceil(st.window.t0 / ruler.minor) * ruler.minor; t <= st.window.t1; t += ruler.minor) {
+			const float x = kLeftW + (float)TickToX(st.window, d.g.cw, t);
+			const bool major = std::fabs(t / ruler.major - std::round(t / ruler.major)) < 1e-6;
+			d.VLine(x, kRowsY, kRowsY + kRowsH, major ? Paint::GridMid : Paint::Grid);
+		}
+		for (size_t i = 0; i < rows.size(); ++i) {
+			const float y = kRowsY + i * kRowH - st.rowScroll;
+			if (y + kRowH < kRowsY || y > kRowsY + kRowsH) continue;
+			DrawTrackCell(d, rows[i], y);
+		}
+		d.l->PopClipRect();
+	}
+	for (size_t i = 0; i < rows.size(); ++i) {
+		const float y = kRowsY + i * kRowH - st.rowScroll;
+		if (y + kRowH < kRowsY || y > kRowsY + kRowsH) continue;
+		DrawLeftCell(d, rows[i], (int)i, y);
+	}
+	d.l->PopClipRect();
+
+	// The rows' scrollbar, only when they overflow.
+	if (contentH > kRowsH) {
+		float ty = 0, th = 0;
+		RowsThumb(st.rowScroll, contentH, ty, th);
+		d.Fill(d.w - kScrollW + 3, kRowsY + ty, d.w - kScrollW + 9, kRowsY + ty + th, Paint::ScrollThumb, 3);
+	}
+}
+
+// ---- the footer (y 414..440) ----------------------------------------------------------------------
+
+void FooterButton(D& d, const char* id, float x, float w, const char* label, const char* tip, bool& clicked) {
+	const float y0 = kDockH - kFooterH + (kFooterH - 18) * 0.5f;
+	const Hit h = HitBox(id, d, x, y0, x + w, y0 + 18);
+	d.Tip(tip);
+	d.Fill(x, y0, x + w, y0 + 18, h.held ? Paint::BtnDown : (h.hovered ? Paint::BtnHover : Paint::BtnBg));
+	const bool word = std::strlen(label) > 1 && (unsigned char)label[0] < 0x80;
+	d.TextIn(word ? FontRole::Caption : FontRole::Label, x, y0, x + w, y0 + 18, Paint::Value, label, word ? 1.0f : 0.0f);
+	clicked = h.clicked;
+}
+
+void DrawFooter(D& d) {
+	TimelineDockState& st = d.st;
+	const float y0 = kDockH - kFooterH;
+	d.HLine(0, d.w, y0, Paint::Border);
+	d.VLine(kLeftW - 1, y0, kDockH, Paint::Border);
+	const float textY = y0 + (kFooterH - d.Size(FontRole::Hint)) * 0.5f;
+	d.Text(FontRole::Hint, kLeftW + 12, textY, Paint::Hint, "RENDER RANGE  whole demo");
+
+	float x = d.w - 14;
+	bool zoomIn = false, zoomOut = false, fit = false;
+	x -= 24;
+	FooterButton(d, "##tlzoomin", x, 24, "+", "Zoom in (Ctrl+Wheel)", zoomIn);
+	x -= 6 + kFooterTrackW;
+	const float trackX = x, trackY = y0 + (kFooterH - 12) * 0.5f;
+	{
+		float thumbX = 0, thumbW = 0;
+		FooterThumb(st.window, d.domain, kFooterTrackW, thumbX, thumbW);
+		d.Fill(trackX, trackY, trackX + kFooterTrackW, trackY + 12, Paint::ScrollTrack, 7);
+		d.Fill(trackX + thumbX, trackY, trackX + thumbX + thumbW, trackY + 12, Paint::ScrollThumb, 7);
+		const Hit h = HitBox("##tlfootbar", d, trackX, trackY, trackX + kFooterTrackW, trackY + 12);
+		if (ImGui::IsItemActivated()) {
+			const float fx = d.mouse.x - trackX;
+			if (fx < thumbX || fx > thumbX + thumbW) {
+				// A press beside the thumb centres the window there.
+				const double c = d.domain.t0 + fx / kFooterTrackW * (std::max)(1.0, d.domain.Len());
+				const double span = st.window.Len();
+				st.window = Normalize(MakeSpan(c - span / 2, c + span / 2), d.domain);
+				ManualView(d);
+			}
+			st.gesture = Gesture::FooterBar;
+			st.pressX = d.mouse.x;
+			st.grabT0 = st.window.t0;
+			st.grabT1 = st.window.t1;
+		}
+		(void)h;
+	}
+	x -= 6 + 24;
+	FooterButton(d, "##tlzoomout", x, 24, "\xE2\x80\x93", "Zoom out (Ctrl+Wheel)", zoomOut);
+	x -= 6 + 34;
+	FooterButton(d, "##tlfit", x, 34, "FIT", "Fit the selected keys, else the selected layer or row; press again for every key", fit);
+	{
+		char a[24], b[24], e[24], text[96];
+		TimeText(d.m, st.window.t0, a, sizeof(a), true);
+		TimeText(d.m, st.window.t1, b, sizeof(b), true);
+		TimeText(d.m, d.domain.t1, e, sizeof(e), true);
+		std::snprintf(text, sizeof(text), "Showing %s \xE2\x80\x93 %s of %s", a, b, e);
+		d.Text(FontRole::Hint, x - 6 - d.TextW(FontRole::Hint, text), textY, Paint::Hint, text);
+	}
+	if (zoomIn) { st.window = ZoomStep(st.window, d.domain, 1 / 1.5, d.m.playhead); ManualView(d); }
+	if (zoomOut) { st.window = ZoomStep(st.window, d.domain, 1.5, d.m.playhead); ManualView(d); }
+	if (fit) FitAll(d);
+}
+
+void RightClick(D& d, const std::vector<Row>& rows); // with the menus, below
+
+// ---- GRAPH ------------------------------------------------------------------------------------------
+// The curves of the selected row (the whole layer with none), each on its own value scale across the
+// band: grid, curves, keys, and the selected keys' handles, with a legend (drawGraph).
+
+const char* kChannelNames[7] = { "X Position", "Y Position", "Z Position", "Pitch", "Yaw", "Roll", "Field of view" };
+
+// The property rows under a node, a split property's own rows in its place (propsOf).
+void LeafProps(const TimelineDockState& st, int node, std::vector<int>& out) {
+	if (kNodes[node].kind == NodeKind::Prop && !IsSplit(st, node)) {
+		out.push_back(node);
+		return;
+	}
+	for (int c : ChildrenOf(st, node)) LeafProps(st, c, out);
+	if (kNodes[node].kind == NodeKind::Prop && IsSplit(st, node) && ChildrenOf(st, node).empty()) out.push_back(node);
+}
+
+// The channels GRAPH draws (graphChans): the properties of the selected row that have keys, else its
+// first one, up to eight channels.
+std::vector<int> GraphChannels(const TimelineDockState& st, const GraphExpModel& keys) {
+	std::vector<int> props, keyed, chans;
+	LeafProps(st, st.selRow >= 0 ? st.selRow : kLayerNode, props);
+	for (int p : props) {
+		bool any = false;
+		for (int c : ChansOf(p)) any = any || !keys.GetChannel(c).keys.empty();
+		if (any) keyed.push_back(p);
+	}
+	if (keyed.empty() && !props.empty()) keyed.push_back(props.front());
+	for (int p : keyed)
+		for (int c : ChansOf(p))
+			if (chans.size() < 8 && std::find(chans.begin(), chans.end(), c) == chans.end()) chans.push_back(c);
+	return chans;
+}
+
+Filmmaker::GraphCurve::Handle CurveHandle(const GraphExpModel::ControlPoint& cp) {
+	Filmmaker::GraphCurve::Handle h;
+	h.active = cp.active;
+	h.tx = cp.tx;
+	h.dv = cp.dv;
+	h.autoTan = cp.autoTan;
+	return h;
+}
+
+// Each listed curve's value range: the channel's range around its keys, widened for bulges and the
+// selected handles. Refitted only between gestures, so the scale never moves under the pointer.
+void FitRanges(D& d, const std::vector<int>& chans) {
+	TimelineDockState& st = d.st;
+	for (int c : chans) {
+		if (st.rangeSet[c] && st.gesture != Gesture::None) continue;
+		const std::vector<GraphExpModel::Keyframe>& ks = d.keys.GetChannel(c).keys;
+		std::vector<double> values;
+		std::vector<CurveKey> curve;
+		for (const GraphExpModel::Keyframe& k : ks) {
+			values.push_back(k.value);
+			CurveKey ck;
+			ck.t = k.tick;
+			ck.v = k.value;
+			ck.sel = d.keys.IsSelected(c, k.id);
+			ck.in = CurveHandle(k.cpLeft);
+			ck.out = CurveHandle(k.cpRight);
+			curve.push_back(ck);
+		}
+		double floorLo = 0, floorHi = 1;
+		ChannelRange(values, c, floorLo, floorHi);
+		FitCurveRange(curve, floorLo, floorHi, st.rangeLo[c], st.rangeHi[c]);
+		st.rangeSet[c] = true;
+	}
+}
+
+// Rows-local y of a value on a curve's scale, and back.
+float ValToY(const TimelineDockState& st, int c, double v) {
+	return kGraphTop + (float)((1.0 - (v - st.rangeLo[c]) / RangeSpan(st, c)) * kGraphBandH);
+}
+double YToVal(const TimelineDockState& st, int c, float y) {
+	return st.rangeLo[c] + (1.0 - (y - kGraphTop) / kGraphBandH) * RangeSpan(st, c);
+}
+
+// A selected key's handle on one side, from its neighbour on that side.
+HandlePoint KeyHandle(const D& d, int c, size_t i, int side) {
+	const std::vector<GraphExpModel::Keyframe>& ks = d.keys.GetChannel(c).keys;
+	const GraphExpModel::Keyframe& k = ks[i];
+	const bool hasNeighbour = side > 0 ? i + 1 < ks.size() : i > 0;
+	const double neighbourT = hasNeighbour ? ks[side > 0 ? i + 1 : i - 1].tick : 0;
+	return HandleEndpoint(k.tick, k.value, side, CurveHandle(side > 0 ? k.cpRight : k.cpLeft), hasNeighbour, neighbourT,
+		d.st.window.Len());
+}
+
+void DrawGraph(D& d, const std::vector<int>& chans) {
+	TimelineDockState& st = d.st;
+	const float ox = kLeftW, oy = kRowsY;
+	auto X = [&](double t) { return ox + (float)TickToX(st.window, d.g.cw, t); };
+	auto Y = [&](int c, double v) { return oy + ValToY(st, c, v); };
+	d.Fill(ox, oy, ox + d.g.ow, oy + kRowsH, Paint::GraphBg);
+	d.l->PushClipRect(d.P(ox, oy), d.P(ox + d.g.ow, oy + kRowsH), true);
+	auto Line = [&](float x0, float y0, float x1, float y1, Color c, float thick) {
+		d.l->AddLine(d.P(x0, y0), d.P(x1, y1), ToU32(c), (std::max)(1.0f, thick * d.s));
+	};
+
+	// The grid: the snap step while it is coarse enough to see, the ruler's steps, five levels.
+	const double span = st.window.Len(), pxPerTick = d.g.cw / (std::max)(1e-9, span);
+	const double snap = SnapStep(st.snap, st.window);
+	if (snap > 0 && snap * pxPerTick >= 4 && span / snap <= 140)
+		for (double t = std::ceil(st.window.t0 / snap) * snap; t <= st.window.t1; t += snap) d.VLine(X(t), oy, oy + kRowsH, Paint::Grid);
+	const RulerStep r = RulerSteps(st.window, d.g.cw, d.m.tickRate);
+	for (double t = std::ceil(st.window.t0 / r.minor) * r.minor; t <= st.window.t1; t += r.minor) {
+		const bool major = std::fabs(t / r.major - std::round(t / r.major)) < 1e-6;
+		d.VLine(X(t), oy, oy + kRowsH, major ? Paint::GridMid : Paint::Grid);
+	}
+	for (int i = 0; i <= 4; ++i) {
+		const float y = kGraphTop + i * kGraphBandH / 4;
+		d.HLine(ox, ox + d.g.ow, oy + y, i == 2 ? Paint::GridMid : Rgba(255, 255, 255, 16));
+		if (!chans.empty()) {
+			const double axSpan = std::fabs(RangeSpan(st, chans[0]));
+			const int dec = axSpan >= 100 ? 0 : axSpan >= 10 ? 1 : axSpan >= 1 ? 2 : 3;
+			char label[32];
+			std::snprintf(label, sizeof(label), "%.*f", dec, YToVal(st, chans[0], y));
+			d.Text(FontRole::Hint, ox + 3, oy + y - 12, Paint::Hint, label);
+		}
+	}
+
+	// Each curve in its channel's colour: flat before the first key and after the last, straight or
+	// Bezier between, the keys, and the selected keys' handles.
+	bool anyKeys = false;
+	for (int c : chans) {
+		const std::vector<GraphExpModel::Keyframe>& ks = d.keys.GetChannel(c).keys;
+		if (ks.empty()) continue;
+		anyKeys = true;
+		const Color col = kChannel[c];
+		Line(ox, Y(c, ks.front().value), X(ks.front().tick), Y(c, ks.front().value), Faded(col, 0.333f), 1);
+		Line(X(ks.back().tick), Y(c, ks.back().value), ox + d.g.ow, Y(c, ks.back().value), Faded(col, 0.333f), 1);
+		for (size_t i = 0; i + 1 < ks.size(); ++i) {
+			const GraphExpModel::Keyframe& a = ks[i];
+			const GraphExpModel::Keyframe& b = ks[i + 1];
+			if (!a.cpRight.active && !b.cpLeft.active) {
+				Line(X(a.tick), Y(c, a.value), X(b.tick), Y(c, b.value), col, 2);
+				continue;
+			}
+			const Filmmaker::GraphCurve::Segment s =
+				Filmmaker::GraphCurve::MakeSegment(a.tick, a.value, CurveHandle(a.cpRight), b.tick, b.value, CurveHandle(b.cpLeft));
+			float px = X(a.tick), py = Y(c, a.value);
+			for (int k = 1; k <= 14; ++k) {
+				const double u = k / 14.0;
+				const float qx = X(Filmmaker::GraphCurve::Bez(s.x[0], s.x[1], s.x[2], s.x[3], u));
+				const float qy = Y(c, Filmmaker::GraphCurve::Bez(s.y[0], s.y[1], s.y[2], s.y[3], u));
+				Line(px, py, qx, qy, col, 2);
+				px = qx;
+				py = qy;
+			}
+		}
+		for (size_t i = 0; i < ks.size(); ++i) {
+			const float kx = X(ks[i].tick), ky = Y(c, ks[i].value);
+			if (kx < ox - 10 || kx > ox + d.g.tw + 10) continue;
+			const bool sel = d.keys.IsSelected(c, ks[i].id);
+			Diamond(d, kx, ky, 9, sel ? Paint::Accent : col);
+			Diamond(d, kx, ky, 9, Paint::GraphBg, false);
+			if (!sel) continue;
+			for (int side = -1; side <= 1; side += 2) {
+				const HandlePoint h = KeyHandle(d, c, i, side);
+				const float hx = X(h.t), hy = Y(c, h.v);
+				Line(kx, ky, hx, hy, Paint::HandleColor, 1);
+				d.l->AddCircleFilled(d.P(hx, hy), 3.5f * d.s, ToU32(Paint::HandleColor), 12);
+			}
+		}
+	}
+
+	// The camera shake's Intensity and Speed (drawShakeGraph): eased between the keys of a run as the
+	// camera plays them and flat until the next key, with a gap after a Stop and past the last camera
+	// key, where the path's shake stops playing. The keys are where a shake's values are set.
+	const int shakeCurves = ShakeCurvesOf(st);
+	bool anyShake = false;
+	for (const ShakeKey& k : d.m.shakes) anyShake = anyShake || k.s >= 0;
+	for (int i = 0; i < 2; ++i) {
+		if (!(shakeCurves & (1 << i))) continue;
+		const ShakeCurve& sc = kShakeCurves[i];
+		const char param = kNodes[sc.node].param;
+		bool prev = false;
+		float px = 0, py = 0;
+		for (int s = 0; s <= 240; ++s) {
+			const double t = st.window.t0 + span * s / 240;
+			double v = 0;
+			if ((!d.m.pathKeys.empty() && t > d.m.pathKeys.back() + 0.5) || !ShakeValueAt(d.m.shakes, param, t, v)) {
+				prev = false;
+				continue;
+			}
+			const float qx = X(t), qy = oy + ShakeGraphY(i, v);
+			if (prev) Line(px, py, qx, qy, sc.color, 2);
+			px = qx;
+			py = qy;
+			prev = true;
+		}
+		for (const ShakeKey& k : d.m.shakes) {
+			if (k.s < 0) continue;
+			const float kx = X(k.t), ky = oy + ShakeGraphY(i, k.Param(param));
+			if (kx < ox - 10 || kx > ox + d.g.tw + 10) continue;
+			Diamond(d, kx, ky, 9, ShakeSelected(st, k.t) ? Paint::Accent : sc.color);
+			Diamond(d, kx, ky, 9, Paint::GraphBg, false);
+		}
+	}
+
+	// The legend, and what to do when there is nothing to draw.
+	{
+		std::vector<std::pair<Color, const char*>> items;
+		for (int c : chans) items.emplace_back(kChannel[c], kChannelNames[c]);
+		for (int i = 0; i < 2; ++i)
+			if (shakeCurves & (1 << i)) items.emplace_back(kShakeCurves[i].color, kShakeCurves[i].name);
+		float lw = 10;
+		for (const auto& it : items) lw += 10 + 6 + d.TextW(FontRole::Hint, it.second) + 14;
+		lw += 10 - 14;
+		const float lx = ox + 12, ly = oy + 10, lh = d.Size(FontRole::Hint) + 10;
+		d.Fill(lx, ly, lx + lw, ly + lh, Rgba(8, 10, 14, 230), 3);
+		d.Outline(lx, ly, lx + lw, ly + lh, Paint::Border, 3);
+		float x = lx + 10;
+		for (const auto& it : items) {
+			d.Fill(x, ly + (lh - 10) * 0.5f, x + 10, ly + (lh + 10) * 0.5f, it.first, 2);
+			x += 16;
+			d.Text(FontRole::Hint, x, ly + 5, Paint::Value, it.second);
+			x += d.TextW(FontRole::Hint, it.second) + 14;
+		}
+	}
+	if (shakeCurves) {
+		if (!anyShake)
+			d.TextIn(FontRole::Label, ox, oy, ox + d.g.ow, oy + kRowsH, Paint::Hint,
+				"No camera shake yet. Right-click the Camera shake row to pick one.");
+	} else if (!anyKeys) {
+		char text[160];
+		std::snprintf(text, sizeof(text), "No keys on %s yet. Press a row's key button to add one at the playhead.",
+			kNodes[st.selRow >= 0 ? st.selRow : kLayerNode].name);
+		d.TextIn(FontRole::Label, ox, oy, ox + d.g.ow, oy + kRowsH, Paint::Hint, text);
+	}
+	d.l->PopClipRect();
+}
+
+// The key point nearest the pointer within reach, or the selected key's handle (pressGraph,
+// hitGraphHandle, hitGraphKey). Rows-local y.
+struct GraphHit {
+	int ch = -1, id = 0, side = 0;
+	double t = 0;
+};
+
+GraphHit HitGraphHandle(const D& d, const std::vector<int>& chans, float tx, float gy) {
+	GraphHit best;
+	float bestD = kHandleR * kHandleR;
+	for (int c : chans) {
+		const std::vector<GraphExpModel::Keyframe>& ks = d.keys.GetChannel(c).keys;
+		for (size_t i = 0; i < ks.size(); ++i) {
+			if (!d.keys.IsSelected(c, ks[i].id)) continue;
+			for (int side = -1; side <= 1; side += 2) {
+				const HandlePoint h = KeyHandle(d, c, i, side);
+				const float dx = (float)TickToX(d.st.window, d.g.cw, h.t) - tx, dy = ValToY(d.st, c, h.v) - gy;
+				if (dx * dx + dy * dy <= bestD) {
+					bestD = dx * dx + dy * dy;
+					best.ch = c;
+					best.id = ks[i].id;
+					best.side = side;
+					best.t = ks[i].tick;
+				}
+			}
+		}
+	}
+	return best;
+}
+
+GraphHit HitGraphKey(const D& d, const std::vector<int>& chans, float tx, float gy) {
+	GraphHit best;
+	float bestD = kKeyHit * kKeyHit;
+	for (int c : chans)
+		for (const GraphExpModel::Keyframe& k : d.keys.GetChannel(c).keys) {
+			const float dx = (float)TickToX(d.st.window, d.g.cw, k.tick) - tx, dy = ValToY(d.st, c, k.value) - gy;
+			if (dx * dx + dy * dy <= bestD) {
+				bestD = dx * dx + dy * dy;
+				best.ch = c;
+				best.id = k.id;
+				best.t = k.tick;
+			}
+		}
+	return best;
+}
+
+// The shake key nearest the pointer on a drawn shake curve, within reach (hitShakeGraph). Rows-local y.
+bool HitShakeGraph(const D& d, float tx, float gy, double& t, int& curve) {
+	const int curves = ShakeCurvesOf(d.st);
+	float bestD = kKeyHit * kKeyHit;
+	curve = -1;
+	for (int i = 0; i < 2; ++i) {
+		if (!(curves & (1 << i))) continue;
+		for (const ShakeKey& k : d.m.shakes) {
+			if (k.s < 0) continue;
+			const float dx = (float)TickToX(d.st.window, d.g.cw, k.t) - tx;
+			const float dy = ShakeGraphY(i, k.Param(kNodes[kShakeCurves[i].node].param)) - gy;
+			if (dx * dx + dy * dy <= bestD) {
+				bestD = dx * dx + dy * dy;
+				t = k.t;
+				curve = i;
+			}
+		}
+	}
+	return curve >= 0;
+}
+
+void PressGraph(D& d, float tx, float gy) {
+	TimelineDockState& st = d.st;
+	const std::vector<int> chans = GraphChannels(st, d.keys);
+	const bool shift = ImGui::GetIO().KeyShift;
+	st.narrow = false;
+	// A shake key: selected (Shift adds it), the playhead goes to it, and a drag sets its value.
+	double sht = 0;
+	int curve = -1;
+	if (HitShakeGraph(d, tx, gy, sht, curve)) {
+		if (shift) {
+			if (!ShakeSelected(st, sht)) st.shakeSel.push_back(sht);
+		} else if (!ShakeSelected(st, sht)) {
+			d.Emit(Action::Kind::SelectClear);
+			st.shakeSel.assign(1, sht);
+		}
+		SeekTo(d, sht);
+		const ShakeKey* k = ShakeKeyAtTick(d.m.shakes, sht);
+		st.gesture = Gesture::ShakeGraph;
+		st.shakeAt = sht;
+		st.shakeCurve = curve;
+		st.pressY = gy;
+		st.valueStart = st.valueLast = k ? k->Param(kNodes[kShakeCurves[curve].node].param) : 0;
+		st.dragStarted = false;
+		return;
+	}
+	const GraphHit h = HitGraphHandle(d, chans, tx, gy);
+	if (h.ch >= 0) {
+		d.Emit(Action::Kind::EditBegin); // on the press, as CS2's handle drag opens its step
+		st.gesture = Gesture::Handle;
+		st.handleCh = h.ch;
+		st.handleId = h.id;
+		st.handleSide = h.side;
+		st.lastDt = st.lastDv = -1e300;
+		return;
+	}
+	const GraphHit k = HitGraphKey(d, chans, tx, gy);
+	if (k.ch >= 0) {
+		if (DoubleClick(st, k.t)) {
+			SeekTo(d, k.t);
+			st.gesture = Gesture::None;
+			return;
+		}
+		const std::vector<std::pair<int, int>> members = { std::make_pair(k.ch, k.id) };
+		const bool wasSelected = d.keys.IsSelected(k.ch, k.id);
+		if (!wasSelected) SelectMembers(d, members, shift);
+		if (wasSelected && !shift) {
+			st.narrow = true;
+			st.narrowTo = members;
+		}
+		StartKeyDrag(d, k.t, tx, gy);
+		st.leadCh = k.ch;
+		return;
+	}
+	if (std::fabs(tx - (float)TickToX(st.window, d.g.cw, d.m.playhead)) <= 4) {
+		st.gesture = Gesture::Scrub;
+		return;
+	}
+	st.gesture = Gesture::Box;
+	st.pressX = tx;
+	st.pressY = gy;
+}
+
+void DragGraphHandle(D& d) {
+	TimelineDockState& st = d.st;
+	const std::vector<GraphExpModel::Keyframe>& ks = d.keys.GetChannel(st.handleCh).keys;
+	size_t i = 0;
+	while (i < ks.size() && ks[i].id != st.handleId) ++i;
+	if (i == ks.size()) return;
+	const float tx = d.mouse.x - kLeftW, gy = d.mouse.y - kRowsY;
+	const HandlePoint e = KeyHandle(d, st.handleCh, i, st.handleSide);
+	const double spanPx = e.span / st.window.Len() * d.g.cw, pxPerValue = kGraphBandH / RangeSpan(st, st.handleCh);
+	const HandleDrag h = DragHandle(ks[i].tick, ks[i].value, st.handleSide, e.span, XToTick(st.window, d.g.cw, tx),
+		YToVal(st, st.handleCh, gy), ImGui::GetIO().KeyShift, spanPx, pxPerValue);
+	if (h.tx == st.lastDt && h.dv == st.lastDv) return;
+	Action a;
+	a.kind = Action::Kind::Handle;
+	a.ch = st.handleCh;
+	a.id = st.handleId;
+	a.side = st.handleSide;
+	a.a = h.tx;
+	a.b = h.dv;
+	a.flag = false; // each side on its own, as CS2's dock edits them
+	d.out.push_back(a);
+	st.lastDt = h.tx;
+	st.lastDv = h.dv;
+}
+
+void ReleaseGraphBox(D& d) {
+	TimelineDockState& st = d.st;
+	const bool shift = ImGui::GetIO().KeyShift;
+	const float tx = d.mouse.x - kLeftW, gy = d.mouse.y - kRowsY;
+	if (std::fabs(tx - st.pressX) < kDragPx && std::fabs(gy - st.pressY) < kDragPx) {
+		if (!shift) d.Emit(Action::Kind::SelectClear);
+		return;
+	}
+	const float x0 = (std::min)(st.pressX, tx), x1 = (std::max)(st.pressX, tx);
+	const float y0 = (std::min)(st.pressY, gy), y1 = (std::max)(st.pressY, gy);
+	std::vector<std::pair<int, int>> picked;
+	for (int c : GraphChannels(st, d.keys))
+		for (const GraphExpModel::Keyframe& k : d.keys.GetChannel(c).keys) {
+			const float x = (float)TickToX(st.window, d.g.cw, k.tick), y = ValToY(st, c, k.value);
+			if (x >= x0 && x <= x1 && y >= y0 && y <= y1) picked.emplace_back(c, k.id);
+		}
+	if (!picked.empty()) SelectMembers(d, picked, shift);
+	else if (!shift) d.Emit(Action::Kind::SelectClear);
+}
+
+// ---- input that is not a button ----------------------------------------------------------------
+
+void HandleRegions(D& d, const std::vector<Row>& rows) {
+	TimelineDockState& st = d.st;
+	const float tx = d.mouse.x - kLeftW;
+	// The overview.
+	HitBox("##tloverview", d, kLeftW, kHeaderH, kLeftW + d.g.ow, kHeaderH + kOverviewH);
+	if (ImGui::IsItemActivated()) {
+		float bx0 = 0, bx1 = 0;
+		OverviewBox(st.window, d.domain, d.g.ow, d.g.tw, bx0, bx1);
+		if (std::fabs(tx - bx0) <= 6) st.overviewPart = 1;
+		else if (std::fabs(tx - bx1) <= 6) st.overviewPart = 2;
+		else {
+			st.overviewPart = 3;
+			if (tx < bx0 || tx > bx1) {
+				const double c = XToDom(d.domain, d.g.ow, tx), span = st.window.Len();
+				st.window = Normalize(MakeSpan(c - span / 2, c + span / 2), d.domain);
+				ManualView(d);
+			}
+		}
+		st.gesture = Gesture::Overview;
+		st.pressX = tx;
+		st.grabT0 = st.window.t0;
+		st.grabT1 = st.window.t1;
+	}
+	// The ruler: a press scrubs from where it lands.
+	HitBox("##tlruler", d, kLeftW, kHeaderH + kOverviewH, kLeftW + d.g.tw, kRowsY);
+	if (ImGui::IsItemActivated()) {
+		st.gesture = Gesture::Scrub;
+		ScrubTo(d, (std::max)(kPad, (std::min)(kPad + d.g.cw, tx)));
+	}
+	// The rows' scrollbar column.
+	const float contentH = rows.size() * kRowH;
+	if (contentH > kRowsH) {
+		HitBox("##tlrowsbar", d, kLeftW + d.g.tw, kRowsY, d.w, kRowsY + kRowsH);
+		if (ImGui::IsItemActivated()) {
+			st.gesture = Gesture::RowsBar;
+			st.pressY = d.mouse.y;
+			st.grabScroll = st.rowScroll;
+		}
+	}
+	// The track: keys, a layer's bar, the playhead, else a box selection.
+	HitBox("##tltrack", d, kLeftW, kRowsY, kLeftW + d.g.tw, kRowsY + kRowsH);
+	if (ImGui::IsItemActivated()) {
+		if (st.view == TimelineView::Graph) PressGraph(d, tx, d.mouse.y - kRowsY);
+		else PressTrack(d, rows, tx, d.mouse.y - kRowsY);
+	}
+
+	// The gesture in progress.
+	const bool down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+	switch (st.gesture) {
+	case Gesture::Scrub:
+		if (down) {
+			ScrubTo(d, tx);
+		} else {
+			ReleaseScrub(d, tx);
+			st.gesture = Gesture::None;
+		}
+		break;
+	case Gesture::Keys:
+		if (down) DragKeys(d);
+		else {
+			if (!st.dragStarted && st.narrow) d.EmitSelectSet(st.narrowTo);
+			st.gesture = Gesture::None;
+		}
+		break;
+	case Gesture::Box:
+		if (!down) {
+			if (st.view == TimelineView::Graph) ReleaseGraphBox(d);
+			else ReleaseBox(d, rows);
+			st.gesture = Gesture::None;
+		}
+		break;
+	case Gesture::Handle:
+		if (down) DragGraphHandle(d);
+		else st.gesture = Gesture::None;
+		break;
+	case Gesture::Overview:
+		if (down) {
+			if (st.overviewPart == 1) st.window = Normalize(MakeSpan(XToDom(d.domain, d.g.ow, tx), st.window.t1), d.domain);
+			else if (st.overviewPart == 2) st.window = Normalize(MakeSpan(st.window.t0, XToDom(d.domain, d.g.ow, tx)), d.domain);
+			else {
+				const double dt = XToDom(d.domain, d.g.ow, tx) - XToDom(d.domain, d.g.ow, st.pressX);
+				st.window = Normalize(MakeSpan(st.grabT0 + dt, st.grabT1 + dt), d.domain);
+			}
+			ManualView(d);
+		} else {
+			st.gesture = Gesture::None;
+		}
+		break;
+	case Gesture::FooterBar:
+		if (down) {
+			const double dt = (d.mouse.x - st.pressX) * (std::max)(1.0, d.domain.Len()) / kFooterTrackW;
+			st.window = Normalize(MakeSpan(st.grabT0 + dt, st.grabT1 + dt), d.domain);
+			ManualView(d);
+		} else {
+			st.gesture = Gesture::None;
+		}
+		break;
+	case Gesture::RowsBar:
+		if (down) st.rowScroll = ClampRowScroll(st.grabScroll + (d.mouse.y - st.pressY) * contentH / kRowsH, contentH);
+		else st.gesture = Gesture::None;
+		break;
+	case Gesture::Value: {
+		// A drag past 4 screen pixels scrubs the value (one undo step), Shift a fifth as fast; a
+		// click opens it for typing.
+		const ImGuiIO& vio = ImGui::GetIO();
+		const float dx = vio.MousePos.x - st.valuePressX;
+		if (down) {
+			if (!st.valueScrub && std::fabs(dx) >= 4) {
+				st.valueScrub = true;
+				d.Emit(Action::Kind::EditBegin);
+			}
+			if (st.valueScrub) {
+				const double v = st.valueStart + dx * ScrubStep(st.valueCh) * (vio.KeyShift ? 0.2 : 1.0);
+				if (v != st.valueLast) {
+					SetValue(d, st.valueCh, v);
+					st.valueLast = v;
+				}
+			}
+		} else {
+			if (!st.valueScrub) OpenTyping(st, st.valueNode, st.valueCh, st.valueStart);
+			st.gesture = Gesture::None;
+		}
+		break;
+	}
+	case Gesture::ShakeValue: {
+		// Intensity or Speed: a drag past 4 screen pixels sweeps the whole range over 200 of them (Shift
+		// a fifth as fast), one command per whole step; a click opens it for typing.
+		const ImGuiIO& vio = ImGui::GetIO();
+		const Node& n = kNodes[st.valueNode];
+		const float dx = vio.MousePos.x - st.valuePressX;
+		if (down) {
+			if (!st.valueScrub && std::fabs(dx) > 4) st.valueScrub = true;
+			if (st.valueScrub) {
+				const double raw = st.valueStart + dx * (n.hi - n.lo) / 200 * (vio.KeyShift ? 0.2 : 1.0);
+				const double v = std::round((std::max)((double)n.lo, (std::min)((double)n.hi, raw)));
+				if (v != st.valueLast) {
+					st.valueLast = v;
+					ShakeParamSet(d, st.valueNode, st.shakeAt, v);
+				}
+			}
+		} else {
+			if (!st.valueScrub) OpenTyping(st, st.valueNode, -1, st.valueStart);
+			st.gesture = Gesture::None;
+		}
+		break;
+	}
+	case Gesture::ShakeGraph: {
+		// A shake key dragged up or down in GRAPH: its value on that curve's 0..max scale, Shift a
+		// quarter as fast.
+		const Node& n = kNodes[kShakeCurves[st.shakeCurve].node];
+		const float gdy = st.pressY - (d.mouse.y - kRowsY);
+		if (!down) {
+			st.gesture = Gesture::None;
+		} else {
+			if (!st.dragStarted && std::fabs(gdy) > kDragPx) st.dragStarted = true;
+			if (st.dragStarted) {
+				const double raw = st.valueStart + gdy / kGraphBandH * n.hi * (ImGui::GetIO().KeyShift ? 0.25 : 1.0);
+				const double v = std::round((std::max)((double)n.lo, (std::min)((double)n.hi, raw)));
+				if (v != st.valueLast) {
+					st.valueLast = v;
+					char text[64];
+					std::snprintf(text, sizeof(text), "%s @%ld %ld", n.verb, std::lround(st.shakeAt), std::lround(v));
+					d.EmitShake(text);
+				}
+			}
+		}
+		break;
+	}
+	default:
+		break;
+	}
+
+	if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && ImGui::IsWindowHovered()) RightClick(d, rows);
+
+	// The wheel over the dock: Ctrl zooms about the pointer, Shift pans, plain scrolls the rows.
+	const ImGuiIO& io = ImGui::GetIO();
+	const float wheel = io.MouseWheel != 0 ? io.MouseWheel : io.MouseWheelH;
+	if (wheel != 0 && ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)) {
+		if (io.KeyCtrl) {
+			const bool overTrack = tx >= 0 && tx <= d.g.tw;
+			const double anchor = overTrack ? XToTick(st.window, d.g.cw, tx) : (st.window.t0 + st.window.t1) * 0.5;
+			st.window = ZoomAt(st.window, d.domain, std::pow(1.25, -wheel), anchor);
+			ManualView(d);
+		} else if (io.KeyShift) {
+			st.window = Pan(st.window, d.domain, -wheel * 0.1 * st.window.Len());
+			ManualView(d);
+		} else {
+			st.rowScroll = ClampRowScroll(st.rowScroll - wheel * 3 * kRowH, contentH);
+		}
+	}
+
+	// The keys CS2 forwards to its dock: undo, redo, select all, delete and the eases.
+	if (!io.WantTextInput) {
+		if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false)) d.Emit(io.KeyShift ? Action::Kind::Redo : Action::Kind::Undo);
+		else if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A, false)) d.Emit(Action::Kind::SelectAll);
+		else if ((ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))
+			&& (d.keys.SelectionCount() > 0 || !d.st.shakeSel.empty())) {
+			if (d.keys.SelectionCount() > 0) d.Emit(Action::Kind::DeleteSelected);
+			DeleteShakes(d);
+		}
+		else if (ImGui::IsKeyPressed(ImGuiKey_F9, false))
+			ApplyEase(d, io.KeyCtrl && io.KeyShift ? EaseKind::Out : (io.KeyShift ? EaseKind::In : EaseKind::InOut));
+	}
+}
+
+void DrawOverlays(D& d) {
+	TimelineDockState& st = d.st;
+	// The box selection.
+	if (st.gesture == Gesture::Box) {
+		const float tx = d.mouse.x - kLeftW, gy = d.mouse.y - kRowsY;
+		const float x0 = kLeftW + (std::min)(st.pressX, tx), x1 = kLeftW + (std::max)(st.pressX, tx);
+		const float y0 = kRowsY + (std::min)(st.pressY, gy), y1 = kRowsY + (std::max)(st.pressY, gy);
+		d.l->PushClipRect(d.P(kLeftW, kRowsY), d.P(kLeftW + d.g.tw, kRowsY + kRowsH), true);
+		d.Fill(x0, y0, x1, y1, Paint::BoxFill);
+		d.Outline(x0, y0, x1 + 1, y1 + 1, Paint::Accent);
+		d.l->PopClipRect();
+	}
+	// The playhead, from under the ruler's range bar down through the rows.
+	const float x = (float)TickToX(st.window, d.g.cw, d.m.playhead);
+	if (x >= 0 && x <= d.g.tw) {
+		const float top = kHeaderH + kOverviewH + 8;
+		d.Fill(kLeftW + x - 1, top, kLeftW + x + 1, kRowsY + kRowsH, Paint::Playhead);
+		d.Fill(kLeftW + x - 6, top, kLeftW + x + 6, top + 10, Paint::Playhead, 3);
+	}
+}
+
+// ---- right-click menus ---------------------------------------------------------------------------
+// CS2's one menu engine for the key and row menus: items with a hint under them, a shortcut or a
+// submenu on the right, a check, danger and disabled states, titles, heads and separators.
+// Submenus open on hover and nest; a click picks, opens a submenu, or (outside) closes.
+
+struct MenuItem {
+	enum class Kind { Item, Title, Head, Sep };
+	Kind kind = Kind::Item;
+	std::string id, label, hint, shortcut, value;
+	int check = -1; // -1 no check, 0 unchecked, 1 checked
+	bool danger = false, disabled = false;
+	bool pick = false; // with a submenu: a click picks it too (the submenu opens on hover)
+	bool keep = false; // picking it leaves the menu open, rebuilt from what it changed
+	std::vector<MenuItem> sub;
+	float subW = 224;
+};
+
+constexpr float kMenuPad = 5, kMenuItem = 27, kMenuHint = 40, kMenuTitle = 22, kMenuHead = 44, kMenuSep = 9;
+
+float MenuItemH(const MenuItem& it) {
+	switch (it.kind) {
+	case MenuItem::Kind::Sep: return kMenuSep;
+	case MenuItem::Kind::Title: return kMenuTitle;
+	case MenuItem::Kind::Head: return kMenuHead;
+	default: return it.hint.empty() ? kMenuItem : kMenuHint;
+	}
+}
+
+MenuItem MenuEntry(const char* id, const std::string& label, const std::string& hint = std::string(), const char* shortcut = "") {
+	MenuItem it;
+	it.id = id;
+	it.label = label;
+	it.hint = hint;
+	it.shortcut = shortcut;
+	return it;
+}
+
+MenuItem MenuSep() {
+	MenuItem it;
+	it.kind = MenuItem::Kind::Sep;
+	return it;
+}
+
+std::string KeyValueText(int ch, double v) {
+	char text[32];
+	std::snprintf(text, sizeof(text), "%.*f%s", DecimalsOf(ch), CleanValue(v, DecimalsOf(ch)), UnitOf(ch));
+	return text;
+}
+
+// ---- the camera shake menu (CS2's shakeItems) ----------------------------------------------------
+// The shake key on a camera key: a style (the essentials, then More shakes), each picked by a click
+// and stepped Stronger / Weaker / Faster / Slower in its submenu, which keeps the menu open; a Stop;
+// every camera key; or none. Every item's id is "shk:" and the pathshake command.
+
+MenuItem ShakeStyleItem(double t, int style, const std::string& label, const ShakeKey* k) {
+	const bool active = k && k->s >= 0;
+	const bool current = active && k->s == style;
+	const int n = active ? k->n : kShakeN0, p = active ? k->p : kShakeP0;
+	auto id = [&](int nn, int pp) {
+		char text[64];
+		std::snprintf(text, sizeof(text), "shk:set @%ld %d %d %d", std::lround(t), style, nn, pp);
+		return std::string(text);
+	};
+	MenuItem it = MenuEntry("", label);
+	it.id = id(n, p);
+	it.pick = it.keep = true;
+	it.check = current ? 1 : 0;
+	it.subW = 236;
+	MenuItem head;
+	head.kind = MenuItem::Kind::Head;
+	head.value = label;
+	char strength[64];
+	std::snprintf(strength, sizeof(strength), "Strength %d of 10 %s speed %d", n, kMiddot, p);
+	head.label = current ? std::string(strength) : std::string("Click to put it on this key");
+	it.sub.push_back(head);
+	it.sub.push_back(MenuSep());
+	auto step = [&](const char* name, int nn, int pp, const char* hintFormat, int hintValue, bool atLimit) {
+		char hint[48];
+		std::snprintf(hint, sizeof(hint), hintFormat, hintValue);
+		MenuItem s = MenuEntry("", name, hint);
+		s.id = id(nn, pp);
+		s.keep = true;
+		s.disabled = current && atLimit;
+		return s;
+	};
+	it.sub.push_back(step("Stronger", (std::min)(10, n + 1), p, "strength %d of 10", (std::min)(10, n + 1), n >= 10));
+	it.sub.push_back(step("Weaker", (std::max)(1, n - 1), p, "strength %d of 10", (std::max)(1, n - 1), n <= 1));
+	it.sub.push_back(MenuSep());
+	it.sub.push_back(step("Faster", n, (std::min)(100, p + 10), "speed %d", (std::min)(100, p + 10), p >= 100));
+	it.sub.push_back(step("Slower", n, (std::max)(10, p - 10), "speed %d", (std::max)(10, p - 10), p <= 10));
+	return it;
+}
+
+std::vector<MenuItem> ShakeMenuItems(const D& d, double t) {
+	const TimelineDockModel& m = d.m;
+	std::vector<MenuItem> items;
+	if (!ShakeCanKey(m.pathKeys, t)) {
+		MenuItem title;
+		title.kind = MenuItem::Kind::Title;
+		title.label = "CAMERA SHAKE";
+		items.push_back(title);
+		MenuItem none = MenuEntry("", "Add a camera key first", "a path shake key sits on a camera key");
+		none.disabled = true;
+		items.push_back(none);
+		return items;
+	}
+	const ShakeKey* k = ShakeKeyAtTick(m.shakes, t);
+	const bool active = k && k->s >= 0;
+	MenuItem head;
+	head.kind = MenuItem::Kind::Head;
+	head.value = k ? ShakeLabel(m, k) : std::string("No shake key");
+	char title[64];
+	if (active) std::snprintf(title, sizeof(title), "Strength %d of 10 %s speed %d", k->n, kMiddot, k->p);
+	else std::snprintf(title, sizeof(title), "Camera key %d", ShakePathIndexAt(m.pathKeys, t) + 1);
+	head.label = title;
+	items.push_back(head);
+	items.push_back(MenuSep());
+	const size_t essentials = (std::min)(m.shakeStyles.size(), (size_t)(std::max)(0, m.shakeEssentials));
+	for (size_t i = 0; i < essentials; ++i)
+		items.push_back(ShakeStyleItem(t, m.shakeStyles[i].first, m.shakeStyles[i].second, k));
+	if (m.shakeStyles.size() > essentials) {
+		MenuItem more = MenuEntry("shkmore", "More shakes");
+		more.subW = 210;
+		bool among = false;
+		for (size_t i = essentials; i < m.shakeStyles.size(); ++i) {
+			more.sub.push_back(ShakeStyleItem(t, m.shakeStyles[i].first, m.shakeStyles[i].second, k));
+			if (active && k->s == m.shakeStyles[i].first) among = true;
+		}
+		more.check = among ? 1 : 0;
+		items.push_back(more);
+	}
+	items.push_back(MenuSep());
+	char id[48];
+	std::snprintf(id, sizeof(id), "shk:stop @%ld", std::lround(t));
+	MenuItem stop = MenuEntry("", "Stop the shake here");
+	stop.id = id;
+	stop.check = k && k->s < 0 ? 1 : 0;
+	stop.disabled = !ShakeRunningAt(m.shakes, t - 1) && !active;
+	items.push_back(stop);
+	std::snprintf(id, sizeof(id), "shk:applyall @%ld", std::lround(t));
+	MenuItem all = MenuEntry("", "Use on every camera key");
+	all.id = id;
+	all.disabled = !active;
+	items.push_back(all);
+	std::snprintf(id, sizeof(id), "shk:clear @%ld", std::lround(t));
+	MenuItem remove = MenuEntry("", "Remove this shake key");
+	remove.id = id;
+	remove.danger = true;
+	remove.disabled = !k;
+	items.push_back(remove);
+	return items;
+}
+
+std::vector<MenuItem> KeyMenuItems(const D& d) {
+	const TimelineDockState::Menu& M = d.st.menu;
+	const std::vector<MergedKey> list = MergedOf(d.keys, M.node);
+	int idx = 0;
+	for (size_t i = 0; i < list.size(); ++i)
+		if (std::fabs(list[i].t - M.tick) < 0.26) idx = (int)i + 1;
+	std::string values;
+	EaseKind cur = EaseKind::Linear;
+	for (size_t i = 0; i < M.members.size(); ++i) {
+		const GraphExpModel::Keyframe* k = d.keys.FindKeyConst(M.members[i].first, M.members[i].second);
+		if (!k) continue;
+		if (!values.empty()) values += ", ";
+		values += KeyValueText(M.members[i].first, k->value);
+		if (i == 0) cur = EaseOfSides(LeftSide(*k), RightSide(*k));
+	}
+	char time[24], title[160];
+	TimeText(d.m, M.tick, time, sizeof(time));
+	std::snprintf(title, sizeof(title), "%s \xC2\xB7 keyframe %d of %d \xC2\xB7 %s", kNodes[M.node].name, idx, (int)list.size(), time);
+	std::vector<MenuItem> items;
+	MenuItem head;
+	head.kind = MenuItem::Kind::Head;
+	head.value = values;
+	head.label = title;
+	items.push_back(head);
+	items.push_back(MenuSep());
+	items.push_back(MenuEntry("goto", "Go to this key", "", "Double-click"));
+	items.push_back(MenuEntry("delete", "Delete Keyframe", "", "Del"));
+	MenuItem align = MenuEntry("align", "Align selected keys here");
+	align.disabled = d.keys.SelectionCount() < 2;
+	items.push_back(align);
+	items.push_back(MenuSep());
+	MenuItem assist = MenuEntry("assist", "Keyframe Assistant");
+	auto ease = [&](const char* id, const char* label, const char* shortcut, EaseKind kind) {
+		MenuItem it = MenuEntry(id, label, "", shortcut);
+		it.check = cur == kind ? 1 : 0;
+		return it;
+	};
+	assist.sub.push_back(ease("inout", "Easy Ease", "F9", EaseKind::InOut));
+	assist.sub.push_back(ease("in", "Easy Ease In", "Shift+F9", EaseKind::In));
+	assist.sub.push_back(ease("out", "Easy Ease Out", "Ctrl+Shift+F9", EaseKind::Out));
+	assist.sub.push_back(MenuSep());
+	assist.sub.push_back(ease("smooth", "Smooth", "", EaseKind::Smooth));
+	assist.sub.push_back(ease("linear", "Linear", "", EaseKind::Linear));
+	assist.sub.push_back(MenuSep());
+	MenuItem hold = ease("hold", "Hold", "", EaseKind::Hold);
+	hold.disabled = true; // scene keys only
+	assist.sub.push_back(hold);
+	items.push_back(assist);
+	// A camera key carries the camera path's shake: its menu, a level down.
+	if (ShakeCanKey(d.m.pathKeys, M.tick)) {
+		MenuItem shake = MenuEntry("shake", "Camera Shake");
+		shake.sub = ShakeMenuItems(d, M.tick);
+		shake.subW = 236;
+		items.push_back(shake);
+	}
+	return items;
+}
+
+std::vector<MenuItem> RowMenuItems(const D& d) {
+	const int node = d.st.menu.node;
+	const Node& n = kNodes[node];
+	std::vector<MenuItem> items;
+	MenuItem title;
+	title.kind = MenuItem::Kind::Title;
+	title.label = n.name;
+	for (char& ch : title.label) ch = (char)std::toupper((unsigned char)ch);
+	items.push_back(title);
+	if (n.kind == NodeKind::Prop) {
+		const bool child = n.parent >= 0 && kNodes[n.parent].kind == NodeKind::Prop;
+		if (IsSplit(d.st, node)) {
+			items.push_back(MenuEntry("join", "Join Dimensions", std::string("back to one ") + n.name + " row"));
+		} else if (child) {
+			items.push_back(MenuEntry("joinparent", "Join Dimensions", std::string("merge into ") + kNodes[n.parent].name));
+		} else if (n.split >= 0) {
+			std::string comps;
+			for (int i = 0; i < n.count; ++i) comps += std::string(i ? " / " : "") + n.comps[i];
+			items.push_back(MenuEntry("separate", "Separate Dimensions", comps + " on their own rows"));
+		}
+		if (d.st.view == TimelineView::Keys) items.push_back(MenuEntry("graph", "Show in Graph"));
+		if (!IsSplit(d.st, node)) {
+			bool at = false;
+			for (int c : ChansOf(node))
+				if (KeyOnTick(d.keys, c, d.m.playhead)) at = true;
+			std::string what = n.name;
+			for (char& ch : what) ch = (char)std::tolower((unsigned char)ch);
+			items.push_back(MenuEntry("addkey", at ? "Re-key at playhead" : "Add key at playhead", "the live camera's " + what));
+		}
+	} else {
+		MenuItem all = MenuEntry("selall", "Select all keys");
+		all.disabled = d.keys.TotalKeys() == 0;
+		items.push_back(all);
+		if (d.st.view == TimelineView::Keys) items.push_back(MenuEntry("graph", "Show in Graph"));
+		if (n.kind == NodeKind::Layer) {
+			const bool on = d.m.drive;
+			items.push_back(MenuEntry("toggle", on ? "Turn layer off" : "Turn layer on",
+				on ? "scrubbing leaves the free cam alone" : "scrubbing previews the path"));
+		}
+	}
+	return items;
+}
+
+void CloseMenu(TimelineDockState& st) {
+	st.menu.open = false;
+	st.menu.path.clear();
+}
+
+void OpenMenu(D& d, bool keyMenu, int node, double tick, const std::vector<std::pair<int, int>>& members) {
+	TimelineDockState::Menu& M = d.st.menu;
+	M.open = true;
+	M.keyMenu = keyMenu;
+	M.shake = false;
+	M.node = node;
+	M.tick = tick;
+	M.members = members;
+	M.x = d.mouse.x;
+	M.y = d.mouse.y;
+	M.path.clear();
+	d.st.snapMenu = false;
+}
+
+void PickMenu(D& d, const std::string& id) {
+	TimelineDockState& st = d.st;
+	const TimelineDockState::Menu M = st.menu;
+	CloseMenu(st);
+	if (id.compare(0, 4, "shk:") == 0) {
+		d.EmitShake(id.substr(4));
+		return;
+	}
+	if (M.keyMenu) {
+		if (id == "goto") SeekTo(d, M.tick);
+		else if (id == "delete") d.Emit(Action::Kind::DeleteSelected);
+		else if (id == "align" && !M.members.empty()) d.Emit(Action::Kind::AlignKey, M.members[0].first, M.members[0].second);
+		else if (id == "inout") ApplyEase(d, EaseKind::InOut);
+		else if (id == "in") ApplyEase(d, EaseKind::In);
+		else if (id == "out") ApplyEase(d, EaseKind::Out);
+		else if (id == "smooth") ApplyEase(d, EaseKind::Smooth);
+		else if (id == "linear") ApplyEase(d, EaseKind::Linear);
+		return;
+	}
+	const Node& n = kNodes[M.node];
+	if (id == "separate") {
+		st.split[n.split] = true;
+		st.open[M.node] = true;
+	} else if (id == "join") {
+		st.split[n.split] = false;
+		st.selRow = M.node;
+	} else if (id == "joinparent") {
+		st.split[kNodes[n.parent].split] = false;
+		st.selRow = n.parent;
+	} else if (id == "graph") {
+		st.selRow = M.node;
+		st.view = TimelineView::Graph;
+	} else if (id == "addkey") {
+		AddKeyAt(d, M.node);
+	} else if (id == "selall") {
+		st.selRow = M.node;
+		d.Emit(Action::Kind::SelectAll);
+	} else if (id == "toggle") {
+		d.Emit(Action::Kind::Drive, 0, 0, 0, 0, !d.m.drive);
+	}
+}
+
+// The menu and its open submenus, each its own overlay over a catcher that closes them.
+void DrawMenus(D& d) {
+	TimelineDockState& st = d.st;
+	TimelineDockState::Menu& M = st.menu;
+	if (!M.open) return;
+	const std::vector<MenuItem> root = M.shake ? ShakeMenuItems(d, M.tick) : (M.keyMenu ? KeyMenuItems(d) : RowMenuItems(d));
+
+	const ImVec2 dock0 = d.P(0, 0), dock1 = d.P(d.w, kDockH);
+	BeginOverlay("##tlmenucatch", MakeRect(dock0.x, dock0.y, dock1.x, dock1.y), Rgba(0, 0, 0, 0));
+	ImGui::SetCursorScreenPos(dock0);
+	const bool outside = ImGui::InvisibleButton("##catch", ImVec2(dock1.x - dock0.x, dock1.y - dock0.y),
+		ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+	ImGui::End();
+
+	std::string pick;
+	bool pickKeep = false;
+	const std::vector<MenuItem>* items = &root;
+	float x = M.x, y = M.y, w = M.keyMenu ? 230.0f : 236.0f;
+	for (int level = 0; items && level < 6; ++level) {
+		float h = 2 * kMenuPad;
+		bool hasCheck = false;
+		for (const MenuItem& it : *items) {
+			h += MenuItemH(it);
+			if (it.check >= 0) hasCheck = true;
+		}
+		if (x + w > d.w - 2) x = d.w - w - 2;
+		if (x < 2) x = 2;
+		if (y + h > kDockH - 2) y = kDockH - h - 2;
+		if (y < 2) y = 2;
+		char name[24];
+		std::snprintf(name, sizeof(name), "##tlmenu%d", level);
+		const ImVec2 a = d.P(x, y), b = d.P(x + w, y + h);
+		BeginOverlay(name, MakeRect(a.x, a.y, b.x, b.y), Rgba(0, 0, 0, 0));
+		D md = d;
+		md.l = ImGui::GetWindowDrawList();
+		md.l->PushClipRect(a, b, false);
+		md.Fill(x, y, x + w, y + h, Paint::MenuBg, 5);
+		md.Outline(x, y, x + w, y + h, Paint::Border, 5);
+		const int openIdx = level < (int)M.path.size() ? M.path[level] : -1;
+		const std::vector<MenuItem>* next = nullptr;
+		float nx = 0, ny = 0, nw = 0;
+		float cy = y + kMenuPad;
+		for (size_t i = 0; i < items->size(); ++i) {
+			const MenuItem& it = (*items)[i];
+			const float ih = MenuItemH(it);
+			const float rx0 = x + kMenuPad, rx1 = x + w - kMenuPad;
+			if (it.kind == MenuItem::Kind::Sep) {
+				md.Fill(x, cy + 4, x + w, cy + 5, Rgba(255, 255, 255, 26));
+			} else if (it.kind == MenuItem::Kind::Title) {
+				md.Text(FontRole::Caption, x + 11, cy + (ih - md.Size(FontRole::Caption)) * 0.5f, Paint::Hint, it.label.c_str(), 1.4f);
+			} else if (it.kind == MenuItem::Kind::Head) {
+				md.Text(FontRole::RowLabel, rx0 + 8, cy + 6, Paint::Value, Fit(md, FontRole::RowLabel, it.value, rx1 - rx0 - 16).c_str());
+				md.Text(FontRole::Hint, rx0 + 8, cy + 6 + md.Size(FontRole::RowLabel) + 3, Paint::Muted,
+					Fit(md, FontRole::Hint, it.label, rx1 - rx0 - 16).c_str());
+			} else {
+				ImGui::PushID((int)i);
+				const Hit hit = HitBox("##item", md, rx0, cy, rx1, cy + ih);
+				ImGui::PopID();
+				int shownOpen = openIdx;
+				if (hit.hovered) {
+					if (!it.sub.empty() && !it.disabled) {
+						if (openIdx != (int)i) {
+							M.path.resize((size_t)level);
+							M.path.push_back((int)i);
+						}
+						shownOpen = (int)i;
+					} else if ((int)M.path.size() > level) {
+						M.path.resize((size_t)level);
+						shownOpen = -1;
+					}
+				}
+				const bool lit = (hit.hovered || shownOpen == (int)i) && !it.disabled;
+				if (lit) md.Fill(rx0, cy, rx1, cy + ih, it.danger ? Paint::DangerBg : Paint::BtnOn, 3);
+				float tx = rx0 + 8;
+				if (hasCheck) {
+					if (it.check == 1) {
+						const ImU32 c = ToU32(Paint::Accent);
+						const float mid = cy + ih * 0.5f, t = 1.5f * md.s > 1 ? 1.5f * md.s : 1.0f;
+						md.l->AddLine(md.P(tx + 1, mid), md.P(tx + 4.5f, mid + 3.5f), c, t);
+						md.l->AddLine(md.P(tx + 4.5f, mid + 3.5f), md.P(tx + 11, mid - 4), c, t);
+					}
+					tx += 12 + 8;
+				}
+				const Color lc = it.disabled ? Paint::Dim : (it.danger ? Paint::DangerText : Paint::Value);
+				const float labelY = it.hint.empty() ? cy + (ih - md.Size(FontRole::RowLabel)) * 0.5f
+					: cy + (ih - md.Size(FontRole::RowLabel) - 2 - md.Size(FontRole::Hint)) * 0.5f;
+				md.Text(FontRole::RowLabel, tx, labelY, lc, it.label.c_str());
+				if (!it.hint.empty()) md.Text(FontRole::Hint, tx, labelY + md.Size(FontRole::RowLabel) + 2, Paint::Muted, it.hint.c_str());
+				if (!it.sub.empty()) {
+					const float mx = rx1 - 8 - 4, my = cy + ih * 0.5f;
+					md.l->AddTriangleFilled(md.P(mx, my - 4), md.P(mx, my + 4), md.P(mx + 4, my), ToU32(it.disabled ? Paint::Dim : Paint::Hint));
+				} else if (!it.shortcut.empty()) {
+					md.Text(FontRole::Hint, rx1 - 8 - md.TextW(FontRole::Hint, it.shortcut.c_str()), cy + (ih - md.Size(FontRole::Hint)) * 0.5f,
+						Paint::Muted, it.shortcut.c_str());
+				}
+				if (hit.clicked && !it.disabled) {
+					if (!it.sub.empty() && !it.pick) {
+						M.path.resize((size_t)level);
+						M.path.push_back((int)i);
+					} else {
+						pick = it.id;
+						pickKeep = it.keep;
+					}
+				}
+				if (shownOpen == (int)i && !it.sub.empty() && !it.disabled) {
+					next = &it.sub;
+					nw = it.subW;
+					nx = rx1 + 2;
+					if (nx + nw > d.w - 2) nx = rx0 - nw - 2; // flip left at the dock's edge
+					ny = cy - 6;
+				}
+			}
+			cy += ih;
+		}
+		md.l->PopClipRect();
+		ImGui::End();
+		items = next;
+		x = nx;
+		y = ny;
+		w = nw;
+	}
+	if (!pick.empty() && pickKeep && pick.compare(0, 4, "shk:") == 0) d.EmitShake(pick.substr(4)); // the menu stays, rebuilt from the track
+	else if (!pick.empty()) PickMenu(d, pick);
+	else if (outside) CloseMenu(st);
+}
+
+// A right-click in the rows (rightClick): on a key, its menu (the key joins the selection first);
+// elsewhere on a row, the row's menu.
+void RightClick(D& d, const std::vector<Row>& rows) {
+	TimelineDockState& st = d.st;
+	const float lx = d.mouse.x, ly = d.mouse.y;
+	if (ly < kRowsY || ly >= kRowsY + kRowsH || lx >= kLeftW + d.g.tw) {
+		CloseMenu(st);
+		return;
+	}
+	const int ri = (int)std::floor((ly - kRowsY + st.rowScroll) / kRowH);
+	if (ri < 0 || ri >= (int)rows.size()) {
+		CloseMenu(st);
+		return;
+	}
+	if (st.view == TimelineView::Graph && lx >= kLeftW) {
+		const GraphHit k = HitGraphKey(d, GraphChannels(st, d.keys), lx - kLeftW, ly - kRowsY);
+		if (k.ch < 0) {
+			CloseMenu(st);
+			return;
+		}
+		const std::vector<std::pair<int, int>> members = { std::make_pair(k.ch, k.id) };
+		if (!d.keys.IsSelected(k.ch, k.id)) SelectMembers(d, members, false);
+		OpenMenu(d, true, NodeOfChan(st, k.ch), k.t, members);
+		return;
+	}
+	const Row& row = rows[ri];
+	if (IsShakeRow(row.node)) {
+		// The shake menu, for the shake key under the pointer on the track, else the one the playhead edits.
+		double t = d.m.playhead;
+		bool have = false;
+		if (lx >= kLeftW) {
+			float best = 9;
+			for (const ShakeKey& k : d.m.shakes) {
+				const float dx = std::fabs((float)TickToX(st.window, d.g.cw, k.t) - (lx - kLeftW));
+				if (dx <= 8 && dx < best) { best = dx; t = k.t; have = true; }
+			}
+		}
+		if (!have) ShakeEditTick(d.m.shakes, d.m.pathKeys, d.m.playhead, t);
+		st.selRow = row.node;
+		OpenMenu(d, false, row.node, t, std::vector<std::pair<int, int>>());
+		st.menu.shake = true;
+		return;
+	}
+	if (lx >= kLeftW && kNodes[row.node].kind == NodeKind::Prop && !IsSplit(st, row.node)) {
+		const std::vector<MergedKey> keys = MergedOf(d.keys, row.node);
+		if (const MergedKey* k = KeyNear(keys, d, lx - kLeftW)) {
+			st.selRow = row.node;
+			if (!AllSelected(*k)) SelectMembers(d, MembersOf(*k), false);
+			OpenMenu(d, true, row.node, k->t, MembersOf(*k));
+			return;
+		}
+	}
+	st.selRow = row.node;
+	OpenMenu(d, false, row.node, 0, std::vector<std::pair<int, int>>());
+}
+
+void DrawTip(D& d) {
+	TimelineDockState& st = d.st;
+	if (!d.tip || st.gesture != Gesture::None) {
+		st.tipId = 0;
+		return;
+	}
+	const double now = ImGui::GetTime();
+	if (st.tipId != d.tipItem) {
+		st.tipId = d.tipItem;
+		st.tipSince = now;
+		return;
+	}
+	if (now - st.tipSince < kTipDelay) return;
+	const float tw = d.TextW(FontRole::Hint, d.tip) + 16, th = d.Size(FontRole::Hint) + 8;
+	float x = d.tipX0;
+	if (x + tw > d.w - 2) x = d.w - 2 - tw;
+	if (x < 2) x = 2;
+	float y = d.tipY0 - 4 - th;
+	if (y < 0) y = d.tipY0 + 24;
+	ImDrawList* fg = ImGui::GetForegroundDrawList();
+	ImDrawList* keep = d.l;
+	d.l = fg;
+	d.Fill(x, y, x + tw, y + th, Paint::TipBg, 3);
+	d.Outline(x, y, x + tw, y + th, Paint::Border, 3);
+	d.Text(FontRole::Hint, x + 8, y + 4, Paint::Value, d.tip);
+	d.l = keep;
+}
+
+} // namespace
+
+std::vector<TimelineDockAction> DrawTimelineDock(TimelineDockState& state, const TimelineDockModel& model,
+	const FontSet& fonts, const Rect& dock, float scale) {
+	std::vector<Action> out;
+	if (!model.keys || !(scale > 0) || !dock.Valid()) return out;
+	const ImVec2 mouse = ImGui::GetIO().MousePos;
+	D d{ state, model, *model.keys, fonts, ImGui::GetWindowDrawList(), scale, dock.x0, dock.y0, dock.W() / scale,
+		WidthsFor(dock.W() / scale), Span(), out, ImVec2((mouse.x - dock.x0) / scale, (mouse.y - dock.y0) / scale) };
+	state.hasShakes = !model.shakes.empty();
+	// A shake key that is gone (cleared, or another demo) leaves the selection.
+	for (size_t i = state.shakeSel.size(); i-- > 0;)
+		if (!ShakeKeyAtTick(model.shakes, state.shakeSel[i])) state.shakeSel.erase(state.shakeSel.begin() + (long long)i);
+
+	// The window: seeded from C++'s suggestion when it changes, then the dock's own.
+	d.domain = DomainFor(model.domainT0, model.domainT1, state.window, model.playhead);
+	if (!state.seeded || state.seededEpoch != model.viewEpoch) {
+		state.window = SeedView(model.viewT0, model.viewT1, model.playhead, d.domain);
+		state.seeded = true;
+		state.seededEpoch = model.viewEpoch;
+		state.paging = Paging();
+		state.knownValid = false;
+	}
+	state.window = Normalize(state.window, d.domain);
+	FollowPlayback(state.window, d.domain, state.paging, model.playhead, model.playing,
+		model.scrubbing || state.gesture == Gesture::Scrub);
+	RevealNewKeys(d);
+
+	const std::vector<Row> rows = Flatten(state);
+	d.Fill(0, 0, d.w, kDockH, Paint::Panel);
+	const float snapRight = DrawToolbar(d);
+	DrawHeaderBand(d);
+	DrawRows(d, rows);
+	if (state.view == TimelineView::Graph) {
+		const std::vector<int> chans = GraphChannels(state, *model.keys);
+		FitRanges(d, chans);
+		DrawGraph(d, chans);
+	}
+	HandleRegions(d, rows);
+	DrawOverlays(d);
+	DrawFooter(d);
+	DrawTip(d);
+	DrawSnapMenu(d, snapRight); // over everything, with a catcher that closes it
+	DrawMenus(d);
+	return out;
+}
+
+bool TimelineDockEscape(TimelineDockState& state) {
+	if (state.menu.open) {
+		CloseMenu(state);
+		return true;
+	}
+	if (state.snapMenu) {
+		state.snapMenu = false;
+		return true;
+	}
+	if (state.editing) {
+		state.editing = false; // the field is not drawn again, so ImGui lets it go uncommitted
+		return true;
+	}
+	return false;
+}
+
+std::string TimelineDockRibbonMeta(const TimelineDockModel& model) {
+	if (!model.keys) return std::string();
+	std::vector<KeyRef> keys;
+	for (int c = 0; c < GraphExpModel::kChannelCount; ++c)
+		for (const GraphExpModel::Keyframe& k : model.keys->GetChannel(c).keys) {
+			KeyRef r;
+			r.ch = c;
+			r.id = k.id;
+			r.t = k.tick;
+			keys.push_back(r);
+		}
+	const int n = (int)MergeKeys(keys).size();
+	char text[48];
+	std::snprintf(text, sizeof(text), "1 layer \xC2\xB7 %d %s", n, n == 1 ? "key" : "keys");
+	return text;
+}
+
+} // namespace Ui
+} // namespace SourceFilmmaker

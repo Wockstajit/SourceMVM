@@ -114,6 +114,9 @@ struct ScrubInput {
 	bool settled = false;      // released, and the settle seek went out
 	bool draggingBack = false; // the drag's last move went backward
 	bool restoredNotPlayed = false; // a backward restore landed and nothing has been played since
+	// How far past its tick a seek may land. CS2's land on it or one past. CS:S's stop on the demo's
+	// next packet, and a SourceTV demo has one every 4 to 10 ticks (ScrubHost_SeekLandsPast).
+	int seekLandsPast = 1;
 	double frameSeconds = 1.0 / 60.0;
 	double timescale = 1.0;    // demo_timescale while playing
 };
@@ -138,6 +141,12 @@ inline double ScrubPlaySpeed(double gapTicks) {
 	if (s < kScrubMinTimescale) s = kScrubMinTimescale;
 	if (s > kScrubMaxTimescale) s = kScrubMaxTimescale;
 	return s;
+}
+
+// How far short of where the world should be a seek aims: at least `lead`, and far enough that a seek
+// landing late still lands short of it.
+inline int ScrubSeekLead(int lead, int seekLandsPast) {
+	return seekLandsPast + 1 > lead ? seekLandsPast + 1 : lead;
 }
 
 inline ScrubDecision ScrubSeekTo(int tick) {
@@ -181,13 +190,14 @@ constexpr int kSeekReplayTicksKeyframed = 64;
 constexpr int kSeekReplayStallFrames = 30;
 
 // busyFrames: frames since the seek went out. playingFrames: frames in a row the demo has read as
-// playing. heldFrames: frames in a row the tick has not changed.
+// playing. heldFrames: frames in a row the tick has not changed. landsPast: ScrubInput::seekLandsPast.
 inline SeekWait JudgeSeek(int fromTick, int expectTick, int tick, bool paused, int busyFrames, int playingFrames,
-	int heldFrames, bool keyframed) {
-	const bool there = tick >= expectTick - 1 && tick <= expectTick + 1;
+	int heldFrames, bool keyframed, int landsPast = 1) {
+	if (landsPast < 1) landsPast = 1;
+	const bool there = tick >= expectTick - 1 && tick <= expectTick + landsPast;
 	if (there) return paused ? SeekWait::Landed : SeekWait::Waiting; // the driver re-pauses once
 	const int lo = (fromTick < expectTick ? fromTick : expectTick) - 1;
-	const int hi = (fromTick > expectTick ? fromTick : expectTick) + 1;
+	const int hi = (fromTick > expectTick ? fromTick : expectTick) + landsPast;
 	if (tick > hi) return SeekWait::Lost;
 	const bool replaying = tick < lo;
 	if (replaying && (tick < expectTick - (keyframed ? kSeekReplayTicksKeyframed : kSeekReplayTicksPlain)
@@ -223,7 +233,7 @@ inline ScrubDecision DecideScrub(const ScrubInput& in) {
 			d.timescale = ScrubPlaySpeed(gap);
 			return d;
 		}
-		return ScrubSeekTo((int)goal - kScrubSettleLeadTicks);
+		return ScrubSeekTo((int)goal - ScrubSeekLead(kScrubSettleLeadTicks, in.seekLandsPast));
 	}
 
 	// Dragging.
@@ -250,9 +260,10 @@ inline ScrubDecision DecideScrub(const ScrubInput& in) {
 		//     animation, so players stood in bind pose or were missing until a tick had played.
 		// A seek landing one past still leaves at least a tick to play in.
 		if (in.draggingBack && gap < 0.0)
-			return ScrubSeekTo((int)std::floor(goal) - kScrubBackLeadTicks);
-		// Otherwise restore the whole tick before the playhead (a seek may land one past), then glide in.
-		return ScrubSeekTo((int)std::floor(goal) - 1);
+			return ScrubSeekTo((int)std::floor(goal) - ScrubSeekLead(kScrubBackLeadTicks, in.seekLandsPast));
+		// Otherwise restore short of the playhead by as much as a seek may land past (CS2: the whole
+		// tick before it), so the world lands on it at the latest, then glide in.
+		return ScrubSeekTo((int)std::floor(goal) - (in.seekLandsPast > 1 ? in.seekLandsPast : 1));
 	}
 	if (gap <= kScrubArriveTicks || (in.draggingBack && gap < 1.0)) {
 		// There, a hair past, or -- dragging backward -- within the tick: hold. Never glide forward

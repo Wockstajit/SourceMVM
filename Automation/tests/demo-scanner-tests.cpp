@@ -1,5 +1,6 @@
 #include "../../AfxHookSource2/Filmmaker/Demo/DemoScanner.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cwctype>
@@ -59,8 +60,25 @@ int main() {
 			return 1;
 		}
 
+		// A skipped folder is not entered, matched in any case and with either separator: CS:S keeps
+		// its converted copies of old demos in <game>\source_mvm\converted\.
+		const fs::path convertedDemo = root / "source_mvm" / "converted" / "replays" / "old.dem";
+		Touch(convertedDemo);
+		std::wstring skipFolder = (root / "SOURCE_MVM" / "Converted").wstring();
+		std::replace(skipFolder.begin(), skipFolder.end(), L'\\', L'/');
+		const auto skipped = Filmmaker::DemoScanner::Scan({ root.wstring() }, cancel, { skipFolder + L"/" });
+		std::set<std::wstring> skippedKeys;
+		for (const auto& path : skipped)
+			skippedKeys.insert(Key(path));
+		const auto all = Filmmaker::DemoScanner::Scan({ root.wstring() }, cancel);
+		if (skippedKeys.size() != 2 || skippedKeys.count(Key(convertedDemo)) || all.size() != 3) {
+			std::cerr << "DemoScanner entered a skipped folder, or skipped one it was not given.\n";
+			fs::remove_all(root);
+			return 1;
+		}
+
 		fs::remove_all(root);
-		std::cout << "DemoScanner repaired-directory exclusion passed.\n";
+		std::cout << "DemoScanner repaired-directory and skip-folder exclusion passed.\n";
 		return 0;
 	} catch (const std::exception& e) {
 		std::cerr << e.what() << '\n';

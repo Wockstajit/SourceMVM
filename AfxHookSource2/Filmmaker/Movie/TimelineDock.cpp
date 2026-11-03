@@ -22,8 +22,8 @@ DockHost g_host = DockHost::None;
 
 // Design dock heights (Docs/panorama/panorama_ui_guide.md), ribbon included: the dock is
 // bottom-anchored and its height changes per tab. TIMELINE is the 440px dock under the 36px ribbon.
-constexpr int kHeightNative = 126;
-constexpr int kHeightTimeline = 476;
+constexpr int kHeightNative = kTimelineDockHeightNative;
+constexpr int kHeightTimeline = kTimelineDockHeightTimeline;
 
 // The Camera Editor outranks CONFIG: it is the workspace that owns the whole screen, and opening
 // it closes CONFIG anyway. Without a rank, a frame in which both believe they are open would let

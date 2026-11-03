@@ -1,0 +1,10 @@
+// SOURCE:MVM: supply texture coordinates explicitly to a Shader Model 3 pass.
+const float4 viewport : register(c0); // width, height
+struct Input { float3 position : POSITION0; float2 uv : TEXCOORD0; };
+struct Output { float4 position : POSITION0; float2 uv : TEXCOORD0; };
+Output main(Input i) {
+    Output o;
+    o.position=float4((i.position.x-0.5)/viewport.x*2-1,1-(i.position.y-0.5)/viewport.y*2,0,1);
+    o.uv=i.uv;
+    return o;
+}

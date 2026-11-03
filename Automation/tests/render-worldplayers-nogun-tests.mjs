@@ -19,7 +19,8 @@ const header = read("AfxHookSource2", "Filmmaker", "Render", "RenderWorldPlayers
 const hooks = read("AfxHookSource2", "RenderSystemDX11Hooks.cpp");
 const plan = read("AfxHookSource2", "Filmmaker", "Render", "RenderPassPlan.h");
 const driver = read("AfxHookSource2", "Filmmaker", "Render", "RenderSessionDriver.cpp");
-const command = read("AfxHookSource2", "Filmmaker", "Render", "RenderCommand.cpp");
+// CS2's live pass view (RenderHost_ApplyLivePreview).
+const command = read("AfxHookSource2", "Filmmaker", "Render", "RenderHostSource2.cpp");
 const guard = read("AfxHookSource2", "Filmmaker", "Render", "RenderStateGuard.cpp");
 const filmmaker = read("AfxHookSource2", "Filmmaker", "Filmmaker.cpp");
 

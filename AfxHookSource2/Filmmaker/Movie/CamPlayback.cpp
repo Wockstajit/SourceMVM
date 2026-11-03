@@ -3,7 +3,6 @@
 #include "CameraBridge.h"
 #include "ScrubFrameCache.h" // while the world chases a drag, the camera flies the world's own tick
 #include "ScrubFrameCache.h" // while the world chases a drag, the camera flies the world's own tick
-#include "../../MirvTime.h"
 #include "../../../Shared/AfxConsole.h"
 
 #include <Windows.h>
@@ -96,8 +95,9 @@ bool CamPlayback::TickPlay(const CamMarkers& mk, const CamPathEval& eval, const 
 	const double wallDt = WallDt();
 	const bool freeze = (ctx.timing == kTimingFreeze);
 
-	double demoNow = 0.0; g_MirvTime.GetCurrentDemoTime(demoNow);
-	int demoTickInt = 0; g_MirvTime.GetCurrentDemoTick(demoTickInt);
+	double demoNow = 0.0;
+	int demoTickInt = 0;
+	CameraBridge_GetDemoClock(demoNow, demoTickInt);
 	const double demoTick = (double)demoTickInt;
 	bool atEnd = false;
 	CamPathEval::Pose pose;

@@ -120,7 +120,7 @@ test('tab footers execute the owning backend reset lists', () => {
 });
 
 test('default tuning never disables Reset while a lens or bob switch is on', () => {
-  const lens = fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Lens/LensFx.cpp', import.meta.url),'utf8');
+  const lens = fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Lens/LensFxState.cpp', import.meta.url),'utf8');
   assert.match(lens, /g_values\[group == Group::Dof \? DofOn : FlareOn\] = 0/);
   assert.doesNotMatch(lens, /InGroup\(i, grp\) && i != DofOn/);
   const bob = fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Movie/WeaponBob.cpp', import.meta.url),'utf8');

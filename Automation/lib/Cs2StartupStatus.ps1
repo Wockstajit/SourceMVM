@@ -35,7 +35,7 @@ namespace SourceMvm.Automation {
 
         public static bool IsStartupDialogTitle(string title) {
             if (title == null) return false;
-            string[] titles = { "Launcher Error", "Engine Error", "Fatal Error", "Error",
+            string[] titles = { "Launcher Error", "Engine Error", "Fatal Error", "Error", "Low Available Memory",
                 "Counter-Strike 2", "Counter-Strike 2 Error", "CS2", "CS2 Error" };
             foreach (string candidate in titles)
                 if (String.Equals(title.Trim(), candidate, StringComparison.OrdinalIgnoreCase)) return true;
@@ -104,6 +104,8 @@ function Get-Cs2StartupFailureMessage {
         if ($null -eq $dialog -or $dialog.ClassName -ne '#32770' -or
             -not [SourceMvm.Automation.Cs2StartupWindows]::IsStartupDialogTitle([string]$dialog.Title)) { continue }
         $text = (@($dialog.StaticText | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }) -join [Environment]::NewLine).Trim()
+        if (([string]$dialog.Title).Trim() -ieq 'Low Available Memory' -and
+            $text -match '(?i)Low available system memory detected') { return $text }
         if ($text -match '(?im)^\s*FATAL ERROR\s*:' -or
             $text -match '(?i)Failed to initialize the Steamworks SDK') { return $text }
     }

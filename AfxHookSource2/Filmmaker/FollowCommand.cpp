@@ -5,8 +5,7 @@
 // Movie/FollowCamera.h).
 
 #include "Movie/FollowCamera.h"
-#include "Movie/FollowTargetProviders.h"
-#include "Debug/MvmDebugLog.h"
+#include "Movie/FollowCameraHost.h"
 #include "FilmmakerCommandUtil.h"
 
 #include "../../Shared/AfxConsole.h"
@@ -106,21 +105,7 @@ void Follow_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 		follow.SelectEvent(atoi(a3));
 	}
 	else if (0 == _stricmp(action, "campose")) follow.PrintCamPose();
-	else if (0 == _stricmp(action, "targetprobe")) {
-		const auto& state = follow.State();
-		auto* pawn = EntityAt(state.targetEntityIndex);
-		const char* points[] = { "entity", "eyes", "head", "chest", "pelvis", "feet",
-			"forward", "facemask", "primary", "c4", "pistol", "weapon_hand_R", "weapon_hand_L", "leg_L", "leg_R" };
-		for (const char* point : points) {
-			const auto resolved = ResolveAttachTransform(pawn, state.targetEntityIndex, FollowTargetType::Player, point);
-			const unsigned index = pawn ? pawn->LookupAttachment(point) : 0;
-			advancedfx::Message("[followcam][probe] entity=%d health=%u point=%s index=%u source=%s pos=(%.3f %.3f %.3f)\n",
-				state.targetEntityIndex, pawn ? pawn->GetHealth() : 0, point, index, resolved.source.c_str(), resolved.pos.x, resolved.pos.y, resolved.pos.z);
-			MvmDebugLog_Linef("follow.targetprobe", "entity=%d ptr=%p health=%u point=%s index=%u source=%s valid=%d pos=(%.3f %.3f %.3f)",
-				state.targetEntityIndex, pawn, pawn ? pawn->GetHealth() : 0, point, index, resolved.source.c_str(), resolved.valid,
-				resolved.pos.x, resolved.pos.y, resolved.pos.z);
-		}
-	}
+	else if (0 == _stricmp(action, "targetprobe")) FollowHost_PrintTargetProbe(follow.State().targetEntityIndex);
 	else if (0 == _stricmp(action, "look")) follow.SetLookSmoothing(atof(a3));
 	else if (0 == _stricmp(action, "position")) follow.SetPositionSmoothing(atof(a3));
 	else if (0 == _stricmp(action, "prediction")) follow.SetPrediction(atof(a3));

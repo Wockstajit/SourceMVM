@@ -81,6 +81,9 @@ struct RecoilOverride {
 // question asked twice ("what kind of gun is this"), and a second table would be a second
 // thing to forget when CS2 adds a weapon.
 //
+// CS:S's guns that CS2 dropped sit next to their CS2 counterparts, with the same tuning; its
+// mp5navy matches "mp5".
+//
 // Matched on SUBSTRINGS of the weapon_fire event's weapon field, which is sometimes "ak47" and
 // sometimes "weapon_ak47". First hit wins, so more specific needles must come first --
 // "mp5sd" before "mp5" would matter if both were listed, and "cz75" before "75" if that ever
@@ -97,9 +100,12 @@ inline const RecoilWeaponEntry* RecoilWeaponTable(int& count) {
 		{ "awp",       2.2,  RecoilWeaponType::Sniper },
 		{ "ssg08",     1.6,  RecoilWeaponType::Sniper },
 		{ "scar20",    1.6,  RecoilWeaponType::Sniper },
+		{ "scout",     1.6,  RecoilWeaponType::Sniper },  // CS:S
+		{ "sg550",     1.6,  RecoilWeaponType::Sniper },  // CS:S
 		{ "g3sg1",     1.6,  RecoilWeaponType::Sniper },
 		{ "nova",      1.9,  RecoilWeaponType::Shotgun },
 		{ "xm1014",    1.9,  RecoilWeaponType::Shotgun },
+		{ "m3",        1.9,  RecoilWeaponType::Shotgun }, // CS:S
 		{ "mag7",      1.9,  RecoilWeaponType::Shotgun },
 		{ "sawedoff",  1.9,  RecoilWeaponType::Shotgun },
 		{ "m249",      1.35, RecoilWeaponType::Lmg },
@@ -108,12 +114,14 @@ inline const RecoilWeaponEntry* RecoilWeaponTable(int& count) {
 		{ "revolver",  1.5,  RecoilWeaponType::Pistol },
 		{ "ak47",      1.15, RecoilWeaponType::Rifle },
 		{ "sg556",     1.1,  RecoilWeaponType::Rifle },
+		{ "sg552",     1.1,  RecoilWeaponType::Rifle },   // CS:S
 		{ "aug",       1.05, RecoilWeaponType::Rifle },
 		{ "m4a1",      1.0,  RecoilWeaponType::Rifle },
 		{ "m4a4",      1.0,  RecoilWeaponType::Rifle },
 		{ "famas",     1.0,  RecoilWeaponType::Rifle },
 		{ "galil",     1.0,  RecoilWeaponType::Rifle },
 		{ "mp9",       0.6,  RecoilWeaponType::Smg },
+		{ "tmp",       0.6,  RecoilWeaponType::Smg },     // CS:S
 		{ "mac10",     0.6,  RecoilWeaponType::Smg },
 		{ "mp7",       0.6,  RecoilWeaponType::Smg },
 		{ "mp5",       0.6,  RecoilWeaponType::Smg },
@@ -124,6 +132,7 @@ inline const RecoilWeaponEntry* RecoilWeaponTable(int& count) {
 		{ "usp",       0.7,  RecoilWeaponType::Pistol },
 		{ "hkp2000",   0.7,  RecoilWeaponType::Pistol },
 		{ "p250",      0.7,  RecoilWeaponType::Pistol },
+		{ "p228",      0.7,  RecoilWeaponType::Pistol },  // CS:S
 		{ "fiveseven", 0.7,  RecoilWeaponType::Pistol },
 		{ "tec9",      0.75, RecoilWeaponType::Pistol },
 		{ "cz75",      0.75, RecoilWeaponType::Pistol },

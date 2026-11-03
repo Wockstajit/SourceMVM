@@ -50,19 +50,6 @@ void BumpAndSaveLocked(bool changed) {
 	g_version.fetch_add(1);
 }
 
-// Splits "<token> <rest>" at the first space.
-bool SplitFirst(const std::string& line, std::string& token, std::string& rest) {
-	const size_t sp = line.find(' ');
-	if (sp == std::string::npos) {
-		token = line;
-		rest.clear();
-		return !token.empty();
-	}
-	token = line.substr(0, sp);
-	rest = line.substr(sp + 1);
-	return !token.empty();
-}
-
 } // namespace
 
 void DemoOrganizer_Init() {
@@ -117,41 +104,13 @@ bool DemoOrganizer_HandleCommand(const std::string& line) {
 	if (line.rfind("org ", 0) != 0)
 		return false;
 
-	std::string verb, rest;
-	if (!SplitFirst(line.substr(4), verb, rest))
-		return true;
-
 	std::lock_guard<std::mutex> lock(g_mutex);
 	if (!g_loaded) {
 		g_store.Load();
 		g_loaded = true;
 	}
-
-	if (verb == "sort") {
-		BumpAndSaveLocked(g_store.SetSort(rest));
-	} else if (verb == "newfolder") {
-		BumpAndSaveLocked(g_store.CreateGroup(rest) >= 0);
-	} else if (verb == "rename") {
-		std::string idText, name;
-		if (SplitFirst(rest, idText, name))
-			BumpAndSaveLocked(g_store.RenameGroup(std::atoi(idText.c_str()), name));
-	} else if (verb == "delfolder") {
-		BumpAndSaveLocked(g_store.DeleteGroup(std::atoi(rest.c_str())));
-	} else if (verb == "collapse") {
-		// "collapse <id|-1> <0|1>"; -1 is the ungrouped bucket's own header.
-		std::string idText, stateText;
-		if (SplitFirst(rest, idText, stateText)) {
-			const int id = std::atoi(idText.c_str());
-			const bool collapsed = (std::atoi(stateText.c_str()) != 0);
-			BumpAndSaveLocked(id < 0 ? g_store.SetRootCollapsed(collapsed)
-			                         : g_store.SetGroupCollapsed(id, collapsed));
-		}
-	} else if (verb == "assign") {
-		// "assign <groupId|-1> <normalised demo key>" - the key is last so it may contain spaces.
-		std::string idText, key;
-		if (SplitFirst(rest, idText, key) && !key.empty())
-			BumpAndSaveLocked(g_store.Assign(Utf8ToWide(key), std::atoi(idText.c_str())));
-	}
+	// The verbs (sort, newfolder, rename, delfolder, collapse, assign) are the store's, shared with CS:S.
+	BumpAndSaveLocked(g_store.Apply(line.substr(4)));
 	return true;
 }
 

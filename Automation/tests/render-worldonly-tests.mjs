@@ -21,6 +21,8 @@ const sceneSystem = read("AfxHookSource2", "SceneSystem.cpp");
 const driver = read("AfxHookSource2", "Filmmaker", "Render", "RenderSessionDriver.cpp");
 const manifest = read("AfxHookSource2", "Filmmaker", "Render", "RenderManifest.cpp");
 const command = read("AfxHookSource2", "Filmmaker", "Render", "RenderCommand.cpp");
+// CS2's live pass view and its other answers to the shared render code (RenderHost.h).
+const host = read("AfxHookSource2", "Filmmaker", "Render", "RenderHostSource2.cpp");
 const types = read("AfxHookSource2", "Filmmaker", "Render", "RenderTypes.h");
 const renderJs = read("AfxHookSource2", "Filmmaker", "Panorama", "CameraEditorRenderJs.h");
 const hooks = read("AfxHookSource2", "RenderSystemDX11Hooks.cpp");
@@ -215,11 +217,12 @@ test("a render job drives World Only per render, never through the live arm", ()
 test("the live preview never fights a running job", () => {
   // The workspace arms World Only from ONE place, and that place stands down while a job runs: the
   // job's World Only render is an extra render of its own and the view must stay the full scene.
-  const calls = [...command.matchAll(/RenderWorldOnly_SetArmed\(/g)];
+  const calls = [...host.matchAll(/RenderWorldOnly_SetArmed\(/g)];
   assert.equal(calls.length, 1);
+  assert.doesNotMatch(command, /RenderWorldOnly_SetArmed\(/);
   const apply = command.slice(command.indexOf("void Render_ApplyLivePreview()"));
-  assert.match(apply, /^void Render_ApplyLivePreview\(\) \{\s*if \(RenderSessionDriver_IsActive\(\)\)\s*return;/);
-  assert.match(apply, /RenderWorldOnly_SetArmed\(e == VisibleElements::OnlyWorld/);
+  assert.match(apply, /^void Render_ApplyLivePreview\(\) \{\s*if \(RenderSessionDriver_IsActive\(\)\)\s*return;\s*RenderHost_ApplyLivePreview\(/);
+  assert.match(host, /RenderWorldOnly_SetArmed\(e == VisibleElements::OnlyWorld/);
 });
 
 test("the take records every pass it carries", () => {

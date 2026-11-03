@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include "../../AfxHookSource2/Filmmaker/Lens/LensFxShaders.h"
+#include "../../AfxHookSource2/Filmmaker/Lens/LensFxConstants.h"
 using Microsoft::WRL::ComPtr;
 using namespace Filmmaker::Lens;
 
@@ -73,6 +74,54 @@ int main(){try {
         D3D11_MAPPED_SUBRESOURCE mapped{};Hr(ctx->Map(staging.Get(),0,D3D11_MAP_READ,0,&mapped),"Map");std::vector<float> result(im.w*im.h);
         for(UINT y=0;y<im.h;++y){auto row=reinterpret_cast<const float*>(static_cast<const char*>(mapped.pData)+y*mapped.RowPitch);for(UINT x=0;x<im.w;++x)result[y*im.w+x]=row[x*4];}
         ctx->Unmap(staging.Get(),0);return result;};
+
+    // Exercise the real CS2 sample-frequency branch, including a lifted highlight that
+    // clamps some samples but not others. Resolving before the composite would fail it.
+    {
+        const D3D_SHADER_MACRO defs[]={{"DEPTH_MS","1"},{"COLOR_MS","1"},{nullptr,nullptr}};
+        ComPtr<ID3DBlob> msCode,errors;
+        for(const char* entry:{"FocusPS","CocPS","SunPS","CompositePS"}) {
+            const HRESULT hr=D3DCompile(source.data(),source.size(),"LensMsaa",defs,nullptr,entry,"ps_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&msCode,&errors);
+            if(FAILED(hr)&&errors)std::printf("%s\n",(const char*)errors->GetBufferPointer());
+            Hr(hr,entry);
+        }
+        ComPtr<ID3D11PixelShader> composite,seed;
+        Hr(device->CreatePixelShader(msCode->GetBufferPointer(),msCode->GetBufferSize(),nullptr,&composite),"MSAA composite");
+        const char seedSource[]="float4 main(uint sample:SV_SampleIndex):SV_Target{return float4((sample/3.0).xxx,.3);}";
+        Hr(D3DCompile(seedSource,sizeof(seedSource),"CoverageSeed",nullptr,nullptr,"main","ps_5_0",0,0,&msCode,nullptr),"Coverage seed compile");
+        Hr(device->CreatePixelShader(msCode->GetBufferPointer(),msCode->GetBufferSize(),nullptr,&seed),"Coverage seed shader");
+        auto msImage=[&]{Image im{8,8};D3D11_TEXTURE2D_DESC td{};td.Width=td.Height=8;td.MipLevels=td.ArraySize=1;
+            td.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;td.SampleDesc.Count=4;td.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
+            Hr(device->CreateTexture2D(&td,nullptr,&im.tex),"MSAA texture");Hr(device->CreateRenderTargetView(im.tex.Get(),nullptr,&im.rtv),"MSAA RTV");
+            Hr(device->CreateShaderResourceView(im.tex.Get(),nullptr,&im.srv),"MSAA SRV");return im;};
+        auto original=msImage(),target=msImage(),resolved=image(8,8),gather=image(8,8),coc=image(8,8),ghost=image(8,8);
+        D3D11_VIEWPORT vp{0,0,8,8,0,1};ctx->RSSetViewports(1,&vp);
+        auto originalRtv=original.rtv.Get();ctx->OMSetRenderTargets(1,&originalRtv,nullptr);ctx->PSSetShader(seed.Get(),nullptr,0);ctx->Draw(3,0);
+        ctx->OMSetRenderTargets(0,nullptr,nullptr);
+        const float black[4]={},gray[4]={.5f,.5f,.5f,1};ctx->ClearRenderTargetView(coc.rtv.Get(),black);ctx->ClearRenderTargetView(ghost.rtv.Get(),gray);
+        GpuConstants k{};k.dims={8,8,8,8};k.lowRes={8,8,8,8};k.modes={1,0,1,0};k.flareA.x=1;k.flareTint={1,1,1,0};
+        D3D11_BUFFER_DESC kd{};kd.ByteWidth=sizeof(k);kd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+        ComPtr<ID3D11Buffer> fullConstants;Hr(device->CreateBuffer(&kd,nullptr,&fullConstants),"Composite constants");
+        auto constant=fullConstants.Get();ctx->PSSetConstantBuffers(0,1,&constant);
+        D3D11_TEXTURE2D_DESC stage{};resolved.tex->GetDesc(&stage);stage.BindFlags=0;stage.Usage=D3D11_USAGE_STAGING;stage.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        ComPtr<ID3D11Texture2D> staging;Hr(device->CreateTexture2D(&stage,nullptr,&staging),"Composite readback");
+        for(int test=0;test<4;++test) {
+            const float linear=std::pow(test==2 ? 1.6f : .2f,2.2f),g[4]={linear,linear,linear,test==0 ? 0.f : .5f};
+            ctx->ClearRenderTargetView(gather.rtv.Get(),g);k.modes.y=test==3 ? 1.f : 0.f;ctx->UpdateSubresource(fullConstants.Get(),0,nullptr,&k,0,0);
+            auto rtv=target.rtv.Get();ctx->OMSetRenderTargets(1,&rtv,nullptr);
+            ID3D11ShaderResourceView* inputs[23]{};inputs[4]=coc.srv.Get();inputs[6]=gather.srv.Get();inputs[10]=ghost.srv.Get();inputs[13]=original.srv.Get();
+            ctx->PSSetShaderResources(0,23,inputs);ctx->PSSetShader(composite.Get(),nullptr,0);ctx->Draw(3,0);
+            ID3D11ShaderResourceView* empty[23]{};ctx->PSSetShaderResources(0,23,empty);ctx->OMSetRenderTargets(0,nullptr,nullptr);
+            ctx->ResolveSubresource(resolved.tex.Get(),0,target.tex.Get(),0,DXGI_FORMAT_R32G32B32A32_FLOAT);ctx->CopyResource(staging.Get(),resolved.tex.Get());
+            D3D11_MAPPED_SUBRESOURCE mapped{};Hr(ctx->Map(staging.Get(),0,D3D11_MAP_READ,0,&mapped),"Composite sample map");
+            const float* pixel=(const float*)mapped.pData;const float value=pixel[0],alpha=pixel[3];ctx->Unmap(staging.Get(),0);
+            const float expected=test==0 ? .5f : test==1 ? .35f : test==2 ? (float)((.8+(.8+.5/3)+1+1)/4) : 1-.65f*std::exp(-.5f);
+            std::printf("D3D11 4x MSAA composite case=%d actual=%.6f expected=%.6f alpha=%.6f\n",test,value,expected,alpha);
+            Require(std::fabs(value-expected)<.0001f && std::fabs(alpha-.3f)<.0001f,"Per-sample DOF/flare, highlight clamp and alpha");
+        }
+        ctx->PSSetConstantBuffers(0,1,&buffer);
+    }
+
     auto q=image(480,270),h=image(240,540),line=image(960,540);lamp(q);
     draw(h,sourceH.Get(),q,17);draw(line,streak.Get(),h,19);auto pixels=read(line);
     const UINT cy=271,cx=481;float worstRipple=0;

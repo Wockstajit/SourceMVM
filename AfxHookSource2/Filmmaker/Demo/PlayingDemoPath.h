@@ -12,6 +12,8 @@
 // PlayingDemoPath.cpp for both mechanisms and the "mirv_filmmaker demoprobe" diagnostic that
 // prints the getter result alongside every scanned candidate.
 
+#include "DemoProjectPath.h" // CanonicalDemoPath
+
 #include <string>
 
 namespace Filmmaker {
@@ -20,11 +22,6 @@ namespace Filmmaker {
 // playing or no path could be recovered. Checks the engine path every call; filesystem
 // resolution is cached by path + demo object, with write invalidation and a one-second expiry.
 std::wstring ResolvePlayingDemoPath();
-
-// Canonicalize a path to the filesystem's true-cased absolute form (GetFinalPathNameByHandle,
-// \\?\ prefix stripped) so two independently-derived strings for the SAME file compare equal
-// and produce the same sidecar. Falls back to GetFullPathName when the file can't be opened.
-std::wstring CanonicalDemoPath(const std::wstring& path);
 
 // Diagnostic backing "mirv_filmmaker demoprobe": prints every .dem candidate found in the
 // demo object (offset + raw + resolved-absolute + exists-on-disk) and the final resolved path.

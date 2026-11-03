@@ -1,14 +1,10 @@
 #include "FollowCamera.h"
 
-#include "FollowTargetProviders.h"
-#include "CameraBridge.h"
-#include "../../MirvTime.h"
-
-#include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
-#include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
+#include "FollowCameraHost.h"
 
 #include <Windows.h>
 #include <algorithm>
+#include <cstdlib>
 #include <iomanip>
 #include <mutex>
 #include <sstream>
@@ -22,6 +18,36 @@ constexpr double kFarDistance = 3500.0;
 constexpr double kVeryFarDistance = 7000.0;
 } // namespace
 
+std::string JsonEscape(const std::string& value) {
+	std::ostringstream out;
+	for (unsigned char c : value) {
+		switch (c) {
+		case '\\': out << "\\\\"; break;
+		case '"': out << "\\\""; break;
+		case '\n': out << "\\n"; break;
+		case '\r': out << "\\r"; break;
+		case '\t': out << "\\t"; break;
+		default:
+			if (c < 0x20) out << '?';
+			else out << (char)c;
+		}
+	}
+	return out.str();
+}
+
+void AppendAttachPointJson(std::ostringstream& o, const FollowAttachPoint& point) {
+	o << "{\"id\":\"" << JsonEscape(point.id) << "\""
+		<< ",\"label\":\"" << JsonEscape(point.label) << "\""
+		<< ",\"kind\":\"" << JsonEscape(point.kind) << "\""
+		<< ",\"valid\":" << (point.valid ? "true" : "false")
+		<< ",\"index\":" << point.index
+		<< ",\"source\":\"" << JsonEscape(point.source) << "\"}";
+}
+
+const char* TeamName(int team) {
+	return team == 2 ? "T" : (team == 3 ? "CT" : "-");
+}
+
 std::string FollowCamera::BuildStateJson() const {
 	if (m_state.targetType == FollowTargetType::Weapon)
 		EnsureEventsLoaded(); // kick off / refresh the drop-event index in the background
@@ -29,16 +55,8 @@ std::string FollowCamera::BuildStateJson() const {
 	const bool targetValid = provider && provider->IsValid();
 	const std::string targetName = provider ? provider->GetDisplayName() : "";
 	std::vector<FollowAttachPoint> selectedAttachPoints;
-	if (provider && m_state.mode == FollowMode::Attach) {
-		CEntityInstance* activeEntity = EntityAt(provider->EntityIndex());
-		bool activeWeapon = false, activeBomb = false;
-		if (activeEntity) {
-			const std::string cls = EntityClass(activeEntity);
-			activeWeapon = IsWeaponClass(cls);
-			activeBomb = IsBombClass(cls);
-		}
-		selectedAttachPoints = AvailableAttachPoints(activeEntity, m_state.targetType, activeWeapon, activeBomb);
-	}
+	if (provider && m_state.mode == FollowMode::Attach)
+		selectedAttachPoints = FollowHost_AttachPoints(provider->EntityIndex(), m_state.targetType);
 	double targetDistance = 0.0;
 	if (provider && targetValid)
 		targetDistance = FollowDistance(m_state.cameraPosition, provider->GetWorldPosition());
@@ -126,10 +144,8 @@ std::string FollowCamera::BuildStateJson() const {
 	for (size_t pi = 0; pi < players.size(); ++pi) {
 		if (pi) o << ",";
 		const auto& p = players[pi];
-		CEntityInstance* pawn = EntityAt(p.entityIndex);
-		const auto controller = pawn ? pawn->GetPlayerControllerHandle() : SOURCESDK::CS2::CBaseHandle();
 		o << "{\"index\":" << p.entityIndex
-			<< ",\"userId\":" << (controller.IsValid() ? controller.GetEntryIndex() - 1 : -1)
+			<< ",\"userId\":" << FollowHost_PlayerUserId(p.entityIndex)
 			<< ",\"name\":\"" << JsonEscape(p.name) << "\""
 			<< ",\"team\":\"" << TeamName(p.team) << "\""
 			<< ",\"alive\":" << (p.alive ? "true" : "false") << "}";
@@ -200,7 +216,7 @@ std::string FollowCamera::BuildStateJson() const {
 	o << ",\"events\":[";
 	if (m_state.targetType == FollowTargetType::Weapon) {
 		auto events = EventsSnapshot();
-		int curTick = 0; g_MirvTime.GetCurrentDemoTick(curTick);
+		const int curTick = FollowHost_DemoTick();
 		// Show the events nearest the playhead (a long demo has too many to ship every
 		// frame); keep the original index so eventselect maps back to the full list.
 		std::vector<size_t> order(events.size());

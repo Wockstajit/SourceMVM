@@ -53,6 +53,7 @@ constexpr uint8_t kProjectFileMagic[8] = {'S', 'R', 'C', 'M', 'V', 'M', 0x1A, 0}
 constexpr uint32_t kProjectFileVersion = 1;
 constexpr uint32_t kProjectFileGameCs2 = 1;
 constexpr uint32_t kProjectFileGameDeadlock = 2;
+constexpr uint32_t kProjectFileGameCss = 3;
 constexpr uint32_t kProjectFileMaxSections = 64;
 constexpr uint32_t kProjectFileEncodingJson = 1;
 constexpr uint32_t kProjectFileMaxPayload = 256u * 1024u * 1024u;
@@ -60,14 +61,18 @@ constexpr size_t kProjectFileHeaderBytes = 32;
 constexpr size_t kProjectFileEntryBytes = 32;
 
 // The "project" section, present whenever the file is written:
-// {"game":"cs2"|"deadlock","demoPath":"<utf8>"}.
+// {"game":"cs2"|"deadlock"|"css","demoPath":"<utf8>"}.
 constexpr char kProjectFileInfoTag[] = "project";
 
 // The container's file name inside a demo's project folder.
 constexpr wchar_t kProjectFileName[] = L"project.mvm";
 
 inline uint32_t ProjectFileGameFlag(ProjectGame game) {
-	return game == ProjectGame::Deadlock ? kProjectFileGameDeadlock : kProjectFileGameCs2;
+	switch (game) {
+	case ProjectGame::Deadlock: return kProjectFileGameDeadlock;
+	case ProjectGame::Css: return kProjectFileGameCss;
+	default: return kProjectFileGameCs2;
+	}
 }
 
 // The whole decoded container. Sections stay in file order.
@@ -169,7 +174,7 @@ inline bool DecodeProjectFile(const void* data, size_t size, ProjectGame expecte
 	}
 	if (flags >> 4) { error = "unknown flag bits set"; return false; }
 	const uint32_t game = flags & 0xFu;
-	if (game != kProjectFileGameCs2 && game != kProjectFileGameDeadlock) {
+	if (game != kProjectFileGameCs2 && game != kProjectFileGameDeadlock && game != kProjectFileGameCss) {
 		error = "unknown project game"; return false;
 	}
 	if (game != ProjectFileGameFlag(expectedGame)) { error = "project is for another game"; return false; }

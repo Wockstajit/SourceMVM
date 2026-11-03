@@ -29,10 +29,6 @@ const panoramaDirectory = path.join(repositoryRoot, "AfxHookSource2", "Filmmaker
 const organizerJsSource = fs.readFileSync(path.join(panoramaDirectory, "DemoOrganizerJs.h"), "utf8");
 const guiJsSource = fs.readFileSync(path.join(panoramaDirectory, "FilmmakerGuiJs.h"), "utf8");
 const menuSource = fs.readFileSync(path.join(panoramaDirectory, "FilmmakerMenu.cpp"), "utf8");
-const organizerCppSource = fs.readFileSync(
-  path.join(repositoryRoot, "AfxHookSource2", "Filmmaker", "Demo", "DemoOrganizer.cpp"),
-  "utf8",
-);
 const organizerStoreSource = fs.readFileSync(
   path.join(repositoryRoot, "AfxHookSource2", "Filmmaker", "Config", "DemoOrganizerStore.cpp"),
   "utf8",
@@ -164,9 +160,10 @@ test("every sort mode the UI can send is accepted by the C++ whitelist", () => {
 });
 
 test("every command the organiser UI emits has a handler", () => {
-  // "org <verb> ..." goes to DemoOrganizer_HandleCommand; anything else falls through to
-  // FilmmakerMenu::PollCommands. A verb with no handler is silently swallowed by the
-  // `return true` at the end of HandleCommand, so this is the only place it can be caught.
+  // "org <verb> ..." goes to DemoOrganizer_HandleCommand, which hands the verb to
+  // DemoOrganizerStore::Apply; anything else falls through to FilmmakerMenu::PollCommands. A verb
+  // with no handler is silently swallowed (Apply returns false), so this is the only place it can
+  // be caught.
   const emitted = [...organizerJs.matchAll(/addCommand\('([a-z]+)(?: ([a-z]+))?/g)].map((m) => ({
     head: m[1],
     verb: m[2],
@@ -177,9 +174,9 @@ test("every command the organiser UI emits has a handler", () => {
     if (head === "org") {
       assert.ok(verb, "an 'org' command must carry a verb");
       assert.match(
-        organizerCppSource,
+        organizerStoreSource,
         new RegExp(`verb == "${verb}"`),
-        `DemoOrganizer.cpp has no handler for "org ${verb}"`,
+        `DemoOrganizerStore::Apply has no handler for "org ${verb}"`,
       );
     } else {
       assert.match(

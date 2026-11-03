@@ -26,7 +26,7 @@ std::wstring DemoFolderStore::FilePath() const {
 	std::wstring path = GetHlaeRoamingAppDataFolderW();
 	if (!path.empty() && path.back() != L'\\' && path.back() != L'/')
 		path += L'\\';
-	path += L"filmmaker_demo_folders.txt";
+	path += m_fileName;
 	return path;
 }
 

@@ -62,22 +62,3 @@ private:
 	UINT m_TempHeight = 0;
 	DXGI_FORMAT m_TempFormat = DXGI_FORMAT_UNKNOWN;
 };
-
-// Free-function bridge used by the filmmaker module (main/UI thread), which
-// must not reach into the render globals. The single CFisheyePass instance, g_RenderCommands
-// and the per-frame push all live in RenderSystemDX11Hooks.cpp, where these are implemented
-// (same contract as AfxViewportScaler).
-namespace AfxFisheye {
-
-	// Main/UI thread (once per frame): publish whether the fisheye pass is wanted this frame
-	// and its strength (multiplier on the reference look; 1.0 = default). Passing
-	// active = false (or never calling it) disables the pass -- zero render-cost when off.
-	void SetRequest(bool active, float strength);
-
-	// Engine thread (RenderSystemDX11_EngineThread_Prepare, once per frame): if a request is
-	// active and the device is ready, queue the BeforeUi2 distortion pass for this frame.
-	// Pushed BEFORE the viewport-scaler blit so a scaled Config/editor preview shows the
-	// fisheye INSIDE the preview rect rather than warping the panel chrome.
-	void EngineThread_RunFrame();
-
-} // namespace AfxFisheye

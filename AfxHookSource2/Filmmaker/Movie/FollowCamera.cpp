@@ -1,19 +1,12 @@
+// The follow camera's behaviour, shared by CS2 and Counter-Strike: Source. What it asks the game
+// goes through FollowCameraHost.h, the view through CameraBridge.h.
+
 #include "FollowCamera.h"
-#include "FollowTargetProviders.h"
+#include "FollowCameraHost.h"
 
 #include "CameraBridge.h"
-#include "CameraPath.h"
-#include "../Filmmaker.h"
-#include "../Panorama/CameraTimelineHud.h"
-#include "../Panorama/GraphEditorExperimentHud.h"
-#include "../../ClientEntitySystem.h"
-#include "../../MirvTime.h"
-#include "../Demo/DemoInfoHelper.h"
 #include "../Debug/MvmDebugLog.h"
 #include "../../../Shared/AfxConsole.h"
-
-#include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
-#include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
 
 #include <Windows.h>
 #include <algorithm>
@@ -24,8 +17,6 @@
 #include <sstream>
 #include <thread>
 #include <unordered_map>
-
-extern SOURCESDK::CS2::ISource2EngineToClient* g_pEngineToClient;
 
 namespace Filmmaker {
 
@@ -133,7 +124,7 @@ void FollowCamera::PlaceCamera() {
 	ResetMotion();
 	// Include the tick so each Place produces a DISTINCT status line -- the on-screen text
 	// changes every time, making a registered click visibly distinguishable from a no-op.
-	int placeTick = 0; g_MirvTime.GetCurrentDemoTick(placeTick);
+	const int placeTick = FollowHost_DemoTick();
 	m_lastMessage = (replaced ? "Follow Camera replaced @ tick " : "Follow Camera placed @ tick ")
 		+ std::to_string(placeTick) + ".";
 	advancedfx::Message("[followcam] single camera %s pos=(%.1f %.1f %.1f) ang=(%.1f %.1f %.1f) fov=%.1f.\n",
@@ -156,8 +147,8 @@ void FollowCamera::BeginReposition() {
 	StopPreview("reposition started");
 	m_repositioning = true;
 	CameraBridge_SetFreeCamEnabled(true);
-	if (CameraEditor_Active())
-		CameraEditor_SetCursorMode(false);
+	if (FollowHost_EditorActive())
+		FollowHost_SetEditorCursor(false);
 	if (m_state.mode == FollowMode::Attach) {
 		m_lastMessage = "Move freecam, then left-click to save attach offset/rotation/FOV.";
 		advancedfx::Message("[followcam] repositioning attach mount: move + left-click to save relative pose (Esc cancels).\n");
@@ -174,8 +165,8 @@ void FollowCamera::PlaceReposition() {
 			return;
 		m_repositioning = false;
 		m_resumePreviewAfterReposition = false;
-		if (CameraEditor_Active())
-			CameraEditor_SetCursorMode(true);
+		if (FollowHost_EditorActive())
+			FollowHost_SetEditorCursor(true);
 		if (resumePreview)
 			Preview();
 		advancedfx::Message("[followcam] attach reposition complete; editor mouse restored.\n");
@@ -183,8 +174,8 @@ void FollowCamera::PlaceReposition() {
 	}
 	PlaceCamera();
 	m_resumePreviewAfterReposition = false;
-	if (CameraEditor_Active())
-		CameraEditor_SetCursorMode(true);
+	if (FollowHost_EditorActive())
+		FollowHost_SetEditorCursor(true);
 	advancedfx::Message("[followcam] reposition complete; editor mouse restored.\n");
 }
 
@@ -192,8 +183,8 @@ void FollowCamera::CancelReposition() {
 	if (!m_repositioning) return;
 	m_repositioning = false;
 	m_resumePreviewAfterReposition = false;
-	if (CameraEditor_Active())
-		CameraEditor_SetCursorMode(true);
+	if (FollowHost_EditorActive())
+		FollowHost_SetEditorCursor(true);
 	advancedfx::Message("[followcam] reposition cancelled; editor mouse restored.\n");
 }
 
@@ -285,9 +276,7 @@ void FollowCamera::Preview() {
 		m_lastMessage = "Select a target first.";
 		return;
 	}
-	CameraPathRef().StopPreview();
-	CameraPathRef().StopScrub();
-	GraphEditorExperimentHudRef().SetDrive(false);
+	FollowHost_TakeViewFromOtherCameras();
 	CameraBridge_SetFreeCamEnabled(true);
 	CameraBridge_SetPathDrawEnabled(false);
 	m_state.enabled = true;
@@ -307,8 +296,7 @@ void FollowCamera::StopPreview(const char* reason) {
 	m_grenadeResumeIssued = false;
 	if (reason && *reason)
 		m_lastMessage = std::string("Tracking stopped: ") + reason + ".";
-	if (CameraEditor_Active() && CameraTimelineHudRef().Cursor())
-		GraphEditorExperimentHudRef().SetDrive(true);
+	FollowHost_ReturnViewToTimeline();
 	ResetMotion();
 }
 
@@ -363,14 +351,15 @@ bool FollowCamera::ViewSetupAttachOverride(float curTime,
 	roll = freshOutput.roll;
 	fov = m_state.fov;
 	if (MvmDebugLog_Active() && sampleRenderDebug) {
-		int tick = 0; g_MirvTime.GetCurrentDemoTick(tick);
+		const int tick = FollowHost_DemoTick();
 		const auto localPosition = FollowInverseRotateVector({x-freshTarget.x, y-freshTarget.y, z-freshTarget.z}, freshAng);
 		const auto localForward = FollowInverseRotateVector(FollowRotateVector({1,0,0}, freshOutput), freshAng);
 		const auto localUp = FollowInverseRotateVector(FollowRotateVector({0,0,1}, freshOutput), freshAng);
-		const auto entity = EntityAt(provider->EntityIndex());
+		const FollowMountDescription mount = FollowHost_DescribeMount(provider->EntityIndex(), m_state.targetType,
+			m_state.attachmentName, &m_playerPose, true);
 		MvmDebugLog_Linef("follow.mount.render",
-			"tick=%d entity=%d ptr=%p handle=%llu class=%s attach=%s oriented=%d base=(%.6f %.6f %.6f) camera=(%.6f %.6f %.6f) localPos=(%.6f %.6f %.6f) localForward=(%.6f %.6f %.6f) localUp=(%.6f %.6f %.6f)",
-			tick, provider->EntityIndex(), entity, (unsigned long long)EntityHandleValue(entity), EntityClass(entity).c_str(),
+			"tick=%d entity=%d handle=%llu class=%s attach=%s oriented=%d base=(%.6f %.6f %.6f) camera=(%.6f %.6f %.6f) localPos=(%.6f %.6f %.6f) localForward=(%.6f %.6f %.6f) localUp=(%.6f %.6f %.6f)",
+			tick, provider->EntityIndex(), (unsigned long long)FollowHost_EntityHandle(provider->EntityIndex()), mount.className.c_str(),
 			m_state.attachmentName.c_str(), freshOriented, freshAng.pitch, freshAng.yaw, freshAng.roll,
 			pitch, yaw, roll, localPosition.x, localPosition.y, localPosition.z,
 			localForward.x, localForward.y, localForward.z, localUp.x, localUp.y, localUp.z);
@@ -431,10 +420,7 @@ bool FollowCamera::SetWeaponPlayer(int pawnIndex) {
 	auto provider = MakeProvider();
 	if (provider && provider->IsValid()) {
 		m_state.targetEntityIndex = provider->EntityIndex();
-		if (CEntityInstance* entity = EntityAt(m_state.targetEntityIndex)) {
-			const auto handle = entity->GetHandle();
-			m_state.targetHandle = handle.IsValid() ? (uint64_t)(uint32_t)handle.ToInt() : 0;
-		}
+		m_state.targetHandle = FollowHost_EntityHandle(m_state.targetEntityIndex);
 	}
 	m_lastMessage = "Weapon target scoped to the selected player.";
 	ResetMotion();
@@ -459,29 +445,7 @@ bool FollowCamera::GoToTarget() {
 }
 
 std::unique_ptr<IFollowTargetProvider> FollowCamera::MakeProvider() const {
-	const bool attach = m_state.mode == FollowMode::Attach;
-	switch (m_state.targetType) {
-	case FollowTargetType::Player:
-		if (attach)
-			return std::make_unique<AttachmentTargetProvider>(m_state.targetEntityIndex, FollowTargetType::Player, m_state.attachmentName, &m_playerPose);
-		return std::make_unique<PlayerTargetProvider>(m_state.targetEntityIndex, &m_playerPose);
-	case FollowTargetType::Grenade:
-		if (attach)
-			return std::make_unique<AttachmentTargetProvider>(m_state.targetEntityIndex, FollowTargetType::Grenade, m_state.attachmentName);
-		return std::make_unique<EntityTargetProvider>(m_state.targetEntityIndex, FollowTargetType::Grenade);
-	case FollowTargetType::Weapon: {
-		const bool held = (m_state.weaponSource == WeaponSource::Held)
-			|| (m_state.weaponSource == WeaponSource::Auto && m_state.weaponPlayerIndex >= 0);
-		if (held && m_state.weaponPlayerIndex >= 0)
-			return std::make_unique<HeldWeaponProvider>(m_state.weaponPlayerIndex,
-				attach ? m_state.attachmentName : std::string());
-		if (attach && !m_state.attachmentName.empty())
-			return std::make_unique<AttachmentTargetProvider>(m_state.targetEntityIndex, FollowTargetType::Weapon, m_state.attachmentName);
-		return std::make_unique<EntityTargetProvider>(m_state.targetEntityIndex, FollowTargetType::Weapon);
-	}
-	default:
-		return std::make_unique<PlayerTargetProvider>(m_state.targetEntityIndex);
-	}
+	return FollowHost_MakeProvider(m_state, &m_playerPose);
 }
 
 void FollowCamera::PublishTargetHighlight() {
@@ -507,9 +471,9 @@ void FollowCamera::PublishTargetHighlight() {
 		m_highlightType = m_state.targetType;
 		m_highlightSinceMs = now;
 	}
-	CEntityInstance* entity = m_state.targetEntityIndex >= 0 ? EntityAt(m_state.targetEntityIndex) : nullptr;
 	FollowVec3 origin;
-	if (!entity || !ReadOrigin(entity, origin) || now - m_highlightSinceMs >= kTargetHighlightMs) {
+	bool pawn = false;
+	if (!FollowHost_EntityOrigin(m_state.targetEntityIndex, origin, pawn) || now - m_highlightSinceMs >= kTargetHighlightMs) {
 		m_wantTargetHighlight = false;
 		CameraBridge_SetFollowTargetBox(false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 		return;
@@ -517,7 +481,6 @@ void FollowCamera::PublishTargetHighlight() {
 	// A pawn's origin is at the feet, so the box just grows upward over the body. A weapon,
 	// grenade or the C4 is a small object roughly centred on its origin, so drop the base by
 	// half its height to wrap it instead of standing a column on top of it.
-	const bool pawn = entity->IsPlayerPawn();
 	const float half = pawn ? 18.0f : 9.0f;
 	const float height = pawn ? 72.0f : 18.0f;
 	const float baseZ = (float)origin.z - (pawn ? 0.0f : height * 0.5f);
@@ -552,9 +515,9 @@ void FollowCamera::RunFrame(bool cameraEditorActive) {
 	// micro-jitters from interpolation; dividing that by the (tiny) wall-clock dt yields a
 	// huge bogus velocity that drives the "face travel" path and makes an attached camera
 	// spin/jitter in place. Detect a frozen tick so we can zero velocity below.
-	int frameTick = 0; g_MirvTime.GetCurrentDemoTick(frameTick);
+	const int frameTick = FollowHost_DemoTick();
 	const int previousFrameTick = m_lastFrameTick;
-	const double deathDt = FollowPlaybackDelta(previousFrameTick, frameTick, g_MirvTime.interval_per_tick_get());
+	const double deathDt = FollowPlaybackDelta(previousFrameTick, frameTick, FollowHost_IntervalPerTick());
 	if (FollowTickDiscontinuity(previousFrameTick, frameTick)) {
 		MvmDebugLog_Linef("follow.clock", "reset previous=%d current=%d elapsed=%.3f", previousFrameTick, frameTick, m_deathRetargetElapsed);
 		ResetMotion();
@@ -563,7 +526,7 @@ void FollowCamera::RunFrame(bool cameraEditorActive) {
 	}
 	const bool demoAdvancing = (previousFrameTick >= 0 && frameTick != previousFrameTick);
 	if (demoAdvancing) {
-		float interval = g_MirvTime.interval_per_tick_get();
+		float interval = (float)FollowHost_IntervalPerTick();
 		if (!(interval > 0.00001f)) interval = 1.0f / 64.0f;
 		const int tickDelta = std::abs(frameTick - previousFrameTick);
 		if (tickDelta > 0 && tickDelta < 128)
@@ -573,8 +536,7 @@ void FollowCamera::RunFrame(bool cameraEditorActive) {
 		? frameTick : (std::max)(previousFrameTick, frameTick);
 	if (m_state.targetType == FollowTargetType::Grenade && m_grenadeTrackPending) {
 		UpdateGrenadeCache();
-		int currentTick = 0;
-		g_MirvTime.GetCurrentDemoTick(currentTick);
+		const int currentTick = FollowHost_DemoTick();
 
 		if (!m_grenadeSeekObserved) {
 			if (currentTick >= m_grenadeSeekTick - 3 && currentTick <= m_grenadeThrowTick - 8)
@@ -587,8 +549,8 @@ void FollowCamera::RunFrame(bool cameraEditorActive) {
 				return;
 		}
 
-		if (!m_grenadeResumeIssued && g_pEngineToClient) {
-			g_pEngineToClient->ExecuteClientCmd(0, "demo_resume", true);
+		if (!m_grenadeResumeIssued) {
+			FollowHost_ResumeDemo();
 			m_grenadeResumeIssued = true;
 			m_lastMessage = "Waiting for the selected grenade to be thrown.";
 		}
@@ -617,22 +579,11 @@ void FollowCamera::RunFrame(bool cameraEditorActive) {
 	// weapon must never overwrite it: the provider retries it when that weapon returns.
 
 	if (m_state.targetType == FollowTargetType::Player) {
-		CEntityInstance* pawn = EntityAt(m_state.targetEntityIndex);
-		if (pawn && pawn->IsPlayerPawn() && pawn->GetHealth() > 0) {
+		int weapon = -1, bomb = -1;
+		if (FollowHost_LivePlayerItems(m_state.targetEntityIndex, weapon, bomb)) {
 			m_deathRetargetElapsed = 0.0;
-			auto weapon = pawn->GetActiveWeaponHandle();
-			if (weapon.IsValid()) m_lastPlayerWeaponIndex = weapon.GetEntryIndex();
-			m_lastPlayerBombIndex = -1;
-			const int pawnIndex = pawn->GetHandle().IsValid() ? pawn->GetHandle().GetEntryIndex() : m_state.targetEntityIndex;
-			for (int i = 0; i <= GetHighestEntityIndex(); ++i) {
-				CEntityInstance* entity = EntityAt(i);
-				if (!entity || !IsBombClass(EntityClass(entity))) continue;
-				auto owner = entity->GetOwnerEntityHandle();
-				if (owner.IsValid() && owner.GetEntryIndex() == pawnIndex) {
-					m_lastPlayerBombIndex = i;
-					break;
-				}
-			}
+			if (weapon >= 0) m_lastPlayerWeaponIndex = weapon;
+			m_lastPlayerBombIndex = bomb;
 		}
 	}
 
@@ -706,8 +657,8 @@ void FollowCamera::RunFrame(bool cameraEditorActive) {
 		m_haveLastKnownTarget = true;
 	}
 	if (MvmDebugLog_Active() && (m_deathDebugFrame++ % 20) == 0) {
-		const auto sampled = ResolveAttachTransform(EntityAt(provider->EntityIndex()), provider->EntityIndex(),
-			m_state.targetType, m_state.mode == FollowMode::Attach ? m_state.attachmentName : "eyes", &m_playerPose, m_state.mode == FollowMode::Attach);
+		const FollowMountDescription sampled = FollowHost_DescribeMount(provider->EntityIndex(), m_state.targetType,
+			m_state.mode == FollowMode::Attach ? m_state.attachmentName : "eyes", &m_playerPose, m_state.mode == FollowMode::Attach);
 		MvmDebugLog_Linef("follow.sample", "mode=%d entity=%d tick=%d dead=%d valid=%d source=%s calibrated=%d raw=(%.3f %.3f %.3f) elapsed=%.3f",
 			(int)m_state.mode, provider->EntityIndex(), frameTick, targetDead, validNow,
 			sampled.source.c_str(), m_playerPose.calibrated, rawTarget.x, rawTarget.y, rawTarget.z, m_deathRetargetElapsed);
@@ -762,8 +713,8 @@ void FollowCamera::RunFrame(bool cameraEditorActive) {
 		m_attachRebaseValid = true;
 		const double pitchErr = FollowWrapDegrees(desiredAng.pitch - m_outputAngles.pitch);
 		const double yawErr = FollowWrapDegrees(desiredAng.yaw - m_outputAngles.yaw);
-		AttachTransformResult resolved = ResolveAttachTransform(
-			EntityAt(provider->EntityIndex()), provider->EntityIndex(), m_state.targetType, m_state.attachmentName, &m_playerPose, true);
+		const FollowMountDescription resolved = FollowHost_DescribeMount(provider->EntityIndex(), m_state.targetType,
+			m_state.attachmentName, &m_playerPose, true);
 		m_attachDebug.active = true;
 		m_attachDebug.valid = validNow && resolved.valid;
 		m_attachDebug.oriented = rawOriented;
@@ -839,11 +790,8 @@ bool FollowCamera::ViewSetupLockOnOverride(float curTime, double wallDt,
 	double& x, double& y, double& z, double& pitch, double& yaw, double& roll, double& fov) {
 	if (!m_state.enabled || m_state.mode != FollowMode::LockOn || !m_state.hasCamera || m_grenadeTrackPending)
 		return false;
-	bool paused = false;
-	if (g_pEngineToClient) {
-		if (auto demo = g_pEngineToClient->GetDemoFile()) paused = demo->IsDemoPaused();
-	}
-	const auto clock = FollowAdvanceRenderClock(m_lockOnClock, g_MirvTime.framecount_get(), curTime, wallDt, paused);
+	const bool paused = FollowHost_DemoPaused();
+	const auto clock = FollowAdvanceRenderClock(m_lockOnClock, FollowHost_FrameCount(), curTime, wallDt, paused);
 	if (!clock.newFrame && m_motionInitialized) {
 		x = m_lastCamPos.x; y = m_lastCamPos.y; z = m_lastCamPos.z;
 		pitch = m_lastCamAng.pitch; yaw = m_lastCamAng.yaw; roll = m_lastCamAng.roll; fov = m_state.fov;
@@ -857,7 +805,7 @@ bool FollowCamera::ViewSetupLockOnOverride(float curTime, double wallDt,
 	FollowAngles ignored;
 	if (validNow) provider->GetWorldTransform(rawTarget, ignored);
 	if (!IsFiniteOrigin(rawTarget)) return false;
-	const auto handle = validNow ? EntityHandleValue(EntityAt(provider->EntityIndex())) : 0;
+	const auto handle = validNow ? FollowHost_EntityHandle(provider->EntityIndex()) : 0;
 	const bool continuous = validNow && m_lockOnHaveTarget && handle == m_lockOnPreviousHandle;
 	const double distance = continuous ? FollowDistance(rawTarget, m_lockOnPreviousTarget) : 0.0;
 	m_targetVelocity = {};
@@ -937,7 +885,7 @@ bool FollowCamera::ViewSetupLockOnOverride(float curTime, double wallDt,
 	pitch = m_lastCamAng.pitch; yaw = m_lastCamAng.yaw; roll = m_lastCamAng.roll; fov = m_state.fov;
 	if (MvmDebugLog_Active() && (m_lockOnProbeFrame++ % 2) == 0) {
 		const auto aim = FollowLookAt(m_state.cameraPosition, rawTarget);
-		int tick = 0; g_MirvTime.GetCurrentDemoTick(tick);
+		const int tick = FollowHost_DemoTick();
 		MvmDebugLog_Linef("follow.lockon.render",
 			"tick=%d entity=%d time=%.6f dt=%.6f playbackDt=%.6f paused=%d fresh=(%.6f %.6f %.6f) stepped=(%.6f %.6f %.6f) camera=(%.6f %.6f %.6f) aim=(%.6f %.6f) output=(%.6f %.6f) error=(%.6f %.6f) look=%.4f position=%.4f velocity=(%.6f %.6f %.6f)",
 			tick, provider->EntityIndex(), curTime, dt, clock.playback, paused, rawTarget.x, rawTarget.y, rawTarget.z,
