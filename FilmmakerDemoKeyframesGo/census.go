@@ -13,16 +13,20 @@ func census(frames []frame) {
 	counts := map[string]int{}
 	for _, f := range frames {
 		var data []byte
+		payload, err := f.payload()
+		if err != nil {
+			continue
+		}
 		switch f.cmd {
 		case demPacket, demSignonPacket:
 			var m msg.CDemoPacket
-			if proto.Unmarshal(f.payload, &m) != nil {
+			if proto.Unmarshal(payload, &m) != nil {
 				continue
 			}
 			data = m.GetData()
 		case demFullPacket:
 			var m msg.CDemoFullPacket
-			if proto.Unmarshal(f.payload, &m) != nil {
+			if proto.Unmarshal(payload, &m) != nil {
 				continue
 			}
 			data = m.GetPacket().GetData()
