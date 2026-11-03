@@ -169,8 +169,24 @@ int WalkStack(const CONTEXT* start, uint64_t* frames, int maxFrames) {
 // module list and the exception, so a crash opens in a debugger at the faulting function and line
 // (against the archived PDB). No heap or full memory. Sent only with the report, when the player
 // presses Send.
+// CS2's own dbghelp beside cs2.exe (the one its crash handler loads), else the system one.
+MiniDumpWriteDump_t ResolveMiniDumpWriteDump() {
+	wchar_t exe[MAX_PATH] = {};
+	GetModuleFileNameW(nullptr, exe, MAX_PATH);
+	std::wstring path = exe;
+	path = path.substr(0, path.find_last_of(L"\\/") + 1) + L"dbghelp.dll";
+	HMODULE dbghelp = LoadLibraryW(path.c_str());
+	if (!dbghelp) dbghelp = LoadLibraryW(L"dbghelp.dll");
+	return dbghelp ? (MiniDumpWriteDump_t)GetProcAddress(dbghelp, "MiniDumpWriteDump") : nullptr;
+}
+
 void WriteCrashDump() {
 	MiniDumpWriteDump_t write = g_origMiniDumpWriteDump; // CS2's dbghelp, already loaded at session start
+	// A crash during startup, before the first main-thread frame, comes before that: a player whose
+	// every launch died with 0xC0000005 had a report and no dump. Look it up now. This is the crash
+	// worker, after the report text is on disk, so a loader lock the crashed thread holds can cost the
+	// dump (the wait for this worker times out) but never the report.
+	if (!write) write = ResolveMiniDumpWriteDump();
 	if (!write) return;
 	wchar_t path[MAX_PATH + 96];
 	swprintf(path, sizeof(path) / sizeof(path[0]), L"%s%hs.dmp", g_dir, g_base);
@@ -363,13 +379,7 @@ BOOL WINAPI New_MiniDumpWriteDump(HANDLE process, DWORD pid, HANDLE file, MINIDU
 // Hooks the dbghelp.dll CS2 ships in game\bin\win64 (the one its crash handler loads).
 void InstallDumpWriterHook() {
 	if (g_origMiniDumpWriteDump) return;
-	wchar_t exe[MAX_PATH] = {};
-	GetModuleFileNameW(nullptr, exe, MAX_PATH);
-	std::wstring path = exe;
-	path = path.substr(0, path.find_last_of(L"\\/") + 1) + L"dbghelp.dll";
-	HMODULE dbghelp = LoadLibraryW(path.c_str());
-	if (!dbghelp) dbghelp = LoadLibraryW(L"dbghelp.dll");
-	g_origMiniDumpWriteDump = dbghelp ? (MiniDumpWriteDump_t)GetProcAddress(dbghelp, "MiniDumpWriteDump") : nullptr;
+	g_origMiniDumpWriteDump = ResolveMiniDumpWriteDump();
 	if (!g_origMiniDumpWriteDump) return;
 	DetourTransactionBegin();
 	DetourUpdateThread(GetCurrentThread());
