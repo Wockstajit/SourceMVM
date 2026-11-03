@@ -28,21 +28,30 @@ constexpr unsigned long long kMenuStaleMs = 1000;
 //
 // ReShade loads and frees its add-ons itself (at the latest while CS2 quits), so no pointer into
 // the addon may outlive one call: a cached export called after ReShade freed the addon crashed in
-// SDL's SetCursor during quit (crash report 1565165641030439023). Each query holds a module
-// reference for just the call. A lasting reference would stop ReShade's own unload, and a reload
-// would then skip the addon's DllMain and never register it again.
+// SDL's SetCursor during quit (crash report 1565165641030439023). Each query looks the addon up
+// again and takes NO loader reference. Any reference of ours, even for one call, can be the one
+// that makes ReShade's FreeLibrary skip the addon's detach; ReShade then edits its registration
+// record while our FreeLibrary runs that detach on another thread. If ReShade frees the addon
+// between the lookup and the call, the call faults and the SEH guard reads it as "not loaded".
 typedef unsigned long long (*MvmReShadeOverlayOpen_t)();
 
 std::atomic<bool> g_addonSeen{false};
+
+int CallOverlayOpen(MvmReShadeOverlayOpen_t fn) {
+	__try {
+		return fn() != 0 ? 1 : 0;
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		return -1;
+	}
+}
 
 // 1 = open, 0 = closed, -1 = the addon is not loaded right now.
 int QueryReShadeAddonOverlay() {
 	HMODULE m = nullptr;
 	int open = -1;
-	if (GetModuleHandleExW(0, L"mvm_reshade_state.addon64", &m) && m) {
+	if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"mvm_reshade_state.addon64", &m) && m) {
 		if (auto fn = (MvmReShadeOverlayOpen_t)GetProcAddress(m, "MvmReShadeOverlayOpen"))
-			open = fn() != 0 ? 1 : 0;
-		FreeLibrary(m);
+			open = CallOverlayOpen(fn);
 	}
 	if (g_addonSeen.exchange(open >= 0, std::memory_order_relaxed) != (open >= 0) && Filmmaker::MvmDebugLog_Active())
 		Filmmaker::MvmDebugLog_Linef("input.capture", "reshade state addon %s", open >= 0 ? "loaded" : "gone (key mirror fallback)");

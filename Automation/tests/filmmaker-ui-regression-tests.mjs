@@ -309,8 +309,11 @@ test("the open developer console keeps its own wheel, clicks and keys", () => {
 // SetCursor called the gate, which still held the add-on's export, into unloaded memory.
 test("the ReShade overlay gate never keeps a pointer into the state add-on", () => {
   const gate = read("AfxHookSource2", "UiInputGate.cpp");
-  assert.match(gate, /GetModuleHandleExW\(0, L"mvm_reshade_state\.addon64", &m\)/);
-  assert.match(gate, /open = fn\(\) != 0 \? 1 : 0;\s*FreeLibrary\(m\);/);
+  // No loader reference at all: one of ours could make ReShade's FreeLibrary skip the add-on's
+  // detach and run it later on our thread, against ReShade's own unload bookkeeping (review on #120).
+  assert.match(gate, /GetModuleHandleExW\(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"mvm_reshade_state\.addon64", &m\)/);
+  assert.match(gate, /__try \{\s*return fn\(\) != 0 \? 1 : 0;\s*\} __except \(EXCEPTION_EXECUTE_HANDLER\)/);
+  assert.doesNotMatch(gate, /FreeLibrary\(/);
   assert.doesNotMatch(gate, /GET_MODULE_HANDLE_EX_FLAG_PIN/);
   assert.doesNotMatch(gate, /std::atomic<MvmReShadeOverlayOpen_t>/);
 });
