@@ -161,8 +161,18 @@ test('START RENDER stays pinned below a scrolling job summary', () => {
     'the action row must be a child of the column, not of the summary that grows');
   assert.match(renderJs, /jobBody\.style\.overflow = 'squish scroll';/);
   assert.doesNotMatch(renderJs, /jobSpacer/);
-  // 2026-11-01: a scrolled list cut the next take in half at 480p. Only whole rows are shown.
-  assert.match(renderJs, /p\.row\.visible = !!t && i < shown;/);
+  // 2026-11-01: a scrolled list cut the next take in half at 480p. Only whole rows are shown...
+  assert.match(renderJs, /var p = prevRows\[i\], t = i < shown \? takes\[prevOffset \+ i\] : null;/);
   assert.match(renderJs, /' OF ' \+ total/);
-  assert.match(renderJs, /fitPrevious\(total\);/);
+  assert.match(renderJs, /fitPrevious\(\);/);
+  // 2026-11-03: counting from the rows on screen chased Panorama's late layout and flickered
+  // between 0, 1 and 2 rows. The count comes from the room the rest of the summary leaves.
+  assert.match(renderJs, /prevFit = Math\.max\(0, Math\.min\(PREV_ROWS, Math\.floor\(free \/ \(prevRowH \|\| 40\)\)\)\);/);
+  assert.doesNotMatch(renderJs, /jobPart\(mk\('Panel', jobBody\), 16\)/,
+    'PREVIOUS RENDERS must not measure itself into its own row count');
+  // ...and the hidden ones stay usable: the heading pages, and Use imports the take the row shows.
+  assert.match(renderJs, /prevPageBtn\('◀', -1,/);
+  assert.match(renderJs, /prevPageBtn\('▶', 1,/);
+  assert.match(renderJs, /cmd\('mirv_filmmaker render import ' \+ rec\.take\)/);
+  assert.match(renderJs, /p\.take = prevOffset \+ i;/);
 });

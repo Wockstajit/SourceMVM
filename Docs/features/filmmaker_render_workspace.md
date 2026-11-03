@@ -45,6 +45,13 @@ to six in `render takes`). Each row shows when it was written, its status, its t
 rate, format and passes. **Use** starts the next job from that render's settings, to render a shot
 again with one change or to add a pass for exactly the same In and Out.
 
+The column shows only rows that fit whole above START RENDER. When they do not all fit (at 480p
+with the TIMELINE dock up, one does), the heading says which are showing, such as `1-2 OF 3`, and
+its ◀ ▶ buttons page through the rest, so every listed take stays usable. With no room for even one row, the heading still says
+how many there are. The count comes from the room the rest of the summary leaves, not from the rows
+on screen, because Panorama lays a change out a frame or two late and a self-measuring list
+flickered.
+
 - `Render/RenderTakeHistory.{h,cpp}` scans the output folder's take folders for `manifest.json`
   (written by `RenderManifest.cpp`, at most 512 KB each) on a worker thread. It scans when the
   Render workspace opens, after every job, and when the output folder changes. Only the scan runs
