@@ -336,16 +336,21 @@ static bool WriteUnitDirection(void* object, const SunRotationMath::Vec3& value)
 }
 
 // Caller holds g_rotationObjectMutex. Only reached when lights are created faster than the allocator
-// reuses addresses; an idle entry is dropped without writing, since its light may be gone.
+// reuses addresses; an idle entry is dropped without writing, since its light may be gone. At most
+// one scan a second: with the cap full of lights that are all still submitting, nothing is old
+// enough to drop, and scanning on every submit would cost a 16K-entry walk per light.
 static void PruneIdleTrackedLightsLocked(unsigned long long nowMs) {
-	if (g_rotationObjectBases.size() < kTrackedLightSoftCap) return;
+	static unsigned long long s_lastScanMs = 0;
+	if (g_rotationObjectBases.size() < kTrackedLightSoftCap || nowMs - s_lastScanMs < 1000) return;
+	s_lastScanMs = nowMs;
 	const size_t before = g_rotationObjectBases.size();
 	for (auto it = g_rotationObjectBases.begin(); it != g_rotationObjectBases.end();) {
 		if (nowMs - it->second.lastSubmitMs > kTrackedLightIdleMs) it = g_rotationObjectBases.erase(it);
 		else ++it;
 	}
-	MvmDebugLog_LinefAlways("world.light.rotation", "pruned %zu idle tracked lights (%zu left)",
-		before - g_rotationObjectBases.size(), g_rotationObjectBases.size());
+	if (g_rotationObjectBases.size() != before)
+		MvmDebugLog_LinefAlways("world.light.rotation", "pruned %zu idle tracked lights (%zu left)",
+			before - g_rotationObjectBases.size(), g_rotationObjectBases.size());
 }
 
 // Runs inside the engine's submit of `object`, so the pointer is a live light here.
