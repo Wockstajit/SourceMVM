@@ -95,3 +95,16 @@ test('renders and launcher start-up have no upload', () => {
   const main = read('SourceMovieMakerLauncher/electron/main.cjs');
   assert.doesNotMatch(main, /require\('\.\/usage-ping|sendUsagePings|webhook/i);
 });
+
+// Codex review on PR #129: installed only at the first main-thread frame, the dump-writer hook
+// missed crashes CS2 handles itself during startup, which then left no SOURCE:MVM report.
+test('the dump-writer hook goes in right after the DLL loads, off the loader lock', () => {
+  const handlers = body(crash, 'void CrashReport_InstallHandlers()');
+  assert.match(handlers, /CreateThread\(nullptr, 0, DumpWriterHookThread, nullptr, 0, nullptr\)/);
+  assert.doesNotMatch(handlers.replace(/\/\/[^\n]*/g, ''), /InstallDumpWriterHook\(\)|LoadLibrary|WaitForSingleObject/,
+    'DllMain must neither load dbghelp itself nor wait for the thread');
+  assert.match(body(crash, 'DWORD WINAPI DumpWriterHookThread(LPVOID)'), /InstallDumpWriterHook\(\);/);
+  // The session start still covers a thread that never ran; the lock makes the two one install.
+  assert.match(body(crash, 'void StartSession()'), /InstallDumpWriterHook\(\);/);
+  assert.match(body(crash, 'void InstallDumpWriterHook()'), /std::lock_guard<std::mutex> lock\(s_lock\);\s*if \(g_origMiniDumpWriteDump\) return;/);
+});
