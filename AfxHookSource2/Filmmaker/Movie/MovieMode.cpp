@@ -588,7 +588,7 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	// A focused Render-workspace number field owns the keyboard for the same reason: the digits
 	// are delivered as WM_CHAR to the JS, so letting the same physical key ALSO run a director
 	// binding would (for example) pause the demo every time the user typed a "6" into an fps box.
-	if (CameraEditor_TextCaptureActive())
+	if (CameraEditor_TextCaptureActive() || GraphEditorExperiment_TextCaptureActive())
 		return true;
 	// A running render owns the keyboard: any key reaching CS2 can draw into the capture (Shift+F2
 	// opened the native demo bar over a render, user report 2026-10-13; Tab, binds, ...). The job's

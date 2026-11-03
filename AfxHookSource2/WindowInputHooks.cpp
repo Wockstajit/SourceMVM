@@ -301,6 +301,10 @@ LRESULT CALLBACK new_Afx_WindowProc(
 			Filmmaker::CameraEditor_CustomizePushChar((unsigned)wParam);
 			return 0;
 		}
+		if(Filmmaker::GraphEditorExperiment_TextCaptureActive()) {
+			Filmmaker::GraphEditorExperiment_PushChar((unsigned)wParam);
+			return 0;
+		}
 		if(g_MirvInputEx.m_MirvInput->Supply_CharEvent(wParam, lParam))
 			return 0;
 		break;

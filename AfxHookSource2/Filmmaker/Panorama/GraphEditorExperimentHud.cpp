@@ -125,6 +125,11 @@ void* GraphEditorExperimentHud::FindRoot() {
 	return FindChildById(ctx, "GraphExpRoot");
 }
 
+void GraphEditorExperimentHud::PushChar(unsigned charCode) {
+	std::lock_guard<std::mutex> lock(m_charMutex);
+	if (m_chars.size() < 256) m_chars.push_back(charCode);
+}
+
 bool GraphEditorExperimentHud::BuildIfNeeded() {
 	if (m_built)
 		return true;
@@ -133,6 +138,7 @@ bool GraphEditorExperimentHud::BuildIfNeeded() {
 	if (!m_bridge.RunScript(kGraphEditorJs))
 		return false;
 	m_symState = m_bridge.MakeSymbol("state");
+	m_symTextCapture = m_bridge.MakeSymbol("textcapture");
 	m_root = FindRoot();
 	m_built = (m_root != nullptr);
 	m_lastState.clear();
@@ -562,7 +568,20 @@ void GraphEditorExperimentHud::RunFrame() {
 	}
 
 	m_root = FindRoot();
-	if (!m_root) { m_built = false; return; }
+	if (!m_root) { m_built = false; m_textCapture = false; return; }
+
+	// Typed characters for a value field (see TextCaptureActive), in the order they were typed.
+	m_textCapture = m_bridge.GetAttributeString(m_root, m_symTextCapture, "0") == "1";
+	std::vector<unsigned> chars;
+	{
+		std::lock_guard<std::mutex> lock(m_charMutex);
+		chars.swap(m_chars);
+	}
+	if (!chars.empty() && m_textCapture) {
+		std::string js = "$.GraphExp && $.GraphExp.typeChars('";
+		for (size_t i = 0; i < chars.size(); ++i) js += (i ? "," : "") + std::to_string(chars[i]);
+		m_bridge.RunScript(js + "');");
+	}
 
 	std::string state = BuildStateJson();
 	if (state != m_lastState) {

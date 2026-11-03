@@ -79,10 +79,14 @@
     sk.sceneChannels=specs.map(function(e){var s=e.s,ch=e.ch,keys=sk.byField[s.id]||[],live=!!keys.length||!!sk.armed[s.id];if(!live&&!e.always)return null;var unit=s.type==='colour'||s.type==='asset',lo=unit?0:s.min,hi=unit?1:s.max,scale=1/Math.max(1,keys.length-1);
       if(e.fit){var rest=(sk.objectRest&&sk.objectRest[s.id]!=null)?sk.objectRest[s.id]:s.initial,a=rest,b=rest;keys.forEach(function(k){a=Math.min(a,k.value);b=Math.max(b,k.value);});var pad=Math.max((b-a)*.15,s.c===6?5:16);lo=Math.max(s.min,a-pad);hi=Math.min(s.max,b+pad);}
       return {
-      ch:ch,fieldId:s.id,name:s.label,family:s.family,group:e.group,groupId:s.family+'.'+s.groupId,type:s.type,live:live,color:colors[ch%colors.length],vis:!sk.hidden[s.id]&&(!anySolo||!!sk.solo[s.id]),solo:!!sk.solo[s.id],edit:!anySolo||!!sk.solo[s.id],min:lo,max:hi,value:editable(sk,s.id,tick),
+      ch:ch,fieldId:s.id,name:s.label,family:s.family,group:e.group,groupId:s.family+'.'+s.groupId,type:s.type,live:live,color:colors[ch%colors.length],vis:!sk.hidden[s.id]&&(!anySolo||!!sk.solo[s.id]),solo:!!sk.solo[s.id],edit:!anySolo||!!sk.solo[s.id],options:OPTIONS[s.id],vmin:s.min,vmax:s.max,min:lo,max:hi,value:editable(sk,s.id,tick),
       keys:keys.map(function(k,i){var cl=clone(k.cl||{a:false,tx:1/3,dv:0}),cr=clone(k.cr||{a:false,tx:1/3,dv:0});if(s.type==='colour'){cl.dv*=scale;cr.dv*=scale;}return {id:k.id,t:k.tick,v:unit?i*scale:k.value,sel:sk.selected.indexOf(k.id)>=0,cl:cl,cr:cr,direction:k.direction||0,hold:!!k.hold&&!stepped(s),hin:i>0&&!!keys[i-1].hold&&!stepped(s),swatch:s.type==='colour'?'rgb('+k.value.slice(0,3).map(Math.round).join(',')+')':undefined};})};}).filter(Boolean);
     sk.canUndo=!!sk.undo.length;sk.canRedo=!!sk.redo.length;
   }
+  // The named values the dock offers in its value menu (SceneKeys.cpp OptionsJson).
+  var OPTIONS={'env.weather.type':['Clear','Rain','Snow','Ash','Embers','Motes','Smoke'].map(function(l,i){return {value:i,label:l};}),
+    // Map default, then SkyboxLibrary.cpp's built-in skies in order (a user's custom skies follow in game).
+    sky:[['default','Map default'],['sky_de_mirage','Mirage'],['sky_de_dust2','Dust II'],['sky_de_nuke','Nuke'],['sky_de_vertigo','Vertigo'],['sky_de_overpass_01','Overpass'],['sky_de_annubis','Anubis'],['sky_de_train03','Train'],['sky_hr_aztec_02','Aztec'],['sky_ar_baggage_01','Baggage'],['sky_cs15_daylight01_hdr','Daylight'],['sky_csgo_cloudy01','Cloudy'],['sky_overcast_01','Overcast'],['sky_rain_night_01','Rainy Night'],['sky_black','Black']].map(function(o){return {value:o[0],label:o[1]};})};
   function put(sk,s,tick,value) {
     if(!s||!isFinite(tick)||tick<0)return;var vals=Array.isArray(value)?value:[value];
     if(s.type==='asset'){if(typeof value!=='string'||!/^[a-zA-Z0-9_-]*$/.test(value))return;}

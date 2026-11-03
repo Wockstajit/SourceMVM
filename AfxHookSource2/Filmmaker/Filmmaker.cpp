@@ -1409,6 +1409,10 @@ bool CameraPath_PreviewHudHidden() { return CameraPathRef().PreviewHudHidden(); 
 void GraphEditorExperiment_Set(bool enabled) { GraphEditorExperimentHudRef().SetEnabled(enabled); }
 void GraphEditorExperiment_Toggle() { GraphEditorExperimentHudRef().Toggle(); }
 bool GraphEditorExperiment_Enabled() { return GraphEditorExperimentHudRef().Enabled(); }
+bool GraphEditorExperiment_TextCaptureActive() {
+	return GraphEditorExperimentHudRef().Enabled() && GraphEditorExperimentHudRef().TextCaptureActive();
+}
+void GraphEditorExperiment_PushChar(unsigned charCode) { GraphEditorExperimentHudRef().PushChar(charCode); }
 bool GraphEditorExperiment_OwnsView() { return GraphEditorExperimentHudRef().OwnsView(); }
 bool GraphEditorExperiment_Drive() { return GraphEditorExperimentHudRef().Drive(); }
 bool GraphEditorExperiment_WantsCursor() {

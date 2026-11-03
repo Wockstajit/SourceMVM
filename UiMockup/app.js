@@ -210,6 +210,15 @@
       if (!state || state.nav.context !== 'ingame' || !state.demo) return;
       var tag = (e.target && e.target.tagName) || '';
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag) || (e.target && e.target.isContentEditable)) return;
+      // A TIMELINE dock value field that is being typed into takes the keys as characters, the way
+      // the hook routes WM_CHAR to $.GraphExp.typeChars in game (WindowInputHooks.cpp).
+      var gxRoot = window.PanoramaShim.findById && window.PanoramaShim.findById('GraphExpRoot');
+      if (gxRoot && gxRoot.GetAttributeString('textcapture', '0') === '1' && window.$ && $.GraphExp) {
+        var code = e.key === 'Enter' ? 13 : e.key === 'Escape' ? 27 : e.key === 'Backspace' ? 8
+          : (e.key.length === 1 ? e.key.charCodeAt(0) : -1);
+        if (code >= 0) { e.preventDefault(); $.GraphExp.typeChars(String(code)); }
+        return;
+      }
       var key = e.key;
       if (keyDownSet[key] && key !== 'ArrowLeft' && key !== 'ArrowRight') return; // no auto-repeat
       keyDownSet[key] = true;

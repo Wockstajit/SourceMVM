@@ -23,6 +23,8 @@
 #include "../Movie/CamMarkers.h"
 #include "../Movie/GraphExpModel.h"
 
+#include <atomic>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -83,6 +85,12 @@ public:
 
 	void RequestEval(const std::string& js) { m_evalQueue.push_back(js); }
 
+	// A value field in the dock is being typed into (the JS publishes "textcapture"). CS2 gives a
+	// HUD TextEntry no keyboard, so WM_CHAR is queued here off the window thread and handed to
+	// $.GraphExp.typeChars on the main thread, and MovieMode keeps the same keys off the demo.
+	bool TextCaptureActive() const { return m_textCapture.load(std::memory_order_relaxed); }
+	void PushChar(unsigned charCode);
+
 	// One-line dump of the whole editor+model state for the mvm_debug log (`state.graph`,
 	// emitted by MvmCommandTrace after any `mirv_filmmaker grapheditor ...`). The console
 	// cannot carry this out of the game, so the log file is the only channel -- see
@@ -129,6 +137,10 @@ private:
 	void* m_hudPanel = nullptr;
 	void* m_root = nullptr;       // #GraphExpRoot
 	short m_symState = -1;
+	short m_symTextCapture = -1;
+	std::atomic<bool> m_textCapture{ false };
+	std::mutex m_charMutex;
+	std::vector<unsigned> m_chars;    // typed character codes waiting for the JS
 	bool m_built = false;
 	bool m_enabled = false;       // graphEditorExperimentEnabled (default OFF)
 	bool m_drive = true;          // live-drive the camera from the experimental curves
