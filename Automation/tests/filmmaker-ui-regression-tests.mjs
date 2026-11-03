@@ -312,7 +312,11 @@ test("the ReShade overlay gate never keeps a pointer into the state add-on", () 
   // No loader reference at all: one of ours could make ReShade's FreeLibrary skip the add-on's
   // detach and run it later on our thread, against ReShade's own unload bookkeeping (review on #120).
   assert.match(gate, /GetModuleHandleExW\(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"mvm_reshade_state\.addon64", &m\)/);
-  assert.match(gate, /__try \{\s*return fn\(\) != 0 \? 1 : 0;\s*\} __except \(EXCEPTION_EXECUTE_HANDLER\)/);
+  // Without a reference the handle can go stale before it is used, so the export lookup runs
+  // under the same guard as the call (review on #120).
+  assert.match(gate, /__try \{\s*auto fn = \(MvmReShadeOverlayOpen_t\)GetProcAddress\(addon, "MvmReShadeOverlayOpen"\);\s*return fn \? \(fn\(\) != 0 \? 1 : 0\) : -1;\s*\} __except \(EXCEPTION_EXECUTE_HANDLER\)/);
+  assert.equal((gate.match(/GetProcAddress\(\w+, "MvmReShadeOverlayOpen"\)/g) || []).length, 1,
+    'the export is looked up only inside the guard');
   assert.doesNotMatch(gate, /FreeLibrary\(/);
   assert.doesNotMatch(gate, /GET_MODULE_HANDLE_EX_FLAG_PIN/);
   assert.doesNotMatch(gate, /std::atomic<MvmReShadeOverlayOpen_t>/);

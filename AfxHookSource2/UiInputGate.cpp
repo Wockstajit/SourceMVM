@@ -31,15 +31,17 @@ constexpr unsigned long long kMenuStaleMs = 1000;
 // SDL's SetCursor during quit (crash report 1565165641030439023). Each query looks the addon up
 // again and takes NO loader reference. Any reference of ours, even for one call, can be the one
 // that makes ReShade's FreeLibrary skip the addon's detach; ReShade then edits its registration
-// record while our FreeLibrary runs that detach on another thread. If ReShade frees the addon
-// between the lookup and the call, the call faults and the SEH guard reads it as "not loaded".
+// record while our FreeLibrary runs that detach on another thread. Without a reference the handle
+// is not guaranteed valid once the lookup returns, so the export lookup and the call both run
+// under the SEH guard: if ReShade frees the addon between them, the fault reads as "not loaded".
 typedef unsigned long long (*MvmReShadeOverlayOpen_t)();
 
 std::atomic<bool> g_addonSeen{false};
 
-int CallOverlayOpen(MvmReShadeOverlayOpen_t fn) {
+int CallOverlayOpen(HMODULE addon) {
 	__try {
-		return fn() != 0 ? 1 : 0;
+		auto fn = (MvmReShadeOverlayOpen_t)GetProcAddress(addon, "MvmReShadeOverlayOpen");
+		return fn ? (fn() != 0 ? 1 : 0) : -1;
 	} __except (EXCEPTION_EXECUTE_HANDLER) {
 		return -1;
 	}
@@ -49,10 +51,8 @@ int CallOverlayOpen(MvmReShadeOverlayOpen_t fn) {
 int QueryReShadeAddonOverlay() {
 	HMODULE m = nullptr;
 	int open = -1;
-	if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"mvm_reshade_state.addon64", &m) && m) {
-		if (auto fn = (MvmReShadeOverlayOpen_t)GetProcAddress(m, "MvmReShadeOverlayOpen"))
-			open = CallOverlayOpen(fn);
-	}
+	if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"mvm_reshade_state.addon64", &m) && m)
+		open = CallOverlayOpen(m);
 	if (g_addonSeen.exchange(open >= 0, std::memory_order_relaxed) != (open >= 0) && Filmmaker::MvmDebugLog_Active())
 		Filmmaker::MvmDebugLog_Linef("input.capture", "reshade state addon %s", open >= 0 ? "loaded" : "gone (key mirror fallback)");
 	return open;
