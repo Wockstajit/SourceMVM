@@ -116,6 +116,16 @@ const VIEWS = {
   // The window's other sizes, and one dragged to the corner.
   customize_compact:      'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeSize(\x27compact\x27)') + '&hold=1500',
   customize_collapsed:    'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeSize(\x27collapsed\x27);mirv_filmmaker editor eval $.CamEditor.customizePlayerMenu(true)') + '&hold=800',
+  // MODULAR layout (Panorama/UiLayout.h): the header bar with CONFIG and the Camera Editor as
+  // windows; the TIMELINE dock under them; the bar alone; Editor Settings dropped from its gear.
+  modular:                'surface=header',
+  modular_timeline:       'surface=header&cmd=' + encodeURIComponent('mirv_filmmaker dock timeline'),
+  // The TIMELINE dock dragged down to 280 from its top edge; CONFIG parked low is held above it.
+  modular_short_dock:     'surface=header&cmd=' + encodeURIComponent('mirv_filmmaker dock timeline;mirv_filmmaker settings ui timeline.dockH 280;mirv_filmmaker settings ui win.config 10_900_80'),
+  modular_bar_only:       'surface=header&cmd=' + encodeURIComponent('mirv_filmmaker config off;mirv_filmmaker editor off'),
+  modular_settings:       'surface=header&click=label:%E2%9A%99',
+  // Both windows scaled down from their corners (CONFIG 70%, the editor 85%): same layout, smaller.
+  modular_scaled:         'surface=header&cmd=' + encodeURIComponent('mirv_filmmaker settings ui win.config 10_54_70;mirv_filmmaker settings ui win.editor 1366_54_85'),
   customize_moved:        'surface=customize&cmd=' + encodeURIComponent('mirv_filmmaker editor eval $.CamEditor.customizeSize(\x27compact\x27);mirv_filmmaker editor eval $.CamEditor.customizeMove(1100,40)') + '&hold=1500',
   // CONFIG's CUSTOMIZE PLAYER: the same modal over CONFIG, the editor workspace closed.
   customize_config:       'surface=confighud&cmd=' + encodeURIComponent('mirv_filmmaker config customize') + '&hold=2500',

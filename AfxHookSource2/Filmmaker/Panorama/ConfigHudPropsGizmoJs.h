@@ -228,8 +228,12 @@ R"CFJS(
       var scale = root.actualuiscale_x || 1;
       var rw = root.actuallayoutwidth / scale, rh = root.actuallayoutheight / scale;
       var rect = String(root.GetAttributeString('previewrect', '')).split(/\s+/);
-      var x = 0, y = 0, w = rw, h = rh, clipW = rw - INSPECTOR_W;
-      if (rect.length === 4) {
+      // No preview: the docked live sidebar leaves the game the screen left of its column; the
+      // MODULAR layout leaves it the whole screen, around windows that float over it (s.onPanel
+      // says the cursor is on one of them, a header bar or a dock -- ModuleWindowJs.h).
+      var winMode = !!s.modular && !!s.demo;
+      var x = 0, y = 0, w = rw, h = rh, clipW = winMode ? rw : rw - INSPECTOR_W;
+      if (rect.length === 4 && !winMode) {
         x = parseFloat(rect[0]) * rw; y = parseFloat(rect[1]) * rh;
         w = (parseFloat(rect[2]) - parseFloat(rect[0])) * rw;
         h = (parseFloat(rect[3]) - parseFloat(rect[1])) * rh; clipW = w;
@@ -238,10 +242,11 @@ R"CFJS(
       propsOverlay.style.position = x + 'px ' + y + 'px 0px';
       propsOverlay.style.width = clipW + 'px'; propsOverlay.style.height = h + 'px';
       // The overlay takes the clicks over the view while it edits, so they never reach the game.
-      propsOverlay.hittest = editing && !!s.cursor;
+      // Never over a MODULAR window, the header bar or a dock: their own clicks stay theirs.
+      propsOverlay.hittest = editing && !!s.cursor && !(winMode && s.onPanel);
       var origin = root.GetPositionWithinWindow(), mx = (s.mx - origin.x) / scale, my = (s.my - origin.y) / scale;
       var u = (mx - x) / w, v = (my - y) / h, aspect = w / h;
-      var inside = mx >= x && mx < x + clipW && my >= y && my < y + h;
+      var inside = mx >= x && mx < x + clipW && my >= y && my < y + h && !(winMode && s.onPanel);
       // A popup, slider drag, open menu or resize grip owns its press, even over the preview.
       var free = !!s.cursor && inside && !mapView && !settingsPopup.isOpen() && !cfgDragging() && !cfgDropOpen;
       var pressed = down && !propsPointerDown, moved = Math.abs(u - propsLastU) + Math.abs(v - propsLastV) > 0.0015;

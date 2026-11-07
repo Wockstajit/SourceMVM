@@ -1,4 +1,5 @@
 #include "CameraTimelineHud.h"
+#include "UiLayout.h" // MODULAR layout: the docked bar runs full width
 
 #include "InspectorWidth.h"
 
@@ -229,6 +230,8 @@ std::string CameraTimelineHud::BuildStateJson() {
 	}
 	o << ",\"hosted\":" << ((m_editorHosted || editorIntent) ? "true" : "false");
 	o << ",\"renderOpen\":" << (Render_IsModalOpen() ? "true" : "false");
+	// MODULAR layout: the panels float, so the docked bar spans the screen (UiLayout.h).
+	o << ",\"modular\":" << (UiLayout_Modular() ? "true" : "false");
 	o << ",\"configOpen\":" << (ConfigHud_Enabled() ? "true" : "false"); // Config panel wants the hudView applied too
 	// F8 blackout: the JS hides its own root, the native demo bar and the whole gameplay HUD
 	// off this one flag, so the clean screen is decided in one place.

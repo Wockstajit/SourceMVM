@@ -12,6 +12,10 @@
 // user aimed. While a look is in progress the free cam pins a hidden cursor to the window centre --
 // inside the preview -- so such a click answers "game" by position alone.
 //
+// MODULAR layout (Panorama/UiLayout.h): the game is the whole window and the panels float over it,
+// so the "preview" is the whole client area and `onPanel` says the point is on a window, the header
+// bar or a dock. A point on a panel is never the game's, whatever is behind it.
+//
 // Engine-free so Automation/tests/ui-click-math-tests.cpp can pin it; MovieMode gathers the inputs.
 // An unknown preview rect answers "leave it as it is": a click or notch that cannot be placed
 // never flips the mode.
@@ -31,27 +35,33 @@ struct Input {
 	Rect preview;           // the workspace's game preview
 	bool popupOpen = false; // a popup that covers the window (Editor Settings) is up
 	bool viewEdit = false;  // the workspace edits in the preview (Config's ENVIRONMENT tab)
+	bool onPanel = false;   // MODULAR layout: the point is on a floating panel, not the game
 	float x = 0, y = 0;     // the click / wheel position, client px
 };
+
+// The point is the game's: inside the preview and not on a panel floating over it.
+inline bool InGame(const Input& in) {
+	return !in.onPanel && in.preview.Contains(in.x, in.y);
+}
 
 // GAME mode, a click on a panel: hand the mouse to the UI and give the panel the click. With a
 // popup up, every click is the popup's, even one over the preview it sits on.
 inline bool ClickSwitchesToUiMode(const Input& in) {
 	if (!in.workspace || in.uiModeOn) return false;
 	if (in.popupOpen) return true;
-	return in.preview.valid && !in.preview.Contains(in.x, in.y);
+	return in.preview.valid && !InGame(in);
 }
 
 // UI mode, a click in the preview: hand the mouse to the camera; the click carries on to the game.
 // Not while the workspace edits in the preview: there a left click picks and drags scene objects.
 inline bool ClickSwitchesToGameMode(const Input& in) {
-	return in.workspace && in.uiModeOn && !in.popupOpen && !in.viewEdit && in.preview.Contains(in.x, in.y);
+	return in.workspace && in.uiModeOn && !in.popupOpen && !in.viewEdit && InGame(in);
 }
 
 // While the workspace edits in the preview, the left button is the editor's, so looking around is
 // the right button: held in the preview, it hands the mouse to the camera until it is released.
 inline bool RightPressLooks(const Input& in) {
-	return in.workspace && in.viewEdit && in.uiModeOn && !in.popupOpen && in.preview.Contains(in.x, in.y);
+	return in.workspace && in.viewEdit && in.uiModeOn && !in.popupOpen && InGame(in);
 }
 
 // While a camera path PLAYS (or is about to), the path flies the camera. A press in the preview
@@ -60,13 +70,13 @@ inline bool RightPressLooks(const Input& in) {
 // Either button, either mouse mode; panels and popups keep their clicks. The caller swallows the
 // matching release too.
 inline bool PathPlaybackSwallowsPress(const Input& in, bool pathPlaying) {
-	return pathPlaying && in.workspace && !in.popupOpen && in.preview.Contains(in.x, in.y);
+	return pathPlaying && in.workspace && !in.popupOpen && InGame(in);
 }
 
 // Does this wheel notch step CS2's camera (true) or scroll the panel under it (false)?
 inline bool WheelCyclesCamera(const Input& in) {
-	if (!in.workspace) return true;
-	return !in.popupOpen && in.preview.Contains(in.x, in.y);
+	if (!in.workspace) return !in.onPanel;
+	return !in.popupOpen && InGame(in);
 }
 
 // A rect given as window fractions (how the workspaces publish their preview) in client px.

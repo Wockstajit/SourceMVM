@@ -122,6 +122,7 @@ inline const char* kConfigHudJs = R"CFJS(
 #include "TimelineDockRibbonJs.h"
 #include "EditorSettingsPopupJs.h"
 #include "InspectorResizeJs.h"
+#include "ModuleWindowJs.h"
 R"CFJS(
     // ---- root: full-screen, non-hittest. Only the right sidebar is interactive. ----
     var root = $.CreatePanel('Panel', ctx, 'ConfigHudRoot', {});
@@ -168,6 +169,7 @@ R"CFJS(
     var settingsPopup = mvmEditorSettingsPopup(ctx, {
       id: 'ConfigEditorSettingsRoot',        // deleted by ConfigHud's teardown script, by id
       publish: root,
+      modular: function () { return !!(st && st.modular); },
       // Just above this band and left of the inspector -- the band's own right edge is the
       // inspector's left edge, so the card rises directly off the gear that opened it.
       marginRight: INSPECTOR_W + 16,
@@ -200,6 +202,32 @@ R"CFJS(
       cfgPreviewRect = null;
     }
 
+    // The screen in layout px, measured the way layoutDemoWorkspace measures it.
+    function cfgScreen() {
+      var sx = root.actualuiscale_x || ctx.actualuiscale_x || 1;
+      var sy = root.actualuiscale_y || ctx.actualuiscale_y || 1;
+      var rawW = root.actuallayoutwidth || 0, rawH = root.actuallayoutheight || 0;
+      if (rawW < 16) { rawW = ctx.actuallayoutwidth || 0; rawH = ctx.actuallayoutheight || 0; }
+      return { rw: rawW / sx, rh: rawH / sy };
+    }
+
+    // MODULAR layout (ModuleWindowJs.h): the game stays full screen and this column floats in its
+    // window, so there is no preview, no letterbox and no dock ribbon -- the header bar along the
+    // top switches the dock instead (WorkspaceHeaderJs.h). The MAP view of the alternative
+    // environment still needs an area of the screen to cover: the wider side beside the window,
+    // under the header bar.
+    function layoutModular(hostRect) {
+      hideDemoWorkspace();
+      var sc = cfgScreen();
+      if (!finitePositive(sc.rw) || !finitePositive(sc.rh)) return;
+      var top = MVM_WIN.headerH;
+      var leftW = Math.max(0, hostRect.x), rightX = hostRect.x + hostRect.dw;
+      var rightW = Math.max(0, sc.rw - rightX);
+      cfgPreviewRect = (rightW >= leftW)
+        ? { x: rightX, y: top, w: rightW, h: sc.rh - top }
+        : { x: 0, y: top, w: leftW, h: sc.rh - top };
+    }
+
     function layoutDemoWorkspace(cursorOn) {
       var sx = root.actualuiscale_x || ctx.actualuiscale_x || 1;
       var sy = root.actualuiscale_y || ctx.actualuiscale_y || 1;
@@ -211,7 +239,7 @@ R"CFJS(
       // Which editor is docked decides how tall the bottom is. Measured, not assumed -- the
       // same shared measurement the Camera Editor uses (mvmDockMeasure), so the preview stops
       // above the CAMERA / GRAPH overlays exactly as it stops above the native bar.
-      var dm = mvmDockMeasure(ctx, rh, sy, st && st.dockTab, { floor: BOTTOM_LIFT });
+      var dm = mvmDockMeasure(ctx, rh, sy, st && st.dockTab, { floor: BOTTOM_LIFT, dockH: st && st.dockH });
       var nativeH = dm.editorTop, nativeBarVisible = dm.nativeBottom;
       var bottomH = dm.bottomH;
       var bandY = dm.tabY;
@@ -301,12 +329,22 @@ R"CFJS(
     // here -- cfgApplyScroll already subtracts it from the readable viewport.
     var CFG_OVERSCROLL = 18;
 
+    // THE COLUMN'S HOST (ModuleWindowJs.h). Everything that belongs to the column -- its ground,
+    // the inspector, the fades, the scrollbar, the drag edge and RENDER / CUSTOMIZE PLAYER -- is
+    // built in `colHost` rather than in root. In the WORKSPACE layout the host is the whole screen,
+    // so nothing moves; in the MODULAR layout it is the body of a movable window. CONFIG opens on
+    // the left in MODULAR layout and the Camera Editor on the right, so both fit side by side.
+    var cfgWin = mvmModuleWindow(root, {
+      key: 'config', title: 'CONFIG', accent: S.accent, side: 'left',
+      onClose: function () { cmd('mirv_filmmaker config off'); }
+    });
+    var colHost = cfgWin.host;
     // The column's ground: the Render workspace's background (WorkspaceShellJs.h mvmColumnGround),
-    // tinted blue. Root-level, full height, built BEFORE the inspector so it paints under it; the
+    // tinted blue. Host-level, full height, built BEFORE the inspector so it paints under it; the
     // inspector and the footer band behind RENDER / CUSTOMIZE PLAYER are transparent over it.
-    var columnGround = mvmColumnGround(root, S.accent, INSPECTOR_W);
+    var columnGround = mvmColumnGround(colHost, S.accent, INSPECTOR_W);
     // Right inspector column, same chrome as the Camera Editor's.
-    var inspector = mk('Panel', root); inspector.hittest = false;
+    var inspector = mk('Panel', colHost); inspector.hittest = false;
     inspector.style.horizontalAlign = 'right'; inspector.style.verticalAlign = 'top';
     inspector.style.width = INSPECTOR_W + 'px'; inspector.style.height = '100%';
     inspector.style.backgroundColor = S.clear; inspector.style.borderLeft = '1px solid ' + S.clear;
@@ -341,9 +379,11 @@ R"CFJS(
     // so a resolution / uiscale change re-fits it; the cached compare keeps it to one style
     // write per actual change instead of one per frame.
     var _lastViewH = -1;
+    // The window's body in MODULAR layout, the screen otherwise (cfgWin.layout's return value).
+    var cfgHostH = 0;
     function syncInspectorHeight() {
       var vsy = root.actualuiscale_y || ctx.actualuiscale_y || 1;
-      var vrh = (root.actuallayoutheight || 0) / vsy;
+      var vrh = cfgHostH > 0 ? cfgHostH : (root.actuallayoutheight || 0) / vsy;
       if (!finitePositive(vrh)) return;
       var vh = Math.max(120, Math.round(vrh - ACTION_CLEAR));
       if (vh === _lastViewH) return;
@@ -401,13 +441,11 @@ R"CFJS(
       var vsy = inspector.actualuiscale_y || 1;
       return ((scrollView && scrollView.actuallayoutheight) || 0) / vsy;
     }
-    // Where the scroll region begins, in root-space css px (for placing the scrollbar thumb).
+    // Where the scroll region begins, in the column host's own px (for placing the scrollbar thumb
+    // and the top fade, which are host children). The host is the screen in the WORKSPACE layout
+    // and a scaled window body in the MODULAR one (ModuleWindowJs.h).
     function cfgScrollTop() {
-      try {
-        var vsy = root.actualuiscale_y || 1;
-        var p = scrollView.GetPositionWithinWindow();
-        return p && isFinite(p.y) ? p.y / vsy : 0;
-      } catch (e) { return 0; }
+      try { return cfgWin.hostTop(scrollView); } catch (e) { return 0; }
     }
     function cfgContentH() {
       var vsy = inspector.actualuiscale_y || 1;
@@ -721,14 +759,14 @@ R"CFJS(
     // would end above the buttons and the live game would show through behind them.
     // Scrollbar thumb. Parented to root (it must not scroll with the content it reports on) and
     // z-ordered under the fade so it disappears into the cut-off rather than crossing it.
-    var scrollThumb = mk('Panel', root); scrollThumb.hittest = false; scrollThumb.visible = false;
+    var scrollThumb = mk('Panel', colHost); scrollThumb.hittest = false; scrollThumb.visible = false;
     scrollThumb.style.horizontalAlign = 'right'; scrollThumb.style.verticalAlign = 'top';
     scrollThumb.style.marginRight = '3px'; scrollThumb.style.width = '4px';
     scrollThumb.style.borderRadius = '2px';
     scrollThumb.style.backgroundColor = '#ffffff33';
     scrollThumb.style.zIndex = '105';
 
-    var footerBg = mk('Panel', root); footerBg.hittest = false; footerBg.visible = false;
+    var footerBg = mk('Panel', colHost); footerBg.hittest = false; footerBg.visible = false;
     footerBg.style.horizontalAlign = 'right'; footerBg.style.verticalAlign = 'bottom';
     footerBg.style.width = INSPECTOR_W + 'px'; footerBg.style.height = ACTION_CLEAR + 'px';
     // Transparent over the column ground (see columnGround): a fill here was the flat strip
@@ -743,14 +781,14 @@ R"CFJS(
     // a clipping bug rather than as content continuing above.
     // Parented to root, like the bottom fade, so it does not scroll with what it is fading.
     var TOP_FADE_H = 20;
-    var topFade = mk('Panel', root); topFade.hittest = false; topFade.visible = false;
+    var topFade = mk('Panel', colHost); topFade.hittest = false; topFade.visible = false;
     topFade.style.horizontalAlign = 'right'; topFade.style.verticalAlign = 'top';
     topFade.style.width = INSPECTOR_W + 'px'; topFade.style.height = TOP_FADE_H + 'px';
     topFade.style.zIndex = '110';
     topFade.style.backgroundColor =
       'gradient( linear, 0% 0%, 0% 100%, from( #0f1114ff ), to( #0f111400 ) )';
 
-    var bottomFade = mk('Panel', root); bottomFade.hittest = false; bottomFade.visible = false;
+    var bottomFade = mk('Panel', colHost); bottomFade.hittest = false; bottomFade.visible = false;
     bottomFade.style.horizontalAlign = 'right'; bottomFade.style.verticalAlign = 'bottom';
     bottomFade.style.marginBottom = ACTION_CLEAR + 'px';
     bottomFade.style.width = INSPECTOR_W + 'px'; bottomFade.style.height = FADE_H + 'px';
@@ -783,7 +821,7 @@ R"CFJS(
       try { cfgApplyScroll(); } catch (e) {}
     }
     var cfgGrip = mvmInspectorGrip({
-      root: root,
+      root: colHost,
       colour: S.accent,
       screenW: function () {
         var sx = ctx.actualuiscale_x || root.actualuiscale_x || 1;
@@ -803,7 +841,7 @@ R"CFJS(
     // deliberate spacing; each action switches to the Camera workspace before opening.
     // RENDER / CUSTOMIZE PLAYER, from the one shared builder (WorkspaceChromeJs.h). This
     // panel's geometry is the spec the other workspaces now follow.
-    var dockActions = mvmActionRow(root, makeInteractive, [
+    var dockActions = mvmActionRow(colHost, makeInteractive, [
       { text: 'RENDER', width: 150, onClick: function () { cmd('mirv_filmmaker editor render'); } },
       { text: '\u2726  CUSTOMIZE PLAYER', width: 'fill-parent-flow(1.0)',
         // The Camera Editor's own modal, opened OVER this panel (no workspace switch): one
@@ -820,6 +858,7 @@ R"CFJS(
     var lastHookRaw = null;
     var lastHookUi = null; // the selected tab and card at the last sweep
     var hookHeartbeat = 0;
+    var cfgRootZ = '52';
     var api = {};
     // The popover overlay (tooltips, dropdowns, menus) is a ctx child, so hiding `root` does not
     // hide it: it follows root here. Created lazily, so nothing to do until a popover first opens.
@@ -861,9 +900,14 @@ R"CFJS(
           applyTabs();
           configUiHydrated = true;
         }
-        root.visible = !!st.enabled;
+        // MODULAR layout: demo only (a live mvm_test map keeps its full-size sidebar). While the
+        // Render workspace is up it owns the whole screen, so this window steps aside.
+        var modularNow = !!st.modular && !!st.demo;
+        var renderOver = modularNow && !!st.renderOpen;
+        root.visible = !!st.enabled && !renderOver;
         overlayFollowRoot();
-        if (!st.enabled) {
+        if (!st.enabled || renderOver) {
+          cfgWin.hide(); cfgWin.publish(root);
           configWindowBlur();
           setLiveMouseCapture(false);
           inspector.visible = false;
@@ -954,8 +998,15 @@ R"CFJS(
         // The drag edge has to be pumped here too: it is what says whether the operator is
         // holding the edge right now, and a stored width must not fight a live drag. It still
         // runs before the value-tile pump below, which is the other thing that constraint needs.
+        // The window's title bar and bottom edge come first: a press that moves or resizes the
+        // window must not also start a column resize or a value drag.
+        var winBusy = false;
+        try { winBusy = cfgWin.pump(st); } catch (eWin) {}
+        // The column's width edge belongs to the docked layout: a window's one resize is its corner
+        // scale, which never reflows the column.
         var gripBusy = false;
-        try { gripBusy = cfgGrip.pump(st); } catch (eGrip) {}
+        cfgGrip.panel.visible = !modularNow;
+        if (!winBusy && !modularNow) { try { gripBusy = cfgGrip.pump(st); } catch (eGrip) {} }
         // Follow the stored width whenever the operator is not dragging -- this is what applies a
         // width set in another panel, or restored from the settings file on the first frame.
         if (!gripBusy && typeof st.inspW === 'number' && st.inspW > 0) {
@@ -972,8 +1023,18 @@ R"CFJS(
           if (wantW !== INSPECTOR_W) cfgApplyInspectorW(wantW);
         }
 
-        if (st.demo) layoutDemoWorkspace(cur);
+        var sc0 = cfgScreen();
+        var hostRect = cfgWin.layout(st, { modular: modularNow, rw: sc0.rw, rh: sc0.rh, w: INSPECTOR_W,
+                                           bottomClear: mvmWinDockClear(st.dockTab, st.dockH) });
+        cfgHostH = modularNow ? hostRect.h : 0;
+        syncInspectorHeight();
+        // The window pressed last draws on top of the other one (CamEditorRoot is z53).
+        var wantZ = (modularNow && cfgWin.front()) ? '54' : '52';
+        if (wantZ !== cfgRootZ) { cfgRootZ = wantZ; root.style.zIndex = wantZ; }
+        if (modularNow) layoutModular(hostRect);
+        else if (st.demo) layoutDemoWorkspace(cur);
         else hideDemoWorkspace();
+        cfgWin.publish(root);
 
         var hv = st.hudView || 'full', hudName = 'Show All';
         for (var hb = 0; hb < HUD_CYCLE.length; hb++) if (HUD_CYCLE[hb][0] === hv) hudName = HUD_CYCLE[hb][1];
@@ -1061,6 +1122,9 @@ R"CFJS(
       // pointer happened to be over ("wheel = 2% per notch" in the original design), which meant scrolling
       // past a slider silently edited it -- you cannot move through a tab without crossing tiles.
       // Values are changed by dragging them, which is deliberate and reversible; scrolling is not.
+      // In the MODULAR layout the column is one window among others over a live game: it scrolls
+      // only while the pointer is over it.
+      if (cfgWin.modular() && !(st && cfgWin.over(st.mx, st.my))) return;
       cfgScrollY -= n * 90;
       cfgApplyScroll();
     };

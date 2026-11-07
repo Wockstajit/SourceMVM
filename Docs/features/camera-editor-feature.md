@@ -2,6 +2,8 @@
 
 The dedicated in-demo **camera editor workspace**: a Panorama overlay that frames the live game as a preview viewport with a right-side property inspector, a bottom TIMELINE dock, and workspace tools (Customize, Render). Toggle it with `mirv_filmmaker editor toggle` (commonly bound, e.g. `bind "F9" "mirv_filmmaker editor toggle"`).
 
+In the modular layout (`mirv_filmmaker layout modular`) the editor's column is a movable, scalable window over the full-screen game instead, opened from a header bar and able to sit beside CONFIG's: see [modular-layout.md](../panorama/modular-layout.md).
+
 Related docs: [panorama_ui_guide.md](../panorama/panorama_ui_guide.md) (how the Panorama bridge and JS architecture work), [customize-feature.md](customize-feature.md) (the Customize modal), [follow-camera/](../follow-camera/README.md) (the Follow system that the editor's Follow inspector edits), and [filmmaker_config_panel.md](filmmaker_config_panel.md) (the standalone Config panel, the editor's "little sibling").
 
 ## What the workspace is

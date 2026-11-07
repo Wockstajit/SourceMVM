@@ -27,6 +27,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | Nervous System (post-death reactions: reach for the wound, breathe, writhe, twitch) | [`filmmaker_nervous_system.md`](features/filmmaker_nervous_system.md) |
 | Lens: depth of field, bokeh iris, lens flare | [`filmmaker_lens.md`](features/filmmaker_lens.md) |
 | Cosmetics / Customize | [`cosmetics-overview.md`](cosmetics/cosmetics-overview.md), [`customize-feature.md`](features/customize-feature.md) |
+| Workspace or modular layout (header bar, movable and scalable windows, `mirv_filmmaker layout`) | [`modular-layout.md`](panorama/modular-layout.md) |
 | Panorama architecture | [`panorama_ui_guide.md`](panorama/panorama_ui_guide.md), [`panorama_viewmodel_preview.md`](panorama/panorama_viewmodel_preview.md), [`panorama-player-preview-summary.md`](panorama/panorama-player-preview-summary.md) |
 | Particle FX | [`filmmaker_effects_modifiers.md`](features/filmmaker_effects_modifiers.md), [`../FX/README.md`](../FX/README.md) |
 | Environment, volumetrics, surface tests and props | [`environment-scene-editor.md`](features/environment-scene-editor.md) |

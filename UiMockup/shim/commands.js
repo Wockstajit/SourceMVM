@@ -184,14 +184,17 @@
   // The two workspace switches. Mirrors the C++ command handlers, which are where the mutual
   // exclusion lives: `config on` closes the editor (ConfigHud_RunCommand), and CameraEditor_Set(true)
   // closes Config (Filmmaker.cpp). The per-frame yield in ConfigHud::RunFrame is in app.js.
+  // Panorama/UiLayout.h: the MODULAR layout's windows do not share a column, so neither closes
+  // the other; the docked workspaces do.
+  function modular(st) { return !!(st.ui && st.ui.layout === 'modular'); }
   function setConfig(st, on) {
     if (!on && st.envEditing) environment(st, "mirv_filmmaker environment edit stop");
     st.nav.configOpen = !!on;
-    if (st.nav.configOpen && st.nav.editorOpen) st.nav.editorOpen = false;
+    if (st.nav.configOpen && st.nav.editorOpen && !modular(st)) st.nav.editorOpen = false;
   }
   function setEditor(st, on) {
     st.nav.editorOpen = !!on;
-    if (st.nav.editorOpen && st.nav.configOpen) st.nav.configOpen = false;
+    if (st.nav.editorOpen && st.nav.configOpen && !modular(st)) st.nav.configOpen = false;
   }
 
 
@@ -643,7 +646,21 @@
     // the Camera Editor (they draw the same right-side column).
     // 'config customize': CONFIG stays open and the Camera Editor's modal opens over it
     // (CameraEditorHud::RequestOpenCustomizeOverConfig; app.js runs it like RunCustomizeOverConfig).
+    // UiLayout_RunCommand: mirv_filmmaker layout [workspace|modular|toggle].
+    if (a === 'layout') {
+      if (b === undefined) return true;
+      st.ui = st.ui || {};
+      var wantModular = (b === 'modular' || b === 'windows') ? true
+        : ((b === 'workspace' || b === 'docked') ? false : (b === 'toggle' ? !modular(st) : null));
+      if (wantModular === null) return false;
+      st.ui.layout = wantModular ? 'modular' : 'workspace';
+      // ConfigHud::RunFrame: back in the docked layout the editor outranks CONFIG.
+      if (!wantModular && st.nav.configOpen && st.nav.editorOpen) st.nav.configOpen = false;
+      return true;
+    }
     if (a === 'config' && b === 'customize') {
+      // MODULAR layout with the Camera Editor's window open: the editor's own modal.
+      if (modular(st) && st.nav.editorOpen) { st.nav.customizeOpen = true; return true; }
       setConfig(st, true); st.nav.customizeOverConfig = true; st.nav.customizeOpen = true; return true;
     }
     if (a === 'config' && (b === undefined || /^(on|open|1|off|close|0|toggle)$/.test(b))) {

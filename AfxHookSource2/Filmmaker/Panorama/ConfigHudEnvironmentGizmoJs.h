@@ -76,8 +76,12 @@ R"CFJS(
       var scale = root.actualuiscale_x || 1;
       var rw = root.actuallayoutwidth / scale, rh = root.actuallayoutheight / scale;
       var rect = String(root.GetAttributeString('previewrect', '')).split(/\s+/);
-      var x = 0, y = 0, w = rw, h = rh, clipW = rw - INSPECTOR_W;
-      if (rect.length === 4) {
+      // No preview: the docked live sidebar leaves the game the screen left of its column; the
+      // MODULAR layout leaves it the whole screen, around windows that float over it (s.onPanel
+      // says the cursor is on one of them, a header bar or a dock -- ModuleWindowJs.h).
+      var winMode = !!s.modular && !!s.demo;
+      var x = 0, y = 0, w = rw, h = rh, clipW = winMode ? rw : rw - INSPECTOR_W;
+      if (rect.length === 4 && !winMode) {
         x = parseFloat(rect[0]) * rw; y = parseFloat(rect[1]) * rh;
         w = (parseFloat(rect[2]) - parseFloat(rect[0])) * rw;
         h = (parseFloat(rect[3]) - parseFloat(rect[1])) * rh; clipW = w;
@@ -87,11 +91,11 @@ R"CFJS(
       envOverlay.style.width = clipW + 'px'; envOverlay.style.height = h + 'px';
       // Under the open MAP view (ConfigHudAltEnvironmentJs.h) the preview is the view's.
       var mapView = root.GetAttributeString('mapviewopen', '0') === '1';
-      envOverlay.hittest = editing && !mapView;
+      envOverlay.hittest = editing && !mapView && !(winMode && s.onPanel);
       envMoveHint.visible = false; // shown by the props overlay's hint, at the top with the rest
       var origin = root.GetPositionWithinWindow(), mx = (s.mx - origin.x) / scale, my = (s.my - origin.y) / scale;
       var u = (mx - x) / w, v = (my - y) / h, aspect = w / h, g = s.envGizmo;
-      var inside = !mapView && mx >= x && mx < x + clipW && my >= y && my < y + h;
+      var inside = !mapView && mx >= x && mx < x + clipW && my >= y && my < y + h && !(winMode && s.onPanel);
       // A popup, slider drag or resize grip owns its press, even if it overlaps the preview.
       var hit = editing && inside && !settingsPopup.isOpen() && !cfgDragging()
         ? envAxisHit(g, u, v, aspect) : -1;

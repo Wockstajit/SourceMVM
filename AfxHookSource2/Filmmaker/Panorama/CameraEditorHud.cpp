@@ -32,6 +32,7 @@
 #include "../../MirvTime.h"
 #include "../../SchemaSystem.h"
 #include "WorkspacePreview.h" // the single owner of the scaled-preview viewport
+#include "UiLayout.h"         // WORKSPACE / MODULAR layout, the window's rect for the click router
 #include "../../ViewportScaler.h" // AfxViewportScaler::GetLastBlit (debug overlay readout only)
 #include "../../WrpConsole.h" // advancedfx::Message (debug-overlay-gated [vpscale] diagnostics)
 
@@ -106,6 +107,8 @@ bool CameraEditorHud::BuildIfNeeded() {
 	m_symCustomizeLayout = m_bridge.MakeSymbol("custlayout");
 	m_symPopupOpen = m_bridge.MakeSymbol("popupopen");
 	m_symTextCapture = m_bridge.MakeSymbol("textcapture");
+	m_symWinRect = m_bridge.MakeSymbol("winrect");
+	m_symWinFront = m_bridge.MakeSymbol("winfront");
 	m_root = FindRoot();
 	m_built = (m_root != nullptr);
 	m_lastState.clear();
@@ -144,8 +147,13 @@ void CameraEditorHud::OnEnter() {
 	CameraTimelineHud& tl = CameraTimelineHudRef();
 	CameraPath& cp = CameraPathRef();
 
-	m_prevMovieHud = MovieHudRef().Visible();
-	MovieHudRef().SetVisible(false);
+	// The director card would sit inside the scaled preview. The MODULAR layout has none: the card
+	// stays where it is, like any other window.
+	m_hidMovieHud = !UiLayout_Modular();
+	if (m_hidMovieHud) {
+		m_prevMovieHud = MovieHudRef().Visible();
+		MovieHudRef().SetVisible(false);
+	}
 
 	tl.SetEditorHosted(true);
 	tl.SetVisible(false); // RunFrame applies the remembered bottom mode later this frame.
@@ -178,8 +186,10 @@ void CameraEditorHud::OnExit() {
 	GraphEditorExperiment_Set(false);
 	// Only kill a running Follow Live preview when the workspace is really gone -- opening
 	// Config closes the editor too (they share the right column), but Config's scaled preview
-	// keeps showing the follow-driven camera, so the preview must survive that swap.
-	if (!ConfigHud_Enabled())
+	// keeps showing the follow-driven camera, so the preview must survive that swap. A CONFIG
+	// window in the MODULAR layout is not that swap: it was open beside the editor all along.
+	const bool configTakesOver = ConfigHud_Enabled() && !UiLayout_Modular();
+	if (!configTakesOver)
 		FollowCameraRef().StopPreview("camera editor closed");
 	// If the render modal was open when the editor closes (e.g., switching to Config), close
 	// it now so the editor does not restart in render-workspace layout on the next open.
@@ -203,7 +213,7 @@ void CameraEditorHud::OnExit() {
 	// Re-applying MovieMode's CURRENT mode is the right restore rather than a blind
 	// SetFreeCamEnabled(false): if the user was already flying in free cam before opening the
 	// editor, that is the mode they should get back, not first person.
-	if (!ConfigHud_Enabled())
+	if (!configTakesOver)
 		MovieModeRef().SetMode(MovieModeRef().GetMode());
 
 	// Do NOT restore the floating movie-director card when Config is taking over. Opening Config
@@ -211,8 +221,10 @@ void CameraEditorHud::OnExit() {
 	// OnEnter has already captured "hidden" and hidden it again, then this line put it straight
 	// back because the EDITOR captured "visible" when it opened. That is the F8 card reappearing
 	// the moment Config is opened. Config restores it itself when it closes.
-	if (!ConfigHud_Enabled())
+	if (m_hidMovieHud && !ConfigHud_Enabled())
 		MovieHudRef().SetVisible(m_prevMovieHud);
+	m_hidMovieHud = false;
+	UiLayout_SetPanelRect(UiPanel::Editor, 0, 0, 0, 0);
 
 	// NOTE: cosmetic overrides are keyed by SteamID and persist across editor open/close on
 	// purpose now (they follow the player through the whole demo). Closing the editor no longer
@@ -253,6 +265,8 @@ std::string CameraEditorHud::BuildStateJson() {
 	o << ",\"graphExp\":" << (GraphEditorExperiment_Enabled() ? "true" : "false");
 	o << ",\"graphDrive\":" << (GraphEditorExperimentHudRef().Drive() ? "true" : "false");
 	o << ",\"bottomMode\":\"" << TimelineDock_TabName() << "\"";
+	// WORKSPACE or MODULAR layout (UiLayout.h): docked beside a scaled preview, or a movable window.
+	o << ",\"modular\":" << (UiLayout_Modular() ? "true" : "false");
 	o << ",\"dockH\":" << TimelineDock_Height();
 	// The operator-dragged inspector width, so this panel and the other two lay out to the
 	// same column. One reader, one clamp -- see InspectorWidth.h.
@@ -355,6 +369,8 @@ std::string CameraEditorHud::BuildStateJson() {
 
 void CameraEditorHud::RunFrame() {
 	m_bridge.Init();
+	// Off the click router's map until the window is drawn again (re-published after render()).
+	if (!m_enabled) UiLayout_SetPanelRect(UiPanel::Editor, 0, 0, 0, 0);
 
 	// Hand over anything the (worker-thread) output folder picker finished choosing. Must run on
 	// the main thread before the state JSON is built, or the new folder shows up a frame late.
@@ -510,6 +526,9 @@ void CameraEditorHud::RunFrame() {
 	// (re)publishes the "previewrect" attribute -- the normalised preview-rect fractions --
 	// as the single source of truth shared with the D3D blit.
 	{ PanoramaPerf_Scope _p("cameditor.js"); m_bridge.RunScriptCached("$.CamEditor && $.CamEditor.render();", "mvm/cameditor.render"); }
+	// Where the MODULAR window is ('' in the WORKSPACE layout), for the click router.
+	UiLayout_SetPanelRectString(UiPanel::Editor, m_bridge.GetAttributeString(m_root, m_symWinRect, "").c_str());
+	if (m_bridge.GetAttributeString(m_root, m_symWinFront, "0") == "1") UiLayout_SetFrontWindow(UiPanel::Editor);
 	if (MvmDebugLog_Active()) {
 		static std::string s_lastProjection;
 		const std::string projected = m_bridge.GetAttributeString(

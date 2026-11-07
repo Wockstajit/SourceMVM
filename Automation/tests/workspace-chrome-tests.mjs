@@ -88,7 +88,8 @@ test('the RENDER / CUSTOMIZE PLAYER row is one builder with CONFIG geometry', ()
   // The row spans the column and the second action fills it -- CONFIG's geometry, the spec.
   assert.match(chrome, /row\.style\.width = \(UI\.col\.w - UI\.action\.inset \* 2\) \+ 'px'/);
   for (const [name, src] of [['ConfigHudJs.h', config], ['CameraEditorJs.h', editor]]) {
-    assert.match(src, /mvmActionRow\(root, /, name + ' must build its action row from mvmActionRow');
+    // Built in the column's host (ModuleWindowJs.h): the screen when docked, a window body when modular.
+    assert.match(src, /mvmActionRow\(colHost, /, name + ' must build its action row from mvmActionRow');
     assert.match(src, /width: 'fill-parent-flow\(1\.0\)'/, name + ': CUSTOMIZE PLAYER must fill the row');
   }
   // The two hand-built copies are gone, not just bypassed.
@@ -138,9 +139,11 @@ test('the dock mode is shared state, not a panel-private copy', () => {
   // The shared per-tab dock heights (Docs/features/camera-editor-feature.md) have to live with the mode that selects them.
   const impl = fs.readFileSync(
     new URL('../../AfxHookSource2/Filmmaker/Movie/TimelineDock.cpp', import.meta.url), 'utf8');
-  for (const h of ['126', '476']) {
+  // 126 native; the timeline is its 36px ribbon over the operator's body height, at most 440 (476).
+  for (const h of ['126', '36']) {
     assert.match(impl, new RegExp('= ' + h + ';'), 'dock height ' + h + ' is missing');
   }
+  assert.match(header, /constexpr int kTimelineDockBodyMax = 440;/);
   const editorHud = fs.readFileSync(
     new URL('../../AfxHookSource2/Filmmaker/Panorama/CameraEditorHud.h', import.meta.url), 'utf8');
   assert.doesNotMatch(editorHud, /BottomMode m_bottomMode/,

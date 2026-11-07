@@ -240,7 +240,8 @@ test("outside the workspaces a press on the native demo bar is the bar's, not a 
   assert.match(timeline, /publishCameraMode\(\);\s*publishBarRect\(\);/, "every frame, with the camera mode");
   assert.match(timelineHud, /m_symBarRect = m_bridge\.MakeSymbol\("barrect"\);/);
   assert.match(timelineHud, /ReadBarRect\(\);/);
-  assert.match(movie, /if \(!CameraEditor_Active\(\) && !ConfigHud_Enabled\(\) && CameraTimeline_DemoBarContains\(x, y\)\) \{[\s\S]{0,200}return true;/,
+  // The MODULAR layout's header bar (Panorama/UiLayout.h) is the same kind of surface and gets the same pass.
+  assert.match(movie, /if \(!CameraEditor_Active\(\) && !ConfigHud_Enabled\(\)\s*&& \(CameraTimeline_DemoBarContains\(x, y\) \|\| UiLayout_PanelAt\(x, y\) == UiPanel::Header\)\) \{[\s\S]{0,200}return true;/,
     "OnUiClick hands the press to Panorama before the free cam or a game click can take it");
 });
 
