@@ -37,6 +37,13 @@ LookCvar g_cvars[] = {
 
 bool g_applied = false;
 
+// A restore goes through the console buffer, so it lands a frame or more after Restore() asks for
+// it, and until then the variables still read as the player values. A view that comes back inside
+// that window must keep the viewer's values it already holds; reading them again would save the
+// player values as the viewer's own and lose the viewer's settings on the next restore.
+constexpr int kRestoreSettleFrames = 30;
+int g_restorePending = 0; // frames left to wait for the last restore to show; 0 = settled
+
 void ExecClientCmd(const std::string& cmd) {
 	if (g_pEngineToClient)
 		g_pEngineToClient->ExecuteClientCmd(0, cmd.c_str(), true);
@@ -61,19 +68,29 @@ std::string ReadCvarText(const char* name) {
 	}
 }
 
+// True once every variable reads the viewer's value the last restore wrote.
+bool RestoreLanded() {
+	for (const LookCvar& c : g_cvars)
+		if (!c.saved.empty() && ReadCvarText(c.name) != c.saved) return false;
+	return true;
+}
+
 void Apply() {
+	const bool keep = g_restorePending > 0; // the last restore has not shown yet: keep its values
+	g_restorePending = 0;
 	for (LookCvar& c : g_cvars) {
-		c.saved = ReadCvarText(c.name);
+		if (!keep) c.saved = ReadCvarText(c.name);
 		if (c.saved.empty()) {
 			MvmDebugLog_Linef("hud.gameplay", "%s not found or unreadable; left alone", c.name);
 			continue;
 		}
 		ExecClientCmd(std::string(c.name) + " " + c.playerValue);
 	}
-	MvmDebugLog_Linef("hud.gameplay", "ON  %s=%s->%s %s=%s->%s %s=%s->%s",
+	MvmDebugLog_Linef("hud.gameplay", "ON  %s=%s->%s %s=%s->%s %s=%s->%s%s",
 		g_cvars[0].name, g_cvars[0].saved.c_str(), g_cvars[0].playerValue,
 		g_cvars[1].name, g_cvars[1].saved.c_str(), g_cvars[1].playerValue,
-		g_cvars[2].name, g_cvars[2].saved.c_str(), g_cvars[2].playerValue);
+		g_cvars[2].name, g_cvars[2].saved.c_str(), g_cvars[2].playerValue,
+		keep ? " (viewer values kept: the last restore had not shown yet)" : "");
 }
 
 void Restore() {
@@ -85,16 +102,24 @@ void Restore() {
 		g_cvars[0].name, g_cvars[0].saved.c_str(),
 		g_cvars[1].name, g_cvars[1].saved.c_str(),
 		g_cvars[2].name, g_cvars[2].saved.c_str());
-	for (LookCvar& c : g_cvars) c.saved.clear();
+	g_restorePending = kRestoreSettleFrames;
 }
 
 } // namespace
 
 void GameplayHudLook_RunFrame(bool inGameViewShown) {
-	if (inGameViewShown == g_applied) return;
-	g_applied = inGameViewShown;
-	if (g_applied) Apply();
-	else Restore();
+	if (inGameViewShown != g_applied) {
+		g_applied = inGameViewShown;
+		if (g_applied) Apply();
+		else Restore();
+		return;
+	}
+	// Watch the last restore land. The frame bound covers a value changed by hand meanwhile,
+	// which would otherwise never match and keep a stale value forever.
+	if (!g_applied && g_restorePending > 0) {
+		if (RestoreLanded()) g_restorePending = 0;
+		else --g_restorePending;
+	}
 }
 
 bool GameplayHudLook_Applied() { return g_applied; }
