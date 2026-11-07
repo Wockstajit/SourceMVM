@@ -12,6 +12,37 @@
 using Microsoft::WRL::ComPtr;
 using namespace Filmmaker::Relight;
 void Check(bool value,const char* message){if(!value){std::cerr<<message<<'\n';std::exit(1);}}
+// Input operands that name a component their dcl_input_ps leaves out. The SM5 compiler never emits
+// one (a float3 is read .xyzx); NVIDIA 616.56 faults while compiling one, so a transformed program
+// must not either (2026-11-07: Dynamic lighting crashed CS2).
+unsigned UndeclaredInputReads(const std::vector<uint8_t>& dxbc){
+    if(dxbc.size()<32)return ~0u;
+    uint32_t chunks;std::memcpy(&chunks,dxbc.data()+28,4);unsigned bad=0;
+    for(unsigned chunk=0;chunk<chunks;++chunk){
+        uint32_t start,size;std::memcpy(&start,dxbc.data()+32+chunk*4,4);std::memcpy(&size,dxbc.data()+start+4,4);
+        if(std::memcmp(dxbc.data()+start,"SHEX",4)&&std::memcmp(dxbc.data()+start,"SHDR",4))continue;
+        IrradianceDxbc::Words code(size/4);std::memcpy(code.data(),dxbc.data()+start+8,size);
+        unsigned declared[64]{};
+        for(size_t i=2;i<code.size();){
+            const unsigned op=code[i]&2047;const size_t length=op==53?code[i+1]:(code[i]>>24)&127;
+            if(!length||i+length>code.size())return ~0u;
+            if((op==98||op==99||op==100)&&length>=3&&code[i+2]<64)declared[code[i+2]]|=(code[i+1]>>4)&15;
+            else if(op!=53&&!(op>=88&&op<=106)&&!(op>=143&&op<=162)){
+                size_t cursor=i+1;uint32_t extended=code[i];while(extended&0x80000000u)extended=code[cursor++];
+                while(cursor<i+length){IrradianceDxbc::Operand o;if(!IrradianceDxbc::ReadOperand(code,cursor,i+length,o))break;
+                    if(o.type!=1||o.index>=64)continue;
+                    const uint32_t token=code[o.start];const unsigned mode=(token>>2)&3;unsigned named=0;
+                    if(mode==0)named=(token>>4)&15;
+                    else if(mode==1)for(unsigned c=0;c<4;++c)named|=1u<<((token>>(4+2*c))&3);
+                    else if(mode==2)named=1u<<((token>>4)&3);
+                    if(named&~declared[o.index])++bad;
+                }
+            }
+            i+=length;
+        }
+    }
+    return bad;
+}
 ComPtr<ID3DBlob> Compile(const char* source,const char* profile){
     ComPtr<ID3DBlob> code,error;
     auto hr=Filmmaker::Environment::CompileEnvironmentShader(source,strlen(source),"DynamicIrradianceTest",nullptr,
@@ -72,6 +103,7 @@ int main(int argc,char** argv){
         Check(false,"replace irradiance query");
     }
     Check(info.queries==1,"one query");
+    Check(UndeclaredInputReads(patched)==0,"queries read only declared input components");
     ComPtr<ID3D11PixelShader> ps;
     const auto hr=device->CreatePixelShader(patched.data(),patched.size(),nullptr,&ps);
     if(FAILED(hr))std::cerr<<"CreatePixelShader: "<<std::hex<<hr<<'\n';
@@ -397,6 +429,7 @@ int main(int argc,char** argv){
                 auto path=item.path();path.replace_extension(".irradiance-rejected.txt");std::ofstream report(path);report<<static_cast<const char*>(listing->GetBufferPointer());}
             std::cerr<<item.path()<<" rejected\n";continue;
         }
+        Check(UndeclaredInputReads(patched)==0,"native program: queries read only declared input components");
         if(cold){
             // Change only the query's degenerate-normal floor to exercise a fresh
             // driver-cache key. Unit surface normals retain identical lighting.
