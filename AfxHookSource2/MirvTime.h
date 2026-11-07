@@ -23,7 +23,15 @@ public:
 	float interpolation_amount_get(void);
 
 	bool GetCurrentDemoTick(int& outTick);
+	// Whole ticks only: interpolation_amount reads 0 in CS2, so this holds still between ticks and
+	// steps at a low demo_timescale. Anything drawn per frame wants GetFractionalDemoTime.
 	bool GetCurrentDemoTime(double& outDemoTime);
+	// The demo tick WITH its interpolated fraction, from the client clock
+	// (Filmmaker/Movie/DemoClockMath.h). Smooth at any demo_timescale, holds a paused fraction, and
+	// never steps backward while playing. False outside demo playback.
+	bool GetFractionalDemoTick(double& outTick);
+	// GetFractionalDemoTick in seconds.
+	bool GetFractionalDemoTime(double& outDemoTime);
 };
 
 extern CMirvTime g_MirvTime;

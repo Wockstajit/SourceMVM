@@ -137,7 +137,9 @@ cache holds 4096 entries. A variant without one is missing from the mask and sho
 
 The coating filter blends shallow neighboring facets while rejecting depth discontinuities and hard
 corners. Snow keeps the map image's broad shading instead of replacing it with an unshadowed flat
-color. Enabled relighting, added lights and world bounce also affect it. Fine grain and sparkle fade
+color, and lifts a surface at most four times its own brightness, so ground under snow stays dark
+under a night sky. An unbounded lift turned night ground grey (issue 135). Enabled relighting, added
+lights and world bounce also affect it. Fine grain and sparkle fade
 below pixel size. Wetness darkens the visible color and adds a softer filtered sun highlight.
 
 Puddles require upward faces inside a chosen world-height band. They use procedural ripples and
@@ -332,7 +334,10 @@ Count sets the cell size (every cell holds a particle), so a light fall draws pr
 particles over the same window. Changing Count re-seeds the lattice. Each particle tests the roof and
 takes its light once, in the vertex shader, rather than per pixel. Rain drop sizes spread below the
 size setting (see the motion blur notes below). Ash flakes are thin, translucent torn pieces that flip
-as they fall and take the map's lighting.
+as they fall and take the map's lighting. Snow flakes and the far snow veil take it too, with a high
+gain that saturates at the weather colour: daylight snow stays white, snow under a dark sky dims with
+the scene, and lamps still light it. Looks exposure applies to all three. Unlit snow drew white flakes
+and a grey haze over a night scene and brightened the whole frame (issue 135).
 
 Drops use wind-aligned streaks, radial band transitions and conserved subpixel opacity. There is no
 camera-centered curtain or special upward-view branch. Scene-color radiance estimates inherit map
@@ -499,7 +504,10 @@ precipitation and also sets Foliage wind (0 to 500 maps to 0 to 200), so it has 
 Clear.
 
 Camera following, shelter collision, field size and particle detail are automatic defaults. Shelter
-uses prepared geometry. Weather evaluates absolute demo time and a seed. Local practice uses game
+uses prepared geometry. Weather evaluates absolute demo time and a seed. That time is the demo tick
+with its interpolated fraction ([the fractional clock](filmmaker_demo_scrubbing.md)), so precipitation
+moves every frame at any demo timescale, in step with the players. Whole-tick time held it still
+between ticks, and slow motion stepped about five times a second (issue 135). Local practice uses game
 time. This is not a physical precipitation or snow-accumulation simulation.
 
 ## Assets

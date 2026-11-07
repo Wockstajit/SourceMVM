@@ -804,6 +804,35 @@ void CaptureSmokeVolumes(std::vector<SmokeVolume> &out) {
             out.push_back(v);
     }
 }
+// Clock evidence for the frame time (issue 135): a burst of consecutive frames every 20 seconds,
+// with the whole-tick and the fractional demo time beside the one the frame uses, so a log shows
+// whether the time handed to the renderer moves every frame at a low demo_timescale or only on
+// whole ticks.
+static void LogFrameClock(double used) {
+    static ULONGLONG burstStart = 0;
+    static int burstFrames = 0;
+    static double lastUsed = 0, lastTickTime = 0, lastFractional = 0;
+    const ULONGLONG now = GetTickCount64();
+    if (burstFrames == 0 && burstStart && now - burstStart < 20000) return;
+    if (burstFrames == 0) burstStart = now;
+    int tick = -1;
+    g_MirvTime.GetCurrentDemoTick(tick);
+    double tickTime = 0, fractional = 0;
+    g_MirvTime.GetCurrentDemoTime(tickTime);
+    g_MirvTime.GetFractionalDemoTime(fractional);
+    const double clientTicks = double(g_MirvTime.curtime_get()) / g_MirvTime.interval_per_tick_get();
+    const bool first = burstFrames == 0;
+    MvmDebugLog_LinefAlways("environment.clock",
+        "frame=%d tick=%d interp=%.4f clientTicks-tick=%.4f tickTime=%.5f fractional=%.5f used=%.5f "
+        "dTickTime=%.5f dFractional=%.5f dUsed=%.5f",
+        g_MirvTime.framecount_get(), tick, g_MirvTime.interpolation_amount_get(), clientTicks - tick, tickTime,
+        fractional, used, first ? 0.0 : tickTime - lastTickTime, first ? 0.0 : fractional - lastFractional,
+        first ? 0.0 : used - lastUsed);
+    lastUsed = used;
+    lastTickTime = tickTime;
+    lastFractional = fractional;
+    if (++burstFrames >= 240) burstFrames = 0;
+}
 Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
     Frame f;
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -880,10 +909,15 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
     }
     if (!g_cameraValid)
         f.active = false;
-    if (!g_MirvTime.GetCurrentDemoTime(f.time))
+    // The FRACTIONAL demo time: whole-tick time held precipitation, storm flashes and light cues
+    // still between ticks, so at a low demo_timescale they stepped while the players glided
+    // (issue 135).
+    if (!g_MirvTime.GetFractionalDemoTime(f.time))
         f.time = g_MirvTime.curtime_get();
     if (!std::isfinite(f.time))
         f.active = false;
+    if (f.active && MvmDebugLog_Active())
+        LogFrameClock(f.time);
     // GLB animation: each object playing a clip draws its own copy of the mesh, posed at demo
     // time (so a render and a scrub pose it the same way), at the object's speed.
     for (auto &o : f.scene.objects) {
