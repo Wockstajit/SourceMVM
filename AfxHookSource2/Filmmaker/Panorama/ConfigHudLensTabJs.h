@@ -35,9 +35,11 @@ R"CFJS(
 
     // ===================== DEPTH OF FIELD ===============================
     // A post pass over the finished world frame (never the HUD) that reads the engine's own depth
-    // buffer, so the blur follows real distance. Two pages, at most eight controls on either:
-    //   FOCUS  what is sharp: a look preset, how focus is decided (manual / auto / near-far zones),
-    //          the aperture and the sharp band, or the four zone distances, the largest blur.
+    // buffer, so the blur follows real distance. Two pages:
+    //   FOCUS  what is sharp and how strongly the rest blurs: a look preset, how focus is decided
+    //          (manual / auto / near-far zones), then for Manual and Auto the aperture and the lens
+    //          (Follow FOV, focal length, foreground blur) and the sharp band, or the four zone
+    //          distances, the largest blur.
     //   BOKEH  what a point of light turns into: the BOKEH GAMMA first (it is what makes the shape
     //          show at all), then the iris shape and its few adjustments.
     // Controls that mean nothing for the current choice are hidden, not left to do nothing.
@@ -68,6 +70,15 @@ R"CFJS(
       'How fast autofocus moves to a new distance. Low drifts over like a slow focus pull; the far right (30) jumps instantly.');
     var dofFstop = lensSlider(dofFocusPage, 'Aperture', 'dof.fstop', 0.7, 16, 1, '',
       'The f-stop. Lower is a wider opening and a shallower focus: f/1.4 is creamy, f/8 keeps most of the scene sharp.');
+    // The lens behind Manual and Auto: its focal length is the camera's own (from the field of view
+    // the frame is drawn with, so zooming in lengthens it) or a set one, and the foreground blur says
+    // how much of the blur in front of the focus is kept. Zones hide all three, like the aperture.
+    var dofFollowFov = lensToggle(dofFocusPage, 'Follow FOV', 'dof.followFov',
+      'Takes the focal length from the camera field of view, like a zoom lens: zoom in (a lower FOV) and the background blurs much more. The normal CS2 FOV of 90 is a very wide lens of about 14 mm, so expect little blur there.');
+    var dofFocal = lensSlider(dofFocusPage, 'Focal length', 'dof.focalLength', 10, 300, 0, 'mm',
+      'The lens, in millimetres on a full-frame camera. A longer lens blurs the background much more at the same aperture: 35 mm is wide, 50 mm normal, 85 to 135 mm a portrait look, 200 mm and up a telephoto.');
+    var dofForeground = lensSlider(dofFocusPage, 'Foreground blur', 'dof.foreground', 0, 100, 0, '%',
+      'How much of the blur in front of the focus distance is kept. 100% is a real lens. At Off everything in front of the focus stays sharp and only the background blurs.', { offAtZero: true });
     var dofRange = lensSlider(dofFocusPage, 'Sharp band', 'dof.range', 0, 1000, 0, 'u',
       'How far in front of and behind the focus distance everything stays perfectly sharp, in world units. 0 is one sharp distance; raise it to keep a whole player or doorway sharp while the rest still blurs.', { offAtZero: true });
     var dofNearStart = lensSlider(dofFocusPage, 'Near: fully blurred', 'dof.nearStart', 0, 2000, 0, 'u',
@@ -136,6 +147,15 @@ R"CFJS(
       dofWeaponToggle.row.visible = !zone;
       dofNearStart.slot.visible = zone; dofNearEnd.slot.visible = zone;
       dofFarStart.slot.visible = zone; dofFarEnd.slot.visible = zone;
+      // The lens rows: Follow FOV hides the set focal length and says which one the camera gives
+      // (focalNow / hfov come from the last frame drawn, so only while the effect runs).
+      var follow = L['dof.followFov'] > 0.5, dofOn = L['dof.on'] > 0.5;
+      var focalNow = (follow && dofOn && L.focalNow > 0) ? L.focalNow : L['dof.focalLength'];
+      dofFollowFov.row.visible = !zone;
+      dofFocal.slot.visible = !zone && !follow;
+      dofForeground.slot.visible = !zone;
+      dofFollowFov.state((follow && dofOn && L.focalNow > 0)
+        ? (L.focalNow.toFixed(0) + ' mm at ' + (L.hfov || 0).toFixed(0) + '°') : '');
       var shape = L['dof.shape'] | 0;
       if (shape < 0 || shape >= IRIS_SHAPES.length) shape = 0;
       dofShapeGrid.sync(String(shape));
@@ -144,8 +164,8 @@ R"CFJS(
       dofRotation.slot.visible = (shape === 1 || shape === 2 || shape === 3 || shape === 5);
       dofMaskGrid.row.visible = (shape === 5);
       dofMaskGrid.sync(L.irisMask || '');
-      dofSec.__note(L['dof.on'] > 0.5
-        ? ((zone ? 'Zones' : ((auto ? 'Auto · ' : '') + 'f/' + (L['dof.fstop'] || 0).toFixed(1)))
+      dofSec.__note(dofOn
+        ? ((zone ? 'Zones' : ((auto ? 'Auto · ' : '') + (focalNow || 0).toFixed(0) + 'mm f/' + (L['dof.fstop'] || 0).toFixed(1)))
            + ' · ' + IRIS_SHAPES[shape][1].toLowerCase()
            + (L['dof.gamma'] > 0 ? ' · gamma ' + L['dof.gamma'].toFixed(1) : ''))
         : 'Off');

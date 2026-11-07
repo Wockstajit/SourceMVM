@@ -366,6 +366,13 @@ add_executable(DemoScrubMathTests
 target_compile_features(DemoScrubMathTests PRIVATE cxx_std_17)
 add_test(NAME DemoScrubMathTests COMMAND DemoScrubMathTests)
 
+add_executable(DemoClockMathTests
+    ../Automation/tests/demo-clock-math-tests.cpp
+    Filmmaker/Movie/DemoClockMath.h
+)
+target_compile_features(DemoClockMathTests PRIVATE cxx_std_17)
+add_test(NAME DemoClockMathTests COMMAND DemoClockMathTests)
+
 add_executable(ScrubFrameCacheMathTests
     ../Automation/tests/scrub-frame-cache-math-tests.cpp
     Filmmaker/Movie/ScrubFrameCacheMath.h

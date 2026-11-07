@@ -799,6 +799,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/CameraShakeTypes.h
     Filmmaker/Movie/HudBlackout.cpp
     Filmmaker/Movie/HudBlackout.h
+    Filmmaker/Movie/GameplayHudLook.cpp
+    Filmmaker/Movie/GameplayHudLook.h
     Filmmaker/Movie/CameraShakeStack.cpp
     Filmmaker/Movie/CameraShakeStack.h
     Filmmaker/Movie/GunWeaponMath.h
@@ -1181,6 +1183,12 @@ target_link_libraries(AfxHookSource2 PRIVATE MapData)
 
 add_executable(MapDataTool ../Automation/tools/map-data-tool.cpp)
 target_link_libraries(MapDataTool PRIVATE MapData)
+
+# Cold-compiles every lighting variant the hook derives from dumped CS2 programs on the real GPU
+# (Docs/effects/whole-map-relighting.md, "Driver compiles of the owned variants").
+add_executable(ValidateNativeVariants ../Automation/tools/validate-native-variants.cpp)
+target_compile_features(ValidateNativeVariants PRIVATE cxx_std_17)
+target_link_libraries(ValidateNativeVariants PRIVATE d3d11 d3dcompiler dxguid)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../CMake/Source2Tests.cmake")
 

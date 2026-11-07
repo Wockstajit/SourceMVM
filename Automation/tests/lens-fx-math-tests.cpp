@@ -31,19 +31,25 @@ static void TestParameterTable() {
 	CHECK(FindParam("dof.nonsense") == -1);
 	CHECK(FindParam(nullptr) == -1);
 
-	// The depth-of-field group stays small: at most 22 parameters (the sharp band and the autofocus speed
-	// came back as controls on request), and the settings that were folded into fixed constants (or
-	// replaced by dof.gamma) are gone, not aliased.
+	// The depth-of-field group stays small: at most 25 parameters (the sharp band and the autofocus speed
+	// came back as controls on request, and the focal length, its Follow FOV switch and the foreground
+	// blur for issue #132), and the settings that were folded into fixed constants (or replaced by
+	// dof.gamma) are gone, not aliased.
 	int dofCount = 0;
 	for (int i = 0; i < ParamCount; ++i) dofCount += InGroup(i, Group::Dof) ? 1 : 0;
-	CHECK(dofCount <= 22);
+	CHECK(dofCount <= 25);
 	for (const char* removed : { "dof.focusX", "dof.focusY", "dof.focal", "dof.nearScale", "dof.farScale",
 		"dof.catEye", "dof.edgeSoft", "dof.hole", "dof.chroma", "dof.threshold", "dof.gain", "dof.weaponDist" })
 		CHECK(FindParam(removed) == -1);
-	for (const char* kept : { "dof.on", "dof.mode", "dof.auto", "dof.focusSpeed", "dof.focus", "dof.fstop", "dof.range", "dof.maxBlur", "dof.nearStart",
+	for (const char* kept : { "dof.on", "dof.mode", "dof.auto", "dof.focusSpeed", "dof.focus", "dof.fstop", "dof.range",
+		"dof.followFov", "dof.focalLength", "dof.foreground", "dof.maxBlur", "dof.nearStart",
 		"dof.nearEnd", "dof.farStart", "dof.farEnd", "dof.shape", "dof.blades", "dof.rotation", "dof.roundness",
 		"dof.squeeze", "dof.edge", "dof.gamma", "dof.quality", "dof.weapon", "dof.debug" })
 		CHECK(FindParam(kept) >= 0);
+	// The defaults are the lens the effect always had: a 50 mm that ignores the FOV, full foreground blur.
+	CHECK(Specs()[DofFollowFov].def == 0.0f && Specs()[DofFollowFov].integer);
+	CHECK(Specs()[DofFocalLength].def == 50.0f && Specs()[DofFocalLength].min == 10.0f && Specs()[DofFocalLength].max == 300.0f);
+	CHECK(Specs()[DofForeground].def == 100.0f && Specs()[DofForeground].min == 0.0f && Specs()[DofForeground].max == 100.0f);
 	CHECK(Specs()[DofGamma].min == 0.0f && Specs()[DofGamma].max == 12.0f);
 	// Blade curve and rim reach below zero (bent-in blades, a soft centre); 0 stays the old look.
 	CHECK(Specs()[DofRoundness].min == -1.0f && Specs()[DofEdge].min == -1.0f && Specs()[DofEdge].def == 0.0f);
@@ -102,7 +108,7 @@ static void TestCircleOfConfusion() {
 		CHECK(c >= last - 1e-4f);
 		last = c;
 	}
-	// A wider aperture (smaller f-number) blurs more, in proportion (the lens is a fixed 50 mm).
+	// A wider aperture (smaller f-number) blurs more, in proportion (same focal length).
 	Values wide = L; wide[DofFstop] = 1.0f;
 	const float base = CircleOfConfusion(L, 2000, focus, W, H);
 	CHECK(CircleOfConfusion(wide, 2000, focus, W, H) > base);
@@ -136,6 +142,152 @@ static void TestSharpBand() {
 	Values zone = band; zone[DofMode] = 1;
 	Values zoneNoBand = zone; zoneNoBand[DofRange] = 0;
 	CHECK(CircleOfConfusion(zone, 2000, 0, W, H) == CircleOfConfusion(zoneNoBand, 2000, 0, W, H));
+}
+
+// A Source-axes camera (x forward, y left, z up) at the origin looking down +x, as the engine's
+// row-major world-to-clip matrix (clip = M * v). CS2 states `fov` for a 4:3 picture and widens it to
+// the frame's aspect: tan(hfov / 2) = tan(fov / 2) * aspect / (4 / 3).
+static void Cs2Projection(float fov43, float aspect, float m[16]) {
+	const float tanH = std::tan(0.5f * fov43 * (float)(kPi / 180.0)) * aspect / (4.0f / 3.0f);
+	const float tanV = tanH / aspect;
+	const float rows[16] = { 0, -1 / tanH, 0, 0,   0, 0, 1 / tanV, 0,   1, 0, 0, -1,   1, 0, 0, 0 };
+	for (int i = 0; i < 16; ++i) m[i] = rows[i];
+}
+static float Deg(float r) { return r * (float)(180.0 / kPi); }
+
+// Issue #132: the focal length comes from the camera's real field of view (dof.followFov) or the
+// dof.focalLength setting, instead of a fixed 50 mm.
+static void TestFocalLength() {
+	// The view is read from the matrix the frame was drawn with, so CS2's 4:3 fov is already widened:
+	// fov 90 on a 16:9 frame is 106.26 degrees across, on a 4:3 frame exactly 90.
+	float m[16];
+	Cs2Projection(90, 16.0f / 9.0f, m);
+	CHECK_NEAR(HorizontalFovDegrees(m), Deg(2 * std::atan(4.0f / 3.0f)), 1e-3);
+	CHECK_NEAR(HorizontalFovDegrees(m), 106.26, 0.01);
+	Cs2Projection(90, 4.0f / 3.0f, m);
+	CHECK_NEAR(HorizontalFovDegrees(m), 90.0, 1e-3);
+	Cs2Projection(25, 16.0f / 9.0f, m);
+	const float fov25 = HorizontalFovDegrees(m);
+	CHECK(fov25 > 25.0f && fov25 < 40.0f);
+	{
+		// Turning the camera, scaling the homogeneous row and an off-centre (shifted) projection change
+		// nothing: only the width of the view counts.
+		Cs2Projection(60, 16.0f / 9.0f, m);
+		const float ref = HorizontalFovDegrees(m);
+		const float yaw = 0.7f, c = std::cos(yaw), s = std::sin(yaw);
+		float r[16];
+		for (int row = 0; row < 4; ++row) {
+			// v_view = R^T v_world for a camera yawed by `yaw`: rows pick up the rotation.
+			const float x = m[row * 4 + 0], y = m[row * 4 + 1];
+			r[row * 4 + 0] = x * c - y * s; r[row * 4 + 1] = x * s + y * c;
+			r[row * 4 + 2] = m[row * 4 + 2]; r[row * 4 + 3] = m[row * 4 + 3];
+		}
+		CHECK_NEAR(HorizontalFovDegrees(r), ref, 1e-3);
+		for (int i = 0; i < 16; ++i) r[i] *= 3.5f;                       // the same projection, scaled
+		CHECK_NEAR(HorizontalFovDegrees(r), ref, 1e-3);
+		float shifted[16];
+		for (int i = 0; i < 16; ++i) shifted[i] = m[i];
+		shifted[0] += 0.2f * m[12]; shifted[1] += 0.2f * m[13]; shifted[2] += 0.2f * m[14]; // off-centre
+		CHECK_NEAR(HorizontalFovDegrees(shifted), ref, 1e-3);
+	}
+	// No perspective (or no matrix) is no view, never a division by zero.
+	const float ortho[16] = { 0, -1, 0, 0,   0, 0, 1, 0,   1, 0, 0, 0,   0, 0, 0, 1 };
+	CHECK(HorizontalFovDegrees(ortho) == 0.0f);
+	CHECK(HorizontalFovDegrees(nullptr) == 0.0f);
+
+	// f = 18 / tan(hfov / 2) on a 36 mm wide sensor: 90 degrees is 18 mm, a 50 mm sees 39.6 degrees,
+	// CS2's default fov 90 at 16:9 is a 13.5 mm lens. Held to the setting's range.
+	CHECK_NEAR(FocalLengthForFov(90), 18.0, 1e-3);
+	CHECK_NEAR(FocalLengthForFov(Deg(2 * std::atan(18.0f / 50.0f))), 50.0, 1e-3);
+	CHECK_NEAR(FocalLengthForFov(106.26f), 13.5, 0.01);
+	CHECK(FocalLengthForFov(1.0f) == Specs()[DofFocalLength].max);
+	CHECK(FocalLengthForFov(170.0f) == Specs()[DofFocalLength].min);
+	CHECK(FocalLengthForFov(0.0f) == Specs()[DofFocalLength].def);
+	// Narrower view, longer lens.
+	float lastF = 0;
+	for (float h = 150; h > 5; h *= 0.8f) { const float f = FocalLengthForFov(h); CHECK(f >= lastF); lastF = f; }
+
+	// Which focal length the lens uses: the setting, unless Follow FOV is on and the view is known.
+	Values L;
+	CHECK(LensFocalLength(L, 106.26f) == 50.0f);                     // the default ignores the FOV
+	L[DofFocalLength] = 135;
+	CHECK(LensFocalLength(L, 40.0f) == 135.0f);
+	L[DofFollowFov] = 1;
+	CHECK_NEAR(LensFocalLength(L, 90.0f), 18.0, 1e-3);
+	CHECK(LensFocalLength(L, 0.0f) == 135.0f);                        // no view yet: the setting
+
+	// The defaults reproduce the fixed 50 mm lens exactly.
+	{
+		Values d; d[DofFstop] = 2.0f; d[DofMaxBlur] = 90;
+		const float W = 1920, H = 1080, s = 400 * kMillimetresPerUnit, dist = 1200 * kMillimetresPerUnit;
+		const float expected = 0.5f * (50.0f * 50.0f * (dist - s) / (2.0f * dist * (s - 50.0f))) / 36.0f * W;
+		CHECK_NEAR(CircleOfConfusion(d, 1200, 400, W, H), expected, 1e-3);
+		CHECK_NEAR(CircleOfConfusion(d, 1200, 400, W, H, 106.26f), expected, 1e-3); // FOV ignored while not following
+	}
+
+	// The report: at f/0.7 focused at 500 units on a 2100 px wide frame, the background at infinity of
+	// a 50 mm reaches only about 8 px (4 px focused at 1000) while the foreground hits the cap. A
+	// 135 mm throws it to about 60 px.
+	{
+		Values r; r[DofFstop] = 0.7f; r[DofMaxBlur] = 90;
+		const float W = 2100, H = 1181;
+		CHECK_NEAR(CircleOfConfusion(r, kFarSky, 500, W, H), 8.2, 0.3);
+		CHECK_NEAR(CircleOfConfusion(r, kFarSky, 1000, W, H), 4.1, 0.2);
+		CHECK_NEAR(CircleOfConfusion(r, 30, 500, W, H), -90.0 * H / 1080, 1e-2);
+		r[DofFocalLength] = 135;
+		const float sky135 = CircleOfConfusion(r, kFarSky, 500, W, H);
+		CHECK(sky135 > 55.0f && sky135 < 65.0f);
+		// Behind the focus the blur keeps growing with distance at a long focal length.
+		float last = 0;
+		for (float d = 520; d < 30000; d *= 1.25f) { const float c = CircleOfConfusion(r, d, 500, W, H); CHECK(c > last); last = c; }
+		// Longer lens, more background blur, at every distance behind the focus.
+		Values shortLens = r; shortLens[DofFocalLength] = 35;
+		for (float d : { 700.0f, 1500.0f, 5000.0f, kFarSky })
+			CHECK(CircleOfConfusion(r, d, 500, W, H) > CircleOfConfusion(shortLens, d, 500, W, H));
+	}
+
+	// Follow FOV: zooming in (a narrower view) blurs the background more, on the same frame.
+	{
+		Values f; f[DofFollowFov] = 1; f[DofFstop] = 1.4f; f[DofMaxBlur] = 90;
+		const float W = 1920, H = 1080;
+		float wide[16], tele[16];
+		Cs2Projection(90, W / H, wide);
+		Cs2Projection(20, W / H, tele);
+		const float hw = HorizontalFovDegrees(wide), ht = HorizontalFovDegrees(tele);
+		CHECK(CircleOfConfusion(f, 3000, 600, W, H, ht) > 10.0f * CircleOfConfusion(f, 3000, 600, W, H, hw));
+		// Following the view is the same as dialling in the focal length that view has.
+		Values dialled = f; dialled[DofFollowFov] = 0; dialled[DofFocalLength] = FocalLengthForFov(ht);
+		CHECK_NEAR(CircleOfConfusion(f, 3000, 600, W, H, ht), CircleOfConfusion(dialled, 3000, 600, W, H), 1e-3);
+	}
+}
+
+// Issue #132: dof.foreground scales the blur in front of the focus (Manual / Auto) and nothing else.
+static void TestForegroundBlur() {
+	Values L;
+	L[DofFstop] = 1.4f; L[DofMaxBlur] = 40;
+	const float focus = 500, W = 1920, H = 1080, maxPx = 40;
+	Values none = L; none[DofForeground] = 0;
+	Values half = L; half[DofForeground] = 50;
+	for (float d : { 30.0f, 120.0f, 300.0f, 450.0f }) {
+		CHECK(CircleOfConfusion(L, d, focus, W, H) < -0.1f);
+		CHECK_NEAR(CircleOfConfusion(none, d, focus, W, H), 0.0, 1e-6);     // 0%: the foreground is sharp
+		CHECK_NEAR(CircleOfConfusion(half, d, focus, W, H), 0.5 * CircleOfConfusion(L, d, focus, W, H), 1e-4);
+	}
+	// The scale applies after the cap: 50% of a foreground far past the largest disc is half that disc.
+	CHECK_NEAR(CircleOfConfusion(L, 20, focus, W, H), -maxPx, 1e-4);
+	CHECK_NEAR(CircleOfConfusion(half, 20, focus, W, H), -0.5 * maxPx, 1e-4);
+	// The background is untouched.
+	for (float d : { 600.0f, 2000.0f, kFarSky }) {
+		CHECK(CircleOfConfusion(none, d, focus, W, H) == CircleOfConfusion(L, d, focus, W, H));
+		CHECK(CircleOfConfusion(half, d, focus, W, H) == CircleOfConfusion(L, d, focus, W, H));
+	}
+	// The sharp band still holds, and the zone lens (its own near distances) ignores both lens settings.
+	Values band = none; band[DofRange] = 100;
+	CHECK_NEAR(CircleOfConfusion(band, 450, focus, W, H), 0.0, 1e-6);
+	Values zone; zone[DofMode] = 1; zone[DofMaxBlur] = 30;
+	Values zoneLens = zone; zoneLens[DofForeground] = 0; zoneLens[DofFocalLength] = 200; zoneLens[DofFollowFov] = 1;
+	for (float d : { 10.0f, 120.0f, 300.0f, 1500.0f, 5000.0f })
+		CHECK(CircleOfConfusion(zone, d, 0, W, H, 30.0f) == CircleOfConfusion(zoneLens, d, 0, W, H, 30.0f));
 }
 
 // A smoke in front of the wall is blurred at the smoke's own distance (see LensFxMath.h).
@@ -872,8 +1024,20 @@ static void TestShaderSource() {
 	// The constant-buffer members of the removed settings are gone, and so is the gather logic that used them.
 	for (const char* gone : { "float4 focusPoint", "float4 dofD", "float4 irisC", "catEye", "smoothstep(thr, 1, lumG)", "cocMip[4]" })
 		CHECK(src.find(gone) == std::string::npos);
+	// The focal length and the foreground blur arrive in dofBand (LensFocalLength and dof.foreground, as
+	// CircleOfConfusion): the fixed 50 mm is gone, the cap comes before the foreground scale, and the host
+	// fills the slots from the frame's own view.
+	CHECK(src.find("kFocalMm") == std::string::npos);
+	CHECK(src.find("float f = dofBand.y;") != std::string::npos);
+	CHECK(src.find("float r = min(.5 * cMm / 36.0 * dims.x, maxPx);") != std::string::npos);
+	CHECK(src.find("return d >= sMm ? r : -r * dofBand.z;") != std::string::npos);
+	{
+		const std::string cpp = ReadRepoFile("AfxHookSource2/Filmmaker/Lens/LensFx.cpp");
+		CHECK(cpp.find("const float hFov = HorizontalFovDegrees(worldToClip);") != std::string::npos);
+		CHECK(cpp.find("const float focalMm = LensFocalLength(L, hFov);") != std::string::npos);
+		CHECK(cpp.find("k.dofBand = { L[DofRange], focalMm, L[DofForeground] * 0.01f, 0 };") != std::string::npos);
+	}
 	// The fixed settings carry the same numbers as the header's constants.
-	CHECK(kFocalLengthMm == 50.0f && src.find("kFocalMm = 50.0;") != std::string::npos);
 	CHECK(kAutofocusX == 0.5f && kAutofocusY == 0.5f && src.find("kAutofocusPoint = float2(.5, .5)") != std::string::npos);
 	CHECK(kAutofocusInstant == 30.0f && src.find("kAutofocusInstant = 30.0;") != std::string::npos);
 	CHECK(Specs()[DofFocusSpeed].max == kAutofocusInstant && Specs()[DofFocusSpeed].def == 6.0f);
@@ -1074,6 +1238,8 @@ int main() {
 	TestParameterTable();
 	TestCircleOfConfusion();
 	TestSharpBand();
+	TestFocalLength();
+	TestForegroundBlur();
 	TestAutofocusSpeed();
 	TestSunProjection();
 	TestSmoke();

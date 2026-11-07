@@ -152,7 +152,7 @@ void PrintHelp(const char* cmd) {
 		"%s editor scale [on|off|toggle] - TRUE scaled preview viewport (whole frame shrunk, not a crop).\n"
 		"%s dock [native|timeline|toggle] - shared bottom dock: Regular timeline (CS2's bar) or TIMELINE (camera + scene keys).\n"
 		"%s layout [workspace|modular|toggle] - panels docked beside a scaled preview, or movable windows opened from a bar along the top.\n"
-		"%s editor hud [hidden|game|full|cycle] - game UI behind the editor: hide all, in-game (radar+HP/ammo, no spectator panel), or full.\n"
+		"%s editor hud [hidden|game|full|cycle] - game UI behind the editor: hide all, in-game (the player's own HUD: round radar, their crosshair, no spectator panels), or full.\n"
 		"%s editor debug [on|off|toggle] - viewport/HUD debug overlay (window/render-target/viewport numbers; compare vs normal game viewport).\n"
 		"%s config [on|off|toggle] - lightweight CONFIG panel (general UI / display settings, no camera tools).\n"
 		"%s viewfx sway|deadzone [<0-150>|off] - viewmodel-feel modifiers, as an intensity percent.\n"
