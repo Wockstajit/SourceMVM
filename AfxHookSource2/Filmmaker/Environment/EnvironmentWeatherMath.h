@@ -61,6 +61,12 @@ inline constexpr float kRainMotionBlur = 60.f;
 // Rain colour is the map's light at the drop times this: a little above the scene, so drops read
 // as water catching light rather than white lines laid over it.
 inline constexpr float kRainBrightness = 3.0f;
+// Snow takes the map's light the same way: min(1, light at the flake times this) times its colour.
+// The scene-colour light estimate is the radiance BEHIND a flake, far below what a white flake in the
+// same light returns, so the gain is high and daylight saturates at the weather colour: day snow is
+// unchanged, and under a dark sky it dims with the scene. Unlit flakes glowed white in a night scene
+// and brightened the whole frame when Weather was switched on (issue 135).
+inline constexpr float kSnowBrightness = 8.0f;
 // WeatherPS rain profile gain: saturate(gain * (1-|x|)^2 (1-|y|)).
 inline constexpr float kRainShapeGain = 2.4f;
 // No single drop is drawn more opaque than this: the big streaks right at the lens read as solid

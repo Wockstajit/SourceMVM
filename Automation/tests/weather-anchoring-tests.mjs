@@ -88,3 +88,32 @@ test('snow is a soft clump, not a star', () => {
   assert.doesNotMatch(ps, /cos\(angle\*6\)\),10\)/);
   assert.match(ps, /SNOW: a soft, slightly lumpy clump/);
 });
+
+// Issue 135: snow drew in the raw weather colour, unlit, so switching it on under a night sky made the
+// whole scene brighter. Every precipitation type now takes the map's light like rain and ash.
+test('snow flakes and the snow veil take the map light and the Looks exposure', () => {
+  assert.match(vs, /if\(weatherParams\.z>=1&&weatherParams\.z<=3\)\{/);
+  const ps = shaders.slice(shaders.indexOf('float4 WeatherPS'), shaders.indexOf('float4 WeatherVeilPS'));
+  assert.match(ps, /if\(weatherParams\.z==2\)color=weatherColor\.rgb\*tone\*min\(1,i\.light\*SNOW_BRIGHTNESS\)\*tintExposure\.rgb\*tintExposure\.w;/);
+  const veil = shaders.slice(shaders.indexOf('float4 WeatherVeilPS'));
+  assert.match(veil, /if\(weatherParams\.z==2\)color=weatherColor\.rgb\*min\(1,PrecipitationLighting\(p,pixel\)\*SNOW_BRIGHTNESS\)\*tintExposure\.rgb\*tintExposure\.w;/);
+  const programs = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Environment/EnvironmentShaderPrograms.h', import.meta.url), 'utf8');
+  assert.match(programs, /#define SNOW_BRIGHTNESS "\+std::to_string\(kSnowBrightness\)/);
+});
+
+test('settled snow lifts a surface by a bounded factor, so night ground stays dark', () => {
+  const climate = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Environment/EnvironmentClimateShaders.h', import.meta.url), 'utf8');
+  assert.match(climate, /float inheritedShade=SnowCoverShade\(mapLuminance\);/);
+  assert.match(climate, /SNOW_MAX_LIFT\*max\(mapLuminance,0\)/);
+});
+
+// Issue 135: whole-tick demo time held precipitation still between ticks, so slow motion stepped.
+test('the environment frame and its vfx lights run on the fractional demo clock', () => {
+  const scene = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Environment/EnvironmentScene.cpp', import.meta.url), 'utf8');
+  const capture = scene.slice(scene.indexOf('Frame CaptureFrame('));
+  assert.match(capture, /if \(!g_MirvTime\.GetFractionalDemoTime\(f\.time\)\)/);
+  assert.doesNotMatch(capture.slice(0, capture.indexOf('std::vector<PickBox> ScenePickBoxes')), /GetCurrentDemoTime\(f\.time\)/);
+  const vfx = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Environment/EnvironmentVfxLighting.cpp', import.meta.url), 'utf8');
+  assert.match(vfx, /if \(!g_MirvTime\.GetFractionalDemoTime\(time\)\) time = g_MirvTime\.curtime_get\(\);/);
+  assert.doesNotMatch(vfx, /GetCurrentDemoTime/);
+});

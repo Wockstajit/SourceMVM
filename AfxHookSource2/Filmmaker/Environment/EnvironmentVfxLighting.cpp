@@ -181,8 +181,9 @@ bool IsVfxLightingEvent(const char* name) {
         !strcmp(name,"bomb_exploded") || !strcmp(name,"round_start"));
 }
 void OnVfxLightingEvent(const char* name, const JsonValue& data) {
+    // The Environment frame's own clock (CaptureFrame), so a pulse starts on the time it is drawn at.
     double time = 0;
-    if (!g_MirvTime.GetCurrentDemoTime(time)) time = g_MirvTime.curtime_get();
+    if (!g_MirvTime.GetFractionalDemoTime(time)) time = g_MirvTime.curtime_get();
     if (!std::isfinite(time)) return;
     const int entity = int(Number(data,"entityid",-1));
     std::lock_guard<std::mutex> lock(mutex);

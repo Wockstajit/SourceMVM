@@ -1,6 +1,7 @@
 #pragma once
 #include "EnvironmentShaderCompiler.h"
 #include "EnvironmentClimateMath.h"
+#include "EnvironmentCoatingMath.h"
 #include "EnvironmentStormMath.h"
 #include "EnvironmentWeatherMath.h"
 #include "EnvironmentShaders.h"
@@ -11,6 +12,7 @@ inline constexpr UINT EnvironmentShaderFlags=D3DCOMPILE_ENABLE_STRICTNESS|D3DCOM
 inline const std::string& EnvironmentShaderSource(){
     static const std::string source=ClimateShaderDefines()+"#define STORM_POINTS "+std::to_string(kStormPointCount)+
         "\n#define RAIN_MOTION_BLUR "+std::to_string(kRainMotionBlur)+"\n#define RAIN_BRIGHTNESS "+std::to_string(kRainBrightness)+
+        "\n#define SNOW_BRIGHTNESS "+std::to_string(kSnowBrightness)+"\n#define SNOW_MAX_LIFT "+std::to_string(kSnowMaxLift)+
         "\n#define RAIN_MAX_OPACITY "+std::to_string(kRainMaxOpacity)+"\n#define RAIN_SHAPE_GAIN "+std::to_string(kRainShapeGain)+
         "\n#define SPLASH_GRID "+std::to_string(kSplashGrid)+
         "\n#define SPLASH_PARTS "+std::to_string(kSplashParts)+"\n#define SPLASH_NEAR "+std::to_string(int(kSplashNear))+

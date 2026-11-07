@@ -83,16 +83,9 @@ void Cmd(const char* c) {
 	if (g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, c, true);
 }
 
-// Offset between the client clock (curtime * 64) and the demo tick, learned whenever the demo is
-// paused on a whole tick (it is the demo's server start tick; 3173 in ragdolls.dem).
-bool g_haveClockOffset = false;
-double g_clockOffset = 0.0;
-
 // The world's demo time in ticks, FRACTIONAL. A paused demo can rest between two ticks
-// (DemoScrubMath.h) and a slow drag has to see that. The client clock is the source: measured
-// 2026-09-27, curtime * 64 reads exactly tick + offset when paused on a whole tick, holds the
-// fraction when paused between ticks, and advances continuously while playing. (MirvTime's
-// interpolation_amount reads 0 in CS2 -- a CS:GO-era offset -- so it cannot be used.)
+// (DemoScrubMath.h) and a slow drag has to see that. The shared fractional clock reads it from the
+// client clock (Filmmaker/Movie/DemoClockMath.h).
 bool DemoState(int& tick, double& now, bool& paused) {
 	tick = 0; now = 0.0; paused = true;
 	if (!g_pEngineToClient) return false;
@@ -100,18 +93,7 @@ bool DemoState(int& tick, double& now, bool& paused) {
 	if (!demo || !(demo->IsPlayingDemo() || demo->IsDemoPaused())) return false;
 	paused = demo->IsDemoPaused();
 	if (!g_MirvTime.GetCurrentDemoTick(tick)) return false;
-	const double rel = (double)g_MirvTime.curtime_get() * kScrubTickRate - tick;
-	if (paused && std::fabs(rel - std::floor(rel + 0.5)) < 0.002) {
-		g_clockOffset = std::floor(rel + 0.5);
-		g_haveClockOffset = true;
-	}
-	// Before an offset is learned, tolerate the clock's small backward jitter at a tick boundary.
-	const double offset = g_haveClockOffset ? g_clockOffset : std::floor(rel + 0.02);
-	double frac = rel - offset;
-	if (!(frac >= 0.0)) frac = 0.0;
-	if (frac > 0.999) frac = 0.999;
-	now = tick + frac;
-	return true;
+	return g_MirvTime.GetFractionalDemoTick(now);
 }
 
 void Log(const char* fmt, ...) {
@@ -126,7 +108,6 @@ void Log(const char* fmt, ...) {
 
 void Begin() {
 	if (g_active) return;
-	g_haveClockOffset = false; // per demo: relearned on the first paused whole tick
 	int tick = 0; double now = 0.0; bool paused = true;
 	if (!DemoState(tick, now, paused)) return;
 	g_active = true;
