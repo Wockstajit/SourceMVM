@@ -35,7 +35,7 @@ cbuffer LensConstants : register(b0) {
     float4 tileInfo;    // xy tile grid size, z dilate radius (tiles), w unused
     float4 passInfo;    // xy source texel size for the current downsample step
     float4 modes;       // x dof active, y flare active, z aspect (w/h), w unused
-    float4 dofBand;     // x sharp band either side of the focus (units), yzw unused
+    float4 dofBand;     // x sharp band either side of the focus (units), y focal length (mm), z foreground blur (0..1), w unused
     float4 smokeInfo;   // x smoke spheres, y absorbance bound, zw absorbance size (px)
     float4 cameraPos;   // xyz camera position (world), w unused
     float4 smokeSpheres[8]; // xyz centre, w radius (kLensMaxSmokes)
@@ -75,7 +75,6 @@ Texture2D<float> sunVisTex : register(t22);    // 1x1: how much of the sun's dis
 static const float kPi = 3.14159265;
 static const float kFarSky = 60000.0;
 // Fixed settings (mirrored in LensFxMath.h; lens-fx-math-tests.cpp compares the numbers).
-static const float kFocalMm = 50.0;         // kFocalLengthMm
 static const float2 kAutofocusPoint = float2(.5, .5); // kAutofocusX, kAutofocusY
 static const float kAutofocusInstant = 30.0; // kAutofocusInstant
 static const float kWeaponDist = 30.0;      // kWeaponDistance
@@ -144,23 +143,23 @@ float SharpBand(float dist, float focus) {
 }
 float CoC(float dist, float focus) {
     float maxPx = dofC.x;
-    float s;
     if (dofA.x < .5) {
-        float f = kFocalMm;
+        // The focal length (dofBand.y) is the camera's own with dof.followFov, else the setting
+        // (LensFocalLength); the foreground scale (dofBand.z) applies after the cap.
+        float f = dofBand.y;
         float sMm = max(focus * 25.4, f * 1.05);
         float d = max(SharpBand(dist, focus) * 25.4, 1.0);
         float cMm = f * f * abs(d - sMm) / (dofA.z * d * (sMm - f));
-        float r = .5 * cMm / 36.0 * dims.x;
-        s = d >= sMm ? r : -r;
-    } else {
-        float nearStart = dofB.x;
-        float nearEnd = max(dofB.y, nearStart + 1);
-        float farStart = max(dofB.z, nearEnd);
-        float farEnd = max(dofB.w, farStart + 1);
-        s = 0;
-        if (dist < nearEnd) s = -smoothstep(0, 1, (nearEnd - dist) / (nearEnd - nearStart)) * maxPx;
-        else if (dist > farStart) s = smoothstep(0, 1, (dist - farStart) / (farEnd - farStart)) * maxPx;
+        float r = min(.5 * cMm / 36.0 * dims.x, maxPx);
+        return d >= sMm ? r : -r * dofBand.z;
     }
+    float nearStart = dofB.x;
+    float nearEnd = max(dofB.y, nearStart + 1);
+    float farStart = max(dofB.z, nearEnd);
+    float farEnd = max(dofB.w, farStart + 1);
+    float s = 0;
+    if (dist < nearEnd) s = -smoothstep(0, 1, (nearEnd - dist) / (nearEnd - nearStart)) * maxPx;
+    else if (dist > farStart) s = smoothstep(0, 1, (dist - farStart) / (farEnd - farStart)) * maxPx;
     return clamp(s, -maxPx, maxPx);
 }
 

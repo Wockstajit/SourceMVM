@@ -25,6 +25,9 @@ mirv_filmmaker lens preset dof cinematic
 mirv_filmmaker lens dof.focus 350
 mirv_filmmaker lens dof.gamma 8
 mirv_filmmaker lens focus auto
+mirv_filmmaker lens dof.focalLength 135
+mirv_filmmaker lens dof.followFov 1
+mirv_filmmaker lens dof.foreground 0
 mirv_filmmaker lens iris shape polygon
 mirv_filmmaker lens iris mask crescent
 mirv_filmmaker lens iris file C:\shapes\star.png
@@ -45,10 +48,15 @@ case it counts as sitting 30 units from the lens.
 
 **Two ways to say what is sharp.**
 
-- *Lens* (Focus row: Manual or Auto): a thin-lens model of a fixed 50 mm lens. The circle of confusion
-  is `c = f² |d − s| / (N d (s − f))` in millimetres (world units are inches, 25.4 mm), turned into
-  pixels through a 36 mm sensor width, so a wider aperture (lower f-number) blurs more. There is no
-  focal-length setting. Blur strength is the f-stop. **Auto** eases toward whatever sits in the middle
+- *Lens* (Focus row: Manual or Auto): a thin-lens model. The circle of confusion is
+  `c = f² |d − s| / (N d (s − f))` in millimetres (world units are inches, 25.4 mm), turned into
+  pixels through a 36 mm sensor width, so a wider aperture (lower f-number) and a longer focal length
+  both blur more. The focal length `f` is the *Focal length* setting (`dof.focalLength`, 10 to 300 mm,
+  default 50), or with *Follow FOV* (`dof.followFov`) the camera's own (see below). *Foreground blur*
+  (`dof.foreground`, 0 to 100%, default 100) scales the blur in front of the focus distance after the
+  *Largest blur* cap, so 50% halves the foreground blur you see and 0 keeps everything in front of the
+  focus sharp while the background still blurs. It also applies to the weapon with *Blur the weapon*
+  on, since the weapon sits in front of the focus. **Auto** eases toward whatever sits in the middle
   of the screen (a 1×1 GPU pass, nine depth taps, nearest-cluster average, wall-clock so it also pulls
   while paused). *Focus speed* (`dof.focusSpeed`, 0.25 to 30 per second, default 6) is how fast:
   each frame moves `1 - exp(-speed × dt)` of the way (`AutofocusStep`), so a pull takes the same time at
@@ -57,7 +65,19 @@ case it counts as sitting 30 units from the lens.
   perfectly sharp. Past the band the blur grows as it would from the focus distance, moved out by the
   band (`SharpBandDistance`), so it starts from zero at the band's edge.
 - *Zones*: four absolute distances (fully blurred / sharp from / sharp until / fully blurred),
-  smooth-stepped between.
+  smooth-stepped between. The focal length and the foreground blur do not apply.
+
+**Focal length and Follow FOV.** A lens of focal length `f` on a sensor 36 mm wide sees
+`tan(hfov / 2) = 18 / f` across the frame. With *Follow FOV* on, `HorizontalFovDegrees` reads the
+frame's horizontal field of view from the world-to-clip matrix it was drawn with, and
+`FocalLengthForFov` turns it into `f = 18 / tan(hfov / 2)`, held to the 10 to 300 mm range. CS2 states
+`fov` for a 4:3 picture and widens it to the frame's aspect, and the matrix already carries that, so
+the default `fov 90` on a 16:9 frame is 106° across, a 13.5 mm lens with almost no blur. Zooming in
+lengthens the lens: `fov 20` at 16:9 is 26° across, about 77 mm. Because the blur is converted to
+pixels through the same 36 mm width, a followed focal length blurs exactly as much as a real lens
+with that view would. The looks keep the default lens (50 mm, not following, full foreground blur).
+`lens state` reports the last frame's view and lens as `hfov` and `focalNow`; the panel shows them
+next to the switch.
 
 Both cap at *Largest blur* (pixels on a 1080p frame, scaled with the resolution). *Show → Focus*
 paints the sharp region magenta, *Blur map* paints near blur orange and far blur blue, and *Zebra*
@@ -165,17 +185,19 @@ so they only look like hearts and hexagons once a disc is a few dozen pixels acr
 for example `dof.focus 25`, `dof.fstop 1`, `dof.maxBlur 90`, to get discs 150 px wide.
 
 **Settings.** `dof.on`, `dof.mode` (0 lens, 1 zones), `dof.auto`, `dof.focusSpeed`, `dof.focus`,
-`dof.fstop`, `dof.range`, `dof.maxBlur`, `dof.nearStart`, `dof.nearEnd`, `dof.farStart`, `dof.farEnd`,
+`dof.fstop`, `dof.range`, `dof.followFov`, `dof.focalLength`, `dof.foreground`, `dof.maxBlur`,
+`dof.nearStart`, `dof.nearEnd`, `dof.farStart`, `dof.farEnd`,
 `dof.shape` (0 circle, 1 polygon, 2 star, 3 heart, 4 ring, 5 custom), `dof.blades`, `dof.rotation`,
 `dof.roundness`, `dof.squeeze`, `dof.edge`, `dof.gamma`, `dof.quality` (48 / 96 / 192 taps),
-`dof.weapon`, `dof.debug` (1 blur map, 2 focus, 3 zebra). That is twenty-two settings. These are fixed
-in `LensFxMath.h` (and mirrored in the HLSL): the focal length (50 mm), the autofocus point (screen
-centre), the weapon distance (30 units), the rim width and the Ring hole. Settings are session-local.
+`dof.weapon`, `dof.debug` (1 blur map, 2 focus, 3 zebra). That is twenty-five settings. These are fixed
+in `LensFxMath.h` (and mirrored in the HLSL): the autofocus point (screen centre), the weapon distance
+(30 units), the rim width and the Ring hole. Settings are session-local.
 
-**Panel.** DEPTH OF FIELD has two pages, with at most eight controls on either. *Focus* holds the look,
-the Manual / Auto / Zones row, focus distance (Manual) or focus speed (Auto), aperture and sharp band
-(or the four zone distances), largest blur, blur the weapon (hidden in Zones to keep the page at eight),
-and *Show*. *Bokeh* starts with the gamma,
+**Panel.** DEPTH OF FIELD has two pages. *Focus* holds the look, the Manual / Auto / Zones row, focus
+distance (Manual) or focus speed (Auto), then the aperture, *Follow FOV* (with the lens it gives, for
+example "77 mm at 26°", while the effect runs), *Focal length* (hidden while Follow FOV is on),
+*Foreground blur* and the sharp band, or in Zones the four zone distances instead of all of those, then
+largest blur, blur the weapon (hidden in Zones) and *Show*. *Bokeh* starts with the gamma,
 then the shape and only the adjustments that mean something for it: blades for polygon and star, blade
 curve for polygon, rotation for anything with an orientation, and the custom-shape picker for Custom.
 Squeeze, rim and quality follow.
@@ -304,7 +326,9 @@ successful rebuild, and `lens.frame` includes the copied depth dimensions.
 ## Verification
 
 `Automation/tests/lens-fx-math-tests.cpp` pins the parameter table, circle
-of confusion (both lens types), iris boundaries, orientation and kernel, the bokeh-gamma lift and the
+of confusion (both lens types), the focal length (the field of view read from a CS2-style 4:3-widened
+projection, rotated, scaled and off-centre; `f = 18 / tan(hfov / 2)`; Follow FOV), the foreground blur,
+iris boundaries, orientation and kernel, the bokeh-gamma lift and the
 gather LOD, masks, presets and the flare math. The flare math covers the luminance gate and its
 monotonicity in the threshold, the isolation and border fade, the limiter and the bounded blend, ghost
 placement on the source-to-centre line, the halo and spike geometry, the palettes and the panel's
@@ -315,8 +339,10 @@ constants and shapes, and that the constant buffer in the shader and the `Consta
 `python Automation/verify/compile-lens-shaders.py` compiles every shader entry with fxc exactly as the
 hook does (it parses `ShaderSource()` and `ShaderRequests()` from `LensFx.cpp`), one PASS/FAIL line each.
 A shader typo or constant-buffer slip shows up without launching the game. `mvm_debug` logs `lens.shader`
-(compile), `lens.frame` (target, depth, sample counts, formats, settings) and `lens.focus` (where autofocus
-is sitting). Live captures are under `Automation/runs/lens/`.
+(compile), `lens.frame` (target, depth, sample counts, formats, settings), `lens.focus` (where autofocus
+is sitting) and, in Manual and Auto, `lens.coc`: the frame's horizontal field of view, the focal length
+the shader was given, the foreground setting, and the blur `CircleOfConfusion` gives at 0.5, 0.75, 1, 2,
+4 and 10 times the focus distance and at the sky. Live captures are under `Automation/runs/lens/`.
 
 `LensFlareGpuTests` renders the real shaders against a one-pixel lamp and checks streak continuity, a single
 smooth peak across its width, and a filled ghost interior. These GPU checks supplement the engine-free math
