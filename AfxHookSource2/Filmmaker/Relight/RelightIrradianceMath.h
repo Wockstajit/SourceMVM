@@ -19,7 +19,15 @@ using Words=std::vector<uint32_t>;
 inline uint32_t Float(float x){uint32_t u;std::memcpy(&u,&x,4);return u;}
 inline Words Dest(unsigned r,unsigned mask=7){return {0x00100002u|(mask<<4),r};}
 inline Words Temp(unsigned r,unsigned swizzle=0xe4){return {0x00100006u|(swizzle<<4),r};}
-inline Words Input(unsigned r,unsigned swizzle=0xe4){return {0x00101006u|(swizzle<<4),r};}
+// The interpolated position/normal the queries read: float3 inputs, declared .xyz (the transform
+// requires xyz and does not require w). Their swizzle must name declared components only, as the
+// SM5 compiler's does (.xyzx). An .xyzw read of an .xyz input is never used by the math, but
+// NVIDIA 616.56 faults intermittently while compiling it, on its own threads, once relit draws
+// begin: Dynamic lighting crashed CS2 within seconds (measured 2026-11-07 with
+// Automation/tools/validate-native-variants.cpp: 41 of 300 cold compiles crashed, 0 of 160 with
+// .xyzx).
+inline constexpr unsigned InputXyz=0x24;
+inline Words Input(unsigned r,unsigned swizzle=InputXyz){return {0x00101006u|(swizzle<<4),r};}
 inline Words Cb(unsigned slot,unsigned row,unsigned swizzle=0xe4){return {0x00208006u|(swizzle<<4),slot,row};}
 inline Words Literal(float x,float y,float z,float w=0){return {0x00004002u,Float(x),Float(y),Float(z),Float(w)};}
 inline void Emit(Words& out,unsigned op,std::initializer_list<Words> operands){
