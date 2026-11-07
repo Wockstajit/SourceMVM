@@ -335,7 +335,7 @@ R"CFJS(
     // so nothing moves; in the MODULAR layout it is the body of a movable window. CONFIG opens on
     // the left in MODULAR layout and the Camera Editor on the right, so both fit side by side.
     var cfgWin = mvmModuleWindow(root, {
-      key: 'config', title: 'CONFIG', accent: S.accent, side: 'left',
+      key: 'config', title: 'CONFIG', accent: S.accent, side: 'left', z: 52,
       onClose: function () { cmd('mirv_filmmaker config off'); }
     });
     var colHost = cfgWin.host;
@@ -1029,7 +1029,7 @@ R"CFJS(
         cfgHostH = modularNow ? hostRect.h : 0;
         syncInspectorHeight();
         // The window pressed last draws on top of the other one (CamEditorRoot is z53).
-        var wantZ = (modularNow && cfgWin.front()) ? '54' : '52';
+        var wantZ = cfgWin.zIndex();
         if (wantZ !== cfgRootZ) { cfgRootZ = wantZ; root.style.zIndex = wantZ; }
         if (modularNow) layoutModular(hostRect);
         else if (st.demo) layoutDemoWorkspace(cur);

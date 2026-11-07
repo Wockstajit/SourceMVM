@@ -31,7 +31,7 @@
 // NOT a standalone script: a raw-string chunk concatenated into a host IIFE. Needs `mk`, `lbl`,
 // `cmd` and `S` (.value .hint .clear) in the host's scope.
 //
-//   var win = mvmModuleWindow(root, { key: 'config', title: 'CONFIG', accent: S.accent,
+//   var win = mvmModuleWindow(root, { key: 'config', title: 'CONFIG', accent: S.accent, z: 52,
 //                                     side: 'left', onClose: function () { cmd('...'); } });
 //   ...build the column inside win.host...
 //   win.layout(st, { modular, rw, rh, w })   every frame; returns the host's rect (see below)
@@ -39,6 +39,7 @@
 //                                             pointer consumer; true while it owns the press
 //   win.over(mx, my)                          client-px point inside the window (wheel routing)
 //   win.front()                               this window was pressed last (z order)
+//   win.zIndex()                              the root's z: opts.z, or 54 while it is the front one
 //   win.hostTop(panel)                        a panel's top edge in the host's own px
 //   win.publish(root)                         the rect and front flag for C++ (UiLayout.h)
 R"MWJS(
@@ -46,7 +47,7 @@ R"MWJS(
     // in MODULAR layout (WorkspaceHeaderJs.h); the window's design height leaves room for it and
     // for CS2's own demo bar (126, TimelineDock.h) at 100% scale.
     var MVM_WIN = { headerH: 44, titleH: 34, margin: 10, nativeDockH: 126, keepOnScreen: 140,
-                    minScale: 0.45, maxScale: 1.25, gripSize: 18, cornerSize: 16 };
+                    minScale: 0.45, maxScale: 1.25, gripSize: 18, cornerSize: 16, frontZ: 54 };
 
     // How tall the bar docked along the bottom is, for a window's bottomClear: the TIMELINE dock's
     // body (its live height while its top edge is being dragged, $.MvmDockBodyH), or CS2's demo
@@ -57,6 +58,24 @@ R"MWJS(
         return (dockH > 36) ? dockH - 36 : 440;
       }
       return 96;
+    }
+
+    // Every window, by key, so a press goes only to the one drawn on top where windows overlap:
+    // the front one, else the higher root z (CONFIG 52 under the Camera Editor 53). Each window
+    // reads the same raw cursor, and without this both took the press and the one pumped last
+    // came to the front (Codex review on #137, 2026-11-07). A closed panel's panels are deleted,
+    // so its entry stops answering; a reopened panel replaces it.
+    if (!$.MvmWins) $.MvmWins = {};
+    function mvmWinTopAt(px, py) {
+      var best = null, bestZ = -1;
+      for (var k in $.MvmWins) {
+        var e = $.MvmWins[k], hit = false;
+        try { hit = e.hit(px, py); } catch (eHit) { hit = false; }
+        if (!hit) continue;
+        var z = ($.MvmWinFront === k) ? MVM_WIN.frontZ : e.z;
+        if (z > bestZ) { bestZ = z; best = k; }
+      }
+      return best;
     }
 
     function mvmModuleWindow(root, opts) {
@@ -197,6 +216,8 @@ R"MWJS(
       var pendingStore = null, pendingFrames = 0;
       var drag = null, lastLmb = false, modular = false, appliedSig = '', appliedScale = 1, pressInside = false;
       var lastPubRect = null, lastPubFront = null, lastScaleText = null, appliedHit = null;
+      // The root's z while this is not the front window (the host's root.style.zIndex).
+      var baseZ = (typeof opts.z === 'number') ? opts.z : 52;
       var designW = 0, designH = 0;
 
       function paintGrip() {
@@ -298,6 +319,7 @@ R"MWJS(
         modular: function () { return modular; },
         scale: function () { return modular ? scale : 1; },
         front: function () { return $.MvmWinFront === key; },
+        zIndex: function () { return '' + ((modular && $.MvmWinFront === key) ? MVM_WIN.frontZ : baseZ); },
         focus: function () { $.MvmWinFront = key; },
         over: function (px, py) { return modular && inRect(rectOf(frame), px, py); },
         setTitle: function (t) { if (title.text !== t) title.text = t; },
@@ -382,7 +404,11 @@ R"MWJS(
           var lmb = !!st.lmb && !!st.cursor;
           var mx = st.mx, my = st.my;
           var sx = frame.actualuiscale_x || 1, sy = frame.actualuiscale_y || 1;
-          if (lmb && !lastLmb) {
+          // Only the window drawn on top where the press lands takes it: its title bar, corners,
+          // close button and the raise on release. A window under another one ignores the press.
+          var pressed = lmb && !lastLmb;
+          var onTop = pressed && mvmWinTopAt(mx, my) === key;
+          if (onTop) {
             var cornerHit = null;
             for (var ci = 0; ci < corners.length && !cornerHit; ci++)
               if (inRect(rectOf(corners[ci].panel), mx, my)) cornerHit = corners[ci];
@@ -430,7 +456,7 @@ R"MWJS(
           // The window pressed last draws on top. Raised on the RELEASE, not the press: the root's
           // z order changing under a held button is not something a click should have to survive.
           if (!lmb && lastLmb && pressInside) $.MvmWinFront = key;
-          if (lmb && !lastLmb) pressInside = inRect(rectOf(frame), mx, my);
+          if (pressed) pressInside = onTop;
           else if (!lmb) pressInside = false;
           lastLmb = lmb;
           return !!drag;
@@ -448,6 +474,13 @@ R"MWJS(
           if (s !== lastPubRect) { lastPubRect = s; rootPanel.SetAttributeString('winrect', s); }
           var f = (modular && $.MvmWinFront === key) ? '1' : '0';
           if (f !== lastPubFront) { lastPubFront = f; rootPanel.SetAttributeString('winfront', f); }
+        }
+      };
+      $.MvmWins[key] = {
+        z: baseZ,
+        hit: function (px, py) {
+          if (!modular || (frame.IsValid && !frame.IsValid())) return false;
+          return inRect(rectOf(frame), px, py);
         }
       };
       return api;

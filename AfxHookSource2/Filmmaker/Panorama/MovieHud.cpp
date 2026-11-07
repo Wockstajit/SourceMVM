@@ -40,6 +40,13 @@ MovieHud& MovieHudRef() {
 	return s_instance;
 }
 
+void MovieHud::HideFor(Hider who, bool hide) {
+	const unsigned before = m_hiders;
+	m_hiders = hide ? (m_hiders | (unsigned)who) : (m_hiders & ~(unsigned)who);
+	if (!before && m_hiders) { m_visibleBeforeHide = m_visible; m_visible = false; }
+	else if (before && !m_hiders) m_visible = m_visibleBeforeHide;
+}
+
 void* MovieHud::FindRoot() {
 	void* ctx = m_bridge.ContextPanel();
 	if (!ctx)

@@ -70,6 +70,34 @@ test('clicks and the wheel go to the window under the pointer', () => {
   assert.match(filmmaker, /if \(!preview && UiLayout_Modular\(\) && \(ConfigHud_Enabled\(\) \|\| CameraEditor_Active\(\)\)\) \{/);
 });
 
+test('where windows overlap, a press goes only to the one drawn on top', () => {
+  const src = win.match(/function mvmWinTopAt\(px, py\) \{[\s\S]*?\n    \}\n/);
+  assert.ok(src, 'mvmWinTopAt is in ModuleWindowJs.h');
+  const topAt = new Function('$', 'MVM_WIN', src[0] + '; return mvmWinTopAt;');
+  const MVM = { frontZ: 54 };
+  const box = (x0, x1) => (px) => px >= x0 && px < x1;
+  const $ = { MvmWins: {
+    config: { z: 52, hit: box(0, 600) },
+    editor: { z: 53, hit: box(400, 1000) },
+  } };
+  const at = topAt($, MVM);
+  assert.equal(at(500, 0), 'editor', 'no front window yet: the higher root z wins');
+  $.MvmWinFront = 'config';
+  assert.equal(at(500, 0), 'config', 'the front window covers the other one');
+  assert.equal(at(700, 0), 'editor', 'outside the overlap each window keeps its own press');
+  assert.equal(at(1200, 0), null);
+  $.MvmWins.config.hit = () => { throw new Error('deleted panel'); };
+  assert.equal(at(500, 0), 'editor', 'a closed window no longer answers');
+
+  assert.match(win, /var onTop = pressed && mvmWinTopAt\(mx, my\) === key;\s*if \(onTop\) \{/, 'title bar, corners and close need the top');
+  assert.match(win, /if \(pressed\) pressInside = onTop;/, 'so does the raise on release');
+  assert.match(win, /\$\.MvmWins\[key\] = \{\s*z: baseZ,/);
+  assert.match(config, /side: 'left', z: 52,/);
+  assert.match(config, /var wantZ = cfgWin\.zIndex\(\);/);
+  assert.match(editor, /side: 'right', z: 53,/);
+  assert.match(editor, /var edWantZ = edWin\.zIndex\(\);/);
+});
+
 test('the close button reads the cursor pipe, and a title bar stays above the dock', () => {
   assert.match(win, /drag = \{ kind: 'close'/);
   assert.match(win, /if \(was\.kind === 'close'\) \{ if \(inRect\(rectOf\(close\), mx, my\) && opts\.onClose\) opts\.onClose\(\); \}/);
@@ -135,6 +163,21 @@ test('the director card follows a layout switch made with CONFIG or the Camera E
   assert.match(configHud, /const bool want = IsLive\(\) \|\| !UiLayout_Modular\(\);/, 'the live sidebar still hides the card');
   assert.match(editorHud, /const bool want = !UiLayout_Modular\(\) \|\| Render_IsModalOpen\(\);/,
     'the Render workspace frames a preview in either layout');
+});
+
+test('the director card comes back once no panel hides it, whatever order they close in', () => {
+  const movieHud = read('Panorama', 'MovieHud.cpp');
+  const movieHudH = read('Panorama', 'MovieHud.h');
+  assert.match(movieHudH, /enum Hider : unsigned \{ HiderConfig = 1u, HiderEditor = 2u \};/);
+  assert.match(movieHud, /if \(!before && m_hiders\) \{ m_visibleBeforeHide = m_visible; m_visible = false; \}\s*else if \(before && !m_hiders\) m_visible = m_visibleBeforeHide;/,
+    'the first hider saves the card, the last one restores it');
+  for (const [name, src, bit] of [['ConfigHud.cpp', configHud, 'HiderConfig'], ['CameraEditorHud.cpp', editorHud, 'HiderEditor']]) {
+    assert.match(src, new RegExp('MovieHudRef\\(\\)\\.HideFor\\(MovieHud::' + bit + ', want\\);'), name);
+    assert.match(src, new RegExp('if \\(m_hidMovieHud\\) MovieHudRef\\(\\)\\.HideFor\\(MovieHud::' + bit + ', false\\);'), name + ' lets go on exit');
+    assert.doesNotMatch(src, /m_prevMovieHud/, name + ' keeps no copy of its own');
+  }
+  assert.doesNotMatch(editorHud, /m_hidMovieHud && !ConfigHud_Enabled\(\)/,
+    'the editor lets go even while a MODULAR CONFIG window, which never hid the card, stays open');
 });
 
 test('modular dock hit tests use the dock body, with no ribbon above it', () => {

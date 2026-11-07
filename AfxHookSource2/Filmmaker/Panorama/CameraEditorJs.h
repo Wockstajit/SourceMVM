@@ -297,7 +297,7 @@ R"EDJS(
     // whole screen in the WORKSPACE layout, a movable window's body in the MODULAR one. The
     // Camera Editor opens on the right in MODULAR layout and CONFIG on the left.
     var edWin = mvmModuleWindow(root, {
-      key: 'editor', title: 'CAMERA EDITOR', accent: S.accent, side: 'right',
+      key: 'editor', title: 'CAMERA EDITOR', accent: S.accent, side: 'right', z: 53,
       onClose: function () { cmd('mirv_filmmaker editor off'); }
     });
     var colHost = edWin.host;
@@ -1265,7 +1265,7 @@ R"EDJS(
       var modularNow = !!st.modular && !renderWorkspaceOpen;
       var edHost = edWin.layout(st, { modular: modularNow, rw: rw, rh: rh, w: inspectorW,
                                       bottomClear: mvmWinDockClear(st.bottomMode, st.dockH) });
-      var edWantZ = (modularNow && edWin.front()) ? '54' : '53';
+      var edWantZ = edWin.zIndex();
       if (edWantZ !== edRootZ) { edRootZ = edWantZ; root.style.zIndex = edWantZ; }
       if (inspectorW !== edLayoutW) { edLayoutW = inspectorW; edRelayout(); }
       edGrip.place(inspectorW);

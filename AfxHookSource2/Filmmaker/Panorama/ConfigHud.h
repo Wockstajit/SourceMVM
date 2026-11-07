@@ -131,7 +131,6 @@ private:
 	bool m_popupOpen = false;
 	bool m_mapViewOpen = false;
 	bool m_viewEdit = false;
-	bool m_prevMovieHud = false; // movie-director card visibility to restore on exit
 	bool m_hidMovieHud = false;  // this panel hid the card (WORKSPACE layout only), so it restores it
 	void ReconcileMovieHud();    // hide or restore the card to suit the layout, every frame while open
 	std::string m_lastState;

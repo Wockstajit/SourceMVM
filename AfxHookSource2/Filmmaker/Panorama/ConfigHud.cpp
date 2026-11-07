@@ -223,8 +223,7 @@ void ConfigHud::OnEnter() {
 void ConfigHud::ReconcileMovieHud() {
 	const bool want = IsLive() || !UiLayout_Modular();
 	if (want == m_hidMovieHud) return;
-	if (want) { m_prevMovieHud = MovieHudRef().Visible(); MovieHudRef().SetVisible(false); }
-	else MovieHudRef().SetVisible(m_prevMovieHud);
+	MovieHudRef().HideFor(MovieHud::HiderConfig, want);
 	m_hidMovieHud = want;
 }
 
@@ -243,7 +242,7 @@ void ConfigHud::OnExit() {
 		CameraTimelineHudRef().SetCursor(false);
 	// HudView is shared, persistent state -- CameraTimelineJs automatically restores the full
 	// game HUD when neither the editor nor this panel is open, so nothing to reset here.
-	if (m_hidMovieHud) MovieHudRef().SetVisible(m_prevMovieHud);
+	if (m_hidMovieHud) MovieHudRef().HideFor(MovieHud::HiderConfig, false);
 	m_hidMovieHud = false;
 	UiLayout_SetPanelRect(UiPanel::Config, 0, 0, 0, 0);
 	// Drop any pending scaled-preview blit so the next full-screen frame renders normally.

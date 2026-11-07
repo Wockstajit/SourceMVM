@@ -80,7 +80,10 @@ it on. CONFIG and the Camera Editor drop any notch queued before they opened.
   release.
 - A window opens at the left (CONFIG) or right (Camera Editor) edge under the header bar, tall
   enough to stay above CS2's demo bar at 100%.
-- The window you pressed last draws on top (`ConfigHudRoot` and `CamEditorRoot` move to z54).
+- The window you pressed last draws on top (`ConfigHudRoot` and `CamEditorRoot` move to z54;
+  otherwise CONFIG sits at z52 under the Camera Editor's z53). Where the windows overlap, only the
+  one drawn on top takes a press: its title bar, corners, close button and the raise on release
+  (`mvmWinTopAt` in `ModuleWindowJs.h`). The one underneath ignores it.
 
 The Render workspace keeps the docked layout: it is a full-screen job with its own preview of the
 final frame. CONFIG's window steps aside while it is up.
@@ -100,8 +103,10 @@ thread, and `MovieMode` reads them on the input thread.
 - Opening one window does not close the other, and neither hides the director card (there is no
   preview for it to sit in). The card follows the layout while a window is open: switching to
   WORKSPACE hides it, switching back restores it (`ReconcileMovieHud` in `ConfigHud.cpp` and
-  `CameraEditorHud.cpp`). The live sidebar and the Render workspace still hide it. Closing the
-  Camera Editor while CONFIG stays open still hands the camera back and stops a Follow preview.
+  `CameraEditorHud.cpp`). The live sidebar and the Render workspace still hide it. Each panel
+  holds its own bit in `MovieHud::HideFor`, so the card comes back as it was once neither hides
+  it, whatever order they close in. Closing the Camera Editor while CONFIG stays open still hands
+  the camera back and stops a Follow preview.
 - CONFIG's CUSTOMIZE PLAYER opens the Camera Editor's own modal while that window is open.
 - CONFIG's ENVIRONMENT tab edits the game view as it does when docked: a left click on the game picks
   and drags scene objects and a held right click looks around, with the Camera Editor's window

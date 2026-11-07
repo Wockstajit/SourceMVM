@@ -174,8 +174,7 @@ void CameraEditorHud::OnEnter() {
 void CameraEditorHud::ReconcileMovieHud() {
 	const bool want = !UiLayout_Modular() || Render_IsModalOpen();
 	if (want == m_hidMovieHud) return;
-	if (want) { m_prevMovieHud = MovieHudRef().Visible(); MovieHudRef().SetVisible(false); }
-	else MovieHudRef().SetVisible(m_prevMovieHud);
+	MovieHudRef().HideFor(MovieHud::HiderEditor, want);
 	m_hidMovieHud = want;
 }
 
@@ -225,13 +224,11 @@ void CameraEditorHud::OnExit() {
 	if (!configTakesOver)
 		MovieModeRef().SetMode(MovieModeRef().GetMode());
 
-	// Do NOT restore the floating movie-director card when Config is taking over. Opening Config
-	// closes the editor, and RunMainThreadFrame runs ConfigHud BEFORE CameraEditorHud: Config's
-	// OnEnter has already captured "hidden" and hidden it again, then this line put it straight
-	// back because the EDITOR captured "visible" when it opened. That is the F8 card reappearing
-	// the moment Config is opened. Config restores it itself when it closes.
-	if (m_hidMovieHud && !ConfigHud_Enabled())
-		MovieHudRef().SetVisible(m_prevMovieHud);
+	// Let go of the floating movie-director card. MovieHud keeps it hidden while CONFIG still
+	// hides it (Config taking over the docked workspace, or the live sidebar), and brings it back
+	// as it was before either panel hid it once neither does. A MODULAR CONFIG window never hid
+	// it, so closing the editor out of the Render workspace shows it again (Codex review on #137).
+	if (m_hidMovieHud) MovieHudRef().HideFor(MovieHud::HiderEditor, false);
 	m_hidMovieHud = false;
 	UiLayout_SetPanelRect(UiPanel::Editor, 0, 0, 0, 0);
 
