@@ -1,6 +1,6 @@
 #pragma once
 
-// LENS cards of the CONFIG panel's CAMERA tab: DEPTH OF FIELD (pages Focus and Bokeh) and
+// LENS cards of the CONFIG panel's CAMERA tab: DEPTH OF FIELD (pages Focus, Lens and Bokeh) and
 // LENS FLARE (pages Look and Detail). JS fragment concatenated (as an adjacent raw string literal)
 // into the script body assembled in ConfigHudJs.h, from inside ConfigHudCameraTabJs.h so the cards
 // land BEFORE the tab footer (Panorama flows siblings in creation order).
@@ -35,9 +35,11 @@ R"CFJS(
 
     // ===================== DEPTH OF FIELD ===============================
     // A post pass over the finished world frame (never the HUD) that reads the engine's own depth
-    // buffer, so the blur follows real distance. Two pages, at most eight controls on either:
+    // buffer, so the blur follows real distance. Three pages, at most eight controls on any:
     //   FOCUS  what is sharp: a look preset, how focus is decided (manual / auto / near-far zones),
     //          the aperture and the sharp band, or the four zone distances, the largest blur.
+    //   LENS   how strongly the lens blurs away from the focus (Manual and Auto): its focal length,
+    //          the camera's own from the FOV or a set one, and how much foreground blur is kept.
     //   BOKEH  what a point of light turns into: the BOKEH GAMMA first (it is what makes the shape
     //          show at all), then the iris shape and its few adjustments.
     // Controls that mean nothing for the current choice are hidden, not left to do nothing.
@@ -85,6 +87,24 @@ R"CFJS(
     var dofDebug = modeRow(dofFocusPage, 'Show', [['0', 'Picture'], ['1', 'Blur map'], ['2', 'Focus'], ['3', 'Zebra']], '260px',
       function (k) { lensSet('dof.debug', k); },
       'Blur map paints foreground blur orange and background blur blue by how strong it is. Focus paints what is sharp magenta -- the fastest way to see where your focus really is. Zebra draws stripes over what is sharp on top of the finished picture.', 13);
+
+    // ---- page: LENS ----
+    // The thin lens behind Manual and Auto. Its focal length is the camera's own (from the field of
+    // view the frame is drawn with, so zooming in lengthens it) or a set one, and the foreground blur
+    // says how much of the blur in front of the focus is kept. Zones set the blur by distance and use
+    // none of this, so the page says so instead of showing controls that do nothing.
+    var dofLensPage = dofSec.__page('Lens');
+    var dofFollowFov = lensToggle(dofLensPage, 'Follow FOV', 'dof.followFov',
+      'Takes the focal length from the camera field of view, like a zoom lens: zoom in (a lower FOV) and the background blurs much more. The normal CS2 FOV of 90 is a very wide lens of about 14 mm, so expect little blur there.');
+    var dofFocal = lensSlider(dofLensPage, 'Focal length', 'dof.focalLength', 10, 300, 0, 'mm',
+      'The lens, in millimetres on a full-frame camera. A longer lens blurs the background much more at the same aperture: 35 mm is wide, 50 mm normal, 85 to 135 mm a portrait look, 200 mm and up a telephoto.');
+    var dofForeground = lensSlider(dofLensPage, 'Foreground blur', 'dof.foreground', 0, 100, 0, '%',
+      'How much of the blur in front of the focus distance is kept. 100% is a real lens. At Off everything in front of the focus stays sharp and only the background blurs.', { offAtZero: true });
+    var dofLensZones = lbl(dofLensPage, 'Zones set the blur by distance. Focal length and foreground blur apply to Manual and Auto.', S.hint, 12);
+    dofLensZones.hittest = false;
+    dofLensZones.style.whiteSpace = 'normal'; dofLensZones.style.width = '100%';
+    dofLensZones.style.paddingLeft = UI.line.padH + 'px'; dofLensZones.style.paddingRight = UI.line.padH + 'px';
+    dofLensZones.style.marginTop = '8px';
 )CFJS"
 R"CFJS(
     // ---- page: BOKEH ----
@@ -136,6 +156,16 @@ R"CFJS(
       dofWeaponToggle.row.visible = !zone;
       dofNearStart.slot.visible = zone; dofNearEnd.slot.visible = zone;
       dofFarStart.slot.visible = zone; dofFarEnd.slot.visible = zone;
+      // The lens page: Follow FOV hides the set focal length and says which one the camera gives
+      // (focalNow / hfov come from the last frame drawn, so only while the effect runs).
+      var follow = L['dof.followFov'] > 0.5, dofOn = L['dof.on'] > 0.5;
+      var focalNow = (follow && dofOn && L.focalNow > 0) ? L.focalNow : L['dof.focalLength'];
+      dofFollowFov.row.visible = !zone;
+      dofFocal.slot.visible = !zone && !follow;
+      dofForeground.slot.visible = !zone;
+      dofLensZones.visible = zone;
+      dofFollowFov.state((follow && dofOn && L.focalNow > 0)
+        ? (L.focalNow.toFixed(0) + ' mm at ' + (L.hfov || 0).toFixed(0) + '°') : '');
       var shape = L['dof.shape'] | 0;
       if (shape < 0 || shape >= IRIS_SHAPES.length) shape = 0;
       dofShapeGrid.sync(String(shape));
@@ -144,8 +174,8 @@ R"CFJS(
       dofRotation.slot.visible = (shape === 1 || shape === 2 || shape === 3 || shape === 5);
       dofMaskGrid.row.visible = (shape === 5);
       dofMaskGrid.sync(L.irisMask || '');
-      dofSec.__note(L['dof.on'] > 0.5
-        ? ((zone ? 'Zones' : ((auto ? 'Auto · ' : '') + 'f/' + (L['dof.fstop'] || 0).toFixed(1)))
+      dofSec.__note(dofOn
+        ? ((zone ? 'Zones' : ((auto ? 'Auto · ' : '') + (focalNow || 0).toFixed(0) + 'mm f/' + (L['dof.fstop'] || 0).toFixed(1)))
            + ' · ' + IRIS_SHAPES[shape][1].toLowerCase()
            + (L['dof.gamma'] > 0 ? ' · gamma ' + L['dof.gamma'].toFixed(1) : ''))
         : 'Off');

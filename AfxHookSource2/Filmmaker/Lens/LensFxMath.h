@@ -31,6 +31,9 @@ namespace Filmmaker::Lens {
 	X(DofFocus,       "dof.focus",       10,    30000, 400,   false) /* world units */ \
 	X(DofFstop,       "dof.fstop",       0.7f,  32,    2.0f,  false) \
 	X(DofRange,       "dof.range",       0,     5000,  0,     false) /* units either side of the focus distance that stay perfectly sharp */ \
+	X(DofFollowFov,   "dof.followFov",   0,     1,     0,     true)  /* the focal length follows the camera's field of view (LensFocalLength) */ \
+	X(DofFocalLength, "dof.focalLength", 10,    300,   50,    false) /* mm on a 36 mm wide sensor, used while dof.followFov is off */ \
+	X(DofForeground,  "dof.foreground",  0,     100,   100,   false) /* % of the blur in front of the focus distance (Manual / Auto) */ \
 	X(DofMaxBlur,     "dof.maxBlur",     1,     90,    40,    false) /* px at 1080p, the largest disc */ \
 	/* ---- zone lens: absolute distances in world units ---- */ \
 	X(DofNearStart,   "dof.nearStart",   0,     20000, 60,    false) /* fully blurred at or closer than this */ \
@@ -133,13 +136,12 @@ constexpr float kGoldenAngle = 2.39996322972865332f;
 
 // World units are inches (CS2), so one unit is 25.4 mm.
 constexpr float kMillimetresPerUnit = 25.4f;
-constexpr float kSensorWidthMm = 36.0f;    // full-frame; only sets how strong a given f-stop looks
+constexpr float kSensorWidthMm = 36.0f;    // full-frame, mapped onto the frame's width
 constexpr float kReferenceHeightPx = 1080; // dof.maxBlur is expressed at this height
 constexpr float kFarSky = 60000.0f;        // distance assigned to sky / the 3D skybox
 
 // Settings that used to be sliders and are now fixed. The HLSL carries the same numbers (a static
 // test in lens-fx-math-tests.cpp compares them), so change both or neither.
-constexpr float kFocalLengthMm = 50.0f;    // the lens is a 50 mm; blur strength is set by the f-stop
 constexpr float kAutofocusX = 0.5f;        // autofocus samples the middle of the screen ...
 constexpr float kAutofocusY = 0.5f;
 constexpr float kAutofocusInstant = 30.0f; // ... and eases toward it at dof.focusSpeed per second; this speed jumps in one frame
@@ -159,6 +161,50 @@ inline float AutofocusStep(float speed, float dt) {
 	return 1.0f - std::exp(-speed * dt);
 }
 
+// ---- focal length -------------------------------------------------------------------------
+//
+// The thin lens needs a focal length. A lens of focal length f on a sensor 36 mm wide sees
+// tan(hfov / 2) = 18 / f across the frame, and the circle of confusion is turned into pixels through
+// that same 36 mm, so a focal length taken from the frame's real field of view blurs exactly as a
+// real lens with that view would: a wide view keeps nearly everything sharp, a narrow one (zoomed
+// in) throws the background far out of focus.
+
+// The frame's horizontal field of view in degrees, from the engine's row-major world-to-clip matrix
+// (clip = M * v: row 0 is clip x, row 3 clip w). This is the view actually drawn, so it already holds
+// CS2's widening of its 4:3 `fov` to the frame's aspect (fov 90 is about 106 degrees across a 16:9
+// frame). 0 when the matrix has no perspective.
+//
+// Row 3 is the view's forward axis (times any homogeneous scale) and row 0 is P00 times the right
+// axis, plus an off-centre term along forward; that term is taken out before measuring P00.
+inline float HorizontalFovDegrees(const float* worldToClip) {
+	if (!worldToClip) return 0.0f;
+	const float* m = worldToClip;
+	const float fl = std::sqrt(m[12] * m[12] + m[13] * m[13] + m[14] * m[14]);
+	if (!(fl > 1e-12f)) return 0.0f;
+	const float ux = m[12] / fl, uy = m[13] / fl, uz = m[14] / fl;
+	const float along = m[0] * ux + m[1] * uy + m[2] * uz;
+	const float rx = m[0] - along * ux, ry = m[1] - along * uy, rz = m[2] - along * uz;
+	const float p00 = std::sqrt(rx * rx + ry * ry + rz * rz) / fl; // 1 / tan(hfov / 2)
+	if (!(p00 > 1e-6f) || !std::isfinite(p00)) return 0.0f;
+	return 2.0f * std::atan(1.0f / p00) * (float)(180.0 / kPi);
+}
+
+// The focal length (mm, 36 mm wide sensor) whose view is `hFovDeg` across, held to the
+// dof.focalLength range. An unknown view (0) gives the setting's default.
+inline float FocalLengthForFov(float hFovDeg) {
+	const ParamSpec& s = Specs()[DofFocalLength];
+	if (!(hFovDeg > 0.0f && hFovDeg < 180.0f)) return s.def;
+	const float f = 0.5f * kSensorWidthMm / std::tan(0.5f * hFovDeg * (float)(kPi / 180.0));
+	return (std::min)((std::max)(f, s.min), s.max);
+}
+
+// The focal length the lens uses this frame: the camera's own (from its field of view) with
+// dof.followFov on and a known view, else the dof.focalLength setting.
+inline float LensFocalLength(const Values& L, float hFovDeg) {
+	if (L[DofFollowFov] > 0.5f && hFovDeg > 0.0f) return FocalLengthForFov(hFovDeg);
+	return L[DofFocalLength];
+}
+
 // ---- circle of confusion ------------------------------------------------------------------
 
 // dof.range: a band either side of the focus distance that stays perfectly sharp, so a subject with
@@ -175,20 +221,24 @@ inline float SharpBandDistance(float distance, float focus, float range) {
 // Signed blur radius in PIXELS of an image `heightPx` tall for a surface `distance` units from
 // the camera (distance along the view axis, not radial). Positive = behind the focus (far
 // field), negative = in front of it (near field). Radius, not diameter: it is what the gather
-// loop compares an offset against.
+// loop compares an offset against. `hFovDeg` is the frame's horizontal field of view (0 when
+// unknown), which dof.followFov turns into the focal length.
 inline float CircleOfConfusion(const Values& L, float distance, float focus, float widthPx,
-	float heightPx) {
+	float heightPx, float hFovDeg = 0.0f) {
 	const float maxPx = L[DofMaxBlur] * heightPx / kReferenceHeightPx;
 	float signedPx = 0.0f;
 	if ((int)L[DofMode] == 0) {
 		// Thin lens: c = f^2 * |d - s| / (N * d * (s - f)), all in millimetres, c is the diameter
 		// on the sensor. That is turned into pixels through the sensor width and halved.
-		const float f = kFocalLengthMm;
+		const float f = LensFocalLength(L, hFovDeg);
 		const float s = (std::max)(focus * kMillimetresPerUnit, f * 1.05f);
 		const float d = (std::max)(SharpBandDistance(distance, focus, L[DofRange]) * kMillimetresPerUnit, 1.0f);
 		const float cMm = f * f * std::fabs(d - s) / (L[DofFstop] * d * (s - f));
-		const float radiusPx = 0.5f * cMm / kSensorWidthMm * widthPx;
-		signedPx = (d >= s) ? radiusPx : -radiusPx;
+		const float radiusPx = (std::min)(0.5f * cMm / kSensorWidthMm * widthPx, maxPx);
+		// dof.foreground scales what is in front of the focus AFTER the cap, so 50% is half the
+		// foreground blur you see even where the lens would blur far past the largest disc. At 0 the
+		// foreground is sharp and only the background blurs.
+		return (d >= s) ? radiusPx : -radiusPx * L[DofForeground] * 0.01f;
 	} else {
 		const float nearStart = L[DofNearStart];
 		const float nearEnd = (std::max)(L[DofNearEnd], nearStart + 1.0f);
@@ -792,8 +842,8 @@ inline bool ApplyDofPreset(Values& L, const char* name) {
 	if (!name) return false;
 	ResetGroup(L, Group::Dof);
 	auto set = [&](int p, double v) { SetClamped(L, p, v); };
-	// The lens is a fixed 50 mm, so blur strength comes from the f-stop alone; the looks that used a
-	// longer lens before use a wider aperture now.
+	// The looks keep the default lens (50 mm, not following the FOV, full foreground blur), so their
+	// blur strength comes from the f-stop alone.
 	if (0 == std::strcmp(name, "cinematic")) {
 		set(DofMode, 0); set(DofFstop, 1.8); set(DofShape, IrisPolygon); set(DofBlades, 7);
 		set(DofRoundness, 0.55); set(DofGamma, 5); set(DofQuality, 2); set(DofEdge, 0.25);
