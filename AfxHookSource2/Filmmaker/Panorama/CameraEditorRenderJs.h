@@ -907,7 +907,7 @@ R"EDJS(
     // GAME HUD, which only applies to Beauty · Everything, and the job-wide extras.
     var HUD_MODES = [['none', 'No HUD'], ['game', 'In-game'], ['full', 'Full HUD']];
     var HUD_SUBS = ['Clean plate — nothing but the world.',
-                    'Health, ammo, radar.',
+                    "The player's own HUD and crosshair.",
                     'Scoreboard and killfeed included.'];
     var hudSec = rsSection(passesPanel, 'GAME HUD');
     var hudAside = lbl(hudSec.__head, 'Beauty · Everything', RS_MUTED, 11); hudAside.hittest = false;

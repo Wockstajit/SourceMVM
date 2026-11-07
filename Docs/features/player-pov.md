@@ -1,9 +1,37 @@
-# Player POV (plan)
+# Player POV
 
-**Status: plan only. Nothing on this page is built yet.** It scopes
+**Status: the In-game HUD view is built (below). The rest of this page is a plan.** It scopes
 [Wockstajit/SourceMVM#116](https://github.com/Wockstajit/SourceMVM/issues/116) into stages the owner
-can approve one at a time. When a stage ships, this page becomes its feature contract and the plan
-text for that stage is replaced by how it works.
+can approve one at a time. When a stage ships, its plan text is replaced by how it works.
+
+## In-game HUD: the player's own screen
+
+The **In-game** HUD option shows the watched player's HUD the way they saw it while playing, so a
+first-person render looks like their own gameplay footage. It is the option that already existed,
+in the same three places:
+
+- the Camera Editor and Config **GAME UI** picker (`mirv_filmmaker editor hud game`),
+- the Render workspace's **GAME HUD → In-game** tile (`mirv_filmmaker render pass hud game`).
+
+There is no separate setting. While the In-game view is on screen (a demo is loaded, the editor or
+Config is open, the view is In-game, and F8 has not blacked the screen out), it:
+
+- hides CS2's spectator panels: the name and weapon bar, the centre avatar and the vignette;
+- sets `cl_radar_square_when_spectating 0`, so the radar is CS2's round one;
+- sets `cl_radar_show_all_players_when_spectating 0`, so only the enemies the team spotted show;
+- sets `cl_show_observer_crosshair 2`, so CS2 draws the watched player's own crosshair.
+
+The viewer's own values of those three are read when the view comes up and written back as soon
+as it goes: switching to another view, closing the editor or Config, F8, or leaving the demo. They
+are written only on those two edges, never every frame. A variable a CS2 update removed is skipped
+and logged, not guessed. The `mvm_debug` log records both edges under `hud.gameplay`.
+
+Pick the player with CS2's own first person (the demo bar's player list, or Customize's player
+pick) and the render's **First Person (POV)** camera.
+
+Code: [GameplayHudLook.h](../../AfxHookSource2/Filmmaker/Movie/GameplayHudLook.h), called from
+`Filmmaker::RunMainThreadFrame` after the HUD panels; the panel hiding is `applyHudView` in
+[CameraTimelineJs.h](../../AfxHookSource2/Filmmaker/Panorama/CameraTimelineJs.h).
 
 ## The request
 
@@ -29,8 +57,8 @@ code is AGPL-3.0-only. SOURCE:MVM is MIT. So:
 - What we used: its README's list of features and settings, which is a description of behaviour, not
   code. Everything below comes from CS2's own console variables, CS2's Panorama layout and style files
   (the local, git-ignored `reference/cs2 refs/` dump), and hooks SOURCE:MVM already has.
-- Our command is `mirv_filmmaker pov`, on the existing command surface. It is not called `mirv_pov`,
-  so nobody mistakes it for the fork's feature or expects its settings to work.
+- Any command this needs goes on `mirv_filmmaker`, never `mirv_pov`, so nobody mistakes it for the
+  fork's feature or expects its settings to work.
 
 ## What SOURCE:MVM already has
 
@@ -41,7 +69,7 @@ code is AGPL-3.0-only. SOURCE:MVM is MIT. So:
 | CS2's demo bar state | Reads `HudDemoController.GetDemoControllerState()` and `GetDemoPlayers()` (spectated pawn, observer mode, roster). `spectateNative()` calls `SpectatePlayer(controller)`, the same thing CS2's player list does. | [CameraTimelineJs.h](../../AfxHookSource2/Filmmaker/Panorama/CameraTimelineJs.h) |
 | Player pick | Customize's roster and pick: first person on a living player, our free cam on a dead player's eye (CS2 refuses to spectate the dead). | [CustomizeTarget.h](../../AfxHookSource2/Filmmaker/Cosmetics/CustomizeTarget.h), [customize-feature.md](customize-feature.md) |
 | Spectate by SteamID | `mirv_filmmaker cosmetics spectate <steamId>` writes the observer target directly, or falls back to one `spec_player`. | `Cosmetics_SpectateSteamId` in `CosmeticDebug.cpp` |
-| Game HUD views | `mirv_filmmaker editor hud hidden\|game\|full`. `game` only hides three spectator panels (`jsHudSpecplayer__Bg`, `HudSpecplayer__Avatar`, `HudSpectatorVignetting`). The same view drives `render pass hud none\|game\|full`. Outside the editor and Config the HUD is always `full`. | `applyHudView` in [CameraTimelineJs.h](../../AfxHookSource2/Filmmaker/Panorama/CameraTimelineJs.h), [CameraEditorHud.h](../../AfxHookSource2/Filmmaker/Panorama/CameraEditorHud.h), [filmmaker_render_passes.md](filmmaker_render_passes.md) |
+| Game HUD views | `mirv_filmmaker editor hud hidden\|game\|full`. `game` is the In-game view above. The same view drives `render pass hud none\|game\|full`. Outside the editor and Config the HUD is always `full`. | `applyHudView` in [CameraTimelineJs.h](../../AfxHookSource2/Filmmaker/Panorama/CameraTimelineJs.h), [CameraEditorHud.h](../../AfxHookSource2/Filmmaker/Panorama/CameraEditorHud.h), [filmmaker_render_passes.md](filmmaker_render_passes.md) |
 | Crosshair off | HUD blackout (F8) and render `hud none` set `crosshair 0` and restore it, because CS2's crosshair is not a Panorama panel. | [HudBlackout.h](../../AfxHookSource2/Filmmaker/Movie/HudBlackout.h) |
 | Aim crosshair | Our own reticle at the recorded aim when camera effects move the view off it. Hides CS2's crosshair while on. | [AimCrosshairHud.h](../../AfxHookSource2/Filmmaker/Panorama/AimCrosshairHud.h) |
 | Viewmodel | CS2 draws the watched player's viewmodel in first person. We add sway, the cosmetics viewmodel mirror and FX alignment on top. | [ViewModel.cpp](../../AfxHookSource2/ViewModel.cpp), `Cosmetics/`, `Movie/FxAlign.cpp` |
@@ -168,10 +196,9 @@ in the top bar. It applies in plain playback and in renders, not only inside the
 
 Cheapest layer first. Stop as soon as the captures match.
 
-- **3a. Console variables (small, about 150 lines).** While POV is on: `cl_radar_square_when_spectating 0`,
-  `cl_radar_show_all_players_when_spectating 0`, `spec_show_xray 0`, `cl_spec_show_bindings 0`, and
-  whichever of `spec_hud_color_to_team` and the overhead-name settings match the player capture.
-  All restored on exit.
+- **3a. Console variables. Built** as the In-game view (top of this page) with the two radar
+  variables and the crosshair. Still to compare against a real player capture:
+  `cl_spec_show_bindings`, `spec_hud_color_to_team` and the overhead-name settings.
 - **3b. Panorama (medium, about 200 to 400 lines of JS plus the mockup).** Extend the `game` view to
   hide whatever spectator-only parts the captures still show, re-asserted every frame like
   `applyHudView` does today. Likely candidates are enemy health in the top bar and spectator name
@@ -214,29 +241,21 @@ look the reporter wants to avoid, so if there is no native path, say so instead.
 **Live check.** Per item: the matching game events in `mvm_debug`, captures across several frames
 (one screenshot cannot show motion), and audio in a rendered clip.
 
-## Recommended first step
+## Next steps
 
-Stage 1, after a short console-only test that needs no build.
+The owner chose the small route first: no new settings, the existing In-game view does the work.
+What is left, in order:
 
-1. **Test (about 30 minutes, no code).** In a GOTV demo, set the variables from the CS2 table by
-   hand (`cl_radar_square_when_spectating 0`, `cl_radar_show_all_players_when_spectating 0`,
-   `cl_show_observer_crosshair 2`, `spec_lock_to_accountid <id>`) and capture before and after. This
-   tells us how much of stages 2 and 3 CS2 already does, and whether its own lock covers stage 1.
-2. **Stage 1** as described, with the setting guard built in, so the variables that pass the test
-   ship with it as part of the POV session.
-
-Stage 1 is the base for everything else: the crosshair, HUD and feedback stages all need a
-dependable "this is the player we are" answer.
+1. Compare a render with **HUD game** against a real player capture from an `mvm_test` bot match
+   and list what still differs (stage 3b).
+2. Stage 1's player lock, only if CS2's own first person turns out to drop the player too often
+   during a render (deaths, seeks).
 
 ## Questions for the owner
 
-1. Is `mirv_filmmaker pov` the right name?
-2. When the locked player dies: stay on their body until they respawn (proposed), follow their
-   killer, or do what CS2 does by default?
-3. Should the player look replace today's `game` HUD view (proposed, since `game` already means
-   "the in-game look"), or be a fourth `player` view?
-4. Scope: GOTV demos only, with "Your Matches" POV demos reporting what they cannot do?
-5. Should a summary of this plan be posted on #116?
+1. If a player lock is built: stay on their body until they respawn, follow their killer, or do
+   what CS2 does by default?
+2. Scope: GOTV demos only, with "Your Matches" POV demos reporting what they cannot do?
 
 ## Not in scope
 

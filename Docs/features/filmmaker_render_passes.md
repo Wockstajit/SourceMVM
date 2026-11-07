@@ -99,6 +99,8 @@ Only Beauty + Everything can carry the game HUD, so the live view of every other
 
 **HUD none** hides the Panorama HUD and also sets `crosshair 0` for the job. CS2's crosshair is not a Panorama panel, so it would otherwise stay in the plate. The job's state guard restores the viewer's `crosshair` value on every outcome. Game and Full keep the crosshair as part of the HUD.
 
+**HUD game** (In-game) records the watched player's HUD the way they saw it while playing: the round radar with only the enemies their team spotted, their own crosshair, and no spectator name bar, avatar or vignette. It is the same In-game view the editor and Config show, described in [player-pov.md](player-pov.md).
+
 EXR output (pre-tonemap HDR) records only the Beauty + Everything plate. `render pass depthdebug 1` records the raw depth sample in Depth passes (r + g/255 + b/65025), which helps diagnose depth decoding.
 
 ## Known limits

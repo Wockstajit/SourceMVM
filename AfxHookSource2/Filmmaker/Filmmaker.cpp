@@ -28,6 +28,7 @@
 #include "EasterEggs/EasterEggs.h"
 #include "Panorama/ConfigHud.h"
 #include "Movie/HudBlackout.h"
+#include "Movie/GameplayHudLook.h"
 #include "Panorama/GraphEditorExperimentHud.h"
 #include "Panorama/DemoBarButtons.h"
 #include "Panorama/PanoramaPerfProbe.h" // main-thread UI cost probe (mvm_debug / `mirv_filmmaker perf`)
@@ -1192,6 +1193,14 @@ void RunMainThreadFrame() {
 	// Camera Editor Mode workspace shell. Runs LAST so its host orchestration (timeline
 	// hosting + gameplay-HUD hide) is applied on top of every other panel this frame.
 	{ PanoramaPerf_Scope _p("cameditor"); CameraEditorHudRef().RunFrame(); }
+
+	// The In-game HUD view as the player saw it: round radar, spotted enemies only, their own
+	// crosshair (Movie/GameplayHudLook.h). Same condition the timeline JS uses to show that view.
+	{
+		const bool workspace = CameraTimelineHudRef().EditorHosted() || CameraEditor_Enabled() || ConfigHud_Enabled();
+		GameplayHudLook_RunFrame(EngineHasDemoLoaded() && workspace && !HudBlackout_Active()
+			&& CameraEditorHudRef().GetHudView() == CameraEditorHud::HudView::InGame);
+	}
 
 	// Easter eggs: rare hints, secret modes, Clippy, the Sony Vegas intervention. The overlay is
 	// the topmost root (z900) in whichever context is up, in-game HUD or main menu.
