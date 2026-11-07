@@ -48,6 +48,10 @@ MaskImage g_iris;
 MaskImage g_dirt;
 std::string g_status = "Off";
 std::atomic<unsigned long long> g_frames{0};
+// The last frame's view and the focal length the depth of field used with it (render thread writes,
+// the panel reads): with dof.followFov on, this is the only place the panel learns the lens it gets.
+std::atomic<float> g_liveHfov{0.0f};
+std::atomic<float> g_liveFocalMm{0.0f};
 
 const int kBuiltInMaskSize = 128;
 
@@ -234,6 +238,7 @@ struct Gpu {
 	std::chrono::steady_clock::time_point lastFrame;
 	bool haveLastFrame = false;
 	unsigned probeCounter = 0;
+	float probedFocus = 0.0f;   // the last autofocus distance read back for mvm_debug (lens.coc)
 } g;
 
 std::vector<PreparedShader> g_prepared;
@@ -624,7 +629,12 @@ void LensFx_AppendStateJson(std::ostringstream& out) {
 	out << ",\"irisMask\":\"" << JsonSafe(g_iris.label) << "\""
 		<< ",\"dirtLoaded\":" << (g_dirt.pixels.empty() ? "false" : "true")
 		<< ",\"status\":\"" << JsonSafe(g_status) << "\""
-		<< ",\"frames\":" << g_frames.load() << "}";
+		<< ",\"frames\":" << g_frames.load();
+	// The view and focal length of the last lens frame (0 before the first); with dof.followFov on the
+	// focal length is the camera's own, so the panel shows this instead of the setting.
+	char lensNow[96];
+	std::snprintf(lensNow, sizeof(lensNow), ",\"hfov\":%.2f,\"focalNow\":%.1f", g_liveHfov.load(), g_liveFocalMm.load());
+	out << lensNow << "}";
 }
 
 void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
@@ -880,7 +890,13 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 	const UINT gw = g.tile[0].w, gh = g.tile[0].h;
 	k.tileInfo = { (float)gw, (float)gh, std::ceil(maxPx / 16.0f) + 1.0f, 0 };
 	k.modes = { dofOn ? 1.f : 0.f, flareOn ? 1.f : 0.f, W / H, 0 };
-	k.dofBand = { L[DofRange], 0, 0, 0 };
+	// The lens: the view actually drawn (CS2's 4:3 fov already widened to this frame) gives the focal
+	// length with dof.followFov on; the foreground scale goes to the shader as a fraction.
+	const float hFov = HorizontalFovDegrees(worldToClip);
+	const float focalMm = LensFocalLength(L, hFov);
+	g_liveHfov.store(hFov);
+	g_liveFocalMm.store(focalMm);
+	k.dofBand = { L[DofRange], focalMm, L[DofForeground] * 0.01f, 0 };
 	// Smoke: only with all three parts (coverage, where the smokes are, where the camera is).
 	const int smokeCount = (smoke.absorbance && smoke.width && smoke.height && smoke.haveCamera && smoke.spheres)
 		? std::min(smoke.count, kLensMaxSmokes) : 0;
@@ -1022,12 +1038,13 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		if (autoFocus && g.focusStaging) {
 			D3D11_MAPPED_SUBRESOURCE map{};
 			if (g.probeCounter > 0 && SUCCEEDED(immediate->Map(g.focusStaging.Get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &map))) {
-				MvmDebugLog_Linef("lens.focus", "autofocus distance=%.2f units", *(const float*)map.pData);
+				g.probedFocus = *(const float*)map.pData;
+				MvmDebugLog_Linef("lens.focus", "autofocus distance=%.2f units", g.probedFocus);
 				immediate->Unmap(g.focusStaging.Get(), 0);
 			}
 			immediate->CopyResource(g.focusStaging.Get(), g.focus[g.focusCur].tex.Get());
 		}
-		if ((g.probeCounter++ % 120) == 0)
+		if ((g.probeCounter++ % 120) == 0) {
 			MvmDebugLog_Linef("lens.frame",
 				"dof=%d flare=%d target=%ux%u samples=%u fmt=%d depth=%ux%u depthSamples=%u depthFmt=%d mode=%d shape=%d "
 				"depthCopy=%ux%u focus=%.1f fstop=%.2f band=%.0f maxBlurPx=%.1f taps=%d auto=%d iris=%d ghosts=%d streak=%.2f star=%.2f threshold=%.2f "
@@ -1037,6 +1054,20 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 				TapCount(L), (int)autoFocus, (int)g.irisLoaded, (int)L[FlareGhosts], L[FlareStreak], L[FlareStar], L[FlareThreshold],
 				smoke.absorbance ? smoke.width : 0u, smoke.absorbance ? smoke.height : 0u, smoke.count, (int)smoke.haveCamera, smokeCount,
 				(int)sun.have, sun.dir[0], sun.dir[1], sun.dir[2], (int)sunOn, sunU, sunV);
+			// The lens the shader was handed this frame and the blur it gives (CircleOfConfusion, the C++
+			// mirror of CoC) at the focus distance in use and at multiples of it, so a log shows how the
+			// background grows with distance and what dof.foreground leaves of the foreground.
+			if (dofOn && (int)L[DofMode] == 0) {
+				const float s = (autoFocus && g.probedFocus > 0) ? g.probedFocus : L[DofFocus];
+				auto coc = [&](float d) { return CircleOfConfusion(L, d, s, W, H, hFov); };
+				MvmDebugLog_Linef("lens.coc",
+					"hfov=%.2f deg follow=%d focal=%.1f mm (setting %.1f) fstop=%.2f foreground=%.0f%% focus=%.1f units%s "
+					"px: 0.5x=%.2f 0.75x=%.2f 1x=%.2f 2x=%.2f 4x=%.2f 10x=%.2f sky=%.2f (max %.1f)",
+					hFov, (int)(L[DofFollowFov] > 0.5f), focalMm, L[DofFocalLength], L[DofFstop], L[DofForeground], s,
+					autoFocus ? " (auto)" : "", coc(0.5f * s), coc(0.75f * s), coc(s), coc(2.0f * s), coc(4.0f * s), coc(10.0f * s),
+					coc(kFarSky), maxPx);
+			}
+		}
 	}
 	std::lock_guard<std::mutex> lock(g_mutex);
 	g_status = "Rendering";
