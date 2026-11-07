@@ -94,7 +94,7 @@ test('the dock groups an object into Position / Rotation / Field of view and off
 test('with the TIMELINE dock up, a notch over a panel still reaches it (dock first, then the column)', () => {
   // It used to be swallowed outright, so CONFIG could not scroll while TIMELINE was open.
   assert.doesNotMatch(movie, /if \(GraphEditorExperiment_Enabled\(\)\)\s*\n\s*return true;/);
-  assert.match(movie, /if \(dockIgnores\) \{\s*\n\s*if \(!cycle\) PushWorkspaceWheel\(delta > 0 \? \+1 : -1\);\s*\n\s*return true;/);
+  assert.match(movie, /if \(dockIgnores\) \{\s*\n\s*if \(!cycle\) PushWorkspaceWheel\(delta > 0 \? \+1 : -1, x, y\);\s*\n\s*return true;/);
   // Over the preview it steps the camera once you have clicked into it (GAME mode), not before.
   assert.match(movie, /const bool dockIgnores = GraphEditorExperiment_Enabled\(\) && !\(cycle && where\.workspace && !where\.uiModeOn\);/);
   assert.match(movie, /if \(ConfigHud_Enabled\(\)\) ConfigHud_PushWheel\(notches\);\s*\n\s*else CameraEditor_PushWheel\(notches\);/);

@@ -1,4 +1,6 @@
 #include "GraphEditorExperimentHud.h"
+#include "UiLayout.h" // MODULAR layout: the dock runs full width
+#include "../Movie/TimelineDock.h" // the operator's dock height
 #include "../Movie/DemoScrub.h"
 #include "../Movie/ScrubFrameCache.h" // the camera flies the world's own tick while the world chases a drag
 #include "../Movie/ScrubFrameCache.h" // the camera flies the world's own tick while the world chases a drag
@@ -391,6 +393,10 @@ std::string GraphEditorExperimentHud::BuildStateJson() {
 	o << "{";
 	o << "\"enabled\":" << (m_enabled ? "true" : "false");
 	o << ",\"renderOpen\":" << (Render_IsModalOpen() ? "true" : "false");
+	// MODULAR layout: the inspector is a floating window, so the dock spans the screen (UiLayout.h).
+	o << ",\"modular\":" << (UiLayout_Modular() ? "true" : "false");
+	// The operator's dock height (the grab strip along the top edge), Movie/TimelineDock.h.
+	o << ",\"dockBodyH\":" << TimelineDock_BodyHeight();
 	// The operator-dragged inspector width: the graph dock fills the screen LEFT of that column,
 	// so it needs the same number CONFIG and the editor lay out to. See InspectorWidth.h.
 	InspectorWidth_AppendJson(o);

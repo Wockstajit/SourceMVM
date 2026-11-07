@@ -101,7 +101,9 @@ test('C++ publishes a suggestion plus an epoch, and never re-derives it from the
 });
 
 test('the dock follows the design: 440 tall, toolbar, overview over the ruler, rows, footer', () => {
-  assert.match(graph, /var DOCK_H = 440, HEADER_H = 72, OVERVIEW_H = 14, RULER_H = 26, ROWS_Y = 112, FOOTER_H = 26;/);
+  // 440 is the design height and the most the operator's top-edge drag allows (Movie/TimelineDock.h).
+  assert.match(graph, /var DOCK_H_MAX = 440, DOCK_H_MIN = 220;/);
+  assert.match(graph, /var DOCK_H = DOCK_H_MAX, HEADER_H = 72, OVERVIEW_H = 14, RULER_H = 26, ROWS_Y = 112, FOOTER_H = 26;/);
   assert.match(graph, /var LEFTW = 296, PAD = 12, SB_W = 12, ROW_H = 22, VAL_W = 120, NAV_W = 54;/);
   assert.match(graph, /overview\.style\.position = LEFTW \+ 'px ' \+ HEADER_H \+ 'px 0px'/);
   assert.match(graph, /ruler\.style\.position = LEFTW \+ 'px ' \+ \(HEADER_H \+ OVERVIEW_H\) \+ 'px 0px'/);
@@ -285,7 +287,7 @@ test('the wheel is contextual and Ctrl/Shift never reaches the camera FOV', () =
   // MovieMode hands the modifier notch to the workspace hosting the dock (CONFIG or the editor)
   // while the dock is up, before its own free-cam FOV branch.
   assert.match(movie,
-    /if \(CameraBridge_GetFreeCamEnabled\(\) && \(ctrlDown \|\| shiftDown\)\) \{\s*if \(GraphEditorExperiment_Enabled\(\)\) \{\s*PushWorkspaceWheel\(delta > 0 \? \+1 : -1\);\s*return true;\s*\}/);
+    /if \(CameraBridge_GetFreeCamEnabled\(\) && \(ctrlDown \|\| shiftDown\)\) \{\s*if \(GraphEditorExperiment_Enabled\(\)\) \{\s*PushWorkspaceWheel\(delta > 0 \? \+1 : -1, x, y\);\s*return true;\s*\}/);
 });
 
 // A key's glyph says the interpolation that is STORED on each side, never a guess from the slope:

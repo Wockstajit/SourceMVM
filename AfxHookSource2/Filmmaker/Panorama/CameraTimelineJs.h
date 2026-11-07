@@ -1955,7 +1955,9 @@ R"TLJS(
         // settles. Only restyle once we actually have a sane full-screen width.
         // ctx-first via hudSizeCss(): root lags a window resize (see the helper).
         var rw = hudSizeCss().w;
-        var barW = renderWorkspace
+        // Full width in the Render workspace, and in the MODULAR layout, where the panels are
+        // floating windows and nothing is docked beside the bar (Panorama/UiLayout.h).
+        var barW = (renderWorkspace || st.modular)
           ? Math.floor(rw)
           : ((rw > editorInspectorW(rw)) ? Math.floor(rw - editorInspectorW(rw)) : 0);
         if (barW <= 0) return; // no valid width yet: hold last-good layout, retry next frame
@@ -1997,7 +1999,7 @@ R"TLJS(
         // Config panel open (not hosted): dock the native demo bar to fit left of the Config
         // inspector (same width as the editor's Regular Timeline mode); otherwise restore the
         // native demo bar to full width / centre (pixel-perfect on exit).
-        if (cfgOpen) {
+        if (cfgOpen && !st.modular) {
           // ctx-first via hudSizeCss(): reading root here is what froze the bar at its old
           // width after a window resize until a dock-tab switch relaid root out.
           var crw = hudSizeCss().w;

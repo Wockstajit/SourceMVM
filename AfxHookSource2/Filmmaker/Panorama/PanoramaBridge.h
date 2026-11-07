@@ -26,12 +26,15 @@ namespace Filmmaker {
 //
 //   50  MovieHud root          (MovieHudJs.h)            - director help/status cards
 //   51  FxDebugHud root        (FxDebugHudJs.h)          - FX wisp-swap debug squares (opt-in)
+//   52  ConfigHud root         (ConfigHudJs.h)           - CONFIG column / its MODULAR window
 //   53  CameraEditor root      (CameraEditorJs.h)        - editor chrome/backdrop (below timeline)
+//   54  ConfigHud / CameraEditor root while it is the FRONT window (MODULAR layout, ModuleWindowJs.h)
 //   55  CameraTimeline root    (CameraTimelineJs.h)      - timeline bar (sits on the editor backdrop)
 //   58  native demo controller (CameraTimelineJs.h)      - ONLY while docked in a workspace, so CS2's
 //                                                          player list / round menu open above the editor
 //   59  CamTimelineRange root  (CameraTimelineRangeJs.h) - loop in/out flags; above the docked native bar
 //   60  MarkerHud root         (MarkerHudJs.h)           - BO2-style marker-edit menu
+//   62  MvmHeaderRoot          (WorkspaceHeaderJs.h)     - MODULAR layout's header bar along the top
 //   65  GraphEditor root       (GraphEditorJs.h)         - experimental graph overlay
 //   220 CamEditorConfirmRoot   (CameraEditorJs.h)        - "clear all" confirm modal (above ALL HUD roots;
 //                                                          as a child of the z53 root it hid behind z55/z65)

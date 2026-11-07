@@ -2,9 +2,12 @@
 
 #include "../Panorama/CameraTimelineHud.h"
 #include "../Debug/MvmDebugLog.h" // mvm_debug: who owns the dock, and who was refused
+#include "../Config/FilmmakerSettingsStore.h" // the operator's dock height (timeline.dockH)
 
 #include "../../../Shared/AfxConsole.h"
 
+#include <atomic>
+#include <cstdlib>
 #include <cstring>
 
 namespace Filmmaker {
@@ -23,7 +26,8 @@ DockHost g_host = DockHost::None;
 // Design dock heights (Docs/panorama/panorama_ui_guide.md), ribbon included: the dock is
 // bottom-anchored and its height changes per tab. TIMELINE is the 440px dock under the 36px ribbon.
 constexpr int kHeightNative = 126;
-constexpr int kHeightTimeline = 476;
+constexpr int kRibbonHeight = 36;
+std::atomic<int> g_bodyHeight{ kTimelineDockBodyMax };
 
 // The Camera Editor outranks CONFIG: it is the workspace that owns the whole screen, and opening
 // it closes CONFIG anyway. Without a rank, a frame in which both believe they are open would let
@@ -32,7 +36,9 @@ int Rank(DockHost host) {
 	switch (host) {
 	case DockHost::CameraEditor: return 2;
 	case DockHost::Config: return 1;
-	default: return 0;
+	// Above "nobody" so a claim against a parked dock succeeds, below every window.
+	case DockHost::Header: return 0;
+	default: return -1;
 	}
 }
 
@@ -40,6 +46,7 @@ const char* HostName(DockHost host) {
 	switch (host) {
 	case DockHost::CameraEditor: return "editor";
 	case DockHost::Config: return "config";
+	case DockHost::Header: return "header";
 	default: return "nobody";
 	}
 }
@@ -76,7 +83,19 @@ bool TimelineDock_ParseTab(const char* name, DockTab& out) {
 }
 
 int TimelineDock_HeightFor(DockTab tab) {
-	return tab == DockTab::Timeline ? kHeightTimeline : kHeightNative;
+	return tab == DockTab::Timeline ? kRibbonHeight + TimelineDock_BodyHeight() : kHeightNative;
+}
+
+int TimelineDock_BodyHeight() { return g_bodyHeight.load(std::memory_order_relaxed); }
+
+void TimelineDock_MainThreadFrame() {
+	const std::string stored = FilmmakerSettings_UiString("timeline.dockH", "");
+	int h = kTimelineDockBodyMax;
+	if (!stored.empty()) {
+		const int v = std::atoi(stored.c_str());
+		if (v > 0) h = v < kTimelineDockBodyMin ? kTimelineDockBodyMin : (v > kTimelineDockBodyMax ? kTimelineDockBodyMax : v);
+	}
+	g_bodyHeight.store(h, std::memory_order_relaxed);
 }
 
 int TimelineDock_Height() { return TimelineDock_HeightFor(g_tab); }
@@ -147,7 +166,7 @@ void TimelineDock_RunCommand(int argc, advancedfx::ICommandArgs* args, const cha
 		// The HOST matters as much as the tab: nothing applies the dock unless a workspace owns
 		// it, so "timeline / nobody" is the signature of a panel that never gets told it is hosted.
 		const char* hostName = g_host == DockHost::CameraEditor ? "camera editor"
-			: (g_host == DockHost::Config ? "config" : "nobody");
+			: (g_host == DockHost::Config ? "config" : (g_host == DockHost::Header ? "header bar" : "nobody"));
 		advancedfx::Message("%s dock is \"%s\" (height %d), hosted by %s"
 			" [native bar hosted=%s; timeline dock enabled=%s].\n", cmd,
 			TimelineDock_TabName(), TimelineDock_Height(), hostName,

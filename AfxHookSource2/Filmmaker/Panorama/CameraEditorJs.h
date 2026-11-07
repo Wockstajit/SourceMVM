@@ -256,6 +256,7 @@ R"EDJS(
 #include "TimelineDockRibbonJs.h"
 #include "InspectorResizeJs.h"
 #include "EditorSettingsPopupJs.h"
+#include "ModuleWindowJs.h"
 R"EDJS(
     // ---- EDITOR SETTINGS fly-out (shared with the Config panel) --------------------------
     // The card itself lives in EditorSettingsPopupJs.h so the Camera Editor and Config show the
@@ -268,6 +269,7 @@ R"EDJS(
     var settingsPopup = mvmEditorSettingsPopup(ctx, {
       id: 'CamEditorSettingsRoot',
       publish: root,
+      modular: function () { return !!(st && st.modular); },
       marginBottom: BOTTOM_H + 16,
       accent: S.freeze,          // Editor Settings owns the theme BLUE, not the editor's gold
       debugTag: 'camsettings',
@@ -290,7 +292,16 @@ R"EDJS(
     // CONFIG's geometry: the row spans the column and CUSTOMIZE PLAYER fills what RENDER leaves.
     // The CUSTOMIZE button used to be built 2000 lines away in CameraEditorCustomizeJs.h at a
     // hard 208px; openCustomize() is a hoisted declaration there, so it is reachable from here.
-    var dockActions = mvmActionRow(root, interactive, [
+    // THE COLUMN'S HOST (ModuleWindowJs.h), shared with CONFIG. The column -- ground, inspector,
+    // fades, scrollbar, drag edge and RENDER / CUSTOMIZE PLAYER -- is built in `colHost`: the
+    // whole screen in the WORKSPACE layout, a movable window's body in the MODULAR one. The
+    // Camera Editor opens on the right in MODULAR layout and CONFIG on the left.
+    var edWin = mvmModuleWindow(root, {
+      key: 'editor', title: 'CAMERA EDITOR', accent: S.accent, side: 'right',
+      onClose: function () { cmd('mirv_filmmaker editor off'); }
+    });
+    var colHost = edWin.host;
+    var dockActions = mvmActionRow(colHost, interactive, [
       { text: 'RENDER', width: 150, onClick: function () { openRender(); } },
       { text: '\u2726  CUSTOMIZE PLAYER', width: 'fill-parent-flow(1.0)',
         onClick: function () { openCustomize(); }, press: true }
@@ -306,9 +317,9 @@ R"EDJS(
     // The column's ground: the Render workspace's background (WorkspaceShellJs.h mvmColumnGround),
     // tinted gold. Root-level, full height, built BEFORE the inspector so it paints under it; the
     // inspector and the footer band behind RENDER / CUSTOMIZE PLAYER are transparent over it.
-    var columnGround = mvmColumnGround(root, S.accent, INSPECTOR_W);
+    var columnGround = mvmColumnGround(colHost, S.accent, INSPECTOR_W);
     // Right inspector column.
-    var inspector = mk('Panel', root); inspector.hittest = false;
+    var inspector = mk('Panel', colHost); inspector.hittest = false;
     inspector.style.horizontalAlign = 'right'; inspector.style.verticalAlign = 'top';
     inspector.style.width = INSPECTOR_W + 'px'; inspector.style.height = '100%';
     inspector.style.backgroundColor = S.clear; inspector.style.borderLeft = '1px solid ' + S.clear;
@@ -351,7 +362,7 @@ R"EDJS(
 
     // Scrollbar thumb -- the only affordance that the column HAS more content, now that the native
     // (undrivable) one is gone. Parented to `root`, not the inspector, so it never scrolls itself.
-    var scrollThumb = mk('Panel', root); scrollThumb.hittest = false; scrollThumb.visible = false;
+    var scrollThumb = mk('Panel', colHost); scrollThumb.hittest = false; scrollThumb.visible = false;
     scrollThumb.style.horizontalAlign = 'right'; scrollThumb.style.verticalAlign = 'top';
     scrollThumb.style.marginRight = '3px'; scrollThumb.style.width = '4px';
     scrollThumb.style.borderRadius = '2px';
@@ -360,7 +371,7 @@ R"EDJS(
 
     // Opaque band behind the floating action row, so scrolled content genuinely ends above the
     // buttons instead of showing through the gaps between them.
-    var footerBg = mk('Panel', root); footerBg.hittest = false; footerBg.visible = false;
+    var footerBg = mk('Panel', colHost); footerBg.hittest = false; footerBg.visible = false;
     footerBg.style.horizontalAlign = 'right'; footerBg.style.verticalAlign = 'bottom';
     footerBg.style.width = INSPECTOR_W + 'px'; footerBg.style.height = ACTION_CLEAR + 'px';
     // Transparent over the column ground: the inspector already ends above the buttons, so this
@@ -377,14 +388,14 @@ R"EDJS(
     // a clipping bug rather than as content continuing above.
     // Parented to root, like the bottom fade, so it does not scroll with what it is fading.
     var TOP_FADE_H = 20;
-    var topFade = mk('Panel', root); topFade.hittest = false; topFade.visible = false;
+    var topFade = mk('Panel', colHost); topFade.hittest = false; topFade.visible = false;
     topFade.style.horizontalAlign = 'right'; topFade.style.verticalAlign = 'top';
     topFade.style.width = INSPECTOR_W + 'px'; topFade.style.height = TOP_FADE_H + 'px';
     topFade.style.zIndex = '110';
     topFade.style.backgroundColor =
       'gradient( linear, 0% 0%, 0% 100%, from( #0f1114ff ), to( #0f111400 ) )';
 
-    var bottomFade = mk('Panel', root); bottomFade.hittest = false; bottomFade.visible = false;
+    var bottomFade = mk('Panel', colHost); bottomFade.hittest = false; bottomFade.visible = false;
     bottomFade.style.horizontalAlign = 'right'; bottomFade.style.verticalAlign = 'bottom';
     bottomFade.style.marginBottom = ACTION_CLEAR + 'px';
     bottomFade.style.width = INSPECTOR_W + 'px'; bottomFade.style.height = FADE_H + 'px';
@@ -397,7 +408,7 @@ R"EDJS(
     // bar and the scaled preview every frame, so the grip only has to move the value.
     var edGripBusy = false;
     var edGrip = mvmInspectorGrip({
-      root: root,
+      root: colHost,
       colour: S.accent,
       screenW: function () {
         var sx = ctx.actualuiscale_x || root.actualuiscale_x || 1;
@@ -419,12 +430,10 @@ R"EDJS(
       var vsy = inspector.actualuiscale_y || 1;
       return ((scrollView && scrollView.actuallayoutheight) || 0) / vsy;
     }
+    // Where the scroll region begins, in the column host's own px: the thumb and the top fade are
+    // host children, and the host is a scaled window body in the MODULAR layout (ModuleWindowJs.h).
     function edScrollTop() {
-      try {
-        var vsy = root.actualuiscale_y || 1;
-        var p = scrollView.GetPositionWithinWindow();
-        return p && isFinite(p.y) ? p.y / vsy : 0;
-      } catch (e) { return 0; }
+      try { return edWin.hostTop(scrollView); } catch (e) { return 0; }
     }
     function edContentH() {
       var vsy = inspector.actualuiscale_y || 1;
@@ -552,6 +561,7 @@ R"EDJS(
 
     var inspectorMode = 'path';
     var renderWsSeen = false;    // drives the workspace-arrival entrance
+    var edRootZ = '53';          // raised to 54 while this is the front window (MODULAR layout)
     var inspectorTabSeen = '';   // last mode an entrance was played for (see the swap guard)
     var editorUiHydrated = false;
     // Inspector tab strip: TEXT TABS ON A RULE, uppercase and letterspaced, the active one
@@ -1085,6 +1095,7 @@ R"EDJS(
 
       root.visible = !!(st.enabled || st.debug);
       if (!st.enabled) {
+        edWin.hide(); edWin.publish(root);
         // Customize Player opened from CONFIG (CameraEditorHud::RunCustomizeOverConfig): the editor's
         // workspace stays closed and hidden, and only the modal runs, over CONFIG.
         var custOverConfig = st.customizeHost === 'config' && !!st.cursor;
@@ -1136,7 +1147,15 @@ R"EDJS(
       custScrollMaintain();  // size + clamp the modal's manual-scroll viewports (right column + open dropdown)
       // The column's drag edge, before every other pointer consumer: while the edge owns the
       // pointer neither a preview pan nor an inspector slider may also claim it.
-      try { edGripBusy = edGrip.pump(st); } catch (e) { edGripBusy = false; }
+      // The window's title bar and bottom edge first (MODULAR layout): a press that moves or
+      // resizes the window must not also start a column resize, a preview pan or a value drag.
+      var edWinBusy = false;
+      try { edWinBusy = edWin.pump(st); } catch (e) { edWinBusy = false; }
+      // The column's width edge belongs to the docked layout; a window's one resize is its corner
+      // scale, which never reflows the column. (The Render workspace is always docked.)
+      var edWindowed = !!st.modular && !(st.render && st.render.open);
+      if (edWinBusy || edWindowed) edGripBusy = false;
+      else { try { edGripBusy = edGrip.pump(st); } catch (e) { edGripBusy = false; } }
       previewUpdateDrag();   // click-and-drag preview panning (reads the live OS-cursor pipe in st.mx/my/lmb)
       cursorSliderPump();    // inspector slider drags: relative, damped, survive leaving the panel
       publishCustomizeOpenState(); // safety net: covers visibility flips that skip open/closeCustomize
@@ -1161,7 +1180,7 @@ R"EDJS(
 	// hiding the inspector left it behind: in the Render workspace -- which has its own JOB and
 	// SETTINGS columns and no draggable inspector -- the editor's amber rule went on painting
 	// down the middle of the screen, over the preview, and could still be grabbed and dragged.
-	edGrip.panel.visible = !renderWorkspaceOpen;
+	edGrip.panel.visible = !renderWorkspaceOpen && !st.modular;
 	// Entering the Render workspace swaps the whole right-hand column and adds a left one; both
 	// slide in together so the change reads as ONE workspace arriving rather than two unrelated
 	// slabs appearing. Fired AFTER the visibility writes above on purpose -- an entrance written
@@ -1240,6 +1259,14 @@ R"EDJS(
       if (rawW < 16) { rawW = ctx.actuallayoutwidth || 0; rawH = ctx.actuallayoutheight || 0; }
       var rw = rawW / rsx, rh = rawH / rsy;
       var inspectorW = responsiveInspectorW(rw);
+      // MODULAR layout (ModuleWindowJs.h): the game stays full screen and the column floats in its
+      // window. The Render workspace keeps the docked layout: it is a full-screen job with its own
+      // preview of the final frame.
+      var modularNow = !!st.modular && !renderWorkspaceOpen;
+      var edHost = edWin.layout(st, { modular: modularNow, rw: rw, rh: rh, w: inspectorW,
+                                      bottomClear: mvmWinDockClear(st.bottomMode, st.dockH) });
+      var edWantZ = (modularNow && edWin.front()) ? '54' : '53';
+      if (edWantZ !== edRootZ) { edRootZ = edWantZ; root.style.zIndex = edWantZ; }
       if (inspectorW !== edLayoutW) { edLayoutW = inspectorW; edRelayout(); }
       edGrip.place(inspectorW);
       inspector.style.width = inspectorW + 'px';
@@ -1263,7 +1290,7 @@ R"EDJS(
       // toggle sitting behind an opaque gold button, which reads as the panel being cut off.
       // Ending the viewport above the action row is the only thing that actually moves content up.
       if (finitePositive(rh)) {
-        var inspH = Math.max(160, Math.floor(rh - (actionRow.visible ? ACTION_CLEAR : 0)));
+        var inspH = Math.max(160, Math.floor(edHost.h - (actionRow.visible ? ACTION_CLEAR : 0)));
         if (inspH !== lastInspectorH) { lastInspectorH = inspH; inspector.style.height = inspH + 'px'; }
       }
       footerBg.visible = actionRow.visible && !renderWorkspaceOpen;
@@ -1275,7 +1302,13 @@ R"EDJS(
       topFade.style.marginTop = edScrollTop() + 'px';
       edApplyScroll();   // re-clamps + re-places the thumb as the column's content changes height
       edRailApplyScroll();   // same for the rail: fewer cameras means less travel
-      if (!finitePositive(rw) || !finitePositive(rh)) {
+      if (modularNow) {
+        // No preview, no letterbox, no dock ribbon: the header bar switches the dock instead.
+        hidePreviewLayout();
+        tabBar.visible = false;
+        backdrop.visible = false;
+        root.SetAttributeString('renderhit', 'off');
+      } else if (!finitePositive(rw) || !finitePositive(rh)) {
         hidePreviewLayout();
       } else {
       // editorTop = y-from-bottom of the TOP edge of whatever editor is docked below the tab bar.
@@ -1286,7 +1319,8 @@ R"EDJS(
 R"EDJS(
       // One shared measurement with CONFIG (mvmDockMeasure, TimelineDockRibbonJs.h): the
       // docked editor's real height, the band above it, and where the ribbon sits.
-      var dm = mvmDockMeasure(ctx, rh, rsy, bm, { floor: BOTTOM_LIFT });
+      var dm = mvmDockMeasure(ctx, rh, rsy, bm, { floor: BOTTOM_LIFT, dockH: st.dockH });
+      TIMELINE_DOCK_H = dm.editorTop;   // the debug overlay's dock rect follows the operator's height
       var editorTop = dm.editorTop, bottomH = dm.bottomH, dockTopY = dm.dockTopY, tabY = dm.tabY;
       tabBar.style.position = '0px 0px 0px';
       tabBar.style.marginTop = Math.floor(tabY) + 'px';
@@ -1437,6 +1471,8 @@ R"EDJS(
       }
       }
 
+      edWin.publish(root);
+
       // The PATH tab fills itself: syncPathInspector lives in CameraEditorPathInspectorJs.h,
       // beside the controls it writes, so render() has nothing to say about what that tab holds.
       syncPathInspector();
@@ -1464,6 +1500,9 @@ R"EDJS(
       // A notch over a value tile was proposed to edit that tile (2% of its range, 0.4% with Shift)
       // rather than scroll -- the original design, superseded by Docs/panorama/panorama_ui_guide.md's
       // scroll-only wheel contract shared with the Config panel.
+      // In the MODULAR layout the column is one window among others over a live game: it scrolls
+      // only while the pointer is over it.
+      if (edWin.modular() && !(st && edWin.over(st.mx, st.my))) return;
       edScrollY -= n * 90;
       edApplyScroll();
     };

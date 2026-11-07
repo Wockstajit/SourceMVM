@@ -42,8 +42,10 @@ namespace Filmmaker {
 enum class DockTab { Native = 0, Timeline = 1 };
 
 // Who is currently responsible for showing the dock. None = nothing is open, so the dock is
-// parked and the native bar is on its own.
-enum class DockHost { None = 0, CameraEditor = 1, Config = 2 };
+// parked and the native bar is on its own. Header = the MODULAR layout's top bar, which hosts the
+// TIMELINE dock when it is switched on with no window open (Panorama/WorkspaceHeaderHud.h); every
+// window outranks it.
+enum class DockHost { None = 0, CameraEditor = 1, Config = 2, Header = 3 };
 
 void TimelineDock_SetTab(DockTab tab);
 DockTab TimelineDock_Tab();
@@ -54,9 +56,18 @@ const char* TimelineDock_TabName();
 bool TimelineDock_ParseTab(const char* name, DockTab& out);
 
 // Dock design heights in the 1080-tall stage, ribbon included: 126 native (translucent, overlays
-// the render), 476 timeline (the 440px dock under the 36px ribbon).
+// the render), and for the timeline the dock's body under the 36px ribbon -- 476 at its full 440.
 int TimelineDock_Height();
 int TimelineDock_HeightFor(DockTab tab);
+
+// The TIMELINE dock's body height. The operator drags its top edge to make it shorter (GraphEditorJs:
+// the grab strip along the top), never taller than the design 440; it is the `timeline.dockH` UI key.
+// Safe from any thread (MovieMode's click routing reads it on the input thread); MainThreadFrame
+// mirrors the stored key once a frame.
+constexpr int kTimelineDockBodyMax = 440;
+constexpr int kTimelineDockBodyMin = 220;
+int TimelineDock_BodyHeight();
+void TimelineDock_MainThreadFrame();
 
 // Ownership. Claim returns false if another host already owns the dock this frame.
 bool TimelineDock_Claim(DockHost host);

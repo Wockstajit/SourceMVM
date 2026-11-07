@@ -527,7 +527,7 @@
       label: 'In-game demo',
       note: 'What you see after a demo loads. Nothing open; CAM EDITOR / CONFIG / LOOP on the demo bar.',
       always: ['moviehud', 'markerhud', 'cameratimeline', 'demobar', 'aimcrosshair', 'fxdebug', 'eastereggs', 'onboarding'],
-      order: ['moviehud', 'markerhud', 'cameratimeline', 'aimcrosshair', 'confighud', 'cameraeditor', 'grapheditor', 'fxdebug', 'eastereggs', 'onboarding'],
+      order: ['moviehud', 'markerhud', 'cameratimeline', 'aimcrosshair', 'confighud', 'cameraeditor', 'header', 'grapheditor', 'fxdebug', 'eastereggs', 'onboarding'],
       native: true, demo: true
     },
     'menu-demos': {
@@ -548,7 +548,7 @@
 
   var sources = {};      // id -> script text, fetched once per page life (watchSources refetches)
   var built = {};        // id -> true while its script is evaluated in the current context
-  var live = { config: false, editor: false, graph: false }; // the HUD drivers' m_wasEnabled
+  var live = { config: false, editor: false, graph: false, header: false }; // the HUD drivers' m_wasEnabled
 
   function byId(id) { return (manifest || []).filter(function (m) { return m.id === id; })[0] || null; }
 
@@ -603,7 +603,7 @@
     state.nav.context = name;
     state.demo = ctxDef.demo;
     built = {};
-    live = { config: false, editor: false, graph: false };
+    live = { config: false, editor: false, graph: false, header: false };
     // reset() removes the old panels, but $ outlives the context. Drop their APIs too:
     // otherwise build() sees the old registration and skips evaluating the new source.
     (manifest || []).forEach(function (m) { if (m.api) delete window.$[m.api]; });
@@ -626,6 +626,7 @@
       if (state.nav.configOpen) { build('confighud'); live.config = true; }
       if (state.nav.editorOpen) { build('cameraeditor'); live.editor = true; }
       if (state.dock.graphEnabled) { build('grapheditor'); live.graph = true; }
+      if (isModular()) { build('header'); live.header = true; }
     }
     [].forEach.call(document.querySelectorAll('.ctx-btn'), function (b) {
       b.classList.toggle('active', b.dataset.ctx === name);
@@ -637,7 +638,8 @@
   // Movie/TimelineDock.cpp, verbatim. Rank: editor 2, config 1. Claim succeeds for the current
   // host or a host of at least equal rank; Release only by the host, and it parks the dock;
   // Apply only by the host, and it writes the tab into the two overlays.
-  function rank(h) { return h === 'editor' ? 2 : (h === 'config' ? 1 : 0); }
+  // Header (the MODULAR layout's bar) ranks above nobody and below both windows.
+  function rank(h) { return h === 'editor' ? 2 : (h === 'config' ? 1 : (h === 'header' ? 0 : -1)); }
   function dockClaim(h) {
     var d = state.dock;
     if (d.host === h) return true;
@@ -666,25 +668,42 @@
   // same. Both workspaces RE-CLAIM every frame, so a claim that loses the open-from-editor race
   // self-heals on the next frame instead of leaving Config with a dead ribbon.
   var customizePending = false;
+  // Panorama/UiLayout.h: the stored layout key.
+  function isModular() { return !!(state.ui && state.ui.layout === 'modular'); }
+  // MovieMode::ClickInput's onPanel, from the rects the windows and the header bar publish
+  // ('winrect'), the TIMELINE dock's band and CS2's demo bar along the bottom.
+  function pointOnPanel(px, py, dockBodyH) {
+    if (px == null || py == null) return false;
+    var ids = ['ConfigHudRoot', 'CamEditorRoot', 'MvmHeaderRoot'];
+    for (var i = 0; i < ids.length; i++) {
+      var r = window.PanoramaShim.findById(ids[i]);
+      var p = (r && r.GetAttributeString ? r.GetAttributeString('winrect', '') : '').split(' ').map(Number);
+      if (p.length === 4 && px >= p[0] && px < p[0] + p[2] && py >= p[1] && py < p[1] + p[3]) return true;
+    }
+    if (state.dock.graphEnabled && py >= 1080 - dockBodyH) return true;
+    return py >= 1080 - 96;
+  }
   function applyWorkspaces() {
     if (state.nav.context !== 'ingame') return;
     var nav = state.nav, dock = state.dock, movie = state.movie;
+    var modular = isModular();
 
     // ---- ConfigHud::RunFrame -------------------------------------------------
-    // Mutual exclusion: the editor is the bigger workspace; if it is up, Config yields.
-    if (nav.configOpen && nav.editorOpen) nav.configOpen = false;
+    // Mutual exclusion: the editor is the bigger workspace; if it is up, Config yields. The
+    // MODULAR layout's windows do not share a column, so both stay.
+    if (nav.configOpen && nav.editorOpen && !modular) nav.configOpen = false;
     if (nav.configOpen && !live.config) {
-      // OnEnter: latch the cursor on, claim the dock, hide the director card.
+      // OnEnter: latch the cursor on, claim the dock, hide the director card (docked only).
       state.cursor = true;
       dockClaim('config');
-      movie.prevConfig = movie.visible;
-      movie.visible = false;
+      movie.hidConfig = !modular;
+      if (movie.hidConfig) { movie.prevConfig = movie.visible; movie.visible = false; }
       live.config = true;
       build('confighud');
     } else if (!nav.configOpen && live.config) {
       // OnExit: park the dock, put the card back, tear down.
       dockRelease('config');
-      movie.visible = movie.prevConfig;
+      if (movie.hidConfig) movie.visible = movie.prevConfig;
       live.config = false;
       teardown('confighud');
     }
@@ -696,8 +715,8 @@
     if (nav.editorOpen && !live.editor) {
       // OnEnter: hide the card, host the timeline (visible later via Apply), cursor on, claim,
       // graph follows the remembered tab, pre-select a key for the inspector (no teleport).
-      movie.prevEditor = movie.visible;
-      movie.visible = false;
+      movie.hidEditor = !modular;
+      if (movie.hidEditor) { movie.prevEditor = movie.visible; movie.visible = false; }
       dock.hosted = true; dock.tlVisible = false;
       state.cursor = true;
       dockClaim('editor');
@@ -712,7 +731,7 @@
       dock.hosted = false; dock.tlVisible = false; dock.graphEnabled = false;
       nav.renderOpen = false; state.render.open = false;
       nav.customizeOpen = false; customizePending = false;
-      if (!nav.configOpen) movie.visible = movie.prevEditor;
+      if (movie.hidEditor && !nav.configOpen) movie.visible = movie.prevEditor;
       live.editor = false;
       teardown('cameraeditor');
     }
@@ -745,6 +764,16 @@
         return customizeVisible();
       }, function () { customizePending = false; nav.customizeOpen = false; });
     }
+
+    // ---- WorkspaceHeaderHud::RunFrame -----------------------------------------
+    // The MODULAR layout's bar: built while the layout is modular, and the TIMELINE dock's host
+    // when it is switched on with no window open.
+    if (modular && !live.header) { live.header = true; build('header'); }
+    else if (!modular && live.header) { live.header = false; teardown('header'); }
+    var headerHosts = modular && !nav.renderOpen && !nav.blackout && !nav.configOpen && !nav.editorOpen
+      && dock.tab === 'timeline';
+    if (headerHosts) { dockClaim('header'); dockApply('header'); }
+    else if (dock.host === 'header') dockRelease('header');
 
     // ---- GraphEditorExperimentHud::RunFrame ----------------------------------
     if (dock.graphEnabled && !live.graph) { live.graph = true; build('grapheditor'); }
@@ -783,7 +812,10 @@
   function stateFor(id) {
     var feed = baseFeed();
     var nav = state.nav, dock = state.dock;
-    var dockH = { native: 126, timeline: 476 }[dock.tab] || 126;
+    // Movie/TimelineDock.cpp: the TIMELINE dock's body is the operator's (timeline.dockH, 220..440)
+    // under the 36px ribbon.
+    var dockBodyH = Math.max(220, Math.min(440, parseFloat(state.ui && state.ui['timeline.dockH']) || 440));
+    var dockH = dock.tab === 'timeline' ? 36 + dockBodyH : 126;
     switch (id) {
       case 'moviehud':
         // MovieHud.cpp: visible = m_visible && !CameraPath_PreviewHudHidden && !captureHide,
@@ -804,6 +836,7 @@
         feed.graphExp = dock.graphEnabled;
         feed.configOpen = nav.configOpen;
         feed.renderOpen = nav.renderOpen;
+        feed.modular = isModular();
         feed.blackout = nav.blackout;
         feed.timelineView = 'timeline';
         break;
@@ -849,9 +882,14 @@
         feed.shakeEssentials = 5;
         feed.enabled = dock.graphEnabled;
         feed.renderOpen = nav.renderOpen;
+        feed.modular = isModular();
+        feed.dockBodyH = dockBodyH;
         break;
       case 'confighud':
         feed.enabled = nav.configOpen && !nav.blackout;
+        feed.modular = isModular();
+        // MovieMode::PointOnPanel: the cursor is on a window, the header bar or a dock.
+        feed.onPanel = feed.modular && pointOnPanel(state.mx, state.my, dockBodyH);
         feed.dockTab = dock.tab;
         feed.dockH = dockH;
         feed.renderOpen = nav.renderOpen;
@@ -864,6 +902,7 @@
         break;
       case 'cameraeditor':
         feed.enabled = nav.editorOpen && !nav.blackout;
+        feed.modular = isModular();
         feed.customizeHost = (nav.customizeOverConfig && !nav.editorOpen) ? 'config' : 'editor';
         // CameraEditorHud::UpdateCustomizeModalState keeps the window's published 'custlayout' for
         // the session and echoes it back as customizeLayout; the browser keeps it the same way.
@@ -877,6 +916,16 @@
         feed.dockH = dockH;
         feed.renderOpen = nav.renderOpen;
         feed.render = Object.assign({}, state.render, { open: nav.renderOpen });
+        break;
+      case 'header':
+        // WorkspaceHeaderHud::BuildStateJson.
+        feed.enabled = isModular() && !nav.renderOpen && !nav.blackout && !state.render.captureHide;
+        feed.modular = true;
+        feed.config = nav.configOpen; feed.editor = nav.editorOpen; feed.render = nav.renderOpen;
+        feed.renderJob = !!state.renderJobActive;
+        feed.dock = dock.tab;
+        feed.customize = customizeVisible();
+        feed.customizeReady = !!(state.customize && state.customize.players && state.customize.players.length);
         break;
       case 'aimcrosshair':
         Object.assign(feed, state.aim);
@@ -931,6 +980,7 @@
     lastFrame = now;
 
     window.MvmState.advance(state, dt);
+    window.PanoramaShim.tickCommands();   // ?cmdlag=N: the game's command buffer runs a frame late
     window.MvmCommands.syncEnvironment(state);
     applyWorkspaces();
     syncNativeChrome(state);
@@ -1055,6 +1105,9 @@
     // surface is the floating bar `camtl open` puts over the HUD.
     cameratimeline: { cmds: ['editor off', 'config off', 'camtl open'],
       holds: function (s) { return !s.nav.editorOpen && !s.nav.configOpen && s.dock.tlVisible; } },
+    // The MODULAR layout: the header bar along the top, CONFIG and the Camera Editor as windows.
+    header: { cmds: ['layout modular', 'render close', 'config on', 'editor on'],
+      holds: function (s) { return isModular() && s.nav.configOpen && s.nav.editorOpen && !s.nav.renderOpen; } },
     grapheditor: { cmds: ['editor on', 'render close', 'dock timeline'],
       holds: function (s) { return s.nav.editorOpen && !s.nav.renderOpen && s.dock.tab === 'timeline'; } },
     markerhud: { cmds: ['editor off', 'config off'], patch: { marker: { mode: 'editing', menuOpen: true, notice: '' } },
