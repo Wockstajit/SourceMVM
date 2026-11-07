@@ -196,6 +196,7 @@ void ConfigHud::OnEnter() {
 	// (see PlayingDemo above), and a panel that reclassified itself mid-seek would swap layout
 	// AND cursor owner underneath the user.
 	m_context = PlayingDemo() ? Context::Demo : Context::Live;
+	{ std::lock_guard<std::mutex> lk(m_wheelMutex); m_pendingWheel = 0; } // nothing from before it opened
 
 	// Start in UI-cursor mode so the panel is immediately clickable (same as the Camera Editor),
 	// but each panel arms its OWN cursor. The live panel must not touch the camera timeline's

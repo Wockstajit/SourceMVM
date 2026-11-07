@@ -142,7 +142,10 @@ static void PushWorkspaceWheel(int notches, int x, int y) {
 		if (at == UiPanel::Config && ConfigHud_Enabled()) { ConfigHud_PushWheel(notches); return; }
 	}
 	if (ConfigHud_Enabled()) ConfigHud_PushWheel(notches);
-	else CameraEditor_PushWheel(notches);
+	else if (CameraEditor_Active()) CameraEditor_PushWheel(notches);
+	// No window: the TIMELINE dock alone (the header bar hosts it) takes the notch itself. A closed
+	// editor never drains its queue, so a notch left there scrolled it on its next open.
+	else if (GraphEditorExperiment_Enabled()) GraphEditorExperiment_PushWheel(notches);
 }
 
 bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, int y) {

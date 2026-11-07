@@ -90,6 +90,9 @@ public:
 	// $.GraphExp.typeChars on the main thread, and MovieMode keeps the same keys off the demo.
 	bool TextCaptureActive() const { return m_textCapture.load(std::memory_order_relaxed); }
 	void PushChar(unsigned charCode);
+	// Wheel notches for the dock when no CONFIG or Camera Editor window hosts it (the MODULAR
+	// layout's header bar does): any thread. Drained into $.GraphExp.wheel after each render.
+	void PushWheel(int notches);
 
 	// One-line dump of the whole editor+model state for the mvm_debug log (`state.graph`,
 	// emitted by MvmCommandTrace after any `mirv_filmmaker grapheditor ...`). The console
@@ -141,6 +144,7 @@ private:
 	std::atomic<bool> m_textCapture{ false };
 	std::mutex m_charMutex;
 	std::vector<unsigned> m_chars;    // typed character codes waiting for the JS
+	int m_pendingWheel = 0;           // under m_charMutex: notches waiting for $.GraphExp.wheel
 	bool m_built = false;
 	bool m_enabled = false;       // graphEditorExperimentEnabled (default OFF)
 	bool m_drive = true;          // live-drive the camera from the experimental curves

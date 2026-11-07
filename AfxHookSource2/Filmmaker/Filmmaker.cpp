@@ -1435,6 +1435,7 @@ bool CameraPath_PreviewHudHidden() { return CameraPathRef().PreviewHudHidden(); 
 void GraphEditorExperiment_Set(bool enabled) { GraphEditorExperimentHudRef().SetEnabled(enabled); }
 void GraphEditorExperiment_Toggle() { GraphEditorExperimentHudRef().Toggle(); }
 bool GraphEditorExperiment_Enabled() { return GraphEditorExperimentHudRef().Enabled(); }
+void GraphEditorExperiment_PushWheel(int notches) { GraphEditorExperimentHudRef().PushWheel(notches); }
 bool GraphEditorExperiment_TextCaptureActive() {
 	return GraphEditorExperimentHudRef().Enabled() && GraphEditorExperimentHudRef().TextCaptureActive();
 }
@@ -1449,6 +1450,11 @@ bool GraphEditorExperiment_WantsCursor() {
 	// preview, and the ENVIRONMENT tab's right-hold look turn it off. Under CONFIG this used to
 	// return true whatever the flag said, which kept MirvInput suspended through the right-hold, so
 	// the fly cam never turned (mvm_debug, 2026-10-17: "camtl cursor off" then mirvActive=0).
+	// Hosted by the MODULAR layout's header bar (no window open): the dock is the standalone
+	// timeline and owns the cursor as it always has. The hosted flag means nothing here: closing
+	// the last window clears it, and nothing on screen could turn it back on.
+	if (TimelineDock_Host() == DockHost::Header)
+		return true;
 	if (TimelineDock_Host() != DockHost::None || CameraEditorHudRef().Enabled())
 		return CameraTimelineHudRef().Cursor();
 	return true;

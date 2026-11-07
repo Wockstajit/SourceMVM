@@ -36,7 +36,10 @@ The gear opens the shared Editor Settings card (`EditorSettingsPopupJs.h`). The 
 Render workspace is up, during a capture, and under F8.
 
 With no window open, the bar hosts the TIMELINE dock itself (`DockHost::Header` in
-`Movie/TimelineDock.h`, ranked below both windows), so TIMELINE works on its own.
+`Movie/TimelineDock.h`, ranked below both windows), so TIMELINE works on its own. The dock is then
+the standalone timeline: it owns the mouse (`GraphEditorExperiment_WantsCursor`), and a wheel notch
+over it goes straight to it (`GraphEditorExperiment_PushWheel`), because no window is there to pass
+it on. CONFIG and the Camera Editor drop any notch queued before they opened.
 
 ## The windows
 

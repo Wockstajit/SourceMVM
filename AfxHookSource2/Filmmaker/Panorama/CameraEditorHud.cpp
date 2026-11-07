@@ -157,6 +157,7 @@ void CameraEditorHud::OnEnter() {
 
 	tl.SetEditorHosted(true);
 	tl.SetVisible(false); // RunFrame applies the remembered bottom mode later this frame.
+	{ std::lock_guard<std::mutex> lk(m_wheelMutex); m_pendingWheel = 0; } // nothing from before it opened
 	tl.SetCursor(true); // start in UI-cursor so the inspector is immediately clickable
 
 	TimelineDock_Claim(DockHost::CameraEditor);

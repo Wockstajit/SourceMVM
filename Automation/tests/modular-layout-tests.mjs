@@ -103,6 +103,19 @@ test('scene objects: a left click on the game picks, with the Camera Editor wind
   }
 });
 
+test('the TIMELINE dock hosted by the header bar owns the mouse and its own wheel', () => {
+  // Review on #137: closing the last window cleared the hosted cursor flag, and wheel notches went
+  // to a closed Camera Editor that never drained them.
+  const body = filmmaker.slice(filmmaker.indexOf('bool GraphEditorExperiment_WantsCursor()'),
+                               filmmaker.indexOf('// --- Fisheye lens (barrel'));
+  assert.match(body, /if \(TimelineDock_Host\(\) == DockHost::Header\)\s*return true;/);
+  assert.match(filmmaker, /void GraphEditorExperiment_PushWheel\(int notches\) \{ GraphEditorExperimentHudRef\(\)\.PushWheel\(notches\); \}/);
+  const graphHud = read('Panorama', 'GraphEditorExperimentHud.cpp');
+  assert.match(graphHud, /\$\.GraphExp && \$\.GraphExp\.wheel && \$\.GraphExp\.wheel\(%d\);/);
+  for (const [name, src] of [['ConfigHud.cpp', configHud], ['CameraEditorHud.cpp', editorHud]])
+    assert.match(src, /m_pendingWheel = 0; \} \/\/ nothing from before it opened/, name + ' drops notches from before it opened');
+});
+
 test('the header bar is torn down with its settings card and hosts the dock only when no window does', () => {
   assert.match(headerHud, /\$\('#MvmHeaderRoot'\)[\s\S]{0,80}\$\('#MvmHeaderSettingsRoot'\)[\s\S]{0,60}\$\.MvmHeader=null/);
   assert.match(header, /'MvmHeaderRoot'/);

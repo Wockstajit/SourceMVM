@@ -97,7 +97,9 @@ test('with the TIMELINE dock up, a notch over a panel still reaches it (dock fir
   assert.match(movie, /if \(dockIgnores\) \{\s*\n\s*if \(!cycle\) PushWorkspaceWheel\(delta > 0 \? \+1 : -1, x, y\);\s*\n\s*return true;/);
   // Over the preview it steps the camera once you have clicked into it (GAME mode), not before.
   assert.match(movie, /const bool dockIgnores = GraphEditorExperiment_Enabled\(\) && !\(cycle && where\.workspace && !where\.uiModeOn\);/);
-  assert.match(movie, /if \(ConfigHud_Enabled\(\)\) ConfigHud_PushWheel\(notches\);\s*\n\s*else CameraEditor_PushWheel\(notches\);/);
+  assert.match(movie, /if \(ConfigHud_Enabled\(\)\) ConfigHud_PushWheel\(notches\);\s*\n\s*else if \(CameraEditor_Active\(\)\) CameraEditor_PushWheel\(notches\);/);
+  // With no window open (the MODULAR header bar hosts the dock) the dock takes the notch itself.
+  assert.match(movie, /else if \(GraphEditorExperiment_Enabled\(\)\) GraphEditorExperiment_PushWheel\(notches\);/);
   const dockFirst = configJs.indexOf('if ($.GraphExp && $.GraphExp.wheel && $.GraphExp.wheel(n)) return;');
   const column = configJs.indexOf('cfgScrollY -= n * 90;');
   assert.ok(dockFirst > 0 && dockFirst < column, 'CONFIG offers the notch to the dock before scrolling its column');

@@ -599,9 +599,34 @@ void GraphEditorExperimentHud::RunFrame() {
 	// once actuallayoutwidth / actuallayoutheight settle, even while paused.
 	m_bridge.RunScriptCached("$.GraphExp && $.GraphExp.render();", "mvm/graphexp.render");
 
+	// The dock's own wheel notches (MODULAR layout, no window hosting it), after render() so the
+	// rows they scroll are laid out for this frame. $.GraphExp.wheel takes the notch only while
+	// the pointer is over the dock.
+	{
+		int notches = 0;
+		{
+			std::lock_guard<std::mutex> lk(m_charMutex);
+			notches = m_pendingWheel;
+			m_pendingWheel = 0;
+		}
+		if (notches != 0) {
+			char js[96];
+			_snprintf_s(js, sizeof(js), _TRUNCATE, "$.GraphExp && $.GraphExp.wheel && $.GraphExp.wheel(%d);", notches);
+			m_bridge.RunScript(js);
+		}
+	}
+
 	// Live-drive runs EVERY frame (independent of the render-on-change gate) so the camera
 	// keeps following the curves while the demo plays.
 	DriveCameraThisFrame();
+}
+
+void GraphEditorExperimentHud::PushWheel(int notches) {
+	std::lock_guard<std::mutex> lk(m_charMutex);
+	int next = m_pendingWheel + notches;
+	if (next > 32) next = 32;
+	if (next < -32) next = -32;
+	m_pendingWheel = next;
 }
 
 // ---- command surface --------------------------------------------------------
