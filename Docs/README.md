@@ -17,6 +17,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | HC Tracker link + Report Bugs (main menu, launcher) | [`filmmaker_community.md`](features/filmmaker_community.md) |
 | Version button and the What's new popup (`CHANGELOG.md`) | [`filmmaker_whats_new.md`](features/filmmaker_whats_new.md) |
 | Movie director and cameras | [`filmmaker_movie_controls.md`](features/filmmaker_movie_controls.md), [`camera-editor-feature.md`](features/camera-editor-feature.md) |
+| Player POV: the In-game HUD as the player saw it (round radar, their crosshair), and the plan for the rest | [`player-pov.md`](features/player-pov.md) |
 | Recording FPS (mux + host_framerate; dial preview-only) | [`filmmaker_render_fps.md`](features/filmmaker_render_fps.md) |
 | Render passes (Beauty / Depth / Normal × visibility, synchronized multipass) | [`filmmaker_render_passes.md`](features/filmmaker_render_passes.md) |
 | Render workspace: range nudges, the done sound, previous renders | [`filmmaker_render_workspace.md`](features/filmmaker_render_workspace.md) |

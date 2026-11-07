@@ -62,8 +62,9 @@ public:
 	// = the unified camera + scene keyframe dock.
 
 	// Game-HUD visibility while the editor is open. HideAll = clean workspace (the original
-	// auto-hide, default); InGame = keep radar + HP/ammo but strip the spectator observer
-	// panel (player avatar/name bar); ShowAll = full spectator HUD. The actual show/hide lives
+	// auto-hide, default); InGame = the watched player's own HUD: the spectator observer panel
+	// (player avatar/name bar) stripped, plus the round radar and their crosshair
+	// (Movie/GameplayHudLook.h); ShowAll = full spectator HUD. The actual show/hide lives
 	// in CameraTimelineHud's JS, which reads this through the "hudView" state field.
 	enum class HudView { HideAll = 0, InGame = 1, ShowAll = 2 };
 	void SetHudView(HudView v) { m_hudView = v; }
