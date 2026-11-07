@@ -131,6 +131,14 @@ void MovieMode::EnqueueCmd(const std::string& c) {
 	m_cmdQueue.push_back(c);
 }
 
+// How tall the dock along the bottom is, in the 1080-tall stage (TimelineDock.h). The docked
+// workspaces put the 36px ribbon above the TIMELINE dock; the MODULAR layout has no ribbon, so
+// there only the dock's body counts, or the strip of game above it would read as dock.
+static int DockBandHeight() {
+	if (UiLayout_Modular() && TimelineDock_Tab() == DockTab::Timeline) return TimelineDock_BodyHeight();
+	return TimelineDock_Height();
+}
+
 // A notch for whichever workspace is up: CONFIG when it is open (it hosts the dock then), the
 // Camera Editor otherwise. Both offer it to the TIMELINE dock before scrolling their column.
 // In the MODULAR layout both windows can be open at once, so a notch over one of them goes to
@@ -289,7 +297,7 @@ UiClick::Input MovieMode::ClickInput(int x, int y) {
 		in.onPanel = UiLayout_PanelAt(x, y) != UiPanel::None
 			|| CameraTimeline_DemoBarContains(x, y)
 			|| (GraphEditorExperiment_Enabled() && clientH > 0
-				&& (float)y >= (float)clientH * (1.f - (float)TimelineDock_Height() / 1080.f));
+				&& (float)y >= (float)clientH * (1.f - (float)DockBandHeight() / 1080.f));
 	}
 	std::lock_guard<std::mutex> lk(m_mutex);
 	if (m_uiPreviewValid)
@@ -1104,7 +1112,7 @@ bool MovieMode::PointerOverDock() {
 	WindowResize_GetClientSize(clientW, clientH);
 	if (clientH <= 0) return true;
 	// The dock spans the bottom of the 1080-tall stage at its shared height (TimelineDock.h).
-	return (float)y >= (float)clientH * (1.f - (float)TimelineDock_Height() / 1080.f);
+	return (float)y >= (float)clientH * (1.f - (float)DockBandHeight() / 1080.f);
 }
 
 bool MovieMode::OnConfigColumn(int x, int y) {

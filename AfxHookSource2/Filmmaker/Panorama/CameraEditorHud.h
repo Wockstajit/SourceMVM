@@ -195,6 +195,7 @@ private:
 	bool m_wasEnabled = false;  // for enter/exit edge detection
 	bool m_prevMovieHud = false; // MovieHud visibility to restore on exit
 	bool m_hidMovieHud = false;  // this panel hid it (WORKSPACE layout only), so it restores it
+	void ReconcileMovieHud();    // hide or restore the card to suit the layout, every frame while open
 	std::string m_lastState;
 	std::vector<std::string> m_evalQueue;
 	bool m_openCustomizeRequested = false;

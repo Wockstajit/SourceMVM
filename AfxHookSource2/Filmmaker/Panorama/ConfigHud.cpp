@@ -213,11 +213,19 @@ void ConfigHud::OnEnter() {
 	// Hide the floating movie-director card (the F8 CONTROLS panel) -- it would otherwise sit
 	// inside the scaled preview. Restored to its previous visibility on exit (editor parity).
 	// The MODULAR layout has no preview: the card stays where it is, like any other window.
-	m_hidMovieHud = !UiLayout_Modular();
-	if (m_hidMovieHud) {
-		m_prevMovieHud = MovieHudRef().Visible();
-		MovieHudRef().SetVisible(false);
-	}
+	m_hidMovieHud = false;
+	ReconcileMovieHud();
+}
+
+// The card is hidden while this panel covers the game: the docked demo workspace (a scaled
+// preview) and the live sidebar. A MODULAR window floats over a full-screen game, so the card stays.
+// Run every frame while the panel is open, because the layout can be switched under it.
+void ConfigHud::ReconcileMovieHud() {
+	const bool want = IsLive() || !UiLayout_Modular();
+	if (want == m_hidMovieHud) return;
+	if (want) { m_prevMovieHud = MovieHudRef().Visible(); MovieHudRef().SetVisible(false); }
+	else MovieHudRef().SetVisible(m_prevMovieHud);
+	m_hidMovieHud = want;
 }
 
 void ConfigHud::OnExit() {
@@ -565,6 +573,8 @@ void ConfigHud::RunFrame() {
 	// Enter / exit edge transitions.
 	if (m_enabled && !m_wasEnabled) { OnEnter(); m_wasEnabled = true; }
 	else if (!m_enabled && m_wasEnabled) { OnExit(); m_wasEnabled = false; }
+	// The layout can be switched with the panel open: the director card follows it.
+	if (m_enabled) ReconcileMovieHud();
 
 	if (!m_enabled) {
 		UiLayout_SetPanelRect(UiPanel::Config, 0, 0, 0, 0);

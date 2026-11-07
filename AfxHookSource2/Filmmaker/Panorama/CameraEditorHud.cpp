@@ -149,11 +149,8 @@ void CameraEditorHud::OnEnter() {
 
 	// The director card would sit inside the scaled preview. The MODULAR layout has none: the card
 	// stays where it is, like any other window.
-	m_hidMovieHud = !UiLayout_Modular();
-	if (m_hidMovieHud) {
-		m_prevMovieHud = MovieHudRef().Visible();
-		MovieHudRef().SetVisible(false);
-	}
+	m_hidMovieHud = false;
+	ReconcileMovieHud();
 
 	tl.SetEditorHosted(true);
 	tl.SetVisible(false); // RunFrame applies the remembered bottom mode later this frame.
@@ -169,6 +166,17 @@ void CameraEditorHud::OnEnter() {
 	// view and camera mode are left exactly as they were. Jumping to / previewing / editing a
 	// camera now requires an explicit action (nav arrows, preview, edit -> SelectForEditor).
 	if (cp.Count() > 0 && cp.Selected() < 0) cp.SelectIndex(0, /*teleport*/ false);
+}
+
+// The card is hidden while the editor frames a scaled preview: the docked workspace, and the
+// Render workspace in either layout. A MODULAR window floats over a full-screen game, so the card
+// stays. Run every frame while the editor is open, because the layout can be switched under it.
+void CameraEditorHud::ReconcileMovieHud() {
+	const bool want = !UiLayout_Modular() || Render_IsModalOpen();
+	if (want == m_hidMovieHud) return;
+	if (want) { m_prevMovieHud = MovieHudRef().Visible(); MovieHudRef().SetVisible(false); }
+	else MovieHudRef().SetVisible(m_prevMovieHud);
+	m_hidMovieHud = want;
 }
 
 // One-shot exit: restore everything the enter step changed and tear down the chrome.
@@ -418,6 +426,8 @@ void CameraEditorHud::RunFrame() {
 	bool exitedThisFrame = false;
 	if (m_enabled && !m_wasEnabled) { OnEnter(); m_wasEnabled = true; }
 	else if (!m_enabled && m_wasEnabled) { OnExit(); m_wasEnabled = false; exitedThisFrame = true; }
+	// The layout can be switched with the editor open: the director card follows it.
+	if (m_enabled) ReconcileMovieHud();
 
 	// Latch the previous frame's flag before any early-out can skip it.
 	const bool debugWasOn = m_debugOverlayWasOn;

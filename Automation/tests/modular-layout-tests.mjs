@@ -124,3 +124,21 @@ test('the header bar is torn down with its settings card and hosts the dock only
   assert.match(filmmaker, /CameraEditorHudRef\(\)\.RunFrame\(\); \}[\s\S]{0,300}WorkspaceHeaderHudRef\(\)\.RunFrame\(\);/,
     'pumped after both windows, so it knows what they hold this frame');
 });
+
+test('the director card follows a layout switch made with CONFIG or the Camera Editor open', () => {
+  for (const [name, src, cls] of [['ConfigHud.cpp', configHud, 'ConfigHud'], ['CameraEditorHud.cpp', editorHud, 'CameraEditorHud']]) {
+    assert.match(src, new RegExp('void ' + cls + '::ReconcileMovieHud\\(\\) \\{[\\s\\S]{0,120}UiLayout_Modular\\(\\)'),
+      name + ': the card is reconciled against the current layout');
+    assert.match(src, /if \(m_enabled\) ReconcileMovieHud\(\);/, name + ': every frame while the panel is open');
+    assert.doesNotMatch(src, /m_hidMovieHud = !UiLayout_Modular\(\);/, name + ': not latched once on enter');
+  }
+  assert.match(configHud, /const bool want = IsLive\(\) \|\| !UiLayout_Modular\(\);/, 'the live sidebar still hides the card');
+  assert.match(editorHud, /const bool want = !UiLayout_Modular\(\) \|\| Render_IsModalOpen\(\);/,
+    'the Render workspace frames a preview in either layout');
+});
+
+test('modular dock hit tests use the dock body, with no ribbon above it', () => {
+  assert.match(movie, /static int DockBandHeight\(\) \{\s*if \(UiLayout_Modular\(\) && TimelineDock_Tab\(\) == DockTab::Timeline\) return TimelineDock_BodyHeight\(\);\s*return TimelineDock_Height\(\);/);
+  assert.match(movie, /in\.onPanel = [\s\S]{0,300}DockBandHeight\(\) \/ 1080\.f/, 'a click just above the dock reaches the game');
+  assert.match(movie, /bool MovieMode::PointerOverDock\(\) \{[\s\S]{0,500}DockBandHeight\(\) \/ 1080\.f/, 'and so does the cursor');
+});

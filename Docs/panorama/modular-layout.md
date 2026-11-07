@@ -98,8 +98,10 @@ thread, and `MovieMode` reads them on the input thread.
 - A wheel notch over a window scrolls that window (`PushWorkspaceWheel`), over the dock it goes to
   the dock, and over the game it steps CS2's camera.
 - Opening one window does not close the other, and neither hides the director card (there is no
-  preview for it to sit in). Closing the Camera Editor while CONFIG stays open still hands the
-  camera back and stops a Follow preview.
+  preview for it to sit in). The card follows the layout while a window is open: switching to
+  WORKSPACE hides it, switching back restores it (`ReconcileMovieHud` in `ConfigHud.cpp` and
+  `CameraEditorHud.cpp`). The live sidebar and the Render workspace still hide it. Closing the
+  Camera Editor while CONFIG stays open still hands the camera back and stops a Follow preview.
 - CONFIG's CUSTOMIZE PLAYER opens the Camera Editor's own modal while that window is open.
 - CONFIG's ENVIRONMENT tab edits the game view as it does when docked: a left click on the game picks
   and drags scene objects and a held right click looks around, with the Camera Editor's window
@@ -112,7 +114,9 @@ thread, and `MovieMode` reads them on the input thread.
 
 The TIMELINE dock and CS2's demo bar span the whole width in the modular layout (`st.modular` in
 `GraphEditorJs.h` and `CameraTimelineJs.h`); nothing is docked beside them. The windows sit under
-the dock (z52-54 against z65).
+the dock (z52-54 against z65). There is no ribbon above the TIMELINE dock here, so the click router
+measures only its body (`DockBandHeight` in `Movie/MovieMode.cpp`): the strip of game just above the
+dock stays the game's.
 
 **The TIMELINE dock's height** is the operator's, in both layouts. Drag the grab strip along its top
 edge down to make it shorter (more of the game shows above it) and back up to its full 440, which is
