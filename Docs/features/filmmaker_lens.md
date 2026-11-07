@@ -193,12 +193,11 @@ for example `dof.focus 25`, `dof.fstop 1`, `dof.maxBlur 90`, to get discs 150 px
 in `LensFxMath.h` (and mirrored in the HLSL): the autofocus point (screen centre), the weapon distance
 (30 units), the rim width and the Ring hole. Settings are session-local.
 
-**Panel.** DEPTH OF FIELD has three pages, with at most eight controls on any. *Focus* holds the look,
-the Manual / Auto / Zones row, focus distance (Manual) or focus speed (Auto), aperture and sharp band
-(or the four zone distances), largest blur, blur the weapon (hidden in Zones to keep the page at eight),
-and *Show*. *Lens* holds *Follow FOV* (with the lens it gives, for example "77 mm at 26°", while the
-effect runs), *Focal length* (hidden while Follow FOV is on) and *Foreground blur*. In Zones the page says
-that these apply to Manual and Auto only. *Bokeh* starts with the gamma,
+**Panel.** DEPTH OF FIELD has two pages. *Focus* holds the look, the Manual / Auto / Zones row, focus
+distance (Manual) or focus speed (Auto), then the aperture, *Follow FOV* (with the lens it gives, for
+example "77 mm at 26°", while the effect runs), *Focal length* (hidden while Follow FOV is on),
+*Foreground blur* and the sharp band, or in Zones the four zone distances instead of all of those, then
+largest blur, blur the weapon (hidden in Zones) and *Show*. *Bokeh* starts with the gamma,
 then the shape and only the adjustments that mean something for it: blades for polygon and star, blade
 curve for polygon, rotation for anything with an orientation, and the custom-shape picker for Custom.
 Squeeze, rim and quality follow.
