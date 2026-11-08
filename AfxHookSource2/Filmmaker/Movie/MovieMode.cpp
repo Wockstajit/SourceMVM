@@ -18,6 +18,7 @@
 #include "../Panorama/CameraEditorHud.h" // CameraEditor_PushWheel: the editor's inspector scrolls the same way
 #include "../Panorama/MovieHud.h"
 #include "../Panorama/UiLayout.h" // MODULAR layout: which floating window a click or notch is on
+#include "../Panorama/WorkspaceHeaderHud.h" // MODULAR layout: the header's settings card is up
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_*
 #include "../Demo/PlayingDemoPath.h" // ResolvePlayingDemoPath: per-demo X-ray default
 #include "../Relight/RelightLightEditor.h" // LightEditorKey: F/Esc while the light editor is on
@@ -282,7 +283,8 @@ UiClick::Input MovieMode::ClickInput(int x, int y) {
 	in.workspace = CameraEditor_Active() || ConfigHud_Enabled();
 	// The keyframe shake menu (right-click a diamond) opens over the preview too: a click on its
 	// close button or rows is the menu's, not a switch to GAME mode.
-	in.popupOpen = CameraEditor_PopupOpen() || ConfigHud_PopupOpen() || CameraTimeline_MenuOpen();
+	in.popupOpen = CameraEditor_PopupOpen() || ConfigHud_PopupOpen() || CameraTimeline_MenuOpen()
+		|| WorkspaceHeader_PopupOpen();
 	// The docked Camera Editor covers CONFIG, so its scene editing only counts while the editor is
 	// closed. MODULAR windows sit side by side: CONFIG's ENVIRONMENT tab edits the game view with the
 	// editor's window open too (the owner's report, 2026-11-07: left click flew the camera there).
@@ -293,8 +295,11 @@ UiClick::Input MovieMode::ClickInput(int x, int y) {
 	// MODULAR layout: the panels float over a full-screen game, so a point is the game's only when
 	// it is on none of them -- the windows and the header bar (their scripts publish where they
 	// are), CS2's demo bar, and the TIMELINE dock along the bottom.
+	// The header's Editor Settings card covers the whole screen (a click beside it closes it), so
+	// while it is up every point is on it.
 	if (UiLayout_Modular() && x >= 0 && y >= 0) {
-		in.onPanel = UiLayout_PanelAt(x, y) != UiPanel::None
+		in.onPanel = WorkspaceHeader_PopupOpen()
+			|| UiLayout_PanelAt(x, y) != UiPanel::None
 			|| CameraTimeline_DemoBarContains(x, y)
 			|| (GraphEditorExperiment_Enabled() && clientH > 0
 				&& (float)y >= (float)clientH * (1.f - (float)DockBandHeight() / 1080.f));
@@ -329,8 +334,11 @@ bool MovieMode::OnUiClick(int x, int y) {
 	// and a press on it is the bar's, press and release. In the free cam it used to become a
 	// hold-to-look (OnMouseButton swallows every click there), so the bar's buttons were dead until
 	// the wheel cycled back to one of CS2's own cameras (mvm_debug 2026-10-17 08:13).
+	// The MODULAR header bar and its Editor Settings card are UI the same way: the card drops below
+	// the bar and covers the screen, so while it is up every click is the card's (Codex review on #137).
 	if (!CameraEditor_Active() && !ConfigHud_Enabled()
-		&& (CameraTimeline_DemoBarContains(x, y) || UiLayout_PanelAt(x, y) == UiPanel::Header)) {
+		&& (CameraTimeline_DemoBarContains(x, y) || UiLayout_PanelAt(x, y) == UiPanel::Header
+			|| WorkspaceHeader_PopupOpen())) {
 		if (MvmDebugLog_Active())
 			MvmDebugLog_Linef("input.uiclick", "x=%d y=%d on the demo bar -> the bar's (no look, no capture)", x, y);
 		return true;

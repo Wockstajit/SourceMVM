@@ -382,7 +382,8 @@ void CameraTimelineHud::PushShakeStyles() {
 void CameraTimelineHud::RunFrame() {
 	m_bridge.Init();
 
-	unsigned char* hud = PlayingDemo() ? AfxHookSource2_GetPanoramaHudPanel() : nullptr;
+	m_demoActive = PlayingDemo();
+	unsigned char* hud = m_demoActive ? AfxHookSource2_GetPanoramaHudPanel() : nullptr;
 	if (!hud) { Teardown(); return; }
 	if (hud != m_hudPanel) { m_hudPanel = hud; m_built = false; }
 	m_bridge.SetContextPanel(hud);

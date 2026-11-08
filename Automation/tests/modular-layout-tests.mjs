@@ -65,7 +65,7 @@ test('clicks and the wheel go to the window under the pointer', () => {
   for (const src of [config, editor]) assert.match(src, /Win\.publish\(root\);/);
   assert.match(configHud, /UiLayout_SetPanelRectString\(UiPanel::Config, /);
   assert.match(editorHud, /UiLayout_SetPanelRectString\(UiPanel::Editor, /);
-  assert.match(movie, /in\.onPanel = UiLayout_PanelAt\(x, y\) != UiPanel::None/);
+  assert.match(movie, /in\.onPanel = WorkspaceHeader_PopupOpen\(\)\s*\|\| UiLayout_PanelAt\(x, y\) != UiPanel::None/);
   assert.match(movie, /static void PushWorkspaceWheel\(int notches, int x, int y\)/);
   assert.match(filmmaker, /if \(!preview && UiLayout_Modular\(\) && \(ConfigHud_Enabled\(\) \|\| CameraEditor_Active\(\)\)\) \{/);
 });
@@ -184,4 +184,20 @@ test('modular dock hit tests use the dock body, with no ribbon above it', () => 
   assert.match(movie, /static int DockBandHeight\(\) \{\s*if \(UiLayout_Modular\(\) && TimelineDock_Tab\(\) == DockTab::Timeline\) return TimelineDock_BodyHeight\(\);\s*return TimelineDock_Height\(\);/);
   assert.match(movie, /in\.onPanel = [\s\S]{0,300}DockBandHeight\(\) \/ 1080\.f/, 'a click just above the dock reaches the game');
   assert.match(movie, /bool MovieMode::PointerOverDock\(\) \{[\s\S]{0,500}DockBandHeight\(\) \/ 1080\.f/, 'and so does the cursor');
+});
+
+test('a demo_gototick seek does not tear the header bar down, or the TIMELINE dock it hosts', () => {
+  const camtl = read('Panorama', 'CameraTimelineHud.cpp');
+  const camtlH = read('Panorama', 'CameraTimelineHud.h');
+  assert.match(camtlH, /bool DemoActive\(\) const \{ return m_demoActive; \}/);
+  assert.match(camtl, /m_demoActive = PlayingDemo\(\);\s*unsigned char\* hud = m_demoActive \?/, 'the debounced reading, once a frame');
+  assert.match(headerHud, /const bool playingDemo = CameraTimelineHudRef\(\)\.DemoActive\(\);/);
+  assert.doesNotMatch(headerHud, /IsPlayingDemo\(\)/, 'no raw reading of its own');
+  assert.match(filmmaker, /CameraTimelineHudRef\(\)\.RunFrame\(\);[\s\S]*WorkspaceHeaderHudRef\(\)\.RunFrame\(\);/, 'the timeline pumps first');
+});
+
+test("the header's settings card owns every click and notch while it is up", () => {
+  assert.match(movie, /in\.popupOpen = [^;]*\|\| WorkspaceHeader_PopupOpen\(\);/);
+  assert.match(movie, /in\.onPanel = WorkspaceHeader_PopupOpen\(\)\s*\|\| UiLayout_PanelAt\(x, y\) != UiPanel::None/, 'the wheel too, with no window open');
+  assert.match(movie, /UiLayout_PanelAt\(x, y\) == UiPanel::Header\s*\|\| WorkspaceHeader_PopupOpen\(\)\)\) \{/, 'a click with no window open stays UI, in the free cam too');
 });

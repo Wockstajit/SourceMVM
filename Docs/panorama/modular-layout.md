@@ -21,8 +21,10 @@ restart. Modular applies to demo playback; the live `mvm_test` CONFIG panel keep
 ## The header bar
 
 `Panorama/WorkspaceHeaderHud.{h,cpp}` and `WorkspaceHeaderJs.h`. Built into the HUD context while a
-demo plays in the modular layout, and torn down otherwise. Its tabs use the dock ribbon's box and
-each lights in its panel's accent while that panel is open:
+demo plays in the modular layout, and torn down otherwise. "A demo plays" is the camera timeline's
+reading (`CameraTimelineHud::DemoActive`), which rides out the few frames a `demo_gototick` seek
+reports no demo, so a scrub does not tear the bar and its dock down. Its tabs use the dock ribbon's
+box and each lights in its panel's accent while that panel is open:
 
 | Tab | Command |
 | --- | --- |
@@ -32,7 +34,9 @@ each lights in its panel's accent while that panel is open:
 | RENDER | `mirv_filmmaker editor render`, or `render close` while it is open |
 | CUSTOMIZE | `mirv_filmmaker editor customize` |
 
-The gear opens the shared Editor Settings card (`EditorSettingsPopupJs.h`). The bar hides while the
+The gear opens the shared Editor Settings card (`EditorSettingsPopupJs.h`). It covers the screen (a
+click beside the card closes it), so while it is up every click and wheel notch is the UI's
+(`WorkspaceHeader_PopupOpen` in `MovieMode`), the free cam included. The bar hides while the
 Render workspace is up, during a capture, and under F8.
 
 With no window open, the bar hosts the TIMELINE dock itself (`DockHost::Header` in

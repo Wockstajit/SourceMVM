@@ -16,12 +16,7 @@
 
 #include "../../DeathMsg.h" // AfxHookSource2_GetPanoramaHudPanel
 
-#include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
-#include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
-
 #include <sstream>
-
-extern SOURCESDK::CS2::ISource2EngineToClient* g_pEngineToClient;
 
 namespace Filmmaker {
 
@@ -88,11 +83,10 @@ std::string WorkspaceHeaderHud::BuildStateJson() {
 void WorkspaceHeaderHud::RunFrame() {
 	m_bridge.Init();
 
-	bool playingDemo = false;
-	if (g_pEngineToClient) {
-		if (auto pDemo = g_pEngineToClient->GetDemoFile())
-			playingDemo = pDemo->IsPlayingDemo() || pDemo->IsDemoPaused();
-	}
+	// The camera timeline's reading, which pumps earlier this frame: a demo_gototick seek reports
+	// no demo for a few frames, and taking that raw tore the bar down on every seek -- and with it
+	// the TIMELINE dock it hosts, ending the scrub that caused the seek (Codex review on #137).
+	const bool playingDemo = CameraTimelineHudRef().DemoActive();
 	unsigned char* hud = (playingDemo && UiLayout_Modular()) ? AfxHookSource2_GetPanoramaHudPanel() : nullptr;
 	if (!hud) {
 		Teardown();
