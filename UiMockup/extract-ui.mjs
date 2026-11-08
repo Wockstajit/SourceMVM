@@ -35,6 +35,7 @@ export const SURFACES = [
   { id: 'render',         variantOf: 'cameraeditor',          api: 'CamEditor',    label: 'Render Workspace',        group: 'ingame', note: 'Range, output, passes, START RENDER, and the running-job state' },
   { id: 'keyeditor',      variantOf: 'cameraeditor',          api: 'CamEditor',    label: 'Key Editor',              group: 'ingame', note: 'Selected camera key: transform, lens, curve, speed and shortcuts' },
   { id: 'customize',      variantOf: 'cameraeditor',          api: 'CamEditor',    label: 'Customize Player',        group: 'ingame', note: 'Agent, weapon skin, knife and glove pickers for the selected player' },
+  { id: 'header',         file: 'WorkspaceHeaderJs.h',        api: 'MvmHeader',    cpp: 'WorkspaceHeaderHud.cpp', label: 'Header Bar (modular)',  group: 'ingame', note: 'MODULAR layout: CONFIG / CAMERA EDITOR / TIMELINE / RENDER / CUSTOMIZE, Editor Settings, layout switch' },
   { id: 'grapheditor',    file: 'GraphEditorJs.h',            api: 'GraphExp',     cpp: 'GraphEditorExperimentHud.cpp', label: 'Graph Editor',            group: 'ingame', note: 'Curve channels for the selected camera path' },
   { id: 'markerhud',      file: 'MarkerHudJs.h',              api: 'MarkerHud',    label: 'Marker HUD',              group: 'ingame', note: 'Camera-path marker overlay + guidance card' },
   { id: 'moviehud',       file: 'MovieHudJs.h',               api: 'MovieHud',     label: 'Movie HUD',               group: 'ingame', note: 'Reposition / edit-mode director card' },

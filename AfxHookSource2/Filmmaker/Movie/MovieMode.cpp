@@ -17,6 +17,8 @@
 #include "../Render/RenderCommand.h"  // Render_IsModalOpen / Render_IsJobActive: Esc leaves the Render workspace
 #include "../Panorama/CameraEditorHud.h" // CameraEditor_PushWheel: the editor's inspector scrolls the same way
 #include "../Panorama/MovieHud.h"
+#include "../Panorama/UiLayout.h" // MODULAR layout: which floating window a click or notch is on
+#include "../Panorama/WorkspaceHeaderHud.h" // MODULAR layout: the header's settings card is up
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_*
 #include "../Demo/PlayingDemoPath.h" // ResolvePlayingDemoPath: per-demo X-ray default
 #include "../Relight/RelightLightEditor.h" // LightEditorKey: F/Esc while the light editor is on
@@ -130,11 +132,29 @@ void MovieMode::EnqueueCmd(const std::string& c) {
 	m_cmdQueue.push_back(c);
 }
 
+// How tall the dock along the bottom is, in the 1080-tall stage (TimelineDock.h). The docked
+// workspaces put the 36px ribbon above the TIMELINE dock; the MODULAR layout has no ribbon, so
+// there only the dock's body counts, or the strip of game above it would read as dock.
+static int DockBandHeight() {
+	if (UiLayout_Modular() && TimelineDock_Tab() == DockTab::Timeline) return TimelineDock_BodyHeight();
+	return TimelineDock_Height();
+}
+
 // A notch for whichever workspace is up: CONFIG when it is open (it hosts the dock then), the
 // Camera Editor otherwise. Both offer it to the TIMELINE dock before scrolling their column.
-static void PushWorkspaceWheel(int notches) {
+// In the MODULAR layout both windows can be open at once, so a notch over one of them goes to
+// that one (Panorama/UiLayout.h); anywhere else it goes the usual way, to reach the dock.
+static void PushWorkspaceWheel(int notches, int x, int y) {
+	if (UiLayout_Modular()) {
+		const UiPanel at = UiLayout_PanelAt(x, y);
+		if (at == UiPanel::Editor && CameraEditor_Active()) { CameraEditor_PushWheel(notches); return; }
+		if (at == UiPanel::Config && ConfigHud_Enabled()) { ConfigHud_PushWheel(notches); return; }
+	}
 	if (ConfigHud_Enabled()) ConfigHud_PushWheel(notches);
-	else CameraEditor_PushWheel(notches);
+	else if (CameraEditor_Active()) CameraEditor_PushWheel(notches);
+	// No window: the TIMELINE dock alone (the header bar hosts it) takes the notch itself. A closed
+	// editor never drains its queue, so a notch left there scrolled it on its next open.
+	else if (GraphEditorExperiment_Enabled()) GraphEditorExperiment_PushWheel(notches);
 }
 
 bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, int y) {
@@ -191,7 +211,7 @@ bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, in
 	// zooming the timeline". Hand it to the editor's wheel pipe, which reaches $.GraphExp.wheel.
 	if (CameraBridge_GetFreeCamEnabled() && (ctrlDown || shiftDown)) {
 		if (GraphEditorExperiment_Enabled()) {
-			PushWorkspaceWheel(delta > 0 ? +1 : -1);
+			PushWorkspaceWheel(delta > 0 ? +1 : -1, x, y);
 			return true;
 		}
 		if (ctrlDown) CameraBridge_AdjustFreeCamFov(delta > 0 ? +1 : -1);
@@ -225,7 +245,7 @@ bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, in
 	// the panel's column otherwise. Swallowing every notch here, as this did, left CONFIG unable to
 	// scroll whenever TIMELINE was open.
 	if (dockIgnores) {
-		if (!cycle) PushWorkspaceWheel(delta > 0 ? +1 : -1);
+		if (!cycle) PushWorkspaceWheel(delta > 0 ? +1 : -1, x, y);
 		return true;
 	}
 	// Over the game in CS2's own cameras: Ctrl+wheel = FOV in any of them, Shift+wheel = CS2's
@@ -237,7 +257,7 @@ bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, in
 		return true;
 	}
 	if (!cycle) {
-		PushWorkspaceWheel(delta > 0 ? +1 : -1);
+		PushWorkspaceWheel(delta > 0 ? +1 : -1, x, y);
 		return true;
 	}
 
@@ -263,11 +283,27 @@ UiClick::Input MovieMode::ClickInput(int x, int y) {
 	in.workspace = CameraEditor_Active() || ConfigHud_Enabled();
 	// The keyframe shake menu (right-click a diamond) opens over the preview too: a click on its
 	// close button or rows is the menu's, not a switch to GAME mode.
-	in.popupOpen = CameraEditor_PopupOpen() || ConfigHud_PopupOpen() || CameraTimeline_MenuOpen();
-	in.viewEdit = ConfigHud_Enabled() && !CameraEditor_Active() && ConfigHud_ViewEditing();
+	in.popupOpen = CameraEditor_PopupOpen() || ConfigHud_PopupOpen() || CameraTimeline_MenuOpen()
+		|| WorkspaceHeader_PopupOpen();
+	// The docked Camera Editor covers CONFIG, so its scene editing only counts while the editor is
+	// closed. MODULAR windows sit side by side: CONFIG's ENVIRONMENT tab edits the game view with the
+	// editor's window open too (the owner's report, 2026-11-07: left click flew the camera there).
+	in.viewEdit = ConfigHud_Enabled() && (UiLayout_Modular() || !CameraEditor_Active()) && ConfigHud_ViewEditing();
 	in.x = (float)x; in.y = (float)y;
 	int clientW = 0, clientH = 0;
 	WindowResize_GetClientSize(clientW, clientH);
+	// MODULAR layout: the panels float over a full-screen game, so a point is the game's only when
+	// it is on none of them -- the windows and the header bar (their scripts publish where they
+	// are), CS2's demo bar, and the TIMELINE dock along the bottom.
+	// The header's Editor Settings card covers the whole screen (a click beside it closes it), so
+	// while it is up every point is on it.
+	if (UiLayout_Modular() && x >= 0 && y >= 0) {
+		in.onPanel = WorkspaceHeader_PopupOpen()
+			|| UiLayout_PanelAt(x, y) != UiPanel::None
+			|| CameraTimeline_DemoBarContains(x, y)
+			|| (GraphEditorExperiment_Enabled() && clientH > 0
+				&& (float)y >= (float)clientH * (1.f - (float)DockBandHeight() / 1080.f));
+	}
 	std::lock_guard<std::mutex> lk(m_mutex);
 	if (m_uiPreviewValid)
 		in.preview = UiClick::FromFractions(m_uiPreview[0], m_uiPreview[1], m_uiPreview[2], m_uiPreview[3],
@@ -298,7 +334,11 @@ bool MovieMode::OnUiClick(int x, int y) {
 	// and a press on it is the bar's, press and release. In the free cam it used to become a
 	// hold-to-look (OnMouseButton swallows every click there), so the bar's buttons were dead until
 	// the wheel cycled back to one of CS2's own cameras (mvm_debug 2026-10-17 08:13).
-	if (!CameraEditor_Active() && !ConfigHud_Enabled() && CameraTimeline_DemoBarContains(x, y)) {
+	// The MODULAR header bar and its Editor Settings card are UI the same way: the card drops below
+	// the bar and covers the screen, so while it is up every click is the card's (Codex review on #137).
+	if (!CameraEditor_Active() && !ConfigHud_Enabled()
+		&& (CameraTimeline_DemoBarContains(x, y) || UiLayout_PanelAt(x, y) == UiPanel::Header
+			|| WorkspaceHeader_PopupOpen())) {
 		if (MvmDebugLog_Active())
 			MvmDebugLog_Linef("input.uiclick", "x=%d y=%d on the demo bar -> the bar's (no look, no capture)", x, y);
 		return true;
@@ -365,7 +405,7 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 		// The CONFIG MAP view covers the preview: a right drag there turns the demo on the new map
 		// through the cursor pipe, which has seen the press already (WindowInputHooks). CS2 must not
 		// get it as well -- its spectator steps to the previous player on a right click.
-		if (down && button == 1 && IsDemoActive() && ConfigHud_MapViewOpen() && ClickInput(x, y).preview.Contains((float)x, (float)y)) {
+		if (down && button == 1 && IsDemoActive() && ConfigHud_MapViewOpen() && UiClick::InGame(ClickInput(x, y))) {
 			m_swallowedPress[button] = true;
 			if (MvmDebugLog_Active())
 				MvmDebugLog_Linef("input.uiclick", "button=1 x=%d y=%d swallowed: the MAP view turns the demo", x, y);
@@ -531,6 +571,19 @@ bool MovieMode::OnKey(int vkey, bool down) {
 
 	if (ConfigHud_TextCaptureActive())
 		return true;
+	// So does a typed field in the Camera Editor (the Render workspace's number boxes too) or the
+	// TIMELINE dock: the digits arrive as WM_CHAR for the JS, and the same physical key must not
+	// also run a director binding (it paused the demo on every "6" typed into an fps box). Ahead of
+	// CONFIG's shortcuts below, which in the MODULAR layout stay live beside the editor's window:
+	// Delete or Ctrl+C/D/V/Z there acted on CONFIG's scene objects instead (Codex review on #137).
+	if (CameraEditor_TextCaptureActive() || GraphEditorExperiment_TextCaptureActive())
+		return true;
+
+	// CONFIG's shortcuts are its own while it is the window being worked in: always in the docked
+	// layout, and in the MODULAR one unless the Camera Editor's window is open and in front (the
+	// window pressed last, Panorama/UiLayout.h).
+	const bool configKeys = ConfigHud_Enabled()
+		&& (!UiLayout_Modular() || !CameraEditor_Active() || UiLayout_FrontWindow() == UiPanel::Config);
 
 	// Config's Scene Objects: Delete removes the selected object, Ctrl+D duplicates it, Ctrl+C
 	// copies it and Ctrl+V pastes the copy under the mouse to place. The panel's JS owns the
@@ -538,7 +591,7 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	// selection too). With the TIMELINE dock up, Delete is the dock's only while the pointer is over
 	// it (its keys); anywhere else it removes the selected object. It used to go to the dock always,
 	// so Delete never removed a scene object while the dock was up (2026-10-17).
-	if (ConfigHud_Enabled() && (!GraphEditorExperiment_Enabled() || !PointerOverDock()) &&
+	if (configKeys && (!GraphEditorExperiment_Enabled() || !PointerOverDock()) &&
 	    (vkey == kVK_DELETE || (m_controlDown && (vkey == kVK_D || vkey == kVK_C || vkey == kVK_V)))) {
 		static bool editKeyHeld = false;
 		if (down && !editKeyHeld)
@@ -548,7 +601,7 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	}
 	// Ctrl+Z in Config takes back the last placement, paste, duplicate, paint stroke or removal
 	// of a scene object (Props.cpp). Once per press, like the keys above.
-	if (ConfigHud_Enabled() && !GraphEditorExperiment_Enabled() && m_controlDown && !m_shiftDown && vkey == kVK_Z) {
+	if (configKeys && !GraphEditorExperiment_Enabled() && m_controlDown && !m_shiftDown && vkey == kVK_Z) {
 		static bool undoKeyHeld = false;
 		if (down && !undoKeyHeld) EnqueueCmd("mirv_filmmaker props undo");
 		undoKeyHeld = down;
@@ -585,11 +638,6 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	if (CameraEditor_CustomizeModalOpen())
 		return true;
 
-	// A focused Render-workspace number field owns the keyboard for the same reason: the digits
-	// are delivered as WM_CHAR to the JS, so letting the same physical key ALSO run a director
-	// binding would (for example) pause the demo every time the user typed a "6" into an fps box.
-	if (CameraEditor_TextCaptureActive() || GraphEditorExperiment_TextCaptureActive())
-		return true;
 	// A running render owns the keyboard: any key reaching CS2 can draw into the capture (Shift+F2
 	// opened the native demo bar over a render, user report 2026-10-13; Tab, binds, ...). The job's
 	// own Cancel button is the way out.
@@ -647,8 +695,8 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	// T with Config open fires one weapon recoil test shot -- the keyboard twin of the WEAPON
 	// RECOIL card's Test Shot button, so tuning is tap-and-watch without reaching for the mouse.
 	// Once per physical press (auto-repeat swallowed), and never while a Config field is typing
-	// (ConfigHud_TextCaptureActive returned above).
-	if (vkey == kVK_T && ConfigHud_Enabled()) {
+	// (ConfigHud_TextCaptureActive returned above). CONFIG's key, so only while CONFIG has the keys.
+	if (vkey == kVK_T && configKeys) {
 		static bool tHeld = false;
 		if (down && !tHeld) EnqueueCmd("mirv_filmmaker weaponrecoil test");
 		tHeld = down;
@@ -862,8 +910,9 @@ bool MovieMode::OnKey(int vkey, bool down) {
 			// immediately clickable. F again (or Escape) gives the mouse back to the camera.
 			// Config owns the screen: F must do nothing here. It used to fall through to the
 			// marker popup, whose "edit" path switches the workspace on -- so pressing F while
-			// in Config threw you into the Cam Editor.
-			if (ConfigHud_Enabled()) return true;
+			// in Config threw you into the Cam Editor. In the MODULAR layout that is only while
+			// CONFIG has the keys: with the Camera Editor's window in front, F is the editor's.
+			if (configKeys) return true;
 			if (CameraEditor_Enabled()) {
 				if (!down) return true;
 				if (CameraTimeline_WantsCursor()) {
@@ -1080,10 +1129,12 @@ bool MovieMode::PointerOverDock() {
 	WindowResize_GetClientSize(clientW, clientH);
 	if (clientH <= 0) return true;
 	// The dock spans the bottom of the 1080-tall stage at its shared height (TimelineDock.h).
-	return (float)y >= (float)clientH * (1.f - (float)TimelineDock_Height() / 1080.f);
+	return (float)y >= (float)clientH * (1.f - (float)DockBandHeight() / 1080.f);
 }
 
 bool MovieMode::OnConfigColumn(int x, int y) {
+	// MODULAR layout: CONFIG's column is its window, wherever it was moved, Camera Editor or not.
+	if (UiLayout_Modular()) return ConfigHud_Enabled() && UiLayout_PanelAt(x, y) == UiPanel::Config;
 	if (!ConfigHud_Enabled() || CameraEditor_Active() || x < 0 || y < 0) return false;
 	int clientW = 0, clientH = 0;
 	WindowResize_GetClientSize(clientW, clientH);

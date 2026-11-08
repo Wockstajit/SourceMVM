@@ -18,6 +18,7 @@
 #include "Panorama/FilmmakerMenu.h"
 #include "Panorama/PanoramaBridge.h"
 #include "Panorama/CameraTimelineHud.h"
+#include "Panorama/UiLayout.h"
 #include "Panorama/CameraEditorHud.h"
 #include "Panorama/ConfigHud.h"
 #include "Panorama/GraphEditorExperimentHud.h"
@@ -150,6 +151,7 @@ void PrintHelp(const char* cmd) {
 		"%s editor [on|off|toggle] - dedicated CAMERA EDITOR workspace (preview + inspector + graph editor).\n"
 		"%s editor scale [on|off|toggle] - TRUE scaled preview viewport (whole frame shrunk, not a crop).\n"
 		"%s dock [native|timeline|toggle] - shared bottom dock: Regular timeline (CS2's bar) or TIMELINE (camera + scene keys).\n"
+		"%s layout [workspace|modular|toggle] - panels docked beside a scaled preview, or movable windows opened from a bar along the top.\n"
 		"%s editor hud [hidden|game|full|cycle] - game UI behind the editor: hide all, in-game (the player's own HUD: round radar, their crosshair, no spectator panels), or full.\n"
 		"%s editor debug [on|off|toggle] - viewport/HUD debug overlay (window/render-target/viewport numbers; compare vs normal game viewport).\n"
 		"%s config [on|off|toggle] - lightweight CONFIG panel (general UI / display settings, no camera tools).\n"
@@ -174,7 +176,7 @@ void PrintHelp(const char* cmd) {
 		"%s render [...] - camera-editor render workflow (status, range, camera, start, cancel; run for sub-help).\n"
 		"%s window [...] - free window resizing + the live size/aspect-ratio readout (run for sub-help).\n"
 		"%s onboarding [...] - Clippy's onboarding tutorial prototype, also mvm_onboarding (run status for state).\n"
-		, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd
+		, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd
 	);
 }
 
@@ -489,6 +491,10 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 		Filmmaker::SceneRig_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "props")) {
 		Filmmaker::Props_RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "layout")) {
+		// WORKSPACE (the panels docked beside a scaled preview) or MODULAR (a header bar along the
+		// top and the panels as movable windows over the full-screen game). Panorama/UiLayout.h.
+		Filmmaker::UiLayout_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "dock")) {
 		// The shared bottom dock (REGULAR TIMELINE / CAMERA / GRAPH). One verb, because one dock
 		// is shown by the Camera Editor, the CONFIG panel and the Render workspace.

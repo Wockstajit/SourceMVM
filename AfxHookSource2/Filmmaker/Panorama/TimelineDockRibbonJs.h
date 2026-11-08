@@ -161,7 +161,9 @@ R"DOCKRIBJS(
         } catch (e) {}
         return fallback;
       }
-      if (tab === 'timeline') editorTop = 440;
+      // The TIMELINE dock's body: the live height while its top edge is being dragged
+      // ($.MvmDockBodyH, GraphEditorJs.h), else the stored one (opt.dockH, ribbon included).
+      if (tab === 'timeline') editorTop = ($.MvmDockBodyH > 0) ? $.MvmDockBodyH : ((opt.dockH > 36) ? opt.dockH - 36 : 440);
       else editorTop = measure('SliderRow', true, 96);
       var bottomH = Math.max(RIB + floor, Math.min(editorTop + GAP + RIB, Math.max(0, rh - 160)));
       var dockTopY = Math.max(0, rh - bottomH);

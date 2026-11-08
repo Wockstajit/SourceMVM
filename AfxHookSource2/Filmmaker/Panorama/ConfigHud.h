@@ -116,6 +116,8 @@ private:
 	short m_symPopupOpen = -1;     // "popupopen" -- EditorSettingsPopupJs.h publishes its overlay
 	short m_symMapViewOpen = -1;   // "mapviewopen" -- ConfigHudAltEnvironmentJs.h, the MAP view is up
 	short m_symViewEdit = -1;      // "viewedit" -- ConfigHudPropsGizmoJs.h, the ENVIRONMENT tab is up
+	short m_symWinRect = -1;       // "winrect" -- ModuleWindowJs.h, the MODULAR window in client px
+	short m_symWinFront = -1;      // "winfront" -- "1" while it is the window drawn on top
 	// Last preview rect parsed from the JS-published "previewrect" (normalised window fractions).
 	bool m_previewValid = false;
 	bool m_demoScaleActive = false;
@@ -129,7 +131,8 @@ private:
 	bool m_popupOpen = false;
 	bool m_mapViewOpen = false;
 	bool m_viewEdit = false;
-	bool m_prevMovieHud = false; // movie-director card visibility to restore on exit
+	bool m_hidMovieHud = false;  // this panel hid the card (WORKSPACE layout only), so it restores it
+	void ReconcileMovieHud();    // hide or restore the card to suit the layout, every frame while open
 	std::string m_lastState;
 };
 

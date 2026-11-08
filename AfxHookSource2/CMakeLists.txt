@@ -592,6 +592,12 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Panorama/UiLiveReload.h
     Filmmaker/Panorama/WorkspacePreview.cpp
     Filmmaker/Panorama/WorkspacePreview.h
+    Filmmaker/Panorama/UiLayout.cpp
+    Filmmaker/Panorama/UiLayout.h
+    Filmmaker/Panorama/WorkspaceHeaderHud.cpp
+    Filmmaker/Panorama/WorkspaceHeaderHud.h
+    Filmmaker/Panorama/WorkspaceHeaderJs.h
+    Filmmaker/Panorama/ModuleWindowJs.h
     Filmmaker/Panorama/CameraTimelineJs.h
     Filmmaker/Panorama/CameraTimelineRangeJs.h
     Filmmaker/Panorama/SpeedScrubberJs.h

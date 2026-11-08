@@ -330,6 +330,12 @@
   // panel code asked for. That difference is what compare.js turns into Panorama style lines.
   Panel.prototype._stamp = function () { this.el.__authored = this.el.style.cssText; };
   Panel.prototype._setStyle = function (k, v) { this._setStyleImpl(k, v); this._stamp(); };
+  // The product of every ui-scale from this panel up to the root (1 when none is set).
+  function uiScaleOf(panel) {
+    var s = 1;
+    for (var p = panel; p; p = p.parent) if (p._uiScale && p._uiScale !== 1) s *= p._uiScale;
+    return s;
+  }
   // Untransformed layout size in design px. offsetWidth rounds, so the exact rect is preferred when
   // no transform is in play (rect / stage scale agrees with offsetWidth to within a pixel then).
   function layoutSize(el, axis) {
@@ -355,6 +361,18 @@
     if (LAYOUT_PROPS[k]) { this._applyPlacement(); if (k === 'flowChildren') this._applyLayout(); return; }
 
     switch (k) {
+      // Panorama's ui-scale: the panel and everything in it are laid out at their own px and drawn
+      // at this fraction, and actualuiscale / actuallayoutwidth report the scaled numbers (see
+      // uiScaleOf below). Drawn with the CSS `scale` property about the top-left, which composes
+      // with any transform the script writes instead of replacing it.
+      case 'uiScale': {
+        var us = parseFloat(String(v));
+        if (!isFinite(us) || us <= 0) us = 100;
+        this._uiScale = /%\s*$/.test(String(v)) || us > 4 ? us / 100 : us;
+        el.style.scale = this._uiScale === 1 ? '' : String(this._uiScale);
+        if (!this._sty.transformOrigin) el.style.transformOrigin = '0 0';
+        return;
+      }
       case 'backgroundColor': this._bg.color = colorValue(v); this._applyBackground(); return;
       case 'textShadow': el.style.textShadow = textShadowToCss(v); return;
       // Panorama only trims a label when it is told to; an unconstrained one just takes the width
@@ -815,14 +833,16 @@
     // drawn, not actuallayoutwidth. The bounding rect folded every ancestor transform in, so the
     // Customize modal (custWin is scaled 0.765) shrank its 3D preview clip twice. offsetWidth is
     // already in design px (the stage scale is a transform too); fractional sizes keep their rect.
-    actuallayoutwidth: { get: function () { return layoutSize(this.el, 'width'); } },
-    actuallayoutheight: { get: function () { return layoutSize(this.el, 'height'); } },
+    // ui-scale (style.uiScale) is the exception: Panorama lays the panel out SMALLER, so its
+    // actual size and uiscale shrink with it, for the panel and every descendant.
+    actuallayoutwidth: { get: function () { return layoutSize(this.el, 'width') * uiScaleOf(this); } },
+    actuallayoutheight: { get: function () { return layoutSize(this.el, 'height') * uiScaleOf(this); } },
     contentwidth: { get: function () { return this.el.scrollWidth / stageScale(); } },
     contentheight: { get: function () { return this.el.scrollHeight / stageScale(); } },
     desiredlayoutwidth: { get: function () { return this.el.scrollWidth / stageScale(); } },
     desiredlayoutheight: { get: function () { return this.el.scrollHeight / stageScale(); } },
-    actualuiscale_x: { get: function () { return UI_SCALE; } },
-    actualuiscale_y: { get: function () { return UI_SCALE; } },
+    actualuiscale_x: { get: function () { return UI_SCALE * uiScaleOf(this); } },
+    actualuiscale_y: { get: function () { return UI_SCALE * uiScaleOf(this); } },
     actualxoffset: { get: function () { return this.el.getBoundingClientRect().left; } },
     actualyoffset: { get: function () { return this.el.getBoundingClientRect().top; } },
     scrolloffset_y: { get: function () { return this.el.scrollTop; }, set: function () {} },
@@ -839,6 +859,17 @@
     handlers: [],        // $.RegisterEventHandler registrations
     commandLog: [],
     onCommand: null,
+    // In game a script's console command runs from the engine's command buffer a frame or more
+    // after it is issued, so a panel can see one more frame of the OLD state after writing a
+    // setting. ?cmdlag=N reproduces that (N frames); 0 runs every command at once.
+    commandLag: (function () { var m = /[?&]cmdlag=(\d+)/.exec(global.location ? global.location.search : ''); return m ? parseInt(m[1], 10) : 0; })(),
+    pendingCommands: [],
+    tickCommands: function () {
+      if (!Shim.pendingCommands.length) return;
+      var due = [];
+      Shim.pendingCommands = Shim.pendingCommands.filter(function (p) { if (--p.n <= 0) { due.push(p.c); return false; } return true; });
+      due.forEach(function (c) { if (Shim.onCommand) { try { Shim.onCommand(c); } catch (e) { log('[cmd] ' + e); } } });
+    },
     hostEl: null,
 
     hostRect: function () {
@@ -968,6 +999,7 @@
   var GameInterfaceAPI = {
     ConsoleCommand: function (c) {
       Shim.commandLog.push(c);
+      if (Shim.commandLag > 0) { Shim.pendingCommands.push({ c: c, n: Shim.commandLag }); return; }
       if (Shim.onCommand) { try { Shim.onCommand(c); } catch (e) { log('[cmd] ' + e); } }
     },
     GetSettingString: function (n) { return (global.MvmFakeCvars && n in global.MvmFakeCvars) ? String(global.MvmFakeCvars[n]) : '0'; },

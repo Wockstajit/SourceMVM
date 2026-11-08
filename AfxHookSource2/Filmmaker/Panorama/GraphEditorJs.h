@@ -73,10 +73,20 @@ inline const char* kGraphEditorJs = R"GEJS(
     }
 
     // ---- geometry (layout px, dock-local) ---------------------------------
-    // 440 tall under the shared ribbon. Toolbar on top; the left column header sits beside the
-    // overview + ruler; rows scroll in the middle; the footer closes the dock.
-    var DOCK_H = 440, HEADER_H = 72, OVERVIEW_H = 14, RULER_H = 26, ROWS_Y = 112, FOOTER_H = 26;
+    // 440 tall under the shared ribbon at most. Toolbar on top; the left column header sits beside
+    // the overview + ruler; rows scroll in the middle; the footer closes the dock.
+    // DOCK_H is the operator's: the grab strip along the top edge makes the dock shorter, down to
+    // DOCK_H_MIN, so more of the game shows above it (Movie/TimelineDock.h, `timeline.dockH`). Only
+    // the rows give up height; the toolbar, ruler and footer keep theirs.
+    var DOCK_H_MAX = 440, DOCK_H_MIN = 220;
+    var DOCK_H = DOCK_H_MAX, HEADER_H = 72, OVERVIEW_H = 14, RULER_H = 26, ROWS_Y = 112, FOOTER_H = 26;
     var ROWS_H = DOCK_H - ROWS_Y - FOOTER_H;
+    function setDockH(h) {
+      h = Math.round(Math.min(DOCK_H_MAX, Math.max(DOCK_H_MIN, h)));
+      if (h === DOCK_H) return false;
+      DOCK_H = h; ROWS_H = DOCK_H - ROWS_Y - FOOTER_H;
+      return true;
+    }
     var LEFTW = 296, PAD = 12, SB_W = 12, ROW_H = 22, VAL_W = 120, NAV_W = 54;
     var GLYPH = 14, KF_HIT = 8, HANDLE_R = 7, KF_DRAG_PX = 3;
     var GRAPH_TOP = 30, GRAPH_BOTTOM = 26;   // value-axis margins inside the graph area
@@ -3188,13 +3198,15 @@ R"GEJS(
       if (rawW < 16) return G != null;
       var scrW = rawW / uiscale;
       var scrH = (rawH > 16 ? rawH : rawW * 0.5625) / uiscale;
-      var dockW = Math.floor(Math.max(560, (st && st.renderOpen) ? scrW : scrW - graphInspectorW(scrW)));
+      // Full width in the Render workspace and in the MODULAR layout, where the inspector is a
+      // floating window rather than a column beside the dock (Panorama/UiLayout.h).
+      var dockW = Math.floor(Math.max(560, (st && (st.renderOpen || st.modular)) ? scrW : scrW - graphInspectorW(scrW)));
       dockScreenX = 0; dockScreenY = Math.max(0, scrH - DOCK_H - BOTTOM_LIFT);
       var tw = Math.max(120, dockW - LEFTW - SB_W);
-      var changed = !G || G.rw !== dockW;
+      var changed = !G || G.rw !== dockW || G.dh !== DOCK_H;
       // ow: the track plus the row scrollbar's column, i.e. everything right of the layer list. The
       // overview, the ruler's strip and the GRAPH panel span it, so no row shows past them.
-      G = { rw: dockW, tw: tw, ow: tw + SB_W, cw: Math.max(60, tw - 2 * PAD) };
+      G = { rw: dockW, tw: tw, ow: tw + SB_W, cw: Math.max(60, tw - 2 * PAD), dh: DOCK_H };
       if (!changed) return true;
       dock.style.width = dockW + 'px'; dock.style.height = DOCK_H + 'px'; dock.style.marginBottom = BOTTOM_LIFT + 'px';
       header.style.width = dockW + 'px';
@@ -3215,8 +3227,61 @@ R"GEJS(
       return true;
     }
 
+    // ---- the height grab strip -------------------------------------------------------
+    // Along the dock's top edge: drag it down to make the dock shorter, up to take it back to its
+    // full height. Live while dragging -- $.MvmDockBodyH tells the panels laid out against the dock
+    // (the workspaces' preview and ribbon, the MODULAR windows' lowest title-bar position) before
+    // the stored height catches up -- and saved once, on release. Built last (on the first
+    // render) so it draws over the toolbar's top few pixels, which hold nothing to click.
+    var dockGrip = null, dockGripMark = null, dockGripHot = false, dockGripDrag = null, dockGripLastLmb = false;
+    var DOCK_GRIP_H = 8;
+    function buildDockGrip() {
+      dockGrip = mk('Panel', dock); dockGrip.hittest = true;
+      dockGrip.style.width = '100%'; dockGrip.style.height = DOCK_GRIP_H + 'px';
+      dockGrip.style.position = '0px 0px 0px'; dockGrip.style.zIndex = '600';
+      dockGripMark = mk('Panel', dockGrip); dockGripMark.hittest = false;
+      dockGripMark.style.width = '56px'; dockGripMark.style.height = '3px'; dockGripMark.style.borderRadius = '2px';
+      dockGripMark.style.horizontalAlign = 'center'; dockGripMark.style.marginTop = '2px';
+      dockGrip.SetPanelEvent('onmouseover', function () { dockGripHot = true; paintDockGrip(); });
+      dockGrip.SetPanelEvent('onmouseout', function () { dockGripHot = false; paintDockGrip(); });
+      dockGrip.SetPanelEvent('onactivate', function () { /* the pipe owns the drag */ });
+      tourSet('tl.height', dockGrip);
+      paintDockGrip();
+    }
+    function paintDockGrip() {
+      if (!dockGripMark) return;
+      var on = dockGripHot || !!dockGripDrag;
+      dockGripMark.style.backgroundColor = on ? S.accent : '#ffffff33';
+      dockGrip.style.backgroundColor = on ? '#ffffff0d' : 'rgba(0,0,0,0)';
+    }
+    function commitDockH() { rawCmd('mirv_filmmaker settings ui timeline.dockH ' + DOCK_H); }
+    // True while the strip owns the press, so the dock's own pointer engine stays off it.
+    function dockGripPump() {
+      if (!dockGrip) buildDockGrip();
+      var lmb = !!st.lmb, my = st.my || 0;
+      var cc = curCursor();
+      if (lmb && !dockGripLastLmb && cc.lx >= 0 && cc.lx <= G.rw && cc.ly >= 0 && cc.ly < DOCK_GRIP_H)
+        dockGripDrag = { my: my, h: DOCK_H };
+      if (dockGripDrag) {
+        // Up (a smaller y) makes the dock taller: it is anchored to the bottom of the screen.
+        var want = dockGripDrag.h - (my - dockGripDrag.my) / (uiscale || 1);
+        if (setDockH(want)) { $.MvmDockBodyH = DOCK_H; computeGeom(); }
+        if (!lmb) { dockGripDrag = null; commitDockH(); }
+        paintDockGrip();
+      }
+      dockGripLastLmb = lmb;
+      return !!dockGripDrag;
+    }
+
     // ---- the frame ----------------------------------------------------------------
     var api = {};
+    // The dock's height from the console ($.GraphExp.dockHeight(300)): synthetic mouse input does
+    // not reach CS2, so this is how automation checks the strip's result. Saved like a drag.
+    api.dockHeight = function (h) {
+      var n = parseFloat(('' + h).replace(/^\s+|\s+$/g, ''));
+      if (isFinite(n)) { setDockH(n); $.MvmDockBodyH = DOCK_H; if (G) computeGeom(); commitDockH(); }
+      return DOCK_H;
+    };
     // Wheel, forwarded by CameraEditorJs's api.wheel while the cursor is over this dock. Over the
     // dock the wheel is ours and consumed: Ctrl = zoom about the cursor, Shift = pan time, plain =
     // scroll the layers.
@@ -3292,6 +3357,12 @@ R"GEJS(
       scCh.forEach(function (c) { c.dom = 'scene'; c.uid = 's' + c.ch; chMap[c.uid] = c; });
       camCh.concat(scCh).forEach(function (c) { c.keys.forEach(function (k) { if (k.sel) selCache[c.uid + ':' + k.id] = 1; }); });
 
+      // The stored height, unless the strip is being dragged right now. The live override goes
+      // once the state has caught up with it.
+      if (!dockGripDrag && typeof st.dockBodyH === 'number' && st.dockBodyH > 0) {
+        setDockH(st.dockBodyH);
+        if ($.MvmDockBodyH > 0 && Math.abs($.MvmDockBodyH - st.dockBodyH) < 1) $.MvmDockBodyH = 0;
+      }
       if (!computeGeom() || !G) { root.visible = false; return; }
       if (view.mode !== 'timeline' || (st.viewEpoch != null && view.epoch !== st.viewEpoch)) { seedView('timeline'); ranges = {}; }
       revealNewKeys();
@@ -3311,7 +3382,9 @@ R"GEJS(
       try { cfgColorPump({ cursor: true, lmb: !!st.lmb, mx: st.mx, my: st.my }); }
       catch (ecp) { $.Msg('[timeline] colour pump failed: ' + ecp + String.fromCharCode(10)); }
       if (pickTray.visible && pickAnchor) placePickTray(pickAnchor, pickTitle);
-      processInput();
+      // The height strip first: a press on it is never also a click in the toolbar under it.
+      if (dockGripPump()) prevLmb = !!st.lmb;
+      else processInput();
       pumpMenuReopen();
       followPlayback();
       if (typeof st.timescale === 'number') speedScrub.setSpeed(st.timescale);

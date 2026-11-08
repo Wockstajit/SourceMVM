@@ -60,6 +60,9 @@
 #include "../../ClientEntitySystem.h" // AfxGetSpectatedPawnIndex (POV-ready gate for the attach cams)
 #include "../../DeathMsg.h" // AfxHookSource2_GetPanoramaHudPanel + PanoramaUIPanel offsets
 #include "WorkspacePreview.h" // the single owner of the scaled-preview viewport
+#include "UiLayout.h"         // WORKSPACE / MODULAR layout, the window's rect for the click router
+#include "../Movie/MovieMode.h" // MODULAR layout: is the cursor on a panel or on the game
+#include "CameraEditorHud.h"  // MODULAR layout: CUSTOMIZE PLAYER opens the editor's own modal
 #include "../../../Shared/AfxConsole.h"
 
 #include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
@@ -146,6 +149,8 @@ bool ConfigHud::BuildIfNeeded() {
 	m_symPopupOpen = m_bridge.MakeSymbol("popupopen");
 	m_symMapViewOpen = m_bridge.MakeSymbol("mapviewopen");
 	m_symViewEdit = m_bridge.MakeSymbol("viewedit");
+	m_symWinRect = m_bridge.MakeSymbol("winrect");
+	m_symWinFront = m_bridge.MakeSymbol("winfront");
 	m_root = FindRoot();
 	m_built = (m_root != nullptr);
 	m_lastState.clear();
@@ -191,6 +196,7 @@ void ConfigHud::OnEnter() {
 	// (see PlayingDemo above), and a panel that reclassified itself mid-seek would swap layout
 	// AND cursor owner underneath the user.
 	m_context = PlayingDemo() ? Context::Demo : Context::Live;
+	{ std::lock_guard<std::mutex> lk(m_wheelMutex); m_pendingWheel = 0; } // nothing from before it opened
 
 	// Start in UI-cursor mode so the panel is immediately clickable (same as the Camera Editor),
 	// but each panel arms its OWN cursor. The live panel must not touch the camera timeline's
@@ -206,8 +212,19 @@ void ConfigHud::OnEnter() {
 		CameraTimelineHudRef().SetCursor(true);
 	// Hide the floating movie-director card (the F8 CONTROLS panel) -- it would otherwise sit
 	// inside the scaled preview. Restored to its previous visibility on exit (editor parity).
-	m_prevMovieHud = MovieHudRef().Visible();
-	MovieHudRef().SetVisible(false);
+	// The MODULAR layout has no preview: the card stays where it is, like any other window.
+	m_hidMovieHud = false;
+	ReconcileMovieHud();
+}
+
+// The card is hidden while this panel covers the game: the docked demo workspace (a scaled
+// preview) and the live sidebar. A MODULAR window floats over a full-screen game, so the card stays.
+// Run every frame while the panel is open, because the layout can be switched under it.
+void ConfigHud::ReconcileMovieHud() {
+	const bool want = IsLive() || !UiLayout_Modular();
+	if (want == m_hidMovieHud) return;
+	MovieHudRef().HideFor(MovieHud::HiderConfig, want);
+	m_hidMovieHud = want;
 }
 
 void ConfigHud::OnExit() {
@@ -225,7 +242,9 @@ void ConfigHud::OnExit() {
 		CameraTimelineHudRef().SetCursor(false);
 	// HudView is shared, persistent state -- CameraTimelineJs automatically restores the full
 	// game HUD when neither the editor nor this panel is open, so nothing to reset here.
-	MovieHudRef().SetVisible(m_prevMovieHud);
+	if (m_hidMovieHud) MovieHudRef().HideFor(MovieHud::HiderConfig, false);
+	m_hidMovieHud = false;
+	UiLayout_SetPanelRect(UiPanel::Config, 0, 0, 0, 0);
 	// Drop any pending scaled-preview blit so the next full-screen frame renders normally.
 	m_previewValid = false;
 	m_demoScaleActive = false;
@@ -256,7 +275,8 @@ void ConfigHud::UpdateScaleRequest() {
 	//     the layout is broken — warn once per episode.
 	static int s_emptyFrameCount = 0;
 	static bool s_emptyWarned = false;
-	if (demo && m_enabled) {
+	// The MODULAR layout has no preview by design (the game stays full screen).
+	if (demo && m_enabled && !UiLayout_Modular()) {
 		if (!valid) {
 			s_emptyFrameCount++;
 			if (s_emptyFrameCount == 3 && !s_emptyWarned) {
@@ -309,6 +329,8 @@ std::string ConfigHud::BuildStateJson() {
 	// from this, and a seek blip used to flip an open demo workspace to the live-insert variant
 	// mid-scrub (and it could stick).
 	o << ",\"demo\":" << (IsLive() ? "false" : "true");
+	// WORKSPACE or MODULAR layout (UiLayout.h): docked beside a scaled preview, or a movable window.
+	o << ",\"modular\":" << (UiLayout_Modular() ? "true" : "false");
 	o << ",\"cursor\":" << ((IsLive() ? m_liveCursor : CameraTimelineHudRef().Cursor()) ? "true" : "false");
 	// The OS-cursor pipe, same shape as CameraEditorHud publishes it.
 	//
@@ -326,6 +348,9 @@ std::string ConfigHud::BuildStateJson() {
 		o << ",\"mx\":" << cmx << ",\"my\":" << cmy << ",\"lmb\":" << (clmb ? "true" : "false");
 		o << ",\"mseq\":" << cseq << ",\"shift\":" << (cshift ? "true" : "false");
 		o << ",\"rmb\":" << (crmb ? "true" : "false");
+		// MODULAR layout: the cursor is on a window, the header bar or a dock rather than the game.
+		// The ENVIRONMENT gizmos stop picking and let the click through there (ConfigHudPropsGizmoJs.h).
+		o << ",\"onPanel\":" << ((UiLayout_Modular() && MovieModeRef().PointOnPanel(cmx, cmy)) ? "true" : "false");
 		o << ",\"ctrl\":" << (CameraBridge_GetCtrlDown() ? "true" : "false");
 	}
 	o << ",\"hudView\":\"" << CameraEditor_HudViewName() << "\"";
@@ -485,7 +510,8 @@ void ConfigHud::RunFrame() {
 	// Mutual exclusion: the Camera Editor is the bigger workspace -- if it comes up while the
 	// Config panel is open, the Config panel yields. (Opening Config closes the editor in the
 	// command handler, so this only covers the editor-opened-later direction.)
-	if (m_enabled && CameraEditor_Active())
+	// The MODULAR layout's windows do not share a column: both may stay open.
+	if (m_enabled && CameraEditor_Active() && !UiLayout_Modular())
 		m_enabled = false;
 
 	const bool supportedView = PlayingDemo() || MvmTest_CanUseMenu();
@@ -546,9 +572,13 @@ void ConfigHud::RunFrame() {
 	// Enter / exit edge transitions.
 	if (m_enabled && !m_wasEnabled) { OnEnter(); m_wasEnabled = true; }
 	else if (!m_enabled && m_wasEnabled) { OnExit(); m_wasEnabled = false; }
+	// The layout can be switched with the panel open: the director card follows it.
+	if (m_enabled) ReconcileMovieHud();
 
-	if (!m_enabled)
+	if (!m_enabled) {
+		UiLayout_SetPanelRect(UiPanel::Config, 0, 0, 0, 0);
 		return;
+	}
 
 	if (!BuildIfNeeded())
 		return;
@@ -577,6 +607,9 @@ void ConfigHud::RunFrame() {
 		TimelineDock_Claim(DockHost::Config);
 	TimelineDock_Apply(DockHost::Config);
 	m_bridge.RunScriptCached("$.ConfigHud && $.ConfigHud.render();", "mvm/confighud.render");
+	// Where the MODULAR window is ('' in the WORKSPACE layout), for the click router.
+	UiLayout_SetPanelRectString(UiPanel::Config, m_bridge.GetAttributeString(m_root, m_symWinRect, "").c_str());
+	if (m_bridge.GetAttributeString(m_root, m_symWinFront, "0") == "1") UiLayout_SetFrontWindow(UiPanel::Config);
 	UpdateTextCapture();
 	DispatchChars();
 
@@ -670,6 +703,11 @@ void ConfigHud_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* 
 	if (0 == _stricmp(arg, "customize")) {
 		// CONFIG's CUSTOMIZE PLAYER: the Camera Editor's modal, opened over this panel instead of
 		// switching workspaces. One modal, one target source, for both panels.
+		// MODULAR layout with the Camera Editor's window open: it is the editor's modal, opened there.
+		if (UiLayout_Modular() && CameraEditor_Active()) {
+			CameraEditorHudRef().RequestOpenCustomize();
+			return;
+		}
 		if (!ConfigHudRef().Enabled()) ConfigHudRef().SetEnabled(true);
 		if (CameraEditor_Active()) CameraEditor_Set(false);
 		CameraEditor_OpenCustomizeOverConfig();
@@ -685,8 +723,9 @@ void ConfigHud_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* 
 	if (0 == _stricmp(arg, "on") || 0 == _stricmp(arg, "open") || 0 == _stricmp(arg, "1")) ConfigHudRef().SetEnabled(true);
 	else if (0 == _stricmp(arg, "off") || 0 == _stricmp(arg, "close") || 0 == _stricmp(arg, "0")) ConfigHudRef().SetEnabled(false);
 	else ConfigHudRef().Toggle();
-	// Opening Config closes the Camera Editor (they draw the same right-side column area).
-	if (ConfigHudRef().Enabled() && CameraEditor_Active())
+	// Opening Config closes the Camera Editor (they draw the same right-side column area). The
+	// MODULAR layout's windows do not, so both may stay open.
+	if (ConfigHudRef().Enabled() && CameraEditor_Active() && !UiLayout_Modular())
 		CameraEditor_Set(false);
 	advancedfx::Message("mirv_filmmaker: config panel %s (demo or offline mvm_test map).\n",
 		ConfigHudRef().Enabled() ? "ON" : "off");

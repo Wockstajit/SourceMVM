@@ -16,6 +16,8 @@
 #include "Panorama/FilmmakerMenu.h"
 #include "Panorama/VideoSettingsResolution.h"
 #include "Panorama/MovieHud.h"
+#include "Panorama/UiLayout.h"            // WORKSPACE / MODULAR layout and the floating windows' rects
+#include "Panorama/WorkspaceHeaderHud.h"  // the MODULAR layout's header bar
 #include "Panorama/MarkerHud.h"
 #include "Panorama/FxDebugHud.h"
 #include "Panorama/CameraTimelineHud.h"
@@ -1169,6 +1171,10 @@ void RunMainThreadFrame() {
 	// Own module -- see Panorama/PreviewRenderFlag.h.
 	PreviewRenderFlag_RunFrame(CameraEditor_CustomizeModalOpen() || DeathAnimPreview_Active() || assetPreview);
 
+	// Pick up a layout or dock height written straight to the settings store before any panel reads it.
+	UiLayout_MainThreadFrame();
+	TimelineDock_MainThreadFrame();
+
 	// Camera timeline / curve editor (native-styled scrubber + IWXMVM-style lanes).
 	{ PanoramaPerf_Scope _p("camtl"); CameraTimelineHudRef().RunFrame(); }
 
@@ -1193,6 +1199,10 @@ void RunMainThreadFrame() {
 	// Camera Editor Mode workspace shell. Runs LAST so its host orchestration (timeline
 	// hosting + gameplay-HUD hide) is applied on top of every other panel this frame.
 	{ PanoramaPerf_Scope _p("cameditor"); CameraEditorHudRef().RunFrame(); }
+
+	// The MODULAR layout's header bar. After both windows, so it knows what is open this frame and
+	// hosts the TIMELINE dock only when neither of them does.
+	{ PanoramaPerf_Scope _p("header"); WorkspaceHeaderHudRef().RunFrame(); }
 
 	// The In-game HUD view as the player saw it: round radar, spotted enemies only, their own
 	// crosshair (Movie/GameplayHudLook.h). Same condition the timeline JS uses to show that view.
@@ -1225,7 +1235,12 @@ void RunMainThreadFrame() {
 	{
 		// Where the game preview is this frame: clicks and the wheel split on it (MovieMode, input thread).
 		float px0 = 0, py0 = 0, px1 = 0, py1 = 0;
-		const bool preview = WorkspacePreviewRef().Active(px0, py0, px1, py1);
+		bool preview = WorkspacePreviewRef().Active(px0, py0, px1, py1);
+		// MODULAR layout: no scaled preview, the game is the whole window and the windows float
+		// over it (MovieMode marks a point on one of them as a panel's).
+		if (!preview && UiLayout_Modular() && (ConfigHud_Enabled() || CameraEditor_Active())) {
+			preview = true; px0 = py0 = 0.f; px1 = py1 = 1.f;
+		}
 		MovieModeRef().SetUiClickRegions(preview, px0, py0, px1, py1);
 	}
 
@@ -1348,7 +1363,9 @@ bool CampathDebug() { return CameraPathRef().Debug(); }
 // No recursion: only the ENABLE path closes the sibling, and the sibling's disable path does not
 // call back.
 void CameraEditor_Set(bool enabled) {
-	if (enabled && ConfigHud_Enabled())
+	// The docked workspaces share the screen, so one closes the other. MODULAR layout windows do
+	// not: both may stay open (Panorama/UiLayout.h).
+	if (enabled && ConfigHud_Enabled() && !UiLayout_Modular())
 		ConfigHudRef().SetEnabled(false);
 	CameraEditorHudRef().SetEnabled(enabled);
 }
@@ -1418,6 +1435,7 @@ bool CameraPath_PreviewHudHidden() { return CameraPathRef().PreviewHudHidden(); 
 void GraphEditorExperiment_Set(bool enabled) { GraphEditorExperimentHudRef().SetEnabled(enabled); }
 void GraphEditorExperiment_Toggle() { GraphEditorExperimentHudRef().Toggle(); }
 bool GraphEditorExperiment_Enabled() { return GraphEditorExperimentHudRef().Enabled(); }
+void GraphEditorExperiment_PushWheel(int notches) { GraphEditorExperimentHudRef().PushWheel(notches); }
 bool GraphEditorExperiment_TextCaptureActive() {
 	return GraphEditorExperimentHudRef().Enabled() && GraphEditorExperimentHudRef().TextCaptureActive();
 }
@@ -1432,6 +1450,11 @@ bool GraphEditorExperiment_WantsCursor() {
 	// preview, and the ENVIRONMENT tab's right-hold look turn it off. Under CONFIG this used to
 	// return true whatever the flag said, which kept MirvInput suspended through the right-hold, so
 	// the fly cam never turned (mvm_debug, 2026-10-17: "camtl cursor off" then mirvActive=0).
+	// Hosted by the MODULAR layout's header bar (no window open): the dock is the standalone
+	// timeline and owns the cursor as it always has. The hosted flag means nothing here: closing
+	// the last window clears it, and nothing on screen could turn it back on.
+	if (TimelineDock_Host() == DockHost::Header)
+		return true;
 	if (TimelineDock_Host() != DockHost::None || CameraEditorHudRef().Enabled())
 		return CameraTimelineHudRef().Cursor();
 	return true;

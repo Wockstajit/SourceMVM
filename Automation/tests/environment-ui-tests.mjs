@@ -387,12 +387,13 @@ test('the open MAP view keeps its clicks, drags and wheel from CS2 and the objec
   // C++ treats it as a popup: no camera wheel cycling, no right-press look, no GAME switch.
   assert.match(src('Panorama/ConfigHud.cpp'), /m_mapViewOpen = m_root && \(m_bridge\.GetAttributeString\(m_root, m_symMapViewOpen, "0"\) == "1"\);\s*m_popupOpen = m_mapViewOpen \|\|/);
   // A right press over it never reaches CS2's spectator (previous player); the cursor pipe has it.
-  assert.match(src('Movie/MovieMode.cpp'), /button == 1 && IsDemoActive\(\) && ConfigHud_MapViewOpen\(\) && ClickInput\(x, y\)\.preview\.Contains/);
+  assert.match(src('Movie/MovieMode.cpp'), /button == 1 && IsDemoActive\(\) && ConfigHud_MapViewOpen\(\) && UiClick::InGame\(ClickInput\(x, y\)\)/);
   // Neither preview editor picks, hovers or hit-tests under it.
   const props = readOwn('ConfigHudPropsGizmoJs.h'), gizmo = readOwn('ConfigHudEnvironmentGizmoJs.h');
   assert.match(props, /var editing = shown && !s\.envEditing && !mapView;/);
   assert.match(props, /var free = !!s\.cursor && inside && !mapView &&/);
-  assert.match(gizmo, /envOverlay\.hittest = editing && !mapView;/);
+  // (and, in the MODULAR layout, never over a window, the header bar or a dock: modular-layout-tests)
+  assert.match(gizmo, /envOverlay\.hittest = editing && !mapView[ ;&]/);
   assert.match(gizmo, /var inside = !mapView &&/);
 });
 test('Sun page sends independent light and shadow commands and respects takeover',()=>{

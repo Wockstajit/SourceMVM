@@ -114,6 +114,35 @@ void TestViewEdit() {
 	CHECK(ClickSwitchesToUiMode(back));
 }
 
+// MODULAR layout: the game fills the 1600x1200 client and the panels float over it. The click
+// router marks a point on a window, the header bar or a dock as onPanel.
+Input Modular(float x, float y, bool uiOn, bool onPanel) {
+	Input in;
+	in.workspace = true; in.uiModeOn = uiOn; in.onPanel = onPanel;
+	in.preview = FromFractions(0, 0, 1, 1, 1600, 1200);
+	in.x = x; in.y = y;
+	return in;
+}
+
+void TestModular() {
+	CHECK(ClickSwitchesToUiMode(Modular(1300, 500, false, true)));   // a click on a window takes the UI
+	CHECK(!ClickSwitchesToUiMode(Modular(400, 500, false, false)));  // the game around it stays the camera's
+	CHECK(ClickSwitchesToGameMode(Modular(400, 500, true, false)));  // UI mode, a click on the game
+	CHECK(!ClickSwitchesToGameMode(Modular(1300, 500, true, true))); // a window keeps its clicks
+	CHECK(WheelCyclesCamera(Modular(400, 500, true, false)));        // over the game: steps the camera
+	CHECK(!WheelCyclesCamera(Modular(1300, 500, true, true)));       // over a window: scrolls it
+	CHECK(!PathPlaybackSwallowsPress(Modular(1300, 500, true, true), true)); // pause / stop keep working
+	CHECK(PathPlaybackSwallowsPress(Modular(400, 500, true, false), true));
+	Input view = Modular(1300, 500, true, true); view.viewEdit = true;
+	CHECK(!RightPressLooks(view));                                    // the outliner's menu stays
+	view.onPanel = false;
+	CHECK(RightPressLooks(view));
+	// Only the header bar up (no window): a notch over it is the bar's, over the game the camera's.
+	Input bar = Regular(800, 20); bar.onPanel = true;
+	CHECK(!WheelCyclesCamera(bar));
+	CHECK(!ClickSwitchesToUiMode(bar));                               // no workspace: no UI mode to enter
+}
+
 void TestFractions() {
 	const Rect r = FromFractions(0.25f, 0.5f, 0.75f, 1.0f, 1920, 1080);
 	CHECK(r.valid && r.x0 == 480 && r.y0 == 540 && r.x1 == 1440 && r.y1 == 1080);
@@ -130,6 +159,7 @@ int main() {
 	TestPopupOverPreview();
 	TestPathPlayback();
 	TestViewEdit();
+	TestModular();
 	TestFractions();
 	if (g_failed) { std::printf("%d check(s) failed\n", g_failed); return 1; }
 	std::printf("ui-click-math-tests: all passed\n");

@@ -48,6 +48,10 @@ public:
 	// owns the gameplay-HUD hide (driven by the "hosted" state flag this pushes to JS).
 	void SetEditorHosted(bool v) { m_editorHosted = v; }
 	bool EditorHosted() const { return m_editorHosted; }
+	// A demo is loaded, read once a frame by RunFrame with the demo_gototick blip debounced (a
+	// seek reports no demo for a few frames). Panels that pump after this one read it here
+	// rather than keeping a debounce of their own.
+	bool DemoActive() const { return m_demoActive; }
 
 	void SetView(int) { }
 	void ToggleView() { }
@@ -123,6 +127,7 @@ private:
 	bool m_visible = false; // hidden until 'camtl open'
 	bool m_cursor = false;  // global freecam cursor mode (G toggles; never opens the editor)
 	bool m_editorHosted = false; // true while hosted inside Camera Editor Mode
+	bool m_demoActive = false;   // DemoActive(): PlayingDemo() as of this frame's RunFrame
 	std::string m_lastState;
 	std::vector<std::string> m_evalQueue;
 };

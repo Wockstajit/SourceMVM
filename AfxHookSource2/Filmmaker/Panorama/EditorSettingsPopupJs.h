@@ -7,6 +7,7 @@
 // the engine rather than a cached UI value.
 //
 //   X-Ray                       -> spec_show_xray 0|1
+//   Modular windows             -> mirv_filmmaker layout modular|workspace (Panorama/UiLayout.h)
 //   True View                   -> cl_demo_predict 0 / 1 / 2
 //   Include DOA actions         -> cl_trueview_show_doa_predictions 0|1  (needs True View)
 //   Allow demo mismatch versions -> cl_demo_predict 1 <-> 2              (needs True View)
@@ -104,6 +105,21 @@ R"ESJS(
         if (p === 1) cmd('cl_demo_predict 2');
         else if (p === 2) cmd('cl_demo_predict 1');
       });
+      // The UI layout (Panorama/UiLayout.h): the docked workspaces, or CONFIG and the Camera
+      // Editor as movable windows opened from a bar along the top. Not a cvar, so the host says
+      // what is current (opts.modular); a click is shown at once and confirmed by the next state.
+      var layoutWant = null;
+      var layoutTog = settingToggle('Modular windows', 'Open CONFIG and the Camera Editor as movable windows from a bar along the top.', function () {
+        layoutWant = !layoutModular();
+        cmd('mirv_filmmaker layout ' + (layoutWant ? 'modular' : 'workspace'));
+      });
+      layoutTog.row.style.marginTop = '18px';
+      function layoutModular() {
+        var now = false;
+        try { now = !!(opts.modular && opts.modular()); } catch (e) { now = false; }
+        if (layoutWant !== null) { if (layoutWant === now) layoutWant = null; else return layoutWant; }
+        return now;
+      }
 )ESJS"
 R"ESJS(
       function refresh() {
@@ -113,6 +129,7 @@ R"ESJS(
         setToggle(trueviewTog, tvOn, true);
         setToggle(doaTog, rdInt('cl_trueview_show_doa_predictions') !== 0, tvOn);
         setToggle(mismatchTog, predict >= 2, tvOn);
+        setToggle(layoutTog, layoutModular(), true);
       }
       function dbgOn() { try { return !!(opts.debugOn && opts.debugOn()); } catch (e) { return false; } }
       function dbgTag() { return opts.debugTag || 'editorsettings'; }

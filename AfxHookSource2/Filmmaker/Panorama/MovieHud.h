@@ -26,6 +26,12 @@ public:
 	void SetVisible(bool v) { m_visible = v; }
 	void Toggle() { m_visible = !m_visible; }
 	bool Visible() const { return m_visible; }
+
+	// Panels that cover the game (CONFIG, the Camera Editor) hide the card while they do. Each one
+	// holds its own bit: the card stays hidden while any bit is set and comes back as it was before
+	// the first one hid it when the last one lets go, whatever order they open and close in.
+	enum Hider : unsigned { HiderConfig = 1u, HiderEditor = 2u };
+	void HideFor(Hider who, bool hide);
 	void SetReadoutRate(unsigned hz) { m_readoutRate = hz > 60 ? 60 : hz; m_lastJson.clear(); }
 	unsigned ReadoutRate() const { return m_readoutRate; }
 
@@ -45,6 +51,8 @@ private:
 	short m_symState = -1;
 	bool m_built = false;
 	bool m_visible = true; // shown by default while in a demo; F8 toggles it
+	unsigned m_hiders = 0;          // HideFor bits
+	bool m_visibleBeforeHide = true; // restored when the last hider lets go
 	std::string m_lastJson;
 	std::vector<std::string> m_evalQueue;
 	HudReadoutCadence m_readoutCadence;

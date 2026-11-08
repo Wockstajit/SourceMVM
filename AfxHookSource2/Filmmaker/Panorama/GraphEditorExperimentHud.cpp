@@ -1,4 +1,6 @@
 #include "GraphEditorExperimentHud.h"
+#include "UiLayout.h" // MODULAR layout: the dock runs full width
+#include "../Movie/TimelineDock.h" // the operator's dock height
 #include "../Movie/DemoScrub.h"
 #include "../Movie/ScrubFrameCache.h" // the camera flies the world's own tick while the world chases a drag
 #include "../Movie/ScrubFrameCache.h" // the camera flies the world's own tick while the world chases a drag
@@ -61,13 +63,10 @@ double r3(double v) {
 	double s = (v < 0) ? -1.0 : 1.0; return s * (long long)(v * s * 1000.0 + 0.5) / 1000.0;
 }
 
-bool PlayingDemo() {
-	if (g_pEngineToClient) {
-		if (auto pDemo = g_pEngineToClient->GetDemoFile())
-			return pDemo->IsPlayingDemo() || pDemo->IsDemoPaused();
-	}
-	return false;
-}
+// A demo is loaded: the camera timeline's reading, which pumps before this one each frame and
+// rides out the few frames a demo_gototick seek reports no demo. Taken raw, the seek a scrub
+// issues ended that scrub, deleted the dock's UI and dropped its model (Codex review on #137).
+bool PlayingDemo() { return CameraTimelineHudRef().DemoActive(); }
 
 // The demo is actually ADVANCING (loaded and not paused). The JS uses this to page the visible
 // window so the playhead stays on screen while playing; a scrub must not trigger that.
@@ -391,6 +390,10 @@ std::string GraphEditorExperimentHud::BuildStateJson() {
 	o << "{";
 	o << "\"enabled\":" << (m_enabled ? "true" : "false");
 	o << ",\"renderOpen\":" << (Render_IsModalOpen() ? "true" : "false");
+	// MODULAR layout: the inspector is a floating window, so the dock spans the screen (UiLayout.h).
+	o << ",\"modular\":" << (UiLayout_Modular() ? "true" : "false");
+	// The operator's dock height (the grab strip along the top edge), Movie/TimelineDock.h.
+	o << ",\"dockBodyH\":" << TimelineDock_BodyHeight();
 	// The operator-dragged inspector width: the graph dock fills the screen LEFT of that column,
 	// so it needs the same number CONFIG and the editor lay out to. See InspectorWidth.h.
 	InspectorWidth_AppendJson(o);
@@ -593,9 +596,34 @@ void GraphEditorExperimentHud::RunFrame() {
 	// once actuallayoutwidth / actuallayoutheight settle, even while paused.
 	m_bridge.RunScriptCached("$.GraphExp && $.GraphExp.render();", "mvm/graphexp.render");
 
+	// The dock's own wheel notches (MODULAR layout, no window hosting it), after render() so the
+	// rows they scroll are laid out for this frame. $.GraphExp.wheel takes the notch only while
+	// the pointer is over the dock.
+	{
+		int notches = 0;
+		{
+			std::lock_guard<std::mutex> lk(m_charMutex);
+			notches = m_pendingWheel;
+			m_pendingWheel = 0;
+		}
+		if (notches != 0) {
+			char js[96];
+			_snprintf_s(js, sizeof(js), _TRUNCATE, "$.GraphExp && $.GraphExp.wheel && $.GraphExp.wheel(%d);", notches);
+			m_bridge.RunScript(js);
+		}
+	}
+
 	// Live-drive runs EVERY frame (independent of the render-on-change gate) so the camera
 	// keeps following the curves while the demo plays.
 	DriveCameraThisFrame();
+}
+
+void GraphEditorExperimentHud::PushWheel(int notches) {
+	std::lock_guard<std::mutex> lk(m_charMutex);
+	int next = m_pendingWheel + notches;
+	if (next > 32) next = 32;
+	if (next < -32) next = -32;
+	m_pendingWheel = next;
 }
 
 // ---- command surface --------------------------------------------------------
