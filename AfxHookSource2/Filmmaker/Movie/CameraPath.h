@@ -140,6 +140,7 @@ public:
 	// AUTO is playing but the playhead is not inside the path yet: the view is CS2's (the range
 	// gate let the free cam go), so clicks and looks are the user's, not the path's.
 	bool AutoWaiting() const;
+	bool AutoPlaying() const { return m_autoPlaying && GetMode() == Mode::PreviewPlaying; }
 	// True while the dolly is actively driving the FINAL view (PreviewPlaying + playing +
 	// free cam engaged). main.cpp's view-setup hook reads this (via CameraPathOwnsView) to
 	// block CS2's demo-view-override / TrueView from re-owning the view mid-playback.
@@ -211,6 +212,8 @@ private:
 	void RunAutoPath();
 	void EndAutoPath(const char* why);
 	bool m_autoPlaying = false; // the playback running now was started by AUTO, not by J or Play
+	bool m_autoStandDown = false; // the user stopped a path: AUTO waits for a pause or for the playhead to leave
+	int m_autoStandDownPausedFrames = 0;
 	// Same end-of-path moment as FinishPlaybackAtLastKey, but rewinds and plays again. Used
 	// while the shared LOOP switch is on -- see the call site in RunFrame.
 	void RestartPathPlayback();

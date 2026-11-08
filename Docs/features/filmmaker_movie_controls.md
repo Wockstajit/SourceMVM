@@ -126,9 +126,12 @@ mirv_filmmaker mouse state
 
 **J** plays the path from its first key: it lands the demo exactly there, starts the path once the
 world has landed, and the next **J** stops it. The path follows demo ticks in Live timing, so a key
-placed on a kill stays on the kill. **Space** plays the demo, and the view follows the path only with
-the timeline's **AUTO** on. With AUTO off, the first time a demo plays through its path a notice says
-so. In Freeze timing the world stands still while the camera flies, and a notice says that too.
+placed on a kill stays on the kill. **Space** plays the demo. With the Camera Editor or the TIMELINE dock up and **AUTO** on, which is the
+default, the view follows the path once the playhead is inside its keys and returns to CS2's camera at
+the last key. The switch is on the TIMELINE dock's camera path layer (`camtl autopath`). If you stop a
+path inside its keys (J, Esc, flying, the wheel), AUTO leaves the view alone until you pause or the
+playhead leaves the keys. With AUTO off or both panels closed, the first time a demo plays through its
+path a notice says so. In Freeze timing the world stands still while the camera flies, and a notice says that too.
 Stepping the camera with the wheel, or pressing W/A/S/D, ends a path that is playing.
 
 The two-step flow (J arms, Space plays) is gone from the keyboard. `marker preview` and `marker play`

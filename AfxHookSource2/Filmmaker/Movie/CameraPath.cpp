@@ -356,9 +356,9 @@ void CameraPath::HandBackAtLastKey() {
 
 // --- AUTO: follow the path while the timeline plays through it ---
 //
-// The camera path layer's AUTO button (`camtl autopath`, saved as editor.timeline.autopath, off by
-// default). While the TIMELINE dock is up and the demo plays in Live timing, the view follows the
-// path whenever the playhead is inside its keys: the range-gated playback the timeline's Play uses,
+// The camera path layer's AUTO button (`camtl autopath`, saved as editor.timeline.autopath, on by
+// default). While the Camera Editor or the TIMELINE dock is up and the demo plays in Live timing, the
+// view follows the path once the playhead is inside its keys: the range-gated playback the timeline's Play uses,
 // whose gate hands the view back before the first key. At the last key the view goes back to CS2's
 // camera and the demo plays on. Space no longer starts a path preview (user request 2026-10-17);
 // J still plays the path, AUTO or not.
@@ -378,7 +378,7 @@ bool CameraPath::AutoWaiting() const {
 	return m_autoPlaying && GetMode() == Mode::PreviewPlaying && !CameraBridge_GetFreeCamEnabled();
 }
 
-bool CameraPath_AutoPath() { return FilmmakerSettings_UiBool("editor.timeline.autopath", false); }
+bool CameraPath_AutoPath() { return FilmmakerSettings_UiBool("editor.timeline.autopath", true); }
 void CameraPath_SetAutoPath(bool on) { FilmmakerSettings_SetUi("editor.timeline.autopath", on ? "1" : "0"); }
 
 void CameraPath::EndAutoPath(const char* why) {
@@ -395,8 +395,8 @@ void CameraPath::EndAutoPath(const char* why) {
 // on purpose, but to someone who just made a path it reads as a path that does not play. Say how to
 // watch it, once per demo.
 void CameraPath::HintWhenPathIsNotPlaying() {
-	// AUTO only follows with the TIMELINE dock up, in Live timing (RunAutoPath).
-	const bool autoFollows = CameraPath_AutoPath() && GraphEditorExperiment_Enabled() && m_timing == Timing::Live;
+	// AUTO only follows with the editor or the dock up, in Live timing (RunAutoPath).
+	const bool autoFollows = CameraPath_AutoPath() && (GraphEditorExperiment_Enabled() || CameraEditor_Active()) && m_timing == Timing::Live;
 	if (m_pathHintShown || autoFollows || m_data.Count() < 2 || GetMode() != Mode::Editing
 		|| m_play.Scrubbing() || PlaybackPending() || !DemoIsPlaying() || DemoIsPaused()
 		|| Render_IsJobActive() || FollowCameraRef().OwnsView())
@@ -405,19 +405,37 @@ void CameraPath::HintWhenPathIsNotPlaying() {
 	if (!g_MirvTime.GetCurrentDemoTick(tick) || tick < FirstPathTick() || tick > LastPathTick())
 		return;
 	m_pathHintShown = true;
-	Notify("The demo is playing, not your camera path. Press J to play the path from its first key, or use AUTO in the TIMELINE dock.");
+	Notify(CameraPath_AutoPath()
+		? "The demo is playing, not your camera path. Press J to play the path from its first key, or open the Camera Editor so it follows by itself."
+		: "The demo is playing, not your camera path. Press J to play the path from its first key, or turn on AUTO in the TIMELINE dock.");
 	m_noticeExpireSec = NowSec() + 7.0; // two sentences to read while the shot plays
 	if (MvmDebugLog_Active()) MvmDebugLog_LinefAlways("campath.hint", "demo playing through the path at tick %d, not following it (AUTO %d)", tick, CameraPath_AutoPath() ? 1 : 0);
 }
 
 void CameraPath::RunAutoPath() {
-	const bool want = CameraPath_AutoPath() && GraphEditorExperiment_Enabled() && m_timing == Timing::Live
+	// The user stopped a path inside its keys (J, Esc, flying, the wheel). With the demo still playing
+	// AUTO would take the view straight back, so it waits for a pause or for the playhead to leave.
+	if (m_autoStandDown) {
+		// A real pause only: the cosmetics seek hold pauses the demo by itself shortly after a landing,
+		// and reading that as the user's pause let AUTO take the view back right after a J stop.
+		if (DemoIsPaused() && !CosmeticsRef().SeekHoldActive()) ++m_autoStandDownPausedFrames;
+		else m_autoStandDownPausedFrames = 0;
+		int standTick = -1;
+		if (!DemoIsPlaying() || m_autoStandDownPausedFrames >= 10 || !g_MirvTime.GetCurrentDemoTick(standTick)
+			|| standTick < FirstPathTick() || standTick >= LastPathTick()) {
+			m_autoStandDown = false;
+			m_autoStandDownPausedFrames = 0;
+		} else {
+			return;
+		}
+	}
+	const bool want = CameraPath_AutoPath() && (GraphEditorExperiment_Enabled() || CameraEditor_Active()) && m_timing == Timing::Live
 		&& m_data.Count() >= 2 && DemoIsPlaying() && !DemoIsPaused() && !Render_IsJobActive()
 		&& !FollowCameraRef().OwnsView();
 	if (m_autoPlaying) {
 		// J, Esc, a pause or a seek ended it: that playback is not AUTO's any more.
 		if (GetMode() != Mode::PreviewPlaying) { m_autoPlaying = false; return; }
-		if (!want) EndAutoPath(!CameraPath_AutoPath() ? "AUTO off" : !GraphEditorExperiment_Enabled() ? "the TIMELINE dock closed"
+		if (!want) EndAutoPath(!CameraPath_AutoPath() ? "AUTO off" : !(GraphEditorExperiment_Enabled() || CameraEditor_Active()) ? "the editor and the TIMELINE dock closed"
 			: m_timing != Timing::Live ? "Freeze timing" : m_data.Count() < 2 ? "under two camera keys"
 			: !DemoIsPlaying() ? "the demo stopped" : DemoIsPaused() ? "the demo paused"
 			: Render_IsJobActive() ? "a render started" : "the Follow Camera owns the view");
@@ -425,7 +443,9 @@ void CameraPath::RunAutoPath() {
 	}
 	if (!want || GetMode() != Mode::Editing || m_play.Scrubbing() || PlaybackPending()) return;
 	int tick = -1;
-	if (!g_MirvTime.GetCurrentDemoTick(tick) || tick >= LastPathTick()) return; // past it this pass
+	// Inside the keys only. Starting earlier would take a free cam away from someone flying ahead of
+	// the path while the demo plays.
+	if (!g_MirvTime.GetCurrentDemoTick(tick) || tick < FirstPathTick() || tick >= LastPathTick()) return;
 	RebuildCamPath();
 	if (!m_eval.CanEval()) return;
 	m_hudHidden = false;
@@ -956,6 +976,7 @@ void CameraPath::StopPreview() {
 	m_autoPlaying = false;
 	EndCurveValueEdit();
 	bool was = (GetMode() == Mode::PreviewArmed || GetMode() == Mode::PreviewPlaying);
+	if (was) m_autoStandDown = true;
 	m_play.Stop();
 	m_hudHidden = false;
 	m_editorPlay = false;

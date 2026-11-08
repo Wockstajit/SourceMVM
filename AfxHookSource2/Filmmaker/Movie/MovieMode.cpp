@@ -730,7 +730,9 @@ bool MovieMode::OnKey(int vkey, bool down) {
 
 	if (vkey == kVK_J) {
 		if (down) {
-			if (cpMode == CPMode::PreviewPlaying || (cpMode == CPMode::PreviewArmed && CameraPathRef().PlaybackPending()))
+			// While AUTO is following the path, J still means "play it from the first key".
+			if ((cpMode == CPMode::PreviewPlaying && !CameraPathRef().AutoPlaying())
+				|| (cpMode == CPMode::PreviewArmed && CameraPathRef().PlaybackPending()))
 				EnqueueCmd("mirv_filmmaker marker previewstop");
 			else if (cpMode == CPMode::PreviewArmed)
 				EnqueueCmd("mirv_filmmaker marker play");

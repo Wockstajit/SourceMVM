@@ -38,7 +38,7 @@ test('a play that beats the landing waits for it', () => {
 
 test('J plays from the first key in one press and stops on the next', () => {
   assert.match(movie, /marker playfromstart/);
-  assert.match(movie, /cpMode == CPMode::PreviewPlaying \|\| \(cpMode == CPMode::PreviewArmed && CameraPathRef\(\)\.PlaybackPending\(\)\)/);
+  assert.match(movie, /cpMode == CPMode::PreviewPlaying && !CameraPathRef\(\)\.AutoPlaying\(\)\)\s*\|\| \(cpMode == CPMode::PreviewArmed && CameraPathRef\(\)\.PlaybackPending\(\)\)/);
   assert.match(read('AfxHookSource2/Filmmaker/MarkerCommand.cpp'), /"playfromstart"\)\) cp\.PlayFromFirstKey\(\)/);
   assert.match(read('AfxHookSource2/Filmmaker/Panorama/CameraEditorJs.h'), /\['J', 'play path'\]/);
   assert.doesNotMatch(read('AfxHookSource2/Filmmaker/Panorama/MarkerHudJs.h'), /Arm the path/);
@@ -51,4 +51,16 @@ test('stepping the camera with the wheel ends a path instead of leaving it runni
 
 test('a demo playing through a path with AUTO off says how to watch the path', () => {
   assert.match(body('HintWhenPathIsNotPlaying'), /Press J to play the path/);
+});
+
+test('AUTO is on until the user turns it off', () => {
+  assert.match(camPath, /FilmmakerSettings_UiBool\("editor\.timeline\.autopath", true\)/);
+});
+
+test('AUTO follows with the Camera Editor open, starts inside the keys, and stays stopped when stopped', () => {
+  const run = body('RunAutoPath');
+  assert.match(run, /CameraPath_AutoPath\(\) && \(GraphEditorExperiment_Enabled\(\) \|\| CameraEditor_Active\(\)\)/);
+  assert.match(run, /tick < FirstPathTick\(\) \|\| tick >= LastPathTick\(\)\) return;/);
+  assert.match(run, /if \(m_autoStandDown\) \{/);
+  assert.match(body('StopPreview'), /if \(was\) m_autoStandDown = true;/);
 });
