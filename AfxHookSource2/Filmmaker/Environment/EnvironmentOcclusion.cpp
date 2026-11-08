@@ -1,6 +1,7 @@
 #define NOMINMAX
 #include "EnvironmentOcclusion.h"
 #include "EnvironmentCacheMath.h"
+#include "EnvironmentGroundFogMath.h"
 #include "../Debug/MvmDebugLog.h"
 #include "../MapData/MapCacheCodec.h"
 #include "../MapData/MapExtract.h"
@@ -83,6 +84,28 @@ bool ReadManifest(const std::filesystem::path &folder, const std::string &map, J
     return true;
 }
 
+// The map's nav mesh, read straight from its package: it is small, and opening an official package
+// reads only the directory. A map with none, or one this cannot read, goes without.
+void ReadMapNav(const std::string &map, OcclusionMesh &mesh) {
+    std::vector<uint8_t> bytes;
+    std::string source = "none";
+    try {
+        const std::string entry = "maps/" + map + ".nav";
+        const auto official = Cs2Root() / "game" / "csgo" / "maps" / (map + ".vpk");
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(official, ec)) {
+            if (MapData::Vpk(official).Read(entry, bytes)) source = "official";
+        } else if (const auto sources = MapData::OpenMapSources(Cs2Root(), map); sources.package && sources.package->Read(entry, bytes)) {
+            source = "workshop";
+        }
+    } catch (const std::exception &e) {
+        MvmDebugLog_LinefAlways("environment.occlusion", "nav map=%s unreadable: %s", map.c_str(), e.what());
+    }
+    const bool parsed = ParseGroundFogNav(bytes.data(), bytes.size(), mesh.navPositions, mesh.navIndices);
+    MvmDebugLog_LinefAlways("environment.occlusion", "nav map=%s source=%s bytes=%zu parsed=%d vertices=%zu triangles=%zu", map.c_str(),
+                            source.c_str(), bytes.size(), int(parsed), mesh.navPositions.size(), mesh.navIndices.size() / 3);
+}
+
 Result Load(const std::string &map, const std::filesystem::path &folder, uint64_t requestGeneration) {
     Result r;
     r.map = map;
@@ -107,6 +130,7 @@ Result Load(const std::string &map, const std::filesystem::path &folder, uint64_
     if (!ReadOcclusionMesh(*file, *mesh, r.error) || !ReadVisualCasters(*visualFile, *visual, r.error)) return r;
     mesh->visual = visual;
     mesh->contentKey = value("mapDigest") + value("physicsDigest") + value("visualDigest");
+    ReadMapNav(map, *mesh);
     mesh->lightMetadataPath = lightPath.u8string();
     if (const auto skyboxes = metadata.Find("skyboxes"); skyboxes && skyboxes->type == JsonValue::Type::Array && !skyboxes->arr.empty()) {
         const auto &sky = skyboxes->arr[0];

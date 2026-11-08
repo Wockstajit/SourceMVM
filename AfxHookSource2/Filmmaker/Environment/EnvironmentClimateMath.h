@@ -109,6 +109,43 @@ enum ClimateField {
     CL_lampAngle,
     CL_shadowSoftness,
     CL_bounceSteps,
+    // GROUND FOG: the low layer that lies on the floor and parts around players (density 0 = off).
+    // Thickness over the floor, billow detail, how hard bodies push it, seconds to refill a cleared
+    // trail, eddy strength, and the drift that carries it (speed, compass direction).
+    CL_groundFog,
+    CL_groundFogHeight,
+    CL_groundFogDetail,
+    CL_groundFogFlow,
+    CL_groundFogRecovery,
+    CL_groundFogSwirl,
+    CL_groundFogWind,
+    CL_groundFogWindAngle,
+    // How much of the floor the fog covers: 1 is an unbroken sheet, lower breaks it into patches the
+    // fluid carries, which is what makes the moving air easy to see.
+    CL_groundFogCoverage,
+    // The ground fog's own colour. It defaults to a warm white: the height fog's grey-blue reads as a
+    // dirty film on the floor, and a dense low fog is white where the sun reaches it.
+    CL_groundFogColorR,
+    CL_groundFogColorG,
+    CL_groundFogColorB,
+    // THE LOOK. From a defined sheet with a top surface to thin torn mist: how gradually it fades upward,
+    // how much fine torn detail it has, how big that detail is and how far the drift stretches it, how
+    // big the rolling lumps are, how fast it all churns. And its light: the sun on it, and the colour
+    // and brightness of the fog in shade. None of these touch the fluid players push.
+    CL_groundFogSoftness,
+    CL_groundFogWisps,
+    CL_groundFogWispSize,
+    CL_groundFogStreak,
+    CL_groundFogBillowSize,
+    CL_groundFogChurn,
+    CL_groundFogSun,
+    CL_groundFogShade,
+    CL_groundFogShadeR,
+    CL_groundFogShadeG,
+    CL_groundFogShadeB,
+    // How wide a player's mark on the fog is: a share of the body's size that scales the clearing, the
+    // shove and the heaped rim together.
+    CL_groundFogPushSize,
     ClimateCount
 };
 struct ClimateSpec {
@@ -215,6 +252,30 @@ inline const std::array<ClimateSpec, ClimateCount> &ClimateSpecs() {
         {"lampAngle", "lighting", 1, 0, 5},
         {"shadowSoftness", "lighting", 1, 0, 4},
         {"bounceSteps", "lighting", 1, 1, 3},
+        {"groundFog", "atmosphere", 0.0f, 0.0f, 4.0f},
+        {"groundFogHeight", "atmosphere", 56.0f, 8.0f, 400.0f},
+        {"groundFogDetail", "atmosphere", 0.6f, 0.0f, 1.0f},
+        {"groundFogFlow", "atmosphere", 1.0f, 0.0f, 3.0f},
+        {"groundFogRecovery", "atmosphere", 8.0f, 0.5f, 60.0f},
+        {"groundFogSwirl", "atmosphere", 0.8f, 0.0f, 2.0f},
+        {"groundFogWind", "atmosphere", 12.0f, 0.0f, 200.0f},
+        {"groundFogWindAngle", "atmosphere", 30.0f, 0.0f, 360.0f},
+        {"groundFogCoverage", "atmosphere", 0.85f, 0.05f, 1.0f},
+        {"groundFogColorR", "atmosphere", 0.93f, 0.0f, 1.0f},
+        {"groundFogColorG", "atmosphere", 0.91f, 0.0f, 1.0f},
+        {"groundFogColorB", "atmosphere", 0.87f, 0.0f, 1.0f},
+        {"groundFogSoftness", "atmosphere", 0.35f, 0.0f, 1.0f},
+        {"groundFogWisps", "atmosphere", 0.35f, 0.0f, 1.0f},
+        {"groundFogWispSize", "atmosphere", 36.0f, 8.0f, 240.0f},
+        {"groundFogStreak", "atmosphere", 0.2f, 0.0f, 1.0f},
+        {"groundFogBillowSize", "atmosphere", 220.0f, 60.0f, 1000.0f},
+        {"groundFogChurn", "atmosphere", 1.0f, 0.0f, 5.0f},
+        {"groundFogSun", "atmosphere", 1.0f, 0.0f, 3.0f},
+        {"groundFogShade", "atmosphere", 1.0f, 0.0f, 3.0f},
+        {"groundFogShadeR", "atmosphere", 1.0f, 0.0f, 1.0f},
+        {"groundFogShadeG", "atmosphere", 1.0f, 0.0f, 1.0f},
+        {"groundFogShadeB", "atmosphere", 1.0f, 0.0f, 1.0f},
+        {"groundFogPushSize", "atmosphere", 0.55f, 0.2f, 2.0f},
 
     }};
     return values;
@@ -258,6 +319,7 @@ inline Climate EffectiveClimate(Climate c) {
         c[CL_sky] = 0;
         c[CL_clouds] = 0;
         c[CL_fogDensity] = 0;
+        c[CL_groundFog] = 0;
         c[CL_sunAzimuth] = ClimateSpecs()[CL_sunAzimuth].initial;
         c[CL_sunElevation] = ClimateSpecs()[CL_sunElevation].initial;
         c[CL_sunPower] = 0;
@@ -273,15 +335,16 @@ inline Climate EffectiveClimate(Climate c) {
 // Whether anything this frame samples the world sun shadow map, from the effective climate.
 // `lighting` is the frame's owned lighting: a captured frame hands Lighting to the native relight
 // path and zeroes CL_relighting first. `receivers` covers placed props and the cascade debug view.
-// Fog on its own never asks: its light shafts are the sun's shadow, so they wait for the Sky or
-// Lighting card to put a sun up.
+// Fog asks only while its Light shafts switch is on: the shafts ARE the sun's shadow through the
+// fog. The climate sun starts as the map's own light_environment, so the shafts fall where the
+// map's sunlight does without the Sky or Lighting card.
 inline bool ClimateSamplesSunShadow(const Climate &c, bool lighting, bool receivers) {
     if (c[CL_enabled] <= 0 || c[CL_contactShadows] <= 0 || c[CL_sunElevation] < 0 || c[CL_sunPower] <= 0)
         return false;
     const bool lit = lighting || c[CL_relighting] > 0;
     return receivers || lit || c[CL_worldGi] > 0 || c[CL_clouds] > 0 ||
            c[CL_snow] > 0 || c[CL_wet] > 0 || c[CL_puddles] > 0 ||
-           (c[CL_sky] > 0 && c[CL_fogDensity] > 0 && c[CL_lightShafts] > 0);
+           ((c[CL_fogDensity] > 0 || c[CL_groundFog] > 0) && c[CL_lightShafts] > 0);
 }
 // Direct solar energy stops at the horizon. Twilight belongs to sky/indirect
 // lighting and must not produce a sun disk or specular highlight below the map.
@@ -297,10 +360,11 @@ inline Vec3 ClimateSunDirection(const Climate &c) {
 // weather. Each is restored by a card switch that reads `held` (Sky and Fog through envPassPill,
 // Weather through its own switch) or is a plain 0/1 switch. The grade (bloom, saturation, ...) is
 // left alone: it costs nothing to keep and no switch could restore a held grade value.
-inline const std::array<std::pair<ClimateField, float>, 10> &RestoredPassNeutrals() {
-    static const std::array<std::pair<ClimateField, float>, 10> list{{
+inline const std::array<std::pair<ClimateField, float>, 11> &RestoredPassNeutrals() {
+    static const std::array<std::pair<ClimateField, float>, 11> list{{
         {CL_sky, 0.f}, {CL_clouds, 0.f}, {CL_storm, 0.f}, {CL_relighting, 0.f}, {CL_worldGi, 0.f},
-        {CL_bakedSuppressed, 0.f}, {CL_fogDensity, 0.f}, {CL_snow, 0.f}, {CL_wet, 0.f}, {CL_puddles, 0.f}}};
+        {CL_bakedSuppressed, 0.f}, {CL_fogDensity, 0.f}, {CL_groundFog, 0.f}, {CL_snow, 0.f}, {CL_wet, 0.f},
+        {CL_puddles, 0.f}}};
     return list;
 }
 // Key under which a held weather type is kept beside the climate keys.
@@ -366,5 +430,57 @@ inline std::string ClimateShaderDefines() {
         s += "#define CL_" + std::string(ClimateSpecs()[i].key) + " climateData[" + std::to_string(i / 4) +
              "][" + std::to_string(i % 4) + "]\n";
     return s;
+}
+// The sky light both fogs scatter when the Environment sky is off (fogAmbient in the shaders): the
+// map's own authored sky colour, normalised to the brightness the fog has always had and mixed half
+// and half with its neutral grey-blue, so maps differ in tint without one map's fog going dark.
+// Without map data it is the neutral colour alone.
+inline Vec3 FogAmbientFromMapSky(Vec3 skySrgb, bool known) {
+    const Vec3 neutral{.45f, .5f, .6f};
+    if (!known || !Finite(skySrgb)) return neutral;
+    auto linear = [](float c) {
+        c = std::clamp(c, 0.f, 1.f);
+        return c <= .04045f ? c / 12.92f : std::pow((c + .055f) / 1.055f, 2.4f);
+    };
+    Vec3 sky{linear(skySrgb.x), linear(skySrgb.y), linear(skySrgb.z)};
+    const float luminance = sky.x * .2126f + sky.y * .7152f + sky.z * .0722f;
+    if (luminance < 1e-4f) return neutral;
+    const float target = neutral.x * .2126f + neutral.y * .7152f + neutral.z * .0722f;
+    sky = sky * (target / luminance);
+    return {(neutral.x + (std::min)(sky.x, 1.5f)) * .5f, (neutral.y + (std::min)(sky.y, 1.5f)) * .5f,
+            (neutral.z + (std::min)(sky.z, 1.5f)) * .5f};
+}
+// Which share of CS2's transparent coverage on a camera ray is a placed smoke. Mirrors
+// SmokeRayShare in EnvironmentShaders.h: 1 when the ray passes through a smoke sphere, fading to 0
+// between 1.15 and 1.6 radii from its centre; `entry` is where along the ray that smoke starts, -1
+// when the ray misses every smoke. Coverage on other rays is glass, fire or foliage, not smoke.
+// With no smoke positions at all (the hook hands coverage over only while smokes exist) every
+// covered ray is taken as smoke from the camera on.
+inline float SmokeRayShare(Vec3 camera, Vec3 dir, float maxT, const Vec3 *centers, const float *radii, int count,
+                           float &entry) {
+    if (count <= 0) {
+        entry = 0;
+        return 1;
+    }
+    entry = -1;
+    float share = 0;
+    for (int i = 0; i < count; ++i) {
+        const float r = radii[i];
+        if (!(r > 0)) continue;
+        const Vec3 oc = camera - centers[i];
+        const float b = Dot(oc, dir);
+        const float closest = std::clamp(-b, 0.f, maxT);
+        const Vec3 nearest = oc + dir * closest;
+        const float miss = std::sqrt(Dot(nearest, nearest));
+        const float t0 = std::clamp((miss - r * 1.15f) / (r * .45f), 0.f, 1.f);
+        const float w = 1 - t0 * t0 * (3 - 2 * t0);
+        if (w <= 0) continue;
+        const float h = b * b - (Dot(oc, oc) - r * r);
+        const float t = h >= 0 ? (std::max)(-b - std::sqrt(h), 0.f) : closest;
+        if (t > maxT) continue;
+        if (entry < 0 || t < entry) entry = t;
+        share = (std::max)(share, w);
+    }
+    return share;
 }
 } // namespace Filmmaker::Environment

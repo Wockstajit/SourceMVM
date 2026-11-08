@@ -31,7 +31,7 @@ cbuffer FrameConstants : register(b0) {
     float4 coatingActors[COATING_ACTORS];
     float4 coatingActorCount;
     float4 smokeInfo; // x = CS2 smoke absorbance bound, yz = its size, w = debug view
-    float4 smokeVolumes[8]; // xyz centre, w radius (see SmokeEntry)
+    float4 smokeVolumes[8]; // xyz centre, w radius (see SmokeRayShare)
     float4 smokeVolumeCount; // x = filled slots
     float4 viewmodelInfo;
     float4 relightDebug; // x view mode, y record count, z replacement ceiling
@@ -44,6 +44,14 @@ cbuffer FrameConstants : register(b0) {
     float4 weatherRegionLow;  // xyz map precipitation box, w = mapped
     float4 weatherRegionHigh; // xyz
     float4 bakedLight;        // x = daylight energy ratio of the owned lighting, y = valid
+    // Ground fog (EnvironmentGroundFog.h). The fluid grid: xy min corner, zw one over its size (u),
+    // zero when the fluid is not bound.
+    float4 groundFogWindow;
+    float4 groundFogFloor;     // xy floor map origin, z texel size (u), w 1 = floor map bound
+    float4 groundFogFloorSize; // xy floor map texels, zw billow drift (u)
+    float4 fogAmbient;         // rgb: the sky light both fogs scatter (map sky, or the Environment sky); w: fogFrontMask bound
+    float4 effectAnchors[16];  // where this frame's particle effects are: xyz, radius (see FogEffectShare)
+    float4 effectAnchorCount;  // x: filled slots
 };
 cbuffer NativeViewmodel : register(b7) {
     column_major float4x4 nativeProjectionToWorld : packoffset(c4);
@@ -62,6 +70,13 @@ Texture2D<float4> skyVolumeTexture : register(t32);
 Texture2D<float2> volumeGeometryTexture : register(t33); // full-precision distance, sky flag
 Texture2D<uint> atmosphereEdgeTexture : register(t34);
 Texture2D<float> smokeAbsorbance : register(t14);
+Texture2D<float4> groundFogState : register(t35);    // velocity xy, fog amount (1 = at rest); EnvironmentGroundFog
+Texture2D<float4> groundFogFloorMap : register(t36); // up to four floor heights per map column, highest first
+Texture2D<float> groundFogSmooth : register(t37);    // soft copy of the fog amount, which the top of the layer follows
+Texture2D<float4> groundFogThickness : register(t38); // how much of the layer's depth each floor in t36 holds
+Texture2D<float2> fogFrontMask : register(t39);      // what transparent effects did to each pixel (see FrontMask)
+Texture2D<float> fogFrontNearby : register(t40);     // the most they hid close to each pixel (see FrontNearby)
+SamplerState groundFogSampler : register(s6);
 // Depth of every posed player and what they hold (world weapons), seen from the camera. Cleared to the
 // far value, so a texel is either empty or the depth of the nearest player surface there.
 Texture2D<float> playerMask : register(t31);
@@ -222,46 +237,48 @@ float SmokeCover(float2 pixel) {
     int2 p=clamp(int2(pixel*smokeInfo.yz/dimensions.xy),int2(0,0),int2(smokeInfo.yz)-1);
     return saturate(1-exp(-max(smokeAbsorbance.Load(int3(p,0)),0)));
 }
-// Where the nearest smoke starts along a camera ray, if it starts before maxT; -1 otherwise.
-// A camera inside a smoke gets 0. Only ORDERING uses this -- how much a smoke hides is SmokeCover.
-float SmokeEntry(float3 dir,float maxT) {
-    float best=-1;
+// WHICH COVERAGE IS A SMOKE. CS2's OIT absorbance holds every transparent in front of a surface:
+// glass, fire, foliage cards and particles as well as smoke. Only coverage on a ray that actually
+// passes through a placed smoke belongs to that smoke. A CS2 cloud billows past the sphere we
+// place for it, so the test widens each sphere and fades out over a margin instead of cutting.
+// Returns that share (0..1) and where along the ray the smoke starts (-1 when the ray misses).
+//
+// This used to take ANY covered ray as smoke, measured from the nearest smoke on the map: with one
+// smoke out anywhere, every window, flame and leaf card had its fog cut short and stood out of the
+// fog crisp and bright (reported 2026-11-07). Reference: SmokeRayShare in EnvironmentClimateMath.h.
+float SmokeRayShare(float3 dir,float maxT,out float entry) {
+    // Smoke positions unknown: coverage is only handed over while smokes exist, so all of it is
+    // taken as smoke starting at the camera, the conservative reading.
+    if(smokeVolumeCount.x<.5){entry=0;return 1;}
+    entry=-1;float share=0;
     int count=(int)smokeVolumeCount.x;
     for(int i=0;i<count;++i){
         float r=smokeVolumes[i].w; if(r<=0) continue;
         float3 oc=camera.xyz-smokeVolumes[i].xyz;
-        float b=dot(oc,dir),h=b*b-(dot(oc,oc)-r*r);
-        if(h<0) continue;
-        h=sqrt(h);
-        if(-b+h<0) continue;
-        float t=max(-b-h,0);
-        if(t<=maxT&&(best<0||t<best)) best=t;
+        float b=dot(oc,dir);
+        // Closest approach of the ray to the smoke centre, within the visible stretch of the ray.
+        float closest=clamp(-b,0,maxT);
+        float miss=length(oc+dir*closest);
+        float w=1-smoothstep(r*1.15,r*1.6,miss);
+        if(w<=0) continue;
+        float h=b*b-(dot(oc,oc)-r*r);
+        float t=h>=0?max(-b-sqrt(h),0):closest;
+        if(t>maxT) continue;
+        if(entry<0||t<entry) entry=t;
+        share=max(share,w);
     }
-    return best;
+    return share;
 }
-// Where a smoke that COVERS this pixel starts, when the ray misses every sphere: a CS2 cloud is
-// taller and wider than any sphere we place, so a covered ray can pass above one. Coverage already
-// proves a smoke is in front; take the nearest smoke's near edge as its distance. -1 = no smokes.
-float SmokeCoveredEntry(float3 dir,float maxT) {
-    float t=SmokeEntry(dir,maxT);
-    if(t>=0) return t;
-    int count=(int)smokeVolumeCount.x;
-    float best=-1;
-    for(int i=0;i<count;++i){
-        float r=smokeVolumes[i].w; if(r<=0) continue;
-        float d=max(length(smokeVolumes[i].xyz-camera.xyz)-r,0);
-        if(best<0||d<best) best=d;
-    }
-    return best;
-}
-// How much of something at `world` a smoke hides. With placed smokes, only what lies BEHIND the
-// start of a smoke is hidden; without them (unresolved offsets) anything under a smoke is.
+// How much of something at `world` a smoke hides: only what lies BEHIND the start of a smoke the
+// ray passes through. Other transparents hide nothing here; they are already in the frame.
 float SmokeHides(float2 pixel,float3 world) {
     float cover=SmokeCover(pixel);
-    if(cover<=0||smokeVolumeCount.x<.5) return cover;
+    if(cover<=0) return 0;
+    if(smokeVolumeCount.x<.5) return cover; // positions unknown: whatever it covers is hidden
     float3 ray=world-camera.xyz; float dist=length(ray);
-    float entry=SmokeCoveredEntry(ray/max(dist,.0001),dist);
-    if(entry<0||entry>=dist)return 0;
+    float entry;
+    cover*=SmokeRayShare(ray/max(dist,.0001),dist,entry);
+    if(cover<=0||entry<0||entry>=dist)return 0;
     bool inside=entry<=0;
     float fraction=inside?saturate(dist/24):saturate((dist-entry)/80);
     float absorbance=-log(max(1-cover,1e-8));
@@ -697,7 +714,13 @@ float4 Atmosphere(float2 pixel,uint sample) {
 #endif
     // Smoke keeps CS2's own volume, but it still has to follow Environment lighting: otherwise
     // flatten/sunlight relight the world and leave grenade clouds sitting on the baked probe.
+    // Only the coverage of a placed smoke counts; glass and particles keep the surface shading.
     float smoke=SmokeCover(pixel);
+    [branch] if(smoke>0){
+        float3 surface=IsSky(depth)?World(pixel,camera.w>0?.00001:.99999):World(pixel,depth);
+        float3 toward=surface-camera.xyz;float reach=length(toward),entry;
+        smoke*=SmokeRayShare(toward/max(reach,.0001),IsSky(depth)?24000:reach,entry);
+    }
     float3 veiled=source;
     if(smoke>0&&(CL_relight>0||CL_sunRelight>0)){
         float lum=max(dot(source,float3(.2126,.7152,.0722)),.02);
@@ -1016,7 +1039,9 @@ float4 WeatherVeilPS(Screen i):SV_Target {
         float d=density*dt*w*clump;
         tau+=d;weighted+=d*t;
     }
-    float coverage=(1-exp(-tau*CL_particleOpacity))*(1-SmokeCover(pixel));
+    float coverage=1-exp(-tau*CL_particleOpacity);
+    float smokeCover=SmokeCover(pixel);
+    [branch] if(smokeCover>0&&coverage>0){float entry;coverage*=1-smokeCover*SmokeRayShare(dir,t1,entry);}
     if(coverage<=0)return 0;
     float3 p=camera.xyz+dir*(weighted/max(tau,1e-9));
     float3 color=weatherColor.rgb;

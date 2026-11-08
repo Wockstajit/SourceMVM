@@ -21,7 +21,7 @@ implementation and browser mock expose six task-oriented cards:
 | Looks | Starting presets; Color: exposure, tint, saturation, contrast; Lens: bloom, vignette, grain, chromatic shift |
 | Sky | Sun direction/elevation/power, haze, stars; Clouds: enable, amount, height, wind |
 | Lighting | Map lights, ambient light, bounce intensity, 1 to 3 bounce steps per frame, shadows and source sizes |
-| Fog | Density, Start distance, Height, Variation, Color |
+| Fog | Height fog: density, start distance, height, variation; Ground fog: density, coverage, depth, billows, push, refill time, swirl, drift speed and direction, color, sim view; Light shafts; height fog color |
 | Weather | Type, intensity, fall speed, wind speed/direction; Ground: wetness, puddles, snow; Lightning: enable, intensity, interval |
 | Scene Objects | **+ Add** in the header (point, spot and area lights, a camera object); Outliner: every placed thing in groups, with show/hide, in-renders and lock; Library: CS2 models and your OBJ meshes; the selected object's light or mesh editor and its RIG under the tree |
 | Round heat map | Its own card: where the round's players walked ([`round-heatmap.md`](round-heatmap.md)) |
@@ -47,7 +47,9 @@ active card also turns Environment off. After 300 inactive rendered frames, it r
 targets, shadow maps, AO and bounce resources. Other active effects or placed objects keep the
 resources they need. Switching back on rebuilds the renderer from prepared shader bytecode.
 
-Fog has one density (0 to 6) and color. Start distance leaves the near region clear. Height controls
+Fog has two layers and one color. [Ground fog](../effects/ground-fog.md) is a low layer that lies on
+the floor, follows slopes and upper floors, and parts around players as they move through it. The
+height fog has one density (0 to 6). Start distance leaves the near region clear. Height controls
 vertical falloff. Variation is three octaves of drifting, contrast-stretched noise at map scale. It
 opens clear pockets and thick banks, and it raises and lowers the fog top. It does not add a fine
 ripple that a long ray averages away. The lit march and far continuation integrate disjoint depth
@@ -58,12 +60,19 @@ Its reserved depth band has no real distance, so it sinks into fog with the sky 
 jitter is interleaved gradient noise. A 5 × 5 depth-aware blur at volume resolution removes its grain
 from light shafts without crossing silhouettes.
 
-Fog does not depend on Lighting. Fog alone renders no sun shadow maps and runs none of the
-dynamic-lighting, bounce or native relighting passes. Its sun term is unshadowed until the Sky or
-Lighting card puts a sun up. Then the fog gets shadowed light shafts from the same sun cascades.
-The sun cascades render only for a pass that samples them: dynamic lighting (including the native
-relight path it hands off to), world bounce, clouds, snow and wet coatings, placed props, shafted
-fog under the procedural sky, and the cascade debug view.
+Fog does not depend on Lighting. It runs none of the dynamic-lighting, bounce or native relighting
+passes. Both fogs take their sky light from the map's own authored sky colour, or from the
+Environment sky when the Sky card is on, and the fog between a point and the sun dims the sunlight
+it gets. The **Light shafts** switch on the Fog page draws the sun's shadow through both fogs. The
+climate sun starts as the map's `light_environment`, so the shafts follow the map's own sunlight
+without the Sky or Lighting card. With the switch off, fog renders no sun shadow maps. The sun
+cascades render only for a pass that samples them: dynamic lighting (including the native relight
+path it hands off to), world bounce, clouds, snow and wet coatings, placed props, fog with light
+shafts, and the cascade debug view.
+
+Glass, flames and leaf cards in CS2's transparency buffer keep the fog of the surface behind them.
+Only coverage on a ray that passes through a placed smoke counts as smoke and cuts the fog short
+there (details in [ground-fog.md](../effects/ground-fog.md#transparent-surfaces-in-fog)).
 
 Preview rendering is fixed to Balanced (32 march steps, half-resolution volume). Export uses High
 (64 steps, full-resolution volume). There are no serialized quality fields or quality commands.

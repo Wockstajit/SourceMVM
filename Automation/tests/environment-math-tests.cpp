@@ -170,8 +170,11 @@ int main() {
         saved[CL_mapLightPower]=3.5f;saved[CL_ambient]=.4f;saved[CL_bounceSteps]=3;
         saved[CL_contactShadows]=1;saved[CL_worldGi]=1;saved[CL_sunRelight]=.8f;
         saved[CL_fogDensity]=.25f;saved[CL_clouds]=0;saved[CL_bloom]=.4f;saved[CL_saturation]=1.3f;
+        saved[CL_groundFog]=.8f;saved[CL_groundFogHeight]=90;
         int weather=1;std::map<std::string,float> held;held["snow"]=.6f;
         HoldRestoredPasses(saved,weather,held);
+        Check(saved[CL_groundFog]==0&&Near(held["groundFog"],.8f)&&saved[CL_groundFogHeight]==90,
+              "Ground fog comes back off and held like the height fog; its tuning is kept");
         Check(saved[CL_relighting]==0&&saved[CL_sky]==0&&saved[CL_worldGi]==0&&saved[CL_fogDensity]==0&&
               weather==0&&saved[CL_enabled]==0,"Reopening a demo starts every pass off, weather included");
         Check(held["relighting"]==1&&held["sky"]==1&&held["worldGi"]==1&&Near(held["fogDensity"],.25f)&&
@@ -185,6 +188,19 @@ int main() {
               "The grade survives a restart untouched");
         Scene stored;stored.climate=saved;stored.held=held;Scene back;std::string error;
         Check(ParseScene(SerializeScene(stored),back,error)&&back.held==held,"Held values survive the autosave");
+        {
+            // A look saved before the ground fog controls existed has none of their keys.
+            std::string json=SerializeScene(stored);
+            for(size_t at;(at=json.find(",\"groundFog"))!=std::string::npos;){
+                size_t end=json.find_first_of(",}",at+1);
+                json.erase(at,end-at);
+            }
+            Scene older;
+            Check(json.find("groundFog")==std::string::npos&&ParseScene(json,older,error),
+                  "A scene saved before a control existed still loads");
+            Check(older.climate[CL_groundFog]==0&&older.climate[CL_groundFogHeight]==ClimateSpecs()[CL_groundFogHeight].initial&&
+                  Near(older.climate[CL_ambient],.4f),"The missing controls take their defaults; the rest load as saved");
+        }
         // Keep between demos onto a map with no saved scene: the look travels, the map's anchors do not.
         Scene carried=stored;carried.map="de_inferno";carried.objects.resize(2);carried.nextObjectId=9;
         carried.weather.follow=false;carried.climate[CL_localFogRadius]=600;carried.climate[CL_surfaceRadius]=600;
@@ -600,8 +616,13 @@ int main() {
     {
         Climate fog;
         fog[CL_enabled] = 1; fog[CL_fogDensity] = .35f; fog[CL_lightShafts] = 1;
-        Check(!ClimateSamplesSunShadow(EffectiveClimate(fog), false, false),
-              "Fog alone renders no sun shadow maps, light shafts included");
+        Check(ClimateSamplesSunShadow(EffectiveClimate(fog), false, false),
+              "Fog light shafts render the sun shadow maps without the Sky or Lighting card");
+        Climate ground; ground[CL_enabled] = 1; ground[CL_groundFog] = 1; ground[CL_lightShafts] = 1;
+        Check(ClimateSamplesSunShadow(EffectiveClimate(ground), false, false), "Ground fog light shafts do too");
+        Climate unshafted = fog; unshafted[CL_lightShafts] = 0; unshafted[CL_groundFog] = 1;
+        Check(!ClimateSamplesSunShadow(EffectiveClimate(unshafted), false, false),
+              "Fog with light shafts off renders no sun shadow maps");
         Check(ClimateSamplesSunShadow(EffectiveClimate(fog), true, false),
               "Fog under the frame's owned lighting keeps shadowed shafts");
         Climate lit = fog; lit[CL_relighting] = 1;

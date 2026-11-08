@@ -141,7 +141,7 @@ R"CFJS(
       // counting them would mean "a pass is on" on a scene nobody has touched, and the renderer
       // could never be released. They are settings OF a pass, not passes.
       ['relighting', 0], ['worldGi', 0], ['bakedSuppressed', 0],
-      ['fogDensity', 0],
+      ['fogDensity', 0], ['groundFog', 0],
       ['snow', 0], ['wet', 0], ['puddles', 0],
       ['bloom', 0], ['vignette', 0], ['grain', 0], ['chromatic', 0],
       ['saturation', 1], ['contrast', 1]
@@ -234,6 +234,24 @@ R"CFJS(
       fogRange:    ['Ray distance', 128, 12000, 0, 'u', false, 'How far the fog is marched. Longer costs more.'],
       scatter:     ['Forward scattering', 0, 0.85, 2, '', false, 'How much light bends toward the camera, which makes shafts read.'],
       localFogRadius: ['Local radius', 0, 8000, 0, 'u', true, 'Confines the fog to a sphere. 0 keeps it global.'],
+      groundFog:   ['Density', 0, 4, 2, '', true, 'A low layer lying on the floor. Players moving through it push it aside and leave trails that drift and fill back in. Around 1 it hides the floor; 0.2 is a thin veil.'],
+      groundFogCoverage: ['Coverage', 0.05, 1, 2, '', false, 'How much of the floor the fog covers. Lower it for separate patches with clear ground between them. Moving air is easiest to see there.'],
+      groundFogHeight: ['Depth', 8, 400, 0, 'u', false, 'How high the ground fog stands over the floor. It follows slopes, stairs and upper floors.'],
+      groundFogDetail: ['Billows', 0, 1, 2, '', false, 'Rolling lumps in the top of the layer.'],
+      groundFogBillowSize: ['Billow size', 60, 1000, 0, 'u', false, 'How wide those lumps are. Big ones read as slow banks of fog.'],
+      groundFogSoftness: ['Softness', 0, 1, 2, '', false, 'How gradually the fog fades upward. 0 is a defined sheet with a top surface. 1 thins all the way up from the floor, like mist.'],
+      groundFogWisps: ['Wisps', 0, 1, 2, '', false, 'Tears the fog into thin streaks you can see through. The moving air bends them, so wakes drag them along.'],
+      groundFogWispSize: ['Wisp size', 8, 240, 0, 'u', false, 'How wide those streaks are.'],
+      groundFogStreak: ['Streak', 0, 1, 2, '', false, 'How far the streaks stretch along the drift direction.'],
+      groundFogChurn: ['Churn', 0, 5, 2, '', false, 'How fast the billows and wisps roll and change. It does not move the fog players pushed.'],
+      groundFogSun: ['Sun on fog', 0, 3, 2, '', false, 'How bright the sun makes the fog. High values read as a white glow against fog in shade.'],
+      groundFogShade: ['Shade brightness', 0, 3, 2, '', false, 'How bright the fog is where the sun does not reach it.'],
+      groundFogFlow: ['Push', 0, 3, 2, '', false, 'How strongly players moving through the fog shove it aside. 0 leaves it undisturbed.'],
+      groundFogPushSize: ['Push size', 0.2, 2, 2, '', false, 'How wide the mark a player leaves in the fog is. Lower keeps it close around their legs; higher parts a wide circle.'],
+      groundFogRecovery: ['Refill time', 0.5, 60, 1, 's', false, 'Seconds a cleared trail takes to fill back in.'],
+      groundFogSwirl: ['Swirl', 0, 2, 2, '', false, 'How much the wakes behind players curl into eddies.'],
+      groundFogWind: ['Drift speed', 0, 200, 0, 'u/s', false, 'How fast the fog drifts and carries the trails downwind.'],
+      groundFogWindAngle: ['Drift direction', 0, 360, 0, '°', false, 'Compass direction the fog drifts toward.'],
       bloom:       ['Bloom', 0, 2, 2, '', true, 'Glow around bright areas.'],
       bloomThreshold: ['Bloom threshold', 0.1, 8, 2, '', false, 'How bright a pixel must be before it blooms.'],
       saturation:  ['Saturation', 0, 2, 2, '', false, 'Colour intensity of the finished frame.'],
@@ -397,6 +415,12 @@ R"CFJS(
       bounceX: 0, bounceY: 0, bounceZ: 0, bounceAlbedo: 0.55, sceneReflections: 0, ao: 1, skyOcclusion: 1,
       fogDensity: 0, fogStart: 0, fogHeight: 320, fogBase: 0, fogNoise: 0.4, fogRange: 4000, scatter: 0.45,
       lightShafts: 0, localFogRadius: 0,
+      groundFogColorR: 0.93, groundFogColorG: 0.91, groundFogColorB: 0.87,
+      groundFog: 0, groundFogCoverage: 0.85, groundFogHeight: 56, groundFogDetail: 0.6, groundFogFlow: 1,
+      groundFogRecovery: 8, groundFogSwirl: 0.8, groundFogWind: 12, groundFogWindAngle: 30,
+      groundFogSoftness: 0.35, groundFogWisps: 0.35, groundFogWispSize: 36, groundFogStreak: 0.2,
+      groundFogBillowSize: 220, groundFogChurn: 1, groundFogSun: 1, groundFogShade: 1,
+      groundFogShadeR: 1, groundFogShadeG: 1, groundFogShadeB: 1, groundFogPushSize: 0.55,
       snow: 0, wet: 0, puddles: 0, puddleHeight: 128, puddleDepth: 24, surfaceRadius: 0, puddleNative: 0,
       maskScale: 0.02, ripple: 0.35, reflectionRoughness: 0.35,
       particleDetail: 1, turbulence: 1, particleOpacity: 0.65, softness: 8, streak: 12,
@@ -479,14 +503,20 @@ R"CFJS(
        'mirv_filmmaker world exposure compensation 0 quiet']);
     var envLightReset = envLightSec.__headerReset(envLightResetSpec, 'env.light');
 
-    // One fog state controls near lighting and the far continuation.
+    // One fog card: the height fog, the ground fog that lies on the floor, and the light both share.
     var envFogResetSpec = envResetCmds(
       ['fogDensity', 'fogStart', 'fogBase', 'fogHeight', 'fogNoise', 'fogRange', 'scatter', 'lightShafts',
-       'localFogRadius']);
+       'localFogRadius', 'groundFog', 'groundFogCoverage', 'groundFogHeight', 'groundFogDetail', 'groundFogFlow',
+       'groundFogRecovery', 'groundFogSwirl', 'groundFogWind', 'groundFogWindAngle',
+       'groundFogColorR', 'groundFogColorG', 'groundFogColorB', 'groundFogSoftness', 'groundFogWisps', 'groundFogWispSize',
+       'groundFogStreak', 'groundFogBillowSize', 'groundFogChurn', 'groundFogSun', 'groundFogShade',
+       'groundFogShadeR', 'groundFogShadeG', 'groundFogShadeB', 'groundFogPushSize']);
     envFogResetSpec.cmds = envFogResetSpec.cmds.concat(envSceneResetCmds(['fogR', 'fogG', 'fogB']));
     var envFogReset = envFogSec.__headerReset(envFogResetSpec, 'env.fog');
-    var envFogPill = envPassPill(envFogSec, [['fogDensity', 0, 0.35]],
-      'Bypasses the volumetric fog by dropping its density to zero, and puts it back where it was.');
+    // Switching the card on brings both fogs and their light shafts; shafts alone are not the pass.
+    var envFogPill = envPassPill(envFogSec, [['fogDensity', 0, 0.05], ['groundFog', 0, 1], ['lightShafts', 0, 1]],
+      'Bypasses the height and ground fog by dropping their density to zero, and puts them back where they were.',
+      null, { rides: ['lightShafts'] });
 
     // Exposure and tint are scene values, not climate keys, so the reset sends them explicitly --
     // they used to be skipped and the tints stayed where they were.

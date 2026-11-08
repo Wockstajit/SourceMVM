@@ -2,6 +2,7 @@
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentStorm.h"
 #define NOMINMAX
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentRender.h"
+#include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentGroundFog.h"
 #include <wrl/client.h>
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentSurfaceMath.h"
 #include <iostream>
@@ -401,6 +402,105 @@ int main(int argc, char **argv) {
     frame.scene.fogColor = {1, 0, 0};
     auto fog = render(.004f);
     Check(fog[center] > baseline[center] + 40 && fog[center] > fog[center + 1] * 3, "Unified lit fog applies its color");
+    {
+        // TRANSPARENTS IN FOG (reported 2026-11-07). CS2's OIT absorbance holds glass, flames and leaf
+        // cards as well as smoke. With a smoke out somewhere else on the map, covered pixels used to
+        // have their fog cut to that smoke's distance and stood out of the fog, crisp and bright.
+        std::vector<float> texels(128*128,40);
+        D3D11_TEXTURE2D_DESC sd{};sd.Width=128;sd.Height=128;sd.MipLevels=1;sd.ArraySize=1;sd.SampleDesc.Count=1;
+        sd.Format=DXGI_FORMAT_R32_FLOAT;sd.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+        D3D11_SUBRESOURCE_DATA init{texels.data(),128*sizeof(float),0};
+        ComPtr<ID3D11Texture2D> tex;ComPtr<ID3D11ShaderResourceView> view;
+        Check(SUCCEEDED(device->CreateTexture2D(&sd,&init,&tex))&&SUCCEEDED(device->CreateShaderResourceView(tex.Get(),nullptr,&view)),"Create transparent coverage");
+        frame.smokes.push_back({{frame.camera.x,frame.camera.y+5000,frame.camera.z},200});
+        SetSmokeAbsorbance(view.Get(),128,128);
+        Check(render(.004f)==fog,"Transparent coverage away from every smoke keeps the full fog");
+        frame.smokes[0].center=frame.camera;
+        Check(render(.004f)!=fog,"Coverage from a smoke the camera stands in still clears the fog behind it");
+        SetSmokeAbsorbance(nullptr,0,0);frame.smokes.clear();
+    }
+    {
+        // EFFECTS IN THE FOG. A particle has no depth: what it did to the frame, and where effects are
+        // known to be, say how much of the fog lies in front of it.
+        static ComPtr<ID3D11Texture2D> hdrScene;
+        D3D11_TEXTURE2D_DESC hd{};hd.Width=128;hd.Height=128;hd.MipLevels=1;hd.ArraySize=1;hd.SampleDesc.Count=1;
+        hd.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;hd.BindFlags=D3D11_BIND_RENDER_TARGET;
+        ComPtr<ID3D11RenderTargetView> hdrView;
+        Check(SUCCEEDED(device->CreateTexture2D(&hd,nullptr,&hdrScene))&&SUCCEEDED(device->CreateRenderTargetView(hdrScene.Get(),nullptr,&hdrView)),"Create HDR scene fixture");
+        SetFogSceneTargetSource([](unsigned w,unsigned h)->ID3D11Texture2D*{ID3D11Texture2D* t=hdrScene.Get();if(t)t->AddRef();return t;});
+        const float dim[4]={.2f,.2f,.2f,1},lit[4]={3,3,3,1},black[4]={.002f,.002f,.002f,1};
+        auto withEffect=[&](const float* during){
+            context->ClearRenderTargetView(hdrView.Get(),dim);
+            CaptureFogBeforeTransparents(context.Get());
+            context->ClearRenderTargetView(hdrView.Get(),during);
+            return render(.004f);
+        };
+        render(.004f); // asks for the capture the next frame takes
+        Check(withEffect(dim)==fog,"With no effect drawn, the fog is untouched");
+        auto clearOfFog=[&](const auto& image){
+            for(int channel=0;channel<3;++channel)
+                if(std::abs(int(image[center+channel])-int(baseline[center+channel]))>8)return false;
+            return true;
+        };
+        // The fixture's camera stands at the origin looking along +X.
+        frame.fogEffects={{{60,0,0},200}};
+        Check(clearOfFog(withEffect(lit)),"A flame just in front of the camera has no fog over it");
+        auto cloud=withEffect(black);
+        Check(int(cloud[center])-int(baseline[center])<=(int(fog[center])-int(baseline[center]))/5,"A close, nearly solid explosion cloud hides the fog behind it");
+        frame.fogEffects={{{20000,0,0},2000}};
+        auto sunk=withEffect(lit); // the anchor lies on the centre ray only
+        for(int channel=0;channel<3;++channel)
+            Check(std::abs(int(sunk[center+channel])-int(fog[center+channel]))<=1,"A flame at the far end of the fog sinks into it");
+        {
+            // Over a dark background a cloud changes next to nothing in the frame. The same cloud over
+            // the lit stone just beside it says what it hides, on pixels dark enough to be under it.
+            const uint16_t kOne=0x3C00,kLit=0x3266,kBlack=0x1819; // half floats: 1, .2, .002
+            std::vector<uint16_t> beforeCloud(128*128*4),afterCloud(128*128*4);
+            for(int y=0;y<128;++y)for(int x=0;x<128;++x)for(int c=0;c<4;++c){
+                beforeCloud[(y*128+x)*4+c]=c==3?kOne:(x<60?kLit:kBlack);
+                afterCloud[(y*128+x)*4+c]=c==3?kOne:kBlack;
+            }
+            const float savedBackground=background;
+            background=.02f;
+            frame.fogEffects.clear();
+            auto fogOverDark=render(.004f),bareDark=fogOverDark;
+            {auto savedClimate=frame.scene.climate;frame.scene.climate[CL_fogDensity]=0;bareDark=render(.004f);frame.scene.climate=savedClimate;render(.004f);}
+            frame.fogEffects={{{60,0,0},200}};
+            context->UpdateSubresource(hdrScene.Get(),0,nullptr,beforeCloud.data(),128*8,0);
+            CaptureFogBeforeTransparents(context.Get());
+            context->UpdateSubresource(hdrScene.Get(),0,nullptr,afterCloud.data(),128*8,0);
+            auto overDark=render(.004f);
+            Check(int(overDark[center])-int(bareDark[center])<=(int(fogOverDark[center])-int(bareDark[center]))*3/4,"A close cloud over a dark background still hides the fog behind it");
+            background=savedBackground;
+            frame.fogEffects.clear();
+            render(.004f);
+        }
+        frame.fogEffects.clear();
+        auto unplaced=withEffect(lit);
+        Check(unplaced[center]<fog[center]&&unplaced[center]>baseline[center],"A bright effect nobody placed shows through part of the fog");
+        Check(withEffect(black)==fog,"A dark transparent nobody placed, like glass, keeps the surface's fog");
+        SetFogSceneTargetSource(nullptr);render(.004f);hdrScene.Reset();
+    }
+    {
+        // GROUND FOG lies on the floor (here the fog Base height: the fixture has no map data). A
+        // camera standing in the layer sees it; a level view far above it sees nothing at all.
+        const auto savedClimate=frame.scene.climate;
+        frame.scene.climate=Climate{};frame.scene.climate[CL_enabled]=1;frame.scene.climate[CL_groundFog]=3;
+        frame.scene.climate[CL_groundFogCoverage]=1;
+        frame.scene.climate[CL_fogBase]=frame.camera.z-20;
+        const double savedTime=frame.time;
+        frame.time=savedTime+100; // a seek: the fluid restarts on this coverage
+        auto inLayer=render(.004f);
+        Check(inLayer[center]>baseline[center]+20,"A camera standing in the ground fog sees it");
+        Check(render(.004f)==inLayer,"A paused frame of ground fog renders identically");
+        frame.scene.climate[CL_groundFogCoverage]=.05f;frame.time=savedTime+200;
+        auto sparse=render(.004f);
+        Check(sparse[center]<inLayer[center],"Low coverage breaks the sheet into patches, so less fog lies on the ray");
+        frame.scene.climate[CL_groundFogCoverage]=1;frame.time=savedTime;
+        frame.scene.climate[CL_fogBase]=frame.camera.z-2000;
+        Check(render(.004f)==baseline,"Ground fog far below a level view leaves the frame untouched");
+        frame.scene.climate=savedClimate;
+    }
     frame.scene.climate[CL_fogStart] = 1200;
     auto clearNear = render(.004f);
     for (int channel=0; channel<3; ++channel)
@@ -769,9 +869,12 @@ int main(int argc, char **argv) {
             context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);context->VSSetShader(coverageVS.Get(),nullptr,0);context->PSSetShader(probe.Get(),nullptr,0);context->Draw(3,0);
             return read();
         };
-        shadowFrame.scene.climate[CL_fogDensity]=.35f;shadowFrame.scene.climate[CL_lightShafts]=1;
+        shadowFrame.scene.climate[CL_fogDensity]=.35f;shadowFrame.scene.climate[CL_lightShafts]=0;
         auto fogOnly=sampleShadows();
-        Check(fogOnly[center]<10&&fogOnly[center+1]>245,"Fog alone keeps fixture shadows and renders no sun shadow map");
+        Check(fogOnly[center]<10&&fogOnly[center+1]>245,"Fog without light shafts keeps fixture shadows and renders no sun shadow map");
+        shadowFrame.scene.climate[CL_lightShafts]=1;
+        auto shafted=sampleShadows();
+        Check(shafted[center]<10&&shafted[center+1]<10,"Fog light shafts render the sun shadow maps on their own");
         shadowFrame.scene.climate[CL_fogDensity]=0;shadowFrame.scene.climate[CL_clouds]=1;
         auto blocked=sampleShadows();Check(blocked[center]<10&&blocked[center+1]<10,"Map geometry blocks point light and sun");
         shadowFrame.scene.climate[CL_sunElevation]=-5;

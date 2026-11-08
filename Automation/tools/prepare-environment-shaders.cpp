@@ -4,6 +4,7 @@
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentCasterBoundsShaders.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentIndirectCasterShaders.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentParticleShadowShaders.h"
+#include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentGroundFogShaders.h"
 #include <wrl/client.h>
 #include <future>
 #include <atomic>
@@ -102,6 +103,21 @@ int wmain(int argc,wchar_t** argv){
             if(FAILED(hr)){++failures;std::cerr<<"Particle shadow "<<entry<<": "<<(error?static_cast<const char*>(error->GetBufferPointer()):"compile failed")<<'\n';continue;}
             if(cached)++reused;
             const auto key=EnvironmentShaderKey(ParticleShadowShader,length,"ParticleShadow",nullptr,entry,profile,D3DCOMPILE_ENABLE_STRICTNESS,EnvironmentShaderCompiler());
+            filenames.push_back(EnvironmentShaderFilename(key));
+            if(!std::filesystem::is_regular_file(folder/filenames.back())||std::filesystem::file_size(folder/filenames.back())!=32+key.size()+code->GetBufferSize())++failures;
+        }
+        // Ground fog fluid (EnvironmentGroundFog.cpp): same name, entries and flags as the runtime.
+        std::vector<std::pair<const char*,const char*>> groundFogPrograms{{"OverlayVS","vs_5_0"},{"OverlayPS","ps_5_0"}};
+        for(const auto* entry:GroundFogShaderEntries)groundFogPrograms.push_back({entry,"cs_5_0"});
+        for(const auto& program:groundFogPrograms){
+            const char* entry=program.first;const char* profile=program.second;
+            constexpr UINT flags=D3DCOMPILE_ENABLE_STRICTNESS|D3DCOMPILE_OPTIMIZATION_LEVEL3;
+            ComPtr<ID3DBlob> code,error;bool cached=false;
+            const auto hr=CompileEnvironmentShader(GroundFogShader,sizeof(GroundFogShader)-1,"EnvironmentGroundFog",nullptr,entry,profile,
+                flags,&code,&error,&cached,&paths);
+            if(FAILED(hr)){++failures;std::cerr<<"Ground fog "<<entry<<": "<<(error?static_cast<const char*>(error->GetBufferPointer()):"compile failed")<<'\n';continue;}
+            if(cached)++reused;
+            const auto key=EnvironmentShaderKey(GroundFogShader,sizeof(GroundFogShader)-1,"EnvironmentGroundFog",nullptr,entry,profile,flags,EnvironmentShaderCompiler());
             filenames.push_back(EnvironmentShaderFilename(key));
             if(!std::filesystem::is_regular_file(folder/filenames.back())||std::filesystem::file_size(folder/filenames.back())!=32+key.size()+code->GetBufferSize())++failures;
         }

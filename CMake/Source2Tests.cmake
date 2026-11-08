@@ -556,6 +556,7 @@ add_executable(EnvironmentRenderTests
     Filmmaker/Environment/EnvironmentViewmodel.cpp
     Filmmaker/Environment/EnvironmentAnimatedCasters.cpp Filmmaker/Environment/EnvironmentParticleShadows.cpp
     Filmmaker/Environment/EnvironmentGi.cpp
+    Filmmaker/Environment/EnvironmentGroundFog.cpp
     Filmmaker/Environment/EnvironmentDocument.cpp
     Filmmaker/Environment/EnvironmentObj.cpp
     Filmmaker/Environment/EnvironmentWorldDocument.cpp
@@ -598,6 +599,10 @@ add_test(NAME SurfaceRayGridMathTests COMMAND SurfaceRayGridMathTests)
 add_executable(EnvironmentNativeCoatingTests ../Automation/tests/environment-native-coating-tests.cpp)
 target_compile_features(EnvironmentNativeCoatingTests PRIVATE cxx_std_17)
 add_test(NAME EnvironmentNativeCoatingTests COMMAND EnvironmentNativeCoatingTests)
+add_executable(EnvironmentGroundFogMathTests ../Automation/tests/environment-ground-fog-math-tests.cpp
+    Filmmaker/Environment/EnvironmentGroundFogMath.h)
+target_compile_features(EnvironmentGroundFogMathTests PRIVATE cxx_std_17)
+add_test(NAME EnvironmentGroundFogMathTests COMMAND EnvironmentGroundFogMathTests)
 add_executable(EnvironmentGizmoMathTests ../Automation/tests/environment-gizmo-math-tests.cpp)
 target_compile_features(EnvironmentGizmoMathTests PRIVATE cxx_std_17)
 add_test(NAME EnvironmentGizmoMathTests COMMAND EnvironmentGizmoMathTests)

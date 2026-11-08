@@ -52,6 +52,9 @@ struct OcclusionMesh {
     std::vector<Vec3> positions;
     std::vector<uint32_t> indices;
     Vec3 low, high;
+    // Where people walk, as triangles: the map's nav mesh. Empty on a map with none.
+    std::vector<Vec3> navPositions;
+    std::vector<uint32_t> navIndices;
     std::shared_ptr<const VisualCasters> visual;
     // Miniature 3D skybox in its own native coordinate space. Never enlarges map cascades.
     std::shared_ptr<const OcclusionMesh> skybox;

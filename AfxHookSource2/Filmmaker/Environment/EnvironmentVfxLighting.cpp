@@ -21,6 +21,12 @@ std::string currentMap;
 double lastTime = -1;
 struct InfernoSource {int index=-1;uint32_t handle=0;bool ending=false;};
 std::vector<InfernoSource> infernos;
+struct RecentBlast {Vec3 position{};double time=0;bool flash=false;};
+constexpr double kBlastPush=.6,kCloudHold=6,kCloudEnd=9,kFlashEnd=1.5; // seconds of demo time
+constexpr float kCloudRadius=320,kFlashRadius=160;
+struct RecentShot {Vec3 position{};double time=0;bool viewmodel=false;};
+std::vector<RecentShot> shots;
+std::vector<RecentBlast> blasts;
 float Number(const JsonValue& data, const char* key, float fallback = 0) {
     const auto value = data.Find(key); return value ? float(value->AsNumber(fallback)) : fallback;
 }
@@ -168,7 +174,32 @@ bool EffectPosition(int entity,bool bomb,Vec3& position) {
 }
 void ResetVfxLightingSources() {
     std::lock_guard<std::mutex> lock(mutex);
-    pulses.clear();fires.clear();infernos.clear();currentMap.clear();lastTime=-1;
+    pulses.clear();fires.clear();infernos.clear();blasts.clear();shots.clear();currentMap.clear();lastTime=-1;
+}
+std::vector<VfxBlast> CaptureVfxBlasts(double time) {
+    std::lock_guard<std::mutex> lock(mutex);
+    // A blast's push lasts a moment of demo time, its smoke a few seconds. Rewinding past one forgets it.
+    blasts.erase(std::remove_if(blasts.begin(),blasts.end(),[&](const auto& b){return time<b.time||time-b.time>kCloudEnd;}),blasts.end());
+    std::vector<VfxBlast> out;
+    for(const auto& b:blasts)if(!b.flash&&time-b.time<=kBlastPush)out.push_back({b.position,float(time-b.time)});
+    return out;
+}
+std::vector<VfxEffectPoint> CaptureVfxEffectPoints(double time,Vec3 camera) {
+    std::lock_guard<std::mutex> lock(mutex);
+    std::vector<VfxEffectPoint> out;
+    for(const auto& b:blasts){
+        const double age=time-b.time;
+        if(age<0)continue;
+        const double hold=b.flash?kFlashEnd*.5:kCloudHold,end=b.flash?kFlashEnd:kCloudEnd;
+        const float fade=float(std::clamp((end-age)/(end-hold),0.,1.));
+        if(fade>0)out.push_back({b.position,(b.flash?kFlashRadius:kCloudRadius)*fade});
+    }
+    shots.erase(std::remove_if(shots.begin(),shots.end(),[&](const auto& s){return time<s.time||time-s.time>=VfxShotEnd;}),shots.end());
+    for(const auto& s:shots){
+        const auto point=VfxShotPointAt(camera,s.position,s.viewmodel,time-s.time);
+        if(point.radius>0)out.push_back({point.position,point.radius});
+    }
+    return out;
 }
 std::vector<MollyLightSource> CaptureMollyLightSources() {
     std::lock_guard<std::mutex> lock(mutex);
@@ -187,7 +218,7 @@ void OnVfxLightingEvent(const char* name, const JsonValue& data) {
     if (!std::isfinite(time)) return;
     const int entity = int(Number(data,"entityid",-1));
     std::lock_guard<std::mutex> lock(mutex);
-    if (!strcmp(name,"round_start")) { pulses.clear(); fires.clear(); infernos.clear(); lastTime=-1; return; }
+    if (!strcmp(name,"round_start")) { pulses.clear(); fires.clear(); infernos.clear(); blasts.clear(); shots.clear(); lastTime=-1; return; }
     if (!strcmp(name,"inferno_expire") || !strcmp(name,"inferno_extinguish")) {
         for(auto& source:infernos)if(entity<0||source.index==entity)source.ending=true;
         for(auto& fire:fires)if(fire.pulse.light.identity=="vfx:fire"&&(entity<0||fire.pulse.entity==entity))EndVfxPulse(fire.pulse,time);
@@ -219,11 +250,13 @@ void OnVfxLightingEvent(const char* name, const JsonValue& data) {
         pulse.light=VfxEmitter("vfx:muzzle",position,{1,.76f,.48f},suppressed?180.f:1200.f,suppressed?100.f:280.f,24);
         pulse.light.viewmodelEmitter=!strcmp(pose.source,"viewmodel");
         pulse.duration=VfxMuzzleDuration;
+        if(Finite(position)){if(shots.size()>=16)shots.erase(shots.begin());shots.push_back({position,time,pulse.light.viewmodelEmitter});}
 
     } else {
         const bool flash=!strcmp(name,"flashbang_detonate");
         pulse.light=VfxEmitter("vfx:explosion",position,flash?Vec3{1,.94f,.8f}:Vec3{1,.5f,.12f},flash?6000.f:9000.f,flash?500.f:650.f,32);
         pulse.duration=flash?.12:.3;
+        if(Finite(position)){if(blasts.size()>=8)blasts.erase(blasts.begin());blasts.push_back({position,time,flash});}
     }
     if (!Finite(position)) return;
     // Bound concurrent effects without letting a long session accumulate emitters.

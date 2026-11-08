@@ -14,6 +14,20 @@ void Check(bool ok,const char* message){if(!ok){std::cerr<<message<<'\n';std::ex
 int main(int argc,char** argv){
     VfxLightPulse shot;shot.light.identity="vfx:muzzle";shot.start=10;shot.duration=VfxMuzzleDuration;
     Check(VfxLightEnergy(shot,10)==1,"A muzzle flash retains its peak energy");
+    {
+        // Where the fog takes a shot's flash to be.
+        const Vec3 camera{100,0,0},muzzle{130,0,0},distant{900,0,0};
+        const auto lens=VfxShotPointAt(camera,muzzle,true,0);
+        Check(std::abs(lens.position.x-170)<.01f&&lens.radius>0,"A first-person flash is placed a little ahead of the lens");
+        Check(lens.position.x-camera.x>lens.radius,"That radius cannot take in the whole view, so a far fire stays in the fog");
+        const auto world=VfxShotPointAt(camera,distant,false,0);
+        Check(world.position.x==900&&world.radius>lens.radius,"Another player's flash is at their gun");
+        Check(VfxShotPointAt(camera,distant,false,VfxMuzzleDuration*2).radius==world.radius,"A flash outlasts the light it gives");
+        const float fading=VfxShotPointAt(camera,distant,false,(VfxShotHold+VfxShotEnd)*.5).radius;
+        Check(fading>0&&fading<world.radius,"It lets go gradually, so the fog does not pop back over it");
+        Check(VfxShotPointAt(camera,distant,false,VfxShotEnd).radius==0&&VfxShotPointAt(camera,distant,false,-.01).radius==0,"Before the shot and after it there is nothing there");
+        Check(VfxShotPointAt(camera,camera,true,0).radius==0,"A muzzle exactly at the lens has no direction to place it in");
+    }
     Check(std::abs(VfxLightEnergy(shot,10+VfxMuzzleDuration*.5)-.5f)<.001f,"Muzzle illumination decays during the shot instead of holding a lamp-like plateau");
     Check(VfxLightEnergy(shot,10+VfxMuzzleDuration*.9)<.03f,"Late muzzle smoke is not lit by a lingering flash");
     Check(VfxLightEnergy(shot,10+VfxMuzzleDuration)==0&&VfxLightEnergy(shot,9)==0,"Expired or future shots emit no muzzle light");

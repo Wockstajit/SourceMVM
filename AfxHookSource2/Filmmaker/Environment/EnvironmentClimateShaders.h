@@ -339,6 +339,243 @@ float FogVariation(float3 p){
 }
 // Interleaved gradient noise: a per-texel offset whose error a small blur removes, unlike white noise.
 float InterleavedGradient(float2 p){return frac(52.9829189*frac(dot(p,float2(.06711056,.00583715))));}
+// THE SKY LIGHT IN THE FOG. With the Environment sky on, the fogs take their light from that sky
+// (zenith, and the horizon away from the sun), so a sunset or a night sky changes the fog with it.
+// Otherwise it is the map's own sky colour (fogAmbient, from the map's light_environment).
+float3 FogAmbient(){
+    float3 ambient=fogAmbient.rgb;
+    [branch] if(CL_sky>0){
+        float3 sun=SunDirection();
+        float2 away=length(sun.xy)>1e-3?-normalize(sun.xy):float2(1,0);
+        float3 sky=(SkyColor(float3(0,0,1))+SkyColor(normalize(float3(away,.2))))*.5;
+        ambient=lerp(ambient,sky*.9,saturate(CL_sky));
+    }
+    return ambient;
+}
+// How much sunlight still reaches a point inside a fog: the fog between it and the sun dims it (so a
+// thick bank is bright on top and grey underneath). A little light always gets through by bouncing
+// around inside the fog, which a single exponential would black out.
+float FogSunTransmittance(float opticalDepth){return exp(-opticalDepth)*.75+exp(-opticalDepth*.25)*.25;}
+
+)HLSL"
+R"HLSL(
+// GROUND FOG. A layer lying on the floor: its thickness is measured from the floor under each point
+// (the floor map, EnvironmentGroundFogMath.h), the fluid (EnvironmentGroundFog.cpp) thins it where
+// players walked, and drifting billows raise and lower its top.
+static const float kGroundFogNoFloor=-5e5;
+// The floor under p: the highest floor at or below it, blended over the four nearest texels that have
+// one. Only texels near the closest one's height blend: a wall or ledge between two floors is a real
+// jump, and averaging across it made a floor halfway up the wall with fog floating on it. Mirrors
+// GroundFogFloorBelow. Without a floor map the floor is the fog's Base height.
+// `held`: how much of the layer's depth that floor holds, thinning toward any drop.
+float GroundFogFloor(float3 p,out float held){
+    held=1;
+    if(groundFogFloor.w<.5)return CL_fogBase;
+    float2 f=(p.xy-groundFogFloor.xy)/groundFogFloor.z-.5;
+    int2 base=int2(floor(f));float2 t=f-float2(base);
+    float hs[4],ws[4],ts[4],best=-1,reference=-1e6;
+    [unroll]for(int k=0;k<4;++k){
+        int2 q=base+int2(k&1,k>>1);
+        hs[k]=-1e6;ts[k]=1;ws[k]=((k&1)?t.x:1-t.x)*((k>>1)?t.y:1-t.y)+1e-4;
+        if(any(q<0)||any(q>=int2(groundFogFloorSize.xy)))continue;
+        float4 layers=groundFogFloorMap.Load(int3(q,0)),thick=groundFogThickness.Load(int3(q,0));
+        [unroll]for(int j=3;j>=0;--j)if(layers[j]>kGroundFogNoFloor&&layers[j]<=p.z+8){hs[k]=layers[j];ts[k]=thick[j];}
+        if(hs[k]>kGroundFogNoFloor&&ws[k]>best){best=ws[k];reference=hs[k];}
+    }
+    if(best<0)return -1e6;
+    float sum=0,weight=0,heldSum=0;
+    [unroll]for(int k=0;k<4;++k)if(hs[k]>kGroundFogNoFloor&&abs(hs[k]-reference)<40){sum+=hs[k]*ws[k];heldSum+=ts[k]*ws[k];weight+=ws[k];}
+    held=heldSum/weight;
+    return sum/weight;
+}
+// How much fog the fluid holds at a map point: 1 at rest, less where bodies thinned it, up to 1.3 in
+// the rim they shove it into. Outside the grid (past the map) it is at rest.
+float2 GroundFogUv(float2 xy){return (xy-groundFogWindow.xy)*groundFogWindow.zw;}
+float GroundFogFluid(float2 xy){
+    if(groundFogWindow.z<=0)return 1;
+    float2 uv=GroundFogUv(xy);
+    if(any(uv<=0)||any(uv>=1))return 1;
+    return clamp(groundFogState.SampleLevel(groundFogSampler,uv,0).z,0,1.3);
+}
+// The same field softened: the top of the layer follows this, so it stays a gentle dune.
+float GroundFogSmoothed(float2 xy){
+    if(groundFogWindow.z<=0)return 1;
+    float2 uv=GroundFogUv(xy);
+    if(any(uv<=0)||any(uv>=1))return 1;
+    return clamp(groundFogSmooth.SampleLevel(groundFogSampler,uv,0),0,1.3);
+}
+// The same field with the air's velocity in xy, which the wisps bend with.
+float3 GroundFogFlow(float2 xy){
+    if(groundFogWindow.z<=0)return float3(0,0,1);
+    float2 uv=GroundFogUv(xy);
+    if(any(uv<=0)||any(uv>=1))return float3(0,0,1);
+    float3 s=groundFogState.SampleLevel(groundFogSampler,uv,0).xyz;
+    return float3(s.xy,clamp(s.z,0,1.3));
+}
+// How dense the layer is at height h, for a local top. Softness 0 is full through most of the layer with
+// a defined top; 1 thins all the way up from the floor and reaches higher, so there is no surface at all.
+// Mirrors GroundFogProfile in EnvironmentGroundFogMath.h.
+float GroundFogProfile(float h,float top){
+    if(top<=0)return 0;
+    if(h<=0)return 1;
+    float soft=CL_groundFogSoftness,reach=top*(1+1.2*soft);
+    if(h>=reach)return 0;
+    float start=.55*(1-soft);
+    float t=saturate((h-start*reach)/((1-start)*reach));
+    return pow(1-t*t*(3-2*t),1+1.5*soft);
+}
+// As high over its floor as this layer's fog can stand.
+float GroundFogReach(){return CL_groundFogHeight*1.55*(1+1.2*CL_groundFogSoftness);}
+// The field that tears the fog into wisps, 0 to 1. It is stretched along the drift and flattened into thin
+// sheets of height: a ray near the horizon stays inside one sheet for a long way, and that is what reads as
+// a long streak. Uniform noise in height averages away along such a ray and leaves smooth fog. `wave` (the
+// billows, 0 to 1) bends the sheets, because flat ones draw ruler-straight bars across the screen. The moving
+// air bends them as well, so a wake drags the streaks along.
+float GroundFogWispField(float3 p,float2 air,float wave){
+    float size=CL_groundFogWispSize,streak=CL_groundFogStreak;
+    float angle=CL_groundFogWindAngle*.0174533,ca=cos(angle),sa=sin(angle);
+    float2 bent=p.xy-groundFogFloorSize.zw-clamp(air*.35,-120,120);
+    float2 w=float2((bent.x*ca+bent.y*sa)/(1+streak*8),bent.y*ca-bent.x*sa)/size;
+    float layer=(p.z+(wave-.5)*size*3)/(size*lerp(1,.4,streak));
+    float churn=climateClock.x*CL_groundFogChurn;
+    return Noise3(float3(w,layer+churn*.1))*.62+Noise3(float3(w*2.3+3.7,layer*2.3+churn*.17))*.38;
+}
+// The fluid decides how dense the fog is and how tall it stands, so the top of the layer is a surface
+// the flow shapes. The top follows the softened field and stops at 1.25, because following the fine
+// marbling directly made it spike wherever fog was pushed or heaped; the marbling shows in the density.
+// Mirrors GroundFogDensityShare and GroundFogTopShare in the math header.
+float GroundFogDensityShare(float fluid){float a=saturate(fluid);return a*a*(3-2*a)*(1+.4*max(fluid-1,0));}
+float GroundFogTopShare(float smoothed){return pow(clamp(smoothed,0,1.25),.8);}
+// Dense enough at Density 1 to hide the floor: about two optical depths straight down through the layer.
+static const float kGroundFogExtinction=.045;
+// Extinction per unit at p, with the layer's local top, p's height over its floor, and that floor.
+float GroundFogAt(float3 p,out float top,out float h,out float floorZ,out float held){
+    top=0;h=0;
+    floorZ=GroundFogFloor(p,held);
+    if(floorZ<=kGroundFogNoFloor||held<.02)return 0;
+    h=p.z-floorZ;
+    if(h>GroundFogReach()||h<-24)return 0;
+    float3 flow=GroundFogFlow(p.xy);
+    float fluid=flow.z;
+    if(fluid<=.005)return 0;
+    float2 drifted=p.xy-groundFogFloorSize.zw;
+    float churn=climateClock.x*CL_groundFogChurn;
+    // Two octaves of slowly drifting billows, on top of the relief the flow carries.
+    float2 q=drifted/CL_groundFogBillowSize;
+    float billow=Noise3(float3(q,churn*.03))*.62+Noise3(float3(q*2.3+7.1,churn*.05))*.38;
+    float wave=billow;
+    billow=lerp(.5,billow,CL_groundFogDetail);
+    top=CL_groundFogHeight*(.72+.56*billow)*GroundFogTopShare(GroundFogSmoothed(p.xy))*held;
+    // Wisps tear the layer. They fade with distance, where they are finer than a march step can see.
+    float away=saturate(length(p-camera.xyz)/5000);
+    float tear=CL_groundFogWisps*(1-away*away);
+    float wisp=1;
+    [branch] if(tear>.001){
+        float torn=smoothstep(.2,.8,GroundFogWispField(p,flow.xy,wave));
+        wisp=lerp(1,torn*1.7,tear);
+        top*=lerp(1,.65+.7*torn,tear*.6);
+    }
+    float profile=GroundFogProfile(h,top);
+    if(profile<=0)return 0;
+    return CL_groundFog*kGroundFogExtinction*GroundFogDensityShare(fluid)*profile*wisp;
+}
+)HLSL"
+R"HLSL(
+// How much fog lies between a point and the sun: a short march through the fluid. This is what shades
+// the layer, bright on sun-facing slopes and darker behind a heap, with the fog above dimming the fog
+// below. The floor stays the sample's own: the fog above a point is measured from the same ground.
+float GroundFogLightDepth(float3 q,float floorZ,float held,float3 sun){
+    float ds=CL_groundFogHeight*.5/max(sun.z,.25),tau=0;
+    [unroll]for(int k=0;k<4;++k){
+        float3 s=q+sun*ds*(k+.5);
+        float fluid=GroundFogSmoothed(s.xy);
+        tau+=GroundFogDensityShare(fluid)*GroundFogProfile(s.z-floorZ,CL_groundFogHeight*GroundFogTopShare(fluid)*held);
+    }
+    // Thin soft mist scatters light from all sides and barely shades itself. Counting all of it as blocking
+    // the sun left only blue sky light in it.
+    return tau*ds*CL_groundFog*kGroundFogExtinction*(1-.8*CL_groundFogSoftness);
+}
+// The players' shadows on the fog, as soft upright capsules along the sun. The map's sun shadow map
+// holds no players unless dynamic lighting renders its near cascades, and on opaque fog a body with no
+// shadow looks like it floats above the layer.
+float GroundFogBodyShadow(float3 q,float3 sun){
+    float visible=1,flat2=dot(sun.xy,sun.xy);
+    int count=(int)coatingActorCount.x;
+    [loop]for(int i=0;i<count;++i){
+        if(coatingActors[i].w<=0)continue;
+        float3 o=coatingActors[i].xyz;
+        float2 d=o.xy-q.xy;
+        if(dot(d,d)>360000)continue;
+        float s=flat2>1e-4?dot(d,sun.xy)/flat2:(o.z-q.z)/max(sun.z,.01);
+        if(s<=0)continue;
+        float3 r=q+sun*s;
+        visible=min(visible,smoothstep(12,30,length(float3(r.xy-o.xy,r.z-clamp(r.z,o.z,o.z+68)))));
+    }
+    return visible;
+}
+// The ground layer, marched before the height fog (it lies nearest the floor, in front of most of
+// it). Steps are fine inside the layer and long above it: the gap to the layer's highest possible top,
+// over how steeply the ray descends, is how far the ray travels before it can meet fog. Inside the
+// layer each step is a fixed share longer than the last, so the march reaches about 5500 units (9000
+// in export). A slower growth stopped it near 400 units, and the fog then vanished in the distance
+// whenever the camera stood in the layer and came back when it rose above it (reported 2026-11-08).
+// Steps also shorten to the fog's own thickness: in dense fog a long step goes opaque in one sample, so
+// the surface snapped to the step positions and showed as terraces.
+void GroundFogMarch(float3 ray,float distance,float jitter,float3 ambient,inout float3 color,inout float trans){
+    [branch] if(CL_groundFog<=0)return;
+    float range=min(distance,9000),maxTop=GroundFogReach();
+    float3 sun=SunDirection();
+    // Dense low fog scatters light many times, so the sun lights it from every side, not only along
+    // the view: near white in the sun, a soft grey in shade. Shade stays near neutral, because a sky-
+    // blue tint across a whole floor reads as a coloured film rather than as fog in shadow.
+    float3 sunLight=SunColor()*(Phase(dot(ray,sun))*.2+.5)*CL_groundFogSun;
+    float3 sky=lerp(dot(ambient,float3(.2126,.7152,.0722)).xxx,ambient,.5)*.85*CL_groundFogShade*
+               float3(CL_groundFogShadeR,CL_groundFogShadeG,CL_groundFogShadeB);
+    float3 tint=float3(CL_groundFogColorR,CL_groundFogColorG,CL_groundFogColorB);
+    bool exporting=volumeDimensions.z>40;
+    int steps=exporting?160:96;
+    float growth=exporting?.045:.07;
+    float t=0,limit=1e9;
+    [loop]for(int i=0;i<steps&&t<range;++i){
+        float3 p=camera.xyz+ray*t;
+        float heldHere;float floorHere=GroundFogFloor(p,heldHere);
+        float above=floorHere<=kGroundFogNoFloor?1e4:p.z-floorHere-maxTop;
+        float dt=clamp(3+t*growth,3,240);
+        if(above>0)dt=max(dt,min(above/max(-ray.z,.04)*.6,300));
+        dt=min(min(dt,limit),range-t);
+        float3 q=camera.xyz+ray*(t+dt*jitter);
+        float top,h,floorZ,held;float sigma=GroundFogAt(q,top,h,floorZ,held);
+        // Clear air: carry on, letting a step cut short by dense fog grow back.
+        if(sigma<=0){t+=dt;limit*=1.6;continue;}
+        // Too long a step for fog this thick: take this stretch again in short steps.
+        float fine=clamp(.7/sigma,3,240);
+        if(dt>fine*1.5){limit=fine;continue;}
+        limit=fine*1.25;
+        t+=dt;
+        // The sun's shadow averaged along the step, so a shadow's edge does not move with each pixel's
+        // jitter: looking along it, that moved the edge a whole step and drew it as a sawtooth.
+        float shadow=1;
+        if(CL_lightShafts>0){
+            shadow=0;
+            [unroll]for(int k=0;k<3;++k)shadow+=WorldSunShadow(camera.xyz+ray*(t-dt*(k+.5)/3)+sun*shadowInfo.y);
+            shadow/=3;
+        }
+        if(sun.z>.02)shadow*=GroundFogBodyShadow(q,sun);
+        float3 light=sky*lerp(.5+.35*CL_groundFogSoftness,1,saturate(h/max(top,1)))+
+            sunLight*shadow*FogSunTransmittance(GroundFogLightDepth(q,floorZ,held,sun));
+        [loop]for(int l=0;l<min((int)lighting.x,4);++l){
+            float3 dir;float atten=StudioAttenuation(l,0,q,dir);
+            if(atten<=.001)continue;
+            if(CL_lightShafts>0)atten*=WorldLightShadowSample(l,q,0);
+            light+=lightColorIntensity[l].rgb*lightColorIntensity[l].w*atten*Phase(dot(ray,dir));
+        }
+        float a=1-exp(-sigma*dt);
+        color+=trans*a*light*tint;trans*=1-a;
+        if(trans<.01)break;
+    }
+}
+)HLSL"
+R"HLSL(
 float4 VolumeAt(float2 pixel,float d) {
     bool sky=IsSky(d);
     float3 farPoint=World(pixel,camera.w>0?.00001:.99999);
@@ -346,6 +583,8 @@ float4 VolumeAt(float2 pixel,float d) {
     float distance=FogDistance(pixel,d);
     float3 color=0;float trans=1;int steps=(int)volumeDimensions.z;
     float jitter=InterleavedGradient(floor(pixel*volumeDimensions.xy/dimensions.xy));
+    float3 ambient=(CL_fogDensity>0||CL_groundFog>0)?FogAmbient():0;
+    GroundFogMarch(ray,distance,jitter,ambient,color,trans);
     if(CL_fogDensity>0) {
         float enter=min(distance,CL_fogStart),extent=min(distance,CL_fogStart+CL_fogRange);
         float stepLength=max(0,extent-enter)/steps;
@@ -359,7 +598,10 @@ float4 VolumeAt(float2 pixel,float d) {
             float local=CL_localFogRadius>0?1-smoothstep(CL_localFogRadius*.65,CL_localFogRadius,length(p-float3(CL_fogX,CL_fogY,CL_fogZ))):1;
             float density=CL_fogDensity*.001*height*local*lerp(1,vary*2,CL_fogNoise);
             float visibility=CL_lightShafts>0?WorldSunShadow(p+SunDirection()*shadowInfo.y):1;
-            float3 illumination=float3(.45,.5,.6)+SunColor()*Phase(dot(ray,SunDirection()))*.25*visibility;
+            // Exponential fog integrates toward the sun in closed form: density here times the scale
+            // height over the sun's height, so deep, thick fog is lit by the sky more than the sun.
+            float selfShadow=FogSunTransmittance(density*CL_fogHeight/max(SunDirection().z,.08));
+            float3 illumination=ambient+SunColor()*Phase(dot(ray,SunDirection()))*.25*visibility*selfShadow;
             [loop] for(int l=0;l<min((int)lighting.x,4);++l) {
                 [loop]for(int sample=0;sample<StudioSamples(l);++sample){
                     float3 dir;float atten=StudioAttenuation(l,sample,p,dir);
@@ -380,7 +622,9 @@ float4 VolumeAt(float2 pixel,float d) {
             optical+=CL_fogDensity*.001*exp(-max(0,p.z-CL_fogBase)/CL_fogHeight)*dt;
         }
         float a=1-exp(-optical);
-        color+=trans*a*fogColorDensity.rgb;trans*=1-a;
+        // Lit like the near interval (unshadowed sun), so the two meet without a brightness step.
+        float3 farLight=ambient+SunColor()*Phase(dot(ray,SunDirection()))*.25;
+        color+=trans*a*farLight*fogColorDensity.rgb;trans*=1-a;
     }
     if(CL_clouds>0&&!IsSkyboxGeometry(d)&&abs(ray.z)>.0001) {
         float t0=(CL_cloudBase-camera.z)/ray.z,t1=(CL_cloudBase+CL_cloudDepth-camera.z)/ray.z;
@@ -444,6 +688,33 @@ VolumeOutput VolumeBlurPS(Screen i) {
     VolumeOutput o;o.scene=sum/max(weights,1e-6);
     o.sky=skyWeights>0?skySum/skyWeights:float4(0,0,0,-1);return o;
 }
+// How much of the ray to maxT lies in front of the effect on it, from where effects are known to be.
+// `known`: how sure, fading to 0 at an anchor's edge. Reference: FogEffectShare in EnvironmentGroundFogMath.h.
+float FogEffectShare(float3 dir,float maxT,out float known){
+    known=0;float sum=0,weight=0;
+    int count=(int)effectAnchorCount.x;
+    for(int i=0;i<count;++i){
+        float r=effectAnchors[i].w;if(r<=0)continue;
+        float3 o=effectAnchors[i].xyz-camera.xyz;
+        float t=dot(o,dir);if(t<=0)continue;
+        float w=1-smoothstep(r*.6,r,length(o-dir*t));
+        if(w<=0)continue;
+        known=max(known,w);
+        sum+=w*max(t-r*.3,0);weight+=w;
+    }
+    return weight>0?saturate(sum/weight/max(maxT,1)):1;
+}
+// The ground fog's optical depth over the first `reach` units of a ray from the camera. Only for pixels
+// with an effect on them, so eight even steps are enough for what is multiplied onto that effect.
+float GroundFogDepthAlong(float3 dir,float reach){
+    [branch] if(CL_groundFog<=0||reach<=0)return 0;
+    float dt=reach/8,tau=0;
+    [loop]for(int k=0;k<8;++k){
+        float top,h,floorZ,held;
+        tau+=GroundFogAt(camera.xyz+dir*dt*(k+.5),top,h,floorZ,held);
+    }
+    return tau*dt;
+}
 float4 CompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
     float2 p=SamplePixel(i.position.xy,sample),uv=p/dimensions.xy;
     float d=ReadCombinedSample(p,sample);bool sky=IsSky(d);
@@ -472,20 +743,64 @@ float4 CompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
     // the smoke may show; the fog integrated past it (a deep doorway behind the cloud) used to be
     // painted over the smoke. That share is re-integrated up to where the smoke starts; with no
     // placed smokes to measure against, the covered share gets no added fog at all.
+    // Only the share of the coverage that is a placed smoke the ray passes through: glass, flames
+    // and leaf cards in the same OIT buffer keep the full fog of the surface behind them.
     float smoke=SmokeCover(p);
     [branch] if(smoke>0) {
         float3 farPoint=World(p,sky?(camera.w>0?.00001:.99999):d);
         float3 dir=normalize(farPoint-camera.xyz);
-        float entry=smokeVolumeCount.x>.5?SmokeCoveredEntry(dir,distance):0;
-        float4 front=float4(0,0,0,1);
-        [branch] if(entry>=distance) front=volume;   // the smoke starts beyond the surface
-        else if(entry>1) {
-            float4 clip=mul(viewProjection,float4(camera.xyz+dir*entry,1));
-            front=VolumeAt(p,clip.z/clip.w);
+        float entry;
+        smoke*=SmokeRayShare(dir,distance,entry);
+        [branch] if(smoke>0) {
+            float4 front=float4(0,0,0,1);
+            [branch] if(entry>=distance) front=volume;   // the smoke starts beyond the surface
+            else if(entry>1) {
+                float4 clip=mul(viewProjection,float4(camera.xyz+dir*entry,1));
+                front=VolumeAt(p,clip.z/clip.w);
+            }
+            volume=lerp(volume,front,smoke);
         }
-        volume=lerp(volume,front,smoke);
     }
     float3 color=ReadColor(p,sample);
+    // EFFECTS IN THE FOG. A particle has no depth, so the fog above was measured to the surface behind
+    // it. Only the fog between the camera and the effect belongs over it: all of it for a fire far down
+    // a fog bank, which sinks in smoothly, hardly any for a close explosion cloud. So a cloud across a
+    // depth edge (a wall and the far end of an alley behind it) carries the same fog on both sides.
+    // Unplaced light (a tracer's far end) is taken as most of the way to the surface; anything else
+    // unplaced, like glass, keeps the surface's fog: it must not stand out of the fog.
+    // The player's own gun and arms stay readable however thick the fog around the camera is.
+    [branch] if(IsViewmodelSample(p,sample)) volume=lerp(volume,float4(0,0,0,1),.85);
+    else if(fogAmbient.w>.5){
+        float2 effect=fogFrontMask.Load(int3(int2(p),0));
+        // The frame only shows how much a cloud darkened what was behind it, and a cloud has some light
+        // of its own, so it hides more than that. Over a dark background it shows nothing: there, what
+        // the cloud hides close by counts for pixels dark enough to be under it.
+        effect.g=max(saturate(effect.g*1.3),fogFrontNearby.SampleLevel(groundFogSampler,uv,0)*
+                     (1-smoothstep(.06,.22,dot(color,float3(.2126,.7152,.0722)))));
+        effect*=1-smoke;
+        [branch] if(max(effect.r,effect.g)>.002){
+            float3 farPoint=World(p,sky?(camera.w>0?.00001:.99999):d);
+            float3 dir=normalize(farPoint-camera.xyz);
+            float known;float along=FogEffectShare(dir,distance,known);
+            float through=clamp(volume.a,1e-4,1);
+            float kept=pow(through,effect.r>=effect.g?lerp(1,.7,smoothstep(.3,.8,effect.r)):1);
+            // Placed: what really lies on the stretch to it. A blast clears the air around itself, so
+            // the fog is not spread evenly along the ray. Height fog is, near enough.
+            [branch] if(known>0)
+                kept=lerp(kept,exp(-GroundFogDepthAlong(dir,min(along*distance,9000)))*
+                               (CL_fogDensity>0?pow(through,along*(CL_groundFog>0?.5:1)):1),known);
+            kept=max(kept,through);
+            // The fog behind an effect is hidden as far as the effect hides things. What shows through
+            // a thin cloud is the scene behind it, which keeps all its fog: only a nearly solid cloud's
+            // own colour gets the lighter fog of the stretch in front of it.
+            float dark=effect.g*effect.g;dark*=dark;
+            // A placed flame's light is much brighter than the frame shows after tonemapping, so it
+            // holds more of the pixel than its share says, and fog does not wash over it.
+            float flame=saturate(effect.r*(1+.4*known));
+            volume=float4(lerp(volume.rgb,volume.rgb*(1-kept)/max(1-through,1e-4),max(flame,effect.g)),
+                          lerp(volume.a,kept,max(flame,dark)));
+        }
+    }
     // Distant 3D-skybox buildings live in the leftover depth range; VolumeAt gives them the medium
     // out to kSkyboxFogDistance, so they sink into the fog with the sky behind them.
     return float4(color*volume.a+volume.rgb,1);

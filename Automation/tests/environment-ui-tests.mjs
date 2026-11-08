@@ -475,6 +475,49 @@ test('scoped resets keep unrelated cards intact',()=>{
   assert.match(h.card('WEATHER').resets.join(' '),/climate storm 0/);
   assert.equal(h.context.__footerResolve().cmds[0],'mirv_filmmaker environment reset all');
 });
+test('fog card carries the ground fog and its light shafts',()=>{
+  const h=harness();h.render();
+  for(const name of ['Coverage','Depth','Billows','Billow size','Push','Push size','Refill time','Swirl','Drift speed','Drift direction',
+    'Softness','Wisps','Wisp size','Streak','Churn','Sun on fog','Shade brightness']) h.slider(name);
+  assert.ok(h.toggles.some(t=>t.label==='Light shafts'),'light shafts switch on the fog page');
+  const ground=h.context.climateControls.find(row=>row[1]==='groundFog');
+  assert.ok(ground&&ground[0].opts.label==='Density','the ground fog has its own density');
+  ground[0].opts.onChange(1.5);
+  assert.equal(h.sent.at(-1),'mirv_filmmaker environment climate groundFog 1.5');
+  const resets=h.card('FOG').resets.join(' ');
+  assert.match(resets,/climate groundFog 0/);assert.match(resets,/climate groundFogHeight 56/);
+  assert.match(resets,/climate groundFogRecovery 8/);assert.match(resets,/climate groundFogCoverage 0.85/);
+  assert.match(resets,/climate groundFogColorR 0.93/);
+  assert.match(resets,/climate groundFogSoftness 0.35/);assert.match(resets,/climate groundFogWisps 0.35/);
+  assert.match(resets,/climate groundFogShadeB 1/);assert.match(resets,/climate groundFogBillowSize 220/);
+  assert.match(resets,/climate groundFogPushSize 0.55/);
+  // A starting look sets only values the sliders own, and turns the Environment on if it was off.
+  const fogSource=fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/ConfigHudClimateJs.h',import.meta.url),'utf8');
+  assert.match(fogSource,/actionGroup\(envFogPage, 'Start from', \[\s*\['Street mist'[\s\S]*?\['Thick sheet'/);
+  const look=fogSource.match(/mist: \{ climate: \{([\s\S]*?)\},\s*scene:/)[1];
+  for(const key of look.match(/\b[a-zA-Z]+(?=:)/g))
+    assert.ok(h.context.climateControls.some(row=>row[1]===key)||/ColorR|ColorG|ColorB|ShadeR|ShadeG|ShadeB|lightShafts/.test(key),`${key} has a control to change it afterwards`);
+  assert.match(fogSource,/function applyGroundFogLook\(look\) \{\s*envEnsureEnabled\(\);/);
+  // The sim view is a plain show/hide switch that follows the game's state.
+  const view=h.toggles.find(t=>t.label==='Show sim view');
+  assert.ok(view,'sim view switch on the fog page');
+  view.click();assert.equal(h.sent.at(-1),'mirv_filmmaker environment groundfog-view toggle');
+  h.context.st.groundFogView=true;h.context.renderHooks.forEach(fn=>fn(h.context.st));
+  assert.equal(view.on,true);
+  const s=h.context.st.environment;
+  Object.assign(s.climate,{enabled:1,fogDensity:0,groundFog:0,lightShafts:0});
+  h.context.renderHooks.forEach(fn=>fn(h.context.st));
+  h.card('FOG').pill.click();
+  for(const cmd of ['climate fogDensity 0.05','climate groundFog 1','climate lightShafts 1'])
+    assert.ok(h.sent.includes('mirv_filmmaker environment '+cmd),cmd);
+  // Ground fog alone is the fog pass being on; shafts alone are not.
+  Object.assign(s.climate,{fogDensity:0,groundFog:1,lightShafts:1});
+  h.context.renderHooks.forEach(fn=>fn(h.context.st));
+  assert.equal(h.card('FOG').pill.on,true);
+  Object.assign(s.climate,{groundFog:0});
+  h.context.renderHooks.forEach(fn=>fn(h.context.st));
+  assert.equal(h.card('FOG').pill.on,false);
+});
 test('weather switch includes standalone lightning',()=>{
   const h=harness();h.render();
   const s=h.context.st;s.environment.weather.type=0;

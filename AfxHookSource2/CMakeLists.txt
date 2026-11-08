@@ -457,6 +457,10 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Environment/EnvironmentAnimatedCasters.cpp Filmmaker/Environment/EnvironmentParticleShadows.cpp
     Filmmaker/Environment/EnvironmentGi.cpp
     Filmmaker/Environment/EnvironmentGi.h
+    Filmmaker/Environment/EnvironmentGroundFog.cpp
+    Filmmaker/Environment/EnvironmentGroundFog.h
+    Filmmaker/Environment/EnvironmentGroundFogMath.h
+    Filmmaker/Environment/EnvironmentGroundFogShaders.h
     Filmmaker/Environment/EnvironmentGiMath.h
     Filmmaker/Environment/EnvironmentGiTraceShaders.h
     Filmmaker/Environment/EnvironmentGiBuildShaders.h

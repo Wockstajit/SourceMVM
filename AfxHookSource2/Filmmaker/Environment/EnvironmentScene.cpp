@@ -1,6 +1,7 @@
 #include "../World/WorldTransient.h"
 #define NOMINMAX
 #include "EnvironmentScene.h"
+#include "EnvironmentGroundFog.h"
 #include <unordered_map>
 #include "EnvironmentGltfMath.h"
 #include "EnvironmentVfxLighting.h"
@@ -734,9 +735,10 @@ void SetRenderStatus(const char *status, bool drawn) {
 void CaptureCoatingActors(Frame &f) {
     f.actors.clear();
     const auto &c = f.scene.climate;
-    // The round heat map leaves the live players' shoes unpainted from the same list.
+    // The round heat map leaves the live players' shoes unpainted from the same list, and the ground
+    // fog is pushed aside by the same bodies.
     if (!(c[CL_snow] > 0 || c[CL_wet] > 0 || c[CL_puddles] > 0 || (f.scene.weather.type == 1 && f.scene.weather.count > 0))
-        && !Heatmap::Enabled())
+        && !(c[CL_groundFog] > 0) && !Heatmap::Enabled())
         return;
     __try {
         const int highest = GetHighestEntityIndex();
@@ -753,6 +755,7 @@ void CaptureCoatingActors(Frame &f) {
             // Body-sized: the shader's CoatingActor also rejects floor and walls, but a wider
             // column still let the ground around the feet read as body.
             a.radius = kCoatingBodyRadius;
+            a.entity = i;
             f.actors.push_back(a);
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -944,6 +947,21 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
     CaptureCoatingActors(f);
     if (f.active)
         CaptureSmokeVolumes(f.smokes);
+    const bool groundFog = f.active && f.scene.climate[CL_groundFog] > 0;
+    if (groundFog || (f.active && f.scene.climate[CL_fogDensity] > 0)) {
+        const auto burning = CaptureMollyLightSources();
+        for (const auto &s : burning) f.fogEffects.push_back({s.position, !strcmp(s.kind, "vfx:fire") ? kGroundFogFireRadius : 48.f});
+        for (const auto &p : CaptureVfxEffectPoints(f.time, f.camera)) f.fogEffects.push_back({p.position, p.radius});
+        for (const auto &s : f.smokes) f.fogEffects.push_back({s.center, s.radius * 1.6f});
+        KeepNearestFogEffects(f.fogEffects, f.camera);
+        if (groundFog) {
+            // What moves the ground fog: blasts push it, fires and smokes hold it back.
+            for (const auto &b : CaptureVfxBlasts(f.time)) f.fogBlasts.push_back(GroundFogExplosion(b.position, b.age));
+            for (const auto &s : burning)
+                if (!strcmp(s.kind, "vfx:fire")) f.fogBlasts.push_back({s.position, kGroundFogFireRadius, kGroundFogFirePush});
+            for (const auto &s : f.smokes) f.fogBlasts.push_back({s.center, s.radius * kGroundFogSmokeShare, 0.f});
+        }
+    }
     return f;
 }
 std::vector<PickBox> ScenePickBoxes() {
@@ -1069,6 +1087,7 @@ void AppendStateJson(std::ostringstream &out) {
     bool buildBusy = occlusionBusy;
     if (occlusionBusy)
         buildStatus = occlusionStatus;
+    out << ",\"groundFogView\":" << (GroundFogOverlay() ? "true" : "false");
     out << ",\"envOcclusionReady\":" << (MapOcclusion() ? "true" : "false") << ",\"envOcclusionStatus\":\""
         << JsonBuilder::Escape(occlusionStatus) << "\"";
     // Map data is extracted and loaded asynchronously; report that work in the panel.
@@ -1257,7 +1276,10 @@ void RunCommand(advancedfx::ICommandArgs *args) {
         if (op == "help") {
             advancedfx::Message(
                 "Environment UI: Looks, Sky, Lighting, Fog, Weather, Scene Objects.\n"
-                "Fog: climate fogDensity|fogStart|fogHeight|fogNoise; set fogR|fogG|fogB.\n"
+                "Fog: climate fogDensity|fogStart|fogHeight|fogNoise|lightShafts|scatter; set fogR|fogG|fogB.\n"
+                "Ground fog: climate groundFog|groundFogHeight|groundFogDetail|groundFogFlow|groundFogRecovery|\n"
+                "  groundFogSwirl|groundFogWind|groundFogWindAngle|groundFogSoftness|groundFogWisps|groundFogWispSize|\n"
+                "  groundFogStreak|groundFogBillowSize|groundFogChurn|groundFogSun|groundFogShade|groundFogShadeR|G|B|groundFogPushSize.\n"
                 "Rendering: Balanced preview / High export (fixed). Presets: version 14 only.\n"
                 "mirv_filmmaker environment on|off|status|undo|rescan|folder\n"
                 " environment weather wind <speed> <direction-degrees>\n"
@@ -1277,6 +1299,8 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 " environment object <id> materialEnabled|cameraVisible|roughness|metallic|coat|coatRoughness|anisotropy|emission|normalStrength|uvScale <number>\n"
                 " environment edit start <id>|stop|begin <axis> <u> <v> <aspect>|drag <u> <v>|commit|cancel\n"
                 " environment smokeview [on|off] - show the CS2 smoke coverage that hides additions\n"
+                " environment groundfog-view [on|off|map|<units across>] - show the live ground fog sim in a corner of the screen\n"
+                " environment groundfog-dump - save the ground fog field (where players pushed it) to the debug log folder\n"
                 " environment mapinfo [rain|ripple|ripdir|wet|drying|trace <value>] - read/write the map's native weather\n"
                 " environment trace-probe - test hardware geometry tracing (debug log)\n"
                 " environment particle-shadows [0|1] - temporary smoke shadow A/B control\n"
@@ -1424,6 +1448,20 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             const std::string v = argc > 3 ? arg(3) : "toggle";
             SetSmokeDebugView(v == "on" || v == "1" || (v == "toggle" && !SmokeDebugView()));
             g_message = SmokeDebugView() ? "Smoke coverage view on" : "Smoke coverage view off";
+            return;
+        }
+        if (op == "groundfog-view") {
+            // The live fluid in a corner of the frame. on|off|toggle|map|<units across>.
+            const std::string v = argc > 3 ? arg(3) : "toggle";
+            const float span = v == "map" ? 0.f : float(std::atof(v.c_str()));
+            if (v == "map" || span > 0) SetGroundFogOverlay(true, span);
+            else SetGroundFogOverlay(v == "on" || v == "1" || (v == "toggle" && !GroundFogOverlay()));
+            g_message = GroundFogOverlay() ? "Ground fog sim view on" : "Ground fog sim view off";
+            return;
+        }
+        if (op == "groundfog-dump") {
+            RequestGroundFogDump();
+            g_message = "Ground fog field queued: a BMP and its statistics land in the debug log folder";
             return;
         }
         if (op == "trace-probe") { required(3); RequestHardwareRayProbe(CurrentMap()); g_message="Hardware ray probe queued; results in debug log"; return; }

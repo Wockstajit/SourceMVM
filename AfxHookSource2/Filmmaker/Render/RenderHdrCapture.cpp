@@ -161,6 +161,16 @@ ID3D11Texture2D* SelectSceneTarget(ID3D11DeviceContext* ctx, D3D11_TEXTURE2D_DES
 	return src;
 }
 
+ID3D11Texture2D* AcquireSceneTargetSized(unsigned width, unsigned height) {
+	std::lock_guard<std::mutex> lock(s_mutex);
+	for (size_t i = 0; i < s_candidateCount; ++i)
+		if (s_candidates[i].desc.Width == width && s_candidates[i].desc.Height == height) {
+			s_candidates[i].tex->AddRef();
+			return s_candidates[i].tex;
+		}
+	return nullptr;
+}
+
 bool CaptureHdrToExr(ID3D11DeviceContext* ctx, const wchar_t* path, bool logStats) {
 	D3D11_TEXTURE2D_DESC desc = {};
 	size_t nCandidates = 0;
@@ -257,6 +267,10 @@ bool CaptureHdrToExr(ID3D11DeviceContext* ctx, const wchar_t* path, bool logStat
 
 ID3D11Texture2D* RenderHdrCapture_AcquireSceneTarget(ID3D11DeviceContext* ctx, D3D11_TEXTURE2D_DESC* outDesc) {
 	return ctx ? SelectSceneTarget(ctx, outDesc, nullptr, nullptr, nullptr) : nullptr;
+}
+
+ID3D11Texture2D* RenderHdrCapture_AcquireSceneTargetSized(unsigned width, unsigned height) {
+	return AcquireSceneTargetSized(width, height);
 }
 
 void RenderHdrCapture_RenderThread_Tick(ID3D11DeviceContext* ctx) {

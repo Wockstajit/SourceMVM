@@ -226,6 +226,9 @@ bool ParseScene(const std::string &json, Scene &out, std::string &error) {
             throw std::runtime_error(error);
         const auto &values = Field(root, "climate", JsonValue::Type::Object);
         for (int i = 0; i < ClimateCount; ++i) {
+            // A scene saved before a control existed keeps that control at its default (Scene
+            // starts from the defaults), so adding a control never invalidates saved looks.
+            if (!values.Find(ClimateSpecs()[i].key)) continue;
             double n = Field(values, ClimateSpecs()[i].key, JsonValue::Type::Number).number;
             if (!ClimateValueValid(i, n))
                 throw std::runtime_error(std::string("Invalid climate value: ") + ClimateSpecs()[i].key);

@@ -35,6 +35,8 @@ void RenderHdrCapture_RenderThread_Tick(ID3D11DeviceContext* ctx);
 // The tracked pre-tonemap scene target matching the bound render target's size, AddRef'd (caller
 // releases), or null. Render thread, at the BeforeUi boundary. Used by the auto-exposure meter.
 ID3D11Texture2D* RenderHdrCapture_AcquireSceneTarget(ID3D11DeviceContext* ctx, D3D11_TEXTURE2D_DESC* outDesc);
+// The same target by size, for a moment when another target is bound. AddRef'd or null. Render thread.
+ID3D11Texture2D* RenderHdrCapture_AcquireSceneTargetSized(unsigned width, unsigned height);
 // Render-thread callback applies the current environment to the private resolved HDR copy.
 // The engine HDR target is never modified. The caller owns pass/depth lifetime and draw guards.
 // Original source identity lets material replays validate the private copy's provenance.

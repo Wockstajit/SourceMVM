@@ -21,6 +21,24 @@ inline float VfxPulseEnergy(double now, double start, double duration) {
 }
 inline constexpr double VfxExtinguishFade = .18;
 inline constexpr double VfxMuzzleDuration = .06;
+// WHERE A SHOT'S FLASH IS, so the fog knows it is close. The flash and its smoke outlast the light they
+// give (VfxMuzzleDuration) and are wider than the gun, so a shot counts for longer and over a wider area.
+// A first-person muzzle sits about at the lens, where any radius would take in every effect on screen, a
+// far fire included. So it is placed a little ahead along the same direction, with a radius that covers the
+// flash's share of the view.
+struct VfxShotPoint { Vec3 position{}; float radius = 0; };
+inline constexpr double VfxShotHold = .2, VfxShotEnd = .35;
+inline VfxShotPoint VfxShotPointAt(Vec3 camera, Vec3 muzzle, bool viewmodel, double age) {
+    constexpr float kWorldRadius = 96, kLensReach = 70, kLensRadius = 44;
+    if (!std::isfinite(age) || age < 0 || age >= VfxShotEnd) return {};
+    const float fade = std::min(1.f, float((VfxShotEnd - age) / (VfxShotEnd - VfxShotHold)));
+    if (!viewmodel) return {muzzle, kWorldRadius * fade};
+    const float x = muzzle.x - camera.x, y = muzzle.y - camera.y, z = muzzle.z - camera.z;
+    const float length = std::sqrt(x * x + y * y + z * z);
+    if (length < 1) return {};
+    const float scale = kLensReach / length;
+    return {{camera.x + x * scale, camera.y + y * scale, camera.z + z * scale}, kLensRadius * fade};
+}
 inline float VfxMuzzleEnergy(double now, double start, double duration) {
     if (!std::isfinite(now) || !std::isfinite(start) || !std::isfinite(duration) || duration <= 0)
         return 0;

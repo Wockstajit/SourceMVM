@@ -13,6 +13,7 @@
 #include "EnvironmentSunVisibility.h"
 #include "../Relight/RelightLightEditor.h"
 #include "EnvironmentGi.h"
+#include "EnvironmentGroundFog.h"
 #include "EnvironmentStorm.h"
 #include "EnvironmentRayProbe.h"
 #include "../Debug/MvmDebugLog.h"
@@ -64,6 +65,9 @@ struct Constants {
     // distance, 0}; the region is the map's precipitation box (w = mapped).
     Float4 weatherLattice, weatherReach, weatherRegionLow, weatherRegionHigh;
     Float4 bakedLight; // x = Frame::bakedDaylight, y = 1 when it is valid
+    // Ground fog (EnvironmentGroundFog.h) and the fogs' sky light; match the shader's FrameConstants.
+    Float4 groundFogWindow, groundFogFloor, groundFogFloorSize, fogAmbient;
+    Float4 effectAnchors[kFogEffectAnchors], effectAnchorCount;
 };
 struct ObjectConstants {
     Matrix model, normal;
@@ -416,9 +420,19 @@ void EndDevice() {
     EndSunVisibility();
     Relight::EndLightEditor();
     EndGi();
+    EndGroundFog();
     g = Resources{};
     gHdr = Resources{};
     SetRenderStatus("Renderer device released");
+}
+// Device setup has dozens of steps, and any of them failing leaves the Environment off. Say which one.
+bool SetupFailed(int line, HRESULT hr) {
+    if (SUCCEEDED(hr)) return false;
+    char text[96];
+    snprintf(text, sizeof(text), "Renderer setup failed: EnvironmentRender.cpp line %d, hr=0x%08lx", line, (unsigned long)hr);
+    SetRenderStatus(text);
+    MvmDebugLog_LinefAlways("environment.shader", "%s", text);
+    return true;
 }
 void BeginDevice(ID3D11Device *device, bool background) {
     if (device && g.device.Get() == device && (g.ready || devicePending))
@@ -442,48 +456,49 @@ void BeginDevice(ID3D11Device *device, bool background) {
     BeginAmbientOcclusion(device);
     BeginSunVisibility(device);
     BeginGi(device);
-    if (FAILED(device->CreateDeferredContext(0, &g.context))) {
+    BeginGroundFog(device);
+    if (SetupFailed(__LINE__, device->CreateDeferredContext(0, &g.context))) {
         SetRenderStatus("Could not create environment render context");
         return;
     }
     ComPtr<ID3DBlob> code;
     if (!Compile("ScreenVS", "vs_5_0", 0, code) ||
-        FAILED(device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr,
+        SetupFailed(__LINE__, device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr,
                                           &g.screenVS)))
         return;
     for (int cm = 0; cm < 2; ++cm) {
         code.Reset();
         if (!Compile("BlitPS", "ps_5_0", 0, code, cm) ||
-            FAILED(device->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr,
+            SetupFailed(__LINE__, device->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr,
                                              &g.blitPS[cm])))
             return;
     }
     for (int cm = 0; cm < 2; ++cm) {
         code.Reset();
         if (!Compile("WeatherVS", "vs_5_0", 0, code, cm) ||
-            FAILED(device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr,
+            SetupFailed(__LINE__, device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr,
                                               &g.weatherVS[cm])))
             return;
     }
     code.Reset();
     if (!Compile("StormVS", "vs_5_0", 0, code) ||
-        FAILED(device->CreateVertexShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&g.stormVS)))return;
+        SetupFailed(__LINE__, device->CreateVertexShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&g.stormVS)))return;
     for (int sms = 0; sms < 2; ++sms) {
         code.Reset();
         if (!Compile("SplashVS", "vs_5_0", sms, code) ||
-            FAILED(device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &g.splashVS[sms])))
+            SetupFailed(__LINE__, device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &g.splashVS[sms])))
             return;
     }
     code.Reset();
     if (!Compile("MeshVS", "vs_5_0", 0, code) ||
-        FAILED(
+        SetupFailed(__LINE__, 
             device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &g.meshVS)))
         return;
     D3D11_INPUT_ELEMENT_DESC layout[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD",0,DXGI_FORMAT_R32G32_FLOAT,0,24,D3D11_INPUT_PER_VERTEX_DATA,0}};
-    if (FAILED(
+    if (SetupFailed(__LINE__, 
             device->CreateInputLayout(layout, 3, code->GetBufferPointer(), code->GetBufferSize(), &g.layout)))
         return;
     for (int ms = 0; ms < 2; ++ms)
@@ -497,44 +512,44 @@ void BeginDevice(ID3D11Device *device, bool background) {
             for (size_t k = 0; k < EnvironmentPixelShaderCount; ++k) {
                 code.Reset();
                 if (!Compile(EnvironmentPixelShaderEntries[k], "ps_5_0", ms, code, cm) ||
-                    FAILED(device->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr,
+                    SetupFailed(__LINE__, device->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr,
                                                      outputs[k]->GetAddressOf())))
                     return;
             }
         }
     code.Reset();
     if(!Compile("AtmosphereEdgePS","ps_5_0",1,code,1)||
-       FAILED(device->CreatePixelShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&g.atmosphereEdgePS)))return;
+       SetupFailed(__LINE__, device->CreatePixelShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&g.atmosphereEdgePS)))return;
     if (!Buffer(sizeof(Constants), D3D11_BIND_CONSTANT_BUFFER, g.constants) ||
         !Buffer(sizeof(ObjectConstants), D3D11_BIND_CONSTANT_BUFFER, g.objectConstants))
         return;
     D3D11_SAMPLER_DESC materialSampler{};materialSampler.Filter=D3D11_FILTER_ANISOTROPIC;
     materialSampler.AddressU=materialSampler.AddressV=materialSampler.AddressW=D3D11_TEXTURE_ADDRESS_WRAP;
     materialSampler.MaxAnisotropy=8;materialSampler.MaxLOD=D3D11_FLOAT32_MAX;
-    if(FAILED(device->CreateSamplerState(&materialSampler,&g.materialSampler)))return;
+    if(SetupFailed(__LINE__, device->CreateSamplerState(&materialSampler,&g.materialSampler)))return;
     D3D11_RASTERIZER_DESC r{};
     r.FillMode = D3D11_FILL_SOLID;
     r.CullMode = D3D11_CULL_NONE;
     r.DepthClipEnable = TRUE;
     r.MultisampleEnable = TRUE;
-    if (FAILED(device->CreateRasterizerState(&r, &g.raster)))
+    if (SetupFailed(__LINE__, device->CreateRasterizerState(&r, &g.raster)))
         return;
     D3D11_DEPTH_STENCIL_DESC d{};
     d.DepthEnable = TRUE;
     d.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
     d.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
-    if (FAILED(device->CreateDepthStencilState(&d, &g.depth[0])))
+    if (SetupFailed(__LINE__, device->CreateDepthStencilState(&d, &g.depth[0])))
         return;
     d.DepthFunc = D3D11_COMPARISON_GREATER_EQUAL;
-    if (FAILED(device->CreateDepthStencilState(&d, &g.depth[1])))
+    if (SetupFailed(__LINE__, device->CreateDepthStencilState(&d, &g.depth[1])))
         return;
     d.DepthEnable = FALSE;
     d.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-    if (FAILED(device->CreateDepthStencilState(&d, &g.noDepth)))
+    if (SetupFailed(__LINE__, device->CreateDepthStencilState(&d, &g.noDepth)))
         return;
     D3D11_BLEND_DESC b{};
     b.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-    if (FAILED(device->CreateBlendState(&b, &g.opaque)))
+    if (SetupFailed(__LINE__, device->CreateBlendState(&b, &g.opaque)))
         return;
     b.RenderTarget[0].BlendEnable = TRUE;
     b.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
@@ -543,7 +558,7 @@ void BeginDevice(ID3D11Device *device, bool background) {
     b.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
     b.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
     b.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
-    if (FAILED(device->CreateBlendState(&b, &g.alpha)))
+    if (SetupFailed(__LINE__, device->CreateBlendState(&b, &g.alpha)))
         return;
     g.ready = true;
     rendererReady.store(true, std::memory_order_release);
@@ -732,7 +747,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         return false;
     }
     const auto climate = EffectiveClimate(f.scene.climate);
-    const bool volumes = climate[CL_clouds] > 0 || climate[CL_fogDensity] > 0;
+    const bool volumes = climate[CL_clouds] > 0 || climate[CL_fogDensity] > 0 || climate[CL_groundFog] > 0;
     const int quality = f.exporting ? 2 : 1;
     // Live preview marches the clouds/fog at quarter resolution; renders keep half.
     const UINT divider = f.exporting ? 1 : 4;
@@ -931,6 +946,28 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     ctx->ClearState();
     {GPU_PASS_SCOPE(ctx, "composite: world GI");PrepareGi(ctx, f);}
     ctx->ClearState();
+    // Ground fog: step the fluid players push (once per demo time) and publish where to read it.
+    {
+        const auto ground = PrepareGroundFog(ctx, f, climate);
+        c.groundFogWindow = {ground.windowX, ground.windowY, ground.fluid ? 1.f / ground.windowWidth : 0.f,
+                             ground.fluid ? 1.f / ground.windowHeight : 0.f};
+        c.groundFogFloor = {ground.floorX, ground.floorY, ground.floorCell, ground.floorMap ? 1.f : 0.f};
+        c.groundFogFloorSize = {ground.floorWidth, ground.floorHeight, ground.driftX, ground.driftY};
+        ctx->ClearState();
+    }
+    // The map's own sky colour lights the fogs while the Environment sky is off.
+    c.fogAmbient = Pack(FogAmbientFromMapSky(f.relight.skyColor, !f.relight.map.empty()), 0);
+    // Particles have no depth: what they did to the frame and where they are says how much fog is in
+    // front of them. w: the mask is bound.
+    if (climate[CL_fogDensity] > 0 || climate[CL_groundFog] > 0) {
+        c.fogAmbient.w = PrepareFogFrontMask(ctx, td.Width, td.Height) ? 1.f : 0.f;
+        const int anchors = (std::min)(int(f.fogEffects.size()), kFogEffectAnchors);
+        for (int i = 0; i < anchors; ++i) {
+            const auto &a = f.fogEffects[i];
+            c.effectAnchors[i] = {a.position.x, a.position.y, a.position.z, a.radius};
+        }
+        c.effectAnchorCount = {float(anchors), 0, 0, 0};
+    }
     if (measure) ctx->End(g.timingStages[0].Get());
     BindShadowMaps(ctx);
     BindGi(ctx);
@@ -1112,6 +1149,9 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     }
     if (volumes) {
         GPU_PASS_SCOPE(ctx, "composite: fog volumes");
+        // t35/t36/s6 stay bound through the march, blur and composite (the composite marches
+        // unmatched MSAA samples itself).
+        BindGroundFog(ctx);
         ctx->OMSetBlendState(g.opaque.Get(), blend, 0xffffffff);
         ctx->VSSetShader(g.screenVS.Get(), nullptr, 0);
         ID3D11ShaderResourceView *noSkyVolume=nullptr;
@@ -1175,6 +1215,8 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     ctx->PSSetShaderResources(0, 1, &finalColor);
     ctx->Draw(3, 0);
     blitScope.reset();
+    // A test view of the live fluid, on the display pass only: never in an EXR.
+    if (!f.hdr) DrawGroundFogOverlay(ctx, displayTarget, td.Width, td.Height);
     ctx->ClearState();
     if (measure) {
         ctx->End(g.timingEnd.Get());
@@ -1187,6 +1229,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     }
     {GPU_PASS_SCOPE(immediate, "environment composite (total)");
      immediate->ExecuteCommandList(commands.Get(), TRUE);}
+    DumpGroundFogIfRequested(immediate);
     if (measure) {
         g.timingPending = true;
         g.timingSettings = {climate[CL_worldGi], climate[CL_bounce], climate[CL_sceneReflections],

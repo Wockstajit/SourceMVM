@@ -227,6 +227,7 @@
     st.envGizmo = { origin: p(x, y), axes: [p(x + 0.067, y + 0.037), p(x - 0.045, y + 0.05), p(x, y - 0.09)], bounds: bounds };
   }
   function environment(st, raw) {
+    if (/ environment groundfog-view( toggle)?$/.test(raw)) { st.groundFogView = !st.groundFogView; return true; }
     var t = (raw.match(/"[^"]*"|\S+/g) || []).map(function (s) { return s.replace(/^"|"$/g, ''); }).slice(2);
     var op = t[0], s = st.environment;
     var copy = function (s) { return JSON.parse(JSON.stringify(s)); };

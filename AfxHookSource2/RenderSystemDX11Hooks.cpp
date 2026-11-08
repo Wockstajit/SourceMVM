@@ -10,6 +10,7 @@
 #include "RenderPassCompositor.h"
 #include "Filmmaker/Render/RenderWorldOnly.h"
 #include "Filmmaker/Environment/EnvironmentRender.h"
+#include "Filmmaker/Environment/EnvironmentGroundFog.h"
 #include "Filmmaker/Lens/LensFx.h"
 #include "Filmmaker/Heatmap/RoundHeatmap.h"
 #include "Filmmaker/World/SunFx.h" // the lens flare's sun (SunFx_VisibleSunDirection)
@@ -3102,6 +3103,9 @@ public:
         Filmmaker::Environment::SetSmokeAbsorbance(nullptr, 0, 0);
         g_bSmokeWindow = true;
         g_bSmokeAbsorbanceWanted = g_EnvironmentFrame.active || Filmmaker::LensFx_DofOn();
+        // The opaque world is done and CS2's transparent effects come next: keep this for the fog's front mask.
+        if (auto ctx = g_RenderCommands.RenderThread_GetContext())
+            Filmmaker::Environment::CaptureFogBeforeTransparents(ctx);
         g_bDetectSmoke =
             g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade && g_bReShadeCompositeSmoke
             || g_bCompositeSmoke
@@ -8599,6 +8603,7 @@ void RenderSystemDX11_EngineThread_Prepare() {
                 g_bInOwnDraw=own;return rendered;
             });
             Filmmaker::Environment::SetSkyVisibilitySource(&Filmmaker::Environment::SkyVisibilityMaps);
+            Filmmaker::Environment::SetFogSceneTargetSource(&Filmmaker::RenderHdrCapture_AcquireSceneTargetSized);
             Filmmaker::Environment::SetViewmodelShadowPass(&Filmmaker::Environment::PrepareViewmodelSunShadow);
             Filmmaker::Environment::SetGlassBeamShadowPass(&Filmmaker::Environment::PrepareGlassBeamShadows);
             Filmmaker::Environment::SetNativeMaterialHdrPass([](ID3D11DeviceContext* ctx,ID3D11RenderTargetView* target,ID3D11DepthStencilView* depth,ID3D11Texture2D* source,const Filmmaker::Environment::Frame& frame){

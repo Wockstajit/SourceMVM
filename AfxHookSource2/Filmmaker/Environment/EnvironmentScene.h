@@ -5,6 +5,7 @@
 #include "EnvironmentShadowMath.h"
 #include "EnvironmentWorld.h"
 #include "EnvironmentClimateMath.h"
+#include "EnvironmentGroundFogMath.h"
 #include "EnvironmentLightingProofMath.h"
 #include "../Relight/RelightMath.h"
 #include <filesystem>
@@ -87,6 +88,7 @@ struct Scene {
 struct CoatingActor {
     Vec3 origin;      // pawn origin (feet), world space
     float radius = 0; // horizontal reach; the vertical extent is derived in the shader
+    int entity = 0;   // entity index: ground fog measures each pawn's speed across frames by it
 };
 // A detonated CS2 smoke, as a sphere. Only its position ALONG the view ray is used (in front of or
 // behind an addition); how much it hides comes from CS2's own OIT absorbance.
@@ -104,6 +106,10 @@ struct Frame {
     // Bounded on purpose: this rides the frame constants, and a match is 10 players.
     static const int kMaxActors = 12;
     std::vector<CoatingActor> actors;
+    // What clears the ground fog this frame: explosions, burning fires and smokes.
+    std::vector<GroundFogBlast> fogBlasts;
+    // Where this frame's particle effects are, which says how much fog lies in front of them.
+    std::vector<FogEffectAnchor> fogEffects;
     std::shared_ptr<const OcclusionMesh> occlusion;
     Vec3 camera, angles;
     Matrix projection{};
