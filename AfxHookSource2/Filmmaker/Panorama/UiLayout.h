@@ -39,6 +39,9 @@ void UiLayout_SetPanelRectString(UiPanel panel, const char* xywh);
 UiPanel UiLayout_PanelAt(int x, int y);
 // Which window draws on top when the two overlap. Main thread (the scripts report it).
 void UiLayout_SetFrontWindow(UiPanel panel);
+// That window: Config or Editor (the Camera Editor until one is pressed). Any thread. With both
+// windows open it is the one the keyboard shortcuts belong to.
+UiPanel UiLayout_FrontWindow();
 
 // `mirv_filmmaker layout [workspace|modular|toggle]`.
 void UiLayout_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);

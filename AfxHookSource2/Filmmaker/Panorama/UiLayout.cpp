@@ -58,6 +58,11 @@ void UiLayout_SetFrontWindow(UiPanel panel) {
 	g_front = panel;
 }
 
+UiPanel UiLayout_FrontWindow() {
+	std::lock_guard<std::mutex> lk(g_mutex);
+	return g_front;
+}
+
 UiPanel UiLayout_PanelAt(int x, int y) {
 	if (x < 0 || y < 0) return UiPanel::None;
 	std::lock_guard<std::mutex> lk(g_mutex);

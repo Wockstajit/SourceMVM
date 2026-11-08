@@ -201,3 +201,15 @@ test("the header's settings card owns every click and notch while it is up", () 
   assert.match(movie, /in\.onPanel = WorkspaceHeader_PopupOpen\(\)\s*\|\| UiLayout_PanelAt\(x, y\) != UiPanel::None/, 'the wheel too, with no window open');
   assert.match(movie, /UiLayout_PanelAt\(x, y\) == UiPanel::Header\s*\|\| WorkspaceHeader_PopupOpen\(\)\)\) \{/, 'a click with no window open stays UI, in the free cam too');
 });
+
+test("CONFIG's shortcuts belong to CONFIG only while it is the front window", () => {
+  const layout = read('Panorama', 'UiLayout.cpp');
+  assert.match(layout, /UiPanel UiLayout_FrontWindow\(\) \{\s*std::lock_guard<std::mutex> lk\(g_mutex\);\s*return g_front;/);
+  const onKey = movie.slice(movie.indexOf('bool MovieMode::OnKey('));
+  const capture = onKey.indexOf('if (CameraEditor_TextCaptureActive() || GraphEditorExperiment_TextCaptureActive())');
+  const shortcuts = onKey.indexOf('if (configKeys && (!GraphEditorExperiment_Enabled() || !PointerOverDock())');
+  assert.ok(capture > 0 && shortcuts > capture, "a field typed in the Camera Editor or the dock wins over CONFIG's keys");
+  assert.match(onKey, /const bool configKeys = ConfigHud_Enabled\(\)\s*&& \(!UiLayout_Modular\(\) \|\| !CameraEditor_Active\(\) \|\| UiLayout_FrontWindow\(\) == UiPanel::Config\);/);
+  assert.match(onKey, /if \(configKeys && !GraphEditorExperiment_Enabled\(\) && m_controlDown && !m_shiftDown && vkey == kVK_Z\)/, 'Ctrl+Z too');
+  assert.equal(onKey.split('CameraEditor_TextCaptureActive()').length, 2, 'checked once, ahead of the shortcuts');
+});

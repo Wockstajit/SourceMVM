@@ -104,6 +104,10 @@ thread, and `MovieMode` reads them on the input thread.
   to the camera, as a click in the preview does in the workspace layout.
 - A wheel notch over a window scrolls that window (`PushWorkspaceWheel`), over the dock it goes to
   the dock, and over the game it steps CS2's camera.
+- CONFIG's shortcuts (Delete, Ctrl+C/D/V and Ctrl+Z on scene objects) are its own only while it is
+  the front window, or the Camera Editor's window is closed (`MovieMode::OnKey`,
+  `UiLayout_FrontWindow`). A field being typed in the Camera Editor or the TIMELINE dock takes the
+  keyboard ahead of them.
 - Opening one window does not close the other, and neither hides the director card (there is no
   preview for it to sit in). The card follows the layout while a window is open: switching to
   WORKSPACE hides it, switching back restores it (`ReconcileMovieHud` in `ConfigHud.cpp` and

@@ -571,6 +571,19 @@ bool MovieMode::OnKey(int vkey, bool down) {
 
 	if (ConfigHud_TextCaptureActive())
 		return true;
+	// So does a typed field in the Camera Editor (the Render workspace's number boxes too) or the
+	// TIMELINE dock: the digits arrive as WM_CHAR for the JS, and the same physical key must not
+	// also run a director binding (it paused the demo on every "6" typed into an fps box). Ahead of
+	// CONFIG's shortcuts below, which in the MODULAR layout stay live beside the editor's window:
+	// Delete or Ctrl+C/D/V/Z there acted on CONFIG's scene objects instead (Codex review on #137).
+	if (CameraEditor_TextCaptureActive() || GraphEditorExperiment_TextCaptureActive())
+		return true;
+
+	// CONFIG's shortcuts are its own while it is the window being worked in: always in the docked
+	// layout, and in the MODULAR one unless the Camera Editor's window is open and in front (the
+	// window pressed last, Panorama/UiLayout.h).
+	const bool configKeys = ConfigHud_Enabled()
+		&& (!UiLayout_Modular() || !CameraEditor_Active() || UiLayout_FrontWindow() == UiPanel::Config);
 
 	// Config's Scene Objects: Delete removes the selected object, Ctrl+D duplicates it, Ctrl+C
 	// copies it and Ctrl+V pastes the copy under the mouse to place. The panel's JS owns the
@@ -578,7 +591,7 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	// selection too). With the TIMELINE dock up, Delete is the dock's only while the pointer is over
 	// it (its keys); anywhere else it removes the selected object. It used to go to the dock always,
 	// so Delete never removed a scene object while the dock was up (2026-10-17).
-	if (ConfigHud_Enabled() && (!GraphEditorExperiment_Enabled() || !PointerOverDock()) &&
+	if (configKeys && (!GraphEditorExperiment_Enabled() || !PointerOverDock()) &&
 	    (vkey == kVK_DELETE || (m_controlDown && (vkey == kVK_D || vkey == kVK_C || vkey == kVK_V)))) {
 		static bool editKeyHeld = false;
 		if (down && !editKeyHeld)
@@ -588,7 +601,7 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	}
 	// Ctrl+Z in Config takes back the last placement, paste, duplicate, paint stroke or removal
 	// of a scene object (Props.cpp). Once per press, like the keys above.
-	if (ConfigHud_Enabled() && !GraphEditorExperiment_Enabled() && m_controlDown && !m_shiftDown && vkey == kVK_Z) {
+	if (configKeys && !GraphEditorExperiment_Enabled() && m_controlDown && !m_shiftDown && vkey == kVK_Z) {
 		static bool undoKeyHeld = false;
 		if (down && !undoKeyHeld) EnqueueCmd("mirv_filmmaker props undo");
 		undoKeyHeld = down;
@@ -625,11 +638,6 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	if (CameraEditor_CustomizeModalOpen())
 		return true;
 
-	// A focused Render-workspace number field owns the keyboard for the same reason: the digits
-	// are delivered as WM_CHAR to the JS, so letting the same physical key ALSO run a director
-	// binding would (for example) pause the demo every time the user typed a "6" into an fps box.
-	if (CameraEditor_TextCaptureActive() || GraphEditorExperiment_TextCaptureActive())
-		return true;
 	// A running render owns the keyboard: any key reaching CS2 can draw into the capture (Shift+F2
 	// opened the native demo bar over a render, user report 2026-10-13; Tab, binds, ...). The job's
 	// own Cancel button is the way out.
