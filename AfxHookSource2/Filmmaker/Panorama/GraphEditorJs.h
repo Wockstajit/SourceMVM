@@ -1350,7 +1350,7 @@ R"GEJS(
           var apL = lbl(ap, 'AUTO', S.muted, 10); apL.hittest = false;
           apL.style.fontWeight = 'bold'; apL.style.letterSpacing = '0.5px'; apL.style.verticalAlign = 'center';
           ap.SetPanelEvent('onactivate', function () { rawCmd('mirv_filmmaker camtl autopath toggle'); });
-          ap.SetPanelEvent('onmouseover', function () { showTip(ap, 'AUTO on: while the timeline plays, the view follows the camera path whenever the playhead is inside its keys. Off: Space only plays the demo. J plays the path either way.'); });
+          ap.SetPanelEvent('onmouseover', function () { showTip(ap, 'AUTO on: while the timeline plays, the view follows the camera path whenever the playhead is inside its keys. Off: Space only plays the demo. J plays the path from its first key either way.'); });
           ap.SetPanelEvent('onmouseout', function () { hideTip(); });
           r.ap = ap; r.apL = apL; r.apOn = null;
         }

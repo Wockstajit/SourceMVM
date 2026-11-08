@@ -681,7 +681,7 @@ R"EDJS(
 
     // ---- the key strip (PATH tab) -----------------------------------------------------------
     // The shortcuts, pinned under the body above RENDER (2026-10 sidebar cleanup), in the order
-    // the work happens: K place, J arm the path, then the rest. Checked against MovieMode.cpp:
+    // the work happens: K place, J play the path, then the rest. Checked against MovieMode.cpp:
     // arrows skip kSkipSeconds (5), Shift+wheel is speed, Ctrl+wheel is FOV, X / Z roll.
     // Sized to be read at a glance from the game: 13px, key caps with real padding, the words in
     // the label tier. (The first cut was 11px and muted, and could barely be seen over the map.)
@@ -689,7 +689,7 @@ R"EDJS(
     edKeyStrip.style.flowChildren = 'right-wrap'; edKeyStrip.style.width = '100%';
     edKeyStrip.style.marginTop = '8px'; edKeyStrip.style.paddingTop = '10px'; edKeyStrip.style.paddingBottom = '2px';
     edKeyStrip.style.borderTop = '1px solid #ffffff14';
-    [['K', 'place'], ['J', 'arm path'], ['L', 'delete'], ['F', 'edit'], ['Space', 'play'], ['← →', '±5 s'],
+    [['K', 'place'], ['J', 'play path'], ['L', 'delete'], ['F', 'edit'], ['Space', 'play demo'], ['← →', '±5 s'],
      ['Shift+Scroll', 'move speed'], ['Ctrl+Scroll', 'FOV'], ['X / Z', 'roll right / left']].forEach(function (d) {
       var item = mk('Panel', edKeyStrip); item.hittest = false;
       item.style.flowChildren = 'right'; item.style.marginRight = '16px'; item.style.marginBottom = '7px';

@@ -2017,6 +2017,26 @@ input:focus-visible {
   letter-spacing: 0.04em;
 }
 
+.dlss-reshade {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0 2px;
+  border-top: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.dlss-reshade code {
+  overflow-wrap: anywhere;
+  font-size: 9px;
+  color: var(--hint);
+}
+
+.dlss-reshade-state {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
 .dlss-note,
 .setting-note {
   margin: 0;

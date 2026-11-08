@@ -121,3 +121,16 @@ mirv_filmmaker mouse state
 | `mirv_filmmaker speedbar [on\|off\|toggle]` | Inline demo-bar speed buttons (off = native dropdown) |
 | `mirv_filmmaker mouse free\|click\|game\|toggle\|state` | Control free or click-to-capture mouse modes |
 | `mirv_filmmaker hud_eval <panorama js>` | Run Panorama JS in the HUD context (debug) |
+
+## Watching a camera path
+
+**J** plays the path from its first key: it lands the demo exactly there, starts the path once the
+world has landed, and the next **J** stops it. The path follows demo ticks in Live timing, so a key
+placed on a kill stays on the kill. **Space** plays the demo, and the view follows the path only with
+the timeline's **AUTO** on. With AUTO off, the first time a demo plays through its path a notice says
+so. In Freeze timing the world stands still while the camera flies, and a notice says that too.
+Stepping the camera with the wheel, or pressing W/A/S/D, ends a path that is playing.
+
+The two-step flow (J arms, Space plays) is gone from the keyboard. `marker preview` and `marker play`
+still do it from the console, and a play sent before the landing finishes waits for it
+(`mvm_debug`: `campath.play` logs the tick it really started on).

@@ -403,7 +403,7 @@ R"MKJS(
       return r;
     }
     mkControl(hsec, 'K', 'Place a camera marker');
-    mkControl(hsec, 'J', 'Arm the path  →  Space plays it');
+    mkControl(hsec, 'J', 'Play / stop the path from its first key');
     mkControl(hsec, 'L', 'Delete the marker you are aiming at');
     mkControl(hsec, 'F', 'Open these settings (aim at a marker)');
 
@@ -470,7 +470,8 @@ R"MKJS(
     bTitle.style.fontWeight = 'bold'; bTitle.style.letterSpacing = '1.5px';
     bTitle.style.verticalAlign = 'center'; bTitle.style.whiteSpace = 'nowrap';
     var bSub = lbl(bBody, '', S.value, 12);
-    bSub.style.marginTop = '6px'; bSub.style.whiteSpace = 'nowrap';
+    // Wraps: a notice can be a full sentence, and the fixed-width banner clipped it mid-word.
+    bSub.style.marginTop = '6px'; bSub.style.whiteSpace = 'normal'; bSub.style.width = '100%';
     var bKeys = lbl(bBody, '', S.label, 11);
     bKeys.style.marginTop = '4px'; bKeys.style.whiteSpace = 'nowrap';
 

@@ -68,6 +68,15 @@ RenderResolutionReport RenderResolution_Sample();
 // The swapchain's CURRENT buffer size, read from the swapchain description only -- no backbuffer
 // reference is taken, so this is safe to poll while the engine may be resizing. ResizeBuffers
 // updates the description, so this still answers "has the engine changed size yet?".
+// The scene target's size at the before-UI boundary, the frame a render records. Render thread
+// writes it, any thread reads it; false until the first frame of a level. CS2's FidelityFX setting
+// makes this smaller than the window.
+void RenderResolution_NoteSceneTarget(unsigned width, unsigned height);
+bool RenderResolution_SceneTargetSize(unsigned& outWidth, unsigned& outHeight);
+
+// The monitor the game window sits on, in physical pixels: the biggest size worth offering.
+bool RenderResolution_MonitorSize(int& outWidth, int& outHeight);
+
 bool RenderResolution_SwapChainSize(unsigned& outWidth, unsigned& outHeight);
 
 // Multi-line human-readable dump of the above, for the console.

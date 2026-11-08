@@ -391,6 +391,25 @@ void CameraPath::EndAutoPath(const char* why) {
 	if (MvmDebugLog_Active()) MvmDebugLog_Linef("campath.auto", "end (%s): the view is CS2's again", why);
 }
 
+// AUTO off and the demo plays through the path: the view stays on CS2's camera (or a parked free cam)
+// on purpose, but to someone who just made a path it reads as a path that does not play. Say how to
+// watch it, once per demo.
+void CameraPath::HintWhenPathIsNotPlaying() {
+	// AUTO only follows with the TIMELINE dock up, in Live timing (RunAutoPath).
+	const bool autoFollows = CameraPath_AutoPath() && GraphEditorExperiment_Enabled() && m_timing == Timing::Live;
+	if (m_pathHintShown || autoFollows || m_data.Count() < 2 || GetMode() != Mode::Editing
+		|| m_play.Scrubbing() || PlaybackPending() || !DemoIsPlaying() || DemoIsPaused()
+		|| Render_IsJobActive() || FollowCameraRef().OwnsView())
+		return;
+	int tick = -1;
+	if (!g_MirvTime.GetCurrentDemoTick(tick) || tick < FirstPathTick() || tick > LastPathTick())
+		return;
+	m_pathHintShown = true;
+	Notify("The demo is playing, not your camera path. Press J to play the path from its first key, or use AUTO in the TIMELINE dock.");
+	m_noticeExpireSec = NowSec() + 7.0; // two sentences to read while the shot plays
+	if (MvmDebugLog_Active()) MvmDebugLog_LinefAlways("campath.hint", "demo playing through the path at tick %d, not following it (AUTO %d)", tick, CameraPath_AutoPath() ? 1 : 0);
+}
+
 void CameraPath::RunAutoPath() {
 	const bool want = CameraPath_AutoPath() && GraphEditorExperiment_Enabled() && m_timing == Timing::Live
 		&& m_data.Count() >= 2 && DemoIsPlaying() && !DemoIsPaused() && !Render_IsJobActive()
@@ -722,9 +741,11 @@ void CameraPath::ArmPreview() {
 	m_editorPlayPending = false;
 	m_play.Stop();
 
-	// Seek to the first marker and pause so the start frame is stable while composing.
-	SeekDemoTick(m_data.Front().tick);
-	if (DemoIsPlaying() && !DemoIsPaused()) DemoCmd("demo_pause");
+	// Land paused on the first marker. A bare demo_gototick here raced demo_pause on a playing demo:
+	// the seek pauses on its own, the toggle then resumed it, so the world ran on under a camera held
+	// at the first key, and the play that followed started mid-path or found the path already over
+	// (reproduced 2026-11-08: armed at 12000, world at 12281 five seconds later).
+	DemoScrub_Release((double)m_data.Front().tick, /*resume*/ false);
 
 	CameraBridge_SetFreeCamEnabled(true);
 	m_play.Reset();
@@ -735,11 +756,28 @@ void CameraPath::ArmPreview() {
 		m_data.Front().tick);
 }
 
+void CameraPath::PlayFromFirstKey() {
+	ArmPreview();
+	if (GetMode() != Mode::PreviewArmed)
+		return; // refused, and the notice says why
+	// The same handshake the timeline's play uses; m_editorPlay stays off, so this is the full preview.
+	m_timelinePlayPending = true;
+	m_timelinePlayWaitFrames = 0;
+}
+
 void CameraPath::StartPreviewPlay() {
 	if (GetMode() != Mode::PreviewArmed) {
 		ArmPreview();
 		if (GetMode() != Mode::PreviewArmed) return; // arm failed (e.g. <2 markers)
 	}
+	// The second press of arm-then-play can beat the landing. Starting now reads the tick the world
+	// left, which past the last key ends the path on its first frame.
+	if (!m_timelinePlayPending && DemoScrub_Active()) {
+		m_timelinePlayPending = true;
+		m_timelinePlayWaitFrames = 0;
+		return;
+	}
+	m_timelinePlayPending = false;
 	RebuildCamPath();
 	if (!m_eval.CanEval()) { advancedfx::Message("[campath] cannot evaluate path.\n"); return; }
 
@@ -758,10 +796,18 @@ void CameraPath::StartPreviewPlay() {
 	// remaining frozen when playback starts. The guard re-resumes for the next ~2s in
 	// case the seek's auto-pause lands a frame or two later (see m_liveResumeGuard).
 	if (m_timing == Timing::Live) { DemoCmd("demo_resume"); m_liveResumeGuard = 120; }
+	// Freeze flies the path over a still world, so nothing lines up with the demo's ticks. Say so:
+	// to the person looking for the kill it reads as a path that plays at the wrong time.
+	else Notify("FREEZE timing: the camera flies while the demo stays still. Switch to LIVE to play it with the action.");
 
 	advancedfx::Message(
 		"[campath] PLAY: %d markers, speedMode=%s, interp=%s, timing=%s, duration=%.2fs.\n",
 		Count(), SpeedModeName(), InterpName(), TimingName(), m_eval.Duration());
+	if (MvmDebugLog_Active()) {
+		int tick = -1;
+		g_MirvTime.GetCurrentDemoTick(tick);
+		MvmDebugLog_LinefAlways("campath.play", "start at tick %d, path %d..%d, timing=%s", tick, FirstPathTick(), LastPathTick(), TimingName());
+	}
 }
 
 void CameraPath::PlayFromTimeline() {
@@ -866,14 +912,11 @@ void CameraPath::PlayFromEditor(int startTick) {
 	m_editorPlayStartTiming = m_eval.TimingAtTick(m_data, tick);
 
 	// Keep deterministic scrub active while the asynchronous seek settles. Playback starts from
-	// RunFrame only after the requested tick has landed. Backward (the wrap to the first key) a
-	// plain demo_gototick lands in one restore; forward on a paused demo it never runs, so the
-	// scrub controller plays in instead.
+	// RunFrame only after the requested tick has landed, through the scrub controller: the demo may
+	// be playing here, and a bare demo_gototick on a playing demo runs on past its tick.
 	m_play.Stop();
 	m_liveResumeGuard = 0;
-	int nowTick = -1;
-	if (g_MirvTime.GetCurrentDemoTick(nowTick) && tick < nowTick) SeekDemoTick(tick);
-	else DemoScrub_Release(tick, /*resume*/ false);
+	DemoScrub_Release(tick, /*resume*/ false);
 	CameraBridge_SetFreeCamEnabled(true);
 	m_play.BeginScrub(tick);
 	m_scrubReleasePending = false; // editor play owns this scrub until its own handshake ends it
@@ -1183,6 +1226,7 @@ void CameraPath::RunFrame() {
 		// m_demoPath, so this must run while it still points at the previous demo.
 		if (m_dirty) { Save(); m_dirty = false; }
 		m_demoPath = cur;
+		m_pathHintShown = false;
 		m_data.DeleteAll();
 		m_curveUndo.clear(); m_curveRedo.clear();
 		m_menuOpen = false;
@@ -1256,6 +1300,7 @@ void CameraPath::RunFrame() {
 	}
 
 	RunAutoPath();
+	HintWhenPathIsNotPlaying();
 
 	Mode mode = GetMode();
 	if (m_debug) {
@@ -1279,8 +1324,10 @@ void CameraPath::RunFrame() {
 			// enough not to fire mid-skip -- doing so unpaused the demo for a single tick
 			// and then the seek's own auto-pause refroze it. 240 frames is the safety net
 			// for a seek that never reports the target tick.
-			if ((atStart && m_timelinePlayWaitFrames >= 2) || m_timelinePlayWaitFrames >= 240) {
-				m_timelinePlayPending = false;
+			// The fallback counts only once the scrub controller has finished: a backward landing on a
+			// long demo takes seconds, and starting then is the bug the wait exists to prevent.
+			if (DemoScrub_Active()) m_timelinePlayWaitFrames = 0;
+			else if ((atStart && m_timelinePlayWaitFrames >= 2) || m_timelinePlayWaitFrames >= 240) {
 				StartPreviewPlay();
 				mode = GetMode();
 			}

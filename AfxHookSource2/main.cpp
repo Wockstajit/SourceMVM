@@ -1764,9 +1764,6 @@ int new_CCS2_Client_Init(void* This) {
 
 	if(!Hook_ClientEntitySystem2()) ErrorBox(MkErrStr(__FILE__, __LINE__));	
 
-	// Connect to reshade addon if present:
-	g_ReShadeAdvancedfx.Connect();
-
 	WrpRegisterCommands();
 
 	AfxHookSource2Rs_Engine_Init();

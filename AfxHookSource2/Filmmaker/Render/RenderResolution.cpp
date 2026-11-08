@@ -7,6 +7,7 @@
 
 #include "../../../Shared/AfxConsole.h"
 
+#include <atomic>
 #include <d3d11.h>
 #include <dxgi1_2.h>
 #include <sstream>
@@ -50,6 +51,36 @@ bool RenderResolutionReport::Disagrees() const {
 		&& ((int)backWidth != clientWidth || (int)backHeight != clientHeight))
 		return true;
 	return false;
+}
+
+namespace {
+std::atomic<unsigned long long> s_sceneTargetSize{0};
+}
+
+void RenderResolution_NoteSceneTarget(unsigned width, unsigned height) {
+	s_sceneTargetSize.store(((unsigned long long)width << 32) | height, std::memory_order_relaxed);
+}
+
+bool RenderResolution_SceneTargetSize(unsigned& outWidth, unsigned& outHeight) {
+	const unsigned long long size = s_sceneTargetSize.load(std::memory_order_relaxed);
+	outWidth = (unsigned)(size >> 32);
+	outHeight = (unsigned)(size & 0xFFFFFFFFu);
+	return outWidth > 0 && outHeight > 0;
+}
+
+bool RenderResolution_MonitorSize(int& outWidth, int& outHeight) {
+	outWidth = 0;
+	outHeight = 0;
+	HWND hwnd = g_UiCursorProbe.hwnd;
+	if (!hwnd || !::IsWindow(hwnd))
+		return false;
+	MONITORINFO info = {};
+	info.cbSize = sizeof(info);
+	if (!::GetMonitorInfoW(::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &info))
+		return false;
+	outWidth = info.rcMonitor.right - info.rcMonitor.left;
+	outHeight = info.rcMonitor.bottom - info.rcMonitor.top;
+	return outWidth > 0 && outHeight > 0;
 }
 
 bool RenderResolution_SwapChainSize(unsigned& outWidth, unsigned& outHeight) {
