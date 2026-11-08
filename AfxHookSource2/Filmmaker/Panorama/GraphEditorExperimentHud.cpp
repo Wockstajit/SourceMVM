@@ -63,13 +63,10 @@ double r3(double v) {
 	double s = (v < 0) ? -1.0 : 1.0; return s * (long long)(v * s * 1000.0 + 0.5) / 1000.0;
 }
 
-bool PlayingDemo() {
-	if (g_pEngineToClient) {
-		if (auto pDemo = g_pEngineToClient->GetDemoFile())
-			return pDemo->IsPlayingDemo() || pDemo->IsDemoPaused();
-	}
-	return false;
-}
+// A demo is loaded: the camera timeline's reading, which pumps before this one each frame and
+// rides out the few frames a demo_gototick seek reports no demo. Taken raw, the seek a scrub
+// issues ended that scrub, deleted the dock's UI and dropped its model (Codex review on #137).
+bool PlayingDemo() { return CameraTimelineHudRef().DemoActive(); }
 
 // The demo is actually ADVANCING (loaded and not paused). The JS uses this to page the visible
 // window so the playhead stays on screen while playing; a scrub must not trigger that.

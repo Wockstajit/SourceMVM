@@ -213,3 +213,18 @@ test("CONFIG's shortcuts belong to CONFIG only while it is the front window", ()
   assert.match(onKey, /if \(configKeys && !GraphEditorExperiment_Enabled\(\) && m_controlDown && !m_shiftDown && vkey == kVK_Z\)/, 'Ctrl+Z too');
   assert.equal(onKey.split('CameraEditor_TextCaptureActive()').length, 2, 'checked once, ahead of the shortcuts');
 });
+
+test('the TIMELINE dock rides out a seek too, not just the header bar hosting it', () => {
+  const graphHud = read('Panorama', 'GraphEditorExperimentHud.cpp');
+  assert.match(graphHud, /bool PlayingDemo\(\) \{ return CameraTimelineHudRef\(\)\.DemoActive\(\); \}/);
+  assert.doesNotMatch(graphHud, /IsPlayingDemo\(\) \|\| pDemo->IsDemoPaused\(\)/, 'no raw reading of its own');
+  assert.match(filmmaker, /CameraTimelineHudRef\(\)\.RunFrame\(\);[\s\S]*GraphEditorExperimentHudRef\(\)\.RunFrame\(\);/, 'the timeline pumps first');
+});
+
+test("F and T are CONFIG's only while CONFIG has the keys", () => {
+  const onKey = movie.slice(movie.indexOf('bool MovieMode::OnKey('));
+  assert.match(onKey, /if \(vkey == kVK_T && configKeys\) \{/);
+  assert.match(onKey, /if \(vkey == kVK_F\) \{[\s\S]{0,1200}if \(configKeys\) return true;\s*if \(CameraEditor_Enabled\(\)\) \{/,
+    "with the Camera Editor's window in front, F selects the aimed camera");
+  assert.doesNotMatch(onKey, /if \(ConfigHud_Enabled\(\)\) return true;/);
+});

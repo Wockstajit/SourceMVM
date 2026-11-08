@@ -695,8 +695,8 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	// T with Config open fires one weapon recoil test shot -- the keyboard twin of the WEAPON
 	// RECOIL card's Test Shot button, so tuning is tap-and-watch without reaching for the mouse.
 	// Once per physical press (auto-repeat swallowed), and never while a Config field is typing
-	// (ConfigHud_TextCaptureActive returned above).
-	if (vkey == kVK_T && ConfigHud_Enabled()) {
+	// (ConfigHud_TextCaptureActive returned above). CONFIG's key, so only while CONFIG has the keys.
+	if (vkey == kVK_T && configKeys) {
 		static bool tHeld = false;
 		if (down && !tHeld) EnqueueCmd("mirv_filmmaker weaponrecoil test");
 		tHeld = down;
@@ -910,8 +910,9 @@ bool MovieMode::OnKey(int vkey, bool down) {
 			// immediately clickable. F again (or Escape) gives the mouse back to the camera.
 			// Config owns the screen: F must do nothing here. It used to fall through to the
 			// marker popup, whose "edit" path switches the workspace on -- so pressing F while
-			// in Config threw you into the Cam Editor.
-			if (ConfigHud_Enabled()) return true;
+			// in Config threw you into the Cam Editor. In the MODULAR layout that is only while
+			// CONFIG has the keys: with the Camera Editor's window in front, F is the editor's.
+			if (configKeys) return true;
 			if (CameraEditor_Enabled()) {
 				if (!down) return true;
 				if (CameraTimeline_WantsCursor()) {

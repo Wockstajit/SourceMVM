@@ -23,7 +23,8 @@ restart. Modular applies to demo playback; the live `mvm_test` CONFIG panel keep
 `Panorama/WorkspaceHeaderHud.{h,cpp}` and `WorkspaceHeaderJs.h`. Built into the HUD context while a
 demo plays in the modular layout, and torn down otherwise. "A demo plays" is the camera timeline's
 reading (`CameraTimelineHud::DemoActive`), which rides out the few frames a `demo_gototick` seek
-reports no demo, so a scrub does not tear the bar and its dock down. Its tabs use the dock ribbon's
+reports no demo, so a scrub does not tear the bar and its dock down. The dock itself
+(`GraphEditorExperimentHud`) reads the same value. Its tabs use the dock ribbon's
 box and each lights in its panel's accent while that panel is open:
 
 | Tab | Command |
@@ -104,8 +105,8 @@ thread, and `MovieMode` reads them on the input thread.
   to the camera, as a click in the preview does in the workspace layout.
 - A wheel notch over a window scrolls that window (`PushWorkspaceWheel`), over the dock it goes to
   the dock, and over the game it steps CS2's camera.
-- CONFIG's shortcuts (Delete, Ctrl+C/D/V and Ctrl+Z on scene objects) are its own only while it is
-  the front window, or the Camera Editor's window is closed (`MovieMode::OnKey`,
+- CONFIG's shortcuts (Delete, Ctrl+C/D/V and Ctrl+Z on scene objects, T's recoil test shot, and F
+  doing nothing) are its own only while it is the front window, or the Camera Editor's window is closed (`MovieMode::OnKey`,
   `UiLayout_FrontWindow`). A field being typed in the Camera Editor or the TIMELINE dock takes the
   keyboard ahead of them.
 - Opening one window does not close the other, and neither hides the director card (there is no
