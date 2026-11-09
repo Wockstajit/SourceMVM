@@ -118,3 +118,51 @@ test('importing a folder with nothing of ReShade in it says so and changes nothi
     fs.rmSync(data, { recursive: true, force: true });
   }
 });
+
+test('import carries relative search paths, root Shaders and Textures, and a preset in a subfolder', () => {
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'mvm-reshade-'));
+  try {
+    tool.init(data);
+    const bin = path.join(data, 'dlss5-cs2', 'game', 'bin', 'win64');
+    fs.mkdirSync(bin, { recursive: true });
+    const source = path.join(data, 'game');
+    fs.mkdirSync(path.join(source, 'Shaders'), { recursive: true });
+    fs.mkdirSync(path.join(source, 'Textures'), { recursive: true });
+    fs.mkdirSync(path.join(source, 'MyEffects', 'deep'), { recursive: true });
+    fs.mkdirSync(path.join(source, 'Presets'), { recursive: true });
+    fs.mkdirSync(path.join(data, 'shared'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'Shaders', 'A.fx'), '// fx');
+    fs.writeFileSync(path.join(source, 'Textures', 'A.png'), 'png');
+    fs.writeFileSync(path.join(source, 'MyEffects', 'deep', 'B.fx'), '// fx');
+    fs.writeFileSync(path.join(source, 'Root.fx'), '// fx');
+    fs.writeFileSync(path.join(source, 'Presets', 'Cinema.ini'), 'Techniques=B@B.fx\r\n');
+    fs.writeFileSync(path.join(source, 'ReShade.ini'), [
+      '[GENERAL]', 'PresetPath=.\\Presets\\Cinema.ini',
+      `EffectSearchPaths=.\\,.\\MyEffects\\**,.\\Missing\\**,..\\shared\\**`,
+      'TextureSearchPaths=.\\Textures\\**', '',
+    ].join('\r\n'));
+
+    const result = tool.importReShade(source);
+    assert.equal(result.preset, 'Cinema.ini');
+    assert.ok(fs.existsSync(path.join(bin, 'Cinema.ini')), 'the preset the ini selects is copied');
+    assert.ok(fs.existsSync(path.join(bin, 'MyEffects', 'deep', 'B.fx')));
+    assert.ok(fs.existsSync(path.join(bin, 'Root.fx')));
+    const text = fs.readFileSync(path.join(bin, 'ReShade.ini'), 'utf8');
+    assert.equal(value(text, 'GENERAL', 'PresetPath'), '.\\Cinema.ini');
+    const effects = value(text, 'GENERAL', 'EffectSearchPaths').split(',');
+    assert.ok(effects.includes('.\\Shaders\\**'), 'a copied root Shaders folder is searched');
+    assert.ok(effects.includes('.\\MyEffects\\**'), 'a relative folder keeps its path');
+    assert.ok(!effects.some((v) => /Missing/.test(v)), 'a folder that does not exist is dropped');
+    assert.ok(effects.includes(`${path.join(data, 'shared')}\\**`), 'a folder outside the source is searched where it is');
+    assert.ok(value(text, 'GENERAL', 'TextureSearchPaths').split(',').includes('.\\Textures\\**'));
+    assert.equal(tool.reshadeInfo().effects, 3, 'each effect is counted once');
+  } finally {
+    fs.rmSync(data, { recursive: true, force: true });
+  }
+});
+
+test('the scene pass reports the add-on result instead of assuming it ran', () => {
+  const pass = fs.readFileSync(path.join(root, 'AfxHookSource2', 'ReShadeAdvancedfx.cpp'), 'utf8');
+  assert.match(pass, /return !call \|\| fn\(color, depth\) \? 1 : 0;/);
+  assert.match(pass, /if \(!g_ReShadeAdvancedfx\.AdvancedfxRenderEffects\(m_Copy, pDepth\)\) \{[\s\S]*?return false;/);
+});

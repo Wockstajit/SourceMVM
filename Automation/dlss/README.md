@@ -46,7 +46,9 @@ a reinstall. The Render workspace's PICTURE section says whether a take will inc
 
 Presets and shaders live in the private `game/bin/win64` folder, not Steam's. **ADVANCED > DLSS 5 >
 IMPORT MY RESHADE** copies a preset and `reshade-shaders` from another folder, selects the preset the
-source's `ReShade.ini` was using, and adds that ini's absolute shader folders to the search paths.
+source's `ReShade.ini` was using (a subfolder or another drive too), and carries over that ini's
+search paths: folders inside the source are copied at the same relative path, and folders outside it
+are searched where they are.
 OPEN FOLDER opens the private folder. Every launch adds `.\reshade-shaders\Shaders\**` and
 `.\reshade-shaders\Textures\**` to the search paths: ReShade itself seeds only `.\`, which does not
 reach the layout its own installer creates. Files beside Steam's `cs2.exe` come across with the binary

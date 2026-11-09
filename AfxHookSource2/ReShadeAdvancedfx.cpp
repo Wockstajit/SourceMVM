@@ -23,12 +23,12 @@ typedef bool (*MvmReShadeRenderEffects_t)(void* colorTexture, void* depthTexture
 
 // No loader reference of ours, even for one call (UiInputGate.cpp has the crash that taught this),
 // so the lookup and the call both run under the SEH guard: a free in between reads as "not loaded".
+// -1 not loaded, 0 loaded but the effects did not run, 1 loaded and, when asked to call, they ran.
 int CallRenderEffects(HMODULE addon, void* color, void* depth, bool call) {
 	__try {
 		auto fn = (MvmReShadeRenderEffects_t)GetProcAddress(addon, "MvmReShadeRenderEffects");
 		if (!fn) return -1;
-		if (call) fn(color, depth);
-		return 1;
+		return !call || fn(color, depth) ? 1 : 0;
 	} __except (EXCEPTION_EXECUTE_HANDLER) {
 		return -1;
 	}
@@ -55,9 +55,9 @@ bool CReShadeAdvancedfx::IsReShadeLoaded() {
 	return false;
 }
 
-void CReShadeAdvancedfx::AdvancedfxRenderEffects(void* pRenderTargetView, void* pDepthTextureResource) {
-	if (const HMODULE addon = LookUpAddon())
-		CallRenderEffects(addon, pRenderTargetView, pDepthTextureResource, true);
+bool CReShadeAdvancedfx::AdvancedfxRenderEffects(void* pRenderTargetView, void* pDepthTextureResource) {
+	const HMODULE addon = LookUpAddon();
+	return addon && CallRenderEffects(addon, pRenderTargetView, pDepthTextureResource, true) > 0;
 }
 
 // ---- the scene pass ------------------------------------------------------------------------------
@@ -259,7 +259,13 @@ bool CReShadeScenePass::Apply(ID3D11DeviceContext* pImmediateContext, ID3D11Rend
 			pList->Release();
 
 			// 2. ReShade on the copy. It saves and restores the immediate context's state around this.
-			g_ReShadeAdvancedfx.AdvancedfxRenderEffects(m_Copy, pDepth);
+			// No runtime yet, or it was just destroyed: the scene is left as it is, and this frame reports
+			// that the recorder is getting it without the effects.
+			if (!g_ReShadeAdvancedfx.AdvancedfxRenderEffects(m_Copy, pDepth)) {
+				pScene->Release();
+				pResource->Release();
+				return false;
+			}
 
 			// 3. The graded copy back over the scene.
 			ID3D11RenderTargetView* rtvs[1] = { pTarget };

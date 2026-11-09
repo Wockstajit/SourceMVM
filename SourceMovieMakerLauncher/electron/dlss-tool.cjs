@@ -379,16 +379,46 @@ function reshadeInfo() {
       else if (/\.fx$/i.test(entry.name)) effects += 1;
     }
   };
-  for (const name of SHADER_DIRS) walk(path.join(bin, name));
+  const dirs = new Set(SHADER_DIRS.map((name) => path.join(bin, name)));
+  for (const value of iniValue(path.join(bin, 'ReShade.ini'), 'GENERAL', 'EffectSearchPaths').split(',')) {
+    const base = value.trim().replace(/[\\/]\*\*$/, '');
+    if (base && !path.isAbsolute(base) && path.resolve(bin, base) !== path.resolve(bin)) dirs.add(path.resolve(bin, base));
+  }
+  // A nested folder is listed both on its own and under its parent: count each file once.
+  const roots = [...dirs].sort((a, b) => a.length - b.length)
+    .filter((dir, i, all) => !all.slice(0, i).some((p) => dir.toLowerCase().startsWith(`${p.toLowerCase()}${path.sep}`)));
+  roots.forEach(walk);
+  try { effects += fs.readdirSync(bin).filter((n) => /\.fx$/i.test(n)).length; } catch { /* not installed */ }
   let presets = [];
   try { presets = fs.readdirSync(bin).filter((n) => /\.ini$/i.test(n) && !/^reshade\d*\.ini$/i.test(n) && isPreset(path.join(bin, n))); } catch { /* not installed */ }
   const active = path.basename(iniValue(path.join(bin, 'ReShade.ini'), 'GENERAL', 'PresetPath') || '');
   return { folder: bin, effects, presets, activePreset: presets.includes(active) ? active : '' };
 }
 
+// The search paths a source's ini lists, as they should read in the private folder. A folder inside
+// the source is copied across at the same relative path. One outside it stays where it is and is
+// searched by its full path, so a shared shader library stays one library.
+function importSearchPaths(sourceDir, values) {
+  const bin = privateBin();
+  const out = [];
+  for (const value of values.split(',').map((v) => v.trim()).filter(Boolean)) {
+    const recursive = /[\\/]\*\*$/.test(value);
+    const base = value.replace(/[\\/]\*\*$/, '');
+    const suffix = recursive ? '\\**' : '';
+    if (path.isAbsolute(base)) { out.push(value); continue; }
+    const from = path.resolve(sourceDir, base);
+    const relative = path.relative(sourceDir, from);
+    if (!relative) continue; // the source's own root: the template already searches ours
+    if (relative.startsWith('..') || path.isAbsolute(relative)) { out.push(`${from}${suffix}`); continue; }
+    if (!fs.existsSync(from) || !fs.statSync(from).isDirectory()) continue;
+    fs.cpSync(from, path.join(bin, relative), { recursive: true, force: true, dereference: true });
+    out.push(`.\\${relative}${suffix}`);
+  }
+  return out;
+}
+
 // Copies a ReShade setup (a game folder, or a folder of presets and shaders) into the private folder.
-// Nothing at the source is changed. Shader folders the source's own ini points at outside its folder
-// are added to the search paths rather than copied, so a shared shader library stays one library.
+// Nothing at the source is changed.
 function importReShade(sourceDir) {
   const bin = privateBin();
   if (!fs.existsSync(bin)) throw new Error('Install DLSS 5 first: ReShade lives in its private folder.');
@@ -405,26 +435,49 @@ function importReShade(sourceDir) {
     }
   }
   const presets = [];
+  let rootEffects = 0;
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
-    if (!entry.isFile() || !/\.ini$/i.test(entry.name) || /^reshade\d*\.ini$/i.test(entry.name)) continue;
+    if (!entry.isFile()) continue;
+    if (/\.fxh?$/i.test(entry.name)) {
+      fs.copyFileSync(path.join(sourceDir, entry.name), path.join(bin, entry.name));
+      rootEffects += 1;
+      continue;
+    }
+    if (!/\.ini$/i.test(entry.name) || /^reshade\d*\.ini$/i.test(entry.name)) continue;
     const from = path.join(sourceDir, entry.name);
     if (!isPreset(from)) continue;
     fs.copyFileSync(from, path.join(bin, entry.name));
     presets.push(entry.name);
   }
-  if (!shaderFolders && !presets.length) {
+  // The preset the source was using can sit in a subfolder or anywhere else on disk.
+  const sourceIni = path.join(sourceDir, 'ReShade.ini');
+  const configured = iniValue(sourceIni, 'GENERAL', 'PresetPath');
+  const configuredFile = configured ? path.resolve(sourceDir, configured) : '';
+  const configuredName = configured ? path.basename(configured) : '';
+  if (configuredFile && isPreset(configuredFile)) {
+    const known = presets.some((n) => n.toLowerCase() === configuredName.toLowerCase());
+    // A top-level preset of the same name is not this one unless it is the same file.
+    if (!known || path.resolve(sourceDir, configuredName).toLowerCase() !== configuredFile.toLowerCase()) {
+      fs.copyFileSync(configuredFile, path.join(bin, configuredName));
+    }
+    if (!known) presets.push(configuredName);
+  }
+  if (!shaderFolders && !rootEffects && !presets.length) {
     throw new Error('No ReShade presets or shaders in that folder. Choose the folder that holds your preset .ini and reshade-shaders.');
   }
-  const sourceIni = path.join(sourceDir, 'ReShade.ini');
-  const wanted = path.basename(iniValue(sourceIni, 'GENERAL', 'PresetPath') || '');
-  const preset = presets.find((n) => n.toLowerCase() === wanted.toLowerCase()) || presets[0] || '';
+  const preset = presets.find((n) => n.toLowerCase() === configuredName.toLowerCase()) || presets[0] || '';
+  // Root-level Shaders and Textures folders are copied above, and nothing else searches them.
+  const found = {
+    EffectSearchPaths: fs.existsSync(path.join(sourceDir, 'Shaders')) ? ['.\\Shaders\\**'] : [],
+    TextureSearchPaths: fs.existsSync(path.join(sourceDir, 'Textures')) ? ['.\\Textures\\**'] : [],
+  };
+  for (const key of LIST_KEYS.GENERAL) found[key].push(...importSearchPaths(sourceDir, iniValue(sourceIni, 'GENERAL', key)));
   ensureReShadeConfig();
   for (const ini of ['ReShade.ini', 'ReShade2.ini']) {
     const dst = path.join(bin, ini);
     if (preset) setIniValue(dst, 'GENERAL', 'PresetPath', `.\\${preset}`);
     for (const key of LIST_KEYS.GENERAL) {
-      const outside = iniValue(sourceIni, 'GENERAL', key).split(',').map((v) => v.trim()).filter(path.isAbsolute);
-      if (outside.length) setIniValue(dst, 'GENERAL', key, mergeList(iniValue(dst, 'GENERAL', key).split(',').filter(Boolean), outside).join(','));
+      if (found[key].length) setIniValue(dst, 'GENERAL', key, mergeList(iniValue(dst, 'GENERAL', key).split(',').filter(Boolean), found[key]).join(','));
     }
   }
   return { presets, preset, shaderFolders, info: reshadeInfo() };
@@ -531,10 +584,11 @@ async function install({ cs2Exe, payloadDir, reshadePath, variant, onProgress })
   // A ReShade the user had beside Steam's cs2.exe: syncBinaries brought its presets and shaders, and
   // the ini we just moved out names the preset it was using.
   const movedIni = cleaned.moved.find((n) => /^reshade\.ini$/i.test(n));
-  const movedPreset = movedIni ? path.basename(iniValue(path.join(cleaned.backup, movedIni), 'GENERAL', 'PresetPath') || '') : '';
-  if (movedPreset && fs.existsSync(path.join(bin, movedPreset))) {
-    for (const ini of ['ReShade.ini', 'ReShade2.ini']) setIniValue(path.join(bin, ini), 'GENERAL', 'PresetPath', `.\\${movedPreset}`);
-    say(`Kept your ReShade preset: ${movedPreset}.`);
+  const movedPreset = movedIni ? iniValue(path.join(cleaned.backup, movedIni), 'GENERAL', 'PresetPath') : '';
+  // Kept as written: the sync copies a subfolder at the same relative path.
+  if (movedPreset && fs.existsSync(path.resolve(bin, movedPreset))) {
+    for (const ini of ['ReShade.ini', 'ReShade2.ini']) setIniValue(path.join(bin, ini), 'GENERAL', 'PresetPath', movedPreset);
+    say(`Kept your ReShade preset: ${path.basename(movedPreset)}.`);
   }
   fs.writeFileSync(manifestPath(), JSON.stringify({
     installedAt: new Date().toISOString(),

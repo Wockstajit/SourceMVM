@@ -9,7 +9,9 @@ public:
 	// ReShade itself is in the process, with or without our addon beside it.
 	bool IsReShadeLoaded();
 
-	void AdvancedfxRenderEffects(void* pRenderTargetView, void* pDepthTextureResource);
+	// True when the add-on ran the effects on this texture. On false ReShade still draws them at
+	// Present, where the recorder does not see them.
+	bool AdvancedfxRenderEffects(void* pRenderTargetView, void* pDepthTextureResource);
 };
 
 extern CReShadeAdvancedfx g_ReShadeAdvancedfx;
