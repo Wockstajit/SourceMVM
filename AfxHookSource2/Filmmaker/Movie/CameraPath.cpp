@@ -790,9 +790,10 @@ void CameraPath::StartPreviewPlay() {
 		ArmPreview();
 		if (GetMode() != Mode::PreviewArmed) return; // arm failed (e.g. <2 markers)
 	}
-	// The second press of arm-then-play can beat the landing. Starting now reads the tick the world
-	// left, which past the last key ends the path on its first frame.
-	if (!m_timelinePlayPending && DemoScrub_Active()) {
+	// A play can beat the landing, even with J's start already queued. Starting now reads the tick the
+	// world left, which past the last key ends the path on its first frame, and the landing would then
+	// pause it. RunFrame's handshake only calls this once the scrub is done, so it never waits here.
+	if (DemoScrub_Active()) {
 		m_timelinePlayPending = true;
 		m_timelinePlayWaitFrames = 0;
 		return;

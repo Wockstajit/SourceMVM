@@ -32,7 +32,7 @@ test('the editor play lands the same way on a demo that may be playing', () => {
 
 test('a play that beats the landing waits for it', () => {
   const start = body('StartPreviewPlay');
-  assert.match(start, /if \(!m_timelinePlayPending && DemoScrub_Active\(\)\) \{\s*m_timelinePlayPending = true;/);
+  assert.match(start, /if \(DemoScrub_Active\(\)\) \{\s*m_timelinePlayPending = true;/);
   assert.match(camPath, /if \(DemoScrub_Active\(\)\) m_timelinePlayWaitFrames = 0;/, 'the fallback never fires mid-landing');
 });
 
