@@ -1,8 +1,24 @@
 # Render workspace: range nudges, the done sound and previous renders
 
-Three parts of the Render workspace (the Camera Editor's Render tool) that sit outside the render
+Four parts of the Render workspace (the Camera Editor's Render tool) that sit outside the render
 passes and the recorder. Passes are in [Render passes](filmmaker_render_passes.md), frame rates in
 [Recording FPS](filmmaker_render_fps.md).
+
+## Picture size and ReShade
+
+A render is the size of the frame CS2 draws, which is the game window. The Quality setting changes
+how many bits the encoder spends and never the size, so a 1280x720 window gives a 1280x720 file at
+Highest. Measured 2026-11-08: 854x480, 1280x720 and 1920x1080 windows gave files of exactly those
+sizes, with the workspace's preview shrunk on screen each time. PICTURE reads the real scene target
+(`sceneW`, `sceneH`), turns amber below 1080p and offers **Set size** buttons for 1080p, 1440p and 4K
+where they fit the monitor (`monitorW`, `monitorH`). They run `mirv_filmmaker window size`. If the
+scene target is smaller than the window, the section says so and points at FidelityFX in CS2's video
+settings. That branch has not fired in a test: the FidelityFX edit to `cs2_video.txt` did not reach
+the session it was tried in.
+
+The note under it says whether the take includes ReShade (`reshade`: 0 not running, 1 running without
+the SOURCE:MVM add-on, 2 in the render). [Automation/dlss/README.md](../../Automation/dlss/README.md)
+owns how that works.
 
 ## Range nudges
 

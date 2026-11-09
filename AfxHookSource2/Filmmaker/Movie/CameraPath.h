@@ -135,9 +135,12 @@ public:
 	Mode GetMode() const { return (Mode)m_mode.load(); }   // safe from WndProc thread
 	bool IsPlaying() const { return m_play.Playing(); }
 	bool PlaybackPending() const { return m_editorPlayPending || m_timelinePlayPending; }
+	// J: jump to the first key and play from it as soon as the world has landed there.
+	void PlayFromFirstKey();
 	// AUTO is playing but the playhead is not inside the path yet: the view is CS2's (the range
 	// gate let the free cam go), so clicks and looks are the user's, not the path's.
 	bool AutoWaiting() const;
+	bool AutoPlaying() const { return m_autoPlaying && GetMode() == Mode::PreviewPlaying; }
 	// True while the dolly is actively driving the FINAL view (PreviewPlaying + playing +
 	// free cam engaged). main.cpp's view-setup hook reads this (via CameraPathOwnsView) to
 	// block CS2's demo-view-override / TrueView from re-owning the view mid-playback.
@@ -209,6 +212,8 @@ private:
 	void RunAutoPath();
 	void EndAutoPath(const char* why);
 	bool m_autoPlaying = false; // the playback running now was started by AUTO, not by J or Play
+	bool m_autoStandDown = false; // the user stopped a path: AUTO waits for a pause or for the playhead to leave
+	int m_autoStandDownPausedFrames = 0;
 	// Same end-of-path moment as FinishPlaybackAtLastKey, but rewinds and plays again. Used
 	// while the shared LOOP switch is on -- see the call site in RunFrame.
 	void RestartPathPlayback();
@@ -267,6 +272,8 @@ private:
 	// is starting we re-issue demo_resume for a short window so the dolly actually advances
 	// instead of unpausing for a single tick and freezing (the "Play does nothing" bug).
 	int m_liveResumeGuard = 0;
+	bool m_pathHintShown = false; // HintWhenPathIsNotPlaying: once per demo
+	void HintWhenPathIsNotPlaying();
 	// Frames after a play START during which PausePreview() is ignored. Defeats the stray
 	// "camtl pause" that a held / auto-repeating Space fires the instant the mode flips to
 	// PreviewPlaying (MovieMode's PreviewPlaying branch emits it), which otherwise killed

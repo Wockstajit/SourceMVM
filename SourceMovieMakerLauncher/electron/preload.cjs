@@ -49,6 +49,8 @@ contextBridge.exposeInMainWorld('sourceMvm', {
   installDlss: (options) => ipcRenderer.invoke('dlss:install', options),
   uninstallDlss: () => ipcRenderer.invoke('dlss:uninstall'),
   cleanSteamFolder: () => ipcRenderer.invoke('dlss:clean-steam'),
+  openReShadeFolder: () => ipcRenderer.invoke('dlss:open-reshade-folder'),
+  importReShade: () => ipcRenderer.invoke('dlss:import-reshade'),
   onDlssStatus: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('dlss-status', listener);
