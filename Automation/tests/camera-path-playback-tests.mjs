@@ -64,3 +64,15 @@ test('AUTO follows with the Camera Editor open, starts inside the keys, and stay
   assert.match(run, /if \(m_autoStandDown\) \{/);
   assert.match(body('StopPreview'), /if \(was\) m_autoStandDown = true;/);
 });
+
+test('stopping a path that is still landing cancels the landing, and only then', () => {
+  const stop = body('StopPreview');
+  assert.match(stop, /if \(GetMode\(\) == Mode::PreviewArmed\) DemoScrub_Cancel\(\);/);
+  assert.ok(stop.indexOf('DemoScrub_Cancel') < stop.indexOf('SetMode(Mode::Editing'), 'read the mode before it changes');
+  assert.match(body('FinishPlaybackAtLastKey'), /DemoScrub_Release\(\(double\)lastTick, false\);\s*\}\s*StopPreview\(\);/);
+});
+
+test('a frame with no depth does not keep an older frame bound', () => {
+  const addon = read('ReShadeStateAddon/mvm_reshade_state.cpp');
+  assert.match(addon, /\} else if \(g_depthView\.handle != 0\) \{\s*\/\/ No depth this frame[^\n]*\s*runtime->update_texture_bindings\("DEPTH", resource_view\{ 0 \}, resource_view\{ 0 \}\);\s*ReleaseDepthView\(dev\);/);
+});

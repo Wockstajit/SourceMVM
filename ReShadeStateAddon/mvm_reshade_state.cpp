@@ -116,6 +116,10 @@ extern "C" __declspec(dllexport) bool MvmReShadeRenderEffects(void* colorTexture
 				} else if (g_depthView.handle != 0) {
 					runtime->update_texture_bindings("DEPTH", g_depthView, g_depthView);
 				}
+			} else if (g_depthView.handle != 0) {
+				// No depth this frame: an older frame's depth under this frame's colour is worse than none.
+				runtime->update_texture_bindings("DEPTH", resource_view{ 0 }, resource_view{ 0 });
+				ReleaseDepthView(dev);
 			}
 			// A view per call: a kept render-target view holds a reference on the engine's target,
 			// which is what makes the engine's own resize fail.

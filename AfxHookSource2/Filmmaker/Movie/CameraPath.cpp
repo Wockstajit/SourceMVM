@@ -977,6 +977,9 @@ void CameraPath::StopPreview() {
 	EndCurveValueEdit();
 	bool was = (GetMode() == Mode::PreviewArmed || GetMode() == Mode::PreviewPlaying);
 	if (was) m_autoStandDown = true;
+	// Stopped while still landing on the first key: the landing was only for this playback. Armed
+	// only, because the end of a path stops from PreviewPlaying with its own landing on the last key.
+	if (GetMode() == Mode::PreviewArmed) DemoScrub_Cancel();
 	m_play.Stop();
 	m_hudHidden = false;
 	m_editorPlay = false;
