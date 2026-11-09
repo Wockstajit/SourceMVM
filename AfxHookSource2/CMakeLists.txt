@@ -409,6 +409,11 @@ target_sources(${PROJECT_NAME} PRIVATE
     ContactShadowPass.h
     Filmmaker/Environment/EnvironmentMath.h
     Filmmaker/Environment/EnvironmentScene.h
+    Filmmaker/Takes/Takes.cpp
+    Filmmaker/Takes/TakesServer.cpp
+    Filmmaker/Takes/TakesHud.cpp
+    Filmmaker/Takes/TakesHud.h
+    Filmmaker/Takes/TakesMath.h
     Filmmaker/Props/ClientEntitySpawn.cpp
     Filmmaker/Props/Props.cpp
     Filmmaker/Props/PropPreview.cpp
@@ -686,6 +691,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Panorama/ConfigHudCameraTabJs.h
     Filmmaker/Panorama/ConfigHudEffectsTabJs.h
     Filmmaker/Panorama/ConfigHudRagdollsTabJs.h
+    Filmmaker/Panorama/ConfigHudBotsTabJs.h
     Filmmaker/Panorama/ConfigHudSearchJs.h
     Filmmaker/MvmTestCommand.cpp
     Filmmaker/MvmTest.h

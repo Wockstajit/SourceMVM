@@ -781,3 +781,10 @@ add_test(NAME EnvironmentNativeLampTests COMMAND EnvironmentNativeLampTests)
 add_executable(FreeCamStepMathTests ../Automation/tests/free-cam-step-math-tests.cpp)
 target_compile_features(FreeCamStepMathTests PRIVATE cxx_std_17)
 add_test(NAME FreeCamStepMathTests COMMAND FreeCamStepMathTests)
+
+add_executable(TakesMathTests
+    ../Automation/tests/takes-math-tests.cpp
+    Filmmaker/Takes/TakesMath.h
+)
+target_compile_features(TakesMathTests PRIVATE cxx_std_17)
+add_test(NAME TakesMathTests COMMAND TakesMathTests)

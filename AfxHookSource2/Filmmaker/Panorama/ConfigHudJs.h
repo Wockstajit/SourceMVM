@@ -537,7 +537,7 @@ R"CFJS(
     // everything that drives a value CS2 ALREADY HAS; ENVIRONMENT is the added renderer drawn on
     // top of it. They sit next to each other because the split between them is the thing the
     // operator has to hold in their head -- see the note at the top of ConfigHudEffectsTabJs.h.
-    var TABS = [['camera', 'CAMERA'], ['effects', 'EFFECTS'], ['environment', 'ENVIRONMENT'], ['ragdolls', 'RAGDOLLS']];
+    var TABS = [['camera', 'CAMERA'], ['effects', 'EFFECTS'], ['environment', 'ENVIRONMENT'], ['ragdolls', 'RAGDOLLS'], ['bots', 'BOTS']];
     var activeTab = 'camera';
     var configUiHydrated = false;
     var configWasEnabled = false;   // drives the one-shot panel entrance
@@ -572,7 +572,7 @@ R"CFJS(
     var tabSpacer = mk('Panel', tabStrip); tabSpacer.hittest = false;
     tabSpacer.style.width = 'fill-parent-flow(1.0)'; tabSpacer.style.height = '1px';
     var searchBox = mk('Panel', tabStrip); searchBox.hittest = true;
-    searchBox.style.flowChildren = 'right'; searchBox.style.width = '180px'; searchBox.style.height = '28px';
+    searchBox.style.flowChildren = 'right'; searchBox.style.width = '150px'; searchBox.style.height = '28px';
     searchBox.style.marginBottom = '7px'; searchBox.style.verticalAlign = 'bottom';
     searchBox.style.paddingLeft = '9px'; searchBox.style.paddingRight = '9px';
     searchBox.style.borderRadius = '3px'; searchBox.style.backgroundColor = '#0c0e12ff';
@@ -642,6 +642,8 @@ R"CFJS(
     pageEffects.style.flowChildren = 'down'; pageEffects.style.width = '100%';
     var pageRagdolls = mk('Panel', scrollWrap);
     pageRagdolls.style.flowChildren = 'down'; pageRagdolls.style.width = '100%';
+    var pageBots = mk('Panel', scrollWrap);
+    pageBots.style.flowChildren = 'down'; pageBots.style.width = '100%';
     var pageEnvironment = mk('Panel', scrollWrap);
     pageEnvironment.style.flowChildren = 'down'; pageEnvironment.style.width = '100%';
     // The search results replace the rail and the pane while a query is up.
@@ -650,7 +652,8 @@ R"CFJS(
     pageSearch.visible = false;
     pageCamera.__tabKey = 'camera'; pageEffects.__tabKey = 'effects';
     pageEnvironment.__tabKey = 'environment'; pageRagdolls.__tabKey = 'ragdolls';
-    var pages = { camera: pageCamera, effects: pageEffects, environment: pageEnvironment, ragdolls: pageRagdolls };
+    pageBots.__tabKey = 'bots';
+    var pages = { camera: pageCamera, effects: pageEffects, environment: pageEnvironment, ragdolls: pageRagdolls, bots: pageBots };
 
     // ---- the pinned footer ------------------------------------------------------------------
     // "Keep between demos" and the tab's RESET are STUCK TO THE BOTTOM of the column
@@ -672,8 +675,9 @@ R"CFJS(
     var footerEffects = mk('Panel', pinnedFooter);
     var footerRagdolls = mk('Panel', pinnedFooter);
     var footerEnvironment = mk('Panel', pinnedFooter);
+    var footerBots = mk('Panel', pinnedFooter);
     var pageFooters = { camera: footerCamera, effects: footerEffects,
-                        environment: footerEnvironment, ragdolls: footerRagdolls };
+                        environment: footerEnvironment, ragdolls: footerRagdolls, bots: footerBots };
     for (var fk in pageFooters) {
       pageFooters[fk].style.flowChildren = 'down';
       pageFooters[fk].style.width = '100%';
@@ -739,6 +743,7 @@ R"CFJS(
 // so this is what puts it BELOW whichever sub-page is showing.
 #include "ConfigHudEffectsResetJs.h"
 #include "ConfigHudRagdollsTabJs.h"
+#include "ConfigHudBotsTabJs.h"
 // The per-player death animation picker the Advanced Ragdolls card opens. Parents to root, so it
 // must follow the fragments that build the tabs underneath it.
 #include "ConfigHudDeathAnimPickerJs.h"
@@ -1226,6 +1231,12 @@ R"CFJS(
       applyTabs();
       cmd('mirv_filmmaker settings ui config.tab ' + key);
       return key;
+    };
+    // Opens one bot's settings in the BOTS tab, or none with -1.
+    api.openTake = function (index) {
+      btOpen = parseInt(evalArg(index), 10);
+      btApplyOpen();
+      return btOpen;
     };
     // Select one card by its persistKey ('env.sky', 'config.section.handheld', ...).
     api.card = function (persistKey, open) {

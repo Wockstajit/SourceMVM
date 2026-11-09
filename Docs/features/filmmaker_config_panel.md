@@ -26,7 +26,8 @@ Config stays open behind it, and the button is live whenever there is a player t
 
 ## Layout and files
 
-The panel has four top-level tabs: **CAMERA**, **EFFECTS**, **ENVIRONMENT**, and **RAGDOLLS**.
+The panel has four top-level tabs: **CAMERA**, **EFFECTS**, **ENVIRONMENT**, and **RAGDOLLS**. A private match adds
+**BOTS** ([bot takes](bot-takes.md)), which a demo has no use for.
 Each inspector uses a grouped rail and one selected pane. The rail is 180px wide with 52px rows;
 a row's title and summary wrap rather than being cut, and a card with a master switch carries it
 on its row and in its header. The pane takes the rest of the column (400px at the default width).
@@ -58,6 +59,7 @@ All paths below are under `AfxHookSource2/Filmmaker/`.
 | `Panorama/ConfigHudWeatherSkyTabJs.h` | EFFECTS weather and sky card |
 | `Panorama/ConfigHudEffectsResetJs.h` | EFFECTS reset footer |
 | `Panorama/ConfigHudRagdollsTabJs.h` | RAGDOLLS tab |
+| `Panorama/ConfigHudBotsTabJs.h` | BOTS tab, private matches only |
 | `Panorama/ConfigHudEnvironmentTabJs.h` | ENVIRONMENT: weather, props, extra lights and scene presets |
 | `Config/FilmmakerSettingsStore.{h,cpp}` | Persistent feature and UI preferences |
 | `Config/EffectsPersistence.{h,cpp}` | Carrying EFFECTS state across a demo change |

@@ -33,6 +33,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | Particle FX | [`filmmaker_effects_modifiers.md`](features/filmmaker_effects_modifiers.md), [`../FX/README.md`](../FX/README.md) |
 | Environment, volumetrics, surface tests and props | [`environment-scene-editor.md`](features/environment-scene-editor.md) |
 | Ground fog (low fog players push aside), fog light shafts, transparents in fog | [`ground-fog.md`](effects/ground-fog.md) |
+| Bot takes: record yourself in a private match, bots perform it, kill them, record the demo | [`bot-takes.md`](features/bot-takes.md) |
 | Round heat map (where the round's players walked, on the floor) | [`round-heatmap.md`](features/round-heatmap.md) |
 | Alternative environment (play a demo on another map, alignment and AUTO ALIGN) | [`alternative-environment.md`](features/alternative-environment.md) |
 | Scene object rigs: attachments, pose keys and camera objects | [`scene-object-rigs.md`](features/scene-object-rigs.md) |
