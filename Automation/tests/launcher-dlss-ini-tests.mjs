@@ -166,3 +166,34 @@ test('the scene pass reports the add-on result instead of assuming it ran', () =
   assert.match(pass, /return !call \|\| fn\(color, depth\) \? 1 : 0;/);
   assert.match(pass, /if \(!g_ReShadeAdvancedfx\.AdvancedfxRenderEffects\(m_Copy, pDepth\)\) \{[\s\S]*?return false;/);
 });
+
+test('an install that moves a ReShade.ini out of Steam keeps its preset and search paths', () => {
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'mvm-reshade-'));
+  try {
+    tool.init(data);
+    const bin = path.join(data, 'dlss5-cs2', 'game', 'bin', 'win64');
+    const steamBin = path.join(data, 'steam', 'game', 'bin', 'win64');
+    fs.mkdirSync(bin, { recursive: true });
+    fs.mkdirSync(path.join(steamBin, 'MyEffects'), { recursive: true });
+    fs.mkdirSync(path.join(bin, 'Presets'), { recursive: true });
+    fs.writeFileSync(path.join(steamBin, 'MyEffects', 'B.fx'), '// fx');
+    fs.writeFileSync(path.join(bin, 'Presets', 'Cinema.ini'), 'Techniques=B@B.fx\r\n');
+    const moved = path.join(data, 'backup-ReShade.ini');
+    fs.writeFileSync(moved, ['[GENERAL]', 'PresetPath=.\\Presets\\Cinema.ini',
+      'EffectSearchPaths=.\\MyEffects\\**,E:\\Shared\\Shaders\\**', 'TextureSearchPaths=E:\\Shared\\Textures\\**', ''].join('\r\n'));
+
+    assert.equal(tool.adoptMovedReShade(moved, steamBin), '.\\Presets\\Cinema.ini');
+    assert.ok(fs.existsSync(path.join(bin, 'MyEffects', 'B.fx')));
+    for (const ini of ['ReShade.ini', 'ReShade2.ini']) {
+      const text = fs.readFileSync(path.join(bin, ini), 'utf8');
+      assert.equal(value(text, 'GENERAL', 'PresetPath'), '.\\Presets\\Cinema.ini');
+      const effects = value(text, 'GENERAL', 'EffectSearchPaths').split(',');
+      assert.ok(effects.includes('.\\MyEffects\\**'));
+      assert.ok(effects.includes('E:\\Shared\\Shaders\\**'));
+      assert.ok(effects.includes('.\\reshade-shaders\\Shaders\\**'), 'the template paths stay');
+      assert.ok(value(text, 'GENERAL', 'TextureSearchPaths').split(',').includes('E:\\Shared\\Textures\\**'));
+    }
+  } finally {
+    fs.rmSync(data, { recursive: true, force: true });
+  }
+});

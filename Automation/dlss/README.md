@@ -52,7 +52,7 @@ are searched where they are.
 OPEN FOLDER opens the private folder. Every launch adds `.\reshade-shaders\Shaders\**` and
 `.\reshade-shaders\Textures\**` to the search paths: ReShade itself seeds only `.\`, which does not
 reach the layout its own installer creates. Files beside Steam's `cs2.exe` come across with the binary
-sync, and an install that moves Steam's `ReShade.ini` to a backup keeps the preset it named.
+sync, and an install that moves Steam's `ReShade.ini` to a backup keeps the preset and search paths it named.
 
 Verified with a test effect on RTX 5070, ReShade 6.8.0: a red grade and the depth texture appeared in
 MP4 takes with No HUD and In-game HUD, and not in the Depth pass.

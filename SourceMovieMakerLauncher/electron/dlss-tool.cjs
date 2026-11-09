@@ -473,14 +473,34 @@ function importReShade(sourceDir) {
   };
   for (const key of LIST_KEYS.GENERAL) found[key].push(...importSearchPaths(sourceDir, iniValue(sourceIni, 'GENERAL', key)));
   ensureReShadeConfig();
+  writeReShadeSettings(preset ? `.\\${preset}` : '', found);
+  return { presets, preset, shaderFolders, info: reshadeInfo() };
+}
+
+function writeReShadeSettings(presetPath, searchPaths) {
+  const bin = privateBin();
   for (const ini of ['ReShade.ini', 'ReShade2.ini']) {
     const dst = path.join(bin, ini);
-    if (preset) setIniValue(dst, 'GENERAL', 'PresetPath', `.\\${preset}`);
+    if (presetPath) setIniValue(dst, 'GENERAL', 'PresetPath', presetPath);
     for (const key of LIST_KEYS.GENERAL) {
-      if (found[key].length) setIniValue(dst, 'GENERAL', key, mergeList(iniValue(dst, 'GENERAL', key).split(',').filter(Boolean), found[key]).join(','));
+      if (searchPaths[key].length) setIniValue(dst, 'GENERAL', key, mergeList(iniValue(dst, 'GENERAL', key).split(',').filter(Boolean), searchPaths[key]).join(','));
     }
   }
-  return { presets, preset, shaderFolders, info: reshadeInfo() };
+}
+
+// A ReShade the user had beside Steam's cs2.exe: install moved its ini to a backup and syncBinaries
+// brought its files across. This keeps what that ini pointed at, the preset and the shader folders.
+// Returns the preset's path as written in the ini when it was kept.
+function adoptMovedReShade(movedIniFile, steamBin) {
+  const bin = privateBin();
+  const searchPaths = {};
+  for (const key of LIST_KEYS.GENERAL) searchPaths[key] = importSearchPaths(steamBin, iniValue(movedIniFile, 'GENERAL', key));
+  const configured = iniValue(movedIniFile, 'GENERAL', 'PresetPath');
+  // Kept as written: the sync copies a subfolder at the same relative path.
+  const preset = configured && fs.existsSync(path.resolve(bin, configured)) ? configured : '';
+  ensureReShadeConfig();
+  writeReShadeSettings(preset, searchPaths);
+  return preset;
 }
 
 // Keeps the add-on current on an existing install: it is what puts ReShade's effects into a render,
@@ -581,14 +601,10 @@ async function install({ cs2Exe, payloadDir, reshadePath, variant, onProgress })
   fs.copyFileSync(path.join(ASSET_DIR, 'mvm_reshade_state.addon64'), path.join(bin, 'mvm_reshade_state.addon64'));
   fs.rmSync(path.join(bin, 'renodx-dlss5.addon64'), { force: true });
   ensureReShadeConfig();
-  // A ReShade the user had beside Steam's cs2.exe: syncBinaries brought its presets and shaders, and
-  // the ini we just moved out names the preset it was using.
   const movedIni = cleaned.moved.find((n) => /^reshade\.ini$/i.test(n));
-  const movedPreset = movedIni ? iniValue(path.join(cleaned.backup, movedIni), 'GENERAL', 'PresetPath') : '';
-  // Kept as written: the sync copies a subfolder at the same relative path.
-  if (movedPreset && fs.existsSync(path.resolve(bin, movedPreset))) {
-    for (const ini of ['ReShade.ini', 'ReShade2.ini']) setIniValue(path.join(bin, ini), 'GENERAL', 'PresetPath', movedPreset);
-    say(`Kept your ReShade preset: ${path.basename(movedPreset)}.`);
+  if (movedIni) {
+    const movedPreset = adoptMovedReShade(path.join(cleaned.backup, movedIni), path.dirname(cs2Exe));
+    if (movedPreset) say(`Kept your ReShade preset: ${path.basename(movedPreset)}.`);
   }
   fs.writeFileSync(manifestPath(), JSON.stringify({
     installedAt: new Date().toISOString(),
@@ -639,5 +655,5 @@ function prepareLaunch(cs2Exe) {
 
 module.exports = {
   init, status, install, uninstall, cleanSteam, steamLeftovers, prepareLaunch, VARIANTS,
-  detectVariant, bundledPayloadDir, extractReShadeFromSetup, mergeIni, importReShade, reshadeInfo,
+  detectVariant, bundledPayloadDir, extractReShadeFromSetup, mergeIni, importReShade, adoptMovedReShade, reshadeInfo,
 };
