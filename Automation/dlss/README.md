@@ -23,6 +23,40 @@ unlinks the junctions first, so Steam's assets are never touched.
 The scripts below are the automation route to the same isolation (repo-local
 `build/dlss5-cs2`); the launcher does not use them.
 
+## ReShade and renders
+
+ReShade on its own draws its effects on the backbuffer inside Present. The recorder copies its frame
+from the scene target earlier than that, so nothing set up in the overlay reached a render. The
+SOURCE:MVM add-on ([`mvm_reshade_state.addon64`](../../ReShadeStateAddon/mvm_reshade_state.cpp)) now
+exports `MvmReShadeRenderEffects`, and the hook calls it at the before-UI boundary, after the Environment
+and the lens and before the recorder and the scaled preview (`CReShadeScenePass`). CS2's scene target
+is multisampled and ReShade refuses a multisampled target, so the frame is resolved into a
+single-sample copy, graded there, and drawn back over the scene. ReShade skips its own Present pass
+for that frame. As a result:
+
+- Renders and the live view get the same look, and the game HUD, Panorama panels and the preview's
+  chrome are no longer graded.
+- Effects run once per present, on the render a Beauty plate reads. A job's extra Beauty passes
+  (World only, for example) come out without them. Depth, Normal and Key passes never get them.
+- EXR output is captured before tonemapping, so it has no ReShade look.
+- Effects that read depth get the hook's depth copy on their `DEPTH` texture.
+
+The launcher refreshes the add-on before every DLSS launch, so an older install picks this up without
+a reinstall. The Render workspace's PICTURE section says whether a take will include ReShade.
+
+Presets and shaders live in the private `game/bin/win64` folder, not Steam's. **ADVANCED > DLSS 5 >
+IMPORT MY RESHADE** copies a preset and `reshade-shaders` from another folder, selects the preset the
+source's `ReShade.ini` was using (a subfolder or another drive too), and carries over that ini's
+search paths: folders inside the source are copied at the same relative path, and folders outside it
+are searched where they are.
+OPEN FOLDER opens the private folder. Every launch adds `.\reshade-shaders\Shaders\**` and
+`.\reshade-shaders\Textures\**` to the search paths: ReShade itself seeds only `.\`, which does not
+reach the layout its own installer creates. Files beside Steam's `cs2.exe` come across with the binary
+sync, and an install that moves Steam's `ReShade.ini` to a backup keeps the preset and search paths it named.
+
+Verified with a test effect on RTX 5070, ReShade 6.8.0: a red grade and the depth texture appeared in
+MP4 takes with No HUD and In-game HUD, and not in the Depth pass.
+
 ## SOURCE:MVM-only installation
 
 Normal startup uses [launch.bat](../../launch.bat), [live.bat](../../live.bat), or
@@ -111,7 +145,8 @@ The installer also includes the SOURCE:MVM ReShade overlay-state addon for input
 Unresolved: repeated SDL resolution changes can hang during ReShade runtime creation.
 A hang dump shows the thread polling a D3D11 timestamp query inside ReShade. It does not establish
 which component stalled the query. Standard launches pass the resize sequence.
-A visible A/B comparison and export through the render pipeline have not been verified.
+A visible A/B comparison of the neural pass has not been verified. It runs at Present, after the
+recorder, so unlike ReShade's effects it is not in a render.
 Addon loading and window or netcon readiness do not prove that neural rendering works.
 
 The compatibility entry point

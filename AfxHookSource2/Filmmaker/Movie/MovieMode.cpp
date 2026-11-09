@@ -266,6 +266,15 @@ bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, in
 	// up   = First person -> Chase -> Free cam -> First person ...
 	// down = First person -> Free cam -> Chase -> First person ...
 	// Applied on the main thread (FlushActions).
+	// A path that is playing or armed ends first: stepping the camera takes the view away from it,
+	// and it would otherwise run on unseen and jump the view back at its last key.
+	{
+		const CameraPath::Mode cpMode = CameraPathRef().GetMode();
+		if (cpMode == CameraPath::Mode::PreviewPlaying || cpMode == CameraPath::Mode::PreviewArmed) {
+			EnqueueCmd("mirv_filmmaker marker previewstop");
+			if (MvmDebugLog_Active()) MvmDebugLog_Linef("movie.input", "path stopped by the wheel");
+		}
+	}
 	std::lock_guard<std::mutex> lk(m_mutex);
 	m_pendingCycle += delta > 0 ? +1 : -1;
 	return true;
@@ -712,11 +721,10 @@ bool MovieMode::OnKey(int vkey, bool down) {
 	using CPMode = CameraPath::Mode;
 	const CPMode cpMode = CameraPathRef().GetMode();
 
-	// J is the director's camera-path arm key. The path UI documents the two-step flow:
-	// J jumps to the first key and arms a stable start frame, then Space starts the dolly. If the
-	// path is already armed, J is a convenient second press to start it; while playing, J stops it.
-	// This branch used to be missing entirely, so the visible J shortcut was a no-op and the FBM
-	// state stayed `playing=0` after every press.
+	// J plays the camera path from its first key: it lands the demo there and starts the dolly by
+	// itself, and the next press stops it. The older two-step flow (J arms, Space plays) read as "J
+	// does nothing" to anyone who did not know the second step (user report 2026-11-08). Space still
+	// starts a path that was armed from the console.
 	// Trying to fly while a camera path plays ends the playback: the user wants the camera back.
 	// The key is not swallowed, so the free cam moves on the same press.
 	if (down && cpMode == CPMode::PreviewPlaying && !m_controlDown
@@ -727,12 +735,14 @@ bool MovieMode::OnKey(int vkey, bool down) {
 
 	if (vkey == kVK_J) {
 		if (down) {
-			if (cpMode == CPMode::PreviewPlaying)
+			// While AUTO is following the path, J still means "play it from the first key".
+			if ((cpMode == CPMode::PreviewPlaying && !CameraPathRef().AutoPlaying())
+				|| (cpMode == CPMode::PreviewArmed && CameraPathRef().PlaybackPending()))
 				EnqueueCmd("mirv_filmmaker marker previewstop");
 			else if (cpMode == CPMode::PreviewArmed)
 				EnqueueCmd("mirv_filmmaker marker play");
 			else
-				EnqueueCmd("mirv_filmmaker marker preview");
+				EnqueueCmd("mirv_filmmaker marker playfromstart");
 		}
 		return true;
 	}

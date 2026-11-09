@@ -5,13 +5,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..', '..');
 const require = createRequire(import.meta.url);
-const { mergeIni } = require(path.join(root, 'SourceMovieMakerLauncher', 'electron', 'dlss-tool.cjs'));
+const tool = require(path.join(root, 'SourceMovieMakerLauncher', 'electron', 'dlss-tool.cjs'));
+const { mergeIni } = tool;
 const BIN = 'C:\\private\\game\\bin\\win64';
 const template = fs.readFileSync(path.join(root, 'SourceMovieMakerLauncher', 'electron', 'dlss', 'ReShade.isolated.ini'), 'utf8')
   .split('{{BINDIR}}').join(BIN);
@@ -58,4 +60,140 @@ test('a ReShade-written ini with no add-on sections gains them', () => {
   assert.equal(value(merged, 'GENERAL', 'NoDebugInfo'), '1');
   assert.equal(value(merged, 'ADDON', 'LoadFromDllMain'), `${BIN}\\renodx-dlss.addon64`);
   assert.equal(value(merged, 'RENODX-DLSS', 'DirectNeuralRenderingHookStage'), '0');
+});
+
+test('search paths reach the reshade-shaders folder and keep what the user added', () => {
+  const old = ['[GENERAL]', 'EffectSearchPaths=.\\,D:\\Library\\Shaders\\**', 'TextureSearchPaths=.\\', 'PresetPath=.\\Mine.ini', ''].join('\r\n');
+  const merged = mergeIni(old, template);
+  assert.equal(value(merged, 'GENERAL', 'EffectSearchPaths'), '.\\,D:\\Library\\Shaders\\**,.\\reshade-shaders\\Shaders\\**');
+  assert.equal(value(merged, 'GENERAL', 'TextureSearchPaths'), '.\\,.\\reshade-shaders\\Textures\\**');
+  assert.equal(value(merged, 'GENERAL', 'PresetPath'), '.\\Mine.ini', 'the chosen preset stays');
+  assert.equal(mergeIni(merged, template), merged, 'a second launch changes nothing');
+});
+
+test('importing a ReShade folder copies presets and shaders and selects the preset it was using', () => {
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'mvm-reshade-'));
+  try {
+    tool.init(data);
+    const bin = path.join(data, 'dlss5-cs2', 'game', 'bin', 'win64');
+    fs.mkdirSync(bin, { recursive: true });
+    const source = path.join(data, 'other-game');
+    fs.mkdirSync(path.join(source, 'reshade-shaders', 'Shaders', 'sub'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'reshade-shaders', 'Shaders', 'sub', 'Tint.fx'), '// fx');
+    fs.writeFileSync(path.join(source, 'Cinema.ini'), 'Techniques=Tint@Tint.fx\r\n');
+    fs.writeFileSync(path.join(source, 'Other.ini'), 'TechniqueSorting=Tint@Tint.fx\r\n');
+    fs.writeFileSync(path.join(source, 'settings.ini'), '[Not]\r\nA=preset\r\n');
+    fs.writeFileSync(path.join(source, 'ReShade.ini'),
+      '[GENERAL]\r\nPresetPath=.\\Cinema.ini\r\nEffectSearchPaths=.\\reshade-shaders\\Shaders\\**,E:\\Shared\\Shaders\\**\r\n');
+
+    const result = tool.importReShade(source);
+    assert.deepEqual(result.presets.sort(), ['Cinema.ini', 'Other.ini']);
+    assert.equal(result.preset, 'Cinema.ini');
+    assert.ok(fs.existsSync(path.join(bin, 'reshade-shaders', 'Shaders', 'sub', 'Tint.fx')));
+    assert.ok(!fs.existsSync(path.join(bin, 'settings.ini')), 'an ini that is not a preset stays behind');
+    for (const ini of ['ReShade.ini', 'ReShade2.ini']) {
+      const text = fs.readFileSync(path.join(bin, ini), 'utf8');
+      assert.equal(value(text, 'GENERAL', 'PresetPath'), '.\\Cinema.ini');
+      assert.match(value(text, 'GENERAL', 'EffectSearchPaths'), /E:\\Shared\\Shaders\\\*\*/, 'a shader library outside the folder is searched, not copied');
+      assert.match(value(text, 'ADDON', 'LoadFromDllMain'), /renodx-dlss\.addon64/);
+    }
+    assert.equal(fs.readFileSync(path.join(source, 'Cinema.ini'), 'utf8'), 'Techniques=Tint@Tint.fx\r\n', 'the source is left alone');
+    const info = tool.reshadeInfo();
+    assert.equal(info.effects, 1);
+    assert.equal(info.activePreset, 'Cinema.ini');
+  } finally {
+    fs.rmSync(data, { recursive: true, force: true });
+  }
+});
+
+test('importing a folder with nothing of ReShade in it says so and changes nothing', () => {
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'mvm-reshade-'));
+  try {
+    tool.init(data);
+    fs.mkdirSync(path.join(data, 'dlss5-cs2', 'game', 'bin', 'win64'), { recursive: true });
+    const empty = path.join(data, 'empty');
+    fs.mkdirSync(empty);
+    assert.throws(() => tool.importReShade(empty), /No ReShade presets or shaders/);
+  } finally {
+    fs.rmSync(data, { recursive: true, force: true });
+  }
+});
+
+test('import carries relative search paths, root Shaders and Textures, and a preset in a subfolder', () => {
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'mvm-reshade-'));
+  try {
+    tool.init(data);
+    const bin = path.join(data, 'dlss5-cs2', 'game', 'bin', 'win64');
+    fs.mkdirSync(bin, { recursive: true });
+    const source = path.join(data, 'game');
+    fs.mkdirSync(path.join(source, 'Shaders'), { recursive: true });
+    fs.mkdirSync(path.join(source, 'Textures'), { recursive: true });
+    fs.mkdirSync(path.join(source, 'MyEffects', 'deep'), { recursive: true });
+    fs.mkdirSync(path.join(source, 'Presets'), { recursive: true });
+    fs.mkdirSync(path.join(data, 'shared'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'Shaders', 'A.fx'), '// fx');
+    fs.writeFileSync(path.join(source, 'Textures', 'A.png'), 'png');
+    fs.writeFileSync(path.join(source, 'MyEffects', 'deep', 'B.fx'), '// fx');
+    fs.writeFileSync(path.join(source, 'Root.fx'), '// fx');
+    fs.writeFileSync(path.join(source, 'Presets', 'Cinema.ini'), 'Techniques=B@B.fx\r\n');
+    fs.writeFileSync(path.join(source, 'ReShade.ini'), [
+      '[GENERAL]', 'PresetPath=.\\Presets\\Cinema.ini',
+      `EffectSearchPaths=.\\,.\\MyEffects\\**,.\\Missing\\**,..\\shared\\**`,
+      'TextureSearchPaths=.\\Textures\\**', '',
+    ].join('\r\n'));
+
+    const result = tool.importReShade(source);
+    assert.equal(result.preset, 'Cinema.ini');
+    assert.ok(fs.existsSync(path.join(bin, 'Cinema.ini')), 'the preset the ini selects is copied');
+    assert.ok(fs.existsSync(path.join(bin, 'MyEffects', 'deep', 'B.fx')));
+    assert.ok(fs.existsSync(path.join(bin, 'Root.fx')));
+    const text = fs.readFileSync(path.join(bin, 'ReShade.ini'), 'utf8');
+    assert.equal(value(text, 'GENERAL', 'PresetPath'), '.\\Cinema.ini');
+    const effects = value(text, 'GENERAL', 'EffectSearchPaths').split(',');
+    assert.ok(effects.includes('.\\Shaders\\**'), 'a copied root Shaders folder is searched');
+    assert.ok(effects.includes('.\\MyEffects\\**'), 'a relative folder keeps its path');
+    assert.ok(!effects.some((v) => /Missing/.test(v)), 'a folder that does not exist is dropped');
+    assert.ok(effects.includes(`${path.join(data, 'shared')}\\**`), 'a folder outside the source is searched where it is');
+    assert.ok(value(text, 'GENERAL', 'TextureSearchPaths').split(',').includes('.\\Textures\\**'));
+    assert.equal(tool.reshadeInfo().effects, 3, 'each effect is counted once');
+  } finally {
+    fs.rmSync(data, { recursive: true, force: true });
+  }
+});
+
+test('the scene pass reports the add-on result instead of assuming it ran', () => {
+  const pass = fs.readFileSync(path.join(root, 'AfxHookSource2', 'ReShadeAdvancedfx.cpp'), 'utf8');
+  assert.match(pass, /return !call \|\| fn\(color, depth\) \? 1 : 0;/);
+  assert.match(pass, /if \(!g_ReShadeAdvancedfx\.AdvancedfxRenderEffects\(m_Copy, pDepth\)\) \{[\s\S]*?return false;/);
+});
+
+test('an install that moves a ReShade.ini out of Steam keeps its preset and search paths', () => {
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'mvm-reshade-'));
+  try {
+    tool.init(data);
+    const bin = path.join(data, 'dlss5-cs2', 'game', 'bin', 'win64');
+    const steamBin = path.join(data, 'steam', 'game', 'bin', 'win64');
+    fs.mkdirSync(bin, { recursive: true });
+    fs.mkdirSync(path.join(steamBin, 'MyEffects'), { recursive: true });
+    fs.mkdirSync(path.join(bin, 'Presets'), { recursive: true });
+    fs.writeFileSync(path.join(steamBin, 'MyEffects', 'B.fx'), '// fx');
+    fs.writeFileSync(path.join(bin, 'Presets', 'Cinema.ini'), 'Techniques=B@B.fx\r\n');
+    const moved = path.join(data, 'backup-ReShade.ini');
+    fs.writeFileSync(moved, ['[GENERAL]', 'PresetPath=.\\Presets\\Cinema.ini',
+      'EffectSearchPaths=.\\MyEffects\\**,E:\\Shared\\Shaders\\**', 'TextureSearchPaths=E:\\Shared\\Textures\\**', ''].join('\r\n'));
+
+    assert.equal(tool.adoptMovedReShade(moved, steamBin), '.\\Presets\\Cinema.ini');
+    assert.ok(fs.existsSync(path.join(bin, 'MyEffects', 'B.fx')));
+    for (const ini of ['ReShade.ini', 'ReShade2.ini']) {
+      const text = fs.readFileSync(path.join(bin, ini), 'utf8');
+      assert.equal(value(text, 'GENERAL', 'PresetPath'), '.\\Presets\\Cinema.ini');
+      const effects = value(text, 'GENERAL', 'EffectSearchPaths').split(',');
+      assert.ok(effects.includes('.\\MyEffects\\**'));
+      assert.ok(effects.includes('E:\\Shared\\Shaders\\**'));
+      assert.ok(effects.includes('.\\reshade-shaders\\Shaders\\**'), 'the template paths stay');
+      assert.ok(value(text, 'GENERAL', 'TextureSearchPaths').split(',').includes('E:\\Shared\\Textures\\**'));
+    }
+  } finally {
+    fs.rmSync(data, { recursive: true, force: true });
+  }
 });

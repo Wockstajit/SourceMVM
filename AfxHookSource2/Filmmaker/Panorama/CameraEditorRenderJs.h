@@ -44,6 +44,7 @@ R"EDJS(
     ];
     var FPS_CHOICES = [24, 30, 50, 60, 120];
     var CRF_CHOICES = [[14, 'Highest'], [18, 'High'], [23, 'Medium'], [28, 'Small file']];
+    var RS_WARN = '#f0b64aff';
     var DEMO_TICKRATE = 64; // CS2 demos; readouts label themselves with it rather than hiding it
 
     // ---- typed number fields ---------------------------------------------
@@ -996,6 +997,18 @@ R"EDJS(
     picTag.style.verticalAlign = 'center'; picTag.style.marginLeft = '9px';
 )EDJS"
 R"EDJS(
+    // The size presets ask for the same exact window size Config's Window Size card does. Only sizes
+    // that fit the monitor are offered: a window past it cannot be seen, and CS2 can refuse it.
+    var picSizes = [[1920, 1080, '1080p'], [2560, 1440, '1440p'], [3840, 2160, '4K']];
+    var picSizeRow = rsLabeledRow(picSec, 'Set size', 96, 8);
+    var picSizeItems = [];
+    for (var psi = 0; psi < picSizes.length; psi++) picSizeItems.push([picSizes[psi][0] + 'x' + picSizes[psi][1], picSizes[psi][2]]);
+    var picSizeSeg = rsSeg(picSizeRow, picSizeItems, function (token) {
+      var wh = token.split('x');
+      cmd('mirv_filmmaker window size ' + wh[0] + ' ' + wh[1]);
+    }, { width: 'fill-parent-flow(1.0)', id: 'RsPicSizeSeg' });
+    var picNote = rsNote(picSec, '');
+    var reshadeNote = rsNote(picSec, '');
     var fpsCustomOpen = false;
     var fpsRow = rsLabeledRow(picSec, 'Frame rate', 96, 8);
     var fpsItems = [];
@@ -1494,7 +1507,36 @@ R"EDJS(
 
       // -- OUTPUT: picture --
       var gameRes = renderGameRes();
-      picDims.text = gameRes[0] + ' × ' + gameRes[1];
+      // What the recorder really gets: the scene target. CS2's FidelityFX setting draws it smaller than
+      // the window, and "highest quality" then still reads as a low resolution video.
+      var outW = out.sceneW > 0 ? out.sceneW : gameRes[0];
+      var outH = out.sceneH > 0 ? out.sceneH : gameRes[1];
+      var sceneSmall = outW < gameRes[0] - 2 || outH < gameRes[1] - 2;
+      var lowRes = outH < 1080;
+      picDims.text = outW + ' × ' + outH;
+      picDims.style.color = (sceneSmall || lowRes) ? RS_WARN : S.value;
+      picTag.text = sceneSmall ? 'BELOW WINDOW SIZE' : (lowRes ? 'LOW RESOLUTION' : 'GAME RESOLUTION');
+      picTag.style.color = (sceneSmall || lowRes) ? RS_WARN : '#35cc59ff';
+      picNote.text = sceneSmall
+        ? 'CS2 is drawing at ' + outW + ' × ' + outH + ' inside a ' + gameRes[0] + ' × ' + gameRes[1] + ' window, so that is the video you get. Turn off FidelityFX Super Resolution in Settings > Video.'
+        : lowRes
+          ? 'A render is the size of the game window, whatever the quality setting. This one comes out at ' + outW + ' × ' + outH + '. Pick a bigger size here, or in Settings > Video.'
+          : 'A render is the size of the game window, whatever the quality setting.';
+      picNote.style.color = (sceneSmall || lowRes) ? RS_WARN : RS_MUTED;
+      var sizeFits = 0;
+      for (var psf = 0; psf < picSizes.length; psf++) {
+        var sizeOk = !(out.monitorW > 0) || (picSizes[psf][0] <= out.monitorW && picSizes[psf][1] <= out.monitorH);
+        picSizeSeg.cells[psf].visible = sizeOk;
+        if (sizeOk) sizeFits++;
+      }
+      picSizeRow.visible = sizeFits > 0;
+      picSizeSeg.sync(gameRes[0] + 'x' + gameRes[1]);
+      reshadeNote.text = out.reshade === 2
+        ? 'ReShade is on: your effects are in this render.'
+        : out.reshade === 1
+          ? 'ReShade is running without the SOURCE:MVM add-on, so your effects will not be in this render. Start CS2 from the launcher with Use DLSS 5 on.'
+          : 'ReShade is off. Switch on Use DLSS 5 in the launcher, then Home opens it in game.';
+      reshadeNote.style.color = out.reshade === 1 ? RS_WARN : RS_MUTED;
       var fpsCustom = fpsCustomOpen || FPS_CHOICES.indexOf(out.fps) < 0;
       fpsSeg.sync(fpsCustom ? 'custom' : ('' + out.fps));
       // The typed box only exists while it is the live answer: picking a preset hides it again.

@@ -9,6 +9,7 @@
 #include "RenderValidation.h"
 #include "RenderOutput.h"
 #include "RenderResolution.h"
+#include "../../ReShadeAdvancedfx.h"
 #include "RenderEncoderDetect.h"
 #include "RenderTargetProbe.h"
 #include "RenderSupersample.h"
@@ -327,6 +328,10 @@ std::string Render_BuildStateJson() {
 	int demoStart = -1, demoEnd = -1;
 	Render_GetDemoBounds(demoStart, demoEnd);
 	const RenderOutputSettings& out = RenderOutputSettingsRef();
+	unsigned sceneW = 0, sceneH = 0;
+	RenderResolution_SceneTargetSize(sceneW, sceneH);
+	int monitorW = 0, monitorH = 0;
+	RenderResolution_MonitorSize(monitorW, monitorH);
 	const RenderPasses& passes = RenderPassesRef();
 	const RenderValidationResult v = ValidateCurrentJob();
 
@@ -368,6 +373,10 @@ std::string Render_BuildStateJson() {
 		<< ",\"bitrateKbps\":" << out.bitrateKbps
 		<< ",\"nvenc\":" << (int)RenderEncoderDetect_State()
 		<< ",\"nvencNote\":" << JsonQuote(RenderEncoderDetect_Describe())
+		// 0 no ReShade, 1 ReShade without our addon (its effects stay out of a render), 2 in the render.
+		<< ",\"reshade\":" << (g_ReShadeAdvancedfx.IsConnected() ? 2 : g_ReShadeAdvancedfx.IsReShadeLoaded() ? 1 : 0)
+		<< ",\"sceneW\":" << sceneW << ",\"sceneH\":" << sceneH
+		<< ",\"monitorW\":" << monitorW << ",\"monitorH\":" << monitorH
 		<< "}"
 		<< ",\"pass\":{"
 		<< "\"hud\":" << (int)passes.hud

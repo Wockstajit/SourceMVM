@@ -25,6 +25,7 @@ void Marker_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 			"%s marker place - add a marker at the current camera pose (also K).\n"
 			"%s marker preview|arm - jump to first marker and arm playback.\n"
 			"%s marker play|previewplay - play the armed path.\n"
+			"%s marker playfromstart - jump to the first marker and play once there (J).\n"
 			"%s marker previewstop - stop playback (X).\n"
 			"%s marker delete <i> | deleteall confirm - remove markers (L = aimed).\n"
 			"%s marker select <i> | next | prev - select (menu arrows teleport).\n"
@@ -38,7 +39,7 @@ void Marker_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 			"%s marker constspeed <0.2..1.0> | cycle - global Constant-mode speed.\n"
 			"%s marker autosnap on|off|toggle - snap viewer to a marker when selected.\n"
 			"%s marker list | save | load.\n",
-			cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
+			cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
 		return;
 	}
 
@@ -47,6 +48,7 @@ void Marker_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 
 	if (0 == _stricmp(a, "place")) cp.PlaceMarker();
 	else if (0 == _stricmp(a, "preview") || 0 == _stricmp(a, "arm")) cp.ArmPreview();
+	else if (0 == _stricmp(a, "playfromstart")) cp.PlayFromFirstKey();
 	else if (0 == _stricmp(a, "play") || 0 == _stricmp(a, "previewplay")) {
 		Filmmaker::FollowCameraRef().StopPreview("camera path started");
 		cp.StartPreviewPlay();

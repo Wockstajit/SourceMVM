@@ -18,6 +18,7 @@
 #include "DeathMsg.h"
 #include "RenderServiceHooks.h"
 #include "ReShadeAdvancedfx.h"
+#include "Filmmaker/Render/RenderResolution.h"
 #include "WrpConsole.h"
 #include "CamIO.h"
 #include "MirvFix.h"
@@ -2005,6 +2006,7 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                     g_CampathDrawer.EndDevice();
                     g_ViewportScaler.EndDevice();
                     g_FisheyePass.EndDevice();
+                    g_ReShadeScenePass.EndDevice();
                     Filmmaker::LensFx_EndDevice();
                     AfxContactShadow::EndDevice();
                     AfxRenderPass::EndDevice();
@@ -2025,6 +2027,7 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                 g_CampathDrawer.BeginDevice(This);
                 g_ViewportScaler.BeginDevice(This);
                 g_FisheyePass.BeginDevice(This);
+                g_ReShadeScenePass.BeginDevice(This);
                 Filmmaker::LensFx_BeginDevice(This);
                 AfxContactShadow::BeginDevice(This);
                 AfxRenderPass::BeginDevice(This);
@@ -3333,42 +3336,6 @@ public:
                     g_iDraw, pending ? 1 : 0, drew ? 1 : 0);
         }
         if (auto pDeviceContext = g_RenderCommands.RenderThread_GetContext()) {
-            if (g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade) {
-                float zNear = 0.0f;
-                float zFar = 0.0f;
-                g_DepthCompositor.CaptureNormalDepth(pDeviceContext, g_pCurrentDepthStencilView,
-                    g_bReShadeCompositeSmoke,
-                    CDepthCompositor::DepthTextureType_R32F,
-                    ShaderCombo_afx_depth_ps_5_0::AFXDEPTHMODE_0,
-                    ShaderCombo_afx_depth_ps_5_0::AFXD24_0,
-                    zNear,
-                    zFar
-                );
-
-                ID3D11RenderTargetView* pRenderTargetViews[1] = {nullptr};
-                ID3D11DepthStencilView* pDepthStencilView = nullptr;
-                pDeviceContext->OMGetRenderTargets(1, &pRenderTargetViews[0], &pDepthStencilView);
-
-                ID3D11Resource* pRenderTargetViewResource = nullptr;
-                //ID3D11Resource* pDepthStencilResource = nullptr;
-                if (pRenderTargetViews[0]) pRenderTargetViews[0]->GetResource(&pRenderTargetViewResource);
-                //if (g_pCurrentDepthStencilView) g_pCurrentDepthStencilView->GetResource(&pDepthStencilResource);
-
-                if (ID3D11Resource* pResource = g_DepthCompositor.GetDepthTexture(CDepthCompositor::DepthTextureType_R32F)) {
-                    g_bInOwnDraw = true;
-                    RenderProgressScope progress(RenderPhase::ReShade);
-                    g_ReShadeAdvancedfx.AdvancedfxRenderEffects(pRenderTargetViewResource, pResource);
-                    g_bInOwnDraw = false;
-                    pResource->Release();
-                }
-
-                //if (pDepthStencilResource) pDepthStencilResource->Release();
-                if (pRenderTargetViewResource) pRenderTargetViewResource->Release();
-
-                if (pDepthStencilView) pDepthStencilView->Release();
-                if (pRenderTargetViews[0]) pRenderTargetViews[0]->Release();
-            }
-
             // Pre-tonemap HDR grab: post/tonemap consumed the HDR scene target earlier this
             // frame, so its contents are complete here. No-op unless a grab is pending.
             Filmmaker::RenderHdrCapture_SetEnvironmentPass([](ID3D11DeviceContext* ctx, ID3D11RenderTargetView* target, ID3D11Texture2D* source) {
@@ -3464,9 +3431,81 @@ public:
                         f.hasWorldToClip ? f.worldToClip.data() : nullptr, f.hasWorldToClip ? f.projection.data() : nullptr,
                         eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, feet, players, AfxStreams_IsRcording());
                 }
+                // ReShade: on the finished scene, before the recorder and the scaled preview, so a render
+                // gets the look the user set up and the HUD and panels do not. Like the lens it is a Beauty
+                // effect, and ReShade runs its effects only once per present: a render no Beauty plate
+                // reads must leave them for the one that does.
+                if (g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade
+                    && !(pLensCommands && pLensCommands->SkipLens) && !AfxLivePassPreviewShown()) {
+                    float zNear = 0.0f;
+                    float zFar = 0.0f;
+                    // The depth copy draws with the viewport it finds bound. This late in the frame
+                    // that can be a leftover small one from an earlier pass, which left the copy black
+                    // but for a few pixels; a render job's streams happened to leave a full one.
+                    {
+                        unsigned sceneW = 0, sceneH = 0;
+                        ID3D11Resource* pSceneResource = nullptr;
+                        pRenderTargetViews[0]->GetResource(&pSceneResource);
+                        if (pSceneResource) {
+                            ID3D11Texture2D* pSceneTexture = nullptr;
+                            if (SUCCEEDED(pSceneResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&pSceneTexture)) && pSceneTexture) {
+                                D3D11_TEXTURE2D_DESC sceneDesc = {};
+                                pSceneTexture->GetDesc(&sceneDesc);
+                                sceneW = sceneDesc.Width;
+                                sceneH = sceneDesc.Height;
+                                pSceneTexture->Release();
+                            }
+                            pSceneResource->Release();
+                        }
+                        D3D11_VIEWPORT savedViewports[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+                        UINT savedViewportCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+                        pDeviceContext->RSGetViewports(&savedViewportCount, savedViewports);
+                        const D3D11_VIEWPORT fullViewport = { 0.0f, 0.0f, (float)sceneW, (float)sceneH, 0.0f, 1.0f };
+                        pDeviceContext->RSSetViewports(1, &fullViewport);
+                        g_DepthCompositor.CaptureNormalDepth(pDeviceContext, g_pCurrentDepthStencilView,
+                            g_bReShadeCompositeSmoke,
+                            CDepthCompositor::DepthTextureType_R32F,
+                            ShaderCombo_afx_depth_ps_5_0::AFXDEPTHMODE_0,
+                            ShaderCombo_afx_depth_ps_5_0::AFXD24_0,
+                            zNear,
+                            zFar
+                        );
+                        if (savedViewportCount > 0) pDeviceContext->RSSetViewports(savedViewportCount, savedViewports);
+                    }
+                    ID3D11Resource* pDepthResource = g_DepthCompositor.GetDepthTexture(CDepthCompositor::DepthTextureType_R32F);
+                    bool reshadeRan = false;
+                    {
+                        RenderProgressScope progress(RenderPhase::ReShade);
+                        reshadeRan = g_ReShadeScenePass.Apply(pDeviceContext, pRenderTargetViews[0], pDepthResource);
+                    }
+                    if (Filmmaker::MvmDebugLog_Active()) {
+                        static int s_lastState = -1;
+                        const int state = (reshadeRan ? 1 : 0) + (pDepthResource ? 2 : 0);
+                        if (state != s_lastState) {
+                            s_lastState = state;
+                            Filmmaker::MvmDebugLog_LinefAlways("render.reshade", "scene pass ran=%d depth=%d", reshadeRan ? 1 : 0, pDepthResource ? 1 : 0);
+                        }
+                    }
+                    if (pDepthResource) pDepthResource->Release();
+                }
                 // Render workspace live Depth / Normal view: last, so it replaces the finished scene.
                 AfxRenderLivePassPreview(pDeviceContext, pRenderTargetViews[0]);
                 g_bInOwnDraw = wasOwnDraw;
+                // The size a render will come out at, for the Render workspace's readout.
+                {
+                    ID3D11Resource* pSizeResource = nullptr;
+                    pRenderTargetViews[0]->GetResource(&pSizeResource);
+                    if (pSizeResource) {
+                        ID3D11Texture2D* pSizeTexture = nullptr;
+                        if (SUCCEEDED(pSizeResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&pSizeTexture)) && pSizeTexture) {
+                            D3D11_TEXTURE2D_DESC sizeDesc = {};
+                            pSizeTexture->GetDesc(&sizeDesc);
+                            Filmmaker::RenderResolution_NoteSceneTarget(sizeDesc.Width, sizeDesc.Height);
+                            pSizeTexture->Release();
+                        }
+                        pSizeResource->Release();
+                    }
+                }
                 // Read-only resolution RE probe: while mvm_debug is active, observe the texture
                 // at the exact pre-UI boundary even when no recorder stream is armed. The probe
                 // itself is signature-gated, so unchanged dimensions emit only once.
@@ -4561,11 +4600,6 @@ void Before_Present() {
 
     g_CampathDrawer.OnRenderThread_Present();
 
-    if (g_ReShadeAdvancedfx.IsConnected() && !g_ReShadeAdvancedfx.HasRendered()) {
-        RenderProgressScope progress(RenderPhase::ReShade);
-        g_ReShadeAdvancedfx.AdvancedfxRenderEffects(nullptr, nullptr);
-    }
-
     if(auto pRenderPassCommands = g_RenderCommands.RenderThread_GetCommands())
     {
         if(!pRenderPassCommands->BeforePresent.Empty()) {
@@ -4602,8 +4636,6 @@ void After_Present() {
     g_RenderCommands.RenderThread_EndFrame();    
     g_DepthCompositor.OnEndFrame();
     g_SmokeAbsorbance.OnEndFrame();
-
-	g_ReShadeAdvancedfx.ResetHasRendered();
 
 	g_bInOwnDraw = false;
 
@@ -8889,10 +8921,12 @@ CON_COMMAND(mirv_streams, "Access to streams system.")
     );
 }
 
-CON_COMMAND(mirv_reshade, "Control ReShade_advancedfx ReShade addon.")
+CON_COMMAND(mirv_reshade, "Control ReShade's effects in the scene and in renders (needs mvm_reshade_state.addon64).")
 {
     if (!g_ReShadeAdvancedfx.IsConnected()) {
-        advancedfx::Warning("AFXERROR: ReShade or ReShade_advancedfx.addon not loaded.\n");
+        advancedfx::Warning(g_ReShadeAdvancedfx.IsReShadeLoaded()
+            ? "AFXERROR: ReShade is loaded but mvm_reshade_state.addon64 is not beside it. Start CS2 from the launcher with Use DLSS 5 on.\n"
+            : "AFXERROR: ReShade is not loaded. Start CS2 from the launcher with Use DLSS 5 on.\n");
         return;
     }
 
