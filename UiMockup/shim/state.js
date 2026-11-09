@@ -448,6 +448,19 @@
       customizeLayout: '',
 
       // ---- persisted UI state (tabs + collapsible cards) --------------------
+      // Bot takes (Filmmaker/Takes/Takes.cpp AppendStateJson), for the BOTS tab.
+      takes: {
+        available: true, phase: 'idle', recording: false, recSeconds: 0, sceneSeconds: 0, lengthSeconds: 12.4,
+        loop: false, follow: 'auto', noSpread: false, recoilRandom: 100, demoRecording: false,
+        solidNew: false, solidCount: 1, message: 'Take 2 kept: 8.3 seconds. Press Play to see it.',
+        tracks: [
+          { name: 'Take 1', team: 3, seconds: 12.4, enabled: true, holdFire: false, delay: 0,
+            agent: 'agents/models/ctm_fbi/ctm_fbi.vmdl', hasBot: true, maxDrift: 0.02, deaths: 3,
+            weapons: ['weapon_ak47', 'weapon_hkp2000'], swaps: [['weapon_hkp2000', 'weapon_deagle']] },
+          { name: 'Take 2', team: 2, seconds: 8.3, enabled: true, holdFire: true, delay: 1.5, agent: '',
+            hasBot: true, maxDrift: 0.00, deaths: 0, weapons: ['weapon_glock'], swaps: [] }
+        ]
+      },
       uiConfigTab: 'camera',
       uiConfigFxTab: 'vfx',
       uiConfigSmoothTab: 'breathing',

@@ -36,6 +36,7 @@ void ExecClientCmd(const char* cmd) {
 void ExecPracticeSetup(const char* map) {
 	ExecClientCmd("mirv_cvar_unlock_sv_cheats");
 	ExecClientCmd("sv_cheats 1");
+	ExecClientCmd("tv_enable 1"); // bot takes record demos through GOTV, which starts with the map
 	if (map && map[0]) {
 		char buf[128];
 		std::snprintf(buf, sizeof(buf), "map %s", map);

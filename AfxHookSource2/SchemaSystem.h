@@ -7,6 +7,10 @@
 
 void HookSchemaSystem(HMODULE schemaSystemDll);
 
+// Reads one field offset straight from the live schema, for modules the startup read does not keep
+// (server.dll in a private match). Walks the scope, so callers keep the answer.
+bool schemaLiveOffset(const char* moduleName, const char* className, const char* fieldName, ptrdiff_t* outOffset);
+
 // these resolved in runtime
 struct ClientDllOffsets_t {
 	struct C_CSGameRulesProxy {

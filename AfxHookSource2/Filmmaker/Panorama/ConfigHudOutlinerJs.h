@@ -498,6 +498,13 @@ R"CFJS(
       label: 'Turn', min: -180, max: 180, decimals: 0, unit: '°', tip: 'Which way it faces.',
       onChange: function (v) { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('set ' + it.id + ' yaw ' + v); }
     });
+    var olAssetSolid = togglePill(olAssetBox, 'Solid', 'In a private match, you and the bots collide with it and can stand on it.',
+      function () { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('set ' + it.id + ' solid ' + (olAssetSolid.__solid ? '0' : '1')); });
+    renderHooks.push(function (st) {
+      var it = olFind(olSel), placed = (st && st.props && st.props.placed) || [], on = false;
+      if (it && it.src === 'p') for (var i = 0; i < placed.length; i++) if (placed[i].id === it.id) on = !!placed[i].solid;
+      olAssetSolid.__solid = on; olAssetSolid.set(on);
+    });
     var olAssetTurn = lbl(olAssetBox, '', S.muted, 12);
     olAssetTurn.style.marginTop = '8px'; olAssetTurn.style.marginLeft = UI.line.padH + 'px';
     var olAssetActs = actionRowEnd(olAssetBox, 10);

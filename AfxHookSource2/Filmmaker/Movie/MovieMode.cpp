@@ -1,3 +1,4 @@
+#include "../Takes/Takes.h"
 #include "../Config/FilmmakerSettingsStore.h"
 #include "../Onboarding/Onboarding.h" // Onboarding_BlocksKey: linear tutorial steps
 #include "../Environment/EnvironmentScene.h"
@@ -548,6 +549,10 @@ bool MovieMode::OnKey(int vkey, bool down) {
 		if (down && MvmTest_HandleInsertKey())
 			return true;
 	}
+
+	// Bot takes: F6 records, F7 plays. Only claimed in a private match; a demo keeps these keys.
+	if (Takes::HandleKey(vkey, down))
+		return true;
 
 	// Config is also available in the offline mvm_test harness, so its typed fields must claim
 	// keyboard input BEFORE the demo-only early return below. Otherwise digits reach the game in

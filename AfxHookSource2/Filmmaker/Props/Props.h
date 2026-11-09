@@ -1,6 +1,8 @@
 #pragma once
 
 #include <sstream>
+#include <string>
+#include <vector>
 
 namespace advancedfx { class ICommandArgs; }
 
@@ -24,5 +26,18 @@ void Props_OnShutdown();
 // A practice session ended: read the current map's saved props again (and spawn them) on the next
 // check. During the session props are neither read nor saved. Main thread.
 void Props_ReloadAfterPractice();
+
+// Placed models marked solid. Takes/Takes.cpp gives each an invisible collider on the local server,
+// so players and bots stand on what the client draws. Main thread.
+struct SolidProp {
+	int id = 0;
+	std::string model;
+	float pos[3] = {0, 0, 0};
+	float ang[3] = {0, 0, 0};
+	float scale = 1;
+};
+void Props_CollectSolid(std::vector<SolidProp>& out);
+bool Props_AnySolid();
+bool Props_SolidNew();
 
 } // namespace Filmmaker

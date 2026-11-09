@@ -1,6 +1,7 @@
 #include "Filmmaker.h"
 #include "FilmmakerHealth.h" // FilmmakerHealth_Heartbeat
 #include "Props/Props.h"
+#include "Takes/Takes.h"
 #include "Environment/EnvironmentScene.h"
 #include "../WrpConsole.h"
 
@@ -1263,6 +1264,8 @@ void RunMainThreadFrame() {
 	{ PanoramaPerf_Scope _p("scenerig"); SceneRig_RunMainThreadFrame(); }
 	{ PanoramaPerf_Scope _p("environment"); Environment::RunMainThreadFrame(); }
 	{ PanoramaPerf_Scope _p("props"); Props_RunMainThreadFrame(); }
+	// Bot takes: the scene clock and bots of a private match (inert until someone uses them).
+	{ PanoramaPerf_Scope _p("takes"); Takes::RunMainThreadFrame(); }
 	// Round heat map: follows the demo to its round and the camera to its area (inert while off).
 	{ PanoramaPerf_Scope _p("heatmap"); Heatmap::RunMainThreadFrame(); }
 	// Alternative environment: its pictures, AUTO ALIGN and copy builds land here (inert while unused).

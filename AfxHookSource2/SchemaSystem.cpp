@@ -99,6 +99,35 @@ bool getClassSize(uint32_t* size, std::string moduleName, std::string className)
 	return true;
 }
 
+static SDK::CSchemaSystem* g_pLiveSchemaSystem = nullptr;
+
+bool schemaLiveOffset(const char* moduleName, const char* className, const char* fieldName, ptrdiff_t* outOffset)
+{
+	if (!g_pLiveSchemaSystem || !g_pLiveSchemaSystem->m_pScopeArray) return false;
+	__try {
+		for (uint64_t i = 0; i < g_pLiveSchemaSystem->m_nScopeSize; ++i) {
+			SDK::CSchemaSystemTypeScope* pScope = g_pLiveSchemaSystem->m_pScopeArray[i];
+			if (!pScope || !pScope->m_pDeclaredClasses || 0 != strcmp(pScope->m_szName, moduleName)) continue;
+			for (uint16_t j = 0; j < pScope->m_nNumDeclaredClasses; ++j) {
+				SDK::CSchemaDeclaredClass* pDeclared = pScope->m_pDeclaredClasses[j].m_pDeclaredClass;
+				SDK::CSchemaClass* pClass = pDeclared ? pDeclared->m_Class : nullptr;
+				if (!pClass || !pClass->m_szName || 0 != strcmp(pClass->m_szName, className) || !pClass->m_pFields) continue;
+				uintptr_t fields = (uintptr_t)(pClass->m_pFields);
+				for (uint16_t k = 0; k < pClass->m_nNumFields; ++k) {
+					SDK::CSchemaField* pField = (SDK::CSchemaField*)(fields + sizeof(SDK::CSchemaField) * k);
+					if (pField->m_szName && 0 == strcmp(pField->m_szName, fieldName)) {
+						*outOffset = pField->m_nOffset;
+						return true;
+					}
+				}
+				return false;
+			}
+		}
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+	}
+	return false;
+}
+
 void initSchemaSystemOffsets()
 {
 	bool bOk = true;
@@ -379,6 +408,8 @@ void HookSchemaSystem(HMODULE schemaSystemDll)
 		ErrorBox(MkErrStr(__FILE__, __LINE__));
 		return;
 	}
+
+	g_pLiveSchemaSystem = schemaSystem;
 
 	getOffsetsFromSchemaSystem(schemaSystem);
 

@@ -31,6 +31,7 @@
 #include "Movie/SceneKeys.h"
 #include "Movie/SceneRig.h"
 #include "Props/Props.h"
+#include "Takes/Takes.h" // "takes": bots that perform what you recorded, in a private match
 #include "Movie/FollowCamera.h"
 #include "Movie/ViewFx.h"
 #include "Movie/SmoothView.h"
@@ -489,6 +490,8 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 	} else if (0 == _stricmp(sub, "rig")) {
 		// Scene object rigs: attach placed lights / meshes / cameras, key their pose, look through.
 		Filmmaker::SceneRig_RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "takes")) {
+		Filmmaker::Takes::RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "props")) {
 		Filmmaker::Props_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "layout")) {

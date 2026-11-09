@@ -1,4 +1,5 @@
 #include "ConfigHud.h"
+#include "../Takes/Takes.h"
 #include "../Props/Props.h"
 #include "../Movie/SceneRig.h"
 #include "../Movie/TimelineDock.h" // the dock this panel now hosts and can switch
@@ -410,6 +411,7 @@ std::string ConfigHud::BuildStateJson() {
 	HandheldCamRef().AppendStateJson(o);
 	Environment::AppendStateJson(o);
 	Props_AppendStateJson(o);
+	Takes::AppendStateJson(o);
 	Heatmap::AppendStateJson(o);
 	AltEnvironment::AppendStateJson(o);
 	SceneRig_AppendStateJson(o);

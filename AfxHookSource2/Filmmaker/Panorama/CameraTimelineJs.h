@@ -1108,17 +1108,27 @@ R"TLJS(
     var hiddenNatives = null; // [{p, v, id}] captured while ANY panel is hidden; null while fully shown
     var hiddenNativeIds = {};
     var curHudView = 'full';
+    // Hands a spectator panel's visibility back to the game. Its stylesheet collapses these panels and
+    // a class opens them while spectating, so `visible = true` would pin them on for good: in a live
+    // match the bottom of the screen then shows the last player spectated, on top of your own HUD.
+    function releaseSpecPanel(p) {
+      if (p && p.style.visibility) p.style.visibility = null;
+    }
+    function restoreNativePanel(p, h) {
+      if (h.spec) releaseSpecPanel(p);
+      else p.visible = h.v;
+    }
     function restoreGameHud() {
       if (hiddenNatives) {
         for (var j = 0; j < hiddenNatives.length; j++) {
           var h = hiddenNatives[j];
-          try { if (h.p && !(h.p.IsValid && !h.p.IsValid())) h.p.visible = h.v; } catch (e2) {}
+          try { if (h.p && !(h.p.IsValid && !h.p.IsValid())) restoreNativePanel(h.p, h); } catch (e2) {}
           // The native HUD can rebuild while the editor is open. Restore by id too so panels hidden
           // by an older JS closure do not stay hidden after leaving the camera editor.
           try {
             if (h.id) {
               var cur = ctx.FindChildTraverse && ctx.FindChildTraverse(h.id);
-              if (cur) cur.visible = h.v;
+              if (cur) restoreNativePanel(cur, h);
             }
           } catch (e3) {}
         }
@@ -1131,20 +1141,19 @@ R"TLJS(
       // rebuilt while those panels were already hidden, hiddenNatives may not contain them.
       for (var i = 0; i < SPEC_PANELS.length; i++) {
         try {
-          var p = findNative(SPEC_PANELS[i]);
-          if (p) p.visible = true;
+          releaseSpecPanel(findNative(SPEC_PANELS[i]));
         } catch (e) {}
       }
     }
-    function hidePanel(c, forceRestoreVisible) {
+    function hidePanel(c, isSpecPanel) {
       if (!c) return;
       var id = '';
       try { id = c.id || ''; } catch (eid) {}
       if (!hiddenNatives) hiddenNatives = [];
       var key = id || ('__panel_' + hiddenNatives.length);
-      if ((forceRestoreVisible || c.visible) && !hiddenNativeIds[key]) {
+      if ((isSpecPanel || c.visible) && !hiddenNativeIds[key]) {
         hiddenNativeIds[key] = 1;
-        hiddenNatives.push({ p: c, v: forceRestoreVisible ? true : !!c.visible, id: id });
+        hiddenNatives.push({ p: c, v: !!c.visible, id: id, spec: !!isSpecPanel });
       }
       try { c.visible = false; } catch (e) {}
     }

@@ -63,6 +63,7 @@ struct Placed {
 	// shown live), and whether it is locked against picking and dragging in the view.
 	std::string group;
 	bool render = true, locked = false;
+	bool solid = false; // players and bots collide with it in a private match (Takes/Takes.cpp)
 	unsigned char* entity = nullptr; // live client entity, or null until (re)spawned
 	int entityIndex = -1;
 	int particle = -1;                // an EFFECT's particle-manager index instead (no entity)
@@ -76,6 +77,7 @@ bool Live(const Placed& p) { return p.entity || p.particle >= 0; }
 void ClearLive(Placed& p) { p.entity = nullptr; p.entityIndex = -1; p.particle = -1; p.failed = false; }
 
 std::vector<Placed> g_props;
+bool g_solidNew = false;    // what a newly placed prop starts as (BOTS > Solid objects)
 std::string g_map;          // the map g_props belongs to
 int g_nextId = 1, g_selected = 0;
 int g_hover = 0; // what the cursor is over in the view: a prop id, minus an Environment object id, or 0
@@ -295,6 +297,7 @@ void Save() {
 		j.StringField("group", p.group);
 		j.BoolField("render", p.render);
 		j.BoolField("locked", p.locked);
+		j.BoolField("solid", p.solid);
 		j.EndObject();
 	}
 	j.EndArray();
@@ -363,6 +366,7 @@ void Load(const std::string& map) {
 		p.group = v.Find("group") ? v.Find("group")->AsString() : "";
 		p.render = !v.Find("render") || v.Find("render")->AsBool(true);
 		p.locked = v.Find("locked") && v.Find("locked")->AsBool(false);
+		p.solid = v.Find("solid") && v.Find("solid")->AsBool(false);
 		if (p.model.empty()) continue;
 		g_nextId = std::max(g_nextId, p.id + 1);
 		g_props.push_back(p);
@@ -1154,6 +1158,7 @@ void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 			p.id = g_nextId++;
 			p.model = arg(3);
 			if (p.model.empty()) throw std::runtime_error("usage: props add <models/....vmdl>");
+			p.solid = g_solidNew && !Props::IsEffect(p.model);
 			AimPose(p.position, p.angles);
 			Spawn(p);
 			if (!Live(p)) throw std::runtime_error("The engine refused " + p.model);
@@ -1257,6 +1262,7 @@ void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 			p.id = g_nextId++;
 			if (g_ghostDirty || !Alive(p)) Respawn(p);
 			g_ghostDirty = false;
+			p.solid = g_solidNew && !Props::IsEffect(p.model);
 			g_props.push_back(p);
 			PushAdded(p.id);
 			g_selected = p.id;
@@ -1560,6 +1566,17 @@ void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 			ApplyPose(*p); Save();
 			return;
 		}
+		if (!_stricmp(sub, "solidnew")) { // solidnew on|off: what a newly placed prop starts as
+			g_solidNew = _stricmp(arg(3), "off") != 0;
+			++g_revision;
+			return;
+		}
+		if (!_stricmp(sub, "solidall")) { // solidall on|off: every placed model at once
+			const bool on = _stricmp(arg(3), "off") != 0;
+			for (Placed& q : g_props) q.solid = on;
+			Save(); ++g_revision;
+			return;
+		}
 		if (!_stricmp(sub, "set")) { // props set <id> <field> <value...>
 			if (!p) throw std::runtime_error("No such prop");
 			const std::string field = arg(4);
@@ -1573,6 +1590,7 @@ void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 			}
 			if (field == "locked") { p->locked = atoi(arg(5)) != 0; Save(); ++g_revision; return; }
 			if (field == "render") { p->render = atoi(arg(5)) != 0; Save(); ++g_revision; return; }
+			if (field == "solid") { p->solid = atoi(arg(5)) != 0; Save(); ++g_revision; return; }
 			const float v = float(atof(arg(5)));
 			if (field == "x") p->position.x = v;
 			else if (field == "y") p->position.y = v;
@@ -1647,6 +1665,7 @@ void Props_AppendStateJson(std::ostringstream& out) {
 		j.StringField("group", p.group);
 		j.BoolField("render", p.render);
 		j.BoolField("locked", p.locked);
+		j.BoolField("solid", p.solid);
 		j.EndObject();
 	}
 	j.EndArray();
@@ -1694,5 +1713,27 @@ void Props_AppendStateJson(std::ostringstream& out) {
 	json.insert(json.size() - 1, extra); // inside the closing brace
 	out << ",\"props\":" << json;
 }
+
+void Props_CollectSolid(std::vector<SolidProp>& out) {
+	out.clear();
+	for (const Placed& p : g_props) {
+		// An effect has no model and no hull; a hidden prop should not block anyone.
+		if (!p.solid || !p.visible || p.model.empty() || Props::IsEffect(p.model)) continue;
+		SolidProp s;
+		s.id = p.id;
+		s.model = p.model;
+		s.pos[0] = p.position.x; s.pos[1] = p.position.y; s.pos[2] = p.position.z;
+		s.ang[0] = p.angles.x; s.ang[1] = p.angles.y; s.ang[2] = p.angles.z;
+		s.scale = p.scale;
+		out.push_back(s);
+	}
+}
+
+bool Props_AnySolid() {
+	for (const Placed& p : g_props) if (p.solid) return true;
+	return false;
+}
+
+bool Props_SolidNew() { return g_solidNew; }
 
 } // namespace Filmmaker
