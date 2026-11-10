@@ -1062,21 +1062,22 @@ void PumpActors(int frameTick) {
 bool Recording() { return g.rec.active; }
 
 std::atomic<int> g_pendingKey{0};
+std::atomic<bool> g_keyRepeat{false}; // the WM_KEYDOWN being handled is an auto-repeat (NoteKeyRepeat)
 
 bool HandleKey(unsigned vkey, bool down) {
 	constexpr unsigned kF6 = 0x75, kF7 = 0x76;
 	if (vkey != kF6 && vkey != kF7) return false;
+	if (PlayingDemo() || CurrentMap().empty() || !Server::Active()) return false;
 	// One action per press. Windows repeats WM_KEYDOWN while a key is held, and each repeat used to
 	// count as a new press: holding F6 started, dropped and restarted the recording over and over.
-	// The release is noted before the "can takes run here" test, so a key let go after the match
-	// ended does not stay held.
-	static std::atomic<bool> s_held[2];
-	std::atomic<bool> &held = s_held[vkey == kF7 ? 1 : 0];
-	if (!down) held.store(false, std::memory_order_relaxed);
-	if (PlayingDemo() || CurrentMap().empty() || !Server::Active()) return false;
-	if (down && !held.exchange(true, std::memory_order_relaxed)) g_pendingKey.store(int(vkey), std::memory_order_relaxed);
+	// The repeat comes from the key message itself (NoteKeyRepeat), not from a held flag cleared on
+	// the release: a release that arrives while the pause menu or the ReShade overlay owns the input
+	// never reaches this function, and a flag left set would swallow every later press.
+	if (down && !g_keyRepeat.load(std::memory_order_relaxed)) g_pendingKey.store(int(vkey), std::memory_order_relaxed);
 	return true;
 }
+
+void NoteKeyRepeat(bool repeat) { g_keyRepeat.store(repeat, std::memory_order_relaxed); }
 
 std::string HudLine(bool &recording) {
 	std::lock_guard<std::recursive_mutex> lock(g.mutex);

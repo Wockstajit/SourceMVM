@@ -153,8 +153,8 @@ The three detours go in on first use, so a session that only watches demos never
   alone arrives with no buttons at all. `ParseCmd` runs the copy the other way, as the game's own
   `bot_mimic` copy does.
 - `weaponselect` is an entity index, not a handle.
-- Windows repeats `WM_KEYDOWN` while a key is held. F6 and F7 act once per press and wait for the
-  release, or holding F6 starts, drops and restarts the recording.
+- Windows repeats `WM_KEYDOWN` while a key is held. F6 and F7 ignore a repeat (bit 30 of the key
+  message), or holding F6 starts, drops and restarts the recording.
 - Deleting the last take, or `takes clear`, also removes the map's `_last` autosave, or the next map
   load brings the take back. Bots are only kicked once takes set the match up: before that they are
   the match's own bots.

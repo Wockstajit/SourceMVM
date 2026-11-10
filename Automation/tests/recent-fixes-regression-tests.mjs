@@ -31,10 +31,13 @@ test('deleting the last take leaves an ordinary match alone, and an emptied scen
 
 test('one F6 or F7 press is one action, however long the key is held', () => {
   const key = takes.match(/bool HandleKey\(unsigned vkey, bool down\) \{[\s\S]*?\n\}\n/)[0];
-  assert.match(key, /if \(!down\) held\.store\(false, std::memory_order_relaxed\);/);
-  assert.match(key, /if \(down && !held\.exchange\(true, std::memory_order_relaxed\)\) g_pendingKey\.store/);
-  // The release is seen even after the match went away.
-  assert.ok(key.indexOf('held.store(false') < key.indexOf('!Server::Active()) return false;'));
+  // The repeat comes from the key message, so no held state can be left set by a release that
+  // the pause menu or the ReShade overlay swallowed.
+  assert.match(key, /if \(down && !g_keyRepeat\.load\(std::memory_order_relaxed\)\) g_pendingKey\.store/);
+  assert.doesNotMatch(key, /s_held|held\./);
+  const hooks = read('AfxHookSource2/WindowInputHooks.cpp');
+  const note = hooks.indexOf('Filmmaker::Takes::NoteKeyRepeat(0 != (lParam & (1LL << 30)));');
+  assert.ok(note > 0 && note < hooks.indexOf('Filmmaker::MovieInput_OnKey((int)wParam, true)'), 'noted before the key is handled');
 });
 
 test('a Record demo that never started is called off', () => {
