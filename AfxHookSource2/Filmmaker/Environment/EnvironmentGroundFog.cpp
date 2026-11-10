@@ -104,7 +104,10 @@ void ReleaseFluid() {
     state.grid = GroundFogGrid{};
     state.gridKey.clear();
     state.clock = GroundFogClock{};
-    state.drift = GroundFogDrift{};
+    // Not the drift: a grid rebuilt when the map's collision data arrives is still the same fog, and
+    // starting the drift again from time x wind there would throw away what a keyed Drift speed had
+    // added up, which is the jump the accumulator exists to prevent. It starts again only when the
+    // fog has been off (PrepareGroundFog's idle release).
     state.tracked.clear();
 }
 // The grid belongs to the map. It only changes when the map's collision data arrives or changes.
@@ -307,6 +310,7 @@ GroundFogFrameInfo PrepareGroundFog(ID3D11DeviceContext *ctx, const Frame &f, co
     if (!state.ready || !ctx || climate[CL_enabled] <= 0 || climate[CL_groundFog] <= 0) {
         if (state.ready && ++state.idle == kIdleFrames) {
             ReleaseFluid();
+            state.drift = GroundFogDrift{};
             ReleaseFloorMap();
             ReleaseFront();
             MvmDebugLog_LinefAlways("environment.groundfog", "released fluid and floor map after %u frames off", kIdleFrames);

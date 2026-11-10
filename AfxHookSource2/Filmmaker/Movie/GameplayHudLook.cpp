@@ -78,17 +78,20 @@ std::string ReadCvarText(const char* name) {
 const char* const kOwedKey = "hud.viewerCvars";
 
 std::string JoinSaved() {
+	// One entry per variable, "x" for one that could not be read (a CS2 update removed or retyped
+	// it): Apply leaves that one alone, but still changes the others, and those are still owed.
 	std::string out;
+	bool any = false;
 	for (const LookCvar& c : g_cvars) {
-		if (c.saved.empty()) return {}; // one unreadable variable: nothing is recorded as owed
 		if (!out.empty()) out += '_';
-		out += c.saved;
+		out += c.saved.empty() ? "x" : c.saved;
+		any = any || !c.saved.empty();
 	}
-	return out;
+	return any ? out : std::string();
 }
 
 // The values a previous session still owes the viewer, into `saved`. False when none are owed or
-// the stored text is not exactly one integer per variable.
+// the stored text is not exactly one entry per variable, each an integer or "x" (not readable then).
 bool LoadOwed() {
 	const std::string text = FilmmakerSettings_UiString(kOwedKey, "none");
 	if (text.empty() || text == "none") return false;
@@ -96,13 +99,18 @@ bool LoadOwed() {
 	size_t n = 0;
 	for (char ch : text) {
 		if (ch == '_') { if (++n >= sizeof(parts) / sizeof(parts[0])) return false; continue; }
-		if (!(ch >= '0' && ch <= '9') && !(ch == '-' && parts[n].empty())) return false;
+		if (!(ch >= '0' && ch <= '9') && !(ch == '-' && parts[n].empty()) && !(ch == 'x' && parts[n].empty())) return false;
 		parts[n] += ch;
 	}
 	if (n + 1 != sizeof(parts) / sizeof(parts[0])) return false;
-	for (const std::string& part : parts)
-		if (part.empty() || part == "-") return false;
-	for (size_t i = 0; i < sizeof(parts) / sizeof(parts[0]); ++i) g_cvars[i].saved = parts[i];
+	bool any = false;
+	for (const std::string& part : parts) {
+		if (part.empty() || part == "-" || (part[0] == 'x' && part.size() > 1)) return false;
+		any = any || part != "x";
+	}
+	if (!any) return false;
+	// "x" loads as empty: Apply and Restore both skip a variable with no saved value.
+	for (size_t i = 0; i < sizeof(parts) / sizeof(parts[0]); ++i) g_cvars[i].saved = parts[i] == "x" ? std::string() : parts[i];
 	return true;
 }
 

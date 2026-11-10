@@ -76,3 +76,21 @@ test('a left-hand window keeps its left edge when its column width changes', () 
   assert.match(read('AfxHookSource2/Filmmaker/Panorama/ModuleWindowJs.h'),
     /if \(lastW > 0 && w !== lastW && opts\.side !== 'left'\) x -= \(w - lastW\) \* scale;/);
 });
+
+test('the fog drift survives a grid rebuild and starts again only after the fog was off', () => {
+  const fog = read('AfxHookSource2/Filmmaker/Environment/EnvironmentGroundFog.cpp');
+  const release = fog.match(/void ReleaseFluid\(\) \{[\s\S]*?\n\}\n/)[0];
+  assert.doesNotMatch(release, /state\.drift = /, 'PrepareGrid releases the fluid when collision data arrives');
+  assert.match(fog, /\+\+state\.idle == kIdleFrames\) \{\s*ReleaseFluid\(\);\s*state\.drift = GroundFogDrift\{\};/);
+  assert.equal((fog.match(/state\.drift = GroundFogDrift\{\};/g) || []).length, 1);
+});
+
+test('one unreadable HUD variable does not drop what the others are owed', () => {
+  const hud = read('AfxHookSource2/Filmmaker/Movie/GameplayHudLook.cpp');
+  const join = hud.match(/std::string JoinSaved\(\) \{[\s\S]*?\n\}\n/)[0];
+  assert.match(join, /out \+= c\.saved\.empty\(\) \? "x" : c\.saved;/);
+  assert.match(join, /return any \? out : std::string\(\);/);
+  const load = hud.match(/bool LoadOwed\(\) \{[\s\S]*?\n\}\n/)[0];
+  assert.match(load, /g_cvars\[i\]\.saved = parts\[i\] == "x" \? std::string\(\) : parts\[i\];/);
+  assert.match(load, /if \(!any\) return false;/);
+});
