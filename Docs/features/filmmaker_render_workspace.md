@@ -11,7 +11,10 @@ how many bits the encoder spends and never the size, so a 1280x720 window gives 
 Highest. Measured 2026-11-08: 854x480, 1280x720 and 1920x1080 windows gave files of exactly those
 sizes, with the workspace's preview shrunk on screen each time. PICTURE reads the real scene target
 (`sceneW`, `sceneH`), turns amber below 1080p and offers **Set size** buttons for 1080p, 1440p and 4K
-where they fit the monitor (`monitorW`, `monitorH`). They run `mirv_filmmaker window size`. If the
+where they fit the monitor (`monitorW`, `monitorH`). They run `mirv_filmmaker window size`. While a
+job runs the buttons are hidden, `window size` / `window aspect` refuse, and a border drag, snap,
+maximise or restore is answered with the size the window already has, because a resize would
+change the scene target under the recorder. If the
 scene target is smaller than the window, the section says so and points at FidelityFX in CS2's video
 settings. That branch has not fired in a test: the FidelityFX edit to `cs2_video.txt` did not reach
 the session it was tried in.

@@ -78,6 +78,22 @@ R"MWJS(
       return best;
     }
 
+    // Surfaces drawn over every window: the TIMELINE dock, the demo bar, Customize Player, Editor
+    // Settings, a confirm. Each registers a test of a client-px point under its own name in
+    // $.MvmWinCovers, from its own script. A press that lands on one belongs to it, not to the
+    // title bar, corner or close button of a window lying underneath: all of them read the same
+    // raw cursor, so without this a drag in the dock rescaled the window below it.
+    if (!$.MvmWinCovers) $.MvmWinCovers = {};
+    function mvmWinCovered(px, py) {
+      for (var k in $.MvmWinCovers) {
+        var hit = false;
+        // A cover whose panels were deleted throws or answers false: either way it covers nothing.
+        try { hit = !!$.MvmWinCovers[k](px, py); } catch (eCover) { hit = false; }
+        if (hit) return true;
+      }
+      return false;
+    }
+
     function mvmModuleWindow(root, opts) {
       opts = opts || {};
       var key = opts.key || 'window';
@@ -364,8 +380,10 @@ R"MWJS(
           scale = clampScale(scale, rh);
           if (x === null) placeDefault(rw);
           // A new column width (set in the docked layout, or restored) keeps the window's RIGHT
-          // edge where it is, so a right-hand window does not grow off the screen.
-          if (lastW > 0 && w !== lastW) x -= (w - lastW) * scale;
+          // edge where it is, so a right-hand window does not grow off the screen. A left-hand
+          // window keeps its LEFT edge: shifted the same way, CONFIG slid off the left of the
+          // screen by however much its column was widened in the docked layout.
+          if (lastW > 0 && w !== lastW && opts.side !== 'left') x -= (w - lastW) * scale;
           lastW = w;
           lastRw = rw; lastRh = rh; lastBottomClear = o.bottomClear || 0;
           clampPos(rw, rh, lastBottomClear);
@@ -405,9 +423,10 @@ R"MWJS(
           var mx = st.mx, my = st.my;
           var sx = frame.actualuiscale_x || 1, sy = frame.actualuiscale_y || 1;
           // Only the window drawn on top where the press lands takes it: its title bar, corners,
-          // close button and the raise on release. A window under another one ignores the press.
+          // close button and the raise on release. A window under another one ignores the press,
+          // and so does one under a surface drawn over the windows (mvmWinCovered).
           var pressed = lmb && !lastLmb;
-          var onTop = pressed && mvmWinTopAt(mx, my) === key;
+          var onTop = pressed && !mvmWinCovered(mx, my) && mvmWinTopAt(mx, my) === key;
           if (onTop) {
             var cornerHit = null;
             for (var ci = 0; ci < corners.length && !cornerHit; ci++)

@@ -1153,7 +1153,13 @@ bool MovieMode::PointerOverDock() {
 
 bool MovieMode::OnConfigColumn(int x, int y) {
 	// MODULAR layout: CONFIG's column is its window, wherever it was moved, Camera Editor or not.
-	if (UiLayout_Modular()) return ConfigHud_Enabled() && UiLayout_PanelAt(x, y) == UiPanel::Config;
+	// Not the part of it under the dock, which draws over the window: that right-click is the dock's.
+	if (UiLayout_Modular()) {
+		if (!ConfigHud_Enabled() || UiLayout_PanelAt(x, y) != UiPanel::Config) return false;
+		int w = 0, h = 0;
+		WindowResize_GetClientSize(w, h);
+		return h <= 0 || (float)y < (float)h * (1.f - (float)DockBandHeight() / 1080.f);
+	}
 	if (!ConfigHud_Enabled() || CameraEditor_Active() || x < 0 || y < 0) return false;
 	int clientW = 0, clientH = 0;
 	WindowResize_GetClientSize(clientW, clientH);

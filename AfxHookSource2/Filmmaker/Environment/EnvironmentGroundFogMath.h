@@ -616,6 +616,36 @@ inline GroundFogAdvance GroundFogTick(GroundFogClock &c, double time) {
     return out;
 }
 
+// THE DRIFT. How far the wind has carried the rest pattern, the billows and the wisps, in world units.
+// It was demo time x the current wind, so a change of Drift speed or direction (both are timeline
+// channels) re-multiplied the whole demo time: at 1500 s, 12 -> 45 units/s moved the pattern 49,500
+// units. Now the wind is added up as time passes, so a change only alters where the fog goes next.
+// A seek (the same gap that restarts the fluid) and the first frame start from time x wind, which is
+// what a steady wind adds up to anyway, so a render that seeks to its start begins at the same
+// offset every run. The small backward steps of playback hold, as in GroundFogTick. No wrap: the
+// noise is not periodic, so a wrap was a visible pop, and a float keeps sub-unit precision past
+// a two hour demo at full wind.
+struct GroundFogDrift {
+    double x = 0, y = 0;
+    double last = 0;
+    bool valid = false;
+};
+inline void GroundFogDriftTick(GroundFogDrift &d, double time, double windX, double windY) {
+    if (!std::isfinite(time) || !std::isfinite(windX) || !std::isfinite(windY)) return;
+    const double dt = d.valid ? time - d.last : 0;
+    if (!d.valid || dt > kGroundFogSeekGap || dt < -kGroundFogSeekGap) {
+        d.valid = true;
+        d.last = time;
+        d.x = time * windX;
+        d.y = time * windY;
+        return;
+    }
+    if (dt <= 0) return;
+    d.last = time;
+    d.x += dt * windX;
+    d.y += dt * windY;
+}
+
 // THE BODIES. A player pushes fog with the velocity it moves at, measured from its position on the
 // previous simulated frame (same entity). A first sighting, a respawn or a jump of more than a few
 // metres in one step pushes nothing that step.

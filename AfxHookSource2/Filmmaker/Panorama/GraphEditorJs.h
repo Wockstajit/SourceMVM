@@ -437,6 +437,14 @@ R"GEJS(
     var dock = mk('Panel', root); dock.hittest = false;
     dock.style.horizontalAlign = 'left'; dock.style.verticalAlign = 'bottom';
     dock.style.backgroundColor = S.panel; dock.style.overflow = 'clip clip';
+    // The dock draws over the MODULAR windows (z65 over 52-54): a press on it is not a press on a
+    // window's corner or title bar underneath (ModuleWindowJs.h, $.MvmWinCovers).
+    if (!$.MvmWinCovers) $.MvmWinCovers = {};
+    $.MvmWinCovers.dock = function (px, py) {
+      if (!root.IsValid() || !root.visible || !dock.visible) return false;
+      var r = dock.GetPositionWithinWindow();
+      return !!r && px >= r.x && px < r.x + (dock.actuallayoutwidth || 0) && py >= r.y && py < r.y + (dock.actuallayoutheight || 0);
+    };
     // The onboarding tutorial's names for this dock's controls ($.MvmTour, Panorama/OnboardingGuideJs.h).
     // tourSet REPLACES the entry: rows are rebuilt, and a stale panel must not stay spotlit.
     function tourSet(name, panel) { try { ($.MvmTour = $.MvmTour || {})[name] = [panel]; } catch (e) {} }

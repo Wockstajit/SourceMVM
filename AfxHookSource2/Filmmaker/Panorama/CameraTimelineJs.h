@@ -1353,6 +1353,14 @@ R"TLJS(
     catcher.SetPanelEvent('onactivate', function () { /* swallow stray clicks */ });
 
     var panel = $.CreatePanel('Panel', root, 'CamTimelineBar', {}); panel.hittest = true;
+    // This bar draws over the MODULAR windows (z55 over 52-54): a press on it is not a press on a
+    // window's corner underneath (ModuleWindowJs.h, $.MvmWinCovers).
+    if (!$.MvmWinCovers) $.MvmWinCovers = {};
+    $.MvmWinCovers.timelineBar = function (px, py) {
+      if (!root.IsValid() || !root.visible || !panel.visible) return false;
+      var r = panel.GetPositionWithinWindow();
+      return !!r && px >= r.x && px < r.x + (panel.actuallayoutwidth || 0) && py >= r.y && py < r.y + (panel.actuallayoutheight || 0);
+    };
     var ps = panel.style;
     ps.horizontalAlign = 'center'; ps.verticalAlign = 'bottom'; ps.marginBottom = '0px';
     ps.width = (LABELW + W + 28) + 'px';

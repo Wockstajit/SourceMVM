@@ -26,6 +26,11 @@ as it goes: switching to another view, closing the editor or Config, F8, or leav
 are written only on those two edges, never every frame. A variable a CS2 update removed is skipped
 and logged, not guessed. The `mvm_debug` log records both edges under `hud.gameplay`.
 
+A quit, Alt-F4 or crash with the view up skips the second edge. So while the player values are
+applied, the viewer's own are also kept in the settings file (`hud.viewerCvars`). The next session
+writes them back on its first frame, and a view that comes up with values still owed keeps those
+instead of reading the player values as the viewer's.
+
 Pick the player with CS2's own first person (the demo bar's player list, or Customize's player
 pick) and the render's **First Person (POV)** camera.
 

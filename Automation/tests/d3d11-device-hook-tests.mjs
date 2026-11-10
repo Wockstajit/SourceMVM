@@ -23,3 +23,16 @@ test('only CS2 render system devices get the NVIDIA flag and the device hooks', 
   // The caller is known before the device is created, so the flag decision can use it.
   assert.ok(body.indexOf('engineCaller =') < body.indexOf('g_Old_D3D11CreateDevice('));
 });
+
+// Issue #114 again: the reporter isolated the serial-driver flag on the ENGINE's device as the
+// startup crash beside Ansel. The crash the flag was added for was fixed in the relit shaders, so
+// the flag is opt-in (-mvmSerialDriver) and never set by default.
+test('the serial-driver flag is opt-in on the launch line', () => {
+  const hooks = read('AfxHookSource2/RenderSystemDX11Hooks.cpp');
+  const start = hooks.indexOf('HRESULT WINAPI New_D3D11CreateDevice(');
+  const body = hooks.slice(start, hooks.indexOf('void Before_Present()', start));
+  assert.match(body, /wantSerialDriver = nullptr != wcsstr\(GetCommandLineW\(\), L"-mvmSerialDriver"\)/);
+  const sets = body.match(/Flags \|= D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS/g) || [];
+  assert.equal(sets.length, 1);
+  assert.match(body, /if \(wantSerialDriver && lightingAdapterVendor == 0x10de\) Flags \|= D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS;/);
+});

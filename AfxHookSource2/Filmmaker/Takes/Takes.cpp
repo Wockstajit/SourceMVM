@@ -334,7 +334,17 @@ bool LoadScene(const std::string &name, Scene &scene) {
 }
 
 void Autosave() {
-	if (!g.scene.tracks.empty() || !g.scene.objects.empty()) SaveScene("_last");
+	if (!g.scene.tracks.empty() || !g.scene.objects.empty()) {
+		SaveScene("_last");
+		return;
+	}
+	// An emptied scene: the autosave goes too, or the next map load brings back what was just deleted.
+	// Only once this map's autosave was read (EnsureSceneForMap); before that an empty scene means
+	// "not loaded yet", and the file is the user's work.
+	const std::string map = CurrentMap();
+	if (map.empty() || map != g.lastMap) return;
+	std::error_code ec;
+	std::filesystem::remove(SceneFolder(map) / std::filesystem::u8path(SafeFileName("_last") + ".mvmtakes"), ec);
 }
 
 // -- Placed objects ------------------------------------------------------------------------------------
@@ -1002,6 +1012,9 @@ void DoPlay() {
 }
 
 void DoStop() {
+	// A "Record demo" that never reached its pass is called off with it, or the next plain Play
+	// would start recording a demo nobody asked for.
+	g.demoPending = false;
 	if (g.rec.active || g.rec.armed) {
 		DoStopRecording();
 		return;
@@ -1049,14 +1062,22 @@ void PumpActors(int frameTick) {
 bool Recording() { return g.rec.active; }
 
 std::atomic<int> g_pendingKey{0};
+std::atomic<bool> g_keyRepeat{false}; // the WM_KEYDOWN being handled is an auto-repeat (NoteKeyRepeat)
 
 bool HandleKey(unsigned vkey, bool down) {
 	constexpr unsigned kF6 = 0x75, kF7 = 0x76;
 	if (vkey != kF6 && vkey != kF7) return false;
 	if (PlayingDemo() || CurrentMap().empty() || !Server::Active()) return false;
-	if (down) g_pendingKey.store(int(vkey), std::memory_order_relaxed);
+	// One action per press. Windows repeats WM_KEYDOWN while a key is held, and each repeat used to
+	// count as a new press: holding F6 started, dropped and restarted the recording over and over.
+	// The repeat comes from the key message itself (NoteKeyRepeat), not from a held flag cleared on
+	// the release: a release that arrives while the pause menu or the ReShade overlay owns the input
+	// never reaches this function, and a flag left set would swallow every later press.
+	if (down && !g_keyRepeat.load(std::memory_order_relaxed)) g_pendingKey.store(int(vkey), std::memory_order_relaxed);
 	return true;
 }
+
+void NoteKeyRepeat(bool repeat) { g_keyRepeat.store(repeat, std::memory_order_relaxed); }
 
 std::string HudLine(bool &recording) {
 	std::lock_guard<std::recursive_mutex> lock(g.mutex);
@@ -1125,6 +1146,7 @@ void RunMainThreadFrame() {
 		g.phase = Phase::Idle;
 		g.setupDone = false;
 		g.demoRecording = false;
+		g.demoPending = false;
 		g_spawnChecks.clear();
 		g_live.clear();
 		return;
@@ -1160,6 +1182,7 @@ void RunMainThreadFrame() {
 			Say("could not add %d bot%s (is the server full?)", missing, missing == 1 ? "" : "s");
 			g.phase = Phase::Idle;
 			g.rec.armed = false;
+			g.demoPending = false;
 		}
 		break;
 	}
@@ -1384,12 +1407,17 @@ void RunCommand(int argc, advancedfx::ICommandArgs *args, const char *cmd) {
 		g.driftLimit = float(atof(arg(3)));
 		Say("drift limit %.1f", g.driftLimit);
 	} else if (0 == _stricmp(sub, "clear")) {
+		// This map's scene first. A clear typed before the panel or a take ever touched this map
+		// would otherwise find nothing loaded, leave the autosave where it is (Autosave only removes
+		// it for a map it has read), and the scene would come back when CONFIG opened.
+		EnsureSceneForMap();
 		g.scene = Scene{};
 		g.actors.clear();
 		g.phase = Phase::Idle;
 		// Before setup these are somebody's ordinary match bots, and rounds can still end: kicking them
 		// would end this one.
 		if (g.setupDone) KickExtraBots();
+		Autosave();
 		Say("scene cleared");
 	} else if (0 == _stricmp(sub, "delete") || 0 == _stricmp(sub, "enable") || 0 == _stricmp(sub, "team") || 0 == _stricmp(sub, "name") ||
 	           0 == _stricmp(sub, "holdfire") || 0 == _stricmp(sub, "delay") || 0 == _stricmp(sub, "model") || 0 == _stricmp(sub, "weapon")) {
@@ -1409,7 +1437,8 @@ void RunCommand(int argc, advancedfx::ICommandArgs *args, const char *cmd) {
 			if (g.scene.tracks.empty()) {
 				g.phase = Phase::Idle;
 				g.actors.clear();
-				KickExtraBots();
+				// Before setup these are somebody's ordinary match bots (see `clear`).
+				if (g.setupDone) KickExtraBots();
 			}
 			Say("%s deleted", name.c_str());
 		} else if (0 == _stricmp(sub, "enable")) {

@@ -165,6 +165,9 @@ R"EDJS(
     confirmOverlay.style.width = '100%'; confirmOverlay.style.height = '100%'; confirmOverlay.style.zIndex = '220';
     confirmOverlay.style.backgroundColor = 'rgba(0,0,0,0.72)';
     confirmOverlay.SetPanelEvent('onactivate', function () { hideClearConfirm(); });
+    // Full screen while it is up: no press under it reaches a MODULAR window (ModuleWindowJs.h).
+    if (!$.MvmWinCovers) $.MvmWinCovers = {};
+    $.MvmWinCovers.clearConfirm = function () { return confirmOverlay.IsValid() && confirmOverlay.visible; };
     var confirmBox = mk('Panel', confirmOverlay); confirmBox.hittest = true;
     confirmBox.style.width = '520px'; confirmBox.style.height = '230px';
     confirmBox.style.horizontalAlign = 'center'; confirmBox.style.verticalAlign = 'center';

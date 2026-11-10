@@ -795,7 +795,12 @@ void Pick(const std::string& name, const std::string& addon) {
 		if (!s.pick.map.empty()) SelectionChanged();
 		s.pick = MapInfo{};
 		s.pickPic.reset();
-		s.pickJob.reset();
+		// Retired, never destroyed while it runs: a std::async future blocks in its destructor, which
+		// froze the game for the rest of the extraction, and the worker still writes the job's status.
+		if (s.pickJob) {
+			s.pickJob->cancel = true;
+			s.retired.push_back(std::move(s.pickJob));
+		}
 		s.fitDirty = true;
 		return;
 	}

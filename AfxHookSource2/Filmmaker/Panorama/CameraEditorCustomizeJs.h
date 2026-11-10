@@ -797,6 +797,10 @@ R"EDJS(
     var custOverlay = $.CreatePanel('Panel', ctx, 'CamEditorCustomizeRoot', {});
     custOverlay.visible = false; custOverlay.hittest = true;
     custOverlay.style.width = '100%'; custOverlay.style.height = '100%'; custOverlay.style.zIndex = '230';
+    // Exclusive and full screen while it is up: no press under it moves, scales or closes a MODULAR
+    // window (ModuleWindowJs.h, $.MvmWinCovers).
+    if (!$.MvmWinCovers) $.MvmWinCovers = {};
+    $.MvmWinCovers.customize = function () { return custOverlay.IsValid() && custOverlay.visible; };
     // A tool window over a CLEAR backdrop (CameraEditorCustomizeWindowJs.h): the game behind it is
     // what is being changed, so it is no longer dimmed. The backdrop still takes every click outside
     // the window -- the modal is an exclusive surface, nothing reaches the editor, CONFIG or the game
@@ -1055,9 +1059,17 @@ R"EDJS(
 // Split here: MSVC caps a single raw string literal at ~16380 bytes (C2026). Adjacent
 // literals are concatenated by the compiler, so this stays one JS blob.
 R"EDJS(
+    // Whose profile the modal's target has: their SteamID, 'current' while no player was picked from
+    // the list (the modal follows the spectated one), or '' for a bot. Profiles are SteamID-keyed and
+    // a bot has none. 'current' is whoever CS2 spectates, and that is somebody else once a bot was
+    // picked from the list (a dead bot leaves CS2 on the last player), so a bot never falls back to it.
+    function custProfileTarget() {
+      if (custTargetKey && custTargetKey.indexOf('steam:') === 0) return custTargetKey.substring(6);
+      if (custTargetKey && custTargetKey.indexOf('ctrl:') === 0) return '';
+      return 'current';
+    }
     function resolveCosmeticTarget(slot) {
-      var target = (custTargetKey && custTargetKey.indexOf('steam:') === 0)
-        ? custTargetKey.substring(6) : 'current';
+      var target = custProfileTarget();
       if (shouldRoutePickupToOwner(slot)) return pickupOwnerSteam(slot) || target;
       return target;
     }
@@ -1940,6 +1952,7 @@ R"EDJS(
       // Target the player by SteamID -- the backend store is SteamID-keyed. Picked-up weapons keep the
       // original owner's econ id, so route finish commands to that owner when editing the held pickup.
       var target = resolveCosmeticTarget(slot);
+      if (!target) return; // a bot: no profile to write to, and never somebody else's
       var routedPickup = shouldRoutePickupToOwner(slot);
       var opt = selOpt(slot, custSel[slot]);
       var meta = opt ? (opt[2] || {}) : {};
@@ -2244,7 +2257,7 @@ R"EDJS(
     // override for this player and reseeds the modal from the live loadout, same as opening it fresh.
     function resetToDefault() {
       closeAllDrops();
-      var target = (custTargetKey && custTargetKey.indexOf('steam:') === 0) ? custTargetKey.substring(6) : 'current';
+      var target = custProfileTarget();
       cmd('mirv_filmmaker cosmetics enabled 1');
       // Pickup finishes are stored under the original owner. Reset only the two held slots there,
       // preserving that owner's other cosmetics, then clear the selected player's own profile.
@@ -2258,7 +2271,7 @@ R"EDJS(
         clearedPickupSlots[key] = true;
         cmd('mirv_filmmaker cosmetics clearWeapon ' + owner + ' ' + def);
       });
-      cmd('mirv_filmmaker cosmetics clearPlayer ' + target);
+      if (target) cmd('mirv_filmmaker cosmetics clearPlayer ' + target);
       custTouched = { agent: false, primary: false, secondary: false, knife: false, gloves: false };
       custDirty = false;
       resetSelectionsFromLoadout();

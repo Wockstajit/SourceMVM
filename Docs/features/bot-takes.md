@@ -153,6 +153,11 @@ The three detours go in on first use, so a session that only watches demos never
   alone arrives with no buttons at all. `ParseCmd` runs the copy the other way, as the game's own
   `bot_mimic` copy does.
 - `weaponselect` is an entity index, not a handle.
+- Windows repeats `WM_KEYDOWN` while a key is held. F6 and F7 ignore a repeat (bit 30 of the key
+  message), or holding F6 starts, drops and restarts the recording.
+- Deleting the last take, or `takes clear`, also removes the map's `_last` autosave, or the next map
+  load brings the take back. Bots are only kicked once takes set the match up: before that they are
+  the match's own bots.
 - A player model must come from `agents/models/`. The same character under `characters/models/` is not
   in the map's manifest, so the client draws a tiny ERROR model and no player.
 - `ent_create` loads nothing by itself. `PrecacheModel` runs first, and a spawn that still lands before

@@ -187,6 +187,11 @@ relit smoke. Reference and tests: `SmokeRayShare` in
 - Fires and explosions do not light the fog unless Dynamic lighting is on, so one hidden in a thick bank
   gives no glow.
 - Wakes are history: after a seek they start from rest and build up again during playback.
+- The drift is added up as the demo plays (`GroundFogDriftTick`), so a new Drift speed only changes
+  where the pattern goes next. A seek starts it again from time x speed, which is what a steady wind
+  adds up to, so a render that seeks to its start begins at the same offset each run. A new Drift
+  direction still re-lays the wisps at once: they are stretched along the drift, so their pattern is
+  looked up in a frame turned to that direction.
 - The march runs at the Environment's volume resolution (a quarter of each side in preview, full in
   export). Very thin layers seen from straight above can show march grain before the blur.
 

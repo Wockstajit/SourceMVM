@@ -49,6 +49,12 @@ R"ESJS(
       overlay.style.width = '100%'; overlay.style.height = '100%';
       overlay.style.zIndex = (opts.zIndex || 221) + '';
       overlay.SetPanelEvent('onactivate', function () { close('bgClick'); });
+      // Full screen while it is up, over every MODULAR window: neither a press on the card nor the
+      // click beside it that closes it is a press on a window (ModuleWindowJs.h, $.MvmWinCovers).
+      if (!$.MvmWinCovers) $.MvmWinCovers = {};
+      $.MvmWinCovers['settings:' + (opts.id || 'MvmEditorSettingsRoot')] = function () {
+        return overlay.IsValid() && overlay.visible;
+      };
       var card = mk('Panel', overlay); card.hittest = true;
       card.style.width = '360px'; card.style.horizontalAlign = 'right'; card.style.verticalAlign = 'bottom';
       card.style.marginRight = (opts.marginRight == null ? 16 : opts.marginRight) + 'px';
