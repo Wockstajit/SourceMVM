@@ -1529,7 +1529,8 @@ R"EDJS(
         picSizeSeg.cells[psf].visible = sizeOk;
         if (sizeOk) sizeFits++;
       }
-      picSizeRow.visible = sizeFits > 0;
+      // Not during a job: the take is the size of the window it started at (the command refuses too).
+      picSizeRow.visible = sizeFits > 0 && !r.jobActive;
       picSizeSeg.sync(gameRes[0] + 'x' + gameRes[1]);
       reshadeNote.text = out.reshade === 2
         ? 'ReShade is on: your effects are in this render.'

@@ -14,6 +14,10 @@
 // job's GAME HUD alike (all three resolve to CameraEditorHud::GetHudView). Values are written on
 // the on and off edges only, never per frame, so the console is not spammed and nothing fights a
 // value changed by hand while the view is up.
+//
+// The viewer's values are also kept in the settings file while the player values are applied
+// (`hud.viewerCvars`). A quit, Alt-F4 or crash with the view up skips the off edge, so the next
+// session puts them back on its first frame instead of reading the player values as the viewer's.
 
 namespace Filmmaker {
 

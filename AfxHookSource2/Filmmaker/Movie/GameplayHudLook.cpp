@@ -1,5 +1,6 @@
 #include "GameplayHudLook.h"
 
+#include "../Config/FilmmakerSettingsStore.h" // hud.viewerCvars: the viewer's values, across a quit or crash
 #include "../Debug/MvmDebugLog.h"
 
 #include "../../WrpConsole.h"
@@ -68,6 +69,43 @@ std::string ReadCvarText(const char* name) {
 	}
 }
 
+// THE VIEWER'S VALUES OUTLIVE THE SESSION. A restore only runs on the off edge of the view, through
+// the console buffer. Quit, Alt-F4 or a crash with the In-game view up leaves the player values in
+// CS2, and the next session then read those back as "the viewer's own": the originals were gone.
+// So the saved values are also kept in the settings file while they are applied ("1_1_2", one per
+// variable above, "none" when nothing is owed). A session that starts with values owed puts them
+// back on its first frame, and an Apply that finds values owed keeps them instead of reading CS2.
+const char* const kOwedKey = "hud.viewerCvars";
+
+std::string JoinSaved() {
+	std::string out;
+	for (const LookCvar& c : g_cvars) {
+		if (c.saved.empty()) return {}; // one unreadable variable: nothing is recorded as owed
+		if (!out.empty()) out += '_';
+		out += c.saved;
+	}
+	return out;
+}
+
+// The values a previous session still owes the viewer, into `saved`. False when none are owed or
+// the stored text is not exactly one integer per variable.
+bool LoadOwed() {
+	const std::string text = FilmmakerSettings_UiString(kOwedKey, "none");
+	if (text.empty() || text == "none") return false;
+	std::string parts[sizeof(g_cvars) / sizeof(g_cvars[0])];
+	size_t n = 0;
+	for (char ch : text) {
+		if (ch == '_') { if (++n >= sizeof(parts) / sizeof(parts[0])) return false; continue; }
+		if (!(ch >= '0' && ch <= '9') && !(ch == '-' && parts[n].empty())) return false;
+		parts[n] += ch;
+	}
+	if (n + 1 != sizeof(parts) / sizeof(parts[0])) return false;
+	for (const std::string& part : parts)
+		if (part.empty() || part == "-") return false;
+	for (size_t i = 0; i < sizeof(parts) / sizeof(parts[0]); ++i) g_cvars[i].saved = parts[i];
+	return true;
+}
+
 // True once every variable reads the viewer's value the last restore wrote.
 bool RestoreLanded() {
 	for (const LookCvar& c : g_cvars)
@@ -76,7 +114,9 @@ bool RestoreLanded() {
 }
 
 void Apply() {
-	const bool keep = g_restorePending > 0; // the last restore has not shown yet: keep its values
+	// The last restore has not shown yet, or an earlier session ended with the values applied:
+	// either way CS2 reads the player values right now, and the viewer's are the ones already held.
+	const bool keep = g_restorePending > 0 || LoadOwed();
 	g_restorePending = 0;
 	for (LookCvar& c : g_cvars) {
 		if (!keep) c.saved = ReadCvarText(c.name);
@@ -86,6 +126,8 @@ void Apply() {
 		}
 		ExecClientCmd(std::string(c.name) + " " + c.playerValue);
 	}
+	const std::string owed = JoinSaved();
+	if (!owed.empty()) FilmmakerSettings_SetUi(kOwedKey, owed.c_str());
 	MvmDebugLog_Linef("hud.gameplay", "ON  %s=%s->%s %s=%s->%s %s=%s->%s%s",
 		g_cvars[0].name, g_cvars[0].saved.c_str(), g_cvars[0].playerValue,
 		g_cvars[1].name, g_cvars[1].saved.c_str(), g_cvars[1].playerValue,
@@ -108,6 +150,18 @@ void Restore() {
 } // namespace
 
 void GameplayHudLook_RunFrame(bool inGameViewShown) {
+	// Once per session: values an earlier session still owes the viewer (it quit or crashed with the
+	// In-game view up). Put back now unless the view is about to come up again, which keeps them.
+	static bool s_startupChecked = false;
+	if (!s_startupChecked && !ReadCvarText(g_cvars[0].name).empty()) { // once the console variables exist
+		s_startupChecked = true;
+		if (!inGameViewShown && LoadOwed()) {
+			MvmDebugLog_LinefAlways("hud.gameplay", "an earlier session left the player values in CS2; restoring the viewer's (%s)",
+				FilmmakerSettings_UiString(kOwedKey, "none").c_str());
+			Restore();
+			return;
+		}
+	}
 	if (inGameViewShown != g_applied) {
 		g_applied = inGameViewShown;
 		if (g_applied) Apply();
@@ -119,6 +173,8 @@ void GameplayHudLook_RunFrame(bool inGameViewShown) {
 	if (!g_applied && g_restorePending > 0) {
 		if (RestoreLanded()) g_restorePending = 0;
 		else --g_restorePending;
+		// Landed, or changed by hand meanwhile: nothing is owed any more.
+		if (g_restorePending == 0) FilmmakerSettings_SetUi(kOwedKey, "none");
 	}
 }
 

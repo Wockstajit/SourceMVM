@@ -334,7 +334,17 @@ bool LoadScene(const std::string &name, Scene &scene) {
 }
 
 void Autosave() {
-	if (!g.scene.tracks.empty() || !g.scene.objects.empty()) SaveScene("_last");
+	if (!g.scene.tracks.empty() || !g.scene.objects.empty()) {
+		SaveScene("_last");
+		return;
+	}
+	// An emptied scene: the autosave goes too, or the next map load brings back what was just deleted.
+	// Only once this map's autosave was read (EnsureSceneForMap); before that an empty scene means
+	// "not loaded yet", and the file is the user's work.
+	const std::string map = CurrentMap();
+	if (map.empty() || map != g.lastMap) return;
+	std::error_code ec;
+	std::filesystem::remove(SceneFolder(map) / std::filesystem::u8path(SafeFileName("_last") + ".mvmtakes"), ec);
 }
 
 // -- Placed objects ------------------------------------------------------------------------------------
@@ -1002,6 +1012,9 @@ void DoPlay() {
 }
 
 void DoStop() {
+	// A "Record demo" that never reached its pass is called off with it, or the next plain Play
+	// would start recording a demo nobody asked for.
+	g.demoPending = false;
 	if (g.rec.active || g.rec.armed) {
 		DoStopRecording();
 		return;
@@ -1053,8 +1066,15 @@ std::atomic<int> g_pendingKey{0};
 bool HandleKey(unsigned vkey, bool down) {
 	constexpr unsigned kF6 = 0x75, kF7 = 0x76;
 	if (vkey != kF6 && vkey != kF7) return false;
+	// One action per press. Windows repeats WM_KEYDOWN while a key is held, and each repeat used to
+	// count as a new press: holding F6 started, dropped and restarted the recording over and over.
+	// The release is noted before the "can takes run here" test, so a key let go after the match
+	// ended does not stay held.
+	static std::atomic<bool> s_held[2];
+	std::atomic<bool> &held = s_held[vkey == kF7 ? 1 : 0];
+	if (!down) held.store(false, std::memory_order_relaxed);
 	if (PlayingDemo() || CurrentMap().empty() || !Server::Active()) return false;
-	if (down) g_pendingKey.store(int(vkey), std::memory_order_relaxed);
+	if (down && !held.exchange(true, std::memory_order_relaxed)) g_pendingKey.store(int(vkey), std::memory_order_relaxed);
 	return true;
 }
 
@@ -1125,6 +1145,7 @@ void RunMainThreadFrame() {
 		g.phase = Phase::Idle;
 		g.setupDone = false;
 		g.demoRecording = false;
+		g.demoPending = false;
 		g_spawnChecks.clear();
 		g_live.clear();
 		return;
@@ -1160,6 +1181,7 @@ void RunMainThreadFrame() {
 			Say("could not add %d bot%s (is the server full?)", missing, missing == 1 ? "" : "s");
 			g.phase = Phase::Idle;
 			g.rec.armed = false;
+			g.demoPending = false;
 		}
 		break;
 	}
@@ -1390,6 +1412,7 @@ void RunCommand(int argc, advancedfx::ICommandArgs *args, const char *cmd) {
 		// Before setup these are somebody's ordinary match bots, and rounds can still end: kicking them
 		// would end this one.
 		if (g.setupDone) KickExtraBots();
+		Autosave();
 		Say("scene cleared");
 	} else if (0 == _stricmp(sub, "delete") || 0 == _stricmp(sub, "enable") || 0 == _stricmp(sub, "team") || 0 == _stricmp(sub, "name") ||
 	           0 == _stricmp(sub, "holdfire") || 0 == _stricmp(sub, "delay") || 0 == _stricmp(sub, "model") || 0 == _stricmp(sub, "weapon")) {
@@ -1409,7 +1432,8 @@ void RunCommand(int argc, advancedfx::ICommandArgs *args, const char *cmd) {
 			if (g.scene.tracks.empty()) {
 				g.phase = Phase::Idle;
 				g.actors.clear();
-				KickExtraBots();
+				// Before setup these are somebody's ordinary match bots (see `clear`).
+				if (g.setupDone) KickExtraBots();
 			}
 			Say("%s deleted", name.c_str());
 		} else if (0 == _stricmp(sub, "enable")) {

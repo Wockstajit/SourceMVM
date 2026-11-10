@@ -17,7 +17,7 @@ function functionSource(name) {
 }
 
 const script = ['slotPickup', 'slotOwnerSteam', 'effectiveSlotDef',
-  'shouldRoutePickupToOwner', 'pickupOwnerSteam', 'resetToDefault']
+  'shouldRoutePickupToOwner', 'pickupOwnerSteam', 'custProfileTarget', 'resetToDefault']
   .map(functionSource).join('\n') + '\nresetToDefault();';
 const holder = '76561198000000001';
 const ownerA = '76561198000000002';
@@ -196,4 +196,25 @@ test('an unkeyed target keeps the current-player fallback and explicit pickup ow
     custTargetKey: 'pawn:12',
     custLoadout: { primary: weapon(7, ownerA, true), secondary: null },
   }), [[ownerA, 7]], 'current');
+});
+
+// A bot's roster key is ctrl:<index> (no SteamID, so no profile). 'current' is whoever CS2
+// spectates, which is another player once a bot was picked from the list: reset and Apply must
+// never fall back to it for a bot.
+test('a picked bot never resets or applies to the spectated player', () => {
+  const commands = runReset({
+    custTargetKey: 'ctrl:7',
+    custLoadout: { primary: weapon(7, ownerA, true), secondary: null },
+  });
+  assert.ok(commands.every(command => !command.includes(' current')), commands.join(' | '));
+  assert.ok(commands.every(command => !command.startsWith('mirv_filmmaker cosmetics clearPlayer')));
+  // The picked-up gun's finish still belongs to its human owner.
+  assert.ok(commands.includes('mirv_filmmaker cosmetics clearWeapon ' + ownerA + ' 7'));
+
+  const target = key => vm.runInNewContext(functionSource('custProfileTarget') + '\ncustProfileTarget();', { custTargetKey: key });
+  assert.equal(target('steam:' + holder), holder);
+  assert.equal(target('ctrl:7'), '');
+  assert.equal(target('pawn:-1'), 'current');
+  assert.equal(target('none'), 'current');
+  assert.match(functionSource('applyCosmeticCommand'), /var target = resolveCosmeticTarget\(slot\);\s*if \(!target\) return;/);
 });

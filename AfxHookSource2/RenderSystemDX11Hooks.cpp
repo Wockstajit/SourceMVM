@@ -3370,7 +3370,24 @@ public:
                 // of a Key, Depth or Normal pass (which replaces the scene below) is built without it,
                 // like that pass in a job (CRenderPassCommands::SkipLens / KeepCleanColor).
                 auto pLensCommands = g_RenderCommands.RenderThread_GetCommands();
-                if (Filmmaker::LensFx_Active() && !(pLensCommands && pLensCommands->SkipLens) && !AfxLivePassPreviewShown()) {
+                const bool beautyEffects = !(pLensCommands && pLensCommands->SkipLens) && !AfxLivePassPreviewShown();
+                const bool lensRuns = beautyEffects && Filmmaker::LensFx_Active();
+                const bool reshadeRuns = beautyEffects && g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade;
+                // This render also feeds the pass compositor: it reads the scene from before the lens
+                // and before ReShade. Either one alone changes the scene, so either one needs the copy.
+                if ((lensRuns || reshadeRuns) && pLensCommands && pLensCommands->KeepCleanColor) {
+                    ID3D11Resource* pSceneResource = nullptr;
+                    pRenderTargetViews[0]->GetResource(&pSceneResource);
+                    if (pSceneResource) {
+                        ID3D11Texture2D* pSceneTexture = nullptr;
+                        if (SUCCEEDED(pSceneResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&pSceneTexture)) && pSceneTexture) {
+                            AfxRenderPass::KeepCleanColor(pDeviceContext, pSceneTexture);
+                            pSceneTexture->Release();
+                        }
+                        pSceneResource->Release();
+                    }
+                }
+                if (lensRuns) {
                     // The smokes in front of the world, so the blur stops at a smoke instead of showing through it.
                     Filmmaker::LensSmoke smoke;
                     smoke.absorbance = g_SmokeAbsorbance.Get(smoke.width, smoke.height);
@@ -3397,19 +3414,6 @@ public:
                     // The console green screen (render greenscreen) repaints the scene itself, so its
                     // frame gets no flare: it would paint over the chroma background (LensFx.h, keyPass).
                     const bool keyPass = Filmmaker::RenderPlayersOnlyGreen_Active();
-                    // This render also feeds the pass compositor: it reads the scene from before the lens.
-                    if (pLensCommands && pLensCommands->KeepCleanColor) {
-                        ID3D11Resource* pSceneResource = nullptr;
-                        pRenderTargetViews[0]->GetResource(&pSceneResource);
-                        if (pSceneResource) {
-                            ID3D11Texture2D* pSceneTexture = nullptr;
-                            if (SUCCEEDED(pSceneResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&pSceneTexture)) && pSceneTexture) {
-                                AfxRenderPass::KeepCleanColor(pDeviceContext, pSceneTexture);
-                                pSceneTexture->Release();
-                            }
-                            pSceneResource->Release();
-                        }
-                    }
                     Filmmaker::LensFx_Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                         g_EnvironmentFrame.hasWorldToClip ? g_EnvironmentFrame.worldToClip.data() : nullptr,
                         g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke, sun, keyPass,
@@ -3435,8 +3439,7 @@ public:
                 // gets the look the user set up and the HUD and panels do not. Like the lens it is a Beauty
                 // effect, and ReShade runs its effects only once per present: a render no Beauty plate
                 // reads must leave them for the one that does.
-                if (g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade
-                    && !(pLensCommands && pLensCommands->SkipLens) && !AfxLivePassPreviewShown()) {
+                if (reshadeRuns) {
                     float zNear = 0.0f;
                     float zFar = 0.0f;
                     // The depth copy draws with the viewport it finds bound. This late in the frame
@@ -4500,10 +4503,14 @@ HRESULT WINAPI New_D3D11CreateDevice(
         if (*p == '\\' || *p == '/') callerName = p + 1;
     const bool engineCaller = 0 == _stricmp(callerName, "rendersystemdx11.dll");
 
-    // NVIDIA's parallel compiler intermittently crashes when a newly modified
-    // native material first links to CS2's HDR/MSAA targets. Serial driver work
-    // preserves application-side device thread safety and avoids that compiler
-    // race; other adapters retain their normal device settings.
+    // The serial-driver flag (D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS) is now
+    // opt-in: -mvmSerialDriver on the launch line, NVIDIA only. It was forced on every NVIDIA engine
+    // device against a crash in the driver's parallel shader compiler, but that crash came from our
+    // own relit shaders and was fixed there (Docs/effects/whole-map-relighting.md, "Driver compiles
+    // of the owned variants"); CS2 crashed the same way with the flag set. Meanwhile the flag on the
+    // engine's device is what the reporter of issue #114 isolated as the startup crash beside NVIDIA
+    // Ansel on a GTX 1660 Ti. The switch stays for diagnosing a driver compile crash.
+    const bool wantSerialDriver = nullptr != wcsstr(GetCommandLineW(), L"-mvmSerialDriver");
     UINT lightingAdapterVendor = 0;
     DXGI_ADAPTER_DESC lightingAdapterDesc{};
     if (engineCaller && pAdapter && SUCCEEDED(pAdapter->GetDesc(&lightingAdapterDesc))) {
@@ -4519,7 +4526,7 @@ HRESULT WINAPI New_D3D11CreateDevice(
             lightingFactory->Release();
         }
     }
-    if (lightingAdapterVendor == 0x10de) Flags |= D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS;
+    if (wantSerialDriver && lightingAdapterVendor == 0x10de) Flags |= D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS;
     Filmmaker::MvmDebugLog_LinefAlways("relight.device", "caller=%s vendor=%04x creationFlags=%08x serialDriver=%u",
         callerName, lightingAdapterVendor, Flags, UINT((Flags & D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS) != 0));
 

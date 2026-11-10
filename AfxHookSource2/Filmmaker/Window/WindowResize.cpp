@@ -8,6 +8,7 @@
 #include "WindowPrecisionGuard.h" // Shift-drag vs Windows Snap: whose rect wins
 
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_* (window.resize probe)
+#include "../Render/RenderCommand.h"       // Render_IsJobActive -- no resize under a running render
 #include "../Render/RenderResolution.h"    // RenderResolution_SwapChainSize -- did the engine follow?
 
 #include "../../WindowInputHooks.h"        // g_UiCursorProbe.hwnd -- the game window we hook
@@ -1086,6 +1087,13 @@ void WindowResize_RunCommand(int argc, advancedfx::ICommandArgs* args, const cha
 		}
 		WindowResize_SetEnabled(want);
 		advancedfx::Message("%s window: resizable %s.\n", cmd, s_enabled ? "ON" : "off");
+		return;
+	}
+
+	// A render is the size of the game window: resizing it mid-job changes the swap chain and the
+	// scene target under the recorder, so the take would mix sizes or fail in the writer.
+	if ((0 == _stricmp(sub, "size") || 0 == _stricmp(sub, "aspect")) && Render_IsJobActive()) {
+		advancedfx::Warning("%s window: a render is running. Change the size once it has finished.\n", cmd);
 		return;
 	}
 

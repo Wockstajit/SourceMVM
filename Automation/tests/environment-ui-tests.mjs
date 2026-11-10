@@ -517,6 +517,27 @@ test('fog card carries the ground fog and its light shafts',()=>{
   Object.assign(s.climate,{groundFog:0});
   h.context.renderHooks.forEach(fn=>fn(h.context.st));
   assert.equal(h.card('FOG').pill.on,false);
+  // Off then on puts each pass back where it was: height fog alone does not come back with
+  // ground fog and light shafts at their defaults beside it.
+  Object.assign(s.climate,{fogDensity:0.35,groundFog:0,lightShafts:0});
+  h.context.renderHooks.forEach(fn=>fn(h.context.st));
+  h.card('FOG').pill.click();
+  Object.assign(s.climate,{fogDensity:0,groundFog:0,lightShafts:0});
+  h.context.renderHooks.forEach(fn=>fn(h.context.st));
+  const before=h.sent.length;
+  h.card('FOG').pill.click();
+  const restored=h.sent.slice(before);
+  for(const cmd of ['climate fogDensity 0.35','climate groundFog 0','climate lightShafts 0'])
+    assert.ok(restored.includes('mirv_filmmaker environment '+cmd),cmd+' in '+restored.join(' | '));
+  // After a restart only the held (non-neutral) values exist: the same answer, not the defaults.
+  const fresh=harness();fresh.render();
+  const fs2=fresh.context.st.environment;
+  Object.assign(fs2.climate,{enabled:1,fogDensity:0,groundFog:0,lightShafts:0});
+  fs2.held={fogDensity:0.35};
+  fresh.context.renderHooks.forEach(fn=>fn(fresh.context.st));
+  fresh.card('FOG').pill.click();
+  for(const cmd of ['climate fogDensity 0.35','climate groundFog 0','climate lightShafts 0'])
+    assert.ok(fresh.sent.includes('mirv_filmmaker environment '+cmd),'held: '+cmd);
 });
 test('weather switch includes standalone lightning',()=>{
   const h=harness();h.render();
