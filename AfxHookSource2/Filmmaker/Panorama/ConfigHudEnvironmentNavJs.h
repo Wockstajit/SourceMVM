@@ -335,6 +335,8 @@ R"CFJS(
     // keys: [[climateKey, offValue, restoreValue], ...]. A pass reads ON when ANY of its keys is
     // away from neutral, which is also exactly what the card summary reports.
     // `confirmOn(proceed)`, when given, runs instead of switching ON and calls proceed() to do it.
+)CFJS"
+R"CFJS(
     // Switching the last pass off releases the renderer. Pending writes override the delayed
     // state mirror, while unrelated passes and placed objects keep their resources.
     function envPassPill(card, keys, tip, confirmOn, opts) {
@@ -343,6 +345,11 @@ R"CFJS(
         for (var i = 0; i < keys.length; i++)
           if (!resetKeys || resetKeys.indexOf(keys[i][0]) >= 0) { memo = null; return; }
       });
+      // Whether a key being non-neutral means this card is on (see isOn for the ones that do not).
+      function passCounts(key) {
+        if (key === 'contactShadows' || key === 'clouds' || key === 'worldGi') return false;
+        return !(opts && opts.rides && opts.rides.indexOf(key) >= 0);
+      }
       function isOn() {
         var c = envClimate();
         if (!c) return false;
@@ -355,9 +362,7 @@ R"CFJS(
           // report this switch as on with no sky rendering.
           // ...and neither a cloud layer nor the bounce volume is the pass itself: both ride
           // along with their card's switch and must not report it as on by themselves.
-          if (keys[i][0] === 'contactShadows' || keys[i][0] === 'clouds' ||
-              keys[i][0] === 'worldGi') continue;
-          if (opts && opts.rides && opts.rides.indexOf(keys[i][0]) >= 0) continue;
+          if (!passCounts(keys[i][0])) continue;
           if (Math.abs((c[keys[i][0]] || 0) - keys[i][1]) > 1e-4) return true;
         }
         return false;
@@ -384,12 +389,19 @@ R"CFJS(
             // After a demo or game restart every pass comes back off with its value held by the
             // backend (HoldRestoredPasses); switching the card on brings the saved value back.
             var held = (envState() || {}).held || {};
-            for (var j = 0; j < keys.length; j++) {
-              var v = memo ? memo[j] : (held.hasOwnProperty(keys[j][0]) ? held[keys[j][0]] : keys[j][2]);
-              // Restoring a remembered neutral would leave the switch stuck off.
-              if (Math.abs(v - keys[j][1]) < 1e-4) v = keys[j][2];
-              envCommand('climate ' + keys[j][0] + ' ' + v);
+            // What each key had: this session's memo, else the backend's held value. A key the
+            // backend does not hold was neutral when the card went off.
+            var vals = [], anyOn = false, j;
+            for (j = 0; j < keys.length; j++) {
+              var v = memo ? memo[j] : (held.hasOwnProperty(keys[j][0]) ? held[keys[j][0]] : keys[j][1]);
+              vals.push(v);
+              if (passCounts(keys[j][0]) && Math.abs(v - keys[j][1]) > 1e-4) anyOn = true;
             }
+            // Nothing to bring back (a fresh card, or every pass was neutral): the defaults, or the
+            // switch would stay off. Otherwise each key goes back exactly where it was -- a pass
+            // that was off stays off, it does not come on at its default beside the others.
+            for (j = 0; j < keys.length; j++)
+              envCommand('climate ' + keys[j][0] + ' ' + (anyOn ? vals[j] : keys[j][2]));
           };
           if (confirmOn) confirmOn(turnOn); else turnOn();
         }

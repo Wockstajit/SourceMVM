@@ -356,6 +356,11 @@ bool Acquire(CEntityInstance* pawn, BodySet& out, char* why, size_t whySize) {
 }
 
 bool Current(const BodySet& set) {
+	// The entity list first, without touching the carrier: once the game has removed a client-side
+	// ragdoll its freed memory can still read like the old one, and RouteObject below calls into it
+	// (the heap corruption of issue #102). Death Animations checked this before calling; Nervous
+	// System and anything else that only called Current did not, so the check lives here.
+	if (set.carrierIndex >= 0 && EntityInSlot(set.carrierIndex) != set.carrier) return false;
 	if (!set.object || RouteObject(set.route, set.carrier) != set.object) return false;
 	for (int i = 0; i < kBodies; ++i) if (RouteBody(set.route, set.object, i) != set.bodies[i]) return false;
 	return true;

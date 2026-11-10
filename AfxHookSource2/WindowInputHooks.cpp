@@ -9,6 +9,7 @@
 #include "Filmmaker/Movie/CameraRuntimeInternal.h"
 #include "Filmmaker/Panorama/ConfigHud.h"
 #include "Filmmaker/Window/WindowResize.h"
+#include "Filmmaker/Takes/Takes.h" // NoteKeyRepeat
 #include "Filmmaker/EasterEggs/EasterEggs.h"
 #include "Filmmaker/EasterEggs/Osu/OsuGame.h"
 #include "Filmmaker/EasterEggs/EasterEggSnake.h"
@@ -311,6 +312,7 @@ LRESULT CALLBACK new_Afx_WindowProc(
 	case WM_KEYDOWN:
 		// Typing in CS2's console is not a director key: Space there toggled the demo (user report
 		// 2026-10-13). The release still goes through below so held-key state stays balanced.
+		Filmmaker::Takes::NoteKeyRepeat(0 != (lParam & (1LL << 30))); // F6 / F7 act once per press
 		if(!(g_pGameUIService && g_pGameUIService->Con_IsVisible()) && Filmmaker::MovieInput_OnKey((int)wParam, true))
 			return 0;
 		if(g_MirvInputEx.m_MirvInput->Supply_KeyEvent(MirvInput::KS_DOWN, wParam, lParam))

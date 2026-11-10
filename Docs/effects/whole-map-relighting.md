@@ -264,12 +264,14 @@ capture has no blue wash. Bright self-illuminated background geometry still need
 separate visual acceptance; the `1..1` sky backdrop is not a material receiver. Replay coverage
 percentages do not prove that the original native draw was replaced.
 
-The NVIDIA game device uses
+The NVIDIA game device used to be created with
 [`D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS`](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ne-d3d11-d3d11_create_device_flag)
-to avoid an access violation in `RelightIrradianceTests.exe` inside NVIDIA's parallel shader compiler.
-This preserves application-side device thread safety. Hardware irradiance tests select the
-same serialized driver path by default and execute the shaders against HDR/MSAA targets.
-The flag did not remove the cause, which the next section describes.
+against an access violation in `RelightIrradianceTests.exe` inside NVIDIA's parallel shader compiler.
+The flag did not remove the cause, which the next section describes, and on the engine's device it
+is what the reporter of issue #114 isolated as a startup crash beside NVIDIA Ansel. The game device
+now keeps CS2's own creation flags. `-mvmSerialDriver` on the launch line turns the flag back on
+for an NVIDIA device, to diagnose a driver compile crash. Hardware irradiance tests still select
+the serialized driver path by default and execute the shaders against HDR/MSAA targets.
 
 ### Driver compiles of the owned variants
 

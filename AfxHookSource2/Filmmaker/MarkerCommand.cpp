@@ -48,7 +48,12 @@ void Marker_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 
 	if (0 == _stricmp(a, "place")) cp.PlaceMarker();
 	else if (0 == _stricmp(a, "preview") || 0 == _stricmp(a, "arm")) cp.ArmPreview();
-	else if (0 == _stricmp(a, "playfromstart")) cp.PlayFromFirstKey();
+	else if (0 == _stricmp(a, "playfromstart")) {
+		// J starts the path like `play` does, so it gives the view to the path the same way: a
+		// Follow Camera preview left running would drive the camera alongside it.
+		Filmmaker::FollowCameraRef().StopPreview("camera path started");
+		cp.PlayFromFirstKey();
+	}
 	else if (0 == _stricmp(a, "play") || 0 == _stricmp(a, "previewplay")) {
 		Filmmaker::FollowCameraRef().StopPreview("camera path started");
 		cp.StartPreviewPlay();

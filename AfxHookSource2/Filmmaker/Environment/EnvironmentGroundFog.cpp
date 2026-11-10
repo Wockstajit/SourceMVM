@@ -58,6 +58,7 @@ struct State {
     std::string gridKey;
     bool fluidValid = false;
     GroundFogClock clock;
+    GroundFogDrift drift; // how far the wind has carried the pattern (added up, not time x wind)
     std::vector<GroundFogTrackedPawn> tracked;
     StepConstants k{}; // the last constants, so the overlay can show bodies while the demo is paused
     float coverage = 1; // the Coverage the field's resting pattern was laid down for
@@ -103,6 +104,10 @@ void ReleaseFluid() {
     state.grid = GroundFogGrid{};
     state.gridKey.clear();
     state.clock = GroundFogClock{};
+    // Not the drift: a grid rebuilt when the map's collision data arrives is still the same fog, and
+    // starting the drift again from time x wind there would throw away what a keyed Drift speed had
+    // added up, which is the jump the accumulator exists to prevent. It starts again only when the
+    // fog has been off (PrepareGroundFog's idle release).
     state.tracked.clear();
 }
 // The grid belongs to the map. It only changes when the map's collision data arrives or changes.
@@ -305,6 +310,7 @@ GroundFogFrameInfo PrepareGroundFog(ID3D11DeviceContext *ctx, const Frame &f, co
     if (!state.ready || !ctx || climate[CL_enabled] <= 0 || climate[CL_groundFog] <= 0) {
         if (state.ready && ++state.idle == kIdleFrames) {
             ReleaseFluid();
+            state.drift = GroundFogDrift{};
             ReleaseFloorMap();
             ReleaseFront();
             MvmDebugLog_LinefAlways("environment.groundfog", "released fluid and floor map after %u frames off", kIdleFrames);
@@ -333,8 +339,9 @@ GroundFogFrameInfo PrepareGroundFog(ID3D11DeviceContext *ctx, const Frame &f, co
     const float windAngle = Radians(climate[CL_groundFogWindAngle]);
     const float windX = std::cos(windAngle) * climate[CL_groundFogWind];
     const float windY = std::sin(windAngle) * climate[CL_groundFogWind];
-    info.driftX = float(std::fmod(f.time * double(windX), 100000.0));
-    info.driftY = float(std::fmod(f.time * double(windY), 100000.0));
+    GroundFogDriftTick(state.drift, f.time, windX, windY);
+    info.driftX = float(state.drift.x);
+    info.driftY = float(state.drift.y);
     if (!PrepareGrid(f)) return info;
 
     const auto &grid = state.grid;

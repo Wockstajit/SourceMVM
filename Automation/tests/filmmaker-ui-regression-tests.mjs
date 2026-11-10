@@ -173,7 +173,9 @@ test("a quick right-click in the ENVIRONMENT view opens the object's menu, a hol
   // The TIMELINE dock's right-click swallow leaves CONFIG's column alone: the Outliner's own
   // right-click menu (oncontextmenu) needs the message.
   assert.match(movieMode, /GraphEditorExperiment_WantsCursor\(\) && !OnConfigColumn\(x, y\)\)\s*return true;/);
-  assert.match(movieMode, /bool MovieMode::OnConfigColumn\(int x, int y\) \{[\s\S]{0,600}TimelineDock_Height\(\) \/ 1080\.f[\s\S]{0,200}return !in\.preview\.Contains\(in\.x, in\.y\);/);
+  assert.match(movieMode, /bool MovieMode::OnConfigColumn\(int x, int y\) \{[\s\S]{0,1100}TimelineDock_Height\(\) \/ 1080\.f[\s\S]{0,200}return !in\.preview\.Contains\(in\.x, in\.y\);/);
+  // MODULAR: the window's rect, but not the part under the TIMELINE dock drawn over it.
+  assert.match(movieMode, /if \(UiLayout_Modular\(\)\) \{\s*if \(!ConfigHud_Enabled\(\) \|\| UiLayout_PanelAt\(x, y\) != UiPanel::Config\) return false;[\s\S]{0,120}return h <= 0 \|\| \(float\)y < \(float\)h \* \(1\.f - \(float\)DockBandHeight\(\) \/ 1080\.f\);/);
 });
 
 test("a key in the TIMELINE dock can be gone to: double-click it, or its menu's Go to this key", () => {

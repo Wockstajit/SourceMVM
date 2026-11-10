@@ -334,6 +334,40 @@ int main() {
         Check(!GroundFogTick(clock, 7.01).reset, "playback continues after a seek");
     }
 
+    // ---- the drift ------------------------------------------------------------------------
+    {
+        // A steady wind adds up to time x wind, so nothing changes for a fog nobody keys.
+        GroundFogDrift d;
+        GroundFogDriftTick(d, 1500, 12, 0);
+        Check(Near(float(d.x), 18000.f, .01f), "the first frame starts at time x wind");
+        for (int i = 1; i <= 64; ++i) GroundFogDriftTick(d, 1500 + i / 64.0, 12, 0);
+        Check(Near(float(d.x), 1501 * 12.f, .01f), "a steady wind adds up to time x wind");
+        // Drift speed 12 -> 45 late in a demo: the pattern moves on from where it is, at the new
+        // speed. It used to jump by 1501 x 33 = 49,533 units in one frame.
+        const double before = d.x;
+        GroundFogDriftTick(d, 1501 + 1 / 64.0, 45, 0);
+        Check(Near(float(d.x - before), 45.f / 64, .001f), "a faster wind only changes the next step");
+        // A new direction turns the motion, not the place.
+        const double x = d.x, y = d.y;
+        GroundFogDriftTick(d, 1501 + 2 / 64.0, 0, 45);
+        Check(Near(float(d.x), float(x), .001f) && Near(float(d.y - y), 45.f / 64, .001f), "a new direction turns the motion");
+        // Paused, and the small backward steps of playback: the pattern holds.
+        const double hx = d.x, hy = d.y;
+        GroundFogDriftTick(d, 1501 + 2 / 64.0, 0, 45);
+        GroundFogDriftTick(d, 1501 + 2 / 64.0 - .02, 0, 45);
+        Check(d.x == hx && d.y == hy, "a paused demo and a small backward step hold the drift");
+        // A seek starts again from time x wind, so a render that seeks to its start is repeatable.
+        GroundFogDriftTick(d, 300, 20, 5);
+        Check(Near(float(d.x), 6000.f, .01f) && Near(float(d.y), 1500.f, .01f), "a seek starts from time x wind");
+        // No wrap: the noise is not periodic, so a wrap was a pop.
+        GroundFogDrift far;
+        GroundFogDriftTick(far, 7000, 200, 0);
+        Check(Near(float(far.x), 1400000.f, 1.f), "a long demo at full wind does not wrap");
+        GroundFogDrift bad;
+        GroundFogDriftTick(bad, std::nan(""), 1, 1);
+        Check(!bad.valid, "a bad clock changes nothing");
+    }
+
     // ---- bodies ---------------------------------------------------------------------------
     {
         std::vector<GroundFogTrackedPawn> tracked;

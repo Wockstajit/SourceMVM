@@ -89,6 +89,12 @@ it on. CONFIG and the Camera Editor drop any notch queued before they opened.
   otherwise CONFIG sits at z52 under the Camera Editor's z53). Where the windows overlap, only the
   one drawn on top takes a press: its title bar, corners, close button and the raise on release
   (`mvmWinTopAt` in `ModuleWindowJs.h`). The one underneath ignores it.
+- A press on a surface drawn over the windows never reaches a window underneath. The TIMELINE
+  dock, the camera timeline bar, Customize Player, Editor Settings and the clear confirm each
+  register a point test in `$.MvmWinCovers` from their own script, and a window's pump skips a
+  press that lands on one (`mvmWinCovered`). Every window reads the same raw cursor, so without
+  this a drag in the dock rescaled the window under it. A new root above z54 that takes clicks
+  needs its own entry.
 
 The Render workspace keeps the docked layout: it is a full-screen job with its own preview of the
 final frame. CONFIG's window steps aside while it is up.

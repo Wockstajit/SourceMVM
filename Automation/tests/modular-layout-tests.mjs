@@ -89,13 +89,31 @@ test('where windows overlap, a press goes only to the one drawn on top', () => {
   $.MvmWins.config.hit = () => { throw new Error('deleted panel'); };
   assert.equal(at(500, 0), 'editor', 'a closed window no longer answers');
 
-  assert.match(win, /var onTop = pressed && mvmWinTopAt\(mx, my\) === key;\s*if \(onTop\) \{/, 'title bar, corners and close need the top');
+  assert.match(win, /var onTop = pressed && !mvmWinCovered\(mx, my\) && mvmWinTopAt\(mx, my\) === key;\s*if \(onTop\) \{/, 'title bar, corners and close need the top');
   assert.match(win, /if \(pressed\) pressInside = onTop;/, 'so does the raise on release');
   assert.match(win, /\$\.MvmWins\[key\] = \{\s*z: baseZ,/);
   assert.match(config, /side: 'left', z: 52,/);
   assert.match(config, /var wantZ = cfgWin\.zIndex\(\);/);
   assert.match(editor, /side: 'right', z: 53,/);
   assert.match(editor, /var edWantZ = edWin\.zIndex\(\);/);
+});
+
+test('a press on a surface drawn over the windows never reaches a window underneath', () => {
+  const src = win.match(/function mvmWinCovered\(px, py\) \{[\s\S]*?\n    \}\n/);
+  assert.ok(src, 'mvmWinCovered is in ModuleWindowJs.h');
+  const covered = (covers) => new Function('$', src[0] + '; return mvmWinCovered;')({ MvmWinCovers: covers });
+  assert.equal(covered({})(10, 10), false, 'nothing registered: nothing covers');
+  const dock = (px, py) => py >= 640;
+  assert.equal(covered({ dock })(600, 930), true, 'the dock covers a window corner under it');
+  assert.equal(covered({ dock })(600, 300), false);
+  assert.equal(covered({ gone: () => { throw new Error('deleted panel'); }, dock })(600, 930), true);
+  assert.equal(covered({ gone: () => { throw new Error('deleted panel'); } })(600, 930), false, 'a deleted cover covers nothing');
+  // Each surface registers itself from its own script.
+  assert.match(read('Panorama', 'GraphEditorJs.h'), /\$\.MvmWinCovers\.dock = function \(px, py\) \{/);
+  assert.match(read('Panorama', 'CameraTimelineJs.h'), /\$\.MvmWinCovers\.timelineBar = function \(px, py\) \{/);
+  assert.match(read('Panorama', 'CameraEditorCustomizeJs.h'), /\$\.MvmWinCovers\.customize = function \(\) \{ return custOverlay\.IsValid\(\) && custOverlay\.visible; \};/);
+  assert.match(editor, /\$\.MvmWinCovers\.clearConfirm = function \(\) \{ return confirmOverlay\.IsValid\(\) && confirmOverlay\.visible; \};/);
+  assert.match(read('Panorama', 'EditorSettingsPopupJs.h'), /\$\.MvmWinCovers\['settings:' \+ \(opts\.id \|\| 'MvmEditorSettingsRoot'\)\] = function \(\) \{/);
 });
 
 test('the close button reads the cursor pipe, and a title bar stays above the dock', () => {

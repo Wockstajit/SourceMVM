@@ -22,5 +22,8 @@ bool Recording();
 std::string HudLine(bool &recording);
 // F6 records, F7 plays, in a private match. True when the key was claimed. Any thread.
 bool HandleKey(unsigned vkey, bool down);
+// Called for each WM_KEYDOWN before HandleKey: whether Windows says the key was already down (bit 30
+// of lParam). A held key then acts once, with no state that a missed release could leave behind.
+void NoteKeyRepeat(bool repeat);
 
 } // namespace Filmmaker::Takes
