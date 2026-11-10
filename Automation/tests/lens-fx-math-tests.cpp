@@ -948,9 +948,9 @@ static void TestFlarePalettes() {
 		return std::string(buf);
 	};
 	for (int i = 0; i < kFlareTintCount; ++i)
-		CHECK(js.find(std::string("['") + std::to_string(i) + "', '" + hexOf(FlareTintColor(i)) + "', '" + FlareTintName(i) + "']") != std::string::npos);
+		CHECK(js.find(std::string("['") + std::to_string(i) + "', '" + hexOf(FlareTintColor(i)) + "', T('" + FlareTintName(i) + "')]") != std::string::npos);
 	for (int i = 0; i < kStreakTintCount; ++i)
-		CHECK(js.find(std::string("['") + std::to_string(i) + "', '" + hexOf(StreakTintColor(i)) + "', '" + StreakTintName(i) + "']") != std::string::npos);
+		CHECK(js.find(std::string("['") + std::to_string(i) + "', '" + hexOf(StreakTintColor(i)) + "', T('" + StreakTintName(i) + "')]") != std::string::npos);
 	// No removed flare setting is left in the panel, and every remaining one is.
 	for (const char* removed : { "flare.range", "flare.boost", "flare.spread", "flare.ghostGain", "flare.ghostSize", "flare.ghostShape",
 		"flare.ghostHue", "flare.ghostSat", "flare.variety", "flare.seed", "flare.chroma", "flare.squeeze", "flare.bladeRound",
@@ -962,8 +962,9 @@ static void TestFlarePalettes() {
 		if (InGroup(i, Group::Flare) && i != FlareOn) CHECK(js.find(std::string("'") + Specs()[i].key + "'") != std::string::npos);
 	// Two flare pages, and no page shows more than eight controls (one Look row + seven sliders; three sliders,
 	// two swatch rows and a toggle).
-	CHECK(js.find("flareSec.__page('Look')") != std::string::npos && js.find("flareSec.__page('Detail')") != std::string::npos);
-	CHECK(js.find("flareSec.__page('", js.find("flareSec.__page('Detail')") + 10) == std::string::npos);
+	// The page names are wrapped for translation (Docs/panorama/localization.md).
+	CHECK(js.find("flareSec.__page(T('Look'))") != std::string::npos && js.find("flareSec.__page(T('Detail'))") != std::string::npos);
+	CHECK(js.find("flareSec.__page(", js.find("flareSec.__page(T('Detail'))") + 10) == std::string::npos);
 }
 
 // The shader is compiled at runtime, so a typo would only show up in game. These catch the ones
