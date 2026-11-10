@@ -27,6 +27,8 @@ test('deleting the last take leaves an ordinary match alone, and an emptied scen
   assert.match(autosave, /if \(map\.empty\(\) \|\| map != g\.lastMap\) return;/, 'never before this map\'s autosave was read');
   assert.match(autosave, /std::filesystem::remove\(SceneFolder\(map\) \/ std::filesystem::u8path\(SafeFileName\("_last"\) \+ "\.mvmtakes"\), ec\);/);
   assert.match(takes, /if \(g\.setupDone\) KickExtraBots\(\);\s*Autosave\(\);\s*Say\("scene cleared"\);/);
+  // A clear before anything read this map's autosave still removes it.
+  assert.match(takes, /_stricmp\(sub, "clear"\)\) \{[\s\S]{0,400}EnsureSceneForMap\(\);\s*g\.scene = Scene\{\};/);
 });
 
 test('one F6 or F7 press is one action, however long the key is held', () => {

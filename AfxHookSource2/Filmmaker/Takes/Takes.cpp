@@ -1407,6 +1407,10 @@ void RunCommand(int argc, advancedfx::ICommandArgs *args, const char *cmd) {
 		g.driftLimit = float(atof(arg(3)));
 		Say("drift limit %.1f", g.driftLimit);
 	} else if (0 == _stricmp(sub, "clear")) {
+		// This map's scene first. A clear typed before the panel or a take ever touched this map
+		// would otherwise find nothing loaded, leave the autosave where it is (Autosave only removes
+		// it for a map it has read), and the scene would come back when CONFIG opened.
+		EnsureSceneForMap();
 		g.scene = Scene{};
 		g.actors.clear();
 		g.phase = Phase::Idle;
