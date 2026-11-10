@@ -134,16 +134,23 @@ void Apply() {
 	// either way CS2 reads the player values right now, and the viewer's are the ones already held.
 	const bool keep = g_restorePending > 0 || LoadOwed();
 	g_restorePending = 0;
+	if (!keep)
+		for (LookCvar& c : g_cvars) c.saved = ReadCvarText(c.name);
+	// The debt goes to disk BEFORE any player value is written. The settings store saves half a
+	// second after a change; a crash inside that window would otherwise leave the player values
+	// in CS2 with nothing on disk to say what the viewer's were.
+	const std::string owed = JoinSaved();
+	if (!owed.empty()) {
+		FilmmakerSettings_SetUi(kOwedKey, owed.c_str());
+		FilmmakerSettings_Flush();
+	}
 	for (LookCvar& c : g_cvars) {
-		if (!keep) c.saved = ReadCvarText(c.name);
 		if (c.saved.empty()) {
 			MvmDebugLog_Linef("hud.gameplay", "%s not found or unreadable; left alone", c.name);
 			continue;
 		}
 		ExecClientCmd(std::string(c.name) + " " + c.playerValue);
 	}
-	const std::string owed = JoinSaved();
-	if (!owed.empty()) FilmmakerSettings_SetUi(kOwedKey, owed.c_str());
 	MvmDebugLog_Linef("hud.gameplay", "ON  %s=%s->%s %s=%s->%s %s=%s->%s%s",
 		g_cvars[0].name, g_cvars[0].saved.c_str(), g_cvars[0].playerValue,
 		g_cvars[1].name, g_cvars[1].saved.c_str(), g_cvars[1].playerValue,

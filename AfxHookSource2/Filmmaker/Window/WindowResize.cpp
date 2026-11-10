@@ -31,6 +31,7 @@ namespace {
 // those are the same thread, and the render thread never touches any of it. Plain scalars, same
 // convention as AfxUiCursorProbe.
 bool s_enabled = true;          // make the window user-resizable
+bool s_userSizeCommand = false; // a maximise / restore / Size command arrived during a render job
 bool s_overlayEnabled = true;   // show the size / aspect card while resizing
 bool s_probe = false;           // per-message logging (needs "mvm_debug start")
 // SDL, not VideoMode. MEASURED 2026-08-07: the video-mode route cannot set a size on this build
@@ -705,11 +706,29 @@ void WindowResize_OnWindowMessage(void* hwndRaw, unsigned msg, unsigned long lon
 		LogSize("modal enter", s_modalEnterW, s_modalEnterH);
 		break;
 	}
+	case WM_SYSCOMMAND:
+		// Maximise, restore and "Size" from the window menu reach WM_WINDOWPOSCHANGING outside the
+		// modal loop. Note them, so the render lock there can tell the user's resize from one this
+		// hook asks for itself.
+		if (Render_IsJobActive()) {
+			const unsigned long long command = wParam & 0xFFF0;
+			if (command == SC_MAXIMIZE || command == SC_RESTORE || command == SC_SIZE)
+				s_userSizeCommand = true;
+		}
+		break;
 	case WM_SIZING: {
 		// Only ever sent while resizing, never while moving. This is the promotion signal.
 		RECT* proposed = (RECT*)(INT_PTR)lParam;
 		if (!proposed)
 			break;
+		// A render is the size of the window. Dragging the border mid-job would change the swap
+		// chain and the scene target under the recorder, so the proposal is answered with the size
+		// the window already has (the same "edit the proposal" contract as the snap below).
+		if (Render_IsJobActive()) {
+			RECT now;
+			if (::GetWindowRect(hwnd, &now)) *proposed = now;
+			break;
+		}
 		FrameInsets insets;
 		if (!GetFrameInsets(hwnd, insets))
 			break;
@@ -773,6 +792,27 @@ void WindowResize_OnWindowMessage(void* hwndRaw, unsigned msg, unsigned long lon
 		WINDOWPOS* pos = (WINDOWPOS*)(INT_PTR)lParam;
 		if (!pos)
 			break;
+		// THE RENDER LOCK. While a job runs, a size the USER asked for is answered with the size
+		// the window has: a border drag or an Aero Snap (both inside the modal loop), and maximise
+		// or restore (noted in WM_SYSCOMMAND). Minimising is left alone, and so is a restore from
+		// minimised, which returns to the same size anyway.
+		if (Render_IsJobActive() && (s_inModalLoop || s_userSizeCommand)) {
+			s_userSizeCommand = false;
+			RECT now;
+			if ((pos->flags & SWP_NOSIZE) == 0 && !::IsIconic(hwnd) && pos->x > -30000 && ::GetWindowRect(hwnd, &now)) {
+				const int w = (int)(now.right - now.left), h = (int)(now.bottom - now.top);
+				if (pos->cx != w || pos->cy != h) {
+					if (MvmDebugLog_Active())
+						MvmDebugLog_LinefAlways("window.resize", "render running: refused %dx%d, kept %dx%d",
+							(int)pos->cx, (int)pos->cy, w, h);
+					pos->cx = w;
+					pos->cy = h;
+					pos->x = now.left; // a left or top edge moves the origin with the size
+					pos->y = now.top;
+				}
+			}
+			break;
+		}
 		const bool shiftStillHeld = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 		const bool sizeChanging = (pos->flags & SWP_NOSIZE) == 0;
 		const bool moveChanging = (pos->flags & SWP_NOMOVE) == 0;

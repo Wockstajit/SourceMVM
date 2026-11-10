@@ -60,7 +60,7 @@ test('a map picture job is retired, never destroyed while it runs', () => {
 test('the viewer\'s HUD values survive a quit or crash with the In-game view up', () => {
   const hud = read('AfxHookSource2/Filmmaker/Movie/GameplayHudLook.cpp');
   assert.match(hud, /const bool keep = g_restorePending > 0 \|\| LoadOwed\(\);/, 'values owed are kept, not read from CS2 again');
-  assert.match(hud, /if \(!owed\.empty\(\)\) FilmmakerSettings_SetUi\(kOwedKey, owed\.c_str\(\)\);/);
+  assert.match(hud, /if \(!owed\.empty\(\)\) \{\s*FilmmakerSettings_SetUi\(kOwedKey, owed\.c_str\(\)\);/);
   assert.match(hud, /if \(!inGameViewShown && LoadOwed\(\)\) \{[\s\S]{0,300}Restore\(\);/, 'a new session puts them back');
   assert.match(hud, /if \(g_restorePending == 0\) FilmmakerSettings_SetUi\(kOwedKey, "none"\);/);
 });
@@ -95,4 +95,23 @@ test('one unreadable HUD variable does not drop what the others are owed', () =>
   assert.match(load, /if \(!any\) return false;/);
   // The startup recovery waits for the console variables, not for one particular variable.
   assert.match(hud, /if \(!s_startupChecked && AnyCvarReadable\(\)\) \{/);
+});
+
+test('a user resize is answered with the current size while a render runs', () => {
+  const win = read('AfxHookSource2/Filmmaker/Window/WindowResize.cpp');
+  // The border drag: the proposal is replaced before the snap logic sees it.
+  assert.match(win, /case WM_SIZING: \{[\s\S]{0,700}if \(Render_IsJobActive\(\)\) \{\s*RECT now;\s*if \(::GetWindowRect\(hwnd, &now\)\) \*proposed = now;\s*break;/);
+  // Snap, maximise and restore: only the user's, never a resize the hook asks for itself.
+  assert.match(win, /if \(Render_IsJobActive\(\) && \(s_inModalLoop \|\| s_userSizeCommand\)\) \{/);
+  assert.match(win, /command == SC_MAXIMIZE \|\| command == SC_RESTORE \|\| command == SC_SIZE/);
+  // Minimising, and coming back from it, are left alone.
+  assert.match(win, /\(pos->flags & SWP_NOSIZE\) == 0 && !::IsIconic\(hwnd\) && pos->x > -30000/);
+});
+
+test('the HUD debt is on disk before the player values are written', () => {
+  const hud = read('AfxHookSource2/Filmmaker/Movie/GameplayHudLook.cpp');
+  const apply = hud.match(/void Apply\(\) \{[\s\S]*?\n\}\n/)[0];
+  const flush = apply.indexOf('FilmmakerSettings_Flush();');
+  assert.ok(flush > 0 && flush < apply.indexOf('ExecClientCmd('), 'flushed before the first command');
+  assert.ok(apply.indexOf('FilmmakerSettings_SetUi(kOwedKey') < flush);
 });
