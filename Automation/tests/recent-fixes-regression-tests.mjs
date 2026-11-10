@@ -93,4 +93,6 @@ test('one unreadable HUD variable does not drop what the others are owed', () =>
   const load = hud.match(/bool LoadOwed\(\) \{[\s\S]*?\n\}\n/)[0];
   assert.match(load, /g_cvars\[i\]\.saved = parts\[i\] == "x" \? std::string\(\) : parts\[i\];/);
   assert.match(load, /if \(!any\) return false;/);
+  // The startup recovery waits for the console variables, not for one particular variable.
+  assert.match(hud, /if \(!s_startupChecked && AnyCvarReadable\(\)\) \{/);
 });

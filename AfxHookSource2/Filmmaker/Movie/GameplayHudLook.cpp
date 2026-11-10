@@ -114,6 +114,14 @@ bool LoadOwed() {
 	return true;
 }
 
+// The console variables exist yet. Any one of them answers that: a single variable a CS2 update
+// removed must not hold back what the others are still owed.
+bool AnyCvarReadable() {
+	for (const LookCvar& c : g_cvars)
+		if (!ReadCvarText(c.name).empty()) return true;
+	return false;
+}
+
 // True once every variable reads the viewer's value the last restore wrote.
 bool RestoreLanded() {
 	for (const LookCvar& c : g_cvars)
@@ -161,7 +169,7 @@ void GameplayHudLook_RunFrame(bool inGameViewShown) {
 	// Once per session: values an earlier session still owes the viewer (it quit or crashed with the
 	// In-game view up). Put back now unless the view is about to come up again, which keeps them.
 	static bool s_startupChecked = false;
-	if (!s_startupChecked && !ReadCvarText(g_cvars[0].name).empty()) { // once the console variables exist
+	if (!s_startupChecked && AnyCvarReadable()) { // once the console variables exist
 		s_startupChecked = true;
 		if (!inGameViewShown && LoadOwed()) {
 			MvmDebugLog_LinefAlways("hud.gameplay", "an earlier session left the player values in CS2; restoring the viewer's (%s)",
