@@ -11,50 +11,50 @@ R"CFJS(
     // The master switch and Reset live in the card HEADER (Docs/panorama/panorama_ui_guide.md): that is what lets a shut
     // card still say what it is, be switched off, and be reset without opening it. Both return the
     // same handles their in-body predecessors did, so the render hook below is unchanged.
-    var svSec = section(pageCamera, 'SMOOTH VIEW', true, false, 'config.section.smoothview', '#80bdffff');
+    var svSec = section(pageCamera, T('SMOOTH VIEW'), true, false, 'config.section.smoothview', '#80bdffff');
     var svReset = svSec.__headerReset(
       ['mirv_filmmaker smoothview reset', 'mirv_filmmaker fisheye off'], 'cam.smoothview');
     var svToggle = svSec.__headerPill(
       function () { cmd('mirv_filmmaker smoothview toggle'); },
-      'Adds breathing, strafe tilt, and movement effects.');
+      T('Adds breathing, strafe tilt, and movement effects.'));
 
     // The old Effects page held only three switches, so they are a CHIP ROW at the top of the
     // card now (Docs/features/filmmaker_config_panel.md): visible whichever page is open, and one fewer tab to look under.
-    subHead(svSec, 'View');
-    var svFalling = togglePill(svSec, 'Fall pitch',
-      'Pitches the camera during a fall.',
+    subHead(svSec, T('View'));
+    var svFalling = togglePill(svSec, T('Fall pitch'),
+      T('Pitches the camera during a fall.'),
       function () { cmd('mirv_filmmaker smoothview falling toggle'); });
-    var svJumping = togglePill(svSec, 'Jump kick',
-      'Kicks the camera on take-off and landing.',
+    var svJumping = togglePill(svSec, T('Jump kick'),
+      T('Kicks the camera on take-off and landing.'),
       function () { cmd('mirv_filmmaker smoothview jumping toggle'); });
     // Fisheye is its own D3D pass with its own command; it lives here because it is a camera LOOK.
-    var fisheyeBtn = togglePill(svSec, 'Fisheye Lens',
-      'Barrel-distortion wide-angle lens pass.',
+    var fisheyeBtn = togglePill(svSec, T('Fisheye Lens'),
+      T('Barrel-distortion wide-angle lens pass.'),
       function () { cmd('mirv_filmmaker fisheye toggle'); });
 
     // ONE page, grouped (2026-10 sidebar cleanup): thirteen rows fit the pane without paging.
-    var svPageBreathing = svSec.__group('Breathing');
-    var svPageTilt = svSec.__group('Tilt');
+    var svPageBreathing = svSec.__group(T('Breathing'));
+    var svPageTilt = svSec.__group(T('Tilt'));
 
     // ---- BREATHING ----
-    var svHealthSway = togglePill(svPageBreathing, 'Health Sway',
-      'Breathing gets heavier as health drops.',
+    var svHealthSway = togglePill(svPageBreathing, T('Health Sway'),
+      T('Breathing gets heavier as health drops.'),
       function () { cmd('mirv_filmmaker smoothview healthSway toggle'); });
-    var svBreathX = sliderRow(svPageBreathing, { label: 'Freq X', tip: 'Speed of the side-to-side half of the idle breathing figure-8.', cmd: 'mirv_filmmaker smoothview breathX', min: 0.1, max: 2, decimals: 2, unit: 'x' });
-    var svBreathY = sliderRow(svPageBreathing, { label: 'Freq Y', tip: 'Speed of the up-and-down half of the idle breathing figure-8.', cmd: 'mirv_filmmaker smoothview breathY', min: 0.1, max: 2, decimals: 2, unit: 'x' });
-    var svStandAmp = sliderRow(svPageBreathing, { label: 'Stand Amp', tip: 'Size of the breathing sway while standing still, in degrees.', cmd: 'mirv_filmmaker smoothview standAmp', min: 0, max: 2, decimals: 2, unit: ' deg' });
-    var svWalkAmp = sliderRow(svPageBreathing, { label: 'Walk Amp', tip: 'Size of the breathing sway while walking, in degrees.', cmd: 'mirv_filmmaker smoothview walkAmp', min: 0, max: 2, decimals: 2, unit: ' deg' });
-    var svRunAmp = sliderRow(svPageBreathing, { label: 'Run Amp', tip: 'Size of the breathing sway while running, in degrees.', cmd: 'mirv_filmmaker smoothview runAmp', min: 0, max: 2, decimals: 2, unit: ' deg' });
+    var svBreathX = sliderRow(svPageBreathing, { label: T('Freq X'), tip: T('Speed of the side-to-side half of the idle breathing figure-8.'), cmd: 'mirv_filmmaker smoothview breathX', min: 0.1, max: 2, decimals: 2, unit: 'x' });
+    var svBreathY = sliderRow(svPageBreathing, { label: T('Freq Y'), tip: T('Speed of the up-and-down half of the idle breathing figure-8.'), cmd: 'mirv_filmmaker smoothview breathY', min: 0.1, max: 2, decimals: 2, unit: 'x' });
+    var svStandAmp = sliderRow(svPageBreathing, { label: T('Stand Amp'), tip: T('Size of the breathing sway while standing still, in degrees.'), cmd: 'mirv_filmmaker smoothview standAmp', min: 0, max: 2, decimals: 2, unit: ' deg' });
+    var svWalkAmp = sliderRow(svPageBreathing, { label: T('Walk Amp'), tip: T('Size of the breathing sway while walking, in degrees.'), cmd: 'mirv_filmmaker smoothview walkAmp', min: 0, max: 2, decimals: 2, unit: ' deg' });
+    var svRunAmp = sliderRow(svPageBreathing, { label: T('Run Amp'), tip: T('Size of the breathing sway while running, in degrees.'), cmd: 'mirv_filmmaker smoothview runAmp', min: 0, max: 2, decimals: 2, unit: ' deg' });
 
     // ---- TILT ----
-    var svTiltEnabled = togglePill(svPageTilt, 'Strafe Tilt',
-      'Leans the camera into strafing movement.',
+    var svTiltEnabled = togglePill(svPageTilt, T('Strafe Tilt'),
+      T('Leans the camera into strafing movement.'),
       function () { cmd('mirv_filmmaker smoothview tiltEnabled toggle'); });
-    var svTiltInv = togglePill(svPageTilt, 'Reverse tilt',
-      'Leans away from the movement instead of into it.',
+    var svTiltInv = togglePill(svPageTilt, T('Reverse tilt'),
+      T('Leans away from the movement instead of into it.'),
       function () { cmd('mirv_filmmaker smoothview tiltInv toggle'); });
-    var svTilt = sliderRow(svPageTilt, { label: 'Tilt Angle', tip: 'How far the view leans into a strafe. 0 keeps the horizon level.', cmd: 'mirv_filmmaker smoothview tilt', min: 0, max: 60, unit: '' });
-    var svTiltSpeed = sliderRow(svPageTilt, { label: 'Tilt Speed', tip: 'How quickly the lean reaches full angle and returns. Higher is snappier.', cmd: 'mirv_filmmaker smoothview tiltSpeed',
+    var svTilt = sliderRow(svPageTilt, { label: T('Tilt Angle'), tip: T('How far the view leans into a strafe. 0 keeps the horizon level.'), cmd: 'mirv_filmmaker smoothview tilt', min: 0, max: 60, unit: '' });
+    var svTiltSpeed = sliderRow(svPageTilt, { label: T('Tilt Speed'), tip: T('How quickly the lean reaches full angle and returns. Higher is snappier.'), cmd: 'mirv_filmmaker smoothview tiltSpeed',
       min: 0.5, max: 30, decimals: 1, unit: 'x' });
 
     renderHooks.push(function (st) {
@@ -79,58 +79,58 @@ R"CFJS(
 )CFJS"
 R"CFJS(
     // ===================== HANDHELD ======================================
-    var hhSec = section(pageCamera, 'HANDHELD CAMERA', true, false, 'config.section.handheld', '#80bdffff');
+    var hhSec = section(pageCamera, T('HANDHELD CAMERA'), true, false, 'config.section.handheld', '#80bdffff');
     var hhReset = hhSec.__headerReset(['mirv_filmmaker handheld reset quiet'], 'cam.handheld');
     var hhToggle = hhSec.__headerPill(
       function () { cmd('mirv_filmmaker handheld toggle'); },
-      'Adds natural handheld camera movement.');
-    subHead(hhSec, 'General');
-    var hhVmToggle = togglePill(hhSec, 'Decouple Viewmodel',
-      'Keeps the weapon independent from handheld movement.',
+      T('Adds natural handheld camera movement.'));
+    subHead(hhSec, T('General'));
+    var hhVmToggle = togglePill(hhSec, T('Decouple Viewmodel'),
+      T('Keeps the weapon independent from handheld movement.'),
       function () { cmd('mirv_filmmaker handheld viewmodel toggle'); });
-    var hhCenterLockToggle = togglePill(hhSec, 'Center Lock',
-      'Keeps recorded aim centered while the camera still moves.',
+    var hhCenterLockToggle = togglePill(hhSec, T('Center Lock'),
+      T('Keeps recorded aim centered while the camera still moves.'),
       function () { cmd('mirv_filmmaker handheld centerlock toggle'); });
-    var hhCenterLock = sliderRow(hhSec, { label: 'Lock Strength', tip: 'How strongly the recorded aim is pulled back to screen centre, so added motion never hides the action.',
+    var hhCenterLock = sliderRow(hhSec, { label: T('Lock Strength'), tip: T('How strongly the recorded aim is pulled back to screen centre, so added motion never hides the action.'),
       cmd: 'mirv_filmmaker handheld centerlockpct', min: 0, max: 100 });
 
-    var hhPageMovement = hhSec.__group('Movement');
-    var hhPageCurves = hhSec.__group('Curves');
-    var hhPageDetail = hhSec.__group('Detail');
+    var hhPageMovement = hhSec.__group(T('Movement'));
+    var hhPageCurves = hhSec.__group(T('Curves'));
+    var hhPageDetail = hhSec.__group(T('Detail'));
 
     // ---- MOVEMENT ----
-    var hhDrift = sliderRow(hhPageMovement, { label: 'Drift', tip: 'Slow sway, jitter and tremble, as if someone is holding the camera.', cmd: 'mirv_filmmaker handheld drift', offAtZero: true });
-    var hhDriftDir = sliderRow(hhPageMovement, { label: 'Drift Direction',
-      tip: 'Which way the slow drift leans. Its cycle is longer than most shots, so a clip usually sees only one lean — this picks which.',
+    var hhDrift = sliderRow(hhPageMovement, { label: T('Drift'), tip: T('Slow sway, jitter and tremble, as if someone is holding the camera.'), cmd: 'mirv_filmmaker handheld drift', offAtZero: true });
+    var hhDriftDir = sliderRow(hhPageMovement, { label: T('Drift Direction'),
+      tip: T('Which way the slow drift leans. Its cycle is longer than most shots, so a clip usually sees only one lean — this picks which.'),
       cmd: 'mirv_filmmaker handheld driftdir', min: 0, max: 360, unit: '°' });
-    var hhTilt = sliderRow(hhPageMovement, { label: 'Ambient Tilt', tip: 'A slow lean that wanders while the shot runs.', cmd: 'mirv_filmmaker handheld tilt', offAtZero: true });
-    var hhVariance = sliderRow(hhPageMovement, { label: 'Variance', tip: 'Varies each pass of a motion curve so a looping take stops reading as a loop.', cmd: 'mirv_filmmaker handheld variance', min: 0, max: 100 });
+    var hhTilt = sliderRow(hhPageMovement, { label: T('Ambient Tilt'), tip: T('A slow lean that wanders while the shot runs.'), cmd: 'mirv_filmmaker handheld tilt', offAtZero: true });
+    var hhVariance = sliderRow(hhPageMovement, { label: T('Variance'), tip: T('Varies each pass of a motion curve so a looping take stops reading as a loop.'), cmd: 'mirv_filmmaker handheld variance', min: 0, max: 100 });
     // ---- CURVES ----
-    var hhCurve = sliderRow(hhPageCurves, { label: 'Motion Curves', tip: 'Recorded human camera motion, switching itself between idle, walk and run.', cmd: 'mirv_filmmaker handheld curve', offAtZero: true });
-    var hhSpeed = sliderRow(hhPageCurves, { label: 'Curve Speed', tip: 'Playback speed of those recorded curves. Higher makes the operator seem more restless.', cmd: 'mirv_filmmaker handheld speed', min: 25, max: 300 });
+    var hhCurve = sliderRow(hhPageCurves, { label: T('Motion Curves'), tip: T('Recorded human camera motion, switching itself between idle, walk and run.'), cmd: 'mirv_filmmaker handheld curve', offAtZero: true });
+    var hhSpeed = sliderRow(hhPageCurves, { label: T('Curve Speed'), tip: T('Playback speed of those recorded curves. Higher makes the operator seem more restless.'), cmd: 'mirv_filmmaker handheld speed', min: 25, max: 300 });
     // The third entry is the option's hover explanation, measured from each recorded curve
     // (HandheldCamCurves.cpp): how far it rotates, how fast it shakes, whether it moves position.
     var HH_CURVES = [
-      ['INVESTIGATION','Investigation','Slow, wide wandering of someone searching a room: big drifting turns with a little body sway.'],
-      ['THE_CLOSEUP','The Closeup','A barely-there hold for tight shots: very small, slow wobble and no position drift.'],
-      ['THE_WEDDING','The Wedding','A calm, steady operator: gentle sway, the subtlest of the recorded holds after The Zeek.'],
-      ['WALK_TO_THE_STORE','Walk to the Store','A relaxed walking rhythm: moderate side-to-side sway with a light step bounce.'],
-      ['HANDYCAM_RUN','HandyCam Run','Running with a camcorder: fast, jerky shake with large turns, in a short loop.'],
-      ['OUT_CAR_WINDOW','Out Car Window','Riding in a moving car: mostly up-and-down road bumps with little side-to-side.'],
-      ['BIKE_ON_GRAVEL_2D','Bike On Gravel','Violent, rapid vibration, the strongest curve here: heavy pitch rattle and roll.'],
-      ['SPACESHIP_SHAKE_2D','Spaceship Shake','A constant mid-speed rumble with a rolling tilt, like an engine under the floor.'],
-      ['THE_ZEEK_2D','The Zeek','Almost still: a faint, slow float for shots that should feel alive but not handheld.']
+      ['INVESTIGATION',T('Investigation'),T('Slow, wide wandering of someone searching a room: big drifting turns with a little body sway.')],
+      ['THE_CLOSEUP',T('The Closeup'),T('A barely-there hold for tight shots: very small, slow wobble and no position drift.')],
+      ['THE_WEDDING',T('The Wedding'),T('A calm, steady operator: gentle sway, the subtlest of the recorded holds after The Zeek.')],
+      ['WALK_TO_THE_STORE',T('Walk to the Store'),T('A relaxed walking rhythm: moderate side-to-side sway with a light step bounce.')],
+      ['HANDYCAM_RUN',T('HandyCam Run'),T('Running with a camcorder: fast, jerky shake with large turns, in a short loop.')],
+      ['OUT_CAR_WINDOW',T('Out Car Window'),T('Riding in a moving car: mostly up-and-down road bumps with little side-to-side.')],
+      ['BIKE_ON_GRAVEL_2D',T('Bike On Gravel'),T('Violent, rapid vibration, the strongest curve here: heavy pitch rattle and roll.')],
+      ['SPACESHIP_SHAKE_2D',T('Spaceship Shake'),T('A constant mid-speed rumble with a rolling tilt, like an engine under the floor.')],
+      ['THE_ZEEK_2D',T('The Zeek'),T('Almost still: a faint, slow float for shots that should feel alive but not handheld.')]
     ];
-    subHead(hhPageCurves, 'Curve per movement state');
-    var hhIdle = cycleRow(hhPageCurves, 'Standing', 'mirv_filmmaker handheld preset idle', HH_CURVES,
-      'Which recorded operator curve plays while the subject stands still.');
-    var hhWalk = cycleRow(hhPageCurves, 'Walking', 'mirv_filmmaker handheld preset walk', HH_CURVES,
-      'Which recorded operator curve plays while the subject walks.');
-    var hhRun = cycleRow(hhPageCurves, 'Running', 'mirv_filmmaker handheld preset run', HH_CURVES,
-      'Which recorded operator curve plays while the subject runs.');
+    subHead(hhPageCurves, T('Curve per movement state'));
+    var hhIdle = cycleRow(hhPageCurves, T('Standing'), 'mirv_filmmaker handheld preset idle', HH_CURVES,
+      T('Which recorded operator curve plays while the subject stands still.'));
+    var hhWalk = cycleRow(hhPageCurves, T('Walking'), 'mirv_filmmaker handheld preset walk', HH_CURVES,
+      T('Which recorded operator curve plays while the subject walks.'));
+    var hhRun = cycleRow(hhPageCurves, T('Running'), 'mirv_filmmaker handheld preset run', HH_CURVES,
+      T('Which recorded operator curve plays while the subject runs.'));
     // ---- DETAIL ----
-    var hhRegrip = sliderRow(hhPageDetail, { label: 'Re-grip Fumbles', tip: 'Occasional jolts, as if the operator adjusts their grip.', cmd: 'mirv_filmmaker handheld regrip', offAtZero: true });
-    var hhPeriod = sliderRow(hhPageDetail, { label: 'Fumble Gap', tip: 'Average seconds between those grip adjustments.', cmd: 'mirv_filmmaker handheld period', min: 2, max: 60, unit: 's' });
+    var hhRegrip = sliderRow(hhPageDetail, { label: T('Re-grip Fumbles'), tip: T('Occasional jolts, as if the operator adjusts their grip.'), cmd: 'mirv_filmmaker handheld regrip', offAtZero: true });
+    var hhPeriod = sliderRow(hhPageDetail, { label: T('Fumble Gap'), tip: T('Average seconds between those grip adjustments.'), cmd: 'mirv_filmmaker handheld period', min: 2, max: 60, unit: 's' });
     renderHooks.push(function (st) {
       hhToggle.set(!!st.handheldOn); hhVmToggle.set(!!st.hhVmDecoupled);
       hhCenterLockToggle.set(!!st.hhCenterLockOn); hhCenterLock.sync(st.hhCenterLock);
@@ -149,10 +149,10 @@ R"CFJS(
     // above: that one shakes the SCREEN, this one kicks the GUN itself (MW-style spring
     // punch/rise/roll layered over CS2's own firing animation).
     // Amber edge: this card owns the amber pivot marker, and the edge is what ties the two.
-    var wrSec = section(pageCamera, 'WEAPON RECOIL', true, false, 'config.section.weaponrecoil', '#e8b339ff');
-    var wrTestBtn = wrSec.__headerAction('Test Shot', function () { cmd('mirv_filmmaker weaponrecoil test'); });
+    var wrSec = section(pageCamera, T('WEAPON RECOIL'), true, false, 'config.section.weaponrecoil', '#e8b339ff');
+    var wrTestBtn = wrSec.__headerAction(T('Test Shot'), function () { cmd('mirv_filmmaker weaponrecoil test'); });
     wrSec.__cfgParts = { test: wrTestBtn };
-    attachTip(wrTestBtn, 'Fires one kick using the scope selected below -- the gun in shot when that scope covers it, otherwise a weapon from that category. So a test always exercises the settings you are editing. Shortcut: press T while Config is open.');
+    attachTip(wrTestBtn, T('Fires one kick using the scope selected below -- the gun in shot when that scope covers it, otherwise a weapon from that category. So a test always exercises the settings you are editing. Shortcut: press {0} while Config is open.', K('recoil.test', 'T')));
     // Same split as Weapon Bob: Recoil's own reset covers its tuning and its `pivot` scalar, but
     // not the Forward/Right/Up hinge or the marker orb that sit in this card.
     var wrReset = wrSec.__headerReset(
@@ -161,7 +161,7 @@ R"CFJS(
        'mirv_filmmaker pivotorb recoil off quiet'], 'cam.weaponrecoil');
     var wrToggle = wrSec.__headerPill(
       function () { cmd('mirv_filmmaker weaponrecoil toggle'); },
-      'Punchy procedural gun recoil: the weapon kicks back, the muzzle climbs, then it springs back and settles.');
+      T('Punchy procedural gun recoil: the weapon kicks back, the muzzle climbs, then it springs back and settles.'));
 
     // APPLIES TO and STYLE sit ABOVE the page strip, side by side (Docs/features/filmmaker_config_panel.md): they say WHAT
     // the pages are editing, so they stay visible whichever page is open.
@@ -176,20 +176,20 @@ R"CFJS(
       h.style.textTransform = 'uppercase';
       return c;
     }
-    var wrScopeCol = wrTopCol('Applies to', false);
-    var wrStyleCol = wrTopCol('Style', true);
+    var wrScopeCol = wrTopCol(T('Applies to'), false);
+    var wrStyleCol = wrTopCol(T('Style'), true);
     // Captions match the words the card summary already uses; the keys stay style1/style2.
-    var wrStyleSeg = segmented(wrStyleCol, [['style1', 'Springy'], ['style2', 'Snappy']], '100%',
+    var wrStyleSeg = segmented(wrStyleCol, [['style1', T('Springy')], ['style2', T('Snappy')]], '100%',
       function (k) { wrStyleSeg.sync(k); cmd('mirv_filmmaker weaponrecoil style ' + k + ' quiet'); });
-    attachTip(wrStyleSeg.panel, 'Springy: a heavier punch-led kick that rides up and settles back. '
-      + 'Snappy: a sharper kick that throws the gun wider and rolls it more.');
+    attachTip(wrStyleSeg.panel, T('Springy: a heavier punch-led kick that rides up and settles back. '
+      + 'Snappy: a sharper kick that throws the gun wider and rolls it more.'));
 
     // ---- RECOIL APPLIES TO ----
     // The sliders always edit whichever scope is selected here. Narrower beats broader when a
     // shot matches several (type > slot > all); see WeaponRecoilScope.h.
-    var WR_SLOTS = [['primary', 'Primary'], ['secondary', 'Secondary']];
-    var WR_TYPES = [['pistol', 'Pistols'], ['smg', 'SMGs'], ['rifle', 'Rifles'],
-      ['shotgun', 'Shotguns'], ['sniper', 'Snipers'], ['lmg', 'LMGs']];
+    var WR_SLOTS = [['primary', T('Primary')], ['secondary', T('Secondary')]];
+    var WR_TYPES = [['pistol', T('Pistols')], ['smg', T('SMGs')], ['rifle', T('Rifles')],
+      ['shotgun', T('Shotguns')], ['sniper', T('Snipers')], ['lmg', T('LMGs')]];
     var wrScopeKind = 'all', wrScopeKey = '';
     // The gun in shot, as the engine last reported it, so picking a scope kind can land on the
     // weapon you are actually watching.
@@ -213,7 +213,7 @@ R"CFJS(
       wrScopeSent = { kind: wrScopeKind, key: wrScopeKey }; wrScopeSentAge = 0;
       cmd('mirv_filmmaker weaponrecoil scope ' + wrScopeKind + ' ' + wrScopeKey + ' quiet');
     }
-    var wrScopeSeg = segmented(wrScopeCol, [['all', 'All'], ['slot', 'Slot'], ['type', 'Type']], '100%', function (kind) {
+    var wrScopeSeg = segmented(wrScopeCol, [['all', T('All')], ['slot', T('Slot')], ['type', T('Type')]], '100%', function (kind) {
       wrScopeKind = kind;
       wrScopeKey = (kind === 'all') ? '' : wrDefaultKey(kind);
       wrScopeSeg.sync(kind);
@@ -258,7 +258,7 @@ R"CFJS(
     var wrScopeNote = lbl(wrShared, '', S.hint, 12);
     wrScopeNote.style.marginTop = '6px'; wrScopeNote.style.width = '100%';
     wrScopeNote.style.paddingLeft = UI.line.padH + 'px';
-    var wrScopeClear = wideBtn(wrShared, 'Clear Override', function () {
+    var wrScopeClear = wideBtn(wrShared, T('Clear Override'), function () {
       cmd('mirv_filmmaker weaponrecoil scopeclear');
     }, S.label);
     wrScopeSeg.sync('all');
@@ -274,21 +274,24 @@ R"CFJS(
       wrPresetLoaded = name;
       cmd('mirv_filmmaker weaponrecoil preset load "' + name + '"');
     }, {
-      empty: 'No saved presets yet. Press Save to name the current tuning.',
+      empty: T('No saved presets yet. Press Save to name the current tuning.'),
       onDelete: function (name) { cmd('mirv_filmmaker weaponrecoil preset delete "' + name + '"'); },
-      button: ['Save', function () {
+      button: [T('Save'), function () {
         if (wrPresetFocus && wrPresetBuf) wrPresetSave(); else wrPresetFocusOn();
       }]
     });
+    // The row is registered under its English name (the dropdown automation helper looks it up
+    // by that), so only the caption on screen is translated.
+    if (wrPresetDrop.label) wrPresetDrop.label.text = T('Preset');
     var wrPresetField = wrPresetDrop.field;
     function wrPresetPaint() {
       if (wrPresetFocus) {
-        wrPresetDrop.setText(wrPresetBuf ? (wrPresetBuf + '|') : 'Type a name, press Enter to save', !wrPresetBuf);
+        wrPresetDrop.setText(wrPresetBuf ? (wrPresetBuf + '|') : T('Type a name, press Enter to save'), !wrPresetBuf);
         wrPresetField.style.border = '1px solid ' + S.accent;
         return;
       }
       wrPresetField.style.border = '1px solid #ffffff1f';
-      wrPresetDrop.setText(wrPresetLoaded || (wrPresetIsDefault ? 'Default tuning' : 'Custom tuning'), false);
+      wrPresetDrop.setText(wrPresetLoaded || (wrPresetIsDefault ? T('Default tuning') : T('Custom tuning')), false);
     }
     function configWindowBlur() {
       wrPresetFocus = false;
@@ -359,8 +362,8 @@ R"CFJS(
       items = items || [];
       for (var i = 0; i < items.length; i++) {
         var preset = items[i];
-        var scopeLabel = preset.scope === 'all' ? 'All' :
-          (preset.scope === 'slot' ? 'Slot: ' : 'Type: ') + (preset.key || '');
+        var scopeLabel = preset.scope === 'all' ? T('All') :
+          (preset.scope === 'slot' ? T('Slot: {0}', preset.key || '') : T('Type: {0}', preset.key || ''));
         list.push([preset.name, preset.name + '  ·  ' + scopeLabel]);
       }
       wrPresetDrop.setItems(list);
@@ -369,28 +372,28 @@ R"CFJS(
 
     // Two pages, so neither is a wall of sliders: WEAPON is the gun's own kick, CAMERA SHAKE is
     // how much of that kick reaches the view.
-    var wrPageWeapon = wrSec.__group('Weapon');
-    var wrPageShake = wrSec.__group('Camera Shake');
+    var wrPageWeapon = wrSec.__group(T('Weapon'));
+    var wrPageShake = wrSec.__group(T('Camera Shake'));
 
     // ---- CAMERA SHAKE ----
     // SHARES OF the kick set on the Weapon page, not extra kick: what reaches the screen is
     // (1 - share) * kick on the gun, so raising one makes the weapon look steadier.
-    var wrShakeNote = lbl(wrPageShake, 'Shares of the kick, not extra kick — higher moves the view '
-      + 'and steadies the gun.', S.hint, 12);
+    var wrShakeNote = lbl(wrPageShake, T('Shares of the kick, not extra kick — higher moves the view '
+      + 'and steadies the gun.'), S.hint, 12);
     wrShakeNote.style.width = '100%'; wrShakeNote.style.marginTop = '4px'; wrShakeNote.style.marginBottom = '2px';
     wrShakeNote.style.paddingLeft = UI.line.padH + 'px'; wrShakeNote.style.paddingRight = UI.line.padH + 'px';
-    var wrCamRot = sliderRow(wrPageShake, { label: 'Rotation', tip: 'How much of the muzzle rise and sideways yaw the camera takes. MW sits around 15-30.', cmd: 'mirv_filmmaker weaponrecoil camerarot',
+    var wrCamRot = sliderRow(wrPageShake, { label: T('Rotation'), tip: T('How much of the muzzle rise and sideways yaw the camera takes. MW sits around 15-30.'), cmd: 'mirv_filmmaker weaponrecoil camerarot',
       min: 0, max: 100, unit: '%' });
-    var wrCamPos = sliderRow(wrPageShake, { label: 'Punch', tip: 'How much of the backward kick moves the camera with it. Higher means the view takes the punch and the weapon moves less on screen, not that the punch gets bigger.', cmd: 'mirv_filmmaker weaponrecoil camerapos',
+    var wrCamPos = sliderRow(wrPageShake, { label: T('Punch'), tip: T('How much of the backward kick moves the camera with it. Higher means the view takes the punch and the weapon moves less on screen, not that the punch gets bigger.'), cmd: 'mirv_filmmaker weaponrecoil camerapos',
       min: 0, max: 100, unit: '%' });
-    var wrCamRoll = sliderRow(wrPageShake, { label: 'Barrel Roll', tip: 'How much of the roll around the barrel axis reaches the camera. The first one to lower if the screen feels like it is tipping.', cmd: 'mirv_filmmaker weaponrecoil cameraroll',
+    var wrCamRoll = sliderRow(wrPageShake, { label: T('Barrel Roll'), tip: T('How much of the roll around the barrel axis reaches the camera. The first one to lower if the screen feels like it is tipping.'), cmd: 'mirv_filmmaker weaponrecoil cameraroll',
       min: 0, max: 100, unit: '%' });
 
-    var wrAmount = sliderRow(wrPageWeapon, { label: 'Amount', tip: 'Master strength of the kick on every shot.', cmd: 'mirv_filmmaker weaponrecoil amount', offAtZero: true });
-    var wrPunch = sliderRow(wrPageWeapon, { label: 'Punch', tip: 'How far the gun kicks straight backward per shot. Higher values pull it farther back; it returns to rest without bouncing forward.', cmd: 'mirv_filmmaker weaponrecoil punch', offAtZero: true });
-    var wrRot = sliderRow(wrPageWeapon, { label: 'Rotation', tip: 'Muzzle climb, sideways yaw, and roll around the barrel per shot.', cmd: 'mirv_filmmaker weaponrecoil rotation', offAtZero: true });
-    var wrSnap = sliderRow(wrPageWeapon, { label: 'Snappiness', tip: 'How hard the spring yanks the gun back to rest. Higher is a sharper, faster kick.', cmd: 'mirv_filmmaker weaponrecoil snap', min: 25, max: 400 });
-    var wrRecovery = sliderRow(wrPageWeapon, { label: 'Recovery', tip: 'How firmly the gun springs back. Lower overshoots and wobbles more before settling.', cmd: 'mirv_filmmaker weaponrecoil recovery', min: 25, max: 400 });
+    var wrAmount = sliderRow(wrPageWeapon, { label: T('Amount'), tip: T('Master strength of the kick on every shot.'), cmd: 'mirv_filmmaker weaponrecoil amount', offAtZero: true });
+    var wrPunch = sliderRow(wrPageWeapon, { label: T('Punch'), tip: T('How far the gun kicks straight backward per shot. Higher values pull it farther back; it returns to rest without bouncing forward.'), cmd: 'mirv_filmmaker weaponrecoil punch', offAtZero: true });
+    var wrRot = sliderRow(wrPageWeapon, { label: T('Rotation'), tip: T('Muzzle climb, sideways yaw, and roll around the barrel per shot.'), cmd: 'mirv_filmmaker weaponrecoil rotation', offAtZero: true });
+    var wrSnap = sliderRow(wrPageWeapon, { label: T('Snappiness'), tip: T('How hard the spring yanks the gun back to rest. Higher is a sharper, faster kick.'), cmd: 'mirv_filmmaker weaponrecoil snap', min: 25, max: 400 });
+    var wrRecovery = sliderRow(wrPageWeapon, { label: T('Recovery'), tip: T('How firmly the gun springs back. Lower overshoots and wobbles more before settling.'), cmd: 'mirv_filmmaker weaponrecoil recovery', min: 25, max: 400 });
 )CFJS"
 R"CFJS(
     // ---- PIVOT DRAWER: where the weapon hinges, per weapon ----
@@ -405,7 +408,7 @@ R"CFJS(
     // THE GUN IN SHOT PICKS THE SCOPE, and the other classes are locked: you tune a hinge by
     // watching the weapon swing around it, and there is nothing on screen to judge another
     // class's hinge against. There is deliberately no "All" cell (see WeaponRecoil history).
-    var PV_SCOPES = [['rifle','Rifle'],['smg','SMG'],['pistol','Pistol'],['shotgun','Shotgun'],['sniper','Sniper'],['knife','Knife'],['utility','Utility']];
+    var PV_SCOPES = [['rifle',T('Rifle')],['smg',T('SMG')],['pistol',T('Pistol')],['shotgun',T('Shotgun')],['sniper',T('Sniper')],['knife',T('Knife')],['utility',T('Utility')]];
     var cfgPivotDrawers = {};
     function pivotSection(host, owner, k, orbKey, orbColour) {
       var colour = orbColour === 'amber' ? '#e8b339ff' : '#5fd0c0ff';
@@ -421,7 +424,7 @@ R"CFJS(
       var dot = mk('Panel', head); dot.hittest = false;
       dot.style.width = '8px'; dot.style.height = '8px'; dot.style.borderRadius = '1px';
       dot.style.backgroundColor = colour; dot.style.verticalAlign = 'center'; dot.style.marginRight = '8px';
-      var cap = lbl(head, 'Pivot', S.label, 11); cap.hittest = false;
+      var cap = lbl(head, T('Pivot'), S.label, 11); cap.hittest = false;
       cap.style.textTransform = 'uppercase';
       cap.style.fontWeight = 'bold'; cap.style.letterSpacing = '1.5px';
       cap.style.verticalAlign = 'center'; cap.style.marginRight = '8px';
@@ -444,8 +447,9 @@ R"CFJS(
       var eye = iconBtn('', 14, function () {
         cmd('mirv_filmmaker pivotorb ' + owner + ' toggle quiet');
         if (orbOn) cmd('mirv_filmmaker pivotorb ' + owner + ' hide quiet');
-      }, 'Shows a ' + orbColour + ' marker in the world at the point this effect rotates the weapon around. '
-         + 'Switching it off also hides the marker that flashes after each edit.');
+      }, T('Shows a {0} marker in the world at the point this effect rotates the weapon around. '
+         + 'Switching it off also hides the marker that flashes after each edit.',
+           orbColour === 'amber' ? T('amber') : T('cyan')));
       // The marker icon is DRAWN -- a ring and a dot, both centred by alignment -- not a font
       // glyph: the fallback font put the glyph's dot visibly off-centre in its box.
       eye.__g.visible = false;
@@ -467,7 +471,7 @@ R"CFJS(
       var resetIco = iconBtn('↺', 15, function () {
         cmd('mirv_filmmaker pivot ' + owner + ' reset');
         cmd('mirv_filmmaker pivotorb ' + owner + ' off quiet');
-      }, 'Reset Pivots: puts every weapon class back on its shipped hinge and switches the marker off.');
+      }, T('Reset Pivots: puts every weapon class back on its shipped hinge and switches the marker off.'));
       resetIco.__hoverPaint = function () {
         resetIco.style.backgroundColor = resetIco.__hot ? '#ffffff14' : S.clear;
         resetIco.__g.style.color = resetIco.__hot ? S.value : S.muted;
@@ -513,9 +517,9 @@ R"CFJS(
         h.row.style.height = '28px';
         return h;
       }
-      var fwd = pvSlider('Forward', 'How far in front of the eye the weapon rotates from. Larger swings the muzzle more through a turn. Negative puts the hinge behind the eye, which suits a weapon held at the shoulder.', 'fwd');
-      var right = pvSlider('Right', 'Sideways position of the hinge. Positive is toward the right hand.', 'right');
-      var up = pvSlider('Up', 'Vertical position of the hinge. Negative is below the eye, where a held weapon sits.', 'up');
+      var fwd = pvSlider(T('Forward'), T('How far in front of the eye the weapon rotates from. Larger swings the muzzle more through a turn. Negative puts the hinge behind the eye, which suits a weapon held at the shoulder.'), 'fwd');
+      var right = pvSlider(T('Right'), T('Sideways position of the hinge. Positive is toward the right hand.'), 'right');
+      var up = pvSlider(T('Up'), T('Vertical position of the hinge. Negative is below the eye, where a held weapon sits.'), 'up');
       var last = null;
       function paint() {
         var st = last; if (!st) return;
@@ -537,7 +541,7 @@ R"CFJS(
         var nums = (rowv && rowv.p)
           ? (' · ' + rowv.p[0].toFixed(1) + 'u / ' + rowv.p[1].toFixed(1) + 'u / ' + rowv.p[2].toFixed(1) + 'u') : '';
         var text = liveClass ? (liveName + (gun ? ' (' + gun + ')' : '') + nums)
-                             : 'No weapon in shot';
+                             : T('No weapon in shot');
         if (sum.text !== text) sum.text = text;
       }
       renderHooks.push(function (st) {
@@ -602,19 +606,19 @@ R"CFJS(
       // the sliders move, the card says the scope owns its values, and no shot ever uses them.
       // So the note names the gun in play and says outright when the selected scope does not
       // cover it, instead of leaving that to be inferred from a kick that never changes.
-      var inUse = wrLive ? (' Gun in shot: ' + wrLive.toUpperCase() + '.') : '';
+      var inUse = wrLive ? (' ' + T('Gun in shot: {0}.', wrLive.toUpperCase())) : '';
       var missing = (kind !== 'all') && wrLive && (st.wrScopeCovers === false);
       if (missing) {
-        wrScopeNote.text = 'This scope does not cover the gun in shot (' + wrLive.toUpperCase()
-          + '). Changes here will not show until a matching weapon fires.';
+        wrScopeNote.text = T('This scope does not cover the gun in shot ({0}). '
+          + 'Changes here will not show until a matching weapon fires.', wrLive.toUpperCase());
       } else if (kind === 'all') {
         wrScopeNote.text = (count
-          ? ('All weapons. ' + count + ' override' + (count === 1 ? '' : 's') + ' set.')
-          : 'All weapons.') + inUse;
+          ? TN(count, 'All weapons. {0} override set.', 'All weapons. {0} overrides set.')
+          : T('All weapons.')) + inUse;
       } else {
         wrScopeNote.text = (own
-          ? 'Editing settings that belong to this scope.'
-          : 'Inheriting. Move a slider to give this scope its own settings.') + inUse;
+          ? T('Editing settings that belong to this scope.')
+          : T('Inheriting. Move a slider to give this scope its own settings.')) + inUse;
       }
       wrScopeNote.style.color = missing ? S.accent : S.hint;
       wrScopeClear.visible = (kind !== 'all') && own;
@@ -629,7 +633,7 @@ R"CFJS(
     //
     // This moves only the weapon, so it never sways the whole camera.
     // Cyan edge: this card owns the cyan pivot marker (the recoil card owns the amber one).
-    var wbSec = section(pageCamera, 'WEAPON BOB', true, false, 'config.section.weaponbob', '#5fd0c0ff');
+    var wbSec = section(pageCamera, T('WEAPON BOB'), true, false, 'config.section.weaponbob', '#5fd0c0ff');
     // The hinge sliders and the marker orb are controls on THIS card, but they live in their own
     // modules -- `weaponbob reset` only ever touched Weapon Bob's own nine values, so a moved
     // pivot and a lit orb survived the card's Reset.
@@ -639,28 +643,28 @@ R"CFJS(
        'mirv_filmmaker pivotorb bob off quiet'], 'cam.weaponbob');
     var wbToggle = wbSec.__headerPill(
       function () { cmd('mirv_filmmaker weaponbob toggle'); },
-      'The gun sways as the player moves, lags and rotates behind the aim, and breathes at rest. Moves the weapon, not the view.');
+      T('The gun sways as the player moves, lags and rotates behind the aim, and breathes at rest. Moves the weapon, not the view.'));
 
     // Nine values split into two pages (Docs/features/filmmaker_config_panel.md): WALK is the gait, LOOK is the aim.
-    var wbPageWalk = wbSec.__group('Walk');
-    var wbPageLook = wbSec.__group('Look');
-    var wbAmount = sliderRow(wbPageWalk, { label: 'Amount', tip: 'Master intensity for everything in this card. CS2 adds a little movement of its own underneath.', cmd: 'mirv_filmmaker weaponbob amount',
+    var wbPageWalk = wbSec.__group(T('Walk'));
+    var wbPageLook = wbSec.__group(T('Look'));
+    var wbAmount = sliderRow(wbPageWalk, { label: T('Amount'), tip: T('Master intensity for everything in this card. CS2 adds a little movement of its own underneath.'), cmd: 'mirv_filmmaker weaponbob amount',
       min: 0, max: 150, unit: '%', offAtZero: true });
-    var wbSway = sliderRow(wbPageWalk, { label: 'Sway', tip: 'How far the gun travels: the side-to-side, up-down and in-out motion of the walk cycle.', cmd: 'mirv_filmmaker weaponbob sway',
+    var wbSway = sliderRow(wbPageWalk, { label: T('Sway'), tip: T('How far the gun travels: the side-to-side, up-down and in-out motion of the walk cycle.'), cmd: 'mirv_filmmaker weaponbob sway',
       min: 0, max: 150, unit: '%', offAtZero: true });
-    var wbTilt = sliderRow(wbPageWalk, { label: 'Tilt', tip: 'How much the gun rocks and rolls as it moves. This is most of the character; raise it for a heavier, looser weapon.', cmd: 'mirv_filmmaker weaponbob tilt',
+    var wbTilt = sliderRow(wbPageWalk, { label: T('Tilt'), tip: T('How much the gun rocks and rolls as it moves. This is most of the character; raise it for a heavier, looser weapon.'), cmd: 'mirv_filmmaker weaponbob tilt',
       min: 0, max: 150, unit: '%', offAtZero: true });
-    var wbRate = sliderRow(wbPageWalk, { label: 'Cadence', tip: 'Speed of the walk cycle without changing how far the gun moves. Lower reads as a heavier weapon.', cmd: 'mirv_filmmaker weaponbob rate',
+    var wbRate = sliderRow(wbPageWalk, { label: T('Cadence'), tip: T('Speed of the walk cycle without changing how far the gun moves. Lower reads as a heavier weapon.'), cmd: 'mirv_filmmaker weaponbob rate',
       min: 25, max: 400, unit: '%' });
-    var wbStep = sliderRow(wbPageWalk, { label: 'Step Sync', tip: 'Pulls the cycle onto real footsteps so the gun dips as each foot lands, instead of drifting against them.', cmd: 'mirv_filmmaker weaponbob stepsync',
+    var wbStep = sliderRow(wbPageWalk, { label: T('Step Sync'), tip: T('Pulls the cycle onto real footsteps so the gun dips as each foot lands, instead of drifting against them.'), cmd: 'mirv_filmmaker weaponbob stepsync',
       min: 0, max: 100, unit: '%', offAtZero: true });
-    var wbLook = sliderRow(wbPageLook, { label: 'Look Sway', tip: 'The gun lags and rotates behind the aim as the player looks around, hinged on the weapon rather than the camera.', cmd: 'mirv_filmmaker weaponbob looksway',
+    var wbLook = sliderRow(wbPageLook, { label: T('Look Sway'), tip: T('The gun lags and rotates behind the aim as the player looks around, hinged on the weapon rather than the camera.'), cmd: 'mirv_filmmaker weaponbob looksway',
       min: 0, max: 150, unit: '%', offAtZero: true });
-    var wbInertia = sliderRow(wbPageLook, { label: 'Inertia', tip: 'A slower, heavier overshoot layered on the look sway. Raise it for a weapon that keeps swinging after a turn stops.', cmd: 'mirv_filmmaker weaponbob inertia',
+    var wbInertia = sliderRow(wbPageLook, { label: T('Inertia'), tip: T('A slower, heavier overshoot layered on the look sway. Raise it for a weapon that keeps swinging after a turn stops.'), cmd: 'mirv_filmmaker weaponbob inertia',
       min: 0, max: 150, unit: '%', offAtZero: true });
-    var wbIdle = sliderRow(wbPageLook, { label: 'Idle Breath', tip: 'Slow drift while standing still so the gun is never pinned in place.', cmd: 'mirv_filmmaker weaponbob idle',
+    var wbIdle = sliderRow(wbPageLook, { label: T('Idle Breath'), tip: T('Slow drift while standing still so the gun is never pinned in place.'), cmd: 'mirv_filmmaker weaponbob idle',
       min: 0, max: 150, unit: '%', offAtZero: true });
-    var wbCam = sliderRow(wbPageLook, { label: 'Camera Share', tip: 'How much of the weapon motion the camera also picks up. Keep this low: high values make the whole view move with the gun.', cmd: 'mirv_filmmaker weaponbob camera',
+    var wbCam = sliderRow(wbPageLook, { label: T('Camera Share'), tip: T('How much of the weapon motion the camera also picks up. Keep this low: high values make the whole view move with the gun.'), cmd: 'mirv_filmmaker weaponbob camera',
       min: 0, max: 100, unit: '%', offAtZero: true });
 
     // Weapon Bob's own hinge -- a second, independent copy of the drawer WEAPON RECOIL carries.
@@ -686,9 +690,9 @@ R"CFJS(
     // constructed with. The backend owns the complete tab reset, including lens and pivots.
     var camFooter = footerCard(pageCamera);
     var camKeep = keepToggle(camFooter, 'camera', 'keepCamera',
-      'Smooth View, Handheld, Weapon Bob, recoil, lens effects, Field of view and Viewmodel');
+      T('Smooth View, Handheld, Weapon Bob, recoil, lens effects, Field of view and Viewmodel'));
     var camReset = resetFooter(camFooter, function () {
-      return { label: 'CAMERA', cmds: ['mirv_filmmaker effects reset camera'] };
+      return { label: T('CAMERA'), cmds: ['mirv_filmmaker effects reset camera'] };
     }, 'camera');
 
     // ---- shut-card readouts ----
@@ -701,21 +705,21 @@ R"CFJS(
       // The summary says WHAT THIS CARD IS DOING, in the values you would otherwise open it to
       // read (Docs/panorama/panorama_ui_guide.md). "On" alone was true and useless.
       svSec.__note(st.svOn
-        ? ('Breathing · tilt ' + (st.svTiltEnabled ? Math.round(st.svTilt || 0) : 'off')
-           + ' · effects ' + ((st.svFalling || st.svJumping || st.fisheye) ? 'on' : 'off'))
-        : 'Off');
+        ? (T('Breathing') + ' · ' + (st.svTiltEnabled ? T('tilt {0}', Math.round(st.svTilt || 0)) : T('tilt off'))
+           + ' · ' + ((st.svFalling || st.svJumping || st.fisheye) ? T('effects on') : T('effects off')))
+        : T('Off'));
       hhSec.__note(st.handheldOn
-        ? ('Drift ' + Math.round(st.hhDrift || 0) + '% · curves ' + Math.round(st.hhCurve || 0)
-           + '% · lock ' + Math.round(st.hhCenterLock || 0) + '%')
-        : 'Off');
+        ? (T('Drift {0}%', Math.round(st.hhDrift || 0)) + ' · ' + T('curves {0}%', Math.round(st.hhCurve || 0))
+           + ' · ' + T('lock {0}%', Math.round(st.hhCenterLock || 0)))
+        : T('Off'));
       wrSec.__note(st.wrOn
-        ? (Math.round(st.wrAmount || 0) + '% kick · ' + ((st.wrStyle === 'style2') ? 'snappy' : 'springy')
-           + ' · camera ' + Math.round(st.wrCamRot || 0) + '%')
-        : 'Off');
+        ? (T('{0}% kick', Math.round(st.wrAmount || 0)) + ' · ' + ((st.wrStyle === 'style2') ? T('snappy') : T('springy'))
+           + ' · ' + T('camera {0}%', Math.round(st.wrCamRot || 0)))
+        : T('Off'));
       wbSec.__note(st.wbOn
-        ? (Math.round(st.wbAmount || 0) + '% · sway ' + Math.round(st.wbSway || 0)
-           + '% · camera share ' + Math.round(st.wbCam || 0) + '%')
-        : 'Off');
+        ? (Math.round(st.wbAmount || 0) + '% · ' + T('sway {0}%', Math.round(st.wbSway || 0))
+           + ' · ' + T('camera share {0}%', Math.round(st.wbCam || 0)))
+        : T('Off'));
     });
 )CFJS"
 R"CFJS(
@@ -733,7 +737,7 @@ R"CFJS(
     // Each field is owned separately, so a released axis still falls through to the engine even
     // while the override is on. That is exactly what `set`'s `*` / `-` grammar was built for, so
     // these sliders drive `mirv_viewmodel` directly rather than growing a second command surface.
-    var vmSec = section(pageCamera, 'VIEWMODEL', true, false, 'config.section.viewmodel', '#c9a0ffff');
+    var vmSec = section(pageCamera, T('VIEWMODEL'), true, false, 'config.section.viewmodel', '#c9a0ffff');
     var vmReset = vmSec.__headerReset(['mirv_viewmodel reset', 'mirv_fov default'], 'cam.viewmodel');
 
     // The SHOT's field of view (`mirv_fov`). It lives here because "field of view" is what a
@@ -741,43 +745,43 @@ R"CFJS(
     // many. It is independent of the per-player choice below: it changes the framing, not the
     // weapon, and the game's own FOV returns when the slider is put back to its default.
     var vmCamFov = sliderRow(vmSec, {
-      label: 'Field of view', min: 5, max: 170, decimals: 0, unit: '°',
-      tip: 'The camera’s field of view -- the whole shot, not just the weapon. Whole degrees only; '
+      label: T('Field of view'), min: 5, max: 170, decimals: 0, unit: '°',
+      tip: T('The camera’s field of view -- the whole shot, not just the weapon. Whole degrees only; '
          + '90 is the game’s default. Below ~40 reads as a long lens, above ~120 as a fisheye. '
-         + 'Reset hands the framing back to the game.',
+         + 'Reset hands the framing back to the game.'),
       onChange: function (v) { cmd('mirv_fov ' + v.toFixed(0)); }
     });
 
     // Per-player vs Shared is one choice between two states, so it is a two-cell mode row
     // (Docs/features/filmmaker_config_panel.md) rather than an on/off. Same command either way: `mirv_viewmodel enabled 1`
     // replaces every player's viewmodel with the shared one below, `0` hands it back.
-    var vmPerPlayer = modeRow(vmSec, 'Viewmodel', [['per', 'Per-player'], ['shared', 'Shared']], null,
+    var vmPerPlayer = modeRow(vmSec, T('Viewmodel'), [['per', T('Per-player')], ['shared', T('Shared')]], null,
       function (k) {
         vmPerPlayer.sync(k);
         cmd('mirv_viewmodel enabled ' + (k === 'shared' ? '1' : '0'));
       },
-      'Per-player: every player keeps the viewmodel the game built for them, exactly as the demo '
-      + 'recorded it. Shared: one viewmodel for every player, and the controls below take over.');
+      T('Per-player: every player keeps the viewmodel the game built for them, exactly as the demo '
+      + 'recorded it. Shared: one viewmodel for every player, and the controls below take over.'));
 
     // CINEMATIC ranges, deliberately past CS2's own (FOV 54-68, offsets +/-2.5). The detour
     // writes these AFTER the engine's function returns, and that function is where its clamp
     // lives -- the 68.0 constant HookViewmodel's comment calls out -- so the values go in
     // unclamped. The old limits were this slider's, not the engine's.
-    var vmFov = sliderRow(vmSec, { label: 'Weapon FOV', min: 5, max: 140, decimals: 0, unit: '°',
-      tip: 'Viewmodel field of view -- the WEAPON’s projection only; Field of view above is the shot itself. '
-         + 'Lower pulls the weapon in and makes it read larger; 68 is CS2’s default and its own ceiling.',
+    var vmFov = sliderRow(vmSec, { label: T('Weapon FOV'), min: 5, max: 140, decimals: 0, unit: '°',
+      tip: T('Viewmodel field of view -- the WEAPON’s projection only; Field of view above is the shot itself. '
+         + 'Lower pulls the weapon in and makes it read larger; 68 is CS2’s default and its own ceiling.'),
       onChange: function (v) { cmd('mirv_viewmodel set * * * ' + v.toFixed(0) + ' *'); } });
-    var vmX = sliderRow(vmSec, { label: 'Offset X', min: -25, max: 25, decimals: 2, unit: '',
-      tip: 'Forward and back along the weapon’s own axis. Negative pulls it toward the camera. CS2’s own limit is 2.5.',
+    var vmX = sliderRow(vmSec, { label: T('Offset X'), min: -25, max: 25, decimals: 2, unit: '',
+      tip: T('Forward and back along the weapon’s own axis. Negative pulls it toward the camera. CS2’s own limit is 2.5.'),
       onChange: function (v) { cmd('mirv_viewmodel set ' + v.toFixed(2) + ' * * * *'); } });
-    var vmY = sliderRow(vmSec, { label: 'Offset Y', min: -25, max: 25, decimals: 2, unit: '',
-      tip: 'Side to side. Negative moves the weapon toward the centre of the screen. CS2’s own limit is 2.',
+    var vmY = sliderRow(vmSec, { label: T('Offset Y'), min: -25, max: 25, decimals: 2, unit: '',
+      tip: T('Side to side. Negative moves the weapon toward the centre of the screen. CS2’s own limit is 2.'),
       onChange: function (v) { cmd('mirv_viewmodel set * ' + v.toFixed(2) + ' * * *'); } });
-    var vmZ = sliderRow(vmSec, { label: 'Offset Z', min: -25, max: 25, decimals: 2, unit: '',
-      tip: 'Up and down. Negative drops the weapon lower in frame. CS2’s own limit is 2.',
+    var vmZ = sliderRow(vmSec, { label: T('Offset Z'), min: -25, max: 25, decimals: 2, unit: '',
+      tip: T('Up and down. Negative drops the weapon lower in frame. CS2’s own limit is 2.'),
       onChange: function (v) { cmd('mirv_viewmodel set * * ' + v.toFixed(2) + ' * *'); } });
-    var vmHand = togglePill(vmSec, 'Left-handed',
-      'Mirrors the weapon to the other hand. Part of the shared viewmodel, so it only applies while per-player is off.',
+    var vmHand = togglePill(vmSec, T('Left-handed'),
+      T('Mirrors the weapon to the other hand. Part of the shared viewmodel, so it only applies while per-player is off.'),
       function () { cmd('mirv_viewmodel set * * * * ' + (st.vmLeftHanded ? '0' : '1')); });
     var vmNote = lbl(vmSec, '', S.hint, 12);
     vmNote.hittest = false;
@@ -800,12 +804,12 @@ R"CFJS(
       vmHand.row.style.opacity = perPlayer ? '0.4' : '1';
       vmReset.setDisabled(!!st.viewmodelDefault && !st.camFovOn);
       vmNote.text = perPlayer
-        ? 'Each player keeps their own viewmodel, as recorded.'
-        : 'One viewmodel for every player.';
+        ? T('Each player keeps their own viewmodel, as recorded.')
+        : T('One viewmodel for every player.');
       var fovNote = st.camFovOn ? (Math.round(st.camFov || 90) + '° · ') : '';
       vmSec.__note(fovNote + (perPlayer
-        ? 'Per-player'
-        : ('Shared · weapon FOV ' + Math.round(st.vmFov || 68)
-           + ' · ' + (st.vmLeftHanded ? 'left' : 'right') + '-handed')));
+        ? T('Per-player')
+        : (T('Shared') + ' · ' + T('weapon FOV {0}', Math.round(st.vmFov || 68))
+           + ' · ' + (st.vmLeftHanded ? T('left-handed') : T('right-handed')))));
     });
 )CFJS"

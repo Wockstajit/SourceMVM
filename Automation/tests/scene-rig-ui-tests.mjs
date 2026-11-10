@@ -28,7 +28,7 @@ test('the RIG card is part of the Scene Objects card, under the light and mesh i
   assert.match(envTab, /#include "ConfigHudRigJs.h"\s*\n#include "ConfigHudEnvironmentStateJs.h"/);
   const meshHost = outliner.indexOf("var olMeshHost = mk('Panel', olCard);");
   const rigHost = outliner.indexOf("var olRigHost = mk('Panel', olCard);");
-  const groupDrop = outliner.indexOf("var olGroupDrop = dropdownRow(olCard, 'Group'");
+  const groupDrop = outliner.indexOf("var olGroupDrop = dropdownRow(olCard, T('Group')");
   assert.ok(meshHost >= 0 && meshHost < rigHost && rigHost < groupDrop, 'RIG sits after the inspectors, before Group');
   assert.match(rigJs, /var rigBox = mk\('Panel', olRigHost\);/);
 });
@@ -51,10 +51,10 @@ test('attaching picks a kind, then which one; the parent kinds match the native 
 });
 
 test('switching Animate off with keys asks first; a camera can be looked through', () => {
-  assert.match(rigJs, /if \(r\.keys > 1\) cfgConfirm\('Stop animating\?'/);
+  assert.match(rigJs, /if \(r\.keys > 1\) cfgConfirm\(T\('Stop animating\?'\)/);
   // Go to camera and Look through share a row shown for cameras; both land on the camera's tick.
   assert.match(rigJs, /rigViewActs\.visible = camera;/);
-  assert.match(rigJs, /rigBtn\(rigViewActs, 'Go to camera', function \(\) \{ var o = envSelected\(\); if \(o\) rigCommand\('goto ' \+ o\.id\); \}\);/);
+  assert.match(rigJs, /rigBtn\(rigViewActs, T\('Go to camera'\), function \(\) \{ var o = envSelected\(\); if \(o\) rigCommand\('goto ' \+ o\.id\); \}\);/);
   assert.match(rigCpp, /if \(op == "goto"\) \{[\s\S]{0,300}SeekForCamera\(id, \*l, "go to"\);/);
   assert.match(rigCpp, /if \(on\) SeekForCamera\(id, \*l, "look through"\);/);
   assert.match(rigCpp, /if \(first >= 0\) return \(now >= first - 0\.5 && now <= last \+ 0\.5\) \? -1 : first;/);
@@ -77,9 +77,9 @@ test('a rigged light keeps its turn rows at the top of its card, showing the rig
 });
 
 test('the dock groups an object into Position / Rotation / Field of view and offers Hold', () => {
-  assert.match(graph, /c\.family === 'objects' \? 'OBJECTS'/);
-  assert.match(graph, /\['pos', 'Position', \['x', 'y', 'z'\]/);
-  assert.match(graph, /\['rot', 'Rotation', \['pitch', 'yaw', 'roll'\]/);
+  assert.match(graph, /c\.family === 'objects' \? T\('OBJECTS'\)/);
+  assert.match(graph, /\['pos', T\('Position'\), \['x', 'y', 'z'\]/);
+  assert.match(graph, /\['rot', T\('Rotation'\), \['pitch', 'yaw', 'roll'\]/);
   assert.match(graph, /return stepped\(ch\) \? \['hold', 'hold'\] : \[k\.hin \? 'hold' : sideOf\(k\.cl\), k\.hold \? 'hold' : sideOf\(k\.cr\)\];/);
   assert.match(graph, /if \(stepped\(c\) \|\| a\.hold\) \{/, 'a hold segment draws as a step in GRAPH');
   assert.match(graph, /if \(mode === 'hold'\) domCmd\(dom, 'hold'\);/);
@@ -194,10 +194,10 @@ test('every scene camera and light has its TIMELINE layer with all its settings,
   assert.match(keysCppNow, /for \(int id : SceneRig_TimelineObjects\(\)\) objects\.insert\(id\);/);
   assert.match(keysCppNow, /if \(!live && !always\) return;/);
   assert.match(rigMath, /enum LightChannel : int \{ Intensity = kPoseChannels, Range, Cone, Radius, Width, Height, kObjectChannels \};/);
-  assert.match(graph, /\['intensity', 'Brightness'/);
+  assert.match(graph, /\['intensity', T\('Brightness'\)/);
   assert.match(graph, /else if \(oid && !objectLive\(L\)\) rawCmd\('mirv_filmmaker rig animate ' \+ oid \+ ' on'\);/,
     'the switch of a layer that is not animated yet animates it');
-  assert.match(graph, /\{ id: 'remove', label: 'Delete object'/, 'deleting an object layer removes the object');
+  assert.match(graph, /\{ id: 'remove', label: T\('Delete object'\)/, 'deleting an object layer removes the object');
   assert.match(graph, /rawCmd\('mirv_filmmaker environment add ' \+ id\.substring\(4\)\);/, 'right-click > Add');
   const context = { window: { MvmSceneCatalog: [] } };
   vm.createContext(context);

@@ -26,6 +26,9 @@ namespace Filmmaker {
 
 inline const char* kMovieHudJs = R"MHJS(
 (function () {
+)MHJS"
+#include "LocalizationJs.h"
+R"MHJS(
   try {
     var existing = $('#MovieHudRoot'); if (existing) existing.DeleteAsync(0);
     var existingToast = $('#MvmCamToast'); if (existingToast) existingToast.DeleteAsync(0);
@@ -142,7 +145,7 @@ inline const char* kMovieHudJs = R"MHJS(
 
     // --- small builders -------------------------------------------------
     function mkLabel(parent, color, size) {
-      var l = $.CreatePanel('Label', parent, '', {});
+      var l = mvmLabel(parent, '', {});
       if (color) l.style.color = color;
       if (size) l.style.fontSize = size;
       return l;
@@ -178,6 +181,7 @@ inline const char* kMovieHudJs = R"MHJS(
       row.style.marginBottom = '4px';
       var k = mkLabel(row, S.label); k.text = keyText;
       k.style.width = 'fill-parent-flow(1.0)';
+      k.style.whiteSpace = 'nowrap'; k.style.textOverflow = 'shrink';
       var v = mkLabel(row, S.value);
       v.style.horizontalAlign = 'right';
       v.style.textAlign = 'right';
@@ -245,24 +249,24 @@ R"MHJS(
     cardRight.style.marginRight = S.minSideInset + 'px'; // mirrored to the left inset at runtime
     var bodyRight = cardRight.contentPanel; // crisp (unmasked) content layer
 
-    mkHeader(bodyRight, 'MOVIE DIRECTOR');
+    mkHeader(bodyRight, T('MOVIE DIRECTOR'));
     mkSep(bodyRight);
 
     // ---- live status ---------------------------------------------------
     var secStatus = mkSection(bodyRight);
-    var vMode   = mkKV(secStatus, 'Mode');
-    var vState  = mkKV(secStatus, 'Playback');
-    var vSpeed  = mkKV(secStatus, 'Cam speed');
+    var vMode   = mkKV(secStatus, T('Mode'));
+    var vState  = mkKV(secStatus, T('Playback'));
+    var vSpeed  = mkKV(secStatus, T('Cam speed'));
 
     mkSep(bodyRight);
 
     // ---- camera readout (directly under the director status) ----------
     var secCam = mkSection(bodyRight);
-    mkCaption(secCam, 'CAMERA');
-    var vPos  = mkKV(secCam, 'Pos');
-    var vAng  = mkKV(secCam, 'Ang');
-    var vFov  = mkKV(secCam, 'FOV');
-    var vTT   = mkKV(secCam, 'Tick / Time'); // combined tick + time, one compact line
+    mkCaption(secCam, T('CAMERA'));
+    var vPos  = mkKV(secCam, T('Pos'));
+    var vAng  = mkKV(secCam, T('Ang'));
+    var vFov  = mkKV(secCam, T('FOV'));
+    var vTT   = mkKV(secCam, T('Tick / Time')); // combined tick + time, one compact line
     // Pos/Ang are the numbers the user reads while composing a shot -- keep them the
     // LARGEST values on the card. nowrap so the longer coordinate strings stay on one line.
     [vPos, vAng].forEach(function (v) { v.style.fontSize = '17px'; v.style.whiteSpace = 'nowrap'; });
@@ -389,6 +393,10 @@ R"MHJS(
       if (left < S.minSideInset) left = S.minSideInset;
       // Snap to whole px and only touch the DOM when it actually moves.
       top = Math.round(top); left = Math.round(left);
+      // A radar that exists but is not laid out reports no offsets (NaN) or -FLT_MAX. Writing
+      // such a margin throws, which ended render() before any readout was filled: the card stayed
+      // blank after a rebuild with CONFIG open (measured on a language change). Wait instead.
+      if (!isFinite(top) || !isFinite(left) || Math.abs(top) > 100000 || Math.abs(left) > 100000) return;
       if (top !== lastTop) { cardLeft.style.marginTop = top + 'px'; lastTop = top; }
       if (left !== lastLeft) { cardLeft.style.marginLeft = left + 'px'; lastLeft = left; }
       // Mirror the SAME inset to the director card so left/right spacing is even.
@@ -396,22 +404,22 @@ R"MHJS(
       cardLeft.visible = true; // placed -> safe to show
     }
 
-    mkHeader(bodyLeft, 'CONTROLS');
+    mkHeader(bodyLeft, T('CONTROLS'));
     mkSep(bodyLeft);
     var secControls = mkSection(bodyLeft);
-    mkControl(secControls, 'F8',      'Show / hide this panel');
-    mkControl(secControls, 'Scroll',  'First person / Chase / Free cam');
-    mkControl(secControls, 'Hold click', 'Look around (Chase, Free cam)');
-    mkControl(secControls, '← / →', 'Skip 5s');
-    mkControl(secControls, 'X',       'X-ray on / off');
+    mkControl(secControls, K('hud.hide', 'F8'), T('Show / hide this panel'));
+    mkControl(secControls, T('Scroll'),  T('First person / Chase / Free cam'));
+    mkControl(secControls, T('Hold click'), T('Look around (Chase, Free cam)'));
+    mkControl(secControls, K('demo.back', '←') + ' / ' + K('demo.forward', '→'), T('Skip 5s'));
+    mkControl(secControls, K('xray', 'X'), T('X-ray on / off'));
     // --- camera-marker / dolly path (BO2-style) ---
-    mkControl(secControls, 'K',       'Place camera marker');
-    mkControl(secControls, 'J',       'Play / stop camera path');
-    mkControl(secControls, 'L',       'Delete marker (aim at it)');
-    mkControl(secControls, 'F',       'Edit marker (aim at it)');
+    mkControl(secControls, K('marker.place', 'K'), T('Place camera marker'));
+    mkControl(secControls, K('path.play', 'J'), T('Play / stop camera path'));
+    mkControl(secControls, K('marker.delete', 'L'), T('Delete marker (aim at it)'));
+    mkControl(secControls, K('marker.edit', 'F'), T('Edit marker (aim at it)'));
 
     function f1(n) { return (Math.round(n * 10) / 10).toFixed(1); }
-    function setOnOff(lbl, b) { lbl.text = b ? 'ON' : 'OFF'; lbl.style.color = b ? S.on : S.off; }
+    function setOnOff(lbl, b) { lbl.text = b ? T('ON') : T('OFF'); lbl.style.color = b ? S.on : S.off; }
 
     var hostAttr = root; // state JSON is set on the #MovieHudRoot container by C++
 
@@ -441,7 +449,7 @@ R"MHJS(
     ts.transitionTimingFunction = 'ease-out';
     ts.transitionDuration = '0.2s';
     function toastLabel(size, color, spacing, bold) {
-      var l = $.CreatePanel('Label', toast, '', {});
+      var l = mvmLabel(toast, '', {});
       l.hittest = false;
       l.style.fontSize = size + 'px'; l.style.color = color;
       l.style.letterSpacing = spacing + 'px'; l.style.verticalAlign = 'center';
@@ -479,10 +487,10 @@ R"MHJS(
       toastSeen = a.seq;
       if (!a.on || !a.kind) return;
       if (a.kind === 1) {
-        toastCaption.text = 'CAMERA SPEED';
+        toastCaption.text = T('CAMERA SPEED');
         toastValue.text = trimNumber(a.speed, 3) + 'x';
       } else {
-        toastCaption.text = 'FIELD OF VIEW';
+        toastCaption.text = T('FIELD OF VIEW');
         toastValue.text = (s.fov != null ? Math.round(s.fov) : '-') + '\u00B0';
       }
       // Speed up = faster; FOV wheel-up zooms in (lower FOV), so its arrow follows the number.
@@ -512,9 +520,11 @@ R"MHJS(
 
       positionControlsCard(); // keep the controls card clear of the live minimap
 
-      vMode.text = s.mode || '-';
+      // The mode name arrives from C++ in English (MovieMode::ModeName); translated for display only.
+      var MODE_NAMES = { 'First person': T('First person'), 'Chase cam': T('Chase cam'), 'Free cam': T('Free cam') };
+      vMode.text = MODE_NAMES[s.mode] || s.mode || '-';
       vMode.style.color = s.freecam ? S.accent : S.value;
-      vState.text = s.playing ? (s.paused ? 'Paused' : 'Playing') : 'No demo';
+      vState.text = s.playing ? (s.paused ? T('Paused') : T('Playing')) : T('No demo');
       vState.style.color = s.paused ? S.accent : S.value;
       vSpeed.text = (s.speed != null) ? f1(s.speed) + 'x' : '-';
 

@@ -42,13 +42,23 @@ R"CFJS(
     var dapOpen = false, dapTickOn = false;
     var dapFilter = { source: 'All', stance: 'All', weapon: 'All', area: 'All' };
     var dapPlayersSig = '';
-    var DAP_AREAS = [['All', 'All areas'], ['head', 'Head'], ['neck', 'Neck'], ['torso', 'Torso'],
-      ['leftarm', 'Left arm'], ['rightarm', 'Right arm'], ['leftleg', 'Left leg'], ['rightleg', 'Right leg'],
-      ['explosion', 'Explosion'], ['fire', 'Fire'], ['melee', 'Melee'], ['generic', 'Generic'], ['manual', 'Manual']];
+    var DAP_AREAS = [['All', T('All areas')], ['head', T('Head')], ['neck', T('Neck')], ['torso', T('Torso')],
+      ['leftarm', T('Left arm')], ['rightarm', T('Right arm')], ['leftleg', T('Left leg')], ['rightleg', T('Right leg')],
+      ['explosion', T('Explosion')], ['fire', T('Fire')], ['melee', T('Melee')], ['generic', T('Generic')], ['manual', T('Manual')]];
     function dapAreaName(k) {
       for (var i = 0; i < DAP_AREAS.length; i++) if (DAP_AREAS[i][0] === k) return DAP_AREAS[i][1];
       return k;
     }
+    // The catalog's tag values (DeathAnimations.cpp kSourceNames / kStanceNames / kSideNames /
+    // kWeaponNames), translated where they are shown. Filters and commands keep the English value.
+    var DAP_SOURCE_NAMES = { 'Classic CoD': T('Classic CoD'), 'Extra': T('Extra') };
+    var DAP_STANCE_NAMES = { standing: T('standing'), crouched: T('crouched'), prone: T('prone'), running: T('running') };
+    var DAP_WEAPON_NAMES = { shotgun: T('shotgun'), sniper: T('sniper'), heavy: T('heavy') };
+    var DAP_FROM_NAMES = { any: T('from any'), front: T('from front'), back: T('from back'),
+      left: T('from left'), right: T('from right') };
+    var DAP_HIT_FROM_NAMES = { any: T('hit from any'), front: T('hit from front'), back: T('hit from back'),
+      left: T('hit from left'), right: T('hit from right') };
+    var DAP_KILLS_NAMES = { shotgun: T('shotgun kills'), sniper: T('sniper kills'), heavy: T('heavy kills') };
 
     var dapOverlay = mk('Panel', root);
     dapOverlay.visible = false; dapOverlay.hittest = true;
@@ -68,12 +78,12 @@ R"CFJS(
     var dapHead = mk('Panel', dapCard); dapHead.hittest = false;
     dapHead.style.width = '100%'; dapHead.style.height = '30px';
     dapHead.style.flowChildren = 'right'; dapHead.style.marginBottom = '14px';
-    var dapTitle = lbl(dapHead, 'PER-PLAYER DEATH ANIMATIONS', S.value, 18);
+    var dapTitle = lbl(dapHead, T('PER-PLAYER DEATH ANIMATIONS'), S.value, 18);
     dapTitle.style.fontWeight = 'bold'; dapTitle.style.letterSpacing = '1px';
     dapTitle.style.verticalAlign = 'center'; dapTitle.hittest = false;
     var dapHeadSpace = mk('Panel', dapHead); dapHeadSpace.hittest = false;
     dapHeadSpace.style.width = 'fill-parent-flow(1.0)';
-    var dapClose = btn(dapHead, 'CLOSE', function () { dapShow(false); }, S.label);
+    var dapClose = btn(dapHead, T('CLOSE'), function () { dapShow(false); }, S.label);
     dapClose.style.marginRight = '0px'; dapClose.style.height = '30px';
     dapClose.style.paddingTop = '0px'; dapClose.style.paddingBottom = '0px';
     dapClose.style.paddingLeft = '14px'; dapClose.style.paddingRight = '14px';
@@ -126,10 +136,10 @@ R"CFJS(
 )CFJS"
 R"CFJS(
     // ---- filters: hit area ---------------------------------------------------------------------
-    var dapAreaHead = dapRuleRow(dapColFilters, 'HIT AREA');
+    var dapAreaHead = dapRuleRow(dapColFilters, T('HIT AREA'));
     // CLEAR replaces the old CLEAR FILTERS button. It sits on the rule, which absorbs its width.
     var dapClear = mk('Panel', dapAreaHead);
-    var dapClearL = lbl(dapClear, 'CLEAR', DAP_AC, 11); dapClearL.hittest = false;
+    var dapClearL = lbl(dapClear, T('CLEAR'), DAP_AC, 11); dapClearL.hittest = false;
     dapClearL.style.fontWeight = 'bold'; dapClearL.style.letterSpacing = '1px';
     dapClear.style.verticalAlign = 'center';
     dapPressable(dapClear, function (p) { dapClearL.style.color = p.__hot ? S.value : DAP_AC; }, function () {
@@ -160,13 +170,14 @@ R"CFJS(
       var l = lbl(dapMapRow, text, DAP_CAP, 10); l.hittest = false;
       l.style.fontWeight = 'bold'; l.style.letterSpacing = '1px';
       l.style.width = '12px'; l.style.textAlign = 'center'; l.style.verticalAlign = 'center';
+      l.style.whiteSpace = 'nowrap'; l.style.textOverflow = 'shrink';
       return l;
     }
-    dapSideTag('R');                 // the player faces you: their right is on your left
+    dapSideTag(T('R'));              // the player faces you: their right is on your left
     var dapMap = mk('Panel', dapMapRow); dapMap.hittest = false;
     dapMap.style.width = '140px'; dapMap.style.height = '238px';
     dapMap.style.marginLeft = '10px'; dapMap.style.marginRight = '10px';
-    dapSideTag('L');
+    dapSideTag(T('L'));
     var dapRegions = [];
     for (var dbi = 0; dbi < DAP_BODY.length; dbi++) (function (spec) {
       var p = mk('Panel', dapMap);
@@ -192,7 +203,7 @@ R"CFJS(
     dapAreaLine.style.height = '18px'; dapAreaLine.style.marginTop = '8px';
     var dapAreaVal = lbl(dapAreaLine, '', S.label, 12); dapAreaVal.hittest = false;
     dapAreaVal.style.fontWeight = 'bold'; dapAreaVal.style.verticalAlign = 'center';
-    var dapAreaHint = lbl(dapAreaLine, '· player facing you', DAP_CAP, 11); dapAreaHint.hittest = false;
+    var dapAreaHint = lbl(dapAreaLine, T('· player facing you'), DAP_CAP, 11); dapAreaHint.hittest = false;
     dapAreaHint.style.marginLeft = '6px'; dapAreaHint.style.verticalAlign = 'center';
 
     // The causes that are not a place on the body: a wrapping row of chips with counts. Same area
@@ -233,9 +244,9 @@ R"CFJS(
       for (var k in seg.btns) { seg.btns[k].style.paddingTop = '5px'; seg.btns[k].style.paddingBottom = '5px'; }
       dapSegs[key] = seg;
     }
-    dapSegFilter('SOURCE', 'source', [['All', 'All'], ['MW2019', 'MW2019'], ['Classic CoD', 'Classic CoD'], ['Extra', 'Extra']]);
-    dapSegFilter('STANCE', 'stance', [['All', 'All'], ['standing', 'Standing'], ['crouched', 'Crouched'], ['running', 'Running']]);
-    dapSegFilter('WEAPON', 'weapon', [['All', 'All'], ['any', 'Universal'], ['shotgun', 'Shotgun'], ['heavy', 'Heavy']]);
+    dapSegFilter(T('SOURCE'), 'source', [['All', T('All')], ['MW2019', 'MW2019'], ['Classic CoD', T('Classic CoD')], ['Extra', T('Extra')]]);
+    dapSegFilter(T('STANCE'), 'stance', [['All', T('All')], ['standing', T('Standing')], ['crouched', T('Crouched')], ['running', T('Running')]]);
+    dapSegFilter(T('WEAPON'), 'weapon', [['All', T('All')], ['any', T('Universal')], ['shotgun', T('Shotgun')], ['heavy', T('Heavy')]]);
 
     function dapSetFilter(key, value) {
       if (dapFilter[key] === value) return;
@@ -267,7 +278,7 @@ R"CFJS(
       for (i = 0; i < dapRegions.length; i++) {
         var r = dapRegions[i], n = counts[r.__key] || 0;
         r.__count.text = dapCatalog ? '' + n : '';
-        r.__tipText = dapAreaName(r.__key) + ' · ' + n + (n === 1 ? ' clip' : ' clips');
+        r.__tipText = TN(n, '{1} · {0} clip', '{1} · {0} clips', dapAreaName(r.__key));
         dapPaintRegion(r);
       }
       for (i = 0; i < dapCauseChips.length; i++) {
@@ -368,8 +379,8 @@ R"CFJS(
         if (!c) continue;
         card.__name.text = c[0];
         card.__dur.text = dapSeconds(c[6]) + 's';
-        var tags = [c[2], dapAreaName(c[3]), 'from ' + c[4]];
-        if (c[5] !== 'any') tags.push(c[5]);
+        var tags = [DAP_STANCE_NAMES[c[2]] || c[2], dapAreaName(c[3]), DAP_FROM_NAMES[c[4]] || T('from {0}', c[4])];
+        if (c[5] !== 'any') tags.push(DAP_WEAPON_NAMES[c[5]] || c[5]);
         for (var t = 0; t < card.__tags.length; t++) {
           card.__tags[t].box.visible = t < tags.length;
           card.__tags[t].l.text = tags[t] || '';
@@ -378,9 +389,9 @@ R"CFJS(
       }
       var n = dapFiltered.length;
       dapListEmpty.visible = !n;
-      dapListEmpty.text = !dapCatalog ? 'Loading clips…' : 'No clips match these filters. Clear filters to see all ' + dapCatalog.length + '.';
-      dapCount.text = !dapCatalog ? 'CLIPS' : n ? (dapTop + 1) + '–' + Math.min(n, dapTop + DAP_ROWS) + ' OF ' + n + (n === 1 ? ' CLIP' : ' CLIPS') : '0 CLIPS';
-      dapPage.text = n ? 'Page ' + (Math.floor(dapTop / DAP_ROWS) + 1) + ' / ' + Math.ceil(n / DAP_ROWS) : '';
+      dapListEmpty.text = !dapCatalog ? T('Loading clips…') : T('No clips match these filters. Clear filters to see all {0}.', dapCatalog.length);
+      dapCount.text = !dapCatalog ? T('CLIPS') : n ? TN(n, '{1}–{2} OF {0} CLIP', '{1}–{2} OF {0} CLIPS', dapTop + 1, Math.min(n, dapTop + DAP_ROWS)) : T('0 CLIPS');
+      dapPage.text = n ? T('Page {0} / {1}', Math.floor(dapTop / DAP_ROWS) + 1, Math.ceil(n / DAP_ROWS)) : '';
       setBtnDisabled(dapPrev, dapTop <= 0);
       setBtnDisabled(dapNext, dapTop + DAP_ROWS >= n);
     }
@@ -396,7 +407,7 @@ R"CFJS(
     dapView.style.backgroundColor = 'gradient( radial, 50% 80%, 0% 0%, 70% 70%, from( #1c2534ff ), to( #11151bff ) )';
     dapView.style.border = '1px solid ' + S.tileBorder;
     dapView.style.borderRadius = '4px'; dapView.style.overflow = 'clip';
-    var dapViewMsg = lbl(dapView, 'Select a clip to preview it', S.hint, 13); dapViewMsg.hittest = false;
+    var dapViewMsg = lbl(dapView, T('Select a clip to preview it'), S.hint, 13); dapViewMsg.hittest = false;
     dapViewMsg.style.horizontalAlign = 'center'; dapViewMsg.style.verticalAlign = 'center';
     // Loop progress along the bottom edge: how far through clip + hold the preview is. The C++
     // restarts the clip on every `deathanim view`, so dapViewStart is reset whenever one is sent.
@@ -469,7 +480,7 @@ R"CFJS(
 
     // Fixed-height text lines, so a long clip name or a two-line meta line never moves the assign
     // block.
-    var dapClipTitle = lbl(dapColPreview, 'Select a clip', S.value, 14); dapClipTitle.hittest = false;
+    var dapClipTitle = lbl(dapColPreview, T('Select a clip'), S.value, 14); dapClipTitle.hittest = false;
     dapClipTitle.style.width = '100%'; dapClipTitle.style.height = '19px'; dapClipTitle.style.marginTop = '8px';
     dapClipTitle.style.fontWeight = 'bold'; dapClipTitle.style.whiteSpace = 'nowrap'; dapClipTitle.style.textOverflow = 'ellipsis';
     var dapClipMeta = lbl(dapColPreview, '', S.muted, 11); dapClipMeta.hittest = false;
@@ -478,7 +489,7 @@ R"CFJS(
 )CFJS"
 R"CFJS(
     // ---- assign: T on the left, CT on the right -------------------------------------------------
-    dapCaption(dapColPreview, 'ASSIGN TO', DAP_CAP, 6);
+    dapCaption(dapColPreview, T('ASSIGN TO'), DAP_CAP, 6);
     var dapTeams = mk('Panel', dapColPreview); dapTeams.hittest = false;
     dapTeams.style.width = '100%'; dapTeams.style.flowChildren = 'right'; dapTeams.style.marginTop = '6px';
     function dapTeamColumn(caption, color, gapRight) {
@@ -524,7 +535,7 @@ R"CFJS(
       r.__edge.style.backgroundColor = on ? DAP_AC : (r.__teamColor.substring(0, 7) + '66');
       r.__name.style.color = on ? S.value : S.label;
     }
-    var dapPlayersEmpty = lbl(dapColPreview, 'Players appear here once the demo is playing.', S.hint, 12);
+    var dapPlayersEmpty = lbl(dapColPreview, T('Players appear here once the demo is playing.'), S.hint, 12);
     dapPlayersEmpty.hittest = false; dapPlayersEmpty.style.marginTop = '4px'; dapPlayersEmpty.style.whiteSpace = 'normal';
 
     function dapPlayer() {
@@ -562,7 +573,7 @@ R"CFJS(
     // ASSIGN is the picker's one solid action: blue with dark text, grey when there is nothing to do.
     var dapAssign = mk('Panel', dapColPreview);
     dapAssign.style.width = '100%'; dapAssign.style.height = '40px'; dapAssign.style.borderRadius = '3px';
-    var dapAssignL = lbl(dapAssign, 'ASSIGN', S.value, 12); dapAssignL.hittest = false;
+    var dapAssignL = lbl(dapAssign, T('ASSIGN'), S.value, 12); dapAssignL.hittest = false;
     dapAssignL.style.fontWeight = 'bold'; dapAssignL.style.letterSpacing = '1px';
     dapAssignL.style.horizontalAlign = 'center'; dapAssignL.style.verticalAlign = 'center';
     dapAssignL.style.whiteSpace = 'nowrap'; dapAssignL.style.textOverflow = 'ellipsis'; dapAssignL.style.maxWidth = '96%';
@@ -576,7 +587,7 @@ R"CFJS(
       if (!p || !dapClipName) return;
       cmd('mirv_filmmaker deathanim player ' + p.k + ' ' + dapClipName);
     });
-    var dapAuto = wideBtn(dapColPreview, 'USE AUTOMATIC PICK', function () {
+    var dapAuto = wideBtn(dapColPreview, T('USE AUTOMATIC PICK'), function () {
       var p = dapPlayer();
       if (p) cmd('mirv_filmmaker deathanim player ' + p.k + ' auto');
     }, S.label);
@@ -587,17 +598,17 @@ R"CFJS(
 
     function dapPaintAssign() {
       var p = dapPlayer();
-      dapAssignL.text = p && dapClipName ? 'ASSIGN TO ' + p.n.toUpperCase() : 'ASSIGN';
+      dapAssignL.text = p && dapClipName ? T('ASSIGN TO {0}', p.n.toUpperCase()) : T('ASSIGN');
       var off = !(p && dapClipName) || !!(p && p.c === dapClipName);
       dapAssign.__off = off; dapAssign.hittest = !off;
       if (off) { dapAssign.__hot = false; dapAssign.__down = false; }
       dapPaintAssignBtn(dapAssign);
       setBtnDisabled(dapAuto, !(p && p.c));
-      dapNote.text = !p ? 'Choose a player.'
-        : p.c === dapClipName && p.c ? p.n + ' plays this clip on every death.'
-        : p.c ? p.n + ' plays ' + p.c + '. Stance and weapon rules do not apply.'
-        : !dapClipName ? 'Choose a clip for ' + p.n + '.'
-        : p.n + ' uses the automatic pick.';
+      dapNote.text = !p ? T('Choose a player.')
+        : p.c === dapClipName && p.c ? T('{0} plays this clip on every death.', p.n)
+        : p.c ? T('{0} plays {1}. Stance and weapon rules do not apply.', p.n, p.c)
+        : !dapClipName ? T('Choose a clip for {0}.', p.n)
+        : T('{0} uses the automatic pick.', p.n);
     }
 )CFJS"
 R"CFJS(
@@ -610,8 +621,9 @@ R"CFJS(
       dapClipName = name;
       dapClipTitle.text = name;
       var c = dapClipRow(name), meta = '';
-      if (c) meta = c[1] + ' · ' + c[2] + ' · ' + dapAreaName(c[3]) + ' · hit from ' + c[4]
-        + (c[5] !== 'any' ? ' · ' + c[5] + ' kills' : '') + ' · ' + dapSeconds(c[6]) + ' s';
+      if (c) meta = (DAP_SOURCE_NAMES[c[1]] || c[1]) + ' · ' + (DAP_STANCE_NAMES[c[2]] || c[2]) + ' · ' + dapAreaName(c[3])
+        + ' · ' + (DAP_HIT_FROM_NAMES[c[4]] || T('hit from {0}', c[4]))
+        + (c[5] !== 'any' ? ' · ' + (DAP_KILLS_NAMES[c[5]] || T('{0} kills', c[5])) : '') + ' · ' + dapSeconds(c[6]) + ' s';
       dapClipMeta.text = meta;
       dapViewMsg.visible = false;
       var had = !!dap3d;

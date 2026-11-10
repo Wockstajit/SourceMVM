@@ -20,6 +20,9 @@ namespace Filmmaker {
 inline const char* kDemoBarScrubJs =
 R"DBSJS(
 (function () {
+)DBSJS"
+#include "LocalizationJs.h"
+R"DBSJS(
   try {
     var ctx = $.GetContextPanel();
     var nativeSlider = ctx.FindChildTraverse('Slider');

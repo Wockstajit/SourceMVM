@@ -114,8 +114,13 @@
       el = host.querySelector('[data-pid="' + CSS.escape(want) + '"]');
     } else if (kind === 'label') {
       var norm = function (s) { return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+      // The views name a control by its English caption. With ?lang= the same control carries the
+      // translated caption, so look for that as well.
+      var wantShown = want;
+      try { if (window.$ && window.$.MvmI18n) wantShown = window.$.MvmI18n.t(want); } catch (e) {}
       var labels = [].slice.call(host.querySelectorAll('.pnl')).filter(function (n) {
-        return norm(n.textContent) === norm(want);
+        var shown = norm(n.textContent);
+        return shown === norm(want) || shown === norm(wantShown);
       });
       // Prefer a label that belongs to a CONTROL (an ancestor carries onactivate), then the leaf
       // text panel. Two panels can share a caption -- the Render workspace's HUD tab and the job
@@ -169,6 +174,41 @@
   // --------------------------------------------------------------------------- geometry dump
   // Every laid-out panel with its rect in STAGE coordinates (1920x1080), so two runs can be
   // compared numerically rather than by eye -- and so a fix can be verified without a screenshot.
+  // Every visible text label, in document order: its text, whether the text is wider than the box
+  // it was given (cut off, or shrunk in game), and how many lines it takes. Run once in English
+  // and once with ?lang=, the two lists line up label for label (Automation/i18n/fit-audit.mjs).
+  Compare.textAudit = function () {
+    var host = window.MvmMockup.host(), out = [];
+    [].slice.call(host.querySelectorAll('.pnl-text')).forEach(function (span) {
+      var el = span.parentElement, text = (span.textContent || '').trim();
+      if (!text || !el.getClientRects().length) return;
+      var box = el.getBoundingClientRect();
+      if (box.width < 1 || box.height < 1) return;
+      var cs = getComputedStyle(el);
+      if (cs.visibility === 'hidden' || +cs.opacity === 0) return;
+      var line = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) * 1.2) || 1;
+      var ids = [];
+      for (var a = el; a && a !== host && ids.length < 3; a = a.parentElement) {
+        var pid = a.getAttribute && a.getAttribute('data-pid'); if (pid) ids.unshift(pid);
+      }
+      // Wider than its own box, or (an auto-width caption) wider than the control it sits in.
+      var over = el.scrollWidth > el.clientWidth + 1 ? el.scrollWidth - el.clientWidth : 0;
+      var holder = el.parentElement;
+      if (holder && holder !== host) {
+        var hcs = getComputedStyle(holder), hb = holder.getBoundingClientRect();
+        if (hb.width > 1 && !/auto|scroll/.test(hcs.overflowX)) {
+          var tb = span.getBoundingClientRect();
+          over = Math.max(over, tb.right - hb.right, hb.left - tb.left);
+        }
+      }
+      out.push({ text: text.replace(/\s+/g, ' ').slice(0, 90), where: ids.join(' > '),
+        clip: over > 1 ? Math.round(over) : 0,
+        lines: Math.max(1, Math.round(span.getBoundingClientRect().height / line)),
+        nowrap: cs.whiteSpace === 'nowrap', w: Math.round(box.width), x: Math.round(box.x), y: Math.round(box.y) });
+    });
+    return out;
+  };
+
   Compare.geom = function () {
     var stage = window.MvmMockup.stage();
     var k = window.MvmMockup.stageScale || 1;
@@ -699,6 +739,13 @@
 
     // Let the surface build, then run any requested action and let THAT settle too.
     await whenQuiet(window.MvmMockup.host(), 350, 6000);
+    await steer();
+    if (qs.hold) await new Promise(function (r) { setTimeout(r, Number(qs.hold) || 0); });
+    return finish();
+  })();
+
+  // The view's own steps (commands, clicks, a drag), in the order the address gives them.
+  async function steer() {
     if (qs.precmd) {
       var pres = qs.precmd.split(';');
       for (var pi = 0; pi < pres.length; pi++) {
@@ -745,8 +792,9 @@
       window.MvmMockup.tick(3);
       await whenQuiet(window.MvmMockup.host(), 300, 5000);
     }
-    if (qs.hold) await new Promise(function (r) { setTimeout(r, Number(qs.hold) || 0); });
+  }
 
+  async function finish() {
     // ?geom=1 parks the dump in the DOM, which is how the headless capture gets it back out:
     // chrome --dump-dom needs no devtools protocol driver, so the toolchain stays two scripts.
     if (window.MvmMockup.tick) window.MvmMockup.tick(2); // publish the final state before it is read
@@ -761,6 +809,29 @@
       la.id = 'mvm-layers'; la.style.display = 'none';
       la.textContent = JSON.stringify(Compare.layerAudit());
       document.body.appendChild(la);
+    }
+    if (qs.textaudit) {
+      // ?auditlangs=a,b,c: after the English pass, each language is loaded into the SAME page, the
+      // scripts are rebuilt and the view is steered to again. One browser start per view instead
+      // of one per view and language, which is what makes auditing every language practical.
+      var audit = { english: Compare.textAudit(), langs: {} };
+      var wanted = qs.auditlangs ? qs.auditlangs.split(',') : [];
+      for (var li = 0; li < wanted.length; li++) {
+        try {
+          var res = await fetch('generated/lang/' + wanted[li] + '.json?t=' + Date.now());
+          window.$.MvmI18n.set(wanted[li], await res.json(), wanted[li]);
+          await window.MvmMockup.reload();
+          window.MvmMockup.tick(3);
+          await whenQuiet(window.MvmMockup.host(), 350, 6000);
+          await steer();
+          window.MvmMockup.tick(2);
+          audit.langs[wanted[li]] = Compare.textAudit();
+        } catch (e) { audit.langs[wanted[li]] = { error: String(e) }; }
+      }
+      var ta = document.createElement('pre');
+      ta.id = 'mvm-text'; ta.style.display = 'none';
+      ta.textContent = JSON.stringify(wanted.length ? audit : audit.english);
+      document.body.appendChild(ta);
     }
     if (qs.geom) {
       var pre = document.createElement('pre');
@@ -792,5 +863,5 @@
     Compare.settled = true;
     document.title = document.title + '  [READY]';
     return true;
-  })();
+  }
 })();

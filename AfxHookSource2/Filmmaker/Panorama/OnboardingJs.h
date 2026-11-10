@@ -30,6 +30,9 @@ namespace Filmmaker {
 
 inline const char* kOnboardingJs = R"OBJS(
 (function () {
+)OBJS"
+#include "LocalizationJs.h"
+R"OBJS(
   try {
     var old = $('#MvmOnboardingRoot'); if (old) old.DeleteAsync(0);
     var ctx = $.GetContextPanel();
@@ -58,7 +61,7 @@ inline const char* kOnboardingJs = R"OBJS(
       return p;
     }
     function L(parent, text, color, size) {
-      var l = $.CreatePanel('Label', parent, '');
+      var l = mvmLabel(parent, '');
       l.hittest = false;
       l.style.horizontalAlign = 'left'; l.style.verticalAlign = 'top';
       l.text = text;
@@ -155,7 +158,7 @@ inline const char* kOnboardingJs = R"OBJS(
     chapter.style.marginLeft = '7px'; chapter.style.verticalAlign = 'center';
     var tr = P(top, '');
     tr.style.flowChildren = 'right'; tr.style.horizontalAlign = 'right'; tr.style.verticalAlign = 'center';
-    var chatterL = link(tr, 'Chatter off', function () { cmd('chatter ' + (st.voice ? 'off' : 'on')); });
+    var chatterL = link(tr, T('Chatter off'), function () { cmd('chatter ' + (st.voice ? 'off' : 'on')); });
     chatterL.l.style.fontSize = '12px';
     chatterL.p.style.verticalAlign = 'center';
     var xBtn = P(tr, '');
@@ -198,7 +201,7 @@ inline const char* kOnboardingJs = R"OBJS(
       bb.style.backgroundColor = C.muted;
       beats.push(bb);
     }
-    var statusL = L(status, 'Your turn.', C.muted, 12);
+    var statusL = L(status, T('Your turn.'), C.muted, 12);
     statusL.style.marginLeft = '5px'; statusL.style.verticalAlign = 'center';
     readout.hittest = true;
     readout.SetPanelEvent('onactivate', function () { if (speaking) stopSpeech(); else startSpeech(); });
@@ -252,7 +255,7 @@ R"OBJS(
     fl.style.flowChildren = 'right'; fl.style.verticalAlign = 'center'; fl.style.marginTop = '4px';
     // Back steps one back (from a lesson's first step, back to the opening choices). There is no
     // Restart in the footer: it is one of the close box's choices.
-    var backL = link(fl, 'Back', function () { onBack(); });
+    var backL = link(fl, T('Back'), function () { onBack(); });
     backL.p.style.marginRight = '20px';
     var skipL = link(fl, '', function () { onSkip(); });
     var goB = goldButton(foot, '', function () { onNext(); });
@@ -365,12 +368,12 @@ R"OBJS(
       plan = makePlan(line.body);
       t0 = Date.now(); shown = 0; nextBeat = 0; speaking = true;
       visL.text = '';
-      statusL.text = 'Clippy is talking\u2026';
+      statusL.text = T('Clippy is talking\u2026');
     }
     function stopSpeech() {
       speaking = false; plan = null;
       visL.text = line.body;
-      statusL.text = 'Your turn.';
+      statusL.text = T('Your turn.');
     }
     function tickSpeech(now) {
       if (!speaking || !plan) return REST;
@@ -424,7 +427,7 @@ R"OBJS(
         showLine(EXIT_ASK);
         isFinale = false;
         setOptions(EXIT_ASK.options);
-        chapter.text = r ? '\u00b7 ' + r.name + ' \u00b7 paused' : '\u00b7 Paused';
+        chapter.text = r ? T('\u00b7 {0} \u00b7 paused', r.name) : T('\u00b7 Paused');
         backL.p.visible = false; skipL.p.visible = false; goB.p.visible = false;
         return;
       }
@@ -435,9 +438,9 @@ R"OBJS(
       var step = stepNow(), live = step && ctxOk(step);
       if (!r) setOptions(CHOICES.map(function (c) { return { label: c.label, go: c.route + ' 0' }; }));
       else setOptions(live && step.options ? step.options : null);
-      chapter.text = !r ? '\u00b7 Welcome'
-        : ('\u00b7 ' + r.name + (atEnd ? ' \u00b7 done' : (n > 1 ? ' \u00b7 ' + (st.step + 1) + ' of ' + n : '')));
-      skipL.l.text = !r ? "I'll explore on my own" : (atEnd ? 'Explore on my own' : 'Skip this step');
+      chapter.text = !r ? T('\u00b7 Welcome')
+        : (atEnd ? T('\u00b7 {0} \u00b7 done', r.name) : (n > 1 ? T('\u00b7 {0} \u00b7 {1} of {2}', r.name, st.step + 1, n) : '\u00b7 ' + r.name));
+      skipL.l.text = !r ? T("I'll explore on my own") : (atEnd ? T('Explore on my own') : T('Skip this step'));
       backL.p.visible = !!r;
       goB.p.visible = !!(r && line.action && !(live && step.options));
       goB.l.text = line.action || '';
@@ -595,7 +598,7 @@ R"OBJS(
         root.visible = !!st.on && !st.hidden;
         if (!root.visible) { if (speaking) stopSpeech(); wasHidden = true; return; }
 
-        chatterL.l.text = st.voice ? 'Chatter on' : 'Chatter off';
+        chatterL.l.text = st.voice ? T('Chatter on') : T('Chatter off');
         chatterL.l.style.color = st.voice ? C.gold : C.muted;
 
         var stp = stepNow();

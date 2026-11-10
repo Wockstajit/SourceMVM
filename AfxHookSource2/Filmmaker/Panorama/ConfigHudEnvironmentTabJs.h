@@ -14,13 +14,13 @@ R"CFJS(
     // The `weather` backend, not a climate value: a particle field with its own type, volume and
     // collision. The Detail page below IS climate, because those keys shade the same particles.
     var WXD = {
-      count:  ['Intensity', 0, 100, 0, '%', true, 'Amount of rain, snow or other particles.'],
-      speed:  ['Fall speed', 0, 1500, 0, 'u/s', false, 'How fast they fall.'],
-      size:   ['Particle size', 0.1, 12, 1, '', false, 'Size of each particle.'],
-      windX:  ['Wind X', -500, 500, 0, 'u/s', false, 'Sideways drift of the precipitation.'],
-      windY:  ['Wind Y', -500, 500, 0, 'u/s', false, 'Forward drift of the precipitation.'],
-      radius: ['Field radius', 64, 4096, 0, 'u', false, 'How wide the precipitation volume is.'],
-      height: ['Field height', 64, 4096, 0, 'u', false, 'How tall the precipitation volume is.']
+      count:  [T('Intensity'), 0, 100, 0, '%', true, T('Amount of rain, snow or other particles.')],
+      speed:  [T('Fall speed'), 0, 1500, 0, 'u/s', false, T('How fast they fall.')],
+      size:   [T('Particle size'), 0.1, 12, 1, '', false, T('Size of each particle.')],
+      windX:  [T('Wind X'), -500, 500, 0, 'u/s', false, T('Sideways drift of the precipitation.')],
+      windY:  [T('Wind Y'), -500, 500, 0, 'u/s', false, T('Forward drift of the precipitation.')],
+      radius: [T('Field radius'), 64, 4096, 0, 'u', false, T('How wide the precipitation volume is.')],
+      height: [T('Field height'), 64, 4096, 0, 'u', false, T('How tall the precipitation volume is.')]
     };
     var WX_DEFAULT = { count: 1800, speed: 600, size: 1, windX: 40, windY: 0, radius: 900, height: 900 };
     var envWeatherControls = [];
@@ -132,20 +132,20 @@ R"CFJS(
         envCommand('climate snow ' + m.snow); envCommand('climate wet ' + m.wet);
         envCommand('climate puddles ' + m.puddles); envCommand('climate storm ' + m.storm);
       }
-    }, 'Switches the weather and its wet or snowy ground off together, and puts both back.');
+    }, T('Switches the weather and its wet or snowy ground off together, and puts both back.'));
 
     // ONE page, grouped (2026-10 sidebar cleanup): Weather, Ground and Lightning are twelve rows.
-    var envWxType = envWeatherSec.__group('Weather');
-    var envWeatherModes = modeRow(envWxType, 'Weather',
-      [['clear', 'Clear'], ['rain', 'Rain'], ['snow', 'Snow'], ['ash', 'Ash']], '236px',
+    var envWxType = envWeatherSec.__group(T('Weather'));
+    var envWeatherModes = modeRow(envWxType, T('Weather'),
+      [['clear', T('Clear##weather')], ['rain', T('Rain')], ['snow', T('Snow')], ['ash', T('Ash')]], '236px',
       envChooseWeather,
-      'The precipitation the field emits. Rain and Snow also start wet or snowy ground if the '
-      + 'Ground page is untouched. Clear stops the particles only.', 13);
+      T('The precipitation the field emits. Rain and Snow also start wet or snowy ground if the '
+      + 'Ground page is untouched. Clear stops the particles only.'), 13);
     ws(envWxType, 'count'); ws(envWxType, 'speed');
     var envWindDirection = 0;
     var envWindSpeedControl = sliderRow(envWxType, {
-      label: 'Wind speed', min: 0, max: 500, decimals: 0, unit: 'u/s',
-      tip: 'How strongly the wind pushes the weather.',
+      label: T('Wind speed'), min: 0, max: 500, decimals: 0, unit: 'u/s',
+      tip: T('How strongly the wind pushes the weather.'),
       onChange: function (v) {
         envEnsureEnabled();
         envCommand('weather wind ' + v + ' ' + envWindDirection);
@@ -155,8 +155,8 @@ R"CFJS(
       }
     });
     var envWindDirectionControl = sliderRow(envWxType, {
-      label: 'Wind direction', min: 0, max: 360, decimals: 0, unit: '°',
-      tip: 'Compass direction of the wind.',
+      label: T('Wind direction'), min: 0, max: 360, decimals: 0, unit: '°',
+      tip: T('Compass direction of the wind.'),
       onChange: function (v) {
         var w = envState().weather; envWindDirection = v;
         envEnsureEnabled();
@@ -166,15 +166,15 @@ R"CFJS(
     // Foliage wind: CS2 sways placed trees and grass with the level's wind, and most maps have none,
     // so this adds one (Filmmaker/Props, `props wind`). The trees move while the demo plays.
     var envFoliageWind = sliderRow(envWxType, {
-      label: 'Foliage wind', min: 0, max: 200, decimals: 0, unit: '',
-      tip: 'How hard the wind sways placed trees, plants and grass. 0 leaves them to their own gentle sway. They move while the demo plays.',
+      label: T('Foliage wind'), min: 0, max: 200, decimals: 0, unit: '',
+      tip: T('How hard the wind sways placed trees, plants and grass. 0 leaves them to their own gentle sway. They move while the demo plays.'),
       onChange: function (v) { cmd('mirv_filmmaker props wind ' + v); }
     });
     renderHooks.push(function (st) { if (st && st.props) envFoliageWind.sync(st.props.wind || 0); });
-    var envCoatPage = envWeatherSec.__group('Ground');
+    var envCoatPage = envWeatherSec.__group(T('Ground'));
     cs(envCoatPage, 'wet'); cs(envCoatPage, 'puddles'); cs(envCoatPage, 'snow');
-    var envStormPage = envWeatherSec.__group('Lightning');
-    cw(envStormPage, 'Lightning', 'storm', 'Lightning channels, cloud flashes and illuminated surfaces.');
+    var envStormPage = envWeatherSec.__group(T('Lightning'));
+    cw(envStormPage, T('Lightning'), 'storm', T('Lightning channels, cloud flashes and illuminated surfaces.'));
     cs(envStormPage, 'stormStrength'); cs(envStormPage, 'stormInterval');
 )CFJS"
 #include "ConfigHudHeatmapJs.h"
@@ -190,33 +190,33 @@ R"CFJS(
     // Explanations live on hover (Docs/panorama/panorama_ui_guide.md), so every tile in the inspector carries one.
     // Keyed by the object field rather than repeated at ~35 call sites.
     var OBJ_TIPS = {
-      pitch: 'Rotation about the object’s side axis.',
-      yaw: 'Rotation about the object’s vertical axis.',
-      roll: 'Rotation about the object’s forward axis.',
-      sx: 'Half-width of the prop along X, before rotation.',
-      sy: 'Half-depth of the prop along Y, before rotation.',
-      sz: 'Half-height of the prop along Z, before rotation.',
-      roughness: 'How diffuse the surface is. 0 is a mirror, 1 is fully matte.',
-      metallic: 'Blends between a dielectric and a metal response.',
-      coat: 'Strength of a clear lacquer layer over the base material.',
-      coatRoughness: 'How sharp the clear coat’s own reflections are.',
-      anisotropy: 'Stretches the highlight, as on brushed metal. Negative flips the direction.',
-      emission: 'How much light the prop gives off. Emissive props feed the bounce volume.',
-      normalStrength: 'How strongly the normal map perturbs the surface.',
-      uvScale: 'How many times the texture repeats across the prop.',
-      intensity: 'Brightness of the light.',
-      range: 'How far the light reaches before it falls off to nothing.',
-      cone: 'Spot and area lights: the full angle of the beam.',
-      width: 'Area lights: width of the emitting rectangle.',
-      height: 'Area lights: height of the emitting rectangle.',
-      sourceRadius: 'Softens the light’s shadow. Large values can soften fine blockers away.',
-      patternScale: 'Size of the projected pattern on the surfaces it falls on.',
-      rate: 'How fast the cue repeats, or how fast caustics travel.',
-      amount: 'How far the cue swings from the light’s base intensity.',
-      phase: 'Offsets the cue in time, so two lights do not pulse together.',
-      r: 'Red channel of the object’s colour.',
-      g: 'Green channel of the object’s colour.',
-      b: 'Blue channel of the object’s colour.'
+      pitch: T('Rotation about the object’s side axis.'),
+      yaw: T('Rotation about the object’s vertical axis.'),
+      roll: T('Rotation about the object’s forward axis.'),
+      sx: T('Half-width of the prop along X, before rotation.'),
+      sy: T('Half-depth of the prop along Y, before rotation.'),
+      sz: T('Half-height of the prop along Z, before rotation.'),
+      roughness: T('How diffuse the surface is. 0 is a mirror, 1 is fully matte.'),
+      metallic: T('Blends between a dielectric and a metal response.'),
+      coat: T('Strength of a clear lacquer layer over the base material.'),
+      coatRoughness: T('How sharp the clear coat’s own reflections are.'),
+      anisotropy: T('Stretches the highlight, as on brushed metal. Negative flips the direction.'),
+      emission: T('How much light the prop gives off. Emissive props feed the bounce volume.'),
+      normalStrength: T('How strongly the normal map perturbs the surface.'),
+      uvScale: T('How many times the texture repeats across the prop.'),
+      intensity: T('Brightness of the light.'),
+      range: T('How far the light reaches before it falls off to nothing.'),
+      cone: T('Spot and area lights: the full angle of the beam.'),
+      width: T('Area lights: width of the emitting rectangle.'),
+      height: T('Area lights: height of the emitting rectangle.'),
+      sourceRadius: T('Softens the light’s shadow. Large values can soften fine blockers away.'),
+      patternScale: T('Size of the projected pattern on the surfaces it falls on.'),
+      rate: T('How fast the cue repeats, or how fast caustics travel.'),
+      amount: T('How far the cue swings from the light’s base intensity.'),
+      phase: T('Offsets the cue in time, so two lights do not pulse together.'),
+      r: T('Red channel of the object’s colour.'),
+      g: T('Green channel of the object’s colour.'),
+      b: T('Blue channel of the object’s colour.')
     };
 
     // ===================== SCENE OBJECTS > SELECTED =====================
@@ -248,60 +248,60 @@ R"CFJS(
         envObjectControls[group].push([c, key, host]);
         return c;
       }
-      control('Pitch', 'pitch', -180, 180, 0, '°');
-      control('Yaw', 'yaw', -180, 180, 0, '°');
-      control('Roll', 'roll', -180, 180, 0, '°');
+      control(T('Pitch'), 'pitch', -180, 180, 0, '°');
+      control(T('Yaw'), 'yaw', -180, 180, 0, '°');
+      control(T('Roll'), 'roll', -180, 180, 0, '°');
 )CFJS"
 R"CFJS(
       if (group === 'props') {
-        control('Half width', 'sx', 0.1, 512, 1, 'u');
-        control('Half depth', 'sy', 0.1, 512, 1, 'u');
-        control('Half height', 'sz', 0.1, 512, 1, 'u');
+        control(T('Half width'), 'sx', 0.1, 512, 1, 'u');
+        control(T('Half depth'), 'sy', 0.1, 512, 1, 'u');
+        control(T('Half height'), 'sz', 0.1, 512, 1, 'u');
 
         var cameraVisibility = mk('Panel', inspector);
         cameraVisibility.style.width = '100%'; cameraVisibility.style.flowChildren = 'down';
         inspector.__cameraVisibilitySection = cameraVisibility;
-        inspector.__cameraVisible = modeRow(cameraVisibility, 'Seen by the camera',
-          [['1', 'Visible'], ['0', 'Blocker only']], '236px', function (k) {
+        inspector.__cameraVisible = modeRow(cameraVisibility, T('Seen by the camera'),
+          [['1', T('Visible')], ['0', T('Blocker only')]], '236px', function (k) {
             var o = envSelected(); if (o) envCommand('object ' + o.id + ' cameraVisible ' + k);
-          }, 'A blocker-only prop still blocks and bounces added light without being drawn.', 13);
+          }, T('A blocker-only prop still blocks and bounces added light without being drawn.'), 13);
 
         // A GLB's animations (st.envClips[id]): which one plays, and how fast. Shown only for a
         // mesh that has clips; the buttons are rebuilt when the selected mesh's clips change.
         var animSection = mk('Panel', inspector);
         animSection.style.width = '100%'; animSection.style.flowChildren = 'down';
         inspector.__animSection = animSection;
-        subHead(animSection, 'ANIMATION');
+        subHead(animSection, T('ANIMATION'));
         inspector.__animNote = envNote(animSection, '');
         inspector.__animButtons = mk('Panel', animSection);
         inspector.__animButtons.style.width = '100%'; inspector.__animButtons.style.flowChildren = 'down';
         inspector.__animSig = '';
         inspector.__animSpeed = sliderRow(animSection, {
-          label: 'Speed', min: -4, max: 4, decimals: 2, unit: '\u00d7',
-          tip: 'How fast the clip plays: 1 is as authored, negative plays it backwards. It follows the demo clock, so renders and scrubbing pose it the same way.',
+          label: T('Speed'), min: -4, max: 4, decimals: 2, unit: '\u00d7',
+          tip: T('How fast the clip plays: 1 is as authored, negative plays it backwards. It follows the demo clock, so renders and scrubbing pose it the same way.'),
           onChange: function (v) { var o = envSelected(); if (o) envCommand('object ' + o.id + ' clipSpeed ' + v); }
         });
 
         controlParent = mk('Panel', inspector);
         controlParent.style.width = '100%'; controlParent.style.flowChildren = 'down';
         inspector.__materialSection = controlParent;
-        subHead(controlParent, 'MATERIAL');
-        inspector.__materialEnabled = modeRow(controlParent, 'Shading',
-          [['0', 'Simple'], ['1', 'Material']], '236px', function (k) {
+        subHead(controlParent, T('MATERIAL'));
+        inspector.__materialEnabled = modeRow(controlParent, T('Shading'),
+          [['0', T('Simple')], ['1', T('Material')]], '236px', function (k) {
             var o = envSelected(); if (o) envCommand('object ' + o.id + ' materialEnabled ' + k);
-          }, 'Material shading unlocks roughness, metallic, emission and textures.', 13);
-        control('Roughness', 'roughness', 0.05, 1, 2);
-        control('Metallic', 'metallic', 0, 1, 2);
-        control('Emission', 'emission', 0, 16, 2);
+          }, T('Material shading unlocks roughness, metallic, emission and textures.'), 13);
+        control(T('Roughness'), 'roughness', 0.05, 1, 2);
+        control(T('Metallic'), 'metallic', 0, 1, 2);
+        control(T('Emission'), 'emission', 0, 16, 2);
         inspector.__textureChannel = 'albedo';
         inspector.__textureNote = envNote(controlParent, '');
-        inspector.__textureSlots = modeRow(controlParent, 'Texture slot',
-          [['albedo', 'Color'], ['normal', 'Normal'], ['roughness', 'Roughness']], '236px',
+        inspector.__textureSlots = modeRow(controlParent, T('Texture slot'),
+          [['albedo', T('Color')], ['normal', T('Normal')], ['roughness', T('Roughness')]], '236px',
           function (k) { inspector.__textureChannel = k; inspector.__textureSlots.sync(k); },
-          'Color is sRGB; normal and roughness are linear. Normal maps use the +Y tangent convention.', 12);
+          T('Color is sRGB; normal and roughness are linear. Normal maps use the +Y tangent convention.'), 12);
         inspector.__textureSlots.sync('albedo');
-        actionGroup(controlParent, 'Selected slot', [
-          ['Clear texture', function () {
+        actionGroup(controlParent, T('Selected slot'), [
+          [T('Clear texture'), function () {
             var o = envSelected();
             if (o) envCommand('texture ' + o.id + ' ' + inspector.__textureChannel + ' -');
           }]
@@ -312,33 +312,33 @@ R"CFJS(
         inspector.__textureSig = '';
         controlParent = inspector;
       } else {
-        control('Brightness', 'intensity', 0, 8, 2);
-        control('Range', 'range', 16, 4096, 0, 'u');
-        control('Beam angle', 'cone', 5, 170, 0, '°');
-        control('Emitter width', 'width', 1, 1024, 0, 'u');
-        control('Emitter height', 'height', 1, 1024, 0, 'u');
-        control('Source radius', 'sourceRadius', 0, 64, 1, 'u',
-          'Filters world shadows. Large values can soften fine blockers away.');
+        control(T('Brightness'), 'intensity', 0, 8, 2);
+        control(T('Range'), 'range', 16, 4096, 0, 'u');
+        control(T('Beam angle'), 'cone', 5, 170, 0, '°');
+        control(T('Emitter width'), 'width', 1, 1024, 0, 'u');
+        control(T('Emitter height'), 'height', 1, 1024, 0, 'u');
+        control(T('Source radius'), 'sourceRadius', 0, 64, 1, 'u',
+          T('Filters world shadows. Large values can soften fine blockers away.'));
 
-        inspector.__shadows = modeRow(inspector, 'Dynamic shadows', [['0', 'Off'], ['1', 'On']], '236px',
+        inspector.__shadows = modeRow(inspector, T('Dynamic shadows'), [['0', T('Off')], ['1', T('On')]], '236px',
           function (k) { var o = envSelected(); if (o) envCommand('object ' + o.id + ' shadows ' + k); },
-          'Blocks this light with map geometry and added props. Up to four added lights cast at once.', 13);
+          T('Blocks this light with map geometry and added props. Up to four added lights cast at once.'), 13);
       }
       controlParent = mk('Panel', inspector);
       controlParent.style.width = '100%'; controlParent.style.flowChildren = 'down'; controlParent.style.marginTop = '4px';
-      colorField(controlParent, group === 'lights' ? 'Light color' : 'Object color', function () { var o=envSelected(); return o && {id:o.id,rgb:o.color}; }, function (rgb) {
+      colorField(controlParent, group === 'lights' ? T('Light color') : T('Object color'), function () { var o=envSelected(); return o && {id:o.id,rgb:o.color}; }, function (rgb) {
         var o=envSelected(); if (!o) return;
         ['r','g','b'].forEach(function (key,i) { envCommand('object '+o.id+' '+key+' '+rgb[i]); });
       });
       // The actions: move it (with its arrows in the view), copy it, or remove it.
       var acts = actionRowEnd(inspector, 10);
       acts.style.flowChildren = 'right-wrap';
-      inspector.__place = actionBtn(acts, 'Edit position', function () {
+      inspector.__place = actionBtn(acts, T('Edit position'), function () {
         var o = envSelected(); if (!o) return;
         if (st && st.envEditing) envCommand('edit stop'); else envCommand('edit start ' + o.id);
       });
-      actionBtn(acts, 'Duplicate', function () { var o = envSelected(); if (o) envCommand('duplicate ' + o.id); });
-      olDanger(actionBtn(acts, 'Remove', function () { var o = envSelected(); if (o) envCommand('remove ' + o.id); }));
+      actionBtn(acts, T('Duplicate'), function () { var o = envSelected(); if (o) envCommand('duplicate ' + o.id); });
+      olDanger(actionBtn(acts, T('Remove'), function () { var o = envSelected(); if (o) envCommand('remove ' + o.id); }));
     });
 
 )CFJS"

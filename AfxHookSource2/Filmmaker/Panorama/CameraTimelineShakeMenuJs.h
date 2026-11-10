@@ -44,7 +44,7 @@ R"TLJS(
     }
     function shakeCount() { return (st && st.shakes) ? st.shakes.length : 0; }
     function shakeStyleName(idx) {
-      if (idx == null || idx < 0) return 'None';
+      if (idx == null || idx < 0) return T('None');
       return SHAKE_LABELS[idx] || ('#' + idx);
     }
     function shakeCmd(tail) { cmd('mirv_filmmaker pathshake ' + tail); }
@@ -90,6 +90,7 @@ R"TLJS(
 
       var l = lbl(row, label, S.label, 12);
       l.style.width = '68px'; l.style.verticalAlign = 'center';
+      l.style.whiteSpace = 'nowrap'; l.style.textOverflow = 'shrink';
 
       var dec = btn(row, '◀', function () { onStep(-1); }, S.accent);
       dec.style.width = '26px'; dec.style.paddingLeft = '0px'; dec.style.paddingRight = '0px';
@@ -184,7 +185,7 @@ R"TLJS(
       // --- header: what this is, which key, and the way out ---
       var head = mk('Panel', shakeMenu);
       head.style.flowChildren = 'right'; head.style.width = '100%'; head.style.marginBottom = '14px';
-      var ht = lbl(head, 'KEYFRAME', S.value, 13);
+      var ht = lbl(head, T('KEYFRAME'), S.value, 13);
       ht.style.fontWeight = 'bold'; ht.style.letterSpacing = '1.5px'; ht.style.verticalAlign = 'center';
 
       // The key number as a chip, not a sentence: it is an identifier, and the eye should find it
@@ -211,12 +212,12 @@ R"TLJS(
       var easeHead = mk('Panel', shakeMenu);
       easeHead.style.flowChildren = 'right'; easeHead.style.width = '100%';
       easeHead.style.marginBottom = '7px';
-      var easeCap = lbl(easeHead, 'EASE', S.dim, 10);
+      var easeCap = lbl(easeHead, T('EASE'), S.dim, 10);
       easeCap.style.fontWeight = 'bold'; easeCap.style.letterSpacing = '1.6px';
       easeCap.style.verticalAlign = 'center';
       var easeSpacer = mk('Panel', easeHead); easeSpacer.hittest = false;
       easeSpacer.style.width = 'fill-parent-flow(1.0)'; easeSpacer.style.height = '1px';
-      var easeHint = lbl(easeHead, 'this key only', S.dim, 10);
+      var easeHint = lbl(easeHead, T('this key only'), S.dim, 10);
       easeHint.style.verticalAlign = 'center'; easeHint.style.whiteSpace = 'nowrap';
 
       var easeRow = mk('Panel', shakeMenu);
@@ -231,7 +232,7 @@ R"TLJS(
         b.style.marginLeft = first ? '0px' : '0px';
         b.style.marginRight = '2px';
         shakeRefs.easeBtns[idx] = b;
-      })(ei, ['None', 'In', 'Out', 'In-Out'][ei], ei === 0);
+      })(ei, [T('None'), T('In'), T('Out'), T('In-Out')][ei], ei === 0);
 
       var easeDiv = mk('Panel', shakeMenu); easeDiv.hittest = false;
       easeDiv.style.width = '100%'; easeDiv.style.height = '1px';
@@ -239,12 +240,12 @@ R"TLJS(
       easeDiv.style.backgroundColor = '#ffffff14';
 
       // --- the three shake properties ---
-      shakeRefs.style = shakeRow(shakeMenu, 'Style', 0,
+      shakeRefs.style = shakeRow(shakeMenu, T('Style'), 0,
         function (d) { shakeCmd('style ' + shakeKey + (d > 0 ? ' next' : ' prev')); },
         function () { shakeListOpen = !shakeListOpen; renderShakeMenu(); });
-      shakeRefs.intensity = shakeRow(shakeMenu, 'Intensity', 10,
+      shakeRefs.intensity = shakeRow(shakeMenu, T('Intensity'), 10,
         function (d) { shakeCmd('intensity ' + shakeKey + (d > 0 ? ' next' : ' prev')); }, null);
-      shakeRefs.speed = shakeRow(shakeMenu, 'Speed', 10,
+      shakeRefs.speed = shakeRow(shakeMenu, T('Speed'), 10,
         function (d) { shakeCmd('speed ' + shakeKey + (d > 0 ? ' next' : ' prev')); }, null);
 
       // Scrollable list of every style. Hidden until the style value is clicked -- the arrows are
@@ -275,12 +276,12 @@ R"TLJS(
 
       // Apply to All leads: dialling one keyframe in and pushing it across is the normal way to
       // shake a shot, and it is the only action here that is not destructive.
-      shakeRefs.applyAll = btn(foot, 'Apply to All', function () {
+      shakeRefs.applyAll = btn(foot, T('Apply to All'), function () {
         shakeCmd('applyall ' + shakeKey);
       }, S.accent);
       shakeRefs.applyAll.style.backgroundColor = S.btnOn;
 
-      shakeRefs.remove = btn(foot, 'Remove', function () {
+      shakeRefs.remove = btn(foot, T('Remove'), function () {
         shakeCmd('clear ' + shakeKey);
         closeShakeMenu();
       }, S.value);
@@ -292,7 +293,7 @@ R"TLJS(
       // Remove All is the one irreversible action in the menu, so it sits apart from the pair
       // above, carries the danger colour, and confirms in place rather than firing on one click.
       shakeRefs.removeAllArmed = false;
-      shakeRefs.removeAll = btn(foot, 'Remove All', function () {
+      shakeRefs.removeAll = btn(foot, T('Remove All'), function () {
         if (!shakeRefs.removeAllArmed) { shakeRefs.removeAllArmed = true; renderShakeMenu(); return; }
         shakeRefs.removeAllArmed = false;
         shakeCmd('clearall');
@@ -335,7 +336,7 @@ R"TLJS(
           var h = mk('Panel', shakeListInner);
           h.hittest = false; h.style.width = '100%'; h.style.height = '24px';
           h.style.paddingLeft = '12px'; h.style.marginTop = (i === 0 ? 4 : 10) + 'px';
-          var hd = lbl(h, i === 0 ? 'ESSENTIALS' : 'MORE CAMERA SHAKES', S.hint, 10);
+          var hd = lbl(h, i === 0 ? T('ESSENTIALS') : T('MORE CAMERA SHAKES'), S.hint, 10);
           hd.style.verticalAlign = 'center'; hd.style.letterSpacing = '1.2px';
           hd.style.fontWeight = 'bold';
         }
@@ -396,14 +397,14 @@ R"TLJS(
       if (!st || !st.markers || shakeKey >= st.markers.length) { closeShakeMenu(); return; }
 
       var s = shakeSettingFor(shakeKey);
-      shakeRefs.key.text = 'KEY ' + (shakeKey + 1);
+      shakeRefs.key.text = T('KEY {0}', shakeKey + 1);
       // Light the ease this key actually has. Per-key, straight off the marker -- the selected
       // key's ease is a different value and would be wrong for any key you right-click without
       // selecting first.
       var kEase = (st.markers[shakeKey] && st.markers[shakeKey].ease) || 0;
       for (var eb in shakeRefs.easeBtns) btnSel(shakeRefs.easeBtns[eb], Number(eb) === kEase);
 
-      shakeRefs.style.__val.text = s ? shakeStyleName(s.s) : 'None — press ▶';
+      shakeRefs.style.__val.text = s ? shakeStyleName(s.s) : T('None — press ▶');
       shakeRefs.style.__val.style.color = s ? S.value : S.hint;
 
       // Meters and numbers. Speed is 10-100 in steps of 10, so it fills the same ten segments as
@@ -424,12 +425,12 @@ R"TLJS(
       shakeRefs.removeAll.visible = total > 0;
       shakeRefs.rule.visible = !!s || total > 0;
       if (shakeRefs.removeAllArmed && total > 0) {
-        shakeRefs.removeAll.__lbl.text = 'Remove All — sure?';
+        shakeRefs.removeAll.__lbl.text = T('Remove All — sure?');
         shakeRefs.removeAll.__lbl.style.color = '#ffb3b3ff';
         shakeRefs.removeAll.style.backgroundColor = '#c92a2a33';
       } else {
         shakeRefs.removeAllArmed = false;
-        shakeRefs.removeAll.__lbl.text = 'Remove All (' + total + ')';
+        shakeRefs.removeAll.__lbl.text = T('Remove All ({0})', total);
         shakeRefs.removeAll.__lbl.style.color = '#ff8a8aff';
         shakeRefs.removeAll.style.backgroundColor = S.btnBg;
       }

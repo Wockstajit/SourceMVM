@@ -67,7 +67,7 @@ test("Sun tint amount and mode reach both solar irradiance and glow colour", () 
   assert.match(sun, /SolarIrradiance[\s\S]*ApplyLightTint/);
   assert.match(sun, /g_vColorTint[\s\S]*ApplyLightTint/);
   // Sun is a sub-page of the one LIGHTING card now (Docs/features/filmmaker_config_panel.md).
-  assert.match(lightingUi, /litSec\.__(?:page|group)\('Sun'\)/);
+  assert.match(lightingUi, /litSec\.__(?:page|group)\(T\('Sun'\)\)/);
   assert.match(lightingUi, /world light mode ' \+ \(lightUniform \? 'uniform' : 'filtered'\)/);
   assert.match(lightingUi, /'Color only'/);
   assert.match(lightingUi, /'Filter \/ dim'/);
@@ -85,8 +85,8 @@ test("Environment pages keep lighting and atmosphere responsibilities separate",
   // World tint stays OUT of Lighting and inside Atmosphere -- that split is the point of
   // this test. Both are sub-pages of their card now rather than cards of their own.
   assert.doesNotMatch(lightingUi, /'World tint'/);
-  assert.match(atmosphereUi, /atmosSec = section\(pageEffects, 'ATMOSPHERE'.*atmos\.card/s);
-  assert.match(atmosphereUi, /atmosSec\.__(?:page|group)\('World tint'\)/);
+  assert.match(atmosphereUi, /atmosSec = section\(pageEffects, T\('ATMOSPHERE'\).*atmos\.card/s);
+  assert.match(atmosphereUi, /atmosSec\.__(?:page|group)\(T\('World tint'\)\)/);
   assert.match(atmosphereUi, /'Match sun'/);
   assert.match(atmosphereUi, /lightGrid\.selected === LIGHT_TINTS/);
 });
@@ -122,9 +122,9 @@ test("Skybox settings contain only operator controls, not test-sky shortcuts", (
   assert.doesNotMatch(weatherUi, /Use Aztec|test sky|skyAztecBtn/i);
   assert.doesNotMatch(weatherUi, /bakedShadowToggle|dynamicShadowToggle|Hide sun glow/);
   assert.doesNotMatch(weatherUi, /mirv_sky clouds draw/);
-  assert.match(weatherUi, /subHead\(orientSec, 'APPLIES TO'\)/);
+  assert.match(weatherUi, /subHead\(orientSec, T\('APPLIES TO'\)\)/);
   assert.match(weatherUi, /skyTargetSeg = segmented\(orientSec/);
-  assert.match(weatherUi, /\['sky', 'Skybox'\].*\['fog', 'Fog \/ smoke'\].*\['both', 'Both'\]/);
+  assert.match(weatherUi, /\['sky', T\('Skybox'\)\].*\['fog', T\('Fog \/ smoke'\)\].*\['both', T\('Both'\)\]/);
   assert.match(weatherUi, /world skyorient target sky/);
   assert.match(weatherUi, /world skyorient target fog/);
 });
@@ -148,10 +148,10 @@ test("sun visibility and the engine shadow switch both sit under Sun", () => {
   );
   assert.match(lightingUi, /Hide sun/);
   assert.match(lightingUi, /mirv_filmmaker world sun visible/);
-  assert.match(lightingUi, /litSec = section\(pageEffects, 'LIGHTING'.*light\.card/s);
+  assert.match(lightingUi, /litSec = section\(pageEffects, T\('LIGHTING'\).*light\.card/s);
   // Sun visibility and the engine shadow switch are both on the Sun page: they are two halves of
   // the same thing, and the mod's own shadow-map composite is no longer in the panel at all.
-  assert.match(lightingUi, /shadowsToggle = togglePill\(sunPage, 'Engine shadows'/);
+  assert.match(lightingUi, /shadowsToggle = togglePill\(sunPage, T\('Engine shadows'\)/);
   assert.doesNotMatch(lightingUi, /Shader shadows/);
   assert.match(lightingUi, /mirv_filmmaker world shadows/);
   assert.match(lightingUi, /Bloom size/);

@@ -22,7 +22,9 @@ import path from 'node:path';
 const RAW_OPEN = /R"([A-Za-z0-9_]*)\(/g;
 // A fragment is a *Js.h header or a generated *.inc data file. CameraEditorCosmeticsCatalog.inc is
 // the catalog the Customize modal is built from; skipping it left the browser on the 5-item stub.
-const INCLUDE = /^[ \t]*#include[ \t]+"([A-Za-z0-9_]+(?:Js\.h|\.inc))"[ \t]*\r?$/gm;
+// A script outside Panorama/ (PlayMenu) reaches a shared fragment with one `../Dir/` step. File
+// names are unique across those folders, so the markers below carry the name alone.
+const INCLUDE = /^[ \t]*#include[ \t]+"((?:\.\.\/[A-Za-z0-9_]+\/)?)([A-Za-z0-9_]+(?:Js\.h|\.inc))"[ \t]*\r?$/gm;
 
 function inLineComment(src, idx) {
   const lineStart = src.lastIndexOf('\n', idx - 1) + 1;
@@ -53,7 +55,7 @@ export function tokenize(src, file = '?') {
       tokens.push({ type: 'raw', tag: raw[1], bodyStart, bodyEnd });
       i = bodyEnd + closer.length;
     } else {
-      tokens.push({ type: 'include', name: inc[1] });
+      tokens.push({ type: 'include', name: inc[2], rel: inc[1] });
       i = inc.index + inc[0].length;
     }
   }
@@ -68,6 +70,13 @@ export const INC_OPEN_RE = /\/\* >>> ([A-Za-z0-9_]+(?:Js\.h|\.inc)) \*\//g;
 export const INC_CLOSE_RE = /\/\* <<< ([A-Za-z0-9_]+(?:Js\.h|\.inc)) \*\//g;
 export const TRAILER_RE = /\n?\/\/# sourceURL=mvm\/[A-Za-z0-9_-]+\.js\n?$/;
 
+// Where a header named in a marker lives: beside the surface's own scripts, or in Panorama/ when
+// it is a shared fragment a PlayMenu script included from there.
+export function headerPath(sourceDir, panoDir, file) {
+  const own = path.join(sourceDir, file);
+  return sourceDir === panoDir || fs.existsSync(own) ? own : path.join(panoDir, file);
+}
+
 export function segMarker(file, n) { return `/* @mvm:seg ${file}#${n} */\n`; }
 
 export function newlineOf(text) { return text.includes('\r\n') ? '\r\n' : '\n'; }
@@ -75,7 +84,9 @@ export function newlineOf(text) { return text.includes('\r\n') ? '\r\n' : '\n'; 
 // Flatten one header (recursing into its includes) into the exact string the C++ hands to
 // RunScript, with markers. Bodies are normalised to LF so the generated file has one convention no
 // matter which headers it was stitched from; the applier restores each file's own on the way back.
-export function flatten(panoDir, file, stack = []) {
+// `sharedDir` is where a `../Dir/` include is read from: the Panorama folder, whatever it is called
+// on disk (the sync tests copy it under another name).
+export function flatten(panoDir, file, stack = [], sharedDir = null) {
   const full = path.join(panoDir, file);
   if (stack.includes(file)) throw new Error(`include cycle: ${[...stack, file].join(' -> ')}`);
   if (!fs.existsSync(full)) throw new Error(`missing header: ${full}`);
@@ -89,7 +100,8 @@ export function flatten(panoDir, file, stack = []) {
       out.push(src.slice(t.bodyStart, t.bodyEnd).replace(/\r\n/g, '\n'));
     } else {
       out.push(`/* >>> ${t.name} */`);
-      out.push(flatten(panoDir, t.name, [...stack, file]));
+      const dir = t.rel ? (sharedDir || path.join(panoDir, t.rel)) : panoDir;
+      out.push(flatten(dir, t.name, [...stack, file], sharedDir));
       out.push(`/* <<< ${t.name} */`);
     }
   }

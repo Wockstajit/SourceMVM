@@ -34,9 +34,9 @@ R"EDJS(
     // when its meta.color equals that tier's color, which is the only rarity signal the generated
     // catalog carries per row (it stores color, not tier).
     var RARITY_FILTERS = [
-      { t: 1, s: 'Consumer' }, { t: 2, s: 'Industrial' }, { t: 3, s: 'Mil-Spec' },
-      { t: 4, s: 'Restricted' }, { t: 5, s: 'Classified' }, { t: 6, s: 'Covert' },
-      { t: 7, s: 'Contraband' }
+      { t: 1, s: T('Consumer') }, { t: 2, s: T('Industrial') }, { t: 3, s: T('Mil-Spec') },
+      { t: 4, s: T('Restricted') }, { t: 5, s: T('Classified') }, { t: 6, s: T('Covert') },
+      { t: 7, s: T('Contraband') }
     ];
     function rarTierOf(meta) {
       var c = (meta && meta.color) ? ('' + meta.color).toLowerCase() : '';
@@ -146,7 +146,7 @@ R"EDJS(
     };
     var custItemWear = {};
     var custSearchDisplayGuard = false; // true while WE set a search TextEntry's .text (skip its change handler)
-    var custTargetIndex = -1, custTargetName = 'Player', custTargetTeam = '';
+    var custTargetIndex = -1, custTargetName = T('Player'), custTargetTeam = '';
     var custTargetKey = 'pawn:-1', custActiveWeaponDef = 0, custActiveWeaponSlot = '', custDisplayedLoadoutSig = '';
     var custActiveWeaponPickup = false, custActiveWeaponOwnerSteam = '', custActiveWeaponOwnerName = '';
     var custLoadout = { primary: null, secondary: null, knife: null, gloves: null };
@@ -458,11 +458,12 @@ R"EDJS(
       // model, "› KARAMBIT". Clicking the root goes back.
       function paintCrumb() {
         var inGroup = rec.grouped && !!rec.navGroup;
-        crumbRoot.text = rec.grouped ? (opts.groupLabel || 'All') : (opts.crumb ? opts.crumb() : (opts.caption || slot));
+        crumbRoot.text = rec.grouped ? (opts.groupLabel || T('All')) : (opts.crumb ? opts.crumb() : (opts.caption || slot));
         crumbRoot.style.color = inGroup ? '#8b95a3ff' : S.value;
         crumbSep.visible = inGroup; crumbLeaf.visible = inGroup;
         crumbLeaf.text = inGroup ? rec.navGroup : '';
-        hint.text = 'Search ' + (opts.searchNoun || (opts.crumbNoun ? opts.crumbNoun() : 'finishes'));
+        // The whole placeholder comes from the slot (searchHint), so a translation owns its word order.
+        hint.text = opts.searchHint ? opts.searchHint() : T('Search finishes');
       }
 )EDJS"
 R"EDJS(
@@ -561,8 +562,8 @@ R"EDJS(
       // One MODEL tile in a grouped slot: opens that model's finishes (rec.navGroup).
       function buildNavRow(label, color, sampleMeta, onGo, count, isSel) {
         var t = tileShell(isSel ? hexAlpha(color, '99') : color, !!isSel, label);
-        var noun = (slot === 'agent') ? ' variant' : ' finish';
-        var sub = (count || 0) + noun + ((count === 1) ? '' : (slot === 'agent' ? 's' : 'es')) + ' ›';
+        var sub = (slot === 'agent') ? TN(count || 0, '{0} variant ›', '{0} variants ›')
+                                     : TN(count || 0, '{0} finish ›', '{0} finishes ›');
         t.__nameLbl = tileBody(t, sampleMeta || {}, color, label, sub, isSel ? S.accent : '#8b95a3ff', false);
         t.SetPanelEvent('onactivate', function () { hideTip(); onGo(); });
       }
@@ -617,7 +618,7 @@ R"EDJS(
         if (rec.pendingAt < steps.length) return;
         rec.pending = null;
         if (!tileIdx) {
-          var none = clbl(rec.rows, 'Nothing matches — try a shorter search', '#8b95a3ff', 13);
+          var none = clbl(rec.rows, T('Nothing matches — try a shorter search'), '#8b95a3ff', 13);
           none.hittest = false; none.style.marginTop = '8px'; none.style.marginLeft = '2px';
         }
       }
@@ -662,6 +663,7 @@ R"EDJS(
             var lab = clbl(chip, f.s, RARITY[f.t].c, 11);
             lab.hittest = false; lab.style.width = '100%'; lab.style.textAlign = 'center';
             lab.style.verticalAlign = 'center'; lab.style.fontWeight = 'bold'; lab.style.letterSpacing = '1px';
+            lab.style.whiteSpace = 'nowrap'; lab.style.textOverflow = 'shrink';
             chip.__hot = false;
             chip.__paint = function () {
               var on = !!rec.rarity[f.t];
@@ -850,7 +852,7 @@ R"EDJS(
     var custGrip = custGripDots(custHead);   // the title is the drag handle (custWindowFrame)
     var custTitleWrap = mk('Panel', custHead); custTitleWrap.style.flowChildren = 'right';
     custTitleWrap.style.width = 'fill-parent-flow(1.0)'; custTitleWrap.style.verticalAlign = 'center';
-    var custTitlePrefix = clbl(custTitleWrap, 'Customize player', S.value, TYPE.hero); custTitlePrefix.style.fontWeight = 'bold';
+    var custTitlePrefix = clbl(custTitleWrap, T('Customize player'), S.value, TYPE.hero); custTitlePrefix.style.fontWeight = 'bold';
     custTitlePrefix.style.letterSpacing = '2px'; custTitlePrefix.style.verticalAlign = 'center';
     custTitlePrefix.style.textTransform = 'uppercase';   // casing in the style, copy in natural case
     var custTitleDot = clbl(custTitleWrap, '·', '#6b7480ff', TYPE.hero); custTitleDot.style.verticalAlign = 'center';
@@ -860,7 +862,7 @@ R"EDJS(
     custPlayerBtn.style.borderRadius = '4px'; custPlayerBtn.style.overflow = 'clip';
     var custPlayerEdge = mk('Panel', custPlayerBtn); custPlayerEdge.hittest = false;
     custPlayerEdge.style.width = '3px'; custPlayerEdge.style.height = '100%';
-    var custTitleName = clbl(custPlayerBtn, 'Player', S.accent, TYPE.hero); custTitleName.style.fontWeight = 'bold';
+    var custTitleName = clbl(custPlayerBtn, T('Player'), S.accent, TYPE.hero); custTitleName.style.fontWeight = 'bold';
     custTitleName.style.letterSpacing = '2px'; custTitleName.style.verticalAlign = 'center';
     custTitleName.style.marginLeft = '11px'; custTitleName.hittest = false;
     var custPlayerCaret = clbl(custPlayerBtn, '▾', '#e6eaef', 15); custPlayerCaret.hittest = false;
@@ -880,7 +882,7 @@ R"EDJS(
     custDeadTag.style.height = '22px'; custDeadTag.style.verticalAlign = 'center'; custDeadTag.style.marginLeft = '12px';
     custDeadTag.style.paddingLeft = '8px'; custDeadTag.style.paddingRight = '8px'; custDeadTag.style.borderRadius = '3px';
     custDeadTag.style.backgroundColor = '#ffffff10'; custDeadTag.style.border = '1px solid #ffffff1f';
-    var custDeadTagLbl = clbl(custDeadTag, 'Dead', S.label, 11); custDeadTagLbl.hittest = false;
+    var custDeadTagLbl = clbl(custDeadTag, T('Dead'), S.label, 11); custDeadTagLbl.hittest = false;
     custDeadTagLbl.style.fontWeight = 'bold'; custDeadTagLbl.style.letterSpacing = '1.2px';
     custDeadTagLbl.style.textTransform = 'uppercase'; custDeadTagLbl.style.verticalAlign = 'center';
     // Pickup ownership is header metadata beside the target name, unchanged from before.
@@ -954,7 +956,7 @@ R"EDJS(
     function slotOwnerName(slot) {
       var w = custLoadout[slot];
       if (!w || !w.ownerSteamId) return '';
-      return w.ownerName || ('Player ' + w.ownerSteamId);
+      return w.ownerName || T('Player {0}', w.ownerSteamId);
     }
     function collectPanelText(panel, out, depth) {
       if (!panel || depth > 24) return;
@@ -1047,7 +1049,7 @@ R"EDJS(
     }
     function pickupOwnerName(slot) {
       if (slotPickup(slot)) return slotOwnerName(slot);
-      return custActiveWeaponOwnerName || (custActiveWeaponOwnerSteam ? ('Player ' + custActiveWeaponOwnerSteam) : '');
+      return custActiveWeaponOwnerName || (custActiveWeaponOwnerSteam ? T('Player {0}', custActiveWeaponOwnerSteam) : '');
     }
 )EDJS"
 // Split here: MSVC caps a single raw string literal at ~16380 bytes (C2026). Adjacent
@@ -1082,14 +1084,15 @@ R"EDJS(
         var owner = slotOwnerName(s);
         if (!seenOwners[owner]) { seenOwners[owner] = true; owners.push(owner); }
       }
-      var holder = custTargetName || 'THIS PLAYER';
-      var ownerLoadout = owners.length === 1 ? (owners[0] + '\'S LOADOUT') : (owners.join(' / ') + ' LOADOUTS');
+      var holder = custTargetName || T('THIS PLAYER');
       // Natural case in the string, uppercase in the STYLE (custPickupLbl sets text-transform). These
       // two names come from the demo, and JS toUpperCase() is locale-insensitive and length-changing:
       // German 'ß' becomes 'SS', which grows the string -- and this label is ellipsised at a maxWidth,
       // so uppercasing could itself push a name into truncation. text-transform cases at draw time and
       // leaves the underlying text intact. '’' is the real apostrophe, not the typewriter one.
-      custPickupLbl.text = 'Picked up  ·  changes ' + ownerLoadout + ', not ' + holder + '’s';
+      custPickupLbl.text = owners.length === 1
+        ? T("Picked up  ·  changes {0}'S LOADOUT, not {1}’s", owners[0], holder)
+        : T('Picked up  ·  changes {0} LOADOUTS, not {1}’s', owners.join(' / '), holder);
       custPickupStrip.text = custPickupLbl.text;
       custPickupPlacement(true);
       logPickupState('banner');
@@ -1142,8 +1145,8 @@ R"EDJS(
       return out.length ? out : arr;
     }
     function knifeNameForDef(defIndex, arr) {
-      if (defIndex === 42) return 'Default CT knife';
-      if (defIndex === 59) return 'Default T knife';
+      if (defIndex === 42) return T('Default CT knife');
+      if (defIndex === 59) return T('Default T knife');
       for (var i = 0; i < arr.length; i++) {
         var meta = arr[i][2] || {};
         if ((parseInt(meta.def || 0, 10) || 0) !== defIndex) continue;
@@ -1151,7 +1154,7 @@ R"EDJS(
         var split = label.indexOf(' | ');
         return split > 0 ? label.substring(0, split) : label;
       }
-      return 'Knife #' + defIndex;
+      return T('Knife #{0}', defIndex);
     }
     function knifeOptionsWithCurrentDefault(arr) {
       var w = custLoadout.knife || null;
@@ -1217,8 +1220,17 @@ R"EDJS(
       var raw = (w.preset === 'custom') ? num(w.custom) : preset.value;
       return clampWearForSlot(slot, raw);
     }
+    // The tier's name in the active language. WEAR_PRESETS keeps the English `label` as data; this
+    // is the one place a tier name is put on screen (the readout, the slot row, the " · " suffix).
+    function wearTierName(key) {
+      if (key === 'mw') return T('Minimal Wear');
+      if (key === 'ft') return T('Field-Tested');
+      if (key === 'ww') return T('Well-Worn');
+      if (key === 'bs') return T('Battle-Scarred');
+      return T('Factory New');
+    }
     function wearPresetLabel(slot) {
-      return (WEAR_PRESETS[presetForWearValue(wearValue(slot))] || WEAR_PRESETS.fn).label;
+      return wearTierName(presetForWearValue(wearValue(slot)));
     }
     // " · Factory New" while the selected option is a painted finish, else ''. It reads the selected
     // option, which re-filters the slot's catalog, so a list is decorated with ONE call (wearSuffix)
@@ -1398,13 +1410,13 @@ R"EDJS(
       // changes size. With no flow, all three children are placed by their own alignment and cannot
       // push each other around.
       var head = mk('Panel', wrap); head.style.width = '100%'; head.style.height = WEAR_HEAD_H + 'px';
-      var name = clbl(head, 'Wear', '#8b95a3ff', 11); name.hittest = false;
+      var name = clbl(head, T('Wear'), '#8b95a3ff', 11); name.hittest = false;
       name.style.textTransform = 'uppercase'; name.style.fontWeight = 'bold';
       name.style.letterSpacing = '1.5px'; name.style.horizontalAlign = 'left'; name.style.verticalAlign = 'center';
       // Centred, and the largest type in the block: this is the number being read while dragging.
       // Do NOT give it width/height -- a Label sized to its parent anchors to the parent's top-left
       // and the alignment properties stop applying (same trap as the demo-bar readout).
-      var value = clbl(head, 'Factory New · 0.010', S.value, 14); value.hittest = false;
+      var value = clbl(head, T('Factory New') + ' · 0.010', S.value, 14); value.hittest = false;
       value.style.fontWeight = 'bold'; value.style.whiteSpace = 'nowrap';
       value.style.horizontalAlign = 'center'; value.style.verticalAlign = 'center';
       // MONOSPACED DIGITS. This label is rewritten on every SliderValueChanged and it is centred, so
@@ -1419,7 +1431,7 @@ R"EDJS(
       // calling out; the catalog cap is the resting default. It GROWS while uncapped and pops on
       // each toggle, so the state change is felt and not just read -- scaled from its right edge so
       // the growth can never reach the centred readout.
-      var capBtn = btn(head, 'Cap on', function () { capPop(); toggleWearCap(slot); }, S.inactive);
+      var capBtn = btn(head, T('Cap on'), function () { capPop(); toggleWearCap(slot); }, S.inactive);
       capBtn.style.horizontalAlign = 'right'; capBtn.style.marginRight = '0px';
       capBtn.style.height = WEAR_HEAD_H + 'px'; capBtn.style.verticalAlign = 'center';
       capBtn.style.paddingTop = '0px'; capBtn.style.paddingBottom = '0px';
@@ -1628,6 +1640,8 @@ R"EDJS(
         }
         paintZoneText(hot || live);
       }
+)EDJS"
+R"EDJS(
       function commitFrac(v) {
         var nextFrac = clamp01(v);
         if (last !== null && Math.abs(nextFrac - last) < 0.0005) return;
@@ -1678,7 +1692,7 @@ R"EDJS(
             rec.busy = true; slider.value = frac; rec.busy = false;
           }
           var noCap = wearCapDisabled(slot);
-          capBtn.__lbl.text = noCap ? 'Cap off' : 'Cap on';
+          capBtn.__lbl.text = noCap ? T('Cap off') : T('Cap on');
           btnSel(capBtn, noCap);
           // Uncapped is the loud state, so the button rests heavier there -- as type and padding, not
           // as a transform (see capRest). Idempotent, so this is safe on sync()'s hot path and it can
@@ -1726,7 +1740,8 @@ R"EDJS(
     // label carries the axis: "Balkan · Variant F", "Karambit | Doppler"), so a model tile opens
     // that model's variants or finishes.
     var agentDrop = itemDrop(custSlotCol, 'CustAgent', function (v) { pickCosmetic('agent', v); },
-      { slot: 'agent', caption: 'Agent', grouped: true, groupLabel: 'All agents', groupSep: ' · ', searchNoun: 'agents' });
+      { slot: 'agent', caption: T('Agent'), grouped: true, groupLabel: T('All agents'), groupSep: ' · ',
+        searchHint: function () { return T('Search agents'); } });
     // A secondary action in the picker's crumb row: 28px, quiet.
     function custCrumbBtn(parent, text, onClick, tip) {
       var b = btn(parent, text, onClick, S.label, { tip: tip });
@@ -1768,12 +1783,12 @@ R"EDJS(
       cmd('mirv_filmmaker cosmetics uilog [agent] randomize-all pool=' + models.length);
       previewLog('agentRandom', 'pool=' + models.length);
     }
-    var agentRandomBtn = custCrumbBtn(agentDrop.actions, 'Randomize agents', randomizeAgents,
-      'Give every player a different agent from their own team.');
+    var agentRandomBtn = custCrumbBtn(agentDrop.actions, T('Randomize agents'), randomizeAgents,
+      T('Give every player a different agent from their own team.'));
     // "Apply to all players" for the agent slot. It writes immediately (like Reset, not like the
     // staged Apply): there is no per-player staging surface for ten players to review. The backend
     // is team-aware, so a T model only lands on T players.
-    var agentAllBtn = custCrumbBtn(agentDrop.actions, 'Apply agent to all players', function () {
+    var agentAllBtn = custCrumbBtn(agentDrop.actions, T('Apply agent to all players'), function () {
       var opt = selOpt('agent', custSel.agent);
       var meta = opt ? (opt[2] || {}) : {};
       var model = meta.model || 'default';
@@ -1781,7 +1796,7 @@ R"EDJS(
       cmd('mirv_filmmaker cosmetics allplayers agent ' + model);
       cmd('mirv_filmmaker cosmetics uilog [agent] apply-to-all ' + model);
       previewLog('agentAll', 'model=' + model);
-    }, 'Put the selected agent on every player of the matching team.');
+    }, T('Put the selected agent on every player of the matching team.'));
     // The weapon a firearm slot carries, for its crumb and search placeholder ("AK-47 finishes").
     function slotWeaponName(slot) {
       var arr = filteredOptions(slot);
@@ -1789,22 +1804,24 @@ R"EDJS(
         var l = arr[i][0] || '', cut = l.indexOf(' | ');
         if (cut > 0) return l.substring(0, cut);
       }
-      return slot === 'primary' ? 'Primary' : 'Secondary';
+      return slot === 'primary' ? T('Primary') : T('Secondary');
     }
     function firearmOpts(slot, caption) {
       return { slot: slot, caption: caption, category: slot, pickupIndicator: true, rarityChips: true,
-        crumb: function () { return slotWeaponName(slot) + ' finishes'; },
-        crumbNoun: function () { return slotWeaponName(slot) + ' finishes'; } };
+        crumb: function () { return T('{0} finishes', slotWeaponName(slot)); },
+        searchHint: function () { return T('Search {0} finishes', slotWeaponName(slot)); } };
     }
-    var primaryDrop = itemDrop(custSlotCol, 'CustPrimary', function (v) { pickCosmetic('primary', v); }, firearmOpts('primary', 'Primary'));
+    var primaryDrop = itemDrop(custSlotCol, 'CustPrimary', function (v) { pickCosmetic('primary', v); }, firearmOpts('primary', T('Primary')));
     var primaryWear = wearSliderBlock(primaryDrop.pane, 'primary', 'primary');
-    var secondaryDrop = itemDrop(custSlotCol, 'CustSecondary', function (v) { pickCosmetic('secondary', v); }, firearmOpts('secondary', 'Secondary'));
+    var secondaryDrop = itemDrop(custSlotCol, 'CustSecondary', function (v) { pickCosmetic('secondary', v); }, firearmOpts('secondary', T('Secondary')));
     var secondaryWear = wearSliderBlock(secondaryDrop.pane, 'secondary', 'secondary');
     var knifeDrop = itemDrop(custSlotCol, 'CustKnife', function (v) { pickCosmetic('knife', v); },
-      { slot: 'knife', caption: 'Melee / knife', category: 'knife', grouped: true, groupLabel: 'All knives', searchNoun: 'knives' });
+      { slot: 'knife', caption: T('Melee / knife'), category: 'knife', grouped: true, groupLabel: T('All knives'),
+        searchHint: function () { return T('Search knives'); } });
     var knifeWear = wearSliderBlock(knifeDrop.pane, 'knife', 'knife');
     var glovesDrop = itemDrop(custSlotCol, 'CustGloves', function (v) { pickCosmetic('gloves', v); },
-      { slot: 'gloves', caption: 'Gloves', grouped: true, groupLabel: 'All gloves', searchNoun: 'gloves' });
+      { slot: 'gloves', caption: T('Gloves'), grouped: true, groupLabel: T('All gloves'),
+        searchHint: function () { return T('Search gloves'); } });
     var glovesWear = wearSliderBlock(glovesDrop.pane, 'gloves');
     var wearControls = { primary: primaryWear, secondary: secondaryWear, knife: knifeWear, gloves: glovesWear };
     // Primary / secondary rows exist only for a weapon the player carries (populateCustomize).
@@ -1851,11 +1868,11 @@ R"EDJS(
     function slotWearLine(slot) {
       if (slot === 'agent') {
         var tm = normalizeTeamName(custTargetTeam);
-        return tm ? (tm + ' agent') : 'Agent';
+        return tm ? T('{0} agent', tm) : T('Agent');
       }
       var opt = selOpt(slot, custSel[slot]);
       var meta = opt ? (opt[2] || {}) : {};
-      if (!((parseInt(meta.paint || meta.paintKit || 0, 10) || 0) > 0)) return 'Stock';
+      if (!((parseInt(meta.paint || meta.paintKit || 0, 10) || 0) > 0)) return T('Stock');
       return wearPresetLabel(slot) + ' · ' + wearValue(slot).toFixed(3);
     }
     // `light` is the DRAG path. The full path costs ~10ms per call (measured over netcon on a live
@@ -2054,9 +2071,9 @@ R"EDJS(
       if (rec.fadeBot) rec.fadeBot.visible = ((maxOff - rec.scrollOff) > 1);
     }
     // The HOLDING chip on the preview: which slot the model has in hand.
-    var HOLD_NAMES = { primary: 'Primary', secondary: 'Secondary', knife: 'Knife' };
+    var HOLD_NAMES = { primary: T('Primary'), secondary: T('Secondary'), knife: T('Knife') };
     function updateHoldChip() {
-      if (typeof custHoldVal !== 'undefined' && custHoldVal) custHoldVal.text = HOLD_NAMES[custActiveCategory] || 'Knife';
+      if (typeof custHoldVal !== 'undefined' && custHoldVal) custHoldVal.text = HOLD_NAMES[custActiveCategory] || T('Knife');
     }
     // Every render() frame while the editor is up: keep the selected pane's grid scrolled within its
     // (possibly changed) content and blink the search caret. Cheap no-op when the modal is closed.
@@ -2135,7 +2152,7 @@ R"EDJS(
       custTouched = { agent: false, primary: false, secondary: false, knife: false, gloves: false };
       custDirty = false;
       resetSelectionsFromLoadout();
-      custTitleName.text = custTargetName || 'Player';   // cased by text-transform, see the builder
+      custTitleName.text = custTargetName || T('Player');   // cased by text-transform, see the builder
       // Where the user left the window and how big, this session (st.customizeLayout).
       custRestoreLayout();
       custChromeSig = ''; custPaintSig = '';
@@ -2261,7 +2278,7 @@ R"EDJS(
       // Plain "Apply", as the design has it. Who a picked-up weapon's finish actually lands on is
       // said once, by the pickup banner beside the title (applyLabelTarget() mirrors that logic
       // for the debug state).
-      custApplyBtn.__lbl.text = 'Apply';
+      custApplyBtn.__lbl.text = T('Apply');
       // Through the BASE fields, never style.* -- btnVisual() owns this panel's paint, so a direct
       // style write would be reverted by the next hover/press repaint (the custClose trap).
       custApplyBtn.__bgBase = custDirty ? S.accent : S.btnBg;
@@ -2296,14 +2313,14 @@ R"EDJS(
     }
     // custResetConfirm / custResetBody are `var`s declared below and so are hoisted; they are
     // assigned long before any click can reach these closures.
-    var custResetBtn = actionBtn(custHeadActions, 'Reset to default', S.btnBg, '#ff8a8aff', function () {
-      custResetBody.text = 'This removes every skin, agent, knife, and glove override for ' + (custTargetName || 'this player') + ' and reverts to their original loadout.';
+    var custResetBtn = actionBtn(custHeadActions, T('Reset to default'), S.btnBg, '#ff8a8aff', function () {
+      custResetBody.text = T('This removes every skin, agent, knife, and glove override for {0} and reverts to their original loadout.', custTargetName || T('this player'));
       custResetConfirm.visible = true;
     }, { accent: S.dangerBorder, bgHover: S.dangerBg, bgDown: S.dangerBg });
     custResetBtn.style.paddingLeft = '14px'; custResetBtn.style.paddingRight = '14px';
     custResetBtn.style.marginLeft = '0px';
-    var custCancelBtn = actionBtn(custHeadActions, 'Cancel', S.btnBg, S.value, function () { closeCustomize(); });
-    var custApplyBtn = actionBtn(custHeadActions, 'Apply', S.accent, '#10141aff', function () {
+    var custCancelBtn = actionBtn(custHeadActions, T('Cancel'), S.btnBg, S.value, function () { closeCustomize(); });
+    var custApplyBtn = actionBtn(custHeadActions, T('Apply'), S.accent, '#10141aff', function () {
       if (custDirty) { commitTouchedSlots(); closeCustomize(); }
     }, { bgHover: S.accentHover, bgDown: S.accentDown, fgDown: '#10141aff' });
     custApplyBtn.style.paddingLeft = '24px'; custApplyBtn.style.paddingRight = '24px';
@@ -2329,7 +2346,7 @@ R"EDJS(
     custHoldChip.style.zIndex = '234'; custHoldChip.style.flowChildren = 'right'; custHoldChip.style.height = '24px';
     custHoldChip.style.paddingLeft = '9px'; custHoldChip.style.paddingRight = '9px'; custHoldChip.style.borderRadius = '3px';
     custHoldChip.style.backgroundColor = '#00000088'; custHoldChip.style.border = '1px solid #ffffff1f';
-    var custHoldCap = clbl(custHoldChip, 'Holding ·', '#c8d3dfff', 11); custHoldCap.hittest = false;
+    var custHoldCap = clbl(custHoldChip, T('Holding ·'), '#c8d3dfff', 11); custHoldCap.hittest = false;
     custHoldCap.style.fontWeight = 'bold'; custHoldCap.style.letterSpacing = '1.2px';
     custHoldCap.style.verticalAlign = 'center'; custHoldCap.style.textTransform = 'uppercase';
     var custHoldVal = clbl(custHoldChip, '', S.accent, 11); custHoldVal.hittest = false;
@@ -2353,13 +2370,13 @@ R"EDJS(
     custResetBox.style.flowChildren = 'down'; custResetBox.style.paddingTop = '24px'; custResetBox.style.paddingBottom = '22px';
     custResetBox.style.paddingLeft = F8.inset; custResetBox.style.paddingRight = F8.inset;
     custResetBox.SetPanelEvent('onactivate', function () { /* swallow clicks inside the box */ });
-    var custResetTitle = clbl(custResetBox, 'Reset to default?', S.value, TYPE.title); custResetTitle.style.fontWeight = 'bold';
+    var custResetTitle = clbl(custResetBox, T('Reset to default?'), S.value, TYPE.title); custResetTitle.style.fontWeight = 'bold';
     custResetTitle.style.letterSpacing = '1px'; custResetTitle.style.textTransform = 'uppercase'; custResetTitle.style.marginBottom = '10px';
     var custResetBody = clbl(custResetBox, '', S.label, TYPE.body); custResetBody.style.whiteSpace = 'normal'; custResetBody.style.lineHeight = '140%'; custResetBody.style.marginBottom = '18px';
     var custResetActions = mk('Panel', custResetBox); custResetActions.style.flowChildren = 'right'; custResetActions.style.horizontalAlign = 'right';
-    var custResetNo = btn(custResetActions, 'No', function () { custResetConfirm.visible = false; }, S.value, { press: true });
+    var custResetNo = btn(custResetActions, T('No'), function () { custResetConfirm.visible = false; }, S.value, { press: true });
     custResetNo.style.minWidth = '110px'; custResetNo.__lbl.style.textAlign = 'center'; custResetNo.__lbl.style.width = '100%';
-    var custResetYes = btn(custResetActions, 'Yes, reset', function () { custResetConfirm.visible = false; resetToDefault(); }, S.danger, { press: true });
+    var custResetYes = btn(custResetActions, T('Yes, reset'), function () { custResetConfirm.visible = false; resetToDefault(); }, S.danger, { press: true });
     custResetYes.style.minWidth = '160px'; custResetYes.style.marginRight = '0px';
     custResetYes.__lbl.style.textAlign = 'center'; custResetYes.__lbl.style.width = '100%';
     // Applied last: the whole modal (and every child) is built by now, and positionPreview3d exists,

@@ -25,7 +25,7 @@ R"CFJS(
     var envPresetDot = mk('Panel', envPresetBtn); envPresetDot.hittest = false;
     envPresetDot.style.width = '6px'; envPresetDot.style.height = '6px'; envPresetDot.style.borderRadius = '3px';
     envPresetDot.style.backgroundColor = '#e0b861ff'; envPresetDot.style.verticalAlign = 'center'; envPresetDot.style.marginRight = '6px';
-    var envPresetCap = lbl(envPresetBtn, 'Preset', '#c8d3dfff', 12); envPresetCap.hittest = false;
+    var envPresetCap = lbl(envPresetBtn, T('Preset'), '#c8d3dfff', 12); envPresetCap.hittest = false;
     envPresetCap.style.fontWeight = 'bold'; envPresetCap.style.whiteSpace = 'nowrap'; envPresetCap.style.textOverflow = 'ellipsis';
     envPresetCap.style.maxWidth = '110px'; envPresetCap.style.verticalAlign = 'center';
     var envPresetCaret = lbl(envPresetBtn, ' ▾', S.muted, 11); envPresetCaret.hittest = false; envPresetCaret.style.verticalAlign = 'center';
@@ -37,12 +37,12 @@ R"CFJS(
     envPresetBtn.SetPanelEvent('onmouseover', function () { envPresetBtnPaint(true); });
     envPresetBtn.SetPanelEvent('onmouseout', function () { envPresetBtnPaint(false); });
     envPresetBtn.SetPanelEvent('onactivate', function () { if (envPresetMenu) cfgDropdownClose(); else envPresetOpen(); });
-    attachTip(envPresetBtn, 'Scene presets: save the whole environment under a name, or load one.');
+    attachTip(envPresetBtn, T('Scene presets: save the whole environment under a name, or load one.'));
 
     var envNameField = null, envNameLabel = null;
     function envNamePaint() {
       if (!envNameLabel || !cfgValid(envNameLabel)) return;
-      envNameLabel.text = (envName + (envNameFocus ? ' |' : '')) || 'Name this scene';
+      envNameLabel.text = (envName + (envNameFocus ? ' |' : '')) || T('Name this scene');
       envNameLabel.style.color = envName ? S.value : S.muted;
       envNameField.style.border = '1px solid ' + (envNameFocus ? ENV_ACCENT : '#ffffff14');
     }
@@ -71,7 +71,7 @@ R"CFJS(
       m.style.backgroundColor = '#14181eff'; m.style.border = '1px solid #ffffff1f'; m.style.borderRadius = '4px';
       m.style.boxShadow = '#00000099 0px 6px 18px 0px';
       m.SetPanelEvent('onactivate', function () {});
-      var t = lbl(m, 'SCENE PRESET', S.muted, 11); t.style.fontWeight = 'bold'; t.style.letterSpacing = '1.5px';
+      var t = lbl(m, T('SCENE PRESET'), S.muted, 11); t.style.fontWeight = 'bold'; t.style.letterSpacing = '1.5px';
       var row = mk('Panel', m); row.style.width = '100%'; row.style.flowChildren = 'right'; row.style.marginTop = '8px';
       envNameField = mk('Panel', row); envNameField.hittest = true;
       envNameField.style.width = 'fill-parent-flow(1.0)'; envNameField.style.height = '30px';
@@ -82,10 +82,10 @@ R"CFJS(
         configWindowBlur(); envNameFocus = true; cfgTextOwner = envNameField;
         root.SetAttributeString('textcapture', '1'); envNamePaint();
       });
-      var save = btn(row, 'Save', envPresetSave, S.accent);
+      var save = btn(row, T('Save'), envPresetSave, S.accent);
       save.style.marginRight = '0px'; save.style.marginLeft = '6px';
       save.__bgBase = '#80bdff14'; save.__brBase = '#80bdff66'; paintBtn(save);
-      envPresetMenuDirty = lbl(m, 'Modified since last save', '#e0b861ff', 11); envPresetMenuDirty.style.marginTop = '6px';
+      envPresetMenuDirty = lbl(m, T('Modified since last save'), '#e0b861ff', 11); envPresetMenuDirty.style.marginTop = '6px';
       var hr = mk('Panel', m); hr.style.width = '100%'; hr.style.height = '1px'; hr.style.backgroundColor = '#ffffff12';
       hr.style.marginTop = '8px'; hr.style.marginBottom = '4px';
       ((st && st.envPresets) || []).forEach(function (name) {
@@ -93,17 +93,17 @@ R"CFJS(
         r.style.flowChildren = 'right'; r.style.padding = '0px 6px'; r.style.borderRadius = '3px';
         var n = lbl(r, name, name === (st && st.envSaved) ? ENV_ACCENT : S.label, 13); n.hittest = false;
         n.style.width = 'fill-parent-flow(1.0)'; n.style.verticalAlign = 'center'; n.style.whiteSpace = 'nowrap'; n.style.textOverflow = 'ellipsis';
-        var l = lbl(r, 'Load', S.muted, 11); l.hittest = false; l.style.verticalAlign = 'center';
+        var l = lbl(r, T('Load'), S.muted, 11); l.hittest = false; l.style.verticalAlign = 'center';
         r.SetPanelEvent('onmouseover', function () { r.style.backgroundColor = '#212833ff'; });
         r.SetPanelEvent('onmouseout', function () { r.style.backgroundColor = S.clear; });
         r.SetPanelEvent('onactivate', function () { envName = name; envCommand('load "' + name + '"'); cfgDropdownClose(); });
       });
-      if (!((st && st.envPresets) || []).length) envNote(m, 'No saved presets yet.');
-      var foot = lbl(m, 'Stores the complete environment. Placed objects belong to the map they were placed on.', S.hint, 11);
+      if (!((st && st.envPresets) || []).length) envNote(m, T('No saved presets yet.'));
+      var foot = lbl(m, T('Stores the complete environment. Placed objects belong to the map they were placed on.'), S.hint, 11);
       foot.style.marginTop = '8px'; foot.style.whiteSpace = 'normal';
       var tools = actionRowEnd(m, 8);
-      actionBtn(tools, 'Refresh list', function () { envCommand('rescan'); cfgDropdownClose(); });
-      actionBtn(tools, 'Reload map geometry', function () { envCommand('reload-geometry'); });
+      actionBtn(tools, T('Refresh list'), function () { envCommand('rescan'); cfgDropdownClose(); });
+      actionBtn(tools, T('Reload map geometry'), function () { envCommand('reload-geometry'); });
       envPresetMenu = { field: envPresetBtn, list: m, __menu: true, __lastLmb: true,
         __setOpen: function (open) {
           if (open) return;
@@ -140,7 +140,7 @@ R"CFJS(
     // The EFFECTS tab's flag, shared: one "Keep between demos" covers both tabs (EffectsPersistence).
     // It read a state key nothing published (`envKeep`), so it always showed ON and a click could
     // only ever turn the flag OFF.
-    var envKeep = keepToggle(envFooter, 'effects', 'fxKeep', 'environment and VFX overrides');
+    var envKeep = keepToggle(envFooter, 'effects', 'fxKeep', T('environment and VFX overrides'));
     // Undo is NOT in the footer. The footer is pinned, so anything in it costs column height on
     // every tab for the whole session -- and the original design's footer is the keep row and the tab
     // RESET, nothing else. Undo lives with the objects it steps back through, on SCENE OBJECTS.
@@ -151,15 +151,16 @@ R"CFJS(
     // never the map it plays on.
     var envResetAll = resetFooter(envFooter, function () {
       var mapCmds = typeof aeResetSpec !== 'undefined' ? aeResetSpec.cmds : [];
-      return { label: 'ENVIRONMENT', cmds: ['mirv_filmmaker environment reset all',
+      return { label: T('ENVIRONMENT'), cmds: ['mirv_filmmaker environment reset all',
                  'mirv_relight lighteditor off', 'mirv_relight lights reset', 'mirv_relight off',
                  'mirv_filmmaker props clear', 'mirv_filmmaker props wind 0'].concat(mapCmds),
                confirm: function () {
                  if (!envSceneCount) return null;
-                 return { title: 'Reset the environment?',
-                          text: 'This also removes your ' + envSceneCount + ' scene object' + (envSceneCount === 1 ? '' : 's')
-                            + ' (CS2 assets, lights and meshes). Undo brings back the lights and meshes, not the CS2 assets.',
-                          ok: 'Reset everything' };
+                 return { title: T('Reset the environment?'),
+                          text: TN(envSceneCount,
+                            'This also removes your {0} scene object (CS2 assets, lights and meshes). Undo brings back the lights and meshes, not the CS2 assets.',
+                            'This also removes your {0} scene objects (CS2 assets, lights and meshes). Undo brings back the lights and meshes, not the CS2 assets.'),
+                          ok: T('Reset everything') };
                },
                local: function () {
                  envName = ''; envNamePaint(); envWeatherMemo = null;
@@ -184,6 +185,8 @@ R"CFJS(
     var MATERIAL_FIELDS = ['roughness', 'metallic', 'coat', 'coatRoughness', 'anisotropy',
                            'emission', 'normalStrength', 'uvScale'];
     var WEATHER_WORD = ['Clear', 'Rain', 'Snow', 'Ash', 'Embers', 'Motes', 'Smoke'];
+    // WEATHER_WORD is also the mode key (lowercased); this is what the card summary shows.
+    var WEATHER_SHOWN = [T('Clear##weather'), T('Rain'), T('Snow'), T('Ash'), T('Embers'), T('Motes'), T('Smoke')];
 
     renderHooks.push(function (st) {
       var s = envState();
@@ -203,16 +206,16 @@ R"CFJS(
       }
       var cl = s.climate || {};
       var lightning = (cl.enabled && cl.storm)
-        ? (cl.stormHold ? 'held strike' : 'lightning every ' + (cl.stormInterval || 9) + 's') : '';
+        ? (cl.stormHold ? T('held strike') : T('lightning every {0}s', cl.stormInterval || 9)) : '';
       var surfaces = [];
       if (cl.enabled && cl.wet > 0) surfaces.push('wet ground');
       if (cl.enabled && cl.puddles > 0) surfaces.push('puddles');
       if (cl.enabled && cl.snow > 0) surfaces.push('snow cover');
       var parts = [];
-      if (s.weather.type) parts.push(WEATHER_WORD[s.weather.type] + ' · ' + Math.round(s.weather.count / 60) + '%');
-      if (surfaces.length) parts.push('ground response');
+      if (s.weather.type) parts.push((WEATHER_SHOWN[s.weather.type] || WEATHER_WORD[s.weather.type]) + ' · ' + Math.round(s.weather.count / 60) + '%');
+      if (surfaces.length) parts.push(T('ground response'));
       if (lightning) parts.push(lightning);
-      envWeatherSec.__note(parts.length ? parts.join(' · ') : 'Off');
+      envWeatherSec.__note(parts.length ? parts.join(' · ') : T('Off'));
 
       // ---- FINISHING > Scene ---------------------------------------------------------------
       for (var g = 0; g < envSceneControls.length; g++) {
@@ -232,11 +235,11 @@ R"CFJS(
       });
       var nAssets = (st.props && st.props.placed) ? st.props.placed.length : 0;
       var summary = [];
-      if (nAssets) summary.push(nAssets + ' asset' + (nAssets === 1 ? '' : 's'));
-      if (nMeshes) summary.push(nMeshes + ' mesh' + (nMeshes === 1 ? '' : 'es'));
-      if (nLights) summary.push(nLights + ' light' + (nLights === 1 ? '' : 's'));
-      if (nCameras) summary.push(nCameras + ' camera' + (nCameras === 1 ? '' : 's'));
-      envSceneSec.__note(summary.length ? summary.join(' · ') : 'Nothing placed');
+      if (nAssets) summary.push(TN(nAssets, '{0} asset', '{0} assets'));
+      if (nMeshes) summary.push(TN(nMeshes, '{0} mesh', '{0} meshes'));
+      if (nLights) summary.push(TN(nLights, '{0} light', '{0} lights'));
+      if (nCameras) summary.push(TN(nCameras, '{0} camera', '{0} cameras'));
+      envSceneSec.__note(summary.length ? summary.join(' · ') : T('Nothing placed'));
 
       // ---- SCENE OBJECTS > Selected --------------------------------------------------------
       var selected = envSelected();
@@ -248,7 +251,7 @@ R"CFJS(
         var p = envInspectors[group];
         p.visible = !!visible;
         if (!visible) return;
-        p.__place.__lbl.text = st.envEditing ? 'Done moving' : 'Edit position';
+        p.__place.__lbl.text = st.envEditing ? T('Done moving') : T('Edit position');
         if (p.__animSection) {
           var clips = (st.envClips && st.envClips[String(selected.id)]) || [];
           p.__animSection.visible = clips.length > 0;
@@ -257,28 +260,27 @@ R"CFJS(
             p.__animSig = animSig;
             p.__animButtons.RemoveAndDeleteChildren();
             var objectId = selected.id;
-            actionGroup(p.__animButtons, 'Clip', [['Rest pose', function () { envCommand('object ' + objectId + ' clip -'); }]]
+            actionGroup(p.__animButtons, T('Clip'), [[T('Rest pose'), function () { envCommand('object ' + objectId + ' clip -'); }]]
               .concat(clips.map(function (name) {
                 return [name, function () { envCommand('object ' + objectId + ' clip ' + name); }];
-              })), 2, 'The animation this mesh plays. Rest pose stands it still in its bind pose.');
+              })), 2, T('The animation this mesh plays. Rest pose stands it still in its bind pose.'));
           }
           if (clips.length) {
-            p.__animNote.text = selected.clip ? 'Playing ' + selected.clip : 'Rest pose (not animated)';
+            p.__animNote.text = selected.clip ? T('Playing {0}', selected.clip) : T('Rest pose (not animated)');
             p.__animSpeed.sync(selected.clip ? (selected.clipSpeed === undefined ? 1 : selected.clipSpeed) : 1);
           }
         }
         if (p.__materialEnabled) {
           p.__materialEnabled.sync(selected.materialEnabled ? '1' : '0');
           p.__cameraVisible.sync(selected.cameraVisible === false ? '0' : '1');
-          p.__textureNote.text = 'Color ' + (selected.albedoTexture || 'none')
-            + ' · Normal ' + (selected.normalTexture || 'none')
-            + ' · Roughness ' + (selected.roughnessTexture || 'none');
+          p.__textureNote.text = T('Color {0} · Normal {1} · Roughness {2}', selected.albedoTexture || T('none'),
+            selected.normalTexture || T('none'), selected.roughnessTexture || T('none'));
           var textureSig = JSON.stringify(st.envTextures || []);
           if (textureSig !== p.__textureSig) {
             p.__textureSig = textureSig;
             p.__textureList.RemoveAndDeleteChildren();
             (st.envTextures || []).forEach(function (name) {
-              var tb = wideBtn(p.__textureList, 'Use ' + name, function () {
+              var tb = wideBtn(p.__textureList, T('Use {0}', name), function () {
                 var o = envSelected();
                 if (o && o.kind !== 'point' && o.kind !== 'spot' && o.kind !== 'area') {
                   envCommand('texture ' + o.id + ' ' + p.__textureChannel + ' "' + name + '"');
@@ -325,7 +327,7 @@ R"CFJS(
       // ---- the preset button ------------------------------------------------------------
       var dirty = !!st.envDirty;
       envPresetDot.visible = dirty;
-      envPresetCap.text = st.envSaved || 'Preset';
+      envPresetCap.text = st.envSaved || T('Preset');
       if (envPresetMenuDirty && cfgValid(envPresetMenuDirty)) envPresetMenuDirty.visible = dirty;
       envPresetPlace();
 
@@ -334,8 +336,8 @@ R"CFJS(
       // line and the header summary -- a running job has to be visible on a shut card.
       envMessage.text = st.envMessage || '';
       envMessage.visible = !!envMessage.text;
-      envRender.text = (s.map && s.map !== st.envMap ? 'Waiting for map ' + s.map + ' · ' : '')
-        + (st.envSaved || 'Unsaved scene') + (st.envDirty ? ' · modified' : '');
+      envRender.text = (s.map && s.map !== st.envMap ? T('Waiting for map {0}', s.map) + ' · ' : '')
+        + (st.envSaved || T('Unsaved scene')) + (st.envDirty ? ' · ' + T('modified') : '');
       envRender.visible = !!s.enabled;
       envSceneCount = ((st.props && st.props.placed) || []).length + ((s && s.objects) || []).length;
       envResetAll.paint();

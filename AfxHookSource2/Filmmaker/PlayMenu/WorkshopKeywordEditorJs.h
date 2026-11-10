@@ -17,6 +17,9 @@ namespace Filmmaker {
 
 inline const char* kWorkshopKeywordEditorJs = R"FMJS(
 (function () {
+)FMJS"
+#include "../Panorama/LocalizationJs.h"
+R"FMJS(
   try {
     var M = $.MvmPlay;
     if (!M) return;
@@ -58,12 +61,12 @@ inline const char* kWorkshopKeywordEditorJs = R"FMJS(
       overlay = M.makeOverlay('MvmWsKeywordPopup', '640px');
       popup = overlay.panel;
 
-      $.CreatePanel('Label', popup, '', {
-        class: 'map-selection__quick-selection-set-title', text: 'TRAINING KEYWORDS'
+      mvmLabel(popup, '', {
+        class: 'map-selection__quick-selection-set-title', text: T('TRAINING KEYWORDS')
       });
 
-      var hint = $.CreatePanel('Label', popup, '', {
-        text: 'A workshop map is treated as a training map when its NAME or TITLE contains one of these words. Comma separated. Press Enter to save.'
+      var hint = mvmLabel(popup, '', {
+        text: T('A workshop map is treated as a training map when its NAME or TITLE contains one of these words. Comma separated. Press Enter to save.')
       });
       hint.style.opacity = '0.65';
       hint.style.marginBottom = '12px';
@@ -82,16 +85,16 @@ inline const char* kWorkshopKeywordEditorJs = R"FMJS(
       row.style.marginTop = '12px';
 
       var saveBtn = $.CreatePanel('Button', row, 'MvmWsWordsSave', { class: 'PopupButton White' });
-      $.CreatePanel('Label', saveBtn, '', { text: 'Save' });
+      mvmLabel(saveBtn, '', { text: T('Save') });
       saveBtn.SetPanelEvent('onactivate', commit);
 
       var resetBtn = $.CreatePanel('Button', row, 'MvmWsWordsReset', { class: 'PopupButton' });
-      $.CreatePanel('Label', resetBtn, '', { text: 'Reset to defaults' });
+      mvmLabel(resetBtn, '', { text: T('Reset to defaults') });
       resetBtn.style.marginLeft = '8px';
       resetBtn.SetPanelEvent('onactivate', function () { M.cmd('ws reset'); });
 
       var closeBtn = $.CreatePanel('Button', row, 'MvmWsWordsClose', { class: 'PopupButton' });
-      $.CreatePanel('Label', closeBtn, '', { text: 'Close' });
+      mvmLabel(closeBtn, '', { text: T('Close') });
       closeBtn.style.marginLeft = '8px';
       closeBtn.SetPanelEvent('onactivate', function () { M.showOverlay(overlay, false); });
 

@@ -54,7 +54,7 @@ R"CFJS(
     function envPrepPaint(st) {
       var busy = envPrepBusy(st);
       var text = (st && (st.envBuildStatus || st.envOcclusionStatus || renderStatus(st) || ''))
-        || 'Preparing map and environment cache';
+        || T('Preparing map and environment cache');
       envPrepTick = busy ? (envPrepTick || 0) + 1 : 0;
       var dots = 1 + (Math.floor(envPrepTick / 8) % 3);
       var spin = new Array(dots + 1).join('\u25CF');
@@ -89,13 +89,13 @@ R"CFJS(
     envPrepText.style.verticalAlign = 'center'; envPrepText.style.fontWeight = 'bold';
 
     // Cards follow the work: choose a look, shape the environment, then place objects.
-    var envLooksSec   = section(pageEnvironment, 'LOOKS',         true, true,  'env.looks', ENV_ACCENT);
+    var envLooksSec   = section(pageEnvironment, T('LOOKS'),         true, true,  'env.looks', ENV_ACCENT);
     var envGradeSec   = envLooksSec;
-    var envSkySec     = section(pageEnvironment, 'SKY',           true, false, 'env.sky',   ENV_ACCENT);
-    var envLightSec   = section(pageEnvironment, 'LIGHTING',      true, false, 'env.light', ENV_ACCENT);
-    var envFogSec     = section(pageEnvironment, 'FOG',           true, false, 'env.fog',   ENV_ACCENT);
-    var envWeatherSec = section(pageEnvironment, 'WEATHER',       true, false, 'env.wx',    ENV_ACCENT);
-    var envSceneSec   = section(pageEnvironment, 'SCENE OBJECTS', true, false, 'env.scene', ENV_ACCENT);
+    var envSkySec     = section(pageEnvironment, T('SKY'),           true, false, 'env.sky',   ENV_ACCENT);
+    var envLightSec   = section(pageEnvironment, T('LIGHTING'),      true, false, 'env.light', ENV_ACCENT);
+    var envFogSec     = section(pageEnvironment, T('FOG'),           true, false, 'env.fog',   ENV_ACCENT);
+    var envWeatherSec = section(pageEnvironment, T('WEATHER'),       true, false, 'env.wx',    ENV_ACCENT);
+    var envSceneSec   = section(pageEnvironment, T('SCENE OBJECTS'), true, false, 'env.scene', ENV_ACCENT);
 
 )CFJS"
 R"CFJS(
@@ -185,96 +185,98 @@ R"CFJS(
       }
     }
 
+)CFJS"
+R"CFJS(
     // The mock's DEFS table, key for key: [label, min, max, decimals, unit, offAtZero, tooltip].
     // One table beats fifty call sites that each restate a range, and it is the same shape the
     // original design used, preserving that table's layout.
     var CLD = {
-      stormInterval: ['Strike interval', 2, 60, 1, 's', false, 'Average spacing; each seeded strike has a varied onset and several pulses.'],
-      stormStrength: ['Lightning intensity', 0, 8, 2, '', false, 'Brightness of lightning channels, cloud glow and the shadowed emitter.'],
-      stormRadius: ['Strike radius', 100, 8000, 0, 'u', false, 'Strike placement around the fixed storm center.'],
-      stormSeed: ['Lightning seed', 0, 65535, 0, '', false, 'Repeatable strike positions and timing.'],
-      stormX: ['Storm center X', -32768, 32768, 0, 'u', false, 'Fixed world-space center.'],
-      stormY: ['Storm center Y', -32768, 32768, 0, 'u', false, 'Fixed world-space center.'],
-      stormZ: ['Strike floor', -8000, 32000, 0, 'u', false, 'Bottom of the lightning channels. Set to the ground height for the shot.'],
-      coverage:    ['Cloud coverage', 0, 1, 2, '', false, 'How much of the sky the volumetric cloud layer fills.'],
-      density:     ['Cloud density', 0, 2, 2, '', false, 'How thick the cloud medium is, which sets how hard the sun is blocked.'],
-      cloudBase:   ['Base height', -2000, 32000, 0, 'u', false, 'World height the cloud layer starts at.'],
-      cloudDepth:  ['Layer depth', 100, 8000, 0, 'u', false, 'How tall the cloud layer is above its base.'],
-      cloudScale:  ['Detail scale', 0.0001, 0.01, 4, '', false, 'Size of the cloud noise. Smaller values give bigger formations.'],
-      windSpeed:   ['Wind speed', -600, 600, 0, 'u/s', false, 'How fast the cloud layer drifts.'],
-      haze:        ['Horizon haze', 0, 2, 2, '', false, 'Atmospheric thickening toward the horizon.'],
-      stars:       ['Stars at night', 0, 1, 2, '', false, 'Star brightness once the sun is below the horizon.'],
-      sunAzimuth:  ['Azimuth', 0, 360, 0, '°', false, 'Compass direction of the procedural sun. Drives sky, clouds, fog and relighting.'],
-      sunElevation:['Elevation', -30, 90, 0, '°', false, 'Height of the sun above the horizon. Negative is night.'],
-      sunPower:    ['Sun brightness', 0, 8, 2, '', false, 'Brightness of the sun on surfaces and in the sky.'],
-      sunColorR:   ['Sun red', 0, 2, 2, '', false, 'Red in the sunlight. 1 is the default warm-to-white ramp; lower cools the light, higher warms it.'],
-      sunColorG:   ['Sun green', 0, 2, 2, '', false, 'Green in the sunlight. Tints the surfaces, the sun disk and the sky glow together.'],
-      sunColorB:   ['Sun blue', 0, 2, 2, '', false, 'Blue in the sunlight. Raise it for an overcast or moonlit cast, lower it for golden hour.'],
-      sunRelight:  ['Surface sunlight', 0, 3, 2, '', false, 'How strongly the procedural sun lights map surfaces.'],
-      relight:     ['Flatten contrast', 0, 1, 2, '', false, 'Keeps baked shading as AO and replaces the map’s directional light with Environment’s sun.'],
-      ambient:     ['Ambient light', 0, 2, 2, '', false, 'Light arriving from the sky. Map lamps have their own brightness.'],
-      mapLightPower:['Map lights', 0, 8, 2, '', false, 'Brightness of the map’s authored lamps, including interior lights.'],
-      shadowBias:  ['Surface offset', 0.1, 16, 1, '', false, 'Shadow-map offset that stops surfaces shadowing themselves.'],
-      lampAngle:    ['Light source angle', 0, 5, 2, '°', false, 'Apparent size of map lights for shadow filtering. 0 gives sharp shadows; larger values soften their edges without changing brightness.'],
-      shadowSoftness:['Shadow softness', 0, 4, 2, '×', false, 'Scales sun and map light shadow softness together. 1 uses the source sizes above; 0 makes both sharp.'],
-      sunAngle:     ['Sun size', 0, 5, 2, '°', false, 'Apparent size of the sun in degrees. Shadows stay sharp where an object touches a surface and soften the further they fall from it, like real sunlight. 0.53° is the real sun; raise it for broad, soft shadows.'],
-      bounce:      ['Bounce intensity', 0, 4, 2, '', false, 'Amount of reflected light from the sun, sky and map lights. 0 removes bounce while keeping sky occlusion; 1 is the default.'],
-      bounceSteps: ['Bounce steps/frame', 1, 3, 0, '', false, 'How many indirect-light propagation steps run each frame. 1 is the default; 2 or 3 can converge faster but cost more GPU time.'],
-      bounceSize:  ['Volume size', 512, 8192, 0, 'u', false, '128 cells per axis, so a smaller volume gives finer detail.'],
-      bounceX:     ['Center X', -32768, 32768, 0, 'u', false, 'World X of the bounce volume centre.'],
-      bounceY:     ['Center Y', -32768, 32768, 0, 'u', false, 'World Y of the bounce volume centre.'],
-      bounceZ:     ['Center Z', -32768, 32768, 0, 'u', false, 'World Z of the bounce volume centre.'],
-      bounceAlbedo:['Map reflectance', 0.05, 0.95, 2, '', false, 'How much light the map’s own surfaces are assumed to bounce.'],
-      sceneReflections: ['Scene reflections', 0, 1, 2, '', false, 'Rough reflections off the bounce volume. Needs the volume enabled.'],
-      fogStart: ['Start distance', 0, 12000, 0, 'u', false, 'Clear space between the camera and the fog.'],
-      fogDensity:   ['Density', 0, 6, 2, '', false, 'Density of the volumetric fog the sun and lights scatter through.'],
-      fogBase:     ['Base height', -4000, 32000, 0, 'u', false, 'World height the fog sits at.'],
-      fogHeight:   ['Height', 20, 3000, 0, 'u', false, 'How quickly the fog thins with height.'],
-      fogNoise:    ['Variation', 0, 1, 2, '', false, 'Breaks the fog up so it is not a flat sheet.'],
-      fogRange:    ['Ray distance', 128, 12000, 0, 'u', false, 'How far the fog is marched. Longer costs more.'],
-      scatter:     ['Forward scattering', 0, 0.85, 2, '', false, 'How much light bends toward the camera, which makes shafts read.'],
-      localFogRadius: ['Local radius', 0, 8000, 0, 'u', true, 'Confines the fog to a sphere. 0 keeps it global.'],
-      groundFog:   ['Density', 0, 4, 2, '', true, 'A low layer lying on the floor. Players moving through it push it aside and leave trails that drift and fill back in. Around 1 it hides the floor; 0.2 is a thin veil.'],
-      groundFogCoverage: ['Coverage', 0.05, 1, 2, '', false, 'How much of the floor the fog covers. Lower it for separate patches with clear ground between them. Moving air is easiest to see there.'],
-      groundFogHeight: ['Depth', 8, 400, 0, 'u', false, 'How high the ground fog stands over the floor. It follows slopes, stairs and upper floors.'],
-      groundFogDetail: ['Billows', 0, 1, 2, '', false, 'Rolling lumps in the top of the layer.'],
-      groundFogBillowSize: ['Billow size', 60, 1000, 0, 'u', false, 'How wide those lumps are. Big ones read as slow banks of fog.'],
-      groundFogSoftness: ['Softness', 0, 1, 2, '', false, 'How gradually the fog fades upward. 0 is a defined sheet with a top surface. 1 thins all the way up from the floor, like mist.'],
-      groundFogWisps: ['Wisps', 0, 1, 2, '', false, 'Tears the fog into thin streaks you can see through. The moving air bends them, so wakes drag them along.'],
-      groundFogWispSize: ['Wisp size', 8, 240, 0, 'u', false, 'How wide those streaks are.'],
-      groundFogStreak: ['Streak', 0, 1, 2, '', false, 'How far the streaks stretch along the drift direction.'],
-      groundFogChurn: ['Churn', 0, 5, 2, '', false, 'How fast the billows and wisps roll and change. It does not move the fog players pushed.'],
-      groundFogSun: ['Sun on fog', 0, 3, 2, '', false, 'How bright the sun makes the fog. High values read as a white glow against fog in shade.'],
-      groundFogShade: ['Shade brightness', 0, 3, 2, '', false, 'How bright the fog is where the sun does not reach it.'],
-      groundFogFlow: ['Push', 0, 3, 2, '', false, 'How strongly players moving through the fog shove it aside. 0 leaves it undisturbed.'],
-      groundFogPushSize: ['Push size', 0.2, 2, 2, '', false, 'How wide the mark a player leaves in the fog is. Lower keeps it close around their legs; higher parts a wide circle.'],
-      groundFogRecovery: ['Refill time', 0.5, 60, 1, 's', false, 'Seconds a cleared trail takes to fill back in.'],
-      groundFogSwirl: ['Swirl', 0, 2, 2, '', false, 'How much the wakes behind players curl into eddies.'],
-      groundFogWind: ['Drift speed', 0, 200, 0, 'u/s', false, 'How fast the fog drifts and carries the trails downwind.'],
-      groundFogWindAngle: ['Drift direction', 0, 360, 0, '°', false, 'Compass direction the fog drifts toward.'],
-      bloom:       ['Bloom', 0, 2, 2, '', true, 'Glow around bright areas.'],
-      bloomThreshold: ['Bloom threshold', 0.1, 8, 2, '', false, 'How bright a pixel must be before it blooms.'],
-      saturation:  ['Saturation', 0, 2, 2, '', false, 'Colour intensity of the finished frame.'],
-      contrast:    ['Contrast', 0.25, 2, 2, '', false, 'Tonal separation of the finished frame.'],
-      vignette:    ['Vignette', 0, 1, 2, '', true, 'Darkening toward the frame edges.'],
-      grain:       ['Film grain', 0, 0.1, 3, '', true, 'Fine noise over the frame.'],
-      chromatic:   ['Chromatic shift', 0, 4, 2, '', true, 'Colour fringing toward the frame edges.'],
-      snow:        ['Snow coverage', 0, 1, 2, '', true, 'Snow on upward-facing surfaces, including actors.'],
-      puddles:     ['Puddle coverage', 0, 1, 2, '', true, 'Standing water on flat ground. Local radius uses the height band.'],
-      wet:         ['Wetness', 0, 1, 2, '', true, 'Darkens and glosses surfaces as if rained on.'],
-      puddleHeight:['Puddle height', -4000, 8000, 0, 'u', false, 'World height the puddle band sits at when the coating is local.'],
-      puddleDepth: ['Height tolerance', 1, 200, 0, 'u', false, 'How far either side of that height still counts as puddle when local.'],
-      ripple:      ['Ripples', 0, 2, 2, '', true, 'Surface movement on the standing water.'],
-      reflectionRoughness: ['Reflection roughness', 0, 1, 2, '', false, 'How sharp the wet-surface reflections are.'],
-      maskScale:   ['Patch scale', 0.002, 0.1, 3, '', false, 'Size of the coverage patches.'],
-      surfaceRadius: ['Surface radius', 0, 8000, 0, 'u', true, 'Confines the coatings to a sphere. 0 keeps them global.'],
-      particleDetail: ['Snowflake detail', 0, 1, 2, '', false, 'Shape detail on individual flakes.'],
-      turbulence:  ['Turbulence', 0, 8, 2, '', true, 'How much the precipitation tumbles as it falls.'],
-      particleOpacity: ['Opacity', 0, 1, 2, '', false, 'How solid each particle reads.'],
-      softness:    ['Soft intersections', 0.1, 64, 1, '', false, 'Fades particles as they meet geometry so they do not cut hard.'],
-      streak:      ['Rain streak length', 1, 50, 0, '', false, 'How long each rain streak is drawn.'],
-      particleLight: ['Light response', 0, 2, 2, '', false, 'How much added lights illuminate the precipitation.'],
-      bakedFill:   ['Unbaked fill', 0, 4, 2, '', false, 'Flat light fed through the map’s own irradiance input, so albedo and occlusion still apply. 0 leaves unlit faces black.']
+      stormInterval: [T('Strike interval'), 2, 60, 1, 's', false, T('Average spacing; each seeded strike has a varied onset and several pulses.')],
+      stormStrength: [T('Lightning intensity'), 0, 8, 2, '', false, T('Brightness of lightning channels, cloud glow and the shadowed emitter.')],
+      stormRadius: [T('Strike radius'), 100, 8000, 0, 'u', false, T('Strike placement around the fixed storm center.')],
+      stormSeed: [T('Lightning seed'), 0, 65535, 0, '', false, T('Repeatable strike positions and timing.')],
+      stormX: [T('Storm center X'), -32768, 32768, 0, 'u', false, T('Fixed world-space center.')],
+      stormY: [T('Storm center Y'), -32768, 32768, 0, 'u', false, T('Fixed world-space center.')],
+      stormZ: [T('Strike floor'), -8000, 32000, 0, 'u', false, T('Bottom of the lightning channels. Set to the ground height for the shot.')],
+      coverage:    [T('Cloud coverage'), 0, 1, 2, '', false, T('How much of the sky the volumetric cloud layer fills.')],
+      density:     [T('Cloud density'), 0, 2, 2, '', false, T('How thick the cloud medium is, which sets how hard the sun is blocked.')],
+      cloudBase:   [T('Base height'), -2000, 32000, 0, 'u', false, T('World height the cloud layer starts at.')],
+      cloudDepth:  [T('Layer depth'), 100, 8000, 0, 'u', false, T('How tall the cloud layer is above its base.')],
+      cloudScale:  [T('Detail scale'), 0.0001, 0.01, 4, '', false, T('Size of the cloud noise. Smaller values give bigger formations.')],
+      windSpeed:   [T('Wind speed'), -600, 600, 0, 'u/s', false, T('How fast the cloud layer drifts.')],
+      haze:        [T('Horizon haze'), 0, 2, 2, '', false, T('Atmospheric thickening toward the horizon.')],
+      stars:       [T('Stars at night'), 0, 1, 2, '', false, T('Star brightness once the sun is below the horizon.')],
+      sunAzimuth:  [T('Azimuth'), 0, 360, 0, '°', false, T('Compass direction of the procedural sun. Drives sky, clouds, fog and relighting.')],
+      sunElevation:[T('Elevation'), -30, 90, 0, '°', false, T('Height of the sun above the horizon. Negative is night.')],
+      sunPower:    [T('Sun brightness'), 0, 8, 2, '', false, T('Brightness of the sun on surfaces and in the sky.')],
+      sunColorR:   [T('Sun red'), 0, 2, 2, '', false, T('Red in the sunlight. 1 is the default warm-to-white ramp; lower cools the light, higher warms it.')],
+      sunColorG:   [T('Sun green'), 0, 2, 2, '', false, T('Green in the sunlight. Tints the surfaces, the sun disk and the sky glow together.')],
+      sunColorB:   [T('Sun blue'), 0, 2, 2, '', false, T('Blue in the sunlight. Raise it for an overcast or moonlit cast, lower it for golden hour.')],
+      sunRelight:  [T('Surface sunlight'), 0, 3, 2, '', false, T('How strongly the procedural sun lights map surfaces.')],
+      relight:     [T('Flatten contrast'), 0, 1, 2, '', false, T('Keeps baked shading as AO and replaces the map’s directional light with Environment’s sun.')],
+      ambient:     [T('Ambient light'), 0, 2, 2, '', false, T('Light arriving from the sky. Map lamps have their own brightness.')],
+      mapLightPower:[T('Map lights'), 0, 8, 2, '', false, T('Brightness of the map’s authored lamps, including interior lights.')],
+      shadowBias:  [T('Surface offset'), 0.1, 16, 1, '', false, T('Shadow-map offset that stops surfaces shadowing themselves.')],
+      lampAngle:    [T('Light source angle'), 0, 5, 2, '°', false, T('Apparent size of map lights for shadow filtering. 0 gives sharp shadows; larger values soften their edges without changing brightness.')],
+      shadowSoftness:[T('Shadow softness'), 0, 4, 2, '×', false, T('Scales sun and map light shadow softness together. 1 uses the source sizes above; 0 makes both sharp.')],
+      sunAngle:     [T('Sun size'), 0, 5, 2, '°', false, T('Apparent size of the sun in degrees. Shadows stay sharp where an object touches a surface and soften the further they fall from it, like real sunlight. 0.53° is the real sun; raise it for broad, soft shadows.')],
+      bounce:      [T('Bounce intensity'), 0, 4, 2, '', false, T('Amount of reflected light from the sun, sky and map lights. 0 removes bounce while keeping sky occlusion; 1 is the default.')],
+      bounceSteps: [T('Bounce steps/frame'), 1, 3, 0, '', false, T('How many indirect-light propagation steps run each frame. 1 is the default; 2 or 3 can converge faster but cost more GPU time.')],
+      bounceSize:  [T('Volume size'), 512, 8192, 0, 'u', false, T('128 cells per axis, so a smaller volume gives finer detail.')],
+      bounceX:     [T('Center X'), -32768, 32768, 0, 'u', false, T('World X of the bounce volume centre.')],
+      bounceY:     [T('Center Y'), -32768, 32768, 0, 'u', false, T('World Y of the bounce volume centre.')],
+      bounceZ:     [T('Center Z'), -32768, 32768, 0, 'u', false, T('World Z of the bounce volume centre.')],
+      bounceAlbedo:[T('Map reflectance'), 0.05, 0.95, 2, '', false, T('How much light the map’s own surfaces are assumed to bounce.')],
+      sceneReflections: [T('Scene reflections'), 0, 1, 2, '', false, T('Rough reflections off the bounce volume. Needs the volume enabled.')],
+      fogStart: [T('Start distance'), 0, 12000, 0, 'u', false, T('Clear space between the camera and the fog.')],
+      fogDensity:   [T('Density'), 0, 6, 2, '', false, T('Density of the volumetric fog the sun and lights scatter through.')],
+      fogBase:     [T('Base height'), -4000, 32000, 0, 'u', false, T('World height the fog sits at.')],
+      fogHeight:   [T('Height'), 20, 3000, 0, 'u', false, T('How quickly the fog thins with height.')],
+      fogNoise:    [T('Variation'), 0, 1, 2, '', false, T('Breaks the fog up so it is not a flat sheet.')],
+      fogRange:    [T('Ray distance'), 128, 12000, 0, 'u', false, T('How far the fog is marched. Longer costs more.')],
+      scatter:     [T('Forward scattering'), 0, 0.85, 2, '', false, T('How much light bends toward the camera, which makes shafts read.')],
+      localFogRadius: [T('Local radius'), 0, 8000, 0, 'u', true, T('Confines the fog to a sphere. 0 keeps it global.')],
+      groundFog:   [T('Density'), 0, 4, 2, '', true, T('A low layer lying on the floor. Players moving through it push it aside and leave trails that drift and fill back in. Around 1 it hides the floor; 0.2 is a thin veil.')],
+      groundFogCoverage: [T('Coverage'), 0.05, 1, 2, '', false, T('How much of the floor the fog covers. Lower it for separate patches with clear ground between them. Moving air is easiest to see there.')],
+      groundFogHeight: [T('Depth'), 8, 400, 0, 'u', false, T('How high the ground fog stands over the floor. It follows slopes, stairs and upper floors.')],
+      groundFogDetail: [T('Billows'), 0, 1, 2, '', false, T('Rolling lumps in the top of the layer.')],
+      groundFogBillowSize: [T('Billow size'), 60, 1000, 0, 'u', false, T('How wide those lumps are. Big ones read as slow banks of fog.')],
+      groundFogSoftness: [T('Softness'), 0, 1, 2, '', false, T('How gradually the fog fades upward. 0 is a defined sheet with a top surface. 1 thins all the way up from the floor, like mist.')],
+      groundFogWisps: [T('Wisps'), 0, 1, 2, '', false, T('Tears the fog into thin streaks you can see through. The moving air bends them, so wakes drag them along.')],
+      groundFogWispSize: [T('Wisp size'), 8, 240, 0, 'u', false, T('How wide those streaks are.')],
+      groundFogStreak: [T('Streak'), 0, 1, 2, '', false, T('How far the streaks stretch along the drift direction.')],
+      groundFogChurn: [T('Churn'), 0, 5, 2, '', false, T('How fast the billows and wisps roll and change. It does not move the fog players pushed.')],
+      groundFogSun: [T('Sun on fog'), 0, 3, 2, '', false, T('How bright the sun makes the fog. High values read as a white glow against fog in shade.')],
+      groundFogShade: [T('Shade brightness'), 0, 3, 2, '', false, T('How bright the fog is where the sun does not reach it.')],
+      groundFogFlow: [T('Push'), 0, 3, 2, '', false, T('How strongly players moving through the fog shove it aside. 0 leaves it undisturbed.')],
+      groundFogPushSize: [T('Push size'), 0.2, 2, 2, '', false, T('How wide the mark a player leaves in the fog is. Lower keeps it close around their legs; higher parts a wide circle.')],
+      groundFogRecovery: [T('Refill time'), 0.5, 60, 1, 's', false, T('Seconds a cleared trail takes to fill back in.')],
+      groundFogSwirl: [T('Swirl'), 0, 2, 2, '', false, T('How much the wakes behind players curl into eddies.')],
+      groundFogWind: [T('Drift speed'), 0, 200, 0, 'u/s', false, T('How fast the fog drifts and carries the trails downwind.')],
+      groundFogWindAngle: [T('Drift direction'), 0, 360, 0, '°', false, T('Compass direction the fog drifts toward.')],
+      bloom:       [T('Bloom'), 0, 2, 2, '', true, T('Glow around bright areas.')],
+      bloomThreshold: [T('Bloom threshold'), 0.1, 8, 2, '', false, T('How bright a pixel must be before it blooms.')],
+      saturation:  [T('Saturation'), 0, 2, 2, '', false, T('Colour intensity of the finished frame.')],
+      contrast:    [T('Contrast'), 0.25, 2, 2, '', false, T('Tonal separation of the finished frame.')],
+      vignette:    [T('Vignette'), 0, 1, 2, '', true, T('Darkening toward the frame edges.')],
+      grain:       [T('Film grain'), 0, 0.1, 3, '', true, T('Fine noise over the frame.')],
+      chromatic:   [T('Chromatic shift'), 0, 4, 2, '', true, T('Colour fringing toward the frame edges.')],
+      snow:        [T('Snow coverage'), 0, 1, 2, '', true, T('Snow on upward-facing surfaces, including actors.')],
+      puddles:     [T('Puddle coverage'), 0, 1, 2, '', true, T('Standing water on flat ground. Local radius uses the height band.')],
+      wet:         [T('Wetness'), 0, 1, 2, '', true, T('Darkens and glosses surfaces as if rained on.')],
+      puddleHeight:[T('Puddle height'), -4000, 8000, 0, 'u', false, T('World height the puddle band sits at when the coating is local.')],
+      puddleDepth: [T('Height tolerance'), 1, 200, 0, 'u', false, T('How far either side of that height still counts as puddle when local.')],
+      ripple:      [T('Ripples'), 0, 2, 2, '', true, T('Surface movement on the standing water.')],
+      reflectionRoughness: [T('Reflection roughness'), 0, 1, 2, '', false, T('How sharp the wet-surface reflections are.')],
+      maskScale:   [T('Patch scale'), 0.002, 0.1, 3, '', false, T('Size of the coverage patches.')],
+      surfaceRadius: [T('Surface radius'), 0, 8000, 0, 'u', true, T('Confines the coatings to a sphere. 0 keeps them global.')],
+      particleDetail: [T('Snowflake detail'), 0, 1, 2, '', false, T('Shape detail on individual flakes.')],
+      turbulence:  [T('Turbulence'), 0, 8, 2, '', true, T('How much the precipitation tumbles as it falls.')],
+      particleOpacity: [T('Opacity'), 0, 1, 2, '', false, T('How solid each particle reads.')],
+      softness:    [T('Soft intersections'), 0.1, 64, 1, '', false, T('Fades particles as they meet geometry so they do not cut hard.')],
+      streak:      [T('Rain streak length'), 1, 50, 0, '', false, T('How long each rain streak is drawn.')],
+      particleLight: [T('Light response'), 0, 2, 2, '', false, T('How much added lights illuminate the precipitation.')],
+      bakedFill:   [T('Unbaked fill'), 0, 4, 2, '', false, T('Flat light fed through the map’s own irradiance input, so albedo and occlusion still apply. 0 leaves unlit faces black.')]
     };
 )CFJS"
 R"CFJS(
@@ -444,6 +446,8 @@ R"CFJS(
       // Sun default writes couple sky/lighting on. Finish with the off writes.
       return { off: off, cmds: def.concat(off), after: function () { envAfterReset(keys); } };
     }
+)CFJS"
+R"CFJS(
     // Reset never enables the renderer. The backend publishes edits every frame; no relatch
     // is required. Account for the pending writes before deciding whether the last pass is off.
     function envAfterReset(keys, extra) {
@@ -479,15 +483,15 @@ R"CFJS(
     // shadows, ambient occlusion, sky occlusion), which rides along like the clouds and never
     // reports this switch as on by itself.
     var envSkyPill = envPassPill(envSkySec, [['sky', 0, 1], ['clouds', 0, 1], ['relighting', 0, 1]],
-      'Turns the procedural sky on or off, with clouds and the dynamic lighting its sun casts '
+      T('Turns the procedural sky on or off, with clouds and the dynamic lighting its sun casts '
       + '(shadows, ambient occlusion, sky occlusion). The cloud layer has its own switch on the '
-      + 'Clouds page and the Lighting card keeps its own switch.',
+      + 'Clouds page and the Lighting card keeps its own switch.'),
       // The first switch-on of each game session warns first ($ outlives a panel rebuild, not a
       // restart). The wording is the author's, verbatim.
       function (proceed) {
         if ($.MvmSkyWarned) { proceed(); return; }
-        cfgConfirm('Sky', 'This mode is very experimental and buggy and laggy as fuck. I might fix it.',
-          'Turn on anyway', function () { $.MvmSkyWarned = true; proceed(); });
+        cfgConfirm(T('Sky'), T('This mode is very experimental and buggy and laggy as fuck. I might fix it.'),
+          T('Turn on anyway'), function () { $.MvmSkyWarned = true; proceed(); });
       }, { rides: ['relighting'] });
 
     // Release every lighting switch while restoring its tuning.
@@ -515,7 +519,7 @@ R"CFJS(
     var envFogReset = envFogSec.__headerReset(envFogResetSpec, 'env.fog');
     // Switching the card on brings both fogs and their light shafts; shafts alone are not the pass.
     var envFogPill = envPassPill(envFogSec, [['fogDensity', 0, 0.05], ['groundFog', 0, 1], ['lightShafts', 0, 1]],
-      'Bypasses the height and ground fog by dropping their density to zero, and puts them back where they were.',
+      T('Bypasses the height and ground fog by dropping their density to zero, and puts them back where they were.'),
       null, { rides: ['lightShafts'] });
 
     // Exposure and tint are scene values, not climate keys, so the reset sends them explicitly --

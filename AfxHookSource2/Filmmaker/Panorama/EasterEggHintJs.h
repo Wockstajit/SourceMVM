@@ -29,6 +29,7 @@ R"EGJS(
     function hintBuild(h, sz) {
       if (hint && hint.box && hint.box.IsValid()) hint.box.DeleteAsync(0);
       var loud = !!h.loud;
+      var hTitle = eggText(h.title), hSub = eggText(h.sub), hCode = eggText(h.code);
       var accent = loud ? pick([EGG.hot, EGG.sky, EGG.lav, EGG.mint, EGG.pink]) : pick([EGG.gold, EGG.blue]);
       var titleSize = loud ? 30 : 24;
       var boxW = Math.min(820, Math.max(420, sz.w * 0.42));
@@ -59,14 +60,14 @@ R"EGJS(
         scrim.style.opacity = '0';
       }
 
-      var ghost = lbl(box, h.title || '', accent, loud ? 60 : 50);
+      var ghost = lbl(box, hTitle, accent, loud ? 60 : 50);
       ghost.style.fontWeight = 'bold'; ghost.style.letterSpacing = '7px';
       ghost.style.horizontalAlign = 'right'; ghost.style.verticalAlign = 'center';
       ghost.style.marginRight = '-40px'; hintRoom(ghost, 32, 20);
       ghost.style.opacity = '0';
 
       function titleLabel() {
-        var l = lbl(box, h.title || '', accent, titleSize);
+        var l = lbl(box, hTitle, accent, titleSize);
         l.style.fontWeight = 'bold'; l.style.letterSpacing = '6px';
         l.style.marginLeft = (24 - HINT_PAD_H) + 'px'; l.style.marginTop = (40 - HINT_PAD_V) + 'px';
         hintRoom(l, HINT_PAD_H, HINT_PAD_V);
@@ -83,12 +84,12 @@ R"EGJS(
       sub.style.textShadow = '0px 1px 4px 2.0 #000000cc';
       sub.style.opacity = '0';
       // The clue types itself out, so its width grows; the scrim sizes to this invisible full copy.
-      var subFull = lbl(box, h.sub || '', '#ffffff', loud ? 14 : 13);
+      var subFull = lbl(box, hSub, '#ffffff', loud ? 14 : 13);
       subFull.style.marginLeft = '26px'; subFull.style.marginTop = (40 + titleSize + 14) + 'px';
       subFull.style.maxWidth = (boxW - 60) + 'px';
       subFull.style.opacity = '0';
       // The caption: plain, small, a step quieter than the clue.
-      var code = lbl(box, h.code || '', loud ? EGG.cream : '#e8eef5', 12);
+      var code = lbl(box, hCode, loud ? EGG.cream : '#e8eef5', 12);
       code.style.marginLeft = '26px'; code.style.marginTop = (40 + titleSize + 14 + 22) + 'px';
       code.style.maxWidth = (boxW - 60) + 'px';
       code.style.textShadow = '0px 1px 4px 2.0 #000000cc';
@@ -96,7 +97,7 @@ R"EGJS(
 
       hint = { box: box, ghost: ghost, code: code, trails: trails, title: title, sub: sub, scrim: scrim, subFull: subFull,
         loud: loud, accent: accent, start: now(), hold: loud ? 7.0 : 8.0, tw: 0, boxW: boxW,
-        titleText: h.title || '', subText: h.sub || '', subShown: -1 };
+        titleText: hTitle, subText: hSub, subShown: -1 };
     }
 
     function hintX(t, inDist, outDist) {
@@ -189,4 +190,113 @@ R"EGJS(
         hint.scrim.style.opacity = (wipe * fadeAll).toFixed(3);
       }
     }
+)EGJS"
+// Split: MSVC caps one raw string literal at ~16 KB (C2026); adjacent literals concatenate.
+R"EGJS(
+    // The hints and the egg on/off banners C++ sends (kHints, kOnBanner, kOffBanner in
+    // EasterEggs.cpp), by their exact English: title, code line, clue. References that are a name,
+    // a file or a deliberate misspelling (UWU?, KAWAII.SYS, "are belong to us", peppy.wav) are not
+    // listed, so they stay as written.
+    (function () {
+      var X = EGG_TEXT;
+      // kHints
+      X['whisper it'] = T('whisper it');
+      X['the console gets lonely. be nice to it.'] = T('the console gets lonely. be nice to it.');
+      X["IT'S DANGEROUS TO GO ALONE"] = T("IT'S DANGEROUS TO GO ALONE");
+      X['take this'] = T('take this');
+      X["three letters. very soft. you'll know."] = T("three letters. very soft. you'll know.");
+      X["IT LOOKS LIKE YOU'RE..."] = T("IT LOOKS LIKE YOU'RE...");
+      X['1997 called'] = T('1997 called');
+      X["someone's waiting for you to stop clicking."] = T("someone's waiting for you to stop clicking.");
+      X['HEY, LISTEN!'] = T('HEY, LISTEN!');
+      X['idle hands'] = T('idle hands');
+      X["sit still long enough and you'll get company."] = T("sit still long enough and you'll get company.");
+      X['WOULD YOU KINDLY'] = T('WOULD YOU KINDLY');
+      X['render responsibly'] = T('render responsibly');
+      X['we can see your taskbar.'] = T('we can see your taskbar.');
+      X['THIS IS FINE'] = T('THIS IS FINE');
+      X["your render's fine. where it's headed... less so."] = T("your render's fine. where it's headed... less so.");
+      X['THE CAKE IS A LIE'] = T('THE CAKE IS A LIE');
+      X["the frames aren't, though."] = T("the frames aren't, though.");
+      X['WAKE UP, NEO'] = T('WAKE UP, NEO');
+      X['follow the sparkles'] = T('follow the sparkles');
+      X['some words make the whole screen blush.'] = T('some words make the whole screen blush.');
+      X['we mean all of them.'] = T('we mean all of them.');
+      X['at least i have chicken'] = T('at least i have chicken');
+      X['no plan. just vibes.'] = T('no plan. just vibes.');
+      X['PRESS START'] = T('PRESS START');
+      X['player 2'] = T('player 2');
+      X['most people never see this one. hi.'] = T('most people never see this one. hi.');
+      X['DO A BARREL ROLL'] = T('DO A BARREL ROLL');
+      X["not that one. but you're close."] = T("not that one. but you're close.");
+      X['a very old code still opens a very loud door.'] = T('a very old code still opens a very loud door.');
+      X['THE EAGLE HAS LANDED'] = T('THE EAGLE HAS LANDED');
+      X['some say it was staged. the bodies know better.'] = T('some say it was staged. the bodies know better.');
+      X['four player split'] = T('four player split');
+      X['remember when everyone was easier to hit?'] = T('remember when everyone was easier to hit?');
+      X['WHY DID THE CHICKEN'] = T('WHY DID THE CHICKEN');
+      X['cross the map'] = T('cross the map');
+      X['forecast: cloudy, with a chance of poultry.'] = T('forecast: cloudy, with a chance of poultry.');
+      X['MORE EXPLOSIONS'] = T('MORE EXPLOSIONS');
+      X['budget: yes'] = T('budget: yes');
+      X['every frag deserves a director who loves fire.'] = T('every frag deserves a director who loves fire.');
+      X['PERFECTLY CENTERED'] = T('PERFECTLY CENTERED');
+      X['chapter one'] = T('chapter one');
+      X['a little yellow. very deliberate. ask nicely.'] = T('a little yellow. very deliberate. ask nicely.');
+      X['CLICK THE CIRCLES'] = T('CLICK THE CIRCLES');
+      X['three letters. one rhythm. the console keeps time.'] = T('three letters. one rhythm. the console keeps time.');
+      X['DID YOU HEAR THAT'] = T('DID YOU HEAR THAT');
+      X['probably nothing.'] = T('probably nothing.');
+      X['SIGNAL LOST'] = T('SIGNAL LOST');
+      X["we'll try again later."] = T("we'll try again later.");
+      X['YOU WERE HERE'] = T('YOU WERE HERE');
+      X['last session'] = T('last session');
+      X['so were we.'] = T('so were we.');
+      X['ARE YOU STILL WATCHING'] = T('ARE YOU STILL WATCHING');
+      X['autoplay'] = T('autoplay');
+      X['we are.'] = T('we are.');
+      X['SLITHER'] = T('SLITHER');
+      X['long exports'] = T('long exports');
+      X['patience is rewarded. eventually.'] = T('patience is rewarded. eventually.');
+      X['NOT YET'] = T('NOT YET');
+      X['soon'] = T('soon');
+      X['keep going.'] = T('keep going.');
+      X['WE NOTICED'] = T('WE NOTICED');
+      X["go to bed. or don't. we're not your mom."] = T("go to bed. or don't. we're not your mom.");
+      X['SAY PLEASE'] = T('SAY PLEASE');
+      X['the console has feelings too.'] = T('the console has feelings too.');
+      // kOnBanner
+      X['loaded'] = T('loaded');
+      X["oh. it's pink now. say it again if you dare."] = T("oh. it's pink now. say it again if you dare.");
+      X['the floor is yours.'] = T('the floor is yours.');
+      X['ONE SMALL STEP'] = T('ONE SMALL STEP');
+      X['gravity has left the chat.'] = T('gravity has left the chat.');
+      X['BIGGER'] = T('BIGGER');
+      X["easier to hit. you're welcome."] = T("easier to hit. you're welcome.");
+      X['forecast: poultry'] = T('forecast: poultry');
+      X["it's raining chickens. hallelujah."] = T("it's raining chickens. hallelujah.");
+      X["every frag gets the director's cut."] = T("every frag gets the director's cut.");
+      X['A FILM BY YOU'] = T('A FILM BY YOU');
+      X['perfectly centered. a little yellow.'] = T('perfectly centered. a little yellow.');
+      // kOffBanner
+      X['BACK TO WORK'] = T('BACK TO WORK');
+      X['kawaii.sys unloaded'] = T('kawaii.sys unloaded');
+      X['the sparkles will remember this.'] = T('the sparkles will remember this.');
+      X['LIGHTS UP'] = T('LIGHTS UP');
+      X['last call'] = T('last call');
+      X['everybody go home.'] = T('everybody go home.');
+      X["we're back"] = T("we're back");
+      X['gravity restored. mostly.'] = T('gravity restored. mostly.');
+      X['HEADS DOWN'] = T('HEADS DOWN');
+      X['back to scale'] = T('back to scale');
+      X["everyone's ego returns to normal."] = T("everyone's ego returns to normal.");
+      X['CLEAR SKIES'] = T('CLEAR SKIES');
+      X['the flock moved on'] = T('the flock moved on');
+      X['for now.'] = T('for now.');
+      X['PRACTICAL EFFECTS'] = T('PRACTICAL EFFECTS');
+      X['insurance called'] = T('insurance called');
+      X['fine. no more fire.'] = T('fine. no more fire.');
+      X['roll credits'] = T('roll credits');
+      X['the end. or is it.'] = T('the end. or is it.');
+    })();
 )EGJS"

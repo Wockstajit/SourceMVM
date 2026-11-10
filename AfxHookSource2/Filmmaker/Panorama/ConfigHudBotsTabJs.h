@@ -31,7 +31,7 @@ R"CFJS(
       return String(cls).replace('weapon_', '').replace('item_', '');
     }
     function btAgents() {
-      var out = [['-', 'Default']];
+      var out = [['-', T('Default')]];
       var list = (COSMETICS && COSMETICS.agent) || [];
       for (var i = 0; i < list.length; i++) {
         var o = list[i][2] || {};
@@ -41,7 +41,7 @@ R"CFJS(
     }
 
     // ---- RECORD & PLAY ----
-    var btSec = section(pageBots, 'RECORD AND PLAY', true, true, 'bots.scene', '#ff5c5cff');
+    var btSec = section(pageBots, T('RECORD AND PLAY'), true, true, 'bots.scene', '#ff5c5cff');
     var btStatus = lbl(btSec, '', S.value, 14); btStatus.hittest = false;
     btStatus.style.whiteSpace = 'normal'; btStatus.style.width = '100%'; btStatus.style.marginTop = '6px';
     btStatus.style.paddingLeft = UI.line.padH + 'px'; btStatus.style.paddingRight = UI.line.padH + 'px';
@@ -64,28 +64,28 @@ R"CFJS(
       return out;
     }
     var btActions = btBigButtons(btSec, [
-      ['Record', function () { cmd('mvm_test menu off'); btCommand('record'); }],
-      ['Stop', function () { btCommand('stop'); }],
-      ['Play', function () { btCommand('play'); }]
+      [T('Record'), function () { cmd('mvm_test menu off'); btCommand('record'); }],
+      [T('Stop'), function () { btCommand('stop'); }],
+      [T('Play'), function () { btCommand('play'); }]
     ]);
     var btRecBtn = btActions[0], btStopBtn = btActions[1], btPlayBtn = btActions[2];
-    attachTip(btRecBtn, 'Closes this panel and records everything you do from where you stand. Takes you already recorded play along. F6 does the same.');
-    attachTip(btStopBtn, 'Ends the recording and keeps it, or stops the bots where they are.');
-    attachTip(btPlayBtn, 'Plays every take once as a real bot, while you stay where you are. A bot you killed comes back at its start. F7 does the same.');
-    var btLoop = togglePill(btSec, 'Loop', 'Plays again from the start after the last take ends. When this is off, bots stay where their takes ended.',
+    attachTip(btRecBtn, T('Closes this panel and records everything you do from where you stand. Takes you already recorded play along. {0} does the same.', K('takes.record', 'F6')));
+    attachTip(btStopBtn, T('Ends the recording and keeps it, or stops the bots where they are.'));
+    attachTip(btPlayBtn, T('Plays every take once as a real bot, while you stay where you are. A bot you killed comes back at its start. {0} does the same.', K('takes.play', 'F7')));
+    var btLoop = togglePill(btSec, T('Loop'), T('Plays again from the start after the last take ends. When this is off, bots stay where their takes ended.'),
       function () { btCommand('loop ' + (st && st.takes && st.takes.loop ? 'off' : 'on')); });
-    var btFollow = modeRow(btSec, 'Stay on the path', [['auto', 'Auto'], ['on', 'Always'], ['off', 'Never']], '236px',
+    var btFollow = modeRow(btSec, T('Stay on the path'), [['auto', T('Auto')], ['on', T('Always')], ['off', T('Never')]], '236px',
       function (k) { btCommand('follow ' + k); },
-      'A bot replays your input, so it matches on its own. A different gun runs at a different speed, so Auto keeps those takes on the recorded path. Always ignores anything placed in the way later.', 13);
+      T('A bot replays your input, so it matches on its own. A different gun runs at a different speed, so Auto keeps those takes on the recorded path. Always ignores anything placed in the way later.'), 13);
     var btDemoRow = actionGroup(btSec, '', [
-      ['Record demo', function () { btCommand('demo'); }],
-      ['Save', function () { btCommand('save scene'); }],
-      ['Load', function () { btCommand('load scene'); }]
+      [T('Record demo'), function () { btCommand('demo'); }],
+      [T('Save'), function () { btCommand('save scene'); }],
+      [T('Load'), function () { btCommand('load scene'); }]
     ]);
-    attachTip(btDemoRow.btns[0], 'Plays one pass from the start and records it to a demo file. Open it from the demo browser.');
-    attachTip(btDemoRow.btns[1], 'Saves every take on this map.');
-    attachTip(btDemoRow.btns[2], 'Loads the saved takes for this map.');
-    var btHelp = lbl(btSec, 'F6 starts and stops recording. F7 plays and stops.', S.hint, 12);
+    attachTip(btDemoRow.btns[0], T('Plays one pass from the start and records it to a demo file. Open it from the demo browser.'));
+    attachTip(btDemoRow.btns[1], T('Saves every take on this map.'));
+    attachTip(btDemoRow.btns[2], T('Loads the saved takes for this map.'));
+    var btHelp = lbl(btSec, T('{0} starts and stops recording. {1} plays and stops.', K('takes.record', 'F6'), K('takes.play', 'F7')), S.hint, 12);
     btHelp.hittest = false; btHelp.style.marginTop = '8px';
     btHelp.style.whiteSpace = 'normal'; btHelp.style.width = '100%';
     btHelp.style.paddingLeft = UI.line.padH + 'px'; btHelp.style.paddingRight = UI.line.padH + 'px';
@@ -93,8 +93,8 @@ R"CFJS(
 )CFJS"
 R"CFJS(
     // ---- TAKES: one row per bot. Clicking a row opens that bot's own settings right under it. ----
-    var btTakesSec = section(pageBots, 'TAKES', true, true, 'bots.takes', '#6db3ffff');
-    var btEmpty = lbl(btTakesSec, 'Nothing recorded yet. Press Record or F6, do something, then press it again.', S.hint, 13);
+    var btTakesSec = section(pageBots, T('TAKES'), true, true, 'bots.takes', '#6db3ffff');
+    var btEmpty = lbl(btTakesSec, T('Nothing recorded yet. Press Record or {0}, do something, then press it again.', K('takes.record', 'F6')), S.hint, 13);
     btEmpty.hittest = false; btEmpty.style.whiteSpace = 'normal'; btEmpty.style.width = '100%'; btEmpty.style.marginTop = '6px';
     btEmpty.style.paddingLeft = UI.line.padH + 'px'; btEmpty.style.paddingRight = UI.line.padH + 'px';
     var btList = mk('Panel', btTakesSec); btList.hittest = false; btList.hittestchildren = true;
@@ -136,59 +136,59 @@ R"CFJS(
     btEdit.style.width = '100%'; btEdit.style.flowChildren = 'down';
     btEdit.style.paddingBottom = '6px'; btEdit.style.borderBottom = '1px solid #ffffff14';
     btEdit.visible = false;
-    var btOn = togglePill(btEdit, 'Plays', 'Turn a take off to leave it out without deleting it.',
+    var btOn = togglePill(btEdit, T('Plays'), T('Turn a take off to leave it out without deleting it.'),
       function () { var t = btTake(); if (t) btCommand('enable ' + btN() + ' ' + (t.enabled ? 'off' : 'on')); });
-    var btHold = togglePill(btEdit, 'Never fires', 'Plays everything else in the take, without shooting or throwing.',
+    var btHold = togglePill(btEdit, T('Never fires'), T('Plays everything else in the take, without shooting or throwing.'),
       function () { var t = btTake(); if (t) btCommand('holdfire ' + btN() + ' ' + (t.holdFire ? 'off' : 'on')); });
-    var btTeam = modeRow(btEdit, 'Team', [['t', 'T'], ['ct', 'CT']], '236px',
-      function (k) { btCommand('team ' + btN() + ' ' + k); }, 'Which side this bot plays on.', 13);
-    var btDelay = sliderRow(btEdit, { label: 'Starts after', min: 0, max: 30, decimals: 1, unit: 's',
-      tip: 'Holds this take back, so it lines up with the others.',
+    var btTeam = modeRow(btEdit, T('Team'), [['t', 'T'], ['ct', 'CT']], '236px',
+      function (k) { btCommand('team ' + btN() + ' ' + k); }, T('Which side this bot plays on.'), 13);
+    var btDelay = sliderRow(btEdit, { label: T('Starts after'), min: 0, max: 30, decimals: 1, unit: 's',
+      tip: T('Holds this take back, so it lines up with the others.'),
       onChange: function (v) { btCommand('delay ' + btN() + ' ' + v); } });
-    var btAgent = dropdownRow(btEdit, 'Player model', btAgents(), function (v) { btCommand('model ' + btN() + ' ' + v); });
-    attachTip(btAgent.row, 'The character this bot appears as. The performance stays the same.');
+    var btAgent = dropdownRow(btEdit, T('Player model'), btAgents(), function (v) { btCommand('model ' + btN() + ' ' + v); });
+    attachTip(btAgent.row, T('The character this bot appears as. The performance stays the same.'));
     // One row per gun used in the take: the row's name is the recorded gun, its value what the bot holds.
-    var btSwapItems = [['-', 'Same gun']];
+    var btSwapItems = [['-', T('Same gun')]];
     for (var bwi = 0; bwi < BT_WEAPONS.length; bwi++) btSwapItems.push([BT_WEAPONS[bwi][0], BT_WEAPONS[bwi][1]]);
     var btGuns = mk('Panel', btEdit); btGuns.hittest = false; btGuns.hittestchildren = true;
     btGuns.style.width = '100%'; btGuns.style.flowChildren = 'down';
     var btGunRows = [], btGunClasses = [];
     function btGunRow(i) {
       if (btGunRows[i]) return btGunRows[i];
-      var row = dropdownRow(btGuns, 'Gun', btSwapItems, function (v) {
+      var row = dropdownRow(btGuns, T('Gun'), btSwapItems, function (v) {
         if (btGunClasses[i]) btCommand('weapon ' + btN() + ' ' + btGunClasses[i] + ' ' + v);
       });
-      attachTip(row.row, 'The gun this bot holds whenever you held this one. It still fires at its own speed, from the next time you press Play.');
+      attachTip(row.row, T('The gun this bot holds whenever you held this one. It still fires at its own speed, from the next time you press Play.'));
       btGunRows[i] = row;
       return row;
     }
     var btReadout = lbl(btEdit, '', S.hint, 12); btReadout.hittest = false;
     btReadout.style.whiteSpace = 'normal'; btReadout.style.width = '100%'; btReadout.style.marginTop = '8px';
     btReadout.style.paddingLeft = UI.line.padH + 'px'; btReadout.style.paddingRight = UI.line.padH + 'px';
-    var btDelete = actionGroup(btEdit, '', [['Delete this take', function () { btCommand('delete ' + btN()); btOpen = -1; btApplyOpen(); }]]);
+    var btDelete = actionGroup(btEdit, '', [[T('Delete this take'), function () { btCommand('delete ' + btN()); btOpen = -1; btApplyOpen(); }]]);
 
 )CFJS"
 R"CFJS(
     // ---- OBJECTS ----
-    var btObjSec = section(pageBots, 'SOLID OBJECTS', true, false, 'bots.objects', '#7fd18bff');
-    var btObjNote = lbl(btObjSec, 'Place props from ENVIRONMENT > Scene objects, then turn on Solid for each one. You and the bots collide with solid props, so you can jump on them.', S.hint, 13);
+    var btObjSec = section(pageBots, T('SOLID OBJECTS'), true, false, 'bots.objects', '#7fd18bff');
+    var btObjNote = lbl(btObjSec, T('Place props from ENVIRONMENT > Scene objects, then turn on Solid for each one. You and the bots collide with solid props, so you can jump on them.'), S.hint, 13);
     btObjNote.hittest = false; btObjNote.style.whiteSpace = 'normal'; btObjNote.style.width = '100%'; btObjNote.style.marginTop = '6px';
     btObjNote.style.paddingLeft = UI.line.padH + 'px'; btObjNote.style.paddingRight = UI.line.padH + 'px';
-    var btSolidNew = togglePill(btObjSec, 'New props are solid', 'Anything you place from now on starts solid.',
+    var btSolidNew = togglePill(btObjSec, T('New props are solid'), T('Anything you place from now on starts solid.'),
       function () { cmd('mirv_filmmaker props solidnew ' + (st && st.takes && st.takes.solidNew ? 'off' : 'on')); });
     var btObjActions = actionGroup(btObjSec, '', [
-      ['Place props', function () { activeTab = 'environment'; applyTabs(); }],
-      ['Make all solid', function () { cmd('mirv_filmmaker props solidall on'); }],
-      ['Make none solid', function () { cmd('mirv_filmmaker props solidall off'); }]
+      [T('Place props'), function () { activeTab = 'environment'; applyTabs(); }],
+      [T('Make all solid'), function () { cmd('mirv_filmmaker props solidall on'); }],
+      [T('Make none solid'), function () { cmd('mirv_filmmaker props solidall off'); }]
     ]);
 
     // ---- GUN RANDOMNESS ----
-    var btGunSec = section(pageBots, 'GUN RANDOMNESS', true, false, 'bots.gun', '#ffc55cff');
-    var btNoSpread = togglePill(btGunSec, 'No random spread',
-      'Every bullet goes exactly where the gun points. Recoil itself is unchanged. Helps a recorded frag land the same way on every loop.',
+    var btGunSec = section(pageBots, T('GUN RANDOMNESS'), true, false, 'bots.gun', '#ffc55cff');
+    var btNoSpread = togglePill(btGunSec, T('No random spread'),
+      T('Every bullet goes exactly where the gun points. Recoil itself is unchanged. Helps a recorded frag land the same way on every loop.'),
       function () { btCommand('nospread ' + (st && st.takes && st.takes.noSpread ? 'off' : 'on')); });
-    var btRecoilRandom = sliderRow(btGunSec, { label: 'Recoil randomness', min: 0, max: 100, decimals: 0, unit: '%',
-      tip: 'How far each shot strays from the gun' + "'" + 's recoil pattern. 0% follows the pattern exactly. The strength of the recoil and every other recoil setting stay as they are.',
+    var btRecoilRandom = sliderRow(btGunSec, { label: T('Recoil randomness'), min: 0, max: 100, decimals: 0, unit: '%',
+      tip: T('How far each shot strays from the gun' + "'" + 's recoil pattern. 0% follows the pattern exactly. The strength of the recoil and every other recoil setting stay as they are.'),
       onChange: function (v) { btCommand('recoilrandom ' + v); } });
 
     function btFmtTime(sec) {
@@ -203,11 +203,13 @@ R"CFJS(
       if (!k) return;
       var tracks = k.tracks || [];
       var line = k.message || '';
-      if (k.recording) line = 'Recording ' + btFmtTime(k.recSeconds) + '. Press Stop or F6 when you are done.';
-      else if (k.phase === 'playing') line = 'Playing ' + btFmtTime(k.sceneSeconds) + ' of ' + btFmtTime(k.lengthSeconds) + (k.demoRecording ? ', recording a demo.' : '.');
-      else if (k.phase === 'adding bots') line = 'Adding bots...';
-      else if (k.phase === 'spawning') line = 'Getting ready...';
-      else if (!line) line = tracks.length ? 'Ready. Stand where you want to be, then press Play.' : 'Go to the spot, then press Record.';
+      if (k.recording) line = T('Recording {0}. Press Stop or {1} when you are done.', btFmtTime(k.recSeconds), K('takes.record', 'F6'));
+      else if (k.phase === 'playing') line = k.demoRecording
+        ? T('Playing {0} of {1}, recording a demo.', btFmtTime(k.sceneSeconds), btFmtTime(k.lengthSeconds))
+        : T('Playing {0} of {1}.', btFmtTime(k.sceneSeconds), btFmtTime(k.lengthSeconds));
+      else if (k.phase === 'adding bots') line = T('Adding bots...');
+      else if (k.phase === 'spawning') line = T('Getting ready...');
+      else if (!line) line = tracks.length ? T('Ready. Stand where you want to be, then press Play.') : T('Go to the spot, then press Record.');
       if (btStatus.text !== line) btStatus.text = line;
       setBtnOn(btRecBtn, !!k.recording, '#ff5c5cff');
       setBtnOn(btPlayBtn, k.phase === 'playing' && !k.recording);
@@ -219,10 +221,10 @@ R"CFJS(
       btSolidNew.set(!!k.solidNew);
       btNoSpread.set(!!k.noSpread);
       btRecoilRandom.sync(typeof k.recoilRandom === 'number' ? k.recoilRandom : 100);
-      btSec.__note(k.recording ? 'Recording' : (k.phase === 'playing' ? 'Playing' : (tracks.length ? 'Ready' : 'Nothing yet')));
-      btTakesSec.__note(tracks.length ? tracks.length + (tracks.length === 1 ? ' take' : ' takes') : 'None');
-      btObjSec.__note((k.solidCount || 0) + ' solid');
-      btGunSec.__note(k.noSpread ? 'No spread' : (k.recoilRandom < 100 ? 'Recoil ' + k.recoilRandom + '%' : 'Normal'));
+      btSec.__note(k.recording ? T('Recording') : (k.phase === 'playing' ? T('Playing') : (tracks.length ? T('Ready') : T('Nothing yet'))));
+      btTakesSec.__note(tracks.length ? TN(tracks.length, '{0} take', '{0} takes') : T('None'));
+      btObjSec.__note(T('{0} solid', k.solidCount || 0));
+      btGunSec.__note(k.noSpread ? T('No spread') : (k.recoilRandom < 100 ? T('Recoil {0}%', k.recoilRandom) : T('Normal##recoil')));
 
       btEmpty.visible = !tracks.length;
       if (btOpen >= tracks.length) { btOpen = -1; btApplyOpen(); }
@@ -236,13 +238,13 @@ R"CFJS(
         for (var gi = 0; gi < (tk.weapons || []).length; gi++) {
           var gun = btWeaponName(tk.weapons[gi]);
           for (var sw = 0; sw < (tk.swaps || []).length; sw++) {
-            if (tk.swaps[sw][0] === tk.weapons[gi]) gun += ' as ' + btWeaponName(tk.swaps[sw][1]);
+            if (tk.swaps[sw][0] === tk.weapons[gi]) gun = T('{0} as {1}', gun, btWeaponName(tk.swaps[sw][1]));
           }
           plays.push(gun);
         }
-        var summary = (tk.team === 2 ? 'T' : 'CT') + ', ' + tk.seconds.toFixed(1) + ' seconds' + (plays.length ? ', ' + plays.join(', ') : '');
-        if (!tk.enabled) summary += ', off';
-        else if (tk.holdFire) summary += ', never fires';
+        var summary = (tk.team === 2 ? 'T' : 'CT') + ', ' + T('{0} seconds', tk.seconds.toFixed(1)) + (plays.length ? ', ' + plays.join(', ') : '');
+        if (!tk.enabled) summary += ', ' + T('off');
+        else if (tk.holdFire) summary += ', ' + T('never fires');
         if (r.__name.text !== tk.name) r.__name.text = tk.name;
         if (r.__sub.text !== summary) r.__sub.text = summary;
         var dim = tk.enabled ? '1' : '0.55';
@@ -252,7 +254,7 @@ R"CFJS(
       var t = tracks[btOpen];
       if (!t) return;
       var read = '';
-      if (t.hasBot) read = 'Stays within ' + t.maxDrift.toFixed(2) + ' units of the recording. Died ' + t.deaths + (t.deaths === 1 ? ' time.' : ' times.');
+      if (t.hasBot) read = T('Stays within {0} units of the recording.', t.maxDrift.toFixed(2)) + ' ' + TN(t.deaths, 'Died {0} time.', 'Died {0} times.');
       if (btReadout.text !== read) btReadout.text = read;
       btReadout.visible = !!read;
       btOn.set(!!t.enabled);

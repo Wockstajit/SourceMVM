@@ -16,7 +16,7 @@
 
 R"CFJS(
     // ===================== SCENE OBJECTS > ASSETS & LIGHTS ====================
-    var propsPage = envSceneSec.__page('Library');
+    var propsPage = envSceneSec.__page(T('Library'));
     function propsCommand(t) { cmd('mirv_filmmaker props ' + t); }
     // A brush mix as console lines: verb (start|models) with the first models, then paint add for
     // the rest. One console line holds only a few model paths; a long line lost the last models.
@@ -64,7 +64,7 @@ R"CFJS(
     propsClear.hittest = true; propsClear.style.verticalAlign = 'center'; propsClear.style.padding = '0px 10px';
     propsClear.SetPanelEvent('onactivate', function () { propsQuery = ''; propsFieldPaint(); propsNewSearch(); });
     function propsFieldPaint() {
-      propsFieldLabel.text = (propsQuery + (propsQueryFocus ? ' |' : '')) || 'Search CS2 models: wood, tree, grass, rock, car…';
+      propsFieldLabel.text = (propsQuery + (propsQueryFocus ? ' |' : '')) || T('Search CS2 models: wood, tree, grass, rock, car…');
       propsFieldLabel.style.color = propsQuery ? S.value : S.muted;
       propsField.style.border = '1px solid ' + (propsQueryFocus ? ENV_ACCENT : S.tileBorder);
       propsClear.visible = !!propsQuery;
@@ -97,7 +97,7 @@ R"CFJS(
     // meshes folder (st.envAssets), placed as Environment meshes.
     var propsMine = false, propsMeshPick = '';
     var propsCats = segmented(propsPage, [
-      ['all', 'All'], ['foliage', 'Foliage'], ['props', 'Props'], ['effects', 'Effects'], ['map', 'This map'], ['mine', 'Meshes']
+      ['all', T('All')], ['foliage', T('Foliage')], ['props', T('Props')], ['effects', T('Effects')], ['map', T('This map')], ['mine', T('Meshes')]
     ], '100%', function (k) {
       propsMine = k === 'mine';
       if (propsWell) propsWell.reset();
@@ -163,7 +163,7 @@ R"CFJS(
       propsPreview3d.style.position = ((x0 - vx0) / sx).toFixed(1) + 'px ' + ((y0 - vy0) / sy).toFixed(1) + 'px 0px';
       propsPreview3d.style.width = ((x1 - x0) / sx).toFixed(1) + 'px'; propsPreview3d.style.height = ((y1 - y0) / sy).toFixed(1) + 'px';
     }
-    var propsPreviewHint = lbl(propsPreviewBox, 'Pick a model below to see it here', S.muted, 13);
+    var propsPreviewHint = lbl(propsPreviewBox, T('Pick a model below to see it here'), S.muted, 13);
     propsPreviewHint.hittest = false;
     propsPreviewHint.style.horizontalAlign = 'center'; propsPreviewHint.style.verticalAlign = 'center';
     // Name and source · folder, top-left over the model.
@@ -178,7 +178,7 @@ R"CFJS(
     // ---- place or paint ------------------------------------------------------------------------
     var propsActs = mk('Panel', propsPage);
     propsActs.style.width = '100%'; propsActs.style.flowChildren = 'right'; propsActs.style.marginTop = '8px';
-    var propsPlaceBtn = btn(propsActs, 'Place in scene', function () {
+    var propsPlaceBtn = btn(propsActs, T('Place in scene'), function () {
       if (propsPlacing) propsCommand('cancel');
       else if (propsMine && propsMeshPick) envCommand('add obj "' + propsMeshPick + '"');
       else if (propsPreviewModel) propsCommand('place ' + propsPreviewModel);
@@ -187,7 +187,7 @@ R"CFJS(
     propsPlaceBtn.__lbl.style.letterSpacing = '1px'; propsPlaceBtn.__lbl.style.textOverflow = 'ellipsis';
     propsPlaceBtn.__lbl.style.horizontalAlign = 'center';
     propsPlaceBtn.__bgBase = '#80bdff14'; propsPlaceBtn.__brBase = '#80bdff66'; paintBtn(propsPlaceBtn);
-    var propsPaintBtn = btn(propsActs, 'Paint', function () {
+    var propsPaintBtn = btn(propsActs, T('Paint'), function () {
       if (propsPainting) { propsCommand('paint stop'); return; }
       var models = propsBrushModels();
       if (models.length) propsSendBrush('start', models);
@@ -214,37 +214,38 @@ R"CFJS(
     var propsPaintTitle = lbl(propsPaintHead, '', ENV_ACCENT, 12);
     propsPaintTitle.style.fontWeight = 'bold'; propsPaintTitle.style.width = 'fill-parent-flow(1.0)';
     propsPaintTitle.style.verticalAlign = 'center'; propsPaintTitle.style.whiteSpace = 'nowrap'; propsPaintTitle.style.textOverflow = 'ellipsis';
-    actionBtn(propsPaintHead, 'Done painting', function () { propsCommand('paint stop'); });
+    actionBtn(propsPaintHead, T('Done painting'), function () { propsCommand('paint stop'); });
     var propsPaintModels = lbl(propsPaintBox, '', S.muted, 11);
     propsPaintModels.style.margin = '0px 12px 4px 12px'; propsPaintModels.style.whiteSpace = 'normal';
     var propsPaintSliders = [
-      ['radius', 'Brush size', 16, 1024, 0, 'u', 'How wide the circle paints.'],
-      ['spacing', 'Spacing', 4, 512, 0, 'u', 'The least distance between two copies: small packs them tight, large leaves gaps.'],
-      ['density', 'Density', 5, 400, 0, '%', 'How full a held brush makes the circle: 100% fills every gap the spacing allows, 50% half of them, and above 100% packs copies closer than the spacing (200% is twice as many), so painting over a patch adds to it. Hold the mouse to keep spraying until it is that full.'],
-      ['size', 'Size', 0.1, 5, 2, '×', 'The copies' + "'" + ' base size. 1× is the model' + "'" + 's size in the game.'],
-      ['jitter', 'Size variation', 0, 0.9, 2, '', 'How much each copy' + "'" + 's size differs from the base, either way.'],
-      ['turn', 'Turn variation', 0, 180, 0, '°', 'How far each copy is turned at random: 180° faces any way, 0 all the same.']
+      ['radius', T('Brush size'), 16, 1024, 0, 'u', T('How wide the circle paints.')],
+      ['spacing', T('Spacing'), 4, 512, 0, 'u', T('The least distance between two copies: small packs them tight, large leaves gaps.')],
+      ['density', T('Density'), 5, 400, 0, '%', T('How full a held brush makes the circle: 100% fills every gap the spacing allows, 50% half of them, and above 100% packs copies closer than the spacing (200% is twice as many), so painting over a patch adds to it. Hold the mouse to keep spraying until it is that full.')],
+      ['size', T('Size'), 0.1, 5, 2, '×', T('The copies' + "'" + ' base size. 1× is the model' + "'" + 's size in the game.')],
+      ['jitter', T('Size variation'), 0, 0.9, 2, '', T('How much each copy' + "'" + 's size differs from the base, either way.')],
+      ['turn', T('Turn variation'), 0, 180, 0, '°', T('How far each copy is turned at random: 180° faces any way, 0 all the same.')]
     ].map(function (d) {
       var row = sliderRow(propsPaintBox, { label: d[1], min: d[2], max: d[3], decimals: d[4], unit: d[5], tip: d[6],
         onChange: function (v) { propsCommand('paint set ' + d[0] + ' ' + v); } });
       return { key: d[0], row: row };
     });
-    var propsPaintErase = modeRow(propsPaintBox, 'Brush', [['0', 'Paint'], ['1', 'Erase']], '100%', function (k) {
+    var propsPaintErase = modeRow(propsPaintBox, T('Brush'), [['0', T('Paint')], ['1', T('Erase')]], '100%', function (k) {
       propsCommand('paint set erase ' + k);
-    }, 'Erase removes this brush' + "'" + 's copies under the circle. Holding Shift erases too.');
-    var propsPaintNote = lbl(propsPaintBox, 'Hold the mouse over the view to paint; Shift erases; G flies the camera; Esc is done.', S.hint, 11);
+    }, T('Erase removes this brush' + "'" + 's copies under the circle. Holding Shift erases too.'));
+    var propsPaintNote = lbl(propsPaintBox, T('Hold the mouse over the view to paint; Shift erases; G flies the camera; Esc is done.'), S.hint, 11);
     propsPaintNote.style.margin = '6px 12px 0px 12px'; propsPaintNote.style.whiteSpace = 'normal';
 
     // ---- results: one list that grows as it scrolls --------------------------------------------
     var propsResultHead = mk('Panel', propsPage);
     propsResultHead.style.width = '100%'; propsResultHead.style.flowChildren = 'right'; propsResultHead.style.marginTop = '12px';
-    var propsResultLabel = lbl(propsResultHead, 'RESULTS', S.muted, 11);
+    var propsResultLabel = lbl(propsResultHead, T('RESULTS'), S.muted, 11);
+    propsResultLabel.style.whiteSpace = 'nowrap'; propsResultLabel.style.textOverflow = 'shrink';
     propsResultLabel.style.fontWeight = 'bold'; propsResultLabel.style.letterSpacing = '1.5px';
     propsResultLabel.style.verticalAlign = 'center'; propsResultLabel.style.width = 'fill-parent-flow(1.0)';
     var propsResultCount = lbl(propsResultHead, '', S.muted, 11); propsResultCount.style.verticalAlign = 'center';
     var propsMineBtns = mk('Panel', propsResultHead); propsMineBtns.style.flowChildren = 'right';
-    actionBtn(propsMineBtns, 'Open folder', function () { envCommand('folder'); });
-    actionBtn(propsMineBtns, 'Refresh', function () { envCommand('rescan'); });
+    actionBtn(propsMineBtns, T('Open folder'), function () { envCommand('folder'); });
+    actionBtn(propsMineBtns, T('Refresh'), function () { envCommand('rescan'); });
     var propsList = mk('Panel', propsPage);
     propsList.style.width = '100%'; propsList.style.flowChildren = 'down'; propsList.style.marginTop = '6px';
     propsList.style.backgroundColor = '#0f1318ff'; propsList.style.border = '1px solid ' + S.tileBorder;
@@ -259,7 +260,7 @@ R"CFJS(
       propsLimit = Math.min(4000, propsLimit + PROPS_MORE);
       propsSearch();
     };
-    var propsListHint = lbl(propsPage, 'Click to preview · double-click to place. It follows your mouse over the view until you click.', S.hint, 11);
+    var propsListHint = lbl(propsPage, T('Click to preview · double-click to place. It follows your mouse over the view until you click.'), S.hint, 11);
     propsListHint.style.marginTop = '6px'; propsListHint.style.whiteSpace = 'normal';
     var propsMessage = envNote(propsPage, '');
     propsMessage.style.color = '#e8b339ff';
@@ -267,8 +268,8 @@ R"CFJS(
     var propsHeldRow = mk('Panel', propsPage);
     propsHeldRow.style.flowChildren = 'right'; propsHeldRow.style.marginTop = '4px';
     propsHeldRow.visible = false;
-    actionBtn(propsHeldRow, 'Load saved objects', function () { propsCommand('restore'); });
-    actionBtn(propsHeldRow, 'Clear saved objects', function () { propsCommand('clear'); });
+    actionBtn(propsHeldRow, T('Load saved objects'), function () { propsCommand('restore'); });
+    actionBtn(propsHeldRow, T('Clear saved objects'), function () { propsCommand('clear'); });
 
     var PROPS_KIND_DOT = { asset: '#80bdff', effect: '#f0a070', mesh: '#b9a3ff' };
     // A result row: kind dot, name, and source · last folder on the right.
@@ -375,11 +376,11 @@ R"CFJS(
         propsPreviewTitle.text = propsPreviewName;
         propsPreviewSub.text = propsPreviewFolder;
         propsPreviewHint.visible = !propsPreview3d;
-        propsPreviewHint.text = 'This effect has no preview: place it to see it play';
+        propsPreviewHint.text = T('This effect has no preview: place it to see it play');
         if (!propsSpinning) { propsSpinning = true; $.Schedule(1 / 30, propsSpinStep); }
         return;
       }
-      propsPreviewHint.text = 'Pick a model below to see it here';
+      propsPreviewHint.text = T('Pick a model below to see it here');
       // Back from an effect: the box holds the particle viewer, so the model turntable is rebuilt.
       if (propsPreviewIsFx) { propsPreviewModel = ''; propsBuild3d(model); }
       if (model !== propsPreviewModel) {
@@ -465,13 +466,13 @@ R"CFJS(
       propsPainting = !!paint.active;
       propsPaintBox.visible = propsPainting;
       if (propsPainting) {
-        propsPaintTitle.text = 'Painting ' + (paint.name || '');
+        propsPaintTitle.text = T('Painting {0}', paint.name || '');
         var pm = paint.models || [];
         propsPaintNow = pm;
         propsPaintModels.text = pm.length > 1
-          ? pm.map(function (m) { return m.split('/').pop().replace(/\.vmdl$/, '').replace(/_/g, ' '); }).join(' · ')
-            + '   ·   Ctrl-click a result to add or drop one'
-          : 'Click a result to paint it instead, Ctrl-click to mix several';
+          ? T('{0}   ·   Ctrl-click a result to add or drop one',
+              pm.map(function (m) { return m.split('/').pop().replace(/\.vmdl$/, '').replace(/_/g, ' '); }).join(' · '))
+          : T('Click a result to paint it instead, Ctrl-click to mix several');
         propsPaintSliders.forEach(function (sl) { sl.row.sync(sl.key === 'density' ? Math.round((paint.density || 1) * 100) : paint[sl.key]); });
         propsPaintErase.sync(paint.erasing ? '1' : '0');
         // The brush's models are the ticked rows while it paints.
@@ -485,25 +486,25 @@ R"CFJS(
       var pickName = propsMine ? propsMeshPick : propsPreviewName;
       // Dimmed, not disabled: the design keeps their outline at 45% (the click handlers check).
       propsPlaceBtn.style.opacity = (propsPlacing || picked) ? '1' : '0.45';
-      propsPlaceBtn.__lbl.text = propsPlacing ? 'Cancel placing' : (picked ? 'Place ' + pickName + ' in scene' : 'Place in scene');
+      propsPlaceBtn.__lbl.text = propsPlacing ? T('Cancel placing') : (picked ? T('Place {0} in scene', pickName) : T('Place in scene'));
       var brush = propsBrushModels();
       propsPaintBtn.visible = !propsMine && !isFx;
       propsPaintBtn.style.opacity = (propsPainting || brush.length) ? '1' : '0.45';
-      propsPaintBtn.__lbl.text = propsPainting ? 'Done' : (propsBrushSet.length > 1 ? 'Paint ' + propsBrushSet.length : 'Paint');
+      propsPaintBtn.__lbl.text = propsPainting ? T('Done') : (propsBrushSet.length > 1 ? T('Paint {0}', propsBrushSet.length) : T('Paint'));
       setBtnOn(propsPaintBtn, propsPainting, ENV_ACCENT);
       if (propsMine) {
-        propsPreviewTitle.text = propsMeshPick; propsPreviewSub.text = propsMeshPick ? 'Your mesh  ·  meshes folder' : '';
+        propsPreviewTitle.text = propsMeshPick; propsPreviewSub.text = propsMeshPick ? T('Your mesh  ·  meshes folder') : '';
         propsPreviewHint.visible = !propsMeshPick;
       }
 
       var results = p.results || [], meshes = st.envAssets || [];
       propsMineBtns.visible = propsMine;
       if (propsMine) {
-        propsResultCount.text = meshes.length + (meshes.length === 1 ? ' mesh' : ' meshes') + ' in the meshes folder';
+        propsResultCount.text = TN(meshes.length, '{0} mesh in the meshes folder', '{0} meshes in the meshes folder');
       } else {
-        propsResultCount.text = p.total < 0 ? 'Loading the game’s models…'
-          : results.length < p.total ? 'Showing ' + results.length + ' of ' + p.total + ' · scroll for more'
-          : p.total + (p.total === 1 ? ' model' : ' models');
+        propsResultCount.text = p.total < 0 ? T('Loading the game’s models…')
+          : results.length < p.total ? T('Showing {0} of {1} · scroll for more', results.length, p.total)
+          : TN(p.total, '{0} model', '{0} models');
       }
       var rsig = (propsMine ? 'mine|' + meshes.join(',') + '|' + propsMeshPick
         : p.query + '|' + p.category + '|' + p.limit + '|' + p.total + '|' + results.length + '|' + propsPreviewModel)
@@ -517,7 +518,7 @@ R"CFJS(
               click: function () { propsMeshPick = name; propsResultSig = ''; },
               place: function () { propsMeshPick = name; envCommand('add obj "' + name + '"'); } });
           });
-          if (!meshes.length) envNote(propsResults, 'No meshes yet. Put an OBJ, GLB or glTF in the meshes folder, then Refresh.');
+          if (!meshes.length) envNote(propsResults, T('No meshes yet. Put an OBJ, GLB or glTF in the meshes folder, then Refresh.'));
         } else {
           results.forEach(function (r) {
             // Where it comes from: the map first ("Cache"), then its own folder.
@@ -528,7 +529,7 @@ R"CFJS(
               click: function () { propsPickResult(r, from + r.folder); },
               place: function () { propsShow(r.model, r.name, from + r.folder); propsCommand('place ' + r.model); } });
           });
-          if (!results.length && p.total === 0) envNote(propsResults, 'No matches');
+          if (!results.length && p.total === 0) envNote(propsResults, T('No matches'));
         }
       }
 

@@ -18,7 +18,13 @@ R"CFJS(
     var PROPS_PLACE = '#7fe0d0cc', PROPS_BOX = '#f2d39488', PROPS_RING_POINTS = 32;
     // Turn about the vertical (blue, like Z), tilt about the prop's side (green, Y), roll about its
     // forward (red, X): each ring wears the colour of the axis it turns about.
-    var PROPS_RINGS = ['turn', 'tilt', 'roll'], PROPS_RING_NAMES = ['Turning', 'Tilting', 'Rolling'];
+    var PROPS_RINGS = ['turn', 'tilt', 'roll'];
+    // The hint while a ring (0 turn, 1 tilt, 2 roll) is dragged: whole sentences, so each translates.
+    function propsRingHint(ring, snap) {
+      if (ring === 0) return snap ? T('Turning in 15° steps   ·   Esc: put it back') : T('Turning   ·   Shift: 15° steps   ·   Esc: put it back');
+      if (ring === 1) return snap ? T('Tilting in 15° steps   ·   Esc: put it back') : T('Tilting   ·   Shift: 15° steps   ·   Esc: put it back');
+      return snap ? T('Rolling in 15° steps   ·   Esc: put it back') : T('Rolling   ·   Shift: 15° steps   ·   Esc: put it back');
+    }
     var PROPS_RING_COLORS = ['#65aaffdd', '#6be699dd', '#ff6767dd'];
     var propsEdges = [], propsRingLines = [[], [], []], propsAxes = [];
     for (var pe = 0; pe < 12; pe++) { var pEdge = mk('Panel', propsOverlay); pEdge.hittest = false; propsEdges.push(pEdge); }
@@ -53,7 +59,7 @@ R"CFJS(
     // technique as the gizmo arrows -- because CS2 ships no such icons and the earlier circle /
     // diamond shapes all read as the same square in game.
     var PROPS_MARKERS = 48, PROPS_MARK = 26, propsMarkers = [];
-    var PROPS_MARKER_TAGS = { point: 'POINT', spot: 'SPOT', area: 'AREA', mesh: 'MESH', camera: 'CAMERA' };
+    var PROPS_MARKER_TAGS = { point: T('POINT'), spot: T('SPOT'), area: T('AREA'), mesh: T('MESH'), camera: T('CAMERA') };
     function propsSeg(host, x1, y1, x2, y2, color, th) {
       var l = mk('Panel', host); l.hittest = false;
       var dx = x2 - x1, dy = y2 - y1;
@@ -145,7 +151,7 @@ R"CFJS(
           : mark.accent ? '2px solid ' + mark.accent : '1px solid #ffffff40');
         m.disc.style.backgroundColor = mark.selected ? '#2a3442f0' : hot ? '#1c2530f0' : '#101318e6';
         m.box.style.position = (at[0] * w - PROPS_MARK / 2).toFixed(1) + 'px ' + (at[1] * h - PROPS_MARK / 2).toFixed(1) + 'px 0px';
-        m.text.text = mesh ? mark.name : (PROPS_MARKER_TAGS[mark.kind] || 'LIGHT');
+        m.text.text = mesh ? mark.name : (PROPS_MARKER_TAGS[mark.kind] || T('LIGHT'));
         m.tag.style.position = (at[0] * w + PROPS_MARK / 2 + 4).toFixed(1) + 'px ' + (at[1] * h - 8).toFixed(1) + 'px 0px';
       }
     }
@@ -281,7 +287,7 @@ R"CFJS(
         // the view does (the environment gizmo's own label rendered elsewhere in game).
         if (s.envEditing && s.cursor) {
           propsHint.visible = true;
-          propsHint.text = 'Drag an arrow to move   ·   release to keep   ·   Esc: cancel   ·   click elsewhere to deselect';
+          propsHint.text = T('Drag an arrow to move   ·   release to keep   ·   Esc: cancel   ·   click elsewhere to deselect');
         }
         if (moved) { propsLastU = u; propsLastV = v; }
         propsPointerDown = down; return;
@@ -298,21 +304,26 @@ R"CFJS(
       var snap = !!s.shift, snapArg = snap ? ' 1' : '';
       if (painting) {
         var erasing = snap || !!p.paint.erasing, uv = u.toFixed(4) + ' ' + v.toFixed(4);
-        propsHint.text = (erasing ? 'Erasing ' : 'Painting ') + (p.paint.name || '') + '   ·   hold the mouse   ·   Shift: erase   ·   hold right-click: look around   ·   Esc: done';
+        propsHint.text = erasing
+          ? T('Erasing {0}   ·   hold the mouse   ·   Shift: erase   ·   hold right-click: look around   ·   Esc: done', p.paint.name || '')
+          : T('Painting {0}   ·   hold the mouse   ·   Shift: erase   ·   hold right-click: look around   ·   Esc: done', p.paint.name || '');
         if (free && down) { propsCommand('paint ' + (erasing ? 'erase ' : 'stroke ') + uv); propsPaintDown = true; }
         else if (free && moved) propsCommand('paint hover ' + uv);
         if (!down && propsPaintDown) { propsCommand('paint release'); propsPaintDown = false; }
       } else if (placing) {
-        propsHint.text = 'Click to drop ' + (p.placingName || 'it') + '   ·   hold right-click: look around   ·   Esc: cancel';
+        propsHint.text = p.placingName
+          ? T('Click to drop {0}   ·   hold right-click: look around   ·   Esc: cancel', p.placingName)
+          : T('Click to drop it   ·   hold right-click: look around   ·   Esc: cancel');
         if (free && moved) propsCommand('hover ' + u.toFixed(4) + ' ' + v.toFixed(4));
         if (free && pressed) propsCommand('drop');
       } else {
         var grabbed = PROPS_RINGS.indexOf(p.grab);
         propsHint.text = moving
-          ? (grabbed >= 0 ? PROPS_RING_NAMES[grabbed] + (snap ? ' in 15° steps' : '   ·   Shift: 15° steps') : p.grab === 'move' ? 'Moving over the ground' : 'Moving' + (snap ? ' on the floor' : '   ·   Shift: snap to the floor'))
-            + '   ·   Esc: put it back'
-          : selected ? 'Drag it to move it over the ground   ·   an arrow for one axis   ·   a ring to turn   ·   right-click: its menu   ·   hold right-click: look around'
-          : 'Click an asset, or a light\'s or mesh\'s icon, to select it   ·   right-click: its menu   ·   hold right-click: look around';
+          ? (grabbed >= 0 ? propsRingHint(grabbed, snap)
+            : p.grab === 'move' ? T('Moving over the ground   ·   Esc: put it back')
+            : snap ? T('Moving on the floor   ·   Esc: put it back') : T('Moving   ·   Shift: snap to the floor   ·   Esc: put it back'))
+          : selected ? T('Drag it to move it over the ground   ·   an arrow for one axis   ·   a ring to turn   ·   right-click: its menu   ·   hold right-click: look around')
+          : T('Click an asset, or a light\'s or mesh\'s icon, to select it   ·   right-click: its menu   ·   hold right-click: look around');
         if (!propsGrabbing && free && g && selected) {
           axis = envAxisHit(g, u, v, aspect);
           ring = axis < 0 ? propsRingHit(g, u, v, aspect) : -1;

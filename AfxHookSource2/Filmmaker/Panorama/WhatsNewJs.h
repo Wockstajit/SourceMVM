@@ -34,10 +34,10 @@ R"FMJS(
     // The installed version as the header button and the Movie Making tooltip show it.
     function wnVersionText() {
       if (!whatsNew) return '';
-      return whatsNew.dev ? 'dev build' : 'v' + whatsNew.label;
+      return whatsNew.dev ? T('dev build') : 'v' + whatsNew.label;
     }
     function wnLabel(parent, text, color, size) {
-      var l = $.CreatePanel('Label', parent, '', { text: text });
+      var l = mvmLabel(parent, '', { text: text });
       l.style.color = color; l.style.fontSize = size + 'px'; l.hittest = false;
       return l;
     }
@@ -95,11 +95,11 @@ R"FMJS(
       sections.forEach(function (s) { (s.top ? top : earlier).push(s); });
       if (!top.length && earlier.length) top.push(earlier.shift());
       top.forEach(function (s, i) { wnSection(list, s, i === 0); });
-      if (!top.length) { var none = wnLabel(list, 'No changelog came with this build.', WN.muted, 15); none.style.marginTop = '12px'; }
+      if (!top.length) { var none = wnLabel(list, T('No changelog came with this build.'), WN.muted, 15); none.style.marginTop = '12px'; }
       if (earlier.length) {
         var toggle = $.CreatePanel('Button', list, 'FmWhatsNewEarlier', {});
         toggle.style.marginTop = '22px'; toggle.style.paddingTop = '6px'; toggle.style.paddingBottom = '6px';
-        var tl = wnLabel(toggle, (wnEarlierOpen ? 'HIDE' : 'SHOW') + ' EARLIER VERSIONS (' + earlier.length + ')', WN.muted, 14);
+        var tl = wnLabel(toggle, wnEarlierOpen ? T('HIDE EARLIER VERSIONS ({0})', earlier.length) : T('SHOW EARLIER VERSIONS ({0})', earlier.length), WN.muted, 14);
         tl.style.fontWeight = 'bold'; tl.style.letterSpacing = '1px';
         toggle.SetPanelEvent('onmouseover', function () { try { tl.style.color = WN.title; } catch (e) {} });
         toggle.SetPanelEvent('onmouseout', function () { try { tl.style.color = WN.muted; } catch (e) {} });
@@ -117,7 +117,7 @@ R"FMJS(
       if (wnPopup && wnPopup.IsValid()) return;  // already up
       var first = null;
       (whatsNew.sections || []).forEach(function (s) { if (!first && s.top) first = s; });
-      var title = whatsNew.dev ? 'What\'s new in SOURCE:MVM (dev build)' : 'What\'s new in SOURCE:MVM ' + whatsNew.label;
+      var title = whatsNew.dev ? T('What\'s new in SOURCE:MVM (dev build)') : T('What\'s new in SOURCE:MVM {0}', whatsNew.label);
       wnEarlierOpen = false;
       try {
         wnPopup = UiToolkitAPI.ShowCustomLayoutPopupParameters('', 'file://{resources}/layout/popups/popup_news.xml',
@@ -201,11 +201,11 @@ R"FMJS(
       var icon = $.CreatePanel('Image', b, '', { src: 's2r://panorama/images/icons/ui/info.vsvg' });
       icon.style.width = '22px'; icon.style.height = '22px'; icon.style.verticalAlign = 'center';
       icon.style.marginRight = '10px'; icon.style.washColor = WNH.gold; icon.hittest = false;
-      wnHeaderWord = $.CreatePanel('Label', b, '', { text: 'WHAT\'S NEW' });
+      wnHeaderWord = mvmLabel(b, '', { text: T('WHAT\'S NEW') });
       wnHeaderWord.AddClass('stratum-medium-condensed'); wnHeaderWord.hittest = false;
       wnHeaderWord.style.fontSize = '26px'; wnHeaderWord.style.color = WNH.text; wnHeaderWord.style.letterSpacing = '1px';
       wnHeaderWord.style.verticalAlign = 'center'; wnHeaderWord.style.transform = 'translateY(2px)';
-      wnHeaderVersion = $.CreatePanel('Label', b, '', { text: '' });
+      wnHeaderVersion = mvmLabel(b, '', { text: '' });
       wnHeaderVersion.AddClass('stratum-regular-condensed'); wnHeaderVersion.hittest = false;
       wnHeaderVersion.style.fontSize = '18px'; wnHeaderVersion.style.color = WNH.muted;
       wnHeaderVersion.style.marginLeft = '10px'; wnHeaderVersion.style.verticalAlign = 'center';
@@ -216,7 +216,7 @@ R"FMJS(
       b.SetPanelEvent('onmouseover', function () {
         b.style.backgroundColor = 'rgba(240,179,35,0.14)'; b.style.border = '1px solid ' + WNH.gold;
         b.style.boxShadow = 'rgba(240,179,35,0.40) 0px 0px 12px 0px'; wnHeaderWord.style.color = WNH.gold;
-        try { UiToolkitAPI.ShowTextTooltip('FmWhatsNewHeader', 'What changed in SOURCE:MVM ' + wnVersionText()); } catch (e) {}
+        try { UiToolkitAPI.ShowTextTooltip('FmWhatsNewHeader', T('What changed in SOURCE:MVM {0}', wnVersionText())); } catch (e) {}
       });
       b.SetPanelEvent('onmouseout', function () {
         b.style.backgroundColor = WNH.bg; b.style.border = '1px solid ' + WNH.border;

@@ -70,6 +70,9 @@ R"DBBJS(
 //   and restored the moment it settles. Motion blur covers the difference.
 
 (function () {
+)DBBJS"
+#include "LocalizationJs.h"
+R"DBBJS(
   try {
     var ctx = $.GetContextPanel();
     var speed = ctx.FindChildTraverse('SpeedControls');
@@ -220,7 +223,7 @@ R"DBBJS(
     pill.style.transitionDuration = '0.12s';
     pill.style.transitionTimingFunction = 'ease-out';
 
-    var readout = $.CreatePanel('Label', pill, '', {});
+    var readout = mvmLabel(pill, '', {});
     readout.hittest = false;
     readout.text = '1x';
     readout.style.horizontalAlign = 'center';
@@ -248,7 +251,7 @@ R"DBBJS(
       zoneTicks.push(zdiv);
     }
     for (var zi = 0; zi < ZONES.length; zi++) {
-      var zlab = $.CreatePanel('Label', strip, '', {});
+      var zlab = mvmLabel(strip, '', {});
       zlab.hittest = false;
       zlab.text = ZONE_LBL[zi];
       // Explicit width + textAlign (NOT width:100% / an align property): a Label sized to its

@@ -18,6 +18,9 @@ namespace Filmmaker {
 
 inline const char* kEasterEggOverlayJs = R"EGJS(
 (function () {
+)EGJS"
+#include "LocalizationJs.h"
+R"EGJS(
   try {
     var old = $('#MvmEggRoot'); if (old) old.DeleteAsync(0);
     var ctx = $.GetContextPanel();
@@ -64,7 +67,7 @@ inline const char* kEasterEggOverlayJs = R"EGJS(
     function expoOut(t) { return t >= 1 ? 1 : 1 - Math.pow(2, -11 * t); }
     function expoIn(t) { return t <= 0 ? 0 : Math.pow(2, 11 * (t - 1)); }
     function lbl(parent, text, color, size) {
-      var l = $.CreatePanel('Label', parent, '');
+      var l = mvmLabel(parent, '');
       l.hittest = false;
       // In game a child with no alignment is CENTRED in its parent's leftover space; margins are
       // then measured from the wrong edge. Default every label to the top-left corner.
@@ -74,6 +77,12 @@ inline const char* kEasterEggOverlayJs = R"EGJS(
       l.style.fontSize = size + 'px';
       return l;
     }
+
+    // Text C++ sends in English (hints, banners, Clippy's lines, chapter cards) is translated where
+    // it is shown: each fragment lists its lines in EGG_TEXT, keyed by the exact English. A line
+    // that is not listed is shown as it arrived.
+    var EGG_TEXT = {};
+    function eggText(s) { var hit = EGG_TEXT[s]; return typeof hit === 'string' ? hit : (s || ''); }
 
     var st = {}, lastFrame = now(), firstRender = true;
 )EGJS"

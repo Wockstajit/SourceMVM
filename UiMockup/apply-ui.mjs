@@ -20,7 +20,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tokenize, unflatten, newlineOf } from './lib/panorama-headers.mjs';
+import { tokenize, unflatten, newlineOf, headerPath } from './lib/panorama-headers.mjs';
 import { SURFACES } from './extract-ui.mjs';
 import { validateApply, commitApplications } from '../Automation/lib/ui-source-sync.mjs';
 
@@ -85,9 +85,10 @@ export function applySurface(id, { panoDir = DEFAULT_PANO, genDir = DEFAULT_GEN,
   const results = [];
   const sources = [];
   for (const file of files) {
-    const r = applyToHeader(path.join(sourceDir, file), bodies[file], file);
+    const header = headerPath(sourceDir, panoDir, file);
+    const r = applyToHeader(header, bodies[file], file);
     results.push({ file, changed: r.changed, segments: r.segments });
-    sources.push({ path: path.join(sourceDir, file), before: r.before, after: r.after });
+    sources.push({ path: header, before: r.before, after: r.after });
     log(`  ${r.changed ? 'would write' : 'same  '} ${file.padEnd(36)} ${r.changed}/${r.segments} literal(s) differ`);
   }
   const plan = validateApply(jsPath, code, sources);

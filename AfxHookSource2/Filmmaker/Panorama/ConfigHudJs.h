@@ -38,6 +38,9 @@ namespace Filmmaker {
 
 inline const char* kConfigHudJs = R"CFJS(
 (function () {
+)CFJS"
+#include "LocalizationJs.h"
+R"CFJS(
   try {
     var existing = $('#ConfigHudRoot'); if (existing) existing.DeleteAsync(0);
     // Top-level child of ctx (see EditorSettingsPopupJs.h), so a rebuild has to drop the old
@@ -138,7 +141,7 @@ R"CFJS(
     // THE WORKSPACE SHELL -- catchers, PREVIEW tag, letterbox masks, frame and decor come from
     // the one shared builder (WorkspaceShellJs.h); this panel supplies its accent and wordmark.
     var shell = mvmWorkspaceShell(root, {
-      accent: S.accent, title: 'CONFIG / SYSTEM', code: 'SOURCE // MVM FILMMAKER',
+      accent: S.accent, title: T('CONFIG / SYSTEM'), code: 'SOURCE // MVM FILMMAKER',
       onCatcher: function () { /* swallow */ }
     });
     var catcherTop = shell.catchers.top, catcherBottom = shell.catchers.bottom;
@@ -335,7 +338,7 @@ R"CFJS(
     // so nothing moves; in the MODULAR layout it is the body of a movable window. CONFIG opens on
     // the left in MODULAR layout and the Camera Editor on the right, so both fit side by side.
     var cfgWin = mvmModuleWindow(root, {
-      key: 'config', title: 'CONFIG', accent: S.accent, side: 'left', z: 52,
+      key: 'config', title: T('CONFIG'), accent: S.accent, side: 'left', z: 52,
       onClose: function () { cmd('mirv_filmmaker config off'); }
     });
     var colHost = cfgWin.host;
@@ -506,10 +509,10 @@ R"CFJS(
     var head = mk('Panel', inspector); head.hittest = false; head.id = 'CfgHead';
     head.style.flowChildren = 'right'; head.style.width = '100%';
     head.style.zIndex = '80';
-    var hTitle = lbl(head, 'CONFIG', S.value, 18); hTitle.hittest = false;
+    var hTitle = lbl(head, T('CONFIG'), S.value, 18); hTitle.hittest = false;
     hTitle.style.fontWeight = 'bold';
     hTitle.style.letterSpacing = '2.5px'; hTitle.style.width = 'fill-parent-flow(1.0)';
-    hTitle.style.verticalAlign = 'center'; hTitle.style.whiteSpace = 'nowrap';
+    hTitle.style.verticalAlign = 'center'; hTitle.style.whiteSpace = 'nowrap'; hTitle.style.textOverflow = 'shrink';
     // A header chip. ONE definition for every workspace -- see WorkspaceChromeJs.h for why
     // this stopped being per-panel and why a chip carries no accent fill.
     function chromeChip(text, onClick) {
@@ -520,13 +523,13 @@ R"CFJS(
     // preview is GAME, everything else is UI.
     // Game-UI visibility: how much of CS2's own HUD shows behind the panel. Hide All = clean
     // plate, In-Game = radar + HP/ammo with no observer panel, Show All = the full spectator HUD.
-    var HUD_CYCLE = [['hidden', 'Hide All'], ['game', 'In-Game'], ['full', 'Show All']];
-    var hudCycle = chromeChip('GAME UI: SHOW ALL', function () {
+    var HUD_CYCLE = [['hidden', T('Hide All')], ['game', T('In-Game')], ['full', T('Show All')]];
+    var hudCycle = chromeChip(T('GAME UI: {0}', T('Show All').toUpperCase()), function () {
       var cur = (st && st.hudView) || 'full', idx = 0;
       for (var i = 0; i < HUD_CYCLE.length; i++) if (HUD_CYCLE[i][0] === cur) idx = i;
       cmd('mirv_filmmaker editor hud ' + HUD_CYCLE[(idx + 1) % HUD_CYCLE.length][0]);
     });
-    var exitBtn = chromeChip('ESC EXIT', function () { cmd('mirv_filmmaker config close'); });
+    var exitBtn = chromeChip(T('ESC EXIT'), function () { cmd('mirv_filmmaker config close'); });
     exitBtn.id = 'CfgExit';
 
     // ===================== INSPECTOR TAB STRIP ==========================
@@ -537,7 +540,7 @@ R"CFJS(
     // everything that drives a value CS2 ALREADY HAS; ENVIRONMENT is the added renderer drawn on
     // top of it. They sit next to each other because the split between them is the thing the
     // operator has to hold in their head -- see the note at the top of ConfigHudEffectsTabJs.h.
-    var TABS = [['camera', 'CAMERA'], ['effects', 'EFFECTS'], ['environment', 'ENVIRONMENT'], ['ragdolls', 'RAGDOLLS'], ['bots', 'BOTS']];
+    var TABS = [['camera', T('CAMERA')], ['effects', T('EFFECTS')], ['environment', T('ENVIRONMENT')], ['ragdolls', T('RAGDOLLS')], ['bots', T('BOTS')]];
     var activeTab = 'camera';
     var configUiHydrated = false;
     var configWasEnabled = false;   // drives the one-shot panel entrance
@@ -579,7 +582,7 @@ R"CFJS(
     trans(searchBox, 'border-color', 0.08);
     var searchIcon = lbl(searchBox, '⌕', S.muted, 15); searchIcon.hittest = false;
     searchIcon.style.verticalAlign = 'center'; searchIcon.style.marginRight = '7px';
-    var searchText = lbl(searchBox, 'Search all tabs', S.muted, 13); searchText.hittest = false;
+    var searchText = lbl(searchBox, T('Search all tabs'), S.muted, 13); searchText.hittest = false;
     searchText.style.width = 'fill-parent-flow(1.0)'; searchText.style.verticalAlign = 'center';
     searchText.style.whiteSpace = 'nowrap'; searchText.style.textOverflow = 'ellipsis';
     var searchClear = lbl(searchBox, '×', S.muted, 15); searchClear.hittest = true; searchClear.visible = false;
@@ -847,8 +850,8 @@ R"CFJS(
     // RENDER / CUSTOMIZE PLAYER, from the one shared builder (WorkspaceChromeJs.h). This
     // panel's geometry is the spec the other workspaces now follow.
     var dockActions = mvmActionRow(colHost, makeInteractive, [
-      { text: 'RENDER', width: 150, onClick: function () { cmd('mirv_filmmaker editor render'); } },
-      { text: '\u2726  CUSTOMIZE PLAYER', width: 'fill-parent-flow(1.0)',
+      { text: T('RENDER'), width: 150, onClick: function () { cmd('mirv_filmmaker editor render'); } },
+      { text: '\u2726  ' + T('CUSTOMIZE PLAYER'), width: 'fill-parent-flow(1.0)',
         // The Camera Editor's own modal, opened OVER this panel (no workspace switch): one
         // implementation, one target source (Cosmetics/CustomizeTarget.h) for both panels.
         onClick: function () { cmd('mirv_filmmaker config customize'); } }
@@ -955,7 +958,7 @@ R"CFJS(
         // The inspector is deliberately NOT transformed on open: it owns both clipped
         // content and pinned text, and animating it flickers both.
         if (configJustOpened) { /* no entrance transform -- see the note above */ }
-        renderAction.__lbl.text = st.renderJobActive ? 'RENDER PROGRESS' : 'RENDER';
+        renderAction.__lbl.text = st.renderJobActive ? T('RENDER PROGRESS') : T('RENDER');
         // Through setBtnOn, never straight to style: these run every frame and would repaint
         // over the hover fill before it was ever seen (see paintBtn in ConfigHudWidgetsJs.h).
         setBtnOn(renderAction, !!st.renderJobActive, S.accent);
@@ -1041,9 +1044,9 @@ R"CFJS(
         else hideDemoWorkspace();
         cfgWin.publish(root);
 
-        var hv = st.hudView || 'full', hudName = 'Show All';
+        var hv = st.hudView || 'full', hudName = T('Show All');
         for (var hb = 0; hb < HUD_CYCLE.length; hb++) if (HUD_CYCLE[hb][0] === hv) hudName = HUD_CYCLE[hb][1];
-        hudCycle.__lbl.text = 'GAME UI: ' + hudName.toUpperCase();
+        hudCycle.__lbl.text = T('GAME UI: {0}', hudName.toUpperCase());
       } catch (eChrome) {
         $.Msg('[confighud] chrome render failed: ' + eChrome + '\n');
       }

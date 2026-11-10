@@ -76,8 +76,8 @@ R"CLRJS(
       now.style.width = 'fill-parent-flow(2.0)'; now.style.height = '100%';
       var vHead = mk('Panel', col); vHead.hittest = false;
       vHead.style.flowChildren = 'right'; vHead.style.width = '100%'; vHead.style.marginTop = '9px';
-      var vCap = lbl(vHead, 'Brightness', S.muted, 11); vCap.hittest = false;
-      vCap.style.textTransform = 'uppercase';
+      var vCap = lbl(vHead, T('Brightness'), S.muted, 11); vCap.hittest = false;
+      vCap.style.textTransform = 'uppercase'; vCap.style.whiteSpace = 'nowrap'; vCap.style.textOverflow = 'shrink';
       vCap.style.fontWeight = 'bold'; vCap.style.letterSpacing = '1.2px'; vCap.style.width = 'fill-parent-flow(1.0)';
       var vText = lbl(vHead, '', S.value, 12); vText.hittest = false;
       vText.style.fontWeight = 'bold'; vText.style.fontFamily = S.fontMonodigit;
@@ -127,7 +127,7 @@ R"CLRJS(
       acts.style.horizontalAlign = 'right'; acts.style.marginTop = '4px';
       // "Revert", not "Reset": every card header's Reset restores DEFAULTS; this goes back to
       // the colour the picker opened with.
-      var reset = btn(acts, 'Revert', function () {
+      var reset = btn(acts, T('Revert'), function () {
         owner.hsv = mvmRgbToHsv(owner.orig, owner.hsv[0]);
         cfgColorCommit(owner);
       }, S.label);
@@ -136,7 +136,7 @@ R"CLRJS(
       done.style.borderRadius = '3px';
       done.style.paddingTop = '5px'; done.style.paddingBottom = '5px';
       done.style.paddingLeft = '13px'; done.style.paddingRight = '13px';
-      var dl = lbl(done, 'Done', '#0c0e12ff', 12); dl.hittest = false; dl.style.fontWeight = 'bold';
+      var dl = lbl(done, T('Done'), '#0c0e12ff', 12); dl.hittest = false; dl.style.fontWeight = 'bold';
       hoverable(done, function (p) {
         p.style.backgroundColor = p.__hot ? (S.accent.substring(0, 7) + 'e6') : S.accent;
       });

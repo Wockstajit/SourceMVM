@@ -28,22 +28,22 @@
 #include "CameraEditorRenderLayoutJs.h"
 R"EDJS(
     var RENDER_ERROR_TEXT = '#fc9994ff';
-    var RANGE_MODE_LABELS = ['Full Demo', 'Round', 'Camera Path', 'Segment', 'Custom In/Out'];
+    var RANGE_MODE_LABELS = [T('Full Demo'), T('Round'), T('Camera Path'), T('Segment'), T('Custom In/Out')];
     var RANGE_MODE_TOKENS = ['full', 'round', 'path', 'segment', 'custom'];
     var CAM_SOURCES = [
-      ['current', 'Current Viewer'], ['pov', 'First-Person POV'], ['thirdperson', 'Third-Person'],
-      ['free', 'Free Camera'], ['path', 'Camera Path'], ['follow', 'Follow Camera']
+      ['current', T('Current Viewer')], ['pov', T('First-Person POV')], ['thirdperson', T('Third-Person')],
+      ['free', T('Free Camera')], ['path', T('Camera Path')], ['follow', T('Follow Camera')]
     ];
     var CAM_SOURCE_HINTS = [
-      'Whatever is on screen right now. Nothing is switched.',
-      'Switches to first-person (in-eye) on the spectated player.',
-      'Switches to the third-person orbit camera on the spectated player.',
-      'Switches to the free fly camera (WASD + mouse in GAME-mouse mode).',
-      'Plays the authored camera path. Needs 2+ camera keys.',
-      'Tracks the follow target. Pick a target in the editor Follow tab first.'
+      T('Whatever is on screen right now. Nothing is switched.'),
+      T('Switches to first-person (in-eye) on the spectated player.'),
+      T('Switches to the third-person orbit camera on the spectated player.'),
+      T('Switches to the free fly camera (WASD + mouse in GAME-mouse mode).'),
+      T('Plays the authored camera path. Needs 2+ camera keys.'),
+      T('Tracks the follow target. Pick a target in the editor Follow tab first.')
     ];
     var FPS_CHOICES = [24, 30, 50, 60, 120];
-    var CRF_CHOICES = [[14, 'Highest'], [18, 'High'], [23, 'Medium'], [28, 'Small file']];
+    var CRF_CHOICES = [[14, T('Highest')], [18, T('High')], [23, T('Medium')], [28, T('Small file')]];
     var RS_WARN = '#f0b64aff';
     var DEMO_TICKRATE = 64; // CS2 demos; readouts label themselves with it rather than hiding it
 
@@ -170,7 +170,11 @@ R"EDJS(
     // A blocked option is drawn in FULL-OPACITY colours, never dimmed as a whole: the one line
     // that has to stay readable on a blocked option is the reason it is blocked.
     var RS_BLOCK_TEXT = '#f4a259ff', RS_BLOCK_BORDER = '#c96a3aff', RS_BLOCK_BG = '#171b21ff';
-    var RENDER_VIEWS = [['RANGE & CAMERA', 0], ['PASSES', 2], ['OUTPUT', 3]];
+    var RENDER_VIEWS = [
+      [T('RANGE & CAMERA'), 0, T('Open the range & camera render settings.')],
+      [T('PASSES'), 2, T('Open the passes render settings.')],
+      [T('OUTPUT'), 3, T('Open the output render settings.')]
+    ];
     function renderViewOf(tab) { return tab === 2 ? 1 : (tab === 3 ? 2 : 0); }
 
     var renderHead = mk('Panel', renderSettingsCol); renderHead.id = 'RndHead';
@@ -179,20 +183,20 @@ R"EDJS(
     // The inspector's own paddingTop (CameraEditorJs.h / ConfigHudJs.h), so Back sits on the SAME
     // baseline as Exit in the other two workspaces.
     renderHead.style.paddingTop = UI.col.pad + 'px'; renderHead.style.paddingBottom = '0px';
-    var renderTitle = lbl(renderHead, 'RENDER', S.render, 18);
+    var renderTitle = lbl(renderHead, T('RENDER'), S.render, 18);
     renderTitle.style.fontWeight = 'bold'; renderTitle.style.letterSpacing = '2.5px';
     renderTitle.style.verticalAlign = 'center'; renderTitle.style.width = 'fill-parent-flow(1.0)';
     // The chime when a job ends (RenderDoneSound.h). Like every header chip it says its own state;
     // the volume is in OUTPUT > WHEN THE RENDER ENDS.
     var renderSoundChip = mvmChromeChip(renderHead,
       function (parent, t, f) {
-        return btn(parent, t, f, S.label, { tip: 'Play a sound when a render finishes, a lower one if it fails. Volume: OUTPUT tab.' });
+        return btn(parent, t, f, S.label, { tip: T('Play a sound when a render finishes, a lower one if it fails. Volume: OUTPUT tab.') });
       },
-      btnVisual, 'SOUND: ON', function () { cmd('mirv_filmmaker render sound toggle'); });
+      btnVisual, T('SOUND: ON'), function () { cmd('mirv_filmmaker render sound toggle'); });
     renderSoundChip.id = 'RndSound';
     var renderBackBtn = mvmChromeChip(renderHead,
-      function (parent, t, f) { return btn(parent, t, f, S.label, { tip: 'Return to the Camera Editor.' }); },
-      btnVisual, '✕ Back', function () { closeRender(); });
+      function (parent, t, f) { return btn(parent, t, f, S.label, { tip: T('Return to the Camera Editor.') }); },
+      btnVisual, T('✕ Back'), function () { closeRender(); });
     renderBackBtn.id = 'RndBack';
 
     // Text tabs on a rule, the workspace's grey accent underlining the active one -- the grammar
@@ -207,7 +211,7 @@ R"EDJS(
       (function (idx) {
         var tb = tabify(btn(renderTabRow, RENDER_VIEWS[idx][0], function () {
           cmd('mirv_filmmaker render tab ' + RENDER_VIEWS[idx][1]);
-        }, S.value, { tip: 'Open the ' + RENDER_VIEWS[idx][0].toLowerCase() + ' render settings.' }));
+        }, S.value, { tip: RENDER_VIEWS[idx][2] }));
         tb.style.width = 'fit-children';
         tb.style.paddingLeft = '0px'; tb.style.paddingRight = '0px';
         tb.style.paddingTop = '2px'; tb.style.paddingBottom = UI.tabTop.padBottom + 'px';
@@ -428,16 +432,16 @@ R"EDJS(
     shotPanel.style.flowChildren = 'down'; shotPanel.style.width = '100%'; shotPanel.style.height = 'fit-children';
 
     var RANGE_MODE_TIPS = [
-      'Render the entire demo from its first to last tick.',
-      'Render only the round containing the playhead.',
-      'Render from the first camera key through the last camera key.',
-      'Render from the selected camera key to the next key.',
-      'Render between the In and Out flags on the timeline.'
+      T('Render the entire demo from its first to last tick.'),
+      T('Render only the round containing the playhead.'),
+      T('Render from the first camera key through the last camera key.'),
+      T('Render from the selected camera key to the next key.'),
+      T('Render between the In and Out flags on the timeline.')
     ];
     var RANGE_BLOCK_REASONS = [null, null,
-      'Camera Path needs 2+ camera keys. Place them with K.',
-      'Segment needs a camera key selected that has a NEXT key.', null];
-    var rangeSec = rsSection(shotPanel, 'RANGE');
+      T('Camera Path needs 2+ camera keys. Place them with {0}.', K('marker.place', 'K')),
+      T('Segment needs a camera key selected that has a NEXT key.'), null];
+    var rangeSec = rsSection(shotPanel, T('RANGE'));
     var rangeItems = [];
     for (var rmi = 0; rmi < RANGE_MODE_LABELS.length; rmi++) rangeItems.push([rmi, RANGE_MODE_LABELS[rmi], null, RANGE_MODE_TIPS[rmi]]);
     var rangeSeg = rsSeg(rangeSec, rangeItems, function (idx) {
@@ -470,16 +474,16 @@ R"EDJS(
       v.style.marginTop = '3px'; v.style.horizontalAlign = align; v.style.whiteSpace = 'nowrap';
       return v;
     }
-    var spanIn = spanCell('IN', 'fill-parent-flow(1.0)', 'left');
+    var spanIn = spanCell(T('IN'), 'fill-parent-flow(1.0)', 'left');
     var spanArrow = lbl(spanTop, '→', RS_DIM, 18); spanArrow.hittest = false;
     spanArrow.style.verticalAlign = 'bottom'; spanArrow.style.marginLeft = '14px';
     spanArrow.style.marginRight = '14px'; spanArrow.style.marginBottom = '4px';
-    var spanLast = spanCell('LAST FRAME', 'fill-parent-flow(1.0)', 'center');
+    var spanLast = spanCell(T('LAST FRAME'), 'fill-parent-flow(1.0)', 'center');
     var spanRule = mk('Panel', spanTop); spanRule.hittest = false;
     spanRule.style.width = '1px'; spanRule.style.height = '48px'; spanRule.style.backgroundColor = '#ffffff14';
     spanRule.style.marginLeft = '14px'; spanRule.style.verticalAlign = 'bottom';
-    var spanLen = spanCell('LENGTH', '86px', 'right', 14);
-    var spanTicks = spanCell('TICKS @ ' + DEMO_TICKRATE, '96px', 'right', 14);
+    var spanLen = spanCell(T('LENGTH'), '86px', 'right', 14);
+    var spanTicks = spanCell(T('TICKS @ {0}', DEMO_TICKRATE), '96px', 'right', 14);
     // One-tick steps under IN and LAST FRAME. A flag on the timeline covers about 45 ticks per pixel
     // on a 20-minute demo, so the last few ticks are set here (tester report). Each step sends the
     // whole span, so it works from whatever range mode resolved it, and switches to Custom. A step
@@ -496,12 +500,12 @@ R"EDJS(
       if (!(b > a) || (a === rsSpanStart && b === rsSpanEnd)) return;
       cmd('mirv_filmmaker render range custom ' + a + ' ' + b);
     }
-    function spanNudges(valueLbl, align, what, step) {
+    function spanNudges(valueLbl, align, tips, step) {
       var row = mk('Panel', valueLbl.GetParent()); row.hittest = false; row.hittestchildren = true;
       row.style.flowChildren = 'right'; row.style.marginTop = '6px'; row.style.horizontalAlign = align;
       function nudge(text, d, last) {
         var b = rsOutlineBtn(row, text, function () { step(d); },
-          'Move ' + what + ' one tick ' + (d < 0 ? 'earlier' : 'later') + '.', true);
+          tips[d < 0 ? 0 : 1], true);
         b.style.height = '22px'; b.style.paddingLeft = '8px'; b.style.paddingRight = '8px';
         b.style.marginRight = last ? '0px' : '4px';
         b.__lbl.style.fontSize = '12px';
@@ -511,8 +515,10 @@ R"EDJS(
       nudge('-1', -1, false); nudge('+1', 1, true);
       return row;
     }
-    spanNudges(spanIn, 'left', 'In', function (d) { rsSetSpan(rsSpanStart + d, rsSpanEnd); });
-    spanNudges(spanLast, 'center', 'the last frame', function (d) { rsSetSpan(rsSpanStart, rsSpanEnd + d); });
+    spanNudges(spanIn, 'left', [T('Move In one tick earlier.'), T('Move In one tick later.')],
+      function (d) { rsSetSpan(rsSpanStart + d, rsSpanEnd); });
+    spanNudges(spanLast, 'center', [T('Move the last frame one tick earlier.'), T('Move the last frame one tick later.')],
+      function (d) { rsSetSpan(rsSpanStart, rsSpanEnd + d); });
     // The span on the whole demo, with the playhead. Read-only: the span is moved from the
     // playhead bar at the foot of the column, or the I / O flags on the timeline.
     var spanBar = mk('Panel', rangeSpan); spanBar.hittest = false;
@@ -574,19 +580,19 @@ R"EDJS(
     function camSourceBlockedReason(idx) {
       var av = (st && st.render && st.render.avail) || {};
       var spec = camSpectatingStable();
-      if (idx === 1 && !spec) return 'Needs a spectated player — click one in the preview.';
-      if (idx === 2 && !spec) return 'Needs a spectated player — click one in the preview.';
-      if (idx === 4 && (av.pathKeys || 0) < 2) return 'Needs 2+ camera keys. Place them with K.';
-      if (idx === 5 && !av.followReady) return 'No follow camera placed yet — set one up in the editor’s Follow tab.';
+      if (idx === 1 && !spec) return T('Needs a spectated player — click one in the preview.');
+      if (idx === 2 && !spec) return T('Needs a spectated player — click one in the preview.');
+      if (idx === 4 && (av.pathKeys || 0) < 2) return T('Needs 2+ camera keys. Place them with {0}.', K('marker.place', 'K'));
+      if (idx === 5 && !av.followReady) return T('No follow camera placed yet — set one up in the editor’s Follow tab.');
       return null;
     }
     // The tile's own line: what the source resolves to, or (blocked) the short form of why not.
-    var CAM_SUBS = ['What’s on screen now', 'In-eye on the spectated player', 'Orbit on the spectated player',
-                    'Free fly (WASD + mouse)', 'Plays the path', 'Tracks the follow target'];
-    var CAM_BLOCK_SUBS = [null, 'Needs a spectated player', 'Needs a spectated player', null,
-                          'Needs 2+ camera keys', 'Place a follow camera first'];
+    var CAM_SUBS = [T('What’s on screen now'), T('In-eye on the spectated player'), T('Orbit on the spectated player'),
+                    T('Free fly (WASD + mouse)'), T('Plays the path'), T('Tracks the follow target')];
+    var CAM_BLOCK_SUBS = [null, T('Needs a spectated player'), T('Needs a spectated player'), null,
+                          T('Needs 2+ camera keys'), T('Place a follow camera first')];
 
-    var camSec = rsSection(shotPanel, 'CAMERA');
+    var camSec = rsSection(shotPanel, T('CAMERA'));
     var camTiles = [];
     var camGrid = mk('Panel', camSec); camGrid.id = 'RsCamGrid'; camGrid.hittest = false; camGrid.hittestchildren = true;
     camGrid.style.flowChildren = 'down'; camGrid.style.width = '100%';
@@ -603,16 +609,16 @@ R"EDJS(
     var camErr = rsBlockBox(camSec);
     mvmTourAdd('render.cams', camGrid); mvmTourAdd('render.cam.path', camTiles[4]);
     // Camera Path's own setting, shown while it is the source.
-    var EXT_ROWS = [['fail', 'Fail (safe)'], ['holdfirst', 'Hold first'], ['holdlast', 'Hold last'], ['clamp', 'Clamp range']];
-    var extRow = rsLabeledRow(camSec, 'If the path is shorter than the range', 200, 12);
+    var EXT_ROWS = [['fail', T('Fail (safe)')], ['holdfirst', T('Hold first')], ['holdlast', T('Hold last')], ['clamp', T('Clamp range')]];
+    var extRow = rsLabeledRow(camSec, T('If the path is shorter than the range'), 200, 12);
     var extSeg = rsSeg(extRow, EXT_ROWS, function (token) { cmd('mirv_filmmaker render extension ' + token); },
       { padV: 7, width: 'fill-parent-flow(1.0)', id: 'RsExtSeg' });
-    var extNote = rsNote(camSec, 'Default is Fail. Silent clamping renders the wrong clip without telling you.');
+    var extNote = rsNote(camSec, T('Default is Fail. Silent clamping renders the wrong clip without telling you.'));
 
     // The pinned footer: the playhead and the three actions that act on it.
     var phCol = mk('Panel', renderFooter); phCol.hittest = false;
     phCol.style.flowChildren = 'down'; phCol.style.width = '150px'; phCol.style.verticalAlign = 'center';
-    var phCap = lbl(phCol, 'PLAYHEAD', RS_DIM, 10); phCap.hittest = false;
+    var phCap = lbl(phCol, T('PLAYHEAD'), RS_DIM, 10); phCap.hittest = false;
     phCap.style.fontWeight = 'bold'; phCap.style.letterSpacing = '1.8px';
     var phVal = lbl(phCol, '', RS_GOLD, 15); phVal.hittest = false;
     phVal.style.fontFamily = S.fontMonodigit; phVal.style.fontWeight = 'bold'; phVal.style.marginTop = '2px';
@@ -622,15 +628,15 @@ R"EDJS(
       b.style.marginLeft = '6px';
       return b;
     }
-    var setInBtn = footBtn('Set In', function () {
+    var setInBtn = footBtn(T('Set In'), function () {
       if (st && typeof st.tick === 'number') cmd('mirv_filmmaker render in ' + (st.tick | 0));
-    }, 'Set the render In flag at the current playhead tick.');
-    var setOutBtn = footBtn('Set Out', function () {
+    }, T('Set the render In flag at the current playhead tick.'));
+    var setOutBtn = footBtn(T('Set Out'), function () {
       if (st && typeof st.tick === 'number') cmd('mirv_filmmaker render out ' + ((st.tick | 0) + 1));
-    }, 'Set the render Out flag just after the current playhead tick.');
-    var clearRangeBtn = footBtn('Clear', function () {
+    }, T('Set the render Out flag just after the current playhead tick.'));
+    var clearRangeBtn = footBtn(T('Clear'), function () {
       cmd('mirv_filmmaker render clearrange');
-    }, 'Clear the custom In and Out range.', true);
+    }, T('Clear the custom In and Out range.'), true);
 )EDJS"
 R"EDJS(
     // ================= PASSES (tab slot 2) =================
@@ -642,13 +648,13 @@ R"EDJS(
     passesPanel.visible = false;
     function rpPass() { return (st && st.render && st.render.pass) ? st.render.pass : null; }
 
-    var RP_TYPES = [['beauty', 'Beauty'], ['depth', 'Depth'], ['normal', 'Normal'], ['key', 'Key']];
+    var RP_TYPES = [['beauty', T('Beauty')], ['depth', T('Depth')], ['normal', T('Normal')], ['key', T('Key##chroma key pass')]];
     var RP_ELEMENTS = [
-      ['all', 'Everything', 'The scene as the game draws it.'],
-      ['worldplayers', 'World + players', 'Everything except the first-person gun and its effects.'],
-      ['world', 'World only', 'The map: no players, gear, weapons or viewmodel.'],
-      ['players', 'Players only', 'Players and their gear over the background colour.'],
-      ['gun', 'Gun only', 'The first-person gun and its effects over the background colour.']
+      ['all', T('Everything'), T('The scene as the game draws it.')],
+      ['worldplayers', T('World + players'), T('Everything except the first-person gun and its effects.')],
+      ['world', T('World only'), T('The map: no players, gear, weapons or viewmodel.')],
+      ['players', T('Players only'), T('Players and their gear over the background colour.')],
+      ['gun', T('Gun only'), T('The first-person gun and its effects over the background colour.')]
     ];
     // Mirrors PassAllowed (RenderPassPlan.h): the isolated groups (Players only, Gun only) have a
     // background to key out, so their colour plate is Key; the groups that fill the frame take
@@ -679,7 +685,7 @@ R"EDJS(
       }
       return null;
     }
-    var rpSec = rsSection(passesPanel, 'PASSES');
+    var rpSec = rsSection(passesPanel, T('PASSES'));
     rsFill(rpSec.__head);
     // View: shows one of the ENABLED passes live in the camera view -- its type as well as its
     // visibility group, so Normal of World only is the normals of the map. Turning it off is
@@ -690,16 +696,16 @@ R"EDJS(
     rpViewBtn.style.paddingLeft = '11px'; rpViewBtn.style.paddingRight = '11px'; rpViewBtn.style.borderRadius = '3px';
     var rpViewEye = lbl(rpViewBtn, '◉', S.label, 12); rpViewEye.hittest = false;
     rpViewEye.style.verticalAlign = 'center'; rpViewEye.style.marginRight = '7px';
-    var rpViewL = lbl(rpViewBtn, 'View', S.label, 12); rpViewL.hittest = false;
+    var rpViewL = lbl(rpViewBtn, T('View'), S.label, 12); rpViewL.hittest = false;
     rpViewL.style.fontWeight = 'bold'; rpViewL.style.verticalAlign = 'center'; rpViewL.style.whiteSpace = 'nowrap';
     function rpPaintView(p) {
       var on = rpViewOn, c = on ? RS_GOLD : (p.__hot ? S.value : S.label);
       p.style.backgroundColor = on ? (RS_GOLD + '26') : (p.__hot ? '#ffffff1f' : '#ffffff0d');
       p.style.border = '1px solid ' + (on ? (RS_GOLD + '99') : '#ffffff1f');
       rpViewEye.style.color = c; rpViewL.style.color = c;
-      rpViewL.text = on ? 'Viewing live' : 'View';
+      rpViewL.text = on ? T('Viewing live') : T('View');
     }
-    rpViewBtn.__tipText = 'Show a pass live in the camera view.';
+    rpViewBtn.__tipText = T('Show a pass live in the camera view.');
     edHoverable(rpViewBtn, rpPaintView);
     rpViewBtn.SetPanelEvent('onactivate', function () {
       edPressFlash(rpViewBtn, rpPaintView);
@@ -721,7 +727,7 @@ R"EDJS(
     rpViewStrip.style.borderRadius = '3px'; rpViewStrip.style.backgroundColor = RS_GOLD + '12';
     rpViewStrip.style.border = '1px solid ' + RS_GOLD + '40';
     rpViewStrip.visible = false;
-    var rpViewCap = lbl(rpViewStrip, 'LIVE IN CAMERA', RS_GOLD, 10); rpViewCap.hittest = false;
+    var rpViewCap = lbl(rpViewStrip, T('LIVE IN CAMERA'), RS_GOLD, 10); rpViewCap.hittest = false;
     rpViewCap.style.fontWeight = 'bold'; rpViewCap.style.letterSpacing = '1.6px';
     // The caption is a line of its own: inline in the wrapping strip it sank to the bottom of
     // whichever row the chips left it on.
@@ -750,8 +756,8 @@ R"EDJS(
         if (!c.visible) c.visible = true;
         if (c.__key === key) return;
         c.__key = key; c.__inert = inert; l.text = caption;
-        c.__tipText = 'Show ' + caption + ' in the camera view.'
-          + (key.indexOf(' gun') > 0 ? ' The render also keeps the muzzle flash, which the live view leaves out.' : '');
+        c.__tipText = T('Show {0} in the camera view.', caption)
+          + (key.indexOf(' gun') > 0 ? ' ' + T('The render also keeps the muzzle flash, which the live view leaves out.') : '');
         c.__paint(c);
       };
       edHoverable(c, c.__paint);
@@ -763,7 +769,7 @@ R"EDJS(
       rpViewChips.push(c);
       return c;
     }
-    var rpViewEmpty = lbl(rpViewRow, 'Turn on a pass to view it live.', S.label, 12); rpViewEmpty.hittest = false;
+    var rpViewEmpty = lbl(rpViewRow, T('Turn on a pass to view it live.'), S.label, 12); rpViewEmpty.hittest = false;
     rpViewEmpty.style.verticalAlign = 'center'; rpViewEmpty.style.marginBottom = '4px'; rpViewEmpty.visible = false;
 )EDJS"
 R"EDJS(
@@ -775,6 +781,7 @@ R"EDJS(
       var rpHl = lbl(rpHead, RP_TYPES[rph][1].toUpperCase(), RS_MUTED, 10); rpHl.hittest = false;
       rpHl.style.width = '64px'; rpHl.style.marginLeft = '6px'; rpHl.style.textAlign = 'center';
       rpHl.style.fontWeight = 'bold'; rpHl.style.letterSpacing = '1px';
+      rpHl.style.whiteSpace = 'nowrap'; rpHl.style.textOverflow = 'shrink';
     }
     function rpCell(parent, onClick, tip) {
       var c = mk('Panel', parent);
@@ -830,7 +837,7 @@ R"EDJS(
         }
         cells.push(rpCell(row, function () {
           cmd('mirv_filmmaker render pass toggle ' + RP_TYPES[tj][0] + ' ' + RP_ELEMENTS[ei][0]);
-        }, RP_TYPES[tj][1] + ' of ' + RP_ELEMENTS[ei][1].toLowerCase() + ': ' + RP_ELEMENTS[ei][2]));
+        }, T('{0} of {1}: {2}', RP_TYPES[tj][1], RP_ELEMENTS[ei][1].toLowerCase(), RP_ELEMENTS[ei][2])));
       })(ti);
       row.__name = name;
       rpRows.push(row); rpCells.push(cells);
@@ -838,15 +845,20 @@ R"EDJS(
     var rpSummary = rsNote(rpSec, '', 6);
 
     // KEYING & DEPTH: each half greys out until a pass that uses it is on.
-    var rkSec = rsSection(passesPanel, 'KEYING & DEPTH');
+    var rkSec = rsSection(passesPanel, T('KEYING & DEPTH'));
     var rkCols = mk('Panel', rkSec); rkCols.hittest = false; rkCols.hittestchildren = true;
     rkCols.style.flowChildren = 'right'; rkCols.style.width = '100%';
     var rkKeyCol = mk('Panel', rkCols); rkKeyCol.hittest = false; rkKeyCol.hittestchildren = true;
     rkKeyCol.style.flowChildren = 'down'; rkKeyCol.style.width = 'fill-parent-flow(1.0)'; rkKeyCol.style.marginRight = '16px';
     var rkDepthCol = mk('Panel', rkCols); rkDepthCol.hittest = false; rkDepthCol.hittestchildren = true;
     rkDepthCol.style.flowChildren = 'down'; rkDepthCol.style.width = 'fill-parent-flow(1.0)';
-    rsCaption(rkKeyCol, 'BACKGROUND COLOUR');
-    var RP_KEYS = [['Green', [0, 255, 0]], ['Blue', [0, 0, 255]], ['Magenta', [255, 0, 255]], ['Black', [0, 0, 0]]];
+    rsCaption(rkKeyCol, T('BACKGROUND COLOUR'));
+    var RP_KEYS = [
+      [T('Green'), [0, 255, 0], T('Fill the background of Players only and Gun only with green.')],
+      [T('Blue'), [0, 0, 255], T('Fill the background of Players only and Gun only with blue.')],
+      [T('Magenta'), [255, 0, 255], T('Fill the background of Players only and Gun only with magenta.')],
+      [T('Black'), [0, 0, 0], T('Fill the background of Players only and Gun only with black.')]
+    ];
     var rpKeyGroup = mk('Panel', rkKeyCol); rpKeyGroup.hittest = false; rpKeyGroup.hittestchildren = true;
     rpKeyGroup.style.flowChildren = 'down'; rpKeyGroup.style.width = '100%';
     var rpKeyBtns = [], rpKeyRow = null;
@@ -869,7 +881,7 @@ R"EDJS(
         p.style.border = '1px solid ' + (p.__hot ? '#ffffff40' : (p.__on ? (RS_AC + '99') : '#ffffff1f'));
         l.style.color = p.__on ? S.value : S.label;
       };
-      b.__tipText = 'Fill the background of Players only and Gun only with ' + RP_KEYS[ki][0].toLowerCase() + '.';
+      b.__tipText = RP_KEYS[ki][2];
       edHoverable(b, b.__paint);
       b.SetPanelEvent('onactivate', function () {
         edPressFlash(b, b.__paint);
@@ -881,24 +893,24 @@ R"EDJS(
     rpKeyNote.style.fontSize = '11px';
 )EDJS"
 R"EDJS(
-    rsCaption(rkDepthCol, 'DEPTH RANGE');
+    rsCaption(rkDepthCol, T('DEPTH RANGE'));
     var rpDepthGroup = mk('Panel', rkDepthCol); rpDepthGroup.hittest = false; rpDepthGroup.hittestchildren = true;
     rpDepthGroup.style.flowChildren = 'down'; rpDepthGroup.style.width = '100%'; rpDepthGroup.style.marginTop = '-5px';
     // One-line value rows (the editor's edValueTile, cursor-driven), tightened to the half column.
-    function rpDepthTile(label, min, max, fill, onChange) {
+    function rpDepthTile(label, tip, min, max, fill, onChange) {
       var v = edValueTile(rpDepthGroup, { label: label, min: min, max: max, decimals: 0, unit: 'u', fill: fill,
-        tip: label === 'Near' ? 'Units from the camera that render white.' : 'Units from the camera that render black.',
+        tip: tip,
         onChange: onChange });
       var nl = v.tile.GetChild(0), vl = v.tile.GetChild(2);
-      if (nl) nl.style.width = '34px';
+      if (nl) { nl.style.width = '34px'; nl.style.whiteSpace = 'nowrap'; nl.style.textOverflow = 'shrink'; }
       if (vl) { vl.style.width = '54px'; vl.style.fontSize = '13px'; }
       return v;
     }
-    var rpNearTile = rpDepthTile('Near', 0, 1024, S.value, function (v) {
+    var rpNearTile = rpDepthTile(T('Near'), T('Units from the camera that render white.'), 0, 1024, S.value, function (v) {
       var q = rpPass();
       if (q && isFinite(v) && v >= 0 && v < q.depthFar) cmd('mirv_filmmaker render pass depth ' + v + ' ' + q.depthFar);
     });
-    var rpFarTile = rpDepthTile('Far', 64, 16384, '#5a6270ff', function (v) {
+    var rpFarTile = rpDepthTile(T('Far'), T('Units from the camera that render black.'), 64, 16384, '#5a6270ff', function (v) {
       var q = rpPass();
       if (q && isFinite(v) && v > q.depthNear) cmd('mirv_filmmaker render pass depth ' + q.depthNear + ' ' + v);
     });
@@ -906,26 +918,26 @@ R"EDJS(
     rpDepthNote.style.fontSize = '11px';
 
     // GAME HUD, which only applies to Beauty · Everything, and the job-wide extras.
-    var HUD_MODES = [['none', 'No HUD'], ['game', 'In-game'], ['full', 'Full HUD']];
-    var HUD_SUBS = ['Clean plate — nothing but the world.',
-                    "The player's own HUD and crosshair.",
-                    'Scoreboard and killfeed included.'];
-    var hudSec = rsSection(passesPanel, 'GAME HUD');
-    var hudAside = lbl(hudSec.__head, 'Beauty · Everything', RS_MUTED, 11); hudAside.hittest = false;
+    var HUD_MODES = [['none', T('No HUD')], ['game', T('In-game')], ['full', T('Full HUD')]];
+    var HUD_SUBS = [T('Clean plate — nothing but the world.'),
+                    T("The player's own HUD and crosshair."),
+                    T('Scoreboard and killfeed included.')];
+    var hudSec = rsSection(passesPanel, T('GAME HUD'));
+    var hudAside = lbl(hudSec.__head, T('Beauty · Everything'), RS_MUTED, 11); hudAside.hittest = false;
     hudAside.style.verticalAlign = 'center'; hudAside.style.marginLeft = '9px';
     var hudRow = rsTileRow(hudSec, 0);
     var hudTiles = [];
     for (var hmi = 0; hmi < HUD_MODES.length; hmi++) (function (idx) {
       hudTiles.push(rsRadioTile(hudRow, HUD_MODES[idx][1], function () {
         cmd('mirv_filmmaker render pass hud ' + HUD_MODES[idx][0]);
-      }, 'Game HUD in the Beauty · Everything pass: ' + HUD_MODES[idx][1] + '.', idx === HUD_MODES.length - 1));
+      }, T('Game HUD in the Beauty · Everything pass: {0}.', HUD_MODES[idx][1]), idx === HUD_MODES.length - 1));
     })(hmi);
     var hudExtras = mk('Panel', hudSec); hudExtras.hittest = false; hudExtras.hittestchildren = true;
     hudExtras.style.flowChildren = 'down'; hudExtras.style.width = '100%'; hudExtras.style.marginTop = '4px';
-    var camDataTog = edSwitchTile(hudExtras, 'Camera metadata sidecar', 'Write camera transform metadata alongside the rendered frames.', function () {
+    var camDataTog = edSwitchTile(hudExtras, T('Camera metadata sidecar'), T('Write camera transform metadata alongside the rendered frames.'), function () {
       cmd('mirv_filmmaker render pass cameradata ' + ((st && st.render && st.render.pass && st.render.pass.cameraData) ? 0 : 1));
     });
-    var bloodTog = edSwitchTile(hudExtras, 'Blood', 'Off: no blood appears during the render, in any pass.', function () {
+    var bloodTog = edSwitchTile(hudExtras, T('Blood'), T('Off: no blood appears during the render, in any pass.'), function () {
       cmd('mirv_filmmaker render pass blood ' + ((st && st.render && st.render.pass && st.render.pass.blood === false) ? 1 : 0));
     });
 )EDJS"
@@ -937,7 +949,7 @@ R"EDJS(
     function renderOut() { return (st && st.render && st.render.out) ? st.render.out : null; }
 
     // DESTINATION: where the take lands and what it is written as.
-    var destSec = rsSection(outputPanel, 'DESTINATION');
+    var destSec = rsSection(outputPanel, T('DESTINATION'));
     var destRow = mk('Panel', destSec); destRow.hittest = false; destRow.hittestchildren = true;
     destRow.style.flowChildren = 'right'; destRow.style.width = '100%';
     var folderBox = mk('Panel', destRow); folderBox.hittest = false;
@@ -947,9 +959,9 @@ R"EDJS(
     var folderLbl = lbl(folderBox, '', S.value, 12); folderLbl.hittest = false;
     folderLbl.style.verticalAlign = 'center'; folderLbl.style.whiteSpace = 'nowrap';
     folderLbl.style.textOverflow = 'ellipsis'; folderLbl.style.width = '100%';
-    var folderBtn = rsOutlineBtn(destRow, 'Choose folder…', function () {
+    var folderBtn = rsOutlineBtn(destRow, T('Choose folder…'), function () {
       cmd('mirv_filmmaker render output folder');
-    }, 'Choose the folder where the render files will be written.');
+    }, T('Choose the folder where the render files will be written.'));
     folderBtn.style.height = '34px'; folderBtn.style.marginLeft = '6px';
     folderBtn.__lbl.style.fontSize = '12px';
     mvmTourAdd('render.folder', folderBtn);
@@ -967,7 +979,7 @@ R"EDJS(
       inner.style.flowChildren = 'down'; inner.style.horizontalAlign = 'center'; inner.style.verticalAlign = 'center';
       var l = lbl(inner, f[1], S.label, 13); l.hittest = false;
       l.style.fontWeight = 'bold'; l.style.horizontalAlign = 'center';
-      var k = lbl(inner, f[2], RS_MUTED, 9); k.hittest = false;
+      var k = lbl(inner, f[2] === 'SEQ' ? T('SEQ') : T('VIDEO'), RS_MUTED, 9); k.hittest = false;
       k.style.letterSpacing = '1px'; k.style.horizontalAlign = 'center'; k.style.marginTop = '1px';
       c.__key = f[0]; c.__on = false;
       c.__paint = function (p) {
@@ -975,7 +987,7 @@ R"EDJS(
         p.style.border = '1px solid ' + (p.__hot ? '#ffffff40' : (p.__on ? (RS_AC + '99') : '#ffffff1f'));
         l.style.color = p.__on ? S.value : S.label;
       };
-      c.__tipText = (f[2] === 'SEQ' ? 'One ' + f[1] + ' image per frame.' : f[1] + ' video file.');
+      c.__tipText = (f[2] === 'SEQ' ? T('One {0} image per frame.', f[1]) : T('{0} video file.', f[1]));
       edHoverable(c, c.__paint);
       c.SetPanelEvent('onactivate', function () {
         edPressFlash(c, c.__paint);
@@ -988,11 +1000,11 @@ R"EDJS(
     // PICTURE: frame rate, under a read-only readout of the frame size. A render is always the
     // game resolution: the scene cannot render larger than the game, and a smaller size would only
     // be an FFmpeg resample, so the size is changed in CS2's own video settings, not here.
-    var picSec = rsSection(outputPanel, 'PICTURE');
+    var picSec = rsSection(outputPanel, T('PICTURE'));
     rsFill(picSec.__head);
     var picDims = lbl(picSec.__head, '', S.value, 13); picDims.hittest = false;
     picDims.style.fontFamily = S.fontMonodigit; picDims.style.fontWeight = 'bold'; picDims.style.verticalAlign = 'center';
-    var picTag = lbl(picSec.__head, 'GAME RESOLUTION', '#35cc59ff', 11); picTag.hittest = false;
+    var picTag = lbl(picSec.__head, T('GAME RESOLUTION'), '#35cc59ff', 11); picTag.hittest = false;
     picTag.style.fontWeight = 'bold'; picTag.style.letterSpacing = '1px';
     picTag.style.verticalAlign = 'center'; picTag.style.marginLeft = '9px';
 )EDJS"
@@ -1000,7 +1012,7 @@ R"EDJS(
     // The size presets ask for the same exact window size Config's Window Size card does. Only sizes
     // that fit the monitor are offered: a window past it cannot be seen, and CS2 can refuse it.
     var picSizes = [[1920, 1080, '1080p'], [2560, 1440, '1440p'], [3840, 2160, '4K']];
-    var picSizeRow = rsLabeledRow(picSec, 'Set size', 96, 8);
+    var picSizeRow = rsLabeledRow(picSec, T('Set size'), 96, 8);
     var picSizeItems = [];
     for (var psi = 0; psi < picSizes.length; psi++) picSizeItems.push([picSizes[psi][0] + 'x' + picSizes[psi][1], picSizes[psi][2]]);
     var picSizeSeg = rsSeg(picSizeRow, picSizeItems, function (token) {
@@ -1010,10 +1022,10 @@ R"EDJS(
     var picNote = rsNote(picSec, '');
     var reshadeNote = rsNote(picSec, '');
     var fpsCustomOpen = false;
-    var fpsRow = rsLabeledRow(picSec, 'Frame rate', 96, 8);
+    var fpsRow = rsLabeledRow(picSec, T('Frame rate'), 96, 8);
     var fpsItems = [];
     for (var fpi = 0; fpi < FPS_CHOICES.length; fpi++) fpsItems.push(['' + FPS_CHOICES[fpi], '' + FPS_CHOICES[fpi]]);
-    fpsItems.push(['custom', 'Custom']);
+    fpsItems.push(['custom', T('Custom')]);
     var fpsSeg = rsSeg(fpsRow, fpsItems, function (token) {
       if (token === 'custom') { fpsCustomOpen = true; renderFieldFocus(fpsField); return; }
       fpsCustomOpen = false;
@@ -1022,26 +1034,26 @@ R"EDJS(
     var fpsFieldRow = mk('Panel', picSec);
     fpsFieldRow.style.flowChildren = 'right'; fpsFieldRow.style.width = '100%';
     fpsFieldRow.style.marginTop = '8px'; fpsFieldRow.style.paddingLeft = '108px';
-    var fpsField = renderNumberField(fpsFieldRow, 'type a number, Enter', false,
+    var fpsField = renderNumberField(fpsFieldRow, T('type a number, Enter'), false,
       function () { var o = renderOut(); return o ? (o.fps + ' fps') : ''; },
       function (text) {
         var v = parseInt(text, 10);
         if (isFinite(v) && v > 0) cmd('mirv_filmmaker render output fps ' + v);
       });
-    rsNote(picSec, 'Render sets host_framerate to the frame rate automatically.');
+    rsNote(picSec, T('Render sets host_framerate to the frame rate automatically.'));
 
     // ENCODING: drives MP4 only, so the whole block greys out for the other formats.
-    var encSec = rsSection(outputPanel, 'ENCODING');
+    var encSec = rsSection(outputPanel, T('ENCODING'));
     rsFill(encSec.__head);
     var encAside = lbl(encSec.__head, '', RS_MUTED, 11); encAside.hittest = false;
     encAside.style.fontWeight = 'bold'; encAside.style.letterSpacing = '1px'; encAside.style.verticalAlign = 'center';
     var encBody = mk('Panel', encSec); encBody.hittest = false; encBody.hittestchildren = true;
     encBody.style.flowChildren = 'down'; encBody.style.width = '100%';
     var qualCustomOpen = false;
-    var qualRow = rsLabeledRow(encBody, 'Quality', 96, 0);
+    var qualRow = rsLabeledRow(encBody, T('Quality'), 96, 0);
     var qualItems = [];
     for (var qci = 0; qci < CRF_CHOICES.length; qci++) qualItems.push(['' + CRF_CHOICES[qci][0], CRF_CHOICES[qci][1], 'CRF ' + CRF_CHOICES[qci][0]]);
-    qualItems.push(['bitrate', 'Bitrate', 'kbps']);
+    qualItems.push(['bitrate', T('Bitrate'), 'kbps']);
     var qualSeg = rsSeg(qualRow, qualItems, function (token) {
       if (token === 'bitrate') {
         // Entering bitrate mode is the field appearing; the value itself commits on Enter.
@@ -1067,32 +1079,32 @@ R"EDJS(
     // never holds a frame up, while x264 can (measured 2026-10-18). The design puts both
     // on one line; they get a line each because the column is narrower on a 4:3 game window
     // (34% of 1440) and "Balanced" clipped there.
-    var encRow = rsLabeledRow(encBody, 'Encoder', 96, 8);
-    var encSeg = rsSeg(encRow, [['auto', 'Auto'], ['cpu', 'CPU'], ['gpu', 'GPU']], function (token) {
+    var encRow = rsLabeledRow(encBody, T('Encoder'), 96, 8);
+    var encSeg = rsSeg(encRow, [['auto', T('Auto')], ['cpu', 'CPU'], ['gpu', 'GPU']], function (token) {
       if (token === 'gpu' && encSeg.cells[2].__dim) return;   // NVENC unavailable: the note says why
       cmd('mirv_filmmaker render output encoder ' + token);
     }, { width: 'fill-parent-flow(1.0)' });
-    var speedRow = rsLabeledRow(encBody, 'Speed', 96, 8);
-    var speedSeg = rsSeg(speedRow, [['quality', 'Best'], ['balanced', 'Balanced'], ['fast', 'Fastest']], function (token) {
+    var speedRow = rsLabeledRow(encBody, T('Speed'), 96, 8);
+    var speedSeg = rsSeg(speedRow, [['quality', T('Best')], ['balanced', T('Balanced')], ['fast', T('Fastest')]], function (token) {
       cmd('mirv_filmmaker render output speed ' + token);
     }, { width: 'fill-parent-flow(1.0)' });
     var encNote = rsNote(encBody, '');
 
     // WHEN THE RENDER ENDS: the chime (RenderDoneSound.h), also switched by the header's SOUND chip.
-    var doneSec = rsSection(outputPanel, 'WHEN THE RENDER ENDS');
-    var soundTog = edSwitchTile(doneSec, 'Play a sound',
-      'A chime when the render finishes, a lower one if it fails. Cancelling stays silent.', function () {
+    var doneSec = rsSection(outputPanel, T('WHEN THE RENDER ENDS'));
+    var soundTog = edSwitchTile(doneSec, T('Play a sound'),
+      T('A chime when the render finishes, a lower one if it fails. Cancelling stays silent.'), function () {
         cmd('mirv_filmmaker render sound toggle');
       });
-    var soundVol = edValueTile(doneSec, { label: 'Volume', min: 0, max: 100, decimals: 0, unit: '%', fill: S.value,
-      tip: 'How loud the chime is. It plays through Windows, so the game volume does not change it.',
+    var soundVol = edValueTile(doneSec, { label: T('Volume'), min: 0, max: 100, decimals: 0, unit: '%', fill: S.value,
+      tip: T('How loud the chime is. It plays through Windows, so the game volume does not change it.'),
       onChange: function (v) { cmd('mirv_filmmaker render sound volume ' + Math.round(v)); },
       onEnd: function () { cmd('mirv_filmmaker render sound test'); } });
     var soundTestRow = mk('Panel', doneSec); soundTestRow.hittest = false; soundTestRow.hittestchildren = true;
     soundTestRow.style.flowChildren = 'right'; soundTestRow.style.width = '100%'; soundTestRow.style.marginTop = '8px';
-    var soundTestBtn = rsOutlineBtn(soundTestRow, 'Play the sound', function () {
+    var soundTestBtn = rsOutlineBtn(soundTestRow, T('Play the sound'), function () {
       cmd('mirv_filmmaker render sound test');
-    }, 'Hear the chime at this volume.', true);
+    }, T('Hear the chime at this volume.'), true);
     soundTestBtn.style.height = '30px';
 
     // Live game resolution in PHYSICAL pixels (actuallayout* is device px; uiscale only affects
@@ -1113,7 +1125,7 @@ R"EDJS(
     jobHead.style.width = '100%';
     jobHead.style.paddingLeft = '18px'; jobHead.style.paddingRight = '18px';
     jobHead.style.paddingTop = '13px'; jobHead.style.paddingBottom = '11px';
-    var jobTitle = lbl(jobHead, 'JOB', S.render, 16);
+    var jobTitle = lbl(jobHead, T('JOB'), S.render, 16);
     jobTitle.style.fontWeight = 'bold'; jobTitle.style.letterSpacing = '2px';
     var jobRule = mk('Panel', renderJobCol); jobRule.hittest = false;
     jobRule.style.width = '100%'; jobRule.style.height = '1px'; jobRule.style.backgroundColor = S.panelBorder;
@@ -1145,13 +1157,13 @@ R"EDJS(
       var v = lbl(r, '', S.value, 16); v.style.width = '100%'; v.style.fontWeight = 'bold';
       return v;
     }
-    var jobRange = jobRow('Range');
-    var jobLength = jobRow('Length');
-    var jobFrames = jobRow('Frames');
-    var jobCamera = jobRow('Camera');
-    var jobHud = jobRow('Passes');
-    var jobFormat = jobRow('Output');
-    var jobFolder = jobRow('Folder');
+    var jobRange = jobRow(T('Range'));
+    var jobLength = jobRow(T('Length'));
+    var jobFrames = jobRow(T('Frames'));
+    var jobCamera = jobRow(T('Camera'));
+    var jobHud = jobRow(T('Passes'));
+    var jobFormat = jobRow(T('Output'));
+    var jobFolder = jobRow(T('Folder'));
     jobFolder.style.fontSize = '13px'; // paths are long; keep them on one readable line
 
     var jobDivider = jobPart(mk('Panel', jobBody), 18); jobDivider.hittest = false;
@@ -1174,8 +1186,9 @@ R"EDJS(
     prevSec.visible = false;
     var prevHead = mk('Panel', prevSec); prevHead.hittest = false; prevHead.hittestchildren = true;
     prevHead.style.flowChildren = 'right'; prevHead.style.width = '100%'; prevHead.style.marginBottom = '6px';
-    var prevCap = lbl(prevHead, 'PREVIOUS RENDERS', S.hint, 10); prevCap.hittest = false;
+    var prevCap = lbl(prevHead, T('PREVIOUS RENDERS'), S.hint, 10); prevCap.hittest = false;
     prevCap.style.letterSpacing = '1px'; prevCap.style.width = 'fill-parent-flow(1.0)'; prevCap.style.verticalAlign = 'center';
+    prevCap.style.whiteSpace = 'nowrap'; prevCap.style.textOverflow = 'shrink';
     var prevOffset = 0, prevTakes = [];
     function prevPageBtn(glyph, step, tip) {
       var b = rsOutlineBtn(prevHead, glyph, function () { prevOffset += step; renderPrevious(prevTakes); }, tip, true);
@@ -1183,8 +1196,8 @@ R"EDJS(
       b.style.paddingLeft = '7px'; b.style.paddingRight = '7px'; b.__lbl.style.fontSize = '10px';
       return b;
     }
-    var prevNewer = prevPageBtn('◀', -1, 'Newer renders');
-    var prevOlder = prevPageBtn('▶', 1, 'Older renders');
+    var prevNewer = prevPageBtn('◀', -1, T('Newer renders'));
+    var prevOlder = prevPageBtn('▶', 1, T('Older renders'));
     var prevRows = [];
     for (var pri = 0; pri < PREV_ROWS; pri++) (function () {
       var rec = { take: 0 };
@@ -1195,21 +1208,22 @@ R"EDJS(
       var l1 = lbl(txt, '', S.value, 13); l1.hittest = false; l1.style.fontWeight = 'bold';
       l1.style.whiteSpace = 'normal'; l1.style.width = '100%';
       var l2 = lbl(txt, '', S.hint, 11); l2.hittest = false; l2.style.whiteSpace = 'normal'; l2.style.width = '100%';
-      var use = rsOutlineBtn(row, 'Use', function () {
+      var use = rsOutlineBtn(row, T('Use'), function () {
         cmd('mirv_filmmaker render import ' + rec.take);   // the take this row shows right now
-        use.__lbl.text = 'Loaded'; use.__loadedUntil = (new Date()).getTime() + 1500;
-      }, 'Start from this take: its range, camera, passes, frame rate and format.', true);
+        use.__lbl.text = T('Loaded'); use.__loadedUntil = (new Date()).getTime() + 1500;
+      }, T('Start from this take: its range, camera, passes, frame rate and format.'), true);
       use.style.height = '28px'; use.style.marginLeft = '8px'; use.style.verticalAlign = 'center';
       use.__lbl.style.fontSize = '12px';
       rec.row = row; rec.l1 = l1; rec.l2 = l2; rec.use = use;
       prevRows.push(rec);
     })();
-    var PREV_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var PREV_MONTHS = [T('Jan'), T('Feb'), T('Mar'), T('Apr'), T('May'), T('Jun'),
+                       T('Jul'), T('Aug'), T('Sep'), T('Oct'), T('Nov'), T('Dec')];
     function prevWhen(iso) {
       // "2026-10-24T11:17:16" -> "Oct 24, 11:17"
       var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso || '');
       if (!m) return iso || '';
-      return PREV_MONTHS[(parseInt(m[2], 10) - 1) % 12] + ' ' + parseInt(m[3], 10) + ', ' + m[4] + ':' + m[5];
+      return T('{0} {1}, {2}', PREV_MONTHS[(parseInt(m[2], 10) - 1) % 12], parseInt(m[3], 10), m[4] + ':' + m[5]);
     }
     // Only previous renders that fit WHOLE are shown. A row the column's edge cut in half (and its
     // clipped Use button) read as broken at 480p with the TIMELINE dock up (owner, 2026-11-01). When
@@ -1238,9 +1252,9 @@ R"EDJS(
       prevOffset = Math.max(0, Math.min(prevOffset, total - shown));
       prevSec.visible = total > 0;
       var paged = shown > 0 && shown < total;
-      var cap = 'PREVIOUS RENDERS';
-      if (shown === 0 && total > 0) cap += '  ·  ' + total + '  ·  NEED MORE ROOM';
-      else if (paged) cap += '  ·  ' + (prevOffset + 1) + (shown > 1 ? '-' + (prevOffset + shown) : '') + ' OF ' + total;
+      var cap = T('PREVIOUS RENDERS');
+      if (shown === 0 && total > 0) cap = T('PREVIOUS RENDERS  ·  {0}  ·  NEED MORE ROOM', total);
+      else if (paged) cap = T('PREVIOUS RENDERS  ·  {0} OF {1}', (prevOffset + 1) + (shown > 1 ? '-' + (prevOffset + shown) : ''), total);
       if (prevCap.text !== cap) prevCap.text = cap;
       prevNewer.visible = paged; prevOlder.visible = paged;
       prevNewer.style.opacity = prevOffset > 0 ? '1' : '0.35';
@@ -1253,11 +1267,11 @@ R"EDJS(
         var l1 = prevWhen(t.when) + (t.status && t.status !== 'completed' ? '  ·  ' + t.status : '');
         var n = (t.passes || []).length;
         var l2 = rsNum(t.start) + ' → ' + rsNum(t.end - 1) + '  ·  ' + rsClock(t.end - t.start)
-          + '  ·  ' + n + (n === 1 ? ' pass' : ' passes') + '  ·  ' + t.fps + ' fps ' + ('' + t.format).toUpperCase();
+          + '  ·  ' + TN(n, '{0} pass', '{0} passes') + '  ·  ' + t.fps + ' fps ' + ('' + t.format).toUpperCase();
         if (p.l1.text !== l1) p.l1.text = l1;
         if (p.l2.text !== l2) p.l2.text = l2;
         if (p.use.__loadedUntil && (new Date()).getTime() > p.use.__loadedUntil) {
-          p.use.__loadedUntil = 0; p.use.__lbl.text = 'Use';
+          p.use.__loadedUntil = 0; p.use.__lbl.text = T('Use');
         }
       }
       fitPrevious();
@@ -1270,7 +1284,7 @@ R"EDJS(
     jobActionRow.style.paddingTop = '8px'; jobActionRow.style.paddingBottom = '12px';
     // ONE button: START RENDER while idle, CANCEL RENDER while a job runs.
     var jobBtnRunning = false;
-    var jobBtn = btnPrimary(jobActionRow, 'START RENDER', function () {
+    var jobBtn = btnPrimary(jobActionRow, T('START RENDER'), function () {
       cmd(jobBtnRunning ? 'mirv_filmmaker render cancel' : 'mirv_filmmaker render start');
     });
     jobBtn.style.width = 'fill-parent-flow(1.0)'; jobBtn.style.marginRight = '0px';
@@ -1286,7 +1300,7 @@ R"EDJS(
       jobBtn.__bgBase = bg; jobBtn.__brBase = br; jobBtn.__fgBase = fg;
       jobBtn.__accent = br; jobBtn.__bgSel = bg; jobBtn.__bgSelHover = bg;
       jobBtn.__fgSel = fg; jobBtn.__brSel = fg;
-      jobBtn.__lbl.text = running ? 'CANCEL RENDER' : 'START RENDER';
+      jobBtn.__lbl.text = running ? T('CANCEL RENDER') : T('START RENDER');
       btnVisual(jobBtn);
     }
 
@@ -1303,7 +1317,7 @@ R"EDJS(
       return (m > 0 ? (m + 'm ') : '') + s.toFixed(1) + 's';
     }
     function fmtFolder(path) {
-      if (!path) return 'not chosen';
+      if (!path) return T('not chosen');
       if (path.length <= 38) return path;
       return '…' + path.substring(path.length - 37);
     }
@@ -1399,12 +1413,12 @@ R"EDJS(
         spanEnd.text = rsClock(hi - lo);
         rsPlaceSpan(lo, hi, start, endExcl, nowTick);
       } else {
-        rangeEmptyL.text = rm === 4 ? 'No In / Out set. Move the playhead and use Set In and Set Out below.'
-          : rm === 0 ? 'Demo bounds unavailable.'
-          : rm === 1 ? 'No round markers on the timeline yet.'
-          : (RANGE_BLOCK_REASONS[rm] || 'Nothing to render in this range.');
+        rangeEmptyL.text = rm === 4 ? T('No In / Out set. Move the playhead and use Set In and Set Out below.')
+          : rm === 0 ? T('Demo bounds unavailable.')
+          : rm === 1 ? T('No round markers on the timeline yet.')
+          : (RANGE_BLOCK_REASONS[rm] || T('Nothing to render in this range.'));
       }
-      rangeTip.text = RANGE_MODE_TIPS[rm] + ' The Out frame is excluded. Change the span from the playhead bar below.';
+      rangeTip.text = RANGE_MODE_TIPS[rm] + ' ' + T('The Out frame is excluded. Change the span from the playhead bar below.');
       phVal.text = rsNum(nowTick);
 
       // -- CAMERA --
@@ -1412,7 +1426,7 @@ R"EDJS(
       camSpecTick(!!(r.avail && r.avail.spectating));
       for (var cob = 0; cob < camTiles.length; cob++) {
         var why = camSourceBlockedReason(cob);
-        var sub = why ? CAM_BLOCK_SUBS[cob] : (cob === 4 ? ((av.pathKeys || 0) + ' keys · plays the path') : CAM_SUBS[cob]);
+        var sub = why ? CAM_BLOCK_SUBS[cob] : (cob === 4 ? TN(av.pathKeys || 0, '{0} key · plays the path', '{0} keys · plays the path') : CAM_SUBS[cob]);
         camTiles[cob].__set(cob === camSrc, sub, !!why);
       }
       if (camErr.__err && camSrc !== camErr.__lastSrc) rsBlockClear(camErr);
@@ -1469,9 +1483,9 @@ R"EDJS(
       }
       var rpRenders = pass.rendersPerFrame || 0;
       rpSummary.text = rpList.length === 0
-        ? 'Nothing to render — turn on at least one pass.'
-        : (rpList.length + (rpList.length === 1 ? ' output' : ' outputs') + ' · '
-           + rpRenders + (rpRenders === 1 ? ' render' : ' renders') + ' per frame');
+        ? T('Nothing to render — turn on at least one pass.')
+        : (TN(rpList.length, '{0} output', '{0} outputs') + ' · '
+           + TN(rpRenders, '{0} render per frame', '{0} renders per frame'));
       rpSummary.style.color = rpList.length === 0 ? RENDER_ERROR_TEXT : RS_MUTED;
       var rpKey = pass.key || [0, 255, 0];
       var rpKeyUsed = rpHas('key', 'players') || rpHas('key', 'gun');
@@ -1481,7 +1495,7 @@ R"EDJS(
       }
       rpKeyGroup.style.opacity = rpKeyUsed ? '1.0' : '0.35';
       rpKeyGroup.hittestchildren = rpKeyUsed;
-      rpKeyNote.text = rpKeyUsed ? 'The background of the Key passes.' : 'Turn on Key for Players only or Gun only to use this.';
+      rpKeyNote.text = rpKeyUsed ? T('The background of the Key passes.') : T('Turn on Key for Players only or Gun only to use this.');
       rpKeyNote.style.color = rpKeyUsed ? RS_MUTED : RS_DIM;
       var rpDepthUsed = false;
       for (var rdi = 0; rdi < rpList.length; rdi++) rpDepthUsed = rpDepthUsed || rpList[rdi].type === 'depth';
@@ -1489,11 +1503,11 @@ R"EDJS(
       rpFarTile.sync(pass.depthFar || 0);
       rpDepthGroup.style.opacity = rpDepthUsed ? '1.0' : '0.35';
       rpDepthGroup.hittestchildren = rpDepthUsed;
-      rpDepthNote.text = rpDepthUsed ? 'White at near, black at far. Normals are view space.' : 'Turn on a Depth pass to use this.';
+      rpDepthNote.text = rpDepthUsed ? T('White at near, black at far. Normals are view space.') : T('Turn on a Depth pass to use this.');
       rpDepthNote.style.color = rpDepthUsed ? RS_MUTED : RS_DIM;
 
       // -- OUTPUT: destination --
-      folderLbl.text = out.folderPending ? 'Choosing… (a folder dialog is open)' : (out.folder || 'No folder chosen yet.');
+      folderLbl.text = out.folderPending ? T('Choosing… (a folder dialog is open)') : (out.folder || T('No folder chosen yet.'));
       folderLbl.style.color = out.folder ? S.value : S.dangerText;
       folderBox.style.border = '1px solid ' + (out.folder ? '#ffffff1f' : S.dangerBorder);
       for (var fc = 0; fc < fmtCells.length; fc++) {
@@ -1503,7 +1517,7 @@ R"EDJS(
       fmtNote.text = out.formatNote || '';
       fmtNote.style.color = out.formatOk ? RS_MUTED : S.dangerText;
       // The take name is what lands on disk.
-      projectLbl.text = 'Take: ' + (out.project || 'render') + '_<timestamp>';
+      projectLbl.text = T('Take: {0}_<timestamp>', out.project || 'render');
 
       // -- OUTPUT: picture --
       var gameRes = renderGameRes();
@@ -1515,13 +1529,13 @@ R"EDJS(
       var lowRes = outH < 1080;
       picDims.text = outW + ' × ' + outH;
       picDims.style.color = (sceneSmall || lowRes) ? RS_WARN : S.value;
-      picTag.text = sceneSmall ? 'BELOW WINDOW SIZE' : (lowRes ? 'LOW RESOLUTION' : 'GAME RESOLUTION');
+      picTag.text = sceneSmall ? T('BELOW WINDOW SIZE') : (lowRes ? T('LOW RESOLUTION') : T('GAME RESOLUTION'));
       picTag.style.color = (sceneSmall || lowRes) ? RS_WARN : '#35cc59ff';
       picNote.text = sceneSmall
-        ? 'CS2 is drawing at ' + outW + ' × ' + outH + ' inside a ' + gameRes[0] + ' × ' + gameRes[1] + ' window, so that is the video you get. Turn off FidelityFX Super Resolution in Settings > Video.'
+        ? T('CS2 is drawing at {0} × {1} inside a {2} × {3} window, so that is the video you get. Turn off FidelityFX Super Resolution in Settings > Video.', outW, outH, gameRes[0], gameRes[1])
         : lowRes
-          ? 'A render is the size of the game window, whatever the quality setting. This one comes out at ' + outW + ' × ' + outH + '. Pick a bigger size here, or in Settings > Video.'
-          : 'A render is the size of the game window, whatever the quality setting.';
+          ? T('A render is the size of the game window, whatever the quality setting. This one comes out at {0} × {1}. Pick a bigger size here, or in Settings > Video.', outW, outH)
+          : T('A render is the size of the game window, whatever the quality setting.');
       picNote.style.color = (sceneSmall || lowRes) ? RS_WARN : RS_MUTED;
       var sizeFits = 0;
       for (var psf = 0; psf < picSizes.length; psf++) {
@@ -1532,10 +1546,10 @@ R"EDJS(
       picSizeRow.visible = sizeFits > 0;
       picSizeSeg.sync(gameRes[0] + 'x' + gameRes[1]);
       reshadeNote.text = out.reshade === 2
-        ? 'ReShade is on: your effects are in this render.'
+        ? T('ReShade is on: your effects are in this render.')
         : out.reshade === 1
-          ? 'ReShade is running without the SOURCE:MVM add-on, so your effects will not be in this render. Start CS2 from the launcher with Use DLSS 5 on.'
-          : 'ReShade is off. Switch on Use DLSS 5 in the launcher, then Home opens it in game.';
+          ? T('ReShade is running without the SOURCE:MVM add-on, so your effects will not be in this render. Start CS2 from the launcher with Use DLSS 5 on.')
+          : T('ReShade is off. Switch on Use DLSS 5 in the launcher, then Home opens it in game.');
       reshadeNote.style.color = out.reshade === 1 ? RS_WARN : RS_MUTED;
       var fpsCustom = fpsCustomOpen || FPS_CHOICES.indexOf(out.fps) < 0;
       fpsSeg.sync(fpsCustom ? 'custom' : ('' + out.fps));
@@ -1552,7 +1566,7 @@ R"EDJS(
       encSeg.sync(enc === 2 ? 'auto' : (enc === 0 ? 'cpu' : 'gpu'));
       encSeg.flag(2, 'dim', out.nvenc === 3);
       encNote.text = (enc === 2 && out.nvenc === 2)
-        ? 'Auto → GPU (NVENC). GPU encoding never slows a render down; CPU encoding can.'
+        ? T('Auto → GPU (NVENC). GPU encoding never slows a render down; CPU encoding can.')
         : (out.nvencNote || '');
       encNote.style.color = (out.encoder === 1 && out.nvenc === 3) ? S.dangerText : RS_MUTED;
       speedSeg.sync(['quality', 'balanced', 'fast'][out.speed || 0] || 'quality');
@@ -1564,7 +1578,7 @@ R"EDJS(
       encAside.visible = !isMp4;
       if (!isMp4) {
         var fmtShort = out.format ? ('' + out.format).toUpperCase() : '?';
-        encAside.text = 'MP4 ONLY · NOW ' + fmtShort;
+        encAside.text = T('MP4 ONLY · NOW {0}', fmtShort);
       }
       if (renderFocusField !== bitrateField) renderFieldPaint(bitrateField);
 )EDJS"
@@ -1574,7 +1588,7 @@ R"EDJS(
       // -- the chime: header chip and OUTPUT > WHEN THE RENDER ENDS --
       var snd = r.sound || {};
       var soundOn = snd.on !== false;
-      var soundText = soundOn ? 'SOUND: ON' : 'SOUND: OFF';
+      var soundText = soundOn ? T('SOUND: ON') : T('SOUND: OFF');
       if (renderSoundChip.__lbl.text !== soundText) renderSoundChip.__lbl.text = soundText;
       soundTog.set(soundOn);
       soundVol.sync(typeof snd.volume === 'number' ? snd.volume : 60);
@@ -1582,21 +1596,21 @@ R"EDJS(
 
       // -- Job column --
       renderPrevious(r.takes);
-      jobRange.text = ticks > 0 ? (start + '  →  ' + (endExcl - 1)) : 'not set';
+      jobRange.text = ticks > 0 ? (start + '  →  ' + (endExcl - 1)) : T('not set');
       jobRange.style.color = ticks > 0 ? S.value : RENDER_ERROR_TEXT;
-      jobLength.text = ticks > 0 ? (fmtDuration(renderTicksToSeconds(ticks)) + '   ·   ' + ticks + ' ticks') : '—';
+      jobLength.text = ticks > 0 ? (fmtDuration(renderTicksToSeconds(ticks)) + '   ·   ' + TN(ticks, '{0} tick', '{0} ticks')) : '—';
       // Recording FPS is both mux and sample rate. Dial is preview-only (forced to 1 on render).
       var sampleFps = (out.captureFps > 0) ? out.captureFps : out.fps;
       var frames = (ticks > 0 && sampleFps > 0) ? Math.round(renderTicksToSeconds(ticks) * sampleFps) : 0;
       jobFrames.text = frames > 0 ? (frames + '   ·   ' + out.fps + ' fps') : '—';
       jobCamera.text = (CAM_SOURCES[camSrc] || ['', '?'])[1];
-      var HUD_LABELS = ['No HUD', 'In-game HUD', 'Full HUD'];
+      var HUD_LABELS = [T('No HUD'), T('In-game HUD'), T('Full HUD')];
       var rpNames = [];
       for (var rjn = 0; rjn < rpList.length; rjn++) rpNames.push(rpList[rjn].stream);
-      jobHud.text = (rpNames.length ? rpNames.join(', ') : 'none')
-        + '   ·   ' + (HUD_LABELS[hudMode] || 'No HUD')
-        + '   ·   ' + (pass.cameraData ? 'camera metadata' : 'no camera metadata')
-        + (pass.blood === false ? '   ·   no blood' : '');
+      jobHud.text = (rpNames.length ? rpNames.join(', ') : T('none'))
+        + '   ·   ' + (HUD_LABELS[hudMode] || T('No HUD'))
+        + '   ·   ' + (pass.cameraData ? T('camera metadata') : T('no camera metadata'))
+        + (pass.blood === false ? '   ·   ' + T('no blood') : '');
       jobHud.style.color = rpNames.length ? S.value : RENDER_ERROR_TEXT;
       jobFormat.text = (out.formatName || '?') + '   ·   '
         + gameRes[0] + '×' + gameRes[1];
@@ -1608,33 +1622,33 @@ R"EDJS(
       var fatal = r.fatalCount || 0;
       var pg = r.prog || {};
       if (jobActive) {
-        jobStatus.text = 'RENDERING  ' + (pg.percent != null ? (pg.percent + '%') : '');
+        jobStatus.text = pg.percent != null ? T('RENDERING  {0}%', pg.percent) : T('RENDERING');
         jobStatus.style.color = S.render;
         jobProblem.text = (pg.phase || '') +
-          '   ·   frame ' + (pg.framesDone || 0) + ' / ' + (pg.framesTotal || 0) +
-          ((pg.rendersPerFrame || 0) > 1 ? ('   ·   ' + pg.passes + ' outputs, ' + pg.rendersPerFrame + ' renders/frame') : '') +
-          '   ·   tick ' + (pg.curTick || 0);
+          '   ·   ' + T('frame {0} / {1}', pg.framesDone || 0, pg.framesTotal || 0) +
+          ((pg.rendersPerFrame || 0) > 1 ? ('   ·   ' + T('{0} outputs, {1} renders/frame', pg.passes, pg.rendersPerFrame)) : '') +
+          '   ·   ' + T('tick {0}', pg.curTick || 0);
         jobProblem.style.color = S.hint;
       } else if (r.sessionState === 12 && pg.lastError) {
         // Failed: keep the reason on screen until the next start/validation change.
-        jobStatus.text = 'Render FAILED';
+        jobStatus.text = T('Render FAILED');
         jobStatus.style.color = RENDER_ERROR_TEXT;
         jobProblem.text = pg.lastError;
         jobProblem.style.color = RENDER_ERROR_TEXT;
       } else if (fatal > 0) {
-        jobStatus.text = fatal + ' problem' + (fatal === 1 ? '' : 's') + ' — cannot start';
+        jobStatus.text = TN(fatal, '{0} problem — cannot start', '{0} problems — cannot start');
         jobStatus.style.color = RENDER_ERROR_TEXT;
-        jobProblem.text = !resOk ? 'Choose a range in RANGE, or set In and Out at the playhead.'
-          : (!out.folder ? 'Choose an output folder in OUTPUT.' : (r.firstFatal || ''));
-        if (!resOk && !out.folder) jobProblem.text += '\nChoose an output folder in OUTPUT.';
+        jobProblem.text = !resOk ? T('Choose a range in RANGE, or set In and Out at the playhead.')
+          : (!out.folder ? T('Choose an output folder in OUTPUT.') : (r.firstFatal || ''));
+        if (!resOk && !out.folder) jobProblem.text += '\n' + T('Choose an output folder in OUTPUT.');
         jobProblem.style.color = RENDER_ERROR_TEXT;
       } else {
         var done = (r.sessionState === 11 && pg.framesDone > 0)
-          ? ('Last render: ' + pg.framesDone + ' frame(s) → ' + fmtFolder(pg.takeDir || '') + '.   ')
+          ? (T('Last render: {0} frame(s) → {1}.', pg.framesDone, fmtFolder(pg.takeDir || '')) + '   ')
           : '';
-        jobStatus.text = 'Ready to render';
+        jobStatus.text = T('Ready to render');
         jobStatus.style.color = '#7be07bff';
-        jobProblem.text = done + ((r.warnCount > 0) ? (r.warnCount + ' warning(s) — see: mirv_filmmaker render validate') : '');
+        jobProblem.text = done + ((r.warnCount > 0) ? T('{0} warning(s) — see: mirv_filmmaker render validate', r.warnCount) : '');
         jobProblem.style.color = S.hint;
       }
 
@@ -1643,7 +1657,7 @@ R"EDJS(
       btnEnable(jobBtn, jobActive || fatal === 0);
 
       // -- title badge --
-      renderTitle.text = jobActive ? 'RENDER · RUNNING' : 'RENDER';
+      renderTitle.text = jobActive ? T('RENDER · RUNNING') : T('RENDER');
       renderTitle.style.color = jobActive ? '#4e9fff' : S.render;
     }
 )EDJS"

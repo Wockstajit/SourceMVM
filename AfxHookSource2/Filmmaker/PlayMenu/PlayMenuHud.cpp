@@ -1,4 +1,5 @@
 #include "PlayMenuHud.h"
+#include "../Localization/Localization.h"
 
 #include "PlayMenuStripJs.h"
 #include "WorkshopFilterJs.h"
@@ -114,6 +115,8 @@ void PlayMenu_RunMainThreadFrame() {
 		return;
 	}
 	g_bridge.SetContextPanel(mainMenu);
+	// A language change rebuilds the script, which is what re-reads its text (Localization.h).
+	{ static uint64_t uiEpoch = 0; if (Localization_TakeUiEpoch(uiEpoch)) { g_built = false; g_buildAttempted = false; } }
 
 	if (!g_evalQueue.empty() && g_bridge.CanRunScript()) {
 		for (const std::string& js : g_evalQueue)

@@ -1,4 +1,5 @@
 #include "FxDebugHud.h"
+#include "../Localization/Localization.h"
 
 #include "PanoramaFindPanel.h"
 
@@ -106,6 +107,8 @@ void FxDebugHud::RunFrame() {
 		m_hudPanel = hud;
 		m_built = false;
 	}
+	// A language change rebuilds the script, which is what re-reads its text (Localization.h).
+	{ static uint64_t uiEpoch = 0; if (Localization_TakeUiEpoch(uiEpoch)) { m_built = false; } }
 	m_bridge.SetContextPanel(hud);
 
 	if (!BuildIfNeeded())

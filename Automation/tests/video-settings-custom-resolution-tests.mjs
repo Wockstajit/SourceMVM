@@ -16,8 +16,12 @@ const videoCpp = read('AfxHookSource2/Filmmaker/Panorama/VideoSettingsResolution
 const uiLiveReload = read('AfxHookSource2/Filmmaker/Panorama/UiLiveReload.cpp');
 const filmmaker = read('AfxHookSource2/Filmmaker/Filmmaker.cpp');
 const cmake = read('AfxHookSource2/CMakeLists.txt');
-const embeddedVideoJs = [...videoJs.matchAll(/R"MVMRES\(([\s\S]*?)\)MVMRES"/g)]
-  .map((match) => match[1])
+// The script as the compiler concatenates it: its own raw-string pieces, with the localization
+// runtime (T / TN) spliced in where the header #includes that fragment.
+const localizationJs = read('AfxHookSource2/Filmmaker/Panorama/LocalizationJs.h')
+  .match(/R"MVMI18N\(([\s\S]*?)\)MVMI18N"/)[1];
+const embeddedVideoJs = [...videoJs.matchAll(/R"MVMRES\(([\s\S]*?)\)MVMRES"|^#include "LocalizationJs\.h"\r?$/gm)]
+  .map((match) => (match[1] !== undefined ? match[1] : localizationJs))
   .join('');
 
 test('resolution controls no longer live in launcher or Filmmaker Config', () => {

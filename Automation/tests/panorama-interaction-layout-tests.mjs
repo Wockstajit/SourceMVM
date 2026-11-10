@@ -289,7 +289,7 @@ test("Customize pickers filter by rarity where it means something and drill down
   assert.match(customizeSource, /RARITY_FILTERS\s*=\s*\[/);
   // Chips are spelled out; the original three-letter codes (CON/IND/CTB) were unreadable.
   for (const word of ["Consumer", "Industrial", "Mil-Spec", "Restricted", "Classified", "Covert", "Contraband"]) {
-    assert.match(customizeSource, new RegExp(`s:\\s*'${word}'`), `chip label ${word} must be spelled out`);
+    assert.match(customizeSource, new RegExp(`s:\\s*T\\('${word}'\\)`), `chip label ${word} must be spelled out`);
   }
   // Firearms span every tier, so they get the chips (both are built from firearmOpts).
   assert.match(functionBody(customizeSource, "firearmOpts"), /rarityChips:\s*true/);
@@ -299,7 +299,7 @@ test("Customize pickers filter by rarity where it means something and drill down
     const call = customizeSource.match(new RegExp(`itemDrop\\(custSlotCol, '${slot}'[\\s\\S]*?\\}\\);`))[0];
     assert.ok(!/rarityChips/.test(call), `${slot} must NOT show rarity chips`);
     assert.match(call, /grouped:\s*true/, `${slot} must drill down by model`);
-    assert.match(call, /groupLabel:\s*'All /, `${slot} needs a crumb root`);
+    assert.match(call, /groupLabel:\s*T\('All /, `${slot} needs a crumb root`);
   }
   const rowsBody = functionBody(customizeSource, "rebuildRows");
   assert.match(rowsBody, /rec\.grouped\s*&&\s*!rec\.navGroup/);
@@ -577,7 +577,9 @@ test("knives, gloves and agents all drill down by model, from the label the cata
   for (const [slot, sep] of [["CustKnife", null], ["CustGloves", null], ["CustAgent", "' · '"]]) {
     const call = customizeSource.match(new RegExp(`itemDrop\\(custSlotCol, '${slot}'[\\s\\S]*?\\}\\);`))[0];
     assert.match(call, /grouped: true/, `${slot} must drill down by model`);
-    assert.match(call, /searchNoun: '/, `${slot} needs its own search placeholder`);
+    // The whole placeholder is one translatable sentence per slot, not 'Search ' + a noun.
+    const noun = { CustKnife: "knives", CustGloves: "gloves", CustAgent: "agents" }[slot];
+    assert.ok(call.includes(`searchHint: function () { return T('Search ${noun}'); }`), `${slot} needs its own search placeholder`);
     if (sep) assert.ok(call.includes(`groupSep: ${sep}`), `${slot} must group on the middle dot`);
   }
   // The agent catalog ships "FBI" next to "FBI · Variant A"; the bare row belongs in the family.
@@ -603,7 +605,8 @@ test("knives, gloves and agents all drill down by model, from the label the cata
 
 test("model tiles read as a step: count, chevron, hover, and a marked current model", () => {
   const nav = functionBody(customizeSource, "buildNavRow");
-  assert.match(nav, /' ›'/, "a model tile says it opens more (N finishes ›)");
+  assert.match(nav, /TN\(count \|\| 0, '\{0\} finish ›', '\{0\} finishes ›'\)/, "a model tile says it opens more (N finishes ›)");
+  assert.match(nav, /\(slot === 'agent'\) \? TN\(count \|\| 0, '\{0\} variant ›', '\{0\} variants ›'\)/, "and an agent family counts variants");
   assert.match(nav, /tileShell\(isSel \? hexAlpha\(color, '99'\) : color, !!isSel/, "the current model is outlined");
   assert.match(nav, /isSel \? S\.accent/, "and its count line turns gold");
   // Hover is impossible via :hover in this context, so it is wired from mouse events, and ONE

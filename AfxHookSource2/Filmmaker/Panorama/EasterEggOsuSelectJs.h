@@ -76,7 +76,7 @@ R"EGJS(
         oT(r.title, R.v || '');
         oS(r.title, 'marginLeft', '110px'); oS(r.title, 'marginTop', '6px'); oS(r.title, 'fontSize', '20px');
         oS(r.title, 'width', oPx(Math.max(60, visW - 130)));
-        oT(r.sub, 'mapped by ' + (R.c || ''));
+        oT(r.sub, T('mapped by {0}', R.c || ''));
         oS(r.sub, 'marginLeft', '110px'); oS(r.sub, 'marginTop', '32px');
         oS(r.sub, 'width', oPx(Math.max(60, visW - 130)));
         for (var q = 0; q < r.pips.length; q++) oV(r.pips[q], false);
@@ -181,12 +181,12 @@ R"EGJS(
       oT(osuInfoVer, I.version || ''); osuSetLabel(osuInfoVer, 122, 21, iw - 110);
       oT(osuInfoTitle, I.title || ''); osuSetLabel(osuInfoTitle, 22, 62, iw);
       oT(osuInfoArtist, I.artist || ''); osuSetLabel(osuInfoArtist, 22, 106, iw);
-      oT(osuInfoBy, 'mapped by ' + (I.mapper || '') + '   |   ' + (I.src || '') + (I.from ? '   |   ' + I.from : ''));
+      oT(osuInfoBy, T('mapped by {0}', I.mapper || '') + '   |   ' + (I.src || '') + (I.from ? '   |   ' + I.from : ''));
       osuSetLabel(osuInfoBy, 22, 140, iw);
       var bpm = Math.round(I.bpm || 0);
       var bpmStr = (Math.round(I.bpmMin) !== Math.round(I.bpmMax) && I.bpmMax > 0)
         ? Math.round(I.bpmMin) + '-' + Math.round(I.bpmMax) + ' (' + bpm + ')' : String(bpm);
-      var chips = [['length', osuMmss(I.len || 0)], ['bpm', bpmStr], ['circles', osuNum(I.circles || 0)], ['sliders', osuNum(I.sliders || 0)]];
+      var chips = [[T('length'), osuMmss(I.len || 0)], ['bpm', bpmStr], [T('circles'), osuNum(I.circles || 0)], [T('sliders'),osuNum(I.sliders || 0)]];
       var cw = (iw - 3 * 10) / 4;
       for (var i = 0; i < 4; i++) {
         var C = osuInfoChips[i];
@@ -228,11 +228,14 @@ R"EGJS(
 )EGJS"
 // Split: MSVC caps one raw string literal at ~16 KB (C2026); adjacent literals concatenate.
 R"EGJS(
+    // Sort modes as C++ sends them (OsuGame.cpp kSortNames), translated where they are drawn.
+    var OSU_SORT_NAMES = { title: T('title'), artist: T('artist'), difficulty: T('difficulty'), length: T('length'),
+      mapper: T('mapper'), source: T('source') };
     function osuDrawChrome(t, sz) {
       var W = sz.w, H = sz.h;
       osuBox(osuTopBar, 0, 0, W, OSU_TOP);
       osuBox(osuLogo.p, 28, 0, 120, OSU_TOP); oT(osuLogo.l, 'osu!');
-      osuBox(osuLogoSub.p, 112, 0, 260, OSU_TOP); oT(osuLogoSub.l, 'song select   //   ' + osuNum(osuV.sets || 0) + ' sets');
+      osuBox(osuLogoSub.p, 112, 0, 260, OSU_TOP); oT(osuLogoSub.l, TN(osuV.sets || 0, 'song select   //   {1} set', 'song select   //   {1} sets', osuNum(osuV.sets || 0)));
       var sx = W * 0.5, sw = W * 0.5 - 24;
       osuBox(osuSearch, sx, 14, sw, 44);
       oS(osuSearch, 'borderRadius', '22px');
@@ -240,19 +243,20 @@ R"EGJS(
       var caret = Math.floor(t * 2) % 2 === 0 ? '_' : ' ';
       oS(osuSearchT.l, 'color', q ? '#ffffff' : '#ffffff66');
       osuBox(osuSearchT.p, 20, 0, sw - 190, 44);
-      oT(osuSearchT.l, q ? q + caret : 'type to search');
+      oT(osuSearchT.l, q ? q + caret : T('type to search'));
       osuBox(osuSearchN.p, sw - 180, 0, 160, 44);
-      oT(osuSearchN.l, osuNum(osuV.matched || 0) + ' matches');
-      osuButton(osuSortB, sx - 196, 16, 180, 40, 'sort: ' + (osuV.sort || 'title'), '#c9a7ff', false, 'act sort');
+      oT(osuSearchN.l, TN(osuV.matched || 0, '{1} match', '{1} matches', osuNum(osuV.matched || 0)));
+      var sortKey = osuV.sort || 'title';
+      osuButton(osuSortB, sx - 196, 16, 180, 40, T('sort: {0}', OSU_SORT_NAMES[sortKey] || sortKey), '#c9a7ff', false, 'act sort');
       // Scan progress: a thin line under the top bar.
       var scanning = !!osuV.scanning && (osuV.total || 0) > 0;
       oV(osuScan, scanning);
       if (scanning) osuBox(osuScan, 0, OSU_TOP - 3, W * osuClamp((osuV.done || 0) / osuV.total), 3);
       // Nothing to show.
       var msg = '';
-      if (!(osuV.sets > 0)) msg = osuV.scanning ? 'finding beatmaps...  ' + osuNum(osuV.done || 0) + ' / ' + osuNum(osuV.total || 0)
-        : 'no beatmaps found.\ninstall osu! (stable or lazer), or drop .osz files into %APPDATA%\\HLAE\\osu';
-      else if (!(osuV.matched > 0)) msg = 'no matches for "' + q + '"\nbackspace to edit, delete to clear';
+      if (!(osuV.sets > 0)) msg = osuV.scanning ? T('finding beatmaps...  {0} / {1}', osuNum(osuV.done || 0), osuNum(osuV.total || 0))
+        : T('no beatmaps found.\ninstall osu! (stable or lazer), or drop .osz files into {0}', '%APPDATA%\\HLAE\\osu');
+      else if (!(osuV.matched > 0)) msg = T('no matches for "{0}"\nbackspace to edit, delete to clear', q);
       oV(osuEmpty.p, !!msg);
       if (msg) { osuBox(osuEmpty.p, W * 0.47, H * 0.42, W * 0.5, 90); oT(osuEmpty.l, msg); try { osuEmpty.l.style.whiteSpace = 'normal'; } catch (e) {} }
 

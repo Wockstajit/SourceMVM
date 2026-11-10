@@ -788,3 +788,10 @@ add_executable(TakesMathTests
 )
 target_compile_features(TakesMathTests PRIVATE cxx_std_17)
 add_test(NAME TakesMathTests COMMAND TakesMathTests)
+
+add_executable(KeybindsMathTests
+    ../Automation/tests/keybinds-math-tests.cpp
+    Filmmaker/Input/KeybindsMath.h
+)
+target_compile_features(KeybindsMathTests PRIVATE cxx_std_17)
+add_test(NAME KeybindsMathTests COMMAND KeybindsMathTests)

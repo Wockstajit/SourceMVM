@@ -13,6 +13,7 @@
 #include "Filmmaker/EasterEggs/Osu/OsuGame.h"
 #include "Filmmaker/EasterEggs/EasterEggSnake.h"
 #include "UiInputGate.h"
+#include "Filmmaker/Input/Keybinds.h"
 #include "Filmmaker/Movie/CameraBridge.h"
 #include "Filmmaker/Onboarding/Onboarding.h" // Onboarding_BlocksClick: linear tutorial steps
 
@@ -244,6 +245,10 @@ LRESULT CALLBACK new_Afx_WindowProc(
 		Filmmaker::MvmDebugLog_Linef("config.input", "wheel delta=%d gated=%d config=%d cursor=%d", GET_WHEEL_DELTA_WPARAM(wParam), int(Filmmaker::UiInputGate_Active()), int(Filmmaker::ConfigHud_Enabled()), int(Filmmaker::CameraTimeline_WantsCursor()));
 	if (uMsg == WM_KEYDOWN)
 		Filmmaker::UiInputGate_OnKeyDown((unsigned)wParam, (long long)lParam);
+	// The settings page is waiting for the key of a shortcut being rebound. Ahead of the menu
+	// gate, because that page is CS2's own menu, where every other director key stands down.
+	if (uMsg == WM_KEYDOWN && Filmmaker::Keybinds_OnKeyDown((int)wParam))
+		return 0;
 	switch (uMsg) {
 	case WM_KEYDOWN: case WM_KEYUP: case WM_CHAR: case WM_MOUSEWHEEL:
 	case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_LBUTTONDBLCLK:
@@ -313,13 +318,13 @@ LRESULT CALLBACK new_Afx_WindowProc(
 		// 2026-10-13). The release still goes through below so held-key state stays balanced.
 		if(!(g_pGameUIService && g_pGameUIService->Con_IsVisible()) && Filmmaker::MovieInput_OnKey((int)wParam, true))
 			return 0;
-		if(g_MirvInputEx.m_MirvInput->Supply_KeyEvent(MirvInput::KS_DOWN, wParam, lParam))
+		if(g_MirvInputEx.m_MirvInput->Supply_KeyEvent(MirvInput::KS_DOWN, (WPARAM)Filmmaker::Keybinds_FreeCamKey((int)wParam), lParam))
 			return 0;
 		break;
 	case WM_KEYUP:
 		if(Filmmaker::MovieInput_OnKey((int)wParam, false))
 			return 0;
-		if(g_MirvInputEx.m_MirvInput->Supply_KeyEvent(MirvInput::KS_UP,wParam, lParam))
+		if(g_MirvInputEx.m_MirvInput->Supply_KeyEvent(MirvInput::KS_UP, (WPARAM)Filmmaker::Keybinds_FreeCamKey((int)wParam), lParam))
 			return 0;
 		break;
 	case WM_MOUSEWHEEL:

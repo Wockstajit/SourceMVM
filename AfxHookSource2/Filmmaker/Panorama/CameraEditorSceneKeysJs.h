@@ -13,9 +13,9 @@
 R"EDJS(
     // The QUICK cards (Keys & History, Time of Day) and one rail item per catalog group, under
     // MAP EFFECTS and PROCEDURAL ENVIRONMENT (Docs/features/camera-editor-feature.md).
-    var skQuickSec = edCard(inspectorBody, 'KEYS & HISTORY', { edge: S.accent, rail: { tab: 'scene', key: 'skq', group: 'Quick' } });
-    var skTodSec = edCard(inspectorBody, 'TIME OF DAY', { edge: S.accent, rail: { tab: 'scene', key: 'sktod', group: 'Quick' } });
-    skTodSec.__note('Key a look at this tick');
+    var skQuickSec = edCard(inspectorBody, T('KEYS & HISTORY'), { titleKey: 'KEYS & HISTORY', edge: S.accent, rail: { tab: 'scene', key: 'skq', group: T('Quick') } });
+    var skTodSec = edCard(inspectorBody, T('TIME OF DAY'), { titleKey: 'TIME OF DAY', edge: S.accent, rail: { tab: 'scene', key: 'sktod', group: T('Quick') } });
+    skTodSec.__note(T('Key a look at this tick'));
 
     function skState() { return (st && st.sceneKeys) || {}; }
     function skCatalog() { return skState().catalog || []; }
@@ -30,12 +30,12 @@ R"EDJS(
     // are picking what to animate.
     function skRowState(id) {
       var keys = skKeys(id), n = keys.length, tick = skTick(), i;
-      if (!n) return skOn(id) ? { text: 'on · no keys yet', color: S.label } : { text: 'off', color: S.hint };
-      if (n === 1) return { text: '1 key · needs another', color: S.dangerText };
-      for (i = 0; i < n; i++) if (keys[i].tick === tick) return { text: skPlural(n, 'key') + ' · at key', color: S.accent };
+      if (!n) return skOn(id) ? { text: T('on · no keys yet'), color: S.label } : { text: T('off'), color: S.hint };
+      if (n === 1) return { text: T('1 key · needs another'), color: S.dangerText };
+      for (i = 0; i < n; i++) if (keys[i].tick === tick) return { text: TN(n, '{0} key · at key', '{0} keys · at key'), color: S.accent };
       return (tick > keys[0].tick && tick < keys[n - 1].tick)
-        ? { text: skPlural(n, 'key') + ' · between keys', color: S.value }
-        : { text: skPlural(n, 'key') + ' · follows CONFIG', color: S.muted };
+        ? { text: TN(n, '{0} key · between keys', '{0} keys · between keys'), color: S.value }
+        : { text: TN(n, '{0} key · follows CONFIG', '{0} keys · follows CONFIG'), color: S.muted };
     }
     function skGroupCount(g) {
       var out = { on: 0, keys: 0 }, i;
@@ -46,7 +46,7 @@ R"EDJS(
     // the two owners of the dialog cannot leave each other's verb on the button.
     function skConfirm(title, body, action) {
       confirmTitle.text = title; confirmBody.text = body;
-      confirmYes.__lbl.text = 'Yes, turn it off';
+      confirmYes.__lbl.text = T('Yes, turn it off');
       confirmAction = action; confirmOverlay.visible = true;
     }
     // Turning a property off removes its keys with it -- `scenekeys clear <id>` disarms as well --
@@ -55,8 +55,9 @@ R"EDJS(
     function skToggle(f) {
       var n = skKeys(f.id).length;
       if (skOn(f.id) && n) {
-        skConfirm('TURN OFF ' + f.label.toUpperCase() + '?',
-          'This removes its strip and its ' + skPlural(n, 'key') + '. ' + f.label + ' goes back to CONFIG. You can undo this.',
+        skConfirm(T('TURN OFF {0}?', f.label.toUpperCase()),
+          TN(n, 'This removes its strip and its {0} key. {1} goes back to CONFIG. You can undo this.',
+            'This removes its strip and its {0} keys. {1} goes back to CONFIG. You can undo this.', f.label),
           function () { skCmd('clear ' + f.id); });
         return;
       }
@@ -73,13 +74,13 @@ R"EDJS(
     var skTools = mk('Panel', skQuickSec); skTools.hittest = false; skTools.hittestchildren = true;
     skTools.style.flowChildren = 'right'; skTools.style.width = '100%';
     var skActions = { btns: [] };
-    [['Open Timeline', function () {
+    [[T('Open Timeline'), function () {
         // Scene keys are layers on the one TIMELINE dock, next to the camera path.
         cmd('mirv_filmmaker dock timeline');
       }, 'primary'],
-     ['◇ Key every strip', function () { skCmd('add'); }],
-     ['↺ Undo', function () { skCmd('undo'); }],
-     ['↻ Redo', function () { skCmd('redo'); }]].forEach(function (d, i) {
+     [T('◇ Key every strip'), function () { skCmd('add'); }],
+     [T('↺ Undo'), function () { skCmd('undo'); }],
+     [T('↻ Redo'), function () { skCmd('redo'); }]].forEach(function (d, i) {
       var b = edButton(skTools, d[0], d[1], d[2]);
       b.style.height = '32px'; b.style.paddingTop = '0px'; b.style.paddingBottom = '0px';
       b.__lbl.style.verticalAlign = 'center';
@@ -90,23 +91,23 @@ R"EDJS(
       skActions.btns.push(b);
     });
     // interactive() reads __tip on hover, so the captions stay short.
-    skActions.btns[0].__tip = 'Show these strips in the SCENE GRAPH dock';
-    skActions.btns[1].__tip = 'Drop one key on every property that is on, at the current tick';
-    skActions.btns[2].__tip = 'Undo the last scene-key edit';
-    skActions.btns[3].__tip = 'Redo the last undone scene-key edit';
+    skActions.btns[0].__tip = T('Show these strips in the SCENE GRAPH dock');
+    skActions.btns[1].__tip = T('Drop one key on every property that is on, at the current tick');
+    skActions.btns[2].__tip = T('Undo the last scene-key edit');
+    skActions.btns[3].__tip = T('Redo the last undone scene-key edit');
     // ONE line: what is on, and whether it is saved.
     var skStatus = edNote(skQuickSec, '');
     edActionGroup(skQuickSec, '', [
-      ['Delete selected keys', function () { skCmd('delsel'); }],
-      ['Turn everything off', function () {
-        skConfirm('TURN EVERY PROPERTY OFF?', 'This removes every scene strip and every scene key from this demo. You can undo this.',
+      [T('Delete selected keys'), function () { skCmd('delsel'); }],
+      [T('Turn everything off'), function () {
+        skConfirm(T('TURN EVERY PROPERTY OFF?'), T('This removes every scene strip and every scene key from this demo. You can undo this.'),
           function () { skCmd('clear all'); });
       }, 'danger']
     ]);
-    var skTodGroup = edActionGroup(skTodSec, 'Key a look', [
-      ['Dawn', function () { skCmd('macro dawn'); }], ['Day', function () { skCmd('macro day'); }], ['Golden', function () { skCmd('macro golden'); }],
-      ['Dusk', function () { skCmd('macro dusk'); }], ['Night', function () { skCmd('macro night'); }], ['Moonlit', function () { skCmd('macro moonlit'); }]
-    ], 3, 'Turns the lighting, sky and fog strips on and keys them at this tick. Ordinary keys — reshape or delete them in GRAPH.');
+    var skTodGroup = edActionGroup(skTodSec, T('Key a look'), [
+      [T('Dawn'), function () { skCmd('macro dawn'); }], [T('Day'), function () { skCmd('macro day'); }], [T('Golden'), function () { skCmd('macro golden'); }],
+      [T('Dusk'), function () { skCmd('macro dusk'); }], [T('Night'), function () { skCmd('macro night'); }], [T('Moonlit'), function () { skCmd('macro moonlit'); }]
+    ], 3, T('Turns the lighting, sky and fog strips on and keys them at this tick. Ordinary keys — reshape or delete them in GRAPH.'));
     // The onboarding tutorial points at the time-of-day buttons by name ($.MvmTour).
     try { mvmTourAdd('scene.rail.tod', edRails.scene.items['sktod'].row); } catch (e) {}
     try { mvmTourAdd('scene.rail.keys', edRails.scene.items['skq'].row); } catch (e) {}
@@ -184,7 +185,7 @@ R"EDJS(
         if (!fam.length) return;
         // Both families carry a LIGHTING card, so the rail's group heading -- CONFIG's own tab
         // name -- is what tells two identically named cards apart.
-        var groupName = family === 'effects' ? 'Effects' : 'Environment';
+        var groupName = family === 'effects' ? T('Effects') : T('Environment');
         var order = [];
         fam.forEach(function (f) { var gid = family + '.' + (f.groupId || f.group); if (order.indexOf(gid) < 0) order.push(gid); });
         order.forEach(function (groupId) {
@@ -202,13 +203,13 @@ R"EDJS(
             // so a property was "Sun direction (yaw)" here and "Sun Azimuth" in the graph.
             var name = f.label;
             skFields[f.id] = skRowPanel(card, '◇', name,
-              'Animate ' + name + ' in the Scene Graph', function () { skToggle(f); });
+              T('Animate {0} in the Scene Graph', name), function () { skToggle(f); });
             mvmTourAdd('scene.row.' + f.id, skFields[f.id].row);
             if (!skCommon(f.id)) g.extras.push(f.id);
           });
           if (g.extras.length) {
-            g.disclosure = skRowPanel(card, '+', 'More settings',
-              'Show additional animation controls', function () { g.more = !g.more; syncSceneInspector(); });
+            g.disclosure = skRowPanel(card, '+', T('More settings'),
+              T('Show additional animation controls'), function () { g.more = !g.more; syncSceneInspector(); });
             g.disclosure.sw.visible = false;
           }
         });
@@ -224,12 +225,12 @@ R"EDJS(
       var sk = skState(), id, i;
       var onCount = 0, keyCount = 0;
       for (id in skFields) { if (skOn(id)) onCount++; keyCount += skKeys(id).length; }
-      var statusText = (onCount ? skPlural(onCount, 'strip') + ' · ' + skPlural(keyCount, 'key')
-                                : 'Nothing on · every property follows CONFIG')
-        + '  ·  ' + (sk.save === 'saving' ? 'Saving…' : sk.save === 'failed' ? 'Save failed' : 'Saved')
+      var statusText = (onCount ? TN(onCount, '{0} strip', '{0} strips') + ' · ' + TN(keyCount, '{0} key', '{0} keys')
+                                : T('Nothing on · every property follows CONFIG'))
+        + '  ·  ' + (sk.save === 'saving' ? T('Saving…') : sk.save === 'failed' ? T('Save failed') : T('Saved'))
         + (sk.error ? '  ·  ' + sk.error : '');
       if (skStatus.text !== statusText) skStatus.text = statusText;
-      skQuickSec.__note((onCount ? onCount + ' animated' : 'Nothing animated') + ' · ' + (sk.save === 'failed' ? 'save failed' : 'saved'));
+      skQuickSec.__note((onCount ? T('{0} animated', onCount) : T('Nothing animated')) + ' · ' + (sk.save === 'failed' ? T('save failed') : T('saved')));
       skStatus.style.color = sk.save === 'failed' ? S.dangerText : S.muted;
       // Idempotent: this runs every frame over the whole catalog (~70 rows), and a Label write
       // that changes nothing still costs a layout pass -- the same reason edCard caches its note.
@@ -244,7 +245,7 @@ R"EDJS(
       }
       for (var groupId in skGroups) {
         var g = skGroups[groupId], c = skGroupCount(g), gsig = c.on + '/' + c.keys;
-        g.card.__note(c.on || c.keys ? (c.on + ' of ' + g.fields.length + ' on · ' + skPlural(c.keys, 'key')) : 'Nothing animated');
+        g.card.__note(c.on || c.keys ? (T('{0} of {1} on', c.on, g.fields.length) + ' · ' + TN(c.keys, '{0} key', '{0} keys')) : T('Nothing animated'));
         g.card.__badge(c.on ? String(c.on) : '', 'gold');
         gsig += '/' + g.more;
         // Include each extra's state, not just the group count: undo can swap active fields.
@@ -258,7 +259,7 @@ R"EDJS(
         if (g.disclosure) {
           var hidden = g.extras.filter(function (id) { return !skOn(id) && !skKeys(id).length; }).length;
           g.disclosure.row.visible = g.more || hidden > 0;
-          g.disclosure.nm.text = g.more ? 'Fewer settings' : 'More settings';
+          g.disclosure.nm.text = g.more ? T('Fewer settings') : T('More settings');
           g.disclosure.dia.text = g.more ? '−' : '+';
           g.disclosure.state.text = g.more ? '' : '' + hidden;
         }

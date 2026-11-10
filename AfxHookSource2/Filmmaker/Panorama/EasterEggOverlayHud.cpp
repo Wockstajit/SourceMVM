@@ -1,4 +1,5 @@
 #include "EasterEggOverlayHud.h"
+#include "../Localization/Localization.h"
 
 #include "EasterEggOverlayJs.h"
 #include "PanoramaFindPanel.h"
@@ -62,6 +63,8 @@ void EasterEggOverlayHud::RunFrame() {
 	const bool loaded = level && level[0] && std::strcmp(level, "<empty>") != 0;
 	unsigned char* ctx = loaded && hud ? hud : menu;
 	if (!ctx) { m_built = false; m_root = nullptr; m_context = nullptr; return; }
+	// A language change rebuilds the script, which is what re-reads its text (Localization.h).
+	{ static uint64_t uiEpoch = 0; if (Localization_TakeUiEpoch(uiEpoch)) { m_built = false; } }
 	if (ctx != m_context) {
 		// Menu and HUD can both survive the transition. Remove our old overlay before
 		// creating another, but never execute a script against an expired context.

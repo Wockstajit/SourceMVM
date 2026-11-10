@@ -166,7 +166,7 @@ test('START RENDER stays pinned below a scrolling job summary', () => {
   assert.doesNotMatch(renderJs, /jobSpacer/);
   // 2026-11-01: a scrolled list cut the next take in half at 480p. Only whole rows are shown...
   assert.match(renderJs, /var p = prevRows\[i\], t = i < shown \? takes\[prevOffset \+ i\] : null;/);
-  assert.match(renderJs, /' OF ' \+ total/);
+  assert.match(renderJs, /else if \(paged\) cap = T\('PREVIOUS RENDERS  ·  \{0\} OF \{1\}', \(prevOffset \+ 1\) \+ \(shown > 1 \? '-' \+ \(prevOffset \+ shown\) : ''\), total\);/);
   assert.match(renderJs, /fitPrevious\(\);/);
   // 2026-11-03: counting from the rows on screen chased Panorama's late layout and flickered
   // between 0, 1 and 2 rows. The count comes from the room the rest of the summary leaves.

@@ -18,6 +18,9 @@ namespace Filmmaker {
 
 inline const char* kPlayMenuStripJs = R"FMJS(
 (function () {
+)FMJS"
+#include "../Panorama/LocalizationJs.h"
+R"FMJS(
   try {
     function topRootOf(p) { var r = p; while (r && r.GetParent && r.GetParent()) r = r.GetParent(); return r; }
     var ctx = $.GetContextPanel();
@@ -125,7 +128,8 @@ inline const char* kPlayMenuStripJs = R"FMJS(
 
       if (lis) {
         var lbl = M.labelOf(lis);
-        if (lbl) { try { if (lbl.text !== 'Practice') lbl.text = 'Practice'; } catch (e) {} }
+        var practice = T('Practice');
+        if (lbl) { try { if (lbl.text !== practice) lbl.text = practice; } catch (e) {} }
       }
 
       // CS2 restores the last used server setting on every visit. If that is Official the page

@@ -28,6 +28,9 @@ namespace Filmmaker {
 
 inline const char* kWorkspaceHeaderJs = R"WHJS(
 (function () {
+)WHJS"
+#include "LocalizationJs.h"
+R"WHJS(
   try {
     var existing = $('#MvmHeaderRoot'); if (existing) existing.DeleteAsync(0);
     var existingSettings = $('#MvmHeaderSettingsRoot'); if (existingSettings) existingSettings.DeleteAsync(0);
@@ -40,7 +43,7 @@ inline const char* kWorkspaceHeaderJs = R"WHJS(
       clear: 'rgba(0,0,0,0)',
       font: 'Stratum2, "Arial Unicode MS"'
     };
-    function mk(type, parent, props) { return $.CreatePanel(type, parent, '', props || {}); }
+    function mk(type, parent, props) { var p = $.CreatePanel(type, parent, '', props || {}); return type === 'Label' ? mvmFit(p) : p; }
     function lbl(parent, text, color, size) {
       var l = mk('Label', parent); l.text = text || '';
       if (color) l.style.color = color; if (size) l.style.fontSize = size + 'px';
@@ -143,14 +146,14 @@ R"WHJS(
       paintTab(rec);
     }
 
-    tab('config', 'CONFIG', S.config, function () { cmd('mirv_filmmaker config toggle'); });
-    tab('editor', 'CAMERA EDITOR', S.editor, function () { cmd('mirv_filmmaker editor toggle'); });
-    tab('timeline', 'TIMELINE', S.timeline, function () { cmd('mirv_filmmaker dock toggle'); });
-    tab('render', 'RENDER', S.render, function () {
+    tab('config', T('CONFIG'), S.config, function () { cmd('mirv_filmmaker config toggle'); });
+    tab('editor', T('CAMERA EDITOR'), S.editor, function () { cmd('mirv_filmmaker editor toggle'); });
+    tab('timeline', T('TIMELINE'), S.timeline, function () { cmd('mirv_filmmaker dock toggle'); });
+    tab('render', T('RENDER'), S.render, function () {
       cmd((st && st.render) ? 'mirv_filmmaker render close' : 'mirv_filmmaker editor render');
     });
-    tab('customize', '✦  CUSTOMIZE', S.editor, function () { cmd('mirv_filmmaker editor customize'); },
-      'Customize Player: skins, knife, gloves and agent');
+    tab('customize', '✦  ' + T('CUSTOMIZE'), S.editor, function () { cmd('mirv_filmmaker editor customize'); },
+      T('Customize Player: skins, knife, gloves and agent'));
 
     var spacer = mk('Panel', band); spacer.hittest = false;
     spacer.style.width = 'fill-parent-flow(1.0)'; spacer.style.height = '1px';
@@ -196,8 +199,8 @@ R"WHJS(
       }
       return b;
     }
-    segBtn('WORKSPACE', false, function () { cmd('mirv_filmmaker layout workspace'); });
-    segBtn('MODULAR', true, function () {});
+    segBtn(T('WORKSPACE'), false, function () { cmd('mirv_filmmaker layout workspace'); });
+    segBtn(T('MODULAR'), true, function () {});
 
     // ---- render ------------------------------------------------------------------------------
     var api = {};
@@ -216,7 +219,7 @@ R"WHJS(
       setTab('config', st.config);
       setTab('editor', st.editor && !st.render);
       setTab('timeline', st.dock === 'timeline');
-      setTab('render', st.render, true, st.renderJob ? 'RENDER PROGRESS' : 'RENDER');
+      setTab('render', st.render, true, st.renderJob ? T('RENDER PROGRESS') : T('RENDER'));
       setTab('customize', st.customize, !!st.customizeReady);
       // Where the bar is, for the click router: a click here is the UI's in either mouse mode.
       var r = band.GetPositionWithinWindow ? band.GetPositionWithinWindow() : null;

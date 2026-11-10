@@ -19,6 +19,8 @@
 #include "Panorama/PanoramaBridge.h"
 #include "Panorama/CameraTimelineHud.h"
 #include "Panorama/UiLayout.h"
+#include "Localization/Localization.h"
+#include "Input/Keybinds.h"
 #include "Panorama/CameraEditorHud.h"
 #include "Panorama/ConfigHud.h"
 #include "Panorama/GraphEditorExperimentHud.h"
@@ -498,6 +500,13 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 		// WORKSPACE (the panels docked beside a scaled preview) or MODULAR (a header bar along the
 		// top and the panels as movable windows over the full-screen game). Panorama/UiLayout.h.
 		Filmmaker::UiLayout_RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "keybind")) {
+		// Rebindable shortcuts (Input/Keybinds.h).
+		Filmmaker::Keybinds_RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "language")) {
+		// The language of the panels: a CS2 language id, or auto to follow the game
+		// (Localization/Localization.h).
+		Filmmaker::Localization_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "dock")) {
 		// The shared bottom dock (REGULAR TIMELINE / CAMERA / GRAPH). One verb, because one dock
 		// is shown by the Camera Editor, the CONFIG panel and the Render workspace.

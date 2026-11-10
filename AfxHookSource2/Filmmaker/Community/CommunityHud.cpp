@@ -1,4 +1,5 @@
 #include "CommunityHud.h"
+#include "../Localization/Localization.h"
 
 #include "BugReport.h"
 #include "BugReportSend.h"
@@ -201,6 +202,8 @@ void Community_RunMainThreadFrame() {
 	unsigned char* mainMenu = AfxHookSource2_GetPanoramaMainMenuPanel();
 	if (!mainMenu) { g_built = g_buildAttempted = false; g_host = nullptr; return; }
 	g_bridge.SetContextPanel(mainMenu);
+	// A language change rebuilds the script, which is what re-reads its text (Localization.h).
+	{ static uint64_t uiEpoch = 0; if (Localization_TakeUiEpoch(uiEpoch)) { g_built = g_buildAttempted = false; g_host = nullptr; } }
 
 	if (!g_evalQueue.empty() && g_bridge.CanRunScript()) {
 		for (const std::string& js : g_evalQueue) g_bridge.RunScript(js);

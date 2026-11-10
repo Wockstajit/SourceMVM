@@ -31,6 +31,9 @@ namespace Filmmaker {
 
 inline const char* kGraphEditorJs = R"GEJS(
 (function () {
+)GEJS"
+#include "LocalizationJs.h"
+R"GEJS(
   try {
     var existing = $('#GraphExpRoot'); if (existing) existing.DeleteAsync(0);
     var ctx = $.GetContextPanel();
@@ -122,7 +125,7 @@ inline const char* kGraphEditorJs = R"GEJS(
       return false;
     }
 
-    function mk(type, parent, props) { return $.CreatePanel(type, parent, '', props || {}); }
+    function mk(type, parent, props) { var p = $.CreatePanel(type, parent, '', props || {}); return type === 'Label' ? mvmFit(p) : p; }
     function lbl(parent, text, color, size) {
       var l = mk('Label', parent); l.text = text || '';
       if (color) l.style.color = color; if (size) l.style.fontSize = size + 'px';
@@ -463,7 +466,7 @@ R"GEJS(
     tabRow.style.marginBottom = '6px';
     function viewTab(caption, mode, last) {
       var b = tabify(btn(tabRow, caption, function () { setView(mode); }, S.label,
-        mode === 'graph' ? 'Curves of the selected layer or property' : 'Every key, one row per property'));
+        mode === 'graph' ? T('Curves of the selected layer or property') : T('Every key, one row per property')));
       b.style.width = 'fit-children';
       b.style.paddingLeft = '0px'; b.style.paddingRight = '0px';
       b.style.paddingTop = '4px'; b.style.paddingBottom = '6px';
@@ -471,8 +474,8 @@ R"GEJS(
       b.__lbl.style.fontSize = '15px'; b.__lbl.style.letterSpacing = '1.4px';
       return b;
     }
-    var keysTab = viewTab('KEYFRAMES', 'keys');
-    var graphTab = viewTab('GRAPH', 'graph', true);
+    var keysTab = viewTab(T('KEYFRAMES'), 'keys');
+    var graphTab = viewTab(T('GRAPH'), 'graph', true);
     tourSet('tl.view.keys', keysTab); tourSet('tl.view.graph', graphTab);
     // CAM EDITOR | CONFIG at the end of the view tabs, in KEYFRAMES and GRAPH alike: the workspace
     // hosting the dock is lit, the other one switches over. The native bar's colours (gold editor,
@@ -491,10 +494,10 @@ R"GEJS(
       b.__ws = ws; btnVisual(b);
       return b;
     }
-    var wsEditorBtn = wsBtn('CAM EDITOR', 'editor', S.accent, '#4a3a10ff', '#6b5416ff',
-      'The Camera Editor: camera paths, follow cameras and scene keys');
-    var wsConfigBtn = wsBtn('CONFIG', 'config', '#7fb6ffff', '#1c3552ff', '#28497aff',
-      'Config: camera, effects, environment and scene objects');
+    var wsEditorBtn = wsBtn(T('CAM EDITOR'), 'editor', S.accent, '#4a3a10ff', '#6b5416ff',
+      T('The Camera Editor: camera paths, follow cameras and scene keys'));
+    var wsConfigBtn = wsBtn(T('CONFIG'), 'config', '#7fb6ffff', '#1c3552ff', '#28497aff',
+      T('Config: camera, effects, environment and scene objects'));
     tourSet('tl.ws.editor', wsEditorBtn); tourSet('tl.ws.config', wsConfigBtn);
     function paintWorkspaceBtns() {
       [wsEditorBtn, wsConfigBtn].forEach(function (b) {
@@ -512,18 +515,18 @@ R"GEJS(
     rightCol.style.flowChildren = 'down'; rightCol.style.verticalAlign = 'center';
     var rowTop = mk('Panel', rightCol); rowTop.hittest = false; rowTop.style.flowChildren = 'right';
     rowTop.style.horizontalAlign = 'right'; rowTop.style.marginBottom = '5px';
-    var prevKeyBtn = btn(rowTop, '|◀', function () { jumpKey(-1); }, S.value, 'Previous keyframe on the selected layer');
-    var playBtn = btn(rowTop, '▶', function () { togglePlay(); }, S.value, 'Play / pause (Space)');
+    var prevKeyBtn = btn(rowTop, '|◀', function () { jumpKey(-1); }, S.value, T('Previous keyframe on the selected layer'));
+    var playBtn = btn(rowTop, '▶', function () { togglePlay(); }, S.value, T('Play / pause ({0})', K('demo.pause', 'SPACE')));
     playBtn.style.width = '46px'; playBtn.__lbl.style.horizontalAlign = 'center';
     tourSet('tl.play', playBtn);
-    var nextKeyBtn = btn(rowTop, '▶|', function () { jumpKey(1); }, S.value, 'Next keyframe on the selected layer');
+    var nextKeyBtn = btn(rowTop, '▶|', function () { jumpKey(1); }, S.value, T('Next keyframe on the selected layer'));
     nextKeyBtn.style.marginRight = '11px';
     // Cache: keep the preview of every frame the world plays, so scrubbing back over it shows at
     // frame rate instead of restoring the demo on every move (Movie/ScrubFrameCache.h). Lit while
     // on; right before the speed it shares the transport with, as on the old camera timeline.
-    var cacheBtn = btn(rowTop, 'Cache', function () {
+    var cacheBtn = btn(rowTop, T('Cache'), function () {
       rawCmd('mirv_filmmaker scrub cache ' + (st && st.scrubCache ? 'off' : 'on'));
-    }, S.value, 'Keep every frame you play, so scrubbing back over it is instant');
+    }, S.value, T('Keep every frame you play, so scrubbing back over it is instant'));
     cacheBtn.style.marginRight = '11px';
     // The SAME continuous speed scrubber the native demo bar carries.
     var speedScrub = buildSpeedScrubber(rowTop, { width: 250, height: 30, font: S.font });
@@ -534,7 +537,7 @@ R"GEJS(
 R"GEJS(
     // The interpolation strip. With keys selected it shapes THOSE keys; with nothing selected Smooth /
     // Linear set the camera path's one interpolation (the eases need a selection).
-    var EASE_ITEMS = [['smooth', 'Smooth'], ['linear', 'Linear'], ['in', 'Ease In'], ['out', 'Ease Out'], ['inout', 'In/Out'], ['hold', 'Hold']];
+    var EASE_ITEMS = [['smooth', T('Smooth')], ['linear', T('Linear')], ['in', T('Ease In')], ['out', T('Ease Out')], ['inout', T('In/Out')], ['hold', T('Hold')]];
     var easeBar = mk('Panel', rowBot); easeBar.hittest = false; easeBar.style.flowChildren = 'right';
     easeBar.style.border = '1px solid ' + S.chip; easeBar.style.borderRadius = '3px';
     easeBar.style.marginRight = '9px'; easeBar.style.verticalAlign = 'center'; easeBar.style.overflow = 'clip clip';
@@ -554,9 +557,9 @@ R"GEJS(
       tourSet('tl.ease.' + it[0], b);
     });
     function easeTip(m) {
-      return { smooth: 'Smooth tangents (no selection: the whole camera path)', linear: 'Straight lines between keys (no selection: the whole camera path)',
-        'in': 'Ease into the selected keys (Shift+F9)', out: 'Ease out of the selected keys (Ctrl+Shift+F9)', inout: 'Easy Ease the selected keys (F9)',
-        hold: 'Hold the value until the next key, then jump (scene keys; scene objects place hold keys)' }[m];
+      return { smooth: T('Smooth tangents (no selection: the whole camera path)'), linear: T('Straight lines between keys (no selection: the whole camera path)'),
+        'in': T('Ease into the selected keys ({0})', 'Shift+' + K('key.ease', 'F9')), out: T('Ease out of the selected keys ({0})', 'Ctrl+Shift+' + K('key.ease', 'F9')), inout: T('Easy Ease the selected keys ({0})', K('key.ease', 'F9')),
+        hold: T('Hold the value until the next key, then jump (scene keys; scene objects place hold keys)') }[m];
     }
     function paintEase(b) {
       var on = !!b.__on;
@@ -569,11 +572,11 @@ R"GEJS(
         glyph(b.__gw, EASE_SIDES[b.__mode], 10, on ? S.accent : S.glyph, S.panelHex);
       }
     }
-    var snapBtn = btn(rowBot, 'SNAP', function () { showSnapMenu(); }, S.value,
-      'Time snap: quantise the playhead and key placement to a tick grid');
-    var undoBtn = btn(rowBot, '↺ Undo', function () { undo(false); }, S.value, 'Undo (Ctrl+Z)');
-    var redoBtn = btn(rowBot, '↻ Redo', function () { undo(true); }, S.value, 'Redo (Ctrl+Shift+Z)');
-    var delBtn = btn(rowBot, '✕', function () { deleteSelection(); }, S.dangerText, 'Delete the selected keyframes (Del)');
+    var snapBtn = btn(rowBot, T('SNAP'), function () { showSnapMenu(); }, S.value,
+      T('Time snap: quantise the playhead and key placement to a tick grid'));
+    var undoBtn = btn(rowBot, T('↺ Undo'), function () { undo(false); }, S.value, T('Undo (Ctrl+Z)'));
+    var redoBtn = btn(rowBot, T('↻ Redo'), function () { undo(true); }, S.value, T('Redo (Ctrl+Shift+Z)'));
+    var delBtn = btn(rowBot, '✕', function () { deleteSelection(); }, S.dangerText, T('Delete the selected keyframes (Del)'));
     delBtn.style.marginRight = '0px';
     delBtn.style.backgroundColor = S.dangerBg; delBtn.style.border = '1px solid ' + S.dangerBorder;
 
@@ -608,7 +611,7 @@ R"GEJS(
     }
     function buildSnapMenu() {
       if (snapMenu) return;
-      var items = [['auto', 'Auto'], ['1', '1'], ['10', '10'], ['100', '100'], ['1000', '1000'], ['custom', 'Custom…'], ['off', 'Off']];
+      var items = [['auto', T('Auto')], ['1', '1'], ['10', '10'], ['100', '100'], ['1000', '1000'], ['custom', T('Custom…')], ['off', T('Off')]];
       snapMenu = mk('Panel', dock); snapMenu.hittest = false; snapMenu.visible = false;
       snapMenu.style.zIndex = '22'; snapMenu.style.flowChildren = 'down';
       snapMenu.style.paddingTop = SNAP_PAD + 'px'; snapMenu.style.paddingBottom = SNAP_PAD + 'px';
@@ -617,7 +620,7 @@ R"GEJS(
       snapMenu.style.boxShadow = '#000000aa 0px 6px 18px 0px';
       var head = mk('Panel', snapMenu); head.hittest = false;
       head.style.width = '100%'; head.style.height = SNAP_HEAD + 'px'; head.style.paddingLeft = '11px';
-      var t = lbl(head, 'TIME SNAP (TICKS)', S.hint, 10); t.hittest = false; t.style.verticalAlign = 'center';
+      var t = lbl(head, T('TIME SNAP (TICKS)'), S.hint, 10); t.hittest = false; t.style.verticalAlign = 'center';
       t.style.fontWeight = 'bold'; t.style.letterSpacing = '1.4px';
       snapRows = [];
       for (var i = 0; i < items.length; i++) (function (mode, label) {
@@ -643,7 +646,7 @@ R"GEJS(
       snapCustomBox = mk('Panel', snapMenu); snapCustomBox.visible = false; snapCustomBox.hittest = true;
       snapCustomBox.style.width = (SNAP_W - 2 * SNAP_PAD) + 'px'; snapCustomBox.style.height = SNAP_ITEM + 'px';
       snapCustomBox.style.horizontalAlign = 'center';
-      snapCustomEntry = $.CreatePanel('Label', snapCustomBox, 'SnapCustomTick', {});
+      snapCustomEntry = mvmLabel(snapCustomBox, 'SnapCustomTick', {});
       snapCustomEntry.style.width = (SNAP_W - 2 * SNAP_PAD - 24) + 'px'; snapCustomEntry.style.height = '20px';
       snapCustomEntry.style.verticalAlign = 'center'; snapCustomEntry.style.fontSize = '12px'; snapCustomEntry.style.color = S.value;
       snapCustomEntry.style.backgroundColor = 'rgba(0,0,0,0.6)'; snapCustomEntry.style.border = '1px solid ' + S.border;
@@ -670,9 +673,10 @@ R"GEJS(
       l.style.fontWeight = 'bold'; l.style.letterSpacing = '2px'; l.style.verticalAlign = 'center';
       if (w) { l.style.width = w + 'px'; l.style.textAlign = align; l.style.marginLeft = '6px'; }
       else l.style.width = 'fill-parent-flow(1.0)';
+      l.style.whiteSpace = 'nowrap'; l.style.textOverflow = 'shrink';
       return l;
     }
-    headCap('LAYERS'); headCap('VALUE', VAL_W, 'right'); headCap('KEY', NAV_W, 'center');
+    headCap(T('LAYERS')); headCap(T('VALUE'), VAL_W, 'right'); headCap(T('KEY'), NAV_W, 'center');
 
     // The overview maps the WHOLE demo: key marks, the render range, the playhead and the view box.
     // Drag the box to scroll, an end to zoom, empty track to jump.
@@ -770,14 +774,14 @@ R"GEJS(
     }
     // FIT frames every key (and refits every curve's height in GRAPH): the navigator and the zoom
     // buttons only move the window from where it is.
-    var fitBtn = footBtn('FIT', 'Fit the selected keys, else the selected layer or row; press again for every key', function () { fitAll(); }, 34);
-    var zoomOut = footBtn('−', 'Zoom out (Ctrl+Wheel)', function () { zoomStep(1.5); });
+    var fitBtn = footBtn(T('FIT'), T('Fit the selected keys, else the selected layer or row; press again for every key'), function () { fitAll(); }, 34);
+    var zoomOut = footBtn('−', T('Zoom out (Ctrl+Wheel)'), function () { zoomStep(1.5); });
     var sbTrack = mk('Panel', footer); sbTrack.hittest = false;
     sbTrack.style.width = '220px'; sbTrack.style.height = '12px'; sbTrack.style.verticalAlign = 'center';
     sbTrack.style.backgroundColor = 'rgba(0,0,0,0.45)'; sbTrack.style.borderRadius = '7px'; sbTrack.style.marginRight = '6px';
     var sbThumb = mk('Panel', sbTrack); sbThumb.hittest = false;
     sbThumb.style.height = '12px'; sbThumb.style.backgroundColor = '#ffffff33'; sbThumb.style.borderRadius = '7px';
-    var zoomIn = footBtn('+', 'Zoom in (Ctrl+Wheel)', function () { zoomStep(1 / 1.5); });
+    var zoomIn = footBtn('+', T('Zoom in (Ctrl+Wheel)'), function () { zoomStep(1 / 1.5); });
     zoomIn.style.marginRight = '14px';
 )GEJS"
 // THE SAME COLOUR POPOVER THE CONFIG PANEL USES -- one definition spliced into both workspaces. A
@@ -1009,9 +1013,9 @@ R"GEJS(
     function scrubTick(tx) { return snapTick(xToTick(tx)); }
     function snapLabel() {
       var s = snapSetting();
-      if (s === 'off' || s === '0') return 'SNAP';
-      if (s === 'auto') return 'SNAP · Auto';
-      return 'SNAP · ' + s;
+      if (s === 'off' || s === '0') return T('SNAP');
+      if (s === 'auto') return T('SNAP · Auto');
+      return T('SNAP · {0}', s);
     }
     function setSnap(v) {
       v = ('' + v);
@@ -1058,36 +1062,36 @@ R"GEJS(
     // Rebuilt only when the SET of scene properties or a split changes; the rows flatten it by the
     // open state. Nodes carry channel ids, never channel objects (those are replaced every frame).
     var CAM_PROPS = [
-      { id: 'cam.pos', name: 'Position', chans: [0, 1, 2], comps: ['X', 'Y', 'Z'], axn: ['X Position', 'Y Position', 'Z Position'], dec: 0, unit: '' },
-      { id: 'cam.rot', name: 'Rotation', chans: [3, 4, 5], comps: ['Pitch', 'Yaw', 'Roll'], axn: ['Pitch', 'Yaw', 'Roll'], dec: 1, unit: '°' },
-      { id: 'cam.fov', name: 'Field of view', chans: [6], comps: ['FOV'], axn: ['Field of view'], dec: 1, unit: '' }
+      { id: 'cam.pos', name: T('Position'), chans: [0, 1, 2], comps: ['X', 'Y', 'Z'], axn: [T('X Position'), T('Y Position'), T('Z Position')], dec: 0, unit: '' },
+      { id: 'cam.rot', name: T('Rotation'), chans: [3, 4, 5], comps: [T('Pitch'), T('Yaw'), T('Roll')], axn: [T('Pitch'), T('Yaw'), T('Roll')], dec: 1, unit: '°' },
+      { id: 'cam.fov', name: T('Field of view'), chans: [6], comps: [T('FOV')], axn: [T('Field of view')], dec: 1, unit: '' }
     ];
     // obj.<id>.<channel> -> the row it belongs to and its name there.
-    var OBJECT_PROPS = [['pos', 'Position', ['x', 'y', 'z'], ['X', 'Y', 'Z'], ['X Position', 'Y Position', 'Z Position']],
-                        ['rot', 'Rotation', ['pitch', 'yaw', 'roll'], ['Pitch', 'Yaw', 'Roll'], ['Pitch', 'Yaw', 'Roll']],
-                        ['fov', 'Field of view', ['fov'], ['FOV'], ['Field of view']],
+    var OBJECT_PROPS = [['pos', T('Position'), ['x', 'y', 'z'], ['X', 'Y', 'Z'], [T('X Position'), T('Y Position'), T('Z Position')]],
+                        ['rot', T('Rotation'), ['pitch', 'yaw', 'roll'], [T('Pitch'), T('Yaw'), T('Roll')], [T('Pitch'), T('Yaw'), T('Roll')]],
+                        ['fov', T('Field of view'), ['fov'], [T('FOV')], [T('Field of view')]],
                         // A light's settings (Rig::LightChannel), one row each.
-                        ['intensity', 'Brightness', ['intensity'], [''], ['Brightness']],
-                        ['range', 'Range', ['range'], [''], ['Range']],
-                        ['cone', 'Beam angle', ['cone'], ['\u00b0'], ['Beam angle']],
-                        ['radius', 'Emitter size', ['radius'], [''], ['Emitter size']],
-                        ['width', 'Width', ['width'], [''], ['Width']],
-                        ['height', 'Height', ['height'], [''], ['Height']]];
+                        ['intensity', T('Brightness'), ['intensity'], [''], [T('Brightness')]],
+                        ['range', T('Range'), ['range'], [''], [T('Range')]],
+                        ['cone', T('Beam angle'), ['cone'], ['\u00b0'], [T('Beam angle')]],
+                        ['radius', T('Emitter size'), ['radius'], [''], [T('Emitter size')]],
+                        ['width', T('Width'), ['width'], [''], [T('Width')]],
+                        ['height', T('Height'), ['height'], [''], [T('Height')]]];
     // A scene object's layer (groupId objects.<id>): its object id, else 0.
     function objectIdOf(L) { var m = /^objects\.([0-9]+)$/.exec((L && L.groupId) || ''); return m ? +m[1] : 0; }
     // Right-click > Add: a camera or a light, placed where you look (`environment add`).
-    var ADD_ITEMS = [{ id: 'add:camera', label: 'Camera', hint: 'a viewpoint you can key and look through' },
-                     { id: 'add:point', label: 'Point light', hint: 'shines all around' },
-                     { id: 'add:spot', label: 'Spot light', hint: 'a cone of light' },
-                     { id: 'add:area', label: 'Area light', hint: 'a soft rectangle' }];
-    function addItem() { return { id: 'add', label: 'Add', subW: 236, sub: ADD_ITEMS }; }
+    var ADD_ITEMS = [{ id: 'add:camera', label: T('Camera'), hint: T('a viewpoint you can key and look through') },
+                     { id: 'add:point', label: T('Point light'), hint: T('shines all around') },
+                     { id: 'add:spot', label: T('Spot light'), hint: T('a cone of light') },
+                     { id: 'add:area', label: T('Area light'), hint: T('a soft rectangle') }];
+    function addItem() { return { id: 'add', label: T('Add'), subW: 236, sub: ADD_ITEMS }; }
     function pickAdd(id) {
       if (('' + id).indexOf('add:') !== 0) return false;
       rawCmd('mirv_filmmaker environment add ' + id.substring(4));
       return true;
     }
     function showAddMenu(lx, ly) {
-      showMenu(lx, ly, 236, [{ kind: 'title', label: 'ADD TO THE SCENE' }].concat(ADD_ITEMS), function (id) { pickAdd(id); });
+      showMenu(lx, ly, 236, [{ kind: 'title', label: T('ADD TO THE SCENE') }].concat(ADD_ITEMS), function (id) { pickAdd(id); });
     }
     // How far a value moves per pixel of drag. Fixed per kind of value: it used to be the graph's
     // value range / 300, and that range grows with the value being dragged, so a drag sped itself
@@ -1123,20 +1127,20 @@ R"GEJS(
     // A Camera shake row (the path's, owner 0, or camera object `owner`'s). Once its track has a
     // key it twirls open to Intensity and Speed: the shake running under the playhead.
     function shakeNode(id, owner, dom, layer) {
-      var n = { id: id, kind: 'shake', owner: owner, dom: dom, name: 'Camera shake', layer: layer, chans: [], comps: [], children: [] };
+      var n = { id: id, kind: 'shake', owner: owner, dom: dom, name: T('Camera shake'), layer: layer, chans: [], comps: [], children: [] };
       if (shakeKeys(owner).length) n.children = [
-        { id: id + '.n', kind: 'shakep', owner: owner, param: 'n', verb: 'intensity', name: 'Intensity', min: 1, max: 10, dom: dom, layer: layer, chans: [], comps: [''], children: [] },
-        { id: id + '.p', kind: 'shakep', owner: owner, param: 'p', verb: 'speed', name: 'Speed', min: 10, max: 100, dom: dom, layer: layer, chans: [], comps: [''], children: [] }];
+        { id: id + '.n', kind: 'shakep', owner: owner, param: 'n', verb: 'intensity', name: T('Intensity'), min: 1, max: 10, dom: dom, layer: layer, chans: [], comps: [''], children: [] },
+        { id: id + '.p', kind: 'shakep', owner: owner, param: 'p', verb: 'speed', name: T('Speed'), min: 10, max: 100, dom: dom, layer: layer, chans: [], comps: [''], children: [] }];
       return n;
     }
     function sceneLayerTitle(c) {
-      return (c.family === 'effects' ? 'EFFECTS' : c.family === 'environment' ? 'ENVIRONMENT' : c.family === 'objects' ? 'OBJECTS' : 'SCENE')
+      return (c.family === 'effects' ? T('EFFECTS') : c.family === 'environment' ? T('ENVIRONMENT') : c.family === 'objects' ? T('OBJECTS') : T('SCENE'))
         + (c.group ? ' · ' + ('' + c.group).toUpperCase() : '');
     }
     function buildTree() {
       var out = [], nodes = {};
-      var cam = { id: 'cam', kind: 'layer', dom: 'cam', name: 'CAMERA PATH', color: LAYER_COLORS.cam, children: [] };
-      var tr = { id: 'cam.tr', kind: 'group', dom: 'cam', name: 'Transform', layer: cam, children: [] };
+      var cam = { id: 'cam', kind: 'layer', dom: 'cam', name: T('CAMERA PATH'), color: LAYER_COLORS.cam, children: [] };
+      var tr = { id: 'cam.tr', kind: 'group', dom: 'cam', name: T('Transform'), layer: cam, children: [] };
       cam.children.push(tr);
       CAM_PROPS.forEach(function (p) {
         var n = { id: p.id, kind: 'prop', dom: 'cam', name: p.name, layer: cam, chans: p.chans.map(function (c) { return 'c' + c; }),
@@ -1150,7 +1154,7 @@ R"GEJS(
       });
       // Path > Camera shake: the GTA V shake (CamPathShake), keyed on camera keys. Its menu sets
       // style, strength and speed; GRAPH draws Intensity and Speed as curves.
-      var pg = { id: 'cam.path', kind: 'group', dom: 'cam', name: 'Path', layer: cam, children: [] };
+      var pg = { id: 'cam.path', kind: 'group', dom: 'cam', name: T('Path'), layer: cam, children: [] };
       pg.children.push(shakeNode('cam.shake', 0, 'cam', cam));
       cam.children.push(pg);
       out.push(cam);
@@ -1186,7 +1190,7 @@ R"GEJS(
       (st.shakeCams || []).forEach(function (sc) {
         var gid = 'objects.' + sc.id, L = byGroup[gid];
         if (!L) {
-          L = byGroup[gid] = { id: 's:' + gid, kind: 'layer', dom: 'scene', groupId: gid, name: 'OBJECTS · ' + ('' + sc.name).toUpperCase(),
+          L = byGroup[gid] = { id: 's:' + gid, kind: 'layer', dom: 'scene', groupId: gid, name: T('OBJECTS') + ' · ' + ('' + sc.name).toUpperCase(),
                                color: LAYER_COLORS.objects, children: [] };
           out.push(L);
         }
@@ -1341,16 +1345,17 @@ R"GEJS(
         var meta = lbl(left, '', S.muted, 11); meta.hittest = false;
         meta.style.fontFamily = S.fontMono; meta.style.width = '60px'; meta.style.textAlign = 'right';
         meta.style.verticalAlign = 'center';
+        meta.style.whiteSpace = 'nowrap'; meta.style.textOverflow = 'shrink';
         r.meta = meta;
         if (n.dom === 'cam') {
           // AUTO: while the timeline plays, the view follows the camera path inside its keys.
           var ap = mk('Panel', left); ap.hittest = true;
           ap.style.height = '18px'; ap.style.verticalAlign = 'center'; ap.style.marginLeft = '6px';
           ap.style.paddingLeft = '5px'; ap.style.paddingRight = '5px'; ap.style.borderRadius = '2px';
-          var apL = lbl(ap, 'AUTO', S.muted, 10); apL.hittest = false;
+          var apL = lbl(ap, T('AUTO'), S.muted, 10); apL.hittest = false;
           apL.style.fontWeight = 'bold'; apL.style.letterSpacing = '0.5px'; apL.style.verticalAlign = 'center';
           ap.SetPanelEvent('onactivate', function () { rawCmd('mirv_filmmaker camtl autopath toggle'); });
-          ap.SetPanelEvent('onmouseover', function () { showTip(ap, 'AUTO on: while the timeline plays, the view follows the camera path whenever the playhead is inside its keys. Off: Space only plays the demo. J plays the path from its first key either way.'); });
+          ap.SetPanelEvent('onmouseover', function () { showTip(ap, T('AUTO on: while the timeline plays, the view follows the camera path whenever the playhead is inside its keys. Off: {0} only plays the demo. {1} plays the path from its first key either way.', K('demo.pause', 'SPACE'), K('path.play', 'J'))); });
           ap.SetPanelEvent('onmouseout', function () { hideTip(); });
           r.ap = ap; r.apL = apL; r.apOn = null;
         }
@@ -1361,8 +1366,8 @@ R"GEJS(
         knob.style.width = '12px'; knob.style.height = '12px'; knob.style.borderRadius = '1px';
         swc.SetPanelEvent('onactivate', function () { toggleLayer(n); });
         swc.SetPanelEvent('onmouseover', function () { showTip(swc, n.dom === 'cam'
-          ? 'Camera path on: scrubbing and key edits preview the path. Off: the free cam stays yours.'
-          : 'Layer on: its keys apply to the world. Off: the keys are kept but not applied.'); });
+          ? T('Camera path on: scrubbing and key edits preview the path. Off: the free cam stays yours.')
+          : T('Layer on: its keys apply to the world. Off: the keys are kept but not applied.')); });
         swc.SetPanelEvent('onmouseout', function () { hideTip(); });
         r.sw = swc; r.knob = knob; r.swOn = null;
       }
@@ -1424,7 +1429,7 @@ R"GEJS(
         crec.picker.onOpen = function () { placePickTray(chip, n.name); };
         crec.picker.owner.onClose = function () { pickTray.visible = false; pickAnchor = null; };
         chip.SetPanelEvent('onactivate', function () { crec.picker.show(); });
-        attachTip(chip, 'Pick a colour for ' + n.name);
+        attachTip(chip, T('Pick a colour for {0}', n.name));
         crec.paint();
         r.colour = crec;
       } else {
@@ -1444,9 +1449,9 @@ R"GEJS(
       if (showNav) {
         var navIn = mk('Panel', nav); navIn.hittest = false; navIn.style.flowChildren = 'right';
         navIn.style.horizontalAlign = 'center'; navIn.style.height = '100%';
-        r.prev = navBtn(navIn, '◀', 'Previous keyframe', function () { selectNode(n.id); jumpOn(n, -1); });
-        r.dia = navBtn(navIn, '◇', 'Add or remove a keyframe at the playhead', function () { selectNode(n.id); toggleKeyAt(n); });
-        r.next = navBtn(navIn, '▶', 'Next keyframe', function () { selectNode(n.id); jumpOn(n, 1); });
+        r.prev = navBtn(navIn, '◀', T('Previous keyframe'), function () { selectNode(n.id); jumpOn(n, -1); });
+        r.dia = navBtn(navIn, '◇', T('Add or remove a keyframe at the playhead'), function () { selectNode(n.id); toggleKeyAt(n); });
+        r.next = navBtn(navIn, '▶', T('Next keyframe'), function () { selectNode(n.id); jumpOn(n, 1); });
       }
     }
 
@@ -1455,7 +1460,7 @@ R"GEJS(
     function buildShakeCells(r, left) {
       var vcol = mk('Panel', left); vcol.hittest = false;
       vcol.style.width = 'fit-children'; vcol.style.height = '100%'; vcol.style.marginRight = '6px'; // as wide as its values: the name gets the rest
-      var v = lbl(vcol, 'Off', S.value, 12); v.hittest = false;
+      var v = lbl(vcol, T('Off'), S.value, 12); v.hittest = false;
       v.style.horizontalAlign = 'right'; v.style.verticalAlign = 'center'; v.style.whiteSpace = 'nowrap';
       r.shakeLbl = v;
       var nav = mk('Panel', left); nav.hittest = false;
@@ -1464,14 +1469,14 @@ R"GEJS(
       navIn.style.horizontalAlign = 'center'; navIn.style.height = '100%';
       var owner = r.node.owner || 0;
       var times = function () { return shakeKeys(owner).map(function (s) { return s.t; }); };
-      r.prev = navBtn(navIn, '◀', 'Previous shake key', function () { var t = nearestTime(times(), st.playhead, -1); if (t != null) seekTo(t); });
-      r.dia = navBtn(navIn, '◇', owner ? 'Add or remove a shake key at the playhead' : 'Add or remove a shake key on the camera key at the playhead', function () {
+      r.prev = navBtn(navIn, '◀', T('Previous shake key'), function () { var t = nearestTime(times(), st.playhead, -1); if (t != null) seekTo(t); });
+      r.dia = navBtn(navIn, '◇', owner ? T('Add or remove a shake key at the playhead') : T('Add or remove a shake key on the camera key at the playhead'), function () {
         var t = owner ? shakeEditTick(owner) : (pathIndexAt(st.playhead) >= 0 ? (st.pathKeys || [])[pathIndexAt(st.playhead)] : null);
         if (!shakeCanKey(owner, t)) return;
         if (shakeKeyAtTick(owner, t)) shakeCmd(owner, 'clear ' + shakeRef(t));
         else shakeKeyFrom(owner, t, null, 0);
       });
-      r.next = navBtn(navIn, '▶', 'Next shake key', function () { var t = nearestTime(times(), st.playhead, 1); if (t != null) seekTo(t); });
+      r.next = navBtn(navIn, '▶', T('Next shake key'), function () { var t = nearestTime(times(), st.playhead, 1); if (t != null) seekTo(t); });
     }
     // Intensity / Speed under Camera shake: scrubbable and typeable like any number; ◀ ▶ walk the
     // shaken keys. They show (and set) the shake running under the playhead.
@@ -1491,14 +1496,14 @@ R"GEJS(
       navIn.style.horizontalAlign = 'center'; navIn.style.height = '100%';
       var owner = r.node.owner || 0;
       var times = function () { return shakeKeys(owner).map(function (s) { return s.t; }); };
-      r.prev = navBtn(navIn, '◀', 'Previous shake key', function () { var t = nearestTime(times(), st.playhead, -1); if (t != null) seekTo(t); });
-      r.dia = navBtn(navIn, '◇', 'Add a shake key here (it continues the shake running here), or remove it', function () {
+      r.prev = navBtn(navIn, '◀', T('Previous shake key'), function () { var t = nearestTime(times(), st.playhead, -1); if (t != null) seekTo(t); });
+      r.dia = navBtn(navIn, '◇', T('Add a shake key here (it continues the shake running here), or remove it'), function () {
         var t = owner ? shakeEditTick(owner) : (pathIndexAt(st.playhead) >= 0 ? (st.pathKeys || [])[pathIndexAt(st.playhead)] : null);
         if (!shakeCanKey(owner, t)) return;
         if (shakeKeyAtTick(owner, t)) { shakeCmd(owner, 'clear ' + shakeRef(t)); return; }
         shakeKeyFrom(owner, t, null, 0);
       });
-      r.next = navBtn(navIn, '▶', 'Next shake key', function () { var t = nearestTime(times(), st.playhead, 1); if (t != null) seekTo(t); });
+      r.next = navBtn(navIn, '▶', T('Next shake key'), function () { var t = nearestTime(times(), st.playhead, 1); if (t != null) seekTo(t); });
     }
 )GEJS"
 R"GEJS(
@@ -1585,10 +1590,10 @@ R"GEJS(
     }
     function sceneValueText(c) {
       var v = c.value;
-      if (c.type === 'bool') return v ? 'On' : 'Off';
+      if (c.type === 'bool') return v ? T('On') : T('Off');
       var named = optionOf(c, v);
       if (named) return named.label;
-      if (c.type === 'asset') return (v === '' || v == null) ? 'Default' : ('' + v);
+      if (c.type === 'asset') return (v === '' || v == null) ? T('Default') : ('' + v);
       if (v instanceof Array) return v.map(function (x) { return typeof x === 'number' ? String(Math.round(x * 1000) / 1000) : String(x); }).join(' ');
       return typeof v === 'number' ? String(Math.round(v * 1000) / 1000) : String(v || '');
     }
@@ -1605,7 +1610,7 @@ R"GEJS(
         if (n.kind === 'layer') {
           var on = layerOn(n);
           var nk = unionKeys(chansOf(n)).length;
-          setText(r.meta, nk + (nk === 1 ? ' key' : ' keys'));
+          setText(r.meta, TN(nk, '{0} key', '{0} keys'));
           setColor(r.nm, on ? S.value : S.muted);
           if (r.ap && r.apOn !== !!st.autoPath) {
             r.apOn = !!st.autoPath;
@@ -1626,7 +1631,7 @@ R"GEJS(
           var ow = n.owner || 0, sht = ow ? shakeEditTick(ow) : st.playhead;
           var sk = shakeKeyAtTick(ow, sht), canKey = shakeCanKey(ow, ow ? sht : (pathIndexAt(st.playhead) >= 0 ? st.playhead : null));
           var anyShake = shakeKeys(ow).length > 0, running = shakeRunningAt(ow, st.playhead);
-          setText(r.shakeLbl, running ? running.l : 'Off');
+          setText(r.shakeLbl, running ? running.l : T('Off'));
           setColor(r.shakeLbl, running ? S.value : S.muted);
           setText(r.dia.__lbl, sk ? '◆' : '◇');
           setColor(r.dia.__lbl, sk ? S.accent : (canKey ? S.hint : S.dim));
@@ -1918,7 +1923,7 @@ R"GEJS(
         }
       }
       graphEmpty.visible = !list.some(function (c) { return c.keys.length; });
-      graphEmpty.text = 'No keys on ' + ((nodeById(selNode) || tree[0] || { name: 'this layer' }).name) + ' yet. Press ◇ on a property to add one at the playhead.';
+      graphEmpty.text = T('No keys on {0} yet. Press ◇ on a property to add one at the playhead.', (nodeById(selNode) || tree[0] || { name: T('this layer') }).name);
       for (var i = 0; i < list.length; i++) {
         var c = list[i], col = c.color, k = c.keys;
         var item = mk('Panel', legend); item.hittest = false; item.style.flowChildren = 'right'; item.style.marginRight = '14px';
@@ -1970,8 +1975,8 @@ R"GEJS(
     // until the next key; a Stop leaves a gap. Drag a key up or down to set its value. This is where
     // a shake's values are shown: the KEYFRAMES rows only mark its keys (user request 2026-10-17).
     var SHAKE_GRAPH = [
-      { param: 'n', verb: 'intensity', name: 'Shake intensity', min: 1, max: 10, color: '#ffb347' },
-      { param: 'p', verb: 'speed', name: 'Shake speed', min: 10, max: 100, color: '#80bdff' }];
+      { param: 'n', verb: 'intensity', name: T('Shake intensity'), min: 1, max: 10, color: '#ffb347' },
+      { param: 'p', verb: 'speed', name: T('Shake speed'), min: 10, max: 100, color: '#80bdff' }];
     var shakeGraphHits = [];
     function shakeGraphOf() {
       var n = nodeById(selNode);
@@ -2011,7 +2016,7 @@ R"GEJS(
       });
       var anyKey = shakeKeys(sg.owner).some(function (k) { return k.s >= 0; });
       graphEmpty.visible = !anyKey;
-      graphEmpty.text = 'No camera shake yet. Right-click the Camera shake row to pick one.';
+      graphEmpty.text = T('No camera shake yet. Right-click the Camera shake row to pick one.');
     }
     function hitShakeGraph(tx, gy) {
       var best = null, bd = KF_HIT * KF_HIT;
@@ -2321,7 +2326,7 @@ R"GEJS(
     }
     function beginCellEdit(r, comp, initial) {
       if (editState) commitEdit();
-      var e = $.CreatePanel('Label', comp.wrap, 'TimelineType', {});
+      var e = mvmLabel(comp.wrap, 'TimelineType', {});
       e.hittest = true;
       e.style.width = '52px'; e.style.height = '18px'; e.style.verticalAlign = 'center';
       e.style.fontSize = '12px'; e.style.textAlign = 'right'; e.style.fontWeight = 'bold';
@@ -2365,7 +2370,7 @@ R"GEJS(
     // be dragged, so before this its keys could not be changed at all (bug report 2026-11-01).
     function openOptions(r, comp, c) {
       var rc = panelRect(comp.wrap), cur = optionOf(c, c.value);
-      var items = [{ kind: 'title', label: ('' + (c.name || 'VALUE')).toUpperCase() }].concat((c.options || []).map(function (o, i) {
+      var items = [{ kind: 'title', label: ('' + (c.name || T('VALUE'))).toUpperCase() }].concat((c.options || []).map(function (o, i) {
         return { id: 'o' + i, label: o.label, check: !!cur && cur === o };
       }));
       showMenu(rc ? rc.x0 : LEFTW - 180, rc ? rc.y1 + 2 : ROWS_Y, 180, items, function (id) {
@@ -2377,7 +2382,9 @@ R"GEJS(
       var c = chU(comp.uid); if (!c) return;
       if (r.node.dom === 'scene' && c.options && c.options.length) { openOptions(r, comp, c); return; }
       var init = r.node.dom === 'cam' ? fmtNum(camValue(c), Math.max(1, r.node.dec + 1)) : sceneValueText(c);
+      // The typed text is parsed and sent as a value: it stays English (finishEdit reads on/off).
       if (r.node.dom === 'scene' && c.type === 'bool') init = c.value ? 'On' : 'Off';
+      if (r.node.dom === 'scene' && c.type === 'asset' && (c.value === '' || c.value == null)) init = 'Default';
       beginCellEdit(r, comp, init);
     }
     // Which value cell (and which number in it) is under the cursor.
@@ -2423,7 +2430,7 @@ R"GEJS(
       keep = Math.max(1, keep);
       var rest = items.slice(keep), picked = rest.some(function (it) { return !!it.check; });
       // More carries the check when the current value is one of the items it holds.
-      return items.slice(0, keep).concat([{ id: 'menumore', key: 'menumore', label: 'More', subW: w, sub: rest, check: picked ? true : null }]);
+      return items.slice(0, keep).concat([{ id: 'menumore', key: 'menumore', label: T('More'), subW: w, sub: rest, check: picked ? true : null }]);
     }
     function buildMenuPanel(x, y, w, items, level) {
       items = fitMenuItems(items, w);
@@ -2556,7 +2563,7 @@ R"GEJS(
       var c = chU(m.uid); if (!c) return '';
       if (m.k.swatch) return ('' + m.k.swatch).toUpperCase();
       if (c.dom === 'cam') { var p = CAM_PROPS.filter(function (x) { return x.chans.indexOf(chNum(m.uid)) >= 0; })[0]; return fmtNum(m.k.v, p ? p.dec : 1) + (p ? p.unit : ''); }
-      if (c.type === 'bool') return m.k.v ? 'On' : 'Off';
+      if (c.type === 'bool') return m.k.v ? T('On') : T('Off');
       return String(Math.round(m.k.v * 1000) / 1000);
     }
     // The shake menu for camera-path key `idx`: every shake on the menu (the Rockstar Editor five,
@@ -2568,13 +2575,13 @@ R"GEJS(
       var si = style[0], cur = !!s && s.s === si, n = s && s.s >= 0 ? s.n : SHAKE_N0, p = s && s.s >= 0 ? s.p : SHAKE_P0;
       var set = function (nn, pp) { return 'shk:' + owner + '|set ' + shakeRef(t) + ' ' + si + ' ' + nn + ' ' + pp; };
       return { id: set(n, p), key: 'style:' + si, label: style[1], check: cur, pick: true, keep: true, subW: 236, sub: [
-        { kind: 'head', value: style[1], title: cur ? ('Strength ' + n + ' of 10 · speed ' + p) : 'Click to put it on this key' },
+        { kind: 'head', value: style[1], title: cur ? T('Strength {0} of 10 · speed {1}', n, p) : T('Click to put it on this key') },
         { kind: 'sep' },
-        { id: set(Math.min(10, n + 1), p), label: 'Stronger', hint: 'strength ' + Math.min(10, n + 1) + ' of 10', disabled: cur && n >= 10, keep: true },
-        { id: set(Math.max(1, n - 1), p), label: 'Weaker', hint: 'strength ' + Math.max(1, n - 1) + ' of 10', disabled: cur && n <= 1, keep: true },
+        { id: set(Math.min(10, n + 1), p), label: T('Stronger'), hint: T('strength {0} of 10', Math.min(10, n + 1)), disabled: cur && n >= 10, keep: true },
+        { id: set(Math.max(1, n - 1), p), label: T('Weaker'), hint: T('strength {0} of 10', Math.max(1, n - 1)), disabled: cur && n <= 1, keep: true },
         { kind: 'sep' },
-        { id: set(n, Math.min(100, p + 10)), label: 'Faster', hint: 'speed ' + Math.min(100, p + 10), disabled: cur && p >= 100, keep: true },
-        { id: set(n, Math.max(10, p - 10)), label: 'Slower', hint: 'speed ' + Math.max(10, p - 10), disabled: cur && p <= 10, keep: true }
+        { id: set(n, Math.min(100, p + 10)), label: T('Faster'), hint: T('speed {0}', Math.min(100, p + 10)), disabled: cur && p >= 100, keep: true },
+        { id: set(n, Math.max(10, p - 10)), label: T('Slower'), hint: T('speed {0}', Math.max(10, p - 10)), disabled: cur && p <= 10, keep: true }
       ] };
     }
     // The shake menu for the key at tick t of a track (owner 0 = the camera path). Picking a style
@@ -2584,19 +2591,19 @@ R"GEJS(
       var s = shakeKeyAtTick(owner, t), styles = st.shakeStyles || [], ess = Math.min(styles.length, st.shakeEssentials || 5);
       var running = shakeRunningAt(owner, t - 1), pidx = owner ? -1 : pathIndexAt(t);
       var items = [
-        { kind: 'head', value: s ? s.l : 'No shake key', title: s && s.s >= 0 ? ('Strength ' + s.n + ' of 10 · speed ' + s.p)
-          : (owner ? fmtTime(t) : 'Camera key ' + (pidx + 1)) },
+        { kind: 'head', value: s ? s.l : T('No shake key'), title: s && s.s >= 0 ? T('Strength {0} of 10 · speed {1}', s.n, s.p)
+          : (owner ? fmtTime(t) : T('Camera key {0}', pidx + 1)) },
         { kind: 'sep' }
       ];
       styles.slice(0, ess).forEach(function (x) { items.push(shakeStyleItem(owner, t, s, x)); });
       var more = styles.slice(ess);
-      if (more.length) items.push({ id: 'shkmore', label: 'More shakes', subW: 210,
+      if (more.length) items.push({ id: 'shkmore', label: T('More shakes'), subW: 210,
         check: !!s && more.some(function (x) { return x[0] === s.s; }),
         sub: more.map(function (x) { return shakeStyleItem(owner, t, s, x); }) });
       items.push({ kind: 'sep' },
-        { id: 'shk:' + owner + '|stop ' + shakeRef(t), label: 'Stop the shake here', check: !!s && s.s < 0, disabled: !running && !(s && s.s >= 0) });
-      if (!owner) items.push({ id: 'shk:0|applyall ' + shakeRef(t), label: 'Use on every camera key', disabled: !(s && s.s >= 0) });
-      items.push({ id: 'shk:' + owner + '|clear ' + shakeRef(t), label: 'Remove this shake key', danger: true, disabled: !s });
+        { id: 'shk:' + owner + '|stop ' + shakeRef(t), label: T('Stop the shake here'), check: !!s && s.s < 0, disabled: !running && !(s && s.s >= 0) });
+      if (!owner) items.push({ id: 'shk:0|applyall ' + shakeRef(t), label: T('Use on every camera key'), disabled: !(s && s.s >= 0) });
+      items.push({ id: 'shk:' + owner + '|clear ' + shakeRef(t), label: T('Remove this shake key'), danger: true, disabled: !s });
       return items;
     }
     function pickShake(id) {
@@ -2616,26 +2623,26 @@ R"GEJS(
       var build = function () {
       var items = [
         { kind: 'head', value: entry.members.map(fmtKeyValue).join(', '),
-          title: n.name + ' · keyframe ' + idx + ' of ' + list.length + ' · ' + fmtTime(entry.t) },
+          title: T('{0} · keyframe {1} of {2} · {3}', n.name, idx, list.length, fmtTime(entry.t)) },
         { kind: 'sep' },
-        { id: 'goto', label: 'Go to this key', sc: 'Double-click' },
-        { id: 'delete', label: 'Delete Keyframe', sc: 'Del' },
-        { id: 'align', label: 'Align selected keys here', disabled: totalSel() < 2 },
+        { id: 'goto', label: T('Go to this key'), sc: T('Double-click') },
+        { id: 'delete', label: T('Delete Keyframe'), sc: 'Del' },
+        { id: 'align', label: T('Align selected keys here'), disabled: totalSel() < 2 },
         { kind: 'sep' },
-        { id: 'assist', label: 'Keyframe Assistant', disabled: stepOnly, sub: stepOnly ? null : [
-          { id: 'inout', label: 'Easy Ease', sc: 'F9', check: cur === 'inout' },
-          { id: 'in', label: 'Easy Ease In', sc: 'Shift+F9', check: cur === 'in' },
-          { id: 'out', label: 'Easy Ease Out', sc: 'Ctrl+Shift+F9', check: cur === 'out' },
+        { id: 'assist', label: T('Keyframe Assistant'), disabled: stepOnly, sub: stepOnly ? null : [
+          { id: 'inout', label: T('Easy Ease'), sc: K('key.ease', 'F9'), check: cur === 'inout' },
+          { id: 'in', label: T('Easy Ease In'), sc: 'Shift+' + K('key.ease', 'F9'), check: cur === 'in' },
+          { id: 'out', label: T('Easy Ease Out'), sc: 'Ctrl+Shift+' + K('key.ease', 'F9'), check: cur === 'out' },
           { kind: 'sep' },
-          { id: 'smooth', label: 'Smooth', check: cur === 'smooth' },
-          { id: 'linear', label: 'Linear', check: cur === 'linear' },
+          { id: 'smooth', label: T('Smooth'), check: cur === 'smooth' },
+          { id: 'linear', label: T('Linear'), check: cur === 'linear' },
           { kind: 'sep' },
-          { id: 'hold', label: 'Hold', check: cur === 'hold', disabled: domOf(m0.uid) !== 'scene' }
+          { id: 'hold', label: T('Hold'), check: cur === 'hold', disabled: domOf(m0.uid) !== 'scene' }
         ] }
       ];
       // A camera key is a camera-path marker, and a marker can carry a shake.
       var pidx = domOf(m0.uid) === 'cam' ? pathIndexAt(entry.t) : -1;
-      if (pidx >= 0) items.push({ id: 'shake', label: 'Camera Shake', subW: 236, sub: shakeItems(0, entry.t) });
+      if (pidx >= 0) items.push({ id: 'shake', label: T('Camera Shake'), subW: 236, sub: shakeItems(0, entry.t) });
       return items;
       };
       showMenu(lx, ly, 230, build(), function (id) {
@@ -2650,28 +2657,28 @@ R"GEJS(
       var n = r.node, items = [{ kind: 'title', label: n.name.toUpperCase() }];
       if (n.kind === 'prop') {
         var parent = n.parentProp;
-        if (isSplit(n)) items.push({ id: 'join', label: 'Join Dimensions', hint: 'back to one ' + n.name + ' row' });
-        else if (parent) items.push({ id: 'joinparent', label: 'Join Dimensions', hint: 'merge into ' + parent.name });
-        else if (n.splittable) items.push({ id: 'separate', label: 'Separate Dimensions', hint: n.comps.join(' / ') + ' on their own rows' });
-        if (viewMode !== 'graph') items.push({ id: 'graph', label: 'Show in Graph' });
+        if (isSplit(n)) items.push({ id: 'join', label: T('Join Dimensions'), hint: T('back to one {0} row', n.name) });
+        else if (parent) items.push({ id: 'joinparent', label: T('Join Dimensions'), hint: T('merge into {0}', parent.name) });
+        else if (n.splittable) items.push({ id: 'separate', label: T('Separate Dimensions'), hint: T('{0} on their own rows', n.comps.join(' / ')) });
+        if (viewMode !== 'graph') items.push({ id: 'graph', label: T('Show in Graph') });
         var at = n.chans.some(function (u) { return !!keyAtTick(chU(u), st.playhead); });
-        if (!isSplit(n)) items.push({ id: 'addkey', label: at ? 'Re-key at playhead' : 'Add key at playhead',
-          hint: n.dom === 'cam' ? 'the live camera\'s ' + n.name.toLowerCase() : 'the value it has now' });
+        if (!isSplit(n)) items.push({ id: 'addkey', label: at ? T('Re-key at playhead') : T('Add key at playhead'),
+          hint: n.dom === 'cam' ? T("the live camera's {0}", n.name.toLowerCase()) : T('the value it has now') });
         if (n.dom === 'scene') {
           var muted = propMuted(n);
           items.push({ kind: 'sep' });
-          items.push({ id: 'mute', label: muted ? 'Enable property' : 'Disable property', hint: muted ? 'apply its keys again' : 'keep the keys, stop applying them' });
-          items.push({ id: 'clear', label: 'Delete property', danger: true, hint: 'removes it and its keys (undoable)' });
+          items.push({ id: 'mute', label: muted ? T('Enable property') : T('Disable property'), hint: muted ? T('apply its keys again') : T('keep the keys, stop applying them') });
+          items.push({ id: 'clear', label: T('Delete property'), danger: true, hint: T('removes it and its keys (undoable)') });
         }
       } else {
-        items.push({ id: 'selall', label: 'Select all keys', disabled: !allTimes(n).length });
-        if (viewMode !== 'graph') items.push({ id: 'graph', label: 'Show in Graph' });
+        items.push({ id: 'selall', label: T('Select all keys'), disabled: !allTimes(n).length });
+        if (viewMode !== 'graph') items.push({ id: 'graph', label: T('Show in Graph') });
         if (n.kind === 'layer') {
           var on = layerOn(n);
-          items.push({ id: 'toggle', label: on ? 'Turn layer off' : 'Turn layer on',
-            hint: n.dom === 'cam' ? (on ? 'scrubbing leaves the free cam alone' : 'scrubbing previews the path') : (on ? 'keys kept, nothing applied' : 'apply its keys again') });
-          if (objectIdOf(n)) items.push({ kind: 'sep' }, { id: 'remove', label: 'Delete object', danger: true, hint: 'removes it from the scene, with its layer (undoable)' });
-          else if (n.dom === 'scene') items.push({ kind: 'sep' }, { id: 'clear', label: 'Delete layer', danger: true, hint: 'removes every property in it (undoable)' });
+          items.push({ id: 'toggle', label: on ? T('Turn layer off') : T('Turn layer on'),
+            hint: n.dom === 'cam' ? (on ? T('scrubbing leaves the free cam alone') : T('scrubbing previews the path')) : (on ? T('keys kept, nothing applied') : T('apply its keys again')) });
+          if (objectIdOf(n)) items.push({ kind: 'sep' }, { id: 'remove', label: T('Delete object'), danger: true, hint: T('removes it from the scene, with its layer (undoable)') });
+          else if (n.dom === 'scene') items.push({ kind: 'sep' }, { id: 'clear', label: T('Delete layer'), danger: true, hint: T('removes every property in it (undoable)') });
         }
       }
       items.push({ kind: 'sep' }, addItem());
@@ -2834,8 +2841,8 @@ R"GEJS(
           var stk = se ? se.t : shakeEditTick(sow3);
           selectNode(r.node.id);
           if (shakeCanKey(sow3, stk)) showShakeMenu(cc.lx, cc.ly, sow3, stk);
-          else showMenu(cc.lx, cc.ly, 236, [{ kind: 'title', label: 'CAMERA SHAKE' },
-            { id: 'none', label: 'Add a camera key first', hint: 'a path shake key sits on a camera key', disabled: true }], function () {});
+          else showMenu(cc.lx, cc.ly, 236, [{ kind: 'title', label: T('CAMERA SHAKE') },
+            { id: 'none', label: T('Add a camera key first'), hint: T('a path shake key sits on a camera key'), disabled: true }], function () {});
           return;
         }
         if (cc.lx >= LEFTW && r.node.kind === 'prop' && !isSplit(r.node)) {
@@ -3160,9 +3167,9 @@ R"GEJS(
         rangeBar.style.position = xa.toFixed(1) + 'px 0px 0px'; rangeBar.style.width = w.toFixed(1) + 'px'; rangeBar.style.height = '8px';
         rangeL.style.position = (xa - 3).toFixed(1) + 'px 0px 0px';
         rangeR.style.position = (xb - 4).toFixed(1) + 'px 0px 0px';
-        rangeTxt.text = 'RENDER RANGE  ' + fmtTime(rt.a) + ' – ' + fmtTime(rt.b);
-      } else rangeTxt.text = 'RENDER RANGE  whole demo';
-      setText(viewTxt, 'Showing ' + fmtTimeShort(view.t0) + ' – ' + fmtTimeShort(view.t1) + ' of ' + fmtTimeShort(d.t1));
+        rangeTxt.text = T('RENDER RANGE  {0} – {1}', fmtTime(rt.a), fmtTime(rt.b));
+      } else rangeTxt.text = T('RENDER RANGE  whole demo');
+      setText(viewTxt, T('Showing {0} – {1} of {2}', fmtTimeShort(view.t0), fmtTimeShort(view.t1), fmtTimeShort(d.t1)));
       // The ruler's ticks only depend on the window and the width, not on the playhead: during
       // playback this block runs every frame, and rebuilding the ticks there is the expensive part.
       var rsig = view.t0.toFixed(2) + ',' + view.t1.toFixed(2) + ',' + G.tw + ',' + tps();
@@ -3328,7 +3335,7 @@ R"GEJS(
       if (!st || !tree.length) return '';
       var keys = unionKeys(camCh.map(function (c) { return c.uid; })).length;
       scCh.forEach(function (c) { keys += c.keys.length; });
-      return tree.length + (tree.length === 1 ? ' layer' : ' layers') + ' · ' + keys + ' keys';
+      return TN(tree.length, '{0} layer', '{0} layers') + ' · ' + TN(keys, '{0} key', '{0} keys');
     };
 )GEJS"
 R"GEJS(
@@ -3392,7 +3399,7 @@ R"GEJS(
 
       // ---- toolbar ----
       setText(tcLbl, fmtTime(num(st.playhead)));
-      setText(tickLbl, 'tick ' + Math.round(num(st.playhead)) + ' · ' + Math.round(tps()) + ' tps');
+      setText(tickLbl, T('tick {0} · {1} tps', Math.round(num(st.playhead)), Math.round(tps())));
       styleTab(keysTab, viewMode === 'keys'); styleTab(graphTab, viewMode === 'graph');
       paintWorkspaceBtns();
       var playingNow = (st.drive && st.pathPlaying) || st.playing;
@@ -3426,7 +3433,7 @@ R"GEJS(
       updateRows();
       var hasRows = rows.length > 1 || scCh.length > 0;
       emptyHint.visible = !hasRows && viewMode === 'keys';
-      emptyHint.text = 'Turn properties on in SCENE KEYS and they get their own layers here.';
+      emptyHint.text = T('Turn properties on in SCENE KEYS and they get their own layers here.');
 
       // The expensive drawing only when something it reads changed.
       graph.visible = viewMode === 'graph';
@@ -3450,14 +3457,15 @@ R"GEJS(
       if (lead && nSel === 1) {
         var n = nodeOfChan(lead.c.uid), list = unionKeys(n.chans), idx = 0;
         for (var i = 0; i < list.length; i++) if (Math.abs(list[i].t - lead.k.t) < 0.26) idx = i + 1;
-        return n.layer.name + '  ›  ' + n.name + '  ·  key ' + idx + ' of ' + list.length + '  ·  ' + fmtTime(lead.k.t);
+        return T('{0}  ›  {1}  ·  key {2} of {3}  ·  {4}', n.layer.name, n.name, idx, list.length, fmtTime(lead.k.t));
       }
-      if (nSel > 1) return nSel + ' keys selected  ·  drag to move  ·  F9 eases  ·  Del deletes';
+      if (nSel > 1) return TN(nSel, '{0} key selected  ·  drag to move  ·  {1} eases  ·  Del deletes', '{0} keys selected  ·  drag to move  ·  {1} eases  ·  Del deletes', K('key.ease', 'F9'));
       var nShk = shakeSelCount();
-      if (nShk) return nShk + (nShk === 1 ? ' shake key' : ' shake keys') + ' selected  ·  GRAPH sets Intensity / Speed  ·  Del removes';
+      if (nShk) return TN(nShk, '{0} shake key selected  ·  GRAPH sets Intensity / Speed  ·  Del removes', '{0} shake keys selected  ·  GRAPH sets Intensity / Speed  ·  Del removes');
       var sn = nodeById(selNode);
-      if (sn) return (sn.layer ? sn.layer.name + '  ›  ' : '') + sn.name + '  ·  click a key to select it, right-click for options';
-      return 'Click a key to select it  ·  drag to move  ·  right-click for options';
+      if (sn) return sn.layer ? T('{0}  ›  {1}  ·  click a key to select it, right-click for options', sn.layer.name, sn.name)
+        : T('{0}  ·  click a key to select it, right-click for options', sn.name);
+      return T('Click a key to select it  ·  drag to move  ·  right-click for options');
     }
 
     // FIT from outside: the onboarding tutorial frames the keys on its graph steps.

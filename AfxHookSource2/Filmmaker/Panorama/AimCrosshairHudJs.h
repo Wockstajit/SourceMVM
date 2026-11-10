@@ -15,6 +15,9 @@ namespace Filmmaker {
 
 inline const char* kAimCrosshairHudJs = R"AXJS(
 (function () {
+)AXJS"
+#include "LocalizationJs.h"
+R"AXJS(
   try {
     var existing = $('#AimXhairRoot'); if (existing) existing.DeleteAsync(0);
     var ctx = $.GetContextPanel();

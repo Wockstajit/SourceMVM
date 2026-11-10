@@ -6,6 +6,13 @@ import vm from 'node:vm';
 const header = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/EasterEggHintJs.h', import.meta.url), 'utf8');
 const source = header.match(/R"EGJS\(([\s\S]*?)\)EGJS"/)[1];
 
+// The fragment translates what it shows: T() from the localization runtime the host script splices
+// in, and eggText() / EGG_TEXT from the overlay host. Both are the shipped code, run ahead of it.
+const localization = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/LocalizationJs.h', import.meta.url), 'utf8')
+  .match(/R"MVMI18N\(([\s\S]*?)\)MVMI18N"/)[1];
+const overlay = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/EasterEggOverlayJs.h', import.meta.url), 'utf8');
+const eggTextSource = overlay.match(/\n    var EGG_TEXT = \{\};\r?\n    function eggText\(s\) \{[^\r\n]*\}\r?\n/)[0];
+
 function harness(loud) {
   const panels = [];
   function panel() {
@@ -35,7 +42,7 @@ function harness(loud) {
     expoIn: t => t <= 0 ? 0 : Math.pow(2, 11 * (t - 1)),
     size: { w: 1600, h: 1200 }, time: 0
   });
-  vm.runInContext(source, context);
+  vm.runInContext(localization + eggTextSource + source, context);
   return { context, panels, frame: time => { context.time = time; vm.runInContext('hintFrame(time, size)', context); } };
 }
 

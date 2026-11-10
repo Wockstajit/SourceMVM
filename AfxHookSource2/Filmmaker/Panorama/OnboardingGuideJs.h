@@ -197,7 +197,7 @@ R"OBJS(
           mk.dot.style.backgroundColor = near ? '#f0b32333' : 'none';
         }
         mk.name.text = item.name;
-        mk.sub.text = item.done ? 'Placed' : (near ? 'Press K' : (onScreen ? Math.round(dist) + ' units' : 'This way'));
+        mk.sub.text = item.done ? T('Placed') : (near ? T('Press {0}', K('marker.place', 'K')) : (onScreen ? TN(Math.round(dist), '{0} unit', '{0} units') : T('This way')));
         mk.m.style.opacity = onScreen || item.done ? '1' : '0.8';
       }
       return nearIndex;

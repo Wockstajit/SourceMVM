@@ -320,14 +320,14 @@ R"OBJS(
           run.preDone = true;
           // Its own words for "already done", when it has them (doneBody).
           if (step.doneBody) {
-            showLine({ title: step.title, body: step.doneBody, expr: step.expr, action: 'Next' });
+            showLine({ title: step.title, body: step.doneBody, expr: step.expr, action: T('Next') });
             startSpeech();
           }
         }
         else if (fin) { run.advanceAt = now + 700; clippyHop(clippy); }
         run.checked = true;
       }
-      if (run.preDone && !st.closed && !goB.p.visible) { goB.l.text = 'Next'; goB.p.visible = true; }
+      if (run.preDone && !st.closed && !goB.p.visible) { goB.l.text = T('Next'); goB.p.visible = true; }
       if (run.advanceAt && now >= run.advanceAt) {
         run.advanceAt = 1e15; // sent once; the rev bump that comes back starts the next step
         cmd('go ' + st.route + ' ' + (st.step + 1));

@@ -230,7 +230,7 @@ test("the take records every pass it carries", () => {
 });
 
 test("the Render workspace exposes World Only in the pass grid and the live preview", () => {
-  assert.match(renderJs, /\['world', 'World only'/);
+  assert.match(renderJs, /\['world', T\('World only'\), /);
   assert.match(renderJs, /mirv_filmmaker render pass toggle /);
   assert.match(renderJs, /mirv_filmmaker render pass preview /);
 });

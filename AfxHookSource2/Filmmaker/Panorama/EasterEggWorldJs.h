@@ -119,7 +119,33 @@ R"EGJS(
     cardRule.style.horizontalAlign = 'center'; cardRule.style.verticalAlign = 'center';
     cardRule.style.marginTop = '82px'; cardRule.style.backgroundColor = '#a33b2b';
     var chapterSeen = 0, cardAt = -10;
-    var NUMBERS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'TEN', 'ELEVEN', 'TWELVE'];
+    var NUMBERS = [T('ONE'), T('TWO'), T('THREE'), T('FOUR'), T('FIVE'), T('SIX'), T('SEVEN'), T('EIGHT'), T('NINE'), T('TEN'), T('ELEVEN'), T('TWELVE')];
+    // The card titles C++ sends (kChapters in EasterEggs.cpp, Title() in EasterEggWesMath.h).
+    (function () {
+      var X = EGG_TEXT;
+      X['A Rather Unfortunate Rush'] = T('A Rather Unfortunate Rush');
+      X['Concerning the Bomb'] = T('Concerning the Bomb');
+      X['An Unexpected Flank'] = T('An Unexpected Flank');
+      X['Smoke, Mirrors, and a Molotov'] = T('Smoke, Mirrors, and a Molotov');
+      X['The Clutch (Abridged)'] = T('The Clutch (Abridged)');
+      X['Several Grenades, Badly Thrown'] = T('Several Grenades, Badly Thrown');
+      X['Overtime, Probably'] = T('Overtime, Probably');
+      X['In Which Somebody Peeks'] = T('In Which Somebody Peeks');
+      X['In Which Everyone Brings a Knife'] = T('In Which Everyone Brings a Knife');
+      X['The Pistol Round'] = T('The Pistol Round');
+      X['Everybody Buys Everything'] = T('Everybody Buys Everything');
+      X['Nobody Buys Anything'] = T('Nobody Buys Anything');
+      X['Two Force Buys, Badly Planned'] = T('Two Force Buys, Badly Planned');
+      X['The Terrorists Count Their Pennies'] = T('The Terrorists Count Their Pennies');
+      X['The Counter-Terrorists Count Their Pennies'] = T('The Counter-Terrorists Count Their Pennies');
+      X['The Teams Count Their Pennies'] = T('The Teams Count Their Pennies');
+      X['The Terrorists Force-Buy, Against All Advice'] = T('The Terrorists Force-Buy, Against All Advice');
+      X['The Counter-Terrorists Force-Buy, Against All Advice'] = T('The Counter-Terrorists Force-Buy, Against All Advice');
+      X['The Teams Force-Buy, Against All Advice'] = T('The Teams Force-Buy, Against All Advice');
+      X['The Terrorists Spend Everything Anyway'] = T('The Terrorists Spend Everything Anyway');
+      X['The Counter-Terrorists Spend Everything Anyway'] = T('The Counter-Terrorists Spend Everything Anyway');
+      X['The Teams Spend Everything Anyway'] = T('The Teams Spend Everything Anyway');
+    })();
     function wesFrame(t, sz) {
       var w = st.wes || {};
       wesLayer.visible = !!w.on;
@@ -132,8 +158,8 @@ R"EGJS(
         chapterSeen = w.chapter || 0;
         cardAt = t;
         var n = chapterSeen - 1;
-        cardKicker.text = 'CHAPTER ' + (n >= 0 && n < NUMBERS.length ? NUMBERS[n] : String(chapterSeen));
-        cardTitle.text = w.title || '';
+        cardKicker.text = T('CHAPTER {0}', n >= 0 && n < NUMBERS.length ? NUMBERS[n] : String(chapterSeen));
+        cardTitle.text = eggText(w.title);
       }
       var ct = t - cardAt, total = 2.7;
       card.visible = ct < total;

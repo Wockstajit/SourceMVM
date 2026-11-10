@@ -13,12 +13,12 @@
 
 R"CFJS(
     var cfgQuery = '', cfgSearchFocus = false;
-    var CFG_TAB_NAMES = { camera: 'CAMERA', effects: 'EFFECTS', environment: 'ENVIRONMENT', ragdolls: 'RAGDOLLS' };
+    var CFG_TAB_NAMES = { camera: T('CAMERA'), effects: T('EFFECTS'), environment: T('ENVIRONMENT'), ragdolls: T('RAGDOLLS') };
     function cfgSearchPaint() {
       var hot = searchBox.__hot;
       var active = cfgSearchFocus || cfgSearchActive;
       searchBox.style.border = '1px solid ' + (active ? '#80bdff80' : (hot ? '#ffffff40' : '#ffffff1f'));
-      var t = cfgQuery ? (cfgQuery + (cfgSearchFocus ? '|' : '')) : (cfgSearchFocus ? '|' : 'Search all tabs');
+      var t = cfgQuery ? (cfgQuery + (cfgSearchFocus ? '|' : '')) : (cfgSearchFocus ? '|' : T('Search all tabs'));
       if (searchText.text !== t) searchText.text = t;
       searchText.style.color = (cfgQuery || cfgSearchFocus) ? S.value : S.muted;
       searchClear.visible = cfgQuery.length > 0;
@@ -33,7 +33,7 @@ R"CFJS(
     searchBox.SetPanelEvent('onactivate', cfgSearchFocusOn);
     searchClear.SetPanelEvent('onactivate', function () { cfgSetQuery(''); configWindowBlur(); });
     hoverable(searchClear, function () { searchClear.style.color = searchClear.__hot ? S.value : S.muted; });
-    attachTip(searchClear, 'Clear the search (Esc)');
+    attachTip(searchClear, T('Clear the search (Esc)'));
 
     var cfgSearchPrevBlur = configWindowBlur, cfgSearchPrevChars = configWindowChars;
     configWindowBlur = function () { cfgSearchFocus = false; cfgSearchPaint(); cfgSearchPrevBlur(); };
@@ -45,7 +45,8 @@ R"CFJS(
         if (n === 13) { configWindowBlur(); }
         else if (n === 27) { q = ''; configWindowBlur(); }
         else if (n === 8) q = q.slice(0, -1);
-        else if (n >= 32 && n < 127 && q.length < 32) q += String.fromCharCode(n);
+        // Any printable character, not only ASCII: the labels are searched in the active language.
+        else if (n >= 32 && n !== 127 && q.length < 32) q += String.fromCharCode(n);
       }
       if (q !== cfgQuery) cfgSetQuery(q); else cfgSearchPaint();
     };
@@ -121,14 +122,14 @@ R"CFJS(
       var total = results.length;
       if (results.length > 24) results.length = 24;
       var countText = (total > results.length)
-        ? ('Showing ' + results.length + ' of ' + total + ' matches across all tabs')
-        : (total + (total === 1 ? ' match' : ' matches') + ' across all tabs');
+        ? T('Showing {0} of {1} matches across all tabs', results.length, total)
+        : TN(total, '{0} match across all tabs', '{0} matches across all tabs');
       var count = lbl(pageSearch, countText, S.muted, 11);
       count.hittest = false; count.style.fontWeight = 'bold'; count.style.letterSpacing = '1.5px';
       count.style.textTransform = 'uppercase';
       if (!results.length) {
-        var none = lbl(pageSearch, 'Nothing matches \u201c' + cfgQuery.replace(/^\s+|\s+$/g, '')
-          + '\u201d. Try a shorter word or clear the search.', S.muted, 13);
+        var none = lbl(pageSearch, T('Nothing matches \u201c{0}\u201d. Try a shorter word or clear the search.',
+          cfgQuery.replace(/^\s+|\s+$/g, '')), S.muted, 13);
         none.hittest = false; none.style.whiteSpace = 'normal'; none.style.width = '100%';
         none.style.textAlign = 'center'; none.style.marginTop = '24px';
         return;
@@ -155,7 +156,7 @@ R"CFJS(
         }
         var c = res.crumb.card, pg = res.crumb.page;
         var text = (CFG_TAB_NAMES[c.tab] || c.tab.toUpperCase()) + ' › ' + c.title
-          + (res.crumb.pivot ? ' › PIVOT' : (pg && c.body.__pageCount && c.body.__pageCount() > 1 ? ' › ' + pg.name : ''));
+          + (res.crumb.pivot ? (' › ' + T('PIVOT')) : (pg && c.body.__pageCount && c.body.__pageCount() > 1 ? ' › ' + pg.name : ''));
         cfgSearchCrumb(w, text, c.accent, function () { cfgJump(c, pg, res.crumb.pivot); });
         var proxy = res.e.make(w);
         if (proxy && proxy.row) proxy.row.style.marginTop = '0px';

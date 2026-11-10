@@ -6,6 +6,8 @@ const root = new URL('../../', import.meta.url);
 const read = file => fs.readFileSync(new URL(file, root), 'utf8');
 const nav = read('AfxHookSource2/Filmmaker/Panorama/ConfigHudEnvironmentNavJs.h');
 const widgets = read('AfxHookSource2/Filmmaker/Panorama/ConfigHudWidgetsJs.h');
+const i18n = read('AfxHookSource2/Filmmaker/Panorama/LocalizationJs.h')
+  .split('R"MVMI18N(')[1].split(')MVMI18N"')[0];
 function functionSource(source, name) {
   const start = source.indexOf('function ' + name + '(');
   assert.ok(start >= 0, name);
@@ -28,6 +30,9 @@ function fixture(extra = {}) {
     context[name] = {__headerReset(spec){registered[key] = spec; return {};}};
   }
   vm.createContext(context);
+  // The card registrations below are evaluated bare, so the real localization runtime (T / TN)
+  // the host script splices in after its IIFE opens is run first in the same scope.
+  vm.runInContext(i18n, context);
   const defaults = nav.match(/var CL_DEFAULT = \{[\s\S]*?\n    \};/)[0];
   const neutral = nav.match(/var PASS_NEUTRAL = \[[\s\S]*?\n    \];/)[0];
   const setup = defaults + neutral + `
