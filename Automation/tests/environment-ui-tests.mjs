@@ -34,6 +34,11 @@ const readOwn = (name) =>
   fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/' + name, import.meta.url), 'utf8')
     .split('R"CFJS(').slice(1).map((chunk) => chunk.split(')CFJS"')[0]).join('\n');
 
+// The localization runtime (T / TN) every script body splices in after its IIFE opens. The
+// fragments here are evaluated bare, so the real runtime is run first in the same scope.
+const i18n = fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/LocalizationJs.h', import.meta.url), 'utf8')
+  .split('R"MVMI18N(')[1].split(')MVMI18N"')[0];
+
 const nav = read('ConfigHudEnvironmentNavJs.h');
 const climate = read('ConfigHudClimateJs.h');
 const fragment = read('ConfigHudEnvironmentTabJs.h');
@@ -179,7 +184,7 @@ function harness(withLighting = false) {
       RegisterEventHandler(event, p, fn) { (p.__on || (p.__on = {}))[event] = fn; } }
   };
   vm.createContext(context);
-  vm.runInContext(nav + climate + fragment + (withLighting ? read('ConfigHudLightingTabJs.h') : ''), context);
+  vm.runInContext(i18n + nav + climate + fragment + (withLighting ? read('ConfigHudLightingTabJs.h') : ''), context);
 
   const scene = {
     climate: {
@@ -493,7 +498,7 @@ test('fog card carries the ground fog and its light shafts',()=>{
   assert.match(resets,/climate groundFogPushSize 0.55/);
   // A starting look sets only values the sliders own, and turns the Environment on if it was off.
   const fogSource=fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/ConfigHudClimateJs.h',import.meta.url),'utf8');
-  assert.match(fogSource,/actionGroup\(envFogPage, 'Start from', \[\s*\['Street mist'[\s\S]*?\['Thick sheet'/);
+  assert.match(fogSource,/actionGroup\(envFogPage, T\('Start from'\), \[\s*\[T\('Street mist'\)[\s\S]*?\[T\('Thick sheet'\)/);
   const look=fogSource.match(/mist: \{ climate: \{([\s\S]*?)\},\s*scene:/)[1];
   for(const key of look.match(/\b[a-zA-Z]+(?=:)/g))
     assert.ok(h.context.climateControls.some(row=>row[1]===key)||/ColorR|ColorG|ColorB|ShadeR|ShadeG|ShadeB|lightShafts/.test(key),`${key} has a control to change it afterwards`);

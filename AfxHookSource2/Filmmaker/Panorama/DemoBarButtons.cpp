@@ -1,4 +1,5 @@
 #include "DemoBarButtons.h"
+#include "../Localization/Localization.h"
 
 #include "PanoramaFindPanel.h"
 
@@ -87,6 +88,8 @@ void DemoBarButtons::RunFrame() {
 		m_injected = false;
 		m_anchor = nullptr;
 	}
+	// A language change rebuilds the script, which is what re-reads its text (Localization.h).
+	{ static uint64_t uiEpoch = 0; if (Localization_TakeUiEpoch(uiEpoch)) { m_injected = false; } }
 	m_bridge.SetContextPanel(hud);
 
 	if (!m_enabled) { // toggled off while a demo plays -> restore native dropdown

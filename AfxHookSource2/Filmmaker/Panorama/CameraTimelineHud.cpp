@@ -1,4 +1,5 @@
 #include "CameraTimelineHud.h"
+#include "../Localization/Localization.h"
 #include "UiLayout.h" // MODULAR layout: the docked bar runs full width
 
 #include "InspectorWidth.h"
@@ -386,6 +387,8 @@ void CameraTimelineHud::RunFrame() {
 	unsigned char* hud = m_demoActive ? AfxHookSource2_GetPanoramaHudPanel() : nullptr;
 	if (!hud) { Teardown(); return; }
 	if (hud != m_hudPanel) { m_hudPanel = hud; m_built = false; }
+	// A language change rebuilds the script, which is what re-reads its text (Localization.h).
+	{ static uint64_t uiEpoch = 0; if (Localization_TakeUiEpoch(uiEpoch)) { m_built = false; } }
 	m_bridge.SetContextPanel(hud);
 
 	if (!BuildIfNeeded())

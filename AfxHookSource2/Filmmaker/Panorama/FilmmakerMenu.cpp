@@ -1,4 +1,5 @@
 #include "FilmmakerMenu.h"
+#include "../Localization/Localization.h"
 
 #include "PanoramaFindPanel.h"
 #include "FilmmakerGuiJs.h"
@@ -192,6 +193,8 @@ void FilmmakerMenu::RunFrame(DemoLibrary& library) {
 	// Build the UI once, when the bridge is configured (engine + RunScript +
 	// context). Only one attempt per context availability, to avoid per-frame
 	// re-injection (which would spam). RequestRebuild() resets this.
+	// A language change rebuilds the script, which is what re-reads its text (Localization.h).
+	{ static uint64_t uiEpoch = 0; if (Localization_TakeUiEpoch(uiEpoch)) { m_built = false; m_buildAttempted = false; } }
 	if (!m_built) {
 		if (!m_buildAttempted && m_bridge.CanRunScript() && m_bridge.ContextPanel())
 			BuildUi();

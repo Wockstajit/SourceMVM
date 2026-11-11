@@ -20,7 +20,11 @@ function preview(card = 'env.sky') {
     settingsPopup: { isOpen: () => false }, cfgDragging: () => false, cfgDropOpen: false,
     cfgRails: {environment: {sel: card}}, propsCommand: c => commands.push(c),
     olSelect() {}, olMenu() {}, olFind() {} });
-  vm.runInContext(flatten(path.resolve('AfxHookSource2/Filmmaker/Panorama'), 'ConfigHudPropsGizmoJs.h'), context);
+  // The fragment is evaluated bare, so the real localization runtime (T / TN) the host script
+  // splices in after its IIFE opens is run first in the same scope.
+  const panoDir = path.resolve('AfxHookSource2/Filmmaker/Panorama');
+  vm.runInContext(flatten(panoDir, 'LocalizationJs.h'), context);
+  vm.runInContext(flatten(panoDir, 'ConfigHudPropsGizmoJs.h'), context);
   const state = {enabled: true, cursor: true, mx: 512, my: 14.4, lmb: false, rmb: false,
     props: {selected: 0, grab: '', markers: []}};
   const frame = patch => { Object.assign(state, patch); context.renderHooks[0](state); return context.propsHint; };

@@ -41,11 +41,11 @@ R"FMORG(
     var orgSyncingSort = false; // guards SetSelected against re-entering oninputsubmit
 
     var ORG_SORTS = [
-      ['played', 'Recently played'],
-      ['date', 'Newest first'],
-      ['dateasc', 'Oldest first'],
-      ['map', 'Map name'],
-      ['name', 'Demo name']
+      ['played', T('Recently played')],
+      ['date', T('Newest first')],
+      ['dateasc', T('Oldest first')],
+      ['map', T('Map name')],
+      ['name', T('Demo name')]
     ];
     var ORG_GOLD = '#f0b323';
     var ORG_ARROW = 's2r://panorama/images/icons/ui/arrowhead.vsvg';
@@ -91,13 +91,13 @@ R"FMORG(
     function orgGroupOf(demo) { var r = orgRecord(demo); return (r && typeof r.g === 'number') ? r.g : -1; }
 
     function orgAgo(unix) {
-      if (!unix) return 'never';
+      if (!unix) return T('never');
       var d = Math.floor(Date.now() / 1000) - unix;
-      if (d < 90) return 'just now';
-      if (d < 3600) return Math.floor(d / 60) + ' min ago';
-      if (d < 172800) return Math.floor(d / 3600) + ' hr ago';
-      if (d < 2592000) return Math.floor(d / 86400) + ' days ago';
-      return Math.floor(d / 2592000) + ' mo ago';
+      if (d < 90) return T('just now');
+      if (d < 3600) return T('{0} min ago', Math.floor(d / 60));
+      if (d < 172800) return T('{0} hr ago', Math.floor(d / 3600));
+      if (d < 2592000) return TN(Math.floor(d / 86400), '{0} day ago', '{0} days ago');
+      return T('{0} mo ago', Math.floor(d / 2592000));
     }
 
     function orgSound(name) { try { $.DispatchEvent('CSGOPlaySoundEffect', 'UIPanorama.' + name, 'MOUSE'); } catch (e) {} }
@@ -174,7 +174,7 @@ R"FMORG(
       // "No folder", not "Unsorted": the sort control sits three rows above this header, and
       // calling the bucket "unsorted" reads as "the sort does not apply here".
       if (groups.length)
-        plan.push({ t: 'h', id: -1, name: 'No folder', n: rest.length, collapsed: !!orgState.rootCollapsed });
+        plan.push({ t: 'h', id: -1, name: T('No folder'), n: rest.length, collapsed: !!orgState.rootCollapsed });
       for (var r = 0; r < rest.length; ++r) plan.push({ t: 'd', pos: rest[r], gid: -1 });
       return plan;
     }
@@ -361,7 +361,7 @@ R"FMORG(
       // Stratum2, medium, no added tracking) and the navbar buttons this fork already ships.
       // Stratum2 is a wide squared face; the extra letter-spacing a header seems to want is a
       // habit from narrower typefaces and reads as drift next to the real navbar.
-      var name = $.CreatePanel('Label', head, '', { text: ('' + entry.name).toUpperCase() });
+      var name = mvmLabel(head, '', { text: ('' + entry.name).toUpperCase() });
       name.style.verticalAlign = 'center';
       // The name takes the slack and truncates; the count is never the thing that gets cut.
       // A right-aligned count in a right-flowing row was being pushed off the edge by a long
@@ -380,7 +380,7 @@ R"FMORG(
 
       // The count is real information (how many demos are in a shut folder), so it has to clear
       // 4.5:1 against the rail -- #8b949c does, the dimmer grey this started as did not.
-      var count = $.CreatePanel('Label', head, '', { text: '' + entry.n });
+      var count = mvmLabel(head, '', { text: '' + entry.n });
       count.style.verticalAlign = 'center'; count.style.marginLeft = '8px';
       count.style.fontSize = '12px'; count.style.color = '#8b949cff';
       count.style.fontFamily = 'Stratum2, "Arial Unicode MS"';
@@ -411,8 +411,8 @@ R"FMORG(
         head.SetPanelEvent('oncontextmenu', (function (id, current) {
           return function () {
             orgMenu(head, [
-              { label: 'Rename folder', jsCallback: function () { orgBeginRename(id, current); } },
-              { label: 'Delete folder', jsCallback: function () { orgConfirmDeleteFolder(id, current); } }
+              { label: T('Rename folder'), jsCallback: function () { orgBeginRename(id, current); } },
+              { label: T('Delete folder'), jsCallback: function () { orgConfirmDeleteFolder(id, current); } }
             ]);
           };
         })(entry.id, entry.name));
@@ -426,8 +426,8 @@ R"FMORG(
     function orgConfirmDeleteFolder(id, name) {
       try {
         UiToolkitAPI.ShowGenericPopupOkCancel(
-          'Delete folder?',
-          'Delete "' + name + '"?\nIts demos stay in the list, just outside any folder. No demo files are touched.',
+          T('Delete folder?'),
+          T('Delete "{0}"?\nIts demos stay in the list, just outside any folder. No demo files are touched.', name),
           '',
           function () { api.addCommand('org delfolder ' + id); orgSound('inventory_item_notequipped'); },
           function () {});
@@ -513,7 +513,7 @@ R"FMORG(
       orgNewFolderRow.style.transitionTimingFunction = 'ease-out';
       orgNewFolderRow.visible = false;
 
-      var caption = $.CreatePanel('Label', orgNewFolderRow, '', { text: 'NEW FOLDER' });
+      var caption = mvmLabel(orgNewFolderRow, '', { text: T('NEW FOLDER') });
       caption.style.fontSize = '11px'; caption.style.fontWeight = 'medium';
       caption.style.letterSpacing = '0.5px';
       caption.style.color = '#8b949cff';
@@ -532,7 +532,7 @@ R"FMORG(
       fieldRow.style.width = '100%';
       fieldRow.style.height = FIELD_H + 'px';
 
-      orgNewFolderInput = $.CreatePanel('TextEntry', fieldRow, 'FmOrgNewFolderInput', { placeholder: 'Name this folder', maxchars: '40' });
+      orgNewFolderInput = $.CreatePanel('TextEntry', fieldRow, 'FmOrgNewFolderInput', { placeholder: T('Name this folder'), maxchars: '40' });
       orgNewFolderInput.style.width = 'fill-parent-flow(1.0)';
       orgNewFolderInput.style.height = FIELD_H + 'px';
       orgNewFolderInput.style.verticalAlign = 'center';
@@ -689,7 +689,7 @@ R"FMORG(
           gi.style.marginRight = '9px';
           setMapIcon(gi, demo.map);
 
-          var gl = $.CreatePanel('Label', ghost, '', { text: cropName(demoName(demo), 14, 6) });
+          var gl = mvmLabel(ghost, '', { text: cropName(demoName(demo), 14, 6) });
           gl.style.verticalAlign = 'center';
           gl.style.color = '#eef2f6ff'; gl.style.fontSize = '13px';
           gl.style.fontFamily = 'Stratum2, "Arial Unicode MS"';
@@ -730,16 +730,16 @@ R"FMORG(
         for (var i = 0; i < groups.length; ++i) {
           if (groups[i].id === cur) continue;
           items.push({
-            label: 'Move to ' + groups[i].name,
+            label: T('Move to {0}', groups[i].name),
             jsCallback: (function (gid) {
               return function () { api.addCommand('org assign ' + gid + ' ' + key); orgSound('inventory_item_putdown'); };
             })(groups[i].id)
           });
         }
         if (cur >= 0)
-          items.push({ label: 'Remove from folder', jsCallback: function () { api.addCommand('org assign -1 ' + key); orgSound('inventory_item_notequipped'); } });
+          items.push({ label: T('Remove from folder'), jsCallback: function () { api.addCommand('org assign -1 ' + key); orgSound('inventory_item_notequipped'); } });
         if (!groups.length)
-          items.push({ label: 'New folder\u2026', jsCallback: function () { orgOpenNewFolder(); } });
+          items.push({ label: T('New folder\u2026'), jsCallback: function () { orgOpenNewFolder(); } });
         // Renaming is a demo action, not a folder one, so it leads. It selects the demo first:
         // the field it opens is the TITLE of the detail pane on the right, which is only showing
         // this demo once it is selected.
@@ -750,11 +750,11 @@ R"FMORG(
         // meant indexOfKey never matched, beginTitleRename returned on its very first line, and
         // "Rename demo" did nothing whatsoever -- including not selecting the demo.
         items.unshift({
-          label: 'Rename demo\u2026',
+          label: T('Rename demo\u2026'),
           jsCallback: (function (dk) { return function () { beginTitleRename(dk); }; })(tileKey(demo))
         });
         var played = orgPlayedAt(demo);
-        items.push({ label: 'Last played: ' + orgAgo(played), jsCallback: function () {} });
+        items.push({ label: T('Last played: {0}', orgAgo(played)), jsCallback: function () {} });
         orgMenu(tile, items);
       });
 
@@ -826,7 +826,7 @@ R"FMORG(
       for (var s = 0; s < ORG_SORTS.length; ++s) {
         // Options are parented to the dropdown's container and handed over with AddOption,
         // exactly as mainmenu_inventory.js builds InvSortDropdown.
-        var opt = $.CreatePanel('Label', bar, ORG_SORT_OPT + ORG_SORTS[s][0], { class: 'DropDownMenu' });
+        var opt = mvmLabel(bar, ORG_SORT_OPT + ORG_SORTS[s][0], { class: 'DropDownMenu' });
         opt.text = ORG_SORTS[s][1];
         try { orgSortDrop.AddOption(opt); } catch (e) {}
       }
@@ -863,9 +863,9 @@ R"FMORG(
         // Short and parallel: the rail's menu is narrow, and "Add demos from folder\u2026" was wide
         // enough to clip. Each label still names exactly what it makes.
         orgMenu(addBtn, [
-          { label: 'New folder', jsCallback: function () { orgOpenNewFolder(); } },
-          { label: 'Add demo file\u2026', jsCallback: function () { api.addCommand('adddemo'); } },
-          { label: 'Add demo folder\u2026', jsCallback: function () { api.addCommand('addfolder'); } }
+          { label: T('New folder'), jsCallback: function () { orgOpenNewFolder(); } },
+          { label: T('Add demo file\u2026'), jsCallback: function () { api.addCommand('adddemo'); } },
+          { label: T('Add demo folder\u2026'), jsCallback: function () { api.addCommand('addfolder'); } }
         ]);
       });
       addBtn.SetPanelEvent('onmouseover', function () {

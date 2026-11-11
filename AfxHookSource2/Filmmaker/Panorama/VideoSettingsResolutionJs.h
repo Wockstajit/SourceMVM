@@ -11,27 +11,35 @@ namespace Filmmaker {
 // for layout only (widths, flow, margins) — never for recreating button/panel chrome by hand.
 inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
 (function () {
+)MVMRES"
+#include "LocalizationJs.h"
+R"MVMRES(
   var priorApi = $.MvmResolutionSettings;
-  if (priorApi && priorApi.version === 3) { priorApi.tick(); return; }
+  // The same script in the same language only needs a tick. After a language change (the i18n
+  // `rev` moved) it runs again in full, so the row and the popup are rebuilt with the new text.
+  if (priorApi && priorApi.version === 3 && priorApi.rev === $.MvmI18n.rev) { priorApi.tick(); return; }
+  // What the replaced instance knew, so the rebuilt row still shows the active custom size.
+  var priorState = null;
+  try { if (priorApi && priorApi.state) priorState = priorApi.state(); } catch (e) { priorState = null; }
   // An older instance may still have a scheduled tick in a live-edited Panorama context.
   // Neutralize that closure before replacing it so it cannot keep re-injecting stale panels.
   if (priorApi) { priorApi.tick = function () {}; priorApi.setPresets = function () {}; }
 
   var api = {};
-  var presets = [];
+  var presets = (priorState && priorState.presets) ? priorState.presets.slice(0) : [];
   var popup = null;
   var fitMode = 'exact';
   var widthField = null, heightField = null, preview = null, errorLabel = null, presetList = null, applyButton = null;
-  var activeCustom = null;
+  var activeCustom = (priorState && priorState.active) || null;
   var ratios = [
-    ['9:16','Vertical (mobile)',9/16], ['4:5','Portrait (social)',4/5],
-    ['1:1','Square',1], ['5:4','5:4',5/4], ['4:3','Full frame',4/3],
-    ['1.375:1','Academy',1.375], ['1.43:1','IMAX film',1.43],
-    ['3:2','35mm still',3/2], ['16:10','Widescreen',16/10],
-    ['1.66:1','European widescreen',5/3], ['16:9','Widescreen HD',16/9],
-    ['1.85:1','US widescreen',1.85], ['1.90:1','IMAX digital',1.90],
-    ['2:1','Univisium',2], ['2.20:1','70mm',2.20], ['21:9','Ultrawide',21/9],
-    ['2.35:1','CinemaScope',2.35], ['2.39:1','Anamorphic scope',2.39],
+    ['9:16',T('Vertical (mobile)'),9/16], ['4:5',T('Portrait (social)'),4/5],
+    ['1:1',T('Square'),1], ['5:4','5:4',5/4], ['4:3',T('Full frame'),4/3],
+    ['1.375:1',T('Academy'),1.375], ['1.43:1',T('IMAX film'),1.43],
+    ['3:2',T('35mm still'),3/2], ['16:10',T('Widescreen'),16/10],
+    ['1.66:1',T('European widescreen'),5/3], ['16:9',T('Widescreen HD'),16/9],
+    ['1.85:1',T('US widescreen'),1.85], ['1.90:1',T('IMAX digital'),1.90],
+    ['2:1','Univisium',2], ['2.20:1','70mm',2.20], ['21:9',T('Ultrawide'),21/9],
+    ['2.35:1','CinemaScope',2.35], ['2.39:1',T('Anamorphic scope'),2.39],
     ['2.76:1','Ultra Panavision 70',2.76]
   ];
 
@@ -54,8 +62,8 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
   }
   function aspectText(width, height, fitted) {
     var m = match(width, height), exact = Math.abs(m.error) <= 0.2;
-    var prefix = fitted || exact ? '' : 'Closest ';
-    return prefix + m.entry[0] + ' · ' + m.entry[1] + (exact ? '' : ' · ' + (m.error > 0 ? '+' : '') + m.error.toFixed(1) + '%');
+    var named = m.entry[0] + ' · ' + m.entry[1] + (exact ? '' : ' · ' + (m.error > 0 ? '+' : '') + m.error.toFixed(1) + '%');
+    return fitted || exact ? named : T('Closest {0}', named);
   }
   function commandSize(width, height) {
     send('mirv_filmmaker window size ' + width + ' ' + height);
@@ -96,29 +104,30 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
       : '';
     status.style.color = '#8bb2d5ff';
     var caption = find('MvmResolutionActionCaption');
-    if (caption) caption.text = activeCustom ? 'EDIT CUSTOM…' : 'SET CUSTOM…';
+    if (caption) caption.text = activeCustom ? T('EDIT CUSTOM…') : T('SET CUSTOM…');
   }
   function ensureActionRow(resolution) {
     var nativeRow = resolution.GetParent(), list = nativeRow && nativeRow.GetParent();
     if (!nativeRow || !list) return;
     var row = find('MvmResolutionActionRow');
-    if (!row) {
+    if (!row || row.__mvmStale) {
       row = $.CreatePanel('Panel', list, 'MvmResolutionActionRow', {});
       row.AddClass('SettingsMenuDropdownContainer');
       row.style.flowChildren = 'right';
-      var title = $.CreatePanel('Label', row, 'MvmResolutionActionTitle', {});
-      title.text = 'Custom Resolution'; title.style.width = '50%'; title.style.verticalAlign = 'middle';
+      var title = mvmLabel(row, 'MvmResolutionActionTitle', {});
+      title.text = T('Custom Resolution'); title.style.width = '50%'; title.style.verticalAlign = 'middle';
+      title.style.whiteSpace = 'nowrap'; title.style.textOverflow = 'shrink';
       styleSettingsLabel(title, 18);
       // Match the brightness of the neighboring native row labels, not the muted caption gray.
       title.style.color = '#e8eaecff';
       var controls = $.CreatePanel('Panel', row, 'MvmResolutionActionControls', {});
       controls.style.width = '50%'; controls.style.height = '100%'; controls.style.flowChildren = 'down';
       controls.style.paddingTop = '4px'; controls.style.paddingBottom = '4px';
-      var button = makeButton(controls, 'MvmResolutionActionButton', 'SET CUSTOM…', false, openPopup, 'MvmResolutionActionCaption');
+      var button = makeButton(controls, 'MvmResolutionActionButton', T('SET CUSTOM…'), false, openPopup, 'MvmResolutionActionCaption');
       button.style.horizontalAlign = 'right'; button.style.marginRight = '0px';
       button.__label.style.fontSize = '18px';
       button.__label.style.margin = '6px 10px 4px';
-      var status = $.CreatePanel('Label', controls, 'MvmResolutionActionStatus', {});
+      var status = mvmLabel(controls, 'MvmResolutionActionStatus', {});
       styleSettingsLabel(status, 12);
       status.style.horizontalAlign = 'right'; status.style.marginRight = '10px';
       status.style.whiteSpace = 'nowrap';
@@ -147,7 +156,7 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
     button.SetPanelEvent('onmouseout', function () {
       button.style.backgroundColor = button.__primary ? '#417ca9ff' : 'rgba(0, 0, 0, 0)';
     });
-    var label = $.CreatePanel('Label', button, labelId || '', {});
+    var label = mvmLabel(button, labelId || '', {});
     label.text = caption;
     label.style.fontFamily = 'Stratum2, Arial';
     label.style.fontSize = '18px';
@@ -184,10 +193,10 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
     if (!popup) return;
     var value = popupValues();
     if (!value) {
-      preview.text = 'Enter at least 640 × 360.'; preview.style.color = '#997a7aff';
-      errorLabel.text = 'Width and height must be whole pixels.'; return;
+      preview.text = T('Enter at least 640 × 360.'); preview.style.color = '#997a7aff';
+      errorLabel.text = T('Width and height must be whole pixels.'); return;
     }
-    if (applyButton) applyButton.__label.text = isSaved(value) ? 'Apply' : 'Save & Apply';
+    if (applyButton) applyButton.__label.text = isSaved(value) ? T('Apply') : T('Save & Apply');
     preview.text = value.width + ' × ' + value.height + '  ·  ' + aspectText(value.width, value.height, value.fitted);
     preview.style.color = '#8bb2d5ff'; errorLabel.text = '';
   }
@@ -214,8 +223,8 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
     var old = presetList.Children();
     for (var c = 0; c < old.length; c++) old[c].DeleteAsync(0);
     if (!presets.length) {
-      var empty = $.CreatePanel('Label', presetList, 'MvmSavedResolutionEmpty', {});
-      empty.text = 'No saved resolutions yet.';
+      var empty = mvmLabel(presetList, 'MvmSavedResolutionEmpty', {});
+      empty.text = T('No saved resolutions yet.');
       styleSettingsLabel(empty, 14);
       empty.style.marginTop = '2px'; empty.style.marginLeft = '4px';
       return;
@@ -230,7 +239,7 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
       load.style.width = 'fill-parent-flow(1.0)'; load.style.marginLeft = '0px';
       load.__label.style.fontSize = '16px'; load.__label.style.horizontalAlign = 'left';
       load.__label.style.textTransform = 'none'; load.__label.style.margin = '8px 10px 6px';
-      var remove = makeButton(row, 'MvmSavedResolutionDelete' + i, 'REMOVE', false,
+      var remove = makeButton(row, 'MvmSavedResolutionDelete' + i, T('REMOVE'), false,
         (function (index) { return function () { removePreset(index); }; })(i));
       remove.style.marginRight = '0px';
       remove.__label.style.fontSize = '14px'; remove.__label.style.margin = '9px 10px 7px';
@@ -257,8 +266,9 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
     card.style.paddingBottom = '16px'; card.style.boxShadow = '#000000cc 0px 8px 28px 0px';
     card.hittest = true;
     card.SetPanelEvent('onactivate', function () {});
-    var title = $.CreatePanel('Label', card, '', {});
-    title.text = 'Custom Resolution';
+    var title = mvmLabel(card, '', {});
+    title.text = T('Custom Resolution');
+    title.style.whiteSpace = 'nowrap'; title.style.textOverflow = 'shrink';
     title.style.width = '100%'; title.style.backgroundColor = '#00000040';
     title.style.padding = '16px 28px'; title.style.marginBottom = '15px';
     title.style.fontFamily = 'Stratum2, Arial'; title.style.fontSize = '28px';
@@ -267,14 +277,14 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
     var body = $.CreatePanel('Panel', card, '', {});
     body.style.width = '100%'; body.style.flowChildren = 'down';
     body.style.paddingLeft = '28px'; body.style.paddingRight = '28px';
-    var subtitle = $.CreatePanel('Label', body, '', {});
-    subtitle.text = 'Set the live CS2 render size for filming.';
+    var subtitle = mvmLabel(body, '', {});
+    subtitle.text = T('Set the live CS2 render size for filming.');
     styleSettingsLabel(subtitle, 16);
 
     var fields = $.CreatePanel('Panel', body, '', {}); fields.style.width = '100%'; fields.style.flowChildren = 'right'; fields.style.marginTop = '20px';
     function makeField(id, caption, value) {
       var col = $.CreatePanel('Panel', fields, '', {}); col.style.width = 'fill-parent-flow(1.0)'; col.style.flowChildren = 'down'; col.style.marginRight = '16px';
-      var label = $.CreatePanel('Label', col, '', {}); label.text = caption;
+      var label = mvmLabel(col, '', {}); label.text = caption;
       styleSettingsLabel(label, 13); label.style.marginBottom = '6px';
       var field = $.CreatePanel('TextEntry', col, id, {}); field.text = '' + value;
       field.style.width = '100%'; field.style.height = '40px';
@@ -284,11 +294,11 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
       field.style.border = '1px solid #4b4b4bff'; field.style.borderRadius = '2px';
       field.SetPanelEvent('ontextchanged', paintPopup); return field;
     }
-    widthField = makeField('MvmCustomWidth', 'WIDTH', currentWidth);
-    heightField = makeField('MvmCustomHeight', 'HEIGHT', currentHeight);
+    widthField = makeField('MvmCustomWidth', T('WIDTH'), currentWidth);
+    heightField = makeField('MvmCustomHeight', T('HEIGHT'), currentHeight);
     heightField.GetParent().style.marginRight = '0px';
 
-    var fitTitle = $.CreatePanel('Label', body, '', {}); fitTitle.text = 'ASPECT FIT';
+    var fitTitle = mvmLabel(body, '', {}); fitTitle.text = T('ASPECT FIT');
     styleSettingsLabel(fitTitle, 13); fitTitle.style.marginTop = '20px'; fitTitle.style.marginBottom = '2px';
     var fit = $.CreatePanel('Panel', body, '', {}); fit.style.width = '100%'; fit.style.flowChildren = 'right';
     var exactButton, nearestButton;
@@ -297,29 +307,29 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
       setPrimary(nearestButton, fitMode === 'nearest');
       paintPopup();
     }
-    exactButton = makeButton(fit, 'MvmFitCustom', 'FIT TO CUSTOM', false, function () { fitMode = 'exact'; paintFit(); });
+    exactButton = makeButton(fit, 'MvmFitCustom', T('FIT TO CUSTOM'), false, function () { fitMode = 'exact'; paintFit(); });
     exactButton.style.marginLeft = '0px'; exactButton.style.width = 'fill-parent-flow(1.0)';
     exactButton.__label.style.fontSize = '16px';
-    nearestButton = makeButton(fit, 'MvmFitNearest', 'FIT TO NEAREST ASPECT', false, function () { fitMode = 'nearest'; paintFit(); });
+    nearestButton = makeButton(fit, 'MvmFitNearest', T('FIT TO NEAREST ASPECT'), false, function () { fitMode = 'nearest'; paintFit(); });
     nearestButton.style.marginRight = '0px'; nearestButton.style.width = 'fill-parent-flow(1.0)';
     nearestButton.__label.style.fontSize = '16px';
 
-    preview = $.CreatePanel('Label', body, '', {}); preview.style.fontFamily = 'Stratum2, Arial'; preview.style.fontSize = '16px';
+    preview = mvmLabel(body, '', {}); preview.style.fontFamily = 'Stratum2, Arial'; preview.style.fontSize = '16px';
     preview.style.marginTop = '16px'; preview.style.marginLeft = '4px'; preview.style.whiteSpace = 'normal';
-    errorLabel = $.CreatePanel('Label', body, '', {});
+    errorLabel = mvmLabel(body, '', {});
     styleSettingsLabel(errorLabel, 13); errorLabel.style.color = '#997a7aff';
     errorLabel.style.marginTop = '2px'; errorLabel.style.marginLeft = '4px';
-    var savedTitle = $.CreatePanel('Label', body, '', {}); savedTitle.text = 'SAVED RESOLUTIONS';
+    var savedTitle = mvmLabel(body, '', {}); savedTitle.text = T('SAVED RESOLUTIONS');
     styleSettingsLabel(savedTitle, 13); savedTitle.style.marginTop = '16px'; savedTitle.style.marginBottom = '2px';
     presetList = $.CreatePanel('Panel', body, 'MvmSavedResolutionList', {});
     presetList.style.width = '100%'; presetList.style.flowChildren = 'down'; renderPresets();
     var actions = $.CreatePanel('Panel', card, '', {});
     actions.style.flowChildren = 'right'; actions.style.horizontalAlign = 'right';
     actions.style.margin = '25px 32px 0px 32px';
-    makeButton(actions, 'MvmCustomResolutionCancel', 'Cancel', false, closePopup);
+    makeButton(actions, 'MvmCustomResolutionCancel', T('Cancel'), false, closePopup);
     // One confirm button. Its caption says whether the size will also be saved, so it is decided by
     // the saved list itself (paintPopup) rather than by showing two buttons for the same action.
-    applyButton = makeButton(actions, 'MvmCustomResolutionApply', 'Save & Apply', true, applyPopup);
+    applyButton = makeButton(actions, 'MvmCustomResolutionApply', T('Save & Apply'), true, applyPopup);
     paintFit(); widthField.SetFocus();
   }
 
@@ -344,8 +354,9 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
   }
   function hookResolution(resolution) {
     removeLegacyOptions(resolution); ensureActionRow(resolution);
-    if (resolution.__mvmActionHooked) return;
-    resolution.__mvmActionHooked = true;
+    // Hooked by THIS instance: a replaced instance's handler would clear its own, dead state.
+    if (resolution.__mvmActionHooked === api) return;
+    resolution.__mvmActionHooked = api;
     resolution.SetPanelEvent('oninputsubmit', function () {
       // SetPanelEvent REPLACES the XML's oninputsubmit="CSGOResolutionSelectionChanged()", so the
       // native handler has to be re-issued here. In the XML that call is a Panorama EVENT, not a JS
@@ -357,9 +368,12 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
     });
   }
 
-  // A live-edited context may still hold pre-v3 panels with the old inline chrome; rebuild them.
+  // A live-edited context may still hold pre-v3 panels with the old inline chrome, and after a
+  // language change the row and popup carry the previous language; rebuild them. The delete lands
+  // next frame, so the row is marked: ensureActionRow must not adopt a panel that is on its way out.
   (function dropStalePanels() {
-    var oldRow = find('MvmResolutionActionRow'); if (oldRow) oldRow.DeleteAsync(0);
+    var oldRow = find('MvmResolutionActionRow');
+    if (oldRow) { oldRow.__mvmStale = true; oldRow.DeleteAsync(0); }
     var oldPopup = find('MvmCustomResolutionPopup'); if (oldPopup) oldPopup.DeleteAsync(0);
   })();
 
@@ -372,6 +386,8 @@ inline constexpr const char* kVideoSettingsResolutionJs = R"MVMRES(
     api.tick();
   };
   api.version = 3;
+  api.rev = $.MvmI18n.rev;
+  api.state = function () { return { active: activeCustom, presets: presets }; };
   api.open = openPopup;
   api.tick = function () { var resolution = find('ResolutionEnum'); if (resolution) hookResolution(resolution); };
   $.MvmResolutionSettings = api;

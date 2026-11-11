@@ -16,6 +16,15 @@ const movie = read('AfxHookSource2/Filmmaker/Movie/MovieMode.cpp');
 const cam = read('AfxHookSource2/Filmmaker/Movie/CamPathShake.cpp');
 const main = read('AfxHookSource2/main.cpp');
 
+// The dock's code calls T() / TN(). A sandbox that runs a slice of it gets the REAL localization
+// runtime (LocalizationJs.h, the fragment the script splices in after its IIFE opens), not a fake.
+const localizationJs = /R"MVMI18N\(([\s\S]*?)\)MVMI18N"/.exec(read('AfxHookSource2/Filmmaker/Panorama/LocalizationJs.h'))[1];
+function localized(sandbox) {
+  const ctx = vm.createContext(Object.assign({ $: {} }, sandbox));
+  vm.runInContext(localizationJs, ctx);
+  return ctx;
+}
+
 // Execute the shipped navigation functions, with no engine or duplicate implementation.
 function navigation(playing) {
   const ctx = vm.createContext({ st: { playhead: 1500, playing, domainT0: 0, domainT1: 10000 },
@@ -115,7 +124,7 @@ test('the dock follows the design: 440 tall, toolbar, overview over the ruler, r
 test('the footer carries FIT, zoom and a scrollbar whose thumb width is the zoom level', () => {
   assert.match(graph, /var sbThumb = mk\('Panel', sbTrack\)/);
   assert.match(graph, /thumbW = Math\.max\(10, Math\.min\(trackW, \(view\.t1 - view\.t0\) \/ domSpan \* trackW\)\)/);
-  assert.match(graph, /var fitBtn = footBtn\('FIT'/);
+  assert.match(graph, /var fitBtn = footBtn\(T\('FIT'\), /);
   assert.match(graph, /footBtn\('−'/);
   assert.match(graph, /footBtn\('\+'/);
   assert.match(graph, /function zoomStep\(f\)/);
@@ -157,11 +166,11 @@ test('numbers are typed INSIDE their cell, and the editor is destroyed on commit
   assert.match(graph, /function beginCellEdit\(r, comp, initial\)/);
   // Bug report 2026-11-01: a HUD TextEntry never gets the keyboard, so typed values never arrived.
   // The cell is a label the dock owns and the hook sends it the characters.
-  assert.match(graph, /\$\.CreatePanel\('Label', comp\.wrap, 'TimelineType', \{\}\)/);
+  assert.match(graph, /mvmLabel\(comp\.wrap, 'TimelineType', \{\}\)/);
   assert.doesNotMatch(graph, /CreatePanel\('TextEntry'/);
   assert.match(graph, /root\.SetAttributeString\('textcapture', editState \|\| snapTyping \? '1' : '0'\)/);
   // The snap menu's custom tick box types through the same route.
-  assert.match(graph, /snapCustomEntry = \$\.CreatePanel\('Label', snapCustomBox, 'SnapCustomTick', \{\}\);/);
+  assert.match(graph, /snapCustomEntry = mvmLabel\(snapCustomBox, 'SnapCustomTick', \{\}\);/);
   assert.match(graph, /api\.typeChars = function \(csv\)/);
   assert.match(graph, /function commitEdit\(\)/);
   assert.match(graph, /es\.entry\.DeleteAsync\(0\)/);
@@ -191,7 +200,7 @@ test('a property with named values picks them from a menu in the dock', () => {
 
 // Codex review on PR #127: Map default and the 14 built-in skies needed 437 px of a 410 px dock.
 test('a menu taller than the room above the footer puts the rest under More', () => {
-  const ctx = vm.createContext({ DOCK_H: 440, FOOTER_H: 26 });
+  const ctx = localized({ DOCK_H: 440, FOOTER_H: 26 });
   vm.runInContext(graph.slice(graph.indexOf('    var M_PAD = 5'), graph.indexOf('    function menuOpen()')), ctx);
   vm.runInContext(graph.slice(graph.indexOf('    function fitMenuItems('), graph.indexOf('    function buildMenuPanel(')), ctx);
   assert.match(graph, /function buildMenuPanel\(x, y, w, items, level\) \{\n\s+items = fitMenuItems\(items, w\);/);
@@ -267,7 +276,7 @@ test('time snap: one shared step quantises the playhead, key placement and key d
 });
 
 test('the snap dropdown offers Auto, presets, Custom and Off', () => {
-  assert.match(graph, /var items = \[\['auto', 'Auto'\], \['1', '1'\], \['10', '10'\], \['100', '100'\], \['1000', '1000'\], \['custom', 'Custom…'\], \['off', 'Off'\]\];/);
+  assert.match(graph, /var items = \[\['auto', T\('Auto'\)\], \['1', '1'\], \['10', '10'\], \['100', '100'\], \['1000', '1000'\], \['custom', T\('Custom…'\)\], \['off', T\('Off'\)\]\];/);
   assert.match(graph, /function showSnapMenu\(\)/);
   assert.match(graph, /rawCmd\('mirv_filmmaker settings ui editor\.graph\.snap ' \+ v\)/);
   // GRAPH draws the snap grid while snapping.
@@ -307,14 +316,14 @@ test('key glyphs follow the stored side kind', () => {
 });
 
 test('the transport keeps the Cache toggle from the camera timeline', () => {
-  assert.match(graph, /var cacheBtn = btn\(rowTop, 'Cache', function \(\) \{\s*rawCmd\('mirv_filmmaker scrub cache ' \+ \(st && st\.scrubCache \? 'off' : 'on'\)\);/);
+  assert.match(graph, /var cacheBtn = btn\(rowTop, T\('Cache'\), function \(\) \{\s*rawCmd\('mirv_filmmaker scrub cache ' \+ \(st && st\.scrubCache \? 'off' : 'on'\)\);/);
   assert.match(graph, /btnSel\(cacheBtn, !!st\.scrubCache\);/);
   assert.match(hud, /",\\"scrubCache\\":" << \(ScrubFrameCache_Enabled\(\) \? "true" : "false"\)/);
 });
 
 // Runs the dock's shake model (GraphEditorJs.h) in a sandbox: the core helpers, then the menus.
 function shakeSandbox(st, sent) {
-  const ctx = vm.createContext({ st, num: Number, snapTick: Math.round, fmtTime: (t) => 't' + t,
+  const ctx = localized({ st, num: Number, snapTick: Math.round, fmtTime: (t) => 't' + t,
     shakeCmd: (owner, tail) => sent.push(owner + ':' + tail) });
   vm.runInContext(graph.slice(graph.indexOf('    var SHAKE_STOP = -2;'), graph.indexOf('    function shakeCmd(owner, tail)')), ctx);
   vm.runInContext(graph.slice(graph.indexOf('    var SHAKE_N0'), graph.indexOf('    function pickShake(')), ctx);
@@ -350,8 +359,8 @@ test('Camera Shake lists every shake, each with its own strength and speed subme
 });
 
 test('a shaken Camera shake row twirls open to Intensity and Speed, on the path and on a camera object', () => {
-  assert.match(graph, /\{ id: id \+ '\.n', kind: 'shakep', owner: owner, param: 'n', verb: 'intensity', name: 'Intensity', min: 1, max: 10,/);
-  assert.match(graph, /\{ id: id \+ '\.p', kind: 'shakep', owner: owner, param: 'p', verb: 'speed', name: 'Speed', min: 10, max: 100,/);
+  assert.match(graph, /\{ id: id \+ '\.n', kind: 'shakep', owner: owner, param: 'n', verb: 'intensity', name: T\('Intensity'\), min: 1, max: 10,/);
+  assert.match(graph, /\{ id: id \+ '\.p', kind: 'shakep', owner: owner, param: 'p', verb: 'speed', name: T\('Speed'\), min: 10, max: 100,/);
   assert.match(graph, /pg\.children\.push\(shakeNode\('cam\.shake', 0, 'cam', cam\)\);/);
   // Every camera object gets an OBJECTS layer with the same row, before it has pose keys too.
   assert.match(graph, /\(st\.shakeCams \|\| \[\]\)\.forEach\(function \(sc\) \{[\s\S]{0,600}L\.children\.push\(shakeNode\('o' \+ sc\.id \+ '\.shake', sc\.id, 'scene', L\)\);/);

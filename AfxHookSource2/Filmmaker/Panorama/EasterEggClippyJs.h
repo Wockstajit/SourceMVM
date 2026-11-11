@@ -131,17 +131,83 @@ R"EGJS(
 
     // Puts the line C++ picked into the balloon. answers: ["label|word", ...]
     function clippyFill(k, line) {
-      k.title.text = line.title || '';
-      k.body.text = line.body || '';
-      k.aside.text = line.aside || '';
+      k.title.text = eggText(line.title);
+      k.body.text = eggText(line.body);
+      k.aside.text = eggText(line.aside);
       k.answers.RemoveAndDeleteChildren();
       var list = line.answers || [];
       for (var i = 0; i < list.length; i++) {
         var bar = ('' + list[i]).indexOf('|');
         if (bar < 0) continue;
-        k.answer(list[i].substring(0, bar), list[i].substring(bar + 1));
+        k.answer(eggText(list[i].substring(0, bar)), list[i].substring(bar + 1));
       }
     }
+
+    // His lines (kClippyLines in EasterEggs.cpp), by their exact English: title, body, aside, answers.
+    (function () {
+      var X = EGG_TEXT;
+      X["It looks like you're making a frag movie!"] = T("It looks like you're making a frag movie!");
+      X['Would you like help with that?'] = T('Would you like help with that?');
+      X["(you've been real quiet. you good?)"] = T("(you've been real quiet. you good?)");
+      X['Yes'] = T('Yes');
+      X['Absolutely'] = T('Absolutely');
+      X['Drop the bass'] = T('Drop the bass');
+      X["It looks like you're staring at the screen."] = T("It looks like you're staring at the screen.");
+      X['Would you like to stare at it harder?'] = T('Would you like to stare at it harder?');
+      X["(i can wait. i'm a paperclip.)"] = T("(i can wait. i'm a paperclip.)");
+      X['Blink'] = T('Blink');
+      X['Harder'] = T('Harder');
+      X['Hi! I noticed you stopped moving.'] = T('Hi! I noticed you stopped moving.');
+      X['Are you rendering, or just thinking?'] = T('Are you rendering, or just thinking?');
+      X["(either is fine. i don't judge. much.)"] = T("(either is fine. i don't judge. much.)");
+      X['Thinking'] = T('Thinking');
+      X['Rendering'] = T('Rendering');
+      X['Fun fact:'] = T('Fun fact:');
+      X["Paperclips can't hold a crosshair either."] = T("Paperclips can't hold a crosshair either.");
+      X['(we have that in common.)'] = T('(we have that in common.)');
+      X['Neat'] = T('Neat');
+      X['Prove it'] = T('Prove it');
+      X['It looks like you need a break.'] = T('It looks like you need a break.');
+      X['Would you like to click some circles?'] = T('Would you like to click some circles?');
+      X["(three hundred, if you're good.)"] = T("(three hundred, if you're good.)");
+      X['Click circles'] = T('Click circles');
+      X['No thanks'] = T('No thanks');
+      X['Did you know?'] = T('Did you know?');
+      X['Most clips are 80% walking.'] = T('Most clips are 80% walking.');
+      X['(the other 20% is walking back.)'] = T('(the other 20% is walking back.)');
+      X['Skip the walk'] = T('Skip the walk');
+      X['Make it cinematic'] = T('Make it cinematic');
+      X['It looks like gravity is bothering you.'] = T('It looks like gravity is bothering you.');
+      X['Would you like less of it?'] = T('Would you like less of it?');
+      X['(nobody will notice.)'] = T('(nobody will notice.)');
+      X['Less, please'] = T('Less, please');
+      X['I like gravity'] = T('I like gravity');
+      X['Weather report:'] = T('Weather report:');
+      X['Clear skies. Mild breeze. Light poultry.'] = T('Clear skies. Mild breeze. Light poultry.');
+      X["(i don't make the forecast.)"] = T("(i don't make the forecast.)");
+      X['Bring it'] = T('Bring it');
+      X['Stay inside'] = T('Stay inside');
+      X["I've been here the whole time."] = T("I've been here the whole time.");
+      X['Just so you know.'] = T('Just so you know.');
+      X["(that's not creepy. i'm office software.)"] = T("(that's not creepy. i'm office software.)");
+      X['...ok'] = T('...ok');
+      X["It looks like you're idle."] = T("It looks like you're idle.");
+      X['Would you like something inspiring?'] = T('Would you like something inspiring?');
+      X['"every frag is a story." -- a paperclip'] = T('"every frag is a story." -- a paperclip');
+      X['Thanks'] = T('Thanks');
+      X['More'] = T('More');
+      X['Psst.'] = T('Psst.');
+      X["Some words work in the console that shouldn't."] = T("Some words work in the console that shouldn't.");
+      X["(i didn't tell you that.)"] = T("(i didn't tell you that.)");
+      X['Which ones?'] = T('Which ones?');
+      X['Say a soft one'] = T('Say a soft one');
+      X['Your movie needs more'] = T('Your movie needs more');
+      X["...something. I can't put my finger on it."] = T("...something. I can't put my finger on it.");
+      X["(i don't have fingers.)"] = T("(i don't have fingers.)");
+      X['Explosions'] = T('Explosions');
+      X['Disco'] = T('Disco');
+      X['Symmetry'] = T('Symmetry');
+    })();
 
     function clippyFrame(t, sz) {
       var show = !!(st.clippy && st.clippy.show);

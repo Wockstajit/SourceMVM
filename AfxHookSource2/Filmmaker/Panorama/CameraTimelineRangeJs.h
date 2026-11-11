@@ -130,8 +130,10 @@ R"TLJS(
     function showRangeReadout(rec, fine) {
       if (!rec) { if (rangeReadout.visible) rangeReadout.visible = false; return; }
       var tick = rangeTickAt(rec.frac);
-      var text = (rec.side < 0 ? 'IN  ' : 'OUT  ') + tick + '  ·  ' + rangeClock(tick - rangeGeom.t0)
-        + (fine ? '  ·  FINE' : '');
+      var clock = rangeClock(tick - rangeGeom.t0);
+      var text = rec.side < 0
+        ? (fine ? T('IN  {0}  ·  {1}  ·  FINE', tick, clock) : T('IN  {0}  ·  {1}', tick, clock))
+        : (fine ? T('OUT  {0}  ·  {1}  ·  FINE', tick, clock) : T('OUT  {0}  ·  {1}', tick, clock));
       if (rangeReadoutL.text !== text) rangeReadoutL.text = text;
       var uis = rangeReadout.actualuiscale_x || 1;
       var bw = (rangeReadout.actuallayoutwidth || 0) / uis;

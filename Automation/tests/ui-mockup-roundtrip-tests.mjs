@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flatten, unflatten, tokenize } from '../../UiMockup/lib/panorama-headers.mjs';
+import { flatten, unflatten, tokenize, headerPath } from '../../UiMockup/lib/panorama-headers.mjs';
 import { SURFACES } from '../../UiMockup/extract-ui.mjs';
 import { applyToHeader } from '../../UiMockup/apply-ui.mjs';
 
@@ -21,7 +21,7 @@ const scripted = SURFACES.filter((s) => !s.variantOf);
 function collectHeaders(file, seen = new Set(), sourceDir = PANO) {
   if (seen.has(file)) return seen;
   seen.add(file);
-  const src = fs.readFileSync(path.join(sourceDir, file), 'utf8');
+  const src = fs.readFileSync(headerPath(sourceDir, PANO, file), 'utf8');
   for (const t of tokenize(src, file)) if (t.type === 'include') collectHeaders(t.name, seen, sourceDir);
   return seen;
 }
@@ -29,13 +29,13 @@ function collectHeaders(file, seen = new Set(), sourceDir = PANO) {
 test('every surface survives extract -> apply byte for byte', () => {
   for (const s of scripted) {
     const sourceDir = s.sourceDir ? path.resolve(PANO, s.sourceDir) : PANO;
-    const bodies = unflatten((s.files || [s.file]).map(file => flatten(sourceDir, file)).join(''));
+    const bodies = unflatten((s.files || [s.file]).map(file => flatten(sourceDir, file, [], PANO)).join(''));
     const headers = new Set();
     for (const file of s.files || [s.file]) collectHeaders(file, headers, sourceDir);
     for (const file of headers) {
-      const before = fs.readFileSync(path.join(sourceDir, file), 'utf8');
+      const before = fs.readFileSync(headerPath(sourceDir, PANO, file), 'utf8');
       assert.ok(bodies[file], `${s.id}: ${file} produced no segments`);
-      const r = applyToHeader(path.join(sourceDir, file), bodies[file], file);
+      const r = applyToHeader(headerPath(sourceDir, PANO, file), bodies[file], file);
       assert.equal(r.changed, 0, `${s.id}: ${file} reports ${r.changed} changed literal(s) with no edit`);
       assert.equal(r.after, before, `${s.id}: ${file} would be rewritten with no edit`);
     }

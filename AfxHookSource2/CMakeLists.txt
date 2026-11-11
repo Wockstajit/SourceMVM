@@ -583,6 +583,15 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Panorama/FilmmakerMenu.h
     Filmmaker/Panorama/PanoramaBridge.cpp
     Filmmaker/Panorama/PanoramaBridge.h
+    Filmmaker/Input/Keybinds.cpp
+    Filmmaker/Input/Keybinds.h
+    Filmmaker/Input/KeybindsMath.h
+    Filmmaker/Localization/Localization.cpp
+    Filmmaker/Localization/Localization.h
+    Filmmaker/Localization/LocalizationLanguages.h
+    Filmmaker/Localization/LocalizationTables.rc
+    Filmmaker/Panorama/LocalizationJs.h
+    Filmmaker/Panorama/SettingsTabJs.h
     Filmmaker/Panorama/VideoSettingsResolution.cpp
     Filmmaker/Panorama/VideoSettingsResolution.h
     Filmmaker/Panorama/VideoSettingsResolutionJs.h

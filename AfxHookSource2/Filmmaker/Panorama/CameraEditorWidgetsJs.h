@@ -7,7 +7,7 @@
 
 R"EDJS(
     // ---- small builders -------------------------------------------------
-    function mk(type, parent, props) { return $.CreatePanel(type, parent, '', props || {}); }
+    function mk(type, parent, props) { var p = $.CreatePanel(type, parent, '', props || {}); return type === 'Label' ? mvmFit(p) : p; }
     function lbl(parent, text, color, size) {
       var l = mk('Label', parent); l.text = text || '';
       if (color) l.style.color = color; if (size) l.style.fontSize = size + 'px';

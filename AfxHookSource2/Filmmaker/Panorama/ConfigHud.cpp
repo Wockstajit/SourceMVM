@@ -1,4 +1,5 @@
 #include "ConfigHud.h"
+#include "../Localization/Localization.h"
 #include "../Takes/Takes.h"
 #include "../Props/Props.h"
 #include "../Movie/SceneRig.h"
@@ -538,6 +539,8 @@ void ConfigHud::RunFrame() {
 		return;
 	}
 	if (hud != m_hudPanel) { m_hudPanel = hud; m_built = false; }
+	// A language change rebuilds the script, which is what re-reads its text (Localization.h).
+	{ static uint64_t uiEpoch = 0; if (Localization_TakeUiEpoch(uiEpoch)) { m_built = false; } }
 	m_bridge.SetContextPanel(hud);
 
 	// Live REPL (config eval), in this panel's context. Drained after the context panel is known

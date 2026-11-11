@@ -230,7 +230,7 @@ R"EGJS(
       pp0.p.visible = false;
       osuPops.push(pp0);
     }
-    var OSU_POP = { 300: ['', '#66ccff'], 100: ['100', '#7dff8c'], 50: ['50', '#ffd36b'], 0: ['miss', '#ff4d6d'] };
+    var OSU_POP = { 300: ['', '#66ccff'], 100: ['100', '#7dff8c'], 50: ['50', '#ffd36b'], 0: [T('miss'), '#ff4d6d'] };
     var osuPopImgs = [];
     for (var opj = 0; opj < 24; opj++) osuPopImgs.push(osuImg(osuFxLayer));
 
@@ -512,7 +512,7 @@ R"EGJS(
       osuDiscAt(osuSpinDot, c, 18, 26);
       oS(osuSpinArm, 'transform', 'rotateZ(' + (sp.rot * 57.2958 % 360).toFixed(1) + 'deg)');
       osuBox(osuSpinTxt.p, 0, c - 30, sd, 60);
-      oT(osuSpinTxt.l, sp.prog >= 1 ? 'clear!' : 'spin!');
+      oT(osuSpinTxt.l, sp.prog >= 1 ? T('clear!') : T('spin!'));
     }
 
     function osuDrawPops() {
@@ -601,9 +601,9 @@ R"EGJS(
         osuBox(osuSkip.p, W - 260, H - 110, 220, 62);
         oS(osuSkip.p, 'borderRadius', '12px');
         oS(osuSkip.p, 'opacity', pulse.toFixed(3));
-        oT(osuSkip.l, 'skip  >>   space');
+        oT(osuSkip.l, T('skip  >>   {0}', 'space'));
       }
-      var note = osuF.auto ? 'autoplay' : (osuF.silent ? 'no audio for this map - playing silently' : '');
+      var note = osuF.auto ? T('autoplay') : (osuF.silent ? T('no audio for this map - playing silently') : '');
       oV(osuNotice.p, !!note);
       if (note) { osuBox(osuNotice.p, W * 0.5 - 300, 18, 600, 32); oT(osuNotice.l, note); }
     }

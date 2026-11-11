@@ -88,16 +88,16 @@ R"EGJS(
       b.SetPanelEvent('onactivate', function () { cmd('mirv_filmmaker egg snake ' + word); });
       return b;
     }
-    var askYes = askButton('play   Y', 'yes', '#3fcf5a', '#07130a');
-    var askNo = askButton('no thanks   N', 'no', '#ffffff1c', '#ffffffcc');
+    var askYes = askButton(T('play   {0}', 'Y'), 'yes', '#3fcf5a', '#07130a');
+    var askNo = askButton(T('no thanks   {0}', 'N'), 'no', '#ffffff1c', '#ffffffcc');
 
     function askFrame(S, W, H) {
       var cw = 420, ch = 150, cx = (W - cw) / 2, cy = H * 0.66 - ch / 2;
       snkBox(askCard, cx, cy, cw, ch);
       snkBox(askTitle.p, 0, 14, cw, 28);
-      snkT(askTitle.l, 'this render is going to take a while');
+      snkT(askTitle.l, T('this render is going to take a while'));
       snkBox(askBody.p, 0, 46, cw, 22);
-      snkT(askBody.l, (S.eta >= 0 ? 'about ' + snkMmss(S.eta) + ' left. ' : '') + 'play snake while you wait?');
+      snkT(askBody.l, S.eta >= 0 ? T('about {0} left. play snake while you wait?', snkMmss(S.eta)) : T('play snake while you wait?'));
       var bw = 170, bh = 38, gap = 16, by = ch - bh - 18, bx = (cw - 2 * bw - gap) / 2;
       snkBox(askYes, bx, by, bw, bh);
       snkBox(askNo, bx + bw + gap, by, bw, bh);
@@ -132,11 +132,11 @@ R"EGJS(
       var cx = (W - cw) / 2, cy = (H - ch) / 2;
       snkBox(snkDim, 0, 0, W, H);
       snkBox(snkCard, cx, cy, cw, ch);
-      snkBox(snkTitle.p, 0, 6, cw, 30); snkT(snkTitle.l, 'snake');
-      snkBox(snkScore.p, 0, 34, cw, 22); snkT(snkScore.l, 'score ' + (S.score || 0) + '      best ' + (S.best || 0));
+      snkBox(snkTitle.p, 0, 6, cw, 30); snkT(snkTitle.l, T('snake'));
+      snkBox(snkScore.p, 0, 34, cw, 22); snkT(snkScore.l, T('score {0}      best {1}', S.score || 0, S.best || 0));
       snkBox(snkEta.p, cw - 190, 10, 180, 20);
       snkV(snkEta.p, S.eta >= 0);
-      if (S.eta >= 0) snkT(snkEta.l, 'render ~' + snkMmss(S.eta) + ' left');
+      if (S.eta >= 0) snkT(snkEta.l, T('render ~{0} left', snkMmss(S.eta)));
       snkBox(snkBoard, pad, head, bw, bh);
       snkS(snkBoard, 'borderRadius', '8px');
 
@@ -186,12 +186,12 @@ R"EGJS(
         snkV(snkTongue, flick);
       }
 
-      var msg = S.state === 'ready' ? 'press an arrow key or W A S D to play'
-        : S.state === 'dead' ? 'game over  -  ' + (S.score || 0) + ' points  -  press a direction to play again'
-        : S.state === 'won' ? 'you filled the board. legend.' : '';
+      var msg = S.state === 'ready' ? T('press an arrow key or W A S D to play')
+        : S.state === 'dead' ? TN(S.score || 0, 'game over  -  {0} point  -  press a direction to play again', 'game over  -  {0} points  -  press a direction to play again')
+        : S.state === 'won' ? T('you filled the board. legend.') : '';
       snkV(snkMsg.p, !!msg);
       if (msg) { snkBox(snkMsg.p, 0, head + bh * 0.22, cw, 30); snkT(snkMsg.l, msg); } // above the snake's start row
       snkBox(snkHelp.p, 0, head + bh + 8, cw, 26);
-      snkT(snkHelp.l, 'arrows / W A S D move    esc closes    the render keeps going');
+      snkT(snkHelp.l, T('arrows / W A S D move    esc closes    the render keeps going'));
     }
 )EGJS"

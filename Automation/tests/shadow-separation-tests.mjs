@@ -174,7 +174,7 @@ test("CustomShadowFx is Phase B directional shadow map", () => {
   assert.doesNotMatch(lighting, /togglePill\([^,]+, 'Shader shadows'/);
   assert.doesNotMatch(lighting, /__page\('Shadow map'\)/);
   // The engine's own shadow switch stays, on the Sun page where the sun's shadows belong.
-  assert.match(lighting, /shadowsToggle = togglePill\(sunPage, 'Engine shadows'/);
+  assert.match(lighting, /shadowsToggle = togglePill\(sunPage, T\('Engine shadows'\)/);
   assert.match(pass, /afx_contact_shadow_ps_5_0/);
   assert.match(shader, /texture2|shadow atlas|CascadeUv/);
   assert.match(cmake, /afx_contact_shadow_ps_5_0/);

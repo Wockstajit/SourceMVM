@@ -82,6 +82,9 @@ test('shared gizmo cursor pump guards UI clicks and sends one commit',()=>{
  c.cfgDragging=()=>false;c.envCommand=cmd=>c.sent.push(cmd);
  vm.createContext(c);
  const code=fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/ConfigHudEnvironmentGizmoJs.h',import.meta.url),'utf8').split('R"CFJS(')[1].split(')CFJS"')[0];
+ // The fragment is evaluated bare: run the real localization runtime (T / TN) first, as the host script does.
+ const i18n=fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/LocalizationJs.h',import.meta.url),'utf8').split('R"MVMI18N(')[1].split(')MVMI18N"')[0];
+ vm.runInContext(i18n,c);
  vm.runInContext(code,c);
  const s={envEditing:1,envEditRevision:1,envDragging:false,enabled:true,cursor:true,lmb:false,mx:960,my:540,
   envGizmo:{origin:[.5,.5,true],axes:[[.58,.5,true],[.5,.58,true],[.45,.44,true]],bounds:Array(8).fill([.5,.5,true])}};

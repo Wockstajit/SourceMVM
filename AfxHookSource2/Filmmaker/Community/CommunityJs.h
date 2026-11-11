@@ -16,6 +16,9 @@ namespace Filmmaker {
 
 inline const char* kCommunityJs = R"CMJS(
 (function () {
+)CMJS"
+#include "../Panorama/LocalizationJs.h"
+R"CMJS(
   ['MvmCommunityHost', 'MvmHcTracker', 'MvmReportBugsBtn', 'MvmReportDialog', 'MvmCrashPrompt'].forEach(function (id) {
     var old = $.GetContextPanel().FindChildTraverse(id); if (old) old.DeleteAsync(0);
   });
@@ -43,7 +46,7 @@ inline const char* kCommunityJs = R"CMJS(
   };
   // A Label in CS2's own type. cls: a stratum-* class from csgostyles.
   C.text = function (parent, text, cls, size, color) {
-    var l = $.CreatePanel('Label', parent, '', { text: text });
+    var l = mvmLabel(parent, '', { text: text });
     l.AddClass(cls); l.style.fontSize = size + 'px'; l.style.color = color; l.hittest = false;
     return l;
   };
@@ -100,7 +103,7 @@ R"CMJS(
     C.events(badge, function () {
       badge.style.backgroundColor = 'rgba(245,183,25,0.16)'; badge.style.border = '1px solid ' + C.HC_YELLOW;
       badge.style.boxShadow = 'rgba(245,183,25,0.45) 0px 0px 12px 0px'; word.style.color = C.HC_YELLOW;
-      if (C.hcHover) C.hcHover(true); else C.tip(badge, 'Open HC Tracker in your browser', true);
+      if (C.hcHover) C.hcHover(true); else C.tip(badge, T('Open HC Tracker in your browser'), true);
     }, function () {
       badge.style.backgroundColor = 'rgba(10,10,11,0.62)'; badge.style.border = '1px solid rgba(245,183,25,0.55)';
       badge.style.boxShadow = 'rgba(0,0,0,0) 0px 0px 0px 0px'; word.style.color = '#f0eeeb';
@@ -131,11 +134,11 @@ R"CMJS(
   var bugIcon = $.CreatePanel('Image', bug, '', { src: 's2r://panorama/images/icons/ui/warning.vsvg' });
   bugIcon.style.width = '24px'; bugIcon.style.height = '24px'; bugIcon.style.verticalAlign = 'center';
   bugIcon.style.marginRight = '12px'; bugIcon.style.washColor = '#ff9a7a'; bugIcon.hittest = false;
-  var bugText = C.text(bug, 'REPORT A BUG', 'stratum-medium-condensed', 30, '#eef2f6');
+  var bugText = C.text(bug, T('REPORT A BUG'),'stratum-medium-condensed', 30, '#eef2f6');
   bugText.style.verticalAlign = 'center'; bugText.style.letterSpacing = '1px'; bugText.style.transform = 'translateY(2px)';
   C.events(bug, function () {
     bug.style.backgroundColor = 'rgba(255,255,255,0.12)'; bug.style.border = '1px solid rgba(255,154,122,0.8)';
-    C.tip(bug, 'Write a bug report for the SOURCE:MVM developer', true);
+    C.tip(bug, T('Write a bug report for the SOURCE:MVM developer'), true);
   }, function () {
     bug.style.backgroundColor = 'rgba(0,0,0,0.5)'; bug.style.border = '1px solid rgba(255,255,255,0.16)';
     C.tip(bug, '', false);
@@ -196,6 +199,9 @@ R"CMJS(
 
 inline const char* kCommunityReportJs = R"CMJS(
 (function () {
+)CMJS"
+#include "../Panorama/LocalizationJs.h"
+R"CMJS(
   var C = $.MvmCommunity; if (!C) return;
   var dlg = null, form = null, review = null, done = null, entry = null, contact = null, saveBtn = null;
   var reviewBody = null, doneTitle = null, doneBody = null, issuesBtn = null, showBtn = null;
@@ -204,8 +210,11 @@ inline const char* kCommunityReportJs = R"CMJS(
   // the player is looking at. sendAsked/sawSending: Send was pressed and the send has started.
   var pendingSeq = -1, reviewSeq = -1, sendAsked = false, sawSending = false;
   // What a report holds, said before anything is written and again before it is sent.
-  var HOLDS = 'what you wrote, your Discord name if you gave one, your CS2 and SOURCE:MVM builds, Windows version, ' +
-    'map and demo names, and recent game logs. It has no Steam name or ID.';
+  // Two whole sentences (the form's and the review's), so each translates as one.
+  var HOLDS_REPORT = T('The report holds what you wrote, your Discord name if you gave one, your CS2 and SOURCE:MVM builds, Windows version, ' +
+    'map and demo names, and recent game logs. It has no Steam name or ID.');
+  var HOLDS_IT = T('It holds what you wrote, your Discord name if you gave one, your CS2 and SOURCE:MVM builds, Windows version, ' +
+    'map and demo names, and recent game logs. It has no Steam name or ID.');
 
   function caption(parent, text) {
     var l = C.text(parent, text, 'stratum-medium-condensed', 17, '#8b95a1');
@@ -255,37 +264,37 @@ inline const char* kCommunityReportJs = R"CMJS(
     card.style.horizontalAlign = 'center'; card.style.verticalAlign = 'center';
     card.style.backgroundColor = 'gradient(linear, 0% 0%, 0% 100%, from(#262b33), to(#14171c))';
     card.style.borderTop = '3px solid ' + C.GOLD; card.style.boxShadow = 'rgba(0,0,0,0.7) 0px 12px 48px 0px';
-    var title = C.text(card, 'REPORT A BUG', 'stratum-medium-condensed', 36, '#ffffff');
+    var title = C.text(card, T('REPORT A BUG'),'stratum-medium-condensed', 36, '#ffffff');
     title.style.letterSpacing = '1px';
 
     form = $.CreatePanel('Panel', card, '', {});
     form.style.flowChildren = 'down'; form.style.width = '100%';
-    var intro = C.text(form, 'Tell us what went wrong and what you were doing. You see the report before anything is sent.', 'stratum-regular', 17, '#a9b3bf');
+    var intro = C.text(form, T('Tell us what went wrong and what you were doing. You see the report before anything is sent.'),'stratum-regular', 17, '#a9b3bf');
     intro.style.width = '100%'; intro.style.marginTop = '4px';
-    caption(form, 'WHAT HAPPENED?');
-    entry = field(form, 'MvmReportText', 150, { multiline: 'true', maxchars: '4000', placeholder: 'Example: the fire effect disappears after I scrub the demo back' });
-    caption(form, 'YOUR DISCORD (OPTIONAL, SO WE CAN REPLY)');
-    contact = field(form, 'MvmReportContact', 40, { maxchars: '64', placeholder: 'your Discord username' });
-    var holds = C.text(form, 'The report holds ' + HOLDS, 'stratum-regular', 14, '#6f7a86');
+    caption(form, T('WHAT HAPPENED?'));
+    entry = field(form, 'MvmReportText', 150, { multiline: 'true', maxchars: '4000', placeholder: T('Example: the fire effect disappears after I scrub the demo back') });
+    caption(form, T('YOUR DISCORD (OPTIONAL, SO WE CAN REPLY)'));
+    contact = field(form, 'MvmReportContact', 40, { maxchars: '64', placeholder: T('your Discord username') });
+    var holds = C.text(form, HOLDS_REPORT, 'stratum-regular', 14, '#6f7a86');
     holds.style.width = '100%'; holds.style.marginTop = '14px';
     var actions = row(form);
-    button(actions, 'MvmReportCancel', 'CANCEL', false, function () { C.closeDialog(); });
-    saveBtn = button(actions, 'MvmReportSave', 'REVIEW REPORT', true, function () {
+    button(actions, 'MvmReportCancel', T('CANCEL'), false, function () { C.closeDialog(); });
+    saveBtn = button(actions, 'MvmReportSave', T('REVIEW REPORT'), true, function () {
       if (pendingSeq >= 0) return;
       pendingSeq = (C.state.report && C.state.report.seq) || 0;
       C.cmd('bugreport ' + encodeURIComponent(entry.text || '-') + ' ' + encodeURIComponent(contact.text || '-'));
-      saveBtn.__label.text = 'SAVING...';
+      saveBtn.__label.text = T('SAVING...');
     });
 
     // Step 2: the report is on this PC. Nothing leaves it until Send.
     review = $.CreatePanel('Panel', card, '', {});
     review.style.flowChildren = 'down'; review.style.width = '100%';
-    C.text(review, 'CHECK IT BEFORE IT IS SENT', 'stratum-medium-condensed', 24, C.GOLD).style.marginTop = '10px';
+    C.text(review, T('CHECK IT BEFORE IT IS SENT'),'stratum-medium-condensed', 24, C.GOLD).style.marginTop = '10px';
     reviewBody = body(review);
     var reviewActions = row(review);
-    openBtn = button(reviewActions, 'MvmReportOpen', 'SHOW FILE', false, function () { C.cmd('showreport'); });
-    keepBtn = button(reviewActions, 'MvmReportKeep', "DON'T SEND", false, function () { C.closeDialog(); });
-    sendBtn = button(reviewActions, 'MvmReportSend', 'SEND', true, function () {
+    openBtn = button(reviewActions, 'MvmReportOpen', T('SHOW FILE'), false, function () { C.cmd('showreport'); });
+    keepBtn = button(reviewActions, 'MvmReportKeep', T("DON'T SEND"), false, function () { C.closeDialog(); });
+    sendBtn = button(reviewActions, 'MvmReportSend', T('SEND'), true, function () {
       if (sendAsked) return;
       sendAsked = true; sawSending = false;
       C.cmd('sendreport ' + reviewSeq);
@@ -297,9 +306,9 @@ inline const char* kCommunityReportJs = R"CMJS(
     doneTitle.style.letterSpacing = '1px'; doneTitle.style.marginTop = '10px';
     doneBody = body(done);
     var actions2 = row(done);
-    issuesBtn = button(actions2, 'MvmReportIssues', 'OPEN GITHUB ISSUES', false, function () { C.cmd('issues'); });
-    showBtn = button(actions2, 'MvmReportShow', 'SHOW FILE', false, function () { C.cmd('showreport'); });
-    button(actions2, 'MvmReportDone', 'DONE', true, function () { C.closeDialog(); });
+    issuesBtn = button(actions2, 'MvmReportIssues', T('OPEN GITHUB ISSUES'), false, function () { C.cmd('issues'); });
+    showBtn = button(actions2, 'MvmReportShow', T('SHOW FILE'), false, function () { C.cmd('showreport'); });
+    button(actions2, 'MvmReportDone', T('DONE'), true, function () { C.closeDialog(); });
   }
 
   function step(name) { form.visible = name === 'form'; review.visible = name === 'review'; done.visible = name === 'done'; }
@@ -309,34 +318,34 @@ inline const char* kCommunityReportJs = R"CMJS(
     var st = C.state || {}, r = st.report || {};
     var off = st.send === 'off';
     var written = pendingSeq >= 0 && (r.seq || 0) > pendingSeq;
-    if (!written) { step('form'); saveBtn.__label.text = pendingSeq >= 0 ? 'SAVING...' : (off ? 'SAVE REPORT' : 'REVIEW REPORT'); return; }
+    if (!written) { step('form'); saveBtn.__label.text = pendingSeq >= 0 ? T('SAVING...') : (off ? T('SAVE REPORT') : T('REVIEW REPORT')); return; }
     reviewSeq = r.seq;
     if (!r.ok) {
-      step('done'); doneTitle.text = 'COULD NOT SAVE THE REPORT'; doneTitle.style.color = '#ff8a6b';
-      doneBody.text = r.error || 'Unknown error'; issuesBtn.visible = false; showBtn.visible = false; return;
+      step('done'); doneTitle.text = T('COULD NOT SAVE THE REPORT'); doneTitle.style.color = '#ff8a6b';
+      doneBody.text = r.error || T('Unknown error'); issuesBtn.visible = false; showBtn.visible = false; return;
     }
-    var where = 'Saved on your PC as ' + r.file + ' (' + r.kb + ' KB).';
+    var where = T('Saved on your PC as {0} ({1} KB).', r.file, r.kb);
     if (off) {
-      step('done'); doneTitle.text = 'REPORT SAVED'; doneTitle.style.color = '#7fe0a0';
-      doneBody.text = where + ' This build cannot send reports. It is selected in the Explorer window that opened; you can attach it to an issue on GitHub.';
+      step('done'); doneTitle.text = T('REPORT SAVED'); doneTitle.style.color = '#7fe0a0';
+      doneBody.text = where + ' ' + T('This build cannot send reports. It is selected in the Explorer window that opened; you can attach it to an issue on GitHub.');
       issuesBtn.visible = true; showBtn.visible = true; return;
     }
     if (sendAsked && st.send === 'sending') sawSending = true;
     var finished = sendAsked && (sawSending || st.send === 'refused') && st.send !== 'sending';
     if (!sendAsked || !finished) {
       step('review');
-      reviewBody.text = sendAsked ? 'Sending...' : where + ' It holds ' + HOLDS +
-        ' Press SHOW FILE to read exactly what would be sent. SEND posts it to the SOURCE:MVM developer\'s Discord channel; DON\'T SEND keeps it on your PC only.';
+      reviewBody.text = sendAsked ? T('Sending...') : where + ' ' + HOLDS_IT + ' ' +
+        T('Press SHOW FILE to read exactly what would be sent. SEND posts it to the SOURCE:MVM developer\'s Discord channel; DON\'T SEND keeps it on your PC only.');
       return;
     }
     step('done'); showBtn.visible = true;
     if (st.send === 'sent') {
-      doneTitle.text = 'REPORT SENT'; doneTitle.style.color = '#7fe0a0';
-      doneBody.text = 'Thanks! It went to the SOURCE:MVM developer, and its file was removed from your PC.';
+      doneTitle.text = T('REPORT SENT'); doneTitle.style.color = '#7fe0a0';
+      doneBody.text = T('Thanks! It went to the SOURCE:MVM developer, and its file was removed from your PC.');
       issuesBtn.visible = false; showBtn.visible = false;
     } else {
-      doneTitle.text = 'COULD NOT SEND IT'; doneTitle.style.color = '#ff8a6b';
-      doneBody.text = (st.sendDetail ? 'Reason: ' + st.sendDetail + '. ' : '') + where + ' You can attach it to an issue on GitHub instead.';
+      doneTitle.text = T('COULD NOT SEND IT'); doneTitle.style.color = '#ff8a6b';
+      doneBody.text = (st.sendDetail ? T('Reason: {0}.', st.sendDetail) + ' ' : '') + where + ' ' + T('You can attach it to an issue on GitHub instead.');
       issuesBtn.visible = true;
     }
   };
@@ -371,6 +380,9 @@ inline const char* kCommunityReportJs = R"CMJS(
 // the report on this PC and it is never offered again.
 inline const char* kCommunityCrashJs = R"CMJS(
 (function () {
+)CMJS"
+#include "../Panorama/LocalizationJs.h"
+R"CMJS(
   var C = $.MvmCommunity; if (!C || !C.button) return;
   var prompt = null, title = null, text = null, showBtn = null, sendBtn = null, keepBtn = null, okBtn = null;
   var asked = false, hidden = false;
@@ -389,10 +401,10 @@ inline const char* kCommunityCrashJs = R"CMJS(
     title.style.letterSpacing = '1px';
     text = C.body(card);
     var actions = C.row(card);
-    showBtn = C.button(actions, 'MvmCrashShow', 'SHOW FILE', false, function () { C.cmd('crashshow'); });
-    keepBtn = C.button(actions, 'MvmCrashKeep', "DON'T SEND", false, function () { C.cmd('crashdecline'); hidden = true; render(); });
-    sendBtn = C.button(actions, 'MvmCrashSend', 'SEND', true, function () { if (!asked) { asked = true; C.cmd('crashsend'); } });
-    okBtn = C.button(actions, 'MvmCrashOk', 'OK', true, function () { hidden = true; render(); });
+    showBtn = C.button(actions, 'MvmCrashShow', T('SHOW FILE'), false, function () { C.cmd('crashshow'); });
+    keepBtn = C.button(actions, 'MvmCrashKeep', T("DON'T SEND"), false, function () { C.cmd('crashdecline'); hidden = true; render(); });
+    sendBtn = C.button(actions, 'MvmCrashSend', T('SEND'), true, function () { if (!asked) { asked = true; C.cmd('crashsend'); } });
+    okBtn = C.button(actions, 'MvmCrashOk', T('OK'), true, function () { hidden = true; render(); });
   }
 
   function render() {
@@ -407,23 +419,25 @@ inline const char* kCommunityCrashJs = R"CMJS(
     var showSend = !off && !finished;
     sendBtn.visible = showSend; keepBtn.visible = showSend; okBtn.visible = !showSend;
     if (finished && c.send === 'sent') {
-      title.text = 'CRASH REPORT SENT';
-      text.text = 'Thanks! It went to the SOURCE:MVM developer, and its files were removed from your PC.';
+      title.text = T('CRASH REPORT SENT');
+      text.text = T('Thanks! It went to the SOURCE:MVM developer, and its files were removed from your PC.');
       return;
     }
     if (finished) {
-      title.text = 'COULD NOT SEND IT';
-      text.text = (c.detail ? 'Reason: ' + c.detail + '. ' : '') + 'The report stays on your PC; SOURCE:MVM asks again next time.';
+      title.text = T('COULD NOT SEND IT');
+      text.text = (c.detail ? T('Reason: {0}.', c.detail) + ' ' : '') + T('The report stays on your PC; SOURCE:MVM asks again next time.');
       return;
     }
-    title.text = 'CS2 CRASHED LAST TIME';
-    text.text = (c.summary ? c.summary + '\n\n' : '') + 'SOURCE:MVM saved a crash report on your PC as ' + c.file +
-      ((c.count || 0) > 1 ? ' (and ' + (c.count - 1) + ' more)' : '') + '. It holds the crash details, your CS2 and SOURCE:MVM builds, ' +
-      'Windows version, map and demo names, and recent game logs. It has no Steam name or ID.' +
-      (c.dump ? ' A small crash dump goes with it: each thread\'s stack at the moment of the crash, so the ' +
-        'developer can see the exact function that failed. It can hold fragments of game memory, but no files.' : '') +
-      (off ? ' This build cannot send reports.' : asked ? '\n\nSending...' :
-        ' Send it to the SOURCE:MVM developer? Press SHOW FILE to read exactly what would be sent.');
+    title.text = T('CS2 CRASHED LAST TIME');
+    text.text = (c.summary ? c.summary + '\n\n' : '') +
+      ((c.count || 0) > 1 ? T('SOURCE:MVM saved a crash report on your PC as {0} (and {1} more).', c.file, c.count - 1) :
+        T('SOURCE:MVM saved a crash report on your PC as {0}.', c.file)) + ' ' +
+      T('It holds the crash details, your CS2 and SOURCE:MVM builds, ' +
+        'Windows version, map and demo names, and recent game logs. It has no Steam name or ID.') +
+      (c.dump ? ' ' + T('A small crash dump goes with it: each thread\'s stack at the moment of the crash, so the ' +
+        'developer can see the exact function that failed. It can hold fragments of game memory, but no files.') : '') +
+      (off ? ' ' + T('This build cannot send reports.') : asked ? '\n\n' + T('Sending...') :
+        ' ' + T('Send it to the SOURCE:MVM developer? Press SHOW FILE to read exactly what would be sent.'));
   }
   C.renderCrash = render;
   // Live checks: press a prompt button. 0 show file, 1 don't send, 2 send, 3 ok.
@@ -442,6 +456,9 @@ inline const char* kCommunityCrashJs = R"CMJS(
 // layers, like the badge, and closes when the friends bar opens.
 inline const char* kCommunityHcJs = R"CMJS(
 (function () {
+)CMJS"
+#include "../Panorama/LocalizationJs.h"
+R"CMJS(
   var C = $.MvmCommunity; if (!C || !C.badge) return;
   var badge = C.badge, drop = null, body = null;
   var DROP_W = 380;
@@ -480,15 +497,15 @@ inline const char* kCommunityHcJs = R"CMJS(
     var r = $.CreatePanel('Button', body, '', {});
     r.style.width = '100%'; r.style.flowChildren = 'down'; r.style.padding = '7px 10px'; r.style.borderRadius = '2px';
     if (live) r.style.borderLeft = '3px solid #e5484d';
-    var t = C.text(r, c.title || 'Untitled HC', 'stratum-medium-condensed', 22, '#ffffff');
+    var t = C.text(r, c.title || T('Untitled HC'), 'stratum-medium-condensed', 22, '#ffffff');
     t.style.width = '100%'; t.style.textOverflow = 'ellipsis'; t.style.whiteSpace = 'nowrap';
     var bits = [];
-    if (c.host) bits.push('by ' + c.host);
+    if (c.host) bits.push(T('by {0}', c.host));
     if (live) {
-      bits.push(c.entries + (c.entries === 1 ? ' entry' : ' entries'));
-      var closes = until(c.closesAt); if (closes) bits.push(closes === 'now' ? 'closing' : 'closes in ' + closes);
+      bits.push(TN(c.entries, '{0} entry', '{0} entries'));
+      var closes = until(c.closesAt); if (closes) bits.push(closes === 'now' ? T('closing') : T('closes in {0}', closes));
     } else {
-      var starts = until(c.startsAt); if (starts) bits.push(starts === 'now' ? 'starting' : 'starts in ' + starts);
+      var starts = until(c.startsAt); if (starts) bits.push(starts === 'now' ? T('starting') : T('starts in {0}', starts));
     }
     C.text(r, bits.join('  ·  '), 'stratum-regular', 14, '#a9b3bf');
     r.__hot = function (on) { r.style.backgroundColor = on ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0)'; };
@@ -510,7 +527,7 @@ inline const char* kCommunityHcJs = R"CMJS(
     foot.style.width = '100%'; foot.style.marginTop = '12px'; foot.style.padding = '9px 0px 7px 0px';
     foot.style.backgroundColor = 'rgba(245,183,25,0.14)'; foot.style.border = '1px solid rgba(245,183,25,0.5)';
     foot.style.borderRadius = '2px';
-    var ft = C.text(foot, 'OPEN HC TRACKER', 'stratum-medium-condensed', 19, C.HC_YELLOW);
+    var ft = C.text(foot, T('OPEN HC TRACKER'),'stratum-medium-condensed', 19, C.HC_YELLOW);
     ft.style.horizontalAlign = 'center'; ft.style.letterSpacing = '1px';
     foot.__hot = function (on) { foot.style.backgroundColor = on ? 'rgba(245,183,25,0.28)' : 'rgba(245,183,25,0.14)'; };
     keep(foot);
@@ -520,20 +537,20 @@ inline const char* kCommunityHcJs = R"CMJS(
     body.RemoveAndDeleteChildren();
     var hc = (C.state || {}).hc || {};
     if (!hc.ok) {
-      C.text(body, 'Checking HC Tracker...', 'stratum-regular', 16, '#a9b3bf').style.marginTop = '4px';
+      C.text(body, T('Checking HC Tracker...'),'stratum-regular', 16, '#a9b3bf').style.marginTop = '4px';
       return;
     }
     var open = hc.open || [], soon = hc.scheduled || [];
     if (open.length) {
-      caption('LIVE NOW  (' + hc.live + ')');
+      caption(T('LIVE NOW  ({0})', hc.live));
       for (var i = 0; i < open.length; ++i) row(open[i], true);
     }
     if (soon.length) {
-      caption('COMING UP  (' + hc.upcoming + ')');
+      caption(T('COMING UP  ({0})', hc.upcoming));
       for (var k = 0; k < soon.length; ++k) row(soon[k], false);
     }
     if (!open.length && !soon.length)
-      C.text(body, 'No HCs running right now. Check back soon.', 'stratum-regular', 16, '#a9b3bf').style.marginTop = '4px';
+      C.text(body, T('No HCs running right now. Check back soon.'),'stratum-regular', 16, '#a9b3bf').style.marginTop = '4px';
   }
   // Centred under the badge. Layout px = window px / the menu's UI scale.
   function place() {
@@ -572,11 +589,11 @@ inline const char* kCommunityHcJs = R"CMJS(
     if (!hc.ok || (!hc.live && !hc.upcoming)) pill.visible = false;
     else if (hc.live) {
       pill.visible = true; pillDot.visible = true; pill.style.backgroundColor = '#e5484d';
-      pillText.text = hc.live + ' LIVE';
+      pillText.text = T('{0} LIVE', hc.live);
     } else {
       var next = (hc.scheduled && hc.scheduled[0]) ? until(hc.scheduled[0].startsAt) : '';
       pill.visible = true; pillDot.visible = false; pill.style.backgroundColor = 'rgba(255,255,255,0.16)';
-      pillText.text = next && next !== 'now' ? 'NEXT ' + next.toUpperCase() : hc.upcoming + ' UPCOMING';
+      pillText.text = next && next !== 'now' ? T('NEXT {0}', next.toUpperCase()) : T('{0} UPCOMING', hc.upcoming);
     }
     if (drop && drop.IsValid() && drop.visible) fill();
   };

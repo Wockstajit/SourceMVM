@@ -380,8 +380,13 @@
       // text a few px wider than Panorama did the last characters vanished (REGULAR TIMELINE lost
       // its E). Clip only where the source asked for it.
       case 'textOverflow':
-        el.classList.toggle('pnl-cliptext', v === 'ellipsis' || v === 'shrink' || v === 'clip');
-        el.style.textOverflow = (v === 'shrink') ? 'ellipsis' : v;
+        // `shrink` is the default on every label the scripts create (LocalizationJs.h): the game
+        // scales the text down to fit. The browser has no such mode, and cutting the text would
+        // bring back the lost-last-letter problem above on every label, so a shrink label is
+        // left unclipped here. Automation/i18n/fit-audit.mjs measures how far it runs over.
+        el.classList.toggle('pnl-cliptext', v === 'ellipsis' || v === 'clip');
+        el.classList.toggle('pnl-shrinktext', v === 'shrink');
+        el.style.textOverflow = (v === 'shrink') ? 'clip' : v;
         return;
       case 'overflow': {
         var p = String(v).trim().split(/\s+/);

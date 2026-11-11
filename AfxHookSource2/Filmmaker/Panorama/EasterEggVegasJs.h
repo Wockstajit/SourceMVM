@@ -51,11 +51,11 @@ R"EGJS(
       }
       v.trails = [big(EGG.hot, '0'), big(EGG.sky, '0')];
       v.word = big('#ffffff', '0');
-      v.code = lbl(tbox, 'render intercepted', EGG.cream, 16);
+      v.code = lbl(tbox, T('render intercepted'), EGG.cream, 16);
       v.code.style.textShadow = '0px 1px 6px 2.0 #000000ee';
       v.code.style.horizontalAlign = 'center'; v.code.style.verticalAlign = 'center';
       v.code.style.marginTop = '-150px';
-      v.sub = lbl(tbox, 'close it. you know what you did.', EGG.cream, 22);
+      v.sub = lbl(tbox, T('close it. you know what you did.'), EGG.cream, 22);
       v.sub.style.horizontalAlign = 'center'; v.sub.style.verticalAlign = 'center';
       v.sub.style.marginTop = '140px';
       v.sub.style.textShadow = '0px 1px 6px 2.0 #000000ee';

@@ -29,12 +29,12 @@ R"EDJS(
     // ===================== SELECTED CAMERA ==============================
     // ONE card (Docs/features/camera-editor-feature.md): the old SELECTED CAMERA and PATH cards merged into pages Camera /
     // Curve / Speed, so everything about the path is one rail item.
-    var selSec = edCard(inspectorBody, 'SELECTED CAMERA', { edge: S.accent, rail: { tab: 'path', key: 'selcam', group: 'Keys' } });
+    var selSec = edCard(inspectorBody, T('SELECTED CAMERA'), { titleKey: 'SELECTED CAMERA', edge: S.accent, rail: { tab: 'path', key: 'selcam', group: T('Keys') } });
     var pathSec = selSec;   // the merged card answers to both names
     // Clear all lives in the header beside + Add (2026-10 sidebar cleanup): it is about the whole
     // path, not this camera. showClearConfirm is a hoisted declaration below.
-    var clearAllBtn = selSec.__headerDanger('Clear all', function () { showClearConfirm(); });
-    var addBtn = selSec.__headerAction('+ Add', function () { cmd('mirv_filmmaker camtl addkey'); });
+    var clearAllBtn = selSec.__headerDanger(T('Clear all'), function () { showClearConfirm(); });
+    var addBtn = selSec.__headerAction(T('+ Add'), function () { cmd('mirv_filmmaker camtl addkey'); });
     mvmTourAdd('editor.addkey', addBtn);
 
     // ---- the rail lists the cameras -----------------------------------------------------------
@@ -53,7 +53,7 @@ R"EDJS(
       for (i = 0; i < n; i++) (function (idx) {
         var key = count > 0 ? ('key' + idx) : 'selcam';
         // The rail shows/hides the CARD panel (selSec.__card), not the body selSec is.
-        var it = edRailAdd('path', key, 'Keys', count > 0 ? ('Camera ' + (idx + 1)) : 'No cameras', S.accent, selSec.__card);
+        var it = edRailAdd('path', key, T('Keys'), count > 0 ? T('Camera {0}', idx + 1) : T('No cameras'), S.accent, selSec.__card);
         if (count > 0) {
           it.row.SetPanelEvent('onactivate', function () {
             cmd('mirv_filmmaker camtl select ' + idx);
@@ -63,7 +63,7 @@ R"EDJS(
         pathRailRows.push(key);
       })(i);
       var host = edRails.path.host;
-      pathRailAdd = btn(host, '+ Add camera', function () { cmd('mirv_filmmaker camtl addkey'); }, S.label);
+      pathRailAdd = btn(host, T('+ Add camera'), function () { cmd('mirv_filmmaker camtl addkey'); }, S.label);
       pathRailAdd.style.width = '100%'; pathRailAdd.style.marginTop = '6px'; pathRailAdd.style.marginRight = '0px';
       pathRailAdd.style.paddingTop = '7px'; pathRailAdd.style.paddingBottom = '7px';
       pathRailAdd.__bgBase = S.clear; pathRailAdd.__brBase = '#ffffff22'; btnVisual(pathRailAdd);
@@ -80,9 +80,9 @@ R"EDJS(
       for (i = 0; i < pathRailRows.length; i++) {
         var it = r.items[pathRailRows[i]]; if (!it) continue;
         var text = count > 0
-          ? ('Tick ' + (ticks[i] !== undefined ? Math.round(ticks[i]) : '?') + ' · ' + ((st.interp || 'Linear') === 'Linear' ? 'Linear' : 'Smooth')
-             + (i === st.selected && st.sel ? ' · FOV ' + num(st.sel.fov).toFixed(1) : ''))
-          : 'Press K to place one';
+          ? (T('Tick {0}', ticks[i] !== undefined ? Math.round(ticks[i]) : '?') + ' · ' + ((st.interp || 'Linear') === 'Linear' ? T('Linear') : T('Smooth'))
+             + (i === st.selected && st.sel ? ' · ' + T('FOV {0}', num(st.sel.fov).toFixed(1)) : ''))
+          : T('Press {0} to place one', K('marker.place', 'K'));
         if (it.sum.text !== text) { it.sum.text = text; it.sum.visible = text.length > 0; }
       }
       var want = count > 0 && st.selected >= 0 ? ('key' + st.selected) : pathRailRows[0];
@@ -111,7 +111,7 @@ R"EDJS(
     var pathNavMid = mk('Panel', pathNavRow); pathNavMid.hittest = false;
     pathNavMid.style.flowChildren = 'down'; pathNavMid.style.width = 'fill-parent-flow(1.0)';
     pathNavMid.style.verticalAlign = 'center';
-    var selLbl = lbl(pathNavMid, 'No cameras', S.value, 15);
+    var selLbl = lbl(pathNavMid, T('No cameras'), S.value, 15);
     // Centred by ALIGNMENT, not text-align: in game a 100%-wide label in this column kept its
     // text at the left edge.
     selLbl.hittest = false; selLbl.style.fontWeight = 'bold';
@@ -126,21 +126,21 @@ R"EDJS(
     // Disabled in place, never hidden, so the row never reflows under the pointer.
     // `marker reposition` is the INTERACTIVE move behind the marker popup: arm, fly the free cam,
     // left-click (or F) to drop it. It is this camera's primary action, so it leads the row.
-    var pathKeyActions = edEvenActions(pathSelPage, 'This camera', [
-      ['Reposition', function () { if (st && st.selected >= 0) cmd('mirv_filmmaker marker reposition'); }, 'primary'],
-      ['Move to playhead', function () {
+    var pathKeyActions = edEvenActions(pathSelPage, T('This camera'), [
+      [T('Reposition'), function () { if (st && st.selected >= 0) cmd('mirv_filmmaker marker reposition'); }, 'primary'],
+      [T('Move to playhead'), function () {
         if (st && st.selected >= 0) cmd('mirv_filmmaker camtl movekey ' + st.selected + ' ' + st.tick);
       }],
-      ['Delete', function () { if (st && st.selected >= 0) cmd('mirv_filmmaker camtl delkey ' + st.selected); }, 'danger']
+      [T('Delete'), function () { if (st && st.selected >= 0) cmd('mirv_filmmaker camtl delkey ' + st.selected); }, 'danger']
     ]);
     var reposBtn = pathKeyActions.btns[0], retimeBtn = pathKeyActions.btns[1], delBtn = pathKeyActions.btns[2];
     mvmTourAdd('editor.repos', reposBtn);
-    edNote(pathSelPage, 'Reposition: fly the free cam to where you want it, then click (or press F) to drop the camera there.');
+    edNote(pathSelPage, T('Reposition: fly the free cam to where you want it, then click (or press {0}) to drop the camera there.', K('marker.edit', 'F')));
 
-    edSubHead(pathSelPage, 'Lens');
+    edSubHead(pathSelPage, T('Lens'));
     var pathFovTile = edValueTile(pathSelPage, {
-      label: 'FOV', min: 1, max: 170, decimals: 1, unit: '', fill: S.axis[6],
-      tip: 'Field of view on the selected camera.',
+      label: T('FOV'), min: 1, max: 170, decimals: 1, unit: '', fill: S.axis[6],
+      tip: T('Field of view on the selected camera.'),
       onChange: function (v) {
         if (st && st.selected >= 0) {
           cmd('mirv_filmmaker camtl setvalpreview ' + st.selected + ' ' + CH_FOV + ' ' + v.toFixed(3));
@@ -151,8 +151,8 @@ R"EDJS(
     });
     mvmTourAdd('editor.fov', pathFovTile.tile);
     var pathRollTile = edValueTile(pathSelPage, {
-      label: 'Roll', min: -180, max: 180, decimals: 1, unit: '°', fill: S.axis[5],
-      tip: 'Camera roll on the selected camera.',
+      label: T('Roll'), min: -180, max: 180, decimals: 1, unit: '°', fill: S.axis[5],
+      tip: T('Camera roll on the selected camera.'),
       onChange: function (v) {
         if (st && st.selected >= 0) {
           cmd('mirv_filmmaker camtl setvalpreview ' + st.selected + ' ' + CH_ROLL + ' ' + v.toFixed(3));
@@ -169,37 +169,37 @@ R"EDJS(
     // editor and the timeline, so the three surfaces are views of one value rather than copies.
     // ONE page (2026-10 sidebar cleanup): Camera, Curve and Speed were three sub-tabs; now they are
     // groups on the one page, so a camera is edited without a click per aspect.
-    var pathCurvePage = selSec.__group('Curve · whole path');
-    var INTERP = [['Linear', 'Linear'], ['Smooth', 'Smooth']];
-    var pathInterpRow = edModeRow(pathCurvePage, 'Curve', INTERP, null, function (which) {
+    var pathCurvePage = selSec.__group(T('Curve · whole path'));
+    var INTERP = [['Linear', T('Linear')], ['Smooth', T('Smooth')]];
+    var pathInterpRow = edModeRow(pathCurvePage, T('Curve'), INTERP, null, function (which) {
       // The path interp is binary; mirror the value it is ABOUT to become onto the graph editor.
       cmd('mirv_filmmaker marker interp cycle');
       cmd('mirv_filmmaker grapheditor ' + (which === 'Linear' ? 'linear' : 'smooth'));
-    }, 'How the camera moves between keys.');
+    }, T('How the camera moves between keys.'));
 
     var EASE = ['none', 'in', 'out', 'inout'];
-    var pathEaseRow = edModeRow(pathCurvePage, 'Ease',
-      [['none', 'None'], ['in', 'In'], ['out', 'Out'], ['inout', 'In/Out']], null,
+    var pathEaseRow = edModeRow(pathCurvePage, T('Ease'),
+      [['none', T('None')], ['in', T('In')], ['out', T('Out')], ['inout', T('In/Out')]], null,
       function (which) {
         if (!st || st.selected < 0) return;
         cmd('mirv_filmmaker camtl ease ' + st.selected + ' ' + which);
         cmd('mirv_filmmaker grapheditor ' + (which === 'none' ? 'linear' : ('ease ' + which + ' all')));
       },
-      'Ease on the SELECTED key — the same value the timeline’s Ease button and its right-click '
-      + 'menu write.');
-    edNote(pathCurvePage, 'Ease belongs to the selected key; Curve is the whole path. Both mirror onto '
-      + 'the graph editor and the timeline.');
+      T('Ease on the SELECTED key — the same value the timeline’s Ease button and its right-click '
+      + 'menu write.'));
+    edNote(pathCurvePage, T('Ease belongs to the selected key; Curve is the whole path. Both mirror onto '
+      + 'the graph editor and the timeline.'));
 
-    var pathSpeedPage = selSec.__group('Speed');
-    var SPEEDMODE = [['Manual', 'Manual'], ['Per-Segment', 'Per-Seg'], ['Constant', 'Constant']];
-    var pathSpeedRow = edModeRow(pathSpeedPage, 'Mode', SPEEDMODE, null, function (which) {
+    var pathSpeedPage = selSec.__group(T('Speed'));
+    var SPEEDMODE = [['Manual', T('Manual')], ['Per-Segment', T('Per-Seg')], ['Constant', T('Constant')]];
+    var pathSpeedRow = edModeRow(pathSpeedPage, T('Mode'), SPEEDMODE, null, function (which) {
       // The command takes the mode by name (MarkerCommand.cpp: manual|constant|persegment).
       // It used to send `cycle` up to three times against the stale state, which with three
       // modes went full circle and left the mode where it was: Manual and Constant could not be
       // picked by clicking.
       var name = { 'Manual': 'manual', 'Per-Segment': 'persegment', 'Constant': 'constant' }[which];
       if (name) cmd('mirv_filmmaker marker speedmode ' + name);
-    }, 'Manual follows the keys; Per-Segment and Constant drive the multiplier below.');
+    }, T('Manual follows the keys; Per-Segment and Constant drive the multiplier below.'));
 
     // One multiplier stepper serving both Per-Segment and Constant -- a LADDER (0.20 / 0.50 /
     // 0.80 / 1.00), not a slider. Disabled in Manual rather than removed.
@@ -208,10 +208,10 @@ R"EDJS(
     pathMulRow.style.marginTop = (UI.line.gap + 1) + 'px';
     pathMulRow.style.paddingLeft = UI.line.padH + 'px';
     edEndTileLine(pathSpeedPage);
-    var pathMulName = lbl(pathMulRow, 'Amount', S.label, 13);
+    var pathMulName = lbl(pathMulRow, T('Amount'), S.label, 13);
     pathMulName.style.width = UI.line.label + 'px'; pathMulName.style.verticalAlign = 'center';
-    pathMulName.style.whiteSpace = 'nowrap';
-    edTip(pathMulName, 'Steps through 0.20 / 0.50 / 0.80 / 1.00.');
+    pathMulName.style.whiteSpace = 'nowrap'; pathMulName.style.textOverflow = 'shrink';
+    edTip(pathMulName, T('Steps through 0.20 / 0.50 / 0.80 / 1.00.'));
     var pathMulBox = mk('Panel', pathMulRow); pathMulBox.hittest = false; pathMulBox.hittestchildren = true;
     pathMulBox.style.flowChildren = 'right'; pathMulBox.style.width = 'fill-parent-flow(1.0)';
     pathMulBox.style.marginLeft = UI.line.colGap + 'px'; pathMulBox.style.height = '30px';
@@ -220,7 +220,7 @@ R"EDJS(
     var mulLbl = lbl(pathMulBox, '—', S.value, 13);
     mulLbl.hittest = false; mulLbl.style.width = 'fill-parent-flow(1.0)';
     mulLbl.style.textAlign = 'center'; mulLbl.style.verticalAlign = 'center';
-    mulLbl.style.fontWeight = 'bold'; mulLbl.style.whiteSpace = 'nowrap';
+    mulLbl.style.fontWeight = 'bold'; mulLbl.style.whiteSpace = 'nowrap'; mulLbl.style.textOverflow = 'shrink';
     mulLbl.style.fontFamily = S.fontMonodigit;
     var mulPlus = btn(pathMulBox, '+', function () { stepMul(1); }, S.accent);
     [mulMinus, mulPlus].forEach(function (b) {
@@ -252,10 +252,10 @@ R"EDJS(
       }
     }
 
-    var TIMING = [['Live', 'Live'], ['Freeze', 'Freeze']];
-    var pathTimingRow = edModeRow(pathSpeedPage, 'Timing', TIMING, null, function (which) {
+    var TIMING = [['Live', T('Live')], ['Freeze', T('Freeze')]];
+    var pathTimingRow = edModeRow(pathSpeedPage, T('Timing'), TIMING, null, function (which) {
       if (!st || st.timing !== which) cmd('mirv_filmmaker marker timing toggle');
-    }, 'Live plays the demo along the path; Freeze holds the tick.');
+    }, T('Live plays the demo along the path; Freeze holds the tick.'));
     var pathHint = edNote(pathSpeedPage, '');
 
     // (The SHORTCUTS card is gone: the keys are the strip pinned above RENDER on this tab, built
@@ -274,9 +274,9 @@ R"EDJS(
       var has = (st.selected >= 0 && !!st.sel);
 
       pathRailSync(st);
-      selLbl.text = has ? ('Key #' + (st.selected + 1) + ' / ' + st.count)
-                        : (st.count > 0 ? '— / ' + st.count : 'No cameras');
-      var tickTxt = has ? ('tick ' + Math.round(num(st.sel.tick))) : (st.count > 0 ? 'No key selected' : 'Press K to place one');
+      selLbl.text = has ? T('Key #{0} / {1}', st.selected + 1, st.count)
+                        : (st.count > 0 ? '— / ' + st.count : T('No cameras'));
+      var tickTxt = has ? T('tick {0}', Math.round(num(st.sel.tick))) : (st.count > 0 ? T('No key selected') : T('Press {0} to place one', K('marker.place', 'K')));
       if (selTickLbl.text !== tickTxt) selTickLbl.text = tickTxt;
       // DISABLED, not hidden: hiding these changed the action grid's width budget under the user
       // every time the selection changed, so the whole row re-flowed.
@@ -287,8 +287,8 @@ R"EDJS(
 
       pathFovTile.sync(has ? num(st.sel.fov) : 1);
       pathRollTile.sync(has ? num(st.sel.roll) : 0);
-      lensHint.text = has ? 'FOV and roll belong to the selected camera and are keyed with it.'
-                          : 'Select a camera to edit its lens.';
+      lensHint.text = has ? T('FOV and roll belong to the selected camera and are keyed with it.')
+                          : T('Select a camera to edit its lens.');
 
       var interpName = st.interp || 'Linear';
       pathInterpRow.sync(interpName);
@@ -311,22 +311,22 @@ R"EDJS(
       var mulValue = perSeg ? (has ? st.sel.speedMul : null)
                             : (constMode ? (st.constSpeed != null ? st.constSpeed : 1) : null);
       mulLbl.text = perSeg
-        ? (has ? ('Segment  x' + st.sel.speedMul.toFixed(2)) : 'select a key')
-        : (constMode ? ('Constant  x' + (st.constSpeed != null ? st.constSpeed.toFixed(2) : '1.00'))
-                     : 'not used in Manual');
+        ? (has ? T('Segment  x{0}', st.sel.speedMul.toFixed(2)) : T('select a key'))
+        : (constMode ? T('Constant  x{0}', st.constSpeed != null ? st.constSpeed.toFixed(2) : '1.00')
+                     : T('not used in Manual'));
       mulLbl.style.color = mulUsable ? S.value : S.inactive;
-      pathHint.text = perSeg ? 'Per-Segment: each key carries its own speed into the next one.'
-                    : (constMode ? 'Constant: one speed for the whole path.'
-                                 : 'Manual: the path follows the demo timeline.');
+      pathHint.text = perSeg ? T('Per-Segment: each key carries its own speed into the next one.')
+                    : (constMode ? T('Constant: one speed for the whole path.')
+                                 : T('Manual: the path follows the demo timeline.'));
 
       // ---- the card summary: what the path is doing, for the pane header and the rail ----
-      selSec.__note((has ? ('Camera ' + (st.selected + 1) + ' of ' + st.count)
-                         : (st.count > 0 ? (st.count + ' cameras') : 'No cameras'))
-        + ' · ' + (interpName === 'Linear' ? 'linear' : 'smooth') + ' · '
-        + (has ? ({ none: 'no ease', in: 'ease in', out: 'ease out', inout: 'ease in/out' }[EASE[easeIdx]])
-               : 'no key') + ' · '
-        + (perSeg ? ('per-segment ' + (mulValue != null ? mulValue.toFixed(2) : '1.00') + 'x')
-           : constMode ? ('constant ' + (mulValue != null ? mulValue.toFixed(2) : '1.00') + 'x')
-           : 'manual'));
+      selSec.__note((has ? T('Camera {0} of {1}', st.selected + 1, st.count)
+                         : (st.count > 0 ? TN(st.count, '{0} camera', '{0} cameras') : T('No cameras')))
+        + ' · ' + (interpName === 'Linear' ? T('linear') : T('smooth')) + ' · '
+        + (has ? ({ none: T('no ease'), in: T('ease in'), out: T('ease out'), inout: T('ease in/out') }[EASE[easeIdx]])
+               : T('no key')) + ' · '
+        + (perSeg ? T('per-segment {0}x', mulValue != null ? mulValue.toFixed(2) : '1.00')
+           : constMode ? T('constant {0}x', mulValue != null ? mulValue.toFixed(2) : '1.00')
+           : T('manual')));
     }
 )EDJS"

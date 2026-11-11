@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flatten, unflatten } from './lib/panorama-headers.mjs';
+import { flatten, unflatten, headerPath } from './lib/panorama-headers.mjs';
 import { publishExtraction, writeIfChanged } from '../Automation/lib/ui-source-sync.mjs';
 import { prepareMenu } from './prepare-menu.mjs';
 
@@ -76,12 +76,12 @@ export function extractAll(panoDir = PANO, outDir = OUT, log = console.log) {
       continue;
     }
     const sourceDir = s.sourceDir ? path.resolve(panoDir, s.sourceDir) : panoDir;
-    const code = (s.files || [s.file]).map(file => flatten(sourceDir, file)).join('');
+    const code = (s.files || [s.file]).map(file => flatten(sourceDir, file, [], panoDir)).join('');
     const lines = code.split('\n').length;
     totalLines += lines;
     entries.push({ name: `${s.id}.js`, code: code + `\n//# sourceURL=mvm/${s.id}.js\n`,
-      sources: Object.keys(unflatten(code)).map((file) => ({ path: path.join(sourceDir, file),
-        before: fs.readFileSync(path.join(sourceDir, file), 'utf8') })) });
+      sources: Object.keys(unflatten(code)).map((file) => ({ path: headerPath(sourceDir, panoDir, file),
+        before: fs.readFileSync(headerPath(sourceDir, panoDir, file), 'utf8') })) });
     const entry = { ...s, lines, src: `generated/${s.id}.js` };
     if (s.cpp) {
       entry.teardown = teardownOf(panoDir, s.cpp);
@@ -94,6 +94,17 @@ export function extractAll(panoDir = PANO, outDir = OUT, log = console.log) {
   }
   publishExtraction(outDir, entries, log);
   prepareMenu(outDir);
+  // Localization for ?lang=<id>: the runtime on its own (the page installs it before any surface
+  // builds) and the language tables, which live outside the folder the preview serves.
+  writeIfChanged(path.join(outDir, 'localization.js'),
+    '(function () {\n' + flatten(panoDir, 'LocalizationJs.h') + '\n})();\n');
+  const langDir = path.resolve(panoDir, '..', 'Localization', 'lang');
+  if (fs.existsSync(langDir)) {
+    fs.mkdirSync(path.join(outDir, 'lang'), { recursive: true });
+    for (const f of fs.readdirSync(langDir)) {
+      if (f.endsWith('.json')) writeIfChanged(path.join(outDir, 'lang', f), fs.readFileSync(path.join(langDir, f), 'utf8'));
+    }
+  }
   writeIfChanged(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
   log(`\n${manifest.length} surfaces, ${totalLines} lines -> ${path.relative(process.cwd(), outDir) || '.'}`);
   return manifest;

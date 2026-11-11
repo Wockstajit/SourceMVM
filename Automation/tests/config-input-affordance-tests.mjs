@@ -114,7 +114,7 @@ test('a recoil preset can be saved without the keyboard', () => {
   // A field whose only commit is Enter reads as a field that does not work; the environment
   // preset field beside it has always had a Save button.
   assert.match(cameraTab, /function wrPresetSave\(\)/);
-  assert.match(cameraTab, /button: \['Save', function \(\) \{\s*\n\s*if \(wrPresetFocus && wrPresetBuf\) wrPresetSave\(\); else wrPresetFocusOn\(\);/);
+  assert.match(cameraTab, /button: \[T\('Save'\), function \(\) \{\s*\n\s*if \(wrPresetFocus && wrPresetBuf\) wrPresetSave\(\); else wrPresetFocusOn\(\);/);
   // Enter and the button must commit through the SAME function, or they will drift.
   assert.match(cameraTab, /if \(code === 13\) \{\s*\n\s*wrPresetSave\(\);/);
   // Focusing blurs whatever else held the keyboard first.

@@ -58,7 +58,7 @@ R"DOCKRIBJS(
 
       // One console verb for every workspace -- see Movie/TimelineDock.h. A tab is a SWITCH, not
       // a toggle: it always selects its own mode, so the dock can never end up showing nothing.
-      var TABS = [['native', 'REGULAR TIMELINE'], ['timeline', 'TIMELINE']];
+      var TABS = [['native', T('REGULAR TIMELINE')], ['timeline', T('TIMELINE')]];
       var tabs = {};
       for (var i = 0; i < TABS.length; i++) (function (key, caption, last) {
         var b = mk('Panel', parent ? band : band);

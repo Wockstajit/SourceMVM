@@ -37,6 +37,9 @@ namespace Filmmaker {
 // onto $.MvmPlay just to satisfy the compiler; splicing keeps it one IIFE with one entry point.
 inline const char* kWorkshopFilterJsHead = R"FMJS(
 (function () {
+)FMJS"
+#include "../Panorama/LocalizationJs.h"
+R"FMJS(
   try {
     var M = $.MvmPlay;
     if (!M) return;
@@ -220,8 +223,8 @@ inline const char* kWorkshopFilterJsHead = R"FMJS(
       // sidebar, so the two map-narrowing controls read as one group.
       try { parent.MoveChildAfter(bar, search); } catch (e) {}
 
-      var sortTitle = $.CreatePanel('Label', bar, 'MvmWsSortTitle', {
-        text: 'SORT BY'
+      var sortTitle = mvmLabel(bar, 'MvmWsSortTitle', {
+        text: T('SORT BY')
       });
       sortTitle.style.horizontalAlign = 'left';
       sortTitle.style.fontFamily = 'Stratum2';
@@ -239,11 +242,11 @@ inline const char* kWorkshopFilterJsHead = R"FMJS(
       sortDrop.style.marginBottom = '18px';
       sortDrop.style.backgroundColor = '#ffffff08';
       sortDrop.style.border = '1px solid #ffffff30';
-      var sorts = [['name', 'Name'], ['installed', 'Recently installed'], ['played', 'Recently played']];
+      var sorts = [['name', T('Name')], ['installed', T('Recently installed')], ['played', T('Recently played')]];
       for (var s = 0; s < sorts.length; ++s) {
         // Text set in the creation props, not afterwards: the DropDown shows the selected
         // option by cloning that panel, so it has to carry its caption from the start.
-        var opt = $.CreatePanel('Label', sortDrop, 'mvmws_' + sorts[s][0], {
+        var opt = mvmLabel(sortDrop, 'mvmws_' + sorts[s][0], {
           class: 'DropDownMenu', text: sorts[s][1]
         });
         opt.style.fontFamily = 'Stratum2';
@@ -264,7 +267,7 @@ inline const char* kWorkshopFilterJsHead = R"FMJS(
       hideBtn = $.CreatePanel('Button', bar, 'MvmWsHide', {});
       hideBtn.style.width = '200px';
       hideBtn.style.height = '30px';
-      var hideText = $.CreatePanel('Label', hideBtn, 'MvmWsHideLabel', { text: 'Hide training maps' });
+      var hideText = mvmLabel(hideBtn, 'MvmWsHideLabel', { text: T('Hide training maps') });
       hideText.style.fontFamily = 'Stratum2';
       hideText.style.fontSize = '16px';
       hideText.style.color = '#e2e5e7';
@@ -299,19 +302,19 @@ inline const char* kWorkshopFilterJsHead = R"FMJS(
         b.style.backgroundColor = '#ffffff08';
         b.style.border = '1px solid #ffffff20';
         b.style.borderRadius = '2px';
-        var l = $.CreatePanel('Label', b, id + 'Label', { text: caption });
+        var l = mvmLabel(b, id + 'Label', { text: caption });
         l.style.fontFamily = 'Stratum2'; l.style.fontSize = '16px'; l.style.color = '#d0d6da';
         l.style.horizontalAlign = 'center'; l.style.verticalAlign = 'center';
         b.SetPanelEvent('onmouseover', function () { b.style.backgroundColor = '#ffffff18'; });
         b.SetPanelEvent('onmouseout', function () { b.style.backgroundColor = '#ffffff08'; });
         return b;
       }
-      var editBtn = toolButton('MvmWsEdit', 'Keywords');
+      var editBtn = toolButton('MvmWsEdit', T('Keywords'));
       editBtn.SetPanelEvent('onactivate', function () {
         if (M.wsToggleEditor) M.wsToggleEditor();
       });
 
-      var rescanBtn = toolButton('MvmWsRescan', 'Rescan');
+      var rescanBtn = toolButton('MvmWsRescan', T('Rescan'));
       rescanBtn.style.marginLeft = '8px';
       rescanBtn.SetPanelEvent('onactivate', function () { M.cmd('ws rescan'); });
 

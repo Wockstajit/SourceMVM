@@ -37,7 +37,7 @@ R"CFJS(
       shaft.style.backgroundColor = envAxisColors[ai];
       envAxes.push({ shaft: shaft, name: gizmoTag(envOverlay, envAxisNames[ai], envAxisColors[ai]) });
     }
-    var envMoveHint = lbl(envOverlay, 'Drag an axis · release to keep · Esc to cancel', S.label, 15);
+    var envMoveHint = lbl(envOverlay, T('Drag an axis · release to keep · Esc to cancel'), S.label, 15);
     envMoveHint.hittest = false;
     envMoveHint.style.horizontalAlign = 'center'; envMoveHint.style.marginTop = '24px';
     envMoveHint.style.backgroundColor = '#101318e8'; envMoveHint.style.padding = '8px 14px';

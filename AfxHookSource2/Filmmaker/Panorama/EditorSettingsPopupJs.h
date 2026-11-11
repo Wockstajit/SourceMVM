@@ -66,7 +66,7 @@ R"ESJS(
       card.style.paddingTop = '14px'; card.style.paddingBottom = '16px';
       card.style.paddingLeft = '16px'; card.style.paddingRight = '16px';
       card.SetPanelEvent('onactivate', function () { /* swallow clicks inside */ });
-      var title = lbl(card, 'EDITOR SETTINGS', ACCENT, 12);
+      var title = lbl(card, T('EDITOR SETTINGS'), ACCENT, 12);
       title.style.fontWeight = 'bold'; title.style.letterSpacing = '2px'; title.style.marginBottom = '4px';
 )ESJS"
 R"ESJS(
@@ -94,19 +94,19 @@ R"ESJS(
         rec.row.style.opacity = enabled ? '1.0' : '0.4';
         rec.pill.hittest = enabled;
       }
-      var xrayTog = settingToggle('X-Ray', 'See players through walls (spec_show_xray).', function () {
+      var xrayTog = settingToggle(T('X-Ray'), T('See players through walls (spec_show_xray).'), function () {
         cmd('spec_show_xray ' + (rdInt('spec_show_xray') ? 0 : 1));
       });
-      var trueviewTog = settingToggle('True View', 'Render each POV as the player actually saw it.', function () {
+      var trueviewTog = settingToggle(T('True View'), T('Render each POV as the player actually saw it.'), function () {
         var p = rdInt('cl_demo_predict');
         if (p > 0) cmd('cl_demo_predict 0');
         else cmd('cl_demo_predict ' + (rdInt('cl_demo_predict') >= 2 ? 2 : 1));
       });
-      var doaTog = settingToggle('Include DOA actions', 'Predict dead-or-alive actions (needs True View).', function () {
+      var doaTog = settingToggle(T('Include DOA actions'), T('Predict dead-or-alive actions (needs True View).'), function () {
         if (rdInt('cl_demo_predict') <= 0) return;
         cmd('cl_trueview_show_doa_predictions ' + (rdInt('cl_trueview_show_doa_predictions') ? 0 : 1));
       });
-      var mismatchTog = settingToggle('Allow demo mismatch versions', 'Apply True View even on a mismatched demo build.', function () {
+      var mismatchTog = settingToggle(T('Allow demo mismatch versions'), T('Apply True View even on a mismatched demo build.'), function () {
         var p = rdInt('cl_demo_predict');
         if (p === 1) cmd('cl_demo_predict 2');
         else if (p === 2) cmd('cl_demo_predict 1');
@@ -115,7 +115,7 @@ R"ESJS(
       // Editor as movable windows opened from a bar along the top. Not a cvar, so the host says
       // what is current (opts.modular); a click is shown at once and confirmed by the next state.
       var layoutWant = null;
-      var layoutTog = settingToggle('Modular windows', 'Open CONFIG and the Camera Editor as movable windows from a bar along the top.', function () {
+      var layoutTog = settingToggle(T('Modular windows'), T('Open CONFIG and the Camera Editor as movable windows from a bar along the top.'), function () {
         layoutWant = !layoutModular();
         cmd('mirv_filmmaker layout ' + (layoutWant ? 'modular' : 'workspace'));
       });

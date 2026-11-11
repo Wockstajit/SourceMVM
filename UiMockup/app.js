@@ -1641,6 +1641,17 @@
     wireKeys();
     watchSources();
     fitStage();
+    // ?lang=<cs2 language id>: load that table before anything builds, the way Localization.cpp
+    // pushes it ahead of the panel drivers. English (no table) is the default.
+    var langId = (/[?&]lang=([a-z_]+)/.exec(location.search) || [])[1];
+    if (langId && langId !== 'english') {
+      try {
+        (0, eval)(await (await fetch('generated/localization.js?t=' + Date.now())).text());
+        var langRes = await fetch('generated/lang/' + langId + '.json?t=' + Date.now());
+        if (!langRes.ok) throw new Error(langRes.status + ' ' + langRes.statusText);
+        window.$.MvmI18n.set(langId, await langRes.json(), langId);
+      } catch (e) { showError('Could not load the ' + langId + ' language table' + String.fromCharCode(10) + e); return; }
+    }
     // Boot the way the game does after a demo loads: the in-game context, nothing open.
     enterContext('ingame');
     running = true;

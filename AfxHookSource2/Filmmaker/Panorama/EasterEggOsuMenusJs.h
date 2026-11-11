@@ -43,20 +43,20 @@ R"EGJS(
     function osuDrawFooter(t, sz) {
       var W = sz.w, H = sz.h, y0 = H - OSU_FOOT, by = y0 + 12;
       osuBox(osuFoot, 0, y0, W, OSU_FOOT);
-      osuFtDraw(osuFtBack, 18, by, 103, '#00000000', '#ffffff1f', 'back', 'esc', 'act back');
+      osuFtDraw(osuFtBack, 18, by, 103, '#00000000', '#ffffff1f', T('back'), 'esc', 'act back');
       osuBox(osuFtDiv, 134, by + 6, 1, 30);
       var mods = osuV.mods || [], n = Math.min(mods.length, osuFtPills.length);
       var mw = 92 + n * 42 + 50;
-      osuFtDraw(osuFtMods, 150, by, mw, osuV.modsOpen ? '#c9a7ff40' : '#c9a7ff1f', '#c9a7ff59', 'mods', 'F1', 'act mods');
+      osuFtDraw(osuFtMods, 150, by, mw, osuV.modsOpen ? '#c9a7ff40' : '#c9a7ff1f', '#c9a7ff59', T('mods'), 'F1', 'act mods');
       for (var i = 0; i < osuFtPills.length; i++) {
         if (i >= n) { oV(osuFtPills[i].p, false); continue; }
         osuPill(osuFtPills[i], 150 + 92 + i * 42, by + 11, 38, 20, mods[i], OSU_MOD_COL[mods[i]] || '#ffffff', '#120a1c');
       }
       osuBox(osuFtMult.p, 150 + 92 + n * 42 + 4, by, 46, 42); oT(osuFtMult.l, (osuV.mult || 1).toFixed(2) + 'x');
       var rx = 150 + mw + 10;
-      osuFtDraw(osuFtRand, rx, by, 117, '#9fe6ff14', '#9fe6ff40', 'random', 'F2', 'act random');
+      osuFtDraw(osuFtRand, rx, by, 117, '#9fe6ff14', '#9fe6ff40', T('random'), 'F2', 'act random');
       var opt = osuV.opt || {};
-      osuFtDraw(osuFtOpt, rx + 127, by, 86, opt.open ? '#ffd36b40' : '#ffd36b14', '#ffd36b40', 'options', '', 'act options');
+      osuFtDraw(osuFtOpt, rx + 127, by, 86, opt.open ? '#ffd36b40' : '#ffd36b14', '#ffd36b40', T('options'), '', 'act options');
       // Play: 200 x 42, pink, "play" with an [enter] cap on its right.
       var px = W - 18 - 200, can = osuV.matched > 0;
       oV(osuFtPlay.p, can);
@@ -65,11 +65,11 @@ R"EGJS(
         osuBox(osuFtPlay.p, px, by, 200, 42);
         oS(osuFtPlay.p, 'backgroundColor', over ? '#ff7fd4' : '#ff5fc8');
         oS(osuFtPlay.p, 'border', '1px solid #ff5fc8');
-        osuBox(osuFtPlay.lab.p, 22, 0, 120, 42); oS(osuFtPlay.lab.l, 'color', '#120a1c'); oS(osuFtPlay.lab.l, 'fontSize', '20px'); oT(osuFtPlay.lab.l, 'play');
+        osuBox(osuFtPlay.lab.p, 22, 0, 120, 42); oS(osuFtPlay.lab.l, 'color', '#120a1c'); oS(osuFtPlay.lab.l, 'fontSize', '20px'); oT(osuFtPlay.lab.l, T('play'));
         osuFtCap(osuFtPlay.cap, 200 - 14 - 38, 11, 'enter', true);
         osuHit(px, by, 200, 42, 'act play');
       }
-      osuBox(osuFtHint.p, px - 20 - 300, y0, 300, OSU_FOOT); oT(osuFtHint.l, 'arrows / wheel to browse');
+      osuBox(osuFtHint.p, px - 20 - 300, y0, 300, OSU_FOOT); oT(osuFtHint.l, T('arrows / wheel to browse'));
     }
 
     // ---- mod select takeover (frame 2a) ----
@@ -81,7 +81,11 @@ R"EGJS(
     osuTakeover(osuModsLayer);
     var osuMdCap = osuDLabel(osuModsLayer), osuMdMult = osuFitLabel(osuModsLayer), osuMdMultCap = osuDLabel(osuModsLayer);
     var osuMdPills = osuPillPool(osuModsLayer, 8, 15);
-    var OSU_MD_GROUPS = [['reduction', '#b2ff66'], ['increase', '#ff6b6b'], ['automation', '#66ccff']];
+    var OSU_MD_GROUPS = [[T('reduction'), '#b2ff66'], [T('increase'), '#ff6b6b'], [T('automation'), '#66ccff']];
+    // Mod names as C++ sends them (OsuMath.h ModTable), translated where they are drawn.
+    var OSU_MOD_NAMES = { 'Easy': T('Easy'), 'No Fail': T('No Fail'), 'Half Time': T('Half Time'), 'Hard Rock': T('Hard Rock'),
+      'Sudden Death': T('Sudden Death'), 'Perfect': T('Perfect'), 'Double Time': T('Double Time'), 'Nightcore': T('Nightcore'),
+      'Hidden': T('Hidden'), 'Flashlight': T('Flashlight'), 'Autoplay': T('Autoplay') };
     var osuMdGroups = [];
     for (var omg = 0; omg < 3; omg++) { var gb = osuPanel(osuModsLayer, null); gb.style.borderRadius = '2px'; osuMdGroups.push({ bar: gb, name: osuDLabel(osuModsLayer) }); }
     var osuMdCircles = [];
@@ -99,12 +103,12 @@ R"EGJS(
       oS(osuModsLayer, 'opacity', osuClamp((t - osuMdOpenAt) / 0.12).toFixed(3));
       osuHit(0, 0, sz.w, sz.h, 'act mods'); // anywhere but a circle closes it
       // Header: MODS, the multiplier (150px), then "score multiplier" + the active mods beside it.
-      osuDText(osuMdCap, 120, 64, 400, 24, 'MODS', 18, '#ff8fd8', 4);
+      osuDText(osuMdCap, 120, 64, 400, 24, T('MODS'), 18, '#ff8fd8', 4);
       var mul = (osuV.mult || 1).toFixed(2) + 'x';
       osuAt(osuMdMult.p, dX(114), dY(78));
       osuFs(osuMdMult.l, 150); oS(osuMdMult.l, 'letterSpacing', oPx(dS(-2))); oT(osuMdMult.l, mul);
       var sx = 114 + osuFitWidth(osuMdMult, mul.length * 66) + 28;
-      osuDText(osuMdMultCap, sx, 200, 420, 28, 'score multiplier', 20, '#ffffff80', 0);
+      osuDText(osuMdMultCap, sx, 200, 420, 28, T('score multiplier'), 20, '#ffffff80', 0);
       var mods = osuV.mods || [];
       for (var p = 0; p < osuMdPills.length; p++) {
         if (p >= mods.length) { oV(osuMdPills[p].p, false); continue; }
@@ -121,12 +125,12 @@ R"EGJS(
       for (var i = 0; i < tiles.length && used < osuMdCircles.length; i++) {
         var M = tiles[i], gi = Math.max(0, Math.min(2, M.g)), k = cnt[gi]++;
         osuHCDraw(osuMdCircles[used++], t, { cx: 555 + k * 190, cy: ys[gi], d: 150, on: !!M.on, col: OSU_MD_GROUPS[gi][1],
-          label: M.a, ls: 46, name: M.n, ns: 19, sub: M.m.toFixed(2) + 'x', key: M.k, cmd: 'mod ' + M.a });
+          label: M.a, ls: 46, name: OSU_MOD_NAMES[M.n] || M.n, ns: 19, sub: M.m.toFixed(2) + 'x', key: M.k, cmd: 'mod ' + M.a });
       }
       for (; used < osuMdCircles.length; used++) osuHCHide(osuMdCircles[used]);
       // Footer row: the hint left, [F1] [esc] back to song select right (right edge 1800).
-      osuDText(osuMdHint, 120, 1006, 600, 26, 'click a circle or hit its key', 16, '#ffffff73', 0);
-      osuFs(osuMdBack.l, 16); oS(osuMdBack.l, 'color', '#ffffffcc'); oT(osuMdBack.l, 'back to song select');
+      osuDText(osuMdHint, 120, 1006, 600, 26, T('click a circle or hit its key'), 16, '#ffffff73', 0);
+      osuFs(osuMdBack.l, 16); oS(osuMdBack.l, 'color', '#ffffffcc'); oT(osuMdBack.l, T('back to song select'));
       var bw = osuFitWidth(osuMdBack, 150), bx = 1800 - bw;
       osuAt(osuMdBack.p, dX(bx), dY(1008));
       var ew = osuCapDraw(osuMdCapEsc, bx - 10 - 34, 1005, 'esc', null, false);
@@ -141,10 +145,10 @@ R"EGJS(
     var osuOptLayer = osuFull(osuSelect);
     osuTakeover(osuOptLayer);
     var OSU_OPTS = [
-      ['sens', 'cursor sensitivity', 0.1, 6.0, 0.05, function (v) { return v.toFixed(2) + 'x'; }, '#9fe6ff'],
-      ['master', 'master volume', 0, 1, 0.05, function (v) { return Math.round(v * 100) + '%'; }, '#ff8fd8'],
-      ['music', 'music volume', 0, 1, 0.05, function (v) { return Math.round(v * 100) + '%'; }, '#ff8fd8'],
-      ['effects', 'effect volume', 0, 1, 0.05, function (v) { return Math.round(v * 100) + '%'; }, '#ff8fd8']
+      ['sens', T('cursor sensitivity'), 0.1, 6.0, 0.05, function (v) { return v.toFixed(2) + 'x'; }, '#9fe6ff'],
+      ['master', T('master volume'), 0, 1, 0.05, function (v) { return Math.round(v * 100) + '%'; }, '#ff8fd8'],
+      ['music', T('music volume'), 0, 1, 0.05, function (v) { return Math.round(v * 100) + '%'; }, '#ff8fd8'],
+      ['effects', T('effect volume'), 0, 1, 0.05, function (v) { return Math.round(v * 100) + '%'; }, '#ff8fd8']
     ];
     var osuOpCap = osuDLabel(osuOptLayer), osuOpTitle = osuDLabel(osuOptLayer);
     var osuOpSecs = [];
@@ -183,10 +187,10 @@ R"EGJS(
       osuLay(sz);
       oS(osuOptLayer, 'opacity', osuClamp((t - osuOpOpenAt) / 0.12).toFixed(3));
       osuHit(0, 0, sz.w, sz.h, '');
-      osuDText(osuOpCap, 120, 84, 400, 24, 'SETTINGS', 18, '#ff8fd8', 4);
-      osuDText(osuOpTitle, 114, 102, 900, 160, 'options', 130, '#ffffff', -2);
+      osuDText(osuOpCap, 120, 84, 400, 24, T('SETTINGS'), 18, '#ff8fd8', 4);
+      osuDText(osuOpTitle, 114, 102, 900, 160, T('options'), 130, '#ffffff', -2);
       // Section labels: INPUT over the sensitivity dial, AUDIO over the three volumes.
-      var secs = [['INPUT', 320, 260, '#9fe6ff'], ['AUDIO', 660, 940, '#ff8fd8']];
+      var secs = [[T('INPUT'), 320, 260, '#9fe6ff'], [T('AUDIO'), 660, 940, '#ff8fd8']];
       for (var s = 0; s < 2; s++) {
         osuDText(osuOpSecs[s].l, secs[s][1], 350, secs[s][2], 20, secs[s][0], 16, secs[s][3], 3);
         osuBox(osuOpSecs[s].rule, dX(secs[s][1]), dY(380), dS(secs[s][2]), Math.max(1, dS(2)));
@@ -232,17 +236,17 @@ R"EGJS(
         osuStepper(Q.plus, cx + 34, 430 + D + 64 + 27, '+', col, 'set ' + O[0] + ' ' + Math.min(O[3], v + O[4]).toFixed(2));
       }
       // Bottom left: SKIN <name>, and the volume hint.
-      osuFs(osuOpSkinCap.l, 14); oS(osuOpSkinCap.l, 'color', '#ffffff66'); oS(osuOpSkinCap.l, 'letterSpacing', oPx(dS(2))); oT(osuOpSkinCap.l, 'SKIN');
+      osuFs(osuOpSkinCap.l, 14); oS(osuOpSkinCap.l, 'color', '#ffffff66'); oS(osuOpSkinCap.l, 'letterSpacing', oPx(dS(2))); oT(osuOpSkinCap.l, T('SKIN'));
       osuAt(osuOpSkinCap.p, dX(120), dY(964));
       var kw = osuFitWidth(osuOpSkinCap, 40);
-      osuDText(osuOpSkin, 120 + kw + 12, 958, 900, 30, opt.skin || 'built-in', 20, '#ffffff', 0);
-      osuDText(osuOpHint, 120, 988, 1400, 24, 'Drag a dial up or right to raise it (shift for fine). In game, scroll for volume (hover a meter to pick it); in song select, alt + scroll.', 15, '#ffffff66', 0);
+      osuDText(osuOpSkin, 120 + kw + 12, 958, 900, 30, opt.skin || T('built-in'), 20, '#ffffff', 0);
+      osuDText(osuOpHint, 120, 988, 1400, 24, T('Drag a dial up or right to raise it (shift for fine). In game, scroll for volume (hover a meter to pick it); in song select, alt + scroll.'), 15, '#ffffff66', 0);
       // Done: a pink pill, right edge 1800, top 962, 140 x 56, with a dark [esc] cap.
       var dx0 = 1800 - 140, over = osuOver(dX(dx0), dY(962), dS(140), dS(56));
       osuBox(osuOpDone.p, dX(dx0), dY(962), dS(140), dS(56));
       oS(osuOpDone.p, 'borderRadius', oPx(dS(28)));
       oS(osuOpDone.p, 'backgroundColor', over ? '#ff7fd4' : '#ff5fc8');
-      osuBox(osuOpDone.l.p, dS(30), 0, dS(80), dS(56)); osuFs(osuOpDone.l.l, 22); oT(osuOpDone.l.l, 'done');
+      osuBox(osuOpDone.l.p, dS(30), 0, dS(80), dS(56)); osuFs(osuOpDone.l.l, 22); oT(osuOpDone.l.l, T('done'));
       osuCapDraw(osuOpDone.cap, dx0 + 140 - 16 - 34, 962 + 14, 'esc', null, true);
       osuHit(dX(dx0), dY(962), dS(140), dS(56), 'act options');
     }

@@ -65,7 +65,7 @@ test('shot FOV is whole degrees and persists with CAMERA keep', () => {
   const store = fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Config/FilmmakerSettingsStore.cpp', import.meta.url), 'utf8');
   const keep = fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Config/EffectsPersistence.cpp', import.meta.url), 'utf8');
   // The Field of view slider used decimals: 1, which is how 100.5 showed up. Whole degrees only.
-  assert.match(cameraTab, /label: 'Field of view', min: 5, max: 170, decimals: 0/);
+  assert.match(cameraTab, /label: T\('Field of view'\), min: 5, max: 170, decimals: 0/);
   assert.match(cameraTab, /cmd\('mirv_fov ' \+ v\.toFixed\(0\)\)/);
   assert.doesNotMatch(cameraTab, /label: 'Field of view'[\s\S]{0,200}decimals: 1/,
     'shot FOV must not return to tenths of a degree');
@@ -104,7 +104,7 @@ test('tab footers execute the owning backend reset lists', () => {
     assert.ok(read(file).includes('mirv_filmmaker effects reset ' + name));
   }
   const footer = read('ConfigHudEffectsResetJs.h');
-  assert.match(footer, /label:'EFFECTS'/);
+  assert.match(footer, /label:T\('EFFECTS'\)/);
   assert.match(footer, /for\(var key in fxResetLocal\)/);
   const keep = fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Config/EffectsPersistence.cpp', import.meta.url),'utf8');
   const camera = keep.split('kCameraReset[] = {')[1].split('};')[0];

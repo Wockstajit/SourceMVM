@@ -22,7 +22,7 @@
 // ATMOSPHERE, so the smoke pages drop the "Smoke" prefix -- four long labels overran the strip.
 
 R"CFJS(
-    var atmosSec = section(pageEffects, 'ATMOSPHERE', true, false, 'atmos.card', '#80bdffff');
+    var atmosSec = section(pageEffects, T('ATMOSPHERE'), true, false, 'atmos.card', '#80bdffff');
     var atmosReset = atmosSec.__headerReset([
       'mirv_colors smokes t default',
       'mirv_colors smokes ct default',
@@ -35,9 +35,9 @@ R"CFJS(
     // of groups the card ran past the column and had to be scrolled (2026-10-24). The smoke pages
     // drop the "Smoke" prefix so the four tabs fit one line.
     var smokeCard = atmosSec;
-    var smokePage = atmosSec.__page('Smoke');
-    var smokeAppearancePage = atmosSec.__page('Look');
-    var smokeVolumePage = atmosSec.__page('Volume');
+    var smokePage = atmosSec.__page(T('Smoke'));
+    var smokeAppearancePage = atmosSec.__page(T('Look'));
+    var smokeVolumePage = atmosSec.__page(T('Volume'));
 
     // Deliberately short: a long swatch grid is harder to scan than a few strong choices plus a
     // real picker for anything else.
@@ -108,51 +108,51 @@ R"CFJS(
       return out;
     }
 
-    smokeTeam(smokePage, 'Terrorist', 't');
-    smokeTeam(smokePage, 'Counter-T', 'ct');
+    smokeTeam(smokePage, T('Terrorist'), 't');
+    smokeTeam(smokePage, T('Counter-T'), 'ct');
 
-    var smokeGroup = actionGroup(smokePage, 'Both teams', [
-      ['Reset both', function () {
+    var smokeGroup = actionGroup(smokePage, T('Both teams'), [
+      [T('Reset both'), function () {
         cmd('mirv_colors smokes t default');
         cmd('mirv_colors smokes ct default');
       }]
     ], 2);
 
     // LOOK and VOLUME are the card's next pages (built above with smokePage).
-    var smokeAppearance = togglePill(smokeAppearancePage, 'Custom appearance',
-      'Adjusts the look of deployed smoke. Switch off to return to the native appearance.',
+    var smokeAppearance = togglePill(smokeAppearancePage, T('Custom appearance'),
+      T('Adjusts the look of deployed smoke. Switch off to return to the native appearance.'),
       function () { cmd('mirv_filmmaker world smoke appearance toggle'); });
     var smokeShapeStatus = envNote(smokeAppearancePage, '');
-    var smokeDensity = sliderRow(smokeAppearancePage, {label:'Density', cmd:'mirv_filmmaker world smoke appearance density', min:0, max:20, decimals:2, unit:'', tip:'How opaque the smoke looks. Native value: 0.85.'});
-    var smokeWispy = sliderRow(smokeAppearancePage, {label:'Wispiness', cmd:'mirv_filmmaker world smoke appearance wispy', min:0, max:1, decimals:2, unit:'', tip:'Shapes the noise into wisps. Native value: 0.'});
-    subHead(smokeAppearancePage, 'TEXTURE');
-    var smokeNoise = sliderRow(smokeAppearancePage, {label:'Noise amount', cmd:'mirv_filmmaker world smoke appearance noise', min:0, max:3, decimals:2, unit:'', tip:'Overall noise distortion. Native value: 0.8.'});
-    var smokeScaleLow = sliderRow(smokeAppearancePage, {label:'Coarse detail', cmd:'mirv_filmmaker world smoke appearance scale_low', min:0.05, max:20, decimals:2, unit:'', tip:'Frequency of the larger noise shapes. Higher values make smaller details. Native value: 3.'});
-    var smokeStrengthLow = sliderRow(smokeAppearancePage, {label:'Coarse amount', cmd:'mirv_filmmaker world smoke appearance strength_low', min:0, max:1, decimals:2, unit:'', tip:'Strength of the coarse noise layer. Native value: 0.5.'});
-    var smokeScaleHigh = sliderRow(smokeAppearancePage, {label:'Fine detail', cmd:'mirv_filmmaker world smoke appearance scale_high', min:0.05, max:20, decimals:2, unit:'', tip:'Frequency of the fine noise shapes. Native value: 7.'});
-    var smokeStrengthHigh = sliderRow(smokeAppearancePage, {label:'Fine amount', cmd:'mirv_filmmaker world smoke appearance strength_high', min:0, max:1, decimals:2, unit:'', tip:'Strength of the fine noise layer. Native value: 0.35.'});
-    subHead(smokeAppearancePage, 'MOTION');
-    var smokeSpeed = sliderRow(smokeAppearancePage, {label:'Animation speed', cmd:'mirv_filmmaker world smoke appearance speed', min:0, max:10, decimals:2, unit:'', tip:'Speed of the moving noise. Zero stops this motion. Native value: 1.5.'});
-    var smokeBoil = sliderRow(smokeAppearancePage, {label:'Boiling', cmd:'mirv_filmmaker world smoke appearance boil', min:-1, max:1, decimals:2, unit:'', tip:'Strength and direction of the rolling distortion. Native value: -0.3.'});
-    subHead(smokeAppearancePage, 'SAMPLING');
-    var smokeRayStep = sliderRow(smokeAppearancePage, {label:'Ray step', cmd:'mirv_filmmaker world smoke appearance ray_step', min:0.5, max:20, decimals:2, unit:'', tip:'Distance between rendering samples. Smaller values cost more GPU time. Native value: 6. This does not change voxel size.'});
-    actionGroup(smokeAppearancePage, 'Appearance', [['Reset appearance', function () {cmd('mirv_filmmaker world smoke appearance reset');}]], 1);
+    var smokeDensity = sliderRow(smokeAppearancePage, {label:T('Density'), cmd:'mirv_filmmaker world smoke appearance density', min:0, max:20, decimals:2, unit:'', tip:T('How opaque the smoke looks. Native value: 0.85.')});
+    var smokeWispy = sliderRow(smokeAppearancePage, {label:T('Wispiness'), cmd:'mirv_filmmaker world smoke appearance wispy', min:0, max:1, decimals:2, unit:'', tip:T('Shapes the noise into wisps. Native value: 0.')});
+    subHead(smokeAppearancePage, T('TEXTURE'));
+    var smokeNoise = sliderRow(smokeAppearancePage, {label:T('Noise amount'), cmd:'mirv_filmmaker world smoke appearance noise', min:0, max:3, decimals:2, unit:'', tip:T('Overall noise distortion. Native value: 0.8.')});
+    var smokeScaleLow = sliderRow(smokeAppearancePage, {label:T('Coarse detail'), cmd:'mirv_filmmaker world smoke appearance scale_low', min:0.05, max:20, decimals:2, unit:'', tip:T('Frequency of the larger noise shapes. Higher values make smaller details. Native value: 3.')});
+    var smokeStrengthLow = sliderRow(smokeAppearancePage, {label:T('Coarse amount'), cmd:'mirv_filmmaker world smoke appearance strength_low', min:0, max:1, decimals:2, unit:'', tip:T('Strength of the coarse noise layer. Native value: 0.5.')});
+    var smokeScaleHigh = sliderRow(smokeAppearancePage, {label:T('Fine detail'), cmd:'mirv_filmmaker world smoke appearance scale_high', min:0.05, max:20, decimals:2, unit:'', tip:T('Frequency of the fine noise shapes. Native value: 7.')});
+    var smokeStrengthHigh = sliderRow(smokeAppearancePage, {label:T('Fine amount'), cmd:'mirv_filmmaker world smoke appearance strength_high', min:0, max:1, decimals:2, unit:'', tip:T('Strength of the fine noise layer. Native value: 0.35.')});
+    subHead(smokeAppearancePage, T('MOTION'));
+    var smokeSpeed = sliderRow(smokeAppearancePage, {label:T('Animation speed'), cmd:'mirv_filmmaker world smoke appearance speed', min:0, max:10, decimals:2, unit:'', tip:T('Speed of the moving noise. Zero stops this motion. Native value: 1.5.')});
+    var smokeBoil = sliderRow(smokeAppearancePage, {label:T('Boiling'), cmd:'mirv_filmmaker world smoke appearance boil', min:-1, max:1, decimals:2, unit:'', tip:T('Strength and direction of the rolling distortion. Native value: -0.3.')});
+    subHead(smokeAppearancePage, T('SAMPLING'));
+    var smokeRayStep = sliderRow(smokeAppearancePage, {label:T('Ray step'), cmd:'mirv_filmmaker world smoke appearance ray_step', min:0.5, max:20, decimals:2, unit:'', tip:T('Distance between rendering samples. Smaller values cost more GPU time. Native value: 6. This does not change voxel size.')});
+    actionGroup(smokeAppearancePage, T('Appearance'), [[T('Reset appearance'), function () {cmd('mirv_filmmaker world smoke appearance reset');}]], 1);
 
-    var smokeVolumeOn = togglePill(smokeVolumePage, 'Custom smoke',
-      'Changes the visible smoke live, including clouds already deployed.',
+    var smokeVolumeOn = togglePill(smokeVolumePage, T('Custom smoke'),
+      T('Changes the visible smoke live, including clouds already deployed.'),
       function () { cmd('mirv_filmmaker world smoke appearance toggle'); });
-    var smokeSpread = sliderRow(smokeVolumePage, {label:'Spread', cmd:'mirv_filmmaker world smoke appearance spread', min:0.25, max:2, decimals:2, unit:'x', tip:'Scales the visible cloud around its origin. 1 is native size. Applies to existing smoke.'});
-    var smokeVoxelSize = sliderRow(smokeVolumePage, {label:'Voxel size', cmd:'mirv_filmmaker world smoke appearance voxel_size', min:2.5, max:320, decimals:1, unit:'u', tip:'Size of a rendered cell in world units. Larger cells make coarser smoke. Linked to voxels per side; native size is 20 units.'});
-    var smokeResolution = sliderRow(smokeVolumePage, {label:'Voxels per side', cmd:'mirv_filmmaker world smoke appearance resolution', min:4, max:64, decimals:0, unit:'', tip:'Number of rendered cells along each side of the smoke volume. Native grid: 32 per side. Increasing this resamples the existing smoke.'});
+    var smokeSpread = sliderRow(smokeVolumePage, {label:T('Spread'), cmd:'mirv_filmmaker world smoke appearance spread', min:0.25, max:2, decimals:2, unit:'x', tip:T('Scales the visible cloud around its origin. 1 is native size. Applies to existing smoke.')});
+    var smokeVoxelSize = sliderRow(smokeVolumePage, {label:T('Voxel size'), cmd:'mirv_filmmaker world smoke appearance voxel_size', min:2.5, max:320, decimals:1, unit:'u', tip:T('Size of a rendered cell in world units. Larger cells make coarser smoke. Linked to voxels per side; native size is 20 units.')});
+    var smokeResolution = sliderRow(smokeVolumePage, {label:T('Voxels per side'), cmd:'mirv_filmmaker world smoke appearance resolution', min:4, max:64, decimals:0, unit:'', tip:T('Number of rendered cells along each side of the smoke volume. Native grid: 32 per side. Increasing this resamples the existing smoke.')});
     var smokeGridStatus = envNote(smokeVolumePage, '');
-    envNote(smokeVolumePage, 'Voxel size and count are linked. Spread changes the cloud size. These controls resample the visible smoke.');
-    actionGroup(smokeVolumePage, 'Smoke', [['Reset smoke', function () {cmd('mirv_filmmaker world smoke appearance reset');}]], 1);
+    envNote(smokeVolumePage, T('Voxel size and count are linked. Spread changes the cloud size. These controls resample the visible smoke.'));
+    actionGroup(smokeVolumePage, T('Smoke'), [[T('Reset smoke'), function () {cmd('mirv_filmmaker world smoke appearance reset');}]], 1);
 
     // ===================== WORLD TINT ===================================
     // World Tint belongs with atmosphere: it is an environment-wide grade applied to geometry,
     // props, players, foliage, and the HDR sky. Lighting stays reserved for exposure, the sun,
     // and shadow direction.
-    var modPage = atmosSec.__page('World tint');
+    var modPage = atmosSec.__page(T('World tint'));
 
     var MOD_TINTS = [
       ['off',     '#00000000', '255 255 255'],
@@ -181,7 +181,7 @@ R"CFJS(
       if (modPicker) modPicker.hide();
       applyWorldTint(rgb);
     }, {
-      label: 'Tint',
+      label: T('Tint'),
       custom: true,
       onCustom: function () { if (modPicker) modPicker.show(); }
     });
@@ -192,15 +192,15 @@ R"CFJS(
     });
 
     var modStrength = sliderRow(modPage, {
-      label: 'Tint strength', cmd: 'mirv_filmmaker world modulate strength',
+      label: T('Tint strength'), cmd: 'mirv_filmmaker world modulate strength',
       min: 0, max: 1, decimals: 2, unit: '',
-      tip: 'Blends between the map’s own colours (0) and the full tint (1). Use this rather than '
-         + 'picking a paler swatch — a pale swatch still replaces the colour, this keeps it.'
+      tip: T('Blends between the map’s own colours (0) and the full tint (1). Use this rather than '
+         + 'picking a paler swatch — a pale swatch still replaces the colour, this keeps it.')
     });
 
     // Ties the world tint to the sun tint when an operator wants one coherent environmental grade.
-    var modGroup = actionGroup(modPage, 'Grade', [
-      ['Match sun', function () {
+    var modGroup = actionGroup(modPage, T('Grade'), [
+      [T('Match sun'), function () {
         var c = lightCustomRgb;
         for (var i = 0; i < LIGHT_TINTS.length; i++) {
           if (lightGrid.selected === LIGHT_TINTS[i][0]) { c = LIGHT_TINTS[i][2].split(' '); break; }
@@ -208,8 +208,8 @@ R"CFJS(
         modGrid.paintCustom(c); modGrid.select('custom');
         applyWorldTint(c[0] + ' ' + c[1] + ' ' + c[2]);
       }],
-      ['Reset tint', function () { cmd('mirv_filmmaker world modulate reset'); }]
-    ], 2, 'Reaches map geometry, model props, foliage, players and the HDR sky.');
+      [T('Reset tint'), function () { cmd('mirv_filmmaker world modulate reset'); }]
+    ], 2, T('Reaches map geometry, model props, foliage, players and the HDR sky.'));
 
     // Local half of the footer's RESET: only the open pickers. Both swatch grids and the strength
     // value mirror back from C++, so the commands settle them.
@@ -218,6 +218,14 @@ R"CFJS(
       smokeRows.ct.hide();
       if (modPicker) modPicker.hide();
     };
+
+    // Colour names stay English in the data (swatch keys, console arguments); this is what the
+    // card summary shows for them.
+    var ATMOS_SHOWN = { white: T('white'), red: T('red'), green: T('green'), blue: T('blue'), yellow: T('yellow'),
+                        magenta: T('magenta'), cyan: T('cyan'), black: T('black'), crimson: T('crimson'),
+                        amber: T('amber'), lime: T('lime'), azure: T('azure'), violet: T('violet'),
+                        mono: T('mono'), custom: T('custom') };
+    ATMOS_SHOWN['default'] = T('default');
 
     renderHooks.push(function (st) {
       var t = st.smokeT || 'default', ct = st.smokeCT || 'default';
@@ -230,7 +238,7 @@ R"CFJS(
       smokeSpread.sync(spread);
       smokeVoxelSize.sync(typeof st.smoke_voxel_size === 'number' ? st.smoke_voxel_size : 640 * spread / resolution);
       smokeResolution.sync(resolution);
-      smokeGridStatus.text = resolution + ' x ' + resolution + ' x ' + resolution + ' = ' + (resolution * resolution * resolution) + ' rendered cells';
+      smokeGridStatus.text = T('{0} x {0} x {0} = {1} rendered cells', resolution, resolution * resolution * resolution);
       smokeDensity.sync(typeof st.smoke_density === 'number' ? st.smoke_density : 0.85);
       smokeWispy.sync(typeof st.smoke_wispy === 'number' ? st.smoke_wispy : 0);
       smokeNoise.sync(typeof st.smoke_noise === 'number' ? st.smoke_noise : 0.8);
@@ -242,8 +250,8 @@ R"CFJS(
       smokeBoil.sync(typeof st.smoke_boil === 'number' ? st.smoke_boil : -0.3);
       smokeRayStep.sync(typeof st.smoke_ray_step === 'number' ? st.smoke_ray_step : 6);
       smokeShapeStatus.text = st.smokeAppearance === true
-        ? (st.smokeAppearanceReady === true ? 'Custom smoke appearance' : 'Waiting for a supported smoke renderer')
-        : 'Native smoke appearance';
+        ? (st.smokeAppearanceReady === true ? T('Custom smoke appearance') : T('Waiting for a supported smoke renderer'))
+        : T('Native smoke appearance');
 
       var on = (st.mod_world_on === true);
       var p = (typeof st.mod_world === 'string') ? st.mod_world.split(' ') : ['255', '255', '255'];
@@ -268,10 +276,9 @@ R"CFJS(
 
       // An r-g-b triple from the picker would blow past the summary's width, so a custom colour
       // reads as "custom" here and the swatch inside the card carries the actual value.
-      function smokeWord(n) { return (n.indexOf(' ') >= 0) ? 'custom' : n; }
-      atmosSec.__note('Smoke '
-        + ((t === 'default' && ct === 'default') ? 'map default' : (smokeWord(t) + ' / ' + smokeWord(ct)))
-        + (st.smokeAppearance === true ? ' · custom shape' : '')
-        + ' · tint ' + (on ? ((named === 'custom' ? 'custom' : named) + ' ' + Math.round(strength * 100) + '%') : 'off'));
+      function smokeWord(n) { var w = (n.indexOf(' ') >= 0) ? 'custom' : n; return ATMOS_SHOWN[w] || w; }
+      atmosSec.__note(((t === 'default' && ct === 'default') ? T('Smoke map default') : T('Smoke {0} / {1}', smokeWord(t), smokeWord(ct)))
+        + (st.smokeAppearance === true ? ' · ' + T('custom shape') : '')
+        + ' · ' + (on ? T('tint {0} {1}%', ATMOS_SHOWN[named] || named, Math.round(strength * 100)) : T('tint off')));
     });
 )CFJS"

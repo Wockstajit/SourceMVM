@@ -1,4 +1,5 @@
 #include "OnboardingHud.h"
+#include "../Localization/Localization.h"
 
 #include "OnboardingJs.h"
 #include "PanoramaFindPanel.h"
@@ -80,6 +81,8 @@ void OnboardingHud::RunFrame() {
 	const bool loaded = level && level[0] && std::strcmp(level, "<empty>") != 0;
 	unsigned char* ctx = loaded && hud ? hud : menu;
 	if (!ctx) { m_built = false; m_root = nullptr; m_context = nullptr; return; }
+	// A language change rebuilds the script, which is what re-reads its text (Localization.h).
+	{ static uint64_t uiEpoch = 0; if (Localization_TakeUiEpoch(uiEpoch)) { m_built = false; } }
 	if (ctx != m_context) {
 		if (m_context && (m_context == hud || m_context == menu)) Teardown();
 		m_built = false; m_root = nullptr; m_context = ctx;

@@ -1,4 +1,5 @@
 #include "MovieHud.h"
+#include "../Localization/Localization.h"
 
 #include "PanoramaFindPanel.h"
 
@@ -191,6 +192,8 @@ void MovieHud::RunFrame() {
 		m_hudPanel = hud;
 		m_built = false;
 	}
+	// A language change rebuilds the script, which is what re-reads its text (Localization.h).
+	{ static uint64_t uiEpoch = 0; if (Localization_TakeUiEpoch(uiEpoch)) { m_built = false; } }
 	m_bridge.SetContextPanel(hud); // pin to the in-game HUD (not the main menu)
 
 	if (!BuildIfNeeded())

@@ -29,7 +29,7 @@
 // shut drawers you had to open one at a time to answer "what is switched on".
 
 R"CFJS(
-    var fxSec = section(pageEffects, 'PARTICLE PACKS', true, true, 'fx.packs', '#80bdffff');
+    var fxSec = section(pageEffects, T('PARTICLE PACKS'), true, true, 'fx.packs', '#80bdffff');
     var fxCardReset = fxSec.__headerReset([
       'mirv_filmmaker fx set impacts off quiet', 'mirv_filmmaker fx set tracers off quiet',
       'mirv_filmmaker fx set weaponfx off quiet', 'mirv_filmmaker fx set explosions off quiet',
@@ -40,7 +40,7 @@ R"CFJS(
     ], 'fx.vfx');
     var fxMaster = fxSec.__headerPill(
       function () { cmd('mirv_filmmaker fx ' + (st && st.fxOn ? 'off' : 'on') + ' quiet'); },
-      'Controls custom particle effects. Off keeps every category at the CS2 default.');
+      T('Controls custom particle effects. Off keeps every category at the CS2 default.'));
 
     // Segmented mode control, one per particle category. Per-row mode subsets mirror
     // ParticleFx's ModeSupported() -- offering a mode with no distinct assets just confuses
@@ -54,7 +54,7 @@ R"CFJS(
     // `cmdFor` is optional: give it a function(mode) -> console command for a row that is not
     // a plain `fx set <category>` (Money on Headshot has its own verb).
     function fxSeg(parent, label, catKey, modes, tip, cmdFor) {
-      var caps = { on: 'On', more: 'More', less: 'Less', modern: 'Modern', off: 'Off' };
+      var caps = { on: T('On'), more: T('More##amount'), less: T('Less'), modern: T('Modern'), off: T('Off') };
       var items = [];
       for (var i = 0; i < modes.length; i++) items.push([modes[i], caps[modes[i]]]);
       return modeRow(parent, label, items, FXSEG_W + 'px', function (mode) {
@@ -64,63 +64,63 @@ R"CFJS(
 
     // ONE page with three sub-headings (Docs/features/filmmaker_config_panel.md): seven mode rows fit without paging.
     var fxPageGun = fxSec, fxPageDmg = fxSec, fxPageExpl = fxSec;
-    subHead(fxSec, 'Gunfire').style.marginTop = '2px';
-    var fxImpacts  = fxSeg(fxPageGun, 'Bullet impacts', 'impacts', ['on', 'off'],
-      'Randomized reduced Povarhok and Insurgency sparks and debris. Off keeps the CS2 default.');
-    var fxTracers  = fxSeg(fxPageGun, 'Bullet tracers', 'tracers', ['on', 'modern', 'off'],
-      'The light streaks bullets draw in flight. Modern is the MW-style pack; Off keeps the CS2 default.');
-    var fxWeaponfx = fxSeg(fxPageGun, 'Muzzle & shells', 'weaponfx', ['on', 'modern', 'off'],
-      'Muzzle flash, smoke and ejected shells. Modern is the MW-style pack; Off keeps the CS2 default.');
+    subHead(fxSec, T('Gunfire')).style.marginTop = '2px';
+    var fxImpacts  = fxSeg(fxPageGun, T('Bullet impacts'), 'impacts', ['on', 'off'],
+      T('Randomized reduced Povarhok and Insurgency sparks and debris. Off keeps the CS2 default.'));
+    var fxTracers  = fxSeg(fxPageGun, T('Bullet tracers'), 'tracers', ['on', 'modern', 'off'],
+      T('The light streaks bullets draw in flight. Modern is the MW-style pack; Off keeps the CS2 default.'));
+    var fxWeaponfx = fxSeg(fxPageGun, T('Muzzle & shells'), 'weaponfx', ['on', 'modern', 'off'],
+      T('Muzzle flash, smoke and ejected shells. Modern is the MW-style pack; Off keeps the CS2 default.'));
 
-    subHead(fxSec, 'Damage');
+    subHead(fxSec, T('Damage'));
     // Money-on-headshot swaps the headshot-only particles, so it fires exactly on real headshot
     // hits. (Blood itself is never swapped: CS2's own blood is plenty.) Same segmented control as every other row -- it used
     // to be a lone flip-label button, which hid the state you were not in.
-    var fxMoney = fxSeg(fxPageDmg, 'Money on headshot', 'moneyshot', ['on', 'off'],
-      'Bursts money instead of the usual effect on headshot kills.',
+    var fxMoney = fxSeg(fxPageDmg, T('Money on headshot'), 'moneyshot', ['on', 'off'],
+      T('Bursts money instead of the usual effect on headshot kills.'),
       function (mode) { return 'mirv_filmmaker fx moneyshot ' + mode; });
 
-    subHead(fxSec, 'Explosives');
-    var fxExplosions = fxSeg(fxPageExpl, 'HE grenade', 'explosions', ['on', 'modern', 'off'],
-      'The HE grenade blast. Modern is the MW-style pack; Off keeps the CS2 default.');
-    var fxBombfx     = fxSeg(fxPageExpl, 'Bomb (C4)', 'bombfx', ['on', 'off'],
-      'The bomb detonation. Off keeps the CS2 default.');
-    var fxFlashbang  = fxSeg(fxPageExpl, 'Flash grenade', 'flashbang', ['on', 'off'],
-      'The flashbang detonation. On is the Modern Warfare 2019 flash: a white burst with sparks, '
-      + 'debris, a smoke shockwave and a lingering smoke cloud. Off keeps the CS2 default.');
-    var fxFlashBlind = fxSeg(fxPageExpl, 'Flash blindness', 'flashblind', ['on', 'off'],
-      'Off: flashbangs still go off (sound and particles) but never blind anyone, so the '
-      + 'detonation can be seen and filmed. On is the CS2 default.',
+    subHead(fxSec, T('Explosives'));
+    var fxExplosions = fxSeg(fxPageExpl, T('HE grenade'), 'explosions', ['on', 'modern', 'off'],
+      T('The HE grenade blast. Modern is the MW-style pack; Off keeps the CS2 default.'));
+    var fxBombfx     = fxSeg(fxPageExpl, T('Bomb (C4)'), 'bombfx', ['on', 'off'],
+      T('The bomb detonation. Off keeps the CS2 default.'));
+    var fxFlashbang  = fxSeg(fxPageExpl, T('Flash grenade'), 'flashbang', ['on', 'off'],
+      T('The flashbang detonation. On is the Modern Warfare 2019 flash: a white burst with sparks, '
+      + 'debris, a smoke shockwave and a lingering smoke cloud. Off keeps the CS2 default.'));
+    var fxFlashBlind = fxSeg(fxPageExpl, T('Flash blindness'), 'flashblind', ['on', 'off'],
+      T('Off: flashbangs still go off (sound and particles) but never blind anyone, so the '
+      + 'detonation can be seen and filmed. On is the CS2 default.'),
       function (mode) { return 'mirv_filmmaker fx flashblind ' + mode; });
-    var fxMolotov    = fxSeg(fxPageExpl, 'Nade trails', 'molotov', ['on', 'off'],
-      'In-flight smoke trail on thrown grenades. Molotov and incendiary get the full trail; '
-      + 'Smoke grenades get the smoke ribbon alone. Molotov ground fire always stays CS2 default.');
+    var fxMolotov    = fxSeg(fxPageExpl, T('Nade trails'), 'molotov', ['on', 'off'],
+      T('In-flight smoke trail on thrown grenades. Molotov and incendiary get the full trail; '
+      + 'Smoke grenades get the smoke ribbon alone. Molotov ground fire always stays CS2 default.'));
 
     // Three INDEPENDENT switches (2026-10 sidebar cleanup), not a segment that looked like one
     // choice: any combination works with native map lighting. `fxDynamicLights.sync(mask)` keeps
     // the render hook's bitmask contract (1 molly, 2 flashbang, 4 grenade).
-    subHead(fxPageExpl, 'Dynamic lights');
+    subHead(fxPageExpl, T('Dynamic lights'));
     var fxDlMask = 0;
     function fxDlToggle(label, key, bit, tip) {
       return togglePill(fxPageExpl, label, tip, function () {
         cmd('mirv_filmmaker fx ' + key + ((fxDlMask & bit) ? ' off' : ' on'));
       });
     }
-    var fxDlMolly = fxDlToggle('Molotov', 'mollylights', 1, 'Fire lighting on molotov and incendiary flames.');
-    var fxDlFlash = fxDlToggle('Flashbang', 'flashlights', 2, 'A brief burst of light when a flashbang detonates.');
-    var fxDlNade = fxDlToggle('HE grenade', 'helights', 4, 'A brief burst of light when an HE grenade detonates.');
+    var fxDlMolly = fxDlToggle(T('Molotov'), 'mollylights', 1, T('Fire lighting on molotov and incendiary flames.'));
+    var fxDlFlash = fxDlToggle(T('Flashbang'), 'flashlights', 2, T('A brief burst of light when a flashbang detonates.'));
+    var fxDlNade = fxDlToggle(T('HE grenade'), 'helights', 4, T('A brief burst of light when an HE grenade detonates.'));
     var fxDynamicLights = { row: fxDlMolly.row, sync: function (value) {
       fxDlMask = value || 0;
       fxDlMolly.set(!!(fxDlMask & 1)); fxDlFlash.set(!!(fxDlMask & 2)); fxDlNade.set(!!(fxDlMask & 4));
     } };
 
-    var fxWorldNote = lbl(fxPageExpl, 'Off keeps the CS2 default for that category. Smoke grenades are never swapped.',
+    var fxWorldNote = lbl(fxPageExpl, T('Off keeps the CS2 default for that category. Smoke grenades are never swapped.'),
       S.hint, 12);
     fxWorldNote.hittest = false; fxWorldNote.style.whiteSpace = 'normal';
     fxWorldNote.style.width = '100%'; fxWorldNote.style.marginTop = '10px';
     fxWorldNote.style.paddingLeft = UI.line.padH + 'px'; fxWorldNote.style.paddingRight = UI.line.padH + 'px';
     // The one state the card cannot show as a value: the pack is enabled but still installing.
-    var fxStatus = lbl(fxPageExpl, 'Effects are still loading.', '#e8b339ff', 13);
+    var fxStatus = lbl(fxPageExpl, T('Effects are still loading.'), '#e8b339ff', 13);
     fxStatus.hittest = false; fxStatus.style.fontWeight = 'bold';
     fxStatus.style.whiteSpace = 'normal'; fxStatus.style.marginTop = '8px'; fxStatus.visible = false;
     fxStatus.style.paddingLeft = UI.line.padH + 'px';
@@ -147,6 +147,6 @@ R"CFJS(
                   st.fxHeLights ? 'on' : 'off', st.fxFlashLights ? 'on' : 'off'];
       var custom = 0;
       for (var i = 0; i < vals.length; i++) if (vals[i] && vals[i] !== 'off') custom++;
-      fxSec.__note(st.fxOn ? (custom + ' of ' + vals.length + ' custom') : 'Off');
+      fxSec.__note(st.fxOn ? T('{0} of {1} custom', custom, vals.length) : T('Off'));
     });
 )CFJS"

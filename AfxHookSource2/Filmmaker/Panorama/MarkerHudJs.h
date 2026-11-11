@@ -34,6 +34,9 @@ namespace Filmmaker {
 
 inline const char* kMarkerHudJs = R"MKJS(
 (function () {
+)MKJS"
+#include "LocalizationJs.h"
+R"MKJS(
   try {
     var existing = $('#MarkerHudRoot'); if (existing) existing.DeleteAsync(0);
     var ctx = $.GetContextPanel();
@@ -73,7 +76,7 @@ inline const char* kMarkerHudJs = R"MKJS(
       try { GameInterfaceAPI.ConsoleCommand(c); }
       catch (e) { $.Msg('[markerhud] cmd failed: ' + e + '\n'); }
     }
-    function mk(type, parent) { return $.CreatePanel(type, parent, '', {}); }
+    function mk(type, parent) { var p = $.CreatePanel(type, parent, '', {}); return type === 'Label' ? mvmFit(p) : p; }
     function lbl(parent, text, color, size) {
       var l = mk('Label', parent); l.text = text || '';
       if (color) l.style.color = color;
@@ -226,11 +229,11 @@ inline const char* kMarkerHudJs = R"MKJS(
     accentBar.style.width = '3px'; accentBar.style.height = '15px';
     accentBar.style.backgroundColor = S.accent; accentBar.style.borderRadius = '2px';
     accentBar.style.marginRight = '9px'; accentBar.style.verticalAlign = 'center';
-    var title = lbl(titleWrap, 'CAMERA MARKER', S.accent, 14);
+    var title = lbl(titleWrap, T('CAMERA MARKER'), S.accent, 14);
     title.style.fontWeight = 'bold'; title.style.letterSpacing = '1.5px';
     title.style.verticalAlign = 'center';
     title.style.width = 'fill-parent-flow(1.0)';
-    title.style.whiteSpace = 'nowrap';
+    title.style.whiteSpace = 'nowrap'; title.style.textOverflow = 'shrink';
 
     mkArrow(header, '▶', 'mirv_filmmaker marker next');
     mkSep(body);
@@ -245,6 +248,7 @@ R"MKJS(
       r.style.marginBottom = '6px'; r.style.minHeight = '28px';
       var k = lbl(r, labelText, S.label, 13);
       k.style.width = 'fill-parent-flow(1.0)'; k.style.verticalAlign = 'center';
+      k.style.whiteSpace = 'nowrap'; k.style.textOverflow = 'shrink';
       var btn = mk('Panel', r);
       btn.style.borderRadius = '4px'; btn.style.width = '132px';
       btn.style.paddingTop = '5px'; btn.style.paddingBottom = '5px';
@@ -252,6 +256,7 @@ R"MKJS(
       var v = lbl(btn, '', S.value, 13);
       v.hittest = false; v.style.fontWeight = 'bold';
       v.style.textAlign = 'center'; v.style.width = '100%';
+      v.style.whiteSpace = 'nowrap'; v.style.textOverflow = 'shrink';
       interactive(btn, function () { cmd(command); });
       return { row: r, btn: btn, val: v };
     }
@@ -268,6 +273,7 @@ R"MKJS(
       r.style.marginBottom = '6px'; r.style.minHeight = '28px';
       var k = lbl(r, labelText, S.label, 13);
       k.style.width = 'fill-parent-flow(1.0)'; k.style.verticalAlign = 'center';
+      k.style.whiteSpace = 'nowrap'; k.style.textOverflow = 'shrink';
       function step(dir) {
         var cur = getCur();
         var idx = 0, best = 1e9;
@@ -301,20 +307,20 @@ R"MKJS(
     }
 
     var sec = mkSection(body);
-    mkCaption(sec, 'PLAYBACK');
-    var selSpeedMode = mkSelector(sec, 'Speed mode', 'mirv_filmmaker marker speedmode cycle');
-    var selInterp = mkSelector(sec, 'Path curve', 'mirv_filmmaker marker interp cycle');
-    var selTiming = mkSelector(sec, 'Timing (all cameras)', 'mirv_filmmaker marker timing toggle');
-    var selAutoSnap = mkSelector(sec, 'Auto-snap to selected', 'mirv_filmmaker marker autosnap toggle');
+    mkCaption(sec, T('PLAYBACK'));
+    var selSpeedMode = mkSelector(sec, T('Speed mode'), 'mirv_filmmaker marker speedmode cycle');
+    var selInterp = mkSelector(sec, T('Path curve'), 'mirv_filmmaker marker interp cycle');
+    var selTiming = mkSelector(sec, T('Timing (all cameras)'), 'mirv_filmmaker marker timing toggle');
+    var selAutoSnap = mkSelector(sec, T('Auto-snap to selected'), 'mirv_filmmaker marker autosnap toggle');
 
     // Global Constant Speed (shown only when Speed Mode == Constant).
-    var constStepper = mkStepper(sec, 'Constant speed',
+    var constStepper = mkStepper(sec, T('Constant speed'),
       function () { return (st && st.constSpeed != null) ? st.constSpeed : 1.0; },
       'mirv_filmmaker marker constspeed');
 
     // Per-segment multiplier for this marker's OUTGOING segment (shown only when
     // Speed Mode == Per-Segment and this is NOT the last marker).
-    var mulStepper = mkStepper(sec, 'Segment speed (to next)',
+    var mulStepper = mkStepper(sec, T('Segment speed (to next)'),
       function () { return (st && st.speedMul != null) ? st.speedMul : 1.0; },
       'mirv_filmmaker marker speedmul');
 
@@ -329,7 +335,7 @@ R"MKJS(
     // ones are secondary and red-tinted only on hover, so the card does not read as three
     // equally-weighted buttons stacked in a column.
     var asec = mkSection(body);
-    mkCaption(asec, 'ACTIONS');
+    mkCaption(asec, T('ACTIONS'));
     function mkAction(parent, text, opts) {
       opts = opts || {};
       var b = mk('Panel', parent);
@@ -349,21 +355,21 @@ R"MKJS(
       b.__lbl = l;
       return b;
     }
-    var repositionBtn = mkAction(asec, 'Reposition Camera', {
+    var repositionBtn = mkAction(asec, T('Reposition Camera'), {
       primary: true,
       onClick: function () { cmd('mirv_filmmaker marker reposition'); }
     });
-    var delBtn = mkAction(asec, 'Remove Marker', {
+    var delBtn = mkAction(asec, T('Remove Marker'), {
       accent: S.dangerEdge, fg: S.value,
       onClick: function () { if (st && st.selected >= 0) cmd('mirv_filmmaker marker delete ' + st.selected); }
     });
     var delAllConfirm = false;
-    var delAllBtn = mkAction(asec, 'Remove All Markers', {
+    var delAllBtn = mkAction(asec, T('Remove All Markers'), {
       accent: S.dangerEdge, fg: S.value,
       onClick: function () {
         if (!delAllConfirm) {
           delAllConfirm = true;
-          delAllBtn.__lbl.text = 'Remove All — click again to confirm';
+          delAllBtn.__lbl.text = T('Remove All — click again to confirm');
           delAllBtn.__lbl.style.color = S.danger;
           return;
         }
@@ -374,7 +380,7 @@ R"MKJS(
     delAllBtn.style.marginBottom = '0px';
     function resetDelAll() {
       delAllConfirm = false;
-      delAllBtn.__lbl.text = 'Remove All Markers';
+      delAllBtn.__lbl.text = T('Remove All Markers');
       delAllBtn.__lbl.style.color = S.value;
     }
 
@@ -383,7 +389,7 @@ R"MKJS(
 R"MKJS(
     // ---- control hints, as F8-style [KEY] badge rows ----------------------
     var hsec = mkSection(body);
-    mkCaption(hsec, 'CONTROLS');
+    mkCaption(hsec, T('CONTROLS'));
     function mkControl(parent, keyText, desc) {
       var r = mk('Panel', parent);
       r.hittest = false;
@@ -402,10 +408,10 @@ R"MKJS(
       d.style.width = 'fill-parent-flow(1.0)'; d.style.verticalAlign = 'center';
       return r;
     }
-    mkControl(hsec, 'K', 'Place a camera marker');
-    mkControl(hsec, 'J', 'Play / stop the path from its first key');
-    mkControl(hsec, 'L', 'Delete the marker you are aiming at');
-    mkControl(hsec, 'F', 'Open these settings (aim at a marker)');
+    mkControl(hsec, K('marker.place', 'K'), T('Place a camera marker'));
+    mkControl(hsec, K('path.play', 'J'), T('Play / stop the path from its first key'));
+    mkControl(hsec, K('marker.delete', 'L'), T('Delete the marker you are aiming at'));
+    mkControl(hsec, K('marker.edit', 'F'), T('Open these settings (aim at a marker)'));
 
     mkSep(body);
 
@@ -423,7 +429,7 @@ R"MKJS(
     doneBtn.style.borderRadius = '4px';
     doneBtn.style.paddingTop = '5px'; doneBtn.style.paddingBottom = '5px';
     doneBtn.style.paddingLeft = '14px'; doneBtn.style.paddingRight = '14px';
-    var doneL = lbl(doneBtn, 'F / ESC   Done', S.accent, 13);
+    var doneL = lbl(doneBtn, T('{0} / ESC   Done', K('marker.edit', 'F')), S.accent, 13);
     doneL.hittest = false; doneL.style.fontWeight = 'bold'; doneL.style.letterSpacing = '1px';
     interactive(doneBtn, function () { cmd('mirv_filmmaker marker close'); });
 
@@ -601,15 +607,15 @@ R"MKJS(
       // Shown over everything EXCEPT the open settings card (which has its own
       // inline explanation), so pressing J with too few markers gives clear feedback.
       if (s.notice && !(mode === 'editing' && s.menuOpen)) {
-        showBanner('CAMERA PATH', S.accent, s.notice, '');
+        showBanner(T('CAMERA PATH'), S.accent, s.notice, '');
         root.visible = true; return;
       }
 
       if (mode === 'reposition') {
         var n = (s.selected != null && s.selected >= 0) ? (s.selected + 1) : 0;
-        showBanner('REPOSITIONING CAMERA #' + n, S.accent,
-          'Move to the new position, then left-click to place.',
-          'LEFT CLICK  place        ESC  cancel');
+        showBanner(T('REPOSITIONING CAMERA #{0}', n), S.accent,
+          T('Move to the new position, then left-click to place.'),
+          T('LEFT CLICK  place        ESC  cancel'));
         root.visible = true; return;
       }
       if (mode === 'previewArmed') {
@@ -624,16 +630,20 @@ R"MKJS(
       banner.visible = false; card.visible = true; catcher.visible = true; root.visible = true;
 
       var nn = (s.selected != null && s.selected >= 0) ? (s.selected + 1) : 0;
-      title.text = 'CAMERA MARKER #' + nn + '  ·  ' + s.count + ' TOTAL';
-      selSpeedMode.val.text = s.speedMode || '-';
-      selInterp.val.text = s.interp || '-';
-      selTiming.val.text = freeze ? 'FREEZE' : 'LIVE';
+      title.text = T('CAMERA MARKER #{0}  ·  {1} TOTAL', nn, s.count);
+      // The names arrive from C++ in English (CameraPath::SpeedModeName / InterpName) and stay
+      // English in every comparison below; only the text shown is translated.
+      var SPEED_MODE_NAMES = { 'Manual': T('Manual'), 'Constant': T('Constant'), 'Per-Segment': T('Per-Segment') };
+      var INTERP_NAMES = { 'Linear': T('Linear'), 'Smooth': T('Smooth') };
+      selSpeedMode.val.text = SPEED_MODE_NAMES[s.speedMode] || s.speedMode || '-';
+      selInterp.val.text = INTERP_NAMES[s.interp] || s.interp || '-';
+      selTiming.val.text = freeze ? T('FREEZE') : T('LIVE');
       selTiming.val.style.color = freeze ? S.freeze : S.accent;
       ctlSel(selTiming.btn, true,
         freeze ? S.freeze : S.accent,
         freeze ? S.freezeSel : S.accentSel,
         freeze ? S.freezeSelHot : S.accentSelHot);
-      selAutoSnap.val.text = s.autoSnap ? 'ON' : 'OFF';
+      selAutoSnap.val.text = s.autoSnap ? T('ON') : T('OFF');
       selAutoSnap.val.style.color = s.autoSnap ? S.accent : S.label;
       ctlSel(selAutoSnap.btn, !!s.autoSnap, S.accent, S.accentSel, S.accentSelHot);
       constStepper.val.text = ((s.constSpeed != null) ? s.constSpeed : 1).toFixed(1) + 'x';
@@ -647,15 +657,15 @@ R"MKJS(
       mulStepper.row.visible = (perSeg && !s.isLast);
 
       if (!freeze) {
-        expl.text = 'LIVE: the camera follows the replay — markers are hit at their tick/time. Use the speed scrubber for pace. The speed modes shape FREEZE playback.';
+        expl.text = T('LIVE: the camera follows the replay — markers are hit at their tick/time. Use the speed scrubber for pace. The speed modes shape FREEZE playback.');
       } else if (sm === 'Manual') {
-        expl.text = 'FREEZE · Manual: each segment’s duration is the tick/time gap to the next marker.';
+        expl.text = T('FREEZE · Manual: each segment’s duration is the tick/time gap to the next marker.');
       } else if (sm === 'Constant') {
-        expl.text = 'FREEZE · Constant: the whole path glides at one shared speed.';
+        expl.text = T('FREEZE · Constant: the whole path glides at one shared speed.');
       } else if (s.isLast) {
-        expl.text = 'No outgoing segment — the last marker ends the path.';
+        expl.text = T('No outgoing segment — the last marker ends the path.');
       } else {
-        expl.text = 'FREEZE · Per-Segment: this marker controls the move to the next marker.';
+        expl.text = T('FREEZE · Per-Segment: this marker controls the move to the next marker.');
       }
 
       resetDelAll();

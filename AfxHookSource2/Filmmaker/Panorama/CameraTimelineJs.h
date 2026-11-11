@@ -22,6 +22,9 @@ namespace Filmmaker {
 
 inline const char* kCameraTimelineJs = R"TLJS(
 (function () {
+)TLJS"
+#include "LocalizationJs.h"
+R"TLJS(
   try {
     var existing = $('#CamTimelineRoot'); if (existing) existing.DeleteAsync(0);
     var existingRange = $('#CamTimelineRangeRoot'); if (existingRange) existingRange.DeleteAsync(0);
@@ -82,7 +85,7 @@ inline const char* kCameraTimelineJs = R"TLJS(
                                   // BOTTOM_LIFT and GraphEditorJs BOTTOM_LIFT (see the note there)
     var HUD_INSET_X = 14, HUD_INSET_TOP = 12; // keep scaled CS2 HUD clear of the preview frame
     var EASE = ['none','in','out','inout'];
-    var EASE_LBL = ['None','Ease In','Ease Out','Ease In/Out'];
+    var EASE_LBL = [T('None'),T('Ease In'),T('Ease Out'),T('Ease In/Out')];
 
 
     // ---- dock motion -----------------------------------------------------
@@ -142,7 +145,7 @@ inline const char* kCameraTimelineJs = R"TLJS(
     function disarmClear() {
       clearConfirm = false;
       if (clearBtn && clearBtn.__lbl) {
-        clearBtn.__lbl.text = 'Clear';
+        clearBtn.__lbl.text = T('Clear');
         clearBtn.__lbl.style.color = S.value;
       }
     }
@@ -154,7 +157,7 @@ inline const char* kCameraTimelineJs = R"TLJS(
     }
 
     // ---- small builders -------------------------------------------------
-    function mk(type, parent, props) { return $.CreatePanel(type, parent, '', props || {}); }
+    function mk(type, parent, props) { var p = $.CreatePanel(type, parent, '', props || {}); return type === 'Label' ? mvmFit(p) : p; }
     function lbl(parent, text, color, size) {
       var l = mk('Label', parent); l.text = text || '';
       if (color) l.style.color = color; if (size) l.style.fontSize = size + 'px';
@@ -811,7 +814,7 @@ R"TLJS(
         r = $.CreatePanel('Panel', ctx, 'MvmBarTipRoot', {});
         r.hittest = false;
         r.style.width = '100%'; r.style.height = '100%'; r.style.zIndex = '270';
-        var l = $.CreatePanel('Label', r, 'MvmBarTipLabel', {});
+        var l = mvmLabel(r, 'MvmBarTipLabel', {});
         l.hittest = false;
         l.style.fontSize = '14px'; l.style.color = '#e3e8eeff';
         l.style.backgroundColor = '#0b0f14f2'; l.style.border = '1px solid #ffffff22';
@@ -902,6 +905,8 @@ R"TLJS(
       var players = rows.join(';');
       if (players !== lastDemoPlayers) { lastDemoPlayers = players; try { root.SetAttributeString('demoplayers', players); } catch (e4) {} }
     }
+)TLJS"
+R"TLJS(
     // CS2's own "spectate this player", what its player list does on a click. The engine refuses a
     // dead player, so Customize puts the free cam on a dead player's body instead (CustomizeTarget).
     function spectateNative(controller) {
@@ -964,11 +969,11 @@ R"TLJS(
           b.style.verticalAlign = 'center'; b.style.marginLeft = BAR_BTN_GAP + 'px';
           b.style.borderRadius = '2px';
           b.style.border = '1px solid #ffffff12';
-          var l = $.CreatePanel('Label', b, '', {});
+          var l = mvmLabel(b, '', {});
           b.__lbl = l;
           b.SetPanelEvent('onactivate', onactivate);
         } else if (!b.__lbl) {
-          b.__lbl = (b.GetChildCount && b.GetChildCount() > 0) ? b.GetChild(0) : $.CreatePanel('Label', b, '', {});
+          b.__lbl = (b.GetChildCount && b.GetChildCount() > 0) ? b.GetChild(0) : mvmLabel(b, '', {});
         }
         // Fixed geometry, written ONCE: the bar buttons must never resize when a label changes
         // (ModeSwapBtn flips CAM EDITOR <-> CONFIG) and the text must stay centered -- fit-to-text
@@ -986,6 +991,7 @@ R"TLJS(
           // CS2's `#ControlRow Label { padding: 5px }` reaches into our buttons and pushes the text
           // off centre; the button box does the spacing here.
           b.__lbl.style.padding = '0px';
+          b.__lbl.style.whiteSpace = 'nowrap'; b.__lbl.style.textOverflow = 'shrink';
         }
         if (b.__lbl.text !== text) b.__lbl.text = text;
         return b;
@@ -1013,7 +1019,7 @@ R"TLJS(
         lpBtn.__icon.style.horizontalAlign = 'center'; lpBtn.__icon.style.verticalAlign = 'center';
         lpBtn.SetPanelEvent('onactivate', function () { cmd('mirv_filmmaker loop toggle quiet'); });
         var lpRef = lpBtn;
-        lpBtn.SetPanelEvent('onmouseover', function () { barTip('Loop playback', lpRef); });
+        lpBtn.SetPanelEvent('onmouseover', function () { barTip(T('Loop playback'), lpRef); });
         lpBtn.SetPanelEvent('onmouseout', function () { barTip(''); });
       }
       var LOOP_ON_FG = '#7be08eff';
@@ -1034,7 +1040,7 @@ R"TLJS(
       if (hosted || cfgOpenBar) {
         try { if (oldEditor) oldEditor.visible = false; } catch (he) {}
         try { if (oldConfig) oldConfig.visible = false; } catch (hc) {}
-        var sb = nativeBtn('ModeSwapBtn', cfgOpenBar ? 'CAM EDITOR' : 'CONFIG', function () {
+        var sb = nativeBtn('ModeSwapBtn', cfgOpenBar ? T('CAM EDITOR') : T('CONFIG'), function () {
           // Read the CURRENT state at click time (one shared handler for both directions).
           if (st && st.configOpen) cmd('mirv_filmmaker editor on');
           else cmd('mirv_filmmaker config on');
@@ -1045,13 +1051,13 @@ R"TLJS(
         return;
       }
       try { if (oldSwap) oldSwap.visible = false; } catch (hsw) {}
-      var cb = nativeBtn('CamEditorBtn', 'CAM EDITOR', function () { cmd('mirv_filmmaker editor toggle'); });
+      var cb = nativeBtn('CamEditorBtn', T('CAM EDITOR'), function () { cmd('mirv_filmmaker editor toggle'); });
       cb.style.backgroundColor = BAR_BTN.editor;
       cb.__lbl.style.color = S.accent;
       cb.visible = true;
       // CONFIG: the lightweight UI/display settings panel (ConfigHud), BLUE so the two
       // workspaces read as distinct siblings.
-      var gb = nativeBtn('ConfigBtn', 'CONFIG', function () { cmd('mirv_filmmaker config toggle'); });
+      var gb = nativeBtn('ConfigBtn', T('CONFIG'), function () { cmd('mirv_filmmaker config toggle'); });
       gb.style.backgroundColor = BAR_BTN.config;
       gb.__lbl.style.color = S.freeze;
       gb.visible = true;
@@ -1366,7 +1372,7 @@ R"TLJS(
     // ===================== HEADER =======================================
     var header = mk('Panel', panel); header.style.flowChildren = 'right'; header.style.width = '100%';
     header.style.marginBottom = '8px';
-    var hTitle = lbl(header, 'CAMERA TIMELINE', S.value, 15); hTitle.style.fontWeight = 'bold';
+    var hTitle = lbl(header, T('CAMERA TIMELINE'), S.value, 15); hTitle.style.fontWeight = 'bold';
     hTitle.style.letterSpacing = '2px'; hTitle.style.verticalAlign = 'center';
     var hInfo = lbl(header, '', S.hint, 11); hInfo.style.marginLeft = '14px';
     hInfo.style.width = 'fill-parent-flow(1.0)'; hInfo.style.verticalAlign = 'center';
@@ -1374,9 +1380,9 @@ R"TLJS(
     var mouseLbl = lbl(header, '', S.accent, 12); mouseLbl.style.verticalAlign = 'center';
     mouseLbl.style.marginRight = '10px'; mouseLbl.style.whiteSpace = 'nowrap';
     var clearConfirm = false;
-    var clearBtn = btn(header, 'Clear', function () {
-      if (!clearConfirm) { clearConfirm = true; clearBtn.__lbl.text = 'Clear — sure?'; clearBtn.__lbl.style.color = S.accent; return; }
-      clearConfirm = false; clearBtn.__lbl.text = 'Clear'; clearBtn.__lbl.style.color = S.value;
+    var clearBtn = btn(header, T('Clear'), function () {
+      if (!clearConfirm) { clearConfirm = true; clearBtn.__lbl.text = T('Clear — sure?'); clearBtn.__lbl.style.color = S.accent; return; }
+      clearConfirm = false; clearBtn.__lbl.text = T('Clear'); clearBtn.__lbl.style.color = S.value;
       cmd('mirv_filmmaker camtl clear');
     }, S.value);
     // ("Curve Editor" view toggle removed: the graph editor is the curve editor now.)
@@ -1445,9 +1451,9 @@ R"TLJS(
     // so the camera timeline had no way to say what the graph's Smooth button says. Both surfaces
     // now drive the same CameraPath::Interp (and the graph's handles mirror it), so this pair and
     // the graph's Smooth/Linear can never disagree. The '∿' matches the graph's own button.
-    var interpLin = btn(trow, 'Linear', function () { cmd('mirv_filmmaker camtl interp linear'); }, S.value);
+    var interpLin = btn(trow, T('Linear'), function () { cmd('mirv_filmmaker camtl interp linear'); }, S.value);
     interpLin.style.marginLeft = '12px'; interpLin.style.marginRight = '2px';
-    var interpSmooth = btn(trow, '∿ Smooth', function () { cmd('mirv_filmmaker camtl interp cubic'); }, S.value);
+    var interpSmooth = btn(trow, T('∿ Smooth'), function () { cmd('mirv_filmmaker camtl interp cubic'); }, S.value);
     var tReadout = lbl(trow, '', S.value, 13); tReadout.style.verticalAlign = 'center';
     // Original design: Stratum2Mono 15/700, takes the slack between the segmented pair and the dial.
     tReadout.style.marginLeft = '14px'; tReadout.style.width = 'fill-parent-flow(1.0)';
@@ -1465,7 +1471,7 @@ R"TLJS(
     // Cache: keep the preview of every frame the world plays, so dragging back over it is shown at
     // frame rate instead of restoring the demo on every move (Movie/ScrubFrameCache.h). Lit while
     // on. Sits right before the speed it shares the transport with.
-    var cacheBtn = btn(trow, 'Cache', function () {
+    var cacheBtn = btn(trow, T('Cache'), function () {
       cmd('mirv_filmmaker scrub cache ' + (st && st.scrubCache ? 'off' : 'on'));
     }, S.value);
     cacheBtn.style.marginLeft = TROW_GAP + 'px';
@@ -1579,18 +1585,19 @@ R"TLJS(
     keyFooter.style.marginTop = '8px'; keyFooter.style.verticalAlign = 'middle';
     var K = {};
     // Original design: `KEYFRAME`, 12/700, letter-spacing 1.6, #c8d3df.
-    K.kLabel = lbl(keyFooter, 'KEYFRAME', S.label, 12); K.kLabel.style.verticalAlign = 'center';
+    K.kLabel = lbl(keyFooter, T('KEYFRAME'), S.label, 12); K.kLabel.style.verticalAlign = 'center';
     K.kLabel.style.fontWeight = 'bold'; K.kLabel.style.letterSpacing = '1.6px';
     K.kLabel.style.marginRight = '10px'; K.kLabel.style.whiteSpace = 'nowrap';
-    K.add = btn(keyFooter, '+ Add', function () { cmd('mirv_filmmaker camtl addkey'); }, S.accent);
-    K.del = btn(keyFooter, '− Delete', function () { if (st && st.selected >= 0) cmd('mirv_filmmaker camtl delkey ' + st.selected); }, S.value);
-    K.retime = btn(keyFooter, '⟲ Tick→Here', function () { if (st && st.selected >= 0) cmd('mirv_filmmaker camtl movekey ' + st.selected + ' ' + st.tick); }, S.value);
-    K.ease = btn(keyFooter, 'Ease: None', function () {
+    K.add = btn(keyFooter, T('+ Add'), function () { cmd('mirv_filmmaker camtl addkey'); }, S.accent);
+    K.del = btn(keyFooter, T('− Delete'), function () { if (st && st.selected >= 0) cmd('mirv_filmmaker camtl delkey ' + st.selected); }, S.value);
+    K.retime = btn(keyFooter, T('⟲ Tick→Here'), function () { if (st && st.selected >= 0) cmd('mirv_filmmaker camtl movekey ' + st.selected + ' ' + st.tick); }, S.value);
+    K.ease = btn(keyFooter, T('Ease: {0}', EASE_LBL[0]), function () {
       if (!st || st.selected < 0) return;
       var nx = ((st.selEase || 0) + 1) % 4; cmd('mirv_filmmaker camtl ease ' + st.selected + ' ' + EASE[nx]);
     }, S.value);
     K.spdMinus = btn(keyFooter, '−', function () { stepSpeed(-1); }, S.accent);
-    K.spdLbl = lbl(keyFooter, 'Seg x1.00', S.value, 13); K.spdLbl.style.verticalAlign = 'center'; K.spdLbl.style.width = '92px'; K.spdLbl.style.textAlign = 'center';
+    K.spdLbl = lbl(keyFooter, T('Seg x{0}', '1.00'), S.value, 13); K.spdLbl.style.verticalAlign = 'center'; K.spdLbl.style.width = '92px'; K.spdLbl.style.textAlign = 'center';
+    K.spdLbl.style.whiteSpace = 'nowrap'; K.spdLbl.style.textOverflow = 'shrink';
     K.spdPlus = btn(keyFooter, '+', function () { stepSpeed(1); }, S.accent);
     // (The old footer "Curve:" button moved to the transport row as the Linear|Smooth pair --
     // the footer is hidden in hosted mode, which left the editor with no interp control at all.)
@@ -1612,9 +1619,9 @@ R"TLJS(
       };
       return out;
     }
-    K.smSeg = segRow([['manual', 'Manual'], ['persegment', 'Per-Seg'], ['constant', 'Constant']],
+    K.smSeg = segRow([['manual', T('Manual')], ['persegment', T('Per-Seg')], ['constant', T('Constant')]],
       function (k) { cmd('mirv_filmmaker marker speedmode ' + k); });
-    K.tmSeg = segRow([['live', 'Live'], ['freeze', 'Freeze']],
+    K.tmSeg = segRow([['live', T('Live')], ['freeze', T('Freeze')]],
       function (k) { cmd('mirv_filmmaker marker timing ' + k); });
     // Aliases so the rest of the render hook's existing writes keep working.
     K.sm = K.smSeg.btns.manual;
@@ -1680,7 +1687,7 @@ R"TLJS(
       // Fractional on purpose: a slow drag moves the world BETWEEN ticks (Movie/DemoScrubMath.h),
       // which a rounded tick would turn back into tick-by-tick snapping. Release still lands whole.
       var tf = scrubT0 + v * (scrubT1 - scrubT0);
-      tReadout.text = 'tick ' + Math.round(tf);
+      tReadout.text = T('tick {0}', Math.round(tf));
       // While the experiment owns the curve zone, the scrubber previews ITS curves (not the stable
       // path's) so the two never fight for the camera -- same commands the experiment's own ruler uses.
       if (graphExpActive) cmd('mirv_filmmaker grapheditor playhead ' + tf.toFixed(2));
@@ -1812,10 +1819,10 @@ R"TLJS(
       // The original design's caption is the constant word KEYFRAME -- it names the row, it is not a
       // readout. Which key is selected is already on the timeline (the lit diamond) and in
       // the ribbon's meta, and a caption that changes width shifts every button beside it.
-      K.kLabel.text = 'KEYFRAME';
+      K.kLabel.text = T('KEYFRAME');
       K.del.visible = K.retime.visible = K.ease.visible = has;
-      K.ease.__lbl.text = 'Ease: ' + EASE_LBL[(st && st.selEase) || 0];
-      K.spdLbl.text = 'Seg x' + (st && st.selSpeedMul != null ? st.selSpeedMul.toFixed(2) : '1.00');
+      K.ease.__lbl.text = T('Ease: {0}', EASE_LBL[(st && st.selEase) || 0]);
+      K.spdLbl.text = T('Seg x{0}', (st && st.selSpeedMul != null ? st.selSpeedMul.toFixed(2) : '1.00'));
       var perSeg = (st && st.speedMode === 'Per-Segment');
       K.spdMinus.visible = K.spdPlus.visible = K.spdLbl.visible = (perSeg && has && !st.selIsLast);
       // Segmented now: light the segment that IS the current value instead of relabelling a
@@ -2070,7 +2077,7 @@ R"TLJS(
       // workspace header carries the MOUSE chip, and Clear All lives on the SELECTED CAMERA card.
       // Docked, this row was three restatements competing with the rows that own them.
       header.visible = !hosted;
-      mouseLbl.text = forcedCur ? 'Mouse: UI  ·  editor cursor forced' : (cur ? 'Mouse: UI' : 'Mouse: GAME');
+      mouseLbl.text = forcedCur ? T('Mouse: UI  ·  editor cursor forced') : (cur ? T('Mouse: UI') : T('Mouse: GAME'));
       mouseLbl.style.color = cur ? S.accent : S.label;
       // ONE SPEED, THREE BARS. st.timescale is the engine's demo_timescale, pushed by C++
       // (Movie/DemoTimescale.h). This used to read ctx.GetDemoControllerState().fTimeScale, which
@@ -2084,15 +2091,15 @@ R"TLJS(
 
       var freeze = (st.timing === 'Freeze');
       tl.visible = true;
-      hTitle.text = 'CAMERA TIMELINE';
+      hTitle.text = T('CAMERA TIMELINE');
       // Deliberately SHORT. This used to read "tick 41230 · 6 keys · sel #2 · seg 3 · Linear",
       // which repeated the tick the transport readout already shows a row below it, and spent the
       // header on two fields (segment, interp) the curve editor owns. What is left is the only
       // thing the header can say that nothing else does: how much is on this timeline, and which
       // one you have hold of.
-      hInfo.text = st.count + (st.count === 1 ? ' key' : ' keys')
-        + (st.selected >= 0 ? ('  ·  #' + (st.selected + 1) + ' selected') : '');
-      if (!clearConfirm) { clearBtn.__lbl.text = 'Clear'; clearBtn.__lbl.style.color = S.value; }
+      var keysText = TN(st.count, '{0} key', '{0} keys');
+      hInfo.text = st.selected >= 0 ? T('{0}  ·  #{1} selected', keysText, st.selected + 1) : keysText;
+      if (!clearConfirm) { clearBtn.__lbl.text = T('Clear'); clearBtn.__lbl.style.color = S.value; }
 
       var t0 = st.tickMin, t1 = st.tickMax; if (t1 <= t0) t1 = t0 + 1;
       scrubT0 = t0; scrubT1 = t1;
@@ -2116,8 +2123,8 @@ R"TLJS(
       // slot, so it wrapped to a second line and made the whole transport row taller -- then the
       // row snapped back the moment a second marker existed. A row that changes height from its
       // own text jitters while you work, so this stays on one line.
-      if (st.count < 2 && st.uiEditorInspector !== 'scene') tReadout.text = 'Add 2 camera keys (K)';
-      else if (!scrub.mousedown) tReadout.text = 'tick ' + shownTick + '   time ' + (st.time != null ? st.time.toFixed(2) : '?') + 's';
+      if (st.count < 2 && st.uiEditorInspector !== 'scene') tReadout.text = T('Add 2 camera keys ({0})', $.MvmI18n.key('marker.place', 'K'));
+      else if (!scrub.mousedown) tReadout.text = T('tick {0}   time {1}s', shownTick, (st.time != null ? st.time.toFixed(2) : '?'));
       syncTransportButton();
       // Segmented Linear|Smooth reflects the path's EFFECTIVE mode, so a change made in the graph
       // shows here the same frame -- and a Smooth that the path cannot actually run says so
@@ -2125,7 +2132,7 @@ R"TLJS(
       btnSel(interpLin, st.interp === 'Linear');
       btnSel(interpSmooth, st.interp !== 'Linear');
       btnSel(cacheBtn, !!st.scrubCache);
-      interpSmooth.__lbl.text = '∿ Smooth';
+      interpSmooth.__lbl.text = T('∿ Smooth');
       interpSmooth.__lbl.style.color = st.interpDegraded ? S.hint
         : (interpSmooth.__sel ? S.accent : S.value);
 	// The shake set is part of the signature: the diamonds carry the "has a shake" dot, so adding

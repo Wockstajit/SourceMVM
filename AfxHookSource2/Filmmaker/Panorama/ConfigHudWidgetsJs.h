@@ -89,7 +89,7 @@ R"CFJS(
     // as the whole panel relaunching.
     function moTabSwap(panel) { moEnter(panel, -UI.mo.rise, MO_TAB); }
 
-    function mk(type, parent, props) { return $.CreatePanel(type, parent, '', props || {}); }
+    function mk(type, parent, props) { var p = $.CreatePanel(type, parent, '', props || {}); return type === 'Label' ? mvmFit(p) : p; }
     function lbl(parent, text, color, size) {
       var l = mk('Label', parent); l.text = text || '';
       if (color) l.style.color = color; if (size) l.style.fontSize = size + 'px';
@@ -746,7 +746,7 @@ R"CFJS(
       var quantum = 1 / mul; // smallest step the readout/command can express
       var offAtZero = !!opts.offAtZero;
       function quant(v) { return Math.round(v * mul) / mul; }
-      function fmt(v) { return (offAtZero && v <= min && min === 0) ? 'Off' : (v.toFixed(decimals) + unit); }
+      function fmt(v) { return (offAtZero && v <= min && min === 0) ? T('Off') : (v.toFixed(decimals) + unit); }
 
       endTileLine(parent);
       var t = mk('Panel', parent);
@@ -765,7 +765,7 @@ R"CFJS(
       var vl = lbl(t, fmt(min), S.value, 14);
       vl.hittest = false; vl.style.fontWeight = 'bold';
       vl.style.width = UI.line.value + 'px'; vl.style.textAlign = 'right';
-      vl.style.verticalAlign = 'center'; vl.style.whiteSpace = 'nowrap';
+      vl.style.verticalAlign = 'center'; vl.style.whiteSpace = 'nowrap'; vl.style.textOverflow = 'shrink';
       // Monospaced-DIGIT cut: a number that changes while you watch it must not shift as its
       // digits change width.
       vl.style.fontFamily = S.fontMonodigit;
@@ -849,7 +849,7 @@ R"CFJS(
       tl.style.whiteSpace = 'normal'; tl.style.paddingTop = '4px'; tl.style.paddingBottom = '4px';
       var stateLbl = lbl(c, '', S.muted, 12); stateLbl.hittest = false;
       stateLbl.style.width = 'fill-parent-flow(1.0)'; stateLbl.style.textAlign = 'right';
-      stateLbl.style.verticalAlign = 'center'; stateLbl.style.whiteSpace = 'nowrap';
+      stateLbl.style.verticalAlign = 'center'; stateLbl.style.whiteSpace = 'nowrap'; stateLbl.style.textOverflow = 'shrink';
       stateLbl.style.marginLeft = UI.line.colGap + 'px'; stateLbl.style.marginRight = UI.line.colGap + 'px';
       var vc = mk('Panel', c); vc.hittest = false;
       vc.style.width = UI.line.value + 'px'; vc.style.flowChildren = 'right';
@@ -1212,13 +1212,13 @@ R"CFJS(
     // Groups and their order, by card persistKey. Cards are created in fragment order; the rail
     // places each into its group here, so the rail order does not depend on include order.
     var CFG_RAIL = {
-      camera: [['Motion', ['config.section.smoothview', 'config.section.handheld']],
-               ['Weapon', ['config.section.weaponrecoil', 'config.section.weaponbob', 'config.section.viewmodel']],
-               ['Lens', ['config.section.dof', 'config.section.flare']]],
-      effects: [['Particles', ['fx.packs']], ['World', ['light.card', 'atmos.card', 'weather.card']]],
-      environment: [['Grade', ['env.looks']], ['Atmosphere', ['env.sky', 'env.light', 'env.fog', 'env.wx']],
-                    ['Scene', ['env.scene', 'env.heat']], ['World', ['env.map']]],
-      ragdolls: [['Bodies', ['ragdoll.model', 'ragdoll.nervous', 'ragdoll.physics']], ['Detail', ['ragdoll.weapon', 'acting']]]
+      camera: [[T('Motion'), ['config.section.smoothview', 'config.section.handheld']],
+               [T('Weapon'), ['config.section.weaponrecoil', 'config.section.weaponbob', 'config.section.viewmodel']],
+               [T('Lens'), ['config.section.dof', 'config.section.flare']]],
+      effects: [[T('Particles'), ['fx.packs']], [T('World'), ['light.card', 'atmos.card', 'weather.card']]],
+      environment: [[T('Grade'), ['env.looks']], [T('Atmosphere'), ['env.sky', 'env.light', 'env.fog', 'env.wx']],
+                    [T('Scene'), ['env.scene', 'env.heat']], [T('World'), ['env.map']]],
+      ragdolls: [[T('Bodies'), ['ragdoll.model', 'ragdoll.nervous', 'ragdoll.physics']], [T('Detail'), ['ragdoll.weapon', 'acting']]]
     };
     var cfgRails = {};
     var cfgSections = {};
@@ -1509,7 +1509,7 @@ R"CFJS(
         b.style.borderRadius = '3px'; b.style.verticalAlign = 'center'; b.style.marginLeft = '8px';
         b.style.paddingTop = '5px'; b.style.paddingBottom = '5px';
         b.style.paddingLeft = '11px'; b.style.paddingRight = '11px';
-        var l = lbl(b, 'Reset', S.label, 12);
+        var l = lbl(b, T('Reset'), S.label, 12);
         l.hittest = false; l.style.fontWeight = 'bold'; l.style.whiteSpace = 'nowrap';
         makeInteractive(b, l, function () {
           if (b.__resetDisabled) return;
@@ -1572,10 +1572,10 @@ R"CFJS(
       // A square switch, like every other boolean in the panel (2026-10 sidebar cleanup).
       var sw = cfgSquareSwitch(r, UI.swSm, null);
       sw.panel.hittest = false; sw.panel.style.marginRight = '10px';
-      var t = lbl(r, 'Keep between demos', S.value, 13); t.hittest = false;
+      var t = lbl(r, T('Keep between demos'), S.value, 13); t.hittest = false;
       t.style.verticalAlign = 'center'; t.style.whiteSpace = 'nowrap';
-      attachTip(r, 'Carries ' + whatItKeeps + ' into the next demo you load. Off, each new demo '
-        + 'starts from the defaults.');
+      attachTip(r, T('Carries {0} into the next demo you load. Off, each new demo '
+        + 'starts from the defaults.', whatItKeeps));
       function paint() {
         sw.set(ui);
         sw.hot(hot);
@@ -1612,7 +1612,7 @@ R"CFJS(
       b.style.paddingLeft = '12px'; b.style.paddingRight = '12px';
       b.style.borderRadius = '3px';
       trans(b, 'background-color, border-color');
-      var l = lbl(b, 'RESET', '#e8a0a0ff', 12); l.hittest = false;
+      var l = lbl(b, T('RESET'), '#e8a0a0ff', 12); l.hittest = false;
       l.style.fontWeight = 'bold'; l.style.letterSpacing = '1px'; l.style.whiteSpace = 'nowrap';
       function disarm() {}
       // A reset that would also take away work the user placed asks first (spec.confirm returns
@@ -1625,11 +1625,11 @@ R"CFJS(
       // Repaint only on a real change; render() runs every frame.
       function paint() {
         var e = resolve();
-        var name = (e && e.label) ? e.label : 'TAB';
+        var name = (e && e.label) ? e.label : T('TAB');
         var next = name + (hot ? 'h' : '');
         if (next === sig) return;
         sig = next;
-        l.text = 'RESET ' + name;
+        l.text = T('RESET {0}', name);
         b.style.backgroundColor = hot ? '#c92a2a33' : S.clear;
         b.style.border = '1px solid ' + S.danger;
       }
@@ -1836,6 +1836,7 @@ R"CFJS(
         o.style.paddingLeft = '10px'; o.style.paddingRight = '8px'; o.style.borderRadius = '3px';
         var cap = lbl(o, it[0], it[3] ? '#ff8a8aff' : S.label, 13); cap.hittest = false;
         cap.style.width = 'fill-parent-flow(1.0)'; cap.style.verticalAlign = 'center';
+        cap.style.whiteSpace = 'nowrap'; cap.style.textOverflow = 'shrink';
         if (it[2]) {
           var key = lbl(o, it[2], S.muted, 11); key.hittest = false; key.style.verticalAlign = 'center';
         }
@@ -1883,7 +1884,7 @@ R"CFJS(
       var body = lbl(box, text, S.label, 13); body.style.marginTop = '10px'; body.style.width = '100%';
       var acts = mk('Panel', box);
       acts.style.flowChildren = 'right'; acts.style.horizontalAlign = 'right'; acts.style.marginTop = '18px';
-      var no = btn(acts, 'Cancel', cfgConfirmClose, S.label);
+      var no = btn(acts, T('Cancel'), cfgConfirmClose, S.label);
       var yes = btn(acts, okLabel, function () { cfgConfirmClose(); onOk(); }, '#ff8a8aff');
       yes.style.marginRight = '0px';
       cfgConfirmPanel = shade;
@@ -1959,7 +1960,7 @@ R"CFJS(
         items = next || [];
         list.RemoveAndDeleteChildren(); rows = {};
         if (!items.length) {
-          var empty = lbl(list, opts.empty || 'No options available.', S.muted, 12);
+          var empty = lbl(list, opts.empty || T('No options available.'), S.muted, 12);
           empty.hittest = false; empty.style.margin = '5px 6px';
         }
         // An item may carry a third element: a one-sentence tooltip for that option.

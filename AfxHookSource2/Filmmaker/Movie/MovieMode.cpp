@@ -49,6 +49,8 @@ namespace Filmmaker {
 // for letters, which don't exist).
 namespace {
 	constexpr int kVK_X = 0x58;
+	constexpr int kVK_ROLL_RIGHT = 0xE8; // KeybindsMath::kRollRightKey
+	constexpr int kVK_ROLL_LEFT = 0xE9;  // KeybindsMath::kRollLeftKey
 	constexpr int kVK_F8 = 0x77;    // toggle the director help/status HUD
 	constexpr int kVK_F9 = 0x78;    // TIMELINE: Easy Ease (Shift = in, Ctrl+Shift = out)
 	constexpr int kVK_SHIFT = 0x10; // hold = slow/fine free-cam movement
@@ -872,9 +874,11 @@ bool MovieMode::OnKey(int vkey, bool down) {
 
 	// Held X / Z roll CS2's own free cam (ApplyNativeCameraControls), like they roll ours. A release
 	// always clears, so a camera change mid-hold cannot leave the roll running.
-	if ((vkey == kVK_X || vkey == kVK_Z) && !CameraBridge_GetFreeCamEnabled()) {
+	// Roll has its own two codes (Input/KeybindsMath.h): X and Z out of the box, wherever the
+	// user put them otherwise.
+	if ((vkey == kVK_ROLL_RIGHT || vkey == kVK_ROLL_LEFT) && !CameraBridge_GetFreeCamEnabled()) {
 		std::lock_guard<std::mutex> lk(m_mutex);
-		bool& held = vkey == kVK_X ? m_rollRight : m_rollLeft;
+		bool& held = vkey == kVK_ROLL_RIGHT ? m_rollRight : m_rollLeft;
 		if (!down && held) { held = false; return true; }
 		if (down && !m_controlDown && m_mode == Mode::FreeCam) { held = true; return true; }
 	}

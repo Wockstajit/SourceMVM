@@ -182,7 +182,7 @@ test("a key in the TIMELINE dock can be gone to: double-click it, or its menu's 
   assert.match(graphJs, /function keyDoubleClick\(t\) \{[\s\S]{0,300}now - prev\.at > KEY_DBL_MS \|\| Math\.abs\(prev\.t - t\) > 0\.5/);
   assert.match(graphJs, /if \(keyDoubleClick\(t\)\) \{ seekTo\(t\); gesture\.seek = false; \}/);
   assert.match(graphJs, /var lt = n \? keyTimeNear\(r\.node, cc\.tx\) : null;\s*if \(lt !== null && keyDoubleClick\(lt\)\) seekTo\(lt\);/);
-  assert.match(graphJs, /\{ id: 'goto', label: 'Go to this key', sc: 'Double-click' \},\s*\{ id: 'delete'/);
+  assert.match(graphJs, /\{ id: 'goto', label: T\('Go to this key'\), sc: T\('Double-click'\) \},\s*\{ id: 'delete'/);
   assert.match(graphJs, /if \(id === 'goto'\) seekTo\(entry\.t\);\s*else if \(id === 'delete'\) deleteSelection\(\);/);
   // The second press of a quick double-click can arrive as WM_LBUTTONDBLCLK: still a press to the pipe.
   assert.match(input, /if \(uMsg == WM_LBUTTONDBLCLK\) \{ g_UiCursorProbe\.lmb = true;/);

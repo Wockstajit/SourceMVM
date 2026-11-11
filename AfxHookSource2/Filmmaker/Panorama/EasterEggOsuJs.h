@@ -227,7 +227,7 @@ R"EGJS(
       vm.name = osuCentered(osuVolLayer, '#ffffffcc', 15);
       osuVolM.push(vm);
     }
-    var OSU_VOL_NAMES = ['master', 'music', 'effects'];
+    var OSU_VOL_NAMES = [T('master'), T('music'), T('effects')];
     function osuDrawVolume(sz) {
       var v = osuF.vol;
       oV(osuVolLayer, !!v);

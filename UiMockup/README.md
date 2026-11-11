@@ -140,6 +140,10 @@ headless scripts still address these ids through `?surface=`.
   lists anything the shim did not map.
 - Controls are live: clicking a mode or dragging a slider issues the same console command the game
   would, the router writes it into the fake state, and the next frame renders the result.
+- Add `?lang=<id>` to the address (`?lang=german`, `?lang=schinese`) to see the panels in a
+  [language table](../Docs/panorama/localization.md). The id is CS2's name for the language. A
+  label the game shrinks to fit is left at full size here and may run past its control;
+  `node Automation/i18n/fit-audit.mjs <id>` lists those.
 
 ## How it fits together
 

@@ -274,13 +274,13 @@ R"EDJS(
       return { row: row, l: l, v: v };
     }
     var prev2dCard = {
-      agent: prev2dRow('AGENT'), primary: prev2dRow('PRIMARY'), secondary: prev2dRow('SECONDARY'),
-      knife: prev2dRow('MELEE / KNIFE'), gloves: prev2dRow('GLOVES')
+      agent: prev2dRow(T('AGENT')), primary: prev2dRow(T('PRIMARY')), secondary: prev2dRow(T('SECONDARY')),
+      knife: prev2dRow(T('MELEE / KNIFE')), gloves: prev2dRow(T('GLOVES'))
     };
     function renderLoadoutCard() {
-      prev2dPlayer.text = (custTargetName || 'Player').toUpperCase();
+      prev2dPlayer.text = (custTargetName || T('Player')).toUpperCase();
       var tm = normalizeTeamName(custTargetTeam);
-      prev2dTeam.text = tm === 'CT' ? 'Counter-Terrorist' : (tm === 'T' ? 'Terrorist' : 'Spectated player');
+      prev2dTeam.text = tm === 'CT' ? T('Counter-Terrorist') : (tm === 'T' ? T('Terrorist') : T('Spectated player'));
       var slots = ['agent', 'primary', 'secondary', 'knife', 'gloves'];
       for (var i = 0; i < slots.length; i++) {
         var slot = slots[i], entry = prev2dCard[slot];

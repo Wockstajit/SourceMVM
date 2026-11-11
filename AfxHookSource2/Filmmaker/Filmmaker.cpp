@@ -16,6 +16,8 @@
 #include "Demo/DemoPathCacheMath.h"
 #include "Panorama/FilmmakerMenu.h"
 #include "Panorama/VideoSettingsResolution.h"
+#include "Localization/Localization.h"
+#include "Input/Keybinds.h"
 #include "Panorama/MovieHud.h"
 #include "Panorama/UiLayout.h"            // WORKSPACE / MODULAR layout and the floating windows' rects
 #include "Panorama/WorkspaceHeaderHud.h"  // the MODULAR layout's header bar
@@ -933,6 +935,8 @@ void RunMainThreadFrame() {
 	}
 
 	// Panorama work (RunScript + panel IO) must run on the main/UI thread.
+	// The language table goes in first: a panel script that builds this frame reads it.
+	Localization_RunMainThreadFrame();
 	{ PanoramaPerf_Scope _p("menu"); g_menu.RunFrame(g_library); }
 
 	// Play-page takeover (main menu only): strips the page to Practice + Workshop Maps and
@@ -1296,7 +1300,15 @@ void Shutdown() {
 }
 
 // --- Movie director input taps (forward to the MovieMode singleton) ---
-bool MovieInput_OnKey(int vkey, bool down) { return MovieModeRef().OnKey(vkey, down); }
+// The pressed key is translated to the key(s) the handler tests, which is how a rebound shortcut
+// reaches it (Input/KeybindsMath.h). A key carrying two actions is shown as each in turn until the
+// handler takes one.
+bool MovieInput_OnKey(int vkey, bool down) {
+	int keys[3];
+	const int count = Keybinds_Dispatch(vkey, keys);
+	for (int i = 0; i < count; ++i) if (MovieModeRef().OnKey(keys[i], down)) return true;
+	return false;
+}
 bool MovieInput_OnMouseButton(int button, bool down, int x, int y) { return MovieModeRef().OnMouseButton(button, down, x, y); }
 void MovieInput_ButtonUp(int button) { MovieModeRef().OnButtonUp(button); }
 bool MovieInput_OnUiClick(int x, int y) { return MovieModeRef().OnUiClick(x, y); }

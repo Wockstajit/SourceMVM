@@ -37,7 +37,7 @@ R"EDJS(
     // No target yet (free cam, nobody watched or picked this demo): the body asks for a pick.
     var custNoTarget = mk('Panel', custSurface); custNoTarget.hittest = true; custNoTarget.visible = false;
     custNoTarget.style.width = '100%'; custNoTarget.style.height = 'fill-parent-flow(1.0)';
-    var custNoTargetLbl = clbl(custNoTarget, 'Choose a player from the menu on their name to see and change their loadout.', S.hint, 14);
+    var custNoTargetLbl = clbl(custNoTarget, T('Choose a player from the menu on their name to see and change their loadout.'), S.hint, 14);
     custNoTargetLbl.hittest = false; custNoTargetLbl.style.horizontalAlign = 'center'; custNoTargetLbl.style.verticalAlign = 'center';
 
     var custPlayerMenu = mk('Panel', custOverlay); custPlayerMenu.visible = false; custPlayerMenu.hittest = true;
@@ -58,7 +58,7 @@ R"EDJS(
       return { col: col, rows: rows, color: color, list: [] };
     }
     var custTeamT = custTeamColumn('T', CUST_T, 10), custTeamCT = custTeamColumn('CT', CUST_CT, 0);
-    var custPlayersEmpty = clbl(custPlayerMenu, 'Players appear here once the demo is playing.', S.hint, 12);
+    var custPlayersEmpty = clbl(custPlayerMenu, T('Players appear here once the demo is playing.'), S.hint, 12);
     custPlayersEmpty.hittest = false; custPlayersEmpty.style.margin = '6px 8px';
 
     // The highlighted player: a click shows at once, before C++ reports the new target.
@@ -93,7 +93,7 @@ R"EDJS(
       r.hittest = true;
       r.SetPanelEvent('onmouseover', function () {
         r.__hot = true; paintPlayerRow(r);
-        if (r.__p && !r.__p.alive) showTip(r, 'Dead. Picking them shows the view from where they died.');
+        if (r.__p && !r.__p.alive) showTip(r, T('Dead. Picking them shows the view from where they died.'));
       });
       r.SetPanelEvent('onmouseout', function () { r.__hot = false; paintPlayerRow(r); hideTip(); });
       r.SetPanelEvent('onactivate', function () { hideTip(); if (r.__p) custPickPlayer(r.__p.controller); });
@@ -189,7 +189,7 @@ R"EDJS(
       custTargetOnScreen = !!(p && cs && cs.spectated === p.controller);
       custTargetIndex = p ? p.pawn : -1;
       custTargetKey = p ? p.key : 'none';
-      custTargetName = p ? p.name : 'Player';
+      custTargetName = p ? p.name : T('Player');
       custTargetTeam = p ? p.team : '';
       custActiveWeaponDef = ct ? (parseInt(ct.activeWeaponDefIndex || 0, 10) || 0) : 0;
       custActiveWeaponSlot = WEAPON_SLOT_BY_DEF[custActiveWeaponDef] || '';
@@ -232,7 +232,7 @@ R"EDJS(
       var sig = custTargetController + '|' + custTargetName + '|' + custTargetTeam + '|' + (custTargetAlive ? 1 : 0) + '|' + custSize;
       if (sig === custChromeSig) return;
       custChromeSig = sig;
-      custTitleName.text = custTargetController >= 0 ? custTargetName : 'Choose a player';
+      custTitleName.text = custTargetController >= 0 ? custTargetName : T('Choose a player');
       custDeadTag.visible = custTargetController >= 0 && !custTargetAlive;
       btnEnable(custResetBtn, custTargetController >= 0);
       paintPlayerBtn();

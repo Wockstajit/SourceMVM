@@ -28,6 +28,9 @@ namespace Filmmaker {
 
 inline const char* kCameraEditorJs = R"EDJS(
 (function () {
+)EDJS"
+#include "LocalizationJs.h"
+R"EDJS(
   try {
     var existing = $('#CamEditorRoot'); if (existing) existing.DeleteAsync(0);
     var existingDbg = $('#CamEditorDebugRoot'); if (existingDbg) existingDbg.DeleteAsync(0);
@@ -175,31 +178,33 @@ R"EDJS(
     confirmBox.style.paddingTop = '26px'; confirmBox.style.paddingBottom = '24px';
     confirmBox.style.paddingLeft = '28px'; confirmBox.style.paddingRight = '28px';
     confirmBox.SetPanelEvent('onactivate', function () { /* keep clicks inside from dismissing */ });
-    var confirmTitle = lbl(confirmBox, 'CLEAR ALL CAMERA PATHS?', S.value, 22);
+    var confirmTitle = lbl(confirmBox, T('CLEAR ALL CAMERA PATHS?'), S.value, 22);
     confirmTitle.style.fontWeight = 'bold'; confirmTitle.style.letterSpacing = '2px';
     confirmTitle.style.horizontalAlign = 'center'; confirmTitle.style.marginBottom = '14px';
-    var confirmBody = lbl(confirmBox, 'This deletes every path camera/keyframe for this demo.', S.label, 14);
+    var confirmBody = lbl(confirmBox, T('This deletes every path camera/keyframe for this demo.'), S.label, 14);
     confirmBody.style.horizontalAlign = 'center'; confirmBody.style.marginBottom = '22px';
     var confirmActions = mk('Panel', confirmBox); confirmActions.style.flowChildren = 'right';
     confirmActions.style.horizontalAlign = 'center';
     function hideClearConfirm() { confirmOverlay.visible = false; }
     var confirmAction = null;
     function showClearConfirm() {
-      confirmTitle.text = 'CLEAR ALL CAMERA PATHS?';
-      confirmBody.text = 'This deletes every path camera/keyframe for this demo.';
+      confirmTitle.text = T('CLEAR ALL CAMERA PATHS?');
+      confirmBody.text = T('This deletes every path camera/keyframe for this demo.');
       // Restated because SCENE KEYS borrows this dialog and rewrites the verb (skConfirm).
-      confirmYes.__lbl.text = 'Yes, clear all';
+      confirmYes.__lbl.text = T('Yes, clear all');
       confirmAction = null; confirmOverlay.visible = true;
     }
-    var confirmNo = btn(confirmActions, 'No', function () { hideClearConfirm(); }, S.value);
+    var confirmNo = btn(confirmActions, T('No'), function () { hideClearConfirm(); }, S.value);
     confirmNo.style.width = '132px'; confirmNo.__lbl.style.textAlign = 'center'; confirmNo.__lbl.style.width = '100%';
-    var confirmYes = btnDanger(confirmActions, 'Yes, clear all', function () {
+    confirmNo.__lbl.style.whiteSpace = 'nowrap'; confirmNo.__lbl.style.textOverflow = 'shrink';
+    var confirmYes = btnDanger(confirmActions, T('Yes, clear all'), function () {
       hideClearConfirm();
       if (confirmAction) { var action = confirmAction; confirmAction = null; action(); }
       else cmd('mirv_filmmaker camtl clear');
     });
     confirmYes.style.width = '172px'; confirmYes.style.marginRight = '0px';
     confirmYes.__lbl.style.textAlign = 'center'; confirmYes.__lbl.style.width = '100%';
+    confirmYes.__lbl.style.whiteSpace = 'nowrap'; confirmYes.__lbl.style.textOverflow = 'shrink';
 
     // Preview catcher FRAME: four panels ringing the preview rect (top/bottom/left/right).
     // Empty-space clicks land on the frame and are swallowed -- they must NOT switch spectator
@@ -211,7 +216,7 @@ R"EDJS(
     // decor the CONFIG panel uses; only the accent and the wordmark differ. The editor's tag
     // dot pulses like a recording light; the shell owns that too.
     var shell = mvmWorkspaceShell(root, {
-      accent: S.accent, title: 'CAMERA / EDITOR', code: 'SOURCE // MVM FILMMAKER',
+      accent: S.accent, title: T('CAMERA / EDITOR'), code: 'SOURCE // MVM FILMMAKER',
       onCatcher: function () { closeAllDrops(); }
     });
     shell.pulse(true);
@@ -300,13 +305,13 @@ R"EDJS(
     // whole screen in the WORKSPACE layout, a movable window's body in the MODULAR one. The
     // Camera Editor opens on the right in MODULAR layout and CONFIG on the left.
     var edWin = mvmModuleWindow(root, {
-      key: 'editor', title: 'CAMERA EDITOR', accent: S.accent, side: 'right', z: 53,
+      key: 'editor', title: T('CAMERA EDITOR'), accent: S.accent, side: 'right', z: 53,
       onClose: function () { cmd('mirv_filmmaker editor off'); }
     });
     var colHost = edWin.host;
     var dockActions = mvmActionRow(colHost, interactive, [
-      { text: 'RENDER', width: 150, onClick: function () { openRender(); } },
-      { text: '\u2726  CUSTOMIZE PLAYER', width: 'fill-parent-flow(1.0)',
+      { text: T('RENDER'), width: 150, onClick: function () { openRender(); } },
+      { text: T('\u2726  CUSTOMIZE PLAYER'), width: 'fill-parent-flow(1.0)',
         onClick: function () { openCustomize(); }, press: true }
     ]);
     var actionRow = dockActions.root;
@@ -546,9 +551,9 @@ R"EDJS(
     var head = mk('Panel', inspector); head.hittest = false; head.id = 'EdHead';
     head.style.flowChildren = 'right'; head.style.width = '100%';
     head.style.zIndex = '80';
-    var hTitle = lbl(head, 'CAMERA EDITOR', S.value, 18); hTitle.style.fontWeight = 'bold';
+    var hTitle = lbl(head, T('CAMERA EDITOR'), S.value, 18); hTitle.style.fontWeight = 'bold';
     hTitle.style.letterSpacing = '2.5px'; hTitle.style.width = 'fill-parent-flow(1.0)';
-    hTitle.style.verticalAlign = 'center'; hTitle.style.whiteSpace = 'nowrap';
+    hTitle.style.verticalAlign = 'center'; hTitle.style.whiteSpace = 'nowrap'; hTitle.style.textOverflow = 'shrink';
     // Same chip as the CONFIG panel's, from the same definition -- see WorkspaceChromeJs.h.
     function edChip(text, onClick) {
       return mvmChromeChip(head, function (parent, t, f) { return btn(parent, t, f, S.label); },
@@ -558,7 +563,7 @@ R"EDJS(
     // GAME, everything else is UI.
     // Exit fully closes the editor and restores the native CS2 demo bar. The bottom-panel switch
     // (Camera Timeline / Graph) lives in the persistent bottom tab bar, not here.
-    var exitBtn = edChip('ESC EXIT', function () { cmd('mirv_filmmaker editor close'); });
+    var exitBtn = edChip(T('ESC EXIT'), function () { cmd('mirv_filmmaker editor close'); });
     exitBtn.id = 'EdExit';
     // (`mirv_filmmaker editor hud hidden|game|full` drives the Game-UI visibility cycle.)
 
@@ -594,15 +599,15 @@ R"EDJS(
       b.__lbl.style.letterSpacing = UI.tabTop.ls + 'px';
       return b;
     }
-    var pathTab = edWorkspaceTab('PATH CAMERA', function () {
+    var pathTab = edWorkspaceTab(T('PATH CAMERA'), function () {
       inspectorMode = 'path';
       cmd('mirv_filmmaker settings ui editor.inspector path');
     });
-    var followTab = edWorkspaceTab('FOLLOW CAMERA', function () {
+    var followTab = edWorkspaceTab(T('FOLLOW CAMERA'), function () {
       inspectorMode = 'follow';
       cmd('mirv_filmmaker settings ui editor.inspector follow');
     });
-    var sceneTab = edWorkspaceTab('SCENE KEYS', function () {
+    var sceneTab = edWorkspaceTab(T('SCENE KEYS'), function () {
       inspectorMode = 'scene';
       cmd('mirv_filmmaker settings ui editor.inspector scene');
     }, true);
@@ -692,8 +697,8 @@ R"EDJS(
     edKeyStrip.style.flowChildren = 'right-wrap'; edKeyStrip.style.width = '100%';
     edKeyStrip.style.marginTop = '8px'; edKeyStrip.style.paddingTop = '10px'; edKeyStrip.style.paddingBottom = '2px';
     edKeyStrip.style.borderTop = '1px solid #ffffff14';
-    [['K', 'place'], ['J', 'play path'], ['L', 'delete'], ['F', 'edit'], ['Space', 'play demo'], ['← →', '±5 s'],
-     ['Shift+Scroll', 'move speed'], ['Ctrl+Scroll', 'FOV'], ['X / Z', 'roll right / left']].forEach(function (d) {
+    [[K('marker.place', 'K'), T('place')], [K('path.play', 'J'), T('play path')], [K('marker.delete', 'L'), T('delete')], [K('marker.edit', 'F'), T('edit')], [K('demo.pause', 'SPACE'), T('play demo')], [K('demo.back', '←') + ' ' + K('demo.forward', '→'), '±5 s'],
+     ['Shift+Scroll', T('move speed')], ['Ctrl+Scroll', T('FOV')], [K('roll.right', 'X') + ' / ' + K('roll.left', 'Z'), T('roll right / left')]].forEach(function (d) {
       var item = mk('Panel', edKeyStrip); item.hittest = false;
       item.style.flowChildren = 'right'; item.style.marginRight = '16px'; item.style.marginBottom = '7px';
       var k = mk('Panel', item); k.hittest = false;
@@ -1194,7 +1199,7 @@ R"EDJS(
 		else moSlideIn(inspector, 12);
 	}
 	if (st.render) {
-		renderBtnLbl.text = st.render.jobActive ? 'RENDER PROGRESS' : 'RENDER';
+		renderBtnLbl.text = st.render.jobActive ? T('RENDER PROGRESS') : T('RENDER');
 		btnSel(renderBtnEl, st.render.jobActive);
 	}
       var ff = st.follow || {};
@@ -1246,7 +1251,7 @@ R"EDJS(
 R"EDJS(
       // The LIVE / PREVIEW badge belongs to the workspace chrome, not to the follow card.
       var liveBadge = !!((st.follow && st.follow.enabled) || st.pathLive || (st.graphExp && st.graphDrive));
-      tagLbl.text = liveBadge ? 'LIVE' : 'PREVIEW';
+      tagLbl.text = liveBadge ? T('LIVE') : T('PREVIEW');
       // The FOLLOW tab fills itself: syncFollowInspector lives in
       // CameraEditorFollowInspectorJs.h, beside the controls it writes.
       syncFollowInspector();
@@ -1451,7 +1456,7 @@ R"EDJS(
         shell.layout({ rw: rw, rh: rh, areaX0: areaX0, areaW: areaW, areaH: areaH,
                        ox: ox, oy: oy, pw: pw, ph: ph, cursorOn: cur, catcherBottom: cbBottom,
                        accent: workspaceAccent,
-                       title: renderWorkspaceOpen ? 'RENDER / OUTPUT' : 'CAMERA / EDITOR',
+                       title: renderWorkspaceOpen ? T('RENDER / OUTPUT') : T('CAMERA / EDITOR'),
                        code: renderWorkspaceOpen ? 'SOURCE // FINAL FRAME' : 'SOURCE // MVM FILMMAKER',
                        // Render's accent is near-white and the preview sits flush against two
                        // opaque columns, so a full-strength frame reads as a seam there.

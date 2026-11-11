@@ -51,7 +51,7 @@ R"CFJS(
     // ENVIRONMENT tab, which put CS2's own skybox library on the added-renderer tab -- the
     // split the original design drew is by WHAT A CONTROL DRIVES, and every control here drives a
     // value the game already has.
-    var wsSec = section(pageEffects, 'WEATHER & SKY', true, false, 'weather.card', '#80bdffff');
+    var wsSec = section(pageEffects, T('WEATHER & SKY'), true, false, 'weather.card', '#80bdffff');
     var wsReset = wsSec.__headerReset([
       'mirv_filmmaker world sky default',
       'mirv_filmmaker world skyorient reset',
@@ -59,19 +59,19 @@ R"CFJS(
       'mirv_filmmaker world clouds reset',
       'mirv_sky clouds color default'
     ], 'fx.weathersky');
-    var skySec = wsSec.__page('Skybox');
+    var skySec = wsSec.__page(T('Skybox'));
 
     // Which library the grid shows: a labelled two-cell mode row (Docs/features/filmmaker_config_panel.md), not a tab strip
     // inside the card's own tab strip.
     var skyActiveTab = 'custom';
-    var skyLibSeg = modeRow(skySec, 'Library', [['custom', 'Custom'], ['stock', 'CS2']], null, function (key) {
+    var skyLibSeg = modeRow(skySec, T('Library'), [['custom', T('Custom')], ['stock', 'CS2']], null, function (key) {
       skyActiveTab = key;
       applySkyTabs();
-    }, 'Custom shows the skyboxes you built; CS2 shows the game’s own.');
+    }, T('Custom shows the skyboxes you built; CS2 shows the game’s own.'));
 
     // One toolbar for both libraries, on ONE line: the primary action fills, Map default beside it.
     var skyTools = row(skySec); skyTools.style.marginTop = '8px';
-    var skyCreateBtn = btn(skyTools, '+  Create custom skybox', function () {
+    var skyCreateBtn = btn(skyTools, T('+  Create custom skybox'), function () {
       cmd('mirv_filmmaker world skybuild pick');
     }, S.accent);
     skyCreateBtn.style.width = 'fill-parent-flow(1.0)'; skyCreateBtn.style.height = '32px';
@@ -79,7 +79,7 @@ R"CFJS(
     skyCreateBtn.__lbl.style.horizontalAlign = 'center'; skyCreateBtn.__lbl.style.verticalAlign = 'center';
     skyCreateBtn.__bgBase = S.accent.substring(0, 7) + '14'; skyCreateBtn.__brBase = S.accent.substring(0, 7) + '66';
     paintBtn(skyCreateBtn);
-    var skyDefaultBtn = btn(skyTools, 'Map default', function () {
+    var skyDefaultBtn = btn(skyTools, T('Map default'), function () {
       cmd('mirv_filmmaker world sky default');
     });
     skyDefaultBtn.style.marginRight = '0px'; skyDefaultBtn.style.height = '32px';
@@ -215,7 +215,7 @@ R"CFJS(
       }
       skyDeleteHint.visible = skyPendingDelete.length > 0;
       skyDeleteHint.text = skyPendingDelete
-        ? ('Click the ✕ to delete “' + skyPendingDelete + '”, or right-click again to cancel.')
+        ? T('Click the ✕ to delete “{0}”, or right-click again to cancel.', skyPendingDelete)
         : '';
     }
 
@@ -259,12 +259,12 @@ R"CFJS(
 
       if (custom.length) {
         skyFillGrid(skyCustomHost, custom);
-        var hint = lbl(skyCustomHost, 'Right-click a skybox to delete it.', S.muted, 11);
+        var hint = lbl(skyCustomHost, T('Right-click a skybox to delete it.'), S.muted, 11);
         hint.style.marginTop = '2px';
       } else {
         var empty = lbl(skyCustomHost,
-          'Pick any image or HDRI and it becomes a skybox. A 2:1 equirectangular panorama '
-          + 'works best.', S.label, 11);
+          T('Pick any image or HDRI and it becomes a skybox. A 2:1 equirectangular panorama '
+          + 'works best.'), S.label, 11);
         empty.style.whiteSpace = 'normal';
       }
 
@@ -287,29 +287,29 @@ R"CFJS(
     //
     // These are draw-time controls: they update on every drag event, do not rebuild the cubemap,
     // and never issue spectator/camera commands.
-    var orientSec = wsSec.__page('Orientation');
+    var orientSec = wsSec.__page(T('Orientation'));
 
     var skySettingsHint = lbl(orientSec,
-      'Place the camera where you want it, then drag. This never moves the camera.',
+      T('Place the camera where you want it, then drag. This never moves the camera.'),
       S.hint, 12);
     skySettingsHint.style.marginTop = '0px'; skySettingsHint.style.whiteSpace = 'normal';
 
     var skyYawSlider = sliderRow(orientSec, {
-      label: 'Rotate', cmd: 'mirv_filmmaker world skyorient yaw',
+      label: T('Rotate'), cmd: 'mirv_filmmaker world skyorient yaw',
       min: 0, max: 360, decimals: 0, unit: '°',
-      tip: 'Spins the active skybox around the sky like a disc on a table: the horizon stays level.'
+      tip: T('Spins the active skybox around the sky like a disc on a table: the horizon stays level.')
     });
     var skyPitchSlider = sliderRow(orientSec, {
-      label: 'Tilt', cmd: 'mirv_filmmaker world skyorient pitch',
+      label: T('Tilt'), cmd: 'mirv_filmmaker world skyorient pitch',
       min: -180, max: 180, decimals: 0, unit: '°',
-      tip: 'Tilts the active skybox up or down while you drag.'
+      tip: T('Tilts the active skybox up or down while you drag.')
     });
 
     // Mirroring belongs WITH yaw and tilt: it is a third way to orient the same sky, not a
     // question about what orientation reaches.
     var skyMirrorUi = false;
-    var skyMirrorToggle = togglePill(orientSec, 'Flip left / right',
-      'Mirrors the active skybox horizontally without rebuilding it.', function () {
+    var skyMirrorToggle = togglePill(orientSec, T('Flip left / right'),
+      T('Mirrors the active skybox horizontally without rebuilding it.'), function () {
         skyMirrorUi = !skyMirrorUi;
         skyMirrorToggle.set(skyMirrorUi);
         // '1' = on. This used to send `skyMirrorUi ? '0' : '1'` -- the value INVERTED against the
@@ -327,11 +327,11 @@ R"CFJS(
     // ("neither") in which yaw and tilt silently do nothing at all, which nothing in the panel
     // could explain. Three named choices cover every state worth having and cannot express the
     // useless one.
-    subHead(orientSec, 'APPLIES TO');
+    subHead(orientSec, T('APPLIES TO'));
 
     var skyTargetUi = 'both';
     var skyTargetSeg = segmented(orientSec,
-      [['sky', 'Skybox'], ['fog', 'Fog / smoke'], ['both', 'Both']], '100%',
+      [['sky', T('Skybox')], ['fog', T('Fog / smoke')], ['both', T('Both')]], '100%',
       function (key) {
         // Set locally first: render-state polling is throttled, so two quick picks must not both
         // send against the same stale snapshot.
@@ -342,7 +342,7 @@ R"CFJS(
       }, 14);
     skyTargetSeg.panel.style.marginTop = '6px';
 
-    var skyOrientResetBtn = actionBtn(actionRowEnd(orientSec, 12), 'Reset', function () {
+    var skyOrientResetBtn = actionBtn(actionRowEnd(orientSec, 12), T('Reset'), function () {
       cmd('mirv_filmmaker world skyorient reset');
     });
 
@@ -359,7 +359,7 @@ R"CFJS(
     // ===================== SKY TINT =====================================
     // Drives `mirv_sky color`, which tints the sky dome itself (env_sky) -- distinct from the
     // cloud tint below, which is a material override on the cloud layer.
-    var skyTintSec = wsSec.__page('Sky tint');
+    var skyTintSec = wsSec.__page(T('Sky tint'));
 
     var SKY_TINTS = [
       ['default', '#00000000', ''],
@@ -404,10 +404,10 @@ R"CFJS(
     });
 
     var skyBrightSlider = sliderRow(skyTintSec, {
-      label: 'Sky brightness',
+      label: T('Sky brightness'),
       min: 0, max: 255, decimals: 0, unit: '',
-      tip: 'Dims or lifts the whole sky dome. Only applies while a tint other than Default is '
-         + 'chosen, since it rides along with the tint command.',
+      tip: T('Dims or lifts the whole sky dome. Only applies while a tint other than Default is '
+         + 'chosen, since it rides along with the tint command.'),
       onChange: function (v) {
         skyTintBrightness = v;
         if (skyTintActive === 'custom') {
@@ -422,7 +422,7 @@ R"CFJS(
     });
 
     // ===================== CLOUDS =======================================
-    var cloudSec = wsSec.__page('Clouds');
+    var cloudSec = wsSec.__page(T('Clouds'));
     var cloudsHidden = false;
     var cloudDensityBeforeHide = 1;
 
@@ -442,7 +442,7 @@ R"CFJS(
     // Matches whichever cloud materials the map loaded, so it needs no per-map table -- the
     // header's material count is the live proof of that, which is why the sentence that used to
     // say it here is gone.
-    subHead(cloudSec, 'COLOUR').style.marginTop = '0px';
+    subHead(cloudSec, T('COLOUR')).style.marginTop = '0px';
     var cloudChips = swatchGrid(cloudSec, CLOUD_TINTS, function (nameKey, rgb) {
       if (cloudPicker) cloudPicker.hide();
       cmd(rgb ? ('mirv_sky clouds color ' + rgb) : 'mirv_sky clouds color default');
@@ -455,7 +455,7 @@ R"CFJS(
       cmd('mirv_sky clouds color ' + c[0] + ' ' + c[1] + ' ' + c[2]);
     });
 
-    subHead(cloudSec, 'SHAPE');
+    subHead(cloudSec, T('SHAPE'));
     // Shape controls. These are NOT a texture swap -- CS2 draws clouds with csgo_effects.vfx, so
     // opacity, mask scale and pan speed are real shader parameters. Every one is a MULTIPLIER on
     // whatever the current map authored, so 1.00 means untouched on every map.
@@ -468,34 +468,34 @@ R"CFJS(
     // occupies most of the slider. Cloud SIZE is the control that actually restyles the sky --
     // sparse and towering versus small and busy -- so it belongs next to density, not hidden.
     var cloudDensity = sliderRow(cloudSec, {
-      label: 'Density', cmd: 'mirv_filmmaker world clouds density',
+      label: T('Density'), cmd: 'mirv_filmmaker world clouds density',
       min: 0, max: 2, decimals: 2, unit: 'x', offAtZero: true,
-      tip: 'Thins or thickens the cloud cover. 0 clears the sky completely, 1.00 is the map as '
-         + 'authored. It multiplies opacity, so above about 1.5 the cover is already solid.'
+      tip: T('Thins or thickens the cloud cover. 0 clears the sky completely, 1.00 is the map as '
+         + 'authored. It multiplies opacity, so above about 1.5 the cover is already solid.')
     });
     var cloudSize = sliderRow(cloudSec, {
-      label: 'Cloud size', cmd: 'mirv_filmmaker world clouds size',
+      label: T('Cloud size'), cmd: 'mirv_filmmaker world clouds size',
       min: 0.1, max: 4, decimals: 2, unit: 'x',
-      tip: 'Scales the cloud pattern. Below 1 gives fewer, bigger, sparser formations; above 1 '
-         + 'gives smaller, busier ones. This is the one that restyles the sky.'
+      tip: T('Scales the cloud pattern. Below 1 gives fewer, bigger, sparser formations; above 1 '
+         + 'gives smaller, busier ones. This is the one that restyles the sky.')
     });
 
     // No More/Less disclosure: four cloud controls is not a long enough list to be worth hiding
     // half of behind a button, and a control you have to go looking for reads as a missing one.
     var cloudDrift = sliderRow(cloudSec, {
-      label: 'Drift speed', cmd: 'mirv_filmmaker world clouds drift',
+      label: T('Drift speed'), cmd: 'mirv_filmmaker world clouds drift',
       min: 0, max: 8, decimals: 2, unit: 'x', offAtZero: true,
-      tip: 'How fast the cloud layers scroll. 0 freezes them dead still, which is what you want '
-         + 'for a locked-off shot.'
+      tip: T('How fast the cloud layers scroll. 0 freezes them dead still, which is what you want '
+         + 'for a locked-off shot.')
     });
     var cloudBright = sliderRow(cloudSec, {
-      label: 'Cloud brightness', cmd: 'mirv_filmmaker world clouds brightness',
+      label: T('Cloud brightness'), cmd: 'mirv_filmmaker world clouds brightness',
       min: 0, max: 3, decimals: 2, unit: 'x',
-      tip: 'Dims or lifts the clouds without touching their colour.'
+      tip: T('Dims or lifts the clouds without touching their colour.')
     });
 
     var cloudActions = actionRowEnd(cloudSec, 10);
-    var cloudDrawBtn = actionBtn(cloudActions, 'Hide clouds', function () {
+    var cloudDrawBtn = actionBtn(cloudActions, T('Hide clouds'), function () {
       cloudsHidden = !cloudsHidden;
       // Do not reject the complete cloud material draw: some maps pack their visible sun into
       // that same material. Driving the cloud opacity parameter keeps the independent sun draw.
@@ -503,7 +503,7 @@ R"CFJS(
       setBtnOn(cloudDrawBtn, cloudsHidden, S.accent);
     });
     cloudDrawBtn.style.marginRight = '6px';
-    var cloudResetBtn = actionBtn(cloudActions, 'Reset', function () {
+    var cloudResetBtn = actionBtn(cloudActions, T('Reset'), function () {
       cmd('mirv_filmmaker world clouds reset');
       cmd('mirv_sky clouds color default');
     });
@@ -536,6 +536,10 @@ R"CFJS(
       skyPendingDelete = '';
       skyPaintDelete();
     };
+
+    // The tint keys stay English (they are the swatch keys); this is what the page summary shows.
+    var SKY_TINT_SHOWN = { warm: T('warm'), gold: T('gold'), rose: T('rose'), cool: T('cool'), teal: T('teal'),
+                           violet: T('violet'), ember: T('ember'), ash: T('ash'), custom: T('custom') };
 
     renderHooks.push(function (st) {
       var world=st.environment&&st.environment.world;
@@ -585,7 +589,7 @@ R"CFJS(
       // Orientation is global, so changing skyboxes keeps the values and the render hook applies
       // them to the new sky. The active sky's name is the SKYBOX card's shut-card readout, which
       // is where the old "Active: ..." line inside the settings page went.
-      var activeLabel = cur || 'Map default';
+      var activeLabel = cur || T('Map default');
       for (var li = 0; li < list.length; li++) {
         if (list[li].name === cur) { activeLabel = list[li].label || cur; break; }
       }
@@ -608,12 +612,12 @@ R"CFJS(
       var orientBroken = !orientOk || skyEnts <= 0;
       skyOrientStatusLbl.visible = orientBroken;
       skyOrientStatusLbl.text = !orientOk
-        ? 'Live orientation is unavailable on this CS2 build.'
-        : 'Waiting for a sky entity; load a map, then try again.';
+        ? T('Live orientation is unavailable on this CS2 build.')
+        : T('Waiting for a sky entity; load a map, then try again.');
 
-      orientSec.__note(orientBroken ? 'Unavailable'
-        : (yawV === 0 && pitchV === 0 && !st.skyMirror) ? 'Map aligned'
-        : (Math.round(yawV) + '° · ' + Math.round(pitchV) + '°' + (st.skyMirror ? ' · flipped' : '')));
+      orientSec.__note(orientBroken ? T('Unavailable')
+        : (yawV === 0 && pitchV === 0 && !st.skyMirror) ? T('Map aligned')
+        : (Math.round(yawV) + '° · ' + Math.round(pitchV) + '°' + (st.skyMirror ? ' · ' + T('flipped') : '')));
 
       var busy = !!st.skyBuildBusy;
       if (skyCreateBtn) skyCreateBtn.enabled = !busy && (st.skyBuildCan !== false);
@@ -625,8 +629,8 @@ R"CFJS(
       // Sky tint has no C++ state mirror (it rides the `mirv_sky color` command), so the readout
       // reports what this panel last sent -- which is the only record of it that exists.
       skyTintSec.__note(skyTintActive === 'default'
-        ? 'Map default'
-        : (skyTintActive + ' · ' + Math.round(skyTintBrightness)));
+        ? T('Map default')
+        : ((SKY_TINT_SHOWN[skyTintActive] || skyTintActive) + ' · ' + Math.round(skyTintBrightness)));
 
       // Cloud shape mirrors back from CloudFx so console and panel cannot disagree.
       var cloudDensityValue = typeof st.cloudDensity === 'number' ? st.cloudDensity : 1;
@@ -641,18 +645,18 @@ R"CFJS(
       // a header readout, not a sentence.
       var mats = (typeof st.cloudMats === 'number') ? st.cloudMats : 0;
       cloudCountLbl.visible = (mats <= 0);
-      cloudCountLbl.text = 'No cloud materials found yet on this map — move a slider to scan.';
+      cloudCountLbl.text = T('No cloud materials found yet on this map — move a slider to scan.');
 
-      cloudSec.__note(mats <= 0 ? 'No clouds here'
-        : (cloudsHidden || cloudDensityValue <= 0) ? 'Hidden'
-        : (cloudDensityValue.toFixed(2) + 'x · ' + mats + ' mat' + (mats === 1 ? '' : 's')));
+      cloudSec.__note(mats <= 0 ? T('No clouds here')
+        : (cloudsHidden || cloudDensityValue <= 0) ? T('Hidden')
+        : (cloudDensityValue.toFixed(2) + 'x · ' + TN(mats, '{0} mat', '{0} mats')));
 
       // The CARD's summary. The four page-level notes above are no-ops now (a paged card has one
       // readout, not four), so this is the line that answers "what sky am I on?" from the column:
       // the active sky, how it is turned, and how thick the clouds are.
       wsSec.__note(activeLabel
         + ' · ' + Math.round(yawV) + '°'
-        + (st.skyMirror ? ' flipped' : '')
-        + ' · clouds ' + (mats <= 0 ? 'none' : cloudDensityValue.toFixed(2) + 'x'));
+        + (st.skyMirror ? ' ' + T('flipped') : '')
+        + ' · ' + (mats <= 0 ? T('clouds none') : T('clouds {0}x', cloudDensityValue.toFixed(2))));
     });
 )CFJS"

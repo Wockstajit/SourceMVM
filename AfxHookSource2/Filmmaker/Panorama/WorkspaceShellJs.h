@@ -90,7 +90,7 @@ R"SHELLJS(
       var dot = mk('Panel', tag); dot.style.width = '7px'; dot.style.height = '7px';
       dot.style.backgroundColor = S.danger; dot.style.borderRadius = '4px';
       dot.style.verticalAlign = 'center'; dot.style.marginRight = '7px';
-      var tagLbl = lbl(tag, 'PREVIEW', S.value, 11);
+      var tagLbl = lbl(tag, T('PREVIEW'), S.value, 11);
       tagLbl.style.fontWeight = 'bold'; tagLbl.style.letterSpacing = '2px';
       tagLbl.style.verticalAlign = 'center';
       // Recording-style pulse on the dot. Only opacity moves, so the tag never reflows.

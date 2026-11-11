@@ -30,6 +30,15 @@ test('every helper the shared colour picker calls exists in the timeline dock', 
   const code = jsCode(picker, 'CLRJS');
   const used = code.slice(0, code.indexOf('function colorField'));
   const have = new Set([...defined(graph), ...defined(picker), ...defined(colorMath)]);
+  // T / TN are not function declarations: the dock gets them from the localization fragment it
+  // splices in right after its IIFE opens. They count only while that splice and those locals exist.
+  const localization = read('AfxHookSource2/Filmmaker/Panorama/LocalizationJs.h');
+  assert.match(graph, /R"GEJS\(\r?\n\(function \(\) \{\r?\n\)GEJS"\r?\n#include "LocalizationJs\.h"\r?\nR"GEJS\(/);
+  const aliases = localization.match(/\n    var ((?:\w+ = \$\.MvmI18n\.\w+(?:, )?)+);/);
+  assert.ok(aliases, 'the localization fragment must end by aliasing $.MvmI18n into locals');
+  const locals = [...aliases[1].matchAll(/(\w+) = \$\.MvmI18n\.\w+/g)].map((m) => m[1]);
+  for (const name of ['T', 'TN']) assert.ok(locals.includes(name), name + ' is no longer a local of the fragment');
+  for (const name of locals) have.add(name);
   const builtins = new Set(['if', 'for', 'while', 'switch', 'return', 'function', 'catch', 'typeof',
     'parseInt', 'parseFloat', 'isFinite', 'onChange']);
   const missing = new Set();
@@ -106,7 +115,7 @@ test('curves are fitted to what they draw, never while a gesture holds them', ()
 });
 
 test('FIT frames every key, and new keys off screen are brought into view', () => {
-  assert.match(graph, /var fitBtn = footBtn\('FIT'/);
+  assert.match(graph, /var fitBtn = footBtn\(T\('FIT'\), /);
   assert.match(graph, /function revealNewKeys\(\)/);
   assert.match(graph, /releasePlayhead\(t\);\n      revealTicks\(t, t\);/);
 });

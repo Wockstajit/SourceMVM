@@ -119,7 +119,7 @@ R"EDJS(
       var mul = Math.pow(10, decimals), quantum = 1 / mul;
       function quant(v) { return Math.round(v * mul) / mul; }
       function fmt(v) {
-        return (opts.offAtZero && v <= min && min === 0) ? 'Off' : (v.toFixed(decimals) + unit);
+        return (opts.offAtZero && v <= min && min === 0) ? T('Off') : (v.toFixed(decimals) + unit);
       }
       edEndTileLine(parent);
       var t = mk('Panel', parent);
@@ -632,7 +632,9 @@ R"EDJS(
 )EDJS"
 R"EDJS(
     // ---- the card ---------------------------------------------------------------------------
-    // opts: { edge, rail: { tab, key, group } }
+    // opts: { edge, rail: { tab, key, group }, titleKey }
+    // `title` is what is shown (translated by the caller); `titleKey` is the English name
+    // api.card() / api.cardPage() address the card by, and defaults to the title.
     // Returns the BODY panel, carrying __page / __setPage / __pageCount / __note / __badge /
     // __headerAction / __headerReset / __headerPill / __setOpen / __getOpen / __card.
     function edCard(parent, title, opts) {
@@ -766,7 +768,7 @@ R"EDJS(
         item.badge.style.backgroundColor = bg; item.badgeLbl.style.color = fg;
       };
       body.__card = s;
-      body.__title = title;   // api.card() / api.cardPage() address a card by its title
+      body.__title = opts.titleKey || title;   // api.card() / api.cardPage() address a card by its title
 
       body.__headerAction = function (cap, onClick) {
         var b = btnPrimary(slots, cap, onClick);
@@ -789,7 +791,7 @@ R"EDJS(
         return b;
       };
       body.__headerReset = function (onClick) {
-        var b = btn(slots, 'Reset', onClick, S.label);
+        var b = btn(slots, T('Reset'), onClick, S.label);
         b.__bgBase = S.clear; b.__brBase = '#ffffff1f'; btnVisual(b);
         b.style.marginLeft = '8px'; b.style.marginRight = '0px';
         b.style.verticalAlign = 'center';

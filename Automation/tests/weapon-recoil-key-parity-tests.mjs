@@ -40,14 +40,14 @@ function engineWeapons() {
   return rows;
 }
 
-// Rows look like: ['pistol', 'Pistols'],
+// Rows look like: ['pistol', T('Pistols')], -- the key stays plain, only the caption is translated.
 function cardList(name) {
   const start = cardJs.indexOf(`var ${name} = [`);
   assert.notEqual(start, -1, `${name} not found in ConfigHudCameraTabJs.h`);
   const end = cardJs.indexOf("];", start);
   assert.notEqual(end, -1, `${name} is not terminated`);
   const body = cardJs.slice(start, end);
-  const keys = [...body.matchAll(/\[\s*'([a-z0-9]+)'\s*,\s*'([^']+)'\s*\]/g)].map((m) => m[1]);
+  const keys = [...body.matchAll(/\[\s*'([a-z0-9]+)'\s*,\s*T\('([^']+)'\)\s*\]/g)].map((m) => m[1]);
   assert.ok(keys.length > 1, `expected entries in ${name}, parsed ${keys.length}`);
   return keys;
 }

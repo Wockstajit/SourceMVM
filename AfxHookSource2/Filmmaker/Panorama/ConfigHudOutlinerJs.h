@@ -28,20 +28,20 @@ R"CFJS(
       envSceneSec.__setPage(ENV_PAGE_OUTLINER);
       olMulti = {};
     }
-    var olAddBtn = envSceneSec.__headerAction('+ Add', function () {
+    var olAddBtn = envSceneSec.__headerAction(T('+ Add'), function () {
       cfgMenu([
-        ['Point light', function () { olAdd('point'); }, 'Shines all around'],
-        ['Spot light', function () { olAdd('spot'); }, 'A cone of light'],
-        ['Area light', function () { olAdd('area'); }, 'A soft rectangle'],
+        [T('Point light'), function () { olAdd('point'); }, T('Shines all around')],
+        [T('Spot light'), function () { olAdd('spot'); }, T('A cone of light')],
+        [T('Area light'), function () { olAdd('area'); }, T('A soft rectangle')],
         null,
-        ['Camera', function () { olAdd('camera'); }, 'A viewpoint']
+        [T('Camera'), function () { olAdd('camera'); }, T('A viewpoint')]
       ], olAddBtn);
     });
-    attachTip(olAddBtn, 'Adds a light or a camera ahead of the view and selects it. CS2 assets and your meshes come from the Library page.');
+    attachTip(olAddBtn, T('Adds a light or a camera ahead of the view and selects it. CS2 assets and your meshes come from the Library page.'));
 
     // ===================== SCENE OBJECTS > OUTLINER =====================
-    var olPage = envSceneSec.__page('Outliner');
-    var OL_KIND = { asset: ['#80bdff', 'CS2 asset'], light: ['#f2d394', 'Light'], mesh: ['#b9a3ff', 'Your mesh'], camera: ['#ffd76a', 'Camera'] };
+    var olPage = envSceneSec.__page(T('Outliner'));
+    var OL_KIND = { asset: ['#80bdff', T('CS2 asset')], light: ['#f2d394', T('Light##lamp')], mesh: ['#b9a3ff', T('Your mesh')], camera: ['#ffd76a', T('Camera')] };
     var OL_ICON = 's2r://panorama/images/icons/ui/';
     var olOpen = {}, olFilter = 'all', olSel = '', olSig = '', olItemsNow = [];
     var olLastProp = 0, olLastEnv = 0, olIsolate = '', olIsolateMemo = null;
@@ -50,6 +50,10 @@ R"CFJS(
     var olMulti = {}, olAnchor = '', olOrder = [], olShift = false, olCtrl = false;
 
     function olIsLightKind(k) { return k === 'point' || k === 'spot' || k === 'area'; }
+    // The default name of a light, shown where it has none of its own (the tree, the rig's list).
+    function olLightName(k, id) {
+      return k === 'point' ? T('point light {0}', id) : k === 'spot' ? T('spot light {0}', id) : T('area light {0}', id);
+    }
     // Every outliner item, from both backends.
     function olItems(st) {
       var out = [];
@@ -62,7 +66,7 @@ R"CFJS(
       ((s && s.objects) || []).forEach(function (o) {
         var light = olIsLightKind(o.kind), camera = o.kind === 'camera';
         out.push({ key: 'e' + o.id, src: 'e', id: o.id, kind: light ? 'light' : camera ? 'camera' : 'mesh',
-                   name: o.asset || (light ? o.kind + ' light' : camera ? 'Camera' : o.kind) + ' ' + o.id,
+                   name: o.asset || (light ? olLightName(o.kind, o.id) : camera ? T('Camera {0}', o.id) : o.kind + ' ' + o.id),
                    group: o.group || '', visible: o.enabled !== false, render: o.render !== false,
                    locked: !!o.locked, envKind: o.kind });
       });
@@ -130,12 +134,15 @@ R"CFJS(
       items.forEach(function (i) { if (i.src !== 'p') envCommand('remove ' + i.id); delete olMulti[i.key]; });
       olSel = ''; olSig = '';
     }
-    // The same, after asking: used for a whole group or a selection of more than one.
-    function olConfirmRemove(items, what) {
+    // The same, after asking: used for a whole group or a selection of more than one. `title` is
+    // the whole question (olRemoveTitleSel / olRemoveTitleGroup), so it translates as one sentence.
+    function olRemoveTitleSel(n) { return T('Remove {0} selected objects?', n); }
+    function olRemoveTitleGroup(name) { return T('Remove the group “{0}”?', name); }
+    function olConfirmRemove(items, title) {
       if (!items.length) return;
       if (items.length === 1) { olRemoveAll(items); return; }
-      cfgConfirm('Remove ' + what + '?', 'This removes ' + items.length + ' objects from the scene.',
-        'Remove ' + items.length, function () { olRemoveAll(items); });
+      cfgConfirm(title, TN(items.length, 'This removes {0} object from the scene.', 'This removes {0} objects from the scene.'),
+        T('Remove {0}', items.length), function () { olRemoveAll(items); });
     }
     function olAct(it, act) {
       if (!it) return;
@@ -153,51 +160,51 @@ R"CFJS(
       var picked = olPicked();
       if (picked.length > 1 && olIsPicked(it.key)) {
         cfgMenu([
-          ['New group from these', function () {
+          [T('New group from these'), function () {
             var name = olNewGroupName(); picked.forEach(function (i) { olSetGroup(i, name); }); olOpen[name] = true;
           }],
-          ['Hide these', function () { picked.forEach(function (i) { if (i.visible) olSet(i, 'visible', false); }); }],
-          ['Show these', function () { picked.forEach(function (i) { if (!i.visible) olSet(i, 'visible', true); }); }],
+          [T('Hide these'), function () { picked.forEach(function (i) { if (i.visible) olSet(i, 'visible', false); }); }],
+          [T('Show these'), function () { picked.forEach(function (i) { if (!i.visible) olSet(i, 'visible', true); }); }],
           null,
-          ['Remove ' + picked.length + ' selected', function () { olConfirmRemove(picked, picked.length + ' selected objects'); }, 'Del', true]
+          [T('Remove {0} selected', picked.length), function () { olConfirmRemove(picked, olRemoveTitleSel(picked.length)); }, 'Del', true]
         ]);
         return;
       }
-      var items = [['Duplicate', function () { olAct(it, 'duplicate'); }, 'Ctrl+D'],
-                   ['Copy', function () { olClip = it.key; }, 'Ctrl+C']];
-      if (olFind(olClip)) items.push(['Paste', function () { $.ConfigHud.key('paste'); }, 'Ctrl+V']);
+      var items = [[T('Duplicate'), function () { olAct(it, 'duplicate'); }, 'Ctrl+D'],
+                   [T('Copy'), function () { olClip = it.key; }, 'Ctrl+C']];
+      if (olFind(olClip)) items.push([T('Paste'), function () { $.ConfigHud.key('paste'); }, 'Ctrl+V']);
       if (it.kind === 'asset') {
-        items.push(['Drop to floor', function () { olAct(it, 'floor'); }]);
-        items.push(['Move to crosshair', function () { olAct(it, 'here'); }]);
-        items.push(['Stand upright', function () { olAct(it, 'upright'); }]);
+        items.push([T('Drop to floor'), function () { olAct(it, 'floor'); }]);
+        items.push([T('Move to crosshair'), function () { olAct(it, 'here'); }]);
+        items.push([T('Stand upright'), function () { olAct(it, 'upright'); }]);
       } else {
-        items.push(['Edit position', function () { olAct(it, 'edit'); }]);
+        items.push([T('Edit position'), function () { olAct(it, 'edit'); }]);
         // A camera object's own view (the RIG card has the same two).
         if (it.kind === 'camera') {
-          items.push(['Go to camera', function () { cmd('mirv_filmmaker rig goto ' + it.id); }]);
-          items.push([st && st.rig && st.rig.lookThrough === it.id ? 'Stop looking through' : 'Look through',
+          items.push([T('Go to camera'), function () { cmd('mirv_filmmaker rig goto ' + it.id); }]);
+          items.push([st && st.rig && st.rig.lookThrough === it.id ? T('Stop looking through') : T('Look through'),
             function () { cmd('mirv_filmmaker rig lookthrough ' + it.id + ' ' + (st && st.rig && st.rig.lookThrough === it.id ? 'off' : 'on')); }]);
         }
       }
       items.push(null);
-      items.push([it.visible ? 'Hide' : 'Show', function () { olSet(it, 'visible', !it.visible); }]);
-      items.push([it.locked ? 'Unlock' : 'Lock', function () { olSet(it, 'locked', !it.locked); }]);
+      items.push([it.visible ? T('Hide') : T('Show'), function () { olSet(it, 'visible', !it.visible); }]);
+      items.push([it.locked ? T('Unlock') : T('Lock'), function () { olSet(it, 'locked', !it.locked); }]);
       items.push(null);
-      items.push(['Remove', function () { olAct(it, 'remove'); }, 'Del', true]);
+      items.push([T('Remove'), function () { olAct(it, 'remove'); }, 'Del', true]);
       cfgMenu(items);
     }
     function olGroupMenu(name) {
       cfgMenu([
-        [olIsolate === name ? 'Show all' : 'Isolate', function () {
+        [olIsolate === name ? T('Show all') : T('Isolate'), function () {
           if (olIsolate === name) olEndIsolate(); else { if (olIsolate) olEndIsolate(); olStartIsolate(name); }
         }],
-        ['Ungroup', function () {
+        [T('Ungroup'), function () {
           if (olIsolate === name) olEndIsolate();
           olMembers(name).forEach(function (i) { olSetGroup(i, ''); });
           if (olSel === 'g:' + name) olSel = '';
         }],
         null,
-        ['Delete group', function () { olConfirmRemove(olMembers(name), 'the group “' + name + '”'); }, 'Del', true]
+        [T('Delete group'), function () { olConfirmRemove(olMembers(name), olRemoveTitleGroup(name)); }, 'Del', true]
       ]);
     }
     // Delete, Ctrl+D, Ctrl+C and Ctrl+V act on the outliner's selection while Scene Objects is the
@@ -214,9 +221,9 @@ R"CFJS(
       }
       if (name === 'delete') {
         // A group, or a selection of several, goes after a confirm; one item goes at once.
-        if (olSel.indexOf('g:') === 0) { var g = olSel.substring(2); olConfirmRemove(olMembers(g), 'the group “' + g + '”'); return; }
+        if (olSel.indexOf('g:') === 0) { var g = olSel.substring(2); olConfirmRemove(olMembers(g), olRemoveTitleGroup(g)); return; }
         var picked = olPicked();
-        if (picked.length > 1) { olConfirmRemove(picked, picked.length + ' selected objects'); return; }
+        if (picked.length > 1) { olConfirmRemove(picked, olRemoveTitleSel(picked.length)); return; }
       }
       var it = olFind(olSel);
       if (!it) return;
@@ -278,7 +285,7 @@ R"CFJS(
 
     // ---- filter, then the tree ---------------------------------------------------------------
     var olFilters = segmented(olPage, [
-      ['all', 'All'], ['asset', 'CS2 assets'], ['light', 'Lights'], ['mesh', 'Your meshes']
+      ['all', T('All')], ['asset', T('CS2 assets')], ['light', T('Lights')], ['mesh', T('Your meshes')]
     ], '100%', function (k) { olFilter = k; olSig = ''; }, 12);
     if (olFilters.panel) olFilters.panel.style.marginTop = '8px';
 
@@ -288,7 +295,7 @@ R"CFJS(
     olIsoBar.style.border = '1px solid #6a5732'; olIsoBar.style.borderRadius = '4px';
     var olIsoText = lbl(olIsoBar, '', '#f2d394ff', 12); olIsoText.style.verticalAlign = 'center';
     olIsoText.style.width = 'fill-parent-flow(1.0)'; olIsoText.style.fontWeight = 'bold';
-    actionBtn(olIsoBar, 'Show all', function () { olEndIsolate(); });
+    actionBtn(olIsoBar, T('Show all'), function () { olEndIsolate(); });
     olIsoBar.visible = false;
 
     var olTree = mk('Panel', olPage);
@@ -298,10 +305,11 @@ R"CFJS(
     var olHead = mk('Panel', olTree);
     olHead.style.width = '100%'; olHead.style.height = '26px'; olHead.style.flowChildren = 'right';
     olHead.style.borderBottom = '1px solid #222832'; olHead.style.paddingLeft = '12px';
-    var olHeadName = lbl(olHead, 'NAME', S.muted, 11);
+    var olHeadName = lbl(olHead, T('NAME'), S.muted, 11);
+    olHeadName.style.whiteSpace = 'nowrap'; olHeadName.style.textOverflow = 'shrink';
     olHeadName.style.width = 'fill-parent-flow(1.0)'; olHeadName.style.verticalAlign = 'center';
     olHeadName.style.fontWeight = 'bold'; olHeadName.style.letterSpacing = '1.5px';
-    [['eye', 'Shown in the view'], ['video', 'Kept in renders'], ['lock', 'Locked: cannot be picked or dragged in the view']].forEach(function (c) {
+    [['eye', T('Shown in the view')], ['video', T('Kept in renders')], ['lock', T('Locked: cannot be picked or dragged in the view')]].forEach(function (c) {
       var cell = mk('Panel', olHead); cell.style.width = '30px'; cell.style.height = '26px';
       olIcon(cell, c[0], 14, '#8b95a3ff');
       attachTip(cell, c[1]);
@@ -319,23 +327,23 @@ R"CFJS(
     olLitDot.style.verticalAlign = 'center'; olLitDot.style.marginRight = '8px';
     var olLitText = lbl(olLitBar, '', S.hint, 12); olLitText.style.verticalAlign = 'center';
     olLitText.style.width = 'fill-parent-flow(1.0)';
-    var olLitLink = lbl(olLitBar, 'Lighting ›', '#80bdffff', 12);
+    var olLitLink = lbl(olLitBar, T('Lighting ›'), '#80bdffff', 12);
     olLitLink.hittest = true; olLitLink.style.fontWeight = 'bold'; olLitLink.style.verticalAlign = 'center';
     olLitLink.SetPanelEvent('onactivate', function () { cfgSelectCard('environment', 'env.light', true); });
-    var olEmpty = envNote(olPage, 'Nothing placed yet. Add CS2 assets on Assets & Lights, or a light above.');
+    var olEmpty = envNote(olPage, T('Nothing placed yet. Add CS2 assets on Assets & Lights, or a light above.'));
 
     var olUnder = mk('Panel', olPage);
     olUnder.style.width = '100%'; olUnder.style.flowChildren = 'right'; olUnder.style.marginTop = '6px';
-    var olHint = lbl(olUnder, 'Shift / Ctrl-click to pick several', S.hint, 11);
+    var olHint = lbl(olUnder, T('Shift / Ctrl-click to pick several'), S.hint, 11);
     olHint.style.width = 'fill-parent-flow(1.0)'; olHint.style.verticalAlign = 'center';
-    var olGroupBtn = actionBtn(olUnder, 'New group from selection', function () {
+    var olGroupBtn = actionBtn(olUnder, T('New group from selection'), function () {
       var picked = olPicked();
       if (!picked.length) return;
       var name = olNewGroupName();
       picked.forEach(function (i) { olSetGroup(i, name); });
       olOpen[name] = true; olSel = 'g:' + name; olMulti = {};
     });
-    var olUndoBtn = actionBtn(olUnder, 'Undo', function () { propsCommand('undo'); }); // same history as Ctrl+Z
+    var olUndoBtn = actionBtn(olUnder, T('Undo'), function () { propsCommand('undo'); }); // same history as Ctrl+Z
 
     // ---- the row ---------------------------------------------------------------------------------
     function olRow(o) {
@@ -377,13 +385,13 @@ R"CFJS(
       }
       var eye = olIconBtn(r, o.toggleEye);
       olEye(eye).__paint(o.visible, o.visible ? '#9aa3b0ff' : '#e6e9eeff');
-      attachTip(eye, o.visible ? 'Hide in the view' : 'Show in the view');
+      attachTip(eye, o.visible ? T('Hide in the view') : T('Show in the view'));
       var cam = olIconBtn(r, o.toggleRender);
       olIcon(cam, o.render ? 'video' : 'video_off', 15, o.render ? '#9aa3b0ff' : '#e05a5aff');
-      attachTip(cam, o.render ? 'Leave out of renders' : 'Put back in renders');
+      attachTip(cam, o.render ? T('Leave out of renders') : T('Put back in renders'));
       var lk = olIconBtn(r, o.toggleLock);
       olIcon(lk, o.locked ? 'lock' : 'lock_open', 14, o.locked ? '#e0b861ff' : '#5d6672ff');
-      attachTip(lk, o.locked ? 'Unlock' : 'Lock: cannot be picked or dragged in the view');
+      attachTip(lk, o.locked ? T('Unlock') : T('Lock: cannot be picked or dragged in the view'));
     }
 )CFJS"
 R"CFJS(
@@ -468,18 +476,18 @@ R"CFJS(
       root.SetAttributeString('textcapture', '1'); olNamePaint();
     });
     var olGroupActs = actionRowEnd(olGroupBox, 10);
-    var olIsolateBtn = actionBtn(olGroupActs, 'Isolate', function () {
+    var olIsolateBtn = actionBtn(olGroupActs, T('Isolate'), function () {
       var name = olSel.substring(2);
       if (olIsolate === name) olEndIsolate(); else { if (olIsolate) olEndIsolate(); olStartIsolate(name); }
     });
-    actionBtn(olGroupActs, 'Ungroup', function () {
+    actionBtn(olGroupActs, T('Ungroup'), function () {
       var name = olSel.substring(2);
       if (olIsolate === name) olEndIsolate();
       olMembers(name).forEach(function (i) { olSetGroup(i, ''); });
       olSel = '';
     });
-    olDanger(actionBtn(olGroupActs, 'Delete group', function () {
-      var g = olSel.substring(2); olConfirmRemove(olMembers(g), 'the group “' + g + '”');
+    olDanger(actionBtn(olGroupActs, T('Delete group'), function () {
+      var g = olSel.substring(2); olConfirmRemove(olMembers(g), olRemoveTitleGroup(g));
     }));
     // The danger style: a red caption on a red edge (Remove, Delete group).
     function olDanger(b) {
@@ -491,14 +499,14 @@ R"CFJS(
     var olAssetBox = mk('Panel', olCard);
     olAssetBox.style.width = '100%'; olAssetBox.style.flowChildren = 'down'; olAssetBox.style.marginTop = '6px';
     var olAssetSize = sliderRow(olAssetBox, {
-      label: 'Size', min: 0.1, max: 5, decimals: 2, unit: '×', tip: 'Scale of the model. 1× is its size in the game.',
+      label: T('Size'), min: 0.1, max: 5, decimals: 2, unit: '×', tip: T('Scale of the model. 1× is its size in the game.'),
       onChange: function (v) { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('set ' + it.id + ' scale ' + v); }
     });
     var olAssetYaw = sliderRow(olAssetBox, {
-      label: 'Turn', min: -180, max: 180, decimals: 0, unit: '°', tip: 'Which way it faces.',
+      label: T('Turn'), min: -180, max: 180, decimals: 0, unit: '°', tip: T('Which way it faces.'),
       onChange: function (v) { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('set ' + it.id + ' yaw ' + v); }
     });
-    var olAssetSolid = togglePill(olAssetBox, 'Solid', 'In a private match, you and the bots collide with it and can stand on it.',
+    var olAssetSolid = togglePill(olAssetBox, T('Solid'), T('In a private match, you and the bots collide with it and can stand on it.'),
       function () { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('set ' + it.id + ' solid ' + (olAssetSolid.__solid ? '0' : '1')); });
     renderHooks.push(function (st) {
       var it = olFind(olSel), placed = (st && st.props && st.props.placed) || [], on = false;
@@ -508,9 +516,9 @@ R"CFJS(
     var olAssetTurn = lbl(olAssetBox, '', S.muted, 12);
     olAssetTurn.style.marginTop = '8px'; olAssetTurn.style.marginLeft = UI.line.padH + 'px';
     var olAssetActs = actionRowEnd(olAssetBox, 10);
-    actionBtn(olAssetActs, 'Drop to floor', function () { olAct(olFind(olSel), 'floor'); });
-    actionBtn(olAssetActs, 'To crosshair', function () { olAct(olFind(olSel), 'here'); });
-    var olUprightBtn = actionBtn(olAssetActs, 'Stand upright', function () { olAct(olFind(olSel), 'upright'); });
+    actionBtn(olAssetActs, T('Drop to floor'), function () { olAct(olFind(olSel), 'floor'); });
+    actionBtn(olAssetActs, T('To crosshair'), function () { olAct(olFind(olSel), 'here'); });
+    var olUprightBtn = actionBtn(olAssetActs, T('Stand upright'), function () { olAct(olFind(olSel), 'upright'); });
     // Light and mesh: their inspectors land in these hosts.
     var olLightHost = mk('Panel', olCard);
     olLightHost.style.width = '100%'; olLightHost.style.flowChildren = 'down';
@@ -521,7 +529,7 @@ R"CFJS(
     olRigHost.style.width = '100%'; olRigHost.style.flowChildren = 'down';
 
     // Group membership, for one item: the existing groups, none, or a new one.
-    var olGroupDrop = dropdownRow(olCard, 'Group', [], function (g) {
+    var olGroupDrop = dropdownRow(olCard, T('Group'), [], function (g) {
       var it = olFind(olSel);
       if (!it) return;
       if (g === '+') { var name = olNewGroupName(); olSetGroup(it, name); olOpen[name] = true; }
@@ -531,15 +539,15 @@ R"CFJS(
     var olGroupSig = null;
     // Several selected: group them, hide them or remove them together.
     var olMultiActs = actionRowEnd(olCard, 12);
-    actionBtn(olMultiActs, 'New group from these', function () {
+    actionBtn(olMultiActs, T('New group from these'), function () {
       var picked = olPicked(), name = olNewGroupName();
       picked.forEach(function (i) { olSetGroup(i, name); });
       olOpen[name] = true; olSel = 'g:' + name; olMulti = {};
     });
-    actionBtn(olMultiActs, 'Hide these', function () { olPicked().forEach(function (i) { if (i.visible) olSet(i, 'visible', false); }); });
-    var olMultiRemove = olDanger(actionBtn(olMultiActs, 'Remove', function () { var p = olPicked(); olConfirmRemove(p, p.length + ' selected objects'); }));
+    actionBtn(olMultiActs, T('Hide these'), function () { olPicked().forEach(function (i) { if (i.visible) olSet(i, 'visible', false); }); });
+    var olMultiRemove = olDanger(actionBtn(olMultiActs, T('Remove'), function () { var p = olPicked(); olConfirmRemove(p, olRemoveTitleSel(p.length)); }));
     olMultiActs.visible = false;
-    var olCardHint = lbl(olCard, 'Right-click for more  ·  Del  ·  Ctrl+C / V  ·  Ctrl+D', S.hint, 11);
+    var olCardHint = lbl(olCard, T('Right-click for more  ·  Del  ·  Ctrl+C / V  ·  Ctrl+D'), S.hint, 11);
     olCardHint.style.marginTop = '12px'; olCardHint.style.horizontalAlign = 'center';
 )CFJS"
 R"CFJS(
@@ -628,7 +636,7 @@ R"CFJS(
       olEmpty.visible = !items.length;
       olTree.visible = !!items.length;
       olIsoBar.visible = !!olIsolate;
-      olIsoText.text = olIsolate ? 'Isolating ' + olIsolate + ' — everything else is hidden' : '';
+      olIsoText.text = olIsolate ? T('Isolating {0} — everything else is hidden', olIsolate) : '';
       // The lights' line: only with a light in the scene.
       var hasLight = items.some(function (i) { return i.kind === 'light'; });
       olLitBar.visible = hasLight;
@@ -636,7 +644,7 @@ R"CFJS(
         var es2 = envState(), ec = envClimate();
         var lit = !!(es2 && es2.enabled && ec && ec.enabled && ec.relighting);
         olLitDot.style.backgroundColor = lit ? ENV_ACCENT : '#e0b861ff';
-        olLitText.text = lit ? 'Lights draw with Environment lighting' : 'Lights need Environment lighting (off now)';
+        olLitText.text = lit ? T('Lights draw with Environment lighting') : T('Lights need Environment lighting (off now)');
       }
 
       // The card.
@@ -649,24 +657,24 @@ R"CFJS(
       if (!olCard.visible) return;
       if (pickedNow.length > 1) {
         // Several selected: what they share, and the bulk actions.
-        olCardTitle.text = pickedNow.length + ' objects selected';
-        olCardKind.text = 'SELECTION'; olCardKind.style.color = '#e0b861ff'; olCardChip.style.backgroundColor = '#e0b8611f';
-        olCardSub.text = 'Shift-click adds a range, Ctrl-click one more.';
+        olCardTitle.text = TN(pickedNow.length, '{0} object selected', '{0} objects selected');
+        olCardKind.text = T('SELECTION'); olCardKind.style.color = '#e0b861ff'; olCardChip.style.backgroundColor = '#e0b8611f';
+        olCardSub.text = T('Shift-click adds a range, Ctrl-click one more.');
         olGroupBox.visible = olAssetBox.visible = olLightHost.visible = olMeshHost.visible = false;
         olGroupDrop.row.visible = false; olCardHint.visible = false;
         olMultiActs.visible = true;
-        olMultiRemove.__lbl.text = 'Remove ' + pickedNow.length;
+        olMultiRemove.__lbl.text = T('Remove {0}', pickedNow.length);
         return;
       }
       olMultiActs.visible = false;
-      var kind = isGroup ? ['#e0b861', 'GROUP'] : [OL_KIND[it.kind][0], OL_KIND[it.kind][1].toUpperCase()];
+      var kind = isGroup ? ['#e0b861', T('GROUP')] : [OL_KIND[it.kind][0], OL_KIND[it.kind][1].toUpperCase()];
       olCardTitle.text = isGroup ? olSel.substring(2) : it.name;
       olCardKind.text = kind[1]; olCardKind.style.color = kind[0] + 'ff';
       olCardChip.style.backgroundColor = kind[0] + '1f';
-      olCardSub.text = isGroup ? olMembers(olSel.substring(2)).length + ' objects  ·  rename, isolate or ungroup'
+      olCardSub.text = isGroup ? TN(olMembers(olSel.substring(2)).length, '{0} object  ·  rename, isolate or ungroup', '{0} objects  ·  rename, isolate or ungroup')
         : it.kind === 'asset' ? ((it.source ? it.source + '  ·  ' : '') + (it.folder || ''))
-        : it.kind === 'light' ? 'Lit by the Environment lighting'
-        : it.kind === 'camera' ? 'A viewpoint: attach it, key it or look through it' : 'Your mesh';
+        : it.kind === 'light' ? T('Lit by the Environment lighting')
+        : it.kind === 'camera' ? T('A viewpoint: attach it, key it or look through it') : T('Your mesh');
       olGroupBox.visible = isGroup;
       olGroupDrop.row.visible = !isGroup;
       olCardHint.visible = !isGroup;
@@ -675,14 +683,14 @@ R"CFJS(
       olMeshHost.visible = !!it && it.kind === 'mesh';
       if (isGroup) {
         if (!olNameFocus) { olName = olSel.substring(2); olNamePaint(); }
-        olIsolateBtn.__lbl.text = olIsolate === olSel.substring(2) ? 'Show all' : 'Isolate';
+        olIsolateBtn.__lbl.text = olIsolate === olSel.substring(2) ? T('Show all') : T('Isolate');
         return;
       }
       if (it.kind === 'asset') {
         var a = it.ang || [0, 0, 0], deg = function (x) { return Math.round(x) + '°'; };
         olAssetSize.sync(it.scale || 1);
         olAssetYaw.sync(a[1]);
-        olAssetTurn.text = 'Tilt ' + deg(a[0]) + '   Roll ' + deg(a[2]) + '   ·   drag the rings in the view';
+        olAssetTurn.text = T('Tilt {0}   Roll {1}   ·   drag the rings in the view', deg(a[0]), deg(a[2]));
         var upright = Math.abs(a[0]) < 0.5 && Math.abs(a[2]) < 0.5;
         setBtnDisabled(olUprightBtn, upright);
         olUprightBtn.style.opacity = upright ? '0.45' : '1';
@@ -693,7 +701,7 @@ R"CFJS(
       var gsig = names.join('|');
       if (gsig !== olGroupSig) {
         olGroupSig = gsig;
-        olGroupDrop.setItems([['', 'None']].concat(names.map(function (g) { return [g, g]; })).concat([['+', '+ New group']]));
+        olGroupDrop.setItems([['', T('None')]].concat(names.map(function (g) { return [g, g]; })).concat([['+', T('+ New group')]]));
       }
       olGroupDrop.sync(it.group || '');
     });

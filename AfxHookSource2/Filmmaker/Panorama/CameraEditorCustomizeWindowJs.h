@@ -128,9 +128,9 @@ R"EDJS(
     var custCompactBtn = null, custCollapseBtn = null;
     function custSizeButtons(parent) {
       custCompactBtn = custIconBtn(parent, function () { custSetSize(custSize === 'full' ? 'compact' : 'full'); },
-        function () { return custSize === 'full' ? 'Compact: hide the 3D preview and watch the game instead' : 'Full size: show the 3D preview'; });
+        function () { return custSize === 'full' ? T('Compact: hide the 3D preview and watch the game instead') : T('Full size: show the 3D preview'); });
       custCollapseBtn = custIconBtn(parent, function () { custSetSize(custSize === 'collapsed' ? custSizeBeforeCollapse : 'collapsed'); },
-        function () { return custSize === 'collapsed' ? 'Expand' : 'Collapse to the title bar'; });
+        function () { return custSize === 'collapsed' ? T('Expand') : T('Collapse to the title bar'); });
       custPaintSizeButtons();
     }
     function custPaintSizeButtons() {

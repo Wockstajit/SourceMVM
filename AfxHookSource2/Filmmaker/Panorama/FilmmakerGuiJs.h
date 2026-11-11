@@ -49,6 +49,9 @@ namespace Filmmaker {
 
 inline const char* kFilmmakerGuiJs = R"FMJS(
 (function () {
+)FMJS"
+#include "LocalizationJs.h"
+R"FMJS(
   try {
     ['FilmmakerMenuTab', 'FilmmakerOpenMenuButton', 'FmDownloadedBody'].forEach(function (id) {
       var p = $('#' + id); if (p) p.DeleteAsync(0);
@@ -74,7 +77,7 @@ inline const char* kFilmmakerGuiJs = R"FMJS(
       if (name === 'mvps') return p.mvps || 0;
       return p.score;
     }
-    function mapDisplay(map) { if (!map) return 'Demo'; var t = '#SFUI_Map_' + map; var l = $.Localize(t); return (l === t) ? map : l; }
+    function mapDisplay(map) { if (!map) return T('Demo'); var t = '#SFUI_Map_' + map; var l = $.Localize(t); return (l === t) ? map : l; }
     // Friendly demo name for the detail title: file basename without the .dem extension.
     function demoName(demo) {
       var f = (demo && demo.fileName) || '';
@@ -202,7 +205,7 @@ R"FMJS(
         btn.SetPanelEvent('onmouseover', function () {
           // The installed version rides along (WhatsNewJs.h), so it is one hover away on any menu page.
           var version = wnVersionText();
-          try { UiToolkitAPI.ShowTextTooltipOnPanel(btn, 'Movie Making' + (version ? '  ·  SOURCE:MVM ' + version : '')); } catch (e) {}
+          try { UiToolkitAPI.ShowTextTooltipOnPanel(btn, T('Movie Making') + (version ? '  ·  SOURCE:MVM ' + version : '')); } catch (e) {}
           try { bg.style.brightness = '2.2'; bg.style.boxShadow = 'rgba(240,179,35,0.8) 0px 0px 24px 7px'; } catch (e) {}
         });
         btn.SetPanelEvent('onmouseout', function () {
@@ -273,7 +276,7 @@ R"FMJS(
         im.style.width = '15px'; im.style.height = '15px'; im.style.marginRight = '8px';
         im.style.verticalAlign = 'center'; im.style.washColor = '#c7ced6';
         im.hittest = false;
-        var label = $.CreatePanel('Label', b, '', { text: text });
+        var label = mvmLabel(b, '', { text: text });
         label.style.verticalAlign = 'center'; label.style.fontSize = '14px';
         label.style.fontWeight = 'medium'; label.style.letterSpacing = '0.3px';
         label.style.color = '#c7ced6ff';
@@ -300,13 +303,13 @@ R"FMJS(
       // Order (left->right): Search, Refresh, Clear all. Adding demos moved to the list rail's
       // "+" (FmOrgAddBtn), next to the sort control -- it belongs with the things that change
       // what the LIST contains, not with the page-wide actions.
-      mkNavBtn('FmSearchBtn', 's2r://panorama/images/icons/ui/search.vsvg', 'Search', function () { toggleSearch(page); });
-      mkNavBtn('FmRefreshBtn', 's2r://panorama/images/icons/ui/refresh.vsvg', 'Refresh', function () { api.addCommand('refresh'); });
-      mkNavBtn('FmClearAllBtn', 's2r://panorama/images/icons/ui/trash.vsvg', 'Clear all', function () {
+      mkNavBtn('FmSearchBtn', 's2r://panorama/images/icons/ui/search.vsvg', T('Search'), function () { toggleSearch(page); });
+      mkNavBtn('FmRefreshBtn', 's2r://panorama/images/icons/ui/refresh.vsvg', T('Refresh'), function () { api.addCommand('refresh'); });
+      mkNavBtn('FmClearAllBtn', 's2r://panorama/images/icons/ui/trash.vsvg', T('Clear all'), function () {
         try {
           UiToolkitAPI.ShowGenericPopupOkCancel(
-            'Clear all demos?',
-            'Remove every demo from this list?\nDemo files stay on disk.',
+            T('Clear all demos?'),
+            T('Remove every demo from this list?\nDemo files stay on disk.'),
             '',
             function () {
               api.addCommand('clearall');
@@ -405,7 +408,7 @@ R"FMJS(
 R"FMJS(
     function mk(parent, type, id, cls, attrs) {
       var o = attrs || {}; if (cls) o.class = cls;
-      return $.CreatePanel(type, parent, id || '', o);
+      var made = $.CreatePanel(type, parent, id || '', o); return type === 'Label' ? mvmFit(made) : made;
     }
 
     function buildBody(dl) {
@@ -438,7 +441,7 @@ R"FMJS(
       emptyMsg = mk(info, 'Panel', 'FmEmptyMsg', 'left-right-flow horizontal-center vertical-center');
       var ei = mk(emptyMsg, 'Image', '', 'info-icon', { texturewidth: '32', textureheight: '32' });
       try { ei.SetImage('s2r://panorama/images/icons/ui/info.vsvg'); } catch (e) {}
-      mk(emptyMsg, 'Label', '', 'Info-Message', { text: 'No demos found. Use the + button above the list to add a demo folder.' });
+      mk(emptyMsg, 'Label', '', 'Info-Message', { text: T('No demos found. Use the + button above the list to add a demo folder.') });
       emptyMsg.visible = false;
 
       // Demo NAME title, shown in the empty banner area above the map/duration/date
@@ -470,7 +473,7 @@ R"FMJS(
         try {
           if (titleRenaming) return;
           demoTitle.style.color = '#ffd766ff';
-          UiToolkitAPI.ShowTextTooltipOnPanel(demoTitle, 'Click to rename this demo file');
+          UiToolkitAPI.ShowTextTooltipOnPanel(demoTitle, T('Click to rename this demo file'));
         } catch (e) {}
       });
       demoTitle.SetPanelEvent('onmouseout', function () {
@@ -521,7 +524,7 @@ R"FMJS(
         roundContainer = detailHost.FindChildTraverse('id-mi-round-stats__container');
         tickLabels = detailHost.FindChildTraverse('id-mi-round-stats__tick-labels');
         watchBtn = detailHost.FindChildTraverse('id-mi-watch');
-        if (watchBtn) watchBtn.text = 'WATCH';
+        if (watchBtn) watchBtn.text = T('WATCH');
         // Fully collapse buttons that make no sense for a local demo (download is
         // already done; no souvenir / error / downloading spinner).
         ['id-mi-error-delete', 'id-mi-downloading', 'id-mi-download', 'id-mi-souvenir'].forEach(function (id) {
@@ -555,7 +558,7 @@ R"FMJS(
           // so the larger type remains readable without making the native Watch row jump.
           repairPanel.style.height = '50px';
           repairLbl = repairPanel.FindChildTraverse('FmRepairStatusText');
-          if (!repairLbl) repairLbl = $.CreatePanel('Label', repairPanel, 'FmRepairStatusText', {});
+          if (!repairLbl) repairLbl = mvmLabel(repairPanel, 'FmRepairStatusText', {});
           repairLbl.style.fontFamily = 'Stratum2, "Arial Unicode MS"';
           repairLbl.style.fontSize = '17px';
           repairLbl.style.fontWeight = 'bold';
@@ -563,7 +566,7 @@ R"FMJS(
           repairLbl.style.textOverflow = 'ellipsis';
           repairLbl.style.width = '100%';
           repairDetailLbl = repairPanel.FindChildTraverse('FmRepairStatusDetail');
-          if (!repairDetailLbl) repairDetailLbl = $.CreatePanel('Label', repairPanel, 'FmRepairStatusDetail', {});
+          if (!repairDetailLbl) repairDetailLbl = mvmLabel(repairPanel, 'FmRepairStatusDetail', {});
           repairDetailLbl.style.fontFamily = 'Stratum2, "Arial Unicode MS"';
           repairDetailLbl.style.fontSize = '14px';
           repairDetailLbl.style.color = '#aeb8c2ff';
@@ -598,7 +601,7 @@ R"FMJS(
       PLAYERSTATS.forEach(function (stat) {
         var c = $.CreatePanel('Panel', labelsRow, '', {});
         c.AddClass('sb-row__cell'); c.AddClass('sb-row__cell--' + stat); c.AddClass('matchinfo-scoreboard-header-stat-cell');
-        $.CreatePanel('Label', c, '', { text: $.Localize('#Scoreboard_' + stat + '_header') });
+        mvmLabel(c, '', { text: $.Localize('#Scoreboard_' + stat + '_header') });
       });
       statHeadersBuilt = true;
     }
@@ -794,17 +797,17 @@ R"FMJS(
     function buildTileFallback(tile, demo, oc) {
       var map = $.CreatePanel('Panel', tile, '', { class: 'MatchMap' });
       setMapIcon($.CreatePanel('Image', map, '', { class: 'MatchMap__Icon' }), demo.map);
-      $.CreatePanel('Label', map, '', { class: 'MatchInfo MatchInfo__MapName', text: mapDisplay(demo.map) });
+      mvmLabel(map, '', { class: 'MatchInfo MatchInfo__MapName', text: mapDisplay(demo.map) });
       var infoC = $.CreatePanel('Panel', tile, '', { class: 'MatchInfoContainer' });
       var scoreRow = $.CreatePanel('Panel', infoC, '', { class: 'left-right-flow' });
       if (demo.hasScoreboard) {
-        $.CreatePanel('Label', scoreRow, '', { class: 'MatchInfo__Score tint--CT', text: String(demo.teamScore0) });
-        $.CreatePanel('Label', scoreRow, '', { text: '-' });
-        $.CreatePanel('Label', scoreRow, '', { class: 'MatchInfo__Score tint--TERRORIST', text: String(demo.teamScore1) });
+        mvmLabel(scoreRow, '', { class: 'MatchInfo__Score tint--CT', text: String(demo.teamScore0) });
+        mvmLabel(scoreRow, '', { text: '-' });
+        mvmLabel(scoreRow, '', { class: 'MatchInfo__Score tint--TERRORIST', text: String(demo.teamScore1) });
       } else {
-        $.CreatePanel('Label', scoreRow, '', { class: 'MatchInfo__Score', text: mapDisplay(demo.map) });
+        mvmLabel(scoreRow, '', { class: 'MatchInfo__Score', text: mapDisplay(demo.map) });
       }
-      $.CreatePanel('Label', infoC, '', { class: 'MatchInfo', text: demo.dateText || '' });
+      mvmLabel(infoC, '', { class: 'MatchInfo', text: demo.dateText || '' });
       paintCompatibilityBadge(tile, demo);
     }
 )FMJS"
@@ -829,7 +832,7 @@ R"FMJS(
 
       var nameCell = $.CreatePanel('Panel', stats, '', {});
       nameCell.AddClass('sb-row__cell'); nameCell.AddClass('sb-row__cell--name');
-      var nm = $.CreatePanel('Label', nameCell, '', { text: p.name || '[unknown]' });
+      var nm = mvmLabel(nameCell, '', { text: p.name || T('[unknown]') });
       nm.AddClass('sb-tint--' + TEAMS[teamId]);
 
       PLAYERSTATS.forEach(function (stat) {
@@ -837,12 +840,12 @@ R"FMJS(
           var mp = $.CreatePanel('Panel', stats, '', {});
           mp.AddClass('sb-row__cell'); mp.AddClass('sb-row__cell--mvps'); mp.AddClass('sb-tint--' + TEAMS[teamId]);
           var star = $.CreatePanel('Image', mp, '', {}); star.AddClass('sb-row__cell--mvps__star'); star.SetImage('s2r://panorama/images/icons/ui/star.vsvg');
-          var cnt = $.CreatePanel('Label', mp, '', { text: String(p.mvps || 0) }); cnt.AddClass('sb-row__cell--mvps__count'); cnt.AddClass('mi-mvps-shrink-overflow');
+          var cnt = mvmLabel(mp, '', { text: String(p.mvps || 0) }); cnt.AddClass('sb-row__cell--mvps__count'); cnt.AddClass('mi-mvps-shrink-overflow');
           if (!p.mvps) mp.AddClass('hide-mvps');
         } else {
           var c = $.CreatePanel('Panel', stats, '', {});
           c.AddClass('sb-row__cell'); c.AddClass('sb-row__cell--' + stat);
-          var l = $.CreatePanel('Label', c, '', { text: String(statVal(p, stat)) }); l.AddClass('sb-tint--' + TEAMS[teamId]);
+          var l = mvmLabel(c, '', { text: String(statVal(p, stat)) }); l.AddClass('sb-tint--' + TEAMS[teamId]);
         }
       });
 
@@ -891,7 +894,7 @@ R"FMJS(
 
       if (!(demo.hasScoreboard && demo.players && demo.players.length)) {
         if (ctTable) {
-          var no = $.CreatePanel('Label', ctTable, '', { text: 'No scoreboard data for this demo.' });
+          var no = mvmLabel(ctTable, '', { text: T('No scoreboard data for this demo.') });
           no.style.padding = '20px'; no.style.color = '#8b949c';
         }
         if (playerStats) playerStats.AddClass('mi-player-stats__collapse');
@@ -915,7 +918,7 @@ R"FMJS(
       playerStats.SetHasClass('mi-player-stats__collapse', pr.length === 0);
 
       var title = info.FindChildTraverse('id-mi-player-stats-title');
-      if (title) { info.SetDialogVariable('playerNameTitle', p ? (p.name || '[unknown]') : ''); title.text = $.Localize('#MatchInfo_RoundDataTitle', info); }
+      if (title) { info.SetDialogVariable('playerNameTitle', p ? (p.name || T('[unknown]')) : ''); title.text = $.Localize('#MatchInfo_RoundDataTitle', info); }
       if (!pr.length) return;
 
       // Native CS2's round-stats axis (matchinfo.js _FillRoundStats): mark each
@@ -999,7 +1002,7 @@ R"FMJS(
           // The "<>" swap marker straddles the gap between halves (native aligns it
           // with the mi-tick-class-halftime-align class).
           tk.SetHasClass('mi-tick-class-halftime-align', label === '<>');
-          $.CreatePanel('Label', tk, '', { class: 'mi-tick-label', text: label });
+          mvmLabel(tk, '', { class: 'mi-tick-label', text: label });
         }
       }
     }
@@ -1055,7 +1058,7 @@ R"FMJS(
       autoPrepared[key] = true;
       autoPreparePendingKey = key;
       setWatchBusy(true);
-      showRepairStatus('CHECKING COMPATIBILITY', 'Checking now; repair starts automatically if required.', '#f0b323ff', true);
+      showRepairStatus(T('CHECKING COMPATIBILITY'), T('Checking now; repair starts automatically if required.'), '#f0b323ff', true);
       api.addCommand('prepare ' + demo.index);
       // If the command cannot begin (for example, the page is being torn down), do not leave a
       // permanently disabled Watch button. A real worker promptly replaces this local pending
@@ -1085,25 +1088,25 @@ R"FMJS(
       setWatchBusy(repairJobBusy || (!!demo && autoPreparePendingKey === tileKey(demo)));
       if (!repairPanel) return;
       if (ownsStatus && state === 1) {
-        showRepairStatus('CHECKING COMPATIBILITY', 'Scanning demo packets; repair is automatic if required.', '#f0b323ff', true);
+        showRepairStatus(T('CHECKING COMPATIBILITY'), T('Scanning demo packets; repair is automatic if required.'), '#f0b323ff', true);
       } else if (ownsStatus && state === 2) {
-        showRepairStatus('REPAIRING LEGACY DEMO', text, '#f0b323ff', true);
+        showRepairStatus(T('REPAIRING LEGACY DEMO'), text, '#f0b323ff', true);
       } else if (ownsStatus && state === 4) {
-        showRepairStatus('REPAIR FAILED', text, '#e45b5bff', false);
+        showRepairStatus(T('REPAIR FAILED'), text, '#e45b5bff', false);
       } else if (ownsStatus && state === 5) {
-        showRepairStatus('UNSUPPORTED DEMO VERSION', text, '#e0a03aff', false);
+        showRepairStatus(T('UNSUPPORTED DEMO VERSION'), text, '#e0a03aff', false);
       } else if (demo && demo.repairCache === 'repaired') {
-        showRepairStatus('VALIDATED REPAIR', 'Ready to watch', '#65d995ff', false);
+        showRepairStatus(T('VALIDATED REPAIR'), T('Ready to watch'), '#65d995ff', false);
       } else if (demo && demo.repairCache === 'clean') {
-        showRepairStatus('SUPPORTED', 'Legacy demo checked; no repair needed', '#65d995ff', false);
+        showRepairStatus(T('SUPPORTED'), T('Legacy demo checked; no repair needed'), '#65d995ff', false);
       } else if (demo && demo.compatibility === 'unsupported') {
-        showRepairStatus('UNSUPPORTED DEMO', 'Build ' + (demo.buildNum || '?') + ' · protocol ' + (demo.networkProtocol || '?'), '#f09a4aff', false);
+        showRepairStatus(T('UNSUPPORTED DEMO'), T('Build {0} · protocol {1}', demo.buildNum || '?', demo.networkProtocol || '?'), '#f09a4aff', false);
       } else if (demo && demo.compatibility === 'legacy') {
-        showRepairStatus('LEGACY DEMO', 'Compatibility has not been checked yet', '#f0b323ff', false);
+        showRepairStatus(T('LEGACY DEMO'), T('Compatibility has not been checked yet'), '#f0b323ff', false);
       } else if (demo && demo.compatibility === 'supported') {
-        showRepairStatus('SUPPORTED', 'Current demo version', '#65d995ff', false);
+        showRepairStatus(T('SUPPORTED'), T('Current demo version'), '#65d995ff', false);
       } else if (demo) {
-        showRepairStatus('COMPATIBILITY UNKNOWN', 'Demo header version unavailable', '#aeb8c2ff', false);
+        showRepairStatus(T('COMPATIBILITY UNKNOWN'), T('Demo header version unavailable'), '#aeb8c2ff', false);
       } else {
         repairPanel.visible = false;
         stopRepairProgress();
@@ -1171,7 +1174,7 @@ R"FMJS(
       b.SetPanelEvent('onmouseup', function () { b.style.transform = 'scale3d(1,1,1)'; });
       b.SetPanelEvent('onmouseover', function () {
         b.style.backgroundColor = '#626b74ff';
-        try { UiToolkitAPI.ShowTextTooltipOnPanel(b, 'Show demo in Explorer'); } catch (e) {}
+        try { UiToolkitAPI.ShowTextTooltipOnPanel(b, T('Show demo in Explorer')); } catch (e) {}
       });
       b.SetPanelEvent('onmouseout', function () {
         b.style.transform = 'scale3d(1,1,1)';
@@ -1215,8 +1218,8 @@ R"FMJS(
         return function () {
           try {
             UiToolkitAPI.ShowGenericPopupOkCancel(
-              'Remove demo?',
-              'Remove "' + name + '" from the list?\nThe demo file stays on disk.',
+              T('Remove demo?'),
+              T('Remove "{0}" from the list?\nThe demo file stays on disk.', name),
               '',
               function () {
                 api.addCommand('hide ' + idx);
@@ -1228,7 +1231,7 @@ R"FMJS(
             $.Msg('[filmmaker] confirmation popup unavailable; nothing was removed.');
           }
         };
-      })(demo.index, demo.fileName || 'this demo'));
+      })(demo.index, demo.fileName || T('this demo')));
       if (demo.hasScoreboard && !demo.hasRounds) api.addCommand('rounds ' + demo.index);
     }
 
@@ -1406,7 +1409,7 @@ R"FMJS(
       // otherwise keep eating pointer events over the area it covers.
       searchWrap.visible = false; searchWrap.hittest = false;
 
-      searchInput = $.CreatePanel('TextEntry', searchWrap, 'FmSearchInput', { placeholder: 'Search map, player or demo name' });
+      searchInput = $.CreatePanel('TextEntry', searchWrap, 'FmSearchInput', { placeholder: T('Search map, player or demo name') });
       searchInput.style.width = '100%'; searchInput.style.height = '36px';
       // OPAQUE fill -- nothing behind the box should be visible through it.
       searchInput.style.backgroundColor = '#15181dff';
@@ -1440,10 +1443,10 @@ R"FMJS(
 
     // Return the matched text (for the gray sub-line) if this demo matches q, else null.
     function demoMatches(demo, q) {
-      if (mapDisplay(demo.map).toLowerCase().indexOf(q) >= 0) return 'map: ' + mapDisplay(demo.map);
-      if (demoName(demo).toLowerCase().indexOf(q) >= 0) return 'demo: ' + demoName(demo);
+      if (mapDisplay(demo.map).toLowerCase().indexOf(q) >= 0) return T('map: {0}', mapDisplay(demo.map));
+      if (demoName(demo).toLowerCase().indexOf(q) >= 0) return T('demo: {0}', demoName(demo));
       var pl = demo.players || [];
-      for (var i = 0; i < pl.length; ++i) { var n = pl[i].name || ''; if (n && n.toLowerCase().indexOf(q) >= 0) return 'player: ' + n; }
+      for (var i = 0; i < pl.length; ++i) { var n = pl[i].name || ''; if (n && n.toLowerCase().indexOf(q) >= 0) return T('player: {0}', n); }
       return null;
     }
 
@@ -1464,10 +1467,10 @@ R"FMJS(
           rowBtn.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
           // Line 1: map name (accent) + cropped demo name, forced to a single line so a
           // long match730_ name can never wrap or overflow the dropdown width.
-          var t = $.CreatePanel('Label', rowBtn, '', { text: mapDisplay(demo.map) + '  ·  ' + cropName(demoName(demo)) });
+          var t = mvmLabel(rowBtn, '', { text: mapDisplay(demo.map) + '  ·  ' + cropName(demoName(demo)) });
           t.style.color = '#eef2f6ff'; t.style.fontSize = '14px';
           t.style.whiteSpace = 'nowrap'; t.style.textOverflow = 'ellipsis'; t.style.width = '100%';
-          var sub = $.CreatePanel('Label', rowBtn, '', { text: cropName(why, 30, 8) }); // gray hint of WHY it matched
+          var sub = mvmLabel(rowBtn, '', { text: cropName(why, 30, 8) }); // gray hint of WHY it matched
           sub.style.color = '#8a93a0ff'; sub.style.fontSize = '12px';
           sub.style.whiteSpace = 'nowrap'; sub.style.textOverflow = 'ellipsis'; sub.style.width = '100%';
           rowBtn.SetPanelEvent('onmouseover', (function (r) { return function () { try { r.style.backgroundColor = 'rgba(240,179,35,0.16)'; } catch (e) {} }; })(rowBtn));

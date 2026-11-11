@@ -121,7 +121,7 @@ R"SPSJ(
       pill.style.transitionProperty = 'opacity';
       pill.style.transitionDuration = '0.12s';
       pill.style.transitionTimingFunction = 'ease-out';
-      var readout = $.CreatePanel('Label', pill, '', {});
+      var readout = mvmLabel(pill, '', {});
       readout.hittest = false; readout.text = '1x';
       readout.style.horizontalAlign = 'center'; readout.style.verticalAlign = 'center';
       readout.style.fontSize = '13px'; readout.style.fontFamily = FONT;
@@ -144,7 +144,7 @@ R"SPSJ(
         zoneTicks.push(zdiv);
       }
       for (var zi = 0; zi < ZONES.length; zi++) {
-        var zlab = $.CreatePanel('Label', strip, '', {});
+        var zlab = mvmLabel(strip, '', {});
         zlab.hittest = false; zlab.text = ZONE_LBL[zi];
         // Explicit width + textAlign, NOT width:100% / an align property -- see the readout note.
         zlab.style.position = (zi * zw).toFixed(1) + 'px ' + ly + 'px 0px';

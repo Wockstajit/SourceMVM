@@ -19,7 +19,7 @@
 R"CFJS(
     // ===================== MAP (alternative environment) =====================
     // Not a render pass, so it carries the panel's blue rather than the environment teal.
-    var aeSec = section(pageEnvironment, 'MAP', true, false, 'env.map', S.accent);
+    var aeSec = section(pageEnvironment, T('MAP'), true, false, 'env.map', S.accent);
     function aeCmd(t) { cmd('mirv_filmmaker altenv ' + t); }
     var ae = { st: {}, draft: { x: 0, y: 0, z: 0, yaw: 0 }, dragging: false, lastSend: 0 };
     function aeFixed(v, d) { v = +v || 0; return Math.abs(v) < 0.0005 ? '0' : v.toFixed(d); }
@@ -54,12 +54,12 @@ R"CFJS(
     var aeIntro = aeWrapLabel(lbl(aeSec, '', S.hint, 12));
     aeIntro.hittest = false; aeIntro.style.marginTop = '2px';
     aeIntro.style.paddingLeft = UI.line.padH + 'px'; aeIntro.style.paddingRight = UI.line.padH + 'px';
-    aeIntro.text = 'Play this demo on another map, such as a night or rain version from the Workshop. '
-      + 'Players, weapons, grenades and effects stay where the demo recorded them; the new map is moved under them.';
+    aeIntro.text = T('Play this demo on another map, such as a night or rain version from the Workshop. '
+      + 'Players, weapons, grenades and effects stay where the demo recorded them; the new map is moved under them.');
     endTileLine(aeSec);
 
     // ---- which map ----
-    var aeMapG = aeSec.__group('Plays on');
+    var aeMapG = aeSec.__group(T('Plays on'));
     var aeMapRow = row(aeMapG); aeMapRow.style.flowChildren = 'right';
     aeMapRow.style.paddingLeft = UI.line.padH + 'px'; aeMapRow.style.paddingRight = UI.line.padH + 'px';
     var aeMapCol = mk('Panel', aeMapRow); aeMapCol.hittest = false;
@@ -67,14 +67,14 @@ R"CFJS(
     aeMapCol.style.verticalAlign = 'center';
     var aeMapName = aeWrapLabel(lbl(aeMapCol, '', S.value, 15)); aeMapName.style.fontWeight = 'bold';
     var aeMapSub = aeWrapLabel(lbl(aeMapCol, '', S.muted, 12)); aeMapSub.style.marginTop = '2px';
-    var aeChoose = btn(aeMapRow, 'CHOOSE MAP', function () { aeCmd('view on'); aeCmd('maps'); }, S.label);
+    var aeChoose = btn(aeMapRow, T('CHOOSE MAP'), function () { aeCmd('view on'); aeCmd('maps'); }, S.label);
     aeChoose.style.marginRight = '0px'; aeChoose.style.marginLeft = '10px';
-    attachTip(aeChoose, 'Opens the map view: the maps installed and from the Workshop on the left, both maps seen from above on the right.');
+    attachTip(aeChoose, T('Opens the map view: the maps installed and from the Workshop on the left, both maps seen from above on the right.'));
 
     // ---- alignment ----
     // The heading lives inside the group, so the whole group hides until a map is picked.
     var aeAlignG = aeSec.__group('');
-    subHead(aeAlignG, 'Line them up');
+    subHead(aeAlignG, T('Line them up'));
     var aeFit = aeWrapLabel(lbl(aeAlignG, '', S.label, 13));
     aeFit.hittest = false; aeFit.style.marginTop = '4px';
     aeFit.style.paddingLeft = UI.line.padH + 'px'; aeFit.style.paddingRight = UI.line.padH + 'px';
@@ -87,25 +87,25 @@ R"CFJS(
       return sliderRow(aeAlignG, { label: label, min: min, max: max, decimals: decimals, unit: unit, tip: tip,
         onChange: function (v) { ae.draft[key] = v; ae.dragging = true; ae.lastSend = Date.now(); aeSendDraft(); } });
     }
-    var aeX = aeSlider('Move east', 'x', -8192, 8192, 0, 'u', 'Moves the demo along the new map\'s x axis, in game units.');
-    var aeY = aeSlider('Move north', 'y', -8192, 8192, 0, 'u', 'Moves the demo along the new map\'s y axis, in game units.');
-    var aeZ = aeSlider('Move up', 'z', -2048, 2048, 0, 'u', 'Raises or lowers the demo on the new map. AUTO ALIGN sets it from the two floors.');
-    var aeYaw = aeSlider('Turn', 'yaw', -180, 180, 1, '°', 'Turns the demo on the new map, in degrees. Positive turns it counter-clockwise seen from above.');
+    var aeX = aeSlider(T('Move east'), 'x', -8192, 8192, 0, 'u', T('Moves the demo along the new map\'s x axis, in game units.'));
+    var aeY = aeSlider(T('Move north'), 'y', -8192, 8192, 0, 'u', T('Moves the demo along the new map\'s y axis, in game units.'));
+    var aeZ = aeSlider(T('Move up'), 'z', -2048, 2048, 0, 'u', T('Raises or lowers the demo on the new map. AUTO ALIGN sets it from the two floors.'));
+    var aeYaw = aeSlider(T('Turn'), 'yaw', -180, 180, 1, '°', T('Turns the demo on the new map, in degrees. Positive turns it counter-clockwise seen from above.'));
     var aeToolsA = aeBtnRow(aeAlignG, [
-      ['AUTO ALIGN', function () { aeCmd('auto'); }, S.accent],
-      ['SHOW MAP VIEW', function () { aeCmd(ae.st.view ? 'view off' : 'view on'); }]]);
+      [T('AUTO ALIGN'), function () { aeCmd('auto'); }, S.accent],
+      [T('SHOW MAP VIEW'), function () { aeCmd(ae.st.view ? 'view off' : 'view on'); }]]);
     var aeAuto = aeToolsA[0], aeViewBtn = aeToolsA[1];
-    attachTip(aeAuto, 'Finds where the demo\'s map fits on the new one, from both maps\' floors and the paths the players walked. A remake of the same map lines up with no offset.');
+    attachTip(aeAuto, T('Finds where the demo\'s map fits on the new one, from both maps\' floors and the paths the players walked. A remake of the same map lines up with no offset.'));
     aeBtnRow(aeAlignG, [
-      ['TURN −90°', function () { aeCmd('turn -90'); }],
-      ['TURN +90°', function () { aeCmd('turn 90'); }]]);
+      [T('TURN −90°'), function () { aeCmd('turn -90'); }],
+      [T('TURN +90°'), function () { aeCmd('turn 90'); }]]);
     // The demo map's own doors, physics props and breakables (AltEnvironmentProps.h). Not part of
     // the copy: it applies at once.
-    var aeProps = togglePill(aeAlignG, 'Demo map props',
-      'Shows the doors, physics props and breakables the demo recorded on its own map.',
+    var aeProps = togglePill(aeAlignG, T('Demo map props'),
+      T('Shows the doors, physics props and breakables the demo recorded on its own map.'),
       function () { aeCmd('props toggle'); },
-      'The demo recorded its own map\'s doors, physics props and breakables, so on another map they float where they were. '
-      + 'Off hides them. Anything whose model is in the demo map\'s own files can only draw as ERROR, so it stays hidden either way.');
+      T('The demo recorded its own map\'s doors, physics props and breakables, so on another map they float where they were. '
+      + 'Off hides them. Anything whose model is in the demo map\'s own files can only draw as ERROR, so it stays hidden either way.'));
 
     // ---- play ----
     var aePlayG = aeSec.__group('');
@@ -113,10 +113,10 @@ R"CFJS(
     aeStatus.hittest = false; aeStatus.style.marginTop = '6px';
     aeStatus.style.paddingLeft = UI.line.padH + 'px'; aeStatus.style.paddingRight = UI.line.padH + 'px';
     endTileLine(aePlayG);
-    var aePlay = wideBtn(aePlayG, 'PLAY ON THIS MAP', function () { aeCmd('apply'); }, S.accent);
+    var aePlay = wideBtn(aePlayG, T('PLAY ON THIS MAP'), function () { aeCmd('apply'); }, S.accent);
     aePlay.__lbl.style.whiteSpace = 'normal'; aePlay.__lbl.style.textAlign = 'center';
-    attachTip(aePlay, 'Reopens the demo on the chosen map at the same moment. The map loads like any level, so nothing stutters while the demo plays.');
-    var aeBack = wideBtn(aePlayG, 'BACK TO ITS OWN MAP', function () { aeCmd('off'); }, S.label);
+    attachTip(aePlay, T('Reopens the demo on the chosen map at the same moment. The map loads like any level, so nothing stutters while the demo plays.'));
+    var aeBack = wideBtn(aePlayG, T('BACK TO ITS OWN MAP'), function () { aeCmd('off'); }, S.label);
     aeBack.__lbl.style.whiteSpace = 'normal'; aeBack.__lbl.style.textAlign = 'center';
 )CFJS"
 R"CFJS(
@@ -132,13 +132,13 @@ R"CFJS(
     aeHead.style.width = '100%'; aeHead.style.height = AE_HEAD_H + 'px'; aeHead.style.flowChildren = 'right';
     aeHead.style.paddingLeft = '14px'; aeHead.style.paddingRight = '8px';
     aeHead.style.borderBottom = '1px solid #ffffff14';
-    var aeTitle = lbl(aeHead, 'MAP VIEW', S.value, 15); aeTitle.hittest = false;
+    var aeTitle = lbl(aeHead, T('MAP VIEW'), S.value, 15); aeTitle.hittest = false;
     aeTitle.style.fontWeight = 'bold'; aeTitle.style.letterSpacing = '1.2px'; aeTitle.style.verticalAlign = 'center';
     aeTitle.style.whiteSpace = 'nowrap';
     var aeSubtitle = lbl(aeHead, '', S.muted, 12); aeSubtitle.hittest = false;
     aeSubtitle.style.verticalAlign = 'center'; aeSubtitle.style.marginLeft = '12px';
     aeSubtitle.style.width = 'fill-parent-flow(1.0)'; aeSubtitle.style.whiteSpace = 'normal';
-    var aeClose = btn(aeHead, 'CLOSE', function () { aeCmd('view off'); }, S.label);
+    var aeClose = btn(aeHead, T('CLOSE'), function () { aeCmd('view off'); }, S.label);
     aeClose.style.marginRight = '0px';
 
     // ---- the list of maps (left) ----
@@ -149,8 +149,8 @@ R"CFJS(
     var aeTabs = mk('Panel', aeList); aeTabs.hittest = false; aeTabs.hittestchildren = true;
     aeTabs.style.flowChildren = 'right'; aeTabs.style.width = '100%'; aeTabs.style.marginBottom = '6px';
     var aeKind = 'workshop', aePage = 0, aePerPage = 8;
-    var aeTabWs = btn(aeTabs, 'WORKSHOP', function () { aeKind = 'workshop'; aePage = 0; aeListSig = ''; }, S.label);
-    var aeTabIn = btn(aeTabs, 'INSTALLED', function () { aeKind = 'installed'; aePage = 0; aeListSig = ''; }, S.label);
+    var aeTabWs = btn(aeTabs, T('WORKSHOP'), function () { aeKind = 'workshop'; aePage = 0; aeListSig = ''; }, S.label);
+    var aeTabIn = btn(aeTabs, T('INSTALLED'), function () { aeKind = 'installed'; aePage = 0; aeListSig = ''; }, S.label);
     aeTabIn.style.marginRight = '0px';
     var aeOwn = wideBtn(aeList, '', function () { aeCmd('pick none'); }, S.label);
     aeOwn.__lbl.style.whiteSpace = 'normal'; aeOwn.style.marginBottom = '6px';
@@ -178,15 +178,15 @@ R"CFJS(
       if (aePage >= pages) aePage = pages - 1;
       var sig = aeKind + '|' + aePage + '|' + aePerPage + '|' + maps.length + '|' + (a.pick || '') + '|' + (a.pickAddon || '') + '|' + (a.mapsBusy ? 1 : 0);
       setBtnOn(aeTabWs, aeKind === 'workshop'); setBtnOn(aeTabIn, aeKind === 'installed');
-      aeOwn.__lbl.text = (a.demoTitle || a.demoMap || 'Its own map') + ' (the demo\'s own map)';
+      aeOwn.__lbl.text = T('{0} (the demo\'s own map)', a.demoTitle || a.demoMap || T('Its own map'));
       setBtnOn(aeOwn, !a.pick);
       if (sig === aeListSig) return;
       aeListSig = sig;
       aeRows.RemoveAndDeleteChildren();
       if (a.mapsBusy && !maps.length) {
-        var wait = aeWrapLabel(lbl(aeRows, 'Looking for maps...', S.muted, 12)); wait.hittest = false; wait.style.margin = '6px';
+        var wait = aeWrapLabel(lbl(aeRows, T('Looking for maps...'), S.muted, 12)); wait.hittest = false; wait.style.margin = '6px';
       } else if (!maps.length) {
-        var none = aeWrapLabel(lbl(aeRows, aeKind === 'workshop' ? 'No Workshop maps are installed. Subscribe to one in the Workshop and it shows up here.' : 'No other maps found.', S.muted, 12));
+        var none = aeWrapLabel(lbl(aeRows, aeKind === 'workshop' ? T('No Workshop maps are installed. Subscribe to one in the Workshop and it shows up here.') : T('No other maps found.'), S.muted, 12));
         none.hittest = false; none.style.margin = '6px';
       }
       for (var i = aePage * aePerPage; i < Math.min(maps.length, (aePage + 1) * aePerPage); i++) (function (m) {
@@ -198,7 +198,7 @@ R"CFJS(
         // map in its item, and so is the pick.
         var on = m.m === a.pick && (!m.a || !a.pickAddon || m.a === a.pickAddon);
         var t = aeWrapLabel(lbl(r, m.t, on ? S.accent : S.value, 13)); t.hittest = false; t.style.fontWeight = 'bold';
-        var sub = m.m + (m.tiny ? ' · a placeholder, not a playable map' : '');
+        var sub = m.tiny ? T('{0} · a placeholder, not a playable map', m.m) : m.m;
         var s2 = aeWrapLabel(lbl(r, sub, m.tiny ? '#ffb070ff' : S.muted, 11)); s2.hittest = false; s2.style.marginTop = '1px';
         function paint() { r.style.backgroundColor = on ? '#80bdff22' : (r.__hot ? '#ffffff12' : '#ffffff06'); }
         r.SetPanelEvent('onmouseover', function () { r.__hot = true; paint(); });
@@ -206,7 +206,7 @@ R"CFJS(
         r.SetPanelEvent('onactivate', function () { aeCmd('pick ' + m.m + (m.a ? ' ' + m.a : '')); });
         paint();
       })(maps[i]);
-      aePageLbl.text = maps.length ? ('Page ' + (aePage + 1) + ' of ' + pages + ' · ' + maps.length + ' maps') : '';
+      aePageLbl.text = maps.length ? TN(maps.length, 'Page {1} of {2} · {0} map', 'Page {1} of {2} · {0} maps', aePage + 1, pages) : '';
       setBtnDisabled(aePrev, aePage <= 0); setBtnDisabled(aeNext, aePage >= pages - 1);
     }
 )CFJS"
@@ -270,7 +270,13 @@ R"CFJS(
     aeLegend.style.backgroundColor = '#000000a0';
     // Top left: where the walked paths land under the alignment being edited (C++ colours the demo
     // layer the same way, AltEnvironmentMath.h LandingPicture), then how to drag.
-    var AE_LANDINGS = [['on', 'on the map', '#4ade80ff'], ['floating', 'floating', '#facc15ff'], ['under', 'under it', '#a855f7ff'], ['outside', 'outside it', '#f85252ff']];
+    // [key, the caption for a share of the paths, colour]. The caption is a function so the
+    // percentage sits inside the translated sentence.
+    var AE_LANDINGS = [
+      ['on', function (p) { return T('{0}% on the map', p); }, '#4ade80ff'],
+      ['floating', function (p) { return T('{0}% floating', p); }, '#facc15ff'],
+      ['under', function (p) { return T('{0}% under it', p); }, '#a855f7ff'],
+      ['outside', function (p) { return T('{0}% outside it', p); }, '#f85252ff']];
     var aeTop = mk('Panel', aeCanvas); aeTop.hittest = false; aeTop.style.flowChildren = 'down';
     aeTop.style.marginTop = '8px'; aeTop.style.marginLeft = '10px';
     var aeLand = mk('Panel', aeTop); aeLand.hittest = false; aeLand.style.flowChildren = 'right';
@@ -284,7 +290,7 @@ R"CFJS(
       var t = lbl(aeLand, '', S.value, 12); t.hittest = false; t.style.verticalAlign = 'center'; t.style.whiteSpace = 'nowrap';
       aeLandParts[k[0]] = t;
     });
-    var aeHint = lbl(aeTop, 'Drag to move · right-drag to turn (Shift: 15° steps) · wheel to zoom · Ctrl-drag to pan', S.hint, 12); aeHint.hittest = false;
+    var aeHint = lbl(aeTop, T('Drag to move · right-drag to turn (Shift: 15° steps) · wheel to zoom · Ctrl-drag to pan'), S.hint, 12); aeHint.hittest = false;
     aeHint.style.padding = '4px 8px'; aeHint.style.borderRadius = '3px'; aeHint.style.backgroundColor = '#000000a0';
 
     // Map coordinates <-> canvas pixels. zoom 1 fits the replacement map (or the demo's own map
@@ -409,15 +415,15 @@ R"CFJS(
       if (aeCanvas.__pos !== cpos) { aeCanvas.__pos = cpos; aeCanvas.style.position = cpos; }
       if (aeCanvas.__w !== cw) { aeCanvas.__w = cw; aeCanvas.style.width = cw + 'px'; }
       if (aeCanvas.__h !== ch) { aeCanvas.__h = ch; aeCanvas.style.height = ch + 'px'; }
-      aeText(aeTitle, 'MAP VIEW');
-      aeText(aeSubtitle, a.pick ? ((a.demoTitle || a.demoMap) + ' on ' + (a.pickTitle || a.pick)) : 'Choose the map to play this demo on.');
+      aeText(aeTitle, T('MAP VIEW'));
+      aeText(aeSubtitle, a.pick ? T('{0} on {1}', a.demoTitle || a.demoMap, a.pickTitle || a.pick) : T('Choose the map to play this demo on.'));
       aeRenderList(a, ch);
       aePump(st, a);
 
       var have = aeFrame(a, cw, ch);
       var msg = '';
-      if (!have) msg = a.picStatus || 'Reading the maps...';
-      else if (a.pick && !a.mapPic) msg = a.picStatus || ('Reading ' + (a.pickTitle || a.pick) + '...');
+      if (!have) msg = a.picStatus || T('Reading the maps...');
+      else if (a.pick && !a.mapPic) msg = a.picStatus || T('Reading {0}...', a.pickTitle || a.pick);
       if (aeCanvasMsg.text !== msg) aeCanvasMsg.text = msg;
       aeCanvasMsg.visible = msg !== '';
       aeMapImg.visible = have && !!a.mapPic;
@@ -457,17 +463,17 @@ R"CFJS(
           }
         }
       }
-      var demoName = a.demoTitle || a.demoMap || 'the demo\'s map';
+      var demoName = a.demoTitle || a.demoMap || T('the demo\'s map');
       var land = a.pick ? a.landing : null;
       aeText(aeLegend, land
-        ? ('Grey: ' + (a.pickTitle || a.pick) + ', lighter is higher. Coloured: ' + demoName + '\'s floor and where its players walked, by where they land. Light lines: its walls. Dots: the players now (orange T, blue CT).')
+        ? T('Grey: {0}, lighter is higher. Coloured: {1}\'s floor and where its players walked, by where they land. Light lines: its walls. Dots: the players now (orange T, blue CT).', a.pickTitle || a.pick, demoName)
         : a.pick
-          ? ('Grey: ' + (a.pickTitle || a.pick) + ', lighter is higher. Orange: ' + demoName + '\'s walls and where its players walked. Dots: the players now (orange T, blue CT).')
-          : ('Orange: ' + demoName + '\'s walls and where its players walked. Dots: the players now. Choose a map on the left.'));
+          ? T('Grey: {0}, lighter is higher. Orange: {1}\'s walls and where its players walked. Dots: the players now (orange T, blue CT).', a.pickTitle || a.pick, demoName)
+          : T('Orange: {0}\'s walls and where its players walked. Dots: the players now. Choose a map on the left.', demoName));
       aeLegend.visible = have;
       aeLand.visible = have && !!land;
       if (land) AE_LANDINGS.forEach(function (k) {
-        var t = Math.round((+land[k[0]] || 0) * 100) + '% ' + k[1];
+        var t = k[1](Math.round((+land[k[0]] || 0) * 100));
         if (aeLandParts[k[0]].text !== t) aeLandParts[k[0]].text = t;
       });
       aeHint.visible = have && !!a.pick && !!a.mapPic;
@@ -482,38 +488,39 @@ R"CFJS(
         ae.dragging = false;
         if (a.draft) ae.draft = { x: +a.draft.x || 0, y: +a.draft.y || 0, z: +a.draft.z || 0, yaw: +a.draft.yaw || 0 };
       }
-      var own = a.demoTitle || a.demoMap || 'its own map';
+      var own = a.demoTitle || a.demoMap || T('its own map');
       var picked = a.pick ? (a.pickTitle || a.pick) : '';
-      aeText(aeMapName, picked || (own + ' (its own map)'));
-      aeText(aeMapSub, !a.demo ? 'Open a demo to choose a map for it.'
-        : a.pick ? (a.pick + (a.pickAddon ? ' · Workshop item ' + a.pickAddon : ' · installed with CS2'))
-        : 'The demo plays on the map it was recorded on.');
+      aeText(aeMapName, picked || T('{0} (its own map)', own));
+      aeText(aeMapSub, !a.demo ? T('Open a demo to choose a map for it.')
+        : a.pick ? (a.pickAddon ? T('{0} · Workshop item {1}', a.pick, a.pickAddon) : T('{0} · installed with CS2', a.pick))
+        : T('The demo plays on the map it was recorded on.'));
       setBtnDisabled(aeChoose, !a.demo);
       aeAlignG.visible = !!a.pick;
       var f = a.fit;
-      aeText(aeFit, !a.pick ? '' : !f ? 'Open the map view to see how well the maps line up.'
-        : ('Floor match ' + Math.round(f.floor * 100) + '%' + (f.samples ? ' · walked paths on the map ' + Math.round(f.players * 100) + '%' : '')));
+      aeText(aeFit, !a.pick ? '' : !f ? T('Open the map view to see how well the maps line up.')
+        : (f.samples ? T('Floor match {0}% · walked paths on the map {1}%', Math.round(f.floor * 100), Math.round(f.players * 100))
+          : T('Floor match {0}%', Math.round(f.floor * 100))));
       if (!ae.dragging && !aeDrag) {
         aeX.sync(ae.draft.x); aeY.sync(ae.draft.y); aeZ.sync(ae.draft.z); aeYaw.sync(ae.draft.yaw);
       }
       setBtnDisabled(aeAuto, !a.pick || !!a.auto);
-      aeText(aeAuto.__lbl, a.auto ? ('MATCHING ' + Math.round((+a.autoProgress || 0) * 100) + '%') : 'AUTO ALIGN');
-      aeText(aeViewBtn.__lbl, a.view ? 'HIDE MAP VIEW' : 'SHOW MAP VIEW');
+      aeText(aeAuto.__lbl, a.auto ? T('MATCHING {0}%', Math.round((+a.autoProgress || 0) * 100)) : T('AUTO ALIGN'));
+      aeText(aeViewBtn.__lbl, a.view ? T('HIDE MAP VIEW') : T('SHOW MAP VIEW'));
       var playing = !!(a.enabled && a.copy && !a.dirty);
       var title = (picked || own).toUpperCase();
-      aeText(aePlay.__lbl, a.building ? ('WRITING THE DEMO FOR ' + title + ' ' + Math.round((+a.progress || 0) * 100) + '%')
-        : playing ? ('PLAYING ON ' + title) : ('PLAY ON ' + title));
+      aeText(aePlay.__lbl, a.building ? T('WRITING THE DEMO FOR {0} {1}%', title, Math.round((+a.progress || 0) * 100))
+        : playing ? T('PLAYING ON {0}', title) : T('PLAY ON {0}', title));
       aePlay.visible = !!a.pick;
       setBtnDisabled(aePlay, !a.demo || !!a.building || playing);
-      aeText(aeBack.__lbl, 'BACK TO ' + own.toUpperCase());
+      aeText(aeBack.__lbl, T('BACK TO {0}', own.toUpperCase()));
       aeBack.visible = !!a.enabled;
       var status = a.error || a.status || '';
-      if (!status && a.pick && a.dirty && a.enabled) status = 'Changed since it was played. Press the button to play it this way.';
+      if (!status && a.pick && a.dirty && a.enabled) status = T('Changed since it was played. Press the button to play it this way.');
       if (!status && a.feetStatus && a.view) status = a.feetStatus;
       if (aeStatus.text !== status) aeStatus.text = status;
       aeStatus.style.color = a.error ? '#ff9a8aff' : S.hint;
       aeStatus.visible = status !== '';
-      aeSec.__note(!a.demo ? 'Open a demo' : a.enabled ? ('On ' + (a.appliedTitle || a.applied)) : picked ? (picked + ' · not played yet') : 'Its own map');
+      aeSec.__note(!a.demo ? T('Open a demo') : a.enabled ? T('On {0}', a.appliedTitle || a.applied) : picked ? T('{0} · not played yet', picked) : T('Its own map'));
       var d0 = ae.draft;
       aeHeadReset.setDisabled(!d0.x && !d0.y && !d0.z && !d0.yaw);
       aeProps.set(!!a.props);

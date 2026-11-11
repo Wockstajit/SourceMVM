@@ -6,6 +6,10 @@ import vm from 'node:vm';
 const header = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/EasterEggVegasJs.h', import.meta.url), 'utf8');
 const source = header.match(/R"EGJS\(([\s\S]*?)\)EGJS"/)[1];
 
+// The fragment calls T(): the real localization runtime the host script splices in runs ahead of it.
+const localization = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/LocalizationJs.h', import.meta.url), 'utf8')
+  .match(/R"MVMI18N\(([\s\S]*?)\)MVMI18N"/)[1];
+
 function harness({ stopThrows = false } = {}) {
   const panels = new Map(), calls = [];
   function panel(id) {
@@ -20,7 +24,7 @@ function harness({ stopThrows = false } = {}) {
   const c = vm.createContext({ st: {}, EGG: {}, now: () => 10,
     cssSize: () => ({ w: 1600, h: 1200 }), layer: panel, lbl: () => panel('label'),
     $: { CreatePanel: (_type, _parent, id) => panel(id), RegisterEventHandler: () => {}, Msg: () => {} } });
-  vm.runInContext(source, c);
+  vm.runInContext(localization + source, c);
   return { panels, calls, sync: state => { c.st = state; vm.runInContext('vegasSync()', c); } };
 }
 

@@ -1,4 +1,5 @@
 #include "CameraEditorHud.h"
+#include "../Localization/Localization.h"
 
 #include "InspectorWidth.h"
 
@@ -417,6 +418,8 @@ void CameraEditorHud::RunFrame() {
 		return;
 	}
 	if (hud != m_hudPanel) { m_hudPanel = hud; m_built = false; }
+	// A language change rebuilds the script, which is what re-reads its text (Localization.h).
+	{ static uint64_t uiEpoch = 0; if (Localization_TakeUiEpoch(uiEpoch)) { m_built = false; } }
 	m_bridge.SetContextPanel(hud);
 
 	// Enter / exit edge transitions.

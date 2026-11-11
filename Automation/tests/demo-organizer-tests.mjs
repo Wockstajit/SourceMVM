@@ -82,6 +82,13 @@ function rawStringFragments(source, tag) {
 
 const organizerJs = rawStringFragments(organizerJsSource, "FMORG").join("\n");
 
+// The localization runtime (T / TN) every Panorama script splices in right after its IIFE opens.
+// The fragment under test calls T(), so the REAL runtime is evaluated ahead of it, in the same scope.
+const localizationJs = rawStringFragments(
+  fs.readFileSync(path.join(panoramaDirectory, "LocalizationJs.h"), "utf8"),
+  "MVMI18N",
+).join("\n");
+
 // ---------------------------------------------------------------------------
 // Load the fragment for real, with the Panorama globals stubbed out.
 //
@@ -118,6 +125,7 @@ function loadOrganizer() {
   const factory = new Function(
     "externals",
     `with (externals) {
+       ${localizationJs}
        ${organizerJs}
        return {
          externals: externals,

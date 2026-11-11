@@ -10,6 +10,9 @@ namespace Filmmaker {
 
 inline const char* kFxDebugHudJs = R"FXDBGJS(
 (function () {
+)FXDBGJS"
+#include "LocalizationJs.h"
+R"FXDBGJS(
   try {
     var existing = $('#FxDebugHudRoot'); if (existing) existing.DeleteAsync(0);
     var ctx = $.GetContextPanel();
@@ -74,7 +77,7 @@ inline const char* kFxDebugHudJs = R"FXDBGJS(
       cell.style.border = '1px solid #ffffff88';
       cell.style.borderRadius = '2px';
 
-      var lbl = $.CreatePanel('Label', cell, '', {});
+      var lbl = mvmLabel(cell, '', {});
       lbl.hittest = false;
       lbl.text = ch.label;
       lbl.style.width = '100%';

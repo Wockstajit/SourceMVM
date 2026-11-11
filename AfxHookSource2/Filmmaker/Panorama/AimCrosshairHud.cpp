@@ -1,4 +1,5 @@
 #include "AimCrosshairHud.h"
+#include "../Localization/Localization.h"
 
 #include "PanoramaFindPanel.h"
 #include "../Movie/HudBlackout.h" // F8: clear every overlay
@@ -212,6 +213,8 @@ void AimCrosshairHud::RunFrame() {
 	unsigned char* hud = active ? AfxHookSource2_GetPanoramaHudPanel() : nullptr;
 	if (!hud) { Teardown(); return; }
 	if (hud != m_hudPanel) { m_hudPanel = hud; m_built = false; }
+	// A language change rebuilds the script, which is what re-reads its text (Localization.h).
+	{ static uint64_t uiEpoch = 0; if (Localization_TakeUiEpoch(uiEpoch)) { m_built = false; } }
 	m_bridge.SetContextPanel(hud);
 
 	if (!BuildIfNeeded()) return;

@@ -14,7 +14,7 @@
 // so its four tuning values existed only for the console. They are on the Shadow map page now.
 
 R"CFJS(
-    var litSec = section(pageEffects, 'LIGHTING', true, false, 'light.card', '#80bdffff');
+    var litSec = section(pageEffects, T('LIGHTING'), true, false, 'light.card', '#80bdffff');
     var lightResetBtn = litSec.__headerReset([
       'mirv_filmmaker world exposure auto quiet',
       'mirv_filmmaker world light reset',
@@ -26,44 +26,44 @@ R"CFJS(
     // ===================== TIME OF DAY ==================================
     // Each one pins the tonemapper to a set exposure. Fixed values, so they do not claim to
     // change the time of day -- they change how the frame is exposed.
-    var todPage = litSec.__group('Time of day');
+    var todPage = litSec.__group(T('Time of day'));
     var TOD = [
-      ['dawn',   'Dawn',    0.55],
-      ['day',    'Day',     1.00],
-      ['golden', 'Golden',  0.85],
-      ['dusk',   'Dusk',    0.35],
-      ['night',  'Night',   0.10],
-      ['moon',   'Moonlit', 0.22]
+      ['dawn',   T('Dawn'),    0.55],
+      ['day',    T('Day'),     1.00],
+      ['golden', T('Golden'),  0.85],
+      ['dusk',   T('Dusk'),    0.35],
+      ['night',  T('Night'),   0.10],
+      ['moon',   T('Moonlit'), 0.22]
     ];
     var todItems = [];
     for (var todI = 0; todI < TOD.length; todI++) todItems.push([TOD[todI][0], TOD[todI][1]]);
-    var todGrid = optionGrid(todPage, 'Time of day', todItems, 3,
-      'Each one pins the tonemapper to a set exposure: dawn 0.55, day 1.00, golden 0.85, '
-      + 'dusk 0.35, night 0.10, moonlit 0.22.',
+    var todGrid = optionGrid(todPage, T('Time of day'), todItems, 3,
+      T('Each one pins the tonemapper to a set exposure: dawn 0.55, day 1.00, golden 0.85, '
+      + 'dusk 0.35, night 0.10, moonlit 0.22.'),
       function (key) {
         for (var i = 0; i < TOD.length; i++)
           if (TOD[i][0] === key) cmd('mirv_filmmaker world exposure ' + TOD[i][2].toFixed(2) + ' quiet');
       }, 15);
 
     var expSlider = sliderRow(todPage, {
-      label: 'Exposure',
+      label: T('Exposure'),
       cmd: 'mirv_filmmaker world exposure',
       min: 0.02, max: 4.0, decimals: 2, unit: '',
-      tip: 'Pins the tonemapper instead of dimming the screen, so it composites correctly -- '
-         + 'muzzle flashes still bloom and it survives a render. 0.10 night, 0.35 dusk, 1.0 neutral.'
+      tip: T('Pins the tonemapper instead of dimming the screen, so it composites correctly -- '
+         + 'muzzle flashes still bloom and it survives a render. 0.10 night, 0.35 dusk, 1.0 neutral.')
     });
     // A named tile, not a loose button (Docs/panorama/panorama_ui_guide.md): a one-action set and a four-action set
     // read as the same kind of object.
-    var expAutoGroup = actionGroup(todPage, 'Metering', [
-      ['Auto exposure', function () { cmd('mirv_filmmaker world exposure auto quiet'); }]
-    ], 2, 'Hands exposure back to the engine, which re-meters as the shot moves.');
+    var expAutoGroup = actionGroup(todPage, T('Metering'), [
+      [T('Auto exposure'), function () { cmd('mirv_filmmaker world exposure auto quiet'); }]
+    ], 2, T('Hands exposure back to the engine, which re-meters as the shot moves.'));
     var expAutoBtn = expAutoGroup.btns[0];
 
     // ===================== SUN ==========================================
     // Tints every light the scene system submits, through World/LightFx.cpp. The same recovered
     // object pointer provides the live sun direction controls below; all writes are bounded and
     // the authored direction is restored on reset.
-    var sunPage = litSec.__group('Sun');
+    var sunPage = litSec.__group(T('Sun'));
     var LIGHT_TINTS = [
       ['default', '#00000000', '255 255 255'],
       ['warm',    '#ffb277ff', '255 178 119'],
@@ -82,7 +82,7 @@ R"CFJS(
       if (lightPicker) lightPicker.hide();
       cmd('mirv_filmmaker world light tint ' + rgb + ' quiet');
     }, {
-      label: 'Sun colour',
+      label: T('Sun colour'),
       custom: true,
       onCustom: function () { if (lightPicker) lightPicker.show(); }
     });
@@ -93,50 +93,50 @@ R"CFJS(
     });
 
     var lightAmount = sliderRow(sunPage, {
-      label: 'Sun tint amount', cmd: 'mirv_filmmaker world light amount',
+      label: T('Sun tint amount'), cmd: 'mirv_filmmaker world light amount',
       min: 0, max: 1, decimals: 2, unit: '', offAtZero: true,
-      tip: 'Blends from the map’s authored light at 0.00 to the chosen tint at 1.00. '
-         + 'The tint never increases the light’s HDR ceiling, so it cannot become an exposure glow.'
+      tip: T('Blends from the map’s authored light at 0.00 to the chosen tint at 1.00. '
+         + 'The tint never increases the light’s HDR ceiling, so it cannot become an exposure glow.')
     });
     // Shadow direction is applied to the validated scene-light direction field, and the visible
     // sun disc follows this physical direction. Independent Skybox yaw/pitch live on WEATHER & SKY.
     var lightYaw = sliderRow(sunPage, {
-      label: 'Rotate', cmd: 'mirv_filmmaker world light yaw',
+      label: T('Rotate'), cmd: 'mirv_filmmaker world light yaw',
       min: 0, max: 360, decimals: 1, unit: '°',
-      tip: 'Spins the sun around the sky like a disc on a table: same height, only its compass direction changes. Some maps keep their authored shadow direction; use Environment sunlight for movable custom shadows.'
+      tip: T('Spins the sun around the sky like a disc on a table: same height, only its compass direction changes. Some maps keep their authored shadow direction; use Environment sunlight for movable custom shadows.')
     });
     var lightPitch = sliderRow(sunPage, {
-      label: 'Tilt', cmd: 'mirv_filmmaker world light pitch',
+      label: T('Tilt'), cmd: 'mirv_filmmaker world light pitch',
       min: -90, max: 90, decimals: 1, unit: '°',
-      tip: 'Raises (+) or lowers (-) the sun toward or away from overhead, keeping its compass direction. The visible sun follows; native cast-shadow rotation depends on the map.'
+      tip: T('Raises (+) or lowers (-) the sun toward or away from overhead, keeping its compass direction. The visible sun follows; native cast-shadow rotation depends on the map.')
     });
     // RANGE 0.25..2.00 on purpose (the backend still clamps at 8.0). This is not a radius
     // parameter -- SkyGpuRotation scales the halo TRIANGLES away from the billboard centre, so
     // past roughly 2x the geometry visibly stretches and the sun stops reading as a sun.
     var sunGlowSize = sliderRow(sunPage, {
-      label: 'Bloom size', cmd: 'mirv_filmmaker world sun glow_size',
+      label: T('Bloom size'), cmd: 'mirv_filmmaker world sun glow_size',
       min: 0.25, max: 2.0, decimals: 2, unit: 'x',
-      tip: 'Scales the sun halo footprint around the same billboard centre as the disc. Separate '
-         + 'from glow brightness. Large values stretch the halo geometry, so this stops at 2x.'
+      tip: T('Scales the sun halo footprint around the same billboard centre as the disc. Separate '
+         + 'from glow brightness. Large values stretch the halo geometry, so this stops at 2x.')
     });
 
     // The four light/shadow switches are ONE chip row under one heading (Docs/features/filmmaker_config_panel.md).
-    subHead(sunPage, 'Light sources & shadows');
+    subHead(sunPage, T('Light sources & shadows'));
     function nativeLightingOwned() {
       var e = envState(), c = envClimate();
       return !!(e && e.enabled);
     }
-    var engineLightsToggle = togglePill(sunPage, 'Engine lights',
-      'Direct lights submitted by CS2. Does not change either shadow switch or baked material lighting. A shadow cannot be visible without a light to shade.',
+    var engineLightsToggle = togglePill(sunPage, T('Engine lights'),
+      T('Direct lights submitted by CS2. Does not change either shadow switch or baked material lighting. A shadow cannot be visible without a light to shade.'),
       function () { if (!nativeLightingOwned()) cmd('mirv_filmmaker world light enabled toggle'); });
-    var shadowsToggle = togglePill(sunPage, 'Engine shadows',
-      'All-on/off shortcut for both shadow layers below. Does not disable engine lights or baked material lighting.',
+    var shadowsToggle = togglePill(sunPage, T('Engine shadows'),
+      T('All-on/off shortcut for both shadow layers below. Does not disable engine lights or baked material lighting.'),
       function () { if (!nativeLightingOwned()) cmd('mirv_filmmaker world shadows ' + ((st.bakedShadows !== false || st.dynamicShadows !== false) ? 'off' : 'on')); });
-    var bakedShadowsToggle = togglePill(sunPage, 'Baked shadows',
-      'CS2’s baked-shadow layer. Some animated plants also depend on this engine layer; it is not the same as baked material lighting.',
+    var bakedShadowsToggle = togglePill(sunPage, T('Baked shadows'),
+      T('CS2’s baked-shadow layer. Some animated plants also depend on this engine layer; it is not the same as baked material lighting.'),
       function () { if (!nativeLightingOwned()) cmd('mirv_filmmaker world bakedshadows toggle'); });
-    var liveShadowsToggle = togglePill(sunPage, 'Live engine shadows',
-      'CS2’s live cascades, separately from baked shadows. Turning off baked shadows can still remove map foliage casters.',
+    var liveShadowsToggle = togglePill(sunPage, T('Live engine shadows'),
+      T('CS2’s live cascades, separately from baked shadows. Turning off baked shadows can still remove map foliage casters.'),
       function () { if (!nativeLightingOwned()) cmd('mirv_filmmaker world dynamicshadows toggle'); });
     var lightingOwnerNote = envNote(sunPage, '');
     var shadowState = lbl(sunPage, '', S.danger, 12);
@@ -148,12 +148,12 @@ R"CFJS(
 
     var sunHidden = false;
     var lightUniform = true;
-    var sunGroup = actionGroup(sunPage, 'Sun disc', [
-      ['Color only', function () {
+    var sunGroup = actionGroup(sunPage, T('Sun disc'), [
+      [T('Color only'), function () {
         lightUniform = !lightUniform;
         cmd('mirv_filmmaker world light mode ' + (lightUniform ? 'uniform' : 'filtered'));
       }],
-      ['Hide sun', function () {
+      [T('Hide sun'), function () {
         sunHidden = !sunHidden;
         cmd('mirv_filmmaker world sun visible ' + (sunHidden ? '0' : '1'));
       }]
@@ -183,6 +183,10 @@ R"CFJS(
     fxResetLocal.lighting = function () {
       if (lightPicker) lightPicker.hide();
     };
+
+    // The tint keys stay English (they are the swatch keys); this is what the card summary shows.
+    var TINT_SHOWN = { warm: T('warm'), gold: T('gold'), rose: T('rose'), cool: T('cool'), teal: T('teal'),
+                       violet: T('violet'), ember: T('ember'), ash: T('ash'), custom: T('custom') };
 
     renderHooks.push(function (st) {
       var v = (typeof st.exposure === 'number') ? st.exposure : -1;
@@ -227,23 +231,23 @@ R"CFJS(
 
       if (typeof st.lightUniform === 'boolean') {
         lightUniform = st.lightUniform;
-        lightMode.__lbl.text = lightUniform ? 'Color only' : 'Filter / dim';
+        lightMode.__lbl.text = lightUniform ? T('Color only') : T('Filter / dim');
       }
       lightState.text = (st.lightOk === false)
-        ? 'Unavailable on this CS2 build — the scene-light hook did not resolve.'
+        ? T('Unavailable on this CS2 build — the scene-light hook did not resolve.')
         : (lightUniform
-            ? 'Color only keeps the sun’s authored peak brightness. Filter / dim multiplies it, so dark tints dim the disc.'
-            : 'Filter / dim multiplies the authored RGB, so dark tints dim the disc and glow. Color only keeps its peak brightness.');
+            ? T('Color only keeps the sun’s authored peak brightness. Filter / dim multiplies it, so dark tints dim the disc.')
+            : T('Filter / dim multiplies the authored RGB, so dark tints dim the disc and glow. Color only keeps its peak brightness.'));
       lightState.style.color = (st.lightOk === false) ? S.danger : S.hint;
 
       lightYaw.sync(typeof st.sunYaw === 'number' ? st.sunYaw : 0);
       lightPitch.sync(typeof st.sunPitch === 'number' ? st.sunPitch : 0);
       sunGlowSize.sync(typeof st.sunGlowSize === 'number' ? st.sunGlowSize : 1);
       lightRotationState.visible = (st.lightRotationOk === false);
-      lightRotationState.text = 'Sun direction is unavailable on this CS2 build.';
+      lightRotationState.text = T('Sun direction is unavailable on this CS2 build.');
 
       sunHidden = st.sunVisible === false;
-      sunDrawBtn.__lbl.text = sunHidden ? 'Show sun' : 'Hide sun';
+      sunDrawBtn.__lbl.text = sunHidden ? T('Show sun') : T('Hide sun');
       setBtnOn(sunDrawBtn, sunHidden, S.accent);
       setBtnOn(lightMode, !lightUniform, S.accent);
 
@@ -256,15 +260,15 @@ R"CFJS(
         control.row.style.opacity = ownsNative ? '0.45' : '1';
       });
       lightingOwnerNote.visible = ownsNative;
-      lightingOwnerNote.text = 'Environment owns dynamic lighting. Adjust Map lights, Ambient light and Cast shadows there.';
+      lightingOwnerNote.text = T('Environment owns dynamic lighting. Adjust Map lights, Ambient light and Cast shadows there.');
       shadowState.visible = (st.shadowsOk === false);
-      shadowState.text = 'Shadow control is unavailable on this CS2 build.';
+      shadowState.text = T('Shadow control is unavailable on this CS2 build.');
 
       // The card's summary: what it is pinned to, and where the sun points.
       var amt = (typeof st.lightAmount === 'number') ? st.lightAmount : 1;
       var tintName = namedTint || 'custom';
-      litSec.__note((isAuto ? (adapting ? 'Eye adaptation' : 'Auto exposure') : (matchedName || ('Exposure ' + v.toFixed(2))))
-        + ' · sun ' + Math.round(typeof st.sunYaw === 'number' ? st.sunYaw : 0) + '°'
-        + ((tintName === 'default' || amt <= 0.001) ? '' : (' · ' + tintName + ' ' + Math.round(amt * 100) + '%')));
+      litSec.__note((isAuto ? (adapting ? T('Eye adaptation') : T('Auto exposure')) : (matchedName || T('Exposure {0}', v.toFixed(2))))
+        + ' · ' + T('sun {0}°', Math.round(typeof st.sunYaw === 'number' ? st.sunYaw : 0))
+        + ((tintName === 'default' || amt <= 0.001) ? '' : (' · ' + (TINT_SHOWN[tintName] || tintName) + ' ' + Math.round(amt * 100) + '%')));
     });
 )CFJS"
