@@ -142,8 +142,17 @@ float3 WeatherCover(float3 world,float3 normal,float lee=1){
     [branch]if(blown>0&&sky>0){
         float3 from=q+float3(0,0,shelterInfo.z+6);
         static const float kLee[6]={30,60,95,135,180,230};
+        // Each point is three taps across and along the wind line, spread wider the further up it is
+        // (a penumbra), so the share falls off smoothly. Single taps stepped it in sixths, each step
+        // on a straight line that is the roof edge carried along the wind, and snow cut its patches
+        // off along those lines beside containers and under ledges (2026-11-18).
+        float2 along=normalize(coverWind.xy+float2(1e-5,0)),across=float2(-along.y,along.x);
         float clear=0;
-        [loop]for(int k=0;k<6;++k)clear+=SkyTap(from+coverWind.xyz*kLee[k]);
+        [loop]for(int k=0;k<6;++k){
+            float3 at=from+coverWind.xyz*kLee[k];float spread=kLee[k]*.22;
+            clear+=(SkyTap(at+float3(across*-.8*spread+along*.35*spread,0))+SkyTap(at+float3(along*-.5*spread,0))
+                   +SkyTap(at+float3(across*.8*spread+along*.35*spread,0)))/3;
+        }
         sky*=lerp(1,clear/6,blown*lee);
     }
     float3 half=.5/max(coverScale.xyz,1e-4);

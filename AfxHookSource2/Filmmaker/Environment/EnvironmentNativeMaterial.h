@@ -16,6 +16,10 @@ extern std::atomic<bool> NativeExposureRead;
 // The exposure CS2's tonemapper is applying, read from its per-view constants a frame or two late.
 // 0 while unknown: nothing lit lately, the switch off, or a layout that fails its check.
 float NativeExposureScale();
+// The live reflection capture through the bounce volume (Relight::ProbeBinding::reflection: a cube
+// array of one cube, at the camera) while the Environment's lighting has one this frame, else null.
+// mips: its mip count. For the wet film's off-screen reflections (EnvironmentReflectionProbes.h).
+ID3D11ShaderResourceView* NativeLiveReflection(unsigned* mips);
 void NoteNativeMaterialPixelShader(ID3D11PixelShader*,const void*,size_t);
 // The lighting variants of CS2's material programs are built on a background worker, off CS2's
 // loader threads (EnvironmentNativeMaterial.cpp). For the heartbeat: programs handled, programs

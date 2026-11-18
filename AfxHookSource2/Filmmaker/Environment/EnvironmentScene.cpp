@@ -3,6 +3,7 @@
 #include "EnvironmentScene.h"
 #include "EnvironmentGroundFog.h"
 #include "EnvironmentGameTextures.h"
+#include "EnvironmentReflectionProbes.h"
 #include "EnvironmentWindFluid.h"
 #include "EnvironmentWeatherCover.h"
 #include <unordered_map>
@@ -1476,6 +1477,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                                 g_selected, SerializeScene(LiveScene()).c_str());
             advancedfx::Message("  mapdata: ready=%d status='%s'\n",bool(MapOcclusion()),MapOcclusionStatus().c_str());
             advancedfx::Message("  cs2 textures: %s\n",GameTexturesStatus().c_str());
+            advancedfx::Message("  %s\n",ReflectionProbes_Status().c_str());
             advancedfx::Message("  %s\n",WeatherCoverStatus().c_str());
             return;
         }

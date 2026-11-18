@@ -219,8 +219,12 @@ bool CoatingActor(float3 p,float3 geometric) {
             // But not the floor the player stands on: the drawn floor is often a unit or two above the
             // collision floor the feet are on (Mirage's Palace balcony: two), and it was taken for the
             // body, a bare 40-unit square of floor round the feet with snow all round it. Level ground
-            // within a step of the feet is ground, as for any other player (kCoatingFloorBand).
-            bool floor=geometric.z>.9&&p.z<o.z+18;
+            // within a step of the feet is ground, as for any other player (kCoatingFloorBand). Except
+            // what stands 3 to 8 units over the feet: that is the boots' toe caps, which are level too
+            // and came out with snow on them (2026-11-18). The drawn floor is at most a couple of
+            // units over the collision floor and a step up is higher than a boot.
+            float over=p.z-o.z;
+            bool floor=geometric.z>.9&&(over<3||(over>8&&over<18));
             if(coatingActors[j].w>0&&!floor&&max(eye.x,eye.y)<14&&camera.z>o.z+24&&camera.z<o.z+80&&max(at.x,at.y)<20&&p.z>o.z+1.5&&p.z<camera.z+8)return true;
         }
     }
@@ -1052,6 +1056,13 @@ R"HLSL(
         mirrorsSky*=clear;
     }
     float3 environment=CL_sky>0?lerp(color,SkyColor(reflected,sunVisibility),CL_sky*mirrorsSky):color;
+    // OFF SCREEN: where the trace below finds nothing, CS2's own probes (or the live capture under
+    // Environment lighting) instead of the surface's own colour (OffScreenReflection). With the
+    // Environment's sky on, the probe gives the buildings and our sky the open sky, as above.
+    [branch]if(reflectionInfo.x>0&&film>.015){
+        float found;float3 probe=OffScreenReflection(p,reflected,.12+porous*.13+gustRough*.2,found);
+        if(found>0)environment=CL_sky>0?lerp(probe,SkyColor(reflected,sunVisibility),CL_sky*mirrorsSky):probe;
+    }
     [branch]if(film>.015)environment=WetScreenReflection(p,wetNormal,reflected,environment);
     environment=WorldReflectionRoughness(p,wetNormal,reflected,environment,.12+porous*.13+gustRough*.2);
     color=lerp(color,environment,film);

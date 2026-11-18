@@ -420,6 +420,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Environment/EnvironmentNativeWater.cpp
     Filmmaker/Environment/EnvironmentGameTextures.cpp
     Filmmaker/Environment/EnvironmentGameTextures.h
+    Filmmaker/Environment/EnvironmentReflectionProbes.cpp
+    Filmmaker/Environment/EnvironmentReflectionProbes.h
+    Filmmaker/Environment/EnvironmentReflectionProbeMath.h
     Filmmaker/Environment/EnvironmentNativeRain.cpp
     Filmmaker/Environment/EnvironmentNativeRain.h
     Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightLiteGrid.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp

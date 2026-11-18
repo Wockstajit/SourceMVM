@@ -157,6 +157,50 @@ float3 WetScreenReflection(float3 p,float3 normal,float3 reflected,float3 fallba
     }
     return fallback;
 }
+// WHAT WET GROUND MIRRORS OFF SCREEN (EnvironmentReflectionProbes.h). The trace above finds only what
+// is on screen: looking down at a puddle, the buildings it should hold are above the frame and it
+// showed its own colour. They come from CS2's own reflection probes (the map's baked 360 captures,
+// the ray corrected against each probe's box) under the map's lighting, or from the live capture
+// through the bounce volume under Environment lighting. Both hold raw scene light, and the tone
+// curve measured from CS2's own post-process each frame puts that into the finished frame's colours.
+float3 ProbeToFrame(float3 light) {
+    float3 u=saturate((log2(max(light,1e-7))+12)/24);
+    return float3(reflectionTone.SampleLevel(windSampler,u.r,0).r,reflectionTone.SampleLevel(windSampler,u.g,0).g,
+                  reflectionTone.SampleLevel(windSampler,u.b,0).b);
+}
+// found is 0 where nothing covers p (the caller keeps its own fallback).
+float3 OffScreenReflection(float3 p,float3 r,float roughness,out float found) {
+    found=0;
+    const int mode=(int)reflectionInfo.x;
+    if(mode==0||reflectionInfo.w<.5)return 0;
+    float mip=saturate(roughness*2)*reflectionInfo.y;
+    // The live capture sits at the camera in a box far larger than the map: a plain direction lookup.
+    if(mode==2){found=1;return ProbeToFrame(reflectionCubes.SampleLevel(gameTextureSampler,float4(r,0),mip).rgb);}
+    // CS2's probes, smallest box first: the first box that holds p is the most local capture, and
+    // near its edge it is feathered into the next box out, as the game blends an interior probe into
+    // the street's.
+    float3 inner=0;float innerWeight=0;
+    [loop]for(int k=0;k<(int)reflectionInfo.z;++k){
+        int b=25+9*(int)reflectionIndex[k>>2][k&3];
+        float4 r0=reflectionProbeRows[b],r1=reflectionProbeRows[b+1],r2=reflectionProbeRows[b+2];
+        float4 lo=reflectionProbeRows[b+3],hi=reflectionProbeRows[b+4];
+        float3 q=float3(dot(r0.xyz,p)+r0.w,dot(r1.xyz,p)+r1.w,dot(r2.xyz,p)+r2.w);
+        if(any(q<lo.xyz)||any(q>hi.xyz))continue;
+        float3 edge=min(q-lo.xyz,hi.xyz-q)*reflectionProbeRows[b+5].xyz;
+        float weight=saturate(min(edge.x,min(edge.y,edge.z)));
+        // Where the ray leaves the box, seen from the capture at the box origin.
+        float3 d=float3(dot(r0.xyz,r),dot(r1.xyz,r),dot(r2.xyz,r));
+        float3 safe=d+(d>=0?1e-5:-1e-5);
+        float3 leave=max((lo.xyz-q)/safe,(hi.xyz-q)/safe);
+        float3 look=q+d*max(min(leave.x,min(leave.y,leave.z)),0);
+        float3 c=reflectionCubes.SampleLevel(gameTextureSampler,float4(look,(float)asuint(lo.w)),mip).rgb*reflectionProbeRows[b+7].rgb;
+        if(innerWeight>0){found=1;return ProbeToFrame(lerp(c,inner,innerWeight));}
+        inner=c;innerWeight=max(weight,1e-3);
+        if(weight>=.999)break;
+    }
+    if(innerWeight>0){found=1;return ProbeToFrame(inner);}
+    return 0;
+}
 // Finite-support droplets: an expanding capillary ring followed by a short gravity trail.
 // The derivative is analytical (not a darkening pulse), and footprint filtering removes
 // subpixel impulses before they become a glittering screen-space pattern.

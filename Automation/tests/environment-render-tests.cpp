@@ -4,6 +4,7 @@
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentRender.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentGroundFog.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentGameTextures.h"
+#include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentReflectionProbes.h"
 #include <wrl/client.h>
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentSurfaceMath.h"
 #include <iostream>
@@ -47,6 +48,13 @@ bool NativeRainActive() { return false; }
 GameTexturesBound BindGameTextures(ID3D11Device *, ID3D11DeviceContext *, bool, bool) { return {}; }
 std::string GameTexturesStatus() { return "test"; }
 void ReleaseGameTextures() {}
+// The wet film's off-screen reflections read CS2's probes and its tone curve from a running game;
+// a standalone device test has neither, so the film keeps its own fallback (mode 0).
+void ReflectionProbes_Want(bool) {}
+ReflectionProbeConstants ReflectionProbes_Bind(ID3D11DeviceContext *, const float *, bool) { return {}; }
+void ReflectionProbes_EndPresent() {}
+void ReflectionProbes_Release() {}
+std::string ReflectionProbes_Status() { return "test"; }
 void SetRenderStatus(const char *status, bool frame) {
     std::cout << status << '\n';
     if (frame)

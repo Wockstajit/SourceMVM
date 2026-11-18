@@ -16,6 +16,7 @@
 #include "EnvironmentGroundFog.h"
 #include "EnvironmentWindFluid.h"
 #include "EnvironmentGameTextures.h"
+#include "EnvironmentReflectionProbes.h"
 #include "EnvironmentFootprints.h"
 #include "EnvironmentFootprintMath.h"
 #include "EnvironmentStorm.h"
@@ -79,6 +80,8 @@ struct Constants {
     Matrix previousVp;                  // the volume's temporal blend (VolumeTemporalPS)
     Float4 previousCamera, temporalInfo;
     Float4 gameTextureInfo;             // EnvironmentGameTextures.h: snow bound, droplets bound, snow tile
+    Float4 reflectionInfo;              // EnvironmentReflectionProbes.h: mode, highest mip, probe count, tone curve
+    Float4 reflectionIndex[4];          // the probes' record numbers, smallest box first
 };
 static_assert(kBodyBones == 16, "actorBones is COATING_ACTORS*16 in the shader");
 struct ObjectConstants {
@@ -489,6 +492,7 @@ void EndDevice() {
     EndGroundFog();
     EndWindFluid();
     ReleaseGameTextures();
+    ReflectionProbes_Release();
     EndFootprints();
     g = Resources{};
     gHdr = Resources{};
@@ -673,7 +677,7 @@ void SetSmokeAbsorbance(ID3D11ShaderResourceView *view, unsigned width, unsigned
     g_smokeWidth = usable ? width : 0;
     g_smokeHeight = usable ? height : 0;
 }
-void EndEnvironmentPresent() { ++g.present; }
+void EndEnvironmentPresent() { ++g.present; ReflectionProbes_EndPresent(); }
 bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D11DepthStencilView *depth,
             const Frame &input, float depthMin, float depthMax, ID3D11Texture2D *nativeHdrSource) {
     RenderPrivateTextureScope privateTextures;
@@ -1130,6 +1134,15 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         const auto game = BindGameTextures(g.device.Get(), ctx, climate[CL_snow] > 0,
                                            (climate[CL_wet] > 0 || climate[CL_puddles] > 0 || rainy) && climate[CL_rainTexture] > .5f);
         c.gameTextureInfo = {game.snow ? 1.f : 0.f, game.droplets ? 1.f : 0.f, 128.f, 0};
+        // What wet ground mirrors off screen (EnvironmentReflectionProbes.h): asked for while a wet film
+        // is drawn, so the next frame catches CS2's probes and measures the tone curve for it.
+        const bool wetFilm = climate[CL_wet] > 0 || climate[CL_puddles] > 0 || rainy;
+        ReflectionProbes_Want(wetFilm);
+        const float eye[3]{f.camera.x, f.camera.y, f.camera.z};
+        const auto probes = ReflectionProbes_Bind(ctx, eye, f.relight.enabled);
+        c.reflectionInfo = {probes.info[0], probes.info[1], probes.info[2], probes.info[3]};
+        for (int i = 0; i < 4; ++i)
+            c.reflectionIndex[i] = {probes.index[i * 4], probes.index[i * 4 + 1], probes.index[i * 4 + 2], probes.index[i * 4 + 3]};
     }
     {ID3D11ShaderResourceView* marks=footprints;ctx->PSSetShaderResources(41,1,&marks);
      // The marks wrap around the window, and are read smoothed (footSampler).

@@ -149,7 +149,9 @@ body-sized capsule around each living pawn serves as the fallback. The capsule i
 any wall the player leans on. Around the pawn the camera is in, everything inside its hull counts as
 the player (the first-person legs are not posed as the body in the mask), except level ground within
 a step of the feet: the drawn floor is often a unit or two above the collision floor (two on Mirage's
-Palace balcony), and it was taken for the body, a bare 40-unit square round the feet. First-person hands and weapon are skipped by the snow only.
+Palace balcony), and it was taken for the body, a bare 40-unit square round the feet. Level surface
+3 to 8 units over the feet is the boots' toe caps, not floor: taken for floor, they came out snowed
+(2026-11-18); a step up is higher than a boot. First-person hands and weapon are skipped by the snow only.
 
 The capture builds a stream-output geometry shader per character or weapon vertex-shader variant from
 its reflected output signature, including signatures that pack two semantics into one register. Its
@@ -186,6 +188,27 @@ surface between two steps, in front of it at one and behind it at the next. Test
 that and was refused at every step after, so a mirrored wall came out as stripes of hit and miss
 (Dust 2 Long A, 2026-11-18). A ray that passed behind something nearer, such as a pole, was already
 far behind it at the step before, so it is still refused.
+
+**What the trace cannot see.** The trace finds only what is on screen, so a puddle seen from above
+lost the buildings it should hold. Where it finds nothing, the film shows CS2's own reflection
+probes (the map's baked 360° captures) under the map's lighting, and the live capture through the
+bounce volume while Environment lighting owns the map (Bounce or Lite). A probe is read where the
+reflected ray leaves its box, as the game does, and the most local box that holds the point wins,
+feathered into the next box out near its edge. CS2's constants list only the probes its own view
+uses (3 at Long A on Dust 2, 18 at CT spawn), so that list is read back twice a second and the
+sixteen nearest the camera go to the shader. The readback is mapped on the game's immediate context
+when a lit world draw is seen; the composite records into a deferred context, which cannot read
+anything back. Both sources hold raw scene light while the film is painted on the finished
+frame, so right after CS2's post-process the hook compares its input with its output at a grid of
+central pixels, per channel in half-stop bins, and probe light goes through that curve: exposure,
+the filmic curve and the colour grade are included, vignette and bloom are not. CS2's post-process
+can be an instanced draw, and with MSAA on it writes a 4x multisampled target, which is resolved
+before the window is read (2026-11-18: both had kept the curve from ever being measured).
+`mvm_debug` writes `environment.reflection.misses` every 300 frames: which check stopped the capture
+or the measurement, and the formats it saw. With the
+Environment's sky on, the probe gives the buildings and our sky the open sky. `environment status`
+names the source. Code: `EnvironmentReflectionProbes.{h,cpp}` and `EnvironmentReflectionProbeMath.h`
+(tests: `reflection-probe-math-tests`).
 
 Puddles require upward faces inside a chosen world-height band. They use procedural ripples and
 Fresnel reflection of the analytic sky. Their reflection normal follows a shared horizontal water
@@ -675,7 +698,10 @@ straight down, 0.71 at 45 degrees). It does nothing under a lean of 0.1 and is a
   is what reaches it, so the sheltered side of a wall falls off: nearly bare at its foot and more
   with every step out, in a strip that widens with the lean. Snow turns that share into patches
   that thin out, as it does at a doorway. (Two points and the lesser of them drew the strip's edge
-  as a ruled line across a yard.) Lying snow counts only a quarter of this: it came down over hours
+  as a ruled line across a yard.) Each point is three taps across and along the line, spread wider
+  the further up it is, so the share falls off smoothly: with one tap a point it stepped in sixths,
+  each step on the roof edge carried along the wind, and snow patches beside a container or under a
+  ledge ended in straight lines (2026-11-18). Lying snow counts only a quarter of this: it came down over hours
   of shifting wind, so its sheltered side is thinned, not cleared. Rain counts all of it.
 - Under cover, the volume is read up to 90 units upwind, so an opening that faces the wind takes
   snow and wet further in and one that faces away takes less.

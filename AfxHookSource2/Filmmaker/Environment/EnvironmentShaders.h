@@ -68,6 +68,11 @@ cbuffer FrameConstants : register(b0) {
     float4 previousCamera;
     float4 temporalInfo;
     float4 gameTextureInfo; // x = CS2 snow bound, y = CS2 water beads bound, z = units a snow repeat covers
+    // WHAT WET GROUND MIRRORS OFF SCREEN (EnvironmentReflectionProbes.h): x 0 none, 1 CS2's probes, 2 the
+    // live capture; y the cubes' highest mip; z how many probes reflectionIndex lists; w 1 when the
+    // tone curve is measured.
+    float4 reflectionInfo;
+    float4 reflectionIndex[4]; // the probes' record numbers in reflectionProbeRows, smallest box first
 };
 cbuffer NativeViewmodel : register(b7) {
     column_major float4x4 nativeProjectionToWorld : packoffset(c4);
@@ -93,6 +98,11 @@ Texture2D<float4> gameSnowNormal : register(t46);  // hemi-octahedral normal in 
 Texture2D<float4> gameSnowHeight : register(t47);  // height in r
 Texture2D<float4> gameDroplets : register(t48);    // normal in rg, bead height in a
 SamplerState gameTextureSampler : register(s9);    // wrapping, trilinear
+// The cube array the off-screen reflection reads (CS2's probes, or the live capture) and the tone curve
+// that puts raw scene light into the finished frame's colours (EnvironmentReflectionProbes.h).
+TextureCubeArray<float4> reflectionCubes : register(t51);
+Texture1D<float4> reflectionTone : register(t52);
+cbuffer ReflectionProbeRows : register(b8) { float4 reflectionProbeRows[4096]; }; // a copy of CS2's cb3
 Texture2D<uint> atmosphereEdgeTexture : register(t34);
 Texture2D<float> smokeAbsorbance : register(t14);
 Texture2D<float4> groundFogState : register(t35);    // velocity xy, fog amount (1 = at rest); EnvironmentGroundFog

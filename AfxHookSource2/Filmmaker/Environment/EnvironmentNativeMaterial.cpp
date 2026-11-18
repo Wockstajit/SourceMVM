@@ -32,6 +32,13 @@ float NativeExposureScale(){
 }
 using Microsoft::WRL::ComPtr;
 using namespace NativeDetail;
+ID3D11ShaderResourceView* NativeLiveReflection(unsigned* mips){
+    // The same conditions under which the material draws are given this capture as their reflection.
+    const auto& set=state.frame.relight;const auto& live=state.probeBinding;
+    if(!set.enabled||!(state.probeTraced||set.lite)||set.reflections<=0||!live.reflection)return nullptr;
+    if(mips)*mips=live.reflectionMips;
+    return live.reflection;
+}
 namespace NativeDetail {
 bool Resources(ID3D11Device* device,const D3D11_TEXTURE2D_DESC& source,const D3D11_RENDER_TARGET_VIEW_DESC& view,UINT bufferBytes){
     RenderPrivateTextureScope privateTextures;

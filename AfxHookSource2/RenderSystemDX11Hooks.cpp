@@ -11,6 +11,7 @@
 #include "Filmmaker/Render/RenderWorldOnly.h"
 #include "Filmmaker/Environment/EnvironmentRender.h"
 #include "Filmmaker/Environment/EnvironmentGroundFog.h"
+#include "Filmmaker/Environment/EnvironmentReflectionProbes.h" // wet film: CS2 probes and the tone curve
 #include "Filmmaker/Lens/LensFx.h"
 #include "Filmmaker/Heatmap/RoundHeatmap.h"
 #include "Filmmaker/World/SunFx.h" // the lens flare's sun (SunFx_VisibleSunDirection)
@@ -3735,6 +3736,8 @@ static bool AfxIsTonemapTarget(ID3D11RenderTargetView* target) {
 static void AfxCompositeEnvironmentBeforeOverlay(ID3D11DeviceContext* ctx);
 // Every draw: notes the tonemap's target, then composites before an overlay or a menu if this is one.
 static void AfxNoteBoundaryDraw(ID3D11DeviceContext* ctx) {
+    // The wet film's off-screen reflections: CS2's probe constants and cube array, from a lit world draw.
+    if (!g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_NoteDraw(ctx);
     if (g_TonemapShaderBound && !g_bInOwnDraw && ctx->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE) {
         ID3D11RenderTargetView* target = nullptr;
         ctx->OMGetRenderTargets(1, &target, nullptr);
@@ -4081,6 +4084,9 @@ void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexed(This, IndexCount, StartIndexLocation, BaseVertexLocation); }
+    // Right after CS2's post-process: its raw input against its finished output, for the tone
+    // curve that puts probe light into the frame's colours (EnvironmentReflectionProbes.h).
+    if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawIndexed(This,IndexCount,StartIndexLocation,BaseVertexLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_DrawIndexed(This,IndexCount,StartIndexLocation,BaseVertexLocation);}
@@ -4116,6 +4122,9 @@ void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_Draw(This, VertexCount, StartVertexLocation); }
+    // Right after CS2's post-process: its raw input against its finished output, for the tone
+    // curve that puts probe light into the frame's colours (EnvironmentReflectionProbes.h).
+    if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_Draw(This,VertexCount,StartVertexLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_Draw(This,VertexCount,StartVertexLocation);}
@@ -4153,6 +4162,7 @@ void STDMETHODCALLTYPE New_DrawIndexedInstanced(ID3D11DeviceContext * This,
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
 	{ QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexedInstanced(This, IndexCountPerInstance, InstanceCount, StartIndexLocation,
 		BaseVertexLocation, StartInstanceLocation); }
+    if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawIndexedInstanced(This,IndexCountPerInstance,InstanceCount,StartIndexLocation,BaseVertexLocation,StartInstanceLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_DrawIndexedInstanced(This,IndexCountPerInstance,InstanceCount,StartIndexLocation,BaseVertexLocation,StartInstanceLocation);}
@@ -4189,6 +4199,7 @@ void STDMETHODCALLTYPE New_DrawInstanced( ID3D11DeviceContext * This,
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
         StartVertexLocation, StartInstanceLocation); }
+    if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
         StartVertexLocation, StartInstanceLocation);
