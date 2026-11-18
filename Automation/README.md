@@ -158,6 +158,26 @@ frame-name alignment, and resolution) with:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File Automation\verify\verify-render-streams.ps1 -TakeDir "C:\path\to\mvm_render_take"
 ```
 
+## Check a camera position before moving there
+
+With `noclip` on, nothing stops the camera entering a wall, and a camera inside a wall still draws a
+frame, because back faces are culled. Run [camera-clear.py](verify/camera-clear.py) on the eye
+position, where the camera will be, before every move. `setpos` places the player's feet, 64 units
+under the eye (`getpos` reports the eye), so send the `setpos` line the check prints, not the eye
+coordinates:
+
+```powershell
+python Automation/verify/camera-clear.py de_mirage -1969 -443 -104 --sees -2216 28 -9 --nearest
+```
+
+It fills the map's open space from the open sky, through doorways, and never through a surface. A
+point passes when it lies in that space and at least 16 units from any surface. The inside of a wall,
+a sealed room, and the hollow inside of a building shell all fail. `--sees` reports whether the
+subject is in view and the pitch and yaw to it, `--nearest` names the closest eye position that passes
+(with its own `setpos` line), and `--stand` turns a floor spot into a standing eye position. The map must have been loaded once with the
+hook so its map data is cached. Ground outside the play area still passes, so look at the first
+capture before taking a series.
+
 ## Continuous Relight motion verification
 
 Use [verify-relight-camera-slide.ps1](verify/verify-relight-camera-slide.ps1) with an already
