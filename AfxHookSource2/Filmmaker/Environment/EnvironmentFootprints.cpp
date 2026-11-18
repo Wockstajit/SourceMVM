@@ -69,6 +69,8 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
             s.view.Reset();
             return {};
         }
+        // A new texture holds nothing yet: the whole image goes the first time.
+        s.image.all = true;
         s.dirty = true;
     }
     // Another map, or the demo's clock going back or leaping (a seek): the marks belong to a
@@ -206,8 +208,9 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
             s.fillRow = FootImage::Wrap(s.fillRow + rows);
         }
     }
-    // Only what changed is sent (FootImage::Touch); the smaller copies are made again from it.
-    if (s.dirty) s.image.all = true;
+    // Only what changed is sent (FootImage::Touch); the smaller copies are made again from it. Every
+    // stamp, melt, fill and scroll records its box, and a reset or a new texture sends it whole. (A
+    // change used to send all 2048 x 2048 texels, 16 MB, on nearly every frame the camera moved.)
     if (s.image.all || !s.image.changed.empty()) {
         if (s.image.all)
             ctx->UpdateSubresource(s.texture.Get(), 0, nullptr, s.image.texels.data(), kFootSize * 4, 0);

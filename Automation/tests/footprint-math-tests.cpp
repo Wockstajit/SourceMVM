@@ -191,6 +191,10 @@ int main() {
             small->Sent();
             small->FillRows(2, kFootSize - 4, 8);
             Check(!small->all && small->changed.size() == 2 && small->changed[0].x0 == 0 && small->changed[0].x1 == kFootSize - 1, "A band of rows filled across the seam is two full-width pieces");
+            small->Sent();
+            // The camera moving: the column that scrolls in is wiped and sent, not the whole image.
+            Check(small->Centre({kFootTexel * 1.5f, 0, 0}) && !small->all && small->changed.size() == 1 &&
+                  small->changed[0].x0 == small->changed[0].x1, "The camera moving one texel notes one column to send");
         }
         image->Centre({100 + 5000, 100, 0});
         Check(image->At(x, y)[0] == 0, "A camera cut far away starts clean");

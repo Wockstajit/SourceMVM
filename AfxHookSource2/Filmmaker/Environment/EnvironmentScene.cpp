@@ -757,6 +757,9 @@ void SetRenderStatus(const char *status, bool drawn) {
 namespace {
 struct FootRig {
     int ankle[2] = {-1, -1}, toe[2] = {-1, -1};
+    // The bone tables the rig was read from: the model's identity, so an address handed to another
+    // model is read again, a model found without feet included.
+    const void *names = nullptr, *parents = nullptr;
 };
 std::unordered_map<const void *, FootRig> g_footRigs;
 bool BoneIs(const char *const *names, const int16_t *parents, int index, const char *wanted) {
@@ -770,7 +773,11 @@ const FootRig *FootRigOf(const void *model) {
     if (!ModelPoseAccess::ReadTablePointers(model, names, parents)) return nullptr;
     auto found = g_footRigs.find(model);
     // A model's address can be handed to another model after a map change: check it is still ours.
-    if (found != g_footRigs.end() && (found->second.ankle[0] < 0 || BoneIs(names, parents, found->second.ankle[0], "ankle_l")))
+    // Its bone tables say so for every entry (a model without feet too: kept on the address alone,
+    // a player model that later took it walked on inferred steps for good); the ankle's name as well
+    // for a rig with feet.
+    if (found != g_footRigs.end() && found->second.names == names && found->second.parents == parents &&
+        (found->second.ankle[0] < 0 || BoneIs(names, parents, found->second.ankle[0], "ankle_l")))
         return found->second.ankle[0] < 0 ? nullptr : &found->second;
     if (g_footRigs.size() > 256) g_footRigs.clear();
     FootRig rig;
@@ -784,6 +791,8 @@ const FootRig *FootRigOf(const void *model) {
         if (!_stricmp(name, "ball_r")) rig.toe[1] = b;
     }
     if (rig.ankle[0] < 0 || rig.ankle[1] < 0) rig = FootRig();
+    rig.names = names;
+    rig.parents = parents;
     MvmDebugLog_LinefAlways("environment.footprints", "model=%p ankles=%d,%d toes=%d,%d", model, rig.ankle[0], rig.ankle[1], rig.toe[0], rig.toe[1]);
     auto &kept = g_footRigs[model] = rig;
     return kept.ankle[0] < 0 ? nullptr : &kept;
