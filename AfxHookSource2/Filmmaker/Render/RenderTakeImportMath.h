@@ -34,6 +34,7 @@ struct RenderTakeSettings {
 	std::string hud;
 	bool cameraData = true;
 	bool blood = true;
+	bool keySky = false; // the green-screen sky; a take from before it was written has none
 	int key[3] = { 0, 255, 0 };
 	double depthNear = 8.0;
 	double depthFar = 4096.0;
@@ -82,6 +83,7 @@ inline bool ParseRenderTakeManifest(const std::string& text, RenderTakeSettings&
 	if (t.hud != "none" && t.hud != "game" && t.hud != "full") t.hud.clear();
 	t.cameraData = flag("cameraDataSidecar", true);
 	t.blood = flag("blood", true);
+	t.keySky = flag("keySky", false);
 	if (const JsonValue* key = root.Find("keyColor"); key && key->type == JsonValue::Type::Array && key->arr.size() == 3) {
 		for (int k = 0; k < 3; ++k) {
 			const double c = key->arr[k].AsNumber(k == 1 ? 1.0 : 0.0);
@@ -121,6 +123,8 @@ inline std::vector<std::vector<std::string>> RenderTakeImportCommands(const Rend
 	if (!t.hud.empty()) c.push_back({ "pass", "hud", t.hud });
 	c.push_back({ "pass", "cameradata", t.cameraData ? "1" : "0" });
 	c.push_back({ "pass", "blood", t.blood ? "1" : "0" });
+	// Always sent: `pass clear` leaves the sky switch alone, so a take without it must turn it off.
+	c.push_back({ "pass", "keysky", t.keySky ? "1" : "0" });
 	c.push_back({ "pass", "key", std::to_string(t.key[0]), std::to_string(t.key[1]), std::to_string(t.key[2]) });
 	c.push_back({ "pass", "depth", n(t.depthNear), n(t.depthFar) });
 	return c;

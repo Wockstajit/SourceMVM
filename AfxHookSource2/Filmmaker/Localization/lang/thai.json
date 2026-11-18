@@ -417,6 +417,8 @@
  "Fill the background of Players only and Gun only with magenta.": "เติมพื้นหลังของผู้เล่นเท่านั้นและปืนเท่านั้นด้วยสีมาเจนตา",
  "Black": "ดำ",
  "Fill the background of Players only and Gun only with black.": "เติมพื้นหลังของผู้เล่นเท่านั้นและปืนเท่านั้นด้วยสีดำ",
+ "Green-screen sky": "ท้องฟ้าฉากเขียว",
+ "Paints the sky, its clouds and the far skybox in the background colour, in every pass and live while Render is open, so the sky can be keyed out and another put in. The map itself keeps its colours.": "ทาท้องฟ้า เมฆ และสกายบ็อกซ์ไกลๆ ด้วยสีพื้นหลังในทุกพาส และแบบสดขณะเปิดเรนเดอร์ เพื่อให้คีย์ท้องฟ้าออกแล้วใส่ท้องฟ้าอื่นแทนได้ ส่วนตัวแผนที่ยังคงสีเดิม",
  "DEPTH RANGE": "ช่วงความลึก",
  "Near": "ใกล้",
  "Units from the camera that render white.": "หน่วยจากกล้องที่เรนเดอร์เป็นสีขาว",
@@ -513,8 +515,9 @@
  "{0} render per frame || {0} renders per frame": [
   "เรนเดอร์ {0} ครั้งต่อเฟรม"
  ],
+ "The background of the Key passes and the colour of the sky.": "พื้นหลังของพาสคีย์และสีของท้องฟ้า",
  "The background of the Key passes.": "พื้นหลังของพาสคีย์",
- "Turn on Key for Players only or Gun only to use this.": "เปิดคีย์สำหรับผู้เล่นเท่านั้นหรือปืนเท่านั้นเพื่อใช้ตัวเลือกนี้",
+ "Turn on Key for Players only or Gun only, or Green-screen sky, to use this.": "เปิดคีย์แบบผู้เล่นเท่านั้นหรือปืนเท่านั้น หรือท้องฟ้าฉากเขียว เพื่อใช้ตัวเลือกนี้",
  "White at near, black at far. Normals are view space.": "สีขาวที่ใกล้ สีดำที่ไกล นอร์มัลอยู่ในพื้นที่มุมมอง",
  "Turn on a Depth pass to use this.": "เปิดพาสความลึกเพื่อใช้ตัวเลือกนี้",
  "Choosing… (a folder dialog is open)": "กำลังเลือก… (กล่องโฟลเดอร์เปิดอยู่)",
