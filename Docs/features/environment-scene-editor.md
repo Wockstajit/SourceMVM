@@ -203,7 +203,8 @@ frame, so right after CS2's post-process the hook compares its input with its ou
 central pixels, per channel in half-stop bins, and probe light goes through that curve: exposure,
 the filmic curve and the colour grade are included, vignette and bloom are not. CS2's post-process
 can be an instanced draw, and with MSAA on it writes a 4x multisampled target, which is resolved
-before the window is read (2026-11-18: both had kept the curve from ever being measured).
+before the window is read (2026-11-18: both had kept the curve from ever being measured). The
+capture and the measurement run only while a wet film is drawn; with Environment off neither runs.
 `mvm_debug` writes `environment.reflection.misses` every 300 frames: which check stopped the capture
 or the measurement, and the formats it saw. With the
 Environment's sky on, the probe gives the buildings and our sky the open sky. `environment status`

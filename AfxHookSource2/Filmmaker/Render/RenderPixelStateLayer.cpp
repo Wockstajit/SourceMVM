@@ -82,48 +82,53 @@ void FixBuffers(UINT start, UINT count, ID3D11Buffer** buffers) {
 
 // A Set that reaches a substituted slot keeps ours bound and records the engine's value.
 // Returns the array to forward: the caller's, or `scratch` with our bindings put back.
+// A null array with a count is D3D11's way of clearing that range: `count` null bindings. Forwarded
+// as it is, it would unbind ours while the layer still counted them as held.
 ID3D11ShaderResourceView* const* SetViews(UINT start, UINT count, ID3D11ShaderResourceView* const* views,
                                           ID3D11ShaderResourceView** scratch) {
-    if (!views || start >= g_held.viewHigh || start + count <= g_held.viewLow) return views;
+    if (start >= g_held.viewHigh || start + count <= g_held.viewLow) return views;
     bool touched = false;
     for (UINT i = 0; i < count && start + i < ViewSlots; ++i) if (g_held.view[start + i]) { touched = true; break; }
     if (!touched) return views;
     for (UINT i = 0; i < count; ++i) {
         const UINT slot = start + i;
-        if (slot < ViewSlots && g_held.view[slot]) { Keep(g_held.engineView[slot], views[i]); scratch[i] = g_held.oursView[slot]; }
-        else scratch[i] = views[i];
+        ID3D11ShaderResourceView* engine = views ? views[i] : nullptr;
+        if (slot < ViewSlots && g_held.view[slot]) { Keep(g_held.engineView[slot], engine); scratch[i] = g_held.oursView[slot]; }
+        else scratch[i] = engine;
     }
     return scratch;
 }
 ID3D11SamplerState* const* SetSamplers(UINT start, UINT count, ID3D11SamplerState* const* samplers,
                                        ID3D11SamplerState** scratch) {
-    if (!samplers) return samplers;
     bool touched = false;
     for (UINT i = 0; i < count && start + i < SamplerSlots; ++i) if (g_held.sampler[start + i]) { touched = true; break; }
     if (!touched) return samplers;
     for (UINT i = 0; i < count; ++i) {
         const UINT slot = start + i;
-        if (slot < SamplerSlots && g_held.sampler[slot]) { Keep(g_held.engineSampler[slot], samplers[i]); scratch[i] = g_held.oursSampler[slot]; }
-        else scratch[i] = samplers[i];
+        ID3D11SamplerState* engine = samplers ? samplers[i] : nullptr;
+        if (slot < SamplerSlots && g_held.sampler[slot]) { Keep(g_held.engineSampler[slot], engine); scratch[i] = g_held.oursSampler[slot]; }
+        else scratch[i] = engine;
     }
     return scratch;
 }
 // Constant buffers: a different buffer in a slot the lighting decision read ends the substitution
-// (returns null: flush, then forward the caller's array).
+// (sets `flush`: flush, then forward the caller's array). A null array clears the range, as for
+// views, so a lighting slot inside it changes too.
 ID3D11Buffer* const* SetBuffers(UINT start, UINT count, ID3D11Buffer* const* buffers, ID3D11Buffer** scratch, bool& flush) {
     flush = false;
-    if (!buffers) return buffers;
     bool touched = false;
     for (UINT i = 0; i < count && start + i < BufferSlots; ++i) {
         const UINT slot = start + i;
-        if (g_held.dependency[slot] && buffers[i] != g_held.dependencyBuffer[slot]) { flush = true; return buffers; }
+        ID3D11Buffer* engine = buffers ? buffers[i] : nullptr;
+        if (g_held.dependency[slot] && engine != g_held.dependencyBuffer[slot]) { flush = true; return buffers; }
         if (g_held.buffer[slot]) touched = true;
     }
     if (!touched) return buffers;
     for (UINT i = 0; i < count; ++i) {
         const UINT slot = start + i;
-        if (slot < BufferSlots && g_held.buffer[slot]) { Keep(g_held.engineBuffer[slot], buffers[i]); scratch[i] = g_held.oursBuffer[slot]; }
-        else scratch[i] = buffers[i];
+        ID3D11Buffer* engine = buffers ? buffers[i] : nullptr;
+        if (slot < BufferSlots && g_held.buffer[slot]) { Keep(g_held.engineBuffer[slot], engine); scratch[i] = g_held.oursBuffer[slot]; }
+        else scratch[i] = engine;
     }
     return scratch;
 }
