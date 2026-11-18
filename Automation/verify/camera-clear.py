@@ -4,6 +4,9 @@ A preflight for automation that places the CS2 camera by coordinates (noclip and
 before every such move; a camera inside a wall still renders a picture (back faces are culled), so
 the frame alone does not show the mistake.
 
+X Y Z is the eye, where the camera will be. `setpos` places the player's feet, 64 units under the
+eye (`getpos` reports the eye), so send the `setpos` line the result gives, not X Y Z itself.
+
 It reads the map's collision mesh and render triangles from the map-data cache, marks every 16-unit
 cell a surface passes through, and fills open space from the cells that lie under the open sky with
 ground below them, through doorways and windows, never through a marked cell. A point passes when:
@@ -276,10 +279,18 @@ def nearest_clear(mesh, cells, eye, clearance, reach_units=384.0):
     return None
 
 
-def stand(mesh, eye):
-    """The eye of a player standing on the ground under the point (64 units above it)."""
-    drop = blocked(mesh, eye, eye - [0, 0, 2048])
-    return None if drop is None else eye - [0, 0, drop - 64]
+def stand(mesh, spot):
+    """The eye of a player standing on the ground under the point (64 units above it). The ray starts
+    8 units above the spot: blocked() skips a hit at the very start of a ray, so a spot given on the
+    floor itself would otherwise miss that floor and fall through to whatever lies below."""
+    top = spot + [0, 0, 8]
+    drop = blocked(mesh, top, top - [0, 0, 2048])
+    return None if drop is None else top - [0, 0, drop - 64]
+
+
+def setpos_for(eye):
+    """The command that puts the eye at `eye`: setpos takes the feet, 64 units lower."""
+    return "setpos {:.1f} {:.1f} {:.1f}".format(eye[0], eye[1], eye[2] - 64)
 
 
 def main():
@@ -307,6 +318,7 @@ def main():
         eye = stood
         result["eye"] = [round(float(x), 1) for x in eye]
     result.update(check(mesh, cells, eye, args.clearance))
+    result["setpos"] = setpos_for(eye)
     if args.sees is not None:
         target = np.array(args.sees, dtype=np.float64)
         wall = blocked(mesh, eye, target)
@@ -318,6 +330,8 @@ def main():
                          "yaw": round(float(np.degrees(np.arctan2(delta[1], delta[0]))), 1)}
     if args.nearest and not result["clear"]:
         result["nearestClear"] = nearest_clear(mesh, cells, eye, args.clearance)
+        if result["nearestClear"] is not None:
+            result["nearestSetpos"] = setpos_for(result["nearestClear"])
     print(json.dumps(result))
     return 0 if result["clear"] else 1
 

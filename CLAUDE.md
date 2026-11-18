@@ -222,8 +222,9 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File Automati
 ```
 
 Before you place the camera by coordinates (`noclip` with `setpos` or `setpos_exact`), run
-`python Automation/verify/camera-clear.py <map> X Y Z --sees <subject> --nearest` and move only when
-it reports `clear`. A camera inside a wall still draws a frame, so the capture does not show the
+`python Automation/verify/camera-clear.py <map> X Y Z --sees <subject> --nearest` on the eye position
+and move only when it reports `clear`. `setpos` places the feet, 64 units under the eye, so send the
+`setpos` line it prints. A camera inside a wall still draws a frame, so the capture does not show the
 mistake. Do not reuse remembered coordinates without checking them.
 
 Use `-CommandBatch` with `;;` separators when calling from `powershell.exe -File`. Comma-separated
