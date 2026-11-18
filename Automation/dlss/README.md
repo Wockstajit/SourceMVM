@@ -23,6 +23,13 @@ unlinks the junctions first, so Steam's assets are never touched.
 The scripts below are the automation route to the same isolation (repo-local
 `build/dlss5-cs2`); the launcher does not use them.
 
+The automation launchers can also start the launcher's own private copy (`-Cs2Dir
+"$env:APPDATA\SourceMovieMaker\dlss5-cs2"`). [`launch-cs2-netcon.ps1`](../launch/launch-cs2-netcon.ps1),
+which the test and demo launchers go through, first runs [`sync-private-tree.mjs`](sync-private-tree.mjs):
+the launcher's own pre-launch step (re-sync changed binaries from Steam, refresh the add-on and
+`ReShade.ini`). So a CS2 update never leaves that copy on the old engine. Run it by hand
+(`node Automation/dlss/sync-private-tree.mjs`) before starting that copy any other way.
+
 ## ReShade and renders
 
 ReShade on its own draws its effects on the backbuffer inside Present. The recorder copies its frame
