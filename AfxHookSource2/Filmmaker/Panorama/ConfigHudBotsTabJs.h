@@ -42,6 +42,8 @@ R"CFJS(
 
     // ---- RECORD & PLAY ----
     var btSec = section(pageBots, T('RECORD AND PLAY'), true, true, 'bots.scene', '#ff5c5cff');
+    // Reset is the card's two settings (Loop off, Stay on the path Auto). It never touches a take.
+    var btSceneReset = btSec.__headerReset(['mirv_filmmaker takes loop off', 'mirv_filmmaker takes follow auto'], 'bots.scene');
     var btStatus = lbl(btSec, '', S.value, 14); btStatus.hittest = false;
     btStatus.style.whiteSpace = 'normal'; btStatus.style.width = '100%'; btStatus.style.marginTop = '6px';
     btStatus.style.paddingLeft = UI.line.padH + 'px'; btStatus.style.paddingRight = UI.line.padH + 'px';
@@ -171,6 +173,8 @@ R"CFJS(
 R"CFJS(
     // ---- OBJECTS ----
     var btObjSec = section(pageBots, T('SOLID OBJECTS'), true, false, 'bots.objects', '#7fd18bff');
+    // Reset is the one setting here (new props start not solid). Props already placed keep theirs.
+    var btObjReset = btObjSec.__headerReset(['mirv_filmmaker props solidnew off'], 'bots.objects');
     var btObjNote = lbl(btObjSec, T('Place props from ENVIRONMENT > Scene objects, then turn on Solid for each one. You and the bots collide with solid props, so you can jump on them.'), S.hint, 13);
     btObjNote.hittest = false; btObjNote.style.whiteSpace = 'normal'; btObjNote.style.width = '100%'; btObjNote.style.marginTop = '6px';
     btObjNote.style.paddingLeft = UI.line.padH + 'px'; btObjNote.style.paddingRight = UI.line.padH + 'px';
@@ -184,6 +188,7 @@ R"CFJS(
 
     // ---- GUN RANDOMNESS ----
     var btGunSec = section(pageBots, T('GUN RANDOMNESS'), true, false, 'bots.gun', '#ffc55cff');
+    var btGunReset = btGunSec.__headerReset(['mirv_filmmaker takes nospread off', 'mirv_filmmaker takes recoilrandom 100'], 'bots.gun');
     var btNoSpread = togglePill(btGunSec, T('No random spread'),
       T('Every bullet goes exactly where the gun points. Recoil itself is unchanged. Helps a recorded frag land the same way on every loop.'),
       function () { btCommand('nospread ' + (st && st.takes && st.takes.noSpread ? 'off' : 'on')); });

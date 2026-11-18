@@ -16,6 +16,8 @@
 #include "../../ViewModel.h" // CAMERA tab: VIEWMODEL card (per-player vs one universal)
 #include "../../MirvCommands.h" // CAMERA tab: shot FOV (`mirv_fov`)
 #include "../Panorama/AimCrosshairHud.h"
+#include "../Movie/ParticleFx.h" // a config preset carries the particle effects
+#include "../Environment/EnvironmentScene.h" // and the environment
 #include "../Panorama/CameraEditorHud.h"
 #include "../World/LightFx.h"
 #include "../World/SmokeAppearance.h"
@@ -39,12 +41,14 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <sstream>
+#include <vector>
 
 namespace Filmmaker {
 namespace {
@@ -879,8 +883,142 @@ void FilmmakerSettings_SetUi(const char* key, const char* value) {
 	g_lastChangeMs = GetTickCount64();
 }
 
+// ---- CONFIG PRESETS ------------------------------------------------------------------------------
+// Everything set in CONFIG under a name, to load back with one click (the PRESETS chip in the
+// panel's header). A preset is a folder under %APPDATA%\HLAE\source_mvm\config_presets holding
+// what each owner saves: settings.json (this store: camera, effects, ragdolls), effects.json (the
+// particle effects, ParticleFxSettings.cpp) and environment.json (the environment scene). The
+// panel's own layout (which tab, which card is open), where renders go and the Bots tab's takes
+// are not part of it.
+namespace {
+std::string g_preset;              // the one last saved or loaded
+std::vector<std::string> g_presets; // the folder, read once and again after every save or delete
+bool g_presetsRead = false;
+
+std::filesystem::path PresetFolder() {
+	return std::filesystem::path(GetHlaeRoamingAppDataFolderW()) / L"source_mvm" / L"config_presets";
+}
+bool ValidPresetName(const std::string& name) {
+	if (name.empty() || name.size() > 48 || name.front() == ' ' || name.back() == ' ') return false;
+	for (unsigned char c : name)
+		if (!std::isalnum(c) && c != ' ' && c != '-' && c != '_') return false;
+	return true;
+}
+void ReadPresets() {
+	g_presets.clear();
+	g_presetsRead = true;
+	std::error_code ec;
+	for (const auto& entry : std::filesystem::directory_iterator(PresetFolder(), ec)) {
+		if (!entry.is_directory(ec) || !std::filesystem::exists(entry.path() / L"settings.json", ec)) continue;
+		const std::string name = entry.path().filename().string();
+		if (ValidPresetName(name)) g_presets.push_back(name);
+	}
+	std::sort(g_presets.begin(), g_presets.end(), [](const std::string& a, const std::string& b) { return _stricmp(a.c_str(), b.c_str()) < 0; });
+}
+bool WriteText(const std::filesystem::path& path, const std::string& text) {
+	const auto temporary = std::filesystem::path(path).concat(L".tmp");
+	{
+		std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+		if (!file.is_open()) return false;
+		file << text;
+		if (!file.good()) return false;
+	}
+	std::error_code ec;
+	std::filesystem::rename(temporary, path, ec);
+	return !ec;
+}
+bool ReadText(const std::filesystem::path& path, std::string& text) {
+	std::error_code ec;
+	if (!std::filesystem::exists(path, ec) || std::filesystem::file_size(path, ec) > 8u * 1024 * 1024) return false;
+	std::ifstream file(path, std::ios::binary);
+	if (!file.is_open()) return false;
+	std::stringstream buffer;
+	buffer << file.rdbuf();
+	text = buffer.str();
+	return true;
+}
+bool SavePreset(const std::string& name, std::string& error) {
+	const auto folder = PresetFolder() / Utf8ToWide(name);
+	std::error_code ec;
+	std::filesystem::create_directories(folder, ec);
+	if (ec) { error = "could not create " + folder.string(); return false; }
+	if (!WriteText(folder / L"settings.json", BuildSnapshot()) ||
+		!WriteText(folder / L"effects.json", ParticleFxRef().PresetJson()) ||
+		!WriteText(folder / L"environment.json", Environment::ConfigPresetSceneJson())) {
+		error = "could not write the preset files";
+		return false;
+	}
+	return true;
+}
+bool LoadPreset(const std::string& name, std::string& error) {
+	const auto folder = PresetFolder() / Utf8ToWide(name);
+	std::string settings, effects, environment;
+	JsonValue root, defaults;
+	if (!ReadText(folder / L"settings.json", settings) || !JsonParse(settings, root) || root.type != JsonValue::Type::Object) {
+		error = "the preset is missing or damaged";
+		return false;
+	}
+	// Defaults first, then the preset over them: a setting the preset does not have is left where a
+	// fresh install has it, not where it was. The panel's layout and the render folder are the
+	// user's, not the preset's.
+	const auto ui = g_ui;
+	const auto folderBefore = RenderOutputSettingsRef().folder;
+	if (JsonParse(g_defaultSnapshot, defaults) && defaults.type == JsonValue::Type::Object) ApplySettingsRoot(defaults);
+	ApplySettingsRoot(root);
+	g_ui = ui;
+	RenderOutputSettingsRef().folder = folderBefore;
+	FilmmakerSettings_AcceptCurrent();
+	if (ReadText(folder / L"effects.json", effects)) ParticleFxRef().ApplyPresetJson(effects);
+	if (ReadText(folder / L"environment.json", environment) && !Environment::LoadConfigPresetScene(environment, error)) {
+		error = "the environment did not load: " + error;
+		return false;
+	}
+	return true;
+}
+} // namespace
+
+void FilmmakerSettings_AppendPresetJson(std::ostringstream& o) {
+	if (!g_presetsRead) ReadPresets();
+	o << ",\"configPresets\":[";
+	for (size_t i = 0; i < g_presets.size(); ++i) o << (i ? "," : "") << "\"" << g_presets[i] << "\"";
+	o << "],\"configPreset\":\"" << g_preset << "\"";
+}
+
 void FilmmakerSettings_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 	const char* action = argc >= 3 ? args->ArgV(2) : "";
+	if (0 == _stricmp(action, "preset")) {
+		const std::string op = argc >= 4 ? args->ArgV(3) : "", name = argc >= 5 ? args->ArgV(4) : "";
+		if (op == "list") {
+			ReadPresets();
+			for (const auto& p : g_presets) advancedfx::Message("%s\n", p.c_str());
+			return;
+		}
+		if ((op != "save" && op != "load" && op != "delete") || !ValidPresetName(name)) {
+			advancedfx::Warning("%s settings preset save|load|delete \"<name>\" | list\n"
+				"    - a name is 1-48 letters, numbers, spaces, - or _.\n", cmd);
+			return;
+		}
+		std::string error;
+		if (op == "save") {
+			if (!SavePreset(name, error)) { advancedfx::Warning("mirv_filmmaker: preset not saved: %s\n", error.c_str()); return; }
+			g_preset = name;
+			ReadPresets();
+			advancedfx::Message("mirv_filmmaker: config preset \"%s\" saved.\n", name.c_str());
+		} else if (op == "load") {
+			if (!LoadPreset(name, error)) { advancedfx::Warning("mirv_filmmaker: preset \"%s\": %s\n", name.c_str(), error.c_str()); return; }
+			g_preset = name;
+			advancedfx::Message("mirv_filmmaker: config preset \"%s\" loaded.\n", name.c_str());
+		} else {
+			const auto folder = PresetFolder() / Utf8ToWide(name);
+			std::error_code ec;
+			for (const wchar_t* file : {L"settings.json", L"effects.json", L"environment.json"}) std::filesystem::remove(folder / file, ec);
+			std::filesystem::remove(folder, ec);
+			if (g_preset == name) g_preset.clear();
+			ReadPresets();
+			advancedfx::Message("mirv_filmmaker: config preset \"%s\" deleted.\n", name.c_str());
+		}
+		return;
+	}
 	if (0 == _stricmp(action, "ui") && argc >= 5) {
 		FilmmakerSettings_SetUi(args->ArgV(3), args->ArgV(4));
 		return;
@@ -904,8 +1042,10 @@ void FilmmakerSettings_RunCommand(int argc, advancedfx::ICommandArgs* args, cons
 		"%s settings ui <key> <value>\n"
 		"%s settings save\n"
 		"%s settings reset viewFx|smoothView|handheld|viewmodel|camFov|lighting|flags|all\n"
-		"    - back to the values the modules were constructed with (what a fresh install has).\n",
-		cmd, cmd, cmd);
+		"    - back to the values the modules were constructed with (what a fresh install has).\n"
+		"%s settings preset save|load|delete \"<name>\" | list\n"
+		"    - everything set in CONFIG under a name: every tab's settings, the particle effects and the environment.\n",
+		cmd, cmd, cmd, cmd);
 }
 
 } // namespace Filmmaker

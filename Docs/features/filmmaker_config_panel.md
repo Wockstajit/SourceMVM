@@ -219,8 +219,13 @@ Consequences to preserve:
 - **The VFX mode controls share one fixed 224px column** (`FXSEG_W`) with cells splitting it
   evenly, joined into a single segmented control.
 - **`SHADOWS` and `SKY ORIENTATION` are separate cards.** The skybox card's inner strip is CUSTOM | CS2 only.
-- **ATMOSPHERE has one strip of sub-pages:** Smoke | Look | Volume | World tint, so the card fits
-  the column without scrolling.
+- **ATMOSPHERE has one strip of sub-pages:** Smoke | Look | World tint, so the card fits
+  the column without scrolling. Look carries the smoke's volume sliders (spread, voxel size, voxels
+  per side) as its last group; they used to be a fourth page with a second copy of Look's switch
+  and reset button.
+- **Every card with settings has a Reset** in its header, and it restores that card's defaults only.
+  At 1920 by 1080 every card and sub-page fits the column without scrolling except Environment >
+  Fog > Ground fog (22 controls, about a quarter page of scroll).
 - **Cloud shape sits behind a `Shape…` disclosure.** Density is the primary slider; size, drift and
   brightness open on demand.
 
@@ -410,6 +415,15 @@ restoring five cards at once on panel open does not convulse.
   callback. It does not move the Windows cursor. Use it in an offline demo with Config open.
   `Automation/capture/capture-game-memory.ps1 -Out <file.json>` records per-process dedicated
   and shared GPU memory; unavailable readings are null rather than zero.
+- **Config presets** (the PRESETS chip, left of Game UI). Save everything set in CONFIG under a name
+  and load it back with one click; a row's × deletes it after a confirmation. A preset is a folder
+  under `%APPDATA%\HLAE\source_mvm\config_presets` with what each owner saves: `settings.json`
+  (`FilmmakerSettingsStore`: camera, effects lighting, ragdolls), `effects.json` (particle effects)
+  and `environment.json` (the environment scene, as a scene preset holds it). Loading puts the
+  defaults back first and the preset over them, so nothing from before it lingers. The panel's own
+  layout, the render output folder and the Bots tab's takes are not part of it; a preset made on
+  another map brings its look without that map's placed objects and local volumes. Console:
+  `mirv_filmmaker settings preset save|load|delete "<name>" | list`.
 - **The panel chrome is pinned. Only the tab bodies scroll.** Title/Exit, the mouse + Game UI
   row and the tab strip are direct children of the inspector; `scrollView`
   (`height: fill-parent-flow(1.0)`, clip) holds `scrollWrap` with the three tab pages. Scrolling
@@ -452,6 +466,9 @@ restoring five cards at once on panel open does not convulse.
 - Do not assign Panorama style properties to an empty string. Use a real transparent value or
   release the inline property with `null` where supported.
 - The native DropDown popup is unreliable in this host; cycling buttons are used where needed.
+- The panel's own dropdown shows at most ten rows. A longer list (player models, guns) scrolls inside
+  the popover with the wheel while the pointer is over it, three rows a notch, and opens with the
+  current choice in view. The wheel anywhere else closes it.
 - Live `mvm_test` cursor mode must release both the CS2 game-mouse path and relative input mode.
 
 ## What the panel costs per frame

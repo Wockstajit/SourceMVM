@@ -152,6 +152,17 @@ void ParticleFx::ResetSettingsToDefaults() {
 	AfterSettingsReplaced();
 }
 
+std::string ParticleFx::PresetJson() const { return SettingsJson(); }
+
+void ParticleFx::ApplyPresetJson(const std::string &text) {
+	ApplyDefaults();
+	JsonValue root;
+	if (JsonParse(text, root) && root.type == JsonValue::Type::Object)
+		ApplySettings(root);
+	AfterSettingsReplaced();
+	SaveSettings();
+}
+
 void ParticleFx::ReloadSettings() {
 	// Defaults first, then the file over them: a missing file means the user had the defaults.
 	ApplyDefaults();

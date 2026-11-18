@@ -344,6 +344,8 @@
       envAssets: ['barrel', 'crate_stack'],
       envTextures: ['concrete_albedo', 'concrete_normal'],
       envPresets: ['Dusk storm', 'Overcast morning'],
+      // FilmmakerSettingsStore.cpp FilmmakerSettings_AppendPresetJson: the PRESETS chip's list.
+      configPresets: ['Night match', 'Rainy B site'], configPreset: 'Night match',
       // Filmmaker/AltEnvironment: AltEnvironment.cpp AppendStateJson. The mock demo is on de_dust2; the
       // maps list mirrors a real install's mix of official maps and Workshop items (titles as published).
       altenv: { demo: true, demoMap: 'de_dust2', demoTitle: 'Dust2', pick: '', pickTitle: '', pickAddon: '',
