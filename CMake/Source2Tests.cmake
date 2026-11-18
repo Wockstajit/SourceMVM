@@ -603,6 +603,10 @@ add_executable(EnvironmentGroundFogMathTests ../Automation/tests/environment-gro
     Filmmaker/Environment/EnvironmentGroundFogMath.h)
 target_compile_features(EnvironmentGroundFogMathTests PRIVATE cxx_std_17)
 add_test(NAME EnvironmentGroundFogMathTests COMMAND EnvironmentGroundFogMathTests)
+add_executable(EnvironmentShaderReachMathTests ../Automation/tests/environment-shader-reach-math-tests.cpp
+    Filmmaker/Environment/EnvironmentShaderReachMath.h)
+target_compile_features(EnvironmentShaderReachMathTests PRIVATE cxx_std_17)
+add_test(NAME EnvironmentShaderReachMathTests COMMAND EnvironmentShaderReachMathTests)
 add_executable(EnvironmentGizmoMathTests ../Automation/tests/environment-gizmo-math-tests.cpp)
 target_compile_features(EnvironmentGizmoMathTests PRIVATE cxx_std_17)
 add_test(NAME EnvironmentGizmoMathTests COMMAND EnvironmentGizmoMathTests)

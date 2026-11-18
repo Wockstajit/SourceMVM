@@ -9,6 +9,9 @@
 #include <future>
 #include <atomic>
 #include <thread>
+#include <functional>
+#include <process.h>
+#include <cstdlib>
 #include <mutex>
 #include <set>
 #include <iostream>
@@ -23,30 +26,83 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::create_directories(folder);
         EnvironmentShaderCachePaths paths{folder,{}};
         const auto& source=EnvironmentShaderSource();const auto requests=EnvironmentShaderRequests();
+        // MVM_SHADER_DUMP=<file> writes the whole program text there and stops: for timing one
+        // entry with fxc by hand when the bundle gets slow.
+        if(const char* dump=std::getenv("MVM_SHADER_DUMP")){
+            std::ofstream out(dump,std::ios::binary|std::ios::trunc);out.write(source.data(),std::streamsize(source.size()));
+            return out?0:1;
+        }
         std::vector<std::string> filenames(requests.size());
         std::atomic<size_t> next{0};std::atomic<unsigned> failures{0},reused{0};std::mutex output;
         const auto started=GetTickCount64();
-        const unsigned workers=(std::min)(4u,(std::max)(1u,std::thread::hardware_concurrency()));
-        std::vector<std::future<void>> jobs;
-        for(unsigned worker=0;worker<workers;++worker)jobs.push_back(std::async(std::launch::async,[&]{
+        // One compile is one thread, and the bundle takes as long as its slowest program if every
+        // program has a thread to itself from the start. So: a worker per logical core (two left
+        // for the rest of the build), and the slow programs handed out first. With four workers in
+        // list order the four big surface programs started minutes apart and the bundle took twice
+        // as long as any one of them.
+        // HALF the logical cores, and the whole process below normal priority: with a worker a core
+        // (two spared) the big programs held about four gigabytes between them and took every core,
+        // and the machine was hard to use for the minutes the bundle took. The slow programs still
+        // start first and each has a thread to itself, so the bundle is hardly slower; it just
+        // leaves room for whatever else is running.
+        // (Half was still felt with a game open beside it, so: a quarter of the logical cores, and
+        // the lowest priority, which gives way to anything else that wants a core. MVM_SHADER_WORKERS
+        // sets another count for a machine left alone to build.)
+        SetPriorityClass(GetCurrentProcess(),IDLE_PRIORITY_CLASS);
+        unsigned wanted=(std::max)(2u,std::thread::hardware_concurrency()/4);
+        if(const char* asked=std::getenv("MVM_SHADER_WORKERS"))wanted=(std::max)(1u,unsigned(std::atoi(asked)));
+        const unsigned workers=(std::max)(1u,(std::min)(unsigned(requests.size()),wanted));
+        std::vector<size_t> order(requests.size());
+        for(size_t i=0;i<order.size();++i)order[i]=i;
+        const auto weight=[&](size_t i){
+            const std::string entry=requests[i].entry;
+            return entry=="AtmospherePS"||entry=="AtmospherePixelPS"?5:entry=="CompositePS"?4:entry=="MaterialMeshPS"||entry=="MeshPS"?3:entry=="SkyVolumePS"||entry=="VolumePS"?2:0;
+        };
+        std::stable_sort(order.begin(),order.end(),[&](size_t a,size_t b){return weight(a)>weight(b);});
+        // The compiler recurses deeply on the largest programs. On a default one-megabyte thread
+        // stack it overflowed inside D3DCompile and the worker stopped for good, with no error and
+        // no CPU use, so the build hung. The workers get 256 MB of stack each.
+        const std::function<void()> work=[&]{
             for(;;){
-                const auto i=next.fetch_add(1);if(i>=requests.size())break;const auto r=requests[i];
+                const auto turn=next.fetch_add(1);if(turn>=requests.size())break;const auto i=order[turn];const auto r=requests[i];
                 D3D_SHADER_MACRO macros[]={{"DEPTH_MS",r.ms?"1":"0"},{"COLOR_MS",r.cm?"1":"0"},{nullptr,nullptr}};
-                ComPtr<ID3DBlob> code,error;bool cached=false;
-                auto hr=CompileEnvironmentShader(source.data(),source.size(),"EnvironmentShaders",macros,r.entry,r.profile,
+                // Each program compiles from, and is keyed on, only the text its entry reaches
+                // (EnvironmentShaderProgramSource), so it is reused until code it uses changes.
+                const auto& program=EnvironmentShaderProgramSource(r.entry);
+                ComPtr<ID3DBlob> code,error;bool cached=false;const auto began=GetTickCount64();
+                auto hr=CompileEnvironmentShader(program.data(),program.size(),"EnvironmentShaders",macros,r.entry,r.profile,
                     EnvironmentShaderFlags,&code,&error,&cached,&paths);
                 if(FAILED(hr)){
-                    ++failures;std::lock_guard<std::mutex> lock(output);std::cerr<<r.entry<<": "<<(error?static_cast<const char*>(error->GetBufferPointer()):"compile failed")<<'\n';continue;
+                    // The program text leaves out what the entry does not use, so its line numbers
+                    // are not the file's. Report the whole source's errors, which point at the file.
+                    ComPtr<ID3DBlob> wholeCode,wholeError;
+                    if(&program!=&source){
+                        HMODULE module=EnvironmentShaderCompiler();
+                        if(const auto compile=module?reinterpret_cast<pD3DCompile>(GetProcAddress(module,"D3DCompile")):nullptr)
+                            compile(source.data(),source.size(),"EnvironmentShaders",macros,nullptr,r.entry,r.profile,EnvironmentShaderFlags,0,&wholeCode,&wholeError);
+                    }
+                    const auto& shown=wholeError?wholeError:error;
+                    ++failures;std::lock_guard<std::mutex> lock(output);std::cerr<<r.entry<<": "<<(shown?static_cast<const char*>(shown->GetBufferPointer()):"compile failed")<<'\n';
+                    if(wholeCode)std::cerr<<r.entry<<": compiles from the whole source but not from the text it reaches; see EnvironmentShaderReachMath.h\n";
+                    continue;
                 }
                 if(cached)++reused;
-                filenames[i]=EnvironmentShaderFilename(EnvironmentShaderKey(source.data(),source.size(),"EnvironmentShaders",macros,r.entry,r.profile,EnvironmentShaderFlags,EnvironmentShaderCompiler()));
+                // MVM_SHADER_TIMES=1 lists what each program cost: one slow entry otherwise looks like a hang.
+                if(!cached&&std::getenv("MVM_SHADER_TIMES")){std::lock_guard<std::mutex> lock(output);std::cout<<r.entry<<" ms="<<r.ms<<" cm="<<r.cm<<": "<<GetTickCount64()-began<<" ms"<<std::endl;}
+                const auto key=EnvironmentShaderKey(program.data(),program.size(),"EnvironmentShaders",macros,r.entry,r.profile,EnvironmentShaderFlags,EnvironmentShaderCompiler());
+                filenames[i]=EnvironmentShaderFilename(key);
                 // Compilation may succeed with an unwritable cache at runtime. A build must
                 // fail instead of installing an incomplete bundle.
-                const auto expected=32+EnvironmentShaderKey(source.data(),source.size(),"EnvironmentShaders",macros,r.entry,r.profile,EnvironmentShaderFlags,EnvironmentShaderCompiler()).size()+code->GetBufferSize();
+                const auto expected=32+key.size()+code->GetBufferSize();
                 if(!std::filesystem::is_regular_file(folder/filenames[i])||std::filesystem::file_size(folder/filenames[i])!=expected)++failures;
             }
-        }));
-        for(auto& job:jobs)job.get();
+        };
+        std::vector<HANDLE> jobs;
+        for(unsigned worker=0;worker<workers;++worker)
+            if(const auto thread=_beginthreadex(nullptr,256u<<20,[](void* run)->unsigned{(*static_cast<const std::function<void()>*>(run))();return 0;},
+                const_cast<std::function<void()>*>(&work),STACK_SIZE_PARAM_IS_A_RESERVATION,nullptr))jobs.push_back(reinterpret_cast<HANDLE>(thread));
+        if(jobs.empty())work();
+        for(const auto job:jobs){WaitForSingleObject(job,INFINITE);CloseHandle(job);}
         // AO has its own source and sample-count macro. Match the runtime cache
         // key exactly instead of compiling these entries from the sky source.
         for(unsigned i=0;i<5;++i){
