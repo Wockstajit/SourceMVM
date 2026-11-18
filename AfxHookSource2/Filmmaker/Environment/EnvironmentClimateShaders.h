@@ -1784,8 +1784,8 @@ float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
     // (When the coarse texels that match this pixel's depth weigh next to nothing, their value is one
     // far corner's, and along the outline of anything close, a barrel a pace away, the fog was drawn
     // in the coarse image's squares. Those pixels are walked exactly as well.)
-    [branch] if(weights>.2) volume=sum/weights;
-    else volume=VolumeAt(p,d,kMarchExact);
+    bool exact=weights<=.2;
+    volume=exact?float4(0,0,0,1):sum/weights;
     // FOG BEHIND A SMOKE. Where a CS2 smoke covers the pixel, only the fog BETWEEN the camera and
     // the smoke may show; the fog integrated past it (a deep doorway behind the cloud) used to be
     // painted over the smoke. That share is re-integrated up to where the smoke starts; with no
@@ -1793,20 +1793,28 @@ float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
     // Only the share of the coverage that is a placed smoke the ray passes through: glass, flames
     // and leaf cards in the same OIT buffer keep the full fog of the surface behind them.
     float smoke=SmokeCover(p);
+    float frontDepth=0;int frontKind=0;   // in front of the smoke: 0 clear air, 1 the surface's fog, 2 walked
     [branch] if(smoke>0) {
         float3 farPoint=World(p,sky?(camera.w>0?.00001:.99999):d);
         float3 dir=normalize(farPoint-camera.xyz);
         float entry;
         smoke*=SmokeRayShare(dir,distance,entry);
-        [branch] if(smoke>0) {
-            float4 front=float4(0,0,0,1);
-            [branch] if(entry>=distance) front=volume;   // the smoke starts beyond the surface
-            else if(entry>1) {
-                float4 clip=mul(viewProjection,float4(camera.xyz+dir*entry,1));
-                front=VolumeAt(p,clip.z/clip.w,kMarchExact);
-            }
-            volume=lerp(volume,front,smoke);
+        if(entry>=distance) frontKind=1;   // the smoke starts beyond the surface
+        else if(entry>1) {
+            float4 clip=mul(viewProjection,float4(camera.xyz+dir*entry,1));
+            frontDepth=clip.z/clip.w;frontKind=2;
         }
+    }
+    // The exact walks, this pixel's own (walk 0, when no coarse texel matched its depth) and the one
+    // up to the smoke (walk 1), share one call in a loop, so the shader carries the long march once.
+    float4 front=float4(0,0,0,1);
+    [loop]for(uint walk=exact?0u:1u;walk<(smoke>0&&frontKind==2?2u:1u);++walk){
+        float4 walked=VolumeAt(p,walk?frontDepth:d,kMarchExact);
+        if(walk)front=walked;else volume=walked;
+    }
+    [branch] if(smoke>0) {
+        if(frontKind==1) front=volume;
+        volume=lerp(volume,front,smoke);
     }
     // EFFECTS IN THE FOG. A particle has no depth, so the fog above was measured to the surface behind
     // it. Only the fog between the camera and the effect belongs over it: all of it for a fire far down
