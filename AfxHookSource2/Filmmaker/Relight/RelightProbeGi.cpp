@@ -13,10 +13,14 @@
 #include <cstring>
 #include <climits>
 #include <new>
+#include <string>
+#include <cstdio>
 namespace Filmmaker::Relight {
 using Microsoft::WRL::ComPtr;
 std::atomic<bool> ProbeMaskDedupe{true};
 std::atomic<bool> ProbeHistoryCarry{true};
+std::atomic<unsigned> ProbeDumpRequests{0};
+std::atomic<bool> ProbeTwoSidedVoxels{true};
 namespace {
 constexpr UINT Voxels=GiVoxelResolution,Probes=GiProbeResolution;
 // Background sweep plus a 16-probe-wide neighbourhood refreshed every frame.
@@ -63,7 +67,7 @@ struct State {
     bool cameraReadPending=false;ULONGLONG cameraReadTime=0;
     UINT stableTransportFrames=0;Vec3 transportCamera{};
     float transportBounce=-1,transportReflections=-1;
-    unsigned transportSteps=0;int transportDiagnostic=-1;
+    unsigned transportSteps=0;int transportDiagnostic=-1;bool transportTwoSided=true;
     Vec3 cameraReadOrigin{},cameraReadSky{};float cameraReadBounce=0;
     uint64_t cameraReadFrame=0;
     Volume staticVoxels,radiance,backRadiance,direction,history[2],distance[2],composed,visibleMask;
@@ -307,6 +311,40 @@ void Unbind(ID3D11DeviceContext* work) {
     work->CSSetUnorderedAccessViews(0,8,none,nullptr);work->CSSetShaderResources(0,22,views);
     work->GSSetShader(nullptr,nullptr,0);work->PSSetShaderResources(0,16,views);
 }
+// Diagnostic (mirv_relight dumpprobes): the traced bands, their distance moments and origins, the
+// composed volume the materials read, and the static voxel grid, as the GPU holds them now.
+// %APPDATA%\HLAE\debuglogs\relight_probes.bin: "MVMPRB01", the Build constants, the static grid's
+// low corner and cell, then four volumes, each as width, height, depth, bytes per texel and its
+// texels. It waits for the GPU, so it hitches once.
+void DumpProbeVolumes(ID3D11Device* device,ID3D11DeviceContext* immediate) {
+    if(!state.ready||!ProbeDumpRequests.exchange(0,std::memory_order_relaxed))return;
+    char folder[MAX_PATH]{};const DWORD length=GetEnvironmentVariableA("APPDATA",folder,MAX_PATH);
+    if(!length||length>=MAX_PATH)return;
+    const std::string path=std::string(folder)+"\\HLAE\\debuglogs\\relight_probes.bin";
+    FILE* file=nullptr;if(fopen_s(&file,path.c_str(),"wb")||!file){MvmDebugLog_LinefAlways("relight.probe.dump","cannot write %s",path.c_str());return;}
+    fwrite("MVMPRB01",1,8,file);fwrite(&state.constants,sizeof(state.constants),1,file);
+    const float grid[4]{state.staticLow.x,state.staticLow.y,state.staticLow.z,GiCell};fwrite(grid,sizeof(grid),1,file);
+    ID3D11Texture3D* volumes[4]{state.history[state.current].texture.Get(),state.distance[state.current].texture.Get(),
+        state.composed.texture.Get(),state.staticVoxels.texture.Get()};
+    unsigned written=0;
+    for(auto* volume:volumes){
+        D3D11_TEXTURE3D_DESC d{};volume->GetDesc(&d);
+        const UINT texel=d.Format==DXGI_FORMAT_R32_UINT?4u:8u;
+        const UINT header[4]{d.Width,d.Height,d.Depth,texel};fwrite(header,sizeof(header),1,file);
+        d.MipLevels=1;d.Usage=D3D11_USAGE_STAGING;d.BindFlags=0;d.MiscFlags=0;d.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        ComPtr<ID3D11Texture3D> staging;D3D11_MAPPED_SUBRESOURCE m{};
+        if(FAILED(device->CreateTexture3D(&d,nullptr,&staging)))break;
+        immediate->CopySubresourceRegion(staging.Get(),0,0,0,0,volume,0,nullptr);
+        if(FAILED(immediate->Map(staging.Get(),0,D3D11_MAP_READ,0,&m)))break;
+        for(UINT z=0;z<d.Depth;++z)for(UINT y=0;y<d.Height;++y)
+            fwrite(static_cast<const uint8_t*>(m.pData)+size_t(z)*m.DepthPitch+size_t(y)*m.RowPitch,texel,d.Width,file);
+        immediate->Unmap(staging.Get(),0);++written;
+    }
+    fclose(file);
+    MvmDebugLog_LinefAlways("relight.probe.dump","volumes=%u region=(%.0f %.0f %.0f)+%.0f staticLow=(%.0f %.0f %.0f) file=%s",written,
+        state.constants.lowSize[0],state.constants.lowSize[1],state.constants.lowSize[2],state.constants.lowSize[3],
+        state.staticLow.x,state.staticLow.y,state.staticLow.z,path.c_str());
+}
 // Rows shared by the volume the material reads and the tracing that writes it.
 void SetRegion(const GiRegion& region) {
     const auto low=region.low;const float size=region.size;
@@ -383,21 +421,31 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
     if(state.frame!=frame) {
         state.frame=frame;
         auto work=state.work.Get();
-        if(state.staticDone<state.staticTriangles){
-            const UINT count=(std::min)(StaticTrianglesPerFrame,state.staticTriangles-state.staticDone);
+        // Two passes over the triangles: each cell's occupancy, normal and albedo, then the mark
+        // on the cells that also hold a face opposite to that normal. A draw never spans both,
+        // and a map within one frame's budget is still complete in its first frame.
+        const UINT staticTotal=state.staticTriangles*2;
+        if(state.staticDone<staticTotal){
             UINT maxDim=(std::max)({state.staticDims[0],state.staticDims[1],state.staticDims[2]});
             state.constants.grid[1]=GiCell;
             state.constants.voxelTarget={state.staticLow.x,state.staticLow.y,state.staticLow.z,maxDim*GiCell};
-            state.constants.voxelDims={float(state.staticDims[0]),float(state.staticDims[1]),float(state.staticDims[2]),float(state.staticDone)};
-            Upload(work);
-            BindVoxelizer(work,state.staticPs.Get(),state.staticVoxels.uav.Get(),maxDim*2);
-            auto albedo=state.staticAlbedoSrv.Get();work->PSSetShaderResources(10,1,&albedo);
-            UINT stride=sizeof(Vec3),offset=0;auto vb=state.staticVertices.Get();work->IASetVertexBuffers(0,1,&vb,&stride,&offset);
-            work->IASetIndexBuffer(state.staticIndices.Get(),DXGI_FORMAT_R32_UINT,0);
-            work->DrawIndexed(count*3,state.staticDone*3,0);
-            Unbind(work);
-            state.staticDone+=count;
-            if(state.staticDone>=state.staticTriangles){
+            for(UINT budget=StaticTrianglesPerFrame;budget&&state.staticDone<staticTotal;){
+                const bool marking=state.staticDone>=state.staticTriangles;
+                const UINT first=marking?state.staticDone-state.staticTriangles:state.staticDone;
+                const UINT count=(std::min)(budget,state.staticTriangles-first);
+                state.constants.voxelDims={float(state.staticDims[0]),float(state.staticDims[1]),float(state.staticDims[2]),float(first)};
+                state.constants.staticDims[3]=marking?1.f:0.f;
+                Upload(work);
+                BindVoxelizer(work,state.staticPs.Get(),state.staticVoxels.uav.Get(),maxDim*2);
+                auto albedo=state.staticAlbedoSrv.Get();work->PSSetShaderResources(10,1,&albedo);
+                UINT stride=sizeof(Vec3),offset=0;auto vb=state.staticVertices.Get();work->IASetVertexBuffers(0,1,&vb,&stride,&offset);
+                work->IASetIndexBuffer(state.staticIndices.Get(),DXGI_FORMAT_R32_UINT,0);
+                work->DrawIndexed(count*3,first*3,0);
+                Unbind(work);
+                state.staticDone+=count;budget-=count;
+            }
+            if(state.staticDone>=staticTotal){
+                state.constants.staticDims[3]=0;
                 state.staticVertices.Reset();state.staticIndices.Reset();state.staticAlbedo.Reset();state.staticAlbedoSrv.Reset();
                 if(MvmDebugLog_Active())MvmDebugLog_LinefAlways("relight.probe.gi","static voxelization complete triangles=%u",state.staticTriangles);
             }
@@ -418,14 +466,16 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
         const bool changed=state.uploadedRecords.size()!=records.size()||
             std::memcmp(state.uploadedRecords.data(),records.data(),records.size()*sizeof(LightRecord))!=0;
         const bool cameraChanged=Dot(camera-state.transportCamera,camera-state.transportCamera)>1e-6f;
+        const bool twoSided=ProbeTwoSidedVoxels.load(std::memory_order_relaxed);
         const bool presentationChanged=scene.bounce!=state.transportBounce||scene.reflections!=state.transportReflections||
-            scene.bounceSteps!=state.transportSteps||scene.probeCheck!=state.transportDiagnostic||scene.filteredReflections!=state.transportFiltered||scene.responsiveReflections!=state.transportResponsive;
+            scene.bounceSteps!=state.transportSteps||scene.probeCheck!=state.transportDiagnostic||scene.filteredReflections!=state.transportFiltered||scene.responsiveReflections!=state.transportResponsive||
+            twoSided!=state.transportTwoSided;
         if(rebin||changed||cameraChanged||presentationChanged)state.stableTransportFrames=0;
         state.transportCamera=camera;
         state.transportBounce=scene.bounce;state.transportReflections=scene.reflections;
         state.transportFiltered=scene.filteredReflections;
         state.transportResponsive=scene.responsiveReflections;
-        state.transportSteps=scene.bounceSteps;state.transportDiagnostic=scene.probeCheck;
+        state.transportSteps=scene.bounceSteps;state.transportDiagnostic=scene.probeCheck;state.transportTwoSided=twoSided;
         if(resized||changed){
             if(resized&&!Structured(UINT(records.size()),sizeof(LightRecord),nullptr,state.records,state.recordsSrv))return {};
             work->UpdateSubresource(state.records.Get(),0,nullptr,records.data(),0,0);
@@ -440,6 +490,7 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
             if(MvmDebugLog_Active()){static ULONGLONG last=0;const auto now=GetTickCount64();if(now-last>=3000){last=now;
                 MvmDebugLog_LinefAlways("relight.probe.gi.cache","reused=1 settledFrames=%u camera=(%.1f %.1f %.1f) authored=%llu",
                     state.stableTransportFrames,camera.x,camera.y,camera.z,state.authoredKey);}}
+            DumpProbeVolumes(device,immediate);
             return CurrentBinding(scene,world->low,world->high);
         }
         if(regionChanged)state.stableTransportFrames=0;
@@ -467,7 +518,7 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
         // Prioritize retained visible cages in this frame's single transport snapshot.
         // The depth-derived list is captured during the preceding frame.
         const bool visibleRetained=!regionChanged&&state.visibleFrame+1==frame;
-        state.constants.ground={float(state.updates++%4096u),0,visibleRetained?1.f:0.f,0};
+        state.constants.ground={float(state.updates++%4096u),0,visibleRetained?1.f:0.f,twoSided?0.f:1.f};
         ++state.stableTransportFrames;
         state.constants.giInfo[3]=scene.bounce;
         const bool edited=state.updates<=state.fastHistoryUntil;
@@ -626,6 +677,7 @@ ProbeBinding PrepareProbeGi(ID3D11Device* device,ID3D11DeviceContext* immediate,
         }
     }
     if(!state.ready)return {};
+    DumpProbeVolumes(device,immediate);
     return CurrentBinding(scene,world->low,world->high);
 }
 }

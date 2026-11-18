@@ -40,6 +40,10 @@ float g_brightness = kCloudDefault;
 float g_size       = kCloudDefault;
 float g_drift      = kCloudDefault;
 int   g_materialCount = 0;
+// The Environment's sky is up (CloudFx_SetEnvironmentHidden). `g_hiddenApplied`: the zero has been
+// written to this level's materials; `g_hiddenRetry` counts the frames to the next look for them.
+bool  g_environmentHidden = false, g_hiddenApplied = false;
+int   g_hiddenRetry = 0, g_hiddenTries = 0;
 
 // Authored values, keyed by material name then parameter name. Captured the first time a
 // parameter is touched, so a restore always writes back what the MAP shipped -- not whatever a
@@ -101,7 +105,7 @@ void ForEachCloudMaterial(bool restore) {
 		// no per-map table -- whatever cloud materials this map loaded are the ones written.
 		if (matName.find("clouds") == std::string::npos) continue;
 
-		ApplyGroup(mat, matName, kDensityParams,    1, float(WorldTransient::Number("cloudDensity", g_density)),    restore);
+		ApplyGroup(mat, matName, kDensityParams,    1, g_environmentHidden ? 0.f : float(WorldTransient::Number("cloudDensity", g_density)), restore);
 		ApplyGroup(mat, matName, kBrightnessParams, 1, float(WorldTransient::Number("cloudBrightness", g_brightness)), restore);
 		ApplyGroup(mat, matName, kSizeParams,       3, float(WorldTransient::Number("cloudSize", g_size)),       restore);
 		ApplyGroup(mat, matName, kDriftParams,      3, float(WorldTransient::Number("cloudDrift", g_drift)),      restore);
@@ -120,9 +124,29 @@ void ForEachCloudMaterial(bool restore) {
 void CloudFx_OnLevelInit() {
     if (!g_snapshots.empty()) ForEachCloudMaterial(true);
     g_snapshots.clear();g_materialCount=0;
+    // A new level's materials come back as authored: the Environment's hide has to be written again.
+    g_hiddenApplied=false;g_hiddenRetry=0;g_hiddenTries=0;
     MvmDebugLog_Linef("environment.baseline","cloud materials restored and generation released");
 }
 void CloudFx_Apply() { ForEachCloudMaterial(false); }
+
+void CloudFx_SetEnvironmentHidden(bool hidden) {
+	if (hidden != g_environmentHidden) {
+		g_environmentHidden = hidden;
+		g_hiddenApplied = false; g_hiddenRetry = 0; g_hiddenTries = 0;
+		// Letting go: back to the user's multipliers (authored x 1 when there are none).
+		if (!hidden) { if (!g_snapshots.empty()) ForEachCloudMaterial(false); return; }
+	}
+	if (!hidden || g_hiddenApplied) return;
+	// The walk over every loaded material is not free, so while the map's cloud materials have not
+	// turned up yet (still loading, or a map with none) it is tried every two seconds, ten times.
+	if (g_hiddenRetry > 0) { --g_hiddenRetry; return; }
+	ForEachCloudMaterial(false);
+	g_hiddenApplied = g_materialCount > 0 || ++g_hiddenTries >= 10;
+	g_hiddenRetry = 120;
+	MvmDebugLog_LinefAlways("world.clouds", "environment sky hides the map's clouds: %d material(s)%s",
+		g_materialCount, g_hiddenApplied ? "" : ", looking again");
+}
 
 bool CloudFx_HasOverride() {
 	return g_density != kCloudDefault || g_brightness != kCloudDefault

@@ -22,6 +22,11 @@ struct NativeWorldWeather {
     float rain = 0, ripple = 0, rippleDirection = 0, wetness = 0, drying = 0;
 };
 NativeWorldWeather NativeWorldWeatherFor(const Scene &scene, bool active);
+// CS2's own frost on players, weapons and chickens (r_csgo_frost_force): on while snow falls or
+// lies, never while it rains (rain is the game's wet shading and nothing else, and the switch is
+// held off then). It grows outdoors and melts under cover by the game's own sky test. Main thread only.
+bool NativeFrostWanted(const Scene &scene, bool active);
+const char *NativeFrostStatus();
 // Writes the report for `environment mapinfo` into `out`.
 void NativeWorldWeatherReport(char *out, size_t size);
 // Pure mapping, kept here so the render test and UI agree: precipitation count -> rain_storm CP3.x

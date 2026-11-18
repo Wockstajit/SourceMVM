@@ -19,7 +19,7 @@ namespace Filmmaker::MapData {
 // 4: binary payloads compressed (MapCacheCodec.h).
 constexpr int kManifestFormat = 4;
 // Bump whenever extraction output changes so existing caches are rebuilt.
-constexpr int kExtractorVersion = 2;
+constexpr int kExtractorVersion = 4;
 
 struct ExtractOptions {
     std::function<void(const std::string &)> progress;

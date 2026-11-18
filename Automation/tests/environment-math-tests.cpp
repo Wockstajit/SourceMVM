@@ -122,6 +122,30 @@ int main() {
         Check(spatial.ranges.size()==3&&spatial.indices.size()==triangles.size(),"Spatial shadows preserve all separated and spanning triangles");
         auto sorted=spatial.indices;std::sort(sorted.begin(),sorted.end());
         Check(sorted==triangles,"Spatial partition loses no vertex indices");
+        {
+            // Ranges that follow one another in the index buffer draw as one call, in the same order.
+            const std::vector<ShadowDrawRange> ranges{{0,30,{},{}},{30,12,{},{}},{42,0,{},{}},{42,6,{},{}},{48,9,{},{}},{57,3,{},{}}};
+            std::vector<std::pair<uint32_t,uint32_t>> draws;
+            const auto record=[&](uint32_t first,uint32_t count){draws.push_back({first,count});};
+            Check(DrawShadowRuns(ranges,[](size_t){return true;},record)==1&&draws.size()==1&&draws[0]==std::make_pair(0u,60u),
+                "A fully accepted caster draws in one call");
+            draws.clear();
+            Check(DrawShadowRuns(ranges,[](size_t i){return i!=3;},record)==2&&draws[0]==std::make_pair(0u,42u)&&draws[1]==std::make_pair(48u,12u),
+                "A rejected cell splits the run and none of its triangles are drawn");
+            draws.clear();
+            Check(DrawShadowRuns(ranges,[](size_t){return false;},record)==0&&draws.empty(),"No accepted cell draws nothing");
+            draws.clear();
+            Check(DrawSelectedShadowRuns(ranges,{0,1,4,5},record)==2&&draws[0]==std::make_pair(0u,42u)&&draws[1]==std::make_pair(48u,12u),
+                "A selection joins only neighbouring cells");
+            draws.clear();
+            Check(DrawSelectedShadowRuns(ranges,{4,0,99},record)==2&&draws[0]==std::make_pair(48u,9u)&&draws[1]==std::make_pair(0u,30u),
+                "An out-of-order selection keeps its order and ignores an unknown cell");
+            unsigned merged=0,single=0;std::vector<uint32_t> mergedOrder,singleOrder;
+            const auto accept=[&](size_t i){return i!=1;};
+            merged=DrawShadowRuns(spatial.ranges,accept,[&](uint32_t first,uint32_t count){for(uint32_t k=0;k<count;++k)mergedOrder.push_back(spatial.indices[first+k]);});
+            for(size_t i=0;i<spatial.ranges.size();++i)if(accept(i)){++single;const auto& r=spatial.ranges[i];for(uint32_t k=0;k<r.count;++k)singleOrder.push_back(spatial.indices[r.first+k]);}
+            Check(merged<=single&&mergedOrder==singleOrder,"Joined draws submit the same indices in the same order as one draw per cell");
+        }
         ShadowFrustum identity(Identity());unsigned visible=0;
         for(const auto& range:spatial.ranges)visible+=identity.Intersects(range.low,range.high);
         Check(visible==1,"Spanning triangle remains visible although its vertices lie outside the frustum");
@@ -141,7 +165,8 @@ int main() {
         }
     }
     {
-        Climate sun;sun[CL_sunPower]=8;
+        // The sun itself; with the moon off the key light is the sun at every height.
+        Climate sun;sun[CL_sunPower]=8;sun[CL_moon]=0;
         for(float elevation:{-30.f,-12.f,-5.f,-.01f,0.f}){
             sun[CL_sunElevation]=elevation;
             auto radiance=ClimateSunRadiance(sun);
@@ -275,31 +300,10 @@ int main() {
               "Motion-blurred streak length does not change rain coverage");
     }
     {
-        // Settled snow and ash are sheltered straight overhead whatever the wind; rain follows it.
-        const Vec3 snow=PrecipitationShelterDirection(2,300,0,65),ash=PrecipitationShelterDirection(3,-200,90,40);
-        Check(Near(snow.z,1)&&Near(ash.z,1),"Snow and ash shelter from the open sky overhead, not the wind");
-        Check(PrecipitationShelterDirection(1,300,0,700).x<-.3f,"Rain shelter still slants into the wind");
-    }
-    {
-        // Gust directions: tilted about the mean, wider along the wind, always falling.
-        auto angle = [](Vec3 a, Vec3 b) { return std::acos(std::clamp(Dot(a, b), -1.f, 1.f)) * 57.2958f; };
-        const Vec3 mean = PrecipitationSourceDirection(40, 0, 700);
-        const auto gusts = PrecipitationGustDirections(40, 0, 700);
-        for (const auto &g : gusts)
-            Check(Near(Dot(g, g), 1, 1e-4f) && g.z > 0, "Gust directions are unit and come from above");
-        Check(Near(angle(gusts[0], mean), 20, 1.5f) && Near(angle(gusts[1], mean), 20, 1.5f), "Along-wind gusts tilt about 20 degrees in light wind");
-        Check(Near(angle(gusts[2], mean), 13, 1.5f) && Near(angle(gusts[3], mean), 13, 1.5f), "Cross-wind gusts tilt less");
-        // The along pair lies in the wind plane, the cross pair across it.
-        Check(std::abs(gusts[0].y) < 1e-3f && std::abs(gusts[1].y) < 1e-3f && gusts[0].x < mean.x && gusts[1].x > mean.x,
-              "Along-wind gusts lean further into and back out of the wind");
-        Check(gusts[2].y * gusts[3].y < 0, "Cross-wind gusts lean to both sides");
-        float calmAlong = 0, calmAcross = 0, stormAlong = 0, stormAcross = 0;
-        PrecipitationGustAngles(0, 0, 700, calmAlong, calmAcross);
-        PrecipitationGustAngles(700, 0, 700, stormAlong, stormAcross);
-        Check(stormAlong > calmAlong && stormAcross > calmAcross, "A wind-slanted rain spreads further into openings");
-        const auto calm = PrecipitationGustDirections(0, 0, 700);
-        Check(calm[0].z > 0 && angle(calm[0], {0, 0, 1}) > 15, "Calm rain still has gusts");
-        Check(Near(kPrecipitationMeanWeight + kPrecipitationGusts * PrecipitationGustWeight(), 1), "Exposure weights sum to one");
+        // The sky map looks straight down: its matrix maps a column of world points to one texel.
+        const auto sky=PrecipitationShadowMatrix({-100,-200,-50},{100,200,80},{0,0,1});
+        const Vec3 a=Transform(sky,{30,-40,-20}),b=Transform(sky,{30,-40,70});
+        Check(Near(a.x,b.x,1e-4f)&&Near(a.y,b.y,1e-4f)&&a.z>b.z,"The sky map looks straight down, nearer the sky is nearer the map");
     }
     {
         Climate c; c[CL_enabled]=1; c[CL_storm]=1;
@@ -587,10 +591,11 @@ int main() {
     Check(look.world.sky.empty() && look.world.fields["skyTint"][0] == 0 &&
               look.world.fields["exposure"][0] == .35,
           "Sky reset preserves lighting");
-    // A sky reset leaves every sky switch off, clouds included. Snow (weather) and the sun elevation (lighting)
-    // must still survive untouched.
-    Check(look.climate[CL_clouds] == 0 && look.climate[CL_snow] == .8f && look.climate[CL_sunElevation] == original.climate[CL_sunElevation],
-          "Sky reset switches the cloud layer off and preserves lighting-owned sun and surface edits");
+    // A sky reset leaves every sky switch off, clouds included, and snow (weather) survives untouched.
+    // The sun belongs to the Sky card (its time of day), so it goes back to the default time.
+    Check(look.climate[CL_clouds] == 0 && look.climate[CL_snow] == .8f && look.climate[CL_sunElevation] == ClimateSpecs()[CL_sunElevation].initial &&
+          look.climate[CL_timeOfDay] == ClimateSpecs()[CL_timeOfDay].initial,
+          "Sky reset switches the cloud layer off, puts the sun back to the default time of day and keeps surface edits");
     Check(ClimateSpecs()[CL_clouds].initial == 0 && ClimateSpecs()[CL_sky].initial == 0,
           "Clouds and sky default off: turning Weather or Fog on must not bring up the cloud sky");
     // The sun colour is a multiplier on the shipped elevation ramp, so an untouched scene has to
@@ -599,30 +604,38 @@ int main() {
               look.climate[CL_sunColorB] == 1,
           "Sun colour resets to the neutral tint that reproduces the shipped ramp");
     ResetScenePage(look, "weather");
-    Check(look.climate[CL_snow] == 0 && look.climate[CL_sunElevation] == original.climate[CL_sunElevation],
+    Check(look.climate[CL_snow] == 0 && look.climate[CL_sunElevation] == ClimateSpecs()[CL_sunElevation].initial,
           "Weather reset removes surface experiments only");
     Check(look.weather.type == 0 && look.world.fields["worldTint"][0] == 1,
           "Weather reset preserves atmosphere");
     ResetScenePage(look, "lighting");
-    Check(look.climate[CL_sunElevation] == 35, "Lighting reset includes procedural sun");
+    // The sun is the Sky card's (its time of day): a Lighting reset leaves it where it is.
+    look.climate[CL_sunElevation] = 20; ResetScenePage(look, "lighting");
+    Check(look.climate[CL_sunElevation] == 20, "Lighting reset leaves the sun to the Sky card");
     ResetScenePage(look, "all");
     Scene resetDefaults;
     ResetClimatePage(resetDefaults.climate, "all");
     Check(SerializeScene(look) == SerializeScene(resetDefaults), "Full reset releases all overrides and additions");
-    for (ClimateField field : {CL_clouds, CL_lightShafts})
+    for (ClimateField field : {CL_clouds})
         Check(look.climate[field] == 0, "Full reset disarms subordinate feature switches too");
-    for (ClimateField field : {CL_contactShadows, CL_ao, CL_skyOcclusion})
-        Check(look.climate[field] == 1, "Cast shadows, AO and sky occlusion stay on after a reset");
+    for (ClimateField field : {CL_contactShadows, CL_ao, CL_skyOcclusion, CL_lightShafts})
+        Check(look.climate[field] == 1, "Cast shadows, AO, sky occlusion and light shafts stay on after a reset");
+    Check(SerializeScene(look) == SerializeScene(Scene{}), "A reset scene is exactly a new scene");
     {
         Climate fog;
         fog[CL_enabled] = 1; fog[CL_fogDensity] = .35f; fog[CL_lightShafts] = 1;
         Check(ClimateSamplesSunShadow(EffectiveClimate(fog), false, false),
               "Fog light shafts render the sun shadow maps without the Sky or Lighting card");
-        Climate ground; ground[CL_enabled] = 1; ground[CL_groundFog] = 1; ground[CL_lightShafts] = 1;
-        Check(ClimateSamplesSunShadow(EffectiveClimate(ground), false, false), "Ground fog light shafts do too");
-        Climate unshafted = fog; unshafted[CL_lightShafts] = 0; unshafted[CL_groundFog] = 1;
+        // The ground fog's shadows are its own Shadows slider, not the height fog's Light shafts.
+        Climate ground; ground[CL_enabled] = 1; ground[CL_groundFog] = 1; ground[CL_lightShafts] = 0;
+        Check(ClimateSamplesSunShadow(EffectiveClimate(ground), false, false),
+              "Ground fog shadows render the sun shadow maps with Light shafts off");
+        ground[CL_groundFogShadows] = 0;
+        Check(!ClimateSamplesSunShadow(EffectiveClimate(ground), false, false),
+              "Ground fog with its Shadows at 0 renders no sun shadow maps");
+        Climate unshafted = fog; unshafted[CL_lightShafts] = 0;
         Check(!ClimateSamplesSunShadow(EffectiveClimate(unshafted), false, false),
-              "Fog with light shafts off renders no sun shadow maps");
+              "Height fog with light shafts off renders no sun shadow maps");
         Check(ClimateSamplesSunShadow(EffectiveClimate(fog), true, false),
               "Fog under the frame's owned lighting keeps shadowed shafts");
         Climate lit = fog; lit[CL_relighting] = 1;
@@ -637,9 +650,42 @@ int main() {
         lit[CL_contactShadows] = 0;
         Check(!ClimateSamplesSunShadow(EffectiveClimate(lit), true, true), "Cast shadows off renders no sun shadow maps");
         lit[CL_contactShadows] = 1; lit[CL_sunElevation] = -5;
+        lit[CL_moon] = 0;
         Check(!ClimateSamplesSunShadow(EffectiveClimate(lit), true, true), "A sun below the horizon casts no shadow maps");
+        lit[CL_moon] = 1; lit[CL_moonElevation] = 35; // up (the default time of day has it down)
+        Check(ClimateSamplesSunShadow(EffectiveClimate(lit), true, true), "Once the sun has set the moon casts the shadows");
         Climate off = lit; off[CL_enabled] = 0; off[CL_sunElevation] = 35;
         Check(!ClimateSamplesSunShadow(EffectiveClimate(off), true, true), "The renderer switched off renders nothing");
+    }
+    {
+        // TIME OF DAY places the sun and the moon together (ApplyTimeOfDay).
+        Climate day;
+        Climate placed = day;ApplyTimeOfDay(placed);
+        Check(Near(placed[CL_sunAzimuth], day[CL_sunAzimuth], .05f) && Near(placed[CL_sunElevation], day[CL_sunElevation], .05f) &&
+              Near(placed[CL_moonAzimuth], day[CL_moonAzimuth], .05f) && Near(placed[CL_moonElevation], day[CL_moonElevation], .05f),
+              "The default sun and moon are where the default time of day puts them");
+        day[CL_timeOfDay] = 12;ApplyTimeOfDay(day);
+        Check(Near(day[CL_sunElevation], day[CL_sunHeight], .01f) && Near(day[CL_sunAzimuth], day[CL_sunPath], .01f), "At noon the sun stands at its height in the path's direction");
+        day[CL_timeOfDay] = 6;ApplyTimeOfDay(day);const float rise = day[CL_sunAzimuth];
+        Check(Near(day[CL_sunElevation], 0, .01f), "It rises at 6:00");
+        day[CL_timeOfDay] = 18;ApplyTimeOfDay(day);
+        Check(Near(day[CL_sunElevation], 0, .01f) && Near(std::abs(std::fmod(day[CL_sunAzimuth] - rise + 360.f, 360.f) - 180.f), 0, .05f), "It sets at 18:00 on the far side of the sky");
+        day[CL_timeOfDay] = 22;day[CL_moonPhase] = .5f;ApplyTimeOfDay(day);
+        Check(day[CL_sunElevation] < -20 && day[CL_moonElevation] > 20, "At night the moon is up");
+        const float fullAzimuth = day[CL_moonAzimuth], fullElevation = day[CL_moonElevation];
+        day[CL_moonPhase] = .7f;ApplyTimeOfDay(day);
+        Check(Near(day[CL_moonAzimuth], fullAzimuth, .01f) && Near(day[CL_moonElevation], fullElevation, .01f),
+              "The phase changes how the moon looks, not where it is");
+        day[CL_timeOfDay] = 10;ApplyTimeOfDay(day);
+        Check(day[CL_moonElevation] < 0, "By day the moon is down, opposite the sun");
+        // The other way round: a sun placed by its angles gets the time and path that put it there.
+        Climate angles;angles[CL_sunAzimuth] = 200;angles[CL_sunElevation] = 20;
+        TimeOfDayFromSun(angles);ApplyTimeOfDay(angles);
+        Check(Near(angles[CL_sunAzimuth], 200, .02f) && Near(angles[CL_sunElevation], 20, .02f), "A sun set by its angles stays where it was put");
+        Climate high;high[CL_sunElevation] = 80;TimeOfDayFromSun(high);ApplyTimeOfDay(high);
+        Check(Near(high[CL_sunElevation], 80, .02f) && high[CL_sunHeight] >= 80, "A sun higher than the noon height raises the noon height");
+        Climate night;night[CL_sunElevation] = -12;TimeOfDayFromSun(night);ApplyTimeOfDay(night);
+        Check(night[CL_timeOfDay] > 18 && night[CL_timeOfDay] < 21 && Near(night[CL_sunElevation], -12, .02f), "A sun just below the horizon in the afternoon's place is the evening");
     }
     Climate card;
     card[CL_sky] = 1; card[CL_clouds] = 1; card[CL_storm] = 1;

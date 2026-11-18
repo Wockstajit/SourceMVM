@@ -151,7 +151,9 @@ R"CFJS(
     // never the map it plays on.
     var envResetAll = resetFooter(envFooter, function () {
       var mapCmds = typeof aeResetSpec !== 'undefined' ? aeResetSpec.cmds : [];
-      return { label: T('ENVIRONMENT'), cmds: ['mirv_filmmaker environment reset all',
+      // `reset environment`, not `reset all`: this tab only. The skybox, tints, engine sun and
+      // exposure on the Effects tab stay as they are (that tab has its own RESET).
+      return { label: T('ENVIRONMENT'), cmds: ['mirv_filmmaker environment reset environment',
                  'mirv_relight lighteditor off', 'mirv_relight lights reset', 'mirv_relight off',
                  'mirv_filmmaker props clear', 'mirv_filmmaker props wind 0'].concat(mapCmds),
                confirm: function () {

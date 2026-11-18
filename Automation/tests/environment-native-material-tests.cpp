@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <string>
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentNativeCoverageMath.h"
+#include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentNativeScaledColorMath.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentNativeAtmosphereMath.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentLightingProofShaders.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentNativeSunCsmMath.h"
@@ -27,7 +28,7 @@ using Microsoft::WRL::ComPtr;
 using namespace Filmmaker::Environment;
 namespace Filmmaker {bool SkyGpuProbe_IsPlayersOnlyGreenSkyDraw(ID3D11DeviceContext*,unsigned,unsigned){return false;} bool MvmDebugLog_Active(){return false;}void MvmDebugLog_LinefAlways(const char*,const char*,...){} }
 void RenderShaderCost_OwnWork(bool){}
-namespace Filmmaker::Environment {CompletedSceneCasterScope::CompletedSceneCasterScope():previous(false){} CompletedSceneCasterScope::~CompletedSceneCasterScope(){} UINT AnimatedCasterVertexCount(AnimatedCasterSubset){return 0;} void RestoreWorldSunTile(ID3D11DeviceContext*){} WorldLook DefaultWorldLook(){return WorldLook{};} ID3D11ShaderResourceView* SkyboxSunShadow(Matrix*){return nullptr;} ID3D11ShaderResourceView* LampShadowPyramid(ID3D11ShaderResourceView*){return nullptr;}}
+namespace Filmmaker::Environment {CompletedSceneCasterScope::CompletedSceneCasterScope():previous(false){} CompletedSceneCasterScope::~CompletedSceneCasterScope(){} UINT AnimatedCasterVertexCount(AnimatedCasterSubset){return 0;} void RestoreWorldSunTile(ID3D11DeviceContext*){} WorldLook DefaultWorldLook(){return WorldLook{};} ID3D11ShaderResourceView* SkyboxSunShadow(Matrix*){return nullptr;} ID3D11ShaderResourceView* LampShadowPyramid(ID3D11ShaderResourceView*){return nullptr;} ID3D11ShaderResourceView* SunShadowPyramid(ID3D11ShaderResourceView*){return nullptr;} bool StaticLampLitBounds(unsigned,float,Vec3&,Vec3&){return false;}}
 void Check(bool ok,const char* message){if(!ok){std::cerr<<message<<'\n';std::exit(1);}}
 void CheckResourceBindings() {
     ComPtr<ID3D11Device> device;ComPtr<ID3D11DeviceContext> ctx;
@@ -198,6 +199,46 @@ void CheckAtmosphere() {
     Check(blackPixel[0]==0&&blackPixel[1]==0&&blackPixel[2]==0&&blackPixel[3]==live[3],"black diagnostic overrides every RGB contribution and preserves alpha");
     flags[2]=0;ctx->UpdateSubresource(material.Get(),0,nullptr,flags.data(),0,0);
     Check(draw(native.Get())==draw(modified.Get()),"native lighting output preserved exactly when fog is disabled");
+    {
+        // SCALED COLOUR (the 3D skybox's alpha-blended cards at night): every write to o0 lands in a
+        // scratch register, and each return writes it times cb13[0].x (rgb) and .y (alpha). Two
+        // returns, a saturate and a discard keep their native behaviour.
+        auto card=compile(R"(
+            cbuffer View:register(b4){float4 fog[36];}
+            float4 Main(float4 p:SV_Position):SV_Target {
+                float4 c=float4(.8+fog[0].x,.6,.4,.5);
+                if(p.y>6)discard;
+                [branch]if(p.x>4)return saturate(c*2);
+                return c;
+            })","ps_5_0");
+        std::vector<uint8_t> scaledCode;ComPtr<ID3D11PixelShader> cardNative,cardScaled;
+        Check(NativeScaledColorProgram(card->GetBufferPointer(),card->GetBufferSize(),scaledCode)&&
+              SUCCEEDED(device->CreatePixelShader(card->GetBufferPointer(),card->GetBufferSize(),nullptr,&cardNative))&&
+              SUCCEEDED(device->CreatePixelShader(scaledCode.data(),scaledCode.size(),nullptr,&cardScaled)),"scaled colour variant validates");
+        const float scale[4]{.25f,.5f,0,0};ComPtr<ID3D11Buffer> scaleBuffer;D3D11_BUFFER_DESC sd{};sd.ByteWidth=16;sd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+        D3D11_SUBRESOURCE_DATA sdata{scale,0,0};Check(SUCCEEDED(device->CreateBuffer(&sd,&sdata,&scaleBuffer)),"scaled colour constants");
+        auto scaleSlot=scaleBuffer.Get();ctx->PSSetConstantBuffers(ScaledColorSlot,1,&scaleSlot);
+        const auto plain=draw(cardNative.Get()),scaled=draw(cardScaled.Get());
+        for(unsigned i=0;i<3;++i)Check(std::abs(scaled[i]-plain[i]*.25f)<1e-6f,"scaled colour multiplies the native rgb");
+        Check(std::abs(scaled[3]-plain[3]*.5f)<1e-6f,"scaled colour multiplies the native alpha by its own factor");
+        // The second return and the discard: read the whole 8x8 target after a clear.
+        const float cleared[4]{.11f,.22f,.33f,.44f};
+        auto image=[&](ID3D11PixelShader* shader){ctx->ClearRenderTargetView(target.Get(),cleared);draw(shader);
+            D3D11_MAPPED_SUBRESOURCE m{};Check(SUCCEEDED(ctx->Map(read.Get(),0,D3D11_MAP_READ,0,&m)),"scaled colour image read");
+            std::vector<float> out(8*8*4);for(unsigned y=0;y<8;++y)std::memcpy(out.data()+y*32,static_cast<const uint8_t*>(m.pData)+y*m.RowPitch,128);
+            ctx->Unmap(read.Get(),0);return out;};
+        const auto a=image(cardNative.Get()),b=image(cardScaled.Get());bool exact=true;
+        for(unsigned y=0;y<8;++y)for(unsigned x=0;x<8;++x)for(unsigned c=0;c<4;++c){
+            const float n=a[(y*8+x)*4+c],s=b[(y*8+x)*4+c];
+            const bool ok=y+.5f>6?s==cleared[c]&&n==cleared[c]:std::abs(s-n*(c<3?.25f:.5f))<1e-6f;
+            if(!ok&&exact)std::cerr<<"scaled colour at "<<x<<","<<y<<"."<<c<<": native "<<n<<" scaled "<<s<<"\n";
+            exact&=ok;
+        }
+        Check(exact,"scaled colour keeps the discard and scales every return");
+        ID3D11Buffer* none=nullptr;ctx->PSSetConstantBuffers(ScaledColorSlot,1,&none);
+        std::vector<uint8_t> refused;
+        for(size_t end=0;end<card->GetBufferSize();end+=7)Check(!NativeScaledColorProgram(card->GetBufferPointer(),end,refused),"truncated scaled colour container rejected");
+    }
     // The shipped probe/foliage permutation has a different material layout.
     // Exercise its guard on the GPU, including an alpha discard after the fog.
     auto probeSource=compile(R"(

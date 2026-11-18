@@ -1,13 +1,12 @@
 // Original implementation of water-film Fresnel and timed normal impulses; see the research
 // references in the environment contract. No external shader source or Valve assets are copied.
 R"HLSL(
-float RainExposure(float3 p) {
+float RainExposure(float3 p,float3 normal) {
     if(weatherParams.z!=1||weatherColor.w<=0)return 0;
-    // An unprepared roof map may draw falling rain, but cannot assert a surface is exposed.
+    // An unread map may draw falling rain, but cannot assert a surface is exposed.
     if(shelterInfo.x<0)return 0;
-    // Graded, not a cut: the share of mean and gust directions that reach the point, so a doorway
-    // or arch facing the rain is damp for a short way in and then dry.
-    return smoothstep(0,.9,PrecipitationExposure(p+float3(0,0,2)))*saturate(weatherColor.w*2);
+    // Graded, not a cut: open ground is wet, and the wet reaches a short way in under cover.
+    return WetReach(WeatherCover(p,normal))*saturate(weatherColor.w*2);
 }
 // Scene radiance is already lit by CS2, including colored map lights and camera exposure.
 // Broad taps avoid coloring each drop with one sharp background texel. This is a local
@@ -92,7 +91,10 @@ float3 WetScreenReflection(float3 p,float3 normal,float3 reflected,float3 fallba
     // coarse far out), and bisection restores the precision a long stride gives up.
     const int steps=24;
     float clippedPix=lenPix*tClip;
-    float jitter=Hash31(float3(floor(p0),weatherParams.w))*.9+.1;
+    // No per-pixel jitter: started at a random offset in each pixel, neighbouring pixels found the
+    // wall or missed it at random, and the wet walls and ground were covered in white grain where
+    // the mirrored sky came through. The bisection below gives back the precision a fixed start loses.
+    float jitter=.5;
     float pixelWorldScale=2/max(1,dimensions.y*length(viewProjection[1].xyz));
     float lastT=0;
     float hitT=-1;
@@ -166,7 +168,7 @@ float2 RainImpulse(float2 uv,float footprint,float time) {
 }
 float3 ActiveRainImpacts(float3 color,float3 p,float3 normal,float2 pixel,uint sample) {
     float distance=length(camera.xyz-p);
-    float exposure=RainExposure(p);
+    float exposure=RainExposure(p,normal);
     if(exposure<=0)return color;
     float3 source=normalize(float3(-weatherVelocity.xy,max(1,-weatherVelocity.z)));
     float facing=smoothstep(-.12,.65,dot(normal,source));

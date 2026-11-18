@@ -9,6 +9,22 @@ inline std::atomic<bool> ShadowFaceBatching{true};
 // Diagnostic (mirv_relight slotstable): budgeted lights keep their cache slot and the sun tier is
 // keyed by static geometry, so a reordered budget does not redraw every cached face.
 inline std::atomic<bool> ShadowSlotStability{true};
+// Diagnostic (mirv_relight drawruns): shadow geometry drawn one spatial cell per call, or with
+// cells that are adjacent in the index buffer joined into one call. Same triangles either way.
+inline std::atomic<bool> ShadowDrawRunMerging{true};
+// Diagnostic (mirv_relight tilerefresh): a batch of cached lamp faces is refreshed in one shared
+// depth target, one tile per face, or with a depth target and transfer texture per face.
+inline std::atomic<bool> ShadowTileRefresh{true};
+// Diagnostic (mirv_relight movingactors): a cached lamp face earns its every-frame refresh from a
+// caster that moved since the last frame, or from any captured caster, parked props included.
+inline std::atomic<bool> ShadowMovingActors{true};
+// Diagnostic (mirv_relight litbounds): the light lists bound each static-tier lamp by the box its
+// cached shadow depth lets it reach (Relight/RelightLitBoundsMath.h), or by its range sphere alone.
+inline std::atomic<bool> ShadowLitBounds{true};
+// The lit bounds of static-tier lamp `slot` (the order of PrepareMapLightShadows' staticPositions),
+// for receivers compared with `shadowBias`. False until the tier is complete and its depth summary
+// has been read back, and whenever the tier's set of lights changes.
+bool StaticLampLitBounds(unsigned slot,float shadowBias,Vec3& low,Vec3& high);
 void BeginShadowMaps(ID3D11Device *device);
 void EndShadowMaps();
 // Submit cached light-space depth maps using the environment's deferred context.
@@ -56,6 +72,13 @@ ID3D11ShaderResourceView* SkyboxSunShadow(Matrix* matrix);
 // NativeLampPyramidSlot, when `atlas` is the map atlas it summarizes; otherwise null.
 ID3D11ShaderResourceView* LampShadowPyramid(ID3D11ShaderResourceView* atlas);
 // `mirv_relight lampsummary`: off leaves the summary unbound, so every lamp runs its full disk.
+// The sun cascade tiles' depth summary for the sun penumbra pass, 4 to 2048 texel blocks (a whole
+// cascade tile). Null while it does not describe the atlas: before its first update, with
+// `mirv_relight sunsummary 0`, or while the first-person pass's close cascade is in the atlas.
+inline constexpr unsigned SunShadowPyramidLevels=10;
+ID3D11ShaderResourceView* SunShadowPyramid(ID3D11ShaderResourceView* atlas);
+bool SunShadowSummary();
+void SetSunShadowSummary(bool enabled);
 bool LampShadowSummary();
 void SetLampShadowSummary(bool enabled);
 // Depth of the static world in each stained glass beam's projection, into the atlas's beam tiles

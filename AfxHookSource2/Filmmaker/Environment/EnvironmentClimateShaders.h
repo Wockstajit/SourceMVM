@@ -7,11 +7,100 @@ float Noise3(float3 p) {
     return lerp(lerp(lerp(Hash31(a),Hash31(a+float3(1,0,0)),f.x),lerp(Hash31(a+float3(0,1,0)),Hash31(a+float3(1,1,0)),f.x),f.y),
         lerp(lerp(Hash31(a+float3(0,0,1)),Hash31(a+float3(1,0,1)),f.x),lerp(Hash31(a+float3(0,1,1)),Hash31(a+1),f.x),f.y),f.z);
 }
+// The same noise with how it slopes across x and y, from the one set of eight corners. (Grain and
+// bumps used to take three evaluations to difference it.)
+float Noise3Slope(float3 p,out float2 slope) {
+    float3 a=floor(p),f=frac(p),u=f*f*(3-2*f),du=6*f*(1-f);
+    float h000=Hash31(a),h100=Hash31(a+float3(1,0,0)),h010=Hash31(a+float3(0,1,0)),h110=Hash31(a+float3(1,1,0));
+    float h001=Hash31(a+float3(0,0,1)),h101=Hash31(a+float3(1,0,1)),h011=Hash31(a+float3(0,1,1)),h111=Hash31(a+1);
+    float x00=lerp(h000,h100,u.x),x10=lerp(h010,h110,u.x),x01=lerp(h001,h101,u.x),x11=lerp(h011,h111,u.x);
+    slope=float2(lerp(lerp(h100-h000,h110-h010,u.y),lerp(h101-h001,h111-h011,u.y),u.z)*du.x,lerp(x10-x00,x11-x01,u.z)*du.y);
+    return lerp(lerp(x00,x10,u.y),lerp(x01,x11,u.y),u.z);
+}
 float Fbm(float3 p) { return Noise3(p)*.57+Noise3(p*2.03+17)*.29+Noise3(p*4.11-9)*.14; }
-float3 SunDirection() {
+)HLSL"
+R"HLSL(
+// WIND GUSTS: THE AIR, AS EVERY PASS READS IT. The air is a fluid over the whole map
+// (EnvironmentWindFluid.h, bound at t42 for the composite, the particles and the veil): gust fronts
+// sweep downwind through it, it squeezes down streets and curls round buildings.
+// IT IS SHOWN THE WAY FLUID NINJA SHOWS WIND: a pattern carried by the air's own velocity (flow
+// mapping), so what the wind carries streams down a street at the speed the air moves there, bends
+// round a corner and curls in the lee of a house. In the air it is a sheen of streaks (white in snow,
+// grey in rain, dark in ash); on the ground it is what the gust does to the surface: wavelets that
+// rough up the wet film and the puddles, and snow scoured into streamers.
+float2 GustAlong(){float2 w=weatherVelocity.xy;float s=length(w);return s>1?w/s:float2(1,0);}
+// The air at a place: its velocity (xy, units a second), how much it carries (z), and 1 inside a
+// building (w). The steady wind, carrying nothing, where the fluid does not reach.
+float4 WindAt(float3 p){
+    if(windFluidWindow.z<=0)return float4(weatherVelocity.xy,0,1);
+    float2 uv=(p.xy-windFluidWindow.xy)*windFluidWindow.zw;
+    if(any(uv<0)||any(uv>1))return float4(weatherVelocity.xy,0,1);
+    return windFluid.SampleLevel(windSampler,uv,0);
+}
+// How much blown mist or snow that air holds, 0..1: none inside a wall, and thinning against one.
+float GustCarried(float4 air){return saturate(air.z)*(1-saturate(air.w*2));}
+// How gusty the air is at a place, 0..1: how far it surges over the steady wind (a front runs at
+// about 1.7 x (140 + the wind) over it, the air between fronts a third of that), shaded by what the
+// fluid carries there, drawn out along its flow. None inside a wall, thinning against one. The
+// fronts decide where: the carried load is spread over most of the map, and taken as the amount on
+// its own it made every street equally gusty, a flat grey.
+float GustAmount(float4 air){
+    float steady=length(weatherVelocity.xy);
+    float surge=(length(air.xy)-steady)/((140+steady)*1.7);
+    return smoothstep(.15,.85,surge)*(.6+.4*saturate(air.z*1.3))*(1-saturate(air.w*2));
+}
+// How strongly the Gusts control shows it: 0.67 and over is a full storm.
+float GustShown(){return saturate(CL_gusts*1.5);}
+// A PATTERN CARRIED BY THE AIR. All of it rides downwind together at the speed the gust fronts
+// travel: a rigid slide, which never tears it. Where the air at a place moves otherwise (squeezed
+// down a street, turned at a corner, curling in an eddy) the pattern is bent that way by flow
+// mapping, two copies half a period apart cross-faded so the restart never shows, but only by a
+// couple of the pattern's own widths. (Carried the whole way by the local velocity, the eddies wound
+// the pattern into marbled stripes across the floor.) `scale`: its size along the steady wind,
+// across it and in height, in units. Returns 0..1.
+float GustFlow(float3 p,float2 velocity,float3 scale,float period){
+    float2 d=GustAlong(),n=float2(-d.y,d.x);
+    const float fronts=220+1.5*length(weatherVelocity.xy);
+    float2 rest=velocity-d*fronts;
+    float restSpeed=length(rest);
+    float2 bend=restSpeed>1e-3?rest*(min(restSpeed*period,scale.y*2.5)/restSpeed):float2(0,0);
+    float t=climateClock.x/period;
+    float a=frac(t),b=frac(t+.5),wa=1-abs(2*a-1);
+    float ca=floor(t),cb=floor(t+.5),slide=climateClock.x*fronts;
+    float2 pa=p.xy-bend*a,pb=p.xy-bend*b;
+    float na=Noise3(float3((dot(pa,d)-slide)/scale.x+ca*7.31,dot(pa,n)/scale.y+ca*3.17,p.z/scale.z));
+    float nb=Noise3(float3((dot(pb,d)-slide)/scale.x+cb*7.31+13.7,dot(pb,n)/scale.y+cb*3.17+5.3,p.z/scale.z+9.1));
+    // Two noises blended are flatter than one: the contrast is put back.
+    return saturate(.5+(na*wa+nb*(1-wa)-.5)/sqrt(wa*wa+(1-wa)*(1-wa)));
+}
+// The wavelets a gust raises on water: crests across the wind, about a hand apart, drifting
+// downwind slowly (they are the water's; the gust only raises them where it runs). Returns how the
+// surface slopes across x and y (world).
+float2 GustRipples(float3 p){
+    float2 d=GustAlong(),n=float2(-d.y,d.x);
+    float2 q=p.xy-d*(climateClock.x*45);
+    float2 s;Noise3Slope(float3(dot(q,d)/6,dot(q,n)/15,climateClock.x*1.3),s);
+    return d*s.x+n*(s.y*.4);
+}
+
+float3 TrueSunDirection() {
     float a=radians(CL_sunAzimuth),e=radians(CL_sunElevation);
     return float3(cos(e)*cos(a),cos(e)*sin(a),sin(e));
 }
+float3 MoonDirection() {
+    float a=radians(CL_moonAzimuth),e=radians(CL_moonElevation);
+    return float3(cos(e)*cos(a),cos(e)*sin(a),sin(e));
+}
+// THE KEY LIGHT. The map is lit and shadowed by the sun while it is up and by the moon once it has
+// set; at the hand-over both are dark, so the change of direction never shows. SunDirection() and
+// SunColor() are the key light everywhere; the sky draws the sun itself (TrueSun*) and the moon.
+// C++ twin: ClimateMoonKey / ClimateMoonPower in EnvironmentClimateMath.h.
+bool MoonKey() { return CL_sunElevation<0&&CL_moon>0; }
+float MoonPower() {
+    return max(CL_moon,0)*(.5-.5*cos(CL_moonPhase*6.2831853))*smoothstep(0,1,-CL_sunElevation/6)*
+           smoothstep(0,1,CL_moonElevation)*.1;
+}
+float3 SunDirection() { return MoonKey()?MoonDirection():TrueSunDirection(); }
 // The elevation ramp runs warm at the horizon and white overhead; the authored colour
 // multiplies it, so 1,1,1 keeps the shipped look and anything else tints the surfaces, the
 // sun disk and the sky glow together.
@@ -22,12 +111,23 @@ float3 SunTint() { return float3(CL_sunColorR,CL_sunColorG,CL_sunColorB); }
 // authored tint but NOT the elevation ramp or CL_sunPower, so it neither goes black at night nor
 // changes a scene that has not been tinted.
 float3 AmbientTint() { return SunTint(); }
-float3 SunColor() { return lerp(float3(1,.36,.12),float3(1,.94,.83),saturate((CL_sunElevation+4)/30))*SunTint()*CL_sunPower*smoothstep(0,1,CL_sunElevation); }
+float3 TrueSunColor() { return lerp(float3(1,.36,.12),float3(1,.94,.83),saturate((CL_sunElevation+4)/30))*SunTint()*CL_sunPower*smoothstep(0,1,CL_sunElevation); }
+float3 SunColor() { return MoonKey()?float3(CL_moonColorR,CL_moonColorG,CL_moonColorB)*MoonPower():TrueSunColor(); }
 )HLSL"
 #include "EnvironmentSkyRadianceShaders.h"
 R"HLSL(
-float3 SkyColor(float3 ray,float sunVisibility=1) {
-    float3 color=SkyRadiance(ray,SunDirection(),SunColor(),CL_sunElevation,CL_haze,CL_stars,sunVisibility);
+SkyLights ClimateSkyLights(float sunVisibility) {
+    SkyLights l;
+    l.sun=TrueSunDirection();l.sunTint=SunTint();l.sunlight=TrueSunColor();
+    l.sunElevation=CL_sunElevation;l.haze=CL_haze;l.stars=CL_stars;l.visibility=sunVisibility;
+    l.moon=MoonDirection();l.moonRadius=radians(CL_moonSize*.5);
+    l.moonTint=float3(CL_moonColorR,CL_moonColorG,CL_moonColorB);l.moonBrightness=CL_moon;l.moonPhase=CL_moonPhase;
+    return l;
+}
+// The Environment sky toward a direction. Reflections and the light the fogs and clouds take from
+// the sky use the half-step march; the backdrop itself passes fast=false.
+float3 SkyColor(float3 ray,float sunVisibility=1,bool fast=true) {
+    float3 color=SkyRadiance(ray,ClimateSkyLights(sunVisibility),fast);
     float3 flashDirection=normalize(stormSource.xyz-camera.xyz+float3(0,0,1e-4));
     color+=float3(.55,.7,1)*stormSource.w*.16*pow(saturate(dot(ray,flashDirection)*.5+.5),6);
     return max(color,0);
@@ -68,8 +168,66 @@ bool PlayerMaskClaims(float3 p) {
     }
     return false;
 }
+// The body's parts between its bones (actorBones), as kBodyParts in EnvironmentFootprintMath.h: from
+// bone, to bone, how thick. Part 3 is the head, a ball a little above its bone (BodyPartEnds).
+static const float3 kBodyPartsHlsl[16]={
+    float3(0,1,6.5),float3(1,2,7),float3(2,3,5.5),float3(3,3,5),
+    float3(2,4,5),float3(4,5,3.2),float3(5,6,3),float3(2,7,5),
+    float3(7,8,3.2),float3(8,9,3),float3(0,10,5.5),float3(10,11,4.2),
+    float3(11,12,3.4),float3(0,13,5.5),float3(13,14,4.2),float3(14,15,3.4)};
+// THE BODY AS DRAWN THIS FRAME, from its bones, living or dead. Part of the test below: a point within a part's
+// thickness plus a margin for clothes and gear (a little more far away, where a pixel is wider) is
+// the player. It follows the pose exactly, whatever the player mask did; with the mask alone, bots
+// came out snowed and wet over their shoulders and arms (reported 2026-11-17). The ground round the
+// boots is ground: level surface at the height of the ankles is left to the coatings.
+bool BonesClaim(float3 p,float3 geometric){
+    if(coatingActorCount.w<.5)return false;
+    float margin=4+.004*length(p-camera.xyz);
+    // Every body with bones: the living (as coatingActors) and then the dead.
+    int count=(int)coatingActorCount.w;
+    [loop]for(int i=0;i<count;++i){
+        int base=i*16;
+        if(actorBones[base].w<.5)continue;
+        float3 fromPelvis=p-actorBones[base].xyz;
+        if(dot(fromPelvis,fromPelvis)>4900)continue;
+        float feet=min(actorBones[base+12].w>.5?actorBones[base+12].z:1e9,actorBones[base+15].w>.5?actorBones[base+15].z:1e9);
+        if(geometric.z>.6&&p.z<feet+3)continue;
+        [loop]for(int k=0;k<16;++k){
+            float3 part=kBodyPartsHlsl[k];
+            float4 a=actorBones[base+(int)part.x],b=actorBones[base+(int)part.y];
+            if(a.w<.5||b.w<.5)continue;
+            float3 from=a.xyz,to=b.xyz;
+            if(k==3){float3 up=from-actorBones[base+2].xyz;from+=(dot(up,up)>1?normalize(up):float3(0,0,1))*3.5;to=from;}
+            float3 ab=to-from;float t=saturate(dot(p-from,ab)/max(dot(ab,ab),1e-4));
+            if(length(p-from-ab*t)<part.z+margin)return true;
+        }
+    }
+    return false;
+}
 bool CoatingActor(float3 p,float3 geometric) {
-    if(PlayerMaskClaims(p)) return true;
+    if(PlayerMaskClaims(p)||BonesClaim(p,geometric)) return true;
+    // THE BODY THE CAMERA IS IN. Looked down at in first person, the legs the game draws are not
+    // posed as the body in the mask is (they are set back so they can be seen), so parts of them
+    // fell outside it and were painted as snowed ground: white patches on the thighs and boots.
+    // Nothing but the player can be inside the player's own hull above the feet, so for the pawn the
+    // camera sits in, everything there is the player.
+    {
+        int own=(int)coatingActorCount.x;
+        [loop]for(int j=0;j<own;++j){
+            float3 o=coatingActors[j].xyz;
+            float2 eye=abs(camera.xy-o.xy),at=abs(p.xy-o.xy);
+            // But not the floor the player stands on: the drawn floor is often a unit or two above the
+            // collision floor the feet are on (Mirage's Palace balcony: two), and it was taken for the
+            // body, a bare 40-unit square of floor round the feet with snow all round it. Level ground
+            // within a step of the feet is ground, as for any other player (kCoatingFloorBand).
+            bool floor=geometric.z>.9&&p.z<o.z+18;
+            if(coatingActors[j].w>0&&!floor&&max(eye.x,eye.y)<14&&camera.z>o.z+24&&camera.z<o.z+80&&max(at.x,at.y)<20&&p.z>o.z+1.5&&p.z<camera.z+8)return true;
+        }
+    }
+    // With the mask of where players really are on screen, that is the whole answer. The columns
+    // below are only for a frame without one: a column takes in whatever stands inside it, so the
+    // wall, ledge or truck a player stood against lost its snow and its wet in a circle round them.
+    if(coatingActorCount.y>.5) return false;
     int count=(int)coatingActorCount.x;
     for(int i=0;i<count;++i) {
         float3 origin=coatingActors[i].xyz; float radius=coatingActors[i].w;
@@ -85,62 +243,510 @@ bool CoatingActor(float3 p,float3 geometric) {
     }
     return false;
 }
-// SETTLED SNOW UNDER COVER. Snow and ash are sheltered straight overhead, and a plain comparison
-// ends the cover on a hard line exactly under the edge of an arch or eave. Real snow blows in under
-// cover and thins out with distance from the opening. Open sky is always fully exposed (filtering
-// open ground beside tall walls turned whole courtyards grey). Under cover the exposure is a
-// distance-weighted average of how much of each ring around the point is open sky: continuous in
-// position, so it fades smoothly. (Taking the NEAREST open tap along 8 fixed directions quantised
-// the distance and cut straight bare bands under arcades.) The fringe grows with the cover's height
-// but stays short: a building above an arcade is not an opening.
-static const float kSnowFringeMax=140;
+)HLSL"
+R"HLSL(
+// CLUMPS. One pattern, fixed to the map, that scattered snow and tracked-in water are both cut
+// from: blobs a foot or two across with smaller ones between. 0..1, even enough that "more than
+// 1 - c" covers about the share c of a floor.
+float WeatherClumps(float3 world){
+    float broad=saturate((Fbm(world*float3(.12,.12,.04))-.24)/.52);
+    return saturate(broad*.8+Noise3(world*float3(.37,.37,.12)+7)*.2);
+}
+// HOW MUCH SNOW LIES HERE, 0..1, and how trodden it is.
+//  - Under open sky, away from any door: all of it.
+//  - Under open sky by a way indoors: trodden. People walk through it, so it is broken into packed
+//    patches with bare ground between, more broken the nearer the door.
+//  - Under cover: scattered. Snow is blown and carried in, so it lies in clumps, many by the opening
+//    and fewer with every step in, and none where no open air reaches.
+// The same clumps are used on both sides of a threshold, so the trodden snow outside runs into the
+// scattered snow inside without a line.
+float SnowLies(float3 cover,float3 world,out float trodden){
+    float clumps=WeatherClumps(world);
+    // Under cover, snow is full where the volume holds 45 % of the open air and gone under 10 % (the
+    // documented contract: about 24 to 90 units in through a wide doorway). It used to start at 0.2 %
+    // with a square root on top, which the spread reaches some 380 units in, so a room with an opening
+    // on each side (Mirage's palace) had snow lying in patches across its whole floor.
+    float inside=smoothstep(.1,.45,cover.y),walked=smoothstep(.06,.5,cover.z);
+    float share=lerp(inside*.85,1-.42*walked,cover.x);
+    trodden=saturate(lerp(1-inside*.6,walked,cover.x));
+    // A crisp, ragged edge: a patch ends within an inch, in small torn flecks, not in a soft fade.
+    clumps+=(Noise3(world*float3(1.1,1.1,.4)+3)-.5)*.09+(Noise3(world*float3(3.3,3.3,1.1)+11)-.5)*.05;
+    return share>=.995?1:smoothstep(1-share-.022,1-share+.022,clumps)*step(.004,share);
+}
 // Snow follows the luminance of the ground it covers, at most SNOW_MAX_LIFT times it, so night ground
 // stays dark under snow (issue 135). Mirror of SnowCoverShade in EnvironmentCoatingMath.h.
 float SnowCoverShade(float mapLuminance){
     return min(.03+.97*pow(saturate(mapLuminance),.28),SNOW_MAX_LIFT*max(mapLuminance,0));
 }
-float SettledSnowExposure(float3 world){
-    if(shelterInfo.x<=0)return 1;
-    float4 clip=mul(shelterMatrix,float4(world+shelterDirection.xyz*shelterInfo.z,1));
-    float3 ndc=clip.xyz/clip.w;float2 uv=ndc.xy*float2(.5,-.5)+.5;
-    if(any(uv<0)||any(uv>1)||ndc.z<0)return 1;
-    int resolution=(int)shelterInfo.y;
-    float2 texel=uv*resolution-.5;
-    float here=ShelterCompare(texel,ndc.z,resolution);
-    if(here>=1)return 1;
-    float texelWorld=2/max(length(shelterMatrix[0].xyz)*resolution,1e-6);
-    float depthWorld=1/max(length(shelterMatrix[2].xyz),1e-9);
-    float cover=shelterTexture.Load(int3(clamp((int2)floor(texel+.5),0,resolution-1),0));
-    float height=max(0,ndc.z-cover)*depthWorld;
-    // Uneven reach: drifts push further in at some spots than others.
-    float reach=clamp(height*.7,56,kSnowFringeMax)*(.6+.8*Noise3(world*float3(.035,.035,.01)));
-    // Fine per-spot jitter of the ring radii (half-unit grain, like snow): fixed radii drew the
-    // rings' contours as stair steps and faint arcs.
-    float jitter=.25+.5*Hash31(floor(world*2)+17.3);
-    float open=0,weight=0;
-    [unroll]for(int ring=1;ring<=6;++ring){
-        float r=reach*(ring-jitter)/6,w=1-(ring-.5)/6;
-        float ringOpen=0;
-        [unroll]for(int k=0;k<12;++k){
-            float a=k*.5235988+ring*.2618;
-            float d=shelterTexture.Load(int3(clamp((int2)floor(texel+float2(cos(a),sin(a))*(r/texelWorld)+.5),0,resolution-1),0));
-            ringOpen+=ndc.z<=d+.000001?1:0;
-        }
-        open+=w*w*ringOpen/12;weight+=w*w;
+)HLSL"
+R"HLSL(
+// FOOTPRINTS: x = how deep a print is here (thin snow), y unused, z = how far down the players' feet
+// have pressed deep snow (1 is to its bed), all 0..1, from the image of marks around the camera
+// (EnvironmentFootprintMath.h). A mark made on another floor (its height layer is far from this
+// surface's) is not this floor's.
+#define FOOT_SAME_LEVEL 7. // see FootMarksNear
+float3 FootMarksAt(float2 xy,float z){
+    float2 g=xy/FOOT_TEXEL-.5;int2 a=(int2)floor(g);float2 f=g-a;float3 sum=0;
+    [unroll]for(int k=0;k<4;++k){
+        int2 o=int2(k&1,k>>1);
+        float4 t=footTexture.Load(int3((a+o)&(FOOT_SIZE-1),0));
+        float apart=abs(frac((z/FOOT_LAYER-t.z*255)/256+.5)-.5)*256*FOOT_LAYER;
+        sum+=float3(t.x,0,t.w)*step(apart,FOOT_SAME_LEVEL)*(o.x?f.x:1-f.x)*(o.y?f.y:1-f.y);
     }
-    // Half the directions open at the edge reads as full cover there; deep inside it falls to 0.
-    return max(here,saturate(1.25*open/weight));
+    return sum;
 }
+float3 FootMarks(float3 p){
+    if(footInfo.x<.5)return 0;
+    float2 d=abs(p.xy-camera.xy);
+    float fade=1-smoothstep(.8,.95,max(d.x,d.y)/(FOOT_SIZE*.5*FOOT_TEXEL));
+    return fade>0?FootMarksAt(p.xy,p.z)*fade:0;
+}
+// THE LIGHT ON THE SNOW. Snow hides the ground, so it cannot take its shade from the ground's own
+// pixel: cobble joints, tile seams and painted lines showed through the cover as if it were a thin
+// frost. It takes the scene's light from a ring of taps around the pixel instead, which keeps the
+// broad picture (sun and shade, a lamp's pool, the colour of the light) and loses the texture.
+// Taps on another surface (a wall behind, the sky, a different height) are left out.
+// The ring is tens of pixels wide, and averaged as it stands across a sun shadow's edge it smeared
+// every shadow on the snow into a broad, grainy blur; see below for how the shadow is kept sharp.
+float SnowSunSide(float3 w){return WorldSunShadowQuick(w+SunDirection()*shadowInfo.y,float3(0,0,1));}
+float3 SnowLight(float3 p,float3 color,float sunSeen){
+    float4 h=mul(viewProjection,float4(p,1));
+    if(h.w<=1e-4)return color;
+    float2 pixel=(h.xy/h.w*float2(.5,-.5)+.5)*dimensions.xy;
+    // The centre is the lit colour this pass worked out; the taps are the frame as it came in. Their
+    // ratio carries this pass's own changes (ambient, tint) over to the taps.
+    float3 here=ReadSource(pixel,0);
+    float gain=clamp((dot(color,float3(.2126,.7152,.0722))+.002)/(dot(here,float3(.2126,.7152,.0722))+.002),.25,4);
+    float spread=dimensions.y*.026,reach=24+.03*length(p-camera.xyz);
+    // The ring of taps is turned and sized differently at every spot on the ground (a pattern fixed
+    // to the map, half a unit fine). With one fixed ring every tap carried a shifted copy of the
+    // ground's seams, and eight shifted copies of a tiled floor drew a plaid of stripes on the snow.
+    // The centre pixel counts for little: it is the one that holds the seam itself.
+    // It turns smoothly from place to place (noise, not a hash per half-unit cell): with a ring that
+    // jumped at every cell edge, each cell measured the frame's shadow from a different set of taps
+    // and a shadow's edge on the snow came out as a staircase of half-unit blocks.
+    float turn=Noise3(p*1.6)*12.566371,size=.55+.9*Noise3(p*1.6+19.7);
+    float2 turnX=float2(cos(turn),sin(turn))*size,turnY=float2(-turnX.y,turnX.x);
+    // THE FRAME'S OWN SHADOW IS TAKEN OUT OF EVERY TAP AND PUT BACK ONCE, AT THIS POINT. Each tap
+    // knows whether the sun reaches it (SnowSunSide); the shadowed ones are lifted to what they would
+    // be in the sun, all twelve are averaged, and the result is darkened by this point's own
+    // filtered sun visibility (`sunSeen`; -1 with no sun or moon maps, which leaves the plain
+    // average). A shadow's edge on the snow is then as sharp as the lit world's, and every tap still
+    // counts. (Leaving out the taps across the edge did sharpen it, but under a palm most taps are
+    // across some edge: each half-unit patch averaged a different two or three and the shade came
+    // out speckled.) `shadow` is how dark the frame's shadow is here, shadowed over lit, measured
+    // from the taps when both kinds are among them.
+    const float3 kLuma=float3(.2126,.7152,.0722);
+    float3 tap[12];float seen[12],kept[12];
+    float lit=0,litWeight=0,shade=0,shadeWeight=0;
+    [unroll]for(int i=0;i<12;++i){
+        tap[i]=0;seen[i]=1;kept[i]=0;
+        float2 q=pixel+(turnX*kSoftTaps[i].x+turnY*kSoftTaps[i].y)*spread;
+        if(any(q<0)||any(q>=dimensions.xy))continue;
+        float d=ReadSampleDepth(q,0);
+        if(IsSky(d))continue;
+        float3 w=World(q,d);
+        float keep=saturate(2-abs(w.z-p.z)/reach)*saturate(3-length(w-p)/(reach*4));
+        [branch]if(keep<=0)continue;
+        tap[i]=ReadSource(q,0)*gain;kept[i]=keep;
+        [branch]if(sunSeen>=0)seen[i]=SnowSunSide(w);
+        float l=dot(tap[i],kLuma),inSun=keep*saturate(seen[i]*5-4),inShade=keep*saturate(1-seen[i]*5);
+        lit+=l*inSun;litWeight+=inSun;shade+=l*inShade;shadeWeight+=inShade;
+    }
+    // Snow in shade is never near black: the sky and the sunlit snow round it light it. Measured from
+    // the frame, a corner's own occlusion counted as shadow and the shade under a plank went almost
+    // black, down to an eighth of the sunlit snow; a third is the least it takes.
+    float shadow=litWeight>.5&&shadeWeight>.5?clamp((shade/shadeWeight)/max(lit/litWeight,1e-4),.33,1):.45;
+    float own=sunSeen>=0?lerp(shadow,1,sunSeen):1;
+    float3 sum=color/own*.25;float weight=.25;
+    [unroll]for(int j=0;j<12;++j){sum+=tap[j]/lerp(shadow,1,seen[j])*kept[j];weight+=kept[j];}
+    return sum/weight*own;
+}
+)HLSL"
+R"HLSL(
+// DEEP SNOW TAKES EVERY FOOT. The ground the game drew is the BED of the snow; its surface lies
+// `deep` units above it, and this is the height of that surface over the bed. Where nobody has
+// walked it is level. Where a foot has been it is no higher than the foot's sole went (the image
+// keeps how far down each texel was pressed), over a packed layer a fifth as deep where it was
+// trodden right down. So a foot on the ground stands in a hole, a foot that swung low ploughed a
+// groove, and holes close together are one hole.
+float SnowHeight(float3 marks,float deep){
+    return max(min(deep,(1-marks.z)*SNOW_TOP+.2*deep*marks.z)-min(deep,1.4)*marks.x,0);
+}
+// THE SNOW DOES NOT LIE AS ONE FLAT SHEET. It lies in mounds and hollows: broad swells several
+// paces across, lumps a pace or two across on them and small ones on those, fixed to the map. This
+// is how much of its depth lies at a spot, about 0.3 to SNOW_RELIEF_MOST. The surface really is that shape: the view ray is walked
+// against it, so a mound hides what is behind its crest, a foot sinks deeper in a mound than in a
+// hollow, and its slopes take the light.
+// GLISTEN. Snow glitters because its top is a litter of ice crystals, each a tiny mirror: the few
+// that happen to lie halfway between the eye and the light flash, and a different few flash as
+// either moves. Drawn the way games do it (a stationary jittered grid of sparkles, after Shopf and
+// Wang & Bowles 2016, "A Robust and Flexible Real-Time Sparkle Effect"): the ground is divided
+// into cells fixed to the map, each holding one crystal at a random spot with a random tilt. A
+// crystal is a ROUND point about a pixel across, never a whole cell (whole cells flashing showed
+// as squares), and it flashes by how nearly its tilt lines up between eye and light, plus a
+// fainter flash straight back at the eye so overcast and lamplit snow still twinkles. The cells
+// are sized from how much ground a pixel covers, in doubling steps blended into each other, so
+// none flickers smaller than a pixel.
+// GLINTS ARE SMALL AND NEAR. Sized from the pixel alone, there were as many on screen across a far
+// yard as at the feet, and a glint one pixel wide a thousand units off is a crystal the size of a
+// plate: the far snow was strewn with big bright dots. A crystal's cell is never more than
+// SNOW_GLINT_CELL across however far away it is, and the glints fade out with distance
+// (SNOW_GLINT_NEAR to SNOW_GLINT_FAR from the eye), before a cell that size is too small to draw.
+#define SNOW_GLINT_CELL 2.
+#define SNOW_GLINT_NEAR 220.
+#define SNOW_GLINT_FAR 700.
+float SnowGlints(float3 p,float3 hv,float3 view,float footprint,float size){
+    float2 u=float2(p.x*.83+p.y*.56,p.y*.83-p.x*.56)/size;
+    float2 cell=floor(u);
+    float3 key=float3(cell,size*37.1);
+    float2 spot=.22+.56*float2(Hash31(key),Hash31(key+11.3));
+    float3 tilt=normalize(float3(Hash31(key+23.7)-.5,Hash31(key+37.9)-.5,.25+.45*Hash31(key+51.1)));
+    float wide=clamp(max(footprint*1.3,.05)/size,.02,.22);
+    float point_=1-smoothstep(wide*.35,wide,length(u-cell-spot));
+    return point_*(pow(saturate(dot(tilt,hv)),90)+.3*pow(saturate(dot(tilt,view)),220));
+}
+float SnowGlisten(float3 p,float3 hv,float3 view,float footprint){
+    float near=1-smoothstep(SNOW_GLINT_NEAR,SNOW_GLINT_FAR,length(p-camera.xyz));
+    [branch]if(near<=0)return 0;
+    float level=clamp(log2(max(footprint,1e-3)*9/.25),0,log2(SNOW_GLINT_CELL/.25));
+    float size=.25*exp2(floor(level));
+    return lerp(SnowGlints(p,hv,view,footprint,size),SnowGlints(p,hv,view,footprint,min(size*2,SNOW_GLINT_CELL)),frac(level))*5*near;
+}
+// Value noise over the ground plane: four corners a look-up, where Noise3 reads eight.
+float Noise2(float2 p){
+    float2 a=floor(p),f=frac(p);f=f*f*(3-2*f);
+    float4 h=frac(sin(float4(dot(a,float2(127.1,311.7)),dot(a+float2(1,0),float2(127.1,311.7)),dot(a+float2(0,1),float2(127.1,311.7)),dot(a+1,float2(127.1,311.7))))*43758.5453);
+    return lerp(lerp(h.x,h.y,f.x),lerp(h.z,h.w,f.x),f.y);
+}
+// fBm over the ground plane with each octave rotated (iquilezles.org/articles/fbm). 0..1, mean .5.
+float SnowFbm(float2 p,int octaves){
+    float f=0,a=.5,total=0;
+    [loop]for(int i=0;i<octaves;++i){f+=a*Noise2(p);total+=a;p=mul(float2x2(.8,.6,-.6,.8),p)*2.03+17.1;a*=.5;}
+    return f/total;
+}
+// Summed value noise bunches round the middle; stretched to -1..1 with about the spread a product
+// of two sines has, so the mounds keep their old height.
+float SnowSigned(float n){return clamp((n-.5)*3.2,-1,1);}
+float SnowRelief(float2 xy){
+    // The mounds are waves, and waves repeat: the same ripple ran in rows across a yard. So the
+    // ground they are laid on is first pushed about by slow noise, up to a few mounds' width and a
+    // different way everywhere, and the same noise makes the lumps strong in one place and faint
+    // in the next. No two stretches of a yard line up.
+    // (The push is gentle for its size: one that moves the ground further than about half the
+    // distance it changes over folds the waves onto themselves, which drew fine rings everywhere.)
+    float2 push=float2(Noise2(xy/610),Noise2(xy.yx/530+31));
+    float2 fine=float2(Noise2(xy/170+7),Noise2(xy.yx/190+19));
+    xy+=(push-.5)*260+(fine-.5)*60;
+    // NOISE, NOT WAVES. The mounds were products of sines, and however the ground was pushed about
+    // under them a sine still repeats: from above, the small ripples ran in parallel rows every
+    // twenty-odd units, and the whole yard read as one tile laid over and over. They are fBm now
+    // (value noise summed over octaves, each octave turned against the last so no grid lines up;
+    // after Inigo Quilez, "fBM", iquilezles.org/articles/fbm), at the same three sizes and with the
+    // same spread as the waves had.
+    float broad=SnowSigned(SnowFbm(xy/150,2));
+    float lumps=SnowSigned(SnowFbm(xy/38+float2(5.2,1.3)+broad*.6,3));
+    float small=SnowSigned(Noise2(mul(float2x2(.8,.6,-.6,.8),xy)/11+13.7+lumps));
+    return min(.85+.25*broad+.2*lumps*(.35+1.3*fine.x)+.08*small*(.4+1.2*fine.y),SNOW_RELIEF_MOST);
+}
+// The marks at a point: one smoothed read (the sampler wraps and filters), with the height layer
+// taken from the nearest texel, which must not be blended. No early exit: a lookup that returns
+// early inside a branch sends the shader compiler into a stack overflow.
+// A mark belongs to the level it was made on. One made in the street is not drawn on the kerb beside
+// it, nor the other way: with marks shared across 28 units of height, a trampled patch ran up over a
+// kerb as a slab hanging in the air, and its hollow was traced from the pavement as if the street's
+// holes lay under it. Seven units takes in a slope under one boot and leaves out a kerb.
+float3 FootMarksNear(float3 p){
+    // The four texels round the point, each counted only if it was marked on this level, and blended.
+    // (With the level taken from the nearest texel alone and the marks blended across all four, a
+    // stair's treads, whose texels belong to one step or the next by turns, were drawn in blocks.)
+    float2 uv=p.xy/(FOOT_TEXEL*FOOT_SIZE);
+    float4 layers=footTexture.GatherBlue(footSampler,uv);
+    float4 same=step(abs(frac((p.z/FOOT_LAYER-layers*255)/256+.5)-.5)*256*FOOT_LAYER,FOOT_SAME_LEVEL);
+    float2 f=frac(uv*FOOT_SIZE-.5);
+    float4 share=float4((1-f.x)*f.y,f.x*f.y,f.x*(1-f.y),(1-f.x)*(1-f.y))*same;
+    float3 m=float3(dot(share,footTexture.GatherRed(footSampler,uv)),0,dot(share,footTexture.GatherAlpha(footSampler,uv)));
+    float2 d=abs(p.xy-camera.xy);
+    // The image of marks reaches 768 units from the camera. They fade out over the outer third of
+    // that, a long way, where they used to go in the last fifty units, which read as a line.
+    return m*(1-smoothstep(.66,.97,max(d.x,d.y)/(FOOT_SIZE*.5*FOOT_TEXEL)));
+}
+// THE MARKS, ROUND. A texel of the image is three quarters of a unit, so a pace from the eye it is
+// drawn ten pixels wide, and the four-texel blend above, cut sharp by a print's edge, its rim and the
+// melt line, drew every print and every bare patch as a stack of little squares. This reads the
+// sixteen texels round the point with cubic B-spline weights (smooth across texels, so an edge cut
+// from it is a curve; after Sigg and Hadwiger, "Fast Third-Order Texture Filtering", GPU Gems 2,
+// ch. 20), each counted only if it was marked on this level as above. x/z as FootMarksNear; y is the
+// melt, kept from marks within three times the level gap (as SnowMelted always took it).
+// Four times the reads of FootMarksNear: the march into a hole keeps the cheap one, and only what is
+// drawn from the point it found reads this.
+float3 FootMarksRound(float3 p,out float melt){
+    float2 g=p.xy/FOOT_TEXEL-.5,i=floor(g),t=g-i,s=1-t;
+    float2 w0=s*s*s/6,w3=t*t*t/6,w1=(3*t*t*t-6*t*t+4)/6,w2=1-w0-w1-w3;
+    float3 m=0;melt=0;
+    [unroll]for(int k=0;k<4;++k){
+        int qx=k&1,qy=k>>1;
+        float2 uv=(i+float2(qx,qy)*2)/FOOT_SIZE;
+        float u0=qx?w2.x:w0.x,u1=qx?w3.x:w1.x,v0=qy?w2.y:w0.y,v1=qy?w3.y:w1.y;
+        float4 weight=float4(u0*v1,u1*v1,u1*v0,u0*v0);
+        float4 apart=abs(frac((p.z/FOOT_LAYER-footTexture.GatherBlue(footSampler,uv)*255)/256+.5)-.5)*256*FOOT_LAYER;
+        float4 share=weight*step(apart,FOOT_SAME_LEVEL);
+        m+=float3(dot(share,footTexture.GatherRed(footSampler,uv)),0,dot(share,footTexture.GatherAlpha(footSampler,uv)));
+        melt+=dot(weight*step(apart,FOOT_SAME_LEVEL*3),footTexture.GatherGreen(footSampler,uv));
+    }
+    float2 d=abs(p.xy-camera.xy);
+    float fade=1-smoothstep(.66,.97,max(d.x,d.y)/(FOOT_SIZE*.5*FOOT_TEXEL));
+    melt*=fade;
+    return m*fade;
+}
+// MELTED: how far a fire or a blast has cleared the snow at a ground point, 0..1 (the image's second
+// channel; EnvironmentFootprints.cpp), read round like the marks.
+float SnowMelted(float3 p){float melt;FootMarksRound(p,melt);return melt;}
+float3 FootMarksSmooth(float3 p){float melt;return FootMarksRound(p,melt);}
+)HLSL"
+R"HLSL(
+// What the eye meets looking at ground point p: the view ray is walked down through the snow from
+// its level top until it goes under the surface, so the near wall of a hole hides its floor and the
+// far wall stands up behind it. Everything is placed where it is in the world: a hole's floor is
+// on the ground where the foot stood and its mouth is `deep` above that, exactly over it. `met` is
+// the height at which the ray met the snow (ApplyCoatings hides a player's leg behind the snow
+// with it); `marks` and `height` are the snow there, `slope` how its surface leans, and `shadow`
+// how far the hole's own wall cuts the sun off. The snow pushed out of a hole is heaped round its
+// mouth (the rim): pressed snow nearby, none here.
+void SnowTrench(float3 p,float3 view,float3 sun,float deep,float2 tilt,out float3 marks,out float height,out float met,out float level,out float2 slope,out float shadow,out float2 where){
+    // THE BED IS THE GROUND AS IT LIES, NOT A LEVEL FLOOR. `tilt` is how the ground rises a unit
+    // east and north. Taken as level, the bed under a point of the ray a few paces up a slope was
+    // put at the wrong height: the marks there were counted as another floor's and no hole was
+    // drawn, and what was drawn stood off the ground.
+    float down=max(view.z-dot(tilt,view.xy),.12),top=deep*SNOW_RELIEF_MOST;
+    shadow=0;met=0;
+    {
+        // WHERE THE RAY MEETS THE SNOW AS IT LAY, EXACTLY. The untrodden surface is a formula (its
+        // mounds), so the height at which this ray enters it is found to a twentieth of a unit:
+        // six even heights, then five halvings. Above that there is only air (marks can only lower
+        // the surface), and if the snow at that very point has not been pressed, that is what the
+        // eye meets. This is what draws the near lip of a furrow, and it must be exact: a ray that
+        // clips the top corner of the lip is inside the snow for less than any sample spacing, so
+        // a walk in steps skipped it by an amount that crept and snapped back along the furrow,
+        // and the lip was drawn as a staircase (first with sixteen even heights, three units apart
+        // along the ground at a low camera; then with samples 1.1 apart, which only made the
+        // stairs smaller).
+        // (These short searches are kept as loops, [loop], not copied out step by step: copied out,
+        // the mound formula was compiled some thirty times over in every program that draws snow,
+        // and that was a good part of the minutes the shader bundle takes to build.)
+        float air=top,snowed=0,entered=0;
+        [loop]for(int e=1;e<=6;++e){
+            float h=top*(1-e/6.);
+            float inside=step(h,deep*SnowRelief(p.xy+view.xy*(h/down)))*(1-entered);
+            snowed=lerp(snowed,h,inside);
+            entered=max(entered,inside);
+            air=lerp(h,air,entered);
+        }
+        [loop]for(int b=0;b<5;++b){
+            float mid=.5*(air+snowed);
+            float inside=step(mid,deep*SnowRelief(p.xy+view.xy*(mid/down)));
+            snowed=lerp(snowed,mid,inside);air=lerp(mid,air,inside);
+        }
+        float entry=.5*(air+snowed);
+        // NOTHING MARKED NEAR HERE: one read of a coarse copy of the image (a texel of it is twelve
+        // units, the average of 256) says whether any foot has been within reach of this point. If
+        // none has, the untrodden surface at the entry is what the eye meets and there is nothing
+        // else to work out: no walk, no rim, no wall's shadow. That is nearly all the snow on
+        // screen, and it used to pay for twenty-odd reads of the image for nothing.
+        float2 landing=p.xy+view.xy*(entry/down);
+        float4 nearby=footTexture.SampleLevel(footSampler,landing/(FOOT_TEXEL*FOOT_SIZE),4);
+        [branch]if(nearby.x+nearby.w<=0){
+            // UNTRODDEN SNOW IS DRAWN ON THE GROUND WHERE IT IS SEEN. Its grain and lumps used to be
+            // looked up where the ray met the raised surface, some way nearer the eye, while its edges,
+            // the shade on it and everything standing in it stayed at the ground: two layers that slid
+            // over each other as the eye moved, like a pattern under a sheet of glass. Only a hole
+            // needs its depth.
+            met=entry;level=deep*SnowRelief(p.xy);marks=0;height=level;where=p.xy;
+            slope=deep*float2(SnowRelief(p.xy-float2(5,0))-SnowRelief(p.xy+float2(5,0)),SnowRelief(p.xy-float2(0,5))-SnowRelief(p.xy+float2(0,5)))*.1;
+        }else{
+        // Only a ray that enters over pressed snow goes on, down into the hole: samples at most
+        // 1.1 units apart along the ground, whatever the camera's angle, until it is under the
+        // surface. The first sample is the entry itself, taken as met if the snow there is within
+        // a seventh of a unit of where it lay.
+        float along=length(view.xy)/down;
+        float drop=1.1/max(along,.05);
+        int count=(int)min(ceil(entry/drop)+1,48);
+        drop=max(drop,entry/47.);
+        float above=entry,below=0,h=entry,last=entry,slack=.15;
+        [loop]for(int i=0;i<count;++i){
+            float2 at=p.xy+view.xy*(h/down);
+            if(SnowHeight(FootMarksNear(float3(at,p.z+dot(tilt,at-p.xy))),deep*SnowRelief(at))>=h-slack){above=last;below=h;break;}
+            above=h;last=h;h=max(h-drop,0);slack=0;
+        }
+        // Three halvings between the last sample in the air and the first in the snow.
+        [loop]for(int k=0;k<3;++k){
+            float mid=.5*(above+below);
+            float2 at=p.xy+view.xy*(mid/down);
+            float under=step(0,SnowHeight(FootMarksNear(float3(at,p.z+dot(tilt,at-p.xy))),deep*SnowRelief(at))-mid);
+            below=lerp(below,mid,under);above=lerp(mid,above,under);
+        }
+        met=.5*(above+below);
+    float3 q=float3(p.xy+view.xy*(met/down),p.z);q.z+=dot(tilt,q.xy-p.xy);
+    where=q.xy;
+    level=deep*SnowRelief(q.xy);
+    marks=FootMarksSmooth(q);height=SnowHeight(marks,level);
+    float3 east=FootMarksSmooth(q+float3(1.6,0,0)),west=FootMarksSmooth(q-float3(1.6,0,0)),north=FootMarksSmooth(q+float3(0,1.6,0)),south=FootMarksSmooth(q-float3(0,1.6,0));
+    slope=clamp(float2(SnowHeight(west,level)-SnowHeight(east,level),SnowHeight(south,level)-SnowHeight(north,level))/3.2,-3,3);
+    // The lean of the mound itself, where nobody has trodden it down.
+    // (At the ground point, as the untrodden case above takes it: taken where the ray met the snow,
+    // the two cases shaded the same mound differently, and the square patches of ground round every
+    // print that take this path showed as squares.)
+    slope+=deep*float2(SnowRelief(p.xy-float2(5,0))-SnowRelief(p.xy+float2(5,0)),SnowRelief(p.xy-float2(0,5))-SnowRelief(p.xy+float2(0,5)))*.1*(1-marks.z);
+    float around=.25*(FootMarksSmooth(q+float3(3.4,3.4,0)).z+FootMarksSmooth(q+float3(-3.4,3.4,0)).z+FootMarksSmooth(q+float3(3.4,-3.4,0)).z+FootMarksSmooth(q-float3(3.4,3.4,0)).z);
+    float rim=smoothstep(.02,.45,max(around,.25*(east.z+west.z+north.z+south.z))-marks.z)*(1-marks.z);
+    height+=.1*deep*rim;
+    slope+=float2(east.z-west.z,north.z-south.z)*rim*deep*.05;
+    {
+        float flat=max(length(sun.xy),.05);
+        float2 toSun=sun.xy/flat;float rise=max(sun.z,.05)/flat;
+        [unroll]for(int n=1;n<=4;++n){
+            float reach=(min(deep*.4,2.2)+.3)*n;
+            float wall=SnowHeight(FootMarksSmooth(q+float3(toSun*reach,0)),level);
+            shadow=max(shadow,saturate((wall-height-reach*rise)/(deep*.3+.2)));
+        }
+    }
+    // UNTOUCHED SNOW IN A MARKED TILE IS UNTOUCHED SNOW. This branch runs over the whole coarse tile
+    // (twelve units) round any print, and away from the marks it still found the snow as it lay by
+    // another route than the branch above: looked up where the ray met it, its mounds cut off at
+    // SNOW_TOP, and the bed check on. Each of those shaded level snow a little differently, so every
+    // print sat in a lighter, flatter square. Where nothing has touched the snow (no print, no
+    // pressing, no heaped rim, no hole's shade) the result is now exactly the untrodden one.
+    float touched=saturate(max(max(marks.x,marks.z),rim)*12+shadow*6);
+    float flatLevel=deep*SnowRelief(p.xy);
+    float2 flatSlope=deep*float2(SnowRelief(p.xy-float2(5,0))-SnowRelief(p.xy+float2(5,0)),SnowRelief(p.xy-float2(0,5))-SnowRelief(p.xy+float2(0,5)))*.1;
+    where=lerp(p.xy,where,touched);level=lerp(flatLevel,level,touched);height=lerp(flatLevel,height,touched);
+    slope=lerp(flatSlope,slope,touched);met=lerp(entry,met,touched);
+        }
+    }
+}
+// The ground a player stands on, for a point on that player: the height of the nearest pawn's feet.
+// The point must be on that pawn's own legs, from its feet up: a pawn overhead (one standing on
+// another's head, or jumping over) is not the one a chest under its feet belongs to, and taking its
+// feet for the ground painted that chest as snow. A pawn in the air (coatingActorCount.z, a bit a
+// pawn) stands on nothing: its boots are not in the snow.
+bool ActorGround(float3 p,out float ground){
+    ground=0;float best=1e9;int count=(int)coatingActorCount.x;uint airborne=(uint)coatingActorCount.z;
+    [loop]for(int i=0;i<count;++i){
+        float2 o=p.xy-coatingActors[i].xy;float d=dot(o,o),above=p.z-coatingActors[i].z;
+        if(coatingActors[i].w>0&&d<best&&above>-6&&above<40&&((airborne>>(uint)i)&1u)==0){best=d;ground=coatingActors[i].z;}
+    }
+    return best<1600;
+}
+)HLSL"
+R"HLSL(
+// IS THE GROUND REALLY THERE? A hole is drawn at the bed under the point where the ray met the snow,
+// which is not this pixel's ground point; it is taken to be the same floor carried on. At a step, a
+// kerb or a drop it is not: the hole was drawn hanging in the air past the edge, or seen through
+// the step. So the bed point is looked up on screen. If what the game drew there is another height
+// (and is not something far in front, the gun, or a player standing in the hole) the depth is not
+// drawn and the snow there is level. 1 = trust, 0 = do not.
+float SnowBedTrust(float3 bed){
+    float4 h=mul(viewProjection,float4(bed,1));
+    float2 px=(h.xy/max(h.w,1e-4)*float2(.5,-.5)+.5)*dimensions.xy;
+    bool on=h.w>1e-4&&all(px>=0)&&all(px<dimensions.xy);
+    px=clamp(px,0,dimensions.xy-1);
+    float d=ReadSampleDepth(px,0);
+    float3 w=World(px,d);
+    float off=smoothstep(2.5,6,abs(w.z-bed.z))*(1-smoothstep(16,32,abs(length(w-camera.xyz)-length(bed-camera.xyz))));
+    off=IsSky(d)?1:off;
+    [branch]if(on&&off>0){if(IsViewmodelSample(px,0)||PlayerMaskClaims(w))off=0;}
+    return on?1-off:1;
+}
+// HOW WET OPEN GROUND IS where the sky reaches it only in part (the edge of a roof's shelter, the
+// sheltered side of a wall in a wind): the share is turned into patches, many where most of the rain
+// arrives and few where little does, the same clumps as everywhere else. Used as it was, a plain
+// amount, the wet ended along the roof's outline in a ruled line, and the sheltered side of a wall
+// was a dry rectangle.
+float WetOpen(float open,float clumps){
+    return open>=.995?1:smoothstep(1-open-.12,1-open+.12,clumps)*step(.004,open);
+}
+// STANDING WATER at a point on level ground, 0..1: the same pools ApplyCoatings draws, for the
+// things that need to know whether a foot came down in one. Leaves snow out (snow has no pools).
+float PuddleAt(float3 p){
+    bool raining=weatherParams.z==1&&weatherColor.w>0;
+    float local=CL_surfaceRadius>0?1-smoothstep(CL_surfaceRadius*.8,CL_surfaceRadius,length(p.xy-float2(CL_surfaceX,CL_surfaceY))):1;
+    float3 cover=WeatherCover(p,float3(0,0,1));
+    float clumps=WeatherClumps(p+float3(31,17,0));
+    float carried=sqrt(smoothstep(.002,.3,cover.y))*(1-.3*smoothstep(.06,.5,cover.z)*(1-cover.x));
+    float reached=max(WetOpen(cover.x,clumps),smoothstep(1-carried-.1,1-carried+.1,clumps)*step(.004,carried));
+    float exposure=raining&&shelterInfo.x>=0?reached*saturate(weatherColor.w*2):0;
+    float puddle=0;
+    if(CL_puddles>0){
+        float basin=Fbm(p*CL_maskScale)-(.8-.62*saturate(CL_puddles));
+        float heightBand=CL_surfaceRadius>0?saturate(1-abs(p.z-CL_puddleHeight)/max(CL_puddleDepth,1)):1;
+        puddle=smoothstep(-.02,.13,basin)*local*heightBand;
+        if(raining)puddle*=smoothstep(.1,.45,exposure);
+    }
+    float pool=smoothstep(.78,.92,clumps+.25*smoothstep(.06,.5,cover.z))*local;
+    return max(puddle,pool*exposure*step(.001,CL_wet+CL_puddles))*(1-saturate(CL_snow*4));
+}
+// CS2'S OWN SNOW (gameSnow*, EnvironmentGameTextures.h): laid top-down over the map, one repeat
+// every gameTextureInfo.z units. The mip is picked from how many units a pixel covers (`footprint`,
+// already stretched for a surface seen edge-on): the coatings run inside branches, where a lookup
+// cannot work out its own derivatives.
+float2 GameSnowUv(float3 p){return float2(p.x,-p.y)/gameTextureInfo.z;}
+float GameTextureLod(float footprint,float texelsPerUnit){return max(log2(max(footprint*texelsPerUnit,1e-4)),0);}
+// EVERYTHING CS2'S SNOW MATERIAL CARRIES at a ground point, as csgo_environment reads it:
+//  colour (rgb) and its cavities (the colour map's alpha),
+//  the normal (rg, hemi-octahedral: CS2's HemiOctAnisoRoughness) as its lean on level ground,
+//  the roughness (the normal map's b: rough ridges, smooth specks that sparkle),
+//  the height, which also offsets the lookup toward the eye (parallax), so the crust has depth and
+//  its relief stays put on the ground as the camera moves.
+// `view` points to the eye. v runs down the map's y.
+struct GameSnowSample{float3 color;float cavity,rough,height;float2 lean;};
+GameSnowSample GameSnowAt(float3 p,float3 view,float lod){
+    GameSnowSample s;
+    float2 uv=GameSnowUv(p);
+    float h=gameSnowHeight.SampleLevel(gameTextureSampler,uv,lod).r;
+    // About three units of depth over a repeat, as the parallax offset in world units.
+    float2 shift=view.xy/max(view.z,.3)*(h-.5)*3;
+    uv=GameSnowUv(p+float3(shift,0));
+    s.height=gameSnowHeight.SampleLevel(gameTextureSampler,uv,lod).r;
+    float4 c=gameSnowColor.SampleLevel(gameTextureSampler,uv,lod);
+    float4 n=gameSnowNormal.SampleLevel(gameTextureSampler,uv,lod);
+    s.color=c.rgb;s.cavity=c.a;s.rough=n.b;
+    float2 t=float2(n.r+n.g-1,n.r-n.g);
+    float3 m=normalize(float3(t,max(1-abs(t.x)-abs(t.y),.05)));
+    s.lean=float2(m.x,-m.y)/max(m.z,.2);
+    return s;
+}
+)HLSL"
+R"HLSL(
 float3 ApplyCoatings(float3 color,float3 p,float3 normal,float3 coatingNormal,float mapLuminance,bool viewmodel=false) {
     // The Wetness control decides how wet surfaces get. While it rains, only ground the rain
     // actually reaches is wet; picking Rain sets a starting wetness in the UI.
     bool raining=weatherParams.z==1&&weatherColor.w>0;
     [branch] if(CL_snow<=0 && CL_wet<=0 && CL_puddles<=0) return color;
+    // THE FIRST-PERSON GUN AND HANDS TAKE NO COATING. CS2's own wet shading already runs on them
+    // (the world weather the Environment switches on), and the coatings are keyed to the ground:
+    // the wet film drew the floor's rain ripples and its pooled darkening across the weapon.
+    if(viewmodel)return color;
+    float3 sun=SunDirection(),view=normalize(camera.xyz-p);
     // Players get no world coating at all. Native CS2 shading already owns player, glove and weapon
     // base wetness, and a second film there both flattened skins and emphasized capsule boundaries;
     // world snow keyed to map positions would only smear across a moving body.
-    if(CoatingActor(p,normal)) return color;
-    float3 sun=SunDirection(),view=normalize(camera.xyz-p);
+    //
+    // BUT DEEP SNOW STANDS IN FRONT OF THEIR LEGS. The snow's surface is above the ground the feet
+    // are on, so a boot and shin lower than the snow between them and the eye must not be seen: a
+    // player stands IN the snow, in the holes their feet pressed. For a pixel of a player lower
+    // than the deepest snow, the ground point behind it on the same view ray takes its place: the
+    // snow is worked out there as for any ground pixel, and if the ray meets the snow above the
+    // height of the leg (`legHeight`), the pixel is snow. Otherwise the player's pixel is kept.
+    float3 untouched=color;float legHeight=-1,buried=0;
+    if(CoatingActor(p,normal)){
+        float ground;
+        // (Nor the player's own body, looked down at in first person: it was drawn as a slab of snow.)
+        if(viewmodel||CL_snow<=0||footInfo.x<.5||view.z<.06||length(p-camera.xyz)<100||!ActorGround(p,ground))return color;
+        legHeight=max(p.z-ground,0);
+        if(legHeight>SNOW_TOP)return color;
+        p-=view*(legHeight/view.z);
+        normal=coatingNormal=float3(0,0,1);
+    }
     // GLOBAL UNTIL YOU PLACE SOMETHING. Radius 0 (the default) means the coating covers the whole
     // map, so turning Snow or Wetness up does something immediately -- that is what was broken
     // before, when an unplaced sphere meant an invisible effect and nothing said so.
@@ -154,12 +760,21 @@ float3 ApplyCoatings(float3 color,float3 p,float3 normal,float3 coatingNormal,fl
     footprint/=max(.2,abs(dot(coatingNormal,view)));
     float noise=lerp(.5,Fbm(p*CL_maskScale),CoatingDetailFade(footprint,CL_maskScale));
     float up=smoothstep(.35,.85,coatingNormal.z);
-    // OPEN SKY, looked up once and shared by snow and rain (the shelter lookup is the heavy part):
-    // the same roof and gust shelter maps that stop falling flakes and drops. 1 on open ground, a
-    // fraction for a short way inside a big window or wide doorway, 0 in hallways and interiors.
-    const bool settling=weatherParams.z==2||weatherParams.z==3;
-    float open=shelterInfo.x>0&&(raining||CL_snow>0)?
-        (settling?SettledSnowExposure(p+float3(0,0,2)):PrecipitationExposure(p+float3(0,0,2))):1;
+    // WHAT REACHES THIS SURFACE, looked up once and shared by snow and rain: the sky map and the
+    // cover volume. Snow never lies indoors, falling or not. Without a sky map (an unread map) the
+    // coating stays global.
+    float3 cover=WeatherCover(p,coatingNormal,raining?1:.25);
+    // GUSTS, read once for the snow and the wet ground below (GustFlow): how gusty the air over this
+    // ground is, which way it moves, and the pattern it carries along the surface. (Read separately
+    // in each, the coatings took the shader compiler over three times as long.)
+    float gustAmount=0,gustRun=0;float2 gustAir=0;
+    [branch]if(CL_gusts>0&&windFluidWindow.z>0&&!viewmodel){
+        float4 air=WindAt(p);
+        gustAmount=GustAmount(air)*GustShown();
+        gustAir=air.xy;
+        [branch]if(gustAmount>.01)gustRun=GustFlow(p,air.xy,float3(180,20,40),.9);
+    }
+    float trodden=0,melted=0;
     float snow=0,drift=.5;
     // First-person hands and weapon get no snow either: the coating is keyed to map positions.
     if(!viewmodel){
@@ -168,46 +783,174 @@ float3 ApplyCoatings(float3 color,float3 p,float3 normal,float3 coatingNormal,fl
         drift=Fbm(p*CL_maskScale*.3+31);
         // Open ground is covered; drifts only decide where it lies thin or deep.
         float amount=saturate(CL_snow*lerp(1,1.7,drift));
-        // Without a shelter map (nothing falling, or an unprepared map) the coating stays global.
-        // Under cover the fringe fades gradually and unevenly (drift noise), never on one line.
-        float shelterFade=shelterInfo.x>0?smoothstep(.02,.8,open+(drift-.5)*.3*(1-open)):1;
-        snow=local*up*CoatingCoverage(amount,noise,.18)*shelterFade;
+        // By a door it is trodden and under cover it is scattered (SnowLies).
+        float shelterFade=SnowLies(cover,p,trodden);
+        // A fire melts the snow round it and a blast throws it clear; it comes back in time.
+        [branch]if(footInfo.x>.5){melted=SnowMelted(p);shelterFade*=1-melted;}
+        // Snow settles on anything that is not steep: a tiled roof is covered across its tiles, not
+        // striped along them.
+        snow=local*smoothstep(.2,.65,coatingNormal.z)*CoatingCoverage(amount,noise,.18)*shelterFade;
+        // With CS2's snow, a thin patch's edge follows the crust's own relief, high ground keeping
+        // its snow longest, instead of fading evenly. Whole cover stays whole.
+        [branch]if(gameTextureInfo.x>.5&&snow>0&&snow<1){
+            float hgt=gameSnowHeight.SampleLevel(gameTextureSampler,GameSnowUv(p),GameTextureLod(footprint,2048/gameTextureInfo.z)).r;
+            snow=saturate(snow+(hgt-.5)*2.4*snow*(1-snow));
+        }
     }
+    snowLaid=saturate(snow);
     if(snow>0) {
         // A coating rounds small upward-facing facets; preserve the map's broad lighting instead
         // of painting an unshadowed, triangle-lit white surface over it.
         float3 snowNormal=normalize(lerp(coatingNormal,float3(0,0,1),snow*.55));
+        // FOOTPRINTS dent the snow: a print wherever a foot came down and, where the snow lies deep
+        // (the drifts), the hole each foot sinks in it. A dent is lit as a dent: its walls
+        // tilt the light and its floor is packed and in its own shade. Thin trodden snow is worn
+        // through to the ground under a print.
+        // Where it has drifted deep every foot goes in: a hole with walls, a packed floor and a
+        // heaped rim, seen with its real depth (SnowTrench).
+        float dent=0,sunk=0,trenchLight=1;
+        // WHERE ON THE SNOW THIS PIXEL IS. The snow's surface stands above the ground, so the
+        // point of it the eye meets is not over the ground point of this pixel: it is nearer the
+        // camera, by more the lower the camera looks. Everything drawn ON the snow (its lumps, its
+        // grain, its glints, the shade of its drifts) has to be looked up there. Looked up at the
+        // ground point, as it was, the patterns slid over the mounds and holes as the camera
+        // moved, by up to forty units.
+        float3 onSnow=p;float driftSeen=drift;
         {
-            // Thickness: a soft height field of piled snow tilts the lighting normal, so drifts
-            // show lumps and wind-swept ridges instead of a flat white decal. Fades out where the
-            // pattern would be sub-pixel.
-            float3 h=p*.045;
-            float h0=Noise3(h),hx=Noise3(h+float3(.35,0,0)),hy=Noise3(h+float3(0,.35,0));
-            float bump=(.35+.65*saturate(CL_snow))*snow*CoatingDetailFade(footprint,.045)*up;
-            snowNormal=normalize(snowNormal+float3(h0-hx,h0-hy,0)*3.5*bump);
+            float deep=max(SNOW_DEPTH*CL_snowDepth*snow*lerp(.3,1,smoothstep(.35,.7,drift))*(1-.5*trodden),.6);
+            // (Kept to twice the distance it used to fade at: from a high camera the holes went
+            // while they were still several pixels wide.)
+            // Where a fire or a blast is thinning the snow it lies flat: its depth is drawn as if
+            // the snow round a point were as deep as at the point, and across a melting edge it is
+            // not, which cut the edge into teeth.
+            float seen=CoatingDetailFade(footprint,.2)*(1-saturate(melted*4));
+            [branch]if(footInfo.x>.5&&seen>0){
+                float3 m;float height,met,full,shadow;float2 slope,where;
+                float2 tilt=coatingNormal.z>.5?clamp(-coatingNormal.xy/coatingNormal.z,-.5,.5):float2(0,0);
+                SnowTrench(p,view,sun,deep,tilt,m,height,met,full,slope,shadow,where);
+                [branch]if(any(where!=p.xy))seen*=SnowBedTrust(float3(where,p.z+dot(tilt,where-p.xy)));
+                // The grain, lumps and glints stay on the ground point everywhere, in a hole and out
+                // of it. (Looked up where the ray met the snow, they slid as the eye moved wherever the
+                // snow had been walked on and lay still where it had not, which showed exactly which
+                // was which.)
+                buried=saturate((met-legHeight+.9)/1.4);
+                float3 level=snowNormal;
+                snowNormal=normalize(snowNormal+float3(slope,0)*seen);
+                dent=m.x*seen;
+                sunk=saturate(1-height/max(full,.1))*seen;
+                // Lit as a trough whatever lights the map: the wall turned to the sun is brighter than
+                // level snow and the wall turned away is darker, the floor sits in the wall's shade.
+                trenchLight=(1+.9*(1-.6*CL_relight)*(dot(snowNormal,sun)-dot(level,sun)))*(1-.5*shadow*seen)*(1-.3*sunk*(.8+.4*Noise3(onSnow*.9)));
+                snow*=1-m.x*(.3+.45*trodden)*seen*saturate(1.5-deep*.4);
+            }
+        }
+        // CS2'S SNOW MATERIAL (GameSnowAt): the Cobblestone winter snow, all of it. Its relief tilts
+        // the normal the snow is lit by, its colour and cavities colour it, its roughness gives it a
+        // sheen and decides where it sparkles. (The procedural lumps and grain it replaced are gone.)
+        // Until the textures have loaded the snow is plain.
+        const bool gameSnow=gameTextureInfo.x>.5;
+        float3 levelSnow=snowNormal;
+        GameSnowSample game=(GameSnowSample)0;
+        game.color=1;game.cavity=1;game.rough=.75;game.height=.5;
+        [branch]if(gameSnow){
+            game=GameSnowAt(onSnow,view,GameTextureLod(footprint,2048/gameTextureInfo.z));
+            snowNormal=normalize(snowNormal+float3(game.lean,0)*snow*up);
         }
         float snowLit=saturate(dot(snowNormal,sun));
-        float visibility=CL_contactShadows>0?WorldSunShadowQuick(p+sun*shadowInfo.y,snowNormal,viewmodel):1;
+        // The sun on snow is the brightest thing on screen, so its shadow's edge is drawn sharp and
+        // large: with the one-texel lookup (WorldSunShadowQuick) that edge was the shadow map's own
+        // grid, a staircase of squares across the snow. Snow takes the filtered lookup the lit world
+        // takes, with its soft edge.
+        float sunSoft=shadowInfo.x>=.5?WorldSunShadowSoft(p+sun*shadowInfo.y,snowNormal,viewmodel):1;
+        float visibility=CL_contactShadows>0?sunSoft:1;
         float3 snowAlbedo=float3(.94,.97,1);
-        float inheritedShade=SnowCoverShade(mapLuminance);
-        float3 mappedSnow=snowAlbedo*inheritedShade;
+        // CS2's snow colour and cavities, as their variation around their own average (the last mip):
+        // the crust, the packed patches and the blue in its hollows, at the brightness the snow is
+        // calibrated to.
+        [branch]if(gameSnow){
+            float4 mean=gameSnowColor.SampleLevel(gameTextureSampler,float2(.5,.5),16);
+            snowAlbedo*=clamp(game.color/max(mean.rgb,.05),.4,1.25)*clamp(game.cavity/max(mean.a,.05),.5,1.1);
+        }
+        float3 light=SnowLight(p,color,shadowInfo.x>=.5?sunSoft:-1);
+        float lightLuminance=dot(max(light,0),float3(.2126,.7152,.0722));
+        float inheritedShade=SnowCoverShade(lightLuminance);
+        // A fifth of the light's own colour: blue in shade, warm under a lamp, never the ground's paint.
+        float3 mappedSnow=snowAlbedo*lerp(float3(1,1,1),light/max(lightLuminance,1e-4),.22)*inheritedShade*1.02;
         mappedSnow*=1+SunColor()*snowLit*visibility*CL_sunRelight;
         float3 relitSnow=snowAlbedo*(CL_ambient+SunColor()*snowLit*visibility*CL_sunRelight);
         float3 snowColor=lerp(mappedSnow,relitSnow,CL_relight);
         snowColor+=snowAlbedo*(FillLights(p,snowNormal,viewmodel)+WorldBounce(p,snowNormal));
-        float grain=CoatingDetailFade(footprint,.5);
-        float relief=lerp(1,.96+.04*Noise3(p*.5),grain);
+)HLSL"
+R"HLSL(
+        float relief=1;
+        float3 hv=normalize(sun+view+float3(1e-6,0,0));
+        [branch]if(gameSnow){
+            // CS2's crust lit the way the map lights the snow: the sun's share follows the crust's own
+            // normal against level snow, the sky's share its tilt, so it reads in sun and in shade.
+            // (Through the sun relight term alone, as at first, it was too faint to see.)
+            float flatSun=max(dot(levelSnow,sun),.12);
+            float direct=clamp(saturate(dot(snowNormal,sun))/flatSun,0,1.7);
+            float skyward=.68+.32*saturate(snowNormal.z);
+            relief*=lerp(skyward,direct,visibility*saturate(sun.z*3)*.75);
+        }
         // The thin edge of a patch is packed and a little grey; the deep middle is clean white.
-        relief*=lerp(.86,1.03,smoothstep(.15,.9,snow)*(.5+.5*drift));
-        float sparkle=pow(Hash31(floor(p*2)),80)*.035*snowLit*CoatingDetailFade(footprint,2);
-        color=lerp(color,snowColor*relief+sparkle,snow);
+        relief*=lerp(.86,1.03,smoothstep(.15,.9,snow)*(.5+.5*driftSeen));
+        // GUSTS SCOUR THE SNOW: loose snow runs over the surface in streamers, carried at the air's
+        // speed (GustFlow), so the ground itself is seen to move. Where they run the surface is a
+        // brighter, smoother white; between them the crust shows a shade greyer.
+        relief*=1+gustAmount*CoatingDetailFade(footprint,.04)*(smoothstep(.45,.8,gustRun)*.3-.16);
+        // Trodden snow is packed and dirty: greyer, a little warm from the ground under it, and flat.
+        snowColor=lerp(snowColor,snowColor*float3(.8,.77,.74)+color*.1,trodden*.75);
+        // GLISTEN (SnowGlints): points of light that come and go as the eye or the sun moves. As
+        // bright as the light on the snow there: strong in sun, faint in shade, dim down a hole.
+        // (The snow itself is kept a tenth under full white, or a glint would have nowhere to go:
+        // drawn at full white, nothing on it could be brighter.)
+        float3 sparkle=SnowGlisten(onSnow,hv,view,footprint)*float3(1,.98,.94)*(.3+1.7*lightLuminance)*max(snowLit*visibility,.3*(1-CL_relight))*saturate(trenchLight)*(1-.6*sunk);
+        [branch]if(gameSnow){
+            // CS2's snow sparkles where its roughness map has smooth specks and dulls on the rough
+            // ridges, and it has a sheen: the sun's highlight off the crust, as broad as the crust is
+            // rough (GGX, the snow's Fresnel), strongest looking toward the sun.
+            sparkle*=lerp(.25,2.2,saturate((.8-game.rough)*6));
+            float a=max(game.rough*game.rough,.02),a2=a*a;
+            float nh=saturate(dot(snowNormal,hv)),nl=saturate(dot(snowNormal,sun));
+            float dd=nh*nh*(a2-1)+1;
+            float sheen=a2/(3.14159*dd*dd)*nl*(.02+.98*pow(1-saturate(dot(hv,view)),5))*4;
+            sparkle+=SunColor()*sheen*visibility*(1-.6*sunk)*saturate(trenchLight);
+        }
+        snowColor*=lerp(float3(1,1,1),float3(.55,.61,.74),dent*.8)*clamp(trenchLight,.35,1.22)*lerp(float3(1,1,1),float3(.74,.83,1),sunk);
+        color=lerp(color,snowColor*relief+sparkle,legHeight>=0?1:snow);
+        // And half a step of noise per pixel, so what gradient is left does not band.
+        {
+            float4 clip=mul(viewProjection,float4(p,1));
+            float2 pixel=(clip.xy/max(clip.w,1e-4)*float2(.5,-.5)+.5)*dimensions.xy;
+            color*=1+(frac(52.9829189*frac(dot(floor(pixel),float2(.06711056,.00583715))))-.5)*.012*snow;
+        }
     }
+    // A pixel of a player: snow where the snow hides the leg, the player as drawn everywhere else.
+    if(legHeight>=0)return lerp(untouched,color,buried*step(.001,snow));
+)HLSL"
+R"HLSL(
     // Only the first-person model sits this close; the film fades in just beyond it. This used to
     // be a hard 72-unit cut, so a wall or floor right in front of the camera dried out.
     float nearFade=smoothstep(18,44,length(p-camera.xyz));
     if(nearFade<=0)return color;
+    // Under whole snow there is no wet ground and no pool: every term below is times (1 - snow).
+    // Most snow on screen is whole, and it used to go through all of this for nothing.
+    if(snow>=.999)return color;
     // RainExposure, from the shared lookup: an unprepared map cannot assert a surface is exposed.
-    float exposure=raining&&shelterInfo.x>=0?smoothstep(0,.9,open)*saturate(weatherColor.w*2):0;
+    // RAIN REACHES IN AS PATCHES. Open ground is wet all over. Under cover the wet is what blew and
+    // was walked in: the same clumps as the snow, many at the opening and fewer further in.
+    float clumps=WeatherClumps(p+float3(31,17,0));
+    float carried=sqrt(smoothstep(.002,.3,cover.y))*(1-.3*smoothstep(.06,.5,cover.z)*(1-cover.x));
+    float reached=max(WetOpen(cover.x,clumps),smoothstep(1-carried-.1,1-carried+.1,clumps)*step(.004,carried));
+    float exposure=raining&&shelterInfo.x>=0?reached*saturate(weatherColor.w*2):0;
+    // MELTWATER. Where snow is trodden or scattered it also melts: the ground between the patches is
+    // damp, and by a door there are small pools of it.
+    float melt=0;
+    if(CL_snow>0&&shelterInfo.x>0&&!viewmodel){
+        float zone=lerp(smoothstep(.1,.45,cover.y)*(1-smoothstep(.75,1,cover.y)),smoothstep(.06,.5,cover.z),cover.x); // where SnowLies scatters snow
+        melt=zone*saturate(CL_snow*1.5)*smoothstep(.2,.55,clumps)*up;
+    }
     // STANDING WATER. Puddle coverage is the shader film — native CS2 water meshes were removed
     // because rebuilding wet-ground geometry stalled every coverage edit.
     float puddle=0,damp=0;
@@ -222,7 +965,10 @@ float3 ApplyCoatings(float3 color,float3 p,float3 normal,float3 coatingNormal,fl
         // fringe of doorways and arches -- never across a whole interior floor.
         if(raining){float collect=smoothstep(.1,.45,exposure);puddle*=collect;damp*=collect;}
     }
-    float wet=max(CL_wet*local*(raining?exposure:1)*(1-snow),max(puddle,damp))*nearFade;
+    // By a way indoors the ground is worn into dips, and they hold water: more pools near a door.
+    float pool=smoothstep(.78,.92,clumps+.25*smoothstep(.06,.5,cover.z))*smoothstep(.95,.995,coatingNormal.z)*local*(1-snow);
+    puddle=max(puddle,pool*max(exposure*step(.001,CL_wet+CL_puddles),melt*.5));
+    float wet=max(max(CL_wet*local*(raining?exposure:1),melt*.5)*(1-snow),max(puddle,damp))*nearFade;
     puddle*=nearFade;
     if(wet<=0)return color;
     // A stable world-space response estimate for maps without authored F_WETNESS.
@@ -232,24 +978,101 @@ float3 ApplyCoatings(float3 color,float3 p,float3 normal,float3 coatingNormal,fl
     float porous=saturate(.3+noise*.35);
     float fresnel=.0204+.9796*pow(1-saturate(dot(coatingNormal,view)),5);
     porous*=1-puddle;
-    color*=1-wet*porous*.16*(1-fresnel);
-    color*=1-puddle*.22;
+    // WET GROUND IS DARKER AND RICHER, NOT PALER. Water in the pores swallows light: a soaked
+    // surface loses a quarter to over half of its brightness and gains a little saturation. (A
+    // 16 % darkening under a constant sky-coloured film read as frost.)
+    float soak=wet*(.24+.38*porous)*(1-fresnel);
+    color=max(lerp(dot(color,float3(.2126,.7152,.0722)).xxx,color,1+.2*wet),0)*(1-soak);
+    float mapLit=viewmodelInfo.z>.5?0:1-saturate(CL_relight);
+    color*=1-puddle*(.3+.2*mapLit);
     float3 wetNormal=normalize(lerp(coatingNormal,float3(0,0,1),puddle));
+    // CS2'S BEADS OF WATER (gameDroplets, the texture its own wet surfaces use) stand on wet ground
+    // that is not under a pool, one repeat every 32 units: they bend what the film mirrors and catch
+    // the sun as points of light.
+    float beadMask=0;float2 beadLean=0;
+    [branch]if(gameTextureInfo.y>.5&&up>0){
+        float4 bead=gameDroplets.SampleLevel(gameTextureSampler,float2(p.x,-p.y)/32,GameTextureLod(footprint,256./32));
+        beadLean=(bead.rg*2-1)*float2(1,-1);
+        beadMask=saturate(bead.a*4)*saturate(wet*1.5)*(1-puddle)*up*CoatingDetailFade(footprint,.4);
+        wetNormal=normalize(wetNormal+float3(beadLean*beadMask*1.5,0));
+    }
     if(exposure>0&&up>0){
         float2 q=p.xy*.065;
         float2 slope=RainImpulse(q,max(length(ddx(q)),length(ddy(q))),climateClock.x);
         wetNormal=normalize(wetNormal+float3(slope*exposure*up*CL_ripple,0));
     }
+    // GUSTS OVER WATER (Fluid Ninja's windy water): where a gust runs over the wet street and the
+    // puddles it raises wavelets, crests across the wind, carried downwind. They break up what the
+    // film mirrors, so the gust is seen as a rougher, darker patch sweeping over the water, its
+    // wavelets glinting where they catch the sun.
+    float gustRough=gustAmount*lerp(.35,1,smoothstep(.38,.72,gustRun));
+    [branch]if(gustRough>.01&&up>0){
+        float2 ripples=GustRipples(p)*CoatingDetailFade(footprint,.12);
+        wetNormal=normalize(wetNormal+float3(ripples*gustRough*(.15+.55*puddle)*up,0));
+    }
+    // A STEP IN WATER sends a train of ripples out from where the foot came down. They bend what
+    // the water mirrors; nothing is painted on it. Strong in a pool, slight on merely wet ground.
+    [branch]if(footInfo.x>.5&&up>0){
+        float2 push=0;
+        [loop]for(int s=0;s<FOOT_STEPS;++s){
+            float age=climateClock.x-footSteps[s].w;
+            if(age<0||age>1.6||abs(p.z-footSteps[s].z)>24)continue;
+            float2 d=p.xy-footSteps[s].xy;float r=length(d);
+            if(r>64)continue;
+            float ring=r-(3+age*30)+1.0*sin(d.x*.31+s*1.7)*sin(d.y*.27+s);
+            push+=d/max(r,.05)*sin(ring*.5)*exp(-ring*ring*.012)*pow(1-age/1.6,3)*.3;
+        }
+        wetNormal=normalize(wetNormal+float3(push*up*(.25+2.2*puddle),0));
+    }
     float3 reflected=reflect(-view,wetNormal);
     // One filtered sun lookup serves both the mirrored sky and the highlight: the ripple-bent normal
     // moves the receiver offset by a fraction of a unit, not across a shadow edge.
     float sunVisibility=CL_contactShadows>0?WorldSunShadowQuick(p+sun*shadowInfo.y,coatingNormal,viewmodel):1;
-    float3 environment=CL_sky>0?lerp(color,SkyColor(reflected,sunVisibility),CL_sky):WetScreenReflection(p,wetNormal,reflected,color);
-    environment=WorldReflectionRoughness(p,wetNormal,reflected,environment,.12+porous*.13);
-    // A water film mirrors more than Fresnel alone on flat ground: pooled film on smooth stone.
-    float film=max(wet*(fresnel*.8+(1-porous)*.22*up),puddle*(.3+.7*fresnel));
-    color=lerp(color,environment,saturate(film));
+    // THE MIRROR is water's own Fresnel and nothing more: next to none looking down at it, strong
+    // toward the horizon. A rough porous surface breaks the film up and mirrors less. It shows the
+    // scene (a short screen-space trace); where the trace finds nothing it shows the sky if the sky
+    // is open above, and otherwise the surface's own colour.
+    float film=saturate(max(wet*fresnel*(.45+.55*(1-porous))*(1-.5*mapLit),puddle*max(fresnel,.035+.06*mapLit)));
+    film*=1-.45*gustRough;
+    // How much of the mirror is sky goes by how open the sky is above, and where that is only partly
+    // (a roof's edge, the sheltered side of a wall) it is turned into patches like the wet itself,
+    // softer at their edges. As a plain amount the blue sheen stopped along the roof's outline in a
+    // ruled line, and under a building you could see exactly where it ended.
+    float mirrorsSky=cover.x>=.995?1:smoothstep(1-cover.x-.3,1-cover.x+.3,clumps)*step(.004,cover.x);
+    // And a mirror shows what lies ALONG the reflected ray, not what is straight overhead. In an alley
+    // with a strip of sky above, the ground mirrors the houses across the way; shown the sky there
+    // instead, every wet patch under that strip was a bright blue plate. The ray is followed out
+    // over the roofs' height map: where it runs in under a roof line it has met a building, and
+    // the mirror keeps the ground's own tone there (the screen trace below fills in what it finds).
+    [branch]if(CL_sky>0&&mirrorsSky>0&&shelterInfo.x>0){
+        static const float kOut[5]={40,100,220,420,760};
+        float3 along=normalize(float3(reflected.xy,max(reflected.z,.03)));
+        float clear=1;
+        [loop]for(int k=0;k<5;++k)clear*=SkyTap(p+along*kOut[k]);
+        mirrorsSky*=clear;
+    }
+    float3 environment=CL_sky>0?lerp(color,SkyColor(reflected,sunVisibility),CL_sky*mirrorsSky):color;
+    [branch]if(film>.015)environment=WetScreenReflection(p,wetNormal,reflected,environment);
+    environment=WorldReflectionRoughness(p,wetNormal,reflected,environment,.12+porous*.13+gustRough*.2);
+    color=lerp(color,environment,film);
+    // Rough water is darker too: it sends less of the bright sky back. A gust is seen as a darker
+    // patch sweeping over the wet street, wherever the street mirrors much or little.
+    color*=1-.14*gustRough*saturate(wet*1.5);
     float3 halfDir=normalize(sun+view+float3(1e-7,0,0));
+    // EACH BEAD IS A LITTLE DOME OF WATER, seen whatever the light does: its rim darker (the light is
+    // bent away), its crown mirroring the sky over it, and a point of sun on it from almost any angle,
+    // since some part of a dome always faces halfway between the eye and the sun. Bending only the
+    // film's normal did nothing to see: under the map's own sky the film mirrors the ground's own colour.
+    [branch]if(beadMask>.01){
+        float tilt=saturate(length(beadLean));
+        float3 dome=normalize(float3(beadLean*1.3,1));
+        float3 bounce=reflect(-view,dome);
+        float lum=max(dot(color,float3(.2126,.7152,.0722)),.02);
+        float3 skyOver=CL_sky>0?SkyColor(bounce,sunVisibility):fogAmbient.rgb*lum*2.2;
+        color*=1-.4*beadMask*tilt*tilt;
+        color+=skyOver*beadMask*saturate(bounce.z*1.5)*(.25+.5*(1-tilt))*mirrorsSky;
+        color+=SunColor()*sunVisibility*pow(saturate(dot(dome,halfDir)),240)*beadMask*2.5;
+    }
     float exponent=lerp(28,100,CoatingDetailFade(footprint,.12))*(1-porous*.4);
     color+=SunColor()*CL_sunRelight*sunVisibility*saturate(dot(wetNormal,sun))*pow(saturate(dot(wetNormal,halfDir)),exponent)*wet*.3;
     [loop]for(int l=0;l<(int)lighting.x;++l){
@@ -264,8 +1087,10 @@ float3 ApplyCoatings(float3 color,float3 p,float3 normal,float3 coatingNormal,fl
 }
 )HLSL"
 R"HLSL(
-float3 Surface(float3 color,float3 p,float3 normal,float3 coatingNormal,bool viewmodel=false,float contactOcclusion=1,float3 nativeDirect=float3(-1,-1,-1),float3 nativeFixtures=0) {
-    float mapLuminance=dot(max(color,0),float3(.2126,.7152,.0722));
+// The lighting of a surface, without its coatings. Kept apart from Surface so the composite can
+// run the coatings ONCE for both of its paths: the compiler expands every call in place, and two
+// copies of ApplyCoatings in one program took it six minutes instead of three.
+float3 SurfaceLight(float3 color,float3 p,float3 normal,bool viewmodel=false,float contactOcclusion=1,float3 nativeDirect=float3(-1,-1,-1),float3 nativeFixtures=0) {
     float3 receiverAlbedo=max(color,float3(.02,.02,.02));
     receiverAlbedo*=.55/max(.02,max(receiverAlbedo.r,max(receiverAlbedo.g,receiverAlbedo.b)));
     float3 sun=SunDirection(),view=normalize(camera.xyz-p);
@@ -310,15 +1135,46 @@ float3 Surface(float3 color,float3 p,float3 normal,float3 coatingNormal,bool vie
     }
     color+=(viewmodel?albedo:receiverAlbedo)*bounce*(viewmodel?contactOcclusion:1);
     }
-    return ApplyCoatings(color,p,normal,coatingNormal,mapLuminance,viewmodel);
+    return color;
 }
-float CloudDensity(float3 p) {
+float3 Surface(float3 color,float3 p,float3 normal,float3 coatingNormal,bool viewmodel=false,float contactOcclusion=1,float3 nativeDirect=float3(-1,-1,-1),float3 nativeFixtures=0) {
+    float mapLuminance=dot(max(color,0),float3(.2126,.7152,.0722));
+    return ApplyCoatings(SurfaceLight(color,p,normal,viewmodel,contactOcclusion,nativeDirect,nativeFixtures),p,normal,coatingNormal,mapLuminance,viewmodel);
+}
+// THE CLOUD LAYER. Shape after Schneider, "The Real-time Volumetric Cloudscapes of Horizon Zero Dawn"
+// (SIGGRAPH 2015, GPU Pro 7): a cumulus height gradient (the profile fede-vaccaro/TerrainEngine-OpenGL
+// uses, MIT), coverage applied as remap(base * gradient, 1 - coverage, 1, 0, 1) * coverage, and a
+// high-frequency noise eroding the edges. Lighting after SebLague/Clouds (MIT): Beer's law toward the
+// light with a darkness floor, and a dual-lobe Henyey-Greenstein phase.
+//
+// RAIN DARKENS THE CLOUDS (and nothing else): HZD's precipitation raises coverage and density and
+// darkens the layer. Here it also absorbs more light on its way through and lowers the darkness floor,
+// so a raining or storming sky turns heavy and grey. 0..1, scaled by the Rain darkening control.
+float CloudPrecipitation() {
+    float rain=weatherParams.z==1?saturate(weatherColor.w*1.5):0;
+    return saturate(max(rain,CL_storm>0?1:0))*saturate(CL_cloudRain);
+}
+float CloudRemap(float v,float lo,float hi) { return saturate((v-lo)/max(hi-lo,1e-4)); }
+float CloudDensity(float3 p,float precipitation=0,bool detail=true) {
     float h=(p.z-CL_cloudBase)/CL_cloudDepth;
     if(h<=0||h>=1)return 0;
     float3 q=p*CL_cloudScale+float3(climateClock.y*CL_cloudScale,climateClock.y*CL_cloudScale*.28,0);
-    float shape=smoothstep(0,.12,h)*(1-smoothstep(.65,1,h));
-    return saturate((Fbm(q)-1+CL_coverage)*3)*shape*CL_density;
+    // Value-noise fBm sits close to 0.5; stretched as FogVariation does, so the remap can cut shapes.
+    float base=saturate((Fbm(q)-.5)*2.6+.5);
+    float gradient=smoothstep(0,.1625,h)-smoothstep(.88,.98,h);
+    float coverage=saturate(CL_coverage+.35*precipitation);
+    float cloud=CloudRemap(base*gradient,1-coverage,1)*coverage;
+    [branch]if(detail&&cloud>0){
+        // Wispy at the base, billowy toward the top (HZD's high-frequency modifier).
+        float fine=Noise3(q*5.3+float3(0,0,climateClock.x*.02))*.65+Noise3(q*11.1-7)*.35;
+        fine=lerp(fine,1-fine,saturate(h*10));
+        cloud=CloudRemap(cloud,fine*.2,1);
+    }
+    return cloud*CL_density*(1+1.5*precipitation)*3;
 }
+// Dual-lobe Henyey-Greenstein (SebLague/Clouds defaults: forward .83, back .3, base .8, factor .15).
+float CloudHg(float cosine,float g) { float g2=g*g;return (1-g2)/(12.566371*pow(max(1+g2-2*g*cosine,1e-4),1.5)); }
+float CloudPhase(float cosine) { return .8+(CloudHg(cosine,.83)*.5+CloudHg(cosine,-.3)*.5)*.15; }
 float Phase(float cosine) { float a=CL_scatter;return (1-a*a)/max(.08,pow(1+a*a-2*a*cosine,1.5)); }
 // How far the medium reaches along a pixel's ray. The 3D skybox (distant town, hills) sits in a
 // reserved depth band that does not unproject to a real distance; it stands beyond the map, so it
@@ -495,24 +1351,55 @@ float GroundFogLightDepth(float3 q,float floorZ,float held,float3 sun){
     // the sun left only blue sky light in it.
     return tau*ds*CL_groundFog*kGroundFogExtinction*(1-.8*CL_groundFogSoftness);
 }
-// The players' shadows on the fog, as soft upright capsules along the sun. The map's sun shadow map
-// holds no players unless dynamic lighting renders its near cascades, and on opaque fog a body with no
-// shadow looks like it floats above the layer.
+// How close the ray q + r*s (s >= 0, r of unit length) comes to the segment a..b, and how far along
+// the ray that is (`s`).
+float RaySegmentGap(float3 q,float3 r,float3 a,float3 b,out float s){
+    float3 ab=b-a,aq=q-a;
+    float abab=max(dot(ab,ab),1e-4),abr=dot(ab,r),abaq=dot(ab,aq),raq=dot(r,aq);
+    float denom=abab-abr*abr;
+    float u=denom>1e-3?saturate((abaq-abr*raq)/denom):0;
+    s=max(abr*u-raq,0);
+    u=saturate(dot(aq+r*s,ab)/abab);
+    return length(aq+r*s-ab*u);
+}
+// One part's shadow at q: soft by the sun's own size and the scattering, more the further it falls.
+float FogBodyPartShadow(float3 q,float3 sun,float3 a,float3 b,float radius){
+    float s;float gap=RaySegmentGap(q,sun,a,b,s);
+    float soft=.8+s*.012;
+    return smoothstep(radius-soft,radius+soft,gap);
+}
+// THE PLAYERS' SHADOWS ON THE FOG, shaped like them: each body is the capsules between its bones, as
+// it is drawn this frame (actorBones), so the shadow walks, crouches and holds a gun with it. A body
+// whose bones could not be read is a slim upright capsule. One upright capsule for every body was
+// a pill laid along the sun (reported 2026-11-17). The sun's shadow map holds only the players CS2
+// drew to the screen this frame, never the first-person player, and on opaque fog a body without a
+// shadow seems to float above the layer.
 float GroundFogBodyShadow(float3 q,float3 sun){
-    float visible=1,flat2=dot(sun.xy,sun.xy);
+    float visible=1;
     int count=(int)coatingActorCount.x;
     [loop]for(int i=0;i<count;++i){
         if(coatingActors[i].w<=0)continue;
         float3 o=coatingActors[i].xyz;
-        float2 d=o.xy-q.xy;
-        if(dot(d,d)>360000)continue;
-        float s=flat2>1e-4?dot(d,sun.xy)/flat2:(o.z-q.z)/max(sun.z,.01);
-        if(s<=0)continue;
-        float3 r=q+sun*s;
-        visible=min(visible,smoothstep(12,30,length(float3(r.xy-o.xy,r.z-clamp(r.z,o.z,o.z+68)))));
+        // Only where the line to the sun passes within a body's reach of its middle.
+        float3 d=o+float3(0,0,36)-q;float along=dot(d,sun);
+        if(along<-48||dot(d,d)-along*along>3600)continue;
+        int base=i*16;
+        [branch]if(actorBones[base].w>.5){
+            [loop]for(int k=0;k<16;++k){
+                float3 part=kBodyPartsHlsl[k];
+                float4 a=actorBones[base+(int)part.x],b=actorBones[base+(int)part.y];
+                if(a.w<.5||b.w<.5)continue;
+                float3 from=a.xyz,to=b.xyz;
+                if(k==3){float3 up=from-actorBones[base+2].xyz;from+=(dot(up,up)>1?normalize(up):float3(0,0,1))*3.5;to=from;}
+                visible=min(visible,FogBodyPartShadow(q,sun,from,to,part.z));
+            }
+        }else visible=min(visible,FogBodyPartShadow(q,sun,o+float3(0,0,10),o+float3(0,0,60),8));
+        if(visible<.01)break;
     }
     return visible;
 }
+)HLSL"
+R"HLSL(
 // The ground layer, marched before the height fog (it lies nearest the floor, in front of most of
 // it). Steps are fine inside the layer and long above it: the gap to the layer's highest possible top,
 // over how steeply the ray descends, is how far the ray travels before it can meet fog. Inside the
@@ -521,6 +1408,24 @@ float GroundFogBodyShadow(float3 q,float3 sun){
 // whenever the camera stood in the layer and came back when it rose above it (reported 2026-11-08).
 // Steps also shorten to the fog's own thickness: in dense fog a long step goes opaque in one sample, so
 // the surface snapped to the step positions and showed as terraces.
+// THIN LAYERS. In the layer, or about to enter it, no step crosses more than an eighth of its depth
+// on the way up or down. A ray going down through a Depth 8 layer otherwise crossed all of it in one
+// step, and whether a pixel saw any fog came down to where that one sample landed: the fog vanished
+// at some view angles and came back at others, and crawled with grain (reported 2026-11-17).
+static const float kGroundFogShadeFloor=.2;
+// How much of the sky reaches the fog at q: open sky straight above it (the sky map), or open air
+// that reaches in under cover (the cover volume, 1 beside open sky and falling with every step under
+// a roof), with a little left for light bounced in off walls. Fog in a covered room or inside a stack
+// of crates took the whole sky and glowed white in the dark (reported 2026-11-17). Fails open while
+// the sky map is not drawn yet. The fog point is tested where it is: the sky map's thickness margin
+// (shelterInfo.z) is for surfaces, and lifted by it a point under a plank tested above the plank and
+// took the open sky. Air reaching in from the side counts as its square, so the inside of a stack of
+// crates open toward the camera is dim rather than lit as if outside.
+float GroundFogSkyOpen(float3 q){
+    if(shelterInfo.x<=0)return 1;
+    float reach=CoverReach(q).x;
+    return lerp(.1,1,max(SkyTap(q),reach*reach));
+}
 void GroundFogMarch(float3 ray,float distance,float jitter,float3 ambient,inout float3 color,inout float trans){
     [branch] if(CL_groundFog<=0)return;
     float range=min(distance,9000),maxTop=GroundFogReach();
@@ -535,12 +1440,14 @@ void GroundFogMarch(float3 ray,float distance,float jitter,float3 ambient,inout 
     bool exporting=volumeDimensions.z>40;
     int steps=exporting?160:96;
     float growth=exporting?.045:.07;
+    float climb=max(abs(ray.z),.01),slab=maxTop*.125;
     float t=0,limit=1e9;
     [loop]for(int i=0;i<steps&&t<range;++i){
         float3 p=camera.xyz+ray*t;
         float heldHere;float floorHere=GroundFogFloor(p,heldHere);
-        float above=floorHere<=kGroundFogNoFloor?1e4:p.z-floorHere-maxTop;
+        float over=floorHere<=kGroundFogNoFloor?1e4:p.z-floorHere,above=over-maxTop;
         float dt=clamp(3+t*growth,3,240);
+        if(over<maxTop*2)dt=min(dt,max((max(above,0)+slab)/climb,1.5));
         if(above>0)dt=max(dt,min(above/max(-ray.z,.04)*.6,300));
         dt=min(min(dt,limit),range-t);
         float3 q=camera.xyz+ray*(t+dt*jitter);
@@ -552,37 +1459,73 @@ void GroundFogMarch(float3 ray,float distance,float jitter,float3 ambient,inout 
         if(dt>fine*1.5){limit=fine;continue;}
         limit=fine*1.25;
         t+=dt;
-        // The sun's shadow averaged along the step, so a shadow's edge does not move with each pixel's
-        // jitter: looking along it, that moved the edge a whole step and drew it as a sawtooth.
+        // THE SHADOWS ON IT, by the ground fog's own Shadows slider (Light shafts are the height fog's).
+        // The sun's shadow is averaged along the step, so a shadow's edge does not move with each
+        // pixel's jitter: looking along it, that moved the edge a whole step and drew it as a sawtooth.
+        // It is also averaged sideways over a few units (a quarter of the layer's depth, 4 to 16):
+        // light is scattered that far inside low fog, so a roof's tiles or a tree's twigs do not rule
+        // their outline across it. Spread over the layer's whole depth, as it was, the shadows washed
+        // out until buildings seemed to cast none on the fog (reported 2026-11-17).
         float shadow=1;
-        if(CL_lightShafts>0){
-            shadow=0;
-            [unroll]for(int k=0;k<3;++k)shadow+=WorldSunShadow(camera.xyz+ray*(t-dt*(k+.5)/3)+sun*shadowInfo.y);
-            shadow/=3;
+        [branch]if(CL_groundFogShadows>0){
+            // The four readings are turned a different way at every pixel and every frame: at four
+            // fixed places they drew a shadow's edge four times over, as steps. Turned, they are grain
+            // that the volume's temporal blend and blur smooth into one soft edge.
+            static const float2 kAcross[4]={float2(1,0),float2(0,1),float2(-1,0),float2(0,-1)};
+            float turn=jitter*6.2831853;float2 spin=float2(cos(turn),sin(turn));
+            float spread=clamp(CL_groundFogHeight*.25,4,16),lit=0;
+            [unroll]for(int k=0;k<4;++k){
+                float2 o=float2(kAcross[k].x*spin.x-kAcross[k].y*spin.y,kAcross[k].x*spin.y+kAcross[k].y*spin.x)*spread*(.25+.25*k);
+                lit+=WorldSunShadow(camera.xyz+ray*(t-dt*(k+.5)/4)+float3(o,0)+sun*shadowInfo.y);
+            }
+            lit/=4;
+            // The shadow map holds the players CS2 drew this frame; the bodies hold every player.
+            if(sun.z>.02)lit=min(lit,GroundFogBodyShadow(q,sun));
+            // Fog in a building's shade is still lit by the sunlit fog beside it: it is dimmer, not a
+            // different colour laid on the floor in the shape of the roof.
+            shadow=lerp(1,lerp(kGroundFogShadeFloor,1,lit),CL_groundFogShadows);
         }
-        if(sun.z>.02)shadow*=GroundFogBodyShadow(q,sun);
-        float3 light=sky*lerp(.5+.35*CL_groundFogSoftness,1,saturate(h/max(top,1)))+
+        float3 light=sky*GroundFogSkyOpen(q)*lerp(.5+.35*CL_groundFogSoftness,1,saturate(h/max(top,1)))+
             sunLight*shadow*FogSunTransmittance(GroundFogLightDepth(q,floorZ,held,sun));
         [loop]for(int l=0;l<min((int)lighting.x,4);++l){
             float3 dir;float atten=StudioAttenuation(l,0,q,dir);
             if(atten<=.001)continue;
-            if(CL_lightShafts>0)atten*=WorldLightShadowSample(l,q,0);
+            if(CL_groundFogShadows>0)atten*=lerp(1,WorldLightShadowSample(l,q,0),CL_groundFogShadows);
             light+=lightColorIntensity[l].rgb*lightColorIntensity[l].w*atten*Phase(dot(ray,dir));
         }
         float a=1-exp(-sigma*dt);
-        color+=trans*a*light*tint;trans*=1-a;
+        // THE OTHER FOG LIES IN FRONT OF IT TOO. The ground layer is marched first, so on its own it
+        // was drawn at full strength however much height fog stood between it and the eye: white
+        // billows cut out of a blue haze. Each piece of it is seen through the height fog up to it,
+        // and takes that fog's colour for the share it hides.
+        float3 lit=light*tint;
+        [branch]if(CL_fogDensity>0&&CL_localFogRadius<=0){
+            float along=max(0,t-CL_fogStart);
+            float thick=CL_fogDensity*.001*.5*(exp(-max(0,camera.z-CL_fogBase)/CL_fogHeight)+exp(-max(0,q.z-CL_fogBase)/CL_fogHeight));
+            float seen=exp(-thick*along);
+            lit=lerp((ambient+SunColor()*Phase(dot(ray,sun))*.25)*fogColorDensity.rgb,lit,seen);
+        }
+        color+=trans*a*lit;trans*=1-a;
         if(trans<.01)break;
     }
 }
 )HLSL"
 R"HLSL(
-float4 VolumeAt(float2 pixel,float d) {
+// How a march places its samples in each step. STILL: one offset per volume texel, fixed, for the
+// coarse sky march the blur smooths. BLENDED: the live march, jittered anew every frame and averaged
+// by VolumeTemporalPS. EXACT: a full-resolution pixel the coarse volume has no match for (a crack,
+// a near outline), sampled mid-step. Those used the coarse texel's offset, the same for a 4 x 4
+// block and different for the next, so a thin layer seen through a crack came out as a row of
+// fogged and clear squares (the checkerboard reported 2026-11-17).
+static const int kMarchStill=0,kMarchBlended=1,kMarchExact=2;
+float4 VolumeAt(float2 pixel,float d,int sampling=0) {
     bool sky=IsSky(d);
     float3 farPoint=World(pixel,camera.w>0?.00001:.99999);
     float3 ray=normalize(farPoint-camera.xyz);
     float distance=FogDistance(pixel,d);
     float3 color=0;float trans=1;int steps=(int)volumeDimensions.z;
-    float jitter=InterleavedGradient(floor(pixel*volumeDimensions.xy/dimensions.xy));
+    // A new offset every frame in the live view (temporalInfo.y), which VolumeTemporalPS averages.
+    float jitter=sampling==kMarchExact?.5:frac(InterleavedGradient(floor(pixel*volumeDimensions.xy/dimensions.xy))+(sampling==kMarchBlended?temporalInfo.y:0));
     float3 ambient=(CL_fogDensity>0||CL_groundFog>0)?FogAmbient():0;
     GroundFogMarch(ray,distance,jitter,ambient,color,trans);
     if(CL_fogDensity>0) {
@@ -631,14 +1574,35 @@ float4 VolumeAt(float2 pixel,float d) {
         float enter=max(0,min(t0,t1)),leave=min(distance,max(t0,t1));leave=min(leave,24000);
         if(leave>enter) {
             float dt=(leave-enter)/steps,cloudTrans=1;float3 cloudColor=0;
+            float precipitation=CloudPrecipitation();
+            float3 key=SunDirection(),keyColor=SunColor();
+            float phase=CloudPhase(dot(ray,key));
+            // The light toward the key light is marched to the top of the layer (6 steps, as
+            // TerrainEngine-OpenGL's cone march), through the cheap shape without edge detail.
+            float lightLength=min(CL_cloudDepth/max(key.z,.15),CL_cloudDepth*3)/6;
+            float absorption=.0035*(1+2*precipitation)*CL_clouds;
+            float darkness=.2*(1-.75*precipitation);
+            // Sky light: the Environment sky's zenith and its horizon away from the sun (as the fogs
+            // take it), or the previous fixed colours over the map's own sky. Brighter toward the
+            // top of the layer (after HZD). Rain takes most of it away.
+            float3 skyLight=lerp(float3(.10,.14,.22),float3(.32,.39,.5),saturate(CL_sunElevation/30));
+            [branch]if(CL_sky>0){
+                float3 sun=TrueSunDirection();
+                float2 away=length(sun.xy)>1e-3?-normalize(sun.xy):float2(1,0);
+                skyLight=(SkyColor(float3(0,0,1))+SkyColor(normalize(float3(away,.2))))*.5;
+            }
+            skyLight*=1-.65*precipitation;
             [loop] for(int k=0;k<steps;++k) {
                 float3 p=camera.xyz+ray*(enter+(k+jitter)*dt);
-                float density=CloudDensity(p);
+                float density=CloudDensity(p,precipitation);
                 if(density>.001) {
                     float shadow=0;
-                    [unroll]for(int sh=1;sh<=4;++sh)shadow+=CloudDensity(p+SunDirection()*CL_cloudDepth*(sh*.16));
-                    float3 light=lerp(float3(.10,.14,.22),float3(.32,.39,.5),saturate(CL_sunElevation/30));
-                    light+=SunColor()*WorldSunShadow(p)*exp(-shadow*1.8)*(.45+.15*Phase(dot(ray,SunDirection())));
+                    [loop]for(int sh=0;sh<6;++sh)shadow+=CloudDensity(p+key*lightLength*(sh+.5),precipitation,false);
+                    float toLight=exp(-shadow*lightLength*absorption);
+                    toLight=darkness+toLight*(1-darkness);
+                    float h=saturate((p.z-CL_cloudBase)/CL_cloudDepth);
+                    float3 light=skyLight*lerp(.55,1,h);
+                    light+=keyColor*WorldSunShadow(p)*toLight*phase*(1-.5*precipitation);
                     light+=StormCloudLight(p);
                     float a=1-exp(-density*dt*.004*CL_clouds);
                     cloudColor+=cloudTrans*a*light;cloudTrans*=1-a;
@@ -654,9 +1618,48 @@ struct VolumeOutput {float4 scene:SV_Target0;float4 sky:SV_Target1;};
 struct VolumeMarchOutput {float4 scene:SV_Target0;float2 geometry:SV_Target1;};
 VolumeMarchOutput VolumePS(Screen i) {
     float2 p=i.position.xy*dimensions.xy/volumeDimensions.xy;float d=ReadDepth(p);
-    VolumeMarchOutput o;o.scene=VolumeAt(p,d);o.geometry=float2(FogDistance(p,d),IsSky(d));return o;
+    VolumeMarchOutput o;o.scene=VolumeAt(p,d,kMarchBlended);o.geometry=float2(FogDistance(p,d),IsSky(d));return o;
 }
 float2 VolumeGeometry(int2 q) {return volumeGeometryTexture.Load(int3(q,0));}
+// THE VOLUME'S TEMPORAL BLEND (live view). The march is jittered differently every frame and each
+// frame is blended into what the last frames found at the same place, so one march's grain averages
+// out over about eight frames instead of crawling across the fog as the camera moves (reported
+// 2026-11-17). Last frame's texel is found by putting this texel's surface (a far point for open sky)
+// through last frame's view. It counts only where last frame saw the same surface there, and only
+// within the range of this frame's march around the texel, so what moved leaves no trail.
+float4 VolumeTemporalPS(Screen i):SV_Target{
+    int2 q=int2(i.position.xy),size=int2(volumeDimensions.xy);
+    float4 current=volumeTexture.Load(int3(q,0));
+    [branch]if(temporalInfo.x<.5)return current;
+    float2 geometry=VolumeGeometry(q);bool sky=geometry.y>0;
+    float4 lo=current,hi=current;
+    [unroll]for(int ny=-1;ny<=1;++ny)[unroll]for(int nx=-1;nx<=1;++nx){
+        int2 t=clamp(q+int2(nx,ny),int2(0,0),size-1);
+        float2 g=VolumeGeometry(t);
+        if((g.y>0)!=sky||(!sky&&abs(g.x-geometry.x)>max(16,geometry.x*.05)))continue;
+        float4 n=volumeTexture.Load(int3(t,0));lo=min(lo,n);hi=max(hi,n);
+    }
+    float2 pixel=(float2(q)+.5)*dimensions.xy/volumeDimensions.xy;
+    float3 ray=normalize(World(pixel,camera.w>0?.00001:.99999)-camera.xyz);
+    float3 w=camera.xyz+ray*min(geometry.x,24000);
+    float4 clip=mul(previousViewProjection,float4(w,1));
+    if(clip.w<=1e-3)return current;
+    float2 uv=clip.xy/clip.w*float2(.5,-.5)+.5;
+    if(any(uv<=0)||any(uv>=1))return current;
+    float expected=length(w-previousCamera.xyz);
+    float2 v=uv*volumeDimensions.xy-.5;int2 b=int2(floor(v));float2 f=v-float2(b);
+    float4 sum=0;float weights=0;
+    [unroll]for(int y=0;y<2;++y)[unroll]for(int x=0;x<2;++x){
+        int2 t=clamp(b+int2(x,y),int2(0,0),size-1);
+        float2 g=volumeHistoryGeometry.Load(int3(t,0));
+        float weight=(x?f.x:1-f.x)*(y?f.y:1-f.y);
+        if((g.y>0)!=sky)weight=0;
+        else if(!sky)weight*=exp(-abs(g.x-expected)/max(8,expected*.03));
+        sum+=volumeHistoryTexture.Load(int3(t,0))*weight;weights+=weight;
+    }
+    if(weights<.25)return current;
+    return lerp(clamp(sum/weights,lo,hi),current,temporalInfo.z);
+}
 float4 SkyVolumePS(Screen i):SV_Target {
     float2 p=i.position.xy*dimensions.xy/volumeDimensions.xy;float d=ReadDepth(p);
     [branch]if(IsSky(d))return volumeTexture.Load(int3(int2(i.position.xy),0));
@@ -715,9 +1718,50 @@ float GroundFogDepthAlong(float3 dir,float reach){
     }
     return tau*dt;
 }
+)HLSL"
+R"HLSL(
+// MSAA cost split, as for the atmosphere pass (AtmospherePS): the fog and cloud composite shaded
+// every sample of every pixel. With shadowDebug.z set, CompositePixelPS shades the pixels whose
+// samples lie on one surface once, and CompositePS keeps per-sample shading for the edge pixels.
+// The split is used only while nothing after the atmosphere pass (props, precipitation) has given
+// the samples of an interior pixel different colours.
+bool CachedAtmosphereEdge(float2 pixel);
+float4 Composite(float2 p,uint sample);
+float4 CompositeAt(float2 p,uint sample,float d,float3 color);
 float4 CompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
-    float2 p=SamplePixel(i.position.xy,sample),uv=p/dimensions.xy;
-    float d=ReadCombinedSample(p,sample);bool sky=IsSky(d);
+#if COLOR_MS
+    [branch]if(shadowDebug.z>.5&&!CachedAtmosphereEdge(SamplePixel(i.position.xy,0)))discard;
+#endif
+    return Composite(SamplePixel(i.position.xy,sample),sample);
+}
+float4 CompositePixelPS(Screen i):SV_Target {
+#if COLOR_MS
+    float2 pixel=SamplePixel(i.position.xy,0);
+    [branch]if(CachedAtmosphereEdge(pixel))discard;
+    return Composite(pixel,0);
+#else
+    discard;
+    return 0;
+#endif
+}
+float4 Composite(float2 p,uint sample) {
+    float d=ReadCombinedSample(p,sample);
+    float3 color=ReadColor(p,sample);
+    // An edge pixel against the sky (EdgeSkyShare) is two layers: the thing in front, and the sky
+    // as drawn for the samples that missed it, each given its own clouds and fog. One copy of the
+    // composite in a loop, so the shader does not carry it twice.
+    float share=IsSky(d)?0:EdgeSkyShare(p);
+    float3 sky=0;
+    [branch]if(share>0){float found;sky=EdgeSkyColor(p,found,false);if(found<=0)share=0;}
+    float3 surface=share>0?max((color-share*sky)/max(1-share,.125),0):color;
+    float4 sum=0;
+    [loop]for(uint layer=0;layer<(share>0?2u:1u);++layer)
+        sum+=(layer?share:1-share)*CompositeAt(p,sample,layer?SkyDepth():d,layer?sky:surface);
+    return sum;
+}
+float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
+    float2 uv=p/dimensions.xy;
+    bool sky=IsSky(d);
     float distance=FogDistance(p,d);
     float2 v=uv*volumeDimensions.xy-.5;int2 lo=int2(floor(v));float2 f=frac(v);
     float4 sum=0;float weights=0;
@@ -737,8 +1781,11 @@ float4 CompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
     // behind a real branch: it is needed only for unmatched depth/MSAA edges,
     // not for every sample of every full-resolution pixel.
     float4 volume;
-    [branch] if(weights>.01) volume=sum/weights;
-    else volume=VolumeAt(p,d);
+    // (When the coarse texels that match this pixel's depth weigh next to nothing, their value is one
+    // far corner's, and along the outline of anything close, a barrel a pace away, the fog was drawn
+    // in the coarse image's squares. Those pixels are walked exactly as well.)
+    [branch] if(weights>.2) volume=sum/weights;
+    else volume=VolumeAt(p,d,kMarchExact);
     // FOG BEHIND A SMOKE. Where a CS2 smoke covers the pixel, only the fog BETWEEN the camera and
     // the smoke may show; the fog integrated past it (a deep doorway behind the cloud) used to be
     // painted over the smoke. That share is re-integrated up to where the smoke starts; with no
@@ -756,12 +1803,11 @@ float4 CompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
             [branch] if(entry>=distance) front=volume;   // the smoke starts beyond the surface
             else if(entry>1) {
                 float4 clip=mul(viewProjection,float4(camera.xyz+dir*entry,1));
-                front=VolumeAt(p,clip.z/clip.w);
+                front=VolumeAt(p,clip.z/clip.w,kMarchExact);
             }
             volume=lerp(volume,front,smoke);
         }
     }
-    float3 color=ReadColor(p,sample);
     // EFFECTS IN THE FOG. A particle has no depth, so the fog above was measured to the surface behind
     // it. Only the fog between the camera and the effect belongs over it: all of it for a fire far down
     // a fog bank, which sinks in smoothly, hardly any for a close explosion cloud. So a cloud across a
@@ -771,7 +1817,7 @@ float4 CompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
     // The player's own gun and arms stay readable however thick the fog around the camera is.
     [branch] if(IsViewmodelSample(p,sample)) volume=lerp(volume,float4(0,0,0,1),.85);
     else if(fogAmbient.w>.5){
-        float2 effect=fogFrontMask.Load(int3(int2(p),0));
+        float2 effect=fogFrontMask.Load(int3(int2(p),0)).rg;
         // The frame only shows how much a cloud darkened what was behind it, and a cloud has some light
         // of its own, so it hides more than that. Over a dark background it shows nothing: there, what
         // the cloud hides close by counts for pixels dark enough to be under it.
@@ -796,7 +1842,7 @@ float4 CompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
             float dark=effect.g*effect.g;dark*=dark;
             // A placed flame's light is much brighter than the frame shows after tonemapping, so it
             // holds more of the pixel than its share says, and fog does not wash over it.
-            float flame=saturate(effect.r*(1+.4*known));
+            float flame=saturate(effect.r*effect.r*(1+.4*known));
             volume=float4(lerp(volume.rgb,volume.rgb*(1-kept)/max(1-through,1e-4),max(flame,effect.g)),
                           lerp(volume.a,kept,max(flame,dark)));
         }

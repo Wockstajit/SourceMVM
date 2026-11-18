@@ -11,6 +11,7 @@
 #include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
 #include <Windows.h>
 #include <mutex>
+#include <unordered_map>
 #include <cstring>
 
 namespace Filmmaker::Environment {
@@ -26,6 +27,7 @@ constexpr double kBlastPush=.6,kCloudHold=6,kCloudEnd=9,kFlashEnd=1.5; // second
 constexpr float kCloudRadius=320,kFlashRadius=160;
 struct RecentShot {Vec3 position{};double time=0;bool viewmodel=false;};
 std::vector<RecentShot> shots;
+std::unordered_map<int,VfxShotMemory> shotMemory; // by userid
 std::vector<RecentBlast> blasts;
 float Number(const JsonValue& data, const char* key, float fallback = 0) {
     const auto value = data.Find(key); return value ? float(value->AsNumber(fallback)) : fallback;
@@ -72,6 +74,23 @@ bool MuzzlePosition(int userid,SourcePose& pose) {
         const auto handle=controller->GetPlayerPawnHandle();
         return handle.IsValid()&&PawnSource(CosmeticEntFromIndex(handle.GetEntryIndex()),"muzzle",pose);
     } __except(EXCEPTION_EXECUTE_HANDLER){return false;}
+}
+// The rounds in a player's active weapon and that weapon's entity index; false when either cannot
+// be read (the offset is optional, and a weapon with no magazine reports a negative count).
+bool ShooterClip(int userid,int& weapon,int& clip) {
+    weapon=clip=-1;
+    const ptrdiff_t offset=g_clientDllOffsets.C_BasePlayerWeapon.m_iClip1;
+    if(!offset)return false;
+    __try {
+        auto controller=CosmeticEntFromIndex(userid+1);if(!controller||!controller->IsPlayerController())return false;
+        const auto pawnHandle=controller->GetPlayerPawnHandle();if(!pawnHandle.IsValid())return false;
+        auto pawn=CosmeticEntFromIndex(pawnHandle.GetEntryIndex());if(!pawn||!pawn->IsPlayerPawn())return false;
+        const auto handle=pawn->GetActiveWeaponHandle();if(!handle.IsValid())return false;
+        auto entity=CosmeticEntFromIndex(handle.GetEntryIndex());if(!entity)return false;
+        weapon=handle.GetEntryIndex();clip=*reinterpret_cast<const int*>(reinterpret_cast<const unsigned char*>(entity)+offset);
+        if(clip<0)clip=-1;
+        return clip>=0;
+    } __except(EXCEPTION_EXECUTE_HANDLER){weapon=clip=-1;return false;}
 }
 const char* VfxEntityClass(CEntityInstance* entity) {
     __try {const auto kind=entity->GetClassName();return kind&&*kind?kind:entity->GetClientClassName();}
@@ -174,7 +193,7 @@ bool EffectPosition(int entity,bool bomb,Vec3& position) {
 }
 void ResetVfxLightingSources() {
     std::lock_guard<std::mutex> lock(mutex);
-    pulses.clear();fires.clear();infernos.clear();blasts.clear();shots.clear();currentMap.clear();lastTime=-1;
+    pulses.clear();fires.clear();infernos.clear();blasts.clear();shots.clear();shotMemory.clear();currentMap.clear();lastTime=-1;
 }
 std::vector<VfxBlast> CaptureVfxBlasts(double time) {
     std::lock_guard<std::mutex> lock(mutex);
@@ -205,6 +224,18 @@ std::vector<MollyLightSource> CaptureMollyLightSources() {
     std::lock_guard<std::mutex> lock(mutex);
     std::vector<MollyLightSource> sources;GatherMollySources(sources,false);return sources;
 }
+std::vector<Vec3> CaptureBurningFires() {
+    std::lock_guard<std::mutex> lock(mutex);
+    std::vector<Vec3> points;
+    for(const auto& source:infernos){
+        if(source.ending)continue;
+        auto entity=CosmeticEntFromIndex(source.index);
+        if(!entity||EntityHandle(entity)!=source.handle)continue;
+        FireSnapshot fire;if(!ReadFire(entity,fire)||fire.ending)continue;
+        for(int i=0;i<fire.count;++i)if(fire.burning[i]&&Finite(fire.positions[i]))points.push_back(fire.positions[i]);
+    }
+    return points;
+}
 bool IsVfxLightingEvent(const char* name) {
     return name && (!strcmp(name,"weapon_fire") || !strcmp(name,"hegrenade_detonate") ||
         !strcmp(name,"flashbang_detonate") || !strcmp(name,"inferno_startburn") ||
@@ -218,7 +249,7 @@ void OnVfxLightingEvent(const char* name, const JsonValue& data) {
     if (!std::isfinite(time)) return;
     const int entity = int(Number(data,"entityid",-1));
     std::lock_guard<std::mutex> lock(mutex);
-    if (!strcmp(name,"round_start")) { pulses.clear(); fires.clear(); infernos.clear(); blasts.clear(); shots.clear(); lastTime=-1; return; }
+    if (!strcmp(name,"round_start")) { pulses.clear(); fires.clear(); infernos.clear(); blasts.clear(); shots.clear(); shotMemory.clear(); lastTime=-1; return; }
     if (!strcmp(name,"inferno_expire") || !strcmp(name,"inferno_extinguish")) {
         for(auto& source:infernos)if(entity<0||source.index==entity)source.ending=true;
         for(auto& fire:fires)if(fire.pulse.light.identity=="vfx:fire"&&(entity<0||fire.pulse.entity==entity))EndVfxPulse(fire.pulse,time);
@@ -244,6 +275,14 @@ void OnVfxLightingEvent(const char* name, const JsonValue& data) {
         if (weapon.find("knife")!=std::string::npos || weapon.find("grenade")!=std::string::npos ||
             weapon=="molotov" || weapon=="incgrenade" || weapon=="c4" || weapon=="taser") return;
         pulse.userid=int(Number(data,"userid",-1));SourcePose pose;
+        // A click on an empty magazine raises this event too (VfxDryFire): no flash, no light.
+        {
+            int firing=-1,clip=-1;ShooterClip(pulse.userid,firing,clip);
+            if(VfxDryFire(shotMemory[pulse.userid],firing,clip)){
+                if(MvmDebugLog_Active())MvmDebugLog_LinefAlways("environment.vfx.muzzle","dry fire userid=%d weapon=%d: no light",pulse.userid,firing);
+                return;
+            }
+        }
         if (!MuzzlePosition(pulse.userid,pose)) return;position=pose.position;
         if(MvmDebugLog_Active())MvmDebugLog_LinefAlways("environment.vfx.muzzle","source=%s target=%p eye=%.2f,%.2f,%.2f muzzle=%.2f,%.2f,%.2f",pose.source,pose.target,pose.eye.x,pose.eye.y,pose.eye.z,position.x,position.y,position.z);
         const bool suppressed=weapon.find("silencer")!=std::string::npos;

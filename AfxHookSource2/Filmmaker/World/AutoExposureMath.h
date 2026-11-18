@@ -37,4 +37,17 @@ inline float TargetScale(float meteredLog2, float key, float compensationStops, 
     return std::clamp(scale, minScale, maxScale);
 }
 
+// PARTIAL ADAPTATION: how bright the meter is taken to be, part of the way from a reference level
+// to what it read (both log2 luminance). 1 is full adaptation: every scene is brought to the same
+// mid-grey, so a dim room is lifted to daylight brightness and the sunlit street seen through its
+// doorway is lifted with it and clips to white, while snow is pulled down to grey. Below 1 a dim
+// scene stays dimmer and a bright one brighter, as they look to the eye, and the exposure moves
+// over a smaller range, so what is bright in a dark frame is not blown out. (The idea of the
+// "automatic key" of Krawczyk, Myszkowski and Seidel 2005, "Perceptual Effects in Real-Time Tone
+// Mapping": the key a scene is mapped to falls with its luminance instead of staying fixed.)
+inline float PartialMeter(float meteredLog2, float referenceLog2, float strength) {
+    if (!std::isfinite(meteredLog2) || !std::isfinite(referenceLog2)) return meteredLog2;
+    return referenceLog2 + (meteredLog2 - referenceLog2) * std::clamp(strength, 0.f, 1.f);
+}
+
 } // namespace Filmmaker::AutoExposureMath

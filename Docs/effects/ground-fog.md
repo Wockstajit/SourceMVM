@@ -3,7 +3,8 @@
 Ground fog is a low layer of fog that lies on the floor. Players walking or running through it push
 it aside: it parts around their legs, leaves a trail behind them, curls into eddies at the edges of
 the trail and slowly fills back in. It is part of the Environment's Fog card, next to the height fog,
-and the two share the fog colour, the sky light and the light shafts.
+and the two share the sky light. The ground fog has its own colour and its own Shadows slider; the
+Fog page's Light shafts switch is the height fog's.
 
 Implementation: [`EnvironmentGroundFog.cpp`](../../AfxHookSource2/Filmmaker/Environment/EnvironmentGroundFog.cpp)
 (GPU side), [`EnvironmentGroundFogMath.h`](../../AfxHookSource2/Filmmaker/Environment/EnvironmentGroundFogMath.h)
@@ -23,7 +24,7 @@ CONFIG > ENVIRONMENT > FOG, under **Ground fog**. Every control is also a climat
 | Coverage | `groundFogCoverage` | 0.05 to 1 | 0.85 | How much of the floor it covers. 1 is an unbroken sheet; lower breaks it into patches with clear ground between them. Applies at once, on a paused frame too. |
 | Depth | `groundFogHeight` | 8 to 400 u | 56 | How high it stands over the floor. |
 | Softness | `groundFogSoftness` | 0 to 1 | 0.35 | How gradually it fades upward. 0 is a defined sheet with a top surface; 1 thins all the way up from the floor, like mist. |
-| Wisps | `groundFogWisps` | 0 to 1 | 0.35 | Tears it into thin streaks you can see through. Moving air bends them, so wakes drag them along. |
+| Wisps | `groundFogWisps` | 0 to 1 | 0 | Off by default: the streaks read as light rays ruled across the fog. Tears it into thin streaks you can see through. Moving air bends them, so wakes drag them along. |
 | Wisp size | `groundFogWispSize` | 8 to 240 u | 36 | How wide those streaks are. |
 | Streak | `groundFogStreak` | 0 to 1 | 0.2 | How far the streaks stretch along the drift direction. |
 | Billows | `groundFogDetail` | 0 to 1 | 0.6 | Rolling lumps in the top of the layer. |
@@ -39,6 +40,7 @@ CONFIG > ENVIRONMENT > FOG, under **Ground fog**. Every control is also a climat
 | Sun on fog | `groundFogSun` | 0 to 3 | 1 | How bright the sun makes it. |
 | Shade brightness | `groundFogShade` | 0 to 3 | 1 | How bright it is where the sun does not reach. |
 | Shade color | `groundFogShadeR/G/B` | 0 to 1 | white | Tints the sky light on it, so fog in shade can go steel blue while fog in the sun stays white. Not keyable. |
+| Shadows | `groundFogShadows` | 0 to 1 | 1 | How dark buildings and players make it where they block the sun. 0 lights all of it. Its own: Light shafts do not change it. |
 | Show sim view | `environment groundfog-view` | on or off | off | The live fluid in a corner of the screen (see below). A test view, not saved. |
 
 **Start from** sets the sliders in one go, as a place to start. *Street mist* is thin torn fog with a milky
@@ -46,7 +48,8 @@ height-fog haze over the map, white in the sun and blue in shade. *Thick sheet* 
 floor. Neither is a mode: every value it sets is a slider, and players push the fog the same way in both.
 
 The Fog card's switch turns on the height fog, the ground fog and the light shafts together. Either
-fog alone keeps the card on. **Light shafts** (`lightShafts`) is a switch on the same page.
+fog alone keeps the card on. **Light shafts** (`lightShafts`) is a switch on the height fog's page and
+does not touch the ground fog.
 
 ## How it works
 
@@ -69,9 +72,15 @@ across a wall or ledge, so fog does not float partway up a wall. A small same-fl
 grid. Without map data the floor is the fog's Base height.
 
 **The fluid.** One grid covers the whole map, with square cells of at least 8 units and at most 1024
-cells a side. It runs Stable Fluids on the GPU: advection, a pressure solve (20 Jacobi sweeps per step,
-warm-started from the last step), vorticity confinement for the eddies and a faint divergence-free
-stir so still air does not look frozen. Because the grid is fixed to the map, turning the camera or
+cells a side. It runs Stable Fluids on the GPU: advection, a pressure solve, vorticity confinement
+for the eddies and a faint divergence-free stir so still air does not look frozen. Three things were
+added after FluidNinja Live, chosen over the plain solver in a side-by-side on 2026-11-16. Walls: the
+fog cannot pass a step of 56 units within two cells, read from the weather cover volume a few rows a
+frame, so it piles against walls, flows round their ends and wakes come back off them (until the
+cover is baked the fog flows through). Turbulence only where the air is moving, in step with how
+fast, so a wake breaks into wisps while still fog lies calm. And a springy pressure: six relaxations
+a step on a pressure that carries over, where twenty cancelled every shove at once, so a push sends a
+soft swell outward. Because the grid is fixed to the map, turning the camera or
 cutting to another player never loses fog, and a render does not depend on its camera path. Each living player is a body. It drags the
 air it occupies along with it and pushes the fog in front and beside it outward. Explosions blow the fog away in a growing ring, burning molotov fires clear it around them and CS2
 smokes displace it, so flames and clouds stand in clear air instead of behind fog drawn over them.
@@ -94,7 +103,10 @@ every restart with its reason (`environment.groundfog`); one during plain playba
 inside the layer and long steps above it. Inside the layer each step is a fixed share longer than the
 last, so the march reaches about 5500 units in preview and 9000 in export. (A slower first version
 stopped near 400 units, so the fog vanished in the distance whenever the camera stood in the layer.)
-Steps also shorten to the fog's own thickness, so dense fog does not show terraces. The fluid decides
+Steps also shorten to the fog's own thickness, so dense fog does not show terraces. In the layer, or
+about to enter it, no step crosses more than an eighth of its depth up or down. Before, a ray going down
+through a Depth 8 layer crossed all of it in one step, so whether a pixel saw any fog came down to where
+its one sample landed, and the fog vanished at some view angles. The fluid decides
 both how dense the fog is and how tall it stands. The top follows a soft quarter-resolution copy of
 the field and stops at 1.25 times its share, so it stays a gentle dune rather than spiking where fog
 is pushed. The fine marbling shows in the density.
@@ -107,14 +119,23 @@ fog's shading of itself, because thin mist scatters light from all sides. Its de
 falls with the billows and sinks where a trail thinned the fog. Each sample is lit by:
 
 - the sky: the map's own authored sky colour, or the Environment sky when the Sky card is on. It is
-  kept near neutral and is dimmer near the floor, so fog in shade is a soft grey.
+  kept near neutral and is dimmer near the floor, so fog in shade is a soft grey. Only as much of it
+  reaches the fog as reaches that spot: open sky straight above (the top-down sky map, which renders
+  whenever ground fog is on) or open air reaching in under cover (the weather cover volume), with a
+  little left for light bounced in off walls. Fog in a covered room or inside a stack of crates is dim.
 - the sun: the climate sun, which starts as the map's own `light_environment`. Dense low fog scatters
   light many times, so it is lit from every side as well as having a forward glow toward the sun. It
-  is shadowed by the map when Light shafts is on (averaged along each march step, so an edge does not
-  shift with each pixel's jitter), by soft capsules for the players, and by the fog
+  is shadowed by the map, by the Shadows slider (averaged along each march step, so an edge does not
+  shift with each pixel's jitter, and over a few units across), by the players, and by the fog
   itself through a short march toward the sun: sun-facing slopes are bright and the far side of a heap
   is darker.
-- the first four added lights, shadowed when Light shafts is on.
+- the first four added lights, shadowed by the same Shadows slider.
+
+A player's shadow on the fog has the player's shape: the capsules between its bones (trunk, head,
+arms, legs), read from the pose it is drawn with each frame, so the shadow walks and crouches with it. A
+player whose bones cannot be read falls back to a slim upright capsule. One upright capsule for every
+player drew a pill laid along the sun. The sun's shadow map holds only the players CS2 drew to the
+screen this frame and never the first-person player, so the bones are needed.
 
 The height fog uses the same sky light and a closed-form sun self-shadow, and its far continuation is lit the
 same way as the near part, so the two meet without a brightness step.
@@ -160,10 +181,10 @@ folder and logs its numbers (lowest and highest fog, cells cleared and heaped, r
 
 ## Light shafts
 
-Light shafts are the sun's shadow drawn through the fog. They render the world sun shadow maps when
-either fog is on and the switch is on. They no longer need the Sky or Lighting card. The shafts fall
-where the map's sunlight does, because the climate sun starts from the map's `light_environment`.
-With the switch off, no sun shadow maps render for fog.
+Light shafts are the sun's shadow drawn through the height fog. The ground fog's shadows are its own
+Shadows slider. Either renders the world sun shadow maps: the height fog with its switch on, the ground
+fog with Shadows above 0. Neither needs the Sky or Lighting card. The shadows fall where the map's
+sunlight does, because the climate sun starts from the map's `light_environment`.
 
 ## Transparent surfaces in fog
 
@@ -193,7 +214,9 @@ relit smoke. Reference and tests: `SmokeRayShare` in
   direction still re-lays the wisps at once: they are stretched along the drift, so their pattern is
   looked up in a frame turned to that direction.
 - The march runs at the Environment's volume resolution (a quarter of each side in preview, full in
-  export). Very thin layers seen from straight above can show march grain before the blur.
+  export). In the live view each frame's march is jittered anew and blended into the last frames'
+  (`VolumeTemporalPS`), so its grain averages out instead of crawling as the camera moves. A render
+  marches each frame whole, with a still jitter.
 
 ## Tests
 
@@ -203,6 +226,45 @@ relit smoke. Reference and tests: `SmokeRayShare` in
   and how much of a ray lies in front of an effect.
 - `EnvironmentRenderTests`: transparents keep the surface's fog; a close flame or cloud has no fog over
   it, a far one sinks in, and one nobody placed keeps most or all of it; ground fog in the layer.
-- `EnvironmentMathTests`: light shafts request sun shadow maps on their own; ground fog is held
+- `EnvironmentMathTests`: light shafts and the ground fog's Shadows each request sun shadow maps on
+  their own, and Light shafts off leaves the ground fog's shadows on; ground fog is held
   across a restart like the height fog; scenes saved before these controls still load.
 - `environment-ui-tests.mjs`: the Fog card's ground fog controls, reset and switch.
+
+## Changes of 2026-11-16
+
+- **Light that is not a flame does not cut the fog.** The mask of what transparent effects did to the
+  frame counted any added light alike, so a pale puff of muzzle smoke or a spent case cleared the fog
+  over itself and the ground showed through unfogged. Light now counts by how far it swamps what was
+  behind it (`FrontMask`), and squared in the composite: flames and tracers still stand out of the
+  fog, puffs and cases do not.
+- **No squares along a near outline.** The fog is marched at a lower resolution and fitted back to
+  the frame by depth. Where the coarse texels that match a pixel's depth weigh under a fifth (the
+  outline of a barrel a pace away), their value is one far corner's, and the fog was drawn in the
+  coarse squares. Those pixels are marched exactly, as pixels with no match already were.
+- **Shade on the fog is soft and the same fog.** The sun's shadow is read at four points turned a
+  different way at every pixel, out to the layer's own depth, and shaded fog keeps a seventh of the
+  sun (it is lit by the sunlit fog beside it). Before, a roof's shade lay on the fog as a flat darker
+  shape with stepped edges.
+- **The height fog lies in front of it.** The ground layer is marched first; each piece of it is now
+  seen through the height fog between it and the eye and takes that fog's colour for the share it
+  hides, so the two read as one air and not white billows cut out of a blue haze.
+
+
+## Changes of 2026-11-17
+
+- **Thin layers no longer vanish at some angles.** No march step crosses more than an eighth of the
+  layer's depth up or down, so a Depth 8 layer is sampled several times on the way through.
+- **No crawling grain while the camera moves.** The live view jitters its march anew every frame and
+  blends each frame into the last ones, found through last frame's view. Last frame counts only where it
+  saw the same surface and only within the range of this frame's march, so nothing leaves a trail.
+- **Shadows of its own.** The Shadows slider replaces Light shafts for the ground fog. The map's shadow is
+  spread over a quarter of the layer's depth (4 to 16 units) instead of the whole depth, which had washed
+  buildings' shadows out of the fog, and shaded fog keeps a fifth of the sun.
+- **No checkerboard through cracks.** A pixel the coarse fog has no match for (a crack between crates,
+  a near outline) is marched on its own. It used the coarse texel's sample offset, the same for a 4 x 4
+  block and different for the next, so a thin layer seen through a crack came out as a row of fogged
+  and clear squares. Those pixels now sample each step at its middle.
+- **Fog under cover is not lit by the whole sky.** Fog inside covered rooms and crate stacks glowed
+  white in the dark; its sky light now follows the sky map and the cover volume.
+- **Players' shadows have their shape.** See the drawing section: the bones replace one capsule a player.

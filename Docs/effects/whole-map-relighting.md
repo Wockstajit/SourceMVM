@@ -132,69 +132,12 @@ GPU buffers as native draw order changes; it does not reduce capture coverage or
 that all playback memory growth is gone. `EnvironmentEarlyCasterTests` alternates both
 formats, verifies stream-output buffer identity, and reads back opaque and cutout shadow depth.
 
-## Movement profiling and runtime optimizations
+## Performance measurements
 
-Native lighting constant-buffer clones are reused by byte width, and one persistent irradiance
-buffer is updated when its packing changes. Engine buffer contents are still
-copied for each draw; buffer identity is not treated as proof that the contents are unchanged.
-Device teardown releases the clone pool. AO, screen GI and sun visibility use optimized SM5
-compilation. Probe hemispheres and the fixed PCSS disk retain their sample counts and spatial
-patterns, with repeated trigonometry moved out of the per-ray/per-pixel work.
-
-Half-resolution GI upsampling predicts neighbour depth on the receiver's projected plane.
-This prevents a sloped floor from rejecting its own GI samples merely because its view depth
-changes across a two-pixel footprint. Foreground/background depth rejection remains active.
-The material still evaluates all six ambient-cube bands with its native normal map. This does
-not add temporal accumulation or reduce the GI refresh rate.
-
-`mirv_filmmaker health resetTiming` clears a 4,096-sample ring of Present intervals.
-Subsequent health output reports mean, p50, p95, p99, maximum frame time and the number above
-33.33 ms. These are whole-frame CPU wall-clock intervals, not isolated GPU pass times.
-The low-frequency health command copies the ring under a lock and sorts outside it.
-
-[`profile-relight-motion.py`](../../Automation/verify/profile-relight-motion.py) drives a
-forward/reverse camera interpolation and records heartbeat-derived FPS and frame-time tails
-without recording screenshots during measurement. Run in an already joined offline map:
-
-```text
-python Automation/verify/profile-relight-motion.py --routes routes.json --output result.json --seconds 10
-```
-
-The routes JSON is an array of objects with `name`, `start` and `finish`; each pose is
-`[x, y, z, pitch, yaw, roll]`. Camera sensitivities, offset mode, pose and debug-log state are
-preserved. The script leaves the free-camera input active; use `mirv_input end` to resume player
-control. It rejects the zero player pose and scenes without meaningful draw activity so a
-team-selection/menu frame rate cannot be presented as a lighting benchmark. Camera cuts and
-initial region allocation settle before timing. Run captures separately; BMP writes, debug GPU
-readback, simultaneous shader tests and builds invalidate a comparable performance run.
-
-**The 30 FPS minimum is not achieved.** Shadow dimensions, filter sample counts and GI ray
-counts are kept. Measurements are under the ignored `Automation/output/lighting-performance/`
-directory.
-
-Cluster assignment clips light hulls against positive camera W before projecting their
-tile bounds. A light crossing the camera plane does not automatically occupy every screen
-tile; conservative edge intersections retain its visible coverage. CPU and GPU regressions
-cover crossing and fully behind-camera hulls. AO uses fixed octagonal horizon directions
-A translated straight-edge GPU
-regression covers the fixed directions.
-
-The default remains one bounce propagation step per frame. The 30 FPS minimum remains unmet.
-Extra propagation steps do not establish that shimmer is removed. Top-down captures retain
-map-cast shadows.
-
-Daylight weapon checks use the saved street finish pose, sun azimuth 0/elevation 60,
-viewmodel enabled, and actual forward/backward player movement (`mirv_input end`). It records
-99 lossless 1600 x 1200 BMP frames and a 24-frame full-resolution PNG review under
-`Automation/output/lighting-performance/weapon/sunlight-final/`. Direct sunlight reaches the
-pistol and hands; separate top-down captures show map shadows. The thin moving weapon rim
-remains unresolved. Reflection-off and shadow-off diagnostics did not remove it by themselves;
-Remaining GI variation and distant lighting acceptance are open.
-
-Verification: 60/61 full native tests pass, with the existing `EnvironmentReceiverTests`
-failure. The perspective-floor and background-depth GPU regressions pass, as do the
-PCSS sampling math tests. Full JavaScript verification is 438/456; 18 failures remain outside
-this change. The environment mock supplies its scene-key dependency (8/8 pass).
+Frame timings, the speed changes made from them and their A/B switches are in
+[whole-map relighting performance](whole-map-relighting-performance.md): movement profiling, draw
+setup and shadow draws on the render thread, and light lists, lamp face refresh and the engine's
+exposure.
 
 ## Current implementation
 
@@ -374,12 +317,25 @@ normal selection.
 The 3D skybox (viewport depth .95..1) is a scaled miniature in its own coordinate space. Map
 shadow maps and map light positions do not describe it, so skybox draws do not sample them.
 Skybox draws receive their own exported sun shadow map
-and ambient cube, with no foreground clustered local records. Draws that never carry that
-lighting interface (the city and mountain meshes authored as unlit effects, and the additive
-light shafts) keep daytime brightness in their albedo. While dynamic lighting is on, both follow
-the sun: the composite scales 3D-skybox pixels by the energy the relit world receives, and the
-additive shafts are dimmed at draw time by `UnlitOverlayScale`. Night leaves a dark city and thin
-shafts, daylight leaves the authored picture. The composite does not dim bright foreground pixels
+and ambient cube, with no foreground clustered local records, so at night they are as dark as the
+map and no darker. Draws that never carry that lighting interface (Mirage's haze cards over the far
+city, meshes authored as unlit effects, and the additive light shafts) keep daytime brightness in
+their albedo. While dynamic lighting is on they follow the sun at draw time: an unlit skybox draw is
+scaled by the share of the authored daylight the relit world still receives (`DaylightEnergyRatio`,
+`SkyboxUnlitDim` in `EnvironmentNativeMaterialDraw.cpp`) through its blend state, which is exact for
+an opaque, additive or premultiplied draw. A card blended by its own alpha (Mirage's haze, a
+`csgo_effects` program) cannot take that factor from a blend state, so it draws with a variant of its
+own program that writes its colour times the ratio and its alpha times the ratio's square root (no
+lower than a quarter): haze shows by the light it scatters, so as it darkens it also thins, where
+fully covered it hid the night sky as a dark slab (`EnvironmentNativeScaledColorMath.h`). Mirage also
+rings its edge with such haze cards in the main view, the white blobs over the far rooftops at
+night; those take the same variant (only alpha-blended `csgo_effects` cards there, never the gun's
+view). Effect programs keep their bytecode for this, and the variant is compiled on the derivation
+workers the first time such a card is drawn; until it is ready the card draws as before. The additive
+foreground shafts are dimmed by `UnlitOverlayScale`. The composite no longer scales 3D-skybox pixels
+on this path: the lit draws are already relit, and the second factor left Mirage's skyline far darker
+than the map at night. Night leaves a dark city and thin shafts, daylight leaves the authored
+picture. The composite does not dim bright foreground pixels
 by a luminance test: the native path has already lit them, and a second night factor cut a placed
 lamp's pool into a hard-edged crust wherever the albedo crossed the threshold (issue 41). The
 clear-depth sky is not modified.
@@ -417,6 +373,12 @@ Runtime bounce is on by default and updates continuously (`RelightProbeGi.cpp`,
   The whole map is voxelized once from this render geometry at 20-unit cells, spread over a few
   frames at load; cutouts and animated foliage are porous (35% coverage). Packs from other
   converter versions are rejected and rebuilt.
+- Cloth. A cell that holds a light-transmitting sheet (a tarp, an awning; the map data's
+  `kRigidTransmissive` mark) is solid to a ray, and each of its faces also sends on the light that
+  falls on the other, through the sheet's colour (`VOXEL_CLOTH`: the porous and two-sided bits
+  together; `CLOTH_PASS` 1, as the game draws such a material). The ground under a sunlit tarp is
+  lit in the tarp's colour. Mirage B site, sun at 60 degrees: the shade under the tarp was about
+  a fifth as bright as CS2's own picture of it before, and flat grey.
 - Stable map occupancy. Posed characters and world weapons receive probe lighting and
   retain their direct shadows, but do not enter the coarse indirect voxel grid. Animated
   occupancy is not rasterised, so small idle animations do not change 20-unit cells near the
@@ -478,6 +440,29 @@ Runtime bounce is on by default and updates continuously (`RelightProbeGi.cpp`,
   Receiver visibility blends the signed directional estimates continuously and applies a
   wrapped surface-facing weight. The volume carries sky visibility, so AO drops its
   screen-space sky term while bound.
+- Two-sided cells. A voxel keeps the normal of one of its triangles, whichever packs to the
+  largest word. A probe band is thrown out when a quarter of its rays reach a voxel from behind
+  that normal, which is how probes under floors and behind walls are found. A cell that also
+  holds a face on the opposite side (both faces of a roll-up door, a thin wall, a lamp shade) can
+  keep the normal that points away from the open side. The probes standing in front of it then
+  lose their bands, and the surface is left reading the probes behind it. At the Inferno top mid
+  garage door (2026-11-13) the door cells kept the normal facing into the building, the alley
+  probes 28 units in front had four or five of their six bands invalid, and the door read an
+  irradiance of 0.003 where the same door 60 units along read 0.19: a black patch on the door
+  and on the ground under it, darker than with `gi 0`. A second voxelization pass over the same
+  triangles now marks the cells that hold a triangle more than 120 degrees from the kept normal
+  (bit 14 of the voxel word), and the trace takes no back-face hit from a marked cell. The
+  normal is stored octahedrally in 14 bits to free that bit. With the mark the same point reads
+  0.14. Cells whose faces only meet at a corner are not marked: marking those as well let a beam
+  in the Ancient lamp corridor take sky light through its ceiling. `mirv_relight twosided 0|1`
+  restores the earlier judgement in the same process. Captures of the two sides at the garage
+  differ in 11% of pixels, at the church doorway in 2%, and two captures of one side in under
+  0.3%; the Ancient corridor differs in 2.5%, all of it under 35 levels.
+  `RelightProbeGpuTests` hold the word layout and a ray into a one-sided and a two-sided cell.
+  `mirv_relight dumpprobes` writes the traced bands, their distance moments, the composed volume
+  and the static voxels to `debuglogs\relight_probes.bin`, and
+  [`read-probe-dump.py`](../../Automation/verify/read-probe-dump.py) prints the probes around a
+  world point, the receiver query a surface there runs, and voxel slices with the mark.
 
 Controls: Lighting's Bounce intensity slider sets displayed reflected-light strength from 0 to 4.
 Zero removes displayed bounce while preserving probe sky visibility. Recursive transport uses
@@ -586,7 +571,7 @@ authored softness is retained. Their shadow filter uses the decoded physical sou
 instead of the full emitter dimension. This softens hard fill boundaries while retaining window
 occluders and avoiding excessively widened, layered projection edges.
 
-Light editor. Lighting → Edit lights (`mirv_relight lighteditor on|off`) closes the panel and
+Light editor. Scene Objects → Map lights → Edit lights (`mirv_relight lighteditor on|off`) closes the panel and
 draws a marker on every map light: bright when it shines, red when switched off here; markers fade with distance (full within 400 units, faint by 2000)
 so a room's own lamps stand out. Aiming at a light within 600 units rings it; F switches it off or
 back on (one switch per press; the game delivers a second key-down ~250 ms later), Esc leaves.
@@ -615,7 +600,10 @@ data fails dark; zero sun radiance creates no beams. The exported stained-glass 
 self illumination is suppressed while dynamic lighting owns the map, then restored when it
 releases ownership. The glass surface receives the live material lighting instead of glowing
 in darkness. Math: `RelightStainedGlassMath.h`; GPU: `RelightStainedGlass.cpp`.
-It is always on; `mirv_relight stainedglass <0-2>` is a diagnostic.
+It is off by default since 2026-11-11: `mirv_relight stainedglass <0-2>` turns it on for the
+session (1 is the strength described here). Inferno has 59 windows, and their 59 beam records cost
+about 2 ms a frame at 2560x1440 even with no window in view. While it is off the panes keep their
+authored material, baked self illumination included, and add no lights.
 The GPU regression in `Automation/tests/relight-probe-gpu-tests.cpp` renders the production cookie
 shader with lit and blocked panes, then checks relighting, sun-off, below-horizon and missing
 visibility transitions. Sky illumination alone does not produce a directional coloured beam.
@@ -723,7 +711,9 @@ span more than a fixed tolerance. Foreground/background and sky mixtures retain 
 per-material fallback. GPU tests cover both conventional and reversed depth. Draws with blending, other viewports (the first-person pass) or no texture
 keep the native filter. Setting: Lighting → **Sun size** (climate `sunAngle`, 0 to 5°),
 `mirv_relight sunsize <degrees>`. Math: `EnvironmentSunVisibilityMath.h`. A forced cascade
-(`mirv_relight suncascade 0-3`) runs the engine's own loop instead, for A/B comparison.
+(`mirv_relight suncascade 0-3`) runs the engine's own loop instead, for A/B comparison. A depth summary of the
+cascade tiles lets the pass skip its search and filter where the result is certain
+([Draw setup and shadow draws on the render thread](whole-map-relighting-performance.md#draw-setup-and-shadow-draws-on-the-render-thread)).
 
 Sun contact projects the actual receiver with no normal displacement. Each bilinear depth texel gets its own receiver-plane reference,
 so a slope correction cannot move a receiver through a neighbouring wall. Sun raster
@@ -746,10 +736,11 @@ Local-light filtering currently has a fixed angular footprint and does not perfo
 search. Console: `mirv_relight lampsize <degrees>` and `mirv_relight softness <multiplier>`.
 Climate fields `lampAngle` and `shadowSoftness` save with the scene and reset with Lighting.
 
-Lighting page. Environment → Lighting has sliders for map lights, ambient and shadow sharpness,
-on/off switches for shadows, ambient occlusion, sky occlusion and bounce, and
-the MAP LIGHTS buttons (Edit lights, Turn all back on). Reflections and stained glass are always on.
-The card's Reset restores these without releasing the renderer.
+Lighting page. Environment → Lighting has sliders for map light power, ambient and shadow sharpness,
+on/off switches for shadows, ambient occlusion, sky occlusion and bounce, and its own auto exposure.
+The MAP LIGHTS buttons (Edit lights, Turn all back on) are on Scene Objects → Map lights. Reflections are always on.
+The card's Reset restores its own settings without releasing the renderer; it leaves the map-light
+choices and the in-game Auto exposure alone.
 
 A program takes this path only when its DXBC proves the cascade loop layout. The sun ABI matcher accepts equivalent register allocations for the
 direction and radiance instructions. The cascade validator accepts immediate-constant
@@ -1450,6 +1441,117 @@ weapon, gloves and probe-lit props, while lightmapped surfaces receive uniform i
 weapon-visible timing session measured 88.49 fps without GI and 86.71 fps with GI.
 These timings are from a different session than the world-only cluster table above.
 Evidence is under `Automation/output/relight-probe-gi`.
+
+## Lite lighting
+
+`mirv_relight lite 1` keeps the lamps, the sun, the sky and every shadow, and traces no bounce. The
+probe volume is neither traced nor kept. It is a console switch for now: it is not saved with a
+scene and has no row in the panel.
+
+### The bounce grid
+
+Bounce comes from a grid of ambient cubes over the playable map, worked out once on worker threads
+(`RelightLiteGridMath.h`, `RelightLiteGrid.cpp`). The lit programs read it as they read any probe
+volume, through the plain trilinear query, so a frame costs what a single map-wide fill cost.
+
+- **Layout.** Probes about 64 units apart over the nav mesh's box with room around and above it,
+  at most 96 by 96 by 24. Inferno is 81 by 79 by 19: a 5.8 MB RGBA16F volume.
+- **What a probe sees.** Every probe looks along the same 24 directions, 320 units each, through
+  the map's render triangles. A direction that finds nothing sees the sky. One that hits a surface
+  sees what that surface sends back: the lamps and the sun that reach it (one shadow ray each),
+  tinted by the surface's own material colour, then the light the grid itself holds there (two more
+  bounces read from the grid, no rays). Cloth (the map data's `kRigidTransmissive` mark) is a
+  surface from either side and also sends on the sun and the lamps that reach its far face
+  (`LiteHitCloth`), as in the traced probes.
+- **Three layers.** What the probes see, the lamps' light and the sun's light are kept apart. A
+  lamp edit redoes only the lamps, a sun move only the sun, and a colour or brightness change only
+  puts the layers together again.
+- **Probes inside walls** are recognised by the backs of the surfaces they see and take the mean
+  of their open neighbours.
+- **Reading a cell out from the surface.** The lit programs read the grid 0.9 cell along the
+  receiver's normal (`cb13[8]`, `SimpleQuery`). Read at the surface, a wall blended in the probe
+  behind it, and lamp light from inside the Inferno church came through to its front.
+- **Why render triangles.** The collision also holds invisible ceilings and clips. They shut the
+  sky out of open ground, and collision has no material colour.
+- **Why 320 units.** A traced probe's ray stops there too. With longer rays shade came out greyer
+  and darker than the traced picture.
+
+The map-wide fill from before the grid (`AmbientFill`, `LiteSkyOcclusion`) is still what Lite shows
+until the first bake is done, and on a map with no triangles to bake from.
+
+### Cost of a bake
+
+Inferno, 7.0 million render triangles, 207 lamps, eight worker threads at below-normal priority:
+0.3 s to bucket the triangles, 1.0 to 1.9 s for the first rays, 0.6 to 1.3 s for the lamps, 0.4 to
+0.7 s for the sun, about 0.1 s to put the layers together. The ray buckets (36 MB) are given back
+after 30 idle seconds and rebuilt when the sun next moves. The cached hits are 23 MB of RAM.
+
+`mirv_relight` prints the worker's state and the last bake's times on its `lite grid:` line.
+
+### Strength
+
+`mirv_relight litebounce <0-4>` (1) scales everything surfaces send back. Under it are three fixed
+strengths (`LiteGridLampBounce` 1.3, `LiteGridSunBounce` 0.45, `LiteGridFeedback` 0.5), set so the
+grid's picture is nearest the traced one. A lamp-lit room wanted its lamps' bounce a little over
+full strength; open shade came out too bright unless the sun's bounce and the later bounces were
+cut. They are a match to the traced picture, not a statement about the light.
+
+### Reflections
+
+Lite binds one 16-texel cube for the whole map: sky above, a ground glow below and up to a
+roofline. It shows no buildings. The material scales it by the receiver's ambient over the capture
+point's, so with the grid a dark room's metal is dark and a lit room's is lit. At night both the
+cube and the capture point's ambient are near black, and a lamp-lit room's metal stayed black: the
+two are lifted together to a floor (`LiteReflectionLift`), and a lifted texel loses its colour, so
+a night sky's blue does not end up on a lamp-lit barrel hoop.
+
+### What Lite does not have
+
+- **Fine bounce.** Probes are 64 units apart and read without the traced volume's distance
+  check. Lamp light spreads about a cell further than it should: by day the Inferno church front
+  is about 20% brighter than the traced picture, and a soft warm glow sits beside its doorway.
+- **Bounce from things that move.** A door, a player or a prop changes nothing. Effect lights
+  (fire, muzzle flashes) are left out.
+- **Rounded fixture openings and cookies** on the lamps' bounce.
+- **Reflections of the scene.** Metal and wet ground show sky and ground colour only.
+
+### Measured
+
+RTX 5070 at 2560x1440 on Inferno, full against Lite in one process, two rounds each (2026-11-13).
+Other programs were using the GPU, so read the differences and not the absolute times.
+
+| View | Full | Lite |
+| --- | --- | --- |
+| Running the length of mid | 14.1 ms | 11.2 ms |
+| Garage, standing | 12.7 ms | 10.8 ms |
+| Mid, standing | 14.7 ms | 12.9 ms |
+| Church, standing | 16.0 ms | 14.3 ms |
+| Wine cellar, standing | 16.0 ms | 14.3 ms |
+
+The whole difference is in the lit draws (6.4 ms against 5.0 ms at mid): the traced volume's
+27-probe distance-checked query and its reflection capture. No bounce pass runs in either mode once
+the traced volume has settled. `mirv_relight gi 0` alone saved nothing on the same day.
+
+The hook's GPU memory estimate is 2,054 MB with full lighting and 1,897 MB with Lite.
+
+Mean picture level, full then Lite. Day, sun at 35 degrees: garage 45.6 / 40.0, mid 39.7 / 45.1,
+church 43.2 / 52.6, spawn 45.3 / 49.9, wine cellar 62.3 / 57.3, banana 112.4 / 113.2. Night, sun at
+-12 degrees: wine cellar 59.2 / 50.8, church front 10.9 / 16.5. Mirage by day (76 by 67 by 18
+probes, baked in 1.3 s): T spawn 151.2 / 148.8, a CT-side room 54.9 / 60.4, mid 131.7 / 130.8,
+palace side 125.6 / 128.3. No other map has been checked.
+Captures are in `Automation/runs/lighting-lite-20261113/` (`grid-final-day`, `grid-11-night`,
+`mirage`).
+
+### Sky visibility maps on demand
+
+The fourteen sky visibility maps (about 60 MB) are read only by lighting without a bounce volume:
+`gi 0`, and Lite before its first bake. They are now made when something asks for them and released
+600 frames after the last request, so neither full lighting nor Lite with its grid holds them. The
+first frames after a request have no sky visibility while the maps are drawn.
+
+Sky visibility takes four lookups per direction, spread over a disc in the receiver's own plane.
+One lookup drew a roof's edge as a hard line across the floor under it. A lookup that leaves the
+maps' coverage is left out of the average.
 
 ## Remaining quality work
 

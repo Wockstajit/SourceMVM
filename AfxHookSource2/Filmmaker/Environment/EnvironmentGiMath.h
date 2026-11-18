@@ -15,13 +15,21 @@ inline GiBounds ClimateGiBounds(const Climate &c) {
     return {{c[CL_bounceX] - size * .5f, c[CL_bounceY] - size * .5f, c[CL_bounceZ] - size * .5f}, size};
 }
 inline Vec3 GiCoordinate(const GiBounds &b, Vec3 p) { return (p - b.low) * (1.f / b.size); }
-inline Vec3 ClimateSunRadiance(const Climate &c) {
+// The sun's own radiance (the sky's sun disc).
+inline Vec3 ClimateTrueSunRadiance(const Climate &c) {
     float t = std::clamp((c[CL_sunElevation] + 4) / 30, 0.f, 1.f);
-    float daylight = ClimateSunVisibility(c);
+    float daylight = ClimateTrueSunVisibility(c);
     // The same ramp and the same authored tint the surface shader uses, so the bounce agrees
     // with the direct light instead of drifting warm against it.
     const float gain = c[CL_sunPower] * daylight;
     return Vec3{gain * c[CL_sunColorR], gain * (.36f + .58f * t) * c[CL_sunColorG],
                 gain * (.12f + .71f * t) * c[CL_sunColorB]};
+}
+// The key light's radiance: the sun by day, the moon's colour at its power once the sun has set.
+// HLSL twin: SunColor() in EnvironmentClimateShaders.h.
+inline Vec3 ClimateSunRadiance(const Climate &c) {
+    if (!ClimateMoonKey(c)) return ClimateTrueSunRadiance(c);
+    const float gain = ClimateMoonPower(c);
+    return Vec3{gain * c[CL_moonColorR], gain * c[CL_moonColorG], gain * c[CL_moonColorB]};
 }
 } // namespace Filmmaker::Environment

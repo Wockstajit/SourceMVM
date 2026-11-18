@@ -746,7 +746,8 @@ R"CFJS(
       var quantum = 1 / mul; // smallest step the readout/command can express
       var offAtZero = !!opts.offAtZero;
       function quant(v) { return Math.round(v * mul) / mul; }
-      function fmt(v) { return (offAtZero && v <= min && min === 0) ? T('Off') : (v.toFixed(decimals) + unit); }
+      // `format(value)` replaces the number-and-unit readout (a time of day reads 15:15, not 15.25h).
+      function fmt(v) { return (offAtZero && v <= min && min === 0) ? T('Off') : opts.format ? opts.format(v) : (v.toFixed(decimals) + unit); }
 
       endTileLine(parent);
       var t = mk('Panel', parent);

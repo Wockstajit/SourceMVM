@@ -5,6 +5,17 @@
 namespace Filmmaker::Environment {
 // Transient A/B diagnostic: skip view repair only when bytecode proves it has no effect.
 extern std::atomic<bool> NativeAoRepairReuse;
+// Transient A/B diagnostic: build the frame's light records once per pass kind, or for every view.
+extern std::atomic<bool> NativeRecordReuse;
+// Transient A/B diagnostic: 16-unit depth slices for the light lists, or CS2's 64 over the whole map.
+extern std::atomic<bool> NativeFineSlices;
+// mirv_relight dumpview: how many world views still to write to the debug log (the engine's b1 and b4).
+extern std::atomic<unsigned> NativeViewDumpRequests;
+// Transient A/B diagnostic (mirv_relight engineexposure): read CS2's own exposure for the visible reach.
+extern std::atomic<bool> NativeExposureRead;
+// The exposure CS2's tonemapper is applying, read from its per-view constants a frame or two late.
+// 0 while unknown: nothing lit lately, the switch off, or a layout that fails its check.
+float NativeExposureScale();
 void NoteNativeMaterialPixelShader(ID3D11PixelShader*,const void*,size_t);
 // The lighting variants of CS2's material programs are built on a background worker, off CS2's
 // loader threads (EnvironmentNativeMaterial.cpp). For the heartbeat: programs handled, programs
@@ -89,6 +100,20 @@ private:
     ID3D11BlendState* previousOverlayBlend=nullptr;
     float previousOverlayFactor[4]{};
     UINT previousOverlayMask=0xffffffff;
+    // An unlit draw of the 3D skybox (a haze card, a painted skyline), or (`world`) an alpha-blended
+    // haze card of the map itself: dimmed by the daylight the relit world has lost, through the blend
+    // state (restored with the overlay scale above) or the program's scaled-colour variant.
+    void UnlitCardDim(ID3D11DeviceContext* ctx,bool world);
+    // An alpha-blended card drawn with its scaled-colour variant: what it replaced.
+    bool skyboxScaled=false;
+    ID3D11PixelShader* previousScaledShader=nullptr;
+    ID3D11Buffer* previousScaledConstants=nullptr;
+    // Left bound for the next lit draw of the run (PixelStateLayer) instead of restored.
+    bool sticky=false;
+    // This draw took the inputs the previous lit draw left bound.
+    bool reusing=false;
+    ID3D11ShaderResourceView* ourIrradiance[3]{};
+    ID3D11SamplerState* ourIrradianceSampler=nullptr;
     ID3D11ShaderResourceView* previousSmokeViews[3]{};
     ID3D11SamplerState* previousSmokeSamplers[2]{};
     ID3D11Buffer* previousSmokeConstants[2]{};

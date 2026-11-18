@@ -289,6 +289,7 @@ struct Batch {
     float cutoff = 0;
     int addressU = 0, addressV = 0;
     bool missingWeights = false, stained = false, dropped = false;
+    bool transmissive = false; // the material lets light through to its back face (kRigidTransmissive)
     std::string material;
     float animation[8] = {0, 0, 1, 1, 0, 0, 1, 1};
     uint32_t albedo = 0x808080;
@@ -539,6 +540,8 @@ private:
         }
         Batch &b = batches[found->second];
         if (b.dropped) return;
+        // Valve's own flag for a thin sheet that light passes through (cloth tarps, awnings).
+        b.transmissive = m.Int("F_TRANSMISSIVE_BACKFACE_NDOTL") != 0;
 
         if (!s.position) { warnings.push_back("draw call without positions: " + m.name); return; }
         std::vector<Float3> pos;
@@ -736,7 +739,7 @@ std::vector<uint8_t> BuildVisualCasters(const Vpk &package, const PackageSet &re
             remap[v] = it->second;
         }
         for (uint32_t i : b.indices) rigid.indices.push_back(remap[i]);
-        rigidAlbedo.insert(rigidAlbedo.end(), b.indices.size() / 3, b.albedo);
+        rigidAlbedo.insert(rigidAlbedo.end(), b.indices.size() / 3, b.albedo | (b.transmissive ? kRigidTransmissive : 0u));
         if (b.stained) {
             stained.push_back(&b);
             bytes += b.vertices.size() / 8 * 20 + b.indices.size() * 4 + b.color.size();

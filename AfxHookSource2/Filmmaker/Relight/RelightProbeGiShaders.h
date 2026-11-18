@@ -13,9 +13,9 @@ inline constexpr char kProbeGiShader[]=R"HLSL(
 cbuffer Build:register(b0) {
     float4 gridLowSize,gridInfo; // region low+size | voxel resolution, cell size, record count, cursor
     float4 giLowSize,giInfo;     // trace volume low+size | enabled, cell size, resolution, bounce gain
-    float4 sky,ground;           // live sky radiance | update counter (x)
+    float4 sky,ground;           // live sky radiance | update counter (x), trace mode (y), visible list (z), ignore the two-sided mark (w)
     float4 staticOffset;         // region origin in static cells (xyz)
-    float4 staticDims;           // static grid dimensions (xyz), reserved (w)
+    float4 staticDims;           // static grid dimensions (xyz), voxelization pass (w): 0 fill, 1 mark two-sided cells
     float4 probeInfo;            // slices this pass, history blend, multi-bounce gain, authored edit
     float4 shift;                // probe history shift in probes (xyz)
     float4 voxelTarget;          // voxelization: low xyz, raster extent w
@@ -26,14 +26,40 @@ cbuffer Build:register(b0) {
 };
 cbuffer Object:register(b1) { row_major float4x4 model; };
 
-// Voxel word: bit31 occupied, bit30 porous (foliage), bits 0-14 normal (5 bits per axis),
-// bits 15-29 albedo as sqrt-encoded 5 bits per channel (keeps dark reflectances distinct).
+// Voxel word: bit31 occupied, bit30 porous (foliage; with bit 14, cloth), bits 0-13 normal (octahedral, 7 bits per
+// axis, 126 steps so the axes are exact), bit 14 two-sided, bits 15-29 albedo as sqrt-encoded
+// 5 bits per channel (keeps dark reflectances distinct).
+// A cell keeps the normal of one of its triangles. Two-sided marks the cells that also hold a
+// triangle facing the opposite way: both faces of a roll-up door, a thin wall, a lamp shade.
+// Such a cell cannot say which side a ray reached it from.
+#define VOXEL_TWO_SIDED 0x4000u
+// CLOTH. A cell that holds a light-transmitting sheet (a tarp, a fabric awning: a triangle the map
+// data marked with MapData::kRigidTransmissive) carries the porous and the two-sided bits
+// together. Neither means what it says there: the sheet is solid to a ray, and each of its faces
+// also sends on the light that falls on the other, through the sheet's colour. That is how the
+// game draws such a material (its shaded face is lit by the light on its lit face), and it is why
+// the ground under a sunlit tarp is lit in the tarp's colour and not left to the sky alone.
+// A porous cell never takes the two-sided bit of its own (VoxelStaticPS), so the pair is cloth only.
+#define VOXEL_CLOTH 0x40004000u
+// Must equal GiClothPass (checked by RelightProbeGpuTests).
+#define CLOTH_PASS 1.
+bool VoxelIsCloth(uint v){return (v&VOXEL_CLOTH)==VOXEL_CLOTH;}
+// Lets part of a ray through: foliage, a grille, a fence. Cloth does not.
+bool VoxelIsPorous(uint v){return (v&0x40000000u)&&!(v&VOXEL_TWO_SIDED);}
 uint PackVoxel(float3 n,float3 color,bool porous) {
-    uint3 q=(uint3)round(saturate(n*.5+.5)*31);
+    float3 o=n/max(abs(n.x)+abs(n.y)+abs(n.z),1e-6);
+    float2 e=o.z>=0?o.xy:(1-abs(o.yx))*float2(o.x>=0?1:-1,o.y>=0?1:-1);
+    uint2 q=(uint2)round(saturate(e*.5+.5)*126);
     uint3 c=(uint3)round(sqrt(saturate(color))*31);
-    return 0x80000000u|(porous?0x40000000u:0)|q.x|(q.y<<5)|(q.z<<10)|(c.x<<15)|(c.y<<20)|(c.z<<25);
+    return 0x80000000u|(porous?0x40000000u:0)|q.x|(q.y<<7)|(c.x<<15)|(c.y<<20)|(c.z<<25);
 }
-float3 VoxelNormal(uint v){return normalize(float3(v&31,(v>>5)&31,(v>>10)&31)/31*2-1);}
+float3 VoxelNormal(uint v){
+    float2 e=float2(v&127,(v>>7)&127)/126*2-1;
+    float3 n=float3(e,1-abs(e.x)-abs(e.y));
+    float fold=saturate(-n.z);
+    n.xy+=float2(n.x>=0?-fold:fold,n.y>=0?-fold:fold);
+    return normalize(n);
+}
 float3 VoxelAlbedo(uint v){float3 s=float3((v>>15)&31,(v>>20)&31,(v>>25)&31)/31;return s*s;}
 
 // ---- voxelization (dominant-axis projection, 2 raster pixels per cell) ----
@@ -59,9 +85,18 @@ int3 VoxelCell(float3 world){return (int3)floor((world-voxelTarget.xyz)/gridInfo
 void VoxelStaticPS(VoxelPixel i) {
     int3 cell=VoxelCell(i.world);
     if(any(cell<0)||any(cell>=(int3)voxelDims.xyz))return;
+    // Second pass over the same triangles, once every cell has its normal.
+    if(staticDims.w>0){
+        uint stored=voxelOutput[cell];
+        // Not on a porous cell: no ray reads the bit there, and with it the cell would read as cloth.
+        if((stored&0x80000000u)&&!(stored&0x40000000u)&&dot(VoxelNormal(stored),i.normal)<-.5)InterlockedOr(voxelOutput[cell],VOXEL_TWO_SIDED);
+        return;
+    }
     uint material=triangleAlbedo[i.id+(uint)voxelDims.w];
     float3 color=float3(material&255,(material>>8)&255,(material>>16)&255)/255;
-    InterlockedMax(voxelOutput[cell],PackVoxel(i.normal,color,(material&0x01000000u)!=0));
+    // Fourth byte of the triangle's word: 1 porous (foliage, a grille), 2 cloth (kRigidTransmissive).
+    bool cloth=(material&0x02000000u)!=0;
+    InterlockedMax(voxelOutput[cell],PackVoxel(i.normal,color,cloth||(material&0x01000000u)!=0)|(cloth?VOXEL_TWO_SIDED:0u));
 }
 // ---- region voxel lookup: stable map occupancy ----
 Texture3D<uint> staticVoxels:register(t0);
@@ -221,11 +256,14 @@ void InjectCS(uint3 id:SV_DispatchThreadID) {
     if(!(packed&0x80000000u)){radianceOutput[id]=0;backRadianceOutput[id]=0;directionOutput[id]=0;return;}
     float3 n=VoxelNormal(packed),color=VoxelAlbedo(packed);
     float3 p=gridLowSize.xyz+(float3(id)+.5)*gridInfo.y;
-    float coverage=(packed&0x40000000u)?.35:1;
+    float coverage=VoxelIsPorous(packed)?.35:1;
     // A coarse wall cell represents both faces. Keep their outgoing radiance
     // separate so a lamp in a room cannot illuminate the exterior face.
-    radianceOutput[id]=float4(min(InjectSurface(id,p,n)*color,64)*coverage,coverage);
-    backRadianceOutput[id]=float4(min(InjectSurface(id,p,-n)*color,64)*coverage,coverage);
+    float3 front=InjectSurface(id,p,n),back=InjectSurface(id,p,-n);
+    // Cloth is the one surface whose faces share their light (VOXEL_CLOTH).
+    float share=VoxelIsCloth(packed)?CLOTH_PASS:0;
+    radianceOutput[id]=float4(min((front+back*share)*color,64)*coverage,coverage);
+    backRadianceOutput[id]=float4(min((back+front*share)*color,64)*coverage,coverage);
     directionOutput[id]=float4(n,0);
 }
 )HLSL"
@@ -258,7 +296,9 @@ float4 SurfaceRay(float3 origin,float3 direction,float maxDistance,uint maxSteps
             float3 normal=giDirection.Load(int4(cell,0)).xyz;
             if(value.a>.5&&distanceInProbes==8){
                 distanceInProbes=distance/spacing;
-                if(RegionVoxel(cell)&0x80000000u)backface=dot(normal,direction)>.05?1:0;
+                // Only a one-sided cell shows its back: the far side of a wall or floor.
+                uint hit=RegionVoxel(cell);
+                if((hit&0x80000000u)&&(ground.w>0||!(hit&VOXEL_TWO_SIDED)))backface=dot(normal,direction)>.05?1:0;
             }
             float facing=dot(normal*rsqrt(max(dot(normal,normal),1e-8)),-direction);
             if(facing<0)value.rgb=giBackRadiance.Load(int4(cell,0)).rgb;
@@ -472,7 +512,7 @@ bool ProbeWallBetween(int3 q,int3 offset) {
     [loop]for(uint i=1;i<steps;++i){
         float3 p=start+segment*(float(i)/steps);
         uint voxel=RegionVoxel((int3)floor((p-gridLowSize.xyz)/gridInfo.y));
-        if((voxel&0x80000000u)&&!(voxel&0x40000000u))return true;
+        if((voxel&0x80000000u)&&!VoxelIsPorous(voxel))return true;
     }
     return false;
 }

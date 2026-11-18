@@ -187,7 +187,13 @@ R"CFJS(
 
 )CFJS"
 R"CFJS(
-    // The mock's DEFS table, key for key: [label, min, max, decimals, unit, offAtZero, tooltip].
+    // The mock's DEFS table, key for key: [label, min, max, decimals, unit, offAtZero, tooltip, format].
+    // A time of day as a clock: 15.25 reads 15:15.
+    function envClock(h) {
+      var m = Math.round(h * 60) % 1440;
+      var hh = Math.floor(m / 60), mm = m % 60;
+      return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+    }
     // One table beats fifty call sites that each restate a range, and it is the same shape the
     // original design used, preserving that table's layout.
     var CLD = {
@@ -203,11 +209,16 @@ R"CFJS(
       cloudBase:   [T('Base height'), -2000, 32000, 0, 'u', false, T('World height the cloud layer starts at.')],
       cloudDepth:  [T('Layer depth'), 100, 8000, 0, 'u', false, T('How tall the cloud layer is above its base.')],
       cloudScale:  [T('Detail scale'), 0.0001, 0.01, 4, '', false, T('Size of the cloud noise. Smaller values give bigger formations.')],
-      windSpeed:   [T('Wind speed'), -600, 600, 0, 'u/s', false, T('How fast the cloud layer drifts.')],
+      windSpeed:   [T('Cloud speed'), -600, 600, 0, 'u/s', false, T('How fast the cloud layer drifts. The rain and snow have their own Wind speed on the Weather card.')],
       haze:        [T('Horizon haze'), 0, 2, 2, '', false, T('Atmospheric thickening toward the horizon.')],
       stars:       [T('Stars at night'), 0, 1, 2, '', false, T('Star brightness once the sun is below the horizon.')],
-      sunAzimuth:  [T('Azimuth'), 0, 360, 0, '°', false, T('Compass direction of the procedural sun. Drives sky, clouds, fog and relighting.')],
-      sunElevation:[T('Elevation'), -30, 90, 0, '°', false, T('Height of the sun above the horizon. Negative is night.')],
+      moon:        [T('Moon brightness'), 0, 4, 2, '', true, T('Brightness of the moon in the sky and of its light. Once the sun sets, the moon lights and shadows the map. 0 hides it.')],
+      moonPhase:   [T('Phase'), 0, 1, 2, '', false, T('The moon’s shape: 0 is a new moon, 0.25 the first quarter, 0.5 full and 0.75 the last quarter (0.6 to 0.7 is a waning gibbous). The moon stays where the time of day puts it, opposite the sun. A fuller moon gives more light.')],
+      moonSize:    [T('Moon size'), 0.1, 12, 2, '°', false, T('Apparent size of the moon in degrees. 0.52° is the real moon; raise it for a big cinematic moon.')],
+      cloudRain:   [T('Rain darkening'), 0, 1, 2, '', false, T('How dark and heavy rain and storms make the cloud layer. 0 leaves the clouds as they are.')],
+      timeOfDay:   [T('Time of day'), 0, 24, 2, '', false, T('Moves the sun and the moon across the sky together. The sun comes up at 6:00, is highest at noon and sets at 18:00; at night the moon lights the map, where its phase puts it.'), envClock],
+      sunPath:     [T('Sun direction'), 0, 360, 0, '°', false, T('Turns the sun’s whole path across the sky: where it rises, where it stands at noon and where it sets. The moon follows the same path.')],
+      sunHeight:   [T('Sun height'), 5, 90, 0, '°', false, T('How high the sun climbs at noon. Low gives long shadows all day, like winter; 90 passes straight overhead.')],
       sunPower:    [T('Sun brightness'), 0, 8, 2, '', false, T('Brightness of the sun on surfaces and in the sky.')],
       sunColorR:   [T('Sun red'), 0, 2, 2, '', false, T('Red in the sunlight. 1 is the default warm-to-white ramp; lower cools the light, higher warms it.')],
       sunColorG:   [T('Sun green'), 0, 2, 2, '', false, T('Green in the sunlight. Tints the surfaces, the sun disk and the sky glow together.')],
@@ -215,7 +226,9 @@ R"CFJS(
       sunRelight:  [T('Surface sunlight'), 0, 3, 2, '', false, T('How strongly the procedural sun lights map surfaces.')],
       relight:     [T('Flatten contrast'), 0, 1, 2, '', false, T('Keeps baked shading as AO and replaces the map’s directional light with Environment’s sun.')],
       ambient:     [T('Ambient light'), 0, 2, 2, '', false, T('Light arriving from the sky. Map lamps have their own brightness.')],
-      mapLightPower:[T('Map lights'), 0, 8, 2, '', false, T('Brightness of the map’s authored lamps, including interior lights.')],
+      mapLightPower:[T('Map light power'), 0, 8, 2, '', false, T('Brightness of the map’s authored lamps, including interior lights.')],
+      playerFill:  [T('Player fill'), 1, 4, 2, '', false, T('Lifts players who stand in shade so they do not go black next to the walls. 1 leaves them as lit.')],
+      exposureBias:[T('Exposure bias'), -3, 3, 1, ' st', false, T('Brightens (+) or darkens (-) what Auto exposure settles on, in stops. 0 is the metered exposure.')],
       shadowBias:  [T('Surface offset'), 0.1, 16, 1, '', false, T('Shadow-map offset that stops surfaces shadowing themselves.')],
       lampAngle:    [T('Light source angle'), 0, 5, 2, '°', false, T('Apparent size of map lights for shadow filtering. 0 gives sharp shadows; larger values soften their edges without changing brightness.')],
       shadowSoftness:[T('Shadow softness'), 0, 4, 2, '×', false, T('Scales sun and map light shadow softness together. 1 uses the source sizes above; 0 makes both sharp.')],
@@ -248,6 +261,7 @@ R"CFJS(
       groundFogChurn: [T('Churn'), 0, 5, 2, '', false, T('How fast the billows and wisps roll and change. It does not move the fog players pushed.')],
       groundFogSun: [T('Sun on fog'), 0, 3, 2, '', false, T('How bright the sun makes the fog. High values read as a white glow against fog in shade.')],
       groundFogShade: [T('Shade brightness'), 0, 3, 2, '', false, T('How bright the fog is where the sun does not reach it.')],
+      groundFogShadows: [T('Shadows'), 0, 1, 2, '', false, T('How dark buildings and players make the fog where they block the sun. 0 lights all of it.')],
       groundFogFlow: [T('Push'), 0, 3, 2, '', false, T('How strongly players moving through the fog shove it aside. 0 leaves it undisturbed.')],
       groundFogPushSize: [T('Push size'), 0.2, 2, 2, '', false, T('How wide the mark a player leaves in the fog is. Lower keeps it close around their legs; higher parts a wide circle.')],
       groundFogRecovery: [T('Refill time'), 0.5, 60, 1, 's', false, T('Seconds a cleared trail takes to fill back in.')],
@@ -262,6 +276,7 @@ R"CFJS(
       grain:       [T('Film grain'), 0, 0.1, 3, '', true, T('Fine noise over the frame.')],
       chromatic:   [T('Chromatic shift'), 0, 4, 2, '', true, T('Colour fringing toward the frame edges.')],
       snow:        [T('Snow coverage'), 0, 1, 2, '', true, T('Snow on upward-facing surfaces, including actors.')],
+      snowDepth:   [T('Snow depth'), 0, 1, 2, '', false, T('How deep the snow lies where it has drifted. Deep snow is parted by the players who walk through it; thin snow only takes their footprints.')],
       puddles:     [T('Puddle coverage'), 0, 1, 2, '', true, T('Standing water on flat ground. Local radius uses the height band.')],
       wet:         [T('Wetness'), 0, 1, 2, '', true, T('Darkens and glosses surfaces as if rained on.')],
       puddleHeight:[T('Puddle height'), -4000, 8000, 0, 'u', false, T('World height the puddle band sits at when the coating is local.')],
@@ -272,6 +287,9 @@ R"CFJS(
       surfaceRadius: [T('Surface radius'), 0, 8000, 0, 'u', true, T('Confines the coatings to a sphere. 0 keeps them global.')],
       particleDetail: [T('Snowflake detail'), 0, 1, 2, '', false, T('Shape detail on individual flakes.')],
       turbulence:  [T('Turbulence'), 0, 8, 2, '', true, T('How much the precipitation tumbles as it falls.')],
+)CFJS"
+R"CFJS(
+      gusts:       [T('Gusts'), 0, 1, 2, '', true, T('Wind you can see: fronts of thicker, slanting rain or streaking snow that sweep across with the wind, with blown mist between. Turn it up in snow for a blizzard. Wind speed and direction steer it.')],
       particleOpacity: [T('Opacity'), 0, 1, 2, '', false, T('How solid each particle reads.')],
       softness:    [T('Soft intersections'), 0.1, 64, 1, '', false, T('Fades particles as they meet geometry so they do not cut hard.')],
       streak:      [T('Rain streak length'), 1, 50, 0, '', false, T('How long each rain streak is drawn.')],
@@ -285,11 +303,12 @@ R"CFJS(
     function cs(parent, key) {
       var d = CLD[key];
       var control = sliderRow(parent, {
-        label: d[0], min: d[1], max: d[2], decimals: d[3], unit: d[4], offAtZero: d[5], tip: d[6],
+        label: d[0], min: d[1], max: d[2], decimals: d[3], unit: d[4], offAtZero: d[5], tip: d[6], format: d[7],
         onChange: function (v) {
           envEnsureEnabled();
           if (LIGHT_KEYS.indexOf(key) >= 0) envCommand('climate relighting 1');
-          if (['sunAzimuth', 'sunElevation', 'sunPower', 'haze', 'stars'].indexOf(key) >= 0) envCommand('climate sky 1');
+          if (['timeOfDay', 'sunPath', 'sunHeight', 'sunPower', 'haze', 'stars',
+               'moon', 'moonPhase', 'moonSize'].indexOf(key) >= 0) envCommand('climate sky 1');
           envCommand('climate ' + key + ' ' + v);
         }
       });
@@ -299,8 +318,8 @@ R"CFJS(
     // Every Lighting control. Editing one keeps dynamic lighting on (relighting 1), so turning a
     // lighting feature off or resetting the card never releases the renderer and drops the map
     // back to its baked lighting.
-    var LIGHT_KEYS = ['mapLightPower', 'ambient', 'sunAngle', 'lampAngle', 'shadowSoftness', 'contactShadows', 'ao', 'skyOcclusion',
-      'bounce', 'bounceSteps'];
+    var LIGHT_KEYS = ['mapLightPower', 'playerFill', 'ambient', 'sunAngle', 'lampAngle', 'shadowSoftness', 'contactShadows', 'ao', 'skyOcclusion',
+      'bounce', 'bounceSteps', 'autoExposure', 'exposureBias'];
     // A Lighting feature switch: on/off only, and never a reason to switch the renderer off.
     function lw(parent, label, key, tip) {
       var t = togglePill(parent, label, tip, function () {
@@ -414,6 +433,8 @@ R"CFJS(
       return h;
     }
 
+)CFJS"
+R"CFJS(
     // Card-scoped RESET. The backend resets by PAGE (sky / lighting / atmosphere / weather), and
     // its pages do not line up with the original design's cards -- fog and the finishing grade are one
     // backend page, and `reset lighting` also deletes every added light. So a card's Reset writes
@@ -421,23 +442,28 @@ R"CFJS(
     var CL_DEFAULT = {
       storm: 0, stormInterval: 9, stormStrength: 2, stormRadius: 1600, stormX: 0, stormY: 0, stormZ: 0, stormSeed: 13, stormHold: 0,
       sky: 0, clouds: 0, coverage: 0.55, density: 0.65, cloudBase: 1800, cloudDepth: 1200,
-      cloudScale: 0.0008, windSpeed: 25, sunAzimuth: 135, sunElevation: 35, sunPower: 1,
+      cloudScale: 0.0008, windSpeed: 25, timeOfDay: 15.25, sunPath: 68.68, sunHeight: 60, hideMapClouds: 0,
+      sunAzimuth: 135, sunElevation: 34.82, sunPower: 1,
       sunColorR: 1, sunColorG: 1, sunColorB: 1,
       haze: 0.4, stars: 0.3,
-      relighting: 0, relight: 0, ambient: 1, mapLightPower: 1, sunRelight: 0.6, bakedSuppressed: 0, bakedFill: 0.6,
+      moon: 1, moonAzimuth: 315, moonElevation: -30, moonPhase: 0.5, moonSize: 1.5,
+      moonColorR: 0.75, moonColorG: 0.85, moonColorB: 1, cloudRain: 1,
+      relighting: 0, relight: 0, ambient: 1, mapLightPower: 1, playerFill: 1.8, sunRelight: 0.6, bakedSuppressed: 0, bakedFill: 0.6,
       contactShadows: 1, shadowBias: 2, sunAngle: 0.53, lampAngle: 1, shadowSoftness: 1, worldGi: 0, bounce: 1, bounceSteps: 1, bounceSize: 2048,
       bounceX: 0, bounceY: 0, bounceZ: 0, bounceAlbedo: 0.55, sceneReflections: 0, ao: 1, skyOcclusion: 1,
+      autoExposure: 1, exposureBias: 0,
       fogDensity: 0, fogStart: 0, fogHeight: 320, fogBase: 0, fogNoise: 0.4, fogRange: 4000, scatter: 0.45,
-      lightShafts: 0, localFogRadius: 0,
+      lightShafts: 1, localFogRadius: 0,
       groundFogColorR: 0.93, groundFogColorG: 0.91, groundFogColorB: 0.87,
       groundFog: 0, groundFogCoverage: 0.85, groundFogHeight: 56, groundFogDetail: 0.6, groundFogFlow: 1,
       groundFogRecovery: 8, groundFogSwirl: 0.8, groundFogWind: 12, groundFogWindAngle: 30,
-      groundFogSoftness: 0.35, groundFogWisps: 0.35, groundFogWispSize: 36, groundFogStreak: 0.2,
+      groundFogSoftness: 0.35, groundFogWisps: 0, groundFogWispSize: 36, groundFogStreak: 0.2,
       groundFogBillowSize: 220, groundFogChurn: 1, groundFogSun: 1, groundFogShade: 1,
-      groundFogShadeR: 1, groundFogShadeG: 1, groundFogShadeB: 1, groundFogPushSize: 0.55,
-      snow: 0, wet: 0, puddles: 0, puddleHeight: 128, puddleDepth: 24, surfaceRadius: 0, puddleNative: 0,
+      groundFogShadeR: 1, groundFogShadeG: 1, groundFogShadeB: 1, groundFogPushSize: 0.55, groundFogShadows: 1,
+      rainTexture: 1,
+      snow: 0, snowDepth: 0.5, wet: 0, puddles: 0, puddleHeight: 128, puddleDepth: 24, surfaceRadius: 0, puddleNative: 0,
       maskScale: 0.02, ripple: 0.35, reflectionRoughness: 0.35,
-      particleDetail: 1, turbulence: 1, particleOpacity: 0.65, softness: 8, streak: 12,
+      particleDetail: 1, turbulence: 1, gusts: 0, particleOpacity: 0.65, softness: 8, streak: 12,
       particleLight: 0.4,
       bloom: 0, bloomThreshold: 0.8, saturation: 1, contrast: 1, vignette: 0, grain: 0,
       chromatic: 0
@@ -469,7 +495,7 @@ R"CFJS(
       if (extra) for (var k in extra) just[k] = extra[k];
       // Restore the pre-reset lighting switch after coupled sun writes.
       var c = envClimate(), scene = envState();
-      if (keys.indexOf('sunAzimuth') >= 0 && keys.indexOf('relighting') < 0) {
+      if (keys.indexOf('timeOfDay') >= 0 && keys.indexOf('relighting') < 0) {
         just.relighting = c ? (c.relighting || 0) : 0;
         envCommand('climate relighting ' + just.relighting);
       }
@@ -485,9 +511,10 @@ R"CFJS(
     // THE SKY CARD OWNS THE SKY AND ITS CLOUDS. The header switch IS the procedural sky (there is
     // no second switch inside the card); the cloud layer has its own switch on the Clouds page.
     var envSkyReset = envSkySec.__headerReset(envResetCmds(
-      ['sky', 'haze', 'stars', 'sunAzimuth', 'sunElevation', 'sunPower',
+      ['sky', 'haze', 'stars', 'timeOfDay', 'sunPath', 'sunHeight', 'sunPower',
        'sunColorR', 'sunColorG', 'sunColorB',
-       'clouds', 'coverage', 'density', 'cloudBase', 'cloudDepth', 'cloudScale', 'windSpeed']), 'env.sky');
+       'moon', 'moonPhase', 'moonSize', 'moonColorR', 'moonColorG', 'moonColorB',
+       'clouds', 'coverage', 'density', 'cloudBase', 'cloudDepth', 'cloudScale', 'windSpeed', 'cloudRain', 'hideMapClouds']), 'env.sky');
     // Switching on brings the cloud layer with it, because a bare procedural sky reads as a flat
     // gradient; switching off bypasses the clouds too and puts them back with the sky. The Clouds
     // page switch still overrides that either way, and its value is remembered across a bypass.
@@ -509,14 +536,12 @@ R"CFJS(
     // Release every lighting switch while restoring its tuning.
     var envLightResetSpec = envResetCmds(
       ['relighting', 'relight', 'worldGi', 'bakedSuppressed', 'sceneReflections',
-       'mapLightPower', 'ambient', 'sunRelight', 'bakedFill', 'contactShadows',
+       'mapLightPower', 'playerFill', 'ambient', 'sunRelight', 'bakedFill', 'contactShadows',
        'shadowBias', 'sunAngle', 'lampAngle', 'shadowSoftness', 'bounce', 'bounceSteps',
        'bounceSize', 'bounceX', 'bounceY', 'bounceZ', 'bounceAlbedo',
-       'ao', 'skyOcclusion']);
-    envLightResetSpec.cmds = envLightResetSpec.cmds.concat(
-      ['mirv_relight lighteditor off', 'mirv_relight lights reset',
-       'mirv_filmmaker world exposure adapt off quiet', 'mirv_filmmaker world exposure speed 2 quiet',
-       'mirv_filmmaker world exposure compensation 0 quiet']);
+       'ao', 'skyOcclusion', 'autoExposure', 'exposureBias']);
+    // The card resets its own settings only. The in-game Auto exposure (Effects > Lighting) and the
+    // map-light choices (Scene Objects > Map lights, which has Turn all back on) are not this card's.
     var envLightReset = envLightSec.__headerReset(envLightResetSpec, 'env.light');
 
     // One fog card: the height fog, the ground fog that lies on the floor, and the light both share.
@@ -526,7 +551,7 @@ R"CFJS(
        'groundFogRecovery', 'groundFogSwirl', 'groundFogWind', 'groundFogWindAngle',
        'groundFogColorR', 'groundFogColorG', 'groundFogColorB', 'groundFogSoftness', 'groundFogWisps', 'groundFogWispSize',
        'groundFogStreak', 'groundFogBillowSize', 'groundFogChurn', 'groundFogSun', 'groundFogShade',
-       'groundFogShadeR', 'groundFogShadeG', 'groundFogShadeB', 'groundFogPushSize']);
+       'groundFogShadeR', 'groundFogShadeG', 'groundFogShadeB', 'groundFogPushSize', 'groundFogShadows']);
     envFogResetSpec.cmds = envFogResetSpec.cmds.concat(envSceneResetCmds(['fogR', 'fogG', 'fogB']));
     var envFogReset = envFogSec.__headerReset(envFogResetSpec, 'env.fog');
     // Switching the card on brings both fogs and their light shafts; shafts alone are not the pass.

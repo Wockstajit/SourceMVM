@@ -40,17 +40,18 @@ R"CFJS(
     }
     envWeatherResetCmds.push('mirv_filmmaker environment weather set follow 1');
     envWeatherResetCmds.push('mirv_filmmaker environment weather set shelter 1');
+    envWeatherResetCmds.push('mirv_filmmaker props wind 0');   // Foliage wind, a control on this card
     // envResetCmds returns a SPEC ({ off, cmds, after }), not a flat array -- a reset goes off
     // before it goes back to defaults. Merge the two rather than concatenating, or the spec
     // object lands in the command list and gets sent as "[object Object]".
     // Lightning lives on this card, so its Reset owns the storm keys too.
     // Surface coatings are part of this card too (rain and wetness are one effect), so its Reset
     // owns their keys as well.
-    var ENV_WX_KEYS = ['particleDetail', 'turbulence', 'particleOpacity', 'softness', 'streak', 'particleLight',
+    var ENV_WX_KEYS = ['particleDetail', 'turbulence', 'gusts', 'particleOpacity', 'softness', 'streak', 'particleLight',
        'storm', 'stormInterval', 'stormStrength', 'stormRadius', 'stormX', 'stormY', 'stormZ',
        'stormSeed', 'stormHold',
-       'snow', 'wet', 'puddles', 'ripple', 'puddleHeight', 'puddleDepth', 'maskScale', 'surfaceRadius',
-       'reflectionRoughness', 'puddleNative'];
+       'snow', 'snowDepth', 'wet', 'puddles', 'ripple', 'puddleHeight', 'puddleDepth', 'maskScale', 'surfaceRadius',
+       'reflectionRoughness', 'puddleNative', 'rainTexture'];
     var envWeatherClimate = envResetCmds(ENV_WX_KEYS);
     var envWeatherReset = envWeatherSec.__headerReset({
       // Weather's own "off" is the Clear type, which the first command already does.
@@ -163,6 +164,7 @@ R"CFJS(
         envCommand('weather wind ' + Math.sqrt(w.windX * w.windX + w.windY * w.windY) + ' ' + v);
       }
     });
+    cs(envWxType, 'gusts');
     // Foliage wind: CS2 sways placed trees and grass with the level's wind, and most maps have none,
     // so this adds one (Filmmaker/Props, `props wind`). The trees move while the demo plays.
     var envFoliageWind = sliderRow(envWxType, {
@@ -172,7 +174,9 @@ R"CFJS(
     });
     renderHooks.push(function (st) { if (st && st.props) envFoliageWind.sync(st.props.wind || 0); });
     var envCoatPage = envWeatherSec.__group(T('Ground'));
-    cs(envCoatPage, 'wet'); cs(envCoatPage, 'puddles'); cs(envCoatPage, 'snow');
+    cs(envCoatPage, 'wet'); cs(envCoatPage, 'puddles'); cs(envCoatPage, 'snow'); cs(envCoatPage, 'snowDepth');
+    // CS2's own water beads, read from the game install: a switch, so the two looks can be compared.
+    cw(envCoatPage, T('CS2 water beads'), 'rainTexture', T('Puts Counter-Strike’s own beads of water on wet ground, read from your game. Off keeps the plain wet film.'));
     var envStormPage = envWeatherSec.__group(T('Lightning'));
     cw(envStormPage, T('Lightning'), 'storm', T('Lightning channels, cloud flashes and illuminated surfaces.'));
     cs(envStormPage, 'stormStrength'); cs(envStormPage, 'stormInterval');
@@ -182,6 +186,15 @@ R"CFJS(
 #include "ConfigHudOutlinerJs.h"
 #include "ConfigHudPropsJs.h"
 R"CFJS(
+    // MAP LIGHTS, the third page of Scene Objects (moved from the Lighting card, 2026-11): the map's
+    // own lamps are objects in the scene, picked by flying to them, like everything else on this card.
+    var envMapLightPage = envSceneSec.__page(T('Map lights'));
+    actionGroup(envMapLightPage, T('Pick lights'), [
+      [T('Edit lights'), function () { cmd('mirv_relight lighteditor on'); cmd('mirv_filmmaker config close'); }],
+      [T('Turn all back on'), function () { cmd('mirv_relight lights reset'); }]
+    ], 2, T('Edit lights shows a marker on every map light. Fly to a light, aim at it and press F to switch it off or back on; Esc finishes. Your choices are saved for this map.'));
+    var lightPickStatus = envNote(envMapLightPage, '');
+    envNote(envMapLightPage, T('Map lights light rooms whatever the ambient light is. Their overall strength is Map light power on the Lighting card.'));
     // The light and mesh inspectors live in the Outliner's selected-object card (olLightHost,
     // olMeshHost). The old Lights page and its LIT BY cards are gone: the tree's footer line says
     // what draws the lights, and the add-light row sits above the card's tabs.

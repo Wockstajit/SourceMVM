@@ -30,6 +30,11 @@ cbuffer FrameConstants : register(b0) {
     // .x of the count vector is how many are filled.
     float4 coatingActors[COATING_ACTORS];
     float4 coatingActorCount;
+    // Footprints (EnvironmentFootprintMath.h): x = 1 when the image of marks is bound; then where the
+    // last feet came down (xyz) and climateClock.x at that moment (w).
+    float4 footInfo;
+    float4 footSteps[FOOT_STEPS];
+    float4 footLive[FOOT_LIVE]; // the foot view: every foot as read this frame (xyz, w = lift); footInfo.y = 1 when on
     float4 smokeInfo; // x = CS2 smoke absorbance bound, yz = its size, w = debug view
     float4 smokeVolumes[8]; // xyz centre, w radius (see SmokeRayShare)
     float4 smokeVolumeCount; // x = filled slots
@@ -43,7 +48,6 @@ cbuffer FrameConstants : register(b0) {
     float4 weatherReach;      // particle window half-extents (horizontal, vertical), veil max distance
     float4 weatherRegionLow;  // xyz map precipitation box, w = mapped
     float4 weatherRegionHigh; // xyz
-    float4 bakedLight;        // x = daylight energy ratio of the owned lighting, y = valid
     // Ground fog (EnvironmentGroundFog.h). The fluid grid: xy min corner, zw one over its size (u),
     // zero when the fluid is not bound.
     float4 groundFogWindow;
@@ -52,6 +56,18 @@ cbuffer FrameConstants : register(b0) {
     float4 fogAmbient;         // rgb: the sky light both fogs scatter (map sky, or the Environment sky); w: fogFrontMask bound
     float4 effectAnchors[16];  // where this frame's particle effects are: xyz, radius (see FogEffectShare)
     float4 effectAnchorCount;  // x: filled slots
+    float4 windFluidWindow;    // the wind fluid's grid (EnvironmentWindFluid.h): xy min corner, zw one over its size (u), zero when it is not bound
+    // Each coating actor's bones (kBodyBones of them, in BodyBone order; xyz, w = 1 when read) for its
+    // shadow on the ground fog (GroundFogBodyShadow); after them, the dead bodies' bones (BonesClaim).
+    // coatingActorCount.w = how many bodies' bones are filled (0 when none were read).
+    float4 actorBones[COATING_ACTORS*16];
+    // THE VOLUME'S TEMPORAL BLEND (VolumeTemporalPS): last frame's view and camera, and
+    // x = 1 when last frame's volume can be blended in, y = this frame's jitter offset (0..1),
+    // z = the share the new frame gets.
+    row_major float4x4 previousViewProjection;
+    float4 previousCamera;
+    float4 temporalInfo;
+    float4 gameTextureInfo; // x = CS2 snow bound, y = CS2 water beads bound, z = units a snow repeat covers
 };
 cbuffer NativeViewmodel : register(b7) {
     column_major float4x4 nativeProjectionToWorld : packoffset(c4);
@@ -68,18 +84,34 @@ cbuffer ObjectConstants : register(b1) {
 Texture2D<float4> volumeTexture : register(t4);
 Texture2D<float4> skyVolumeTexture : register(t32);
 Texture2D<float2> volumeGeometryTexture : register(t33); // full-precision distance, sky flag
+Texture2D<float4> volumeHistoryTexture : register(t43);  // last frame's blended volume (VolumeTemporalPS)
+Texture2D<float2> volumeHistoryGeometry : register(t44); // last frame's distance and sky flag
+// CS2's own textures from the installed game (EnvironmentGameTextures.h), bound while gameTextureInfo
+// says so: the Cobblestone winter snow and the water beads of its wet surfaces.
+Texture2D<float4> gameSnowColor : register(t45);
+Texture2D<float4> gameSnowNormal : register(t46);  // hemi-octahedral normal in rg
+Texture2D<float4> gameSnowHeight : register(t47);  // height in r
+Texture2D<float4> gameDroplets : register(t48);    // normal in rg, bead height in a
+SamplerState gameTextureSampler : register(s9);    // wrapping, trilinear
 Texture2D<uint> atmosphereEdgeTexture : register(t34);
 Texture2D<float> smokeAbsorbance : register(t14);
 Texture2D<float4> groundFogState : register(t35);    // velocity xy, fog amount (1 = at rest); EnvironmentGroundFog
 Texture2D<float4> groundFogFloorMap : register(t36); // up to four floor heights per map column, highest first
 Texture2D<float> groundFogSmooth : register(t37);    // soft copy of the fog amount, which the top of the layer follows
 Texture2D<float4> groundFogThickness : register(t38); // how much of the layer's depth each floor in t36 holds
-Texture2D<float2> fogFrontMask : register(t39);      // what transparent effects did to each pixel (see FrontMask)
+Texture2D<float4> fogFrontMask : register(t39);      // what transparent effects did to each pixel (see FrontMask)
+// How much snow ApplyCoatings laid on the pixel being shaded, 0..1, for Atmosphere, which lays the
+// game's effects back over it.
+static float snowLaid=0;
 Texture2D<float> fogFrontNearby : register(t40);     // the most they hid close to each pixel (see FrontNearby)
 SamplerState groundFogSampler : register(s6);
 // Depth of every posed player and what they hold (world weapons), seen from the camera. Cleared to the
 // far value, so a texel is either empty or the depth of the nearest player surface there.
 Texture2D<float> playerMask : register(t31);
+Texture2D<float4> footTexture : register(t41);
+Texture2D<float4> windFluid : register(t42);        // velocity xy (u/s), what the wind carries, 1 inside a building; EnvironmentWindFluid
+SamplerState windSampler : register(s8);            // linear clamp
+SamplerState footSampler : register(s7);             // wrapping, filtered
 #if COLOR_MS
 Texture2DMS<float4> colorTexture : register(t0);
 Texture2DMS<float> propDepth : register(t2);
@@ -324,6 +356,39 @@ float3 ReadColor(float2 p,uint sample) {
 #endif
 }
 bool IsSky(float depth) { return camera.w>0?depth<.0000001:depth>.9999999; }
+float SkyDepth() { return camera.w>0?0:1; }
+)HLSL"
+R"HLSL(
+// SKY EDGES OF A RESOLVED FRAME. With an MSAA depth under a resolved colour each pixel is shaded
+// for its nearest sample, so a pixel along a wire or a leaf seen against the sky is taken as wire,
+// while its colour holds the sky as it was drawn for the samples that missed the wire: the clouds,
+// rain and fog the passes lay over the sky left that share uncovered, a bright outline of the plain
+// sky around every thin thing in a dark rain sky. This is the share of the pixel's depth samples that
+// are open sky (a prop in front covers the pixel); 0 with an MSAA colour, which is shaded per sample.
+float EdgeSkyShare(float2 pixel) {
+#if DEPTH_MS && !COLOR_MS
+    if(!IsSky(ReadProp(pixel,0)))return 0;
+    int2 p=clamp(int2(pixel*dimensions.zw/dimensions.xy),int2(0,0),int2(dimensions.zw)-1);
+    uint w,h,count;sceneDepth.GetDimensions(w,h,count);
+    uint open=0;
+    [loop]for(uint i=0;i<count;++i)open+=IsSky(NormalizeDepth(sceneDepth.Load(p,i)))?1:0;
+    return open/(float)max(count,1);
+#else
+    return 0;
+#endif
+}
+// The sky as it was drawn next to an edge pixel: the mean of the neighbours whose samples are all
+// open sky, one pixel away, else two, in the frame so far or (`source`) the frame as CS2 drew it.
+// `found` is 0 when there is none.
+float3 EdgeSkyColor(float2 pixel,out float found,bool source) {
+    float3 sum=0;found=0;
+    [loop]for(int r=1;r<=2&&found<=0;++r)
+        [loop]for(int k=0;k<8;++k){
+            float2 q=clamp(pixel+r*float2(k==2||k==6?0:(k<2||k>6?1:-1),k==0||k==4?0:(k<4?1:-1)),.5,dimensions.xy-.5);
+            if(IsSky(ReadScene(q))&&IsSky(ReadProp(q,0))){sum+=source?ReadSource(q,0):ReadColor(q,0);found+=1;}
+        }
+    return found>0?sum/found:0;
+}
 // CS2 stores 3D skybox in the leftover depth range (viewport max 0.95, clear sky at 0 or 1).
 // NormalizeDepth encodes that leftover as 1e-6 (reversed) or ~0.999999 (forward) so IsSky stays
 // false. Fog/clouds must not treat those pixels as a 24km empty ray.
@@ -527,6 +592,8 @@ float3 NativePostColor(float3 color) {
 float3 NativePostLinear(float3 color) {
     return relightSky.w>.5 ? color/max(1-max(color.r,max(color.g,color.b)),.00048828125) : color;
 }
+)HLSL"
+R"HLSL(
 struct MeshOutput { float4 position:SV_Position; float3 normal:NORMAL; float3 world:TEXCOORD0; float2 uv:TEXCOORD1; };
 MeshOutput MeshVS(MeshInput i) {
     MeshOutput o; o.world=mul(model,float4(i.position,1)).xyz; o.position=mul(viewProjection,float4(o.world,1));
@@ -562,7 +629,7 @@ float3 ShadeSample(float2 pixel,float depth,float3 color,uint sample) {
     // The display target broadcasts resolved color, despite remaining MSAA.
     // Replacing only its clear-depth samples would weight the foreground twice.
     if(sky && CL_sky>0 && relightSunColor.w<.5)
-        color=lerp(color,SkyColor(normalize(World(pixel,camera.w>0?.00001:.99999)-camera.xyz)),CL_sky);
+        color=lerp(color,SkyColor(normalize(World(pixel,camera.w>0?.00001:.99999)-camera.xyz),1,false),CL_sky);
     // Skip surface reconstruction when none of its consumers contributes. Each term is the
     // exact complement of that consumer's own zero case: coatings (ApplyCoatings early-out),
     // relight/sun relight (multiplied through), FillLights (loops lighting.x) and WorldBounce
@@ -597,9 +664,10 @@ float3 ShadeSample(float2 pixel,float depth,float3 color,uint sample) {
         }
         // Sun cascade false-colour. Ramp colours stay dark on purpose: these still pass through
         // CS2's exposure and tone map, which drives anything near one to white.
-        // Rain exposure view: grey where rain lands, dark blue where it cannot, graded between.
+        // Weather cover view: grey under open sky, dark blue under cover, green where open air still
+        // reaches in, red where people walk in and out (traffic).
         // Dark values on purpose: they still pass through CS2's exposure and tone map.
-        [branch]if(shadowDebug.y>0)return lerp(float3(.01,.015,.07),float3(.18,.18,.18),PrecipitationExposure(position+float3(0,0,2)));
+        [branch]if(shadowDebug.y>0){float3 cover=WeatherCover(position,normal);return lerp(float3(.01,.015,.07),float3(.18,.18,.18),cover.x)+float3(0,.14,0)*(1-cover.x)*smoothstep(.03,.45,cover.y)+float3(.2,.02,0)*smoothstep(.06,.5,cover.z)+FootMarks(position).xyx*.5;}
         [branch]if(shadowDebug.x>0){
             int cascade=SunCascadeAt(position);
             float visibility=CL_contactShadows>0?WorldSunShadowSoft(position+SunDirection()*shadowInfo.y,normal,IsViewmodelSample(pixel,sample)):1;
@@ -627,28 +695,37 @@ float3 ShadeSample(float2 pixel,float depth,float3 color,uint sample) {
             return Grade(owned,distance);
         }
         float3 nativeDirect=nativeCoverage>0&&volumeDimensions.w>.5?max(material.rgb-nativeBase,0):float3(-1,-1,-1);
-        if(viewmodelInfo.z>.5)color=ApplyCoatings(color,position,normal,coating,dot(max(color,0),float3(.2126,.7152,.0722)),viewmodel);
-        else color=Surface(color,position,normal,coating,viewmodel,contactOcclusion,nativeDirect,max(nativeBase-nativeWithoutFixtures,0));
-        // Impacts belong to the FLOOR and other map surfaces. On a pixel CoatingActor attributes to a
+        // One call to the coatings for both paths (see SurfaceLight): same result as coating each.
+        float mapLuminance=dot(max(color,0),float3(.2126,.7152,.0722));
+        if(viewmodelInfo.z<=.5)color=SurfaceLight(color,position,normal,viewmodel,contactOcclusion,nativeDirect,max(nativeBase-nativeWithoutFixtures,0));
+        color=ApplyCoatings(color,position,normal,coating,mapLuminance,viewmodel);
+        // Impacts belong to the FLOOR and other map surfaces, never the first-person gun (drops ringed
+        // out across it as if it were a puddle). On a pixel CoatingActor attributes to a
         // player the ripple normals, refraction and highlights read as a strange wet sheen painted on a
         // person, and CS2's own player wetness already covers them.
-        if(weatherParams.z==1&&weatherColor.w>0&&!CoatingActor(position,normal))
+        if(weatherParams.z==1&&weatherColor.w>0&&!viewmodel&&!CoatingActor(position,normal))
             color=ActiveRainImpacts(color,position,normal,pixel,sample);
+        // PLAYER FILL. Under dynamic lighting a player in shade is far darker than the wall beside
+        // them. Their darkest shade is lifted by CL_playerFill, less the brighter the pixel already
+        // is, so a player in the sun is left as lit.
+        if(CL_playerFill>1&&(CL_relight>0||viewmodelInfo.z>.5)&&!viewmodel&&PlayerMaskClaims(position))
+            color*=lerp(CL_playerFill,1,saturate(dot(max(color,0),float3(.2126,.7152,.0722))/.3));
     }
-    // 3D-skybox buildings and the white light shafts never take the material
-    // lighting path: their albedo already contains daytime light, or they are
-    // additive cards with no light slot. Scale that baked brightness by the
-    // same sun height the world uses. Clear sky (stars) stays on the sky path.
-    // The composite's CL_relight is cleared once native materials own the
-    // frame, so the native-lighting flag is the switch that is actually on.
+    // On the composite-lit path 3D-skybox buildings and the white light shafts never take the
+    // material lighting: their albedo already contains daytime light, or they are additive cards
+    // with no light slot. Scale that baked brightness by the same sun height the world uses. Clear
+    // sky (stars) stays on the sky path. The composite's CL_relight is cleared once native materials
+    // own the frame, so the native-lighting flag is the switch that is actually on.
     // Edges match BakedDaylightScale / UnlitOverlayScale.
     if(CL_relight>0 || viewmodelInfo.z>.5){
         float day=smoothstep(-10,8,CL_sunElevation);
         float nightFloor=max(saturate(CL_ambient)*.35,.02);
         float scale=lerp(nightFloor,1,day);
-        // When native materials own the lighting, the skybox follows the energy the relit
-        // world actually receives (sun AND ambient), not the sun height alone.
-        if(IsSkyboxGeometry(depth)) color*=bakedLight.y>.5&&viewmodelInfo.z>.5?bakedLight.x:scale;
+        // With native materials the skybox's lit draws are relit like the map and its unlit ones
+        // (haze cards, painted skylines) are dimmed as they are drawn (SkyboxUnlitDim in
+        // EnvironmentNativeMaterialDraw.cpp). Scaling it here as well left Mirage's skyline far
+        // darker than the map at night.
+        if(IsSkyboxGeometry(depth)){if(viewmodelInfo.z<.5)color*=scale;}
         // Native materials dim the additive shafts at draw time (UnlitOverlayScale), and every
         // other bright pixel here is a surface the native path already lit -- a placed lamp's
         // pool at night. Darkening those again by a luminance threshold cut the pool into a
@@ -704,13 +781,44 @@ float4 AtmospherePixelPS(Screen i):SV_Target {
     return 0;
 #endif
 }
+)HLSL"
+R"HLSL(
 float4 Atmosphere(float2 pixel,uint sample) {
 #if COLOR_MS
     float depth=ReadSampleDepth(pixel,sample); float3 source=NativePostLinear(sourceColor.Load(int2(pixel),sample).rgb);
-    float3 shaded=ShadeSample(pixel,depth,source,sample);
 #else
     float depth=ReadScene(pixel); float3 source=NativePostLinear(sourceColor.Load(int3(pixel,0)).rgb);
-    float3 shaded=ShadeSample(pixel,depth,source,0);
+    // The sky's share of an edge pixel (EdgeSkyShare) is the map's own sky as CS2 drew it: swapped
+    // for the Environment sky, as ShadeSample swaps the pixels that are all sky.
+    [branch]if(CL_sky>0&&relightSunColor.w<.5&&!IsSky(depth)){
+        float share=EdgeSkyShare(pixel);
+        [branch]if(share>0){
+            float found;float3 drawn=NativePostLinear(EdgeSkyColor(pixel,found,true));
+            if(found>0)source=max(source+share*CL_sky*(SkyColor(normalize(World(pixel,camera.w>0?.00001:.99999)-camera.xyz),1,false)-drawn),0);
+        }
+    }
+#endif
+    // EFFECTS LIE OVER THE SNOW AND THE WET, NOT IN A HOLE IN THEM. The frame comes with the game's
+    // flames, smoke, sparks and dust already in it, and they have no depth. Painted over, they were
+    // hidden; kept as drawn wherever an effect was, each one stood in a patch of the bare, dry ground
+    // it had been drawn on, like a cut-out. So the effect is taken off first (the frame is brought
+    // back to what it was before the effect, by how much the effect changed the pixel's brightness),
+    // the ground is shaded and coated as if nothing were in front of it, and the effect is laid back
+    // over that: light added to it, smoke partly hiding it.
+    float lift=1,glow=0;snowLaid=0;
+    bool frontKnown=fogAmbient.w>.5&&(CL_snow>0||CL_wet>0||CL_puddles>0);
+    [branch]if(frontKnown){
+        float4 effect=fogFrontMask.Load(int3(int2(pixel),0));
+        // Light of its own is strongly coloured AND well brighter than the ground. Dust off a wall
+        // or a floor is tinted too (it is the colour of the stone), but it is a cloud, not a light:
+        // taken for a light, it was added to the snow as the frame's difference, which is a picture
+        // of the ground under it, and every bullet's dust showed the cobbles.
+        lift=clamp(effect.b,.02,64);glow=smoothstep(.45,.8,effect.a)*smoothstep(1.4,2.6,lift);
+    }
+#if COLOR_MS
+    float3 shaded=ShadeSample(pixel,depth,source/lift,sample);
+#else
+    float3 shaded=ShadeSample(pixel,depth,source/lift,0);
 #endif
     // Smoke keeps CS2's own volume, but it still has to follow Environment lighting: otherwise
     // flatten/sunlight relight the world and leave grenade clouds sitting on the baked probe.
@@ -732,7 +840,69 @@ float4 Atmosphere(float2 pixel,uint sample) {
         else veiled=source+source*direct;
     }
     veiled=Grade(veiled,IsSky(depth)?8000:length(World(pixel,depth)-camera.xyz));
+    float3 ground=shaded;
+    // EFFECTS STAND IN FRONT OF THE SNOW AND THE WET. Those are painted on the ground in this pass,
+    // over a frame that already has the game's flames, smoke puffs, sparks and debris in it, and
+    // particles have no depth to say they are in front. So where an effect changed the frame (the
+    // mask of what transparent effects did to it), the frame is kept as the game drew it: a fire
+    // burns on the snow, a grenade's cloud and a muzzle's smoke are seen against it.
+    [branch]if(abs(lift-1)>.004){
+        const float3 kLuma=float3(.2126,.7152,.0722);
+        float3 drawn=Grade(source,IsSky(depth)?8000:length(World(pixel,depth)-camera.xyz));
+        // NOTHING OF THE BARE GROUND MAY COME BACK WITH THE EFFECT. Laid back as "the frame less the
+        // ground", an effect carried whatever of the ground the guess of its thickness got wrong: the
+        // cobbles showed in every puff of smoke, as if it wore a hole in the snow.
+        // `coated`: how much brighter or darker this pass left the ground than the game drew it
+        // (1 where it changed nothing: there the frame comes back exactly as it was).
+        float coated=(dot(shaded,kLuma)+1e-4)/(dot(drawn,kLuma)/lift+1e-4);
+        [flatten]if(lift>=1){
+            // Smoke and dust: a grey of its own over the ground as it now is, never brighter than
+            // snow in the same light. A pale puff over dark ground is thin, and on the snow lying
+            // there it is a faint grey; one as bright as the snow hides it.
+            float most=max(max(lift,2.5),.6*coated);
+            float thick=saturate((lift-1)/(most-1));
+            // Its brightness is set against the ground as it now is: a little under the snow's, a
+            // little over bare or wet ground's. Only where this pass changed nothing is it worked
+            // back from the frame. (Worked back everywhere, it came out as bright as the game had
+            // drawn it, with the ground's pattern in it: under dim light every puff was a lit window
+            // onto the cobbles.)
+            float changed=max(snowLaid,saturate(abs(log2(coated))*2));
+            float3 grey=shaded*(1+thick*(lerp(most/coated,lerp(1.3,.7,snowLaid),changed)-1));
+            // Coloured light (a flame, a flash, sparks): added to the ground as it now is; only a
+            // core many times brighter than the ground hides it.
+            float core=saturate((lift-4)/(lift+2));
+            float3 lit=shaded*(1-core)+max(drawn-drawn/lift*(1-core),0);
+            shaded=lerp(grey,lit,glow);
+        }else{
+            // Darker than before: a bullet hole, a scorch mark, blood. They lie on the ground, so
+            // under snow they are covered; on bare or wet ground they stay.
+            shaded=lerp(shaded*lift,shaded,snowLaid);
+        }
+    }
     float3 color=lerp(shaded,veiled,smoke);
+    // WHAT CS2'S SMOKE LETS THROUGH IS KNOWN, so a smoke lies OVER the snow instead of cutting it out.
+    // CS2 blends smoke and its other order-independent transparents onto the ground as
+    //   frame = ground * T + their own light,  T = exp(-b0)
+    // (b0 is the absorbance the game itself worked out for each pixel and hands us; SmokeCover is 1-T).
+    // Their own light is therefore the frame less the ground as the game drew it (the frame brought back
+    // by `lift`) times T, and the coated ground goes in its place: ground' * T + that light. This is
+    // the ordinary "over" composite with the game's own transmittance (Porter and Duff 1984; the OIT
+    // resolve of Muenstermann et al. 2018, "Moment-Based Order-Independent Transparency"), so nothing
+    // has to be guessed. The guesses above (a smoke's grey from how much brighter it made the pixel,
+    // and a placed smoke shown as the game drew it) let the bare ground through: snow vanished under a
+    // smoke and the cobbles showed in it. Where nothing transparent covers a pixel this changes nothing.
+    // Only the share of that absorbance that belongs to a placed smoke (`smoke`: SmokeCover times
+    // SmokeRayShare) is taken. The same pass draws the paint on the floor (a bombsite's marking),
+    // glass and leaf cards; paint lies ON the ground and goes under the snow, and taken as a veil it
+    // showed through the snow in a pale patch.
+    float transmit=frontKnown?1-smoke:1;
+    [branch]if(transmit<.995){
+        float3 drawn=Grade(source,IsSky(depth)?8000:length(World(pixel,depth)-camera.xyz));
+        float3 own=max(drawn-drawn/lift*transmit,0);
+        // A placed smoke's own light follows the Environment's light, as `veiled` relights it.
+        own=lerp(own,own*(veiled+1e-4)/(drawn+1e-4),smoke);
+        color=ground*transmit+own;
+    }
     color=lerp(color,smoke.xxx,step(.5,smokeInfo.w));
     return float4(NativePostColor(color),1);
 }
@@ -745,11 +915,11 @@ float Wrap(float x,float size) { return x-floor(x/size)*size; }
 float RainDropVariation(float u) { return .25+.75*pow(u,1.6); }
 struct ParticleOutput { float4 position:SV_Position; float2 uv:TEXCOORD0; float alpha:TEXCOORD1; float3 world:TEXCOORD2; float4 rnd:TEXCOORD3; float3 light:TEXCOORD4; };
 // The shelter test at one bilinear tap. Particles ask it once each in the vertex shader and the veil
-// asks it per ray step; the 12-tap WorldPrecipitationVisible is for surfaces, where a roof edge is
+// asks it per ray step; the 12-tap SkyOpen is for surfaces, where a roof edge is
 // seen up close.
 float PrecipitationOpenSky(float3 world){
     if(shelterInfo.x<=0)return 1;
-    float4 clip=mul(shelterMatrix,float4(world+shelterDirection.xyz*shelterInfo.z,1));
+    float4 clip=mul(shelterMatrix,float4(world+float3(0,0,2),1));
     float3 ndc=clip.xyz/clip.w;float2 uv=ndc.xy*float2(.5,-.5)+.5;
     if(any(uv<0)||any(uv>1)||ndc.z<0)return 1;
     int resolution=(int)shelterInfo.y;
@@ -768,6 +938,27 @@ float3 PrecipitationLighting(float3 p,float2 pixel){
     }
     return illumination;
 }
+// WIND GUSTS (Gusts, CL_gusts): the air is read through WindAt and shown with GustFlow
+// (EnvironmentClimateShaders.h). Here the weather reads it: where the air moves faster than the
+// steady wind the rain leans over and snow is carried sideways and drawn out into streaks. Without
+// the fluid (no map data yet) there are no gusts.
+// A place as the strands see it: along and across the wind, carried downwind.
+float2 GustPlace(float3 p,float pace){
+    float2 d=GustAlong();
+    return float2(dot(p.xy,d)-climateClock.x*(220+1.5*length(weatherVelocity.xy))*pace,dot(p.xy,float2(-d.y,d.x)));
+}
+float GustFront(float3 p){return GustAmount(WindAt(p));}
+// The strands the wind tears what it carries into, 0..1: long along the wind, thin across it and in
+// height, and running ahead of the front they are in.
+// `coarse` widens them (the air between the camera and a far wall is sampled a few times a ray, and
+// strands finer than the samples would be drawn as grain).
+float GustStrands(float3 p,float coarse=1){
+    float2 q=GustPlace(p,1.6);
+    return Noise3(float3(q.x/(520*coarse),q.y/(46*coarse),p.z/(38*coarse)+climateClock.x*.35))*.6
+          +Noise3(float3(q.x/(210*coarse),q.y/(19*coarse),p.z/(16*coarse)-climateClock.x*.5))*.4;
+}
+)HLSL"
+R"HLSL(
 // Where rain, snow and ash may exist: inside the map's precipitation box when the map is prepared
 // (none beyond its edges, below its floor or high above its roofs), and inside the fixed-height layer
 // around the weather centre when it does not follow the camera.
@@ -791,8 +982,9 @@ ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
     float radius=weatherCenterRadius.w,height=weatherParams.x;
     float3 p;float alpha=1;
     float3 velocity=weatherVelocity.xyz;
-    float3 fallAxis=normalize(-velocity+float3(0,0,.0001)); // streak axis; a gust drop takes its gust's
+    float3 fallAxis=normalize(-velocity+float3(0,0,.0001)); // streak axis
     const bool flake=weatherParams.z==2||weatherParams.z==3;
+    float gust=0;
     if(weatherParams.z==1||flake){
         // One lattice, one density (PrecipitationLattice in EnvironmentWeatherMath.h), identical for
         // rain, snow and ash. A particle's position is a function of its cell and absolute time only;
@@ -810,16 +1002,16 @@ ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         // WeatherVeilPS fades the same density in, so distance never changes how thick it is. A
         // particle under a roof is dropped whole, once, here rather than tested per pixel.
         alpha=(1-PrecipitationVeilWeight(p))*PrecipitationRegion(p);
-        // Each particle is roof-tested along one direction: the mean for most, one of the four gust
-        // tilts for the rest (weights match PrecipitationExposure), so a few reach into a doorway
-        // facing the rain and under arches. Every drop still STREAKS along the shared fall axis:
-        // they all move the same way, and streaks in four directions read as fibreglass shards.
+        // Each particle is tested against the sky map once: one under a roof is not drawn. With the
+        // wind leaning, one in the open is dropped when the line it came down ran under a roof (the
+        // sheltered side of a wall), and one just under cover is kept when open air reaches it and
+        // that line is clear (blown in through an opening that faces the wind).
         if(alpha>0){
-            float pick=Random01(n+31),open;
-            if(shelterInfo.x<=0||gustInfo.x<.5||pick<gustInfo.z)open=PrecipitationOpenSky(p);
-            else{
-                int g=min(3,(int)((pick-gustInfo.z)/max(gustInfo.w,1e-4)));
-                open=GustOpen(g,p);
+            float open=PrecipitationOpenSky(p);
+            float blown=smoothstep(.1,.55,saturate(coverWind.w));
+            [branch]if(blown>0&&shelterInfo.x>0){
+                float came=SkyTap(p+coverWind.xyz*72);
+                open=open>.5?lerp(open,min(open,came),blown):came*step(.3,CoverReach(p).x)*blown;
             }
             alpha*=smoothstep(.3,.7,open);
         }
@@ -829,6 +1021,25 @@ ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
             float ph=Random01(n+21)*6.2831853,amp=weatherParams.z==3?9:5;
             p.xy+=float2(sin(climateClock.x*.8+ph),cos(climateClock.x*.6+ph*1.3))*amp*CL_turbulence;
             p.z+=sin(climateClock.x*1.1+ph*.7)*amp*.4*CL_turbulence;
+        }
+        // A gust front passing: the particle is carried downwind and the strands it is torn into
+        // are thicker and thinner; rain leans over with it (snow is drawn out below).
+        [branch]if(CL_gusts>0&&alpha>0){
+            float4 air=WindAt(p);
+            float open=1-saturate(air.w*2);
+            gust=CL_gusts*saturate(air.z)*open;
+            // How much faster than the steady wind the air here moves: that is what carries it.
+            float2 excess=(air.xy-weatherVelocity.xy)*open*CL_gusts;
+            // Still air in the lee of a house does not stand the rain up straight: what falls there
+            // came down through the wind above the roofs.
+            float2 along=GustAlong();
+            excess-=along*min(dot(excess,along)+.25*length(weatherVelocity.xy),0);
+            float strand=GustStrands(p);
+            p.xy+=excess*(flake?.8:.35)*(.6+.8*strand);
+            p.z+=gust*(flake?26:0)*(strand-.5);
+            alpha*=lerp(1,.4+(flake?5.:4.)*strand,saturate(gust));
+            velocity.xy+=excess*(flake?1.3:.9);
+            fallAxis=normalize(-velocity+float3(0,0,.0001));
         }
     }else{
         float3 low=weatherCenterRadius.xyz-float3(radius,radius,height*.5);
@@ -844,9 +1055,9 @@ ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
     float4 rnd=float4(Random01(n+11),Random01(n+12),Random01(n+13),Random01(n+14));
     // Mostly small drops, a few up to the full size setting (RainDropVariation).
     if(weatherParams.z==1)variation=RainDropVariation(Random01(n+7));
-    // Snow is many small flakes and a few big near ones; ash is a spread of small flecks and some
+    // Snow is many small flakes and a few larger ones; ash is a spread of small flecks and some
     // larger torn pieces.
-    if(weatherParams.z==2)variation=lerp(.35,1.9,pow(Random01(n+7),2.4));
+    if(weatherParams.z==2)variation=lerp(.3,1.1,pow(Random01(n+7),2.2));
     if(weatherParams.z==3)variation=lerp(.4,2.3,pow(Random01(n+7),1.8));
     float3 right=cameraRight.xyz*weatherParams.y*variation,up=cameraUp.xyz*weatherParams.y*variation;
     if(weatherParams.z==1){
@@ -858,8 +1069,10 @@ ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         // Most drops are thinner than a pixel. A fixed raster floor drew every one of them the same
         // width, so the floor grows with the drop: big drops read as thicker streaks. Opacity is still
         // scaled by physical/width, so a drop adds the coverage its real size gives it.
-        float width=max(physical,pixel*(.35+.65*variation));
-        alpha*=physical/width; // conserve opacity as the raster footprint widens
+        // A streak is never drawn wider than two pixels: a drop right at the lens is a thin line like
+        // the rest, not a white wedge across the frame.
+        float width=min(max(physical,pixel*(.35+.65*variation)),pixel*2);
+        alpha*=min(1.,physical/width); // conserve opacity as the raster footprint widens
         right=side*width;
         // Big drops fall faster (terminal velocity rises with size and levels off), so their
         // exposure-time streak is longer: about 3.5x between the smallest and the largest.
@@ -873,7 +1086,7 @@ ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         up+=cameraUp.xyz*width*(1-smoothstep(.0,.12,projected));
         // Drops right at the lens would fill the frame as bars; they fade in over the first metres.
         // (24..90 hid the nearest, most readable streaks; RAIN_MAX_OPACITY already caps them.)
-        alpha*=smoothstep(14,56,length(camera.xyz-p));
+        alpha*=smoothstep(24,110,length(camera.xyz-p));
     }
     if(weatherParams.z==2||weatherParams.z==3){
         // Flakes tumble: each has its own spin, and ash flakes are torn, elongated fragments. The
@@ -900,6 +1113,8 @@ ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         alpha*=saturate(widthR*aspect/wide);
         right=(cameraRight.xyz*cs+cameraUp.xyz*sn)*wide;
         up=(-cameraRight.xyz*sn+cameraUp.xyz*cs)*widthR;
+        // (A flake is not drawn out into a streak in a gust: at the size flakes are seen it read as a
+        // fault, flakes stretching for no reason. A gust carries them; that is enough.)
     }
     ParticleOutput o;o.world=p+right*uv.x+up*uv.y;o.position=mul(viewProjection,float4(o.world,1));o.uv=uv;o.rnd=rnd;
     o.alpha=alpha*CL_particleOpacity;
@@ -910,6 +1125,9 @@ ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         float4 centre=mul(viewProjection,float4(p,1));
         float2 pixel=(centre.xy/max(centre.w,1e-4)*float2(.5,-.5)+.5)*dimensions.xy;
         o.light=PrecipitationLighting(p,pixel);
+        // Snow takes the scene's brightness and hardly any of its colour: against the sky every flake
+        // was sky blue.
+        if(weatherParams.z==2)o.light=lerp(dot(o.light,float3(.2126,.7152,.0722)).xxx,o.light,.15);
     }
     return o;
 }
@@ -922,18 +1140,15 @@ float4 WeatherPS(ParticleOutput i,uint sample:SV_SampleIndex):SV_Target {
     float a=weatherParams.z==1?pow(saturate(1-abs(i.uv.x)),2)*saturate(1-abs(i.uv.y)):saturate(1-dot(i.uv,i.uv));
     float3 tone=float3(1,1,1);
     if(weatherParams.z==2) {
-        // SNOW: a soft, slightly lumpy clump with a bright core -- not a six-armed star. Each flake has
-        // its own outline and softness (the soft ones read as out of focus), and only the few big near
-        // flakes carry a faint crystalline glint, scaled by Particle detail.
-        float2 q=i.uv;float r=length(q),ang=atan2(q.y,q.x);
-        float edge=1+.16*sin(ang*3+i.rnd.x*6.28)+.09*sin(ang*5+i.rnd.y*6.28)+.05*sin(ang*7+i.rnd.z*6.28);
-        float d=r/max(edge,.4);
-        float soft=lerp(.35,.95,i.rnd.w);
-        float body=smoothstep(1,1-soft,d);
-        float core=exp(-d*d*(5+8*(1-soft)));
-        float glint=pow(saturate(cos(ang*6+i.rnd.x*6.28)),24)*smoothstep(.95,.15,r)*i.rnd.w*.3*CL_particleDetail;
-        a=saturate(body*.5+core*.65+glint*core);
-        a*=.82+.18*sin(climateClock.x*(2+i.rnd.y*5)+i.rnd.z*40);
+        // SNOW: a small round soft flake with a brighter middle. Each has its own softness, and the
+        // soft ones read as out of focus. (Lumpy outlines and crystal glints drew clover and star
+        // shapes at any size a flake is seen at.)
+        float r=length(i.uv);
+        float soft=lerp(.5,1.,i.rnd.w);
+        float body=smoothstep(1,1-soft,r);
+        float core=exp(-r*r*6);
+        a=saturate(body*.4+core*.75);
+        a*=.88+.12*sin(climateClock.x*(2+i.rnd.y*5)+i.rnd.z*40);
         tone=lerp(float3(.92,.96,1.04),float3(1.02,1.02,1),i.rnd.z);
     }
     if(weatherParams.z==3) {
@@ -1000,12 +1215,86 @@ float4 WeatherPS(ParticleOutput i,uint sample:SV_SampleIndex):SV_Target {
 // out of a doorway sees the same snowfall outside as a camera standing in it, and none indoors. The
 // optical density is the particles' own (occupied cells per volume x the coverage each adds), and
 // world-anchored noise that falls with the particles keeps it from reading as flat fog.
+)HLSL"
+R"HLSL(
+// THE WIND, SEEN, between the camera and what it looks at (Fluid Ninja's way: GustFlow). A sheen
+// of streaks carried by the air at its own speed, thickest skimming the streets and thinning up over
+// a couple of storeys: white in snow (a blizzard whites out), grey in rain, dark smoke in ash. And
+// over ground the eye looks down on, streamers running along it, so the floor is seen to move.
+// Returns the optical depth, and through `weighted` its depth-weighted distance.
+float GustMist(float2 pixel,float3 dir,float tEnd,float lands,out float weighted){
+    weighted=0;
+    float reach=min(tEnd,1500);
+    bool white=weatherParams.z==2,ash=weatherParams.z==3;
+    // HOW MUCH SHOWS, by weather. x: optical depth a unit of air in a gust front adds, y: the floor
+    // layer's optical depth per unit of its thickness, z: the floor layer's cap.
+    // THE WIND IS SEEN AS WAVES. A front of gusty air is a body of blown snow, spray or ash some
+    // hundreds of units across; it sweeps through at the gust's speed, so the air goes white (grey,
+    // dark) and clears again as the fronts pass, and the floor streams with wisps. Two things did
+    // not work: thin sheets marched along the ray averaged into a flat grey fog over the whole frame
+    // (any fine pattern does, seen through hundreds of units of it), and a cut-out floor layer read
+    // as paint. Between the fronts the air is nearly clear (GustAmount squared).
+    float3 show=white?float3(1./600,.012,.35):ash?float3(1./700,.010,.30):float3(1./1000,.008,.20);
+    // The eye's own ground: gusts skim the streets, they do not fill the sky.
+    float floor0=camera.z-64;
+    // NO DITHER. What is integrated here changes over hundreds of units, so samples at fixed places
+    // along the ray are smooth from pixel to pixel; jittered per pixel (as the rain veil is), a front
+    // in front of the camera was a screen of grain over the whole frame.
+    float tau=0;
+    const int steps=14;
+    [loop]for(int k=0;k<steps;++k){
+        float b0=pow(k/(float)steps,1.5),b1=pow((k+1)/(float)steps,1.5);
+        float t=reach*lerp(b0,b1,.5),dt=reach*(b1-b0);
+        float3 p=camera.xyz+dir*t;
+        float w=PrecipitationRegion(p);
+        if(w<=0)continue;
+        // Under the open sky, and as far under cover as open air reaches: through an archway, a
+        // pace or two in at a door. Not through a building.
+        w*=max(PrecipitationOpenSky(p),CoverReach(p).x);
+        if(w<=0)continue;
+        float4 air=WindAt(p);
+        float g=GustAmount(air);
+        if(g<=0)continue;
+        w*=exp(-max(p.z-floor0,0)/300);
+        // Billows a few hundred units across give the front its shape; coarser far off.
+        float billow=smoothstep(.3,.8,GustFlow(p,air.xy,float3(500,160,120)*(1+t/1200),1.6));
+        float d=g*g*(.4+.6*billow)*show.x*w*dt;
+        tau+=d;weighted+=d*t;
+    }
+    // THE FLOOR STREAMS: wisps running along the ground where the ray lands (a layer H thick seen at
+    // this slant is H/slant deep), torn at three sizes so they thin out softly, never a cut edge.
+    [branch]if(lands>0&&dir.z<-.02&&tEnd<6000){
+        float thick=24,slant=max(-dir.z,.25);
+        float3 foot=camera.xyz+dir*tEnd;
+        float4 air=WindAt(foot);
+        float g=GustAmount(air);
+        float run=GustFlow(foot,air.xy,float3(300,45,30),.9)*.5+GustFlow(foot+float3(31,17,0),air.xy,float3(120,14,12),.55)*.3+
+                  GustFlow(foot+float3(7,51,0),air.xy,float3(40,4.5,6),.35)*.2;
+        float skim=g*g*smoothstep(.35,.9,run)*show.y*thick/slant;
+        // Where a roof shuts the sky off it goes on as far as open air does, and fades over a pace
+        // or two (four readings round the spot: one drew the roof's outline as a dotted line).
+        static const float2 kRound[4]={float2(1,0),float2(0,1),float2(-1,0),float2(0,-1)};
+        float open=0;
+        [unroll]for(int m=0;m<4;++m)open+=PrecipitationOpenSky(foot+float3(kRound[m]*48,8));
+        open=max(open*.25,CoverReach(foot+float3(0,0,8)).x);
+        skim=min(skim*PrecipitationRegion(foot)*open*lands*smoothstep(.02,.14,-dir.z),show.z);
+        tau+=skim;weighted+=skim*tEnd;
+    }
+    weighted*=GustShown();
+    return tau*GustShown();
+}
+)HLSL"
+R"HLSL(
 float4 WeatherVeilPS(Screen i):SV_Target {
     if(weatherLattice.w<=0)return 0;
     float2 pixel=i.position.xy;
     float depth=ReadCombinedSample(pixel,0);
     float3 dir=normalize(World(pixel,.5)-camera.xyz);
-    float t1=min(IsSky(depth)?1e9:FogDistance(pixel,depth),weatherReach.z),t0=0;
+    // An edge pixel against the sky (EdgeSkyShare): the march runs on to the sky, and the stretch up
+    // to the thing in front is kept apart, so the sky's share of the pixel gets the sky's veil.
+    float skyShare=IsSky(depth)?0:EdgeSkyShare(pixel);
+    float tSurface=IsSky(depth)?1e9:FogDistance(pixel,depth);
+    float t1=min(skyShare>0?1e9:tSurface,weatherReach.z),t0=0;
     if(weatherRegionLow.w>.5){
         // Clip the ray to the precipitation box.
         float3 inv=1/(abs(dir)>1e-6?dir:1e-6);
@@ -1015,7 +1304,23 @@ float4 WeatherVeilPS(Screen i):SV_Target {
     }
     // Inside the particle window the particles carry the density; skip to where the veil starts.
     if(weatherVelocity.w>.5)t0=max(t0,.8*weatherReach.x/length(dir*float3(1,1,weatherReach.x/max(weatherReach.y,1))));
-    if(t1<=t0)return 0;
+    float mist=0,mistAt=0;
+    [branch]if(CL_gusts>0){
+        // The skimming layer lies on ground only: what the ray lands on must face up (from the depth
+        // around the pixel) and not be a player.
+        float ground=0;
+        bool gun=IsViewmodelSample(pixel,0);
+        if(!IsSky(depth)&&!gun){
+            float3 a=World(pixel,depth),bx=World(pixel+float2(1,0),ReadCombinedSample(pixel+float2(1,0),0)),by=World(pixel+float2(0,1),ReadCombinedSample(pixel+float2(0,1),0));
+            float3 facing=cross(bx-a,by-a);
+            // By how level it is, not level or not: a yes or a no cut the layer off along the edge of
+            // every tilted paving slab.
+            // Not within a couple of paces of the eye: that is the player's own legs, looked down at.
+            ground=PlayerMaskClaims(a)?0:smoothstep(.55,.9,abs(facing.z)/max(length(facing),1e-6))*smoothstep(20,38,length(a.xy-camera.xy)); // across the ground, so it does not grow and shrink as the eye rises and crouches
+        }
+        if(!gun)mist=GustMist(pixel,dir,min(IsSky(depth)?1e9:FogDistance(pixel,depth),weatherReach.z),ground,mistAt);
+    }
+    if(t1<=t0&&mist<=0)return 0;
     float density=weatherLattice.w;
     float3 velocity=weatherVelocity.xyz;
     bool rain=weatherParams.z==1;
@@ -1025,9 +1330,9 @@ float4 WeatherVeilPS(Screen i):SV_Target {
     // Few steps: the integrand is smooth (a density times open-sky and a slow noise), and the
     // per-pixel jitter turns the remaining sampling error into fine grain rather than bands.
     const int steps=14;
-    float jitter=Random01((uint)pixel.x*1973U^(uint)pixel.y*9277U);
-    float tau=0,weighted=0;
-    [loop]for(int k=0;k<steps;++k){
+    float jitter=InterleavedGradient(pixel); // an even dither: pure chance per pixel showed as speckle wherever a gust thickened the veil
+    float tau=0,weighted=0,tauNear=0;
+    [loop]for(int k=0;k<steps&&t1>t0;++k){
         float b0=pow(k/(float)steps,1.6),b1=pow((k+1)/(float)steps,1.6);
         float t=t0+(t1-t0)*lerp(b0,b1,jitter),dt=(t1-t0)*(b1-b0);
         float3 p=camera.xyz+dir*t;
@@ -1036,26 +1341,48 @@ float4 WeatherVeilPS(Screen i):SV_Target {
         w*=PrecipitationOpenSky(p);
         if(w<=0)continue;
         float clump=.55+.9*Noise3((p-velocity*climateClock.x)*scale);
+        // Far off, a gust front is a curtain of thicker weather crossing the view.
+        [branch]if(CL_gusts>0)clump*=lerp(1,.6+1.2*GustFront(p),saturate(CL_gusts));
         float d=density*dt*w*clump;
         tau+=d;weighted+=d*t;
+        if(t<tSurface)tauNear+=d;
     }
-    float coverage=1-exp(-tau*CL_particleOpacity);
+    tau*=CL_particleOpacity;tauNear*=CL_particleOpacity;weighted=weighted*CL_particleOpacity+mistAt;tau+=mist;tauNear+=mist;
+    float coverage=skyShare>0?1-((1-skyShare)*exp(-tauNear)+skyShare*exp(-tau)):1-exp(-tau);
     float smokeCover=SmokeCover(pixel);
     [branch] if(smokeCover>0&&coverage>0){float entry;coverage*=1-smokeCover*SmokeRayShare(dir,t1,entry);}
     if(coverage<=0)return 0;
     float3 p=camera.xyz+dir*(weighted/max(tau,1e-9));
+    // Falling rain and snow take the light of the scene behind them, read at the pixel and at four
+    // points a little way off it. That suits thin streaks. Blown mist covers the frame, and lit that
+    // way it laid four faint copies of the scene over itself: a blur, and every aerial and roof line
+    // doubled. So the mist's share is lit by the sky and the sun instead.
+    float3 light=PrecipitationLighting(p,pixel);
+    if(weatherParams.z==2)light=lerp(dot(light,float3(.2126,.7152,.0722)).xxx,light,.15);
+    [branch]if(mist>0)light=lerp(light,fogAmbient.rgb*CL_ambient+SunColor()*WorldSunShadow(p)*CL_sunRelight*.3,saturate(mist/max(tau,1e-6)));
     float3 color=weatherColor.rgb;
     if(rain){
-        color=weatherColor.rgb*PrecipitationLighting(p,pixel)*RAIN_BRIGHTNESS*tintExposure.rgb*tintExposure.w;
+        color=weatherColor.rgb*light*RAIN_BRIGHTNESS*tintExposure.rgb*tintExposure.w;
         float distance=length(p-camera.xyz);
         float optical=max(0,distance-CL_fogStart)*CL_fogDensity*.001*exp(-max(0,p.z-CL_fogBase)/CL_fogHeight);
         coverage*=exp(-optical);
         color=lerp(color,fogColorDensity.rgb,1-exp(-optical));
     }
-    if(weatherParams.z==3)color=weatherColor.rgb*.7*PrecipitationLighting(p,pixel)*2.4*tintExposure.rgb*tintExposure.w;
+    if(weatherParams.z==3)color=weatherColor.rgb*.7*light*2.4*tintExposure.rgb*tintExposure.w;
     // The far snow is lit like the flakes: an unlit veil hazed a night sky grey.
-    if(weatherParams.z==2)color=weatherColor.rgb*min(1,PrecipitationLighting(p,pixel)*SNOW_BRIGHTNESS)*tintExposure.rgb*tintExposure.w;
-    return float4(color,coverage);
+    if(weatherParams.z==2)color=weatherColor.rgb*min(1,light*SNOW_BRIGHTNESS)*tintExposure.rgb*tintExposure.w;
+    // Mist is grey. Rain's own colour and the sky's are blue, and a frame's worth of mist in them
+    // was a green-blue film; streaks are too thin for their colour to matter.
+    // In rain what a gust carries is spray, a little darker than the streaks it blows through.
+    [branch]if(mist>0)color=lerp(color,dot(color,float3(.2126,.7152,.0722)).xxx*(rain?.78:1),.85*saturate(mist/max(tau,1e-6)));
+    // What a gust carries through ash is smoke: a warm dark grey, lit like the mist, where the
+    // falling ash itself stays its own pale flecks.
+    [branch]if(mist>0&&weatherParams.z==3)color=lerp(color,float3(.30,.27,.24)*light*tintExposure.rgb*tintExposure.w,saturate(mist/max(tau,1e-6)));
+    // HALF A STEP OF NOISE ON WHAT IS DRAWN. A gust's veil changes slowly over the frame, and laid on
+    // an 8-bit image its soft edge came out as bands. Dithering the samples along the ray hid them
+    // but drew grain; half a display step on the output does not.
+    float dither=(InterleavedGradient(pixel+float2(41,7))-.5)/255;
+    return float4(color+dither,saturate(coverage+dither));
 }
 )HLSL"
 #include "EnvironmentSplashShaders.h"

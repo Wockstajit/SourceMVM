@@ -37,28 +37,27 @@ test('particles and the veil split one density by complementary weights', () => 
 test('rain drop sizes follow a long-tailed spectrum and change streak width and length', () => {
   assert.match(vs, /if\(weatherParams\.z==1\)variation=RainDropVariation\(Random01\(n\+7\)\);/);
   assert.match(shaders, /float RainDropVariation\(float u\) \{ return \.25\+\.75\*pow\(u,1\.6\); \}/);
-  assert.match(vs, /float width=max\(physical,pixel\*\(\.35\+\.65\*variation\)\);/);
+  assert.match(vs, /float width=min\(max\(physical,pixel\*\(\.35\+\.65\*variation\)\),pixel\*2\);/);
   assert.match(vs, /float streakLength=max\(physical\*2,CL_streak\*weatherParams\.y\*fall\);/);
 });
 
 test('roof test and lighting run once per particle, not per pixel', () => {
-  assert.match(vs, /open=PrecipitationOpenSky\(p\);/);
+  assert.match(vs, /float open=PrecipitationOpenSky\(p\);/);
   assert.match(vs, /alpha\*=smoothstep\(\.3,\.7,open\);/);
   assert.match(vs, /o\.light=PrecipitationLighting\(p,pixel\);/);
   const ps = shaders.slice(shaders.indexOf('float4 WeatherPS'), shaders.indexOf('float4 WeatherVeilPS'));
   assert.doesNotMatch(ps, /WorldPrecipitationVisible|RainLighting\(/);
 });
 
-test('gust particles are roof-tested along their gust but streak along the shared fall axis', () => {
-  assert.match(vs, /open=GustOpen\(g,p\);/);
-  assert.doesNotMatch(vs, /fallAxis=gustDirection/);
+test('every particle is roof-tested straight down and streaks along the shared fall axis', () => {
+  assert.doesNotMatch(shaders, /GustOpen|gustMatrix|gustTexture/);
   assert.match(vs, /float3 streak=fallAxis;/);
   // Motion blur: opacity falls with streak length.
   assert.match(vs, /alpha\*=min\(1\.,RAIN_MOTION_BLUR\*physical\/streakLength\);/);
-  // Surfaces, splashes and puddles use the graded exposure, not the single-direction cut.
+  // Surfaces, splashes and puddles use the sky map and the cover volume together.
   const surface = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Environment/EnvironmentRainSurfaceShaders.h', import.meta.url), 'utf8');
-  assert.match(surface, /PrecipitationExposure\(p\+float3\(0,0,2\)\)/);
-  assert.match(splash, /PrecipitationExposure\(i\.hit\+float3\(0,0,2\)\)/);
+  assert.match(surface, /WetReach\(WeatherCover\(p,normal\)\)/);
+  assert.match(splash, /WetReach\(WeatherCover\(i\.hit,float3\(0,0,1\)\)\)/);
 });
 
 test('no camera-relative remap of particle positions', () => {
@@ -83,10 +82,12 @@ test('splashes refuse player bodies and unconverged columns', () => {
   assert.match(splash, /k==4/);
 });
 
-test('snow is a soft clump, not a star', () => {
+test('snow is a soft round flake, not a star or a clover', () => {
   const ps = shaders.slice(shaders.indexOf('float4 WeatherPS'));
   assert.doesNotMatch(ps, /cos\(angle\*6\)\),10\)/);
-  assert.match(ps, /SNOW: a soft, slightly lumpy clump/);
+  assert.match(ps, /SNOW: a small round soft flake/);
+  const snow = ps.slice(ps.indexOf('if(weatherParams.z==2) {'), ps.indexOf('if(weatherParams.z==3) {'));
+  assert.doesNotMatch(snow, /atan2\(|glint=/);
 });
 
 // Issue 135: snow drew in the raw weather colour, unlit, so switching it on under a night sky made the
@@ -96,14 +97,16 @@ test('snow flakes and the snow veil take the map light and the Looks exposure', 
   const ps = shaders.slice(shaders.indexOf('float4 WeatherPS'), shaders.indexOf('float4 WeatherVeilPS'));
   assert.match(ps, /if\(weatherParams\.z==2\)color=weatherColor\.rgb\*tone\*min\(1,i\.light\*SNOW_BRIGHTNESS\)\*tintExposure\.rgb\*tintExposure\.w;/);
   const veil = shaders.slice(shaders.indexOf('float4 WeatherVeilPS'));
-  assert.match(veil, /if\(weatherParams\.z==2\)color=weatherColor\.rgb\*min\(1,PrecipitationLighting\(p,pixel\)\*SNOW_BRIGHTNESS\)\*tintExposure\.rgb\*tintExposure\.w;/);
+  // The veil reads the scene light once (gust mist mixes its own share into it).
+  assert.match(veil, /float3 light=PrecipitationLighting\(p,pixel\);/);
+  assert.match(veil, /if\(weatherParams\.z==2\)color=weatherColor\.rgb\*min\(1,light\*SNOW_BRIGHTNESS\)\*tintExposure\.rgb\*tintExposure\.w;/);
   const programs = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Environment/EnvironmentShaderPrograms.h', import.meta.url), 'utf8');
   assert.match(programs, /#define SNOW_BRIGHTNESS "\+std::to_string\(kSnowBrightness\)/);
 });
 
 test('settled snow lifts a surface by a bounded factor, so night ground stays dark', () => {
   const climate = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Environment/EnvironmentClimateShaders.h', import.meta.url), 'utf8');
-  assert.match(climate, /float inheritedShade=SnowCoverShade\(mapLuminance\);/);
+  assert.match(climate, /float inheritedShade=SnowCoverShade\(lightLuminance\);/);
   assert.match(climate, /SNOW_MAX_LIFT\*max\(mapLuminance,0\)/);
 });
 

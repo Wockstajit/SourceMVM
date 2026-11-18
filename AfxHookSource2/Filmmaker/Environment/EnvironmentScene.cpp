@@ -2,6 +2,9 @@
 #define NOMINMAX
 #include "EnvironmentScene.h"
 #include "EnvironmentGroundFog.h"
+#include "EnvironmentGameTextures.h"
+#include "EnvironmentWindFluid.h"
+#include "EnvironmentWeatherCover.h"
 #include <unordered_map>
 #include "EnvironmentGltfMath.h"
 #include "EnvironmentVfxLighting.h"
@@ -12,6 +15,7 @@
 #include "../Config/PracticeSessionFlag.h" // a practice session neither restores nor saves scenes
 #include "EnvironmentCoatingMath.h"
 #include "EnvironmentRender.h"
+#include "EnvironmentNativeMaterial.h" // NativeExposureScale
 #include "EnvironmentNativeWater.h"
 #include "EnvironmentNativeRain.h"
 #include "EnvironmentRayProbe.h"
@@ -29,6 +33,8 @@
 #include "../Movie/SceneRigMath.h"      // Rig::PoseChannel
 #include "../Movie/SceneRigTransient.h" // where the rig put each object this frame
 #include "../Cosmetics/CosmeticEntityAccess.h" // CosmeticEntFromIndex: pawn origins for the coating actors
+#include "../Movie/ModelPoseAccess.h"          // a pawn's world bones: where its feet are
+#include "../Movie/RagdollBodies.h"            // ClientRagdollOf: the entity that carries a corpse's pose
 #include "../../ClientEntitySystem.h"      // GetHighestEntityIndex, CEntityInstance
 #include "../../SchemaSystem.h"          // g_clientDllOffsets: smoke detonation positions
 #include "../Platform/JsonBuilder.h"
@@ -563,6 +569,9 @@ static Scene AnimatedScene(Scene scene) {
         return f != state->fields.end() && component < f->second.size() ? f->second[component] : base;
     };
     for (int i=0;i<ClimateCount;++i) scene.climate.values[i]=float(number(std::string("env.")+ClimateSpecs()[i].key,scene.climate.values[i]));
+    // A keyed time of day moves the sun and the moon with it.
+    for (ClimateField f : {CL_timeOfDay, CL_sunPath, CL_sunHeight})
+        if (state->fields.count(std::string("env.") + ClimateSpecs()[f].key)) { ApplyTimeOfDay(scene.climate); break; }
     scene.enabled=number("env.enabled",scene.enabled)!=0;
     scene.exposure=float(number("env.exposure",scene.exposure));
     auto color=[&](const char* id,Vec3 c) {return Vec3{float(number(id,c.x*255,0)/255),float(number(id,c.y*255,1)/255),float(number(id,c.z*255,2)/255)};};
@@ -600,7 +609,11 @@ void RunMainThreadFrame() {
     const auto geometry=MapOcclusion();
     if(geometry&&Relight::UpdateMapLighting(map,geometry->lightMetadataPath)&&g_savedName.empty()){
         const auto lights=Relight::CaptureScene(map);
-        if(lights.hasSun){g_scene.climate[CL_sunElevation]=lights.sunAngles.x;g_scene.climate[CL_sunAzimuth]=lights.sunAngles.y;}
+        if(lights.hasSun){
+            g_scene.climate[CL_sunElevation]=lights.sunAngles.x;g_scene.climate[CL_sunAzimuth]=lights.sunAngles.y;
+            // The time of day and the moon follow the map's own sun.
+            TimeOfDayFromSun(g_scene.climate);ApplyTimeOfDay(g_scene.climate);
+        }
     }
     g_liveWorld=CaptureWorldLook();
     const auto animated = AnimatedScene(g_scene);
@@ -613,7 +626,10 @@ void RunMainThreadFrame() {
     // Our sky owns the sun while it is up, disc and halo included. Scoped to the sky rather than
     // to the lighting pass, because the leftover halo is a SKY artefact: it shows up whenever the
     // backdrop is replaced, whether or not the surfaces are being relit.
-    SetEngineSunDiscSuppressed(rendering && climate[CL_sky] > 0);
+    // The map's own clouds go with its sky too; under the map's own sky they go when the Clouds page
+    // says so (Hide map clouds), with or without our cloud layer over it.
+    SetEngineSunDiscSuppressed(rendering && climate[CL_sky] > 0,
+        rendering && (climate[CL_sky] > 0 || climate[CL_hideMapClouds] > .5f));
     // The owned render pipeline supplies its own lighting inputs. Environment's
     // engine-side overrides must not alter its baseline or unsupported skybox draws.
     // Baked lighting is not an engine switch: CL_bakedSuppressed substitutes the lightmap inputs
@@ -628,7 +644,8 @@ void RunMainThreadFrame() {
     const bool ownedLighting=(lightingReady && (relightingOn || authoredLighting.enabled)) ||
                              (geometry && g_proof.enabled && g_proof.map==map);
     SetEngineLightingTakeover(g_cameraValid && RendererReady() && ownedLighting);
-    Relight::UpdateStainedGlassMaterials((active || Relight::CaptureScene(map).enabled) && RendererReady());
+    // The panes lose their baked emission only while their beams light the room in its place.
+    Relight::UpdateStainedGlassMaterials((active || authoredLighting.enabled) && authoredLighting.stainedGlass > 0 && RendererReady());
     UpdateNativeWater(animated,map);
     UpdateNativeRain(animated, map, active, g_camera, g_cameraValid);
 }
@@ -729,11 +746,184 @@ void SetRenderStatus(const char *status, bool drawn) {
 // anything that moves: a pattern painted over a running player slides across them. Players get no
 // world coating, and the shader finds them from these pawn origins.
 //
+// WHERE A PAWN'S FEET ARE. Its model names its bones; the ankle and toe ("ball") of each leg are
+// looked up once per model and read from the model state's world pose (eight floats a bone,
+// position first), the pose this frame is drawn with. A model without those bones, or a pose that
+// cannot be read, leaves the actor without feet and its steps are worked out from its movement.
+namespace {
+struct FootRig {
+    int ankle[2] = {-1, -1}, toe[2] = {-1, -1};
+};
+std::unordered_map<const void *, FootRig> g_footRigs;
+bool BoneIs(const char *const *names, const int16_t *parents, int index, const char *wanted) {
+    char name[64];
+    int parent = 0;
+    return index >= 0 && ModelPoseAccess::ReadBoneEntry(names, parents, index, name, sizeof(name), parent) && !_stricmp(name, wanted);
+}
+const FootRig *FootRigOf(const void *model) {
+    const char *const *names = nullptr;
+    const int16_t *parents = nullptr;
+    if (!ModelPoseAccess::ReadTablePointers(model, names, parents)) return nullptr;
+    auto found = g_footRigs.find(model);
+    // A model's address can be handed to another model after a map change: check it is still ours.
+    if (found != g_footRigs.end() && (found->second.ankle[0] < 0 || BoneIs(names, parents, found->second.ankle[0], "ankle_l")))
+        return found->second.ankle[0] < 0 ? nullptr : &found->second;
+    if (g_footRigs.size() > 256) g_footRigs.clear();
+    FootRig rig;
+    for (int b = 0; b < 256; ++b) {
+        char name[64];
+        int parent = 0;
+        if (!ModelPoseAccess::ReadBoneEntry(names, parents, b, name, sizeof(name), parent) || parent >= b || parent < -1) break;
+        if (!_stricmp(name, "ankle_l")) rig.ankle[0] = b;
+        if (!_stricmp(name, "ankle_r")) rig.ankle[1] = b;
+        if (!_stricmp(name, "ball_l")) rig.toe[0] = b;
+        if (!_stricmp(name, "ball_r")) rig.toe[1] = b;
+    }
+    if (rig.ankle[0] < 0 || rig.ankle[1] < 0) rig = FootRig();
+    MvmDebugLog_LinefAlways("environment.footprints", "model=%p ankles=%d,%d toes=%d,%d", model, rig.ankle[0], rig.ankle[1], rig.toe[0], rig.toe[1]);
+    auto &kept = g_footRigs[model] = rig;
+    return kept.ankle[0] < 0 ? nullptr : &kept;
+}
+bool ReadFootBones(unsigned char *modelState, const FootRig &rig, float out[4][3], bool &onGround, CEntityInstance *ent) {
+    __try {
+        const float *world = *(const float **)(modelState + 0x80);
+        if ((uintptr_t)world < 0x10000) return false;
+        const int bones[4] = {rig.ankle[0], rig.ankle[1], rig.toe[0], rig.toe[1]};
+        for (int k = 0; k < 4; ++k) {
+            const int b = bones[k] >= 0 ? bones[k] : bones[k & 1];
+            for (int a = 0; a < 3; ++a) {
+                out[k][a] = world[b * 8 + a];
+                if (!std::isfinite(out[k][a])) return false;
+            }
+        }
+        const ptrdiff_t flags = g_clientDllOffsets.C_BaseEntity.m_fFlags;
+        onGround = flags ? (*(const uint32_t *)((const unsigned char *)ent + flags) & 1u) != 0 : true;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+void ReadFeet(CEntityInstance *ent, CoatingActor &a) {
+    unsigned char *modelState = ModelPoseAccess::ModelStateOf(ent);
+    const void *model = ModelPoseAccess::ModelOf(modelState);
+    const FootRig *rig = model ? FootRigOf(model) : nullptr;
+    float bones[4][3];
+    bool onGround = false;
+    if (!rig || !ReadFootBones(modelState, *rig, bones, onGround, ent)) return;
+    for (int k = 0; k < 2; ++k) {
+        const float *ankle = bones[k], *toe = bones[2 + k];
+        // The bones must belong to this pawn: a pose not yet built reads as zeros or as another place.
+        if (std::abs(ankle[0] - a.origin.x) > 64 || std::abs(ankle[1] - a.origin.y) > 64 || std::abs(ankle[2] - a.origin.z) > 96) return;
+        const float dx = toe[0] - ankle[0], dy = toe[1] - ankle[1], length = std::sqrt(dx * dx + dy * dy);
+        const bool pointed = rig->toe[k] >= 0 && length > .5f;
+        a.footYaw[k] = pointed ? std::atan2(dy, dx) : 0;
+        // The boot's middle: its heel is a little behind the ankle and its tip a little beyond the toe bone.
+        a.foot[k] = pointed ? Vec3{ankle[0] + dx * .5f + dx / length * .6f, ankle[1] + dy * .5f + dy / length * .6f, a.origin.z} : Vec3{ankle[0], ankle[1], a.origin.z};
+        a.ankleZ[k] = ankle[2];
+        a.toeZ[k] = rig->toe[k] >= 0 ? toe[2] : ankle[2] - 2.5f;
+    }
+    a.hasFeet = true;
+    a.grounded = onGround;
+}
+// WHERE A DEAD PLAYER'S BODY IS: the bones of its trunk, head, arms and legs, from the pose it is
+// drawn with (the pawn's own, or its client-side ragdoll's when the game made one). The bones must
+// hang together as one body; a pose that does not is left out.
+struct BodyRig {
+    int bone[kBodyBones];
+    bool usable = false;
+};
+std::unordered_map<const void *, BodyRig> g_bodyRigs;
+const BodyRig *BodyRigOf(const void *model) {
+    const char *const *names = nullptr;
+    const int16_t *parents = nullptr;
+    if (!ModelPoseAccess::ReadTablePointers(model, names, parents)) return nullptr;
+    auto found = g_bodyRigs.find(model);
+    if (found != g_bodyRigs.end() && (!found->second.usable || BoneIs(names, parents, found->second.bone[BB_pelvis], kBodyBoneNames[BB_pelvis])))
+        return found->second.usable ? &found->second : nullptr;
+    if (g_bodyRigs.size() > 256) g_bodyRigs.clear();
+    BodyRig rig;
+    for (int &b : rig.bone) b = -1;
+    int have = 0;
+    for (int b = 0; b < 256; ++b) {
+        char name[64];
+        int parent = 0;
+        if (!ModelPoseAccess::ReadBoneEntry(names, parents, b, name, sizeof(name), parent) || parent >= b || parent < -1) break;
+        for (int k = 0; k < kBodyBones; ++k)
+            if (rig.bone[k] < 0 && !_stricmp(name, kBodyBoneNames[k])) {
+                rig.bone[k] = b;
+                ++have;
+            }
+    }
+    rig.usable = rig.bone[BB_pelvis] >= 0 && have >= 8;
+    MvmDebugLog_LinefAlways("environment.footprints", "body model=%p bones=%d of %d usable=%d", model, have, int(kBodyBones), int(rig.usable));
+    auto &kept = g_bodyRigs[model] = rig;
+    return kept.usable ? &kept : nullptr;
+}
+bool ReadBodyBones(unsigned char *modelState, const BodyRig &rig, FallenBones &out) {
+    __try {
+        const float *world = *(const float **)(modelState + 0x80);
+        if ((uintptr_t)world < 0x10000) return false;
+        for (int k = 0; k < kBodyBones; ++k) {
+            out.has[k] = rig.bone[k] >= 0;
+            if (!out.has[k]) continue;
+            const float *b = world + rig.bone[k] * 8;
+            if (!std::isfinite(b[0]) || !std::isfinite(b[1]) || !std::isfinite(b[2])) return false;
+            out.bone[k] = {b[0], b[1], b[2]};
+        }
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+bool ReadFallen(CEntityInstance *pawn, FallenBones &out) {
+    CEntityInstance *carriers[2] = {RagdollBodies::ClientRagdollOf(pawn), pawn};
+    for (CEntityInstance *carrier : carriers) {
+        if (!carrier) continue;
+        unsigned char *modelState = ModelPoseAccess::ModelStateOf(carrier);
+        const void *model = ModelPoseAccess::ModelOf(modelState);
+        const BodyRig *rig = model ? BodyRigOf(model) : nullptr;
+        if (!rig || !ReadBodyBones(modelState, *rig, out)) continue;
+        // One body: no bone further from the pelvis than a body is long, and not a pose left at the
+        // map's origin.
+        const Vec3 pelvis = out.bone[BB_pelvis];
+        bool whole = std::abs(pelvis.x) + std::abs(pelvis.y) + std::abs(pelvis.z) > 1;
+        for (int k = 0; k < kBodyBones && whole; ++k)
+            if (out.has[k]) {
+                const Vec3 d = out.bone[k] - pelvis;
+                whole = d.x * d.x + d.y * d.y + d.z * d.z < 80 * 80;
+            }
+        if (whole) return true;
+    }
+    return false;
+}
+// A LIVE PLAYER'S BODY, the same bones from the pose it is drawn with, for its shadow on the ground
+// fog. The pelvis must stand over the pawn and every bone hang within a body's length of it: a pose
+// not built yet reads as zeros or as another place, and then the shadow falls back to a capsule.
+void ReadLiveBody(CEntityInstance *pawn, CoatingActor &a) {
+    unsigned char *modelState = ModelPoseAccess::ModelStateOf(pawn);
+    const void *model = ModelPoseAccess::ModelOf(modelState);
+    const BodyRig *rig = model ? BodyRigOf(model) : nullptr;
+    FallenBones bones;
+    if (!rig || !ReadBodyBones(modelState, *rig, bones)) return;
+    const Vec3 pelvis = bones.bone[BB_pelvis];
+    if (std::abs(pelvis.x - a.origin.x) > 40 || std::abs(pelvis.y - a.origin.y) > 40 || pelvis.z < a.origin.z - 8 ||
+        pelvis.z > a.origin.z + 64)
+        return;
+    for (int k = 0; k < kBodyBones; ++k)
+        if (bones.has[k]) {
+            const Vec3 d = bones.bone[k] - pelvis;
+            if (d.x * d.x + d.y * d.y + d.z * d.z > 64 * 64) return;
+        }
+    a.body = bones;
+    a.hasBody = true;
+}
+} // namespace
 // SEH-guarded and index-scanned for the same reason the cosmetics code is: a stale entity in the
 // list must read as "no actor", not take the render thread down. Failing to find anyone is not an
 // error -- nothing is excluded.
 void CaptureCoatingActors(Frame &f) {
     f.actors.clear();
+    f.fallen.clear();
     const auto &c = f.scene.climate;
     // The round heat map leaves the live players' shoes unpainted from the same list, and the ground
     // fog is pushed aside by the same bodies.
@@ -744,8 +934,14 @@ void CaptureCoatingActors(Frame &f) {
         const int highest = GetHighestEntityIndex();
         for (int i = 1; i <= highest && (int)f.actors.size() < Frame::kMaxActors; ++i) {
             CEntityInstance *ent = CosmeticEntFromIndex(i);
-            if (!ent || !ent->IsPlayerPawn() || ent->GetHealth() == 0)
+            if (!ent || !ent->IsPlayerPawn())
                 continue;
+            if (ent->GetHealth() == 0) {
+                FallenBody body;
+                body.entity = i;
+                if ((int)f.fallen.size() < Frame::kMaxActors && ReadFallen(ent, body.bones)) f.fallen.push_back(body);
+                continue;
+            }
             float x = 0, y = 0, z = 0;
             ent->GetOrigin(x, y, z);
             if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
@@ -756,10 +952,14 @@ void CaptureCoatingActors(Frame &f) {
             // column still let the ground around the feet read as body.
             a.radius = kCoatingBodyRadius;
             a.entity = i;
+            ReadFeet(ent, a);
+            // The body's bones keep the coatings off it (BonesClaim) and shape its shadow on the ground fog.
+            ReadLiveBody(ent, a);
             f.actors.push_back(a);
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         f.actors.clear();
+        f.fallen.clear();
     }
 }
 // WHERE THE SMOKES ARE. CS2's OIT absorbance says how much a smoke hides at each pixel but not how
@@ -855,9 +1055,11 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
     f.relight=Relight::CaptureScene(map);
     {
         // The exposure CS2's tonemapper applies this frame: a pinned one (Night mode, the Exposure
-        // slider), else our adaptation's. CS2's own adaptation is not readable, so then no cutoff.
+        // slider), else our adaptation's, else CS2's own adaptation as its per-view constants carry
+        // it (NativeExposureScale). Unknown (0) keeps every authored range.
         const float pinned=NightMode_Exposure();
-        const float exposure=pinned!=kExposureAuto?pinned:AutoExposure_CurrentScale();
+        float exposure=pinned!=kExposureAuto?pinned:AutoExposure_CurrentScale();
+        if(!(exposure>0))exposure=NativeExposureScale();
         f.relight.visibleRadiance=Relight::VisibleRadianceCutoff(f.relight.reach,exposure);
         // Never inside the visible reach: shadows always cover every light that is drawn.
         f.relight.shadowRadiance=f.relight.shadowReach>0?
@@ -872,6 +1074,8 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
     // whenever the pass was on is what made switching on Weather "turn on the sky lighting and GI"
     // (user report, 2026-10-09). Same rule as the engine-side takeover in RunMainThreadFrame.
     const bool relightingOn=EffectiveClimate(f.scene.climate)[CL_relighting]>.5f;
+    // The Environment's own auto exposure: only while its lighting has the map (see AutoExposure.h).
+    AutoExposure_SetEnvironment(sceneActive&&lightingReady&&relightingOn&&f.scene.climate[CL_autoExposure]>.5f,f.scene.climate[CL_exposureBias]);
     if(sceneActive){
         if(lightingReady&&relightingOn){
             const auto authored=f.relight;
@@ -947,6 +1151,14 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
     CaptureCoatingActors(f);
     if (f.active)
         CaptureSmokeVolumes(f.smokes);
+    f.snowHeat.clear();
+    if (f.active && f.scene.climate[CL_snow] > 0) {
+        // Every flame melts the snow round it, on the floor it burns on. (Melting round the four
+        // light anchors left most of a spread fire on snow, and the anchors sit 24 units up, which
+        // put the melt on another height layer than the ground: the snow never showed it.)
+        for (const auto &flame : CaptureBurningFires()) f.snowHeat.push_back({flame, 60.f, -1.f});
+        for (const auto &b : CaptureVfxBlasts(f.time)) f.snowHeat.push_back({b.position, 150.f, b.age});
+    }
     const bool groundFog = f.active && f.scene.climate[CL_groundFog] > 0;
     if (groundFog || (f.active && f.scene.climate[CL_fogDensity] > 0)) {
         const auto burning = CaptureMollyLightSources();
@@ -1263,6 +1475,8 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                                 g_scene.objects.size(), g_scene.weather.type, g_status.c_str(), g_draws,
                                 g_selected, SerializeScene(LiveScene()).c_str());
             advancedfx::Message("  mapdata: ready=%d status='%s'\n",bool(MapOcclusion()),MapOcclusionStatus().c_str());
+            advancedfx::Message("  cs2 textures: %s\n",GameTexturesStatus().c_str());
+            advancedfx::Message("  %s\n",WeatherCoverStatus().c_str());
             return;
         }
         if (op == "climate" && argc == 3) {
@@ -1277,14 +1491,18 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             advancedfx::Message(
                 "Environment UI: Looks, Sky, Lighting, Fog, Weather, Scene Objects.\n"
                 "Fog: climate fogDensity|fogStart|fogHeight|fogNoise|lightShafts|scatter; set fogR|fogG|fogB.\n"
+                "Ground: climate rainTexture 0|1 (CS2's water beads). The snow is always CS2's own.\n"
                 "Ground fog: climate groundFog|groundFogHeight|groundFogDetail|groundFogFlow|groundFogRecovery|\n"
                 "  groundFogSwirl|groundFogWind|groundFogWindAngle|groundFogSoftness|groundFogWisps|groundFogWispSize|\n"
-                "  groundFogStreak|groundFogBillowSize|groundFogChurn|groundFogSun|groundFogShade|groundFogShadeR|G|B|groundFogPushSize.\n"
+                "  groundFogStreak|groundFogBillowSize|groundFogChurn|groundFogSun|groundFogShade|groundFogShadeR|G|B|groundFogPushSize|groundFogShadows.\n"
                 "Rendering: Balanced preview / High export (fixed). Presets: version 14 only.\n"
                 "mirv_filmmaker environment on|off|status|undo|rescan|folder\n"
                 " environment weather wind <speed> <direction-degrees>\n"
                 " environment reset [all|lighting|sky|atmosphere|weather|props]\n"
                 " environment weather clear|rain|snow|ash|storm|embers|motes|smoke\n"
+                " environment rainview on|off|toggle - weather cover view (grey open sky, green reached, blue sheltered)\n"
+                " environment footview on|off|toggle - feet as read (green down, red lifted) and a ring at each footfall\n"
+                " environment coverplan <file.ppm> - the walkable floor from above, coloured by weather cover\n"
                 " environment look clear|storm|winter|sunset|night; climate <field> <value>\n"
                 " environment pass-off <field|weatherType> <neutral> [...] - switch a pass off, keeping its value held\n"
                 " environment surface-center|fog-center|gi-center|reload-geometry\n"
@@ -1300,6 +1518,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 " environment edit start <id>|stop|begin <axis> <u> <v> <aspect>|drag <u> <v>|commit|cancel\n"
                 " environment smokeview [on|off] - show the CS2 smoke coverage that hides additions\n"
                 " environment groundfog-view [on|off|map|<units across>] - show the live ground fog sim in a corner of the screen\n"
+                " environment wind-view [on|off|map|<units across>] - show the live wind gusts (Gusts) from above: buildings red, fast air blue, blown mist white\n"
                 " environment groundfog-dump - save the ground fog field (where players pushed it) to the debug log folder\n"
                 " environment mapinfo [rain|ripple|ripdir|wet|drying|trace <value>] - read/write the map's native weather\n"
                 " environment trace-probe - test hardware geometry tracing (debug log)\n"
@@ -1394,6 +1613,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 char report[512];
                 NativeWorldWeatherReport(report, sizeof(report));
                 advancedfx::Message("%s%c", report, 10);
+                advancedfx::Message("%s%c", NativeFrostStatus(), 10);
             }
             if (!o.m_flEnvRainStrength) throw std::runtime_error("CMapInfo schema fields are unresolved");
             CEntityInstance *info = nullptr;
@@ -1436,11 +1656,30 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             return;
         }
         if (op == "rainview") {
-            // Debug: how much rain reaches each surface (PrecipitationExposure). Grey = open sky,
+            // Debug: what reaches each surface (WeatherCover). Grey = open sky, green = open air under cover,
             // dark blue = sheltered; doorways and arches facing the wind show the graded fringe.
             const std::string v = argc > 3 ? arg(3) : "toggle";
             SetRainExposureView(v == "on" || v == "1" || (v == "toggle" && !RainExposureView()));
-            g_message = RainExposureView() ? "Rain exposure view on (grey open, dark blue sheltered)" : "Rain exposure view off";
+            g_message = RainExposureView() ? "Weather cover view on (grey open sky, green reached under cover, dark blue sheltered)" : "Rain exposure view off";
+            return;
+        }
+        if (op == "footview") {
+            // Debug: where the feet are read to be and when a footfall fires, drawn over the frame.
+            const std::string v = argc > 3 ? arg(3) : "toggle";
+            SetFootView(v == "on" || v == "1" || (v == "toggle" && !FootView()));
+            g_message = FootView() ? "Foot view on (cross on each foot: green down, red lifted; yellow ring where a footfall fires)" : "Foot view off";
+            return;
+        }
+        if (op == "coverplan") {
+            // Debug: the walkable floor from above, coloured by weather cover, as a PPM file.
+            if (argc < 4) throw std::runtime_error("environment coverplan <file.ppm>");
+            auto world = MapOcclusion();
+            if (!world) throw std::runtime_error("Map geometry is not ready");
+            std::string result;
+            const bool ok = WriteWeatherCoverPlan(*world, arg(3), result);
+            if (!ok) throw std::runtime_error(result);
+            g_message = "Cover plan written, " + result;
+            advancedfx::Message("environment coverplan: %s\n", result.c_str());
             return;
         }
         if (op == "smokeview") {
@@ -1457,6 +1696,15 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             if (v == "map" || span > 0) SetGroundFogOverlay(true, span);
             else SetGroundFogOverlay(v == "on" || v == "1" || (v == "toggle" && !GroundFogOverlay()));
             g_message = GroundFogOverlay() ? "Ground fog sim view on" : "Ground fog sim view off";
+            return;
+        }
+        if (op == "wind-view") {
+            // The live wind fluid in a corner of the frame. on|off|toggle|map|<units across>.
+            const std::string v = argc > 3 ? arg(3) : "toggle";
+            const float span = v == "map" ? 0.f : float(std::atof(v.c_str()));
+            if (v == "map" || span > 0) SetWindFluidOverlay(true, span);
+            else SetWindFluidOverlay(v == "on" || v == "1" || (v == "toggle" && !WindFluidOverlay()));
+            g_message = WindFluidOverlay() ? "Wind view on: " + WindFluidStatus() : "Wind view off";
             return;
         }
         if (op == "groundfog-dump") {
@@ -1544,15 +1792,15 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             next.enabled = op == "on";
         } else if (op == "reset") {
             if (argc != 3 && argc != 4)
-                throw std::runtime_error("Use reset all|lighting|sky|atmosphere|weather|props");
+                throw std::runtime_error("Use reset all|environment|lighting|sky|atmosphere|weather|props");
             if (argc == 4)
                 resetPage = arg(3);
-            if (resetPage != "all" && resetPage != "lighting" && resetPage != "sky" &&
+            if (resetPage != "all" && resetPage != "environment" && resetPage != "lighting" && resetPage != "sky" &&
                 resetPage != "atmosphere" && resetPage != "weather" && resetPage != "props")
                 throw std::runtime_error("Unknown environment page");
             ResetScenePage(next, resetPage);
             // A reset page's held values are part of what it resets.
-            if (resetPage == "all") next.held.clear();
+            if (resetPage == "all" || resetPage == "environment") next.held.clear();
             else for (auto it = next.held.begin(); it != next.held.end();) {
                 bool onPage = it->first == HeldWeatherTypeKey() ? resetPage == "weather" : false;
                 for (int i = 0; i < ClimateCount; ++i)
@@ -1647,8 +1895,8 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 } else if (mode == "rain" || mode == "storm") {
                     w.type = 1;
                     w.speed = mode == "storm" ? 1050.f : 700.f;
-                    w.count = mode == "storm" ? 4500 : 2400;
-                    w.size = .8f;
+                    w.count = mode == "storm" ? 5200 : 3600;
+                    w.size = 1.3f;
                     w.windX = mode == "storm" ? 180.f : 40.f;
                     w.color = {.6f, .7f, .85f};
                 } else if (mode == "snow") {
@@ -1706,6 +1954,10 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 next.climate[CL_stormX]=g_camera.x;next.climate[CL_stormY]=g_camera.y;next.climate[CL_stormZ]=g_camera.z-64;
             }
             next.climate.values[field] = float(n);
+            // The sun and the moon move together (ApplyTimeOfDay): a time-of-day value places both,
+            // and a sun placed by its angles sets the time of day that puts it there.
+            if (field == CL_sunAzimuth || field == CL_sunElevation) TimeOfDayFromSun(next.climate);
+            if (field == CL_sunAzimuth || field == CL_sunElevation || IsTimeOfDayField(ClimateField(field))) ApplyTimeOfDay(next.climate);
             // Sun placement is one creative operation. It always drives the sky, foreground map,
             // props and preserved 3D skybox together instead of requiring three hidden toggles.
             CoupleSunToLighting(next.climate, ClimateField(field));
@@ -1798,6 +2050,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                     c[CL_storm] = 1;
                     c[CL_density] = 1.3f; c[CL_cloudDepth] = 2200; c[CL_windSpeed] = 90;
                     c[CL_sunElevation] = -5; c[CL_sunPower] = .2f; c[CL_ambient] = .12f;
+                    c[CL_moon] = 0; // a storm hides the moon; no moonlight under the overcast
                     c[CL_cloudBase] = g_cameraValid ? g_camera.z + 1100 : 1500;
                     if (g_cameraValid) {
                         c[CL_stormX] = g_camera.x; c[CL_stormY] = g_camera.y; c[CL_stormZ] = g_camera.z - 64;
@@ -1814,6 +2067,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                     c[CL_ambient] = .08f;
                     c[CL_sunRelight] = .08f;
                 }
+                // Each look's sun is a time of day: a night look has a moon up.
+                TimeOfDayFromSun(c);
+                ApplyTimeOfDay(c);
             } else
                 throw std::runtime_error("Use look clear|storm|winter|sunset|night");
             next.enabled = true;

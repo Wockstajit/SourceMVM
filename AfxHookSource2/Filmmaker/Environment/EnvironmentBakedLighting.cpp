@@ -1,6 +1,7 @@
 #include "EnvironmentBakedLighting.h"
 #include "../World/LightFx.h"
 #include "../World/SunFx.h"
+#include "../World/CloudFx.h"
 #include "../World/ShadowFx.h"
 #include "../World/BakedShadowFx.h"
 #include "../World/DynamicShadowFx.h"
@@ -54,7 +55,11 @@ void ResetEngineLightingTakeover() { SetEngineLightingTakeover(false); }
 // backdrop does not remove them -- so at angles where the map's authored sun sits behind
 // geometry its halo still burns through, in the old colour, next to ours. This borrows the
 // engine's sun visibility for as long as our sky is up and hands it back exactly as found.
-void SetEngineSunDiscSuppressed(bool on) {
+void SetEngineSunDiscSuppressed(bool on, bool hideClouds) {
+    // The map's own clouds go with its sky: geometry in the 3D skybox, drawn after the sky, which a
+    // replaced backdrop does not remove (CloudFx_SetEnvironmentHidden). Every frame, so a level load
+    // or late-loading cloud materials are caught.
+    ::Filmmaker::CloudFx_SetEnvironmentHidden(hideClouds);
     if (on && !skyOwned) {
         savedSunVisible = ::Filmmaker::SunFx_Visible();
         skyOwned = true;
@@ -71,7 +76,7 @@ void SetEngineSunDiscSuppressed(bool on) {
     MvmDebugLog_LinefAlways("environment.sky", "sunDiscSuppressed=0 restoredVisible=%d",
                             savedSunVisible ? 1 : 0);
 }
-void ResetEngineSunDiscSuppression() { SetEngineSunDiscSuppressed(false); }
+void ResetEngineSunDiscSuppression() { SetEngineSunDiscSuppressed(false, false); }
 void CaptureNativeLighting(bool &lights, bool &baked, bool &dynamic) {
     // While the pass owns these, report what the user chose rather than our override, so the
     // World & Effects switches keep showing their own state instead of reading as flipped off.
