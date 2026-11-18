@@ -71,6 +71,9 @@ editor and another one put in; every surface of the map keeps its colour. It is 
 the BeforeUi boundary of every render, after the Environment's sky, fog, clouds and weather and
 before the lens and the captures, so every pass of a job has it and Key, Depth and Normal are built
 from a scene that has it. It shows live while the Render workspace is open, and in every recording.
+The depth it keys by is bound for this mask as for the players and live gun masks. A take's
+`manifest.json` records the switch (`keySky`), so **Use** on a previous render sets it the way that
+take had it; a take written before the switch existed turns it off.
 
 ## Lens effects
 
