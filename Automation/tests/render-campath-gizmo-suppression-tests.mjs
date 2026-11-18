@@ -95,3 +95,19 @@ test("a render job suppresses for its whole lifetime and restores on every exit 
   // Restoring must not touch the user's own gizmo toggle.
   assert.doesNotMatch(restore, /CameraBridge_SetPathDrawEnabled/);
 });
+
+test("F8's cleared screen keeps the gizmos and the camera-path card off it", () => {
+  const producer = drawer.slice(
+    drawer.indexOf("void CCampathDrawer::OnEngineThread_SetupViewDone"),
+    drawer.indexOf("void CCampathDrawer::OnEngineThread_EndFrame"),
+  );
+  // The capture gate is the F8 gate too: nothing is queued while the blackout is up.
+  const gate = producer.split("\n").find((line) => line.includes("if(m_SuppressForCapture.load"));
+  assert.ok(gate, "producer gate not found");
+  assert.match(gate, /Filmmaker::HudBlackout_Active\(\)/);
+  // The camera-path card and its notices (the AUTO-off hint) hide with it.
+  const marker = read("AfxHookSource2", "Filmmaker", "Panorama", "MarkerHud.cpp");
+  const hide = marker.split("\n").find((line) => line.includes('captureHide\\":'));
+  assert.ok(hide, "captureHide not found");
+  assert.match(hide, /RenderSessionDriver_WantsChromeHidden\(\)\s*\|\|\s*HudBlackout_Active\(\)/);
+});

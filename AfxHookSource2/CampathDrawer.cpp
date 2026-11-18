@@ -4,6 +4,7 @@
 #include "CampathDrawer.h"
 #include "MirvTime.h"
 #include "RenderSystemDX11Hooks.h" // AfxStreams_IsRcording (capture suppression, see below)
+#include "Filmmaker/Movie/HudBlackout.h" // F8's cleared screen hides the gizmos too
 
 #include "hlaeFolder.h"
 #include "Filmmaker/Debug/MvmDebugLog.h" // campath.overlay: what the scene overlay drew
@@ -901,7 +902,9 @@ void CCampathDrawer::OnEngineThread_SetupViewDone() {
 	// than skipping OnRenderThread_Draw) is what keeps this leak-free: no functor is queued, so
 	// none can pile up behind the render thread, and the CPU-expensive CLessDynamicProperties
 	// rebuild is skipped for the whole capture as well.
-	if(m_SuppressForCapture.load(std::memory_order_relaxed) || AfxStreams_IsRcording())
+	// F8 clears the screen for a clean shot, so the gizmos go with it (as the rig and the recoil
+	// pivot markers do on their own).
+	if(m_SuppressForCapture.load(std::memory_order_relaxed) || AfxStreams_IsRcording() || Filmmaker::HudBlackout_Active())
 		return;
 
 	if(nullptr == m_LessDynamicProperties) {
