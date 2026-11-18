@@ -5,6 +5,7 @@
 
 #include "MarkerHudJs.h"
 #include "../Movie/CameraPath.h"
+#include "../Movie/HudBlackout.h"
 #include "../Render/RenderSessionDriver.h" // WantsChromeHidden (capture chrome gate)
 
 #include "../../DeathMsg.h" // AfxHookSource2_GetPanoramaHudPanel + PanoramaUIPanel offsets
@@ -86,7 +87,8 @@ std::string MarkerHud::BuildStateJson() {
 	// (the banner is transformed into the preview rect), so a before-present capture would bake
 	// "CAMERA PATH" / "REPOSITIONING CAMERA #n" straight into the recorded POV or free-cam
 	// frames. Projected per frame, so the UI returns the frame the job leaves the capture states.
-	o << "\"captureHide\":" << (RenderSessionDriver_WantsChromeHidden() ? "true" : "false");
+	// F8's cleared screen hides them the same way (its notices too, such as the AUTO-off hint).
+	o << "\"captureHide\":" << (RenderSessionDriver_WantsChromeHidden() || HudBlackout_Active() ? "true" : "false");
 	o << ",\"mode\":\"" << mode << "\"";
 	o << ",\"menuOpen\":" << (cp.MenuOpen() ? "true" : "false");
 	o << ",\"hudHidden\":" << (cp.HudHidden() ? "true" : "false");

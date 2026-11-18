@@ -238,6 +238,10 @@ std::string CameraTimelineHud::BuildStateJson() {
 	// off this one flag, so the clean screen is decided in one place.
 	o << ",\"blackout\":" << (HudBlackout_Active() ? "true" : "false");
 	o << ",\"hudView\":\"" << CameraEditor_HudViewName() << "\"";
+	// CS2's own "draw with the HUD off" switches (HudBlackout.h): the hidden views keep the kill feed
+	// or the radar while its switch is 1.
+	o << ",\"forceDeathNotices\":" << HudBlackout_ForceDrawSetting("cl_drawhud_force_deathnotices");
+	o << ",\"forceRadar\":" << HudBlackout_ForceDrawSetting("cl_drawhud_force_radar");
 	// The operator-dragged inspector width, so this panel and the other two lay out to the
 	// same column. One reader, one clamp -- see InspectorWidth.h.
 	InspectorWidth_AppendJson(o); // game-HUD visibility while hosted

@@ -113,7 +113,9 @@
         renderOpen: false,      // Render_IsModalOpen (a modal ON the editor)
         customizeOpen: false,   // the Customize Player modal was asked for
         customizeOverConfig: false, // ...over CONFIG ('config customize'), the editor workspace closed
-        blackout: false         // HudBlackout_Active (F8)
+        blackout: false,        // HudBlackout_Active (F8)
+        forceDeathNotices: 0,   // cl_drawhud_force_deathnotices: 1 keeps the kill feed through F8 / Hide All
+        forceRadar: 0           // cl_drawhud_force_radar: 1 keeps the radar the same way
       },
       // Movie/TimelineDock.cpp: the tab is remembered across closes; host/hosted/visible are what
       // Claim/Release/Apply write into CameraTimelineHud and GraphEditorExperimentHud.

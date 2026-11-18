@@ -838,6 +838,9 @@
         feed.renderOpen = nav.renderOpen;
         feed.modular = isModular();
         feed.blackout = nav.blackout;
+        // CS2's cl_drawhud_force_deathnotices / _radar (CameraTimelineHud.cpp): kept through F8.
+        feed.forceDeathNotices = nav.forceDeathNotices;
+        feed.forceRadar = nav.forceRadar;
         feed.timelineView = 'timeline';
         break;
       case 'grapheditor':
