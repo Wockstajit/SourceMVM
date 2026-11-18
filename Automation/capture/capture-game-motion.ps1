@@ -29,7 +29,11 @@ public static class MotionCapture {
         GetWindowRect(h,out w); GetClientRect(h,out c); ClientToScreen(h,ref origin);
         int width=c.R-c.L,height=c.B-c.T;
         if(width<=0 || height<=0 || fps<1 || fps>60 || seconds<=0 || seconds>60) throw new Exception("Invalid capture bounds");
-        string args="-y -hide_banner -loglevel warning -f rawvideo -pixel_format bgra -video_size "+width+"x"+height+" -framerate "+fps+" -i pipe:0 -an -vf pad=ceil(iw/2)*2:ceil(ih/2)*2 -c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p \""+path+"\"";
+        // The redirected stdin is a text writer in the console's input encoding, and with a UTF-8
+        // console it writes a byte-order mark before the first frame. Shifted three bytes, every
+        // pixel read alpha as red: the clips came out solid red. The encoder skips the mark.
+        int mark=Console.InputEncoding.GetPreamble().Length;
+        string args="-y -hide_banner -loglevel warning -f rawvideo -pixel_format bgra -video_size "+width+"x"+height+" -framerate "+fps+" -skip_initial_bytes "+mark+" -i pipe:0 -an -vf pad=ceil(iw/2)*2:ceil(ih/2)*2 -c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p \""+path+"\"";
         var start=new ProcessStartInfo(ffmpeg,args) { UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardError=true };
         using(var encoder=Process.Start(start)) {
             var errors=encoder.StandardError.ReadToEndAsync();
