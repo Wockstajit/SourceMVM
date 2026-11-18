@@ -3386,6 +3386,9 @@ public:
                     Filmmaker::Environment::Render(ctx, target, g_pCurrentDepthStencilView, frame,
                         g_ViewPort.MinDepth, g_ViewPort.MaxDepth, source);
                 }
+                // The green-screen sky goes into the EXR frames too, after the Environment as in the
+                // 8-bit frame: they are read from the HDR scene target, which the boundary below never touches.
+                AfxRenderSkyKey(ctx, target);
                 g_bInOwnDraw = wasOwnDraw;
             });
             Filmmaker::RenderHdrCapture_RenderThread_Tick(pDeviceContext);

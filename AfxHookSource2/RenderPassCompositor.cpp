@@ -205,7 +205,7 @@ public:
 	}
 
 	void EndDevice() {
-		m_Color.Release(); m_Depth.Release(); m_RefColor.Release(); m_RefDepth.Release(); m_Out.Release();
+		m_Color.Release(); m_ColorWide.Release(); m_Depth.Release(); m_RefColor.Release(); m_RefDepth.Release(); m_Out.Release();
 		m_WorldDepth.Release();
 		SafeRelease(m_Clean);
 		m_RefValid = false; m_WorldRefValid = false; m_CleanValid = false;
@@ -279,6 +279,7 @@ public:
 		// Constants first: the MSAA depth reduction reads the depth direction from them.
 		D3D11_TEXTURE2D_DESC cd;
 		color->GetDesc(&cd);
+		Surface& colorCopy = TypedFromTypeless(cd.Format) == DXGI_FORMAT_R16G16B16A16_FLOAT ? m_ColorWide : m_Color;
 		PS_CONSTANT_BUFFER cb = {};
 		cb.modeMask[0] = p.mode; cb.modeMask[1] = worldRef ? 3 : p.mask;
 		for (int k = 0; k < 4; ++k) cb.keyIn[k] = p.keyIn[k];
@@ -303,20 +304,20 @@ public:
 		}
 		m_Ctx->UpdateSubresource(m_PsCb, 0, nullptr, &cb, 0, 0);
 		m_Reversed = p.reversedDepth;
-		if (!CaptureColor(color, m_Color)) { Discard(); return nullptr; }
+		if (!CaptureColor(color, colorCopy)) { Discard(); return nullptr; }
 		if (needDepth && (!depth || !CaptureDepth(depth, m_Depth))) { Discard(); Fail("compose: no depth"); return nullptr; }
-		if (!target && !m_Out.Ensure(m_Device, m_Color.w, m_Color.h, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, true)) {
+		if (!target && !m_Out.Ensure(m_Device, colorCopy.w, colorCopy.h, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, true)) {
 			Discard(); Fail("compose: output"); return nullptr;
 		}
 
 
 		ID3D11ShaderResourceView* srvs[5] = {
-			m_Color.srv,
+			colorCopy.srv,
 			needDepth ? m_Depth.srv : nullptr,
 			needRef ? m_RefColor.srv : nullptr,
 			needRef ? m_RefDepth.srv : nullptr,
 			worldRef ? m_WorldDepth.srv : nullptr };
-		Draw(m_PsPass, target ? target : m_Out.rtv, m_Color.w, m_Color.h, srvs, 5);
+		Draw(m_PsPass, target ? target : m_Out.rtv, colorCopy.w, colorCopy.h, srvs, 5);
 		if (!Submit(immediate)) { Fail("compose: submit"); return nullptr; }
 		return target ? color : m_Out.tex;
 	}
@@ -443,7 +444,9 @@ private:
 	ID3D11DepthStencilState* m_Ds = nullptr;
 	ID3D11BlendState* m_Bs = nullptr;
 
-	Surface m_Color, m_RefColor, m_Out;
+	// m_ColorWide: a float frame's copy (the EXR capture's green-screen sky), kept apart so the 8-bit
+	// and the float frame of one recorded frame do not reallocate one surface in turn.
+	Surface m_Color, m_ColorWide, m_RefColor, m_Out;
 	DepthSurface m_Depth, m_RefDepth, m_WorldDepth;
 	ID3D11Texture2D* m_Clean = nullptr; // this render's colour before the lens (KeepCleanColor)
 	bool m_RefValid = false;
