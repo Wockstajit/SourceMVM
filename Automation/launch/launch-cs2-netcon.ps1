@@ -47,6 +47,13 @@ if ([string]::IsNullOrWhiteSpace($Cs2Dir)) { $Cs2Dir = Get-Cs2InstallDir }
 if ([string]::IsNullOrWhiteSpace($Cs2Dir)) {
     throw 'Counter-Strike 2 was not found. Pass -Cs2Dir <install root> or set SOURCEMVM_CS2_DIR.'
 }
+# The launcher's private ReShade copy of CS2 (%APPDATA%\SourceMovieMaker\dlss5-cs2) keeps its own
+# game\bin. Bring it up to date with Steam first, as the launcher does before every DLSS launch, or a
+# CS2 update leaves it running the old engine against new game content.
+if (Test-Path -LiteralPath (Join-Path $Cs2Dir 'source-mvm-isolation.json')) {
+    & node (Join-Path $PSScriptRoot '..\dlss\sync-private-tree.mjs') $Cs2Dir
+    if ($LASTEXITCODE -ne 0) { throw "Could not bring the private ReShade copy of CS2 up to date with Steam ($Cs2Dir)." }
+}
 if ([string]::IsNullOrWhiteSpace($OutDir)) {
     $OutDir = New-AutomationRunFolder -Name 'launch-cs2'
 } else {

@@ -627,6 +627,17 @@
       return true;
     }
 
+    // ---- config presets (FilmmakerSettingsStore.cpp `settings preset`) ------
+    if (a === 'settings' && b === 'preset') {
+      var pname = t.slice(4).join(' ').replace(/^"|"$/g, '');
+      st.configPresets = st.configPresets || [];
+      var at = st.configPresets.indexOf(pname);
+      if (c === 'save' && pname) { if (at < 0) st.configPresets.push(pname); st.configPresets.sort(); st.configPreset = pname; }
+      else if (c === 'load' && at >= 0) st.configPreset = pname;
+      else if (c === 'delete' && at >= 0) { st.configPresets.splice(at, 1); if (st.configPreset === pname) st.configPreset = ''; }
+      return true;
+    }
+
     // ---- persisted UI keys (tabs, collapsible cards) ----------------------
     if (a === 'settings' && b === 'ui') {
       var key = c, val = t.slice(4).join(' ');

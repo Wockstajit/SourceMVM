@@ -8,11 +8,19 @@ A small panel on the middle-right of the screen shows the live camera state and 
 
 | Action | Control |
 | --- | --- |
-| Show / hide the HUD | **F8** |
+| Clear the whole screen, and bring it back | **F8** |
 | Show / hide the HUD (console) | `mirv_filmmaker hud [on\|off\|toggle]` |
 | Bind it to your own key | `bind "h" "mirv_filmmaker hud toggle"` |
 
 The HUD is display-only. It never blocks clicks, even where it is drawn.
+
+F8 clears the screen for a clean shot: our panels, the native demo bar and CS2's gameplay HUD all
+go, and so do the camera-path gizmos in the world and the camera-path card and its notices. The
+second press puts back exactly what was up. To keep the kill feed on the cleared
+screen, use CS2's own `cl_drawhud_force_deathnotices 1`; `cl_drawhud_force_radar 1` keeps the radar
+the same way. GAME UI: Hide All in the Camera Editor and Config keeps them too. The crosshair is a
+cvar, not a panel: F8 turns it off and puts it back afterwards, and `crosshair 1` shows it during a
+blackout.
 
 ## Camera modes (mouse wheel)
 

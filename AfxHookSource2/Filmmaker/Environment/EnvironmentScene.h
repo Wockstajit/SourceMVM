@@ -186,6 +186,11 @@ uint64_t LastUndoStamp();
 uint64_t SceneGeneration();
 bool UndoLastEdit(std::string &error);
 void AppendStateJson(std::ostringstream &out);
+// A config preset (FilmmakerSettingsStore.cpp) carries the whole environment: the scene as a scene
+// preset holds it, and loading one back. Made on another map, it brings the look without what
+// belongs to that map (placed objects, local volumes). Main thread.
+std::string ConfigPresetSceneJson();
+bool LoadConfigPresetScene(const std::string &bytes, std::string &error);
 // Clicking in the view (Filmmaker/Props pick ranks these with the CS2 assets): the box of every
 // placed mesh, and a small handle box around every light, in world space. Enabled, unlocked
 // objects of the current map only.

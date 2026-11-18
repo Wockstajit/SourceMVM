@@ -14,6 +14,9 @@ R"CFJS(
     var hmBox = hmSec;
     function hmCommand(t) { cmd('mirv_filmmaker heatmap ' + t + ' quiet'); }
     var hmOn = false;
+    // Reset: off, 1500 units around the camera, everyone's paths (the defaults in RoundHeatmapMath.h).
+    var hmReset = hmSec.__headerReset(['mirv_filmmaker heatmap off quiet', 'mirv_filmmaker heatmap radius 1500 quiet',
+      'mirv_filmmaker heatmap teams all quiet'], 'env.heat');
     var hmToggle = hmSec.__headerPill(function () { hmCommand(hmOn ? 'off' : 'on'); },
       T('Paints the floor red where players walked during this round, around the camera. Brighter red means more people went there. ' +
       'Nothing is painted where nobody walked, so you can place objects there. Recordings never show it.'));

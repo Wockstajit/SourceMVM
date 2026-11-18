@@ -1769,6 +1769,18 @@ R"CFJS(
       tipHide();
       try { d.__setOpen(false); } catch (e) {}
     }
+    // A dropdown shows at most this many rows; longer lists scroll inside the popover. The pitch is
+    // a 26px row plus the 1px the scroll well counts between rows.
+    var cfgDropRows = 10, cfgDropRowH = 27;
+    // The wheel over an open dropdown's list scrolls the list (true: the notch is taken, whether or
+    // not the list could move, so the column does not slide out from under an open popover).
+    function cfgDropWheel(notches) {
+      var d = cfgDropOpen;
+      if (!d || !d.__well || !cfgColorOverRect(d.list, cfgCursorX, cfgCursorY)) return false;
+      // Three whole rows a notch, so the list always rests on a row boundary.
+      d.__well.y -= notches * 3 * cfgDropRowH; d.__well.apply();
+      return true;
+    }
     var cfgDropLayerPanel = null;
     function cfgDropLayer() {
       if (cfgDropLayerPanel && cfgValid(cfgDropLayerPanel)) return cfgDropLayerPanel;
@@ -1814,6 +1826,8 @@ R"CFJS(
       if (!d.__menu && !cfgPanelOnScreen(d.field)) { cfgDropdownClose(); return; }
       if (!cfgColorOverRect(d.field, st.mx, st.my) && !cfgColorOverRect(d.list, st.mx, st.my)) cfgDropdownClose();
     }
+)CFJS"
+R"CFJS(
     // A right-click menu at the cursor: items are [caption, action, shortcut, danger]. It shares
     // the dropdowns' layer and their close-on-press-outside pump (one popover open at a time).
     function cfgMenu(items) {
@@ -1940,15 +1954,30 @@ R"CFJS(
       list.style.boxShadow = '#000000b3 0px 6px 18px 0px';
       list.SetPanelEvent('onactivate', function () {});   // a press on the list's padding is not "outside"
       list.visible = false;
+      // AT MOST TEN ROWS SHOW; the rest scroll (cfgDropRows). A long list (the Bots tab's 83 player
+      // models, its 35 guns) used to be laid out whole: two thousand pixels of rows that ran off the
+      // screen whichever way it opened, so most of it could not be reached and it read as a picker
+      // that would not open. The rows live in a scroll well; the wheel moves it while the pointer is
+      // over the list (api.wheel), and it opens with the current choice in view.
+      var well = scrollWell(list, cfgDropRows * cfgDropRowH);
+      well.__off = true;
       var cur = null, open = false, rows = {};
-      var api = { row: r, label: cap, field: field, list: list, extra: extra, caption: txt };
+      var api = { row: r, label: cap, field: field, list: list, extra: extra, caption: txt, __well: well };
       function paintField() {
         var hot = field.__hot;
         field.style.border = '1px solid ' + (open ? (S.accent.substring(0, 7) + '99') : (hot ? '#ffffff40' : '#ffffff1f'));
         caret.style.transform = open ? 'rotateZ(180deg)' : 'rotateZ(0deg)';
       }
       api.__setOpen = function (v) {
-        open = !!v; list.visible = open; if (open) cfgDropPlace(api); paintField();
+        open = !!v; list.visible = open; well.__off = !open;
+        if (open) {
+          // The current choice a few rows down from the top, so its neighbours show either side.
+          var at = 0;
+          for (var i = 0; i < items.length; i++) if (items[i][0] === cur) { at = i; break; }
+          well.y = Math.max(0, (at - 3) * cfgDropRowH); well.apply();
+          cfgDropPlace(api);
+        }
+        paintField();
       };
       function paintRows() {
         for (var k in rows) {
@@ -1959,15 +1988,15 @@ R"CFJS(
       }
       api.setItems = function (next) {
         items = next || [];
-        list.RemoveAndDeleteChildren(); rows = {};
+        well.inner.RemoveAndDeleteChildren(); rows = {}; well.y = 0;
         if (!items.length) {
-          var empty = lbl(list, opts.empty || T('No options available.'), S.muted, 12);
+          var empty = lbl(well.inner, opts.empty || T('No options available.'), S.muted, 12);
           empty.hittest = false; empty.style.margin = '5px 6px';
         }
         // An item may carry a third element: a one-sentence tooltip for that option.
         for (var i = 0; i < items.length; i++) (function (value, caption, tip) {
-          var o = mk('Panel', list); o.hittest = true;
-          o.style.flowChildren = 'right'; o.style.width = '100%'; o.style.height = '26px';
+          var o = mk('Panel', well.inner); o.hittest = true;
+          o.style.flowChildren = 'right'; o.style.width = '100%'; o.style.height = (cfgDropRowH - 1) + 'px'; o.style.marginBottom = '1px';
           o.style.paddingLeft = '8px'; o.style.paddingRight = '4px'; o.style.borderRadius = '2px';
           var ol = lbl(o, caption, S.label, 12); ol.hittest = false;
           ol.style.width = 'fill-parent-flow(1.0)'; ol.style.verticalAlign = 'center';
@@ -1990,6 +2019,7 @@ R"CFJS(
           rows[String(value)] = o;
         })(items[i][0], items[i][1], items[i][2]);
         paintRows();
+        well.apply();
       };
       api.sync = function (value) {
         if (value === cur) return;
@@ -2107,7 +2137,7 @@ R"CFJS(
       var best = null, bestH = 1e9;
       for (var i = 0; i < cfgWells.length; i++) {
         var w = cfgWells[i];
-        if (!cfgValid(w.clip) || !cfgPanelOnScreen(w.clip) || !cfgColorOverRect(w.clip, cfgCursorX, cfgCursorY)) continue;
+        if (w.__off || !cfgValid(w.clip) || !cfgPanelOnScreen(w.clip) || !cfgColorOverRect(w.clip, cfgCursorX, cfgCursorY)) continue;
         if (w.__h > 0 && w.__h < bestH) { best = w; bestH = w.__h; }
       }
       return !!best && best.wheel(notches);

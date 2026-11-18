@@ -75,7 +75,10 @@ removes it, it is sent again. Effects have no hull and cannot be solid.
 
 ## Gun randomness
 
-**BOTS → Gun randomness** applies to you and the bots.
+**BOTS → Gun randomness** applies to you and the bots. The card's **Reset** turns No random spread
+off and puts Recoil randomness back to 100%. Record and play's Reset is Loop off and Stay on the
+path Auto, and Solid objects' Reset is New props are solid off; none of them touches a take or a
+prop that is already placed.
 
 - **No random spread** is `weapon_accuracy_nospread`. Bullets go exactly where the gun points. Recoil
   is unchanged.

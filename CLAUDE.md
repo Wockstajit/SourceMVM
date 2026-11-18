@@ -221,6 +221,12 @@ To send commands without stealing focus:
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File Automation\netcon\cs2-netcon.ps1 -CommandBatch "demo_pause;;mirv_filmmaker health"
 ```
 
+Before you place the camera by coordinates (`noclip` with `setpos` or `setpos_exact`), run
+`python Automation/verify/camera-clear.py <map> X Y Z --sees <subject> --nearest` on the eye position
+and move only when it reports `clear`. `setpos` places the feet, 64 units under the eye, so send the
+`setpos` line it prints. A camera inside a wall still draws a frame, so the capture does not show the
+mistake. Do not reuse remembered coordinates without checking them.
+
 Use `-CommandBatch` with `;;` separators when calling from `powershell.exe -File`. Comma-separated
 `-Commands` does not bind as an array through that host. Netcon defaults to port 29010. Keep the
 `live.bat` dashboard opt-in. CS2 writes netcon output synchronously, so a slow reader makes the game

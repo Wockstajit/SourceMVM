@@ -4,6 +4,7 @@
 #include "CampathDrawer.h"
 #include "MirvTime.h"
 #include "RenderSystemDX11Hooks.h" // AfxStreams_IsRcording (capture suppression, see below)
+#include "Filmmaker/Movie/HudBlackout.h" // F8's cleared screen hides the gizmos too
 
 #include "hlaeFolder.h"
 #include "Filmmaker/Debug/MvmDebugLog.h" // campath.overlay: what the scene overlay drew
@@ -901,7 +902,9 @@ void CCampathDrawer::OnEngineThread_SetupViewDone() {
 	// than skipping OnRenderThread_Draw) is what keeps this leak-free: no functor is queued, so
 	// none can pile up behind the render thread, and the CPU-expensive CLessDynamicProperties
 	// rebuild is skipped for the whole capture as well.
-	if(m_SuppressForCapture.load(std::memory_order_relaxed) || AfxStreams_IsRcording())
+	// F8 clears the screen for a clean shot, so the gizmos go with it (as the rig and the recoil
+	// pivot markers do on their own).
+	if(m_SuppressForCapture.load(std::memory_order_relaxed) || AfxStreams_IsRcording() || Filmmaker::HudBlackout_Active())
 		return;
 
 	if(nullptr == m_LessDynamicProperties) {
@@ -945,7 +948,9 @@ void CCampathDrawer::OnRenderThread_Draw(ID3D11DeviceContext * pImmediateContext
 	// recording that starts mid-frame (a bare `mirv_streams record start` from the console) can
 	// leave exactly one functor already queued. Discard it rather than draw it -- deleting here
 	// keeps the queue leak-free while guaranteeing frame one of the take is already clean.
-	if(pFunctor && (m_SuppressForCapture.load(std::memory_order_relaxed) || AfxStreams_IsRcording())) {
+	// F8 pressed mid-frame is the same case, and so is a pivot marker retained from an earlier
+	// pass of this frame: neither is drawn once the screen is cleared.
+	if((pFunctor || m_RetainedFunctor) && (m_SuppressForCapture.load(std::memory_order_relaxed) || AfxStreams_IsRcording() || Filmmaker::HudBlackout_Active())) {
 		delete pFunctor;
 		ReleaseRetainedFunctor();
 		return;

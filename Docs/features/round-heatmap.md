@@ -10,6 +10,8 @@ visits: one walk-through is a clear dark red, and a choke point the whole team c
 red.
 
 It is a placement aid. Recordings never show it, and it is not part of a saved scene or preset.
+The card's **Reset** switches it off and puts the area back to 1500 units and the players to
+everyone.
 
 ## Controls
 

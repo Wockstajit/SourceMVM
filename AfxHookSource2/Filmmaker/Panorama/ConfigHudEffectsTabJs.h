@@ -36,7 +36,8 @@ R"CFJS(
       'mirv_filmmaker fx set bombfx off quiet', 'mirv_filmmaker fx set molotov off quiet',
       'mirv_filmmaker fx set flashbang off quiet',
       'mirv_filmmaker fx moneyshot off', 'mirv_filmmaker fx mollylights off',
-      'mirv_filmmaker fx helights off', 'mirv_filmmaker fx flashlights off', 'mirv_filmmaker fx off quiet'
+      'mirv_filmmaker fx helights off', 'mirv_filmmaker fx flashlights off',
+      'mirv_filmmaker fx flashblind on', 'mirv_filmmaker fx off quiet'
     ], 'fx.vfx');
     var fxMaster = fxSec.__headerPill(
       function () { cmd('mirv_filmmaker fx ' + (st && st.fxOn ? 'off' : 'on') + ' quiet'); },

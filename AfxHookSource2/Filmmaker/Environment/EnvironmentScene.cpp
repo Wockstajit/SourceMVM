@@ -1426,6 +1426,36 @@ bool SetObjectRestPose(int id, const Vec3 &position, const Vec3 &angles, float f
         id, position.x, position.y, position.z, angles.x, angles.y, angles.z);
     return true;
 }
+std::string ConfigPresetSceneJson() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return SerializeScene(LiveScene());
+}
+bool LoadConfigPresetScene(const std::string &bytes, std::string &error) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_drag.active) { error = "Finish the drag first"; return false; }
+    Scene next;
+    if (!ParseScene(bytes, next, error)) return false;
+    if (!next.map.empty() && next.map != CurrentMap()) {
+        // Placed objects and the local volumes stand where that map's streets were.
+        next.objects.clear();
+        next.map.clear();
+        next.climate[CL_surfaceRadius] = 0;
+        next.climate[CL_localFogRadius] = 0;
+        next.climate[CL_worldGi] = 0;
+        if (g_cameraValid) {
+            next.climate[CL_stormX] = g_camera.x; next.climate[CL_stormY] = g_camera.y; next.climate[CL_stormZ] = g_camera.z - 64;
+        }
+    }
+    Scene validated;
+    if (!ParseScene(SerializeScene(next), validated, error) || !Resolve(validated, error) || !PrepareWorldLook(validated.world, error))
+        return false;
+    Remember();
+    ApplyWorldLook(validated.world, "all");
+    AdoptValidatedScene(std::move(validated));
+    g_selected = 0;
+    g_message = "Config preset loaded.";
+    return true;
+}
 void RunCommand(advancedfx::ICommandArgs *args) {
     std::lock_guard<std::mutex> lock(g_mutex);
     const int argc = args->ArgC();

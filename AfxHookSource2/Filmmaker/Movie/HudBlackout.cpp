@@ -73,6 +73,21 @@ void HudBlackout_Set(bool on) {
 
 void HudBlackout_Toggle() { HudBlackout_Set(!HudBlackout_Active()); }
 
+int HudBlackout_ForceDrawSetting(const char* cvarName) {
+	using namespace SOURCESDK::CS2;
+	if (!g_pCVar || !cvarName) return 0;
+	Cvar_s* handle = g_pCVar->GetCvar(g_pCVar->FindConVar(cvarName, false).Get());
+	if (!handle) return 0;
+	switch (handle->m_eVarType) {
+	case EConVarType_Bool: return handle->m_Value.m_bValue ? 1 : 0;
+	case EConVarType_Int16: return handle->m_Value.m_i16Value;
+	case EConVarType_Int32: return handle->m_Value.m_i32Value;
+	case EConVarType_Int64: return (int)handle->m_Value.m_i64Value;
+	case EConVarType_Float32: return (int)handle->m_Value.m_flValue;
+	default: return 0;
+	}
+}
+
 void HudBlackout_RunFrame() {
 	// Never let a blackout outlive the demo it was turned on in. The toggle that clears it is
 	// itself one of the things it hides, so a blackout stuck on in the main menu would look like
