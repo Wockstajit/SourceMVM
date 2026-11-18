@@ -203,7 +203,8 @@ frame, so right after CS2's post-process the hook compares its input with its ou
 central pixels, per channel in half-stop bins, and probe light goes through that curve: exposure,
 the filmic curve and the colour grade are included, vignette and bloom are not. CS2's post-process
 can be an instanced draw, and with MSAA on it writes a 4x multisampled target, which is resolved
-before the window is read (2026-11-18: both had kept the curve from ever being measured).
+before the window is read (2026-11-18: both had kept the curve from ever being measured). The
+capture and the measurement run only while a wet film is drawn; with Environment off neither runs.
 `mvm_debug` writes `environment.reflection.misses` every 300 frames: which check stopped the capture
 or the measurement, and the formats it saw. With the
 Environment's sky on, the probe gives the buildings and our sky the open sky. `environment status`
@@ -272,8 +273,9 @@ below the horizon as it was above it at noon. The moon goes round the same arc o
 whatever its phase: it rises as the sun sets and is up all night, so a night scene has its moon in
 any phase. The sun's and moon's azimuth and elevation are worked out from
 these and have no sliders. A sun placed by its angles (the map's own sun on load, a starting look,
-`climate sunAzimuth`, a scene saved before the time of day) sets the time and path that put it
-there (`TimeOfDayFromSun`). The defaults put the sun where it used to start: 15:15, 135° and 35° up.
+`climate sunAzimuth`, a scene saved before the time of day, the sun angles Scene Keys' macros key)
+sets the time and path that put it there (`TimeOfDayFromSun`), so the moon still comes up opposite a
+sun keyed below the horizon. The defaults put the sun where it used to start: 15:15, 135° and 35° up.
 
 The night follows Jensen et al., *A Physically-Based Night Sky Model* (SIGGRAPH 2001). The moon is a
 lit sphere (Lommel-Seeliger shading) with a faint earthshine on its dark side, and the night sky is
@@ -947,7 +949,9 @@ mirrored them.
 **The map's own clouds go with its sky.** CS2's clouds are geometry in the 3D skybox, drawn after
 the sky, so replacing the sky does not remove them: they stayed in front of the Environment's sky
 as dark flat shapes. While the Environment's sky is drawn, every cloud material's opacity is held
-at zero (`CloudFx_SetEnvironmentHidden`), as the map's sun disc is suppressed. The Effects tab's
+at zero (`CloudFx_SetEnvironmentHidden`), as the map's sun disc is suppressed. Every two seconds it
+checks whether the level has loaded more materials and, if so, looks for cloud materials again, so
+one that registers after the first is hidden too. The Effects tab's
 cloud settings are neither read nor changed, and the clouds come back as they were set when the
 sky goes off. **Hide map clouds** (Sky card, Clouds group, climate `hideMapClouds`) does the same
 under the map's own sky: the map's sky stays and its clouds go, and with Clouds on the Environment's

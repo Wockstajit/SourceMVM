@@ -189,12 +189,29 @@ int main() {
         Suspend(); Flush(End::Reset); Resume();
         Check(!Active(ctx.Get()) && boundShader() == engineShader && boundView(6) == engineA, "An explicit flush ends a hold even inside a reused draw");
 
+        // 6b. A null array with a count is D3D11 clearing that range. Ours stays bound and the engine's
+        //     side becomes null, and a cleared lighting constant buffer ends the hold.
+        bindEngine(); litDraw();
+        {
+            ID3D11ShaderResourceView* views[ViewSlots];
+            auto forwarded = Detail::SetViews(6, 2, nullptr, views);
+            Check(forwarded == views && views[0] == ours6.Get() && views[1] == ours7.Get(), "A cleared range of views keeps ours bound");
+            ctx->PSSetShaderResources(6, 2, forwarded);
+            ID3D11SamplerState* samplers[SamplerSlots];
+            Check(Detail::SetSamplers(5, 1, nullptr, samplers) == samplers && samplers[0] == oursSampler.Get(), "A cleared sampler keeps ours bound");
+            ID3D11Buffer* buffers[BufferSlots]; bool flush = false;
+            Detail::SetBuffers(3, 1, nullptr, buffers, flush);
+            Check(flush, "A cleared lighting constant buffer ends it");
+            Flush(End::Constants);
+            Check(!boundView(6) && !boundView(7) && !boundSampler(5), "The engine gets back the cleared views and sampler");
+        }
+
         // 7. No reference is kept past the end.
         ctx->ClearState();
         Check(References(engineA.Get()) == engineAReferences && References(ours6.Get()) == oursReferences, "The layer released every reference it held");
 
         const Stats stats = TakeStats(true);
-        Check(stats.adopted == 7 && stats.ended[unsigned(End::Present)] == 2 && stats.ended[unsigned(End::Shader)] == 1 &&
+        Check(stats.adopted == 8 && stats.ended[unsigned(End::Present)] == 2 && stats.ended[unsigned(End::Shader)] == 1 &&
               stats.ended[unsigned(End::Reset)] == 1, "Counts match the calls made");
         std::cout << "render pixel state layer: ok\n";
         return 0;

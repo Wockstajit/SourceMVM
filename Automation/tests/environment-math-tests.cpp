@@ -686,6 +686,11 @@ int main() {
         Check(Near(high[CL_sunElevation], 80, .02f) && high[CL_sunHeight] >= 80, "A sun higher than the noon height raises the noon height");
         Climate night;night[CL_sunElevation] = -12;TimeOfDayFromSun(night);ApplyTimeOfDay(night);
         Check(night[CL_timeOfDay] > 18 && night[CL_timeOfDay] < 21 && Near(night[CL_sunElevation], -12, .02f), "A sun just below the horizon in the afternoon's place is the evening");
+        // Scene Keys' night macro keys only the sun's angles (azimuth 300, elevation -20). Placed through
+        // the time of day, as AnimatedScene does, the moon comes up opposite and takes over the light.
+        Climate macro;macro[CL_sunAzimuth] = 300;macro[CL_sunElevation] = -20;TimeOfDayFromSun(macro);ApplyTimeOfDay(macro);
+        Check(Near(macro[CL_sunAzimuth], 300, .05f) && Near(macro[CL_sunElevation], -20, .05f) && macro[CL_moonElevation] > 0 &&
+              MoonTakeover(macro) > 0, "A sun keyed below the horizon by its angles brings the moon up and its light on");
     }
     Climate card;
     card[CL_sky] = 1; card[CL_clouds] = 1; card[CL_storm] = 1;

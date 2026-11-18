@@ -721,6 +721,10 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     static unsigned s_idleFrames = 0;
     static ComPtr<ID3D11Device> s_idleReleasedDevice;
     if (!f.active) {
+        // Nothing is drawn, so nothing asks for off-screen reflections: without this the last wet
+        // frame's request kept CS2's probes read back and the tone curve measured while it was off,
+        // and the release below kept it (ReflectionProbes_Release preserves the request).
+        ReflectionProbes_Want(false);
         if (++s_idleFrames == kIdleReleaseFrames && (g.ready || devicePending) && g.device) {
             s_idleReleasedDevice = g.device;
             EndDevice();

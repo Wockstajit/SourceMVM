@@ -44,6 +44,16 @@ int   g_materialCount = 0;
 // written to this level's materials; `g_hiddenRetry` counts the frames to the next look for them.
 bool  g_environmentHidden = false, g_hiddenApplied = false;
 int   g_hiddenRetry = 0, g_hiddenTries = 0;
+// How many materials the level had loaded at the last walk: once the hide is written, a walk runs
+// again only when that number has changed, so a cloud material registered later is caught too.
+uint64_t g_hiddenTotal = 0;
+
+uint64_t LoadedMaterialCount() {
+	GetMaterialsArrayResult materials = { 0 };
+	if (!g_pCResourceSystem) return 0;
+	g_pCResourceSystem->GetMaterials(&materials);
+	return materials.count;
+}
 
 // Authored values, keyed by material name then parameter name. Captured the first time a
 // parameter is touched, so a restore always writes back what the MAP shipped -- not whatever a
@@ -125,7 +135,7 @@ void CloudFx_OnLevelInit() {
     if (!g_snapshots.empty()) ForEachCloudMaterial(true);
     g_snapshots.clear();g_materialCount=0;
     // A new level's materials come back as authored: the Environment's hide has to be written again.
-    g_hiddenApplied=false;g_hiddenRetry=0;g_hiddenTries=0;
+    g_hiddenApplied=false;g_hiddenRetry=0;g_hiddenTries=0;g_hiddenTotal=0;
     MvmDebugLog_Linef("environment.baseline","cloud materials restored and generation released");
 }
 void CloudFx_Apply() { ForEachCloudMaterial(false); }
@@ -133,17 +143,23 @@ void CloudFx_Apply() { ForEachCloudMaterial(false); }
 void CloudFx_SetEnvironmentHidden(bool hidden) {
 	if (hidden != g_environmentHidden) {
 		g_environmentHidden = hidden;
-		g_hiddenApplied = false; g_hiddenRetry = 0; g_hiddenTries = 0;
+		g_hiddenApplied = false; g_hiddenRetry = 0; g_hiddenTries = 0; g_hiddenTotal = 0;
 		// Letting go: back to the user's multipliers (authored x 1 when there are none).
 		if (!hidden) { if (!g_snapshots.empty()) ForEachCloudMaterial(false); return; }
 	}
-	if (!hidden || g_hiddenApplied) return;
-	// The walk over every loaded material is not free, so while the map's cloud materials have not
-	// turned up yet (still loading, or a map with none) it is tried every two seconds, ten times.
+	if (!hidden) return;
+	// The walk over every loaded material is not free, so it runs at most every two seconds. While
+	// the map's cloud materials have not turned up yet (still loading, or a map with none) it is
+	// tried ten times. After that, and once the hide is written, it runs again only when the level
+	// has loaded more materials: a level can register its cloud materials one by one, and a hide
+	// written on the first stayed off the later ones.
 	if (g_hiddenRetry > 0) { --g_hiddenRetry; return; }
+	g_hiddenRetry = 120;
+	const uint64_t total = LoadedMaterialCount();
+	if (g_hiddenApplied && total == g_hiddenTotal) return;
+	g_hiddenTotal = total;
 	ForEachCloudMaterial(false);
 	g_hiddenApplied = g_materialCount > 0 || ++g_hiddenTries >= 10;
-	g_hiddenRetry = 120;
 	MvmDebugLog_LinefAlways("world.clouds", "environment sky hides the map's clouds: %d material(s)%s",
 		g_materialCount, g_hiddenApplied ? "" : ", looking again");
 }
