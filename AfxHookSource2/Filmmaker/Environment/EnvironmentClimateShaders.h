@@ -736,9 +736,8 @@ float4 CompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
     // HLSL's conditional operator evaluates both operands. Keep the full raymarch
     // behind a real branch: it is needed only for unmatched depth/MSAA edges,
     // not for every sample of every full-resolution pixel.
-    float4 volume;
+    float4 volume=0;
     [branch] if(weights>.01) volume=sum/weights;
-    else volume=VolumeAt(p,d);
     // FOG BEHIND A SMOKE. Where a CS2 smoke covers the pixel, only the fog BETWEEN the camera and
     // the smoke may show; the fog integrated past it (a deep doorway behind the cloud) used to be
     // painted over the smoke. That share is re-integrated up to where the smoke starts; with no
@@ -746,20 +745,32 @@ float4 CompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
     // Only the share of the coverage that is a placed smoke the ray passes through: glass, flames
     // and leaf cards in the same OIT buffer keep the full fog of the surface behind them.
     float smoke=SmokeCover(p);
+    bool smokeBeyond=false,smokeFront=false;float frontDepth=0;
     [branch] if(smoke>0) {
         float3 farPoint=World(p,sky?(camera.w>0?.00001:.99999):d);
         float3 dir=normalize(farPoint-camera.xyz);
         float entry;
         smoke*=SmokeRayShare(dir,distance,entry);
-        [branch] if(smoke>0) {
-            float4 front=float4(0,0,0,1);
-            [branch] if(entry>=distance) front=volume;   // the smoke starts beyond the surface
-            else if(entry>1) {
-                float4 clip=mul(viewProjection,float4(camera.xyz+dir*entry,1));
-                front=VolumeAt(p,clip.z/clip.w);
-            }
-            volume=lerp(volume,front,smoke);
+        smokeBeyond=entry>=distance;   // the smoke starts beyond the surface
+        [branch] if(smoke>0&&!smokeBeyond&&entry>1) {
+            float4 clip=mul(viewProjection,float4(camera.xyz+dir*entry,1));
+            frontDepth=clip.z/clip.w;smokeFront=true;
         }
+    }
+    // ONE COPY OF THE MARCH. Both raymarches share one VolumeAt: the march is by far the largest thing
+    // in this shader and the compiler expands every call in place, so two calls made this program take
+    // minutes to compile. March 0 is the unmatched-depth march above, march 1 the fog up to the smoke.
+    float4 front=float4(0,0,0,1);
+    [loop]for(uint march=0;march<2;++march) {
+        [branch] if(march==0?weights<=.01:smokeFront) {
+            float4 marched=VolumeAt(p,march==0?d:frontDepth);
+            if(march==0)volume=marched;
+            else front=marched;
+        }
+    }
+    [branch] if(smoke>0) {
+        if(smokeBeyond)front=volume;
+        volume=lerp(volume,front,smoke);
     }
     float3 color=ReadColor(p,sample);
     // EFFECTS IN THE FOG. A particle has no depth, so the fog above was measured to the surface behind

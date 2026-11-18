@@ -73,19 +73,34 @@ int wmain(int argc,wchar_t** argv){
             for(;;){
                 const auto turn=next.fetch_add(1);if(turn>=requests.size())break;const auto i=order[turn];const auto r=requests[i];
                 D3D_SHADER_MACRO macros[]={{"DEPTH_MS",r.ms?"1":"0"},{"COLOR_MS",r.cm?"1":"0"},{nullptr,nullptr}};
+                // Each program compiles from, and is keyed on, only the text its entry reaches
+                // (EnvironmentShaderProgramSource), so it is reused until code it uses changes.
+                const auto& program=EnvironmentShaderProgramSource(r.entry);
                 ComPtr<ID3DBlob> code,error;bool cached=false;const auto began=GetTickCount64();
-                auto hr=CompileEnvironmentShader(source.data(),source.size(),"EnvironmentShaders",macros,r.entry,r.profile,
+                auto hr=CompileEnvironmentShader(program.data(),program.size(),"EnvironmentShaders",macros,r.entry,r.profile,
                     EnvironmentShaderFlags,&code,&error,&cached,&paths);
                 if(FAILED(hr)){
-                    ++failures;std::lock_guard<std::mutex> lock(output);std::cerr<<r.entry<<": "<<(error?static_cast<const char*>(error->GetBufferPointer()):"compile failed")<<'\n';continue;
+                    // The program text leaves out what the entry does not use, so its line numbers
+                    // are not the file's. Report the whole source's errors, which point at the file.
+                    ComPtr<ID3DBlob> wholeCode,wholeError;
+                    if(&program!=&source){
+                        HMODULE module=EnvironmentShaderCompiler();
+                        if(const auto compile=module?reinterpret_cast<pD3DCompile>(GetProcAddress(module,"D3DCompile")):nullptr)
+                            compile(source.data(),source.size(),"EnvironmentShaders",macros,nullptr,r.entry,r.profile,EnvironmentShaderFlags,0,&wholeCode,&wholeError);
+                    }
+                    const auto& shown=wholeError?wholeError:error;
+                    ++failures;std::lock_guard<std::mutex> lock(output);std::cerr<<r.entry<<": "<<(shown?static_cast<const char*>(shown->GetBufferPointer()):"compile failed")<<'\n';
+                    if(wholeCode)std::cerr<<r.entry<<": compiles from the whole source but not from the text it reaches; see EnvironmentShaderReachMath.h\n";
+                    continue;
                 }
                 if(cached)++reused;
                 // MVM_SHADER_TIMES=1 lists what each program cost: one slow entry otherwise looks like a hang.
                 if(!cached&&std::getenv("MVM_SHADER_TIMES")){std::lock_guard<std::mutex> lock(output);std::cout<<r.entry<<" ms="<<r.ms<<" cm="<<r.cm<<": "<<GetTickCount64()-began<<" ms"<<std::endl;}
-                filenames[i]=EnvironmentShaderFilename(EnvironmentShaderKey(source.data(),source.size(),"EnvironmentShaders",macros,r.entry,r.profile,EnvironmentShaderFlags,EnvironmentShaderCompiler()));
+                const auto key=EnvironmentShaderKey(program.data(),program.size(),"EnvironmentShaders",macros,r.entry,r.profile,EnvironmentShaderFlags,EnvironmentShaderCompiler());
+                filenames[i]=EnvironmentShaderFilename(key);
                 // Compilation may succeed with an unwritable cache at runtime. A build must
                 // fail instead of installing an incomplete bundle.
-                const auto expected=32+EnvironmentShaderKey(source.data(),source.size(),"EnvironmentShaders",macros,r.entry,r.profile,EnvironmentShaderFlags,EnvironmentShaderCompiler()).size()+code->GetBufferSize();
+                const auto expected=32+key.size()+code->GetBufferSize();
                 if(!std::filesystem::is_regular_file(folder/filenames[i])||std::filesystem::file_size(folder/filenames[i])!=expected)++failures;
             }
         };

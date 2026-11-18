@@ -49,7 +49,8 @@ cannot use it. Three caches persist between runs:
 
 - **Environment shader bundle.** `EnvironmentShaderBuilder` compiles 67 D3D programs and, on an
   empty cache, is the slowest step of the build. Each bundle entry stores its full compile key
-  (source, macros, entry point, profile, flags, compiler DLL identity) and a bytecode checksum. The
+  (the source its entry point reaches, macros, entry point, profile, flags, compiler DLL identity)
+  and a bytecode checksum, so a shader edit recompiles only the programs that use it. The
   builder reuses an entry only on an exact key match with a valid checksum and recompiles the rest.
   The cache holds only the programs the manifest lists, keyed on the manifest's hash. The builder
   runs one compile per logical core (less two) at normal priority and starts the slow programs first,

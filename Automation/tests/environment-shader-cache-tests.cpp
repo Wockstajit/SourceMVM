@@ -10,17 +10,26 @@ int wmain(int argc,wchar_t** argv){
     try {
         if(argc==2){
             EnvironmentShaderCachePaths bundlePaths{{},argv[1]};
-            const auto& source=EnvironmentShaderSource();const auto started=GetTickCount64();unsigned count=0;
+            const auto started=GetTickCount64();unsigned count=0;
             for(const auto r:EnvironmentShaderRequests()){
                 D3D_SHADER_MACRO macros[]={{"DEPTH_MS",r.ms?"1":"0"},{"COLOR_MS",r.cm?"1":"0"},{nullptr,nullptr}};
                 ComPtr<ID3DBlob> code,error;bool hit=false,bundled=false;
+                const auto& source=EnvironmentShaderProgramSource(r.entry);
                 require(SUCCEEDED(CompileEnvironmentShader(source.data(),source.size(),"EnvironmentShaders",macros,r.entry,r.profile,
                     EnvironmentShaderFlags,&code,&error,&hit,&bundlePaths,&bundled))&&hit&&bundled,"Production bundle miss");
                 ++count;
             }
-            require(count==57,"Wrong production request count (including all four per-sample sky variants)");
+            require(count==58,"Wrong production request count (including all four per-sample sky variants)");
             std::cout<<"Production bundle: "<<count<<" exact-input hits, no writable cache, "<<GetTickCount64()-started<<" ms\n";
             return 0;
+        }
+        // Every program compiles from the text its own entry reaches (EnvironmentShaderReachMath.h). If
+        // an edit lays the source out in a way the reach parser does not understand, every program would
+        // quietly compile the whole source again and any edit would rebuild all of them.
+        require(ParseShaderReach(EnvironmentShaderSource()).understood,"Environment shader source not understood by the reach parser");
+        for(const auto r:EnvironmentShaderRequests()){
+            const auto& program=EnvironmentShaderProgramSource(r.entry);
+            require(&program!=&EnvironmentShaderSource()&&program.find(r.entry)!=std::string::npos,"An environment program compiles the whole source");
         }
         const auto root=std::filesystem::temp_directory_path()/(
             L"mvm-shader-cache-test-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
