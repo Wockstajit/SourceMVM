@@ -47,9 +47,12 @@ CONFIG > ENVIRONMENT > FOG, under **Ground fog**. Every control is also a climat
 height-fog haze over the map, white in the sun and blue in shade. *Thick sheet* is one solid layer on the
 floor. Neither is a mode: every value it sets is a slider, and players push the fog the same way in both.
 
-The Fog card's switch turns on the height fog, the ground fog and the light shafts together. Either
-fog alone keeps the card on. **Light shafts** (`lightShafts`) is a switch on the height fog's page and
-does not touch the ground fog.
+**Ground fog has its own switch** at the top of its page. Off holds its density (`pass-off groundFog
+0`, as the card switches do) and leaves every slider where it is; on brings the density back (1 the
+first time). The Fog card's header switch is the height fog's alone, with its light shafts riding
+along; it never turns the ground fog on or off (before 2026-11-18 one switch did both). **Light
+shafts** (`lightShafts`) is a switch on the height fog's page and does not touch the ground fog.
+Picking a weather never touches the ground fog either.
 
 ## How it works
 

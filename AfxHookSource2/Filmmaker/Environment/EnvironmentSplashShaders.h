@@ -236,7 +236,13 @@ SplashOutput FootSplashVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
     if(CL_snow>=.25&&part>=32)return o;
     float4 landed=footSteps[s];
     float age=climateClock.x-landed.w;
-    const float life=.9;
+    // HOW HARD THE FOOT CAME DOWN (FootImpact): about .55 a walk, .85 a run, 1.5 and up a landing
+    // from a jump or a drop. It sets how much water is thrown, how fast (so how high: with the square
+    // of it) and how wide the sheets and the froth are. Every step threw a run's splash before.
+    float impact=footImpact[s/4][s%4];
+    impact=impact>0?impact:.75;
+    float throwScale=.6+.4*impact,sizeScale=.55+.45*impact;
+    float life=.9*max(1,throwScale);
     if(age<0||age>life)return o;
     float3 hit=landed.xyz;
     uint en=(uint)(abs(landed.x)*13+abs(landed.y)*7+abs(landed.w)*31)*2654435761U^s*40503U;
@@ -248,7 +254,7 @@ SplashOutput FootSplashVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         const float churn=.38;
         if(age>churn)return o;
         float t=age/churn;
-        float r=max(5+7*sqrt(t),pixelWorld*1.5);
+        float r=max((5+7*sqrt(t))*sizeScale,pixelWorld*1.5);
         world=hit+float3(uv*r,.4);
         alpha=(1-t)*.4;
         kind=0;
@@ -260,23 +266,25 @@ SplashOutput FootSplashVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         stage=age/fly;
         float theta=(part+Random01(en+60+part))*(6.2831853/9);
         float2 dirXY=float2(cos(theta),sin(theta));
-        float vz=lerp(55,120,Random01(en+80+part));
+        float vz=lerp(55,120,Random01(en+80+part))*throwScale;
         float up=max(vz*age-.5*kSplashGravity*age*age,0);
-        float3 center=hit+float3(dirXY*(3+lerp(22,60,Random01(en+90+part))*age*(1-.45*stage)),1.2+up*.6);
+        float3 center=hit+float3(dirXY*(3+lerp(22,60,Random01(en+90+part))*throwScale*age*(1-.45*stage)),1.2+up*.6);
         float3 right=cross(float3(0,0,1),camera.xyz-center);
         float rl=length(right);
         right=rl>.02*eyeDist?right/rl:cameraRight.xyz;
-        float w=2.5+7*stage,h=1.6+up*.6+2.5*stage;
+        float w=(2.5+7*stage)*sizeScale,h=(1.6+2.5*stage)*sizeScale+up*.6;
         world=center+right*uv.x*w+float3(0,0,uv.y*h);
         alpha=(1-stage)*smoothstep(0,.08,stage)*.6;
         kind=2;
     }else{
         uint j=part-10;
+        // A soft step throws fewer drops than a run, a landing all of them.
+        if(j>=(uint)(66*saturate(.2+.55*impact)))return o;
         // Thrown out low: most drops leave fast along the ground and land within a pace, a few
-        // go up to the knee. Most are small.
+        // go up to the knee (a landing's to the hip). Most are small.
         float theta=Random01(en+10+j)*6.2831853;
-        float vh=lerp(30,130,Random01(en+20+j));
-        float vz=lerp(30,190,pow(Random01(en+30+j),1.5));
+        float vh=lerp(30,130,Random01(en+20+j))*throwScale;
+        float vz=lerp(30,190,pow(Random01(en+30+j),1.5))*throwScale;
         float flight=2*vz/kSplashGravity;
         float a=age-Random01(en+50+j)*.06;
         if(a<0||a>flight)return o;
@@ -288,7 +296,7 @@ SplashOutput FootSplashVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         float3 side=cross(dirV,view);
         float sl=length(side);
         side=sl>.02?side/sl:cameraRight.xyz;
-        float physical=lerp(.14,.55,pow(Random01(en+40+j),2));
+        float physical=lerp(.14,.55,pow(Random01(en+40+j),2))*(.8+.2*impact);
         float width=max(physical,pixelWorld*.7);
         float length_=max(width*1.3,length(velocity)*lerp(.016,.008,saturate(a/.1))+width);
         world=center+side*uv.x*width+dirV*uv.y*length_;

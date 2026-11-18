@@ -57,6 +57,7 @@ struct Constants {
     Float4 footInfo;
     Float4 footSteps[32]; // kFootSteps and FOOT_STEPS
     Float4 footLive[24];  // kFootLive and FOOT_LIVE: the foot view's feet (footInfo.y = 1 when it is on)
+    Float4 footImpact[8]; // FOOT_STEPS / 4: how hard each step came down (FootImpact), four to a row
     Float4 smokeInfo; // x = smoke absorbance bound, yz = its size, w = debug view; matches the shader
     Float4 smokeVolumes[8]; // xyz centre, w radius; Frame::kMaxSmokes and SMOKE_VOLUMES
     Float4 smokeVolumeCount;
@@ -829,7 +830,10 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         return false;
     }
     const auto climate = EffectiveClimate(f.scene.climate);
-    const bool volumes = climate[CL_clouds] > 0 || climate[CL_fogDensity] > 0 || climate[CL_groundFog] > 0;
+    // What a gust blows along the ground is a layer of the fog volume (GustVolumeMarch).
+    const auto &weatherNow = f.scene.weather;
+    const bool gustVolume = climate[CL_gusts] > 0 && weatherNow.type >= 1 && weatherNow.type <= 3 && weatherNow.count > 0;
+    const bool volumes = climate[CL_clouds] > 0 || climate[CL_fogDensity] > 0 || climate[CL_groundFog] > 0 || gustVolume;
     const int quality = f.exporting ? 2 : 1;
     // Live preview marches the clouds/fog at quarter resolution; renders keep half.
     const UINT divider = f.exporting ? 1 : 4;
@@ -1091,6 +1095,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         const auto marks=PrepareFootprints(footDevice.Get(),ctx,f,c.climateClock.x);
         footprints=marks.view;c.footInfo.x=marks.view?1.f:0.f;footStepCount=marks.stepCount;
         for(int i=0;i<marks.stepCount&&i<32;++i)c.footSteps[i]={marks.steps[i][0],marks.steps[i][1],marks.steps[i][2],marks.steps[i][3]};
+        for(int i=0;i<32;++i){float *row=&c.footImpact[i/4].x;row[i%4]=marks.impact[i];}
         if(g_footDebug){c.footInfo.y=1;for(int i=0;i<marks.feetCount&&i<24;++i)c.footLive[i]={marks.feet[i][0],marks.feet[i][1],marks.feet[i][2],marks.feet[i][3]};}
     }
     ctx->ClearState();
@@ -1098,7 +1103,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     ctx->ClearState();
     // Ground fog: step the fluid players push (once per demo time) and publish where to read it.
     {
-        const auto ground = PrepareGroundFog(ctx, f, climate);
+        const auto ground = PrepareGroundFog(ctx, f, climate, gustVolume);
         c.groundFogWindow = {ground.windowX, ground.windowY, ground.fluid ? 1.f / ground.windowWidth : 0.f,
                              ground.fluid ? 1.f / ground.windowHeight : 0.f};
         c.groundFogFloor = {ground.floorX, ground.floorY, ground.floorCell, ground.floorMap ? 1.f : 0.f};
@@ -1312,71 +1317,87 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     ctx->IASetVertexBuffers(0, 1, &noBuffer, &stride, &offset);
     srvs[2] = g.propSrv.Get();
     ctx->PSSetShaderResources(0, 4, srvs);
-    const bool markWeather = measure && precipitating;
-    if (measure) g.timingWeatherUsed = markWeather;
-    if (w.type && w.count) {
-        GPU_PASS_SCOPE(ctx, "composite: precipitation");
-        ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
-        // Particles test the roof and take their light once per particle in the vertex shader, so
-        // it sees what the pixel stage sees: the shadow constants, shelter, sun maps and scene color.
-        ID3D11Buffer *shadowConstants = nullptr;
-        ctx->PSGetConstantBuffers(2, 1, &shadowConstants);
-        ctx->VSSetConstantBuffers(2, 1, &shadowConstants);
-        if (shadowConstants) shadowConstants->Release();
-        ID3D11ShaderResourceView *views[31]{}; // through t30, the weather cover volume
-        ctx->PSGetShaderResources(0, 31, views);
-        ctx->VSSetShaderResources(0, 31, views);
-        for (auto *view : views)
-            if (view) view->Release();
-        BindWindFluid(ctx); // t42/s8, for the particles and the veil after them
-        ctx->VSSetShader(g.weatherVS[td.SampleDesc.Count > 1 ? 1 : 0].Get(), nullptr, 0);
-        ctx->PSSetShader(g.weatherPS[variant].Get(), nullptr, 0);
-        if (markWeather) ctx->End(g.timingWeather[0].Get());
-        ctx->DrawInstanced(6, precipitating ? precipitation.Instances() : UINT(w.count), 0, 0);
-        ID3D11ShaderResourceView *noViews[31]{};
-        ctx->VSSetShaderResources(0, 31, noViews);
-        if (markWeather) ctx->End(g.timingWeather[1].Get());
-        // The same density past the particle window, integrated per pixel along the view ray.
-        if (precipitating) {
-            ctx->VSSetShader(g.screenVS.Get(), nullptr, 0);
-            ctx->PSSetShader(g.veilPS[variant].Get(), nullptr, 0);
-            ctx->Draw(3, 0);
+    // RAIN, SNOW AND ASH, THEIR VEIL AND THE SPLASHES are drawn after the fog volumes when there are
+    // any, so they stand in front of the fog: drawn before it, the fog was laid over them measured to
+    // the surface behind (they have no depth), and the composite's split of each edge pixel into sky
+    // and surface read their streaks as sky and drew a rim round every roof and cable (reported
+    // 2026-11-18, once picking a weather started its fog). The particles take their own fog.
+    auto drawWeather = [&]() {
+        ctx->OMSetRenderTargets(1, &workingTarget, nullptr);
+        ctx->RSSetViewports(1, &viewport);
+        ctx->OMSetDepthStencilState(g.noDepth.Get(), 0);
+        ctx->IASetInputLayout(nullptr);
+        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ctx->PSSetShaderResources(0, 4, srvs);
+        const bool markWeather = measure && precipitating;
+        if (measure) g.timingWeatherUsed = markWeather;
+        if (w.type && w.count) {
+            GPU_PASS_SCOPE(ctx, "composite: precipitation");
+            ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
+            // Particles test the roof and take their light once per particle in the vertex shader, so
+            // it sees what the pixel stage sees: the shadow constants, shelter, sun maps and scene color.
+            ID3D11Buffer *shadowConstants = nullptr;
+            ctx->PSGetConstantBuffers(2, 1, &shadowConstants);
+            ctx->VSSetConstantBuffers(2, 1, &shadowConstants);
+            if (shadowConstants) shadowConstants->Release();
+            ID3D11ShaderResourceView *views[31]{}; // through t30, the weather cover volume
+            ctx->PSGetShaderResources(0, 31, views);
+            ctx->VSSetShaderResources(0, 31, views);
+            for (auto *view : views)
+                if (view) view->Release();
+            BindWindFluid(ctx); // t42/s8, for the particles and the veil after them
+            ctx->VSSetShader(g.weatherVS[td.SampleDesc.Count > 1 ? 1 : 0].Get(), nullptr, 0);
+            ctx->PSSetShader(g.weatherPS[variant].Get(), nullptr, 0);
+            if (markWeather) ctx->End(g.timingWeather[0].Get());
+            ctx->DrawInstanced(6, precipitating ? precipitation.Instances() : UINT(w.count), 0, 0);
+            ID3D11ShaderResourceView *noViews[31]{};
+            ctx->VSSetShaderResources(0, 31, noViews);
+            if (markWeather) ctx->End(g.timingWeather[1].Get());
+            // The same density past the particle window, integrated per pixel along the view ray.
+            if (precipitating) {
+                ctx->VSSetShader(g.screenVS.Get(), nullptr, 0);
+                ctx->PSSetShader(g.veilPS[variant].Get(), nullptr, 0);
+                ctx->Draw(3, 0);
+            }
+            if (markWeather) ctx->End(g.timingWeather[2].Get());
+            // Ground splashes: rain only. The vertex shader reads the scene depth to find the floor.
+            if (w.type == 1) {
+                ID3D11ShaderResourceView* sceneDepthView = sceneView;
+                ctx->VSSetShaderResources(1, 1, &sceneDepthView);
+                ctx->VSSetShader(g.splashVS[ms].Get(), nullptr, 0);
+                ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
+                ctx->DrawInstanced(6, kSplashInstanceCount, 0, 0);
+                ID3D11ShaderResourceView* noView = nullptr;
+                ctx->VSSetShaderResources(1, 1, &noView);
+            }
         }
-        if (markWeather) ctx->End(g.timingWeather[2].Get());
-        // Ground splashes: rain only. The vertex shader reads the scene depth to find the floor.
-        if (w.type == 1) {
-            ID3D11ShaderResourceView* sceneDepthView = sceneView;
-            ctx->VSSetShaderResources(1, 1, &sceneDepthView);
-            ctx->VSSetShader(g.splashVS[ms].Get(), nullptr, 0);
+        // A foot that comes down in standing water throws up a splash (the pixel stage keeps only the
+        // steps that landed in a pool).
+        if (footprints && g_footDebug) {
+            // The foot view: the instances after the splashes' are its markers (FootSplashVS), so one
+            // draw covers both (an instance id does not count from a start offset).
+            GPU_PASS_SCOPE(ctx, "composite: foot view");
+            ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
+            ctx->VSSetShader(g.footSplashVS.Get(), nullptr, 0);
             ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
-            ctx->DrawInstanced(6, kSplashInstanceCount, 0, 0);
-            ID3D11ShaderResourceView* noView = nullptr;
-            ctx->VSSetShaderResources(1, 1, &noView);
+            ctx->DrawInstanced(6, UINT(kFootSteps) * kFootSplashParts + UINT(kFootLive + kFootSteps), 0, 0);
+        } else if (footprints && footStepCount > 0 && (climate[CL_puddles] > 0 || climate[CL_wet] > 0 || climate[CL_snow] >= .25f)) {
+            // In snow the same sprites are a puff of powder (SplashPS).
+            GPU_PASS_SCOPE(ctx, "composite: foot splashes");
+            ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
+            ctx->VSSetShader(g.footSplashVS.Get(), nullptr, 0);
+            ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
+            ctx->DrawInstanced(6, UINT(footStepCount) * kFootSplashParts, 0, 0);
         }
-    }
-    // A foot that comes down in standing water throws up a splash (the pixel stage keeps only the
-    // steps that landed in a pool).
-    if (footprints && g_footDebug) {
-        // The foot view: the instances after the splashes' are its markers (FootSplashVS), so one
-        // draw covers both (an instance id does not count from a start offset).
-        GPU_PASS_SCOPE(ctx, "composite: foot view");
-        ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
-        ctx->VSSetShader(g.footSplashVS.Get(), nullptr, 0);
-        ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
-        ctx->DrawInstanced(6, UINT(kFootSteps) * kFootSplashParts + UINT(kFootLive + kFootSteps), 0, 0);
-    } else if (footprints && footStepCount > 0 && (climate[CL_puddles] > 0 || climate[CL_wet] > 0 || climate[CL_snow] >= .25f)) {
-        // In snow the same sprites are a puff of powder (SplashPS).
-        GPU_PASS_SCOPE(ctx, "composite: foot splashes");
-        ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
-        ctx->VSSetShader(g.footSplashVS.Get(), nullptr, 0);
-        ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
-        ctx->DrawInstanced(6, UINT(footStepCount) * kFootSplashParts, 0, 0);
-    }
+    };
+    if (!volumes) drawWeather();
     if (volumes) {
         GPU_PASS_SCOPE(ctx, "composite: fog volumes");
         // t35/t36/s6 stay bound through the march, blur and composite (the composite marches
-        // unmatched MSAA samples itself).
+        // unmatched MSAA samples itself), and the wind with its noise for what gusts blow along the
+        // floor (t42/t49).
         BindGroundFog(ctx);
+        BindWindFluid(ctx);
         ctx->OMSetBlendState(g.opaque.Get(), blend, 0xffffffff);
         ctx->VSSetShader(g.screenVS.Get(), nullptr, 0);
         ID3D11ShaderResourceView *noSkyVolume=nullptr;
@@ -1447,6 +1468,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         ctx->PSSetShader(g.compositePS[variant].Get(), nullptr, 0);
         ctx->Draw(3, 0);
         frameView = g.colorSrv.Get();
+        drawWeather();
     }
     if(storm.flash>0){
         GPU_PASS_SCOPE(ctx, "composite: storm");

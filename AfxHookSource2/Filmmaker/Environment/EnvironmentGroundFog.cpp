@@ -76,8 +76,8 @@ struct State {
     std::string floorKey, pendingKey;
     std::future<std::shared_ptr<GroundFogFloorMap>> floorJob;
     GroundFogFloorMap floorInfo; // dimensions only; the heights live in floorTexture
-    ComPtr<ID3D11Texture2D> floorTexture, thicknessTexture;
-    ComPtr<ID3D11ShaderResourceView> floorSrv, thicknessSrv;
+    ComPtr<ID3D11Texture2D> floorTexture, thicknessTexture, driftTexture;
+    ComPtr<ID3D11ShaderResourceView> floorSrv, thicknessSrv, driftSrv; // driftSrv: the floor a gust's drift lies on (t50)
     // What is in front of the fog (FrontMask): the HDR frame before CS2's transparent effects, the finished
     // one, and the mask they make. `frontWanted` is set by a frame with fog, so nothing runs without it.
     ComPtr<ID3D11Texture2D> frontBefore, frontAfter;
@@ -85,7 +85,7 @@ struct State {
     Surface frontMask, frontNearby;
     unsigned frontWidth = 0, frontHeight = 0, frontAge = 0;
     bool frontWanted = false, frontPending = false, frontValid = false;
-    unsigned idle = 0;
+    unsigned idle = 0, fogIdle = 0; // frames with nothing on the floor; frames with the fog itself off
     // For GroundFogStatus and the debug log.
     unsigned steps = 0, bodies = 0, restarts = 0;
 } state;
@@ -164,6 +164,8 @@ void ReleaseFloorMap() {
     state.floorSrv.Reset();
     state.thicknessTexture.Reset();
     state.thicknessSrv.Reset();
+    state.driftTexture.Reset();
+    state.driftSrv.Reset();
     state.floorInfo = GroundFogFloorMap{};
     state.floorKey.clear();
 }
@@ -203,11 +205,29 @@ void PumpFloorMap(const Frame &f) {
                 state.floorSrv = view;
                 state.thicknessTexture = thicknessTexture;
                 state.thicknessSrv = thicknessView;
+                // The drift's floor (GroundFogDriftFloor), one float a texel. Without it the drift lies
+                // on each texel's own floor, as it did before.
+                if (built->drift.size() == built->layers.size()) {
+                    D3D11_TEXTURE2D_DESC dd = d;
+                    dd.Format = DXGI_FORMAT_R32_FLOAT;
+                    std::vector<float> stored(built->drift);
+                    for (float &v : stored) v += kGustDriftFloorBias;
+                    D3D11_SUBRESOURCE_DATA driftData{stored.data(), UINT(built->width * sizeof(float)), 0};
+                    ComPtr<ID3D11Texture2D> driftTexture;
+                    ComPtr<ID3D11ShaderResourceView> driftView;
+                    if (SUCCEEDED(state.device->CreateTexture2D(&dd, &driftData, &driftTexture)) &&
+                        SUCCEEDED(state.device->CreateShaderResourceView(driftTexture.Get(), nullptr, &driftView))) {
+                        state.driftTexture = driftTexture;
+                        state.driftSrv = driftView;
+                    }
+                }
                 state.floorInfo = *built;
                 state.floorInfo.layers.clear();
                 state.floorInfo.layers.shrink_to_fit();
                 state.floorInfo.thickness.clear();
                 state.floorInfo.thickness.shrink_to_fit();
+                state.floorInfo.drift.clear();
+                state.floorInfo.drift.shrink_to_fit();
                 state.floorKey = key;
             }
         }
@@ -224,6 +244,7 @@ void PumpFloorMap(const Frame &f) {
         const auto started = std::chrono::steady_clock::now();
         auto map = std::make_shared<GroundFogFloorMap>(
             BuildGroundFogFloorMap(mesh->positions, mesh->indices, mesh->low, mesh->high, {}, mesh->navPositions, mesh->navIndices));
+        map->drift = GroundFogDriftFloor(*map);
         size_t floors = 0, columns = 0;
         for (const auto &column : map->layers) {
             size_t n = 0;
@@ -358,19 +379,43 @@ void BeginGroundFog(ID3D11Device *device) {
                   SUCCEEDED(device->CreateSamplerState(&sd, &state.sampler));
 }
 
-GroundFogFrameInfo PrepareGroundFog(ID3D11DeviceContext *ctx, const Frame &f, const Climate &climate) {
+GroundFogFrameInfo PrepareGroundFog(ID3D11DeviceContext *ctx, const Frame &f, const Climate &climate, bool floorWanted) {
     GroundFogFrameInfo info;
-    if (!state.ready || !ctx || climate[CL_enabled] <= 0 || climate[CL_groundFog] <= 0) {
-        if (state.ready && ++state.idle == kIdleFrames) {
+    const bool fogOn = state.ready && ctx && climate[CL_enabled] > 0 && climate[CL_groundFog] > 0;
+    const bool floorOn = state.ready && ctx && climate[CL_enabled] > 0 && floorWanted;
+    if (!fogOn) {
+        // The fog's own fluid goes after kIdleFrames without fog; the floor map after as many with
+        // nothing lying on it.
+        if (state.ready && state.fluidValid && ++state.fogIdle == kIdleFrames) {
             ReleaseFluid();
             state.drift = GroundFogDrift{};
-            ReleaseFloorMap();
             ReleaseFront();
-            MvmDebugLog_LinefAlways("environment.groundfog", "released fluid and floor map after %u frames off", kIdleFrames);
+            MvmDebugLog_LinefAlways("environment.groundfog", "released fluid after %u frames off", kIdleFrames);
+        }
+        if (!floorOn) {
+            if (state.ready && ++state.idle == kIdleFrames) {
+                ReleaseFluid();
+                state.drift = GroundFogDrift{};
+                ReleaseFloorMap();
+                ReleaseFront();
+                MvmDebugLog_LinefAlways("environment.groundfog", "released fluid and floor map after %u frames off", kIdleFrames);
+            }
+            return info;
+        }
+        // Only the floor: a gust's blown snow lies on it.
+        state.idle = 0;
+        PumpFloorMap(f);
+        if (state.floorSrv) {
+            info.floorMap = true;
+            info.floorX = state.floorInfo.originX;
+            info.floorY = state.floorInfo.originY;
+            info.floorCell = state.floorInfo.cell;
+            info.floorWidth = float(state.floorInfo.width);
+            info.floorHeight = float(state.floorInfo.height);
         }
         return info;
     }
-    state.idle = 0;
+    state.idle = state.fogIdle = 0;
     info.active = true;
     PumpFloorMap(f);
     auto &k = state.k;
@@ -535,6 +580,9 @@ void BindGroundFog(ID3D11DeviceContext *ctx) {
                                           state.thicknessSrv.Get(), state.frontValid ? state.frontMask.srv.Get() : nullptr,
                                           state.frontValid ? state.frontNearby.srv.Get() : nullptr};
     ctx->PSSetShaderResources(35, 6, views);
+    // The floor a gust's drift lies on (GustFloor); none, and the shader keeps each texel's own floor.
+    ID3D11ShaderResourceView *drift = state.driftSrv.Get();
+    ctx->PSSetShaderResources(50, 1, &drift);
     ID3D11SamplerState *sampler = state.sampler.Get();
     ctx->PSSetSamplers(6, 1, &sampler);
 }

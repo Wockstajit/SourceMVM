@@ -12,6 +12,7 @@ struct Feet {
     FootState foot[2];
     Vec3 origin{}; // where the pawn was at the last look, for how fast it moves
     bool seen = false;
+    FootLanding landing; // off the ground and back: how hard it landed (FootImpact)
 };
 // A dead player's body from frame to frame: pressed again only when it has moved (or once a second,
 // against falling snow filling in under it), and one splash where it comes down.
@@ -32,6 +33,7 @@ struct State {
     double time = 0, filled = 0;
     int fillRow = 0; // where the falling snow has filled the marks up to (a band of rows a frame)
     float steps[kFootSteps][4]{};
+    float impact[kFootSteps]{}; // FootImpact of each step
     float live[kFootLive][4]{};
     int liveCount = 0;
     int stepCount = 0, stepNext = 0;
@@ -89,12 +91,13 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
     std::map<int, FootTrack> seen;
     std::map<int, Feet> seenFeet;
     s.liveCount = 0;
-    auto splash = [&](Vec3 at) {
+    auto splash = [&](Vec3 at, float impact) {
         float *slot = s.steps[s.stepNext];
         slot[0] = at.x;
         slot[1] = at.y;
         slot[2] = at.z;
         slot[3] = clock;
+        s.impact[s.stepNext] = impact;
         s.stepNext = (s.stepNext + 1) % kFootSteps;
         s.stepCount = (std::min)(s.stepCount + 1, kFootSteps);
     };
@@ -109,6 +112,15 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
                 feet.origin = actor.origin;
                 feet.seen = true;
             }
+            // A jump kicks water up from both feet as they leave the ground, and the steps it lands
+            // on throw the biggest splashes (FootImpact).
+            const bool jumped = AdvanceFootLanding(feet.landing, actor.origin.z, actor.grounded, dt);
+            const float landingSpeed = FootLandingSpeed(feet.landing);
+            if (jumped) {
+                for (int k = 0; k < 2; ++k) splash(feet.foot[k].valid ? feet.foot[k].last : actor.foot[k], .95f);
+                if (MvmDebugLog_Active())
+                    MvmDebugLog_Linef("environment.feet", "jump entity=%d time=%.4f z=%.1f", actor.entity, frame.time, actor.origin.z);
+            }
             for (int k = 0; k < 2 && dt > 0; ++k) {
                 FootState &foot = feet.foot[k];
                 const Vec3 at = actor.foot[k];
@@ -122,10 +134,11 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
                 const float footSpeed = follows ? std::sqrt(dx * dx + dy * dy) / dt : 0;
                 if (FootSetDown(foot, lift, footSpeed, pawnSpeed) && follows) {
                     s.dirty |= s.image.Press(at, actor.footYaw[k], 1, true);
-                    splash(at);
+                    const float impact = FootImpact(pawnSpeed, landingSpeed);
+                    splash(at, impact);
                     if (MvmDebugLog_Active())
-                        MvmDebugLog_Linef("environment.feet", "footfall entity=%d foot=%d time=%.4f at=(%.1f %.1f %.1f) lift=%.2f footSpeed=%.0f pawnSpeed=%.0f", actor.entity, k, frame.time, at.x,
-                                          at.y, at.z, lift, footSpeed, pawnSpeed);
+                        MvmDebugLog_Linef("environment.feet", "footfall entity=%d foot=%d time=%.4f at=(%.1f %.1f %.1f) lift=%.2f footSpeed=%.0f pawnSpeed=%.0f landing=%.0f impact=%.2f",
+                                          actor.entity, k, frame.time, at.x, at.y, at.z, lift, footSpeed, pawnSpeed, landingSpeed, impact);
                 }
                 if (s.liveCount < kFootLive) {
                     float *live = s.live[s.liveCount++];
@@ -147,7 +160,7 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
         const int landed = AdvanceFootTrack(track, actor.origin, dt, steps, grounded);
         for (int i = 0; i < landed; ++i) s.dirty |= s.image.Press(steps[i].position, steps[i].heading, 1, true);
         // Only a stride throws water: feet set down together where a pawn stands do not.
-        if (landed == 1) splash(steps[0].position);
+        if (landed == 1) splash(steps[0].position, .7f); // speed unknown here: between a walk and a run
         seen[actor.entity] = track;
     }
     s.tracks.swap(seen);
@@ -186,8 +199,8 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
         if (!fallen.landed && pelvis.z - ground < 10 && moved < 1e8f) {
             fallen.landed = true;
             const Vec3 chest = body.bones.has[BB_chest] ? body.bones.bone[BB_chest] : pelvis;
-            splash({pelvis.x, pelvis.y, ground});
-            splash({chest.x, chest.y, ground});
+            splash({pelvis.x, pelvis.y, ground}, 1.6f);
+            splash({chest.x, chest.y, ground}, 1.4f);
             if (MvmDebugLog_Active())
                 MvmDebugLog_Linef("environment.feet", "body down entity=%d time=%.4f pelvis=(%.1f %.1f %.1f) ground=%.1f", body.entity, frame.time, pelvis.x, pelvis.y, pelvis.z, ground);
         }
@@ -242,8 +255,10 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
     binding.feetCount = s.liveCount;
     for (int i = 0; i < s.liveCount; ++i)
         for (int k = 0; k < 4; ++k) binding.feet[i][k] = s.live[i][k];
-    for (int i = 0; i < kFootSteps; ++i)
+    for (int i = 0; i < kFootSteps; ++i) {
         for (int k = 0; k < 4; ++k) binding.steps[i][k] = s.steps[i][k];
+        binding.impact[i] = s.impact[i];
+    }
     return binding;
 }
 } // namespace Filmmaker::Environment

@@ -406,7 +406,7 @@
           relight: 0.35, ambient: 0.6, sunRelight: 1, bakedSuppressed: 0, bakedFill: 0.6, contactShadows: 1,
           relighting: 1, shadowBias: 2, shadowRange: 3000,
           mapLightPower: 1, playerFill: 1.8, sunAngle: 0.53, lampAngle: 1, shadowSoftness: 1, ao: 1, skyOcclusion: 1,
-          particleDetail: 0.5, turbulence: 1.5, gusts: 0.5, particleOpacity: 0.7, softness: 8,
+          particleDetail: 0.5, turbulence: 1.5, gusts: 0.5, gustDensity: 1, gustHeight: 1, gustWisps: 1, gustFloor: 1, particleOpacity: 0.7, softness: 8,
           streak: 12, particleLight: 1,
           bloom: 0.35, bloomThreshold: 1.2, saturation: 1.05, contrast: 1.1, vignette: 0.2,
           grain: 0.012, chromatic: 0,

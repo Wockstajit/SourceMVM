@@ -440,7 +440,12 @@ outside it, and gone 120 units down the street. Snow and water use it and one ma
 clumps (`WeatherClumps`):
 
 - Outside a door the snow is trodden: broken into packed, greyer patches with bare ground between,
-  up to 42 % bare at the threshold.
+  up to a fifth bare at the threshold.
+- Snow drifts up against walls rather than stopping short of them. At a wall's foot the sky map is
+  half shut off by the wall itself, and the wind thins its lee side, so half open counts as open
+  (`SnowLies`), and lying snow takes an eighth of the wind's lee thinning. A patch ends on a ragged
+  edge with a soft rim about a hand wide. (Before 2026-11-18 every wall had a bare strip at its foot
+  with a cut edge, and up to 42 % of a doorstep was bare.)
 - Under cover the snow is scattered: clumps, many at the opening and fewer with every step in. The
   same clumps run across the threshold, so trodden and scattered snow meet without a line.
 - Where snow is trodden or scattered it melts: the ground between patches is damp and small pools
@@ -542,53 +547,158 @@ not wanted, until it is wanted again or the level changes.
 
 **Wind gusts** (`climate gusts`, 0 to 1, the Gusts slider under Weather; `EnvironmentWindFluid.cpp`).
 Wind is seen by what it carries, so the air is run as a 2D fluid over the whole map, seen from above
-(Stable Fluids: curl, forces, advection, a 20-sweep pressure solve, projection; cells of 24 units,
-wider on a huge map). The steady wind (Wind speed and direction) blows across it and gust fronts,
-bands a few hundred units deep and much longer across the wind, sweep downwind through it, pushing
-the air to several times the steady speed and loading it with what is drawn as blown mist in rain
-and blown snow in snow. The air cannot pass through houses: their faces are read from the weather
-cover volume (`WindObstacles`: a rise of 96 units within three cells, taller than a person, so a
-yard wall counts and a stair, a kerb or a slope does not), a few rows a frame after the cover is baked. So gusts squeeze down streets,
-spill round corners and curl in the lee of buildings, and players drag the air as they run. The
-weather shaders read the fluid (`WindAt` in `EnvironmentClimateShaders.h`): where the air moves faster than
-the steady wind, rain leans further over and thickens, snow is carried sideways and drawn out into
-streaks, and far off a front is a curtain of thicker weather. The air itself tumbles: turbulence is
-added in step with its speed, so a gust wanders instead of running in ruled lines.
+(Stable Fluids: curl, forces, advection, a 20-sweep pressure solve, projection; cells of 8 units,
+wider on a huge map). The steady wind (Wind speed and direction) blows across it, and gust fronts,
+bands a few hundred units deep and much longer across the wind, sweep downwind through it and push
+the air to several times the steady speed. Large round eddies about 490 units across roll slowly
+downwind through it, and finer turbulence is added in step with the air's speed, so a gust wanders
+instead of running in ruled lines. The air cannot pass through houses: their faces are read from the
+weather cover volume (`WindObstacles`: a rise of 96 units within three cells, taller than a person, so
+a yard wall counts and a stair, a kerb or a slope does not), a few rows a frame after the cover is
+baked. So gusts squeeze down streets, spill round corners and curl in the lee of buildings, and
+players drag the air as they run. Real air also goes over the roofs, so among houses the fluid only
+partly keeps its volume (`WindAirMap`: how much of the ground within 240 units is not under a roof,
+squared, scales what the pressure step pushes on through the streets). In full 2D every gust that
+crossed a block had to squeeze through its streets, and one street through the middle of Dust2 (the
+catwalk) carried a steady jet while every other street was still. The air is also held to a third
+over the wind it would have at a place (plus 60 units a second); that cap alone only trimmed the
+jet. Down among houses the wind is also slower and lifts less (`Sheltered`): the steady wind, the
+lift and the cap keep from half of themselves in a narrow street to all of them in the open, so the
+catwalk no longer runs fast and stands full of blown snow while every gust crosses it.
 
-**The wind is seen as a pattern carried by the air** (`GustFlow`). All of
-it rides downwind together at the speed the fronts travel (a rigid slide, which never tears it),
-and where the air at a place moves otherwise it is bent that way by flow mapping (two copies half a
-period apart, cross-faded), by no more than a couple of the pattern's own widths. Carried the whole
-way by the local velocity, the eddies wound the pattern into marbled stripes across the floor. How
-gusty the air is (`GustAmount`) is how far it surges over the steady wind (a front runs at
-1.7 × (140 + the wind) over it), shaded by what the fluid carries there; the fronts decide where. How gusty the air
-is (`GustAmount`) is how far it surges over the steady wind (a front runs at 1.7 × (140 + the wind)
-over it) or what the fluid carries there.
-- **In the air** (`GustMist`): waves. A front is a body of blown snow, spray or ash a few hundred
-  units across, shaped by billows, thickest over the streets and thinning up over a couple of
-  storeys; it sweeps through at the gust's speed, so the air goes white in snow, grey in rain and
-  dark in ash, and clears as it passes. Between fronts the air is nearly clear. Thin sheets marched
-  along the ray averaged into a flat grey fog over the whole frame and were dropped. The march is
-  not dithered: what it reads changes over hundreds of units, and a per-pixel jitter laid a screen of
-  grain over the frame.
-- **Along the ground**: wisps streaming over the floor where the view ray lands (24 units thick),
-  torn at three sizes so they thin out softly (light spray in rain). A cut-out layer read as paint.
-- **On wet ground and puddles** (`ApplyCoatings`): a gust raises wavelets, crests across the wind,
-  drifting slowly downwind (`GustRipples`), only where the gust runs; they break up what the film
+**What the wind lifts** (`Banks` and `Lifted` in `EnvironmentWindFluidShaders.h`). Snow, ash or
+spray is put into the air in banks a few hundred units across (about 620 along the wind and 380
+across it, with smaller ones among them) that ride downwind at seven tenths of the fronts' speed,
+over a low drift (a third of a bank's lift) everywhere the wind blows, more while a front passes. A foam lace fixed to the ground (cells about
+100 units across), cut by a second lace twice as fine that drifts slowly over it, tears each bank into
+threads and clumps. What is lifted thins out over about three seconds, and the flow draws it out and
+turns it in the eddies. (Lifted from the lace alone it was a thin, even speckle over the whole map
+that drew no visible layer.)
+
+**Blown along the ground** (`GustVolumeMarch` in `EnvironmentClimateShaders.h`). What the air carries
+is drawn as a thin volume lying on the floor, as thick at each place as the load there: a slab whose
+core grows with the load and has a soft top, with a thinner layer above it that fades toward the
+top. A billow noise (`GustNoiseVolume`, a tileable 64-cubed Perlin-Worley volume built on a worker
+thread when the device starts) eats it into lumps and wisps. The noise slides downwind with the steady
+wind and is bent by the local air through flow mapping, so the detail streams at the air's own speed;
+the local air's pull is held to what moves the noise seven tenths of its own size in a cycle
+(`GustDragRest`), since a gust's air, hundreds of units a second and turning every frame, dragged it
+hundreds of units back and forth and it shook instead of flowing.
+Snow and ash are lit as the snow on the ground under them is (`GustFloorLight`): the frame's light
+where that floor point is on screen, through `SnowCoverShade` with a fifth of its colour, so the
+drift takes the map's own sun and shade whatever the Environment's sun is set to (lit by that sun and
+sky, it was a grey bed on a sunlit street under map lighting). It is a little darker in its own shade
+(a short march toward the sun) and in a house's shadow, read four times across 48 units and keeping a
+quarter of the light, since light scattered inside blown snow blurs a house's shadow (read at one
+point, a bank went from white to grey along the exact line of the shadow on the floor and looked cut
+off there). Rain's spray is lit by the sky and a little of the sun. It is a layer of the fog volume
+pass, so it gets that pass's temporal blend. It lies on the ground (`GustFloor`), not on what stands on it: a drift
+floor made once per map from the ground fog's floor map (`GroundFogDriftFloor`, kept whenever gusts
+blow): each column lowered to the lowest floor within 64 units that lies no more than 150 under it,
+then blurred over about 24 units among values within 150 of each other. A crate, a car or a barrel
+drops out, so the drift runs past and over it from the street; a kerb, a step or a walkway's edge is a
+ramp, not a cut; a walkway or a roof wider than about 128 units keeps its own floor away from its
+edges. It is read smoothly (stored over 100000, so an unbound map reads as refused) and used where it
+is this point's floor or below it by no more than 150 units; a higher value is a deck over this
+street, and there the floor map's own floor is taken. (Laid on each texel's own floor, the drift sat
+on top of every crate, cut off at its edges as if with a knife, and stepped at every kerb.) Against a wall the air is read from the open side
+(`WindAt`): the fluid's wall cells are a band a few cells deep, and read there the drift and the
+streamers stopped in a ruled line a pace short of every wall. It is drawn out to 3000 units and fades
+over the last 600. Each weather has its own look (`GustLookFor`):
+
+| Weather | Look | Tallest bank | Colour |
+| --- | --- | --- | --- |
+| Snow | lit as the snow, load squared, half the reference's density | about 75 units, a drift a hand high between | soft grey thin, white dense |
+| Ash | sun-lit, a sand storm's shape, two fifths of its density | about 40 units | dark warm grey thin, pale ash dense |
+| Rain | unlit spray in a low layer | about 130 units, mostly within 50 | grey thin, near white dense |
+
+No separate grains are drawn skimming the floor. A first version placed 7500 of them by formula in
+cells round the camera, each shown where the air carried a load; a whole patch faded in and out
+together as a gust passed, and they read as blue dots rather than drifting snow (removed
+2026-11-18). Blowing snow along the ground needs real particles carried by the air, spawned and
+killed by what the gust carries, far more of them and far smaller.
+
+- **On wet ground and puddles** (`ApplyCoatings`): a gust raises cat's paws (`GustRipples`): three
+  trains of crests 13 to 22 units apart, fanned round the steady wind (straight on and about 28 and
+  31 degrees either side), each running at its own speed and strong only in its own drifting patches,
+  only where the gust runs. The directions are fixed: turned with the local air, a crest's place,
+  measured from the map's origin thousands of units off, swept across the street at every flicker of
+  the gust and the water shook; crests 4 to 10 units apart read as a fine fizz; they break up what the film
   mirrors (up to 45 % less mirror and rougher reflections), so a gust is a rougher, darker patch
   sweeping over the water, glinting where its wavelets catch the sun.
-- **On snow**: loose snow runs over the surface in streamers, a brighter white where they run and
-  the crust a shade greyer between.
-The Gusts control shows it at full strength from 0.67 up. (Before 2026-11-17 the air showed only
-the fluid's density cubed as faint wisps, and nothing on the ground: in rain a gust was invisible.)
-Still air behind a house does not stand the rain up straight. The fluid is stepped as the game
-plays, like the footprints: a seek restarts it and the fronts fill it again in a second or two.
-Without map data there are no gusts. `environment wind-view [on|off|map|<units>]` shows it from above
-in a corner of the frame: walls red, fast air blue, what it carries white, the camera green.
+- **On snow**: loose powder is blown over the crust only where the gust carries snow (the fluid's
+  load), in soft billows that follow the air there (`GustPowder`: the drift's own billow noise at a
+  third of its size, flow mapped). Where it passes the crust is a few percent smoother and lighter,
+  between it a shade greyer, and matte. (As a broad light-and-dark sheet over the whole floor it read
+  as one white pattern sliding over it; as thin bright threads drawn out along the steady wind it read
+  as shiny metal lines, all one way, running on through the walls.)
 
-What a gust carries is drawn for every weather, in its own amount (`GustMist`): per unit of air in a
-front, 1/600 in snow, 1/700 in ash and 1/1000 in rain. Ash is smoke, and what the gust carries through it is a warm dark grey, where the
-falling ash stays its own pale flecks.
+**Ground drift** on the Weather card scales each weather's own look, 1 as it comes; picking a weather
+puts all four back to 1: Drift density (how thick the blown layer is), Drift height (how high it
+stands), Drift wisps (how much the noise tears it; 0 is an even sheet) and Floor powder (the
+loose snow blown over the crust and the rough patches on wet ground). Climate keys `gustDensity`, `gustHeight`,
+`gustWisps` and `gustFloor`.
+- **In the falling weather**: where the air moves faster than the steady wind, rain leans further
+  over, snow and ash are carried sideways, and far off a front is a curtain of thicker weather.
+
+The Gusts control shows it at full strength from 0.67 up. Still air behind a house does not stand
+the rain up straight. The fluid is stepped as the game plays, like the footprints: a seek restarts
+it and the fronts fill it again in a second or two. Without map data there are no gusts.
+`environment wind-view [on|off|map|<units>]` shows the fluid from above in a corner of the frame:
+walls red, fast air blue, what it carries white, the camera green. (Before 2026-11-18 a gust was
+drawn as a sheet of mist marched through the air plus flat wisps on the floor; the volume on the
+ground replaces both.)
+
+**The weather swirls** (`WeatherSwirl`). Rain, snow and ash turn in eddies instead of falling in
+straight lines: each particle orbits its own place in two sizes of eddy (about 380 and 130 units),
+its phase taken from a smooth noise over where it rests, so neighbours turn together and the eddies
+read as swirling sheets. Snow takes the full swirl, rain nine tenths, ash two fifths, all scaled by
+Turbulence. Snow flakes stay round: drawn out along their flight they read as smears, not flakes.
+Ash dust and embers face their flight and stretch with speed (2 times wider and 10 times longer at
+787 units a second). Rain
+fades in with distance: a third of it at the lens, all of it 787 units out, so the streaks near the
+eye are faint and the storm thickens away from it.
+
+**Under cover** (`WeatherVS`). Rain, snow and ash drift in through openings and thin out the further
+in they are, by the open air the weather cover volume says reaches there. That halves every 48 units
+under a roof and never crosses a wall, a floor or a roof, so nothing comes down through a catwalk
+or into a room with no way in. Each particle has its own depth, so the edge is a thinning rather
+than a line across an archway. Snow and ash drift in about three paces. Rain comes in only a pace in
+still air, further as the wind leans it, and straight in through an opening that faces the wind.
+(Before 2026-11-18 only the windward line counted, and the weather stopped dead at every roof's
+edge.)
+
+**How many.** The snow and ash presets keep about as many flakes near the camera as the reference
+blizzard does (it holds about 0.3 a cubic metre): `weather snow` sets 1200 (20 % intensity) and
+`weather ash` 1500 (25 %), where both were 4200, nine times that. Rain stays at 3600, close to the
+reference storm's rain.
+
+**Ash** is three things: torn flakes, fine dust blown through them (dim streaking motes, 4 in 10
+particles) and a few embers still glowing (1 in 40, flickering, lit by their own heat rather than
+the scene).
+
+**Picking a weather sets its air and its ground.** `weather rain|storm|snow|ash` (and the weather
+buttons, which send only that) also sets the gusts, the wind, the height fog's density, height, noise
+and colour, the haze, and the ground, so each weather arrives with the air it is seen through and
+replaces everything the last one set: rain wets the street and lifts the snow, snow lays snow and
+dries the street, ash leaves it dry. `weather clear` turns the gusts and the height fog off and dries
+the ground. A weather that brings gusts, fog or a coating switches the renderer on. Anything changed
+afterwards stays changed until a weather is picked again. The ground fog is its own pass and is never
+touched.
+
+| Weather | Gusts | Wind (x, y) | Fog density | Fog height | Fog noise | Fog colour | Haze |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Rain | .55 | 110, 35 | .16 | 420 | .6 | .50 .56 .64 | .8 |
+| Storm | .85 | 220, 70 | .3 | 420 | .6 | .50 .56 .64 | 1.1 |
+| Snow | .75 | 55, 20 | .26 | 520 | .7 | .86 .88 .91 | 1 |
+| Ash | .6 | 48, 14 | .3 | 620 | .7 | .54 .51 .47 | 1.2 |
+| Clear | 0 | unchanged | 0 | default | default | unchanged | default |
+
+| Weather | Snow | Wet | Puddles |
+| --- | --- | --- | --- |
+| Rain, Storm | 0 | .6 | .25 |
+| Snow | .6 | 0 | 0 |
+| Ash, Clear | 0 | 0 | 0 |
 
 **CS2's own textures.** The coatings are drawn with Counter-Strike's own art, read from the installed
 game at run time and never shipped (`EnvironmentGameTextures.cpp`, reading through
@@ -607,7 +717,9 @@ game at run time and never shipped (`EnvironmentGameTextures.cpp`, reading throu
   the height. The procedural lumps and grain it replaced are removed. Drifts, footprints and trenches
   stay. Until the textures have loaded the snow is plain white.
 - **CS2 water beads** (`rainTexture`, on by default): `materials/dev/water_droplets`, the beads of water
-  CS2's wet surfaces use, one repeat every 32 units on wet ground that is not under a pool. They bend
+  CS2's wet surfaces use, one repeat every 32 units on wet ground that is not under a pool. They gather
+  in a ring round each pool's edge and in scattered spots (`WeatherClumps`), not over every wet
+  surface. They bend
   what the wet film mirrors and catch the sun.
 
 Both read the game on a worker thread the first time they are wanted; until then, or if the game has no
@@ -660,6 +772,15 @@ Nothing is painted on the water as a ring. The last 32 strides are kept, each fo
 seconds, and only those that land in a pool splash (`PuddleAt`, the same pools the ground shader
 draws), so damp ground and snow do not.
 
+**How hard the foot came down** (`FootImpact` in `EnvironmentFootprintMath.h`) sets the size of each
+splash: about 0.55 for a walk, 0.85 for a run, and 1.5 to 2.6 for a landing from a jump or a drop,
+by how fast the player was falling (`AdvanceFootLanding` reads it from the player's height and
+on-ground flag, and the steps in the third of a second after a landing take it). It scales how many
+drops are thrown (a third of them for a slow walk, all of them for a landing), how fast they leave (so
+how high they fly, with the square of it), how wide the sheets and the froth are, and how hard the
+ripples ring. Jumping also kicks water up from both feet as they leave the ground. A falling body's
+trunk throws a landing's splash. Before 2026-11-18 every step threw the same splash, a run's.
+
 **Frost on players** (`EnvironmentNativeRain.cpp`). Our snow is kept off players, weapons and
 corpses. They are frosted by CS2's own frost material instead, which grows on players, weapons and
 chickens outdoors, melts under cover, and clears from a hot barrel or a lit molotov. A map asks for
@@ -701,10 +822,12 @@ straight down, 0.71 at 45 degrees). It does nothing under a lean of 0.1 and is a
   as a ruled line across a yard.) Each point is three taps across and along the line, spread wider
   the further up it is, so the share falls off smoothly: with one tap a point it stepped in sixths,
   each step on the roof edge carried along the wind, and snow patches beside a container or under a
-  ledge ended in straight lines (2026-11-18). Lying snow counts only a quarter of this: it came down over hours
+  ledge ended in straight lines (2026-11-18). Lying snow counts only an eighth of this: it came down over hours
   of shifting wind, so its sheltered side is thinned, not cleared. Rain counts all of it.
 - Under cover, the volume is read up to 90 units upwind, so an opening that faces the wind takes
-  snow and wet further in and one that faces away takes less.
+  snow and wet further in and one that faces away takes less. Lying snow counts an eighth of this
+  too: read in full, a crate standing upwind under a shop's awning left a bare patch in its own
+  shape behind it, with a hard edge, in a street of snow.
 - A falling particle in the open is dropped when the line it came down ran under a roof, and one
   just under cover is kept when open air reaches it and that line is clear.
 
@@ -770,6 +893,13 @@ none indoors. With map geometry, the region is the map's collision bounds, from 
 weather height above the highest collision. Precipitation therefore covers the whole map and stops at
 its edges. Without map geometry, the veil reaches ten weather radii. The veil's clumping noise is
 world-anchored and falls with the particles.
+
+**The weather is drawn in front of the fog.** With any fog volume on (height fog, ground fog, clouds
+or a gust's blown snow), the particles, the veil and the splashes are drawn after the volume
+composite, and rain, snow and ash take their own distance fog. Drawn before it, as they were until
+2026-11-18, the fog was laid over them as if they were the surface behind (they have no depth), and
+the composite's split of each edge pixel into sky and surface read their streaks as sky and drew a
+pale rim round every roof and cable. Without a fog volume the order does not matter.
 
 Count sets the cell size (every cell holds a particle), so a light fall draws proportionally fewer
 particles over the same window. Changing Count re-seeds the lattice. Each particle tests the sky map and

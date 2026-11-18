@@ -87,7 +87,12 @@ test('the fog drift survives a grid rebuild and starts again only after the fog 
   const release = fog.match(/void ReleaseFluid\(\) \{[\s\S]*?\n\}\n/)[0];
   assert.doesNotMatch(release, /state\.drift = /, 'PrepareGrid releases the fluid when collision data arrives');
   assert.match(fog, /\+\+state\.idle == kIdleFrames\) \{\s*ReleaseFluid\(\);\s*state\.drift = GroundFogDrift\{\};/);
-  assert.equal((fog.match(/state\.drift = GroundFogDrift\{\};/g) || []).length, 1);
+  // Two off timers end the drift: the fog's own (fogIdle, while a gust's drift still wants the floor
+  // map) and the whole floor's (idle). Every reset sits in one of them, never on a grid rebuild.
+  const resets = (fog.match(/state\.drift = GroundFogDrift\{\};/g) || []).length;
+  const timed = (fog.match(/\+\+state\.(?:fogIdle|idle) == kIdleFrames\) \{\s*ReleaseFluid\(\);\s*state\.drift = GroundFogDrift\{\};/g) || []).length;
+  assert.ok(resets >= 1);
+  assert.equal(timed, resets, 'the drift starts again only after a kIdleFrames off timer runs out');
 });
 
 test('one unreadable HUD variable does not drop what the others are owed', () => {
