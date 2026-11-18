@@ -113,7 +113,9 @@
         renderOpen: false,      // Render_IsModalOpen (a modal ON the editor)
         customizeOpen: false,   // the Customize Player modal was asked for
         customizeOverConfig: false, // ...over CONFIG ('config customize'), the editor workspace closed
-        blackout: false         // HudBlackout_Active (F8)
+        blackout: false,        // HudBlackout_Active (F8)
+        forceDeathNotices: 0,   // cl_drawhud_force_deathnotices: 1 keeps the kill feed through F8 / Hide All
+        forceRadar: 0           // cl_drawhud_force_radar: 1 keeps the radar the same way
       },
       // Movie/TimelineDock.cpp: the tab is remembered across closes; host/hosted/visible are what
       // Claim/Release/Apply write into CameraTimelineHud and GraphEditorExperimentHud.
@@ -344,6 +346,8 @@
       envAssets: ['barrel', 'crate_stack'],
       envTextures: ['concrete_albedo', 'concrete_normal'],
       envPresets: ['Dusk storm', 'Overcast morning'],
+      // FilmmakerSettingsStore.cpp FilmmakerSettings_AppendPresetJson: the PRESETS chip's list.
+      configPresets: ['Night match', 'Rainy B site'], configPreset: 'Night match',
       // Filmmaker/AltEnvironment: AltEnvironment.cpp AppendStateJson. The mock demo is on de_dust2; the
       // maps list mirrors a real install's mix of official maps and Workshop items (titles as published).
       altenv: { demo: true, demoMap: 'de_dust2', demoTitle: 'Dust2', pick: '', pickTitle: '', pickAddon: '',

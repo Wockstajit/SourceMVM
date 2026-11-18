@@ -52,7 +52,16 @@ cannot use it. Three caches persist between runs:
   (the source its entry point reaches, macros, entry point, profile, flags, compiler DLL identity)
   and a bytecode checksum, so a shader edit recompiles only the programs that use it. The
   builder reuses an entry only on an exact key match with a valid checksum and recompiles the rest.
-  The cache holds only the programs the manifest lists, keyed on the manifest's hash.
+  The cache holds only the programs the manifest lists, keyed on the manifest's hash. The builder
+  runs one compile per logical core (less two) at normal priority and starts the slow programs first,
+  so a cold bundle takes about as long as its slowest program (the main surface shader, three to
+  four minutes). Keep it at normal: at high priority the workers outrank every other program and the
+  PC freezes until the bundle is done. `MVM_SHADER_WORKERS=<n>` sets another worker count and
+  `MVM_SHADER_PRIORITY=below` (or `idle`) gives way further; at idle priority beside a running CS2 a
+  bundle took 18 minutes. `MVM_SHADER_TIMES=1` prints what each program cost; `MVM_SHADER_DUMP=<file>` writes
+  the whole program text for timing one entry with `fxc` by hand. The compiler expands every
+  function call in place, so a large function called from two places in one program is compiled
+  twice: keep `ApplyCoatings` to one call per entry point.
 - **sccache.** Keyed by sccache on the preprocessed source, the compiler binary and its flags.
   Saved when the run wrote new entries, capped at 1 GB (a full build stores about 115 MB).
 - **Cargo.** The registry and the Rust target folder, keyed on the Cargo manifests and lockfile.

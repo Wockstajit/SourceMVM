@@ -40,23 +40,30 @@ int wmain(int argc,wchar_t** argv){
         // for the rest of the build), and the slow programs handed out first. With four workers in
         // list order the four big surface programs started minutes apart and the bundle took twice
         // as long as any one of them.
-        // HALF the logical cores, and the whole process below normal priority: with a worker a core
-        // (two spared) the big programs held about four gigabytes between them and took every core,
-        // and the machine was hard to use for the minutes the bundle took. The slow programs still
-        // start first and each has a thread to itself, so the bundle is hardly slower; it just
-        // leaves room for whatever else is running.
-        // (Half was still felt with a game open beside it, so: a quarter of the logical cores, and
-        // the lowest priority, which gives way to anything else that wants a core. MVM_SHADER_WORKERS
-        // sets another count for a machine left alone to build.)
-        SetPriorityClass(GetCurrentProcess(),IDLE_PRIORITY_CLASS);
-        unsigned wanted=(std::max)(2u,std::thread::hardware_concurrency()/4);
+        // The process keeps normal priority. At high priority the workers outranked every program on
+        // the PC: Windows runs a higher class first, so the desktop, the game and every other window
+        // got a core only when the scheduler's starvation boost came round, and the PC froze for the
+        // minutes the bundle took (2026-11-18). Any class above normal does the same. At normal
+        // priority Windows shares the cores and still favours the window in use, so the bundle runs
+        // at full speed on an idle PC and only slows while something else is busy. (A quarter of the
+        // cores at idle priority starved it instead: 18 minutes beside CS2.) The big programs hold
+        // about four gigabytes between them. MVM_SHADER_WORKERS sets another count, and
+        // MVM_SHADER_PRIORITY=below or idle gives way further.
+        DWORD priority=NORMAL_PRIORITY_CLASS;
+        if(const char* asked=std::getenv("MVM_SHADER_PRIORITY")){
+            const std::string level=asked;
+            priority=level=="idle"?IDLE_PRIORITY_CLASS:level=="below"?BELOW_NORMAL_PRIORITY_CLASS:level=="high"?HIGH_PRIORITY_CLASS:NORMAL_PRIORITY_CLASS;
+        }
+        SetPriorityClass(GetCurrentProcess(),priority);
+        const unsigned cores=std::thread::hardware_concurrency();
+        unsigned wanted=(std::max)(2u,cores>2?cores-2:cores);
         if(const char* asked=std::getenv("MVM_SHADER_WORKERS"))wanted=(std::max)(1u,unsigned(std::atoi(asked)));
         const unsigned workers=(std::max)(1u,(std::min)(unsigned(requests.size()),wanted));
         std::vector<size_t> order(requests.size());
         for(size_t i=0;i<order.size();++i)order[i]=i;
         const auto weight=[&](size_t i){
             const std::string entry=requests[i].entry;
-            return entry=="AtmospherePS"||entry=="AtmospherePixelPS"?5:entry=="CompositePS"?4:entry=="MaterialMeshPS"||entry=="MeshPS"?3:entry=="SkyVolumePS"||entry=="VolumePS"?2:0;
+            return entry=="AtmospherePS"||entry=="AtmospherePixelPS"?5:entry=="CompositePS"?4:entry=="MaterialMeshPS"||entry=="MeshPS"||entry=="CompositePixelPS"?3:entry=="SkyVolumePS"||entry=="VolumePS"?2:0;
         };
         std::stable_sort(order.begin(),order.end(),[&](size_t a,size_t b){return weight(a)>weight(b);});
         // The compiler recurses deeply on the largest programs. On a default one-megabyte thread

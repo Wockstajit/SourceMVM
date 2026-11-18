@@ -113,6 +113,10 @@ public:
 	void ResetSettingsToDefaults();
 	void ReloadSettings();
 	void AfterSettingsReplaced();
+	// A config preset (FilmmakerSettingsStore.cpp): the settings as the file holds them, and putting
+	// a preset's back (the defaults, then the preset over them), saved to the file. Main thread.
+	std::string PresetJson() const;
+	void ApplyPresetJson(const std::string &text);
 
 	std::string DebugStateJson() const;
 };
