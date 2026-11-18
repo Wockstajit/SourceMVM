@@ -570,9 +570,12 @@ static Scene AnimatedScene(Scene scene) {
         return f != state->fields.end() && component < f->second.size() ? f->second[component] : base;
     };
     for (int i=0;i<ClimateCount;++i) scene.climate.values[i]=float(number(std::string("env.")+ClimateSpecs()[i].key,scene.climate.values[i]));
-    // A keyed time of day moves the sun and the moon with it.
-    for (ClimateField f : {CL_timeOfDay, CL_sunPath, CL_sunHeight})
-        if (state->fields.count(std::string("env.") + ClimateSpecs()[f].key)) { ApplyTimeOfDay(scene.climate); break; }
+    // A keyed time of day moves the sun and the moon with it. Keyed sun angles (the Scene Keys
+    // macros key only those) move the moon too: as for a `climate sunAzimuth` command, the time that
+    // puts the sun there is found first, so the moon rises opposite a sun keyed below the horizon.
+    auto keyed = [&](ClimateField f) { return state->fields.count(std::string("env.") + ClimateSpecs()[f].key) != 0; };
+    if (keyed(CL_timeOfDay) || keyed(CL_sunPath) || keyed(CL_sunHeight)) ApplyTimeOfDay(scene.climate);
+    else if (keyed(CL_sunAzimuth) || keyed(CL_sunElevation)) { TimeOfDayFromSun(scene.climate); ApplyTimeOfDay(scene.climate); }
     scene.enabled=number("env.enabled",scene.enabled)!=0;
     scene.exposure=float(number("env.exposure",scene.exposure));
     auto color=[&](const char* id,Vec3 c) {return Vec3{float(number(id,c.x*255,0)/255),float(number(id,c.y*255,1)/255),float(number(id,c.z*255,2)/255)};};
