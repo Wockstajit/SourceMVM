@@ -1217,7 +1217,7 @@ float4 WeatherPS(ParticleOutput i,uint sample:SV_SampleIndex):SV_Target {
 // world-anchored noise that falls with the particles keeps it from reading as flat fog.
 )HLSL"
 R"HLSL(
-// THE WIND, SEEN, between the camera and what it looks at (Fluid Ninja's way: GustFlow). A sheen
+// THE WIND, SEEN, between the camera and what it looks at (GustFlow). A sheen
 // of streaks carried by the air at its own speed, thickest skimming the streets and thinning up over
 // a couple of storeys: white in snow (a blizzard whites out), grey in rain, dark smoke in ash. And
 // over ground the eye looks down on, streamers running along it, so the floor is seen to move.

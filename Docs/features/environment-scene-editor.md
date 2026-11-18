@@ -527,7 +527,7 @@ the steady wind, rain leans further over and thickens, snow is carried sideways 
 streaks, and far off a front is a curtain of thicker weather. The air itself tumbles: turbulence is
 added in step with its speed, so a gust wanders instead of running in ruled lines.
 
-**The wind is seen the way Fluid Ninja shows it** (`GustFlow`): a pattern carried by the air. All of
+**The wind is seen as a pattern carried by the air** (`GustFlow`). All of
 it rides downwind together at the speed the fronts travel (a rigid slide, which never tears it),
 and where the air at a place moves otherwise it is bent that way by flow mapping (two copies half a
 period apart, cross-faded), by no more than a couple of the pattern's own widths. Carried the whole

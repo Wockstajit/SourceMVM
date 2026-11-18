@@ -39,7 +39,7 @@ bool Outside(int2 q) { return any(q >= Cells()); }
 float4 State(int2 q) { return stateIn.Load(int3(clamp(q, int2(0, 0), Cells() - 1), 0)); }
 float Scalar(int2 q) { return scalarIn.Load(int3(clamp(q, int2(0, 0), Cells() - 1), 0)); }
 float Pressure(int2 q) { return pressureIn.Load(int3(clamp(q, int2(0, 0), Cells() - 1), 0)); }
-// WALLS, TURBULENCE AND A SPRINGY PRESSURE, after FluidNinja Live (chosen over the plain solver in a
+// WALLS, TURBULENCE AND A SPRINGY PRESSURE (chosen over the plain solver in a
 // side-by-side, 2026-11-16). The fog cannot pass a WALL: it piles against it, flows round its ends and
 // its wakes come back off it. TURBULENCE is added only where the air moves (Force). And the pressure
 // is SPRINGY: a few relaxations a step on a pressure that carries over, so a shove sends a soft swell

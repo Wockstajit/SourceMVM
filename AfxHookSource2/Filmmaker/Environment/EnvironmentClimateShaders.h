@@ -23,7 +23,7 @@ R"HLSL(
 // WIND GUSTS: THE AIR, AS EVERY PASS READS IT. The air is a fluid over the whole map
 // (EnvironmentWindFluid.h, bound at t42 for the composite, the particles and the veil): gust fronts
 // sweep downwind through it, it squeezes down streets and curls round buildings.
-// IT IS SHOWN THE WAY FLUID NINJA SHOWS WIND: a pattern carried by the air's own velocity (flow
+// IT IS SHOWN AS A PATTERN CARRIED BY THE AIR, at the air's own velocity (flow
 // mapping), so what the wind carries streams down a street at the speed the air moves there, bends
 // round a corner and curls in the lee of a house. In the air it is a sheen of streaks (white in snow,
 // grey in rain, dark in ash); on the ground it is what the gust does to the surface: wavelets that
@@ -1001,7 +1001,7 @@ R"HLSL(
         float2 slope=RainImpulse(q,max(length(ddx(q)),length(ddy(q))),climateClock.x);
         wetNormal=normalize(wetNormal+float3(slope*exposure*up*CL_ripple,0));
     }
-    // GUSTS OVER WATER (Fluid Ninja's windy water): where a gust runs over the wet street and the
+    // GUSTS OVER WATER: where a gust runs over the wet street and the
     // puddles it raises wavelets, crests across the wind, carried downwind. They break up what the
     // film mirrors, so the gust is seen as a rougher, darker patch sweeping over the water, its
     // wavelets glinting where they catch the sun.

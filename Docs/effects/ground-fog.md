@@ -74,7 +74,7 @@ grid. Without map data the floor is the fog's Base height.
 **The fluid.** One grid covers the whole map, with square cells of at least 8 units and at most 1024
 cells a side. It runs Stable Fluids on the GPU: advection, a pressure solve, vorticity confinement
 for the eddies and a faint divergence-free stir so still air does not look frozen. Three things were
-added after FluidNinja Live, chosen over the plain solver in a side-by-side on 2026-11-16. Walls: the
+added, chosen over the plain solver in a side-by-side on 2026-11-16. Walls: the
 fog cannot pass a step of 56 units within two cells, read from the weather cover volume a few rows a
 frame, so it piles against walls, flows round their ends and wakes come back off them (until the
 cover is baked the fog flows through). Turbulence only where the air is moving, in step with how
