@@ -69,8 +69,9 @@ clouds and the 3D skybox are painted the background colour, so the sky can be ke
 editor and another one put in; every surface of the map keeps its colour. It is the compositor's
 `SkySwap` mask (5): everything past the sky cutoff by depth is background. It is applied in place at
 the BeforeUi boundary of every render, after the Environment's sky, fog, clouds and weather and
-before the lens and the captures, so every pass of a job has it and Key, Depth and Normal are built
-from a scene that has it. It shows live while the Render workspace is open, and in every recording.
+before the lens and the captures, so Beauty has it and Key is built from a scene that has it. Depth
+and Normal are worked out from depth, not from the painted colour, so while the switch is on the
+compositor paints their sky (past the same cutoff) the background colour itself. It shows live while the Render workspace is open, and in every recording.
 EXR output gets it too: those frames are read from the HDR scene target, and the key is drawn into
 that copy after the Environment, as in the 8-bit frame.
 The depth it keys by is bound for this mask as for the players and live gun masks. A take's

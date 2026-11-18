@@ -37,7 +37,7 @@
 
 cbuffer PS_CONSTANT_BUFFER : register(b0)
 {
-	int4 modeMask;        // x = mode, y = mask
+	int4 modeMask;        // x = mode, y = mask, z = 1: the green-screen sky in a Depth or Normal pass
 	float4 keyIn;         // rgb = internal chroma key, a = match tolerance
 	float4 keyOut;        // rgb = output background colour
 	float4 nearFar;       // x = near units (white), y = far units (black), z = sky cutoff units
@@ -290,6 +290,14 @@ float4 ComposePixel(PS_INPUT i)
 		float g = floor((raw - r) * 65025.0) / 255.0;
 		float bb = frac((raw - r) * 65025.0);
 		return float4(r, g, bb, 1.0);
+	}
+
+	// The green-screen sky (RenderPasses::keySky) in the Depth and Normal passes: they are worked out
+	// from depth, not from the painted colour, so their sky takes the background colour here, past
+	// the same cutoff the Beauty sky mask (5) uses.
+	if (modeMask.z != 0 && (mode == 1 || mode == 2)) {
+		float skyDist = useRef ? CameraDepth(refDepthTex, px) : CameraDepth(depthTex, px);
+		if (skyDist > nearFar.z) return float4(keyOut.rgb, 1.0);
 	}
 
 	if (subject < 0.5) return float4(0.0, 0.0, 0.0, 1.0);

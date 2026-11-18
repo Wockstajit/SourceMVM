@@ -3251,6 +3251,12 @@ static void AfxRenderSkyKey(ID3D11DeviceContext* pDeviceContext, ID3D11RenderTar
     }
     texture->Release();
 }
+// The green-screen sky is drawn now (as AfxRenderSkyKey decides). The Depth and Normal passes are
+// worked out from depth, so they are told to paint their sky the background colour as well.
+static bool AfxSkyKeyOn() {
+    std::lock_guard<std::mutex> lock(g_SkyKeyMutex);
+    return g_SkyKey.on && (g_SkyKey.live || AfxStreams_IsRcording());
+}
 // Engine thread: the live view of a Players Only pass needs this frame's World Only depth, so the
 // render loop adds one output-less World Only render per frame while it is on (masked one frame
 // later; identical while paused).
@@ -3288,6 +3294,7 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
     // Players Only: masked by depth against the live World Only reference render, like a job.
     params.worldRef = live.elements == (int)Filmmaker::VisibleElements::OnlyPlayers;
     AfxFillPassFrame(params);
+    params.keySky = AfxSkyKeyOn();
     const bool ok = AfxRenderPass::ComposeInto(pDeviceContext, texture, g_pCurrentDepthStencilView, params, pTarget);
     if (Filmmaker::MvmDebugLog_Active()) {
         static int s_lastType = -1, s_lastElements = -1, s_lastOk = -1;
@@ -5997,6 +6004,7 @@ private:
                         queue.Push([capture, params](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture) mutable {
                             {
                                 AfxFillPassFrame(params);
+                                params.keySky = AfxSkyKeyOn();
                                 if (Filmmaker::MvmDebugLog_Active()) {
                                     static std::atomic<unsigned> s_projLogs{0};
                                     if (s_projLogs.fetch_add(1, std::memory_order_relaxed) < 6)

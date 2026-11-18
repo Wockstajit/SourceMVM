@@ -31,6 +31,9 @@ struct ComposeParams {
 	// Players Only: mask by depth against this frame's World Only render (StoreWorldReference)
 	// instead of by colour alone. Set by a render job, whose plan renders World Only first.
 	bool worldRef = false;
+	// Depth and Normal: the sky (past skyCutoff) in keyOut, while the green-screen sky is on
+	// (RenderPasses::keySky). Beauty and Key get it from the SkySwap mask on the scene itself.
+	bool keySky = false;
 };
 
 void BeginDevice(ID3D11Device* device);

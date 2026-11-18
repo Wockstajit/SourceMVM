@@ -281,7 +281,7 @@ public:
 		color->GetDesc(&cd);
 		Surface& colorCopy = TypedFromTypeless(cd.Format) == DXGI_FORMAT_R16G16B16A16_FLOAT ? m_ColorWide : m_Color;
 		PS_CONSTANT_BUFFER cb = {};
-		cb.modeMask[0] = p.mode; cb.modeMask[1] = worldRef ? 3 : p.mask;
+		cb.modeMask[0] = p.mode; cb.modeMask[1] = worldRef ? 3 : p.mask; cb.modeMask[2] = p.keySky ? 1 : 0;
 		for (int k = 0; k < 4; ++k) cb.keyIn[k] = p.keyIn[k];
 		cb.keyOut[0] = p.keyOut[0]; cb.keyOut[1] = p.keyOut[1]; cb.keyOut[2] = p.keyOut[2]; cb.keyOut[3] = 1.0f;
 		cb.nearFar[0] = p.nearUnits; cb.nearFar[1] = p.farUnits; cb.nearFar[2] = p.skyCutoff;
