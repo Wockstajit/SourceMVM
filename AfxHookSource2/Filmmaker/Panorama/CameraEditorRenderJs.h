@@ -891,6 +891,11 @@ R"EDJS(
     })(rpk);
     var rpKeyNote = rsNote(rkKeyCol, '', 6);
     rpKeyNote.style.fontSize = '11px';
+    // GREEN-SCREEN SKY: the sky in this background colour in every pass, to key it out and put in
+    // another sky (RenderPasses::keySky). Live while this workspace is open.
+    var rpKeySkyTog = edSwitchTile(rkKeyCol, T('Green-screen sky'), T('Paints the sky, its clouds and the far skybox in the background colour, in every pass and live while Render is open, so the sky can be keyed out and another put in. The map itself keeps its colours.'), function () {
+      cmd('mirv_filmmaker render pass keysky ' + ((st && st.render && st.render.pass && st.render.pass.keySky) ? 0 : 1));
+    });
 )EDJS"
 R"EDJS(
     rsCaption(rkDepthCol, T('DEPTH RANGE'));
@@ -1488,14 +1493,16 @@ R"EDJS(
            + TN(rpRenders, '{0} render per frame', '{0} renders per frame'));
       rpSummary.style.color = rpList.length === 0 ? RENDER_ERROR_TEXT : RS_MUTED;
       var rpKey = pass.key || [0, 255, 0];
-      var rpKeyUsed = rpHas('key', 'players') || rpHas('key', 'gun');
+      rpKeySkyTog.set(!!pass.keySky);
+      var rpKeyUsed = rpHas('key', 'players') || rpHas('key', 'gun') || !!pass.keySky;
       for (var rkb = 0; rkb < rpKeyBtns.length; rkb++) {
         var kc = RP_KEYS[rkb][1], kon = kc[0] === rpKey[0] && kc[1] === rpKey[1] && kc[2] === rpKey[2];
         if (rpKeyBtns[rkb].__on !== kon) { rpKeyBtns[rkb].__on = kon; rpKeyBtns[rkb].__paint(rpKeyBtns[rkb]); }
       }
       rpKeyGroup.style.opacity = rpKeyUsed ? '1.0' : '0.35';
       rpKeyGroup.hittestchildren = rpKeyUsed;
-      rpKeyNote.text = rpKeyUsed ? T('The background of the Key passes.') : T('Turn on Key for Players only or Gun only to use this.');
+      rpKeyNote.text = rpKeyUsed ? (pass.keySky ? T('The background of the Key passes and the colour of the sky.') : T('The background of the Key passes.'))
+        : T('Turn on Key for Players only or Gun only, or Green-screen sky, to use this.');
       rpKeyNote.style.color = rpKeyUsed ? RS_MUTED : RS_DIM;
       var rpDepthUsed = false;
       for (var rdi = 0; rdi < rpList.length; rdi++) rpDepthUsed = rpDepthUsed || rpList[rdi].type === 'depth';

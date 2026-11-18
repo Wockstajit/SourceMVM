@@ -417,6 +417,8 @@
  "Fill the background of Players only and Gun only with magenta.": "將「僅玩家」與「僅槍械」的背景填成洋紅色。",
  "Black": "黑色",
  "Fill the background of Players only and Gun only with black.": "將「僅玩家」與「僅槍械」的背景填成黑色。",
+ "Green-screen sky": "綠幕天空",
+ "Paints the sky, its clouds and the far skybox in the background colour, in every pass and live while Render is open, so the sky can be keyed out and another put in. The map itself keeps its colours.": "在每個通道中，並在開啟「算圖」時即時，把天空、雲和遠方的天空盒塗成背景色，這樣就能把天空去背，再換上別的。地圖本身的顏色不變。",
  "DEPTH RANGE": "深度範圍",
  "Near": "近",
  "Units from the camera that render white.": "與攝影機相距多少單位時呈現白色。",
@@ -513,8 +515,9 @@
  "{0} render per frame || {0} renders per frame": [
   "每個影格 {0} 次算圖"
  ],
+ "The background of the Key passes and the colour of the sky.": "去背通道的背景，以及天空的顏色。",
  "The background of the Key passes.": "去背通道的背景。",
- "Turn on Key for Players only or Gun only to use this.": "請為「僅玩家」或「僅槍械」開啟去背以使用此項。",
+ "Turn on Key for Players only or Gun only, or Green-screen sky, to use this.": "請先為「僅玩家」或「僅槍械」開啟去背，或開啟「綠幕天空」，才能使用此項。",
  "White at near, black at far. Normals are view space.": "近處為白，遠處為黑。法線為檢視空間。",
  "Turn on a Depth pass to use this.": "開啟深度通道即可使用。",
  "Choosing… (a folder dialog is open)": "選擇中…（已開啟資料夾對話框）",

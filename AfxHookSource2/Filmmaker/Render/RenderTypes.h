@@ -79,8 +79,12 @@ struct RenderPasses {
 	// afterwards). Blood the Players Only render cannot skip is otherwise tinted into the key.
 	bool blood = true;
 	std::vector<PassConfig> passes{ PassConfig{} }; // Beauty + Everything
-	// Isolation background colour (Players only / Gun only), 0..1.
+	// Isolation background colour (Players only / Gun only, and the green-screen sky), 0..1.
 	float keyColor[3] = {0.0f, 1.0f, 0.0f};
+	// GREEN-SCREEN SKY: the sky (with its clouds and the 3D skybox) painted the key colour in every
+	// pass, so it can be keyed out and another sky put in. Shown live while the Render workspace is
+	// open, and in every render (PassMask::SkySwap, applied at the BeforeUi boundary).
+	bool keySky = false;
 	// Depth passes: white at depthNear, black at depthFar (world units, linear).
 	float depthNear = 8.0f;
 	float depthFar = 4096.0f;

@@ -64,6 +64,14 @@ Every pass other than a direct Beauty capture goes through [`RenderPassComposito
 
 The compositor applies the background colour (`render pass key`), so any colour works.
 
+**Green-screen sky** (`render pass keysky 1`, the switch under the background colour). The sky, its
+clouds and the 3D skybox are painted the background colour, so the sky can be keyed out in an
+editor and another one put in; every surface of the map keeps its colour. It is the compositor's
+`SkySwap` mask (5): everything past the sky cutoff by depth is background. It is applied in place at
+the BeforeUi boundary of every render, after the Environment's sky, fog, clouds and weather and
+before the lens and the captures, so every pass of a job has it and Key, Depth and Normal are built
+from a scene that has it. It shows live while the Render workspace is open, and in every recording.
+
 ## Lens effects
 
 Depth of field and the lens flare ([Lens](filmmaker_lens.md)) are Beauty effects. The lens runs over each render at its BeforeUi boundary, before the captures, so the job decides per render what it gets (`CRenderPassCommands::SkipLens`, `KeepCleanColor`, `HoldLensFocus`, set when the render begins):
@@ -91,6 +99,7 @@ mirv_filmmaker render pass preview <type> <elements> | off   live view in the wo
 mirv_filmmaker render pass hud none|game|full
 mirv_filmmaker render pass cameradata 0|1
 mirv_filmmaker render pass blood 0|1                         0: no blood during the job
+mirv_filmmaker render pass keysky 0|1                        1: the sky in the background colour
 ```
 
 **Live view.** The Passes tab lists exactly the passes the job renders (`Normal · World only`, `Depth · Players only`, ...). It shows the chosen one on the camera view while the workspace is open. The view uses the visibility group through the same scene draw policies a job uses. For Depth, Normal and Key, it runs the same pass compositor (`AfxRenderPass::ComposeInto`) over the scene before the UI, with the current depth range and key colour, and without the lens, like the job. Turning a pass off drops it from the view. A running job stands the live view down.

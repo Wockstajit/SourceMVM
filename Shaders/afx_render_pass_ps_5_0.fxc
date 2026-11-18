@@ -17,6 +17,7 @@
 //                      render (NoGun) -- the muzzle flash and first-person particles; colour and
 //                      depth then come from the reference. Depth and Normal take the band alone
 //   mask 4 GunBand  -- the gun in the live view, from one render: its viewmodel depth band
+//   mask 5 SkySwap  -- the sky, its clouds and the 3D skybox are background (the green-screen sky)
 //   mask 3 PlayersDepth -- Players only in a render job, taken from the NoGun render: the subject
 //                      is what is CLOSER than the World Only render of the same frame (t4). Props,
 //                      wires, decals and lighting all sit AT world depth, so they are background
@@ -273,6 +274,10 @@ float4 ComposePixel(PS_INPUT i)
 	} else if (mask == 4) {
 		// Live gun view: one render, so only the band (no muzzle flash, which needs the second render).
 		subject = ViewmodelBand(LoadRaw(depthTex, px)) ? 1.0 : 0.0;
+	} else if (mask == 5) {
+		// The green-screen sky: everything past the sky cutoff (the sky, its clouds, the 3D skybox) is
+		// the background, every surface of the map keeps its colour.
+		subject = CameraDepth(depthTex, px) > nearFar.z ? 0.0 : 1.0;
 	}
 
 	if (mode == 0 || mode == 3) {

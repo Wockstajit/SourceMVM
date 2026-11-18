@@ -417,6 +417,8 @@
  "Fill the background of Players only and Gun only with magenta.": "플레이어만 패스와 총만 패스의 배경을 마젠타색으로 채웁니다.",
  "Black": "검정",
  "Fill the background of Players only and Gun only with black.": "플레이어만 패스와 총만 패스의 배경을 검은색으로 채웁니다.",
+ "Green-screen sky": "그린스크린 하늘",
+ "Paints the sky, its clouds and the far skybox in the background colour, in every pass and live while Render is open, so the sky can be keyed out and another put in. The map itself keeps its colours.": "모든 패스에서, 그리고 렌더를 열어 둔 동안 실시간으로 하늘과 구름, 먼 스카이박스를 배경색으로 칠해 하늘을 키잉으로 지우고 다른 하늘을 넣을 수 있게 합니다. 맵 자체의 색은 그대로입니다.",
  "DEPTH RANGE": "깊이 범위",
  "Near": "근거리",
  "Units from the camera that render white.": "카메라에서 이 유닛 거리까지 흰색으로 렌더됩니다.",
@@ -513,8 +515,9 @@
  "{0} render per frame || {0} renders per frame": [
   "프레임당 렌더 {0}회"
  ],
+ "The background of the Key passes and the colour of the sky.": "키잉 패스의 배경과 하늘의 색입니다.",
  "The background of the Key passes.": "키잉 패스의 배경입니다.",
- "Turn on Key for Players only or Gun only to use this.": "사용하려면 플레이어만 또는 총만 패스에서 키잉을 켜세요.",
+ "Turn on Key for Players only or Gun only, or Green-screen sky, to use this.": "이 기능을 쓰려면 키잉에서 플레이어만 또는 총만, 또는 그린스크린 하늘을 켜세요.",
  "White at near, black at far. Normals are view space.": "근거리는 흰색, 원거리는 검은색입니다. 노멀은 뷰 공간 기준입니다.",
  "Turn on a Depth pass to use this.": "사용하려면 깊이 패스를 켜세요.",
  "Choosing… (a folder dialog is open)": "선택 중… (폴더 대화 상자가 열려 있음)",

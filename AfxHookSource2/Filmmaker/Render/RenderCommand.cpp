@@ -148,6 +148,9 @@ void Render_ApplyLivePreview() {
 	if (RenderSessionDriver_IsActive())
 		return;
 	const RenderPasses& passes = RenderPassesRef();
+	// The green-screen sky: live while the workspace is open, and in every render (a job starts from
+	// the open workspace, so it is set by then and a running job keeps it).
+	AfxStreams_SetSkyKey(passes.keySky, s_modalOpen, passes.keyColor);
 	const PassConfig live = s_modalOpen ? passes.preview : PassConfig{};
 	const VisibleElements e = live.elements;
 	AfxStreams_SetLivePassPreview((int)live.type, (int)live.elements, passes.depthNear, passes.depthFar, passes.keyColor);
@@ -382,6 +385,7 @@ std::string Render_BuildStateJson() {
 		<< "\"hud\":" << (int)passes.hud
 		<< ",\"cameraData\":" << (passes.cameraData ? "true" : "false")
 		<< ",\"blood\":" << (passes.blood ? "true" : "false")
+		<< ",\"keySky\":" << (passes.keySky ? "true" : "false")
 		<< ",\"key\":[" << (int)(passes.keyColor[0] * 255.0f + 0.5f) << "," << (int)(passes.keyColor[1] * 255.0f + 0.5f)
 		<< "," << (int)(passes.keyColor[2] * 255.0f + 0.5f) << "]"
 		<< ",\"depthNear\":" << passes.depthNear
@@ -1033,6 +1037,9 @@ static void RunPassCommand(int argc, advancedfx::ICommandArgs* args, const char*
 	} else if (0 == _stricmp(sub, "blood")) {
 		if (!val) { advancedfx::Warning("usage: %s render pass blood 0|1\n", cmd); return; }
 		p.blood = (0 != atoi(val));
+	} else if (0 == _stricmp(sub, "keysky")) {
+		if (!val) { advancedfx::Warning("usage: %s render pass keysky 0|1\n", cmd); return; }
+		p.keySky = (0 != atoi(val));
 	} else {
 		advancedfx::Warning("%s: unknown pass setting '%s'.\n", cmd, sub);
 		return;
