@@ -49,8 +49,13 @@ Vec3 Vector(const JsonValue &v, const char *key, float lo, float hi) {
 bool Boolean(const JsonValue &v, const char *key) { return Field(v, key, JsonValue::Type::Bool).boolean; }
 } // namespace
 void ResetScenePage(Scene &next, const std::string &resetPage) {
-    if (resetPage == "all") {
+    // "all" is the whole saved scene, the world look included (the skybox, tints, engine sun and
+    // exposure the Effects tab owns, which a scene preset also carries). "environment" is what the
+    // Environment tab's RESET means: everything on that tab, and the world look left exactly as it is.
+    if (resetPage == "all" || resetPage == "environment") {
+        const WorldLook world = next.world;
         next = Scene{};
+        if (resetPage == "environment") next.world = world;
         ResetClimatePage(next.climate, "all");
     }
     else {
@@ -236,6 +241,9 @@ bool ParseScene(const std::string &json, Scene &out, std::string &error) {
         }
         s.climate[CL_ssr] = 0;
         s.climate[CL_gi] = 0;
+        // A scene saved before the time of day kept only the sun's angles: the time that puts the
+        // sun there is worked out, and the moon placed from it. A newer one holds both, as saved.
+        if (!values.Find(ClimateSpecs()[CL_timeOfDay].key)) { TimeOfDayFromSun(s.climate); ApplyTimeOfDay(s.climate); }
         s.enabled = Boolean(root, "enabled");
         s.map = Field(root, "map", JsonValue::Type::String).str;
         if (s.map.size() > 128)

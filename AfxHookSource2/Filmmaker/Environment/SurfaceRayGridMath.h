@@ -75,11 +75,18 @@ inline void TriangleCellRange(const Vec3 &a, const Vec3 &b, const Vec3 &c,
 
 // Buckets each triangle into every cell its bounding box touches. Two passes (count, then fill)
 // keep this to two flat allocations instead of a vector per cell.
-inline bool BuildSurfaceRayGrid(const OcclusionMesh &world, SurfaceRayGrid &out,
-	float targetTrianglesPerCell = 8.f) {
+// `positions` and `indices` are any triangle list; the OcclusionMesh form below is the map collision.
+// With a box, the grid covers that box only and triangles outside it are left out: a map's distant
+// scenery otherwise stretches the cells until the playable part sits in a handful of them (a bake
+// that takes a second on Inferno took forty on Vertigo, whose box runs down to the street).
+inline bool BuildSurfaceRayGrid(const std::vector<Vec3> &positions, const std::vector<uint32_t> &indices,
+	SurfaceRayGrid &out, float targetTrianglesPerCell = 8.f, const Vec3 *boxLow = nullptr,
+	const Vec3 *boxHigh = nullptr) {
+	struct { const std::vector<Vec3> &positions; const std::vector<uint32_t> &indices; } world{positions, indices};
 	out = SurfaceRayGrid{};
 	const size_t triangleCount = world.indices.size() / 3;
 	if (triangleCount == 0 || world.positions.empty()) return false;
+	const bool boxed = boxLow && boxHigh;
 
 	Vec3 low = world.positions[0], high = world.positions[0];
 	for (const Vec3 &p : world.positions) {
@@ -87,11 +94,28 @@ inline bool BuildSurfaceRayGrid(const OcclusionMesh &world, SurfaceRayGrid &out,
 		low = {std::min(low.x, p.x), std::min(low.y, p.y), std::min(low.z, p.z)};
 		high = {std::max(high.x, p.x), std::max(high.y, p.y), std::max(high.z, p.z)};
 	}
+	size_t kept = triangleCount;
+	auto inside = [&](size_t t) {
+		if (!boxed) return true;
+		const uint32_t i0 = world.indices[t * 3], i1 = world.indices[t * 3 + 1], i2 = world.indices[t * 3 + 2];
+		if (i0 >= world.positions.size() || i1 >= world.positions.size() || i2 >= world.positions.size()) return true;
+		const Vec3 &a = world.positions[i0], &b = world.positions[i1], &c = world.positions[i2];
+		return std::max(a.x, std::max(b.x, c.x)) >= low.x && std::min(a.x, std::min(b.x, c.x)) <= high.x
+			&& std::max(a.y, std::max(b.y, c.y)) >= low.y && std::min(a.y, std::min(b.y, c.y)) <= high.y
+			&& std::max(a.z, std::max(b.z, c.z)) >= low.z && std::min(a.z, std::min(b.z, c.z)) <= high.z;
+	};
+	if (boxed) {
+		low = *boxLow;
+		high = *boxHigh;
+		kept = 0;
+		for (size_t t = 0; t < triangleCount; ++t) kept += inside(t);
+		if (kept == 0) return false;
+	}
 	// A perfectly flat axis (a single ground plane) still needs a non-zero cell size.
 	const float extent[3] = {std::max(1.f, high.x - low.x), std::max(1.f, high.y - low.y),
 		std::max(1.f, high.z - low.z)};
 	const double volume = (double)extent[0] * extent[1] * extent[2];
-	const double wanted = std::max(1.0, (double)triangleCount / std::max(1.f, targetTrianglesPerCell));
+	const double wanted = std::max(1.0, (double)kept / std::max(1.f, targetTrianglesPerCell));
 	const float target = (float)std::cbrt(volume / wanted);
 
 	for (int k = 0; k < 3; ++k) out.dim[k] = detail::GridAxisSteps(extent[k], target);
@@ -117,6 +141,7 @@ inline bool BuildSurfaceRayGrid(const OcclusionMesh &world, SurfaceRayGrid &out,
 		if (i0 >= world.positions.size() || i1 >= world.positions.size()
 			|| i2 >= world.positions.size())
 			return false;
+		if (!inside(t)) continue;
 		detail::TriangleCellRange(world.positions[i0], world.positions[i1], world.positions[i2],
 			out, lo, hi);
 		for (int z = lo[2]; z <= hi[2]; ++z)
@@ -133,6 +158,7 @@ inline bool BuildSurfaceRayGrid(const OcclusionMesh &world, SurfaceRayGrid &out,
 	out.triangles.assign(running, 0);
 	std::vector<uint32_t> cursor(out.cellStart.begin(), out.cellStart.end() - 1);
 	for (size_t t = 0; t < triangleCount; ++t) {
+		if (!inside(t)) continue;
 		detail::TriangleCellRange(world.positions[world.indices[t * 3]],
 			world.positions[world.indices[t * 3 + 1]],
 			world.positions[world.indices[t * 3 + 2]], out, lo, hi);
@@ -142,6 +168,11 @@ inline bool BuildSurfaceRayGrid(const OcclusionMesh &world, SurfaceRayGrid &out,
 					out.triangles[cursor[out.Index(x, y, z)]++] = (uint32_t)t;
 	}
 	return out.Valid();
+}
+
+inline bool BuildSurfaceRayGrid(const OcclusionMesh &world, SurfaceRayGrid &out,
+	float targetTrianglesPerCell = 8.f) {
+	return BuildSurfaceRayGrid(world.positions, world.indices, out, targetTrianglesPerCell);
 }
 
 // Same contract and same answer as SurfaceRaycast, walking only the cells the ray crosses.
@@ -245,6 +276,70 @@ inline bool SurfaceRaycastGrid(const OcclusionMesh &world, const SurfaceRayGrid 
 		nextBoundary[axis] += delta[axis];
 	}
 	return found;
+}
+
+// A ray through any triangle list bucketed by BuildSurfaceRayGrid. Unlike SurfaceRaycastGrid it
+// keeps the triangle's own facing and can stop at the first hit, which is all a shadow or
+// blocked-or-not ray needs. Both faces of a triangle stop the ray.
+struct SurfaceGridRayHit {
+    float distance=0;
+    uint32_t triangle=0;
+    Vec3 normal{};   // toward the ray's origin
+    bool back=false; // the triangle faces away from the ray's origin
+};
+// `direction` must be unit length. With `hit` null the first triangle found ends the ray.
+inline bool SurfaceGridRay(const std::vector<Vec3>& points,const std::vector<uint32_t>& indices,const SurfaceRayGrid& g,
+    Vec3 origin,Vec3 direction,float range,SurfaceGridRayHit* hit) {
+    const float from[3]{origin.x,origin.y,origin.z},dir[3]{direction.x,direction.y,direction.z};
+    const float low[3]{g.low.x,g.low.y,g.low.z},high[3]{g.high.x,g.high.y,g.high.z};
+    float enter=0,leave=range;
+    for(int k=0;k<3;++k){
+        if(std::fabs(dir[k])<1e-9f){if(from[k]<low[k]||from[k]>high[k])return false;continue;}
+        float t0=(low[k]-from[k])/dir[k],t1=(high[k]-from[k])/dir[k];
+        if(t0>t1)std::swap(t0,t1);
+        enter=(std::max)(enter,t0);leave=(std::min)(leave,t1);
+        if(enter>leave)return false;
+    }
+    int cell[3],step[3];float next[3],delta[3];
+    for(int k=0;k<3;++k){
+        const float start=from[k]+dir[k]*enter;
+        cell[k]=std::clamp(int(std::floor((start-low[k])*g.inverseCell[k])),0,g.dim[k]-1);
+        if(std::fabs(dir[k])<1e-9f){step[k]=0;next[k]=delta[k]=leave+1;continue;}
+        step[k]=dir[k]>0?1:-1;
+        const float edge=low[k]+(cell[k]+(dir[k]>0?1:0))*g.cell[k];
+        next[k]=enter+(edge-start)/dir[k];delta[k]=std::fabs(g.cell[k]/dir[k]);
+    }
+    const size_t triangles=indices.size()/3;
+    float nearest=range;bool found=false;
+    for(;;){
+        const int index=g.Index(cell[0],cell[1],cell[2]);
+        for(uint32_t s=g.cellStart[index];s<g.cellStart[index+1];++s){
+            const uint32_t t=g.triangles[s];if(t>=triangles)continue;
+            const Vec3 a=points[indices[t*3]],e1=points[indices[t*3+1]]-a,e2=points[indices[t*3+2]]-a;
+            const Vec3 p=Cross(direction,e2);
+            const float determinant=Dot(e1,p);
+            if(std::fabs(determinant)<1e-7f)continue;
+            const float inverse=1/determinant;
+            const Vec3 offset=origin-a;
+            const float u=Dot(offset,p)*inverse;if(u<0||u>1)continue;
+            const Vec3 q=Cross(offset,e1);
+            const float v=Dot(direction,q)*inverse;if(v<0||u+v>1)continue;
+            const float distance=Dot(e2,q)*inverse;
+            if(distance<=.01f||distance>=nearest)continue;
+            if(!hit)return true;
+            nearest=distance;found=true;
+            Vec3 normal=Normalize(Cross(e1,e2));
+            hit->back=Dot(normal,direction)>0;
+            hit->normal=hit->back?normal*-1.f:normal;hit->distance=distance;hit->triangle=t;
+        }
+        const int axis=next[0]<next[1]?(next[0]<next[2]?0:2):(next[1]<next[2]?1:2);
+        // A hit before this cell's far side is the nearest: later cells only hold further ones.
+        if(next[axis]>leave||(found&&next[axis]>=nearest))break;
+        cell[axis]+=step[axis];
+        if(cell[axis]<0||cell[axis]>=g.dim[axis])break;
+        next[axis]+=delta[axis];
+    }
+    return found;
 }
 
 } // namespace Filmmaker::Environment

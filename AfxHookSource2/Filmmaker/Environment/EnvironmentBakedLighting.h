@@ -9,7 +9,8 @@ namespace Filmmaker::Environment {
 // (EnvironmentNativeMaterial.cpp, CL_bakedSuppressed).
 void SetEngineLightingTakeover(bool on);
 void ResetEngineLightingTakeover();
-void SetEngineSunDiscSuppressed(bool on);
+// `hideClouds`: the map's own clouds (CloudFx_SetEnvironmentHidden) are hidden too.
+void SetEngineSunDiscSuppressed(bool on, bool hideClouds);
 void ResetEngineSunDiscSuppression();
 // Persistence captures the user's choices, not the temporary forced-off takeover state.
 void CaptureNativeLighting(bool &lights, bool &baked, bool &dynamic);

@@ -30,6 +30,7 @@ struct State {
     D3D11_TEXTURE2D_DESC depthDesc{};
     UINT width=0,height=0;
     bool prepared=false,ready=false;
+    bool provisional=false; // the last call answered "no result yet this frame"
 } state;
 struct Row {float x,y,z,w;};
 struct Parameters {
@@ -72,8 +73,10 @@ void BeginSunVisibility(ID3D11Device* device){
     state.ready=SUCCEEDED(device->CreateBuffer(&cb,nullptr,&state.constants))&&
         SUCCEEDED(device->CreateSamplerState(&sd,&state.comparison));
 }
-void NextSunVisibilityFrame(){state.prepared=false;state.preparedDepth.Reset();}
+void NextSunVisibilityFrame(){state.prepared=false;state.preparedDepth.Reset();state.provisional=false;}
+bool SunVisibilityProvisional(){return state.provisional;}
 ID3D11ShaderResourceView* SunVisibility(ID3D11DeviceContext* immediate,const D3D11_VIEWPORT& vp,const SunVisibilityInput& in){
+    state.provisional=false;
     if(!state.ready||!immediate||!in.cascades||!in.rects||!in.atlas||!in.clipToWorld||
        !AmbientViewport(vp.Width,vp.Height,vp.MinDepth,vp.MaxDepth))return nullptr;
     ComPtr<ID3D11DepthStencilView> dsv;immediate->OMGetRenderTargets(0,nullptr,&dsv);
@@ -93,7 +96,8 @@ ID3D11ShaderResourceView* SunVisibility(ID3D11DeviceContext* immediate,const D3D
     // would be cached for the whole frame.
     ComPtr<ID3D11DepthStencilState> depthState;UINT stencil=0;immediate->OMGetDepthStencilState(&depthState,&stencil);
     D3D11_DEPTH_STENCIL_DESC dd{};if(depthState)depthState->GetDesc(&dd);
-    if(!dd.DepthEnable||(dd.DepthWriteMask!=D3D11_DEPTH_WRITE_MASK_ZERO&&dd.DepthFunc!=D3D11_COMPARISON_EQUAL))return nullptr;
+    // Not yet: a later draw of this frame, after the prepass, gets the result.
+    if(!dd.DepthEnable||(dd.DepthWriteMask!=D3D11_DEPTH_WRITE_MASK_ZERO&&dd.DepthFunc!=D3D11_COMPARISON_EQUAL)){state.provisional=true;return nullptr;}
     const bool reversed=dd.DepthFunc==D3D11_COMPARISON_GREATER||dd.DepthFunc==D3D11_COMPARISON_GREATER_EQUAL;
     RenderPrivateTextureScope privateTextures;if(!Targets(depth.Get(),source))return nullptr;
     Parameters p{};p.clipToWorld=*in.clipToWorld;
@@ -101,7 +105,7 @@ ID3D11ShaderResourceView* SunVisibility(ID3D11DeviceContext* immediate,const D3D
     p.thresholds={.985f,.985f,.985f,1.f};
     p.camera={in.camera.x,in.camera.y,in.camera.z,0};
     p.viewport={vp.TopLeftX,vp.TopLeftY,vp.Width,vp.Height};
-    p.depthInfo={vp.MinDepth,vp.MaxDepth-vp.MinDepth,reversed?1.f:0.f,0};
+    p.depthInfo={vp.MinDepth,vp.MaxDepth-vp.MinDepth,reversed?1.f:0.f,in.summary?float(in.summaryLevels):0.f};
     p.sun={in.tanHalfAngle,in.bias,in.tileSize,in.maxSearchDistance};
     p.atlas={in.atlasWidth,in.atlasHeight,1.f/in.atlasWidth,1.f/in.atlasHeight};
     // Fixed world-space quadrature: calculate trigonometry once on the CPU,
@@ -117,20 +121,20 @@ ID3D11ShaderResourceView* SunVisibility(ID3D11DeviceContext* immediate,const D3D
     ctx->CSGetShader(previousShader.GetAddressOf(),previousInstances,&previousInstanceCount);
     ID3D11Buffer* previousConstants=nullptr;ctx->CSGetConstantBuffers(0,1,&previousConstants);
     ID3D11SamplerState* previousSampler=nullptr;ctx->CSGetSamplers(0,1,&previousSampler);
-    ID3D11ShaderResourceView* previousViews[2]{};ctx->CSGetShaderResources(0,2,previousViews);
+    ID3D11ShaderResourceView* previousViews[3]{};ctx->CSGetShaderResources(0,3,previousViews);
     ID3D11UnorderedAccessView* previousUav=nullptr;ctx->CSGetUnorderedAccessViews(0,1,&previousUav);
     DepthReadScope depthReadScope(ctx,state.depthRead);
     ctx->UpdateSubresource(state.constants.Get(),0,nullptr,&p,0,0);
     auto cb=state.constants.Get();ctx->CSSetConstantBuffers(0,1,&cb);
-    ID3D11ShaderResourceView* views[2]{state.depthRead.View(),in.atlas};ctx->CSSetShaderResources(0,2,views);
+    ID3D11ShaderResourceView* views[3]{state.depthRead.View(),in.atlas,in.summary};ctx->CSSetShaderResources(0,3,views);
     auto sampler=state.comparison.Get();ctx->CSSetSamplers(0,1,&sampler);
     auto uav=state.resultUav.Get();ctx->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
     ctx->CSSetShader(state.visibility[shader].Get(),nullptr,0);
     {GPU_PASS_SCOPE(ctx,"sun visibility (screen)");ctx->Dispatch((source.Width+7)/8,(source.Height+7)/8,1);}
     uav=nullptr;ctx->CSSetUnorderedAccessViews(0,1,&uav,nullptr);
-    ID3D11ShaderResourceView* noViews[2]{};ctx->CSSetShaderResources(0,2,noViews);
+    ID3D11ShaderResourceView* noViews[3]{};ctx->CSSetShaderResources(0,3,noViews);
     UINT keepCounter=~0u;ctx->CSSetUnorderedAccessViews(0,1,&previousUav,&keepCounter);
-    ctx->CSSetShaderResources(0,2,previousViews);ctx->CSSetSamplers(0,1,&previousSampler);ctx->CSSetConstantBuffers(0,1,&previousConstants);
+    ctx->CSSetShaderResources(0,3,previousViews);ctx->CSSetSamplers(0,1,&previousSampler);ctx->CSSetConstantBuffers(0,1,&previousConstants);
     ctx->CSSetShader(previousShader.Get(),previousInstances,previousInstanceCount);
     for(UINT i=0;i<previousInstanceCount;++i)if(previousInstances[i])previousInstances[i]->Release();
     for(auto* view:previousViews)if(view)view->Release();

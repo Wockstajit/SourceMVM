@@ -28,6 +28,18 @@ int main(int argc,char** argv){
         Check(VfxShotPointAt(camera,distant,false,VfxShotEnd).radius==0&&VfxShotPointAt(camera,distant,false,-.01).radius==0,"Before the shot and after it there is nothing there");
         Check(VfxShotPointAt(camera,camera,true,0).radius==0,"A muzzle exactly at the lens has no direction to place it in");
     }
+    {
+        // weapon_fire is raised by a click on an empty magazine as well as by a shot.
+        VfxShotMemory gun;
+        Check(!VfxDryFire(gun,7,2)&&!VfxDryFire(gun,7,1)&&!VfxDryFire(gun,7,0),"Every round of a magazine is a shot, the last one included");
+        Check(VfxDryFire(gun,7,0)&&VfxDryFire(gun,7,0),"A click on the emptied magazine is not a shot");
+        Check(!VfxDryFire(gun,7,29),"After a reload the gun fires again");
+        Check(!VfxDryFire(gun,9,0)&&!VfxDryFire(gun,9,0),"A weapon never seen holding rounds is not taken for empty");
+        VfxShotMemory unread;
+        Check(!VfxDryFire(unread,-1,-1)&&!VfxDryFire(unread,7,-1),"A magazine that cannot be read never silences a shot");
+        VfxShotMemory swapped;VfxDryFire(swapped,7,1);VfxDryFire(swapped,7,0);
+        Check(!VfxDryFire(swapped,8,0),"Switching to another empty-reading weapon is not a dry click of the first");
+    }
     Check(std::abs(VfxLightEnergy(shot,10+VfxMuzzleDuration*.5)-.5f)<.001f,"Muzzle illumination decays during the shot instead of holding a lamp-like plateau");
     Check(VfxLightEnergy(shot,10+VfxMuzzleDuration*.9)<.03f,"Late muzzle smoke is not lit by a lingering flash");
     Check(VfxLightEnergy(shot,10+VfxMuzzleDuration)==0&&VfxLightEnergy(shot,9)==0,"Expired or future shots emit no muzzle light");

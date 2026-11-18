@@ -3,6 +3,8 @@
 #define NOMINMAX
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentRender.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentGroundFog.h"
+#include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentGameTextures.h"
+#include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentReflectionProbes.h"
 #include <wrl/client.h>
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentSurfaceMath.h"
 #include <iostream>
@@ -41,6 +43,18 @@ namespace Filmmaker::Environment {
 unsigned drawn = 0;
 // The native CS2 rain lives in the hook (engine particle manager); off in a standalone device test.
 bool NativeRainActive() { return false; }
+// CS2's own textures are read from the installed game; a standalone device test keeps the
+// procedural snow and wet ground, so its images do not depend on the install or on load timing.
+GameTexturesBound BindGameTextures(ID3D11Device *, ID3D11DeviceContext *, bool, bool) { return {}; }
+std::string GameTexturesStatus() { return "test"; }
+void ReleaseGameTextures() {}
+// The wet film's off-screen reflections read CS2's probes and its tone curve from a running game;
+// a standalone device test has neither, so the film keeps its own fallback (mode 0).
+void ReflectionProbes_Want(bool) {}
+ReflectionProbeConstants ReflectionProbes_Bind(ID3D11DeviceContext *, const float *, bool) { return {}; }
+void ReflectionProbes_EndPresent() {}
+void ReflectionProbes_Release() {}
+std::string ReflectionProbes_Status() { return "test"; }
 void SetRenderStatus(const char *status, bool frame) {
     std::cout << status << '\n';
     if (frame)
@@ -534,7 +548,13 @@ int main(int argc, char **argv) {
         frame.occlusion=roof;frame.scene.weather.shelter=true;auto sheltered=render(.004f);Check(sheltered==dry,"Offscreen roof blocks precipitation without any lighting feature enabled");
         frame.angles.y=180;render(.004f);frame.angles.y=0;Check(render(.004f)==sheltered,"Roof occlusion survives camera turns");
         auto ground=std::make_shared<OcclusionMesh>(*roof);for(auto &p:ground->positions)p.z=-64;ground->low.z=ground->high.z=-64;frame.occlusion=ground;
-        Check(render(.004f)==exposed,"Removing the roof exposes precipitation above the ground");
+        // Within one level, not identical: a map with geometry ends its far snow veil at the map's edge
+        // (faded over 192 units) and one without ends it ten weather radii out. With the flake sizes
+        // of 2026-11-15 that is a one-level difference on flake pixels; the sky map does not enter
+        // into it (the same difference is there with shelter off).
+        {auto open=render(.004f);bool same=open.size()==exposed.size();int flakes=0;
+            for(size_t q=0;same&&q<open.size();++q){same=std::abs(int(open[q])-int(exposed[q]))<=1;flakes+=open[q]!=dry[q];}
+            Check(same&&flakes>0,"Removing the roof exposes precipitation above the ground");}
         // The precipitation lattice spans beyond weather.radius. Cover the mapped
         // field seen by this fixture, including its margin, rather than only 256 units.
         Object canopy;canopy.id=95;canopy.position={100,0,64};canopy.scale={1024,1024,2};canopy.cameraVisible=false;canopy.mesh=Primitive("box");frame.scene.objects={canopy};Check(render(.004f)==dry,"Camera-hidden set dressing shelters precipitation");
@@ -822,6 +842,7 @@ int main(int argc, char **argv) {
         world->indices={0,1,2,0,2,3,4,5,6,4,6,7};
         Frame shadowFrame;shadowFrame.active=true;shadowFrame.scene.enabled=true;shadowFrame.occlusion=world;
         shadowFrame.scene.climate[CL_enabled]=1;shadowFrame.scene.climate[CL_sunAzimuth]=0;shadowFrame.scene.climate[CL_sunElevation]=0;
+        shadowFrame.scene.climate[CL_moon]=0; // these cases test the sun's own horizon
         Object light;light.id=1;light.kind="point";light.position={400,0,0};light.range=800;light.shadows=true;shadowFrame.scene.objects={light};
         // Exercise the actual private atlas producer, independently of the legacy
         // receiver shader. Compare its stored depth with a receiver behind a wall.

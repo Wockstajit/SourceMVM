@@ -6,8 +6,8 @@ cbuffer ShadowConstants : register(b2) {
     float4 lightShadowInfo[16]; // x = first slice (-1 disabled), y = point light
     float4 shadowInfo; // sun available, world-space bias, local resolution, sun resolution
     row_major float4x4 shelterMatrix;
-    float4 shelterInfo; // -1 unavailable, 0 off, 1 ready; resolution; world bias
-    float4 shelterDirection;
+    float4 shelterInfo; // -1 unavailable, 0 off, 1 ready; resolution; world lift; soft radius in texels
+    float4 shelterDirection; // xyz straight up, w world units per texel
     row_major float4x4 nearSunShadowMatrix;
     float4 nearSunShadowInfo;
     row_major float4x4 closeSunShadowMatrix;
@@ -19,12 +19,13 @@ cbuffer ShadowConstants : register(b2) {
     // a CL_ macro on purpose: this header is compiled standalone by the shadow probe test and
     // must not depend on the climate defines.
     float4 sunFilterInfo;
-    // Gust shelter maps (PrecipitationGustDirections): four directions tilted about the rain's.
-    row_major float4x4 gustMatrix[4];
-    float4 gustDirection[4]; // xyz toward the sky, w world bias
-    float4 gustInfo;         // x ready, y resolution, z mean-direction weight, w per-gust weight
+    // The weather cover volume (EnvironmentWeatherCoverMath.h).
+    float4 coverLow;   // xyz world corner, w = 1 when the volume is ready
+    float4 coverScale; // xyz voxels per world unit
+    float4 coverSize;  // xyz voxel counts
+    float4 coverWind;  // xyz unit vector toward where the weather comes from, w its lean (0 straight down)
 };
-Texture2DArray<float> gustTexture:register(t30);
+Texture3D<float2> coverTexture:register(t30);
 Texture2DArray<float> localShadowTexture : register(t5);
 Texture2D<float> sunShadowTexture : register(t6);
 Texture2D<float> shelterTexture:register(t13);
@@ -50,11 +51,9 @@ float ShadowDepth(int2 q,int slice,bool sun,bool nearSun,bool closeSun,bool deta
     // frames the nearest blocker from either layer is the same world shadow.
     return min(environment,actors);
 }
-// SOFT MAP LOOKUPS. Both world maps stretch one texture over the whole map (a few units per
-// texel), so a single hard comparison drew visible stair steps wherever the projection runs at a
-// slant -- slanted rain made the rain cover step across roofs. Twelve bilinear comparisons over a
-// small fixed disc turn those steps into a smooth edge. Fixed taps, no noise: stills and seeks are
-// repeatable.
+// THE SKY MAP. One depth map looks straight down on the playable map (a few units per texel) and
+// answers "is the sky open straight above this point". Twelve bilinear comparisons over a small
+// fixed disc soften its edge. Fixed taps, no noise: stills and seeks are repeatable.
 static const float2 kSoftTaps[12]={
     float2(-.326,-.406),float2(-.840,-.074),float2(-.696,.457),float2(-.203,.621),
     float2(.962,-.195),float2(.473,-.480),float2(.519,.767),float2(.185,-.893),
@@ -67,52 +66,104 @@ float ShelterCompare(float2 texel,float z,int resolution){
     }
     return lit;
 }
-float WorldPrecipitationVisible(float3 world){
-    // FAILS OPEN. shelterInfo.x < 0 means "shelter was asked for but there is no shelter map to
-    // test against" -- the map geometry has not been prepared, which is the state every map is in
-    // until someone runs Prepare map. This used to `return 0`, i.e. discard EVERY particle, so the
-    // whole precipitation feature rendered nothing at all on an unprepared map: no rain, no snow,
-    // no ash. From the outside that is indistinguishable from the feature being broken, and it is
-    // what "there is no snow falling, nothing is working" was.
-    //
-    // Not knowing whether a flake is under a roof is not a reason to delete the weather. Draw it
-    // and let the operator prepare the map if they want flakes to stop at rooflines -- the same
-    // fail-open trade the rest of this codebase makes for optional data.
-    if(shelterInfo.x<0)return 1;
-    if(shelterInfo.x==0)return 1;
-    float4 clip=mul(shelterMatrix,float4(world+shelterDirection.xyz*shelterInfo.z,1));
+// Open sky straight above a surface, 0..1. `slope` is the surface's rise over run (0 for flat
+// ground): the taps spread sideways, and on a pitched roof or a flight of steps the ones uphill
+// would find the surface itself above them, so the point is lifted by what the disc can climb.
+// The base lift (shelterInfo.z) is a thickness margin: a kerb, a step or a roof tile's own relief
+// is not a roof. A share under a third is a seam between two meshes, not an opening.
+// FAILS OPEN: with no sky map (shelterInfo.x <= 0) everything is under open sky, so weather still
+// falls on a map whose geometry has not been read yet.
+float SkyOpen(float3 world,float slope){
+    if(shelterInfo.x<=0)return 1;
+    float radius=max(shelterInfo.w,1);
+    world.z+=shelterInfo.z+min(slope,2)*radius*shelterDirection.w;
+    float4 clip=mul(shelterMatrix,float4(world,1));
     float3 ndc=clip.xyz/clip.w;float2 uv=ndc.xy*float2(.5,-.5)+.5;
     if(any(uv<0)||any(uv>1)||ndc.z<0)return 1;
     int resolution=(int)shelterInfo.y;
     float2 texel=uv*resolution-.5;
-    float radius=max(shelterInfo.w,1);
     float lit=0;
     [unroll]for(int i=0;i<12;++i)lit+=ShelterCompare(texel+kSoftTaps[i]*radius,ndc.z,resolution);
-    return lit/12;
+    return smoothstep(.3,.85,lit/12);
 }
-// Open sky along gust direction g, one bilinear comparison (1 = the rain reaches this point).
-float GustOpen(int g,float3 world){
-    float4 clip=mul(gustMatrix[g],float4(world+gustDirection[g].xyz*gustDirection[g].w,1));
+// One comparison against the sky map: is this point in the air under open sky.
+float SkyTap(float3 world){
+    if(shelterInfo.x<=0)return 1;
+    float4 clip=mul(shelterMatrix,float4(world,1));
     float3 ndc=clip.xyz/clip.w;float2 uv=ndc.xy*float2(.5,-.5)+.5;
     if(any(uv<0)||any(uv>1)||ndc.z<0)return 1;
-    int resolution=(int)gustInfo.y;
-    float2 texel=uv*resolution-.5;int2 base=(int2)floor(texel);float2 blend=frac(texel);float lit=0;
-    [unroll]for(int y=0;y<2;++y)[unroll]for(int x=0;x<2;++x){
-        float d=gustTexture.Load(int4(clamp(base+int2(x,y),0,resolution-1),g,0));
-        lit+=(ndc.z<=d+.000001?1:0)*(x?blend.x:1-blend.x)*(y?blend.y:1-blend.y);
+    int resolution=(int)shelterInfo.y;
+    return ShelterCompare(uv*resolution-.5,ndc.z,resolution);
+}
+// The cover volume at a point: x = open air that reaches it under cover (1 beside open sky, falling
+// with every step under a roof, 0 behind a wall), y = traffic (1 indoors, falling over a few steps
+// out of a doorway, 0 in the open away from any way in). Eight loads and a hand-made trilinear
+// blend (it is read from vertex shaders too); both are stored as eighth roots (WeatherCoverEncode).
+float2 CoverReach(float3 world){
+    if(coverLow.w<.5)return 0;
+    float3 g=(world-coverLow.xyz)*coverScale.xyz-.5,top=coverSize.xyz-1;
+    if(any(g<-1)||any(g>top+1))return 0;
+    g=clamp(g,0,top);
+    int3 a=min((int3)g,(int3)top),b=min(a+1,(int3)top);float3 f=g-a;
+    float2 s=lerp(
+        lerp(lerp(coverTexture.Load(int4(a.x,a.y,a.z,0)),coverTexture.Load(int4(b.x,a.y,a.z,0)),f.x),
+             lerp(coverTexture.Load(int4(a.x,b.y,a.z,0)),coverTexture.Load(int4(b.x,b.y,a.z,0)),f.x),f.y),
+        lerp(lerp(coverTexture.Load(int4(a.x,a.y,b.z,0)),coverTexture.Load(int4(b.x,a.y,b.z,0)),f.x),
+             lerp(coverTexture.Load(int4(a.x,b.y,b.z,0)),coverTexture.Load(int4(b.x,b.y,b.z,0)),f.x),f.y),f.z);
+    s*=s;s*=s;return s*s;
+}
+// WHAT REACHES A SURFACE: x = open sky above it (the sky map), y = open air reaching in under cover,
+// z = traffic (the last two from the cover volume). The sky map is exact where the sky is open; the
+// volume is what lets snow and wet thin out a short way past a doorway and never cross a wall. Both
+// are read a little off the surface: the sky map out from a wall, the volume half a voxel out and
+// up, where its nearest voxels are air.
+//
+// THE WIND'S ANGLE MOVES WHERE WEATHER LANDS. Weather arrives along coverWind, not straight down:
+//  - in the open, a place is missed when the line back toward the weather runs under a roof. Six
+//    points up that line are tested and the share that are clear is what reaches it, so the
+//    sheltered side of a wall FALLS OFF: nearly bare at its foot, more with every step out, and the
+//    strip widens as the wind leans further. Snow turns that share into patches that thin out, the
+//    way it does at a doorway (SnowLies). (Two points and the lesser of them was a yes or a no, and
+//    drew the strip's edge as a ruled line across a yard.)
+//  - under cover, the volume is read a step upwind, so an opening that faces the wind takes snow
+//    and wet further in and one that faces away takes less.
+// With no lean both are exactly the straight-down answers.
+// `lee` is how much of the first counts (1 for what falls now). Snow that lies has come down over
+// hours of shifting wind, so its sheltered side is only thinned (ApplyCoatings passes a quarter):
+// cleared in full, a strong wind left a doorstep bare in the middle of a snowed-in yard.
+float3 WeatherCover(float3 world,float3 normal,float lee=1){
+    if(shelterInfo.x<=0)return float3(1,0,0);
+    float up=saturate(normal.z);
+    float slope=sqrt(saturate(1-up*up))/max(up,.35);
+    float3 q=world+normal*(6*(1-up));
+    float sky=SkyOpen(q,up>.35?slope:0);
+    // A light lean (snow drifting down) only thins the sheltered side; a strong one clears it.
+    float lean=saturate(coverWind.w),blown=smoothstep(.1,.55,lean);
+    [branch]if(blown>0&&sky>0){
+        float3 from=q+float3(0,0,shelterInfo.z+6);
+        static const float kLee[6]={30,60,95,135,180,230};
+        // Each point is three taps across and along the wind line, spread wider the further up it is
+        // (a penumbra), so the share falls off smoothly. Single taps stepped it in sixths, each step
+        // on a straight line that is the roof edge carried along the wind, and snow cut its patches
+        // off along those lines beside containers and under ledges (2026-11-18).
+        float2 along=normalize(coverWind.xy+float2(1e-5,0)),across=float2(-along.y,along.x);
+        float clear=0;
+        [loop]for(int k=0;k<6;++k){
+            float3 at=from+coverWind.xyz*kLee[k];float spread=kLee[k]*.22;
+            clear+=(SkyTap(at+float3(across*-.8*spread+along*.35*spread,0))+SkyTap(at+float3(along*-.5*spread,0))
+                   +SkyTap(at+float3(across*.8*spread+along*.35*spread,0)))/3;
+        }
+        sky*=lerp(1,clear/6,blown*lee);
     }
-    return lit;
+    float3 half=.5/max(coverScale.xyz,1e-4);
+    float3 at=world+normal*half.x+float3(0,0,half.z);
+    float2 here=CoverReach(at);
+    float2 upwind=blown>0?CoverReach(at+float3(coverWind.xy,0)*(lean*90)):here;
+    // Upwind decides how much comes in; it cannot put weather where no open air reaches at all.
+    return float3(sky,lerp(here.x,min(upwind.x,here.x*4+.02),blown),here.y);
 }
-// HOW MUCH RAIN REACHES A SURFACE, 0..1: the weighted share of the mean and gust directions with
-// open sky. Open ground is 1, a doorway or arch facing the wind a fraction that falls off a short
-// way inside, a deep interior 0. Fails open like WorldPrecipitationVisible when there is no map.
-float PrecipitationExposure(float3 world){
-    float mean=WorldPrecipitationVisible(world);
-    if(shelterInfo.x<=0||gustInfo.x<.5)return mean;
-    float gusts=0;
-    [unroll]for(int g=0;g<4;++g)gusts+=GustOpen(g,world);
-    return gustInfo.z*mean+gustInfo.w*gusts;
-}
+// Rain wets what it lands on and a little further: water runs, splashes and is walked in.
+float WetReach(float3 cover){return max(cover.x,smoothstep(.03,.3,cover.y));}
 )HLSL"
 R"HLSL(
 float CompareMapBias(float4 clip,int slice,bool sun,float bias,bool nearSun=false,bool closeSun=false,bool detailSun=false,bool viewmodel=false) {

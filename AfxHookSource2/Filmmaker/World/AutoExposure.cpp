@@ -85,6 +85,19 @@ struct RenderState {
 } g_render;
 
 std::atomic<bool> g_enabled{false};
+// The Environment's request (AutoExposure_SetEnvironment). It lapses a few frames after the last
+// call, so an Environment that stops capturing frames (the menu, a level load) lets go by itself.
+std::atomic<bool> g_environment{false};
+std::atomic<float> g_environmentBias{0.f};
+std::atomic<int> g_environmentFrames{0};
+constexpr int kEnvironmentHoldFrames = 12;
+// The Environment adapts half way (AutoExposureMath::PartialMeter) from daylight: the meter's
+// reading of a relit map outdoors at noon (Mirage and Dust2, log2 luminance about -1.5). Measured
+// on Mirage 2026-11-17 with full adaptation: outdoors -1.5 gave exposure 0.52, the Palace interior
+// -4.1 gave 3.2, six times as much, and the street through its doorway was white. Half way, the
+// Palace settles near 1.3 and outdoors is unchanged.
+constexpr float kEnvironmentReferenceLog2 = -1.5f, kEnvironmentAdaptation = .5f;
+bool EnvironmentDriving() { return g_environment.load(std::memory_order_relaxed) && g_environmentFrames.load(std::memory_order_relaxed) > 0; }
 std::atomic<float> g_speed{kAutoExposureSpeedDefault};
 std::atomic<float> g_compensation{0.f};
 std::atomic<float> g_metered{0.f};
@@ -172,7 +185,7 @@ ID3D11ShaderResourceView* SceneView(ID3D11DeviceContext* ctx, ID3D11Texture2D* s
 } // namespace
 
 void AutoExposure_RenderThread(ID3D11DeviceContext* immediate) {
-    if (!immediate || !g_enabled.load(std::memory_order_relaxed)) return;
+    if (!immediate || !(g_enabled.load(std::memory_order_relaxed) || EnvironmentDriving())) return;
     ComPtr<ID3D11Device> device;immediate->GetDevice(&device);
     if (!device || !Initialize(device.Get())) return;
 
@@ -239,22 +252,34 @@ bool AutoExposure_MainThread(float& outScale) {
     const bool haveDemoTime = g_MirvTime.GetCurrentDemoTime(demoTime);
     if (Render_IsJobActive() && haveDemoTime && g_lastDemoTime >= 0) dt = demoTime - g_lastDemoTime;
     g_lastDemoTime = haveDemoTime ? demoTime : -1;
-    if (!g_enabled.load(std::memory_order_relaxed)) { g_currentLog2 = NAN; return false; }
+    if (dt > 0 && g_environmentFrames.load(std::memory_order_relaxed) > 0) g_environmentFrames.fetch_sub(1, std::memory_order_relaxed);
+    const bool environment = EnvironmentDriving();
+    if (!environment && !g_enabled.load(std::memory_order_relaxed)) {
+        // Nobody is adapting: forget the state, and the meter with it, so the next start meters afresh.
+        if (std::isfinite(g_currentLog2) || g_appliedScale > 0) { g_currentLog2 = NAN; g_appliedScale = 0; g_meterCount.store(0); }
+        return false;
+    }
     if (!g_meterCount.load(std::memory_order_relaxed)) return false;
 
-    const float target = std::log2(AutoExposureMath::TargetScale(g_metered.load(std::memory_order_relaxed), kKey,
-        g_compensation.load(std::memory_order_relaxed), kMinScale, kMaxScale));
+    // Each owner has its own settings: the Environment its bias at the default speed, the in-game
+    // switch its compensation and speed.
+    const float compensation = environment ? g_environmentBias.load(std::memory_order_relaxed) : g_compensation.load(std::memory_order_relaxed);
+    const float speed = environment ? kAutoExposureSpeedDefault : g_speed.load(std::memory_order_relaxed);
+    const float metered = g_metered.load(std::memory_order_relaxed);
+    const float target = std::log2(AutoExposureMath::TargetScale(
+        environment ? AutoExposureMath::PartialMeter(metered, kEnvironmentReferenceLog2, kEnvironmentAdaptation) : metered, kKey,
+        compensation, kMinScale, kMaxScale));
     // First meter, a seek or a long stall: start at the target instead of sweeping in from the past.
     if (!std::isfinite(g_currentLog2) || dt < 0 || dt > .5) g_currentLog2 = target;
     // dt 0: a second call in the same frame (scene keys re-run NightMode) holds the value.
-    else if (dt > 0) g_currentLog2 = AutoExposureMath::Adapt(g_currentLog2, target, float(dt), g_speed.load(std::memory_order_relaxed));
+    else if (dt > 0) g_currentLog2 = AutoExposureMath::Adapt(g_currentLog2, target, float(dt), speed);
     g_appliedScale = std::exp2(g_currentLog2);
     outScale = g_appliedScale;
     if (MvmDebugLog_Active()) {
         static ULONGLONG last = 0;const auto t = GetTickCount64();
         if (t - last >= 1000) { last = t;
-            MvmDebugLog_LinefAlways("world.autoexposure", "meteredLog2=%.3f target=%.3f scale=%.3f speed=%.2f comp=%.2f dt=%.4f render=%d",
-                g_metered.load(), std::exp2(target), g_appliedScale, g_speed.load(), g_compensation.load(), dt, int(Render_IsJobActive())); }
+            MvmDebugLog_LinefAlways("world.autoexposure", "owner=%s meteredLog2=%.3f target=%.3f scale=%.3f speed=%.2f comp=%.2f dt=%.4f render=%d",
+                environment ? "environment" : "in-game", g_metered.load(), std::exp2(target), g_appliedScale, speed, compensation, dt, int(Render_IsJobActive())); }
     }
     return true;
 }
@@ -262,8 +287,16 @@ bool AutoExposure_MainThread(float& outScale) {
 bool AutoExposure_Enabled() { return g_enabled.load(); }
 void AutoExposure_SetEnabled(bool enabled) {
     g_enabled.store(enabled);
-    if (!enabled) { g_currentLog2 = NAN; g_appliedScale = 0; g_meterCount.store(0); }
+    // While the Environment is adapting, the state is its own and stays.
+    if (!enabled && !EnvironmentDriving()) { g_currentLog2 = NAN; g_appliedScale = 0; g_meterCount.store(0); }
 }
+void AutoExposure_SetEnvironment(bool active, float biasStops) {
+    g_environment.store(active, std::memory_order_relaxed);
+    if (!active) return;
+    if (std::isfinite(biasStops)) g_environmentBias.store((std::min)(kAutoExposureCompensationMax, (std::max)(-kAutoExposureCompensationMax, biasStops)), std::memory_order_relaxed);
+    g_environmentFrames.store(kEnvironmentHoldFrames, std::memory_order_relaxed);
+}
+bool AutoExposure_EnvironmentDriving() { return EnvironmentDriving(); }
 float AutoExposure_Speed() { return g_speed.load(); }
 void AutoExposure_SetSpeed(float v) {
     if (!std::isfinite(v)) return;

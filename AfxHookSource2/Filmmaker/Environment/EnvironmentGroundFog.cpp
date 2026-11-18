@@ -3,6 +3,8 @@
 #include "EnvironmentGroundFogMath.h"
 #include "EnvironmentGroundFogShaders.h"
 #include "EnvironmentShaderCompiler.h"
+#include "EnvironmentWeatherCover.h"
+#include "EnvironmentWindFluidMath.h" // WindObstacles: a step too high to flow over is a wall
 #include "../Debug/GpuPassProfiler.h"
 #include "../Debug/MvmDebugLog.h"
 #include "../Render/RenderPrivateTextureScope.h"
@@ -20,9 +22,10 @@
 namespace Filmmaker::Environment {
 using Microsoft::WRL::ComPtr;
 namespace {
-// Pressure solve iterations per step. The pressure carries over between steps as a warm start, so
-// 20 sweeps leave the wake visibly divergence-free; more only cost time (each is one full-grid pass).
-constexpr int kJacobiIterations = 20;
+// Pressure relaxations per step. The pressure carries over between steps, and six sweeps leave it
+// springy on purpose: a shove sends a soft swell outward (twenty cancelled it at once, which read as
+// stiffer fog in the side-by-side). Each is one full-grid pass.
+constexpr int kJacobiIterations = 6;
 // A player's footprint in the fluid: about a body's half-width plus the legs' swing.
 constexpr float kBodyRadius = 22.f;
 // Release the fluid and floor map after this many frames with ground fog off.
@@ -51,6 +54,12 @@ struct State {
     ComPtr<ID3D11Buffer> constants;
     ComPtr<ID3D11SamplerState> sampler;
     Surface fluid[2], pressure[2], scalar, smooth;
+    // The walls: each cell's roof read from the weather cover a few rows a frame, then the mask.
+    ComPtr<ID3D11Texture2D> wallTexture;
+    ComPtr<ID3D11ShaderResourceView> wallSrv;
+    std::vector<float> wallTops;
+    int wallRow = 0;
+    bool wallsDone = false;
     int current = 0, currentPressure = 0;
     bool ready = false;
     // The grid and everything simulated on it. Cleared together.
@@ -100,6 +109,11 @@ void ReleaseFluid() {
     for (auto &s : state.pressure) s = Surface{};
     state.scalar = Surface{};
     state.smooth = Surface{};
+    state.wallTexture.Reset();
+    state.wallSrv.Reset();
+    state.wallTops.clear();
+    state.wallRow = 0;
+    state.wallsDone = false;
     state.fluidValid = false;
     state.grid = GroundFogGrid{};
     state.gridKey.clear();
@@ -225,8 +239,47 @@ void PumpFloorMap(const Frame &f) {
     });
 }
 
+// The walls (WindObstacles over the weather cover's roofs: a step 56 units
+// up within two cells is a wall to fog). Baked once a map, spread over frames.
+void PumpWalls(const Frame &f) {
+    if (state.wallsDone || !state.grid.Valid() || !f.occlusion) return;
+    const auto &grid = state.grid;
+    PrepareWeatherCover(state.device.Get(), f.occlusion); // starts the bake when nothing else has
+    if (state.wallTops.empty()) {
+        if (!WeatherCoverReady()) return;
+        state.wallTops.assign(size_t(grid.width) * grid.height, f.occlusion->low.z);
+        state.wallRow = 0;
+    }
+    for (int n = 0; n < 12 && state.wallRow < grid.height; ++n, ++state.wallRow)
+        for (int x = 0; x < grid.width; ++x)
+            state.wallTops[size_t(state.wallRow) * grid.width + x] =
+                WeatherCoverTop(grid.originX + (x + .5f) * grid.cell, grid.originY + (state.wallRow + .5f) * grid.cell, f.occlusion->low.z, f.occlusion->high.z);
+    if (state.wallRow < grid.height) return;
+    const std::vector<uint8_t> solid = WindObstacles(state.wallTops, grid.width, grid.height, grid.cell, 56.f, (std::max)(24.f, grid.cell * 2));
+    state.wallTops.clear();
+    state.wallTops.shrink_to_fit();
+    state.wallsDone = true;
+    size_t walls = 0;
+    for (uint8_t s : solid) walls += s ? 1 : 0;
+    D3D11_TEXTURE2D_DESC d{};
+    d.Width = UINT(grid.width);
+    d.Height = UINT(grid.height);
+    d.MipLevels = d.ArraySize = d.SampleDesc.Count = 1;
+    d.Format = DXGI_FORMAT_R8_UNORM;
+    d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA data{solid.data(), UINT(grid.width), 0};
+    RenderPrivateTextureScope privateTextures;
+    if (FAILED(state.device->CreateTexture2D(&d, &data, &state.wallTexture)) ||
+        FAILED(state.device->CreateShaderResourceView(state.wallTexture.Get(), nullptr, &state.wallSrv))) {
+        state.wallTexture.Reset();
+        state.wallSrv.Reset();
+    }
+    MvmDebugLog_LinefAlways("environment.groundfog", "walls: %zu of %d cells, mask %s", walls, grid.width * grid.height, state.wallSrv ? "bound" : "FAILED");
+}
 void Dispatch(ID3D11DeviceContext *ctx, Entry entry, ID3D11ShaderResourceView *in0, ID3D11ShaderResourceView *in1,
               ID3D11ShaderResourceView *in2, ID3D11UnorderedAccessView *out0, ID3D11UnorderedAccessView *out1) {
+    ID3D11ShaderResourceView *walls = state.wallSrv.Get();
+    ctx->CSSetShaderResources(5, 1, &walls);
     ID3D11ShaderResourceView *views[3] = {in0, in1, in2};
     ID3D11UnorderedAccessView *outs[2] = {out0, out1};
     ctx->CSSetShader(state.shaders[entry].Get(), nullptr, 0);
@@ -343,6 +396,8 @@ GroundFogFrameInfo PrepareGroundFog(ID3D11DeviceContext *ctx, const Frame &f, co
     info.driftX = float(state.drift.x);
     info.driftY = float(state.drift.y);
     if (!PrepareGrid(f)) return info;
+    PumpWalls(f);
+    k.bodyInfo[3] = state.wallSrv ? 1.f : 0.f;
 
     const auto &grid = state.grid;
     info.windowX = grid.originX;
@@ -461,9 +516,9 @@ GroundFogFrameInfo PrepareGroundFog(ID3D11DeviceContext *ctx, const Frame &f, co
         static unsigned logged = 0;
         if ((++logged % 120) == 1)
             MvmDebugLog_Linef("environment.groundfog",
-                "time=%.4f dt=%.4f steps=%d bodies=%zu blasts=%d restarts=%u grid=%dx%d floorMap=%d wind=(%.1f %.1f) flow=%.2f refill=%.1fs swirl=%.2f",
-                f.time, advance.dt, advance.steps, bodies.size(), blasts, state.restarts, grid.width, grid.height, int(info.floorMap), windX,
-                windY, climate[CL_groundFogFlow], climate[CL_groundFogRecovery], climate[CL_groundFogSwirl]);
+                "time=%.4f dt=%.4f steps=%d bodies=%zu blasts=%d restarts=%u grid=%dx%d floorMap=%d walls=%d wind=(%.1f %.1f) flow=%.2f refill=%.1fs swirl=%.2f",
+                f.time, advance.dt, advance.steps, bodies.size(), blasts, state.restarts, grid.width, grid.height, int(info.floorMap),
+                int(state.wallSrv != nullptr), windX, windY, climate[CL_groundFogFlow], climate[CL_groundFogRecovery], climate[CL_groundFogSwirl]);
         static unsigned loggedBlast = 0;
         if (blasts > 0 && (++loggedBlast % 30) == 1)
             for (int i = 0; i < blasts; ++i)
@@ -504,7 +559,7 @@ void CaptureFogBeforeTransparents(ID3D11DeviceContext *immediate) {
         d.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
         d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         D3D11_TEXTURE2D_DESC m = d;
-        m.Format = DXGI_FORMAT_R16G16_FLOAT;
+        m.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; // r, g: for the fog; b: for the ground coatings (FrontMask)
         m.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
         D3D11_TEXTURE2D_DESC n = m;
         n.Width = (source.Width + 15) / 16;

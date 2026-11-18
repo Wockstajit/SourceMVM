@@ -19,11 +19,11 @@ implementation and browser mock expose six task-oriented cards:
 | Card | Controls and pages |
 | --- | --- |
 | Looks | Starting presets; Color: exposure, tint, saturation, contrast; Lens: bloom, vignette, grain, chromatic shift |
-| Sky | Sun direction/elevation/power, haze, stars; Clouds: enable, amount, height, wind |
-| Lighting | Map lights, ambient light, bounce intensity, 1 to 3 bounce steps per frame, shadows and source sizes |
-| Fog | Height fog: density, start distance, height, variation; Ground fog: density, coverage, depth, billows, push, refill time, swirl, drift speed and direction, color, sim view; Light shafts; height fog color |
-| Weather | Type, intensity, fall speed, wind speed/direction; Ground: wetness, puddles, snow; Lightning: enable, intensity, interval |
-| Scene Objects | **+ Add** in the header (point, spot and area lights, a camera object); Outliner: every placed thing in groups, with show/hide, in-renders and lock; Library: CS2 models and your OBJ meshes; the selected object's light or mesh editor and its RIG under the tree |
+| Sky | Time of day, sun direction, sun height, sun power, haze, stars, sun color; Moon: brightness, phase, size, color; Clouds: enable, amount, density, height, cloud speed, rain darkening |
+| Lighting | Map light power, ambient light, player fill, bounce intensity, 1 to 3 bounce steps per frame, shadows and source sizes; Exposure: the Environment's own auto exposure and its bias |
+| Fog | Two pages. **Fog**: height fog density, start distance, height, variation and color, and Light shafts. **Ground fog**: starting looks, density, coverage, depth; shape; light (color, sun, shade, shadows); motion (push, refill time, swirl, drift speed and direction) and the sim view |
+| Weather | Type, intensity, fall speed, wind speed/direction; Ground: wetness, puddles, snow, snow depth, CS2 water beads; Lightning: enable, intensity, interval |
+| Scene Objects | **+ Add** in the header (point, spot and area lights, a camera object); Outliner: every placed thing in groups, with show/hide, in-renders and lock; Library: CS2 models and your OBJ meshes; the selected object's light or mesh editor and its RIG under the tree; Map lights: Edit lights and Turn all back on for the map's own lamps |
 | Round heat map | Its own card: where the round's players walked ([`round-heatmap.md`](round-heatmap.md)) |
 
 Scene presets (save/load) are the menu in the **Looks** header. Looks, Sky, Lighting, Fog and
@@ -57,18 +57,21 @@ intervals, so the far blend does not apply a second fog layer over the near volu
 and first four added lights illuminate the near fog. Depth and per-sample MSAA coverage stop it at
 visible geometry. The 3D skybox (distant town, hills) takes the medium out to a fixed 9000 units.
 Its reserved depth band has no real distance, so it sinks into fog with the sky behind it. The march
-jitter is interleaved gradient noise. A 5 × 5 depth-aware blur at volume resolution removes its grain
-from light shafts without crossing silhouettes.
+jitter is interleaved gradient noise. In the live view it moves every frame and each frame is blended
+into the last ones, found through last frame's view (`VolumeTemporalPS`), so the grain averages out
+instead of crawling as the camera moves. A 5 × 5 depth-aware blur at volume resolution then smooths
+what is left without crossing silhouettes. A render marches every frame whole with a still jitter.
 
 Fog does not depend on Lighting. It runs none of the dynamic-lighting, bounce or native relighting
 passes. Both fogs take their sky light from the map's own authored sky colour, or from the
 Environment sky when the Sky card is on, and the fog between a point and the sun dims the sunlight
-it gets. The **Light shafts** switch on the Fog page draws the sun's shadow through both fogs. The
-climate sun starts as the map's `light_environment`, so the shafts follow the map's own sunlight
-without the Sky or Lighting card. With the switch off, fog renders no sun shadow maps. The sun
+it gets. The **Light shafts** switch on the Fog page draws the sun's shadow through the height fog, and the
+ground fog's own **Shadows** slider does the same for it. The climate sun starts as the map's
+`light_environment`, so both follow the map's own sunlight without the Sky or Lighting card. With
+both off, fog renders no sun shadow maps. The sun
 cascades render only for a pass that samples them: dynamic lighting (including the native relight
-path it hands off to), world bounce, clouds, snow and wet coatings, placed props, fog with light
-shafts, and the cascade debug view.
+path it hands off to), world bounce, clouds, snow and wet coatings, placed props, height fog with light
+shafts, ground fog with shadows, and the cascade debug view.
 
 Glass, flames and leaf cards in CS2's transparency buffer keep the fog of the surface behind them.
 Only coverage on a ray that passes through a placed smoke counts as smoke and cuts the fog short
@@ -123,33 +126,90 @@ slider edit. Scene Objects reports scene messages, while Weather summarizes the
 enabled ground effects.
 
 Snow uses a world-space coverage mask and filtered upward-facing normals. Full coverage leaves no
-noise-mask holes on eligible faces. While snow falls on a prepared map, the ground cover uses
-the flakes' shelter map, which for snow looks straight down. Open ground and alleys are covered, and
-hallways and interiors stay clear. Under an arch, eave or overhang, the cover does not end on a line.
-It thins out with the share of open sky around each spot, over a fringe of about 70 % of the cover's
-height (56 to 140 units). A tall arch lets snow a long way in, and a low eave lets in only a little.
-The edge is uneven and noise-perturbed. The wind setting does not move the cover. Broad drift
-patches collect more snow than others, with lumpy relief shading where it lies thick.
+noise-mask holes on eligible faces, and anything that is not steep is covered, so a tiled roof is
+white across its tiles. Snow never lies indoors, whether or not any is falling: on a map whose
+geometry has been read it follows the weather cover described under
+[Weather cover](#weather-cover-what-is-indoors). Open ground, alleys and roofs are covered. Under an
+arch, an eave or just inside a doorway the cover thins out and ends on an uneven edge. A wide arch
+lets it a long way in, a doorway a little, and a wall not at all. The wind setting does not move the
+cover. Broad drift patches collect more snow than others, with lumpy relief shading where it lies
+thick.
 
 Players get no snow and no world wetness. The coating masks are keyed to map positions, which slide
 across a moving body. A pixel that belongs to a player, a bot, a held weapon or a world weapon is
 therefore left as the engine drew it. The shader tells these apart from the map with an exact
 per-frame mask. The native skinned player and world-weapon triangles that the shadow casters already
 capture are drawn from the camera into a screen-sized depth map. A point counts as a person when that
-map holds a surface at its own position, corpses and held guns included. Until the first capture, a
+map holds a surface at its own position, corpses and held guns included. Each living player's body as
+drawn this frame counts as well (`BonesClaim`): the capsules between its bones, read from the pose it
+is drawn with, plus four units for clothes and gear (more far away), except level ground at the
+height of its ankles. With the mask alone, bots came out snowed and wet over their shoulders and arms
+(2026-11-17). Players keep only CS2's own shading: its frost in snow, its wet in rain. Until the first capture, a
 body-sized capsule around each living pawn serves as the fallback. The capsule ignores the floor and
-any wall the player leans on. First-person hands and weapon are skipped by the snow only.
+any wall the player leans on. Around the pawn the camera is in, everything inside its hull counts as
+the player (the first-person legs are not posed as the body in the mask), except level ground within
+a step of the feet: the drawn floor is often a unit or two above the collision floor (two on Mirage's
+Palace balcony), and it was taken for the body, a bare 40-unit square round the feet. Level surface
+3 to 8 units over the feet is the boots' toe caps, not floor: taken for floor, they came out snowed
+(2026-11-18); a step up is higher than a boot. First-person hands and weapon are skipped by the snow only.
 
 The capture builds a stream-output geometry shader per character or weapon vertex-shader variant from
 its reflected output signature, including signatures that pack two semantics into one register. Its
 cache holds 4096 entries. A variant without one is missing from the mask and shows snow on bare forearms.
 
 The coating filter blends shallow neighboring facets while rejecting depth discontinuities and hard
-corners. Snow keeps the map image's broad shading instead of replacing it with an unshadowed flat
-color, and lifts a surface at most four times its own brightness, so ground under snow stays dark
-under a night sky. An unbounded lift turned night ground grey (issue 135). Enabled relighting, added
-lights and world bounce also affect it. Fine grain and sparkle fade
-below pixel size. Wetness darkens the visible color and adds a softer filtered sun highlight.
+corners. Snow hides the ground, so it does not take its shade from the ground's own pixel: cobble
+joints and tile seams showed through and the cover read as frost. It takes the scene's light from
+twelve taps around the pixel (about 2.6 % of the frame's height out), leaving out taps on another
+surface. The frame's own sun shadow is taken out of every tap (each tap knows whether the sun
+reaches it) and put back once at the pixel with the filtered sun lookup, so a shadow's edge on snow
+is as sharp as on the lit world and every tap still counts. Averaged as it stood, the ring smeared
+each shadow into a wide grainy blur; with the taps across an edge left out, shade under a palm,
+where most taps are across some edge, came out speckled. The ring turns smoothly from place to
+place: turned by a hash of each half-unit cell, every cell measured the shadow from different taps
+and a shadow's edge came out as a staircase of half-unit blocks. Shade on snow is at least a third
+of the sunlit snow (the sky and the snow round it light it); measured from the frame alone, a
+corner's own occlusion made the shade under a plank nearly black. That keeps sun and shade, a lamp's pool and a fifth of the light's colour, and loses the
+texture. The cover lifts a surface at most four times its own brightness, so ground under snow stays
+dark under a night sky. An unbounded lift turned night ground grey (issue 135). Enabled relighting,
+added lights and world bounce also affect it. Fine grain and sparkle fade below pixel size.
+
+Wet ground is darker and richer, not paler: a soaked surface loses a quarter to over half of its
+brightness, more where it is porous, and gains a little saturation. Its mirror is water's own
+Fresnel term and nothing more, next to none looking straight down and strong toward the horizon, and
+a rough surface mirrors less. The mirror shows the scene through a short screen-space trace. Where
+the trace finds nothing it shows the sky if the sky is open above, and the surface's own colour
+otherwise. An earlier constant sky-coloured film made wet ground look frosted and puddles white.
+The trace starts at the same point along the ray in every pixel and bisects its hit: started at a
+random offset per pixel, neighbouring pixels found the wall or missed it at random, and wet walls and
+ground were covered in white grain where the mirrored sky came through. A hit is the ray crossing a
+surface between two steps, in front of it at one and behind it at the next. Tested on one step alone
+("no more than a step behind"), a ray meeting a wall at a slant usually landed further behind than
+that and was refused at every step after, so a mirrored wall came out as stripes of hit and miss
+(Dust 2 Long A, 2026-11-18). A ray that passed behind something nearer, such as a pole, was already
+far behind it at the step before, so it is still refused.
+
+**What the trace cannot see.** The trace finds only what is on screen, so a puddle seen from above
+lost the buildings it should hold. Where it finds nothing, the film shows CS2's own reflection
+probes (the map's baked 360° captures) under the map's lighting, and the live capture through the
+bounce volume while Environment lighting owns the map (Bounce or Lite). A probe is read where the
+reflected ray leaves its box, as the game does, and the most local box that holds the point wins,
+feathered into the next box out near its edge. CS2's constants list only the probes its own view
+uses (3 at Long A on Dust 2, 18 at CT spawn), so that list is read back twice a second and the
+sixteen nearest the camera go to the shader. The readback is mapped on the game's immediate context
+when a lit world draw is seen; the composite records into a deferred context, which cannot read
+anything back. Both sources hold raw scene light while the film is painted on the finished
+frame, so right after CS2's post-process the hook compares its input with its output at a grid of
+central pixels, per channel in half-stop bins, and probe light goes through that curve: exposure,
+the filmic curve and the colour grade are included, vignette and bloom are not. CS2's post-process
+can be an instanced draw, and with MSAA on it writes a 4x multisampled target, which is resolved
+before the window is read (2026-11-18: both had kept the curve from ever being measured). The
+capture and the measurement run only while a wet film is drawn; with Environment off neither runs.
+`mvm_debug` writes `environment.reflection.misses` every 300 frames: which check stopped the capture
+or the measurement, and the formats it saw. With the
+Environment's sky on, the probe gives the buildings and our sky the open sky. `environment status`
+names the source. Code: `EnvironmentReflectionProbes.{h,cpp}` and `EnvironmentReflectionProbeMath.h`
+(tests: `reflection-probe-math-tests`).
 
 Puddles require upward faces inside a chosen world-height band. They use procedural ripples and
 Fresnel reflection of the analytic sky. Their reflection normal follows a shared horizontal water
@@ -163,8 +223,24 @@ actors, props and transparent surfaces. They do not add snow thickness, physics,
 accumulation, splashes, water simulation or new texture detail. The depth-derived normal
 cannot recover material normal maps. Strong coverage can obscure existing surface detail.
 
+**Auto exposure** (Lighting > Exposure, climate `autoExposure`, on by default, and `exposureBias`
+in stops) is the Environment's own. While Environment lighting is on it meters the relit frame and
+drives the tonemapper, so a map lit by the Environment's sun and sky is not left at the exposure
+its baked lighting was authored for. It uses the same meter as the in-game Auto exposure on
+Effects > Lighting ([night mode](../effects/night-mode.md)) and nothing else of it: neither switch
+reads or changes the other, and when Environment lighting goes off the in-game setting is in
+charge as it was left. A pinned exposure (a time of day, the Exposure slider) still wins.
+
+It adapts half way, not all the way (`AutoExposureMath::PartialMeter`, after the automatic key of
+Krawczyk, Myszkowski and Seidel 2005). Full adaptation brings every scene to the same mid-grey: a
+dim room is lifted to daylight brightness, and the sunlit street seen through its doorway is
+lifted with it and clips to white. Measured on Mirage, outdoors metered log2 -1.5 and settled at
+exposure 0.52, while the Palace interior metered -4.1 and settled at 3.2. Half way from the
+daylight reference (-1.5) the Palace settles near 1.3, outdoors is unchanged, and a bright scene
+such as snow keeps more exposure instead of being pulled to grey.
+
 An enabled Environment scene owns dynamic material lighting. **Sun brightness** in SKY controls
-surface sunlight and sky radiance together. **Map lights** controls authored map fixtures.
+surface sunlight and sky radiance together. **Map light power** controls authored map fixtures.
 **Ambient light** controls sky illumination independently. **Cast shadows** gates the owned sun and
 fixture shadows. **Sun size** (climate `sunAngle`, degrees, real sun 0.53) sets how soft sun shadows
 get. Shadows are sharp at the contact point and softer the further they fall from the object that
@@ -178,6 +254,46 @@ Engine lighting/shadow switches in EFFECTS are disabled while Environment owns l
 
 The procedural sky shades the map's native sky geometry directly, preserving its depth and
 MSAA coverage. Clouds respect background geometry.
+
+### Sky, moon and clouds
+
+The sky is an atmosphere model, not a painted gradient. It is a port of
+[glsl-atmosphere](https://github.com/wwwtyro/glsl-atmosphere) (public domain): sunlight scattered by
+air (Rayleigh) and haze (Mie) along each view ray, with the repository's constants. A low sun turns
+the horizon orange and the sky goes dark after sunset on its own. **Horizon haze** scales the haze
+term (0 is a clear deep blue, the default 0.4 is the reference sky). The CPU copy in
+`EnvironmentSkyMath.h` integrates the same sky for the light it sends to the relit map, so the
+ambient light follows the sky.
+
+**Time of day moves the sun and the moon together** (`ApplyTimeOfDay` in
+`EnvironmentClimateMath.h`; climate `timeOfDay` 0-24, `sunPath`, `sunHeight`). The sun goes round
+one arc a day: it rises at 6:00 a quarter turn before **Sun direction**, stands highest at noon in
+that direction at **Sun height**, sets at 18:00 a quarter turn after it, and at midnight is as far
+below the horizon as it was above it at noon. The moon goes round the same arc opposite the sun,
+whatever its phase: it rises as the sun sets and is up all night, so a night scene has its moon in
+any phase. The sun's and moon's azimuth and elevation are worked out from
+these and have no sliders. A sun placed by its angles (the map's own sun on load, a starting look,
+`climate sunAzimuth`, a scene saved before the time of day, the sun angles Scene Keys' macros key)
+sets the time and path that put it there (`TimeOfDayFromSun`), so the moon still comes up opposite a
+sun keyed below the horizon. The defaults put the sun where it used to start: 15:15, 135° and 35° up.
+
+The night follows Jensen et al., *A Physically-Based Night Sky Model* (SIGGRAPH 2001). The moon is a
+lit sphere (Lommel-Seeliger shading) with a faint earthshine on its dark side, and the night sky is
+the same scattering lit from the moon. The **Moon** group sets its brightness (0 hides it), phase
+(the shape: 0 new, 0.25 first quarter, 0.5 full, 0.75 last quarter; it never moves the moon), size (0.52° is the real moon) and color. Once the sun is below the
+horizon the moon takes over as the key light: the map is lit and shadowed from the moon's direction,
+in its color, at a strength set by brightness and phase (a full moon at 1 is 10 % of a power-1 sun).
+The sun fades out over its last degree and the moon fades in over the first six degrees of twilight,
+so the light never jumps. The Storm look turns the moon off.
+
+The cloud layer's shape follows Guerrilla's *The Real-time Volumetric Cloudscapes of Horizon Zero
+Dawn* (SIGGRAPH 2015): a cumulus height profile, coverage cutting shapes out of the noise, and finer
+noise wearing away the edges. Its lighting follows [SebLague/Clouds](https://github.com/SebLague/Clouds)
+(MIT): light absorbed on its way through the cloud toward the sun or moon, a floor so the undersides
+never go black, and a two-lobe phase that brightens clouds near the sun. The clouds take their sky
+light from the Environment sky. **Rain darkening** (default 1) makes rain and lightning storms thicken
+the layer, raise its coverage and turn it dark grey. It changes only the clouds. Fog, rain particles
+and wet ground are untouched.
 Distant 3D-skybox surfaces also pass through the native lighting scopes. Their miniature-world
 coordinates and shadow geometry still need validation.
 
@@ -260,46 +376,364 @@ is not a textured mirror. These controls do not yet provide native material pick
 painting, glass transmission or full-scene material capture. Existing snow and wetness coatings also
 apply to material props, with their documented appearance-test limitations.
 
-## World-space precipitation collision
+## Weather cover: what is indoors
 
-Shelter collision blocks rain, snow and ash using prepared map geometry and added props.
-It is enabled by default and loads supplied map data asynchronously. Until geometry is ready,
-precipitation still falls but passes through roofs. Visible depth still handles ordinary camera
-occlusion. Missing data must be exported in development and supplied with the project.
+Rain, snow and ash stop at roofs, and snow and wet stop at doorways, from two things worked out from
+the map's render triangles and added props. Both load with the map data. Until the geometry is
+ready, precipitation still falls but passes through roofs, and coatings stay global.
 
-Shelter is graded, not a cut. Rain does not arrive along one exact line, so four more 2048 × 2048
-maps look along gust directions tilted about the mean. Two run along the wind (20°, up to 38° as the
-wind slants the rain), and two run across it (13° up to 22°). A surface's exposure is the weighted
-share of directions with open sky (mean 36 %, each gust 16 %). A doorway or arch facing the rain is
-therefore partly exposed for a short way in, and deep interiors stay dry. Wetness, splashes and,
-while it rains, puddles all follow that exposure. Puddles form on open ground and the wetted fringe of
-openings, not across interior floors. Each rain particle is roof-tested along one of those five
-directions (in the same proportions), so a few drops reach just inside an opening. Every drop still
-streaks along the shared fall direction. `mirv_filmmaker environment rainview on|off` paints the
-exposure (grey open, dark blue sheltered). The gust maps are static, like the main map, and are
-redrawn only when geometry or wind changes.
+**The sky map** is one 4096 × 4096 depth map that looks straight down on the playable map (the nav
+mesh's box with 512 units around it, about 1.5 to 2 units per texel). It answers "is the sky open
+straight above this point" exactly. Surfaces read it through twelve soft taps and count a share
+under a third as a seam between two meshes, not an opening. A point is lifted 10 units first (a
+kerb, a step or a roof tile's relief is not a roof), and further on a slope. Falling particles and
+the distant veil test it once each, so nothing falls under a roof. It looks straight down whatever
+the wind: rain sheltered along its slant drew stair-stepped wet on every wall, and the four tilted
+"gust" maps that softened it cost 64 MiB.
 
-Snow and ash are sheltered straight overhead instead, with no gust maps. What lies on the ground is
-hours of fall from every direction, so it depends on open sky, not on the current wind. The flakes themselves still drift and slant
-with the wind.
+**The cover volume** (`EnvironmentWeatherCoverMath.h`, `EnvironmentWeatherCover.cpp`) says how far
+open air reaches in under cover, which the sky map cannot. It is a grid of 16-unit voxels over the
+playable map (at most 320 × 320 × 96; a larger map gets wider voxels), baked once per map on worker
+threads:
+
+1. A voxel is open when nothing is above it. Five rays come down each column, and the highest thing
+   any of them meets is the roof, so a seam between two roof meshes does not open a column indoors.
+2. Two neighbouring voxels are joined when the ray between their centres and most of four rays
+   beside it (0.15 of a voxel out) are clear. A crack between a wall and a ceiling, or a seam between
+   two meshes, does not join a sealed room to the street; a doorway or window does.
+3. Open air spreads from the open voxels through the joins and keeps 79 % per 16 units across a wide
+   opening. Walls do not pass it. A wide opening lets more through than a narrow one, and a crack
+   lets through next to nothing.
+
+A surface's exposure is the larger of the two. Snow is full where the volume holds 45 % or more and
+gone under 10 %; wet reaches further, down to 3 %. Through a wide tall doorway that is snow about
+24 to 90 units in, and through an ordinary door less. The volume is stored as eighth roots in one
+R8 texture (about 5 MB on Inferno), so a lookup between a street and the sealed room behind a thin
+wall leaks about 3 units and not 13. The voxel under a floor copies the air above it, so floors read
+the air and not the ground.
+
+The bake runs on eight threads at below-normal priority. Its ray grid covers only the triangles in
+and above the volume: over a map's whole box, distant scenery stretched the grid's cells and
+Vertigo, whose box runs down to the street, took 43 s. Measured 2026-11-15 with the game running
+(seconds; the floor shares come from `coverplan`, which reads the volume alone, so ground beside a
+wall counts as reached and not open):
+
+| Map | Voxels | Bake | Floor open | Reached under cover | Sheltered |
+| --- | --- | --- | --- | --- | --- |
+| de_ancient | 279 x 317 x 53 | 1.3 | 70 % | 17 % | 14 % |
+| de_anubis | 285 x 320 x 52 | 0.9 | 75 % | 18 % | 7 % |
+| de_dust2 | 298 x 316 x 54 | 1.0 | 66 % | 30 % | 4 % |
+| de_inferno | 320 x 316 x 54 | 1.4 | 52 % | 31 % | 17 % |
+| de_mirage | 304 x 267 x 53 | 0.7 | 40 % | 49 % | 11 % |
+| de_nuke | 320 x 262 x 78 | 1.2 | 50 % | 5 % | 45 % |
+| de_overpass | 297 x 320 x 64 | 1.3 | 60 % | 24 % | 16 % |
+| de_train | 297 x 272 x 59 | 1.1 | 34 % | 26 % | 41 % |
+| de_vertigo | 220 x 218 x 57 | 0.7 | 39 % | 32 % | 29 % |
+
+Each map's plan was read against its layout. Inferno was also walked in game with snow and with rain
+(church, wine cellar, garage, arches), and Vertigo's B site, where the plan shows open patches
+indoors: they are the roof's skylights, and snow lies only under them. The other seven maps were
+checked from their plans only.
+
+**Doorways are walked through.** The volume keeps a second value, traffic: how near a place is to
+the way indoors. It spreads out of the rooms (covered places holding under 30 % open air) through
+the same joins and keeps 78 % per 16 units, so it is high in a doorway, a quarter of that 24 units
+outside it, and gone 120 units down the street. Snow and water use it and one map-fixed pattern of
+clumps (`WeatherClumps`):
+
+- Outside a door the snow is trodden: broken into packed, greyer patches with bare ground between,
+  up to 42 % bare at the threshold.
+- Under cover the snow is scattered: clumps, many at the opening and fewer with every step in. The
+  same clumps run across the threshold, so trodden and scattered snow meet without a line.
+- Where snow is trodden or scattered it melts: the ground between patches is damp and small pools
+  form by the door.
+- Rain reaches in under cover as patches of the same pattern, and worn ground by a door holds
+  more pools.
+
+**Footprints** (`EnvironmentFootprintMath.h`, `EnvironmentFootprints.cpp`). Players leave marks
+where their feet go, and the feet are the player's own: each frame the hook reads the ankle and toe
+bones of every live pawn from its world pose (`ReadFeet` in `EnvironmentScene.cpp`) and works out
+where each boot is, which way it points and how high its sole is off the ground the pawn stands on.
+A foot is set down in the frame it is low and has stopped travelling over the ground
+(`FootSetDown`); that is a print, and a splash where there is water. Low alone is not enough: a
+running foot drops to the ground while still flying forward at about 380 units a second and comes
+to rest a boot's length further on, so an effect fired when the sole first got low played early and
+behind the boot. `environment footview` draws what is read over the frame, to check this against
+the picture: a cross on each foot (green set down, red not, white in the air) and a yellow ring
+where and when each footfall fires; `mvm_debug` logs each footfall with the foot's and the pawn's
+speed. Player models differ by a unit or so in where those bones sit, so a
+sole is read against that foot's own lowest level (`FootLift`). A pawn in the air leaves nothing. A
+pawn whose bones cannot be read falls back to steps worked out from how far it has moved: one every
+34 units on alternate sides, and both feet side by side where it sets off and stops
+(`AdvanceFootTrack`). The marks live in a 1024 by 1024 image fixed to the world around the camera
+(0.75 units a texel, 384 units each way) with the height each was made at, so a mark on another
+floor is not drawn. A mark belongs to its own level to within seven units: one made in the street is
+not drawn on the kerb beside it (shared across 28 units, a trampled patch ran up over a kerb as a
+slab hanging in the air). Thin snow shows a print as a dent: tilted walls, a packed bluish floor, worn
+through to the ground where the snow is thin and trodden. While snow falls the marks fill back in
+over about 45 seconds. Marks are made as the game plays: a seek or a map change clears them, so an
+export does not reproduce the marks of an earlier pass. `rainview` shows prints in magenta.
+
+**Deep snow** (`SnowTrench` in `EnvironmentClimateShaders.h`). The Snow depth control
+(`climate snowDepth`, 0 to 1, default 0.5) says how deep the snow lies where it has drifted: up to
+14 units, about shin deep, in the drifts and a third of that between them. It does not lie as one
+flat sheet: `SnowRelief` shapes it into mounds and hollows fixed to the map (broad swells several
+paces across with lumps on them), from about 0.3 to 1.35 of its depth. The mounds are waves, which
+repeat, so the ground they are laid on is first pushed about by slow noise and the lumps are made
+strong in one place and faint in the next: no two stretches of a yard line up in rows. The method is the one
+published for deformable snow in games: the ground the game drew is the bed of the snow, its
+surface is above it, and a map of how far the snow has been pushed down is built from where the
+players' bodies actually are. Here that map is the image of marks, and the feet press it: a boot on
+the ground pushes the snow to its bed in an oval the size of the boot (about 14 by 6 units) with a
+ragged wall sloping out beyond it. The leg above the foot goes through the snow too, so wherever a
+foot passes the snow is cut down to the height of its sole (`FootPress`): a slow walk, with the
+feet hardly lifted, drags a furrow nearly to the bed from one hole to the next, one furrow a leg
+with a ridge between them; a run, with the feet lifted high, cuts only the deeper mounds; a foot
+lifted over the snow leaves it alone. Holes that overlap are one hole. Pressed
+snow is packed a fifth as deep, and the snow pushed out is heaped round the mouth of a hole. The
+view ray is traced down through the snow against that surface, read through a filtering, wrapping
+sampler. The height at which the ray enters the snow as it lay is found exactly first (the mounds
+are a formula: six even heights, then five halvings); if the snow at that point has not been
+pressed, that is what the eye meets. Only a ray that enters over pressed snow goes on into the
+hole, in samples at most 1.1 units apart along the ground, then three halvings. (Walking every ray
+in steps drew the near lip of a furrow as a staircase: a ray that clips the lip's top corner is
+inside the snow for less than any step, so it was skipped by an amount that crept and snapped back
+along the furrow.) So a mound hides what is behind its crest, the near wall of a hole hides its
+floor and the far wall stands behind it, the wall turned to the sun is bright and the floor sits in
+the other wall's shade. Players stand in the snow: a pixel of a player lower than the snow between
+it and the eye is drawn as snow (`ApplyCoatings`, `legHeight`), so boots and shins sink out of
+sight and show again inside the hole they pressed, with a soft snow line on the leg. A foot set
+down in snow also kicks up a small puff of powder (the foot splash's sheets, white, where the sky
+is open). The ground itself is not moved: the snow does
+not stand in front of a wall's foot or a prop, and from a camera lower than about 12 degrees the
+depth flattens. Falling snow fills a hole from the bottom at half the pace of a print.
+
+**A body that falls presses the snow too.** A dead player's bones are read the same way as a live
+one's feet (`ReadFallen` in `EnvironmentScene.cpp`: pelvis, spine, head, both arms and both legs,
+from the pose the body is drawn with, the pawn's own or its client-side ragdoll's). Every part of the
+body presses the snow down to its own underside wherever it is (`PressBody`), so nothing is marked
+while the body is still upright, the snow is cut as it drops, and where it comes to lie there is a
+hollow in the shape of the body. The ground under a body is taken from the body itself (a little
+under its lowest bone), because a dead pawn's origin stays where it died. A body is pressed again
+only when it has moved, and once a second while it lies there so falling snow does not fill in under
+it. The frame the trunk reaches the ground throws up powder in snow, or a splash where there is
+standing water, at the hips and the chest. Nothing of ours is drawn on the body itself: players,
+alive or dead, keep only the game's own frost shading. Thin snow shows the body's shape as a print.
+
+Only a standing player's own legs are hidden behind deep snow. A pixel counts as a leg when it is at
+or above that player's feet (`ActorGround`), so a player overhead, standing on another's head or
+jumping over, never claims the body below (that painted a chest as snow), and a player in the air is
+skipped, so a jumping player's boots carry no snow line.
+
+**Rain's partial shelter is patchy, and so is the mirror.** Where the sky reaches wet ground only
+in part (a roof's edge, the sheltered side of a wall in wind) the share is turned into patches
+(`WetOpen`), and the share of the wet film's mirror that is sky uses the same patches with softer
+edges; as plain amounts both ended along the roof's outline in a ruled line. Blown mist is lit by
+the sky and sun, not by the scene behind it, and is grey: lit like the streaks (the scene read at
+the pixel and four points off it) it laid faint copies of the scene over the frame, a blur with
+every roof line doubled. Rain's ground spray is a fraction of blown snow's and capped, fades over a
+pace or two at a shelter's edge, and goes by how level the ground is.
+
+**Frost is handed back clean.** After the game's frost switch was held on, it is held off for 240
+updates before being given back to the map: the game works frost out only while the switch says on
+or off, so given straight back, players kept the frost they had (seen after Reset weather). Each
+player also keeps a stored amount that melts slowly, and 240 updates is about a second at a high
+frame rate, so the frost showed again a moment after the switch was handed back. Once our snow has
+frosted people on a level, their frost is drawn at zero strength (the frost hook) whenever snow is
+not wanted, until it is wanted again or the level changes.
+
+**Wind gusts** (`climate gusts`, 0 to 1, the Gusts slider under Weather; `EnvironmentWindFluid.cpp`).
+Wind is seen by what it carries, so the air is run as a 2D fluid over the whole map, seen from above
+(Stable Fluids: curl, forces, advection, a 20-sweep pressure solve, projection; cells of 24 units,
+wider on a huge map). The steady wind (Wind speed and direction) blows across it and gust fronts,
+bands a few hundred units deep and much longer across the wind, sweep downwind through it, pushing
+the air to several times the steady speed and loading it with what is drawn as blown mist in rain
+and blown snow in snow. The air cannot pass through houses: their faces are read from the weather
+cover volume (`WindObstacles`: a rise of 96 units within three cells, taller than a person, so a
+yard wall counts and a stair, a kerb or a slope does not), a few rows a frame after the cover is baked. So gusts squeeze down streets,
+spill round corners and curl in the lee of buildings, and players drag the air as they run. The
+weather shaders read the fluid (`WindAt` in `EnvironmentClimateShaders.h`): where the air moves faster than
+the steady wind, rain leans further over and thickens, snow is carried sideways and drawn out into
+streaks, and far off a front is a curtain of thicker weather. The air itself tumbles: turbulence is
+added in step with its speed, so a gust wanders instead of running in ruled lines.
+
+**The wind is seen as a pattern carried by the air** (`GustFlow`). All of
+it rides downwind together at the speed the fronts travel (a rigid slide, which never tears it),
+and where the air at a place moves otherwise it is bent that way by flow mapping (two copies half a
+period apart, cross-faded), by no more than a couple of the pattern's own widths. Carried the whole
+way by the local velocity, the eddies wound the pattern into marbled stripes across the floor. How
+gusty the air is (`GustAmount`) is how far it surges over the steady wind (a front runs at
+1.7 × (140 + the wind) over it), shaded by what the fluid carries there; the fronts decide where. How gusty the air
+is (`GustAmount`) is how far it surges over the steady wind (a front runs at 1.7 × (140 + the wind)
+over it) or what the fluid carries there.
+- **In the air** (`GustMist`): waves. A front is a body of blown snow, spray or ash a few hundred
+  units across, shaped by billows, thickest over the streets and thinning up over a couple of
+  storeys; it sweeps through at the gust's speed, so the air goes white in snow, grey in rain and
+  dark in ash, and clears as it passes. Between fronts the air is nearly clear. Thin sheets marched
+  along the ray averaged into a flat grey fog over the whole frame and were dropped. The march is
+  not dithered: what it reads changes over hundreds of units, and a per-pixel jitter laid a screen of
+  grain over the frame.
+- **Along the ground**: wisps streaming over the floor where the view ray lands (24 units thick),
+  torn at three sizes so they thin out softly (light spray in rain). A cut-out layer read as paint.
+- **On wet ground and puddles** (`ApplyCoatings`): a gust raises wavelets, crests across the wind,
+  drifting slowly downwind (`GustRipples`), only where the gust runs; they break up what the film
+  mirrors (up to 45 % less mirror and rougher reflections), so a gust is a rougher, darker patch
+  sweeping over the water, glinting where its wavelets catch the sun.
+- **On snow**: loose snow runs over the surface in streamers, a brighter white where they run and
+  the crust a shade greyer between.
+The Gusts control shows it at full strength from 0.67 up. (Before 2026-11-17 the air showed only
+the fluid's density cubed as faint wisps, and nothing on the ground: in rain a gust was invisible.)
+Still air behind a house does not stand the rain up straight. The fluid is stepped as the game
+plays, like the footprints: a seek restarts it and the fronts fill it again in a second or two.
+Without map data there are no gusts. `environment wind-view [on|off|map|<units>]` shows it from above
+in a corner of the frame: walls red, fast air blue, what it carries white, the camera green.
+
+What a gust carries is drawn for every weather, in its own amount (`GustMist`): per unit of air in a
+front, 1/600 in snow, 1/700 in ash and 1/1000 in rain. Ash is smoke, and what the gust carries through it is a warm dark grey, where the
+falling ash stays its own pale flecks.
+
+**CS2's own textures.** The coatings are drawn with Counter-Strike's own art, read from the installed
+game at run time and never shipped (`EnvironmentGameTextures.cpp`, reading through
+`ReadGameSurfaceTextures` in `MapData/MapTextures.cpp`):
+
+- **The snow** is always CS2's: the snow the Cobblestone winter update laid on its streets,
+  `materials/cbble/snow/snow_mix_2`. Its three maps are found through the material, so a texture
+  renamed by an update is still found, and uploaded with their own mips as BC7. Everything in them is
+  used, as `csgo_environment` reads them (`GameSnowAt`): the colour and, in its alpha, the cavities; the
+  normal (hemi-octahedral, CS2's HemiOctAnisoRoughness) and, in the normal map's blue, the roughness;
+  the height, which also offsets the lookup toward the eye (parallax, about three units over a repeat).
+  They are laid top-down over the map, one repeat every 128 units, each mip picked from how many units
+  a pixel covers. The crust's relief is lit as the map lights the snow (its normal against level snow in
+  the sun, its tilt in the sky light), so it reads in sun and shade alike; its roughness gives it a GGX
+  sheen toward the sun and decides where it sparkles (the smooth specks); a thin patch's edge follows
+  the height. The procedural lumps and grain it replaced are removed. Drifts, footprints and trenches
+  stay. Until the textures have loaded the snow is plain white.
+- **CS2 water beads** (`rainTexture`, on by default): `materials/dev/water_droplets`, the beads of water
+  CS2's wet surfaces use, one repeat every 32 units on wet ground that is not under a pool. They bend
+  what the wet film mirrors and catch the sun.
+
+Both read the game on a worker thread the first time they are wanted; until then, or if the game has no
+such textures, the snow is plain and the wet ground has no beads. `environment status` prints what was found
+(`cs2 textures:`). The texture reader is checked by `MapDataTests` on synthetic data and, where the
+game is installed, against the real files.
+
+**Snow glisten.** CS2's crust (above) keeps the snow from being a slow white gradient that eight
+bits of colour draw as bands, and half a step of per-pixel noise breaks up what gradient is left. It
+glistens (`SnowGlisten`): a stationary jittered
+grid of sparkles, after Shopf and Wang & Bowles 2016 ("A Robust and Flexible Real-Time Sparkle
+Effect"). The ground is divided into cells fixed to the map, each holding one crystal at a random
+spot with a random tilt, drawn as a round point about a pixel and a half across (never a whole
+cell). A crystal flashes by how nearly its tilt lies halfway between the eye and the sun, plus a
+fainter flash straight back at the eye so overcast and lamplit snow still twinkles, so the glints
+come and go as the camera or the sun moves. Cells are sized from how much ground a pixel covers, in
+doubling steps blended into each other, but never more than 2 units across, and the glints fade out
+between 220 and 700 units from the camera. Sized from the pixel alone there were as many on screen
+across a far yard as at the feet, and a glint one pixel wide a thousand units away is a crystal the
+size of a plate: distant snow was strewn with large bright dots. A glint
+is as bright as the light on the snow there, and the snow itself is kept a tenth under full white
+so that a glint can be brighter than it. Everything drawn on the snow (lumps, grain, glints, the
+shade of its drifts) is looked up at the point of the snow's surface the eye meets, which is nearer
+the camera than the ground point of the pixel because the surface stands above the ground. Looked
+up at the ground point, the patterns slid over the mounds and holes as the camera moved.
+
+**What snow costs.** Measured on Inferno at 1920 by 1080 with 4x MSAA under the map's own lighting:
+the surface pass takes about 0.3 ms a frame with no coating and 5.6 to 6 ms with snow on. Of that
+about 2.1 ms is the surface pass every coating pays (normals, reconstruction), 1.6 ms is deciding
+where snow lies (the cover lookup and its noise), 0.65 ms is the trace of holes and 1.3 ms the rest
+(light taps, grain, glints). The image of marks carries a chain of smaller copies of itself so the
+shader can ask in one read whether any foot has been near a point, and skips the trace where none
+has; whole snow skips the wet-ground section. The weather cover of a map (about two seconds of
+eight threads on Inferno) is kept in `<AppData>\HLAE\source_mvm\environment\cover` under a
+fingerprint of the map's triangles and read back in a few hundredths of a second on later launches.
+
+**Player fill** (`climate playerFill`, 1 to 4, default 1.8). Under dynamic lighting players take
+their ambient light from sparse probes and stood out near black in shade beside walls lit per
+pixel. The composite lifts the darkest shade of player pixels (found with the same player mask the
+coatings use) by this factor, fading to no change as a pixel reaches 0.3 luminance, so a player in
+the sun is left as lit. It is a fill light, not a fix to the probe lighting. 1 switches it off.
+
+**Splashes** (`FootSplashVS` in `EnvironmentSplashShaders.h`). A foot that comes down in standing
+water (the frame the foot is set down, at the boot itself) throws it out low: nine sheets of water that leave outward, rise a hand or two and tear into
+shreds within a third of a second (upright, facing the camera, cut from noise fixed to the world),
+66 small drops on ballistic arcs that land within a pace, a ragged patch of froth where the boot
+went in, and a train of broad ripples through the water's reflection. Thrown water is drawn dim
+and lit by the scene, at most 45 % opaque: a grey smudge against what is behind it, never white.
+Nothing is painted on the water as a ring. The last 32 strides are kept, each for under two
+seconds, and only those that land in a pool splash (`PuddleAt`, the same pools the ground shader
+draws), so damp ground and snow do not.
+
+**Frost on players** (`EnvironmentNativeRain.cpp`). Our snow is kept off players, weapons and
+corpses. They are frosted by CS2's own frost material instead, which grows on players, weapons and
+chickens outdoors, melts under cover, and clears from a hot barrel or a lit molotov. A map asks for
+it with `frostenabled` on `info_map_parameters`; while snow falls or the Snow control is above zero
+the hook sets `r_csgo_frost_force 1`. The frost is the game's own, at the game's own strength; there
+is no amount control.
+
+**One weather, one shading on players.** Rain is the game's own wet shading and nothing else; snow
+is the game's own frost and nothing else. While rain falls the frost switch is held at 0, whatever
+snow still lies and whatever the map asks for, so nobody is frosted in rain (rain on old snow used
+to frost players, and frost left from a moment of snow stayed on them outdoors). The game's wet
+shading (`NativeWorldWeatherFor`: the world is marked rain-exposed, with a rain strength, ripples
+and wetness) is switched on only while rain falls: the Wetness control wets our ground film at any
+time, but the game's own materials and players only in rain. Who is wet or frosted, and that they
+dry or thaw under cover, is the game's own sky test in both cases. Where
+frost grows is the game's own sky test, not the weather cover above, so the two can disagree at a
+doorway. The game's `r_csgo_frost_grow_time`, `r_csgo_frost_melt_time` and
+`r_csgo_frost_indoor_distance` set its timing. CS2 builds before November 2026 have no frost;
+`environment mapinfo` then reports it as unavailable.
+
+**No frost after the snow stops.** The game works its frost out only while the switch says on or
+off. Handed back to the map (`-1`), players keep the frost they carry, so a reset used to turn them
+white again a moment later. Once our snow has frosted anyone, the switch therefore stays at 0 until
+the level changes, and what players still carry is not drawn while it melts: each frosted thing
+keeps four numbers (frost now, the most it has had, meltwater, barrel heat) that one small routine
+in `client.dll` packs for the material, and the hook zeroes the first two there. If that routine is
+not found after a game update, `environment mapinfo` says so and the leftover frost melts at the
+game's own pace instead.
+
+**The wind's angle moves where weather lands.** The weather wind and fall speed give a lean (0
+straight down, 0.71 at 45 degrees). It does nothing under a lean of 0.1 and is at full strength by
+0.55: the snow preset (wind 18, speed 65) only thins the sheltered side, and a strong wind clears it.
+
+- In the open, a place is missed when the line back toward the weather runs under a roof. Six
+  points up that line (30 to 230 units) are tested against the sky map and the share that are clear
+  is what reaches it, so the sheltered side of a wall falls off: nearly bare at its foot and more
+  with every step out, in a strip that widens with the lean. Snow turns that share into patches
+  that thin out, as it does at a doorway. (Two points and the lesser of them drew the strip's edge
+  as a ruled line across a yard.) Each point is three taps across and along the line, spread wider
+  the further up it is, so the share falls off smoothly: with one tap a point it stepped in sixths,
+  each step on the roof edge carried along the wind, and snow patches beside a container or under a
+  ledge ended in straight lines (2026-11-18). Lying snow counts only a quarter of this: it came down over hours
+  of shifting wind, so its sheltered side is thinned, not cleared. Rain counts all of it.
+- Under cover, the volume is read up to 90 units upwind, so an opening that faces the wind takes
+  snow and wet further in and one that faces away takes less.
+- A falling particle in the open is dropped when the line it came down ran under a roof, and one
+  just under cover is kept when open air reaches it and that line is clear.
+
+Set it with `mirv_filmmaker environment weather wind <speed> <direction-degrees>` or the Weather
+card's wind controls. `rainview` adds red for traffic.
+
+An earlier version averaged the sky map in rings around a point to find the fringe. That counted
+open sky on the far side of a wall, so rooms beside a street got patches of snow, and a per-grain
+jitter on the rings drew the fringe as speckle.
+
+`mirv_filmmaker environment rainview on|off` paints the cover: grey under open sky, green where open
+air reaches in under cover, dark blue where it does not. `mirv_filmmaker environment coverplan
+<file.ppm>` writes the walkable floor seen from above in the same colours and prints the share of
+each, for checking a map's interiors at a glance. `mirv_filmmaker environment status` prints the
+bake's state and times.
+
+Thin openings, alpha-cutout foliage, moving native actors and anything missing from the render
+triangles are not reproduced exactly. Doors that open and close do not change the volume. Embers,
+motes and smoke remain local effects and do not use the cover.
 
 Rain streaks are motion blurred. Each streak is one drop smeared over its length, so its opacity is
-min(1, 40 × drop width / streak length). Long, fast streaks are faint and soft. Streak length does not
+min(1, 60 × drop width / streak length). Long, fast streaks are faint and soft. Streak length does not
 change the rain's total coverage. Drop size spreads below the size setting, which is the largest drop.
-Most drops are smaller, down to a quarter of it. Size sets streak width and length. Rain takes the
-map's light at the drop times 2, so it reads as water catching light. No drop or splash is drawn more
-than 40 to 50 % opaque, so streaks near the lens never become solid white lines.
-
-A 2048 × 2048 depth map faces the incoming precipitation direction, including wind.
-It fits fixed world bounds and updates when geometry or wind direction changes. Turning the camera,
-moving a following particle field, or changing the sun does not invalidate it. Camera-hidden props
-can form rain shelters. This uses the existing world-depth infrastructure and does not require
-procedural sky, sunlight, GI or enabled dynamic light shadows.
-
-The collision mask costs 16 MiB and shares uploaded map and prop geometry with world shadows. It is a
-finite-resolution approximation to prepared collision surfaces, not per-particle physics. Thin
-openings, alpha-cutout foliage, moving native actors and visual details missing from that mesh are
-not reproduced exactly. Embers, motes and smoke remain local effects and do not use the rain mask.
+Most drops are smaller, down to a quarter of it. Size sets streak width and length. A streak is never
+drawn wider than two pixels, so a drop right at the lens is a thin line and not a wedge across the
+frame, and drops fade in over 24 to 110 units from the lens. Rain takes the map's light at the drop
+times 3, so it reads as water catching light. No drop or splash is drawn more than 40 to 50 % opaque.
 
 ## Rain, wetness and storm rendering
 
@@ -319,8 +753,8 @@ Valve's `rain_storm` particle is not used. It culls drops against baked precipit
 that only weather maps ship, so most maps show a few streaks at most.
 
 Entering cover does not clear those native wetness values. Active impacts are a separate animated
-normal/refraction layer, evaluated only where the precipitation shelter map proves exposure.
-Prepare map geometry for roof exclusion. With no shelter geometry, falling rain still renders but
+normal/refraction layer, evaluated only where the weather cover proves exposure.
+Prepare map geometry for roof exclusion. With no map geometry, falling rain still renders but
 surface impacts fail closed. Impact events use absolute demo time. Pause freezes them, and seeking
 reconstructs the same pattern. Their finite lifetime avoids an accumulated simulation cache.
 
@@ -332,7 +766,7 @@ Beyond that window, the same density continues as a per-pixel veil that integrat
 expected coverage along each view ray. Particles fade out over the window edge as the veil fades in,
 so distance never changes how thick precipitation is.
 
-The veil counts only ray stretches that are open to the sky in the shelter map and inside the
+The veil counts only ray stretches that are open to the sky in the sky map and inside the
 precipitation region. Looking out of a doorway therefore shows the same fall as standing outside, and
 none indoors. With map geometry, the region is the map's collision bounds, from the floor to half the
 weather height above the highest collision. Precipitation therefore covers the whole map and stops at
@@ -340,7 +774,7 @@ its edges. Without map geometry, the veil reaches ten weather radii. The veil's 
 world-anchored and falls with the particles.
 
 Count sets the cell size (every cell holds a particle), so a light fall draws proportionally fewer
-particles over the same window. Changing Count re-seeds the lattice. Each particle tests the roof and
+particles over the same window. Changing Count re-seeds the lattice. Each particle tests the sky map and
 takes its light once, in the vertex shader, rather than per pixel. Rain drop sizes spread below the
 size setting (see the motion blur notes below). Ash flakes are thin, translucent torn pieces that flip
 as they fall and take the map's lighting. Snow flakes and the far snow veil take it too, with a high
@@ -354,9 +788,10 @@ brightness and color. Authored lights and storm light add shadowed scattering. F
 drops. Drops fade in over roughly 14 to 56 units. The per-drop opacity cap keeps near streaks from
 becoming solid bars. Rain also wets exposed ground by itself. Wet surfaces mirror the scene through a
 short screen-space trace (or the procedural sky when that pass is on), so wetness reads as a water
-film. Ground ripples use one world-anchored impact field at every distance. Splash geometry (a ring
-plus a crown of droplets) fires in at most about a third of the impact cells per cycle, drawn down to
-about 24 units from the lens. The estimate does not use CS2's reflection probes or material buffers,
+film. Ground ripples use one world-anchored impact field at every distance. Splash geometry (a small upright
+cup of water that lasts an eighth of a second, plus a few fine droplets; no ring is drawn, the rings
+are the ripples in the reflection) fires in at most about a third of the impact cells per cycle,
+drawn down to about 24 units from the lens, dim and at most about a third opaque. The estimate does not use CS2's reflection probes or material buffers,
 so it cannot recover offscreen map lights. The fixed preview and export quality policy applies.
 
 Smoke coverage uses only the current smoke window's `mboit_mixed_combine` zeroth moment. The handoff
@@ -364,6 +799,62 @@ is cleared before each window and when the current entity snapshot has no smoke.
 filters exclude future and expired detonation records after seeks. Ray entry preserves rain in front
 of smoke. Optical distance attenuates drops within it, including a camera inside the cloud. The
 engine's current absorbance supplies density. A cached sphere does not supply opacity.
+
+**Smoke lies over the snow and the wet.** The coatings are painted after CS2 has drawn its smoke,
+and smoke writes no depth. CS2 blends a smoke onto the ground as `frame = ground * T + smoke's own
+light`, with `T = exp(-b0)` from the same zeroth moment. The composite takes the smoke's own light
+out of the frame (the frame less the bare ground times `T`), coats the ground, and puts the two
+back together as `coated ground * T + smoke's own light`: the ordinary over composite with the
+game's own transmittance. Only the share of the absorbance that belongs to a placed smoke counts;
+the same pass draws floor paint, glass and leaf cards, and paint goes under the snow. Before this
+a smoke was laid back by guessing its thickness from how much brighter it made each pixel, and the
+bare ground under it showed through as a hole in the snow.
+
+**What the game draws over the world.** CS2 draws its crosshair (`csgo_crosshair.vfx_ps`) and the
+engine's debug overlays such as `ent_text` (`ui.vfx_ps`) onto the tonemapped image before the
+before-UI boundary. The composite runs just before the first of them, on the same target. Run at
+the boundary, it took them for part of the world: snow was painted over them and wet ground
+mirrored them.
+
+**The map's own clouds go with its sky.** CS2's clouds are geometry in the 3D skybox, drawn after
+the sky, so replacing the sky does not remove them: they stayed in front of the Environment's sky
+as dark flat shapes. While the Environment's sky is drawn, every cloud material's opacity is held
+at zero (`CloudFx_SetEnvironmentHidden`), as the map's sun disc is suppressed. Every two seconds it
+checks whether the level has loaded more materials and, if so, looks for cloud materials again, so
+one that registers after the first is hidden too. The Effects tab's
+cloud settings are neither read nor changed, and the clouds come back as they were set when the
+sky goes off. **Hide map clouds** (Sky card, Clouds group, climate `hideMapClouds`) does the same
+under the map's own sky: the map's sky stays and its clouds go, and with Clouds on the Environment's
+cloud layer is the only one over it. The switch is always shown; with the added sky on it changes
+nothing, because the map's clouds are hidden then anyway.
+
+**Nothing is drawn over CS2's menus.** With the pause menu (or the main menu over a map) open,
+Panorama draws it straight onto the back buffer after the tonemap and before the engine's overlay
+text, and the BeforeUi boundary does not come (traced 2026-11-17: `post_process`, then
+`panorama` / `panorama_fancyquad` for the whole menu, then `ui.vfx_ps`). The composite waited for
+the overlay text and drew the rain, the sky and the fog over the menu and the scoreboard. The first
+Panorama draw onto the back buffer after the tonemap is now a boundary too
+(`AfxBoundaryShaderKind` in `RenderSystemDX11Hooks.cpp`), so the composite lands under the menu.
+
+**The ground under a sunlit tarp is lit in the tarp's colour.** CS2's own lighting shows the shade
+under the Mirage B-site tarp bright and green: the cloth passes the sun on as soft coloured light.
+Ours treated a tarp as a concrete slab, and the shade under it was a flat dark grey, about a fifth
+as bright. The map marks such materials (see [map data](../effects/map-data-extraction.md)), and the
+game draws their shaded face lit by the light on the other face. The bounce now holds cloth the same
+way: the sheet is solid, and each face also sends on the light that falls on the other, through the
+cloth's colour (`VOXEL_CLOTH`, `GiClothPass` 1). The tarp's sun shadow is unchanged and stays solid,
+so the result is the same from any distance. A first attempt drew cloth into the sun shadow map
+through every other texel; a far cascade filtered that pattern differently from a near one, and the
+shade got lighter as the camera came closer. It was removed.
+
+**The first-person gun takes no coating.** CS2's own wet shading already runs on the weapon and
+hands. The wet film and the rain impacts are keyed to the ground, and on the gun they drew the
+floor's ripples.
+
+**A flash needs a shot.** CS2 raises `weapon_fire` for a click on an empty magazine as well as for
+a shot. The muzzle light reads the firing weapon's magazine and gives no light for a click
+(`VfxDryFire`: empty now and empty at that weapon's previous event). A magazine that cannot be read
+never silences a shot.
 
 Puddle coverage controls the shader film independently of wetness. Zero means no automatic
 standing water, even with wetness at one. Increasing coverage grows the same world-anchored noise
@@ -838,6 +1329,14 @@ within one map. New maps acquire fresh originals before any override writes.
 current map. Direct edits to the sun and sky controls are included when a reset takes its undo
 snapshot. They do not each add an undo entry. Camera, VFX, Ragdolls, camera keys and saved assets
 are outside environment reset and presets. Explicit resets update saved lighting preferences too.
+
+**What each reset covers.** A card's **Reset** writes that card's own settings back to their
+defaults and nothing else. The tab's **RESET ENVIRONMENT** runs `environment reset environment`:
+everything on the Environment tab, with the world look a scene also stores (the skybox, tints,
+engine sun and exposure that belong to the Effects tab) left as it is; that tab has its own RESET.
+`environment reset all` still resets the world look too, as loading a preset replaces it. A reset
+scene is exactly a new scene: every switch that is a pass goes off, and cast shadows, ambient
+occlusion, sky occlusion and light shafts keep their default of on.
 Presets use **version 14**. Versions 1 to 13 and unknown future versions are rejected with a clear
 incompatibility message before replacing live state.
 
@@ -853,7 +1352,13 @@ that scratch target just before the scope pass, so the scope covers fog and clou
 covers the world. Fog never lands on the black scope surround. It handles single-sample and MSAA movie surfaces and depth, with a private prop depth buffer. The captured
 world viewport's depth range is normalized before reconstruction. CS2 reserves another part of the
 depth buffer for its sky, so assuming a full 0 to 1 world range is incorrect. Fog is evaluated per
-color and depth sample before MSAA resolution, which avoids bright silhouette fringes. The completed
+color and depth sample before MSAA resolution, which avoids bright silhouette fringes. Where the
+colour is already resolved and only the depth keeps its samples, a pixel along a wire or a leaf seen
+against the sky is two layers (`EdgeSkyShare`, `EdgeSkyColor`): the share of its samples that
+missed the wire is the sky as it was drawn, read from the neighbouring all-sky pixels, and that share
+gets the sky's clouds, fog, far rain and, when the Environment sky is laid in the atmosphere pass, the
+Environment sky itself. Shaded for its nearest sample alone, it kept a bright outline of the plain
+map sky around every thin thing in a dark rain sky. The completed
 engine world-to-clip matrix keeps placement aligned with camera overrides, roll, third-person views and
 Smooth View. Device resources belong to the hook and are released on device teardown. The immediate
 D3D11 state is restored after each submission.

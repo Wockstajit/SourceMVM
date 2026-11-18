@@ -14,6 +14,9 @@ void NextAmbientOcclusionFrame();
 // whole-map projections. Strength 0 leaves the depth-derived AO unchanged.
 // Dimensions of the texture the last AmbientOcclusion call returned (0 when neutral).
 void AmbientOcclusionSize(UINT& width,UINT& height);
+// True when the last AmbientOcclusion call returned the neutral texture only because the depth
+// prepass had not finished: a later draw of the same frame gets the real one.
+bool AmbientOcclusionProvisional();
 // Borrowed world positions, only for this frame's matching main depth target.
 ID3D11ShaderResourceView* AmbientOcclusionPositions(ID3D11DeviceContext*,UINT& width,UINT& height);
 struct SkyVisibilityInput {ID3D11ShaderResourceView* maps=nullptr;const Matrix* matrices=nullptr;float strength=0;};

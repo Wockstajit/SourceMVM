@@ -14,6 +14,11 @@
 #include "../Relight/RelightLightEditor.h"
 #include "EnvironmentGi.h"
 #include "EnvironmentGroundFog.h"
+#include "EnvironmentWindFluid.h"
+#include "EnvironmentGameTextures.h"
+#include "EnvironmentReflectionProbes.h"
+#include "EnvironmentFootprints.h"
+#include "EnvironmentFootprintMath.h"
 #include "EnvironmentStorm.h"
 #include "EnvironmentRayProbe.h"
 #include "../Debug/MvmDebugLog.h"
@@ -49,6 +54,9 @@ struct Constants {
     // defines and Frame::kMaxActors -- all three are the same number.
     Float4 coatingActors[12];
     Float4 coatingActorCount;
+    Float4 footInfo;
+    Float4 footSteps[32]; // kFootSteps and FOOT_STEPS
+    Float4 footLive[24];  // kFootLive and FOOT_LIVE: the foot view's feet (footInfo.y = 1 when it is on)
     Float4 smokeInfo; // x = smoke absorbance bound, yz = its size, w = debug view; matches the shader
     Float4 smokeVolumes[8]; // xyz centre, w radius; Frame::kMaxSmokes and SMOKE_VOLUMES
     Float4 smokeVolumeCount;
@@ -64,11 +72,18 @@ struct Constants {
     // PrecipitationLattice(): {cell, across, layers, veil optical density}, {reach, reachUp, veil
     // distance, 0}; the region is the map's precipitation box (w = mapped).
     Float4 weatherLattice, weatherReach, weatherRegionLow, weatherRegionHigh;
-    Float4 bakedLight; // x = Frame::bakedDaylight, y = 1 when it is valid
     // Ground fog (EnvironmentGroundFog.h) and the fogs' sky light; match the shader's FrameConstants.
     Float4 groundFogWindow, groundFogFloor, groundFogFloorSize, fogAmbient;
     Float4 effectAnchors[kFogEffectAnchors], effectAnchorCount;
+    Float4 windFluidWindow; // EnvironmentWindFluid.h
+    Float4 actorBones[12 * kBodyBones]; // coatingActors' bones for their ground fog shadows
+    Matrix previousVp;                  // the volume's temporal blend (VolumeTemporalPS)
+    Float4 previousCamera, temporalInfo;
+    Float4 gameTextureInfo;             // EnvironmentGameTextures.h: snow bound, droplets bound, snow tile
+    Float4 reflectionInfo;              // EnvironmentReflectionProbes.h: mode, highest mip, probe count, tone curve
+    Float4 reflectionIndex[4];          // the probes' record numbers, smallest box first
 };
+static_assert(kBodyBones == 16, "actorBones is COATING_ACTORS*16 in the shader");
 struct ObjectConstants {
     Matrix model, normal;
     Float4 color, materialParams, materialCoat, materialTextures;
@@ -77,7 +92,7 @@ static_assert(sizeof(Constants) % 16 == 0 && sizeof(ObjectConstants) % 16 == 0, 
 ID3D11ShaderResourceView *g_smokeView = nullptr; // render thread only; consumed by the next Render
 unsigned g_smokeWidth = 0, g_smokeHeight = 0;
 bool g_smokeDebug = false;
-bool g_shadowCascadeDebug = false, g_rainExposureDebug = false;
+bool g_shadowCascadeDebug = false, g_rainExposureDebug = false, g_footDebug = false;
 struct GpuMesh {
     std::shared_ptr<const Mesh> source;
     ComPtr<ID3D11Buffer> buffer;
@@ -91,9 +106,9 @@ using MaterialImageKey=std::pair<const MaterialImage*,bool>;
 struct Resources {
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> context;
-    ComPtr<ID3D11VertexShader> screenVS, meshVS, weatherVS[2], stormVS, splashVS[2];
+    ComPtr<ID3D11VertexShader> screenVS, meshVS, weatherVS[2], stormVS, splashVS[2], footSplashVS;
     ComPtr<ID3D11PixelShader> atmospherePS[4], atmospherePixelPS[4], meshPS[4], materialMeshPS[4], weatherPS[4], stormPS[4], splashPS[4], veilPS[4];
-    ComPtr<ID3D11PixelShader> blitPS[2], volumePS[4], volumeBlurPS[4], compositePS[4], skyVolumePS[4];
+    ComPtr<ID3D11PixelShader> blitPS[2], volumePS[4], volumeBlurPS[4], compositePS[4], skyVolumePS[4], compositePixelPS[4], volumeTemporalPS[4];
     ComPtr<ID3D11PixelShader> atmosphereEdgePS;
     ComPtr<ID3D11Texture2D> atmosphereEdges;
     ComPtr<ID3D11ShaderResourceView> atmosphereEdgesSrv;
@@ -105,13 +120,32 @@ struct Resources {
     ComPtr<ID3D11ShaderResourceView> volumeGeometrySrv;
     ComPtr<ID3D11RenderTargetView> volumeGeometryRtv;
     UINT volumeWidth = 0, volumeHeight = 0;
+    // The volume's temporal blend (VolumeTemporalPS), live view only: two slots taking turns, one
+    // written this present and the other holding the last present's blend and distances. A present
+    // can render the environment twice (the HDR pass and the display pass): the second render reads
+    // the same history with the same jitter, so both come out the same.
+    ComPtr<ID3D11Texture2D> volumeHistory[2], volumeHistoryGeometry[2];
+    ComPtr<ID3D11ShaderResourceView> volumeHistorySrv[2], volumeHistoryGeometrySrv[2];
+    ComPtr<ID3D11RenderTargetView> volumeHistoryRtv[2];
+    int historySlot = 0;          // the slot this present writes; the other is the history
+    bool historyValid = false;    // the other slot holds a frame that can be blended in
+    Matrix historyVp{};           // ...seen through this view, from this camera, at this time
+    Vec3 historyCamera{};
+    ULONGLONG historyTick = 0;
+    uint64_t present = 0, slotPresent = ~0ull; // presents counted (EndEnvironmentPresent); the one the slot is for
+    bool slotWritten = false;
+    Matrix slotVp{};
+    Vec3 slotCamera{};
+    ULONGLONG slotTick = 0;
+    uint32_t temporalFrame = 0;
     ComPtr<ID3D11InputLayout> layout;
     ComPtr<ID3D11Buffer> constants, objectConstants;
     ComPtr<ID3D11RasterizerState> raster;
     ComPtr<ID3D11DepthStencilState> depth[2], noDepth;
     ComPtr<ID3D11BlendState> opaque, alpha;
     ComPtr<ID3D11Texture2D> sceneDepth, propDepth, color, working, sourceColor;
-    ComPtr<ID3D11RenderTargetView> workingRtv;
+    ComPtr<ID3D11RenderTargetView> workingRtv, colorRtv;
+    ComPtr<ID3D11ShaderResourceView> workingSrv;
     ComPtr<ID3D11Resource> displayResource;
     ComPtr<ID3D11RenderTargetView> displayRtv;
     D3D11_RENDER_TARGET_VIEW_DESC displayDesc{};
@@ -248,8 +282,10 @@ bool ColorTarget(const D3D11_TEXTURE2D_DESC &target, DXGI_FORMAT format) {
         return true;
     g.color.Reset();
     g.colorSrv.Reset();
+    g.colorRtv.Reset();
     g.working.Reset();
     g.workingRtv.Reset();
+    g.workingSrv.Reset();
     g.propDepth.Reset();
     g.propDsv.Reset();
     g.propSrv.Reset();
@@ -266,7 +302,9 @@ bool ColorTarget(const D3D11_TEXTURE2D_DESC &target, DXGI_FORMAT format) {
         return false;
     auto d = target;
     d.Usage = D3D11_USAGE_DEFAULT;
-    d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    // Both are read and written: the fog composite reads one and writes the other, and the final
+    // blit reads whichever holds the frame, so neither needs a whole-frame copy.
+    d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
     d.CPUAccessFlags = 0;
     d.MiscFlags = 0;
     d.MipLevels = 1;
@@ -274,11 +312,12 @@ bool ColorTarget(const D3D11_TEXTURE2D_DESC &target, DXGI_FORMAT format) {
     d.Format = format;
     d.SampleDesc = target.SampleDesc;
     if (FAILED(g.device->CreateTexture2D(&d, nullptr, &g.color)) ||
-        FAILED(g.device->CreateShaderResourceView(g.color.Get(), nullptr, &g.colorSrv)))
+        FAILED(g.device->CreateShaderResourceView(g.color.Get(), nullptr, &g.colorSrv)) ||
+        FAILED(g.device->CreateRenderTargetView(g.color.Get(), nullptr, &g.colorRtv)))
         return false;
-    d.BindFlags = D3D11_BIND_RENDER_TARGET;
     if (FAILED(g.device->CreateTexture2D(&d, nullptr, &g.working)) ||
-        FAILED(g.device->CreateRenderTargetView(g.working.Get(), nullptr, &g.workingRtv)))
+        FAILED(g.device->CreateRenderTargetView(g.working.Get(), nullptr, &g.workingRtv)) ||
+        FAILED(g.device->CreateShaderResourceView(g.working.Get(), nullptr, &g.workingSrv)))
         return false;
     d.Format = DXGI_FORMAT_R32_TYPELESS;
     d.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
@@ -319,8 +358,15 @@ bool AtmosphereEdgeTarget(UINT width,UINT height) {
     return true;
 }
 bool VolumeTarget(UINT width, UINT height) {
-    if (g.volume && g.volumeBlur && g.skyVolume && g.skyVolumeBlur && g.volumeGeometry && g.volumeWidth == width && g.volumeHeight == height)
+    if (g.volume && g.volumeBlur && g.skyVolume && g.skyVolumeBlur && g.volumeGeometry && g.volumeHistory[0] &&
+        g.volumeWidth == width && g.volumeHeight == height)
         return true;
+    g.historyValid = false;
+    g.slotWritten = false;
+    for (int k = 0; k < 2; ++k) {
+        g.volumeHistory[k].Reset();g.volumeHistorySrv[k].Reset();g.volumeHistoryRtv[k].Reset();
+        g.volumeHistoryGeometry[k].Reset();g.volumeHistoryGeometrySrv[k].Reset();
+    }
     g.volume.Reset();
     g.volumeSrv.Reset();
     g.volumeRtv.Reset();
@@ -352,15 +398,38 @@ bool VolumeTarget(UINT width, UINT height) {
         FAILED(g.device->CreateShaderResourceView(g.skyVolumeBlur.Get(), nullptr, &g.skyVolumeBlurSrv)) ||
         FAILED(g.device->CreateRenderTargetView(g.skyVolumeBlur.Get(), nullptr, &g.skyVolumeBlurRtv)))
         return false;
+    for (int k = 0; k < 2; ++k)
+        if (FAILED(g.device->CreateTexture2D(&d, nullptr, &g.volumeHistory[k])) ||
+            FAILED(g.device->CreateShaderResourceView(g.volumeHistory[k].Get(), nullptr, &g.volumeHistorySrv[k])) ||
+            FAILED(g.device->CreateRenderTargetView(g.volumeHistory[k].Get(), nullptr, &g.volumeHistoryRtv[k])))
+            return false;
     // One nearest-depth classification/unprojection per coarse texel, reused by
     // the 25-tap blur and all full-resolution MSAA composite samples.
     d.Format=DXGI_FORMAT_R32G32_FLOAT;
     if(FAILED(g.device->CreateTexture2D(&d,nullptr,&g.volumeGeometry))||
        FAILED(g.device->CreateShaderResourceView(g.volumeGeometry.Get(),nullptr,&g.volumeGeometrySrv))||
        FAILED(g.device->CreateRenderTargetView(g.volumeGeometry.Get(),nullptr,&g.volumeGeometryRtv)))return false;
+    for(int k=0;k<2;++k)
+        if(FAILED(g.device->CreateTexture2D(&d,nullptr,&g.volumeHistoryGeometry[k]))||
+           FAILED(g.device->CreateShaderResourceView(g.volumeHistoryGeometry[k].Get(),nullptr,&g.volumeHistoryGeometrySrv[k])))return false;
     g.volumeWidth = width;
     g.volumeHeight = height;
     return true;
+}
+// A view of one of the game's own surfaces in the format our copy of it is read with, or null
+// when the surface cannot be sampled. Made for one frame and released with it: nothing here keeps
+// a game surface alive, and nothing is remembered by its address.
+ComPtr<ID3D11ShaderResourceView> DirectSourceView(ID3D11Texture2D *texture, const D3D11_TEXTURE2D_DESC &d,
+                                                  ID3D11ShaderResourceView *copyView) {
+    ComPtr<ID3D11ShaderResourceView> view;
+    if (!copyView || !(d.BindFlags & D3D11_BIND_SHADER_RESOURCE) || d.MipLevels != 1) return view;
+    D3D11_SHADER_RESOURCE_VIEW_DESC copy{}, sr{};
+    copyView->GetDesc(&copy);
+    sr.Format = copy.Format;
+    sr.ViewDimension = d.SampleDesc.Count > 1 ? D3D11_SRV_DIMENSION_TEXTURE2DMS : D3D11_SRV_DIMENSION_TEXTURE2D;
+    sr.Texture2D.MipLevels = 1;
+    if (FAILED(g.device->CreateShaderResourceView(texture, &sr, &view))) view.Reset();
+    return view;
 }
 bool DepthTarget(const D3D11_TEXTURE2D_DESC &source) {
     if (g.sceneDepth && g.sourceDesc.Width == source.Width && g.sourceDesc.Height == source.Height &&
@@ -421,6 +490,10 @@ void EndDevice() {
     Relight::EndLightEditor();
     EndGi();
     EndGroundFog();
+    EndWindFluid();
+    ReleaseGameTextures();
+    ReflectionProbes_Release();
+    EndFootprints();
     g = Resources{};
     gHdr = Resources{};
     SetRenderStatus("Renderer device released");
@@ -457,6 +530,7 @@ void BeginDevice(ID3D11Device *device, bool background) {
     BeginSunVisibility(device);
     BeginGi(device);
     BeginGroundFog(device);
+    BeginWindFluid(device);
     if (SetupFailed(__LINE__, device->CreateDeferredContext(0, &g.context))) {
         SetRenderStatus("Could not create environment render context");
         return;
@@ -490,6 +564,10 @@ void BeginDevice(ID3D11Device *device, bool background) {
             return;
     }
     code.Reset();
+    if (!Compile("FootSplashVS", "vs_5_0", 0, code) ||
+        SetupFailed(__LINE__, device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &g.footSplashVS)))
+        return;
+    code.Reset();
     if (!Compile("MeshVS", "vs_5_0", 0, code) ||
         SetupFailed(__LINE__, 
             device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &g.meshVS)))
@@ -506,7 +584,8 @@ void BeginDevice(ID3D11Device *device, bool background) {
             ComPtr<ID3D11PixelShader> *outputs[] = {&g.atmospherePS[ms + cm * 2], &g.atmospherePixelPS[ms + cm * 2], &g.meshPS[ms + cm * 2], &g.materialMeshPS[ms + cm * 2],
                                                     &g.weatherPS[ms + cm * 2], &g.volumePS[ms + cm * 2],
                                                     &g.compositePS[ms + cm * 2], &g.stormPS[ms + cm * 2], &g.splashPS[ms + cm * 2], &g.veilPS[ms + cm * 2],
-                                                    &g.volumeBlurPS[ms + cm * 2],&g.skyVolumePS[ms + cm * 2]};
+                                                    &g.volumeBlurPS[ms + cm * 2],&g.skyVolumePS[ms + cm * 2],&g.compositePixelPS[ms + cm * 2],
+                                                    &g.volumeTemporalPS[ms + cm * 2]};
             static_assert(sizeof(outputs) / sizeof(outputs[0]) == EnvironmentPixelShaderCount,
                           "Every environment pixel shader needs an output");
             for (size_t k = 0; k < EnvironmentPixelShaderCount; ++k) {
@@ -590,12 +669,15 @@ void SetShadowCascadeView(bool on) { g_shadowCascadeDebug = on; }
 bool ShadowCascadeView() { return g_shadowCascadeDebug; }
 void SetRainExposureView(bool on) { g_rainExposureDebug = on; }
 bool RainExposureView() { return g_rainExposureDebug; }
+void SetFootView(bool on) { g_footDebug = on; }
+bool FootView() { return g_footDebug; }
 void SetSmokeAbsorbance(ID3D11ShaderResourceView *view, unsigned width, unsigned height) {
     const bool usable = view && width && height;
     g_smokeView = usable ? view : nullptr;
     g_smokeWidth = usable ? width : 0;
     g_smokeHeight = usable ? height : 0;
 }
+void EndEnvironmentPresent() { ++g.present; ReflectionProbes_EndPresent(); }
 bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D11DepthStencilView *depth,
             const Frame &input, float depthMin, float depthMax, ID3D11Texture2D *nativeHdrSource) {
     RenderPrivateTextureScope privateTextures;
@@ -638,6 +720,10 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     static unsigned s_idleFrames = 0;
     static ComPtr<ID3D11Device> s_idleReleasedDevice;
     if (!f.active) {
+        // Nothing is drawn, so nothing asks for off-screen reflections: without this the last wet
+        // frame's request kept CS2's probes read back and the tone curve measured while it was off,
+        // and the release below kept it (ReflectionProbes_Release preserves the request).
+        ReflectionProbes_Want(false);
         if (++s_idleFrames == kIdleReleaseFrames && (g.ready || devicePending) && g.device) {
             s_idleReleasedDevice = g.device;
             EndDevice();
@@ -765,6 +851,29 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
                       float(std::fmod(f.time * climate[CL_windSpeed], 10000000.0)), 0, 0};
     c.volumeDimensions = {float(g.volumeWidth), float(g.volumeHeight),
                           float(ClimateSteps(climate, f.exporting)), f.hdr ? 1.f : 0.f};
+    // The live view blends the volume over frames (VolumeTemporalPS); a render marches every frame
+    // whole. Last frame's volume is kept only across a short, steady step of the camera.
+    const bool temporal = volumes && !f.exporting;
+    if (temporal && g.slotPresent != g.present) {
+        // The first live render of this present: the slot the last one wrote becomes the history.
+        if (g.slotWritten) {
+            g.historyValid = true;
+            g.historyVp = g.slotVp;
+            g.historyCamera = g.slotCamera;
+            g.historyTick = g.slotTick;
+            g.historySlot = 1 - g.historySlot;
+        }
+        g.slotPresent = g.present;
+        g.slotWritten = false;
+        ++g.temporalFrame;
+    }
+    {
+        const Vec3 moved = f.camera - g.historyCamera;
+        const bool usable = temporal && g.historyValid && GetTickCount64() - g.historyTick < 500 && Dot(moved, moved) < 150.f * 150.f;
+        c.previousVp = g.historyVp;
+        c.previousCamera = Pack(g.historyCamera);
+        c.temporalInfo = {usable ? 1.f : 0.f, temporal ? float(std::fmod(g.temporalFrame * 0.6180339887, 1.0)) : 0.f, .12f, 0};
+    }
     // Resolve all GPU meshes before recording any commands. Failure leaves the original image.
     std::set<MaterialImageKey> usedImages;
     for(const auto &o:f.scene.objects)if(o.enabled&&!o.IsLight()&&o.cameraVisible&&o.material.enabled){
@@ -809,12 +918,42 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     {
         const int maxActors = int(sizeof(c.coatingActors) / sizeof(c.coatingActors[0]));
         int n = 0;
+        unsigned airborne = 0; // pawns off the ground: their boots are not in the snow (ActorGround)
+        int bodies = 0;
         for (const auto &a : f.actors) {
             if (n >= maxActors) break;
+            if (a.hasFeet && !a.grounded) airborne |= 1u << n;
+            for (int k = 0; k < kBodyBones; ++k) {
+                const bool has = a.hasBody && a.body.has[k];
+                c.actorBones[n * kBodyBones + k] = has ? Pack(a.body.bone[k], 1) : Float4{};
+            }
+            bodies += a.hasBody ? 1 : 0;
             c.coatingActors[n++] = {a.origin.x, a.origin.y, a.origin.z, a.radius};
         }
         for (int i = n; i < maxActors; ++i) c.coatingActors[i] = {0, 0, 0, 0};
-        c.coatingActorCount = {float(n), 0, 0, 0};
+        // The dead keep what CS2 draws too: their bodies' bones follow the living ones' in actorBones,
+        // so the coatings leave corpses alone (BonesClaim). A ragdoll is not in the player mask, and the
+        // snow lay over the bodies (reported 2026-11-17).
+        int sets = n;
+        for (const auto &body : f.fallen) {
+            if (sets >= maxActors) break;
+            for (int k = 0; k < kBodyBones; ++k)
+                c.actorBones[sets * kBodyBones + k] = body.bones.has[k] ? Pack(body.bones.bone[k], 1) : Float4{};
+            ++sets;
+            ++bodies;
+        }
+        for (int i = sets; i < maxActors; ++i)
+            for (int k = 0; k < kBodyBones; ++k) c.actorBones[i * kBodyBones + k] = {};
+        // w: how many bodies' bones are in actorBones (living first, then the dead).
+        c.coatingActorCount = {float(n), 0, float(airborne), bodies ? float(sets) : 0.f};
+        if (MvmDebugLog_Active() && n > 0) {
+            static ULONGLONG last = 0;
+            const ULONGLONG now = GetTickCount64();
+            if (now - last > 3000) {
+                last = now;
+                MvmDebugLog_LinefAlways("environment.actors.bodies", "actors=%d withBones=%d", n, bodies);
+            }
+        }
     }
     // Set by the caller before every Render (the HDR grab renders twice per frame). The command
     // list below holds its own reference to the view.
@@ -938,11 +1077,26 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     ctx->ClearState();
     // Which pixels are a person: every coating (snow, wet film, rain impacts) stays off them.
     const bool coating = climate[CL_snow] > 0 || climate[CL_wet] > 0 || climate[CL_puddles] > 0 ||
-                         (w.type == 1 && w.count > 0);
+                         (w.type == 1 && w.count > 0) ||
+                         (climate[CL_playerFill] > 1 && f.scene.climate[CL_relighting] > 0); // the fill light finds players by the same mask
     bool playerMask = false;
     if (coating) {GPU_PASS_SCOPE(ctx, "composite: player mask");
      playerMask = PreparePlayerMask(ctx, c.vp, td.Width, td.Height, reversed);}
     c.coatingActorCount.y = playerMask ? 1.f : 0.f;
+    // Footprints: followed whenever snow lies or the ground is wet, so marks are there the moment
+    // either is looked at.
+    ID3D11ShaderResourceView* footprints=nullptr;
+    int footStepCount=0;
+    c.footInfo={0,0,0,0};
+    for(auto& step:c.footSteps)step={0,0,0,-1e9f};
+    for(auto& foot:c.footLive)foot={0,0,0,-1e9f};
+    if(climate[CL_snow]>0||climate[CL_wet]>0||climate[CL_puddles]>0||(f.scene.weather.type>=1&&f.scene.weather.type<=2&&f.scene.weather.count>0)){
+        ComPtr<ID3D11Device> footDevice;ctx->GetDevice(&footDevice);
+        const auto marks=PrepareFootprints(footDevice.Get(),ctx,f,c.climateClock.x);
+        footprints=marks.view;c.footInfo.x=marks.view?1.f:0.f;footStepCount=marks.stepCount;
+        for(int i=0;i<marks.stepCount&&i<32;++i)c.footSteps[i]={marks.steps[i][0],marks.steps[i][1],marks.steps[i][2],marks.steps[i][3]};
+        if(g_footDebug){c.footInfo.y=1;for(int i=0;i<marks.feetCount&&i<24;++i)c.footLive[i]={marks.feet[i][0],marks.feet[i][1],marks.feet[i][2],marks.feet[i][3]};}
+    }
     ctx->ClearState();
     {GPU_PASS_SCOPE(ctx, "composite: world GI");PrepareGi(ctx, f);}
     ctx->ClearState();
@@ -954,12 +1108,17 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         c.groundFogFloor = {ground.floorX, ground.floorY, ground.floorCell, ground.floorMap ? 1.f : 0.f};
         c.groundFogFloorSize = {ground.floorWidth, ground.floorHeight, ground.driftX, ground.driftY};
         ctx->ClearState();
+        // Wind gusts: step the air the weather is blown by and publish where to read it.
+        const auto wind = PrepareWindFluid(ctx, f, climate, precipitating);
+        c.windFluidWindow = {wind.originX, wind.originY, wind.perUnitX, wind.perUnitY};
+        ctx->ClearState();
     }
     // The map's own sky colour lights the fogs while the Environment sky is off.
     c.fogAmbient = Pack(FogAmbientFromMapSky(f.relight.skyColor, !f.relight.map.empty()), 0);
     // Particles have no depth: what they did to the frame and where they are says how much fog is in
     // front of them. w: the mask is bound.
-    if (climate[CL_fogDensity] > 0 || climate[CL_groundFog] > 0) {
+    // The ground coatings need it as well: they are painted over the frame and must leave effects be.
+    if (climate[CL_fogDensity] > 0 || climate[CL_groundFog] > 0 || climate[CL_snow] > 0 || climate[CL_wet] > 0 || climate[CL_puddles] > 0) {
         c.fogAmbient.w = PrepareFogFrontMask(ctx, td.Width, td.Height) ? 1.f : 0.f;
         const int anchors = (std::min)(int(f.fogEffects.size()), kFogEffectAnchors);
         for (int i = 0; i < anchors; ++i) {
@@ -972,8 +1131,48 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     BindShadowMaps(ctx);
     BindGi(ctx);
     BindPlayerMask(ctx);
-    ctx->CopyResource(g.sceneDepth.Get(), depthTexture.Get());
-    ctx->CopyResource(g.sourceColor.Get(), targetTexture.Get());
+    {
+        // CS2's own snow and water-bead textures (EnvironmentGameTextures.h), while their switches
+        // are on and the coating they dress is: x snow, y droplets, z snow tile size (u).
+        const bool rainy = f.scene.weather.type == 1 && f.scene.weather.count > 0;
+        const auto game = BindGameTextures(g.device.Get(), ctx, climate[CL_snow] > 0,
+                                           (climate[CL_wet] > 0 || climate[CL_puddles] > 0 || rainy) && climate[CL_rainTexture] > .5f);
+        c.gameTextureInfo = {game.snow ? 1.f : 0.f, game.droplets ? 1.f : 0.f, 128.f, 0};
+        // What wet ground mirrors off screen (EnvironmentReflectionProbes.h): asked for while a wet film
+        // is drawn, so the next frame catches CS2's probes and measures the tone curve for it.
+        const bool wetFilm = climate[CL_wet] > 0 || climate[CL_puddles] > 0 || rainy;
+        ReflectionProbes_Want(wetFilm);
+        const float eye[3]{f.camera.x, f.camera.y, f.camera.z};
+        const auto probes = ReflectionProbes_Bind(ctx, eye, f.relight.enabled);
+        c.reflectionInfo = {probes.info[0], probes.info[1], probes.info[2], probes.info[3]};
+        for (int i = 0; i < 4; ++i)
+            c.reflectionIndex[i] = {probes.index[i * 4], probes.index[i * 4 + 1], probes.index[i * 4 + 2], probes.index[i * 4 + 3]};
+    }
+    {ID3D11ShaderResourceView* marks=footprints;ctx->PSSetShaderResources(41,1,&marks);
+     // The marks wrap around the window, and are read smoothed (footSampler).
+     auto wrap=g.materialSampler.Get();ctx->PSSetSamplers(7,1,&wrap);}
+    // The frame and its depth as the game left them. Every pass below draws into our own targets
+    // and the game's colour is written only by the final blit, after these views are unbound, so
+    // surfaces that can be sampled are read in place; the others are copied as before.
+    ComPtr<ID3D11ShaderResourceView> directDepth, directColor;
+    if (SourceDirectRead.load(std::memory_order_relaxed)) {
+        directDepth = DirectSourceView(depthTexture.Get(), dd, g.sceneSrv.Get());
+        directColor = DirectSourceView(targetTexture.Get(), td, g.sourceColorSrv.Get());
+    }
+    ID3D11ShaderResourceView *const sceneView = directDepth ? directDepth.Get() : g.sceneSrv.Get();
+    ID3D11ShaderResourceView *const sourceView = directColor ? directColor.Get() : g.sourceColorSrv.Get();
+    {GPU_PASS_SCOPE(ctx, "composite: source copies");
+     if (!directDepth) ctx->CopyResource(g.sceneDepth.Get(), depthTexture.Get());
+     if (!directColor) ctx->CopyResource(g.sourceColor.Get(), targetTexture.Get());}
+    if (MvmDebugLog_Active()) {
+        static ULONGLONG last = 0;
+        const auto now = GetTickCount64();
+        if (now - last >= 3000) {
+            last = now;
+            MvmDebugLog_LinefAlways("environment.sources", "depthDirect=%d colorDirect=%d depthBind=0x%x colorBind=0x%x",
+                                    int(!!directDepth), int(!!directColor), dd.BindFlags, td.BindFlags);
+        }
+    }
     c.viewmodelInfo.x=BindViewmodel(ctx,depthTexture.Get())?1.f:0.f;
     c.viewmodelInfo.z=f.nativeLightingApplied?1.f:0.f;
     c.viewmodelInfo.w=(f.proof.enabled||f.relight.enabled)&&f.hdr?1.f:0.f;
@@ -995,13 +1194,22 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     c.relightSky.w=f.nativeCompressedHdr?1.f:0.f;
     c.relightSunColor.w=f.nativeSkyApplied?1.f:0.f;
     c.shadowDebug={g_shadowCascadeDebug?1.f:0.f,g_rainExposureDebug?1.f:0.f,0,0};
-    c.bakedLight={(std::max)(0.f,f.bakedDaylight),f.bakedDaylight>=0?1.f:0.f,0,0};
+    // The fog and cloud composite shades interior pixels once (CompositePixelPS) while every sample
+    // of such a pixel still holds one colour: nothing drawn per sample since the atmosphere pass.
+    bool volumeSplit=false;
     ID3D11RenderTargetView *workingTarget = g.workingRtv.Get();
+    // The texture that holds the frame so far. The fog composite moves it to the other texture.
+    ID3D11ShaderResourceView *frameView = g.workingSrv.Get();
     ctx->ClearDepthStencilView(g.propDsv.Get(), D3D11_CLEAR_DEPTH, reversed ? 0.f : 1.f, 0);
     c.lighting.z=td.SampleDesc.Count>1&&dd.SampleDesc.Count>1&&AtmosphereEdgeTarget(td.Width,td.Height)?1.f:0.f;
     if(c.lighting.z==0){
         g.atmosphereEdges.Reset();g.atmosphereEdgesSrv.Reset();g.atmosphereEdgesRtv.Reset();
     }
+    if(volumes&&c.lighting.z>.5f&&VolumeCompositeSplit.load(std::memory_order_relaxed)&&!(w.type&&w.count)){
+        volumeSplit=true;
+        for(const auto& o:f.scene.objects)if(!f.nativeLightingPass&&o.enabled&&!o.IsLight()&&o.mesh&&o.cameraVisible){volumeSplit=false;break;}
+    }
+    c.shadowDebug.z=volumeSplit?1.f:0.f;
     ctx->UpdateSubresource(g.constants.Get(), 0, nullptr, &c, 0, 0);
     ID3D11Buffer *buffers[] = {g.constants.Get(), g.objectConstants.Get()};
     ctx->VSSetConstantBuffers(0, 2, buffers);
@@ -1014,7 +1222,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     ctx->OMSetBlendState(g.opaque.Get(), blend, 0xffffffff);
     int ms = dd.SampleDesc.Count > 1 ? 1 : 0;
     int variant = ms + (td.SampleDesc.Count > 1 ? 2 : 0);
-    ID3D11ShaderResourceView *srvs[] = {nullptr, g.sceneSrv.Get(), nullptr, g.sourceColorSrv.Get()};
+    ID3D11ShaderResourceView *srvs[] = {nullptr, sceneView, nullptr, sourceView};
     ctx->PSSetShaderResources(0, 4, srvs);
     // Bound once: later passes only rebind slots 0-4 and 10-12, and ClearState releases it.
     ctx->PSSetShaderResources(14, 1, &smokeView);
@@ -1038,6 +1246,8 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         c.viewmodelInfo.z,c.viewmodelInfo.w,c.viewmodelInfo.y,climate[CL_relight],climate[CL_sunRelight],
         climate[CL_worldGi],climate[CL_bounce],climate[CL_snow],climate[CL_wet],climate[CL_puddles],
         c.weatherParams.z,c.weatherColor.w,c.shadowDebug.x,c.shadowDebug.y,c.relightDebug.x);
+    BindGroundFog(ctx); // t39: what transparent effects did to the frame, for the coatings
+    BindWindFluid(ctx); // t42/s8: the gusts rough up wet ground and scour snow (ApplyCoatings)
     // MSAA: interior pixels are shaded once (pixel rate), then only edge pixels per sample.
     if (td.SampleDesc.Count > 1) {
         ctx->PSSetShader(g.atmospherePixelPS[ms + 2].Get(), nullptr, 0);
@@ -1117,11 +1327,12 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         ctx->PSGetConstantBuffers(2, 1, &shadowConstants);
         ctx->VSSetConstantBuffers(2, 1, &shadowConstants);
         if (shadowConstants) shadowConstants->Release();
-        ID3D11ShaderResourceView *views[31]{}; // through t30, the gust shelter maps
+        ID3D11ShaderResourceView *views[31]{}; // through t30, the weather cover volume
         ctx->PSGetShaderResources(0, 31, views);
         ctx->VSSetShaderResources(0, 31, views);
         for (auto *view : views)
             if (view) view->Release();
+        BindWindFluid(ctx); // t42/s8, for the particles and the veil after them
         ctx->VSSetShader(g.weatherVS[td.SampleDesc.Count > 1 ? 1 : 0].Get(), nullptr, 0);
         ctx->PSSetShader(g.weatherPS[variant].Get(), nullptr, 0);
         if (markWeather) ctx->End(g.timingWeather[0].Get());
@@ -1138,7 +1349,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         if (markWeather) ctx->End(g.timingWeather[2].Get());
         // Ground splashes: rain only. The vertex shader reads the scene depth to find the floor.
         if (w.type == 1) {
-            ID3D11ShaderResourceView* sceneDepthView = g.sceneSrv.Get();
+            ID3D11ShaderResourceView* sceneDepthView = sceneView;
             ctx->VSSetShaderResources(1, 1, &sceneDepthView);
             ctx->VSSetShader(g.splashVS[ms].Get(), nullptr, 0);
             ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
@@ -1146,6 +1357,24 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
             ID3D11ShaderResourceView* noView = nullptr;
             ctx->VSSetShaderResources(1, 1, &noView);
         }
+    }
+    // A foot that comes down in standing water throws up a splash (the pixel stage keeps only the
+    // steps that landed in a pool).
+    if (footprints && g_footDebug) {
+        // The foot view: the instances after the splashes' are its markers (FootSplashVS), so one
+        // draw covers both (an instance id does not count from a start offset).
+        GPU_PASS_SCOPE(ctx, "composite: foot view");
+        ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
+        ctx->VSSetShader(g.footSplashVS.Get(), nullptr, 0);
+        ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
+        ctx->DrawInstanced(6, UINT(kFootSteps) * kFootSplashParts + UINT(kFootLive + kFootSteps), 0, 0);
+    } else if (footprints && footStepCount > 0 && (climate[CL_puddles] > 0 || climate[CL_wet] > 0 || climate[CL_snow] >= .25f)) {
+        // In snow the same sprites are a puff of powder (SplashPS).
+        GPU_PASS_SCOPE(ctx, "composite: foot splashes");
+        ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
+        ctx->VSSetShader(g.footSplashVS.Get(), nullptr, 0);
+        ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
+        ctx->DrawInstanced(6, UINT(footStepCount) * kFootSplashParts, 0, 0);
     }
     if (volumes) {
         GPU_PASS_SCOPE(ctx, "composite: fog volumes");
@@ -1162,11 +1391,37 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         D3D11_VIEWPORT volumeViewport{0, 0, float(g.volumeWidth), float(g.volumeHeight), 0, 1};
         ctx->RSSetViewports(1, &volumeViewport);
         ctx->PSSetShader(g.volumePS[variant].Get(), nullptr, 0);
-        ctx->Draw(3, 0);
+        {GPU_PASS_SCOPE(ctx, "fog volumes: march");ctx->Draw(3, 0);}
+        auto geometry=g.volumeGeometrySrv.Get();
+        ID3D11ShaderResourceView *marched = g.volumeSrv.Get();
+        if (temporal) {
+            // Blend this frame's march into the last frames' (VolumeTemporalPS); the sky pass, the blur
+            // and the composite then read the blend.
+            GPU_PASS_SCOPE(ctx, "fog volumes: temporal blend");
+            const int out = g.historySlot;
+            ID3D11RenderTargetView *historyTarget = g.volumeHistoryRtv[out].Get();
+            ctx->OMSetRenderTargets(1, &historyTarget, nullptr);
+            ID3D11ShaderResourceView *history[] = {g.volumeHistorySrv[1 - out].Get(), g.volumeHistoryGeometrySrv[1 - out].Get()};
+            ctx->PSSetShaderResources(43, 2, history);
+            ctx->PSSetShaderResources(33, 1, &geometry);
+            ctx->PSSetShaderResources(4, 1, &marched);
+            ctx->PSSetShader(g.volumeTemporalPS[variant].Get(), nullptr, 0);
+            ctx->Draw(3, 0);
+            ID3D11ShaderResourceView *noHistory[2] = {};
+            ctx->PSSetShaderResources(43, 2, noHistory);
+            ctx->OMSetRenderTargets(0, nullptr, nullptr);
+            ctx->CopyResource(g.volumeHistoryGeometry[out].Get(), g.volumeGeometry.Get());
+            marched = g.volumeHistorySrv[out].Get();
+            g.slotWritten = true;
+            g.slotVp = c.vp;
+            g.slotCamera = f.camera;
+            g.slotTick = GetTickCount64();
+        }
+        std::optional<GpuProfile::Scope> filterScope;
+        {static const unsigned pass=GpuProfile::PassId("fog volumes: sky march and blur");filterScope.emplace(ctx,pass);}
         ID3D11RenderTargetView *skyVolumeTarget=g.skyVolumeRtv.Get();
         ctx->OMSetRenderTargets(1,&skyVolumeTarget,nullptr);
-        auto geometry=g.volumeGeometrySrv.Get();ctx->PSSetShaderResources(33,1,&geometry);
-        ID3D11ShaderResourceView *marched = g.volumeSrv.Get();
+        ctx->PSSetShaderResources(33,1,&geometry);
         ctx->PSSetShaderResources(4,1,&marched);
         ctx->PSSetShader(g.skyVolumePS[variant].Get(),nullptr,0);
         ctx->Draw(3,0);
@@ -1179,17 +1434,23 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         ctx->PSSetShaderResources(32,1,&skyMarched);
         ctx->PSSetShader(g.volumeBlurPS[variant].Get(), nullptr, 0);
         ctx->Draw(3, 0);
+        filterScope.reset();
+        GPU_PASS_SCOPE(ctx, "fog volumes: composite");
+        // The composite writes every sample (the pixel and the edge pass share one mask), so it
+        // reads the frame from one texture and writes the other: no copy of the frame.
         ctx->OMSetRenderTargets(0, nullptr, nullptr);
-        ctx->CopyResource(g.color.Get(), g.working.Get());
+        workingTarget = g.colorRtv.Get();
         ctx->OMSetRenderTargets(1, &workingTarget, nullptr);
         ctx->RSSetViewports(1, &viewport);
-        ID3D11ShaderResourceView *composite[] = {g.colorSrv.Get(), g.sceneSrv.Get(), g.propSrv.Get(),
-                                                 g.sourceColorSrv.Get(), g.volumeBlurSrv.Get()};
+        ID3D11ShaderResourceView *composite[] = {frameView, sceneView, g.propSrv.Get(),
+                                                 sourceView, g.volumeBlurSrv.Get()};
         ctx->PSSetShaderResources(0, 5, composite);
         ID3D11ShaderResourceView *skyComposite=g.skyVolumeBlurSrv.Get();
         ctx->PSSetShaderResources(32,1,&skyComposite);
+        if(volumeSplit){ctx->PSSetShader(g.compositePixelPS[variant].Get(), nullptr, 0);ctx->Draw(3, 0);}
         ctx->PSSetShader(g.compositePS[variant].Get(), nullptr, 0);
         ctx->Draw(3, 0);
+        frameView = g.colorSrv.Get();
     }
     if(storm.flash>0){
         GPU_PASS_SCOPE(ctx, "composite: storm");
@@ -1205,18 +1466,18 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
     std::optional<GpuProfile::Scope> blitScope;
     {static const unsigned pass=GpuProfile::PassId("composite: final copy");blitScope.emplace(ctx,pass);}
-    ctx->CopyResource(g.color.Get(), g.working.Get());
     ctx->OMSetRenderTargets(1, &displayTarget, nullptr);
     ctx->OMSetBlendState(g.opaque.Get(), blend, 0xffffffff);
     ctx->VSSetShader(g.screenVS.Get(), nullptr, 0);
     ctx->PSSetShader(g.blitPS[td.SampleDesc.Count > 1 ? 1 : 0].Get(), nullptr, 0);
-    ID3D11ShaderResourceView *finalColor = g.colorSrv.Get();
+    ID3D11ShaderResourceView *finalColor = frameView;
 
     ctx->PSSetShaderResources(0, 1, &finalColor);
     ctx->Draw(3, 0);
     blitScope.reset();
     // A test view of the live fluid, on the display pass only: never in an EXR.
     if (!f.hdr) DrawGroundFogOverlay(ctx, displayTarget, td.Width, td.Height);
+    if (!f.hdr) DrawWindFluidOverlay(ctx, displayTarget, td.Width, td.Height);
     ctx->ClearState();
     if (measure) {
         ctx->End(g.timingEnd.Get());

@@ -65,9 +65,17 @@ int main() {
             day.skyColor={.57f,.68f,.8f};day.skyIntensity=1.65f;day.indirect=.3f;
             Check(Near(DaylightEnergyRatio(day,day),1),"Unchanged lighting keeps the skybox at its painted brightness");
             Climate night;night[CL_enabled]=1;night[CL_relighting]=1;night[CL_sky]=1;night[CL_sunElevation]=-12;night[CL_sunPower]=1;night[CL_ambient]=.08f;
+            night[CL_moonElevation]=35; // the default time of day has the moon down; this night has it up
+            night[CL_moon]=0;
             Scene lit=day;ApplyEnvironmentLighting(lit,night,{});
             const float ratio=DaylightEnergyRatio(day,lit);
             Check(ratio<BakedDaylightScale(-12.f,.08f)*.25f,"A night look dims the skybox as far as the relit world, past the sun-height floor");
+            // A full moon lights the night from its own direction, and stays a night light.
+            Climate moonlit=night;moonlit[CL_moon]=1;
+            Scene moon=day;ApplyEnvironmentLighting(moon,moonlit,{});
+            Check(Near(moon.sunAngles.x,moonlit[CL_moonElevation])&&Near(moon.sunAngles.y,moonlit[CL_moonAzimuth]),"At night the relit key light comes from the moon");
+            const float moonRatio=DaylightEnergyRatio(day,moon);
+            Check(moonRatio>ratio&&moonRatio<.2f,"Moonlight brightens the night a little, far below daylight");
             Climate brighter=night;brighter[CL_ambient]=1;Scene lifted=day;ApplyEnvironmentLighting(lifted,brighter,{});
             Check(DaylightEnergyRatio(day,lifted)>ratio,"Raising ambient lifts the skybox with the world");
             Climate dusk=night;dusk[CL_sunElevation]=20;Scene evening=day;ApplyEnvironmentLighting(evening,dusk,{});

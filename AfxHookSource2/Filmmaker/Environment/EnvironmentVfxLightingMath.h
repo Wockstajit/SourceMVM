@@ -49,6 +49,23 @@ inline float VfxMuzzleEnergy(double now, double start, double duration) {
     // Smooth endpoints avoid a hard light switch while keeping peak illumination.
     return 1 - t*t*(3-2*t);
 }
+// DID A BULLET LEAVE THE GUN. CS2 raises weapon_fire off the attack input, so a click on an empty
+// magazine raises it exactly as a shot does, and an empty gun lit the room with every click. The
+// event cannot tell them apart; the magazine can. `clip` is the rounds in the firing weapon read as
+// the event arrives (after a real shot took its round), -1 when it cannot be read.
+// A click is dry when the magazine is empty now AND was empty at this weapon's previous event: the
+// last round of a magazine also leaves it at 0, and that one is a shot. Unknown is never dry, and a
+// zero only counts once this weapon has been seen holding rounds (some never report any).
+// (The same test as the camera's recoil takes, CameraShakeStack.cpp, kept per player here.)
+struct VfxShotMemory { int weapon = -1, clip = -1; bool sawAmmo = false; };
+inline bool VfxDryFire(VfxShotMemory& memory, int weapon, int clip) {
+    if (weapon < 0 || clip < 0) return false;
+    if (memory.weapon != weapon) memory = {weapon, -1, false};
+    const bool dry = clip == 0 && memory.clip == 0 && memory.sawAmmo;
+    if (clip > 0) memory.sawAmmo = true;
+    memory.clip = clip;
+    return dry;
+}
 inline constexpr double VfxIgnitionFade = .18;
 inline float VfxFireFlicker(double time,unsigned seed) {
     if(!std::isfinite(time))return 0;

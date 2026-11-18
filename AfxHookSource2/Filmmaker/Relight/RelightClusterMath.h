@@ -1,5 +1,6 @@
 #pragma once
 #include "RelightMath.h"
+#include "RelightLitBoundsMath.h"
 #include <limits>
 
 namespace Filmmaker::Relight {
@@ -25,12 +26,24 @@ struct ClusterGrid {
         return mode?ClusterFloatRow{sliceScale,float(sliceCount-1),0,0}:ClusterFloatRow{};
     }
 };
+// Fine depth slices. Sixty-four slices over a whole map are 100 to 150 units deep each, and a
+// light's interval grows by a slice at both ends, so a lamp was a candidate for pixels hundreds of
+// units in front of and behind everything it can light. The shipped loop only multiplies depth by
+// cb3[23].x and clamps to cb3[23].y, so the slice depth and count are ours to choose: slices of
+// `sliceUnits` instead, as many as the map is deep, up to ClusterFineSliceLimit (the last slice
+// then holds everything further, as it always held everything past the far distance).
+inline constexpr float ClusterFineSliceUnits=16.f;
+inline constexpr uint32_t ClusterFineSliceLimit=1024;
 inline ClusterGrid MakeClusterGrid(uint32_t width,uint32_t height,uint32_t lights,float farDistance,
-                                   uint32_t probes=128,uint32_t reflections=128) {
+                                   uint32_t probes=128,uint32_t reflections=128,float sliceUnits=0) {
     ClusterGrid g;
     g.tilesX=(std::clamp(width,1u,16384u)+31)/32;
     g.tilesY=(std::clamp(height,1u,16384u)+31)/32;
-    g.sliceScale=float(g.sliceCount)/(std::isfinite(farDistance)?(std::max)(1.f,farDistance):1.f);
+    const float farLimit=std::isfinite(farDistance)?(std::max)(1.f,farDistance):1.f;
+    if(sliceUnits>0&&std::isfinite(sliceUnits)){
+        g.sliceCount=uint32_t(std::clamp(std::ceil(farLimit/sliceUnits),64.f,float(ClusterFineSliceLimit)));
+        g.sliceScale=1/sliceUnits;
+    }else g.sliceScale=float(g.sliceCount)/farLimit;
     g.lights.count=lights;g.probes.count=probes;g.reflections.count=reflections;
     for(auto* list:{&g.lights,&g.probes,&g.reflections}) {
         list->words=MaskWords(list->count);list->ones=g.size;g.size+=list->words;
@@ -217,18 +230,30 @@ inline void TightenSphereExtent(Vec3 c,float radius,const ClusterGrid& g,const C
     e.y0=(std::max)(e.y0,low(std::clamp((1-hi[1])*height*.5f,0.f,height-1)));
     e.y1=(std::min)(e.y1,high(std::clamp((1-lo[1])*height*.5f,0.f,height-1),g.tilesY));
 }
+// `lit`: the record's lit bounds (RelightLitBoundsMath.h), or null. They cut the range box of a
+// light without a face cone down to what its static shadow depth lets it reach.
 inline ClusterExtent LightClusterExtent(const LightRecord& light,const ClusterGrid& g,
-                                       const ClusterView& view,float width,float height,float cutoff=0,bool tightSphere=true) {
+                                       const ClusterView& view,float width,float height,float cutoff=0,bool tightSphere=true,
+                                       const LitBounds* lit=nullptr) {
     ClusterExtent e{0,g.tilesX-1,0,g.tilesY-1,0,g.sliceCount-1,1,0};
     ClusterHull hull;const bool beam=GlassClusterHull(light,hull);float radius=0;
+    const Vec3 c{light[32],light[33],light[34]};
+    bool bounded=false;
     if(!beam){
         // Row 8.w softens inverse-square falloff; row 9 proves a finite cull sphere.
         if(!(light[37]<0)||!std::isfinite(light[36])||!std::isfinite(light[37]))return e;
         radius=-light[36]/light[37];if(!(radius>=0)||!std::isfinite(radius))return e;
         radius=LightVisibleReach(light,radius,cutoff);
         hull=LightClusterHull(light,radius);
+        if(lit&&lit->valid&&hull.count==8&&Environment::Finite(lit->low)&&Environment::Finite(lit->high)){
+            const Vec3 low{(std::max)(c.x-radius,lit->low.x),(std::max)(c.y-radius,lit->low.y),(std::max)(c.z-radius,lit->low.z)};
+            const Vec3 high{(std::min)(c.x+radius,lit->high.x),(std::min)(c.y+radius,lit->high.y),(std::min)(c.z+radius,lit->high.z)};
+            // Nothing inside its reach is lit.
+            if(low.x>high.x||low.y>high.y||low.z>high.z)return {g.tilesX,0,0,0,1,0,0,0};
+            for(unsigned i=0;i<8;++i)hull.points[i]={(i&1)?high.x:low.x,(i&2)?high.y:low.y,(i&4)?high.z:low.z};
+            bounded=true;
+        }
     }
-    const Vec3 c{light[32],light[33],light[34]};
     auto project=[&](Vec3 p,unsigned component) {
         return p.x*view[12][component]+p.y*view[13][component]+p.z*view[14][component]+view[15][component];
     };
@@ -240,6 +265,9 @@ inline ClusterExtent LightClusterExtent(const LightRecord& light,const ClusterGr
         float nearW=w-extent,farW=w+extent;
         if(beam||hull.count==5){nearW=std::numeric_limits<float>::infinity();farW=-nearW;
             for(unsigned i=0;i<hull.count;++i){const float v=project(hull.points[i],3);nearW=(std::min)(nearW,v);farW=(std::max)(farW,v);}}
+        if(bounded){float boxNear=std::numeric_limits<float>::infinity(),boxFar=-boxNear;
+            for(unsigned i=0;i<8;++i){const float v=project(hull.points[i],3);boxNear=(std::min)(boxNear,v);boxFar=(std::max)(boxFar,v);}
+            if(std::isfinite(boxNear)&&std::isfinite(boxFar)){nearW=(std::max)(nearW,boxNear);farW=(std::min)(farW,boxFar);}}
         const float lo=nearW*g.sliceScale,hi=farW*g.sliceScale;
         if(std::isfinite(lo)&&std::isfinite(hi)) {
             // One slice absorbs CPU/GPU arithmetic differences at exact boundaries.

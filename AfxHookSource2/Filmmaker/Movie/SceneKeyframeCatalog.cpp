@@ -45,7 +45,8 @@ const std::map<std::string, std::string>& Names() {
         {"env.tint", "Scene tint"}, {"env.bloom", "Bloom"}, {"env.bloomThreshold", "Bloom threshold"},
         {"env.vignette", "Vignette"}, {"env.grain", "Film grain"}, {"env.chromatic", "Chromatic shift"},
         // CONFIG > ENVIRONMENT > SKY
-        {"env.sky", "Procedural sky"}, {"env.sunAzimuth", "Sun azimuth"}, {"env.sunElevation", "Sun elevation"},
+        {"env.sky", "Procedural sky"}, {"env.timeOfDay", "Time of day"}, {"env.sunPath", "Sun direction"}, {"env.sunHeight", "Sun height"},
+        {"env.sunAzimuth", "Sun azimuth"}, {"env.sunElevation", "Sun elevation"},
         {"env.sunPower", "Sun brightness"}, {"env.haze", "Horizon haze"}, {"env.stars", "Stars at night"},
         {"env.clouds", "Clouds"}, {"env.coverage", "Cloud coverage"}, {"env.density", "Cloud density"},
         {"env.cloudBase", "Cloud base height"}, {"env.cloudDepth", "Cloud layer depth"},
@@ -67,7 +68,7 @@ const std::map<std::string, std::string>& Names() {
         {"env.groundFogWispSize", "Ground fog wisp size"}, {"env.groundFogStreak", "Ground fog streak"},
         {"env.groundFogBillowSize", "Ground fog billow size"}, {"env.groundFogChurn", "Ground fog churn"},
         {"env.groundFogSun", "Ground fog sun"}, {"env.groundFogShade", "Ground fog shade brightness"},
-        {"env.groundFogPushSize", "Ground fog push size"},
+        {"env.groundFogPushSize", "Ground fog push size"}, {"env.groundFogShadows", "Ground fog shadows"},
         // CONFIG > ENVIRONMENT > WEATHER
         {"env.weather.type", "Weather type"}, {"env.weather.speed", "Fall speed"}, {"env.weather.size", "Particle size"},
         {"env.weather.color", "Particle colour"}, {"env.weather.windX", "Particle wind X"},
@@ -89,9 +90,9 @@ bool Has(const std::string& list, const std::string& id) { return (" " + list + 
 struct EnvGroup { const char* id; const char* title; const char* keys; };
 const EnvGroup kEnvGroups[] = {
     {"looks", "Looks", "exposure saturation contrast tint bloom bloomThreshold vignette grain chromatic"},
-    {"sky", "Sky", "sky sunAzimuth sunElevation sunPower haze stars clouds coverage density cloudBase cloudDepth cloudScale windSpeed"},
+    {"sky", "Sky", "sky timeOfDay sunPath sunHeight sunAzimuth sunElevation sunPower haze stars clouds coverage density cloudBase cloudDepth cloudScale windSpeed"},
     {"lighting", "Lighting", "enabled ambient sunRelight sunAngle bakedFill"},
-    {"fog", "Fog", "fogDensity fogColor fogStart fogHeight fogNoise groundFog groundFogCoverage groundFogHeight groundFogDetail groundFogFlow groundFogRecovery groundFogSwirl groundFogWind groundFogWindAngle groundFogSoftness groundFogWisps groundFogWispSize groundFogStreak groundFogBillowSize groundFogChurn groundFogSun groundFogShade groundFogPushSize lightShafts fogBase fogRange scatter localFogRadius fogX fogY fogZ"},
+    {"fog", "Fog", "fogDensity fogColor fogStart fogHeight fogNoise groundFog groundFogCoverage groundFogHeight groundFogDetail groundFogFlow groundFogRecovery groundFogSwirl groundFogWind groundFogWindAngle groundFogSoftness groundFogWisps groundFogWispSize groundFogStreak groundFogBillowSize groundFogChurn groundFogSun groundFogShade groundFogPushSize groundFogShadows lightShafts fogBase fogRange scatter localFogRadius fogX fogY fogZ"},
     {"weather", "Weather", "weather.type weather.speed weather.size weather.color weather.windX weather.windY turbulence particleOpacity softness streak particleLight"},
     {"ground", "Ground", "snow wet puddles puddleHeight puddleDepth surfaceRadius surfaceX surfaceY maskScale ripple reflectionRoughness"},
 };
@@ -166,11 +167,11 @@ const std::vector<ChannelSpec>& Catalog() {
             }
         }
         add("sky", "effects", "Weather & Sky", "sky", "sky", ChannelType::SkyId, 0, 0, 0, 0, {});
-        const std::string safe = "sky clouds coverage density cloudBase cloudDepth cloudScale windSpeed sunAzimuth sunElevation sunPower haze stars fogDensity fogHeight fogBase fogNoise fogRange scatter lightShafts snow wet puddles puddleHeight puddleDepth surfaceRadius surfaceX surfaceY maskScale ripple ambient sunRelight turbulence particleOpacity softness streak particleLight bloom bloomThreshold saturation contrast vignette grain chromatic fogStart localFogRadius fogX fogY fogZ reflectionRoughness sunAngle bakedFill groundFog groundFogCoverage groundFogHeight groundFogDetail groundFogFlow groundFogRecovery groundFogSwirl groundFogWind groundFogWindAngle groundFogSoftness groundFogWisps groundFogWispSize groundFogStreak groundFogBillowSize groundFogChurn groundFogSun groundFogShade groundFogPushSize";
+        const std::string safe = "sky clouds coverage density cloudBase cloudDepth cloudScale windSpeed timeOfDay sunPath sunHeight sunAzimuth sunElevation sunPower haze stars fogDensity fogHeight fogBase fogNoise fogRange scatter lightShafts snow wet puddles puddleHeight puddleDepth surfaceRadius surfaceX surfaceY maskScale ripple ambient sunRelight turbulence particleOpacity softness streak particleLight bloom bloomThreshold saturation contrast vignette grain chromatic fogStart localFogRadius fogX fogY fogZ reflectionRoughness sunAngle bakedFill groundFog groundFogCoverage groundFogHeight groundFogDetail groundFogFlow groundFogRecovery groundFogSwirl groundFogWind groundFogWindAngle groundFogSoftness groundFogWisps groundFogWispSize groundFogStreak groundFogBillowSize groundFogChurn groundFogSun groundFogShade groundFogShadows groundFogPushSize";
         for (const auto& f : Environment::ClimateSpecs()) {
             const std::string id = f.key;
             if (!Has(safe, id)) continue;
-            const auto type = Has("sunAzimuth groundFogWindAngle", id) ? ChannelType::Angle : Has("sky clouds lightShafts", id) ? ChannelType::Bool : ChannelType::Float;
+            const auto type = Has("sunAzimuth sunPath groundFogWindAngle", id) ? ChannelType::Angle : Has("sky clouds lightShafts", id) ? ChannelType::Bool : ChannelType::Float;
             addEnv(id, type, f.lo, f.hi, 1, {{f.initial}, {}});
         }
         addEnv("enabled", ChannelType::Bool, 0, 1, 1, {{0}, {}});

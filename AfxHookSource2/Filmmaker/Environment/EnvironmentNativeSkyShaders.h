@@ -4,6 +4,9 @@ inline constexpr char NativeSkyShader[] = R"HLSL(
 cbuffer SkyFrame:register(b13) {
     row_major float4x4 inverseViewProjection;
     float4 camera,viewport,sun,sunlight,sky;
+    float4 sunTint;   // rgb authored sun colour, w moon phase
+    float4 moon;      // xyz direction, w angular radius (radians)
+    float4 moonLight; // rgb moon colour, w moon brightness
 }
 )HLSL"
 #include "EnvironmentSkyRadianceShaders.h"
@@ -12,7 +15,11 @@ float4 NativeSkyPS(float4 pixel:SV_Position):SV_Target {
     float2 ndc=(pixel.xy-viewport.xy)/viewport.zw*float2(2,-2)+float2(-1,1);
     float4 p=mul(inverseViewProjection,float4(ndc,.5,1));
     float3 ray=normalize(p.xyz/p.w-camera.xyz);
-    float3 color=SkyRadiance(ray,sun.xyz,sunlight.xyz,sun.w,sunlight.w,sky.x,1);
+    SkyLights l;
+    l.sun=sun.xyz;l.sunTint=sunTint.rgb;l.sunlight=sunlight.xyz;
+    l.sunElevation=sun.w;l.haze=sunlight.w;l.stars=sky.x;l.visibility=1;
+    l.moon=moon.xyz;l.moonRadius=moon.w;l.moonTint=moonLight.rgb;l.moonBrightness=moonLight.w;l.moonPhase=sunTint.w;
+    float3 color=SkyRadiance(ray,l);
     // Match the scene encoding consumed by CS2's native post-process shader.
     // Sky geometry shares the material HDR target and its MSAA resolve.
     if(sky.y>.5){

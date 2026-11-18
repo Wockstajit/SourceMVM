@@ -27,17 +27,29 @@ Texture2DArray<float> skyMaps:register(t2);
 SamplerComparisonState skySampler:register(s0);
 // Fraction of the sky reaching p, cosine-weighted about n. Mirrors SkyVisibility() in
 // EnvironmentSkyVisibilityMath.h; row 2 of each projection points from the sky into the map.
+//
+// Each direction stands for a patch of sky about thirty degrees across, so its edge on the ground is
+// wide and soft, not the one-texel step a single lookup draws (a roof's edge showed as a hard line
+// across the floor under it). Four lookups spread over a disc in the receiver's own plane give the
+// edge a width; staying in that plane keeps a floor from shadowing itself in the low directions.
+#define SKY_SOFT_TEXELS 3.0
 float SkyVisibilityAt(float3 p,float3 n) {
     if(skyParams.x<.5)return 1;
+    static const float2 taps[4]={float2(.92,.38),float2(-.38,.92),float2(-.92,-.38),float2(.38,-.92)};
+    float3 t1=normalize(abs(n.z)<.9?cross(n,float3(0,0,1)):cross(n,float3(1,0,0))),t2=cross(n,t1);
+    float radius=skyParams.z*SKY_SOFT_TEXELS;
     float sum=0,weight=0;
     [loop]for(uint i=0;i<SKY_DIRECTIONS;++i){
         float3 depthAxis=skyMatrix[i][2].xyz;float3 toSky=-normalize(depthAxis);
-        float w=max(0,dot(n,toSky))+.02;
-        float4 c=mul(skyMatrix[i],float4(p+n*skyParams.z,1));
-        float2 uv=c.xy*float2(.5,-.5)+.5;float visible=1;
-        if(all(uv>0)&&all(uv<1)&&c.z>0&&c.z<1)
-            visible=skyMaps.SampleCmpLevelZero(skySampler,float3(uv,i),c.z-length(depthAxis)*skyParams.w);
-        sum+=w*visible;weight+=w;
+        float w=max(0,dot(n,toSky))+.02;float bias=length(depthAxis)*skyParams.w;float visible=0,covered=0;
+        // A lookup that leaves the map's coverage says nothing: the others decide. Only a receiver
+        // with every lookup outside is open sky.
+        [unroll]for(uint t=0;t<4;++t){
+            float4 c=mul(skyMatrix[i],float4(p+n*skyParams.z+(t1*taps[t].x+t2*taps[t].y)*radius,1));
+            float2 uv=c.xy*float2(.5,-.5)+.5;
+            if(all(uv>0)&&all(uv<1)&&c.z>0&&c.z<1){visible+=skyMaps.SampleCmpLevelZero(skySampler,float3(uv,i),c.z-bias);covered+=1;}
+        }
+        sum+=w*(covered>0?visible/covered:1);weight+=w;
     }
     return weight>0?sum/weight:1;
 }

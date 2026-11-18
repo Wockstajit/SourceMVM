@@ -298,7 +298,21 @@
       push(before);
     } else if (op === 'climate') {
       if (!(t[1] in s.climate)) { st.envMessage = 'Unknown climate setting: ' + t[1]; return true; }
-      s.climate[t[1]] = +t[2]; s.enabled = true; push(before);
+      s.climate[t[1]] = +t[2]; s.enabled = true;
+      // ApplyTimeOfDay (EnvironmentClimateMath.h): the time of day places the sun and the moon.
+      if (['timeOfDay','sunPath','sunHeight'].indexOf(t[1]) >= 0) {
+        var arc = function (hours) {
+          var a = (hours - 6) / 12 * Math.PI, h = s.climate.sunPath * Math.PI / 180, e = s.climate.sunHeight * Math.PI / 180;
+          var x = Math.cos(h - Math.PI / 2) * Math.cos(a) + Math.cos(e) * Math.cos(h) * Math.sin(a);
+          var y = Math.sin(h - Math.PI / 2) * Math.cos(a) + Math.cos(e) * Math.sin(h) * Math.sin(a);
+          var z = Math.sin(e) * Math.sin(a);
+          return [((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360, Math.max(-30, Math.asin(Math.max(-1, Math.min(1, z))) * 180 / Math.PI)];
+        };
+        var sun = arc(s.climate.timeOfDay), moon = arc(s.climate.timeOfDay - 12);
+        s.climate.sunAzimuth = sun[0]; s.climate.sunElevation = sun[1];
+        s.climate.moonAzimuth = moon[0]; s.climate.moonElevation = moon[1];
+      }
+      push(before);
     } else if (op === 'set') {
       var key = t[1], index = ['R','G','B'].indexOf(key.slice(-1));
       if (key.indexOf('fog') === 0 && index >= 0) s.fogColor[index] = +t[2];
@@ -319,8 +333,8 @@
       if (st.envStored && st.envStored[t[1]]) { st.environment = s = copy(st.envStored[t[1]]); push(before); }
       st.envSelected = st.envEditing = 0; st.envSaved = t[1];
     } else if (op === 'reset') {
-      if (t[1] === 'props' || t[1] === 'all') s.objects = [];
-      if (t[1] === 'all') {
+      if (t[1] === 'props' || t[1] === 'all' || t[1] === 'environment') s.objects = [];
+      if (t[1] === 'all' || t[1] === 'environment') {
         s.enabled = false; s.weather.type = 0; s.exposure = 1; s.tint = [1,1,1];
         s.climate = Object.assign({}, climateDefaults);
         climateResetOff.forEach(function(k){s.climate[k]=0;});

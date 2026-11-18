@@ -56,6 +56,12 @@ Casters follow these rules:
 - `F_ALPHA_TEST` materials keep their alpha mask and cutoff (an all-opaque mask is stored as
   plain geometry); `csgo_foliage` sway/flutter parameters drive animated leaves;
 - materials named stained glass also transmit their colour image as sunlight;
+- materials the map authored as letting light through to their back face
+  (`F_TRANSMISSIVE_BACKFACE_NDOTL`: cloth tarps, fabric awnings, hanging cloth) stay in the rigid
+  geometry, so they cast a full sun shadow and shelter from weather, and each of their triangles
+  carries `kRigidTransmissive` (`0x02000000`) in its albedo word. The bounce reads the mark: the
+  shaded face of sunlit cloth sends the sun on in the cloth's colour (extractor version 4). An
+  alpha-tested cloth is a cutout batch and is not marked;
 - each batch carries a linear albedo (texture average weighted by alpha, times the material and
   instance tint) for bounce lighting;
 - collision drops `clip`, `sky` and `window` groups and glass surface properties.

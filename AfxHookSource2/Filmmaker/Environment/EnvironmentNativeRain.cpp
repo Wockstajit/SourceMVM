@@ -6,6 +6,8 @@
 #include "../../Globals.h"
 #include "../../SchemaSystem.h"
 #include "../Cosmetics/CosmeticEntityAccess.h"
+#include "../../../Deps/release/prop/cs2/sdk_src/public/icvar.h"
+#include "../../../Deps/release/Detours/src/detours.h"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -229,9 +231,15 @@ void ApplyWorldWeather(const NativeWorldWeather &want) {
                                     world, want.exposed ? 1 : 0, want.rain, want.ripple, want.wetness);
         }
     } else {
+        // THE RAIN HAS STOPPED: everything it wetted dries. Handed back with every value at 0, the
+        // drying amount included, the first-person gloves and gun kept the rain's wet look for the
+        // rest of the level, in clear weather and in snow (reported 2026-11-17). Fully dried
+        // instead, and wet again only while it rains.
+        NativeWorldWeather dry;
+        dry.drying = 1;
         for (const auto &t : g_touched) {
             CallExposed(t.world, t.wasExposed, nullptr);
-            CallWeather(t.world, NativeWorldWeather{});
+            CallWeather(t.world, dry);
             MvmDebugLog_LinefAlways("environment.rain", "world weather %p restored exposed=%d", t.world,
                                     t.wasExposed ? 1 : 0);
         }
@@ -293,8 +301,10 @@ NativeWorldWeather NativeWorldWeatherFor(const Scene &scene, bool active) {
     w.exposed = raining;
     w.rain = raining ? NativeRainIntensity(scene.weather.count) / 4.f : 0.f;
     w.ripple = raining ? (std::max)(puddles, .5f) : 0.f;
-    // Weapon droplets follow the rain; how wet materials get follows the Wetness control.
-    w.wetness = std::clamp(wet, 0.f, 1.f) * (1 - snow);
+    // The game's wet shading belongs to rain: with no rain falling nothing of the game's is made
+    // wet, whatever the Wetness control says (that control wets OUR ground film; it used to wet
+    // the game's own materials too, rain or no rain). While it rains, how wet they get follows it.
+    w.wetness = raining ? std::clamp(wet, 0.f, 1.f) * (1 - snow) : 0.f;
     return w;
 }
 
@@ -311,9 +321,170 @@ void NativeWorldWeatherReport(char *out, size_t size) {
     std::snprintf(out, size, "world weather: %s; worlds:%s", g_worldStatus, worlds.empty() ? " none" : worlds.c_str());
 }
 
+// ---- frost ------------------------------------------------------------------------------------
+// CS2 frosts players, weapons and chickens itself: it grows outdoors, melts under cover, and a hot
+// barrel or a lit molotov clears it. A map asks for it with info_map_parameters "frostenabled";
+// r_csgo_frost_force overrides the map (-1 = the map's, 0 = off, 1 = on) and is what we set while
+// snow falls or lies, so the people in a snowy scene are frosted by the game's own material.
+// The cvar is development-only, so it is found by walking the registry.
+namespace {
+SOURCESDK::CS2::Cvar_s *g_frostCvar = nullptr;
+size_t g_frostIndex = (size_t)-1;
+bool g_frostResolved = false, g_frostHeld = false;
+int g_frostOriginal = -1;
+char g_frostStatus[128] = "frost: not resolved";
+
+// HIDING WHAT IS LEFT. The game has no amount for its frost, only on and off. Each frosted thing
+// keeps four numbers (frost now, the most it has had, meltwater, barrel heat) that one small routine
+// in client.dll packs for the material; that routine is hooked and the first two are zeroed once our
+// snow has stopped, so the frost players still carry is not drawn while it melts.
+// ONE WEATHER ON THE HANDS. The same four numbers carry the wet a thing keeps after rain (the
+// meltwater), so the first-person gloves and gun stayed wet for the rest of the level once it had
+// rained, in clear weather and in snow (reported 2026-11-17). Frost is hidden while it rains and the
+// wet whenever it does not (g_waterStrength). The routine is hooked whether or not this CS2 build
+// still has r_csgo_frost_force (the November 2026 update removed it).
+using FrostPack_t = void *(__fastcall *)(const float *state, float *out);
+FrostPack_t g_frostPack = nullptr;
+std::atomic<float> g_frostStrength{1.f}, g_waterStrength{1.f};
+bool g_frostHooked = false;
+void *__fastcall Hook_FrostPack(const float *state, float *out) {
+    void *result = g_frostPack(state, out);
+    if (!out)
+        return result;
+    const float strength = g_frostStrength.load(std::memory_order_relaxed);
+    const float water = g_waterStrength.load(std::memory_order_relaxed);
+    if (MvmDebugLog_Active() && state) {
+        static ULONGLONG last = 0;
+        const ULONGLONG now = GetTickCount64();
+        if (now - last > 2000) {
+            last = now;
+            MvmDebugLog_LinefAlways("environment.frost.pack", "state=(%.3f %.3f %.3f %.3f) out=(%.3f %.3f %.3f %.3f) frost=%.0f water=%.0f",
+                                    state[0], state[1], state[2], state[3], out[0], out[1], out[2], out[3], strength, water);
+        }
+    }
+    if (strength < 1.f) {
+        out[0] *= strength;
+        out[1] *= strength;
+    }
+    if (water < 1.f)
+        out[2] *= water;
+    return result;
+}
+void HookFrostStrength() {
+    HMODULE client = GetModuleHandleA("client.dll");
+    // push rbx; sub rsp,30h; movss xmm0,[rcx+0Ch]; mov rbx,rdx; movss xmm3,[rcx+8]; movss xmm2,[rcx+4];
+    // movss xmm1,[rcx]; mov rcx,rdx; movss [rsp+20h],xmm0; call
+    size_t at = client ? getAddress(client, "40 53 48 83 EC 30 F3 0F 10 41 0C 48 8B DA F3 0F 10 59 08 F3 0F 10 51 04 "
+                                            "F3 0F 10 09 48 8B CA F3 0F 11 44 24 20 E8")
+                       : 0;
+    if (at) {
+        g_frostPack = (FrostPack_t)at;
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourAttach(&(PVOID &)g_frostPack, Hook_FrostPack);
+        g_frostHooked = NO_ERROR == DetourTransactionCommit();
+    }
+    MvmDebugLog_LinefAlways("environment.frost", "frost strength hook %s at=%p", g_frostHooked ? "installed" : "unavailable", (void *)at);
+}
+
+void ResolveFrost() {
+    if (g_frostResolved || !SOURCESDK::CS2::g_pCVar)
+        return;
+    g_frostResolved = true;
+    for (SOURCESDK::uint32 i = 0; i < SOURCESDK_CS2_MAX_VALID_CVARS; ++i) {
+        SOURCESDK::CS2::Cvar_s *cvar = SOURCESDK::CS2::g_pCVar->GetCvar(i);
+        if (!cvar)
+            break;
+        if (!cvar->m_pszName || std::strcmp(cvar->m_pszName, "r_csgo_frost_force"))
+            continue;
+        if (cvar->m_eVarType == SOURCESDK::CS2::EConVarType_Int32) {
+            g_frostCvar = cvar;
+            g_frostIndex = i;
+        }
+        break;
+    }
+    std::snprintf(g_frostStatus, sizeof(g_frostStatus),
+                  g_frostCvar ? "frost: off" : "frost: unavailable (this CS2 build has no r_csgo_frost_force)");
+    MvmDebugLog_LinefAlways("environment.frost", "r_csgo_frost_force %s index=%zu", g_frostCvar ? "found" : "missing",
+                            g_frostIndex);
+    HookFrostStrength();
+}
+
+// What the game's frost switch is held at. kFrostReleased gives it back to the map.
+constexpr int kFrostReleased = -2;
+int g_frostHeldAt = kFrostReleased;
+// We have frosted people on this level. From then until the level changes the game's switch stays
+// OFF whenever our snow is not wanted, and the frost they carry is shown at zero strength: each of
+// them keeps a stored amount that melts only while the switch says off, slowly, and handed back to
+// the map (-1) the game stops working it out at all, so they turned white again a moment after a
+// reset (seen after Reset weather and after the Environment tab's reset). A level that frosts people
+// by itself is left alone, because this is only set once our own snow has run.
+bool g_frostMade = false;
+void ApplyFrost(int target, bool hide = false) {
+    ResolveFrost();
+    const bool on = target == 1;
+    if (on) g_frostMade = true;
+    // The game's own frost, as it draws it, while our snow wants it; none of it otherwise, and none
+    // at all while our rain falls (`hide`).
+    const float strength = !hide && (on || !g_frostMade) ? 1.f : 0.f;
+    if (strength != g_frostStrength.load(std::memory_order_relaxed))
+        g_frostStrength.store(strength, std::memory_order_relaxed);
+    if (!g_frostCvar || target == g_frostHeldAt)
+        return;
+    SOURCESDK::CS2::CVValue_t oldValue = {}, newValue = {};
+    oldValue.m_i32Value = g_frostCvar->m_Value.m_i32Value;
+    if (g_frostHeldAt == kFrostReleased)
+        g_frostOriginal = oldValue.m_i32Value;
+    newValue.m_i32Value = target == kFrostReleased ? g_frostOriginal : target;
+    g_frostHeldAt = target;
+    g_frostHeld = on;
+    if (newValue.m_i32Value != oldValue.m_i32Value) {
+        g_frostCvar->m_Value.m_i32Value = newValue.m_i32Value;
+        ++g_frostCvar->m_iTimesChanged;
+        SOURCESDK::CS2::ConVarHandle handle;
+        handle.Set(g_frostIndex);
+        SOURCESDK::CS2::g_pCVar->CallChangeCallback(handle, 0, &newValue, &oldValue);
+    }
+    if (on)
+        std::snprintf(g_frostStatus, sizeof(g_frostStatus), "frost: on (CS2's own, r_csgo_frost_force 1)");
+    else if (target == 0)
+        std::snprintf(g_frostStatus, sizeof(g_frostStatus), "frost: held off (r_csgo_frost_force 0%s)",
+                      g_frostMade ? (g_frostHooked ? ", what players carry hidden" : ", the game's frost routine was not found") : "");
+    else
+        std::snprintf(g_frostStatus, sizeof(g_frostStatus), "frost: off");
+    MvmDebugLog_LinefAlways("environment.frost", "r_csgo_frost_force %d -> %d", oldValue.m_i32Value, newValue.m_i32Value);
+}
+} // namespace
+
+bool NativeFrostWanted(const Scene &scene, bool active) {
+    if (!active)
+        return false;
+    // ONE WEATHER, ONE SHADING. Rain is the game's wet shading and nothing else: while it rains
+    // nobody is frosted, whatever snow still lies (a scene with rain falling on old snow used to
+    // frost its players, which read as the snow look in rain).
+    if (scene.weather.type == kPrecipitationRain && scene.weather.count > 0)
+        return false;
+    const bool snowing = scene.weather.type == 2 && scene.weather.count > 0;
+    return snowing || (scene.climate[CL_enabled] != 0 && scene.climate[CL_snow] > 0);
+}
+const char *NativeFrostStatus() { return g_frostStatus; }
+
 void UpdateNativeRain(const Scene &scene, const std::string &map, bool active, Vec3 camera, bool cameraValid) {
     (void)map;
     ApplyWorldWeather(NativeWorldWeatherFor(scene, active));
+    // The game's frost switch: on with our snow, held OFF in our rain (a map that asks for frost
+    // itself must not frost people standing in our rain), and the map's own otherwise.
+    const bool raining = active && scene.weather.type == kPrecipitationRain && scene.weather.count > 0;
+    // NEVER HANDED BACK FROSTED. The game works its frost out only while the switch says on or off;
+    // given back to the map (-1), players keep the frost they had. So once our snow has frosted
+    // anyone on this level the switch stays off until the level changes (g_frostMade).
+    // Hands, guns and players: frost only with our snow, never in our rain or our clear weather, and
+    // the rain's wet only while it rains. Since the November 2026 update CS2 frosts people outdoors
+    // by itself on any map, so frost came back on the gloves the moment the rain stopped. With the
+    // Environment off the game's own frost and wet are left as they are.
+    const bool frostWanted = NativeFrostWanted(scene, active);
+    ApplyFrost(frostWanted ? 1 : (raining || g_frostMade) ? 0 : kFrostReleased, active && !frostWanted);
+    g_waterStrength.store(!active || raining ? 1.f : 0.f, std::memory_order_relaxed);
     // Valve's storm particle stays OFF: it culls every drop against the map's baked precipitation
     // ray-trace data, which only maps built for weather (de_train) ship -- on de_mirage it drew a
     // handful of streaks. Rain is the environment's own shader rain; the world weather above still
@@ -405,6 +576,7 @@ void ResetNativeRain() {
     g_retryAtMs = 0;
     g_running.store(false);
     g_status = "off";
+    g_frostMade = false; // a new level: its own frost, if it has any, is its own again
 }
 
 bool NativeRainActive() { return g_running.load(); }

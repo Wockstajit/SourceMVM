@@ -11,6 +11,7 @@
 #include "Filmmaker/Render/RenderWorldOnly.h"
 #include "Filmmaker/Environment/EnvironmentRender.h"
 #include "Filmmaker/Environment/EnvironmentGroundFog.h"
+#include "Filmmaker/Environment/EnvironmentReflectionProbes.h" // wet film: CS2 probes and the tone curve
 #include "Filmmaker/Lens/LensFx.h"
 #include "Filmmaker/Heatmap/RoundHeatmap.h"
 #include "Filmmaker/World/SunFx.h" // the lens flare's sun (SunFx_VisibleSunDirection)
@@ -57,6 +58,7 @@
 #include "Filmmaker/Relight/Relight.h"
 #include "Filmmaker/Relight/RelightNativeCluster.h"
 #include "Filmmaker/Environment/EnvironmentNativeMaterial.h"
+#include "Filmmaker/Render/RenderPixelStateLayer.h" // lit draws keep their inputs bound across a run
 #include "Filmmaker/World/SmokeAppearance.h"
 #include "Filmmaker/Environment/EnvironmentShadowMaps.h"
 #include "Filmmaker/World/SkyGpuRotation.h"        // draw-time sky constant-buffer experiment
@@ -81,6 +83,7 @@
 
 #include <cstdlib>
 #include <set>
+#include <unordered_map>
 #include <map>
 #include <queue>
 #include <list>
@@ -209,6 +212,8 @@ struct NativeMaterialScopes {
 struct OptionalNativeMaterialScopes {
     std::optional<NativeMaterialScopes> scopes;
     OptionalNativeMaterialScopes(ID3D11DeviceContext* ctx, bool enabled) {
+        // A draw live lighting does not handle takes the engine's own bindings.
+        if (!enabled) Filmmaker::PixelStateLayer::FlushIfIdle(Filmmaker::PixelStateLayer::End::Ineligible);
         if ((enabled && Filmmaker::Environment::NativeMaterialDrawWorkNeeded())
             || Filmmaker::MvmDebugLog_Active()) scopes.emplace(ctx, enabled);
     }
@@ -2859,6 +2864,7 @@ void STDMETHODCALLTYPE New_OMSetRenderTargets( ID3D11DeviceContext * This,
         }
     }
 
+    Filmmaker::PixelStateLayer::OnSetRenderTargets(This, NumViews, ppRenderTargetViews, pDepthStencilView);
     g_Old_OMSetRenderTargets(This, NumViews, ppRenderTargetViews, pDepthStencilView);
 }
 
@@ -2870,6 +2876,7 @@ void STDMETHODCALLTYPE New_OMSetBlendState( ID3D11DeviceContext * This,
     /* [annotation] */ 
     _In_  UINT SampleMask) {
 
+    Filmmaker::PixelStateLayer::OnSetBlendState(This, pBlendState, BlendFactor, SampleMask);
     if(g_NoDraw.OnOMSetBlendState(This,pBlendState,BlendFactor,SampleMask))
         g_Old_OMSetBlendState(This,pBlendState,BlendFactor,SampleMask);
 }
@@ -3293,6 +3300,7 @@ public:
 
     virtual void OnCallback(void) {
         RenderProgressScope progress(RenderPhase::BeforeUi);
+        Filmmaker::PixelStateLayer::Flush(Filmmaker::PixelStateLayer::End::Present);
         // The world + viewmodel are done; everything bound from here on is UI. Mark it before any
         // early-out below so the pivot marker's late redraw sees the boundary even on frames where
         // the context lookup fails.
@@ -3676,6 +3684,102 @@ bool AfxReadPixelShaderName(ID3D11PixelShader* shader, char* out, UINT capacity,
 	return true;
 }
 
+// WHAT CS2 DRAWS OVER THE FINISHED WORLD BEFORE PANORAMA: the crosshair (csgo_crosshair.vfx_ps) and
+// the engine's debug overlays, ent_text and the like (ui.vfx_ps), straight onto the tonemapped back
+// buffer after the tonemap and BEFORE the BeforeUi boundary (traced 2026-11-17). Composited at
+// BeforeUi, the Environment took them for part of the world: snow was painted over the crosshair (and
+// its light, a ring of taps round each pixel, spread its colour into specks) and over the overlay
+// text, and wet ground mirrored them. The composite runs on that target just before the first of
+// them instead. Which shaders they are is settled once per shader when it is bound (PSSetShader),
+// so a draw only reads a flag.
+//
+// AND CS2'S OWN MENUS. With the pause menu (or the main menu over a map) up, Panorama draws it
+// straight onto the back buffer after the tonemap (post_process.vfx_ps) and before the overlays,
+// and the BeforeUi boundary does not come at all (traced 2026-11-17: post_process, then panorama /
+// panorama_fancyquad for the whole menu, then ui.vfx_ps for the overlay text). Composited at the
+// overlay text, the rain, the sky and the fog were drawn over the pause menu and the scoreboard.
+// So the first Panorama draw onto the back buffer, after the world was tonemapped this present, is
+// a boundary too.
+enum class AfxBoundaryShader : unsigned char { None, Overlay, Panorama, Tonemap };
+static std::unordered_map<ID3D11PixelShader*, AfxBoundaryShader> g_WorldOverlayShaders; // render thread only
+static bool g_WorldOverlayShaderBound = false;
+static bool g_WorldOverlayIsPanorama = false;   // the bound boundary shader is a Panorama one
+static bool g_WorldTonemappedThisPresent = false; // post_process.vfx_ps was bound this present
+static bool g_TonemapShaderBound = false;          // post_process.vfx_ps is the bound pixel shader
+static ID3D11Resource* g_TonemapTarget = nullptr;  // what it drew into this present (compared, never used)
+static AfxBoundaryShader AfxBoundaryShaderKind(ID3D11PixelShader* shader) {
+    if (!shader) return AfxBoundaryShader::None;
+    const auto known = g_WorldOverlayShaders.find(shader);
+    if (known != g_WorldOverlayShaders.end()) return known->second;
+    char name[64] = {};
+    UINT nameSize = 0;
+    AfxBoundaryShader kind = AfxBoundaryShader::None;
+    if (AfxReadPixelShaderName(shader, name, sizeof(name), nameSize)) {
+        if (0 == strcmp(name, "csgo_crosshair.vfx_ps") || 0 == strcmp(name, "ui.vfx_ps")) kind = AfxBoundaryShader::Overlay;
+        else if (0 == strncmp(name, "panorama", 8)) kind = AfxBoundaryShader::Panorama;
+        else if (0 == strcmp(name, "post_process.vfx_ps")) kind = AfxBoundaryShader::Tonemap;
+    }
+    g_WorldOverlayShaders.emplace(shader, kind);
+    return kind;
+}
+// Whether a render target view is the image the tonemap wrote this present: the finished world
+// image Panorama then draws over. (Not the swap chain's buffer: CS2 presents from its own target.)
+static bool AfxIsTonemapTarget(ID3D11RenderTargetView* target) {
+    if (!target || !g_TonemapTarget) return false;
+    ID3D11Resource* resource = nullptr;
+    target->GetResource(&resource);
+    if (!resource) return false;
+    const bool same = resource == g_TonemapTarget;
+    resource->Release();
+    return same;
+}
+static void AfxCompositeEnvironmentBeforeOverlay(ID3D11DeviceContext* ctx);
+// Every draw: notes the tonemap's target, then composites before an overlay or a menu if this is one.
+static void AfxNoteBoundaryDraw(ID3D11DeviceContext* ctx) {
+    // The wet film's off-screen reflections: CS2's probe constants and cube array, from a lit world draw.
+    if (!g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_NoteDraw(ctx);
+    if (g_TonemapShaderBound && !g_bInOwnDraw && ctx->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE) {
+        ID3D11RenderTargetView* target = nullptr;
+        ctx->OMGetRenderTargets(1, &target, nullptr);
+        if (target) {
+            ID3D11Resource* resource = nullptr;
+            target->GetResource(&resource);
+            g_TonemapTarget = resource; // identity only: the reference is released at once
+            if (resource) resource->Release();
+            target->Release();
+        }
+    }
+    AfxCompositeEnvironmentBeforeOverlay(ctx);
+}
+static void AfxCompositeEnvironmentBeforeOverlay(ID3D11DeviceContext* ctx) {
+    if (!g_WorldOverlayShaderBound || g_bInOwnDraw || g_BeforeUiFiredThisPresent || g_EnvironmentCompositedThisPresent
+        || !g_EnvironmentFrame.active || ctx->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE
+        || !g_RenderCommands.CurrentThreadIsRenderThread())
+        return;
+    ID3D11RenderTargetView* target = nullptr;
+    ctx->OMGetRenderTargets(1, &target, nullptr);
+    if (!target) return;
+    // A Panorama draw is a boundary only onto the image the tonemap wrote: Panorama also renders
+    // panels into textures of its own.
+    if (g_WorldOverlayIsPanorama && !AfxIsTonemapTarget(target)) { target->Release(); return; }
+    // Only onto the display image (8-bit). The same shaders drawing into anything else is not this.
+    D3D11_RENDER_TARGET_VIEW_DESC view = {};
+    target->GetDesc(&view);
+    const bool display = view.Format == DXGI_FORMAT_R8G8B8A8_TYPELESS || view.Format == DXGI_FORMAT_R8G8B8A8_UNORM
+        || view.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || view.Format == DXGI_FORMAT_B8G8R8A8_UNORM
+        || view.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    if (display) {
+        if (Filmmaker::MvmDebugLog_Active()) {
+            static unsigned s_throttle = 0;
+            if ((s_throttle++ % 300) == 0)
+                Filmmaker::MvmDebugLog_LinefAlways("environment.overlay", "composite before the world overlays target=%p panorama=%d", (void*)target, int(g_WorldOverlayIsPanorama));
+        }
+        QpcScope environmentCost(g_hookCostAccum.environmentTotal);
+        AfxRenderEnvironmentComposite(ctx, target);
+    }
+    target->Release();
+}
+
 // CS2's sniper scope pass: a Draw(4) with legacy_sniper_scope.vfx_ps, reading the tonemapped scene
 // from t0 and writing the back buffer. Composites the Environment into that source before it runs.
 static void AfxCompositeEnvironmentBeforeScope(ID3D11DeviceContext* ctx, UINT vertexCount) {
@@ -3688,9 +3792,9 @@ static void AfxCompositeEnvironmentBeforeScope(ID3D11DeviceContext* ctx, UINT ve
     if (!shader) return;
     char name[64] = {};
     UINT nameSize = 0;
-    const bool scope = AfxReadPixelShaderName(shader, name, sizeof(name), nameSize)
-        && 0 == strcmp(name, "legacy_sniper_scope.vfx_ps");
+    const bool named = AfxReadPixelShaderName(shader, name, sizeof(name), nameSize);
     shader->Release();
+    const bool scope = named && vertexCount == 4 && 0 == strcmp(name, "legacy_sniper_scope.vfx_ps");
     if (!scope) return;
 
     ID3D11ShaderResourceView* sourceView = nullptr;
@@ -3745,6 +3849,14 @@ void STDMETHODCALLTYPE New_PSSetShader(ID3D11DeviceContext* This,
         && g_RenderCommands.CurrentThreadIsRenderThread()
         && !g_bInOwnDraw        
     ) {
+        {
+            const AfxBoundaryShader kind = g_EnvironmentFrame.active ? AfxBoundaryShaderKind(pPixelShader) : AfxBoundaryShader::None;
+            if (kind == AfxBoundaryShader::Tonemap) g_WorldTonemappedThisPresent = true;
+            g_TonemapShaderBound = kind == AfxBoundaryShader::Tonemap;
+            g_WorldOverlayIsPanorama = kind == AfxBoundaryShader::Panorama;
+            g_WorldOverlayShaderBound = g_EnvironmentFrame.active && !g_BeforeUiFiredThisPresent && !g_EnvironmentCompositedThisPresent
+                && (kind == AfxBoundaryShader::Overlay || (kind == AfxBoundaryShader::Panorama && g_WorldTonemappedThisPresent));
+        }
 		char shaderName[1024] = {};
 		UINT shaderNameSize = 0;
 		const bool needShaderName = 2 <= g_iRenderContextDebug
@@ -3770,6 +3882,8 @@ void STDMETHODCALLTYPE New_PSSetShader(ID3D11DeviceContext* This,
         }
     }
 
+    // The engine re-setting the program it believes is bound leaves a held lit substitution in place.
+    if (Filmmaker::PixelStateLayer::OnSetShader(This, pPixelShader, NumClassInstances)) return;
     g_Old_PSSetShader(This, pPixelShader, ppClassInstances, NumClassInstances);
 }
 
@@ -3948,6 +4062,7 @@ bool AfxPlayersOnlyGreen_SkipFoliageGpuDraw(ID3D11DeviceContext* context, const 
 void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
     UINT IndexCount, UINT StartIndexLocation, INT BaseVertexLocation) {
     if (g_inVendorMultiDraw) { g_Old_DrawIndexed(This, IndexCount, StartIndexLocation, BaseVertexLocation); return; }
+    AfxNoteBoundaryDraw(This);
     QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
@@ -3969,6 +4084,9 @@ void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexed(This, IndexCount, StartIndexLocation, BaseVertexLocation); }
+    // Right after CS2's post-process: its raw input against its finished output, for the tone
+    // curve that puts probe light into the frame's colours (EnvironmentReflectionProbes.h).
+    if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawIndexed(This,IndexCount,StartIndexLocation,BaseVertexLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_DrawIndexed(This,IndexCount,StartIndexLocation,BaseVertexLocation);}
@@ -3986,6 +4104,7 @@ void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
 void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
     UINT VertexCount, UINT StartVertexLocation) {
     if (g_inVendorMultiDraw) { g_Old_Draw(This, VertexCount, StartVertexLocation); return; }
+    AfxNoteBoundaryDraw(This);
     QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
@@ -4003,6 +4122,9 @@ void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_Draw(This, VertexCount, StartVertexLocation); }
+    // Right after CS2's post-process: its raw input against its finished output, for the tone
+    // curve that puts probe light into the frame's colours (EnvironmentReflectionProbes.h).
+    if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_Draw(This,VertexCount,StartVertexLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_Draw(This,VertexCount,StartVertexLocation);}
@@ -4021,6 +4143,7 @@ void STDMETHODCALLTYPE New_DrawIndexedInstanced(ID3D11DeviceContext * This,
     UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation,
     INT BaseVertexLocation, UINT StartInstanceLocation) {
     if (g_inVendorMultiDraw) { g_Old_DrawIndexedInstanced(This, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation); return; }
+    AfxNoteBoundaryDraw(This);
     QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
@@ -4039,6 +4162,7 @@ void STDMETHODCALLTYPE New_DrawIndexedInstanced(ID3D11DeviceContext * This,
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
 	{ QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexedInstanced(This, IndexCountPerInstance, InstanceCount, StartIndexLocation,
 		BaseVertexLocation, StartInstanceLocation); }
+    if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawIndexedInstanced(This,IndexCountPerInstance,InstanceCount,StartIndexLocation,BaseVertexLocation,StartInstanceLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_DrawIndexedInstanced(This,IndexCountPerInstance,InstanceCount,StartIndexLocation,BaseVertexLocation,StartInstanceLocation);}
@@ -4057,6 +4181,7 @@ void STDMETHODCALLTYPE New_DrawInstanced( ID3D11DeviceContext * This,
     UINT VertexCountPerInstance, UINT InstanceCount,
     UINT StartVertexLocation, UINT StartInstanceLocation) {
     if (g_inVendorMultiDraw) { g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount, StartVertexLocation, StartInstanceLocation); return; }
+    AfxNoteBoundaryDraw(This);
     QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
@@ -4074,6 +4199,7 @@ void STDMETHODCALLTYPE New_DrawInstanced( ID3D11DeviceContext * This,
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
         StartVertexLocation, StartInstanceLocation); }
+    if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
         StartVertexLocation, StartInstanceLocation);
@@ -4338,6 +4464,7 @@ RSSetViewports_t g_Old_RSSetViewports = nullptr;
 void STDMETHODCALLTYPE New_RSSetViewports( ID3D11DeviceContext * This,
     UINT NumViewports,
     const D3D11_VIEWPORT *pViewports) {
+    Filmmaker::PixelStateLayer::OnSetViewports(This, NumViewports, pViewports);
 
     // Read-only evidence for the viewmodel's depth/projection boundary. Never infer
     // "hands" from pixel distance: a nearby wall can occupy exactly the same depth.
@@ -4468,9 +4595,10 @@ void Hook_Context(ID3D11DeviceContext * pDeviceContext) {
     DetourAttach(&(PVOID&)g_Old_RSSetViewports, New_RSSetViewports);
     DetourAttach(&(PVOID&)g_Old_RSSetScissorRects, New_RSSetScissorRects);
     //DetourAttach(&(PVOID&)g_Old_ResolveSubresource, New_ResolveSubresource);
+    Filmmaker::PixelStateLayer::Attach(pDeviceContext);
     if(NO_ERROR != DetourTransactionCommit()) {
         ErrorBox("Failed attaching on ID1D11RenderContext.");
-    }
+    } else Filmmaker::PixelStateLayer::Commit(g_Old_PSSetShader);
 }
 
 typedef HRESULT(WINAPI* D3D11CreateDevice_t)(IDXGIAdapter*,D3D_DRIVER_TYPE,HMODULE,UINT,const D3D_FEATURE_LEVEL*,UINT,UINT,ID3D11Device**,D3D_FEATURE_LEVEL*,ID3D11DeviceContext**);
@@ -4651,6 +4779,12 @@ void After_Present() {
     g_iDraw = -1;
     g_BeforeUiFiredThisPresent = false;
     g_EnvironmentCompositedThisPresent = false;
+    Filmmaker::Environment::EndEnvironmentPresent();
+    g_WorldOverlayShaderBound = false;
+    g_WorldOverlayIsPanorama = false;
+    g_WorldTonemappedThisPresent = false;
+    g_TonemapShaderBound = false;
+    g_TonemapTarget = nullptr;
 }
 
 HRESULT STDMETHODCALLTYPE New_Present( void * This,
@@ -4666,6 +4800,7 @@ HRESULT STDMETHODCALLTYPE New_Present( void * This,
         // The engine's presenting chain is the live one (a recreated chain is picked up here).
         g_pSwapChain = (IDXGISwapChain *)This;
 
+        Filmmaker::PixelStateLayer::Flush(Filmmaker::PixelStateLayer::End::Present);
         Before_Present();
 
         HRESULT result;

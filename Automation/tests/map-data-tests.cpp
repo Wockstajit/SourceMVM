@@ -171,6 +171,66 @@ static void TestTexture() {
     Check(image.rgba.size() == 16 && std::memcmp(image.rgba.data(), pixels, 16) == 0, "RGBA8888 texels decode unchanged");
 }
 
+// A 4 x 4 RGBA8888 texture with three mips, stored smallest first as compiled textures are.
+static std::vector<uint8_t> MakeMippedTexture(uint16_t flags) {
+    Bytes r;
+    r.Put<uint32_t>(0);
+    r.Put<uint16_t>(12);
+    r.Put<uint16_t>(0);
+    r.Put<uint32_t>(8);
+    r.Put<uint32_t>(1);
+    r.Raw("DATA", 4);
+    r.Put<uint32_t>(8);
+    r.Put<uint32_t>(40);
+    r.Put<uint16_t>(1);
+    r.Put<uint16_t>(flags);
+    for (int k = 0; k < 4; ++k) r.Put<float>(0);
+    r.Put<uint16_t>(4);
+    r.Put<uint16_t>(4);
+    r.Put<uint16_t>(1);
+    r.Put<uint8_t>(4); // RGBA8888
+    r.Put<uint8_t>(3);
+    r.Put<uint32_t>(0);
+    r.Put<uint32_t>(8);
+    r.Put<uint32_t>(0);
+    for (int level = 2; level >= 0; --level)
+        for (int p = 0; p < (16 >> (2 * level)); ++p) {
+            const uint8_t texel[4] = {uint8_t(level * 100), uint8_t(p), 7, 255};
+            r.Raw(texel, 4);
+        }
+    return r.b;
+}
+
+static void TestTextureMips() {
+    const TextureMips mips = ReadTextureMips(MakeMippedTexture(0));
+    Check(mips.width == 4 && mips.height == 4 && mips.format == TextureMips::Format::RGBA8, "mipped texture size and format");
+    Check(mips.mips.size() == 3 && mips.mips[0].size() == 64 && mips.mips[1].size() == 16 && mips.mips[2].size() == 4,
+          "every mip is read, largest first");
+    Check(mips.mips[0][0] == 0 && mips.mips[0][4 * 15 + 1] == 15 && mips.mips[1][0] == 100 && mips.mips[2][0] == 200,
+          "each mip holds its own texels");
+    Check(mips.RowPitch(0) == 16 && mips.RowPitch(2) == 4, "uncompressed row pitch");
+    bool threw = false;
+    try { ReadTextureMips(MakeMippedTexture(1 << 4)); } catch (const MapDataError &) { threw = true; }
+    Check(threw, "a cube texture is not read as a plain 2D texture");
+}
+
+// Against the installed game, when this machine has one: the snow and the beads of water the
+// Environment coatings draw with are found and read with all their mips.
+static void TestGameSurfaceTextures() {
+    const auto root = ResolveCs2Root();
+    if (root.empty()) {
+        std::printf("SKIP game surface textures (no Counter-Strike 2 install)\n");
+        return;
+    }
+    const GameSurfaceTextures t = ReadGameSurfaceTextures(root);
+    std::printf("game surface textures: %s\n", t.status.c_str());
+    Check(t.snow && t.snowColor.width >= 256 && t.snowColor.mips.size() > 1 && t.snowNormal.mips.size() > 1 && t.snowHeight.mips.size() > 1,
+          "CS2 snow textures read with their mips");
+    Check(t.snow && t.snowColor.mips[0].size() == size_t(t.snowColor.RowPitch(0)) * size_t((t.snowColor.height + 3) / 4),
+          "CS2 snow colour mip 0 is whole");
+    Check(t.drops && t.droplets.width > 0 && !t.droplets.mips.empty(), "CS2 water beads read");
+}
+
 static void TestLightsJson() {
     MapEntity light;
     light.resource = "maps/x/entities/default_ents.vents_c";
@@ -327,6 +387,8 @@ int main() {
     TestKv3();
     TestOccluderBuilder();
     TestTexture();
+    TestTextureMips();
+    TestGameSurfaceTextures();
     TestLightsJson();
     TestCacheCodec();
     std::printf(g_failures ? "%d FAILED\n" : "ALL PASSED\n", g_failures);

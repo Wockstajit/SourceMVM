@@ -162,6 +162,12 @@ struct Scene {
     // Runtime bounce (camera-following probe volume). On by default: without it every surface the
     // sun and fixtures do not reach directly receives only sky light, and interiors go black.
     bool gi = true;
+    // Lite lighting: the same lamps, sun, sky and shadows with no runtime bounce. The probe volume
+    // is neither traced nor kept; bounce comes from a grid worked out once on worker threads
+    // (RelightLiteGridMath.h). Until its first bake is done, and on a map with no triangles to bake
+    // from, one map-wide fill stands in (AmbientFill in RelightProbeMath.h, LiteSkyOcclusion).
+    bool lite = false;
+    float liteBounce = 1; // Strength of everything surfaces send back.
     uint64_t probeRebuild = 0;
     float bounce = 1;
     unsigned bounceSteps = 1; // Probe transport updates per frame (1..3).
@@ -170,7 +176,9 @@ struct Scene {
     // cubes. Always on; the strength exists only for the mirv_relight diagnostic.
     float reflections = 1;
     // Sunlight through stained glass as coloured beams. Always on; diagnostic strength only.
-    float stainedGlass = 1;
+    // Coloured sun beams through stained glass (RelightStainedGlass). Off: a map's panes keep their
+    // authored material and add no beam lights. Inferno alone has 59 windows, about 2 ms a frame.
+    float stainedGlass = 0;
     Vec3 albedo{.55f,.55f,.55f};
     // Writes a UV-coded checker into the owned lightmap irradiance (t2). Walls and floors
     // that sample our texture show the pattern; a 1x1 fill cannot. Diagnostic only - not GI.
@@ -838,6 +846,36 @@ inline void LightmapDiagTexel(unsigned x, unsigned y, unsigned size, float *rgba
 inline Vec3 GroundAmbient(Vec3 sunRadiance, float albedo, float indirect) {
     const float scale = (std::max)(0.f, albedo) * (std::max)(0.f, indirect);
     return Vec3{sunRadiance.x * scale, sunRadiance.y * scale, sunRadiance.z * scale};
+}
+
+// Lite lighting's stand-in for bounce: the light a diffuse surface of the fallback albedo sends
+// back from the sun on it and the sky over it. A lit Lambertian surface has radiance
+// albedo * irradiance / pi; the sky term is already a radiance. Only part of what a surface
+// faces is in the sun (LiteSunlitShare); the rest is in the shadow of the buildings around it.
+// It follows the sun's height and colour and the sky, so the time of day still moves it. It has
+// no position: a sunlit street and a shaded one get the same glow.
+inline constexpr float LiteSunlitShare = .48f;
+// The map-wide fill's share of the sky's own light, and the share of the fill a place with no view
+// of the sky keeps. Set by eye against the traced picture on Inferno (2026-11-13).
+inline constexpr float LiteFallbackSky = .35f, LiteFallbackIndoor = .25f;
+inline Vec3 LiteSky(const Scene &scene) {
+    return SkyAmbient(scene, scene.indirect) * LiteFallbackSky;
+}
+inline Vec3 LiteGround(const Scene &scene) {
+    if (!scene.lite) return {};
+    const float height = scene.hasSun ? (std::max)(0.f, SunDirection(scene.sunAngles).z) : 0.f;
+    const Vec3 sun = SunRadiance(scene) * (height * LiteSunlitShare / 3.14159265f);
+    const Vec3 sky = LiteSky(scene);
+    const float bounce = (std::max)(0.f, scene.liteBounce);
+    return Vec3{(sun.x + sky.x) * scene.albedo.x, (sun.y + sky.y) * scene.albedo.y, (sun.z + sky.z) * scene.albedo.z} * bounce;
+}
+// Sky visibility strength on the ambient. The fill is cut by sky visibility, and bounce is what
+// used to light covered places, so at full strength Lite would leave them black: it keeps
+// LiteFallbackIndoor of the fill where no sky is visible. (The material's flat ambient floor, cb3[18],
+// would be the other place for this, but the lit programs do not read it once a probe volume is
+// bound: writing it changed no pixel, 2026-11-13.)
+inline float LiteSkyOcclusion(const Scene &scene) {
+    return scene.lite ? scene.skyOcclusion * (1 - LiteFallbackIndoor) : scene.skyOcclusion;
 }
 
 // The nine-tap percentage-closer filter the shipped shader performs, expressed as the

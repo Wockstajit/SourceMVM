@@ -17,9 +17,16 @@ struct SunVisibilityInput {
     float tanHalfAngle=0;                    // tan(sun angular diameter / 2); 0 is a point sun
     float bias=0;                            // normalized depth bias
     float maxSearchDistance=8192;            // farthest blocker the search looks for, world units
+    // Depth summary of the sun tiles (EnvironmentShadowMaps SunShadowPyramid) and its mip count;
+    // null runs every pixel's full search and filter.
+    ID3D11ShaderResourceView* summary=nullptr;
+    unsigned summaryLevels=0;
 };
 // Per-pixel sun visibility for the main world pass: RGB is visibility, alpha is shared-footprint
 // validity. Ambiguous MSAA receivers keep the native filter unless all covered samples are shadowed.
 // Evaluated once per frame after the depth prepass; null keeps the native filter for this draw.
 ID3D11ShaderResourceView* SunVisibility(ID3D11DeviceContext* immediate,const D3D11_VIEWPORT&,const SunVisibilityInput&);
+// True when the last call returned null only because the depth prepass had not finished: a later
+// draw of the same frame gets the result, so this draw's inputs must not be kept for the next one.
+bool SunVisibilityProvisional();
 } // namespace Filmmaker::Environment
