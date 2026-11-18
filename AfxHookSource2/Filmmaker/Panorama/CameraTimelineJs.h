@@ -1114,6 +1114,17 @@ R"TLJS(
     var hiddenNatives = null; // [{p, v, id}] captured while ANY panel is hidden; null while fully shown
     var hiddenNativeIds = {};
     var curHudView = 'full';
+    // CS2'S OWN "KEEP THIS WITH THE HUD OFF" SWITCHES (cl_drawhud_force_deathnotices / _radar = 1, read
+    // in C++, never written). The hidden view hides whole top-level groups, and the kill feed and the
+    // radar each sit inside one (HudTopRight, HudTopLeft), so a kept panel's group stays up and only
+    // the group's other children are hidden. hudKeepKey is part of what applyHudView compares, so
+    // flipping a switch while F8 is on restores and re-applies at once.
+    var hudKeepIn = {}, hudKeepKey = '', curHudKeepKey = '';
+    function setHudKeep(state) {
+      hudKeepIn = {}; hudKeepKey = '';
+      if (state && state.forceDeathNotices === 1) { hudKeepIn.HudTopRight = 'HudDeathNotice'; hudKeepKey += 'k'; }
+      if (state && state.forceRadar === 1) { hudKeepIn.HudTopLeft = 'HudRadar'; hudKeepKey += 'r'; }
+    }
     // Hands a spectator panel's visibility back to the game. Its stylesheet collapses these panels and
     // a class opens them while spectating, so `visible = true` would pin them on for good: in a live
     // match the bottom of the screen then shows the last player spectated, on top of your own HUD.
@@ -1167,7 +1178,8 @@ R"TLJS(
     // radar + HP/ammo, drop the spectator observer panel). Called every frame so a panel the
     // game re-shows (round start, etc.) gets re-hidden; a mode change restores the baseline first.
     function applyHudView(view) {
-      if (view !== curHudView) { restoreGameHud(); curHudView = view; }
+      var keyNow = view === 'hidden' ? hudKeepKey : '';
+      if (view !== curHudView || keyNow !== curHudKeepKey) { restoreGameHud(); curHudView = view; curHudKeepKey = keyNow; }
       if (view === 'full') { forceFullHudPanels(); return; }
       if (!hiddenNatives) hiddenNatives = [];
       if (view === 'hidden') {
@@ -1176,6 +1188,15 @@ R"TLJS(
           var c = ctx.GetChild(i);
           if (!c || OURS[c.id]) continue;
           if ((c.FindChildTraverse && (c.FindChildTraverse('SliderRow') || c.FindChildTraverse('ControlRow')))) continue;
+          var kept = hudKeepIn[c.id];
+          if (kept) {
+            var gk = c.GetChildCount ? c.GetChildCount() : 0;
+            for (var g = 0; g < gk; g++) {
+              var gc = c.GetChild(g);
+              if (gc && gc.id !== kept && gc.visible) hidePanel(gc, false);
+            }
+            continue;
+          }
           if (c.visible) hidePanel(c, false);
         }
       } else { // 'game'
@@ -1940,6 +1961,7 @@ R"TLJS(
 // SPLIT for MSVC's ~16380-byte cap on a single string literal, not for any semantic reason.
 // Adjacent raw literals concatenate, so the seam is invisible to the script.
 R"TLJS(
+      setHudKeep(st); // the kill feed / radar the hidden views keep (CS2's own switches)
       var blackout = !!st.blackout;
       if (blackout) {
         applyHudView('hidden');

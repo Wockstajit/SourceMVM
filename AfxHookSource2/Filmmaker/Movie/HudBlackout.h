@@ -37,6 +37,13 @@ void HudBlackout_Toggle();
 // Main thread, once per frame: drops the blackout when demo playback ends.
 void HudBlackout_RunFrame();
 
+// CS2'S OWN "DRAW THIS WITH THE HUD OFF" SWITCHES, read, never written: `cl_drawhud_force_deathnotices`
+// and `cl_drawhud_force_radar` (1 draws the kill feed / radar even with the HUD off, 0 is the default,
+// -1 forces it off). The hidden views (F8 and GAME UI: Hide All) keep a panel whose switch is 1, so a
+// clean screen can still carry the kill feed (CameraTimelineHud.cpp publishes both, the hide pass in
+// CameraTimelineJs.h reads them). 0 when the cvar cannot be read.
+int HudBlackout_ForceDrawSetting(const char* cvarName);
+
 // `mirv_filmmaker blackout [on|off|toggle|status]`.
 void HudBlackout_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);
 
