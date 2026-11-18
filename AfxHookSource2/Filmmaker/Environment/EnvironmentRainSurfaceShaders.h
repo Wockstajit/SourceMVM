@@ -45,9 +45,9 @@ float3 RainLighting(float3 p,float2 pixel,uint sample) {
 //
 // This one walks the reflected ray in SCREEN space (perspective-correct: 1/w is linear on screen),
 // one stride of a few pixels at a time, compares the ray's view depth against the scene's view depth
-// at that pixel, accepts only a hit within about one stride of thickness, then bisects between the
-// last miss and the hit so the reflection sits on the surface it came from. Edges and grazing hits
-// fade out instead of cutting.
+// at that pixel, accepts a hit where the ray crossed the surface between two steps (in front at the
+// one, behind at the next), then bisects between the last miss and the hit so the reflection sits on
+// the surface it came from. Edges and grazing hits fade out instead of cutting.
 float SceneViewDepth(float2 pixel,float d) {
     float2 ndc=pixel/dimensions.xy*float2(2,-2)+float2(-1,1);
     float4 h=mul(inverseViewProjection,float4(ndc,d,1));
@@ -96,7 +96,7 @@ float3 WetScreenReflection(float3 p,float3 normal,float3 reflected,float3 fallba
     // the mirrored sky came through. The bisection below gives back the precision a fixed start loses.
     float jitter=.5;
     float pixelWorldScale=2/max(1,dimensions.y*length(viewProjection[1].xyz));
-    float lastT=0;
+    float lastT=0,lastW=c0.w;
     float hitT=-1;
     [loop]for(int k=0;k<steps;++k){
         float u=(k+jitter)/steps;
@@ -108,22 +108,33 @@ float3 WetScreenReflection(float3 p,float3 normal,float3 reflected,float3 fallba
         float rayW=1/lerp(k0,k1,t);
         if(!IsSky(d)){
             float diff=rayW-SceneViewDepth(pix,d);
-            float thick=rayW*pixelWorldScale*stridePix*1.4+2;
-            if(diff>.02&&diff<thick){
-                // Refine: bisect between the last miss and this hit.
-                float lo=lastT,hi=t;
+            // A HIT IS THE RAY CROSSING THE SURFACE during this step: behind it now, and at the step
+            // before in front of it (or no more than a stride's width behind). Tested on this point
+            // alone ("at most a stride behind"), a ray that met a wall at a slant usually landed
+            // further behind than that, was refused, and so was every step after it: the wall came
+            // out as stripes of hit and miss, one stripe a step. A ray that passed BEHIND something
+            // nearer (a pole, a crate edge) was already far behind it at the step before, so it is
+            // still refused and carries on.
+            float margin=rayW*pixelWorldScale*stridePix*1.4+2;
+            float before=diff-(rayW-lastW);
+            if(diff>.02&&before<margin){
+                // Refine: bisect between the last miss and this hit. The same rule: a midpoint counts
+                // as behind only while it is no further behind than this whole step went, so the
+                // bisection cannot settle on a nearer silhouette it happens to sample.
+                float lo=lastT,hi=t,reach=abs(rayW-lastW)+margin;
                 [unroll]for(int r=0;r<5;++r){
                     float mid=(lo+hi)*.5;
                     float2 mp=p0+delta*mid;
                     float md=ReadSceneMarch(mp);
-                    bool behind=!IsSky(md)&&(1/lerp(k0,k1,mid)-SceneViewDepth(mp,md))>.02;
+                    float mdiff=1/lerp(k0,k1,mid)-SceneViewDepth(mp,md);
+                    bool behind=!IsSky(md)&&mdiff>.02&&mdiff<reach;
                     if(behind)hi=mid;else lo=mid;
                 }
                 hitT=hi;
                 break;
             }
         }
-        lastT=t;
+        lastT=t;lastW=rayW;
     }
     if(hitT>=0){
         float2 pix=p0+delta*hitT;

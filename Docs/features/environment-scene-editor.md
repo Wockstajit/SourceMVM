@@ -180,7 +180,12 @@ the trace finds nothing it shows the sky if the sky is open above, and the surfa
 otherwise. An earlier constant sky-coloured film made wet ground look frosted and puddles white.
 The trace starts at the same point along the ray in every pixel and bisects its hit: started at a
 random offset per pixel, neighbouring pixels found the wall or missed it at random, and wet walls and
-ground were covered in white grain where the mirrored sky came through.
+ground were covered in white grain where the mirrored sky came through. A hit is the ray crossing a
+surface between two steps, in front of it at one and behind it at the next. Tested on one step alone
+("no more than a step behind"), a ray meeting a wall at a slant usually landed further behind than
+that and was refused at every step after, so a mirrored wall came out as stripes of hit and miss
+(Dust 2 Long A, 2026-11-18). A ray that passed behind something nearer, such as a pole, was already
+far behind it at the step before, so it is still refused.
 
 Puddles require upward faces inside a chosen world-height band. They use procedural ripples and
 Fresnel reflection of the analytic sky. Their reflection normal follows a shared horizontal water
