@@ -366,6 +366,7 @@ std::string ConfigHud::BuildStateJson() {
 	// Every stored UI key in one object. The collapsible cards restore themselves from this
 	// generically (see cfgSections in ConfigHudWidgetsJs.h) rather than each needing a field here.
 	FilmmakerSettings_AppendUiJson(o);
+	FilmmakerSettings_AppendPresetJson(o); // the PRESETS chip's list
 	// The operator-dragged inspector width, so this panel and the other two lay out to the
 	// same column. One reader, one clamp -- see InspectorWidth.h.
 	InspectorWidth_AppendJson(o);

@@ -33,10 +33,9 @@ Open CONFIG > EFFECTS > ATMOSPHERE > LOOK. Changing a slider enables
 Custom appearance. Switching it off restores native rendering while keeping the
 slider values; Reset appearance restores the shipped defaults and switches it off.
 Settings are saved with the existing settings store and Effects carry-over preference.
-For cell size, grid count and cloud scale, open ATMOSPHERE > VOLUME.
-The card's sub-tabs are SMOKE (colour), LOOK, VOLUME and WORLD TINT.
-Its Custom smoke toggle controls the same override as Custom appearance.
-Reset appearance, Reset smoke, the Atmosphere card reset and the bottom Reset Effects
+Cell size, grid count and cloud scale are the VOLUME group at the bottom of the same page.
+The card's sub-tabs are SMOKE (colour), LOOK and WORLD TINT.
+Reset appearance, the Atmosphere card reset and the bottom Reset Effects
 button all restore defaults and switch the override off.
 
 ```text

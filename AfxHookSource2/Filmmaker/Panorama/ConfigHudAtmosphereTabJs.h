@@ -37,7 +37,10 @@ R"CFJS(
     var smokeCard = atmosSec;
     var smokePage = atmosSec.__page(T('Smoke'));
     var smokeAppearancePage = atmosSec.__page(T('Look'));
-    var smokeVolumePage = atmosSec.__page(T('Volume'));
+    // VOLUME IS PART OF LOOK (2026-11). It was a page of its own with a second copy of this page's
+    // switch ("Custom smoke", the same command) and of its reset button; three sliders did not need
+    // a tab, and the two pages together fit one.
+    var smokeVolumePage = smokeAppearancePage;
 
     // Deliberately short: a long swatch grid is harder to scan than a few strong choices plus a
     // real picker for anything else.
@@ -136,17 +139,12 @@ R"CFJS(
     var smokeBoil = sliderRow(smokeAppearancePage, {label:T('Boiling'), cmd:'mirv_filmmaker world smoke appearance boil', min:-1, max:1, decimals:2, unit:'', tip:T('Strength and direction of the rolling distortion. Native value: -0.3.')});
     subHead(smokeAppearancePage, T('SAMPLING'));
     var smokeRayStep = sliderRow(smokeAppearancePage, {label:T('Ray step'), cmd:'mirv_filmmaker world smoke appearance ray_step', min:0.5, max:20, decimals:2, unit:'', tip:T('Distance between rendering samples. Smaller values cost more GPU time. Native value: 6. This does not change voxel size.')});
-    actionGroup(smokeAppearancePage, T('Appearance'), [[T('Reset appearance'), function () {cmd('mirv_filmmaker world smoke appearance reset');}]], 1);
-
-    var smokeVolumeOn = togglePill(smokeVolumePage, T('Custom smoke'),
-      T('Changes the visible smoke live, including clouds already deployed.'),
-      function () { cmd('mirv_filmmaker world smoke appearance toggle'); });
+    subHead(smokeVolumePage, T('VOLUME'));
     var smokeSpread = sliderRow(smokeVolumePage, {label:T('Spread'), cmd:'mirv_filmmaker world smoke appearance spread', min:0.25, max:2, decimals:2, unit:'x', tip:T('Scales the visible cloud around its origin. 1 is native size. Applies to existing smoke.')});
     var smokeVoxelSize = sliderRow(smokeVolumePage, {label:T('Voxel size'), cmd:'mirv_filmmaker world smoke appearance voxel_size', min:2.5, max:320, decimals:1, unit:'u', tip:T('Size of a rendered cell in world units. Larger cells make coarser smoke. Linked to voxels per side; native size is 20 units.')});
     var smokeResolution = sliderRow(smokeVolumePage, {label:T('Voxels per side'), cmd:'mirv_filmmaker world smoke appearance resolution', min:4, max:64, decimals:0, unit:'', tip:T('Number of rendered cells along each side of the smoke volume. Native grid: 32 per side. Increasing this resamples the existing smoke.')});
     var smokeGridStatus = envNote(smokeVolumePage, '');
-    envNote(smokeVolumePage, T('Voxel size and count are linked. Spread changes the cloud size. These controls resample the visible smoke.'));
-    actionGroup(smokeVolumePage, T('Smoke'), [[T('Reset smoke'), function () {cmd('mirv_filmmaker world smoke appearance reset');}]], 1);
+    actionGroup(smokeAppearancePage, T('Appearance'), [[T('Reset appearance'), function () {cmd('mirv_filmmaker world smoke appearance reset');}]], 1);
 
     // ===================== WORLD TINT ===================================
     // World Tint belongs with atmosphere: it is an environment-wide grade applied to geometry,
@@ -232,7 +230,6 @@ R"CFJS(
       smokeRows.t.sync(t);
       smokeRows.ct.sync(ct);
       smokeAppearance.set(st.smokeAppearance === true);
-      smokeVolumeOn.set(st.smokeAppearance === true);
       var spread = typeof st.smoke_spread === 'number' ? st.smoke_spread : 1;
       var resolution = typeof st.smoke_resolution === 'number' ? st.smoke_resolution : 32;
       smokeSpread.sync(spread);

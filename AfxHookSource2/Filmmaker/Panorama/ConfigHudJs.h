@@ -524,6 +524,118 @@ R"CFJS(
     // Game-UI visibility: how much of CS2's own HUD shows behind the panel. Hide All = clean
     // plate, In-Game = radar + HP/ammo with no observer panel, Show All = the full spectator HUD.
     var HUD_CYCLE = [['hidden', T('Hide All')], ['game', T('In-Game')], ['full', T('Show All')]];
+)CFJS"
+R"CFJS(
+    // ===================== CONFIG PRESETS ========================
+    // Left of Game UI: save everything set in CONFIG under a name and load it back with one click.
+    // A preset holds every tab (the camera, effects and ragdoll settings, the particle effects and
+    // the whole environment; `settings preset` in FilmmakerSettingsStore.cpp). The panel's own
+    // layout is not part of it. The menu floats on the dropdown layer like the scene preset menu
+    // (ConfigHudEnvironmentStateJs.h), so a press outside closes it.
+    var cfgPresetName = '', cfgPresetFocus = false, cfgPresetMenu = null, cfgPresetField = null, cfgPresetLabel = null;
+    var cfgPresetChip = chromeChip(T('PRESETS'), function () { if (cfgPresetMenu) cfgDropdownClose(); else cfgPresetOpen(); });
+    attachTip(cfgPresetChip, T('Config presets: save everything you have set on every CONFIG tab under a name, and load it back in one click.'));
+    function cfgPresetCommand(op, name) { cmd('mirv_filmmaker settings preset ' + op + ' "' + name + '"'); }
+    function cfgPresetPaint() {
+      if (!cfgPresetLabel || !cfgValid(cfgPresetLabel)) return;
+      cfgPresetLabel.text = (cfgPresetName + (cfgPresetFocus ? ' |' : '')) || T('Name this preset');
+      cfgPresetLabel.style.color = cfgPresetName ? S.value : S.muted;
+      cfgPresetField.style.border = '1px solid ' + (cfgPresetFocus ? S.accent : '#ffffff14');
+    }
+    var cfgPresetPrevBlur = configWindowBlur, cfgPresetPrevChars = configWindowChars;
+    configWindowBlur = function () { cfgPresetFocus = false; cfgPresetPaint(); cfgPresetPrevBlur(); };
+    configWindowChars = function (csv) {
+      if (!cfgPresetFocus) { cfgPresetPrevChars(csv); return; }
+      String(csv || '').split(',').forEach(function (part) {
+        var n = parseInt(part, 10);
+        if (n === 13) cfgPresetSave();
+        else if (n === 27) configWindowBlur();
+        else if (n === 8) cfgPresetName = cfgPresetName.slice(0, -1);
+        else if (cfgPresetName.length < 48 && ((n >= 48 && n <= 57) || (n >= 65 && n <= 90)
+                 || (n >= 97 && n <= 122) || n === 32 || n === 45 || n === 95)) {
+          cfgPresetName += String.fromCharCode(n);
+        }
+      });
+      cfgPresetPaint();
+    };
+    function cfgPresetSave() {
+      var name = cfgPresetName.replace(/^\s+|\s+$/g, '');
+      if (!name) return;
+      configWindowBlur(); cfgPresetCommand('save', name); cfgDropdownClose();
+    }
+    function cfgPresetRow(m, name) {
+      var current = st && st.configPreset === name;
+      var r = mk('Panel', m); r.style.width = '100%'; r.style.height = '30px'; r.style.flowChildren = 'right';
+      r.style.borderRadius = '3px';
+      var pick = mk('Panel', r); pick.hittest = true; pick.style.width = 'fill-parent-flow(1.0)'; pick.style.height = '100%';
+      pick.style.flowChildren = 'right'; pick.style.padding = '0px 6px'; pick.style.borderRadius = '3px';
+      var n = lbl(pick, name, current ? S.accent : S.label, 13); n.hittest = false;
+      n.style.width = 'fill-parent-flow(1.0)'; n.style.verticalAlign = 'center'; n.style.whiteSpace = 'nowrap'; n.style.textOverflow = 'ellipsis';
+      var l = lbl(pick, current ? T('Loaded') : T('Load'), S.muted, 11); l.hittest = false; l.style.verticalAlign = 'center';
+      pick.SetPanelEvent('onmouseover', function () { pick.style.backgroundColor = '#212833ff'; });
+      pick.SetPanelEvent('onmouseout', function () { pick.style.backgroundColor = S.clear; });
+      pick.SetPanelEvent('onactivate', function () { cfgPresetName = name; cfgPresetCommand('load', name); cfgDropdownClose(); });
+      var del = mk('Panel', r); del.hittest = true; del.style.width = '30px'; del.style.height = '100%'; del.style.borderRadius = '3px';
+      var x = lbl(del, '\u00d7', S.muted, 16); x.hittest = false; x.style.horizontalAlign = 'center'; x.style.verticalAlign = 'center';
+      del.SetPanelEvent('onmouseover', function () { del.style.backgroundColor = '#3a1d22ff'; x.style.color = '#ff8a8aff'; });
+      del.SetPanelEvent('onmouseout', function () { del.style.backgroundColor = S.clear; x.style.color = S.muted; });
+      attachTip(del, T('Delete this preset.'));
+      del.SetPanelEvent('onactivate', function () {
+        cfgDropdownClose();
+        cfgConfirm(T('Delete preset'), T('Delete the config preset “{0}”? This cannot be undone.', name), T('Delete'), function () {
+          cfgPresetCommand('delete', name);
+          if (cfgPresetName === name) cfgPresetName = '';
+        });
+      });
+    }
+    function cfgPresetOpen() {
+      cfgDropdownClose();
+      if (!cfgPresetName && st && st.configPreset) cfgPresetName = st.configPreset;
+      var m = mk('Panel', cfgDropLayer()); m.hittest = true; m.hittestchildren = true;
+      m.style.width = '280px'; m.style.flowChildren = 'down'; m.style.padding = '10px';
+      m.style.backgroundColor = '#14181eff'; m.style.border = '1px solid #ffffff1f'; m.style.borderRadius = '4px';
+      m.style.boxShadow = '#00000099 0px 6px 18px 0px';
+      m.SetPanelEvent('onactivate', function () {});
+      var t = lbl(m, T('CONFIG PRESETS'), S.muted, 11); t.style.fontWeight = 'bold'; t.style.letterSpacing = '1.5px';
+      var row = mk('Panel', m); row.style.width = '100%'; row.style.flowChildren = 'right'; row.style.marginTop = '8px';
+      cfgPresetField = mk('Panel', row); cfgPresetField.hittest = true;
+      cfgPresetField.style.width = 'fill-parent-flow(1.0)'; cfgPresetField.style.height = '30px';
+      cfgPresetField.style.backgroundColor = '#0c0e12ff'; cfgPresetField.style.borderRadius = '3px';
+      cfgPresetLabel = lbl(cfgPresetField, '', S.value, 13); cfgPresetLabel.hittest = false;
+      cfgPresetLabel.style.marginLeft = '8px'; cfgPresetLabel.style.verticalAlign = 'center';
+      cfgPresetField.SetPanelEvent('onactivate', function () {
+        configWindowBlur(); cfgPresetFocus = true; cfgTextOwner = cfgPresetField;
+        root.SetAttributeString('textcapture', '1'); cfgPresetPaint();
+      });
+      var save = btn(row, T('Save'), cfgPresetSave, S.accent);
+      save.style.marginRight = '0px'; save.style.marginLeft = '6px';
+      save.__bgBase = '#80bdff14'; save.__brBase = '#80bdff66'; paintBtn(save);
+      var hr = mk('Panel', m); hr.style.width = '100%'; hr.style.height = '1px'; hr.style.backgroundColor = '#ffffff12';
+      hr.style.marginTop = '8px'; hr.style.marginBottom = '4px';
+      var names = (st && st.configPresets) || [];
+      names.forEach(function (name) { cfgPresetRow(m, name); });
+      if (!names.length) { var none = lbl(m, T('No saved presets yet.'), S.muted, 12); none.style.marginTop = '4px'; }
+      var foot = lbl(m, T('Saves every CONFIG tab: camera, effects, environment and ragdolls. Saving under a name that exists replaces it.'), S.hint, 11);
+      foot.style.marginTop = '8px'; foot.style.whiteSpace = 'normal';
+      cfgPresetMenu = { field: cfgPresetChip, list: m, __menu: true, __lastLmb: true,
+        __setOpen: function (open) {
+          if (open) return;
+          try { m.DeleteAsync(0); } catch (e) {}
+          cfgPresetMenu = null; cfgPresetFocus = false; cfgPresetField = cfgPresetLabel = null;
+        } };
+      cfgDropOpen = cfgPresetMenu;
+      cfgPresetPaint();
+      // Right-aligned under the chip.
+      try {
+        var bp = cfgPresetChip.GetPositionWithinWindow(), rp = root.GetPositionWithinWindow();
+        var sx = root.actualuiscale_x || 1, sy = root.actualuiscale_y || 1;
+        var right = (bp.x - rp.x + cfgPresetChip.actuallayoutwidth) / sx;
+        var y = (bp.y - rp.y + cfgPresetChip.actuallayoutheight) / sy + 6;
+        m.style.position = Math.round(right - 280) + 'px ' + Math.round(y) + 'px 0px';
+      } catch (e) {}
+    }
+)CFJS"
+R"CFJS(
     var hudCycle = chromeChip(T('GAME UI: {0}', T('Show All').toUpperCase()), function () {
       var cur = (st && st.hudView) || 'full', idx = 0;
       for (var i = 0; i < HUD_CYCLE.length; i++) if (HUD_CYCLE[i][0] === cur) idx = i;
@@ -1114,6 +1226,8 @@ R"CFJS(
       // mouseout for that -- so a tooltip opened before the scroll would be left hanging over
       // controls it no longer belongs to. Drop it with the first notch.
       tipHide();
+      // Over an open dropdown's list the wheel scrolls that list (ten rows show at a time).
+      if (cfgDropWheel(n)) return;
       cfgDropdownClose();   // the popover is anchored to a field the wheel is about to move
       // Over the alternative environment's MAP VIEW the wheel zooms the map.
       if (typeof aeWheel === 'function' && aeWheel(n)) return;

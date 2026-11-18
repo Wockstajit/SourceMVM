@@ -31,6 +31,9 @@ uint64_t FilmmakerSettings_PictureRevision();
 // stored as "0". That is what lets a panel leave a control the operator has never touched at its
 // build-time default instead of forcing every default to be duplicated on the C++ side.
 void FilmmakerSettings_AppendUiJson(std::ostringstream& o);
+// Appends ",\"configPresets\":[...],\"configPreset\":\"<name>\"": the saved config presets and the
+// one last saved or loaded (see `settings preset` in FilmmakerSettingsStore.cpp).
+void FilmmakerSettings_AppendPresetJson(std::ostringstream& o);
 
 // Restore one group of settings to the values the modules were CONSTRUCTED with.
 //
