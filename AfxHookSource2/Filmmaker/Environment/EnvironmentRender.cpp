@@ -1201,6 +1201,10 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     c.shadowDebug={g_shadowCascadeDebug?1.f:0.f,g_rainExposureDebug?1.f:0.f,0,0};
     // The fog and cloud composite shades interior pixels once (CompositePixelPS) while every sample
     // of such a pixel still holds one colour: nothing drawn per sample since the atmosphere pass.
+    // Placed props are; rain, snow, their veil and the splashes are not, since they are drawn after
+    // the fog composite (drawWeather). Ruling out weather here as well, left over from when they were
+    // drawn before it, made the composite shade every sample of every pixel whenever it rained or
+    // snowed: 4x MSAA at 1080p put the fog composite at 22 ms instead of 5.6 (Dust 2, 2026-11-19).
     bool volumeSplit=false;
     ID3D11RenderTargetView *workingTarget = g.workingRtv.Get();
     // The texture that holds the frame so far. The fog composite moves it to the other texture.
@@ -1210,7 +1214,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     if(c.lighting.z==0){
         g.atmosphereEdges.Reset();g.atmosphereEdgesSrv.Reset();g.atmosphereEdgesRtv.Reset();
     }
-    if(volumes&&c.lighting.z>.5f&&VolumeCompositeSplit.load(std::memory_order_relaxed)&&!(w.type&&w.count)){
+    if(volumes&&c.lighting.z>.5f&&VolumeCompositeSplit.load(std::memory_order_relaxed)){
         volumeSplit=true;
         for(const auto& o:f.scene.objects)if(!f.nativeLightingPass&&o.enabled&&!o.IsLight()&&o.mesh&&o.cameraVisible){volumeSplit=false;break;}
     }
