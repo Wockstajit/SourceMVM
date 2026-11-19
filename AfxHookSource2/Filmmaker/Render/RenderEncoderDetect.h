@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 // Probes the bundled FFmpeg for a WORKING NVENC hardware encoder.
 //
 // WHY A REAL PROBE. "h264_nvenc appears in `ffmpeg -encoders`" only proves the build was
@@ -24,6 +26,17 @@ NvencProbe RenderEncoderDetect_State();
 
 // Starts the background probe if it has not run yet. Safe to call per frame.
 void RenderEncoderDetect_EnsureProbe();
+
+// A job about to encode through FFmpeg: probe again if the last probe found FFmpeg missing or
+// broken, so a user who restored ffmpeg.exe does not have to restart the game.
+void RenderEncoderDetect_RetryIfFfmpegFailed();
+
+// True until the probe has finished (never probed, or running now).
+bool RenderEncoderDetect_Probing();
+
+// After the probe: "" when ffmpeg.exe exists and answers `-version`, else one sentence naming
+// the path and what went wrong. Also "" while the probe is still running.
+std::string RenderEncoderDetect_FfmpegProblem();
 
 // One-line human answer for the UI/console ("GPU encoding available (NVENC)" etc).
 const char* RenderEncoderDetect_Describe();

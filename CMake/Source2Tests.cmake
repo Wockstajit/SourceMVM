@@ -245,6 +245,12 @@ add_executable(RenderCaptureMathTests
 target_compile_features(RenderCaptureMathTests PRIVATE cxx_std_17)
 add_test(NAME RenderCaptureMathTests COMMAND RenderCaptureMathTests)
 
+add_executable(RenderWriterFailureMathTests
+    ../Automation/tests/render-writer-failure-math-tests.cpp
+)
+target_compile_features(RenderWriterFailureMathTests PRIVATE cxx_std_17)
+add_test(NAME RenderWriterFailureMathTests COMMAND RenderWriterFailureMathTests)
+
 add_executable(RenderEncodingTests
     ../Automation/tests/render-encoding-tests.cpp
     Filmmaker/Render/RenderEncoding.cpp
