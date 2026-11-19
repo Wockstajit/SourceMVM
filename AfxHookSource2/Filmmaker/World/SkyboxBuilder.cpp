@@ -271,15 +271,23 @@ std::string   SkyboxBuilder_Status() { std::lock_guard<std::mutex> lock(g_mx); r
 bool          SkyboxBuilder_Busy()  { return g_busy.load(); }
 
 bool SkyboxBuilder_Available(std::string* outReason) {
-	if (FindScript().empty()) {
-		if (outReason) *outReason = "FX/tools/build-skybox.ps1 not found next to the build.";
-		return false;
+	// THE ANSWER IS KEPT FOR A FEW SECONDS. The Config panel asks every frame it is open, and each
+	// answer was a directory walk for the script plus a SearchPathW over the whole PATH for two
+	// shells: 18% of the main thread with the panel open (Dust 2, 2026-11-19). A tool installed
+	// or removed while the game runs is still noticed within the refresh.
+	static ULONGLONG s_checked = 0;
+	static bool s_available = false;
+	static std::string s_reason;
+	const ULONGLONG now = GetTickCount64();
+	if (!s_checked || now - s_checked >= 5000) {
+		s_checked = now;
+		s_reason.clear();
+		if (FindScript().empty()) s_reason = "FX/tools/build-skybox.ps1 not found next to the build.";
+		else if (FindPowerShell().empty()) s_reason = "Neither pwsh.exe nor powershell.exe is on PATH.";
+		s_available = s_reason.empty();
 	}
-	if (FindPowerShell().empty()) {
-		if (outReason) *outReason = "Neither pwsh.exe nor powershell.exe is on PATH.";
-		return false;
-	}
-	return true;
+	if (!s_available && outReason) *outReason = s_reason;
+	return s_available;
 }
 
 // Main thread. Applies a just-finished build.

@@ -1342,7 +1342,9 @@ void AppendStateJson(std::ostringstream &out) {
         out << ']';
     }
     out << '}';
-    out << ",\"envRender\":\"" << JsonBuilder::Escape(g_status) << "\",\"envDraws\":" << g_draws;
+    // No draw counter here: it changed every frame and made the Config panel re-render every frame.
+    // `mirv_filmmaker environment status` prints it.
+    out << ",\"envRender\":\"" << JsonBuilder::Escape(g_status) << '"';
 }
 namespace {
 bool UndoLastEditLocked(std::string &error) {
