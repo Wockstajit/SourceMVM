@@ -113,12 +113,8 @@ struct Job {
         status = text;
     }
     template <class Body> void Parallel(size_t count, Body body) {
-        if (!count) return;
+        if (!count || stop.load(std::memory_order_relaxed)) return;
         const unsigned workers = (std::min)(WorkerThreads(), unsigned((count + 63) / 64));
-        if (workers == 1) {
-            body(0, count);
-            return;
-        }
         std::atomic<size_t> next{0};
         const size_t chunk = (std::max)(size_t(64), count / (workers * 64));
         auto run = [&] {
