@@ -1715,6 +1715,8 @@
  "Sets the shape of every ghost and how many spikes a light gets. Six blades make hexagon ghosts and six spikes; an odd number makes twice as many spikes.": "Đặt hình của mọi ghost và số tia nhọn mỗi đèn có. Sáu lá cho ghost lục giác và sáu tia; số lẻ cho gấp đôi số tia.",
  "Sun": "Mặt trời",
  "How strongly the sun itself flares. It is found from the sky, so a sun on a bright sky still flares; walls and smoke in front of it block it. 0 leaves the sun to the ordinary light test.": "Bản thân mặt trời flare mạnh bao nhiêu. Nó được tìm từ bầu trời, nên mặt trời trên nền sáng vẫn flare; tường và khói phía trước sẽ chặn. 0 để mặt trời cho phép thử ánh sáng thường.",
+ "Sun only": "Chỉ mặt trời",
+ "Only the sun throws a flare: lamps and other bright spots in the picture are left out. The sun is taken from where the map draws it, or from the Environment sun while its sky is on.": "Chỉ mặt trời tạo lóa: đèn và các điểm sáng khác trong khung hình bị bỏ qua. Mặt trời được lấy ở chỗ bản đồ vẽ nó, hoặc từ mặt trời của Environment khi bầu trời của nó đang bật.",
  "Lens dirt": "Bụi ống kính",
  "Smudges on the front element that light up where flare falls on them. Load your own dirt image with  mirv_filmmaker lens dirt <path>  (the shape is read as brightness).": "Vết bẩn trên mặt kính trước sáng lên chỗ flare rơi vào. Nạp ảnh bụi của bạn bằng  mirv_filmmaker lens dirt <path>  (hình được đọc như độ sáng).",
  "warm": "ấm",

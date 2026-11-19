@@ -1741,6 +1741,8 @@
  "Sets the shape of every ghost and how many spikes a light gets. Six blades make hexagon ghosts and six spikes; an odd number makes twice as many spikes.": "Définit la forme de chaque fantôme et le nombre de pointes d'une lumière. Six lames donnent des fantômes hexagonaux et six pointes ; un nombre impair en donne deux fois plus.",
  "Sun": "Soleil",
  "How strongly the sun itself flares. It is found from the sky, so a sun on a bright sky still flares; walls and smoke in front of it block it. 0 leaves the sun to the ordinary light test.": "Force avec laquelle le soleil lui-même produit un flare. Il est repéré à partir du ciel, donc un soleil sur un ciel clair produit quand même un flare ; les murs et la fumée devant lui le bloquent. 0 laisse le soleil au test de lumière ordinaire.",
+ "Sun only": "Soleil uniquement",
+ "Only the sun throws a flare: lamps and other bright spots in the picture are left out. The sun is taken from where the map draws it, or from the Environment sun while its sky is on.": "Seul le soleil produit un flare : les lampes et les autres points lumineux de l'image sont ignorés. Le soleil est pris là où la carte le dessine, ou au soleil de l'Environment tant que son ciel est activé.",
  "Lens dirt": "Salissures",
  "Smudges on the front element that light up where flare falls on them. Load your own dirt image with  mirv_filmmaker lens dirt <path>  (the shape is read as brightness).": "Des traces sur la lentille avant qui s'illuminent là où le flare les touche. Chargez votre propre image de saleté avec  mirv_filmmaker lens dirt <path>  (la forme est lue comme de la luminosité).",
  "warm": "chaud",

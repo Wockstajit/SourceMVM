@@ -1715,6 +1715,8 @@
  "Sets the shape of every ghost and how many spikes a light gets. Six blades make hexagon ghosts and six spikes; an odd number makes twice as many spikes.": "决定每个鬼影的形状以及光点的星芒数量。六片叶片产生六边形鬼影和六条星芒；奇数叶片则产生两倍数量的星芒。",
  "Sun": "太阳",
  "How strongly the sun itself flares. It is found from the sky, so a sun on a bright sky still flares; walls and smoke in front of it block it. 0 leaves the sun to the ordinary light test.": "太阳本身产生光晕的强度。它是从天空中识别出来的，因此明亮天空中的太阳仍会产生光晕；其前方的墙面和烟雾会将其遮挡。0 表示太阳交由普通光点检测处理。",
+ "Sun only": "仅太阳",
+ "Only the sun throws a flare: lamps and other bright spots in the picture are left out. The sun is taken from where the map draws it, or from the Environment sun while its sky is on.": "只有太阳会产生眩光：画面中的灯和其他亮点会被忽略。太阳取自地图绘制它的位置；开启 Environment 天空时则使用 Environment 的太阳。",
  "Lens dirt": "镜头污渍",
  "Smudges on the front element that light up where flare falls on them. Load your own dirt image with  mirv_filmmaker lens dirt <path>  (the shape is read as brightness).": "前镜片上的污渍，光晕落在其上时会被点亮。可用  mirv_filmmaker lens dirt <path>  载入你自己的污渍图片（形状按亮度读取）。",
  "warm": "暖色",

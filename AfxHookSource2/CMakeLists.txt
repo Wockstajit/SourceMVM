@@ -851,6 +851,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/WeaponRecoilStyles.h
     Filmmaker/Lens/LensFx.cpp
     Filmmaker/Lens/LensFx.h
+    Filmmaker/Lens/LensSunLocator.cpp
+    Filmmaker/Lens/LensSunLocator.h
     Filmmaker/Heatmap/RoundHeatmap.cpp
     Filmmaker/Heatmap/RoundHeatmap.h
     Filmmaker/Heatmap/RoundHeatmapMath.h
