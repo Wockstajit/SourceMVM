@@ -107,10 +107,17 @@ using MaterialImageKey=std::pair<const MaterialImage*,bool>;
 struct Resources {
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> context;
-    ComPtr<ID3D11VertexShader> screenVS, meshVS, weatherVS[2], stormVS, splashVS[2], footSplashVS;
+    ComPtr<ID3D11VertexShader> screenVS, meshVS, weatherVS[2], stormVS, splashVS[2], footSplashVS, exactWalkVS;
     ComPtr<ID3D11PixelShader> atmospherePS[4], atmospherePixelPS[4], meshPS[4], materialMeshPS[4], weatherPS[4], stormPS[4], splashPS[4], veilPS[4];
     ComPtr<ID3D11PixelShader> blitPS[2], volumePS[4], volumeBlurPS[4], compositePS[4], skyVolumePS[4], compositePixelPS[4], volumeTemporalPS[4];
-    ComPtr<ID3D11PixelShader> atmosphereEdgePS;
+    ComPtr<ID3D11PixelShader> atmosphereEdgePS, exactListPS[4], exactWalkPS[4];
+    // The shared exact fog walks (ExactListPS in the shaders): which pixels need which walk, the
+    // list, its length, and the walks themselves.
+    ComPtr<ID3D11Texture2D> exactIndex, exactWalks;
+    ComPtr<ID3D11ShaderResourceView> exactIndexSrv, exactWalksSrv, exactEntriesSrv, exactCountSrv;
+    ComPtr<ID3D11RenderTargetView> exactIndexRtv, exactWalksRtv;
+    ComPtr<ID3D11Buffer> exactEntries, exactCount;
+    ComPtr<ID3D11UnorderedAccessView> exactEntriesUav;
     ComPtr<ID3D11Texture2D> atmosphereEdges;
     ComPtr<ID3D11ShaderResourceView> atmosphereEdgesSrv;
     ComPtr<ID3D11RenderTargetView> atmosphereEdgesRtv;
@@ -358,6 +365,48 @@ bool AtmosphereEdgeTarget(UINT width,UINT height) {
     g.atmosphereEdges->SetPrivateData(WKPDID_D3DDebugObjectName,sizeof(name)-1,name);
     return true;
 }
+// Must match kExactWalkWidth/kExactWalkRows in the shaders.
+constexpr UINT kExactWalkWidth = 1024, kExactWalkRows = 256;
+void ReleaseExactWalks() {
+    g.exactIndex.Reset();g.exactIndexSrv.Reset();g.exactIndexRtv.Reset();
+    g.exactWalks.Reset();g.exactWalksSrv.Reset();g.exactWalksRtv.Reset();
+    g.exactEntries.Reset();g.exactEntriesSrv.Reset();g.exactEntriesUav.Reset();
+    g.exactCount.Reset();g.exactCountSrv.Reset();
+}
+// The shared exact walks' storage, kept at the frame's size. False leaves the composite walking
+// each sample itself, as it did before.
+bool ExactWalkTargets(UINT width,UINT height) {
+    if(g.exactIndex&&g.exactWalks&&g.exactEntriesUav&&g.exactCountSrv){
+        D3D11_TEXTURE2D_DESC current{};g.exactIndex->GetDesc(&current);
+        if(current.Width==width&&current.Height==height)return true;
+    }
+    ReleaseExactWalks();
+    D3D11_TEXTURE2D_DESC d{};d.Width=width;d.Height=height;d.MipLevels=d.ArraySize=1;
+    d.Format=DXGI_FORMAT_R32G32B32A32_UINT;d.SampleDesc.Count=1;
+    d.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
+    D3D11_TEXTURE2D_DESC w=d;w.Width=kExactWalkWidth;w.Height=kExactWalkRows;w.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;
+    D3D11_BUFFER_DESC e{};e.ByteWidth=kExactWalkWidth*kExactWalkRows*16;e.StructureByteStride=16;
+    e.BindFlags=D3D11_BIND_UNORDERED_ACCESS|D3D11_BIND_SHADER_RESOURCE;e.MiscFlags=D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    D3D11_UNORDERED_ACCESS_VIEW_DESC u{};u.Format=DXGI_FORMAT_UNKNOWN;u.ViewDimension=D3D11_UAV_DIMENSION_BUFFER;
+    u.Buffer.NumElements=kExactWalkWidth*kExactWalkRows;u.Buffer.Flags=D3D11_BUFFER_UAV_FLAG_COUNTER;
+    D3D11_BUFFER_DESC c{};c.ByteWidth=16;c.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SHADER_RESOURCE_VIEW_DESC cv{};cv.Format=DXGI_FORMAT_R32_UINT;cv.ViewDimension=D3D11_SRV_DIMENSION_BUFFER;cv.Buffer.NumElements=4;
+    if(FAILED(g.device->CreateTexture2D(&d,nullptr,&g.exactIndex))||
+       FAILED(g.device->CreateShaderResourceView(g.exactIndex.Get(),nullptr,&g.exactIndexSrv))||
+       FAILED(g.device->CreateRenderTargetView(g.exactIndex.Get(),nullptr,&g.exactIndexRtv))||
+       FAILED(g.device->CreateTexture2D(&w,nullptr,&g.exactWalks))||
+       FAILED(g.device->CreateShaderResourceView(g.exactWalks.Get(),nullptr,&g.exactWalksSrv))||
+       FAILED(g.device->CreateRenderTargetView(g.exactWalks.Get(),nullptr,&g.exactWalksRtv))||
+       FAILED(g.device->CreateBuffer(&e,nullptr,&g.exactEntries))||
+       FAILED(g.device->CreateShaderResourceView(g.exactEntries.Get(),nullptr,&g.exactEntriesSrv))||
+       FAILED(g.device->CreateUnorderedAccessView(g.exactEntries.Get(),&u,&g.exactEntriesUav))||
+       FAILED(g.device->CreateBuffer(&c,nullptr,&g.exactCount))||
+       FAILED(g.device->CreateShaderResourceView(g.exactCount.Get(),&cv,&g.exactCountSrv))){
+        ReleaseExactWalks();
+        return false;
+    }
+    return true;
+}
 bool VolumeTarget(UINT width, UINT height) {
     if (g.volume && g.volumeBlur && g.skyVolume && g.skyVolumeBlur && g.volumeGeometry && g.volumeHistory[0] &&
         g.volumeWidth == width && g.volumeHeight == height)
@@ -569,6 +618,10 @@ void BeginDevice(ID3D11Device *device, bool background) {
         SetupFailed(__LINE__, device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &g.footSplashVS)))
         return;
     code.Reset();
+    if (!Compile("ExactWalkVS", "vs_5_0", 0, code) ||
+        SetupFailed(__LINE__, device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &g.exactWalkVS)))
+        return;
+    code.Reset();
     if (!Compile("MeshVS", "vs_5_0", 0, code) ||
         SetupFailed(__LINE__, 
             device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &g.meshVS)))
@@ -586,7 +639,7 @@ void BeginDevice(ID3D11Device *device, bool background) {
                                                     &g.weatherPS[ms + cm * 2], &g.volumePS[ms + cm * 2],
                                                     &g.compositePS[ms + cm * 2], &g.stormPS[ms + cm * 2], &g.splashPS[ms + cm * 2], &g.veilPS[ms + cm * 2],
                                                     &g.volumeBlurPS[ms + cm * 2],&g.skyVolumePS[ms + cm * 2],&g.compositePixelPS[ms + cm * 2],
-                                                    &g.volumeTemporalPS[ms + cm * 2]};
+                                                    &g.volumeTemporalPS[ms + cm * 2],&g.exactListPS[ms + cm * 2],&g.exactWalkPS[ms + cm * 2]};
             static_assert(sizeof(outputs) / sizeof(outputs[0]) == EnvironmentPixelShaderCount,
                           "Every environment pixel shader needs an output");
             for (size_t k = 0; k < EnvironmentPixelShaderCount; ++k) {
@@ -1460,6 +1513,45 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         ctx->PSSetShader(g.volumeBlurPS[variant].Get(), nullptr, 0);
         ctx->Draw(3, 0);
         filterScope.reset();
+        ID3D11ShaderResourceView *composite[] = {frameView, sceneView, g.propSrv.Get(),
+                                                 sourceView, g.volumeBlurSrv.Get()};
+        ID3D11ShaderResourceView *skyComposite=g.skyVolumeBlurSrv.Get();
+        // The outline pixels' exact walks, listed and walked side by side before the composite
+        // reads them (ExactListPS in the shaders).
+        ID3D11ShaderResourceView *noExact[4]{};
+        ctx->PSSetShaderResources(53,4,noExact);
+        if(ExactWalkTargets(td.Width,td.Height)){
+            static const unsigned pass=GpuProfile::PassId("fog volumes: exact walks");GpuProfile::Scope exactScope(ctx,pass);
+            ctx->OMSetRenderTargets(0, nullptr, nullptr);
+            ctx->PSSetShaderResources(0, 5, composite);
+            ctx->PSSetShaderResources(32,1,&skyComposite);
+            const float zero[4]{};ctx->ClearRenderTargetView(g.exactIndexRtv.Get(),zero);
+            ID3D11RenderTargetView *listTarget=g.exactIndexRtv.Get();ID3D11UnorderedAccessView *list=g.exactEntriesUav.Get();
+            const UINT emptyList=0;
+            ctx->OMSetRenderTargetsAndUnorderedAccessViews(1,&listTarget,nullptr,1,1,&list,&emptyList);
+            ctx->RSSetViewports(1, &viewport);
+            ctx->PSSetShader(g.exactListPS[variant].Get(), nullptr, 0);
+            ctx->Draw(3, 0);
+            ctx->OMSetRenderTargets(0, nullptr, nullptr);
+            ctx->CopyStructureCount(g.exactCount.Get(),0,g.exactEntriesUav.Get());
+            ID3D11RenderTargetView *walkTarget=g.exactWalksRtv.Get();
+            ctx->OMSetRenderTargets(1,&walkTarget,nullptr);
+            D3D11_VIEWPORT walkViewport{0,0,float(kExactWalkWidth),float(kExactWalkRows),0,1};
+            ctx->RSSetViewports(1,&walkViewport);
+            ID3D11ShaderResourceView *walkInputs[2]{g.exactCountSrv.Get(),g.exactEntriesSrv.Get()};
+            ctx->VSSetShaderResources(55,1,walkInputs);
+            ctx->PSSetShaderResources(55,2,walkInputs);
+            ctx->VSSetShader(g.exactWalkVS.Get(), nullptr, 0);
+            ctx->PSSetShader(g.exactWalkPS[variant].Get(), nullptr, 0);
+            ctx->Draw(6, 0);
+            ctx->VSSetShader(g.screenVS.Get(), nullptr, 0);
+            ID3D11ShaderResourceView *noInputs[2]{};
+            ctx->VSSetShaderResources(55,1,noInputs);
+            ctx->PSSetShaderResources(55,2,noInputs);
+            ctx->OMSetRenderTargets(0, nullptr, nullptr);
+            ID3D11ShaderResourceView *walked[2]{g.exactIndexSrv.Get(),g.exactWalksSrv.Get()};
+            ctx->PSSetShaderResources(53,2,walked);
+        }
         GPU_PASS_SCOPE(ctx, "fog volumes: composite");
         // The composite writes every sample (the pixel and the edge pass share one mask), so it
         // reads the frame from one texture and writes the other: no copy of the frame.
@@ -1467,14 +1559,12 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         workingTarget = g.colorRtv.Get();
         ctx->OMSetRenderTargets(1, &workingTarget, nullptr);
         ctx->RSSetViewports(1, &viewport);
-        ID3D11ShaderResourceView *composite[] = {frameView, sceneView, g.propSrv.Get(),
-                                                 sourceView, g.volumeBlurSrv.Get()};
         ctx->PSSetShaderResources(0, 5, composite);
-        ID3D11ShaderResourceView *skyComposite=g.skyVolumeBlurSrv.Get();
         ctx->PSSetShaderResources(32,1,&skyComposite);
         if(volumeSplit){ctx->PSSetShader(g.compositePixelPS[variant].Get(), nullptr, 0);ctx->Draw(3, 0);}
         ctx->PSSetShader(g.compositePS[variant].Get(), nullptr, 0);
         ctx->Draw(3, 0);
+        ctx->PSSetShaderResources(53,4,noExact);
         frameView = g.colorSrv.Get();
         drawWeather();
     }

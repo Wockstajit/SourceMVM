@@ -26,7 +26,8 @@ inline const std::string& EnvironmentShaderSource(){
 // to make enabling Sky compile it synchronously on the render thread and stall presentation.
 inline constexpr const char* EnvironmentPixelShaderEntries[] = {
     "AtmospherePS", "AtmospherePixelPS", "MeshPS", "MaterialMeshPS", "WeatherPS", "VolumePS",
-    "CompositePS", "StormPS", "SplashPS", "WeatherVeilPS", "VolumeBlurPS", "SkyVolumePS", "CompositePixelPS", "VolumeTemporalPS"};
+    "CompositePS", "StormPS", "SplashPS", "WeatherVeilPS", "VolumeBlurPS", "SkyVolumePS", "CompositePixelPS", "VolumeTemporalPS",
+    "ExactListPS", "ExactWalkPS"};
 inline constexpr size_t EnvironmentPixelShaderCount =
     sizeof(EnvironmentPixelShaderEntries) / sizeof(EnvironmentPixelShaderEntries[0]);
 // The build-time bundle and runtime fallback must prepare exactly the same programs.
@@ -38,6 +39,7 @@ inline std::vector<EnvironmentShaderRequest> EnvironmentShaderRequests(){
     for(int cm=0;cm<2;++cm)requests.push_back({"WeatherVS","vs_5_0",0,cm}); // lights particles from the scene color
     for(int ms=0;ms<2;++ms)requests.push_back({"SplashVS","vs_5_0",ms,0}); // reads scene depth, so it has a depth-MSAA variant
     requests.push_back({"FootSplashVS","vs_5_0",0,0});
+    requests.push_back({"ExactWalkVS","vs_5_0",0,0});
     for(int ms=0;ms<2;++ms)for(int cm=0;cm<2;++cm)
         for(const char* entry:EnvironmentPixelShaderEntries)
             requests.push_back({entry,"ps_5_0",ms,cm});

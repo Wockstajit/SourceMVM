@@ -245,6 +245,14 @@ relit smoke. Reference and tests: `SmokeRayShare` in
   the frame by depth. Where the coarse texels that match a pixel's depth weigh under a fifth (the
   outline of a barrel a pace away), their value is one far corner's, and the fog was drawn in the
   coarse squares. Those pixels are marched exactly, as pixels with no match already were.
+- **Exact walks are listed, then walked side by side.** Those exactly marched pixels lie in thin
+  lines along outlines, and a march with blown snow in it is long. Marched inside the composite, each
+  held up the GPU's whole group of neighbouring pixels, which had nothing to do: on a rainy Dust 2
+  stretch with gusts that was about 8.5 ms a frame. The composite now lists them first (up to two
+  per pixel, one for each depth its MSAA samples stand at, so samples on one surface share a walk),
+  marches the list packed side by side, and reads the results back. The listed sample is marched
+  exactly as before; a sample the list has no walk for still marches itself. Same Dust 2 stretch:
+  27 to 37 FPS, the same picture.
 - **Shade on the fog is soft and the same fog.** The sun's shadow is read at four points turned a
   different way at every pixel, out to the layer's own depth, and shaded fog keeps a seventh of the
   sun (it is lit by the sunlit fog beside it). Before, a roof's shade lay on the fog as a flat darker

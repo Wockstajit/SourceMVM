@@ -2042,6 +2042,32 @@ R"HLSL(
 bool CachedAtmosphereEdge(float2 pixel);
 float4 Composite(float2 p,uint sample);
 float4 CompositeAt(float2 p,uint sample,float d,float3 color);
+// SHARED EXACT WALKS. The pixels the coarse volume has no match for (an outline: a pole, a roof
+// edge, a player against the far street) are walked from the eye at full resolution, and a walk
+// with blown snow in it is long. Walked inside the composite they were a thin line of pixels each
+// holding up the GPU's whole group of neighbours, which had nothing to do: 8.5 ms of a rainy Dust 2
+// frame went on the gust part of those walks (2026-11-19). And at an MSAA edge every sample of the
+// pixel walked, two or four times the same ray.
+// So the walks are listed first (ExactListPS: up to two per pixel, one per depth its samples
+// stand at), walked packed side by side (ExactWalkPS), and read back by the composite
+// (ExactShared). The sample that is listed walks exactly as the composite would have; the other
+// samples at the same depth take its walk, a ray a fraction of a pixel away.
+static const uint kExactWalkWidth=1024,kExactWalkRows=256,kExactWalkCapacity=kExactWalkWidth*kExactWalkRows;
+Texture2D<uint4> exactIndex : register(t53);           // per pixel: walk number+1 of up to two walks, and each one's distance
+Texture2D<float4> exactWalks : register(t54);          // the walks, kExactWalkWidth to a row
+Buffer<uint> exactCount : register(t55);               // how many walks were listed (CopyStructureCount)
+StructuredBuffer<uint4> exactEntries : register(t56);  // pixel x | y<<16, sample, depth bits
+RWStructuredBuffer<uint4> exactEntriesOut : register(u1);
+// Two distances count as the same surface within a part in 250 (a unit up close).
+bool ExactSameDepth(float a,float b) {return abs(a-b)<=max(1,b*.004);}
+// One return: called inside branches of the big composite (see GustVolumeAt).
+bool ExactShared(float2 p,float distance,out float4 v) {
+    uint4 e=exactIndex.Load(int3(int2(p),0));
+    uint at=e.x&&ExactSameDepth(distance,asfloat(e.z))?e.x:e.y&&ExactSameDepth(distance,asfloat(e.w))?e.y:0;
+    v=0;
+    [branch]if(at>0){--at;v=exactWalks.Load(int3(at%kExactWalkWidth,at/kExactWalkWidth,0));}
+    return at>0;
+}
 float4 CompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
 #if COLOR_MS
     [branch]if(shadowDebug.z>.5&&!CachedAtmosphereEdge(SamplePixel(i.position.xy,0)))discard;
@@ -2073,12 +2099,12 @@ float4 Composite(float2 p,uint sample) {
         sum+=(layer?share:1-share)*CompositeAt(p,sample,layer?SkyDepth():d,layer?sky:surface);
     return sum;
 }
-float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
+// The coarse volume's texels around p that match its depth, weighted, and how much they weigh.
+float4 CoarseVolume(float2 p,float d,float distance,out float weights) {
     float2 uv=p/dimensions.xy;
     bool sky=IsSky(d);
-    float distance=FogDistance(p,d);
     float2 v=uv*volumeDimensions.xy-.5;int2 lo=int2(floor(v));float2 f=frac(v);
-    float4 sum=0;float weights=0;
+    float4 sum=0;weights=0;
     [unroll]for(int y=0;y<2;++y)[unroll]for(int x=0;x<2;++x){
         int2 q=clamp(lo+int2(x,y),int2(0,0),int2(volumeDimensions.xy)-1);
         float2 geometry=VolumeGeometry(q);bool ss=geometry.y>0;float dist=geometry.x;
@@ -2089,6 +2115,13 @@ float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
             weight*=!ss?exp(-abs(dist-distance)/max(8,distance*.02)):0;}
         sum+=value*weight;weights+=weight;
     }
+    return sum;
+}
+float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
+    float2 uv=p/dimensions.xy;
+    bool sky=IsSky(d);
+    float distance=FogDistance(p,d);
+    float weights;float4 sum=CoarseVolume(p,d,distance,weights);
     // A minority MSAA sample can have no representative in the coarse depth image.
     // Integrate that sample directly; never leave unclouded sky holes around a dark silhouette.
     // HLSL's conditional operator evaluates both operands. Keep the full raymarch
@@ -2123,7 +2156,11 @@ float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
     // up to the smoke (walk 1), share one call in a loop, so the shader carries the long march once.
     float4 front=float4(0,0,0,1);
     [loop]for(uint walk=exact?0u:1u;walk<(smoke>0&&frontKind==2?2u:1u);++walk){
-        float4 walked=VolumeAt(p,walk?frontDepth:d,kMarchExact);
+        // This pixel's own walk is usually waiting in the shared list (ExactListPS); only a sample
+        // the list has no walk for (a third depth in one pixel, a full list) walks here.
+        bool listed=false;float4 walked=0;
+        [branch]if(!walk)listed=ExactShared(p,distance,walked);
+        [branch]if(!listed)walked=VolumeAt(p,walk?frontDepth:d,kMarchExact);
         if(walk)front=walked;else volume=walked;
     }
     [branch] if(smoke>0) {
@@ -2172,6 +2209,49 @@ float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
     // Distant 3D-skybox buildings live in the leftover depth range; VolumeAt gives them the medium
     // out to kSkyboxFogDistance, so they sink into the fog with the sky behind them.
     return float4(color*volume.a+volume.rgb,1);
+}
+// The list (see ExactShared): every sample the composite will shade, through the same coarse test.
+// Samples at one depth share a walk; a third depth in the pixel walks inside the composite.
+uint4 ExactListPS(Screen i):SV_Target {
+    uint n=1;
+#if COLOR_MS
+    uint w,h;sourceColor.GetDimensions(w,h,n);
+    // Interior pixels are shaded once, from sample 0 (CompositePixelPS), while the split is on.
+    if(shadowDebug.z>.5&&!CachedAtmosphereEdge(SamplePixel(i.position.xy,0)))n=1;
+#endif
+    uint4 o=0;
+    [loop]for(uint s=0;s<n;++s){
+        float2 p=SamplePixel(i.position.xy,s);
+        float d=ReadCombinedSample(p,s);
+        float distance=FogDistance(p,d),weights;
+        CoarseVolume(p,d,distance,weights);
+        bool known=(o.x&&ExactSameDepth(distance,asfloat(o.z)))||(o.y&&ExactSameDepth(distance,asfloat(o.w)));
+        [branch]if(weights<=.2&&!known&&!o.y){
+            uint at=exactEntriesOut.IncrementCounter();
+            [branch]if(at<kExactWalkCapacity){
+                exactEntriesOut[at]=uint4(uint(i.position.x)|(uint(i.position.y)<<16),s,asuint(d),0);
+                if(o.x){o.y=at+1;o.w=asuint(distance);}else{o.x=at+1;o.z=asuint(distance);}
+            }
+        }
+    }
+    if(!o.x)discard;
+    return o;
+}
+// The packed walks: a rectangle as many rows tall as the list needs.
+Screen ExactWalkVS(uint id:SV_VertexID) {
+    float rows=ceil(min(exactCount[0],kExactWalkCapacity)/float(kExactWalkWidth));
+    float bottom=1-2*rows/kExactWalkRows;
+    Screen o;o.position=float4(id==1||id==4||id==5?1:-1,id==2||id==3||id==5?bottom:1,0,1);
+    return o;
+}
+float4 ExactWalkPS(Screen i):SV_Target {
+    uint at=uint(i.position.y)*kExactWalkWidth+uint(i.position.x);
+    float4 v=float4(0,0,0,1);
+    [branch]if(at<min(exactCount[0],kExactWalkCapacity)){
+        uint4 e=exactEntries[at];
+        v=VolumeAt(SamplePixel(float2(e.x&0xffff,e.x>>16)+.5,e.y),asfloat(e.z),kMarchExact);
+    }
+    return v;
 }
 float4 BlitPS(Screen i,uint sampleIndex:SV_SampleIndex):SV_Target {
     float2 p=i.position.xy,uv=p/dimensions.xy;float3 color=ReadColor(p,sampleIndex);
