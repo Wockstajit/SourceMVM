@@ -139,7 +139,7 @@ struct Resources {
     ULONGLONG slotTick = 0;
     uint32_t temporalFrame = 0;
     ComPtr<ID3D11InputLayout> layout;
-    ComPtr<ID3D11Buffer> constants, objectConstants;
+    ComPtr<ID3D11Buffer> constants, objectConstants, weatherQuadIndices;
     ComPtr<ID3D11RasterizerState> raster;
     ComPtr<ID3D11DepthStencilState> depth[2], noDepth;
     ComPtr<ID3D11BlendState> opaque, alpha;
@@ -599,7 +599,11 @@ void BeginDevice(ID3D11Device *device, bool background) {
     code.Reset();
     if(!Compile("AtmosphereEdgePS","ps_5_0",1,code,1)||
        SetupFailed(__LINE__, device->CreatePixelShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&g.atmosphereEdgePS)))return;
-    if (!Buffer(sizeof(Constants), D3D11_BIND_CONSTANT_BUFFER, g.constants) ||
+    // The sprite shaders assign corners 3 and 4 the same UVs as 0 and 2.
+    // Reuse those vertices without changing the diagonal, winding or shader inputs.
+    constexpr uint16_t quadIndices[] = {0, 1, 2, 0, 2, 5};
+    if (!Buffer(sizeof(quadIndices), D3D11_BIND_INDEX_BUFFER, g.weatherQuadIndices, quadIndices) ||
+        !Buffer(sizeof(Constants), D3D11_BIND_CONSTANT_BUFFER, g.constants) ||
         !Buffer(sizeof(ObjectConstants), D3D11_BIND_CONSTANT_BUFFER, g.objectConstants))
         return;
     D3D11_SAMPLER_DESC materialSampler{};materialSampler.Filter=D3D11_FILTER_ANISOTROPIC;
@@ -1314,6 +1318,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     ctx->IASetInputLayout(nullptr);
     ID3D11Buffer *noBuffer = nullptr;
     ctx->IASetVertexBuffers(0, 1, &noBuffer, &stride, &offset);
+    ctx->IASetIndexBuffer(g.weatherQuadIndices.Get(), DXGI_FORMAT_R16_UINT, 0);
     srvs[2] = g.propSrv.Get();
     ctx->PSSetShaderResources(0, 4, srvs);
     const bool markWeather = measure && precipitating;
@@ -1336,7 +1341,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         ctx->VSSetShader(g.weatherVS[td.SampleDesc.Count > 1 ? 1 : 0].Get(), nullptr, 0);
         ctx->PSSetShader(g.weatherPS[variant].Get(), nullptr, 0);
         if (markWeather) ctx->End(g.timingWeather[0].Get());
-        ctx->DrawInstanced(6, precipitating ? precipitation.Instances() : UINT(w.count), 0, 0);
+        ctx->DrawIndexedInstanced(6, precipitating ? precipitation.Instances() : UINT(w.count), 0, 0, 0);
         ID3D11ShaderResourceView *noViews[31]{};
         ctx->VSSetShaderResources(0, 31, noViews);
         if (markWeather) ctx->End(g.timingWeather[1].Get());
@@ -1353,7 +1358,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
             ctx->VSSetShaderResources(1, 1, &sceneDepthView);
             ctx->VSSetShader(g.splashVS[ms].Get(), nullptr, 0);
             ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
-            ctx->DrawInstanced(6, kSplashInstanceCount, 0, 0);
+            ctx->DrawIndexedInstanced(6, kSplashInstanceCount, 0, 0, 0);
             ID3D11ShaderResourceView* noView = nullptr;
             ctx->VSSetShaderResources(1, 1, &noView);
         }
@@ -1367,14 +1372,14 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
         ctx->VSSetShader(g.footSplashVS.Get(), nullptr, 0);
         ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
-        ctx->DrawInstanced(6, UINT(kFootSteps) * kFootSplashParts + UINT(kFootLive + kFootSteps), 0, 0);
+        ctx->DrawIndexedInstanced(6, UINT(kFootSteps) * kFootSplashParts + UINT(kFootLive + kFootSteps), 0, 0, 0);
     } else if (footprints && footStepCount > 0 && (climate[CL_puddles] > 0 || climate[CL_wet] > 0 || climate[CL_snow] >= .25f)) {
         // In snow the same sprites are a puff of powder (SplashPS).
         GPU_PASS_SCOPE(ctx, "composite: foot splashes");
         ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
         ctx->VSSetShader(g.footSplashVS.Get(), nullptr, 0);
         ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
-        ctx->DrawInstanced(6, UINT(footStepCount) * kFootSplashParts, 0, 0);
+        ctx->DrawIndexedInstanced(6, UINT(footStepCount) * kFootSplashParts, 0, 0, 0);
     }
     if (volumes) {
         GPU_PASS_SCOPE(ctx, "composite: fog volumes");
@@ -1458,7 +1463,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         ctx->OMSetBlendState(g.alpha.Get(),blend,0xffffffff);
         ctx->VSSetShader(g.stormVS.Get(),nullptr,0);
         ctx->PSSetShader(g.stormPS[variant].Get(),nullptr,0);
-        ctx->DrawInstanced(6,kStormPointCount-1,0,0);
+        ctx->DrawIndexedInstanced(6, kStormPointCount-1, 0, 0, 0);
     }
     // Keep the original sample coverage through every pass, including final composition.
     ID3D11ShaderResourceView *none[9] = {};

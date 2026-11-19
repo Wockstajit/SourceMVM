@@ -148,7 +148,7 @@ inline void WeatherCoverJoins(const WeatherCoverMesh &mesh, WeatherCoverBake &ba
             // voxel cut by a roof or a wall top has offset rays above it that are clear while the
             // centre, which is what the voxel stands for, is not.
             int clear = 0;
-            for (int k = 0; k < 5 && clear + (5 - k) >= 3 && (k == 0 || clear > 0); ++k) {
+            for (int k = 0; k < 5 && clear < 3 && clear + (5 - k) >= 3 && (k == 0 || clear > 0); ++k) {
                 Vec3 origin = centre;
                 (&origin.x)[u] += offsets[k][0] * lengths[u];
                 (&origin.x)[v] += offsets[k][1] * lengths[v];
@@ -310,7 +310,9 @@ template <class Parallel> inline void WeatherCoverTraffic(WeatherCoverBake &bake
 // from the street's own voxel, so the wall leaks about 3 units and not 13. Under cover the value
 // falls by a fixed share per step, which an eighth root keeps linear.
 inline uint8_t WeatherCoverEncode(float exposure) {
-    return uint8_t(std::lround(255 * std::pow(std::clamp(exposure, 0.f, 1.f), .125f)));
+    if (exposure <= 0.f) return 0;
+    if (exposure >= 1.f) return 255;
+    return uint8_t(std::lround(255 * std::pow(exposure, .125f)));
 }
 inline float WeatherCoverDecode(float stored) {
     const float a = stored * stored, b = a * a;

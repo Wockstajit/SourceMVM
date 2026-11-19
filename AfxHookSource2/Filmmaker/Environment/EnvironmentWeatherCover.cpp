@@ -113,8 +113,14 @@ struct Job {
         status = text;
     }
     template <class Body> void Parallel(size_t count, Body body) {
+        if (!count) return;
+        const unsigned workers = (std::min)(WorkerThreads(), unsigned((count + 63) / 64));
+        if (workers == 1) {
+            body(0, count);
+            return;
+        }
         std::atomic<size_t> next{0};
-        const size_t chunk = (std::max)(size_t(64), count / (WorkerThreads() * 64));
+        const size_t chunk = (std::max)(size_t(64), count / (workers * 64));
         auto run = [&] {
             SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
             for (;;) {
@@ -125,7 +131,7 @@ struct Job {
             }
         };
         std::vector<std::thread> pool;
-        for (unsigned i = 1; i < WorkerThreads(); ++i) pool.emplace_back(run);
+        for (unsigned i = 1; i < workers; ++i) pool.emplace_back(run);
         run();
         for (auto &t : pool) t.join();
     }
