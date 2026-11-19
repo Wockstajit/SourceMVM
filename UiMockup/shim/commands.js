@@ -1026,7 +1026,7 @@
       // RenderCommand.cpp RunPassCommand: the Passes tab's grid, key colour, depth range, preview.
       if (b === 'pass') {
         if (!st.render.pass || typeof st.render.pass !== 'object' || !st.render.pass.list)
-          st.render.pass = { hud: 0, cameraData: true, blood: true, key: [0, 255, 0], depthNear: 8, depthFar: 4096, preview: { type: 'beauty', elements: 'all' },
+          st.render.pass = { hud: 0, cameraData: true, blood: true, keySky: false, key: [0, 255, 0], depthNear: 8, depthFar: 4096, preview: { type: 'beauty', elements: 'all' },
             list: [{ type: 'beauty', elements: 'all', stream: 'beauty' }], rendersPerFrame: 1 };
         var ps = st.render.pass;
         var parts = cmd.split(/\s+/);
@@ -1059,6 +1059,7 @@
         if (op === 'hud') { ps.hud = { none: 0, game: 1, full: 2 }[parts[4]] || 0; return true; }
         if (op === 'cameradata') { ps.cameraData = num(parts[4], 1) !== 0; return true; }
         if (op === 'blood') { ps.blood = num(parts[4], 1) !== 0; return true; }
+        if (op === 'keysky') { ps.keySky = num(parts[4], 0) !== 0; return true; }
         return true;
       }
     }

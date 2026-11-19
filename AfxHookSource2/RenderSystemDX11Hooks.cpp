@@ -3222,6 +3222,48 @@ static bool AfxLivePassPreviewShown() {
     std::lock_guard<std::mutex> lock(g_LivePassPreviewMutex);
     return g_LivePassPreview.type != (int)Filmmaker::PassType::Beauty;
 }
+// The green-screen sky (AfxStreams_SetSkyKey). Written on the main thread, read on the render thread.
+struct AfxSkyKey { bool on = false, live = false; float keyOut[3] = {0.0f, 1.0f, 0.0f}; };
+static std::mutex g_SkyKeyMutex;
+static AfxSkyKey g_SkyKey;
+// Paints the sky the key colour over the finished world image, in place, before the lens and the
+// recorder: the live view and every pass of a render get it. Render thread.
+static void AfxRenderSkyKey(ID3D11DeviceContext* pDeviceContext, ID3D11RenderTargetView* pTarget) {
+    AfxSkyKey key;
+    {
+        std::lock_guard<std::mutex> lock(g_SkyKeyMutex);
+        key = g_SkyKey;
+    }
+    if (!key.on || !(key.live || AfxStreams_IsRcording()) || !pTarget) return;
+    ID3D11Resource* resource = nullptr;
+    pTarget->GetResource(&resource);
+    if (!resource) return;
+    ID3D11Texture2D* texture = nullptr;
+    resource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&texture);
+    resource->Release();
+    if (!texture) return;
+    AfxRenderPass::ComposeParams params;
+    params.mode = (int)Filmmaker::PassType::Beauty;
+    params.mask = (int)Filmmaker::PassMask::SkySwap;
+    for (int k = 0; k < 3; ++k) params.keyOut[k] = key.keyOut[k];
+    AfxFillPassFrame(params);
+    const bool ok = AfxRenderPass::ComposeInto(pDeviceContext, texture, g_pCurrentDepthStencilView, params, pTarget);
+    if (Filmmaker::MvmDebugLog_Active()) {
+        static int s_lastOk = -1;
+        if ((ok ? 1 : 0) != s_lastOk) {
+            s_lastOk = ok ? 1 : 0;
+            Filmmaker::MvmDebugLog_LinefAlways("render.skykey", "compose ok=%d key=(%.3f %.3f %.3f) recording=%d hasW2C=%d",
+                ok ? 1 : 0, key.keyOut[0], key.keyOut[1], key.keyOut[2], AfxStreams_IsRcording() ? 1 : 0, g_EnvironmentFrame.hasWorldToClip ? 1 : 0);
+        }
+    }
+    texture->Release();
+}
+// The green-screen sky is drawn now (as AfxRenderSkyKey decides). The Depth and Normal passes are
+// worked out from depth, so they are told to paint their sky the background colour as well.
+static bool AfxSkyKeyOn() {
+    std::lock_guard<std::mutex> lock(g_SkyKeyMutex);
+    return g_SkyKey.on && (g_SkyKey.live || AfxStreams_IsRcording());
+}
 // Engine thread: the live view of a Players Only pass needs this frame's World Only depth, so the
 // render loop adds one output-less World Only render per frame while it is on (masked one frame
 // later; identical while paused).
@@ -3259,6 +3301,7 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
     // Players Only: masked by depth against the live World Only reference render, like a job.
     params.worldRef = live.elements == (int)Filmmaker::VisibleElements::OnlyPlayers;
     AfxFillPassFrame(params);
+    params.keySky = AfxSkyKeyOn();
     const bool ok = AfxRenderPass::ComposeInto(pDeviceContext, texture, g_pCurrentDepthStencilView, params, pTarget);
     if (Filmmaker::MvmDebugLog_Active()) {
         static int s_lastType = -1, s_lastElements = -1, s_lastOk = -1;
@@ -3358,6 +3401,9 @@ public:
                     Filmmaker::Environment::Render(ctx, target, g_pCurrentDepthStencilView, frame,
                         g_ViewPort.MinDepth, g_ViewPort.MaxDepth, source);
                 }
+                // The green-screen sky goes into the EXR frames too, after the Environment as in the
+                // 8-bit frame: they are read from the HDR scene target, which the boundary below never touches.
+                AfxRenderSkyKey(ctx, target);
                 g_bInOwnDraw = wasOwnDraw;
             });
             Filmmaker::RenderHdrCapture_RenderThread_Tick(pDeviceContext);
@@ -3372,6 +3418,8 @@ public:
                     AfxRenderEnvironmentComposite(pDeviceContext, pRenderTargetViews[0]);
                 const bool wasOwnDraw = g_bInOwnDraw;
                 g_bInOwnDraw = true;
+                // The green-screen sky: after every world addition, before the lens and the recorder.
+                AfxRenderSkyKey(pDeviceContext, pRenderTargetViews[0]);
                 // Depth of field / bokeh / lens flare: after every world addition, before the recorder
                 // and the scaled preview, so it is in the recorded frame and never on the HUD. It is a
                 // Beauty effect: a recorded render no Beauty plate reads sits it out, and the live view
@@ -6091,6 +6139,7 @@ private:
                         queue.Push([capture, params](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture) mutable {
                             {
                                 AfxFillPassFrame(params);
+                                params.keySky = AfxSkyKeyOn();
                                 if (Filmmaker::MvmDebugLog_Active()) {
                                     static std::atomic<unsigned> s_projLogs{0};
                                     if (s_projLogs.fetch_add(1, std::memory_order_relaxed) < 6)
@@ -8082,6 +8131,13 @@ void AfxStreams_SetLivePassPreview(int passType, int passElements, float depthNe
     for (int k = 0; k < 3; ++k) g_LivePassPreview.keyOut[k] = keyOut ? keyOut[k] : 0.0f;
     g_LiveWorldRefWanted.store(passType != (int)Filmmaker::PassType::Beauty
         && passElements == (int)Filmmaker::VisibleElements::OnlyPlayers, std::memory_order_release);
+}
+
+void AfxStreams_SetSkyKey(bool on, bool live, const float keyOut[3]) {
+    std::lock_guard<std::mutex> lock(g_SkyKeyMutex);
+    g_SkyKey.on = on;
+    g_SkyKey.live = live;
+    for (int k = 0; k < 3; ++k) g_SkyKey.keyOut[k] = keyOut ? keyOut[k] : 0.0f;
 }
 
 void AfxStreams_SetPassDepthDebug(bool on) {

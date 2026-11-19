@@ -17,7 +17,7 @@ int g_failed = 0;
 const char* kTake = R"({"tool":"SOURCE:MVM render","writtenAt":"2026-10-24T11:17:16","status":"completed",
  "demo":"F:\\demos\\match.dem","startTick":34800,"endTickExclusive":34832,"demoTickRate":64,"outputFps":30,
  "cameraSource":"thirdPerson","cameraPathExtension":"holdFirst","format":"tga","hudMode":"none",
- "cameraDataSidecar":false,"blood":true,
+ "cameraDataSidecar":false,"blood":true,"keySky":true,
  "streams":[{"name":"beauty","type":"beauty","elements":"all","folder":"beauty\\everything"},
             {"name":"key_gun","type":"key","elements":"gun","folder":"key\\gun"},
             {"name":"depth_gun","type":"depth","elements":"gun","folder":"depth\\gun"}],
@@ -37,7 +37,7 @@ void ReadsATake() {
 	// The manifest's own names become console tokens.
 	CHECK(t.camera == "thirdperson");
 	CHECK(t.extension == "holdfirst");
-	CHECK(t.hud == "none" && !t.cameraData && t.blood);
+	CHECK(t.hud == "none" && !t.cameraData && t.blood && t.keySky);
 	// The key colour comes back in the console's 0..255.
 	CHECK(t.key[0] == 0 && t.key[1] == 255 && t.key[2] == 64);
 	CHECK(t.depthNear == 0.0 && t.depthFar == 16384.0);
@@ -63,6 +63,7 @@ void RebuildsTheJobInOrder() {
 	CHECK(HasCommand(c, { "pass", "hud", "none" }));
 	CHECK(HasCommand(c, { "pass", "cameradata", "0" }));
 	CHECK(HasCommand(c, { "pass", "blood", "1" }));
+	CHECK(HasCommand(c, { "pass", "keysky", "1" }));
 	CHECK(HasCommand(c, { "pass", "key", "0", "255", "64" }));
 	CHECK(HasCommand(c, { "pass", "depth", "0", "16384" }));
 }
@@ -89,6 +90,9 @@ void UnknownNamesAreLeftOut() {
 	CHECK(t.camera.empty() && t.extension.empty() && t.hud.empty());
 	const auto c = RenderTakeImportCommands(t);
 	for (const auto& cmd : c) CHECK(cmd[0] != "camera" && cmd[0] != "extension" && !(cmd[0] == "pass" && cmd[1] == "hud"));
+	// A take written before the green-screen sky existed turns the switch off rather than keeping
+	// whatever the user has on now (`pass clear` does not touch it).
+	CHECK(!t.keySky && HasCommand(c, { "pass", "keysky", "0" }));
 	// Without an output fps or format the current ones stay.
 	for (const auto& cmd : c) CHECK(cmd[0] != "output");
 }

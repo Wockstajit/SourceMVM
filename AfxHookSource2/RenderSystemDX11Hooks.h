@@ -144,6 +144,9 @@ int AfxStreams_CurrentPassRenderKey();
 // (never while recording); Beauty (0) turns it off -- the visibility group itself is applied by
 // the scene draw policies, not here. Main thread.
 void AfxStreams_SetLivePassPreview(int passType, int passElements, float depthNear, float depthFar, const float keyOut[3]);
+// The green-screen sky (RenderPasses::keySky): the sky painted `keyOut` at the BeforeUi boundary,
+// while `live` (the Render workspace is open) or while a recording runs. Main thread.
+void AfxStreams_SetSkyKey(bool on, bool live, const float keyOut[3]);
 // Diagnostic: depth passes record the raw depth sample (r + g/255 + b/65025) instead of distance.
 void AfxStreams_SetPassDepthDebug(bool on);
 bool AfxStreams_RemoveStream(const char * name);

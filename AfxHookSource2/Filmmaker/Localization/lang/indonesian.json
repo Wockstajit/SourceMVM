@@ -417,6 +417,8 @@
  "Fill the background of Players only and Gun only with magenta.": "Isi latar Hanya pemain dan Hanya senjata dengan warna magenta.",
  "Black": "Hitam",
  "Fill the background of Players only and Gun only with black.": "Isi latar Hanya pemain dan Hanya senjata dengan warna hitam.",
+ "Green-screen sky": "Langit green screen",
+ "Paints the sky, its clouds and the far skybox in the background colour, in every pass and live while Render is open, so the sky can be keyed out and another put in. The map itself keeps its colours.": "Mengecat langit, awannya, dan skybox jauh dengan warna latar di setiap pass, dan langsung saat Render terbuka, jadi langit bisa di-key keluar dan diganti langit lain. Map-nya sendiri tetap berwarna asli.",
  "DEPTH RANGE": "RENTANG KEDALAMAN",
  "Near": "Dekat",
  "Units from the camera that render white.": "Jarak dari kamera (dalam unit) yang dirender putih.",
@@ -513,8 +515,9 @@
  "{0} render per frame || {0} renders per frame": [
   "{0} render per frame"
  ],
+ "The background of the Key passes and the colour of the sky.": "Latar untuk pass Key dan warna langit.",
  "The background of the Key passes.": "Latar untuk pass Key.",
- "Turn on Key for Players only or Gun only to use this.": "Nyalakan Key pada Hanya pemain atau Hanya senjata untuk memakai ini.",
+ "Turn on Key for Players only or Gun only, or Green-screen sky, to use this.": "Nyalakan Key untuk Hanya pemain atau Hanya senjata, atau Langit green screen, untuk memakai ini.",
  "White at near, black at far. Normals are view space.": "Putih di jarak dekat, hitam di jarak jauh. Normal dalam view space.",
  "Turn on a Depth pass to use this.": "Nyalakan pass Kedalaman untuk memakai ini.",
  "Choosing… (a folder dialog is open)": "Memilih… (dialog folder sedang terbuka)",

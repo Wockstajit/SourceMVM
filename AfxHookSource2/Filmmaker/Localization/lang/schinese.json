@@ -417,6 +417,8 @@
  "Fill the background of Players only and Gun only with magenta.": "用品红色填充“仅玩家”和“仅枪械”的背景。",
  "Black": "黑色",
  "Fill the background of Players only and Gun only with black.": "用黑色填充“仅玩家”和“仅枪械”的背景。",
+ "Green-screen sky": "绿幕天空",
+ "Paints the sky, its clouds and the far skybox in the background colour, in every pass and live while Render is open, so the sky can be keyed out and another put in. The map itself keeps its colours.": "在每个通道中，并在“渲染”打开时实时，把天空、云和远处的天空盒涂成背景色，这样就能把天空抠掉，再换上别的。地图本身的颜色不变。",
  "DEPTH RANGE": "深度范围",
  "Near": "近",
  "Units from the camera that render white.": "距摄像机多少单位渲染为白色。",
@@ -513,8 +515,9 @@
  "{0} render per frame || {0} renders per frame": [
   "每帧 {0} 次渲染"
  ],
+ "The background of the Key passes and the colour of the sky.": "抠像通道的背景，以及天空的颜色。",
  "The background of the Key passes.": "抠像通道的背景。",
- "Turn on Key for Players only or Gun only to use this.": "请为“仅玩家”或“仅枪械”开启抠像后再使用。",
+ "Turn on Key for Players only or Gun only, or Green-screen sky, to use this.": "请先为“仅玩家”或“仅枪械”开启抠像，或开启“绿幕天空”，才能使用此项。",
  "White at near, black at far. Normals are view space.": "近处为白，远处为黑。法线为视图空间。",
  "Turn on a Depth pass to use this.": "请开启深度通道后再使用。",
  "Choosing… (a folder dialog is open)": "正在选择…（文件夹对话框已打开）",

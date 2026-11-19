@@ -71,7 +71,8 @@ enum class PassMask : int {
 	None = 0,     // the whole render is the pass
 	ColorKey,     // players: by depth against WorldOnly in a job; by the chroma key in the live view
 	GunDiff,      // subject = Main's viewmodel depth band, plus pixels where Main differs from NoGun (gun pass)
-	GunBand = 4   // subject = this render's viewmodel depth band: the live gun view (3 is the shader's players-by-depth)
+	GunBand = 4,  // subject = this render's viewmodel depth band: the live gun view (3 is the shader's players-by-depth)
+	SkySwap = 5   // background = the sky and the 3D skybox, by depth: the green-screen sky (RenderPasses::keySky)
 };
 
 struct PassConfig {

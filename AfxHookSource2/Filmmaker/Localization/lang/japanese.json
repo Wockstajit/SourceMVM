@@ -417,6 +417,8 @@
  "Fill the background of Players only and Gun only with magenta.": "「プレイヤーのみ」と「銃のみ」の背景をマゼンタで塗りつぶします。",
  "Black": "黒",
  "Fill the background of Players only and Gun only with black.": "「プレイヤーのみ」と「銃のみ」の背景を黒で塗りつぶします。",
+ "Green-screen sky": "グリーンスクリーンの空",
+ "Paints the sky, its clouds and the far skybox in the background colour, in every pass and live while Render is open, so the sky can be keyed out and another put in. The map itself keeps its colours.": "空、雲、遠景のスカイボックスを、すべてのパスで、またレンダーを開いている間はリアルタイムで背景色に塗ります。空をキーイングで抜いて別の空を入れられます。マップ自体の色は変わりません。",
  "DEPTH RANGE": "デプス範囲",
  "Near": "ニア",
  "Units from the camera that render white.": "白でレンダリングされる、カメラからの距離（ユニット）。",
@@ -513,8 +515,9 @@
  "{0} render per frame || {0} renders per frame": [
   "1フレームあたり {0} 回レンダー"
  ],
+ "The background of the Key passes and the colour of the sky.": "キーイングパスの背景と、空の色。",
  "The background of the Key passes.": "キーイングパスの背景。",
- "Turn on Key for Players only or Gun only to use this.": "使用するには、「プレイヤーのみ」または「銃のみ」のキーイングをオンにしてください。",
+ "Turn on Key for Players only or Gun only, or Green-screen sky, to use this.": "これを使うには、キーイングで「プレイヤーのみ」か「銃のみ」、または「グリーンスクリーンの空」をオンにしてください。",
  "White at near, black at far. Normals are view space.": "ニアが白、ファーが黒です。ノーマルはビュー空間です。",
  "Turn on a Depth pass to use this.": "使用するには、デプスパスをオンにしてください。",
  "Choosing… (a folder dialog is open)": "選択中…（フォルダー選択ダイアログが開いています）",

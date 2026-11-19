@@ -417,6 +417,8 @@
  "Fill the background of Players only and Gun only with magenta.": "Tô nền của Chỉ người chơi và Chỉ súng bằng màu hồng đậm.",
  "Black": "Đen",
  "Fill the background of Players only and Gun only with black.": "Tô nền của Chỉ người chơi và Chỉ súng bằng màu đen.",
+ "Green-screen sky": "Bầu trời green screen",
+ "Paints the sky, its clouds and the far skybox in the background colour, in every pass and live while Render is open, so the sky can be keyed out and another put in. The map itself keeps its colours.": "Tô bầu trời, mây và skybox xa bằng màu nền trong mọi pass, và xem trực tiếp khi Render đang mở, để có thể tách bầu trời ra và đặt bầu trời khác vào. Bản thân bản đồ vẫn giữ màu của nó.",
  "DEPTH RANGE": "KHOẢNG ĐỘ SÂU",
  "Near": "Gần",
  "Units from the camera that render white.": "Khoảng cách từ camera (đơn vị) hiển thị màu trắng.",
@@ -513,8 +515,9 @@
  "{0} render per frame || {0} renders per frame": [
   "{0} lần render mỗi khung hình"
  ],
+ "The background of the Key passes and the colour of the sky.": "Màu nền của các pass Key và màu của bầu trời.",
  "The background of the Key passes.": "Màu nền của các pass Key.",
- "Turn on Key for Players only or Gun only to use this.": "Bật Key cho Chỉ người chơi hoặc Chỉ súng để dùng.",
+ "Turn on Key for Players only or Gun only, or Green-screen sky, to use this.": "Bật Key cho Chỉ người chơi hoặc Chỉ súng, hoặc bật Bầu trời green screen, để dùng mục này.",
  "White at near, black at far. Normals are view space.": "Trắng ở gần, đen ở xa. Normal tính trong không gian camera.",
  "Turn on a Depth pass to use this.": "Bật một pass Depth để dùng.",
  "Choosing… (a folder dialog is open)": "Đang chọn… (hộp thoại thư mục đang mở)",
