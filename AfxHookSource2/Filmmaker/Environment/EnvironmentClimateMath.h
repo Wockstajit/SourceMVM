@@ -481,6 +481,26 @@ inline void TimeOfDayFromSun(Climate &c) {
     c[CL_sunPath] = path;
 }
 inline bool IsTimeOfDayField(ClimateField f) { return f == CL_timeOfDay || f == CL_sunPath || f == CL_sunHeight; }
+// THE CLIMATE COLOURS a scene key animates as ONE colour (`env.<id>`), the way CONFIG edits each
+// with one colour bar: three consecutive climate fields from `red` on. A key holds 0-255 per
+// component, CONFIG's bar, where 255 is `scale` (the sun and moon bars run to 2, a brighter-than-
+// white tint). Three separate floats would key red without green and blend through odd hues.
+struct ClimateColour { const char *id; ClimateField red; float scale; };
+static_assert(CL_sunColorB == CL_sunColorR + 2 && CL_moonColorB == CL_moonColorR + 2 &&
+              CL_groundFogColorB == CL_groundFogColorR + 2 && CL_groundFogShadeB == CL_groundFogShadeR + 2,
+              "a keyed climate colour is three consecutive fields");
+inline const std::array<ClimateColour, 4> &ClimateColours() {
+    static const std::array<ClimateColour, 4> list{{{"sunColor", CL_sunColorR, 2.f}, {"moonColor", CL_moonColorR, 2.f},
+        {"groundFogColor", CL_groundFogColorR, 1.f}, {"groundFogShadeColor", CL_groundFogShadeR, 1.f}}};
+    return list;
+}
+inline double ClimateColourToKey(const ClimateColour &k, float value) {
+    return std::clamp(double(value) / k.scale * 255., 0., 255.);
+}
+inline float ClimateColourFromKey(const ClimateColour &k, int component, double key) {
+    const auto &spec = ClimateSpecs()[k.red + component];
+    return std::clamp(float(key / 255. * k.scale), spec.lo, spec.hi);
+}
 // How far the moon has taken over from the sun: none while the sun is up, all of it by the end of
 // civil twilight (sun 6 degrees down), and only while the moon itself is above the horizon.
 inline float MoonTakeover(const Climate &c) {

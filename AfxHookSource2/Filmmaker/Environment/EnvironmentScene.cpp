@@ -570,6 +570,11 @@ static Scene AnimatedScene(Scene scene) {
         return f != state->fields.end() && component < f->second.size() ? f->second[component] : base;
     };
     for (int i=0;i<ClimateCount;++i) scene.climate.values[i]=float(number(std::string("env.")+ClimateSpecs()[i].key,scene.climate.values[i]));
+    for (const auto& k : ClimateColours()) {
+        const auto f = state->fields.find(std::string("env.") + k.id);
+        if (f == state->fields.end() || f->second.size() < 3) continue;
+        for (int c = 0; c < 3; ++c) scene.climate.values[k.red + c] = ClimateColourFromKey(k, c, f->second[c]);
+    }
     // A keyed time of day moves the sun and the moon with it. Keyed sun angles (the Scene Keys
     // macros key only those) move the moon too: as for a `climate sunAzimuth` command, the time that
     // puts the sun there is found first, so the moon rises opposite a sun keyed below the horizon.
@@ -595,6 +600,7 @@ std::map<std::string,std::vector<double>> CaptureAnimationValues() {
     out["env.enabled"]={double(g_scene.enabled)};out["env.exposure"]={g_scene.exposure};
     auto color=[&](const char* id,Vec3 c){out[id]={c.x*255.,c.y*255.,c.z*255.};};
     color("env.fogColor",g_scene.fogColor);color("env.tint",g_scene.tint);color("env.weather.color",g_scene.weather.color);
+    for(const auto& k:ClimateColours()){auto& v=out[std::string("env.")+k.id];for(int c=0;c<3;++c)v.push_back(ClimateColourToKey(k,g_scene.climate.values[k.red+c]));}
     out["env.weather.type"]={double(g_scene.weather.type)};out["env.weather.speed"]={g_scene.weather.speed};
     out["env.weather.size"]={g_scene.weather.size};out["env.weather.windX"]={g_scene.weather.windX};out["env.weather.windY"]={g_scene.weather.windY};
     return out;
@@ -621,6 +627,25 @@ void RunMainThreadFrame() {
     }
     g_liveWorld=CaptureWorldLook();
     const auto animated = AnimatedScene(g_scene);
+    // What the keyed values hand the renderer this frame (keyed sun/moon/fog colours and the 2026-11
+    // keyable looks). Read from the animated copy, so a key that never reaches it shows as CONFIG's.
+    if (MvmDebugLog_Active() && !WorldTransient::Read()->fields.empty()) {
+        static ULONGLONG last = 0;
+        if (GetTickCount64() - last > 250) {
+            last = GetTickCount64();
+            const auto& a = animated.climate;
+            MvmDebugLog_Linef("environment.keyed",
+                "sun=%.3f,%.3f,%.3f moon=%.2f phase=%.2f size=%.2f moonColor=%.2f,%.2f,%.2f mapLight=%.2f fill=%.2f "
+                "bounce=%.2f lamp=%.2f soft=%.2f bias=%.2f gfColor=%.2f,%.2f,%.2f gfShade=%.2f,%.2f,%.2f "
+                "snowDepth=%.2f lightning=%.2f cloudRain=%.2f hideClouds=%.0f",
+                a[CL_sunColorR], a[CL_sunColorG], a[CL_sunColorB], a[CL_moon], a[CL_moonPhase], a[CL_moonSize],
+                a[CL_moonColorR], a[CL_moonColorG], a[CL_moonColorB], a[CL_mapLightPower], a[CL_playerFill],
+                a[CL_bounce], a[CL_lampAngle], a[CL_shadowSoftness], a[CL_exposureBias],
+                a[CL_groundFogColorR], a[CL_groundFogColorG], a[CL_groundFogColorB],
+                a[CL_groundFogShadeR], a[CL_groundFogShadeG], a[CL_groundFogShadeB],
+                a[CL_snowDepth], a[CL_stormStrength], a[CL_cloudRain], a[CL_hideMapClouds]);
+        }
+    }
     bool active = animated.enabled && !map.empty() && map.rfind("ui/", 0) != 0 && map.rfind("ui_", 0) != 0 &&
                   (animated.map.empty() || animated.map == map);
     auto climate = EffectiveClimate(animated.climate);

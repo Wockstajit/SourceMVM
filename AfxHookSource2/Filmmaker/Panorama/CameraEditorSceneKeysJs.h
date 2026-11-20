@@ -164,12 +164,21 @@ R"EDJS(
         + ' sky skyDirection.yaw skyDirection.pitch skyMirror skyColor cloudColor cloudDensity cloudSize cloudDrift cloudBrightness'
         + ' worldColors.world worldStrength smokeColors.T smokeColors.CT'
         + ' env.exposure env.saturation env.contrast env.tint env.bloom env.vignette env.grain env.chromatic'
-        + ' env.sky env.sunAzimuth env.sunElevation env.sunPower env.haze env.stars env.clouds env.coverage env.cloudBase env.windSpeed'
-        + ' env.ambient env.sunAngle env.fogDensity env.fogColor env.fogStart env.fogHeight env.fogNoise'
-        + ' env.weather.type env.weather.speed env.snow env.wet env.puddles ')
+        + ' env.sky env.timeOfDay env.sunPath env.sunHeight env.sunAzimuth env.sunElevation env.sunPower env.haze env.stars env.sunColor'
+        + ' env.moon env.moonPhase env.moonSize env.moonColor'
+        + ' env.clouds env.hideMapClouds env.coverage env.density env.cloudBase env.windSpeed env.cloudRain'
+        + ' env.mapLightPower env.ambient env.playerFill env.bounce env.sunAngle env.lampAngle env.shadowSoftness env.exposureBias'
+        + ' env.fogDensity env.fogStart env.fogHeight env.fogNoise env.fogColor env.lightShafts'
+        + ' env.groundFog env.groundFogCoverage env.groundFogHeight env.groundFogSoftness env.groundFogWisps env.groundFogWispSize'
+        + ' env.groundFogStreak env.groundFogDetail env.groundFogBillowSize env.groundFogColor env.groundFogSun env.groundFogShade'
+        + ' env.groundFogShadows env.groundFogShadeColor env.groundFogFlow env.groundFogPushSize env.groundFogRecovery'
+        + ' env.groundFogSwirl env.groundFogWind env.groundFogWindAngle env.groundFogChurn'
+        + ' env.weather.type env.weather.speed env.weather.windX env.weather.windY env.wet env.puddles env.snow env.snowDepth env.stormStrength ')
         .indexOf(' ' + id + ' ') >= 0;
     }
-
+)EDJS"
+// Split here: MSVC caps one string literal at 16 KB (C2026); adjacent literals are joined.
+R"EDJS(
     function skBuild() {
       var cat = skCatalog(), sig = cat.map(function (f) { return f.id; }).join('|');
       if (!sig || sig === skCatalogSig) return;
