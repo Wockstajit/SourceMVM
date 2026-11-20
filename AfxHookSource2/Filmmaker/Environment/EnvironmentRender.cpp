@@ -111,6 +111,7 @@ struct Resources {
     ComPtr<ID3D11PixelShader> atmospherePS[4], atmospherePixelPS[4], meshPS[4], materialMeshPS[4], weatherPS[4], stormPS[4], splashPS[4], veilPS[4];
     ComPtr<ID3D11PixelShader> blitPS[2], volumePS[4], volumeBlurPS[4], compositePS[4], skyVolumePS[4], compositePixelPS[4], volumeTemporalPS[4];
     ComPtr<ID3D11PixelShader> atmosphereEdgePS, exactListPS[4], exactWalkPS[4];
+    ComPtr<ID3D11Buffer> weatherQuadIndices;
     // The shared exact fog walks (ExactListPS in the shaders): which pixels need which walk, the
     // list, its length, and the walks themselves.
     ComPtr<ID3D11Texture2D> exactIndex, exactWalks;
@@ -585,6 +586,10 @@ void BeginDevice(ID3D11Device *device, bool background) {
         SetRenderStatus("Could not create environment render context");
         return;
     }
+    // WeatherVS, SplashVS and FootSplashVS each map IDs 0/3 and 2/4 to identical corners.
+    // Keep the same two triangles and share the repeated vertex shader results per instance.
+    constexpr uint16_t weatherQuadIndices[] = {0, 1, 2, 0, 2, 5};
+    Buffer(sizeof(weatherQuadIndices), D3D11_BIND_INDEX_BUFFER, g.weatherQuadIndices, weatherQuadIndices);
     ComPtr<ID3DBlob> code;
     if (!Compile("ScreenVS", "vs_5_0", 0, code) ||
         SetupFailed(__LINE__, device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr,
@@ -899,6 +904,12 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         return false;
     }
     c.climate = climate.values;
+    if (weatherNow.type == 3) {
+        // Give airborne ash a little more opacity at typical settings. The slider still
+        // covers the full range from no particles to the existing maximum.
+        float &opacity = c.climate[CL_particleOpacity];
+        opacity += .4f * opacity * (1.f - opacity);
+    }
     c.stormSource = Pack(storm.source, storm.flash);
     for (int i = 0; i < kStormPointCount; ++i) {
         c.stormPoints[i] = Pack(storm.points[i], storm.width[i]);
@@ -1384,6 +1395,14 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     // and surface read their streaks as sky and drew a rim round every roof and cable (reported
     // 2026-11-18, once picking a weather started its fog). The particles take their own fog.
     auto drawWeather = [&]() {
+        auto drawQuads = [&](UINT instances) {
+            if (g.weatherQuadIndices) {
+                ctx->IASetIndexBuffer(g.weatherQuadIndices.Get(), DXGI_FORMAT_R16_UINT, 0);
+                ctx->DrawIndexedInstanced(6, instances, 0, 0, 0);
+            } else {
+                ctx->DrawInstanced(6, instances, 0, 0);
+            }
+        };
         ctx->OMSetRenderTargets(1, &workingTarget, nullptr);
         ctx->RSSetViewports(1, &viewport);
         ctx->OMSetDepthStencilState(g.noDepth.Get(), 0);
@@ -1410,7 +1429,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
             ctx->VSSetShader(g.weatherVS[td.SampleDesc.Count > 1 ? 1 : 0].Get(), nullptr, 0);
             ctx->PSSetShader(g.weatherPS[variant].Get(), nullptr, 0);
             if (markWeather) ctx->End(g.timingWeather[0].Get());
-            ctx->DrawInstanced(6, precipitating ? precipitation.Instances() : UINT(w.count), 0, 0);
+            drawQuads(precipitating ? precipitation.Instances() : UINT(w.count));
             ID3D11ShaderResourceView *noViews[31]{};
             ctx->VSSetShaderResources(0, 31, noViews);
             if (markWeather) ctx->End(g.timingWeather[1].Get());
@@ -1427,7 +1446,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
                 ctx->VSSetShaderResources(1, 1, &sceneDepthView);
                 ctx->VSSetShader(g.splashVS[ms].Get(), nullptr, 0);
                 ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
-                ctx->DrawInstanced(6, kSplashInstanceCount, 0, 0);
+                drawQuads(kSplashInstanceCount);
                 ID3D11ShaderResourceView* noView = nullptr;
                 ctx->VSSetShaderResources(1, 1, &noView);
             }
@@ -1441,14 +1460,14 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
             ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
             ctx->VSSetShader(g.footSplashVS.Get(), nullptr, 0);
             ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
-            ctx->DrawInstanced(6, UINT(kFootSteps) * kFootSplashParts + UINT(kFootLive + kFootSteps), 0, 0);
+            drawQuads(UINT(kFootSteps) * kFootSplashParts + UINT(kFootLive + kFootSteps));
         } else if (footprints && footStepCount > 0 && (climate[CL_puddles] > 0 || climate[CL_wet] > 0 || climate[CL_snow] >= .25f)) {
             // In snow the same sprites are a puff of powder (SplashPS).
             GPU_PASS_SCOPE(ctx, "composite: foot splashes");
             ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
             ctx->VSSetShader(g.footSplashVS.Get(), nullptr, 0);
             ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
-            ctx->DrawInstanced(6, UINT(footStepCount) * kFootSplashParts, 0, 0);
+            drawQuads(UINT(footStepCount) * kFootSplashParts);
         }
     };
     if (!volumes) drawWeather();

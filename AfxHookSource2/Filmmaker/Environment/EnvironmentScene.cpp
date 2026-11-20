@@ -2007,6 +2007,8 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                     w.windX = 48;
                     w.windY = 14;
                     look(.6f, .3f, 620, .7f, {.54f, .51f, .47f}, 1.2f);
+                    // Hold a little more of each low ash bank between the gusts.
+                    next.climate[CL_gustWisps] = .68f;
                     ground(0, 0, 0);
                 } else if (mode == "embers" || mode == "motes" || mode == "smoke") {
                     w.count = mode == "smoke" ? 450 : 1200;
