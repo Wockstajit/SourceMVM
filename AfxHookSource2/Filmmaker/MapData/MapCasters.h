@@ -4,7 +4,7 @@
 // shadow casters (MVMCAST6): opaque render geometry with surface albedo, alpha-tested
 // cutouts with their masks and native foliage-sway inputs, and stained-glass transmitters.
 // Scene traversal, LOD choice, material/tint keying and texture selection follow
-// ValveResourceFormat 20.0 (MIT) world-node glTF export; the caster rules are the ones the
+// ValveResourceFormat 21.1 (MIT, commit 8d9f7d9) world-node glTF export; the caster rules are the ones the
 // map-lighting cache has always applied.
 
 #include "MapDataIo.h"

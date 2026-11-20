@@ -1,4 +1,4 @@
-// Ported from ValveResourceFormat 20.0 (MIT): ValvePak, Resource.cs, BinaryKV3*.cs.
+// Ported from ValveResourceFormat 21.1+ (MIT, commit 8d9f7d9): ValvePak, Resource.cs, BinaryKV3*.cs.
 #include "MapDataIo.h"
 
 #define NOMINMAX
@@ -359,8 +359,8 @@ enum NodeType : uint8_t {
     KV_NULL = 1, KV_BOOLEAN = 2, KV_INT64 = 3, KV_UINT64 = 4, KV_DOUBLE = 5, KV_STRING = 6, KV_BLOB = 7,
     KV_ARRAY = 8, KV_OBJECT = 9, KV_ARRAY_TYPED = 10, KV_INT32 = 11, KV_UINT32 = 12, KV_TRUE = 13,
     KV_FALSE = 14, KV_INT64_ZERO = 15, KV_INT64_ONE = 16, KV_DOUBLE_ZERO = 17, KV_DOUBLE_ONE = 18,
-    KV_FLOAT = 19, KV_INT16 = 20, KV_UINT16 = 21, KV_UNKNOWN_22 = 22, KV_INT32_AS_BYTE = 23,
-    KV_ARRAY_BYTE_LENGTH = 24, KV_ARRAY_AUX = 25,
+    KV_FLOAT = 19, KV_INT16 = 20, KV_UINT16 = 21, KV_INT8 = 22, KV_UINT8 = 23,
+    KV_ARRAY_BYTE_LENGTH = 24, KV_ARRAY_AUX = 25, KV_UINT32_ZERO = 26, KV_UINT32_ONE = 27,
 };
 
 struct Span {
@@ -393,10 +393,9 @@ struct Context {
 
 void Align(size_t &offset, size_t alignment) { offset = (offset + alignment - 1) & ~(alignment - 1); }
 
+// Negative and out-of-range ids, including -1 for an empty string, resolve to an empty string.
 std::string ReadString(Context &ctx, int32_t id) {
-    if (id == -1) return {};
-    if (id < 0 || size_t(id) >= ctx.strings.size()) Fail("KV3 string index out of range");
-    return ctx.strings[size_t(id)];
+    return id >= 0 && size_t(id) < ctx.strings.size() ? ctx.strings[size_t(id)] : std::string();
 }
 
 // Flag byte -> ValveKeyValue KVFlag (resource=1, resource_name=2, panorama=3, soundevent=4,
@@ -422,10 +421,9 @@ std::pair<uint8_t, uint8_t> ReadType(Context &ctx) {
     uint8_t type = ctx.types.Pop<uint8_t>();
     uint8_t flag = 0;
     if (ctx.version >= 3) {
-        if (type & 0x80) {
-            type &= 0x3F;
-            flag = NormalizeFlag(ctx.types.Pop<uint8_t>(), ctx.version);
-        }
+        if (type & 0x80) flag = NormalizeFlag(ctx.types.Pop<uint8_t>(), ctx.version);
+        if (type & 0x40) ctx.types.Pop<uint8_t>(); // no known writer sets this bit
+        type &= 0x3F;
     } else if (type & 0x80) {
         type &= 0x7F;
         flag = NormalizeFlag(ctx.types.Pop<uint8_t>(), ctx.version);
@@ -435,6 +433,16 @@ std::pair<uint8_t, uint8_t> ReadType(Context &ctx) {
 
 Kv3 ReadValue(Context &ctx, uint8_t type, uint8_t flag);
 
+// A repeated member name replaces the earlier value, keeping its position.
+void AddMember(Kv3 &parent, std::string name, Kv3 value) {
+    for (auto &[k, v] : parent.obj)
+        if (k == name) {
+            v = std::move(value);
+            return;
+        }
+    parent.obj.emplace_back(std::move(name), std::move(value));
+}
+
 void ParseMember(Context &ctx, Kv3 &parent) {
     const auto [type, flag] = ReadType(ctx);
     if (parent.type == Kv3::Type::Array) {
@@ -443,7 +451,7 @@ void ParseMember(Context &ctx, Kv3 &parent) {
     }
     const int32_t id = ctx.buffer.b4.Pop<int32_t>();
     std::string name = ReadString(ctx, id);
-    parent.obj.emplace_back(std::move(name), ReadValue(ctx, type, flag));
+    AddMember(parent, std::move(name), ReadValue(ctx, type, flag));
 }
 
 Kv3 ReadValue(Context &ctx, uint8_t type, uint8_t flag) {
@@ -458,8 +466,12 @@ Kv3 ReadValue(Context &ctx, uint8_t type, uint8_t flag) {
     case KV_INT64_ONE: v.type = Kv3::Type::Int; v.i = 1; break;
     case KV_DOUBLE_ZERO: v.type = Kv3::Type::Double; v.d = 0; break;
     case KV_DOUBLE_ONE: v.type = Kv3::Type::Double; v.d = 1; break;
+    // Constant uint32 nodes, written by CS2 resources since the 2026-11-20 update (VRF "UINT32_ZERO/ONE").
+    case KV_UINT32_ZERO: v.type = Kv3::Type::UInt; v.width = Kv3::Width::UInt32; v.u = 0; break;
+    case KV_UINT32_ONE: v.type = Kv3::Type::UInt; v.width = Kv3::Width::UInt32; v.u = 1; break;
     case KV_BOOLEAN: v.type = Kv3::Type::Bool; v.b = buf.b1.Pop<uint8_t>() == 1; break;
-    case KV_INT32_AS_BYTE: v.type = Kv3::Type::Int; v.width = Kv3::Width::Int32; v.i = buf.b1.Pop<uint8_t>(); break;
+    case KV_INT8: v.type = Kv3::Type::Int; v.width = Kv3::Width::Int32; v.i = buf.b1.Pop<int8_t>(); break;
+    case KV_UINT8: v.type = Kv3::Type::UInt; v.width = Kv3::Width::UInt32; v.u = buf.b1.Pop<uint8_t>(); break;
     case KV_INT16: v.type = Kv3::Type::Int; v.width = Kv3::Width::Int16; v.i = buf.b2.Pop<int16_t>(); break;
     case KV_UINT16: v.type = Kv3::Type::UInt; v.width = Kv3::Width::UInt16; v.u = buf.b2.Pop<uint16_t>(); break;
     case KV_INT32: v.type = Kv3::Type::Int; v.width = Kv3::Width::Int32; v.i = buf.b4.Pop<int32_t>(); break;
@@ -559,18 +571,14 @@ struct LegacyReader {
         }
         return {t, f};
     }
-    std::string Str(int32_t id) {
-        if (id == -1) return {};
-        if (id < 0 || size_t(id) >= strings.size()) Fail("KV3 string index out of range");
-        return strings[size_t(id)];
-    }
+    std::string Str(int32_t id) { return id >= 0 && size_t(id) < strings.size() ? strings[size_t(id)] : std::string(); }
     void Member(Kv3 &parent) {
         std::string name;
         const bool object = parent.type == Kv3::Type::Object;
         if (object) name = Str(c.Get<int32_t>());
         const auto [t, f] = Type();
         Kv3 v = Value(t, f);
-        if (object) parent.obj.emplace_back(std::move(name), std::move(v));
+        if (object) AddMember(parent, std::move(name), std::move(v));
         else parent.arr.push_back(std::move(v));
     }
     Kv3 Value(uint8_t t, uint8_t f) {
@@ -662,6 +670,7 @@ Kv3 DecodeKv3(const uint8_t *data, size_t size) {
     ctx.version = version;
     c.Take(16); // format GUID
     const uint32_t compression = c.Get<uint32_t>();
+    if (compression == 4) Fail(version < 5 ? "z3 KV3 compression requires version 5" : "z3 compressed KV3 is not supported yet");
     if (compression > 2) Fail("unknown KV3 compression");
     uint16_t frameSize = 0;
     int32_t countBytes1 = 0, countBytes4 = 0, countBytes8 = 0, countTypes = 0, sizeUncompressedTotal = 0,
@@ -736,6 +745,7 @@ Kv3 DecodeKv3(const uint8_t *data, size_t size) {
         ctx.strings = ReadStrings(ctx.aux.b1, countStrings);
     } else {
         ctx.buffer = b1;
+        ctx.aux = b1; // one buffer before version 5; ARRAY_AUX reads it too
         Span strings = s1.Slice(offset, s1.n);
         const size_t before = strings.n;
         ctx.strings = ReadStrings(strings, countStrings);
@@ -790,17 +800,26 @@ Kv3 DecodeKv3(const uint8_t *data, size_t size) {
             std::memcpy(blobs.data(), c.Take(size_t(sizeBlobs)), size_t(sizeBlobs));
         } else if (compression == 1) {
             // Chained LZ4 frames: each frame may reference the previously decoded output.
+            // Each blob is split into frames of up to frameSize bytes; a frame never spans two blobs, and the
+            // frames are chained so later frames can reference earlier blobs.
             LZ4_streamDecode_t *stream = LZ4_createStreamDecode();
             size_t written = 0;
             try {
-                while (blobSizes.n > 0) {
-                    const uint16_t compressed = blobSizes.Pop<uint16_t>();
-                    const size_t frame = std::min<size_t>(frameSize, blobs.size() - written);
-                    const int got = LZ4_decompress_safe_continue(stream, reinterpret_cast<const char *>(c.Take(compressed)),
-                                                                 reinterpret_cast<char *>(blobs.data() + written), compressed, int(frame));
-                    if (got < 1) Fail("LZ4 blob decompression failed");
-                    written += size_t(got);
+                Span lengths = ctx.blobLengths;
+                while (lengths.n > 0) {
+                    const int32_t length = lengths.Pop<int32_t>();
+                    if (length < 0 || size_t(length) > blobs.size() - written) Fail("KV3 blob out of range");
+                    const size_t blobEnd = written + size_t(length);
+                    while (written < blobEnd) {
+                        const uint16_t compressed = blobSizes.Pop<uint16_t>();
+                        const size_t frame = std::min<size_t>(frameSize, blobEnd - written);
+                        const int got = LZ4_decompress_safe_continue(stream, reinterpret_cast<const char *>(c.Take(compressed)),
+                                                                     reinterpret_cast<char *>(blobs.data() + written), compressed, int(frame));
+                        if (got < 1) Fail("LZ4 blob decompression failed");
+                        written += size_t(got);
+                    }
                 }
+                if (blobSizes.n != 0) Fail("LZ4 blob frame count mismatch");
             } catch (...) {
                 LZ4_freeStreamDecode(stream);
                 throw;
@@ -841,8 +860,9 @@ Resource::Resource(std::vector<uint8_t> bytes) : m_bytes(std::move(bytes)) {
         const size_t field = c.at;
         b.offset = uint32_t(field + c.Get<uint32_t>());
         b.size = c.Get<uint32_t>();
-        if (!b.size) continue;
-        if (b.offset > m_bytes.size() || b.size > m_bytes.size() - b.offset) Fail("resource block out of range");
+        // Empty blocks stay, so block indices (m_nBlockIndex, data_block, vbib_block) match the file.
+        if (b.size && (b.offset > m_bytes.size() || b.size > m_bytes.size() - b.offset)) Fail("resource block out of range");
+        if (!b.size) b.offset = 0;
         m_blocks.push_back(b);
     }
 }
@@ -856,7 +876,7 @@ uint32_t FourCC(const char f[4]) {
 const ResourceBlock *Resource::Block(const char fourcc[4]) const {
     const uint32_t type = FourCC(fourcc);
     for (const auto &b : m_blocks)
-        if (b.type == type) return &b;
+        if (b.type == type && b.size) return &b;
     return nullptr;
 }
 
@@ -864,7 +884,7 @@ std::vector<const ResourceBlock *> Resource::BlocksOfType(const char fourcc[4]) 
     std::vector<const ResourceBlock *> out;
     const uint32_t type = FourCC(fourcc);
     for (const auto &b : m_blocks)
-        if (b.type == type) out.push_back(&b);
+        if (b.type == type && b.size) out.push_back(&b);
     return out;
 }
 
