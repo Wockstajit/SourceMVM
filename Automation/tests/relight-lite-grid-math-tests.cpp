@@ -1,4 +1,5 @@
 #include "../../AfxHookSource2/Filmmaker/Relight/RelightLiteGridMath.h"
+#include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentPuddleLampMath.h"
 #include <cstdlib>
 #include <iostream>
 using namespace Filmmaker::Relight;
@@ -204,6 +205,34 @@ int main(){
         const auto c=MakeLiteGridColours({1,1,1},{2,2,2},grey,2);
         Check(Near(c.lampBounce,LiteGridLampBounce*2)&&Near(c.sunBounce,LiteGridSunBounce*2)&&Near(c.feedback,LiteGridFeedback*2),"The one dial scales every bounce");
         Check(MakeLiteGridColours({},{},grey,-1).lampBounce==0,"A negative dial is no bounce");
+    }
+    {
+        // The map's lamps a puddle shows (EnvironmentPuddleLampMath.h): nearest first, bulbs only.
+        using namespace Filmmaker::Environment;
+        auto bulbAt=[](Vec3 p){Light l;l.kind="light_omni2";l.position=p;l.lumens=1000;l.range=400;return l;};
+        std::vector<Light> lights;
+        for(int i=0;i<12;++i)lights.push_back(bulbAt({float(600+i*300),0,100}));
+        Light placed=bulbAt({0,0,100});placed.sceneObject=true;lights.push_back(placed);
+        Light fire=bulbAt({10,0,100});fire.transient=true;lights.push_back(fire);
+        Light off=bulbAt({20,0,100});off.enabled=false;lights.push_back(off);
+        Light fill=bulbAt({30,0,100});fill.kind="light_rect";fill.angles={90,0,0};fill.sizeX=fill.sizeY=32;fill.sizeZ=.05f;lights.push_back(fill);
+        const auto table=PuddleLamps(lights,{0,0,64},1);
+        Check(table.count==kPuddleLamps,"A puddle takes the nearest eight map lamps");
+        Check(Near(table.rows[0][0],600)&&Near(table.rows[(kPuddleLamps-1)*kPuddleLampRows][0],600+300*(kPuddleLamps-1)),"Nearest first, in order");
+        bool none=true;for(unsigned i=0;i<table.count;++i)none=none&&table.rows[i*kPuddleLampRows][0]>=600;
+        Check(none,"Placed, effect, switched-off and rect fill lights are not map lamps in a puddle");
+        LiteLamp lamp;MakeLiteLamp(lights[0],1,lamp);
+        Check(Near(table.rows[1][0],lamp.radiance.x)&&Near(table.rows[0][3],lamp.soft)&&Near(table.rows[2][3],lamp.windowScale)&&table.rows[1][3]==0,"A puddle bulb carries the lit programs' own light and falloff");
+        // A shaded lamp (light_barn, Dust 2's hanging lamps) is kept with its projection; it shows at its bulb.
+        Light barn=bulbAt({0,40,100});barn.kind="light_barn";barn.angles={90,0,0};barn.sizeX=barn.sizeY=8;barn.sizeZ=.05f;barn.range=200;
+        const auto shaded=PuddleLamps({barn},{0,0,64},1);
+        LiteLamp shade;MakeLiteLamp(barn,1,shade);
+        Check(shaded.count==1&&shaded.rows[1][3]==1&&Near(shaded.rows[0][1],40)&&Near(shaded.rows[2][0],shade.origin.x)&&Near(shaded.rows[3][2],shade.aim.z),"A shaded lamp shows at its bulb, lit from its beam's eye along its aim");
+        const auto brighter=PuddleLamps(lights,{0,0,64},2);
+        Check(Near(brighter.rows[1][0],2*table.rows[1][0],.01f),"Map light power scales the lamps in a puddle");
+        Check(PuddleLamps(lights,{100000,0,64},1).count==0,"Lamps far from the camera are left out");
+        Light sky=bulbAt({0,0,1000});sky.sourceRadius=177;sky.sizeX=sky.sizeY=177;sky.range=2400;sky.lumens=30000;
+        Check(PuddleLamps({sky},{0,0,64},1).count==0,"A broad fill emitter is not a bulb in a puddle");
     }
     std::cout<<"Lite bounce grid math passed\n";
 }

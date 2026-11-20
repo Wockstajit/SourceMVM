@@ -180,9 +180,16 @@ Fresnel term and nothing more, next to none looking straight down and strong tow
 a rough surface mirrors less. A placed light shows in it as a highlight, with the Lighting card on
 or off: water's Fresnel times a lobe that keeps its energy however tight it is, near a mirror on a
 puddle (a small bright image of the lamp) and broad on a wet street. The old highlight had neither,
-so a puddle showed a lamp no brighter than the pool of light round it. The map's own lamps light wet
-ground and puddles through the frame (their pools darken with the soak and the mirror shows what
-they light on screen) but draw no highlight of their own. The mirror shows the scene through a short screen-space trace. Where
+so a puddle showed a lamp no brighter than the pool of light round it. The map's own bulbs show the
+same way: the eight bulbs and shaded lamps (`light_barn`, such as Dust 2's hanging lamps) nearest the
+camera, seen at the bulb, with the light and falloff the native lighting gives them, scaled by Map
+light power while the Environment lights the map. A shaded lamp's bulb hangs below its shade, so it
+shows in water anywhere below the shade, not only inside the narrow beam it throws on the floor. Lamps switched off under Map lights,
+effect lights, `light_rect` fill panels (an opening with nothing to see) and broad fill emitters
+(Dust 2's 177-unit sky fill drew a glow on wet walls) are left out.
+A map lamp has no shadow in this pass, so the line from the water to the lamp is walked on screen:
+where two samples running lie well behind the drawn surface, a wall is in the way and the lamp is
+not shown. A wall off screen cannot be seen this way. The mirror shows the scene through a short screen-space trace. Where
 the trace finds nothing it shows the sky if the sky is open above, and the surface's own colour
 otherwise. An earlier constant sky-coloured film made wet ground look frosted and puddles white.
 The trace starts at the same point along the ray in every pixel and bisects its hit: started at a

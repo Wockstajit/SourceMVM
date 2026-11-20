@@ -21,6 +21,7 @@
 #include "EnvironmentFootprintMath.h"
 #include "EnvironmentStorm.h"
 #include "EnvironmentRayProbe.h"
+#include "EnvironmentPuddleLampMath.h"
 #include "../Debug/MvmDebugLog.h"
 #include "../Debug/GpuPassProfiler.h"
 #include <optional>
@@ -82,8 +83,13 @@ struct Constants {
     Float4 gameTextureInfo;             // EnvironmentGameTextures.h: snow bound, droplets bound, snow tile
     Float4 reflectionInfo;              // EnvironmentReflectionProbes.h: mode, highest mip, probe count, tone curve
     Float4 reflectionIndex[4];          // the probes' record numbers, smallest box first
+    // The map's lamps wet ground shows (EnvironmentPuddleLampMath.h): kPuddleLampRows rows each, x of
+    // the info vector is how many. Match mapLamps/mapLampInfo in the shader.
+    Float4 mapLamps[kPuddleLamps * kPuddleLampRows];
+    Float4 mapLampInfo;
 };
 static_assert(kBodyBones == 16, "actorBones is COATING_ACTORS*16 in the shader");
+static_assert(kPuddleLamps * kPuddleLampRows == 32, "mapLamps is float4[32] in the shader");
 struct ObjectConstants {
     Matrix model, normal;
     Float4 color, materialParams, materialCoat, materialTextures;
@@ -1019,6 +1025,29 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
             ++lightCount;
         }
     c.lighting.x = float(lightCount);
+    // THE MAP'S LAMPS IN WET GROUND: only while there is wet ground to show them. Map light power
+    // scales them while the Environment lights the map; CS2 draws them at their authored brightness
+    // otherwise.
+    {
+        const bool wetGround = climate[CL_wet] > 0 || climate[CL_puddles] > 0 || climate[CL_snow] > 0;
+        const auto lamps = wetGround ? PuddleLamps(f.relight.lights, f.camera, f.relight.enabled ? f.relight.intensity : 1.f)
+                                     : PuddleLampTable{};
+        for (unsigned i = 0; i < lamps.count * kPuddleLampRows; ++i)
+            c.mapLamps[i] = {lamps.rows[i][0], lamps.rows[i][1], lamps.rows[i][2], lamps.rows[i][3]};
+        c.mapLampInfo = {float(lamps.count), 0, 0, 0};
+        if (MvmDebugLog_Active()) {
+            static ULONGLONG last = 0;
+            const auto now = GetTickCount64();
+            if (now - last >= 3000) {
+                last = now;
+                const auto& r = lamps.rows;
+                MvmDebugLog_LinefAlways("environment.puddleLamps",
+                    "wet=%d native=%d power=%.2f lights=%zu count=%u first=(%.0f %.0f %.0f) kind=%.0f radiance=%.3f soft=%.1f",
+                    int(wetGround), int(f.relight.enabled), f.relight.enabled ? f.relight.intensity : 1.f, f.relight.lights.size(),
+                    lamps.count, r[0][0], r[0][1], r[0][2], r[1][3], r[1][0] + r[1][1] + r[1][2], r[0][3]);
+            }
+        }
+    }
     if (g.timingPending) {
         D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
         UINT64 start = 0, end = 0;
