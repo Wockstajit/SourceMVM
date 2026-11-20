@@ -3093,5 +3093,16 @@
  "No HCs running right now. Check back soon.": "Most egy HC sem fut. Nézz vissza hamarosan.",
  "{0} LIVE": "{0} ÉLŐ",
  "NEXT {0}": "KÖVETKEZŐ: {0}",
- "{0} UPCOMING": "{0} HAMAROSAN"
+ "{0} UPCOMING": "{0} HAMAROSAN",
+ "Spot light on the camera": "Spotfény a kamerán",
+ "Point light on the camera": "Pontfény a kamerán",
+ "Area light on the camera": "Területi fény a kamerán",
+ "Lights what the camera looks at": "Megvilágítja, amit a kamera néz",
+ "Glows all around the camera": "A kamera körül mindenfelé világít",
+ "A soft panel beside the lens": "Lágy panel az objektív mellett",
+ "follows the camera path": "követi a kameraútvonalat",
+ "The camera (moves with the view)": "A kamera (a nézettel együtt mozog)",
+ "the camera": "a kamera",
+ "Red": "Piros",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "Csatolva a kamerához: a fény a kameraútvonallal, a szabad kamerával vagy bármivel együtt mozog, ami a nézetet rendereli. Az eltolás az objektívtől számítva helyezi el."
 }

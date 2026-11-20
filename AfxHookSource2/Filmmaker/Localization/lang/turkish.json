@@ -3093,5 +3093,16 @@
  "No HCs running right now. Check back soon.": "Şu anda devam eden HC yok. Biraz sonra tekrar bak.",
  "{0} LIVE": "{0} CANLI",
  "NEXT {0}": "SONRAKİ {0}",
- "{0} UPCOMING": "{0} YAKLAŞAN"
+ "{0} UPCOMING": "{0} YAKLAŞAN",
+ "Spot light on the camera": "Kamerada spot ışık",
+ "Point light on the camera": "Kamerada nokta ışık",
+ "Area light on the camera": "Kamerada alan ışığı",
+ "Lights what the camera looks at": "Kameranın baktığı yeri aydınlatır",
+ "Glows all around the camera": "Kameranın etrafında her yöne parlar",
+ "A soft panel beside the lens": "Lensin yanında yumuşak bir panel",
+ "follows the camera path": "kamera yolunu izler",
+ "The camera (moves with the view)": "Kamera (görüntüyle birlikte hareket eder)",
+ "the camera": "kamera",
+ "Red": "Kırmızı",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "Kameraya bağlı: ışık, kamera yolu, serbest kamera veya görüntüyü oluşturan her şeyle birlikte hareket eder. Ofset, konumunu lensten başlayarak belirler."
 }

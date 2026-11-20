@@ -3044,5 +3044,16 @@
  "No HCs running right now. Check back soon.": "目前没有进行中的 HC，请稍后再来看看。",
  "{0} LIVE": "{0} 进行中",
  "NEXT {0}": "下一场 {0}",
- "{0} UPCOMING": "{0} 即将开始"
+ "{0} UPCOMING": "{0} 即将开始",
+ "Spot light on the camera": "摄像机上的聚光灯",
+ "Point light on the camera": "摄像机上的点光源",
+ "Area light on the camera": "摄像机上的面光源",
+ "Lights what the camera looks at": "照亮摄像机所看的位置",
+ "Glows all around the camera": "向摄像机四周发光",
+ "A soft panel beside the lens": "镜头旁的柔光面板",
+ "follows the camera path": "跟随摄像机路径",
+ "The camera (moves with the view)": "摄像机（随画面移动）",
+ "the camera": "摄像机",
+ "Red": "红色",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "附着于摄像机：灯光随摄像机路径、自由视角或任何渲染画面的对象一起移动。偏移决定它相对镜头的位置。"
 }

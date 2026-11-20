@@ -273,6 +273,12 @@
         o.scale = ['point', 'spot', 'area', 'camera'].indexOf(o.kind) >= 0 ? [1, 1, 1] : [48, 48, 48];
         o.intensity = 4; o.range = 1200;
         if (o.kind === 'camera') { o.fov = 90; o.angles = [0, 90, 0]; o.color = [1, 0.85, 0.3]; }
+        // `add <light> camera` (EnvironmentScene.cpp): the rig attaches it to the camera at the eye.
+        if (t[2] === 'camera' && ['point', 'spot', 'area'].indexOf(o.kind) >= 0 && st.sceneKeys) {
+          o.asset = '';
+          st.sceneKeys.attach[o.id] = { parent: 'camera', who: 'the camera', player: '', object: 0, mount: '', missing: 'hide', offset: [0, 0, 0, 0, 0, 0] };
+          if (st.rig) st.rig.message = 'It rides the camera, at the eye. Move it with Offset.';
+        }
       }
       // Environment.cpp: a light joins whichever lighting runs; only a mesh turns Environment on.
       s.objects.push(o); st.envSelected = o.id; st.envEditing = 0;
@@ -1352,9 +1358,10 @@
         if (kind === 'grenade') st.rig.grenades.forEach(function (g) { if (g.index === target) who = g.type + ' by ' + g.thrower; });
         if (kind === 'dropped') st.rig.dropped.forEach(function (d) { if (d.index === target) who = d.name; });
         if (kind === 'object') { var p = st.environment.objects.find(function (x) { return x.id === target; }); who = p ? rigName(p) : ''; }
+        if (kind === 'camera') who = 'the camera';
         var old = sk.attach[id];
         edit(function () { sk.attach[id] = { parent: kind, who: who, player: player, object: kind === 'object' ? target : 0,
-          mount: t[4] || (kind === 'player' ? 'head' : kind === 'held' ? 'muzzle' : 'entity'), missing: old ? old.missing : 'hide', offset: [20, 0, 8, 0, 0, 0] }; });
+          mount: kind === 'camera' ? '' : t[4] || (kind === 'player' ? 'head' : kind === 'held' ? 'muzzle' : 'entity'), missing: old ? old.missing : 'hide', offset: [20, 0, 8, 0, 0, 0] }; });
         st.rig.message = 'Attached to ' + who + '. It stays where it is.';
       }
     } else if (op === 'mount' && sk.attach[id]) edit(function () { sk.attach[id].mount = t[2]; });

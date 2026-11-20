@@ -3093,5 +3093,16 @@
  "No HCs running right now. Check back soon.": "Δεν τρέχει κανένα HC αυτή τη στιγμή. Ξαναελέγξτε σύντομα.",
  "{0} LIVE": "{0} LIVE",
  "NEXT {0}": "ΕΠΟΜΕΝΟ ΣΕ {0}",
- "{0} UPCOMING": "{0} ΣΥΝΤΟΜΑ"
+ "{0} UPCOMING": "{0} ΣΥΝΤΟΜΑ",
+ "Spot light on the camera": "Φως spot στην κάμερα",
+ "Point light on the camera": "Σημειακό φως στην κάμερα",
+ "Area light on the camera": "Φως περιοχής στην κάμερα",
+ "Lights what the camera looks at": "Φωτίζει ό,τι κοιτάζει η κάμερα",
+ "Glows all around the camera": "Λάμπει γύρω από την κάμερα",
+ "A soft panel beside the lens": "Ένα απαλό πάνελ δίπλα στον φακό",
+ "follows the camera path": "ακολουθεί τη διαδρομή κάμερας",
+ "The camera (moves with the view)": "Η κάμερα (κινείται με την προβολή)",
+ "the camera": "την κάμερα",
+ "Red": "Κόκκινο",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "Ακολουθεί την κάμερα: το φως κινείται με τη διαδρομή κάμερας, την ελεύθερη κάμερα ή ό,τι αποδίδει την προβολή. Η μετατόπιση το τοποθετεί από τον φακό."
 }

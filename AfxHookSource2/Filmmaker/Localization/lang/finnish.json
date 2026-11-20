@@ -3093,5 +3093,16 @@
  "No HCs running right now. Check back soon.": "Avoimia HC:itä ei ole juuri nyt. Palaa pian uudelleen.",
  "{0} LIVE": "{0} AVOINNA",
  "NEXT {0}": "SEURAAVA {0}",
- "{0} UPCOMING": "{0} TULOSSA"
+ "{0} UPCOMING": "{0} TULOSSA",
+ "Spot light on the camera": "Kohdevalo kamerassa",
+ "Point light on the camera": "Pistevalo kamerassa",
+ "Area light on the camera": "Aluevalo kamerassa",
+ "Lights what the camera looks at": "Valaisee sen, mihin kamera katsoo",
+ "Glows all around the camera": "Hohtaa kameran ympärillä",
+ "A soft panel beside the lens": "Pehmeä paneeli linssin vieressä",
+ "follows the camera path": "seuraa kamerapolkua",
+ "The camera (moves with the view)": "Kamera (liikkuu näkymän mukana)",
+ "the camera": "kamera",
+ "Red": "Punainen",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "Kulkee kameran mukana: valo liikkuu kamerapolun, vapaan kameran tai minkä tahansa näkymän renderöivän mukana. Siirtymä sijoittaa sen linssistä katsoen."
 }

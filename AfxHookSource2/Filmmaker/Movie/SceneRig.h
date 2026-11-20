@@ -40,6 +40,9 @@ bool SceneRig_SetLocal(int id, int channel, double value);
 // The gizmo or a placement moved a rigged object to this world position (and these angles when
 // `angles` is given); stored the same way as SetLocal.
 bool SceneRig_SetWorld(int id, const double position[3], const double* angles);
+// A light just added on the camera (`environment add <kind> camera`): attach it to the camera,
+// at the eye, once it is in the scene (the next frame). Only queues, so it is safe under the lock.
+void SceneRig_QueueCameraRide(int id);
 // A gizmo drag on a rigged object is one undo step: begin, any number of SetWorld, end.
 void SceneRig_BeginGesture();
 void SceneRig_EndGesture(bool keep);

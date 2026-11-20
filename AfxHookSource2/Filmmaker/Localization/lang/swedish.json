@@ -3093,5 +3093,16 @@
  "No HCs running right now. Check back soon.": "Inga HC pågår just nu. Titta in igen snart.",
  "{0} LIVE": "{0} LIVE",
  "NEXT {0}": "NÄSTA {0}",
- "{0} UPCOMING": "{0} KOMMANDE"
+ "{0} UPCOMING": "{0} KOMMANDE",
+ "Spot light on the camera": "Spotlight på kameran",
+ "Point light on the camera": "Punktljus på kameran",
+ "Area light on the camera": "Arealjus på kameran",
+ "Lights what the camera looks at": "Lyser upp det kameran tittar på",
+ "Glows all around the camera": "Lyser runt hela kameran",
+ "A soft panel beside the lens": "En mjuk panel bredvid linsen",
+ "follows the camera path": "följer kamerabanan",
+ "The camera (moves with the view)": "Kameran (rör sig med vyn)",
+ "the camera": "kameran",
+ "Red": "Röd",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "Åker med kameran: ljuset rör sig med kamerabanan, den fria kameran eller det som annars renderar vyn. Förskjutning placerar det från linsen."
 }

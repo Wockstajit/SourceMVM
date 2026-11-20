@@ -3044,5 +3044,16 @@
  "No HCs running right now. Check back soon.": "ตอนนี้ไม่มี HC ที่กำลังจัดอยู่ กลับมาดูใหม่ภายหลัง",
  "{0} LIVE": "สด {0}",
  "NEXT {0}": "ถัดไป {0}",
- "{0} UPCOMING": "เร็ว ๆ นี้ {0}"
+ "{0} UPCOMING": "เร็ว ๆ นี้ {0}",
+ "Spot light on the camera": "ไฟสปอตบนกล้อง",
+ "Point light on the camera": "ไฟจุดบนกล้อง",
+ "Area light on the camera": "ไฟพื้นที่บนกล้อง",
+ "Lights what the camera looks at": "ส่องสว่างสิ่งที่กล้องมอง",
+ "Glows all around the camera": "ส่องสว่างรอบกล้องทุกทิศทาง",
+ "A soft panel beside the lens": "แผงไฟนุ่มข้างเลนส์",
+ "follows the camera path": "ตามเส้นทางกล้อง",
+ "The camera (moves with the view)": "กล้อง (เคลื่อนที่ตามมุมมอง)",
+ "the camera": "กล้อง",
+ "Red": "แดง",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "ติดไปกับกล้อง: ไฟเคลื่อนที่ไปกับเส้นทางกล้อง มุมกล้องอิสระ หรืออะไรก็ตามที่เรนเดอร์ภาพ ออฟเซ็ตกำหนดตำแหน่งของไฟจากเลนส์"
 }

@@ -3093,5 +3093,16 @@
  "No HCs running right now. Check back soon.": "Ingen HC'er kører lige nu. Kig forbi igen snart.",
  "{0} LIVE": "{0} LIVE",
  "NEXT {0}": "NÆSTE {0}",
- "{0} UPCOMING": "{0} KOMMENDE"
+ "{0} UPCOMING": "{0} KOMMENDE",
+ "Spot light on the camera": "Spotlys på kameraet",
+ "Point light on the camera": "Punktlys på kameraet",
+ "Area light on the camera": "Arealys på kameraet",
+ "Lights what the camera looks at": "Lyser op, hvor kameraet kigger hen",
+ "Glows all around the camera": "Lyser hele vejen rundt om kameraet",
+ "A soft panel beside the lens": "Et blødt panel ved siden af objektivet",
+ "follows the camera path": "følger kamerastien",
+ "The camera (moves with the view)": "Kameraet (bevæger sig med visningen)",
+ "the camera": "kameraet",
+ "Red": "Rød",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "Følger kameraet: lyset bevæger sig med kamerastien, det frie kamera eller det, der nu rendrer visningen. Forskydning placerer det ud fra objektivet."
 }

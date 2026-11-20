@@ -3093,5 +3093,16 @@
  "No HCs running right now. Check back soon.": "Nenhum HC a decorrer neste momento. Volta em breve.",
  "{0} LIVE": "{0} EM DIRETO",
  "NEXT {0}": "SEGUINTE {0}",
- "{0} UPCOMING": "{0} EM BREVE"
+ "{0} UPCOMING": "{0} EM BREVE",
+ "Spot light on the camera": "Luz spot na câmara",
+ "Point light on the camera": "Luz pontual na câmara",
+ "Area light on the camera": "Luz de área na câmara",
+ "Lights what the camera looks at": "Ilumina o que a câmara vê",
+ "Glows all around the camera": "Brilha à volta da câmara",
+ "A soft panel beside the lens": "Um painel suave ao lado da lente",
+ "follows the camera path": "segue o trajeto de câmara",
+ "The camera (moves with the view)": "A câmara (move-se com a vista)",
+ "the camera": "a câmara",
+ "Red": "Vermelho",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "Acompanha a câmara: a luz move-se com o trajeto de câmara, a câmara livre ou o que quer que renderize a vista. O desvio posiciona-a a partir da lente."
 }
