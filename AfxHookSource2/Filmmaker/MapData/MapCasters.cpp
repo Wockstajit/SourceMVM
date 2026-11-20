@@ -306,23 +306,36 @@ bool AllowedShader(const std::string &shader, bool &foliage, bool &blockerShader
            shader == "cables.vfx" || blockerShader;
 }
 
-// VRF WorldNode.MaterialOverride: replaces the material of one draw call of a scene object's
-// model, or of every draw call when drawCall is kAllDrawCalls.
+// World node MaterialOverride_t (VRF WorldNode.MaterialOverride): replaces the material of one
+// draw call of a scene object's model, or of every draw call when drawCall is kAllDrawCalls, and
+// multiplies its linear tint into that draw call. An empty material keeps the draw call's own
+// material and applies only the tint.
 struct MaterialOverride {
     static constexpr uint32_t kAllDrawCalls = 0xFFFFFFFFu;
     uint32_t subSceneObject = 0, drawCall = 0;
     std::string material;
+    Vec4 tint{1, 1, 1, 1};
+    bool Applies(int meshIndex, size_t dc) const {
+        return drawCall == kAllDrawCalls || (int64_t(subSceneObject) == meshIndex && drawCall == dc);
+    }
 };
 
-// The first whole-model override wins; otherwise the last override of that mesh and draw call.
-const std::string *FindOverride(const std::vector<MaterialOverride> &overrides, int meshIndex, size_t drawCall) {
-    const std::string *found = nullptr;
+struct OverrideHit {
+    const std::string *material = nullptr;
+    Vec4 tint{1, 1, 1, 1};
+};
+
+// The first whole-model override with a material wins, as in VRF. Otherwise the last override
+// that applies to this draw call gives the tint, and the last one with a material the material.
+OverrideHit FindOverride(const std::vector<MaterialOverride> &overrides, int meshIndex, size_t drawCall) {
+    OverrideHit hit;
     for (const MaterialOverride &o : overrides) {
-        if (o.material.empty()) continue;
-        if (o.drawCall == MaterialOverride::kAllDrawCalls) return &o.material;
-        if (int64_t(o.subSceneObject) == meshIndex && o.drawCall == drawCall) found = &o.material;
+        if (!o.Applies(meshIndex, drawCall)) continue;
+        if (o.drawCall == MaterialOverride::kAllDrawCalls && !o.material.empty()) return {&o.material, o.tint};
+        if (!o.material.empty()) hit.material = &o.material;
+        hit.tint = o.tint;
     }
-    return found;
+    return hit;
 }
 
 struct Primitive {
@@ -343,9 +356,16 @@ public:
 
     void Export(const Kv3 &node) {
         std::map<uint32_t, std::vector<MaterialOverride>> overrides;
-        for (const Kv3 &o : node["m_materialOverrides"].arr)
-            overrides[uint32_t(o["m_nSceneObjectIndex"].Integer())].push_back(
-                {uint32_t(o["m_nSubSceneObject"].Integer()), uint32_t(o["m_nDrawCallIndex"].Integer()), o["m_pMaterial"].Str()});
+        for (const Kv3 &o : node["m_materialOverrides"].arr) {
+            MaterialOverride m;
+            m.subSceneObject = uint32_t(o["m_nSubSceneObject"].Integer());
+            m.drawCall = uint32_t(o["m_nDrawCallIndex"].Integer());
+            m.material = o["m_pMaterial"].Str();
+            if (const Kv3 *t = o.Find("m_vLinearTintColor"))
+                m.tint = {float(t->At(0).Number(1)), float(t->At(1).Number(1)), float(t->At(2).Number(1)), 1.f};
+            if (m.material.empty() && m.tint == Vec4{1, 1, 1, 1}) continue; // changes nothing
+            overrides[uint32_t(o["m_nSceneObjectIndex"].Integer())].push_back(std::move(m));
+        }
         static const std::vector<MaterialOverride> none;
         const auto &sceneObjects = node["m_sceneObjects"].arr;
         for (size_t index = 0; index < sceneObjects.size(); ++index) {
@@ -492,24 +512,28 @@ private:
         for (const Entry &entry : list) {
             const auto drawCalls = DrawCalls(*entry.mesh);
             if (entry.mesh->data["m_sceneObjects"].arr.empty()) continue;
-            // Like VRF, a skinned or overridden mesh is exported under its own name.
+            // A skinned or overridden mesh is cached under its own key. The key holds the full
+            // override paths and tints, so overrides that share a file name never collide.
             std::string meshName = entry.name;
-            if (!skinTable.empty()) meshName += "." + skin;
+            if (!skinTable.empty()) meshName += "|skin=" + skin;
             for (const MaterialOverride &o : overrides) {
-                if (o.material.empty()) continue;
-                if (o.drawCall == MaterialOverride::kAllDrawCalls) meshName += "." + FileStem(o.material);
-                else if (int64_t(o.subSceneObject) == entry.meshIndex) meshName += "." + FileStem(o.material) + "@" + std::to_string(o.drawCall);
+                if (o.drawCall != MaterialOverride::kAllDrawCalls && int64_t(o.subSceneObject) != entry.meshIndex) continue;
+                meshName += "|" + (o.drawCall == MaterialOverride::kAllDrawCalls ? std::string("*") : std::to_string(o.drawCall)) + "=" +
+                            o.material + "*" + std::to_string(o.tint[0]) + "," + std::to_string(o.tint[1]) + "," + std::to_string(o.tint[2]);
             }
             auto it = exportedMeshes.find(meshName);
             if (it == exportedMeshes.end()) {
                 std::vector<Primitive> prims;
                 for (size_t d = 0; d < drawCalls.size(); ++d) {
-                    const std::string *replacement = FindOverride(overrides, entry.meshIndex, d);
+                    const OverrideHit hit = FindOverride(overrides, entry.meshIndex, d);
+                    const std::string *replacement = hit.material;
                     if (!replacement && !skinTable.empty()) {
                         const auto skinned = skinTable.find(OwnMaterial(*drawCalls[d]));
                         if (skinned != skinTable.end()) replacement = &skinned->second;
                     }
-                    prims.push_back({entry.mesh, d, MaterialFor(*drawCalls[d], tint, replacement)});
+                    Vec4 drawTint = tint;
+                    for (int k = 0; k < 3; ++k) drawTint[k] *= hit.tint[k];
+                    prims.push_back({entry.mesh, d, MaterialFor(*drawCalls[d], drawTint, replacement)});
                 }
                 it = exportedMeshes.emplace(meshName, std::move(prims)).first;
             }
