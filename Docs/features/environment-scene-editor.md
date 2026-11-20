@@ -177,7 +177,12 @@ added lights and world bounce also affect it. Fine grain and sparkle fade below 
 Wet ground is darker and richer, not paler: a soaked surface loses a quarter to over half of its
 brightness, more where it is porous, and gains a little saturation. Its mirror is water's own
 Fresnel term and nothing more, next to none looking straight down and strong toward the horizon, and
-a rough surface mirrors less. The mirror shows the scene through a short screen-space trace. Where
+a rough surface mirrors less. A placed light shows in it as a highlight, with the Lighting card on
+or off: water's Fresnel times a lobe that keeps its energy however tight it is, near a mirror on a
+puddle (a small bright image of the lamp) and broad on a wet street. The old highlight had neither,
+so a puddle showed a lamp no brighter than the pool of light round it. The map's own lamps light wet
+ground and puddles through the frame (their pools darken with the soak and the mirror shows what
+they light on screen) but draw no highlight of their own. The mirror shows the scene through a short screen-space trace. Where
 the trace finds nothing it shows the sky if the sky is open above, and the surface's own colour
 otherwise. An earlier constant sky-coloured film made wet ground look frosted and puddles white.
 The trace starts at the same point along the ray in every pixel and bisects its hit: started at a

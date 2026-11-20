@@ -282,6 +282,14 @@ float SnowLies(float3 cover,float3 world,out float trodden){
 float SnowCoverShade(float mapLuminance){
     return min(.03+.97*pow(saturate(mapLuminance),.28),SNOW_MAX_LIFT*max(mapLuminance,0));
 }
+// A lamp seen in water. Mirror of WaterLightGlint and WaterGlintExponent in EnvironmentCoatingMath.h.
+float WaterFresnel(float cosine){float m=1-saturate(cosine);return .0204+.9796*m*m*m*m*m;}
+float WaterLightGlint(float nDotH,float nDotL,float vDotH,float exponent){
+    return nDotL>0&&nDotH>0?WaterFresnel(vDotH)*(exponent+2)/6.2831853*pow(nDotH,exponent)*nDotL*.25:0;
+}
+float WaterGlintExponent(float puddle,float porous,float detail){
+    return lerp((28+72*detail)*(1-porous*.4),100+800*detail,saturate(puddle));
+}
 )HLSL"
 R"HLSL(
 // FOOTPRINTS: x = how deep a print is here (thin snow), y unused, z = how far down the players' feet
@@ -1086,13 +1094,17 @@ R"HLSL(
     }
     float exponent=lerp(28,100,CoatingDetailFade(footprint,.12))*(1-porous*.4);
     color+=SunColor()*CL_sunRelight*sunVisibility*saturate(dot(wetNormal,sun))*pow(saturate(dot(wetNormal,halfDir)),exponent)*wet*.3;
+    // A LAMP SEEN IN WATER (WaterLightGlint in EnvironmentCoatingMath.h): water's Fresnel times a
+    // normalized lobe, near a mirror on a puddle. Placed lights draw it with the Lighting card on or
+    // off. (The old pow(N.H,n)*.25 put a lamp on a puddle no brighter than its own pool.)
+    float glintExponent=WaterGlintExponent(puddle,porous,CoatingDetailFade(footprint,.12));
     [loop]for(int l=0;l<(int)lighting.x;++l){
         float3 dir;float atten=StudioAttenuation(l,0,p,dir);
         if(atten<=0)continue;
         atten*=WorldLightShadowSample(l,p+wetNormal*shadowInfo.y,0,viewmodel);
         float3 h=normalize(view+dir);
         color+=lightColorIntensity[l].rgb*lightColorIntensity[l].w*atten*
-            pow(saturate(dot(wetNormal,h)),exponent)*wet*.25;
+            WaterLightGlint(dot(wetNormal,h),dot(wetNormal,dir),dot(view,h),glintExponent)*wet;
     }
     return color;
 }
