@@ -82,7 +82,8 @@ The Render workspace's **Passes** tab has a type × visibility grid, the backgro
 
 ```
 mirv_filmmaker render pass                                   status + help
-mirv_filmmaker render pass add|remove|toggle <beauty|depth|normal> <all|worldplayers|world|players|gun>
+mirv_filmmaker render pass add|remove|toggle <beauty|key|depth|normal> <all|worldplayers|world|players|gun>
+                                                             beauty for all/worldplayers/world, key for players/gun
 mirv_filmmaker render pass clear
 mirv_filmmaker render pass key <r> <g> <b>                   0-255
 mirv_filmmaker render pass depth <near> <far>                world units

@@ -12,6 +12,7 @@
 #include "RenderManifest.h"
 #include "RenderResolution.h"
 #include "RenderEncoderDetect.h"
+#include "RenderWriterFailureMath.h"
 #include "RenderHdrCapture.h"
 #include "RenderWorldOnly.h"
 #include "RenderWorldPlayersNoGun.h"
@@ -95,6 +96,7 @@ struct PrevRecorder {
 	bool valid = false;
 } s_prevRec;
 
+ULONGLONG s_ffmpegWaitStartMs = 0; // when PreparingOutput began waiting for the FFmpeg check
 int s_returnTick = -1;          // demo position to put back
 bool s_returnPaused = true;
 int s_seekTick = 0;             // pre-roll seek target
@@ -350,6 +352,12 @@ void FinishJob(S terminal, const char* status, const std::string& note) {
 	RenderTakeHistory_Refresh();
 }
 
+// The first writer failure of this recording, with what FFmpeg last said (RenderWriterFailureMath.h).
+std::string WriterFailureText() {
+	const auto failure = AfxStreams_GetWriterFailure();
+	return RenderWriterFailureText(AfxStreams_GetWriterFailureCount(), failure.reason, failure.ffmpegTail);
+}
+
 void FailJob(const std::string& reason) {
 	s_progress.lastError = reason;
 	advancedfx::Warning("mirv_filmmaker render: FAILED: %s\n", reason.c_str());
@@ -503,6 +511,9 @@ bool RenderSessionDriver_Start(std::string& outError) {
 	SetPhase("starting");
 
 	RenderEncoderDetect_EnsureProbe();
+	if (RenderFormatUsesFfmpeg(job.out.format))
+		RenderEncoderDetect_RetryIfFfmpegFailed();
+	s_ffmpegWaitStartMs = 0;
 
 	if (!Transition(S::Validating)) {
 		outError = "session refused to leave Idle";
@@ -572,6 +583,15 @@ void RenderSessionDriver_RunFrame() {
 		return;
 	}
 
+	// A stream that cannot write ends the job at once, with its cause. Waiting for the take to
+	// end rendered every frame first and then refused it (the manifest check below stays).
+	if ((state == S::Capturing || state == S::FlushingGpu) && AfxStreams_GetWriterFailureCount() > 0) {
+		Probe("writer failure count=%d reason='%s'", AfxStreams_GetWriterFailureCount(),
+			AfxStreams_GetWriterFailure().reason.c_str());
+		FailJob(WriterFailureText());
+		return;
+	}
+
 	switch (state) {
 	case S::Validating: {
 		s_stateFrames = 0;
@@ -609,6 +629,29 @@ void RenderSessionDriver_RunFrame() {
 				RenderHdrCapture_BeginSequence(hdrDir.c_str());
 			}
 			return;
+		}
+
+		// Every format but TGA, BMP and EXR encodes through FFmpeg. Wait for the probe (it also
+		// says whether NVENC works, which the presets below read), then refuse a missing or broken
+		// FFmpeg now, with its path: before this check a job rendered the whole take and only then
+		// refused it, with a count of failures and no cause (viewer report, 2026-11-18).
+		if (RenderFormatUsesFfmpeg(s_job.out.format)) {
+			if (RenderEncoderDetect_Probing()) {
+				SetPhase("checking FFmpeg");
+				if (!s_ffmpegWaitStartMs) s_ffmpegWaitStartMs = GetTickCount64();
+				if (GetTickCount64() - s_ffmpegWaitStartMs > 30000) {
+					FailJob("the FFmpeg check did not finish within 30 seconds");
+					return;
+				}
+				return;
+			}
+			const std::string ffmpegProblem = RenderEncoderDetect_FfmpegProblem();
+			Probe("ffmpeg check problem='%s' waitedMs=%llu", ffmpegProblem.c_str(),
+				s_ffmpegWaitStartMs ? (unsigned long long)(GetTickCount64() - s_ffmpegWaitStartMs) : 0ull);
+			if (!ffmpegProblem.empty()) {
+				FailJob(ffmpegProblem);
+				return;
+			}
 		}
 
 		// One recorder preset per pass: the preset carries the pass's file name (beauty\world.mp4).
@@ -1107,13 +1150,8 @@ void RenderSessionDriver_RunFrame() {
 
 	case S::PostProcessing: {
 		SetPhase("writing manifest");
-		const int writerFailures = AfxStreams_GetWriterFailureCount();
-		if (writerFailures > 0) {
-			char reason[160];
-			snprintf(reason, sizeof(reason),
-				"capture writer reported %d output failure(s); refusing a completed manifest",
-				writerFailures);
-			FailJob(reason);
+		if (AfxStreams_GetWriterFailureCount() > 0) {
+			FailJob(WriterFailureText() + "; refusing a completed manifest");
 			return;
 		}
 		// The tick-authoritative end can legitimately finish one frame short (the last output

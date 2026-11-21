@@ -35,6 +35,7 @@
 #include "../Shared/GrowingBufferPoolThreadSafe.h"
 #include "../Shared/ImageTransformer.h"
 #include "../Shared/RecordingSettings.h"
+#include "../Shared/AfxOutStreams.h" // FFmpeg diagnostics from the failing capture worker
 #include "Filmmaker/Debug/MvmDebugLog.h" // MvmDebugLog_* (render.capsize RE probe)
 #include "Filmmaker/Debug/GpuPassProfiler.h" // GPU_PASS_SCOPE, the GPU pass profile
 #include "Filmmaker/Panorama/VpScaleBreakMath.h" // every scaled-preview break, numbered (vpscale.break)
@@ -337,6 +338,16 @@ RenderFrameTiming RenderFrameTiming_Sample() {
 
 extern SOURCESDK::VMatrix g_WorldToScreenMatrix; // engine's completed view, including Smooth View / TrueView
 std::atomic<int> g_AfxCaptureWriterFailureCount{0};
+// What the first writer failure since RecordStart was (AfxStreams_GetWriterFailure).
+static std::mutex g_AfxCaptureWriterFailureMutex;
+static AfxStreamWriterFailure g_AfxCaptureWriterFailure;
+// Writer thread: counts a failure and keeps the first one's reason.
+static void AfxNoteWriterFailure(const char* reason) {
+	std::lock_guard<std::mutex> lock(g_AfxCaptureWriterFailureMutex);
+	if (g_AfxCaptureWriterFailureCount.load(std::memory_order_relaxed) == 0)
+		g_AfxCaptureWriterFailure = {reason, advancedfx::FfmpegErrorTail_Get()};
+	g_AfxCaptureWriterFailureCount.fetch_add(1, std::memory_order_release);
+}
 // Diagnostic (mirv_filmmaker render waitpresent 1): force r_wait_on_present during a recording, as
 // the inherited recorder always did. Off by default: see RecordStart.
 std::atomic<bool> g_RecordWaitOnPresent{false};
@@ -734,6 +745,7 @@ private:
 	}
 
 	void ProcessingThreadFunc() {
+		advancedfx::FfmpegErrorTail_Clear();
 		std::unique_lock<std::mutex> lock(m_ProcessingThreadMutex);
 		while (!m_ShutDown || !m_CpuTexturesTodo.empty()) {
 			if (!m_CpuTexturesTodo.empty()) {
@@ -779,13 +791,13 @@ private:
                             m_OutVideoStream = m_pOutVideoStreamCreator->CreateOutVideoStream(*buffer->GetImageBufferFormat());
                             if (nullptr == m_OutVideoStream)
                             {
-								g_AfxCaptureWriterFailureCount.fetch_add(1, std::memory_order_relaxed);
+								AfxNoteWriterFailure("a stream's output could not be opened");
                                 advancedfx::Warning("AFXERROR: Failed to create image stream for screen recording.\n");
                             }
                         }
                         if (nullptr != m_OutVideoStream && !m_OutVideoStream->SupplyImageBuffer(this, buffer))
                         {
-							g_AfxCaptureWriterFailureCount.fetch_add(1, std::memory_order_relaxed);
+							AfxNoteWriterFailure("a stream could not write a frame (its encoder did not start or stopped)");
                             advancedfx::Warning("AFXERROR: Failed writing image for screen recording.\n");
                         }
                         buffer->Release();
@@ -7589,7 +7601,11 @@ void CAfxStreams::RecordStart()
 {
 	RecordEnd();
 	m_RecordedSourceFrameCount.store(0, std::memory_order_release);
-	g_AfxCaptureWriterFailureCount.store(0, std::memory_order_release);
+	{
+		std::lock_guard<std::mutex> lock(g_AfxCaptureWriterFailureMutex);
+		g_AfxCaptureWriterFailure = {};
+		g_AfxCaptureWriterFailureCount.store(0, std::memory_order_release);
+	}
 
 	advancedfx::Message("Starting recording ... ");
 	
@@ -7855,6 +7871,11 @@ int AfxStreams_GetRecordedSourceFrameCount() {
 
 int AfxStreams_GetWriterFailureCount() {
 	return g_AfxCaptureWriterFailureCount.load(std::memory_order_acquire);
+}
+
+AfxStreamWriterFailure AfxStreams_GetWriterFailure() {
+	std::lock_guard<std::mutex> lock(g_AfxCaptureWriterFailureMutex);
+	return g_AfxCaptureWriterFailure;
 }
 
 const char * AfxStreams_GetRecordNameUtf8() {
