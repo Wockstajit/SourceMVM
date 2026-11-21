@@ -511,7 +511,11 @@ void PumpKeyedWind() {
 	const float want = keyed ? std::clamp(float(WorldTransient::Number("props.wind", g_windStrength)), 0.0f, 200.0f) : g_windStrength;
 	const bool live = g_wind && EntityAt(g_windIndex) == g_wind;
 	if (!live) {
-		if (want > 0) SpawnWind(want);
+		// Runs every frame while keyed, so a curve rising from 0 has its wind on the first frame;
+		// a spawn that did not take is retried at most every 250 ms.
+		static ULONGLONG spawnAt = 0;
+		const ULONGLONG t = GetTickCount64();
+		if (want > 0 && t - spawnAt >= 250) { spawnAt = t; SpawnWind(want); }
 		return;
 	}
 	if (std::fabs(want - g_windApplied) < 1.0f) return;
@@ -1132,8 +1136,9 @@ void Props_RunMainThreadFrame() {
 		if (Placed* p = Find(g_before.id); p && LiveUpdate(*p)) g_grabDirty = false;
 	const ULONGLONG now = GetTickCount64();
 	// A keyed Foliage wind curve is written every frame; behind the 250 ms throttle below it played
-	// as 4 Hz steps. Only the in-place write: spawning the wind entity stays throttled.
-	if (g_wind && !g_map.empty() && now - g_mapSince >= 3000 && EntityAt(g_windIndex) == g_wind) PumpKeyedWind();
+	// as 4 Hz steps, and a curve rising from 0 had no wind for up to 250 ms.
+	if (!g_map.empty() && now - g_mapSince >= 3000 && ((g_wind && EntityAt(g_windIndex) == g_wind) || WorldTransient::Has("props.wind")))
+		PumpKeyedWind();
 	if (now - g_lastCheck < 250) return;
 	g_lastCheck = now;
 	const std::string map = CurrentMap();

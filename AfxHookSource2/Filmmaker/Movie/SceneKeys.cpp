@@ -250,13 +250,17 @@ void CatalogJson(JsonBuilder& j) {
 // A depth-of-field or flare property armed while that effect is off would change nothing: the lens
 // pass only runs while DEPTH OF FIELD or LENS FLARE is on. Turns the effect on. Run after every
 // scenekeys edit and when a demo's saved track loads, so a saved focus pull plays on reopen.
+// Keys play whether or not their strip is armed (Apply reads every unmuted field), so both count.
 void EnableKeyedLens(const char* why) {
     if(!g_pEngineToClient)return;
+    std::set<std::string> live=g_track.data.armed;
+    for(const auto& f:g_track.data.fields)
+        if(!f.second.empty()&&!g_track.data.muted.count(f.first))live.insert(f.first);
     for(const char* effect:{"dof","flare"}){
         const bool on=std::string(effect)=="dof"?LensFx_DofOn():LensFx_FlareOn();
         if(on)continue;
         const std::string prefix=std::string("lens.")+effect+".";
-        for(const auto& id:g_track.data.armed)
+        for(const auto& id:live)
             if(id.rfind(prefix,0)==0){
                 g_pEngineToClient->ExecuteClientCmd(0,(std::string("mirv_filmmaker lens set ")+effect+".on 1 quiet").c_str(),true);
                 MvmDebugLog_LinefAlways("scenekeys","%s turned %s on for %s",why,effect,id.c_str());
