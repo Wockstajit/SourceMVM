@@ -753,6 +753,10 @@ bool SceneEnabled() {
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_scene.enabled;
 }
+bool StormCentreSet() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_scene.climate[CL_stormX] != 0 || g_scene.climate[CL_stormY] != 0 || g_scene.climate[CL_stormZ] != 0;
+}
 void BeginPractice() {
     std::lock_guard<std::mutex> lock(g_mutex);
     FlushAutosave(true); // the user's last edits reach their file before the session holds it

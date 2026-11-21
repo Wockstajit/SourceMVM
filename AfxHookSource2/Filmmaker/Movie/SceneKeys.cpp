@@ -33,6 +33,7 @@ SceneKeyframeTrack g_track;
 std::wstring g_demo;
 std::string g_map, g_error;
 bool g_loaded = false, g_dirty = false, g_failed = false, g_gesture = false, g_reassert = false;
+bool g_stormPending = false; // keyed Lightning is waiting for a rendered camera to place its cell
 ULONGLONG g_saveAt = 0;
 double g_captureTick = -1, g_appliedTick = 0;
 std::map<std::wstring, TrackData> g_unsaved;
@@ -251,11 +252,21 @@ void CatalogJson(JsonBuilder& j) {
 // pass only runs while DEPTH OF FIELD or LENS FLARE is on. Turns the effect on. Run after every
 // scenekeys edit and when a demo's saved track loads, so a saved focus pull plays on reopen.
 // Keys play whether or not their strip is armed (Apply reads every unmuted field), so both count.
-void EnableKeyedLens(const char* why) {
+// Keyed Lightning needs a storm cell to strike in: one never placed through CONFIG sits at the
+// world origin, so it is dropped at the camera, as CONFIG's Lightning switch does.
+void EnableKeyedEffects(const char* why) {
     if(!g_pEngineToClient)return;
     std::set<std::string> live=g_track.data.armed;
     for(const auto& f:g_track.data.fields)
         if(!f.second.empty()&&!g_track.data.muted.count(f.first))live.insert(f.first);
+    g_stormPending=false;
+    if(live.count("env.storm")&&!Environment::StormCentreSet()){
+        Environment::Matrix clip;Environment::Vec3 eye;
+        if(Environment::RenderedCamera(clip,eye)){
+            g_pEngineToClient->ExecuteClientCmd(0,"mirv_filmmaker environment storm-center",true);
+            MvmDebugLog_LinefAlways("scenekeys","%s placed the storm cell at the camera for env.storm",why);
+        } else g_stormPending=true;
+    }
     for(const char* effect:{"dof","flare"}){
         const bool on=std::string(effect)=="dof"?LensFx_DofOn():LensFx_FlareOn();
         if(on)continue;
@@ -279,7 +290,8 @@ void SceneKeys_RunFrame() {
     // maps back to the original demo, so its scene keys live in the original's project.
     const auto demo = PlayingDemoPath();
     const auto map = Environment::CurrentMapName();
-    if (!g_loaded || demo != g_demo) { g_track.EndEdit(); Flush(); g_demo = demo; g_loaded = true; Load(); EnableKeyedLens("load"); g_reassert = true; }
+    if (!g_loaded || demo != g_demo) { g_track.EndEdit(); Flush(); g_demo = demo; g_loaded = true; Load(); EnableKeyedEffects("load"); g_reassert = true; }
+    if (g_stormPending) EnableKeyedEffects("camera");
     if (map != g_map) { g_map = map; PrepareAssets(); g_reassert = true; }
     if (g_dirty && GetTickCount64() >= g_saveAt && !g_gesture) Flush();
     Apply(g_captureTick >= 0 ? g_captureTick : TimelinePlayhead_Tick()); g_captureTick = -1;
@@ -545,12 +557,13 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
     // a time-of-day look keyed with the Environment off used to change nothing on screen.
     if(op!="status"&&!Environment::SceneEnabled())
         for(const auto& id:g_track.data.armed)
-            if(id.rfind("env.",0)==0&&id!="env.enabled"){
+            // Foliage wind is CONFIG > EFFECTS' props wind (props.wind), not an Environment pass.
+            if(id.rfind("env.",0)==0&&id!="env.enabled"&&id!="env.foliageWind"){
                 if(g_pEngineToClient)g_pEngineToClient->ExecuteClientCmd(0,"mirv_filmmaker environment on",true);
                 MvmDebugLog_LinefAlways("scenekeys","%s turned the Environment on for %s",op.c_str(),id.c_str());
                 break;
             }
     // The same for the lens: a depth-of-field or flare property keyed with that effect off changed nothing.
-    if(op!="status")EnableKeyedLens(op.c_str());
+    if(op!="status")EnableKeyedEffects(op.c_str());
 }
 } // namespace Filmmaker
