@@ -11,6 +11,7 @@
 #include <wrl/client.h>
 #include <d3dcompiler.h>
 #include <atomic>
+#include <future>
 #include <map>
 
 namespace Filmmaker::Environment {
@@ -62,6 +63,11 @@ struct State {
     bool obstaclesDone = false;
     GroundFogClock clock;
     std::map<int, Vec3> pawns; // where each player was at the last step
+    // The billow noise the gust volume is torn by (GustNoiseVolume), built on a worker when the
+    // device starts so turning gusts on never waits for it.
+    std::future<std::vector<uint8_t>> noiseJob;
+    ComPtr<ID3D11ShaderResourceView> noiseSrv;
+    ComPtr<ID3D11SamplerState> noiseSampler;
     StepConstants k{};
     unsigned idle = 0, steps = 0, restarts = 0, solidCells = 0;
 } state;
@@ -137,11 +143,11 @@ void PumpObstacles(const Frame &f) {
         for (int x = 0; x < grid.width; ++x)
             state.tops[size_t(state.topsRow) * grid.width + x] = WeatherCoverTop(grid.CentreX(x), grid.CentreY(state.topsRow), state.low, state.high);
     if (state.topsRow < grid.height) return;
-    const std::vector<uint8_t> solid = WindObstacles(state.tops, grid.width, grid.height, grid.cell);
+    const std::vector<uint8_t> solid = WindAirMap(state.tops, grid.width, grid.height, grid.cell);
     state.tops.clear();
     state.tops.shrink_to_fit();
     state.obstaclesDone = true;
-    for (uint8_t s : solid) state.solidCells += s ? 1 : 0;
+    for (uint8_t s : solid) state.solidCells += s > 127 ? 1 : 0;
     D3D11_TEXTURE2D_DESC d{};
     d.Width = UINT(grid.width);
     d.Height = UINT(grid.height);
@@ -182,7 +188,29 @@ bool Compile(const char *entry, const char *profile, ComPtr<ID3DBlob> &code) {
 }
 } // namespace
 
-void EndWindFluid() { state = State{}; }
+constexpr int kNoiseSize = 64;
+void PumpNoise() {
+    if (state.noiseSrv || !state.noiseJob.valid() || state.noiseJob.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    std::vector<uint8_t> voxels;
+    try { voxels = state.noiseJob.get(); } catch (...) { voxels.clear(); }
+    if (voxels.size() != size_t(kNoiseSize) * kNoiseSize * kNoiseSize || !state.device) return;
+    D3D11_TEXTURE3D_DESC d{};
+    d.Width = d.Height = d.Depth = UINT(kNoiseSize);
+    d.MipLevels = 1;
+    d.Format = DXGI_FORMAT_R8_UNORM;
+    d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA data{voxels.data(), UINT(kNoiseSize), UINT(kNoiseSize * kNoiseSize)};
+    ComPtr<ID3D11Texture3D> texture;
+    RenderPrivateTextureScope privateTextures;
+    if (FAILED(state.device->CreateTexture3D(&d, &data, &texture)) || FAILED(state.device->CreateShaderResourceView(texture.Get(), nullptr, &state.noiseSrv)))
+        state.noiseSrv.Reset();
+    MvmDebugLog_LinefAlways("environment.wind", "gust noise %d^3 %s", kNoiseSize, state.noiseSrv ? "uploaded" : "FAILED");
+}
+
+void EndWindFluid() {
+    if (state.noiseJob.valid()) state.noiseJob.wait();
+    state = State{};
+}
 void BeginWindFluid(ID3D11Device *device) {
     EndWindFluid();
     if (!device) return;
@@ -209,6 +237,10 @@ void BeginWindFluid(ID3D11Device *device) {
     sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
     sd.MaxLOD = D3D11_FLOAT32_MAX;
     state.ready = SUCCEEDED(device->CreateBuffer(&cb, nullptr, &state.constants)) && SUCCEEDED(device->CreateSamplerState(&sd, &state.sampler));
+    D3D11_SAMPLER_DESC wrap = sd;
+    wrap.AddressU = wrap.AddressV = wrap.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+    device->CreateSamplerState(&wrap, &state.noiseSampler);
+    state.noiseJob = std::async(std::launch::async, [] { return GustNoiseVolume(kNoiseSize); });
 }
 
 WindFluidFrameInfo PrepareWindFluid(ID3D11DeviceContext *ctx, const Frame &f, const Climate &climate, bool precipitating) {
@@ -221,6 +253,7 @@ WindFluidFrameInfo PrepareWindFluid(ID3D11DeviceContext *ctx, const Frame &f, co
         return info;
     }
     state.idle = 0;
+    PumpNoise();
     if (!PrepareGrid(f)) return info;
     PumpObstacles(f);
     const auto &grid = state.grid;
@@ -337,6 +370,12 @@ void BindWindFluid(ID3D11DeviceContext *ctx) {
     ctx->VSSetShaderResources(42, 1, &view);
     ctx->PSSetSamplers(8, 1, &sampler);
     ctx->VSSetSamplers(8, 1, &sampler);
+    ID3D11ShaderResourceView *noise = state.noiseSrv.Get();
+    ID3D11SamplerState *noiseSampler = state.noiseSampler.Get();
+    ctx->PSSetShaderResources(49, 1, &noise);
+    ctx->VSSetShaderResources(49, 1, &noise);
+    ctx->PSSetSamplers(10, 1, &noiseSampler);
+    ctx->VSSetSamplers(10, 1, &noiseSampler);
 }
 std::string WindFluidStatus() {
     if (!state.ready) return "wind: shaders unavailable";

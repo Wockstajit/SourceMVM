@@ -1934,29 +1934,82 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             } else {
                 required(4);
                 next.held.erase(HeldWeatherTypeKey());
+                // Each weather brings its own air with it: the gusts, the haze and the fog it is seen
+                // through. Clear takes them away again. Anything changed afterwards stays changed until
+                // a weather is picked again. (Ground fog is its own pass and is never touched here.)
+                auto look = [&](float gusts, float fog, float fogHeight, float fogNoise, Vec3 fogColor, float haze) {
+                    auto &c = next.climate;
+                    // The ground drift starts as each weather's own look (1), whatever the last one was set to.
+                    const std::pair<ClimateField, float> keys[] = {{CL_gusts, gusts},     {CL_fogDensity, fog},  {CL_fogHeight, fogHeight},
+                                                                    {CL_fogNoise, fogNoise}, {CL_haze, haze},       {CL_gustDensity, 1.f},
+                                                                    {CL_gustHeight, 1.f},  {CL_gustWisps, 1.f}, {CL_gustFloor, 1.f}};
+                    for (const auto &[field, value] : keys) {
+                        c.values[field] = value;
+                        next.held.erase(ClimateSpecs()[field].key);
+                    }
+                    if (fog > 0) next.fogColor = fogColor;
+                    // The renderer's master switch follows what is on, as the panel's does: a
+                    // weather that brings gusts and fog switches it on.
+                    if (gusts > 0 || fog > 0) c[CL_enabled] = 1;
+                };
+                // And its ground, replacing the last weather's: rain lifts the snow, snow dries the
+                // street, ash and clear leave it dry. Picking a weather sets the whole of it.
+                auto ground = [&](float snow, float wet, float puddles) {
+                    auto &c = next.climate;
+                    // Pools belong to a map, as `climate puddles` binds them.
+                    if (puddles > 0 && !next.map.empty() && next.map != CurrentMap()) puddles = 0;
+                    if (puddles > 0) next.map = CurrentMap();
+                    const std::pair<ClimateField, float> keys[] = {{CL_snow, snow}, {CL_wet, wet}, {CL_puddles, puddles}};
+                    for (const auto &[field, value] : keys) {
+                        c.values[field] = value;
+                        next.held.erase(ClimateSpecs()[field].key);
+                    }
+                    if (snow > 0 || wet > 0) c[CL_enabled] = 1;
+                };
                 if (mode == "clear") {
                     w.type = 0;
+                    look(0, 0, ClimateSpecs()[CL_fogHeight].initial, ClimateSpecs()[CL_fogNoise].initial, next.fogColor, ClimateSpecs()[CL_haze].initial);
+                    ground(0, 0, 0);
                 } else if (mode == "rain" || mode == "storm") {
                     w.type = 1;
                     w.speed = mode == "storm" ? 1050.f : 700.f;
                     w.count = mode == "storm" ? 5200 : 3600;
                     w.size = 1.3f;
-                    w.windX = mode == "storm" ? 180.f : 40.f;
                     w.color = {.6f, .7f, .85f};
+                    // A storm at sea: rain blown nearly level through a blue-grey haze, gusts of
+                    // spray running low over the ground.
+                    w.windX = mode == "storm" ? 220.f : 110.f;
+                    w.windY = mode == "storm" ? 70.f : 35.f;
+                    look(mode == "storm" ? .85f : .55f, mode == "storm" ? .3f : .16f, 420, .6f, {.50f, .56f, .64f}, mode == "storm" ? 1.1f : .8f);
+                    ground(0, .6f, .25f);
                 } else if (mode == "snow") {
                     w.type = 2;
                     w.speed = 65;
-                    w.count = 4200;
+                    // About as many flakes as a blizzard in the reference pack holds near the camera
+                    // (it keeps about 0.3 a cubic metre; 4200 here was nine times that).
+                    w.count = 1200;
                     w.size = 1.9f;
-                    w.windX = 18;
                     w.color = {.9f, .95f, 1};
+                    // A blizzard: a white-out haze and banks of blown snow
+                    // sweeping over the ground.
+                    w.windX = 55;
+                    w.windY = 20;
+                    look(.75f, .26f, 520, .7f, {.86f, .88f, .91f}, 1.f);
+                    ground(.6f, 0, 0);
                 } else if (mode == "ash") {
                     w.type = 3;
                     w.speed = 24;
-                    w.count = 4200;
+                    w.count = 1500;
                     w.size = 1.35f;
-                    w.windX = 28;
                     w.color = {.62f, .61f, .6f};
+                    // A sand storm in ash's greys: a warm grey haze, ash blown along the ground
+                    // in banks, embers among the flakes.
+                    w.windX = 48;
+                    w.windY = 14;
+                    look(.6f, .3f, 620, .7f, {.54f, .51f, .47f}, 1.2f);
+                    // Hold a little more of each low ash bank between the gusts.
+                    next.climate[CL_gustWisps] = .68f;
+                    ground(0, 0, 0);
                 } else if (mode == "embers" || mode == "motes" || mode == "smoke") {
                     w.count = mode == "smoke" ? 450 : 1200;
                     w.type = mode == "embers" ? 4 : mode == "motes" ? 5 : 6;

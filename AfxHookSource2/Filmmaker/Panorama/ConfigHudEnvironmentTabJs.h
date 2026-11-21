@@ -47,7 +47,7 @@ R"CFJS(
     // Lightning lives on this card, so its Reset owns the storm keys too.
     // Surface coatings are part of this card too (rain and wetness are one effect), so its Reset
     // owns their keys as well.
-    var ENV_WX_KEYS = ['particleDetail', 'turbulence', 'gusts', 'particleOpacity', 'softness', 'streak', 'particleLight',
+    var ENV_WX_KEYS = ['particleDetail', 'turbulence', 'gusts', 'gustDensity', 'gustHeight', 'gustWisps', 'gustFloor', 'particleOpacity', 'softness', 'streak', 'particleLight',
        'storm', 'stormInterval', 'stormStrength', 'stormRadius', 'stormX', 'stormY', 'stormZ',
        'stormSeed', 'stormHold',
        'snow', 'snowDepth', 'wet', 'puddles', 'ripple', 'puddleHeight', 'puddleDepth', 'maskScale', 'surfaceRadius',
@@ -64,24 +64,11 @@ R"CFJS(
       }
     }, 'env.wx');
 
-    // What a weather type does to the ground when it starts on dry ground.
-    var WX_SURFACE = {
-      rain: { snow: 0, wet: 0.6, puddles: 0.25 },
-      snow: { snow: 0.6, wet: 0, puddles: 0 },
-      ash:  { snow: 0, wet: 0, puddles: 0 }
-    };
-    function envSurfacesDry() {
-      var c = envClimate();
-      return !c || !(c.snow > 0 || c.wet > 0 || c.puddles > 0 || c.storm > 0);
-    }
-    // Picking a weather starts its surfaces too, unless surfaces are already set up by hand.
+    // Picking a weather brings its air and starts its ground on dry ground: the weather command does
+    // both (EnvironmentScene.cpp), so the console and these buttons do the same thing.
     function envChooseWeather(k) {
-      var dry = envSurfacesDry();
       envEnsureEnabled();
       envCommand('weather ' + k);
-      var look = WX_SURFACE[k];
-      if (look && dry)
-        for (var key in look) envCommand('climate ' + key + ' ' + look[key]);
     }
 
     // The card's pass switch covers the particles AND the surfaces. Off remembers the running type
@@ -173,6 +160,10 @@ R"CFJS(
       onChange: function (v) { cmd('mirv_filmmaker props wind ' + v); }
     });
     renderHooks.push(function (st) { if (st && st.props) envFoliageWind.sync(st.props.wind || 0); });
+    // What the gusts blow along the floor, each row scaling the weather's own look. Picking a
+    // weather puts them back to 1.
+    var envDriftPage = envWeatherSec.__group(T('Ground drift'));
+    cs(envDriftPage, 'gustDensity'); cs(envDriftPage, 'gustHeight'); cs(envDriftPage, 'gustWisps'); cs(envDriftPage, 'gustFloor');
     var envCoatPage = envWeatherSec.__group(T('Ground'));
     cs(envCoatPage, 'wet'); cs(envCoatPage, 'puddles'); cs(envCoatPage, 'snow'); cs(envCoatPage, 'snowDepth');
     // CS2's own water beads, read from the game install: a switch, so the two looks can be compared.

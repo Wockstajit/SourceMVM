@@ -322,7 +322,27 @@
     } else if (op === 'weather') {
       if (t[1] === 'set') s.weather[t[2]] = +t[3];
       else if (t[1] === 'wind') { s.weather.windX = +t[2] * Math.cos(+t[3]*Math.PI/180); s.weather.windY = +t[2] * Math.sin(+t[3]*Math.PI/180); }
-      else { s.weather.type = ['clear','rain','snow','ash','embers','motes','smoke'].indexOf(t[1]); }
+      else {
+        // Mirrors the weather command in EnvironmentScene.cpp: storm is rain, and rain, snow and ash
+        // bring their own air (gusts, haze, fog); clear takes it away.
+        s.weather.type = ['clear','rain','snow','ash','embers','motes','smoke'].indexOf(t[1] === 'storm' ? 'rain' : t[1]);
+        var looks = {clear:[0,0,climateDefaults.fogHeight,climateDefaults.fogNoise,null,climateDefaults.haze,0,0],
+          rain:[.55,.16,420,.6,[.50,.56,.64],.8,110,35], storm:[.85,.3,420,.6,[.50,.56,.64],1.1,220,70],
+          snow:[.75,.26,520,.7,[.86,.88,.91],1,55,20], ash:[.6,.3,620,.7,[.54,.51,.47],1.2,48,14]};
+        var look = looks[t[1]];
+        if (look) {
+          s.climate.gusts = look[0]; s.climate.fogDensity = look[1]; s.climate.fogHeight = look[2];
+          s.climate.fogNoise = look[3]; s.climate.haze = look[5];
+          // The ground drift starts as each weather's own look.
+          s.climate.gustDensity = 1; s.climate.gustHeight = 1; s.climate.gustWisps = 1; s.climate.gustFloor = 1;
+          if (look[4]) s.fogColor = look[4].slice();
+          if (look[0] > 0 || look[1] > 0) s.climate.enabled = 1;
+          // And its ground, replacing the last weather's.
+          var grounds = {rain:[0,.6,.25], storm:[0,.6,.25], snow:[.6,0,0], ash:[0,0,0], clear:[0,0,0]}, g = grounds[t[1]];
+          if (g) { s.climate.snow = g[0]; s.climate.wet = g[1]; s.climate.puddles = g[2]; }
+          if (t[1] !== 'clear') { s.weather.windX = look[6]; s.weather.windY = look[7]; }
+        }
+      }
       s.enabled = true; push(before);
     } else if (op === 'on' || op === 'off') { s.enabled = op === 'on'; push(before); }
     else if (op === 'save') {

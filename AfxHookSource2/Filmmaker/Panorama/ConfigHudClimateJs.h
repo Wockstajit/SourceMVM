@@ -106,6 +106,23 @@ R"CFJS(
       [T('Street mist'), function () { applyGroundFogLook(GROUND_FOG_LOOKS.mist); }],
       [T('Thick sheet'), function () { applyGroundFogLook(GROUND_FOG_LOOKS.sheet); }]
     ], 2, T('Sets the sliders below as a place to start. Street mist: thin torn fog with a milky haze. Thick sheet: one solid layer on the floor.'));
+    // GROUND FOG'S OWN SWITCH (2026-11-18). On and off without dragging the density down: off holds
+    // the density (pass-off, as the card switches do) and every setting below, on brings them back (1
+    // the first time). The card's header switch is the height fog's alone.
+    var envGroundFogMemo = null;
+    var envGroundFogSwitch = togglePill(envGroundFogPage, T('Ground fog'), T('Turns the ground fog on and off. Off keeps its density and every setting below; on brings them back. The switch in the card header is the height fog.'), function () {
+      var c = envClimate();
+      if (!c) return;
+      if (c.enabled && c.groundFog > 0) {
+        envGroundFogMemo = c.groundFog;
+        envCommand('pass-off groundFog 0');
+        envReleaseIfIdle({ groundFog: 0 });
+      } else {
+        envEnsureEnabled();
+        var held = (envState() || {}).held || {};
+        envCommand('climate groundFog ' + (envGroundFogMemo || held.groundFog || 1));
+      }
+    });
     cs(envGroundFogPage, 'groundFog'); cs(envGroundFogPage, 'groundFogCoverage'); cs(envGroundFogPage, 'groundFogHeight');
     subHead(envGroundFogPage, T('Shape'));
     cs(envGroundFogPage, 'groundFogSoftness');
@@ -142,6 +159,7 @@ R"CFJS(
       if (fogParts.length && c.lightShafts) fogParts.push(T('shafts'));
       envFogSec.__note(fogParts.length ? fogParts.join(' · ') : T('Off'));
       envFogSimView.set(st.groundFogView === true);
+      envGroundFogSwitch.set(!!(c.enabled && c.groundFog > 0));
       envLooksSec.__note(T('Exposure {0} · saturation {1}', s.exposure.toFixed(2), c.saturation.toFixed(2)));
       climateShadowStatus.text = st.envOcclusionReady ? '' : (st.envOcclusionStatus || T('Map lighting data unavailable'));
       climateShadowStatus.visible = !!climateShadowStatus.text;
