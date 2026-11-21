@@ -51,9 +51,15 @@ const std::map<std::string, std::string>& Names() {
         {"env.clouds", "Clouds"}, {"env.coverage", "Cloud coverage"}, {"env.density", "Cloud density"},
         {"env.cloudBase", "Cloud base height"}, {"env.cloudDepth", "Cloud layer depth"},
         {"env.cloudScale", "Cloud detail scale"}, {"env.windSpeed", "Cloud wind speed"},
+        {"env.sunColor", "Sun colour"}, {"env.moon", "Moon brightness"}, {"env.moonPhase", "Moon phase"},
+        {"env.moonSize", "Moon size"}, {"env.moonColor", "Moon colour"}, {"env.hideMapClouds", "Hide map clouds"},
+        {"env.cloudRain", "Cloud rain darkening"},
         // CONFIG > ENVIRONMENT > LIGHTING
         {"env.enabled", "Environment on"}, {"env.ambient", "Ambient light"}, {"env.sunRelight", "Surface sunlight"},
         {"env.sunAngle", "Sun size (shadows)"}, {"env.bakedFill", "Unbaked fill"},
+        {"env.mapLightPower", "Map light power"}, {"env.playerFill", "Player fill"}, {"env.bounce", "Bounce intensity"},
+        {"env.lampAngle", "Light source angle"}, {"env.shadowSoftness", "Shadow softness"},
+        {"env.exposureBias", "Exposure bias"},
         // CONFIG > ENVIRONMENT > FOG
         {"env.fogDensity", "Fog density"}, {"env.fogColor", "Fog colour"}, {"env.fogStart", "Fog start distance"},
         {"env.fogHeight", "Fog height"}, {"env.fogNoise", "Fog variation"}, {"env.fogBase", "Fog base height"},
@@ -69,6 +75,7 @@ const std::map<std::string, std::string>& Names() {
         {"env.groundFogBillowSize", "Ground fog billow size"}, {"env.groundFogChurn", "Ground fog churn"},
         {"env.groundFogSun", "Ground fog sun"}, {"env.groundFogShade", "Ground fog shade brightness"},
         {"env.groundFogPushSize", "Ground fog push size"}, {"env.groundFogShadows", "Ground fog shadows"},
+        {"env.groundFogColor", "Ground fog colour"}, {"env.groundFogShadeColor", "Ground fog shade colour"},
         // CONFIG > ENVIRONMENT > WEATHER
         {"env.weather.type", "Weather type"}, {"env.weather.speed", "Fall speed"}, {"env.weather.size", "Particle size"},
         {"env.weather.color", "Particle colour"}, {"env.weather.windX", "Particle wind X"},
@@ -80,6 +87,9 @@ const std::map<std::string, std::string>& Names() {
         {"env.puddleHeight", "Puddle height"}, {"env.puddleDepth", "Puddle tolerance"},
         {"env.surfaceRadius", "Surface radius"}, {"env.surfaceX", "Surface centre X"}, {"env.surfaceY", "Surface centre Y"},
         {"env.maskScale", "Patch scale"}, {"env.ripple", "Ripples"}, {"env.reflectionRoughness", "Reflection roughness"},
+        {"env.snowDepth", "Snow depth"},
+        // CONFIG > ENVIRONMENT > WEATHER > Lightning
+        {"env.stormStrength", "Lightning intensity"},
     };
     return names;
 }
@@ -90,11 +100,13 @@ bool Has(const std::string& list, const std::string& id) { return (" " + list + 
 struct EnvGroup { const char* id; const char* title; const char* keys; };
 const EnvGroup kEnvGroups[] = {
     {"looks", "Looks", "exposure saturation contrast tint bloom bloomThreshold vignette grain chromatic"},
-    {"sky", "Sky", "sky timeOfDay sunPath sunHeight sunAzimuth sunElevation sunPower haze stars clouds coverage density cloudBase cloudDepth cloudScale windSpeed"},
-    {"lighting", "Lighting", "enabled ambient sunRelight sunAngle bakedFill"},
-    {"fog", "Fog", "fogDensity fogColor fogStart fogHeight fogNoise groundFog groundFogCoverage groundFogHeight groundFogDetail groundFogFlow groundFogRecovery groundFogSwirl groundFogWind groundFogWindAngle groundFogSoftness groundFogWisps groundFogWispSize groundFogStreak groundFogBillowSize groundFogChurn groundFogSun groundFogShade groundFogPushSize groundFogShadows lightShafts fogBase fogRange scatter localFogRadius fogX fogY fogZ"},
+    {"sky", "Sky", "sky timeOfDay sunPath sunHeight sunAzimuth sunElevation sunPower haze stars sunColor moon moonPhase moonSize moonColor clouds hideMapClouds coverage density cloudBase cloudDepth cloudScale windSpeed cloudRain"},
+    // CONFIG's Light, Shadows and Exposure groups, then the values with no control.
+    {"lighting", "Lighting", "enabled mapLightPower ambient playerFill bounce sunAngle lampAngle shadowSoftness exposureBias sunRelight bakedFill"},
+    {"fog", "Fog", "fogDensity fogStart fogHeight fogNoise fogColor lightShafts groundFog groundFogCoverage groundFogHeight groundFogSoftness groundFogWisps groundFogWispSize groundFogStreak groundFogDetail groundFogBillowSize groundFogColor groundFogSun groundFogShade groundFogShadows groundFogShadeColor groundFogFlow groundFogPushSize groundFogRecovery groundFogSwirl groundFogWind groundFogWindAngle groundFogChurn fogBase fogRange scatter localFogRadius fogX fogY fogZ"},
     {"weather", "Weather", "weather.type weather.speed weather.size weather.color weather.windX weather.windY turbulence particleOpacity softness streak particleLight"},
-    {"ground", "Ground", "snow wet puddles puddleHeight puddleDepth surfaceRadius surfaceX surfaceY maskScale ripple reflectionRoughness"},
+    {"ground", "Ground", "wet puddles snow snowDepth puddleHeight puddleDepth surfaceRadius surfaceX surfaceY maskScale ripple reflectionRoughness"},
+    {"lightning", "Lightning", "stormStrength"},
 };
 // Position of `word` in a space-separated list, or -1.
 int IndexIn(const std::string& list, const std::string& word) {
@@ -167,11 +179,19 @@ const std::vector<ChannelSpec>& Catalog() {
             }
         }
         add("sky", "effects", "Weather & Sky", "sky", "sky", ChannelType::SkyId, 0, 0, 0, 0, {});
-        const std::string safe = "sky clouds coverage density cloudBase cloudDepth cloudScale windSpeed timeOfDay sunPath sunHeight sunAzimuth sunElevation sunPower haze stars fogDensity fogHeight fogBase fogNoise fogRange scatter lightShafts snow wet puddles puddleHeight puddleDepth surfaceRadius surfaceX surfaceY maskScale ripple ambient sunRelight turbulence particleOpacity softness streak particleLight bloom bloomThreshold saturation contrast vignette grain chromatic fogStart localFogRadius fogX fogY fogZ reflectionRoughness sunAngle bakedFill groundFog groundFogCoverage groundFogHeight groundFogDetail groundFogFlow groundFogRecovery groundFogSwirl groundFogWind groundFogWindAngle groundFogSoftness groundFogWisps groundFogWispSize groundFogStreak groundFogBillowSize groundFogChurn groundFogSun groundFogShade groundFogShadows groundFogPushSize";
+        const std::string safe = "sky clouds coverage density cloudBase cloudDepth cloudScale windSpeed timeOfDay sunPath sunHeight sunAzimuth sunElevation sunPower haze stars fogDensity fogHeight fogBase fogNoise fogRange scatter lightShafts snow wet puddles puddleHeight puddleDepth surfaceRadius surfaceX surfaceY maskScale ripple ambient sunRelight turbulence particleOpacity softness streak particleLight bloom bloomThreshold saturation contrast vignette grain chromatic fogStart localFogRadius fogX fogY fogZ reflectionRoughness sunAngle bakedFill groundFog groundFogCoverage groundFogHeight groundFogDetail groundFogFlow groundFogRecovery groundFogSwirl groundFogWind groundFogWindAngle groundFogSoftness groundFogWisps groundFogWispSize groundFogStreak groundFogBillowSize groundFogChurn groundFogSun groundFogShade groundFogShadows groundFogPushSize"
+            // Looks that change over a shot. The climate keys left out stay CONFIG settings: quality and
+            // mode switches (contactShadows ao skyOcclusion autoExposure rainTexture particleDetail
+            // bounceSteps), switches that rebuild or reserve something (relighting worldGi storm
+            // sceneReflections), placements and seeds (bounce/storm centres, stormSeed, and
+            // stormInterval, which re-times every strike), values derived from others (moonAzimuth and
+            // moonElevation follow the time of day), retired slots (ssr gi relight puddleNative ...),
+            // the RGB fields keyed as one colour below, and gusts, whose weather is still in progress.
+            " cloudRain hideMapClouds moon moonPhase moonSize mapLightPower playerFill bounce lampAngle shadowSoftness exposureBias snowDepth stormStrength";
         for (const auto& f : Environment::ClimateSpecs()) {
             const std::string id = f.key;
             if (!Has(safe, id)) continue;
-            const auto type = Has("sunAzimuth sunPath groundFogWindAngle", id) ? ChannelType::Angle : Has("sky clouds lightShafts", id) ? ChannelType::Bool : ChannelType::Float;
+            const auto type = Has("sunAzimuth sunPath groundFogWindAngle", id) ? ChannelType::Angle : Has("sky clouds lightShafts hideMapClouds", id) ? ChannelType::Bool : ChannelType::Float;
             addEnv(id, type, f.lo, f.hi, 1, {{f.initial}, {}});
         }
         addEnv("enabled", ChannelType::Bool, 0, 1, 1, {{0}, {}});
@@ -179,6 +199,12 @@ const std::vector<ChannelSpec>& Catalog() {
         addEnv("fogColor", ChannelType::Colour, 0, 255, 3, {{115,128,153}, {}});
         addEnv("tint", ChannelType::Colour, 0, 255, 3, {{255,255,255}, {}});
         addEnv("weather.color", ChannelType::Colour, 0, 255, 3, {{166,191,230}, {}});
+        // Sun, moon and ground-fog colours: one colour each, as CONFIG's colour bar (EnvironmentClimateMath.h).
+        for (const auto& k : Environment::ClimateColours()) {
+            Value initial;
+            for (int c = 0; c < 3; ++c) initial.numbers.push_back(Environment::ClimateColourToKey(k, Environment::ClimateSpecs()[k.red + c].initial));
+            addEnv(k.id, ChannelType::Colour, 0, 255, 3, initial);
+        }
         // Count/seed/extent/follow/topology stay in CONFIG. These values are sampled
         // by the deterministic precipitation shader at the capture's demo time.
         struct WeatherSpec { const char* id; double value, lo, hi; };

@@ -1,4 +1,6 @@
 #include "../../AfxHookSource2/Filmmaker/Movie/SceneKeyframeCatalog.h"
+#include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentClimateMath.h"
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 using namespace Filmmaker;
@@ -31,6 +33,29 @@ int main(int argc,char** argv) {try {
     Check(name("sunPosition.yaw")=="Custom sun azimuth"&&name("sunPosition.pitch")=="Custom sun elevation","absolute sun position says azimuth/elevation");
     Check(name("lightDirection.yaw")=="Sun rotate"&&name("lightDirection.pitch")=="Sun tilt","map sun named as CONFIG's Sun page");
     Check(group("env.sunAzimuth")=="Sky"&&group("env.fogDensity")=="Fog"&&group("env.snow")=="Ground"&&group("env.bloom")=="Looks","environment groups follow CONFIG's ENVIRONMENT cards");
+    // The 2026-11 audit: looks that change over a shot are keyable, a climate RGB is ONE colour (as
+    // CONFIG's colour bar edits it), and quality, mode, rebuild and seed settings stay in CONFIG.
+    auto type=[&](const char* id){const auto* s=FindSpec(catalog,id);return s?s->type:ChannelType::SkyId;};
+    for(const char* id:{"env.sunColor","env.moonColor","env.groundFogColor","env.groundFogShadeColor"})
+        Check(type(id)==ChannelType::Colour&&FindSpec(catalog,id)->components==3&&FindSpec(catalog,id)->max==255,(std::string("climate colour is one colour channel: ")+id).c_str());
+    for(const char* id:{"env.sunColorR","env.moonColorG","env.groundFogColorB","env.groundFogShadeR"})
+        Check(!FindSpec(catalog,id),(std::string("no per-component climate channel: ")+id).c_str());
+    for(const char* id:{"env.moon","env.moonPhase","env.moonSize","env.cloudRain","env.mapLightPower","env.playerFill","env.bounce","env.lampAngle","env.shadowSoftness","env.exposureBias","env.snowDepth","env.stormStrength"})
+        Check(type(id)==ChannelType::Float,(std::string("keyable look: ")+id).c_str());
+    Check(type("env.hideMapClouds")==ChannelType::Bool,"hide map clouds is a switch key");
+    for(const char* id:{"env.storm","env.stormInterval","env.autoExposure","env.contactShadows","env.ao","env.relighting","env.bounceSteps","env.rainTexture","env.moonAzimuth","env.gusts"})
+        Check(!FindSpec(catalog,id),(std::string("CONFIG-only setting excluded: ")+id).c_str());
+    Check(name("env.sunColor")=="Sun colour"&&group("env.sunColor")=="Sky"&&group("env.mapLightPower")=="Lighting"&&group("env.groundFogShadeColor")=="Fog"&&group("env.stormStrength")=="Lightning","new keys sit on their CONFIG cards");
+    auto at=[&](const char* id){for(size_t i=0;i<catalog.size();++i)if(catalog[i].id==id)return int(i);return -1;};
+    Check(at("env.stars")<at("env.sunColor")&&at("env.sunColor")<at("env.moon")&&at("env.moonColor")<at("env.clouds"),"Sky keys in CONFIG's Sun & sky, Moon, Clouds order");
+    Check(at("env.mapLightPower")<at("env.ambient")&&at("env.ambient")<at("env.playerFill")&&at("env.shadowSoftness")<at("env.exposureBias"),"Lighting keys in CONFIG's Light, Shadows, Exposure order");
+    Check(at("env.groundFogBillowSize")<at("env.groundFogColor")&&at("env.groundFogShadows")<at("env.groundFogShadeColor")&&at("env.groundFogShadeColor")<at("env.groundFogFlow"),"ground fog colours where CONFIG's Light group shows them");
+    Check(at("env.snowDepth")<at("env.stormStrength")&&at("env.snow")<at("env.snowDepth"),"Lightning follows Ground, as on CONFIG's Weather card");
+    {
+        const auto& sun=Environment::ClimateColours()[0];
+        Check(std::fabs(Environment::ClimateColourToKey(sun,1.f)-127.5)<1e-9&&std::fabs(Environment::ClimateColourFromKey(sun,0,127.5)-1.f)<1e-6,"sun colour key is CONFIG's bar: 255 is 2");
+        Check(Environment::ClimateColourToKey(sun,9.f)==255&&Environment::ClimateColourFromKey(Environment::ClimateColours()[2],0,255)==1.f,"colour keys stay in range");
+    }
     SceneKeyframeTrack track;
     track.BeginEdit();track.data.armed.insert(exposure.id);int first=track.Put(exposure,100,{{1},{}});track.EndEdit();
     bool active=true;Check(Sample(exposure,track.data.fields[exposure.id],100,{{3},{}},&active).numbers[0]==3&&!active,"single key follows baseline");
