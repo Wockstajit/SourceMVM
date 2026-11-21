@@ -75,6 +75,9 @@ void NoteFoliageConstantMap(ID3D11Resource* resource,D3D11_MAP type,const void* 
 void NoteFoliageConstantUnmap(ID3D11Resource* resource) {
     if(!requested.load(std::memory_order_relaxed))return; // a buffer left "mapped" counts as missing
     CpuWind cpu;if(!CpuSnapshot(resource,cpu)||!cpu.mapped)return;
+    // Mapped before tracking last started (tracking stopped between this buffer's Map and its
+    // Unmap, so the Unmap was not seen): the pointer died with that Unmap. Drop the snapshot.
+    if(!Current(cpu)){resource->SetPrivateData(CpuWindTag,0,nullptr);return;}
     std::memcpy(cpu.values,static_cast<const char*>(cpu.mapped)+272,sizeof(cpu.values));
     cpu.mapped=nullptr;cpu.valid=true;resource->SetPrivateData(CpuWindTag,sizeof(cpu),&cpu);
 }
