@@ -35,6 +35,8 @@ float4 LocatePS(float4 position : SV_Position) : SV_Target {
 
 std::atomic<bool> s_wanted{ false };
 std::atomic<unsigned> s_located{ 0 };
+// Discs drawn into the target since it was last cleared (LensSunLocator_EndFrame).
+bool s_dirty = false;
 
 struct State {
 	ComPtr<ID3D11Device> device;
@@ -208,6 +210,7 @@ void LensSunLocator_AfterDraw(ID3D11DeviceContext* ctx, const LensSunDraw& draw,
 	ctx->OMSetDepthStencilState(s.noDepth.Get(), 0);
 	ctx->PSSetShader(s.ps.Get(), nullptr, 0);
 	redraw(ctx, draw);
+	s_dirty = true;
 	s_located.fetch_add(1, std::memory_order_relaxed);
 
 	ctx->PSSetShader(ps, instances, instanceCount);
@@ -233,7 +236,14 @@ void LensSunLocator_Resolve(ID3D11DeviceContext* ctx) {
 
 void LensSunLocator_Clear(ID3D11DeviceContext* ctx) {
 	const float zero[4] = {};
-	if (ctx && s.rtv) ctx->ClearRenderTargetView(s.rtv.Get(), zero);
+	if (ctx && s.rtv) { ctx->ClearRenderTargetView(s.rtv.Get(), zero); s_dirty = false; }
+}
+
+void LensSunLocator_EndFrame(ID3D11DeviceContext* immediate) {
+	// A frame whose lens pass did not use the disc (skipped under a pass preview, or the Environment
+	// sky owning the sun) still drew it here. Kept, those discs would add up, and the next flare would
+	// sit at the average of every position since.
+	if (s_dirty) LensSunLocator_Clear(immediate);
 }
 
 unsigned LensSunLocator_TakeDrawCount() { return s_located.exchange(0, std::memory_order_relaxed); }

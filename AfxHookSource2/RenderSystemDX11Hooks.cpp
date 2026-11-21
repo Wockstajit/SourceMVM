@@ -4855,6 +4855,11 @@ void After_Present() {
     Filmmaker::Environment::NextViewmodelFrame();
     Filmmaker::Environment::NextAnimatedCasterFrame();
     Filmmaker::Environment::NextNativeMaterialFrame();
+    {   // The flare's sun target starts every frame empty (LensSunLocator_EndFrame).
+        ID3D11DeviceContext* immediate = nullptr;
+        if (g_pDevice) g_pDevice->GetImmediateContext(&immediate);
+        if (immediate) { Filmmaker::LensSunLocator_EndFrame(immediate); immediate->Release(); }
+    }
     if(auto pRenderPassCommands = g_RenderCommands.RenderThread_GetCommands()) {
         pRenderPassCommands->OnAfterPresent();
         pRenderPassCommands->OnAfterPresentOrContextLossReliable();

@@ -46,6 +46,9 @@ ID3D11ShaderResourceView* LensSunLocator_Result();
 // target for the next render (after it).
 void LensSunLocator_Resolve(ID3D11DeviceContext* ctx);
 void LensSunLocator_Clear(ID3D11DeviceContext* ctx);
+// After each present, on the immediate context: clears the target if a disc was drawn into it and
+// no lens render used it up, so every frame starts from an empty target.
+void LensSunLocator_EndFrame(ID3D11DeviceContext* immediate);
 
 // How many disc draws were located since the last call (for the debug log).
 unsigned LensSunLocator_TakeDrawCount();
