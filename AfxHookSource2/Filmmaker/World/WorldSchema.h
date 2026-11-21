@@ -97,6 +97,9 @@ enum WorldField {
 	kWF_WindS_InitialWindSpeed,
 	kWF_WindS_MinWind,
 	kWF_WindS_MaxWind,
+	kWF_WindS_MinGust,
+	kWF_WindS_MaxGust,
+	kWF_WindC_Shared,          // C_EnvWindClientside::m_EnvWindShared: Props' foliage wind (Props.cpp)
 
 	// --- Sky fog params (SkyboxUi.cpp / FogFx.cpp) -----------------------------------
 	kWF_Sky_FogType,

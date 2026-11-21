@@ -58,7 +58,7 @@ R"GEJS(
       fontMono: 'Stratum2Mono, monospace',
       font: 'Stratum2, "Arial Unicode MS"'
     };
-    var LAYER_COLORS = { cam: '#f0b323', effects: '#d4b36a', environment: '#7fbdc7', objects: '#e59ab8', other: '#aeb4bc' };
+    var LAYER_COLORS = { cam: '#f0b323', camera: '#e6a44c', effects: '#d4b36a', environment: '#7fbdc7', objects: '#e59ab8', other: '#aeb4bc' };
 
     // The operator-dragged inspector width, published by C++ in st.inspW (InspectorWidth.h). The
     // dock fills the screen left of that column; INSPECTOR_W is only the value before the first
@@ -1148,7 +1148,7 @@ R"GEJS(
       return n;
     }
     function sceneLayerTitle(c) {
-      return (c.family === 'effects' ? T('EFFECTS') : c.family === 'environment' ? T('ENVIRONMENT') : c.family === 'objects' ? T('OBJECTS') : T('SCENE'))
+      return (c.family === 'camera' ? T('CAMERA') : c.family === 'effects' ? T('EFFECTS') : c.family === 'environment' ? T('ENVIRONMENT') : c.family === 'objects' ? T('OBJECTS') : T('SCENE'))
         + (c.group ? ' · ' + ('' + c.group).toUpperCase() : '');
     }
     function buildTree() {

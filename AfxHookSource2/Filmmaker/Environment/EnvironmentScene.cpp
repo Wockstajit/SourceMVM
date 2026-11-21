@@ -593,6 +593,14 @@ std::string ObjectName(const Object &o) {
 }
 } // namespace
 std::filesystem::path MapDataFolder() { return Root() / "occlusion"; }
+// The weather's wind as CONFIG shows it: speed and compass direction in degrees, 0..360 (the
+// inverse of `weather wind`, which stores x = speed * cos, y = speed * sin).
+static std::pair<double, double> WindPolar(double x, double y) {
+    const double speed = std::sqrt(x * x + y * y);
+    double direction = speed > 0 ? std::atan2(y, x) * 180.0 / 3.14159265358979323846 : 0.0;
+    if (direction < 0) direction += 360.0;
+    return {speed, direction};
+}
 // Overlay a copy: CONFIG, undo snapshots and autosaves retain authored values.
 static Scene AnimatedScene(Scene scene) {
     const auto rig = RigTransient::Read();
@@ -624,8 +632,17 @@ static Scene AnimatedScene(Scene scene) {
     scene.weather.type=int(number("env.weather.type",scene.weather.type));
     scene.weather.speed=float(number("env.weather.speed",scene.weather.speed));
     scene.weather.size=float(number("env.weather.size",scene.weather.size));
-    scene.weather.windX=float(number("env.weather.windX",scene.weather.windX));
-    scene.weather.windY=float(number("env.weather.windY",scene.weather.windY));
+    // Intensity is keyed in CONFIG's percent; the field stores the particle count (percent * 60).
+    if (state->fields.count("env.weather.count"))
+        scene.weather.count=int(std::lround(std::clamp(number("env.weather.count",0.0),0.0,100.0)*60.0));
+    // Wind is keyed as CONFIG's speed and compass direction (`weather wind`); either one keyed
+    // keeps the other at the authored wind's.
+    if (state->fields.count("env.weather.windSpeed") || state->fields.count("env.weather.windDirection")) {
+        const auto polar = WindPolar(scene.weather.windX, scene.weather.windY);
+        const double speed = number("env.weather.windSpeed", polar.first), direction = Radians(float(number("env.weather.windDirection", polar.second)));
+        scene.weather.windX=float(speed*std::cos(direction));
+        scene.weather.windY=float(speed*std::sin(direction));
+    }
     return scene;
 }
 std::map<std::string,std::vector<double>> CaptureAnimationValues() {
@@ -637,7 +654,9 @@ std::map<std::string,std::vector<double>> CaptureAnimationValues() {
     color("env.fogColor",g_scene.fogColor);color("env.tint",g_scene.tint);color("env.weather.color",g_scene.weather.color);
     for(const auto& k:ClimateColours()){auto& v=out[std::string("env.")+k.id];for(int c=0;c<3;++c)v.push_back(ClimateColourToKey(k,g_scene.climate.values[k.red+c]));}
     out["env.weather.type"]={double(g_scene.weather.type)};out["env.weather.speed"]={g_scene.weather.speed};
-    out["env.weather.size"]={g_scene.weather.size};out["env.weather.windX"]={g_scene.weather.windX};out["env.weather.windY"]={g_scene.weather.windY};
+    out["env.weather.size"]={g_scene.weather.size};out["env.weather.count"]={g_scene.weather.count/60.0};
+    const auto wind=WindPolar(g_scene.weather.windX,g_scene.weather.windY);
+    out["env.weather.windSpeed"]={wind.first};out["env.weather.windDirection"]={wind.second};
     return out;
 }
 void RunMainThreadFrame() {
@@ -733,6 +752,10 @@ void FlushCommittedEdits() {
 bool SceneEnabled() {
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_scene.enabled;
+}
+bool StormCentreSet() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_scene.climate[CL_stormX] != 0 || g_scene.climate[CL_stormY] != 0 || g_scene.climate[CL_stormZ] != 0;
 }
 void BeginPractice() {
     std::lock_guard<std::mutex> lock(g_mutex);

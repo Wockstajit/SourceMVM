@@ -13,6 +13,8 @@ namespace Filmmaker {
 // belong to the map and are saved per map; they respawn when that map loads and whenever a demo
 // seek clears client entities.
 void Props_RunMainThreadFrame();
+// CONFIG's Foliage wind (`props wind`), 0..200; 0 is off.
+float Props_WindStrength();
 void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);
 // `,"props":{...}` for the Config panel state: the catalog search page and the placed props.
 void Props_AppendStateJson(std::ostringstream& out);

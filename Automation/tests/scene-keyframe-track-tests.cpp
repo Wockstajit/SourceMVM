@@ -43,14 +43,28 @@ int main(int argc,char** argv) {try {
     for(const char* id:{"env.moon","env.moonPhase","env.moonSize","env.cloudRain","env.mapLightPower","env.playerFill","env.bounce","env.lampAngle","env.shadowSoftness","env.exposureBias","env.snowDepth","env.stormStrength"})
         Check(type(id)==ChannelType::Float,(std::string("keyable look: ")+id).c_str());
     Check(type("env.hideMapClouds")==ChannelType::Bool,"hide map clouds is a switch key");
-    for(const char* id:{"env.storm","env.stormInterval","env.autoExposure","env.contactShadows","env.ao","env.relighting","env.bounceSteps","env.rainTexture","env.moonAzimuth","env.gusts"})
+    for(const char* id:{"env.stormSeed","env.stormX","env.autoExposure","env.contactShadows","env.ao","env.relighting","env.bounceSteps","env.rainTexture","env.moonAzimuth","env.particleDetail",
+                        "lens.dof.on","lens.flare.on","lens.dof.auto","lens.dof.blades","lens.flare.ghosts","lens.flare.tint","lens.dof.quality"})
         Check(!FindSpec(catalog,id),(std::string("CONFIG-only setting excluded: ")+id).c_str());
+    // The second audit (2026-11-21): the Weather card's Intensity, wind, gusts, drift and foliage
+    // wind, the lightning switch, interval and radius, and CONFIG > CAMERA's lens.
+    for(const char* id:{"env.gusts","env.gustDensity","env.gustHeight","env.gustWisps","env.gustFloor","env.stormInterval","env.stormRadius","env.weather.count","env.weather.windSpeed","env.foliageWind"})
+        Check(type(id)==ChannelType::Float&&group(id)!="",(std::string("keyable look: ")+id).c_str());
+    Check(type("env.storm")==ChannelType::Bool&&type("env.weather.windDirection")==ChannelType::Angle,"lightning is a switch key, wind direction an angle");
+    Check(!FindSpec(catalog,"env.weather.windX")&&!FindSpec(catalog,"env.weather.windY"),"wind is keyed as CONFIG's speed and direction, not x and y");
+    Check(name("env.weather.count")=="Intensity"&&FindSpec(catalog,"env.weather.count")->max==100,"Intensity is CONFIG's percent");
+    Check(FindSpec(catalog,"env.foliageWind")->source=="props.wind"&&group("env.foliageWind")=="Weather","foliage wind sits on the Weather card and drives props.wind");
+    for(const char* id:{"lens.dof.focus","lens.dof.fstop","lens.dof.focalLength","lens.flare.intensity","lens.flare.dirt"})
+        Check(FindSpec(catalog,id)&&FindSpec(catalog,id)->family=="camera"&&FindSpec(catalog,id)->source==id,(std::string("lens key on CONFIG's CAMERA tab: ")+id).c_str());
+    Check(group("lens.dof.focus")=="Depth of field"&&group("lens.flare.halo")=="Lens flare"&&name("lens.dof.focus")=="Focus distance","lens keys sit on their CONFIG cards");
     Check(name("env.sunColor")=="Sun colour"&&group("env.sunColor")=="Sky"&&group("env.mapLightPower")=="Lighting"&&group("env.groundFogShadeColor")=="Fog"&&group("env.stormStrength")=="Lightning","new keys sit on their CONFIG cards");
     auto at=[&](const char* id){for(size_t i=0;i<catalog.size();++i)if(catalog[i].id==id)return int(i);return -1;};
     Check(at("env.stars")<at("env.sunColor")&&at("env.sunColor")<at("env.moon")&&at("env.moonColor")<at("env.clouds"),"Sky keys in CONFIG's Sun & sky, Moon, Clouds order");
     Check(at("env.mapLightPower")<at("env.ambient")&&at("env.ambient")<at("env.playerFill")&&at("env.shadowSoftness")<at("env.exposureBias"),"Lighting keys in CONFIG's Light, Shadows, Exposure order");
     Check(at("env.groundFogBillowSize")<at("env.groundFogColor")&&at("env.groundFogShadows")<at("env.groundFogShadeColor")&&at("env.groundFogShadeColor")<at("env.groundFogFlow"),"ground fog colours where CONFIG's Light group shows them");
     Check(at("env.snowDepth")<at("env.stormStrength")&&at("env.snow")<at("env.snowDepth"),"Lightning follows Ground, as on CONFIG's Weather card");
+    Check(at("env.weather.type")<at("env.weather.count")&&at("env.weather.count")<at("env.weather.windSpeed")&&at("env.weather.windDirection")<at("env.gusts")&&at("env.gusts")<at("env.foliageWind")&&at("env.foliageWind")<at("env.gustDensity"),"Weather keys in CONFIG's Weather card order");
+    Check(at("env.storm")<at("env.stormStrength")&&at("lens.flare.dirt")<at("exposure"),"Lightning switch first; CONFIG's CAMERA tab before EFFECTS");
     {
         const auto& sun=Environment::ClimateColours()[0];
         Check(std::fabs(Environment::ClimateColourToKey(sun,1.f)-127.5)<1e-9&&std::fabs(Environment::ClimateColourFromKey(sun,0,127.5)-1.f)<1e-6,"sun colour key is CONFIG's bar: 255 is 2");
@@ -104,6 +118,16 @@ int main(int argc,char** argv) {try {
     auto bad=encoded;auto pos=bad.find("\"version\":1");bad.replace(pos,11,"\"version\":2");Check(!Decode(bad,catalog,restored,error)&&Encode(restored)==encoded,"invalid version transactional");
     bad=encoded;pos=bad.find("\"value\":\"night\"");bad.replace(pos,15,"\"value\":false");Check(!Decode(bad,catalog,restored,error),"asset type rejected");
     auto corrupt=track.data;corrupt.fields[exposure.id].push_back(corrupt.fields[exposure.id][0]);Check(!Decode(Encode(corrupt),catalog,restored,error),"duplicate IDs rejected");
+    {   // A track saved with the retired Wind X / Y keys loads without them; other unknown names still fail it.
+        auto retired=encoded;const auto a=retired.find("\"armed\":[");const auto f=retired.find("\"fields\":{");
+        Check(a!=std::string::npos&&f!=std::string::npos&&a<f,"encoded track has armed and fields");
+        retired.insert(f+10,"\"env.weather.windY\":[{\"id\":999,\"tick\":5,\"value\":3}],");
+        retired.insert(a+9,"\"env.weather.windX\",");
+        TrackData back;std::string why;
+        Check(Decode(retired,catalog,back,why)&&Encode(back)==encoded,"retired wind keys are dropped, the rest of the track loads");
+        auto unknown=encoded;unknown.insert(unknown.find("\"armed\":[")+9,"\"env.noSuchKey\",");
+        Check(!Decode(unknown,catalog,back,why),"other unknown properties still rejected");
+    }
     track.BeginEdit();track.data.muted.insert(color.id);Check(track.EndEdit(),"disable is an undoable edit");
     const auto mutedText=Encode(track.data);Check(Decode(mutedText,catalog,restored,error)&&restored.muted.count(color.id)&&Encode(restored)==mutedText,"disabled properties round trip");
     auto noMuted=mutedText;pos=noMuted.find("\"muted\":[\"skyColor\"],");noMuted.erase(pos,std::string("\"muted\":[\"skyColor\"],").size());

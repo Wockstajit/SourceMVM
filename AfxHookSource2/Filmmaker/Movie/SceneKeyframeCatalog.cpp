@@ -1,6 +1,7 @@
 #include "SceneKeyframeCatalog.h"
 #include "../Environment/EnvironmentWorld.h"
 #include "../Environment/EnvironmentClimateMath.h"
+#include "../Lens/LensFxMath.h"
 #include <algorithm>
 #include <iterator>
 #include <map>
@@ -77,9 +78,12 @@ const std::map<std::string, std::string>& Names() {
         {"env.groundFogPushSize", "Ground fog push size"}, {"env.groundFogShadows", "Ground fog shadows"},
         {"env.groundFogColor", "Ground fog colour"}, {"env.groundFogShadeColor", "Ground fog shade colour"},
         // CONFIG > ENVIRONMENT > WEATHER
-        {"env.weather.type", "Weather type"}, {"env.weather.speed", "Fall speed"}, {"env.weather.size", "Particle size"},
-        {"env.weather.color", "Particle colour"}, {"env.weather.windX", "Particle wind X"},
-        {"env.weather.windY", "Particle wind Y"}, {"env.turbulence", "Turbulence"},
+        {"env.weather.type", "Weather type"}, {"env.weather.count", "Intensity"}, {"env.weather.speed", "Fall speed"},
+        {"env.weather.size", "Particle size"}, {"env.weather.color", "Particle colour"},
+        {"env.weather.windSpeed", "Wind speed"}, {"env.weather.windDirection", "Wind direction"},
+        {"env.gusts", "Gusts"}, {"env.foliageWind", "Foliage wind"},
+        {"env.gustDensity", "Drift density"}, {"env.gustHeight", "Drift height"}, {"env.gustWisps", "Drift wisps"},
+        {"env.gustFloor", "Floor powder"}, {"env.turbulence", "Turbulence"},
         {"env.particleOpacity", "Particle opacity"}, {"env.softness", "Soft intersections"},
         {"env.streak", "Rain streak length"}, {"env.particleLight", "Light response"},
         // CONFIG > ENVIRONMENT > WEATHER > Ground
@@ -89,7 +93,19 @@ const std::map<std::string, std::string>& Names() {
         {"env.maskScale", "Patch scale"}, {"env.ripple", "Ripples"}, {"env.reflectionRoughness", "Reflection roughness"},
         {"env.snowDepth", "Snow depth"},
         // CONFIG > ENVIRONMENT > WEATHER > Lightning
-        {"env.stormStrength", "Lightning intensity"},
+        {"env.storm", "Lightning"}, {"env.stormStrength", "Lightning intensity"},
+        {"env.stormInterval", "Strike interval"}, {"env.stormRadius", "Strike radius"},
+        // CONFIG > CAMERA > DEPTH OF FIELD and LENS FLARE (Lens/LensFxMath.h)
+        {"lens.dof.focus", "Focus distance"}, {"lens.dof.fstop", "Aperture"}, {"lens.dof.focalLength", "Focal length"},
+        {"lens.dof.foreground", "Foreground blur"}, {"lens.dof.range", "Sharp band"},
+        {"lens.dof.nearStart", "Near: fully blurred"}, {"lens.dof.nearEnd", "Near: sharp from"},
+        {"lens.dof.farStart", "Far: sharp until"}, {"lens.dof.farEnd", "Far: fully blurred"},
+        {"lens.dof.maxBlur", "Largest blur"}, {"lens.dof.gamma", "Bokeh gamma"}, {"lens.dof.roundness", "Blade curve"},
+        {"lens.dof.rotation", "Bokeh rotation"}, {"lens.dof.squeeze", "Anamorphic squeeze"}, {"lens.dof.edge", "Bokeh rim"},
+        {"lens.flare.intensity", "Flare intensity"}, {"lens.flare.threshold", "Flare source threshold"},
+        {"lens.flare.halo", "Flare halo"}, {"lens.flare.streak", "Flare streak"}, {"lens.flare.streakLen", "Flare streak length"},
+        {"lens.flare.star", "Flare spikes"}, {"lens.flare.glow", "Flare glow"}, {"lens.flare.sun", "Sun flare"},
+        {"lens.flare.dirt", "Lens dirt"},
     };
     return names;
 }
@@ -104,9 +120,9 @@ const EnvGroup kEnvGroups[] = {
     // CONFIG's Light, Shadows and Exposure groups, then the values with no control.
     {"lighting", "Lighting", "enabled mapLightPower ambient playerFill bounce sunAngle lampAngle shadowSoftness exposureBias sunRelight bakedFill"},
     {"fog", "Fog", "fogDensity fogStart fogHeight fogNoise fogColor lightShafts groundFog groundFogCoverage groundFogHeight groundFogSoftness groundFogWisps groundFogWispSize groundFogStreak groundFogDetail groundFogBillowSize groundFogColor groundFogSun groundFogShade groundFogShadows groundFogShadeColor groundFogFlow groundFogPushSize groundFogRecovery groundFogSwirl groundFogWind groundFogWindAngle groundFogChurn fogBase fogRange scatter localFogRadius fogX fogY fogZ"},
-    {"weather", "Weather", "weather.type weather.speed weather.size weather.color weather.windX weather.windY turbulence particleOpacity softness streak particleLight"},
+    {"weather", "Weather", "weather.type weather.count weather.speed weather.windSpeed weather.windDirection gusts foliageWind gustDensity gustHeight gustWisps gustFloor weather.size weather.color turbulence particleOpacity softness streak particleLight"},
     {"ground", "Ground", "wet puddles snow snowDepth puddleHeight puddleDepth surfaceRadius surfaceX surfaceY maskScale ripple reflectionRoughness"},
-    {"lightning", "Lightning", "stormStrength"},
+    {"lightning", "Lightning", "storm stormStrength stormInterval stormRadius"},
 };
 // Position of `word` in a space-separated list, or -1.
 int IndexIn(const std::string& list, const std::string& word) {
@@ -122,10 +138,21 @@ const EnvGroup& EnvGroupOf(const std::string& key) {
     for (const auto& g : kEnvGroups) if (IndexIn(g.keys, key) >= 0) return g;
     return kEnvGroups[2];
 }
+// The lens values a key can move: the continuous ones. The on/off switches, the mode, autofocus,
+// blade and ghost counts, the iris shape, the tint palettes, quality and debug stay CONFIG settings.
+const char* const kLensKeys[] = {"dof.focus", "dof.fstop", "dof.focalLength", "dof.foreground", "dof.range", "dof.nearStart",
+    "dof.nearEnd", "dof.farStart", "dof.farEnd", "dof.maxBlur", "dof.gamma", "dof.roundness", "dof.rotation", "dof.squeeze",
+    "dof.edge", "flare.intensity", "flare.threshold", "flare.halo", "flare.streak", "flare.streakLen", "flare.star",
+    "flare.glow", "flare.sun", "flare.dirt"};
 // Sort key: CONFIG tab, then card, then the control's place on the card. Effects keep schema
 // order within a card except the Skybox picker, which is WEATHER & SKY's first page.
 int Rank(const ChannelSpec& s) {
     static const char* effects[] = {"lighting", "sky", "atmosphere"};
+    // CONFIG's CAMERA tab comes first, its lens cards in the order of kLensKeys.
+    if (s.family == "camera") {
+        for (int i = 0; i < int(std::size(kLensKeys)); ++i) if (s.source == std::string("lens.") + kLensKeys[i]) return -1000 + i;
+        return -1;
+    }
     if (s.family == "effects") {
         for (int i = 0; i < 3; ++i) if (s.groupId == effects[i]) return i * 1000 + (s.id == "sky" ? 0 : 1);
         return 3000;
@@ -187,11 +214,15 @@ const std::vector<ChannelSpec>& Catalog() {
             // stormInterval, which re-times every strike), values derived from others (moonAzimuth and
             // moonElevation follow the time of day), retired slots (ssr gi relight puddleNative ...),
             // the RGB fields keyed as one colour below, and gusts, whose weather is still in progress.
-            " cloudRain hideMapClouds moon moonPhase moonSize mapLightPower playerFill bounce lampAngle shadowSoftness exposureBias snowDepth stormStrength";
+            " cloudRain hideMapClouds moon moonPhase moonSize mapLightPower playerFill bounce lampAngle shadowSoftness exposureBias snowDepth stormStrength"
+            // Wind you can see and the lightning: the renderer samples them every frame. The strike
+            // interval re-times the strikes, so a keyed interval moves which strike is lit; it is
+            // still the same strike at the same demo time, as a capture needs.
+            " gusts gustDensity gustHeight gustWisps gustFloor storm stormInterval stormRadius";
         for (const auto& f : Environment::ClimateSpecs()) {
             const std::string id = f.key;
             if (!Has(safe, id)) continue;
-            const auto type = Has("sunAzimuth sunPath groundFogWindAngle", id) ? ChannelType::Angle : Has("sky clouds lightShafts hideMapClouds", id) ? ChannelType::Bool : ChannelType::Float;
+            const auto type = Has("sunAzimuth sunPath groundFogWindAngle", id) ? ChannelType::Angle : Has("sky clouds lightShafts hideMapClouds storm", id) ? ChannelType::Bool : ChannelType::Float;
             addEnv(id, type, f.lo, f.hi, 1, {{f.initial}, {}});
         }
         addEnv("enabled", ChannelType::Bool, 0, 1, 1, {{0}, {}});
@@ -208,9 +239,25 @@ const std::vector<ChannelSpec>& Catalog() {
         // Count/seed/extent/follow/topology stay in CONFIG. These values are sampled
         // by the deterministic precipitation shader at the capture's demo time.
         struct WeatherSpec { const char* id; double value, lo, hi; };
-        for (auto w : {WeatherSpec{"type",0,0,6}, {"speed",600,0,1500}, {"size",1,.1,12}, {"windX",40,-1000,1000}, {"windY",0,-1000,1000}})
+        // Intensity is CONFIG's percent (the particle count / 60): the count only fills a grid of
+        // particles built once, so changing it never rebuilds anything. Wind is CONFIG's speed and
+        // compass direction; EnvironmentScene.cpp turns them into the x/y the weather stores.
+        for (auto w : {WeatherSpec{"type",0,0,6}, {"count",30,0,100}, {"speed",600,0,1500}, {"size",1,.1,12}, {"windSpeed",40,0,500}})
             addEnv(std::string("weather.") + w.id, std::string(w.id) == "type" ? ChannelType::Enum : ChannelType::Float,
                 w.lo, w.hi, 1, {{w.value}, {}});
+        addEnv("weather.windDirection", ChannelType::Angle, 0, 360, 1, {{0}, {}});
+        // Foliage wind (Props/Props.cpp `props wind`): CONFIG shows it on the Weather card.
+        add("env.foliageWind", "environment", "Weather", "weather", "props.wind", ChannelType::Float, 0, 200, 1, 0, {{0}, {}});
+        // CONFIG > CAMERA: the lens (Lens/LensFxMath.h owns ranges and defaults).
+        for (const char* key : kLensKeys)
+            for (int p = 0; p < Lens::ParamCount; ++p) {
+                const auto& spec = Lens::Specs()[p];
+                if (std::string(spec.key) != key) continue;
+                const bool dof = std::string(key).rfind("dof.", 0) == 0;
+                add(std::string("lens.") + key, "camera", dof ? "Depth of field" : "Lens flare", dof ? "dof" : "flare",
+                    std::string("lens.") + key, std::string(key) == "dof.rotation" ? ChannelType::Angle : ChannelType::Float,
+                    spec.min, spec.max, 1, 0, {{double(spec.def)}, {}});
+            }
         // Keep the inspector in CONFIG's tab/card order, regardless of schema order.
         std::stable_sort(out.begin(), out.end(), [](const ChannelSpec& a, const ChannelSpec& b) { return Rank(a) < Rank(b); });
         return out;

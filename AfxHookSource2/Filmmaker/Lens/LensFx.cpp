@@ -8,6 +8,7 @@
 #include "../Environment/EnvironmentMath.h"
 #include "../Environment/EnvironmentMaterialMath.h" // LoadMaterialImage: the WIC decoder for custom iris / dirt images
 #include "../Debug/MvmDebugLog.h"
+#include "../World/WorldTransient.h" // lens.<key>: values keyed in Scene Keys
 #include "../../../Shared/AfxConsole.h"
 
 #include <d3dcompiler.h>
@@ -45,6 +46,18 @@ struct MaskImage {
 
 std::mutex g_mutex;
 Values g_values;
+
+// CONFIG's values with Scene Keys' keyed ones over them (`lens.<key>`, Movie/SceneKeyframeCatalog.cpp).
+// Only a copy changes: CONFIG, presets and `lens` reads keep the authored values.
+Values Keyed(Values v) {
+	const auto state = WorldTransient::Read();
+	if (state->fields.empty()) return v;
+	for (int p = 0; p < ParamCount; ++p) {
+		const auto f = state->fields.find(std::string("lens.") + Specs()[p].key);
+		if (f != state->fields.end() && !f->second.empty()) v[p] = ClampParam(p, f->second[0]);
+	}
+	return v;
+}
 MaskImage g_iris;
 MaskImage g_dirt;
 std::string g_status = "Off";
@@ -569,7 +582,7 @@ bool LensFx_FlareOn() {
 
 bool LensFx_SunFlares() {
 	std::lock_guard<std::mutex> lock(g_mutex);
-	return g_values[FlareOn] > 0.5f && g_values[FlareSun] > 0.0f;
+	return g_values[FlareOn] > 0.5f && Keyed(g_values)[FlareSun] > 0.0f;
 }
 
 bool LensFx_SetBuiltInIris(const char* name) {
@@ -791,7 +804,7 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 	bool irisChanged = false, dirtChanged = false;
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);
-		L = g_values;
+		L = Keyed(g_values);
 		if (g_iris.serial != g.irisUploaded) { irisPending = g_iris; irisChanged = true; }
 		if (g_dirt.serial != g.dirtUploaded) { dirtPending = g_dirt; dirtChanged = true; }
 	}

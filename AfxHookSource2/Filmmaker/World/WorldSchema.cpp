@@ -83,6 +83,9 @@ const FieldSpec kSpecs[kWF_Count] = {
 	{ "C_EnvWindShared",     "m_flInitialWindSpeed" },
 	{ "C_EnvWindShared",     "m_iMinWind" },
 	{ "C_EnvWindShared",     "m_iMaxWind" },
+	{ "C_EnvWindShared",     "m_iMinGust" },
+	{ "C_EnvWindShared",     "m_iMaxGust" },
+	{ "C_EnvWindClientside", "m_EnvWindShared" },
 
 	// --- Sky fog params ---
 	{ "C_EnvSky", "m_nFogType" },
