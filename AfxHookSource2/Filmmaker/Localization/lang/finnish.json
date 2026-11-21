@@ -1751,6 +1751,8 @@
  "Sets the shape of every ghost and how many spikes a light gets. Six blades make hexagon ghosts and six spikes; an odd number makes twice as many spikes.": "Määrittää jokaisen haamun muodon ja kuinka monta piikkiä valo saa. Kuusi lehteä tekee kuusikulmaisia haamuja ja kuusi piikkiä; pariton luku tekee kaksi kertaa niin monta piikkiä.",
  "Sun": "Aurinko",
  "How strongly the sun itself flares. It is found from the sky, so a sun on a bright sky still flares; walls and smoke in front of it block it. 0 leaves the sun to the ordinary light test.": "Kuinka voimakkaasti aurinko itse heijastaa. Se löydetään taivaasta, joten aurinko kirkkaalla taivaalla heijastaa silti; sen edessä olevat seinät ja savu estävät sen. 0 jättää auringon tavallisen valotestin varaan.",
+ "Sun only": "Vain aurinko",
+ "Only the sun throws a flare: lamps and other bright spots in the picture are left out. The sun is taken from where the map draws it, or from the Environment sun while its sky is on.": "Vain aurinko tuottaa heijastuman: lamput ja muut kirkkaat kohdat kuvassa jätetään pois. Aurinko otetaan sieltä, mihin kartta sen piirtää, tai Environmentin auringosta, kun sen taivas on päällä.",
  "Lens dirt": "Linssin lika",
  "Smudges on the front element that light up where flare falls on them. Load your own dirt image with  mirv_filmmaker lens dirt <path>  (the shape is read as brightness).": "Tahroja etulinssissä, jotka syttyvät, kun heijastus osuu niihin. Lataa oma likakuvasi komennolla  mirv_filmmaker lens dirt <path>  (muoto luetaan kirkkautena).",
  "warm": "lämmin",

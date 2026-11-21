@@ -1751,6 +1751,8 @@
  "Sets the shape of every ghost and how many spikes a light gets. Six blades make hexagon ghosts and six spikes; an odd number makes twice as many spikes.": "Meghatározza az összes szellemkép alakját és azt, hány tüskét kap egy fény. Hat lamella hatszögletű szellemképeket és hat tüskét ad; páratlan számnál kétszer annyi tüske lesz.",
  "Sun": "Nap",
  "How strongly the sun itself flares. It is found from the sky, so a sun on a bright sky still flares; walls and smoke in front of it block it. 0 leaves the sun to the ordinary light test.": "Mennyire erősen flare-el maga a nap. Az égboltról kerül megkeresésre, így világos égen a nap is flare-el; az előtte álló falak és füst blokkolják. A 0 a napot a szokásos fénytesztre bízza.",
+ "Sun only": "Csak a nap",
+ "Only the sun throws a flare: lamps and other bright spots in the picture are left out. The sun is taken from where the map draws it, or from the Environment sun while its sky is on.": "Csak a nap ad becsillanást: a lámpák és a kép többi világos pontja kimarad. A napot onnan veszi, ahol a térkép kirajzolja, vagy az Environment napjából, amíg annak ege be van kapcsolva.",
  "Lens dirt": "Objektívpiszok",
  "Smudges on the front element that light up where flare falls on them. Load your own dirt image with  mirv_filmmaker lens dirt <path>  (the shape is read as brightness).": "Az első lencsetagon lévő foltok, amelyek felvilágosodnak, ahol flare esik rájuk. Töltsd be a saját piszokképedet:  mirv_filmmaker lens dirt <path>  (az alakot fényességként olvassa).",
  "warm": "meleg",

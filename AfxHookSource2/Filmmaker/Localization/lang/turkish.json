@@ -1751,6 +1751,8 @@
  "Sets the shape of every ghost and how many spikes a light gets. Six blades make hexagon ghosts and six spikes; an odd number makes twice as many spikes.": "Her hayaletin şeklini ve bir ışığın kaç uç alacağını belirler. Altı kanat altıgen hayaletler ve altı uç yapar; tek sayı iki kat uç yapar.",
  "Sun": "Güneş",
  "How strongly the sun itself flares. It is found from the sky, so a sun on a bright sky still flares; walls and smoke in front of it block it. 0 leaves the sun to the ordinary light test.": "Güneşin kendisinin ne kadar parladığı. Gökyüzünden bulunur, bu yüzden parlak gökyüzündeki güneş de parlama yapar; önündeki duvarlar ve duman onu engeller. 0 güneşi olağan ışık testine bırakır.",
+ "Sun only": "Yalnızca güneş",
+ "Only the sun throws a flare: lamps and other bright spots in the picture are left out. The sun is taken from where the map draws it, or from the Environment sun while its sky is on.": "Yalnızca güneş parlama verir: lambalar ve görüntüdeki diğer parlak noktalar dışarıda kalır. Güneş, haritanın onu çizdiği yerden ya da gökyüzü açıkken Environment güneşinden alınır.",
  "Lens dirt": "Lens kiri",
  "Smudges on the front element that light up where flare falls on them. Load your own dirt image with  mirv_filmmaker lens dirt <path>  (the shape is read as brightness).": "Ön elemandaki, parlamanın düştüğü yerde aydınlanan lekeler. Kendi kir görüntünü  mirv_filmmaker lens dirt <path>  ile yükle (şekil parlaklık olarak okunur).",
  "warm": "sıcak",

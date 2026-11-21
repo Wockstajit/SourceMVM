@@ -1725,6 +1725,8 @@
  "Sets the shape of every ghost and how many spikes a light gets. Six blades make hexagon ghosts and six spikes; an odd number makes twice as many spikes.": "กำหนดรูปทรงของโกสต์ทุกอันและจำนวนแฉกของไฟ หกใบทำให้โกสต์เป็นหกเหลี่ยมและมีหกแฉก จำนวนคี่ทำให้มีแฉกเป็นสองเท่า",
  "Sun": "ดวงอาทิตย์",
  "How strongly the sun itself flares. It is found from the sky, so a sun on a bright sky still flares; walls and smoke in front of it block it. 0 leaves the sun to the ordinary light test.": "ดวงอาทิตย์เองเกิดแฟลร์แรงแค่ไหน หาจากท้องฟ้า ดวงอาทิตย์บนท้องฟ้าสว่างจึงยังเกิดแฟลร์ ผนังและควันที่อยู่ข้างหน้าจะบัง 0 ให้ดวงอาทิตย์ใช้การทดสอบไฟแบบปกติ",
+ "Sun only": "เฉพาะดวงอาทิตย์",
+ "Only the sun throws a flare: lamps and other bright spots in the picture are left out. The sun is taken from where the map draws it, or from the Environment sun while its sky is on.": "มีแต่ดวงอาทิตย์ที่ทำให้เกิดแสงแฟลร์ โคมไฟและจุดสว่างอื่นในภาพจะไม่ถูกนำมาใช้ ตำแหน่งดวงอาทิตย์มาจากจุดที่แมพวาดไว้ หรือจากดวงอาทิตย์ของ Environment ขณะที่เปิดท้องฟ้าของ Environment",
  "Lens dirt": "รอยเปื้อนเลนส์",
  "Smudges on the front element that light up where flare falls on them. Load your own dirt image with  mirv_filmmaker lens dirt <path>  (the shape is read as brightness).": "รอยเปื้อนบนชิ้นเลนส์หน้าที่สว่างขึ้นตรงที่แฟลร์ตกกระทบ โหลดภาพรอยเปื้อนของคุณเองด้วย  mirv_filmmaker lens dirt <path>  (รูปทรงจะถูกอ่านเป็นความสว่าง)",
  "warm": "โทนอุ่น",
