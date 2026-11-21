@@ -758,6 +758,27 @@ int main() {
     }
     Check(Near(CoatingCoverage(1,0,.18f),1)&&Near(CoatingCoverage(1,1,.18f),1),"Full coating has no procedural holes");
     Check(CoatingCoverage(0,.5f,.18f)==0,"Disabled coating covers nothing");
+    {
+        // A lamp seen in water: the glint lobe carries the same energy however tight it is.
+        auto lobeEnergy=[](float exponent){
+            double sum=0;const int steps=20000;
+            for(int i=0;i<steps;++i){
+                const double t=(i+.5)/steps*1.5707963,c=std::cos(t);
+                sum+=WaterGlintLobe(float(c),exponent)*c*std::sin(t)*(1.5707963/steps)*6.2831853;
+            }
+            return float(sum);
+        };
+        Check(std::abs(lobeEnergy(40)-1)<.01f&&std::abs(lobeEnergy(900)-1)<.01f,"The water glint lobe is normalized at any tightness");
+        Check(Near(WaterFresnel(1),.0204f)&&WaterFresnel(.2f)>.3f,"Water mirrors little straight on and much toward the horizon");
+        Check(WaterLightGlint(1,0,1,100)==0&&WaterLightGlint(1,-.3f,1,100)==0,"A lamp behind the surface leaves no glint");
+        const float puddleExp=WaterGlintExponent(1,0,1),wetExp=WaterGlintExponent(0,.5f,1);
+        Check(Near(puddleExp,900)&&Near(wetExp,80),"Standing water is near a mirror and wet ground keeps the street's spread");
+        Check(WaterLightGlint(1,1,.26f,puddleExp)>8*WaterLightGlint(1,1,.26f,wetExp),"A puddle shows a lamp far brighter than wet ground");
+        // Mirror glint of a lamp across a puddle seen at 75 degrees: brighter than the lamp's own diffuse
+        // pool on mid-grey ground (albedo .3), which the old pow(N.H,n)*.25 term never was.
+        Check(WaterLightGlint(1,std::cos(1.309f),std::cos(1.309f),puddleExp)>.3f*std::cos(1.309f)*4,"A puddle's image of a lamp outshines the lamp's pool");
+        Check(WaterGlintExponent(1,0,0)<150,"Under a pixel the puddle lobe widens and does not flicker");
+    }
     Climate gi; gi[CL_bounceSize]=1024;gi[CL_bounceX]=512;gi[CL_bounceY]=256;gi[CL_bounceZ]=128;
     auto bounds=ClimateGiBounds(gi);auto centerUv=GiCoordinate(bounds,{512,256,128});
     Check(Near(centerUv.x,.5f)&&Near(centerUv.y,.5f)&&Near(centerUv.z,.5f),"GI volume uses stored world coordinates");

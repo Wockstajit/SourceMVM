@@ -74,6 +74,10 @@ cbuffer FrameConstants : register(b0) {
     // tone curve is measured.
     float4 reflectionInfo;
     float4 reflectionIndex[4]; // the probes' record numbers in reflectionProbeRows, smallest box first
+    // The map's lamps wet ground shows (EnvironmentPuddleLampMath.h, four rows each: bulb, radiance and
+    // kind, then a bulb's falloff or a shaded lamp's eye and aim). x of the info: how many.
+    float4 mapLamps[32];
+    float4 mapLampInfo;
 };
 cbuffer NativeViewmodel : register(b7) {
     column_major float4x4 nativeProjectionToWorld : packoffset(c4);

@@ -26,6 +26,32 @@ inline float SnowCoverShade(float mapLuminance) {
     const float curve = .03f + .97f * std::pow(std::clamp(mapLuminance, 0.f, 1.f), .28f);
     return (std::min)(curve, kSnowMaxLift * (std::max)(mapLuminance, 0.f));
 }
+// A LAMP SEEN IN WATER. Wet ground and puddles show a placed light as a highlight: water's own
+// Fresnel at the half vector times a normalized Blinn-Phong lobe, the microfacet form F*D*N.L/4
+// with the visibility term taken as 1/(N.L N.V). The lobe is normalized so it integrates to one
+// over the hemisphere (D*N.H): a tight puddle lobe is a small, bright image of the lamp and a broad
+// wet-street lobe a dim smear, with the same energy. The old term, pow(N.H, n)*.25, had neither, so
+// a puddle showed a lamp no brighter than the pool of light around it. Mirror of WaterLightGlint in
+// EnvironmentClimateShaders.h.
+inline float WaterFresnel(float cosine) {
+    const float m = 1 - std::clamp(cosine, 0.f, 1.f);
+    return .0204f + .9796f * m * m * m * m * m;
+}
+inline float WaterGlintLobe(float nDotH, float exponent) {
+    return nDotH > 0 ? (exponent + 2) / 6.2831853f * std::pow(nDotH, exponent) : 0.f;
+}
+inline float WaterLightGlint(float nDotH, float nDotL, float vDotH, float exponent) {
+    if (nDotL <= 0) return 0;
+    return WaterFresnel(vDotH) * WaterGlintLobe(nDotH, exponent) * nDotL * .25f;
+}
+// How tight the lobe is: wet ground keeps the street's spread (28..100, rougher where porous) and
+// standing water is near a mirror (up to 900). Both widen to the street's spread where the surface
+// is under a pixel and a tight lobe would only flicker (`detail`, CoatingDetailFade).
+inline float WaterGlintExponent(float puddle, float porous, float detail) {
+    const float wet = (28 + 72 * detail) * (1 - porous * .4f);
+    const float pool = 100 + 800 * detail;
+    return wet + (pool - wet) * std::clamp(puddle, 0.f, 1.f);
+}
 inline float CoatingCoverage(float amount, float noise, float softness) {
     float threshold = 1 - (1 + softness) * amount;
     float t = std::clamp((noise - threshold) / softness, 0.f, 1.f);

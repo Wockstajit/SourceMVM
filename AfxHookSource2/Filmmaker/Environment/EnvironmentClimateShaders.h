@@ -336,6 +336,14 @@ float SnowLies(float3 cover,float3 world,out float trodden){
 float SnowCoverShade(float mapLuminance){
     return min(.03+.97*pow(saturate(mapLuminance),.28),SNOW_MAX_LIFT*max(mapLuminance,0));
 }
+// A lamp seen in water. Mirror of WaterLightGlint and WaterGlintExponent in EnvironmentCoatingMath.h.
+float WaterFresnel(float cosine){float m=1-saturate(cosine);return .0204+.9796*m*m*m*m*m;}
+float WaterLightGlint(float nDotH,float nDotL,float vDotH,float exponent){
+    return nDotL>0&&nDotH>0?WaterFresnel(vDotH)*(exponent+2)/6.2831853*pow(nDotH,exponent)*nDotL*.25:0;
+}
+float WaterGlintExponent(float puddle,float porous,float detail){
+    return lerp((28+72*detail)*(1-porous*.4),100+800*detail,saturate(puddle));
+}
 )HLSL"
 R"HLSL(
 // FOOTPRINTS: x = how deep a print is here (thin snow), y unused, z = how far down the players' feet
@@ -793,6 +801,31 @@ GameSnowSample GameSnowAt(float3 p,float3 view,float lod){
 }
 )HLSL"
 R"HLSL(
+// IS A MAP LAMP IN SIGHT OF THIS WATER? Map lamps have no shadow map in this pass, so a lamp in the
+// next room would shine in a puddle through the wall. The line from the water to the lamp is walked
+// on screen, densest near the water: where two samples running lie well behind what the frame drew
+// there, a wall or a ceiling is in the way. (One sample behind is a pole or a rail the line passes
+// behind, not a wall.) What is off screen counts as clear. The walk stops short of the lamp by
+// `stopShort` so the fixture's own shade does not hide its bulb.
+float MapLampSeen(float3 origin,float3 lamp,float stopShort){
+    float3 toward=lamp-origin;float length0=length(toward);
+    float reach=max(length0-stopShort,0);
+    toward/=max(length0,1e-4);
+    float seen=1;int behind=0;
+    [loop]for(int i=1;i<=16;++i){
+        float u=i/16.;
+        float4 c=mul(viewProjection,float4(origin+toward*(reach*u*u),1));
+        if(c.w<=1){behind=0;continue;}
+        float2 pixel=ClipPixel(c);
+        if(any(pixel<0)||any(pixel>=dimensions.xy)){behind=0;continue;}
+        float d=ReadSceneMarch(pixel);
+        if(IsSky(d)){behind=0;continue;}
+        float scene=SceneViewDepth(pixel,d);
+        behind=c.w-scene>max(4,scene*.015)?behind+1:0;
+        if(behind>=2){seen=0;break;}
+    }
+    return seen;
+}
 float3 ApplyCoatings(float3 color,float3 p,float3 normal,float3 coatingNormal,float mapLuminance,bool viewmodel=false) {
     // The Wetness control decides how wet surfaces get. While it rains, only ground the rain
     // actually reaches is wet; picking Rain sets a starting wetness in the UI.
@@ -1170,13 +1203,44 @@ R"HLSL(
     }
     float exponent=lerp(28,100,CoatingDetailFade(footprint,.12))*(1-porous*.4);
     color+=SunColor()*CL_sunRelight*sunVisibility*saturate(dot(wetNormal,sun))*pow(saturate(dot(wetNormal,halfDir)),exponent)*wet*.3;
+    // A LAMP SEEN IN WATER (WaterLightGlint in EnvironmentCoatingMath.h): water's Fresnel times a
+    // normalized lobe, near a mirror on a puddle. Placed lights draw it with the Lighting card on or
+    // off. (The old pow(N.H,n)*.25 put a lamp on a puddle no brighter than its own pool.)
+    float glintExponent=WaterGlintExponent(puddle,porous,CoatingDetailFade(footprint,.12));
     [loop]for(int l=0;l<(int)lighting.x;++l){
         float3 dir;float atten=StudioAttenuation(l,0,p,dir);
         if(atten<=0)continue;
         atten*=WorldLightShadowSample(l,p+wetNormal*shadowInfo.y,0,viewmodel);
         float3 h=normalize(view+dir);
         color+=lightColorIntensity[l].rgb*lightColorIntensity[l].w*atten*
-            pow(saturate(dot(wetNormal,h)),exponent)*wet*.25;
+            WaterLightGlint(dot(wetNormal,h),dot(wetNormal,dir),dot(view,h),glintExponent)*wet;
+    }
+    // THE MAP'S OWN LAMPS IN THE WATER (EnvironmentPuddleLampMath.h): the hanging bulb over a puddle
+    // shows in it, with the Lighting card on or off. Their light and falloff are the lit programs'
+    // own (LiteLampRadiance); the highlight is the placed lights' water term. A map lamp has no
+    // shadow here, so whether the lamp is in sight of the water is read off the screen (MapLampSeen).
+    [loop]for(int m=0;m<(int)mapLampInfo.x;++m){
+        float4 at=mapLamps[m*4],shine=mapLamps[m*4+1],second=mapLamps[m*4+2],third=mapLamps[m*4+3];
+        float3 delta=at.xyz-p;
+        float d2=max(dot(delta,delta),1e-5),dist=sqrt(d2);
+        float3 dir=delta/dist,h=normalize(view+dir);
+        float glint=WaterLightGlint(dot(wetNormal,h),dot(wetNormal,dir),dot(view,h),glintExponent)*wet;
+        if(glint<1e-3)continue;
+        float fade;
+        [branch]if(shine.w<.5){
+            // A bulb: the range window, the inverse square past its soft core, its cone.
+            fade=saturate(third.x+second.w*dist);
+            fade=fade*fade*(3-2*fade)*at.w/max(at.w,d2);
+            if(third.z!=0)fade*=saturate(third.y+third.z*dot(second.xyz,dir));
+        }else{
+            // A shaded lamp: its bulb, seen from anywhere below the shade, as bright as its beam is
+            // this far from the beam's eye.
+            float3 e=second.xyz-p;
+            fade=at.w/max(at.w,max(dot(e,e),1e-5))*smoothstep(0,.25,dot(third.xyz,-dir));
+        }
+        float3 lit=shine.rgb*fade*glint;
+        if(max(lit.r,max(lit.g,lit.b))<1e-4)continue;
+        color+=lit*MapLampSeen(p+wetNormal*2,at.xyz,sqrt(at.w)+12);
     }
     return color;
 }
