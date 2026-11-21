@@ -39,7 +39,7 @@ cbuffer LensConstants : register(b0) {
     float4 smokeInfo;   // x smoke spheres, y absorbance bound, zw absorbance size (px)
     float4 cameraPos;   // xyz camera position (world), w unused
     float4 smokeSpheres[8]; // xyz centre, w radius (kLensMaxSmokes)
-    float4 sunInfo;     // xy the sun's screen uv, z sun flare strength (0 = no sun), w unused
+    float4 sunInfo;     // xy the sun's screen uv (bit 1 of w), z sun flare strength (0 = no sun), w bits (SunInfoBits)
 };
 SamplerState linearClamp : register(s0);
 Texture2D<float4> colorTex : register(t0);
@@ -71,6 +71,7 @@ Texture2D<float4> sourceHTex : register(t19);  // the source map, eighth width x
 Texture2D<float> smokeAbsorb : register(t20);  // CS2's OIT absorbance b0 in front of each surface
 Texture2D<float> worldMask : register(t21);    // 1 world, 0 the sharp first-person weapon; mips like cocTex
 Texture2D<float> sunVisTex : register(t22);    // 1x1: how much of the sun's disc is open sky (SunPS)
+Texture2D<float4> sunLocTex : register(t23);   // the disc CS2 drew (LensSunLocator.h): last mip, xy / z = its centre
 
 static const float kPi = 3.14159265;
 static const float kFarSky = 60000.0;
@@ -256,9 +257,23 @@ float FocusPS(VOut i) : SV_Target {
 }
 
 // ---- the sun's visibility: a 1x1 target, how much of its disc is open sky (SunScreenUv) ------
+// Where the sun is on screen: the disc CS2 drew this frame when there was one (kSunFromLocator), else
+// the projected direction (kSunFromDirection). False when neither has a sun.
+bool SunUv(out float2 uv) {
+    uint bits = (uint)sunInfo.w;
+    uv = sunInfo.xy;
+    if (bits & 2u) {
+        float4 s = sunLocTex.SampleLevel(linearClamp, float2(.5, .5), 16);
+        if (s.z > 1e-9) { uv = s.xy / s.z; return true; }
+    }
+    return (bits & 1u) != 0;
+}
+
 float SunPS(VOut i) : SV_Target {
     if (sunInfo.z <= 0) return 0;
-    float2 c = sunInfo.xy * dims.xy;
+    float2 sunUv;
+    if (!SunUv(sunUv)) return 0;
+    float2 c = sunUv * dims.xy;
     float r = max(kSunVisibilityRadius * dims.y, 1.5);
     float vis = 0;
     [unroll] for (int y = -1; y <= 1; ++y)
@@ -276,7 +291,7 @@ float SunPS(VOut i) : SV_Target {
             vis += open;
         }
     // Fades in from kSunMargin past the frame edge, so a sun entering the frame does not pop.
-    float2 edge = min(sunInfo.xy, 1 - sunInfo.xy);
+    float2 edge = min(sunUv, 1 - sunUv);
     return vis / 9 * saturate(1 + min(edge.x, edge.y) / kSunMargin);
 }
 
@@ -664,10 +679,12 @@ float4 SourcePS(VOut i) : SV_Target {
     iso *= 1 - smoothstep(kFlareWideIsoLo, kFlareWideIsoHi, wideRing / 16);
     // Specks a few pixels wide (sparkles on a brick wall) are not lights: they fade out below a size floor.
     float floorW = smoothstep(kFlareMinLo, kFlareMinHi, Luma(s));
-    float3 outc = s * iso * floorW * BorderFade(i.uv);
+    // Sun only: the frame's lamps and hot spots are left out, the sun below is the only source.
+    float3 outc = ((uint)sunInfo.w & 4u) ? 0 : s * iso * floorW * BorderFade(i.uv);
     // The sun, found from the sky (SunPS): never dropped as part of a bright area. Mirrors SunSourceBlob.
-    if (sunInfo.z > 0) {
-        float2 d = (i.uv - sunInfo.xy) * float2(modes.z, 1);
+    float2 sunUv;
+    if (sunInfo.z > 0 && SunUv(sunUv)) {
+        float2 d = (i.uv - sunUv) * float2(modes.z, 1);
         float vis = sunVisTex.Load(int3(0, 0, 0));
         outc += float3(1, .96, .9) * exp(-dot(d, d) / (2 * kSunSourceRadius * kSunSourceRadius)) * vis * sunInfo.z;
     }

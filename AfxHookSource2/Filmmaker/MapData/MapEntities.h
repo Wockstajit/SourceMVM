@@ -2,7 +2,7 @@
 
 // Authored entities of a map package: the lights, probes, cubemaps, sky/fog/exposure and other
 // environment entities the runtime relighting reads. Entity-lump decoding is ported from
-// ValveResourceFormat 20.0 (MIT) EntityLump.cs.
+// ValveResourceFormat 21.1 (MIT, commit 8d9f7d9) EntityLump.cs.
 
 #include "MapDataIo.h"
 

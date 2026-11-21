@@ -290,6 +290,10 @@ R"CFJS(
 )CFJS"
 R"CFJS(
       gusts:       [T('Gusts'), 0, 1, 2, '', true, T('Wind you can see: fronts of thicker, slanting rain or streaking snow that sweep across with the wind, with blown mist between. Turn it up in snow for a blizzard. Wind speed and direction steer it.')],
+      gustDensity: [T('Drift density'), 0, 2, 2, '', true, T('How thick the snow, ash or spray is that gusts blow along the ground. 1 is how the weather comes.')],
+      gustHeight:  [T('Drift height'), 0.25, 2, 2, '', false, T('How high the blown layer stands over the ground.')],
+      gustWisps:   [T('Drift wisps'), 0, 2, 2, '', false, T('How much the blown layer is torn into wisps and clumps. 0 is an even sheet.')],
+      gustFloor:   [T('Floor powder'), 0, 2, 2, '', true, T('Loose snow blown over the ground where a gust carries it, and the rough patches a gust sweeps over wet ground.')],
       particleOpacity: [T('Opacity'), 0, 1, 2, '', false, T('How solid each particle reads.')],
       softness:    [T('Soft intersections'), 0.1, 64, 1, '', false, T('Fades particles as they meet geometry so they do not cut hard.')],
       streak:      [T('Rain streak length'), 1, 50, 0, '', false, T('How long each rain streak is drawn.')],
@@ -463,7 +467,8 @@ R"CFJS(
       rainTexture: 1,
       snow: 0, snowDepth: 0.5, wet: 0, puddles: 0, puddleHeight: 128, puddleDepth: 24, surfaceRadius: 0, puddleNative: 0,
       maskScale: 0.02, ripple: 0.35, reflectionRoughness: 0.35,
-      particleDetail: 1, turbulence: 1, gusts: 0, particleOpacity: 0.65, softness: 8, streak: 12,
+      particleDetail: 1, turbulence: 1, gusts: 0, gustDensity: 1, gustHeight: 1, gustWisps: 1, gustFloor: 1,
+      particleOpacity: 0.65, softness: 8, streak: 12,
       particleLight: 0.4,
       bloom: 0, bloomThreshold: 0.8, saturation: 1, contrast: 1, vignette: 0, grain: 0,
       chromatic: 0
@@ -554,9 +559,11 @@ R"CFJS(
        'groundFogShadeR', 'groundFogShadeG', 'groundFogShadeB', 'groundFogPushSize', 'groundFogShadows']);
     envFogResetSpec.cmds = envFogResetSpec.cmds.concat(envSceneResetCmds(['fogR', 'fogG', 'fogB']));
     var envFogReset = envFogSec.__headerReset(envFogResetSpec, 'env.fog');
-    // Switching the card on brings both fogs and their light shafts; shafts alone are not the pass.
-    var envFogPill = envPassPill(envFogSec, [['fogDensity', 0, 0.05], ['groundFog', 0, 1], ['lightShafts', 0, 1]],
-      T('Bypasses the height and ground fog by dropping their density to zero, and puts them back where they were.'),
+    // The card's switch is the HEIGHT fog's, with its light shafts riding along (shafts alone are not
+    // the pass). Ground fog has its own switch on its page (2026-11-18): one switch for both turned
+    // the ground fog off whenever the height fog was.
+    var envFogPill = envPassPill(envFogSec, [['fogDensity', 0, 0.05], ['lightShafts', 0, 1]],
+      T('Bypasses the height fog by dropping its density to zero, and puts it back where it was. Ground fog has its own switch on its page.'),
       null, { rides: ['lightShafts'] });
 
     // Exposure and tint are scene values, not climate keys, so the reset sends them explicitly --

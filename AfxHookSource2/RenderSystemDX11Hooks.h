@@ -2,6 +2,8 @@
 
 #include "../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
 
+#include <string>
+
 #define ADVANCEDFX_STARTMOVIE_WAV_KEY "advancedfx-802bb089-972b-4841-bdf3-5108175ab59d"
 
 bool AfxStreams_IsRcording();
@@ -87,6 +89,12 @@ void AfxStreams_RecordEnd();
 int AfxStreams_GetRecordedSourceFrameCount();
 // Asynchronous encoder/image-writer errors observed since the most recent RecordStart.
 int AfxStreams_GetWriterFailureCount();
+// What the first of those failures was ("" when none), for the job's failure text.
+struct AfxStreamWriterFailure {
+	std::string reason;
+	std::string ffmpegTail;
+};
+AfxStreamWriterFailure AfxStreams_GetWriterFailure();
 
 // Record name = the folder the recorder creates its `take****` directory under (UTF8).
 const char * AfxStreams_GetRecordNameUtf8();

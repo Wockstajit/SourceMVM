@@ -64,6 +64,7 @@ namespace Filmmaker::Lens {
 	X(FlareBlades,    "flare.blades",    3,     12,    6,     true)  /* aperture blades: ghost shape and spike count */ \
 	X(FlareGlow,      "flare.glow",      0,     3,     0.5f,  false) /* veiling glare around each source */ \
 	X(FlareSun,       "flare.sun",       0,     2,     1,     false) /* how strongly the sun itself flares (found from the sky, not the frame) */ \
+	X(FlareSunOnly,   "flare.sunOnly",   0,     1,     0,     true)  /* only the sun flares: lamps and hot spots in the frame are left out */ \
 	X(FlareDirt,      "flare.dirt",      0,     1,     0.2f,  false) /* smudges on the front element */ \
 	X(FlareTint,      "flare.tint",      0,     7,     0,     true)  /* FlareTintColor palette index */ \
 	X(FlareStreakTint,"flare.streakTint",0,     5,     0,     true)  /* StreakTintColor palette index */ \
@@ -736,6 +737,19 @@ constexpr float kSunMargin = 0.15f;            // projected this far past the fr
 // Where a DIRECTION (toward the sun, world space) lands on screen, from the row-major world-to-clip
 // matrix: a point at infinity, so w = 0 in the input. False when it is behind the camera or well off
 // the frame.
+// WHERE THE SUN IS DRAWN. A direction alone missed most maps: Dust 2 and Mirage paint the sun with a
+// csgo_effects sprite and their sky material has no SolarPosition, so outside the Environment the
+// flare had no sun there at all. The disc CS2 draws is found on the GPU (LensSunLocator.h) and takes
+// precedence; the projected direction is the fallback (the sky shader's own disc on Nuke-style maps,
+// or the Environment's sun when its sky is on, where CS2's sprite is not shown). sunInfo.w carries
+// these bits to the shaders.
+constexpr unsigned kSunFromDirection = 1u; // sunInfo.xy holds the projected direction
+constexpr unsigned kSunFromLocator = 2u;   // the disc CS2 drew this frame comes first (t23)
+constexpr unsigned kSunOnly = 4u;          // nothing but the sun is a source
+inline float SunInfoBits(bool direction, bool locator, bool sunOnly) {
+	return (float)((direction ? kSunFromDirection : 0u) | (locator ? kSunFromLocator : 0u) | (sunOnly ? kSunOnly : 0u));
+}
+
 inline bool SunScreenUv(const float* worldToClip, const float dir[3], float& u, float& v) {
 	const float* m = worldToClip;
 	const float x = m[0] * dir[0] + m[1] * dir[1] + m[2] * dir[2];
@@ -871,7 +885,10 @@ inline bool ApplyDofPreset(Values& L, const char* name) {
 
 inline bool ApplyFlarePreset(Values& L, const char* name) {
 	if (!name) return false;
+	// A look says what the flare looks like, not which lights throw it: Sun only stays as it was.
+	const float sunOnly = L[FlareSunOnly];
 	ResetGroup(L, Group::Flare);
+	L[FlareSunOnly] = sunOnly;
 	auto set = [&](int p, double v) { SetClamped(L, p, v); };
 	if (0 == std::strcmp(name, "cinematic")) {
 		// The defaults are already this look; spelled out so a default change cannot move it.

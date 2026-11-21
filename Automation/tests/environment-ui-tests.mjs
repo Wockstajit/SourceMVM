@@ -245,7 +245,7 @@ test('eight task cards, one page each with groups as dividers', () => {
   // page would not fit the pane (Scene Objects).
   assert.deepEqual(h.card('LOOKS').groups.map(p=>p.head),['Presets','Color','Lens']);
   assert.equal(h.card('LOOKS').pages.length,0);
-  assert.deepEqual(h.card('WEATHER').groups.map(p=>p.head),['Weather','Ground','Lightning']);
+  assert.deepEqual(h.card('WEATHER').groups.map(p=>p.head),['Weather','Ground drift','Ground','Lightning']);
   assert.deepEqual(h.card('SCENE OBJECTS').pages.map(p=>p.head),['Outliner','Library','Map lights']);
   // Lights and cameras are added from ONE header menu; the four add buttons are gone.
   assert.equal(h.card('SCENE OBJECTS').action.__lbl.text,'+ Add');
@@ -440,7 +440,7 @@ test('weather percent and wind translate to atomic backend edits',()=>{
   h.card('SCENE OBJECTS').action.click();
   const pointItem=h.context.__menu.find(i=>i&&i[0]==='Point light');
   assert.ok(pointItem,'the + Add menu offers a point light');
-  assert.equal(JSON.stringify(h.context.__menu.filter(Boolean).map(i=>i[0])),JSON.stringify(['Point light','Spot light','Area light','Camera']));
+  assert.equal(JSON.stringify(h.context.__menu.filter(Boolean).map(i=>i[0])),JSON.stringify(['Point light','Spot light','Area light','Spot light on the camera','Point light on the camera','Area light on the camera','Camera']));
   pointItem[1]();assert.equal(h.sent.at(-1),'mirv_filmmaker environment add point');
   assert.equal(h.card('SCENE OBJECTS').selectedPage,0,'a new light opens on the Outliner');
 });
@@ -514,17 +514,31 @@ test('fog card carries the ground fog and its light shafts',()=>{
   Object.assign(s.climate,{enabled:1,fogDensity:0,groundFog:0,lightShafts:0});
   h.context.renderHooks.forEach(fn=>fn(h.context.st));
   h.card('FOG').pill.click();
-  for(const cmd of ['climate fogDensity 0.05','climate groundFog 1','climate lightShafts 1'])
+  for(const cmd of ['climate fogDensity 0.05','climate lightShafts 1'])
     assert.ok(h.sent.includes('mirv_filmmaker environment '+cmd),cmd);
-  // Ground fog alone is the fog pass being on; shafts alone are not.
+  // The card's switch is the height fog's: it never turns the ground fog on or off (2026-11-18).
+  assert.ok(!h.sent.includes('mirv_filmmaker environment climate groundFog 1'),'the card switch leaves the ground fog alone');
   Object.assign(s.climate,{fogDensity:0,groundFog:1,lightShafts:1});
   h.context.renderHooks.forEach(fn=>fn(h.context.st));
+  assert.equal(h.card('FOG').pill.on,false,'ground fog alone is not the height fog');
+  Object.assign(s.climate,{fogDensity:0.2,groundFog:0});
+  h.context.renderHooks.forEach(fn=>fn(h.context.st));
   assert.equal(h.card('FOG').pill.on,true);
+  // Ground fog has its own on/off switch: off holds the density, on brings it back.
+  const groundSwitch=h.toggles.find(t=>t.label==='Ground fog');
+  assert.ok(groundSwitch,'ground fog switch on its page');
+  Object.assign(s.climate,{groundFog:1.5});
+  h.context.renderHooks.forEach(fn=>fn(h.context.st));
+  assert.equal(groundSwitch.on,true);
+  groundSwitch.click();
+  assert.ok(h.sent.includes('mirv_filmmaker environment pass-off groundFog 0'),'off holds the density');
   Object.assign(s.climate,{groundFog:0});
   h.context.renderHooks.forEach(fn=>fn(h.context.st));
-  assert.equal(h.card('FOG').pill.on,false);
-  // Off then on puts each pass back where it was: height fog alone does not come back with
-  // ground fog and light shafts at their defaults beside it.
+  assert.equal(groundSwitch.on,false);
+  groundSwitch.click();
+  assert.equal(h.sent.at(-1),'mirv_filmmaker environment climate groundFog 1.5','on brings the density back');
+  // Off then on puts the height fog back where it was: it does not come back with its light shafts
+  // at their default beside it, and the ground fog is left alone.
   Object.assign(s.climate,{fogDensity:0.35,groundFog:0,lightShafts:0});
   h.context.renderHooks.forEach(fn=>fn(h.context.st));
   h.card('FOG').pill.click();
@@ -533,8 +547,9 @@ test('fog card carries the ground fog and its light shafts',()=>{
   const before=h.sent.length;
   h.card('FOG').pill.click();
   const restored=h.sent.slice(before);
-  for(const cmd of ['climate fogDensity 0.35','climate groundFog 0','climate lightShafts 0'])
+  for(const cmd of ['climate fogDensity 0.35','climate lightShafts 0'])
     assert.ok(restored.includes('mirv_filmmaker environment '+cmd),cmd+' in '+restored.join(' | '));
+  assert.ok(!restored.some(c=>/climate groundFog/.test(c)),'the card switch leaves the ground fog alone');
   // After a restart only the held (non-neutral) values exist: the same answer, not the defaults.
   const fresh=harness();fresh.render();
   const fs2=fresh.context.st.environment;
@@ -542,7 +557,7 @@ test('fog card carries the ground fog and its light shafts',()=>{
   fs2.held={fogDensity:0.35};
   fresh.context.renderHooks.forEach(fn=>fn(fresh.context.st));
   fresh.card('FOG').pill.click();
-  for(const cmd of ['climate fogDensity 0.35','climate groundFog 0','climate lightShafts 0'])
+  for(const cmd of ['climate fogDensity 0.35','climate lightShafts 0'])
     assert.ok(fresh.sent.includes('mirv_filmmaker environment '+cmd),'held: '+cmd);
 });
 test('weather switch includes standalone lightning',()=>{

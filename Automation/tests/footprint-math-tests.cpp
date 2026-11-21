@@ -199,5 +199,49 @@ int main() {
         image->Centre({100 + 5000, 100, 0});
         Check(image->At(x, y)[0] == 0, "A camera cut far away starts clean");
     }
+    {
+        // How hard a foot comes down: a walk throws less than a run, a landing more than either, and
+        // a drop more than a jump in place.
+        const float walk = FootImpact(130, 0), run = FootImpact(250, 0), jump = FootImpact(250, 300), drop = FootImpact(250, 750);
+        Check(walk < run && run < jump && jump < drop, "Walk, run, jump and drop splash in that order");
+        Check(walk > .45f && walk < .65f && run > .75f && run < .95f, "A walk and a run are about .55 and .85");
+        Check(jump >= 1.5f && drop > 2.5f && drop <= 2.6f, "A landing is 1.5 and up, 2.6 at most");
+        Check(FootImpact(0, 100) == FootImpact(0, 0), "A step down a kerb is not a landing");
+    }
+    {
+        // A jump in place at 60 frames a second: up at 300 units a second, down again under gravity.
+        FootLanding l;
+        const float dt = 1.f / 60, g = 800;
+        float z = 0, vz = 0;
+        bool jumped = false;
+        for (int f = 0; f < 10; ++f) jumped |= AdvanceFootLanding(l, z, true, dt);
+        Check(!jumped && FootLandingSpeed(l) == 0, "Standing still is neither a jump nor a landing");
+        vz = 301;
+        int frames = 0;
+        do {
+            z += vz * dt;
+            vz -= g * dt;
+            jumped |= AdvanceFootLanding(l, (std::max)(z, 0.f), false, dt);
+            ++frames;
+        } while (z > 0 && frames < 200);
+        Check(jumped, "Leaving the ground going up is a jump");
+        AdvanceFootLanding(l, 0, true, dt);
+        Check(FootLandingSpeed(l) > 250 && FootLandingSpeed(l) < 340, "It lands at about the speed it left");
+        for (int f = 0; f < 30; ++f) AdvanceFootLanding(l, 0, true, dt);
+        Check(FootLandingSpeed(l) == 0, "The landing is over after a third of a second");
+        // Walking off a ledge: no jump, a landing.
+        FootLanding ledge;
+        AdvanceFootLanding(ledge, 128, true, dt);
+        bool ledgeJump = false;
+        z = 128;
+        vz = 0;
+        while (z > 0) {
+            z += vz * dt;
+            vz -= g * dt;
+            ledgeJump |= AdvanceFootLanding(ledge, (std::max)(z, 0.f), false, dt);
+        }
+        AdvanceFootLanding(ledge, 0, true, dt);
+        Check(!ledgeJump && FootLandingSpeed(ledge) > 400, "A drop off a ledge lands hard without a jump");
+    }
     std::cout << "Footprint math passed\n";
 }

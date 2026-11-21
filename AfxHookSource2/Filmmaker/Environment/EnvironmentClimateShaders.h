@@ -35,7 +35,21 @@ float4 WindAt(float3 p){
     if(windFluidWindow.z<=0)return float4(weatherVelocity.xy,0,1);
     float2 uv=(p.xy-windFluidWindow.xy)*windFluidWindow.zw;
     if(any(uv<0)||any(uv>1))return float4(weatherVelocity.xy,0,1);
-    return windFluid.SampleLevel(windSampler,uv,0);
+    float4 air=windFluid.SampleLevel(windSampler,uv,0);
+    // AGAINST A WALL. The fluid's wall cells are a band a few cells deep (the cover volume blurs a
+    // wall's foot over its own voxel), and read there the air was still and held nothing: the drift
+    // and the streamers stopped in a ruled line a pace short of every wall, as if the wall were
+    // thicker than it is (reported 2026-11-18). There the air is taken from the open side, the most
+    // open of four reads 24 units round, so what the gust carries runs on to the wall and the wall
+    // hides it, as the ground fog does.
+    [branch]if(air.w>.01){
+        float2 reach=24*windFluidWindow.zw;
+        [unroll]for(int k=0;k<4;++k){
+            float4 near=windFluid.SampleLevel(windSampler,uv+float2(k==0?1:k==1?-1:0,k==2?1:k==3?-1:0)*reach,0);
+            if(near.w<air.w)air=near;
+        }
+    }
+    return air;
 }
 // How much blown mist or snow that air holds, 0..1: none inside a wall, and thinning against one.
 float GustCarried(float4 air){return saturate(air.z)*(1-saturate(air.w*2));}
@@ -73,14 +87,49 @@ float GustFlow(float3 p,float2 velocity,float3 scale,float period){
     // Two noises blended are flatter than one: the contrast is put back.
     return saturate(.5+(na*wa+nb*(1-wa)-.5)/sqrt(wa*wa+(1-wa)*(1-wa)));
 }
-// The wavelets a gust raises on water: crests across the wind, about a hand apart, drifting
-// downwind slowly (they are the water's; the gust only raises them where it runs). Returns how the
-// surface slopes across x and y (world).
+// HOW FAR THE LOCAL AIR MAY DRAG A FLOW-MAPPED PATTERN: its speed off the steady wind, held to what
+// moves the pattern seven tenths of its own size in a cycle. Unheld, a gust's air (hundreds of units a
+// second, turning every frame) dragged the pattern hundreds of units and back as it flickered, and it
+// shook instead of flowing.
+float2 GustDragRest(float2 rest,float period,float cycle){
+    float m=length(rest),most=period*.7/cycle;
+    return m>most?rest*(most/m):rest;
+}
+// LOOSE SNOW OVER THE CRUST (ApplyCoatings): the billow noise the drift is torn by (GustNoiseVolume),
+// read at the ground at a third of the drift's size, sliding with the steady wind and dragged by the
+// air at that place (flow mapping: two copies half a cycle apart, cross-faded), so it turns down a
+// street with the air and has no grain of its own. 0..1.
+float GustPowder(float3 p,float2 air){
+    const float period=160,cycle=2.4;
+    float2 steady=weatherVelocity.xy;
+    float3 at=float3(p.xy-steady*climateClock.x,p.z*.25)/period;
+    float t=climateClock.x/cycle;
+    float a=frac(t)-.5,b=frac(t+.5)-.5,w=abs(a*2);
+    float3 drag=float3(GustDragRest(air-steady,period,cycle)*cycle,0)/period;
+    return lerp(gustNoise.SampleLevel(gustNoiseSampler,at-drag*a,0),gustNoise.SampleLevel(gustNoiseSampler,at-drag*b,0),w);
+}
+// The wavelets a gust raises on water: cat's paws. Three trains of crests, fanned round the STEADY
+// wind (straight on and about 28 and 31 degrees either side), each running at its own speed and
+// strong only in its own drifting patches, so the water is broken several ways at once and the
+// pattern changes as the gust moves over it. (One train straight across the wind read as flat ruled
+// lines.) The directions are fixed: the crests were first turned with the local air, and since a
+// crest's place is measured from the map's origin thousands of units off, the gust's every flicker
+// of direction swept them across the street each frame and the water shook (reported 2026-11-18).
+// Crests some 14 to 22 units apart: at 4 to 10 they read as a fine fizz. They are the water's; the
+// gust only raises them where it runs (gustRough). Returns how the surface slopes across x and y.
 float2 GustRipples(float3 p){
-    float2 d=GustAlong(),n=float2(-d.y,d.x);
-    float2 q=p.xy-d*(climateClock.x*45);
-    float2 s;Noise3Slope(float3(dot(q,d)/6,dot(q,n)/15,climateClock.x*1.3),s);
-    return d*s.x+n*(s.y*.4);
+    float2 base=GustAlong();
+    static const float3 kTrains[3]={float3(0,16,.55),float3(-.49,22,.4),float3(.54,13,.35)}; // turn (rad), size, share
+    float2 total=0;
+    [unroll]for(int k=0;k<3;++k){
+        float c=cos(kTrains[k].x),s=sin(kTrains[k].x);
+        float2 d=float2(base.x*c-base.y*s,base.x*s+base.y*c),n=float2(-d.y,d.x);
+        float2 q=p.xy-d*(climateClock.x*(26+10*k));
+        float2 slope;Noise3Slope(float3(dot(q,d)/kTrains[k].y,dot(q,n)/(kTrains[k].y*2.2),climateClock.x*(.45+.15*k)+k*5.3),slope);
+        float patch=smoothstep(.3,.75,Noise3(float3((p.xy-base*climateClock.x*40)/(220+80*k),k*3.7+climateClock.x*.08)));
+        total+=(d*slope.x+n*(slope.y*.45))*kTrains[k].z*patch;
+    }
+    return total*1.3;
 }
 
 float3 TrueSunDirection() {
@@ -271,11 +320,16 @@ float SnowLies(float3 cover,float3 world,out float trodden){
     // with a square root on top, which the spread reaches some 380 units in, so a room with an opening
     // on each side (Mirage's palace) had snow lying in patches across its whole floor.
     float inside=smoothstep(.1,.45,cover.y),walked=smoothstep(.06,.5,cover.z);
-    float share=lerp(inside*.85,1-.42*walked,cover.x);
-    trodden=saturate(lerp(1-inside*.6,walked,cover.x));
-    // A crisp, ragged edge: a patch ends within an inch, in small torn flecks, not in a soft fade.
+    // SNOW DRIFTS UP AGAINST A WALL rather than stopping short of it. At a wall's foot the sky map is
+    // half shut off by the wall itself, and on its lee side the wind thins it further; taken as it
+    // was, that left a bare strip along every wall with a cut edge (reported 2026-11-18). Half open
+    // counts as open, and a doorstep is worn, not cleared.
+    float open=saturate(cover.x*1.7);
+    float share=lerp(inside*.85,1-.2*walked,open);
+    trodden=saturate(lerp(1-inside*.6,walked,open));
+    // A ragged edge in small torn flecks, with a soft rim about a hand wide rather than a cut.
     clumps+=(Noise3(world*float3(1.1,1.1,.4)+3)-.5)*.09+(Noise3(world*float3(3.3,3.3,1.1)+11)-.5)*.05;
-    return share>=.995?1:smoothstep(1-share-.022,1-share+.022,clumps)*step(.004,share);
+    return share>=.995?1:smoothstep(1-share-.06,1-share+.06,clumps)*step(.004,share);
 }
 // Snow follows the luminance of the ground it covers, at most SNOW_MAX_LIFT times it, so night ground
 // stays dark under snow (issue 135). Mirror of SnowCoverShade in EnvironmentCoatingMath.h.
@@ -711,16 +765,34 @@ float GameTextureLod(float footprint,float texelsPerUnit){return max(log2(max(fo
 //  its relief stays put on the ground as the camera moves.
 // `view` points to the eye. v runs down the map's y.
 struct GameSnowSample{float3 color;float cavity,rough,height;float2 lean;};
+// THE REPEAT, BROKEN UP. One tile of CS2's snow laid over the whole map showed the same pattern every
+// 128 units, everywhere (reported 2026-11-18). A smooth noise over the map picks, region by region (a
+// couple of repeats across), one of eight offsets into the texture, and neighbouring regions blend
+// into each other (Quilez's "texture repetition", technique 3), so no two stretches of snow read
+// alike. Offsets only, never a turn, so the crust's normals stay right. `w`: how much of b.
+void GameSnowVariant(float2 uv,out float2 a,out float2 b,out float w){
+    float l=Noise3(float3(uv*.45,7.3))*8,ia=floor(l);
+    a=frac(sin(float2(3,7)*ia)*43.7585);b=frac(sin(float2(3,7)*(ia+1))*43.7585);
+    w=smoothstep(.2,.8,l-ia);
+}
+float4 GameSnowTexel(Texture2D<float4> map,float2 uv,float lod,float2 a,float2 b,float w){
+    return lerp(map.SampleLevel(gameTextureSampler,uv+a,lod),map.SampleLevel(gameTextureSampler,uv+b,lod),w);
+}
+float GameSnowHeightAt(float3 p,float lod){
+    float2 uv=GameSnowUv(p),a,b;float w;GameSnowVariant(uv,a,b,w);
+    return GameSnowTexel(gameSnowHeight,uv,lod,a,b,w).r;
+}
 GameSnowSample GameSnowAt(float3 p,float3 view,float lod){
     GameSnowSample s;
-    float2 uv=GameSnowUv(p);
-    float h=gameSnowHeight.SampleLevel(gameTextureSampler,uv,lod).r;
+    float2 uv=GameSnowUv(p),va,vb;float vw;
+    GameSnowVariant(uv,va,vb,vw);
+    float h=GameSnowTexel(gameSnowHeight,uv,lod,va,vb,vw).r;
     // About three units of depth over a repeat, as the parallax offset in world units.
     float2 shift=view.xy/max(view.z,.3)*(h-.5)*3;
     uv=GameSnowUv(p+float3(shift,0));
-    s.height=gameSnowHeight.SampleLevel(gameTextureSampler,uv,lod).r;
-    float4 c=gameSnowColor.SampleLevel(gameTextureSampler,uv,lod);
-    float4 n=gameSnowNormal.SampleLevel(gameTextureSampler,uv,lod);
+    s.height=GameSnowTexel(gameSnowHeight,uv,lod,va,vb,vw).r;
+    float4 c=GameSnowTexel(gameSnowColor,uv,lod,va,vb,vw);
+    float4 n=GameSnowTexel(gameSnowNormal,uv,lod,va,vb,vw);
     s.color=c.rgb;s.cavity=c.a;s.rough=n.b;
     float2 t=float2(n.r+n.g-1,n.r-n.g);
     float3 m=normalize(float3(t,max(1-abs(t.x)-abs(t.y),.05)));
@@ -800,16 +872,17 @@ float3 ApplyCoatings(float3 color,float3 p,float3 normal,float3 coatingNormal,fl
     // WHAT REACHES THIS SURFACE, looked up once and shared by snow and rain: the sky map and the
     // cover volume. Snow never lies indoors, falling or not. Without a sky map (an unread map) the
     // coating stays global.
-    float3 cover=WeatherCover(p,coatingNormal,raining?1:.25);
+    float3 cover=WeatherCover(p,coatingNormal,raining?1:.12);
     // GUSTS, read once for the snow and the wet ground below (GustFlow): how gusty the air over this
     // ground is, which way it moves, and the pattern it carries along the surface. (Read separately
     // in each, the coatings took the shader compiler over three times as long.)
-    float gustAmount=0,gustRun=0;float2 gustAir=0;
+    float gustAmount=0,gustRun=0,gustLoad=0;float2 gustAir=0;
     [branch]if(CL_gusts>0&&windFluidWindow.z>0&&!viewmodel){
         float4 air=WindAt(p);
         gustAmount=GustAmount(air)*GustShown();
         gustAir=air.xy;
-        [branch]if(gustAmount>.01)gustRun=GustFlow(p,air.xy,float3(180,20,40),.9);
+        gustLoad=GustCarried(air);
+        [branch]if(gustAmount>.01)gustRun=GustFlow(p,air.xy,float3(180,20,40),1.8);
     }
     float trodden=0,melted=0;
     float snow=0,drift=.5;
@@ -830,7 +903,7 @@ float3 ApplyCoatings(float3 color,float3 p,float3 normal,float3 coatingNormal,fl
         // With CS2's snow, a thin patch's edge follows the crust's own relief, high ground keeping
         // its snow longest, instead of fading evenly. Whole cover stays whole.
         [branch]if(gameTextureInfo.x>.5&&snow>0&&snow<1){
-            float hgt=gameSnowHeight.SampleLevel(gameTextureSampler,GameSnowUv(p),GameTextureLod(footprint,2048/gameTextureInfo.z)).r;
+            float hgt=GameSnowHeightAt(p,GameTextureLod(footprint,2048/gameTextureInfo.z));
             snow=saturate(snow+(hgt-.5)*2.4*snow*(1-snow));
         }
     }
@@ -932,10 +1005,16 @@ R"HLSL(
         }
         // The thin edge of a patch is packed and a little grey; the deep middle is clean white.
         relief*=lerp(.86,1.03,smoothstep(.15,.9,snow)*(.5+.5*driftSeen));
-        // GUSTS SCOUR THE SNOW: loose snow runs over the surface in streamers, carried at the air's
-        // speed (GustFlow), so the ground itself is seen to move. Where they run the surface is a
-        // brighter, smoother white; between them the crust shows a shade greyer.
-        relief*=1+gustAmount*CoatingDetailFade(footprint,.04)*(smoothstep(.45,.8,gustRun)*.3-.16);
+        // GUSTS SCOUR THE SNOW: loose powder blown over the crust, only where the gust carries snow
+        // (the fluid's load), in soft billows that follow the air there (GustPowder). Where it passes
+        // the crust is a shade smoother and lighter, between it a shade greyer: a few percent, matte.
+        // (As a broad light-and-dark sheet the floor read as one white pattern sliding over it; as
+        // thin bright threads drawn out along the steady wind it read as shiny metal lines, all one
+        // way, running on through the walls, reported 2026-11-18.)
+        [branch]if(gustAmount*gustLoad>.002){
+            float powder=GustPowder(onSnow,gustAir);
+            relief*=1+gustAmount*smoothstep(.08,.55,gustLoad)*CoatingDetailFade(footprint,.04)*(smoothstep(.35,.75,powder)*.07-.05)*CL_gustFloor;
+        }
         // Trodden snow is packed and dirty: greyer, a little warm from the ground under it, and flat.
         snowColor=lerp(snowColor,snowColor*float3(.8,.77,.74)+color*.1,trodden*.75);
         // GLISTEN (SnowGlints): points of light that come and go as the eye or the sun moves. As
@@ -1025,12 +1104,15 @@ R"HLSL(
     float3 wetNormal=normalize(lerp(coatingNormal,float3(0,0,1),puddle));
     // CS2'S BEADS OF WATER (gameDroplets, the texture its own wet surfaces use) stand on wet ground
     // that is not under a pool, one repeat every 32 units: they bend what the film mirrors and catch
-    // the sun as points of light.
+    // the sun as points of light. They gather in a ring round each pool's edge and in scattered spots
+    // of the map-fixed clumps, not over every wet surface (every wet street beaded, reported
+    // 2026-11-18).
     float beadMask=0;float2 beadLean=0;
     [branch]if(gameTextureInfo.y>.5&&up>0){
         float4 bead=gameDroplets.SampleLevel(gameTextureSampler,float2(p.x,-p.y)/32,GameTextureLod(footprint,256./32));
         beadLean=(bead.rg*2-1)*float2(1,-1);
-        beadMask=saturate(bead.a*4)*saturate(wet*1.5)*(1-puddle)*up*CoatingDetailFade(footprint,.4);
+        float beadZone=max(smoothstep(.01,.2,puddle)*(1-smoothstep(.45,.85,puddle)),smoothstep(.66,.82,WeatherClumps(p))*.8);
+        beadMask=saturate(bead.a*4)*saturate(wet*1.5)*(1-puddle)*beadZone*up*CoatingDetailFade(footprint,.4);
         wetNormal=normalize(wetNormal+float3(beadLean*beadMask*1.5,0));
     }
     if(exposure>0&&up>0){
@@ -1042,7 +1124,7 @@ R"HLSL(
     // puddles it raises wavelets, crests across the wind, carried downwind. They break up what the
     // film mirrors, so the gust is seen as a rougher, darker patch sweeping over the water, its
     // wavelets glinting where they catch the sun.
-    float gustRough=gustAmount*lerp(.35,1,smoothstep(.38,.72,gustRun));
+    float gustRough=gustAmount*lerp(.35,1,smoothstep(.38,.72,gustRun))*CL_gustFloor;
     [branch]if(gustRough>.01&&up>0){
         float2 ripples=GustRipples(p)*CoatingDetailFade(footprint,.12);
         wetNormal=normalize(wetNormal+float3(ripples*gustRough*(.15+.55*puddle)*up,0));
@@ -1057,7 +1139,9 @@ R"HLSL(
             float2 d=p.xy-footSteps[s].xy;float r=length(d);
             if(r>64)continue;
             float ring=r-(3+age*30)+1.0*sin(d.x*.31+s*1.7)*sin(d.y*.27+s);
-            push+=d/max(r,.05)*sin(ring*.5)*exp(-ring*ring*.012)*pow(1-age/1.6,3)*.3;
+            // A landing rings the water harder than a walk (FootImpact).
+            float impact=footImpact[s/4][s%4];
+            push+=d/max(r,.05)*sin(ring*.5)*exp(-ring*ring*.012)*pow(1-age/1.6,3)*.3*(impact>0?.45+.55*impact:1);
         }
         wetNormal=normalize(wetNormal+float3(push*up*(.25+2.2*puddle),0));
     }
@@ -1586,6 +1670,224 @@ void GroundFogMarch(float3 ray,float distance,float jitter,float3 ambient,inout 
 }
 )HLSL"
 R"HLSL(
+// WHAT A GUST BLOWS ALONG THE GROUND: a thin volume lying on the floor, as thick at each place as the
+// wind fluid's load there (GustCarried), eaten into lumps and wisps by a billow noise the air drags
+// along, lit by the sun through itself. A surface-aligned smoke volume, sized against a box as wide
+// as the simulated area (the values below are in CS2 inches):
+//   snow  sun-lit, noisy, over a 50 m area  (a box 1968.5 units across),
+//   ash   sun-lit, noisy, a sand storm's shape in ash's greys, over a 50 m area,
+//   rain  unlit spray, noisy, over an 80 m area (3150 units).
+// THE SHAPE. The layer is a slab round a plane `lift` over the floor. Where the load is d (raised to
+// `power`), the slab's core reaches `extrude` x d out from the plane, `offset` further (negative:
+// nearer), with a soft edge `soften` deep; a background layer as high as extrude + soften thins
+// toward its top (to the power `falloff`) and carries a share `base` of it. The noise eats both: the
+// core keeps 1 - erode x (1 - noise) of itself, the background only where noise beats base/baseNoise.
+// It is a layer of the fog volume rather than a box of its own, so it
+// takes the volume's temporal blend and its sun shadows.
+float PrecipitationOpenSky(float3 world); // EnvironmentShaders.h, after this file
+float PrecipitationRegion(float3 p);
+struct GustLook{
+    float extrude,soften,offset,lift; // units
+    float sigma,power,gain,most;      // extinction per unit of a full sample; load exponent; load scale; the most it takes
+    float base,baseNoise,falloff;     // the background layer
+    float erode,period,cycle;         // noise: how hard it eats the core, its repeat (units), the flow map's cycle (s)
+    float shadow,lit;                 // how strongly it shades itself toward the sun; 0 = unlit (lit by the sky alone)
+    float rampPow,rampMul,rampAdd;    // the colour ramp from thin to dense
+    float3 thin,dense;                // colours at the two ends of the ramp
+    float top;                        // the highest it can reach over its floor (units)
+};
+GustLook GustLookFor(float type){
+    GustLook g;
+    if(type==2){ // snow
+        g.extrude=29.5;g.soften=39.4;g.offset=-39.4;g.lift=0;
+        // A bank stands about 70 units, a drift a hand. Half the reference's density: at its value a
+        // bank filled a street like a solid grey bed (reported 2026-11-18).
+        g.sigma=300/1968.5;g.power=2;g.gain=1.5;g.most=3.2;
+        g.base=.25;g.baseNoise=.7;g.falloff=2;
+        g.erode=2;g.period=1968.5/4;g.cycle=1/(.8*.5);
+        g.shadow=.3;g.lit=1;g.rampPow=1;g.rampMul=.9;g.rampAdd=.5;
+        // A soft grey where thin to snow's white where dense: neutral, as the snow on the ground is.
+        // (A cool blue-grey laid a blue film over the whole floor.)
+        g.thin=float3(.82,.83,.86);g.dense=float3(.97,.97,.98);
+        g.top=110;
+    }else if(type==3){ // ash: a sand storm's shape in ash's greys
+        g.extrude=23.6;g.soften=29.5;g.offset=-39.4;g.lift=0;
+        // A sand storm lifts about three times snow's load, but ash is lighter than sand: at sand's
+        // density the densest banks stood as solid grey blocks (reported 2026-11-18).
+        g.sigma=800/1968.5*.4;g.power=1;g.gain=1.4;g.most=2.5;
+        g.base=.2;g.baseNoise=.8;g.falloff=2;
+        g.erode=3;g.period=1968.5/3;g.cycle=1/(1*.5);
+        g.shadow=.4;g.lit=1;g.rampPow=2;g.rampMul=.9;g.rampAdd=0;
+        // Warm greys: dark where thin, pale ash where dense.
+        g.thin=float3(.26,.25,.24);g.dense=float3(.56,.54,.51);
+        g.top=80;
+    }else{ // rain: low spray
+        g.extrude=15.7;g.soften=94.5;g.offset=-63;g.lift=15.7;
+        g.sigma=20/3150.;g.power=.1;g.gain=1;g.most=4;
+        g.base=-1;g.baseNoise=-4;g.falloff=5;
+        g.erode=4;g.period=3150/4.;g.cycle=1/(.4*.5);
+        g.shadow=0;g.lit=0;g.rampPow=6;g.rampMul=4;g.rampAdd=0;
+        // Spray: grey where thin, near white where dense.
+        g.thin=float3(.42,.43,.45);g.dense=float3(.86,.88,.90);
+        g.top=130;
+    }
+    // The Weather card's Ground drift rows scale each weather's own look: how dense it is, how high
+    // it stands, how much the noise tears it (0 leaves an even sheet).
+    g.sigma*=CL_gustDensity;
+    float tall=CL_gustHeight;
+    g.extrude*=tall;g.soften*=tall;g.offset*=tall;g.lift*=tall;g.top*=tall;
+    g.erode*=CL_gustWisps;g.baseNoise*=CL_gustWisps;
+    return g;
+}
+// The billow noise at q, dragged along by the air (flow mapping): all of it slides
+// downwind with the steady wind (a rigid slide, which never tears it), and where the air moves
+// otherwise two copies half a cycle apart are dragged that way and cross-faded, each shown when its
+// drag is smallest. 0..1.
+float GustNoise(float3 q,float2 air,GustLook g){
+    float2 steady=weatherVelocity.xy;
+    float3 at=float3(q.xy-steady*climateClock.x,q.z)/g.period;
+    float t=climateClock.x/g.cycle;
+    float a=frac(t)-.5,b=frac(t+.5)-.5,w=abs(a*2);
+    float3 drag=float3(GustDragRest(air-steady,g.period,g.cycle)*g.cycle,0)/g.period;
+    float na=gustNoise.SampleLevel(gustNoiseSampler,at-drag*a,0);
+    float nb=gustNoise.SampleLevel(gustNoiseSampler,at-drag*b,0);
+    return lerp(na,nb,w);
+}
+// THE FLOOR A GUST'S DRIFT LIES ON: the ground, not what stands on it, and no step at a kerb. Laid on
+// the ground fog's floor map as it is, the drift lay on top of every crate, car and barrel, cut off at
+// their edges as if with a knife, and stepped at every kerb (reported 2026-11-18). The drift floor
+// (GroundFogDriftFloor: each column lowered to the ground round it and smoothed, stored over 100000)
+// is read smoothly, and stands for this point's floor when it is that floor or below it by no more
+// than a storey; a higher value is a deck over this street, and then the floor map's own floor is
+// taken. Without a floor map, the eye's own ground.
+static const float kGustDriftFloorBias=100000;
+float GustFloor(float3 p){
+    float held;float f=GroundFogFloor(p,held);
+    if(groundFogFloor.w<.5||f<=kGroundFogNoFloor)return camera.z-64;
+    float2 uv=(p.xy-groundFogFloor.xy)/(groundFogFloor.z*groundFogFloorSize.xy);
+    float drift=gustFloorMap.SampleLevel(groundFogSampler,uv,0)-kGustDriftFloorBias;
+    return drift<=f+8&&drift>=f-150?drift:f;
+}
+// THE LIGHT ON THE SNOW UNDER A POINT OF THE DRIFT, the way the snow on the ground takes it
+// (ApplyCoatings' mapped snow: the frame's light, its luminance through SnowCoverShade, a fifth of its
+// colour). Read in the frame where that floor point is, five taps round it, so the drift is lit by the
+// map's own sun and shade, whatever the Environment's sun is set to. Lit by that sun and sky instead,
+// it came out a grey bed on a sunlit street under map lighting (reported 2026-11-18). A point whose
+// floor is off screen or hidden takes the frame behind itself.
+float3 GustFloorLight(float3 q,float floorZ){
+    float3 at=float3(q.xy,floorZ);
+    float4 h=mul(viewProjection,float4(at,1));
+    float2 pixel=(h.xy/max(h.w,1e-4)*float2(.5,-.5)+.5)*dimensions.xy;
+    bool seen=h.w>1e-4&&all(pixel>=0)&&all(pixel<dimensions.xy);
+    if(seen)seen=length(World(pixel,ReadCombinedSample(pixel,0))-at)<40;
+    [branch]if(!seen){float4 g=mul(viewProjection,float4(q,1));pixel=(g.xy/max(g.w,1e-4)*float2(.5,-.5)+.5)*dimensions.xy;}
+    float3 light=ReadSource(pixel,0)*2;
+    light+=ReadSource(pixel+float2(-12,-9),0)+ReadSource(pixel+float2(12,-9),0)+ReadSource(pixel+float2(-12,9),0)+ReadSource(pixel+float2(12,9),0);
+    light=max(light/6,0);
+    float l=dot(light,float3(.2126,.7152,.0722));
+    return lerp(float3(1,1,1),light/max(l,1e-4),.22)*SnowCoverShade(l)*1.02;
+}
+// The slab's density at q over a floor at floorZ, 0..1, before the noise (core) and the background
+// layer's share (back): a plane extruded by the load, with a soft edge, and a fade gradient.
+void GustSlab(float h,float d,GustLook g,out float core,out float back){
+    core=1-saturate((h-g.offset-d*g.extrude+g.soften*.5)/g.soften);
+    back=pow(1-saturate(h/(g.extrude+g.soften)),g.falloff)*d;
+}
+// Extinction per unit at q (and the load d, for the colour ramp). `noisy` false skips the noise
+// (the march toward the sun), taking the share it keeps on average.
+// One return: called inside branches of the big composite, where helpers that return early have
+// overflowed the compiler's stack.
+float GustVolumeAt(float3 q,float floorZ,GustLook g,bool noisy,out float d){
+    d=0;
+    float sigma=0;
+    float h=abs(q.z-floorZ-g.lift);
+    [branch]if(h<=g.top+g.lift){
+        float4 air=WindAt(q);
+        float load=GustCarried(air)*g.gain;
+        [branch]if(load>.002){
+            d=min(pow(load,g.power),g.most);
+            float core,back;GustSlab(h,d,g,core,back);
+            [branch]if(core>0||back>0){
+                float m=noisy?1-GustNoise(q,air.xy,g):.5;
+                sigma=saturate(saturate(core-m*g.erode*core)+saturate(g.base-m*g.baseNoise)*back)*g.sigma;
+            }
+        }
+    }
+    return sigma;
+}
+)HLSL"
+R"HLSL(
+void GustVolumeMarch(float3 ray,float distance,float jitter,float3 ambient,inout float3 color,inout float trans){
+    [branch]if(CL_gusts<=0||weatherParams.z<1||weatherParams.z>3||windFluidWindow.z<=0||weatherColor.w<=0)return;
+    GustLook g=GustLookFor(weatherParams.z);
+    float show=GustShown();
+    // Drawn out to 3000 units from the eye, faded over the last 600: the fluid covers the map, the
+    // march does not need to.
+    float range=min(distance,3000),reach=g.top+g.lift;
+    float3 sun=SunDirection();
+    float3 sunLight=SunColor()*(Phase(dot(ray,sun))*.2+.5);
+    // The sky lights it mostly as grey: a fifth of its blue, as the snow on the ground takes it.
+    float3 sky=lerp(dot(ambient,float3(.2126,.7152,.0722)).xxx,ambient,.2)*.9;
+    float climb=max(abs(ray.z),.01);
+    float t=0;
+    [loop]for(int i=0;i<80&&t<range;++i){
+        float3 p=camera.xyz+ray*t;
+        float floorHere=GustFloor(p);
+        float over=p.z-floorHere,above=over-reach;
+        // Long steps over the layer and in the distance, short ones in it: no step crosses more than
+        // a sixth of its depth on the way up or down.
+        float dt=clamp(4+t*.045,4,180);
+        if(over<reach*2)dt=min(dt,max((max(above,0)+reach/6)/climb,2));
+        if(above>0)dt=max(dt,min(above/max(-ray.z,.04)*.6,300));
+        if(over<-40&&ray.z<0)break; // under the floor
+        dt=min(dt,range-t);
+        float3 q=camera.xyz+ray*(t+dt*jitter);
+        t+=dt;
+        float region=PrecipitationRegion(q);
+        if(region<=0)continue;
+        float d;float sigma=GustVolumeAt(q,floorHere,g,true,d);
+        if(sigma<=0)continue;
+        // Out in the open air, and as far under cover as open air reaches (a doorway, an arch).
+        float open=max(PrecipitationOpenSky(q),CoverReach(q).x);
+        sigma*=region*open*show*(1-smoothstep(2400,3000,t));
+        if(sigma<=0)continue;
+        float a=1-exp(-sigma*dt);
+        // The colour ramp: thin wisps toward the first colour, the dense body toward the second.
+        float ramp=saturate(pow(d,g.rampPow)*g.rampMul+g.rampAdd);
+        float3 albedo=lerp(g.thin,g.dense,ramp)*weatherColor.rgb/max(max(weatherColor.r,max(weatherColor.g,weatherColor.b)),.05);
+        float3 light;
+        // A HOUSE'S SHADOW ON A BANK IS SOFT. Light is scattered about inside blown snow or spray, so
+        // the shade a house casts into it blurs over a few paces and never goes dark: read at one
+        // point, the bank went from sun-white to grey along the exact line of the shadow on the floor
+        // and looked cut off there, worst where a gust ran down a street half in shade (reported
+        // 2026-11-18). Four reads across 48 units, and a quarter of the light kept.
+        float shade=0;
+        [loop]for(int k=0;k<4;++k)shade+=WorldSunShadow(q+sun*shadowInfo.y+float3(kSoftTaps[k*3]*48,0));
+        shade=lerp(.25,1,shade*.25);
+        [branch]if(g.lit>.5){
+            // Lit as the snow under it (GustFloorLight), a little darker in its own shade (a short
+            // march toward the sun, its density times `shadow`, softened by the shade above) and a
+            // little brighter looking toward the sun.
+            float tau=0,ds=12/max(sun.z,.3);
+            [loop]for(int k=0;k<4;++k){float dk;tau+=GustVolumeAt(q+sun*ds*(k+.5),floorHere,g,false,dk);}
+            light=GustFloorLight(q,floorHere)*(lerp(.8,1,exp(-tau*ds*g.shadow)*lerp(.6,1,shade))+Phase(dot(ray,sun))*.25*shade);
+        }else{
+            // Unlit: spray in a storm, lit by the sky with a little of the sun.
+            light=sky*GroundFogSkyOpen(q)*1.1+sunLight*.35*shade;
+        }
+        float3 lit=albedo*light;
+        // The height fog in front of it, as for the ground fog.
+        [branch]if(CL_fogDensity>0&&CL_localFogRadius<=0){
+            float along=max(0,t-CL_fogStart);
+            float thick=CL_fogDensity*.001*.5*(exp(-max(0,camera.z-CL_fogBase)/CL_fogHeight)+exp(-max(0,q.z-CL_fogBase)/CL_fogHeight));
+            lit=lerp((ambient+SunColor()*Phase(dot(ray,sun))*.25)*fogColorDensity.rgb,lit,exp(-thick*along));
+        }
+        color+=trans*a*lit;trans*=1-a;
+        if(trans<.01)break;
+    }
+}
+)HLSL"
+R"HLSL(
 // How a march places its samples in each step. STILL: one offset per volume texel, fixed, for the
 // coarse sky march the blur smooths. BLENDED: the live march, jittered anew every frame and averaged
 // by VolumeTemporalPS. EXACT: a full-resolution pixel the coarse volume has no match for (a crack,
@@ -1601,8 +1903,9 @@ float4 VolumeAt(float2 pixel,float d,int sampling=0) {
     float3 color=0;float trans=1;int steps=(int)volumeDimensions.z;
     // A new offset every frame in the live view (temporalInfo.y), which VolumeTemporalPS averages.
     float jitter=sampling==kMarchExact?.5:frac(InterleavedGradient(floor(pixel*volumeDimensions.xy/dimensions.xy))+(sampling==kMarchBlended?temporalInfo.y:0));
-    float3 ambient=(CL_fogDensity>0||CL_groundFog>0)?FogAmbient():0;
+    float3 ambient=(CL_fogDensity>0||CL_groundFog>0||CL_gusts>0)?FogAmbient():0;
     GroundFogMarch(ray,distance,jitter,ambient,color,trans);
+    GustVolumeMarch(ray,distance,jitter,ambient,color,trans);
     if(CL_fogDensity>0) {
         float enter=min(distance,CL_fogStart),extent=min(distance,CL_fogStart+CL_fogRange);
         float stepLength=max(0,extent-enter)/steps;
@@ -1803,6 +2106,32 @@ R"HLSL(
 bool CachedAtmosphereEdge(float2 pixel);
 float4 Composite(float2 p,uint sample);
 float4 CompositeAt(float2 p,uint sample,float d,float3 color);
+// SHARED EXACT WALKS. The pixels the coarse volume has no match for (an outline: a pole, a roof
+// edge, a player against the far street) are walked from the eye at full resolution, and a walk
+// with blown snow in it is long. Walked inside the composite they were a thin line of pixels each
+// holding up the GPU's whole group of neighbours, which had nothing to do: 8.5 ms of a rainy Dust 2
+// frame went on the gust part of those walks (2026-11-19). And at an MSAA edge every sample of the
+// pixel walked, two or four times the same ray.
+// So the walks are listed first (ExactListPS: up to two per pixel, one per depth its samples
+// stand at), walked packed side by side (ExactWalkPS), and read back by the composite
+// (ExactShared). The sample that is listed walks exactly as the composite would have; the other
+// samples at the same depth take its walk, a ray a fraction of a pixel away.
+static const uint kExactWalkWidth=1024,kExactWalkRows=256,kExactWalkCapacity=kExactWalkWidth*kExactWalkRows;
+Texture2D<uint4> exactIndex : register(t53);           // per pixel: walk number+1 of up to two walks, and each one's distance
+Texture2D<float4> exactWalks : register(t54);          // the walks, kExactWalkWidth to a row
+Buffer<uint> exactCount : register(t55);               // how many walks were listed (CopyStructureCount)
+StructuredBuffer<uint4> exactEntries : register(t56);  // pixel x | y<<16, sample, depth bits
+RWStructuredBuffer<uint4> exactEntriesOut : register(u1);
+// Two distances count as the same surface within a part in 250 (a unit up close).
+bool ExactSameDepth(float a,float b) {return abs(a-b)<=max(1,b*.004);}
+// One return: called inside branches of the big composite (see GustVolumeAt).
+bool ExactShared(float2 p,float distance,out float4 v) {
+    uint4 e=exactIndex.Load(int3(int2(p),0));
+    uint at=e.x&&ExactSameDepth(distance,asfloat(e.z))?e.x:e.y&&ExactSameDepth(distance,asfloat(e.w))?e.y:0;
+    v=0;
+    [branch]if(at>0){--at;v=exactWalks.Load(int3(at%kExactWalkWidth,at/kExactWalkWidth,0));}
+    return at>0;
+}
 float4 CompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
 #if COLOR_MS
     [branch]if(shadowDebug.z>.5&&!CachedAtmosphereEdge(SamplePixel(i.position.xy,0)))discard;
@@ -1834,12 +2163,12 @@ float4 Composite(float2 p,uint sample) {
         sum+=(layer?share:1-share)*CompositeAt(p,sample,layer?SkyDepth():d,layer?sky:surface);
     return sum;
 }
-float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
+// The coarse volume's texels around p that match its depth, weighted, and how much they weigh.
+float4 CoarseVolume(float2 p,float d,float distance,out float weights) {
     float2 uv=p/dimensions.xy;
     bool sky=IsSky(d);
-    float distance=FogDistance(p,d);
     float2 v=uv*volumeDimensions.xy-.5;int2 lo=int2(floor(v));float2 f=frac(v);
-    float4 sum=0;float weights=0;
+    float4 sum=0;weights=0;
     [unroll]for(int y=0;y<2;++y)[unroll]for(int x=0;x<2;++x){
         int2 q=clamp(lo+int2(x,y),int2(0,0),int2(volumeDimensions.xy)-1);
         float2 geometry=VolumeGeometry(q);bool ss=geometry.y>0;float dist=geometry.x;
@@ -1850,6 +2179,13 @@ float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
             weight*=!ss?exp(-abs(dist-distance)/max(8,distance*.02)):0;}
         sum+=value*weight;weights+=weight;
     }
+    return sum;
+}
+float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
+    float2 uv=p/dimensions.xy;
+    bool sky=IsSky(d);
+    float distance=FogDistance(p,d);
+    float weights;float4 sum=CoarseVolume(p,d,distance,weights);
     // A minority MSAA sample can have no representative in the coarse depth image.
     // Integrate that sample directly; never leave unclouded sky holes around a dark silhouette.
     // HLSL's conditional operator evaluates both operands. Keep the full raymarch
@@ -1884,7 +2220,11 @@ float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
     // up to the smoke (walk 1), share one call in a loop, so the shader carries the long march once.
     float4 front=float4(0,0,0,1);
     [loop]for(uint walk=exact?0u:1u;walk<(smoke>0&&frontKind==2?2u:1u);++walk){
-        float4 walked=VolumeAt(p,walk?frontDepth:d,kMarchExact);
+        // This pixel's own walk is usually waiting in the shared list (ExactListPS); only a sample
+        // the list has no walk for (a third depth in one pixel, a full list) walks here.
+        bool listed=false;float4 walked=0;
+        [branch]if(!walk)listed=ExactShared(p,distance,walked);
+        [branch]if(!listed)walked=VolumeAt(p,walk?frontDepth:d,kMarchExact);
         if(walk)front=walked;else volume=walked;
     }
     [branch] if(smoke>0) {
@@ -1933,6 +2273,49 @@ float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
     // Distant 3D-skybox buildings live in the leftover depth range; VolumeAt gives them the medium
     // out to kSkyboxFogDistance, so they sink into the fog with the sky behind them.
     return float4(color*volume.a+volume.rgb,1);
+}
+// The list (see ExactShared): every sample the composite will shade, through the same coarse test.
+// Samples at one depth share a walk; a third depth in the pixel walks inside the composite.
+uint4 ExactListPS(Screen i):SV_Target {
+    uint n=1;
+#if COLOR_MS
+    uint w,h;sourceColor.GetDimensions(w,h,n);
+    // Interior pixels are shaded once, from sample 0 (CompositePixelPS), while the split is on.
+    if(shadowDebug.z>.5&&!CachedAtmosphereEdge(SamplePixel(i.position.xy,0)))n=1;
+#endif
+    uint4 o=0;
+    [loop]for(uint s=0;s<n;++s){
+        float2 p=SamplePixel(i.position.xy,s);
+        float d=ReadCombinedSample(p,s);
+        float distance=FogDistance(p,d),weights;
+        CoarseVolume(p,d,distance,weights);
+        bool known=(o.x&&ExactSameDepth(distance,asfloat(o.z)))||(o.y&&ExactSameDepth(distance,asfloat(o.w)));
+        [branch]if(weights<=.2&&!known&&!o.y){
+            uint at=exactEntriesOut.IncrementCounter();
+            [branch]if(at<kExactWalkCapacity){
+                exactEntriesOut[at]=uint4(uint(i.position.x)|(uint(i.position.y)<<16),s,asuint(d),0);
+                if(o.x){o.y=at+1;o.w=asuint(distance);}else{o.x=at+1;o.z=asuint(distance);}
+            }
+        }
+    }
+    if(!o.x)discard;
+    return o;
+}
+// The packed walks: a rectangle as many rows tall as the list needs.
+Screen ExactWalkVS(uint id:SV_VertexID) {
+    float rows=ceil(min(exactCount[0],kExactWalkCapacity)/float(kExactWalkWidth));
+    float bottom=1-2*rows/kExactWalkRows;
+    Screen o;o.position=float4(id==1||id==4||id==5?1:-1,id==2||id==3||id==5?bottom:1,0,1);
+    return o;
+}
+float4 ExactWalkPS(Screen i):SV_Target {
+    uint at=uint(i.position.y)*kExactWalkWidth+uint(i.position.x);
+    float4 v=float4(0,0,0,1);
+    [branch]if(at<min(exactCount[0],kExactWalkCapacity)){
+        uint4 e=exactEntries[at];
+        v=VolumeAt(SamplePixel(float2(e.x&0xffff,e.x>>16)+.5,e.y),asfloat(e.z),kMarchExact);
+    }
+    return v;
 }
 float4 BlitPS(Screen i,uint sampleIndex:SV_SampleIndex):SV_Target {
     float2 p=i.position.xy,uv=p/dimensions.xy;float3 color=ReadColor(p,sampleIndex);

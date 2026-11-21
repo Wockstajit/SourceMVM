@@ -348,7 +348,7 @@ void UpdateAutosave(const std::string& map) {
         // A practice session starts every map without the user's saved environment.
         g_restoreAutosave = false;
         g_scene = Scene{};
-        ++g_sceneGeneration;
+        ++g_sceneGeneration; SceneRig_CancelCameraRides();
         Scene initial = LiveScene(); initial.map = map;
         g_autosave.Bind(map, SerializeScene(initial));
         MvmDebugLog_LinefAlways("environment.autosave", "restore skipped map=%s (practice session)", map.c_str());
@@ -360,7 +360,7 @@ void UpdateAutosave(const std::string& map) {
         // anyway, as this used to, made the switch do nothing, and an edit made before the restore
         // landed saved the empty scene over the map's file.
         g_restoreAutosave = false;
-        ++g_sceneGeneration;
+        ++g_sceneGeneration; SceneRig_CancelCameraRides();
         FlushAutosave(true); // a pending write from before the demo change still lands
         Scene initial = LiveScene(); initial.map = map;
         g_autosave.Bind(map, SerializeScene(initial));
@@ -407,7 +407,7 @@ void UpdateAutosave(const std::string& map) {
                 HoldRestoredPasses(pending.climate, pending.weather.type, pending.held);
                 if(Resolve(pending,error)&&PrepareWorldLook(pending.world,error)){
                     ApplyWorldLook(pending.world);FilmmakerSettings_AcceptCurrent();
-                    g_scene=std::move(pending);++g_sceneGeneration;restored=true;
+                    g_scene=std::move(pending);++g_sceneGeneration;SceneRig_CancelCameraRides();restored=true;
                     g_message="Recovered environment for "+map+". Effects stay off until you switch them on; their settings are kept.";
                 }
             }
@@ -428,7 +428,7 @@ void UpdateAutosave(const std::string& map) {
                 ApplyWorldLook(scene.world);
                 FilmmakerSettings_AcceptCurrent();
                 g_scene = std::move(scene);
-                ++g_sceneGeneration;
+                ++g_sceneGeneration; SceneRig_CancelCameraRides();
                 restored = true;
                 g_message = "Restored environment for " + map + ". Effects stay off until you switch them on; their settings are kept.";
                 break;
@@ -543,11 +543,44 @@ void ApplyRig(Object &o, const RigTransient::State &rig) {
         o.angles = {float(e->second.ang[0]), float(e->second.ang[1]), float(e->second.ang[2])};
         if (o.IsCamera()) o.fov = float(e->second.fov);
     }
-    // Keyed light settings (scene-object-rigs.md): brightness, range, beam angle, emitter size, panel.
-    float *light[6] = {&o.intensity, &o.range, &o.cone, &o.studio.sourceRadius, &o.studio.width, &o.studio.height};
+    // Keyed light settings (scene-object-rigs.md): brightness, range, beam angle, emitter size, panel,
+    // and its colour (0..255 per channel on the TIMELINE).
+    float *light[9] = {&o.intensity, &o.range, &o.cone, &o.studio.sourceRadius, &o.studio.width, &o.studio.height,
+                       &o.color.x, &o.color.y, &o.color.z};
     if (o.IsLight())
-        for (int i = 0; i < 6; ++i)
-            if (e->second.lightMask & (1u << i)) *light[i] = float(e->second.light[i]);
+        for (int i = 0; i < 9; ++i)
+            if (e->second.lightMask & (1u << i))
+                *light[i] = i >= 6 ? std::clamp(float(e->second.light[i]) / 255.f, 0.f, 1.f) : float(e->second.light[i]);
+}
+// Lights on the camera (scene-object-rigs.md) ride the view this frame renders from: the pose
+// the rig published is in the camera's frame, and the eye and axes here come from the frame's own
+// view matrix. The main thread's world pose for them is a frame behind a moving camera path.
+void RideFrameView(std::vector<Object> &objects, const RigTransient::State &rig, Vec3 eye, Vec3 forward, Vec3 up) {
+    const Rig::Pose view = Rig::ViewPose({eye.x, eye.y, eye.z}, {forward.x, forward.y, forward.z}, {up.x, up.y, up.z});
+    for (auto &o : objects) {
+        const auto e = rig.objects.find(o.id);
+        if (e == rig.objects.end() || !e->second.view || !e->second.visible || !o.enabled) continue;
+        Rig::Pose local;
+        local.pos = {e->second.viewPos[0], e->second.viewPos[1], e->second.viewPos[2]};
+        local.ang = {e->second.viewAng[0], e->second.viewAng[1], e->second.viewAng[2]};
+        const Rig::Pose world = Rig::Compose(view, local);
+        const Vec3 before = o.position;
+        o.position = {float(world.pos.x), float(world.pos.y), float(world.pos.z)};
+        o.angles = {float(world.ang.pitch), float(world.ang.yaw), float(world.ang.roll)};
+        if (MvmDebugLog_Active()) {
+            static ULONGLONG last = 0;
+            const ULONGLONG now = GetTickCount64();
+            if (now - last >= 1000) {
+                last = now;
+                MvmDebugLog_Linef("environment.camera.light",
+                    "id=%d kind=%s view=%.1f %.1f %.1f / %.2f %.2f %.2f local=%.1f %.1f %.1f light=%.1f %.1f %.1f / %.2f %.2f %.2f mainThread=%.1f %.1f %.1f color=%.2f %.2f %.2f intensity=%.2f range=%.0f cone=%.0f",
+                    o.id, o.kind.c_str(), view.pos.x, view.pos.y, view.pos.z, view.ang.pitch, view.ang.yaw, view.ang.roll,
+                    local.pos.x, local.pos.y, local.pos.z, o.position.x, o.position.y, o.position.z,
+                    o.angles.x, o.angles.y, o.angles.z, before.x, before.y, before.z,
+                    o.color.x, o.color.y, o.color.z, o.intensity, o.range, o.cone);
+            }
+        }
+    }
 }
 bool g_rigDrag = false; // the open gizmo drag moves a rigged object (SceneRig owns its pose)
 std::string ObjectName(const Object &o) {
@@ -569,13 +602,14 @@ static Scene AnimatedScene(Scene scene) {
         auto f = state->fields.find(id);
         return f != state->fields.end() && component < f->second.size() ? f->second[component] : base;
     };
-    for (int i=0;i<ClimateCount;++i) scene.climate.values[i]=float(number(std::string("env.")+ClimateSpecs()[i].key,scene.climate.values[i]));
-    // A keyed time of day moves the sun and the moon with it. Keyed sun angles (the Scene Keys
-    // macros key only those) move the moon too: as for a `climate sunAzimuth` command, the time that
-    // puts the sun there is found first, so the moon rises opposite a sun keyed below the horizon.
-    auto keyed = [&](ClimateField f) { return state->fields.count(std::string("env.") + ClimateSpecs()[f].key) != 0; };
-    if (keyed(CL_timeOfDay) || keyed(CL_sunPath) || keyed(CL_sunHeight)) ApplyTimeOfDay(scene.climate);
-    else if (keyed(CL_sunAzimuth) || keyed(CL_sunElevation)) { TimeOfDayFromSun(scene.climate); ApplyTimeOfDay(scene.climate); }
+    if (!state->fields.empty()) {
+        for (int i=0;i<ClimateCount;++i) scene.climate.values[i]=float(number(std::string("env.")+ClimateSpecs()[i].key,scene.climate.values[i]));
+        // Keyed time of day moves both sun and moon. Keyed sun angles do the same through
+        // TimeOfDayFromSun, as they do when set through the console.
+        auto keyed = [&](ClimateField f) { return state->fields.count(std::string("env.") + ClimateSpecs()[f].key) != 0; };
+        if (keyed(CL_timeOfDay) || keyed(CL_sunPath) || keyed(CL_sunHeight)) ApplyTimeOfDay(scene.climate);
+        else if (keyed(CL_sunAzimuth) || keyed(CL_sunElevation)) { TimeOfDayFromSun(scene.climate); ApplyTimeOfDay(scene.climate); }
+    }
     scene.enabled=number("env.enabled",scene.enabled)!=0;
     scene.exposure=float(number("env.exposure",scene.exposure));
     auto color=[&](const char* id,Vec3 c) {return Vec3{float(number(id,c.x*255,0)/255),float(number(id,c.y*255,1)/255),float(number(id,c.z*255,2)/255)};};
@@ -686,7 +720,7 @@ void EndPractice() {
     if (g_drag.active) g_scene = g_dragBefore;
     g_drag = {};
     g_scene = Scene{};
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     g_selected = 0; g_editing = 0; ++g_editRevision;
     g_undo.clear();
     g_undoStamps.clear();
@@ -716,7 +750,7 @@ void OnLevelInit() {
     g_restoreAutosave = true;
     g_autosaveQuiet = false;
     g_restoreGate.Reset();
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     ResetNativeWater();
     ResetNativeRain();
     g_cameraValid = false;
@@ -940,9 +974,10 @@ void CaptureCoatingActors(Frame &f) {
     const auto &c = f.scene.climate;
     // The round heat map leaves the live players' shoes unpainted from the same list, and the ground
     // fog is pushed aside by the same bodies.
-    if (!(c[CL_snow] > 0 || c[CL_wet] > 0 || c[CL_puddles] > 0 || (f.scene.weather.type == 1 && f.scene.weather.count > 0))
-        && !(c[CL_groundFog] > 0) && !Heatmap::Enabled())
-        return;
+    const bool weatherNeedsActors = f.active && (c[CL_snow] > 0 || c[CL_wet] > 0 ||
+        c[CL_puddles] > 0 || (f.scene.weather.type == 1 && f.scene.weather.count > 0) ||
+        c[CL_groundFog] > 0);
+    if (!weatherNeedsActors && !Heatmap::Enabled()) return;
     __try {
         const int highest = GetHighestEntityIndex();
         for (int i = 1; i <= highest && (int)f.actors.size() < Frame::kMaxActors; ++i) {
@@ -1126,6 +1161,9 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
         g_cameraValid = Finite(g_camera) && Finite(g_forward);
         f.camera = g_camera;
         f.angles = g_angles;
+        const Vec3 up = Normalize(Transform(inverseView, {0, 1, 0}) - g_camera);
+        if (g_cameraValid && Finite(up))
+            RideFrameView(f.scene.objects, *RigTransient::Read(), g_camera, g_forward, up);
     }
     if (!g_cameraValid)
         f.active = false;
@@ -1197,6 +1235,8 @@ std::vector<PickBox> ScenePickBoxes() {
     for (Object o : g_scene.objects) {
         ApplyRig(o, *rig);
         if (!o.enabled || o.locked) continue;
+        const auto ridden = rig->objects.find(o.id);
+        if (ridden != rig->objects.end() && ridden->second.view) continue; // a light on the camera sits on the lens
         PickBox box;
         box.id = o.id;
         box.center = o.position;
@@ -1342,7 +1382,9 @@ void AppendStateJson(std::ostringstream &out) {
         out << ']';
     }
     out << '}';
-    out << ",\"envRender\":\"" << JsonBuilder::Escape(g_status) << "\",\"envDraws\":" << g_draws;
+    // No draw counter here: it changed every frame and made the Config panel re-render every frame.
+    // `mirv_filmmaker environment status` prints it.
+    out << ",\"envRender\":\"" << JsonBuilder::Escape(g_status) << '"';
 }
 namespace {
 bool UndoLastEditLocked(std::string &error) {
@@ -1352,7 +1394,7 @@ bool UndoLastEditLocked(std::string &error) {
     FilmmakerSettings_AcceptCurrent();
     g_scene = g_undo.back();
     g_restoreAutosave = false;
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     g_undo.pop_back();
     g_undoStamps.pop_back();
     g_lastRemember = 0;
@@ -1379,7 +1421,7 @@ void AdoptValidatedScene(Scene validated) {
     g_autosaveQuiet = false; // an edit: from here the map's file follows the scene again
     g_scene = std::move(validated);
     g_restoreAutosave = false;
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     if (IsSceneMap(CurrentMap())) {
         Scene committed = LiveScene(); committed.map = CurrentMap();
         if (g_autosave.map != committed.map) { FlushAutosave(true); BindAutosave(committed.map); }
@@ -1554,6 +1596,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 "type|count|seed|radius|height|speed|size|windX|windY|follow|shelter|x|y|z|r|g|b <number>\n"
                 " environment set exposure|ambient|fogR|fogG|fogB|tintR|tintG|tintB <number>\n"
                 " environment add point|spot|area|obj [asset-name]\n"
+                " environment add point|spot|area camera   a light that rides the camera\n"
                 " environment select|remove|duplicate <id>; environment place <id> <distance>\n"
                 " environment object <id> "
                 "x|y|z|pitch|yaw|roll|sx|sy|sz|r|g|b|intensity|range|cone|enabled|shadows|width|height|sourceRadius|pattern|profile|cue|patternScale|rate|amount|phase "
@@ -1934,29 +1977,82 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             } else {
                 required(4);
                 next.held.erase(HeldWeatherTypeKey());
+                // Each weather brings its own air with it: the gusts, the haze and the fog it is seen
+                // through. Clear takes them away again. Anything changed afterwards stays changed until
+                // a weather is picked again. (Ground fog is its own pass and is never touched here.)
+                auto look = [&](float gusts, float fog, float fogHeight, float fogNoise, Vec3 fogColor, float haze) {
+                    auto &c = next.climate;
+                    // The ground drift starts as each weather's own look (1), whatever the last one was set to.
+                    const std::pair<ClimateField, float> keys[] = {{CL_gusts, gusts},     {CL_fogDensity, fog},  {CL_fogHeight, fogHeight},
+                                                                    {CL_fogNoise, fogNoise}, {CL_haze, haze},       {CL_gustDensity, 1.f},
+                                                                    {CL_gustHeight, 1.f},  {CL_gustWisps, 1.f}, {CL_gustFloor, 1.f}};
+                    for (const auto &[field, value] : keys) {
+                        c.values[field] = value;
+                        next.held.erase(ClimateSpecs()[field].key);
+                    }
+                    if (fog > 0) next.fogColor = fogColor;
+                    // The renderer's master switch follows what is on, as the panel's does: a
+                    // weather that brings gusts and fog switches it on.
+                    if (gusts > 0 || fog > 0) c[CL_enabled] = 1;
+                };
+                // And its ground, replacing the last weather's: rain lifts the snow, snow dries the
+                // street, ash and clear leave it dry. Picking a weather sets the whole of it.
+                auto ground = [&](float snow, float wet, float puddles) {
+                    auto &c = next.climate;
+                    // Pools belong to a map, as `climate puddles` binds them.
+                    if (puddles > 0 && !next.map.empty() && next.map != CurrentMap()) puddles = 0;
+                    if (puddles > 0) next.map = CurrentMap();
+                    const std::pair<ClimateField, float> keys[] = {{CL_snow, snow}, {CL_wet, wet}, {CL_puddles, puddles}};
+                    for (const auto &[field, value] : keys) {
+                        c.values[field] = value;
+                        next.held.erase(ClimateSpecs()[field].key);
+                    }
+                    if (snow > 0 || wet > 0) c[CL_enabled] = 1;
+                };
                 if (mode == "clear") {
                     w.type = 0;
+                    look(0, 0, ClimateSpecs()[CL_fogHeight].initial, ClimateSpecs()[CL_fogNoise].initial, next.fogColor, ClimateSpecs()[CL_haze].initial);
+                    ground(0, 0, 0);
                 } else if (mode == "rain" || mode == "storm") {
                     w.type = 1;
                     w.speed = mode == "storm" ? 1050.f : 700.f;
                     w.count = mode == "storm" ? 5200 : 3600;
                     w.size = 1.3f;
-                    w.windX = mode == "storm" ? 180.f : 40.f;
                     w.color = {.6f, .7f, .85f};
+                    // A storm at sea: rain blown nearly level through a blue-grey haze, gusts of
+                    // spray running low over the ground.
+                    w.windX = mode == "storm" ? 220.f : 110.f;
+                    w.windY = mode == "storm" ? 70.f : 35.f;
+                    look(mode == "storm" ? .85f : .55f, mode == "storm" ? .3f : .16f, 420, .6f, {.50f, .56f, .64f}, mode == "storm" ? 1.1f : .8f);
+                    ground(0, .6f, .25f);
                 } else if (mode == "snow") {
                     w.type = 2;
                     w.speed = 65;
-                    w.count = 4200;
+                    // About as many flakes as a blizzard in the reference pack holds near the camera
+                    // (it keeps about 0.3 a cubic metre; 4200 here was nine times that).
+                    w.count = 1200;
                     w.size = 1.9f;
-                    w.windX = 18;
                     w.color = {.9f, .95f, 1};
+                    // A blizzard: a white-out haze and banks of blown snow
+                    // sweeping over the ground.
+                    w.windX = 55;
+                    w.windY = 20;
+                    look(.75f, .26f, 520, .7f, {.86f, .88f, .91f}, 1.f);
+                    ground(.6f, 0, 0);
                 } else if (mode == "ash") {
                     w.type = 3;
                     w.speed = 24;
-                    w.count = 4200;
+                    w.count = 1500;
                     w.size = 1.35f;
-                    w.windX = 28;
                     w.color = {.62f, .61f, .6f};
+                    // A sand storm in ash's greys: a warm grey haze, ash blown along the ground
+                    // in banks, embers among the flakes.
+                    w.windX = 48;
+                    w.windY = 14;
+                    look(.6f, .3f, 620, .7f, {.54f, .51f, .47f}, 1.2f);
+                    // Hold a little more of each low ash bank between the gusts.
+                    next.climate[CL_gustWisps] = .68f;
+                    ground(0, 0, 0);
                 } else if (mode == "embers" || mode == "motes" || mode == "smoke") {
                     w.count = mode == "smoke" ? 450 : 1200;
                     w.type = mode == "embers" ? 4 : mode == "motes" ? 5 : 6;
@@ -2141,7 +2237,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             else
                 throw std::runtime_error("Unknown environment field");
         } else if (op == "add") {
-            required(arg(3) == "obj" ? 5 : 4);
+            // `add point|spot|area camera`: a light that rides the camera (SceneRig attaches it).
+            const bool onCamera = arg(3) != "obj" && argc == 5 && arg(4) == "camera";
+            if (!onCamera) required(arg(3) == "obj" ? 5 : 4);
             if (CurrentMap().empty())
                 throw std::runtime_error("Load a map first");
             if (!next.map.empty() && next.map != CurrentMap())
@@ -2156,7 +2254,8 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             // assets (Filmmaker/Props). The meshes stay for imported OBJ and the render tests.
             if (o.kind=="box"||o.kind=="beveledbox"||o.kind=="sphere"||o.kind=="cylinder")
                 throw std::runtime_error("Basic shapes are not available. Place a model from Scene Objects > CS2 assets");
-            o.asset = arg(4);
+            if (onCamera && !o.IsLight()) throw std::runtime_error("Only lights ride the camera");
+            o.asset = onCamera ? "" : arg(4);
             if (o.IsLight()) {
                 o.color = {1, .8f, .6f};
                 o.scale = {1, 1, 1};
@@ -2166,8 +2265,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 o.color = {1, .85f, .3f};
                 o.scale = {1, 1, 1};
             }
-            Place(o, 160.f);
+            Place(o, onCamera ? 0.f : 160.f);
             next.objects.push_back(o);
+            if (onCamera) SceneRig_QueueCameraRide(o.id);
             next.map = CurrentMap();
             // Placed lights and meshes are drawn by the Environment pass, so adding one switches the
             // pass on. That is NOT a lighting takeover: a light adds its fill on top of whichever

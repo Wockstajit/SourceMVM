@@ -1,6 +1,6 @@
 # Render workspace: range nudges, the done sound and previous renders
 
-Four parts of the Render workspace (the Camera Editor's Render tool) that sit outside the render
+Five parts of the Render workspace (the Camera Editor's Render tool) that sit outside the render
 passes and the recorder. Passes are in [Render passes](filmmaker_render_passes.md), frame rates in
 [Recording FPS](filmmaker_render_fps.md).
 
@@ -57,6 +57,24 @@ mirv_filmmaker render sound volume <0..100>
 mirv_filmmaker render sound test                  play it now, whatever the switch says
 ```
 
+## When a render cannot be written
+
+Every format but TGA, BMP and EXR is encoded by FFmpeg (`ffmpeg\ffmpeg.ini`'s `[Ffmpeg] Path`,
+else the bundled `ffmpeg\bin\ffmpeg.exe`). The encoder probe checks that this `ffmpeg.exe` exists
+and answers `-version` before it tests NVENC. A job in an FFmpeg format waits for that probe
+("checking FFmpeg") and refuses to start when FFmpeg is missing or broken, with one sentence that
+names the path. A job after a failed probe probes again, so restoring `ffmpeg.exe` needs no restart.
+
+While a job records, the first stream that cannot open its output or write a frame ends the job at
+once. The failure text gives that stream's problem and the last lines FFmpeg wrote to its error
+output, for example the encoder it could not open. The check after the last frame stays, so a late
+failure still refuses the manifest. The rules are in `Render/RenderWriterFailureMath.h`, tested by
+`render-writer-failure-math-tests.cpp`.
+
+Before this, a job with no working FFmpeg rendered the whole take and then failed with only a count
+("capture writer reported N output failure(s); refusing a completed manifest"), and the cause
+reached only the console (viewer report, 2026-11-18).
+
 ## Previous renders
 
 The JOB column lists the latest renders of the demo that is playing, newest first (three rows, up
@@ -97,8 +115,11 @@ panel (`CameraEditorRenderJs.h`).
 
 ## Verification
 
-- `ctest -R RenderTakeImportMathTests` for the manifest mapping.
+- `ctest -R RenderTakeImportMathTests` for the manifest mapping, `ctest -R RenderWriterFailureMathTests`
+  for the failure text.
 - In the mockup's Render tab, the SOUND chip, the WHEN THE RENDER ENDS section and the PREVIOUS
   RENDERS rows follow the fixture state (`UiMockup/shim/state.js`, `commands.js`).
 - In game: finish a short job and hear the rising chime, fail or cancel one and check the falling
   chime or silence, then Use the new row and check that range, camera and passes match it.
+- In game: rename the staged `ffmpeg` folder and start an MP4 render. It must stop at "checking
+  FFmpeg" with the missing path. Put it back and the next render must complete.
