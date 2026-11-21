@@ -78,8 +78,41 @@
     pic.url = c.toDataURL('image/png');
     return pic;
   }
+  // The map list as C++ sends it: searched and sorted (AltEnvironmentMath.h SortMapList, mirrored
+  // loosely here: a name holding the demo map's name is a remake, a measured layout "l" counts too).
+  function aeBase(m) { m = String(m || '').toLowerCase(); var u = m.indexOf('_'); return u > 0 && u <= 3 ? m.slice(u + 1) : m; }
+  function aeWords(t) { return String(t || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean); }
+  function aeLike(demo, m) {
+    var base = aeBase(demo), other = aeBase(m.m), words = aeWords(other).concat(aeWords(m.t)), bw = aeWords(base);
+    var name = other === base ? 1 : bw.every(function (b) { return words.indexOf(b) >= 0; }) ? 0.9
+      : words.join('').indexOf(bw.join('')) >= 0 ? 0.8 : 0.1;
+    return Math.max(name, m.l !== undefined ? m.l / 100 : 0);
+  }
+  function aeList(s) {
+    if (!s.allMaps) s.allMaps = s.maps.slice();
+    var q = String(s.listQuery || '').toLowerCase().split(' ').filter(Boolean), sort = s.listSort || 'alike';
+    var out = s.allMaps.filter(function (m) {
+      var hay = (m.t + ' ' + m.m + ' ' + (m.a || '')).toLowerCase();
+      return q.every(function (w) { return hay.indexOf(w) >= 0; });
+    }).map(function (m) { var c = {}; for (var k in m) c[k] = m[k]; c.s = Math.round(aeLike(s.demoMap, m) * 100); return c; });
+    out.sort(function (a, b) {
+      if (sort === 'alike') { if (!!a.tiny !== !!b.tiny) return a.tiny ? 1 : -1; if (a.s !== b.s) return b.s - a.s; }
+      if (sort === 'recent' && a.d !== b.d) return (b.d || 0) - (a.d || 0);
+      var ta = a.t.toLowerCase(), tb = b.t.toLowerCase();
+      return ta < tb ? -1 : ta > tb ? 1 : a.m < b.m ? -1 : a.m > b.m ? 1 : 0;
+    });
+    s.maps = out;
+    s.listTotal = s.allMaps.length;
+  }
   function altenv(st, args) {
     var s = st.altenv, v = args[0], w = args[1];
+    if (v === 'list') {
+      if (w === 'sort' && args[2]) s.listSort = args[2];
+      else if (w === 'find') s.listQuery = args.slice(2).filter(function (x) { return x !== 'quiet'; }).join(' ');
+      aeList(s);
+      return true;
+    }
+    if (!s.allMaps) aeList(s);
     function nums(i) { return [+args[i] || 0, +args[i + 1] || 0, +args[i + 2] || 0, +args[i + 3] || 0]; }
     function find(m, a) { for (var i = 0; i < s.maps.length; i++) if (s.maps[i].m === m && (!a || s.maps[i].a === a)) return s.maps[i]; return null; }
     if (v === 'view') s.view = w === 'on' ? true : w === 'off' ? false : !s.view;

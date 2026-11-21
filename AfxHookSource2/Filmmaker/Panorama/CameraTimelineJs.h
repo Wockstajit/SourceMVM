@@ -972,8 +972,9 @@ R"TLJS(
           var l = mvmLabel(b, '', {});
           b.__lbl = l;
           b.SetPanelEvent('onactivate', onactivate);
-        } else if (!b.__lbl) {
+        } else if (!b.__lbl || (b.__lbl.IsValid && !b.__lbl.IsValid())) {
           b.__lbl = (b.GetChildCount && b.GetChildCount() > 0) ? b.GetChild(0) : mvmLabel(b, '', {});
+          b.__geom = 0;
         }
         // Fixed geometry, written ONCE: the bar buttons must never resize when a label changes
         // (ModeSwapBtn flips CAM EDITOR <-> CONFIG) and the text must stay centered -- fit-to-text
@@ -981,6 +982,11 @@ R"TLJS(
         // style properties on four buttons per frame is forty layout invalidations for a geometry
         // that never moves; __geom latches it. The button is ours and nothing else writes it, so
         // a panel that still exists still has it.
+        // ... except when it is visibly gone: after a map switch the label was found in the top-left
+        // corner of its button (2026-11-21), shrunk to its text. A label narrower than its button
+        // has lost the geometry, so it is written again; reading two widths is cheap.
+        var bw = b.actuallayoutwidth || 0, lw = b.__lbl.actuallayoutwidth || 0;
+        if (b.__geom && bw > 0 && lw > 0 && lw < bw * 0.9) b.__geom = 0;
         if (!b.__geom) {
           b.__geom = 1;
           b.style.height = BAR_BTN_H + 'px'; b.style.width = BAR_BTN_W + 'px';

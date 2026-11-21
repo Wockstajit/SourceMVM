@@ -3,7 +3,8 @@
 // ALTERNATIVE ENVIRONMENT: a demo plays on a different map. The players, weapons, grenades and
 // cameras stay in the demo's own coordinates; the replacement world is what moves. This header is
 // the engine-free part: the alignment between the two maps, the spawn-group world offset that
-// realises it, the top-down floor rasters both maps are drawn from, and AUTO ALIGN.
+// realises it, the top-down floor rasters both maps are drawn from, AUTO ALIGN, and the MAP view's
+// search and sort of the map list.
 // Docs/features/alternative-environment.md owns the contract;
 // Automation/tests/alt-environment-math-tests.cpp covers it.
 //
@@ -12,11 +13,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <complex>
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -644,6 +647,23 @@ inline std::vector<Peak> Distinct(std::vector<Peak> peaks, double cells, double 
 
 } // namespace Detail
 
+// AUTO ALIGN's first step, on its own: how well the two maps fit in their own coordinates, with no
+// offset or with only the height step between the two floors, whichever scores better. A night or
+// rain remake of the same map scores 0.85 or more. `best` receives the alignment that scored.
+inline double SameCoordinatesScore(const FloorRaster &demo, const FloorRaster &target, const std::vector<Vec3> &feet, int stride,
+                                   Alignment *best = nullptr) {
+    Alignment same;
+    double score = Evaluate(demo, target, feet, same, stride).Score();
+    double step = 0;
+    if (BestHeightStep(demo, target, Alignment{}, stride, step) && std::fabs(step) > 0.5) {
+        const Alignment lifted{0, 0, step, 0};
+        const double s = Evaluate(demo, target, feet, lifted, stride).Score();
+        if (s > score + 0.005) same = lifted, score = s;
+    }
+    if (best) *best = same;
+    return score;
+}
+
 struct AutoAlignOptions {
     double coarseCell = 64;  // first pass: every yaw at this cell size
     double coarseYawStep = 3;
@@ -683,14 +703,8 @@ AutoAlignResult AutoAlign(const FloorRaster &demo, const FloorRaster &target, co
     // The common case first: a remake of the same map in the same place. No offset at all, or only
     // the height step between the two floors.
     Alignment same;
-    double sameScore = Evaluate(demo, target, feet, same, stride).Score();
+    const double sameScore = SameCoordinatesScore(demo, target, feet, stride, &same);
     {
-        double step = 0;
-        if (BestHeightStep(demo, target, Alignment{}, stride, step) && std::fabs(step) > 0.5) {
-            const Alignment lifted{0, 0, step, 0};
-            const double s = Evaluate(demo, target, feet, lifted, stride).Score();
-            if (s > sameScore + 0.005) same = lifted, sameScore = s;
-        }
         if (sameScore >= options.identityAccept) {
             result.ok = result.identity = true;
             result.alignment = same;
@@ -789,6 +803,152 @@ AutoAlignResult AutoAlign(const FloorRaster &demo, const FloorRaster &target, co
 inline AutoAlignResult AutoAlign(const FloorRaster &demo, const FloorRaster &target, const std::vector<Vec3> &feet,
                                  const AutoAlignOptions &options = {}) {
     return AutoAlign(demo, target, feet, options, [](double) {});
+}
+
+// ---- the map list ---------------------------------------------------------------------------------
+//
+// The MAP view lists every map the demo can play on. It can be searched by name and sorted three
+// ways: most alike first (the default), by name, or newest download first.
+//
+// "Alike" is one number from 0 to 1 per map, the larger of two scores:
+//  - the name: a map whose name holds the demo map's own name (de_inferno_night, "Rainy Inferno"
+//    for de_inferno) is a remake of it; otherwise how many letter pairs the two names share.
+//  - the layout, once it has been measured: AUTO ALIGN's score for that map, or, for a map whose
+//    map data is already on disk, how well the two floors fit in their own coordinates
+//    (SameCoordinatesScore). Remakes measure 0.85 or more, unrelated maps under 0.4.
+// The larger wins because each can miss: a remake that is moved needs AUTO ALIGN before its layout
+// scores, and a remake can have a name that shares nothing with the original.
+
+struct MapListEntry {
+    std::string map, title, addon;
+    bool tiny = false;    // a placeholder package, not a playable map
+    int64_t added = 0;    // when its package was written (downloaded or installed), any monotonic unit
+    double layout = -1;   // the measured layout score, 0..1; below 0 when not measured
+};
+
+enum class MapSort { Alike, Name, Recent };
+
+namespace Detail {
+inline std::string LowerAscii(std::string s) {
+    for (char &c : s) c = char(std::tolower((unsigned char)c));
+    return s;
+}
+// Lower-case words of letters and digits.
+inline std::vector<std::string> Words(const std::string &s) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (char c : s) {
+        if (std::isalnum((unsigned char)c)) cur += char(std::tolower((unsigned char)c));
+        else if (!cur.empty()) out.push_back(cur), cur.clear();
+    }
+    if (!cur.empty()) out.push_back(cur);
+    return out;
+}
+inline double LetterPairs(const std::string &a, const std::string &b) {
+    if (a.size() < 2 || b.size() < 2) return a == b && !a.empty() ? 1.0 : 0.0;
+    std::vector<std::string> pa, pb;
+    for (size_t i = 0; i + 1 < a.size(); ++i) pa.push_back(a.substr(i, 2));
+    for (size_t i = 0; i + 1 < b.size(); ++i) pb.push_back(b.substr(i, 2));
+    size_t shared = 0;
+    std::vector<bool> used(pb.size(), false);
+    for (const std::string &p : pa)
+        for (size_t j = 0; j < pb.size(); ++j)
+            if (!used[j] && pb[j] == p) { used[j] = true, ++shared; break; }
+    return 2.0 * double(shared) / double(pa.size() + pb.size());
+}
+} // namespace Detail
+
+// A map name without its game-mode prefix ("de_", "cs_", "ar_", ...), lower case: de_inferno ->
+// inferno, workshop_inferno_night -> workshop_inferno_night (a prefix is at most three letters).
+inline std::string MapBaseName(const std::string &map) {
+    std::string s = Detail::LowerAscii(map);
+    const size_t underscore = s.find('_');
+    if (underscore != std::string::npos && underscore > 0 && underscore <= 3) s = s.substr(underscore + 1);
+    return s;
+}
+
+// How alike a map's name and title are to the demo map's name, 0..1.
+inline double NameLikeness(const std::string &demoMap, const std::string &map, const std::string &title) {
+    const std::string base = MapBaseName(demoMap), other = MapBaseName(map);
+    if (base.empty() || other.empty()) return 0;
+    if (other == base) return 1.0;
+    const std::vector<std::string> baseWords = Detail::Words(base);
+    std::vector<std::string> words = Detail::Words(other);
+    for (const std::string &w : Detail::Words(title)) words.push_back(w);
+    // Every word of the demo map's name is a word of this one: a remake (inferno -> inferno night).
+    bool all = !baseWords.empty();
+    for (const std::string &b : baseWords) all = all && std::find(words.begin(), words.end(), b) != words.end();
+    if (all) return 0.9;
+    // Its name runs on from the demo map's (dust2 -> dust2night) or holds it.
+    std::string joined;
+    for (const std::string &w : words) joined += w;
+    std::string baseJoined;
+    for (const std::string &b : baseWords) baseJoined += b;
+    if (baseJoined.size() >= 4 && joined.find(baseJoined) != std::string::npos) return 0.8;
+    // Otherwise the share of letter pairs the closest word has in common, scaled under the remake
+    // cases above.
+    double best = Detail::LetterPairs(baseJoined, Detail::LowerAscii(other));
+    for (const std::string &w : words) best = (std::max)(best, Detail::LetterPairs(baseJoined, w));
+    return 0.7 * best;
+}
+
+inline double Likeness(const std::string &demoMap, const MapListEntry &m) {
+    return (std::max)(NameLikeness(demoMap, m.map, m.title), m.layout >= 0 ? (std::min)(1.0, m.layout) : 0.0);
+}
+
+// Whether every word of `query` is part of the map's title, map name or Workshop item number.
+// Case does not matter; an empty query matches everything.
+inline bool MapMatchesQuery(const MapListEntry &m, const std::string &query) {
+    const std::string hay = Detail::LowerAscii(m.title) + " " + Detail::LowerAscii(m.map) + " " + m.addon;
+    std::string word;
+    for (size_t i = 0; i <= query.size(); ++i) {
+        const char c = i < query.size() ? query[i] : ' ';
+        if (c == ' ' || c == '\t') {
+            if (!word.empty() && hay.find(word) == std::string::npos) return false;
+            word.clear();
+        } else {
+            word += char(std::tolower((unsigned char)c));
+        }
+    }
+    return true;
+}
+
+// The order of `maps` (indices into it) for a sort, keeping only those that match `query`.
+// Every sort falls back to the title, then the map name, then the Workshop item, so equal keys
+// always come out in the same order. Placeholders go last when sorting by likeness: they are never
+// what a demo should play on.
+inline std::vector<size_t> SortMapList(const std::vector<MapListEntry> &maps, const std::string &demoMap, MapSort sort,
+                                       const std::string &query = std::string()) {
+    std::vector<size_t> order;
+    std::vector<double> like(maps.size(), 0);
+    std::vector<std::string> title(maps.size());
+    for (size_t i = 0; i < maps.size(); ++i) {
+        if (!MapMatchesQuery(maps[i], query)) continue;
+        order.push_back(i);
+        title[i] = Detail::LowerAscii(maps[i].title);
+        if (sort == MapSort::Alike) like[i] = Likeness(demoMap, maps[i]);
+    }
+    auto byName = [&](size_t a, size_t b) {
+        if (title[a] != title[b]) return title[a] < title[b];
+        if (maps[a].map != maps[b].map) return maps[a].map < maps[b].map;
+        return maps[a].addon < maps[b].addon;
+    };
+    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+        switch (sort) {
+        case MapSort::Alike:
+            if (maps[a].tiny != maps[b].tiny) return !maps[a].tiny;
+            // Two scores within half a percent are the same score: the name decides.
+            if (std::fabs(like[a] - like[b]) > 0.005) return like[a] > like[b];
+            break;
+        case MapSort::Recent:
+            if (maps[a].added != maps[b].added) return maps[a].added > maps[b].added;
+            break;
+        case MapSort::Name:
+            break;
+        }
+        return byName(a, b);
+    });
+    return order;
 }
 
 } // namespace Filmmaker::AltEnvironment

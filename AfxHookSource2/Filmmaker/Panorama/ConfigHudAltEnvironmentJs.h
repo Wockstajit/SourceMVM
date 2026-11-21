@@ -148,10 +148,69 @@ R"CFJS(
     aeList.style.padding = '8px'; aeList.style.borderRight = '1px solid #ffffff14';
     var aeTabs = mk('Panel', aeList); aeTabs.hittest = false; aeTabs.hittestchildren = true;
     aeTabs.style.flowChildren = 'right'; aeTabs.style.width = '100%'; aeTabs.style.marginBottom = '6px';
-    var aeKind = 'workshop', aePage = 0, aePerPage = 8;
-    var aeTabWs = btn(aeTabs, T('WORKSHOP'), function () { aeKind = 'workshop'; aePage = 0; aeListSig = ''; }, S.label);
-    var aeTabIn = btn(aeTabs, T('INSTALLED'), function () { aeKind = 'installed'; aePage = 0; aeListSig = ''; }, S.label);
+    var aeKind = 'all', aePage = 0, aePerPage = 8;
+    function aeTab(key, caption) {
+      return btn(aeTabs, caption, function () { aeKind = key; aePage = 0; aeListSig = ''; }, S.label);
+    }
+    var aeTabAll = aeTab('all', T('ALL')), aeTabWs = aeTab('workshop', T('WORKSHOP')), aeTabIn = aeTab('installed', T('INSTALLED'));
     aeTabIn.style.marginRight = '0px';
+
+    // ---- search and sort ----
+    // The search field takes the window-level text capture the other CONFIG fields use (HUD
+    // TextEntry panels never get keyboard focus here). C++ filters and sorts the list
+    // (`altenv list`, AltEnvironmentMath.h SortMapList); the view shows st.altenv.maps in order.
+    var aeQuery = '', aeQueryFocus = false;
+    var aeField = mk('Panel', aeList); aeField.hittest = true;
+    aeField.style.width = '100%'; aeField.style.height = '32px'; aeField.style.flowChildren = 'right';
+    aeField.style.backgroundColor = '#1b2129ff'; aeField.style.borderRadius = '3px';
+    aeField.style.marginBottom = '6px';
+    var aeGlyph = lbl(aeField, '⌕', S.muted, 15); aeGlyph.hittest = false;
+    aeGlyph.style.marginLeft = '9px'; aeGlyph.style.verticalAlign = 'center';
+    var aeFieldLbl = lbl(aeField, '', S.value, 13); aeFieldLbl.hittest = false;
+    aeFieldLbl.style.width = 'fill-parent-flow(1.0)'; aeFieldLbl.style.marginLeft = '7px';
+    aeFieldLbl.style.whiteSpace = 'nowrap'; aeFieldLbl.style.verticalAlign = 'center';
+    var aeClear = lbl(aeField, '×', S.muted, 15); aeClear.hittest = true;
+    aeClear.style.verticalAlign = 'center'; aeClear.style.padding = '0px 9px';
+    function aeFieldPaint() {
+      aeFieldLbl.text = (aeQuery + (aeQueryFocus ? ' |' : '')) || T('Search maps by name');
+      aeFieldLbl.style.color = aeQuery ? S.value : S.muted;
+      aeField.style.border = '1px solid ' + (aeQueryFocus ? S.accent : S.tileBorder);
+      aeClear.visible = !!aeQuery;
+    }
+    function aeFind() { aePage = 0; aeListSig = ''; aeCmd('list find ' + aeQuery + ' quiet'); }
+    aeClear.SetPanelEvent('onactivate', function () { aeQuery = ''; aeFieldPaint(); aeFind(); });
+    var aePrevBlur = configWindowBlur, aePrevChars = configWindowChars;
+    configWindowBlur = function () { aeQueryFocus = false; aeFieldPaint(); aePrevBlur(); };
+    configWindowChars = function (csv) {
+      if (!aeQueryFocus) { aePrevChars(csv); return; }
+      var before = aeQuery;
+      String(csv || '').split(',').forEach(function (part) {
+        var n = parseInt(part, 10);
+        if (n === 13 || n === 27) configWindowBlur();
+        else if (n === 8) aeQuery = aeQuery.slice(0, -1);
+        else if (aeQuery.length < 40 && ((n >= 48 && n <= 57) || (n >= 65 && n <= 90)
+                 || (n >= 97 && n <= 122) || n === 32 || n === 45 || n === 95)) {
+          aeQuery += String.fromCharCode(n);
+        }
+      });
+      if (aeQuery !== before) aeFind();
+      aeFieldPaint();
+    };
+    aeField.SetPanelEvent('onactivate', function () {
+      configWindowBlur(); aeQueryFocus = true; cfgTextOwner = aeField;
+      root.SetAttributeString('textcapture', '1');
+      aeFieldPaint();
+    });
+    aeFieldPaint();
+    var aeSortRow = mk('Panel', aeList); aeSortRow.hittest = false; aeSortRow.hittestchildren = true;
+    aeSortRow.style.flowChildren = 'right'; aeSortRow.style.width = '100%'; aeSortRow.style.marginBottom = '6px';
+    var aeSortLbl = lbl(aeSortRow, T('Sort'), S.muted, 12); aeSortLbl.hittest = false;
+    aeSortLbl.style.verticalAlign = 'center'; aeSortLbl.style.marginRight = '8px';
+    var aeSort = segmented(aeSortRow, [['alike', T('Most alike')], ['name', T('Name')], ['recent', T('Newest')]],
+      'fill-parent-flow(1.0)', function (k) { aePage = 0; aeListSig = ''; aeSort.sync(k); aeCmd('list sort ' + k + ' quiet'); }, 12);
+    attachTip(aeSort.btns.alike, T('The maps most like the demo\'s own first: a remake of the same map by its name, or by how well its layout matches (AUTO ALIGN\'s score, or the floors measured where map data is already on disk).'));
+    attachTip(aeSort.btns.name, T('A to Z by title.'));
+    attachTip(aeSort.btns.recent, T('The most recently downloaded or installed first.'));
     var aeOwn = wideBtn(aeList, '', function () { aeCmd('pick none'); }, S.label);
     aeOwn.__lbl.style.whiteSpace = 'normal'; aeOwn.style.marginBottom = '6px';
     var aeRows = mk('Panel', aeList); aeRows.hittest = false; aeRows.hittestchildren = true;
@@ -168,16 +227,22 @@ R"CFJS(
     function aeMapsOf(a) {
       var out = [], maps = a.maps || [];
       for (var i = 0; i < maps.length; i++) {
-        if ((aeKind === 'workshop') === !!maps[i].a && maps[i].m !== a.demoMap) out.push(maps[i]);
+        if ((aeKind === 'all' || (aeKind === 'workshop') === !!maps[i].a) && maps[i].m !== a.demoMap) out.push(maps[i]);
       }
       return out;
     }
     function aeRenderList(a, listH) {
-      aePerPage = Math.max(3, Math.floor((listH - 150) / (AE_ROW_H + 4)));
+      aePerPage = Math.max(3, Math.floor((listH - 230) / (AE_ROW_H + 4)));
       var maps = aeMapsOf(a), pages = Math.max(1, Math.ceil(maps.length / aePerPage));
       if (aePage >= pages) aePage = pages - 1;
-      var sig = aeKind + '|' + aePage + '|' + aePerPage + '|' + maps.length + '|' + (a.pick || '') + '|' + (a.pickAddon || '') + '|' + (a.mapsBusy ? 1 : 0);
-      setBtnOn(aeTabWs, aeKind === 'workshop'); setBtnOn(aeTabIn, aeKind === 'installed');
+      var sort = a.listSort || 'alike';
+      // The search C++ holds (it outlives a rebuild of this panel) shows in the field.
+      if (!aeQueryFocus && (a.listQuery || '') !== aeQuery) { aeQuery = a.listQuery || ''; aeFieldPaint(); }
+      var sig = aeKind + '|' + aePage + '|' + aePerPage + '|' + maps.length + '|' + (a.pick || '') + '|' + (a.pickAddon || '') + '|' + (a.mapsBusy ? 1 : 0) + '|' + sort;
+      for (var si = aePage * aePerPage; si < Math.min(maps.length, (aePage + 1) * aePerPage); si++)
+        sig += '|' + maps[si].m + (maps[si].a || '') + ':' + maps[si].s + ':' + (maps[si].l === undefined ? '' : maps[si].l);
+      setBtnOn(aeTabAll, aeKind === 'all'); setBtnOn(aeTabWs, aeKind === 'workshop'); setBtnOn(aeTabIn, aeKind === 'installed');
+      aeSort.sync(sort);
       aeOwn.__lbl.text = T('{0} (the demo\'s own map)', a.demoTitle || a.demoMap || T('Its own map'));
       setBtnOn(aeOwn, !a.pick);
       if (sig === aeListSig) return;
@@ -186,7 +251,8 @@ R"CFJS(
       if (a.mapsBusy && !maps.length) {
         var wait = aeWrapLabel(lbl(aeRows, T('Looking for maps...'), S.muted, 12)); wait.hittest = false; wait.style.margin = '6px';
       } else if (!maps.length) {
-        var none = aeWrapLabel(lbl(aeRows, aeKind === 'workshop' ? T('No Workshop maps are installed. Subscribe to one in the Workshop and it shows up here.') : T('No other maps found.'), S.muted, 12));
+        var none = aeWrapLabel(lbl(aeRows, a.listQuery ? T('No map matches "{0}".', a.listQuery)
+          : aeKind === 'workshop' ? T('No Workshop maps are installed. Subscribe to one in the Workshop and it shows up here.') : T('No other maps found.'), S.muted, 12));
         none.hittest = false; none.style.margin = '6px';
       }
       for (var i = aePage * aePerPage; i < Math.min(maps.length, (aePage + 1) * aePerPage); i++) (function (m) {
@@ -199,6 +265,14 @@ R"CFJS(
         var on = m.m === a.pick && (!m.a || !a.pickAddon || m.a === a.pickAddon);
         var t = aeWrapLabel(lbl(r, m.t, on ? S.accent : S.value, 13)); t.hittest = false; t.style.fontWeight = 'bold';
         var sub = m.tiny ? T('{0} · a placeholder, not a playable map', m.m) : m.m;
+        // What the sort went by: how alike it is, or when it was downloaded.
+        // A score under half says nothing about the map, so only real likeness is shown.
+        if (!m.tiny && sort === 'alike' && m.s >= 50) sub = m.l !== undefined && m.l >= m.s
+          ? T('{0} · layout {1}% alike', sub, m.s) : T('{0} · {1}% alike', sub, m.s);
+        else if (!m.tiny && sort === 'recent' && m.d) {
+          var dt = new Date(m.d * 1000);
+          sub = T('{0} · added {1}', sub, dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2));
+        }
         var s2 = aeWrapLabel(lbl(r, sub, m.tiny ? '#ffb070ff' : S.muted, 11)); s2.hittest = false; s2.style.marginTop = '1px';
         function paint() { r.style.backgroundColor = on ? '#80bdff22' : (r.__hot ? '#ffffff12' : '#ffffff06'); }
         r.SetPanelEvent('onmouseover', function () { r.__hot = true; paint(); });

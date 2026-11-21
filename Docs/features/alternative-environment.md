@@ -85,7 +85,7 @@ instead of cycling CS2's camera, a right press never becomes the ENVIRONMENT tab
 `MovieMode::OnMouseButton` swallows the right button there so CS2's spectator does not step to the
 previous player. The scene-object picker and the light and mesh arrows ignore the preview under it.
 
-- **Left**: the maps the demo can play on. **WORKSHOP** lists every map inside an installed Workshop
+- **Left**: the maps the demo can play on. **ALL** (the default) lists both kinds below. **WORKSHOP** lists every map inside an installed Workshop
   item, with its published title. **INSTALLED** lists the maps in `csgo/maps`, without menu, preview
   and character scenes, and without a map that a Workshop item also holds: a map package copied
   into `csgo/maps` on its own has none of the materials and models its item ships beside it (El
@@ -94,6 +94,29 @@ previous player. The scene-object picker and the light and mesh arrows ignore th
   items can hold a map of the same name (Nightly Cache and Rainy Cache are both `de_cache_n_r`), so
   a pick carries its item and that item is the one mounted. A Workshop item whose map package is smaller than 1 MB is flagged as a
   placeholder. Some "night" items are only a box that tells you to join a server.
+
+  Over the list, a search field and a sort. The search keeps the maps whose title, map name or
+  Workshop item number holds every word typed, in any order and case. The sort is one of:
+
+  | Sort | Order |
+  | --- | --- |
+  | **Most alike** (default) | The maps most like the demo's own first, placeholders last |
+  | **Name** | A to Z by title, then map name |
+  | **Newest** | The most recently written package first: a Workshop download or a CS2 update |
+
+  "Alike" is the larger of two scores from 0 to 100%. The name score is 100% for the demo's own
+  map name, 90% when the map name or the item title holds every word of it (`de_inferno_night`,
+  "Rainy Inferno"), 80% when the name runs on from it (`dust2night`), and otherwise up to 70% for
+  the letter pairs the names share. The layout score is AUTO ALIGN's: once a map has been picked,
+  how well it fits in its own coordinates (the first step of AUTO ALIGN), and once AUTO ALIGN has
+  run on it, its result. While the view is open, every map whose
+  [map data](../effects/map-data-extraction.md) is already on disk is measured the same way in the
+  background, most alike by name first, below the game's priority. A map without map data is not
+  extracted for this: that costs seconds of disk and CPU per map. Each row shows its score
+  ("layout 96% alike" when the layout decided it), or under **Newest** the date its package was
+  written. The search and sort run in C++
+  ([`AltEnvironmentMath.h`](../../AfxHookSource2/Filmmaker/AltEnvironment/AltEnvironmentMath.h)
+  `SortMapList`), and the state sends the maps in that order.
 - **Right**: both maps seen from above. The replacement map is grey, lighter where it is higher.
   Over it, the demo's own map: its walls as light lines, its floor and the paths its players walked
   through the whole demo, and dots for where the players are now (orange T, blue CT). Before a
@@ -242,6 +265,7 @@ demo deletes every other demo's environment copies, as it does for scrub keyfram
 ```text
 mirv_filmmaker altenv status                    what the open demo plays on
 mirv_filmmaker altenv maps [rescan]             the maps it can play on
+mirv_filmmaker altenv list [sort alike|name|recent] [find <words>]  the map view's list, searched and sorted
 mirv_filmmaker altenv pick <map> [item]|none    choose the replacement map (and its Workshop item)
 mirv_filmmaker altenv align <x> <y> <z> <yaw>   where the demo lands on it
 mirv_filmmaker altenv move <dx> <dy> [dz]       shift that

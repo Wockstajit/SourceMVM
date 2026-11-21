@@ -230,6 +230,92 @@ void TestAutoAlignRecovers(const Alignment truth, bool feet) {
 }
 // Where a standing point lands: on a floor (any layer within reach), floating over one, under the map
 // (floor only above), or outside it; the counts; and the map view's coloured demo layer.
+// The MAP view's list: what "alike" means, the search, and the three sorts.
+void TestMapNames() {
+    CHECK(MapBaseName("de_inferno") == "inferno");
+    CHECK(MapBaseName("CS_Office") == "office");
+    CHECK(MapBaseName("workshop_inferno") == "workshop_inferno"); // not a mode prefix
+    // The same map, and remakes that keep its name in theirs, from the map name or the item title.
+    CHECK(Near(NameLikeness("de_inferno", "de_inferno", "Inferno"), 1.0, 1e-12));
+    CHECK(Near(NameLikeness("de_inferno", "de_inferno_night", "Inferno Night"), 0.9, 1e-12));
+    CHECK(Near(NameLikeness("de_mirage", "de_mirage_rn", "Rainy Mirage"), 0.9, 1e-12));
+    CHECK(Near(NameLikeness("de_cache", "de_cache_n_r", "Nightly Cache"), 0.9, 1e-12));
+    CHECK(Near(NameLikeness("de_dust2", "de_dust2night", "Dusty Night"), 0.8, 1e-12));
+    // Unrelated names stay under every remake case; a near name scores above an unrelated one.
+    const double anubis = NameLikeness("de_inferno", "de_anubis_night", "Anubis Night");
+    const double dust = NameLikeness("de_dust2", "de_dust", "Dust");
+    CHECK(anubis < 0.3);
+    CHECK(dust > anubis && dust < 0.8);
+    CHECK(NameLikeness("", "de_inferno", "Inferno") == 0);
+}
+
+void TestMapLikeness() {
+    MapListEntry m{"de_shoots_night", "Shoots Night", "123", false, 0, -1};
+    const double byName = Likeness("de_inferno", m);
+    CHECK(byName < 0.3);
+    // A measured layout counts once it beats the name.
+    m.layout = 0.92;
+    CHECK(Near(Likeness("de_inferno", m), 0.92, 1e-12));
+    // ... and a low layout (a remake moved off its own coordinates) never pulls a name match down.
+    MapListEntry remake{"de_inferno_night", "Inferno Night", "9", false, 0, 0.05};
+    CHECK(Near(Likeness("de_inferno", remake), 0.9, 1e-12));
+}
+
+void TestMapSearch() {
+    const MapListEntry m{"de_inferno_rain", "Rainy Inferno", "3488478228", false, 0, -1};
+    CHECK(MapMatchesQuery(m, ""));
+    CHECK(MapMatchesQuery(m, "   "));
+    CHECK(MapMatchesQuery(m, "INF"));
+    CHECK(MapMatchesQuery(m, "rain inferno")); // every word, any order
+    CHECK(MapMatchesQuery(m, "de_inferno"));
+    CHECK(MapMatchesQuery(m, "3488"));         // the Workshop item
+    CHECK(!MapMatchesQuery(m, "inferno night"));
+    CHECK(!MapMatchesQuery(m, "mirage"));
+}
+
+void TestMapSort() {
+    const std::vector<MapListEntry> maps = {
+        {"de_anubis", "Anubis", "", false, 10, -1},           // 0
+        {"de_inferno_night", "Inferno Night", "7", false, 40, -1}, // 1
+        {"de_ancient", "Ancient", "", false, 30, -1},         // 2
+        {"de_shoots", "Shoots", "", false, 20, 0.95},         // 3: measured: same layout
+        {"de_inferno_box", "Inferno Night", "8", true, 50, -1},   // 4: placeholder
+        {"ar_baggage", "Baggage", "", false, 5, -1},          // 5
+    };
+    const auto alike = SortMapList(maps, "de_inferno", MapSort::Alike);
+    CHECK(alike.size() == maps.size());
+    CHECK(alike[0] == 3 && alike[1] == 1);     // the measured layout, then the remake by name
+    CHECK(alike.back() == 4);                  // placeholders last
+    const auto byName = SortMapList(maps, "de_inferno", MapSort::Name);
+    CHECK((byName == std::vector<size_t>{2, 0, 5, 4, 1, 3})); // same title: by map name
+    const auto recent = SortMapList(maps, "de_inferno", MapSort::Recent);
+    CHECK((recent == std::vector<size_t>{4, 1, 2, 3, 0, 5}));
+    const auto found = SortMapList(maps, "de_inferno", MapSort::Alike, "night");
+    CHECK((found == std::vector<size_t>{1, 4}));
+    CHECK(SortMapList(maps, "de_inferno", MapSort::Name, "nothing like it").empty());
+    // Equal keys come out the same way every time.
+    std::vector<MapListEntry> same = {{"de_b", "X", "2", false, 1, -1}, {"de_a", "X", "1", false, 1, -1}, {"de_a", "X", "0", false, 1, -1}};
+    CHECK((SortMapList(same, "de_q", MapSort::Recent) == std::vector<size_t>{2, 1, 0}));
+}
+
+// The first step of AUTO ALIGN on its own (the map list measures layouts with it).
+void TestSameCoordinatesScore() {
+    Mesh demo, night, lifted, other;
+    Level(demo);
+    Level(night);
+    Level(lifted, Alignment{0, 0, 40, 0});
+    Level(other, Alignment{1800, -900, 0, 90});
+    const FloorRaster d = demo.Raster(16);
+    Alignment best{1, 1, 1, 1};
+    CHECK(SameCoordinatesScore(d, night.Raster(16), Feet(), 1, &best) > 0.99);
+    CHECK(IsIdentity(best));
+    // A remake 40 units higher: the height step is found and scores.
+    CHECK(SameCoordinatesScore(d, lifted.Raster(16), Feet(), 1, &best) > 0.99);
+    CHECK(Near(best.z, 40, 8) && best.x == 0 && best.y == 0 && best.yaw == 0);
+    // Moved and turned: no fit in its own coordinates.
+    CHECK(SameCoordinatesScore(d, other.Raster(16), Feet(), 1) < 0.4);
+}
+
 void TestLanding() {
     Mesh target;
     target.Floor(0, 0, 1000, 1000, 0);
@@ -376,6 +462,11 @@ int main() {
     TestAutoAlignThreads();
     TestAutoAlignRefusesUnrelated();
     TestLanding();
+    TestMapNames();
+    TestMapLikeness();
+    TestMapSearch();
+    TestMapSort();
+    TestSameCoordinatesScore();
     if (g_failed) {
         std::printf("%d check(s) failed\n", g_failed);
         return 1;

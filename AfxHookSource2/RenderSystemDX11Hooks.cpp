@@ -8407,6 +8407,11 @@ namespace AfxViewportScaler {
         s_HoldRequested.store(hold, std::memory_order_relaxed);
     }
 
+    static std::atomic<bool> s_WorldReloading{ false };
+    void SetWorldReloading(bool reloading) {
+        s_WorldReloading.store(reloading, std::memory_order_relaxed);
+    }
+
     static void ReleaseHeld() {
         if (s_HeldTex) { s_HeldTex->Release(); s_HeldTex = nullptr; }
         s_HeldValid = false;
@@ -8577,6 +8582,11 @@ namespace AfxViewportScaler {
     // A frame served from the scrub frame cache replaces both, and becomes the frame to fall back on.
     static bool HoldOrCapturePreview(bool active, bool recording, bool blitRan, const float rect[4]) {
         const bool requested = s_HoldRequested.load(std::memory_order_relaxed);
+        // A level load (SetWorldReloading): nothing is held, and the old world's frame is dropped.
+        if (s_WorldReloading.load(std::memory_order_relaxed)) {
+            s_HeldValid = false;
+            return false;
+        }
         const bool holdWanted = requested || !blitRan;
         if (!requested) s_HoldStartMs = 0;
         // This present's identity (its queued blit ran) or, for a missed present, the newest one: a

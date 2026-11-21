@@ -16,6 +16,7 @@
 #include "../Demo/DemoWorldSwap.h"
 #include "../Environment/EnvironmentOcclusion.h"
 #include "../Heatmap/RoundHeatmapMath.h"
+#include "../MapData/MapExtract.h" // CacheCurrent: which maps' data is already on disk
 #include "../Panorama/ConfigHud.h" // ConfigHud_Enabled: the map view lives in CONFIG
 #include "../MapData/MapEntities.h"
 #include "../MapData/MapSources.h"
@@ -94,7 +95,17 @@ template <class T> bool Ready(const std::future<T>& f) {
 struct MapInfo {
 	std::string map, title, addon, skybox;
 	bool workshop = false, tiny = false;
+	int64_t added = 0; // when its package was written (downloaded or installed), Unix seconds
 };
+
+// A file's last write time in Unix seconds, 0 when it cannot be read. MSVC's file clock counts
+// 100 ns steps from 1601.
+int64_t UnixSeconds(const fs::path& p) {
+	std::error_code ec;
+	const auto t = fs::last_write_time(p, ec);
+	if (ec) return 0;
+	return (int64_t(t.time_since_epoch().count()) - 116444736000000000LL) / 10000000LL;
+}
 
 std::string Pretty(const std::string& map) {
 	std::string s = map;
@@ -204,7 +215,7 @@ std::vector<MapInfo> ScanMaps() {
 		if (ends("_vanity") || map.rfind("workshop_preview_", 0) == 0 || map.rfind("lobby_", 0) == 0 ||
 			map == "graphics_settings" || !MapData::ValidMapName(map))
 			continue;
-		official.push_back({ map, Pretty(map), "", "", false, false });
+		official.push_back({ map, Pretty(map), "", "", false, false, UnixSeconds(e.path()) });
 	}
 	for (const auto& item : fs::directory_iterator(root.parent_path().parent_path() / "workshop" / "content" / "730", ec)) {
 		if (!item.is_directory(ec)) continue;
@@ -213,11 +224,12 @@ std::vector<MapInfo> ScanMaps() {
 		try {
 			MapData::Vpk vpk(package);
 			const std::string id = item.path().filename().u8string(), title = PublishTitle(item.path());
+			const int64_t added = UnixSeconds(package);
 			for (const std::string& entry : vpk.ListAll()) {
 				if (entry.rfind("maps/", 0) != 0 || entry.size() < 10 || entry.compare(entry.size() - 4, 4, ".vpk") != 0) continue;
 				const std::string map = entry.substr(5, entry.size() - 9);
 				if (map.find('/') != std::string::npos || !MapData::ValidMapName(map)) continue;
-				workshop.push_back({ map, title.empty() ? Pretty(map) : title, id, "", true, vpk.Size(entry) < kTinyMap });
+				workshop.push_back({ map, title.empty() ? Pretty(map) : title, id, "", true, vpk.Size(entry) < kTinyMap, added });
 			}
 		} catch (const std::exception& e) {
 			MvmDebugLog_LinefAlways("altenv", "workshop item %s unreadable: %s", item.path().u8string().c_str(), e.what());
@@ -458,6 +470,20 @@ struct Build {
 	std::atomic<double> progress{ 0 };
 	std::atomic<bool> cancel{ false };
 	bool playWhenDone = false; // started by ResolvePlayable: nothing plays this demo yet
+	// PLAY ON (or a restore) waits for it and switches when it is done. A copy written ahead
+	// (Prebuild) does not: it is there for the next PLAY ON, which then switches at once.
+	bool switchWhenDone = true;
+};
+
+// Measures the layout of every map whose map data is already on disk against the demo's map
+// (SameCoordinatesScore), most alike by name first, for the map list's "most alike" sort. One job
+// at a time, below the game's priority; results are taken over as they come.
+struct LayoutJob {
+	std::future<void> job;
+	std::atomic<bool> cancel{ false };
+	std::mutex mx;
+	std::map<std::string, double> out;
+	std::atomic<size_t> left{ 0 };
 };
 
 struct PictureJob {
@@ -485,6 +511,18 @@ struct State {
 	// catalog
 	std::vector<MapInfo> maps;
 	std::future<std::vector<MapInfo>> mapsJob;
+	// the map list: its search, its sort and the layouts measured against the demo's map
+	std::string listQuery;
+	MapSort listSort = MapSort::Alike;
+	std::map<std::string, double> layouts; // "map|item" -> SameCoordinatesScore or AUTO ALIGN's score
+	std::string layoutsFor;                // the demo map they were measured against
+	bool layoutsTried = false;
+	std::unique_ptr<LayoutJob> layoutJob;
+	std::vector<size_t> listOrder; // into maps, as sorted and searched
+	std::string listKey;           // what listOrder was sorted from
+	// the copy written ahead (Prebuild): the alignment, when it last changed, the spec last written
+	std::string draftKey, prebuiltKey;
+	double draftChangedAt = 0, prebuildCheckAt = 0, prebuiltAt = 0;
 	// pictures and the players' paths
 	std::shared_ptr<const Picture> demoPic, pickPic;
 	std::unique_ptr<PictureJob> demoJob, pickJob;
@@ -618,13 +656,22 @@ void StartFeet() {
 	});
 }
 
-void StartBuild(const std::wstring& original, const std::wstring& source, const Settings& settings, bool playWhenDone) {
+// `prebuild`: written ahead for the next PLAY ON (Prebuild), nothing switches when it is done.
+void StartBuild(const std::wstring& original, const std::wstring& source, const Settings& settings, bool playWhenDone, bool prebuild = false) {
 	State& s = S();
 	if (s.build && s.build->job.valid()) {
 		if (Copies::SameFile(s.build->original, original) && Copies::SameFile(s.build->source, source) && SpecKey(s.build->settings) == SpecKey(settings)) {
 			s.build->playWhenDone = s.build->playWhenDone || playWhenDone;
+			// PLAY ON while this copy is being written ahead: it switches when it is done.
+			if (!prebuild && !s.build->switchWhenDone) {
+				s.build->switchWhenDone = true;
+				MvmDebugLog_LinefAlways("altenv", "build already being written ahead, switches when done (%.0f%%)", s.build->progress.load() * 100);
+				SetStatus("Writing the demo for " + settings.map.title + "...");
+			}
 			return;
 		}
+		// A copy written ahead never cancels one somebody is waiting for.
+		if (prebuild && (s.build->switchWhenDone || s.build->playWhenDone)) return;
 		s.build->cancel = true;
 		s.build->job.wait();
 	}
@@ -639,6 +686,7 @@ void StartBuild(const std::wstring& original, const std::wstring& source, const 
 	b->source = source;
 	b->settings = settings;
 	b->playWhenDone = playWhenDone;
+	b->switchWhenDone = !prebuild;
 	Build* raw = b.get();
 	DemoWorldSwap spec;
 	spec.sourceMap = ReadDemoHeader(original).map;
@@ -646,8 +694,8 @@ void StartBuild(const std::wstring& original, const std::wstring& source, const 
 	spec.addon = settings.map.addon;
 	spec.skybox = settings.map.skybox;
 	spec.offset = WorldOffsetFor(settings.align);
-	MvmDebugLog_LinefAlways("altenv", "build start demo=%s source=%s copy=%s from=%s to=%s addon=%s skybox=%s align=(%.2f %.2f %.2f yaw %.2f) worldoffset=(%.2f %.2f %.2f yaw %.2f)",
-		WideToUtf8(original).c_str(), WideToUtf8(source).c_str(), WideToUtf8(copy).c_str(), spec.sourceMap.c_str(), spec.map.c_str(),
+	MvmDebugLog_LinefAlways("altenv", "build start%s demo=%s source=%s copy=%s from=%s to=%s addon=%s skybox=%s align=(%.2f %.2f %.2f yaw %.2f) worldoffset=(%.2f %.2f %.2f yaw %.2f)",
+		prebuild ? " (ahead)" : "", WideToUtf8(original).c_str(), WideToUtf8(source).c_str(), WideToUtf8(copy).c_str(), spec.sourceMap.c_str(), spec.map.c_str(),
 		spec.addon.c_str(), spec.skybox.c_str(), settings.align.x, settings.align.y, settings.align.z, settings.align.yaw,
 		spec.offset.pos.x, spec.offset.pos.y, spec.offset.pos.z, spec.offset.yaw);
 	b->job = std::async(std::launch::async, [raw, spec, copy] {
@@ -663,7 +711,7 @@ void StartBuild(const std::wstring& original, const std::wstring& source, const 
 		return r;
 	});
 	s.build = std::move(b);
-	SetStatus("Writing the demo for " + settings.map.title + "...");
+	if (!prebuild) SetStatus("Writing the demo for " + settings.map.title + "...");
 }
 
 void FinishBuild() {
@@ -676,6 +724,11 @@ void FinishBuild() {
 		r.swap.worlds, r.swap.skyboxes, (unsigned long long)r.swap.frames, (unsigned long long)r.swap.bytesIn, (unsigned long long)r.swap.bytesOut,
 		r.ms, r.ok ? "" : " error=", r.error.c_str());
 	if (b->cancel) return;
+	// Written ahead and nobody pressed PLAY ON meanwhile: it waits for that press (Apply finds it).
+	if (!b->switchWhenDone && !b->playWhenDone) {
+		if (!r.ok) MvmDebugLog_LinefAlways("altenv", "copy written ahead failed: %s", r.error.c_str());
+		return;
+	}
 	// A copy started by opening a demo plays when it is done, unless another demo was opened since.
 	const bool playNow = b->playWhenDone && Copies::SameFile(s.lastOpen, b->original);
 	if (b->playWhenDone && !playNow)
@@ -730,6 +783,140 @@ void StartAutoAlign() {
 	SetStatus("Matching " + s.demoMap + " to " + s.pick.title + "...");
 }
 
+// ---- the map list -------------------------------------------------------------------------------
+
+std::string LayoutKey(const std::string& map, const std::string& addon) { return Lower(map) + "|" + addon; }
+
+void StopLayouts() {
+	State& s = S();
+	if (!s.layoutJob) return;
+	s.layoutJob->cancel = true;
+	if (s.layoutJob->job.valid()) s.layoutJob->job.wait(); // it checks the flag between maps
+	s.layoutJob.reset();
+}
+
+// Starts measuring the layouts of the maps whose data is on disk (LayoutJob). Never extracts a
+// map: that is seconds of disk and CPU per map, so a map not read yet gets its layout when it is
+// picked (the pick's picture) or matched (AUTO ALIGN).
+void StartLayouts() {
+	State& s = S();
+	if (s.layoutJob || s.layoutsTried || !s.demoPic || !s.demoPic->error.empty() || s.maps.empty() || s.feetJob.valid()) return;
+	s.layoutsTried = true;
+	std::vector<std::pair<std::string, std::string>> todo;
+	{
+		std::vector<std::pair<double, size_t>> byName;
+		for (size_t i = 0; i < s.maps.size(); ++i) {
+			const MapInfo& m = s.maps[i];
+			if (Lower(m.map) == Lower(s.demoMap) || m.tiny || s.layouts.count(LayoutKey(m.map, m.addon))) continue;
+			byName.push_back({ -NameLikeness(s.demoMap, m.map, m.title), i });
+		}
+		std::stable_sort(byName.begin(), byName.end());
+		for (const auto& k : byName) todo.push_back({ s.maps[k.second].map, s.maps[k.second].addon });
+	}
+	if (todo.empty()) return;
+	std::vector<Vec3> few;
+	const size_t every = s.feet.size() > 3000 ? s.feet.size() / 3000 : 1;
+	for (size_t k = 0; k < s.feet.size(); k += every) few.push_back(s.feet[k]);
+	auto job = std::make_unique<LayoutJob>();
+	job->left = todo.size();
+	LayoutJob* raw = job.get();
+	auto demo = s.demoPic;
+	const std::string demoMap = s.demoMap;
+	job->job = std::async(std::launch::async, [raw, demo, demoMap, todo, few] {
+		BackgroundPriority background;
+		const double t0 = NowMs();
+		const fs::path folder = Environment::MapDataFolder();
+		size_t measured = 0;
+		for (const auto& m : todo) {
+			if (raw->cancel) break;
+			--raw->left;
+			if (!MapData::CacheCurrent(folder / (m.first + ".json"), m.first, m.second)) continue;
+			Environment::OcclusionMesh mesh;
+			std::string error;
+			if (!Environment::ReadMapCollision(m.first, folder, mesh, error, &raw->cancel, {}, m.second)) continue;
+			const float* xyz = reinterpret_cast<const float*>(mesh.positions.data());
+			const FloorRaster target = BuildFloorRaster(xyz, mesh.positions.size(), mesh.indices.data(), mesh.indices.size(), kAlignCell);
+			if (!target.Valid()) continue;
+			const double score = SameCoordinatesScore(demo->align, target, few, 1);
+			++measured;
+			std::lock_guard<std::mutex> lock(raw->mx);
+			raw->out[LayoutKey(m.first, m.second)] = score;
+		}
+		MvmDebugLog_LinefAlways("altenv", "layouts demo=%s candidates=%zu measured=%zu ms=%.0f%s", demoMap.c_str(), todo.size(), measured,
+			NowMs() - t0, raw->cancel ? " (stopped)" : "");
+	});
+	s.layoutJob = std::move(job);
+}
+
+// Takes over the layouts measured so far; restarts the list for another demo map.
+void PumpLayouts() {
+	State& s = S();
+	if (s.layoutsFor != s.demoMap) {
+		StopLayouts();
+		s.layouts.clear();
+		s.layoutsFor = s.demoMap;
+		s.layoutsTried = false;
+	}
+	if (s.view) StartLayouts();
+	if (!s.layoutJob) return;
+	{
+		std::lock_guard<std::mutex> lock(s.layoutJob->mx);
+		for (const auto& kv : s.layoutJob->out) {
+			double& v = s.layouts.insert({ kv.first, -1 }).first->second;
+			v = (std::max)(v, kv.second);
+		}
+		s.layoutJob->out.clear();
+	}
+	if (Ready(s.layoutJob->job)) {
+		s.layoutJob->job.get();
+		s.layoutJob.reset();
+	}
+}
+
+// A layout measured another way (the pick's picture, AUTO ALIGN): the best one counts.
+void NoteLayout(const std::string& map, const std::string& addon, double score) {
+	State& s = S();
+	if (s.layoutsFor != s.demoMap) return;
+	double& v = s.layouts.insert({ LayoutKey(map, addon), -1 }).first->second;
+	v = (std::max)(v, score);
+}
+
+MapSort ParseSort(const char* v, bool& ok) {
+	ok = true;
+	if (0 == _stricmp(v, "alike") || 0 == _stricmp(v, "similar")) return MapSort::Alike;
+	if (0 == _stricmp(v, "name")) return MapSort::Name;
+	if (0 == _stricmp(v, "recent") || 0 == _stricmp(v, "new")) return MapSort::Recent;
+	ok = false;
+	return MapSort::Alike;
+}
+const char* SortName(MapSort sort) { return sort == MapSort::Name ? "name" : sort == MapSort::Recent ? "recent" : "alike"; }
+
+std::vector<MapListEntry> ListEntries() {
+	State& s = S();
+	std::vector<MapListEntry> out;
+	out.reserve(s.maps.size());
+	for (const MapInfo& m : s.maps) {
+		MapListEntry e{ m.map, m.title, m.addon, m.tiny, m.added, -1 };
+		auto it = s.layouts.find(LayoutKey(m.map, m.addon));
+		if (it != s.layouts.end()) e.layout = it->second;
+		out.push_back(std::move(e));
+	}
+	return out;
+}
+
+// The list as the map view shows it, sorted again only when something it depends on changed.
+const std::vector<size_t>& ListOrder() {
+	State& s = S();
+	std::string key = std::to_string(s.maps.size()) + "|" + SortName(s.listSort) + "|" + s.listQuery + "|" + s.demoMap;
+	if (s.listSort == MapSort::Alike)
+		for (const auto& kv : s.layouts) key += "|" + kv.first + "=" + std::to_string(int(std::lround(kv.second * 1000)));
+	if (key != s.listKey) {
+		s.listKey = key;
+		s.listOrder = SortMapList(ListEntries(), s.demoMap, s.listSort, s.listQuery);
+	}
+	return s.listOrder;
+}
+
 // ---- the open demo ------------------------------------------------------------------------------
 
 void OpenDemo(const std::wstring& original) {
@@ -755,6 +942,8 @@ void OpenDemo(const std::wstring& original) {
 	s.applyPending = false;
 	s.restorePending = s.settings.enabled;
 	s.awaitLevel.clear();
+	s.draftKey.clear();
+	s.prebuiltKey.clear();
 	SetStatus("");
 	MvmDebugLog_LinefAlways("altenv", "demo=%s map=%s saved=%s enabled=%d align=(%.2f %.2f %.2f yaw %.2f)", WideToUtf8(original).c_str(),
 		s.demoMap.c_str(), s.settings.map.map.c_str(), s.settings.enabled ? 1 : 0, s.settings.align.x, s.settings.align.y, s.settings.align.z,
@@ -820,6 +1009,22 @@ void Pick(const std::string& name, const std::string& addon) {
 	MvmDebugLog_LinefAlways("altenv", "pick map=%s title=%s addon=%s", s.pick.map.c_str(), s.pick.title.c_str(), s.pick.addon.c_str());
 }
 
+// What PLAY ON writes and saves: the pick, with the addon and skybox its picture job read, and
+// the alignment being edited. Needs the pick's picture (PictureFor).
+Settings PlaySettings() {
+	State& s = S();
+	Settings next;
+	next.enabled = true;
+	next.map = s.pick;
+	next.map.addon = s.pickPic->info.addon;
+	next.map.skybox = s.pickPic->info.skybox;
+	next.map.workshop = !next.map.addon.empty();
+	next.align = s.draft;
+	next.align.yaw = NormalizeYaw(next.align.yaw);
+	next.props = s.settings.props;
+	return next;
+}
+
 void Apply() {
 	State& s = S();
 	if (s.original.empty() || !DemoOpen()) { SetStatus("", "Open a demo first."); return; }
@@ -845,15 +1050,7 @@ void Apply() {
 		SetStatus("Checking the demo before it plays on " + s.pick.title + "...");
 		return;
 	}
-	Settings next;
-	next.enabled = true;
-	next.map = s.pick;
-	next.map.addon = s.pickPic->info.addon;
-	next.map.skybox = s.pickPic->info.skybox;
-	next.map.workshop = !next.map.addon.empty();
-	next.align = s.draft;
-	next.align.yaw = NormalizeYaw(next.align.yaw);
-	next.props = s.settings.props;
+	const Settings next = PlaySettings();
 	s.settings = next;
 	SaveSettings(s.original, next);
 	const int slot = Copies::CurrentSlot(s.original, base, SpecKey(next));
@@ -867,6 +1064,34 @@ void Apply() {
 		return;
 	}
 	StartBuild(s.original, base, next, false);
+}
+
+// Writes the copy PLAY ON would play before it is pressed, so the press only reloads the demo.
+// Writing a 450 MB demo takes about 1.5 s, which was the first part of every map switch. It runs
+// once the pick's picture is in and the alignment has stayed put for 1.5 s (a drag or a slider
+// would otherwise write a copy for every step), never during a reload, and only for a spec that
+// neither slot already holds. The copy goes to the slot the engine is not playing.
+void Prebuild() {
+	State& s = S();
+	if (s.pick.map.empty() || s.original.empty() || !DemoOpen() || !PictureFor(s.pickPic, s.pick) || !s.pickPic->resolveError.empty()) return;
+	const Settings next = PlaySettings();
+	const std::string spec = SpecKey(next);
+	const double now = NowMs();
+	if (spec != s.draftKey) { s.draftKey = spec; s.draftChangedAt = now; return; }
+	if (now - s.draftChangedAt < 1500 || now - s.prebuildCheckAt < 500) return;
+	if ((s.build && s.build->job.valid()) || s.applyPending || s.restorePending || SwitchingPlayingCopy() || !s.awaitLevel.empty()) return;
+	s.prebuildCheckAt = now;
+	// The source counts too: once the scrub keyframe copy is ready, copies are written from it.
+	const std::wstring base = Copies::BaseFor(s.original);
+	if (base.empty()) return; // the repair verdict is not in yet
+	if (Copies::CurrentSlot(s.original, base, spec) >= 0) return; // already on disk
+	// Not on disk: written once per spec and source. A copy that failed, or was removed since,
+	// is tried again after a while, never every frame.
+	const std::string key = spec + "|" + WideToUtf8(base);
+	if (key == s.prebuiltKey && now - s.prebuiltAt < 30000) return;
+	s.prebuiltKey = key;
+	s.prebuiltAt = now;
+	StartBuild(s.original, base, next, false, true);
 }
 
 void Off() {
@@ -956,7 +1181,8 @@ void Probe() {
 // status, or says what loaded instead.
 void CheckLoaded() {
 	State& s = S();
-	if (s.awaitLevel.empty() || SwitchingPlayingCopy() || !DemoOpen()) return;
+	// Once the seek has landed the world is there: "Loading" ends then, not after the pause settles.
+	if (s.awaitLevel.empty() || (SwitchingPlayingCopy() && !PlayingCopyLanded()) || !DemoOpen()) return;
 	const std::string level = LevelName();
 	if (level.empty()) return;
 	const bool ok = Lower(level) == Lower(s.awaitLevel);
@@ -1055,6 +1281,13 @@ void RunMainThreadFrame() {
 			s.pick.workshop = !p->info.addon.empty();
 			if (p->error.empty()) PublishImage("map.png", MapPng(*p));
 			s.pickImage = g_imageVersion.load();
+			// Its layout in its own coordinates, for the map list (a few ms, once per pick).
+			if (p->error.empty() && s.demoPic && s.demoPic->error.empty()) {
+				std::vector<Vec3> few;
+				const size_t every = s.feet.size() > 3000 ? s.feet.size() / 3000 : 1;
+				for (size_t k = 0; k < s.feet.size(); k += every) few.push_back(s.feet[k]);
+				NoteLayout(s.pick.map, s.pick.addon, SameCoordinatesScore(s.demoPic->align, p->align, few, 1));
+			}
 			s.fitDirty = true;
 			if (!p->error.empty()) SetStatus("", s.pick.title + ": " + p->error);
 		}
@@ -1116,6 +1349,7 @@ void RunMainThreadFrame() {
 		if (stale) {
 			// Nothing of it reaches the demo open now.
 		} else if (r.ok) {
+			NoteLayout(s.pick.map, s.pick.addon, r.fit.Score());
 			s.draft = r.alignment;
 			s.fitDirty = true;
 			SetStatus(r.identity ? "The two maps already line up." : "Matched. Check the layout, then press PLAY ON THIS MAP.");
@@ -1154,6 +1388,8 @@ void RunMainThreadFrame() {
 		}
 	}
 	FinishBuild();
+	Prebuild();
+	PumpLayouts();
 	CheckLoaded();
 	if (s.view && ++s.playerFrame >= 6) {
 		s.playerFrame = 0;
@@ -1182,7 +1418,7 @@ void AppendStateJson(std::ostringstream& o) {
 	const bool dirty = s.pick.map != (s.settings.enabled ? s.settings.map.map : std::string()) || SpecKey({ true, s.pick, s.draft }) != SpecKey({ true, s.pick, s.settings.align });
 	o << ",\"dirty\":" << (dirty ? "true" : "false");
 	o << ",\"view\":" << (s.view ? "true" : "false");
-	const bool building = s.build && s.build->job.valid();
+	const bool building = s.build && s.build->job.valid() && (s.build->switchWhenDone || s.build->playWhenDone);
 	o << ",\"building\":" << (building ? "true" : "false") << ",\"progress\":" << Fixed(building ? s.build->progress.load() : 0);
 	o << ",\"auto\":" << (s.autoJob.valid() || s.autoPending ? "true" : "false") << ",\"autoProgress\":" << Fixed(s.autoProgress.load());
 	Json(o, "status", s.status);
@@ -1211,12 +1447,23 @@ void AppendStateJson(std::ostringstream& o) {
 			o << (i ? "," : "") << "[" << s.players[i][0] << "," << s.players[i][1] << "," << s.players[i][2] << "]";
 		o << "]";
 	}
+	// The maps in the list's order, only those its search finds. "s" is how alike the map is to the
+	// demo's (percent), "l" the layout score when one was measured, "d" when its package was written.
+	o << ",\"listSort\":\"" << SortName(s.listSort) << "\"";
+	Json(o, "listQuery", s.listQuery);
+	o << ",\"listTotal\":" << s.maps.size() << ",\"measuring\":" << (s.layoutJob ? s.layoutJob->left.load() : 0);
 	o << ",\"maps\":[";
-	for (size_t i = 0; i < s.maps.size(); ++i) {
-		const MapInfo& m = s.maps[i];
-		o << (i ? "," : "") << "{\"m\":\"" << JsonBuilder::Escape(m.map) << "\",\"t\":\"" << JsonBuilder::Escape(m.title) << "\"";
+	const std::vector<size_t>& order = ListOrder();
+	for (size_t k = 0; k < order.size(); ++k) {
+		const MapInfo& m = s.maps[order[k]];
+		o << (k ? "," : "") << "{\"m\":\"" << JsonBuilder::Escape(m.map) << "\",\"t\":\"" << JsonBuilder::Escape(m.title) << "\"";
 		if (!m.addon.empty()) o << ",\"a\":\"" << JsonBuilder::Escape(m.addon) << "\"";
 		if (m.tiny) o << ",\"tiny\":true";
+		auto it = s.layouts.find(LayoutKey(m.map, m.addon));
+		const MapListEntry e{ m.map, m.title, m.addon, m.tiny, m.added, it != s.layouts.end() ? it->second : -1 };
+		o << ",\"s\":" << int(std::lround(Likeness(s.demoMap, e) * 100));
+		if (e.layout >= 0) o << ",\"l\":" << int(std::lround(e.layout * 100));
+		if (m.added > 0) o << ",\"d\":" << m.added;
 		o << "}";
 	}
 	o << "],\"mapsBusy\":" << (s.mapsJob.valid() ? "true" : "false") << "}";
@@ -1283,6 +1530,33 @@ void RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 			advancedfx::Message("  %-28s %s%s%s%s\n", m.map.c_str(), m.title.c_str(), m.addon.empty() ? "" : "  workshop ", m.addon.c_str(), m.tiny ? "  (placeholder)" : "");
 		advancedfx::Message("%zu maps\n", s.maps.size());
 		return;
+	} else if (0 == _stricmp(op, "list")) {
+		// The map view's list: `list sort alike|name|recent`, `list find <words>` (no words clears it).
+		const char* what = n > 3 ? args->ArgV(3) : "";
+		if (0 == _stricmp(what, "sort") && n > 4) {
+			bool ok = false;
+			const MapSort sort = ParseSort(args->ArgV(4), ok);
+			if (!ok) { advancedfx::Warning("usage: %s altenv list sort alike|name|recent\n", cmd); return; }
+			s.listSort = sort;
+		} else if (0 == _stricmp(what, "find")) {
+			std::string q;
+			for (int i = 4; i < n; ++i) q += (q.empty() ? "" : " ") + std::string(args->ArgV(i));
+			s.listQuery = q.substr(0, 64);
+		}
+		if (quiet) return;
+		const std::vector<size_t>& order = ListOrder();
+		for (size_t i : order) {
+			const MapInfo& m = s.maps[i];
+			auto it = s.layouts.find(LayoutKey(m.map, m.addon));
+			const MapListEntry e{ m.map, m.title, m.addon, m.tiny, m.added, it != s.layouts.end() ? it->second : -1 };
+			char layout[32] = "";
+			if (e.layout >= 0) snprintf(layout, sizeof(layout), "  layout %.0f%%", e.layout * 100);
+			advancedfx::Message("  %3.0f%%  %-28s %s%s%s%s\n", Likeness(s.demoMap, e) * 100, m.map.c_str(), m.title.c_str(),
+				m.addon.empty() ? "" : "  workshop ", m.addon.c_str(), layout);
+		}
+		advancedfx::Message("%zu of %zu maps, sorted by %s%s%s%s\n", order.size(), s.maps.size(), SortName(s.listSort),
+			s.listQuery.empty() ? "" : ", matching \"", s.listQuery.c_str(), s.listQuery.empty() ? "" : "\"");
+		return;
 	} else if (0 == _stricmp(op, "pick")) {
 		if (n < 4) { advancedfx::Warning("usage: %s altenv pick <map> [workshop item]|none\n", cmd); return; }
 		Pick(args->ArgV(3), n > 4 ? args->ArgV(4) : "");
@@ -1348,6 +1622,7 @@ void RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 		advancedfx::Message(
 			"%s altenv status                    what the open demo plays on\n"
 			"%s altenv maps [rescan]             the maps it can play on (installed and Workshop)\n"
+			"%s altenv list [sort alike|name|recent] [find <words>]  the map view's list, sorted and searched\n"
 			"%s altenv pick <map> [item]|none    choose the replacement map (and its Workshop item)\n"
 			"%s altenv align <x> <y> <z> <yaw>   where the demo lands on it (units, degrees)\n"
 			"%s altenv move <dx> <dy> [dz]       shift that\n"
@@ -1360,7 +1635,7 @@ void RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 			"                                    lights: the lighting entities, in the mvm_debug log)\n"
 			"%s altenv view on|off|toggle        the alignment view in CONFIG\n"
 			"%s altenv sceneprobe [n]            research: dump n scene objects the world draws through\n",
-			cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
+			cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
 		return;
 	}
 	// An edited alignment makes the last AUTO ALIGN verdict stale; a copy being written keeps its line.
@@ -1392,6 +1667,7 @@ void Shutdown() {
 	if (s.mapsJob.valid()) s.mapsJob.wait();
 	if (s.demoPngJob.valid()) s.demoPngJob.wait();
 	if (s.fitJob.valid()) s.fitJob.wait();
+	StopLayouts();
 }
 
 } // namespace Filmmaker::AltEnvironment
