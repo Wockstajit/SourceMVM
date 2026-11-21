@@ -920,13 +920,15 @@ inline bool MapMatchesQuery(const MapListEntry &m, const std::string &query) {
 inline std::vector<size_t> SortMapList(const std::vector<MapListEntry> &maps, const std::string &demoMap, MapSort sort,
                                        const std::string &query = std::string()) {
     std::vector<size_t> order;
-    std::vector<double> like(maps.size(), 0);
+    // Likeness in half-percent steps. Comparing the raw scores with a tolerance is not a strict
+    // ordering (0, 0.004 and 0.008 would form a cycle), and stable_sort needs one.
+    std::vector<long long> like(maps.size(), 0);
     std::vector<std::string> title(maps.size());
     for (size_t i = 0; i < maps.size(); ++i) {
         if (!MapMatchesQuery(maps[i], query)) continue;
         order.push_back(i);
         title[i] = Detail::LowerAscii(maps[i].title);
-        if (sort == MapSort::Alike) like[i] = Likeness(demoMap, maps[i]);
+        if (sort == MapSort::Alike) like[i] = std::llround(Likeness(demoMap, maps[i]) * 200.0);
     }
     auto byName = [&](size_t a, size_t b) {
         if (title[a] != title[b]) return title[a] < title[b];
@@ -937,8 +939,8 @@ inline std::vector<size_t> SortMapList(const std::vector<MapListEntry> &maps, co
         switch (sort) {
         case MapSort::Alike:
             if (maps[a].tiny != maps[b].tiny) return !maps[a].tiny;
-            // Two scores within half a percent are the same score: the name decides.
-            if (std::fabs(like[a] - like[b]) > 0.005) return like[a] > like[b];
+            // Two scores in the same half-percent step are the same score: the name decides.
+            if (like[a] != like[b]) return like[a] > like[b];
             break;
         case MapSort::Recent:
             if (maps[a].added != maps[b].added) return maps[a].added > maps[b].added;

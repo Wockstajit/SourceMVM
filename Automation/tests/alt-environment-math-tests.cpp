@@ -296,6 +296,11 @@ void TestMapSort() {
     // Equal keys come out the same way every time.
     std::vector<MapListEntry> same = {{"de_b", "X", "2", false, 1, -1}, {"de_a", "X", "1", false, 1, -1}, {"de_a", "X", "0", false, 1, -1}};
     CHECK((SortMapList(same, "de_q", MapSort::Recent) == std::vector<size_t>{2, 1, 0}));
+    // Scores a few tenths of a percent apart: a strict order by half-percent step, never a cycle
+    // (a pairwise tolerance put 0.600 ~ 0.604 ~ 0.608 by name but 0.600 < 0.608 by score).
+    std::vector<MapListEntry> close = {{"xx_aaa", "Aaa", "", false, 1, 0.600}, {"xx_bbb", "Bbb", "", false, 1, 0.604},
+                                       {"xx_ccc", "Ccc", "", false, 1, 0.608}, {"xx_ddd", "Ddd", "", false, 1, 0.601}};
+    CHECK((SortMapList(close, "de_inferno", MapSort::Alike) == std::vector<size_t>{2, 1, 0, 3})); // 0.600 and 0.601 share a step
 }
 
 // The first step of AUTO ALIGN on its own (the map list measures layouts with it).

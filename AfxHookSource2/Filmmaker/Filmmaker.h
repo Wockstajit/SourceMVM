@@ -105,6 +105,7 @@ bool SwitchPlayingCopy(const std::wstring& original, const std::wstring& file, b
 // A switch is waiting, reloading or landing.
 bool SwitchingPlayingCopy();
 // The copy switch has landed on its tick and is only settling the pause state: the world is there.
+// False while another switch is queued behind it, since that one loads a different world.
 bool PlayingCopyLanded();
 
 // --- Movie director (camera modes + in-game help HUD) ---

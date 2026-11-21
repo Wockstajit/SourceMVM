@@ -727,7 +727,8 @@ bool SwitchPlayingCopy(const std::wstring& original, const std::wstring& file, b
 }
 
 bool SwitchingPlayingCopy() { return g_copySwitch.state != CopySwitch::State::Idle; }
-bool PlayingCopyLanded() { return g_copySwitch.state == CopySwitch::State::Settling; }
+// Not while another switch is queued: the world that landed is the first map, not the one asked for.
+bool PlayingCopyLanded() { return g_copySwitch.state == CopySwitch::State::Settling && g_copySwitch.next.empty(); }
 
 // g_copySwitch, one step per main-thread frame (see the struct).
 void PumpCopySwitch() {
