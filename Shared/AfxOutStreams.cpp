@@ -17,6 +17,26 @@
 
 namespace advancedfx {
 
+namespace {
+thread_local std::string g_FfmpegErrorTail;
+const size_t kFfmpegErrorTailMax = 600;
+
+void FfmpegErrorTail_Append(const char* text) {
+	if (!text || !*text) return;
+	g_FfmpegErrorTail.append(text);
+	if (g_FfmpegErrorTail.size() > kFfmpegErrorTailMax)
+		g_FfmpegErrorTail.erase(0, g_FfmpegErrorTail.size() - kFfmpegErrorTailMax);
+}
+} // namespace
+
+void FfmpegErrorTail_Clear() {
+	g_FfmpegErrorTail.clear();
+}
+
+std::string FfmpegErrorTail_Get() {
+	return g_FfmpegErrorTail;
+}
+
 bool COutImageStreamImpl::WriteBuffer(const unsigned char* pBuffer) 
 {
 	std::wstring path;
@@ -413,6 +433,12 @@ COutFFMPEGVideoStreamImpl::COutFFMPEGVideoStreamImpl(const CImageFormat& imageFo
 
 			if (TRUE != m_Okay)
 			{
+				const DWORD error = GetLastError();
+				std::string exeUtf8;
+				if (!WideStringToUTF8String(ffmpegExe.c_str(), exeUtf8)) exeUtf8 = "[n/a]";
+				char line[MAX_PATH * 3 + 64];
+				_snprintf_s(line, _TRUNCATE, "could not start %s (Windows error %lu)\n", exeUtf8.c_str(), error);
+				FfmpegErrorTail_Append(line);
 				advancedfx::Warning("AFXERROR: COutFFMPEGVideoStream::COutFFMPEGVideoStream: CreateProcessW.\n");
 			}
 		}
@@ -596,6 +622,7 @@ bool COutFFMPEGVideoStreamImpl::HandleOutAndErr(DWORD processWaitTimeOut)
 			if (ReadFile(m_hChildStd_ERR_Rd, chBuf, min(bytesAvail, 250), &dwBytesRead, NULL))
 			{
 				chBuf[dwBytesRead] = 0;
+				FfmpegErrorTail_Append(chBuf);
 				advancedfx::Warning("%s", chBuf);
 				bytesAvail -= dwBytesRead;
 			}
