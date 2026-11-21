@@ -122,6 +122,77 @@ static void TestKv3() {
     Check(threw, "truncated KV3 is rejected");
 }
 
+// Binary KV3 v4 (uncompressed) with the node types and rules of ValveResourceFormat 21.1: constant
+// uint32 nodes (26, 27, written by CS2 since the 2026-11-20 update), int8 (22), uint8 (23), a type
+// byte with bit 6 set (one skipped byte follows), an out-of-range name id and a repeated name.
+static void TestKv3BinaryV4Nodes() {
+    Bytes buffer;
+    buffer.Put<uint8_t>(0xFF);           // bytes1: int8 -1
+    buffer.Put<uint8_t>(200);            // bytes1: uint8 200
+    for (int k = 0; k < 2; ++k) buffer.Put<uint8_t>(0); // align to 4
+    for (int32_t v : {3, 5, 0, 1, 2, 99, 1}) buffer.Put<int32_t>(v); // string count, object length, member names
+    buffer.Str("one");
+    buffer.Str("zero");
+    buffer.Str("small");
+    const size_t stringBytes = 4 + 5 + 6;
+    const uint8_t types[] = {9, 27 | 0x40, 0x00, 26, 22, 23, 27};
+    buffer.Raw(types, sizeof types);
+    buffer.Put<uint32_t>(0xFFEEDD00u);
+    Bytes b;
+    b.Put<uint32_t>(0x4B563304u);
+    for (int k = 0; k < 16; ++k) b.Put<uint8_t>(0); // format GUID
+    b.Put<uint32_t>(0);                  // uncompressed
+    b.Put<uint16_t>(0);                  // dictionary
+    b.Put<uint16_t>(0);                  // frame size
+    b.Put<int32_t>(2);                   // bytes1
+    b.Put<int32_t>(7);                   // bytes4
+    b.Put<int32_t>(0);                   // bytes8
+    b.Put<int32_t>(int32_t(stringBytes + sizeof types));
+    b.Put<uint16_t>(1);                  // objects
+    b.Put<uint16_t>(0);                  // arrays
+    b.Put<int32_t>(int32_t(buffer.b.size()));
+    b.Put<int32_t>(int32_t(buffer.b.size()));
+    b.Put<int32_t>(0);                   // blocks
+    b.Put<int32_t>(0);                   // blob bytes
+    b.Put<int32_t>(0);                   // bytes2
+    b.Put<int32_t>(0);                   // block compressed sizes
+    b.Raw(buffer.b.data(), buffer.b.size());
+    const Kv3 v = DecodeKv3(b.b.data(), b.b.size());
+    Check(v.type == Kv3::Type::Object && v.Size() == 4, "KV3 v4 object decodes; a repeated name replaces its value");
+    Check(v["one"].type == Kv3::Type::UInt && v["one"].width == Kv3::Width::UInt32 && v["one"].Integer() == 1,
+          "KV3 node 27 is uint32 one, after a type byte with bit 6 and its skipped byte");
+    Check(v["zero"].type == Kv3::Type::UInt && v["zero"].Integer() == 1, "the repeated member keeps the last value");
+    Check(v["small"].type == Kv3::Type::Int && v["small"].Integer() == -1, "KV3 node 22 is a signed byte");
+    Check(v[""].type == Kv3::Type::UInt && v[""].Integer() == 200, "KV3 node 23 is an unsigned byte; an unknown name id is empty");
+    Check(v.obj.size() > 1 && v.obj[1].first == "zero" && v.obj[1].second.Integer(7) == 1, "a replaced member keeps its position");
+    Bytes z3 = b;
+    z3.b[20] = 4;                        // compression method z3
+    bool threw = false;
+    try { DecodeKv3(z3.b.data(), z3.b.size()); } catch (const MapDataError &e) { threw = std::string(e.what()).find("z3") != std::string::npos; }
+    Check(threw, "z3 compressed KV3 is reported as z3");
+}
+
+// Empty resource blocks keep their slot, so block indices (m_nBlockIndex, data_block) match the file.
+static void TestResourceEmptyBlocks() {
+    Bytes b;
+    b.Put<uint32_t>(44);                 // declared size
+    b.Put<uint16_t>(12);                 // header size
+    b.Put<uint16_t>(0);                  // version
+    b.Put<uint32_t>(8);                  // block table, relative to this field (offset 8 -> 16)
+    b.Put<uint32_t>(2);                  // block count
+    b.Raw("MBUF", 4);                    // block 0: empty
+    b.Put<uint32_t>(0);
+    b.Put<uint32_t>(0);
+    b.Raw("DATA", 4);                    // block 1: 4 bytes at 40 (field at 32)
+    b.Put<uint32_t>(8);
+    b.Put<uint32_t>(4);
+    b.Put<uint32_t>(0xDEADBEEFu);
+    const Resource r(std::vector<uint8_t>(b.b));
+    Check(r.Blocks().size() == 2 && r.Blocks()[1].size == 4 && r.Blocks()[1].offset == 40, "empty block keeps its index");
+    Check(r.Block("MBUF") == nullptr && r.BlocksOfType("MBUF").empty(), "type lookups skip empty blocks");
+    Check(r.Block("DATA") == &r.Blocks()[1], "type lookup finds the block after an empty one");
+}
+
 static void TestOccluderBuilder() {
     OccluderBuilder builder;
     builder.AddTriangle({0, 0, 0}, {1, 0, 0}, {0, 1, 0});
@@ -385,6 +456,8 @@ int main() {
     TestCommunityMapSources();
     TestWorkshopItemSources();
     TestKv3();
+    TestKv3BinaryV4Nodes();
+    TestResourceEmptyBlocks();
     TestOccluderBuilder();
     TestTexture();
     TestTextureMips();

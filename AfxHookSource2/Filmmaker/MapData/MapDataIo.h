@@ -2,7 +2,8 @@
 
 // Engine-free readers for Source 2 game data: VPK packages, compiled resource containers and
 // binary KeyValues3. Format handling is ported from ValveResourceFormat (MIT,
-// https://github.com/ValveResourceFormat/ValveResourceFormat), version 20.0. Its license, which
+// https://github.com/ValveResourceFormat/ValveResourceFormat), version 21.1 at commit 8d9f7d9
+// (physics and textures: 20.0). Its license, which
 // covers every MapData file marked as ported from it, is LICENSE-ValveResourceFormat.txt here.
 // Every reader throws MapDataError on malformed input; callers treat that as "map data
 // unavailable", never as a crash.

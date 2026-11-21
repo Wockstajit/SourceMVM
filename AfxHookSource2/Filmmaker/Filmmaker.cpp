@@ -68,6 +68,7 @@
 #include "Movie/RagdollPhysics.h" // ragdoll gravity/friction/limit (convar-driven)
 #include "World/WorldCommand.h" // World_RunFrame: lighting / atmosphere / weather modules
 #include "World/SunFx.h"        // SunFx_RefreshVisibleSun: the lens flare's sun
+#include "Lens/LensSunLocator.h" // LensSunLocator_SetWanted: the flare's sun is the disc CS2 draws
 #include "Lens/LensFx.h"        // LensFx_FlareOn
 #include "Movie/RagdollWeapon.h"
 #include "Movie/DeathAnimations.h"
@@ -1158,6 +1159,8 @@ void RunMainThreadFrame() {
 	{ PanoramaPerf_Scope _p("world"); World_RunFrame(); }
 	// The lens flare's sun comes from the sky material (SunFx_VisibleSunDirection); keep it fresh while the flare is on.
 	if (LensFx_FlareOn()) SunFx_RefreshVisibleSun();
+	// ...and look for the sun disc CS2 draws (the sprite on Dust 2, Mirage and most maps), only then.
+	LensSunLocator_SetWanted(LensFx_SunFlares());
 	// Player-preview scene probe (read-only instrumentation, own module). No-op unless armed with
 	// `mvm_previewprobe watch`; exists to settle which clock the preview animgraph follows.
 	PreviewSceneProbe_RunFrame();

@@ -43,13 +43,18 @@ bool LensFx_DofOn();
 // True when the lens flare is on: the main thread then keeps the sky's sun direction fresh
 // (SunFx_RefreshVisibleSun) so the sun can flare.
 bool LensFx_FlareOn();
+// True when the flare is on and the sun flares (flare.sun above 0): the render thread then looks for
+// the sun disc CS2 draws (LensSunLocator.h).
+bool LensFx_SunFlares();
 
 // Which built-in custom iris is loaded ("" when the custom slot holds a file or nothing).
 bool LensFx_SetBuiltInIris(const char* name);
 bool LensFx_LoadIrisFile(const char* path, std::string* error);
 
 // Appends `,"lens":{...}` for the Config panel's state blob.
-void LensFx_AppendStateJson(std::ostringstream& out);
+// liveCounters adds the frame counter (`lens state`); the Config panel leaves it out, because a value
+// that changes every frame made the panel re-render every frame.
+void LensFx_AppendStateJson(std::ostringstream& out, bool liveCounters = false);
 
 void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);
 
@@ -84,9 +89,13 @@ void LensFx_EndDevice();
 // found instead of chasing this render's own depth, so every Beauty plate of the frame shares one
 // focus and the extra renders do not drag the next frame's focus toward a scene without the gun
 // or the players.
+// `dir` is the fallback direction toward the sun (the sky shader's SolarPosition, or the
+// Environment's sun when its sky is on); `located` lets the disc CS2 drew this frame, found on the
+// GPU (LensSunLocator.h), take its place wherever there was one.
 struct LensSun {
 	bool have = false;
 	float dir[3] = {};
+	bool located = false;
 };
 
 bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,

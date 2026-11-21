@@ -83,9 +83,10 @@ inline const ChannelSpec* ObjectSpec(int objectId, int c) {
     auto found = specs.find(index);
     if (found != specs.end()) return &found->second;
     static const char* labels[] = {"X", "Y", "Z", "Pitch", "Yaw", "Roll", "Field of view",
-        "Brightness", "Range", "Beam angle", "Emitter size", "Width", "Height"};
+        "Brightness", "Range", "Beam angle", "Emitter size", "Width", "Height", "Red", "Green", "Blue"};
     // A light setting's range and default: the scene file's own (EnvironmentDocument.cpp).
-    static const double light[Rig::kLightChannels][3] = {{0, 8, 1}, {16, 4096, 400}, {5, 170, 45}, {0, 64, 0}, {1, 1024, 64}, {1, 1024, 64}};
+    static const double light[Rig::kLightChannels][3] = {{0, 8, 1}, {16, 4096, 400}, {5, 170, 45}, {0, 64, 0}, {1, 1024, 64}, {1, 1024, 64},
+        {0, 255, 255}, {0, 255, 204}, {0, 255, 153}}; // colour 0..255, a new light's warm white
     ChannelSpec s;
     s.id = Rig::ChannelId(objectId, c);
     s.label = labels[c];

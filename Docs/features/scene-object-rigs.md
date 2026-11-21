@@ -12,8 +12,8 @@ lights), [camera-editor-feature.md](camera-editor-feature.md) (the TIMELINE dock
 A placed scene object (a point, spot or area light, an imported mesh, or a **camera** object) can be:
 
 1. **Attached** to something in the demo: a player at a body mount, a player's **held weapon**, a
-   **dropped weapon** or the C4, a thrown **grenade**, or **another scene object**. It rides that
-   parent and keeps a local **offset** (position and angles).
+   **dropped weapon** or the C4, a thrown **grenade**, **another scene object**, or, for a light,
+   **the camera**. It rides that parent and keeps a local **offset** (position and angles).
 2. **Placed from the free cam**: fly to where it should be and press **Place at camera**. A light or a
    camera takes the view's direction, a camera also its field of view. A mesh keeps its own turn.
 3. **Keyed over time** with **Animate** on. Every placement or pose edit keys the whole pose at the
@@ -73,12 +73,35 @@ arrows or **Place at camera**: a slider over the whole map would move it a hundr
 Chains are allowed: a light on a camera that rides a player. A chain is at most eight deep and can
 never loop back on itself. A chain whose root is gone is gone.
 
+### Camera lights
+
+A point, spot or area light can ride **the camera**: whatever renders the frame, so a playing camera
+path, the free cam, the Follow Camera or a looked-through camera object. Add one with **+ Add >
+Spot / Point / Area light on the camera** (Scene Objects) or right-click > **Add** on the TIMELINE
+dock, or pick **Attach to > The camera (moves with the view)** on any light's RIG card. A new camera
+light sits at the eye and points where the camera looks; **Offset** Forward / Right / Up moves it
+from the lens, and the light card's Pitch / Yaw / Roll turn it in the camera's frame. It is never
+"gone", so there is no While it is gone choice, and Place at camera is hidden. Only lights can ride
+the camera: a camera object on the view it renders would be a loop.
+
+The renderer does not use the main thread's pose for it. The rig publishes the light's pose in the
+camera's frame (through the whole chain, `Rig::ResolveInView`), and the Environment's frame capture
+puts it on the eye and axes of that frame's own view matrix (`RideFrameView`), roll and the path's
+shake included. So the light cannot trail a moving camera by a frame or step at the tick rate. Its
+marker is not drawn and it cannot be clicked in the view, because it sits on the lens.
+
+Like every light it has its TIMELINE layer: keying Position and Rotation keys the offset from the
+lens, and its settings and colour key as on any light. The attachment and its keys are saved with
+the demo's `project.mvm` (`scenekeys`); the light itself is in the map's Environment scene, so on
+another demo of the same map it stands where it was added until it is attached there too.
+
 ### On the TIMELINE dock
 
 Every scene camera and light has an **OBJECTS · Camera 3** layer, keyed or not, and any other
 object has one once it has keys. A camera's rows are **Position**, **Rotation** and **Field of
 view**. A light's are Position, Rotation, **Brightness**, **Range**, **Beam angle** (spot and area),
-**Emitter size** (point and spot) and **Width** / **Height** (area). A listed object is not animated
+**Emitter size** (point and spot), **Width** / **Height** (area) and **Color** (R, G and B, 0 to
+255, splittable like Position). A listed object is not animated
 until its layer switch is turned on (that is Animate on) or a key is placed on one of its rows; a
 key on a light setting animates that setting alone. **Delete object** in the layer's right-click menu
 removes the object (undoable); right-click > **Add** (also on empty layer space) adds a camera or a
@@ -157,6 +180,8 @@ mirv_filmmaker rig parent <id> held <pawnIndex> [<mount>]
 mirv_filmmaker rig parent <id> dropped <entityIndex>
 mirv_filmmaker rig parent <id> grenade <entityIndex>|h<handle>
 mirv_filmmaker rig parent <id> object <otherId>
+mirv_filmmaker rig parent <id> camera
+mirv_filmmaker environment add point|spot|area camera
 mirv_filmmaker rig mount <id> <mount>
 mirv_filmmaker rig missing <id> hide|hold
 mirv_filmmaker rig animate <id> on|off
@@ -178,6 +203,8 @@ authored world pose.
 `mvm_debug` categories: `rig.resolve` (once a second while logging, at the main frame and again at
 view setup: parent kind, entity, mount, source, valid and oriented, local and world pose, visible),
 `rig.attach`, `rig.place`, `rig.animate` and `rig.view` (look-through camera pose, throttled).
+`environment.camera.light` (once a second while a camera light renders): the frame's view pose, the
+light's offset, where it was drawn and where the main thread had it.
 
 ## How it works
 
@@ -207,10 +234,10 @@ Panorama/GraphEditorJs.h              OBJECTS layers, grouped rows, hold glyphs 
 Each object animates through seven pose channels: `obj.<id>.x`, `.y`, `.z`, `.pitch`, `.yaw`,
 `.roll` and `.fov`, and a light through six more: `.intensity` (0 to 8), `.range` (16 to 4096),
 `.cone` (5 to 170), `.radius` (0 to 64), `.width` and `.height` (1 to 1024), the scene file's own
-ranges. Keyed light settings reach the renderer with the pose (`SceneRigTransient.h`). Their specs are built on demand (`ObjectSpec`), so a project whose objects are
+ranges, and `.red`, `.green`, `.blue` (0 to 255, the light's colour as CONFIG colours count it). Keyed light settings reach the renderer with the pose (`SceneRigTransient.h`). Their specs are built on demand (`ObjectSpec`), so a project whose objects are
 gone still loads. Positions are floats in +-32768, angles wrap in (-180, 180], and the field of view
 is 1 to 179. These specs set `editLinear` (writing a value at a key clears the holds on both of
-its segments) and `clampEnds` (the ends extend outward). The dock numbers object channels `1000000 + id * 16 + channel`, above the static catalog, so
+its segments) and `clampEnds` (the ends extend outward). The dock numbers object channels `1000000 + id * 32 + channel`, above the static catalog, so
 adding or removing an object never renumbers a channel under a drag.
 
 Each key carries `hold` (saved as `"hold": true`, absent means false). It makes the segment leaving

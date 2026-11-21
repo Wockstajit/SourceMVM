@@ -2,6 +2,7 @@
 #include "LensFx.h"
 #include "../Debug/GpuPassProfiler.h"
 #include "LensFxShaders.h"
+#include "LensSunLocator.h"
 
 #include "../Environment/EnvironmentShaderCompiler.h"
 #include "../Environment/EnvironmentMath.h"
@@ -566,6 +567,11 @@ bool LensFx_FlareOn() {
 	return g_values[FlareOn] > 0.5f;
 }
 
+bool LensFx_SunFlares() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_values[FlareOn] > 0.5f && g_values[FlareSun] > 0.0f;
+}
+
 bool LensFx_SetBuiltInIris(const char* name) {
 	const int id = IrisMaskFromName(name);
 	if (id < 0) return false;
@@ -612,7 +618,7 @@ static void ClearDirt() {
 	g_dirt.serial = serial;
 }
 
-void LensFx_AppendStateJson(std::ostringstream& out) {
+void LensFx_AppendStateJson(std::ostringstream& out, bool liveCounters) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	out << ",\"lens\":{";
 	for (int i = 0; i < ParamCount; ++i) {
@@ -629,7 +635,7 @@ void LensFx_AppendStateJson(std::ostringstream& out) {
 	out << ",\"irisMask\":\"" << JsonSafe(g_iris.label) << "\""
 		<< ",\"dirtLoaded\":" << (g_dirt.pixels.empty() ? "false" : "true")
 		<< ",\"status\":\"" << JsonSafe(g_status) << "\""
-		<< ",\"frames\":" << g_frames.load();
+		<< (liveCounters ? ",\"frames\":" + std::to_string(g_frames.load()) : std::string());
 	// The view and focal length of the last lens frame (0 before the first); with dof.followFov on the
 	// focal length is the camera's own, so the panel shows this instead of the setting.
 	char lensNow[96];
@@ -642,7 +648,7 @@ void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 	auto quiet = [&]() { for (int i = 2; i < argc; ++i) if (0 == _stricmp(arg(i), "quiet")) return true; return false; };
 	auto state = [&]() {
 		std::ostringstream o;
-		LensFx_AppendStateJson(o);
+		LensFx_AppendStateJson(o, true);
 		std::string s = o.str();
 		advancedfx::Message("[lens][state] {%s}\n", s.size() > 1 ? s.c_str() + 1 : "");
 	};
@@ -772,6 +778,7 @@ void LensFx_BeginDevice(ID3D11Device* device) {
 }
 
 void LensFx_EndDevice() {
+	LensSunLocator_EndDevice();
 	g = Gpu{};
 	g_devicePending = false;
 }
@@ -905,11 +912,14 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 	for (int i = 0; i < smokeCount; ++i)
 		k.smokeSpheres[i] = { smoke.spheres[i * 4], smoke.spheres[i * 4 + 1], smoke.spheres[i * 4 + 2], smoke.spheres[i * 4 + 3] };
 	ID3D11ShaderResourceView* smokeSrv = smokeCount > 0 ? smoke.absorbance : nullptr;
-	// The sun, from the sky (LensFxMath.h): on screen, above the horizon, and depth to test it against.
+	// The sun (LensFxMath.h, "where the sun is drawn"): the disc CS2 drew this frame when the locator saw
+	// one, else the direction projected on screen (above the horizon). Depth tests it either way.
 	float sunU = 0, sunV = 0;
-	const bool sunOn = flareOn && haveDepth && sun.have && L[FlareSun] > 0.0f && sun.dir[2] > -0.05f
-		&& SunScreenUv(worldToClip, sun.dir, sunU, sunV);
-	k.sunInfo = { sunU, sunV, sunOn ? L[FlareSun] : 0.0f, 0 };
+	const bool sunDirection = sun.have && sun.dir[2] > -0.05f && SunScreenUv(worldToClip, sun.dir, sunU, sunV);
+	ID3D11ShaderResourceView* sunLocated = sun.located ? LensSunLocator_Result() : nullptr;
+	const bool sunOn = flareOn && haveDepth && L[FlareSun] > 0.0f && (sunDirection || sunLocated);
+	const bool sunOnly = L[FlareSunOnly] > 0.5f;
+	k.sunInfo = { sunU, sunV, sunOn ? L[FlareSun] : 0.0f, SunInfoBits(sunDirection, sunLocated != nullptr, sunOnly) };
 
 	ID3D11DeviceContext* c = g.ctx.Get();
 	c->ClearState();
@@ -993,8 +1003,10 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		// The flare reads the SHARP frame, blurred or not: a lifted bokeh disc is a huge white shape, and a flare cast
 		// from it would be a wash. Light sources flare where they are, in focus or not.
 		ID3D11ShaderResourceView* flareSrc = g.srcRes.srv.Get();
-		if (sunOn)
-			pass(g.sunPS[dms].Get(), g.sunVis.rtv.Get(), 1, 1, { { 1, g.depthCopy.srv.Get() }, { 20, smokeSrv } });
+		if (sunOn) {
+			if (sunLocated) { c->OMSetRenderTargets(0, nullptr, nullptr); LensSunLocator_Resolve(c); }
+			pass(g.sunPS[dms].Get(), g.sunVis.rtv.Get(), 1, 1, { { 1, g.depthCopy.srv.Get() }, { 20, smokeSrv }, { 23, sunLocated } });
+		}
 		pass(g.brightPS.Get(), g.halfBright.rtv.Get(), hw, hh, { { 8, flareSrc } });
 		setPassSource(hw, hh);
 		pass(g.down13PS.Get(), g.quarterBright.rtv.Get(), qw, qh, { { 9, g.halfBright.srv.Get() } });
@@ -1003,7 +1015,7 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		// The source map: the bright pass kept only where the source is small (a bright ring around it drops
 		// it) and faded at the frame edge. Everything after this reads the source map, never the bright pass.
 		pass(g.sourcePS.Get(), g.sourceQ.rtv.Get(), qw, qh,
-			{ { 8, flareSrc }, { 9, g.quarterBright.srv.Get() }, { 14, g.eighthBright.srv.Get() }, { 22, g.sunVis.srv.Get() } });
+			{ { 8, flareSrc }, { 9, g.quarterBright.srv.Get() }, { 14, g.eighthBright.srv.Get() }, { 22, g.sunVis.srv.Get() }, { 23, sunLocated } });
 		pass(g.down13PS.Get(), g.sourceE.rtv.Get(), ew, eh, { { 9, g.sourceQ.srv.Get() } });
 		// Each aperture tap reads its full footprint, preventing sparse ghost dots.
 		c->OMSetRenderTargets(0, nullptr, nullptr);
@@ -1023,6 +1035,8 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		  { 13, msaa ? g.msaaCopy.srv.Get() : nullptr }, { 15, g.dirtTex.srv.Get() },
 		  { 14, flareOn ? g.eighthBright.srv.Get() : nullptr }, { 22, sunOn ? g.sunVis.srv.Get() : nullptr } });
 	c->ClearState();
+	// The disc found for this render is used up: the next render finds its own.
+	if (sun.located) LensSunLocator_Clear(c);
 
 	ComPtr<ID3D11CommandList> list;
 	if (FAILED(c->FinishCommandList(FALSE, &list))) {

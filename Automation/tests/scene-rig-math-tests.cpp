@@ -163,7 +163,7 @@ int main() {
 		};
 		const std::string tail = R"("mount":"head","missing":"hide","offset":[0,0,0,0,0,0]})";
 		rejects(R"({"0":{"parent":"player","steamId":"1","name":"a",)" + tail + "}", "object id 0 rejected");
-		rejects(R"({"3":{"parent":"camera","steamId":"1","name":"a",)" + tail + "}", "unknown parent rejected");
+		rejects(R"({"3":{"parent":"satellite","steamId":"1","name":"a",)" + tail + "}", "unknown parent rejected");
 		rejects(R"({"3":{"parent":"player","steamId":"-1","name":"a",)" + tail + "}", "signed steam id rejected");
 		rejects(R"({"3":{"parent":"player","steamId":"0","name":"",)" + tail + "}", "player without identity rejected");
 		rejects(R"({"3":{"parent":"object","object":3,)" + tail + "}", "self parent rejected");
@@ -181,6 +181,71 @@ int main() {
 				&& ReadAttachments(ok, out, err) && out[3].grenadeHandle == 0 && out[3].throwTick == 15, "grenade without a handle reads");
 		}
 		rejects(R"({"3":{"parent":"dropped","entity":-2,"class":"weapon_ak47",)" + tail + "}", "negative entity rejected");
+	}
+
+	// ---- riding the camera (a camera light) ----
+	{
+		// The view pose comes back from the basis the renderer reads off its view matrix, roll
+		// included: a camera path keyed with a roll tilts the light with it.
+		const FollowAngles view{-20, 135, 30};
+		const FollowVec3 eye{-300, 1200, 140};
+		const Pose v = ViewPose(eye, FollowRotateVector({1, 0, 0}, view), FollowRotateVector({0, 0, 1}, view));
+		Check(NearPose(v, P(-300, 1200, 140, -20, 135, 30), 1e-6), "view pose keeps pitch, yaw and roll");
+
+		// A light 10 to the right of a rolled camera sits on the camera's right, not the world's.
+		const Pose light = Compose(v, P(0, 10, 0, 0, 0, 0));
+		const FollowVec3 r = FollowRotateVector({0, 10, 0}, view);
+		Check(Near(light.pos.x, eye.x + r.x) && Near(light.pos.y, eye.y + r.y) && Near(light.pos.z, eye.z + r.z),
+			"an offset to the right follows the camera's roll");
+		Check(NearPose(Compose(v, P(0, 0, 0, 0, 0, 0)), v), "a light at the eye points where the camera looks");
+
+		// A chain: a spot rides a point light that rides the camera. In view space the whole chain
+		// resolves with the camera at the origin, and putting that on the view gives the world pose.
+		std::map<int, Attachment> attach;
+		Attachment onCamera; onCamera.parent = ParentKind::Camera; attach[4] = onCamera;
+		Attachment onLight; onLight.parent = ParentKind::Object; onLight.object = 4; attach[5] = onLight;
+		std::map<int, Pose> locals = {{4, P(0, 0, 8, 0, 0, 0)}, {5, P(30, 0, 0, 10, 0, 0)}, {6, P(1, 2, 3, 0, 0, 0)}};
+		LocalFn local = [&](int id, Pose& out) { const auto f = locals.find(id); if (f == locals.end()) return false; out = f->second; return true; };
+		AttachFn attachment = [&](int id) -> const Attachment* { const auto f = attach.find(id); return f == attach.end() ? nullptr : &f->second; };
+		ExternalFn external = [&](int, const Attachment& a) {
+			ExternalPose e;
+			if (a.parent == ParentKind::Camera) { e.valid = e.oriented = true; e.pose = v; }
+			return e;
+		};
+		const Resolved inView = ResolveInView(5, local, attachment, external);
+		const Resolved inWorld = ResolveWorld(5, local, attachment, external);
+		Check(inView.valid && inView.view && inWorld.view, "a chain whose root is the camera is a view rider");
+		Check(NearPose(inView.world, P(30, 0, 8, 10, 0, 0)), "in view space the chain is its offsets");
+		Check(NearPose(Compose(v, inView.world), inWorld.world, 1e-4), "the view-space pose on the view is the world pose");
+		const Resolved free = ResolveInView(6, local, attachment, external);
+		Check(free.valid && !free.view && NearPose(free.world, P(1, 2, 3, 0, 0, 0)), "an unattached object is not a view rider");
+
+		Check(CanRideCamera("spot") && CanRideCamera("point") && CanRideCamera("area") && !CanRideCamera("camera") && !CanRideCamera("obj"),
+			"only lights ride the camera");
+		// A mesh on the camera light (5 rides 4 rides the camera) would ride the view indirectly.
+		Check(RootsAtCamera(4, attachment) && RootsAtCamera(5, attachment) && !RootsAtCamera(6, attachment),
+			"a chain through a camera light roots at the camera");
+		Attachment onPlayer; onPlayer.parent = ParentKind::Player; attach[7] = onPlayer;
+		Attachment onPlayerChild; onPlayerChild.parent = ParentKind::Object; onPlayerChild.object = 7; attach[8] = onPlayerChild;
+		Check(!RootsAtCamera(8, attachment), "a chain through a player does not root at the camera");
+		attach.erase(7); attach.erase(8);
+
+		// The file keeps it: a camera parent has no identity fields.
+		JsonBuilder j; WriteAttachments(j, attach);
+		JsonValue parsed; std::map<int, Attachment> back; std::string err;
+		Check(JsonParse(j.Str(), parsed) && ReadAttachments(parsed, back, err) && back == attach, "a camera attachment round-trips");
+		ParentKind k = ParentKind::None;
+		Check(ParseParentKind("camera", k) && k == ParentKind::Camera && std::string(ParentKindName(ParentKind::Camera)) == "camera", "camera parent name");
+	}
+
+	// ---- a light's colour is keyable ----
+	{
+		const auto spot = ChannelsFor("spot"), camera = ChannelsFor("camera");
+		auto has = [](const std::vector<int>& v, int c) { for (int x : v) if (x == c) return true; return false; };
+		Check(has(spot, Red) && has(spot, Green) && has(spot, Blue) && !has(camera, Red), "a light has colour rows, a camera does not");
+		int id = 0, c = 0;
+		Check(ParseChannelId(ChannelId(7, Blue), id, c) && id == 7 && c == Blue && std::string(ChannelKey(Red)) == "red", "colour channel ids");
+		Check(ParseChannelIndex(ChannelIndex(7, Blue), id, c) && id == 7 && c == Blue, "colour channel indices fit the stride");
 	}
 
 	if (g_failed) { std::cerr << g_failed << " scene rig check(s) failed.\n"; return 1; }

@@ -419,5 +419,35 @@ int main() {
         const Vec3 dark = FogAmbientFromMapSky({0, 0, 0}, true);
         Check(Near(dark.x, neutral.x, 1e-6f), "a black authored sky falls back to the neutral light");
     }
+    // ---- the floor a gust's drift lies on ------------------------------------------------------
+    {
+        // A street at 0 with a crate (48 units square, 64 tall), a walkway 400 wide at 40, and a
+        // deck at 300 over the street's far end.
+        GroundFogFloorMap m;
+        m.cell = 16;
+        m.width = 64;
+        m.height = 24;
+        m.layers.assign(size_t(m.width) * m.height, {0, kGroundFogNoFloor, kGroundFogNoFloor, kGroundFogNoFloor});
+        auto at = [&](int x, int y) -> std::array<float, kGroundFogFloorLayers> & { return m.layers[size_t(y) * m.width + x]; };
+        for (int y = 10; y < 13; ++y)
+            for (int x = 10; x < 13; ++x) at(x, y)[0] = 64;
+        for (int y = 0; y < m.height; ++y)
+            for (int x = 30; x < 55; ++x) at(x, y)[0] = 40;
+        for (int y = 0; y < m.height; ++y)
+            for (int x = 58; x < 64; ++x) at(x, y) = {300, 0, kGroundFogNoFloor, kGroundFogNoFloor};
+        const auto drift = GroundFogDriftFloor(m);
+        auto d = [&](int x, int y) { return drift[size_t(y) * m.width + x]; };
+        Check(drift.size() == m.layers.size(), "the drift floor has one value a texel");
+        Check(Near(d(11, 11), 0, 2), "a crate drops out: the drift lies on the street through it");
+        Check(Near(d(2, 2), 0, .5f), "open street stays the street");
+        Check(Near(d(42, 12), 40, 1), "the middle of a wide walkway keeps the walkway");
+        Check(d(30, 12) < d(34, 12) && d(34, 12) <= d(40, 12) + .01f, "a walkway ramps down toward its edge instead of ending in a cut");
+        bool smooth = true;
+        for (int x = 25; x < 50; ++x) smooth = smooth && std::abs(d(x + 1, 12) - d(x, 12)) < 15;
+        Check(smooth, "no step across the walkway's edge is taller than a kerb");
+        Check(Near(d(60, 12), 300, 1), "a deck high over the street keeps its own floor (the shader keeps the street under it)");
+        GroundFogFloorMap empty;
+        Check(GroundFogDriftFloor(empty).empty(), "no floor map, no drift floor");
+    }
     std::cout << "Environment ground fog math passed\n";
 }

@@ -14,6 +14,11 @@
 
 namespace advancedfx {
 
+// The stderr tail or startup error for the calling capture worker. Each stream has its own
+// processing thread, so a successful pass cannot overwrite a failing pass's diagnostic.
+void FfmpegErrorTail_Clear();
+std::string FfmpegErrorTail_Get();
+
 
 class COutStream
 {

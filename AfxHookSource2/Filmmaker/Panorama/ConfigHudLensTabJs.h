@@ -179,7 +179,8 @@ R"CFJS(
     // them); a bright wall, the sky or a lit doorway never does, and the flare can never push a frame to
     // white. Two pages, at most eight controls on either:
     //   LOOK    a look preset, the intensity and threshold, and the amount of each part of the flare.
-    //   DETAIL  the streak length, the aperture blades, dirt, the two colours and a flare-only view.
+    //   DETAIL  the streak length, the aperture blades, the sun (and Sun only), dirt, the two colours
+    //           and a flare-only view.
     var flareSec = section(pageCamera, T('LENS FLARE'), true, false, 'config.section.flare', '#ffb36bff');
     var flareReset = flareSec.__headerReset(['mirv_filmmaker lens reset flare quiet'], 'cam.flare');
     var flarePill = flareSec.__headerPill(
@@ -215,6 +216,8 @@ R"CFJS(
       T('Sets the shape of every ghost and how many spikes a light gets. Six blades make hexagon ghosts and six spikes; an odd number makes twice as many spikes.'));
     lensSlider(flareDetailPage, T('Sun'), 'flare.sun', 0, 2, 2, 'x',
       T('How strongly the sun itself flares. It is found from the sky, so a sun on a bright sky still flares; walls and smoke in front of it block it. 0 leaves the sun to the ordinary light test.'), { offAtZero: true });
+    lensToggle(flareDetailPage, T('Sun only'), 'flare.sunOnly',
+      T('Only the sun throws a flare: lamps and other bright spots in the picture are left out. The sun is taken from where the map draws it, or from the Environment sun while its sky is on.'));
     lensSlider(flareDetailPage, T('Lens dirt'), 'flare.dirt', 0, 1, 2, '',
       T('Smudges on the front element that light up where flare falls on them. Load your own dirt image with  mirv_filmmaker lens dirt <path>  (the shape is read as brightness).'), { offAtZero: true });
     var FLARE_TINTS = [

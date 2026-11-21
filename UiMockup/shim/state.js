@@ -410,7 +410,7 @@
           relight: 0.35, ambient: 0.6, sunRelight: 1, bakedSuppressed: 0, bakedFill: 0.6, contactShadows: 1,
           relighting: 1, shadowBias: 2, shadowRange: 3000,
           mapLightPower: 1, playerFill: 1.8, sunAngle: 0.53, lampAngle: 1, shadowSoftness: 1, ao: 1, skyOcclusion: 1,
-          particleDetail: 0.5, turbulence: 1.5, gusts: 0.5, particleOpacity: 0.7, softness: 8,
+          particleDetail: 0.5, turbulence: 1.5, gusts: 0.5, gustDensity: 1, gustHeight: 1, gustWisps: 1, gustFloor: 1, particleOpacity: 0.7, softness: 8,
           streak: 12, particleLight: 1,
           bloom: 0.35, bloomThreshold: 1.2, saturation: 1.05, contrast: 1.1, vignette: 0.2,
           grain: 0.012, chromatic: 0,
@@ -499,7 +499,7 @@
         'dof.edge': 0, 'dof.gamma': 6, 'dof.quality': 1, 'dof.weapon': 0, 'dof.debug': 0,
         'flare.on': 0, 'flare.intensity': 1, 'flare.threshold': 0.85, 'flare.ghosts': 5, 'flare.halo': 0.5,
         'flare.streak': 0.8, 'flare.streakLen': 0.6, 'flare.star': 0.5, 'flare.blades': 6, 'flare.glow': 0.5, 'flare.sun': 1,
-        'flare.dirt': 0.2, 'flare.tint': 0, 'flare.streakTint': 0, 'flare.debug': 0,
+        'flare.dirt': 0.2, 'flare.tint': 0, 'flare.streakTint': 0, 'flare.debug': 0, 'flare.sunOnly': 0,
         dofDefault: true, flareDefault: true, irisMask: 'diamond', dirtLoaded: false, status: 'Off', frames: 0,
         // The view and focal length of the last lens frame: CS2's default fov 90 on a 16:9 frame.
         hfov: 106.26, focalNow: 13.5

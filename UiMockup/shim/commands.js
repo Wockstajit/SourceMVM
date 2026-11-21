@@ -273,6 +273,12 @@
         o.scale = ['point', 'spot', 'area', 'camera'].indexOf(o.kind) >= 0 ? [1, 1, 1] : [48, 48, 48];
         o.intensity = 4; o.range = 1200;
         if (o.kind === 'camera') { o.fov = 90; o.angles = [0, 90, 0]; o.color = [1, 0.85, 0.3]; }
+        // `add <light> camera` (EnvironmentScene.cpp): the rig attaches it to the camera at the eye.
+        if (t[2] === 'camera' && ['point', 'spot', 'area'].indexOf(o.kind) >= 0 && st.sceneKeys) {
+          o.asset = '';
+          st.sceneKeys.attach[o.id] = { parent: 'camera', who: 'the camera', player: '', object: 0, mount: '', missing: 'hide', offset: [0, 0, 0, 0, 0, 0] };
+          if (st.rig) st.rig.message = 'It rides the camera, at the eye. Move it with Offset.';
+        }
       }
       // Environment.cpp: a light joins whichever lighting runs; only a mesh turns Environment on.
       s.objects.push(o); st.envSelected = o.id; st.envEditing = 0;
@@ -322,7 +328,27 @@
     } else if (op === 'weather') {
       if (t[1] === 'set') s.weather[t[2]] = +t[3];
       else if (t[1] === 'wind') { s.weather.windX = +t[2] * Math.cos(+t[3]*Math.PI/180); s.weather.windY = +t[2] * Math.sin(+t[3]*Math.PI/180); }
-      else { s.weather.type = ['clear','rain','snow','ash','embers','motes','smoke'].indexOf(t[1]); }
+      else {
+        // Mirrors the weather command in EnvironmentScene.cpp: storm is rain, and rain, snow and ash
+        // bring their own air (gusts, haze, fog); clear takes it away.
+        s.weather.type = ['clear','rain','snow','ash','embers','motes','smoke'].indexOf(t[1] === 'storm' ? 'rain' : t[1]);
+        var looks = {clear:[0,0,climateDefaults.fogHeight,climateDefaults.fogNoise,null,climateDefaults.haze,0,0],
+          rain:[.55,.16,420,.6,[.50,.56,.64],.8,110,35], storm:[.85,.3,420,.6,[.50,.56,.64],1.1,220,70],
+          snow:[.75,.26,520,.7,[.86,.88,.91],1,55,20], ash:[.6,.3,620,.7,[.54,.51,.47],1.2,48,14]};
+        var look = looks[t[1]];
+        if (look) {
+          s.climate.gusts = look[0]; s.climate.fogDensity = look[1]; s.climate.fogHeight = look[2];
+          s.climate.fogNoise = look[3]; s.climate.haze = look[5];
+          // The ground drift starts as each weather's own look.
+          s.climate.gustDensity = 1; s.climate.gustHeight = 1; s.climate.gustWisps = 1; s.climate.gustFloor = 1;
+          if (look[4]) s.fogColor = look[4].slice();
+          if (look[0] > 0 || look[1] > 0) s.climate.enabled = 1;
+          // And its ground, replacing the last weather's.
+          var grounds = {rain:[0,.6,.25], storm:[0,.6,.25], snow:[.6,0,0], ash:[0,0,0], clear:[0,0,0]}, g = grounds[t[1]];
+          if (g) { s.climate.snow = g[0]; s.climate.wet = g[1]; s.climate.puddles = g[2]; }
+          if (t[1] !== 'clear') { s.weather.windX = look[6]; s.weather.windY = look[7]; }
+        }
+      }
       s.enabled = true; push(before);
     } else if (op === 'on' || op === 'off') { s.enabled = op === 'on'; push(before); }
     else if (op === 'save') {
@@ -1352,9 +1378,10 @@
         if (kind === 'grenade') st.rig.grenades.forEach(function (g) { if (g.index === target) who = g.type + ' by ' + g.thrower; });
         if (kind === 'dropped') st.rig.dropped.forEach(function (d) { if (d.index === target) who = d.name; });
         if (kind === 'object') { var p = st.environment.objects.find(function (x) { return x.id === target; }); who = p ? rigName(p) : ''; }
+        if (kind === 'camera') who = 'the camera';
         var old = sk.attach[id];
         edit(function () { sk.attach[id] = { parent: kind, who: who, player: player, object: kind === 'object' ? target : 0,
-          mount: t[4] || (kind === 'player' ? 'head' : kind === 'held' ? 'muzzle' : 'entity'), missing: old ? old.missing : 'hide', offset: [20, 0, 8, 0, 0, 0] }; });
+          mount: kind === 'camera' ? '' : t[4] || (kind === 'player' ? 'head' : kind === 'held' ? 'muzzle' : 'entity'), missing: old ? old.missing : 'hide', offset: [20, 0, 8, 0, 0, 0] }; });
         st.rig.message = 'Attached to ' + who + '. It stays where it is.';
       }
     } else if (op === 'mount' && sk.attach[id]) edit(function () { sk.attach[id].mount = t[2]; });

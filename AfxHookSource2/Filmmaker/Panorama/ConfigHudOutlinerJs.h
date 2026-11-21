@@ -34,6 +34,12 @@ R"CFJS(
         [T('Spot light'), function () { olAdd('spot'); }, T('A cone of light')],
         [T('Area light'), function () { olAdd('area'); }, T('A soft rectangle')],
         null,
+        // Camera lights (scene-object-rigs.md): the light rides the view, so it follows a playing
+        // camera path, the free cam or whatever else renders the frame.
+        [T('Spot light on the camera'), function () { olAdd('spot camera'); }, T('Lights what the camera looks at')],
+        [T('Point light on the camera'), function () { olAdd('point camera'); }, T('Glows all around the camera')],
+        [T('Area light on the camera'), function () { olAdd('area camera'); }, T('A soft panel beside the lens')],
+        null,
         [T('Camera'), function () { olAdd('camera'); }, T('A viewpoint')]
       ], olAddBtn);
     });
