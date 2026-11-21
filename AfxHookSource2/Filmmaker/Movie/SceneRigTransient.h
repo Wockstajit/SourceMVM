@@ -16,9 +16,15 @@ struct Entry {
     double fov = 90;
     bool visible = true;       // false: its parent is missing and the policy hides it
     // A light's keyed settings this frame (Rig::LightChannel order: brightness, range, beam angle,
-    // emitter size, width, height); bit i of lightMask says light[i] is keyed.
-    double light[6] = {};
+    // emitter size, width, height, red, green, blue 0..255); bit i of lightMask says light[i] is keyed.
+    double light[9] = {};
     unsigned lightMask = 0;
+    // It rides the camera (a camera light): viewPos / viewAng are its pose in the camera's frame
+    // (x forward, y right, z up). The renderer puts that on the frame's own view matrix, so the light
+    // never trails a moving camera; pos / ang are the same pose on the view the main thread saw.
+    bool view = false;
+    double viewPos[3] = {0, 0, 0};
+    double viewAng[3] = {0, 0, 0};
 };
 struct State {
     std::map<int, Entry> objects;

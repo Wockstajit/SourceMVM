@@ -178,6 +178,53 @@ inline bool FootSetDown(FootState &foot, float lift, float footSpeed, float pawn
     if (foot.planted && (lift > kFootDown + 2.5f || footSpeed > still * 2)) foot.planted = false;
     return false;
 }
+// HOW HARD A FOOT COMES DOWN, for the splash it throws and the ripples it rings (FootSplashVS takes
+// how much water, how fast and how high from it): about 0.55 for a walk, 0.85 for a run, and a
+// landing from a jump or a drop 1.5 and up with how fast the pawn was falling (a jump in place lands
+// at about 300 units a second; 2.6 at 700 and over). Before 2026-11-18 every step threw a run's
+// splash: a walk's read as too big and a landing's as too small.
+inline float FootSmooth(float a, float b, float x) {
+    const float t = std::clamp((x - a) / (b - a), 0.f, 1.f);
+    return t * t * (3 - 2 * t);
+}
+inline float FootImpact(float pawnSpeed, float landingSpeed) {
+    const float stride = .5f + .35f * FootSmooth(80, 250, pawnSpeed);
+    const float landing = landingSpeed > 150 ? 1.5f + 1.1f * FootSmooth(300, 700, landingSpeed) : 0.f;
+    return (std::max)(stride, landing);
+}
+// A pawn leaving the ground and coming back to it, from its height and its on-ground flag: how fast
+// it was falling when it landed, kept for the steps of the landing (kFootLandWindow), and the frame
+// it jumped (left the ground going up), when its feet kick the water up too.
+inline constexpr float kFootLandWindow = .3f;
+inline constexpr float kFootJumpRise = 120.f; // units a second upward that make leaving the ground a jump
+struct FootLanding {
+    float lastZ = 0;
+    bool seen = false, airborne = false;
+    float fall = 0;      // the fastest it fell while off the ground
+    float landed = 0;    // how fast it was falling at its last landing
+    float since = 1e9f;  // seconds since then
+};
+inline bool AdvanceFootLanding(FootLanding &l, float z, bool grounded, float dt) {
+    if (!(dt > 0)) return false;
+    const float vz = l.seen ? std::clamp((z - l.lastZ) / dt, -1500.f, 1500.f) : 0.f;
+    const bool wasSeen = l.seen;
+    l.lastZ = z;
+    l.seen = true;
+    l.since += dt;
+    bool jumped = false;
+    if (!grounded) {
+        jumped = wasSeen && !l.airborne && vz > kFootJumpRise;
+        l.airborne = true;
+        l.fall = (std::max)(l.fall, -vz);
+    } else if (l.airborne) {
+        l.airborne = false;
+        l.landed = l.fall;
+        l.since = 0;
+        l.fall = 0;
+    }
+    return jumped;
+}
+inline float FootLandingSpeed(const FootLanding &l) { return l.since <= kFootLandWindow ? l.landed : 0.f; }
 // How ragged the edge of a hole in deep snow is at a texel, -0.11..0.11 of its width: broad smooth
 // lumps, fixed to the world, so no two holes break the same way. (A crumble finer than the lumps,
 // one value a texel, drew the edge as a jagged stair.)

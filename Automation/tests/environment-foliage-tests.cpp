@@ -152,6 +152,17 @@ int main(int argc,char **argv){
     Check(!ReadFoliageWind(ctx.Get(),cpuWind,cpuStrength),"Mapped write is incomplete until Unmap");
     NoteFoliageConstantUnmap(w.Get());observe();
     Check(ReadFoliageWind(ctx.Get(),cpuWind,cpuStrength)&&cpuWind.y==wind[69],"Completed CPU Map write updates wind without GPU readback");
+    // Tracking stops between a Map and its Unmap and starts again: that Map's pointer is gone by
+    // the next Unmap the hook sees, so the snapshot is dropped instead of read through it.
+    // The mapped memory is gone by then: a page that faults on any read stands in for it.
+    void* page=VirtualAlloc(nullptr,4096,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);
+    Check(page!=nullptr,"Test page");std::memcpy(page,wind.data(),sizeof(float)*wind.size()<4096?sizeof(float)*wind.size():4096);
+    NoteFoliageConstantMap(w.Get(),D3D11_MAP_WRITE_DISCARD,page);
+    RequestFoliageInputs(false);NextFoliageFrame();NextFoliageFrame();observe();
+    DWORD was=0;VirtualProtect(page,4096,PAGE_NOACCESS,&was);
+    NoteFoliageConstantUnmap(w.Get());observe();
+    VirtualFree(page,0,MEM_RELEASE);
+    Check(!ReadFoliageWind(ctx.Get(),cpuWind,cpuStrength),"A Map from before tracking restarted is not read at its Unmap");
     wind[72]=NAN;NoteFoliageConstantUpdate(w.Get(),nullptr,wind.data());observe();
     Check(!ReadFoliageWind(ctx.Get(),cpuWind,cpuStrength),"Nonfinite wind cannot shrink the conservative bound");
     ResetFoliageInputs();

@@ -49,7 +49,9 @@ bool LensFx_SetBuiltInIris(const char* name);
 bool LensFx_LoadIrisFile(const char* path, std::string* error);
 
 // Appends `,"lens":{...}` for the Config panel's state blob.
-void LensFx_AppendStateJson(std::ostringstream& out);
+// liveCounters adds the frame counter (`lens state`); the Config panel leaves it out, because a value
+// that changes every frame made the panel re-render every frame.
+void LensFx_AppendStateJson(std::ostringstream& out, bool liveCounters = false);
 
 void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);
 

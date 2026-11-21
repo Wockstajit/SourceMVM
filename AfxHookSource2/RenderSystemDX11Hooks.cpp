@@ -3087,6 +3087,13 @@ static void EnvironmentSmokeHandoff() {
 // the world.
 static void AfxRenderEnvironmentComposite(ID3D11DeviceContext* ctx, ID3D11RenderTargetView* target) {
     g_EnvironmentCompositedThisPresent = true;
+    if (!g_EnvironmentFrame.active) {
+        // Keep the renderer's idle-release path ticking without copying the scene.
+        Filmmaker::Environment::SetSmokeAbsorbance(nullptr, 0, 0);
+        Filmmaker::Environment::Render(ctx, target, g_pCurrentDepthStencilView, g_EnvironmentFrame,
+            g_ViewPort.MinDepth, g_ViewPort.MaxDepth);
+        return;
+    }
     const bool wasOwnDraw = g_bInOwnDraw;
     g_bInOwnDraw = true;
     EnvironmentSmokeHandoff();
@@ -8818,10 +8825,10 @@ void RenderSystemDX11_EngineThread_Prepare() {
         std::vector<Filmmaker::Environment::SmokeVolume> lensSmokes;
         if (!environmentFrame.active && Filmmaker::LensFx_DofOn())
             Filmmaker::Environment::CaptureSmokeVolumes(lensSmokes);
-        queue.Push([environmentFrame, lensSmokes]() {
-            g_EnvironmentFrame = environmentFrame;
-            g_LensSmokes = lensSmokes;
-            Filmmaker::Environment::PrepareNativeMaterialFrame(environmentFrame);
+        queue.Push([frame = std::move(environmentFrame), smokes = std::move(lensSmokes)]() mutable {
+            g_EnvironmentFrame = std::move(frame);
+            g_LensSmokes = std::move(smokes);
+            Filmmaker::Environment::PrepareNativeMaterialFrame(g_EnvironmentFrame);
             Filmmaker::Environment::SetLightingProofShadowPass([](ID3D11DeviceContext* ctx,const Filmmaker::Environment::Frame& frame,Filmmaker::Environment::Matrix* matrices,ID3D11ShaderResourceView** atlas){
                 const bool own=g_bInOwnDraw;g_bInOwnDraw=true;
                 const bool ready=Filmmaker::Environment::PrepareLightingProofShadows(ctx,frame,matrices,atlas);
@@ -8843,7 +8850,7 @@ void RenderSystemDX11_EngineThread_Prepare() {
                 const bool drawn=Filmmaker::Environment::Render(ctx,target,depth,frame,g_ViewPort.MinDepth,g_ViewPort.MaxDepth,source);
                 g_bInOwnDraw=own;return drawn;
             });
-            Filmmaker::Environment::NoteAnimatedCasterReceiverProjection(environmentFrame.worldToClip);
+            Filmmaker::Environment::NoteAnimatedCasterReceiverProjection(g_EnvironmentFrame.worldToClip);
         });
     }
 }

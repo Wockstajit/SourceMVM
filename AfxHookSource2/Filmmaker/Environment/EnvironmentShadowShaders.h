@@ -128,9 +128,11 @@ float2 CoverReach(float3 world){
 //  - under cover, the volume is read a step upwind, so an opening that faces the wind takes snow
 //    and wet further in and one that faces away takes less.
 // With no lean both are exactly the straight-down answers.
-// `lee` is how much of the first counts (1 for what falls now). Snow that lies has come down over
-// hours of shifting wind, so its sheltered side is only thinned (ApplyCoatings passes a quarter):
-// cleared in full, a strong wind left a doorstep bare in the middle of a snowed-in yard.
+// `lee` is how much the wind's angle counts (1 for what falls now). Snow that lies has come down over
+// hours of shifting wind, so its sheltered side is only thinned (ApplyCoatings passes an eighth):
+// cleared in full, a strong wind left a doorstep bare in the middle of a snowed-in yard. That goes for
+// both rules: read a step upwind in full, a crate standing upwind under a shop's awning left a bare
+// patch the crate's shape behind it, cut with a hard edge, in a street of snow (2026-11-18).
 float3 WeatherCover(float3 world,float3 normal,float lee=1){
     if(shelterInfo.x<=0)return float3(1,0,0);
     float up=saturate(normal.z);
@@ -160,7 +162,7 @@ float3 WeatherCover(float3 world,float3 normal,float lee=1){
     float2 here=CoverReach(at);
     float2 upwind=blown>0?CoverReach(at+float3(coverWind.xy,0)*(lean*90)):here;
     // Upwind decides how much comes in; it cannot put weather where no open air reaches at all.
-    return float3(sky,lerp(here.x,min(upwind.x,here.x*4+.02),blown),here.y);
+    return float3(sky,lerp(here.x,min(upwind.x,here.x*4+.02),blown*lee),here.y);
 }
 // Rain wets what it lands on and a little further: water runs, splashes and is walked in.
 float WetReach(float3 cover){return max(cover.x,smoothstep(.03,.3,cover.y));}

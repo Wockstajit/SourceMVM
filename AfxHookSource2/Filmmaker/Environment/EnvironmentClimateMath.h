@@ -157,6 +157,14 @@ enum ClimateField {
     // precipitation is thicker, leans or streaks with the wind, and blown mist or snow fills the
     // air (GustFront in EnvironmentShaders.h). 0 is steady weather, 1 a storm or a blizzard.
     CL_gusts,
+    // THE GROUND DRIFT the gusts blow along the floor (GustVolumeMarch, GustLookFor): each scales the
+    // weather's own look, 1 as it comes. How dense the blown layer is, how high it stands, how much
+    // it is torn into wisps (0 an even sheet), and how strongly loose snow streams over the ground and
+    // a gust roughens wet ground (ApplyCoatings).
+    CL_gustDensity,
+    CL_gustHeight,
+    CL_gustWisps,
+    CL_gustFloor,
     // THE MOON (EnvironmentSkyMath.h). Brightness (0 = no moon), where it stands, its phase (0 new,
     // 0.5 full, 1 new again), its apparent size in degrees (the real moon is 0.52) and its colour.
     // Once the sun has set it is the key light: the map is lit and shadowed from it.
@@ -328,6 +336,10 @@ inline const std::array<ClimateSpec, ClimateCount> &ClimateSpecs() {
         {"snowDepth", "weather", 0.5f, 0.0f, 1.0f},
         {"playerFill", "lighting", 1.8f, 1.0f, 4.0f},
         {"gusts", "weather", 0.0f, 0.0f, 1.0f},
+        {"gustDensity", "weather", 1.0f, 0.0f, 2.0f},
+        {"gustHeight", "weather", 1.0f, 0.25f, 2.0f},
+        {"gustWisps", "weather", 1.0f, 0.0f, 2.0f},
+        {"gustFloor", "weather", 1.0f, 0.0f, 2.0f},
         {"moon", "sky", 1.0f, 0.0f, 4.0f},
         // A full moon at the default time: opposite the sun, below the horizon.
         {"moonAzimuth", "sky", 315.0f, 0.0f, 360.0f},

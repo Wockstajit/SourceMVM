@@ -21,8 +21,10 @@ void BeginGroundFog(ID3D11Device *device);
 void EndGroundFog();
 // Steps the fluid when the demo time moved since the last call (at most once per demo time, so
 // the HDR and display passes of one frame share a step) and records it into `ctx`. Starts the
-// floor map build for a new map and uploads it when ready.
-GroundFogFrameInfo PrepareGroundFog(ID3D11DeviceContext *ctx, const Frame &frame, const Climate &climate);
+// floor map build for a new map and uploads it when ready. `floorWanted`: something else lies on
+// the floor (a gust's blown snow, GustVolumeMarch), so the floor map is kept and published even with
+// the ground fog off; the fog's own fluid still runs only with the ground fog on.
+GroundFogFrameInfo PrepareGroundFog(ID3D11DeviceContext *ctx, const Frame &frame, const Climate &climate, bool floorWanted = false);
 // What the transparent effects did to the frame. The source returns CS2's HDR scene target of that size,
 // AddRef'd, or null. Capture runs just before CS2 draws its transparent effects; Prepare, in a later
 // render of that frame, compares it with the finished frame and says whether the mask is bound. Without

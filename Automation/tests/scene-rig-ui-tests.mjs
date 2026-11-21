@@ -107,9 +107,9 @@ test('with the TIMELINE dock up, a notch over a panel still reaches it (dock fir
 
 test('object channel numbers agree between C++, the dock state and the mock', () => {
   assert.match(rigMath, /constexpr int kObjectChannelBase = 1000000;/);
-  assert.match(rigMath, /constexpr int kChannelStride = 16;/);
+  assert.match(rigMath, /constexpr int kChannelStride = 32;/);
   assert.match(rigMath, /inline int ChannelIndex\(int objectId, int c\) \{ return kObjectChannelBase \+ objectId \* kChannelStride \+ c; \}/);
-  assert.match(mockKeys, /OBJECT_BASE = 1000000, OBJECT_STRIDE = 16, OBJECT_CHANNELS = 13/);
+  assert.match(mockKeys, /OBJECT_BASE = 1000000, OBJECT_STRIDE = 32, OBJECT_CHANNELS = 16/);
   assert.match(mockKeys, /ch: OBJECT_BASE \+ object \* OBJECT_STRIDE \+ c/);
 });
 
@@ -144,7 +144,7 @@ test('the mock samples pose keys as the native track does: linear keys, clamped 
   assert.equal(K.sample(x, keys, 150, 0), 35, 'and it blends');
   K.sync(sk, 150);
   const ch = sk.sceneChannels.find((c) => c.fieldId === 'obj.4.x');
-  assert.equal(ch.ch, 1000064);
+  assert.equal(ch.ch, 1000128); // 1000000 + 4 * 32
   assert.equal(ch.family, 'objects');
 });
 
@@ -193,7 +193,7 @@ test('every scene camera and light has its TIMELINE layer with all its settings,
   const keysCppNow = read('AfxHookSource2/Filmmaker/Movie/SceneKeys.cpp');
   assert.match(keysCppNow, /for \(int id : SceneRig_TimelineObjects\(\)\) objects\.insert\(id\);/);
   assert.match(keysCppNow, /if \(!live && !always\) return;/);
-  assert.match(rigMath, /enum LightChannel : int \{ Intensity = kPoseChannels, Range, Cone, Radius, Width, Height, kObjectChannels \};/);
+  assert.match(rigMath, /enum LightChannel : int \{ Intensity = kPoseChannels, Range, Cone, Radius, Width, Height, Red, Green, Blue, kObjectChannels \};/);
   assert.match(graph, /\['intensity', T\('Brightness'\)/);
   assert.match(graph, /else if \(oid && !objectLive\(L\)\) rawCmd\('mirv_filmmaker rig animate ' \+ oid \+ ' on'\);/,
     'the switch of a layer that is not animated yet animates it');
@@ -207,7 +207,7 @@ test('every scene camera and light has its TIMELINE layer with all its settings,
   sk.objectNames = { 3: 'Spot light 3', 4: 'Camera 4' }; sk.objectKinds = { 3: 'spot', 4: 'camera' };
   K.sync(sk, 100);
   const rows = (id) => sk.sceneChannels.filter((c) => c.fieldId.indexOf('obj.' + id + '.') === 0).map((c) => c.name);
-  assert.deepEqual(rows(3), ['X', 'Y', 'Z', 'Pitch', 'Yaw', 'Roll', 'Brightness', 'Range', 'Beam angle', 'Emitter size']);
+  assert.deepEqual(rows(3), ['X', 'Y', 'Z', 'Pitch', 'Yaw', 'Roll', 'Brightness', 'Range', 'Beam angle', 'Emitter size', 'Red', 'Green', 'Blue']);
   assert.deepEqual(rows(4), ['X', 'Y', 'Z', 'Pitch', 'Yaw', 'Roll', 'Field of view']);
   assert.ok(sk.sceneChannels.every((c) => c.live === false), 'listed, not animated');
 });

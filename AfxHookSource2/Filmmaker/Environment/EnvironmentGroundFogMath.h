@@ -66,6 +66,8 @@ struct GroundFogFloorMap {
     std::vector<std::array<float, kGroundFogFloorLayers>> layers;
     // How much of the layer's depth each floor holds, 0 to 1 (see drainDrop). Same order as `layers`.
     std::vector<std::array<float, kGroundFogFloorLayers>> thickness;
+    // The floor a gust's drift lies on, one per texel (GroundFogDriftFloor); empty until it is made.
+    std::vector<float> drift;
     bool Valid() const {
         return width > 0 && height > 0 && cell > 0 && layers.size() == size_t(width) * size_t(height);
     }
@@ -456,6 +458,68 @@ inline float GroundFogFloorBelow(const GroundFogFloorMap &m, float x, float y, f
         }
     if (thickness) *thickness = heldSum / weight;
     return sum / weight;
+}
+
+// THE FLOOR A GUST'S DRIFT LIES ON (GustFloor in EnvironmentClimateShaders.h). Laid on each texel's
+// own floor, the drift sat on top of every crate, car and barrel and was cut off at their edges as if
+// with a knife, and stepped at every kerb (reported 2026-11-18). Here each column's highest floor is
+// first lowered to the lowest floor within `reach` that lies no more than `drop` under it, so anything
+// narrower than twice `reach` drops out and the drift runs past and over it from the ground; then the
+// result is blurred over `blur` (a Gaussian among texels whose values lie within `drop` of each other),
+// so a kerb, a step or a walkway's edge is a ramp, not a cut. A walkway or a roof wider than that keeps
+// its own floor away from its edges. A column with no floor holds kGustNoDriftFloor, far above any
+// map: a blend that reaches one is refused, and the shader takes the texel's own floor there.
+inline constexpr float kGustNoDriftFloor = 1.0e6f;
+// Uploaded as height + kGustDriftFloorBias, so a map that is not bound (it reads 0) is refused too.
+inline constexpr float kGustDriftFloorBias = 1.0e5f;
+inline std::vector<float> GroundFogDriftFloor(const GroundFogFloorMap &m, float reach = 64, float drop = 150, float blur = 24) {
+    if (!m.Valid()) return {};
+    const int w = m.width, h = m.height;
+    const size_t n = size_t(w) * h;
+    const float none = kGroundFogNoFloor * .5f;
+    std::vector<float> lowered(n, kGustNoDriftFloor);
+    const int r = (std::max)(1, int(std::lround(reach / m.cell)));
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const float own = m.At(x, y)[0];
+            if (own <= none) continue;
+            float lowest = own;
+            for (int dy = -r; dy <= r; ++dy)
+                for (int dx = -r; dx <= r; ++dx) {
+                    if (dx * dx + dy * dy > r * r) continue;
+                    const int cx = x + dx, cy = y + dy;
+                    if (cx < 0 || cy < 0 || cx >= w || cy >= h) continue;
+                    // The floor of that column at or under this one: a higher deck over it is skipped.
+                    const float there = GroundFogLayerBelow(m.At(cx, cy), own + 8);
+                    if (there > none && there >= own - drop) lowest = (std::min)(lowest, there);
+                }
+            lowered[size_t(y) * w + x] = lowest;
+        }
+    const float sigma = (std::max)(blur / m.cell, .5f);
+    const int b = (std::max)(1, int(std::ceil(sigma * 2)));
+    std::vector<float> kernel(size_t(b) + 1);
+    for (int i = 0; i <= b; ++i) kernel[size_t(i)] = std::exp(-.5f * float(i * i) / (sigma * sigma));
+    // Two passes (along rows, then columns), each only among values within `drop` of the centre.
+    auto pass = [&](const std::vector<float> &in, bool rows) {
+        std::vector<float> out(n, kGustNoDriftFloor);
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                const float c = in[size_t(y) * w + x];
+                if (c >= kGustNoDriftFloor * .5f) continue;
+                float sum = 0, weight = 0;
+                for (int i = -b; i <= b; ++i) {
+                    const int cx = rows ? x + i : x, cy = rows ? y : y + i;
+                    if (cx < 0 || cy < 0 || cx >= w || cy >= h) continue;
+                    const float v = in[size_t(cy) * w + cx];
+                    if (v >= kGustNoDriftFloor * .5f || std::abs(v - c) > drop) continue;
+                    sum += v * kernel[size_t(std::abs(i))];
+                    weight += kernel[size_t(std::abs(i))];
+                }
+                out[size_t(y) * w + x] = sum / weight;
+            }
+        return out;
+    };
+    return pass(pass(lowered, true), false);
 }
 
 // How dense the layer is at height `h` over its floor, for a local fog top `top`. Softness 0 is full

@@ -612,7 +612,7 @@ static void ClearDirt() {
 	g_dirt.serial = serial;
 }
 
-void LensFx_AppendStateJson(std::ostringstream& out) {
+void LensFx_AppendStateJson(std::ostringstream& out, bool liveCounters) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	out << ",\"lens\":{";
 	for (int i = 0; i < ParamCount; ++i) {
@@ -629,7 +629,7 @@ void LensFx_AppendStateJson(std::ostringstream& out) {
 	out << ",\"irisMask\":\"" << JsonSafe(g_iris.label) << "\""
 		<< ",\"dirtLoaded\":" << (g_dirt.pixels.empty() ? "false" : "true")
 		<< ",\"status\":\"" << JsonSafe(g_status) << "\""
-		<< ",\"frames\":" << g_frames.load();
+		<< (liveCounters ? ",\"frames\":" + std::to_string(g_frames.load()) : std::string());
 	// The view and focal length of the last lens frame (0 before the first); with dof.followFov on the
 	// focal length is the camera's own, so the panel shows this instead of the setting.
 	char lensNow[96];
@@ -642,7 +642,7 @@ void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 	auto quiet = [&]() { for (int i = 2; i < argc; ++i) if (0 == _stricmp(arg(i), "quiet")) return true; return false; };
 	auto state = [&]() {
 		std::ostringstream o;
-		LensFx_AppendStateJson(o);
+		LensFx_AppendStateJson(o, true);
 		std::string s = o.str();
 		advancedfx::Message("[lens][state] {%s}\n", s.size() > 1 ? s.c_str() + 1 : "");
 	};

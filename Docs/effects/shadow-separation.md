@@ -363,8 +363,8 @@ then restored native lighting. See `Automation/verify/verify-native-sun-session.
 
 At A-site, disabling `lb_enable_baked_shadows` removed the palm silhouettes and most crate
 cast shadows. Keeping native cascades enabled did not retain those casters. Yaw changed
-surface shading, but matching movable cast shadows were not demonstrated. The state feed
-reported persistent light writes while `lightRotationBuilds` remained zero. Do not interpret
+surface shading, but matching movable cast shadows were not demonstrated. `world light` reported
+persistent rotation writes while its rotation builds remained zero. Do not interpret
 `lightRotationOk` or the write count as proof that cascade direction updated.
 
 The Environment renderer consumes only collision triangles and editor props. Increasing

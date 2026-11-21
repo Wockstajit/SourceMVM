@@ -82,7 +82,11 @@ int main(int argc, char** argv) {
     Sleep(1000);
     for (auto& t : threads) t.cpu1 = ThreadCpu(t.handle);
     std::sort(threads.begin(), threads.end(), [](const ThreadInfo& a, const ThreadInfo& b) { return a.cpu1 - a.cpu0 > b.cpu1 - b.cpu0; });
-    const size_t busy = (std::min)(threads.size(), size_t(1));
+    // MVM_SAMPLE_THREADS=N samples the N busiest threads (default 1): when the GPU is the limit the
+    // render thread waits, and the busiest thread is then the main thread sleeping for it.
+    size_t wanted = 1;
+    if (const char* asked = getenv("MVM_SAMPLE_THREADS")) wanted = (std::max)(size_t(1), size_t(strtoul(asked, nullptr, 10)));
+    const size_t busy = (std::min)(threads.size(), wanted);
     printf("busiest thread (share of one core):");
     for (size_t i = 0; i < busy; ++i) printf(" %lu=%.0f%%", threads[i].id, (threads[i].cpu1 - threads[i].cpu0) / 100000.0);
     printf("\n");

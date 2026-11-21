@@ -71,6 +71,7 @@ enum class ParentKind : int {
 	Dropped,  // a weapon or the C4 lying in the world
 	Grenade,  // a thrown projectile
 	Object,   // another placed scene object
+	Camera,   // the view: whichever camera renders the frame (a camera path, the free cam, ...)
 };
 
 enum class Missing : int {
@@ -85,12 +86,13 @@ inline const char* ParentKindName(ParentKind k) {
 	case ParentKind::Dropped: return "dropped";
 	case ParentKind::Grenade: return "grenade";
 	case ParentKind::Object: return "object";
+	case ParentKind::Camera: return "camera";
 	default: return "none";
 	}
 }
 
 inline bool ParseParentKind(const std::string& s, ParentKind& out) {
-	for (int i = 0; i <= int(ParentKind::Object); ++i)
+	for (int i = 0; i <= int(ParentKind::Camera); ++i)
 		if (s == ParentKindName(ParentKind(i))) { out = ParentKind(i); return true; }
 	return false;
 }
@@ -175,6 +177,7 @@ struct Resolved {
 	Pose parent;          // the immediate parent's world pose (its frame), valid with `valid`
 	bool attached = false;
 	int depth = 0;        // how many attachments were followed
+	bool view = false;    // the chain's root is the camera (ParentKind::Camera)
 };
 
 // local(id, pose): the object's local pose this frame; false when it does not exist or is off.
@@ -202,12 +205,14 @@ inline Resolved ResolveWorld(int id, const LocalFn& local, const AttachFn& attac
 		if (!up.valid) return r;
 		parent = up.world;
 		r.depth = up.depth;
+		r.view = up.view;
 	} else {
 		const ExternalPose e = external(id, *a);
 		if (!e.valid) return r;
 		parent = e.pose;
 		if (!e.oriented) parent.ang = {};
 		r.depth = depth + 1;
+		r.view = a->parent == ParentKind::Camera;
 	}
 	r.valid = true;
 	r.parent = parent;
@@ -235,13 +240,15 @@ inline bool ApplyMissing(const Resolved& r, Missing policy, HoldState& hold, Pos
 enum PoseChannel : int { X = 0, Y, Z, Pitch, Yaw, Roll, Fov, kPoseChannels };
 // A light's settings, keyable beside its pose: brightness, range, beam angle, emitter size and an
 // area light's panel. They follow the pose channels in an object's channel numbers.
-enum LightChannel : int { Intensity = kPoseChannels, Range, Cone, Radius, Width, Height, kObjectChannels };
+// Red / Green / Blue are its colour, 0..255 like the CONFIG colours.
+enum LightChannel : int { Intensity = kPoseChannels, Range, Cone, Radius, Width, Height, Red, Green, Blue, kObjectChannels };
 constexpr int kLightChannels = kObjectChannels - kPoseChannels;
 constexpr int kObjectChannelBase = 1000000;
-constexpr int kChannelStride = 16; // channel numbers per object (room past kObjectChannels)
+constexpr int kChannelStride = 32; // channel numbers per object (room past kObjectChannels); never saved
+static_assert(kObjectChannels < kChannelStride, "an object's channels must fit its stride");
 
 inline const char* ChannelKey(int c) {
-	static const char* keys[] = {"x", "y", "z", "pitch", "yaw", "roll", "fov", "intensity", "range", "cone", "radius", "width", "height"};
+	static const char* keys[] = {"x", "y", "z", "pitch", "yaw", "roll", "fov", "intensity", "range", "cone", "radius", "width", "height", "red", "green", "blue"};
 	return c >= 0 && c < kObjectChannels ? keys[c] : "";
 }
 
@@ -264,6 +271,7 @@ inline std::vector<int> ChannelsFor(const std::string& kind) {
 		if (kind != "point") out.push_back(Cone);
 		if (kind == "area") { out.push_back(Width); out.push_back(Height); }
 		else out.push_back(Radius);
+		out.push_back(Red); out.push_back(Green); out.push_back(Blue);
 	}
 	return out;
 }
@@ -310,6 +318,47 @@ inline Pose ChannelsToPose(const double v[kPoseChannels]) {
 	p.pos = {v[X], v[Y], v[Z]};
 	p.ang = {v[Pitch], v[Yaw], v[Roll]};
 	return p;
+}
+
+// ---- riding the camera ------------------------------------------------------------------------
+// Only a light rides the view: a camera object on the view it renders would be a loop, and a mesh
+// glued to the lens has no use.
+inline bool CanRideCamera(const std::string& kind) { return IsLightKind(kind); }
+
+// Does `id`'s chain end on the camera (directly, or through the scene objects it rides)? A
+// non-light must not ride the view by way of a camera light either.
+inline bool RootsAtCamera(int id, const AttachFn& attachment) {
+	int at = id;
+	for (int depth = 0; depth <= kMaxChainDepth; ++depth) {
+		const Attachment* a = attachment(at);
+		if (!a) return false;
+		if (a->parent == ParentKind::Camera) return true;
+		if (a->parent != ParentKind::Object) return false;
+		at = a->object;
+	}
+	return false;
+}
+
+// The rendered camera as a pose, from its eye and the world directions of its forward and up axes
+// (the view matrix's, so the roll a camera path keys is kept).
+inline Pose ViewPose(const FollowVec3& eye, const FollowVec3& forward, const FollowVec3& up) {
+	Pose p;
+	p.pos = eye;
+	p.ang = WrapAngles(FollowAnglesFromBasis(forward, up));
+	return p;
+}
+
+// The pose of an object relative to the camera, through its whole chain: the chain resolved with
+// the camera at the origin. The renderer puts it on the frame's own view (Compose(view, it)), so it
+// never trails a moving camera by the frame the main thread saw.
+inline Resolved ResolveInView(int id, const LocalFn& local, const AttachFn& attachment, const ExternalFn& external) {
+	const ExternalFn atOrigin = [&](int child, const Attachment& a) {
+		if (a.parent != ParentKind::Camera) return external(child, a);
+		ExternalPose e;
+		e.valid = e.oriented = true;
+		return e;
+	};
+	return ResolveWorld(id, local, attachment, atOrigin);
 }
 
 // ---- serialization (the "attach" member of the scenekeys section) -----------------------------
@@ -405,6 +454,8 @@ inline bool ReadAttachments(const JsonValue& v, std::map<int, Attachment>& out, 
 			if (!num(o, "entity", index) || !str(o, "class", a.entityClass) || index < 0 || index > 32767 ||
 				index != std::floor(index) || !PlainText(a.entityClass, 64) || a.entityClass.empty()) { error = "Invalid attached weapon"; return false; }
 			a.entityIndex = int(index);
+		} else if (a.parent == ParentKind::Camera) {
+			// The view has no identity to keep: there is one.
 		} else {
 			double object = 0;
 			if (!num(o, "object", object) || object < 1 || object > kMaxObjectId || object != std::floor(object) || int(object) == id) { error = "Invalid parent object"; return false; }

@@ -8,6 +8,7 @@ namespace Filmmaker::Environment {
 struct FootprintBinding {
     ID3D11ShaderResourceView *view = nullptr;
     float steps[32][4]{}; // xyz where a foot came down, w the frame clock then
+    float impact[32]{};   // how hard each came down (FootImpact): about .55 a walk, .85 a run, 1.5 and up a landing
     int stepCount = 0;
     // For the foot view (`environment footview`): every foot as it was read this frame, xyz the
     // middle of the boot at the height of its sole, w how high the sole is (over 1e8: in the air).

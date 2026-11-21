@@ -34,6 +34,20 @@ size_t getVTableFn(HMODULE dll, int index, const char* mangledClass) {
 	return out;
 }
 
+size_t getFunctionStart(size_t addr) {
+	DWORD64 imageBase = 0;
+	PRUNTIME_FUNCTION rf = RtlLookupFunctionEntry((DWORD64)addr, &imageBase, nullptr);
+	if (!rf) return 0;
+	// Cold fragments carry UNW_FLAG_CHAININFO; the chained RUNTIME_FUNCTION sits after the
+	// (even-padded) unwind code array.
+	for (int guard = 0; guard < 8; ++guard) {
+		const unsigned char* ui = (const unsigned char*)(imageBase + rf->UnwindData);
+		if (!((ui[0] >> 3) & 4)) break;
+		rf = (PRUNTIME_FUNCTION)(ui + 4 + ((ui[2] + 1) & ~1) * 2);
+	}
+	return (size_t)(imageBase + rf->BeginAddress);
+}
+
 // feel free to move it in more appropriate place
 namespace afxUtils {
 	std::string createTable(std::vector<std::vector<std::string>>& rows, char* delimiter, char* emptyRowDelimiter) {

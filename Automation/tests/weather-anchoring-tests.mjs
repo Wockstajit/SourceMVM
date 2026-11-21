@@ -65,10 +65,20 @@ test('no camera-relative remap of particle positions', () => {
   assert.doesNotMatch(vs, /pow\(abs\([^)]*weatherCenterRadius/);
 });
 
-test('flake drift is driven by absolute time and the flake phase only', () => {
-  const drift = vs.slice(vs.indexOf('if(flake){'), vs.indexOf('}else{'));
-  assert.match(drift, /climateClock\.x/);
-  assert.doesNotMatch(drift, /camera\.xyz|weatherCenterRadius/);
+test('the swirl is driven by each particle resting place and absolute time only', () => {
+  // Every rain drop, flake and fleck orbits its own lattice place (WeatherSwirl).
+  assert.match(vs, /p\+=WeatherSwirl\(\(float3\(id\)\+jitter\)\*cell,WeatherSwirlStrength\(\),swirl\);/);
+  const swirl = shaders.slice(shaders.indexOf('float3 WeatherSwirl('), shaders.indexOf('float WeatherSwirlStrength('));
+  assert.match(swirl, /climateClock\.x/);
+  assert.doesNotMatch(swirl, /camera\.xyz|weatherCenterRadius/);
+});
+
+test('weather drifts in under cover by the open air that reaches there, never through a floor', () => {
+  // The cover volume's reach (which never crosses a wall, a floor or a roof) decides how far in a
+  // particle under cover is kept, each at its own depth; the windward line still lets rain in.
+  assert.match(vs, /float reach=CoverReach\(p\)\.x;/);
+  assert.match(vs, /float t=lerp\(\.98,\.06,depth\*Random01\(n\+40\)\);/);
+  assert.match(vs, /open=max\(smoothstep\(t-\.04,t\+\.04,reach\),came\*step\(\.3,reach\)\*blown\);/);
 });
 
 test('splash cells are world lattice cells and use absolute time', () => {
@@ -86,7 +96,7 @@ test('snow is a soft round flake, not a star or a clover', () => {
   const ps = shaders.slice(shaders.indexOf('float4 WeatherPS'));
   assert.doesNotMatch(ps, /cos\(angle\*6\)\),10\)/);
   assert.match(ps, /SNOW: a small round soft flake/);
-  const snow = ps.slice(ps.indexOf('if(weatherParams.z==2) {'), ps.indexOf('if(weatherParams.z==3) {'));
+  const snow = ps.slice(ps.indexOf('if(weatherParams.z==2) {'), ps.indexOf('float ashKind='));
   assert.doesNotMatch(snow, /atan2\(|glint=/);
 });
 
@@ -97,7 +107,7 @@ test('snow flakes and the snow veil take the map light and the Looks exposure', 
   const ps = shaders.slice(shaders.indexOf('float4 WeatherPS'), shaders.indexOf('float4 WeatherVeilPS'));
   assert.match(ps, /if\(weatherParams\.z==2\)color=weatherColor\.rgb\*tone\*min\(1,i\.light\*SNOW_BRIGHTNESS\)\*tintExposure\.rgb\*tintExposure\.w;/);
   const veil = shaders.slice(shaders.indexOf('float4 WeatherVeilPS'));
-  // The veil reads the scene light once (gust mist mixes its own share into it).
+  // The veil reads the scene light once.
   assert.match(veil, /float3 light=PrecipitationLighting\(p,pixel\);/);
   assert.match(veil, /if\(weatherParams\.z==2\)color=weatherColor\.rgb\*min\(1,light\*SNOW_BRIGHTNESS\)\*tintExposure\.rgb\*tintExposure\.w;/);
   const programs = readFileSync(new URL('../../AfxHookSource2/Filmmaker/Environment/EnvironmentShaderPrograms.h', import.meta.url), 'utf8');
