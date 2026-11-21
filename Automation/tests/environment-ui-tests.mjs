@@ -440,7 +440,7 @@ test('weather percent and wind translate to atomic backend edits',()=>{
   h.card('SCENE OBJECTS').action.click();
   const pointItem=h.context.__menu.find(i=>i&&i[0]==='Point light');
   assert.ok(pointItem,'the + Add menu offers a point light');
-  assert.equal(JSON.stringify(h.context.__menu.filter(Boolean).map(i=>i[0])),JSON.stringify(['Point light','Spot light','Area light','Camera']));
+  assert.equal(JSON.stringify(h.context.__menu.filter(Boolean).map(i=>i[0])),JSON.stringify(['Point light','Spot light','Area light','Spot light on the camera','Point light on the camera','Area light on the camera','Camera']));
   pointItem[1]();assert.equal(h.sent.at(-1),'mirv_filmmaker environment add point');
   assert.equal(h.card('SCENE OBJECTS').selectedPage,0,'a new light opens on the Outliner');
 });

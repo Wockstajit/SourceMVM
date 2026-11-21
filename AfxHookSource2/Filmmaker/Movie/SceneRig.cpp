@@ -65,6 +65,7 @@ struct Live {
 	ParentRead parent;
 	FollowPlayerPose playerPose;
 	Rig::Resolved resolved;
+	Rig::Resolved inView; // with resolved.view: its pose in the camera's frame
 	Rig::HoldState hold;
 	bool visible = true;
 	Pose world;
@@ -81,6 +82,24 @@ struct Live {
 
 std::map<int, Live> g_live;
 int g_lookThrough = 0;
+static_assert(sizeof(RigTransient::Entry::light) / sizeof(double) == Rig::kLightChannels, "the transient carries every light channel");
+
+// The camera a light on the camera rides (ParentKind::Camera): the view the main thread last saw,
+// read from the camera bridge each frame and from the view itself at view setup. Only the overlay,
+// picking and the UI use this pose; the renderer puts camera lights on its own view matrix.
+Rig::Pose g_view;
+bool g_viewValid = false;
+void ReadBridgeView() {
+	double eye[3] = {}, ang[3] = {}, fov = 90;
+	CameraBridge_GetCurrentCamera(eye, ang, fov);
+	g_viewValid = std::isfinite(eye[0]) && std::isfinite(eye[1]) && std::isfinite(eye[2]) &&
+		std::isfinite(ang[0]) && std::isfinite(ang[1]) && std::isfinite(ang[2]);
+	if (g_viewValid) { g_view.pos = {eye[0], eye[1], eye[2]}; g_view.ang = {ang[0], ang[1], ang[2]}; }
+}
+// Lights added with `environment add <kind> camera`: attached to the camera at the eye once they
+// are in the scene. Queued because the Environment adds them under its own lock.
+std::vector<int> g_cameraRidesPending;
+unsigned g_cameraRideWaitFrames = 0;
 // A slider drag sends a stream of `rig set`: the edits that follow each other closely are one undo
 // step, closed 600 ms after the last (the Environment's Remember() rule for its own sliders).
 bool g_sliderGesture = false;
@@ -242,6 +261,12 @@ void FindParent(Live& l) {
 		p.who = p.isBomb ? "C4" : PrettyWeaponName(a.entityClass);
 		break;
 	}
+	case Rig::ParentKind::Camera:
+		// The view is always there: nothing to look up.
+		p.found = g_viewValid;
+		p.mount = "";
+		p.who = "the camera";
+		return;
 	case Rig::ParentKind::Grenade: {
 		// Keep the projectile found earlier while its handle is still at that index; otherwise
 		// look again, a few times a second, until the throw happens.
@@ -272,6 +297,13 @@ void FindParent(Live& l) {
 void ReadParent(Live& l) {
 	ParentRead& p = l.parent;
 	p.pose = Rig::ExternalPose{};
+	if (l.att.parent == Rig::ParentKind::Camera) { // also a probe of a parent being picked
+		p.found = g_viewValid;
+		p.source = "view";
+		p.pose.valid = p.pose.oriented = g_viewValid;
+		p.pose.pose = g_view;
+		return;
+	}
 	if (!p.found) return;
 	CEntityInstance* e = EntityAt(p.entityIndex);
 	if (!e || EntityHandleValue(e) != p.handle) { p.found = false; p.source = "gone"; return; }
@@ -297,15 +329,18 @@ void ReadParent(Live& l) {
 }
 
 void ResolveAll() {
-	Rig::LocalFn local = [](int id, Pose& out) {
-		const auto f = g_live.find(id);
-		if (f == g_live.end() || !f->second.info.enabled) return false;
-		out = Rig::ChannelsToPose(f->second.local);
-		return true;
-	};
 	Rig::AttachFn attach = [](int id) -> const Rig::Attachment* {
 		const auto f = g_live.find(id);
 		return f != g_live.end() && f->second.attached ? &f->second.att : nullptr;
+	};
+	// Only lights ride the view: a mesh or camera chained under a camera light is treated as gone
+	// (so is anything riding it), whatever the file or an older attach said.
+	Rig::LocalFn local = [attach](int id, Pose& out) {
+		const auto f = g_live.find(id);
+		if (f == g_live.end() || !f->second.info.enabled) return false;
+		if (!Rig::CanRideCamera(f->second.info.kind) && Rig::RootsAtCamera(id, attach)) return false;
+		out = Rig::ChannelsToPose(f->second.local);
+		return true;
 	};
 	Rig::ExternalFn external = [](int id, const Rig::Attachment&) {
 		const auto f = g_live.find(id);
@@ -314,6 +349,7 @@ void ResolveAll() {
 	for (auto& e : g_live) {
 		Live& l = e.second;
 		l.resolved = Rig::ResolveWorld(e.first, local, attach, external);
+		l.inView = l.resolved.view ? Rig::ResolveInView(e.first, local, attach, external) : Rig::Resolved{};
 		l.visible = Rig::ApplyMissing(l.resolved, l.attached ? l.att.missing : Rig::Missing::Hide, l.hold, l.world);
 	}
 }
@@ -331,6 +367,12 @@ void Publish() {
 		entry.ang[0] = l.world.ang.pitch; entry.ang[1] = l.world.ang.yaw; entry.ang[2] = l.world.ang.roll;
 		entry.fov = l.local[Rig::Fov];
 		entry.visible = l.visible;
+		if (l.resolved.valid && l.resolved.view && l.inView.valid) {
+			entry.view = true;
+			const Pose& v = l.inView.world;
+			entry.viewPos[0] = v.pos.x; entry.viewPos[1] = v.pos.y; entry.viewPos[2] = v.pos.z;
+			entry.viewAng[0] = v.ang.pitch; entry.viewAng[1] = v.ang.yaw; entry.viewAng[2] = v.ang.roll;
+		}
 		state.objects[e.first] = entry;
 	}
 	RigTransient::Publish(std::move(state));
@@ -420,8 +462,9 @@ void PublishOverlay() {
 				overlay->paths.push_back(std::move(path));
 			}
 		}
-		// Not where it is hidden (a parent that is gone), nor the camera being looked through.
-		if (!l.visible || e.first == g_lookThrough) continue;
+		// Not where it is hidden (a parent that is gone), nor the camera being looked through, nor a
+		// light on the camera: its marker would sit on the lens.
+		if (!l.visible || e.first == g_lookThrough || l.resolved.view) continue;
 		SceneOverlay::Glyph glyph;
 		glyph.kind = kind;
 		glyph.selected = isSelected;
@@ -802,7 +845,8 @@ void SceneRig_RunMainThreadFrame() {
 			l.local[c] = Sample(*spec, f->second, tick, Value{{l.rest[c]}, {}}).numbers[0];
 			l.keyed = true;
 		}
-		const double lightRest[Rig::kLightChannels] = {info.intensity, info.range, info.cone, info.radius, info.width, info.height};
+		const double lightRest[Rig::kLightChannels] = {info.intensity, info.range, info.cone, info.radius, info.width, info.height,
+			info.color.x * 255.0, info.color.y * 255.0, info.color.z * 255.0};
 		for (int i = 0; i < Rig::kLightChannels; ++i) {
 			l.lightRest[i] = l.light[i] = lightRest[i];
 			if (!Rig::IsLightKind(info.kind)) continue;
@@ -816,6 +860,28 @@ void SceneRig_RunMainThreadFrame() {
 		next[info.id] = std::move(l);
 	}
 	g_live.swap(next);
+	ReadBridgeView();
+	if (!g_cameraRidesPending.empty()) {
+		std::vector<int> waiting;
+		for (int id : g_cameraRidesPending) {
+			const Live* l = Find(id);
+			if (!l) { waiting.push_back(id); continue; } // added this frame: in the scene next frame
+			if (!Rig::CanRideCamera(l->info.kind)) continue;
+			Rig::Attachment a;
+			a.parent = Rig::ParentKind::Camera;
+			SceneKeys_Edit([&](SceneKeyframeTrack& track) { track.data.attach[id] = a; });
+			g_live[id].attached = true;
+			g_live[id].att = a;
+			Rig::PoseToChannels(a.offset, l->info.fov, g_live[id].rest);
+			std::copy(g_live[id].rest, g_live[id].rest + Rig::kPoseChannels, g_live[id].local);
+			g_message = "It rides the camera, at the eye. Move it with Offset.";
+			MvmDebugLog_LinefAlways("rig.attach", "id=%d parent=camera (added on the camera)", id);
+		}
+		// A light that never arrives (the add failed) stops waiting after a few frames.
+		g_cameraRideWaitFrames = waiting.empty() ? 0 : g_cameraRideWaitFrames + 1;
+		if (g_cameraRideWaitFrames > 30) { waiting.clear(); g_cameraRideWaitFrames = 0; }
+		g_cameraRidesPending.swap(waiting);
+	}
 	if (NeedsPlayers()) ScanPlayers();
 	for (auto& e : g_live) {
 		Live& l = e.second;
@@ -832,6 +898,12 @@ void SceneRig_RunMainThreadFrame() {
 
 bool SceneRig_ViewSetup(double& x, double& y, double& z, double& pitch, double& yaw, double& roll, double& fov, bool& attached) {
 	if (g_live.empty()) return false;
+	// The view as the camera path, the Follow Camera or the free cam set it this frame.
+	if (std::isfinite(x) && std::isfinite(y) && std::isfinite(z) && std::isfinite(pitch) && std::isfinite(yaw) && std::isfinite(roll)) {
+		g_view.pos = {x, y, z};
+		g_view.ang = {pitch, yaw, roll};
+		g_viewValid = true;
+	}
 	bool entities = false;
 	for (auto& e : g_live) if (e.second.parent.found) { ReadParent(e.second); entities = true; }
 	if (entities) { ResolveAll(); Publish(); LogResolve("view"); }
@@ -862,9 +934,20 @@ void SceneRig_Reset() {
 	g_pathCache.clear();
 	HideOverlay();
 	g_goto = GoToPending{};
+	// A light queued to ride the camera belongs to the session that added it; its id may be
+	// another object's in the next one.
+	g_cameraRidesPending.clear();
+	g_cameraRideWaitFrames = 0;
 }
 
 int SceneRig_LookThrough() { return g_lookThrough; }
+
+void SceneRig_QueueCameraRide(int id) { g_cameraRidesPending.push_back(id); }
+
+void SceneRig_CancelCameraRides() {
+	g_cameraRidesPending.clear();
+	g_cameraRideWaitFrames = 0;
+}
 
 // ---- Environment hooks ---------------------------------------------------------------------
 
@@ -935,7 +1018,7 @@ void SceneRig_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* c
 	if (op.empty() || op == "help") {
 		advancedfx::Message(
 			"%s rig status [<id>]\n"
-			"%s rig parent <id> none | player <pawn> [<mount>] | held <pawn> [<mount>] | dropped <entity> | grenade <entity> | object <id>\n"
+			"%s rig parent <id> none | player <pawn> [<mount>] | held <pawn> [<mount>] | dropped <entity> | grenade <entity> | object <id> | camera\n"
 			"%s rig mount <id> <mount>        e.g. head eyes chest pelvis feet weapon_hand_R muzzle shell_eject entity\n"
 			"%s rig missing <id> hide|hold\n"
 			"%s rig animate <id> on|off       on: edits key the pose at the playhead (linear keys)\n"
@@ -974,7 +1057,13 @@ void SceneRig_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* c
 		Rig::Attachment a;
 		if (l->attached) { a.missing = l->att.missing; }
 		if (kind == "none") { Attach(id, *l, nullptr); return; }
-		if (!Rig::ParseParentKind(kind, a.parent) || a.parent == Rig::ParentKind::None) { advancedfx::Warning("rig parent: none|player|held|dropped|grenade|object\n"); return; }
+		if (!Rig::ParseParentKind(kind, a.parent) || a.parent == Rig::ParentKind::None) { advancedfx::Warning("rig parent: none|player|held|dropped|grenade|object|camera\n"); return; }
+		if (a.parent == Rig::ParentKind::Camera) {
+			if (!Rig::CanRideCamera(l->info.kind)) { advancedfx::Warning("rig: only lights ride the camera\n"); g_message = "Only lights ride the camera."; return; }
+			a.mount = "";
+			Attach(id, *l, &a);
+			return;
+		}
 		// A grenade seen earlier but not in the air now is named by its handle: h<handle>.
 		const char* targetArg = arg(5);
 		const bool byHandle = a.parent == Rig::ParentKind::Grenade && (targetArg[0] == 'h' || targetArg[0] == 'H');
@@ -1004,6 +1093,13 @@ void SceneRig_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* c
 		} else {
 			if (target == id || !Find(target)) { advancedfx::Warning("rig: choose another placed object\n"); return; }
 			if (Rig::WouldCycle(SceneKeys_Data().attach, id, target)) { advancedfx::Warning("rig: that would attach it to itself\n"); return; }
+			const auto& saved = SceneKeys_Data().attach;
+			const Rig::AttachFn savedAttach = [&saved](int at) -> const Rig::Attachment* { const auto f = saved.find(at); return f == saved.end() ? nullptr : &f->second; };
+			if (!Rig::CanRideCamera(l->info.kind) && Rig::RootsAtCamera(target, savedAttach)) {
+				advancedfx::Warning("rig: only lights ride the camera, and that object rides it\n");
+				g_message = "Only lights ride the camera.";
+				return;
+			}
 			a.object = target; a.mount = "";
 		}
 		Attach(id, *l, &a);

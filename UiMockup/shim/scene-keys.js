@@ -5,10 +5,10 @@
   function clone(x) { return JSON.parse(JSON.stringify(x)); }
   // Scene object rigs: pose channels obj.<id>.<key>, numbered above the catalog (SceneRigMath.h).
   // A light's settings follow its pose (Rig::LightChannel): brightness, range, beam angle, emitter size, panel.
-  var POSE_KEYS = ['x', 'y', 'z', 'pitch', 'yaw', 'roll', 'fov', 'intensity', 'range', 'cone', 'radius', 'width', 'height'];
-  var POSE_LABELS = ['X', 'Y', 'Z', 'Pitch', 'Yaw', 'Roll', 'Field of view', 'Brightness', 'Range', 'Beam angle', 'Emitter size', 'Width', 'Height'];
-  var LIGHT_RANGES = [[0, 8, 1], [16, 4096, 400], [5, 170, 45], [0, 64, 0], [1, 1024, 64], [1, 1024, 64]];
-  var OBJECT_BASE = 1000000, OBJECT_STRIDE = 16, OBJECT_CHANNELS = 13, objectSpecs = {};
+  var POSE_KEYS = ['x', 'y', 'z', 'pitch', 'yaw', 'roll', 'fov', 'intensity', 'range', 'cone', 'radius', 'width', 'height', 'red', 'green', 'blue'];
+  var POSE_LABELS = ['X', 'Y', 'Z', 'Pitch', 'Yaw', 'Roll', 'Field of view', 'Brightness', 'Range', 'Beam angle', 'Emitter size', 'Width', 'Height', 'Red', 'Green', 'Blue'];
+  var LIGHT_RANGES = [[0, 8, 1], [16, 4096, 400], [5, 170, 45], [0, 64, 0], [1, 1024, 64], [1, 1024, 64], [0, 255, 255], [0, 255, 204], [0, 255, 153]];
+  var OBJECT_BASE = 1000000, OBJECT_STRIDE = 32, OBJECT_CHANNELS = 16, objectSpecs = {};
   function objectSpec(object, c) {
     var id = 'obj.' + object + '.' + POSE_KEYS[c];
     if (objectSpecs[id]) return objectSpecs[id];
@@ -24,6 +24,7 @@
     else if (kind === 'point' || kind === 'spot' || kind === 'area') {
       out.push(7, 8); if (kind !== 'point') out.push(9);
       if (kind === 'area') out.push(11, 12); else out.push(10);
+      out.push(13, 14, 15); // its colour
     }
     return out;
   }

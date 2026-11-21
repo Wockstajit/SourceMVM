@@ -3054,5 +3054,16 @@
  "No HCs running right now. Check back soon.": "現在開催中の HC はありません。また後で確認してください。",
  "{0} LIVE": "{0} 件開催中",
  "NEXT {0}": "次回 {0}",
- "{0} UPCOMING": "{0} 件予定"
+ "{0} UPCOMING": "{0} 件予定",
+ "Spot light on the camera": "カメラのスポットライト",
+ "Point light on the camera": "カメラのポイントライト",
+ "Area light on the camera": "カメラのエリアライト",
+ "Lights what the camera looks at": "カメラが向いた先を照らします",
+ "Glows all around the camera": "カメラの周囲を全方向に照らします",
+ "A soft panel beside the lens": "レンズの横にあるやわらかいパネル",
+ "follows the camera path": "カメラパスに追従",
+ "The camera (moves with the view)": "カメラ（表示と一緒に動く）",
+ "the camera": "カメラ",
+ "Red": "赤",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "カメラに乗っています: ライトはカメラパス、フリーカメラ、表示をレンダーするものと一緒に動きます。オフセットでレンズからの位置を決めます。"
 }

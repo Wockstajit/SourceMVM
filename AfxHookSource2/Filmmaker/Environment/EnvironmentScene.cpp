@@ -348,7 +348,7 @@ void UpdateAutosave(const std::string& map) {
         // A practice session starts every map without the user's saved environment.
         g_restoreAutosave = false;
         g_scene = Scene{};
-        ++g_sceneGeneration;
+        ++g_sceneGeneration; SceneRig_CancelCameraRides();
         Scene initial = LiveScene(); initial.map = map;
         g_autosave.Bind(map, SerializeScene(initial));
         MvmDebugLog_LinefAlways("environment.autosave", "restore skipped map=%s (practice session)", map.c_str());
@@ -360,7 +360,7 @@ void UpdateAutosave(const std::string& map) {
         // anyway, as this used to, made the switch do nothing, and an edit made before the restore
         // landed saved the empty scene over the map's file.
         g_restoreAutosave = false;
-        ++g_sceneGeneration;
+        ++g_sceneGeneration; SceneRig_CancelCameraRides();
         FlushAutosave(true); // a pending write from before the demo change still lands
         Scene initial = LiveScene(); initial.map = map;
         g_autosave.Bind(map, SerializeScene(initial));
@@ -407,7 +407,7 @@ void UpdateAutosave(const std::string& map) {
                 HoldRestoredPasses(pending.climate, pending.weather.type, pending.held);
                 if(Resolve(pending,error)&&PrepareWorldLook(pending.world,error)){
                     ApplyWorldLook(pending.world);FilmmakerSettings_AcceptCurrent();
-                    g_scene=std::move(pending);++g_sceneGeneration;restored=true;
+                    g_scene=std::move(pending);++g_sceneGeneration;SceneRig_CancelCameraRides();restored=true;
                     g_message="Recovered environment for "+map+". Effects stay off until you switch them on; their settings are kept.";
                 }
             }
@@ -428,7 +428,7 @@ void UpdateAutosave(const std::string& map) {
                 ApplyWorldLook(scene.world);
                 FilmmakerSettings_AcceptCurrent();
                 g_scene = std::move(scene);
-                ++g_sceneGeneration;
+                ++g_sceneGeneration; SceneRig_CancelCameraRides();
                 restored = true;
                 g_message = "Restored environment for " + map + ". Effects stay off until you switch them on; their settings are kept.";
                 break;
@@ -543,11 +543,44 @@ void ApplyRig(Object &o, const RigTransient::State &rig) {
         o.angles = {float(e->second.ang[0]), float(e->second.ang[1]), float(e->second.ang[2])};
         if (o.IsCamera()) o.fov = float(e->second.fov);
     }
-    // Keyed light settings (scene-object-rigs.md): brightness, range, beam angle, emitter size, panel.
-    float *light[6] = {&o.intensity, &o.range, &o.cone, &o.studio.sourceRadius, &o.studio.width, &o.studio.height};
+    // Keyed light settings (scene-object-rigs.md): brightness, range, beam angle, emitter size, panel,
+    // and its colour (0..255 per channel on the TIMELINE).
+    float *light[9] = {&o.intensity, &o.range, &o.cone, &o.studio.sourceRadius, &o.studio.width, &o.studio.height,
+                       &o.color.x, &o.color.y, &o.color.z};
     if (o.IsLight())
-        for (int i = 0; i < 6; ++i)
-            if (e->second.lightMask & (1u << i)) *light[i] = float(e->second.light[i]);
+        for (int i = 0; i < 9; ++i)
+            if (e->second.lightMask & (1u << i))
+                *light[i] = i >= 6 ? std::clamp(float(e->second.light[i]) / 255.f, 0.f, 1.f) : float(e->second.light[i]);
+}
+// Lights on the camera (scene-object-rigs.md) ride the view this frame renders from: the pose
+// the rig published is in the camera's frame, and the eye and axes here come from the frame's own
+// view matrix. The main thread's world pose for them is a frame behind a moving camera path.
+void RideFrameView(std::vector<Object> &objects, const RigTransient::State &rig, Vec3 eye, Vec3 forward, Vec3 up) {
+    const Rig::Pose view = Rig::ViewPose({eye.x, eye.y, eye.z}, {forward.x, forward.y, forward.z}, {up.x, up.y, up.z});
+    for (auto &o : objects) {
+        const auto e = rig.objects.find(o.id);
+        if (e == rig.objects.end() || !e->second.view || !e->second.visible || !o.enabled) continue;
+        Rig::Pose local;
+        local.pos = {e->second.viewPos[0], e->second.viewPos[1], e->second.viewPos[2]};
+        local.ang = {e->second.viewAng[0], e->second.viewAng[1], e->second.viewAng[2]};
+        const Rig::Pose world = Rig::Compose(view, local);
+        const Vec3 before = o.position;
+        o.position = {float(world.pos.x), float(world.pos.y), float(world.pos.z)};
+        o.angles = {float(world.ang.pitch), float(world.ang.yaw), float(world.ang.roll)};
+        if (MvmDebugLog_Active()) {
+            static ULONGLONG last = 0;
+            const ULONGLONG now = GetTickCount64();
+            if (now - last >= 1000) {
+                last = now;
+                MvmDebugLog_Linef("environment.camera.light",
+                    "id=%d kind=%s view=%.1f %.1f %.1f / %.2f %.2f %.2f local=%.1f %.1f %.1f light=%.1f %.1f %.1f / %.2f %.2f %.2f mainThread=%.1f %.1f %.1f color=%.2f %.2f %.2f intensity=%.2f range=%.0f cone=%.0f",
+                    o.id, o.kind.c_str(), view.pos.x, view.pos.y, view.pos.z, view.ang.pitch, view.ang.yaw, view.ang.roll,
+                    local.pos.x, local.pos.y, local.pos.z, o.position.x, o.position.y, o.position.z,
+                    o.angles.x, o.angles.y, o.angles.z, before.x, before.y, before.z,
+                    o.color.x, o.color.y, o.color.z, o.intensity, o.range, o.cone);
+            }
+        }
+    }
 }
 bool g_rigDrag = false; // the open gizmo drag moves a rigged object (SceneRig owns its pose)
 std::string ObjectName(const Object &o) {
@@ -687,7 +720,7 @@ void EndPractice() {
     if (g_drag.active) g_scene = g_dragBefore;
     g_drag = {};
     g_scene = Scene{};
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     g_selected = 0; g_editing = 0; ++g_editRevision;
     g_undo.clear();
     g_undoStamps.clear();
@@ -717,7 +750,7 @@ void OnLevelInit() {
     g_restoreAutosave = true;
     g_autosaveQuiet = false;
     g_restoreGate.Reset();
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     ResetNativeWater();
     ResetNativeRain();
     g_cameraValid = false;
@@ -1128,6 +1161,9 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
         g_cameraValid = Finite(g_camera) && Finite(g_forward);
         f.camera = g_camera;
         f.angles = g_angles;
+        const Vec3 up = Normalize(Transform(inverseView, {0, 1, 0}) - g_camera);
+        if (g_cameraValid && Finite(up))
+            RideFrameView(f.scene.objects, *RigTransient::Read(), g_camera, g_forward, up);
     }
     if (!g_cameraValid)
         f.active = false;
@@ -1199,6 +1235,8 @@ std::vector<PickBox> ScenePickBoxes() {
     for (Object o : g_scene.objects) {
         ApplyRig(o, *rig);
         if (!o.enabled || o.locked) continue;
+        const auto ridden = rig->objects.find(o.id);
+        if (ridden != rig->objects.end() && ridden->second.view) continue; // a light on the camera sits on the lens
         PickBox box;
         box.id = o.id;
         box.center = o.position;
@@ -1356,7 +1394,7 @@ bool UndoLastEditLocked(std::string &error) {
     FilmmakerSettings_AcceptCurrent();
     g_scene = g_undo.back();
     g_restoreAutosave = false;
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     g_undo.pop_back();
     g_undoStamps.pop_back();
     g_lastRemember = 0;
@@ -1383,7 +1421,7 @@ void AdoptValidatedScene(Scene validated) {
     g_autosaveQuiet = false; // an edit: from here the map's file follows the scene again
     g_scene = std::move(validated);
     g_restoreAutosave = false;
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     if (IsSceneMap(CurrentMap())) {
         Scene committed = LiveScene(); committed.map = CurrentMap();
         if (g_autosave.map != committed.map) { FlushAutosave(true); BindAutosave(committed.map); }
@@ -1558,6 +1596,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 "type|count|seed|radius|height|speed|size|windX|windY|follow|shelter|x|y|z|r|g|b <number>\n"
                 " environment set exposure|ambient|fogR|fogG|fogB|tintR|tintG|tintB <number>\n"
                 " environment add point|spot|area|obj [asset-name]\n"
+                " environment add point|spot|area camera   a light that rides the camera\n"
                 " environment select|remove|duplicate <id>; environment place <id> <distance>\n"
                 " environment object <id> "
                 "x|y|z|pitch|yaw|roll|sx|sy|sz|r|g|b|intensity|range|cone|enabled|shadows|width|height|sourceRadius|pattern|profile|cue|patternScale|rate|amount|phase "
@@ -2198,7 +2237,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             else
                 throw std::runtime_error("Unknown environment field");
         } else if (op == "add") {
-            required(arg(3) == "obj" ? 5 : 4);
+            // `add point|spot|area camera`: a light that rides the camera (SceneRig attaches it).
+            const bool onCamera = arg(3) != "obj" && argc == 5 && arg(4) == "camera";
+            if (!onCamera) required(arg(3) == "obj" ? 5 : 4);
             if (CurrentMap().empty())
                 throw std::runtime_error("Load a map first");
             if (!next.map.empty() && next.map != CurrentMap())
@@ -2213,7 +2254,8 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             // assets (Filmmaker/Props). The meshes stay for imported OBJ and the render tests.
             if (o.kind=="box"||o.kind=="beveledbox"||o.kind=="sphere"||o.kind=="cylinder")
                 throw std::runtime_error("Basic shapes are not available. Place a model from Scene Objects > CS2 assets");
-            o.asset = arg(4);
+            if (onCamera && !o.IsLight()) throw std::runtime_error("Only lights ride the camera");
+            o.asset = onCamera ? "" : arg(4);
             if (o.IsLight()) {
                 o.color = {1, .8f, .6f};
                 o.scale = {1, 1, 1};
@@ -2223,8 +2265,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 o.color = {1, .85f, .3f};
                 o.scale = {1, 1, 1};
             }
-            Place(o, 160.f);
+            Place(o, onCamera ? 0.f : 160.f);
             next.objects.push_back(o);
+            if (onCamera) SceneRig_QueueCameraRide(o.id);
             next.map = CurrentMap();
             // Placed lights and meshes are drawn by the Environment pass, so adding one switches the
             // pass on. That is NOT a lighting takeover: a light adds its fill on top of whichever

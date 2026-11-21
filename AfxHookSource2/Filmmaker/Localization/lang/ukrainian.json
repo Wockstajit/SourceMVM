@@ -3152,5 +3152,16 @@
  "No HCs running right now. Check back soon.": "Зараз немає активних HC. Зазирніть пізніше.",
  "{0} LIVE": "{0} ЗАРАЗ",
  "NEXT {0}": "ДАЛІ {0}",
- "{0} UPCOMING": "{0} СКОРО"
+ "{0} UPCOMING": "{0} СКОРО",
+ "Spot light on the camera": "Прожектор на камері",
+ "Point light on the camera": "Точкове світло на камері",
+ "Area light on the camera": "Площинне світло на камері",
+ "Lights what the camera looks at": "Освітлює те, на що дивиться камера",
+ "Glows all around the camera": "Світить навколо камери",
+ "A soft panel beside the lens": "М’яка панель поруч з об’єктивом",
+ "follows the camera path": "слідує за шляхом камери",
+ "The camera (moves with the view)": "Камера (рухається разом з видом)",
+ "the camera": "камерою",
+ "Red": "Червоний",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "Слідує за камерою: світло рухається разом зі шляхом камери, вільною камерою або тим, що рендерить вид. Зміщення задає положення відносно об’єктива."
 }

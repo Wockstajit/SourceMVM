@@ -3103,5 +3103,16 @@
  "No HCs running right now. Check back soon.": "Er lopen nu geen HC's. Kijk binnenkort nog eens.",
  "{0} LIVE": "{0} LIVE",
  "NEXT {0}": "VOLGENDE {0}",
- "{0} UPCOMING": "{0} BINNENKORT"
+ "{0} UPCOMING": "{0} BINNENKORT",
+ "Spot light on the camera": "Spotlicht op de camera",
+ "Point light on the camera": "Puntlicht op de camera",
+ "Area light on the camera": "Arealicht op de camera",
+ "Lights what the camera looks at": "Verlicht wat de camera ziet",
+ "Glows all around the camera": "Straalt rondom de camera",
+ "A soft panel beside the lens": "Een zacht paneel naast de lens",
+ "follows the camera path": "volgt het camerapad",
+ "The camera (moves with the view)": "De camera (beweegt met het beeld)",
+ "the camera": "de camera",
+ "Red": "Rood",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "Rijdt mee met de camera: het licht beweegt mee met het camerapad, de vrije camera of wat het beeld ook rendert. Offset plaatst het vanaf de lens."
 }

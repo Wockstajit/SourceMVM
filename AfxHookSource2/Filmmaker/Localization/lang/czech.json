@@ -3152,5 +3152,16 @@
  "No HCs running right now. Check back soon.": "Právě neběží žádné HC. Zkus to brzy znovu.",
  "{0} LIVE": "{0} ŽIVĚ",
  "NEXT {0}": "DALŠÍ {0}",
- "{0} UPCOMING": "{0} BRZY"
+ "{0} UPCOMING": "{0} BRZY",
+ "Spot light on the camera": "Reflektor na kameře",
+ "Point light on the camera": "Bodové světlo na kameře",
+ "Area light on the camera": "Plošné světlo na kameře",
+ "Lights what the camera looks at": "Svítí tam, kam kamera míří",
+ "Glows all around the camera": "Září kolem dokola kamery",
+ "A soft panel beside the lens": "Měkký panel vedle objektivu",
+ "follows the camera path": "sleduje dráhu kamery",
+ "The camera (moves with the view)": "Kamera (pohybuje se s pohledem)",
+ "the camera": "kameře",
+ "Red": "Červená",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "Veze se na kameře: světlo se pohybuje s dráhou kamery, volnou kamerou nebo čímkoli, co vykresluje pohled. Posun určuje jeho polohu vůči objektivu."
 }

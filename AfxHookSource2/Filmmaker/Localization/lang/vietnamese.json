@@ -3054,5 +3054,16 @@
  "No HCs running right now. Check back soon.": "Hiện không có HC nào đang chạy. Hãy quay lại sau.",
  "{0} LIVE": "{0} ĐANG DIỄN RA",
  "NEXT {0}": "TIẾP THEO {0}",
- "{0} UPCOMING": "{0} SẮP TỚI"
+ "{0} UPCOMING": "{0} SẮP TỚI",
+ "Spot light on the camera": "Đèn spot trên camera",
+ "Point light on the camera": "Đèn điểm trên camera",
+ "Area light on the camera": "Đèn vùng trên camera",
+ "Lights what the camera looks at": "Chiếu sáng nơi camera đang nhìn",
+ "Glows all around the camera": "Tỏa sáng xung quanh camera",
+ "A soft panel beside the lens": "Một tấm panel mềm cạnh ống kính",
+ "follows the camera path": "đi theo đường đi camera",
+ "The camera (moves with the view)": "Camera (di chuyển theo góc nhìn)",
+ "the camera": "camera",
+ "Red": "Đỏ",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "Gắn trên camera: đèn di chuyển theo đường đi camera, camera tự do hoặc bất cứ thứ gì render góc nhìn. Độ lệch quyết định vị trí của đèn so với ống kính."
 }

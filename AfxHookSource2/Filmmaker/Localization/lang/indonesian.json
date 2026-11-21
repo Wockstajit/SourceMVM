@@ -3054,5 +3054,16 @@
  "No HCs running right now. Check back soon.": "Tidak ada HC yang berlangsung saat ini. Cek lagi nanti.",
  "{0} LIVE": "{0} LIVE",
  "NEXT {0}": "BERIKUTNYA {0}",
- "{0} UPCOMING": "{0} AKAN DATANG"
+ "{0} UPCOMING": "{0} AKAN DATANG",
+ "Spot light on the camera": "Lampu sorot di kamera",
+ "Point light on the camera": "Lampu titik di kamera",
+ "Area light on the camera": "Lampu area di kamera",
+ "Lights what the camera looks at": "Menyinari apa yang dilihat kamera",
+ "Glows all around the camera": "Bersinar di sekeliling kamera",
+ "A soft panel beside the lens": "Panel lembut di samping lensa",
+ "follows the camera path": "mengikuti jalur kamera",
+ "The camera (moves with the view)": "Kamera (bergerak bersama tampilan)",
+ "the camera": "kamera",
+ "Red": "Merah",
+ "Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.": "Menumpang kamera: lampu bergerak bersama jalur kamera, kamera bebas, atau apa pun yang merender tampilan. Offset menempatkannya dari lensa."
 }
