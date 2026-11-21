@@ -17,6 +17,11 @@ extern size_t getAddress(HMODULE dll, char const* pattern);
 
 extern size_t getVTableFn(HMODULE dll, int index, const char* mangledClass);
 
+// Start of the function that contains code address `addr`, read from the module's x64 unwind table
+// (.pdata) and following chained cold fragments back to the primary entry. 0 when no entry covers it.
+// Use this instead of scanning back for int3 padding: MSVC often pads with a single CC.
+extern size_t getFunctionStart(size_t addr);
+
 namespace afxUtils {
 	struct RGBA {
 		uint8_t r;
