@@ -118,6 +118,16 @@ int main(int argc,char** argv) {try {
     auto bad=encoded;auto pos=bad.find("\"version\":1");bad.replace(pos,11,"\"version\":2");Check(!Decode(bad,catalog,restored,error)&&Encode(restored)==encoded,"invalid version transactional");
     bad=encoded;pos=bad.find("\"value\":\"night\"");bad.replace(pos,15,"\"value\":false");Check(!Decode(bad,catalog,restored,error),"asset type rejected");
     auto corrupt=track.data;corrupt.fields[exposure.id].push_back(corrupt.fields[exposure.id][0]);Check(!Decode(Encode(corrupt),catalog,restored,error),"duplicate IDs rejected");
+    {   // A track saved with the retired Wind X / Y keys loads without them; other unknown names still fail it.
+        auto retired=encoded;const auto a=retired.find("\"armed\":[");const auto f=retired.find("\"fields\":{");
+        Check(a!=std::string::npos&&f!=std::string::npos&&a<f,"encoded track has armed and fields");
+        retired.insert(f+10,"\"env.weather.windY\":[{\"id\":999,\"tick\":5,\"value\":3}],");
+        retired.insert(a+9,"\"env.weather.windX\",");
+        TrackData back;std::string why;
+        Check(Decode(retired,catalog,back,why)&&Encode(back)==encoded,"retired wind keys are dropped, the rest of the track loads");
+        auto unknown=encoded;unknown.insert(unknown.find("\"armed\":[")+9,"\"env.noSuchKey\",");
+        Check(!Decode(unknown,catalog,back,why),"other unknown properties still rejected");
+    }
     track.BeginEdit();track.data.muted.insert(color.id);Check(track.EndEdit(),"disable is an undoable edit");
     const auto mutedText=Encode(track.data);Check(Decode(mutedText,catalog,restored,error)&&restored.muted.count(color.id)&&Encode(restored)==mutedText,"disabled properties round trip");
     auto noMuted=mutedText;pos=noMuted.find("\"muted\":[\"skyColor\"],");noMuted.erase(pos,std::string("\"muted\":[\"skyColor\"],").size());
