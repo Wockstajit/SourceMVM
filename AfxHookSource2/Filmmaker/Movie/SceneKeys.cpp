@@ -246,6 +246,24 @@ void CatalogJson(JsonBuilder& j) {
     }
     j.EndArray();
 }
+
+// A depth-of-field or flare property armed while that effect is off would change nothing: the lens
+// pass only runs while DEPTH OF FIELD or LENS FLARE is on. Turns the effect on. Run after every
+// scenekeys edit and when a demo's saved track loads, so a saved focus pull plays on reopen.
+void EnableKeyedLens(const char* why) {
+    if(!g_pEngineToClient)return;
+    for(const char* effect:{"dof","flare"}){
+        const bool on=std::string(effect)=="dof"?LensFx_DofOn():LensFx_FlareOn();
+        if(on)continue;
+        const std::string prefix=std::string("lens.")+effect+".";
+        for(const auto& id:g_track.data.armed)
+            if(id.rfind(prefix,0)==0){
+                g_pEngineToClient->ExecuteClientCmd(0,(std::string("mirv_filmmaker lens set ")+effect+".on 1 quiet").c_str(),true);
+                MvmDebugLog_LinefAlways("scenekeys","%s turned %s on for %s",why,effect,id.c_str());
+                break;
+            }
+    }
+}
 } // namespace
 
 void SceneKeys_Flush() { g_track.EndEdit(); Flush(); for (auto it = g_unsaved.begin(); it != g_unsaved.end();) { if (SaveData(it->first,it->second)) it=g_unsaved.erase(it); else ++it; } }
@@ -257,7 +275,7 @@ void SceneKeys_RunFrame() {
     // maps back to the original demo, so its scene keys live in the original's project.
     const auto demo = PlayingDemoPath();
     const auto map = Environment::CurrentMapName();
-    if (!g_loaded || demo != g_demo) { g_track.EndEdit(); Flush(); g_demo = demo; g_loaded = true; Load(); g_reassert = true; }
+    if (!g_loaded || demo != g_demo) { g_track.EndEdit(); Flush(); g_demo = demo; g_loaded = true; Load(); EnableKeyedLens("load"); g_reassert = true; }
     if (map != g_map) { g_map = map; PrepareAssets(); g_reassert = true; }
     if (g_dirty && GetTickCount64() >= g_saveAt && !g_gesture) Flush();
     Apply(g_captureTick >= 0 ? g_captureTick : TimelinePlayhead_Tick()); g_captureTick = -1;
@@ -529,17 +547,6 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
                 break;
             }
     // The same for the lens: a depth-of-field or flare property keyed with that effect off changed nothing.
-    if(op!="status"&&g_pEngineToClient)
-        for(const char* effect:{"dof","flare"}){
-            const bool on=std::string(effect)=="dof"?LensFx_DofOn():LensFx_FlareOn();
-            if(on)continue;
-            const std::string prefix=std::string("lens.")+effect+".";
-            for(const auto& id:g_track.data.armed)
-                if(id.rfind(prefix,0)==0){
-                    g_pEngineToClient->ExecuteClientCmd(0,(std::string("mirv_filmmaker lens set ")+effect+".on 1 quiet").c_str(),true);
-                    MvmDebugLog_LinefAlways("scenekeys","%s turned %s on for %s",op.c_str(),effect,id.c_str());
-                    break;
-                }
-        }
+    if(op!="status")EnableKeyedLens(op.c_str());
 }
 } // namespace Filmmaker

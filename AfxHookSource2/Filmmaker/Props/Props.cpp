@@ -1131,6 +1131,9 @@ void Props_RunMainThreadFrame() {
 	if (g_grab != Grab::None && g_grabDirty)
 		if (Placed* p = Find(g_before.id); p && LiveUpdate(*p)) g_grabDirty = false;
 	const ULONGLONG now = GetTickCount64();
+	// A keyed Foliage wind curve is written every frame; behind the 250 ms throttle below it played
+	// as 4 Hz steps. Only the in-place write: spawning the wind entity stays throttled.
+	if (g_wind && !g_map.empty() && now - g_mapSince >= 3000 && EntityAt(g_windIndex) == g_wind) PumpKeyedWind();
 	if (now - g_lastCheck < 250) return;
 	g_lastCheck = now;
 	const std::string map = CurrentMap();
