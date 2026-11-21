@@ -972,8 +972,9 @@ R"TLJS(
           var l = mvmLabel(b, '', {});
           b.__lbl = l;
           b.SetPanelEvent('onactivate', onactivate);
-        } else if (!b.__lbl) {
+        } else if (!b.__lbl || (b.__lbl.IsValid && !b.__lbl.IsValid())) {
           b.__lbl = (b.GetChildCount && b.GetChildCount() > 0) ? b.GetChild(0) : mvmLabel(b, '', {});
+          b.__geom = 0;
         }
         // Fixed geometry, written ONCE: the bar buttons must never resize when a label changes
         // (ModeSwapBtn flips CAM EDITOR <-> CONFIG) and the text must stay centered -- fit-to-text
@@ -986,8 +987,12 @@ R"TLJS(
           b.style.height = BAR_BTN_H + 'px'; b.style.width = BAR_BTN_W + 'px';
           b.style.paddingLeft = '0px'; b.style.paddingRight = '0px';
           b.__lbl.style.fontWeight = 'bold'; b.__lbl.style.fontSize = '13px';
+          // The LABEL is centred, sized to its text: a full-width label with text-align: center drew
+          // its text in the top-left corner in game (measured 2026-11-21: label 94x24 at 1,6 in a
+          // 96x36 button, text 3 px from its left edge). max-width keeps a long translation
+          // inside the button, where `shrink` scales it down.
           b.__lbl.style.verticalAlign = 'center'; b.__lbl.style.horizontalAlign = 'center';
-          b.__lbl.style.width = '100%'; b.__lbl.style.textAlign = 'center';
+          b.__lbl.style.maxWidth = (BAR_BTN_W - 6) + 'px'; b.__lbl.style.textAlign = 'center';
           // CS2's `#ControlRow Label { padding: 5px }` reaches into our buttons and pushes the text
           // off centre; the button box does the spacing here.
           b.__lbl.style.padding = '0px';
