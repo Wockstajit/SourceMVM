@@ -982,18 +982,17 @@ R"TLJS(
         // style properties on four buttons per frame is forty layout invalidations for a geometry
         // that never moves; __geom latches it. The button is ours and nothing else writes it, so
         // a panel that still exists still has it.
-        // ... except when it is visibly gone: after a map switch the label was found in the top-left
-        // corner of its button (2026-11-21), shrunk to its text. A label narrower than its button
-        // has lost the geometry, so it is written again; reading two widths is cheap.
-        var bw = b.actuallayoutwidth || 0, lw = b.__lbl.actuallayoutwidth || 0;
-        if (b.__geom && bw > 0 && lw > 0 && lw < bw * 0.9) b.__geom = 0;
         if (!b.__geom) {
           b.__geom = 1;
           b.style.height = BAR_BTN_H + 'px'; b.style.width = BAR_BTN_W + 'px';
           b.style.paddingLeft = '0px'; b.style.paddingRight = '0px';
           b.__lbl.style.fontWeight = 'bold'; b.__lbl.style.fontSize = '13px';
+          // The LABEL is centred, sized to its text: a full-width label with text-align: center drew
+          // its text in the top-left corner in game (measured 2026-11-21: label 94x24 at 1,6 in a
+          // 96x36 button, text 3 px from its left edge). max-width keeps a long translation
+          // inside the button, where `shrink` scales it down.
           b.__lbl.style.verticalAlign = 'center'; b.__lbl.style.horizontalAlign = 'center';
-          b.__lbl.style.width = '100%'; b.__lbl.style.textAlign = 'center';
+          b.__lbl.style.maxWidth = (BAR_BTN_W - 6) + 'px'; b.__lbl.style.textAlign = 'center';
           // CS2's `#ControlRow Label { padding: 5px }` reaches into our buttons and pushes the text
           // off centre; the button box does the spacing here.
           b.__lbl.style.padding = '0px';

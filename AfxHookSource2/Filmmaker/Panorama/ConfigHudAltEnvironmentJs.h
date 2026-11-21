@@ -208,9 +208,11 @@ R"CFJS(
     aeSortLbl.style.verticalAlign = 'center'; aeSortLbl.style.marginRight = '8px';
     var aeSort = segmented(aeSortRow, [['alike', T('Most alike')], ['name', T('Name')], ['recent', T('Newest')]],
       'fill-parent-flow(1.0)', function (k) { aePage = 0; aeListSig = ''; aeSort.sync(k); aeCmd('list sort ' + k + ' quiet'); }, 12);
-    attachTip(aeSort.btns.alike, T('The maps most like the demo\'s own first: a remake of the same map by its name, or by how well its layout matches (AUTO ALIGN\'s score, or the floors measured where map data is already on disk).'));
-    attachTip(aeSort.btns.name, T('A to Z by title.'));
-    attachTip(aeSort.btns.recent, T('The most recently downloaded or installed first.'));
+    if (aeSort.btns) {
+      attachTip(aeSort.btns.alike, T('The maps most like the demo\'s own first: a remake of the same map by its name, or by how well its layout matches (AUTO ALIGN\'s score, or the floors measured where map data is already on disk).'));
+      attachTip(aeSort.btns.name, T('A to Z by title.'));
+      attachTip(aeSort.btns.recent, T('The most recently downloaded or installed first.'));
+    }
     var aeOwn = wideBtn(aeList, '', function () { aeCmd('pick none'); }, S.label);
     aeOwn.__lbl.style.whiteSpace = 'normal'; aeOwn.style.marginBottom = '6px';
     var aeRows = mk('Panel', aeList); aeRows.hittest = false; aeRows.hittestchildren = true;

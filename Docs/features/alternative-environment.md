@@ -49,8 +49,31 @@ engine's own. When the scrub keyframe copy is ready, the environment copy is wri
 backward scrubbing stays fast.
 
 The engine cannot change the world under a demo that is already playing. Changing the map or the
-alignment always reopens the demo from a new copy. Writing a copy of a 450 MB demo takes about a
-second.
+alignment always reopens the demo from a new copy. Writing a copy of a 450 MB demo takes 1 to 5
+seconds, so it is written ahead: once a picked map's picture is in and the alignment has stayed put
+for 1.5 seconds, the copy **PLAY ON** would play is written in the background to the slot the engine
+is not playing (`Prebuild`). Pressing **PLAY ON** then only reopens the demo. A press while that copy
+is still being written waits for it, and a copy written ahead never cancels one somebody is waiting
+for. Neither slot is written twice for the same map, alignment and source.
+
+The reopen itself: the copy switch waits 8 frames after the copy starts playing before it seeks
+(it was 30), and holds the pause state for 24 frames after landing (it was 64). "Loading" ends when
+the seek lands. Measured on the same Inferno demo and Rainy Inferno in one session (2026-11-21),
+from the command to the world loaded:
+
+| Switch | Before | After |
+| --- | --- | --- |
+| Back to its own map, or onto a copy already written | 6.8 to 7.3 s | 5.3 to 5.8 s |
+| After changing the alignment | 10.7 to 11.2 s | 5.8 to 6.7 s |
+
+What is left is CS2's own: about 1.2 s to tear the old world down and 4 s to load the new one.
+Issuing `playdemo` without the `disconnect` first would skip the main-menu step, but it leaves CS2's
+demo bar with no round shading or kill markers, so the switch keeps it.
+
+While the hook reloads the demo, the workspace preview does not hold its last frame
+(`AfxViewportScaler::SetWorldReloading`). The preview normally copies its last good frame over a
+present that missed its scale blit; during a level load every present misses, and the old world's
+last frame stayed pasted over the whole loading screen.
 
 ### What moves
 
