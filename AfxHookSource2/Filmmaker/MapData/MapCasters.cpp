@@ -512,10 +512,15 @@ private:
         for (const Entry &entry : list) {
             const auto drawCalls = DrawCalls(*entry.mesh);
             if (entry.mesh->data["m_sceneObjects"].arr.empty()) continue;
-            // A skinned or overridden mesh is cached under its own key. The key holds the full
-            // override paths and tints, so overrides that share a file name never collide.
+            // A skinned or overridden mesh is cached under its own key. The key holds the materials
+            // the skin resolves to (two models can share a mesh and a skin name but map it to
+            // different materials) and the full override paths and tints, so nothing collides.
             std::string meshName = entry.name;
-            if (!skinTable.empty()) meshName += "|skin=" + skin;
+            if (!skinTable.empty())
+                for (size_t d = 0; d < drawCalls.size(); ++d) {
+                    const auto skinned = skinTable.find(OwnMaterial(*drawCalls[d]));
+                    if (skinned != skinTable.end()) meshName += "|" + std::to_string(d) + "~" + skinned->second;
+                }
             for (const MaterialOverride &o : overrides) {
                 if (o.drawCall != MaterialOverride::kAllDrawCalls && int64_t(o.subSceneObject) != entry.meshIndex) continue;
                 meshName += "|" + (o.drawCall == MaterialOverride::kAllDrawCalls ? std::string("*") : std::to_string(o.drawCall)) + "=" +
