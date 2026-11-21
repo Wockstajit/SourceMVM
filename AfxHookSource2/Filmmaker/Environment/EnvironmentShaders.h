@@ -1019,6 +1019,42 @@ float PrecipitationVeilWeight(float3 p){
 }
 )HLSL"
 R"HLSL(
+// WHAT THE FLOOR VOLUMES HIDE OF A PARTICLE, 0..1 of it showing. Rain, snow, their veil and the
+// splashes are drawn after the fog composite (they have no depth for it to measure to), so the
+// ground fog and the gusts' drift in front of them are taken here, from the eye to `world`. Drawn over
+// the composite without it, a flake or splash behind a dense bank was painted on top of the bank.
+// The drift is stepped as GustVolumeMarch steps it, without its light; `maxSteps` bounds the walk.
+// One return: see GustVolumeAt.
+float FloorVolumeThrough(float3 world,int maxSteps){
+    float3 ray=world-camera.xyz;float reach=length(ray);
+    float tau=0;
+    [branch]if(reach>1&&(CL_groundFog>0||CL_gusts>0)){
+        ray/=reach;
+        tau=GroundFogDepthAlong(ray,reach);
+        [branch]if(CL_gusts>0&&weatherParams.z>=1&&weatherParams.z<=3&&windFluidWindow.z>0&&weatherColor.w>0){
+            GustLook g=GustLookFor(weatherParams.z);
+            float show=GustShown(),range=min(reach,3000),layer=g.top+g.lift,climb=max(abs(ray.z),.01),t=0;
+            [loop]for(int i=0;i<maxSteps&&t<range;++i){
+                float3 p=camera.xyz+ray*t;
+                float floorHere=GustFloor(p);
+                float over=p.z-floorHere,above=over-layer;
+                float dt=clamp(4+t*.045,4,180);
+                if(over<layer*2)dt=min(dt,max((max(above,0)+layer/6)/climb,2));
+                if(above>0)dt=max(dt,min(above/max(-ray.z,.04)*.6,300));
+                if(over<-40&&ray.z<0)break;
+                dt=min(dt,range-t);
+                float3 q=camera.xyz+ray*(t+dt*.5);
+                t+=dt;
+                float region=PrecipitationRegion(q);
+                if(region<=0)continue;
+                float d;float sigma=GustVolumeAt(q,floorHere,g,true,d);
+                if(sigma<=0)continue;
+                tau+=sigma*region*max(PrecipitationOpenSky(q),CoverReach(q).x)*show*(1-smoothstep(2400,3000,t))*dt;
+            }
+        }
+    }
+    return exp(-tau);
+}
 ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
     uint n=instance*3+(uint)weatherParams.w*7919;
     float radius=weatherCenterRadius.w,height=weatherParams.x;
@@ -1203,6 +1239,8 @@ ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
     o.alpha=alpha*CL_particleOpacity;
     o.light=1;
     if(alpha<=0){o.position=float4(2,2,2,1);return o;}
+    // The same for every corner: measured to the particle's centre.
+    o.alpha*=FloorVolumeThrough(p,80);
     // Rain, snow and ash take the map's light at the particle centre, once per particle.
     if(weatherParams.z>=1&&weatherParams.z<=3){
         float4 centre=mul(viewProjection,float4(p,1));
@@ -1372,6 +1410,8 @@ float4 WeatherVeilPS(Screen i):SV_Target {
     [branch] if(smokeCover>0&&coverage>0){float entry;coverage*=1-smokeCover*SmokeRayShare(dir,t1,entry);}
     if(coverage<=0)return 0;
     float3 p=camera.xyz+dir*(weighted/max(tau,1e-9));
+    coverage*=FloorVolumeThrough(p,24); // the ground fog and drift in front of it (see FloorVolumeThrough)
+    if(coverage<=0)return 0;
     // Falling rain and snow take the light of the scene behind them, read at the pixel and at four
     // points a little way off it. That suits thin streaks. (What a gust blows along the ground is a
     // layer of the fog volume, GustVolumeMarch.)

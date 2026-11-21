@@ -585,6 +585,11 @@ void BindGroundFog(ID3D11DeviceContext *ctx) {
     ctx->PSSetShaderResources(50, 1, &drift);
     ID3D11SamplerState *sampler = state.sampler.Get();
     ctx->PSSetSamplers(6, 1, &sampler);
+    // The particle and splash vertex shaders measure the fog and drift in front of each particle
+    // (FloorVolumeThrough): they read the fog and its floors too.
+    ctx->VSSetShaderResources(35, 4, views);
+    ctx->VSSetShaderResources(50, 1, &drift);
+    ctx->VSSetSamplers(6, 1, &sampler);
 }
 
 void SetFogSceneTargetSource(FogSceneTargetSource source) { g_sceneSource = source; }

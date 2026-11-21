@@ -132,6 +132,8 @@ SplashOutput SplashVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
     o.uv=uv;
     o.hit=hit;
     o.info=float4(alpha*fade*nearFade*saturate(CL_particleOpacity*1.6),kind,stage,0);
+    // Behind a ground bank or a gust's drift, the splash shows through it as much as it lets through.
+    [branch]if(o.info.x>0)o.info.x*=FloorVolumeThrough(hit,80);
     if(o.info.x<=0)o.position=float4(2,2,2,1);
     return o;
 }
@@ -308,6 +310,7 @@ SplashOutput FootSplashVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
     o.uv=uv;
     o.hit=hit;
     o.info=float4(alpha*nearFade,kind,stage,1);
+    [branch]if(o.info.x>0)o.info.x*=FloorVolumeThrough(hit,80);
     if(o.info.x<=0)o.position=float4(2,2,2,1);
     return o;
 }
