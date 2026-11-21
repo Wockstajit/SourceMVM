@@ -223,12 +223,31 @@ the composited picture instead.
 
 **The sun.** The rules below keep only small lights brighter than their surroundings and turn the
 flare down on a frame full of near-white, so a sun on a bright sky never flared. The sun is found
-from the sky instead: its direction is `SolarPosition` on the sky material (where sky.vfx draws its
-disc, read live by `SunFx_RefreshVisibleSun` while the flare is on), else the map's
-`light_environment`. It is projected onto the screen (`SunScreenUv`); a 1×1 pass (`SunPS`) checks
-how much of its disc is open sky (geometry and smoke in front block it); the sun is added to the
-source map past the isolation test (`SunSourceBlob`), and the budget is lifted while it shows.
-*Sun* (`flare.sun`, 0 to 2, default 1) is its strength.
+where it is drawn instead, in this order:
+
+1. With the Environment's sky on, its own sun is the one on screen (CS2's sun sprite is not shown
+   under it), so the flare takes the Environment's sun direction.
+2. Otherwise, the sun disc CS2 drew this frame. Most maps (Dust 2, Mirage and others) paint the sun
+   with a small `csgo_effects` sprite, and their sky material has no `SolarPosition`, so a direction
+   alone gave them no sun at all outside the Environment. Right after CS2 draws a sprite of the
+   disc's shape, `LensSunLocator` draws it again into a 256×128 float target with a pixel shader that
+   keeps only the disc (its `g_flColorBoost` is far above 1; the halo uses 1.0) and writes its screen
+   position. The target's mips average that, so the disc's centre is read on the GPU, with no
+   readback and no stall. A sun moved with the sun or Scene Lights controls is found where it is
+   drawn.
+3. Where no disc was drawn, `SolarPosition` on the sky material (Nuke-style maps draw the disc in
+   sky.vfx; read live by `SunFx_RefreshVisibleSun` while the flare is on), projected onto the screen
+   (`SunScreenUv`).
+
+A map with no sun at all (Office) gets no sun flare. A 1×1 pass (`SunPS`) checks how much of the
+disc is open sky (geometry and smoke in front block it); the sun is added to the source map past the
+isolation test (`SunSourceBlob`), and the budget is lifted while it shows. *Sun* (`flare.sun`, 0 to
+2, default 1) is its strength. `mvm_debug` logs which source the flare used under `lens.sun`.
+
+*Sun only* (`flare.sunOnly`, off by default) leaves the frame's lamps and hot spots out of the source
+map, so the sun is the only light that flares; with no sun on screen there is no flare. A look preset
+keeps it as it was (it says which lights flare, not what the flare looks like); the section's reset
+turns it off.
 
 The flare follows these rules:
 
@@ -291,7 +310,7 @@ The flare follows these rules:
 
 **Settings.** `flare.on`, `flare.intensity` (0 to 2), `flare.threshold` (0.75 to 1, default 0.85),
 `flare.ghosts` (0 to 8), `flare.halo`, `flare.streak`, `flare.streakLen`, `flare.star` (spikes),
-`flare.blades` (3 to 12: ghost shape and spike count), `flare.glow`, `flare.dirt`, `flare.tint`,
+`flare.blades` (3 to 12: ghost shape and spike count), `flare.glow`, `flare.sun`, `flare.sunOnly`, `flare.dirt`, `flare.tint`,
 `flare.streakTint`, `flare.debug` (1 flare only, on black; 2 the budget measure). The two tints are
 indices into palettes in `LensFxMath.h`. `FlareTintColor` holds warm, white, gold, cool, teal, rose,
 violet and ember. `StreakTintColor` holds blue, cyan, white, amber, red and magenta. The console also takes

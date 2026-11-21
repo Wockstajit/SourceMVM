@@ -15,6 +15,7 @@
 #include "Filmmaker/Lens/LensFx.h"
 #include "Filmmaker/Heatmap/RoundHeatmap.h"
 #include "Filmmaker/World/SunFx.h" // the lens flare's sun (SunFx_VisibleSunDirection)
+#include "Filmmaker/Lens/LensSunLocator.h" // the lens flare's sun: the disc CS2 draws, found on the GPU
 #include "Filmmaker/World/CustomShadowAtlas.h"
 #include "DeathMsg.h"
 #include "RenderServiceHooks.h"
@@ -37,6 +38,7 @@
 #include "../Shared/GrowingBufferPoolThreadSafe.h"
 #include "../Shared/ImageTransformer.h"
 #include "../Shared/RecordingSettings.h"
+#include "../Shared/AfxOutStreams.h" // FFmpeg diagnostics from the failing capture worker
 #include "Filmmaker/Debug/MvmDebugLog.h" // MvmDebugLog_* (render.capsize RE probe)
 #include "Filmmaker/Debug/GpuPassProfiler.h" // GPU_PASS_SCOPE, the GPU pass profile
 #include "Filmmaker/Panorama/VpScaleBreakMath.h" // every scaled-preview break, numbered (vpscale.break)
@@ -343,6 +345,16 @@ RenderFrameTiming RenderFrameTiming_Sample() {
 
 extern SOURCESDK::VMatrix g_WorldToScreenMatrix; // engine's completed view, including Smooth View / TrueView
 std::atomic<int> g_AfxCaptureWriterFailureCount{0};
+// What the first writer failure since RecordStart was (AfxStreams_GetWriterFailure).
+static std::mutex g_AfxCaptureWriterFailureMutex;
+static AfxStreamWriterFailure g_AfxCaptureWriterFailure;
+// Writer thread: counts a failure and keeps the first one's reason.
+static void AfxNoteWriterFailure(const char* reason) {
+	std::lock_guard<std::mutex> lock(g_AfxCaptureWriterFailureMutex);
+	if (g_AfxCaptureWriterFailureCount.load(std::memory_order_relaxed) == 0)
+		g_AfxCaptureWriterFailure = {reason, advancedfx::FfmpegErrorTail_Get()};
+	g_AfxCaptureWriterFailureCount.fetch_add(1, std::memory_order_release);
+}
 // Diagnostic (mirv_filmmaker render waitpresent 1): force r_wait_on_present during a recording, as
 // the inherited recorder always did. Off by default: see RecordStart.
 std::atomic<bool> g_RecordWaitOnPresent{false};
@@ -740,6 +752,7 @@ private:
 	}
 
 	void ProcessingThreadFunc() {
+		advancedfx::FfmpegErrorTail_Clear();
 		std::unique_lock<std::mutex> lock(m_ProcessingThreadMutex);
 		while (!m_ShutDown || !m_CpuTexturesTodo.empty()) {
 			if (!m_CpuTexturesTodo.empty()) {
@@ -785,13 +798,13 @@ private:
                             m_OutVideoStream = m_pOutVideoStreamCreator->CreateOutVideoStream(*buffer->GetImageBufferFormat());
                             if (nullptr == m_OutVideoStream)
                             {
-								g_AfxCaptureWriterFailureCount.fetch_add(1, std::memory_order_relaxed);
+								AfxNoteWriterFailure("a stream's output could not be opened");
                                 advancedfx::Warning("AFXERROR: Failed to create image stream for screen recording.\n");
                             }
                         }
                         if (nullptr != m_OutVideoStream && !m_OutVideoStream->SupplyImageBuffer(this, buffer))
                         {
-							g_AfxCaptureWriterFailureCount.fetch_add(1, std::memory_order_relaxed);
+							AfxNoteWriterFailure("a stream could not write a frame (its encoder did not start or stopped)");
                             advancedfx::Warning("AFXERROR: Failed writing image for screen recording.\n");
                         }
                         buffer->Release();
@@ -3466,13 +3479,33 @@ public:
                     smoke.camera[0] = eye.x; smoke.camera[1] = eye.y; smoke.camera[2] = eye.z;
                     smoke.haveCamera = g_EnvironmentFrame.hasWorldToClip
                         && std::isfinite(eye.x) && std::isfinite(eye.y) && std::isfinite(eye.z);
-                    // The sun for the flare: where the sky draws it, else the map's light_environment.
+                    // The sun for the flare (LensFxMath.h, "where the sun is drawn"). With the
+                    // Environment's sky on, its own sun is the one on screen (CS2's sprite is not
+                    // shown under it): its direction, and nothing else. Otherwise the disc CS2 drew
+                    // this frame (the locator), and the sky shader's SolarPosition where there was none.
                     Filmmaker::LensSun sun;
-                    sun.have = Filmmaker::SunFx_VisibleSunDirection(sun.dir);
-                    if (!sun.have && g_EnvironmentFrame.relight.hasSun) {
-                        const auto d = Filmmaker::Relight::SunDirection(g_EnvironmentFrame.relight.sunAngles);
-                        sun.dir[0] = d.x; sun.dir[1] = d.y; sun.dir[2] = d.z;
-                        sun.have = true;
+                    const auto climate = Filmmaker::Environment::EffectiveClimate(g_EnvironmentFrame.scene.climate);
+                    const bool environmentSky = g_EnvironmentFrame.active && climate[Filmmaker::Environment::CL_enabled] > 0.5f
+                        && climate[Filmmaker::Environment::CL_sky] > 0.0f;
+                    if (environmentSky) {
+                        if (g_EnvironmentFrame.relight.hasSun) {
+                            const auto d = Filmmaker::Relight::SunDirection(g_EnvironmentFrame.relight.sunAngles);
+                            sun.dir[0] = d.x; sun.dir[1] = d.y; sun.dir[2] = d.z;
+                            sun.have = true;
+                        }
+                    } else {
+                        sun.have = Filmmaker::SunFx_VisibleSunDirection(sun.dir);
+                        sun.located = Filmmaker::LensSunLocator_Wanted();
+                    }
+                    if (Filmmaker::MvmDebugLog_Active()) {
+                        static ULONGLONG s_lastSunLog = 0;
+                        const ULONGLONG now = GetTickCount64();
+                        if (now - s_lastSunLog >= 2000) {
+                            s_lastSunLog = now;
+                            Filmmaker::MvmDebugLog_LinefAlways("lens.sun", "environmentSky=%d direction=%d (%.3f %.3f %.3f) located=%d discDraws=%u",
+                                environmentSky ? 1 : 0, sun.have ? 1 : 0, sun.dir[0], sun.dir[1], sun.dir[2], sun.located ? 1 : 0,
+                                Filmmaker::LensSunLocator_TakeDrawCount());
+                        }
                     }
                     // The console green screen (render greenscreen) repaints the scene itself, so its
                     // frame gets no flare: it would paint over the chroma background (LensFx.h, keyPass).
@@ -4114,6 +4147,16 @@ bool AfxPlayersOnlyGreen_SkipFoliageGpuDraw(ID3D11DeviceContext* context, const 
     return true;
 }
 
+// The lens flare's sun: when this draw can be the sun disc sprite, the same draw again into the
+// locator's target (LensSunLocator.h). Our own state changes must not reach the other hooks.
+static void AfxRedrawForSun(ID3D11DeviceContext* ctx, const Filmmaker::LensSunDraw& d);
+static void AfxLocateSun(ID3D11DeviceContext* ctx, const Filmmaker::LensSunDraw& d) {
+    if (g_bInOwnDraw || !Filmmaker::LensSunLocator_Wanted()) return;
+    g_bInOwnDraw = true;
+    Filmmaker::LensSunLocator_AfterDraw(ctx, d, &AfxRedrawForSun);
+    g_bInOwnDraw = false;
+}
+
 void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
     UINT IndexCount, UINT StartIndexLocation, INT BaseVertexLocation) {
     if (g_inVendorMultiDraw) { g_Old_DrawIndexed(This, IndexCount, StartIndexLocation, BaseVertexLocation); return; }
@@ -4139,6 +4182,7 @@ void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexed(This, IndexCount, StartIndexLocation, BaseVertexLocation); }
+    AfxLocateSun(This, { Filmmaker::LensSunDraw::DrawIndexed, IndexCount, 1, StartIndexLocation, BaseVertexLocation, 0 });
     // Right after CS2's post-process: its raw input against its finished output, for the tone
     // curve that puts probe light into the frame's colours (EnvironmentReflectionProbes.h).
     if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
@@ -4177,6 +4221,7 @@ void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_Draw(This, VertexCount, StartVertexLocation); }
+    AfxLocateSun(This, { Filmmaker::LensSunDraw::Draw, VertexCount, 1, StartVertexLocation, 0, 0 });
     // Right after CS2's post-process: its raw input against its finished output, for the tone
     // curve that puts probe light into the frame's colours (EnvironmentReflectionProbes.h).
     if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
@@ -4192,6 +4237,15 @@ void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
         Filmmaker::Environment::EndAnimatedCasterDraw(This);
     }
 	Filmmaker::SkyGpuRotation_EndDraw(This, skyRotation);
+}
+
+static void AfxRedrawForSun(ID3D11DeviceContext* ctx, const Filmmaker::LensSunDraw& d) {
+    switch (d.kind) {
+    case Filmmaker::LensSunDraw::Draw: g_Old_Draw(ctx, d.count, d.start); break;
+    case Filmmaker::LensSunDraw::DrawIndexed: g_Old_DrawIndexed(ctx, d.count, d.start, d.baseVertex); break;
+    case Filmmaker::LensSunDraw::DrawInstanced: g_Old_DrawInstanced(ctx, d.count, d.instances, d.start, d.startInstance); break;
+    case Filmmaker::LensSunDraw::DrawIndexedInstanced: g_Old_DrawIndexedInstanced(ctx, d.count, d.instances, d.start, d.baseVertex, d.startInstance); break;
+    }
 }
 
 void STDMETHODCALLTYPE New_DrawIndexedInstanced(ID3D11DeviceContext * This,
@@ -4217,6 +4271,7 @@ void STDMETHODCALLTYPE New_DrawIndexedInstanced(ID3D11DeviceContext * This,
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
 	{ QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexedInstanced(This, IndexCountPerInstance, InstanceCount, StartIndexLocation,
 		BaseVertexLocation, StartInstanceLocation); }
+    AfxLocateSun(This, { Filmmaker::LensSunDraw::DrawIndexedInstanced, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation });
     if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawIndexedInstanced(This,IndexCountPerInstance,InstanceCount,StartIndexLocation,BaseVertexLocation,StartInstanceLocation);
@@ -4254,6 +4309,7 @@ void STDMETHODCALLTYPE New_DrawInstanced( ID3D11DeviceContext * This,
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
         StartVertexLocation, StartInstanceLocation); }
+    AfxLocateSun(This, { Filmmaker::LensSunDraw::DrawInstanced, VertexCountPerInstance, InstanceCount, StartVertexLocation, 0, StartInstanceLocation });
     if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
@@ -4818,6 +4874,11 @@ void After_Present() {
     Filmmaker::Environment::NextViewmodelFrame();
     Filmmaker::Environment::NextAnimatedCasterFrame();
     Filmmaker::Environment::NextNativeMaterialFrame();
+    {   // The flare's sun target starts every frame empty (LensSunLocator_EndFrame).
+        ID3D11DeviceContext* immediate = nullptr;
+        if (g_pDevice) g_pDevice->GetImmediateContext(&immediate);
+        if (immediate) { Filmmaker::LensSunLocator_EndFrame(immediate); immediate->Release(); }
+    }
     if(auto pRenderPassCommands = g_RenderCommands.RenderThread_GetCommands()) {
         pRenderPassCommands->OnAfterPresent();
         pRenderPassCommands->OnAfterPresentOrContextLossReliable();
@@ -7791,7 +7852,11 @@ void CAfxStreams::RecordStart()
 {
 	RecordEnd();
 	m_RecordedSourceFrameCount.store(0, std::memory_order_release);
-	g_AfxCaptureWriterFailureCount.store(0, std::memory_order_release);
+	{
+		std::lock_guard<std::mutex> lock(g_AfxCaptureWriterFailureMutex);
+		g_AfxCaptureWriterFailure = {};
+		g_AfxCaptureWriterFailureCount.store(0, std::memory_order_release);
+	}
 
 	advancedfx::Message("Starting recording ... ");
 	
@@ -8057,6 +8122,11 @@ int AfxStreams_GetRecordedSourceFrameCount() {
 
 int AfxStreams_GetWriterFailureCount() {
 	return g_AfxCaptureWriterFailureCount.load(std::memory_order_acquire);
+}
+
+AfxStreamWriterFailure AfxStreams_GetWriterFailure() {
+	std::lock_guard<std::mutex> lock(g_AfxCaptureWriterFailureMutex);
+	return g_AfxCaptureWriterFailure;
 }
 
 const char * AfxStreams_GetRecordNameUtf8() {

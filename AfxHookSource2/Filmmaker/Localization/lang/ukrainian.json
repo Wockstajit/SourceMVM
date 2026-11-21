@@ -1777,6 +1777,8 @@
  "Sets the shape of every ghost and how many spikes a light gets. Six blades make hexagon ghosts and six spikes; an odd number makes twice as many spikes.": "Задає форму кожного відблиску та кількість променів у світла. Шість пелюсток дають шестикутні відблиски й шість променів; непарна кількість дає удвічі більше променів.",
  "Sun": "Сонце",
  "How strongly the sun itself flares. It is found from the sky, so a sun on a bright sky still flares; walls and smoke in front of it block it. 0 leaves the sun to the ordinary light test.": "Наскільки сильно сонце саме дає блік. Його знаходять за небом, тож сонце на яскравому небі теж дає блік; стіни та дим перед ним його блокують. 0 лишає сонце звичайній перевірці світла.",
+ "Sun only": "Лише сонце",
+ "Only the sun throws a flare: lamps and other bright spots in the picture are left out. The sun is taken from where the map draws it, or from the Environment sun while its sky is on.": "Відблиск дає лише сонце: лампи та інші яскраві точки на зображенні не враховуються. Сонце береться звідти, де його малює мапа, або від сонця Environment, поки увімкнене його небо.",
  "Lens dirt": "Бруд лінзи",
  "Smudges on the front element that light up where flare falls on them. Load your own dirt image with  mirv_filmmaker lens dirt <path>  (the shape is read as brightness).": "Плями на передній лінзі, що світяться там, де на них падає блік. Завантажте власне зображення бруду командою  mirv_filmmaker lens dirt <path>  (форма читається як яскравість).",
  "warm": "теплий",

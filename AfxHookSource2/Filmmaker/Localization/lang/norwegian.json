@@ -1751,6 +1751,8 @@
  "Sets the shape of every ghost and how many spikes a light gets. Six blades make hexagon ghosts and six spikes; an odd number makes twice as many spikes.": "Bestemmer formen på hver ghost og hvor mange spisser et lys får. Seks lameller gir sekskantede ghosts og seks spisser; et oddetall gir dobbelt så mange spisser.",
  "Sun": "Sol",
  "How strongly the sun itself flares. It is found from the sky, so a sun on a bright sky still flares; walls and smoke in front of it block it. 0 leaves the sun to the ordinary light test.": "Hvor sterkt selve solen gir refleks. Den finnes fra himmelen, så en sol på lys himmel gir fortsatt refleks; vegger og røyk foran blokkerer den. 0 overlater solen til den vanlige lystesten.",
+ "Sun only": "Bare solen",
+ "Only the sun throws a flare: lamps and other bright spots in the picture are left out. The sun is taken from where the map draws it, or from the Environment sun while its sky is on.": "Bare solen gir linseflare: lamper og andre lyse punkter i bildet utelates. Solen hentes der kartet tegner den, eller fra Environment-solen mens himmelen dens er på.",
  "Lens dirt": "Linseskitt",
  "Smudges on the front element that light up where flare falls on them. Load your own dirt image with  mirv_filmmaker lens dirt <path>  (the shape is read as brightness).": "Flekker på fremste linseelement som lyser opp der refleks faller på dem. Last inn ditt eget skittbilde med  mirv_filmmaker lens dirt <path>  (formen leses som lysstyrke).",
  "warm": "varm",

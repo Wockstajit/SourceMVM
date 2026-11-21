@@ -1725,6 +1725,8 @@
  "Sets the shape of every ghost and how many spikes a light gets. Six blades make hexagon ghosts and six spikes; an odd number makes twice as many spikes.": "모든 고스트의 모양과 빛 하나당 스파이크 수를 정합니다. 날 6개는 육각형 고스트와 스파이크 6개를 만들고, 홀수이면 스파이크가 두 배가 됩니다.",
  "Sun": "태양",
  "How strongly the sun itself flares. It is found from the sky, so a sun on a bright sky still flares; walls and smoke in front of it block it. 0 leaves the sun to the ordinary light test.": "태양 자체가 플레어를 일으키는 세기입니다. 하늘에서 찾으므로 밝은 하늘 위의 태양도 플레어가 생기고, 앞을 가린 벽과 연막은 이를 막습니다. 0이면 태양은 일반 광원 검사에 맡깁니다.",
+ "Sun only": "태양만",
+ "Only the sun throws a flare: lamps and other bright spots in the picture are left out. The sun is taken from where the map draws it, or from the Environment sun while its sky is on.": "태양만 플레어를 만듭니다. 화면의 램프와 다른 밝은 지점은 제외됩니다. 태양은 맵이 그리는 위치에서 가져오며, Environment 하늘이 켜져 있으면 Environment 태양을 사용합니다.",
  "Lens dirt": "렌즈 먼지",
  "Smudges on the front element that light up where flare falls on them. Load your own dirt image with  mirv_filmmaker lens dirt <path>  (the shape is read as brightness).": "플레어가 닿는 곳에서 빛나는, 앞 렌즈 소자의 얼룩입니다. 직접 만든 먼지 이미지는  mirv_filmmaker lens dirt <path>  로 불러오세요(모양은 밝기로 읽습니다).",
  "warm": "따뜻함",

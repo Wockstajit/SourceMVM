@@ -8,12 +8,12 @@
 #     offsets -1 / 0 / +1 -- offset 0 must win for every pass (a one-frame offset is a failure).
 #
 #   powershell -ExecutionPolicy Bypass -File Automation\verify\verify-render-multipass.ps1 `
-#       -OutRoot C:\path\to\out -Passes beauty:all,beauty:worldplayers,beauty:players,beauty:gun,depth:all,normal:all
+#       -OutRoot C:\path\to\out -Passes beauty:all,beauty:worldplayers,key:players,key:gun,depth:all,normal:all
 param(
     [int]$Port = 29010,
     [Parameter(Mandatory = $true)]
     [string]$OutRoot,
-    [string[]]$Passes = @('beauty:all', 'depth:all', 'normal:all', 'beauty:gun'),
+    [string[]]$Passes = @('beauty:all', 'depth:all', 'normal:all', 'key:gun'),
     [int]$StartTick = -1,
     [int]$RangeTicks = 64,
     [int]$Fps = 60,
