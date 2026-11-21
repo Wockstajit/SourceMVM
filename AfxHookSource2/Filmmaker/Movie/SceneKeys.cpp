@@ -34,6 +34,7 @@ std::wstring g_demo;
 std::string g_map, g_error;
 bool g_loaded = false, g_dirty = false, g_failed = false, g_gesture = false, g_reassert = false;
 bool g_stormPending = false; // keyed Lightning is waiting for a rendered camera to place its cell
+uint64_t g_stormGeneration = 0; // the Environment scene the storm cell was last checked against
 ULONGLONG g_saveAt = 0;
 double g_captureTick = -1, g_appliedTick = 0;
 std::map<std::wstring, TrackData> g_unsaved;
@@ -252,21 +253,29 @@ void CatalogJson(JsonBuilder& j) {
 // pass only runs while DEPTH OF FIELD or LENS FLARE is on. Turns the effect on. Run after every
 // scenekeys edit and when a demo's saved track loads, so a saved focus pull plays on reopen.
 // Keys play whether or not their strip is armed (Apply reads every unmuted field), so both count.
-// Keyed Lightning needs a storm cell to strike in: one never placed through CONFIG sits at the
-// world origin, so it is dropped at the camera, as CONFIG's Lightning switch does.
-void EnableKeyedEffects(const char* why) {
-    if(!g_pEngineToClient)return;
+std::set<std::string> LiveProperties() {
     std::set<std::string> live=g_track.data.armed;
     for(const auto& f:g_track.data.fields)
         if(!f.second.empty()&&!g_track.data.muted.count(f.first))live.insert(f.first);
+    return live;
+}
+// Keyed Lightning needs a storm cell to strike in: one never placed through CONFIG sits at the
+// world origin, so it is dropped at the camera, as CONFIG's Lightning switch does. Checked again
+// whenever the Environment scene changes (SceneKeys_RunFrame): a scene carried onto a new map by
+// Keep between demos is restored or unbound after this runs, and can leave the cell unplaced.
+void PlaceKeyedStorm(const std::set<std::string>& live,const char* why) {
     g_stormPending=false;
-    if(live.count("env.storm")&&!Environment::StormCentreSet()){
-        Environment::Matrix clip;Environment::Vec3 eye;
-        if(Environment::RenderedCamera(clip,eye)){
-            g_pEngineToClient->ExecuteClientCmd(0,"mirv_filmmaker environment storm-center",true);
-            MvmDebugLog_LinefAlways("scenekeys","%s placed the storm cell at the camera for env.storm",why);
-        } else g_stormPending=true;
-    }
+    g_stormGeneration=Environment::SceneGeneration();
+    if(!g_pEngineToClient||!live.count("env.storm")||Environment::StormCentreSet())return;
+    Environment::Matrix clip;Environment::Vec3 eye;
+    if(!Environment::RenderedCamera(clip,eye)){g_stormPending=true;return;}
+    g_pEngineToClient->ExecuteClientCmd(0,"mirv_filmmaker environment storm-center",true);
+    MvmDebugLog_LinefAlways("scenekeys","%s placed the storm cell at the camera for env.storm",why);
+}
+void EnableKeyedEffects(const char* why) {
+    if(!g_pEngineToClient)return;
+    const auto live=LiveProperties();
+    PlaceKeyedStorm(live,why);
     for(const char* effect:{"dof","flare"}){
         const bool on=std::string(effect)=="dof"?LensFx_DofOn():LensFx_FlareOn();
         if(on)continue;
@@ -291,7 +300,7 @@ void SceneKeys_RunFrame() {
     const auto demo = PlayingDemoPath();
     const auto map = Environment::CurrentMapName();
     if (!g_loaded || demo != g_demo) { g_track.EndEdit(); Flush(); g_demo = demo; g_loaded = true; Load(); EnableKeyedEffects("load"); g_reassert = true; }
-    if (g_stormPending) EnableKeyedEffects("camera");
+    if (g_stormPending || Environment::SceneGeneration() != g_stormGeneration) PlaceKeyedStorm(LiveProperties(), "scene");
     if (map != g_map) { g_map = map; PrepareAssets(); g_reassert = true; }
     if (g_dirty && GetTickCount64() >= g_saveAt && !g_gesture) Flush();
     Apply(g_captureTick >= 0 ? g_captureTick : TimelinePlayhead_Tick()); g_captureTick = -1;
