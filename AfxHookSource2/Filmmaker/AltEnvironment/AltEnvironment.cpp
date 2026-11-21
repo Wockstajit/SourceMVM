@@ -1247,6 +1247,7 @@ void RunMainThreadFrame() {
 	if (s.view && !ConfigHud_Enabled()) s.view = false;
 	if (Ready(s.mapsJob)) {
 		s.maps = s.mapsJob.get();
+		s.listKey.clear(); // a rescan can change titles, dates or maps without changing the count
 		MvmDebugLog_LinefAlways("altenv", "maps scanned count=%zu", s.maps.size());
 	}
 	// CONFIG open on the ENVIRONMENT tab reads both maps and the players' paths ahead (background
