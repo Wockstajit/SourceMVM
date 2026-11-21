@@ -7,6 +7,8 @@
 #include "../Filmmaker.h"
 #include "../Demo/DemoProjectStore.h"
 #include "../Environment/EnvironmentScene.h"
+#include "../Lens/LensFx.h"
+#include "../Props/Props.h"
 #include "../World/WorldTransient.h"
 #include "../World/SkyboxLibrary.h"
 #include "../World/CloudFx.h"
@@ -46,7 +48,14 @@ std::map<std::string, Value> Baselines() {
     for (const auto& s : Catalog()) {
         Value v = s.initial;
         if (s.type == ChannelType::SkyId) v.asset = world.sky;
-        else {
+        else if (s.source.rfind("lens.", 0) == 0) {
+            // CONFIG > CAMERA's lens (Lens/LensFx.cpp), by its key.
+            const auto values = LensFx_Get();
+            for (int p = 0; p < Lens::ParamCount; ++p)
+                if (s.source == std::string("lens.") + Lens::Specs()[p].key) v.numbers.assign(1, values[p]);
+        } else if (s.source == "props.wind") {
+            v.numbers.assign(1, Props_WindStrength());
+        } else {
             const auto& fields = s.family == "effects" ? world.fields : env;
             const auto f = fields.find(s.source);
             if (f != fields.end() && f->second.size() >= size_t(s.offset + s.components))
@@ -519,5 +528,18 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
                 MvmDebugLog_LinefAlways("scenekeys","%s turned the Environment on for %s",op.c_str(),id.c_str());
                 break;
             }
+    // The same for the lens: a depth-of-field or flare property keyed with that effect off changed nothing.
+    if(op!="status"&&g_pEngineToClient)
+        for(const char* effect:{"dof","flare"}){
+            const bool on=std::string(effect)=="dof"?LensFx_DofOn():LensFx_FlareOn();
+            if(on)continue;
+            const std::string prefix=std::string("lens.")+effect+".";
+            for(const auto& id:g_track.data.armed)
+                if(id.rfind(prefix,0)==0){
+                    g_pEngineToClient->ExecuteClientCmd(0,(std::string("mirv_filmmaker lens set ")+effect+".on 1 quiet").c_str(),true);
+                    MvmDebugLog_LinefAlways("scenekeys","%s turned %s on for %s",op.c_str(),effect,id.c_str());
+                    break;
+                }
+        }
 }
 } // namespace Filmmaker

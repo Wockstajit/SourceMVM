@@ -189,18 +189,20 @@ R"EDJS(
         try { skGroups[oldId].card.__card.DeleteAsync(0); } catch (e) {}
       }
       skGroups = {}; skFields = {};
-      ['effects', 'environment'].forEach(function (family) {
+      // CONFIG's tabs in their order: CAMERA (the lens), EFFECTS, ENVIRONMENT.
+      var SK_FAMILY = { camera: [T('Camera'), '#e6a44cff'], effects: [T('Effects'), '#d4b36aff'], environment: [T('Environment'), '#7fbdc7ff'] };
+      ['camera', 'effects', 'environment'].forEach(function (family) {
         var fam = cat.filter(function (f) { return f.family === family; });
         if (!fam.length) return;
         // Both families carry a LIGHTING card, so the rail's group heading -- CONFIG's own tab
         // name -- is what tells two identically named cards apart.
-        var groupName = family === 'effects' ? T('Effects') : T('Environment');
+        var groupName = SK_FAMILY[family][0];
         var order = [];
         fam.forEach(function (f) { var gid = family + '.' + (f.groupId || f.group); if (order.indexOf(gid) < 0) order.push(gid); });
         order.forEach(function (groupId) {
           var members = fam.filter(function (f) { return family + '.' + (f.groupId || f.group) === groupId; });
           var title = ('' + members[0].group).toUpperCase();
-          var card = edCard(inspectorBody, title, { edge: family === 'effects' ? '#d4b36aff' : '#7fbdc7ff',
+          var card = edCard(inspectorBody, title, { edge: SK_FAMILY[family][1],
             rail: { tab: 'scene', key: 'sk.' + groupId, group: groupName } });
           var g = skGroups[groupId] = { fields: [], title: title, card: card };
           try { mvmTourAdd('scene.rail.' + groupId, edRails.scene.items['sk.' + groupId].row); } catch (e) {}
