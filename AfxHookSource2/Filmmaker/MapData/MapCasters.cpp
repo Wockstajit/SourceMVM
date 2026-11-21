@@ -1,4 +1,4 @@
-// Ported from ValveResourceFormat 20.0 (MIT): GltfModelExporter (world nodes, models, draw
+// Ported from ValveResourceFormat 21.1+ (MIT, commit 8d9f7d9): GltfModelExporter (world nodes, models, draw
 // calls, materials), plus the caster rules of the former VisualShadowConverter.
 #include "MapCasters.h"
 #include "MapCasterLimits.h"
@@ -305,6 +305,38 @@ bool AllowedShader(const std::string &shader, bool &foliage, bool &blockerShader
            shader == "cables.vfx" || blockerShader;
 }
 
+// World node MaterialOverride_t (VRF WorldNode.MaterialOverride): replaces the material of one
+// draw call of a scene object's model, or of every draw call when drawCall is kAllDrawCalls, and
+// multiplies its linear tint into that draw call. An empty material keeps the draw call's own
+// material and applies only the tint.
+struct MaterialOverride {
+    static constexpr uint32_t kAllDrawCalls = 0xFFFFFFFFu;
+    uint32_t subSceneObject = 0, drawCall = 0;
+    std::string material;
+    Vec4 tint{1, 1, 1, 1};
+    bool Applies(int meshIndex, size_t dc) const {
+        return drawCall == kAllDrawCalls || (int64_t(subSceneObject) == meshIndex && drawCall == dc);
+    }
+};
+
+struct OverrideHit {
+    const std::string *material = nullptr;
+    Vec4 tint{1, 1, 1, 1};
+};
+
+// The first whole-model override with a material wins, as in VRF. Otherwise the last override
+// that applies to this draw call gives the tint, and the last one with a material the material.
+OverrideHit FindOverride(const std::vector<MaterialOverride> &overrides, int meshIndex, size_t drawCall) {
+    OverrideHit hit;
+    for (const MaterialOverride &o : overrides) {
+        if (!o.Applies(meshIndex, drawCall)) continue;
+        if (o.drawCall == MaterialOverride::kAllDrawCalls && !o.material.empty()) return {&o.material, o.tint};
+        if (!o.material.empty()) hit.material = &o.material;
+        hit.tint = o.tint;
+    }
+    return hit;
+}
+
 struct Primitive {
     std::shared_ptr<MeshData> mesh;
     size_t drawCall = 0;
@@ -322,14 +354,31 @@ public:
         : resources(r), textures(t), batches(b), warnings(w) {}
 
     void Export(const Kv3 &node) {
-        for (const Kv3 &so : node["m_sceneObjects"].arr) {
+        std::map<uint32_t, std::vector<MaterialOverride>> overrides;
+        for (const Kv3 &o : node["m_materialOverrides"].arr) {
+            MaterialOverride m;
+            m.subSceneObject = uint32_t(o["m_nSubSceneObject"].Integer());
+            m.drawCall = uint32_t(o["m_nDrawCallIndex"].Integer());
+            m.material = o["m_pMaterial"].Str();
+            if (const Kv3 *t = o.Find("m_vLinearTintColor"))
+                m.tint = {float(t->At(0).Number(1)), float(t->At(1).Number(1)), float(t->At(2).Number(1)), 1.f};
+            if (m.material.empty() && m.tint == Vec4{1, 1, 1, 1}) continue; // changes nothing
+            overrides[uint32_t(o["m_nSceneObjectIndex"].Integer())].push_back(std::move(m));
+        }
+        static const std::vector<MaterialOverride> none;
+        const auto &sceneObjects = node["m_sceneObjects"].arr;
+        for (size_t index = 0; index < sceneObjects.size(); ++index) {
+            const Kv3 &so = sceneObjects[index];
             const std::string model = so["m_renderableModel"].Str();
             if (model.empty()) continue;
             auto data = Model(model);
             if (!data) continue;
             Vec4 tint = ToVec4(so["m_vTintColor"], {0, 0, 0, 0});
             if (tint == Vec4{0, 0, 0, 0}) tint = {1, 1, 1, 1};
-            LoadModelNodes(*data, FileStem(model), ToPlacement(so["m_vTransform"]), tint);
+            std::string skin = so["m_skin"].Str();
+            if (skin == "0" || skin == "default") skin.clear();
+            const auto it = overrides.find(uint32_t(index));
+            LoadModelNodes(*data, FileStem(model), ToPlacement(so["m_vTransform"]), tint, skin, it == overrides.end() ? none : it->second);
         }
         for (const Kv3 &so : node["m_aggregateSceneObjects"].arr) {
             const std::string model = so["m_renderableModel"].Str();
@@ -394,9 +443,14 @@ private:
         return out;
     }
 
-    int MaterialFor(const Kv3 &drawCall, const Vec4 &parentTint) {
+    static std::string OwnMaterial(const Kv3 &drawCall) {
         std::string path = drawCall["m_material"].Str();
         if (path.empty()) path = drawCall["m_pMaterial"].Str();
+        return path;
+    }
+
+    int MaterialFor(const Kv3 &drawCall, const Vec4 &parentTint, const std::string *replacement = nullptr) {
+        const std::string path = replacement ? *replacement : OwnMaterial(drawCall);
         Vec4 tint = parentTint;
         if (const Kv3 *dcTint = drawCall.Find("m_vTintColor")) {
             Vec4 t{float(dcTint->At(0).Number()), float(dcTint->At(1).Number()), float(dcTint->At(2).Number()), 1.f};
@@ -422,23 +476,69 @@ private:
         return id;
     }
 
-    void LoadModelNodes(const ModelData &model, const std::string &name, const Placement &placement, const Vec4 &tint) {
+    // VRF GetSkinMaterialTable: each material of the default group maps to the one at the same
+    // index in the named group. Empty when the group is missing or is the default one.
+    static std::map<std::string, std::string> SkinTable(const ModelData &model, const std::string &skin) {
+        std::map<std::string, std::string> table;
+        if (skin.empty()) return table;
+        const auto &groups = model.data["m_materialGroups"].arr;
+        size_t index = 0;
+        while (index < groups.size() && groups[index]["m_name"].Str() != skin) ++index;
+        if (index == 0 || index >= groups.size()) return table;
+        const auto &from = groups[0]["m_materials"].arr, &to = groups[index]["m_materials"].arr;
+        for (size_t k = 0; k < std::min(from.size(), to.size()); ++k) table[from[k].Str()] = to[k].Str();
+        return table;
+    }
+
+    void LoadModelNodes(const ModelData &model, const std::string &name, const Placement &placement, const Vec4 &tint,
+                        const std::string &skin = {}, const std::vector<MaterialOverride> &overrides = {}) {
         const int lod = model.LowestLod();
-        std::vector<std::pair<std::shared_ptr<MeshData>, std::string>> list;
+        const auto skinTable = SkinTable(model, skin);
+        struct Entry {
+            std::shared_ptr<MeshData> mesh;
+            std::string name;
+            int meshIndex;
+        };
+        std::vector<Entry> list;
         for (size_t k = 0; k < EmbeddedCount(model); ++k)
-            if (model.InLod(model.embedded[k].meshIndex, lod)) list.emplace_back(model.embedded[k].mesh, name + "." + model.embedded[k].name);
+            if (model.InLod(model.embedded[k].meshIndex, lod))
+                list.push_back({model.embedded[k].mesh, name + "." + model.embedded[k].name, model.embedded[k].meshIndex});
         for (size_t k = 0; k < model.refMeshes.size(); ++k) {
             if (model.refMeshes[k].empty() || !model.InLod(int(k), lod)) continue;
             auto mesh = Mesh(model.refMeshes[k]);
-            if (mesh) list.emplace_back(mesh, FileStem(model.refMeshes[k]));
+            if (mesh) list.push_back({mesh, FileStem(model.refMeshes[k]), int(k)});
         }
-        for (const auto &[mesh, meshName] : list) {
-            const auto drawCalls = DrawCalls(*mesh);
-            if (mesh->data["m_sceneObjects"].arr.empty()) continue;
+        for (const Entry &entry : list) {
+            const auto drawCalls = DrawCalls(*entry.mesh);
+            if (entry.mesh->data["m_sceneObjects"].arr.empty()) continue;
+            // A skinned or overridden mesh is cached under its own key. The key holds the materials
+            // the skin resolves to (two models can share a mesh and a skin name but map it to
+            // different materials) and the full override paths and tints, so nothing collides.
+            std::string meshName = entry.name;
+            if (!skinTable.empty())
+                for (size_t d = 0; d < drawCalls.size(); ++d) {
+                    const auto skinned = skinTable.find(OwnMaterial(*drawCalls[d]));
+                    if (skinned != skinTable.end()) meshName += "|" + std::to_string(d) + "~" + skinned->second;
+                }
+            for (const MaterialOverride &o : overrides) {
+                if (o.drawCall != MaterialOverride::kAllDrawCalls && int64_t(o.subSceneObject) != entry.meshIndex) continue;
+                meshName += "|" + (o.drawCall == MaterialOverride::kAllDrawCalls ? std::string("*") : std::to_string(o.drawCall)) + "=" +
+                            o.material + "*" + std::to_string(o.tint[0]) + "," + std::to_string(o.tint[1]) + "," + std::to_string(o.tint[2]);
+            }
             auto it = exportedMeshes.find(meshName);
             if (it == exportedMeshes.end()) {
                 std::vector<Primitive> prims;
-                for (size_t d = 0; d < drawCalls.size(); ++d) prims.push_back({mesh, d, MaterialFor(*drawCalls[d], tint)});
+                for (size_t d = 0; d < drawCalls.size(); ++d) {
+                    const OverrideHit hit = FindOverride(overrides, entry.meshIndex, d);
+                    const std::string *replacement = hit.material;
+                    if (!replacement && !skinTable.empty()) {
+                        const auto skinned = skinTable.find(OwnMaterial(*drawCalls[d]));
+                        if (skinned != skinTable.end()) replacement = &skinned->second;
+                    }
+                    Vec4 drawTint = tint;
+                    for (int k = 0; k < 3; ++k) drawTint[k] *= hit.tint[k];
+                    prims.push_back({entry.mesh, d, MaterialFor(*drawCalls[d], drawTint, replacement)});
+                }
                 it = exportedMeshes.emplace(meshName, std::move(prims)).first;
             }
             for (const Primitive &p : it->second) Emit(p, placement);
