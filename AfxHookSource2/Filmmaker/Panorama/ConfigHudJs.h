@@ -976,6 +976,9 @@ R"CFJS(
     // Raw `state` string the render hooks last ran against, and a slow heartbeat so a hook can
     // never stay stale indefinitely. See the gate in render().
     var lastHookRaw = null;
+    // The state text parsed last: the same text gives the same object, so it is not parsed again
+    // (about 27 KB a frame). Nothing in the panel writes into `st`.
+    var lastParsedRaw = null;
     var lastHookUi = null; // the selected tab and card at the last sweep
     var hookHeartbeat = 0;
     var cfgRootZ = '52';
@@ -993,7 +996,7 @@ R"CFJS(
       // Release the live mouse claim on every path that hides the panel, or the game stays
       // locked out of its own input after the panel is gone.
       if (!raw) { setLiveMouseCapture(false); if ($.ConfigHudDap && $.ConfigHudDap.isOpen()) $.ConfigHudDap.close(); root.visible = false; overlayFollowRoot(); inspector.visible = false; hideDemoWorkspace(); return; }
-      try { st = JSON.parse(raw); } catch (e) { return; }
+      if (raw !== lastParsedRaw) { try { st = JSON.parse(raw); lastParsedRaw = raw; } catch (e) { return; } }
       // Everything from hydration to the chrome labels runs in one guard, because an exception
       // ANYWHERE in it used to skip the per-tab render hooks below -- and those hooks are what
       // write the labels. That is the mechanism behind "the CONFIG text sometimes disappears":

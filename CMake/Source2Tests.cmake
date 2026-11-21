@@ -598,8 +598,10 @@ target_link_libraries(EnvironmentReceiverTests PRIVATE d3d11)
 add_test(NAME EnvironmentReceiverTests COMMAND EnvironmentReceiverTests)
 # It compiles the whole surface program (coatings, the CS2 snow material, footprints) through fxc
 # for a dozen probes, about 140 s on main and over CI's 300 s default after the November environment
-# work. Its own limit keeps it in CI rather than in the excluded slow list.
-set_tests_properties(EnvironmentReceiverTests PROPERTIES TIMEOUT 900)
+# work. Its own limit keeps it in CI rather than in the excluded slow list. CI now takes about
+# 770 s and once ran past 900 s on a slower runner (2026-11-20) with no shader change, so the limit
+# leaves room for runner speed.
+set_tests_properties(EnvironmentReceiverTests PROPERTIES TIMEOUT 1800)
 add_executable(EnvironmentAnimatedCasterTests ../Automation/tests/environment-animated-caster-tests.cpp Filmmaker/Environment/EnvironmentAnimatedCasters.cpp Filmmaker/Environment/EnvironmentParticleShadows.cpp Filmmaker/Environment/EnvironmentCasterBounds.cpp)
 target_compile_features(EnvironmentAnimatedCasterTests PRIVATE cxx_std_17)
 target_link_libraries(EnvironmentAnimatedCasterTests PRIVATE d3d11 dxguid)

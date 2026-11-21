@@ -569,13 +569,14 @@ static Scene AnimatedScene(Scene scene) {
         auto f = state->fields.find(id);
         return f != state->fields.end() && component < f->second.size() ? f->second[component] : base;
     };
-    for (int i=0;i<ClimateCount;++i) scene.climate.values[i]=float(number(std::string("env.")+ClimateSpecs()[i].key,scene.climate.values[i]));
-    // A keyed time of day moves the sun and the moon with it. Keyed sun angles (the Scene Keys
-    // macros key only those) move the moon too: as for a `climate sunAzimuth` command, the time that
-    // puts the sun there is found first, so the moon rises opposite a sun keyed below the horizon.
-    auto keyed = [&](ClimateField f) { return state->fields.count(std::string("env.") + ClimateSpecs()[f].key) != 0; };
-    if (keyed(CL_timeOfDay) || keyed(CL_sunPath) || keyed(CL_sunHeight)) ApplyTimeOfDay(scene.climate);
-    else if (keyed(CL_sunAzimuth) || keyed(CL_sunElevation)) { TimeOfDayFromSun(scene.climate); ApplyTimeOfDay(scene.climate); }
+    if (!state->fields.empty()) {
+        for (int i=0;i<ClimateCount;++i) scene.climate.values[i]=float(number(std::string("env.")+ClimateSpecs()[i].key,scene.climate.values[i]));
+        // Keyed time of day moves both sun and moon. Keyed sun angles do the same through
+        // TimeOfDayFromSun, as they do when set through the console.
+        auto keyed = [&](ClimateField f) { return state->fields.count(std::string("env.") + ClimateSpecs()[f].key) != 0; };
+        if (keyed(CL_timeOfDay) || keyed(CL_sunPath) || keyed(CL_sunHeight)) ApplyTimeOfDay(scene.climate);
+        else if (keyed(CL_sunAzimuth) || keyed(CL_sunElevation)) { TimeOfDayFromSun(scene.climate); ApplyTimeOfDay(scene.climate); }
+    }
     scene.enabled=number("env.enabled",scene.enabled)!=0;
     scene.exposure=float(number("env.exposure",scene.exposure));
     auto color=[&](const char* id,Vec3 c) {return Vec3{float(number(id,c.x*255,0)/255),float(number(id,c.y*255,1)/255),float(number(id,c.z*255,2)/255)};};
@@ -940,9 +941,10 @@ void CaptureCoatingActors(Frame &f) {
     const auto &c = f.scene.climate;
     // The round heat map leaves the live players' shoes unpainted from the same list, and the ground
     // fog is pushed aside by the same bodies.
-    if (!(c[CL_snow] > 0 || c[CL_wet] > 0 || c[CL_puddles] > 0 || (f.scene.weather.type == 1 && f.scene.weather.count > 0))
-        && !(c[CL_groundFog] > 0) && !Heatmap::Enabled())
-        return;
+    const bool weatherNeedsActors = f.active && (c[CL_snow] > 0 || c[CL_wet] > 0 ||
+        c[CL_puddles] > 0 || (f.scene.weather.type == 1 && f.scene.weather.count > 0) ||
+        c[CL_groundFog] > 0);
+    if (!weatherNeedsActors && !Heatmap::Enabled()) return;
     __try {
         const int highest = GetHighestEntityIndex();
         for (int i = 1; i <= highest && (int)f.actors.size() < Frame::kMaxActors; ++i) {
@@ -1342,7 +1344,9 @@ void AppendStateJson(std::ostringstream &out) {
         out << ']';
     }
     out << '}';
-    out << ",\"envRender\":\"" << JsonBuilder::Escape(g_status) << "\",\"envDraws\":" << g_draws;
+    // No draw counter here: it changed every frame and made the Config panel re-render every frame.
+    // `mirv_filmmaker environment status` prints it.
+    out << ",\"envRender\":\"" << JsonBuilder::Escape(g_status) << '"';
 }
 namespace {
 bool UndoLastEditLocked(std::string &error) {

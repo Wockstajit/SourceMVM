@@ -5,6 +5,7 @@
 #include <functional>
 #include <atomic>
 #include <queue>
+#include <utility>
 #include <mutex>
 
 class IRenderPassCommands {
@@ -32,7 +33,7 @@ public:
         }
 
         void Push(T &&value) {
-            m_Queue.push(value);
+            m_Queue.push(std::move(value));
         }
 
         bool Empty() {

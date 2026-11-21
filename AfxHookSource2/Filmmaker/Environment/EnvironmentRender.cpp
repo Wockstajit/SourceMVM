@@ -739,6 +739,28 @@ void SetSmokeAbsorbance(ID3D11ShaderResourceView *view, unsigned width, unsigned
 void EndEnvironmentPresent() { ++g.present; ReflectionProbes_EndPresent(); }
 bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D11DepthStencilView *depth,
             const Frame &input, float depthMin, float depthMax, ID3D11Texture2D *nativeHdrSource) {
+    // "Off" has to mean off. The GI volumes, AO, shadow atlases and screen-sized targets stay
+    // allocated after the last pass is switched off, and only a map change used to free them:
+    // users reported the whole PC lagging after turning Environment on and off again (2026-10-13).
+    // After kIdleReleaseFrames inactive frames, release everything through the device-loss path
+    // (EndDevice). Switching back on rebuilds it the same way a new device does (BeginDevice).
+    constexpr unsigned kIdleReleaseFrames = 300;
+    static unsigned s_idleFrames = 0;
+    static ComPtr<ID3D11Device> s_idleReleasedDevice;
+    if (!input.active) {
+        // Nothing is drawn, so nothing asks for off-screen reflections: without this the last wet
+        // frame's request kept CS2's probes read back and the tone curve measured while it was off,
+        // and the release below kept it (ReflectionProbes_Release preserves the request).
+        ReflectionProbes_Want(false);
+        if (++s_idleFrames == kIdleReleaseFrames && (g.ready || devicePending) && g.device) {
+            s_idleReleasedDevice = g.device;
+            EndDevice();
+            SetRenderStatus("Off (resources released)");
+            MvmDebugLog_LinefAlways("environment.idle", "released renderer resources after %u inactive frames", kIdleReleaseFrames);
+        }
+        g.materialImages.clear();gHdr.materialImages.clear();
+        return false;
+    }
     RenderPrivateTextureScope privateTextures;
     Frame lightingFrame;
     if(input.nativeLightingPass){
@@ -769,28 +791,6 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
                 input.time, storm.event, storm.age, storm.flash, storm.source.x, storm.source.y, storm.source.z, int(stormLighting), int(bool(input.occlusion)));
             lastEvent = storm.event; lastLit = lit;
         }
-    }
-    // "Off" has to mean off. The GI volumes, AO, shadow atlases and screen-sized targets stay
-    // allocated after the last pass is switched off, and only a map change used to free them:
-    // users reported the whole PC lagging after turning Environment on and off again (2026-10-13).
-    // After kIdleReleaseFrames inactive frames, release everything through the device-loss path
-    // (EndDevice). Switching back on rebuilds it the same way a new device does (BeginDevice).
-    constexpr unsigned kIdleReleaseFrames = 300;
-    static unsigned s_idleFrames = 0;
-    static ComPtr<ID3D11Device> s_idleReleasedDevice;
-    if (!f.active) {
-        // Nothing is drawn, so nothing asks for off-screen reflections: without this the last wet
-        // frame's request kept CS2's probes read back and the tone curve measured while it was off,
-        // and the release below kept it (ReflectionProbes_Release preserves the request).
-        ReflectionProbes_Want(false);
-        if (++s_idleFrames == kIdleReleaseFrames && (g.ready || devicePending) && g.device) {
-            s_idleReleasedDevice = g.device;
-            EndDevice();
-            SetRenderStatus("Off (resources released)");
-            MvmDebugLog_LinefAlways("environment.idle", "released renderer resources after %u inactive frames", kIdleReleaseFrames);
-        }
-        g.materialImages.clear();gHdr.materialImages.clear();
-        return false;
     }
     s_idleFrames = 0;
     if (s_idleReleasedDevice) {
