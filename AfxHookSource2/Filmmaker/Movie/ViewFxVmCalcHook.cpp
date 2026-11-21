@@ -9,6 +9,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include "../../../Deps/release/Detours/src/detours.h"
+#include "../../Globals.h"
 
 #include <cstdint>
 
@@ -129,13 +130,10 @@ void __fastcall Hook(void* player, float* eyeOrigin, float* eyeAngles, bool upda
 	}
 }
 
-unsigned char* FindEnclosingFunctionStart(unsigned char* sectionStart, unsigned char* at) {
-	unsigned char* q = at;
-	unsigned char* lo = at - 0x1000 > sectionStart ? at - 0x1000 : sectionStart;
-	for (; q > lo; --q)
-		if (q[-1] == 0xCC && q[-2] == 0xCC && q[0] != 0xCC)
-			return q;
-	return nullptr;
+// Reads the function start from client.dll's unwind table. Scanning back for two int3 bytes found the
+// wrong function in the 2026-11-20 build, where the offset applier is preceded by a single CC.
+unsigned char* FindEnclosingFunctionStart(unsigned char* at) {
+	return (unsigned char*)getFunctionStart((std::size_t)at);
 }
 
 std::size_t FindCalcViewModelView() {
@@ -152,7 +150,7 @@ std::size_t FindCalcViewModelView() {
 			if (*p != 0xE8) continue;
 			const long long rel = *(int*)(p + 1);
 			if ((std::size_t)(p + 5 + rel) != g_helperAddress) continue;
-			if (unsigned char* start = FindEnclosingFunctionStart((unsigned char*)range.Start, p))
+			if (unsigned char* start = FindEnclosingFunctionStart(p))
 				offsetApplierStart = start;
 		}
 	}
@@ -170,7 +168,7 @@ std::size_t FindCalcViewModelView() {
 			if (*p != 0xE8) continue;
 			const long long rel = *(int*)(p + 1);
 			if (p + 5 + rel != offsetApplierStart) continue;
-			if (unsigned char* start = FindEnclosingFunctionStart((unsigned char*)range.Start, p)) {
+			if (unsigned char* start = FindEnclosingFunctionStart(p)) {
 				advancedfx::Message(
 					"[viewfxvm] helper=%p offset-applier=%p CalcViewModelView call=%p start=%p.\n",
 					(void*)g_helperAddress, offsetApplierStart, p, start);
