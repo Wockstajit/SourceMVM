@@ -507,7 +507,22 @@ bool WriteWind(float strength) {
 // so a key above 0 spawns it even while CONFIG's wind is off; the entity then only has its
 // strengths rewritten, at most once per whole unit of change.
 void PumpKeyedWind() {
-	const bool keyed = WorldTransient::Has("props.wind");
+	// Keyed wind only moves the live entity's strengths in place. Without those schema fields (a CS2
+	// update renamed one) it is refused with the field's name, and the authored wind stays: the
+	// fallback would be a new entity per unit of change, each one restarting the gusts.
+	static const WorldField kKeyedWindFields[] = { kWF_WindC_Shared, kWF_WindS_MinWind, kWF_WindS_MaxWind, kWF_WindS_MinGust, kWF_WindS_MaxGust };
+	bool keyed = WorldTransient::Has("props.wind");
+	if (keyed && !WorldSchema_HasAll(kKeyedWindFields, std::size(kKeyedWindFields))) {
+		static bool told = false;
+		if (!told) {
+			told = true;
+			const char* missing = WorldSchema_FirstMissing(kKeyedWindFields, std::size(kKeyedWindFields));
+			g_message = std::string("Keyed Foliage wind is off: the game's wind field ") + (missing ? missing : "?") + " was not found.";
+			MvmDebugLog_LinefAlways("props.wind", "keyed wind refused: missing schema field %s", missing ? missing : "?");
+			++g_revision;
+		}
+		keyed = false;
+	}
 	const float want = keyed ? std::clamp(float(WorldTransient::Number("props.wind", g_windStrength)), 0.0f, 200.0f) : g_windStrength;
 	const bool live = g_wind && EntityAt(g_windIndex) == g_wind;
 	if (!live) {
@@ -520,8 +535,9 @@ void PumpKeyedWind() {
 	}
 	if (std::fabs(want - g_windApplied) < 1.0f) return;
 	if (!WriteWind(want)) {
-		DespawnWind();
-		SpawnWind(want);
+		// Only CONFIG's own change respawns (once per edit). A keyed curve never does.
+		if (keyed) { MvmDebugLog_LinefAlways("props.wind", "keyed wind write failed at strength=%.1f", want); g_windApplied = want; }
+		else { DespawnWind(); SpawnWind(want); }
 	}
 	if (MvmDebugLog_Active()) {
 		static ULONGLONG last = 0;
