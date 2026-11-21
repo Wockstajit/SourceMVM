@@ -99,6 +99,7 @@ void ReadBridgeView() {
 // Lights added with `environment add <kind> camera`: attached to the camera at the eye once they
 // are in the scene. Queued because the Environment adds them under its own lock.
 std::vector<int> g_cameraRidesPending;
+unsigned g_cameraRideWaitFrames = 0;
 // A slider drag sends a stream of `rig set`: the edits that follow each other closely are one undo
 // step, closed 600 ms after the last (the Environment's Remember() rule for its own sliders).
 bool g_sliderGesture = false;
@@ -328,15 +329,18 @@ void ReadParent(Live& l) {
 }
 
 void ResolveAll() {
-	Rig::LocalFn local = [](int id, Pose& out) {
-		const auto f = g_live.find(id);
-		if (f == g_live.end() || !f->second.info.enabled) return false;
-		out = Rig::ChannelsToPose(f->second.local);
-		return true;
-	};
 	Rig::AttachFn attach = [](int id) -> const Rig::Attachment* {
 		const auto f = g_live.find(id);
 		return f != g_live.end() && f->second.attached ? &f->second.att : nullptr;
+	};
+	// Only lights ride the view: a mesh or camera chained under a camera light is treated as gone
+	// (so is anything riding it), whatever the file or an older attach said.
+	Rig::LocalFn local = [attach](int id, Pose& out) {
+		const auto f = g_live.find(id);
+		if (f == g_live.end() || !f->second.info.enabled) return false;
+		if (!Rig::CanRideCamera(f->second.info.kind) && Rig::RootsAtCamera(id, attach)) return false;
+		out = Rig::ChannelsToPose(f->second.local);
+		return true;
 	};
 	Rig::ExternalFn external = [](int id, const Rig::Attachment&) {
 		const auto f = g_live.find(id);
@@ -874,9 +878,8 @@ void SceneRig_RunMainThreadFrame() {
 			MvmDebugLog_LinefAlways("rig.attach", "id=%d parent=camera (added on the camera)", id);
 		}
 		// A light that never arrives (the add failed) stops waiting after a few frames.
-		static unsigned s_waitFrames = 0;
-		s_waitFrames = waiting.empty() ? 0 : s_waitFrames + 1;
-		if (s_waitFrames > 30) { waiting.clear(); s_waitFrames = 0; }
+		g_cameraRideWaitFrames = waiting.empty() ? 0 : g_cameraRideWaitFrames + 1;
+		if (g_cameraRideWaitFrames > 30) { waiting.clear(); g_cameraRideWaitFrames = 0; }
 		g_cameraRidesPending.swap(waiting);
 	}
 	if (NeedsPlayers()) ScanPlayers();
@@ -931,6 +934,10 @@ void SceneRig_Reset() {
 	g_pathCache.clear();
 	HideOverlay();
 	g_goto = GoToPending{};
+	// A light queued to ride the camera belongs to the session that added it; its id may be
+	// another object's in the next one.
+	g_cameraRidesPending.clear();
+	g_cameraRideWaitFrames = 0;
 }
 
 int SceneRig_LookThrough() { return g_lookThrough; }
@@ -1081,6 +1088,13 @@ void SceneRig_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* c
 		} else {
 			if (target == id || !Find(target)) { advancedfx::Warning("rig: choose another placed object\n"); return; }
 			if (Rig::WouldCycle(SceneKeys_Data().attach, id, target)) { advancedfx::Warning("rig: that would attach it to itself\n"); return; }
+			const auto& saved = SceneKeys_Data().attach;
+			const Rig::AttachFn savedAttach = [&saved](int at) -> const Rig::Attachment* { const auto f = saved.find(at); return f == saved.end() ? nullptr : &f->second; };
+			if (!Rig::CanRideCamera(l->info.kind) && Rig::RootsAtCamera(target, savedAttach)) {
+				advancedfx::Warning("rig: only lights ride the camera, and that object rides it\n");
+				g_message = "Only lights ride the camera.";
+				return;
+			}
 			a.object = target; a.mount = "";
 		}
 		Attach(id, *l, &a);

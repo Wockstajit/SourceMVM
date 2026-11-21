@@ -325,6 +325,20 @@ inline Pose ChannelsToPose(const double v[kPoseChannels]) {
 // glued to the lens has no use.
 inline bool CanRideCamera(const std::string& kind) { return IsLightKind(kind); }
 
+// Does `id`'s chain end on the camera (directly, or through the scene objects it rides)? A
+// non-light must not ride the view by way of a camera light either.
+inline bool RootsAtCamera(int id, const AttachFn& attachment) {
+	int at = id;
+	for (int depth = 0; depth <= kMaxChainDepth; ++depth) {
+		const Attachment* a = attachment(at);
+		if (!a) return false;
+		if (a->parent == ParentKind::Camera) return true;
+		if (a->parent != ParentKind::Object) return false;
+		at = a->object;
+	}
+	return false;
+}
+
 // The rendered camera as a pose, from its eye and the world directions of its forward and up axes
 // (the view matrix's, so the roll a camera path keys is kept).
 inline Pose ViewPose(const FollowVec3& eye, const FollowVec3& forward, const FollowVec3& up) {

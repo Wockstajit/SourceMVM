@@ -222,6 +222,13 @@ int main() {
 
 		Check(CanRideCamera("spot") && CanRideCamera("point") && CanRideCamera("area") && !CanRideCamera("camera") && !CanRideCamera("obj"),
 			"only lights ride the camera");
+		// A mesh on the camera light (5 rides 4 rides the camera) would ride the view indirectly.
+		Check(RootsAtCamera(4, attachment) && RootsAtCamera(5, attachment) && !RootsAtCamera(6, attachment),
+			"a chain through a camera light roots at the camera");
+		Attachment onPlayer; onPlayer.parent = ParentKind::Player; attach[7] = onPlayer;
+		Attachment onPlayerChild; onPlayerChild.parent = ParentKind::Object; onPlayerChild.object = 7; attach[8] = onPlayerChild;
+		Check(!RootsAtCamera(8, attachment), "a chain through a player does not root at the camera");
+		attach.erase(7); attach.erase(8);
 
 		// The file keeps it: a camera parent has no identity fields.
 		JsonBuilder j; WriteAttachments(j, attach);
