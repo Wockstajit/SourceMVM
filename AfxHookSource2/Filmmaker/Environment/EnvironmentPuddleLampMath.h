@@ -43,10 +43,15 @@ inline bool PuddleLampCandidate(const Relight::Light& light) {
     return light.enabled && !light.sceneObject && !light.transient && !light.viewmodelEmitter &&
            light.kind != "light_rect";
 }
-inline PuddleLampTable PuddleLamps(const std::vector<Relight::Light>& lights, Vec3 camera, float intensity) {
+// `switches`: honour the per-lamp on/off edits (Map lights, `mirv_relight light <n> off`). They are
+// the replacement lighting's own: the map data never switches a lamp off, and while CS2 lights the map
+// it draws every lamp whatever those edits say, so its puddles show every lamp too.
+inline PuddleLampTable PuddleLamps(const std::vector<Relight::Light>& lights, Vec3 camera, float intensity,
+                                   bool switches = true) {
     struct Pick { float distance; Vec3 bulb; Relight::LiteLamp lamp; };
     std::vector<Pick> picks;
-    for (const auto& light : lights) {
+    for (auto light : lights) {
+        if (!switches) light.enabled = true;
         if (!PuddleLampCandidate(light)) continue;
         Relight::LiteLamp lamp;
         if (!Relight::MakeLiteLamp(light, intensity, lamp)) continue;
@@ -80,11 +85,12 @@ inline PuddleLampTable PuddleLamps(const std::vector<Relight::Light>& lights, Ve
     return table;
 }
 // The lamps of the Relight scene a puddle shows. While the Environment lights the map it shows what
-// the native lighting draws: Map light power, and nothing when its local lights are off (`mirv_relight
-// locallights 0`; a puddle mirrored lamps that no longer lit anything). Otherwise CS2 draws the map's
-// lamps at their authored brightness.
+// the native lighting draws: Map light power, the lamps switched off under Map lights left out, and
+// nothing when its local lights are off (`mirv_relight locallights 0`; a puddle mirrored lamps that no
+// longer lit anything). Otherwise CS2 draws every lamp at its authored brightness, and so do puddles:
+// a lamp switched off for the replacement lighting still lights the map and still shows in water.
 inline PuddleLampTable PuddleLamps(const Relight::Scene& scene, Vec3 camera) {
     if (scene.enabled && !scene.localLights) return {};
-    return PuddleLamps(scene.lights, camera, scene.enabled ? scene.intensity : 1.f);
+    return PuddleLamps(scene.lights, camera, scene.enabled ? scene.intensity : 1.f, scene.enabled);
 }
 } // namespace Filmmaker::Environment

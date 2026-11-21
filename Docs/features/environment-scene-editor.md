@@ -184,8 +184,8 @@ so a puddle showed a lamp no brighter than the pool of light round it. The map's
 same way: the eight bulbs and shaded lamps (`light_barn`, such as Dust 2's hanging lamps) nearest the
 camera, seen at the bulb, with the light and falloff the native lighting gives them, scaled by Map
 light power while the Environment lights the map. A shaded lamp's bulb hangs below its shade, so it
-shows in water anywhere below the shade, not only inside the narrow beam it throws on the floor. Lamps switched off under Map lights,
-effect lights, `light_rect` fill panels (an opening with nothing to see) and broad fill emitters
+shows in water anywhere below the shade, not only inside the narrow beam it throws on the floor. Lamps switched off under Map lights
+(only while the Environment lights the map; CS2 still draws them otherwise), effect lights, `light_rect` fill panels (an opening with nothing to see) and broad fill emitters
 (Dust 2's 177-unit sky fill drew a glow on wet walls) are left out.
 A map lamp has no shadow in this pass, so the line from the water to the lamp is walked on screen:
 where two samples running lie well behind the drawn surface, a wall is in the way and the lamp is

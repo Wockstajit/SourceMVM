@@ -243,6 +243,15 @@ int main(){
         Check(PuddleLamps(scene,{0,0,64}).count==0,"With local lights off no map lamp shows in a puddle");
         scene.enabled=false;
         Check(PuddleLamps(scene,{0,0,64}).count==table.count&&Near(PuddleLamps(scene,{0,0,64}).rows[1][0],table.rows[1][0]),"Under CS2's own lighting the lamps show at their authored brightness");
+        // A lamp switched off under Map lights: gone while the Environment lights the map, back in
+        // the puddle under CS2's own lighting, which still draws it.
+        Filmmaker::Relight::Scene picked;picked.lights={bulbAt({600,0,100}),bulbAt({900,0,100})};picked.lights[0].enabled=false;
+        picked.enabled=true;
+        const auto relit=PuddleLamps(picked,{0,0,64});
+        Check(relit.count==1&&Near(relit.rows[0][0],900),"With the Environment lighting the map, a lamp switched off is not in a puddle");
+        picked.enabled=false;
+        const auto native=PuddleLamps(picked,{0,0,64});
+        Check(native.count==2&&Near(native.rows[0][0],600),"Under CS2's own lighting a lamp switched off for the Environment still shows in a puddle");
         Light sky=bulbAt({0,0,1000});sky.sourceRadius=177;sky.sizeX=sky.sizeY=177;sky.range=2400;sky.lumens=30000;
         Check(PuddleLamps({sky},{0,0,64},1).count==0,"A broad fill emitter is not a bulb in a puddle");
     }
