@@ -68,7 +68,7 @@ that answer is wrong, or when a tool needs something Steam does not know about.
 | Variable | Used by | When to set it |
 | --- | --- | --- |
 | `SOURCEMVM_CS2_DIR` | launch + verify scripts, Python tools | CS2 is somewhere Steam does not list, or several installs exist and you want a specific one. Point it at the install **root** (the folder containing `game\bin\win64\cs2.exe`). |
-| `SOURCEMVM_VRF_CLI` | FX conversion and asset-research tools | Only for rebuilding converted FX packs or asset research. Map lighting data does not need it, because the hook extracts maps natively. Defaults to a [ValveResourceFormat](https://github.com/ValveResourceFormat/ValveResourceFormat) checkout sitting **next to** this repository, i.e. `..\ValveResourceFormat\CLI\bin\Release\Source2Viewer-CLI.exe`. |
+| `SOURCEMVM_VRF_CLI` | FX conversion and asset-research tools | Only for rebuilding converted FX packs or asset research. Map lighting data does not need it, because the hook extracts maps natively. Defaults to a [ValveResourceFormat](https://github.com/ValveResourceFormat/ValveResourceFormat) checkout sitting **next to** this repository, i.e. `..\ValveResourceFormat\CLI\bin\Release\Source2Viewer-CLI.exe`. VRF 21.1 and newer build with the .NET 11 SDK: `dotnet publish CLI\CLI.csproj -c Release -r win-x64 --self-contained -o CLI\bin\Release`. |
 | `GMOD_DIR`, `INSURGENCY_DIR`, `SOURCEMVM_INSURGENCY2_DIR` | FX source extraction | Only when re-extracting a pack from its donor game into the local `FX\sources\` (not in the repository, see [FX/README.md](FX/README.md)); a normal FX rebuild reads that local tree instead. |
 
 Every one of these is also available as an explicit script parameter (`-Cs2Dir`, `-VrfCli`,
