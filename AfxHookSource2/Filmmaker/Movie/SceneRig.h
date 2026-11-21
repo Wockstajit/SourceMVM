@@ -43,6 +43,9 @@ bool SceneRig_SetWorld(int id, const double position[3], const double* angles);
 // A light just added on the camera (`environment add <kind> camera`): attach it to the camera,
 // at the eye, once it is in the scene (the next frame). Only queues, so it is safe under the lock.
 void SceneRig_QueueCameraRide(int id);
+// The Environment replaced its scene (undo, restore, reset): drop the queued rides, since an
+// undone light's id is handed out again. Also safe under the lock.
+void SceneRig_CancelCameraRides();
 // A gizmo drag on a rigged object is one undo step: begin, any number of SetWorld, end.
 void SceneRig_BeginGesture();
 void SceneRig_EndGesture(bool keep);

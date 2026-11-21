@@ -944,6 +944,11 @@ int SceneRig_LookThrough() { return g_lookThrough; }
 
 void SceneRig_QueueCameraRide(int id) { g_cameraRidesPending.push_back(id); }
 
+void SceneRig_CancelCameraRides() {
+	g_cameraRidesPending.clear();
+	g_cameraRideWaitFrames = 0;
+}
+
 // ---- Environment hooks ---------------------------------------------------------------------
 
 bool SceneRig_Rigged(int id) {

@@ -348,7 +348,7 @@ void UpdateAutosave(const std::string& map) {
         // A practice session starts every map without the user's saved environment.
         g_restoreAutosave = false;
         g_scene = Scene{};
-        ++g_sceneGeneration;
+        ++g_sceneGeneration; SceneRig_CancelCameraRides();
         Scene initial = LiveScene(); initial.map = map;
         g_autosave.Bind(map, SerializeScene(initial));
         MvmDebugLog_LinefAlways("environment.autosave", "restore skipped map=%s (practice session)", map.c_str());
@@ -360,7 +360,7 @@ void UpdateAutosave(const std::string& map) {
         // anyway, as this used to, made the switch do nothing, and an edit made before the restore
         // landed saved the empty scene over the map's file.
         g_restoreAutosave = false;
-        ++g_sceneGeneration;
+        ++g_sceneGeneration; SceneRig_CancelCameraRides();
         FlushAutosave(true); // a pending write from before the demo change still lands
         Scene initial = LiveScene(); initial.map = map;
         g_autosave.Bind(map, SerializeScene(initial));
@@ -407,7 +407,7 @@ void UpdateAutosave(const std::string& map) {
                 HoldRestoredPasses(pending.climate, pending.weather.type, pending.held);
                 if(Resolve(pending,error)&&PrepareWorldLook(pending.world,error)){
                     ApplyWorldLook(pending.world);FilmmakerSettings_AcceptCurrent();
-                    g_scene=std::move(pending);++g_sceneGeneration;restored=true;
+                    g_scene=std::move(pending);++g_sceneGeneration;SceneRig_CancelCameraRides();restored=true;
                     g_message="Recovered environment for "+map+". Effects stay off until you switch them on; their settings are kept.";
                 }
             }
@@ -428,7 +428,7 @@ void UpdateAutosave(const std::string& map) {
                 ApplyWorldLook(scene.world);
                 FilmmakerSettings_AcceptCurrent();
                 g_scene = std::move(scene);
-                ++g_sceneGeneration;
+                ++g_sceneGeneration; SceneRig_CancelCameraRides();
                 restored = true;
                 g_message = "Restored environment for " + map + ". Effects stay off until you switch them on; their settings are kept.";
                 break;
@@ -719,7 +719,7 @@ void EndPractice() {
     if (g_drag.active) g_scene = g_dragBefore;
     g_drag = {};
     g_scene = Scene{};
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     g_selected = 0; g_editing = 0; ++g_editRevision;
     g_undo.clear();
     g_undoStamps.clear();
@@ -749,7 +749,7 @@ void OnLevelInit() {
     g_restoreAutosave = true;
     g_autosaveQuiet = false;
     g_restoreGate.Reset();
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     ResetNativeWater();
     ResetNativeRain();
     g_cameraValid = false;
@@ -1390,7 +1390,7 @@ bool UndoLastEditLocked(std::string &error) {
     FilmmakerSettings_AcceptCurrent();
     g_scene = g_undo.back();
     g_restoreAutosave = false;
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     g_undo.pop_back();
     g_undoStamps.pop_back();
     g_lastRemember = 0;
@@ -1417,7 +1417,7 @@ void AdoptValidatedScene(Scene validated) {
     g_autosaveQuiet = false; // an edit: from here the map's file follows the scene again
     g_scene = std::move(validated);
     g_restoreAutosave = false;
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     if (IsSceneMap(CurrentMap())) {
         Scene committed = LiveScene(); committed.map = CurrentMap();
         if (g_autosave.map != committed.map) { FlushAutosave(true); BindAutosave(committed.map); }
