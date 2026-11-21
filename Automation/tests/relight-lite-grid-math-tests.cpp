@@ -231,6 +231,18 @@ int main(){
         const auto brighter=PuddleLamps(lights,{0,0,64},2);
         Check(Near(brighter.rows[1][0],2*table.rows[1][0],.01f),"Map light power scales the lamps in a puddle");
         Check(PuddleLamps(lights,{100000,0,64},1).count==0,"Lamps far from the camera are left out");
+        // Ranked by the camera's distance to the bulb: with every range holding the camera, a far
+        // lamp with a long range must not push out a near bulb.
+        std::vector<Light> wide;for(int i=0;i<9;++i){Light l=bulbAt({float(4000-i*400),0,100});l.range=6000;wide.push_back(l);}
+        const auto ranked=PuddleLamps(wide,{0,0,64},1);
+        Check(ranked.count==kPuddleLamps&&Near(ranked.rows[0][0],800)&&Near(ranked.rows[(kPuddleLamps-1)*kPuddleLampRows][0],3600),"Lamps whose range holds the camera are still nearest first");
+        // While the Environment lights the map, its local-lights switch and Map light power decide.
+        Filmmaker::Relight::Scene scene;scene.lights=lights;scene.enabled=true;scene.intensity=2;
+        Check(Near(PuddleLamps(scene,{0,0,64}).rows[1][0],brighter.rows[1][0],.01f),"The relit scene's Map light power reaches the puddle");
+        scene.localLights=false;
+        Check(PuddleLamps(scene,{0,0,64}).count==0,"With local lights off no map lamp shows in a puddle");
+        scene.enabled=false;
+        Check(PuddleLamps(scene,{0,0,64}).count==table.count&&Near(PuddleLamps(scene,{0,0,64}).rows[1][0],table.rows[1][0]),"Under CS2's own lighting the lamps show at their authored brightness");
         Light sky=bulbAt({0,0,1000});sky.sourceRadius=177;sky.sizeX=sky.sizeY=177;sky.range=2400;sky.lumens=30000;
         Check(PuddleLamps({sky},{0,0,64},1).count==0,"A broad fill emitter is not a bulb in a puddle");
     }

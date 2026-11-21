@@ -44,7 +44,7 @@ inline bool PuddleLampCandidate(const Relight::Light& light) {
            light.kind != "light_rect";
 }
 inline PuddleLampTable PuddleLamps(const std::vector<Relight::Light>& lights, Vec3 camera, float intensity) {
-    struct Pick { float score; Vec3 bulb; Relight::LiteLamp lamp; };
+    struct Pick { float distance; Vec3 bulb; Relight::LiteLamp lamp; };
     std::vector<Pick> picks;
     for (const auto& light : lights) {
         if (!PuddleLampCandidate(light)) continue;
@@ -52,12 +52,15 @@ inline PuddleLampTable PuddleLamps(const std::vector<Relight::Light>& lights, Ve
         if (!Relight::MakeLiteLamp(light, intensity, lamp)) continue;
         if (lamp.fixture && !(lamp.soft > 0)) continue; // no eye: no falloff to light the bulb by
         if (!lamp.fixture && lamp.soft > kPuddleBulbRadius * kPuddleBulbRadius) continue;
+        // Kept while the camera is within kPuddleLampDistance of the lamp's reach (its light can be
+        // on screen), and ranked by how far the camera is from the bulb itself. Ranked by the gap to
+        // the reach, every lamp whose range holds the camera tied at zero, and a far lamp with a long
+        // range could push a nearby bulb out of the eight.
         const Vec3 d = light.position - camera;
-        // How far the camera is from the lamp's reach: zero inside it, where its light is on screen.
-        const float score = (std::max)(0.f, std::sqrt(Dot(d, d)) - lamp.reach);
-        if (score < kPuddleLampDistance) picks.push_back({score, light.position, lamp});
+        const float distance = std::sqrt(Dot(d, d));
+        if (distance - lamp.reach < kPuddleLampDistance) picks.push_back({distance, light.position, lamp});
     }
-    std::stable_sort(picks.begin(), picks.end(), [](const Pick& a, const Pick& b) { return a.score < b.score; });
+    std::stable_sort(picks.begin(), picks.end(), [](const Pick& a, const Pick& b) { return a.distance < b.distance; });
     PuddleLampTable table;
     for (const auto& pick : picks) {
         if (table.count >= kPuddleLamps) break;
@@ -75,5 +78,13 @@ inline PuddleLampTable PuddleLamps(const std::vector<Relight::Light>& lights, Ve
         ++table.count;
     }
     return table;
+}
+// The lamps of the Relight scene a puddle shows. While the Environment lights the map it shows what
+// the native lighting draws: Map light power, and nothing when its local lights are off (`mirv_relight
+// locallights 0`; a puddle mirrored lamps that no longer lit anything). Otherwise CS2 draws the map's
+// lamps at their authored brightness.
+inline PuddleLampTable PuddleLamps(const Relight::Scene& scene, Vec3 camera) {
+    if (scene.enabled && !scene.localLights) return {};
+    return PuddleLamps(scene.lights, camera, scene.enabled ? scene.intensity : 1.f);
 }
 } // namespace Filmmaker::Environment

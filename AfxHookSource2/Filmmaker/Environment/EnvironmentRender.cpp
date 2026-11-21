@@ -1030,7 +1030,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     // otherwise.
     {
         const bool wetGround = climate[CL_wet] > 0 || climate[CL_puddles] > 0 || climate[CL_snow] > 0;
-        const auto lamps = wetGround ? PuddleLamps(f.relight.lights, f.camera, f.relight.enabled ? f.relight.intensity : 1.f)
+        const auto lamps = wetGround ? PuddleLamps(f.relight, f.camera)
                                      : PuddleLampTable{};
         for (unsigned i = 0; i < lamps.count * kPuddleLampRows; ++i)
             c.mapLamps[i] = {lamps.rows[i][0], lamps.rows[i][1], lamps.rows[i][2], lamps.rows[i][3]};
