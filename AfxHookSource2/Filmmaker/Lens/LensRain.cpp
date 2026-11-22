@@ -94,7 +94,8 @@ VsOut VS(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
     const float run = length(water.xy);
     const float2 dir = run > 1e-5 ? water.xy / run : float2(0, 1);
     const bool preview = look.z > 0.5;
-    const float radius = max((preview ? 1.6 : 0.9) / info.y, drop.z);
+    // Keep a tiny drop readable on a low-resolution preview without changing its simulation.
+    const float radius = max((preview ? 2.4 : 1.15) / info.y, drop.z);
     const float runRadii = run / radius;
     const float coverage = saturate(drop.z / radius);
     const float2 corner = corners[vid];
@@ -105,7 +106,7 @@ VsOut VS(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
     o.pos = float4(screen.x * 2 - 1, 1 - screen.y * 2, 0, 1);
     o.local = local;
     o.shape = float4(radius, runRadii, drop.w, water.z);
-    const float opacity = water.w * (preview ? sqrt(coverage) : coverage * coverage);
+    const float opacity = water.w * (preview ? lerp(0.72, 1.0, coverage) : coverage);
     o.motion = float4(dir, opacity, drop.z);
     return o;
 }
@@ -151,10 +152,15 @@ float4 PS(VsOut i) : SV_Target {
     const float2 sampleUv = uv - normal * (opticalRadius * look.x * displacement) / float2(info.x, 1);
     const float mip = BlurMip(opticalRadius * blur * (splash ? 0.93 : 0.70));
     float3 color = scene.SampleLevel(linearClamp, sampleUv, mip).rgb;
-    if (!splash) {
-        // Keep the rim subdued and tied to scene color so subpixel drops don't flash.
-        const float rim = smoothstep(0.38, 1.0, d);
-        color *= 1.0 + 0.17 * rim * clamp(dot(normal, float2(-0.6, -0.8)), -1.0, 1.0);
+    if (!splash || preview) {
+        // A broad highlight and a darker opposing edge read on plain surfaces.
+        // Keep the refracted scene visible through the center of the drop.
+        const float rim = smoothstep(0.35, 0.84, d) * (1.0 - smoothstep(0.98, 1.28, d));
+        const float facing = dot(normal, float2(-0.6, -0.8));
+        const float light = rim * saturate(facing);
+        const float shadow = rim * saturate(-facing);
+        color *= 1.0 + 0.26 * light - 0.52 * shadow;
+        color += saturate(1.0 - color) * light * (preview ? (splash ? 0.12 : 0.55) : 0.09);
     }
     const float opacity = preview ? 1.0 : (splash ? 0.83 : 0.95);
     return float4(color, alpha * i.motion.z * opacity);
