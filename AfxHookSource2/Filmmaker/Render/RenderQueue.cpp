@@ -11,6 +11,7 @@
 #include "../Debug/MvmDebugLog.h"
 #include "../Movie/CameraBridge.h"
 #include "../Movie/CameraPath.h"
+#include "../Movie/KillFeed.h"
 #include "../Platform/JsonBuilder.h"
 #include "../../ClientEntitySystem.h"
 #include "../../MirvTime.h"
@@ -41,6 +42,10 @@ struct Entry {
 	std::string povName;
 	std::vector<CamMarker> path;
 	bool stillPose = false;    // a Free Camera shot: `path` holds its pose at the shot's start and end
+	// How the path is flown: the evaluator is rebuilt with these when the keys go back in.
+	CameraPath::Interp interp = CameraPath::Interp::Bezier;
+	CameraPath::SpeedMode speedMode = CameraPath::SpeedMode::Manual;
+	KillFeedState killFeed;    // the kill feed's names and filter
 	std::string status = "queued"; // queued | rendering | completed | failed | canceled | skipped
 	std::string note;
 };
@@ -55,6 +60,9 @@ struct Saved {
 	RenderPasses passes;
 	std::vector<CamMarker> path;
 	bool pathTouched = false;
+	CameraPath::Interp interp = CameraPath::Interp::Bezier;
+	CameraPath::SpeedMode speedMode = CameraPath::SpeedMode::Manual;
+	KillFeedState killFeed;
 	int tick = -1;          // the playhead the queue started from
 	uint64_t watched = 0;   // the player being watched then, 0 = none
 };
@@ -132,6 +140,7 @@ bool AddCurrent(std::string& error) {
 	e.out = RenderOutputSettingsRef();
 	e.passes = RenderPassesRef();
 	e.passes.passes = NormalizePasses(e.passes.passes);
+	e.killFeed = KillFeed_Snapshot();
 	if (e.passes.passes.empty()) { error = "no render pass selected"; return false; }
 	// Each shot keeps what its camera follows, so a later shot changing the watched player or the
 	// view does not change it: the watched player for the player cameras, the pose for Free Camera.
@@ -148,7 +157,12 @@ bool AddCurrent(std::string& error) {
 			e.path.push_back(m);
 		}
 		e.stillPose = true;
-	} else if (e.camera != RenderCameraSource::CameraPath) {
+		e.interp = CameraPath::Interp::Linear; // two identical keys: held, whatever the path's settings
+		e.speedMode = CameraPath::SpeedMode::Manual;
+	} else if (e.camera == RenderCameraSource::CameraPath) {
+		e.interp = CameraPathRef().GetInterp();
+		e.speedMode = CameraPathRef().GetSpeedMode();
+	} else {
 		char name[64];
 		if (SpectatedPlayer(e.povSteam, name)) e.povName = name;
 		else if (e.camera == RenderCameraSource::Pov) { error = "a POV shot needs a watched player: spectate one first"; return false; }
@@ -168,7 +182,12 @@ void Restore() {
 	Render_SetExtension(g_saved.extension);
 	Render_SetCameraSource(g_saved.camera);
 	Render_SetRange(g_saved.range);
-	if (g_saved.pathTouched) CameraPathRef().ReplaceMarkersFromGraph(g_saved.path, false);
+	if (g_saved.pathTouched) {
+		CameraPathRef().SetInterp(g_saved.interp);
+		CameraPathRef().SetSpeedMode(g_saved.speedMode);
+		CameraPathRef().ReplaceMarkersFromGraph(g_saved.path, false);
+	}
+	KillFeed_Apply(g_saved.killFeed);
 	// Each shot switched the live camera, so the view itself goes back to the saved source too.
 	Render_ApplyCameraSourceLive(g_saved.camera, "mirv_filmmaker render queue");
 	// And back to where the queue started, watching whom it was watching.
@@ -200,7 +219,10 @@ void Apply(Entry& e) {
 	Render_SetExtension(e.extension);
 	// A Free Camera shot renders as a camera held at the pose it was queued with.
 	const RenderCameraSource source = e.stillPose ? RenderCameraSource::CameraPath : e.camera;
+	KillFeed_Apply(e.killFeed);
 	if (source == RenderCameraSource::CameraPath) {
+		CameraPathRef().SetInterp(e.interp);
+		CameraPathRef().SetSpeedMode(e.speedMode);
 		CameraPathRef().ReplaceMarkersFromGraph(e.path, false);
 		g_saved.pathTouched = true;
 	}
@@ -224,6 +246,9 @@ void Begin() {
 	g_saved.passes = RenderPassesRef();
 	g_saved.path = CameraPathRef().Markers();
 	g_saved.pathTouched = false;
+	g_saved.interp = CameraPathRef().GetInterp();
+	g_saved.speedMode = CameraPathRef().GetSpeedMode();
+	g_saved.killFeed = KillFeed_Snapshot();
 	{
 		int tick = -1;
 		g_saved.tick = g_MirvTime.GetCurrentDemoTick(tick) ? tick : -1;

@@ -94,6 +94,23 @@ std::string Clean(const std::string& s) {
 
 } // namespace
 
+KillFeedState KillFeed_Snapshot() {
+	KillFeedState s;
+	s.watchedOnly = g_watchedOnly;
+	for (const Player& p : g_players) if (!p.shown.empty()) s.shown.push_back({ p.name, p.shown });
+	return s;
+}
+
+void KillFeed_Apply(const KillFeedState& state) {
+	g_watchedOnly = state.watchedOnly;
+	for (Player& p : g_players) p.shown.clear();
+	for (const auto& r : state.shown) {
+		bool found = false;
+		for (Player& p : g_players) if (p.name == r.first) { p.shown = r.second; found = true; }
+		if (!found && (int)g_players.size() < kMaxPlayers) g_players.push_back({ r.first, r.second });
+	}
+}
+
 void KillFeed_Reset() {
 	g_players.clear();
 	g_demo.clear();
@@ -154,7 +171,7 @@ void KillFeed_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* c
 		Player& p = g_players[n - 1];
 		// The feed tells players apart by the text on a notice, so a name already in use by
 		// another player (real or shown) would make two players one.
-		if (shown != p.name) {
+		if (!shown.empty() && shown != p.name) { // an empty name is "back to the real one"
 			for (const Player& o : g_players) {
 				if (&o == &p || (o.name != shown && o.shown != shown)) continue;
 				advancedfx::Warning("%s killfeed: \"%s\" is already %s; pick a name no other player has.\n", cmd,

@@ -12,6 +12,9 @@
 // Main thread.
 
 #include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace advancedfx { class ICommandArgs; }
 
@@ -22,5 +25,13 @@ void KillFeed_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* c
 void KillFeed_AppendStateJson(std::ostringstream& o);
 // A new demo: the names belong to the old one's players.
 void KillFeed_Reset();
+
+// The names and the filter as they are now, so a render queue shot can keep its own.
+struct KillFeedState {
+	std::vector<std::pair<std::string, std::string>> shown; // real name -> shown name, renamed players only
+	bool watchedOnly = false;
+};
+KillFeedState KillFeed_Snapshot();
+void KillFeed_Apply(const KillFeedState& state);
 
 } // namespace Filmmaker
