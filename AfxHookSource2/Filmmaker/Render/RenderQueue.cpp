@@ -126,7 +126,12 @@ std::string Describe(const Entry& e, int index) {
 	return buf;
 }
 
+// The Render workspace lists six shots (CameraEditorRenderJs.h QUEUE_ROWS), so the queue holds six:
+// a shot nobody can see could not be checked or removed.
+constexpr size_t kMaxShots = 6;
+
 bool AddCurrent(std::string& error) {
+	if (g_entries.size() >= kMaxShots) { error = "the queue is full (6 shots): render or remove some first"; return false; }
 	RenderRange resolved;
 	if (!Render_ResolveRangeForDisplay(resolved) || !resolved.Valid()) {
 		error = "the render range does not resolve to a usable tick span";

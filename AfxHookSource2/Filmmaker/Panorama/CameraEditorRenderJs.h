@@ -1295,7 +1295,6 @@ R"EDJS(
       queueRunning = !!(q && q.running);
       queueSec.visible = items.length > 0;
       var cap = TN(items.length, 'QUEUE  ·  {0} SHOT', 'QUEUE  ·  {0} SHOTS');
-      if (items.length > QUEUE_ROWS) cap += '  ·  ' + T('{0} SHOWN', QUEUE_ROWS);
       if (queueCap.text !== cap) queueCap.text = cap;
       queueGo.__lbl.text = queueRunning ? T('Stop') : T('Render all');
       queueClear.visible = !queueRunning;
@@ -1816,7 +1815,9 @@ R"EDJS(
       setJobBtnRunning(jobActive);
       // Between queued shots no job is active, but a manual start would take the queue's next slot.
       var queueRunning = !!(r.queue && r.queue.running);
-      jobQueueBtn.visible = !jobActive && !queueRunning;
+      // The queue holds as many shots as its list shows (RenderQueue.cpp kMaxShots).
+      var queueFull = !!(r.queue && r.queue.items && r.queue.items.length >= QUEUE_ROWS);
+      jobQueueBtn.visible = !jobActive && !queueRunning && !queueFull;
       btnEnable(jobBtn, jobActive || (fatal === 0 && !queueRunning));
 
       // -- title badge --
