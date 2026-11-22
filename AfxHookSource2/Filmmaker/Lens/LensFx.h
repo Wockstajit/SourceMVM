@@ -29,6 +29,10 @@ namespace Filmmaker {
 // ---- main thread ----------------------------------------------------------------------------
 
 Lens::Values LensFx_Get();
+// The values with Scene Keys' keyed ones over them: what the render uses this frame.
+Lens::Values LensFx_GetKeyed();
+// True when lens rain is on (Lens/LensRain.cpp draws it; the depth of field and flare do not need it).
+bool LensFx_RainOn();
 
 // Sets one parameter by key ("dof.focus"), clamped to its range. False for an unknown key.
 bool LensFx_Set(const char* key, double value);

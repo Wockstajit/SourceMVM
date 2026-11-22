@@ -1,6 +1,6 @@
-# Render workspace: range nudges, the done sound and previous renders
+# Render workspace: range nudges, the done sound, previous renders, the queue and the kill feed
 
-Five parts of the Render workspace (the Camera Editor's Render tool) that sit outside the render
+The parts of the Render workspace (the Camera Editor's Render tool) that sit outside the render
 passes and the recorder. Passes are in [Render passes](filmmaker_render_passes.md), frame rates in
 [Recording FPS](filmmaker_render_fps.md).
 
@@ -112,6 +112,80 @@ mirv_filmmaker render import <n>         start from take n's settings
 
 The workspace state JSON carries `sound` (`on`, `volume`) and `takes` (the listed rows) for the
 panel (`CameraEditorRenderJs.h`).
+
+## The After Effects camera
+
+With the camera sidecar on (Passes tab, **After Effects camera**, on by default) a finished take also
+holds `camera_aftereffects.jsx`. File > Scripts > Run Script File in After Effects makes a comp the
+render's size, frame rate and length, with the take's camera keyed on every frame. The rendered plates
+go in at frame 0, and 3D layers then sit in the shot with no 3D camera track. It works for every camera
+source: a POV, a camera path, a dolly zoom or a follow camera.
+
+`Render/CameraExportMath.h` builds it from the camera of every captured frame (the same rows as
+`frames.csv`). Source points go to AE as (x, -z, y), one Source unit per pixel times **Scale**. CS2's
+4:3 field of view is widened to the frame's aspect and turned into AE's Zoom, (width / 2) / tan(hfov / 2).
+AE's Orientation locks at a Y of 90 degrees, which a panning camera passes all the time, so the comp
+has a rig: a null carries the position and the heading as its Y Rotation, unwrapped so a full turn keys
+a full turn, and the camera, parented to it at [0, 0, 0], carries only the pitch and roll that remain.
+**Start at the origin** puts the first frame's camera at [0, 0, 0], so a new 3D layer lands in front of
+it; off keeps map coordinates, the same for every take of the demo. The manifest records the file, the
+scale and the origin choice. `camera-export-math-tests.cpp` projects world points through both cameras
+and checks they land on the same pixel.
+
+```
+mirv_filmmaker render pass cameradata 0|1     the sidecar and camera_aftereffects.jsx
+mirv_filmmaker render pass aescale <0.01..100>
+mirv_filmmaker render pass aeorigin 0|1
+```
+
+## The render queue
+
+The JOB column's **+ QUEUE** copies every setting on screen into a queued shot: the In / Out as ticks,
+the camera source and path extension, the output and the passes. A POV shot also keeps the watched
+player (by SteamID), and a Camera Path shot keeps the path's keys, so a POV and a dolly zoom of the same
+moment can wait side by side. The QUEUE list shows each shot and its state. **Render all** runs them in
+turn through ordinary jobs, each into its own take folder. A POV shot first seeks to its start and
+watches its player there; a player who cannot be watched skips that shot. Cancelling a job stops the
+queue, **Stop** ends it after the current shot, and a closed workspace ends it. The settings and the
+camera path on screen before the queue are put back when it ends, however it ends
+(`Render/RenderQueue.cpp`, `mvm_debug` `render.queue`).
+
+```
+mirv_filmmaker render queue                   list + help
+mirv_filmmaker render queue add | remove <n> | clear
+mirv_filmmaker render queue start | stop
+```
+
+## The kill feed
+
+CS2 draws the kill feed (its death notices). The Passes tab's **KILL FEED** section shapes it for a
+movie, live and in renders (`Movie/KillFeed.cpp`, applied to CS2's notices in `CameraTimelineJs.h`):
+
+- **A name per player.** Each player of the demo has a field: type a name and press Enter, and every
+  notice with them shows it. × puts the real name back. Quotes, semicolons and angle brackets are left
+  out of a typed name.
+- **Only the watched player.** Keeps only the notices the watched player is in, as attacker, assister
+  or victim, for a POV edit.
+- **Kill feed** (under GAME HUD). With No HUD, the clean plate keeps the feed. In-game and Full HUD
+  always carry it. A No HUD plate is normally taken before the UI draws, so with the feed kept the
+  Beauty · Everything plate is taken after it instead, like In-game, with every other HUD panel hidden
+  (`HudPlate` in `RenderTypes.h`). It reuses CS2's own `cl_drawhud_force_deathnotices` path, and that
+  cvar's -1 (forced off) still wins. EXR output refuses the kill feed, because the HDR frames are tied
+  to the before-UI capture.
+
+CS2 keeps a pool of notice panels and shows and hides them itself, so a notice left out by the filter
+is folded to no height and no opacity rather than hidden. A label cannot carry its real name between
+frames (Panorama hands back a new JS object for a panel on every lookup), so the script remembers every
+name it has written and the player it stands for.
+
+```
+mirv_filmmaker killfeed                       players and their shown names
+mirv_filmmaker killfeed name <n> <new name> | name <n> | name clear
+mirv_filmmaker killfeed only all|watched|toggle
+mirv_filmmaker render pass killfeed 0|1
+```
+
+The names belong to the demo that is playing and are dropped when another one loads.
 
 ## Verification
 

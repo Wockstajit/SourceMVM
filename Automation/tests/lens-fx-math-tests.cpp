@@ -1194,6 +1194,27 @@ static void TestShaderSource() {
 
 // The constant buffer is written by LensFx.cpp's Constants struct and read by the cbuffer in the shader:
 // the two lists must have the same members in the same order, or every shader reads shifted values.
+// Lens rain is a third group: its own switch, a reset that leaves the switch, and complete looks.
+static void TestRainGroup() {
+	int rainCount = 0;
+	for (int i = 0; i < ParamCount; ++i) rainCount += InGroup(i, Group::Rain) ? 1 : 0;
+	CHECK(rainCount == 8);
+	for (int i = 0; i < ParamCount; ++i) CHECK(!(InGroup(i, Group::Rain) && (InGroup(i, Group::Dof) || InGroup(i, Group::Flare))));
+	CHECK(GroupSwitch(Group::Rain) == RainOn && Specs()[RainOn].def == 0.0f && Specs()[RainOn].integer);
+	Values L;
+	L[RainOn] = 1; L[RainAmount] = 90;
+	ResetGroup(L, Group::Rain);
+	CHECK(L[RainOn] == 1.0f && L[RainAmount] == Specs()[RainAmount].def);
+	for (const char* look : { "drizzle", "rain", "storm", "windscreen" }) {
+		Values P;
+		P[RainOn] = 1;
+		CHECK(ApplyRainPreset(P, look) && P[RainOn] == 1.0f);
+	}
+	Values Q;
+	CHECK(!ApplyRainPreset(Q, "monsoon"));
+	CHECK(std::string(GroupName(Group::Rain)) == "rain");
+}
+
 static void TestConstantBufferLockStep() {
 	const std::string src = std::string(kShaderCommon);
 	const size_t cb = src.find("cbuffer LensConstants");
@@ -1267,6 +1288,7 @@ int main() {
 	TestGhostGeometry();
 	TestFlarePalettes();
 	TestShaderSource();
+	TestRainGroup();
 	TestConstantBufferLockStep();
 	if (g_failures) {
 		std::printf("%d lens math test failure(s)\n", g_failures);

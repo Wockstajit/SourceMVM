@@ -276,8 +276,9 @@ void EnableKeyedEffects(const char* why) {
     if(!g_pEngineToClient)return;
     const auto live=LiveProperties();
     PlaceKeyedStorm(live,why);
-    for(const char* effect:{"dof","flare"}){
-        const bool on=std::string(effect)=="dof"?LensFx_DofOn():LensFx_FlareOn();
+    for(const char* effect:{"dof","flare","rain"}){
+        const std::string e(effect);
+        const bool on=e=="dof"?LensFx_DofOn():e=="flare"?LensFx_FlareOn():LensFx_RainOn();
         if(on)continue;
         const std::string prefix=std::string("lens.")+effect+".";
         for(const auto& id:live)

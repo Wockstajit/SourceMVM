@@ -13,6 +13,7 @@
 #include "Filmmaker/Environment/EnvironmentGroundFog.h"
 #include "Filmmaker/Environment/EnvironmentReflectionProbes.h" // wet film: CS2 probes and the tone curve
 #include "Filmmaker/Lens/LensFx.h"
+#include "Filmmaker/Lens/LensRain.h"
 #include "Filmmaker/Heatmap/RoundHeatmap.h"
 #include "Filmmaker/World/SunFx.h" // the lens flare's sun (SunFx_VisibleSunDirection)
 #include "Filmmaker/Lens/LensSunLocator.h" // the lens flare's sun: the disc CS2 draws, found on the GPU
@@ -2026,6 +2027,7 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                     g_FisheyePass.EndDevice();
                     g_ReShadeScenePass.EndDevice();
                     Filmmaker::LensFx_EndDevice();
+                    Filmmaker::LensRain_EndDevice();
                     AfxContactShadow::EndDevice();
                     AfxRenderPass::EndDevice();
                     if (environmentDeviceChanged)
@@ -2047,6 +2049,7 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                 g_FisheyePass.BeginDevice(This);
                 g_ReShadeScenePass.BeginDevice(This);
                 Filmmaker::LensFx_BeginDevice(This);
+                Filmmaker::LensRain_BeginDevice(This);
                 AfxContactShadow::BeginDevice(This);
                 AfxRenderPass::BeginDevice(This);
                 if (environmentDeviceChanged)
@@ -3448,10 +3451,12 @@ public:
                 auto pLensCommands = g_RenderCommands.RenderThread_GetCommands();
                 const bool beautyEffects = !(pLensCommands && pLensCommands->SkipLens) && !AfxLivePassPreviewShown();
                 const bool lensRuns = beautyEffects && Filmmaker::LensFx_Active();
+                // Lens rain: drops on the glass, a Beauty effect too, and never on the console green screen.
+                const bool rainRuns = beautyEffects && !Filmmaker::RenderPlayersOnlyGreen_Active() && Filmmaker::LensRain_Active();
                 const bool reshadeRuns = beautyEffects && g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade;
                 // This render also feeds the pass compositor: it reads the scene from before the lens
                 // and before ReShade. Either one alone changes the scene, so either one needs the copy.
-                if ((lensRuns || reshadeRuns) && pLensCommands && pLensCommands->KeepCleanColor) {
+                if ((lensRuns || rainRuns || reshadeRuns) && pLensCommands && pLensCommands->KeepCleanColor) {
                     ID3D11Resource* pSceneResource = nullptr;
                     pRenderTargetViews[0]->GetResource(&pSceneResource);
                     if (pSceneResource) {
@@ -3515,6 +3520,9 @@ public:
                         g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke, sun, keyPass,
                         pLensCommands && pLensCommands->HoldLensFocus);
                 }
+                // On the glass, so after the depth of field (the drops are not part of the world it blurs).
+                if (rainRuns)
+                    Filmmaker::LensRain_Render(pDeviceContext, pRenderTargetViews[0]);
                 // Round heat map: a placement aid painted on the floor after the lens, so it stays
                 // sharp. It sits out recordings (the scene objects tab is where it is switched on).
                 {

@@ -86,7 +86,7 @@ test('every reset is registered so it can be driven without a mouse', () => {
   // The three groups the user asked to have working, plus the per-card environment resets.
   const names = ['camera', 'effects', 'ragdolls', 'environment', 'fx.vfx',
                  'env.sky', 'env.light', 'env.fog', 'env.looks', 'env.wx',
-                 'cam.smoothview', 'cam.handheld', 'cam.weaponrecoil', 'cam.weaponbob', 'cam.viewmodel', 'cam.dof', 'cam.flare',
+                 'cam.smoothview', 'cam.handheld', 'cam.weaponrecoil', 'cam.weaponbob', 'cam.viewmodel', 'cam.dof', 'cam.flare', 'cam.rain',
                  'fx.atmosphere', 'fx.lighting', 'fx.weathersky'];
   const all = [nav, hud, widgets, read('ConfigHudCameraTabJs.h'), read('ConfigHudAtmosphereTabJs.h'),
                read('ConfigHudLightingTabJs.h'), read('ConfigHudWeatherSkyTabJs.h'),
@@ -121,7 +121,7 @@ test('tab footers execute the owning backend reset lists', () => {
 
 test('default tuning never disables Reset while a lens or bob switch is on', () => {
   const lens = fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Lens/LensFx.cpp', import.meta.url),'utf8');
-  assert.match(lens, /g_values\[group == Group::Dof \? DofOn : FlareOn\] = 0/);
+  assert.match(lens, /g_values\[GroupSwitch\(group\)\] = 0/);
   assert.doesNotMatch(lens, /InGroup\(i, grp\) && i != DofOn/);
   const bob = fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Movie/WeaponBob.cpp', import.meta.url),'utf8');
   assert.match(bob, /ResetSettings\(\) \{\s*m_enabled = false/);

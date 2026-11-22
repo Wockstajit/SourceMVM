@@ -1,15 +1,15 @@
-# Lens: depth of field, bokeh and lens flare
+# Lens: depth of field, bokeh, lens flare and lens rain
 
 A post pass over the finished world frame. It reads the scene colour and the scene depth the engine
 already produced. It runs after the environment renderer and before the Panorama UI and clean movie
 capture, so it is in every recorded frame and never on the HUD. It is a module of its own
 (`AfxHookSource2/Filmmaker/Lens/`): nothing depends on the environment editor being enabled.
 
-Controls live on the CONFIG panel's **CAMERA** tab as two cards, **DEPTH OF FIELD** and **LENS FLARE**.
-Everything is also a console command: `mirv_filmmaker lens help`.
+Controls live on the CONFIG panel's **CAMERA** tab as three cards, **DEPTH OF FIELD**, **LENS FLARE**
+and **LENS RAIN**. Everything is also a console command: `mirv_filmmaker lens help`.
 
 Each card's **Reset** switches that lens effect off and restores its tuning.
-`lens reset dof|flare|all` does the same. Look presets keep the on/off choice. The bottom
+`lens reset dof|flare|rain|all` does the same. Look presets keep the on/off choice. The bottom
 **RESET CAMERA** also disables both lens effects, along with the rest of the Camera tab.
 
 ## The parameter table
@@ -325,6 +325,64 @@ blades, lens dirt, the flare colour and streak colour swatches, and *Flare only*
 
 Looks: Cinematic (the defaults), Anamorphic (a long cool streak), Classic (eight ghosts and a ring), Star
 (spikes only), and Dreamy (glow only, with a lower threshold). A look resets the group first.
+
+## Lens rain
+
+Water drops on the front of the lens (`Lens/LensRain.{h,cpp}`, the simulation in `LensRainMath.h`).
+They land, cling, grow, merge and run off with the camera's own motion, so the same settings work
+on a POV, a free camera, a follow camera and a camera path:
+
+- **Gravity.** World down, seen on the glass. Looking level it points down the frame, so big drops run
+  down; looking at the floor it points into the lens and nothing runs. Only drops past a critical
+  size feel it, as on a window.
+- **The air.** Moving sideways blows the drops across the frame the other way. Moving forward blows them
+  out from the middle to the edges, like rain on a windscreen. Both grow with the square of the speed.
+- **The turn.** Panning or tilting flings the drops the other way.
+- **Grip.** A drop stays put until the push beats its grip, which is stronger for a small drop. A
+  running drop slows down, leaves small drops behind it (**Trails**), and takes in any drop it touches.
+- **Impact.** More drops land while the camera moves forward, as when running into the rain.
+
+A cut is no motion: a jump faster than 3500 units per second, or a turn faster than 2000 degrees per
+second, moves nothing, so a seek or a camera switch does not throw every drop off the frame.
+
+The drops step on the main thread (`LensRain_RunMainThreadFrame`) with the demo's own clock. A paused
+demo freezes them, and a render steps them exactly one output frame at a time, so the same take renders
+the same drops. Outside a demo they follow the wall clock.
+
+Each drop is drawn after the depth of field and the flare, over a mipmapped copy of the frame: the
+scene behind it is sampled flipped and shrunk through the centre, as a real water drop shows it, out
+of focus (**Softness**), with a dark rim where the water absorbs at a grazing angle and a highlight. A
+running drop is drawn as a bead with a tapering tail. Lens rain is a Beauty effect: Key, Depth and
+Normal passes and the console green screen never get it (the clean-copy rule in
+[render passes](filmmaker_render_passes.md#lens-effects)).
+
+| Control | Key | Range | Default |
+| --- | --- | --- | --- |
+| switch | `rain.on` | 0 / 1 | 0 |
+| Amount | `rain.amount` | 0..100 % | 40 |
+| Drop size | `rain.size` | 0.3..3 | 1 |
+| Slide | `rain.slide` | 0..2 | 1 |
+| Trails | `rain.trails` | 0..1 | 0.5 |
+| Impact | `rain.impact` | 0..2 | 1 |
+| Refraction | `rain.refraction` | 0..2 | 1 |
+| Softness | `rain.blur` | 0..1 | 0.5 |
+
+Looks: Drizzle (few small drops that cling), Rain (the defaults), Storm (heavy drops that run and merge),
+Windscreen (drops that run off at the first move). **Wipe the lens** (`lens rain clear`) removes every
+drop. Every value but the switch is a Scene Key (`lens.rain.*`), so the rain can be keyed off inside a
+building and back on outside.
+
+```text
+mirv_filmmaker lens rain on
+mirv_filmmaker lens preset rain windscreen
+mirv_filmmaker lens rain.slide 1.6
+mirv_filmmaker lens rain clear
+```
+
+`mvm_debug` logs `lens.rain`: the drop count, the step, the camera's velocity and turn rates and the
+gravity on the glass (every 60 frames), the draw (target, samples, format, mips), and the shader
+compile. `Automation/tests/lens-rain-math-tests.cpp` covers landing, gravity and grip, the sideways and
+forward air, merging, determinism and the motion read from two poses.
 
 ## Pass list
 

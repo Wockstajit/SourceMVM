@@ -851,6 +851,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/WeaponRecoilStyles.h
     Filmmaker/Lens/LensFx.cpp
     Filmmaker/Lens/LensFx.h
+    Filmmaker/Lens/LensRain.cpp
+    Filmmaker/Lens/LensRain.h
     Filmmaker/Lens/LensSunLocator.cpp
     Filmmaker/Lens/LensSunLocator.h
     Filmmaker/Heatmap/RoundHeatmap.cpp
@@ -873,6 +875,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Platform/PngWrite.h
     Filmmaker/Platform/SnappyDecode.h
     Filmmaker/Lens/LensFxMath.h
+    Filmmaker/Lens/LensRainMath.h
     Filmmaker/Lens/LensFxShaders.h
     Filmmaker/Movie/RecoilPivotMarker.cpp
     Filmmaker/Movie/RecoilPivotMarker.h
@@ -1072,6 +1075,12 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Render/RenderTakeHistory.cpp
     Filmmaker/Render/RenderTakeHistory.h
     Filmmaker/Render/RenderTakeImportMath.h
+    Filmmaker/Render/CameraExportMath.h
+    Filmmaker/Render/RenderQueue.cpp
+    Filmmaker/Movie/KillFeed.cpp
+    Filmmaker/Movie/KillFeed.h
+    Filmmaker/Render/RenderQueue.h
+    Filmmaker/Movie/DollyZoomMath.h
     Filmmaker/Render/RenderWorldOnly.cpp
     Filmmaker/Render/RenderWorldOnly.h
     Filmmaker/Render/RenderWorldPlayersNoGun.cpp

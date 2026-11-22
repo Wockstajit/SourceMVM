@@ -86,7 +86,13 @@ bool WriteManifest(const RenderJob& job, const std::string& demoPathUtf8,
 	b.StringField("recorderPreset", job.presetName);
 	b.StringField("hudMode", HudModeName(job.passes.hud));
 	b.BoolField("cameraDataSidecar", job.passes.cameraData);
+	if (job.passes.cameraData) {
+		b.StringField("afterEffectsCamera", "camera_aftereffects.jsx");
+		b.DoubleField("afterEffectsScale", job.passes.aeScale);
+		b.BoolField("afterEffectsOrigin", job.passes.aeOrigin);
+	}
 	b.BoolField("blood", job.passes.blood);
+	b.BoolField("killFeed", job.passes.killFeed);
 	b.BoolField("keySky", job.passes.keySky); // the green-screen sky, so a reused take repaints it
 	// One output folder per pass. Every stream holds the same output frames (frame N of each was
 	// rendered from the same simulation state), so a comp can stack them frame for frame.

@@ -109,6 +109,11 @@ R"EDJS(
       }
       if (code === 27) { renderFieldBlur(); return true; }   // Esc -- abandon
       if (code === 8) { rec.buf = rec.buf.slice(0, -1); renderFieldPaint(rec); return true; }
+      if (rec.text) {                          // a name: any printable character but the console's own
+        if (code >= 32 && code !== 127 && code !== 34 && code !== 59 && rec.buf.length < 40)
+          rec.buf += String.fromCharCode(code);
+        renderFieldPaint(rec); return true;
+      }
       if (code >= 48 && code <= 57) {          // digits
         if (rec.buf.length < 9) rec.buf += String.fromCharCode(code);
         renderFieldPaint(rec); return true;
@@ -939,12 +944,75 @@ R"EDJS(
     })(hmi);
     var hudExtras = mk('Panel', hudSec); hudExtras.hittest = false; hudExtras.hittestchildren = true;
     hudExtras.style.flowChildren = 'down'; hudExtras.style.width = '100%'; hudExtras.style.marginTop = '4px';
-    var camDataTog = edSwitchTile(hudExtras, T('Camera metadata sidecar'), T('Write camera transform metadata alongside the rendered frames.'), function () {
+    var camDataTog = edSwitchTile(hudExtras, T('After Effects camera'), T('Saves camera_aftereffects.jsx with the take. Run it in After Effects (File > Scripts > Run Script File) for a comp with this shot\'s camera on every frame, so 3D layers sit in the shot without a camera track.'), function () {
       cmd('mirv_filmmaker render pass cameradata ' + ((st && st.render && st.render.pass && st.render.pass.cameraData) ? 0 : 1));
+    });
+    // Advanced: how the AE comp's world is scaled and where it starts.
+    var aeGroup = mk('Panel', hudExtras); aeGroup.hittest = false; aeGroup.hittestchildren = true;
+    aeGroup.style.flowChildren = 'down'; aeGroup.style.width = '100%'; aeGroup.style.marginLeft = '14px';
+    var aeScaleTile = edValueTile(aeGroup, { label: T('Scale'), min: 0.01, max: 100, decimals: 2, unit: 'px/u', fill: S.value,
+      tip: T('After Effects pixels per Source unit. 1 keeps the map at its own size; a player is 72 units tall.'),
+      onChange: function (v) { if (isFinite(v) && v >= 0.01 && v <= 100) cmd('mirv_filmmaker render pass aescale ' + v); } });
+    var aeOriginTog = edSwitchTile(aeGroup, T('Start at the origin'), T('On: the first frame\'s camera sits at [0, 0, 0], so new 3D layers land in front of it. Off: map coordinates, the same for every take of the demo.'), function () {
+      cmd('mirv_filmmaker render pass aeorigin ' + ((st && st.render && st.render.pass && st.render.pass.aeOrigin === false) ? 1 : 0));
+    });
+    var killFeedTog = edSwitchTile(hudExtras, T('Kill feed'), T('With No HUD, the clean plate keeps the kill feed. In-game and Full HUD always have it.'), function () {
+      cmd('mirv_filmmaker render pass killfeed ' + ((st && st.render && st.render.pass && st.render.pass.killFeed) ? 0 : 1));
     });
     var bloodTog = edSwitchTile(hudExtras, T('Blood'), T('Off: no blood appears during the render, in any pass.'), function () {
       cmd('mirv_filmmaker render pass blood ' + ((st && st.render && st.render.pass && st.render.pass.blood === false) ? 1 : 0));
     });
+
+    // KILL FEED (Movie/KillFeed.h): the death notices as the movie needs them. Live on screen and in
+    // every render: a player can be shown under another name, and the feed can keep only the kills the
+    // watched player is in (a POV edit). Names are typed like the numbers above: click, type, Enter.
+    var KF_ROWS = 10;
+    var kfSec = rsSection(passesPanel, T('KILL FEED'));
+    var kfAside = lbl(kfSec.__head, T('names and filter'), RS_MUTED, 11); kfAside.hittest = false;
+    kfAside.style.verticalAlign = 'center'; kfAside.style.marginLeft = '9px';
+    var kfOnlyTog = edSwitchTile(kfSec, T('Only the watched player'), T('Keeps only the kills the watched player is in: their kills, their assists and their death.'), function () {
+      cmd('mirv_filmmaker killfeed only toggle');
+    });
+    var kfNote = rsNote(kfSec, '', 6);
+    kfNote.style.fontSize = '11px';
+    var kfRows = [];
+    for (var kfi = 0; kfi < KF_ROWS; kfi++) (function (index) {
+      var row = mk('Panel', kfSec); row.hittest = false; row.hittestchildren = true;
+      row.style.flowChildren = 'right'; row.style.width = '100%'; row.style.marginTop = '4px';
+      var name = lbl(row, '', S.label, 12); name.hittest = false;
+      name.style.width = '42%'; name.style.verticalAlign = 'center';
+      name.style.whiteSpace = 'nowrap'; name.style.textOverflow = 'shrink';
+      var rec = { real: '', shown: '' };
+      var field = renderNumberField(row, T('their own name'), false,
+        function () { return rec.shown; },
+        function (text) { cmd('mirv_filmmaker killfeed name ' + (index + 1) + ' ' + text.replace(/[";]/g, '')); });
+      field.text = true;
+      var reset = rsOutlineBtn(row, '×', function () { cmd('mirv_filmmaker killfeed name ' + (index + 1)); },
+        T('Back to the real name.'), true);
+      reset.style.height = '26px'; reset.style.marginLeft = '6px'; reset.style.verticalAlign = 'center';
+      reset.style.paddingLeft = '8px'; reset.style.paddingRight = '8px';
+      rec.row = row; rec.name = name; rec.field = field; rec.reset = reset;
+      kfRows.push(rec);
+    })(kfi);
+    function renderKillFeed(kf, hudMode, keep) {
+      var players = (kf && kf.players) || [];
+      kfOnlyTog.set(!!(kf && kf.only));
+      kfOnlyTog.state(kf && kf.only ? (kf.watched ? kf.watched : T('nobody watched')) : '');
+      var shownInRender = hudMode !== 0 || keep;
+      kfNote.text = !players.length ? T('The players appear here once the demo plays.')
+        : (shownInRender ? T('Type a name and press Enter. The feed shows it live and in the render.')
+                         : T('No HUD leaves the feed out: switch Kill feed on above to keep it.'));
+      kfNote.style.color = shownInRender || !players.length ? RS_MUTED : RS_WARN;
+      for (var i = 0; i < kfRows.length; i++) {
+        var rec = kfRows[i], p = players[i];
+        rec.row.visible = !!p;
+        if (!p) continue;
+        rec.real = p[0]; rec.shown = p[1] || '';
+        if (rec.name.text !== p[0]) rec.name.text = p[0];
+        if (renderFocusField !== rec.field) renderFieldPaint(rec.field);
+        rec.reset.visible = !!p[1];
+      }
+    }
 )EDJS"
 R"EDJS(
     // ================= OUTPUT (tab slot 3) =================
@@ -1182,6 +1250,76 @@ R"EDJS(
     jobProblem.style.whiteSpace = 'normal';
     jobProblem.style.width = '100%';
 
+    // QUEUE: shots lined up to render one after another (Render/RenderQueue.h). ADD TO QUEUE below
+    // copies every setting on screen now -- the In / Out, the camera (with the watched player for a
+    // POV, the keys for a Camera Path), the output and the passes -- so the next shot can be set up
+    // while the first one waits. Render all runs them in turn; each lands in its own take folder.
+    var QUEUE_ROWS = 6;
+    var queueSec = mk('Panel', jobBody); jobPart(queueSec, 16); queueSec.hittest = false; queueSec.hittestchildren = true;
+    queueSec.style.flowChildren = 'down'; queueSec.style.width = '100%'; queueSec.style.marginTop = '16px';
+    queueSec.visible = false;
+    var queueHead = mk('Panel', queueSec); queueHead.hittest = false; queueHead.hittestchildren = true;
+    queueHead.style.flowChildren = 'right'; queueHead.style.width = '100%'; queueHead.style.marginBottom = '6px';
+    var queueCap = lbl(queueHead, T('QUEUE'), S.hint, 10); queueCap.hittest = false;
+    queueCap.style.letterSpacing = '1px'; queueCap.style.width = 'fill-parent-flow(1.0)'; queueCap.style.verticalAlign = 'center';
+    queueCap.style.whiteSpace = 'nowrap'; queueCap.style.textOverflow = 'shrink';
+    var queueRunning = false;
+    var queueGo = rsOutlineBtn(queueHead, T('Render all'), function () {
+      cmd(queueRunning ? 'mirv_filmmaker render queue stop' : 'mirv_filmmaker render queue start');
+    }, T('Renders every queued shot in turn. While it runs, Stop ends the queue after the current shot.'), false);
+    queueGo.style.height = '22px'; queueGo.style.marginLeft = '4px'; queueGo.__lbl.style.fontSize = '11px';
+    var queueClear = rsOutlineBtn(queueHead, T('Clear'), function () { cmd('mirv_filmmaker render queue clear'); },
+      T('Empties the queue.'), true);
+    queueClear.style.height = '22px'; queueClear.style.marginLeft = '4px'; queueClear.__lbl.style.fontSize = '11px';
+    var queueRows = [];
+    for (var qri = 0; qri < QUEUE_ROWS; qri++) (function (index) {
+      var row = mk('Panel', queueSec); row.hittest = false; row.hittestchildren = true;
+      row.style.flowChildren = 'right'; row.style.width = '100%'; row.style.marginBottom = '5px';
+      var txt = mk('Panel', row); txt.hittest = false;
+      txt.style.flowChildren = 'down'; txt.style.width = 'fill-parent-flow(1.0)'; txt.style.verticalAlign = 'center';
+      var l1 = lbl(txt, '', S.value, 12); l1.hittest = false; l1.style.fontWeight = 'bold';
+      l1.style.whiteSpace = 'normal'; l1.style.width = '100%';
+      var l2 = lbl(txt, '', S.hint, 11); l2.hittest = false; l2.style.whiteSpace = 'normal'; l2.style.width = '100%';
+      var del = rsOutlineBtn(row, '×', function () { cmd('mirv_filmmaker render queue remove ' + (index + 1)); },
+        T('Remove this shot from the queue.'), true);
+      del.style.height = '24px'; del.style.marginLeft = '8px'; del.style.verticalAlign = 'center';
+      del.style.paddingLeft = '8px'; del.style.paddingRight = '8px';
+      queueRows.push({ row: row, l1: l1, l2: l2, del: del });
+    })(qri);
+    var QUEUE_CAMERAS = { current: T('Current view'), pov: T('POV'), thirdperson: T('Third person'), free: T('Free camera'),
+                          path: T('Camera path'), follow: T('Follow camera') };
+    var QUEUE_STATUS = { queued: T('queued'), rendering: T('rendering'), completed: T('done'), failed: T('failed'),
+                         canceled: T('canceled'), skipped: T('skipped') };
+    function renderQueue(q) {
+      var items = (q && q.items) || [];
+      queueRunning = !!(q && q.running);
+      queueSec.visible = items.length > 0;
+      var cap = TN(items.length, 'QUEUE  ·  {0} SHOT', 'QUEUE  ·  {0} SHOTS');
+      if (items.length > QUEUE_ROWS) cap += '  ·  ' + T('{0} SHOWN', QUEUE_ROWS);
+      if (queueCap.text !== cap) queueCap.text = cap;
+      queueGo.__lbl.text = queueRunning ? T('Stop') : T('Render all');
+      queueClear.visible = !queueRunning;
+      for (var i = 0; i < queueRows.length; i++) {
+        var r = queueRows[i], it = items[i];
+        r.row.visible = !!it;
+        if (!it) continue;
+        var cam = QUEUE_CAMERAS[it.camera] || it.camera;
+        if (it.camera === 'pov' && it.player) cam += '  ·  ' + it.player;
+        if (it.camera === 'path') cam += '  ·  ' + TN(it.keys, '{0} key', '{0} keys');
+        var l1 = (i + 1) + '.  ' + cam + '  ·  ' + (QUEUE_STATUS[it.status] || it.status);
+        var l2 = rsNum(it.start) + ' → ' + rsNum(it.end - 1) + '  ·  ' + rsClock(it.end - it.start)
+          + '  ·  ' + TN(it.passes, '{0} pass', '{0} passes') + '  ·  ' + it.fps + ' fps ' + ('' + it.format).toUpperCase()
+          + (it.note ? '  ·  ' + it.note : '');
+        if (r.l1.text !== l1) r.l1.text = l1;
+        if (r.l2.text !== l2) r.l2.text = l2;
+        r.l1.style.color = it.status === 'failed' || it.status === 'skipped' ? RENDER_ERROR_TEXT
+          : (it.status === 'rendering' ? RS_AC : S.value);
+        r.del.visible = !queueRunning;
+      }
+    }
+
+)EDJS"
+R"EDJS(
     // PREVIOUS RENDERS: this demo's earlier takes (RenderTakeHistory.h). Use starts the next job
     // from one -- the same range, camera, passes, frame rate and format -- to re-render a shot with
     // one change, or to add a pass for exactly the same In / Out.
@@ -1287,6 +1425,13 @@ R"EDJS(
     jobActionRow.style.flowChildren = 'right'; jobActionRow.style.width = '100%';
     jobActionRow.style.paddingLeft = '18px'; jobActionRow.style.paddingRight = '18px';
     jobActionRow.style.paddingTop = '8px'; jobActionRow.style.paddingBottom = '12px';
+    // ADD TO QUEUE: this shot, set aside to render with the others (QUEUE above).
+    var jobQueueBtn = rsOutlineBtn(jobActionRow, T('+ QUEUE'), function () {
+      cmd('mirv_filmmaker render queue add');
+    }, T('Adds this shot to the queue with every setting on screen now, so you can set up the next one. Render all in the QUEUE list renders them in turn.'), false);
+    jobQueueBtn.style.minHeight = '52px'; jobQueueBtn.style.marginRight = '8px';
+    jobQueueBtn.style.paddingLeft = '14px'; jobQueueBtn.style.paddingRight = '14px';
+    jobQueueBtn.__lbl.style.fontSize = '13px'; jobQueueBtn.__lbl.style.verticalAlign = 'center';
     // ONE button: START RENDER while idle, CANCEL RENDER while a job runs.
     var jobBtnRunning = false;
     var jobBtn = btnPrimary(jobActionRow, T('START RENDER'), function () {
@@ -1445,7 +1590,13 @@ R"EDJS(
       var hudMode = pass.hud || 0;
       for (var hb = 0; hb < hudTiles.length; hb++) hudTiles[hb].__set(hb === hudMode, HUD_SUBS[hb], false);
       camDataTog.set(!!pass.cameraData);
+      aeGroup.visible = !!pass.cameraData;
+      aeScaleTile.sync(pass.aeScale || 1);
+      aeOriginTog.set(pass.aeOrigin !== false);
       bloodTog.set(pass.blood !== false);
+      killFeedTog.set(!!pass.killFeed);
+      killFeedTog.row.style.opacity = hudMode === 0 ? '1.0' : '0.45';
+      renderKillFeed(r.killFeed, hudMode, !!pass.killFeed);
       var rpList = pass.list || [];
       function rpHas(t, e) {
         for (var i = 0; i < rpList.length; i++) if (rpList[i].type === t && rpList[i].elements === e) return true;
@@ -1603,6 +1754,7 @@ R"EDJS(
       soundVol.tile.style.opacity = soundOn ? '1.0' : '0.45';
 
       // -- Job column --
+      renderQueue(r.queue);
       renderPrevious(r.takes);
       jobRange.text = ticks > 0 ? (start + '  →  ' + (endExcl - 1)) : T('not set');
       jobRange.style.color = ticks > 0 ? S.value : RENDER_ERROR_TEXT;
@@ -1617,7 +1769,7 @@ R"EDJS(
       for (var rjn = 0; rjn < rpList.length; rjn++) rpNames.push(rpList[rjn].stream);
       jobHud.text = (rpNames.length ? rpNames.join(', ') : T('none'))
         + '   ·   ' + (HUD_LABELS[hudMode] || T('No HUD'))
-        + '   ·   ' + (pass.cameraData ? T('camera metadata') : T('no camera metadata'))
+        + '   ·   ' + (pass.cameraData ? T('AE camera') : T('no AE camera'))
         + (pass.blood === false ? '   ·   ' + T('no blood') : '');
       jobHud.style.color = rpNames.length ? S.value : RENDER_ERROR_TEXT;
       jobFormat.text = (out.formatName || '?') + '   ·   '
@@ -1662,6 +1814,7 @@ R"EDJS(
 
       // A refused Start stays greyed with the reason right above it; Cancel is always clickable.
       setJobBtnRunning(jobActive);
+      jobQueueBtn.visible = !jobActive && !(r.queue && r.queue.running);
       btnEnable(jobBtn, jobActive || fatal === 0);
 
       // -- title badge --

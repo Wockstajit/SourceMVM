@@ -573,13 +573,31 @@
       // The Lens cards write every control as `lens set <key> <value>`; the game clamps, the mockup only stores.
       st.lens = st.lens || {};
       st.lens[c] = +d;
-      st.lens[c.indexOf('dof.') === 0 ? 'dofDefault' : 'flareDefault'] = false;
+      st.lens[c.indexOf('dof.') === 0 ? 'dofDefault' : c.indexOf('rain.') === 0 ? 'rainDefault' : 'flareDefault'] = false;
       return true;
     }
     if (a === 'lens' && b === 'reset') {
       st.lens = st.lens || {};
-      if (c !== 'flare') {st.lens['dof.on']=0;st.lens.dofDefault=true;}
-      if (c !== 'dof') {st.lens['flare.on']=0;st.lens.flareDefault=true;}
+      if (c === 'dof' || !c || c === 'all') {st.lens['dof.on']=0;st.lens.dofDefault=true;}
+      if (c === 'flare' || !c || c === 'all') {st.lens['flare.on']=0;st.lens.flareDefault=true;}
+      if (c === 'rain' || !c || c === 'all') {st.lens['rain.on']=0;st.lens.rainDefault=true;}
+      return true;
+    }
+    if (a === 'lens' && b === 'rain' && c === 'toggle') {
+      st.lens = st.lens || {};
+      st.lens['rain.on'] = st.lens['rain.on'] > 0.5 ? 0 : 1; st.lens.rainDefault = false;
+      return true;
+    }
+    if (a === 'killfeed') {
+      var kf = (st.render && st.render.killFeed) || null;
+      if (!kf) return true;
+      if (b === 'only') { kf.only = kf.only ? 0 : 1; return true; }
+      if (b === 'name') {
+        if (c === 'clear') { kf.players.forEach(function (p) { p[1] = ''; }); return true; }
+        var kp = kf.players[Math.round(num(c, 0)) - 1];
+        if (kp) kp[1] = t.slice(4).join(' ');
+        return true;
+      }
       return true;
     }
     if (a === 'world' && c === 'reset') {
@@ -994,6 +1012,17 @@
         else if (c === 'volume') sd.volume = Math.max(0, Math.min(100, Math.round(num(t[4], sd.volume))));
         return true;
       }
+      if (b === 'queue') {
+        var q = st.render.queue || (st.render.queue = { running: false, current: -1, items: [] });
+        if (c === 'add') q.items.push({ camera: ['current', 'pov', 'thirdperson', 'free', 'path', 'follow'][st.render.cameraSource || 0],
+          player: '', keys: 0, start: st.render.resStart, end: st.render.resEnd, fps: (st.render.out || {}).fps || 60,
+          format: (st.render.out || {}).format || 'mp4', passes: ((st.render.pass || {}).list || []).length, status: 'queued', note: '' });
+        else if (c === 'remove') q.items.splice(Math.round(num(t[4], 0)) - 1, 1);
+        else if (c === 'clear') q.items = [];
+        else if (c === 'start') q.running = true;
+        else if (c === 'stop') q.running = false;
+        return true;
+      }
       // RenderTakeHistory_Import: replays the take's range, camera, output and pass commands.
       if (b === 'import') {
         var tk = (st.render.takes || [])[Math.round(num(c, -1))];
@@ -1065,7 +1094,7 @@
       // RenderCommand.cpp RunPassCommand: the Passes tab's grid, key colour, depth range, preview.
       if (b === 'pass') {
         if (!st.render.pass || typeof st.render.pass !== 'object' || !st.render.pass.list)
-          st.render.pass = { hud: 0, cameraData: true, blood: true, keySky: false, key: [0, 255, 0], depthNear: 8, depthFar: 4096, preview: { type: 'beauty', elements: 'all' },
+          st.render.pass = { hud: 0, cameraData: true, aeScale: 1, aeOrigin: true, blood: true, keySky: false, key: [0, 255, 0], depthNear: 8, depthFar: 4096, preview: { type: 'beauty', elements: 'all' },
             list: [{ type: 'beauty', elements: 'all', stream: 'beauty' }], rendersPerFrame: 1 };
         var ps = st.render.pass;
         var parts = cmd.split(/\s+/);
@@ -1097,6 +1126,8 @@
         }
         if (op === 'hud') { ps.hud = { none: 0, game: 1, full: 2 }[parts[4]] || 0; return true; }
         if (op === 'cameradata') { ps.cameraData = num(parts[4], 1) !== 0; return true; }
+        if (op === 'aescale') { ps.aeScale = num(parts[4], 1); return true; }
+        if (op === 'aeorigin') { ps.aeOrigin = num(parts[4], 1) !== 0; return true; }
         if (op === 'blood') { ps.blood = num(parts[4], 1) !== 0; return true; }
         if (op === 'keysky') { ps.keySky = num(parts[4], 0) !== 0; return true; }
         return true;

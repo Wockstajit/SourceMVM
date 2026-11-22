@@ -1,6 +1,7 @@
 #include "Filmmaker.h"
 #include "FilmmakerHealth.h" // FilmmakerHealth_Heartbeat
 #include "Props/Props.h"
+#include "Lens/LensRain.h"
 #include "Takes/Takes.h"
 #include "Environment/EnvironmentScene.h"
 #include "../WrpConsole.h"
@@ -88,6 +89,7 @@
 #include "Movie/ScrubFrameCache.h"
 #include "Movie/WeaponBobProbe.h"
 #include "Render/RenderSessionDriver.h"
+#include "Render/RenderQueue.h"
 #include "Render/RenderEngineSize.h"
 #include "Render/RenderWorldOnly.h"
 #include "Render/RenderWorldPlayersNoGun.h"
@@ -1012,6 +1014,8 @@ void RunMainThreadFrame() {
 	// restore, one state step per frame. Cheap no-op while no job is running. Runs right after
 	// DemoEndHold so an end-of-demo pause is already applied when the driver reads the tick.
 	RenderSessionDriver_RunFrame();
+	// Render queue: lines the next shot up once a job has ended (inert while the queue is idle).
+	RenderQueue_RunFrame();
 
 	// Free window resizing: applies the resizable window style once SDL and the window exist (and
 	// removes it again for fullscreen), then runs the "did the engine follow the new size?" check
@@ -1302,6 +1306,8 @@ void RunMainThreadFrame() {
 	{ PanoramaPerf_Scope _p("scenerig"); SceneRig_RunMainThreadFrame(); }
 	{ PanoramaPerf_Scope _p("environment"); Environment::RunMainThreadFrame(); }
 	{ PanoramaPerf_Scope _p("props"); Props_RunMainThreadFrame(); }
+	// Lens rain: the drops on the glass follow the camera this frame (inert while off).
+	{ PanoramaPerf_Scope _p("lensrain"); LensRain_RunMainThreadFrame(); }
 	// Bot takes: the scene clock and bots of a private match (inert until someone uses them).
 	{ PanoramaPerf_Scope _p("takes"); Takes::RunMainThreadFrame(); }
 	// Round heat map: follows the demo to its round and the camera to its area (inert while off).

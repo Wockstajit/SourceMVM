@@ -229,6 +229,12 @@
         // The header's SOUND chip and OUTPUT > WHEN THE RENDER ENDS (RenderDoneSound.h).
         sound: { on: true, volume: 60 },
         // PREVIOUS RENDERS (RenderTakeHistory.cpp): this demo's earlier takes, newest first.
+        // Render/RenderQueue.cpp and Movie/KillFeed.cpp (RenderQueue_AppendStateJson, KillFeed_AppendStateJson).
+        queue: { running: false, current: -1, items: [
+          { camera: 'pov', player: 'ropz', keys: 0, start: 41200, end: 41520, fps: 60, format: 'mp4', passes: 1, status: 'queued', note: '' },
+          { camera: 'path', player: '', keys: 14, start: 41300, end: 41492, fps: 60, format: 'mp4', passes: 2, status: 'queued', note: '' }
+        ] },
+        killFeed: { only: 0, watched: 'ropz', players: [['ropz', ''], ['ZywOo', 'the GOAT'], ['donk', ''], ['m0NESY', ''], ['frozen', '']] },
         takes: [
           { name: 'match730_de_mirage_r12_2026-10-24_11-17-15', when: '2026-10-24T11:17:16', status: 'completed',
             start: 41800, end: 43900, fps: 60, frames: 1969, format: 'mp4', camera: 'path',
@@ -238,7 +244,7 @@
             passes: [['beauty', 'all']] }
         ],
         pass: {
-          hud: 0, cameraData: true, blood: true, key: [0, 255, 0], depthNear: 8, depthFar: 4096, preview: 'all',
+          hud: 0, cameraData: true, aeScale: 1, aeOrigin: true, blood: true, key: [0, 255, 0], depthNear: 8, depthFar: 4096, preview: 'all',
           list: [{ type: 'beauty', elements: 'all', stream: 'beauty' }], rendersPerFrame: 1
         },
         out: {
@@ -501,7 +507,9 @@
         'flare.on': 0, 'flare.intensity': 1, 'flare.threshold': 0.85, 'flare.ghosts': 5, 'flare.halo': 0.5,
         'flare.streak': 0.8, 'flare.streakLen': 0.6, 'flare.star': 0.5, 'flare.blades': 6, 'flare.glow': 0.5, 'flare.sun': 1,
         'flare.dirt': 0.2, 'flare.tint': 0, 'flare.streakTint': 0, 'flare.debug': 0, 'flare.sunOnly': 0,
-        dofDefault: true, flareDefault: true, irisMask: 'diamond', dirtLoaded: false, status: 'Off', frames: 0,
+        'rain.on': 0, 'rain.amount': 40, 'rain.size': 1, 'rain.slide': 1, 'rain.trails': 0.5, 'rain.impact': 1,
+        'rain.refraction': 1, 'rain.blur': 0.5,
+        dofDefault: true, flareDefault: true, rainDefault: true, irisMask: 'diamond', dirtLoaded: false, status: 'Off', frames: 0,
         // The view and focal length of the last lens frame: CS2's default fov 90 on a 16:9 frame.
         hfov: 106.26, focalNow: 13.5
       },

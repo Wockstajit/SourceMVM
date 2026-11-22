@@ -75,6 +75,12 @@ enum class RenderOutputFormat {
 struct RenderPasses {
 	RenderHudMode hud = RenderHudMode::None; // applies to Beauty + Everything only
 	bool cameraData = true; // camera transform sidecar, not an image stream
+	// The sidecar's After Effects camera (camera_aftereffects.jsx, Render/CameraExportMath.h):
+	// AE pixels per Source unit, and whether the first frame's camera sits at AE's origin.
+	float aeScale = 1.0f;
+	bool aeOrigin = true;
+	// No HUD keeps CS2's kill feed (its death notices, with any names Movie/KillFeed.h shows instead).
+	bool killFeed = false;
 	// false: no blood is spawned during the job, in any pass (violence_hblood/ablood 0, restored
 	// afterwards). Blood the Players Only render cannot skip is otherwise tinted into the key.
 	bool blood = true;
@@ -92,6 +98,10 @@ struct RenderPasses {
 	// "off": the normal scene. Gun only shows its viewmodel depth band (no muzzle flash live).
 	PassConfig preview;
 };
+
+// True when the Beauty + Everything plate is taken after the UI draws (BeforePresent): a HUD mode,
+// or No HUD that keeps the kill feed (every other panel hidden, the death notices kept).
+inline bool HudPlate(const RenderPasses& p) { return p.hud != RenderHudMode::None || p.killFeed; }
 
 struct RenderValidationError {
 	std::string message;

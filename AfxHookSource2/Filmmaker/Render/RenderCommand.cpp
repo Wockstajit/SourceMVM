@@ -21,6 +21,8 @@
 #include "RenderPassPlan.h"
 #include "RenderDoneSound.h"
 #include "RenderTakeHistory.h"
+#include "RenderQueue.h"
+#include "../Movie/KillFeed.h"
 #include "../../RenderSystemDX11Hooks.h" // pass key tolerance
 #include "../Filmmaker.h" // CameraEditor_Active (the Render workspace lives inside the editor)
 #include "../Platform/TextEncoding.h" // WideToUtf8 (output folder -> console / state JSON)
@@ -88,6 +90,11 @@ static int s_demoEndTick = -1;
 
 const RenderRange& Render_GetRange() { return s_range; }
 void Render_SetRange(const RenderRange& range) { s_range = range; }
+
+bool Render_KeepsKillFeed() {
+	const RenderPasses& p = RenderPassesRef();
+	return p.killFeed && p.hud == RenderHudMode::None && (s_modalOpen || s_jobActive || RenderSessionDriver_IsActive());
+}
 
 RenderCameraSource Render_GetCameraSource() { return s_camera; }
 void Render_SetCameraSource(RenderCameraSource source) { s_camera = source; }
@@ -384,6 +391,9 @@ std::string Render_BuildStateJson() {
 		<< ",\"pass\":{"
 		<< "\"hud\":" << (int)passes.hud
 		<< ",\"cameraData\":" << (passes.cameraData ? "true" : "false")
+		<< ",\"aeScale\":" << passes.aeScale
+		<< ",\"aeOrigin\":" << (passes.aeOrigin ? "true" : "false")
+		<< ",\"killFeed\":" << (passes.killFeed ? "true" : "false")
 		<< ",\"blood\":" << (passes.blood ? "true" : "false")
 		<< ",\"keySky\":" << (passes.keySky ? "true" : "false")
 		<< ",\"key\":[" << (int)(passes.keyColor[0] * 255.0f + 0.5f) << "," << (int)(passes.keyColor[1] * 255.0f + 0.5f)
@@ -440,6 +450,8 @@ std::string Render_BuildStateJson() {
 		<< ",\"sound\":{\"on\":" << (RenderDoneSound_Enabled() ? "true" : "false")
 		<< ",\"volume\":" << RenderDoneSound_Volume() << "}";
 	RenderTakeHistory_AppendJson(o);
+	RenderQueue_AppendStateJson(o);
+	KillFeed_AppendStateJson(o); // the Passes tab's KILL FEED names and filter
 	o << "}";
 	return o.str();
 }
@@ -964,9 +976,12 @@ static void RunPassCommand(int argc, advancedfx::ICommandArgs* args, const char*
 			"%s render pass keytolerance <0..1>     - players-only background match tolerance.\n"
 			"%s render pass preview <type> <elements>|off - show one pass live in the workspace view.\n"
 			"%s render pass hud none|game|full      - game UI in Beauty + Everything.\n"
-			"%s render pass cameradata 0|1          - per-frame camera sidecar.\n"
+			"%s render pass cameradata 0|1          - per-frame camera sidecar and camera_aftereffects.jsx.\n"
+			"%s render pass aescale <0.01..100>     - After Effects pixels per Source unit (1).\n"
+			"%s render pass aeorigin 0|1            - 1: the first frame's camera at After Effects' origin.\n"
+			"%s render pass killfeed 0|1            - 1: No HUD keeps the kill feed (names: killfeed name).\n"
 			"%s render pass blood 0|1               - 0: no blood spawns during the job, in any pass.\n",
-			cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
+			cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
 		return;
 	}
 	const char* sub = args->ArgV(3);
@@ -1034,6 +1049,16 @@ static void RunPassCommand(int argc, advancedfx::ICommandArgs* args, const char*
 	} else if (0 == _stricmp(sub, "cameradata")) {
 		if (!val) { advancedfx::Warning("usage: %s render pass cameradata 0|1\n", cmd); return; }
 		p.cameraData = (0 != atoi(val));
+	} else if (0 == _stricmp(sub, "aescale")) {
+		const float v = val ? (float)atof(val) : 0.0f;
+		if (!(v >= 0.01f && v <= 100.0f)) { advancedfx::Warning("usage: %s render pass aescale <0.01..100>  (After Effects pixels per Source unit)\n", cmd); return; }
+		p.aeScale = v;
+	} else if (0 == _stricmp(sub, "aeorigin")) {
+		if (!val) { advancedfx::Warning("usage: %s render pass aeorigin 0|1  (1: the first frame's camera at After Effects' origin)\n", cmd); return; }
+		p.aeOrigin = (0 != atoi(val));
+	} else if (0 == _stricmp(sub, "killfeed")) {
+		if (!val) { advancedfx::Warning("usage: %s render pass killfeed 0|1  (1: No HUD keeps the kill feed)\n", cmd); return; }
+		p.killFeed = (0 != atoi(val));
 	} else if (0 == _stricmp(sub, "blood")) {
 		if (!val) { advancedfx::Warning("usage: %s render pass blood 0|1\n", cmd); return; }
 		p.blood = (0 != atoi(val));
@@ -1211,6 +1236,10 @@ void Render_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 		}
 	} else if (0 == _stricmp(sub, "sound")) {
 		RunSoundCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "queue")) {
+		std::vector<const char*> rest;
+		for (int i = 3; i < argc; ++i) rest.push_back(args->ArgV(i));
+		RenderQueue_RunCommand((int)rest.size(), rest.data(), cmd);
 	} else if (0 == _stricmp(sub, "takes")) {
 		if (argc >= 4 && 0 == _stricmp(args->ArgV(3), "refresh")) RenderTakeHistory_Refresh();
 		RenderTakeHistory_PrintList(cmd);

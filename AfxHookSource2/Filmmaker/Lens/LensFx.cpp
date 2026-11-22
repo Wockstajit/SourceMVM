@@ -3,6 +3,7 @@
 #include "../Debug/GpuPassProfiler.h"
 #include "LensFxShaders.h"
 #include "LensSunLocator.h"
+#include "LensRain.h"
 
 #include "../Environment/EnvironmentShaderCompiler.h"
 #include "../Environment/EnvironmentMath.h"
@@ -557,12 +558,23 @@ bool LensFx_Set(const char* key, double value) {
 void LensFx_ResetGroup(Group group) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	ResetGroup(g_values, group);
-	g_values[group == Group::Dof ? DofOn : FlareOn] = 0;
+	g_values[GroupSwitch(group)] = 0;
 }
 
 bool LensFx_Preset(Group group, const char* name) {
 	std::lock_guard<std::mutex> lock(g_mutex);
-	return group == Group::Dof ? ApplyDofPreset(g_values, name) : ApplyFlarePreset(g_values, name);
+	return group == Group::Dof ? ApplyDofPreset(g_values, name)
+		: group == Group::Flare ? ApplyFlarePreset(g_values, name) : ApplyRainPreset(g_values, name);
+}
+
+Values LensFx_GetKeyed() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return Keyed(g_values);
+}
+
+bool LensFx_RainOn() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	return g_values[RainOn] > 0.5f;
 }
 
 bool LensFx_Active() {
@@ -639,11 +651,11 @@ void LensFx_AppendStateJson(std::ostringstream& out, bool liveCounters) {
 		out << "\"" << Specs()[i].key << "\":" << g_values[i];
 	}
 	// "At defaults" per group, including the off switch, so a card's Reset can dim itself.
-	for (Group grp : { Group::Dof, Group::Flare }) {
+	for (Group grp : { Group::Dof, Group::Flare, Group::Rain }) {
 		bool atDefault = true;
 		for (int i = 0; i < ParamCount; ++i)
 			if (InGroup(i, grp) && g_values[i] != Specs()[i].def) atDefault = false;
-		out << ",\"" << (grp == Group::Dof ? "dofDefault" : "flareDefault") << "\":" << (atDefault ? "true" : "false");
+		out << ",\"" << GroupName(grp) << "Default\":" << (atDefault ? "true" : "false");
 	}
 	out << ",\"irisMask\":\"" << JsonSafe(g_iris.label) << "\""
 		<< ",\"dirtLoaded\":" << (g_dirt.pixels.empty() ? "false" : "true")
@@ -669,13 +681,15 @@ void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 
 	if (!*sub || 0 == _stricmp(sub, "help")) {
 		advancedfx::Message(
-			"%s lens - depth of field, bokeh and lens flare, a post pass over the finished world frame.\n"
-			"  lens dof|flare on|off|toggle       switch one effect\n"
+			"%s lens - depth of field, bokeh, lens flare and lens rain, a post pass over the finished world frame.\n"
+			"  lens dof|flare|rain on|off|toggle  switch one effect\n"
 			"  lens set <key> <value>             set any parameter (keys below); values are clamped to range\n"
 			"  lens <key> <value>                 same, e.g. lens dof.focus 350\n"
-			"  lens reset [dof|flare|all]         back to defaults and switches the group off\n"
+			"  lens reset [dof|flare|rain|all]    back to defaults and switches the group off\n"
 			"  lens preset dof cinematic|anamorphic|portrait|miniature|hearts|stars\n"
 			"  lens preset flare cinematic|anamorphic|classic|star|dreamy\n"
+			"  lens preset rain drizzle|rain|storm|windscreen\n"
+			"  lens rain clear                    wipe the drops off the lens\n"
 			"  lens iris shape circle|polygon|star|heart|ring|custom\n"
 			"  lens iris mask diamond|cross|crescent|clover|smile   built-in custom shape\n"
 			"  lens iris file <path>              your own black-and-white image as the iris\n"
@@ -692,9 +706,13 @@ void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 	}
 	if (0 == _stricmp(sub, "state")) { state(); return; }
 
-	if (0 == _stricmp(sub, "dof") || 0 == _stricmp(sub, "flare")) {
-		const bool dof = 0 == _stricmp(sub, "dof");
-		const int p = dof ? DofOn : FlareOn;
+	if (0 == _stricmp(sub, "rain") && 0 == _stricmp(arg(3), "clear")) {
+		LensRain_Clear();
+		if (!quiet()) advancedfx::Message("lens: rain wiped off the lens.\n");
+		return;
+	}
+	if (0 == _stricmp(sub, "dof") || 0 == _stricmp(sub, "flare") || 0 == _stricmp(sub, "rain")) {
+		const int p = 0 == _stricmp(sub, "dof") ? DofOn : 0 == _stricmp(sub, "flare") ? FlareOn : RainOn;
 		const char* a = arg(3);
 		const bool cur = LensFx_Get()[p] > 0.5f;
 		const bool on = (0 == _stricmp(a, "toggle") || !*a) ? !cur : (0 == _stricmp(a, "on") || 0 == _stricmp(a, "1"));
@@ -718,16 +736,17 @@ void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 	}
 	if (0 == _stricmp(sub, "reset")) {
 		const char* w = arg(3);
-		if (!*w || 0 == _stricmp(w, "all") || 0 == _stricmp(w, "quiet")) { LensFx_ResetGroup(Group::Dof); LensFx_ResetGroup(Group::Flare); }
+		if (!*w || 0 == _stricmp(w, "all") || 0 == _stricmp(w, "quiet")) { LensFx_ResetGroup(Group::Dof); LensFx_ResetGroup(Group::Flare); LensFx_ResetGroup(Group::Rain); }
 		else if (0 == _stricmp(w, "dof")) LensFx_ResetGroup(Group::Dof);
 		else if (0 == _stricmp(w, "flare")) LensFx_ResetGroup(Group::Flare);
+		else if (0 == _stricmp(w, "rain")) LensFx_ResetGroup(Group::Rain);
 		if (!quiet()) advancedfx::Message("lens: reset.\n");
 		return;
 	}
 	if (0 == _stricmp(sub, "preset")) {
-		const bool dof = 0 == _stricmp(arg(3), "dof");
-		if (!dof && 0 != _stricmp(arg(3), "flare")) { advancedfx::Message("lens: preset dof|flare <name>\n"); return; }
-		if (!LensFx_Preset(dof ? Group::Dof : Group::Flare, arg(4))) advancedfx::Message("lens: unknown %s preset '%s'.\n", arg(3), arg(4));
+		const Group grp = 0 == _stricmp(arg(3), "dof") ? Group::Dof : 0 == _stricmp(arg(3), "flare") ? Group::Flare : Group::Rain;
+		if (grp == Group::Rain && 0 != _stricmp(arg(3), "rain")) { advancedfx::Message("lens: preset dof|flare|rain <name>\n"); return; }
+		if (!LensFx_Preset(grp, arg(4))) advancedfx::Message("lens: unknown %s preset '%s'.\n", arg(3), arg(4));
 		else if (!quiet()) advancedfx::Message("lens: %s preset %s applied.\n", arg(3), arg(4));
 		return;
 	}

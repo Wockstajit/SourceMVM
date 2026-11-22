@@ -56,6 +56,8 @@ mirv_filmmaker editor hud [hidden|game|full|cycle]   game UI behind the editor
 mirv_filmmaker editor debug [...]          viewport/HUD debug overlay
 mirv_filmmaker camtl ...                   camera timeline (scrub, keys, easing)
 mirv_filmmaker marker ...                  marker/dolly path
+mirv_filmmaker marker dollyzoom [in|out] [seconds] [move|<n>%] [subject distance]
+                                           dolly zoom keys from the current view and tick
 mirv_filmmaker follow ...                  follow / lock-on camera
 mirv_filmmaker grapheditor ...             TIMELINE dock: camera channels, playhead, `key <shortcut>`
 mirv_filmmaker scenekeys graph ...         TIMELINE dock: scene properties
@@ -63,6 +65,23 @@ mirv_filmmaker cosmetics ...               customize backend
 ```
 
 Drive the UI from netcon with short calls into predefined JS helpers (`$.Filmmaker.*`). `ui_eval` truncates at 256 bytes.
+
+## Dolly zoom
+
+The PATH card's **Dolly zoom** group writes a dolly zoom (the "Vertigo" shot) as camera keys from the
+current view and demo tick (`Movie/DollyZoomMath.h`, the command in `MarkerCommand.cpp`). The camera
+travels along its view toward the subject (**Push in**) or away from it (**Pull out**) while the field of
+view changes so the subject keeps its size on screen: `tan(fov / 2) * distance` stays constant, and only
+the background stretches or squeezes. **Length** is the shot in seconds, **Travel** how far the camera
+goes as a share of the way to the subject.
+
+The subject is the nearest live player within 20 degrees of the middle of the frame, measured at the
+chest; with nobody there it is 300 units ahead. Keys sit 16 to a second, eased in and out, because the
+path interpolates each channel on its own and the field of view is not linear in the distance. They
+replace any key inside the shot's span and keep the rest, the edit is one undo step, and the path
+switches to Manual speed so the keys' ticks are the timing. A move that would reach the subject is
+refused; one that would need a view wider than 160 or narrower than 5 degrees is shortened, and the
+console says so. `mvm_debug` logs `campath.dollyzoom`. Tests: `dolly-zoom-math-tests.cpp`.
 
 ## The TIMELINE dock
 

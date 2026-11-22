@@ -258,6 +258,25 @@ R"EDJS(
     }, T('Live plays the demo along the path; Freeze holds the tick.'));
     var pathHint = edNote(pathSpeedPage, '');
 
+    // DOLLY ZOOM: keys from the current view and tick (MarkerCommand.cpp, Movie/DollyZoomMath.h).
+    // The camera travels along its view while the FOV keeps the subject the same size, so only the
+    // background moves. The subject is the nearest player near the middle of the frame.
+    var dollyPage = selSec.__group(T('Dolly zoom'));
+    var dollySeconds = 3, dollyShare = 50;
+    var dollyLenTile = edValueTile(dollyPage, { label: T('Length'), min: 0.5, max: 12, decimals: 1, unit: 's', fill: S.value,
+      tip: T('How long the shot lasts, from the current tick.'),
+      onChange: function (v) { if (isFinite(v)) dollySeconds = Math.max(0.5, Math.min(12, v)); } });
+    var dollyShareTile = edValueTile(dollyPage, { label: T('Travel'), min: 5, max: 90, decimals: 0, unit: '%', fill: S.value,
+      tip: T('How far the camera travels, as a share of the way to the subject.'),
+      onChange: function (v) { if (isFinite(v)) dollyShare = Math.max(5, Math.min(90, v)); } });
+    dollyLenTile.sync(dollySeconds); dollyShareTile.sync(dollyShare);
+    function dollyRun(dir) {
+      cmd('mirv_filmmaker marker dollyzoom ' + dir + ' ' + dollySeconds.toFixed(1) + ' ' + Math.round(dollyShare) + '%');
+    }
+    edActionGroup(dollyPage, T('Make'), [[T('Push in'), function () { dollyRun('in'); }, 'primary'],
+                                         [T('Pull out'), function () { dollyRun('out'); }]], 2,
+      T('Aim at a player and press one. Push in widens the view as the camera closes in; Pull out narrows it as the camera backs away. The keys replace any inside the shot and the path switches to Manual speed.'));
+
     // (The SHORTCUTS card is gone: the keys are the strip pinned above RENDER on this tab, built
     // in CameraEditorJs.h as edKeyStrip.)
     pathRailRebuild(0);

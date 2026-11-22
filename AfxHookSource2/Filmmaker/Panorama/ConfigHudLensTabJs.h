@@ -1,7 +1,7 @@
 #pragma once
 
-// LENS cards of the CONFIG panel's CAMERA tab: DEPTH OF FIELD (pages Focus and Bokeh) and
-// LENS FLARE (pages Look and Detail). JS fragment concatenated (as an adjacent raw string literal)
+// LENS cards of the CONFIG panel's CAMERA tab: DEPTH OF FIELD (pages Focus and Bokeh),
+// LENS FLARE (pages Look and Detail) and LENS RAIN (page Drops). JS fragment concatenated (as an adjacent raw string literal)
 // into the script body assembled in ConfigHudJs.h, from inside ConfigHudCameraTabJs.h so the cards
 // land BEFORE the tab footer (Panorama flows siblings in creation order).
 //
@@ -249,5 +249,55 @@ R"CFJS(
         ? (TN(L['flare.ghosts'] | 0, '{0} ghost', '{0} ghosts') + ' · ' + (L['flare.streak'] > 0 ? T('streak on') : T('streak off'))
            + ' · ' + (L['flare.star'] > 0 ? T('spikes on') : T('spikes off')) + ' · ' + T('from {0}', L['flare.threshold'].toFixed(2)))
         : T('Off'));
+    });
+)CFJS"
+R"CFJS(
+    // ===================== LENS RAIN ====================================
+    // Water drops on the front of the lens (Lens/LensRain.cpp). They land, cling, grow and merge, and
+    // the camera's own motion moves them: run sideways and they blow across the glass, move forward
+    // and they run out to the edges like rain on a windscreen, tilt and the big ones slide down. Each
+    // drop shows the scene behind it bent and flipped through the water, out of focus. One page.
+    var rainSec = section(pageCamera, T('LENS RAIN'), true, false, 'config.section.rain', '#6fb7ffff');
+    var rainReset = rainSec.__headerReset(['mirv_filmmaker lens reset rain quiet'], 'cam.rain');
+    var rainPill = rainSec.__headerPill(
+      function () { cmd('mirv_filmmaker lens rain toggle quiet'); },
+      T('Water drops on the lens that slide with the camera motion. They show in the picture and in renders, never on the HUD.'));
+    var rainPage = rainSec.__page(T('Drops'));
+    var RAIN_PRESETS = [['drizzle',T('Drizzle')],['rain',T('Rain')],['storm',T('Storm')],['windscreen',T('Windscreen')]];
+    optionGrid(rainPage, T('Look'), RAIN_PRESETS, 4,
+      T('A complete lens-rain look. Applying one resets the LENS RAIN values first. It never switches the effect on or off.'),
+      function (key) { cmd('mirv_filmmaker lens preset rain ' + key + ' quiet'); }, 13);
+    var rainSliders = [];
+    function rainSlider(label, key, min, max, decimals, unit, tip, extra) {
+      var o = { label: label, tip: tip, min: min, max: max, decimals: decimals, unit: unit || '',
+                onChange: function (v) { lensSet(key, v); } };
+      if (extra) for (var k in extra) o[k] = extra[k];
+      var r = sliderRow(rainPage, o);
+      rainSliders.push({ key: key, row: r });
+      return r;
+    }
+    rainSlider(T('Amount'), 'rain.amount', 0, 100, 0, '%',
+      T('How much rain reaches the lens. 0 lands no new drops; the ones already there stay until they run off or dry.'), { offAtZero: true });
+    rainSlider(T('Drop size'), 'rain.size', 0.3, 3, 2, 'x',
+      T('How big the drops are. Bigger drops run sooner and leave longer trails.'));
+    rainSlider(T('Slide'), 'rain.slide', 0, 2, 2, 'x',
+      T('How easily the camera motion and gravity move the drops. 0 keeps every drop where it landed; 2 sends them flying at the first move.'), { offAtZero: true });
+    rainSlider(T('Trails'), 'rain.trails', 0, 1, 2, '',
+      T('The small drops a running drop leaves behind it on the glass.'), { offAtZero: true });
+    rainSlider(T('Impact'), 'rain.impact', 0, 2, 2, 'x',
+      T('How many more drops hit the lens while the camera moves forward, as when you run into the rain.'), { offAtZero: true });
+    rainSlider(T('Refraction'), 'rain.refraction', 0, 2, 2, 'x',
+      T('How strongly each drop bends the picture behind it. Real drops show the scene shrunk and upside down.'));
+    rainSlider(T('Softness'), 'rain.blur', 0, 1, 2, '',
+      T('How far out of focus the drops are. A lens focused on the scene sees the glass blurred; 0 is sharp drops.'));
+    actionBtn(actionRowEnd(rainPage, 10), T('Wipe the lens'), function () { cmd('mirv_filmmaker lens rain clear quiet'); });
+
+    renderHooks.push(function (st) {
+      var L = st.lens; if (!L) return;
+      var on = L['rain.on'] > 0.5;
+      rainPill.set(on);
+      rainReset.setDisabled(!!L.rainDefault);
+      for (var i = 0; i < rainSliders.length; i++) rainSliders[i].row.sync(L[rainSliders[i].key]);
+      rainSec.__note(on ? (T('{0}% rain', (L['rain.amount'] || 0).toFixed(0)) + ' · ' + T('slide {0}', (L['rain.slide'] || 0).toFixed(1))) : T('Off'));
     });
 )CFJS"

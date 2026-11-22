@@ -8,6 +8,7 @@
 #include "../Movie/PlaybackLoop.h"
 #include "../Movie/ScrubFrameCache.h" // the transport's Cache toggle
 #include "../Movie/HudBlackout.h" // F8: clear every overlay
+#include "../Movie/KillFeed.h" // the death notices' shown names and filter
 
 #include "PanoramaFindPanel.h"
 #include "PanoramaPerfProbe.h"
@@ -240,7 +241,13 @@ std::string CameraTimelineHud::BuildStateJson() {
 	o << ",\"hudView\":\"" << CameraEditor_HudViewName() << "\"";
 	// CS2's own "draw with the HUD off" switches (HudBlackout.h): the hidden views keep the kill feed
 	// or the radar while its switch is 1.
-	o << ",\"forceDeathNotices\":" << HudBlackout_ForceDrawSetting("cl_drawhud_force_deathnotices");
+	// A No HUD render with the Kill feed switch on keeps the feed the same way (RenderPasses::killFeed).
+	{
+		const int force = HudBlackout_ForceDrawSetting("cl_drawhud_force_deathnotices");
+		o << ",\"forceDeathNotices\":" << ((force != -1 && Render_KeepsKillFeed()) ? 1 : force);
+	}
+	// The feed's shown names and the watched-only filter (Movie/KillFeed.h).
+	KillFeed_AppendStateJson(o);
 	o << ",\"forceRadar\":" << HudBlackout_ForceDrawSetting("cl_drawhud_force_radar");
 	// The operator-dragged inspector width, so this panel and the other two lay out to the
 	// same column. One reader, one clamp -- see InspectorWidth.h.
