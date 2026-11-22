@@ -21,6 +21,7 @@ struct Player { std::string name, shown; };
 std::vector<Player> g_players; // every player seen in this demo, in the order first seen
 bool g_watchedOnly = false;
 std::wstring g_demo;
+unsigned g_demoGeneration = 0; // bumped for every new demo, so the feed script drops old aliases
 unsigned g_scan = 0;
 
 constexpr int kMaxPlayers = 64;
@@ -68,7 +69,7 @@ bool WatchedName(char out[kMaxName + 1]) {
 
 void Refresh() {
 	const std::wstring demo = CanonicalDemoPath(ResolvePlayingDemoPath());
-	if (demo != g_demo) { g_demo = demo; g_players.clear(); }
+	if (demo != g_demo) { g_demo = demo; g_players.clear(); ++g_demoGeneration; }
 	static Names names; // 4 KB: kept off the stack
 	ReadNames(names);
 	for (int i = 0; i < names.count; ++i) {
@@ -114,6 +115,7 @@ void KillFeed_Apply(const KillFeedState& state) {
 void KillFeed_Reset() {
 	g_players.clear();
 	g_demo.clear();
+	++g_demoGeneration;
 }
 
 void KillFeed_AppendStateJson(std::ostringstream& o) {
@@ -122,7 +124,7 @@ void KillFeed_AppendStateJson(std::ostringstream& o) {
 	WatchedName(watched);
 	if (g_watchedOnly && MvmDebugLog_Active() && (g_scan % 120) == 1)
 		MvmDebugLog_LinefAlways("killfeed", "watched-only filter: watching '%s', %zu player(s) known", watched, g_players.size());
-	o << ",\"killFeed\":{\"only\":" << (g_watchedOnly ? 1 : 0)
+	o << ",\"killFeed\":{\"demo\":" << g_demoGeneration << ",\"only\":" << (g_watchedOnly ? 1 : 0)
 		<< ",\"watched\":\"" << JsonBuilder::Escape(watched) << "\",\"players\":[";
 	for (size_t i = 0; i < g_players.size(); ++i)
 		o << (i ? "," : "") << "[\"" << JsonBuilder::Escape(g_players[i].name) << "\",\"" << JsonBuilder::Escape(g_players[i].shown) << "\"]";

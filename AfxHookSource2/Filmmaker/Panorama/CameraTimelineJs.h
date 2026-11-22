@@ -1141,7 +1141,11 @@ R"TLJS(
     var KF_LABELS = ['Attacker', 'Assister', 'Victim'];
     var kfTouched = false;
     var kfShownToReal = {};
+    var kfDemo = -1;
     function killFeedApply(kf) {
+      // A new demo: its players are other people, so the aliases learned on the last one go.
+      var demo = kf && kf.demo !== undefined ? kf.demo : kfDemo;
+      if (demo !== kfDemo) { kfDemo = demo; kfShownToReal = {}; kfTouched = false; }
       var feed = null;
       try { feed = findNative('HudDeathNotice'); } catch (e) {}
       var list = null;
