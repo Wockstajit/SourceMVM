@@ -41,6 +41,8 @@ bool LensFx_Preset(Lens::Group group, const char* name);
 
 // True when either effect is switched on -- the only test the render hook needs before doing work.
 bool LensFx_Active();
+enum class LensPreview { Picture, Dof, Flare, Rain };
+LensPreview LensFx_GetPreview();
 // True when depth of field is on: the render hook then keeps CS2's smoke absorbance and the smoke
 // spheres for the frame (LensSmoke below).
 bool LensFx_DofOn();
@@ -104,6 +106,6 @@ struct LensSun {
 
 bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	ID3D11DepthStencilView* depth, const float* worldToClip, float depthMin, float depthMax,
-	const LensSmoke& smoke, const LensSun& sun, bool keyPass, bool holdFocus);
+	const LensSmoke& smoke, const LensSun& sun, bool keyPass, bool holdFocus, LensPreview preview);
 
 } // namespace Filmmaker

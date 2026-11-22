@@ -511,7 +511,7 @@
         'flare.on': 0, 'flare.intensity': 1, 'flare.threshold': 0.85, 'flare.ghosts': 5, 'flare.halo': 0.5,
         'flare.streak': 0.8, 'flare.streakLen': 0.6, 'flare.star': 0.5, 'flare.blades': 6, 'flare.glow': 0.5, 'flare.sun': 1,
         'flare.dirt': 0.2, 'flare.tint': 0, 'flare.streakTint': 0, 'flare.debug': 0, 'flare.sunOnly': 0,
-        'rain.on': 0,
+        'rain.on': 0, rainPreview: false,
         dofDefault: true, flareDefault: true, rainDefault: true, irisMask: 'diamond', dirtLoaded: false, status: 'Off', frames: 0,
         // The view and focal length of the last lens frame: CS2's default fov 90 on a 16:9 frame.
         hfov: 106.26, focalNow: 13.5

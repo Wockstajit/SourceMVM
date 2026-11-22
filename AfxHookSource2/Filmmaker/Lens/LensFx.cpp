@@ -47,6 +47,7 @@ struct MaskImage {
 
 std::mutex g_mutex;
 Values g_values;
+bool g_rainPreview = false;
 
 // CONFIG's values with Scene Keys' keyed ones over them (`lens.<key>`, Movie/SceneKeyframeCatalog.cpp).
 // Only a copy changes: CONFIG, presets and `lens` reads keep the authored values.
@@ -552,6 +553,10 @@ bool LensFx_Set(const char* key, double value) {
 	if (p < 0) return false;
 	std::lock_guard<std::mutex> lock(g_mutex);
 	g_values[p] = ClampParam(p, value);
+	if ((p == FlareDebug || p == DofDebug) && g_values[p] > 0) {
+		g_values[p == FlareDebug ? DofDebug : FlareDebug] = 0;
+		g_rainPreview = false;
+	}
 	return true;
 }
 
@@ -559,12 +564,18 @@ void LensFx_ResetGroup(Group group) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	ResetGroup(g_values, group);
 	g_values[GroupSwitch(group)] = 0;
+	if (group == Group::Rain) g_rainPreview = false;
 }
 
 bool LensFx_Preset(Group group, const char* name) {
 	std::lock_guard<std::mutex> lock(g_mutex);
-	return group == Group::Dof ? ApplyDofPreset(g_values, name)
+	const float dofPreview = g_values[DofDebug];
+	const float flarePreview = g_values[FlareDebug];
+	const bool applied = group == Group::Dof ? ApplyDofPreset(g_values, name)
 		: group == Group::Flare ? ApplyFlarePreset(g_values, name) : ApplyRainPreset(g_values, name);
+	g_values[DofDebug] = dofPreview;
+	g_values[FlareDebug] = flarePreview;
+	return applied;
 }
 
 Values LensFx_GetKeyed() {
@@ -580,6 +591,14 @@ bool LensFx_RainOn() {
 bool LensFx_Active() {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	return g_values[DofOn] > 0.5f || g_values[FlareOn] > 0.5f;
+}
+
+LensPreview LensFx_GetPreview() {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	if (g_rainPreview) return LensPreview::Rain;
+	if (g_values[FlareOn] > 0.5f && g_values[FlareDebug] > 0) return LensPreview::Flare;
+	if (g_values[DofOn] > 0.5f && g_values[DofDebug] > 0) return LensPreview::Dof;
+	return LensPreview::Picture;
 }
 
 bool LensFx_DofOn() {
@@ -652,12 +671,13 @@ void LensFx_AppendStateJson(std::ostringstream& out, bool liveCounters) {
 	}
 	// "At defaults" per group, including the off switch, so a card's Reset can dim itself.
 	for (Group grp : { Group::Dof, Group::Flare, Group::Rain }) {
-		bool atDefault = true;
+		bool atDefault = grp != Group::Rain || !g_rainPreview;
 		for (int i = 0; i < ParamCount; ++i)
 			if (InGroup(i, grp) && g_values[i] != Specs()[i].def) atDefault = false;
 		out << ",\"" << GroupName(grp) << "Default\":" << (atDefault ? "true" : "false");
 	}
-	out << ",\"irisMask\":\"" << JsonSafe(g_iris.label) << "\""
+	out << ",\"rainPreview\":" << (g_rainPreview ? "true" : "false")
+		<< ",\"irisMask\":\"" << JsonSafe(g_iris.label) << "\""
 		<< ",\"dirtLoaded\":" << (g_dirt.pixels.empty() ? "false" : "true")
 		<< ",\"status\":\"" << JsonSafe(g_status) << "\""
 		<< (liveCounters ? ",\"frames\":" + std::to_string(g_frames.load()) : std::string());
@@ -690,6 +710,7 @@ void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 			"  lens preset flare cinematic|anamorphic|classic|star|dreamy\n"
 			"  lens preset rain drizzle|rain|storm|windscreen\n"
 			"  lens rain clear                    wipe the drops off the lens\n"
+			"  lens rain preview on|off|toggle    inspect lens water on a slate background\n"
 			"  lens iris shape circle|polygon|star|heart|ring|custom\n"
 			"  lens iris mask diamond|cross|crescent|clover|smile   built-in custom shape\n"
 			"  lens iris file <path>              your own black-and-white image as the iris\n"
@@ -709,6 +730,23 @@ void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 	if (0 == _stricmp(sub, "rain") && 0 == _stricmp(arg(3), "clear")) {
 		LensRain_Clear();
 		if (!quiet()) advancedfx::Message("lens: rain wiped off the lens.\n");
+		return;
+	}
+	if (0 == _stricmp(sub, "rain") && 0 == _stricmp(arg(3), "preview")) {
+		const char* action = arg(4);
+		const bool toggle = !*action || 0 == _stricmp(action, "toggle") || 0 == _stricmp(action, "quiet");
+		const bool on = 0 == _stricmp(action, "on");
+		if (!toggle && !on && 0 != _stricmp(action, "off")) {
+			advancedfx::Warning("usage: %s lens rain preview [on|off|toggle]\n", cmd);
+			return;
+		}
+		bool show;
+		{
+			std::lock_guard<std::mutex> lock(g_mutex);
+			show = g_rainPreview = toggle ? !g_rainPreview : on;
+			if (show) g_values[DofDebug] = g_values[FlareDebug] = 0;
+		}
+		if (!quiet()) advancedfx::Message("lens: rain only %s.\n", show ? "ON" : "off");
 		return;
 	}
 	if (0 == _stricmp(sub, "dof") || 0 == _stricmp(sub, "flare") || 0 == _stricmp(sub, "rain")) {
@@ -817,7 +855,7 @@ void LensFx_EndDevice() {
 
 bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, ID3D11DepthStencilView* depth,
 	const float* worldToClip, float depthMin, float depthMax, const LensSmoke& smoke, const LensSun& sun,
-	bool keyPass, bool holdFocus) {
+	bool keyPass, bool holdFocus, LensPreview preview) {
 	Values L;
 	MaskImage irisPending, dirtPending;
 	bool irisChanged = false, dirtChanged = false;
@@ -827,8 +865,10 @@ bool LensFx_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* targe
 		if (g_iris.serial != g.irisUploaded) { irisPending = g_iris; irisChanged = true; }
 		if (g_dirt.serial != g.dirtUploaded) { dirtPending = g_dirt; dirtChanged = true; }
 	}
-	bool dofOn = L[DofOn] > 0.5f;
-	const bool flareWanted = L[FlareOn] > 0.5f;
+	if (preview != LensPreview::Dof) L[DofDebug] = 0;
+	if (preview != LensPreview::Flare) L[FlareDebug] = 0;
+	bool dofOn = L[DofOn] > 0.5f && preview != LensPreview::Flare;
+	const bool flareWanted = L[FlareOn] > 0.5f && preview != LensPreview::Dof;
 	// A key (green screen) frame keeps its chroma clean: the flare is additive light over the
 	// whole picture, so it would tint the background and the subject's edges (seen as a green
 	// halo around a scoped rifle, 2026-10-20). It comes back on the next non-key frame.

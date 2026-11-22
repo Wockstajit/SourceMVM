@@ -31,11 +31,22 @@ test('the lens sits out renders no Beauty plate reads, and extra renders keep th
   assert.match(hooks, /commands\.SkipLens = !recordsAsDrawn;/);
   assert.match(hooks, /commands\.KeepCleanColor = recordsAsDrawn && composes;/);
   assert.match(hooks, /commands\.HoldLensFocus = true;/);
-  assert.match(hooks, /rainRuns = beautyEffects && !Filmmaker::RenderPlayersOnlyGreen_Active\(\) && Filmmaker::LensRain_Active\(\)/);
+  assert.match(hooks, /rainRuns = beautyEffects && !keyPass && \(rainOnly \|\| \(picture && Filmmaker::LensRain_Active\(\)\)\)/);
   assert.match(hooks, /\(lensRuns \|\| rainRuns \|\| reshadeRuns\) && pLensCommands && pLensCommands->KeepCleanColor/);
   assert.match(read('AfxHookSource2/StreamSettings.h'), /bool IsComposedPass\(\) const/);
   const lens = read('AfxHookSource2/Filmmaker/Lens/LensFx.cpp');
   assert.match(lens, /const bool advanceFocus = autoFocus && !\(holdFocus && g\.focusValid\);/);
+});
+
+test('lens preview is live only and rain only skips scene effects', () => {
+  assert.match(hooks, /preview = beautyEffects && !keyPass && !AfxStreams_IsRcording\(\)\s*\? Filmmaker::LensFx_GetPreview\(\) : LensPreview::Picture/);
+  assert.match(hooks, /lensRuns = beautyEffects && !rainOnly/);
+  assert.match(hooks, /reshadeRuns = beautyEffects && picture/);
+  const rain = read('AfxHookSource2/Filmmaker/Lens/LensRain.cpp');
+  assert.match(rain, /if \(preview\) \{\s*c->ClearRenderTargetView\(target, slate\);\s*\} else \{/);
+  const lens = read('AfxHookSource2/Filmmaker/Lens/LensFx.cpp');
+  assert.match(lens, /if \(preview != LensPreview::Dof\) L\[DofDebug\] = 0;/);
+  assert.match(lens, /if \(preview != LensPreview::Flare\) L\[FlareDebug\] = 0;/);
 });
 
 // The live view drew the game HUD over a Depth + Gun only plate, and the HUD's bottom shading laid a

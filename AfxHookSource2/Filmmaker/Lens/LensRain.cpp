@@ -54,7 +54,7 @@ struct F4 { float x = 0, y = 0, z = 0, w = 0; };
 // Must match RainConstants below.
 struct Constants {
 	F4 info;  // x aspect (w/h), y frame height, z mip levels of the scene copy
-	F4 look;  // x refraction, y blur (0..1), zw unused
+	F4 look;  // x refraction, y blur (0..1), z water-only preview
 	struct Water {
 		F4 drop;  // normalized centre xy, radius, seed
 		F4 shape; // runoff xy (frame heights), kind, opacity
@@ -73,7 +73,7 @@ struct Water {
 
 cbuffer RainConstants : register(b0) {
     float4 info; // aspect, frame height, mip count
-    float4 look; // refraction, softness
+    float4 look; // refraction, softness, water-only preview
     Water drops[64];
 };
 SamplerState linearClamp : register(s0);
@@ -143,6 +143,14 @@ float4 PS(VsOut i) : SV_Target {
     if (alpha <= 0.001) discard;
 
     const float2 normal = side * q.x + dir * q.y;
+    if (look.z > 0.5) {
+        // On a plain backdrop there is no detail to refract. Light the same water
+        // profile in slate and pale blue so its shape, motion and soft edge read.
+        const float rim = smoothstep(0.35, 1.0, d);
+        const float light = saturate(0.40 + 0.42 * dot(normal, float2(-0.60, -0.80)) * rim);
+        const float3 water = lerp(float3(0.28, 0.46, 0.59), float3(0.74, 0.91, 1.0), light);
+        return float4(water, alpha * i.motion.z * (splash ? 0.68 : 0.95));
+    }
     const float displacement = splash ? 0.16 : 0.87;
     const float2 sampleUv = uv - normal * (r * look.x * displacement) / float2(info.x, 1);
     const float mip = BlurMip(r * blur * (splash ? 0.93 : 0.70));
@@ -400,19 +408,25 @@ void LensRain_EndDevice() {
 	g = Gpu{}; // the compiled code (g_code, g_compile) outlives the device
 }
 
-bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target) {
+bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, bool preview) {
 	std::vector<LensRain::Drop> drops;
 	float size, trails, refraction, blur;
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);
-		if (g_shared.empty()) return false;
+		if (g_shared.empty() && !preview) return false;
 		drops = g_shared;
 		size = g_sharedSize;
 		trails = g_sharedTrails;
 		refraction = g_sharedRefraction;
 		blur = g_sharedBlur;
 	}
-	if (!immediate || !target || !PumpDevice()) return false;
+	if (!immediate || !target) return false;
+	constexpr float slate[4] = { 0.14f, 0.23f, 0.32f, 1.0f };
+	if (preview && drops.empty()) {
+		immediate->ClearRenderTargetView(target, slate);
+		return true;
+	}
+	if (!PumpDevice()) return false;
 
 	ComPtr<ID3D11Resource> res;
 	target->GetResource(&res);
@@ -424,7 +438,7 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 	D3D11_RENDER_TARGET_VIEW_DESC rv{};
 	target->GetDesc(&rv);
 	const DXGI_FORMAT typed = rv.Format != DXGI_FORMAT_UNKNOWN ? rv.Format : TypedFrom(td.Format);
-	if (!EnsureCopy(td, typed)) return false;
+	if (!preview && !EnsureCopy(td, typed)) return false;
 	const float aspect = (float)td.Width / (float)td.Height;
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);
@@ -435,8 +449,8 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 	std::stable_partition(drops.begin(), drops.end(), [](const LensRain::Drop& d) { return d.kind == LensRain::Kind::Splash; });
 	Constants k{};
 	const int n = (int)(std::min)(drops.size(), (size_t)kMaxDrops);
-	k.info = { aspect, (float)td.Height, (float)g.levels, 0 };
-	k.look = { refraction, blur, 0, 0 };
+	k.info = { aspect, (float)td.Height, preview ? 1.0f : (float)g.levels, 0 };
+	k.look = { refraction, blur, preview ? 1.0f : 0.0f, 0 };
 	for (int i = 0; i < n; ++i) {
 		const LensRain::Drop& d = drops[i];
 		k.drops[i] = {
@@ -447,10 +461,14 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 
 	ID3D11DeviceContext* c = g.ctx.Get();
 	c->ClearState();
-	// The world the drops look through, out of focus: a copy with its mips.
-	if (td.SampleDesc.Count > 1) c->ResolveSubresource(g.copy.Get(), 0, tex.Get(), 0, typed);
-	else c->CopySubresourceRegion(g.copy.Get(), 0, 0, 0, 0, tex.Get(), 0, nullptr);
-	c->GenerateMips(g.copySrv.Get());
+	if (preview) {
+		c->ClearRenderTargetView(target, slate);
+	} else {
+		// The world the drops look through, out of focus.
+		if (td.SampleDesc.Count > 1) c->ResolveSubresource(g.copy.Get(), 0, tex.Get(), 0, typed);
+		else c->CopySubresourceRegion(g.copy.Get(), 0, 0, 0, 0, tex.Get(), 0, nullptr);
+		c->GenerateMips(g.copySrv.Get());
+	}
 	c->UpdateSubresource(g.cb.Get(), 0, nullptr, &k, 0, 0);
 	c->IASetInputLayout(nullptr);
 	c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -461,7 +479,7 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 	c->PSSetConstantBuffers(0, 1, cbs);
 	ID3D11SamplerState* samplers[] = { g.linear.Get() };
 	c->PSSetSamplers(0, 1, samplers);
-	ID3D11ShaderResourceView* srvs[] = { g.copySrv.Get() };
+	ID3D11ShaderResourceView* srvs[] = { preview ? nullptr : g.copySrv.Get() };
 	c->PSSetShaderResources(0, 1, srvs);
 	c->RSSetState(g.raster.Get());
 	const D3D11_VIEWPORT vp{ 0, 0, (float)td.Width, (float)td.Height, 0, 1 };

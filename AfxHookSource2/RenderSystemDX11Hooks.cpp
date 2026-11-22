@@ -3450,10 +3450,15 @@ public:
                 // like that pass in a job (CRenderPassCommands::SkipLens / KeepCleanColor).
                 auto pLensCommands = g_RenderCommands.RenderThread_GetCommands();
                 const bool beautyEffects = !(pLensCommands && pLensCommands->SkipLens) && !AfxLivePassPreviewShown();
-                const bool lensRuns = beautyEffects && Filmmaker::LensFx_Active();
-                // Lens rain: drops on the glass, a Beauty effect too, and never on the console green screen.
-                const bool rainRuns = beautyEffects && !Filmmaker::RenderPlayersOnlyGreen_Active() && Filmmaker::LensRain_Active();
-                const bool reshadeRuns = beautyEffects && g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade;
+                const bool keyPass = Filmmaker::RenderPlayersOnlyGreen_Active();
+                using Filmmaker::LensPreview;
+                const LensPreview preview = beautyEffects && !keyPass && !AfxStreams_IsRcording()
+                    ? Filmmaker::LensFx_GetPreview() : LensPreview::Picture;
+                const bool rainOnly = preview == LensPreview::Rain;
+                const bool picture = preview == LensPreview::Picture;
+                const bool lensRuns = beautyEffects && !rainOnly && Filmmaker::LensFx_Active();
+                const bool rainRuns = beautyEffects && !keyPass && (rainOnly || (picture && Filmmaker::LensRain_Active()));
+                const bool reshadeRuns = beautyEffects && picture && g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade;
                 // This render also feeds the pass compositor: it reads the scene from before the lens
                 // and before ReShade. Either one alone changes the scene, so either one needs the copy.
                 if ((lensRuns || rainRuns || reshadeRuns) && pLensCommands && pLensCommands->KeepCleanColor) {
@@ -3514,15 +3519,14 @@ public:
                     }
                     // The console green screen (render greenscreen) repaints the scene itself, so its
                     // frame gets no flare: it would paint over the chroma background (LensFx.h, keyPass).
-                    const bool keyPass = Filmmaker::RenderPlayersOnlyGreen_Active();
                     Filmmaker::LensFx_Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                         g_EnvironmentFrame.hasWorldToClip ? g_EnvironmentFrame.worldToClip.data() : nullptr,
                         g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke, sun, keyPass,
-                        pLensCommands && pLensCommands->HoldLensFocus);
+                        pLensCommands && pLensCommands->HoldLensFocus, preview);
                 }
                 // On the glass, so after the depth of field (the drops are not part of the world it blurs).
                 if (rainRuns)
-                    Filmmaker::LensRain_Render(pDeviceContext, pRenderTargetViews[0]);
+                    Filmmaker::LensRain_Render(pDeviceContext, pRenderTargetViews[0], rainOnly);
                 // Round heat map: a placement aid painted on the floor after the lens, so it stays
                 // sharp. It sits out recordings (the scene objects tab is where it is switched on).
                 {

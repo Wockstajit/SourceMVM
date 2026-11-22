@@ -48,6 +48,9 @@ R"CFJS(
     var dofPill = dofSec.__headerPill(
       function () { cmd('mirv_filmmaker lens dof toggle quiet'); },
       T('Blurs what is in front of and behind the focus distance, using the game depth buffer. The Bokeh page shapes the blur.'));
+    var dofDebug = modeRow(dofSec, T('Show'), [['0', T('Picture')], ['1', T('Blur map')], ['2', T('Focus')], ['3', T('Zebra')]], '260px',
+      function (k) { lensSet('dof.debug', k); },
+      T('Blur map paints foreground blur orange and background blur blue by how strong it is. Focus paints what is sharp magenta -- the fastest way to see where your focus really is. Zebra draws stripes over what is sharp on top of the finished picture.'), 13);
 
     // ---- page: FOCUS ----
     var dofFocusPage = dofSec.__page(T('Focus'));
@@ -93,9 +96,6 @@ R"CFJS(
       T('The radius of the biggest blur disc, in pixels on a 1080p frame (it scales with the resolution). Caps both ways of focusing.'));
     var dofWeaponToggle = lensToggle(dofFocusPage, T('Blur the weapon'), 'dof.weapon',
       T('The first-person weapon is drawn outside the world depth range. Off keeps it sharp; on blurs it as if it were held about 30 units from the lens.'));
-    var dofDebug = modeRow(dofFocusPage, T('Show'), [['0', T('Picture')], ['1', T('Blur map')], ['2', T('Focus')], ['3', T('Zebra')]], '260px',
-      function (k) { lensSet('dof.debug', k); },
-      T('Blur map paints foreground blur orange and background blur blue by how strong it is. Focus paints what is sharp magenta -- the fastest way to see where your focus really is. Zebra draws stripes over what is sharp on top of the finished picture.'), 13);
 )CFJS"
 R"CFJS(
     // ---- page: BOKEH ----
@@ -179,13 +179,14 @@ R"CFJS(
     // them); a bright wall, the sky or a lit doorway never does, and the flare can never push a frame to
     // white. Two pages, at most eight controls on either:
     //   LOOK    a look preset, the intensity and threshold, and the amount of each part of the flare.
-    //   DETAIL  the streak length, the aperture blades, the sun (and Sun only), dirt, the two colours
-    //           and a flare-only view.
+    //   DETAIL  the streak length, the aperture blades, the sun (and Sun only), dirt and the two colours.
     var flareSec = section(pageCamera, T('LENS FLARE'), true, false, 'config.section.flare', '#ffb36bff');
     var flareReset = flareSec.__headerReset(['mirv_filmmaker lens reset flare quiet'], 'cam.flare');
     var flarePill = flareSec.__headerPill(
       function () { cmd('mirv_filmmaker lens flare toggle quiet'); },
       T('Adds lens flare from the brightest small lights in the picture. The Look page sets what it looks like, the Detail page fine-tunes it.'));
+    lensToggle(flareSec, T('Flare only'), 'flare.debug',
+      T('Shows the flare on black, so you can judge and tune it without the scene behind it.'));
 
     // ---- page: LOOK ----
     var flareLookPage = flareSec.__page(T('Look'));
@@ -234,8 +235,6 @@ R"CFJS(
     subHead(flareDetailPage, T('STREAK COLOUR'));
     var flareStreakGrid = swatchGrid(flareDetailPage, STREAK_TINTS, function (idx) { lensSet('flare.streakTint', idx); },
       { label: T('Streak colour'), perRow: 8, chipW: 40, marginTop: '4px' });
-    var flareDebug = lensToggle(flareDetailPage, T('Flare only'), 'flare.debug',
-      T('Shows the flare on black, so you can judge and tune it without the scene behind it.'));
 
     renderHooks.push(function (st) {
       var L = st.lens; if (!L) return;
@@ -259,6 +258,9 @@ R"CFJS(
     var rainPill = rainSec.__headerPill(
       function () { cmd('mirv_filmmaker lens rain toggle quiet'); },
       T('Show water on the lens while scene weather is raining.'));
+    var rainPreview = togglePill(rainSec, T('Rain only'),
+      T('Preview lens water on a slate backdrop. Turn on Lens Rain and scene rain to see drops.'),
+      function () { cmd('mirv_filmmaker lens rain preview toggle quiet'); });
     var rainPage = rainSec.__page(T('Drops'));
     var RAIN_PRESETS = [['drizzle',T('Drizzle')],['rain',T('Rain')],['storm',T('Storm')],['windscreen',T('Windscreen')]];
     optionGrid(rainPage, T('Look'), RAIN_PRESETS, 4,
@@ -293,6 +295,7 @@ R"CFJS(
       var L = st.lens; if (!L) return;
       var on = L['rain.on'] > 0.5;
       rainPill.set(on);
+      rainPreview.set(!!L.rainPreview);
       rainReset.setDisabled(!!L.rainDefault);
       for (var i = 0; i < rainSliders.length; i++) rainSliders[i].row.sync(L[rainSliders[i].key]);
       rainSec.__note(on ? T('Amount') + ' ' + (L['rain.amount'] || 0).toFixed(0) + '% · ' + T('slide {0}', (L['rain.slide'] || 0).toFixed(1)) : T('Off'));

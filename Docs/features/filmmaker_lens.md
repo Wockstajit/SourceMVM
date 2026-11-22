@@ -82,6 +82,7 @@ next to the switch.
 Both cap at *Largest blur* (pixels on a 1080p frame, scaled with the resolution). *Show → Focus*
 paints the sharp region magenta, *Blur map* paints near blur orange and far blur blue, and *Zebra*
 draws diagonal stripes over whatever blurs less than half a pixel, on the finished picture.
+The **Show** control stays above the Focus and Bokeh tabs. Its diagnostic views are live previews.
 
 **Smoke.** CS2 draws smokes without depth, so the depth buffer under a smoke is the wall behind it. A
 smoke used to be blurred at the wall's distance, so the background's blur showed through it instead of
@@ -321,7 +322,8 @@ rainbow, glow size, dirt scale, edge fade and warp. Settings are session-local.
 
 **Panel.** LENS FLARE has two pages, with at most eight controls on either. *Look* holds the look,
 intensity, source threshold, ghosts, halo, streak, spikes and glow. *Detail* holds streak length, aperture
-blades, lens dirt, the flare colour and streak colour swatches, and *Flare only*.
+blades, lens dirt, and the flare and streak colour swatches. **Flare only** stays above both tabs
+so you can tune either page while viewing the flare on black.
 
 Looks: Cinematic (the defaults), Anamorphic (a long cool streak), Classic (eight ghosts and a ring), Star
 (spikes only), and Dreamy (glow only, with a lower threshold). A look resets the group first.
@@ -357,10 +359,15 @@ moves forward. Use **Wipe the lens** to clear everything at once. The Drizzle, R
 Windscreen looks set these controls together. Every setting except the switch can be animated
 under `lens.rain.*` in Scene Keys.
 
+**Rain only** previews the droplets and streaks on slate blue so you can inspect their size, motion
+and soft edges. It uses the same scene rain and Lens Rain switch as the normal picture. The lens
+preview modes are mutually exclusive and suspend during recording.
+
 ```text
 mirv_filmmaker environment weather storm
 mirv_filmmaker lens preset rain storm
 mirv_filmmaker lens rain on
+mirv_filmmaker lens rain preview toggle
 mirv_filmmaker lens rain.amount 30
 mirv_filmmaker lens rain clear
 ```

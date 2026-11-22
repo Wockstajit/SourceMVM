@@ -21,7 +21,7 @@
 
   function rainAtDefaults(lens) {
     var defaults = global.MvmState.LENS_RAIN_DEFAULTS;
-    return !lens['rain.on'] && Object.keys(defaults).every(function (key) {
+    return !lens['rain.on'] && !lens.rainPreview && Object.keys(defaults).every(function (key) {
       return lens[key] === defaults[key];
     });
   }
@@ -580,18 +580,31 @@
       // The Lens cards write every control as `lens set <key> <value>`; the game clamps, the mockup only stores.
       st.lens = st.lens || {};
       st.lens[c] = +d;
+      if ((c === 'flare.debug' || c === 'dof.debug') && st.lens[c] > 0) {
+        st.lens[c === 'flare.debug' ? 'dof.debug' : 'flare.debug'] = 0;
+        st.lens.rainPreview = false;
+        st.lens.rainDefault = rainAtDefaults(st.lens);
+      }
       if (c.indexOf('rain.') === 0) st.lens.rainDefault = rainAtDefaults(st.lens);
       else st.lens[c.indexOf('dof.') === 0 ? 'dofDefault' : 'flareDefault'] = false;
       return true;
     }
     if (a === 'lens' && b === 'reset') {
       st.lens = st.lens || {};
-      if (c === 'dof' || !c || c === 'all') {st.lens['dof.on']=0;st.lens.dofDefault=true;}
-      if (c === 'flare' || !c || c === 'all') {st.lens['flare.on']=0;st.lens.flareDefault=true;}
+      if (c === 'dof' || !c || c === 'all') {st.lens['dof.on']=0;st.lens['dof.debug']=0;st.lens.dofDefault=true;}
+      if (c === 'flare' || !c || c === 'all') {st.lens['flare.on']=0;st.lens['flare.debug']=0;st.lens.flareDefault=true;}
       if (c === 'rain' || !c || c === 'all') {
         Object.assign(st.lens, global.MvmState.LENS_RAIN_DEFAULTS);
+        st.lens['rain.on'] = 0;
+        st.lens.rainPreview = false;
         st.lens.rainDefault = rainAtDefaults(st.lens);
       }
+      return true;
+    }
+    if (a === 'lens' && b === 'rain' && c === 'preview') {
+      st.lens.rainPreview = d === 'on' || (d !== 'off' && !st.lens.rainPreview);
+      if (st.lens.rainPreview) st.lens['dof.debug'] = st.lens['flare.debug'] = 0;
+      st.lens.rainDefault = rainAtDefaults(st.lens);
       return true;
     }
     if (a === 'lens' && b === 'rain' && c === 'toggle') {
