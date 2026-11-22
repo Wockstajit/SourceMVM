@@ -359,9 +359,9 @@ moves forward. Use **Wipe the lens** to clear everything at once. The Drizzle, R
 Windscreen looks set these controls together. Every setting except the switch can be animated
 under `lens.rain.*` in Scene Keys.
 
-**Rain only** previews the droplets and streaks on slate blue so you can inspect their size, motion
-and soft edges. It uses the same scene rain and Lens Rain switch as the normal picture. The lens
-preview modes are mutually exclusive and suspend during recording.
+**Rain only** shows the droplets and streaks against black. The game image remains visible through
+the water, and the preview makes subpixel droplets easier to inspect. It uses the same scene rain
+and Lens Rain switch as the normal picture. The lens preview modes suspend during recording.
 
 ```text
 mirv_filmmaker environment weather storm

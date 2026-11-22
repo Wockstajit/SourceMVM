@@ -259,7 +259,7 @@ R"CFJS(
       function () { cmd('mirv_filmmaker lens rain toggle quiet'); },
       T('Show water on the lens while scene weather is raining.'));
     var rainPreview = togglePill(rainSec, T('Rain only'),
-      T('Preview lens water on a slate backdrop. Turn on Lens Rain and scene rain to see drops.'),
+      T('Preview droplets and their refraction against black. Turn on Lens Rain and scene rain to see drops.'),
       function () { cmd('mirv_filmmaker lens rain preview toggle quiet'); });
     var rainPage = rainSec.__page(T('Drops'));
     var RAIN_PRESETS = [['drizzle',T('Drizzle')],['rain',T('Rain')],['storm',T('Storm')],['windscreen',T('Windscreen')]];

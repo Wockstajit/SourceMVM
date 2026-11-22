@@ -710,7 +710,7 @@ void LensFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 			"  lens preset flare cinematic|anamorphic|classic|star|dreamy\n"
 			"  lens preset rain drizzle|rain|storm|windscreen\n"
 			"  lens rain clear                    wipe the drops off the lens\n"
-			"  lens rain preview on|off|toggle    inspect lens water on a slate background\n"
+			"  lens rain preview on|off|toggle    show refracting water against black\n"
 			"  lens iris shape circle|polygon|star|heart|ring|custom\n"
 			"  lens iris mask diamond|cross|crescent|clover|smile   built-in custom shape\n"
 			"  lens iris file <path>              your own black-and-white image as the iris\n"

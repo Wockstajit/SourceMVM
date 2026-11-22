@@ -43,7 +43,8 @@ test('lens preview is live only and rain only skips scene effects', () => {
   assert.match(hooks, /lensRuns = beautyEffects && !rainOnly/);
   assert.match(hooks, /reshadeRuns = beautyEffects && picture/);
   const rain = read('AfxHookSource2/Filmmaker/Lens/LensRain.cpp');
-  assert.match(rain, /if \(preview\) \{\s*c->ClearRenderTargetView\(target, slate\);\s*\} else \{/);
+  assert.match(rain, /c->GenerateMips\(g.copySrv.Get\(\)\);\s*if \(preview\) c->ClearRenderTargetView\(target, black\);/);
+  assert.match(rain, /srvs\[\] = \{ g.copySrv.Get\(\) \}/);
   const lens = read('AfxHookSource2/Filmmaker/Lens/LensFx.cpp');
   assert.match(lens, /if \(preview != LensPreview::Dof\) L\[DofDebug\] = 0;/);
   assert.match(lens, /if \(preview != LensPreview::Flare\) L\[FlareDebug\] = 0;/);

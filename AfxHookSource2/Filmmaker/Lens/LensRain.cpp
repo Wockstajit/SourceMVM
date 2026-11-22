@@ -83,7 +83,7 @@ struct VsOut {
     float4 pos : SV_Position;
     float2 local : LOCAL;
     nointerpolation float4 shape : SHAPE; // radius, runoff in radii, seed, kind
-    nointerpolation float3 motion : MOTION; // direction xy, coverage
+    nointerpolation float4 motion : MOTION; // direction xy, coverage, optical radius
 };
 
 VsOut VS(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
@@ -93,7 +93,8 @@ VsOut VS(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
     const float4 water = drops[iid].shape;
     const float run = length(water.xy);
     const float2 dir = run > 1e-5 ? water.xy / run : float2(0, 1);
-    const float radius = max(0.9 / info.y, drop.z);
+    const bool preview = look.z > 0.5;
+    const float radius = max((preview ? 1.6 : 0.9) / info.y, drop.z);
     const float runRadii = run / radius;
     const float coverage = saturate(drop.z / radius);
     const float2 corner = corners[vid];
@@ -104,7 +105,8 @@ VsOut VS(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
     o.pos = float4(screen.x * 2 - 1, 1 - screen.y * 2, 0, 1);
     o.local = local;
     o.shape = float4(radius, runRadii, drop.w, water.z);
-    o.motion = float3(dir, water.w * coverage * coverage);
+    const float opacity = water.w * (preview ? sqrt(coverage) : coverage * coverage);
+    o.motion = float4(dir, opacity, drop.z);
     return o;
 }
 
@@ -143,24 +145,19 @@ float4 PS(VsOut i) : SV_Target {
     if (alpha <= 0.001) discard;
 
     const float2 normal = side * q.x + dir * q.y;
-    if (look.z > 0.5) {
-        // On a plain backdrop there is no detail to refract. Light the same water
-        // profile in slate and pale blue so its shape, motion and soft edge read.
-        const float rim = smoothstep(0.35, 1.0, d);
-        const float light = saturate(0.40 + 0.42 * dot(normal, float2(-0.60, -0.80)) * rim);
-        const float3 water = lerp(float3(0.28, 0.46, 0.59), float3(0.74, 0.91, 1.0), light);
-        return float4(water, alpha * i.motion.z * (splash ? 0.68 : 0.95));
-    }
+    const bool preview = look.z > 0.5;
+    const float opticalRadius = preview ? i.motion.w : r;
     const float displacement = splash ? 0.16 : 0.87;
-    const float2 sampleUv = uv - normal * (r * look.x * displacement) / float2(info.x, 1);
-    const float mip = BlurMip(r * blur * (splash ? 0.93 : 0.70));
+    const float2 sampleUv = uv - normal * (opticalRadius * look.x * displacement) / float2(info.x, 1);
+    const float mip = BlurMip(opticalRadius * blur * (splash ? 0.93 : 0.70));
     float3 color = scene.SampleLevel(linearClamp, sampleUv, mip).rgb;
     if (!splash) {
         // Keep the rim subdued and tied to scene color so subpixel drops don't flash.
         const float rim = smoothstep(0.38, 1.0, d);
         color *= 1.0 + 0.17 * rim * clamp(dot(normal, float2(-0.6, -0.8)), -1.0, 1.0);
     }
-    return float4(color, alpha * i.motion.z * (splash ? 0.83 : 0.95));
+    const float opacity = preview ? 1.0 : (splash ? 0.83 : 0.95);
+    return float4(color, alpha * i.motion.z * opacity);
 }
 )HLSL";
 
@@ -421,9 +418,9 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 		blur = g_sharedBlur;
 	}
 	if (!immediate || !target) return false;
-	constexpr float slate[4] = { 0.14f, 0.23f, 0.32f, 1.0f };
+	constexpr float black[4] = { 0, 0, 0, 1 };
 	if (preview && drops.empty()) {
-		immediate->ClearRenderTargetView(target, slate);
+		immediate->ClearRenderTargetView(target, black);
 		return true;
 	}
 	if (!PumpDevice()) return false;
@@ -438,7 +435,7 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 	D3D11_RENDER_TARGET_VIEW_DESC rv{};
 	target->GetDesc(&rv);
 	const DXGI_FORMAT typed = rv.Format != DXGI_FORMAT_UNKNOWN ? rv.Format : TypedFrom(td.Format);
-	if (!preview && !EnsureCopy(td, typed)) return false;
+	if (!EnsureCopy(td, typed)) return false;
 	const float aspect = (float)td.Width / (float)td.Height;
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);
@@ -449,7 +446,7 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 	std::stable_partition(drops.begin(), drops.end(), [](const LensRain::Drop& d) { return d.kind == LensRain::Kind::Splash; });
 	Constants k{};
 	const int n = (int)(std::min)(drops.size(), (size_t)kMaxDrops);
-	k.info = { aspect, (float)td.Height, preview ? 1.0f : (float)g.levels, 0 };
+	k.info = { aspect, (float)td.Height, (float)g.levels, 0 };
 	k.look = { refraction, blur, preview ? 1.0f : 0.0f, 0 };
 	for (int i = 0; i < n; ++i) {
 		const LensRain::Drop& d = drops[i];
@@ -461,14 +458,11 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 
 	ID3D11DeviceContext* c = g.ctx.Get();
 	c->ClearState();
-	if (preview) {
-		c->ClearRenderTargetView(target, slate);
-	} else {
-		// The world the drops look through, out of focus.
-		if (td.SampleDesc.Count > 1) c->ResolveSubresource(g.copy.Get(), 0, tex.Get(), 0, typed);
-		else c->CopySubresourceRegion(g.copy.Get(), 0, 0, 0, 0, tex.Get(), 0, nullptr);
-		c->GenerateMips(g.copySrv.Get());
-	}
+	// Save the live scene before clearing the backdrop so the preview still refracts it.
+	if (td.SampleDesc.Count > 1) c->ResolveSubresource(g.copy.Get(), 0, tex.Get(), 0, typed);
+	else c->CopySubresourceRegion(g.copy.Get(), 0, 0, 0, 0, tex.Get(), 0, nullptr);
+	c->GenerateMips(g.copySrv.Get());
+	if (preview) c->ClearRenderTargetView(target, black);
 	c->UpdateSubresource(g.cb.Get(), 0, nullptr, &k, 0, 0);
 	c->IASetInputLayout(nullptr);
 	c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -479,7 +473,7 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 	c->PSSetConstantBuffers(0, 1, cbs);
 	ID3D11SamplerState* samplers[] = { g.linear.Get() };
 	c->PSSetSamplers(0, 1, samplers);
-	ID3D11ShaderResourceView* srvs[] = { preview ? nullptr : g.copySrv.Get() };
+	ID3D11ShaderResourceView* srvs[] = { g.copySrv.Get() };
 	c->PSSetShaderResources(0, 1, srvs);
 	c->RSSetState(g.raster.Get());
 	const D3D11_VIEWPORT vp{ 0, 0, (float)td.Width, (float)td.Height, 0, 1 };
