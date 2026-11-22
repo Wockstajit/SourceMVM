@@ -116,7 +116,7 @@ bool MovieInput_OnMouseButton(int button, bool down, int x, int y); // 0 = left,
 void MovieInput_ButtonUp(int button); // raw-input release, 0 = left, 1 = right (MovieMode::OnButtonUp)
 // Left press at client (x, y): true = a game-mode click on our UI, now switching to UI mode; the
 // caller passes the press and its release straight to the game window (MovieMode::OnUiClick).
-bool MovieInput_OnUiClick(int x, int y);
+bool MovieInput_OnUiClick(int button, int x, int y);
 bool MovieInput_OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x = -1, int y = -1);
 
 // HUD panel show/hide (driven by the mirv_filmmaker hud console command).

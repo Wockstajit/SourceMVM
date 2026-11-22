@@ -333,14 +333,38 @@ static bool PathPlaybackOwnsView() {
 		|| cp.PlaybackPending();
 }
 
-bool MovieMode::OnUiClick(int x, int y) {
+bool MovieMode::OnUiClick(int button, int x, int y) {
 	if (!IsDemoActive() || ConfigHud_IsLive())
 		return false;
+	// A full-screen editor dialog owns both mouse buttons anywhere in the window, including over
+	// the preview. Let Panorama see the press and prevent the camera and raw mouse capture paths.
+	if (CameraEditor_PopupOpen()) {
+		if (!CameraTimeline_WantsCursor()) {
+			EnqueueCmd("mirv_filmmaker camtl cursor on");
+			MouseCapture_ReleaseForUi("camera editor dialog");
+		}
+		if (MvmDebugLog_Active())
+			MvmDebugLog_Linef("input.uiclick", "button=%d x=%d y=%d -> camera editor dialog", button, x, y);
+		return true;
+	}
 	// Surfaces that place something with the click, or own every click while they are up, are left
 	// to OnMouseButton exactly as before.
 	if (FollowCameraRef().Repositioning() || CameraPathRef().GetMode() == CameraPath::Mode::Reposition
 		|| CameraPathRef().MenuOpen() || GraphEditorExperiment_WantsCursor() || CameraEditor_CustomizeModalOpen())
 		return false;
+
+	// Right clicks on the editor's chrome are UI clicks too. Preview right-clicks still use the
+	// existing camera and scene-tool handling in OnMouseButton.
+	if (button == 1) {
+		if (!CameraEditor_Active()) return false;
+		const auto in = ClickInput(x, y);
+		if (!in.preview.valid || UiClick::InGame(in)) return false;
+		if (!in.uiModeOn) {
+			EnqueueCmd("mirv_filmmaker camtl cursor on");
+			MouseCapture_ReleaseForUi("camera editor control");
+		}
+		return true;
+	}
 
 	// Outside the workspaces the native demo bar (scrubber, CAM EDITOR, CONFIG) is the UI on screen,
 	// and a press on it is the bar's, press and release. In the free cam it used to become a

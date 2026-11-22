@@ -12,6 +12,7 @@
 #include "Movie/FollowCamera.h"
 #include "Cosmetics/CosmeticEntityAccess.h" // CosmeticEntFromIndex: the players a dolly zoom can hold
 #include "Debug/MvmDebugLog.h"
+#include "Panorama/CameraEditorHud.h"
 
 #include "../ClientEntitySystem.h"
 #include "../MirvTime.h"
@@ -21,12 +22,23 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <iomanip>
+#include <sstream>
 #include <string>
 #include <vector>
 
 namespace Filmmaker {
 
 namespace {
+
+void ReportDollyZoom(const std::string& reason, int count = 0, int first = 0, int last = 0, bool fallback = false) {
+	auto& editor = CameraEditorHudRef();
+	if (!editor.Enabled()) return;
+	std::ostringstream js;
+	js << "$.CamEditor && $.CamEditor.dollyResult(" << count << ',' << first << ',' << last << ','
+		<< (fallback ? "true" : "false") << ',' << std::quoted(reason) << ");";
+	editor.RequestEval(js.str());
+}
 
 // The nearest live player near the middle of the frame, measured at the chest (48 units over the
 // feet). SEH-guarded like every other pawn scan: a stale entity reads as nobody. -1 when none.
@@ -67,6 +79,12 @@ void DollyZoomCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 		else move = atof(m.c_str());
 	}
 	const double subject = *arg(at) ? atof(arg(at++)) : -1;
+	int tick = 0;
+	if (!g_MirvTime.GetCurrentDemoTick(tick)) {
+		ReportDollyZoom("Open a demo to create a dolly zoom.");
+		advancedfx::Warning("%s marker dollyzoom: open a demo first.\n", cmd);
+		return;
+	}
 
 	double origin[3] = {}, angles[3] = {}, fov = 90;
 	CameraBridge_GetCurrentCamera(origin, angles, fov);
@@ -76,18 +94,21 @@ void DollyZoomCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 	start.fov = fov;
 
 	const char* subjectFrom = "given";
+	bool fallback = false;
 	if (subject > 0) o.subjectDistance = subject;
 	else {
 		const double d = NearestPlayerAhead(start);
 		if (d > 0) { o.subjectDistance = d; subjectFrom = "the nearest player ahead"; }
-		else { o.subjectDistance = 300; subjectFrom = "no player near the middle of the frame: 300 units"; }
+		else {
+			o.subjectDistance = 300;
+			subjectFrom = "no player near the middle of the frame: 300 units";
+			fallback = true;
+		}
 	}
 	// Half the way to the subject unless a move was given: a strong, safe default.
 	if (movePercent > 0) move = o.subjectDistance * (std::min)(movePercent, 95.0) / 100.0;
 	if (move <= 0) move = o.subjectDistance * 0.5;
 	o.move = out ? -move : move;
-	int tick = 0;
-	g_MirvTime.GetCurrentDemoTick(tick);
 	o.startTick = tick;
 	const double interval = (double)g_MirvTime.interval_per_tick_get();
 	o.tickRate = interval > 0 ? 1.0 / interval : 64.0;
@@ -95,6 +116,7 @@ void DollyZoomCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 	std::string why;
 	const std::vector<DollyZoom::Key> keys = DollyZoom::Build(start, o, &why);
 	if (keys.empty()) {
+		ReportDollyZoom(why);
 		advancedfx::Warning("%s marker dollyzoom: %s.\n", cmd, why.c_str());
 		return;
 	}
@@ -115,6 +137,7 @@ void DollyZoomCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 	cp.ReplaceMarkersFromGraph(markers, true);
 	// The keys carry the timing: the shot plays at the ticks they sit on.
 	if (cp.GetSpeedMode() != CameraPath::SpeedMode::Manual) cp.SetSpeedMode(CameraPath::SpeedMode::Manual);
+	ReportDollyZoom(why, (int)keys.size(), first, last, fallback);
 	advancedfx::Message("%s marker dollyzoom: %s %.0f units over %.1f s, subject at %.0f units (%s), fov %.1f -> %.1f, %d keys at ticks %d..%d%s%s.\n",
 		cmd, out ? "pull out" : "push in", std::fabs(o.move), o.seconds, o.subjectDistance, subjectFrom,
 		keys.front().pose.fov, keys.back().pose.fov, (int)keys.size(), first, last, why.empty() ? "" : "; ", why.c_str());

@@ -68,20 +68,25 @@ Drive the UI from netcon with short calls into predefined JS helpers (`$.Filmmak
 
 ## Dolly zoom
 
-The PATH card's **Dolly zoom** group writes a dolly zoom (the "Vertigo" shot) as camera keys from the
-current view and demo tick (`Movie/DollyZoomMath.h`, the command in `MarkerCommand.cpp`). The camera
-travels along its view toward the subject (**Push in**) or away from it (**Pull out**) while the field of
-view changes so the subject keeps its size on screen: `tan(fov / 2) * distance` stays constant, and only
-the background stretches or squeezes. **Length** is the shot in seconds, **Travel** how far the camera
-goes as a share of the way to the subject.
+In **Camera Editor → Path → Dolly zoom**, pause the demo at the start of the shot and aim at a
+player. **Push in** or **Pull out** creates a set of camera keys from that view and playhead. The
+editor shows the key count and tick range when it finishes. Use the **Play Path** shortcut (J by
+default) to play the camera path from its first key. The group shows **Camera path playing** during
+playback.
+
+**Push in** moves closer and widens the view. **Pull out** moves back and narrows it. The move
+holds the framing of the starting subject position while changing the perspective of the background.
+**Duration** is the shot length in seconds. At **50% Travel**, the camera moves half its starting
+distance to the subject in the chosen direction.
 
 The subject is the nearest live player within 20 degrees of the middle of the frame, measured at the
 chest; with nobody there it is 300 units ahead. Keys sit 16 to a second, eased in and out, because the
 path interpolates each channel on its own and the field of view is not linear in the distance. They
 replace any key inside the shot's span and keep the rest, the edit is one undo step, and the path
 switches to Manual speed so the keys' ticks are the timing. A move that would reach the subject is
-refused; one that would need a view wider than 160 or narrower than 5 degrees is shortened, and the
-console says so. `mvm_debug` logs `campath.dollyzoom`. Tests: `dolly-zoom-math-tests.cpp`.
+refused. A move that would need a view wider than 160 or narrower than 5 degrees is shortened.
+The editor reports the fallback distance, shortened travel, and failed creation. `mvm_debug` logs
+`campath.dollyzoom`. Tests: `dolly-zoom-math-tests.cpp`.
 
 ## The TIMELINE dock
 

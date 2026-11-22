@@ -108,9 +108,9 @@ void WindowInputHooks_MainThreadFrame(bool directorOwnsWheel) {
 }
 
 AfxUiCursorProbe g_UiCursorProbe;
-// A left press went to the UI as a click-to-UI-mode click (MovieInput_OnUiClick): its release
+// A press went to the UI as a click-to-UI-mode click (MovieInput_OnUiClick): its release
 // follows it to the panel even though UI mode only switches on with the next frame.
-static bool s_uiClickHeld = false;
+static bool s_uiClickHeld = false, s_uiRightClickHeld = false;
 // Clippy's onboarding: a press outside the zones a locked step allows is swallowed, and so is its
 // release, even if the lock changes in between (Filmmaker::Onboarding_BlocksClick).
 static bool s_onboardingSwallowL = false, s_onboardingSwallowR = false;
@@ -230,6 +230,7 @@ LRESULT CALLBACK new_Afx_WindowProc(
 	if (uMsg == WM_KILLFOCUS
 		|| (uMsg == WM_ACTIVATE && LOWORD(wParam) == WA_INACTIVE)
 		|| (uMsg == WM_ACTIVATEAPP && !wParam)) {
+		s_uiClickHeld = s_uiRightClickHeld = false;
 		g_UiCursorProbe.lmb = g_UiCursorProbe.rmb = false;
 		g_UiCursorProbe.seq++;
 		Filmmaker::MouseCapture_OnActivate(false);
@@ -361,7 +362,7 @@ LRESULT CALLBACK new_Afx_WindowProc(
 		if (OnboardingAssistantPress(hwnd, lParam)) { s_uiClickHeld = true; break; }
 		// GAME mode, and the click is on our UI: switch to UI mode and let the
 		// panel have the click (press AND release) instead of the camera grabbing the mouse.
-		if (Filmmaker::MovieInput_OnUiClick((short)LOWORD(lParam), (short)HIWORD(lParam))) {
+		if (Filmmaker::MovieInput_OnUiClick(0, (short)LOWORD(lParam), (short)HIWORD(lParam))) {
 			s_uiClickHeld = true;
 			break;
 		}
@@ -379,6 +380,10 @@ LRESULT CALLBACK new_Afx_WindowProc(
 	case WM_RBUTTONDOWN:
 		if (OnboardingGateClick(hwnd, uMsg, lParam)) return 0;
 		g_UiCursorProbe.rmb = true; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
+		if (Filmmaker::MovieInput_OnUiClick(1, (short)LOWORD(lParam), (short)HIWORD(lParam))) {
+			s_uiRightClickHeld = true;
+			break;
+		}
 		if(Filmmaker::MovieInput_OnMouseButton(1, true, (short)LOWORD(lParam), (short)HIWORD(lParam))) return 0;
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam)) return 0;
 		GameClick();
@@ -386,6 +391,7 @@ LRESULT CALLBACK new_Afx_WindowProc(
 	case WM_RBUTTONUP:
 		if (OnboardingGateClick(hwnd, uMsg, lParam)) return 0;
 		g_UiCursorProbe.rmb = false; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++;
+		if (s_uiRightClickHeld) { s_uiRightClickHeld = false; break; }
 		if(Filmmaker::MovieInput_OnMouseButton(1, false, (short)LOWORD(lParam), (short)HIWORD(lParam))) return 0;
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam)) return 0;
 		break;
@@ -401,6 +407,10 @@ LRESULT CALLBACK new_Afx_WindowProc(
 		// a key (GraphEditorJs keyDoubleClick) and a fast second slider press both need it.
 		if (uMsg == WM_LBUTTONDBLCLK) { g_UiCursorProbe.lmb = true; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++; }
 		if (uMsg == WM_RBUTTONDBLCLK) { g_UiCursorProbe.rmb = true; g_UiCursorProbe.x = (short)LOWORD(lParam); g_UiCursorProbe.y = (short)HIWORD(lParam); g_UiCursorProbe.seq++; }
+		if (Filmmaker::CameraEditor_PopupOpen()) {
+			if (uMsg == WM_LBUTTONDBLCLK) { s_uiClickHeld = true; break; }
+			if (uMsg == WM_RBUTTONDBLCLK) { s_uiRightClickHeld = true; break; }
+		}
 		if (g_MirvInputEx.m_MirvInput->Supply_MouseEvent(uMsg, wParam, lParam))
 			return 0;
 		break;

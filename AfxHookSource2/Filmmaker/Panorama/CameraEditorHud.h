@@ -32,6 +32,7 @@
 #include "PanoramaBridge.h"
 #include "../Movie/TimelineDock.h" // the dock mode lives here now, shared with CONFIG
 
+#include <atomic>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -163,9 +164,10 @@ private:
 	short m_symTextCapture = -1;   // "textcapture" -- JS publishes whether a text field has focus
 	bool m_customizeOpen = false;
 	short m_symPopupOpen = -1;     // "popupopen" -- EditorSettingsPopupJs.h publishes its overlay
+	short m_symConfirmOpen = -1;   // "confirmopen" -- the editor's shared confirmation overlay
 	short m_symWinRect = -1;       // "winrect" -- ModuleWindowJs.h, the MODULAR window in client px
 	short m_symWinFront = -1;      // "winfront" -- "1" while it is the window drawn on top
-	bool m_popupOpen = false;
+	std::atomic<bool> m_popupOpen{false}; // written by Panorama's main thread, read by WndProc
 	bool m_textCapture = false; // JS-published "textcapture" attribute (a field wants keystrokes)
 	// Captured-input queue for the modal (WndProc thread -> main thread). Guarded by m_custInputMutex.
 	std::mutex m_custInputMutex;

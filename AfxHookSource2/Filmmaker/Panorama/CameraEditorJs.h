@@ -164,7 +164,7 @@ R"EDJS(
     confirmOverlay.visible = false; confirmOverlay.hittest = true;
     confirmOverlay.style.width = '100%'; confirmOverlay.style.height = '100%'; confirmOverlay.style.zIndex = '220';
     confirmOverlay.style.backgroundColor = 'rgba(0,0,0,0.72)';
-    confirmOverlay.SetPanelEvent('onactivate', function () { hideClearConfirm(); });
+    confirmOverlay.SetPanelEvent('onactivate', function () {}); // Only Cancel or the named action closes it.
     // Full screen while it is up: no press under it reaches a MODULAR window (ModuleWindowJs.h).
     if (!$.MvmWinCovers) $.MvmWinCovers = {};
     $.MvmWinCovers.clearConfirm = function () { return confirmOverlay.IsValid() && confirmOverlay.visible; };
@@ -185,22 +185,31 @@ R"EDJS(
     confirmBody.style.horizontalAlign = 'center'; confirmBody.style.marginBottom = '22px';
     var confirmActions = mk('Panel', confirmBox); confirmActions.style.flowChildren = 'right';
     confirmActions.style.horizontalAlign = 'center';
-    function hideClearConfirm() { confirmOverlay.visible = false; }
     var confirmAction = null;
+    function showEditorConfirm(action) {
+      confirmAction = action;
+      confirmOverlay.visible = true;
+      root.SetAttributeString('confirmopen', '1');
+    }
+    function hideEditorConfirm() {
+      confirmOverlay.visible = false;
+      confirmAction = null;
+      root.SetAttributeString('confirmopen', '0');
+    }
     function showClearConfirm() {
       confirmTitle.text = T('CLEAR ALL CAMERA PATHS?');
       confirmBody.text = T('This deletes every path camera/keyframe for this demo.');
       // Restated because SCENE KEYS borrows this dialog and rewrites the verb (skConfirm).
       confirmYes.__lbl.text = T('Yes, clear all');
-      confirmAction = null; confirmOverlay.visible = true;
+      showEditorConfirm(function () { cmd('mirv_filmmaker camtl clear'); });
     }
-    var confirmNo = btn(confirmActions, T('No'), function () { hideClearConfirm(); }, S.value);
+    var confirmNo = btn(confirmActions, T('Cancel'), hideEditorConfirm, S.value);
     confirmNo.style.width = '132px'; confirmNo.__lbl.style.textAlign = 'center'; confirmNo.__lbl.style.width = '100%';
     confirmNo.__lbl.style.whiteSpace = 'nowrap'; confirmNo.__lbl.style.textOverflow = 'shrink';
     var confirmYes = btnDanger(confirmActions, T('Yes, clear all'), function () {
-      hideClearConfirm();
-      if (confirmAction) { var action = confirmAction; confirmAction = null; action(); }
-      else cmd('mirv_filmmaker camtl clear');
+      var action = confirmAction;
+      hideEditorConfirm();
+      if (action) action();
     });
     confirmYes.style.width = '172px'; confirmYes.style.marginRight = '0px';
     confirmYes.__lbl.style.textAlign = 'center'; confirmYes.__lbl.style.width = '100%';
@@ -726,6 +735,7 @@ R"EDJS(
 
     var st = null;
     var api = {};
+    api.dollyResult = pathDollyResult;
     api.setInspectorMode = function (mode) {
       inspectorMode = (mode === 'follow') ? 'follow' : ((mode === 'scene') ? 'scene' : 'path');
     };
@@ -1098,6 +1108,7 @@ R"EDJS(
         // The customize modal and its confirm are their OWN roots (CameraEditorCustomizeJs.h), so
         // hiding the editor root no longer hides them -- they would bake straight into the capture.
         closeCustomize();
+        if (confirmOverlay.visible) hideEditorConfirm();
         return;
       }
 
@@ -1114,7 +1125,7 @@ R"EDJS(
 	customizeBtn.visible = false;
 	renderBtnEl.visible = false;
 	actionRow.visible = false;
-        confirmOverlay.visible = false;
+        if (confirmOverlay.visible) hideEditorConfirm();
         catcherTop.hittest = catcherBottom.hittest = catcherLeft.hittest = catcherRight.hittest = false;
         tag.visible = false;
         backdrop.visible = false;
