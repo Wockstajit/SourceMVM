@@ -68,12 +68,16 @@ inline void SimpleQuery(Words& out,unsigned first,const Words& position,const Wo
                    positive=first+4,negative=first+5,sum=first+6,coords=first+7;
     Emit(out,0,{Dest(uv),position,Cb(4,35)});
     Emit(out,50,{Dest(uv),Temp(uv),Cb(13,0),Cb(13,1)});
-    Emit(out,52,{Dest(uv),Temp(uv),Cb(13,2)});
-    Emit(out,51,{Dest(uv),Temp(uv),Cb(13,3)});
     Emit(out,16,{Dest(n,8),normal,normal});
     Emit(out,52,{Dest(n,8),Temp(n,255),Literal(IrradianceNormalEpsilon,IrradianceNormalEpsilon,IrradianceNormalEpsilon,IrradianceNormalEpsilon)});
     Emit(out,68,{Dest(n,8),Temp(n,255)});
     Emit(out,56,{Dest(n),normal,Temp(n,255)});
+    // cb13[8]: how far along its normal a receiver reads the volume, in volume units (zero for a
+    // volume that needs none). A coarse grid read at the surface blends in the probe behind a thin
+    // wall; read a cell out from the surface, it takes the probes on the receiver's own side.
+    Emit(out,50,{Dest(uv),Temp(n),Cb(13,8),Temp(uv)});
+    Emit(out,52,{Dest(uv),Temp(uv),Cb(13,2)});
+    Emit(out,51,{Dest(uv),Temp(uv),Cb(13,3)});
     Emit(out,56,{Dest(weights),Temp(n),Temp(n)});
     Emit(out,29,{Dest(sign),Temp(n),Literal(0,0,0)});
     Emit(out,54,{Dest(sum,15),Literal(0,0,0,1)});

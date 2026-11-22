@@ -7,6 +7,8 @@
 #include "../Filmmaker.h"
 #include "../Demo/DemoProjectStore.h"
 #include "../Environment/EnvironmentScene.h"
+#include "../Lens/LensFx.h"
+#include "../Props/Props.h"
 #include "../World/WorldTransient.h"
 #include "../World/SkyboxLibrary.h"
 #include "../World/CloudFx.h"
@@ -31,6 +33,8 @@ SceneKeyframeTrack g_track;
 std::wstring g_demo;
 std::string g_map, g_error;
 bool g_loaded = false, g_dirty = false, g_failed = false, g_gesture = false, g_reassert = false;
+bool g_stormPending = false; // keyed Lightning is waiting for a rendered camera to place its cell
+uint64_t g_stormGeneration = 0; // the Environment scene the storm cell was last checked against
 ULONGLONG g_saveAt = 0;
 double g_captureTick = -1, g_appliedTick = 0;
 std::map<std::wstring, TrackData> g_unsaved;
@@ -46,7 +50,14 @@ std::map<std::string, Value> Baselines() {
     for (const auto& s : Catalog()) {
         Value v = s.initial;
         if (s.type == ChannelType::SkyId) v.asset = world.sky;
-        else {
+        else if (s.source.rfind("lens.", 0) == 0) {
+            // CONFIG > CAMERA's lens (Lens/LensFx.cpp), by its key.
+            const auto values = LensFx_Get();
+            for (int p = 0; p < Lens::ParamCount; ++p)
+                if (s.source == std::string("lens.") + Lens::Specs()[p].key) v.numbers.assign(1, values[p]);
+        } else if (s.source == "props.wind") {
+            v.numbers.assign(1, Props_WindStrength());
+        } else {
             const auto& fields = s.family == "effects" ? world.fields : env;
             const auto f = fields.find(s.source);
             if (f != fields.end() && f->second.size() >= size_t(s.offset + s.components))
@@ -237,6 +248,46 @@ void CatalogJson(JsonBuilder& j) {
     }
     j.EndArray();
 }
+
+// A depth-of-field or flare property armed while that effect is off would change nothing: the lens
+// pass only runs while DEPTH OF FIELD or LENS FLARE is on. Turns the effect on. Run after every
+// scenekeys edit and when a demo's saved track loads, so a saved focus pull plays on reopen.
+// Keys play whether or not their strip is armed (Apply reads every unmuted field), so both count.
+std::set<std::string> LiveProperties() {
+    std::set<std::string> live=g_track.data.armed;
+    for(const auto& f:g_track.data.fields)
+        if(!f.second.empty()&&!g_track.data.muted.count(f.first))live.insert(f.first);
+    return live;
+}
+// Keyed Lightning needs a storm cell to strike in: one never placed through CONFIG sits at the
+// world origin, so it is dropped at the camera, as CONFIG's Lightning switch does. Checked again
+// whenever the Environment scene changes (SceneKeys_RunFrame): a scene carried onto a new map by
+// Keep between demos is restored or unbound after this runs, and can leave the cell unplaced.
+void PlaceKeyedStorm(const std::set<std::string>& live,const char* why) {
+    g_stormPending=false;
+    g_stormGeneration=Environment::SceneGeneration();
+    if(!g_pEngineToClient||!live.count("env.storm")||Environment::StormCentreSet())return;
+    Environment::Matrix clip;Environment::Vec3 eye;
+    if(!Environment::RenderedCamera(clip,eye)){g_stormPending=true;return;}
+    g_pEngineToClient->ExecuteClientCmd(0,"mirv_filmmaker environment storm-center",true);
+    MvmDebugLog_LinefAlways("scenekeys","%s placed the storm cell at the camera for env.storm",why);
+}
+void EnableKeyedEffects(const char* why) {
+    if(!g_pEngineToClient)return;
+    const auto live=LiveProperties();
+    PlaceKeyedStorm(live,why);
+    for(const char* effect:{"dof","flare"}){
+        const bool on=std::string(effect)=="dof"?LensFx_DofOn():LensFx_FlareOn();
+        if(on)continue;
+        const std::string prefix=std::string("lens.")+effect+".";
+        for(const auto& id:live)
+            if(id.rfind(prefix,0)==0){
+                g_pEngineToClient->ExecuteClientCmd(0,(std::string("mirv_filmmaker lens set ")+effect+".on 1 quiet").c_str(),true);
+                MvmDebugLog_LinefAlways("scenekeys","%s turned %s on for %s",why,effect,id.c_str());
+                break;
+            }
+    }
+}
 } // namespace
 
 void SceneKeys_Flush() { g_track.EndEdit(); Flush(); for (auto it = g_unsaved.begin(); it != g_unsaved.end();) { if (SaveData(it->first,it->second)) it=g_unsaved.erase(it); else ++it; } }
@@ -248,7 +299,8 @@ void SceneKeys_RunFrame() {
     // maps back to the original demo, so its scene keys live in the original's project.
     const auto demo = PlayingDemoPath();
     const auto map = Environment::CurrentMapName();
-    if (!g_loaded || demo != g_demo) { g_track.EndEdit(); Flush(); g_demo = demo; g_loaded = true; Load(); g_reassert = true; }
+    if (!g_loaded || demo != g_demo) { g_track.EndEdit(); Flush(); g_demo = demo; g_loaded = true; Load(); EnableKeyedEffects("load"); g_reassert = true; }
+    if (g_stormPending || Environment::SceneGeneration() != g_stormGeneration) PlaceKeyedStorm(LiveProperties(), "scene");
     if (map != g_map) { g_map = map; PrepareAssets(); g_reassert = true; }
     if (g_dirty && GetTickCount64() >= g_saveAt && !g_gesture) Flush();
     Apply(g_captureTick >= 0 ? g_captureTick : TimelinePlayhead_Tick()); g_captureTick = -1;
@@ -514,10 +566,13 @@ void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*)
     // a time-of-day look keyed with the Environment off used to change nothing on screen.
     if(op!="status"&&!Environment::SceneEnabled())
         for(const auto& id:g_track.data.armed)
-            if(id.rfind("env.",0)==0&&id!="env.enabled"){
+            // Foliage wind is CONFIG > EFFECTS' props wind (props.wind), not an Environment pass.
+            if(id.rfind("env.",0)==0&&id!="env.enabled"&&id!="env.foliageWind"){
                 if(g_pEngineToClient)g_pEngineToClient->ExecuteClientCmd(0,"mirv_filmmaker environment on",true);
                 MvmDebugLog_LinefAlways("scenekeys","%s turned the Environment on for %s",op.c_str(),id.c_str());
                 break;
             }
+    // The same for the lens: a depth-of-field or flare property keyed with that effect off changed nothing.
+    if(op!="status")EnableKeyedEffects(op.c_str());
 }
 } // namespace Filmmaker

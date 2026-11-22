@@ -50,6 +50,14 @@ bool CloudFx_HasOverride();
 // Restores every touched material and forgets the snapshots.
 void CloudFx_ResetAll();
 
+// THE ENVIRONMENT'S SKY HIDES THE MAP'S OWN CLOUDS while it is drawn. They are geometry in the 3D
+// skybox, drawn after the sky, so a replaced sky does not remove them: they stayed in front of the
+// Environment's sky as dark flat shapes. Called every frame by the Environment (main thread);
+// while `hidden`, every cloud material's opacity is written as zero whatever the density above is
+// set to, and that setting is neither read nor changed. Letting go puts the clouds back at the
+// user's own multipliers. Re-asserted after a level load and until the map's cloud materials are found.
+void CloudFx_SetEnvironmentHidden(bool hidden);
+
 // How many cloud materials the last Apply() actually wrote. 0 after a map change with no clouds
 // is the honest answer for a map that has none -- it is not a failure.
 int CloudFx_MaterialCount();

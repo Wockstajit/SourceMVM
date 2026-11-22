@@ -18,6 +18,8 @@
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/JsonParser.h"
 #include "../Debug/MvmDebugLog.h"
+#include "../World/WorldSchema.h"    // the wind entity's own strengths, written while Scene Keys key it
+#include "../World/WorldTransient.h" // props.wind: Foliage wind keyed in Scene Keys
 #include "../../SceneMarkerMath.h" // each kind's colour for the Config view's markers
 #include "../../ClientEntitySystem.h"
 #include "../../hlaeFolder.h"
@@ -464,18 +466,86 @@ void DespawnWind() {
 	g_windIndex = -1;
 }
 
-void SpawnWind() {
-	if (!(g_windStrength > 0)) return;
+float g_windApplied = 0; // the strength the live wind entity carries (spawned with, or written since)
+
+void SpawnWind(float strength) {
+	if (!(strength > 0)) return;
+	g_windApplied = strength;
 	char minWind[16], maxWind[16], minGust[16], maxGust[16];
-	std::snprintf(minWind, sizeof(minWind), "%d", int(g_windStrength * 0.4f));
-	std::snprintf(maxWind, sizeof(maxWind), "%d", int(g_windStrength * 0.7f));
-	std::snprintf(minGust, sizeof(minGust), "%d", int(g_windStrength * 0.8f));
-	std::snprintf(maxGust, sizeof(maxGust), "%d", int(g_windStrength));
+	std::snprintf(minWind, sizeof(minWind), "%d", int(strength * 0.4f));
+	std::snprintf(maxWind, sizeof(maxWind), "%d", int(strength * 0.7f));
+	std::snprintf(minGust, sizeof(minGust), "%d", int(strength * 0.8f));
+	std::snprintf(maxGust, sizeof(maxGust), "%d", int(strength));
 	const char* const keys[] = {"minwind", minWind, "maxwind", maxWind, "mingust", minGust, "maxgust", maxGust,
 		"mingustdelay", "2", "maxgustdelay", "6", "gustduration", "3", "gustdirchange", "25", "windradius", "-1", nullptr};
 	g_wind = Props::SpawnClientEntity("env_wind_clientside", "mvm_wind", "", {0, 0, 0}, {0, 30, 0}, 1, keys);
 	g_windIndex = Props::ClientEntityIndex(g_wind);
-	MvmDebugLog_LinefAlways("props.wind", "strength=%.0f entity=%p index=%d", g_windStrength, g_wind, g_windIndex);
+	MvmDebugLog_LinefAlways("props.wind", "strength=%.0f entity=%p index=%d", strength, g_wind, g_windIndex);
+}
+void SpawnWind() { SpawnWind(g_windStrength); }
+
+// A keyed Foliage wind moves the live entity's own strengths (the keyvalues SpawnWind gives it,
+// in the same proportions) instead of spawning it again: a new wind entity starts its gusts over,
+// and the trees jumped. False when the entity's fields cannot be found.
+bool WriteWind(float strength) {
+	const std::ptrdiff_t shared = WorldSchema_Offset(kWF_WindC_Shared);
+	const std::ptrdiff_t fields[4] = { WorldSchema_Offset(kWF_WindS_MinWind), WorldSchema_Offset(kWF_WindS_MaxWind),
+		WorldSchema_Offset(kWF_WindS_MinGust), WorldSchema_Offset(kWF_WindS_MaxGust) };
+	if (!g_wind || EntityAt(g_windIndex) != g_wind || !shared || !fields[0] || !fields[1] || !fields[2] || !fields[3]) return false;
+	const float scale[4] = { 0.4f, 0.7f, 0.8f, 1.0f };
+	__try {
+		for (int i = 0; i < 4; ++i)
+			*reinterpret_cast<unsigned short*>(g_wind + shared + fields[i]) = (unsigned short)(int(strength * scale[i]));
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		return false;
+	}
+	g_windApplied = strength;
+	return true;
+}
+
+// Scene Keys' Foliage wind (props.wind) over CONFIG's. A keyed value needs the entity to exist,
+// so a key above 0 spawns it even while CONFIG's wind is off; the entity then only has its
+// strengths rewritten, at most once per whole unit of change.
+void PumpKeyedWind() {
+	// Keyed wind only moves the live entity's strengths in place. Without those schema fields (a CS2
+	// update renamed one) it is refused with the field's name, and the authored wind stays: the
+	// fallback would be a new entity per unit of change, each one restarting the gusts.
+	static const WorldField kKeyedWindFields[] = { kWF_WindC_Shared, kWF_WindS_MinWind, kWF_WindS_MaxWind, kWF_WindS_MinGust, kWF_WindS_MaxGust };
+	bool keyed = WorldTransient::Has("props.wind");
+	if (keyed && !WorldSchema_HasAll(kKeyedWindFields, std::size(kKeyedWindFields))) {
+		static bool told = false;
+		if (!told) {
+			told = true;
+			const char* missing = WorldSchema_FirstMissing(kKeyedWindFields, std::size(kKeyedWindFields));
+			g_message = std::string("Keyed Foliage wind is off: the game's wind field ") + (missing ? missing : "?") + " was not found.";
+			MvmDebugLog_LinefAlways("props.wind", "keyed wind refused: missing schema field %s", missing ? missing : "?");
+			++g_revision;
+		}
+		keyed = false;
+	}
+	const float want = keyed ? std::clamp(float(WorldTransient::Number("props.wind", g_windStrength)), 0.0f, 200.0f) : g_windStrength;
+	const bool live = g_wind && EntityAt(g_windIndex) == g_wind;
+	if (!live) {
+		// Runs every frame while keyed, so a curve rising from 0 has its wind on the first frame;
+		// a spawn that did not take is retried at most every 250 ms.
+		static ULONGLONG spawnAt = 0;
+		const ULONGLONG t = GetTickCount64();
+		if (want > 0 && t - spawnAt >= 250) { spawnAt = t; SpawnWind(want); }
+		return;
+	}
+	if (std::fabs(want - g_windApplied) < 1.0f) return;
+	if (!WriteWind(want)) {
+		// Only CONFIG's own change respawns (once per edit). A keyed curve never does.
+		if (keyed) { MvmDebugLog_LinefAlways("props.wind", "keyed wind write failed at strength=%.1f", want); g_windApplied = want; }
+		else { DespawnWind(); SpawnWind(want); }
+	}
+	if (MvmDebugLog_Active()) {
+		static ULONGLONG last = 0;
+		if (GetTickCount64() - last > 250) {
+			last = GetTickCount64();
+			MvmDebugLog_Linef("props.wind", "keyed=%d strength=%.1f authored=%.1f", keyed ? 1 : 0, want, g_windStrength);
+		}
+	}
 }
 
 void Spawn(Placed& p) {
@@ -1081,6 +1151,10 @@ void Props_RunMainThreadFrame() {
 	if (g_grab != Grab::None && g_grabDirty)
 		if (Placed* p = Find(g_before.id); p && LiveUpdate(*p)) g_grabDirty = false;
 	const ULONGLONG now = GetTickCount64();
+	// A keyed Foliage wind curve is written every frame; behind the 250 ms throttle below it played
+	// as 4 Hz steps, and a curve rising from 0 had no wind for up to 250 ms.
+	if (!g_map.empty() && now - g_mapSince >= 3000 && ((g_wind && EntityAt(g_windIndex) == g_wind) || WorldTransient::Has("props.wind")))
+		PumpKeyedWind();
 	if (now - g_lastCheck < 250) return;
 	g_lastCheck = now;
 	const std::string map = CurrentMap();
@@ -1125,8 +1199,10 @@ void Props_RunMainThreadFrame() {
 		if (!Shown(p) || p.failed || p.held) continue;
 		if (!Alive(p)) { p.entity = nullptr; Spawn(p); ++g_revision; }
 	}
-	if (g_windStrength > 0 && !(g_wind && EntityAt(g_windIndex) == g_wind)) SpawnWind();
+	PumpKeyedWind();
 }
+
+float Props_WindStrength() { return g_windStrength; }
 
 void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 	const char* sub = argc >= 3 ? args->ArgV(2) : "";

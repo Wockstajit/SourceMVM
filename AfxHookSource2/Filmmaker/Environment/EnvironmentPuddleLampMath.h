@@ -1,0 +1,96 @@
+#pragma once
+#include "../Relight/RelightLiteGridMath.h"
+#include <algorithm>
+#include <array>
+#include <vector>
+namespace Filmmaker::Environment {
+// THE MAP'S OWN LAMPS IN WET GROUND. A puddle shows a placed light as a highlight (WaterLightGlint),
+// and it should show the hanging lamp over it too. The map's lamps are the Relight scene's authored
+// lights, read from the map data whether or not the Lighting card is on, so the composite gets the
+// nearest of them here and draws each one's highlight with the placed lights' water term.
+//
+// Which lamps: bulbs (light_omni, light_omni2, light_spot) and shaded lamps (light_barn: Dust 2's
+// hanging lamps are barn lights aimed down) the user has not switched off. Not the Scene Objects
+// lights (the placed-light loop draws those), not effect lights (muzzle flashes and fires come and go
+// each frame), and not light_rect: a map's rect lights are fill panels, an opening with nothing to
+// see in a puddle. Their light and falloff are the lit programs' own (MakeLiteLamp, mirrored in the
+// shader as LiteLampRadiance is), at `intensity`, the Map light power the native lighting uses (1
+// while CS2 lights the map). The highlight is seen at the light's own position: the bulb.
+//
+// A SHADED LAMP'S BULB IS SEEN FROM THE SIDE. Its projection is the narrow beam it throws on the
+// floor, but the bulb hangs below the shade, so a puddle beside the beam still shows it: anywhere
+// below the shade, at the brightness and falloff the beam has from its eye. (Kept to the beam, the
+// lamp could only show in water straight under it, where the camera never sees it.)
+//
+// kPuddleLampRows rows per lamp, in the shader's mapLamps[] order:
+//   0: position (the bulb), squared source radius (the falloff's soft core)
+//   1: linear radiance, kind (0 bulb, 1 shaded lamp)
+//   2: bulb: forward, range window scale            | shaded: the beam's eye, 0
+//   3: bulb: window bias, cone bias, cone scale, 0  | shaded: where it aims, 0
+inline constexpr unsigned kPuddleLamps = 8;
+inline constexpr unsigned kPuddleLampRows = 4;
+// A bulb is small. An omni light with a source wider than this is a fill or a sky window (Dust 2's
+// is 177 units across, a thousand units over the map): its highlight drew a glow on wet walls that
+// nothing in the scene explained.
+inline constexpr float kPuddleBulbRadius = 48;
+// Past this from the camera a lamp's image in a puddle is under a pixel or two.
+inline constexpr float kPuddleLampDistance = 3000;
+struct PuddleLampTable {
+    std::array<std::array<float, 4>, kPuddleLamps * kPuddleLampRows> rows{};
+    unsigned count = 0;
+};
+inline bool PuddleLampCandidate(const Relight::Light& light) {
+    return light.enabled && !light.sceneObject && !light.transient && !light.viewmodelEmitter &&
+           light.kind != "light_rect";
+}
+// `switches`: honour the per-lamp on/off edits (Map lights, `mirv_relight light <n> off`). They are
+// the replacement lighting's own: the map data never switches a lamp off, and while CS2 lights the map
+// it draws every lamp whatever those edits say, so its puddles show every lamp too.
+inline PuddleLampTable PuddleLamps(const std::vector<Relight::Light>& lights, Vec3 camera, float intensity,
+                                   bool switches = true) {
+    struct Pick { float distance; Vec3 bulb; Relight::LiteLamp lamp; };
+    std::vector<Pick> picks;
+    for (auto light : lights) {
+        if (!switches) light.enabled = true;
+        if (!PuddleLampCandidate(light)) continue;
+        Relight::LiteLamp lamp;
+        if (!Relight::MakeLiteLamp(light, intensity, lamp)) continue;
+        if (lamp.fixture && !(lamp.soft > 0)) continue; // no eye: no falloff to light the bulb by
+        if (!lamp.fixture && lamp.soft > kPuddleBulbRadius * kPuddleBulbRadius) continue;
+        // Kept while the camera is within kPuddleLampDistance of the lamp's reach (its light can be
+        // on screen), and ranked by how far the camera is from the bulb itself. Ranked by the gap to
+        // the reach, every lamp whose range holds the camera tied at zero, and a far lamp with a long
+        // range could push a nearby bulb out of the eight.
+        const Vec3 d = light.position - camera;
+        const float distance = std::sqrt(Dot(d, d));
+        if (distance - lamp.reach < kPuddleLampDistance) picks.push_back({distance, light.position, lamp});
+    }
+    std::stable_sort(picks.begin(), picks.end(), [](const Pick& a, const Pick& b) { return a.distance < b.distance; });
+    PuddleLampTable table;
+    for (const auto& pick : picks) {
+        if (table.count >= kPuddleLamps) break;
+        const auto& l = pick.lamp;
+        auto* r = &table.rows[table.count * kPuddleLampRows];
+        r[0] = {pick.bulb.x, pick.bulb.y, pick.bulb.z, l.soft};
+        r[1] = {l.radiance.x, l.radiance.y, l.radiance.z, l.fixture ? 1.f : 0.f};
+        if (l.fixture) {
+            r[2] = {l.origin.x, l.origin.y, l.origin.z, 0};
+            r[3] = {l.aim.x, l.aim.y, l.aim.z, 0};
+        } else {
+            r[2] = {l.forward.x, l.forward.y, l.forward.z, l.windowScale};
+            r[3] = {l.windowBias, l.coneBias, l.coneScale, 0};
+        }
+        ++table.count;
+    }
+    return table;
+}
+// The lamps of the Relight scene a puddle shows. While the Environment lights the map it shows what
+// the native lighting draws: Map light power, the lamps switched off under Map lights left out, and
+// nothing when its local lights are off (`mirv_relight locallights 0`; a puddle mirrored lamps that no
+// longer lit anything). Otherwise CS2 draws every lamp at its authored brightness, and so do puddles:
+// a lamp switched off for the replacement lighting still lights the map and still shows in water.
+inline PuddleLampTable PuddleLamps(const Relight::Scene& scene, Vec3 camera) {
+    if (scene.enabled && !scene.localLights) return {};
+    return PuddleLamps(scene.lights, camera, scene.enabled ? scene.intensity : 1.f, scene.enabled);
+}
+} // namespace Filmmaker::Environment

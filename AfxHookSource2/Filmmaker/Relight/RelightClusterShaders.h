@@ -5,6 +5,9 @@ struct Light {float4 rows[30];};
 struct Extent {uint4 xy;uint4 z;};
 StructuredBuffer<Light> lights:register(t0);
 StructuredBuffer<Extent> extents:register(t1);
+// One row per record (RelightLitBoundsMath.h): the box a shadowed lamp's static depth lets it reach.
+struct LitBound {float4 low;float4 high;}; // high.w > 0: valid
+StructuredBuffer<LitBound> litBounds:register(t2);
 RWStructuredBuffer<Extent> outputExtent:register(u0);
 RWStructuredBuffer<uint> masks:register(u1);
 RWStructuredBuffer<uint4> constants:register(u2);
@@ -15,7 +18,7 @@ cbuffer Params:register(b0) {
     uint4 control; // mode, ones base, require world-position projection, occupancy mirror offset
     float4 nearby; // first-person eye (world), reach
     uint4 nearbyList; // first-person list base (0: use the full list)
-    float4 reach; // x: radiance cutoff for visible reach (0: authored ranges)
+    float4 reach; // x: radiance cutoff for visible reach (0: authored ranges), y: tight sphere bounds, z: lit bounds bound
 }
 cbuffer NativeViewport:register(b1) {float4 viewport[21];}
 cbuffer NativeView:register(b4) {float4 view[36];}
@@ -108,6 +111,7 @@ bool GlassHull(Light light,out float3 hull[8]) {
     if(id.x>=list.x)return;
     Extent e;e.xy=uint4(0,grid.y-1,0,grid.z-1);e.z=uint4(0,grid.w-1,1,0);
     Light light=lights[id.x];
+    const bool litBoundsEnabled=reach.z!=0;
     // First-person raster coordinates use a different projection/depth interval.
     // Native direct lighting instead projects its world position with rows 12..15
     // when cb4[2].x is set. Only that branch can use these world-light bounds.
@@ -156,17 +160,27 @@ bool GlassHull(Light light,out float3 hull[8]) {
                 abs(dot(x,y))<=1e-4*sqrt(xx*yy)&&abs(dot(x,f))<=1e-4*sqrt(xx)&&abs(dot(y,f))<=1e-4*sqrt(yy)&&
                 abs(dot(x,c)+light.rows[0].w)<=.25&&abs(dot(y,c)+light.rows[1].w)<=.25&&abs(dot(f,c)+light.rows[3].w)<=.25;
             float pad=1+r*.001;uint count=cone?5:8;
+            // Lit bounds: the range box cut down to what the lamp's static shadow depth lets it reach.
+            float3 boxLow=c-r,boxHigh=c+r;bool lit=false;
+            if(litBoundsEnabled&&!cone){LitBound bound=litBounds[id.x];
+                if(bound.high.w>0&&all(isfinite(bound.low.xyz))&&all(isfinite(bound.high.xyz))){
+                    boxLow=max(boxLow,bound.low.xyz);boxHigh=min(boxHigh,bound.high.xyz);lit=true;}}
+            if(lit&&any(boxLow>boxHigh)){ // nothing inside its reach is lit
+                e.xy=uint4(grid.y,0,0,0);e.z=uint4(1,0,0,0);outputExtent[id.x]=e;return;}
             float3 hull[8];
             [unroll]for(uint vertex=0;vertex<8;++vertex){
                 if(cone){uint corner=vertex-1;
                     hull[vertex]=vertex==0?c-f*pad:c+f*(r+pad)+x/xx*((corner&1)?r+3*pad:-r-3*pad)+y/yy*((corner&2)?r+3*pad:-r-3*pad);
-                }else hull[vertex]=c+r*float3((vertex&1)?1:-1,(vertex&2)?1:-1,(vertex&4)?1:-1);
+                }else hull[vertex]=float3((vertex&1)?boxHigh.x:boxLow.x,(vertex&2)?boxHigh.y:boxLow.y,(vertex&4)?boxHigh.z:boxLow.z);
             }
             float w=Project(c).z;
             float reach=r*length(float3(view[12].w,view[13].w,view[14].w));
             float2 interval=float2(w-reach,w+reach);
             if(cone){interval=float2(3.402823e38,-3.402823e38);
                 [unroll]for(uint vertex=0;vertex<5;++vertex){float d=Project(hull[vertex]).z;interval.x=min(interval.x,d);interval.y=max(interval.y,d);}}
+            if(lit){float2 boxInterval=float2(3.402823e38,-3.402823e38);
+                [unroll]for(uint vertex=0;vertex<8;++vertex){float d=Project(hull[vertex]).z;boxInterval.x=min(boxInterval.x,d);boxInterval.y=max(boxInterval.y,d);}
+                if(all(isfinite(boxInterval)))interval=float2(max(interval.x,boxInterval.x),min(interval.y,boxInterval.y));}
             if(all(isfinite(interval))) {
                 e.z.xy=(uint2)clamp(floor(interval*depth.x)+float2(-1,1),0,depth.y);
             }

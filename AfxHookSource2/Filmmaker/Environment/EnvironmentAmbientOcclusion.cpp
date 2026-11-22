@@ -29,6 +29,7 @@ struct State {
     D3D11_TEXTURE2D_DESC depthDesc{};
     UINT width=0,height=0;
     bool prepared=false,ready=false;
+    bool provisional=false; // the last call answered "neutral until the prepass is done"
 } state;
 struct Row {float x,y,z,w;};
 struct Parameters {Row camera,viewport,output,tuning;Matrix clipToWorld;};
@@ -100,10 +101,12 @@ ID3D11ShaderResourceView* AmbientOcclusionPositions(ID3D11DeviceContext* ctx,UIN
     if(depth.Get()!=state.preparedDepth.Get())return nullptr;
     width=state.width;height=state.height;return state.positionsSrv.Get();
 }
-void NextAmbientOcclusionFrame(){state.prepared=false;state.preparedDepth.Reset();}
+void NextAmbientOcclusionFrame(){state.prepared=false;state.preparedDepth.Reset();state.provisional=false;}
+bool AmbientOcclusionProvisional(){return state.provisional;}
 ID3D11ShaderResourceView* AmbientOcclusion(ID3D11DeviceContext* immediate,Vec3 camera,
     const D3D11_VIEWPORT& vp,ID3D11Buffer* view,const Matrix& clipToWorld,float strength,const SkyVisibilityInput* sky,bool prepareForGi){
     const bool skyEnabled=sky&&sky->maps&&sky->matrices&&sky->strength>0;
+    state.provisional=false;
     if(!state.ready||!immediate||!view||(strength<=0&&!skyEnabled&&!prepareForGi)||
        !AmbientViewport(vp.Width,vp.Height,vp.MinDepth,vp.MaxDepth))return state.neutral.Get();
     ComPtr<ID3D11DepthStencilView> dsv;immediate->OMGetRenderTargets(0,nullptr,&dsv);
@@ -119,7 +122,8 @@ ID3D11ShaderResourceView* AmbientOcclusion(ID3D11DeviceContext* immediate,Vec3 c
     // never a previous frame's visibility or an engine AO texture.
     ComPtr<ID3D11DepthStencilState> depthState;UINT stencil=0;immediate->OMGetDepthStencilState(&depthState,&stencil);
     D3D11_DEPTH_STENCIL_DESC dd{};if(depthState)depthState->GetDesc(&dd);
-    if(!dd.DepthEnable||(dd.DepthWriteMask!=D3D11_DEPTH_WRITE_MASK_ZERO&&dd.DepthFunc!=D3D11_COMPARISON_EQUAL))return state.neutral.Get();
+    // Neutral only until a draw after the prepass arrives: a later draw of this frame gets the real one.
+    if(!dd.DepthEnable||(dd.DepthWriteMask!=D3D11_DEPTH_WRITE_MASK_ZERO&&dd.DepthFunc!=D3D11_COMPARISON_EQUAL)){state.provisional=true;return state.neutral.Get();}
     const bool reversed=dd.DepthFunc==D3D11_COMPARISON_GREATER||dd.DepthFunc==D3D11_COMPARISON_GREATER_EQUAL;
     UINT width=(source.Width+1)/2,height=(source.Height+1)/2;
     // Read the native AO dimensions solely to preserve its material UV convention.

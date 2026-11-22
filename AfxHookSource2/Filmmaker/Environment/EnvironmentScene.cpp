@@ -2,6 +2,10 @@
 #define NOMINMAX
 #include "EnvironmentScene.h"
 #include "EnvironmentGroundFog.h"
+#include "EnvironmentGameTextures.h"
+#include "EnvironmentReflectionProbes.h"
+#include "EnvironmentWindFluid.h"
+#include "EnvironmentWeatherCover.h"
 #include <unordered_map>
 #include "EnvironmentGltfMath.h"
 #include "EnvironmentVfxLighting.h"
@@ -12,6 +16,7 @@
 #include "../Config/PracticeSessionFlag.h" // a practice session neither restores nor saves scenes
 #include "EnvironmentCoatingMath.h"
 #include "EnvironmentRender.h"
+#include "EnvironmentNativeMaterial.h" // NativeExposureScale
 #include "EnvironmentNativeWater.h"
 #include "EnvironmentNativeRain.h"
 #include "EnvironmentRayProbe.h"
@@ -29,6 +34,8 @@
 #include "../Movie/SceneRigMath.h"      // Rig::PoseChannel
 #include "../Movie/SceneRigTransient.h" // where the rig put each object this frame
 #include "../Cosmetics/CosmeticEntityAccess.h" // CosmeticEntFromIndex: pawn origins for the coating actors
+#include "../Movie/ModelPoseAccess.h"          // a pawn's world bones: where its feet are
+#include "../Movie/RagdollBodies.h"            // ClientRagdollOf: the entity that carries a corpse's pose
 #include "../../ClientEntitySystem.h"      // GetHighestEntityIndex, CEntityInstance
 #include "../../SchemaSystem.h"          // g_clientDllOffsets: smoke detonation positions
 #include "../Platform/JsonBuilder.h"
@@ -341,7 +348,7 @@ void UpdateAutosave(const std::string& map) {
         // A practice session starts every map without the user's saved environment.
         g_restoreAutosave = false;
         g_scene = Scene{};
-        ++g_sceneGeneration;
+        ++g_sceneGeneration; SceneRig_CancelCameraRides();
         Scene initial = LiveScene(); initial.map = map;
         g_autosave.Bind(map, SerializeScene(initial));
         MvmDebugLog_LinefAlways("environment.autosave", "restore skipped map=%s (practice session)", map.c_str());
@@ -353,7 +360,7 @@ void UpdateAutosave(const std::string& map) {
         // anyway, as this used to, made the switch do nothing, and an edit made before the restore
         // landed saved the empty scene over the map's file.
         g_restoreAutosave = false;
-        ++g_sceneGeneration;
+        ++g_sceneGeneration; SceneRig_CancelCameraRides();
         FlushAutosave(true); // a pending write from before the demo change still lands
         Scene initial = LiveScene(); initial.map = map;
         g_autosave.Bind(map, SerializeScene(initial));
@@ -400,7 +407,7 @@ void UpdateAutosave(const std::string& map) {
                 HoldRestoredPasses(pending.climate, pending.weather.type, pending.held);
                 if(Resolve(pending,error)&&PrepareWorldLook(pending.world,error)){
                     ApplyWorldLook(pending.world);FilmmakerSettings_AcceptCurrent();
-                    g_scene=std::move(pending);++g_sceneGeneration;restored=true;
+                    g_scene=std::move(pending);++g_sceneGeneration;SceneRig_CancelCameraRides();restored=true;
                     g_message="Recovered environment for "+map+". Effects stay off until you switch them on; their settings are kept.";
                 }
             }
@@ -421,7 +428,7 @@ void UpdateAutosave(const std::string& map) {
                 ApplyWorldLook(scene.world);
                 FilmmakerSettings_AcceptCurrent();
                 g_scene = std::move(scene);
-                ++g_sceneGeneration;
+                ++g_sceneGeneration; SceneRig_CancelCameraRides();
                 restored = true;
                 g_message = "Restored environment for " + map + ". Effects stay off until you switch them on; their settings are kept.";
                 break;
@@ -536,11 +543,44 @@ void ApplyRig(Object &o, const RigTransient::State &rig) {
         o.angles = {float(e->second.ang[0]), float(e->second.ang[1]), float(e->second.ang[2])};
         if (o.IsCamera()) o.fov = float(e->second.fov);
     }
-    // Keyed light settings (scene-object-rigs.md): brightness, range, beam angle, emitter size, panel.
-    float *light[6] = {&o.intensity, &o.range, &o.cone, &o.studio.sourceRadius, &o.studio.width, &o.studio.height};
+    // Keyed light settings (scene-object-rigs.md): brightness, range, beam angle, emitter size, panel,
+    // and its colour (0..255 per channel on the TIMELINE).
+    float *light[9] = {&o.intensity, &o.range, &o.cone, &o.studio.sourceRadius, &o.studio.width, &o.studio.height,
+                       &o.color.x, &o.color.y, &o.color.z};
     if (o.IsLight())
-        for (int i = 0; i < 6; ++i)
-            if (e->second.lightMask & (1u << i)) *light[i] = float(e->second.light[i]);
+        for (int i = 0; i < 9; ++i)
+            if (e->second.lightMask & (1u << i))
+                *light[i] = i >= 6 ? std::clamp(float(e->second.light[i]) / 255.f, 0.f, 1.f) : float(e->second.light[i]);
+}
+// Lights on the camera (scene-object-rigs.md) ride the view this frame renders from: the pose
+// the rig published is in the camera's frame, and the eye and axes here come from the frame's own
+// view matrix. The main thread's world pose for them is a frame behind a moving camera path.
+void RideFrameView(std::vector<Object> &objects, const RigTransient::State &rig, Vec3 eye, Vec3 forward, Vec3 up) {
+    const Rig::Pose view = Rig::ViewPose({eye.x, eye.y, eye.z}, {forward.x, forward.y, forward.z}, {up.x, up.y, up.z});
+    for (auto &o : objects) {
+        const auto e = rig.objects.find(o.id);
+        if (e == rig.objects.end() || !e->second.view || !e->second.visible || !o.enabled) continue;
+        Rig::Pose local;
+        local.pos = {e->second.viewPos[0], e->second.viewPos[1], e->second.viewPos[2]};
+        local.ang = {e->second.viewAng[0], e->second.viewAng[1], e->second.viewAng[2]};
+        const Rig::Pose world = Rig::Compose(view, local);
+        const Vec3 before = o.position;
+        o.position = {float(world.pos.x), float(world.pos.y), float(world.pos.z)};
+        o.angles = {float(world.ang.pitch), float(world.ang.yaw), float(world.ang.roll)};
+        if (MvmDebugLog_Active()) {
+            static ULONGLONG last = 0;
+            const ULONGLONG now = GetTickCount64();
+            if (now - last >= 1000) {
+                last = now;
+                MvmDebugLog_Linef("environment.camera.light",
+                    "id=%d kind=%s view=%.1f %.1f %.1f / %.2f %.2f %.2f local=%.1f %.1f %.1f light=%.1f %.1f %.1f / %.2f %.2f %.2f mainThread=%.1f %.1f %.1f color=%.2f %.2f %.2f intensity=%.2f range=%.0f cone=%.0f",
+                    o.id, o.kind.c_str(), view.pos.x, view.pos.y, view.pos.z, view.ang.pitch, view.ang.yaw, view.ang.roll,
+                    local.pos.x, local.pos.y, local.pos.z, o.position.x, o.position.y, o.position.z,
+                    o.angles.x, o.angles.y, o.angles.z, before.x, before.y, before.z,
+                    o.color.x, o.color.y, o.color.z, o.intensity, o.range, o.cone);
+            }
+        }
+    }
 }
 bool g_rigDrag = false; // the open gizmo drag moves a rigged object (SceneRig owns its pose)
 std::string ObjectName(const Object &o) {
@@ -553,6 +593,14 @@ std::string ObjectName(const Object &o) {
 }
 } // namespace
 std::filesystem::path MapDataFolder() { return Root() / "occlusion"; }
+// The weather's wind as CONFIG shows it: speed and compass direction in degrees, 0..360 (the
+// inverse of `weather wind`, which stores x = speed * cos, y = speed * sin).
+static std::pair<double, double> WindPolar(double x, double y) {
+    const double speed = std::sqrt(x * x + y * y);
+    double direction = speed > 0 ? std::atan2(y, x) * 180.0 / 3.14159265358979323846 : 0.0;
+    if (direction < 0) direction += 360.0;
+    return {speed, direction};
+}
 // Overlay a copy: CONFIG, undo snapshots and autosaves retain authored values.
 static Scene AnimatedScene(Scene scene) {
     const auto rig = RigTransient::Read();
@@ -562,7 +610,20 @@ static Scene AnimatedScene(Scene scene) {
         auto f = state->fields.find(id);
         return f != state->fields.end() && component < f->second.size() ? f->second[component] : base;
     };
-    for (int i=0;i<ClimateCount;++i) scene.climate.values[i]=float(number(std::string("env.")+ClimateSpecs()[i].key,scene.climate.values[i]));
+    if (!state->fields.empty()) {
+        for (int i=0;i<ClimateCount;++i) scene.climate.values[i]=float(number(std::string("env.")+ClimateSpecs()[i].key,scene.climate.values[i]));
+        // A climate colour keyed as one colour (ClimateColours) writes its three fields.
+        for (const auto& k : ClimateColours()) {
+            const auto f = state->fields.find(std::string("env.") + k.id);
+            if (f == state->fields.end() || f->second.size() < 3) continue;
+            for (int c = 0; c < 3; ++c) scene.climate.values[k.red + c] = ClimateColourFromKey(k, c, f->second[c]);
+        }
+        // Keyed time of day moves both sun and moon. Keyed sun angles do the same through
+        // TimeOfDayFromSun, as they do when set through the console.
+        auto keyed = [&](ClimateField f) { return state->fields.count(std::string("env.") + ClimateSpecs()[f].key) != 0; };
+        if (keyed(CL_timeOfDay) || keyed(CL_sunPath) || keyed(CL_sunHeight)) ApplyTimeOfDay(scene.climate);
+        else if (keyed(CL_sunAzimuth) || keyed(CL_sunElevation)) { TimeOfDayFromSun(scene.climate); ApplyTimeOfDay(scene.climate); }
+    }
     scene.enabled=number("env.enabled",scene.enabled)!=0;
     scene.exposure=float(number("env.exposure",scene.exposure));
     auto color=[&](const char* id,Vec3 c) {return Vec3{float(number(id,c.x*255,0)/255),float(number(id,c.y*255,1)/255),float(number(id,c.z*255,2)/255)};};
@@ -571,8 +632,17 @@ static Scene AnimatedScene(Scene scene) {
     scene.weather.type=int(number("env.weather.type",scene.weather.type));
     scene.weather.speed=float(number("env.weather.speed",scene.weather.speed));
     scene.weather.size=float(number("env.weather.size",scene.weather.size));
-    scene.weather.windX=float(number("env.weather.windX",scene.weather.windX));
-    scene.weather.windY=float(number("env.weather.windY",scene.weather.windY));
+    // Intensity is keyed in CONFIG's percent; the field stores the particle count (percent * 60).
+    if (state->fields.count("env.weather.count"))
+        scene.weather.count=int(std::lround(std::clamp(number("env.weather.count",0.0),0.0,100.0)*60.0));
+    // Wind is keyed as CONFIG's speed and compass direction (`weather wind`); either one keyed
+    // keeps the other at the authored wind's.
+    if (state->fields.count("env.weather.windSpeed") || state->fields.count("env.weather.windDirection")) {
+        const auto polar = WindPolar(scene.weather.windX, scene.weather.windY);
+        const double speed = number("env.weather.windSpeed", polar.first), direction = Radians(float(number("env.weather.windDirection", polar.second)));
+        scene.weather.windX=float(speed*std::cos(direction));
+        scene.weather.windY=float(speed*std::sin(direction));
+    }
     return scene;
 }
 std::map<std::string,std::vector<double>> CaptureAnimationValues() {
@@ -582,8 +652,11 @@ std::map<std::string,std::vector<double>> CaptureAnimationValues() {
     out["env.enabled"]={double(g_scene.enabled)};out["env.exposure"]={g_scene.exposure};
     auto color=[&](const char* id,Vec3 c){out[id]={c.x*255.,c.y*255.,c.z*255.};};
     color("env.fogColor",g_scene.fogColor);color("env.tint",g_scene.tint);color("env.weather.color",g_scene.weather.color);
+    for(const auto& k:ClimateColours()){auto& v=out[std::string("env.")+k.id];for(int c=0;c<3;++c)v.push_back(ClimateColourToKey(k,g_scene.climate.values[k.red+c]));}
     out["env.weather.type"]={double(g_scene.weather.type)};out["env.weather.speed"]={g_scene.weather.speed};
-    out["env.weather.size"]={g_scene.weather.size};out["env.weather.windX"]={g_scene.weather.windX};out["env.weather.windY"]={g_scene.weather.windY};
+    out["env.weather.size"]={g_scene.weather.size};out["env.weather.count"]={g_scene.weather.count/60.0};
+    const auto wind=WindPolar(g_scene.weather.windX,g_scene.weather.windY);
+    out["env.weather.windSpeed"]={wind.first};out["env.weather.windDirection"]={wind.second};
     return out;
 }
 void RunMainThreadFrame() {
@@ -600,10 +673,33 @@ void RunMainThreadFrame() {
     const auto geometry=MapOcclusion();
     if(geometry&&Relight::UpdateMapLighting(map,geometry->lightMetadataPath)&&g_savedName.empty()){
         const auto lights=Relight::CaptureScene(map);
-        if(lights.hasSun){g_scene.climate[CL_sunElevation]=lights.sunAngles.x;g_scene.climate[CL_sunAzimuth]=lights.sunAngles.y;}
+        if(lights.hasSun){
+            g_scene.climate[CL_sunElevation]=lights.sunAngles.x;g_scene.climate[CL_sunAzimuth]=lights.sunAngles.y;
+            // The time of day and the moon follow the map's own sun.
+            TimeOfDayFromSun(g_scene.climate);ApplyTimeOfDay(g_scene.climate);
+        }
     }
     g_liveWorld=CaptureWorldLook();
     const auto animated = AnimatedScene(g_scene);
+    // What the keyed values hand the renderer this frame (keyed sun/moon/fog colours and the 2026-11
+    // keyable looks). Read from the animated copy, so a key that never reaches it shows as CONFIG's.
+    if (MvmDebugLog_Active() && !WorldTransient::Read()->fields.empty()) {
+        static ULONGLONG last = 0;
+        if (GetTickCount64() - last > 250) {
+            last = GetTickCount64();
+            const auto& a = animated.climate;
+            MvmDebugLog_Linef("environment.keyed",
+                "sun=%.3f,%.3f,%.3f moon=%.2f phase=%.2f size=%.2f moonColor=%.2f,%.2f,%.2f mapLight=%.2f fill=%.2f "
+                "bounce=%.2f lamp=%.2f soft=%.2f bias=%.2f gfColor=%.2f,%.2f,%.2f gfShade=%.2f,%.2f,%.2f "
+                "snowDepth=%.2f lightning=%.2f cloudRain=%.2f hideClouds=%.0f",
+                a[CL_sunColorR], a[CL_sunColorG], a[CL_sunColorB], a[CL_moon], a[CL_moonPhase], a[CL_moonSize],
+                a[CL_moonColorR], a[CL_moonColorG], a[CL_moonColorB], a[CL_mapLightPower], a[CL_playerFill],
+                a[CL_bounce], a[CL_lampAngle], a[CL_shadowSoftness], a[CL_exposureBias],
+                a[CL_groundFogColorR], a[CL_groundFogColorG], a[CL_groundFogColorB],
+                a[CL_groundFogShadeR], a[CL_groundFogShadeG], a[CL_groundFogShadeB],
+                a[CL_snowDepth], a[CL_stormStrength], a[CL_cloudRain], a[CL_hideMapClouds]);
+        }
+    }
     bool active = animated.enabled && !map.empty() && map.rfind("ui/", 0) != 0 && map.rfind("ui_", 0) != 0 &&
                   (animated.map.empty() || animated.map == map);
     auto climate = EffectiveClimate(animated.climate);
@@ -613,7 +709,10 @@ void RunMainThreadFrame() {
     // Our sky owns the sun while it is up, disc and halo included. Scoped to the sky rather than
     // to the lighting pass, because the leftover halo is a SKY artefact: it shows up whenever the
     // backdrop is replaced, whether or not the surfaces are being relit.
-    SetEngineSunDiscSuppressed(rendering && climate[CL_sky] > 0);
+    // The map's own clouds go with its sky too; under the map's own sky they go when the Clouds page
+    // says so (Hide map clouds), with or without our cloud layer over it.
+    SetEngineSunDiscSuppressed(rendering && climate[CL_sky] > 0,
+        rendering && (climate[CL_sky] > 0 || climate[CL_hideMapClouds] > .5f));
     // The owned render pipeline supplies its own lighting inputs. Environment's
     // engine-side overrides must not alter its baseline or unsupported skybox draws.
     // Baked lighting is not an engine switch: CL_bakedSuppressed substitutes the lightmap inputs
@@ -628,7 +727,8 @@ void RunMainThreadFrame() {
     const bool ownedLighting=(lightingReady && (relightingOn || authoredLighting.enabled)) ||
                              (geometry && g_proof.enabled && g_proof.map==map);
     SetEngineLightingTakeover(g_cameraValid && RendererReady() && ownedLighting);
-    Relight::UpdateStainedGlassMaterials((active || Relight::CaptureScene(map).enabled) && RendererReady());
+    // The panes lose their baked emission only while their beams light the room in its place.
+    Relight::UpdateStainedGlassMaterials((active || authoredLighting.enabled) && authoredLighting.stainedGlass > 0 && RendererReady());
     UpdateNativeWater(animated,map);
     UpdateNativeRain(animated, map, active, g_camera, g_cameraValid);
 }
@@ -653,6 +753,10 @@ bool SceneEnabled() {
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_scene.enabled;
 }
+bool StormCentreSet() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_scene.climate[CL_stormX] != 0 || g_scene.climate[CL_stormY] != 0 || g_scene.climate[CL_stormZ] != 0;
+}
 void BeginPractice() {
     std::lock_guard<std::mutex> lock(g_mutex);
     FlushAutosave(true); // the user's last edits reach their file before the session holds it
@@ -665,7 +769,7 @@ void EndPractice() {
     if (g_drag.active) g_scene = g_dragBefore;
     g_drag = {};
     g_scene = Scene{};
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     g_selected = 0; g_editing = 0; ++g_editRevision;
     g_undo.clear();
     g_undoStamps.clear();
@@ -695,7 +799,7 @@ void OnLevelInit() {
     g_restoreAutosave = true;
     g_autosaveQuiet = false;
     g_restoreGate.Reset();
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     ResetNativeWater();
     ResetNativeRain();
     g_cameraValid = false;
@@ -729,23 +833,212 @@ void SetRenderStatus(const char *status, bool drawn) {
 // anything that moves: a pattern painted over a running player slides across them. Players get no
 // world coating, and the shader finds them from these pawn origins.
 //
+// WHERE A PAWN'S FEET ARE. Its model names its bones; the ankle and toe ("ball") of each leg are
+// looked up once per model and read from the model state's world pose (eight floats a bone,
+// position first), the pose this frame is drawn with. A model without those bones, or a pose that
+// cannot be read, leaves the actor without feet and its steps are worked out from its movement.
+namespace {
+struct FootRig {
+    int ankle[2] = {-1, -1}, toe[2] = {-1, -1};
+    // The bone tables the rig was read from: the model's identity, so an address handed to another
+    // model is read again, a model found without feet included.
+    const void *names = nullptr, *parents = nullptr;
+};
+std::unordered_map<const void *, FootRig> g_footRigs;
+bool BoneIs(const char *const *names, const int16_t *parents, int index, const char *wanted) {
+    char name[64];
+    int parent = 0;
+    return index >= 0 && ModelPoseAccess::ReadBoneEntry(names, parents, index, name, sizeof(name), parent) && !_stricmp(name, wanted);
+}
+const FootRig *FootRigOf(const void *model) {
+    const char *const *names = nullptr;
+    const int16_t *parents = nullptr;
+    if (!ModelPoseAccess::ReadTablePointers(model, names, parents)) return nullptr;
+    auto found = g_footRigs.find(model);
+    // A model's address can be handed to another model after a map change: check it is still ours.
+    // Its bone tables say so for every entry (a model without feet too: kept on the address alone,
+    // a player model that later took it walked on inferred steps for good); the ankle's name as well
+    // for a rig with feet.
+    if (found != g_footRigs.end() && found->second.names == names && found->second.parents == parents &&
+        (found->second.ankle[0] < 0 || BoneIs(names, parents, found->second.ankle[0], "ankle_l")))
+        return found->second.ankle[0] < 0 ? nullptr : &found->second;
+    if (g_footRigs.size() > 256) g_footRigs.clear();
+    FootRig rig;
+    for (int b = 0; b < 256; ++b) {
+        char name[64];
+        int parent = 0;
+        if (!ModelPoseAccess::ReadBoneEntry(names, parents, b, name, sizeof(name), parent) || parent >= b || parent < -1) break;
+        if (!_stricmp(name, "ankle_l")) rig.ankle[0] = b;
+        if (!_stricmp(name, "ankle_r")) rig.ankle[1] = b;
+        if (!_stricmp(name, "ball_l")) rig.toe[0] = b;
+        if (!_stricmp(name, "ball_r")) rig.toe[1] = b;
+    }
+    if (rig.ankle[0] < 0 || rig.ankle[1] < 0) rig = FootRig();
+    rig.names = names;
+    rig.parents = parents;
+    MvmDebugLog_LinefAlways("environment.footprints", "model=%p ankles=%d,%d toes=%d,%d", model, rig.ankle[0], rig.ankle[1], rig.toe[0], rig.toe[1]);
+    auto &kept = g_footRigs[model] = rig;
+    return kept.ankle[0] < 0 ? nullptr : &kept;
+}
+bool ReadFootBones(unsigned char *modelState, const FootRig &rig, float out[4][3], bool &onGround, CEntityInstance *ent) {
+    __try {
+        const float *world = *(const float **)(modelState + 0x80);
+        if ((uintptr_t)world < 0x10000) return false;
+        const int bones[4] = {rig.ankle[0], rig.ankle[1], rig.toe[0], rig.toe[1]};
+        for (int k = 0; k < 4; ++k) {
+            const int b = bones[k] >= 0 ? bones[k] : bones[k & 1];
+            for (int a = 0; a < 3; ++a) {
+                out[k][a] = world[b * 8 + a];
+                if (!std::isfinite(out[k][a])) return false;
+            }
+        }
+        const ptrdiff_t flags = g_clientDllOffsets.C_BaseEntity.m_fFlags;
+        onGround = flags ? (*(const uint32_t *)((const unsigned char *)ent + flags) & 1u) != 0 : true;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+void ReadFeet(CEntityInstance *ent, CoatingActor &a) {
+    unsigned char *modelState = ModelPoseAccess::ModelStateOf(ent);
+    const void *model = ModelPoseAccess::ModelOf(modelState);
+    const FootRig *rig = model ? FootRigOf(model) : nullptr;
+    float bones[4][3];
+    bool onGround = false;
+    if (!rig || !ReadFootBones(modelState, *rig, bones, onGround, ent)) return;
+    for (int k = 0; k < 2; ++k) {
+        const float *ankle = bones[k], *toe = bones[2 + k];
+        // The bones must belong to this pawn: a pose not yet built reads as zeros or as another place.
+        if (std::abs(ankle[0] - a.origin.x) > 64 || std::abs(ankle[1] - a.origin.y) > 64 || std::abs(ankle[2] - a.origin.z) > 96) return;
+        const float dx = toe[0] - ankle[0], dy = toe[1] - ankle[1], length = std::sqrt(dx * dx + dy * dy);
+        const bool pointed = rig->toe[k] >= 0 && length > .5f;
+        a.footYaw[k] = pointed ? std::atan2(dy, dx) : 0;
+        // The boot's middle: its heel is a little behind the ankle and its tip a little beyond the toe bone.
+        a.foot[k] = pointed ? Vec3{ankle[0] + dx * .5f + dx / length * .6f, ankle[1] + dy * .5f + dy / length * .6f, a.origin.z} : Vec3{ankle[0], ankle[1], a.origin.z};
+        a.ankleZ[k] = ankle[2];
+        a.toeZ[k] = rig->toe[k] >= 0 ? toe[2] : ankle[2] - 2.5f;
+    }
+    a.hasFeet = true;
+    a.grounded = onGround;
+}
+// WHERE A DEAD PLAYER'S BODY IS: the bones of its trunk, head, arms and legs, from the pose it is
+// drawn with (the pawn's own, or its client-side ragdoll's when the game made one). The bones must
+// hang together as one body; a pose that does not is left out.
+struct BodyRig {
+    int bone[kBodyBones];
+    bool usable = false;
+};
+std::unordered_map<const void *, BodyRig> g_bodyRigs;
+const BodyRig *BodyRigOf(const void *model) {
+    const char *const *names = nullptr;
+    const int16_t *parents = nullptr;
+    if (!ModelPoseAccess::ReadTablePointers(model, names, parents)) return nullptr;
+    auto found = g_bodyRigs.find(model);
+    if (found != g_bodyRigs.end() && (!found->second.usable || BoneIs(names, parents, found->second.bone[BB_pelvis], kBodyBoneNames[BB_pelvis])))
+        return found->second.usable ? &found->second : nullptr;
+    if (g_bodyRigs.size() > 256) g_bodyRigs.clear();
+    BodyRig rig;
+    for (int &b : rig.bone) b = -1;
+    int have = 0;
+    for (int b = 0; b < 256; ++b) {
+        char name[64];
+        int parent = 0;
+        if (!ModelPoseAccess::ReadBoneEntry(names, parents, b, name, sizeof(name), parent) || parent >= b || parent < -1) break;
+        for (int k = 0; k < kBodyBones; ++k)
+            if (rig.bone[k] < 0 && !_stricmp(name, kBodyBoneNames[k])) {
+                rig.bone[k] = b;
+                ++have;
+            }
+    }
+    rig.usable = rig.bone[BB_pelvis] >= 0 && have >= 8;
+    MvmDebugLog_LinefAlways("environment.footprints", "body model=%p bones=%d of %d usable=%d", model, have, int(kBodyBones), int(rig.usable));
+    auto &kept = g_bodyRigs[model] = rig;
+    return kept.usable ? &kept : nullptr;
+}
+bool ReadBodyBones(unsigned char *modelState, const BodyRig &rig, FallenBones &out) {
+    __try {
+        const float *world = *(const float **)(modelState + 0x80);
+        if ((uintptr_t)world < 0x10000) return false;
+        for (int k = 0; k < kBodyBones; ++k) {
+            out.has[k] = rig.bone[k] >= 0;
+            if (!out.has[k]) continue;
+            const float *b = world + rig.bone[k] * 8;
+            if (!std::isfinite(b[0]) || !std::isfinite(b[1]) || !std::isfinite(b[2])) return false;
+            out.bone[k] = {b[0], b[1], b[2]};
+        }
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+bool ReadFallen(CEntityInstance *pawn, FallenBones &out) {
+    CEntityInstance *carriers[2] = {RagdollBodies::ClientRagdollOf(pawn), pawn};
+    for (CEntityInstance *carrier : carriers) {
+        if (!carrier) continue;
+        unsigned char *modelState = ModelPoseAccess::ModelStateOf(carrier);
+        const void *model = ModelPoseAccess::ModelOf(modelState);
+        const BodyRig *rig = model ? BodyRigOf(model) : nullptr;
+        if (!rig || !ReadBodyBones(modelState, *rig, out)) continue;
+        // One body: no bone further from the pelvis than a body is long, and not a pose left at the
+        // map's origin.
+        const Vec3 pelvis = out.bone[BB_pelvis];
+        bool whole = std::abs(pelvis.x) + std::abs(pelvis.y) + std::abs(pelvis.z) > 1;
+        for (int k = 0; k < kBodyBones && whole; ++k)
+            if (out.has[k]) {
+                const Vec3 d = out.bone[k] - pelvis;
+                whole = d.x * d.x + d.y * d.y + d.z * d.z < 80 * 80;
+            }
+        if (whole) return true;
+    }
+    return false;
+}
+// A LIVE PLAYER'S BODY, the same bones from the pose it is drawn with, for its shadow on the ground
+// fog. The pelvis must stand over the pawn and every bone hang within a body's length of it: a pose
+// not built yet reads as zeros or as another place, and then the shadow falls back to a capsule.
+void ReadLiveBody(CEntityInstance *pawn, CoatingActor &a) {
+    unsigned char *modelState = ModelPoseAccess::ModelStateOf(pawn);
+    const void *model = ModelPoseAccess::ModelOf(modelState);
+    const BodyRig *rig = model ? BodyRigOf(model) : nullptr;
+    FallenBones bones;
+    if (!rig || !ReadBodyBones(modelState, *rig, bones)) return;
+    const Vec3 pelvis = bones.bone[BB_pelvis];
+    if (std::abs(pelvis.x - a.origin.x) > 40 || std::abs(pelvis.y - a.origin.y) > 40 || pelvis.z < a.origin.z - 8 ||
+        pelvis.z > a.origin.z + 64)
+        return;
+    for (int k = 0; k < kBodyBones; ++k)
+        if (bones.has[k]) {
+            const Vec3 d = bones.bone[k] - pelvis;
+            if (d.x * d.x + d.y * d.y + d.z * d.z > 64 * 64) return;
+        }
+    a.body = bones;
+    a.hasBody = true;
+}
+} // namespace
 // SEH-guarded and index-scanned for the same reason the cosmetics code is: a stale entity in the
 // list must read as "no actor", not take the render thread down. Failing to find anyone is not an
 // error -- nothing is excluded.
 void CaptureCoatingActors(Frame &f) {
     f.actors.clear();
+    f.fallen.clear();
     const auto &c = f.scene.climate;
     // The round heat map leaves the live players' shoes unpainted from the same list, and the ground
     // fog is pushed aside by the same bodies.
-    if (!(c[CL_snow] > 0 || c[CL_wet] > 0 || c[CL_puddles] > 0 || (f.scene.weather.type == 1 && f.scene.weather.count > 0))
-        && !(c[CL_groundFog] > 0) && !Heatmap::Enabled())
-        return;
+    const bool weatherNeedsActors = f.active && (c[CL_snow] > 0 || c[CL_wet] > 0 ||
+        c[CL_puddles] > 0 || (f.scene.weather.type == 1 && f.scene.weather.count > 0) ||
+        c[CL_groundFog] > 0);
+    if (!weatherNeedsActors && !Heatmap::Enabled()) return;
     __try {
         const int highest = GetHighestEntityIndex();
         for (int i = 1; i <= highest && (int)f.actors.size() < Frame::kMaxActors; ++i) {
             CEntityInstance *ent = CosmeticEntFromIndex(i);
-            if (!ent || !ent->IsPlayerPawn() || ent->GetHealth() == 0)
+            if (!ent || !ent->IsPlayerPawn())
                 continue;
+            if (ent->GetHealth() == 0) {
+                FallenBody body;
+                body.entity = i;
+                if ((int)f.fallen.size() < Frame::kMaxActors && ReadFallen(ent, body.bones)) f.fallen.push_back(body);
+                continue;
+            }
             float x = 0, y = 0, z = 0;
             ent->GetOrigin(x, y, z);
             if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
@@ -756,10 +1049,14 @@ void CaptureCoatingActors(Frame &f) {
             // column still let the ground around the feet read as body.
             a.radius = kCoatingBodyRadius;
             a.entity = i;
+            ReadFeet(ent, a);
+            // The body's bones keep the coatings off it (BonesClaim) and shape its shadow on the ground fog.
+            ReadLiveBody(ent, a);
             f.actors.push_back(a);
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         f.actors.clear();
+        f.fallen.clear();
     }
 }
 // WHERE THE SMOKES ARE. CS2's OIT absorbance says how much a smoke hides at each pixel but not how
@@ -855,9 +1152,11 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
     f.relight=Relight::CaptureScene(map);
     {
         // The exposure CS2's tonemapper applies this frame: a pinned one (Night mode, the Exposure
-        // slider), else our adaptation's. CS2's own adaptation is not readable, so then no cutoff.
+        // slider), else our adaptation's, else CS2's own adaptation as its per-view constants carry
+        // it (NativeExposureScale). Unknown (0) keeps every authored range.
         const float pinned=NightMode_Exposure();
-        const float exposure=pinned!=kExposureAuto?pinned:AutoExposure_CurrentScale();
+        float exposure=pinned!=kExposureAuto?pinned:AutoExposure_CurrentScale();
+        if(!(exposure>0))exposure=NativeExposureScale();
         f.relight.visibleRadiance=Relight::VisibleRadianceCutoff(f.relight.reach,exposure);
         // Never inside the visible reach: shadows always cover every light that is drawn.
         f.relight.shadowRadiance=f.relight.shadowReach>0?
@@ -872,6 +1171,8 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
     // whenever the pass was on is what made switching on Weather "turn on the sky lighting and GI"
     // (user report, 2026-10-09). Same rule as the engine-side takeover in RunMainThreadFrame.
     const bool relightingOn=EffectiveClimate(f.scene.climate)[CL_relighting]>.5f;
+    // The Environment's own auto exposure: only while its lighting has the map (see AutoExposure.h).
+    AutoExposure_SetEnvironment(sceneActive&&lightingReady&&relightingOn&&f.scene.climate[CL_autoExposure]>.5f,f.scene.climate[CL_exposureBias]);
     if(sceneActive){
         if(lightingReady&&relightingOn){
             const auto authored=f.relight;
@@ -909,6 +1210,9 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
         g_cameraValid = Finite(g_camera) && Finite(g_forward);
         f.camera = g_camera;
         f.angles = g_angles;
+        const Vec3 up = Normalize(Transform(inverseView, {0, 1, 0}) - g_camera);
+        if (g_cameraValid && Finite(up))
+            RideFrameView(f.scene.objects, *RigTransient::Read(), g_camera, g_forward, up);
     }
     if (!g_cameraValid)
         f.active = false;
@@ -947,6 +1251,14 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
     CaptureCoatingActors(f);
     if (f.active)
         CaptureSmokeVolumes(f.smokes);
+    f.snowHeat.clear();
+    if (f.active && f.scene.climate[CL_snow] > 0) {
+        // Every flame melts the snow round it, on the floor it burns on. (Melting round the four
+        // light anchors left most of a spread fire on snow, and the anchors sit 24 units up, which
+        // put the melt on another height layer than the ground: the snow never showed it.)
+        for (const auto &flame : CaptureBurningFires()) f.snowHeat.push_back({flame, 60.f, -1.f});
+        for (const auto &b : CaptureVfxBlasts(f.time)) f.snowHeat.push_back({b.position, 150.f, b.age});
+    }
     const bool groundFog = f.active && f.scene.climate[CL_groundFog] > 0;
     if (groundFog || (f.active && f.scene.climate[CL_fogDensity] > 0)) {
         const auto burning = CaptureMollyLightSources();
@@ -972,6 +1284,8 @@ std::vector<PickBox> ScenePickBoxes() {
     for (Object o : g_scene.objects) {
         ApplyRig(o, *rig);
         if (!o.enabled || o.locked) continue;
+        const auto ridden = rig->objects.find(o.id);
+        if (ridden != rig->objects.end() && ridden->second.view) continue; // a light on the camera sits on the lens
         PickBox box;
         box.id = o.id;
         box.center = o.position;
@@ -1117,7 +1431,9 @@ void AppendStateJson(std::ostringstream &out) {
         out << ']';
     }
     out << '}';
-    out << ",\"envRender\":\"" << JsonBuilder::Escape(g_status) << "\",\"envDraws\":" << g_draws;
+    // No draw counter here: it changed every frame and made the Config panel re-render every frame.
+    // `mirv_filmmaker environment status` prints it.
+    out << ",\"envRender\":\"" << JsonBuilder::Escape(g_status) << '"';
 }
 namespace {
 bool UndoLastEditLocked(std::string &error) {
@@ -1127,7 +1443,7 @@ bool UndoLastEditLocked(std::string &error) {
     FilmmakerSettings_AcceptCurrent();
     g_scene = g_undo.back();
     g_restoreAutosave = false;
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     g_undo.pop_back();
     g_undoStamps.pop_back();
     g_lastRemember = 0;
@@ -1154,7 +1470,7 @@ void AdoptValidatedScene(Scene validated) {
     g_autosaveQuiet = false; // an edit: from here the map's file follows the scene again
     g_scene = std::move(validated);
     g_restoreAutosave = false;
-    ++g_sceneGeneration;
+    ++g_sceneGeneration; SceneRig_CancelCameraRides();
     if (IsSceneMap(CurrentMap())) {
         Scene committed = LiveScene(); committed.map = CurrentMap();
         if (g_autosave.map != committed.map) { FlushAutosave(true); BindAutosave(committed.map); }
@@ -1293,6 +1609,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                                 g_scene.objects.size(), g_scene.weather.type, g_status.c_str(), g_draws,
                                 g_selected, SerializeScene(LiveScene()).c_str());
             advancedfx::Message("  mapdata: ready=%d status='%s'\n",bool(MapOcclusion()),MapOcclusionStatus().c_str());
+            advancedfx::Message("  cs2 textures: %s\n",GameTexturesStatus().c_str());
+            advancedfx::Message("  %s\n",ReflectionProbes_Status().c_str());
+            advancedfx::Message("  %s\n",WeatherCoverStatus().c_str());
             return;
         }
         if (op == "climate" && argc == 3) {
@@ -1307,14 +1626,18 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             advancedfx::Message(
                 "Environment UI: Looks, Sky, Lighting, Fog, Weather, Scene Objects.\n"
                 "Fog: climate fogDensity|fogStart|fogHeight|fogNoise|lightShafts|scatter; set fogR|fogG|fogB.\n"
+                "Ground: climate rainTexture 0|1 (CS2's water beads). The snow is always CS2's own.\n"
                 "Ground fog: climate groundFog|groundFogHeight|groundFogDetail|groundFogFlow|groundFogRecovery|\n"
                 "  groundFogSwirl|groundFogWind|groundFogWindAngle|groundFogSoftness|groundFogWisps|groundFogWispSize|\n"
-                "  groundFogStreak|groundFogBillowSize|groundFogChurn|groundFogSun|groundFogShade|groundFogShadeR|G|B|groundFogPushSize.\n"
+                "  groundFogStreak|groundFogBillowSize|groundFogChurn|groundFogSun|groundFogShade|groundFogShadeR|G|B|groundFogPushSize|groundFogShadows.\n"
                 "Rendering: Balanced preview / High export (fixed). Presets: version 14 only.\n"
                 "mirv_filmmaker environment on|off|status|undo|rescan|folder\n"
                 " environment weather wind <speed> <direction-degrees>\n"
                 " environment reset [all|lighting|sky|atmosphere|weather|props]\n"
                 " environment weather clear|rain|snow|ash|storm|embers|motes|smoke\n"
+                " environment rainview on|off|toggle - weather cover view (grey open sky, green reached, blue sheltered)\n"
+                " environment footview on|off|toggle - feet as read (green down, red lifted) and a ring at each footfall\n"
+                " environment coverplan <file.ppm> - the walkable floor from above, coloured by weather cover\n"
                 " environment look clear|storm|winter|sunset|night; climate <field> <value>\n"
                 " environment pass-off <field|weatherType> <neutral> [...] - switch a pass off, keeping its value held\n"
                 " environment surface-center|fog-center|gi-center|reload-geometry\n"
@@ -1322,6 +1645,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 "type|count|seed|radius|height|speed|size|windX|windY|follow|shelter|x|y|z|r|g|b <number>\n"
                 " environment set exposure|ambient|fogR|fogG|fogB|tintR|tintG|tintB <number>\n"
                 " environment add point|spot|area|obj [asset-name]\n"
+                " environment add point|spot|area camera   a light that rides the camera\n"
                 " environment select|remove|duplicate <id>; environment place <id> <distance>\n"
                 " environment object <id> "
                 "x|y|z|pitch|yaw|roll|sx|sy|sz|r|g|b|intensity|range|cone|enabled|shadows|width|height|sourceRadius|pattern|profile|cue|patternScale|rate|amount|phase "
@@ -1330,6 +1654,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 " environment edit start <id>|stop|begin <axis> <u> <v> <aspect>|drag <u> <v>|commit|cancel\n"
                 " environment smokeview [on|off] - show the CS2 smoke coverage that hides additions\n"
                 " environment groundfog-view [on|off|map|<units across>] - show the live ground fog sim in a corner of the screen\n"
+                " environment wind-view [on|off|map|<units across>] - show the live wind gusts (Gusts) from above: buildings red, fast air blue, blown mist white\n"
                 " environment groundfog-dump - save the ground fog field (where players pushed it) to the debug log folder\n"
                 " environment mapinfo [rain|ripple|ripdir|wet|drying|trace <value>] - read/write the map's native weather\n"
                 " environment trace-probe - test hardware geometry tracing (debug log)\n"
@@ -1424,6 +1749,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 char report[512];
                 NativeWorldWeatherReport(report, sizeof(report));
                 advancedfx::Message("%s%c", report, 10);
+                advancedfx::Message("%s%c", NativeFrostStatus(), 10);
             }
             if (!o.m_flEnvRainStrength) throw std::runtime_error("CMapInfo schema fields are unresolved");
             CEntityInstance *info = nullptr;
@@ -1466,11 +1792,30 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             return;
         }
         if (op == "rainview") {
-            // Debug: how much rain reaches each surface (PrecipitationExposure). Grey = open sky,
+            // Debug: what reaches each surface (WeatherCover). Grey = open sky, green = open air under cover,
             // dark blue = sheltered; doorways and arches facing the wind show the graded fringe.
             const std::string v = argc > 3 ? arg(3) : "toggle";
             SetRainExposureView(v == "on" || v == "1" || (v == "toggle" && !RainExposureView()));
-            g_message = RainExposureView() ? "Rain exposure view on (grey open, dark blue sheltered)" : "Rain exposure view off";
+            g_message = RainExposureView() ? "Weather cover view on (grey open sky, green reached under cover, dark blue sheltered)" : "Rain exposure view off";
+            return;
+        }
+        if (op == "footview") {
+            // Debug: where the feet are read to be and when a footfall fires, drawn over the frame.
+            const std::string v = argc > 3 ? arg(3) : "toggle";
+            SetFootView(v == "on" || v == "1" || (v == "toggle" && !FootView()));
+            g_message = FootView() ? "Foot view on (cross on each foot: green down, red lifted; yellow ring where a footfall fires)" : "Foot view off";
+            return;
+        }
+        if (op == "coverplan") {
+            // Debug: the walkable floor from above, coloured by weather cover, as a PPM file.
+            if (argc < 4) throw std::runtime_error("environment coverplan <file.ppm>");
+            auto world = MapOcclusion();
+            if (!world) throw std::runtime_error("Map geometry is not ready");
+            std::string result;
+            const bool ok = WriteWeatherCoverPlan(*world, arg(3), result);
+            if (!ok) throw std::runtime_error(result);
+            g_message = "Cover plan written, " + result;
+            advancedfx::Message("environment coverplan: %s\n", result.c_str());
             return;
         }
         if (op == "smokeview") {
@@ -1487,6 +1832,15 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             if (v == "map" || span > 0) SetGroundFogOverlay(true, span);
             else SetGroundFogOverlay(v == "on" || v == "1" || (v == "toggle" && !GroundFogOverlay()));
             g_message = GroundFogOverlay() ? "Ground fog sim view on" : "Ground fog sim view off";
+            return;
+        }
+        if (op == "wind-view") {
+            // The live wind fluid in a corner of the frame. on|off|toggle|map|<units across>.
+            const std::string v = argc > 3 ? arg(3) : "toggle";
+            const float span = v == "map" ? 0.f : float(std::atof(v.c_str()));
+            if (v == "map" || span > 0) SetWindFluidOverlay(true, span);
+            else SetWindFluidOverlay(v == "on" || v == "1" || (v == "toggle" && !WindFluidOverlay()));
+            g_message = WindFluidOverlay() ? "Wind view on: " + WindFluidStatus() : "Wind view off";
             return;
         }
         if (op == "groundfog-dump") {
@@ -1574,15 +1928,15 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             next.enabled = op == "on";
         } else if (op == "reset") {
             if (argc != 3 && argc != 4)
-                throw std::runtime_error("Use reset all|lighting|sky|atmosphere|weather|props");
+                throw std::runtime_error("Use reset all|environment|lighting|sky|atmosphere|weather|props");
             if (argc == 4)
                 resetPage = arg(3);
-            if (resetPage != "all" && resetPage != "lighting" && resetPage != "sky" &&
+            if (resetPage != "all" && resetPage != "environment" && resetPage != "lighting" && resetPage != "sky" &&
                 resetPage != "atmosphere" && resetPage != "weather" && resetPage != "props")
                 throw std::runtime_error("Unknown environment page");
             ResetScenePage(next, resetPage);
             // A reset page's held values are part of what it resets.
-            if (resetPage == "all") next.held.clear();
+            if (resetPage == "all" || resetPage == "environment") next.held.clear();
             else for (auto it = next.held.begin(); it != next.held.end();) {
                 bool onPage = it->first == HeldWeatherTypeKey() ? resetPage == "weather" : false;
                 for (int i = 0; i < ClimateCount; ++i)
@@ -1672,29 +2026,82 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             } else {
                 required(4);
                 next.held.erase(HeldWeatherTypeKey());
+                // Each weather brings its own air with it: the gusts, the haze and the fog it is seen
+                // through. Clear takes them away again. Anything changed afterwards stays changed until
+                // a weather is picked again. (Ground fog is its own pass and is never touched here.)
+                auto look = [&](float gusts, float fog, float fogHeight, float fogNoise, Vec3 fogColor, float haze) {
+                    auto &c = next.climate;
+                    // The ground drift starts as each weather's own look (1), whatever the last one was set to.
+                    const std::pair<ClimateField, float> keys[] = {{CL_gusts, gusts},     {CL_fogDensity, fog},  {CL_fogHeight, fogHeight},
+                                                                    {CL_fogNoise, fogNoise}, {CL_haze, haze},       {CL_gustDensity, 1.f},
+                                                                    {CL_gustHeight, 1.f},  {CL_gustWisps, 1.f}, {CL_gustFloor, 1.f}};
+                    for (const auto &[field, value] : keys) {
+                        c.values[field] = value;
+                        next.held.erase(ClimateSpecs()[field].key);
+                    }
+                    if (fog > 0) next.fogColor = fogColor;
+                    // The renderer's master switch follows what is on, as the panel's does: a
+                    // weather that brings gusts and fog switches it on.
+                    if (gusts > 0 || fog > 0) c[CL_enabled] = 1;
+                };
+                // And its ground, replacing the last weather's: rain lifts the snow, snow dries the
+                // street, ash and clear leave it dry. Picking a weather sets the whole of it.
+                auto ground = [&](float snow, float wet, float puddles) {
+                    auto &c = next.climate;
+                    // Pools belong to a map, as `climate puddles` binds them.
+                    if (puddles > 0 && !next.map.empty() && next.map != CurrentMap()) puddles = 0;
+                    if (puddles > 0) next.map = CurrentMap();
+                    const std::pair<ClimateField, float> keys[] = {{CL_snow, snow}, {CL_wet, wet}, {CL_puddles, puddles}};
+                    for (const auto &[field, value] : keys) {
+                        c.values[field] = value;
+                        next.held.erase(ClimateSpecs()[field].key);
+                    }
+                    if (snow > 0 || wet > 0) c[CL_enabled] = 1;
+                };
                 if (mode == "clear") {
                     w.type = 0;
+                    look(0, 0, ClimateSpecs()[CL_fogHeight].initial, ClimateSpecs()[CL_fogNoise].initial, next.fogColor, ClimateSpecs()[CL_haze].initial);
+                    ground(0, 0, 0);
                 } else if (mode == "rain" || mode == "storm") {
                     w.type = 1;
                     w.speed = mode == "storm" ? 1050.f : 700.f;
-                    w.count = mode == "storm" ? 4500 : 2400;
-                    w.size = .8f;
-                    w.windX = mode == "storm" ? 180.f : 40.f;
+                    w.count = mode == "storm" ? 5200 : 3600;
+                    w.size = 1.3f;
                     w.color = {.6f, .7f, .85f};
+                    // A storm at sea: rain blown nearly level through a blue-grey haze, gusts of
+                    // spray running low over the ground.
+                    w.windX = mode == "storm" ? 220.f : 110.f;
+                    w.windY = mode == "storm" ? 70.f : 35.f;
+                    look(mode == "storm" ? .85f : .55f, mode == "storm" ? .3f : .16f, 420, .6f, {.50f, .56f, .64f}, mode == "storm" ? 1.1f : .8f);
+                    ground(0, .6f, .25f);
                 } else if (mode == "snow") {
                     w.type = 2;
                     w.speed = 65;
-                    w.count = 4200;
+                    // About as many flakes as a blizzard in the reference pack holds near the camera
+                    // (it keeps about 0.3 a cubic metre; 4200 here was nine times that).
+                    w.count = 1200;
                     w.size = 1.9f;
-                    w.windX = 18;
                     w.color = {.9f, .95f, 1};
+                    // A blizzard: a white-out haze and banks of blown snow
+                    // sweeping over the ground.
+                    w.windX = 55;
+                    w.windY = 20;
+                    look(.75f, .26f, 520, .7f, {.86f, .88f, .91f}, 1.f);
+                    ground(.6f, 0, 0);
                 } else if (mode == "ash") {
                     w.type = 3;
                     w.speed = 24;
-                    w.count = 4200;
+                    w.count = 1500;
                     w.size = 1.35f;
-                    w.windX = 28;
                     w.color = {.62f, .61f, .6f};
+                    // A sand storm in ash's greys: a warm grey haze, ash blown along the ground
+                    // in banks, embers among the flakes.
+                    w.windX = 48;
+                    w.windY = 14;
+                    look(.6f, .3f, 620, .7f, {.54f, .51f, .47f}, 1.2f);
+                    // Hold a little more of each low ash bank between the gusts.
+                    next.climate[CL_gustWisps] = .68f;
+                    ground(0, 0, 0);
                 } else if (mode == "embers" || mode == "motes" || mode == "smoke") {
                     w.count = mode == "smoke" ? 450 : 1200;
                     w.type = mode == "embers" ? 4 : mode == "motes" ? 5 : 6;
@@ -1736,6 +2143,10 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 next.climate[CL_stormX]=g_camera.x;next.climate[CL_stormY]=g_camera.y;next.climate[CL_stormZ]=g_camera.z-64;
             }
             next.climate.values[field] = float(n);
+            // The sun and the moon move together (ApplyTimeOfDay): a time-of-day value places both,
+            // and a sun placed by its angles sets the time of day that puts it there.
+            if (field == CL_sunAzimuth || field == CL_sunElevation) TimeOfDayFromSun(next.climate);
+            if (field == CL_sunAzimuth || field == CL_sunElevation || IsTimeOfDayField(ClimateField(field))) ApplyTimeOfDay(next.climate);
             // Sun placement is one creative operation. It always drives the sky, foreground map,
             // props and preserved 3D skybox together instead of requiring three hidden toggles.
             CoupleSunToLighting(next.climate, ClimateField(field));
@@ -1828,6 +2239,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                     c[CL_storm] = 1;
                     c[CL_density] = 1.3f; c[CL_cloudDepth] = 2200; c[CL_windSpeed] = 90;
                     c[CL_sunElevation] = -5; c[CL_sunPower] = .2f; c[CL_ambient] = .12f;
+                    c[CL_moon] = 0; // a storm hides the moon; no moonlight under the overcast
                     c[CL_cloudBase] = g_cameraValid ? g_camera.z + 1100 : 1500;
                     if (g_cameraValid) {
                         c[CL_stormX] = g_camera.x; c[CL_stormY] = g_camera.y; c[CL_stormZ] = g_camera.z - 64;
@@ -1844,6 +2256,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                     c[CL_ambient] = .08f;
                     c[CL_sunRelight] = .08f;
                 }
+                // Each look's sun is a time of day: a night look has a moon up.
+                TimeOfDayFromSun(c);
+                ApplyTimeOfDay(c);
             } else
                 throw std::runtime_error("Use look clear|storm|winter|sunset|night");
             next.enabled = true;
@@ -1871,7 +2286,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             else
                 throw std::runtime_error("Unknown environment field");
         } else if (op == "add") {
-            required(arg(3) == "obj" ? 5 : 4);
+            // `add point|spot|area camera`: a light that rides the camera (SceneRig attaches it).
+            const bool onCamera = arg(3) != "obj" && argc == 5 && arg(4) == "camera";
+            if (!onCamera) required(arg(3) == "obj" ? 5 : 4);
             if (CurrentMap().empty())
                 throw std::runtime_error("Load a map first");
             if (!next.map.empty() && next.map != CurrentMap())
@@ -1886,7 +2303,8 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             // assets (Filmmaker/Props). The meshes stay for imported OBJ and the render tests.
             if (o.kind=="box"||o.kind=="beveledbox"||o.kind=="sphere"||o.kind=="cylinder")
                 throw std::runtime_error("Basic shapes are not available. Place a model from Scene Objects > CS2 assets");
-            o.asset = arg(4);
+            if (onCamera && !o.IsLight()) throw std::runtime_error("Only lights ride the camera");
+            o.asset = onCamera ? "" : arg(4);
             if (o.IsLight()) {
                 o.color = {1, .8f, .6f};
                 o.scale = {1, 1, 1};
@@ -1896,8 +2314,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 o.color = {1, .85f, .3f};
                 o.scale = {1, 1, 1};
             }
-            Place(o, 160.f);
+            Place(o, onCamera ? 0.f : 160.f);
             next.objects.push_back(o);
+            if (onCamera) SceneRig_QueueCameraRide(o.id);
             next.map = CurrentMap();
             // Placed lights and meshes are drawn by the Environment pass, so adding one switches the
             // pass on. That is NOT a lighting takeover: a light adds its fill on top of whichever

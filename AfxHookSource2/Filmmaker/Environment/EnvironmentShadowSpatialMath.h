@@ -70,6 +70,38 @@ inline ShadowSpatialIndices PartitionShadowIndices(const std::vector<uint32_t>& 
     }
     return out;
 }
+// Draws the accepted ranges, joining ranges that follow one another in the index buffer into one
+// call: the same triangles in the same order, in fewer draw calls. PartitionShadowIndices lays
+// its ranges end to end, so a frustum that holds a whole caster needs a single draw.
+// Returns the number of draws made.
+template<class Accept,class DrawRun>
+inline unsigned DrawShadowRuns(const std::vector<ShadowDrawRange>& ranges,Accept accept,DrawRun draw) {
+    unsigned runs=0;uint32_t first=0,count=0;
+    for(size_t i=0;i<ranges.size();++i){
+        const auto& range=ranges[i];
+        if(!range.count||!accept(i))continue;
+        if(count&&range.first==first+count){count+=range.count;continue;}
+        if(count){draw(first,count);++runs;}
+        first=range.first;count=range.count;
+    }
+    if(count){draw(first,count);++runs;}
+    return runs;
+}
+// The same for a list of range numbers, in the order given.
+template<class DrawRun>
+inline unsigned DrawSelectedShadowRuns(const std::vector<ShadowDrawRange>& ranges,const std::vector<size_t>& selected,DrawRun draw) {
+    unsigned runs=0;uint32_t first=0,count=0;
+    for(size_t index:selected){
+        if(index>=ranges.size())continue;
+        const auto& range=ranges[index];
+        if(!range.count)continue;
+        if(count&&range.first==first+count){count+=range.count;continue;}
+        if(count){draw(first,count);++runs;}
+        first=range.first;count=range.count;
+    }
+    if(count){draw(first,count);++runs;}
+    return runs;
+}
 struct ShadowFrustum {
     std::array<std::array<float,4>,6> planes{};
     explicit ShadowFrustum(const Matrix& m) {

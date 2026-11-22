@@ -173,6 +173,16 @@ against each preset's value client-side, so a console change shows in the panel 
 
 ---
 
+### The Environment's own auto exposure
+
+Environment lighting has a separate auto exposure (Environment > Lighting > Exposure; climate
+`autoExposure`, on by default, and `exposureBias`). It shares this module's meter and nothing
+else. While Environment lighting is on it drives the tonemapper with its own bias at the default
+speed, whatever the switch, speed and compensation here are set to, and it neither reads nor
+changes them. When Environment lighting goes off, this setting is in charge again as it was left.
+A pinned exposure wins over both. See
+[the environment editor](../features/environment-scene-editor.md).
+
 ## 7. Failure modes
 
 | Symptom | Cause | Check |

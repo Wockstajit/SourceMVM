@@ -236,7 +236,7 @@ R"CLRJS(
     // The closed field: the label column, then a full-width strip filled with the current colour,
     // its HEX code and a chevron. Clicking it opens the picker inline below.
     var cfgColorFields = {};   // by title, for the $.ConfigHud.color() automation helper
-    function colorField(parent, title, read, write, scale) {
+    function colorField(parent, title, read, write, scale, tip) {
       var rgb = [255, 255, 255], max = scale || 1, identity, hasIdentity = false;
       // A COLOUR BAR (2026-10 sidebar cleanup): in the one-line row grammar, the whole control
       // column IS the colour, crossed by the custom mark, with the hex in the value column. A
@@ -279,6 +279,8 @@ R"CLRJS(
       cfgColorFields[title] = picker;
       hoverable(line, paint);
       line.SetPanelEvent('onactivate', function () { picker.show(); });
+      // An explanation is hover text on the row (optional), like every slider's.
+      if (tip) attachTip(line, tip);
       renderHooks.push(function () {
         var data = read(); if (!data) { picker.hide(); return; }
         if (!hasIdentity) { identity = data.id; hasIdentity = true; }
@@ -286,6 +288,7 @@ R"CLRJS(
         if (!picker.visible()) for (var i = 0; i < 3; i++) rgb[i] = Math.round(clamp01(data.rgb[i] / max) * 255);
         paint();
       });
+      picker.row = line; // the whole row, so a card can show or hide it
       return picker;
     }
 )CLRJS"

@@ -122,6 +122,77 @@ static void TestKv3() {
     Check(threw, "truncated KV3 is rejected");
 }
 
+// Binary KV3 v4 (uncompressed) with the node types and rules of ValveResourceFormat 21.1: constant
+// uint32 nodes (26, 27, written by CS2 since the 2026-11-20 update), int8 (22), uint8 (23), a type
+// byte with bit 6 set (one skipped byte follows), an out-of-range name id and a repeated name.
+static void TestKv3BinaryV4Nodes() {
+    Bytes buffer;
+    buffer.Put<uint8_t>(0xFF);           // bytes1: int8 -1
+    buffer.Put<uint8_t>(200);            // bytes1: uint8 200
+    for (int k = 0; k < 2; ++k) buffer.Put<uint8_t>(0); // align to 4
+    for (int32_t v : {3, 5, 0, 1, 2, 99, 1}) buffer.Put<int32_t>(v); // string count, object length, member names
+    buffer.Str("one");
+    buffer.Str("zero");
+    buffer.Str("small");
+    const size_t stringBytes = 4 + 5 + 6;
+    const uint8_t types[] = {9, 27 | 0x40, 0x00, 26, 22, 23, 27};
+    buffer.Raw(types, sizeof types);
+    buffer.Put<uint32_t>(0xFFEEDD00u);
+    Bytes b;
+    b.Put<uint32_t>(0x4B563304u);
+    for (int k = 0; k < 16; ++k) b.Put<uint8_t>(0); // format GUID
+    b.Put<uint32_t>(0);                  // uncompressed
+    b.Put<uint16_t>(0);                  // dictionary
+    b.Put<uint16_t>(0);                  // frame size
+    b.Put<int32_t>(2);                   // bytes1
+    b.Put<int32_t>(7);                   // bytes4
+    b.Put<int32_t>(0);                   // bytes8
+    b.Put<int32_t>(int32_t(stringBytes + sizeof types));
+    b.Put<uint16_t>(1);                  // objects
+    b.Put<uint16_t>(0);                  // arrays
+    b.Put<int32_t>(int32_t(buffer.b.size()));
+    b.Put<int32_t>(int32_t(buffer.b.size()));
+    b.Put<int32_t>(0);                   // blocks
+    b.Put<int32_t>(0);                   // blob bytes
+    b.Put<int32_t>(0);                   // bytes2
+    b.Put<int32_t>(0);                   // block compressed sizes
+    b.Raw(buffer.b.data(), buffer.b.size());
+    const Kv3 v = DecodeKv3(b.b.data(), b.b.size());
+    Check(v.type == Kv3::Type::Object && v.Size() == 4, "KV3 v4 object decodes; a repeated name replaces its value");
+    Check(v["one"].type == Kv3::Type::UInt && v["one"].width == Kv3::Width::UInt32 && v["one"].Integer() == 1,
+          "KV3 node 27 is uint32 one, after a type byte with bit 6 and its skipped byte");
+    Check(v["zero"].type == Kv3::Type::UInt && v["zero"].Integer() == 1, "the repeated member keeps the last value");
+    Check(v["small"].type == Kv3::Type::Int && v["small"].Integer() == -1, "KV3 node 22 is a signed byte");
+    Check(v[""].type == Kv3::Type::UInt && v[""].Integer() == 200, "KV3 node 23 is an unsigned byte; an unknown name id is empty");
+    Check(v.obj.size() > 1 && v.obj[1].first == "zero" && v.obj[1].second.Integer(7) == 1, "a replaced member keeps its position");
+    Bytes z3 = b;
+    z3.b[20] = 4;                        // compression method z3
+    bool threw = false;
+    try { DecodeKv3(z3.b.data(), z3.b.size()); } catch (const MapDataError &e) { threw = std::string(e.what()).find("z3") != std::string::npos; }
+    Check(threw, "z3 compressed KV3 is reported as z3");
+}
+
+// Empty resource blocks keep their slot, so block indices (m_nBlockIndex, data_block) match the file.
+static void TestResourceEmptyBlocks() {
+    Bytes b;
+    b.Put<uint32_t>(44);                 // declared size
+    b.Put<uint16_t>(12);                 // header size
+    b.Put<uint16_t>(0);                  // version
+    b.Put<uint32_t>(8);                  // block table, relative to this field (offset 8 -> 16)
+    b.Put<uint32_t>(2);                  // block count
+    b.Raw("MBUF", 4);                    // block 0: empty
+    b.Put<uint32_t>(0);
+    b.Put<uint32_t>(0);
+    b.Raw("DATA", 4);                    // block 1: 4 bytes at 40 (field at 32)
+    b.Put<uint32_t>(8);
+    b.Put<uint32_t>(4);
+    b.Put<uint32_t>(0xDEADBEEFu);
+    const Resource r(std::vector<uint8_t>(b.b));
+    Check(r.Blocks().size() == 2 && r.Blocks()[1].size == 4 && r.Blocks()[1].offset == 40, "empty block keeps its index");
+    Check(r.Block("MBUF") == nullptr && r.BlocksOfType("MBUF").empty(), "type lookups skip empty blocks");
+    Check(r.Block("DATA") == &r.Blocks()[1], "type lookup finds the block after an empty one");
+}
+
 static void TestOccluderBuilder() {
     OccluderBuilder builder;
     builder.AddTriangle({0, 0, 0}, {1, 0, 0}, {0, 1, 0});
@@ -169,6 +240,66 @@ static void TestTexture() {
     const Image image = DecodeTexture(r.b);
     Check(image.width == 2 && image.height == 2, "texture size");
     Check(image.rgba.size() == 16 && std::memcmp(image.rgba.data(), pixels, 16) == 0, "RGBA8888 texels decode unchanged");
+}
+
+// A 4 x 4 RGBA8888 texture with three mips, stored smallest first as compiled textures are.
+static std::vector<uint8_t> MakeMippedTexture(uint16_t flags) {
+    Bytes r;
+    r.Put<uint32_t>(0);
+    r.Put<uint16_t>(12);
+    r.Put<uint16_t>(0);
+    r.Put<uint32_t>(8);
+    r.Put<uint32_t>(1);
+    r.Raw("DATA", 4);
+    r.Put<uint32_t>(8);
+    r.Put<uint32_t>(40);
+    r.Put<uint16_t>(1);
+    r.Put<uint16_t>(flags);
+    for (int k = 0; k < 4; ++k) r.Put<float>(0);
+    r.Put<uint16_t>(4);
+    r.Put<uint16_t>(4);
+    r.Put<uint16_t>(1);
+    r.Put<uint8_t>(4); // RGBA8888
+    r.Put<uint8_t>(3);
+    r.Put<uint32_t>(0);
+    r.Put<uint32_t>(8);
+    r.Put<uint32_t>(0);
+    for (int level = 2; level >= 0; --level)
+        for (int p = 0; p < (16 >> (2 * level)); ++p) {
+            const uint8_t texel[4] = {uint8_t(level * 100), uint8_t(p), 7, 255};
+            r.Raw(texel, 4);
+        }
+    return r.b;
+}
+
+static void TestTextureMips() {
+    const TextureMips mips = ReadTextureMips(MakeMippedTexture(0));
+    Check(mips.width == 4 && mips.height == 4 && mips.format == TextureMips::Format::RGBA8, "mipped texture size and format");
+    Check(mips.mips.size() == 3 && mips.mips[0].size() == 64 && mips.mips[1].size() == 16 && mips.mips[2].size() == 4,
+          "every mip is read, largest first");
+    Check(mips.mips[0][0] == 0 && mips.mips[0][4 * 15 + 1] == 15 && mips.mips[1][0] == 100 && mips.mips[2][0] == 200,
+          "each mip holds its own texels");
+    Check(mips.RowPitch(0) == 16 && mips.RowPitch(2) == 4, "uncompressed row pitch");
+    bool threw = false;
+    try { ReadTextureMips(MakeMippedTexture(1 << 4)); } catch (const MapDataError &) { threw = true; }
+    Check(threw, "a cube texture is not read as a plain 2D texture");
+}
+
+// Against the installed game, when this machine has one: the snow and the beads of water the
+// Environment coatings draw with are found and read with all their mips.
+static void TestGameSurfaceTextures() {
+    const auto root = ResolveCs2Root();
+    if (root.empty()) {
+        std::printf("SKIP game surface textures (no Counter-Strike 2 install)\n");
+        return;
+    }
+    const GameSurfaceTextures t = ReadGameSurfaceTextures(root);
+    std::printf("game surface textures: %s\n", t.status.c_str());
+    Check(t.snow && t.snowColor.width >= 256 && t.snowColor.mips.size() > 1 && t.snowNormal.mips.size() > 1 && t.snowHeight.mips.size() > 1,
+          "CS2 snow textures read with their mips");
+    Check(t.snow && t.snowColor.mips[0].size() == size_t(t.snowColor.RowPitch(0)) * size_t((t.snowColor.height + 3) / 4),
+          "CS2 snow colour mip 0 is whole");
+    Check(t.drops && t.droplets.width > 0 && !t.droplets.mips.empty(), "CS2 water beads read");
 }
 
 static void TestLightsJson() {
@@ -325,8 +456,12 @@ int main() {
     TestCommunityMapSources();
     TestWorkshopItemSources();
     TestKv3();
+    TestKv3BinaryV4Nodes();
+    TestResourceEmptyBlocks();
     TestOccluderBuilder();
     TestTexture();
+    TestTextureMips();
+    TestGameSurfaceTextures();
     TestLightsJson();
     TestCacheCodec();
     std::printf(g_failures ? "%d FAILED\n" : "ALL PASSED\n", g_failures);

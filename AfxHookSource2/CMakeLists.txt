@@ -418,9 +418,14 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Props/Props.cpp
     Filmmaker/Props/PropPreview.cpp
     Filmmaker/Environment/EnvironmentNativeWater.cpp
+    Filmmaker/Environment/EnvironmentGameTextures.cpp
+    Filmmaker/Environment/EnvironmentGameTextures.h
+    Filmmaker/Environment/EnvironmentReflectionProbes.cpp
+    Filmmaker/Environment/EnvironmentReflectionProbes.h
+    Filmmaker/Environment/EnvironmentReflectionProbeMath.h
     Filmmaker/Environment/EnvironmentNativeRain.cpp
     Filmmaker/Environment/EnvironmentNativeRain.h
-    Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp
+    Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightLiteGrid.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp
     Filmmaker/Relight/Relight.cpp Filmmaker/Relight/RelightNativeCluster.cpp
     Filmmaker/Relight/Relight.h
     Filmmaker/Relight/RelightMath.h
@@ -456,16 +461,23 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Environment/EnvironmentWorldDocument.cpp
     Filmmaker/Environment/EnvironmentRender.h
     Filmmaker/Environment/EnvironmentRender.cpp
+    Filmmaker/Environment/EnvironmentLampShadows.cpp
     Filmmaker/Environment/EnvironmentShadowMaps.cpp
+    Filmmaker/Environment/EnvironmentWeatherCover.cpp
     Filmmaker/Environment/EnvironmentFoliage.cpp
     Filmmaker/Environment/EnvironmentViewmodel.cpp
     Filmmaker/Environment/EnvironmentAnimatedCasters.cpp Filmmaker/Environment/EnvironmentParticleShadows.cpp
     Filmmaker/Environment/EnvironmentGi.cpp
     Filmmaker/Environment/EnvironmentGi.h
     Filmmaker/Environment/EnvironmentGroundFog.cpp
+    Filmmaker/Environment/EnvironmentFootprints.cpp
     Filmmaker/Environment/EnvironmentGroundFog.h
     Filmmaker/Environment/EnvironmentGroundFogMath.h
     Filmmaker/Environment/EnvironmentGroundFogShaders.h
+    Filmmaker/Environment/EnvironmentWindFluid.cpp
+    Filmmaker/Environment/EnvironmentWindFluid.h
+    Filmmaker/Environment/EnvironmentWindFluidMath.h
+    Filmmaker/Environment/EnvironmentWindFluidShaders.h
     Filmmaker/Environment/EnvironmentGiMath.h
     Filmmaker/Environment/EnvironmentGiTraceShaders.h
     Filmmaker/Environment/EnvironmentGiBuildShaders.h
@@ -839,6 +851,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Movie/WeaponRecoilStyles.h
     Filmmaker/Lens/LensFx.cpp
     Filmmaker/Lens/LensFx.h
+    Filmmaker/Lens/LensSunLocator.cpp
+    Filmmaker/Lens/LensSunLocator.h
     Filmmaker/Heatmap/RoundHeatmap.cpp
     Filmmaker/Heatmap/RoundHeatmap.h
     Filmmaker/Heatmap/RoundHeatmapMath.h
@@ -1029,6 +1043,10 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Render/RenderValidation.h
     Filmmaker/Render/RenderStateGuard.cpp
     Filmmaker/Render/RenderStateGuard.h
+    Filmmaker/Render/RenderPixelStateLayer.cpp
+    Filmmaker/Render/RenderPixelStateLayer.h
+    Filmmaker/Render/RenderPixelStateLayerDetail.h
+    Filmmaker/Render/RenderPixelStateLayerHooks.cpp
     Filmmaker/Render/RenderOutput.cpp
 	Filmmaker/Render/RenderEncoding.cpp
     Filmmaker/Render/RenderOutput.h
@@ -1134,7 +1152,12 @@ target_sources(AfxHookSource2 PRIVATE Filmmaker/Environment/EnvironmentRayProbe.
 target_link_libraries(AfxHookSource2 PRIVATE EnvironmentRayBackend)
 
 # Native material replay preserves authored weapon BRDF inputs for environment sun.
-target_sources(AfxHookSource2 PRIVATE Filmmaker/Environment/EnvironmentNativeMaterial.cpp)
+target_sources(AfxHookSource2 PRIVATE Filmmaker/Environment/EnvironmentNativeMaterial.cpp Filmmaker/Environment/EnvironmentNativeMaterialDerive.cpp Filmmaker/Environment/EnvironmentNativeMaterialDraw.cpp)
+# Lit draws keep their inputs bound across a run (RenderPixelStateLayer).
+add_executable(RenderPixelStateLayerTests ../Automation/tests/render-pixel-state-layer-tests.cpp Filmmaker/Render/RenderPixelStateLayer.cpp)
+target_compile_features(RenderPixelStateLayerTests PRIVATE cxx_std_17)
+target_link_libraries(RenderPixelStateLayerTests PRIVATE d3d11 d3dcompiler dxguid)
+add_test(NAME RenderPixelStateLayerTests COMMAND RenderPixelStateLayerTests)
 add_executable(RelightNativeClusterTests ../Automation/tests/relight-native-cluster-tests.cpp Filmmaker/Relight/RelightNativeCluster.cpp)
 target_compile_features(RelightNativeClusterTests PRIVATE cxx_std_17)
 target_link_libraries(RelightNativeClusterTests PRIVATE d3d11 d3dcompiler dxguid)
@@ -1208,6 +1231,10 @@ target_link_libraries(MapDataTool PRIVATE MapData)
 add_executable(ValidateNativeVariants ../Automation/tools/validate-native-variants.cpp)
 target_compile_features(ValidateNativeVariants PRIVATE cxx_std_17)
 target_link_libraries(ValidateNativeVariants PRIVATE d3d11 d3dcompiler dxguid)
+# Stack sampler for the game's busiest thread: which hook functions and lines the render thread spends its time in.
+add_executable(SampleThreadStacks ../Automation/tools/sample-thread-stacks.cpp)
+target_compile_features(SampleThreadStacks PRIVATE cxx_std_17)
+target_link_libraries(SampleThreadStacks PRIVATE dbghelp psapi)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../CMake/Source2Tests.cmake")
 

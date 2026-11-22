@@ -164,12 +164,23 @@ R"EDJS(
         + ' sky skyDirection.yaw skyDirection.pitch skyMirror skyColor cloudColor cloudDensity cloudSize cloudDrift cloudBrightness'
         + ' worldColors.world worldStrength smokeColors.T smokeColors.CT'
         + ' env.exposure env.saturation env.contrast env.tint env.bloom env.vignette env.grain env.chromatic'
-        + ' env.sky env.sunAzimuth env.sunElevation env.sunPower env.haze env.stars env.clouds env.coverage env.cloudBase env.windSpeed'
-        + ' env.ambient env.sunAngle env.fogDensity env.fogColor env.fogStart env.fogHeight env.fogNoise'
-        + ' env.weather.type env.weather.speed env.snow env.wet env.puddles ')
+        + ' env.sky env.timeOfDay env.sunPath env.sunHeight env.sunAzimuth env.sunElevation env.sunPower env.haze env.stars env.sunColor'
+        + ' env.moon env.moonPhase env.moonSize env.moonColor'
+        + ' env.clouds env.hideMapClouds env.coverage env.density env.cloudBase env.windSpeed env.cloudRain'
+        + ' env.mapLightPower env.ambient env.playerFill env.bounce env.sunAngle env.lampAngle env.shadowSoftness env.exposureBias'
+        + ' env.fogDensity env.fogStart env.fogHeight env.fogNoise env.fogColor env.lightShafts'
+        + ' env.groundFog env.groundFogCoverage env.groundFogHeight env.groundFogSoftness env.groundFogWisps env.groundFogWispSize'
+        + ' env.groundFogStreak env.groundFogDetail env.groundFogBillowSize env.groundFogColor env.groundFogSun env.groundFogShade'
+        + ' env.groundFogShadows env.groundFogShadeColor env.groundFogFlow env.groundFogPushSize env.groundFogRecovery'
+        + ' env.groundFogSwirl env.groundFogWind env.groundFogWindAngle env.groundFogChurn'
+        + ' env.weather.type env.weather.count env.weather.speed env.weather.windSpeed env.weather.windDirection env.gusts env.foliageWind'
+        + ' env.wet env.puddles env.snow env.snowDepth env.storm env.stormStrength env.stormInterval env.stormRadius'
+        + ' lens.dof.focus lens.dof.fstop lens.dof.focalLength lens.flare.intensity lens.flare.halo lens.flare.streak lens.flare.dirt ')
         .indexOf(' ' + id + ' ') >= 0;
     }
-
+)EDJS"
+// Split here: MSVC caps one string literal at 16 KB (C2026); adjacent literals are joined.
+R"EDJS(
     function skBuild() {
       var cat = skCatalog(), sig = cat.map(function (f) { return f.id; }).join('|');
       if (!sig || sig === skCatalogSig) return;
@@ -180,18 +191,20 @@ R"EDJS(
         try { skGroups[oldId].card.__card.DeleteAsync(0); } catch (e) {}
       }
       skGroups = {}; skFields = {};
-      ['effects', 'environment'].forEach(function (family) {
+      // CONFIG's tabs in their order: CAMERA (the lens), EFFECTS, ENVIRONMENT.
+      var SK_FAMILY = { camera: [T('Camera'), '#e6a44cff'], effects: [T('Effects'), '#d4b36aff'], environment: [T('Environment'), '#7fbdc7ff'] };
+      ['camera', 'effects', 'environment'].forEach(function (family) {
         var fam = cat.filter(function (f) { return f.family === family; });
         if (!fam.length) return;
         // Both families carry a LIGHTING card, so the rail's group heading -- CONFIG's own tab
         // name -- is what tells two identically named cards apart.
-        var groupName = family === 'effects' ? T('Effects') : T('Environment');
+        var groupName = SK_FAMILY[family][0];
         var order = [];
         fam.forEach(function (f) { var gid = family + '.' + (f.groupId || f.group); if (order.indexOf(gid) < 0) order.push(gid); });
         order.forEach(function (groupId) {
           var members = fam.filter(function (f) { return family + '.' + (f.groupId || f.group) === groupId; });
           var title = ('' + members[0].group).toUpperCase();
-          var card = edCard(inspectorBody, title, { edge: family === 'effects' ? '#d4b36aff' : '#7fbdc7ff',
+          var card = edCard(inspectorBody, title, { edge: SK_FAMILY[family][1],
             rail: { tab: 'scene', key: 'sk.' + groupId, group: groupName } });
           var g = skGroups[groupId] = { fields: [], title: title, card: card };
           try { mvmTourAdd('scene.rail.' + groupId, edRails.scene.items['sk.' + groupId].row); } catch (e) {}

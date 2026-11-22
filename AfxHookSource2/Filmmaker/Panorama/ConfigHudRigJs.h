@@ -13,8 +13,11 @@ R"CFJS(
     function rigOf(id) { var r = rigState(); return r && r.objects ? (r.objects[String(id)] || null) : null; }
     function rigIsLightKind(k) { return k === 'point' || k === 'spot' || k === 'area'; }
     var RIG_KINDS = [['none', T('Nothing (stays in the world)')], ['player', T('A player')], ['held', T("A player's weapon")],
-                     ['dropped', T('A dropped weapon')], ['grenade', T('A thrown grenade')], ['object', T('Another scene object')]];
-    var RIG_KIND_LABEL = { player: T('a player'), held: T("a player's weapon"), dropped: T('a dropped weapon'), grenade: T('a grenade'), object: T('a scene object') };
+                     ['dropped', T('A dropped weapon')], ['grenade', T('A thrown grenade')], ['object', T('Another scene object')],
+                     ['camera', T('The camera (moves with the view)')]];
+    // Only a light rides the camera (Rig::CanRideCamera): the other kinds get the list without it.
+    var RIG_KINDS_NO_CAMERA = RIG_KINDS.filter(function (k) { return k[0] !== 'camera'; });
+    var RIG_KIND_LABEL = { player: T('a player'), held: T("a player's weapon"), dropped: T('a dropped weapon'), grenade: T('a grenade'), object: T('a scene object'), camera: T('the camera') };
     // The "Which" field while a kind is picked and nothing chosen yet: one whole sentence per kind.
     var RIG_KIND_CHOOSE = { player: T('Choose a player to attach to'), held: T("Choose a player's weapon to attach to"),
                             dropped: T('Choose a dropped weapon to attach to'), grenade: T('Choose a grenade to attach to'),
@@ -25,10 +28,12 @@ R"CFJS(
     subHead(rigBox, T('Rig'));
     var rigNote = envNote(rigBox, '');
     // A kind picked from "Attach to" before its "Which": the list fills from it, a pick attaches.
-    var rigPendingKind = null, rigPendingFor = 0, rigWhoSig = '', rigMountSig = '';
+    var rigPendingKind = null, rigPendingFor = 0, rigWhoSig = '', rigMountSig = '', rigKindsLight = null;
     var rigKind = dropdownRow(rigBox, T('Attach to'), RIG_KINDS, function (k) {
       var o = envSelected(); if (!o) return;
       if (k === 'none') { rigPendingKind = null; rigCommand('parent ' + o.id + ' none'); return; }
+      // The camera is one thing: picking it attaches at once, with no "Which".
+      if (k === 'camera') { rigPendingKind = null; rigCommand('parent ' + o.id + ' camera'); return; }
       rigPendingKind = k; rigPendingFor = o.id; rigWhoSig = '';
     });
     attachTip(rigKind.row, T('Attach it to something in the demo. It keeps its place on screen and follows from there.'));
@@ -158,12 +163,14 @@ R"CFJS(
       var camera = o.kind === 'camera';
       if (rigPendingFor !== o.id) rigPendingKind = null;
       var kind = rigPendingKind || r.parent || 'none';
+      var lightKind = rigIsLightKind(o.kind);
+      if (rigKindsLight !== lightKind) { rigKindsLight = lightKind; rigKind.setItems(lightKind ? RIG_KINDS : RIG_KINDS_NO_CAMERA); }
       rigKind.sync(kind);
 
       // Which: the live candidates for the kind; attached shows what it rides even when that one is not listed.
       var items = rigWhoItems(kind, o.id), wsig = kind + '|' + JSON.stringify(items);
       if (wsig !== rigWhoSig) { rigWhoSig = wsig; rigWho.setItems(items); }
-      rigWho.row.visible = kind !== 'none';
+      rigWho.row.visible = kind !== 'none' && kind !== 'camera';
       if (rigPendingKind) rigWho.setText(items.length ? RIG_KIND_CHOOSE[kind] : T('None at this tick'), true);
       else if (r.attached) {
         // The row it rides is ticked in the list; the field names it, even while it is gone.
@@ -182,7 +189,8 @@ R"CFJS(
         if (msig !== rigMountSig) { rigMountSig = msig; rigMount.setItems(mi); }
         rigMount.sync(r.mount);
       }
-      rigMissing.row.visible = r.attached && !rigPendingKind;
+      // The camera is never gone, so there is nothing to choose for while it is.
+      rigMissing.row.visible = r.attached && !rigPendingKind && kind !== 'camera';
       if (r.attached) rigMissing.sync(r.missing || 'hide');
 
       // The pose: the offset when it rides something; its turn (and a camera's view) otherwise.
@@ -204,6 +212,8 @@ R"CFJS(
       rigAnimBtn.__lbl.text = r.animated ? T('Animate: on') : T('Animate: off');
       rigLookBtn.__lbl.text = lt ? T('Stop looking through') : T('Look through');
       rigViewActs.visible = camera;
+      // On the camera it already sits where the camera is: Offset places it from the lens.
+      rigPlaceBtn.visible = !(r.attached && kind === 'camera');
       rigTimelineBtn.visible = r.animated;
       rigActs2.visible = r.animated;
       rigCamActs.visible = camera;
@@ -212,8 +222,9 @@ R"CFJS(
       var mount = r.mount ? r.mount.replace(/_/g, ' ') : '';
       // Whole sentences per case; the pose-key count is its own clause after the separator.
       var keys = r.animated ? '  ·  ' + TN(r.keys, '{0} pose key, linear between keys', '{0} pose keys, linear between keys') : '';
-      var rides = r.who || RIG_KIND_LABEL[kind];
+      var rides = kind === 'camera' ? RIG_KIND_LABEL.camera : (r.who || RIG_KIND_LABEL[kind]);
       rigNote.text = rigPendingKind ? T('Pick which one in the list below.')
+        : r.attached && kind === 'camera' ? T('Rides the camera: it moves with the camera path, the free cam or whatever renders the view. Offset places it from the lens.') + keys
         : r.attached ? (r.valid ? (mount && kind !== 'grenade' && kind !== 'object' ? T('Rides {0} at the {1}', rides, mount) : T('Rides {0}', rides)) + keys
                                 : r.who ? (r.visible ? T('{0} is not in the demo at this tick: held at its last pose.', r.who)
                                                      : T('{0} is not in the demo at this tick: hidden until it is back.', r.who))

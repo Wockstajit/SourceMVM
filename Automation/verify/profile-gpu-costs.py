@@ -36,6 +36,11 @@ CASES = [
     ("ambient occlusion", "mirv_relight ao 0", "ao", "mirv_relight ao {}", "1"),
     ("sky occlusion", "mirv_relight skyocclusion 0", "skyocclusion", "mirv_relight skyocclusion {}", "1"),
     ("stained glass", "mirv_relight stainedglass 0", "stainedglass", "mirv_relight stainedglass {}", "1"),
+    # CPU-side switches (render thread): the previous path, timed against the default.
+    ("lit draws keep their inputs bound (off: per-draw restore)", "mirv_relight stickydraws 0", "stickydraws", "mirv_relight stickydraws {}", "1"),
+    ("light records built once per frame (off: per view)", "mirv_relight recordreuse 0", "recordreuse", "mirv_relight recordreuse {}", "1"),
+    ("shadow cells joined into runs (off: one draw per cell)", "mirv_relight drawruns 0", "drawruns", "mirv_relight drawruns {}", "1"),
+    ("sun penumbra shortcuts (off: full search and filter)", "mirv_relight sunsummary 0", "sunsummary", "mirv_relight sunsummary {}", "1"),
     ("environment composite", "mirv_filmmaker environment off", None, "mirv_filmmaker environment {}", "on"),
 ]
 COST_WORDS = {"0": "full", "1": "word", "2": "one"}

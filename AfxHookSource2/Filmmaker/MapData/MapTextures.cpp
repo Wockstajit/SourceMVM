@@ -201,4 +201,110 @@ Image DecodeTexture(const std::vector<uint8_t> &bytes) {
     return image;
 }
 
+int TextureMips::RowPitch(int level) const {
+    const int w = MipSize(width, level);
+    switch (format) {
+    case Format::BC1: case Format::BC4: return std::max(1, (w + 3) / 4) * 8;
+    case Format::BC3: case Format::BC7: return std::max(1, (w + 3) / 4) * 16;
+    default: return w * 4;
+    }
+}
+
+TextureMips ReadTextureMips(const std::vector<uint8_t> &bytes) {
+    const Resource resource(bytes);
+    const ResourceBlock *data = resource.Block("DATA");
+    if (!data) throw MapDataError("texture has no DATA block");
+    const Header h = ParseHeader(bytes, data->offset);
+    if (h.width <= 0 || h.height <= 0 || h.width > 16384 || h.height > 16384 || h.mips == 0) throw MapDataError("invalid texture size");
+    if ((h.flags & (kCube | kVolume)) || h.depth > 1) throw MapDataError("not a plain 2D texture");
+    TextureMips out;
+    switch (h.format) {
+    case DXT1: out.format = TextureMips::Format::BC1; break;
+    case DXT5: out.format = TextureMips::Format::BC3; break;
+    case ATI1N: out.format = TextureMips::Format::BC4; break;
+    case BC7: out.format = TextureMips::Format::BC7; break;
+    case RGBA8888: out.format = TextureMips::Format::RGBA8; break;
+    case BGRA8888: out.format = TextureMips::Format::BGRA8; break;
+    default: throw MapDataError("unsupported texture format " + std::to_string(h.format));
+    }
+    out.width = h.width;
+    out.height = h.height;
+    out.mips.resize(h.mips);
+    // Stored smallest first after the resource blocks; each mip is LZ4 compressed when its stored
+    // size is under its full size.
+    size_t at = size_t(data->offset) + data->size;
+    for (int level = h.mips - 1; level >= 0; --level) {
+        const int size = h.BufferSize(level);
+        int stored = size;
+        if (!h.compressedMipSizes.empty() && size_t(level) < h.compressedMipSizes.size()) stored = std::min(size, h.compressedMipSizes[size_t(level)]);
+        if (at > bytes.size() || size_t(stored) > bytes.size() - at) throw MapDataError("truncated texture data");
+        auto &mip = out.mips[size_t(level)];
+        mip.resize(size_t(size));
+        if (stored >= size) {
+            std::memcpy(mip.data(), bytes.data() + at, size_t(size));
+        } else if (LZ4_decompress_safe(reinterpret_cast<const char *>(bytes.data() + at), reinterpret_cast<char *>(mip.data()), stored, size) != size) {
+            throw MapDataError("texture LZ4 decompression failed");
+        }
+        at += size_t(stored);
+    }
+    return out;
+}
+
+GameSurfaceTextures ReadGameSurfaceTextures(const std::filesystem::path &root) {
+    static const char *const kSnowMaterial = "materials/cbble/snow/snow_mix_2.vmat_c";
+    static const char *const kDroplets = "materials/dev/water_droplets.vtex_c";
+    GameSurfaceTextures out;
+    try {
+        namespace fs = std::filesystem;
+        if (root.empty()) {
+            out.status = "Counter-Strike 2 not found";
+            return out;
+        }
+        PackageSet packages;
+        const fs::path game = root / "game";
+        for (const std::string &folder : GameInfoSearchPaths(game / "csgo" / "gameinfo.gi")) {
+            const fs::path dir = game / fs::u8path(folder) / "pak01_dir.vpk";
+            std::error_code ec;
+            if (fs::is_regular_file(dir, ec)) packages.Add(std::make_shared<Vpk>(dir));
+        }
+        std::vector<uint8_t> bytes;
+        std::string snowStatus = "snow: material missing";
+        if (packages.Read(kSnowMaterial, bytes)) {
+            const Kv3 data = Resource(std::move(bytes)).Kv3Block("DATA");
+            std::string color, normal, height;
+            for (const Kv3 &p : data["m_textureParams"].arr) {
+                const std::string &value = p["m_pValue"].Str();
+                if (value.find("_color") != std::string::npos) color = value;
+                else if (value.find("_normal") != std::string::npos) normal = value;
+                else if (value.find("_height") != std::string::npos) height = value;
+            }
+            const auto read = [&](const std::string &path, TextureMips &mips) {
+                std::vector<uint8_t> texture;
+                if (path.empty() || !packages.Read(path, texture)) return false;
+                mips = ReadTextureMips(texture);
+                return true;
+            };
+            if (read(color, out.snowColor) && read(normal, out.snowNormal) && read(height, out.snowHeight)) {
+                out.snow = true;
+                snowStatus = "snow: " + color.substr(color.find_last_of('/') + 1) + " " + std::to_string(out.snowColor.width) + "x" +
+                             std::to_string(out.snowColor.height) + " mips=" + std::to_string(out.snowColor.mips.size());
+            } else {
+                snowStatus = "snow: textures missing (color='" + color + "' normal='" + normal + "' height='" + height + "')";
+            }
+        }
+        std::string dropStatus = "droplets: missing";
+        bytes.clear();
+        if (packages.Read(kDroplets, bytes)) {
+            out.droplets = ReadTextureMips(bytes);
+            out.drops = true;
+            dropStatus = "droplets: " + std::to_string(out.droplets.width) + "x" + std::to_string(out.droplets.height);
+        }
+        out.status = snowStatus + "; " + dropStatus;
+    } catch (const std::exception &e) {
+        out.snow = out.drops = false;
+        out.status = std::string("failed: ") + e.what();
+    }
+    return out;
+}
+
 } // namespace Filmmaker::MapData

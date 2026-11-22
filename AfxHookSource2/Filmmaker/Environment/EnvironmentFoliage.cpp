@@ -14,7 +14,7 @@ using Microsoft::WRL::ComPtr;
 namespace {
 constexpr GUID InputsTag={0xbd60a6a1,0x10a2,0x4ca2,{0xba,0xaf,0x98,0xc8,0x1b,0xd5,0x26,0x36}};
 constexpr GUID CpuWindTag={0x552a885a,0xa9d2,0x40ca,{0x93,0x40,0x27,0x99,0x84,0xbd,0x6a,0x1e}};
-struct CpuWind {float values[8]{};const void* mapped=nullptr;bool valid=false;};
+struct CpuWind {float values[8]{};const void* mapped=nullptr;bool valid=false;unsigned epoch=0;};
 bool ConstantBuffer(ID3D11Resource* resource) {
     if(!resource)return false;D3D11_RESOURCE_DIMENSION type;resource->GetType(&type);
     if(type!=D3D11_RESOURCE_DIMENSION_BUFFER)return false;
@@ -26,6 +26,15 @@ bool CpuSnapshot(ID3D11Resource* resource,CpuWind& data) {
 }
 struct Slots { UINT time=~0u,wind=~0u,noise=~0u; };
 std::atomic<bool> requested{false},nextRequested{false},complete{false};
+// THE MAP TRACKING RUNS ONLY WHILE A CONSUMER ASKS FOR THE INPUTS. CS2 maps and unmaps constant
+// buffers thousands of times a frame, and noting each one (a buffer description, then private data
+// set or read under the runtime's lock) cost about 7% of the render thread with the Environment
+// off, where nothing reads it (Dust 2 at 1080p, 2026-11-19). A snapshot written before the
+// tracking last started again may be old, so it carries the epoch it was taken in and only the
+// current epoch counts; a stale one takes the fail-open path, as a missing one does.
+std::atomic<unsigned> trackingEpoch{1};
+void StartTracking(){trackingEpoch.fetch_add(1,std::memory_order_relaxed);}
+bool Current(const CpuWind& cpu){return cpu.epoch==trackingEpoch.load(std::memory_order_relaxed);}
 std::mutex guard;
 ComPtr<ID3D11Buffer> clockBuffer,windBuffer;
 Vec3 cachedWind{};float cachedStrength=0;bool cachedWindValid=false;
@@ -53,24 +62,28 @@ bool CopyBuffer(ID3D11DeviceContext *ctx,UINT slot,UINT minimum,ComPtr<ID3D11Buf
     // GPU-to-GPU snapshot at the native draw: no stall/readback, no engine CB writes.
     ctx->CopyResource(target.Get(),source.Get());
     CpuWind cpu;
-    if(CpuSnapshot(source.Get(),cpu)&&cpu.valid&&!cpu.mapped){
+    if(CpuSnapshot(source.Get(),cpu)&&cpu.valid&&!cpu.mapped&&Current(cpu)){
         cpu.mapped=nullptr;target->SetPrivateData(CpuWindTag,sizeof(cpu),&cpu);
     }else target->SetPrivateData(CpuWindTag,0,nullptr);
     return true;
 }
 }
 void NoteFoliageConstantMap(ID3D11Resource* resource,D3D11_MAP type,const void* data) {
-    if(!data||type==D3D11_MAP_READ||!ConstantBuffer(resource))return;
-    CpuWind cpu;cpu.mapped=data;resource->SetPrivateData(CpuWindTag,sizeof(cpu),&cpu);
+    if(!requested.load(std::memory_order_relaxed)||!data||type==D3D11_MAP_READ||!ConstantBuffer(resource))return;
+    CpuWind cpu;cpu.mapped=data;cpu.epoch=trackingEpoch.load(std::memory_order_relaxed);resource->SetPrivateData(CpuWindTag,sizeof(cpu),&cpu);
 }
 void NoteFoliageConstantUnmap(ID3D11Resource* resource) {
+    if(!requested.load(std::memory_order_relaxed))return; // a buffer left "mapped" counts as missing
     CpuWind cpu;if(!CpuSnapshot(resource,cpu)||!cpu.mapped)return;
+    // Mapped before tracking last started (tracking stopped between this buffer's Map and its
+    // Unmap, so the Unmap was not seen): the pointer died with that Unmap. Drop the snapshot.
+    if(!Current(cpu)){resource->SetPrivateData(CpuWindTag,0,nullptr);return;}
     std::memcpy(cpu.values,static_cast<const char*>(cpu.mapped)+272,sizeof(cpu.values));
     cpu.mapped=nullptr;cpu.valid=true;resource->SetPrivateData(CpuWindTag,sizeof(cpu),&cpu);
 }
 void NoteFoliageConstantUpdate(ID3D11Resource* resource,const D3D11_BOX* box,const void* data) {
-    if(!data||!ConstantBuffer(resource))return;
-    CpuWind cpu;
+    if(!requested.load(std::memory_order_relaxed)||!data||!ConstantBuffer(resource))return;
+    CpuWind cpu;cpu.epoch=trackingEpoch.load(std::memory_order_relaxed);
     const UINT first=box?box->left:0,last=box?box->right:304;
     // A partial upload cannot establish all eight current values. Fail open for
     // culling rather than retain a previous frame's potentially smaller bound.
@@ -130,13 +143,13 @@ void ObserveFoliageInputs(ID3D11DeviceContext *ctx) {
 }
 void NextFoliageFrame(){
     const bool needed=nextRequested.exchange(false,std::memory_order_relaxed);
-    requested.store(needed,std::memory_order_relaxed);
+    if(!requested.exchange(needed,std::memory_order_relaxed)&&needed)StartTracking();
     std::lock_guard<std::mutex> lock(guard);gotTime=gotWind=false;complete=false;
 }
 void RequestFoliageInputs(bool value){
     // Several shadow tiers request inputs in one frame. An inactive later tier
     // must not cancel an enabled earlier tier or freeze its animation clock.
-    if(value){requested=true;nextRequested=true;}
+    if(value){if(!requested.exchange(true))StartTracking();nextRequested=true;}
 }
 void ResetFoliageInputs(){
     requested=nextRequested=false;std::lock_guard<std::mutex> lock(guard);
@@ -168,7 +181,7 @@ bool ReadFoliageWind(ID3D11DeviceContext* ctx,Vec3& wind,float& strength){
             noiseDesc.Format==DXGI_FORMAT_BC7_UNORM||noiseDesc.Format==DXGI_FORMAT_B8G8R8A8_UNORM;
         if(!normalized)return false;
         CpuWind cpu;
-        if(CpuSnapshot(windBuffer.Get(),cpu)&&cpu.valid&&!cpu.mapped){
+        if(CpuSnapshot(windBuffer.Get(),cpu)&&cpu.valid&&!cpu.mapped&&Current(cpu)){
             cachedWind={cpu.values[0],cpu.values[1],cpu.values[2]};cachedStrength=cpu.values[4];
             cachedWindValid=std::isfinite(cachedWind.x)&&std::isfinite(cachedWind.y)&&std::isfinite(cachedWind.z)&&std::isfinite(cachedStrength);
         }

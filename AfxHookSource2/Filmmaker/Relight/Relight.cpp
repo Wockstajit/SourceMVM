@@ -9,10 +9,13 @@
 #include "RelightLightmap.h"
 #include "RelightLightEditor.h"
 #include "RelightProbes.h"
+#include "RelightLiteGrid.h"
 
 #include "../Environment/EnvironmentScene.h"
 #include "../Environment/EnvironmentNativeMaterial.h"
+#include "../Render/RenderPixelStateLayer.h"
 #include "../Environment/EnvironmentShadowMaps.h"
+#include "../Environment/EnvironmentRender.h"
 #include "../Environment/EnvironmentCasterCull.h"
 #include "../Platform/JsonParser.h"
 #include "../Debug/MvmDebugLog.h"
@@ -77,6 +80,29 @@ bool PropertyNumbers(const JsonValue &light, const char *key, float *out, unsign
 } // namespace
 
 bool PreviewCapture(){return g_previewCapture.load(std::memory_order_relaxed);}
+// The transient 0|1 switches of mirv_relight: each keeps an earlier code path reachable in the same
+// process, so a change can be timed and compared against what it replaced. The command and its
+// help both read this table. Help says what 0 selects, then what 1 selects.
+struct TransientSwitch {const char* name;std::atomic<bool>* flag;const char* help;};
+const TransientSwitch kTransientSwitches[]={
+    {"previewcapture",&g_previewCapture,"record native frames at preview quality"},
+    {"castercull",&Filmmaker::Environment::ShadowCasterCulling,"original or culled actor shadow draws"},
+    {"aoreuse",&Filmmaker::Environment::NativeAoRepairReuse,"skip verified unused AO view-buffer repairs"},
+    {"maskdedupe",&ProbeMaskDedupe,"atomic per visible GI cell, or only for unmarked cells"},
+    {"facebatch",&Filmmaker::Environment::ShadowFaceBatching,"one lamp face refresh after another, or batched phases"},
+    {"widecull",&Filmmaker::Environment::ShadowCasterCullingWide,"actor culling for cached lamp faces only, or also lamps and sun"},
+    {"slotstable",&Filmmaker::Environment::ShadowSlotStability,"shadow cache slots follow budget order, or stay with their light"},
+    {"gicarry",&ProbeHistoryCarry,"GI history carried by CopyResource, or by a compute copy"},
+    {"recordreuse",&Filmmaker::Environment::NativeRecordReuse,"light records rebuilt for every view, or once per frame"},
+    {"drawruns",&Filmmaker::Environment::ShadowDrawRunMerging,"shadow geometry drawn one cell per call, or adjacent cells in one call"},
+    {"volumesplit",&Filmmaker::Environment::VolumeCompositeSplit,"fog and clouds composited per MSAA sample everywhere, or per pixel away from edges"},
+    {"directsource",&Filmmaker::Environment::SourceDirectRead,"the composite copies the game's colour and depth, or reads them in place"},
+    {"twosided",&ProbeTwoSidedVoxels,"bounce probes judge every voxel by the one normal it kept, or take no back face from two-sided voxels"},
+    {"fineslices",&Filmmaker::Environment::NativeFineSlices,"light lists by 64 depth slices over the map, or by 16-unit slices"},
+    {"litbounds",&Filmmaker::Environment::ShadowLitBounds,"lamps listed by their range sphere, or by what their cached shadow depth lets them reach"},
+    {"tilerefresh",&Filmmaker::Environment::ShadowTileRefresh,"a depth target per refreshed lamp face, or one per batch of sixteen"},
+    {"movingactors",&Filmmaker::Environment::ShadowMovingActors,"any captured caster earns a lamp face its every-frame refresh, or only one that moved"},
+};
 Scene CaptureScene(const std::string &map) {
     std::lock_guard<std::mutex> lock(g_mutex);
     Scene out = g_scene;
@@ -168,7 +194,7 @@ void Load(const std::string &path, const std::string &map) {
     next.reach = g_scene.reach;
     next.shadowReach = g_scene.shadowReach;
     next.cubeShadows = g_scene.cubeShadows;
-    next.probeRebuild=g_scene.probeRebuild;next.probeCheck=g_scene.probeCheck;next.gi=g_scene.gi;next.screenGi=g_scene.screenGi;next.bounce=g_scene.bounce;next.bounceSteps=g_scene.bounceSteps;next.albedo=g_scene.albedo;
+    next.probeRebuild=g_scene.probeRebuild;next.probeCheck=g_scene.probeCheck;next.gi=g_scene.gi;next.lite=g_scene.lite;next.liteBounce=g_scene.liteBounce;next.screenGi=g_scene.screenGi;next.bounce=g_scene.bounce;next.bounceSteps=g_scene.bounceSteps;next.albedo=g_scene.albedo;
     next.lightmapDiag=g_scene.lightmapDiag;next.lightmapFile=g_scene.lightmapFile;next.lightmapMode=g_scene.lightmapMode;next.programFilter=g_scene.programFilter;
 
     size_t skipped = 0;
@@ -299,6 +325,8 @@ void Status() {
     advancedfx::Message("  shadowbias=%g (normalized atlas depth) selfshadow=%g units (players ignore sun casters this close)\n",g_scene.shadowBias,g_scene.characterSelfShadowUnits);
     advancedfx::Message("  skyocclusion=%g (runtime sky visibility on ambient) suncascade=%d\n",g_scene.skyOcclusion,g_scene.sunCascade);
     advancedfx::Message("  ao=%g (owned real-time ambient occlusion)\n",g_scene.ao);
+    advancedfx::Message("  lite=%d (no runtime bounce; a baked bounce grid) litebounce=%g\n",g_scene.lite?1:0,g_scene.liteBounce);
+    advancedfx::Message("  lite grid: %s\n",LiteGridStatus().c_str());
     advancedfx::Message("  reflections=%g (live reflection capture)\n",g_scene.reflections);
     advancedfx::Message("  reach=%g (lights stop where they change a dark pixel by less than this many display steps; 0 = authored ranges)\n",g_scene.reach);
     advancedfx::Message("  shadowreach=%g (lamp shadows stop where the lamp changes a dark pixel by less than this many display steps; 0 = everywhere)\n",g_scene.shadowReach);
@@ -347,17 +375,34 @@ CON_COMMAND(mirv_relight,
     }
     std::lock_guard<std::mutex> lock(g_mutex);
     try {
-        if(op=="previewcapture"||op=="castercull"||op=="aoreuse"||op=="maskdedupe"||op=="facebatch"||op=="widecull"||op=="slotstable"||op=="gicarry"){
-            auto& flag=op=="previewcapture"?g_previewCapture:op=="castercull"?
-                Filmmaker::Environment::ShadowCasterCulling:op=="aoreuse"?Filmmaker::Environment::NativeAoRepairReuse:
-                op=="facebatch"?Filmmaker::Environment::ShadowFaceBatching:
-                op=="widecull"?Filmmaker::Environment::ShadowCasterCullingWide:
-                op=="slotstable"?Filmmaker::Environment::ShadowSlotStability:
-                op=="gicarry"?ProbeHistoryCarry:ProbeMaskDedupe;
+        if(op=="engineexposure"){
             if(argc==3){const std::string value=args->ArgV(2);
                 if(value!="0"&&value!="1")throw std::runtime_error("Expected 0 or 1");
-                flag.store(value=="1",std::memory_order_relaxed);}
-            advancedfx::Message("  %s=%d (transient diagnostic)\n",op.c_str(),flag.load()?1:0);return;
+                Filmmaker::Environment::NativeExposureRead.store(value=="1",std::memory_order_relaxed);}
+            advancedfx::Message("  engineexposure=%d (transient diagnostic) CS2's exposure reads %.4f (0 = unknown)\n",
+                Filmmaker::Environment::NativeExposureRead.load()?1:0,Filmmaker::Environment::NativeExposureScale());return;
+        }
+        if(op=="dumpprobes"){
+            ProbeDumpRequests.store(1,std::memory_order_relaxed);
+            advancedfx::Message("  the bounce probe volumes go to %%APPDATA%%\\HLAE\\debuglogs\\relight_probes.bin (one hitch)\n");return;
+        }
+        if(op=="dumpview"){
+            Filmmaker::Environment::NativeViewDumpRequests.store(1,std::memory_order_relaxed);
+            advancedfx::Message("  the next world view's b1 and b4 constants go to the mvm_debug log (relight.view.dump)\n");return;
+        }
+        if(op=="stickydraws"){
+            if(argc==3){const std::string value=args->ArgV(2);
+                if(value!="0"&&value!="1")throw std::runtime_error("Expected 0 or 1");
+                Filmmaker::PixelStateLayer::SetEnabled(value=="1");}
+            const auto stats=Filmmaker::PixelStateLayer::TakeStats(false);
+            advancedfx::Message("  stickydraws=%d (transient diagnostic) lit draws set up %llu, reused %llu\n",
+                Filmmaker::PixelStateLayer::Enabled()?1:0,stats.adopted,stats.reused);return;
+        }
+        for(const auto& row:kTransientSwitches)if(op==row.name){
+            if(argc==3){const std::string value=args->ArgV(2);
+                if(value!="0"&&value!="1")throw std::runtime_error("Expected 0 or 1");
+                row.flag->store(value=="1",std::memory_order_relaxed);}
+            advancedfx::Message("  %s=%d (transient diagnostic)\n",row.name,row.flag->load()?1:0);return;
         }
         if (op.empty() || op == "help") {
             advancedfx::Message(
@@ -379,35 +424,35 @@ CON_COMMAND(mirv_relight,
                 "mirv_relight reflections <0-2>      live reflection strength (0 off)\n"
                 "mirv_relight lighteditor <on|off>   markers on every light; aim + F switches one off/on, Esc leaves\n"
                 "mirv_relight lights reset           switch every light on this map back on\n"
-                "mirv_relight stainedglass <0-2>     sunlight through stained glass (0 off)\n"
+                "mirv_relight stainedglass <0-2>     coloured sun beams through stained glass (0 off, the default)\n"
                 "mirv_relight shadows 0|1             shadow maps for the budgeted lights\n"
                 "mirv_relight shadowlights <n>        lights in the cached shadow tier\n"
                 "mirv_relight actorshadows <0-512>    light faces with a moving player redrawn every frame\n"
                 "mirv_relight lampsummary 0|1         lamp shadows skip their 32 taps where the atlas summary proves the answer (1)\n"
+                "mirv_relight sunsummary 0|1          the sun penumbra pass skips its search and filter where the cascade summary proves the answer (1)\n"
                 "mirv_relight view off|lights|direct|coverage|probes\n"
                 "mirv_relight gi 0|1 | giscale 0.5|1 | bounce <0-16> | albedo <r g b> | rebuild\n"
+                "mirv_relight lite 0|1              Lite lighting: no runtime bounce, a bounce grid baked once in its place\n"
+                "mirv_relight litebounce <0-4>      Lite: strength of the light surfaces send back\n"
                 "mirv_relight lightmapdiag 0|1     UV checker on world lightmap t2 (not GI)\n"
                 "mirv_relight probecheck 0|1|2      normal, uniform fallback, uniform probe\n"
                 "mirv_relight clusters 0|1|2|3      full mask, native tiles+slices, native slices, owned reference\n"
                 "mirv_relight cost full|word|one    diagnostic: all, 32, or one record\n"
                 "mirv_relight hoist 0|1            diagnostic: per-draw or per-view preparation\n"
-                "mirv_relight castercull 0|1       diagnostic: original or culled actor shadow draws\n"
-                "mirv_relight aoreuse 0|1          diagnostic: skip verified unused AO view-buffer repairs\n"
-                "mirv_relight maskdedupe 0|1       diagnostic: atomic per visible GI cell, or only for unmarked cells\n"
-                "mirv_relight facebatch 0|1        diagnostic: one lamp face refresh after another, or batched phases\n"
-                "mirv_relight widecull 0|1         diagnostic: actor culling for cached lamp faces only, or also lamps and sun\n"
-                "mirv_relight slotstable 0|1       diagnostic: shadow cache slots follow budget order, or stay with their light\n"
-                "mirv_relight gicarry 0|1          diagnostic: GI history carried by CopyResource, or by a compute copy\n"
+                "mirv_relight stickydraws 0|1      diagnostic: lit draws restore the engine's inputs each draw, or keep theirs bound across a run\n"
                 "mirv_relight clusterbounds 0|1    diagnostic: box or tighter sphere light lists\n"
+                "mirv_relight engineexposure 0|1   diagnostic: under CS2's own exposure the visible reach is unknown, or read from the engine\n"
+                "mirv_relight dumpview             diagnostic: write the next world view's b1 and b4 constants to the mvm_debug log\n"
+                "mirv_relight dumpprobes           diagnostic: write the bounce probe volumes and static voxels to debuglogs\\relight_probes.bin\n"
                 "mirv_relight reflectionfilter 0|1 diagnostic: box mips or roughness-filtered reflections\n"
                 "mirv_relight reflectionfollow 0|1 diagnostic: delayed capture or immediate camera follow\n"
-                "mirv_relight previewcapture 0|1   diagnostic: record native frames at preview quality\n"
                 "mirv_relight reference 0|1        diagnostic: untouched native-input replay\n"
                 "mirv_relight bindingcheck 0|1|2   diagnostic: normal / white coverage / black material\n"
                 "mirv_relight light <index|identity> "
                 "color <r g b>|intensity <n>|range <n>|size <n>|move <x y z>|on|off|shadows <0-2>\n"
                 "mirv_relight sun angles <elevation> <azimuth>|color <r g b>|brightness <n>\n"
                 "Nothing here is saved: a map change starts from the authored values again.\n");
+            for(const auto& row:kTransientSwitches)advancedfx::Message("mirv_relight %s 0|1  diagnostic: %s\n",row.name,row.help);
             return;
         }
         if (op == "dumpprograms") {
@@ -598,6 +643,17 @@ CON_COMMAND(mirv_relight,
             if(argc!=3||(value!="0"&&value!="1"))throw std::runtime_error("mirv_relight gi 0|1");
             g_scene.gi=value=="1";++g_scene.generation;Status();return;
         }
+        if(op=="lite") {
+            const auto value=arg(2);
+            if(argc!=3||(value!="0"&&value!="1"))throw std::runtime_error("mirv_relight lite 0|1");
+            g_scene.lite=value=="1";++g_scene.generation;Status();return;
+        }
+        if(op=="litebounce") {
+            if(argc!=3)throw std::runtime_error("mirv_relight litebounce <0-4>");
+            const float n=Number(args->ArgV(2));
+            if(n<0||n>4)throw std::runtime_error("Value out of range");
+            g_scene.liteBounce=n;++g_scene.generation;Status();return;
+        }
         if(op=="lightmapdiag") {
             const auto value=arg(2);
             if(argc!=3||(value!="0"&&value!="1"))
@@ -649,6 +705,13 @@ CON_COMMAND(mirv_relight,
             if (n < 0 || n > 512) throw std::runtime_error("Value out of range");
             Filmmaker::Environment::SetActorShadowFacesPerFrame(unsigned(n));
             advancedfx::Message("mirv_relight: %u visible light faces with a moving player refresh every frame.\n", unsigned(n));
+            return;
+        }
+        if (op == "sunsummary") {
+            if (argc != 3) throw std::runtime_error("mirv_relight sunsummary 0|1");
+            Filmmaker::Environment::SetSunShadowSummary(std::string(args->ArgV(2)) != "0");
+            advancedfx::Message("  sunsummary=%s (the sun penumbra pass skips its search and filter where the cascade summary proves the answer)\n",
+                Filmmaker::Environment::SunShadowSummary() ? "on" : "off");
             return;
         }
         if (op == "lampsummary") {

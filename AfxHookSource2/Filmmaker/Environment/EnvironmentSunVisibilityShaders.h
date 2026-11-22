@@ -21,7 +21,7 @@ cbuffer Parameters:register(b0) {
     float4 thresholds;             // per cascade: max(|clip.x|,|clip.y|) below this selects it
     float4 camera;                 // xyz
     float4 viewport;               // origin xy, size zw
-    float4 depthInfo;              // viewport depth minimum, span, reversed (1 or 0), unused
+    float4 depthInfo;              // viewport depth minimum, span, reversed (1 or 0), levels of the sun summary (0: none)
     float4 sun;                    // x tan(half angle), y normalized depth bias, z tile size in texels, w max search distance
     float4 atlas;                  // width, height, 1/width, 1/height
     float4 searchDisk[24];          // xy fixed unit-disc offset, z radial distance
@@ -33,7 +33,13 @@ Texture2DMS<float,MSAA_SAMPLES> sourceDepth:register(t0);
 Texture2D<float> sourceDepth:register(t0);
 #endif
 Texture2D<float> atlasDepth:register(t1);
+// Nearest and farthest stored depth of blocks of sun-tile texels (EnvironmentShadowPyramid.h): mip m
+// texel (x, y) covers atlas texels (x, y) << (m + 2) and the 4 << m beside them, bit-inverted.
+Texture2D<uint2> sunSummary:register(t2);
 SamplerComparisonState atlasCompare:register(s0);
+// Which shortcut answered the last CascadeVisibility call (tests only): 0 none, 1 proven lit,
+// 2 sharp contact, 3 proven shadowed.
+static uint summaryOutcome=0;
 RWTexture2D<float4> result:register(u0);
 static const uint kSearchTaps=24;
 static const uint kFilterTaps=32;
@@ -140,6 +146,44 @@ float ContactVisibility(uint i,float2 clipXy,float z,float2 gradient,float2 clip
     if(covered[centre]>0)return 0;
     return 1-lerp(lerp(covered.x,covered.y,fraction.x),lerp(covered.z,covered.w,fraction.x),fraction.y);
 }
+)HLSL" // One literal holds about 16 KB: the source continues in a second one.
+R"HLSL(
+// The nearest and farthest stored depth over every atlas texel a tap within `radiusWorld` of the
+// receiver can read, and the smallest and largest depth those texels are compared against (the
+// receiver plane at their centres, with room for rounding). False when the summary cannot answer:
+// a tap would be clamped at the tile edge, or the footprint is wider than a tile.
+bool SummaryFootprint(uint i,float2 clipXy,float zr,float2 gradient,float2 clipPerWorld,float radiusWorld,
+                      out float nearest,out float farthest,out float lowCompare,out float highCompare) {
+    nearest=0;farthest=0;lowCompare=0;highCompare=0;
+    float2 scale=rect[i].zw*clipPerWorld,reach=abs(rect[i].zw); // uv per world unit; half a tile in uv
+    float2 uv=clipXy*rect[i].zw+rect[i].xy,span=abs(scale)*radiusWorld;
+    float2 lowUv=uv-span,highUv=uv+span;
+    if(!all(isfinite(lowUv))||!all(isfinite(highUv)))return false;
+    // AtlasUv would move a tap this close to the tile edge; its compare depth then leaves the plane.
+    if(any(lowUv<rect[i].xy-reach+atlas.zw)||any(highUv>rect[i].xy+reach-atlas.zw))return false;
+    // Point taps read int(uv * size); bilinear ones floor(uv * size - .5) and the texel after it.
+    int2 lo=int2(floor(lowUv*atlas.xy-.5))-1,hi=int2(floor(highUv*atlas.xy-.5))+2;
+    int2 tileLow=int2(round((rect[i].xy-reach)*atlas.xy)),tileHigh=int2(round((rect[i].xy+reach)*atlas.xy))-1;
+    if(any(lo<tileLow)||any(hi>tileHigh))return false;
+    int extent=max(hi.x-lo.x,hi.y-lo.y)+1;
+    uint level=0,levels=uint(depthInfo.w);
+    [loop]while(level+1<levels&&(4<<level)<extent)++level;
+    if((4<<level)<extent)return false;
+    int shift=int(level)+2;int2 a=lo>>shift,b=hi>>shift;
+    nearest=3.402823e38;farthest=-3.402823e38;
+    [unroll]for(uint k=0;k<4;++k){
+        uint2 stored=~sunSummary.Load(int3(min(a+int2(k&1,k>>1),b),int(level)));
+        nearest=min(nearest,asfloat(stored.x));farthest=max(farthest,asfloat(stored.y));
+    }
+    // The plane is linear across the footprint: its extremes are at the corners.
+    float2 cornerLow=((float2(lo)+.5)*atlas.zw-uv)/scale,cornerHigh=((float2(hi)+.5)*atlas.zw-uv)/scale;
+    float2 planeLow=min(cornerLow*gradient,cornerHigh*gradient),planeHigh=max(cornerLow*gradient,cornerHigh*gradient);
+    // A tap's own uv and reference depth are rounded differently from this bound.
+    float2 worldError=4e-7/abs(scale);
+    float margin=1e-6+dot(abs(gradient),worldError)+abs(zr)*4e-7;
+    lowCompare=zr+planeLow.x+planeLow.y-margin;highCompare=zr+planeHigh.x+planeHigh.y+margin;
+    return isfinite(lowCompare)&&isfinite(highCompare);
+}
 float CascadeVisibility(uint i,float3 p,float3 n) {
     float4x4 m=cascade[i];
     float3 u=m[0].xyz,v=m[1].xyz,w=m[2].xyz;
@@ -171,6 +215,35 @@ float CascadeVisibility(uint i,float3 p,float3 n) {
     float2 clipPerWorld=float2(lu,lv);
     float distanceToNear=max(c.z/depthPerUnit,0);
     float radiusWorld=0;
+    summaryOutcome=0;
+    float contactDistance=0,contact=0;bool contactKnown=false;
+    if(depthInfo.w>0){
+        // Exact shortcuts. None changes a result: each returns what the search and filter below
+        // would return, without their up to 150 atlas reads.
+        float nearest,farthest,lowCompare,highCompare;
+        // No stored depth in front of any tap of the search or the contact footprint: no blocker,
+        // so the search finds none, the radius is zero and the contact footprint is fully lit.
+        float searchWorld=tanHalf>1e-5?min(distanceToNear,sun.w)*tanHalf:0;
+        if(SummaryFootprint(i,c.xy,zr,gradient,clipPerWorld,searchWorld,nearest,farthest,lowCompare,highCompare)){
+            if(highCompare<=nearest){summaryOutcome=1;return 1;}
+            // Otherwise nothing in the search disc stands farther in front of the receiver than
+            // this, and the search counts a blocker only inside the cone the sun subtends: a tap
+            // farther out than that blocker's penumbra cannot count anything. So only the inner
+            // disc of that radius has to be free of blockers.
+            float reachable=(highCompare-nearest)/depthPerUnit*tanHalf*1.01+texelWorld*.01;
+            if(reachable<searchWorld&&SummaryFootprint(i,c.xy,zr,gradient,clipPerWorld,reachable,nearest,farthest,lowCompare,highCompare)&&
+               highCompare<=nearest){summaryOutcome=1;return 1;}
+        }
+        contact=ContactVisibility(i,c.xy,zr,gradient,clipPerWorld,depthPerUnit,contactDistance);contactKnown=true;
+        // The filter radius never exceeds the contact penumbra. Below a quarter texel the contact
+        // footprint is the whole answer, whatever the search finds.
+        float contactRadius=contactDistance*tanHalf;
+        if(contactRadius<=texelWorld*.2499){summaryOutcome=2;return contact;}
+        // Every texel the filter can read is in front of every tap: all 32 taps are shadowed, and
+        // a covered contact texel makes the blend of the two zero as well.
+        if(contact==0&&SummaryFootprint(i,c.xy,zr,gradient,clipPerWorld,max(contactRadius,texelWorld*.75),
+                                        nearest,farthest,lowCompare,highCompare)&&lowCompare>farthest){summaryOutcome=3;return 0;}
+    }
     if(tanHalf>1e-5){
         // Blocker search. Offsets are spaced quadratically so contact blockers, which can only
         // lie a few texels away, are found as reliably as distant ones.
@@ -193,8 +266,7 @@ float CascadeVisibility(uint i,float3 p,float3 n) {
     // A subtexel contact penumbra must not borrow light from the opening beside
     // its blocker. Preserve covered contact texels, then fade into the soft disk
     // as the physical penumbra grows beyond the map's resolving power.
-    float contactDistance;
-    float contact=ContactVisibility(i,c.xy,zr,gradient,clipPerWorld,depthPerUnit,contactDistance);
+    if(!contactKnown)contact=ContactVisibility(i,c.xy,zr,gradient,clipPerWorld,depthPerUnit,contactDistance);
     radiusWorld=min(radiusWorld,contactDistance*tanHalf);
     float contactWeight=1-smoothstep(.25,.75,radiusWorld/texelWorld);
     if(contactWeight>=1)return contact;

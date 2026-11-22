@@ -83,9 +83,10 @@ inline const ChannelSpec* ObjectSpec(int objectId, int c) {
     auto found = specs.find(index);
     if (found != specs.end()) return &found->second;
     static const char* labels[] = {"X", "Y", "Z", "Pitch", "Yaw", "Roll", "Field of view",
-        "Brightness", "Range", "Beam angle", "Emitter size", "Width", "Height"};
+        "Brightness", "Range", "Beam angle", "Emitter size", "Width", "Height", "Red", "Green", "Blue"};
     // A light setting's range and default: the scene file's own (EnvironmentDocument.cpp).
-    static const double light[Rig::kLightChannels][3] = {{0, 8, 1}, {16, 4096, 400}, {5, 170, 45}, {0, 64, 0}, {1, 1024, 64}, {1, 1024, 64}};
+    static const double light[Rig::kLightChannels][3] = {{0, 8, 1}, {16, 4096, 400}, {5, 170, 45}, {0, 64, 0}, {1, 1024, 64}, {1, 1024, 64},
+        {0, 255, 255}, {0, 255, 204}, {0, 255, 153}}; // colour 0..255, a new light's warm white
     ChannelSpec s;
     s.id = Rig::ChannelId(objectId, c);
     s.label = labels[c];
@@ -273,6 +274,12 @@ inline const ChannelSpec* FindSpec(const std::vector<ChannelSpec>& catalog, cons
     for (const auto& s : catalog) if (s.id == id) return &s;
     return ObjectSpecById(id);
 }
+// Properties taken out of the catalog. A saved track that still names one loads without it (its keys
+// are dropped, not converted) instead of failing whole: Decode rejects every other unknown name.
+inline bool RetiredProperty(const std::string& id) {
+    return id == "env.weather.windX" || id == "env.weather.windY"; // now Wind speed / Wind direction (2026-11-21)
+}
+
 inline bool Decode(const std::string& text, const std::vector<ChannelSpec>& catalog, TrackData& out, std::string& error) {
     try {
         if (text.size() > 16 * 1024 * 1024) throw std::runtime_error("Scene key file exceeds 16 MiB");
@@ -292,15 +299,18 @@ inline bool Decode(const std::string& text, const std::vector<ChannelSpec>& cata
         if (field(root, "version", JsonValue::Type::Number).number != 1) throw std::runtime_error("Unsupported scene key version");
         TrackData pending;
         for (const auto& a : field(root, "armed", JsonValue::Type::Array).arr) {
+            if (a.type == JsonValue::Type::String && RetiredProperty(a.str)) continue;
             if (a.type != JsonValue::Type::String || !FindSpec(catalog, a.str) || !pending.armed.insert(a.str).second) throw std::runtime_error("Invalid armed property");
         }
         if (const auto* muted = root.Find("muted")) {
             if (muted->type != JsonValue::Type::Array) throw std::runtime_error("Invalid scene key field: muted");
             for (const auto& m : muted->arr)
-                if (m.type != JsonValue::Type::String || !FindSpec(catalog, m.str) || !pending.muted.insert(m.str).second) throw std::runtime_error("Invalid disabled property");
+                if (m.type == JsonValue::Type::String && RetiredProperty(m.str)) continue;
+                else if (m.type != JsonValue::Type::String || !FindSpec(catalog, m.str) || !pending.muted.insert(m.str).second) throw std::runtime_error("Invalid disabled property");
         }
         std::set<int> ids;
         for (const auto& f : field(root, "fields", JsonValue::Type::Object).obj) {
+            if (RetiredProperty(f.first)) continue;
             const auto* spec = FindSpec(catalog, f.first);
             if (!spec || pending.fields.count(f.first) || f.second.type != JsonValue::Type::Array) throw std::runtime_error("Unknown or duplicate scene property");
             auto& keys = pending.fields[f.first];

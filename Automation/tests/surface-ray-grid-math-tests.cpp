@@ -170,6 +170,27 @@ int main() {
 	// ratio. The measured speed-up on this mesh is far larger.
 	Check(fastMs * 5.0 < bruteMs, "Grid raycast is at least 5x faster on short probes");
 
+	{
+		// A boxed grid covers the box only: a far-off triangle neither stretches its cells nor is
+		// found by a ray, and a ray inside the box hits what the whole grid hits.
+		std::vector<Vec3> points = map.positions;
+		std::vector<uint32_t> triangles = map.indices;
+		const uint32_t base = (uint32_t)points.size();
+		points.insert(points.end(), {{90000, 90000, -9000}, {91000, 90000, -9000}, {90000, 91000, -9000}});
+		triangles.insert(triangles.end(), {base, base + 1, base + 2});
+		SurfaceRayGrid whole, boxed;
+		Check(BuildSurfaceRayGrid(points, triangles, whole), "Whole grid builds with a far triangle");
+		const Vec3 low = map.low - Vec3{1, 1, 1}, high = map.high + Vec3{1, 1, 1};
+		Check(BuildSurfaceRayGrid(points, triangles, boxed, 8.f, &low, &high), "Boxed grid builds");
+		Check(boxed.high.x < 80000 && boxed.cell[0] < whole.cell[0], "A boxed grid's cells are not stretched by distant triangles");
+		for (uint32_t t : boxed.triangles) Check(t != (uint32_t)(triangles.size() / 3 - 1),"The far triangle is left out");
+		SurfaceGridRayHit a, b;
+		const Vec3 from = (map.low + map.high) * .5f + Vec3{3, 5, 400};
+		const bool hitWhole = SurfaceGridRay(points, triangles, whole, from, {0, 0, -1}, 2000, &a);
+		const bool hitBoxed = SurfaceGridRay(points, triangles, boxed, from, {0, 0, -1}, 2000, &b);
+		Check(hitWhole == hitBoxed && (!hitWhole || std::fabs(a.distance - b.distance) < 1e-3f), "Boxed and whole grids agree inside the box");
+	}
+
 	std::printf("surface ray grid tests passed (%zu cells, %zu bucket entries for %zu triangles)\n",
 		grid.CellCount(), grid.triangles.size(), map.indices.size() / 3);
 	return 0;

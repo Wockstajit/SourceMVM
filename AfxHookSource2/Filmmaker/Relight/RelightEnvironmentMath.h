@@ -1,6 +1,7 @@
 #pragma once
 #include "RelightMath.h"
 #include "../Environment/EnvironmentClimateMath.h"
+#include "../Environment/EnvironmentSkyMath.h"
 #include "../Environment/EnvironmentWorld.h"
 #include "../Environment/EnvironmentScene.h"
 
@@ -47,15 +48,21 @@ inline void ApplyEnvironmentLighting(Scene& out,const Environment::Climate& auth
     out.intensity*=c[CL_mapLightPower];
     out.shadows=out.shadows&&c[CL_contactShadows]>.5f;
     out.hasSun=true;
-    out.sunAngles={c[CL_sunElevation],c[CL_sunAzimuth],0};
+    // The key light: the sun, or the moon once the sun has set (ClimateMoonKey).
+    const bool moonKey=ClimateMoonKey(c);
+    out.sunAngles=moonKey?Vec3{c[CL_moonElevation],c[CL_moonAzimuth],0}:Vec3{c[CL_sunElevation],c[CL_sunAzimuth],0};
     if(value("sunPositionOverride",0,0)!=0)
         out.sunAngles={value("sunPosition",1,out.sunAngles.x),value("sunPosition",0,out.sunAngles.y),0};
-    out.sunColor={out.sunColor.x*c[CL_sunColorR],out.sunColor.y*c[CL_sunColorG],out.sunColor.z*c[CL_sunColorB]};
+    if(moonKey)out.sunColor={out.sunColor.x*c[CL_moonColorR],out.sunColor.y*c[CL_moonColorG],out.sunColor.z*c[CL_moonColorB]};
+    else out.sunColor={out.sunColor.x*c[CL_sunColorR],out.sunColor.y*c[CL_sunColorG],out.sunColor.z*c[CL_sunColorB]};
     // Overcast maps (Office, Train) author a zero-brightness sun. The Environment owns the sun's
     // position and power, so a zero would make the Sun brightness slider and sun position do
     // nothing: start from a typical authored daylight value instead.
     if(out.sunBrightness<=0)out.sunBrightness=UnlitMapSunBrightness;
-    out.sun*=c[CL_sunPower];
+    // The moon's power already carries its phase and its fade in through twilight; SunRadiance fades
+    // it at the moon's own horizon from sunAngles.
+    out.sun*=moonKey?(std::max)(c[CL_moon],0.f)*MoonIllumination(c[CL_moonPhase])*kMoonLightScale*SkySmooth(-c[CL_sunElevation]/6.f)
+                    :c[CL_sunPower];
     out.indirect=c[CL_ambient];
     out.sunAngle=c[CL_sunAngle];
     out.lampAngle=c[CL_lampAngle];
@@ -66,21 +73,10 @@ inline void ApplyEnvironmentLighting(Scene& out,const Environment::Climate& auth
     out.bounceSteps=unsigned(std::clamp(c[CL_bounceSteps],1.f,3.f));
     out.ao*=c[CL_ao];
     out.skyOcclusion*=c[CL_skyOcclusion];
-    // Identical horizon/zenith radiance to the procedural backdrop. Integrate the
-    // emitted sky over the upper hemisphere instead of inventing a ground bounce.
+    // The same atmosphere as the procedural backdrop (EnvironmentSkyMath.h), integrated over the
+    // upper hemisphere instead of inventing a ground bounce. Moonlit at night.
     if(c[CL_sky]>0) {
-        auto smooth=[](float t){t=std::clamp(t,0.f,1.f);return t*t*(3-2*t);};
-        const float day=smooth((c[CL_sunElevation]+14)/19);
-        const float elevation=std::clamp(c[CL_sunElevation]/25,0.f,1.f);
-        auto mix=[](Vec3 a,Vec3 b,float t){return a*(1-t)+b*t;};
-        const Vec3 horizon=mix({.018f,.022f,.05f},mix({.9f,.45f,.2f},{.56f,.7f,.85f},elevation),day);
-        const Vec3 zenith=mix({.002f,.004f,.018f},{.075f,.26f,.57f},day);
-        Vec3 integrated{};
-        for(unsigned i=0;i<32;++i){
-            const float z=std::sqrt((i+.5f)/32);
-            integrated=integrated+mix(horizon,zenith,std::pow(z,.4f)/(1+c[CL_haze]*.25f));
-        }
-        out.skyColor=integrated*(1.f/32);out.skyIntensity=1;
+        out.skyColor=ClimateSkyIrradiance(c);out.skyIntensity=1;
     }
     ApplyGlobalLighting(out,world);
     // Stable for stationary inputs, including animated dials. GI must never publish

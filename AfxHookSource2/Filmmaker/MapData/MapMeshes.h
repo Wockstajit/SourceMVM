@@ -1,7 +1,7 @@
 #pragma once
 
 // Render mesh data (.vmdl_c / .vmesh_c and embedded meshes): vertex/index buffers and draw
-// calls. Ported from ValveResourceFormat 20.0 (MIT) Blocks/VBIB.cs, ResourceTypes/Mesh.cs
+// calls. Ported from ValveResourceFormat 21.1 (MIT, commit 8d9f7d9) Blocks/VBIB.cs, ResourceTypes/Mesh.cs
 // and ResourceTypes/Model.cs, reduced to what shadow casters need.
 
 #include "MapDataIo.h"

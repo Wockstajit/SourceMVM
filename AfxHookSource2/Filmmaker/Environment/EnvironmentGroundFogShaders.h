@@ -14,7 +14,7 @@ cbuffer GroundFogStep : register(b0) {
     float4 stepInfo;    // dt (s), cell size (u), refill share this step, swirl strength
     float4 windInfo;    // drift velocity xy (u/s), stir amount, absolute time (s)
     float4 gridInfo;    // grid min corner xy (world), cells across, cells down
-    float4 bodyInfo;    // body count, disturbance strength, blast count
+    float4 bodyInfo;    // body count, disturbance strength, blast count, 1 = the wall map is bound
     float4 bodies[BODIES];       // xy world position, z footprint radius
     float4 bodyVelocity[BODIES]; // xy velocity (u/s)
     float4 cameraInfo;  // overlay: camera xy (world), view direction xy
@@ -29,6 +29,7 @@ Texture2D<float> scalarIn : register(t1);   // curl for Force, divergence for Ja
 Texture2D<float> pressureIn : register(t2);
 Texture2D<float4> floorMap : register(t3);  // overlay: the map's outline
 Texture2D<float4> beforeIn : register(t4);  // FrontMask: the HDR frame before CS2's transparent effects
+Texture2D<float> wallIn : register(t5);     // 1 where a wall stands in the fog's way
 RWTexture2D<float4> stateOut : register(u0);
 RWTexture2D<float> scalarOut : register(u1);
 SamplerState linearClamp : register(s0);
@@ -38,6 +39,13 @@ bool Outside(int2 q) { return any(q >= Cells()); }
 float4 State(int2 q) { return stateIn.Load(int3(clamp(q, int2(0, 0), Cells() - 1), 0)); }
 float Scalar(int2 q) { return scalarIn.Load(int3(clamp(q, int2(0, 0), Cells() - 1), 0)); }
 float Pressure(int2 q) { return pressureIn.Load(int3(clamp(q, int2(0, 0), Cells() - 1), 0)); }
+// WALLS, TURBULENCE AND A SPRINGY PRESSURE (chosen over the plain solver in a
+// side-by-side, 2026-11-16). The fog cannot pass a WALL: it piles against it, flows round its ends and
+// its wakes come back off it. TURBULENCE is added only where the air moves (Force). And the pressure
+// is SPRINGY: a few relaxations a step on a pressure that carries over, so a shove sends a soft swell
+// outward instead of being cancelled at once.
+bool Wall(int2 q) { return bodyInfo.w > .5 && wallIn.Load(int3(clamp(q, int2(0, 0), Cells() - 1), 0)) > .5; }
+float PressureBy(int2 q, float here) { return Wall(q) ? here : Pressure(q); }
 float Hash(float2 p) { p = frac(p * float2(.1031, .1030)); p += dot(p, p.yx + 33.33); return frac((p.x + p.y) * p.x); }
 float ValueNoise(float2 p) {
     float2 a = floor(p), f = frac(p); f = f * f * (3 - 2 * f);
@@ -97,6 +105,7 @@ float CatmullFog(float2 pos) {
     return clamp(sum, lo, hi);
 }
 
+)HLSL" R"HLSL(
 // Vorticity (1/s): how fast the flow turns at each cell.
 [numthreads(8, 8, 1)] void Curl(uint3 id : SV_DispatchThreadID) {
     int2 q = int2(id.xy);
@@ -113,6 +122,7 @@ float CatmullFog(float2 pos) {
     if (Outside(q)) return;
     float dt = stepInfo.x, h = stepInfo.y;
     float4 s = State(q);
+    if (Wall(q)) { stateOut[q] = float4(0, 0, s.z, 0); return; }
     float2 v = s.xy;
     float fog = s.z;
     // Vorticity confinement (Fedkiw et al. 2001): push along the curl's gradient, sideways to it.
@@ -129,6 +139,10 @@ float CatmullFog(float2 pos) {
     if (windInfo.z > 0)
         v += (CurlNoise(world * .004 + windInfo.w * float2(.021, -.017)) +
               CurlNoise(world * .011 + 7.3 - windInfo.w * float2(.03, .02)) * .6) * windInfo.z * dt;
+    // Turbulence where the air moves, in step with how fast: a wake breaks into wisps, still fog lies calm.
+    float speed = length(v);
+    if (speed > .5)
+        v += (CurlNoise(world * .03 + windInfo.w * float2(.9, -.7)) * 2.5 + CurlNoise(world * .085 + 3.1 - windInfo.w * float2(1.3, 1.1)) * 1.5) * speed * dt;
     int count = (int)bodyInfo.x;
     [loop] for (int i = 0; i < count; ++i) {
         float2 rel = world - bodies[i].xy;
@@ -172,6 +186,7 @@ float CatmullFog(float2 pos) {
     if (Outside(q)) return;
     float dt = stepInfo.x, h = stepInfo.y;
     float4 s = stateIn.Load(int3(q, 0));
+    if (Wall(q)) { stateOut[q] = float4(0, 0, s.z, 0); return; }
     float2 back = (float2(q) + .5) - (s.xy + windInfo.xy) * dt / h;
     float2 uv = back / float2(Cells());
     float rest = RestFog(gridInfo.xy + (float2(q) + .5) * h, restInfo.z);
@@ -220,8 +235,17 @@ float CatmullFog(float2 pos) {
     // By channel: a gold object over grey stone has about the same brightness, and still hides the stone.
     float3 up = max(after - before, 0), down = max(before - after, 0), hid = down / (before + .01);
     float added = max(up.r, max(up.g, up.b)), removed = max(down.r, max(down.g, down.b));
-    stateOut[q.xy] = float4(saturate(added / (added + .35 * dot(before, kLuma) + .01)) * smoothstep(.004, .04, added),
-                            saturate(max(hid.r, max(hid.g, hid.b))) * smoothstep(.004, .04, removed), 0, 0);
+    // Light counts by how it stands against what it was added to: a flame or a tracer swamps the
+    // scene behind it, a puff of muzzle smoke or a spent case only lightens it a little. Counted alike,
+    // every pale puff cut a clear hole in the fog and the ground showed through it unfogged.
+    stateOut[q.xy] = float4(saturate(added / (added + 1.1 * dot(before, kLuma) + .12)) * smoothstep(.02, .14, added),
+                            saturate(max(hid.r, max(hid.g, hid.b))) * smoothstep(.004, .04, removed),
+                            // b, a: for the snow and wet painted on the ground behind an effect (Atmosphere
+                            // in EnvironmentShaders.h). b is how many times brighter or darker the effect
+                            // left the pixel (1 where nothing was drawn); a is how coloured the light it
+                            // added is (a flame, a flash, sparks: 1; grey smoke and dust: 0).
+                            lerp(1, clamp((dot(after, kLuma) + .004) / (dot(before, kLuma) + .004), .02, 64), smoothstep(.004, .04, max(added, removed))),
+                            saturate((added - min(up.r, min(up.g, up.b))) / (added + 1e-4)) * smoothstep(.004, .04, added));
 }
 
 // A black cloud over something already dark changes next to nothing, so the mask follows the shapes
@@ -249,8 +273,9 @@ float CatmullFog(float2 pos) {
 [numthreads(8, 8, 1)] void Jacobi(uint3 id : SV_DispatchThreadID) {
     int2 q = int2(id.xy);
     if (Outside(q)) return;
-    scalarOut[q] = (Pressure(q + int2(1, 0)) + Pressure(q - int2(1, 0)) + Pressure(q + int2(0, 1)) +
-                    Pressure(q - int2(0, 1)) - Scalar(q)) * .25;
+    float here = Pressure(q);
+    scalarOut[q] = (PressureBy(q + int2(1, 0), here) + PressureBy(q - int2(1, 0), here) + PressureBy(q + int2(0, 1), here) +
+                    PressureBy(q - int2(0, 1), here) - Scalar(q)) * .25;
 }
 
 // Subtract the pressure gradient: the flow goes around and past instead of piling up.
@@ -258,8 +283,15 @@ float CatmullFog(float2 pos) {
     int2 q = int2(id.xy);
     if (Outside(q)) return;
     float4 s = stateIn.Load(int3(q, 0));
-    s.xy -= .5 * float2(Pressure(q + int2(1, 0)) - Pressure(q - int2(1, 0)),
-                        Pressure(q + int2(0, 1)) - Pressure(q - int2(0, 1)));
+    if (Wall(q)) { stateOut[q] = float4(0, 0, s.z, 0); return; }
+    float here = Pressure(q);
+    s.xy -= .5 * float2(PressureBy(q + int2(1, 0), here) - PressureBy(q - int2(1, 0), here),
+                        PressureBy(q + int2(0, 1), here) - PressureBy(q - int2(0, 1), here));
+    // No fog goes into a wall.
+    if (Wall(q + int2(1, 0))) s.x = min(s.x, 0);
+    if (Wall(q - int2(1, 0))) s.x = max(s.x, 0);
+    if (Wall(q + int2(0, 1))) s.y = min(s.y, 0);
+    if (Wall(q - int2(0, 1))) s.y = max(s.y, 0);
     stateOut[q] = s;
 }
 

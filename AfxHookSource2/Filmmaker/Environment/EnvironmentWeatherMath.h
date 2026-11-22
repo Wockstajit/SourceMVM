@@ -96,8 +96,8 @@ inline float PrecipitationCrossSection(int type, float size, float streak) {
             // Width x up half-extents, opacity scaled by physical / width and by the motion blur.
             sum += physical * up * rainShape * (std::min)(1.f, kRainMotionBlur * physical / up);
         } else if (type == 2) {
-            float v = .35f + 1.55f * std::pow(u, 2.4f), r = size * v;
-            sum += r * r * .7f; // soft clump with a bright core, flicker average (WeatherPS SNOW)
+            float v = .3f + .8f * std::pow(u, 2.2f), r = size * v;
+            sum += r * r * .62f; // soft round flake with a bright middle, flicker average (WeatherPS SNOW)
         } else {
             float v = .4f + 1.9f * std::pow(u, 1.8f), r = size * v;
             sum += r * r * .88f; // torn flake: area x mean translucency x mean flip width (WeatherPS ASH)
@@ -108,7 +108,8 @@ inline float PrecipitationCrossSection(int type, float size, float streak) {
 // Ground splashes (EnvironmentSplashShaders.h): a lattice of impact cells in two nested bands, and
 // per cell one spreading ring plus a crown of thrown droplets. The shader takes these as defines.
 inline constexpr unsigned kSplashGrid = 48;
-inline constexpr unsigned kSplashParts = 9; // 1 ring + 8 droplets
+inline constexpr unsigned kSplashParts = 9; // the cup a drop throws up + 8 droplets
+inline constexpr unsigned kFootSplashParts = 76; // a foot in a puddle: a patch of froth + 9 sheets of thrown water + 66 drops
 inline constexpr unsigned kSplashBands = 2;
 inline constexpr float kSplashNear = 420.f, kSplashFar = 1300.f;
 inline constexpr unsigned kSplashInstanceCount = kSplashBands*kSplashGrid*kSplashGrid*kSplashParts;
@@ -129,49 +130,6 @@ inline float RainSmokeOpacity(float absorbance,float entry,float distance,bool i
 
 inline Vec3 PrecipitationSourceDirection(float windX, float windY, float speed) {
     return Normalize({-windX, -windY, (std::max)(1.f, speed)});
-}
-// SETTLING precipitation (snow, ash) is sheltered by the open sky straight overhead, never by the
-// wind: what lies on the ground is hours of fall from every gust. Sheltering it along the wind tilt
-// (plus four gust tilts) cut open alleys into bare stripes -- one offset roof shadow per direction --
-// that moved whenever the wind setting changed. Rain keeps the wind-driven shelter and gusts: a
-// doorway facing the wind really is wet a short way in.
-inline bool PrecipitationSettles(int type) { return type == 2 || type == 3; }
-inline Vec3 PrecipitationShelterDirection(int type, float windX, float windY, float speed) {
-    return PrecipitationSettles(type) ? Vec3{0, 0, 1} : PrecipitationSourceDirection(windX, windY, speed);
-}
-// GUSTS. Rain does not arrive along one exact line: gusts and turbulence spread its direction, most
-// strongly along the wind. With a single shelter direction a doorway facing the wind stayed bone
-// dry a unit inside the frame and arches sheltered like solid roofs. Four extra shelter maps look
-// along directions tilted about the mean -- two along the wind, two across -- and a surface's
-// exposure is the weighted share of directions that reach it, so rain reaches a short way into
-// openings (further the stronger the wind) and deep interiors stay dry.
-inline constexpr int kPrecipitationGusts = 4;
-inline constexpr float kPrecipitationMeanWeight = .36f; // the rest split evenly over the gusts
-inline float PrecipitationGustWeight() { return (1 - kPrecipitationMeanWeight) / kPrecipitationGusts; }
-// Tilt angles (radians): along the wind 20 degrees, rising toward 38 as the wind slants the rain;
-// across it 13 rising toward 22.
-inline void PrecipitationGustAngles(float windX, float windY, float speed, float &along, float &across) {
-    const float slant = std::atan2(std::sqrt(windX * windX + windY * windY), (std::max)(1.f, speed));
-    const float t = std::clamp(slant / 0.7854f, 0.f, 1.f); // saturates at 45 degrees of mean slant
-    along = (20 + 18 * t) * 0.0174533f;
-    across = (13 + 9 * t) * 0.0174533f;
-}
-inline std::array<Vec3, kPrecipitationGusts> PrecipitationGustDirections(float windX, float windY, float speed) {
-    const Vec3 s = PrecipitationSourceDirection(windX, windY, speed);
-    // Horizontal wind axis (toward where the rain comes from) and its perpendicular; any axis when calm.
-    Vec3 w{-windX, -windY, 0};
-    const float wl = std::sqrt(w.x * w.x + w.y * w.y);
-    w = wl > 1e-3f ? Vec3{w.x / wl, w.y / wl, 0} : Vec3{1, 0, 0};
-    const Vec3 c{-w.y, w.x, 0};
-    float along = 0, across = 0;
-    PrecipitationGustAngles(windX, windY, speed, along, across);
-    // Rotate s about the horizontal axis perpendicular to each tilt plane.
-    auto tilt = [&](Vec3 toward, float angle) {
-        const Vec3 t = Normalize(toward - s * Dot(toward, s)); // component of `toward` orthogonal to s
-        const Vec3 d = s * std::cos(angle) + t * std::sin(angle);
-        return Normalize({d.x, d.y, (std::max)(d.z, .05f)}); // never horizontal: rain still falls
-    };
-    return {tilt(w, along), tilt(w * -1, along), tilt(c, across), tilt(c * -1, across)};
 }
 // Fit fixed world bounds tightly in precipitation space, independent of the camera.
 inline Matrix PrecipitationShadowMatrix(Vec3 low, Vec3 high, Vec3 sourceDirection) {

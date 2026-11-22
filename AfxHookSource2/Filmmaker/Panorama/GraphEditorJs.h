@@ -58,7 +58,7 @@ R"GEJS(
       fontMono: 'Stratum2Mono, monospace',
       font: 'Stratum2, "Arial Unicode MS"'
     };
-    var LAYER_COLORS = { cam: '#f0b323', effects: '#d4b36a', environment: '#7fbdc7', objects: '#e59ab8', other: '#aeb4bc' };
+    var LAYER_COLORS = { cam: '#f0b323', camera: '#e6a44c', effects: '#d4b36a', environment: '#7fbdc7', objects: '#e59ab8', other: '#aeb4bc' };
 
     // The operator-dragged inspector width, published by C++ in st.inspW (InspectorWidth.h). The
     // dock fills the screen left of that column; INSPECTOR_W is only the value before the first
@@ -1084,14 +1084,20 @@ R"GEJS(
                         ['cone', T('Beam angle'), ['cone'], ['\u00b0'], [T('Beam angle')]],
                         ['radius', T('Emitter size'), ['radius'], [''], [T('Emitter size')]],
                         ['width', T('Width'), ['width'], [''], [T('Width')]],
-                        ['height', T('Height'), ['height'], [''], [T('Height')]]];
+                        ['height', T('Height'), ['height'], [''], [T('Height')]],
+                        // Its colour, 0..255 per channel like the CONFIG colours: one row, three dimensions.
+                        ['color', T('Color'), ['red', 'green', 'blue'], ['R', 'G', 'B'], [T('Red'), T('Green'), T('Blue')]]];
     // A scene object's layer (groupId objects.<id>): its object id, else 0.
     function objectIdOf(L) { var m = /^objects\.([0-9]+)$/.exec((L && L.groupId) || ''); return m ? +m[1] : 0; }
     // Right-click > Add: a camera or a light, placed where you look (`environment add`).
     var ADD_ITEMS = [{ id: 'add:camera', label: T('Camera'), hint: T('a viewpoint you can key and look through') },
                      { id: 'add:point', label: T('Point light'), hint: T('shines all around') },
                      { id: 'add:spot', label: T('Spot light'), hint: T('a cone of light') },
-                     { id: 'add:area', label: T('Area light'), hint: T('a soft rectangle') }];
+                     { id: 'add:area', label: T('Area light'), hint: T('a soft rectangle') },
+                     // A light on the camera rides the view: it follows the camera path as it plays.
+                     { id: 'add:spot camera', label: T('Spot light on the camera'), hint: T('follows the camera path') },
+                     { id: 'add:point camera', label: T('Point light on the camera'), hint: T('follows the camera path') },
+                     { id: 'add:area camera', label: T('Area light on the camera'), hint: T('follows the camera path') }];
     function addItem() { return { id: 'add', label: T('Add'), subW: 236, sub: ADD_ITEMS }; }
     function pickAdd(id) {
       if (('' + id).indexOf('add:') !== 0) return false;
@@ -1142,7 +1148,7 @@ R"GEJS(
       return n;
     }
     function sceneLayerTitle(c) {
-      return (c.family === 'effects' ? T('EFFECTS') : c.family === 'environment' ? T('ENVIRONMENT') : c.family === 'objects' ? T('OBJECTS') : T('SCENE'))
+      return (c.family === 'camera' ? T('CAMERA') : c.family === 'effects' ? T('EFFECTS') : c.family === 'environment' ? T('ENVIRONMENT') : c.family === 'objects' ? T('OBJECTS') : T('SCENE'))
         + (c.group ? ' · ' + ('' + c.group).toUpperCase() : '');
     }
     function buildTree() {

@@ -19,7 +19,9 @@ namespace Filmmaker::MapData {
 // 4: binary payloads compressed (MapCacheCodec.h).
 constexpr int kManifestFormat = 4;
 // Bump whenever extraction output changes so existing caches are rebuilt.
-constexpr int kExtractorVersion = 2;
+// 5: readers follow ValveResourceFormat 21.1 (KV3 node types 22, 23, 26, 27; entity attributes
+//    dropped; world-node skins and material overrides on casters).
+constexpr int kExtractorVersion = 5;
 
 struct ExtractOptions {
     std::function<void(const std::string &)> progress;

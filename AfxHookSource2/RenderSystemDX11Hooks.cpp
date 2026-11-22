@@ -11,9 +11,11 @@
 #include "Filmmaker/Render/RenderWorldOnly.h"
 #include "Filmmaker/Environment/EnvironmentRender.h"
 #include "Filmmaker/Environment/EnvironmentGroundFog.h"
+#include "Filmmaker/Environment/EnvironmentReflectionProbes.h" // wet film: CS2 probes and the tone curve
 #include "Filmmaker/Lens/LensFx.h"
 #include "Filmmaker/Heatmap/RoundHeatmap.h"
 #include "Filmmaker/World/SunFx.h" // the lens flare's sun (SunFx_VisibleSunDirection)
+#include "Filmmaker/Lens/LensSunLocator.h" // the lens flare's sun: the disc CS2 draws, found on the GPU
 #include "Filmmaker/World/CustomShadowAtlas.h"
 #include "DeathMsg.h"
 #include "RenderServiceHooks.h"
@@ -36,6 +38,7 @@
 #include "../Shared/GrowingBufferPoolThreadSafe.h"
 #include "../Shared/ImageTransformer.h"
 #include "../Shared/RecordingSettings.h"
+#include "../Shared/AfxOutStreams.h" // FFmpeg diagnostics from the failing capture worker
 #include "Filmmaker/Debug/MvmDebugLog.h" // MvmDebugLog_* (render.capsize RE probe)
 #include "Filmmaker/Debug/GpuPassProfiler.h" // GPU_PASS_SCOPE, the GPU pass profile
 #include "Filmmaker/Panorama/VpScaleBreakMath.h" // every scaled-preview break, numbered (vpscale.break)
@@ -57,6 +60,7 @@
 #include "Filmmaker/Relight/Relight.h"
 #include "Filmmaker/Relight/RelightNativeCluster.h"
 #include "Filmmaker/Environment/EnvironmentNativeMaterial.h"
+#include "Filmmaker/Render/RenderPixelStateLayer.h" // lit draws keep their inputs bound across a run
 #include "Filmmaker/World/SmokeAppearance.h"
 #include "Filmmaker/Environment/EnvironmentShadowMaps.h"
 #include "Filmmaker/World/SkyGpuRotation.h"        // draw-time sky constant-buffer experiment
@@ -81,6 +85,7 @@
 
 #include <cstdlib>
 #include <set>
+#include <unordered_map>
 #include <map>
 #include <queue>
 #include <list>
@@ -209,6 +214,8 @@ struct NativeMaterialScopes {
 struct OptionalNativeMaterialScopes {
     std::optional<NativeMaterialScopes> scopes;
     OptionalNativeMaterialScopes(ID3D11DeviceContext* ctx, bool enabled) {
+        // A draw live lighting does not handle takes the engine's own bindings.
+        if (!enabled) Filmmaker::PixelStateLayer::FlushIfIdle(Filmmaker::PixelStateLayer::End::Ineligible);
         if ((enabled && Filmmaker::Environment::NativeMaterialDrawWorkNeeded())
             || Filmmaker::MvmDebugLog_Active()) scopes.emplace(ctx, enabled);
     }
@@ -338,6 +345,16 @@ RenderFrameTiming RenderFrameTiming_Sample() {
 
 extern SOURCESDK::VMatrix g_WorldToScreenMatrix; // engine's completed view, including Smooth View / TrueView
 std::atomic<int> g_AfxCaptureWriterFailureCount{0};
+// What the first writer failure since RecordStart was (AfxStreams_GetWriterFailure).
+static std::mutex g_AfxCaptureWriterFailureMutex;
+static AfxStreamWriterFailure g_AfxCaptureWriterFailure;
+// Writer thread: counts a failure and keeps the first one's reason.
+static void AfxNoteWriterFailure(const char* reason) {
+	std::lock_guard<std::mutex> lock(g_AfxCaptureWriterFailureMutex);
+	if (g_AfxCaptureWriterFailureCount.load(std::memory_order_relaxed) == 0)
+		g_AfxCaptureWriterFailure = {reason, advancedfx::FfmpegErrorTail_Get()};
+	g_AfxCaptureWriterFailureCount.fetch_add(1, std::memory_order_release);
+}
 // Diagnostic (mirv_filmmaker render waitpresent 1): force r_wait_on_present during a recording, as
 // the inherited recorder always did. Off by default: see RecordStart.
 std::atomic<bool> g_RecordWaitOnPresent{false};
@@ -735,6 +752,7 @@ private:
 	}
 
 	void ProcessingThreadFunc() {
+		advancedfx::FfmpegErrorTail_Clear();
 		std::unique_lock<std::mutex> lock(m_ProcessingThreadMutex);
 		while (!m_ShutDown || !m_CpuTexturesTodo.empty()) {
 			if (!m_CpuTexturesTodo.empty()) {
@@ -780,13 +798,13 @@ private:
                             m_OutVideoStream = m_pOutVideoStreamCreator->CreateOutVideoStream(*buffer->GetImageBufferFormat());
                             if (nullptr == m_OutVideoStream)
                             {
-								g_AfxCaptureWriterFailureCount.fetch_add(1, std::memory_order_relaxed);
+								AfxNoteWriterFailure("a stream's output could not be opened");
                                 advancedfx::Warning("AFXERROR: Failed to create image stream for screen recording.\n");
                             }
                         }
                         if (nullptr != m_OutVideoStream && !m_OutVideoStream->SupplyImageBuffer(this, buffer))
                         {
-							g_AfxCaptureWriterFailureCount.fetch_add(1, std::memory_order_relaxed);
+							AfxNoteWriterFailure("a stream could not write a frame (its encoder did not start or stopped)");
                             advancedfx::Warning("AFXERROR: Failed writing image for screen recording.\n");
                         }
                         buffer->Release();
@@ -2859,6 +2877,7 @@ void STDMETHODCALLTYPE New_OMSetRenderTargets( ID3D11DeviceContext * This,
         }
     }
 
+    Filmmaker::PixelStateLayer::OnSetRenderTargets(This, NumViews, ppRenderTargetViews, pDepthStencilView);
     g_Old_OMSetRenderTargets(This, NumViews, ppRenderTargetViews, pDepthStencilView);
 }
 
@@ -2870,6 +2889,7 @@ void STDMETHODCALLTYPE New_OMSetBlendState( ID3D11DeviceContext * This,
     /* [annotation] */ 
     _In_  UINT SampleMask) {
 
+    Filmmaker::PixelStateLayer::OnSetBlendState(This, pBlendState, BlendFactor, SampleMask);
     if(g_NoDraw.OnOMSetBlendState(This,pBlendState,BlendFactor,SampleMask))
         g_Old_OMSetBlendState(This,pBlendState,BlendFactor,SampleMask);
 }
@@ -3080,6 +3100,13 @@ static void EnvironmentSmokeHandoff() {
 // the world.
 static void AfxRenderEnvironmentComposite(ID3D11DeviceContext* ctx, ID3D11RenderTargetView* target) {
     g_EnvironmentCompositedThisPresent = true;
+    if (!g_EnvironmentFrame.active) {
+        // Keep the renderer's idle-release path ticking without copying the scene.
+        Filmmaker::Environment::SetSmokeAbsorbance(nullptr, 0, 0);
+        Filmmaker::Environment::Render(ctx, target, g_pCurrentDepthStencilView, g_EnvironmentFrame,
+            g_ViewPort.MinDepth, g_ViewPort.MaxDepth);
+        return;
+    }
     const bool wasOwnDraw = g_bInOwnDraw;
     g_bInOwnDraw = true;
     EnvironmentSmokeHandoff();
@@ -3215,6 +3242,48 @@ static bool AfxLivePassPreviewShown() {
     std::lock_guard<std::mutex> lock(g_LivePassPreviewMutex);
     return g_LivePassPreview.type != (int)Filmmaker::PassType::Beauty;
 }
+// The green-screen sky (AfxStreams_SetSkyKey). Written on the main thread, read on the render thread.
+struct AfxSkyKey { bool on = false, live = false; float keyOut[3] = {0.0f, 1.0f, 0.0f}; };
+static std::mutex g_SkyKeyMutex;
+static AfxSkyKey g_SkyKey;
+// Paints the sky the key colour over the finished world image, in place, before the lens and the
+// recorder: the live view and every pass of a render get it. Render thread.
+static void AfxRenderSkyKey(ID3D11DeviceContext* pDeviceContext, ID3D11RenderTargetView* pTarget) {
+    AfxSkyKey key;
+    {
+        std::lock_guard<std::mutex> lock(g_SkyKeyMutex);
+        key = g_SkyKey;
+    }
+    if (!key.on || !(key.live || AfxStreams_IsRcording()) || !pTarget) return;
+    ID3D11Resource* resource = nullptr;
+    pTarget->GetResource(&resource);
+    if (!resource) return;
+    ID3D11Texture2D* texture = nullptr;
+    resource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&texture);
+    resource->Release();
+    if (!texture) return;
+    AfxRenderPass::ComposeParams params;
+    params.mode = (int)Filmmaker::PassType::Beauty;
+    params.mask = (int)Filmmaker::PassMask::SkySwap;
+    for (int k = 0; k < 3; ++k) params.keyOut[k] = key.keyOut[k];
+    AfxFillPassFrame(params);
+    const bool ok = AfxRenderPass::ComposeInto(pDeviceContext, texture, g_pCurrentDepthStencilView, params, pTarget);
+    if (Filmmaker::MvmDebugLog_Active()) {
+        static int s_lastOk = -1;
+        if ((ok ? 1 : 0) != s_lastOk) {
+            s_lastOk = ok ? 1 : 0;
+            Filmmaker::MvmDebugLog_LinefAlways("render.skykey", "compose ok=%d key=(%.3f %.3f %.3f) recording=%d hasW2C=%d",
+                ok ? 1 : 0, key.keyOut[0], key.keyOut[1], key.keyOut[2], AfxStreams_IsRcording() ? 1 : 0, g_EnvironmentFrame.hasWorldToClip ? 1 : 0);
+        }
+    }
+    texture->Release();
+}
+// The green-screen sky is drawn now (as AfxRenderSkyKey decides). The Depth and Normal passes are
+// worked out from depth, so they are told to paint their sky the background colour as well.
+static bool AfxSkyKeyOn() {
+    std::lock_guard<std::mutex> lock(g_SkyKeyMutex);
+    return g_SkyKey.on && (g_SkyKey.live || AfxStreams_IsRcording());
+}
 // Engine thread: the live view of a Players Only pass needs this frame's World Only depth, so the
 // render loop adds one output-less World Only render per frame while it is on (masked one frame
 // later; identical while paused).
@@ -3252,6 +3321,7 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
     // Players Only: masked by depth against the live World Only reference render, like a job.
     params.worldRef = live.elements == (int)Filmmaker::VisibleElements::OnlyPlayers;
     AfxFillPassFrame(params);
+    params.keySky = AfxSkyKeyOn();
     const bool ok = AfxRenderPass::ComposeInto(pDeviceContext, texture, g_pCurrentDepthStencilView, params, pTarget);
     if (Filmmaker::MvmDebugLog_Active()) {
         static int s_lastType = -1, s_lastElements = -1, s_lastOk = -1;
@@ -3293,6 +3363,7 @@ public:
 
     virtual void OnCallback(void) {
         RenderProgressScope progress(RenderPhase::BeforeUi);
+        Filmmaker::PixelStateLayer::Flush(Filmmaker::PixelStateLayer::End::Present);
         // The world + viewmodel are done; everything bound from here on is UI. Mark it before any
         // early-out below so the pivot marker's late redraw sees the boundary even on frames where
         // the context lookup fails.
@@ -3350,6 +3421,9 @@ public:
                     Filmmaker::Environment::Render(ctx, target, g_pCurrentDepthStencilView, frame,
                         g_ViewPort.MinDepth, g_ViewPort.MaxDepth, source);
                 }
+                // The green-screen sky goes into the EXR frames too, after the Environment as in the
+                // 8-bit frame: they are read from the HDR scene target, which the boundary below never touches.
+                AfxRenderSkyKey(ctx, target);
                 g_bInOwnDraw = wasOwnDraw;
             });
             Filmmaker::RenderHdrCapture_RenderThread_Tick(pDeviceContext);
@@ -3364,6 +3438,8 @@ public:
                     AfxRenderEnvironmentComposite(pDeviceContext, pRenderTargetViews[0]);
                 const bool wasOwnDraw = g_bInOwnDraw;
                 g_bInOwnDraw = true;
+                // The green-screen sky: after every world addition, before the lens and the recorder.
+                AfxRenderSkyKey(pDeviceContext, pRenderTargetViews[0]);
                 // Depth of field / bokeh / lens flare: after every world addition, before the recorder
                 // and the scaled preview, so it is in the recorded frame and never on the HUD. It is a
                 // Beauty effect: a recorded render no Beauty plate reads sits it out, and the live view
@@ -3403,13 +3479,33 @@ public:
                     smoke.camera[0] = eye.x; smoke.camera[1] = eye.y; smoke.camera[2] = eye.z;
                     smoke.haveCamera = g_EnvironmentFrame.hasWorldToClip
                         && std::isfinite(eye.x) && std::isfinite(eye.y) && std::isfinite(eye.z);
-                    // The sun for the flare: where the sky draws it, else the map's light_environment.
+                    // The sun for the flare (LensFxMath.h, "where the sun is drawn"). With the
+                    // Environment's sky on, its own sun is the one on screen (CS2's sprite is not
+                    // shown under it): its direction, and nothing else. Otherwise the disc CS2 drew
+                    // this frame (the locator), and the sky shader's SolarPosition where there was none.
                     Filmmaker::LensSun sun;
-                    sun.have = Filmmaker::SunFx_VisibleSunDirection(sun.dir);
-                    if (!sun.have && g_EnvironmentFrame.relight.hasSun) {
-                        const auto d = Filmmaker::Relight::SunDirection(g_EnvironmentFrame.relight.sunAngles);
-                        sun.dir[0] = d.x; sun.dir[1] = d.y; sun.dir[2] = d.z;
-                        sun.have = true;
+                    const auto climate = Filmmaker::Environment::EffectiveClimate(g_EnvironmentFrame.scene.climate);
+                    const bool environmentSky = g_EnvironmentFrame.active && climate[Filmmaker::Environment::CL_enabled] > 0.5f
+                        && climate[Filmmaker::Environment::CL_sky] > 0.0f;
+                    if (environmentSky) {
+                        if (g_EnvironmentFrame.relight.hasSun) {
+                            const auto d = Filmmaker::Relight::SunDirection(g_EnvironmentFrame.relight.sunAngles);
+                            sun.dir[0] = d.x; sun.dir[1] = d.y; sun.dir[2] = d.z;
+                            sun.have = true;
+                        }
+                    } else {
+                        sun.have = Filmmaker::SunFx_VisibleSunDirection(sun.dir);
+                        sun.located = Filmmaker::LensSunLocator_Wanted();
+                    }
+                    if (Filmmaker::MvmDebugLog_Active()) {
+                        static ULONGLONG s_lastSunLog = 0;
+                        const ULONGLONG now = GetTickCount64();
+                        if (now - s_lastSunLog >= 2000) {
+                            s_lastSunLog = now;
+                            Filmmaker::MvmDebugLog_LinefAlways("lens.sun", "environmentSky=%d direction=%d (%.3f %.3f %.3f) located=%d discDraws=%u",
+                                environmentSky ? 1 : 0, sun.have ? 1 : 0, sun.dir[0], sun.dir[1], sun.dir[2], sun.located ? 1 : 0,
+                                Filmmaker::LensSunLocator_TakeDrawCount());
+                        }
                     }
                     // The console green screen (render greenscreen) repaints the scene itself, so its
                     // frame gets no flare: it would paint over the chroma background (LensFx.h, keyPass).
@@ -3676,6 +3772,102 @@ bool AfxReadPixelShaderName(ID3D11PixelShader* shader, char* out, UINT capacity,
 	return true;
 }
 
+// WHAT CS2 DRAWS OVER THE FINISHED WORLD BEFORE PANORAMA: the crosshair (csgo_crosshair.vfx_ps) and
+// the engine's debug overlays, ent_text and the like (ui.vfx_ps), straight onto the tonemapped back
+// buffer after the tonemap and BEFORE the BeforeUi boundary (traced 2026-11-17). Composited at
+// BeforeUi, the Environment took them for part of the world: snow was painted over the crosshair (and
+// its light, a ring of taps round each pixel, spread its colour into specks) and over the overlay
+// text, and wet ground mirrored them. The composite runs on that target just before the first of
+// them instead. Which shaders they are is settled once per shader when it is bound (PSSetShader),
+// so a draw only reads a flag.
+//
+// AND CS2'S OWN MENUS. With the pause menu (or the main menu over a map) up, Panorama draws it
+// straight onto the back buffer after the tonemap (post_process.vfx_ps) and before the overlays,
+// and the BeforeUi boundary does not come at all (traced 2026-11-17: post_process, then panorama /
+// panorama_fancyquad for the whole menu, then ui.vfx_ps for the overlay text). Composited at the
+// overlay text, the rain, the sky and the fog were drawn over the pause menu and the scoreboard.
+// So the first Panorama draw onto the back buffer, after the world was tonemapped this present, is
+// a boundary too.
+enum class AfxBoundaryShader : unsigned char { None, Overlay, Panorama, Tonemap };
+static std::unordered_map<ID3D11PixelShader*, AfxBoundaryShader> g_WorldOverlayShaders; // render thread only
+static bool g_WorldOverlayShaderBound = false;
+static bool g_WorldOverlayIsPanorama = false;   // the bound boundary shader is a Panorama one
+static bool g_WorldTonemappedThisPresent = false; // post_process.vfx_ps was bound this present
+static bool g_TonemapShaderBound = false;          // post_process.vfx_ps is the bound pixel shader
+static ID3D11Resource* g_TonemapTarget = nullptr;  // what it drew into this present (compared, never used)
+static AfxBoundaryShader AfxBoundaryShaderKind(ID3D11PixelShader* shader) {
+    if (!shader) return AfxBoundaryShader::None;
+    const auto known = g_WorldOverlayShaders.find(shader);
+    if (known != g_WorldOverlayShaders.end()) return known->second;
+    char name[64] = {};
+    UINT nameSize = 0;
+    AfxBoundaryShader kind = AfxBoundaryShader::None;
+    if (AfxReadPixelShaderName(shader, name, sizeof(name), nameSize)) {
+        if (0 == strcmp(name, "csgo_crosshair.vfx_ps") || 0 == strcmp(name, "ui.vfx_ps")) kind = AfxBoundaryShader::Overlay;
+        else if (0 == strncmp(name, "panorama", 8)) kind = AfxBoundaryShader::Panorama;
+        else if (0 == strcmp(name, "post_process.vfx_ps")) kind = AfxBoundaryShader::Tonemap;
+    }
+    g_WorldOverlayShaders.emplace(shader, kind);
+    return kind;
+}
+// Whether a render target view is the image the tonemap wrote this present: the finished world
+// image Panorama then draws over. (Not the swap chain's buffer: CS2 presents from its own target.)
+static bool AfxIsTonemapTarget(ID3D11RenderTargetView* target) {
+    if (!target || !g_TonemapTarget) return false;
+    ID3D11Resource* resource = nullptr;
+    target->GetResource(&resource);
+    if (!resource) return false;
+    const bool same = resource == g_TonemapTarget;
+    resource->Release();
+    return same;
+}
+static void AfxCompositeEnvironmentBeforeOverlay(ID3D11DeviceContext* ctx);
+// Every draw: notes the tonemap's target, then composites before an overlay or a menu if this is one.
+static void AfxNoteBoundaryDraw(ID3D11DeviceContext* ctx) {
+    // The wet film's off-screen reflections: CS2's probe constants and cube array, from a lit world draw.
+    if (!g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_NoteDraw(ctx);
+    if (g_TonemapShaderBound && !g_bInOwnDraw && ctx->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE) {
+        ID3D11RenderTargetView* target = nullptr;
+        ctx->OMGetRenderTargets(1, &target, nullptr);
+        if (target) {
+            ID3D11Resource* resource = nullptr;
+            target->GetResource(&resource);
+            g_TonemapTarget = resource; // identity only: the reference is released at once
+            if (resource) resource->Release();
+            target->Release();
+        }
+    }
+    AfxCompositeEnvironmentBeforeOverlay(ctx);
+}
+static void AfxCompositeEnvironmentBeforeOverlay(ID3D11DeviceContext* ctx) {
+    if (!g_WorldOverlayShaderBound || g_bInOwnDraw || g_BeforeUiFiredThisPresent || g_EnvironmentCompositedThisPresent
+        || !g_EnvironmentFrame.active || ctx->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE
+        || !g_RenderCommands.CurrentThreadIsRenderThread())
+        return;
+    ID3D11RenderTargetView* target = nullptr;
+    ctx->OMGetRenderTargets(1, &target, nullptr);
+    if (!target) return;
+    // A Panorama draw is a boundary only onto the image the tonemap wrote: Panorama also renders
+    // panels into textures of its own.
+    if (g_WorldOverlayIsPanorama && !AfxIsTonemapTarget(target)) { target->Release(); return; }
+    // Only onto the display image (8-bit). The same shaders drawing into anything else is not this.
+    D3D11_RENDER_TARGET_VIEW_DESC view = {};
+    target->GetDesc(&view);
+    const bool display = view.Format == DXGI_FORMAT_R8G8B8A8_TYPELESS || view.Format == DXGI_FORMAT_R8G8B8A8_UNORM
+        || view.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || view.Format == DXGI_FORMAT_B8G8R8A8_UNORM
+        || view.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    if (display) {
+        if (Filmmaker::MvmDebugLog_Active()) {
+            static unsigned s_throttle = 0;
+            if ((s_throttle++ % 300) == 0)
+                Filmmaker::MvmDebugLog_LinefAlways("environment.overlay", "composite before the world overlays target=%p panorama=%d", (void*)target, int(g_WorldOverlayIsPanorama));
+        }
+        QpcScope environmentCost(g_hookCostAccum.environmentTotal);
+        AfxRenderEnvironmentComposite(ctx, target);
+    }
+    target->Release();
+}
+
 // CS2's sniper scope pass: a Draw(4) with legacy_sniper_scope.vfx_ps, reading the tonemapped scene
 // from t0 and writing the back buffer. Composites the Environment into that source before it runs.
 static void AfxCompositeEnvironmentBeforeScope(ID3D11DeviceContext* ctx, UINT vertexCount) {
@@ -3688,9 +3880,9 @@ static void AfxCompositeEnvironmentBeforeScope(ID3D11DeviceContext* ctx, UINT ve
     if (!shader) return;
     char name[64] = {};
     UINT nameSize = 0;
-    const bool scope = AfxReadPixelShaderName(shader, name, sizeof(name), nameSize)
-        && 0 == strcmp(name, "legacy_sniper_scope.vfx_ps");
+    const bool named = AfxReadPixelShaderName(shader, name, sizeof(name), nameSize);
     shader->Release();
+    const bool scope = named && vertexCount == 4 && 0 == strcmp(name, "legacy_sniper_scope.vfx_ps");
     if (!scope) return;
 
     ID3D11ShaderResourceView* sourceView = nullptr;
@@ -3745,6 +3937,14 @@ void STDMETHODCALLTYPE New_PSSetShader(ID3D11DeviceContext* This,
         && g_RenderCommands.CurrentThreadIsRenderThread()
         && !g_bInOwnDraw        
     ) {
+        {
+            const AfxBoundaryShader kind = g_EnvironmentFrame.active ? AfxBoundaryShaderKind(pPixelShader) : AfxBoundaryShader::None;
+            if (kind == AfxBoundaryShader::Tonemap) g_WorldTonemappedThisPresent = true;
+            g_TonemapShaderBound = kind == AfxBoundaryShader::Tonemap;
+            g_WorldOverlayIsPanorama = kind == AfxBoundaryShader::Panorama;
+            g_WorldOverlayShaderBound = g_EnvironmentFrame.active && !g_BeforeUiFiredThisPresent && !g_EnvironmentCompositedThisPresent
+                && (kind == AfxBoundaryShader::Overlay || (kind == AfxBoundaryShader::Panorama && g_WorldTonemappedThisPresent));
+        }
 		char shaderName[1024] = {};
 		UINT shaderNameSize = 0;
 		const bool needShaderName = 2 <= g_iRenderContextDebug
@@ -3770,6 +3970,8 @@ void STDMETHODCALLTYPE New_PSSetShader(ID3D11DeviceContext* This,
         }
     }
 
+    // The engine re-setting the program it believes is bound leaves a held lit substitution in place.
+    if (Filmmaker::PixelStateLayer::OnSetShader(This, pPixelShader, NumClassInstances)) return;
     g_Old_PSSetShader(This, pPixelShader, ppClassInstances, NumClassInstances);
 }
 
@@ -3945,9 +4147,20 @@ bool AfxPlayersOnlyGreen_SkipFoliageGpuDraw(ID3D11DeviceContext* context, const 
     return true;
 }
 
+// The lens flare's sun: when this draw can be the sun disc sprite, the same draw again into the
+// locator's target (LensSunLocator.h). Our own state changes must not reach the other hooks.
+static void AfxRedrawForSun(ID3D11DeviceContext* ctx, const Filmmaker::LensSunDraw& d);
+static void AfxLocateSun(ID3D11DeviceContext* ctx, const Filmmaker::LensSunDraw& d) {
+    if (g_bInOwnDraw || !Filmmaker::LensSunLocator_Wanted()) return;
+    g_bInOwnDraw = true;
+    Filmmaker::LensSunLocator_AfterDraw(ctx, d, &AfxRedrawForSun);
+    g_bInOwnDraw = false;
+}
+
 void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
     UINT IndexCount, UINT StartIndexLocation, INT BaseVertexLocation) {
     if (g_inVendorMultiDraw) { g_Old_DrawIndexed(This, IndexCount, StartIndexLocation, BaseVertexLocation); return; }
+    AfxNoteBoundaryDraw(This);
     QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
@@ -3969,6 +4182,10 @@ void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexed(This, IndexCount, StartIndexLocation, BaseVertexLocation); }
+    AfxLocateSun(This, { Filmmaker::LensSunDraw::DrawIndexed, IndexCount, 1, StartIndexLocation, BaseVertexLocation, 0 });
+    // Right after CS2's post-process: its raw input against its finished output, for the tone
+    // curve that puts probe light into the frame's colours (EnvironmentReflectionProbes.h).
+    if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawIndexed(This,IndexCount,StartIndexLocation,BaseVertexLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_DrawIndexed(This,IndexCount,StartIndexLocation,BaseVertexLocation);}
@@ -3986,6 +4203,7 @@ void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
 void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
     UINT VertexCount, UINT StartVertexLocation) {
     if (g_inVendorMultiDraw) { g_Old_Draw(This, VertexCount, StartVertexLocation); return; }
+    AfxNoteBoundaryDraw(This);
     QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
@@ -4003,6 +4221,10 @@ void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_Draw(This, VertexCount, StartVertexLocation); }
+    AfxLocateSun(This, { Filmmaker::LensSunDraw::Draw, VertexCount, 1, StartVertexLocation, 0, 0 });
+    // Right after CS2's post-process: its raw input against its finished output, for the tone
+    // curve that puts probe light into the frame's colours (EnvironmentReflectionProbes.h).
+    if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_Draw(This,VertexCount,StartVertexLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_Draw(This,VertexCount,StartVertexLocation);}
@@ -4017,10 +4239,20 @@ void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
 	Filmmaker::SkyGpuRotation_EndDraw(This, skyRotation);
 }
 
+static void AfxRedrawForSun(ID3D11DeviceContext* ctx, const Filmmaker::LensSunDraw& d) {
+    switch (d.kind) {
+    case Filmmaker::LensSunDraw::Draw: g_Old_Draw(ctx, d.count, d.start); break;
+    case Filmmaker::LensSunDraw::DrawIndexed: g_Old_DrawIndexed(ctx, d.count, d.start, d.baseVertex); break;
+    case Filmmaker::LensSunDraw::DrawInstanced: g_Old_DrawInstanced(ctx, d.count, d.instances, d.start, d.startInstance); break;
+    case Filmmaker::LensSunDraw::DrawIndexedInstanced: g_Old_DrawIndexedInstanced(ctx, d.count, d.instances, d.start, d.baseVertex, d.startInstance); break;
+    }
+}
+
 void STDMETHODCALLTYPE New_DrawIndexedInstanced(ID3D11DeviceContext * This,
     UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation,
     INT BaseVertexLocation, UINT StartInstanceLocation) {
     if (g_inVendorMultiDraw) { g_Old_DrawIndexedInstanced(This, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation); return; }
+    AfxNoteBoundaryDraw(This);
     QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
@@ -4039,6 +4271,8 @@ void STDMETHODCALLTYPE New_DrawIndexedInstanced(ID3D11DeviceContext * This,
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
 	{ QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexedInstanced(This, IndexCountPerInstance, InstanceCount, StartIndexLocation,
 		BaseVertexLocation, StartInstanceLocation); }
+    AfxLocateSun(This, { Filmmaker::LensSunDraw::DrawIndexedInstanced, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation });
+    if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawIndexedInstanced(This,IndexCountPerInstance,InstanceCount,StartIndexLocation,BaseVertexLocation,StartInstanceLocation);
         if(Filmmaker::Environment::BeginNativeMaterialBaseline(This)){g_Old_DrawIndexedInstanced(This,IndexCountPerInstance,InstanceCount,StartIndexLocation,BaseVertexLocation,StartInstanceLocation);}
@@ -4057,6 +4291,7 @@ void STDMETHODCALLTYPE New_DrawInstanced( ID3D11DeviceContext * This,
     UINT VertexCountPerInstance, UINT InstanceCount,
     UINT StartVertexLocation, UINT StartInstanceLocation) {
     if (g_inVendorMultiDraw) { g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount, StartVertexLocation, StartInstanceLocation); return; }
+    AfxNoteBoundaryDraw(This);
     QpcScope drawCost(g_hookCostAccum.drawTotal); if (g_collectHookCost.load(std::memory_order_relaxed)) g_hookCostAccum.draws.fetch_add(1, std::memory_order_relaxed);
     if (!g_bInOwnDraw) { Filmmaker::Environment::ObserveFoliageInputs(This);
         if(!g_BeforeUiFiredThisPresent)Filmmaker::Environment::ObserveViewmodel(This); }
@@ -4074,6 +4309,8 @@ void STDMETHODCALLTYPE New_DrawInstanced( ID3D11DeviceContext * This,
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
         StartVertexLocation, StartInstanceLocation); }
+    AfxLocateSun(This, { Filmmaker::LensSunDraw::DrawInstanced, VertexCountPerInstance, InstanceCount, StartVertexLocation, 0, StartInstanceLocation });
+    if (g_TonemapShaderBound && !g_bInOwnDraw) Filmmaker::Environment::ReflectionProbes_AfterTonemap(This);
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
         StartVertexLocation, StartInstanceLocation);
@@ -4338,6 +4575,7 @@ RSSetViewports_t g_Old_RSSetViewports = nullptr;
 void STDMETHODCALLTYPE New_RSSetViewports( ID3D11DeviceContext * This,
     UINT NumViewports,
     const D3D11_VIEWPORT *pViewports) {
+    Filmmaker::PixelStateLayer::OnSetViewports(This, NumViewports, pViewports);
 
     // Read-only evidence for the viewmodel's depth/projection boundary. Never infer
     // "hands" from pixel distance: a nearby wall can occupy exactly the same depth.
@@ -4468,9 +4706,10 @@ void Hook_Context(ID3D11DeviceContext * pDeviceContext) {
     DetourAttach(&(PVOID&)g_Old_RSSetViewports, New_RSSetViewports);
     DetourAttach(&(PVOID&)g_Old_RSSetScissorRects, New_RSSetScissorRects);
     //DetourAttach(&(PVOID&)g_Old_ResolveSubresource, New_ResolveSubresource);
+    Filmmaker::PixelStateLayer::Attach(pDeviceContext);
     if(NO_ERROR != DetourTransactionCommit()) {
         ErrorBox("Failed attaching on ID1D11RenderContext.");
-    }
+    } else Filmmaker::PixelStateLayer::Commit(g_Old_PSSetShader);
 }
 
 typedef HRESULT(WINAPI* D3D11CreateDevice_t)(IDXGIAdapter*,D3D_DRIVER_TYPE,HMODULE,UINT,const D3D_FEATURE_LEVEL*,UINT,UINT,ID3D11Device**,D3D_FEATURE_LEVEL*,ID3D11DeviceContext**);
@@ -4635,6 +4874,11 @@ void After_Present() {
     Filmmaker::Environment::NextViewmodelFrame();
     Filmmaker::Environment::NextAnimatedCasterFrame();
     Filmmaker::Environment::NextNativeMaterialFrame();
+    {   // The flare's sun target starts every frame empty (LensSunLocator_EndFrame).
+        ID3D11DeviceContext* immediate = nullptr;
+        if (g_pDevice) g_pDevice->GetImmediateContext(&immediate);
+        if (immediate) { Filmmaker::LensSunLocator_EndFrame(immediate); immediate->Release(); }
+    }
     if(auto pRenderPassCommands = g_RenderCommands.RenderThread_GetCommands()) {
         pRenderPassCommands->OnAfterPresent();
         pRenderPassCommands->OnAfterPresentOrContextLossReliable();
@@ -4651,6 +4895,12 @@ void After_Present() {
     g_iDraw = -1;
     g_BeforeUiFiredThisPresent = false;
     g_EnvironmentCompositedThisPresent = false;
+    Filmmaker::Environment::EndEnvironmentPresent();
+    g_WorldOverlayShaderBound = false;
+    g_WorldOverlayIsPanorama = false;
+    g_WorldTonemappedThisPresent = false;
+    g_TonemapShaderBound = false;
+    g_TonemapTarget = nullptr;
 }
 
 HRESULT STDMETHODCALLTYPE New_Present( void * This,
@@ -4666,6 +4916,7 @@ HRESULT STDMETHODCALLTYPE New_Present( void * This,
         // The engine's presenting chain is the live one (a recreated chain is picked up here).
         g_pSwapChain = (IDXGISwapChain *)This;
 
+        Filmmaker::PixelStateLayer::Flush(Filmmaker::PixelStateLayer::End::Present);
         Before_Present();
 
         HRESULT result;
@@ -5956,6 +6207,7 @@ private:
                         queue.Push([capture, params](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture) mutable {
                             {
                                 AfxFillPassFrame(params);
+                                params.keySky = AfxSkyKeyOn();
                                 if (Filmmaker::MvmDebugLog_Active()) {
                                     static std::atomic<unsigned> s_projLogs{0};
                                     if (s_projLogs.fetch_add(1, std::memory_order_relaxed) < 6)
@@ -7600,7 +7852,11 @@ void CAfxStreams::RecordStart()
 {
 	RecordEnd();
 	m_RecordedSourceFrameCount.store(0, std::memory_order_release);
-	g_AfxCaptureWriterFailureCount.store(0, std::memory_order_release);
+	{
+		std::lock_guard<std::mutex> lock(g_AfxCaptureWriterFailureMutex);
+		g_AfxCaptureWriterFailure = {};
+		g_AfxCaptureWriterFailureCount.store(0, std::memory_order_release);
+	}
 
 	advancedfx::Message("Starting recording ... ");
 	
@@ -7868,6 +8124,11 @@ int AfxStreams_GetWriterFailureCount() {
 	return g_AfxCaptureWriterFailureCount.load(std::memory_order_acquire);
 }
 
+AfxStreamWriterFailure AfxStreams_GetWriterFailure() {
+	std::lock_guard<std::mutex> lock(g_AfxCaptureWriterFailureMutex);
+	return g_AfxCaptureWriterFailure;
+}
+
 const char * AfxStreams_GetRecordNameUtf8() {
     return g_AfxStreams.GetRecordName();
 }
@@ -7947,6 +8208,13 @@ void AfxStreams_SetLivePassPreview(int passType, int passElements, float depthNe
     for (int k = 0; k < 3; ++k) g_LivePassPreview.keyOut[k] = keyOut ? keyOut[k] : 0.0f;
     g_LiveWorldRefWanted.store(passType != (int)Filmmaker::PassType::Beauty
         && passElements == (int)Filmmaker::VisibleElements::OnlyPlayers, std::memory_order_release);
+}
+
+void AfxStreams_SetSkyKey(bool on, bool live, const float keyOut[3]) {
+    std::lock_guard<std::mutex> lock(g_SkyKeyMutex);
+    g_SkyKey.on = on;
+    g_SkyKey.live = live;
+    for (int k = 0; k < 3; ++k) g_SkyKey.keyOut[k] = keyOut ? keyOut[k] : 0.0f;
 }
 
 void AfxStreams_SetPassDepthDebug(bool on) {
@@ -8139,6 +8407,11 @@ namespace AfxViewportScaler {
         s_HoldRequested.store(hold, std::memory_order_relaxed);
     }
 
+    static std::atomic<bool> s_WorldReloading{ false };
+    void SetWorldReloading(bool reloading) {
+        s_WorldReloading.store(reloading, std::memory_order_relaxed);
+    }
+
     static void ReleaseHeld() {
         if (s_HeldTex) { s_HeldTex->Release(); s_HeldTex = nullptr; }
         s_HeldValid = false;
@@ -8309,6 +8582,11 @@ namespace AfxViewportScaler {
     // A frame served from the scrub frame cache replaces both, and becomes the frame to fall back on.
     static bool HoldOrCapturePreview(bool active, bool recording, bool blitRan, const float rect[4]) {
         const bool requested = s_HoldRequested.load(std::memory_order_relaxed);
+        // A level load (SetWorldReloading): nothing is held, and the old world's frame is dropped.
+        if (s_WorldReloading.load(std::memory_order_relaxed)) {
+            s_HeldValid = false;
+            return false;
+        }
         const bool holdWanted = requested || !blitRan;
         if (!requested) s_HoldStartMs = 0;
         // This present's identity (its queued blit ran) or, for a missed present, the newest one: a
@@ -8627,10 +8905,10 @@ void RenderSystemDX11_EngineThread_Prepare() {
         std::vector<Filmmaker::Environment::SmokeVolume> lensSmokes;
         if (!environmentFrame.active && Filmmaker::LensFx_DofOn())
             Filmmaker::Environment::CaptureSmokeVolumes(lensSmokes);
-        queue.Push([environmentFrame, lensSmokes]() {
-            g_EnvironmentFrame = environmentFrame;
-            g_LensSmokes = lensSmokes;
-            Filmmaker::Environment::PrepareNativeMaterialFrame(environmentFrame);
+        queue.Push([frame = std::move(environmentFrame), smokes = std::move(lensSmokes)]() mutable {
+            g_EnvironmentFrame = std::move(frame);
+            g_LensSmokes = std::move(smokes);
+            Filmmaker::Environment::PrepareNativeMaterialFrame(g_EnvironmentFrame);
             Filmmaker::Environment::SetLightingProofShadowPass([](ID3D11DeviceContext* ctx,const Filmmaker::Environment::Frame& frame,Filmmaker::Environment::Matrix* matrices,ID3D11ShaderResourceView** atlas){
                 const bool own=g_bInOwnDraw;g_bInOwnDraw=true;
                 const bool ready=Filmmaker::Environment::PrepareLightingProofShadows(ctx,frame,matrices,atlas);
@@ -8652,7 +8930,7 @@ void RenderSystemDX11_EngineThread_Prepare() {
                 const bool drawn=Filmmaker::Environment::Render(ctx,target,depth,frame,g_ViewPort.MinDepth,g_ViewPort.MaxDepth,source);
                 g_bInOwnDraw=own;return drawn;
             });
-            Filmmaker::Environment::NoteAnimatedCasterReceiverProjection(environmentFrame.worldToClip);
+            Filmmaker::Environment::NoteAnimatedCasterReceiverProjection(g_EnvironmentFrame.worldToClip);
         });
     }
 }

@@ -10,7 +10,10 @@ Workshop maps.
 Code: [`AfxHookSource2/Filmmaker/MapData/`](../../AfxHookSource2/Filmmaker/MapData) (engine-free,
 also built into `MapDataTool.exe`), started by
 [`EnvironmentOcclusion.cpp`](../../AfxHookSource2/Filmmaker/Environment/EnvironmentOcclusion.cpp).
-The format readers are ported from ValveResourceFormat 20.0. Its MIT license ships beside them in
+The format readers are ported from ValveResourceFormat. The KV3, resource, entity lump, mesh
+buffer and world node parts follow VRF 21.1 at commit `8d9f7d9` (2026-11-19), which reads the
+KV3 node types CS2 writes since its 2026-11-20 update. Physics and textures are still the 20.0
+port. Its MIT license ships beside them in
 [`LICENSE-ValveResourceFormat.txt`](../../AfxHookSource2/Filmmaker/MapData/LICENSE-ValveResourceFormat.txt).
 
 ## What it reads
@@ -50,12 +53,20 @@ an entire material batch. Missing caster materials are reported in extraction wa
 
 Casters follow these rules:
 
+- a world-node scene object's `m_skin` material group and the node's `m_materialOverrides`
+  (one draw call, or the whole model) pick each draw call's material before the rules below;
 - casters are materials of the CS2 world, model, foliage and cable shaders, plus
   `toolsblocklight` brushes. Overlays, translucent, additive and `F_DO_NOT_CAST_SHADOWS`
   materials never cast;
 - `F_ALPHA_TEST` materials keep their alpha mask and cutoff (an all-opaque mask is stored as
   plain geometry); `csgo_foliage` sway/flutter parameters drive animated leaves;
 - materials named stained glass also transmit their colour image as sunlight;
+- materials the map authored as letting light through to their back face
+  (`F_TRANSMISSIVE_BACKFACE_NDOTL`: cloth tarps, fabric awnings, hanging cloth) stay in the rigid
+  geometry, so they cast a full sun shadow and shelter from weather, and each of their triangles
+  carries `kRigidTransmissive` (`0x02000000`) in its albedo word. The bounce reads the mark: the
+  shaded face of sunlit cloth sends the sun on in the cloth's colour (extractor version 4). An
+  alpha-tested cloth is a cutout batch and is not marked;
 - each batch carries a linear albedo (texture average weighted by alpha, times the material and
   instance tint) for bounce lighting;
 - collision drops `clip`, `sky` and `window` groups and glass surface properties.

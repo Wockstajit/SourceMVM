@@ -146,6 +146,62 @@ enum ClimateField {
     // How wide a player's mark on the fog is: a share of the body's size that scales the clearing, the
     // shove and the heaped rim together.
     CL_groundFogPushSize,
+    // How deep the snow lies where it has drifted (1 = about shin deep). Deep snow is parted by the
+    // people who walk through it; thin snow only takes their prints.
+    CL_snowDepth,
+    // A fill light on players under dynamic lighting: how many times brighter their darkest shade
+    // is drawn (1 = as lit). Players take their ambient from sparse probes and stand out black in
+    // shade next to walls lit per pixel; the lift fades out as a pixel gets brighter.
+    CL_playerFill,
+    // Wind gusts you can see in the rain or snow: fronts that sweep downwind, in which the
+    // precipitation is thicker, leans or streaks with the wind, and blown mist or snow fills the
+    // air (GustFront in EnvironmentShaders.h). 0 is steady weather, 1 a storm or a blizzard.
+    CL_gusts,
+    // THE GROUND DRIFT the gusts blow along the floor (GustVolumeMarch, GustLookFor): each scales the
+    // weather's own look, 1 as it comes. How dense the blown layer is, how high it stands, how much
+    // it is torn into wisps (0 an even sheet), and how strongly loose snow streams over the ground and
+    // a gust roughens wet ground (ApplyCoatings).
+    CL_gustDensity,
+    CL_gustHeight,
+    CL_gustWisps,
+    CL_gustFloor,
+    // THE MOON (EnvironmentSkyMath.h). Brightness (0 = no moon), where it stands, its phase (0 new,
+    // 0.5 full, 1 new again), its apparent size in degrees (the real moon is 0.52) and its colour.
+    // Once the sun has set it is the key light: the map is lit and shadowed from it.
+    CL_moon,
+    CL_moonAzimuth,
+    CL_moonElevation,
+    CL_moonPhase,
+    CL_moonSize,
+    CL_moonColorR,
+    CL_moonColorG,
+    CL_moonColorB,
+    // How much rain and storms darken the sky's cloud layer (0 = they leave it as it is).
+    CL_cloudRain,
+    // THE ENVIRONMENT'S OWN AUTO EXPOSURE (World/AutoExposure.h). While Environment lighting is on
+    // the tonemapper's exposure follows the relit frame, so a map lit by our sun and sky is not left
+    // at the exposure its baked lighting was authored for (which read far too bright on Mirage and
+    // Dust2). On by default; `exposureBias` raises or lowers the result, in stops. Nothing to do with
+    // the in-game Auto exposure under Effects > Lighting, which keeps its own switch and settings.
+    CL_autoExposure,
+    CL_exposureBias,
+    // TIME OF DAY (Sky > Sun & moon; ApplyTimeOfDay below). The sun and the moon are placed by the
+    // hour (0-24), by which way the sun's path across the sky faces (the compass direction it stands
+    // in at noon) and by how high it climbs at noon. The four position values above (sun and moon
+    // azimuth and elevation) are worked out from these and are not set by hand.
+    CL_timeOfDay,
+    CL_sunPath,
+    CL_sunHeight,
+    // The map's own clouds (geometry in its 3D skybox) hidden under the map's own sky, so the
+    // Environment's cloud layer can stand in for them. With the Environment sky on they are always
+    // hidden.
+    CL_hideMapClouds,
+    // How dark the map's and the players' sun shadows make the ground fog (0 = the fog ignores
+    // them). The ground fog's own: the Fog page's Light shafts switch is the height fog's.
+    CL_groundFogShadows,
+    // CS2's beads of water on wet ground (EnvironmentGameTextures.h), read from the installed game.
+    // 0 keeps the plain wet film. (The snow always takes CS2's own snow texture.)
+    CL_rainTexture,
     ClimateCount
 };
 struct ClimateSpec {
@@ -168,8 +224,9 @@ inline const std::array<ClimateSpec, ClimateCount> &ClimateSpecs() {
         {"cloudDepth", "sky", 1200.0f, 100.0f, 8000.0f},
         {"cloudScale", "sky", 0.0008f, 0.0001f, 0.01f},
         {"windSpeed", "sky", 25.0f, -600.0f, 600.0f},
-        {"sunAzimuth", "lighting", 135.0f, 0.0f, 360.0f},
-        {"sunElevation", "lighting", 35.0f, -30.0f, 90.0f},
+        // Where the default time of day puts the sun (15:15, path 68.68 degrees, 60 degrees at noon).
+        {"sunAzimuth", "sky", 135.0f, 0.0f, 360.0f},
+        {"sunElevation", "sky", 34.82f, -30.0f, 90.0f},
         {"sunPower", "lighting", 1.0f, 0.0f, 8.0f},
         {"haze", "sky", 0.4f, 0.0f, 2.0f},
         {"stars", "sky", 0.3f, 0.0f, 1.0f},
@@ -265,7 +322,7 @@ inline const std::array<ClimateSpec, ClimateCount> &ClimateSpecs() {
         {"groundFogColorG", "atmosphere", 0.91f, 0.0f, 1.0f},
         {"groundFogColorB", "atmosphere", 0.87f, 0.0f, 1.0f},
         {"groundFogSoftness", "atmosphere", 0.35f, 0.0f, 1.0f},
-        {"groundFogWisps", "atmosphere", 0.35f, 0.0f, 1.0f},
+        {"groundFogWisps", "atmosphere", 0.0f, 0.0f, 1.0f},
         {"groundFogWispSize", "atmosphere", 36.0f, 8.0f, 240.0f},
         {"groundFogStreak", "atmosphere", 0.2f, 0.0f, 1.0f},
         {"groundFogBillowSize", "atmosphere", 220.0f, 60.0f, 1000.0f},
@@ -276,6 +333,32 @@ inline const std::array<ClimateSpec, ClimateCount> &ClimateSpecs() {
         {"groundFogShadeG", "atmosphere", 1.0f, 0.0f, 1.0f},
         {"groundFogShadeB", "atmosphere", 1.0f, 0.0f, 1.0f},
         {"groundFogPushSize", "atmosphere", 0.55f, 0.2f, 2.0f},
+        {"snowDepth", "weather", 0.5f, 0.0f, 1.0f},
+        {"playerFill", "lighting", 1.8f, 1.0f, 4.0f},
+        {"gusts", "weather", 0.0f, 0.0f, 1.0f},
+        {"gustDensity", "weather", 1.0f, 0.0f, 2.0f},
+        {"gustHeight", "weather", 1.0f, 0.25f, 2.0f},
+        {"gustWisps", "weather", 1.0f, 0.0f, 2.0f},
+        {"gustFloor", "weather", 1.0f, 0.0f, 2.0f},
+        {"moon", "sky", 1.0f, 0.0f, 4.0f},
+        // A full moon at the default time: opposite the sun, below the horizon.
+        {"moonAzimuth", "sky", 315.0f, 0.0f, 360.0f},
+        {"moonElevation", "sky", -30.0f, -30.0f, 90.0f},
+        {"moonPhase", "sky", 0.5f, 0.0f, 1.0f},
+        {"moonSize", "sky", 1.5f, 0.1f, 12.0f},
+        {"moonColorR", "sky", 0.75f, 0.0f, 2.0f},
+        {"moonColorG", "sky", 0.85f, 0.0f, 2.0f},
+        {"moonColorB", "sky", 1.0f, 0.0f, 2.0f},
+        {"cloudRain", "sky", 1.0f, 0.0f, 1.0f},
+        {"autoExposure", "lighting", 1.0f, 0.0f, 1.0f},
+        {"exposureBias", "lighting", 0.0f, -3.0f, 3.0f},
+        {"timeOfDay", "sky", 15.25f, 0.0f, 24.0f},
+        {"sunPath", "sky", 68.68f, 0.0f, 360.0f},
+        {"sunHeight", "sky", 60.0f, 5.0f, 90.0f},
+        {"hideMapClouds", "sky", 0.0f, 0.0f, 1.0f},
+        {"groundFogShadows", "atmosphere", 1.0f, 0.0f, 1.0f},
+        {"rainTexture", "weather", 1.0f, 0.0f, 1.0f},
+
 
     }};
     return values;
@@ -295,10 +378,13 @@ inline void ResetClimatePage(Climate &c, const std::string &page) {
             c.values[i] = ClimateSpecs()[i].initial;
     // Reset releases feature switches as well as tuning. Cast shadows, AO and sky occlusion are
     // quality parts of dynamic lighting, not features of their own: they stay on (their initial
-    // value) so turning relighting on always gives shadowed, occluded interiors.
+    // value) so turning relighting on always gives shadowed, occluded interiors. Light shafts are
+    // the same kind of thing for the fogs (they draw nothing without one), and stay on as well: a
+    // reset used to leave them off where a new scene has them on, so the two were not the same
+    // starting point.
     for (ClimateField field : {CL_enabled, CL_sky, CL_clouds, CL_relighting,
          CL_worldGi, CL_bakedSuppressed,
-         CL_lightShafts, CL_storm, CL_stormHold, CL_puddleNative,
+         CL_storm, CL_stormHold, CL_puddleNative,
          CL_sceneReflections})
         if (page == "all" || page == ClimateSpecs()[field].page) c[field] = 0;
 }
@@ -332,29 +418,142 @@ inline Climate EffectiveClimate(Climate c) {
     c[CL_puddleNative] = 0;
     return c;
 }
+// Direct solar energy stops at the horizon. Twilight belongs to sky/indirect
+// lighting and must not produce a sun disk or specular highlight below the map.
+// These two are the sun itself: what the sky draws (its disc, the daylight and the twilight).
+inline float ClimateTrueSunVisibility(const Climate &c) {
+    float visible=std::clamp(c[CL_sunElevation],0.f,1.f);
+    return visible*visible*(3-2*visible);
+}
+inline Vec3 ClimateTrueSunDirection(const Climate &c) {
+    float a = Radians(c[CL_sunAzimuth]), e = Radians(c[CL_sunElevation]);
+    return {std::cos(e) * std::cos(a), std::cos(e) * std::sin(a), std::sin(e)};
+}
+inline float SkySmooth(float t) {
+    t = std::clamp(t, 0.f, 1.f);
+    return t * t * (3 - 2 * t);
+}
+inline Vec3 ClimateMoonDirection(const Climate &c) {
+    const float a = Radians(c[CL_moonAzimuth]), e = Radians(c[CL_moonElevation]);
+    return {std::cos(e) * std::cos(a), std::cos(e) * std::sin(a), std::sin(e)};
+}
+// Lit share of the moon's disc for a phase (0 new, 0.5 full, 1 new again).
+inline float MoonIllumination(float phase) { return .5f - .5f * std::cos(phase * 6.28318531f); }
+// TIME OF DAY. One slider moves the sun and the moon together, the way they move.
+// The sun goes round one arc a day: it comes up at 6:00 on the horizon a quarter turn before
+// `sunPath`, stands highest at noon in the `sunPath` direction, `sunHeight` degrees up, goes down at
+// 18:00 a quarter turn after it, and at midnight is as far below the horizon as it was above it at
+// noon. The moon goes round the same arc opposite the sun, whatever its phase: it rises as the sun
+// sets and is up all night. The phase changes only how it looks and how much light it gives (the
+// real moon's place follows its phase, so a new or a quarter moon was gone at night, and moving the
+// Phase slider moved the moon across the sky instead of changing its shape).
+inline Vec3 DayArcDirection(float hours, float path, float height) {
+    const float t = (hours - 6.f) / 12.f * 3.14159265f, h = Radians(path), e = Radians(height);
+    const Vec3 rise{std::cos(h - 1.57079633f), std::sin(h - 1.57079633f), 0};
+    const Vec3 noon{std::cos(e) * std::cos(h), std::cos(e) * std::sin(h), std::sin(e)};
+    return {rise.x * std::cos(t) + noon.x * std::sin(t), rise.y * std::cos(t) + noon.y * std::sin(t), noon.z * std::sin(t)};
+}
+inline void DirectionAngles(Vec3 d, float &azimuth, float &elevation) {
+    elevation = std::asin(std::clamp(d.z, -1.f, 1.f)) * 57.2957795f;
+    azimuth = std::atan2(d.y, d.x) * 57.2957795f;
+    if (azimuth < 0) azimuth += 360.f;
+    if (azimuth >= 360.f) azimuth -= 360.f;
+}
+// Places the sun and the moon (their azimuth and elevation) from the time of day and the sun's path
+// and height. Elevations stop at the lowest the sky draws (-30, deep night).
+inline void ApplyTimeOfDay(Climate &c) {
+    float azimuth, elevation;
+    DirectionAngles(DayArcDirection(c[CL_timeOfDay], c[CL_sunPath], c[CL_sunHeight]), azimuth, elevation);
+    c[CL_sunAzimuth] = azimuth;
+    c[CL_sunElevation] = std::clamp(elevation, -30.f, 90.f);
+    DirectionAngles(DayArcDirection(c[CL_timeOfDay] - 12.f, c[CL_sunPath], c[CL_sunHeight]), azimuth, elevation);
+    c[CL_moonAzimuth] = azimuth;
+    c[CL_moonElevation] = std::clamp(elevation, -30.f, 90.f);
+}
+// The other way: the sun was placed by its angles (the map's own sun on load, a starting look, a
+// `climate sunAzimuth` command). Finds the time and the path that put it there, keeping the noon
+// height unless the sun stands higher (or deeper at night) than it allows. Of the two times of day
+// with the sun at that height (morning and afternoon, or before dawn and after dusk), the one
+// nearer the time it was is kept. ApplyTimeOfDay afterwards gives back the same angles.
+inline void TimeOfDayFromSun(Climate &c) {
+    const float elevation = c[CL_sunElevation];
+    const float height = std::clamp((std::max)(c[CL_sunHeight], std::abs(elevation)), 5.f, 90.f);
+    c[CL_sunHeight] = height;
+    const float s = std::clamp(std::sin(Radians(elevation)) / std::sin(Radians(height)), -1.f, 1.f);
+    const float first = std::asin(s), second = 3.14159265f - first;
+    auto hours = [](float t) { float h = std::fmod(6.f + t / 3.14159265f * 12.f, 24.f); return h < 0 ? h + 24.f : h; };
+    auto apart = [](float a, float b) { float d = std::abs(a - b); return (std::min)(d, 24.f - d); };
+    const float now = c[CL_timeOfDay];
+    const float t = apart(hours(first), now) <= apart(hours(second), now) ? first : second;
+    // Where the sun stands round from the path's noon direction at that point of the arc.
+    const float offset = std::atan2(-std::cos(t), std::sin(t) * std::cos(Radians(height))) * 57.2957795f;
+    float path = std::fmod(c[CL_sunAzimuth] - offset, 360.f);
+    if (path < 0) path += 360.f;
+    c[CL_timeOfDay] = std::clamp(hours(t), 0.f, 24.f);
+    c[CL_sunPath] = path;
+}
+inline bool IsTimeOfDayField(ClimateField f) { return f == CL_timeOfDay || f == CL_sunPath || f == CL_sunHeight; }
+// THE CLIMATE COLOURS a scene key animates as ONE colour (`env.<id>`), the way CONFIG edits each
+// with one colour bar: three consecutive climate fields from `red` on. A key holds 0-255 per
+// component, CONFIG's bar, where 255 is `scale` (the sun and moon bars run to 2, a brighter-than-
+// white tint). Three separate floats would key red without green and blend through odd hues.
+struct ClimateColour { const char *id; ClimateField red; float scale; };
+static_assert(CL_sunColorB == CL_sunColorR + 2 && CL_moonColorB == CL_moonColorR + 2 &&
+              CL_groundFogColorB == CL_groundFogColorR + 2 && CL_groundFogShadeB == CL_groundFogShadeR + 2,
+              "a keyed climate colour is three consecutive fields");
+inline const std::array<ClimateColour, 4> &ClimateColours() {
+    static const std::array<ClimateColour, 4> list{{{"sunColor", CL_sunColorR, 2.f}, {"moonColor", CL_moonColorR, 2.f},
+        {"groundFogColor", CL_groundFogColorR, 1.f}, {"groundFogShadeColor", CL_groundFogShadeR, 1.f}}};
+    return list;
+}
+inline double ClimateColourToKey(const ClimateColour &k, float value) {
+    return std::clamp(double(value) / k.scale * 255., 0., 255.);
+}
+inline float ClimateColourFromKey(const ClimateColour &k, int component, double key) {
+    const auto &spec = ClimateSpecs()[k.red + component];
+    return std::clamp(float(key / 255. * k.scale), spec.lo, spec.hi);
+}
+// How far the moon has taken over from the sun: none while the sun is up, all of it by the end of
+// civil twilight (sun 6 degrees down), and only while the moon itself is above the horizon.
+inline float MoonTakeover(const Climate &c) {
+    return SkySmooth(-c[CL_sunElevation] / 6.f) * SkySmooth(c[CL_moonElevation]);
+}
+// Moonlight on the map relative to a power-1 sun: a full moon at brightness 1 is 10 % of it.
+inline constexpr float kMoonLightScale = .1f;
+inline float ClimateMoonPower(const Climate &c) {
+    return (std::max)(c[CL_moon], 0.f) * MoonIllumination(c[CL_moonPhase]) * MoonTakeover(c) * kMoonLightScale;
+}
+// THE KEY LIGHT the map is lit and shadowed by: the sun while it is up, the moon once it has set.
+// At the hand-over both are dark (the sun fades out over its last degree, the moon in over the first
+// six of twilight), so the light changing direction never shows. HLSL twin: MoonKey() in
+// EnvironmentClimateShaders.h.
+inline bool ClimateMoonKey(const Climate &c) { return c[CL_sunElevation] < 0 && c[CL_moon] > 0; }
+inline float ClimateSunVisibility(const Climate &c) {
+    return ClimateMoonKey(c) ? SkySmooth(c[CL_moonElevation]) : ClimateTrueSunVisibility(c);
+}
+inline Vec3 ClimateSunDirection(const Climate &c) {
+    return ClimateMoonKey(c) ? ClimateMoonDirection(c) : ClimateTrueSunDirection(c);
+}
+// Scalar strength of the key light (sun power times its horizon fade, or the moon's power).
+inline float ClimateKeyPower(const Climate &c) {
+    return ClimateMoonKey(c) ? ClimateMoonPower(c) : (std::max)(c[CL_sunPower], 0.f) * ClimateTrueSunVisibility(c);
+}
 // Whether anything this frame samples the world sun shadow map, from the effective climate.
 // `lighting` is the frame's owned lighting: a captured frame hands Lighting to the native relight
 // path and zeroes CL_relighting first. `receivers` covers placed props and the cascade debug view.
-// Fog asks only while its Light shafts switch is on: the shafts ARE the sun's shadow through the
-// fog. The climate sun starts as the map's own light_environment, so the shafts fall where the
-// map's sunlight does without the Sky or Lighting card.
+// The height fog asks only while its Light shafts switch is on: the shafts ARE the sun's shadow
+// through it. The ground fog asks while its own Shadows slider is above 0. The climate sun starts as
+// the map's own light_environment, so both fall where the map's sunlight does without the Sky or
+// Lighting card.
 inline bool ClimateSamplesSunShadow(const Climate &c, bool lighting, bool receivers) {
-    if (c[CL_enabled] <= 0 || c[CL_contactShadows] <= 0 || c[CL_sunElevation] < 0 || c[CL_sunPower] <= 0)
+    if (c[CL_enabled] <= 0 || c[CL_contactShadows] <= 0)
+        return false;
+    if (ClimateMoonKey(c) ? ClimateMoonPower(c) <= 0 : (c[CL_sunElevation] < 0 || c[CL_sunPower] <= 0))
         return false;
     const bool lit = lighting || c[CL_relighting] > 0;
     return receivers || lit || c[CL_worldGi] > 0 || c[CL_clouds] > 0 ||
            c[CL_snow] > 0 || c[CL_wet] > 0 || c[CL_puddles] > 0 ||
-           ((c[CL_fogDensity] > 0 || c[CL_groundFog] > 0) && c[CL_lightShafts] > 0);
-}
-// Direct solar energy stops at the horizon. Twilight belongs to sky/indirect
-// lighting and must not produce a sun disk or specular highlight below the map.
-inline float ClimateSunVisibility(const Climate &c) {
-    float visible=std::clamp(c[CL_sunElevation],0.f,1.f);
-    return visible*visible*(3-2*visible);
-}
-inline Vec3 ClimateSunDirection(const Climate &c) {
-    float a = Radians(c[CL_sunAzimuth]), e = Radians(c[CL_sunElevation]);
-    return {std::cos(e) * std::cos(a), std::cos(e) * std::sin(a), std::sin(e)};
+           (c[CL_fogDensity] > 0 && c[CL_lightShafts] > 0) || (c[CL_groundFog] > 0 && c[CL_groundFogShadows] > 0);
 }
 // The passes a restart switches off, with the value that means off: sky, lighting, fog and
 // weather. Each is restored by a card switch that reads `held` (Sky and Fog through envPassPill,
@@ -407,7 +606,8 @@ inline float UnlitOverlayScale(float sunElevation, float ambient) {
 }
 inline void CoupleSunToLighting(Climate &c, ClimateField changed) {
     if (changed != CL_sunAzimuth && changed != CL_sunElevation && changed != CL_sunPower &&
-        changed != CL_sunColorR && changed != CL_sunColorG && changed != CL_sunColorB)
+        changed != CL_sunColorR && changed != CL_sunColorG && changed != CL_sunColorB &&
+        changed != CL_timeOfDay && changed != CL_sunPath && changed != CL_sunHeight)
         return;
     c[CL_enabled] = 1;
     c[CL_sky] = 1;

@@ -431,11 +431,15 @@ void ReadHashedValues(const std::vector<uint8_t> &bytes, std::map<std::string, K
         }
     };
     for (uint32_t k = 0; k < hashed; ++k) typed(u32(), nullptr);
+    // The named fields are the CEntityKeyValues attributes: read and checked, not kept.
+    std::map<std::string, Kv3> keyValues;
+    keyValues.swap(out);
     for (uint32_t k = 0; k < named; ++k) {
         const uint32_t hash = u32();
         const std::string name = cstr();
         typed(hash, &name);
     }
+    out.swap(keyValues);
 }
 
 // System.Text.Json default escaping, needed only for content-hash identities.
@@ -597,7 +601,8 @@ std::vector<MapEntity> ReadMapEntities(const Vpk &package) {
             std::map<std::string, Kv3> values;
             if (const Kv3 *kv3 = entry.Find("keyValues3Data")) {
                 if ((*kv3)["version"].Integer(-1) != 1) throw MapDataError("unsupported entity data version");
-                for (const char *section : {"values", "attributes"}) {
+                // CEntityKeyValues attributes are not keyvalues (VRF 21.1 no longer merges them).
+                for (const char *section : {"values"}) {
                     const Kv3 &group = (*kv3)[section];
                     if (group.IsNull()) continue;
                     if (group.type != Kv3::Type::Object) throw MapDataError("unsupported entity data values type");

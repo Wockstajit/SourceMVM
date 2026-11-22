@@ -6,6 +6,7 @@
 #include "EnvironmentWorld.h"
 #include "EnvironmentClimateMath.h"
 #include "EnvironmentGroundFogMath.h"
+#include "EnvironmentFootprintMath.h"
 #include "EnvironmentLightingProofMath.h"
 #include "../Relight/RelightMath.h"
 #include <filesystem>
@@ -89,6 +90,20 @@ struct CoatingActor {
     Vec3 origin;      // pawn origin (feet), world space
     float radius = 0; // horizontal reach; the vertical extent is derived in the shader
     int entity = 0;   // entity index: ground fog measures each pawn's speed across frames by it
+    // Its two feet, from its ankle and toe bones, for the marks they leave (EnvironmentFootprintMath.h):
+    // the middle of each boot, the height of its ankle and toe, and the way it points.
+    bool hasFeet = false, grounded = false;
+    Vec3 foot[2]{};
+    float ankleZ[2]{}, toeZ[2]{}, footYaw[2]{};
+    // Its trunk, head, arms and legs as drawn this frame, which shape its shadow on the ground fog
+    // (GroundFogBodyShadow). Without them the shadow is a plain upright capsule.
+    bool hasBody = false;
+    FallenBones body;
+};
+// A dead player's body, as the bones the snow is pressed by (EnvironmentFootprintMath.h).
+struct FallenBody {
+    int entity = 0;
+    FallenBones bones;
 };
 // A detonated CS2 smoke, as a sphere. Only its position ALONG the view ray is used (in front of or
 // behind an addition); how much it hides comes from CS2's own OIT absorbance.
@@ -106,6 +121,10 @@ struct Frame {
     // Bounded on purpose: this rides the frame constants, and a match is 10 players.
     static const int kMaxActors = 12;
     std::vector<CoatingActor> actors;
+    std::vector<FallenBody> fallen; // dead players, as many as kMaxActors
+    // What clears lying snow this frame: fires (radius, no age) and explosions (age in seconds).
+    struct SnowHeat { Vec3 position; float radius = 0, age = -1; };
+    std::vector<SnowHeat> snowHeat;
     // What clears the ground fog this frame: explosions, burning fires and smokes.
     std::vector<GroundFogBlast> fogBlasts;
     // Where this frame's particle effects are, which says how much fog lies in front of them.
@@ -147,6 +166,8 @@ void FlushCommittedEdits();
 // Whether the Environment scene is switched on (CONFIG > ENVIRONMENT, `environment on`). Its
 // lights, fog, sky and the scene keys' env.* channels only render while it is.
 bool SceneEnabled();
+// Whether the Lightning storm cell has been placed (CL_stormX/Y/Z not all 0).
+bool StormCentreSet();
 // A practice session (Clippy's tutorial, Config/PracticeSessionFlag.h). Begin writes the user's
 // pending edits; during the session no map gets its saved scene and nothing is saved. End drops
 // the session's scene and restores the current map's saved one, as on a level load.

@@ -13,14 +13,74 @@ struct ProbePacking {
 inline AmbientCube HemisphereCube(Vec3 sky,Vec3 ground) {
     const auto side=(sky+ground)*.5f;return {side,side,sky,side,side,ground};
 }
+// The map-wide ambient the lit programs read when no bounce is traced. Full lighting: the sky
+// above and nothing below, as before. Lite: the sky's share on top, half of it on the sides, and
+// the bounce stand-in (LiteGround) underneath, on the sides and a little on top. Traced bounce
+// lights a shaded wall mostly from the sunlit surfaces across from it, not from the sky, so the
+// sides carry more bounce than sky; a plain sky-over-ground hemisphere came out blue and flat
+// beside the traced picture. Weights set by eye on Inferno (2026-11-13).
+inline constexpr float LiteSideBounce=.6f,LiteTopBounce=.2f;
+inline AmbientCube AmbientFill(const Scene& scene) {
+    if(!scene.lite)return HemisphereCube(SkyAmbient(scene,scene.indirect),{});
+    const Vec3 sky=LiteSky(scene),bounce=LiteGround(scene);
+    const Vec3 side=sky*.5f+bounce*LiteSideBounce,top=sky+bounce*LiteTopBounce;
+    return {side,side,top,side,side,bounce};
+}
+// Lite reflections. The traced capture is marched through the bounce volume, which Lite does not
+// keep, and with nothing bound metal reflects black. Lite binds one small cube for the whole map
+// instead: the sky above (with the traced capture's own horizon falloff), the bounce stand-in
+// below and up to where rooftops usually end, about 35 degrees. It shows no buildings; it gives
+// metal and wet ground the colour and brightness of the day. A real capture has walls in most
+// directions, and at full strength this open one washed the ground out, so it is applied at
+// LiteReflectionStrength (set by eye against the traced capture on Inferno, 2026-11-13).
+inline constexpr unsigned LiteReflectionSize=16;
+inline constexpr float LiteReflectionStrength=.5f,LiteReflectionRoofline=.6f;
+// Direction through a cube face texel, D3D face order (the same mapping ReflectionCS uses).
+inline Vec3 CubeFaceDirection(unsigned face,float u,float v) {
+    const float x=u*2-1,y=v*2-1;
+    const Vec3 d=face==0?Vec3{1,-y,-x}:face==1?Vec3{-1,-y,x}:face==2?Vec3{x,1,y}:
+                 face==3?Vec3{x,-1,-y}:face==4?Vec3{x,-y,1}:Vec3{-x,-y,-1};
+    return d*(1/std::sqrt(Dot(d,d)));
+}
+inline Vec3 LiteReflectionRadiance(const Scene& scene,Vec3 direction) {
+    const float up=std::clamp(direction.z/LiteReflectionRoofline,0.f,1.f);
+    const Vec3 sky=SkyAmbient(scene,scene.indirect)*(.3f+.7f*up);
+    const float blend=up*up*(3-2*up);
+    return LiteGround(scene)*(1-blend)+sky*blend;
+}
+// The ambient a reflection capture point receives, as the material expects it for normalization
+// (dp4(float4(n,1),row)): mean luminance in w, the per-axis half difference in xyz, kept inside
+// the mean so no normal divides by zero. Mirrors ReflectionNormCS.
+inline ProbeRow AmbientNormalizationRow(const AmbientCube& cube) {
+    float band[6];
+    for(unsigned i=0;i<6;++i)band[i]=.2125f*cube[i].x+.7154f*cube[i].y+.0721f*cube[i].z;
+    ProbeRow row{(band[0]-band[3])*.5f,(band[1]-band[4])*.5f,(band[2]-band[5])*.5f,
+        (std::max)((band[0]+band[1]+band[2]+band[3]+band[4]+band[5])/6,1e-3f)};
+    const float length=std::sqrt(row[0]*row[0]+row[1]*row[1]+row[2]*row[2]);
+    const float scale=(std::min)(1.f,.8f*row[3]/(std::max)(length,1e-6f));
+    row[0]*=scale;row[1]*=scale;row[2]*=scale;
+    return row;
+}
+// How much the Lite reflection cube and its normalization row are lifted together, so that the
+// capture point's ambient is never below LiteReflectionFloor.
+inline constexpr float LiteReflectionFloor=.25f;
+inline float LiteReflectionLift(float ambient) {return ambient<LiteReflectionFloor?LiteReflectionFloor/(std::max)(ambient,1e-4f):1.f;}
+// A lifted texel loses its colour as it is lifted: what a dark sky leaves for metal to reflect is
+// the room's own light, and a night sky's blue on a lamp-lit barrel hoop was wrong.
+inline Vec3 LiteReflectionLifted(Vec3 radiance,float lift) {
+    const float grey=.2125f*radiance.x+.7154f*radiance.y+.0721f*radiance.z,keep=1/(std::max)(lift,1.f);
+    return (radiance*keep+Vec3{grey,grey,grey}*(1-keep))*lift;
+}
 inline Vec3 DecodeAmbientCube(const AmbientCube& cube,Vec3 n) {
     return cube[n.x<=0?3:0]*(n.x*n.x)+cube[n.y<=0?4:1]*(n.y*n.y)+cube[n.z<=0?5:2]*(n.z*n.z);
 }
-inline ProbePacking PackProbe(Vec3 low,Vec3 high,unsigned resolution) {
+// A volume of nx by ny by nz probes (six bands stacked along W, so nz*6 slices) over a box.
+inline ProbePacking PackProbe(Vec3 low,Vec3 high,unsigned nx,unsigned ny,unsigned nz) {
     ProbePacking out;
     const float lo[3]{low.x,low.y,low.z},hi[3]{high.x,high.y,high.z};
-    const float half=.5f/(std::max)(1u,resolution);
+    const unsigned resolution[3]{nx,ny,nz};
     for(unsigned axis=0;axis<3;++axis) {
+        const float half=.5f/(std::max)(1u,resolution[axis]);
         const float extent=(std::max)(1.f,hi[axis]-lo[axis]);
         out.probe[axis][axis]=1/extent;out.probe[axis][3]=-lo[axis]/extent;
         out.volume[axis]=out.probe[axis];
@@ -33,6 +93,7 @@ inline ProbePacking PackProbe(Vec3 low,Vec3 high,unsigned resolution) {
     out.probe[5][3]=0;
     return out;
 }
+inline ProbePacking PackProbe(Vec3 low,Vec3 high,unsigned resolution) {return PackProbe(low,high,resolution,resolution,resolution);}
 inline ProbeRow ProbeSampleCoordinates(Vec3 uvw,const ProbePacking& p,unsigned band) {
     float q[3]{uvw.x,uvw.y,uvw.z/6};
     for(unsigned i=0;i<3;++i)q[i]=std::clamp(q[i],p.volume[3][i],p.volume[4][i]);
@@ -172,11 +233,23 @@ inline constexpr float ViewerShadowRadius=24,ViewerShadowAbove=16,ViewerShadowBe
 // Recursive transport loses a small amount of energy on each bounce. The user's
 // display boost is applied only at composition, never fed back into this solution.
 inline constexpr float GiFeedbackGain=.95f;
-// CPU mirror of the shader voxel word (PackVoxel in RelightProbeGiShaders.h).
+// CPU mirror of the shader voxel word (PackVoxel in RelightProbeGiShaders.h): octahedral normal
+// in bits 0-13, and bit 14 for a cell that holds faces on opposite sides.
+inline constexpr uint32_t GiVoxelTwoSided=0x4000u;
+// A cloth cell (VOXEL_CLOTH in the shader): the porous and two-sided bits together.
+inline constexpr uint32_t GiVoxelCloth=0x40004000u;
+// The share of the light on one face of a cloth sheet that its other face sends on. One, because
+// that is how the game draws it: a light-transmitting material's shaded face is lit by the light
+// on its lit face, at full strength, through the material's own colour. The shader's CLOTH_PASS
+// must equal it (checked by RelightProbeGpuTests).
+inline constexpr float GiClothPass=1.f;
 inline uint32_t PackGiVoxel(Vec3 n,Vec3 color,bool porous) {
-    auto q=[](float v){return uint32_t(std::lround(std::clamp(v*.5f+.5f,0.f,1.f)*31));};
+    const float sum=(std::max)(std::abs(n.x)+std::abs(n.y)+std::abs(n.z),1e-6f);
+    float x=n.x/sum,y=n.y/sum;
+    if(n.z<0){const float foldedX=(1-std::abs(y))*(x>=0?1.f:-1.f),foldedY=(1-std::abs(x))*(y>=0?1.f:-1.f);x=foldedX;y=foldedY;}
+    auto q=[](float v){return uint32_t(std::lround(std::clamp(v*.5f+.5f,0.f,1.f)*126));};
     auto c=[](float v){return uint32_t(std::lround(std::sqrt(std::clamp(v,0.f,1.f))*31));};
-    return 0x80000000u|(porous?0x40000000u:0u)|q(n.x)|(q(n.y)<<5)|(q(n.z)<<10)|(c(color.x)<<15)|(c(color.y)<<20)|(c(color.z)<<25);
+    return 0x80000000u|(porous?0x40000000u:0u)|q(x)|(q(y)<<7)|(c(color.x)<<15)|(c(color.y)<<20)|(c(color.z)<<25);
 }
 
 // Transport depends on world-space emitters, never camera-relative GPU records.

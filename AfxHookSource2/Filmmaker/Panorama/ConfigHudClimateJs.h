@@ -20,44 +20,42 @@ R"CFJS(
     cs(envGradeLens, 'bloom'); cs(envGradeLens, 'vignette');
     cs(envGradeLens, 'grain'); cs(envGradeLens, 'chromatic');
 
+    // TIME OF DAY (2026-11): one slider moves the sun and the moon together, the way they move; the
+    // sun's path and its noon height turn and tilt the day. The four angle sliders it replaces left
+    // the moon wherever it was put whatever the sun did.
     var envSkyPage = envSkySec.__group(T('Sun & sky'));
-    cs(envSkyPage, 'sunAzimuth'); cs(envSkyPage, 'sunElevation'); cs(envSkyPage, 'sunPower');
+    cs(envSkyPage, 'timeOfDay'); cs(envSkyPage, 'sunPath'); cs(envSkyPage, 'sunHeight'); cs(envSkyPage, 'sunPower');
     cs(envSkyPage, 'haze'); cs(envSkyPage, 'stars');
     colorField(envSkyPage, T('Sun color'), function () { var c=envClimate(); return c && {rgb:[c.sunColorR,c.sunColorG,c.sunColorB]}; }, function (rgb) {
       envCommand('climate enabled 1');
       ['sunColorR','sunColorG','sunColorB'].forEach(function (key,i) { envCommand('climate '+key+' '+rgb[i]); });
-    }, 2);
-    envNote(envSkyPage, T('Multiplies the sun. 1, 1, 1 is the default warm-to-white ramp; the same colour drives surface lighting, the sun disk, the sky glow and the bounce.'));
+    }, 2, T('Multiplies the sun. White is the default warm-to-white ramp; the same colour drives surface lighting, the sun disk, the sky glow and the bounce.'));
+    var envMoonPage = envSkySec.__group(T('Moon'));
+    cs(envMoonPage, 'moon'); cs(envMoonPage, 'moonPhase'); cs(envMoonPage, 'moonSize');
+    colorField(envMoonPage, T('Moon color'), function () { var c=envClimate(); return c && {rgb:[c.moonColorR,c.moonColorG,c.moonColorB]}; }, function (rgb) {
+      envCommand('climate enabled 1'); envCommand('climate sky 1');
+      ['moonColorR','moonColorG','moonColorB'].forEach(function (key,i) { envCommand('climate '+key+' '+rgb[i]); });
+    }, 2, T('Once the sun is below the horizon the moon takes over as the light: the map is lit and shadowed from where the moon stands, in this colour.'));
     var envCloudPage = envSkySec.__group(T('Clouds'));
     cw(envCloudPage, T('Clouds'), 'clouds', T('Clouds can be used with either the map sky or the added sky.'));
-    cs(envCloudPage, 'coverage'); cs(envCloudPage, 'cloudBase'); cs(envCloudPage, 'windSpeed');
+    // Always shown (it used to show only with Clouds on and the added sky off, and could not be found).
+    cw(envCloudPage, T('Hide map clouds'), 'hideMapClouds', T('Keeps the map’s own sky and hides only its own clouds. Turn Clouds on to put the cloud layer over it instead. With the added sky on, the map’s clouds are always hidden.'));
+    cs(envCloudPage, 'coverage'); cs(envCloudPage, 'density'); cs(envCloudPage, 'cloudBase'); cs(envCloudPage, 'windSpeed');
+    cs(envCloudPage, 'cloudRain');
 
     // Today's one long page split three ways (Docs/features/filmmaker_config_panel.md): what lights the scene, how its
     // shadows look, and which map lights are on.
     var envRelightPage = envLightSec.__group(T('Light'));
     var envShadowPage = envLightSec.__group(T('Shadows'));
-    var envMapLightPage = envLightSec.__group(T('Map lights'));
-    // Eye adaptation (Unreal-style auto exposure): meters the frame and eases the tonemapper toward
-    // it, so walking from a dark doorway into sunlight brightens, then settles.
+    // THE ENVIRONMENT'S OWN AUTO EXPOSURE (climate autoExposure / exposureBias). It follows the relit
+    // frame while Environment lighting is on and is separate from the in-game Auto exposure on
+    // Effects > Lighting: neither switch reads or changes the other.
     var envExposurePage = envLightSec.__group(T('Exposure'));
-    var envAdaptToggle = togglePill(envExposurePage, T('Auto exposure'),
-      T('Meters the scene and adjusts exposure over time, like a camera or an eye. A pinned exposure (Effects > Lighting time of day or Exposure slider) overrides it.'),
-      function () {
-        cmd('mirv_filmmaker world exposure adapt ' + (st.exposureAdapt ? 'off' : 'on') + ' quiet');
-        if (!st.exposureAdapt) cmd('mirv_filmmaker world exposure auto quiet');
-      });
-    var envAdaptSpeed = sliderRow(envExposurePage, {
-      label: T('Adapt speed'), cmd: 'mirv_filmmaker world exposure speed',
-      min: 0.1, max: 20, decimals: 1, unit: ' st/s',
-      tip: T('How fast exposure catches up, in stops per second. 1-3 feels like a film camera; 10+ is near-instant.')
-    });
-    var envAdaptComp = sliderRow(envExposurePage, {
-      label: T('Compensation'), cmd: 'mirv_filmmaker world exposure compensation',
-      min: -4, max: 4, decimals: 1, unit: ' st', centerTick: true,
-      tip: T('Brightens (+) or darkens (-) the adapted exposure, in stops.')
-    });
+    lw(envExposurePage, T('Auto exposure'), 'autoExposure',
+      T('Meters the relit scene and settles the exposure, so Environment lighting is never left too bright or too dark for the map. Separate from Auto exposure on Effects > Lighting.'));
+    cs(envExposurePage, 'exposureBias');
     var envAdaptNote = envNote(envExposurePage, '');
-    cs(envRelightPage, 'mapLightPower'); cs(envRelightPage, 'ambient');
+    cs(envRelightPage, 'mapLightPower'); cs(envRelightPage, 'ambient'); cs(envRelightPage, 'playerFill');
     cs(envRelightPage, 'bounce');
     cs(envRelightPage, 'bounceSteps');
     lw(envShadowPage, T('Cast shadows'), 'contactShadows', T('Sunlight and map lamps cast real-time shadows from geometry and players.'));
@@ -66,22 +64,21 @@ R"CFJS(
     subHead(envShadowPage, T('Shadow sharpness'));
     cs(envShadowPage, 'sunAngle'); cs(envShadowPage, 'lampAngle');
     cs(envShadowPage, 'shadowSoftness');
-    actionGroup(envMapLightPage, T('Pick lights'), [
-      [T('Edit lights'), function () { cmd('mirv_relight lighteditor on'); cmd('mirv_filmmaker config close'); }],
-      [T('Turn all back on'), function () { cmd('mirv_relight lights reset'); }]
-    ], 2, T('Edit lights shows a marker on every map light. Fly to a light, aim at it and press F to switch it off or back on; Esc finishes. Your choices are saved for this map.'));
-    var lightPickStatus = envNote(envMapLightPage, '');
     var climateShadowStatus = envNote(envShadowPage, '');
-    envNote(envRelightPage, T('Sun brightness is in Sky. Map lights illuminate rooms independently of ambient light.'));
 
+    // TWO PAGES (2026-11). The card had grown to thirty rows, most of them ground fog's, and scrolled
+    // a page and a half. The height fog and the light both fogs share stay on the first page; ground
+    // fog, a fluid with its own shape, motion and light, has the second.
     var envFogPage = envFogSec.__page(T('Fog'));
+    var envGroundFogPage = envFogSec.__page(T('Ground fog'));
     subHead(envFogPage, T('Height fog'));
     cs(envFogPage, 'fogDensity'); cs(envFogPage, 'fogStart');
     cs(envFogPage, 'fogHeight'); cs(envFogPage, 'fogNoise');
     colorField(envFogPage, T('Height fog color'), function () { var s=envState(); return s && {rgb:s.fogColor}; }, function (rgb) {
       ['fogR','fogG','fogB'].forEach(function (key,i) { envCommand('set '+key+' '+rgb[i]); });
     });
-    subHead(envFogPage, T('Ground fog'));
+    subHead(envFogPage, T('Light'));
+    cw(envFogPage, T('Light shafts'), 'lightShafts', T('Sunlight through gaps in the map draws rays in the height fog, and buildings shade it. Uses the map’s own sun unless the Sky card moves it. Ground fog has its own Shadows slider.'));
     // A look is only a starting point: every value it sets is a slider below, free to change from there.
     var GROUND_FOG_LOOKS = {
       mist: { climate: { fogDensity: 0.02, fogStart: 0, fogHeight: 500, fogNoise: 0.5, lightShafts: 1,
@@ -105,39 +102,54 @@ R"CFJS(
       for (key in look.climate) envCommand('climate ' + key + ' ' + look.climate[key]);
       for (key in look.scene) envCommand('set ' + key + ' ' + look.scene[key]);
     }
-    actionGroup(envFogPage, T('Start from'), [
+    actionGroup(envGroundFogPage, T('Start from'), [
       [T('Street mist'), function () { applyGroundFogLook(GROUND_FOG_LOOKS.mist); }],
       [T('Thick sheet'), function () { applyGroundFogLook(GROUND_FOG_LOOKS.sheet); }]
-    ], 2, T('Sets the sliders below in one go, as a place to start. Street mist is thin torn fog with a milky haze over the map, white in the sun and blue in shade. Thick sheet is one solid layer on the floor.'));
-    cs(envFogPage, 'groundFog'); cs(envFogPage, 'groundFogCoverage'); cs(envFogPage, 'groundFogHeight');
-    subHead(envFogPage, T('Ground fog shape'));
-    cs(envFogPage, 'groundFogSoftness');
-    cs(envFogPage, 'groundFogWisps'); cs(envFogPage, 'groundFogWispSize'); cs(envFogPage, 'groundFogStreak');
-    cs(envFogPage, 'groundFogDetail'); cs(envFogPage, 'groundFogBillowSize');
-    subHead(envFogPage, T('Ground fog motion'));
-    cs(envFogPage, 'groundFogFlow'); cs(envFogPage, 'groundFogPushSize');
-    cs(envFogPage, 'groundFogRecovery'); cs(envFogPage, 'groundFogSwirl');
-    cs(envFogPage, 'groundFogWind'); cs(envFogPage, 'groundFogWindAngle'); cs(envFogPage, 'groundFogChurn');
-    subHead(envFogPage, T('Ground fog light'));
-    colorField(envFogPage, T('Ground fog color'), function () { var c=envClimate(); return c && {rgb:[c.groundFogColorR,c.groundFogColorG,c.groundFogColorB]}; }, function (rgb) {
+    ], 2, T('Sets the sliders below as a place to start. Street mist: thin torn fog with a milky haze. Thick sheet: one solid layer on the floor.'));
+    // GROUND FOG'S OWN SWITCH (2026-11-18). On and off without dragging the density down: off holds
+    // the density (pass-off, as the card switches do) and every setting below, on brings them back (1
+    // the first time). The card's header switch is the height fog's alone.
+    var envGroundFogMemo = null;
+    var envGroundFogSwitch = togglePill(envGroundFogPage, T('Ground fog'), T('Turns the ground fog on and off. Off keeps its density and every setting below; on brings them back. The switch in the card header is the height fog.'), function () {
+      var c = envClimate();
+      if (!c) return;
+      if (c.enabled && c.groundFog > 0) {
+        envGroundFogMemo = c.groundFog;
+        envCommand('pass-off groundFog 0');
+        envReleaseIfIdle({ groundFog: 0 });
+      } else {
+        envEnsureEnabled();
+        var held = (envState() || {}).held || {};
+        envCommand('climate groundFog ' + (envGroundFogMemo || held.groundFog || 1));
+      }
+    });
+    cs(envGroundFogPage, 'groundFog'); cs(envGroundFogPage, 'groundFogCoverage'); cs(envGroundFogPage, 'groundFogHeight');
+    subHead(envGroundFogPage, T('Shape'));
+    cs(envGroundFogPage, 'groundFogSoftness');
+    cs(envGroundFogPage, 'groundFogWisps'); cs(envGroundFogPage, 'groundFogWispSize'); cs(envGroundFogPage, 'groundFogStreak');
+    cs(envGroundFogPage, 'groundFogDetail'); cs(envGroundFogPage, 'groundFogBillowSize');
+    subHead(envGroundFogPage, T('Light'));
+    colorField(envGroundFogPage, T('Ground fog color'), function () { var c=envClimate(); return c && {rgb:[c.groundFogColorR,c.groundFogColorG,c.groundFogColorB]}; }, function (rgb) {
       ['groundFogColorR','groundFogColorG','groundFogColorB'].forEach(function (key,i) { envCommand('climate '+key+' '+rgb[i]); });
     });
-    cs(envFogPage, 'groundFogSun'); cs(envFogPage, 'groundFogShade');
-    colorField(envFogPage, T('Shade color'), function () { var c=envClimate(); return c && {rgb:[c.groundFogShadeR,c.groundFogShadeG,c.groundFogShadeB]}; }, function (rgb) {
+    cs(envGroundFogPage, 'groundFogSun'); cs(envGroundFogPage, 'groundFogShade'); cs(envGroundFogPage, 'groundFogShadows');
+    colorField(envGroundFogPage, T('Shade color'), function () { var c=envClimate(); return c && {rgb:[c.groundFogShadeR,c.groundFogShadeG,c.groundFogShadeB]}; }, function (rgb) {
       ['groundFogShadeR','groundFogShadeG','groundFogShadeB'].forEach(function (key,i) { envCommand('climate '+key+' '+rgb[i]); });
     });
+    subHead(envGroundFogPage, T('Motion'));
+    cs(envGroundFogPage, 'groundFogFlow'); cs(envGroundFogPage, 'groundFogPushSize');
+    cs(envGroundFogPage, 'groundFogRecovery'); cs(envGroundFogPage, 'groundFogSwirl');
+    cs(envGroundFogPage, 'groundFogWind'); cs(envGroundFogPage, 'groundFogWindAngle'); cs(envGroundFogPage, 'groundFogChurn');
     // A test view, not part of the look: it never appears in an EXR.
-    var envFogSimView = togglePill(envFogPage, T('Show sim view'), T('Shows the live fluid in a corner of the screen, from above. Dark is cleared fog, bright is heaped fog, blue is moving air, orange dots are players and green is the camera.'), function () {
+    var envFogSimView = togglePill(envGroundFogPage, T('Show sim view'), T('Shows the live fluid in a corner of the screen, from above. Dark is cleared fog, bright is heaped fog, blue is moving air, orange dots are players and green is the camera.'), function () {
       envCommand('groundfog-view toggle');
     });
-    subHead(envFogPage, T('Light'));
-    cw(envFogPage, T('Light shafts'), 'lightShafts', T('Sunlight through gaps in the map draws rays in both fogs, and buildings shade them. Uses the map’s own sun unless the Sky card moves it.'));
 
     renderHooks.push(function (st) {
       var c = envClimate(), s = envState();
       if (!c || !s) return;
       envSkySec.__note((c.enabled && (c.sky || c.clouds))
-        ? ((c.sky ? T('Sun {0}°', Math.round(c.sunElevation)) : T('Map sky')) + (c.clouds ? ' · ' + T('clouds') : '')) : T('Map sky'));
+        ? ((c.sky ? envClock(c.timeOfDay || 0) + (c.sunElevation >= 0 ? ' · ' + T('sun {0}°', Math.round(c.sunElevation)) : c.moonElevation > 0 && c.moon > 0 ? ' · ' + T('moon up') : ' · ' + T('night')) : T('Map sky')) + (c.clouds ? ' · ' + T('clouds') : '')) : T('Map sky'));
       // Environment lighting is the Lighting switch (relighting), not the Environment pass as a
       // whole: weather or fog alone keep the map's own lighting.
       envLightSec.__note(s.enabled && c.enabled && c.relighting ? (c.contactShadows ? T('Dynamic lighting · shadows on') : T('Dynamic lighting · shadows off')) : T('Map lighting'));
@@ -147,19 +159,16 @@ R"CFJS(
       if (fogParts.length && c.lightShafts) fogParts.push(T('shafts'));
       envFogSec.__note(fogParts.length ? fogParts.join(' · ') : T('Off'));
       envFogSimView.set(st.groundFogView === true);
+      envGroundFogSwitch.set(!!(c.enabled && c.groundFog > 0));
       envLooksSec.__note(T('Exposure {0} · saturation {1}', s.exposure.toFixed(2), c.saturation.toFixed(2)));
       climateShadowStatus.text = st.envOcclusionReady ? '' : (st.envOcclusionStatus || T('Map lighting data unavailable'));
       climateShadowStatus.visible = !!climateShadowStatus.text;
       lightPickStatus.text = st.lightEditor ? T('Editing lights: aim at a light and press F, Esc to finish.')
         : (st.lightsOff ? TN(st.lightsOff, '{0} light switched off on this map.', '{0} lights switched off on this map.') : T('Every map light is on.'));
-      var adapting = st.exposureAdapt === true, pinned = typeof st.exposure === 'number' && st.exposure > 0;
-      envAdaptToggle.set(adapting);
-      envAdaptSpeed.sync(typeof st.exposureSpeed === 'number' ? st.exposureSpeed : 2);
-      envAdaptComp.sync(typeof st.exposureCompensation === 'number' ? st.exposureCompensation : 0);
-      envAdaptSpeed.row.style.opacity = adapting ? '1' : '0.45';
-      envAdaptComp.row.style.opacity = adapting ? '1' : '0.45';
-      envAdaptNote.text = adapting && pinned ? T('Exposure is pinned on Effects > Lighting, so adaptation is paused. Press Auto exposure there to resume.')
-        : (adapting ? T('Adapting · exposure {0}', typeof st.exposureAdapted === 'number' ? st.exposureAdapted.toFixed(2) : '-') : '');
+      // The Environment's own adaptation: live while its lighting has the map and nothing pins exposure.
+      var envAdapting = !!(s.enabled && c.enabled && c.relighting && c.autoExposure), pinned = typeof st.exposure === 'number' && st.exposure > 0;
+      envAdaptNote.text = envAdapting && pinned ? T('Exposure is pinned on Effects > Lighting, so this is paused. Press Auto exposure there to release it.')
+        : (envAdapting ? T('Adapting · exposure {0}', typeof st.exposureAdapted === 'number' && st.exposureAdapted > 0 ? st.exposureAdapted.toFixed(2) : '-') : '');
       envAdaptNote.visible = !!envAdaptNote.text;
       envPrepPaint(st);
     });

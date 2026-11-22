@@ -78,8 +78,41 @@
     pic.url = c.toDataURL('image/png');
     return pic;
   }
+  // The map list as C++ sends it: searched and sorted (AltEnvironmentMath.h SortMapList, mirrored
+  // loosely here: a name holding the demo map's name is a remake, a measured layout "l" counts too).
+  function aeBase(m) { m = String(m || '').toLowerCase(); var u = m.indexOf('_'); return u > 0 && u <= 3 ? m.slice(u + 1) : m; }
+  function aeWords(t) { return String(t || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean); }
+  function aeLike(demo, m) {
+    var base = aeBase(demo), other = aeBase(m.m), words = aeWords(other).concat(aeWords(m.t)), bw = aeWords(base);
+    var name = other === base ? 1 : bw.every(function (b) { return words.indexOf(b) >= 0; }) ? 0.9
+      : words.join('').indexOf(bw.join('')) >= 0 ? 0.8 : 0.1;
+    return Math.max(name, m.l !== undefined ? m.l / 100 : 0);
+  }
+  function aeList(s) {
+    if (!s.allMaps) s.allMaps = s.maps.slice();
+    var q = String(s.listQuery || '').toLowerCase().split(' ').filter(Boolean), sort = s.listSort || 'alike';
+    var out = s.allMaps.filter(function (m) {
+      var hay = (m.t + ' ' + m.m + ' ' + (m.a || '')).toLowerCase();
+      return q.every(function (w) { return hay.indexOf(w) >= 0; });
+    }).map(function (m) { var c = {}; for (var k in m) c[k] = m[k]; c.s = Math.round(aeLike(s.demoMap, m) * 100); return c; });
+    out.sort(function (a, b) {
+      if (sort === 'alike') { if (!!a.tiny !== !!b.tiny) return a.tiny ? 1 : -1; if (a.s !== b.s) return b.s - a.s; }
+      if (sort === 'recent' && a.d !== b.d) return (b.d || 0) - (a.d || 0);
+      var ta = a.t.toLowerCase(), tb = b.t.toLowerCase();
+      return ta < tb ? -1 : ta > tb ? 1 : a.m < b.m ? -1 : a.m > b.m ? 1 : 0;
+    });
+    s.maps = out;
+    s.listTotal = s.allMaps.length;
+  }
   function altenv(st, args) {
     var s = st.altenv, v = args[0], w = args[1];
+    if (v === 'list') {
+      if (w === 'sort' && args[2]) s.listSort = args[2];
+      else if (w === 'find') s.listQuery = args.slice(2).filter(function (x) { return x !== 'quiet'; }).join(' ');
+      aeList(s);
+      return true;
+    }
+    if (!s.allMaps) aeList(s);
     function nums(i) { return [+args[i] || 0, +args[i + 1] || 0, +args[i + 2] || 0, +args[i + 3] || 0]; }
     function find(m, a) { for (var i = 0; i < s.maps.length; i++) if (s.maps[i].m === m && (!a || s.maps[i].a === a)) return s.maps[i]; return null; }
     if (v === 'view') s.view = w === 'on' ? true : w === 'off' ? false : !s.view;
@@ -273,6 +306,12 @@
         o.scale = ['point', 'spot', 'area', 'camera'].indexOf(o.kind) >= 0 ? [1, 1, 1] : [48, 48, 48];
         o.intensity = 4; o.range = 1200;
         if (o.kind === 'camera') { o.fov = 90; o.angles = [0, 90, 0]; o.color = [1, 0.85, 0.3]; }
+        // `add <light> camera` (EnvironmentScene.cpp): the rig attaches it to the camera at the eye.
+        if (t[2] === 'camera' && ['point', 'spot', 'area'].indexOf(o.kind) >= 0 && st.sceneKeys) {
+          o.asset = '';
+          st.sceneKeys.attach[o.id] = { parent: 'camera', who: 'the camera', player: '', object: 0, mount: '', missing: 'hide', offset: [0, 0, 0, 0, 0, 0] };
+          if (st.rig) st.rig.message = 'It rides the camera, at the eye. Move it with Offset.';
+        }
       }
       // Environment.cpp: a light joins whichever lighting runs; only a mesh turns Environment on.
       s.objects.push(o); st.envSelected = o.id; st.envEditing = 0;
@@ -298,7 +337,21 @@
       push(before);
     } else if (op === 'climate') {
       if (!(t[1] in s.climate)) { st.envMessage = 'Unknown climate setting: ' + t[1]; return true; }
-      s.climate[t[1]] = +t[2]; s.enabled = true; push(before);
+      s.climate[t[1]] = +t[2]; s.enabled = true;
+      // ApplyTimeOfDay (EnvironmentClimateMath.h): the time of day places the sun and the moon.
+      if (['timeOfDay','sunPath','sunHeight'].indexOf(t[1]) >= 0) {
+        var arc = function (hours) {
+          var a = (hours - 6) / 12 * Math.PI, h = s.climate.sunPath * Math.PI / 180, e = s.climate.sunHeight * Math.PI / 180;
+          var x = Math.cos(h - Math.PI / 2) * Math.cos(a) + Math.cos(e) * Math.cos(h) * Math.sin(a);
+          var y = Math.sin(h - Math.PI / 2) * Math.cos(a) + Math.cos(e) * Math.sin(h) * Math.sin(a);
+          var z = Math.sin(e) * Math.sin(a);
+          return [((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360, Math.max(-30, Math.asin(Math.max(-1, Math.min(1, z))) * 180 / Math.PI)];
+        };
+        var sun = arc(s.climate.timeOfDay), moon = arc(s.climate.timeOfDay - 12);
+        s.climate.sunAzimuth = sun[0]; s.climate.sunElevation = sun[1];
+        s.climate.moonAzimuth = moon[0]; s.climate.moonElevation = moon[1];
+      }
+      push(before);
     } else if (op === 'set') {
       var key = t[1], index = ['R','G','B'].indexOf(key.slice(-1));
       if (key.indexOf('fog') === 0 && index >= 0) s.fogColor[index] = +t[2];
@@ -308,7 +361,27 @@
     } else if (op === 'weather') {
       if (t[1] === 'set') s.weather[t[2]] = +t[3];
       else if (t[1] === 'wind') { s.weather.windX = +t[2] * Math.cos(+t[3]*Math.PI/180); s.weather.windY = +t[2] * Math.sin(+t[3]*Math.PI/180); }
-      else { s.weather.type = ['clear','rain','snow','ash','embers','motes','smoke'].indexOf(t[1]); }
+      else {
+        // Mirrors the weather command in EnvironmentScene.cpp: storm is rain, and rain, snow and ash
+        // bring their own air (gusts, haze, fog); clear takes it away.
+        s.weather.type = ['clear','rain','snow','ash','embers','motes','smoke'].indexOf(t[1] === 'storm' ? 'rain' : t[1]);
+        var looks = {clear:[0,0,climateDefaults.fogHeight,climateDefaults.fogNoise,null,climateDefaults.haze,0,0],
+          rain:[.55,.16,420,.6,[.50,.56,.64],.8,110,35], storm:[.85,.3,420,.6,[.50,.56,.64],1.1,220,70],
+          snow:[.75,.26,520,.7,[.86,.88,.91],1,55,20], ash:[.6,.3,620,.7,[.54,.51,.47],1.2,48,14]};
+        var look = looks[t[1]];
+        if (look) {
+          s.climate.gusts = look[0]; s.climate.fogDensity = look[1]; s.climate.fogHeight = look[2];
+          s.climate.fogNoise = look[3]; s.climate.haze = look[5];
+          // The ground drift starts as each weather's own look.
+          s.climate.gustDensity = 1; s.climate.gustHeight = 1; s.climate.gustWisps = 1; s.climate.gustFloor = 1;
+          if (look[4]) s.fogColor = look[4].slice();
+          if (look[0] > 0 || look[1] > 0) s.climate.enabled = 1;
+          // And its ground, replacing the last weather's.
+          var grounds = {rain:[0,.6,.25], storm:[0,.6,.25], snow:[.6,0,0], ash:[0,0,0], clear:[0,0,0]}, g = grounds[t[1]];
+          if (g) { s.climate.snow = g[0]; s.climate.wet = g[1]; s.climate.puddles = g[2]; }
+          if (t[1] !== 'clear') { s.weather.windX = look[6]; s.weather.windY = look[7]; }
+        }
+      }
       s.enabled = true; push(before);
     } else if (op === 'on' || op === 'off') { s.enabled = op === 'on'; push(before); }
     else if (op === 'save') {
@@ -319,8 +392,8 @@
       if (st.envStored && st.envStored[t[1]]) { st.environment = s = copy(st.envStored[t[1]]); push(before); }
       st.envSelected = st.envEditing = 0; st.envSaved = t[1];
     } else if (op === 'reset') {
-      if (t[1] === 'props' || t[1] === 'all') s.objects = [];
-      if (t[1] === 'all') {
+      if (t[1] === 'props' || t[1] === 'all' || t[1] === 'environment') s.objects = [];
+      if (t[1] === 'all' || t[1] === 'environment') {
         s.enabled = false; s.weather.type = 0; s.exposure = 1; s.tint = [1,1,1];
         s.climate = Object.assign({}, climateDefaults);
         climateResetOff.forEach(function(k){s.climate[k]=0;});
@@ -992,7 +1065,7 @@
       // RenderCommand.cpp RunPassCommand: the Passes tab's grid, key colour, depth range, preview.
       if (b === 'pass') {
         if (!st.render.pass || typeof st.render.pass !== 'object' || !st.render.pass.list)
-          st.render.pass = { hud: 0, cameraData: true, blood: true, key: [0, 255, 0], depthNear: 8, depthFar: 4096, preview: { type: 'beauty', elements: 'all' },
+          st.render.pass = { hud: 0, cameraData: true, blood: true, keySky: false, key: [0, 255, 0], depthNear: 8, depthFar: 4096, preview: { type: 'beauty', elements: 'all' },
             list: [{ type: 'beauty', elements: 'all', stream: 'beauty' }], rendersPerFrame: 1 };
         var ps = st.render.pass;
         var parts = cmd.split(/\s+/);
@@ -1025,6 +1098,7 @@
         if (op === 'hud') { ps.hud = { none: 0, game: 1, full: 2 }[parts[4]] || 0; return true; }
         if (op === 'cameradata') { ps.cameraData = num(parts[4], 1) !== 0; return true; }
         if (op === 'blood') { ps.blood = num(parts[4], 1) !== 0; return true; }
+        if (op === 'keysky') { ps.keySky = num(parts[4], 0) !== 0; return true; }
         return true;
       }
     }
@@ -1337,9 +1411,10 @@
         if (kind === 'grenade') st.rig.grenades.forEach(function (g) { if (g.index === target) who = g.type + ' by ' + g.thrower; });
         if (kind === 'dropped') st.rig.dropped.forEach(function (d) { if (d.index === target) who = d.name; });
         if (kind === 'object') { var p = st.environment.objects.find(function (x) { return x.id === target; }); who = p ? rigName(p) : ''; }
+        if (kind === 'camera') who = 'the camera';
         var old = sk.attach[id];
         edit(function () { sk.attach[id] = { parent: kind, who: who, player: player, object: kind === 'object' ? target : 0,
-          mount: t[4] || (kind === 'player' ? 'head' : kind === 'held' ? 'muzzle' : 'entity'), missing: old ? old.missing : 'hide', offset: [20, 0, 8, 0, 0, 0] }; });
+          mount: kind === 'camera' ? '' : t[4] || (kind === 'player' ? 'head' : kind === 'held' ? 'muzzle' : 'entity'), missing: old ? old.missing : 'hide', offset: [20, 0, 8, 0, 0, 0] }; });
         st.rig.message = 'Attached to ' + who + '. It stays where it is.';
       }
     } else if (op === 'mount' && sk.attach[id]) edit(function () { sk.attach[id].mount = t[2]; });

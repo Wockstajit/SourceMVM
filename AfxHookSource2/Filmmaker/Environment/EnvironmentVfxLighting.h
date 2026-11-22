@@ -10,6 +10,9 @@ struct MollyLightSource {
 };
 void ResetVfxLightingSources();
 std::vector<MollyLightSource> CaptureMollyLightSources();
+// Every flame of every burning inferno, on the ground where it burns (not the light anchors, which
+// are four representative points lifted to flame height).
+std::vector<Vec3> CaptureBurningFires();
 // Grenade and bomb explosions from the last moment, with their age in demo seconds. Flashbangs are
 // light, not a shock wave, so they are not here. The ground fog is blown away by these.
 struct VfxBlast { Vec3 position{}; float age = 0; };

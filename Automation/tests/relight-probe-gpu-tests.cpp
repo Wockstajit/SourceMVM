@@ -9,6 +9,9 @@
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentShadowMaps.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentShaderCompiler.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentShadowMath.h"
+#include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentShadowPyramid.h"
+#include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentSunVisibilityMath.h"
+#include <limits>
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -23,7 +26,7 @@ namespace Filmmaker {bool MvmDebugLog_Active(){return false;}void MvmDebugLog_Li
 void Check(bool b,const char* message){if(!b){std::cerr<<message<<'\n';std::exit(1);}}
 void CheckAmbientLifecycle(ID3D11Device* device,ID3D11DeviceContext* ctx){
     const Vec3 low{-32,-32,-32},high{32,32,32};
-    const auto initial=AmbientProbe(device,low,high,{1,0,0},{});
+    const auto initial=AmbientProbe(device,low,high,HemisphereCube({1,0,0},{}));
     Check(initial.irradiance&&initial.sampler,"ambient binding exists");
     ComPtr<ID3D11ShaderResourceView> previous=initial.irradiance;
     auto rgb=[&](ID3D11ShaderResourceView* view){
@@ -36,9 +39,9 @@ void CheckAmbientLifecycle(ID3D11Device* device,ID3D11DeviceContext* ctx){
         Vec3 result{};std::memcpy(&result,m.pData,sizeof(result));ctx->Unmap(read.Get(),0);return result;
     };
     auto red=rgb(initial.irradiance);Check(red.x>0&&red.y==0&&red.z==0,"live red sky enters ambient field");
-    const auto changed=AmbientProbe(device,low,high,{0,0,1},{});
+    const auto changed=AmbientProbe(device,low,high,HemisphereCube({0,0,1},{}));
     auto blue=rgb(changed.irradiance);Check(blue.x==0&&blue.y==0&&blue.z>0,"sky edit replaces ambient radiance immediately");
-    const auto skybox=SkyboxAmbientProbe(device,low*16,high*16,{0,1,0},{});
+    const auto skybox=SkyboxAmbientProbe(device,low*16,high*16,HemisphereCube({0,1,0},{}));
     auto green=rgb(skybox.irradiance);Check(green.x==0&&green.y>0&&green.z==0,"skybox has its own ambient radiance");
     auto retained=rgb(changed.irradiance);
     Check(retained.x==0&&retained.y==0&&retained.z>0&&skybox.constants!=changed.constants,
@@ -46,7 +49,7 @@ void CheckAmbientLifecycle(ID3D11Device* device,ID3D11DeviceContext* ctx){
     auto neutral=rgb(NeutralProbe(device,low,high).irradiance);
     Check(neutral.x==ProbeNeutral.x&&neutral.y==ProbeNeutral.y&&neutral.z==ProbeNeutral.z,"ambient edits preserve diagnostic probe isolation");
     EndProbes();
-    const auto fresh=AmbientProbe(device,low,high,{},{});
+    const auto fresh=AmbientProbe(device,low,high,HemisphereCube({},{}));
     Check(fresh.irradiance&&fresh.irradiance!=previous.Get(),"ending probes releases cached live volume before recreation");
     auto black=rgb(fresh.irradiance);Check(black.x==0&&black.y==0&&black.z==0,"recreated ambient field cannot retain prior illumination");
     EndProbes();
@@ -170,6 +173,11 @@ void CheckMath(){
     // Voxel word round trip.
     const auto word=PackGiVoxel({0,0,1},{1,0,.25f},true);
     Check((word&0x80000000u)&&(word&0x40000000u)&&((word>>15)&31)==31&&((word>>20)&31)==0&&((word>>25)&31)==16,"voxel word packs occupancy, porosity and sqrt albedo");
+    // Octahedral normal: the six axes are exact, the two hemispheres differ, and bit 14 stays free.
+    Check((word&0x7fffu)==(63u|(63u<<7)),"an upward normal packs to the centre of the octahedral map");
+    Check((PackGiVoxel({0,0,-1},{1,1,1},false)&0x3fffu)==(126u|(126u<<7))&&(PackGiVoxel({0,-1,0},{1,1,1},false)&0x3fffu)==(63u|(0u<<7))&&
+          (PackGiVoxel({1,0,0},{1,1,1},false)&0x3fffu)==(126u|(63u<<7)),"axis normals pack exactly and leave the two-sided bit clear");
+    Check(!(PackGiVoxel({-.3f,.4f,-.8f},{1,1,1},true)&GiVoxelTwoSided),"packing never sets the two-sided bit");
 }
 void CheckShaders(ID3D11Device* device,ID3D11DeviceContext* ctx){
     Check(std::string(kProbeGiShader).find("#define PROBE_RESOLUTION "+std::to_string(GiProbeResolution)+"\n")!=std::string::npos,
@@ -329,6 +337,18 @@ void CheckShaders(ID3D11Device* device,ID3D11DeviceContext* ctx){
     cells[(4*8+3)*8+3]=PackGiVoxel({0,0,1},{1,0,0},true);
     voxels=texture(8,8,DXGI_FORMAT_R32_UINT,cells.data(),4);injectRun(previous.srv.Get());
     Check(read(radiance,3,3,4)[3]<.5f,"foliage voxels are partially transparent to traced light");
+    // Cloth: solid to a ray, and its shaded face sends on the light on its lit face.
+    Check(std::string(kProbeGiShader).find("#define CLOTH_PASS 1.\n")!=std::string::npos&&GiClothPass==1.f,"The shader's cloth share is the C++ one");
+    cells[(4*8+3)*8+3]=PackGiVoxel({0,0,1},{1,0,0},false)|GiVoxelCloth;
+    voxels=texture(8,8,DXGI_FORMAT_R32_UINT,cells.data(),4);injectRun(previous.srv.Get());
+    {
+        const auto top=read(radiance,3,3,4),underside=read(backRadiance,3,3,4);
+        Check(top[3]==1&&underside[3]==1,"Cloth is solid to traced light");
+        Check(std::abs(top[0]-2)<.01f&&std::abs(underside[0]-2*GiClothPass)<.01f&&underside[1]==0,
+              "The shaded face of sunlit cloth sends the sun on, through the cloth's colour");
+    }
+    cells[(4*8+3)*8+3]=PackGiVoxel({0,0,1},{1,0,0},true);
+    voxels=texture(8,8,DXGI_FORMAT_R32_UINT,cells.data(),4);injectRun(previous.srv.Get());
     // Probe history: traced slices blend into the previous value; others carry over.
     std::vector<ProbeRow> old(size_t(P)*P*P*6,ProbeRow{1,1,1,1});
     auto historyIn=texture(P,P*6,DXGI_FORMAT_R32G32B32A32_FLOAT,old.data(),16),historyOut=texture(P,P*6,DXGI_FORMAT_R32G32B32A32_FLOAT,old.data(),16);
@@ -517,6 +537,30 @@ void CheckShaders(ID3D11Device* device,ID3D11DeviceContext* ctx){
     const auto ceiling=read(historyOut,0,0,0);
     Check(ceiling[0]==0&&ceiling[1]>1.7f&&ceiling[2]==0&&ceiling[3]==0,
           "A back-facing opaque ceiling reflects interior light and admits no blue skylight");
+    // A probe is thrown out when its rays see the back of surfaces, which means it stands behind a
+    // wall or under a floor. A one-sided cell gives that evidence. A cell holding faces on opposite
+    // sides (both faces of a roll-up door) does not: the probes standing in front of the Inferno
+    // top mid garage door were thrown out by it and left a black patch.
+    {
+        const std::string facingShader=std::string(kProbeGiShader)+
+            "\n[numthreads(1,1,1)] void FacingTestCS(){float d,backface;ProbeRay(float3(64.5,64.5,60.5),float3(0,0,1),d,backface);probeOutput[uint3(0,0,0)]=float4(backface,d,VoxelNormal(staticVoxels[int3(64,64,64)]).z,0);}";
+        ComPtr<ID3DBlob> facingCode,facingError;ComPtr<ID3D11ComputeShader> facingTest;
+        Check(SUCCEEDED(Filmmaker::Environment::CompileEnvironmentShader(facingShader.c_str(),facingShader.size(),"FacingTest",nullptr,"FacingTestCS","cs_5_0",D3DCOMPILE_ENABLE_STRICTNESS,&facingCode,&facingError))&&
+              SUCCEEDED(device->CreateComputeShader(facingCode->GetBufferPointer(),facingCode->GetBufferSize(),nullptr,&facingTest)),"facing regression shader");
+        const auto savedDims=values[7];values[7]={128,128,128,0};
+        auto facing=[&](uint32_t extra){
+            for(auto& cell:ceilingCells)if(cell)cell=PackGiVoxel({0,0,1},{1,1,1},false)|extra;
+            auto voxels=texture(128,128,DXGI_FORMAT_R32_UINT,ceilingCells.data(),4);
+            upload();auto occupancy=voxels.srv.Get();
+            ctx->CSSetShaderResources(0,1,&occupancy);ctx->CSSetShaderResources(3,1,&ceilingSrv);ctx->CSSetShaderResources(4,1,&normalSrv);ctx->CSSetShaderResources(19,1,&interiorSrv);
+            ctx->CSSetUnorderedAccessViews(4,1,&rayOutput,nullptr);ctx->CSSetShader(facingTest.Get(),nullptr,0);ctx->Dispatch(1,1,1);ctx->ClearState();
+            return read(historyOut,0,0,0);};
+        const auto oneSided=facing(0),twoSided=facing(GiVoxelTwoSided);
+        Check(oneSided[0]==1&&oneSided[1]>.05f,"a ray reaching a one-sided ceiling from above its normal reports a back face");
+        Check(twoSided[0]==0&&twoSided[1]==oneSided[1],"the same ray into a two-sided cell reports no back face and the same distance");
+        Check(oneSided[2]>.999f&&twoSided[2]>.999f,"the two-sided bit is not read as part of the normal");
+        values[7]=savedDims;
+    }
     // Boundary probes relocate symmetrically, and publish the origin used by receiver visibility.
     const unsigned V=128,c=P+1;
     values[7]={float(V),float(V),float(V),0};
@@ -1257,6 +1301,95 @@ void CheckSunMsaaEdges(ID3D11Device* device,ID3D11DeviceContext* ctx){
     }
 
 }
+void CheckSunSummary(ID3D11Device* device,ID3D11DeviceContext* ctx){
+    // The sun penumbra pass's summary shortcuts must return exactly what its search and filter
+    // return. One cascade tile with a tall block (wide penumbra), a low slab (sharp contact), a
+    // one-texel bar and open ground; receivers over the whole tile, flat and sloped, evaluated with
+    // the summary and without it.
+    using namespace Filmmaker::Environment;
+    constexpr unsigned Size=256,Grid=192;
+    const std::string shader=std::string(SunVisibilityShader)+
+        "[numthreads(8,8,1)]void SummaryTest(uint3 id:SV_DispatchThreadID){"
+        "float3 p=float3((float2(id.xy)+.37)/192*120-60,camera.z+dot((float2(id.xy)+.37)/192*120-60,camera.xy));"
+        "float visibility=CascadeVisibility(0,p,normalize(depthInfo.xyz));result[id.xy]=float4(visibility,float(summaryOutcome),0,0);}";
+    ComPtr<ID3DBlob> code,error;
+    Check(SUCCEEDED(CompileEnvironmentShader(shader.data(),shader.size(),"SunSummary",nullptr,"SummaryTest","cs_5_0",0,&code,&error)),"sun summary test shader compiles");
+    ComPtr<ID3D11ComputeShader> cs;Check(SUCCEEDED(device->CreateComputeShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&cs)),"sun summary test shader");
+    std::array<ProbeRow,30+SunSearchTaps+SunFilterTaps> rows{};
+    const auto search=SunDiskTaps<SunSearchTaps,true>();const auto filter=SunDiskTaps<SunFilterTaps,false>();
+    for(unsigned i=0;i<search.size();++i)rows[30+i]={search[i].x,search[i].y,search[i].radius,0};
+    for(unsigned i=0;i<filter.size();++i)rows[30+search.size()+i]={filter[i].x,filter[i].y,filter[i].radius,0};
+    // World xy -64..64 fills the tile (half a unit a texel); depth .5 at z 0, .0005 a unit.
+    rows[4]={1.f/64,0,0,0};rows[5]={0,1.f/64,0,0};rows[6]={0,0,.0005f,.5f};rows[7]={0,0,0,1};
+    rows[20]={.5f,.5f,.5f,-.5f};rows[29]={float(Size),float(Size),1.f/Size,1.f/Size};
+    D3D11_BUFFER_DESC bd{};bd.ByteWidth=sizeof(rows);bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+    ComPtr<ID3D11Buffer> cb;Check(SUCCEEDED(device->CreateBuffer(&bd,nullptr,&cb)),"sun summary constants");
+    std::vector<float> depths(Size*Size,1.f);
+    const auto block=[&](unsigned x0,unsigned y0,unsigned x1,unsigned y1,float units){
+        for(unsigned y=y0;y<y1;++y)for(unsigned x=x0;x<x1;++x)depths[y*Size+x]=.5f-units*.0005f;};
+    block(40,40,120,120,40);   // 40 units in front: a penumbra two units wide
+    block(150,60,220,110,.5f); // half a unit in front: sharper than a texel
+    block(30,170,200,171,25);  // a bar one texel wide
+    block(180,180,230,230,300);// far in front, beside open ground
+    D3D11_TEXTURE2D_DESC td{};td.Width=td.Height=Size;td.MipLevels=td.ArraySize=td.SampleDesc.Count=1;td.Format=DXGI_FORMAT_R32_FLOAT;td.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA data{depths.data(),Size*4,0};ComPtr<ID3D11Texture2D> atlas;ComPtr<ID3D11ShaderResourceView> srv;
+    Check(SUCCEEDED(device->CreateTexture2D(&td,&data,&atlas))&&SUCCEEDED(device->CreateShaderResourceView(atlas.Get(),nullptr,&srv)),"sun summary atlas");
+    constexpr unsigned Levels=7; // 4 to 256 texel blocks: the whole tile
+    ShadowPyramidBuilder summary;std::string failure;
+    Check(summary.Create(device,Size,Size,0,Levels,failure),"sun summary builds");
+    Check(summary.Record(ctx,srv.Get(),failure),"sun summary records");ctx->ClearState();
+    td.Width=td.Height=Grid;td.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;td.BindFlags=D3D11_BIND_UNORDERED_ACCESS;
+    ComPtr<ID3D11Texture2D> output,read;ComPtr<ID3D11UnorderedAccessView> uav;
+    Check(SUCCEEDED(device->CreateTexture2D(&td,nullptr,&output))&&SUCCEEDED(device->CreateUnorderedAccessView(output.Get(),nullptr,&uav)),"sun summary output");
+    td.Usage=D3D11_USAGE_STAGING;td.BindFlags=0;td.CPUAccessFlags=D3D11_CPU_ACCESS_READ;Check(SUCCEEDED(device->CreateTexture2D(&td,nullptr,&read)),"sun summary readback");
+    const auto run=[&](bool withSummary){
+        rows[27][3]=withSummary?float(Levels):0.f;ctx->UpdateSubresource(cb.Get(),0,nullptr,rows.data(),0,0);
+        auto c=cb.Get();ID3D11ShaderResourceView* views[2]{srv.Get(),withSummary?summary.View():nullptr};auto u=uav.Get();
+        ctx->CSSetConstantBuffers(0,1,&c);ctx->CSSetShaderResources(1,2,views);ctx->CSSetUnorderedAccessViews(0,1,&u,nullptr);
+        ctx->CSSetShader(cs.Get(),nullptr,0);ctx->Dispatch(Grid/8,Grid/8,1);ctx->ClearState();
+        ctx->CopyResource(read.Get(),output.Get());D3D11_MAPPED_SUBRESOURCE mapped{};Check(SUCCEEDED(ctx->Map(read.Get(),0,D3D11_MAP_READ,0,&mapped)),"sun summary map");
+        std::vector<float> values(Grid*Grid*2);
+        for(unsigned y=0;y<Grid;++y){const auto row=reinterpret_cast<const float*>(static_cast<const char*>(mapped.pData)+y*mapped.RowPitch);
+            for(unsigned x=0;x<Grid;++x){values[(y*Grid+x)*2]=row[x*4];values[(y*Grid+x)*2+1]=row[x*4+1];}}
+        ctx->Unmap(read.Get(),0);return values;};
+    struct Case {float tanHalf,searchDistance,slopeX,slopeY;ProbeRow normal;const char* name;};
+    // slope: receiver height per unit of x and y, with the matching unit normal direction.
+    const Case cases[]{
+        {.05f,40,0,0,{0,0,-1,0},"flat receivers under a wide sun"},
+        {.004625f,8192,0,0,{0,0,-1,0},"flat receivers under the real sun with the production search reach"},
+        {.05f,40,.3f,0,{.3f,0,-1,0},"receivers sloped along x"},
+        {.02f,200,-.2f,.35f,{-.2f,.35f,-1,0},"receivers sloped along both axes"},
+        {0,40,.1f,.1f,{.1f,.1f,-1,0},"a point sun"},
+    };
+    for(const auto& test:cases){
+        rows[25]={test.slopeX,test.slopeY,0,0};rows[27]={test.normal[0],test.normal[1],test.normal[2],0};
+        rows[28]={test.tanHalf,0,float(Size),test.searchDistance};
+        const auto reference=run(false),shortcut=run(true);
+        unsigned outcomes[4]{},partial=0;
+        for(unsigned i=0;i<Grid*Grid;++i){
+            if(std::memcmp(&reference[i*2],&shortcut[i*2],sizeof(float))){
+                std::cerr<<test.name<<": pixel "<<i%Grid<<","<<i/Grid<<" full="<<reference[i*2]<<" summary="<<shortcut[i*2]<<" outcome="<<shortcut[i*2+1]<<std::endl;
+                Check(false,"The sun summary shortcuts return exactly what the search and filter return");
+            }
+            Check(reference[i*2+1]==0,"Without a summary no shortcut is taken");
+            ++outcomes[unsigned(shortcut[i*2+1])&3];
+            if(reference[i*2]>0&&reference[i*2]<1)++partial;
+        }
+        std::cout<<"sun summary, "<<test.name<<": full "<<outcomes[0]<<" lit "<<outcomes[1]<<" contact "<<outcomes[2]<<" shadowed "<<outcomes[3]<<" penumbra "<<partial<<std::endl;
+        Check(outcomes[1]>Grid*Grid/8,"Open ground is proven lit");
+        Check(test.tanHalf==0||outcomes[3]>Grid*Grid/64,"The inside of a wide shadow is proven shadowed");
+        Check(test.tanHalf>0||outcomes[0]==0,"A point sun never needs the search or the filter");
+        Check(test.tanHalf==0||partial>0,"The scene has penumbra pixels, which still take the full filter");
+    }
+    // A NaN texel makes its blocks unprovable rather than wrong.
+    depths[100*Size+200]=std::numeric_limits<float>::quiet_NaN();
+    ctx->UpdateSubresource(atlas.Get(),0,nullptr,depths.data(),Size*4,0);
+    summary.Mark(0,0,Size,Size);Check(summary.Record(ctx,srv.Get(),failure),"sun summary records a NaN texel");ctx->ClearState();
+    rows[25]={0,0,0,0};rows[27]={0,0,-1,0};rows[28]={.05f,0,float(Size),40};
+    const auto reference=run(false),shortcut=run(true);
+    for(unsigned i=0;i<Grid*Grid;++i)
+        Check(!std::memcmp(&reference[i*2],&shortcut[i*2],sizeof(float)),"A NaN depth never changes a result through the summary");
+}
 void CheckSunContact(ID3D11Device* device,ID3D11DeviceContext* ctx){
     // The production PCSS search must not erase a narrow centre blocker.
     const std::string shader=std::string(Filmmaker::Environment::SunVisibilityShader)+
@@ -1374,6 +1507,7 @@ int main(){
     Check(SUCCEEDED(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,0,nullptr,0,D3D11_SDK_VERSION,&device,nullptr,&ctx)),"WARP device");
     CheckSunMsaaEdges(device.Get(),ctx.Get());
     CheckSunContact(device.Get(),ctx.Get());
+    CheckSunSummary(device.Get(),ctx.Get());
     CheckAmbientLifecycle(device.Get(),ctx.Get());
     CheckScreenCache(device.Get(),ctx.Get());
     CheckMath();

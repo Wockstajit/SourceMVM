@@ -245,6 +245,12 @@ add_executable(RenderCaptureMathTests
 target_compile_features(RenderCaptureMathTests PRIVATE cxx_std_17)
 add_test(NAME RenderCaptureMathTests COMMAND RenderCaptureMathTests)
 
+add_executable(RenderWriterFailureMathTests
+    ../Automation/tests/render-writer-failure-math-tests.cpp
+)
+target_compile_features(RenderWriterFailureMathTests PRIVATE cxx_std_17)
+add_test(NAME RenderWriterFailureMathTests COMMAND RenderWriterFailureMathTests)
+
 add_executable(RenderEncodingTests
     ../Automation/tests/render-encoding-tests.cpp
     Filmmaker/Render/RenderEncoding.cpp
@@ -475,6 +481,19 @@ add_test(NAME SceneKeyframeMathTests COMMAND SceneKeyframeMathTests)
 add_executable(RelightProbeMathTests ../Automation/tests/relight-probe-math-tests.cpp)
 target_compile_features(RelightProbeMathTests PRIVATE cxx_std_17)
 add_test(NAME RelightProbeMathTests COMMAND RelightProbeMathTests)
+add_executable(RelightLiteGridMathTests ../Automation/tests/relight-lite-grid-math-tests.cpp)
+target_compile_features(RelightLiteGridMathTests PRIVATE cxx_std_17)
+add_test(NAME RelightLiteGridMathTests COMMAND RelightLiteGridMathTests)
+# Wet reflections off screen: CS2's probe records, the probes near the camera, the measured tone curve.
+add_executable(ReflectionProbeMathTests ../Automation/tests/reflection-probe-math-tests.cpp)
+target_compile_features(ReflectionProbeMathTests PRIVATE cxx_std_17)
+add_test(NAME ReflectionProbeMathTests COMMAND ReflectionProbeMathTests)
+add_executable(WeatherCoverMathTests ../Automation/tests/weather-cover-math-tests.cpp)
+target_compile_features(WeatherCoverMathTests PRIVATE cxx_std_17)
+add_test(NAME WeatherCoverMathTests COMMAND WeatherCoverMathTests)
+add_executable(FootprintMathTests ../Automation/tests/footprint-math-tests.cpp)
+target_compile_features(FootprintMathTests PRIVATE cxx_std_17)
+add_test(NAME FootprintMathTests COMMAND FootprintMathTests)
 
 add_executable(RelightMathTests ../Automation/tests/relight-math-tests.cpp)
 target_compile_features(RelightMathTests PRIVATE cxx_std_17)
@@ -520,7 +539,7 @@ target_link_libraries(RelightReflectionFilterTests PRIVATE d3d11 dxguid)
 add_test(NAME RelightReflectionFilterTests COMMAND RelightReflectionFilterTests)
 
 add_executable(RelightProbeGpuTests ../Automation/tests/relight-probe-gpu-tests.cpp)
-target_sources(RelightProbeGpuTests PRIVATE Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightmap.cpp)
+target_sources(RelightProbeGpuTests PRIVATE Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightLiteGrid.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightmap.cpp)
 target_compile_features(RelightProbeGpuTests PRIVATE cxx_std_17)
 target_link_libraries(RelightProbeGpuTests PRIVATE d3d11 dxguid)
 add_test(NAME RelightProbeGpuTests COMMAND RelightProbeGpuTests)
@@ -535,6 +554,11 @@ add_executable(EnvironmentMathTests
 )
 target_compile_features(EnvironmentMathTests PRIVATE cxx_std_17)
 add_test(NAME EnvironmentMathTests COMMAND EnvironmentMathTests)
+add_executable(EnvironmentSkyMathTests
+    ../Automation/tests/environment-sky-math-tests.cpp
+)
+target_compile_features(EnvironmentSkyMathTests PRIVATE cxx_std_17)
+add_test(NAME EnvironmentSkyMathTests COMMAND EnvironmentSkyMathTests)
 add_executable(AutoExposureMathTests
     ../Automation/tests/auto-exposure-math-tests.cpp
 )
@@ -551,12 +575,16 @@ add_test(NAME EnvironmentGltfMathTests COMMAND EnvironmentGltfMathTests)
 add_executable(EnvironmentRenderTests
     ../Automation/tests/environment-render-tests.cpp
     Filmmaker/Environment/EnvironmentRender.cpp
+    Filmmaker/Environment/EnvironmentLampShadows.cpp
     Filmmaker/Environment/EnvironmentShadowMaps.cpp
+    Filmmaker/Environment/EnvironmentWeatherCover.cpp
     Filmmaker/Environment/EnvironmentFoliage.cpp
     Filmmaker/Environment/EnvironmentViewmodel.cpp
     Filmmaker/Environment/EnvironmentAnimatedCasters.cpp Filmmaker/Environment/EnvironmentParticleShadows.cpp
     Filmmaker/Environment/EnvironmentGi.cpp
     Filmmaker/Environment/EnvironmentGroundFog.cpp
+    Filmmaker/Environment/EnvironmentWindFluid.cpp
+    Filmmaker/Environment/EnvironmentFootprints.cpp
     Filmmaker/Environment/EnvironmentDocument.cpp
     Filmmaker/Environment/EnvironmentObj.cpp
     Filmmaker/Environment/EnvironmentWorldDocument.cpp
@@ -574,6 +602,12 @@ add_executable(EnvironmentReceiverTests ../Automation/tests/environment-receiver
 target_compile_features(EnvironmentReceiverTests PRIVATE cxx_std_17)
 target_link_libraries(EnvironmentReceiverTests PRIVATE d3d11)
 add_test(NAME EnvironmentReceiverTests COMMAND EnvironmentReceiverTests)
+# It compiles the whole surface program (coatings, the CS2 snow material, footprints) through fxc
+# for a dozen probes, about 140 s on main and over CI's 300 s default after the November environment
+# work. Its own limit keeps it in CI rather than in the excluded slow list. CI now takes about
+# 770 s and once ran past 900 s on a slower runner (2026-11-20) with no shader change, so the limit
+# leaves room for runner speed.
+set_tests_properties(EnvironmentReceiverTests PROPERTIES TIMEOUT 1800)
 add_executable(EnvironmentAnimatedCasterTests ../Automation/tests/environment-animated-caster-tests.cpp Filmmaker/Environment/EnvironmentAnimatedCasters.cpp Filmmaker/Environment/EnvironmentParticleShadows.cpp Filmmaker/Environment/EnvironmentCasterBounds.cpp)
 target_compile_features(EnvironmentAnimatedCasterTests PRIVATE cxx_std_17)
 target_link_libraries(EnvironmentAnimatedCasterTests PRIVATE d3d11 dxguid)
@@ -603,6 +637,10 @@ add_executable(EnvironmentGroundFogMathTests ../Automation/tests/environment-gro
     Filmmaker/Environment/EnvironmentGroundFogMath.h)
 target_compile_features(EnvironmentGroundFogMathTests PRIVATE cxx_std_17)
 add_test(NAME EnvironmentGroundFogMathTests COMMAND EnvironmentGroundFogMathTests)
+add_executable(EnvironmentWindFluidMathTests ../Automation/tests/environment-wind-fluid-math-tests.cpp
+    Filmmaker/Environment/EnvironmentWindFluidMath.h)
+target_compile_features(EnvironmentWindFluidMathTests PRIVATE cxx_std_17)
+add_test(NAME EnvironmentWindFluidMathTests COMMAND EnvironmentWindFluidMathTests)
 add_executable(EnvironmentShaderReachMathTests ../Automation/tests/environment-shader-reach-math-tests.cpp
     Filmmaker/Environment/EnvironmentShaderReachMath.h)
 target_compile_features(EnvironmentShaderReachMathTests PRIVATE cxx_std_17)
@@ -611,10 +649,10 @@ add_executable(EnvironmentGizmoMathTests ../Automation/tests/environment-gizmo-m
 target_compile_features(EnvironmentGizmoMathTests PRIVATE cxx_std_17)
 add_test(NAME EnvironmentGizmoMathTests COMMAND EnvironmentGizmoMathTests)
 
-target_sources(EnvironmentRenderTests PRIVATE Filmmaker/Environment/EnvironmentNativeMaterial.cpp Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp)
+target_sources(EnvironmentRenderTests PRIVATE Filmmaker/Environment/EnvironmentNativeMaterial.cpp Filmmaker/Environment/EnvironmentNativeMaterialDerive.cpp Filmmaker/Environment/EnvironmentNativeMaterialDraw.cpp Filmmaker/Render/RenderPixelStateLayer.cpp Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightLiteGrid.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp)
 add_executable(EnvironmentNativeMaterialTests ../Automation/tests/environment-native-material-tests.cpp
-    Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp
-    Filmmaker/Environment/EnvironmentNativeMaterial.cpp Filmmaker/Relight/RelightNativeCluster.cpp)
+    Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightLiteGrid.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp
+    Filmmaker/Environment/EnvironmentNativeMaterial.cpp Filmmaker/Environment/EnvironmentNativeMaterialDerive.cpp Filmmaker/Environment/EnvironmentNativeMaterialDraw.cpp Filmmaker/Render/RenderPixelStateLayer.cpp Filmmaker/Relight/RelightNativeCluster.cpp)
 target_compile_features(EnvironmentNativeMaterialTests PRIVATE cxx_std_17)
 target_link_libraries(EnvironmentNativeMaterialTests PRIVATE d3d11 dxguid)
 add_test(NAME EnvironmentNativeMaterialTests COMMAND EnvironmentNativeMaterialTests)

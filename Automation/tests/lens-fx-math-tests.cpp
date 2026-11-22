@@ -59,7 +59,7 @@ static void TestParameterTable() {
 	// was folded into a fixed constant, a palette index or removed is gone, not aliased.
 	int flareCount = 0;
 	for (int i = 0; i < ParamCount; ++i) flareCount += InGroup(i, Group::Flare) ? 1 : 0;
-	CHECK(flareCount == 15 && flareCount <= 16);
+	CHECK(flareCount == 16 && flareCount <= 16);
 	for (const char* removed : { "flare.range", "flare.boost", "flare.spread", "flare.ghostGain", "flare.ghostSize", "flare.ghostShape",
 		"flare.ghostHue", "flare.ghostSat", "flare.variety", "flare.seed", "flare.chroma", "flare.squeeze", "flare.bladeRound",
 		"flare.haloWidth", "flare.haloCompress", "flare.haloRainbow", "flare.streakAng", "flare.starLen", "flare.starRot",
@@ -67,8 +67,20 @@ static void TestParameterTable() {
 		"flare.tintB", "flare.streakR", "flare.streakG", "flare.streakB" })
 		CHECK(FindParam(removed) == -1);
 	for (const char* kept : { "flare.on", "flare.intensity", "flare.threshold", "flare.ghosts", "flare.halo", "flare.streak",
-		"flare.streakLen", "flare.star", "flare.blades", "flare.glow", "flare.sun", "flare.dirt", "flare.tint", "flare.streakTint", "flare.debug" })
+		"flare.streakLen", "flare.star", "flare.blades", "flare.glow", "flare.sun", "flare.sunOnly", "flare.dirt", "flare.tint", "flare.streakTint", "flare.debug" })
 		CHECK(FindParam(kept) >= 0);
+	// Sun only is off by default, a switch, and a look preset leaves it as it was; Reset turns it off.
+	CHECK(Specs()[FlareSunOnly].def == 0.0f && Specs()[FlareSunOnly].integer);
+	{
+		Values L;
+		L[FlareSunOnly] = 1;
+		CHECK(ApplyFlarePreset(L, "anamorphic") && L[FlareSunOnly] == 1.0f);
+		ResetGroup(L, Group::Flare);
+		CHECK(L[FlareSunOnly] == 0.0f);
+	}
+	CHECK(SunInfoBits(false, false, false) == 0.0f);
+	CHECK(SunInfoBits(true, false, false) == (float)kSunFromDirection);
+	CHECK(SunInfoBits(false, true, true) == (float)(kSunFromLocator | kSunOnly));
 	CHECK(Specs()[FlareGhosts].max == (float)kMaxGhosts);
 	CHECK(Specs()[FlareSun].def == 1.0f && Specs()[FlareSun].min == 0.0f);
 	CHECK(Specs()[FlareThreshold].max == 1.0f && Specs()[FlareThreshold].def < 0.95f && Specs()[FlareThreshold].def > Specs()[FlareThreshold].min);

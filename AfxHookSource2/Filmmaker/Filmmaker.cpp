@@ -4,6 +4,7 @@
 #include "Takes/Takes.h"
 #include "Environment/EnvironmentScene.h"
 #include "../WrpConsole.h"
+#include "../ViewportScaler.h" // AfxViewportScaler::SetWorldReloading: no held preview over a loading screen
 
 #include "Demo/DemoLibrary.h"
 #include "Demo/DemoProjectPath.h"
@@ -68,6 +69,7 @@
 #include "Movie/RagdollPhysics.h" // ragdoll gravity/friction/limit (convar-driven)
 #include "World/WorldCommand.h" // World_RunFrame: lighting / atmosphere / weather modules
 #include "World/SunFx.h"        // SunFx_RefreshVisibleSun: the lens flare's sun
+#include "Lens/LensSunLocator.h" // LensSunLocator_SetWanted: the flare's sun is the disc CS2 draws
 #include "Lens/LensFx.h"        // LensFx_FlareOn
 #include "Movie/RagdollWeapon.h"
 #include "Movie/DeathAnimations.h"
@@ -546,6 +548,30 @@ bool EngineHasDemoLoaded() {
 	return false;
 }
 
+// A demo reload the hook started (a map switch, another demo): the workspace preview must not keep
+// the old world's last frame over the loading screen (AfxViewportScaler::SetWorldReloading). It
+// ends once the old demo has gone and the new one plays, or after two minutes whatever happens.
+ULONGLONG g_worldReloadAt = 0;
+bool g_worldReloadSawUnload = false;
+
+void BeginWorldReload() {
+	AfxViewportScaler::SetWorldReloading(true);
+	g_worldReloadAt = GetTickCount64();
+	g_worldReloadSawUnload = false;
+}
+
+void PumpWorldReload() {
+	if (!g_worldReloadAt) return;
+	const bool loaded = EngineHasDemoLoaded();
+	if (!loaded) g_worldReloadSawUnload = true;
+	int tick = -1;
+	const bool playing = g_worldReloadSawUnload && loaded && g_MirvTime.GetCurrentDemoTick(tick) && tick >= 1;
+	if (playing || GetTickCount64() - g_worldReloadAt > 120000) {
+		AfxViewportScaler::SetWorldReloading(false);
+		g_worldReloadAt = 0;
+	}
+}
+
 void IssuePlaydemo(const std::wstring& original, const std::wstring& playable) {
 	{
 		std::lock_guard<std::mutex> lock(g_demoPathMutex);
@@ -592,6 +618,7 @@ void PlayResolvedDemo(const std::wstring& original, const std::wstring& resolved
 			g_pendingSwitchPlayable = file;
 			g_pendingSwitchFrames = 0;
 		}
+		BeginWorldReload();
 		g_pEngineToClient->ExecuteClientCmd(0, "disconnect", true);
 		return;
 	}
@@ -700,6 +727,8 @@ bool SwitchPlayingCopy(const std::wstring& original, const std::wstring& file, b
 }
 
 bool SwitchingPlayingCopy() { return g_copySwitch.state != CopySwitch::State::Idle; }
+// Not while another switch is queued: the world that landed is the first map, not the one asked for.
+bool PlayingCopyLanded() { return g_copySwitch.state == CopySwitch::State::Settling && g_copySwitch.next.empty(); }
 
 // g_copySwitch, one step per main-thread frame (see the struct).
 void PumpCopySwitch() {
@@ -743,10 +772,11 @@ void PumpCopySwitch() {
 	}
 	case CopySwitch::State::Loading:
 		// The copy is loaded once the engine plays it and the clock runs. A few frames more let the
-		// HUD and our panels settle before the seek.
+		// HUD and our panels settle before the seek. It was 30 frames (about 0.5 s of every map
+		// switch); 8 were measured to land the seek the same way (2026-11-21).
 		if (++s.frames > 64 * 60) { log("gave up: the copy never started"); s = CopySwitch(); return; }
 		if (!sameFile(ResolvePlayingDemoPath(), s.copy) || !haveTick || tick < 1 || !(playing || paused)) { s.loadedFrames = 0; return; }
-		if (++s.loadedFrames < 30) return;
+		if (++s.loadedFrames < 8) return;
 		// A demo_gototick from a PAUSED demo lands paused on its tick (DemoScrubMath.h). One sent
 		// while the demo plays lands under a seek pause that the engine lifts about two seconds
 		// later, long after the switch has finished (measured 2026-10-24). So pause, then seek.
@@ -776,7 +806,8 @@ void PumpCopySwitch() {
 		return;
 	case CopySwitch::State::Settling: {
 		// Back the way it was: paused stays paused, playing goes on playing. A toggle takes effect a
-		// frame or more after it is sent, so the state is held until it has stayed right for 64 frames.
+		// frame or more after it is sent, so the state is held until it has stayed right for 24
+		// frames (it was 64: half a second more of "Loading" after the world was already there).
 		++s.frames;
 		const bool wantPaused = !s.resumePlaying;
 		const bool right = wantPaused ? paused : playing;
@@ -787,8 +818,8 @@ void PumpCopySwitch() {
 			s.lastToggle = s.frames;
 		}
 		s.stable = right ? s.stable + 1 : 0;
-		if (s.stable < 64 && s.frames < 64 * 5) return;
-		log(s.stable >= 64 ? "done" : "done, pause state unsettled");
+		if (s.stable < 24 && s.frames < 64 * 5) return;
+		log(s.stable >= 24 ? "done" : "done, pause state unsettled");
 		advancedfx::Message("mirv_filmmaker: the demo plays from %s (tick %d).\n", WideToUtf8(s.copy).c_str(), tick);
 		const std::wstring original = s.original, next = s.next;
 		const bool nextWaits = s.nextWaits;
@@ -1133,6 +1164,7 @@ void RunMainThreadFrame() {
 		if (fire) IssuePlaydemo(original, playable);
 	}
 	PumpCopySwitch();
+	PumpWorldReload();
 	{ PanoramaPerf_Scope _p("markerhud"); MarkerHudRef().RunFrame(); }
 
 	// Offline demo skin-changer: re-assert any per-player weapon-skin overrides on this frame's
@@ -1158,6 +1190,8 @@ void RunMainThreadFrame() {
 	{ PanoramaPerf_Scope _p("world"); World_RunFrame(); }
 	// The lens flare's sun comes from the sky material (SunFx_VisibleSunDirection); keep it fresh while the flare is on.
 	if (LensFx_FlareOn()) SunFx_RefreshVisibleSun();
+	// ...and look for the sun disc CS2 draws (the sprite on Dust 2, Mirage and most maps), only then.
+	LensSunLocator_SetWanted(LensFx_SunFlares());
 	// Player-preview scene probe (read-only instrumentation, own module). No-op unless armed with
 	// `mvm_previewprobe watch`; exists to settle which clock the preview animgraph follows.
 	PreviewSceneProbe_RunFrame();

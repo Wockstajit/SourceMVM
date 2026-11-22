@@ -101,5 +101,39 @@ int main(){
         Check(rows[7][0]==.75f&&rows[7][1]==.75f&&rows[7][2]==.75f,"Strength is the record tint");
         Check(ReflectionNormalizationCap[0]==0&&ReflectionNormalizationCap[1]==1,"Local ambient may dim, never brighten, the capture");
     }
+    {
+        // Lite lighting: the map-wide fill that stands in for traced bounce.
+        Scene day;day.hasSun=true;day.sunAngles={60,0,0};day.sunBrightness=3;day.sunColor={1,1,1};
+        day.skyColor={.5f,.7f,1};day.skyIntensity=1;day.indirect=.3f;
+        const auto plain=AmbientFill(day);
+        Check(plain[5].x==0&&plain[5].z==0&&plain[2].z==SkyAmbient(day,day.indirect).z,"Full lighting keeps the sky-over-nothing fallback");
+        Check(LiteSkyOcclusion(day)==day.skyOcclusion,"Full lighting keeps the whole sky visibility strength");
+        day.lite=true;
+        const auto fill=AmbientFill(day);
+        Check(fill[5].x>0&&fill[5].z>0,"Lite lights downward faces with the bounce stand-in");
+        Check(fill[0].x>fill[2].x*.5f&&fill[0].x-LiteSky(day).x*.5f>LiteSky(day).x*.5f,"A shaded wall gets more from bounce than from the sky");
+        Check(fill[2].z/fill[2].x>fill[5].z/fill[5].x,"The top keeps the sky's colour; the underside is closer to the sun's");
+        Check(Near(LiteSkyOcclusion(day),day.skyOcclusion*(1-LiteFallbackIndoor)),"A covered place keeps the indoor share of the fill");
+        auto noon=day,low=day;low.sunAngles={15,0,0};
+        Check(AmbientFill(low)[5].x<AmbientFill(noon)[5].x,"The bounce stand-in follows the sun's height");
+        auto night=day;night.sunAngles={-20,0,0};
+        const auto dark=AmbientFill(night);
+        Check(Near(dark[5].x,LiteSky(night).x*night.albedo.x*night.liteBounce),"Below the horizon only the sky is bounced");
+        auto off=day;off.liteBounce=0;
+        Check(AmbientFill(off)[5].x==0&&Near(AmbientFill(off)[0].x,LiteSky(day).x*.5f),"Bounce strength zero leaves the sky share alone");
+        // Reflection cube: sky overhead, the bounce stand-in below the horizon, continuous between.
+        const auto up=LiteReflectionRadiance(day,{0,0,1}),down=LiteReflectionRadiance(day,{0,0,-1});
+        Check(Near(up.z,SkyAmbient(day,day.indirect).z)&&Near(down.x,LiteGround(day).x),"Reflections show the sky above and the ground glow below");
+        const auto a=LiteReflectionRadiance(day,{1,0,.29f}),b=LiteReflectionRadiance(day,{1,0,.31f});
+        Check(std::abs(a.z-b.z)<.02f,"The roofline is a blend, not a step");
+        for(unsigned face=0;face<6;++face){
+            const auto centre=CubeFaceDirection(face,.5f,.5f);const float axis[3]{centre.x,centre.y,centre.z};
+            Check(Near(axis[face/2],face%2?-1.f:1.f),"Cube faces follow +X -X +Y -Y +Z -Z");
+        }
+        const auto row=AmbientNormalizationRow(fill);
+        // Under a 60 degree sun the ground glow outshines the fill's sky share: the vertical term is negative.
+        Check(row[3]>0&&row[2]<0&&Near(row[0],0)&&std::abs(row[2])<=.8f*row[3]+1e-5f,"Normalization keeps its linear term inside the mean");
+        for(Vec3 n:{Vec3{0,0,1},Vec3{0,0,-1},Vec3{1,0,0}})Check(n.x*row[0]+n.y*row[1]+n.z*row[2]+row[3]>0,"No normal normalizes by zero or less");
+    }
     std::cout<<"Probe packing and ambient-cube decode passed\n";
 }

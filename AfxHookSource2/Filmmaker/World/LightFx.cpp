@@ -819,11 +819,9 @@ void LightFx_AppendStateJson(std::ostringstream& o) {
 	o << ",\"lightUniform\":" << (g_uniform.load() ? "true" : "false");
 	o << ",\"lightOk\":" << (g_installed ? "true" : "false");
 	o << ",\"lightRotationOk\":" << (g_rotationInstalled ? "true" : "false");
-	o << ",\"lightsSeen\":" << g_lightsSeen.load();
-	o << ",\"lightsRotated\":" << g_lightsRotated.load();
-	o << ",\"lightRotationBuilds\":" << g_rotationBuilds.load();
-	o << ",\"lightShadowBuildParents\":" << g_shadowBuildParents.load();
-	o << ",\"lightPersistentRotationWrites\":" << g_persistentRotationWrites.load();
+	// No running counters here (lights seen, rotations, builds): this is the Config panel's state,
+	// and a value that changes every frame made the panel re-render every frame. `world light`
+	// prints them.
 	{
 		std::lock_guard<std::mutex> lock(g_rotationObjectMutex);
 		o << ",\"lightTrackedRotations\":" << g_rotationObjectBases.size();
@@ -986,12 +984,14 @@ void LightFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 		"  %s world light reset\n"
 		"Both modes preserve the source light's HDR ceiling instead of adding glow.\n"
 		"Current: tint %d %d %d, amount %.2f, mode %s | yaw %.1f pitch %.1f | hook %s, %llu light submissions, %llu rotations"
-		" | %zu tracked lights, %llu restored, %llu foreign.\n",
+		" | %zu tracked lights, %llu restored, %llu foreign | rotation builds %llu, shadow build parents %llu,"
+		" persistent rotation writes %llu.\n",
 		cmd, cmd, cmd, cmd, cmd, cmd, cmd, r, g, b, LightFx_Amount(),
 		g_uniform.load() ? "uniform" : "filtered",
 		g_yaw.load(), g_pitch.load(),
 		g_installed ? "installed" : "NOT installed",
-		LightFx_LightsSeen(), g_lightsRotated.load(), tracked, g_rotationRestores.load(), g_rotationForeign.load());
+		LightFx_LightsSeen(), g_lightsRotated.load(), tracked, g_rotationRestores.load(), g_rotationForeign.load(),
+		g_rotationBuilds.load(), g_shadowBuildParents.load(), g_persistentRotationWrites.load());
 }
 
 } // namespace Filmmaker

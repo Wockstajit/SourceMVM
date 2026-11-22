@@ -63,7 +63,7 @@ int wmain(int argc,wchar_t** argv){
         for(size_t i=0;i<order.size();++i)order[i]=i;
         const auto weight=[&](size_t i){
             const std::string entry=requests[i].entry;
-            return entry=="AtmospherePS"||entry=="AtmospherePixelPS"?5:entry=="CompositePS"?4:entry=="MaterialMeshPS"||entry=="MeshPS"||entry=="CompositePixelPS"?3:entry=="SkyVolumePS"||entry=="VolumePS"?2:0;
+            return entry=="AtmospherePS"||entry=="AtmospherePixelPS"?5:entry=="CompositePS"?4:entry=="MaterialMeshPS"||entry=="MeshPS"||entry=="CompositePixelPS"?3:entry=="SkyVolumePS"||entry=="VolumePS"||entry=="ExactWalkPS"?2:0;
         };
         std::stable_sort(order.begin(),order.end(),[&](size_t a,size_t b){return weight(a)>weight(b);});
         // The compiler recurses deeply on the largest programs. On a default one-megabyte thread

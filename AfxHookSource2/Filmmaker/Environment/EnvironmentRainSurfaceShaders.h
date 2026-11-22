@@ -1,13 +1,12 @@
 // Original implementation of water-film Fresnel and timed normal impulses; see the research
 // references in the environment contract. No external shader source or Valve assets are copied.
 R"HLSL(
-float RainExposure(float3 p) {
+float RainExposure(float3 p,float3 normal) {
     if(weatherParams.z!=1||weatherColor.w<=0)return 0;
-    // An unprepared roof map may draw falling rain, but cannot assert a surface is exposed.
+    // An unread map may draw falling rain, but cannot assert a surface is exposed.
     if(shelterInfo.x<0)return 0;
-    // Graded, not a cut: the share of mean and gust directions that reach the point, so a doorway
-    // or arch facing the rain is damp for a short way in and then dry.
-    return smoothstep(0,.9,PrecipitationExposure(p+float3(0,0,2)))*saturate(weatherColor.w*2);
+    // Graded, not a cut: open ground is wet, and the wet reaches a short way in under cover.
+    return WetReach(WeatherCover(p,normal))*saturate(weatherColor.w*2);
 }
 // Scene radiance is already lit by CS2, including colored map lights and camera exposure.
 // Broad taps avoid coloring each drop with one sharp background texel. This is a local
@@ -46,9 +45,9 @@ float3 RainLighting(float3 p,float2 pixel,uint sample) {
 //
 // This one walks the reflected ray in SCREEN space (perspective-correct: 1/w is linear on screen),
 // one stride of a few pixels at a time, compares the ray's view depth against the scene's view depth
-// at that pixel, accepts only a hit within about one stride of thickness, then bisects between the
-// last miss and the hit so the reflection sits on the surface it came from. Edges and grazing hits
-// fade out instead of cutting.
+// at that pixel, accepts a hit where the ray crossed the surface between two steps (in front at the
+// one, behind at the next), then bisects between the last miss and the hit so the reflection sits on
+// the surface it came from. Edges and grazing hits fade out instead of cutting.
 float SceneViewDepth(float2 pixel,float d) {
     float2 ndc=pixel/dimensions.xy*float2(2,-2)+float2(-1,1);
     float4 h=mul(inverseViewProjection,float4(ndc,d,1));
@@ -92,9 +91,12 @@ float3 WetScreenReflection(float3 p,float3 normal,float3 reflected,float3 fallba
     // coarse far out), and bisection restores the precision a long stride gives up.
     const int steps=24;
     float clippedPix=lenPix*tClip;
-    float jitter=Hash31(float3(floor(p0),weatherParams.w))*.9+.1;
+    // No per-pixel jitter: started at a random offset in each pixel, neighbouring pixels found the
+    // wall or missed it at random, and the wet walls and ground were covered in white grain where
+    // the mirrored sky came through. The bisection below gives back the precision a fixed start loses.
+    float jitter=.5;
     float pixelWorldScale=2/max(1,dimensions.y*length(viewProjection[1].xyz));
-    float lastT=0;
+    float lastT=0,lastW=c0.w;
     float hitT=-1;
     [loop]for(int k=0;k<steps;++k){
         float u=(k+jitter)/steps;
@@ -106,22 +108,33 @@ float3 WetScreenReflection(float3 p,float3 normal,float3 reflected,float3 fallba
         float rayW=1/lerp(k0,k1,t);
         if(!IsSky(d)){
             float diff=rayW-SceneViewDepth(pix,d);
-            float thick=rayW*pixelWorldScale*stridePix*1.4+2;
-            if(diff>.02&&diff<thick){
-                // Refine: bisect between the last miss and this hit.
-                float lo=lastT,hi=t;
+            // A HIT IS THE RAY CROSSING THE SURFACE during this step: behind it now, and at the step
+            // before in front of it (or no more than a stride's width behind). Tested on this point
+            // alone ("at most a stride behind"), a ray that met a wall at a slant usually landed
+            // further behind than that, was refused, and so was every step after it: the wall came
+            // out as stripes of hit and miss, one stripe a step. A ray that passed BEHIND something
+            // nearer (a pole, a crate edge) was already far behind it at the step before, so it is
+            // still refused and carries on.
+            float margin=rayW*pixelWorldScale*stridePix*1.4+2;
+            float before=diff-(rayW-lastW);
+            if(diff>.02&&before<margin){
+                // Refine: bisect between the last miss and this hit. The same rule: a midpoint counts
+                // as behind only while it is no further behind than this whole step went, so the
+                // bisection cannot settle on a nearer silhouette it happens to sample.
+                float lo=lastT,hi=t,reach=abs(rayW-lastW)+margin;
                 [unroll]for(int r=0;r<5;++r){
                     float mid=(lo+hi)*.5;
                     float2 mp=p0+delta*mid;
                     float md=ReadSceneMarch(mp);
-                    bool behind=!IsSky(md)&&(1/lerp(k0,k1,mid)-SceneViewDepth(mp,md))>.02;
+                    float mdiff=1/lerp(k0,k1,mid)-SceneViewDepth(mp,md);
+                    bool behind=!IsSky(md)&&mdiff>.02&&mdiff<reach;
                     if(behind)hi=mid;else lo=mid;
                 }
                 hitT=hi;
                 break;
             }
         }
-        lastT=t;
+        lastT=t;lastW=rayW;
     }
     if(hitT>=0){
         float2 pix=p0+delta*hitT;
@@ -143,6 +156,50 @@ float3 WetScreenReflection(float3 p,float3 normal,float3 reflected,float3 fallba
         }
     }
     return fallback;
+}
+// WHAT WET GROUND MIRRORS OFF SCREEN (EnvironmentReflectionProbes.h). The trace above finds only what
+// is on screen: looking down at a puddle, the buildings it should hold are above the frame and it
+// showed its own colour. They come from CS2's own reflection probes (the map's baked 360 captures,
+// the ray corrected against each probe's box) under the map's lighting, or from the live capture
+// through the bounce volume under Environment lighting. Both hold raw scene light, and the tone
+// curve measured from CS2's own post-process each frame puts that into the finished frame's colours.
+float3 ProbeToFrame(float3 light) {
+    float3 u=saturate((log2(max(light,1e-7))+12)/24);
+    return float3(reflectionTone.SampleLevel(windSampler,u.r,0).r,reflectionTone.SampleLevel(windSampler,u.g,0).g,
+                  reflectionTone.SampleLevel(windSampler,u.b,0).b);
+}
+// found is 0 where nothing covers p (the caller keeps its own fallback).
+float3 OffScreenReflection(float3 p,float3 r,float roughness,out float found) {
+    found=0;
+    const int mode=(int)reflectionInfo.x;
+    if(mode==0||reflectionInfo.w<.5)return 0;
+    float mip=saturate(roughness*2)*reflectionInfo.y;
+    // The live capture sits at the camera in a box far larger than the map: a plain direction lookup.
+    if(mode==2){found=1;return ProbeToFrame(reflectionCubes.SampleLevel(gameTextureSampler,float4(r,0),mip).rgb);}
+    // CS2's probes, smallest box first: the first box that holds p is the most local capture, and
+    // near its edge it is feathered into the next box out, as the game blends an interior probe into
+    // the street's.
+    float3 inner=0;float innerWeight=0;
+    [loop]for(int k=0;k<(int)reflectionInfo.z;++k){
+        int b=25+9*(int)reflectionIndex[k>>2][k&3];
+        float4 r0=reflectionProbeRows[b],r1=reflectionProbeRows[b+1],r2=reflectionProbeRows[b+2];
+        float4 lo=reflectionProbeRows[b+3],hi=reflectionProbeRows[b+4];
+        float3 q=float3(dot(r0.xyz,p)+r0.w,dot(r1.xyz,p)+r1.w,dot(r2.xyz,p)+r2.w);
+        if(any(q<lo.xyz)||any(q>hi.xyz))continue;
+        float3 edge=min(q-lo.xyz,hi.xyz-q)*reflectionProbeRows[b+5].xyz;
+        float weight=saturate(min(edge.x,min(edge.y,edge.z)));
+        // Where the ray leaves the box, seen from the capture at the box origin.
+        float3 d=float3(dot(r0.xyz,r),dot(r1.xyz,r),dot(r2.xyz,r));
+        float3 safe=d+(d>=0?1e-5:-1e-5);
+        float3 leave=max((lo.xyz-q)/safe,(hi.xyz-q)/safe);
+        float3 look=q+d*max(min(leave.x,min(leave.y,leave.z)),0);
+        float3 c=reflectionCubes.SampleLevel(gameTextureSampler,float4(look,(float)asuint(lo.w)),mip).rgb*reflectionProbeRows[b+7].rgb;
+        if(innerWeight>0){found=1;return ProbeToFrame(lerp(c,inner,innerWeight));}
+        inner=c;innerWeight=max(weight,1e-3);
+        if(weight>=.999)break;
+    }
+    if(innerWeight>0){found=1;return ProbeToFrame(inner);}
+    return 0;
 }
 // Finite-support droplets: an expanding capillary ring followed by a short gravity trail.
 // The derivative is analytical (not a darkening pulse), and footprint filtering removes
@@ -166,7 +223,7 @@ float2 RainImpulse(float2 uv,float footprint,float time) {
 }
 float3 ActiveRainImpacts(float3 color,float3 p,float3 normal,float2 pixel,uint sample) {
     float distance=length(camera.xyz-p);
-    float exposure=RainExposure(p);
+    float exposure=RainExposure(p,normal);
     if(exposure<=0)return color;
     float3 source=normalize(float3(-weatherVelocity.xy,max(1,-weatherVelocity.z)));
     float facing=smoothstep(-.12,.65,dot(normal,source));

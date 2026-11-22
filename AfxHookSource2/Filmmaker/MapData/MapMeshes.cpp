@@ -1,4 +1,4 @@
-// Ported from ValveResourceFormat 20.0 (MIT): Blocks/VBIB.cs, ResourceTypes/Mesh.cs,
+// Ported from ValveResourceFormat 21.1+ (MIT, commit 8d9f7d9): Blocks/VBIB.cs, ResourceTypes/Mesh.cs,
 // ResourceTypes/Model.cs, ResourceTypes/ModelLodInfo.cs.
 #include "MapMeshes.h"
 
@@ -128,6 +128,7 @@ GpuBuffer ReadKvBuffer(const Resource &r, const Kv3 &kv, bool vertex) {
         b.data = bytes.size() == full ? std::move(bytes) : Decompress(b, bytes.data(), bytes.size(), vertex, false);
         return b;
     }
+    if (kv["m_bCompressedZ3"].Integer() == 1) throw MapDataError("z3 compressed mesh buffers are not supported yet");
     const int64_t index = kv["m_nBlockIndex"].Integer(-1);
     if (index < 0 || size_t(index) >= r.Blocks().size()) throw MapDataError("invalid mesh buffer block");
     const ResourceBlock &block = r.Blocks()[size_t(index)];

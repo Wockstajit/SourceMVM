@@ -39,6 +39,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | Alternative environment (play a demo on another map, alignment and AUTO ALIGN) | [`alternative-environment.md`](features/alternative-environment.md) |
 | Scene object rigs: attachments, pose keys and camera objects | [`scene-object-rigs.md`](features/scene-object-rigs.md) |
 | Runtime map lighting, smoke, VFX and shadows | [`whole-map-relighting.md`](effects/whole-map-relighting.md) |
+| Lighting frame timings, speed changes and their A/B switches | [`whole-map-relighting-performance.md`](effects/whole-map-relighting-performance.md) |
 | GPU cost of the hook's own render passes (`mirv_filmmaker gpuprofile`) | [`gpu-pass-profile.md`](effects/gpu-pass-profile.md) |
 | Interior lighting camera validation, map sweep and authored-light audit | [`interior-lighting-testing.md`](effects/interior-lighting-testing.md) |
 | Map lights, collision and shadow casters (native extraction on map load) | [`map-data-extraction.md`](effects/map-data-extraction.md) |

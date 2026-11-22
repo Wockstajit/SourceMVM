@@ -30,6 +30,23 @@ scene keys and environment preparation. Dotted scopes are inclusive breakdowns a
 from `ourTotal` and `ourPeak` to avoid counting nested work twice. These CPU times cannot be added
 to GPU times. Run the probe separately from the quiet FPS comparison.
 
+## Which functions the render thread is in
+
+The draw-hook cost in `health` is one number. To see which functions and source lines it is made
+of, sample the render thread:
+
+```powershell
+build\x64-source2-release\AfxHookSource2\Release\SampleThreadStacks.exe (Get-Process cs2).Id 10 build\x64-source2-release\AfxHookSource2\Release AfxHookSource2 "NativeMaterialLiveScope,BindOwnedInputs,PrepareMapLightShadows"
+```
+
+[`SampleThreadStacks`](../../Automation/tools/sample-thread-stacks.cpp) (built with the hook's CMake
+project) suspends the game's busiest thread about once a millisecond for the given seconds, walks its
+stack with the hook's PDB and prints shares of the samples: the module executing, self and inclusive
+time by function, and a per-line table for each named function. It needs no elevation. The PDB has to
+match the DLL the game loaded, so sample before rebuilding. A thread that mostly waits inside the
+present detour means the GPU is the limit, not the hook's CPU work; a thread busy all the time means
+the opposite, whatever the GPU utilization counter shows.
+
 ## What is timed
 
 `GPU_PASS_SCOPE(ctx, "name")` ([`GpuPassProfiler.h`](../../AfxHookSource2/Filmmaker/Debug/GpuPassProfiler.h))
@@ -38,12 +55,13 @@ deferred command list (it resolves when the list runs). Names group by prefix:
 
 | Prefix | Passes |
 | --- | --- |
-| `shadows` | The map light shadow pass: near (budgeted) lamp faces, sun cascades, static faces while they are first drawn, the lamp face refresh (posed players, props and wind-animated foliage into resident faces), sky visibility, the 3D skybox sun, the lamp shadow summary, plus glass beams, the viewmodel sun and the lighting proof. `shadows (map pass, total)` is the whole command list. |
+| `shadows` | The map light shadow pass: near (budgeted) lamp faces, sun cascades, static faces while they are first drawn, the lamp face refresh (posed players, props and wind-animated foliage into resident faces), sky visibility, the 3D skybox sun, the lamp and sun shadow summaries, plus glass beams, the viewmodel sun and the lighting proof. `shadows (map pass, total)` is the whole command list. |
 | `lights` | Light record rebase and clusters, once per view. |
 | `gi` | Probe GI: static voxelization while the map is voxelized, region shift, inject, trace, compose, reflection capture, the visible probe mask, screen-space GI. It settles after 48 stable frames and then costs nothing. |
 | `casters` | The stream-output capture of players, weapons and props (re-issued native draws), and the bounds readback the face refresh uses. |
 | `ao`, `sun visibility` | Owned ambient occlusion and the screen-space sun penumbra. |
-| `composite` | The environment composite at BeforeUi: its shadow maps, player mask, world GI, atmosphere surfaces, props, precipitation, fog volumes, storm and final copy. `environment composite (total)` is the whole list. |
+| `composite` | The environment composite at BeforeUi: its shadow maps, player mask, world GI, source copies (zero while the game's colour and depth are sampled in place), atmosphere surfaces, props, precipitation, fog volumes, storm and final copy. `environment composite (total)` is the whole list. |
+| `fog volumes` | The three parts of `composite: fog volumes`: the low-resolution march, the sky march with the depth-aware blur, and the full-resolution composite. |
 | others | Stained glass cookies, lens (depth of field, flare), contact shadows, fisheye, viewport scaler, render pass compositor, campath drawer, auto exposure. |
 
 Work the hook adds inside native CS2 draws has no pass of its own: the derived material programs
@@ -60,6 +78,15 @@ records. Two things measure it:
   sky occlusion, stained glass, the composite) and times the frame against the defaults just before
   and after, in two rounds. It never moves the camera, restores every setting it changed and writes
   a JSON report to `Automation/runs/gpu-profile/`.
+- [`profile-lighting-switches.py`](../../Automation/verify/profile-lighting-switches.py) times the
+  speed switches that keep the picture (`stickydraws`, `recordreuse`, `drawruns`, `sunsummary`,
+  `volumesplit`, `directsource`, `engineexposure`, `fineslices`, `litbounds`, `tilerefresh`,
+  `movingactors`, all of them together as `all`, and the last five together as `newer`) at fixed
+  `mirv_input` camera poses: alternating rounds of the previous path
+  and the default, with the spread between rounds. With `--capture` it also takes two window
+  captures per side and reports how far the two sides are apart beside how far two captures of one
+  side are apart. Results are in [whole-map relighting](whole-map-relighting-performance.md#draw-setup-and-shadow-draws-on-the-render-thread)
+  and [its light list section](whole-map-relighting-performance.md#light-lists-lamp-face-refresh-and-the-engines-exposure).
 
 ## Reading it
 

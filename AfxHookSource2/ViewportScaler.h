@@ -121,6 +121,13 @@ namespace AfxViewportScaler {
 	// live. Capped at kMaxHoldMs so a seek that never settles cannot freeze the preview.
 	void SetHoldPreview(bool hold);
 
+	// Main thread: the hook is reloading the demo (a map switch, another demo): the old world is
+	// going away and a loading screen follows. Until it ends, a missed scale blit is NOT covered
+	// with the held preview -- every present of a level load misses, and the last preview frame
+	// stayed pasted over the whole loading screen -- and the held frame is dropped, so the old
+	// world never shows in the preview of the new one.
+	void SetWorldReloading(bool reloading);
+
 	// Any thread: breaks of the scaled preview since the game started, per reason
 	// (VpScaleBreakMath.h), and the reasons of the break open right now (0 = healthy).
 	void BreakCounts(unsigned& total, unsigned& missed, unsigned& stale, unsigned& stretched, unsigned& openReasons);
