@@ -60,6 +60,19 @@ test("a skin play-out pauses only after resume is observed", () => {
   );
 });
 
+test("weapon redraws wait for a paused frame and the renderer owns the demo clock", () => {
+  const cosmetics = "AfxHookSource2/Filmmaker/Cosmetics/";
+  const sync = read(cosmetics + "CosmeticDemoSync.cpp");
+  const nudge = functionBody(sync, "CosmeticOverrideSystem::MaybeFireTickNudge");
+  assert.match(nudge, /^\s*if \(RecorderOwnsPlayback\(\)\) \{[^{}]*return;/);
+  assert.doesNotMatch(nudge.slice(0, nudge.indexOf("// Phase 3:")), /demo_pause|demo_resume/);
+  assert.match(sync, /m_livePicks.empty\(\) && !RecorderOwnsPlayback\(\)/);
+  assert.match(sync, /m_nudgePhase = recording \? 0 : 2/);
+  for (const file of ["CosmeticOverrideSystem.cpp", "CosmeticThemeRestore.cpp"]) {
+    assert.doesNotMatch(read(cosmetics + file), /RequestOwedCompositePause/);
+  }
+});
+
 test("a scheduled button repaint checks the panel is still alive", () => {
   for (const rel of [
     "AfxHookSource2/Filmmaker/Panorama/CameraEditorWidgetsJs.h",

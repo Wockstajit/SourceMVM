@@ -523,7 +523,7 @@ bool RenderSessionDriver_Start(std::string& outError) {
 
 	// Snapshot the return position before anything moves.
 	s_returnTick = CurTick();
-	s_returnPaused = DemoPaused();
+	s_returnPaused = CosmeticsRef().UserPauseState(DemoPaused());
 	s_demoPathUtf8 = WideToUtf8(ResolvePlayingDemoPath());
 	s_job = job;
 	s_plan = BuildPassPlan(job.passes.passes);

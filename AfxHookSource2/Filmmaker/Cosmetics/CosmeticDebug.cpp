@@ -391,9 +391,9 @@ void Cosmetics_PrintStatus(const char* cmd) {
 		sys.ThemeActive() ? 1 : 0, sys.ThemeSavedProfiles(), sys.ThemeSavedBots(), sys.ThemeOriginalModels(), sys.ThemePawnPending());
 	advancedfx::Message("  recorded weapons: snapshots=%zu pending=%zu materialBusy=%d (details: cosmetics recorded [fullHandle])\n",
 		sys.RecordedWeaponSnapshots(), sys.RecordedWeaponPending(), sys.WeaponMaterialBusy() ? 1 : 0);
-	advancedfx::Message("  live picks: queued=%zu nudgePhase=%d nudgePending=%d owedPause=%zu owedComposite=%zu\n",
+	advancedfx::Message("  live picks: queued=%zu nudgePhase=%d nudgePending=%d owedComposite=%zu\n",
 		sys.PendingLivePicks(), sys.NudgePhase(), sys.NudgePending() ? 1 : 0,
-		sys.QueuedOwedPauseCount(), sys.OwedCompositeCount());
+		sys.OwedCompositeCount());
 
 	advancedfx::Message("  seek refresh: pending=%d hold=%d\n",
 		sys.SeekRefreshPending() ? 1 : 0, sys.SeekHoldActive() ? 1 : 0);
