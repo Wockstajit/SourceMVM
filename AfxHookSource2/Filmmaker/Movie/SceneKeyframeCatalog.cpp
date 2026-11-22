@@ -110,6 +110,7 @@ const std::map<std::string, std::string>& Names() {
         {"lens.rain.amount", "Lens rain amount"}, {"lens.rain.size", "Drop size"}, {"lens.rain.slide", "Drop slide"},
         {"lens.rain.trails", "Drop trails"}, {"lens.rain.impact", "Drop impact"},
         {"lens.rain.refraction", "Drop refraction"}, {"lens.rain.blur", "Drop softness"},
+        {"lens.rain.visibility", "Lens rain visibility"},
     };
     return names;
 }
@@ -148,7 +149,7 @@ const char* const kLensKeys[] = {"dof.focus", "dof.fstop", "dof.focalLength", "d
     "dof.nearEnd", "dof.farStart", "dof.farEnd", "dof.maxBlur", "dof.gamma", "dof.roundness", "dof.rotation", "dof.squeeze",
     "dof.edge", "flare.intensity", "flare.threshold", "flare.halo", "flare.streak", "flare.streakLen", "flare.star",
     "flare.glow", "flare.sun", "flare.dirt",
-    "rain.amount", "rain.size", "rain.slide", "rain.trails", "rain.impact", "rain.refraction", "rain.blur"};
+    "rain.amount", "rain.size", "rain.slide", "rain.trails", "rain.impact", "rain.refraction", "rain.blur", "rain.visibility"};
 // Sort key: CONFIG tab, then card, then the control's place on the card. Effects keep schema
 // order within a card except the Skybox picker, which is WEATHER & SKY's first page.
 int Rank(const ChannelSpec& s) {

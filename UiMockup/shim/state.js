@@ -13,7 +13,7 @@
   var TICK_RATE = 64;
   var LENS_RAIN_DEFAULTS = {
     'rain.amount': 26, 'rain.size': 0.7, 'rain.slide': 1, 'rain.trails': 0.3,
-    'rain.impact': 0.35, 'rain.refraction': 0.75, 'rain.blur': 0.48
+    'rain.impact': 0.35, 'rain.refraction': 0.75, 'rain.blur': 0.48, 'rain.visibility': 1
   };
 
   // The five camera keys every surface shares. Declared up front because the graph editor needs

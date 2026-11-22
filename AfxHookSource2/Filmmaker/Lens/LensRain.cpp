@@ -31,6 +31,7 @@ std::mutex g_mutex;
 std::vector<LensRain::Drop> g_shared; // the latest drops, for the render thread
 float g_sharedAspect = 16.0f / 9.0f;
 float g_sharedSize = 0.7f, g_sharedTrails = 0.3f, g_sharedRefraction = 0.75f, g_sharedBlur = 0.48f;
+float g_sharedVisibility = 1.0f;
 
 LensRain::Sim g_sim;
 bool g_havePose = false;
@@ -53,61 +54,50 @@ constexpr int kMaxDrops = LensRain::kMaxDrops;
 struct F4 { float x = 0, y = 0, z = 0, w = 0; };
 // Must match RainConstants below.
 struct Constants {
-	F4 info;  // x aspect (w/h), y frame height, z mip levels of the scene copy
-	F4 look;  // x refraction, y blur (0..1), z water-only preview
+	F4 info; // aspect, frame height, mip count
+	F4 look; // refraction, softness, water-only preview, visibility
 	struct Water {
-		F4 drop;  // normalized centre xy, radius, seed
-		F4 shape; // runoff xy (frame heights), kind, opacity
+		F4 drop;   // center in frame heights, radius, seed
+		F4 bounds; // left, top, right, bottom in frame heights
+		F4 style;  // kind, opacity, first knot, knot count
 	};
-	Water drops[kMaxDrops];
+	Water water[kMaxDrops * 2];
+	F4 points[kMaxDrops * LensRain::kRunoffPoints]; // x, y, coverage, distance
 };
-static_assert(kMaxDrops == 64, "match RainConstants in HLSL");
-static_assert(sizeof(Constants) % 16 == 0, "D3D constant buffers are 16-byte aligned");
-static_assert(sizeof(Constants) <= 65536, "a constant buffer holds at most 64 KB");
+static_assert(kMaxDrops * 2 == 128 && kMaxDrops * LensRain::kRunoffPoints == 1600, "match RainConstants in HLSL");
+static_assert(sizeof(Constants) % 16 == 0 && sizeof(Constants) <= 65536, "D3D constant buffer size");
 
 const char kShader[] = R"HLSL(
 struct Water {
     float4 drop;
-    float4 shape;
+    float4 bounds;
+    float4 style;
 };
 
 cbuffer RainConstants : register(b0) {
     float4 info; // aspect, frame height, mip count
-    float4 look; // refraction, softness, water-only preview
-    Water drops[64];
+    float4 look; // refraction, softness, water-only preview, visibility
+    Water water[128];
+    float4 points[1600];
 };
 SamplerState linearClamp : register(s0);
 Texture2D<float4> scene : register(t0);
 
 struct VsOut {
     float4 pos : SV_Position;
-    float2 local : LOCAL;
-    nointerpolation float4 shape : SHAPE; // radius, runoff in radii, seed, kind
-    nointerpolation float4 motion : MOTION; // direction xy, coverage, optical radius
+    nointerpolation float4 drop : DROP;
+    nointerpolation float4 style : STYLE;
 };
 
 VsOut VS(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
-    static const float2 corners[6] = { float2(-1,-1), float2(1,-1), float2(-1,1),
-                                      float2(-1,1), float2(1,-1), float2(1,1) };
-    const float4 drop = drops[iid].drop;
-    const float4 water = drops[iid].shape;
-    const float run = length(water.xy);
-    const float2 dir = run > 1e-5 ? water.xy / run : float2(0, 1);
-    const bool preview = look.z > 0.5;
-    // Keep a tiny drop readable on a low-resolution preview without changing its simulation.
-    const float radius = max((preview ? 2.4 : 1.15) / info.y, drop.z);
-    const float runRadii = run / radius;
-    const float coverage = saturate(drop.z / radius);
-    const float2 corner = corners[vid];
-    const float2 local = float2(corner.x * 2.05, corner.y > 0 ? 2.05 : -2.05 - runRadii);
-    const float2 offset = (dir * local.y + float2(-dir.y, dir.x) * local.x) * radius;
-    const float2 screen = drop.xy + offset / float2(info.x, 1);
+    static const float2 corners[6] = { float2(0,0), float2(1,0), float2(0,1),
+                                      float2(0,1), float2(1,0), float2(1,1) };
+    const Water w = water[iid];
+    const float2 screen = lerp(w.bounds.xy, w.bounds.zw, corners[vid]) / float2(info.x, 1);
     VsOut o;
     o.pos = float4(screen.x * 2 - 1, 1 - screen.y * 2, 0, 1);
-    o.local = local;
-    o.shape = float4(radius, runRadii, drop.w, water.z);
-    const float opacity = water.w * (preview ? lerp(0.72, 1.0, coverage) : coverage);
-    o.motion = float4(dir, opacity, drop.z);
+    o.drop = w.drop;
+    o.style = w.style;
     return o;
 }
 
@@ -115,55 +105,88 @@ float BlurMip(float footprint) {
     return clamp(log2(max(footprint * info.y, 1.0)), 0.0, info.z - 1.0);
 }
 
+// Sample the curved centerline once per pixel so joined segments cannot double-blend.
+float2 TrailProfile(float2 position, VsOut i, float radius, out float wet) {
+    float best = 1e10;
+    float2 offset = float2(1e4, 1e4);
+    float2 side = float2(1, 0);
+    float distance = 0;
+    wet = 0;
+    const uint first = (uint)i.style.z, count = (uint)i.style.w;
+    float4 a = points[first];
+    [loop] for (uint j = 1; j < count; ++j) {
+        const float4 b = points[first + j];
+        const float2 v = b.xy - a.xy;
+        const float vv = dot(v, v);
+        if (vv > 1e-10) {
+            const float t = saturate(dot(position - a.xy, v) / vv);
+            const float2 delta = position - lerp(a.xy, b.xy, t);
+            const float d2 = dot(delta, delta);
+            if (d2 < best) {
+                best = d2;
+                offset = delta;
+                side = float2(-v.y, v.x) * rsqrt(vv);
+                wet = lerp(a.z, b.z, t);
+                distance = lerp(a.w, b.w, t);
+            }
+        }
+        a = b;
+    }
+    // Vary the edge of the deposited water in place, using distance from its first landing.
+    const float phase = i.drop.w * 6.2831;
+    const float ripple = sin(distance * 153.0 + phase);
+    const float fine = sin(distance * 398.0 + phase * 1.7);
+    offset -= side * radius * (0.18 * ripple + 0.09 * fine);
+    const float width = 0.78 + 0.17 * ripple + 0.13 * fine;
+    wet *= 0.93 + 0.07 * fine;
+    return offset / (radius * width);
+}
+
 float4 PS(VsOut i) : SV_Target {
-    const float r = i.shape.x, run = i.shape.y, seed = i.shape.z;
-    const bool strip = i.shape.w == 1.0;
-    const bool splash = i.shape.w == 2.0;
-    const float2 viewSize = info.y * float2(info.x, 1);
-    const float2 uv = i.pos.xy / viewSize;
-    const float2 dir = i.motion.xy;
-    const float2 side = float2(-dir.y, dir.x);
+    const bool splash = i.style.x == 2.0;
+    const bool trail = i.style.x == 3.0;
+    const bool preview = look.z > 0.5;
     const float blur = look.y;
-    float2 q = i.local;
-    if (strip) {
-        // The entire strip has a shallow, rounded profile. Its ends share the
-        // same width and refraction as the body, so it never grows a separate head.
-        const float along = clamp(q.y, -run, 0.0);
-        const float t = -along / max(run, 0.01);
-        q.x -= sin(t * 3.14159) * (seed - 0.5) * 0.78;
-        q.y -= along;
+    const float2 position = i.pos.xy / info.y;
+    const float2 uv = position / float2(info.x, 1);
+    const float opticalRadius = i.drop.z;
+    const float radius = trail ? max((preview ? 1.8 : 1.15) / info.y, opticalRadius * 1.18)
+                               : max((preview ? 2.4 : 1.15) / info.y, opticalRadius);
+    float wet = 1.0;
+    float2 q = (position - i.drop.xy) / radius;
+    if (trail) {
+        q = TrailProfile(position, i, radius, wet);
     } else if (splash) {
-        q.x += 0.17 * sin(q.y * 2.4 + seed * 6.2831);
+        q.x += 0.17 * sin(q.y * 2.4 + i.drop.w * 6.2831);
         q *= float2(1.12, 0.86);
     } else {
-        q *= float2(1.0 + seed * 0.15, 1.05 - seed * 0.17);
+        q *= float2(1.0 + i.drop.w * 0.15, 1.05 - i.drop.w * 0.17);
     }
 
     const float d = length(q);
-    const float pixel = min(0.8, 0.72 / (r * info.y));
+    const float pixel = min(0.8, 0.72 / (radius * info.y));
     const float inner = splash ? lerp(0.76, 0.36, blur) : 1.0 - max(pixel, blur * 0.27);
-    const float alpha = 1.0 - smoothstep(inner, 1.0 + pixel, d);
+    const float alpha = wet * (1.0 - smoothstep(inner, 1.0 + pixel, d));
     if (alpha <= 0.001) discard;
 
-    const float2 normal = side * q.x + dir * q.y;
-    const bool preview = look.z > 0.5;
-    const float opticalRadius = preview ? i.motion.w : r;
-    const float displacement = splash ? 0.16 : 0.87;
-    const float2 sampleUv = uv - normal * (opticalRadius * look.x * displacement) / float2(info.x, 1);
-    const float mip = BlurMip(opticalRadius * blur * (splash ? 0.93 : 0.70));
+    const float displacement = trail ? 1.6 : (splash ? 0.16 : 0.87);
+    const float sampleRadius = trail || preview ? opticalRadius : radius;
+    const float2 sampleUv = uv - q * (sampleRadius * look.x * displacement) / float2(info.x, 1);
+    const float mip = BlurMip(sampleRadius * blur * (trail ? 1.5 : (splash ? 0.93 : 0.70)));
     float3 color = scene.SampleLevel(linearClamp, sampleUv, mip).rgb;
     if (!splash || preview) {
-        // A broad highlight and a darker opposing edge read on plain surfaces.
-        // Keep the refracted scene visible through the center of the drop.
         const float rim = smoothstep(0.35, 0.84, d) * (1.0 - smoothstep(0.98, 1.28, d));
-        const float facing = dot(normal, float2(-0.6, -0.8));
+        const float facing = dot(q, float2(-0.6, -0.8));
         const float light = rim * saturate(facing);
         const float shadow = rim * saturate(-facing);
-        color *= 1.0 + 0.26 * light - 0.52 * shadow;
-        color += saturate(1.0 - color) * light * (preview ? (splash ? 0.12 : 0.55) : 0.09);
+        const float emphasis = look.w * (trail ? 1.32 : 1.0);
+        color *= max(0.03, 1.0 + emphasis * (0.26 * light - 0.52 * shadow));
+        color += saturate(1.0 - color) * light * emphasis * (preview ? (splash ? 0.12 : 0.55) : 0.09);
     }
-    const float opacity = preview ? 1.0 : (splash ? 0.83 : 0.95);
-    return float4(color, alpha * i.motion.z * opacity);
+    const float coverage = saturate(opticalRadius / radius);
+    const float resolutionFade = trail ? 1.0 : (preview ? lerp(0.72, 1.0, coverage) : coverage);
+    const float opacity = saturate(alpha * i.style.y * resolutionFade * look.w);
+    return float4(color, opacity);
 }
 )HLSL";
 
@@ -375,7 +398,7 @@ void LensRain_RunMainThreadFrame(float rainIntensity) {
 			unsigned strips = 0;
 			float maxSpeed = 0;
 			for (const auto& d : g_sim.Drops()) {
-				if (std::hypot(d.trailX, d.trailY) * trails >= 0.009f) ++strips;
+				if (LensRain::VisibleRunoff(d, trails).count > 1) ++strips;
 				maxSpeed = (std::max)(maxSpeed, std::hypot(d.vx, d.vy));
 			}
 			MvmDebugLog_LinefAlways("lens.rain", "intensity=%.3f drops=%zu strips=%u fastest=%.3f dt=%.4f seek=%d amount=%.0f size=%.2f slide=%.2f",
@@ -389,11 +412,12 @@ void LensRain_RunMainThreadFrame(float rainIntensity) {
 	g_sharedTrails = trails;
 	g_sharedRefraction = L[Lens::RainRefraction];
 	g_sharedBlur = L[Lens::RainBlur];
+	g_sharedVisibility = L[Lens::RainVisibility];
 }
 
 bool LensRain_Active() {
 	std::lock_guard<std::mutex> lock(g_mutex);
-	return !g_shared.empty();
+	return !g_shared.empty() && g_sharedVisibility > 0;
 }
 
 // ================================================================================================
@@ -413,11 +437,12 @@ void LensRain_EndDevice() {
 
 bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, bool preview) {
 	std::vector<LensRain::Drop> drops;
-	float size, trails, refraction, blur;
+	float size, trails, refraction, blur, visibility;
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);
-		if (g_shared.empty() && !preview) return false;
-		drops = g_shared;
+		visibility = g_sharedVisibility;
+		if ((g_shared.empty() || visibility <= 0) && !preview) return false;
+		if (visibility > 0) drops = g_shared;
 		size = g_sharedSize;
 		trails = g_sharedTrails;
 		refraction = g_sharedRefraction;
@@ -448,18 +473,48 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 		g_sharedAspect = aspect;
 	}
 
-	// Draw diffuse water first so beads and streaks can sit over it.
-	std::stable_partition(drops.begin(), drops.end(), [](const LensRain::Drop& d) { return d.kind == LensRain::Kind::Splash; });
 	Constants k{};
-	const int n = (int)(std::min)(drops.size(), (size_t)kMaxDrops);
 	k.info = { aspect, (float)td.Height, (float)g.levels, 0 };
-	k.look = { refraction, blur, preview ? 1.0f : 0.0f, 0 };
-	for (int i = 0; i < n; ++i) {
-		const LensRain::Drop& d = drops[i];
-		k.drops[i] = {
-			{ d.x, d.y, LensRain::VisualRadius(d, size), d.seed },
-			{ d.trailX * trails, d.trailY * trails, static_cast<float>(d.kind), LensRain::Opacity(d) },
-		};
+	k.look = { refraction, blur, preview ? 1.0f : 0.0f, visibility };
+	UINT n = 0, nextPoint = 0;
+	const float pixelHeight = 1.0f / (float)td.Height;
+	auto addDrop = [&](const LensRain::Drop& d) {
+		const float opacity = LensRain::Opacity(d);
+		if (opacity <= 0.001f) return;
+		const bool splash = d.kind == LensRain::Kind::Splash;
+		const float radius = LensRain::VisualRadius(d, size);
+		const float pad = 2.05f * (std::max)(radius, (preview ? 2.4f : 1.15f) * pixelHeight);
+		const float x = d.x * aspect, y = d.y;
+		k.water[n++] = {{x, y, radius, d.seed}, {x - pad, y - pad, x + pad, y + pad},
+			{splash ? 2.f : 0.f, opacity * (preview ? 1.0f : (splash ? 0.83f : 0.95f)), 0, 0}};
+	};
+	for (const auto& d : drops) {
+		if (d.kind == LensRain::Kind::Splash) addDrop(d);
+	}
+	// Draw the deposited water below the living drop heads, including paths whose heads have drained.
+	for (const auto& d : drops) {
+		const auto wet = LensRain::VisibleRunoff(d, trails);
+		if (wet.count < 2) continue;
+		const float radius = LensRain::VisualRadius(d, size);
+		const float pad = 2.05f * (std::max)(1.18f * radius, (preview ? 1.8f : 1.15f) * pixelHeight);
+		const UINT first = nextPoint;
+		F4 bounds{wet.points[0].x * aspect, wet.points[0].y, wet.points[0].x * aspect, wet.points[0].y};
+		for (int i = 0; i < wet.count; ++i) {
+			const auto& p = wet.points[i];
+			const float x = p.x * aspect;
+			bounds.x = (std::min)(bounds.x, x); bounds.y = (std::min)(bounds.y, p.y);
+			bounds.z = (std::max)(bounds.z, x); bounds.w = (std::max)(bounds.w, p.y);
+			k.points[nextPoint++] = {x, p.y, p.coverage, p.distance};
+		}
+		bounds.x -= pad; bounds.y -= pad; bounds.z += pad; bounds.w += pad;
+		k.water[n++] = {{d.x * aspect, d.y, radius, d.seed}, bounds, {3.f, 1.f, (float)first, (float)wet.count}};
+	}
+	for (const auto& d : drops) {
+		if (d.kind != LensRain::Kind::Splash) addDrop(d);
+	}
+	if (!n) {
+		if (preview) immediate->ClearRenderTargetView(target, black);
+		return preview;
 	}
 
 	ID3D11DeviceContext* c = g.ctx.Get();
@@ -488,13 +543,13 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 	const float blendFactor[4] = { 0, 0, 0, 0 };
 	c->OMSetBlendState(g.blend.Get(), blendFactor, 0xffffffff);
 	c->OMSetRenderTargets(1, &target, nullptr);
-	c->DrawInstanced(6, (UINT)n, 0, 0);
+	c->DrawInstanced(6, n, 0, 0);
 	ComPtr<ID3D11CommandList> list;
 	if (FAILED(c->FinishCommandList(FALSE, &list))) return false;
 	{ GPU_PASS_SCOPE(immediate, "lens: rain"); immediate->ExecuteCommandList(list.Get(), TRUE); }
 
 	if (MvmDebugLog_Active() && (g.frames++ % 120) == 0)
-		MvmDebugLog_LinefAlways("lens.rain", "drew %d drop(s) on %ux%u samples=%u fmt=%d mips=%u refraction=%.2f blur=%.2f",
+		MvmDebugLog_LinefAlways("lens.rain", "drew %u lens water shapes on %ux%u samples=%u fmt=%d mips=%u refraction=%.2f blur=%.2f",
 			n, td.Width, td.Height, td.SampleDesc.Count, (int)typed, g.levels, refraction, blur);
 	return true;
 }

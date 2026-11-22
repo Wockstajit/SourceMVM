@@ -277,12 +277,14 @@ R"CFJS(
     }
     rainSlider(T('Amount'), 'rain.amount', 0, 100, 0, '%',
       T('How much rain reaches the lens. 0 lands no new drops; the ones already there stay until they run off or dry.'), { offAtZero: true });
+    rainSlider(T('Visibility'), 'rain.visibility', 0, 2, 2, 'x',
+      T('How clearly water shows on the lens. Adjusts opacity and edge contrast for drops and trails.'), { offAtZero: true });
     rainSlider(T('Drop size'), 'rain.size', 0.3, 3, 2, 'x',
       T('Size of the water drops on the lens.'));
     rainSlider(T('Slide'), 'rain.slide', 0, 2, 2, 'x',
       T('How easily the camera motion and gravity move the drops. 0 keeps every drop where it landed; 2 sends them flying at the first move.'), { offAtZero: true });
     rainSlider(T('Trails'), 'rain.trails', 0, 1, 2, '',
-      T('Length of the water streaks on the glass.'), { offAtZero: true });
+      T('How far back you can see the water left by moving drops and how long it stays on the glass.'), { offAtZero: true });
     rainSlider(T('Impact'), 'rain.impact', 0, 2, 2, 'x',
       T('How many more drops hit the lens while the camera moves forward, as when you run into the rain.'), { offAtZero: true });
     rainSlider(T('Refraction'), 'rain.refraction', 0, 2, 2, 'x',

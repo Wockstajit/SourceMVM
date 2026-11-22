@@ -1198,7 +1198,7 @@ static void TestShaderSource() {
 static void TestRainGroup() {
 	int rainCount = 0;
 	for (int i = 0; i < ParamCount; ++i) rainCount += InGroup(i, Group::Rain) ? 1 : 0;
-	CHECK(rainCount == 8);
+	CHECK(rainCount == 9);
 	for (int i = 0; i < ParamCount; ++i) CHECK(!(InGroup(i, Group::Rain) && (InGroup(i, Group::Dof) || InGroup(i, Group::Flare))));
 	CHECK(GroupSwitch(Group::Rain) == RainOn && Specs()[RainOn].def == 0.0f && Specs()[RainOn].integer);
 	Values L;

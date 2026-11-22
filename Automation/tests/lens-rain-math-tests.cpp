@@ -109,16 +109,57 @@ void RunoffFollowsTheGlass() {
 		level.Step(1.0f / 60, kAspect, down, storm);
 		rolled.Step(1.0f / 60, kAspect, left, storm);
 		for (const Drop& d : level.Drops()) {
-			CHECK(d.trailX == 0 && d.trailY >= 0 && d.trailY <= kMaxRunoff + 1e-6f);
-			CHECK(d.kind == Kind::Rivulet || d.trailY == 0);
-			if (d.trailY > 0.012f) ++downward;
+			const auto path = VisibleRunoff(d, 1);
+			if (path.count < 2) continue;
+			CHECK(d.kind == Kind::Rivulet);
+			const float dx = (d.x - path.points[0].x) * kAspect;
+			const float dy = d.y - path.points[0].y;
+			CHECK(dy > 0 && std::fabs(dx) < dy);
+			++downward;
 		}
 		for (const Drop& d : rolled.Drops()) {
-			CHECK(d.trailY == 0 && d.trailX <= 0);
-			if (d.trailX < -0.012f) ++sideways;
+			const auto path = VisibleRunoff(d, 1);
+			if (path.count < 2) continue;
+			CHECK(d.kind == Kind::Rivulet);
+			const float dx = (path.points[0].x - d.x) * kAspect;
+			const float dy = d.y - path.points[0].y;
+			CHECK(dx > 0 && std::fabs(dy) < dx);
+			++sideways;
 		}
 	}
 	CHECK(downward > 0 && sideways > 0);
+}
+
+void RunoffKeepsBendsAndDriesInPlace() {
+	Drop d;
+	d.kind = Kind::Rivulet;
+	d.x = 0.3f;
+	d.y = 0.2f;
+	d.life = 0.25f;
+	const float startY = d.y;
+	d.x += 0.08f / kAspect;
+	d.age += 0.1f;
+	RecordRunoff(d, 0.3f, startY, 0.1f, 0.08f);
+	d.y += 0.09f;
+	d.age += 0.1f;
+	RecordRunoff(d, d.x, startY, 0.1f, 0.09f);
+
+	const auto fresh = VisibleRunoff(d, 1);
+	CHECK(VisibleRunoff(d, 0).count == 0);
+	CHECK(VisibleRunoff(d, 0.3f).count < fresh.count);
+	CHECK(fresh.count > 8);
+	CHECK(fresh.points[1].x > 0.3f && fresh.points[1].y == startY);
+	CHECK(fresh.points[8].x == d.x && fresh.points[8].y > startY);
+	const int tip = fresh.count - 1;
+	CHECK(fresh.points[tip].x == d.x && fresh.points[tip].y == d.y);
+
+	d.age = 0.49f;
+	const auto drying = VisibleRunoff(d, 1);
+	CHECK(Opacity(d) == 0 && drying.count == fresh.count);
+	CHECK(drying.points[tip].x == fresh.points[tip].x && drying.points[tip].y == fresh.points[tip].y);
+	CHECK(drying.points[tip].coverage > 0 && drying.points[tip].coverage < fresh.points[tip].coverage);
+	d.age = d.runoff.lastMovement + kRunoffLifetime;
+	CHECK(VisibleRunoff(d, 1).count == 0);
 }
 
 void SameStepsSameDrops() {
@@ -131,7 +172,8 @@ void SameStepsSameDrops() {
 	for (size_t i = 0; i < a.Drops().size() && i < b.Drops().size(); ++i) {
 		const Drop& before = a.Drops()[i];
 		const Drop& after = b.Drops()[i];
-		CHECK(before.x == after.x && before.y == after.y && before.age == after.age && before.trailY == after.trailY);
+		CHECK(before.x == after.x && before.y == after.y && before.age == after.age);
+		CHECK(before.runoff.distance == after.runoff.distance && before.runoff.count == after.runoff.count);
 	}
 }
 
@@ -190,6 +232,7 @@ int main() {
 	HeavierRainRunsFaster();
 	CameraMotionMovesTheWater();
 	RunoffFollowsTheGlass();
+	RunoffKeepsBendsAndDriesInPlace();
 	SameStepsSameDrops();
 	DropsFadeInAndDrain();
 	MotionFromTwoPoses();

@@ -77,7 +77,8 @@ namespace Filmmaker::Lens {
 	X(RainTrails,     "rain.trails",     0,     1,     0.3f,  false) /* runoff length */ \
 	X(RainImpact,     "rain.impact",     0,     2,     0.35f, false) /* extra drops while the camera moves forward */ \
 	X(RainRefraction, "rain.refraction", 0,     2,     0.75f, false) /* how strongly a drop bends the picture behind it */ \
-	X(RainBlur,       "rain.blur",       0,     1,     0.48f, false) /* how far out of focus the drops are */
+	X(RainBlur,       "rain.blur",       0,     1,     0.48f, false) /* how far out of focus the drops are */ \
+	X(RainVisibility, "rain.visibility", 0,     2,     1,     false) /* opacity and edge contrast */
 
 enum Param : int {
 #define X(name, key, lo, hi, def, integer) name,
