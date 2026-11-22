@@ -906,8 +906,9 @@ inline bool ApplyRainPreset(Values& L, const char* name) {
 	} else if (0 == std::strcmp(name, "rain")) {
 		set(RainAmount, 40); set(RainSize, 1.0); set(RainSlide, 1.0); set(RainTrails, 0.5);
 	} else if (0 == std::strcmp(name, "storm")) {
-		// Heavy, large drops that run and merge.
+		// Heavy runoff, with softer patches of water over the scene.
 		set(RainAmount, 85); set(RainSize, 1.5); set(RainSlide, 1.3); set(RainTrails, 0.8); set(RainImpact, 1.5);
+		set(RainBlur, 0.75);
 	} else if (0 == std::strcmp(name, "windscreen")) {
 		// Drops that run off at the first move, as on a car's glass.
 		set(RainAmount, 50); set(RainSize, 1.1); set(RainSlide, 2.0); set(RainTrails, 1.0); set(RainImpact, 2.0); set(RainBlur, 0.35);

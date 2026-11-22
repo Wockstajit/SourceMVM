@@ -96,10 +96,47 @@ void TouchingDropsMergeKeepingTheirWater() {
 	const auto& d = s.Drops();
 	for (size_t i = 0; i < d.size(); ++i)
 		for (size_t j = i + 1; j < d.size(); ++j) {
+			if ((d[i].kind == Kind::Splash) != (d[j].kind == Kind::Splash)) continue;
 			const float dx = d[i].x - d[j].x, dy = d[i].y - d[j].y, reach = (d[i].r + d[j].r) * 0.85f;
 			CHECK(dx * dx + dy * dy >= reach * reach);
 		}
 	CHECK((int)d.size() <= kMaxDrops);
+}
+
+void RunoffFollowsTheGlass() {
+	Params storm;
+	storm.amount = 85;
+	storm.size = 1.5f;
+	storm.trails = 0.8f;
+	Sim level(42), rolled(42), dryTrails(42);
+	Motion down, left;
+	left.gravity[0] = -1;
+	left.gravity[1] = 0;
+	Params noTrails = storm;
+	noTrails.trails = 0;
+	for (int i = 0; i < 180; ++i) {
+		level.Step(1.0f / 60, kAspect, down, storm);
+		rolled.Step(1.0f / 60, kAspect, left, storm);
+		dryTrails.Step(1.0f / 60, kAspect, down, noTrails);
+	}
+	int splashes = 0, strips = 0, sideways = 0;
+	for (const Drop& d : level.Drops()) {
+		if (d.kind == Kind::Splash) {
+			++splashes;
+			CHECK(VisualRadius(d) > d.r * 5);
+		}
+		if (d.trailY > 0.018f) ++strips;
+		CHECK(d.trailX == 0 && d.trailY >= 0 && d.trailY <= 0.180001f);
+		CHECK(d.kind == Kind::Rivulet || d.trailY == 0);
+	}
+	for (const Drop& d : rolled.Drops()) {
+		if (d.trailX < -0.018f) ++sideways;
+		CHECK(d.trailY == 0 && d.trailX <= 0);
+	}
+	for (const Drop& d : dryTrails.Drops()) CHECK(d.trailX == 0 && d.trailY == 0);
+	CHECK(splashes > 0 && splashes < static_cast<int>(level.Drops().size() / 4));
+	CHECK(strips > 0 && strips < static_cast<int>(level.Drops().size() / 4));
+	CHECK(sideways > 0);
 }
 
 void SameStepsSameDrops() {
@@ -114,6 +151,30 @@ void SameStepsSameDrops() {
 	const auto before = a.Drops();
 	a.Step(0, kAspect, m, p);
 	CHECK(a.Drops().size() == before.size());
+}
+
+void DropsSplatClingThenDrain() {
+	// Lands as a splat: about a fifth of its size, nine tenths within 50 ms, all of it soon after.
+	Drop d; d.r = kCriticalRadius * 2; d.life = 4;
+	float size, alpha;
+	d.age = 0; Lifecycle(d, size, alpha); CHECK(size < 0.3f);
+	d.age = 0.05f; Lifecycle(d, size, alpha); CHECK(size > 0.85f && size < 0.95f && alpha > 0.99f);
+	d.age = 1.0f; Lifecycle(d, size, alpha); CHECK(size > 0.99f && alpha > 0.99f);
+	// Drains over the last third: fainter and smaller near the end.
+	d.age = 3.9f; Lifecycle(d, size, alpha); CHECK(size < 0.55f && alpha < 0.2f);
+	// Clings first: gravity barely pulls a big drop that just landed, fully two thirds in.
+	Params p; Motion level; float a0[2], a1[2];
+	d.age = 0; Sim::Push(d, kAspect, level, p, a0);
+	d.age = 3; Sim::Push(d, kAspect, level, p, a1);
+	CHECK(a0[1] < a1[1] * 0.05f && a1[1] > 0.5f);
+	// Drained drops are gone: after a shower stops, the lens dries.
+	Params rain; rain.slide = 0;
+	Sim s(13); Motion still;
+	for (int i = 0; i < 120; ++i) s.Step(1.0f / 60, kAspect, still, rain);
+	CHECK(!s.Drops().empty());
+	Params dry = rain; dry.amount = 0;
+	for (int i = 0; i < 60 * 8; ++i) s.Step(1.0f / 60, kAspect, still, dry);
+	for (const Drop& e : s.Drops()) CHECK(e.life == 0); // only drops with no set life could remain
 }
 
 void MotionFromTwoPoses() {
@@ -152,7 +213,9 @@ int main() {
 	RunningSidewaysBlowsTheDropsAcross();
 	RunningForwardSendsThemToTheEdges();
 	TouchingDropsMergeKeepingTheirWater();
+	RunoffFollowsTheGlass();
 	SameStepsSameDrops();
+	DropsSplatClingThenDrain();
 	MotionFromTwoPoses();
 	if (g_failed) { std::cerr << g_failed << " check(s) failed\n"; return 1; }
 	std::cout << "LensRainMathTests: all passed\n";

@@ -349,12 +349,13 @@ The drops step on the main thread (`LensRain_RunMainThreadFrame`) with the demo'
 demo freezes them, and a render steps them exactly one output frame at a time, so the same take renders
 the same drops. Outside a demo they follow the wall clock.
 
-Each drop is drawn after the depth of field and the flare, over a mipmapped copy of the frame: the
-scene behind it is sampled flipped and shrunk through the centre, as a real water drop shows it, out
-of focus (**Softness**), with a dark rim where the water absorbs at a grazing angle and a highlight. A
-running drop is drawn as a bead with a tapering tail. Lens rain is a Beauty effect: Key, Depth and
-Normal passes and the console green screen never get it (the clean-copy rule in
-[render passes](filmmaker_render_passes.md#lens-effects)).
+Lens water is drawn after depth of field and flare over a mipmapped copy of the frame. Beads refract
+the scene through a rounded cap. Some heavier drops leave narrow, wavering streaks that follow their
+recent motion. **Trails** controls their length and the smaller beads that break away. Occasional
+splash patches soften only the part of the shot under the water. **Softness** controls local blur in
+beads, streaks and patches. Lens rain is a Beauty effect. Key, Depth and Normal passes and the
+console green screen follow the clean-copy rule in
+[render passes](filmmaker_render_passes.md#lens-effects).
 
 | Control | Key | Range | Default |
 | --- | --- | --- | --- |
@@ -367,14 +368,14 @@ Normal passes and the console green screen never get it (the clean-copy rule in
 | Refraction | `rain.refraction` | 0..2 | 1 |
 | Softness | `rain.blur` | 0..1 | 0.5 |
 
-Looks: Drizzle (few small drops that cling), Rain (the defaults), Storm (heavy drops that run and merge),
+Looks: Drizzle (few small drops that cling), Rain (the defaults), Storm (heavy runoff and softer splash patches),
 Windscreen (drops that run off at the first move). **Wipe the lens** (`lens rain clear`) removes every
 drop. Every value but the switch is a Scene Key (`lens.rain.*`), so the rain can be keyed off inside a
 building and back on outside.
 
 ```text
 mirv_filmmaker lens rain on
-mirv_filmmaker lens preset rain windscreen
+mirv_filmmaker lens preset rain storm
 mirv_filmmaker lens rain.slide 1.6
 mirv_filmmaker lens rain clear
 ```

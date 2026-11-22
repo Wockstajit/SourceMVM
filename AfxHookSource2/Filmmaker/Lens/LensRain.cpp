@@ -55,73 +55,168 @@ constexpr int kMaxDrops = LensRain::kMaxDrops;
 struct F4 { float x = 0, y = 0, z = 0, w = 0; };
 // Must match RainConstants below.
 struct Constants {
-	F4 info;  // x aspect (w/h), y drops, z mip levels of the scene copy, w unused
+	F4 info;  // x aspect (w/h), y frame height, z mip levels of the scene copy
 	F4 look;  // x refraction, y blur (0..1), zw unused
-	F4 drops[kMaxDrops * 2];
+	struct Water {
+		F4 drop;   // centre xy (frame heights), radius, seed
+		F4 motion; // velocity xy, kind, opacity
+		F4 trail;  // recent displacement xy (frame heights)
+	};
+	Water drops[kMaxDrops];
 };
 static_assert(sizeof(Constants) % 16 == 0, "D3D constant buffers are 16-byte aligned");
 static_assert(sizeof(Constants) <= 65536, "a constant buffer holds at most 64 KB");
 
 const char kShader[] = R"HLSL(
+struct Water {
+    float4 drop;
+    float4 motion;
+    float4 trail;
+};
+
 cbuffer RainConstants : register(b0) {
-    float4 info;   // x aspect (w/h), y drops, z mip levels of the scene copy
+    float4 info;   // x aspect (w/h), y frame height, z mip levels of the scene copy
     float4 look;   // x refraction, y blur (0..1)
-    float4 drops[768]; // per drop: [0] centre xy (screen: x 0..aspect, y 0..1 down), radius, seed; [1] velocity xy (heights/s), age, unused
+    Water drops[384];
 };
 SamplerState linearClamp : register(s0);
 Texture2D<float4> scene : register(t0);
 
 struct VsOut {
     float4 pos : SV_Position;
-    float2 local : LOCAL;      // -1..1 across the drop, stretched along its motion
+    float2 local : LOCAL; // distance from the center, in radii
     nointerpolation float4 drop : DROP;   // centre uv, radius (heights), seed
-    nointerpolation float4 motion : MOTION; // unit direction of motion xy, stretch, age
+    nointerpolation float4 motion : MOTION; // unit direction of motion xy, stretch, opacity
+    nointerpolation float2 shape : SHAPE; // kind and trail length in radii
 };
 
 VsOut VS(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
     static const float2 corners[6] = { float2(-1,-1), float2(1,-1), float2(-1,1), float2(-1,1), float2(1,-1), float2(1,1) };
-    const float4 a = drops[iid * 2];
-    const float4 b = drops[iid * 2 + 1];
+    const float4 a = drops[iid].drop;
+    const float4 b = drops[iid].motion;
+    const float2 trail = drops[iid].trail.xy;
+    const float run = length(trail);
+    const float kind = b.z; // 0 bead, 1 rivulet, 2 splash
     const float aspect = info.x;
     const float speed = length(b.xy);
-    const float2 dir = speed > 1e-5 ? b.xy / speed : float2(0, 1);
-    // A running drop is drawn longer along its path: a bead with a tail.
-    const float stretch = 1.0 + min(speed / max(a.z * 20.0, 1e-3), 1.0);
+    const float2 dir = run > 0.004 ? trail / run : speed > 1e-5 ? b.xy / speed : float2(0, 1);
+    const float stretch = kind == 2.0 ? 1.0 : 1.0 + 0.46 * saturate(speed / max(a.z * 20.0, 1e-3));
+    const float trailRadii = run / a.z;
     const float2 c = corners[vid];
-    // Along the motion the quad reaches `stretch` radii behind the drop and one ahead.
     const float2 side = float2(-dir.y, dir.x);
-    const float along = c.y > 0 ? 1.0 : -stretch;
-    const float2 offset = (dir * along + side * c.x) * a.z * 1.15; // a little margin for the soft rim
+    const float along = c.y > 0 ? 1.55 : -max(stretch * 1.55, trailRadii);
+    const float across = c.x * 1.55;
+    const float2 offset = (dir * along + side * across) * a.z;
     const float2 screen = a.xy + offset;
     VsOut o;
     o.pos = float4(screen.x / aspect * 2.0 - 1.0, 1.0 - screen.y * 2.0, 0, 1);
-    o.local = float2(c.x, along) * 1.15;
+    o.local = float2(across, along);
     o.drop = float4(a.x / aspect, a.y, a.z, a.w);
-    o.motion = float4(dir, stretch, b.z);
+    o.motion = float4(dir, stretch, b.w);
+    o.shape = float2(kind, trailRadii);
     return o;
 }
 
-float4 PS(VsOut i) : SV_Target {
-    // The drop's outline: a circle ahead of its centre, an egg that tapers behind it while it runs.
+// The drop's outline as a distance: 1 on the edge, 0 at the middle. Water on glass is never a
+// circle: the edge is lumpy (three harmonics with per-drop amplitudes and phases), and about one
+// drop in five is two drops run together. `seed` is a per-drop constant (0..1).
+float DropShape(float2 q, float seed) {
+    const float a = atan2(q.y, q.x);
+    const float s1 = frac(seed * 13.17), s2 = frac(seed * 7.73), s3 = frac(seed * 3.31), s4 = frac(seed * 29.9);
+    const float lump = 1.0 + 0.10 * s1 * sin(2.0 * a + s2 * 6.2831) + 0.07 * s2 * sin(3.0 * a + s3 * 6.2831)
+                     + 0.04 * s3 * sin(5.0 * a + s4 * 6.2831);
+    const bool pair = seed > 0.8;
+    const float2 c0 = pair ? float2(-0.18 * (s4 * 2.0 - 1.0), -0.12) : float2(0, 0);
+    float d = length(q - c0) / ((pair ? 0.72 : 1.0) * lump);
+    if (pair) {
+        // A smaller drop that has run into this one: a smooth union of the two outlines.
+        const float2 c1 = float2(0.42 * (s4 * 2.0 - 1.0), 0.38);
+        const float d1 = length(q - c1) / (0.48 + 0.12 * s1);
+        const float k = 0.22;
+        const float hmix = saturate(0.5 + 0.5 * (d1 - d) / k);
+        d = lerp(d1, d, hmix) - k * hmix * (1.0 - hmix);
+    }
+    return d;
+}
+
+float2 ScreenUv(float2 screen) {
+    return screen / float2(info.x, 1.0);
+}
+
+float BlurMip(float footprint) {
+    return clamp(log2(max(footprint * info.y, 1.0)), 0.0, info.z - 1.0);
+}
+
+float4 Splash(VsOut i) {
+    // A thin, irregular patch of water throws the view under it out of focus.
+    float2 q = i.local * float2(1.08, 0.90);
+    q.x += 0.14 * sin(q.y * 4.2 + i.drop.w * 6.2831);
+    const float d = DropShape(q, i.drop.w);
+    const float blur = look.y;
+    const float mask = 1.0 - smoothstep(lerp(0.68, 0.42, blur), 1.10, d);
+    if (mask <= 0.001) discard;
+    const float2 dir = i.motion.xy;
+    const float2 side = float2(-dir.y, dir.x);
+    const float r = i.drop.z;
+    const float2 uv = ScreenUv(i.pos.xy / info.y + (side * q.x + dir * q.y) * (r * 0.16 * look.x * mask));
+    const float mip = BlurMip(r * blur * 0.60);
+    const float2 step = ScreenUv(float2(1, 1) * (r * blur * 0.15));
+    float3 color = scene.SampleLevel(linearClamp, uv, mip).rgb * 0.4;
+    color += 0.15 * (scene.SampleLevel(linearClamp, uv + float2(step.x, 0), mip).rgb
+                   + scene.SampleLevel(linearClamp, uv - float2(step.x, 0), mip).rgb
+                   + scene.SampleLevel(linearClamp, uv + float2(0, step.y), mip).rgb
+                   + scene.SampleLevel(linearClamp, uv - float2(0, step.y), mip).rgb);
+    return float4(color, mask * i.motion.w * 0.96);
+}
+
+float4 Rivulet(VsOut i) {
+    const float r = i.drop.z;
+    const float run = i.shape.y;
+    const float t = -i.local.y / run;
+    const float phase = i.drop.w * 6.2831;
+    // Width and curvature vary independently as the bead leaves water behind it.
+    const float bend = sin(phase + 8.0 * t) * 0.50 + sin(phase * 2.0 + 23.0 * t) * 0.19;
+    const float center = smoothstep(0.0, 0.25, t) * bend;
+    const float width = (0.34 + 0.14 * sin(phase + 36.0 * t)) * lerp(1.25, 0.56, t);
+    const float x = (i.local.x - center) / width;
+    const float blur = look.y;
+    const float mask = (1.0 - smoothstep(lerp(0.82, 0.50, blur), 1.23, abs(x)))
+        * (1.0 - smoothstep(0.76, 1.0, t)) * smoothstep(0.004, 0.018, run * r);
+    if (mask <= 0.001) return 0;
+    const float2 side = float2(-i.motion.y, i.motion.x);
+    const float2 uv = ScreenUv(i.pos.xy / info.y - side * clamp(x, -1.0, 1.0) * r * (0.3 + look.x * 0.70));
+    const float mip = BlurMip(r * blur * 0.85);
+    const float3 color = scene.SampleLevel(linearClamp, uv, mip).rgb;
+    const float rim = smoothstep(0.42, 0.91, abs(x));
+    const float3 edge = x < 0 ? lerp(color, 1.0, 0.27) : color * 0.62;
+    return float4(lerp(color, edge, rim), mask * i.motion.w * 0.96);
+}
+
+float4 Bead(VsOut i) {
+    // Keep a rounded cap where the stretched bead meets its trail.
     float2 q = i.local;
-    float behind = max(-q.y, 0.0);
+    const float behind = max(-q.y, 0.0);
     const float stretch = i.motion.z;
     q.y = q.y < 0 ? q.y / stretch : q.y;
-    // Tapers toward the tail; the wobble keeps two drops from being the same circle.
-    const float wob = 0.06 * sin(atan2(q.y, q.x) * 3.0 + i.drop.w * 6.2831);
-    q.x *= 1.0 + 1.4 * saturate(behind / stretch); // a thin trail, not a cone
-    const float d = length(q) / (1.0 + wob);
+    q.x *= 1.0 + 0.45 * saturate(behind / stretch) * saturate(behind / stretch); // a soft, rounded tail
+    const float seed = i.drop.w;
+    const float d = DropShape(q, seed);
     const float blur = look.y;
     const float edge = lerp(0.06, 0.32, blur);
     const float alpha = 1.0 - smoothstep(1.0 - edge, 1.0 + edge * 0.5, d);
-    if (alpha <= 0.001) discard;
+    if (alpha <= 0.001) return 0;
 
-    // A dome of water: its slope bends the view. A real drop shows the scene behind it shrunk and
-    // flipped, as a tiny wide-angle lens does, so the sample is taken mirrored through the centre.
+    // A dome of water over that outline: its slope (the gradient of the outline's distance) bends
+    // the view, so a lumpy edge bends the picture lumpily, as a real drop does. A real drop shows
+    // the scene behind it shrunk and flipped, as a tiny wide-angle lens does, so the sample is taken
+    // mirrored through the centre.
     const float dd = saturate(d);
     const float h = sqrt(max(1.0 - dd * dd, 0.0));
     const float aspect = info.x;
-    float2 n2 = q * (1.0 / max(d, 1e-3)) * dd;      // outward, 0 at the middle, 1 at the rim
+    const float e = 0.03;
+    const float2 grad = float2(DropShape(q + float2(e, 0), seed) - DropShape(q - float2(e, 0), seed),
+                               DropShape(q + float2(0, e), seed) - DropShape(q - float2(0, e), seed)) / (2.0 * e);
+    float2 n2 = (length(grad) > 1e-4 ? normalize(grad) : float2(0, 0)) * dd; // outward, 0 at the middle, 1 at the rim
     const float r = i.drop.z;
     const float reach = r * (2.2 + 2.6 * look.x);   // how far around the drop it gathers from
     // Back to screen axes: local x runs along side = (-dir.y, dir.x), local y along dir.
@@ -129,8 +224,7 @@ float4 PS(VsOut i) : SV_Target {
     float2 rot = n2.x * float2(-dir.y, dir.x) + n2.y * dir;
     float2 uv = i.drop.xy - float2(rot.x / aspect, rot.y) * reach * lerp(1.0, dd, 0.35);
     // On the glass the drops are far out of focus, and so is the world seen through them.
-    const float levels = info.z;
-    const float mip = clamp(log2(max(r * 1080.0, 1.0)) * (0.35 + blur * 0.6) + blur * 1.5, 0.0, levels - 1.0);
+    const float mip = BlurMip(r * blur * 1.65);
     float3 col = scene.SampleLevel(linearClamp, saturate(uv), mip).rgb;
     // Water absorbs at grazing angles and reflects the darker surroundings: a dark rim.
     const float rim = pow(1.0 - h, 1.4);
@@ -147,7 +241,19 @@ float4 PS(VsOut i) : SV_Target {
     col += spec + glint;
     // Water lets a touch less light through than air.
     col *= 0.97;
-    return float4(col, alpha * lerp(1.0, 0.9, blur));
+    return float4(col, alpha * lerp(1.0, 0.9, blur) * i.motion.w);
+}
+
+float4 PS(VsOut i) : SV_Target {
+    if (i.shape.x == 2.0) return Splash(i);
+    float4 bead = 0, ribbon = 0;
+    if (i.local.y >= -i.motion.z * 1.55) bead = Bead(i);
+    if (i.shape.x == 1.0 && i.local.y < 0 && -i.local.y < i.shape.y)
+        ribbon = Rivulet(i);
+    const float behind = ribbon.a * (1.0 - bead.a);
+    const float alpha = bead.a + behind;
+    if (alpha <= 0.001) discard;
+    return float4((bead.rgb * bead.a + ribbon.rgb * behind) / alpha, alpha);
 }
 )HLSL";
 
@@ -363,9 +469,15 @@ void LensRain_RunMainThreadFrame() {
 
 	if (MvmDebugLog_Active()) {
 		static unsigned s_log = 0;
-		if ((s_log++ % 60) == 0)
-			MvmDebugLog_LinefAlways("lens.rain", "drops=%zu dt=%.4f demo=%d v(right=%.0f up=%.0f fwd=%.0f) turn(yaw=%.0f pitch=%.0f) gravity=(%.2f %.2f) amount=%.0f slide=%.2f",
-				g_sim.Drops().size(), dt, demo ? 1 : 0, m.right, m.up, m.forward, m.yawRate, m.pitchRate, m.gravity[0], m.gravity[1], p.amount, p.slide);
+		if ((s_log++ % 60) == 0) {
+			unsigned splashes = 0, strips = 0;
+			for (const auto& d : g_sim.Drops()) {
+				if (d.kind == LensRain::Kind::Splash) ++splashes;
+				if (std::hypot(d.trailX, d.trailY) >= 0.018f) ++strips;
+			}
+			MvmDebugLog_LinefAlways("lens.rain", "drops=%zu splashes=%u strips=%u dt=%.4f demo=%d v(right=%.0f up=%.0f fwd=%.0f) turn(yaw=%.0f pitch=%.0f) gravity=(%.2f %.2f) amount=%.0f slide=%.2f",
+				g_sim.Drops().size(), splashes, strips, dt, demo ? 1 : 0, m.right, m.up, m.forward, m.yawRate, m.pitchRate, m.gravity[0], m.gravity[1], p.amount, p.slide);
+		}
 	}
 
 	std::lock_guard<std::mutex> lock(g_mutex);
@@ -424,14 +536,22 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 		g_sharedAspect = aspect;
 	}
 
+	// Draw diffuse water first so beads and streaks can sit over it.
+	std::stable_partition(drops.begin(), drops.end(), [](const LensRain::Drop& d) { return d.kind == LensRain::Kind::Splash; });
 	Constants k{};
 	const int n = (int)(std::min)(drops.size(), (size_t)kMaxDrops);
-	k.info = { aspect, (float)n, (float)g.levels, 0 };
+	k.info = { aspect, (float)td.Height, (float)g.levels, 0 };
 	k.look = { refraction, blur, 0, 0 };
 	for (int i = 0; i < n; ++i) {
 		const LensRain::Drop& d = drops[i];
-		k.drops[i * 2] = { d.x, d.y, d.r, d.seed };
-		k.drops[i * 2 + 1] = { d.vx, d.vy, d.age, 0 };
+		// Drawn with its splat and drain: the size and opacity of its point in life.
+		float size, alpha;
+		LensRain::Lifecycle(d, size, alpha);
+		k.drops[i] = {
+			{ d.x, d.y, LensRain::VisualRadius(d) * size, d.seed },
+			{ d.vx, d.vy, static_cast<float>(d.kind), alpha },
+			{ d.trailX, d.trailY, 0, 0 },
+		};
 	}
 
 	ID3D11DeviceContext* c = g.ctx.Get();
