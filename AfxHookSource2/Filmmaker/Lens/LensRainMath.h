@@ -194,12 +194,18 @@ public:
 			+ (d.x - 0.5f) * aspect * fwd + 0.50f * std::clamp(m.yawRate / 360.0f, -2.0f, 2.0f));
 		out[1] = p.slide * (m.gravity[1] * fall + 0.73f * signedSquare(m.up)
 			+ (d.y - 0.5f) * fwd - 0.50f * std::clamp(m.pitchRate / 360.0f, -2.0f, 2.0f));
-		if (d.kind == Kind::Rivulet) {
-			// A sliding bead pulls sideways as its contact with the glass changes.
-			const float distance = d.runoff.distance;
-			const float phase = d.seed * 6.283185f;
-			const float pull = p.slide * fall * (0.25f * std::sin(distance * 36 + phase)
-				+ 0.12f * std::sin(distance * 91 + phase * 1.7f));
+		if (d.kind != Kind::Splash) {
+			// Each drop slides a little differently. Camera movement makes that variation stronger.
+			const float movement = std::clamp((std::fabs(m.right) + 0.5f * (std::fabs(m.up) + std::fabs(m.forward))
+				+ std::fabs(m.yawRate) + std::fabs(m.pitchRate)) / kRunSpeed, 0.0f, 1.0f);
+			float drift = (d.seed - 0.5f) * (0.38f + 0.18f * movement);
+			if (d.kind == Kind::Rivulet) {
+				const float distance = d.runoff.distance;
+				const float phase = d.seed * 6.283185f;
+				drift += (0.23f + 0.10f * movement) * std::sin(distance * 26 + phase)
+					+ 0.10f * std::sin(distance * 72 + phase * 1.7f);
+			}
+			const float pull = p.slide * fall * std::clamp(drift, -0.46f, 0.46f);
 			out[0] += m.gravity[1] * pull;
 			out[1] -= m.gravity[0] * pull;
 		}

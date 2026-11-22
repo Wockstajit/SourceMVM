@@ -278,7 +278,7 @@ R"CFJS(
     rainSlider(T('Amount'), 'rain.amount', 0, 100, 0, '%',
       T('How much rain reaches the lens. 0 lands no new drops; the ones already there stay until they run off or dry.'), { offAtZero: true });
     rainSlider(T('Visibility'), 'rain.visibility', 0, 2, 2, 'x',
-      T('How clearly water shows on the lens. Adjusts opacity and edge contrast for drops and trails.'), { offAtZero: true });
+      T('Strength of the violet-tinted edges on drops and trails. At zero, the water still bends the scene.'));
     rainSlider(T('Drop size'), 'rain.size', 0.3, 3, 2, 'x',
       T('Size of the water drops on the lens.'));
     rainSlider(T('Slide'), 'rain.slide', 0, 2, 2, 'x',
@@ -288,7 +288,7 @@ R"CFJS(
     rainSlider(T('Impact'), 'rain.impact', 0, 2, 2, 'x',
       T('How many more drops hit the lens while the camera moves forward, as when you run into the rain.'), { offAtZero: true });
     rainSlider(T('Refraction'), 'rain.refraction', 0, 2, 2, 'x',
-      T('How strongly the water bends the picture behind it.'));
+      T('How far drops and trails bend the scene underneath. At zero, the image stays in place.'), { offAtZero: true });
     rainSlider(T('Softness'), 'rain.blur', 0, 1, 2, '',
       T('How far out of focus the drops are. A lens focused on the scene sees the glass blurred; 0 is sharp drops.'));
     actionBtn(actionRowEnd(rainPage, 10), T('Wipe the lens'), function () { cmd('mirv_filmmaker lens rain clear quiet'); });

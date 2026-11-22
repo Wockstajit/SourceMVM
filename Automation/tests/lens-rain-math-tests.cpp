@@ -55,7 +55,7 @@ void HeavierRainRunsFaster() {
 	Sim::Push(large, kAspect, down, gentle, light);
 	Sim::Push(large, kAspect, down, heavy, hard);
 	Sim::Push(small, kAspect, down, heavy, quiet);
-	CHECK(light[1] > 0.5f && hard[1] > 2 * light[1] && light[0] == 0);
+	CHECK(light[1] > 0.5f && hard[1] > 2 * light[1] && std::fabs(hard[0]) < hard[1]);
 	CHECK(quiet[1] == 0);
 	heavy.slide = 0;
 	Sim::Push(large, kAspect, down, heavy, quiet);
@@ -162,6 +162,25 @@ void RunoffKeepsBendsAndDriesInPlace() {
 	CHECK(VisibleRunoff(d, 1).count == 0);
 }
 
+void DropsDriftAtRestAndVaryMoreWhileMoving() {
+	Drop d;
+	d.x = d.y = 0.5f;
+	d.r = 0.004f;
+	d.age = 0.4f;
+	Params rain;
+	Motion moving;
+	moving.forward = 300;
+	float left[2], right[2], movingRight[2];
+	d.seed = 0.1f;
+	Sim::Push(d, kAspect, {}, rain, left);
+	d.seed = 0.9f;
+	Sim::Push(d, kAspect, {}, rain, right);
+	Sim::Push(d, kAspect, moving, rain, movingRight);
+	CHECK(left[0] < 0 && right[0] > 0);
+	CHECK(movingRight[0] > right[0] && movingRight[0] < 0.46f * movingRight[1]);
+	CHECK(left[1] == right[1] && right[1] == movingRight[1]);
+}
+
 void SameStepsSameDrops() {
 	Params p;
 	Motion m; m.right = 120; m.forward = 200; m.yawRate = 40;
@@ -233,6 +252,7 @@ int main() {
 	CameraMotionMovesTheWater();
 	RunoffFollowsTheGlass();
 	RunoffKeepsBendsAndDriesInPlace();
+	DropsDriftAtRestAndVaryMoreWhileMoving();
 	SameStepsSameDrops();
 	DropsFadeInAndDrain();
 	MotionFromTwoPoses();

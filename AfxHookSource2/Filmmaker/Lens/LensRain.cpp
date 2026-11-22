@@ -169,23 +169,25 @@ float4 PS(VsOut i) : SV_Target {
     const float alpha = wet * (1.0 - smoothstep(inner, 1.0 + pixel, d));
     if (alpha <= 0.001) discard;
 
-    const float displacement = trail ? 1.6 : (splash ? 0.16 : 0.87);
+    // The shape's slope bends the image. Rim color is a separate cue for the glass surface.
+    const float displacement = trail ? 2.8 : (splash ? 0.65 : 3.05);
+    const float2 slope = q * (1.0 - 0.24 * saturate(d * d));
     const float sampleRadius = trail || preview ? opticalRadius : radius;
-    const float2 sampleUv = uv - q * (sampleRadius * look.x * displacement) / float2(info.x, 1);
+    const float2 sampleUv = uv - slope * (sampleRadius * look.x * displacement) / float2(info.x, 1);
     const float mip = BlurMip(sampleRadius * blur * (trail ? 1.5 : (splash ? 0.93 : 0.70)));
     float3 color = scene.SampleLevel(linearClamp, sampleUv, mip).rgb;
-    if (!splash || preview) {
-        const float rim = smoothstep(0.35, 0.84, d) * (1.0 - smoothstep(0.98, 1.28, d));
+    if (look.w > 0.0) {
+        const float rim = smoothstep(0.30, 0.80, d) * (1.0 - smoothstep(0.98, 1.27, d));
         const float facing = dot(q, float2(-0.6, -0.8));
-        const float light = rim * saturate(facing);
-        const float shadow = rim * saturate(-facing);
-        const float emphasis = look.w * (trail ? 1.32 : 1.0);
-        color *= max(0.03, 1.0 + emphasis * (0.26 * light - 0.52 * shadow));
-        color += saturate(1.0 - color) * light * emphasis * (preview ? (splash ? 0.12 : 0.55) : 0.09);
+        const float3 coolShadow = float3(0.24, 0.17, 0.39);
+        const float3 paleViolet = float3(0.76, 0.69, 0.97);
+        const float3 tint = lerp(coolShadow, paleViolet, smoothstep(-0.53, 0.64, facing));
+        const float edge = rim * look.w * lerp(0.27, 0.58, saturate(abs(facing)));
+        color = lerp(color, tint, saturate(edge * (splash ? 0.32 : 1.0)));
     }
     const float coverage = saturate(opticalRadius / radius);
     const float resolutionFade = trail ? 1.0 : (preview ? lerp(0.72, 1.0, coverage) : coverage);
-    const float opacity = saturate(alpha * i.style.y * resolutionFade * look.w);
+    const float opacity = saturate(alpha * i.style.y * resolutionFade);
     return float4(color, opacity);
 }
 )HLSL";
@@ -417,7 +419,7 @@ void LensRain_RunMainThreadFrame(float rainIntensity) {
 
 bool LensRain_Active() {
 	std::lock_guard<std::mutex> lock(g_mutex);
-	return !g_shared.empty() && g_sharedVisibility > 0;
+	return !g_shared.empty();
 }
 
 // ================================================================================================
@@ -441,8 +443,8 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);
 		visibility = g_sharedVisibility;
-		if ((g_shared.empty() || visibility <= 0) && !preview) return false;
-		if (visibility > 0) drops = g_shared;
+		if (g_shared.empty() && !preview) return false;
+		drops = g_shared;
 		size = g_sharedSize;
 		trails = g_sharedTrails;
 		refraction = g_sharedRefraction;

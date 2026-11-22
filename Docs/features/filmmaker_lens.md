@@ -336,9 +336,9 @@ continues. The lens clears when weather stops, switches to another kind of preci
 disabled. Scene Keys for weather type and intensity drive the same behavior.
 
 Rain intensity controls how many drops land and how quickly they slide. Small beads can cling
-to the lens. Gravity follows the camera’s roll, and camera movement and turns push water across
-the glass. Some drops leave irregular streaks along the paths they took. The water stays on the
-glass and thins over time, including after the drop runs off. Larger, diffuse spots soften the image under
+to the lens. Gravity follows the camera’s roll. Each drop has some sideways drift, and the variation
+increases as the camera moves or turns. Some drops leave irregular streaks along the paths they took.
+The water stays on the glass and thins over time, including after the drop runs off. Larger, diffuse spots soften the image under
 the water. Drops fade in and drain away with the demo clock, so pausing a demo also pauses the
 water. A seek starts a fresh lens for the new shot.
 
@@ -355,10 +355,13 @@ water. A seek starts a fresh lens for the new shot.
 | Softness | `rain.blur` | 0–1 | 0.48 |
 
 **Amount** scales how many drops land. At zero, existing drops finish draining.
-**Visibility** controls the opacity and edge contrast of droplets and trails.
+**Visibility** controls the strength of the violet edge tint on droplets and trails. At zero, water
+still bends and softens the scene underneath. **Refraction** controls how far the water displaces
+the image, and **Softness** controls how much detail blurs through it.
 **Drop size** changes the size of water already on the lens. **Slide** controls how quickly water
-moves. **Trails** controls the length and persistence of the water left behind. **Impact** controls the extra drops that land as the camera
-moves forward. Use **Wipe the lens** to clear everything at once. The Drizzle, Rain, Storm and
+moves. **Trails** controls the length and persistence of the water left behind. **Impact** controls
+the extra drops that land as the camera moves forward. Use **Wipe the lens** to clear everything at
+once. The Drizzle, Rain, Storm and
 Windscreen looks set these controls together. Every setting except the switch can be animated
 under `lens.rain.*` in Scene Keys.
 
