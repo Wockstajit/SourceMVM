@@ -145,6 +145,8 @@ void Restore() {
 	Render_SetCameraSource(g_saved.camera);
 	Render_SetRange(g_saved.range);
 	if (g_saved.pathTouched) CameraPathRef().ReplaceMarkersFromGraph(g_saved.path, false);
+	// Each shot switched the live camera, so the view itself goes back to the saved source too.
+	Render_ApplyCameraSourceLive(g_saved.camera, "mirv_filmmaker render queue");
 	g_saved = Saved{};
 }
 

@@ -1814,8 +1814,10 @@ R"EDJS(
 
       // A refused Start stays greyed with the reason right above it; Cancel is always clickable.
       setJobBtnRunning(jobActive);
-      jobQueueBtn.visible = !jobActive && !(r.queue && r.queue.running);
-      btnEnable(jobBtn, jobActive || fatal === 0);
+      // Between queued shots no job is active, but a manual start would take the queue's next slot.
+      var queueRunning = !!(r.queue && r.queue.running);
+      jobQueueBtn.visible = !jobActive && !queueRunning;
+      btnEnable(jobBtn, jobActive || (fatal === 0 && !queueRunning));
 
       // -- title badge --
       renderTitle.text = jobActive ? T('RENDER · RUNNING') : T('RENDER');

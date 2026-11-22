@@ -1223,6 +1223,9 @@ void Render_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 	} else if (0 == _stricmp(sub, "start")) {
 		if (s_jobActive || RenderSessionDriver_IsActive()) {
 			advancedfx::Warning("%s: a render job is already active.\n", cmd);
+		} else if (RenderQueue_Running()) {
+			// Between shots no job is active, but the queue is about to start its next one.
+			advancedfx::Warning("%s: the render queue is running; stop it first (\"%s render queue stop\").\n", cmd, cmd);
 		} else if (!s_modalOpen) {
 			// Jobs start from the Render workspace, where the range, camera, passes and output
 			// are visible. A headless start would run whatever settings happen to be stored,
