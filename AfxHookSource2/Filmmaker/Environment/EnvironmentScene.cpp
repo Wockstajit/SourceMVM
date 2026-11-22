@@ -6,6 +6,8 @@
 #include "EnvironmentReflectionProbes.h"
 #include "EnvironmentWindFluid.h"
 #include "EnvironmentWeatherCover.h"
+#include "EnvironmentWeatherMath.h"
+#include "MapCollisionGrid.h"
 #include <unordered_map>
 #include "EnvironmentGltfMath.h"
 #include "EnvironmentVfxLighting.h"
@@ -731,9 +733,18 @@ float RunMainThreadFrame() {
     Relight::UpdateStainedGlassMaterials((active || authoredLighting.enabled) && authoredLighting.stainedGlass > 0 && RendererReady());
     UpdateNativeWater(animated,map);
     UpdateNativeRain(animated, map, active, g_camera, g_cameraValid);
-    return active && animated.weather.type == kPrecipitationRain
-        ? std::clamp(animated.weather.count / 6000.f, 0.f, 1.f)
-        : 0.f;
+    const Weather &weather = animated.weather;
+    if (!active || !g_cameraValid || weather.type != kPrecipitationRain || weather.count <= 0) return 0.f;
+    const auto layout = PrecipitationLattice(weather.radius, std::clamp(weather.count / 3000.f, 0.f, 1.f),
+        bool(geometry), geometry ? geometry->low : Vec3{}, geometry ? geometry->high : Vec3{}, weather.height);
+    if (!CameraInPrecipitation(layout, g_camera, weather.follow, weather.center, weather.height)) return 0.f;
+    if (weather.shelter && geometry && MapCollisionGrid_Ready()) {
+        const Vec3 upstream = Normalize({-weather.windX, -weather.windY, (std::max)(weather.speed, 1.f)});
+        const float rise = (std::max)(0.f, geometry->high.z - g_camera.z + 16.f);
+        SurfaceHit roof;
+        if (MapCollisionRaycast(g_camera, upstream, rise / upstream.z, roof)) return 0.f;
+    }
+    return std::clamp(weather.count / 6000.f, 0.f, 1.f);
 }
 bool PositionEditing() { std::lock_guard<std::mutex> lock(g_mutex); return g_editing!=0; }
 bool RenderedCamera(Matrix &worldToClip, Vec3 &eye) {

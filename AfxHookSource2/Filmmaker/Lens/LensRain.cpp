@@ -54,7 +54,7 @@ constexpr int kMaxDrops = LensRain::kMaxDrops;
 struct F4 { float x = 0, y = 0, z = 0, w = 0; };
 // Must match RainConstants below.
 struct Constants {
-	F4 info; // aspect, frame height, mip count
+	F4 info; // aspect, frame height, mip count, native scope
 	F4 look; // refraction, softness, water-only preview, visibility
 	struct Water {
 		F4 drop;   // center in frame heights, radius, seed
@@ -75,7 +75,7 @@ struct Water {
 };
 
 cbuffer RainConstants : register(b0) {
-    float4 info; // aspect, frame height, mip count
+    float4 info; // aspect, frame height, mip count, native scope
     float4 look; // refraction, softness, water-only preview, visibility
     Water water[128];
     float4 points[1600];
@@ -149,6 +149,14 @@ float4 PS(VsOut i) : SV_Target {
     const float blur = look.y;
     const float2 position = i.pos.xy / info.y;
     const float2 uv = position / float2(info.x, 1);
+    const bool scoped = info.w > 0.5;
+    float3 scopeSource = 0.0;
+    if (scoped) {
+        scopeSource = scene.Load(int3(int2(i.pos.xy), 0)).rgb;
+        // The native scope already cut its shape into this image. Respect its black surround
+        // before adding any tint, including the surround of the flat 2D scopes.
+        if (max(scopeSource.r, max(scopeSource.g, scopeSource.b)) <= 2.0 / 255.0) discard;
+    }
     const float opticalRadius = i.drop.z;
     const float radius = trail ? max((preview ? 1.8 : 1.15) / info.y, opticalRadius * 1.18)
                                : max((preview ? 2.4 : 1.15) / info.y, opticalRadius);
@@ -176,6 +184,7 @@ float4 PS(VsOut i) : SV_Target {
     const float2 sampleUv = uv - slope * (sampleRadius * look.x * displacement) / float2(info.x, 1);
     const float mip = BlurMip(sampleRadius * blur * (trail ? 1.5 : (splash ? 0.93 : 0.70)));
     float3 color = scene.SampleLevel(linearClamp, sampleUv, mip).rgb;
+    if (scoped && max(color.r, max(color.g, color.b)) <= 2.0 / 255.0) color = scopeSource;
     if (look.w > 0.0) {
         const float rim = smoothstep(0.30, 0.80, d) * (1.0 - smoothstep(0.98, 1.27, d));
         const float facing = dot(q, float2(-0.6, -0.8));
@@ -419,7 +428,21 @@ void LensRain_RunMainThreadFrame(float rainIntensity) {
 
 bool LensRain_Active() {
 	std::lock_guard<std::mutex> lock(g_mutex);
-	return !g_shared.empty();
+	const auto onScreen = [](float x, float y, float pad) {
+		const float padX = pad / g_sharedAspect;
+		return x >= -padX && x <= 1 + padX && y >= -pad && y <= 1 + pad;
+	};
+	for (const auto& drop : g_shared) {
+		const float pad = (std::max)(0.005f, 1.6f * LensRain::VisualRadius(drop, g_sharedSize));
+		if (LensRain::Opacity(drop) > 0.001f && onScreen(drop.x, drop.y, pad)) return true;
+		const auto path = LensRain::VisibleRunoff(drop, g_sharedTrails);
+		if (path.count < 2) continue;
+		for (int i = 0; i < path.count; ++i) {
+			const auto& point = path.points[i];
+			if (point.coverage > 0.001f && onScreen(point.x, point.y, pad)) return true;
+		}
+	}
+	return false;
 }
 
 // ================================================================================================
@@ -437,13 +460,13 @@ void LensRain_EndDevice() {
 	g = Gpu{}; // the compiled code (g_code, g_compile) outlives the device
 }
 
-bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, bool preview) {
+bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, bool preview, bool scoped) {
 	std::vector<LensRain::Drop> drops;
 	float size, trails, refraction, blur, visibility;
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);
 		visibility = g_sharedVisibility;
-		if (g_shared.empty() && !preview) return false;
+		if (g_shared.empty()) return false;
 		drops = g_shared;
 		size = g_sharedSize;
 		trails = g_sharedTrails;
@@ -452,10 +475,6 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 	}
 	if (!immediate || !target) return false;
 	constexpr float black[4] = { 0, 0, 0, 1 };
-	if (preview && drops.empty()) {
-		immediate->ClearRenderTargetView(target, black);
-		return true;
-	}
 	if (!PumpDevice()) return false;
 
 	ComPtr<ID3D11Resource> res;
@@ -476,7 +495,7 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 	}
 
 	Constants k{};
-	k.info = { aspect, (float)td.Height, (float)g.levels, 0 };
+	k.info = { aspect, (float)td.Height, (float)g.levels, scoped ? 1.0f : 0.0f };
 	k.look = { refraction, blur, preview ? 1.0f : 0.0f, visibility };
 	UINT n = 0, nextPoint = 0;
 	const float pixelHeight = 1.0f / (float)td.Height;
@@ -514,10 +533,7 @@ bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* tar
 	for (const auto& d : drops) {
 		if (d.kind != LensRain::Kind::Splash) addDrop(d);
 	}
-	if (!n) {
-		if (preview) immediate->ClearRenderTargetView(target, black);
-		return preview;
-	}
+	if (!n) return false;
 
 	ID3D11DeviceContext* c = g.ctx.Get();
 	c->ClearState();

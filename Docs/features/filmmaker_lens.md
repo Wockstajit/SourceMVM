@@ -332,8 +332,11 @@ Looks: Cinematic (the defaults), Anamorphic (a long cool streak), Classic (eight
 
 Enable **CONFIG → CAMERA → LENS RAIN** to put water on the glass when the scene’s
 **Environment → Weather** is set to Rain or Storm. The lens switch can be off while world rain
-continues. The lens clears when weather stops, switches to another kind of precipitation, or is
-disabled. Scene Keys for weather type and intensity drive the same behavior.
+continues. The lens clears outside a placed rain volume, under cover on prepared maps when
+weather shelter is enabled, and whenever rain stops. Scene Keys for weather type and intensity
+drive the same behavior. The Rain and Storm weather looks also set scene fog. Use **Clear** in
+**Environment → Weather & Sky** to remove that look, or lower **Density** under **Height fog**
+in the **Fog** card to keep the rain.
 
 Rain intensity controls how many drops land and how quickly they slide. Small beads can cling
 to the lens. Gravity follows the camera’s roll. Each drop has some sideways drift, and the variation
@@ -367,7 +370,9 @@ under `lens.rain.*` in Scene Keys.
 
 **Rain only** shows the droplets and streaks against black. The game image remains visible through
 the water, and the preview makes subpixel droplets easier to inspect. It uses the same scene rain
-and Lens Rain switch as the normal picture. The lens preview modes suspend during recording.
+and Lens Rain switch as the normal picture. When there is no water on screen, the normal view
+returns automatically. The black surround of CS2's native scope stays dry. Lens preview modes
+suspend during recording.
 
 ```text
 mirv_filmmaker environment weather storm

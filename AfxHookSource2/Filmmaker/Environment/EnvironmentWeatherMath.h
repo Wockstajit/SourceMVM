@@ -49,6 +49,18 @@ inline PrecipitationLayout PrecipitationLattice(float radius, float occupancy, b
     }
     return layout;
 }
+
+inline bool CameraInPrecipitation(const PrecipitationLayout &layout, Vec3 camera, bool follow, Vec3 center, float height) {
+    if (layout.mapped && (camera.x <= layout.low.x || camera.x >= layout.high.x
+        || camera.y <= layout.low.y || camera.y >= layout.high.y || camera.z <= layout.low.z || camera.z >= layout.high.z))
+        return false;
+    if (follow) return true;
+    // A placed particle window is an ellipsoid. The distant veil can still be seen outside it.
+    const Vec3 offset = camera - center;
+    if (std::abs(offset.z) >= height * .5f || !(layout.reach > 0 && layout.reachUp > 0)) return false;
+    const float x = offset.x / layout.reach, y = offset.y / layout.reach, z = offset.z / layout.reachUp;
+    return x * x + y * y + z * z < 1.f;
+}
 // Mirrors of WeatherVS/WeatherPS, so the veil adds the coverage the particles would have added.
 // Rain drop sizes: the size setting is the largest drop; most are smaller, down to a quarter of it
 // (median about half). An earlier long-tailed spectrum reached 4x the setting and every drop read

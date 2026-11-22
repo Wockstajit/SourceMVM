@@ -24,6 +24,6 @@ bool LensRain_Active();
 
 void LensRain_BeginDevice(ID3D11Device* device);
 void LensRain_EndDevice();
-bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, bool preview);
+bool LensRain_Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, bool preview, bool scoped);
 
 } // namespace Filmmaker
