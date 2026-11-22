@@ -152,6 +152,16 @@ void KillFeed_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* c
 		}
 		shown = Clean(shown);
 		Player& p = g_players[n - 1];
+		// The feed tells players apart by the text on a notice, so a name already in use by
+		// another player (real or shown) would make two players one.
+		if (shown != p.name) {
+			for (const Player& o : g_players) {
+				if (&o == &p || (o.name != shown && o.shown != shown)) continue;
+				advancedfx::Warning("%s killfeed: \"%s\" is already %s; pick a name no other player has.\n", cmd,
+					shown.c_str(), o.name == shown ? "another player's name" : ("shown for " + o.name).c_str());
+				return;
+			}
+		}
 		p.shown = shown == p.name ? std::string() : shown;
 		advancedfx::Message("%s killfeed: %s is shown as %s.\n", cmd, p.name.c_str(), p.shown.empty() ? "their own name" : p.shown.c_str());
 		MvmDebugLog_LinefAlways("killfeed", "name #%d '%s' -> '%s'", n, p.name.c_str(), p.shown.c_str());

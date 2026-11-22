@@ -55,6 +55,8 @@ struct Saved {
 	RenderPasses passes;
 	std::vector<CamMarker> path;
 	bool pathTouched = false;
+	int tick = -1;          // the playhead the queue started from
+	uint64_t watched = 0;   // the player being watched then, 0 = none
 };
 
 enum class Q { Idle, Seek, Spectate, Start, Rendering, Between };
@@ -62,6 +64,9 @@ enum class Q { Idle, Seek, Spectate, Start, Rendering, Between };
 std::vector<Entry> g_entries;
 Saved g_saved;
 Q g_state = Q::Idle;
+// After the queue: watch the saved player again once the seek back to the saved tick has settled.
+uint64_t g_rewatch = 0;
+int g_rewatchFrames = 0;
 int g_current = -1;
 int g_frames = 0;
 bool g_stopRequested = false;
@@ -166,6 +171,14 @@ void Restore() {
 	if (g_saved.pathTouched) CameraPathRef().ReplaceMarkersFromGraph(g_saved.path, false);
 	// Each shot switched the live camera, so the view itself goes back to the saved source too.
 	Render_ApplyCameraSourceLive(g_saved.camera, "mirv_filmmaker render queue");
+	// And back to where the queue started, watching whom it was watching.
+	if (g_saved.tick >= 0) {
+		char c[64];
+		std::snprintf(c, sizeof(c), "demo_gototick %d", g_saved.tick);
+		Exec(c);
+	}
+	g_rewatch = g_saved.watched;
+	g_rewatchFrames = 0;
 	g_saved = Saved{};
 }
 
@@ -211,6 +224,12 @@ void Begin() {
 	g_saved.passes = RenderPassesRef();
 	g_saved.path = CameraPathRef().Markers();
 	g_saved.pathTouched = false;
+	{
+		int tick = -1;
+		g_saved.tick = g_MirvTime.GetCurrentDemoTick(tick) ? tick : -1;
+		char name[64];
+		if (!SpectatedPlayer(g_saved.watched, name)) g_saved.watched = 0;
+	}
 	for (Entry& e : g_entries) if (e.status != "completed") { e.status = "queued"; e.note.clear(); }
 	g_current = -1;
 	g_stopRequested = false;
@@ -224,7 +243,13 @@ void Begin() {
 bool RenderQueue_Running() { return g_state != Q::Idle; }
 
 void RenderQueue_RunFrame() {
-	if (g_state == Q::Idle) return;
+	if (g_state == Q::Idle) {
+		if (g_rewatch && ++g_rewatchFrames >= 30) {
+			Cosmetics_SpectateSteamId("mirv_filmmaker render queue", g_rewatch);
+			g_rewatch = 0;
+		}
+		return;
+	}
 	++g_frames;
 	switch (g_state) {
 	case Q::Between:
