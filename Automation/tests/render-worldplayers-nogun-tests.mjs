@@ -44,14 +44,14 @@ test("every extra render hides the viewmodel for that render only, and restores 
   assert.match(set, /CallChangeCallback/);
 });
 
-test("World + Players, Gun Only and Players Only share the NoGun render", () => {
-  assert.match(plan, /case VisibleElements::WorldAndPlayers:\s*case VisibleElements::OnlyWeapon:\s*case VisibleElements::OnlyPlayers: return RenderKey::NoGun;/);
+test("World + Players, Gun Only, Players Only and Selected Player share the NoGun render", () => {
+  assert.match(plan, /case VisibleElements::WorldAndPlayers:\s*case VisibleElements::OnlyWeapon:\s*case VisibleElements::OnlyPlayers:\s*case VisibleElements::OnlySelectedPlayer: return RenderKey::NoGun;/);
 });
 
 test("a job never drives the live preview arm, and the user's cvar survives every outcome", () => {
   const saving = driver.slice(driver.indexOf("case S::SavingState"), driver.indexOf("case S::SeekingPreRoll"));
   assert.match(saving, /RenderWorldPlayersNoGun_SetArmed\(false, "render job"\)/);
   assert.match(saving, /TrackCvar\("r_drawviewmodel"/);
-  assert.match(command, /RenderWorldPlayersNoGun_SetArmed\(e == VisibleElements::WorldAndPlayers/);
+  assert.match(command, /RenderWorldPlayersNoGun_SetArmed\(\s*e == VisibleElements::WorldAndPlayers/);
   assert.match(guard, /r_drawviewmodel when tracked/);
 });

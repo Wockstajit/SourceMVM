@@ -5,6 +5,7 @@
 
 #include "AfxShaders.h"
 #include "Filmmaker/Debug/MvmDebugLog.h"
+#include "Filmmaker/Render/RenderPlayerMatte.h"
 
 #include "../Shaders/build/afx_drawtexture_vs_5_0.h"
 #include "../Shaders/build/afx_depthms_ps_5_0.h"
@@ -57,6 +58,16 @@ struct PS_CONSTANT_BUFFER {
 	float invViewProj[16];
 	float texel[4];
 	float diff[4];
+};
+
+struct PS_PLAYER_MATTE_BUFFER {
+	int pmCounts[4];           // hasTarget, targetBoneCount, otherCount, highlightOn
+	float pmTargetBounds[4];
+	float pmTargetCapsule[4];
+	float pmHighlight[4];
+	float pmHighlightTint[4];
+	float pmTargetBones[16][4];
+	float pmOtherCapsules[16][4];
 };
 
 DXGI_FORMAT TypedFromTypeless(DXGI_FORMAT f) {
@@ -191,6 +202,11 @@ public:
 			m_Device->CreateBuffer(&bd, nullptr, &m_PsCb);
 		}
 		{
+			D3D11_BUFFER_DESC bd = {};
+			bd.ByteWidth = sizeof(PS_PLAYER_MATTE_BUFFER); bd.Usage = D3D11_USAGE_DEFAULT; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+			m_Device->CreateBuffer(&bd, nullptr, &m_PlayerMatteCb);
+		}
+		{
 			D3D11_RASTERIZER_DESC rd = {};
 			rd.FillMode = D3D11_FILL_SOLID; rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = TRUE;
 			m_Device->CreateRasterizerState(&rd, &m_Rs);
@@ -210,13 +226,13 @@ public:
 		SafeRelease(m_Clean);
 		m_RefValid = false; m_WorldRefValid = false; m_CleanValid = false;
 		SafeRelease(m_Bs); SafeRelease(m_Ds); SafeRelease(m_Rs);
-		SafeRelease(m_PsCb); SafeRelease(m_VsCb); SafeRelease(m_Vb); SafeRelease(m_Layout);
+		SafeRelease(m_PlayerMatteCb); SafeRelease(m_PsCb); SafeRelease(m_VsCb); SafeRelease(m_Vb); SafeRelease(m_Layout);
 		SafeRelease(m_PsPass); SafeRelease(m_PsDepthMs); SafeRelease(m_Vs);
 		SafeRelease(m_Ctx); SafeRelease(m_Device);
 	}
 
 	bool Ready() const {
-		return m_Device && m_Ctx && m_Vs && m_Layout && m_PsDepthMs && m_PsPass && m_Vb && m_VsCb && m_PsCb && m_Rs && m_Ds && m_Bs;
+		return m_Device && m_Ctx && m_Vs && m_Layout && m_PsDepthMs && m_PsPass && m_Vb && m_VsCb && m_PsCb && m_PlayerMatteCb && m_Rs && m_Ds && m_Bs;
 	}
 
 	// A plain copy of the scene target, MSAA and format as they are: the compositor's own capture
@@ -271,17 +287,21 @@ public:
 		if (!Ready() || !immediate || !color) { Fail("compose: not ready"); return nullptr; }
 		// The players mask keys the sky by depth; the live gun mask (4) is the viewmodel depth band;
 		// the green-screen sky (5) finds the sky by depth too.
-		const bool needDepth = p.mode != 0 || p.mask == 1 || p.mask == 4 || p.mask == 5;
+		const bool needDepth = p.mode != 0 || p.mask == 1 || p.mask == 4 || p.mask == 5 || p.mask == 6;
 		const bool needRef = p.mask == 2;
 		if (needRef && !m_RefValid) { Fail("compose: gun pass without a Main reference this frame"); return nullptr; }
-		const bool worldRef = p.mask == 1 && p.worldRef && m_WorldRefValid;
+		const bool singlePlayer = p.mask == 6;
+		const bool worldRef = (p.mask == 1 || singlePlayer) && p.worldRef && m_WorldRefValid;
 		if (p.mask == 1 && p.worldRef && !m_WorldRefValid) Fail("compose: players pass without a World Only reference, colour key only");
 		// Constants first: the MSAA depth reduction reads the depth direction from them.
 		D3D11_TEXTURE2D_DESC cd;
 		color->GetDesc(&cd);
 		Surface& colorCopy = TypedFromTypeless(cd.Format) == DXGI_FORMAT_R16G16B16A16_FLOAT ? m_ColorWide : m_Color;
 		PS_CONSTANT_BUFFER cb = {};
-		cb.modeMask[0] = p.mode; cb.modeMask[1] = worldRef ? 3 : p.mask; cb.modeMask[2] = p.keySky ? 1 : 0;
+		cb.modeMask[0] = p.mode;
+		cb.modeMask[1] = singlePlayer ? 6 : (worldRef ? 3 : p.mask);
+		cb.modeMask[2] = p.keySky ? 1 : 0;
+		cb.modeMask[3] = worldRef ? 1 : 0;
 		for (int k = 0; k < 4; ++k) cb.keyIn[k] = p.keyIn[k];
 		cb.keyOut[0] = p.keyOut[0]; cb.keyOut[1] = p.keyOut[1]; cb.keyOut[2] = p.keyOut[2]; cb.keyOut[3] = 1.0f;
 		cb.nearFar[0] = p.nearUnits; cb.nearFar[1] = p.farUnits; cb.nearFar[2] = p.skyCutoff;
@@ -303,6 +323,32 @@ public:
 				|| rd.Format == DXGI_FORMAT_B8G8R8X8_UNORM_SRGB) ? 1.0f : 0.0f;
 		}
 		m_Ctx->UpdateSubresource(m_PsCb, 0, nullptr, &cb, 0, 0);
+		if (singlePlayer || p.mode == 5) {
+			const auto pm = Filmmaker::RenderPlayerMatte_Snapshot();
+			PS_PLAYER_MATTE_BUFFER pmCb = {};
+			pmCb.pmCounts[0] = pm.hasTarget ? 1 : 0;
+			pmCb.pmCounts[1] = pm.targetBoneCount;
+			pmCb.pmCounts[2] = pm.otherCount;
+			pmCb.pmCounts[3] = pm.highlight.enabled ? 1 : 0;
+			for (int k = 0; k < 4; ++k) {
+				pmCb.pmTargetBounds[k] = pm.targetBoundsCenter[k];
+				pmCb.pmTargetCapsule[k] = pm.targetCapsule[k];
+			}
+			pmCb.pmHighlight[0] = pm.highlight.dimWorld;
+			pmCb.pmHighlight[1] = pm.highlight.desaturateWorld;
+			pmCb.pmHighlight[2] = pm.highlight.outlineStrength;
+			pmCb.pmHighlightTint[0] = pm.highlight.tint[0];
+			pmCb.pmHighlightTint[1] = pm.highlight.tint[1];
+			pmCb.pmHighlightTint[2] = pm.highlight.tint[2];
+			pmCb.pmHighlightTint[3] = 1.0f;
+			for (int i = 0; i < 16; ++i) {
+				for (int k = 0; k < 4; ++k) {
+					pmCb.pmTargetBones[i][k] = pm.targetBones[i][k];
+					pmCb.pmOtherCapsules[i][k] = pm.otherCapsules[i][k];
+				}
+			}
+			m_Ctx->UpdateSubresource(m_PlayerMatteCb, 0, nullptr, &pmCb, 0, 0);
+		}
 		m_Reversed = p.reversedDepth;
 		if (!CaptureColor(color, colorCopy)) { Discard(); return nullptr; }
 		if (needDepth && (!depth || !CaptureDepth(depth, m_Depth))) { Discard(); Fail("compose: no depth"); return nullptr; }
@@ -333,6 +379,8 @@ public:
 		m_WorldRefValid = true;
 		return true;
 	}
+
+	ID3D11ShaderResourceView* WorldDepthSrv() const { return m_WorldRefValid ? m_WorldDepth.srv : nullptr; }
 
 private:
 	bool Fail(const char* why) {
@@ -418,7 +466,8 @@ private:
 		m_Ctx->VSSetShader(m_Vs, nullptr, 0);
 		m_Ctx->VSSetConstantBuffers(0, 1, &m_VsCb);
 		m_Ctx->PSSetShader(ps, nullptr, 0);
-		m_Ctx->PSSetConstantBuffers(0, 1, &m_PsCb);
+		ID3D11Buffer* psCbs[2] = { m_PsCb, m_PlayerMatteCb };
+		m_Ctx->PSSetConstantBuffers(0, 2, psCbs);
 		m_Ctx->PSSetShaderResources(0, srvCount, srvs);
 		m_Ctx->RSSetState(m_Rs);
 		m_Ctx->OMSetDepthStencilState(m_Ds, 0);
@@ -440,6 +489,7 @@ private:
 	ID3D11Buffer* m_Vb = nullptr;
 	ID3D11Buffer* m_VsCb = nullptr;
 	ID3D11Buffer* m_PsCb = nullptr;
+	ID3D11Buffer* m_PlayerMatteCb = nullptr;
 	ID3D11RasterizerState* m_Rs = nullptr;
 	ID3D11DepthStencilState* m_Ds = nullptr;
 	ID3D11BlendState* m_Bs = nullptr;
@@ -476,6 +526,10 @@ bool StoreReference(ID3D11DeviceContext* immediate, ID3D11Texture2D* color, ID3D
 
 bool StoreWorldReference(ID3D11DeviceContext* immediate, ID3D11DepthStencilView* depth) {
 	return g_Compositor.StoreWorldReference(immediate, depth);
+}
+
+ID3D11ShaderResourceView* WorldDepthReferenceSrv() {
+	return g_Compositor.WorldDepthSrv();
 }
 
 ID3D11Texture2D* Compose(ID3D11DeviceContext* immediate, ID3D11Texture2D* color,

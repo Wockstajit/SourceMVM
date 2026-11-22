@@ -859,6 +859,24 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Heatmap/RoundHeatmap.h
     Filmmaker/Heatmap/RoundHeatmapMath.h
     Filmmaker/Heatmap/RoundHeatmapRender.cpp
+    Filmmaker/WorldWarp/WorldWarp.cpp
+    Filmmaker/WorldWarp/WorldWarp.h
+    Filmmaker/WorldWarp/WorldWarpMath.h
+    Filmmaker/WorldWarp/WorldWarpRender.cpp
+    Filmmaker/WorldWarp/WorldWarpRender.h
+    Filmmaker/WorldDecals/WorldDecals.cpp
+    Filmmaker/WorldDecals/WorldDecals.h
+    Filmmaker/WorldDecals/WorldDecalsMath.h
+    Filmmaker/WorldDecals/WorldDecalsRender.cpp
+    Filmmaker/WorldDecals/WorldDecalsRender.h
+    Filmmaker/EffectNodes/EffectNodes.cpp
+    Filmmaker/EffectNodes/EffectNodes.h
+    Filmmaker/EffectNodes/EffectNodesMath.h
+    Filmmaker/EffectNodes/EffectNodesRender.cpp
+    Filmmaker/EffectNodes/EffectNodesRender.h
+    Filmmaker/EventFx/EventFx.cpp
+    Filmmaker/EventFx/EventFx.h
+    Filmmaker/EventFx/EventFxMath.h
     Filmmaker/AltEnvironment/AltEnvironment.cpp
     Filmmaker/AltEnvironment/AltEnvironment.h
     Filmmaker/AltEnvironment/AltEnvironmentCopies.cpp
@@ -978,6 +996,10 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Panorama/ConfigHudLightingTabJs.h
     Filmmaker/Panorama/ConfigHudAtmosphereTabJs.h
     Filmmaker/Panorama/ConfigHudWeatherSkyTabJs.h
+    Filmmaker/Panorama/ConfigHudWorldWarpJs.h
+    Filmmaker/Panorama/ConfigHudDecalsJs.h
+    Filmmaker/Panorama/ConfigHudNodesTabJs.h
+    Filmmaker/Panorama/ConfigHudEventFxJs.h
 
     Filmmaker/Cosmetics/CosmeticProfile.cpp
     Filmmaker/Cosmetics/CosmeticProfile.h
@@ -1087,6 +1109,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Render/RenderWorldPlayersNoGun.h
     Filmmaker/Render/RenderPlayersOnlyGreen.cpp
     Filmmaker/Render/RenderPlayersOnlyGreen.h
+    Filmmaker/Render/RenderPlayerMatte.cpp
+    Filmmaker/Render/RenderPlayerMatte.h
+    Filmmaker/Render/RenderPlayerMatteMath.h
 
     Filmmaker/Window/AspectRatioMath.h
     Filmmaker/Window/WindowPrecisionGuard.h

@@ -653,20 +653,20 @@ R"EDJS(
     passesPanel.visible = false;
     function rpPass() { return (st && st.render && st.render.pass) ? st.render.pass : null; }
 
-    var RP_TYPES = [['beauty', T('Beauty')], ['depth', T('Depth')], ['normal', T('Normal')], ['key', T('Key##chroma key pass')]];
+    var RP_TYPES = [['beauty', T('Beauty')], ['depth', T('Depth')], ['normal', T('Normal')], ['key', T('Key##chroma key pass')], ['matte', T('Matte')]];
     var RP_ELEMENTS = [
       ['all', T('Everything'), T('The scene as the game draws it.')],
       ['worldplayers', T('World + players'), T('Everything except the first-person gun and its effects.')],
       ['world', T('World only'), T('The map: no players, gear, weapons or viewmodel.')],
       ['players', T('Players only'), T('Players and their gear over the background colour.')],
+      ['player', T('Selected player'), T('One picked player isolated from the crowd (pick below).')],
       ['gun', T('Gun only'), T('The first-person gun and its effects over the background colour.')]
     ];
-    // Mirrors PassAllowed (RenderPassPlan.h): the isolated groups (Players only, Gun only) have a
-    // background to key out, so their colour plate is Key; the groups that fill the frame take
-    // Beauty. Depth and Normal exist for every group.
+    // Mirrors PassAllowed (RenderPassPlan.h): the isolated groups (Players only, Selected player, Gun only)
+    // have a background to key out, so their colour plate is Key and they also offer a pure white/black Matte.
     function rpAllowed(type, el) {
-      var isolated = el === 'players' || el === 'gun';
-      return type === 'key' ? isolated : (type === 'beauty' ? !isolated : true);
+      var isolated = el === 'players' || el === 'player' || el === 'gun';
+      return (type === 'key' || type === 'matte') ? isolated : (type === 'beauty' ? !isolated : true);
     }
     function rpLabelOf(rows, key) {
       for (var i = 0; i < rows.length; i++) if (rows[i][0] === key) return rows[i][1];
@@ -784,13 +784,13 @@ R"EDJS(
     rsFill(rpHead);
     for (var rph = 0; rph < RP_TYPES.length; rph++) {
       var rpHl = lbl(rpHead, RP_TYPES[rph][1].toUpperCase(), RS_MUTED, 10); rpHl.hittest = false;
-      rpHl.style.width = '64px'; rpHl.style.marginLeft = '6px'; rpHl.style.textAlign = 'center';
+      rpHl.style.width = '52px'; rpHl.style.marginLeft = '5px'; rpHl.style.textAlign = 'center';
       rpHl.style.fontWeight = 'bold'; rpHl.style.letterSpacing = '1px';
       rpHl.style.whiteSpace = 'nowrap'; rpHl.style.textOverflow = 'shrink';
     }
     function rpCell(parent, onClick, tip) {
       var c = mk('Panel', parent);
-      c.style.width = '64px'; c.style.height = '32px'; c.style.marginLeft = '6px';
+      c.style.width = '52px'; c.style.height = '32px'; c.style.marginLeft = '5px';
       c.style.borderRadius = '3px'; c.style.verticalAlign = 'center';
       var box = mk('Panel', c); box.hittest = false;
       box.style.width = '14px'; box.style.height = '14px'; box.style.borderRadius = '2px';
@@ -833,9 +833,9 @@ R"EDJS(
       var cells = [];
       for (var ti = 0; ti < RP_TYPES.length; ti++) (function (tj) {
         if (!rpAllowed(RP_TYPES[tj][0], RP_ELEMENTS[ei][0])) {
-          // No such pass (Key of a group with no background): an empty slot keeps the columns.
+          // No such pass (Key/Matte of a group with no background): an empty slot keeps the columns.
           var gap = mk('Panel', row); gap.hittest = false;
-          gap.style.width = '64px'; gap.style.height = '32px'; gap.style.marginLeft = '6px';
+          gap.style.width = '52px'; gap.style.height = '32px'; gap.style.marginLeft = '5px';
           gap.__setCell = function () {};
           cells.push(gap);
           return;
@@ -848,6 +848,92 @@ R"EDJS(
       rpRows.push(row); rpCells.push(cells);
     })(rpe);
     var rpSummary = rsNote(rpSec, '', 6);
+)EDJS"
+R"EDJS(
+    // PER-PLAYER MATTE: pick one specific player from the demo for isolated passes, compositing
+    // matte exports, live highlight-in-scene, and Effect Nodes player-matte targeting.
+    var pmSec = rsSection(passesPanel, T('PER-PLAYER MATTE'));
+    var pmAside = lbl(pmSec.__head, T('None picked'), RS_MUTED, 11); pmAside.hittest = false;
+    pmAside.style.verticalAlign = 'center'; pmAside.style.marginLeft = '9px';
+    rsFill(pmSec.__head);
+    var pmSpecBtn = rsOutlineBtn(pmSec.__head, T('Use Spectated'), function () {
+      cmd('mirv_filmmaker render player spectated');
+    }, T('Pick whichever player the camera is currently spectating.'));
+    pmSpecBtn.style.height = '26px'; pmSpecBtn.style.marginRight = '6px';
+    var pmClearBtn = rsOutlineBtn(pmSec.__head, T('Clear'), function () {
+      cmd('mirv_filmmaker render player clear');
+    }, T('Clear the picked player target.'), true);
+    pmClearBtn.style.height = '26px';
+    var pmGrid = mk('Panel', pmSec); pmGrid.hittest = false; pmGrid.hittestchildren = true;
+    pmGrid.style.flowChildren = 'right-wrap'; pmGrid.style.width = '100%'; pmGrid.style.marginTop = '6px';
+    var pmEmptyNote = rsNote(pmSec, T('Load a demo with players to pick an isolated player matte.'), 4);
+    var pmPlayerChips = [], pmRosterSig = '';
+    function pmRebuildRoster(pm) {
+      var list = (pm && pm.players) || [];
+      var sel = pm ? pm.controller : -1;
+      var sig = sel + '|' + list.map(function (p) { return p.controller + ':' + p.team + ':' + (p.alive ? 1 : 0) + ':' + p.name; }).join(';');
+      if (sig === pmRosterSig) return;
+      pmRosterSig = sig;
+      pmGrid.RemoveAndDeleteChildren();
+      pmPlayerChips = [];
+      pmEmptyNote.visible = list.length === 0;
+      for (var i = 0; i < list.length; i++) (function (pl) {
+        var on = pl.controller === sel;
+        var accent = pl.team === 2 ? '#f0b323' : (pl.team === 3 ? '#80bdff' : '#aeb4bc');
+        var chip = mk('Panel', pmGrid);
+        chip.style.height = '28px'; chip.style.flowChildren = 'right';
+        chip.style.paddingLeft = '9px'; chip.style.paddingRight = '10px';
+        chip.style.marginRight = '6px'; chip.style.marginBottom = '6px';
+        chip.style.borderRadius = '3px';
+        var dot = mk('Panel', chip); dot.hittest = false;
+        dot.style.width = '7px'; dot.style.height = '7px'; dot.style.borderRadius = '4px';
+        dot.style.verticalAlign = 'center'; dot.style.marginRight = '6px';
+        dot.style.backgroundColor = pl.alive ? (accent + 'ff') : '#6b7480ff';
+        var nl = lbl(chip, pl.name + (pl.alive ? '' : ' (dead)'), on ? '#0c0e12ff' : S.label, 12);
+        nl.hittest = false; nl.style.fontWeight = 'bold'; nl.style.verticalAlign = 'center';
+        nl.style.whiteSpace = 'nowrap';
+        chip.__on = on;
+        chip.__paint = function (p) {
+          p.style.backgroundColor = p.__on ? (accent + 'ff') : (p.__hot ? '#ffffff18' : '#ffffff0a');
+          p.style.border = '1px solid ' + (p.__on ? (accent + 'ff') : (p.__hot ? '#ffffff40' : (accent + '44')));
+          nl.style.color = p.__on ? '#0c0e12ff' : (p.__hot ? S.value : S.label);
+        };
+        chip.__tipText = T('Isolate {0} for Selected player passes, live highlight, and Effect Nodes.', pl.name);
+        edHoverable(chip, chip.__paint);
+        chip.SetPanelEvent('onactivate', function () {
+          edPressFlash(chip, chip.__paint);
+          cmd('mirv_filmmaker render player pick ' + pl.controller);
+        });
+        chip.__paint(chip);
+        pmPlayerChips.push(chip);
+      })(list[i]);
+    }
+    var pmHlTog = edSwitchTile(pmSec, T('Highlight picked player in scene'),
+      T('Live spotlight preview: dims and desaturates the rest of the shot while keeping the picked player in full colour with an optional rim outline.'),
+      function () {
+        var on = !!(st && st.render && st.render.playerMatte && st.render.playerMatte.highlight);
+        cmd('mirv_filmmaker render player highlight ' + (on ? 'off' : 'on'));
+      });
+    var pmHlBox = mk('Panel', pmSec); pmHlBox.hittest = false; pmHlBox.hittestchildren = true;
+    pmHlBox.style.flowChildren = 'down'; pmHlBox.style.width = '100%'; pmHlBox.style.marginTop = '4px';
+    var pmDimTile = edValueTile(pmHlBox, { label: T('Dim world'), min: 0, max: 100, decimals: 0, unit: '%', fill: RS_GOLD,
+      tip: T('How much to darken everything outside the picked player.'),
+      onChange: function (v) { cmd('mirv_filmmaker render player highlight dim ' + (v / 100).toFixed(3)); } });
+    var pmDesatTile = edValueTile(pmHlBox, { label: T('Desaturate world'), min: 0, max: 100, decimals: 0, unit: '%', fill: RS_AC,
+      tip: T('How much colour to remove from everything outside the picked player.'),
+      onChange: function (v) { cmd('mirv_filmmaker render player highlight desat ' + (v / 100).toFixed(3)); } });
+    var pmOutTile = edValueTile(pmHlBox, { label: T('Edge outline'), min: 0, max: 100, decimals: 0, unit: '%', fill: '#ffcf5cff',
+      tip: T('Strength of the highlight rim drawn around the picked player silhouette.'),
+      onChange: function (v) { cmd('mirv_filmmaker render player highlight outline ' + (v / 100).toFixed(3)); } });
+    var pmQuickRow = rsTileRow(pmSec, 6);
+    var pmViewMatteBtn = rsOutlineBtn(pmQuickRow, T('View Matte Live'), function () {
+      cmd('mirv_filmmaker render pass preview matte player');
+    }, T('Preview the picked player white-on-black alpha matte live in the camera view.'));
+    pmViewMatteBtn.style.width = 'fill-parent-flow(1.0)'; pmViewMatteBtn.style.height = '30px'; pmViewMatteBtn.style.marginRight = '6px';
+    var pmViewKeyBtn = rsOutlineBtn(pmQuickRow, T('View Key Live'), function () {
+      cmd('mirv_filmmaker render pass preview key player');
+    }, T('Preview the picked player isolated over the background key colour.'));
+    pmViewKeyBtn.style.width = 'fill-parent-flow(1.0)'; pmViewKeyBtn.style.height = '30px';
 
     // KEYING & DEPTH: each half greys out until a pass that uses it is on.
     var rkSec = rsSection(passesPanel, T('KEYING & DEPTH'));
@@ -1644,7 +1730,19 @@ R"EDJS(
       rpSummary.style.color = rpList.length === 0 ? RENDER_ERROR_TEXT : RS_MUTED;
       var rpKey = pass.key || [0, 255, 0];
       rpKeySkyTog.set(!!pass.keySky);
-      var rpKeyUsed = rpHas('key', 'players') || rpHas('key', 'gun') || !!pass.keySky;
+      var rpKeyUsed = rpHas('key', 'players') || rpHas('key', 'player') || rpHas('key', 'gun') || !!pass.keySky;
+      var pm = r.playerMatte || {};
+      pmRebuildRoster(pm);
+      var pmPicked = pm.controller >= 0 && pm.name;
+      pmAside.text = pmPicked ? pm.name : T('None picked');
+      pmAside.style.color = pmPicked ? RS_GOLD : RS_MUTED;
+      pmHlTog.set(!!pm.highlight);
+      pmHlBox.visible = !!pm.highlight;
+      pmDimTile.sync(Math.round((pm.dimWorld || 0) * 100));
+      pmDesatTile.sync(Math.round((pm.desatWorld || 0) * 100));
+      pmOutTile.sync(Math.round((pm.outline || 0) * 100));
+      pmQuickRow.style.opacity = pmPicked ? '1.0' : '0.4';
+      pmQuickRow.hittestchildren = !!pmPicked;
       for (var rkb = 0; rkb < rpKeyBtns.length; rkb++) {
         var kc = RP_KEYS[rkb][1], kon = kc[0] === rpKey[0] && kc[1] === rpKey[1] && kc[2] === rpKey[2];
         if (rpKeyBtns[rkb].__on !== kon) { rpKeyBtns[rkb].__on = kon; rpKeyBtns[rkb].__paint(rpKeyBtns[rkb]); }

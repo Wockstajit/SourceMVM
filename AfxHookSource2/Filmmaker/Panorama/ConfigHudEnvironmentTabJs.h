@@ -176,6 +176,7 @@ R"CFJS(
 #include "ConfigHudAltEnvironmentJs.h"
 #include "ConfigHudOutlinerJs.h"
 #include "ConfigHudPropsJs.h"
+#include "ConfigHudDecalsJs.h"
 R"CFJS(
     // MAP LIGHTS, the third page of Scene Objects (moved from the Lighting card, 2026-11): the map's
     // own lamps are objects in the scene, picked by flying to them, like everything else on this card.

@@ -231,6 +231,7 @@ struct ObjectSummary {
     float intensity = 1, range = 400, radius = 0; // also its keyable settings' rest values
 };
 std::vector<ObjectSummary> ObjectSummaries();
+bool ObjectWorldPose(int id, float outPos[3], float outAngles[3]);
 int SelectedObject();
 // Set a placed object's authored pose (one undo step, saved with the map's scene).
 bool SetObjectRestPose(int id, const Vec3 &position, const Vec3 &angles, float fov, std::string &error);

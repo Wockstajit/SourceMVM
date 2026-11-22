@@ -46,14 +46,16 @@ enum class PassType : int {
 	Depth,
 	Normal,
 	Key,     // the isolated subject in its own colour over the background colour (green screen)
+	Matte,   // crisp white-on-black alpha matte for compositing (isolated subjects)
 	Count
 };
 
 enum class VisibleElements : int {
 	Everything = 0,
-	WorldAndPlayers, // no first-person weapon
+	WorldAndPlayers,    // no first-person weapon
 	OnlyWorld,
 	OnlyPlayers,
+	OnlySelectedPlayer, // one picked player isolated from the crowd (RenderPlayerMatte)
 	OnlyWeapon,
 	Count
 };
@@ -68,11 +70,12 @@ enum class RenderKey : int {
 
 // What the pass compositor does with the render before the recorder copies it.
 enum class PassMask : int {
-	None = 0,     // the whole render is the pass
-	ColorKey,     // players: by depth against WorldOnly in a job; by the chroma key in the live view
-	GunDiff,      // subject = Main's viewmodel depth band, plus pixels where Main differs from NoGun (gun pass)
-	GunBand = 4,  // subject = this render's viewmodel depth band: the live gun view (3 is the shader's players-by-depth)
-	SkySwap = 5   // background = the sky and the 3D skybox, by depth: the green-screen sky (RenderPasses::keySky)
+	None = 0,              // the whole render is the pass
+	ColorKey,              // players: by depth against WorldOnly in a job; by the chroma key in the live view
+	GunDiff,               // subject = Main's viewmodel depth band, plus pixels where Main differs from NoGun (gun pass)
+	GunBand = 4,           // subject = this render's viewmodel depth band: the live gun view (3 is the shader's players-by-depth)
+	SkySwap = 5,           // background = the sky and the 3D skybox, by depth: the green-screen sky (RenderPasses::keySky)
+	SinglePlayerDepth = 6  // selected player: players-by-depth partitioned by 3D bone Voronoi ownership
 };
 
 struct PassConfig {
@@ -89,6 +92,7 @@ inline const char* PassTypeToken(PassType t) {
 	case PassType::Depth: return "depth";
 	case PassType::Normal: return "normal";
 	case PassType::Key: return "key";
+	case PassType::Matte: return "matte";
 	default: return "?";
 	}
 }
@@ -99,6 +103,7 @@ inline const char* PassTypeLabel(PassType t) {
 	case PassType::Depth: return "Depth";
 	case PassType::Normal: return "Normal";
 	case PassType::Key: return "Key";
+	case PassType::Matte: return "Matte";
 	default: return "?";
 	}
 }
@@ -109,6 +114,7 @@ inline const char* VisibleElementsToken(VisibleElements e) {
 	case VisibleElements::WorldAndPlayers: return "worldplayers";
 	case VisibleElements::OnlyWorld: return "world";
 	case VisibleElements::OnlyPlayers: return "players";
+	case VisibleElements::OnlySelectedPlayer: return "player";
 	case VisibleElements::OnlyWeapon: return "gun";
 	default: return "?";
 	}
@@ -120,6 +126,7 @@ inline const char* VisibleElementsLabel(VisibleElements e) {
 	case VisibleElements::WorldAndPlayers: return "World + Players (no gun)";
 	case VisibleElements::OnlyWorld: return "World only";
 	case VisibleElements::OnlyPlayers: return "Players only";
+	case VisibleElements::OnlySelectedPlayer: return "Selected player";
 	case VisibleElements::OnlyWeapon: return "Gun only";
 	default: return "?";
 	}
@@ -143,7 +150,8 @@ inline RenderKey RenderKeyFor(VisibleElements e) {
 	switch (e) {
 	case VisibleElements::WorldAndPlayers:
 	case VisibleElements::OnlyWeapon:
-	case VisibleElements::OnlyPlayers: return RenderKey::NoGun;
+	case VisibleElements::OnlyPlayers:
+	case VisibleElements::OnlySelectedPlayer: return RenderKey::NoGun;
 	case VisibleElements::OnlyWorld: return RenderKey::WorldOnly;
 	case VisibleElements::Everything:
 	default: return RenderKey::Main;
@@ -153,19 +161,20 @@ inline RenderKey RenderKeyFor(VisibleElements e) {
 inline PassMask PassMaskFor(VisibleElements e) {
 	switch (e) {
 	case VisibleElements::OnlyPlayers: return PassMask::ColorKey;
+	case VisibleElements::OnlySelectedPlayer: return PassMask::SinglePlayerDepth;
 	case VisibleElements::OnlyWeapon: return PassMask::GunDiff;
 	default: return PassMask::None;
 	}
 }
 
-// Whether the pass exists. The isolated groups (Players only, Gun only) have a background to key
-// out, so their colour plate IS the Key; the groups that fill the frame (Everything, World + players,
-// World only) have nothing to key, so theirs is Beauty. Depth and Normal exist for every group.
+// Whether the pass exists. The isolated groups (Players only, Selected player, Gun only) have a
+// background to key out, so their colour plate IS the Key and they also offer a pure white/black
+// Matte; the groups that fill the frame (Everything, World + players, World only) take Beauty.
 inline bool PassIsIsolated(VisibleElements e) {
-	return e == VisibleElements::OnlyPlayers || e == VisibleElements::OnlyWeapon;
+	return e == VisibleElements::OnlyPlayers || e == VisibleElements::OnlySelectedPlayer || e == VisibleElements::OnlyWeapon;
 }
 inline bool PassAllowed(const PassConfig& p) {
-	if (p.type == PassType::Key) return PassIsIsolated(p.elements);
+	if (p.type == PassType::Key || p.type == PassType::Matte) return PassIsIsolated(p.elements);
 	if (p.type == PassType::Beauty) return !PassIsIsolated(p.elements);
 	return true;
 }
@@ -185,6 +194,7 @@ inline const char* PassFileStem(VisibleElements e) {
 	case VisibleElements::WorldAndPlayers: return "world_players";
 	case VisibleElements::OnlyWorld: return "world";
 	case VisibleElements::OnlyPlayers: return "players";
+	case VisibleElements::OnlySelectedPlayer: return "selected_player";
 	case VisibleElements::OnlyWeapon: return "gun";
 	default: return "pass";
 	}
@@ -250,7 +260,7 @@ inline PassPlan BuildPassPlan(const std::vector<PassConfig>& requested) {
 	for (const PassConfig& p : plan.passes) {
 		plan.renders[(int)RenderKeyFor(p.elements)] = true;
 		if (PassMaskFor(p.elements) == PassMask::GunDiff) plan.needsMainReference = true;
-		if (p.elements == VisibleElements::OnlyPlayers) {
+		if (p.elements == VisibleElements::OnlyPlayers || p.elements == VisibleElements::OnlySelectedPlayer) {
 			plan.needsWorldReference = true;
 			plan.renders[(int)RenderKey::WorldOnly] = true;
 		}

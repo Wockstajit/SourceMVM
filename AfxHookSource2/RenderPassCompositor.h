@@ -54,6 +54,10 @@ bool StoreReference(ID3D11DeviceContext* immediate, ID3D11Texture2D* color, ID3D
 // Keeps the World Only render's depth for the Players Only passes rendered later in the same frame.
 bool StoreWorldReference(ID3D11DeviceContext* immediate, ID3D11DepthStencilView* depth);
 
+// Borrowed SRV of the stored World Only depth reference (or nullptr if none this frame).
+// Shared with Effect Nodes so Player Matte nodes reuse the exact same world-only depth pass.
+ID3D11ShaderResourceView* WorldDepthReferenceSrv();
+
 // Returns the composed RGBA8 frame (borrowed; valid until the next Compose), or nullptr.
 ID3D11Texture2D* Compose(ID3D11DeviceContext* immediate, ID3D11Texture2D* color,
 	ID3D11DepthStencilView* depth, const ComposeParams& params);

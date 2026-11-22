@@ -40,7 +40,12 @@ R"CFJS(
         [T('Point light on the camera'), function () { olAdd('point camera'); }, T('Glows all around the camera')],
         [T('Area light on the camera'), function () { olAdd('area camera'); }, T('A soft panel beside the lens')],
         null,
-        [T('Camera'), function () { olAdd('camera'); }, T('A viewpoint')]
+        [T('Camera'), function () { olAdd('camera'); }, T('A viewpoint')],
+        null,
+        [T('Text decal'), function () { cmd('mirv_filmmaker decals add text wall'); envSceneSec.__setPage(2); }, T('Project text onto a wall or floor')],
+        [T('Wall image / logo'), function () { cmd('mirv_filmmaker decals add image wall'); envSceneSec.__setPage(2); }, T('Project a PNG/JPG logo or poster')],
+        [T('Wall video'), function () { cmd('mirv_filmmaker decals add video wall'); envSceneSec.__setPage(2); }, T('Play a video projected onto a wall')],
+        [T('Arrow / Ground route'), function () { cmd('mirv_filmmaker decals add route floor'); envSceneSec.__setPage(2); }, T('Animate a painted route across the floor')]
       ], olAddBtn);
     });
     attachTip(olAddBtn, T('Adds a light or a camera ahead of the view and selects it. CS2 assets and your meshes come from the Library page.'));

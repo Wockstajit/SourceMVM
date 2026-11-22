@@ -15,6 +15,13 @@
 #include "Filmmaker/Lens/LensFx.h"
 #include "Filmmaker/Lens/LensRain.h"
 #include "Filmmaker/Heatmap/RoundHeatmap.h"
+#include "Filmmaker/WorldWarp/WorldWarp.h"
+#include "Filmmaker/WorldWarp/WorldWarpRender.h"
+#include "Filmmaker/WorldDecals/WorldDecals.h"
+#include "Filmmaker/WorldDecals/WorldDecalsRender.h"
+#include "Filmmaker/EffectNodes/EffectNodes.h"
+#include "Filmmaker/EffectNodes/EffectNodesRender.h"
+#include "Filmmaker/EventFx/EventFx.h"
 #include "Filmmaker/World/SunFx.h" // the lens flare's sun (SunFx_VisibleSunDirection)
 #include "Filmmaker/Lens/LensSunLocator.h" // the lens flare's sun: the disc CS2 draws, found on the GPU
 #include "Filmmaker/World/CustomShadowAtlas.h"
@@ -49,7 +56,8 @@
 #include "Filmmaker/Render/RenderEngineSize.h"    // scaled scene target dimensions (raster probe)
 #include "Filmmaker/Render/RenderViewportRecordProbe.h" // recording-side viewport-owner probe
 #include "Filmmaker/Render/RenderSupersample.h"   // scene supersampling (viewport interception)
-#include "Filmmaker/Render/RenderPlayersOnlyGreen.h" // dedicated subject-pass bracket
+#include "Filmmaker/Render/RenderPlayersOnlyGreen.h"
+#include "Filmmaker/Render/RenderPlayerMatte.h" // dedicated subject-pass bracket
 #include "Filmmaker/Render/RenderHdrCapture.h"    // pre-tonemap HDR frame grab -> EXR
 #include "Filmmaker/World/AutoExposure.h"         // eye adaptation meter (before-UI boundary)
 #include "UiInputGate.h" // pause-menu render-pass stamp for the director input gate
@@ -2029,6 +2037,10 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                     g_ReShadeScenePass.EndDevice();
                     Filmmaker::LensFx_EndDevice();
                     Filmmaker::LensRain_EndDevice();
+                    Filmmaker::WorldWarp::EndDevice();
+                    Filmmaker::WorldDecals::EndDevice();
+                    Filmmaker::EffectNodes::EndDevice();
+                    Filmmaker::EventFx_EndDevice();
                     AfxContactShadow::EndDevice();
                     AfxRenderPass::EndDevice();
                     if (environmentDeviceChanged)
@@ -2051,6 +2063,10 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                 g_ReShadeScenePass.BeginDevice(This);
                 Filmmaker::LensFx_BeginDevice(This);
                 Filmmaker::LensRain_BeginDevice(This);
+                Filmmaker::WorldWarp::BeginDevice(This);
+                Filmmaker::WorldDecals::BeginDevice(This);
+                Filmmaker::EffectNodes::BeginDevice(This);
+                Filmmaker::EventFx_BeginDevice(This);
                 AfxContactShadow::BeginDevice(This);
                 AfxRenderPass::BeginDevice(This);
                 if (environmentDeviceChanged)
@@ -3302,7 +3318,10 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
         std::lock_guard<std::mutex> lock(g_LivePassPreviewMutex);
         live = g_LivePassPreview;
     }
-    if (live.type == (int)Filmmaker::PassType::Beauty || AfxStreams_IsRcording()) return;
+    const bool liveHighlight = (live.type == (int)Filmmaker::PassType::Beauty)
+        && Filmmaker::RenderPlayerMatte_HighlightEnabled()
+        && Filmmaker::RenderPlayerMatte_HasTarget();
+    if ((live.type == (int)Filmmaker::PassType::Beauty && !liveHighlight) || AfxStreams_IsRcording()) return;
     ID3D11Resource* resource = nullptr;
     pTarget->GetResource(&resource);
     if (!resource) return;
@@ -3311,10 +3330,19 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
     resource->Release();
     if (!texture) return;
     AfxRenderPass::ComposeParams params;
-    params.mode = live.type;
-    params.mask = (int)Filmmaker::PassMaskFor((Filmmaker::VisibleElements)live.elements);
-    // Gun only is Main against NoGun in a job; live there is one render, so its viewmodel band.
-    if (live.elements == (int)Filmmaker::VisibleElements::OnlyWeapon) params.mask = (int)Filmmaker::PassMask::GunBand;
+    if (liveHighlight) {
+        params.mode = 5; // Highlight picked player in scene
+        params.mask = (int)Filmmaker::PassMask::SinglePlayerDepth;
+        params.worldRef = true;
+    } else {
+        params.mode = live.type;
+        params.mask = (int)Filmmaker::PassMaskFor((Filmmaker::VisibleElements)live.elements);
+        // Gun only is Main against NoGun in a job; live there is one render, so its viewmodel band.
+        if (live.elements == (int)Filmmaker::VisibleElements::OnlyWeapon) params.mask = (int)Filmmaker::PassMask::GunBand;
+        // Players Only / Selected Player: masked by depth against the live World Only reference render.
+        params.worldRef = live.elements == (int)Filmmaker::VisibleElements::OnlyPlayers
+            || live.elements == (int)Filmmaker::VisibleElements::OnlySelectedPlayer;
+    }
     float key[4];
     Filmmaker::RenderPlayersOnlyGreen_KeyColor(key);
     params.keyIn[0] = key[0]; params.keyIn[1] = key[1]; params.keyIn[2] = key[2];
@@ -3322,8 +3350,6 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
     for (int k = 0; k < 3; ++k) params.keyOut[k] = live.keyOut[k];
     params.nearUnits = live.depthNear;
     params.farUnits = live.depthFar;
-    // Players Only: masked by depth against the live World Only reference render, like a job.
-    params.worldRef = live.elements == (int)Filmmaker::VisibleElements::OnlyPlayers;
     AfxFillPassFrame(params);
     params.keySky = AfxSkyKeyOn();
     const bool ok = AfxRenderPass::ComposeInto(pDeviceContext, texture, g_pCurrentDepthStencilView, params, pTarget);
@@ -3531,6 +3557,43 @@ public:
                 // On the glass, so after the depth of field (the drops are not part of the world it blurs).
                 if (rainRuns)
                     Filmmaker::LensRain_Render(pDeviceContext, pRenderTargetViews[0], rainOnly, g_NativeScopeDrawnThisPresent);
+                // World-space decals & wall media (Text, Logos/Images, Videos on walls, Arrows,
+                // Animated ground routes): runs before Effect Nodes / WorldWarp so projected
+                // decals participate naturally in node grades and world bending.
+                if (Filmmaker::WorldDecals::AnyEnabled()) {
+                    const auto& f = g_EnvironmentFrame;
+                    float actorFeet[Filmmaker::Environment::Frame::kMaxActors][4] = {};
+                    int actN = 0;
+                    for (const auto& a : f.actors) {
+                        if (actN >= Filmmaker::Environment::Frame::kMaxActors) break;
+                        actorFeet[actN][0] = a.origin.x; actorFeet[actN][1] = a.origin.y;
+                        actorFeet[actN][2] = a.origin.z; actorFeet[actN][3] = a.radius;
+                        ++actN;
+                    }
+                    // Also merge live player capsules from RenderPlayerMatte so skipPlayers works
+                    // even when Environment is turned off.
+                    const auto pmSnap = Filmmaker::RenderPlayerMatte_Snapshot();
+                    if (pmSnap.hasTarget && actN < Filmmaker::Environment::Frame::kMaxActors) {
+                        actorFeet[actN][0] = pmSnap.targetCapsule[0];
+                        actorFeet[actN][1] = pmSnap.targetCapsule[1];
+                        actorFeet[actN][2] = pmSnap.targetCapsule[2];
+                        actorFeet[actN][3] = 24.0f;
+                        ++actN;
+                    }
+                    for (int pi = 0; pi < pmSnap.otherCount && actN < Filmmaker::Environment::Frame::kMaxActors; ++pi) {
+                        actorFeet[actN][0] = pmSnap.otherCapsules[pi][0];
+                        actorFeet[actN][1] = pmSnap.otherCapsules[pi][1];
+                        actorFeet[actN][2] = pmSnap.otherCapsules[pi][2];
+                        actorFeet[actN][3] = 24.0f;
+                        ++actN;
+                    }
+                    const float eye[3] = { f.camera.x, f.camera.y, f.camera.z };
+                    Filmmaker::WorldDecals::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
+                        f.hasWorldToClip ? f.worldToClip.data() : nullptr,
+                        f.hasWorldToClip ? f.projection.data() : nullptr,
+                        eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth,
+                        actorFeet, actN, f.time, AfxStreams_IsRcording());
+                }
                 // Round heat map: a placement aid painted on the floor after the lens, so it stays
                 // sharp. It sits out recordings (the scene objects tab is where it is switched on).
                 {
@@ -3546,6 +3609,42 @@ public:
                     Filmmaker::Heatmap::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                         f.hasWorldToClip ? f.worldToClip.data() : nullptr, f.hasWorldToClip ? f.projection.data() : nullptr,
                         eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, feet, players, AfxStreams_IsRcording());
+                }
+                if (!pLensCommands || !pLensCommands->SkipLens) {
+                    const auto& f = g_EnvironmentFrame;
+                    const float eye[3] = { f.camera.x, f.camera.y, f.camera.z };
+                    const float radP = f.angles.x * 0.0174532925f;
+                    const float radY = f.angles.y * 0.0174532925f;
+                    const float fwd[3] = { std::cos(radP) * std::cos(radY), std::cos(radP) * std::sin(radY), -std::sin(radP) };
+                    if (Filmmaker::WorldWarp_WantsCubemap()) {
+                        // Lock-step 6-face cubemap capture: save this frame's rotated camera view
+                        // into the cubemap array, advance to the next face for the next CSetupView,
+                        // and immediately composite the full 360 Little Planet onto the backbuffer.
+                        const int capturedFace = Filmmaker::WorldWarp_ConsumeCapturedFace();
+                        if (capturedFace >= 0) {
+                            Filmmaker::WorldWarp::CaptureCubemapFace(pDeviceContext, pRenderTargetViews[0], capturedFace,
+                                f.hasWorldToClip ? f.projection.data() : nullptr);
+                        }
+                        Filmmaker::WorldWarp::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
+                            f.hasWorldToClip ? f.worldToClip.data() : nullptr,
+                            f.hasWorldToClip ? f.projection.data() : nullptr,
+                            eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
+                    } else {
+                        if (Filmmaker::EffectNodes::Active()) {
+                            Filmmaker::EffectNodes::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
+                                AfxRenderPass::WorldDepthReferenceSrv(),
+                                f.hasWorldToClip ? f.worldToClip.data() : nullptr,
+                                f.hasWorldToClip ? f.projection.data() : nullptr,
+                                eye, fwd, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
+                        }
+                        Filmmaker::EventFx_RenderPost(pDeviceContext, pRenderTargetViews[0], f.time);
+                        if (Filmmaker::WorldWarp_Active()) {
+                            Filmmaker::WorldWarp::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
+                                f.hasWorldToClip ? f.worldToClip.data() : nullptr,
+                                f.hasWorldToClip ? f.projection.data() : nullptr,
+                                eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
+                        }
+                    }
                 }
                 // ReShade: on the finished scene, before the recorder and the scaled preview, so a render
                 // gets the look the user set up and the HUD and panels do not. Like the lens it is a Beauty
@@ -5763,7 +5862,8 @@ public:
 		if (m_Recording)
 			m_RecordedSourceFrameCount.fetch_add(1, std::memory_order_release);
         m_RecordingExtraPassesIterator = m_RecordingExtraPasses.begin();
-        m_LiveWorldRefPending = !m_Recording && g_LiveWorldRefWanted.load(std::memory_order_acquire);
+        m_LiveWorldRefPending = !m_Recording
+            && (g_LiveWorldRefWanted.load(std::memory_order_acquire) || Filmmaker::EffectNodes::NeedsWorldDepthRef());
 
         if (m_Recording) {
             if (m_AutoForceFullReSmoke) {
@@ -5791,7 +5891,8 @@ public:
     }
 
     bool EngineThread_HasNextRenderPass() {
-        return m_RecordingExtraPassesIterator != m_RecordingExtraPasses.end() || m_LiveWorldRefPending;
+        return m_RecordingExtraPassesIterator != m_RecordingExtraPasses.end()
+            || m_LiveWorldRefPending;
     }
 
     void EngineThread_BeginNextRenderPass() {
@@ -5801,7 +5902,7 @@ public:
         // Every plate of a frame is seen through the lens the Main render focused.
         commands.HoldLensFocus = true;
         if (m_LiveWorldRefPending && m_RecordingExtraPassesIterator == m_RecordingExtraPasses.end()) {
-            // The live Players Only view's World Only reference (never shown: present suppressed).
+            // The live Players Only / Effect Nodes view's World Only reference (never shown: present suppressed).
             BeginPassRender((int)Filmmaker::RenderKey::WorldOnly);
             commands.SkipLens = true;
             commands.BeforeUi.Push([](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture){
@@ -6045,6 +6146,9 @@ public:
     bool m_PassNeedsMainReference = false;
     bool m_PassMainComposes = false; // a Depth / Normal pass of Everything (CStreamSettings::IsComposedPass)
     bool m_LiveWorldRefPending = false; // engine thread, per frame (see g_LiveWorldRefWanted)
+    int m_CubemapFacesPending = 0;      // Little Planet 6-face 360 cubemap capture
+    int m_CubemapNextFace = 0;
+    bool m_CubemapPassActive = false;
 
 private:
     class CStream : public advancedfx::IRecordStreamSettings {
@@ -6212,7 +6316,8 @@ private:
                         params.mode = m_Settings.PassType;
                         params.mask = (int)Filmmaker::PassMaskFor(pass.elements);
                         // The job renders World Only before this (RecordStart's reference stream).
-                        params.worldRef = pass.elements == Filmmaker::VisibleElements::OnlyPlayers;
+                        params.worldRef = pass.elements == Filmmaker::VisibleElements::OnlyPlayers
+                            || pass.elements == Filmmaker::VisibleElements::OnlySelectedPlayer;
                         float key[4];
                         Filmmaker::RenderPlayersOnlyGreen_KeyColor(key);
                         params.keyIn[0] = key[0]; params.keyIn[1] = key[1]; params.keyIn[2] = key[2];
@@ -6222,7 +6327,7 @@ private:
                         params.keyOut[2] = m_Settings.PassKeyOut[2];
                         params.nearUnits = m_Settings.PassDepthNear;
                         params.farUnits = m_Settings.PassDepthFar;
-                        if (g_PassDepthDebug && params.mode == (int)Filmmaker::PassType::Depth) params.mode = 4;
+                        if (g_PassDepthDebug && params.mode == (int)Filmmaker::PassType::Depth) params.mode = 6;
                         queue.Push([capture, params](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture) mutable {
                             {
                                 AfxFillPassFrame(params);
@@ -8225,8 +8330,11 @@ void AfxStreams_SetLivePassPreview(int passType, int passElements, float depthNe
     g_LivePassPreview.depthNear = depthNear;
     g_LivePassPreview.depthFar = depthFar;
     for (int k = 0; k < 3; ++k) g_LivePassPreview.keyOut[k] = keyOut ? keyOut[k] : 0.0f;
-    g_LiveWorldRefWanted.store(passType != (int)Filmmaker::PassType::Beauty
-        && passElements == (int)Filmmaker::VisibleElements::OnlyPlayers, std::memory_order_release);
+    const bool wantsPlayerWorldRef = (passType != (int)Filmmaker::PassType::Beauty
+        && (passElements == (int)Filmmaker::VisibleElements::OnlyPlayers
+            || passElements == (int)Filmmaker::VisibleElements::OnlySelectedPlayer))
+        || (Filmmaker::RenderPlayerMatte_HighlightEnabled() && Filmmaker::RenderPlayerMatte_HasTarget());
+    g_LiveWorldRefWanted.store(wantsPlayerWorldRef, std::memory_order_release);
 }
 
 void AfxStreams_SetSkyKey(bool on, bool live, const float keyOut[3]) {
