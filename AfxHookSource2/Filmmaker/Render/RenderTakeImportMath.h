@@ -35,6 +35,9 @@ struct RenderTakeSettings {
 	bool cameraData = true;
 	bool blood = true;
 	bool keySky = false; // the green-screen sky; a take from before it was written has none
+	double aeScale = 1;  // the After Effects camera's pixels per Source unit
+	bool aeOrigin = false;
+	bool killFeed = false; // a No HUD render that kept the kill feed
 	int key[3] = { 0, 255, 0 };
 	double depthNear = 8.0;
 	double depthFar = 4096.0;
@@ -84,6 +87,10 @@ inline bool ParseRenderTakeManifest(const std::string& text, RenderTakeSettings&
 	t.cameraData = flag("cameraDataSidecar", true);
 	t.blood = flag("blood", true);
 	t.keySky = flag("keySky", false);
+	t.aeScale = num("afterEffectsScale", 1);
+	if (!(t.aeScale >= 0.01 && t.aeScale <= 100)) t.aeScale = 1;
+	t.aeOrigin = flag("afterEffectsOrigin", false);
+	t.killFeed = flag("killFeed", false);
 	if (const JsonValue* key = root.Find("keyColor"); key && key->type == JsonValue::Type::Array && key->arr.size() == 3) {
 		for (int k = 0; k < 3; ++k) {
 			const double c = key->arr[k].AsNumber(k == 1 ? 1.0 : 0.0);
@@ -125,6 +132,9 @@ inline std::vector<std::vector<std::string>> RenderTakeImportCommands(const Rend
 	c.push_back({ "pass", "blood", t.blood ? "1" : "0" });
 	// Always sent: `pass clear` leaves the sky switch alone, so a take without it must turn it off.
 	c.push_back({ "pass", "keysky", t.keySky ? "1" : "0" });
+	c.push_back({ "pass", "aescale", n(t.aeScale) });
+	c.push_back({ "pass", "aeorigin", t.aeOrigin ? "1" : "0" });
+	c.push_back({ "pass", "killfeed", t.killFeed ? "1" : "0" });
 	c.push_back({ "pass", "key", std::to_string(t.key[0]), std::to_string(t.key[1]), std::to_string(t.key[2]) });
 	c.push_back({ "pass", "depth", n(t.depthNear), n(t.depthFar) });
 	return c;

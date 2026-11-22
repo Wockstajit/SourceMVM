@@ -271,9 +271,6 @@ public:
 	// drag coalesces into one nudge) and a no-op when the demo is already playing. "cosmetics ticknudge ...".
 	void RequestCompositeRefresh();           // dense composite re-assert only (weapon skins; no demo_resume)
 	void RequestApplyNudge();                 // composite hold + debounced tick nudge (agent/glove/knife/body)
-	// A holstered weapon that is owed a composite was drawn while the demo plays: pause for THAT
-	// composite only. Unlike RequestApplyNudge nothing is re-selected -- the profiles did not change.
-	void RequestOwedCompositePause(int entityIndex);
 	// A weapon pick made while the demo PLAYS: hold it, pause the demo, and commit it on the first
 	// paused frame (attributes + mesh + composite together), then resume. Returns false when the demo
 	// is not playing, in which case the caller applies the pick immediately as usual.
@@ -284,6 +281,10 @@ public:
 	void SetTickNudgeTicks(int t) { m_tickNudgeTicks = (t < 1) ? 1 : t; }
 	int TickNudgeTicks() const { return m_tickNudgeTicks; }
 	bool TickNudgeActive() const { return m_nudgePhase != 0; } // currently playing out a nudge
+	bool UserPauseState(bool demoPaused) const {
+		// A nudge from a paused edit temporarily plays. A live edit or seek hold temporarily pauses.
+		return m_nudgePhase == 0 ? demoPaused : m_nudgePhase == 1;
+	}
 	// SEEK REFRESH. A seek rebuilds every weapon entity from the demo, and the composite that puts an
 	// override's skin back on a gun runs on PAUSED frames only. So a seek that lands while the demo
 	// plays (the tick loop jumping back to In, a camera path restarting) would keep playing with the
@@ -299,7 +300,6 @@ public:
 	size_t PendingLivePicks() const { return m_livePicks.size(); }
 	int NudgePhase() const { return m_nudgePhase; }
 	bool NudgePending() const { return m_pendingNudge; }
-	size_t QueuedOwedPauseCount() const { return m_owedPauseIdx.size(); }
 	size_t OwedCompositeCount() const { return m_compositeOwedIdx.size(); }
 
 private:
@@ -475,10 +475,6 @@ private:
 	bool m_tickNudge = true;          // briefly resume playback after a change so body swaps re-render
 	int m_tickNudgeTicks = 10;        // how many ticks to play out before re-pausing ("play ~10 ticks")
 	bool m_pendingNudge = false;      // a profile changed; a nudge is due once the debounce elapses
-	bool m_pendingNudgeOwedOnly = false; // the pending nudge only pays owed composites (see RequestOwedCompositePause)
-	std::unordered_set<int> m_owedPauseIdx; // weapons whose owed composite waits for that pause
-	uint64_t m_lastOwedPauseMs = 0;          // GetTickCount64 of the last owed-composite pause
-	static constexpr uint64_t kThemeOwedPauseGapMs = 6000; // a theme batches owed composites this far apart
 	uint64_t m_frameCounter = 0;      // main-thread frames since start (debounce/timing clock)
 	int m_gloveApplyBudget = 0;       // max glove applies per frame (set before ApplyPawnCosmetics)
 	int m_constructPaintBudget = 0;   // max construct_paint_kit calls per frame (global)

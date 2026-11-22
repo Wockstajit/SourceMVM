@@ -248,9 +248,8 @@ void CosmeticOverrideSystem::RunRecordedWeaponRestores() {
             saved.restored = true;
         }
         // Data rollback is independent of deployment. Native material work waits for a drawn gun
-        // and diagnostic render toggles; holstered/disabled jobs never hold an automated pause.
-        if (!runnable) { ++it; continue; }
-        if (!paused) { RequestOwedCompositePause(SOURCESDK::CS2::CBaseHandle(saved.handle).GetEntryIndex()); ++it; continue; }
+        // and diagnostic render toggles. Pending material work is retried on paused frames.
+        if (!runnable || !paused) { ++it; continue; }
         const int index = SOURCESDK::CS2::CBaseHandle(saved.handle).GetEntryIndex();
         const auto last = m_lastCompositeFrameByIdx.find(index);
         const uint64_t lastFrame = last != m_lastCompositeFrameByIdx.end()
@@ -276,7 +275,6 @@ void CosmeticOverrideSystem::RunRecordedWeaponRestores() {
             ReleaseViewmodelComposites((unsigned char*)holder, weapon, index);
         m_lastCompositeFrameByIdx[index] = m_frameCounter;
         m_compositeOwedIdx.erase(index);
-        m_owedPauseIdx.erase(index);
         m_meshFollowupCompositeDue.erase(index);
         if (m_nudgePhase == 2) m_pauseCompositeDoneFrame = m_frameCounter;
         if (MvmDebugLog_Active())

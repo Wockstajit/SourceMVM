@@ -47,7 +47,7 @@ R"EDJS(
     function skConfirm(title, body, action) {
       confirmTitle.text = title; confirmBody.text = body;
       confirmYes.__lbl.text = T('Yes, turn it off');
-      confirmAction = action; confirmOverlay.visible = true;
+      showEditorConfirm(action);
     }
     // Turning a property off removes its keys with it -- `scenekeys clear <id>` disarms as well --
     // so ON/OFF means exactly one thing: is this property animated? Keys are never left behind

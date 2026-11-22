@@ -1,15 +1,15 @@
-# Lens: depth of field, bokeh and lens flare
+# Lens: depth of field, bokeh, lens flare and lens rain
 
 A post pass over the finished world frame. It reads the scene colour and the scene depth the engine
 already produced. It runs after the environment renderer and before the Panorama UI and clean movie
 capture, so it is in every recorded frame and never on the HUD. It is a module of its own
 (`AfxHookSource2/Filmmaker/Lens/`): nothing depends on the environment editor being enabled.
 
-Controls live on the CONFIG panel's **CAMERA** tab as two cards, **DEPTH OF FIELD** and **LENS FLARE**.
-Everything is also a console command: `mirv_filmmaker lens help`.
+Controls live on the CONFIG panel's **CAMERA** tab as three cards, **DEPTH OF FIELD**, **LENS FLARE**
+and **LENS RAIN**. Everything is also a console command: `mirv_filmmaker lens help`.
 
 Each card's **Reset** switches that lens effect off and restores its tuning.
-`lens reset dof|flare|all` does the same. Look presets keep the on/off choice. The bottom
+`lens reset dof|flare|rain|all` does the same. Look presets keep the on/off choice. The bottom
 **RESET CAMERA** also disables both lens effects, along with the rest of the Camera tab.
 
 ## The parameter table
@@ -82,6 +82,7 @@ next to the switch.
 Both cap at *Largest blur* (pixels on a 1080p frame, scaled with the resolution). *Show → Focus*
 paints the sharp region magenta, *Blur map* paints near blur orange and far blur blue, and *Zebra*
 draws diagonal stripes over whatever blurs less than half a pixel, on the finished picture.
+The **Show** control stays above the Focus and Bokeh tabs. Its diagnostic views are live previews.
 
 **Smoke.** CS2 draws smokes without depth, so the depth buffer under a smoke is the wall behind it. A
 smoke used to be blurred at the wall's distance, so the background's blur showed through it instead of
@@ -321,10 +322,73 @@ rainbow, glow size, dirt scale, edge fade and warp. Settings are session-local.
 
 **Panel.** LENS FLARE has two pages, with at most eight controls on either. *Look* holds the look,
 intensity, source threshold, ghosts, halo, streak, spikes and glow. *Detail* holds streak length, aperture
-blades, lens dirt, the flare colour and streak colour swatches, and *Flare only*.
+blades, lens dirt, and the flare and streak colour swatches. **Flare only** stays above both tabs
+so you can tune either page while viewing the flare on black.
 
 Looks: Cinematic (the defaults), Anamorphic (a long cool streak), Classic (eight ghosts and a ring), Star
 (spikes only), and Dreamy (glow only, with a lower threshold). A look resets the group first.
+
+## Lens rain
+
+Enable **CONFIG → CAMERA → LENS RAIN** to put water on the glass when the scene’s
+**Environment → Weather** is set to Rain or Storm. The lens switch can be off while world rain
+continues. The lens clears outside a placed rain volume, under cover on prepared maps when
+weather shelter is enabled, and whenever rain stops. Scene Keys for weather type and intensity
+drive the same behavior. The Rain and Storm weather looks also set scene fog. Use **Clear** in
+**Environment → Weather & Sky** to remove that look, or lower **Density** under **Height fog**
+in the **Fog** card to keep the rain.
+
+Rain intensity controls how many drops land and how quickly they slide. Small beads can cling
+to the lens. Gravity follows the camera’s roll. Each drop has some sideways drift, and the variation
+increases as the camera moves or turns. Some drops leave irregular streaks along the paths they took.
+The water stays on the glass and thins over time, including after the drop runs off. Larger, diffuse spots soften the image under
+the water. Drops fade in and drain away with the demo clock, so pausing a demo also pauses the
+water. A seek starts a fresh lens for the new shot.
+
+| Control | Key | Range | Default |
+| --- | --- | --- | --- |
+| Enable lens rain | `rain.on` | 0 / 1 | 0 |
+| Amount | `rain.amount` | 0–100% | 26 |
+| Visibility | `rain.visibility` | 0–2× | 1 |
+| Drop size | `rain.size` | 0.3–3× | 0.7 |
+| Slide | `rain.slide` | 0–2× | 1 |
+| Trails | `rain.trails` | 0–1 | 0.3 |
+| Impact | `rain.impact` | 0–2× | 0.35 |
+| Refraction | `rain.refraction` | 0–2× | 0.75 |
+| Softness | `rain.blur` | 0–1 | 0.48 |
+
+**Amount** scales how many drops land. At zero, existing drops finish draining.
+**Visibility** controls the strength of the violet edge tint on droplets and trails. At zero, water
+still bends and softens the scene underneath. **Refraction** controls how far the water displaces
+the image, and **Softness** controls how much detail blurs through it.
+**Drop size** changes the size of water already on the lens. **Slide** controls how quickly water
+moves. **Trails** controls the length and persistence of the water left behind. **Impact** controls
+the extra drops that land as the camera moves forward. Use **Wipe the lens** to clear everything at
+once. The Drizzle, Rain, Storm and
+Windscreen looks set these controls together. Every setting except the switch can be animated
+under `lens.rain.*` in Scene Keys.
+
+**Rain only** shows the droplets and streaks against black. The game image remains visible through
+the water, and the preview makes subpixel droplets easier to inspect. It uses the same scene rain
+and Lens Rain switch as the normal picture. When there is no water on screen, the normal view
+returns automatically. The black surround of CS2's native scope stays dry. Lens preview modes
+suspend during recording.
+
+```text
+mirv_filmmaker environment weather storm
+mirv_filmmaker lens preset rain storm
+mirv_filmmaker lens rain on
+mirv_filmmaker lens rain preview toggle
+mirv_filmmaker lens rain.amount 30
+mirv_filmmaker lens rain clear
+```
+
+Lens rain draws after depth of field and flare, before Beauty capture. Key, Depth and Normal passes
+read the clean scene. The HUD and the console green screen stay clear. See
+[render passes](filmmaker_render_passes.md#lens-effects).
+
+`mvm_debug` reports effective rain intensity, visible drop count, runoff and speed under
+`lens.rain`. The lens rain math tests cover density, size, gravity, camera motion and opacity.
 
 ## Pass list
 

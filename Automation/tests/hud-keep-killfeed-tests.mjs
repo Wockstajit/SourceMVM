@@ -120,7 +120,9 @@ test("-1 (CS2's force off) is left to CS2: the hidden view treats it like 0", ()
 
 test("the switches come from C++ state and are only read, never written", () => {
   const hudCpp = read("AfxHookSource2/Filmmaker/Panorama/CameraTimelineHud.cpp");
-  assert.match(hudCpp, /"forceDeathNotices\\":" << HudBlackout_ForceDrawSetting\("cl_drawhud_force_deathnotices"\)/);
+  assert.match(hudCpp, /const int force = HudBlackout_ForceDrawSetting\("cl_drawhud_force_deathnotices"\)/);
+  // A No HUD render with its Kill feed switch keeps the feed the same way, unless the switch is -1 (forced off).
+  assert.match(hudCpp, /"forceDeathNotices\\":" << \(\(force != -1 && Render_KeepsKillFeed\(\)\) \? 1 : force\)/);
   assert.match(hudCpp, /"forceRadar\\":" << HudBlackout_ForceDrawSetting\("cl_drawhud_force_radar"\)/);
   const blackout = read("AfxHookSource2/Filmmaker/Movie/HudBlackout.cpp");
   assert.doesNotMatch(blackout, /ExecClientCmd\("cl_drawhud/, "the kill feed switch is the user's; never set it");

@@ -107,6 +107,7 @@ bool CameraEditorHud::BuildIfNeeded() {
 	m_symCustomizeOpen = m_bridge.MakeSymbol("customizeopen");
 	m_symCustomizeLayout = m_bridge.MakeSymbol("custlayout");
 	m_symPopupOpen = m_bridge.MakeSymbol("popupopen");
+	m_symConfirmOpen = m_bridge.MakeSymbol("confirmopen");
 	m_symTextCapture = m_bridge.MakeSymbol("textcapture");
 	m_symWinRect = m_bridge.MakeSymbol("winrect");
 	m_symWinFront = m_bridge.MakeSymbol("winfront");
@@ -762,7 +763,8 @@ void CameraEditorHud::UpdateCustomizeModalState() {
 			if (MvmDebugLog_Active()) MvmDebugLog_Linef("customize.window", "layout %s", layout.c_str());
 		}
 	}
-	m_popupOpen = m_root && (m_bridge.GetAttributeString(m_root, m_symPopupOpen, "0") == "1");
+	m_popupOpen = m_root && (m_bridge.GetAttributeString(m_root, m_symPopupOpen, "0") == "1"
+		|| m_bridge.GetAttributeString(m_root, m_symConfirmOpen, "0") == "1");
 	// Same contract for the render workspace's typed fields. Cleared automatically whenever the
 	// workspace tears down, because m_root goes null and there is no attribute left to read.
 	m_textCapture = m_root && (m_bridge.GetAttributeString(m_root, m_symTextCapture, "0") == "1");

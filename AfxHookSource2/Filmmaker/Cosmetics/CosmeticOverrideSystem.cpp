@@ -145,8 +145,6 @@ void CosmeticOverrideSystem::ResetSessionOverrides(const char* reason) {
 	m_lastDemoPausedState = false;
 	m_resumeWorldMeshReselectFrames = 0;
 	m_pendingNudge = false;
-	m_pendingNudgeOwedOnly = false;
-	m_owedPauseIdx.clear();
 	m_nudgePhase = 0;
 	m_nudgeWasPaused = false;
 	m_postNudgeMeshRefreshPending = false;
@@ -1379,9 +1377,8 @@ int CosmeticOverrideSystem::ApplyMatchedWeapons(bool forceStale, bool fireRebuil
 
 		// Never composite a holstered world weapon. The documented working path targets the actually
 		// deployed weapon; an inactive entity can accept the call and corrupt async material state.
-		// The composite only runs on a deployed weapon, so a change to a holstered one is owed until
-		// it is drawn. While the demo PLAYS the composite cannot run, so ask for the pause-composite-resume
-		// pass; while paused it runs right here.
+		// A deferred composite is paid when the weapon is drawn on a paused frame. A weapon
+		// switch or network clobber during playback never changes the demo clock.
 		// A native mesh switch is settling on this entity: hold every composite until it has, then run
 		// exactly one on a paused frame with the weapon drawn. A composite in the switch frame lands on
 		// the materials of the group being left, and overlapping composites abandon each other.
@@ -1390,14 +1387,8 @@ int CosmeticOverrideSystem::ApplyMatchedWeapons(bool forceStale, bool fireRebuil
 			if (settle != m_meshFollowupCompositeDue.end()) {
 				if (m_frameCounter < settle->second || !fireDirectComposite || !ownerPawn) {
 					compositeWarranted = false;
-					// Holstered: the gun is owed its composite when it is next drawn (paused: right here once
-					// settled; playing: the owed path below pauses for it).
 					if (!ownerPawn)
 						m_compositeOwedIdx.insert(i);
-					// Settled on a drawn gun while the demo plays: nothing pays it until a pause, so a
-					// theme (everyone dressed at once) asks for its batched one.
-					else if (m_theme && !fireDirectComposite && m_frameCounter >= settle->second)
-						RequestOwedCompositePause(i);
 				} else {
 					compositeWarranted = true;
 					m_meshFollowupCompositeDue.erase(settle);
@@ -1419,14 +1410,9 @@ int CosmeticOverrideSystem::ApplyMatchedWeapons(bool forceStale, bool fireRebuil
 		}
 		const bool compositeOwed = m_compositeOwedIdx.count(i) != 0;
 		if (compositeOwed && ownerPawn && m_meshFollowupCompositeDue.count(i) == 0) compositeWarranted = true;
-		if (compositeWarranted && !ownerPawn && (result.needComposite || attr.changed || forceStale))
+		if (compositeWarranted && (!ownerPawn || !fireDirectComposite)
+			&& (result.needComposite || attr.changed || forceStale))
 			m_compositeOwedIdx.insert(i);
-		if (compositeOwed && ownerPawn && !fireDirectComposite) {
-			m_compositeOwedIdx.erase(i);
-			RequestOwedCompositePause(i);
-			if (MvmDebugLog_Active())
-				MvmDebugLog_Linef("cosmetics.nudge", "owed composite idx=%d: weapon drawn while playing, pause-composite requested", i);
-		}
 		// A surviving seek or a rapid second pick must not overlap the previous native material job.
 		// The mesh follow-up used to bypass this clock after seeks because its memo was cleared.
 		if (recorded && compositeWarranted && recorded->lastCompositeFrame

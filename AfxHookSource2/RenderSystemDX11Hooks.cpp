@@ -13,6 +13,7 @@
 #include "Filmmaker/Environment/EnvironmentGroundFog.h"
 #include "Filmmaker/Environment/EnvironmentReflectionProbes.h" // wet film: CS2 probes and the tone curve
 #include "Filmmaker/Lens/LensFx.h"
+#include "Filmmaker/Lens/LensRain.h"
 #include "Filmmaker/Heatmap/RoundHeatmap.h"
 #include "Filmmaker/World/SunFx.h" // the lens flare's sun (SunFx_VisibleSunDirection)
 #include "Filmmaker/Lens/LensSunLocator.h" // the lens flare's sun: the disc CS2 draws, found on the GPU
@@ -1761,6 +1762,7 @@ int g_iDraw = -1;
 bool g_BeforeUiFiredThisPresent = false;
 // Set once the Environment composite ran this present, cleared at Present. Render-thread state only.
 bool g_EnvironmentCompositedThisPresent = false;
+bool g_NativeScopeDrawnThisPresent = false;
 bool g_bInOwnDraw = false;
 bool g_bDetectSmoke = false;
 bool g_bDetectSmoke2 = false;
@@ -2026,6 +2028,7 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                     g_FisheyePass.EndDevice();
                     g_ReShadeScenePass.EndDevice();
                     Filmmaker::LensFx_EndDevice();
+                    Filmmaker::LensRain_EndDevice();
                     AfxContactShadow::EndDevice();
                     AfxRenderPass::EndDevice();
                     if (environmentDeviceChanged)
@@ -2047,6 +2050,7 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                 g_FisheyePass.BeginDevice(This);
                 g_ReShadeScenePass.BeginDevice(This);
                 Filmmaker::LensFx_BeginDevice(This);
+                Filmmaker::LensRain_BeginDevice(This);
                 AfxContactShadow::BeginDevice(This);
                 AfxRenderPass::BeginDevice(This);
                 if (environmentDeviceChanged)
@@ -3447,11 +3451,21 @@ public:
                 // like that pass in a job (CRenderPassCommands::SkipLens / KeepCleanColor).
                 auto pLensCommands = g_RenderCommands.RenderThread_GetCommands();
                 const bool beautyEffects = !(pLensCommands && pLensCommands->SkipLens) && !AfxLivePassPreviewShown();
-                const bool lensRuns = beautyEffects && Filmmaker::LensFx_Active();
-                const bool reshadeRuns = beautyEffects && g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade;
+                const bool keyPass = Filmmaker::RenderPlayersOnlyGreen_Active();
+                using Filmmaker::LensPreview;
+                const LensPreview requestedPreview = beautyEffects && !keyPass && !AfxStreams_IsRcording()
+                    ? Filmmaker::LensFx_GetPreview() : LensPreview::Picture;
+                const bool rainHasWater = beautyEffects && !keyPass && Filmmaker::LensRain_Active();
+                const LensPreview preview = requestedPreview == LensPreview::Rain && !rainHasWater
+                    ? LensPreview::Picture : requestedPreview;
+                const bool rainOnly = preview == LensPreview::Rain;
+                const bool picture = preview == LensPreview::Picture;
+                const bool lensRuns = beautyEffects && !rainOnly && Filmmaker::LensFx_Active();
+                const bool rainRuns = rainHasWater && (rainOnly || picture);
+                const bool reshadeRuns = beautyEffects && picture && g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade;
                 // This render also feeds the pass compositor: it reads the scene from before the lens
                 // and before ReShade. Either one alone changes the scene, so either one needs the copy.
-                if ((lensRuns || reshadeRuns) && pLensCommands && pLensCommands->KeepCleanColor) {
+                if ((lensRuns || rainRuns || reshadeRuns) && pLensCommands && pLensCommands->KeepCleanColor) {
                     ID3D11Resource* pSceneResource = nullptr;
                     pRenderTargetViews[0]->GetResource(&pSceneResource);
                     if (pSceneResource) {
@@ -3509,12 +3523,14 @@ public:
                     }
                     // The console green screen (render greenscreen) repaints the scene itself, so its
                     // frame gets no flare: it would paint over the chroma background (LensFx.h, keyPass).
-                    const bool keyPass = Filmmaker::RenderPlayersOnlyGreen_Active();
                     Filmmaker::LensFx_Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                         g_EnvironmentFrame.hasWorldToClip ? g_EnvironmentFrame.worldToClip.data() : nullptr,
                         g_ViewPort.MinDepth, g_ViewPort.MaxDepth, smoke, sun, keyPass,
-                        pLensCommands && pLensCommands->HoldLensFocus);
+                        pLensCommands && pLensCommands->HoldLensFocus, preview);
                 }
+                // On the glass, so after the depth of field (the drops are not part of the world it blurs).
+                if (rainRuns)
+                    Filmmaker::LensRain_Render(pDeviceContext, pRenderTargetViews[0], rainOnly, g_NativeScopeDrawnThisPresent);
                 // Round heat map: a placement aid painted on the floor after the lens, so it stays
                 // sharp. It sits out recordings (the scene objects tab is where it is switched on).
                 {
@@ -3871,9 +3887,9 @@ static void AfxCompositeEnvironmentBeforeOverlay(ID3D11DeviceContext* ctx) {
 // CS2's sniper scope pass: a Draw(4) with legacy_sniper_scope.vfx_ps, reading the tonemapped scene
 // from t0 and writing the back buffer. Composites the Environment into that source before it runs.
 static void AfxCompositeEnvironmentBeforeScope(ID3D11DeviceContext* ctx, UINT vertexCount) {
-    if (vertexCount != 4 || g_bInOwnDraw || g_BeforeUiFiredThisPresent || g_EnvironmentCompositedThisPresent
-        || !g_EnvironmentFrame.active || ctx->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE
-        || !g_RenderCommands.CurrentThreadIsRenderThread())
+    if (vertexCount != 4 || g_bInOwnDraw || g_BeforeUiFiredThisPresent || g_NativeScopeDrawnThisPresent
+        || ctx->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE || !g_RenderCommands.CurrentThreadIsRenderThread()
+        || (!g_EnvironmentFrame.active && !Filmmaker::LensRain_Active()))
         return;
     ID3D11PixelShader* shader = nullptr;
     ctx->PSGetShader(&shader, nullptr, nullptr);
@@ -3884,6 +3900,8 @@ static void AfxCompositeEnvironmentBeforeScope(ID3D11DeviceContext* ctx, UINT ve
     shader->Release();
     const bool scope = named && vertexCount == 4 && 0 == strcmp(name, "legacy_sniper_scope.vfx_ps");
     if (!scope) return;
+    g_NativeScopeDrawnThisPresent = true;
+    if (!g_EnvironmentFrame.active || g_EnvironmentCompositedThisPresent) return;
 
     ID3D11ShaderResourceView* sourceView = nullptr;
     ctx->PSGetShaderResources(0, 1, &sourceView);
@@ -4895,6 +4913,7 @@ void After_Present() {
     g_iDraw = -1;
     g_BeforeUiFiredThisPresent = false;
     g_EnvironmentCompositedThisPresent = false;
+    g_NativeScopeDrawnThisPresent = false;
     Filmmaker::Environment::EndEnvironmentPresent();
     g_WorldOverlayShaderBound = false;
     g_WorldOverlayIsPanorama = false;

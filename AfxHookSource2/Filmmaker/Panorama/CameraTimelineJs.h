@@ -1130,6 +1130,66 @@ R"TLJS(
       if (state && state.forceDeathNotices === 1) { hudKeepIn.HudTopRight = 'HudDeathNotice'; hudKeepKey += 'k'; }
       if (state && state.forceRadar === 1) { hudKeepIn.HudTopLeft = 'HudRadar'; hudKeepKey += 'r'; }
     }
+    // THE KILL FEED FOR MOVIES (Movie/KillFeed.h). CS2 builds every notice from its DeathNotice snippet
+    // (huddeathnotice.xml): #Attacker, #Assister and #Victim labels inside HudDeathNotice >
+    // #VisibleNotices. A name typed for a player replaces theirs on every notice with them. Nothing can
+    // be stored on a label: Panorama hands back a new JS object for a panel on every lookup, so an
+    // expando set one frame is gone the next. Instead every name written is remembered here with the
+    // real name it stands for, so a label already showing it still reads as that player, and clearing
+    // a name puts the real one back. "Only the watched player" hides the notices the watched player
+    // is not in.
+    var KF_LABELS = ['Attacker', 'Assister', 'Victim'];
+    var kfTouched = false;
+    var kfShownToReal = {};
+    var kfDemo = -1;
+    function killFeedApply(kf) {
+      // A new demo: its players are other people, so the aliases learned on the last one go.
+      var demo = kf && kf.demo !== undefined ? kf.demo : kfDemo;
+      if (demo !== kfDemo) { kfDemo = demo; kfShownToReal = {}; kfTouched = false; }
+      var feed = null;
+      try { feed = findNative('HudDeathNotice'); } catch (e) {}
+      var list = null;
+      try { list = feed && feed.FindChildTraverse ? feed.FindChildTraverse('VisibleNotices') : null; } catch (e1) {}
+      if (!list) return;
+      var names = {}, any = false;
+      var players = (kf && kf.players) || [];
+      for (var i = 0; i < players.length; i++) if (players[i][1]) {
+        names[players[i][0]] = players[i][1]; any = true;
+        kfShownToReal[players[i][1]] = players[i][0];
+      }
+      var only = !!(kf && kf.only) && !!(kf && kf.watched);
+      if (!any && !only && !kfTouched) return;
+      kfTouched = any || only;
+      var n = 0;
+      try { n = list.GetChildCount(); } catch (e2) { return; }
+      for (var c = 0; c < n; c++) {
+        var notice = null;
+        try { notice = list.GetChild(c); } catch (e3) {}
+        if (!notice) continue;
+        var involved = false, filled = false;
+        for (var k = 0; k < KF_LABELS.length; k++) {
+          var l = null;
+          try { l = notice.FindChildTraverse(KF_LABELS[k]); } catch (e4) {}
+          if (!l) continue;
+          var text = '';
+          try { text = l.text || ''; } catch (e5) {}
+          var real = kfShownToReal.hasOwnProperty(text) ? kfShownToReal[text] : text;
+          var shown = names.hasOwnProperty(real) ? names[real] : real;
+          if (text !== shown) { try { l.text = shown; } catch (e6) {} }
+          if (real && real === kf.watched) involved = true;
+          if (real) filled = true;
+        }
+        // CS2 keeps a pool of notice panels and shows or hides them itself, so their visibility is
+        // never touched (a collapsed pool slot did not come back). A notice left out is folded to no
+        // height and no opacity instead. An empty slot gets CS2's own values back, so a slot folded
+        // for one notice is whole again when CS2 fills it with the next.
+        var want = !filled || !only || involved;
+        try {
+          notice.style.height = want ? null : '0px';
+          notice.style.opacity = want ? null : '0';
+        } catch (e7) {}
+      }
+    }
     // Hands a spectator panel's visibility back to the game. Its stylesheet collapses these panels and
     // a class opens them while spectating, so `visible = true` would pin them on for good: in a live
     // match the bottom of the screen then shows the last player spectated, on top of your own HUD.
@@ -1968,6 +2028,7 @@ R"TLJS(
 R"TLJS(
       setHudKeep(st); // the kill feed / radar the hidden views keep (CS2's own switches)
       var blackout = !!st.blackout;
+      killFeedApply(st.killFeed); // shown names and the watched-only filter (Movie/KillFeed.h)
       if (blackout) {
         applyHudView('hidden');
         applyGameHudViewport(false, null);

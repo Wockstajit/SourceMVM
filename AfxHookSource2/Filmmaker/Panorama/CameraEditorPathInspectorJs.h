@@ -258,6 +258,46 @@ R"EDJS(
     }, T('Live plays the demo along the path; Freeze holds the tick.'));
     var pathHint = edNote(pathSpeedPage, '');
 
+    var dollyPage = selSec.__group(T('Dolly zoom'));
+    var pathDollyHelp = T('Aim at a player. Each button creates camera keys from this view and playhead, even while paused.');
+    var pathDollyNote = edNote(dollyPage, pathDollyHelp);
+    pathDollyNote.style.minHeight = '30px';
+    var dollySeconds = 3, dollyShare = 50;
+    var dollyLenTile = edValueTile(dollyPage, { label: T('Duration'), min: 0.5, max: 12, decimals: 1, unit: 's', fill: S.value,
+      tip: T('How long the shot lasts, from the current tick.'),
+      onChange: function (v) { if (isFinite(v)) dollySeconds = Math.max(0.5, Math.min(12, v)); } });
+    var dollyShareTile = edValueTile(dollyPage, { label: T('Travel'), min: 5, max: 90, decimals: 0, unit: '%', fill: S.value,
+      tip: T('50% moves the camera half its starting distance from the subject.'),
+      onChange: function (v) { if (isFinite(v)) dollyShare = Math.max(5, Math.min(90, v)); } });
+    dollyLenTile.sync(dollySeconds); dollyShareTile.sync(dollyShare);
+    function pathDollyRun(dir) {
+      if (st && st.pathLive) return;
+      cmd('mirv_filmmaker marker dollyzoom ' + dir + ' ' + dollySeconds.toFixed(1) + ' ' + Math.round(dollyShare) + '%');
+    }
+    var pathDollyActions = edActionGroup(dollyPage, T('Create'), [
+      [T('Push in'), function () { pathDollyRun('in'); }],
+      [T('Pull out'), function () { pathDollyRun('out'); }]
+    ], 2, T('Replaces keys within the shot. Press {0} to play the camera path.', K('path.play', 'J')));
+    edTip(pathDollyActions.btns[0], T('Move closer and widen the view to hold the subject’s size.'));
+    edTip(pathDollyActions.btns[1], T('Move back and narrow the view to hold the subject’s size.'));
+    var pathDollyMessage = '', pathDollyError = false, pathDollyUntil = 0;
+    // DollyZoom::Build's failure reasons (DollyZoomMath.h), each a literal key for the catalog.
+    function pathDollyReason(reason) {
+      if (reason === 'the subject is too close to the camera') return T('The subject is too close to the camera.');
+      if (reason === 'the shot needs a length') return T('The shot needs a length.');
+      if (reason === 'the move is too small to see') return T('The move is too small to see.');
+      return '';
+    }
+    function pathDollyResult(count, first, last, fallback, reason) {
+      pathDollyError = !count;
+      var why = count ? '' : pathDollyReason(reason);
+      pathDollyMessage = count ? T('Created {0} camera keys at ticks {1}–{2}.', count, first, last)
+        : T('Dolly zoom could not be created.') + (why ? ' ' + why : '');
+      if (count && fallback) pathDollyMessage += ' ' + T('Used a point 300 units ahead.');
+      if (count && reason) pathDollyMessage += ' ' + T('Travel was shortened to fit the lens.');
+      pathDollyUntil = Date.now() + 8000;
+    }
+
     // (The SHORTCUTS card is gone: the keys are the strip pinned above RENDER on this tab, built
     // in CameraEditorJs.h as edKeyStrip.)
     pathRailRebuild(0);
@@ -284,6 +324,17 @@ R"EDJS(
       btnEnable(retimeBtn, has);
       btnEnable(clearAllBtn, st.count > 0);
       btnEnable(reposBtn, has);
+      var pathDollyPlaying = !!st.pathLive;
+      btnEnable(pathDollyActions.btns[0], !pathDollyPlaying);
+      btnEnable(pathDollyActions.btns[1], !pathDollyPlaying);
+      var pathDollyHasResult = Date.now() < pathDollyUntil;
+      var pathDollyCurrent = pathDollyPlaying ? T('Camera path playing')
+        : (pathDollyHasResult ? pathDollyMessage : pathDollyHelp);
+      if (pathDollyNote.text !== pathDollyCurrent) {
+        pathDollyNote.text = pathDollyCurrent;
+        pathDollyNote.style.color = pathDollyPlaying ? S.value
+          : (pathDollyHasResult ? (pathDollyError ? S.dangerText : S.value) : S.hint);
+      }
 
       pathFovTile.sync(has ? num(st.sel.fov) : 1);
       pathRollTile.sync(has ? num(st.sel.roll) : 0);

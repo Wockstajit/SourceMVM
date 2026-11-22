@@ -31,7 +31,6 @@ extern void(__fastcall *g_Original_destroyParticle)(unsigned char *, int, bool, 
 namespace Filmmaker::Environment {
 namespace {
 constexpr const char *kRainSystem = "particles/rain_fx/rain_storm.vpcf";
-constexpr int kPrecipitationRain = 1;
 constexpr bool kUseStormParticle = false;
 
 int g_index = -1;               // main thread only

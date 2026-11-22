@@ -29,6 +29,24 @@ const filmmaker = read("AfxHookSource2", "Filmmaker", "Filmmaker.cpp");
 const configJs = read("AfxHookSource2", "Filmmaker", "Panorama", "ConfigHudJs.h");
 const propsGizmo = read("AfxHookSource2", "Filmmaker", "Panorama", "ConfigHudPropsGizmoJs.h");
 const graphJs = read("AfxHookSource2", "Filmmaker", "Panorama", "GraphEditorJs.h");
+const editorJs = read("AfxHookSource2", "Filmmaker", "Panorama", "CameraEditorJs.h");
+const editorHud = read("AfxHookSource2", "Filmmaker", "Panorama", "CameraEditorHud.cpp");
+
+test("camera editor confirmations keep both mouse buttons over the preview", () => {
+  assert.match(editorJs, /showEditorConfirm\(action\)[\s\S]{0,200}SetAttributeString\('confirmopen', '1'\)/);
+  assert.match(editorJs, /hideEditorConfirm\(\)[\s\S]{0,200}SetAttributeString\('confirmopen', '0'\)/);
+  assert.match(editorHud, /m_popupOpen = m_root && \([\s\S]{0,200}m_symConfirmOpen/);
+  assert.match(movieMode, /if \(CameraEditor_PopupOpen\(\)\)[\s\S]{0,430}return true;/);
+  for (const [button, down, up, held] of [
+    [0, "WM_LBUTTONDOWN", "WM_LBUTTONUP", "s_uiClickHeld"],
+    [1, "WM_RBUTTONDOWN", "WM_RBUTTONUP", "s_uiRightClickHeld"],
+  ]) {
+    const press = input.slice(input.lastIndexOf(`case ${down}:`), input.lastIndexOf(`case ${up}:`));
+    assert.match(press, new RegExp(`MovieInput_OnUiClick\\(${button},[^\\n]+\\n\\s*${held} = true;\\s*break;`));
+    assert.match(press, /GameClick\(\)/);
+    assert.match(input.slice(input.lastIndexOf(`case ${up}:`)), new RegExp(`if \\(${held}\\)`));
+  }
+});
 
 test("regular-timeline loop flags are direct hit targets driven by the cursor pipe", () => {
   assert.doesNotMatch(timeline, /function pumpLoopFlags|function makeLoopFlag/);

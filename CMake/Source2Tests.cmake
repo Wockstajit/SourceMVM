@@ -271,6 +271,24 @@ add_executable(RenderTakeImportMathTests
 target_compile_features(RenderTakeImportMathTests PRIVATE cxx_std_17)
 add_test(NAME RenderTakeImportMathTests COMMAND RenderTakeImportMathTests)
 
+add_executable(CameraExportMathTests
+    ../Automation/tests/camera-export-math-tests.cpp
+)
+target_compile_features(CameraExportMathTests PRIVATE cxx_std_17)
+add_test(NAME CameraExportMathTests COMMAND CameraExportMathTests)
+
+add_executable(LensRainMathTests
+    ../Automation/tests/lens-rain-math-tests.cpp
+)
+target_compile_features(LensRainMathTests PRIVATE cxx_std_17)
+add_test(NAME LensRainMathTests COMMAND LensRainMathTests)
+
+add_executable(DollyZoomMathTests
+    ../Automation/tests/dolly-zoom-math-tests.cpp
+)
+target_compile_features(DollyZoomMathTests PRIVATE cxx_std_17)
+add_test(NAME DollyZoomMathTests COMMAND DollyZoomMathTests)
+
 add_executable(ChangelogMathTests
     ../Automation/tests/changelog-math-tests.cpp
 )

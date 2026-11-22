@@ -5,14 +5,13 @@
 // and start a settle window sized to the jump (OnDemoSeekDetected) so the override
 // system does not fight the engine while the entity list is being rebuilt.
 
-#include <Windows.h> // GetTickCount64 (theme composite batching)
-
 #include "CosmeticOverrideSystem.h"
 
 #include "../Debug/MvmDebugLog.h"
 #include "../Movie/DemoScrub.h"               // a scrub owns the play state: no seek hold
 #include "../Render/RenderSessionDriver.h"    // a render holds its own landing: no seek hold
 
+#include "../../RenderSystemDX11Hooks.h" // AfxStreams_IsRcording
 #include "../../MirvTime.h" // g_MirvTime.GetCurrentDemoTick for the tick nudge
 
 #include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
@@ -43,6 +42,10 @@ constexpr uint64_t kSeekHoldMaxFrames = 600;
 // How long the hold waits for its demo_pause to take before it gives up and lets playback run.
 constexpr uint64_t kSeekHoldPauseWaitFrames = 30;
 
+bool RecorderOwnsPlayback() {
+	return RenderSessionDriver_IsActive() || AfxStreams_IsRcording();
+}
+
 // demo_pause toggles. Calling it while the demo is already paused starts playback.
 bool DemoIsPaused() {
 	if (!g_pEngineToClient) return false;
@@ -58,13 +61,11 @@ void CosmeticOverrideSystem::RequestCompositeRefresh() {
 
 void CosmeticOverrideSystem::AbortActiveTickNudge(const char* reason) {
 	m_pendingNudge = false;
-	m_pendingNudgeOwedOnly = false;
-	m_owedPauseIdx.clear();
 	m_postNudgeMeshRefreshPending = false;
 	if (m_nudgePhase == 2) {
 		// A queued pick still needs this pause after a seek. Its eventual commit owns
 		// resuming playback; resuming here can race that commit and force a live timeout.
-		const bool resume = m_livePicks.empty();
+		const bool resume = m_livePicks.empty() && !RecorderOwnsPlayback();
 		if (resume && g_pEngineToClient)
 			g_pEngineToClient->ExecuteClientCmd(0, "demo_resume", true);
 		m_nudgePhase = 0;
@@ -77,7 +78,7 @@ void CosmeticOverrideSystem::AbortActiveTickNudge(const char* reason) {
 		return;
 	// The play-out may not have started (a seek aborted it on the same frame as demo_resume).
 	// demo_pause toggles, so sending it while still paused would start the demo and leave it running.
-	if (m_nudgeWasPaused && m_nudgeSawResume && !DemoIsPaused() && g_pEngineToClient)
+	if (!RecorderOwnsPlayback() && m_nudgeWasPaused && m_nudgeSawResume && !DemoIsPaused() && g_pEngineToClient)
 		g_pEngineToClient->ExecuteClientCmd(0, "demo_pause", true);
 	m_nudgePhase = 0;
 	m_nudgeWasPaused = false;
@@ -171,7 +172,7 @@ void CosmeticOverrideSystem::OnDemoSeekDetected(int tickJump) {
 	if (holding) {
 		m_seekHoldStartFrame = m_frameCounter;
 	} else if (m_seekCompositePending && m_demoPlayingLastFrame && m_tickNudge && m_autoComposite
-		&& !DemoScrub_Active() && !RenderSessionDriver_IsActive()) {
+		&& !DemoScrub_Active() && !RecorderOwnsPlayback()) {
 		m_nudgePhase = 3;
 		m_seekHoldStartFrame = m_frameCounter;
 		m_seekHoldPauseIssued = false;
@@ -202,14 +203,12 @@ void CosmeticOverrideSystem::RequestApplyNudge() {
 	// the burst armed above extends it (SeekRefreshPending). A second pause after it would be noise.
 	if (m_nudgePhase == 3) {
 		m_pendingNudge = false;
-		m_pendingNudgeOwedOnly = false;
 		return;
 	}
 	// The pause already in flight serves this edit (including a queued pick cancellation).
 	// Leaving another nudge pending would pause again after this one returns playback.
 	if (m_nudgePhase == 2) {
 		m_pendingNudge = false;
-		m_pendingNudgeOwedOnly = false;
 		// Preserve its mesh marker: immediate RebuildOnce already composites a paused pick.
 		// Forcing it again would bypass the burst cooldown in the same engine frame.
 		m_pauseCompositeDoneFrame = 0;
@@ -220,33 +219,7 @@ void CosmeticOverrideSystem::RequestApplyNudge() {
 	// the wear slider) keeps pushing the anchor forward, so exactly one seek fires after the user
 	// stops -- never one seek per intermediate value.
 	m_pendingNudge = true;
-	m_pendingNudgeOwedOnly = false;
 	m_nudgeRequestFrame = m_frameCounter;
-}
-
-void CosmeticOverrideSystem::RequestOwedCompositePause(int entityIndex) {
-	// Callers can repeat this every frame for the same gun (a settled switch waits for its pause).
-	// Only a NEW gun may restart the debounce, or the repeats starve it and the pause never fires.
-	// The current pause already serves these requests. Hand them to its apply pass
-	// directly, without leaving a second pause queued after it completes.
-	if (m_nudgePhase == 2 || m_nudgePhase == 3) {
-		m_compositeOwedIdx.insert(entityIndex);
-		return;
-	}
-	const bool fresh = m_owedPauseIdx.insert(entityIndex).second;
-	// A theme dresses the whole server: someone draws a new gun every few seconds, and pausing the
-	// demo for each one made playback unusable. Theme composites are BATCHED: parked here and paid
-	// by one short pause at most every kThemeOwedPauseGapMs (MaybeFireTickNudge), or at once when
-	// the user pauses.
-	if (m_theme && GetTickCount64() - m_lastOwedPauseMs < kThemeOwedPauseGapMs)
-		return;
-	if (!m_pendingNudge) {
-		m_pendingNudge = true;
-		m_pendingNudgeOwedOnly = true;
-		m_nudgeRequestFrame = m_frameCounter;
-	} else if (fresh) {
-		m_nudgeRequestFrame = m_frameCounter;
-	}
 }
 
 bool CosmeticOverrideSystem::DeferWeaponPickWhilePlaying(uint64_t steamId, int defIndex, int paintKit,
@@ -256,18 +229,13 @@ bool CosmeticOverrideSystem::DeferWeaponPickWhilePlaying(uint64_t steamId, int d
 	auto* demo = g_pEngineToClient->GetDemoFile();
 	if (!demo || (demo->IsDemoPaused() && m_livePicks.empty()))
 		return false;
-	if (m_livePicks.empty()) {
-		// Own the pause's completion as soon as it is requested. Clearing the final pick must
-		// still return playback even though CommitLivePicks then has nothing to commit.
+	if (m_livePicks.empty() && !RecorderOwnsPlayback()) {
+		// Own the pause as soon as it is requested, even if the last pick is then cleared.
 		m_pendingNudge = false;
-		m_pendingNudgeOwedOnly = false;
 		m_postNudgeMeshRefreshPending = false;
 		m_pauseCompositeDoneFrame = 0;
 		m_nudgePlayStartFrame = m_frameCounter;
 		m_nudgePhase = 2;
-		// Work waiting for a pause rides this one instead of scheduling another on resume.
-		for (int idx : m_owedPauseIdx) m_compositeOwedIdx.insert(idx);
-		m_owedPauseIdx.clear();
 		g_pEngineToClient->ExecuteClientCmd(0, "demo_pause", true);
 	}
 	// Once a live batch exists, later picks join it even if the pause already took effect.
@@ -288,7 +256,8 @@ void CosmeticOverrideSystem::CommitLivePicks() {
 	if (g_pEngineToClient)
 		if (auto* demo = g_pEngineToClient->GetDemoFile()) paused = demo->IsDemoPaused();
 	const bool timedOut = m_frameCounter - m_livePickRequestFrame > 120;
-	if (!paused && !timedOut)
+	const bool recording = RecorderOwnsPlayback();
+	if (!paused && (recording || !timedOut))
 		return;
 	for (const PendingLivePick& pick : m_livePicks)
 		if (pick.knife)
@@ -312,7 +281,7 @@ void CosmeticOverrideSystem::CommitLivePicks() {
 	m_postNudgeMeshRefreshPending = true;
 	m_pauseCompositeDoneFrame = 0;
 	m_nudgePlayStartFrame = m_frameCounter;
-	m_nudgePhase = 2;
+	m_nudgePhase = recording ? 0 : 2; // the recorder resumes its own pause
 	RequestCompositeRefresh();
 	if (MvmDebugLog_Active())
 		MvmDebugLog_LinefAlways("cosmetics.livepick", "COMMIT on paused frame picks=%d frame=%llu",
@@ -320,6 +289,17 @@ void CosmeticOverrideSystem::CommitLivePicks() {
 }
 
 void CosmeticOverrideSystem::MaybeFireTickNudge() {
+	if (RecorderOwnsPlayback()) {
+		// Keep skin work queued for paused frames. Hand over the playback state without
+		// issuing a pause or resume, including when a cosmetic nudge was already in flight.
+		m_pendingNudge = false;
+		m_nudgePhase = 0;
+		m_nudgeWasPaused = false;
+		m_nudgeSawResume = false;
+		m_nudgePauseIssued = false;
+		return;
+	}
+
 	// Phase 3: a seek landed while the demo played (OnDemoSeekDetected). Pause once on the landing,
 	// let the paused frames pay the post-seek composite, resume when SeekRefreshPending() clears.
 	// demo_pause toggles, so it goes out only while the demo is seen playing, and only once.
@@ -377,7 +357,7 @@ void CosmeticOverrideSystem::MaybeFireTickNudge() {
 			m_pauseCompositeDoneFrame = m_frameCounter;
 		// Drained once the composited guns report their materials built, or after kSettleFrames when
 		// the counters cannot say (CompositedMaterialsBuilt). The fixed wait alone held every
-		// live-pick and owed-composite pause for 24 frames where ~11-13 were needed.
+		// live-pick pause for 24 frames where ~11-13 were needed.
 		const uint64_t sinceComposite = m_pauseCompositeDoneFrame ? m_frameCounter - m_pauseCompositeDoneFrame : 0;
 		const bool drained = sinceComposite >= kSettleFrames
 			|| (sinceComposite >= kMinDrainFrames && CompositedMaterialsBuilt());
@@ -447,27 +427,8 @@ void CosmeticOverrideSystem::MaybeFireTickNudge() {
 		return;
 	}
 
-	if (!m_pendingNudge) {
-		// Owed composites parked by a theme: pay them on the user's own pause, or start one batched
-		// pause once the gap since the last one has elapsed.
-		if (!m_owedPauseIdx.empty() && m_nudgePhase == 0 && g_pEngineToClient) {
-			auto* demo = g_pEngineToClient->GetDemoFile();
-			if (demo && demo->IsDemoPaused()) {
-				for (int idx : m_owedPauseIdx) m_compositeOwedIdx.insert(idx);
-				m_owedPauseIdx.clear();
-			} else if (GetTickCount64() - m_lastOwedPauseMs >= kThemeOwedPauseGapMs) {
-				m_pendingNudge = true;
-				m_pendingNudgeOwedOnly = true;
-				m_nudgeRequestFrame = m_frameCounter;
-			}
-		}
-		return;
-	}
-	if (m_pendingNudgeOwedOnly && m_owedPauseIdx.empty() && m_compositeOwedIdx.empty()) {
-		m_pendingNudge = false;
-		m_pendingNudgeOwedOnly = false;
-		return;
-	}
+	if (!m_pendingNudge) return;
+
 	// Throttled (not per-frame): framesSinceReq changes every call so MvmDebugLog_Linef's dedup can't
 	// collapse it: this diagnosed the m_seekSettleFrames-stuck-forever bug above via 2000+ lines/3s.
 	if (MvmDebugLog_Active() && (m_frameCounter % 16) == 0)
@@ -478,11 +439,8 @@ void CosmeticOverrideSystem::MaybeFireTickNudge() {
 	if (m_seekSettleFrames > 0)
 		return; // defer until entity list settles after a seek
 	if (!m_tickNudge) { m_pendingNudge = false; return; } // disabled: drop the request
-	// Debounce: wait for a short quiet period after the last change so rapid re-picks coalesce. A
-	// pause owed only to a gun being drawn (or picked up) waits 2 frames, not 8: every frame of the
-	// wait shows that gun without its skin, and more guns needing one simply join the pause it starts
-	// (RequestOwedCompositePause hands them to phase 2).
-	const uint64_t kDebounceFrames = m_pendingNudgeOwedOnly ? 2 : 8;
+	// Give a burst of explicit edits, such as dragging a slider, time to settle.
+	constexpr uint64_t kDebounceFrames = 8;
 	if (m_frameCounter - m_nudgeRequestFrame < kDebounceFrames)
 		return;
 	if (!InDemoContext())
@@ -499,35 +457,6 @@ void CosmeticOverrideSystem::MaybeFireTickNudge() {
 	if (g_pEngineToClient) {
 		if (auto* demo = g_pEngineToClient->GetDemoFile())
 			paused = demo->IsDemoPaused();
-	}
-	if (m_pendingNudgeOwedOnly) {
-		// Only composites are owed (weapons drawn after their skin was applied). Hand them back to the
-		// owed set, which the paused apply pays per weapon. Do NOT forget the mesh selections, agents
-		// or gloves like a profile change does: that re-switched every overridden gun, which re-owed
-		// a composite on every holstered one, so with a whole server dressed (UwU) the demo paused
-		// for a new composite about once a second forever.
-		m_pendingNudgeOwedOnly = false;
-		for (int idx : m_owedPauseIdx) m_compositeOwedIdx.insert(idx);
-		const int owed = (int)m_owedPauseIdx.size();
-		m_owedPauseIdx.clear();
-		if (paused)
-			return; // the user paused meanwhile: the paused frames pay them without our help
-		m_lastOwedPauseMs = GetTickCount64();
-		m_postNudgeMeshRefreshPending = false;
-		m_pauseCompositeDoneFrame = 0;
-		m_nudgePlayStartFrame = m_frameCounter;
-		m_nudgePhase = 2;
-		if (g_pEngineToClient)
-			g_pEngineToClient->ExecuteClientCmd(0, "demo_pause", true);
-		if (MvmDebugLog_Active())
-			MvmDebugLog_Linef("cosmetics.nudge", "START owed-composite pause weapons=%d frame=%llu", owed,
-				(unsigned long long)m_frameCounter);
-		return;
-	}
-	if (!m_owedPauseIdx.empty()) {
-		// A full nudge re-selects and composites everything; the owed ones ride along.
-		for (int idx : m_owedPauseIdx) m_compositeOwedIdx.insert(idx);
-		m_owedPauseIdx.clear();
 	}
 	if (!paused) {
 		// A pick made while the demo PLAYS. Live frames re-evaluate agents and gloves, but a weapon

@@ -104,7 +104,10 @@ mirv_filmmaker render pass depth <near> <far>                world units
 mirv_filmmaker render pass keytolerance <0..1>               players-only background match
 mirv_filmmaker render pass preview <type> <elements> | off   live view in the workspace
 mirv_filmmaker render pass hud none|game|full
-mirv_filmmaker render pass cameradata 0|1
+mirv_filmmaker render pass cameradata 0|1                    camera sidecar + camera_aftereffects.jsx
+mirv_filmmaker render pass aescale <0.01..100>               After Effects pixels per Source unit
+mirv_filmmaker render pass aeorigin 0|1                      1: the first frame's camera at AE's origin
+mirv_filmmaker render pass killfeed 0|1                      1: No HUD keeps the kill feed
 mirv_filmmaker render pass blood 0|1                         0: no blood during the job
 mirv_filmmaker render pass keysky 0|1                        1: the sky in the background colour
 ```

@@ -20,6 +20,7 @@
 #include "RenderPassPlan.h"
 #include "RenderDoneSound.h"
 #include "RenderTakeHistory.h"
+#include "CameraExportMath.h"
 #include "../Movie/CameraPath.h"
 #include "../Movie/CameraBridge.h"
 #include "../Movie/DemoTimescale.h"
@@ -155,12 +156,51 @@ int CurTick() {
 	return tick;
 }
 
+// The camera of every captured output frame, for camera_aftereffects.jsx.
+std::vector<CameraExport::Frame> s_cameraFrames;
+
 void AppendFrameMetadata(int frameIndex, int tick) {
 	double origin[3] = {0}, angles[3] = {0}, fov = 90.0;
 	CameraBridge_GetCurrentCamera(origin, angles, fov);
 	double demoTime = 0.0;
 	g_MirvTime.GetCurrentDemoTime(demoTime);
 	RenderFrameMap_Append(frameIndex, tick, demoTime, origin, angles, fov);
+	CameraExport::Frame f;
+	for (int i = 0; i < 3; ++i) { f.origin[i] = origin[i]; f.angles[i] = angles[i]; }
+	f.fov = fov;
+	s_cameraFrames.push_back(f);
+}
+
+// Writes <take>\camera_aftereffects.jsx: the take's camera as an After Effects comp. A failure is a
+// note in the manifest, not a failed take (the frames are fine).
+void WriteAfterEffectsCamera() {
+	if (!s_job.passes.cameraData || s_job.takeDir.empty() || s_cameraFrames.empty())
+		return;
+	CameraExport::Take take;
+	take.frames = s_cameraFrames;
+	unsigned w = 0, h = 0;
+	RenderResolution_SwapChainSize(w, h);
+	if (w && h) { take.width = (int)w; take.height = (int)h; }
+	take.fps = s_job.out.fps > 0 ? (double)s_job.out.fps : 30.0;
+	take.options.scale = s_job.passes.aeScale;
+	take.options.recentre = s_job.passes.aeOrigin;
+	std::wstring dir = s_job.takeDir;
+	while (!dir.empty() && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
+	const size_t slash = dir.find_last_of(L"\\/");
+	const std::wstring leaf = slash == std::wstring::npos ? dir : dir.substr(slash + 1);
+	if (!leaf.empty()) take.name = WideToUtf8(leaf);
+	const std::string script = CameraExport::AfterEffectsScript(take);
+	const std::wstring path = dir + L"\\camera_aftereffects.jsx";
+	FILE* file = nullptr;
+	bool ok = false;
+	if (0 == _wfopen_s(&file, path.c_str(), L"wb") && file) {
+		ok = fwrite(script.data(), 1, script.size(), file) == script.size();
+		fclose(file);
+	}
+	if (!ok) s_manifestNotes += "camera_aftereffects.jsx could not be written; ";
+	Probe("after effects camera: %d frame(s), %ux%u, %d fps, scale %.3f origin %d, %s",
+		(int)take.frames.size(), w, h, s_job.out.fps, take.options.scale, take.options.recentre ? 1 : 0,
+		ok ? "written" : "write failed");
 }
 
 std::string ReadFloatCvar(const char* name, const char* fallback) {
@@ -483,7 +523,7 @@ bool RenderSessionDriver_Start(std::string& outError) {
 
 	// Snapshot the return position before anything moves.
 	s_returnTick = CurTick();
-	s_returnPaused = DemoPaused();
+	s_returnPaused = CosmeticsRef().UserPauseState(DemoPaused());
 	s_demoPathUtf8 = WideToUtf8(ResolvePlayingDemoPath());
 	s_job = job;
 	s_plan = BuildPassPlan(job.passes.passes);
@@ -557,7 +597,7 @@ bool RenderSessionDriver_WantsChromeHidden() {
 	//
 	// HUD Game/Full capture at BeforePresent, which is AFTER our chrome draws, so there the
 	// chrome genuinely must be hidden for the capture window.
-	if (s_job.passes.hud == RenderHudMode::None)
+	if (!HudPlate(s_job.passes))
 		return false;
 	const S s = RenderSessionRef().State();
 	return s == S::WarmingUp || s == S::Capturing || s == S::FlushingGpu;
@@ -616,9 +656,9 @@ void RenderSessionDriver_RunFrame() {
 			// frame" event when the beauty stream itself rides BeforeUi -- which is the HUD
 			// None configuration. Refuse anything else rather than guess frame alignment.
 			if (s_job.out.format == RenderOutputFormat::Exr) {
-				if (s_job.passes.hud != RenderHudMode::None) {
-					FailJob("EXR output requires HUD mode None (the pre-tonemap HDR capture is "
-						"aligned to the clean-plate BeforeUi boundary)");
+				if (HudPlate(s_job.passes)) {
+					FailJob("EXR output requires HUD mode None and the kill feed off (the pre-tonemap HDR "
+						"capture is aligned to the clean-plate BeforeUi boundary)");
 					return;
 				}
 				const std::wstring hdrDir = s_job.takeDir + L"\\hdr";
@@ -720,7 +760,7 @@ void RenderSessionDriver_RunFrame() {
 			// The game HUD can only appear in the plate the user sees: Beauty + Everything taken
 			// before present. Every other pass is a clean BeforeUi capture of its own render.
 			const bool hudPlate = pass.type == PassType::Beauty && pass.elements == VisibleElements::Everything
-				&& s_job.passes.hud != RenderHudMode::None;
+				&& HudPlate(s_job.passes);
 			const bool added = hudPlate
 				? AfxStreams_AddNormalStream(streamName.c_str(), false, streamPreset.c_str())
 				: AfxStreams_AddPassStream(streamName.c_str(), (int)pass.type, (int)pass.elements,
@@ -1025,6 +1065,8 @@ void RenderSessionDriver_RunFrame() {
 			return;
 		}
 		RenderFrameMap_Open(s_job.takeDir);
+		s_cameraFrames.clear();
+		s_cameraFrames.reserve((size_t)(s_job.framesTotal > 0 ? s_job.framesTotal : 0));
 		// Release playback HERE, not after frame 0 is counted.
 		//
 		// MEASURED 2026-08-10: resuming once frame 0 had been counted put the resume a frame too
@@ -1180,6 +1222,9 @@ void RenderSessionDriver_RunFrame() {
 			snprintf(note, sizeof(note), "hdr/ holds %u pre-tonemap linear EXR frame(s); ", hdrWritten);
 			s_manifestNotes += note;
 		}
+		WriteAfterEffectsCamera();
+		s_cameraFrames.clear();
+		s_cameraFrames.shrink_to_fit();
 		RenderManifest_WriteFinal(s_job, s_demoPathUtf8, "completed", s_frameIndex, s_manifestNotes);
 		s_stateFrames = 0;
 		Transition(S::RestoringState);

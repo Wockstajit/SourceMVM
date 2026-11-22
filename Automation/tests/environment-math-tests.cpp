@@ -262,6 +262,13 @@ int main() {
         const Vec3 low{-3548.3f, -2872.f, -280.f}, high{3968.f, 4264.f, 1520.1f};
         const auto map = PrecipitationLattice(900, 1, true, low, high, 900);
         const auto unmapped = PrecipitationLattice(900, 1, false, {}, {}, 900);
+        Check(CameraInPrecipitation(map, {0, 0, 100}, true, {}, 900), "Following rain reaches a camera inside its map");
+        Check(!CameraInPrecipitation(map, {0, 0, map.high.z + 1}, true, {}, 900), "No lens rain above the weather layer");
+        Check(CameraInPrecipitation(map, {100, 50, 100}, false, {100, 50, 100}, 900), "Placed rain wets a camera inside the volume");
+        Check(!CameraInPrecipitation(map, {100 + map.reach * 1.1f, 50, 100}, false, {100, 50, 100}, 900),
+              "A distant rain veil does not wet a camera outside the particle window");
+        Check(!CameraInPrecipitation(map, {100, 50, 201}, false, {100, 50, 100}, 200),
+              "The fixed weather layer ends at the selected height");
         // Intensity is density: a light fall uses bigger cells and proportionally fewer instances,
         // over the same window, instead of drawing every cell and discarding most.
         const auto light = PrecipitationLattice(900, .06f, true, low, high, 900);

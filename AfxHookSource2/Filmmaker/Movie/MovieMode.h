@@ -45,7 +45,7 @@ public:
 	// to UI mode and returns true: the caller hands this press (and its release) straight to the
 	// game window, skipping the camera's click handling. A click in the preview in UI mode switches
 	// to GAME mode and returns false, so the click carries on to the camera. UiClickMath.h.
-	bool OnUiClick(int x, int y);
+	bool OnUiClick(int button, int x, int y);
 	// MODULAR layout: (x, y) client px is on a floating panel (a window, the header bar, CS2's demo
 	// bar or the TIMELINE dock), not the game -- the same answer a click there gets. Any thread.
 	bool PointOnPanel(int x, int y) { return ClickInput(x, y).onPanel; }

@@ -62,6 +62,7 @@
 #include "Demo/DemoKeyframes.h"
 #include "MouseCapture.h"
 #include "Movie/HudBlackout.h"
+#include "Movie/KillFeed.h"
 #include "Cosmetics/CosmeticOverrideSystem.h"
 #include "World/WorldCommand.h" // "world": lighting / atmosphere / weather + update-day health
 #include "Environment/EnvironmentScene.h"
@@ -443,6 +444,9 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 	} else if (0 == _stricmp(sub, "community")) {
 		// Main-menu HC Tracker badge and Report Bugs (writes a bug report to send on Discord).
 		Filmmaker::Community_RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "killfeed")) {
+		// The death notices for movies: players shown under other names, only the watched player's kills.
+		Filmmaker::KillFeed_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "blackout")) {
 		// F8's console twin: clear every overlay (ours, the gameplay HUD and the demo bar).
 		// NOT named "hud" -- that subcommand already exists above and toggles only the

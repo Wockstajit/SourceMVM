@@ -17,7 +17,7 @@ int g_failed = 0;
 const char* kTake = R"({"tool":"SOURCE:MVM render","writtenAt":"2026-10-24T11:17:16","status":"completed",
  "demo":"F:\\demos\\match.dem","startTick":34800,"endTickExclusive":34832,"demoTickRate":64,"outputFps":30,
  "cameraSource":"thirdPerson","cameraPathExtension":"holdFirst","format":"tga","hudMode":"none",
- "cameraDataSidecar":false,"blood":true,"keySky":true,
+ "cameraDataSidecar":false,"blood":true,"keySky":true,"afterEffectsScale":2.5,"afterEffectsOrigin":true,"killFeed":true,
  "streams":[{"name":"beauty","type":"beauty","elements":"all","folder":"beauty\\everything"},
             {"name":"key_gun","type":"key","elements":"gun","folder":"key\\gun"},
             {"name":"depth_gun","type":"depth","elements":"gun","folder":"depth\\gun"}],
@@ -64,6 +64,10 @@ void RebuildsTheJobInOrder() {
 	CHECK(HasCommand(c, { "pass", "cameradata", "0" }));
 	CHECK(HasCommand(c, { "pass", "blood", "1" }));
 	CHECK(HasCommand(c, { "pass", "keysky", "1" }));
+	// The After Effects camera and the kept kill feed come back as the take was rendered.
+	CHECK(HasCommand(c, { "pass", "aescale", "2.5" }));
+	CHECK(HasCommand(c, { "pass", "aeorigin", "1" }));
+	CHECK(HasCommand(c, { "pass", "killfeed", "1" }));
 	CHECK(HasCommand(c, { "pass", "key", "0", "255", "64" }));
 	CHECK(HasCommand(c, { "pass", "depth", "0", "16384" }));
 }
@@ -93,6 +97,8 @@ void UnknownNamesAreLeftOut() {
 	// A take written before the green-screen sky existed turns the switch off rather than keeping
 	// whatever the user has on now (`pass clear` does not touch it).
 	CHECK(!t.keySky && HasCommand(c, { "pass", "keysky", "0" }));
+	// Nor the After Effects options or the kill feed: their defaults.
+	CHECK(HasCommand(c, { "pass", "aescale", "1" }) && HasCommand(c, { "pass", "aeorigin", "0" }) && HasCommand(c, { "pass", "killfeed", "0" }));
 	// Without an output fps or format the current ones stay.
 	for (const auto& cmd : c) CHECK(cmd[0] != "output");
 }

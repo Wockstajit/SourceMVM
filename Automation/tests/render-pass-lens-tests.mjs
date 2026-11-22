@@ -18,9 +18,11 @@ test('compositor passes and the Gun only reference read the colour from before t
   const boundary = hooks.slice(hooks.indexOf('class CAfxRenderCallbackBeforeUi'));
   const keep = boundary.indexOf('AfxRenderPass::KeepCleanColor(pDeviceContext');
   const lens = boundary.indexOf('Filmmaker::LensFx_Render(');
+  const rain = boundary.indexOf('Filmmaker::LensRain_Render(');
   const captures = boundary.indexOf('pRenderPassCommands->OnBeforeUi(pTexture)');
   const drop = boundary.indexOf('AfxRenderPass::DropCleanColor()');
   assert.ok(keep > 0 && keep < lens, 'the clean copy is kept before the lens draws');
+  assert.ok(lens < rain && rain < captures, 'lens rain draws after depth of field and before capture');
   assert.ok(lens < captures && captures < drop, 'the captures run before the clean copy is dropped');
 });
 
@@ -29,9 +31,33 @@ test('the lens sits out renders no Beauty plate reads, and extra renders keep th
   assert.match(hooks, /commands\.SkipLens = !recordsAsDrawn;/);
   assert.match(hooks, /commands\.KeepCleanColor = recordsAsDrawn && composes;/);
   assert.match(hooks, /commands\.HoldLensFocus = true;/);
+  assert.match(hooks, /rainHasWater = beautyEffects && !keyPass && Filmmaker::LensRain_Active\(\)/);
+  assert.match(hooks, /rainRuns = rainHasWater && \(rainOnly \|\| picture\)/);
+  assert.match(hooks, /\(lensRuns \|\| rainRuns \|\| reshadeRuns\) && pLensCommands && pLensCommands->KeepCleanColor/);
   assert.match(read('AfxHookSource2/StreamSettings.h'), /bool IsComposedPass\(\) const/);
   const lens = read('AfxHookSource2/Filmmaker/Lens/LensFx.cpp');
   assert.match(lens, /const bool advanceFocus = autoFocus && !\(holdFocus && g\.focusValid\);/);
+});
+
+test('lens preview is live only and rain only skips scene effects', () => {
+  assert.match(hooks, /requestedPreview = beautyEffects && !keyPass && !AfxStreams_IsRcording\(\)\s*\? Filmmaker::LensFx_GetPreview\(\) : LensPreview::Picture/);
+  assert.match(hooks, /requestedPreview == LensPreview::Rain && !rainHasWater\s*\? LensPreview::Picture/);
+  assert.match(hooks, /lensRuns = beautyEffects && !rainOnly/);
+  assert.match(hooks, /reshadeRuns = beautyEffects && picture/);
+  const rain = read('AfxHookSource2/Filmmaker/Lens/LensRain.cpp');
+  assert.match(rain, /c->GenerateMips\(g.copySrv.Get\(\)\);\s*if \(preview\) c->ClearRenderTargetView\(target, black\);/);
+  assert.match(rain, /srvs\[\] = \{ g.copySrv.Get\(\) \}/);
+  const lens = read('AfxHookSource2/Filmmaker/Lens/LensFx.cpp');
+  assert.match(lens, /if \(preview != LensPreview::Dof\) L\[DofDebug\] = 0;/);
+  assert.match(lens, /if \(preview != LensPreview::Flare\) L\[FlareDebug\] = 0;/);
+});
+
+test('lens rain respects the native scope surround without altering clean pass color', () => {
+  const rain = read('AfxHookSource2/Filmmaker/Lens/LensRain.cpp');
+  assert.match(hooks, /strcmp\(name, "legacy_sniper_scope\.vfx_ps"\)[\s\S]{0,110}g_NativeScopeDrawnThisPresent = true/);
+  assert.match(hooks, /LensRain_Render\(pDeviceContext, pRenderTargetViews\[0\], rainOnly, g_NativeScopeDrawnThisPresent\)/);
+  assert.match(rain, /if \(scoped\) \{[\s\S]{0,500}scopeSource[\s\S]{0,350}discard;\s*\}/);
+  assert.ok(hooks.indexOf('AfxRenderPass::KeepCleanColor(pDeviceContext, pSceneTexture)') < hooks.indexOf('Filmmaker::LensRain_Render('));
 });
 
 // The live view drew the game HUD over a Depth + Gun only plate, and the HUD's bottom shading laid a

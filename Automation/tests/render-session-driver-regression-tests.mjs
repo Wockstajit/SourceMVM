@@ -10,6 +10,7 @@ const driver = fs.readFileSync(path.join(
   repositoryRoot, "AfxHookSource2", "Filmmaker", "Render", "RenderSessionDriver.cpp",
 ), "utf8");
 const hooks = fs.readFileSync(path.join(repositoryRoot, "AfxHookSource2", "RenderSystemDX11Hooks.cpp"), "utf8");
+const types = fs.readFileSync(path.join(repositoryRoot, "AfxHookSource2", "Filmmaker", "Render", "RenderTypes.h"), "utf8");
 const hookHeader = fs.readFileSync(path.join(repositoryRoot, "AfxHookSource2", "RenderSystemDX11Hooks.h"), "utf8");
 const workspacePreview = fs.readFileSync(path.join(
   repositoryRoot, "AfxHookSource2", "Filmmaker", "Panorama", "WorkspacePreview.cpp",
@@ -71,7 +72,9 @@ test("the job registers one recorder stream per pass, before one RecordStart", (
 
 test("only the Beauty + Everything plate can carry the HUD; every other pass is a BeforeUi capture", () => {
   const prep = driver.slice(driver.indexOf("case S::PreparingOutput"), driver.indexOf("case S::SavingState"));
-  assert.match(prep, /hudPlate = pass\.type == PassType::Beauty && pass\.elements == VisibleElements::Everything\s*&& s_job\.passes\.hud != RenderHudMode::None/);
+  assert.match(prep, /hudPlate = pass\.type == PassType::Beauty && pass\.elements == VisibleElements::Everything\s*&& HudPlate\(s_job\.passes\)/);
+  // The plate carries the game HUD, or a No HUD render that keeps the kill feed (RenderTypes.h).
+  assert.match(types, /inline bool HudPlate\(const RenderPasses& p\) \{ return p\.hud != RenderHudMode::None \|\| p\.killFeed; \}/);
   assert.match(prep, /AfxStreams_AddNormalStream\(streamName\.c_str\(\), false/);
   const add = hooks.slice(hooks.indexOf("bool AddPassStream("), hooks.indexOf("bool RemoveStream("));
   assert.match(add, /settings\.Capture = CStreamSettings::Capture_e::BeforeUi;/);
@@ -82,7 +85,7 @@ test("chrome hiding follows the capture stage, not merely 'a job is running'", (
     driver.indexOf("bool RenderSessionDriver_WantsChromeHidden()"),
     driver.indexOf("void RenderSessionDriver_RunFrame()"),
   );
-  assert.match(chromeGate, /RenderHudMode::None/);
+  assert.match(chromeGate, /if \(!HudPlate\(s_job\.passes\)\)\s*return false;/);
   assert.match(chromeGate, /return false;/);
   assert.match(chromeGate, /S::WarmingUp/);
   assert.match(chromeGate, /S::Capturing/);

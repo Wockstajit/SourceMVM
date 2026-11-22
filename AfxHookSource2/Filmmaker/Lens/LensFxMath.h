@@ -68,7 +68,17 @@ namespace Filmmaker::Lens {
 	X(FlareDirt,      "flare.dirt",      0,     1,     0.2f,  false) /* smudges on the front element */ \
 	X(FlareTint,      "flare.tint",      0,     7,     0,     true)  /* FlareTintColor palette index */ \
 	X(FlareStreakTint,"flare.streakTint",0,     5,     0,     true)  /* StreakTintColor palette index */ \
-	X(FlareDebug,     "flare.debug",     0,     2,     0,     true)  /* 1 flare only, no scene; 2 the flare budget (red = near-white area x 10, green = budget) */
+	X(FlareDebug,     "flare.debug",     0,     2,     0,     true)  /* 1 flare only, no scene; 2 the flare budget (red = near-white area x 10, green = budget) */ \
+	/* ---- LENS RAIN: water drops on the front element (Lens/LensRain.cpp, LensRainMath.h) ---- */ \
+	X(RainOn,         "rain.on",         0,     1,     0,     true)  \
+	X(RainAmount,     "rain.amount",     0,     100,   26,    false) /* how much rain reaches the lens */ \
+	X(RainSize,       "rain.size",       0.3f,  3,     0.7f,  false) /* drop size */ \
+	X(RainSlide,      "rain.slide",      0,     2,     1,     false) /* how easily motion and gravity move the drops */ \
+	X(RainTrails,     "rain.trails",     0,     1,     0.3f,  false) /* runoff length */ \
+	X(RainImpact,     "rain.impact",     0,     2,     0.35f, false) /* extra drops while the camera moves forward */ \
+	X(RainRefraction, "rain.refraction", 0,     2,     0.75f, false) /* how strongly a drop bends the picture behind it */ \
+	X(RainBlur,       "rain.blur",       0,     1,     0.48f, false) /* how far out of focus the drops are */ \
+	X(RainVisibility, "rain.visibility", 0,     2,     1,     false) /* tinted edge strength */
 
 enum Param : int {
 #define X(name, key, lo, hi, def, integer) name,
@@ -831,11 +841,15 @@ inline FlareConstants MakeFlareConstants(const Values& L, bool dirtLoaded) {
 
 // ---- groups and presets -----------------------------------------------------------------------
 
-enum class Group { Dof, Flare };
+enum class Group { Dof, Flare, Rain };
+
+inline const char* GroupName(Group g) { return g == Group::Dof ? "dof" : g == Group::Flare ? "flare" : "rain"; }
+inline int GroupSwitch(Group g) { return g == Group::Dof ? DofOn : g == Group::Flare ? FlareOn : RainOn; }
 
 inline bool InGroup(int p, Group g) {
 	const char* k = Specs()[p].key;
-	return g == Group::Dof ? 0 == std::strncmp(k, "dof.", 4) : 0 == std::strncmp(k, "flare.", 6);
+	const char* prefix = g == Group::Dof ? "dof." : g == Group::Flare ? "flare." : "rain.";
+	return 0 == std::strncmp(k, prefix, std::strlen(prefix));
 }
 
 // Put one group back to its defaults. The group's own on/off switch is left where it is: a reset is
@@ -843,7 +857,7 @@ inline bool InGroup(int p, Group g) {
 inline void ResetGroup(Values& L, Group g) {
 	for (int i = 0; i < ParamCount; ++i) {
 		if (!InGroup(i, g)) continue;
-		if (i == DofOn || i == FlareOn) continue;
+		if (i == GroupSwitch(g)) continue;
 		L[i] = Specs()[i].def;
 	}
 }
@@ -878,6 +892,26 @@ inline bool ApplyDofPreset(Values& L, const char* name) {
 		set(DofMode, 0); set(DofFstop, 0.9); set(DofShape, IrisStar); set(DofBlades, 5);
 		set(DofGamma, 8); set(DofQuality, 2);
 	} else {
+		return false;
+	}
+	return true;
+}
+
+inline bool ApplyRainPreset(Values& L, const char* name) {
+	if (!name) return false;
+	ResetGroup(L, Group::Rain);
+	auto set = [&](int p, double v) { SetClamped(L, p, v); };
+	if (0 == std::strcmp(name, "drizzle")) {
+		// A few small drops that cling.
+		set(RainAmount, 17); set(RainSize, 0.56); set(RainSlide, 0.82); set(RainTrails, 0.20);
+	} else if (0 == std::strcmp(name, "storm")) {
+		// Heavy runoff, with softer patches of water over the scene.
+		set(RainAmount, 45); set(RainSize, 0.82); set(RainSlide, 1.18); set(RainTrails, 0.44); set(RainImpact, 0.52);
+		set(RainBlur, 0.66);
+	} else if (0 == std::strcmp(name, "windscreen")) {
+		// Drops that run off at the first move, as on a car's glass.
+		set(RainAmount, 30); set(RainSize, 0.72); set(RainSlide, 1.65); set(RainTrails, 0.62); set(RainImpact, 1.15); set(RainBlur, 0.35);
+	} else if (0 != std::strcmp(name, "rain")) {
 		return false;
 	}
 	return true;

@@ -57,6 +57,10 @@ void Render_ApplyCameraSourceLive(RenderCameraSource src, const char* cmd);
 // pass settings). Owned here so the HUD file does not have to track this module's field set.
 std::string Render_BuildStateJson();
 
+// True while a No HUD render with the Kill feed switch on is open or running: the hidden HUD then
+// keeps the death notices (CameraTimelineHud.cpp publishes it as forceDeathNotices).
+bool Render_KeepsKillFeed();
+
 bool Render_IsCancelRequested();
 void Render_RequestCancel();
 
