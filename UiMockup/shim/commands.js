@@ -19,6 +19,13 @@
   var unhandled = {};
   var configResets = {}, climateDefaults = {}, climateResetOff = [];
 
+  function rainAtDefaults(lens) {
+    var defaults = global.MvmState.LENS_RAIN_DEFAULTS;
+    return !lens['rain.on'] && Object.keys(defaults).every(function (key) {
+      return lens[key] === defaults[key];
+    });
+  }
+
   // ---- alternative environment (mock) ----------------------------------------------------------
   var AE_PLAN = [[0, 0, 1200, 800, 0], [1200, 300, 2600, 500, 0], [2600, -600, 3400, 900, 96],
                  [400, 800, 600, 2400, -64], [-400, 2400, 1000, 3000, -64], [2800, 600, 3000, 800, 200]];
@@ -573,19 +580,38 @@
       // The Lens cards write every control as `lens set <key> <value>`; the game clamps, the mockup only stores.
       st.lens = st.lens || {};
       st.lens[c] = +d;
-      st.lens[c.indexOf('dof.') === 0 ? 'dofDefault' : c.indexOf('rain.') === 0 ? 'rainDefault' : 'flareDefault'] = false;
+      if (c.indexOf('rain.') === 0) st.lens.rainDefault = rainAtDefaults(st.lens);
+      else st.lens[c.indexOf('dof.') === 0 ? 'dofDefault' : 'flareDefault'] = false;
       return true;
     }
     if (a === 'lens' && b === 'reset') {
       st.lens = st.lens || {};
       if (c === 'dof' || !c || c === 'all') {st.lens['dof.on']=0;st.lens.dofDefault=true;}
       if (c === 'flare' || !c || c === 'all') {st.lens['flare.on']=0;st.lens.flareDefault=true;}
-      if (c === 'rain' || !c || c === 'all') {st.lens['rain.on']=0;st.lens.rainDefault=true;}
+      if (c === 'rain' || !c || c === 'all') {
+        Object.assign(st.lens, global.MvmState.LENS_RAIN_DEFAULTS);
+        st.lens.rainDefault = rainAtDefaults(st.lens);
+      }
       return true;
     }
     if (a === 'lens' && b === 'rain' && c === 'toggle') {
       st.lens = st.lens || {};
-      st.lens['rain.on'] = st.lens['rain.on'] > 0.5 ? 0 : 1; st.lens.rainDefault = false;
+      st.lens['rain.on'] = st.lens['rain.on'] > 0.5 ? 0 : 1;
+      st.lens.rainDefault = rainAtDefaults(st.lens);
+      return true;
+    }
+    if (a === 'lens' && b === 'preset' && c === 'rain') {
+      var defaults = global.MvmState.LENS_RAIN_DEFAULTS;
+      var looks = {
+        drizzle: {'rain.amount': 17, 'rain.size': 0.56, 'rain.slide': 0.82, 'rain.trails': 0.20},
+        rain: {},
+        storm: {'rain.amount': 45, 'rain.size': 0.82, 'rain.slide': 1.18, 'rain.trails': 0.44, 'rain.impact': 0.52, 'rain.blur': 0.66},
+        windscreen: {'rain.amount': 30, 'rain.size': 0.72, 'rain.slide': 1.65, 'rain.trails': 0.62, 'rain.impact': 1.15, 'rain.blur': 0.35}
+      };
+      if (Object.hasOwn(looks, d)) {
+        Object.assign(st.lens, defaults, looks[d]);
+        st.lens.rainDefault = rainAtDefaults(st.lens);
+      }
       return true;
     }
     if (a === 'killfeed') {

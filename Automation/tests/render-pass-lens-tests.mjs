@@ -18,9 +18,11 @@ test('compositor passes and the Gun only reference read the colour from before t
   const boundary = hooks.slice(hooks.indexOf('class CAfxRenderCallbackBeforeUi'));
   const keep = boundary.indexOf('AfxRenderPass::KeepCleanColor(pDeviceContext');
   const lens = boundary.indexOf('Filmmaker::LensFx_Render(');
+  const rain = boundary.indexOf('Filmmaker::LensRain_Render(');
   const captures = boundary.indexOf('pRenderPassCommands->OnBeforeUi(pTexture)');
   const drop = boundary.indexOf('AfxRenderPass::DropCleanColor()');
   assert.ok(keep > 0 && keep < lens, 'the clean copy is kept before the lens draws');
+  assert.ok(lens < rain && rain < captures, 'lens rain draws after depth of field and before capture');
   assert.ok(lens < captures && captures < drop, 'the captures run before the clean copy is dropped');
 });
 
@@ -29,6 +31,8 @@ test('the lens sits out renders no Beauty plate reads, and extra renders keep th
   assert.match(hooks, /commands\.SkipLens = !recordsAsDrawn;/);
   assert.match(hooks, /commands\.KeepCleanColor = recordsAsDrawn && composes;/);
   assert.match(hooks, /commands\.HoldLensFocus = true;/);
+  assert.match(hooks, /rainRuns = beautyEffects && !Filmmaker::RenderPlayersOnlyGreen_Active\(\) && Filmmaker::LensRain_Active\(\)/);
+  assert.match(hooks, /\(lensRuns \|\| rainRuns \|\| reshadeRuns\) && pLensCommands && pLensCommands->KeepCleanColor/);
   assert.match(read('AfxHookSource2/StreamSettings.h'), /bool IsComposedPass\(\) const/);
   const lens = read('AfxHookSource2/Filmmaker/Lens/LensFx.cpp');
   assert.match(lens, /const bool advanceFocus = autoFocus && !\(holdFocus && g\.focusValid\);/);

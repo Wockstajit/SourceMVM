@@ -11,6 +11,10 @@
   'use strict';
 
   var TICK_RATE = 64;
+  var LENS_RAIN_DEFAULTS = {
+    'rain.amount': 26, 'rain.size': 0.7, 'rain.slide': 1, 'rain.trails': 0.3,
+    'rain.impact': 0.35, 'rain.refraction': 0.75, 'rain.blur': 0.48
+  };
 
   // The five camera keys every surface shares. Declared up front because the graph editor needs
   // the SAME keys expressed as per-channel curves, and two independent copies would drift.
@@ -498,7 +502,7 @@
       // LensFx_AppendStateJson). Without this block the cards render unsynced (every slider at its own
       // minimum). Defaults are the parameter table's in Lens/LensFxMath.h; both effects ship OFF.
       // dofDefault / flareDefault dim each card's Reset.
-      lens: {
+      lens: Object.assign({
         'dof.on': 0, 'dof.mode': 0, 'dof.auto': 0, 'dof.focusSpeed': 6, 'dof.focus': 400, 'dof.fstop': 2, 'dof.range': 0,
         'dof.followFov': 0, 'dof.focalLength': 50, 'dof.foreground': 100, 'dof.maxBlur': 40,
         'dof.nearStart': 60, 'dof.nearEnd': 180, 'dof.farStart': 600, 'dof.farEnd': 2400,
@@ -507,12 +511,11 @@
         'flare.on': 0, 'flare.intensity': 1, 'flare.threshold': 0.85, 'flare.ghosts': 5, 'flare.halo': 0.5,
         'flare.streak': 0.8, 'flare.streakLen': 0.6, 'flare.star': 0.5, 'flare.blades': 6, 'flare.glow': 0.5, 'flare.sun': 1,
         'flare.dirt': 0.2, 'flare.tint': 0, 'flare.streakTint': 0, 'flare.debug': 0, 'flare.sunOnly': 0,
-        'rain.on': 0, 'rain.amount': 40, 'rain.size': 1, 'rain.slide': 1, 'rain.trails': 0.5, 'rain.impact': 1,
-        'rain.refraction': 1, 'rain.blur': 0.5,
+        'rain.on': 0,
         dofDefault: true, flareDefault: true, rainDefault: true, irisMask: 'diamond', dirtLoaded: false, status: 'Off', frames: 0,
         // The view and focal length of the last lens frame: CS2's default fov 90 on a 16:9 frame.
         hfov: 106.26, focalNow: 13.5
-      },
+      }, LENS_RAIN_DEFAULTS),
 
       // ---- misc flags read by the HUD surfaces ------------------------------
       dbg: false, debug: false, debugbg: false, flashToken: 0, valid: true,
@@ -566,6 +569,7 @@
     make: makeState,
     advance: advance,
     TICK_RATE: TICK_RATE,
+    LENS_RAIN_DEFAULTS: LENS_RAIN_DEFAULTS,
     rebuildSceneDerived: rebuildSceneDerived,
     syncSceneResolved: syncSceneResolved,
     sceneFieldMeta: global.MvmSceneKeys.meta,

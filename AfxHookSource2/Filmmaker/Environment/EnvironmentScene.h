@@ -62,6 +62,7 @@ struct Object {
     // given a material. Lights and cameras are not.
     bool IsProp() const { return !IsLight() && !IsCamera(); }
 };
+inline constexpr int kPrecipitationRain = 1;
 struct Weather {
     int type = 0, count = 1800, seed = 7;
     float radius = 900, height = 900, speed = 600, size = 1, windX = 40, windY = 0;
@@ -174,7 +175,8 @@ bool StormCentreSet();
 void BeginPractice();
 void EndPractice();
 std::map<std::string, std::vector<double>> CaptureAnimationValues();
-void RunMainThreadFrame();
+// Returns the effective rain intensity (0..1) for the lens on this frame.
+float RunMainThreadFrame();
 bool PositionEditing();
 // The last rendered camera: world-to-clip of the full frame and the eye. False until a frame
 // has rendered. Other in-world editors (Props) project their overlays with it.

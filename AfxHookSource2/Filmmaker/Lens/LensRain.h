@@ -1,13 +1,12 @@
 #pragma once
 
-// Lens rain: water drops on the front of the lens that cling, grow, merge and run off with the
-// camera's motion (CONFIG > CAMERA > LENS RAIN, `mirv_filmmaker lens rain ...`).
+// Lens rain: water on the front of the lens while the scene has active rain
+// (CONFIG > CAMERA > LENS RAIN, `mirv_filmmaker lens rain ...`).
 //
 //   main thread : LensRain_RunMainThreadFrame steps the drops (LensRainMath.h) with the demo's time
 //                 and the camera's pose, and hands a copy to the render thread.
 //   render thread: LensRain_Render draws them over the finished world frame, after the depth of field
-//                 and the flare, before the recorder: every drop shows the picture behind it bent
-//                 through a water lens, out of focus, with a dark rim and a highlight.
+//                 and the flare, before the recorder. Water refracts and softens the scene locally.
 //
 // It is a Beauty effect like the rest of the lens: the render hook leaves it out of Key, Depth and
 // Normal passes and of the console green screen. Settings are the `rain.*` rows of the lens table
@@ -17,7 +16,7 @@
 
 namespace Filmmaker {
 
-void LensRain_RunMainThreadFrame();
+void LensRain_RunMainThreadFrame(float rainIntensity);
 // Wipes every drop off the lens (`lens rain clear`, and a new demo).
 void LensRain_Clear();
 // True when there is anything to draw this frame.

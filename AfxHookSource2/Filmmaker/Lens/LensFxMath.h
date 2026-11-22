@@ -71,13 +71,13 @@ namespace Filmmaker::Lens {
 	X(FlareDebug,     "flare.debug",     0,     2,     0,     true)  /* 1 flare only, no scene; 2 the flare budget (red = near-white area x 10, green = budget) */ \
 	/* ---- LENS RAIN: water drops on the front element (Lens/LensRain.cpp, LensRainMath.h) ---- */ \
 	X(RainOn,         "rain.on",         0,     1,     0,     true)  \
-	X(RainAmount,     "rain.amount",     0,     100,   40,    false) /* how much rain reaches the lens */ \
-	X(RainSize,       "rain.size",       0.3f,  3,     1,     false) /* drop size */ \
+	X(RainAmount,     "rain.amount",     0,     100,   26,    false) /* how much rain reaches the lens */ \
+	X(RainSize,       "rain.size",       0.3f,  3,     0.7f,  false) /* drop size */ \
 	X(RainSlide,      "rain.slide",      0,     2,     1,     false) /* how easily motion and gravity move the drops */ \
-	X(RainTrails,     "rain.trails",     0,     1,     0.5f,  false) /* small drops a sliding drop leaves behind */ \
-	X(RainImpact,     "rain.impact",     0,     2,     1,     false) /* extra drops while the camera moves forward */ \
-	X(RainRefraction, "rain.refraction", 0,     2,     1,     false) /* how strongly a drop bends the picture behind it */ \
-	X(RainBlur,       "rain.blur",       0,     1,     0.5f,  false) /* how far out of focus the drops are */
+	X(RainTrails,     "rain.trails",     0,     1,     0.3f,  false) /* runoff length */ \
+	X(RainImpact,     "rain.impact",     0,     2,     0.35f, false) /* extra drops while the camera moves forward */ \
+	X(RainRefraction, "rain.refraction", 0,     2,     0.75f, false) /* how strongly a drop bends the picture behind it */ \
+	X(RainBlur,       "rain.blur",       0,     1,     0.48f, false) /* how far out of focus the drops are */
 
 enum Param : int {
 #define X(name, key, lo, hi, def, integer) name,
@@ -902,17 +902,15 @@ inline bool ApplyRainPreset(Values& L, const char* name) {
 	auto set = [&](int p, double v) { SetClamped(L, p, v); };
 	if (0 == std::strcmp(name, "drizzle")) {
 		// A few small drops that cling.
-		set(RainAmount, 15); set(RainSize, 0.6); set(RainSlide, 0.7); set(RainTrails, 0.3); set(RainBlur, 0.6);
-	} else if (0 == std::strcmp(name, "rain")) {
-		set(RainAmount, 40); set(RainSize, 1.0); set(RainSlide, 1.0); set(RainTrails, 0.5);
+		set(RainAmount, 17); set(RainSize, 0.56); set(RainSlide, 0.82); set(RainTrails, 0.20);
 	} else if (0 == std::strcmp(name, "storm")) {
 		// Heavy runoff, with softer patches of water over the scene.
-		set(RainAmount, 85); set(RainSize, 1.5); set(RainSlide, 1.3); set(RainTrails, 0.8); set(RainImpact, 1.5);
-		set(RainBlur, 0.75);
+		set(RainAmount, 45); set(RainSize, 0.82); set(RainSlide, 1.18); set(RainTrails, 0.44); set(RainImpact, 0.52);
+		set(RainBlur, 0.66);
 	} else if (0 == std::strcmp(name, "windscreen")) {
 		// Drops that run off at the first move, as on a car's glass.
-		set(RainAmount, 50); set(RainSize, 1.1); set(RainSlide, 2.0); set(RainTrails, 1.0); set(RainImpact, 2.0); set(RainBlur, 0.35);
-	} else {
+		set(RainAmount, 30); set(RainSize, 0.72); set(RainSlide, 1.65); set(RainTrails, 0.62); set(RainImpact, 1.15); set(RainBlur, 0.35);
+	} else if (0 != std::strcmp(name, "rain")) {
 		return false;
 	}
 	return true;

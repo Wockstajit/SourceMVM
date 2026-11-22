@@ -1304,10 +1304,11 @@ void RunMainThreadFrame() {
 	// After the keys (their applied tick and the pose channels) and before the Environment reads
 	// where each rigged object is (scene-object-rigs.md).
 	{ PanoramaPerf_Scope _p("scenerig"); SceneRig_RunMainThreadFrame(); }
-	{ PanoramaPerf_Scope _p("environment"); Environment::RunMainThreadFrame(); }
+	float rainIntensity;
+	{ PanoramaPerf_Scope _p("environment"); rainIntensity = Environment::RunMainThreadFrame(); }
 	{ PanoramaPerf_Scope _p("props"); Props_RunMainThreadFrame(); }
 	// Lens rain: the drops on the glass follow the camera this frame (inert while off).
-	{ PanoramaPerf_Scope _p("lensrain"); LensRain_RunMainThreadFrame(); }
+	{ PanoramaPerf_Scope _p("lensrain"); LensRain_RunMainThreadFrame(rainIntensity); }
 	// Bot takes: the scene clock and bots of a private match (inert until someone uses them).
 	{ PanoramaPerf_Scope _p("takes"); Takes::RunMainThreadFrame(); }
 	// Round heat map: follows the demo to its round and the camera to its area (inert while off).

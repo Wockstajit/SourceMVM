@@ -659,7 +659,7 @@ std::map<std::string,std::vector<double>> CaptureAnimationValues() {
     out["env.weather.windSpeed"]={wind.first};out["env.weather.windDirection"]={wind.second};
     return out;
 }
-void RunMainThreadFrame() {
+float RunMainThreadFrame() {
     std::lock_guard<std::mutex> lock(g_mutex);
     auto map = CurrentMap();
     // A replacement world placed at an offset (AltEnvironment.h) is not where its map data says it
@@ -669,7 +669,7 @@ void RunMainThreadFrame() {
     else
         UpdateMapOcclusion(map, MapDataFolder());
     UpdateAutosave(map);
-    if (g_restoreAutosave) return;
+    if (g_restoreAutosave) return 0.f;
     const auto geometry=MapOcclusion();
     if(geometry&&Relight::UpdateMapLighting(map,geometry->lightMetadataPath)&&g_savedName.empty()){
         const auto lights=Relight::CaptureScene(map);
@@ -731,6 +731,9 @@ void RunMainThreadFrame() {
     Relight::UpdateStainedGlassMaterials((active || authoredLighting.enabled) && authoredLighting.stainedGlass > 0 && RendererReady());
     UpdateNativeWater(animated,map);
     UpdateNativeRain(animated, map, active, g_camera, g_cameraValid);
+    return active && animated.weather.type == kPrecipitationRain
+        ? std::clamp(animated.weather.count / 6000.f, 0.f, 1.f)
+        : 0.f;
 }
 bool PositionEditing() { std::lock_guard<std::mutex> lock(g_mutex); return g_editing!=0; }
 bool RenderedCamera(Matrix &worldToClip, Vec3 &eye) {
