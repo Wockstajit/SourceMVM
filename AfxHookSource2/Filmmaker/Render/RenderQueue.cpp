@@ -9,13 +9,16 @@
 #include "../Cosmetics/CosmeticEntityAccess.h"
 #include "../Cosmetics/CosmeticOverrideSystem.h" // Cosmetics_SpectateSteamId: the POV entry's player
 #include "../Debug/MvmDebugLog.h"
+#include "../Movie/CameraBridge.h"
 #include "../Movie/CameraPath.h"
 #include "../Platform/JsonBuilder.h"
 #include "../../ClientEntitySystem.h"
+#include "../../MirvTime.h"
 #include "../../../Shared/AfxConsole.h"
 #include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
 #include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -34,9 +37,10 @@ struct Entry {
 	CameraPathExtension extension = CameraPathExtension::Fail;
 	RenderOutputSettings out;
 	RenderPasses passes;
-	uint64_t povSteam = 0;
+	uint64_t povSteam = 0;     // the watched player (POV, third person, follow, current viewer), 0 = none
 	std::string povName;
 	std::vector<CamMarker> path;
+	bool stillPose = false;    // a Free Camera shot: `path` holds its pose at the shot's start and end
 	std::string status = "queued"; // queued | rendering | completed | failed | canceled | skipped
 	std::string note;
 };
@@ -101,7 +105,7 @@ bool SpectatedPlayer(uint64_t& steam, char name[64]) {
 std::string Describe(const Entry& e, int index) {
 	char buf[256];
 	std::string cam = CameraName(e.camera);
-	if (e.camera == RenderCameraSource::Pov && !e.povName.empty()) cam += " " + e.povName;
+	if (!e.povName.empty()) cam += " " + e.povName;
 	if (e.camera == RenderCameraSource::CameraPath) cam += " (" + std::to_string(e.path.size()) + " keys)";
 	std::snprintf(buf, sizeof(buf), "#%d %s, ticks %d..%d, %d fps %s, %d pass(es) [%s]%s%s", index + 1, cam.c_str(),
 		e.range.startTick, e.range.endTickExclusive - 1, e.out.fps, RenderFormatToken(e.out.format),
@@ -124,10 +128,25 @@ bool AddCurrent(std::string& error) {
 	e.passes = RenderPassesRef();
 	e.passes.passes = NormalizePasses(e.passes.passes);
 	if (e.passes.passes.empty()) { error = "no render pass selected"; return false; }
-	if (e.camera == RenderCameraSource::Pov) {
+	// Each shot keeps what its camera follows, so a later shot changing the watched player or the
+	// view does not change it: the watched player for the player cameras, the pose for Free Camera.
+	if (e.camera == RenderCameraSource::FreeCamera) {
+		double origin[3] = {}, angles[3] = {}, fov = 90;
+		CameraBridge_GetCurrentCamera(origin, angles, fov);
+		const double interval = (double)g_MirvTime.interval_per_tick_get();
+		for (int tick : { e.range.startTick, (std::max)(e.range.startTick + 1, e.range.endTickExclusive - 1) }) {
+			CamMarker m;
+			m.x = origin[0]; m.y = origin[1]; m.z = origin[2];
+			m.pitch = angles[0]; m.yaw = angles[1]; m.roll = angles[2]; m.fov = fov;
+			m.tick = tick;
+			m.time = tick * interval;
+			e.path.push_back(m);
+		}
+		e.stillPose = true;
+	} else if (e.camera != RenderCameraSource::CameraPath) {
 		char name[64];
-		if (!SpectatedPlayer(e.povSteam, name)) { error = "a POV shot needs a watched player: spectate one first"; return false; }
-		e.povName = name;
+		if (SpectatedPlayer(e.povSteam, name)) e.povName = name;
+		else if (e.camera == RenderCameraSource::Pov) { error = "a POV shot needs a watched player: spectate one first"; return false; }
 	}
 	if (e.camera == RenderCameraSource::CameraPath) {
 		e.path = CameraPathRef().Markers();
@@ -166,12 +185,14 @@ void Apply(Entry& e) {
 	RenderOutputSettingsRef() = e.out;
 	RenderPassesRef() = e.passes;
 	Render_SetExtension(e.extension);
-	if (e.camera == RenderCameraSource::CameraPath) {
+	// A Free Camera shot renders as a camera held at the pose it was queued with.
+	const RenderCameraSource source = e.stillPose ? RenderCameraSource::CameraPath : e.camera;
+	if (source == RenderCameraSource::CameraPath) {
 		CameraPathRef().ReplaceMarkersFromGraph(e.path, false);
 		g_saved.pathTouched = true;
 	}
-	Render_SetCameraSource(e.camera);
-	Render_ApplyCameraSourceLive(e.camera, "mirv_filmmaker render queue");
+	Render_SetCameraSource(source);
+	Render_ApplyCameraSourceLive(source, "mirv_filmmaker render queue");
 	Render_SetRange(e.range);
 }
 
@@ -214,8 +235,9 @@ void RenderQueue_RunFrame() {
 		if (!NextQueued()) { Finish("done"); return; }
 		Apply(g_entries[g_current]);
 		g_entries[g_current].status = "rendering";
-		// A POV shot first goes to its start, where the player is alive, then watches them.
-		if (g_entries[g_current].camera == RenderCameraSource::Pov) {
+		// A shot that follows a player first goes to its start, where the player is alive, then
+		// watches them.
+		if (g_entries[g_current].povSteam != 0) {
 			char c[64];
 			std::snprintf(c, sizeof(c), "demo_gototick %d", g_entries[g_current].range.startTick);
 			Exec(c);

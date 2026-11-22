@@ -281,10 +281,18 @@ R"EDJS(
     edTip(pathDollyActions.btns[0], T('Move closer and widen the view to hold the subject’s size.'));
     edTip(pathDollyActions.btns[1], T('Move back and narrow the view to hold the subject’s size.'));
     var pathDollyMessage = '', pathDollyError = false, pathDollyUntil = 0;
+    // DollyZoom::Build's failure reasons (DollyZoomMath.h), each a literal key for the catalog.
+    function pathDollyReason(reason) {
+      if (reason === 'the subject is too close to the camera') return T('The subject is too close to the camera.');
+      if (reason === 'the shot needs a length') return T('The shot needs a length.');
+      if (reason === 'the move is too small to see') return T('The move is too small to see.');
+      return '';
+    }
     function pathDollyResult(count, first, last, fallback, reason) {
       pathDollyError = !count;
+      var why = count ? '' : pathDollyReason(reason);
       pathDollyMessage = count ? T('Created {0} camera keys at ticks {1}–{2}.', count, first, last)
-        : T('Dolly zoom could not be created.') + (reason ? ' ' + T(reason) : '');
+        : T('Dolly zoom could not be created.') + (why ? ' ' + why : '');
       if (count && fallback) pathDollyMessage += ' ' + T('Used a point 300 units ahead.');
       if (count && reason) pathDollyMessage += ' ' + T('Travel was shortened to fit the lens.');
       pathDollyUntil = Date.now() + 8000;
