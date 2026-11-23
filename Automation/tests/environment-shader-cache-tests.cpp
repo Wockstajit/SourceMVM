@@ -3,6 +3,8 @@
 #include <wrl/client.h>
 #include <iostream>
 #include <stdexcept>
+#include <string>
+#include <unordered_map>
 using namespace Filmmaker::Environment;
 using Microsoft::WRL::ComPtr;
 void require(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
@@ -11,7 +13,9 @@ int wmain(int argc,wchar_t** argv){
         if(argc==2){
             EnvironmentShaderCachePaths bundlePaths{{},argv[1]};
             const auto started=GetTickCount64();unsigned count=0;
+            std::unordered_map<std::string,unsigned> pixelVariants;   // bit ms*2+cm per pixel entry
             for(const auto r:EnvironmentShaderRequests()){
+                if(std::string(r.profile)=="ps_5_0")pixelVariants[r.entry]|=1u<<(r.ms*2+r.cm);
                 D3D_SHADER_MACRO macros[]={{"DEPTH_MS",r.ms?"1":"0"},{"COLOR_MS",r.cm?"1":"0"},{nullptr,nullptr}};
                 ComPtr<ID3DBlob> code,error;bool hit=false,bundled=false;
                 const auto& source=EnvironmentShaderProgramSource(r.entry);
@@ -19,7 +23,11 @@ int wmain(int argc,wchar_t** argv){
                     EnvironmentShaderFlags,&code,&error,&hit,&bundlePaths,&bundled))&&hit&&bundled,"Production bundle miss");
                 ++count;
             }
-            require(count==58,"Wrong production request count (including all four per-sample sky variants)");
+            // Every pixel entry, the per-sample sky ones included, is requested and bundled in all four
+            // MSAA variants. Checked per entry rather than as a total, which went stale whenever a
+            // program was added.
+            for(const char* entry:EnvironmentPixelShaderEntries)
+                require(pixelVariants[entry]==15u,"A pixel entry is missing one of its four MSAA variants");
             std::cout<<"Production bundle: "<<count<<" exact-input hits, no writable cache, "<<GetTickCount64()-started<<" ms\n";
             return 0;
         }
