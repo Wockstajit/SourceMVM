@@ -39,7 +39,8 @@ test('a play that beats the landing waits for it', () => {
 test('J plays from the first key in one press and stops on the next', () => {
   assert.match(movie, /marker playfromstart/);
   assert.match(movie, /cpMode == CPMode::PreviewPlaying && !CameraPathRef\(\)\.AutoPlaying\(\)\)\s*\|\| \(cpMode == CPMode::PreviewArmed && CameraPathRef\(\)\.PlaybackPending\(\)\)/);
-  assert.match(read('AfxHookSource2/Filmmaker/MarkerCommand.cpp'), /"playfromstart"\)\) cp\.PlayFromFirstKey\(\)/);
+  assert.match(read('AfxHookSource2/Filmmaker/MarkerCommand.cpp'), /"playfromstart"\)\) \{[\s\S]{0,260}FollowCameraRef\(\)\.StopPreview\("camera path started"\);\s*cp\.PlayFromFirstKey\(\);/,
+    'J hands the view to the path: a Follow Camera preview stops, as it does for play');
   assert.match(read('AfxHookSource2/Filmmaker/Panorama/CameraEditorJs.h'), /\['J', 'play path'\]/);
   assert.doesNotMatch(read('AfxHookSource2/Filmmaker/Panorama/MarkerHudJs.h'), /Arm the path/);
 });
