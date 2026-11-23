@@ -49,7 +49,8 @@ cannot use it. Three caches persist between runs:
 
 - **Environment shader bundle.** `EnvironmentShaderBuilder` compiles 67 D3D programs and, on an
   empty cache, is the slowest step of the build. Each bundle entry stores its full compile key
-  (source, macros, entry point, profile, flags, compiler DLL identity) and a bytecode checksum. The
+  (the source its entry point reaches, macros, entry point, profile, flags, compiler DLL identity)
+  and a bytecode checksum, so a shader edit recompiles only the programs that use it. The
   builder reuses an entry only on an exact key match with a valid checksum and recompiles the rest.
   The cache holds only the programs the manifest lists, keyed on the manifest's hash. The builder
   runs one compile per logical core (less two) at normal priority and starts the slow programs first,
@@ -166,3 +167,8 @@ about 40 s. The shader bundle dominates whenever it is not restored (1014 s of t
 restore path differ. A pull request's first run pays only for what `main` has not cached yet;
 after one push to `main` with this workflow, new pull requests start from `main`'s shader bundle
 and sccache entries.
+
+The bundle has grown since these measurements. In November 2026, a run that reused only 22 of 98
+programs (the first run after the compile key changed to the source each entry point reaches)
+spent 63 minutes on the shader bundle, and its tests started 74 minutes into the job. The native
+job's timeout is 120 minutes so that such a run, and the first push to `main` after it, can finish.

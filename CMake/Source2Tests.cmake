@@ -659,6 +659,10 @@ add_executable(EnvironmentWindFluidMathTests ../Automation/tests/environment-win
     Filmmaker/Environment/EnvironmentWindFluidMath.h)
 target_compile_features(EnvironmentWindFluidMathTests PRIVATE cxx_std_17)
 add_test(NAME EnvironmentWindFluidMathTests COMMAND EnvironmentWindFluidMathTests)
+add_executable(EnvironmentShaderReachMathTests ../Automation/tests/environment-shader-reach-math-tests.cpp
+    Filmmaker/Environment/EnvironmentShaderReachMath.h)
+target_compile_features(EnvironmentShaderReachMathTests PRIVATE cxx_std_17)
+add_test(NAME EnvironmentShaderReachMathTests COMMAND EnvironmentShaderReachMathTests)
 add_executable(EnvironmentGizmoMathTests ../Automation/tests/environment-gizmo-math-tests.cpp)
 target_compile_features(EnvironmentGizmoMathTests PRIVATE cxx_std_17)
 add_test(NAME EnvironmentGizmoMathTests COMMAND EnvironmentGizmoMathTests)

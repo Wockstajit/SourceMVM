@@ -1041,6 +1041,13 @@ cached under the local application data folder in `%APPDATA%\HLAE\source_mvm\sha
 source, macros, entry point, compiler identity and flags identify each entry. An exact input
 comparison and a bytecode checksum reject stale or damaged entries.
 
+Each program compiles from, and is identified by, only the part of the shader source its entry point
+reaches (`EnvironmentShaderReachMath.h`): the functions, structs, static constants and macros it uses,
+plus every resource declaration and `#if` line, in source order and without comments. An edit to one
+function rebuilds only the programs that use it, and a comment edit rebuilds nothing. A source layout
+the reach parser does not understand makes every program compile the whole source, and
+`EnvironmentShaderCacheTests` fails so that it gets fixed.
+
 The CS2 build prepares all 57 main-renderer variants, including the four atmosphere-pixel variants,
 plus nine support programs (66 total). They go in `environment-shaders` beside the hook DLL, and the
 `x64-source2` component installs them. At runtime, the renderer checks the writable cache first, then
