@@ -1,5 +1,6 @@
 #pragma once
 #include "EnvironmentShaderCompiler.h"
+#include "EnvironmentShaderReachMath.h"
 #include "EnvironmentClimateMath.h"
 #include "EnvironmentCoatingMath.h"
 #include "EnvironmentFootprintMath.h"
@@ -44,5 +45,23 @@ inline std::vector<EnvironmentShaderRequest> EnvironmentShaderRequests(){
         for(const char* entry:EnvironmentPixelShaderEntries)
             requests.push_back({entry,"ps_5_0",ms,cm});
     return requests;
+}
+// The text one program compiles from and is keyed on: what its entry point reaches in the source
+// (EnvironmentShaderReachMath.h). An edit to the fog march then rebuilds the programs that march,
+// not all of them. The build-time bundle and the runtime fallback both compile through here, so
+// their keys agree. Should the source ever be laid out in a way the reach parser does not
+// understand, every program compiles the whole source, as before.
+inline const std::string& EnvironmentShaderProgramSource(const char* entry){
+    static const auto programs=[]{
+        const auto& source=EnvironmentShaderSource();
+        const auto parsed=ParseShaderReach(source);
+        std::unordered_map<std::string,std::string> texts;
+        for(const auto& request:EnvironmentShaderRequests())
+            if(!texts.count(request.entry))
+                if(auto text=ShaderReachText(parsed,request.entry);!text.empty())texts.emplace(request.entry,std::move(text));
+        return texts;
+    }();
+    const auto found=programs.find(entry);
+    return found!=programs.end()?found->second:EnvironmentShaderSource();
 }
 }

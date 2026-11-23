@@ -29,13 +29,17 @@ public static class MotionCapture {
         GetWindowRect(h,out w); GetClientRect(h,out c); ClientToScreen(h,ref origin);
         int width=c.R-c.L,height=c.B-c.T;
         if(width<=0 || height<=0 || fps<1 || fps>60 || seconds<=0 || seconds>60) throw new Exception("Invalid capture bounds");
-        // The redirected stdin is a text writer in the console's input encoding, and with a UTF-8
-        // console it writes a byte-order mark before the first frame. Shifted three bytes, every
-        // pixel read alpha as red: the clips came out solid red. The encoder skips the mark.
+        // The redirected stdin is a text writer in the console's input encoding. On Windows
+        // PowerShell (.NET Framework) it writes that encoding's byte-order mark as the process
+        // starts, before any frame; shifted three bytes, every pixel read alpha as red and the clips
+        // came out solid red. PowerShell 7 (.NET) strips the mark instead. The encoder skips `mark`
+        // bytes, and the stream below always starts with exactly that many.
         int mark=Console.InputEncoding.GetPreamble().Length;
         string args="-y -hide_banner -loglevel warning -f rawvideo -pixel_format bgra -video_size "+width+"x"+height+" -framerate "+fps+" -skip_initial_bytes "+mark+" -i pipe:0 -an -vf pad=ceil(iw/2)*2:ceil(ih/2)*2 -c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p \""+path+"\"";
         var start=new ProcessStartInfo(ffmpeg,args) { UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardError=true };
         using(var encoder=Process.Start(start)) {
+            int written=encoder.StandardInput.Encoding.GetPreamble().Length;
+            if(written<mark){var pad=new byte[mark-written];encoder.StandardInput.BaseStream.Write(pad,0,pad.Length);}
             var errors=encoder.StandardError.ReadToEndAsync();
             using(var full=new Bitmap(w.R-w.L,w.B-w.T,PixelFormat.Format32bppArgb))
             using(var graphics=Graphics.FromImage(full))

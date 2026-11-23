@@ -96,8 +96,8 @@ test('Space plays the demo with the TIMELINE up; the path takes the view only wi
   // AUTO is a button on the camera path layer, saved, and follows the path inside its keys.
   assert.match(graph, /if \(n\.dom === 'cam'\) \{[\s\S]{0,700}rawCmd\('mirv_filmmaker camtl autopath toggle'\)/);
   assert.match(graph, /if \(r\.ap && r\.apOn !== !!st\.autoPath\)/);
-  assert.match(cameraPath, /bool CameraPath_AutoPath\(\) \{ return FilmmakerSettings_UiBool\("editor\.timeline\.autopath", false\); \}/);
-  assert.match(cameraPath, /void CameraPath::RunAutoPath\(\) \{[\s\S]{0,500}GraphEditorExperiment_Enabled\(\) && m_timing == Timing::Live[\s\S]{0,1500}m_play\.StartPlay\(m_eval\.Duration\(\), \/\*rangeGated\*\/ true\);/);
+  assert.match(cameraPath, /bool CameraPath_AutoPath\(\) \{ return FilmmakerSettings_UiBool\("editor\.timeline\.autopath", true\); \}/);
+  assert.match(cameraPath, /void CameraPath::RunAutoPath\(\) \{[\s\S]{0,1500}\(GraphEditorExperiment_Enabled\(\) \|\| CameraEditor_Active\(\)\) && m_timing == Timing::Live[\s\S]{0,2000}m_play\.StartPlay\(m_eval\.Duration\(\), \/\*rangeGated\*\/ true\);/);
   assert.match(cameraPath, /if \(playDone && m_autoPlaying\) \{\s*EndAutoPath\("the last key"\);/);
   assert.match(cameraPath, /!DemoIsPaused\(\) && !m_autoPlaying\)\s*DemoCmd\("demo_pause"\);/);
 });

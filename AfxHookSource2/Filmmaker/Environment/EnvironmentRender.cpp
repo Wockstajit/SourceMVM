@@ -209,7 +209,7 @@ bool CompileBytecode(const char *entry, const char *profile, int ms, ComPtr<ID3D
     D3D_SHADER_MACRO macros[] = {
         {"DEPTH_MS", ms ? "1" : "0"}, {"COLOR_MS", colorMs ? "1" : "0"}, {nullptr, nullptr}};
     ComPtr<ID3DBlob> errors;
-    const auto& source=EnvironmentShaderSource();
+    const auto& source=EnvironmentShaderProgramSource(entry);
     bool cacheHit=false,bundledHit=false;
     const ULONGLONG started = GetTickCount64();
     MvmDebugLog_LinefAlways("environment.shader", "begin entry=%s depthMs=%d colorMs=%d compiler=%p", entry, ms, colorMs, module);

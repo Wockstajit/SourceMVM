@@ -119,7 +119,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.mode == 'fast' && needs.changes.outputs.native != 'none'
     runs-on: windows-2022
-    timeout-minutes: 75
+    # A run that cannot reuse most of the shader bundle (a change to how programs are keyed, or a
+    # pull request's first run after such a change lands) recompiled 76 of 98 programs in 63 minutes
+    # on this runner, before the C++ build and the tests (Docs/setup/ci.md).
+    timeout-minutes: 120
     env:
       PRESET: x64-deadlock-ninja-release
       SCOPE: ${{ needs.changes.outputs.native }}
