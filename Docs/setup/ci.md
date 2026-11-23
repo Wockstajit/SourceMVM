@@ -167,3 +167,8 @@ about 40 s. The shader bundle dominates whenever it is not restored (1014 s of t
 restore path differ. A pull request's first run pays only for what `main` has not cached yet;
 after one push to `main` with this workflow, new pull requests start from `main`'s shader bundle
 and sccache entries.
+
+The bundle has grown since these measurements. In November 2026, a run that reused only 22 of 98
+programs (the first run after the compile key changed to the source each entry point reaches)
+spent 63 minutes on the shader bundle, and its tests started 74 minutes into the job. The native
+job's timeout is 120 minutes so that such a run, and the first push to `main` after it, can finish.
