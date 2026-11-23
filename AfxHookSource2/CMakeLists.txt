@@ -862,6 +862,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/WorldWarp/WorldWarp.cpp
     Filmmaker/WorldWarp/WorldWarp.h
     Filmmaker/WorldWarp/WorldWarpMath.h
+    Filmmaker/WorldWarp/WorldWarpDxbcMath.h
     Filmmaker/WorldWarp/WorldWarpRender.cpp
     Filmmaker/WorldWarp/WorldWarpRender.h
     Filmmaker/WorldDecals/WorldDecals.cpp

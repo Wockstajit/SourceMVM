@@ -1,6 +1,7 @@
 #define NOMINMAX
 #include "WorldWarpRender.h"
 #include "WorldWarp.h"
+#include "WorldWarpDxbcMath.h"
 
 #include "../Debug/GpuPassProfiler.h"
 #include "../Debug/MvmDebugLog.h"
@@ -17,6 +18,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 
 namespace Filmmaker::WorldWarp {
 using Microsoft::WRL::ComPtr;
@@ -302,8 +304,138 @@ struct Constants {
 };
 static_assert(sizeof(Constants) % 16 == 0, "cb alignment");
 
+struct VsWarpConstants {
+	float modeTime[4];       // x=mode, y=demoTime, z=useOrigin, w=activeFlag
+	float originPos[4];      // xyz=origin
+	float horizonParams[4];  // x=bend, y=flatRadius, z=curve
+	float waveParams[4];     // x=height, y=wavelength, z=speed, w=dirRad
+	float waveExtra[4];      // x=radial, y=flatRadius
+	float foldParams[4];     // x=angleRad, y=axisYawRad, z=offset, w=softness
+	float foldExtra[4];      // x=flipSide
+};
+static_assert(sizeof(VsWarpConstants) == WorldWarpDxbc::kWarpConstantRows * 16, "cb13 size");
+
+// Standalone SM5 vertex-shader snippet compiled once and spliced into CS2's 3D world vertex shaders
+// right before `ret` via WorldWarpDxbc::PatchVertexShaderDxbc.
+constexpr char kWarpSnippetHlsl[] = R"HLSL(
+cbuffer NativeView : register(b12) {
+    column_major float4x4 g_worldToProj : packoffset(c0);
+    column_major float4x4 g_projToWorld : packoffset(c4);
+};
+cbuffer WorldWarpCB : register(b13) {
+    float4 modeTime;
+    float4 originPos;
+    float4 horizonParams;
+    float4 waveParams;
+    float4 waveExtra;
+    float4 foldParams;
+    float4 foldExtra;
+};
+float4 WarpSnippetVS(float4 clipIn : POSITION) : SV_Position {
+    float4 outPos = clipIn;
+    float ndcZ = clipIn.z / max(abs(clipIn.w), 1e-5);
+    bool isSky = (clipIn.w > 1.0) && ((originPos.w > 0.5) ? (ndcZ < 1e-5) : (ndcZ > 0.9999));
+    if (modeTime.w > 0.5 && !isSky) {
+        float4 wp4 = mul(g_projToWorld, clipIn);
+        if (abs(wp4.w) > 1e-5) {
+            float3 p = wp4.xyz / wp4.w;
+            float4 eye4 = mul(g_projToWorld, float4(0.0, 0.0, 1.0, 0.0));
+            float3 cam = (abs(eye4.w) > 1e-5) ? (eye4.xyz / eye4.w) : p;
+            float camD = length(p - cam);
+            if (camD < 8000.0) {
+                float3 anchor = (modeTime.z > 0.5) ? originPos.xyz : cam;
+                int mode = int(modeTime.x + 0.5);
+                float3 pDef = p;
+                if (mode == 2 || mode == 3) {
+                    float d = length(p.xy - anchor.xy);
+                    float flat = max(0.0, horizonParams.y);
+                    if (d > flat) {
+                        float excess = (d - flat) / 1000.0;
+                        pDef.z += horizonParams.x * 480.0 * pow(max(excess, 0.0), clamp(horizonParams.z, 1.1, 3.5));
+                    }
+                } else if (mode == 4) {
+                    float2 rel = p.xy - anchor.xy;
+                    float2 dir = float2(cos(waveParams.w), sin(waveParams.w));
+                    float coord = (waveExtra.x > 0.5) ? length(rel) : dot(rel, dir);
+                    float wl = max(waveParams.y, 32.0);
+                    float phase = (6.2831853 * coord / wl) - waveParams.z * modeTime.y;
+                    float camXY = length(p.xy - cam.xy);
+                    float ramp = (waveExtra.y > 1.0) ? smoothstep(0.0, waveExtra.y, camXY) : 1.0;
+                    pDef.z += waveParams.x * sin(phase) * ramp;
+                } else if (mode == 5) {
+                    float tx = cos(foldParams.y), ty = sin(foldParams.y);
+                    float sideSign = (foldExtra.x > 0.5) ? -1.0 : 1.0;
+                    float2 n = float2(-ty * sideSign, tx * sideSign);
+                    float2 hinge = anchor.xy + n * foldParams.z;
+                    float u = dot(p.xy - hinge, n);
+                    if (u > 0.0) {
+                        float blend = (foldParams.w > 1e-3) ? smoothstep(0.0, foldParams.w, u) : 1.0;
+                        float a = foldParams.x * blend;
+                        float ca = cos(a), sa = sin(a);
+                        float dz = p.z - anchor.z;
+                        float uNew = u * ca - dz * sa;
+                        float zNew = anchor.z + u * sa + dz * ca;
+                        pDef = float3(p.xy + n * (uNew - u), zNew);
+                    }
+                }
+                float3 delta = pDef - p;
+                outPos = clipIn + wp4.w * mul(g_worldToProj, float4(delta, 0.0));
+            }
+        }
+    }
+    return outPos;
+}
+)HLSL";
+
+// Custom GUID for attaching TrackedVs metadata to CS2's ID3D11VertexShader objects.
+constexpr GUID kWarpVsGuid = { 0x9b4f21a3, 0x7e48, 0x4c19, { 0xa2, 0x6f, 0x51, 0x0d, 0x88, 0x3b, 0x19, 0xe4 } };
+
+struct TrackedVs final : public IUnknown {
+	std::atomic<ULONG> refs{ 1 };
+	std::mutex mx;
+	std::vector<uint8_t> bytecode;
+	unsigned perViewSlot = 0;
+	ComPtr<ID3D11VertexShader> patched;
+	bool tried = false;
+
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+		if (!ppv) return E_POINTER;
+		if (riid == __uuidof(IUnknown)) {
+			*ppv = static_cast<IUnknown*>(this);
+			AddRef();
+			return S_OK;
+		}
+		*ppv = nullptr;
+		return E_NOINTERFACE;
+	}
+	ULONG STDMETHODCALLTYPE AddRef() override { return refs.fetch_add(1, std::memory_order_relaxed) + 1; }
+	ULONG STDMETHODCALLTYPE Release() override {
+		const ULONG r = refs.fetch_sub(1, std::memory_order_acq_rel) - 1;
+		if (r == 0) delete this;
+		return r;
+	}
+};
+
+thread_local bool g_creatingWarpShader = false;
+std::atomic<uint32_t> g_vsTrackedCount{ 0 };
+std::atomic<uint32_t> g_vsPatchedCount{ 0 };
+std::atomic<uint32_t> g_vsDrawsThisFrame{ 0 };
+std::atomic<uint32_t> g_vsDrawsLastFrame{ 0 };
+std::atomic<UINT> g_sceneW{ 0 };
+std::atomic<UINT> g_sceneH{ 0 };
+std::atomic<bool> g_reversedZ{ false };
+std::atomic<uint32_t> g_uploadedGen{ 0 };
+std::atomic<double> g_uploadedDemoTime{ -1.0 };
+
+bool HasBytes(const void* buf, size_t len, const char* needle) {
+	const char* first = static_cast<const char*>(buf);
+	const size_t nlen = std::strlen(needle);
+	return buf && len >= nlen && std::search(first, first + len, needle, needle + nlen) != first + len;
+}
+
 struct Blobs {
 	ComPtr<ID3DBlob> screenVS, planetPS, backdropPS[2], meshVS[2], meshPS;
+	WorldWarpDxbc::WarpSnippet warpSnippet;
 	bool ok = false;
 };
 std::mutex g_blobLock;
@@ -316,7 +448,7 @@ struct Gpu {
 	ComPtr<ID3D11DeviceContext> ctx;
 	ComPtr<ID3D11VertexShader> screenVS, meshVS[2];
 	ComPtr<ID3D11PixelShader> planetPS, backdropPS[2], meshPS;
-	ComPtr<ID3D11Buffer> cb;
+	ComPtr<ID3D11Buffer> cb, vsWarpCb;
 	ComPtr<ID3D11SamplerState> sampler;
 	ComPtr<ID3D11RasterizerState> raster;
 	ComPtr<ID3D11DepthStencilState> dsOff, dsTestWrite;
@@ -337,6 +469,28 @@ struct Gpu {
 	float tanHalfX = 1.0f, tanHalfY = 1.0f;
 	bool failed = false;
 } g_gpu;
+
+std::mutex g_stateCacheLock;
+std::unordered_map<ID3D11DepthStencilState*, ComPtr<ID3D11DepthStencilState>> g_dssRelaxedCache[4];
+
+ID3D11DepthStencilState* GetRelaxedDepthStencil(ID3D11DepthStencilState* orig, const D3D11_DEPTH_STENCIL_DESC& desc, bool reversedZ, bool forceWrite) {
+	if (!g_gpu.device || !orig) return nullptr;
+	const int idx = (reversedZ ? 1 : 0) | (forceWrite ? 2 : 0);
+	std::lock_guard<std::mutex> lk(g_stateCacheLock);
+	auto& cache = g_dssRelaxedCache[idx];
+	auto it = cache.find(orig);
+	if (it != cache.end()) return it->second.Get();
+	D3D11_DEPTH_STENCIL_DESC mod = desc;
+	mod.DepthFunc = reversedZ ? D3D11_COMPARISON_GREATER_EQUAL : D3D11_COMPARISON_LESS_EQUAL;
+	if (forceWrite) mod.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+	ComPtr<ID3D11DepthStencilState> created;
+	{
+		RenderPrivateTextureScope priv;
+		g_gpu.device->CreateDepthStencilState(&mod, &created);
+	}
+	cache.emplace(orig, created);
+	return created.Get();
+}
 
 DXGI_FORMAT TypedColorFormat(DXGI_FORMAT f) {
 	switch (f) {
@@ -393,6 +547,16 @@ void CompileAll() {
 	if (!b->ok)
 		MvmDebugLog_LinefAlways("worldwarp", "shader compile failed: %s",
 			err ? static_cast<const char*>(err->GetBufferPointer()) : "compiler unavailable");
+	ComPtr<ID3DBlob> snipBlob, snipErr;
+	if (SUCCEEDED(Environment::CompileEnvironmentShader(kWarpSnippetHlsl, sizeof(kWarpSnippetHlsl) - 1,
+		"WorldWarpSnippet", nullptr, "WarpSnippetVS", "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL2, &snipBlob, &snipErr))
+		&& snipBlob) {
+		if (!WorldWarpDxbc::ExtractWarpSnippet(snipBlob->GetBufferPointer(), snipBlob->GetBufferSize(), b->warpSnippet))
+			MvmDebugLog_LinefAlways("worldwarp", "DXBC warp snippet extraction failed");
+	} else {
+		MvmDebugLog_LinefAlways("worldwarp", "DXBC warp snippet compile failed: %s",
+			snipErr ? static_cast<const char*>(snipErr->GetBufferPointer()) : "compiler unavailable");
+	}
 	std::lock_guard<std::mutex> lock(g_blobLock);
 	g_blobs = b;
 }
@@ -484,7 +648,249 @@ bool EnsureDepthCopy(ID3D11DeviceContext* ctx, ID3D11DepthStencilView* dsv, bool
 	return true;
 }
 
+void UploadVsWarpConstants(ID3D11DeviceContext* ctx, double demoTime) {
+	if (!ctx || !g_gpu.vsWarpCb) return;
+	const Settings s = WorldWarp_Get();
+	VsWarpConstants vcb{};
+	vcb.modeTime[0] = (float)(int)s.mode;
+	vcb.modeTime[1] = (float)demoTime;
+	vcb.modeTime[2] = s.useSceneOrigin ? 1.0f : 0.0f;
+	vcb.modeTime[3] = WorldWarp_WantsVertexWarp() ? 1.0f : 0.0f;
+	vcb.originPos[0] = s.origin[0]; vcb.originPos[1] = s.origin[1]; vcb.originPos[2] = s.origin[2];
+	vcb.originPos[3] = g_reversedZ.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+	vcb.horizonParams[0] = s.horizonBend; vcb.horizonParams[1] = s.horizonFlatRadius; vcb.horizonParams[2] = s.horizonCurve;
+	vcb.waveParams[0] = s.waveHeight; vcb.waveParams[1] = s.waveLength;
+	vcb.waveParams[2] = s.waveSpeed; vcb.waveParams[3] = s.waveDirection * kDegToRad;
+	vcb.waveExtra[0] = s.waveRadial ? 1.0f : 0.0f; vcb.waveExtra[1] = s.waveFlatRadius;
+	vcb.foldParams[0] = s.foldAngle * kDegToRad; vcb.foldParams[1] = s.foldAxisYaw * kDegToRad;
+	vcb.foldParams[2] = s.foldOffset; vcb.foldParams[3] = s.foldSoftness;
+	vcb.foldExtra[0] = s.foldFlipSide ? 1.0f : 0.0f;
+	ctx->UpdateSubresource(g_gpu.vsWarpCb.Get(), 0, nullptr, &vcb, 0, 0);
+	g_uploadedGen.store(WorldWarp_SettingsGeneration(), std::memory_order_release);
+	g_uploadedDemoTime.store(demoTime, std::memory_order_release);
+}
+
 } // namespace
+
+bool CreatingShader() {
+	return g_creatingWarpShader;
+}
+
+void NoteVertexShader(ID3D11VertexShader* shader, const void* bytecode, size_t bytes) {
+	if (!shader || !bytecode || bytes < 64 || g_creatingWarpShader)
+		return;
+	// Sub-microsecond reject for 2D UI, post-process, and non-world shaders.
+	if (!HasBytes(bytecode, bytes, "PerViewConstantBuffer_t") || !HasBytes(bytecode, bytes, "g_matWorldToProjection"))
+		return;
+	static HMODULE compiler = Environment::EnvironmentShaderCompiler();
+	using ReflectFn = HRESULT(WINAPI*)(LPCVOID, SIZE_T, REFIID, void**);
+	auto reflect = compiler ? reinterpret_cast<ReflectFn>(GetProcAddress(compiler, "D3DReflect")) : nullptr;
+	if (!reflect) return;
+
+	ComPtr<ID3D11ShaderReflection> r;
+	if (FAILED(reflect(bytecode, bytes, __uuidof(ID3D11ShaderReflection), &r)) || !r)
+		return;
+	const char* cbName = "PerViewConstantBuffer_t";
+	auto* cb = r->GetConstantBufferByName(cbName);
+	D3D11_SHADER_INPUT_BIND_DESC bind{};
+	if (!cb || FAILED(r->GetResourceBindingDescByName(cbName, &bind))
+		|| bind.Type != D3D_SIT_CBUFFER || bind.BindPoint >= WorldWarpDxbc::kWarpConstantSlot)
+		return;
+	D3D11_SHADER_VARIABLE_DESC w2p{};
+	if (FAILED(cb->GetVariableByName("g_matWorldToProjection")->GetDesc(&w2p))
+		|| w2p.StartOffset != 0 || w2p.Size != 64)
+		return;
+	D3D11_SHADER_VARIABLE_DESC p2w{};
+	if (SUCCEEDED(cb->GetVariableByName("g_matProjectionToWorld")->GetDesc(&p2w))
+		&& (p2w.StartOffset != 64 || p2w.Size != 64))
+		return;
+
+	auto* tracker = new TrackedVs();
+	tracker->perViewSlot = bind.BindPoint;
+	tracker->bytecode.assign(static_cast<const uint8_t*>(bytecode), static_cast<const uint8_t*>(bytecode) + bytes);
+	if (SUCCEEDED(shader->SetPrivateDataInterface(kWarpVsGuid, tracker)))
+		g_vsTrackedCount.fetch_add(1, std::memory_order_relaxed);
+	tracker->Release();
+}
+
+void UpdateFrameConstants(ID3D11DeviceContext* immediate, double demoTime, UINT sceneW, UINT sceneH) {
+	if (sceneW >= 256 && sceneH >= 256) {
+		g_sceneW.store(sceneW, std::memory_order_relaxed);
+		g_sceneH.store(sceneH, std::memory_order_relaxed);
+	}
+	if (WorldWarp_WantsVertexWarp() && immediate && g_gpu.vsWarpCb) {
+		UploadVsWarpConstants(immediate, demoTime);
+	}
+}
+
+void GetVertexWarpStats(uint32_t& outTracked, uint32_t& outPatched, uint32_t& outLastFrameDraws) {
+	outTracked = g_vsTrackedCount.load(std::memory_order_relaxed);
+	outPatched = g_vsPatchedCount.load(std::memory_order_relaxed);
+	outLastFrameDraws = g_vsDrawsLastFrame.load(std::memory_order_relaxed);
+}
+
+void DrawScope::Enter(ID3D11DeviceContext* ctx) noexcept {
+	if (!ctx || !g_gpu.device || !g_gpu.vsWarpCb) return;
+
+	// Only warp main-camera 3D passes (skip viewmodel MaxDepth == 0.1, CSM shadow atlases,
+	// downsampled post-process passes, and 2D UI with no DSV).
+	D3D11_VIEWPORT vp{};
+	UINT vpCount = 1;
+	ctx->RSGetViewports(&vpCount, &vp);
+	if (vpCount == 0 || vp.Width < 256.0f || vp.Height < 256.0f || vp.MaxDepth < 0.5f)
+		return;
+	const UINT sw = g_sceneW.load(std::memory_order_relaxed);
+	const UINT sh = g_sceneH.load(std::memory_order_relaxed);
+	if (sw >= 256 && sh >= 256 && ((UINT)vp.Width != sw || (UINT)vp.Height != sh))
+		return;
+
+	ComPtr<ID3D11RenderTargetView> rtv0;
+	ComPtr<ID3D11DepthStencilView> dsv;
+	ctx->OMGetRenderTargets(1, &rtv0, &dsv);
+	if (!dsv) return;
+	const bool hasRtv = rtv0 != nullptr;
+
+	ID3D11VertexShader* origVs = nullptr;
+	ctx->VSGetShader(&origVs, nullptr, nullptr);
+	if (!origVs) return;
+
+	IUnknown* unk = nullptr;
+	UINT unkSize = sizeof(unk);
+	if (FAILED(origVs->GetPrivateData(kWarpVsGuid, &unkSize, &unk)) || !unk) {
+		origVs->Release();
+		return;
+	}
+	auto* tracker = static_cast<TrackedVs*>(unk);
+
+	ID3D11VertexShader* patchedVs = nullptr;
+	{
+		std::lock_guard<std::mutex> lk(tracker->mx);
+		if (!tracker->tried) {
+			std::shared_ptr<const Blobs> b;
+			{ std::lock_guard<std::mutex> bl(g_blobLock); b = g_blobs; }
+			if (b && b->warpSnippet.valid) {
+				tracker->tried = true;
+				std::vector<uint8_t> patchedDxbc;
+				if (WorldWarpDxbc::PatchVertexShaderDxbc(
+					tracker->bytecode.data(), tracker->bytecode.size(),
+					tracker->perViewSlot, b->warpSnippet, patchedDxbc)) {
+					g_creatingWarpShader = true;
+					const HRESULT hr = g_gpu.device->CreateVertexShader(
+						patchedDxbc.data(), patchedDxbc.size(), nullptr, &tracker->patched);
+					g_creatingWarpShader = false;
+					if (SUCCEEDED(hr) && tracker->patched)
+						g_vsPatchedCount.fetch_add(1, std::memory_order_relaxed);
+				}
+				std::vector<uint8_t>().swap(tracker->bytecode);
+			}
+		}
+		patchedVs = tracker->patched.Get();
+	}
+	tracker->Release();
+
+	if (!patchedVs) {
+		origVs->Release();
+		return;
+	}
+
+	ID3D11DepthStencilState* origDss = nullptr;
+	UINT origStencilRef = 0;
+	bool swappedDss = false;
+	ctx->OMGetDepthStencilState(&origDss, &origStencilRef);
+	D3D11_DEPTH_STENCIL_DESC dsd{};
+	if (origDss) {
+		origDss->GetDesc(&dsd);
+		if (dsd.DepthEnable && dsd.DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ALL) {
+			if (dsd.DepthFunc == D3D11_COMPARISON_LESS || dsd.DepthFunc == D3D11_COMPARISON_LESS_EQUAL)
+				g_reversedZ.store(false, std::memory_order_relaxed);
+			else if (dsd.DepthFunc == D3D11_COMPARISON_GREATER || dsd.DepthFunc == D3D11_COMPARISON_GREATER_EQUAL)
+				g_reversedZ.store(true, std::memory_order_relaxed);
+		}
+	}
+
+	// CS2's Depth-Only Pre-Pass (rtv=0, DepthWrite=ALL) writes depth that can diverge from
+	// Forward Color Pass shaders under non-linear 3D vertex warping, causing solid black areas
+	// where the color pass fails Early-Z. Bypass tracked depth-only pre-pass draws while vertex
+	// warping is active and let opaque Forward Color Pass draws write their own exact warped
+	// depth directly into the Z-buffer in a single pass.
+	if (!hasRtv && origDss && dsd.DepthEnable && dsd.DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ALL
+		&& dsd.DepthFunc != D3D11_COMPARISON_NEVER) {
+		origDss->Release();
+		origVs->Release();
+		m_skip = true;
+		return;
+	}
+
+	const bool revZ = g_reversedZ.load(std::memory_order_relaxed);
+	const bool isDepthEq = origDss && dsd.DepthEnable && dsd.DepthFunc == D3D11_COMPARISON_EQUAL;
+	bool promoteDepthWrite = false;
+	if (hasRtv && origDss && dsd.DepthEnable && dsd.DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ZERO) {
+		ComPtr<ID3D11PixelShader> ps;
+		ctx->PSGetShader(&ps, nullptr, nullptr);
+		if (ps) {
+			ComPtr<ID3D11BlendState> bs;
+			float bf[4] = {}; UINT sm = 0;
+			ctx->OMGetBlendState(&bs, bf, &sm);
+			if (!bs) {
+				promoteDepthWrite = true;
+			} else {
+				D3D11_BLEND_DESC bd{};
+				bs->GetDesc(&bd);
+				promoteDepthWrite = !bd.RenderTarget[0].BlendEnable
+					&& ((bd.RenderTarget[0].RenderTargetWriteMask & 0x7u) != 0);
+			}
+		}
+	}
+
+	if ((promoteDepthWrite || isDepthEq) && origDss) {
+		if (auto* relaxed = GetRelaxedDepthStencil(origDss, dsd, revZ, promoteDepthWrite)) {
+			ctx->OMSetDepthStencilState(relaxed, origStencilRef);
+			swappedDss = true;
+		}
+	}
+	if (!swappedDss && origDss) {
+		origDss->Release();
+		origDss = nullptr;
+	}
+
+	// Ensure cb13 holds the latest settings even on the first frame after a preset change.
+	if (ctx->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE
+		&& g_uploadedGen.load(std::memory_order_acquire) != WorldWarp_SettingsGeneration()) {
+		UploadVsWarpConstants(ctx, g_uploadedDemoTime.load(std::memory_order_relaxed));
+	}
+
+	ID3D11Buffer* origCb13 = nullptr;
+	ctx->VSGetConstantBuffers(WorldWarpDxbc::kWarpConstantSlot, 1, &origCb13);
+	ID3D11Buffer* warpCb = g_gpu.vsWarpCb.Get();
+	ctx->VSSetShader(patchedVs, nullptr, 0);
+	ctx->VSSetConstantBuffers(WorldWarpDxbc::kWarpConstantSlot, 1, &warpCb);
+
+	m_ctx = ctx;
+	m_origVs = origVs;
+	m_origCb13 = origCb13;
+	m_origDss = origDss;
+	m_origStencilRef = origStencilRef;
+	m_swappedDss = swappedDss;
+	m_active = true;
+	g_vsDrawsThisFrame.fetch_add(1, std::memory_order_relaxed);
+}
+
+void DrawScope::Exit() noexcept {
+	m_ctx->VSSetShader(m_origVs, nullptr, 0);
+	m_ctx->VSSetConstantBuffers(WorldWarpDxbc::kWarpConstantSlot, 1, &m_origCb13);
+	if (m_swappedDss)
+		m_ctx->OMSetDepthStencilState(m_origDss, m_origStencilRef);
+	if (m_origVs) m_origVs->Release();
+	if (m_origCb13) m_origCb13->Release();
+	if (m_origDss) m_origDss->Release();
+	m_ctx = nullptr;
+	m_origVs = nullptr;
+	m_origCb13 = nullptr;
+	m_origDss = nullptr;
+	m_origStencilRef = 0;
+	m_swappedDss = false;
+	m_active = false;
+}
 
 void BeginDevice(ID3D11Device* device) {
 	EndDevice();
@@ -492,6 +898,14 @@ void BeginDevice(ID3D11Device* device) {
 	g_gpu.device = device;
 	g_gpu.failed = false;
 	device->CreateDeferredContext(0, &g_gpu.ctx);
+	{
+		RenderPrivateTextureScope priv;
+		D3D11_BUFFER_DESC cbd{};
+		cbd.ByteWidth = sizeof(VsWarpConstants);
+		cbd.Usage = D3D11_USAGE_DEFAULT;
+		cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		device->CreateBuffer(&cbd, nullptr, &g_gpu.vsWarpCb);
+	}
 	if (!g_compileStarted.exchange(true)) {
 		g_compiler = std::thread(CompileAll);
 		g_compiler.detach();
@@ -499,7 +913,13 @@ void BeginDevice(ID3D11Device* device) {
 }
 
 void EndDevice() {
+	{
+		std::lock_guard<std::mutex> lk(g_stateCacheLock);
+		for (int i = 0; i < 4; ++i)
+			g_dssRelaxedCache[i].clear();
+	}
 	g_gpu = {};
+	g_uploadedGen.store(0, std::memory_order_relaxed);
 }
 
 void CaptureCubemapFace(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
@@ -547,11 +967,27 @@ bool Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	ID3D11DepthStencilView* depth, const float* worldToClip, const float* projection,
 	const float camera[3], float depthMin, float depthMax, double demoTime) {
 	const Settings s = WorldWarp_Get();
-	if (s.mode == Mode::Off || !immediate || !target || !g_gpu.ctx || !EnsureShaders())
+	if (s.mode == Mode::Off || !immediate || !target)
 		return false;
 
 	ComPtr<ID3D11Resource> res; target->GetResource(&res);
 	ComPtr<ID3D11Texture2D> src; if (!res || FAILED(res.As(&src))) return false;
+	D3D11_TEXTURE2D_DESC srcDesc{}; src->GetDesc(&srcDesc);
+	UpdateFrameConstants(immediate, demoTime, srcDesc.Width, srcDesc.Height);
+
+	// For Inception / Rolling Horizon / World Wave / World Fold: if CS2's 3D world vertex shaders
+	// were already deformed natively in DrawScope this frame, skip the 2D post-process mesh so
+	// there is zero pixel stretching and zero disocclusion curtains.
+	if (s.mode != Mode::LittlePlanet) {
+		const uint32_t draws = g_vsDrawsThisFrame.exchange(0, std::memory_order_acq_rel);
+		g_vsDrawsLastFrame.store(draws, std::memory_order_relaxed);
+		if (draws > 0)
+			return true;
+	}
+
+	if (!g_gpu.ctx || !EnsureShaders())
+		return false;
+
 	D3D11_RENDER_TARGET_VIEW_DESC rtvd{}; target->GetDesc(&rtvd);
 	if (!EnsureColorCopy(g_gpu.ctx.Get(), src.Get(), rtvd.Format)) return false;
 

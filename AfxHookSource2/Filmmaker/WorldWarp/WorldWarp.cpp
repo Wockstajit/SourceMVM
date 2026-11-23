@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "WorldWarp.h"
+#include "WorldWarpRender.h"
 
 #include "../Movie/CameraBridge.h"
 #include "../Debug/MvmDebugLog.h"
@@ -16,6 +17,7 @@ namespace {
 std::mutex g_mutex;
 WorldWarp::Settings g_settings;
 std::atomic<int> g_activeMode{ 0 };
+std::atomic<uint32_t> g_settingsGen{ 1 };
 std::atomic<int> g_cubemapFace{ -1 };
 std::atomic<float> g_cubemapBaseYaw{ 0.0f };
 
@@ -34,6 +36,15 @@ bool WorldWarp_WantsCubemap() {
 	return g_activeMode.load(std::memory_order_relaxed) == (int)WorldWarp::Mode::LittlePlanet;
 }
 
+bool WorldWarp_WantsVertexWarp() {
+	const int m = g_activeMode.load(std::memory_order_relaxed);
+	return m >= (int)WorldWarp::Mode::Inception && m <= (int)WorldWarp::Mode::WorldFold;
+}
+
+uint32_t WorldWarp_SettingsGeneration() {
+	return g_settingsGen.load(std::memory_order_acquire);
+}
+
 void WorldWarp_SetMode(WorldWarp::Mode m, bool applyPresetDefaults) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	if (applyPresetDefaults) {
@@ -46,6 +57,7 @@ void WorldWarp_SetMode(WorldWarp::Mode m, bool applyPresetDefaults) {
 		g_settings.mode = m;
 	}
 	g_activeMode.store((int)g_settings.mode, std::memory_order_release);
+	g_settingsGen.fetch_add(1, std::memory_order_release);
 	if (g_settings.mode == WorldWarp::Mode::LittlePlanet)
 		g_cubemapFace.store(0, std::memory_order_release);
 	else
@@ -56,6 +68,7 @@ void WorldWarp_Reset() {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	g_settings = WorldWarp::Settings{};
 	g_activeMode.store((int)WorldWarp::Mode::Off, std::memory_order_release);
+	g_settingsGen.fetch_add(1, std::memory_order_release);
 	g_cubemapFace.store(-1, std::memory_order_release);
 }
 
@@ -67,6 +80,7 @@ bool WorldWarp_PlaceOriginAtCamera() {
 	g_settings.origin[0] = (float)origin[0];
 	g_settings.origin[1] = (float)origin[1];
 	g_settings.origin[2] = (float)origin[2];
+	g_settingsGen.fetch_add(1, std::memory_order_release);
 	return true;
 }
 
@@ -187,6 +201,7 @@ void WorldWarp_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* 
 		if (0 == _stricmp(a, "clear") || 0 == _stricmp(a, "off")) {
 			std::lock_guard<std::mutex> lock(g_mutex);
 			g_settings.useSceneOrigin = false;
+			g_settingsGen.fetch_add(1, std::memory_order_release);
 			return;
 		}
 		if (argc >= 6) {
@@ -195,6 +210,7 @@ void WorldWarp_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* 
 			g_settings.origin[0] = (float)std::atof(args->ArgV(3));
 			g_settings.origin[1] = (float)std::atof(args->ArgV(4));
 			g_settings.origin[2] = (float)std::atof(args->ArgV(5));
+			g_settingsGen.fetch_add(1, std::memory_order_release);
 			return;
 		}
 		return;
@@ -225,13 +241,17 @@ void WorldWarp_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* 
 		else if (0 == _stricmp(k, "foldFlipSide")) g_settings.foldFlipSide = v > 0.5f;
 		else if (0 == _stricmp(k, "useSceneOrigin")) g_settings.useSceneOrigin = v > 0.5f;
 		else advancedfx::Warning("%s worldwarp: unknown key '%s'.\n", cmd, k);
+		g_settingsGen.fetch_add(1, std::memory_order_release);
 		return;
 	}
 	if (0 == _stricmp(sub, "status")) {
 		const WorldWarp::Settings s = WorldWarp_Get();
-		advancedfx::Message("worldwarp: mode=%s scale=%.2f bend=%.2f waveH=%.1f fold=%.1fdeg origin=%d (%.0f %.0f %.0f)\n",
+		uint32_t vsTracked = 0, vsPatched = 0, vsDraws = 0;
+		WorldWarp::GetVertexWarpStats(vsTracked, vsPatched, vsDraws);
+		advancedfx::Message("worldwarp: mode=%s scale=%.2f bend=%.2f waveH=%.1f fold=%.1fdeg origin=%d (%.0f %.0f %.0f) vsTracked=%u vsPatched=%u vsDraws=%u\n",
 			WorldWarp::ModeToken(s.mode), s.planetScale, s.horizonBend, s.waveHeight, s.foldAngle,
-			s.useSceneOrigin ? 1 : 0, s.origin[0], s.origin[1], s.origin[2]);
+			s.useSceneOrigin ? 1 : 0, s.origin[0], s.origin[1], s.origin[2],
+			vsTracked, vsPatched, vsDraws);
 		return;
 	}
 	// Shorthand: `mirv_filmmaker worldwarp littleplanet`

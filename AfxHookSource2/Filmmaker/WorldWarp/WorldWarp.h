@@ -16,6 +16,8 @@ namespace Filmmaker {
 WorldWarp::Settings WorldWarp_Get();
 bool WorldWarp_Active();
 bool WorldWarp_WantsCubemap();
+bool WorldWarp_WantsVertexWarp();
+uint32_t WorldWarp_SettingsGeneration();
 void WorldWarp_SetMode(WorldWarp::Mode m, bool applyPresetDefaults = false);
 void WorldWarp_Reset();
 bool WorldWarp_PlaceOriginAtCamera();

@@ -1956,6 +1956,7 @@ HRESULT STDMETHODCALLTYPE New_CreateVertexShader(ID3D11Device* This, const void*
     // The foliage observer only reflects verified bindings into shader-owned private data.
     if (SUCCEEDED(result) && ppVertexShader && *ppVertexShader){
         if (!Filmmaker::SmokeAppearance::CreatingShader()) Filmmaker::SmokeAppearance::NoteVertexShader(*ppVertexShader, pBytecode, BytecodeLength);
+        if (!Filmmaker::WorldWarp::CreatingShader()) Filmmaker::WorldWarp::NoteVertexShader(*ppVertexShader, pBytecode, BytecodeLength);
         Filmmaker::Environment::NoteFoliageShader(*ppVertexShader, pBytecode, BytecodeLength);
         Filmmaker::Environment::NoteViewmodelShader(*ppVertexShader, pBytecode, BytecodeLength);
         Filmmaker::Environment::NoteAnimatedCasterShader(*ppVertexShader, pBytecode, BytecodeLength);
@@ -3610,6 +3611,8 @@ public:
                         f.hasWorldToClip ? f.worldToClip.data() : nullptr, f.hasWorldToClip ? f.projection.data() : nullptr,
                         eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, feet, players, AfxStreams_IsRcording());
                 }
+                Filmmaker::WorldWarp::UpdateFrameConstants(pDeviceContext, g_EnvironmentFrame.time,
+                    (UINT)g_ViewPort.Width, (UINT)g_ViewPort.Height);
                 if (!pLensCommands || !pLensCommands->SkipLens) {
                     const auto& f = g_EnvironmentFrame;
                     const float eye[3] = { f.camera.x, f.camera.y, f.camera.z };
@@ -4297,6 +4300,8 @@ void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
 		return;
     OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return;
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexed(This, IndexCount, StartIndexLocation, BaseVertexLocation); }
     AfxLocateSun(This, { Filmmaker::LensSunDraw::DrawIndexed, IndexCount, 1, StartIndexLocation, BaseVertexLocation, 0 });
@@ -4336,6 +4341,8 @@ void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
     AfxCompositeEnvironmentBeforeScope(This, VertexCount);
     OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return;
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_Draw(This, VertexCount, StartVertexLocation); }
     AfxLocateSun(This, { Filmmaker::LensSunDraw::Draw, VertexCount, 1, StartVertexLocation, 0, 0 });
@@ -4385,6 +4392,8 @@ void STDMETHODCALLTYPE New_DrawIndexedInstanced(ID3D11DeviceContext * This,
 		return;
     OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return;
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
 	{ QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexedInstanced(This, IndexCountPerInstance, InstanceCount, StartIndexLocation,
 		BaseVertexLocation, StartInstanceLocation); }
@@ -4423,6 +4432,8 @@ void STDMETHODCALLTYPE New_DrawInstanced( ID3D11DeviceContext * This,
 		return;
     OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return;
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
         StartVertexLocation, StartInstanceLocation); }
@@ -4486,6 +4497,8 @@ int NvidiaMultiDraw(NvidiaMultiDraw_t original, ID3D11DeviceContext* context,
     if (AfxPlayersOnlyGreen_SkipIndirectDraw(context, operation)) return 0;
     OptionalNativeMaterialScopes environmentMaterial(context, !g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(context);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(context, !g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return 0;
     // Keep native multi-draw submission intact. Verified skinned depth draws also
     // replay through SO; the capture reads only their bounded argument records.
     // Driver fallback Draw* calls remain inside this outer scope.
@@ -4561,6 +4574,8 @@ void STDMETHODCALLTYPE New_DrawIndexedInstancedIndirect( ID3D11DeviceContext * T
         return;
     OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return;
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexedInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs); }
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawIndexedInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs);
@@ -4585,6 +4600,8 @@ void STDMETHODCALLTYPE New_DrawInstancedIndirect( ID3D11DeviceContext * This,
         return;
     OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return;
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs); }
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs);

@@ -867,6 +867,14 @@ add_executable(WorldWarpMathTests
 target_compile_features(WorldWarpMathTests PRIVATE cxx_std_17)
 add_test(NAME WorldWarpMathTests COMMAND WorldWarpMathTests)
 
+add_executable(WorldWarpDxbcTests
+    ../Automation/tests/world-warp-dxbc-tests.cpp
+    Filmmaker/WorldWarp/WorldWarpDxbcMath.h
+)
+target_compile_features(WorldWarpDxbcTests PRIVATE cxx_std_17)
+target_link_libraries(WorldWarpDxbcTests PRIVATE d3d11 d3dcompiler)
+add_test(NAME WorldWarpDxbcTests COMMAND WorldWarpDxbcTests)
+
 add_executable(WorldDecalsMathTests
     ../Automation/tests/world-decals-math-tests.cpp
     Filmmaker/WorldDecals/WorldDecalsMath.h
