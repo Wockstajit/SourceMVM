@@ -5,6 +5,42 @@ so every release heading keeps the form `## <version> - <date>` (a hotfix is `##
 and every change is one `- ` bullet under a `### ` group. Releases older than 0.2.0 are on the
 [releases page](https://github.com/Wockstajit/SourceMVM/releases).
 
+## 0.4.2 - 2026-11-22
+
+### CS2 update
+
+- SOURCE:MVM works with the 20 November CS2 update. Every launch stopped on a "Problem in
+  ViewModel.cpp" box that came back each time it was closed.
+- Map data loads again after the same update. Inferno stopped with "unknown KV3 node type 27", which
+  left surface relighting, shadows and coatings off. Each map's data is read again once on its first
+  load, and shadow casters on maps like Train and Italy now get the material each draw uses.
+
+### Crash fixes
+
+- Dynamic lighting no longer crashes CS2 inside the NVIDIA driver a few seconds after it turns on.
+
+### Rendering
+
+- ReShade effects show up in renders. They used to be drawn after the recorder had already taken its
+  frame.
+- The Render tab shows the real capture size (the game window's size), warns when it is low, and has
+  buttons to set it.
+- When an FFmpeg render fails, the job names the reason, such as a missing encoder, and stops
+  instead of finishing the whole take and reporting only a failure count.
+- The launcher can import an existing ReShade setup and open its folder.
+
+### Camera paths
+
+- J jumps to the camera path and plays it in one press, lined up with the tick. A demo that was
+  playing used to start again in the middle of the jump.
+- AUTO is on by default, so Space plays a camera path. It starts only inside the path's keys, and it
+  no longer takes the view back right after you stop a path.
+
+### Weather
+
+- Rain, snow and ash move smoothly at a low demo timescale. They used to jump once per tick.
+- Snow follows the scene's light, so it no longer paints white flakes and a grey haze over a dark sky.
+
 ## 0.4.1 - 2026-11-03
 
 ### Crash fixes
