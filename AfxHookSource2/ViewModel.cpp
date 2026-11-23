@@ -134,8 +134,13 @@ void HookViewmodel(HMODULE clientDll)
 
 	// This function references the cvars viewmodel_offset_x, viewmodel_offset_y, viewmodel_offset_z, viewmodel_offset_fov (usually 3rd reference).
 	// can be also found with 00 00 88 42 (68.0 in float), which is max limit for fov
-	// there are 2 similiar functions, make sure to test if it breakes again to not confuse them
-	size_t viewmodelAddr = getAddress(clientDll, "40 55 53 56 41 56 41 57 48 8B EC 48 83 EC 20 4D 8B F8 4C 8B F2 48 8B F1"); 
+	// there are 2 similiar functions, make sure to test if it breakes again to not confuse them:
+	// the right one takes (this, float* offsets, float* fov), copies the per-player offsets stored on
+	// `this` when present and only falls back to the cvars otherwise. The other one takes
+	// (float* offsets, float* fov, bool) and reads only the cvars.
+	// 2026-11-20 build: client.dll+0x8cafa0; the function that calls it at +0x10c5320 calls the hand
+	// function right after it, at +0x10c5328.
+	size_t viewmodelAddr = getAddress(clientDll, "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 49 8B E8 48 8B F2 48 8B F9 E8 ?? ?? ?? ?? 48 8B D8 48 85 C0 74 ?? 48 8B 00 48 8B CB FF 90");
 	if (0 == viewmodelAddr) {
 		ErrorBox(MkErrStr(__FILE__, __LINE__));	//TODO
 		return;

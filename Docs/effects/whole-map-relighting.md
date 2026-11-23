@@ -269,8 +269,33 @@ The NVIDIA game device uses
 to avoid an access violation in `RelightIrradianceTests.exe` inside NVIDIA's parallel shader compiler.
 This preserves application-side device thread safety. Hardware irradiance tests select the
 same serialized driver path by default and execute the shaders against HDR/MSAA targets.
-Cold compiler-key tests and live offline sessions pass; future driver changes still require
-runtime verification.
+The flag did not remove the cause, which the next section describes.
+
+### Driver compiles of the owned variants
+
+With NVIDIA 616.56 (RTX 5070, CS2 1.41.9.6, 2026-11-07), CS2 crashed inside the driver
+(`nvwgf2umx.dll` or `nvgpucomp64.dll`, on the driver's own threads) seconds after Dynamic
+lighting or a night sun began relit draws, on every map tried and with the flag above set. A
+driver compiles a pixel shader at its first draw, so the fault came from a program created at
+map load. The cause was the dynamic irradiance query (`RelightIrradianceMath.h`): it read the
+interpolated position and normal as `.xyzw`, but CS2 declares them `.xyz`. The math never uses
+`w` and the debug layer accepts it. The SM5 compiler never emits such a read (it writes `.xyzx`),
+and NVIDIA's compiler faults on it intermittently. Of 11,475 variants derived from 1,575 dumped
+programs, 800 crashed a cold compile, every one a dynamic irradiance variant. Read as `.xyzx`,
+none of the 3,277 dynamic irradiance variants did. `RelightIrradianceTests` now fails on any
+transformed program that names an input component its declaration leaves out.
+
+After a CS2 or driver update, repeat the check with `ValidateNativeVariants`
+(`Automation/tools/validate-native-variants.cpp`). Dump the programs from a loaded map with
+`mirv_relight dumpprograms <dir>`, which needs no relighting, then run
+`ValidateNativeVariants <dir> --hardware`. It derives every variant with the hook's own
+patchers, validates them on a debug device, and cold-compiles each on the real GPU in parallel
+shards. It runs from a freshly named copy of itself, because the driver keeps its shader cache
+per executable and a cached program is not compiled again. Any variant the driver crashes on is
+reported by name. Crashes are intermittent (each failing variant crashed on about one compile in
+eight), so only a full cold run counts as clean. `ValidateNativeVariants --cache
+%APPDATA%\HLAE\source_mvm\shader-cache` cold-compiles the hook's runtime-compiled programs the
+same way.
 
 The hook extracts each map's authored lights/environment and geometry itself, on first load,
 with no external tool ([map data extraction](map-data-extraction.md)). No precomputed radiance or

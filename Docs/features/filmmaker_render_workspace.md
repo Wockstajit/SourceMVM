@@ -1,8 +1,24 @@
 # Render workspace: range nudges, the done sound and previous renders
 
-Three parts of the Render workspace (the Camera Editor's Render tool) that sit outside the render
+Five parts of the Render workspace (the Camera Editor's Render tool) that sit outside the render
 passes and the recorder. Passes are in [Render passes](filmmaker_render_passes.md), frame rates in
 [Recording FPS](filmmaker_render_fps.md).
+
+## Picture size and ReShade
+
+A render is the size of the frame CS2 draws, which is the game window. The Quality setting changes
+how many bits the encoder spends and never the size, so a 1280x720 window gives a 1280x720 file at
+Highest. Measured 2026-11-08: 854x480, 1280x720 and 1920x1080 windows gave files of exactly those
+sizes, with the workspace's preview shrunk on screen each time. PICTURE reads the real scene target
+(`sceneW`, `sceneH`), turns amber below 1080p and offers **Set size** buttons for 1080p, 1440p and 4K
+where they fit the monitor (`monitorW`, `monitorH`). They run `mirv_filmmaker window size`. If the
+scene target is smaller than the window, the section says so and points at FidelityFX in CS2's video
+settings. That branch has not fired in a test: the FidelityFX edit to `cs2_video.txt` did not reach
+the session it was tried in.
+
+The note under it says whether the take includes ReShade (`reshade`: 0 not running, 1 running without
+the SOURCE:MVM add-on, 2 in the render). [Automation/dlss/README.md](../../Automation/dlss/README.md)
+owns how that works.
 
 ## Range nudges
 
@@ -37,6 +53,24 @@ mirv_filmmaker render sound on|off|toggle
 mirv_filmmaker render sound volume <0..100>
 mirv_filmmaker render sound test                  play it now, whatever the switch says
 ```
+
+## When a render cannot be written
+
+Every format but TGA, BMP and EXR is encoded by FFmpeg (`ffmpeg\ffmpeg.ini`'s `[Ffmpeg] Path`,
+else the bundled `ffmpeg\bin\ffmpeg.exe`). The encoder probe checks that this `ffmpeg.exe` exists
+and answers `-version` before it tests NVENC. A job in an FFmpeg format waits for that probe
+("checking FFmpeg") and refuses to start when FFmpeg is missing or broken, with one sentence that
+names the path. A job after a failed probe probes again, so restoring `ffmpeg.exe` needs no restart.
+
+While a job records, the first stream that cannot open its output or write a frame ends the job at
+once. The failure text gives that stream's problem and the last lines FFmpeg wrote to its error
+output, for example the encoder it could not open. The check after the last frame stays, so a late
+failure still refuses the manifest. The rules are in `Render/RenderWriterFailureMath.h`, tested by
+`render-writer-failure-math-tests.cpp`.
+
+Before this, a job with no working FFmpeg rendered the whole take and then failed with only a count
+("capture writer reported N output failure(s); refusing a completed manifest"), and the cause
+reached only the console (viewer report, 2026-11-18).
 
 ## Previous renders
 
@@ -78,8 +112,11 @@ panel (`CameraEditorRenderJs.h`).
 
 ## Verification
 
-- `ctest -R RenderTakeImportMathTests` for the manifest mapping.
+- `ctest -R RenderTakeImportMathTests` for the manifest mapping, `ctest -R RenderWriterFailureMathTests`
+  for the failure text.
 - In the mockup's Render tab, the SOUND chip, the WHEN THE RENDER ENDS section and the PREVIOUS
   RENDERS rows follow the fixture state (`UiMockup/shim/state.js`, `commands.js`).
 - In game: finish a short job and hear the rising chime, fail or cancel one and check the falling
   chime or silence, then Use the new row and check that range, camera and passes match it.
+- In game: rename the staged `ffmpeg` folder and start an MP4 render. It must stop at "checking
+  FFmpeg" with the missing path. Put it back and the next render must complete.

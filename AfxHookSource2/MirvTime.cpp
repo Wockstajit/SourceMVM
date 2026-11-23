@@ -1,6 +1,9 @@
 #include "MirvTime.h"
+#include "Filmmaker/Movie/DemoClockMath.h"
 #include "../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
 #include "../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
+
+#include <mutex>
 
 typedef void * Cs2Gloabls_t;
 extern Cs2Gloabls_t g_pGlobals;
@@ -80,4 +83,30 @@ bool CMirvTime::GetCurrentDemoTime(double& outDemoTime) {
 	}
 
 	return false;
+}
+
+namespace {
+// One clock for the process: the main thread (demo scrub) and the engine thread (Environment frame
+// capture) both sample it.
+std::mutex g_fractionalClockMutex;
+Filmmaker::FractionalDemoClock g_fractionalClock;
+}
+
+bool CMirvTime::GetFractionalDemoTick(double& outTick) {
+	if(!g_pEngineToClient) return false;
+	auto pDemoFile = g_pEngineToClient->GetDemoFile();
+	if(!pDemoFile) return false;
+	const int tick = pDemoFile->GetDemoTick();
+	const bool paused = pDemoFile->IsDemoPaused();
+	const double clientTicks = (double)curtime_get() / (double)interval_per_tick_get();
+	std::lock_guard<std::mutex> lock(g_fractionalClockMutex);
+	outTick = g_fractionalClock.Sample(tick, clientTicks, paused);
+	return true;
+}
+
+bool CMirvTime::GetFractionalDemoTime(double& outDemoTime) {
+	double tick;
+	if(!GetFractionalDemoTick(tick)) return false;
+	outDemoTime = tick * (double)interval_per_tick_get();
+	return true;
 }

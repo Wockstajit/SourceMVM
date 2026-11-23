@@ -659,6 +659,18 @@ int main() {
     Check(CoatingNormalWeight({0,0,1},{0,0,1},{0,0,20},10)==0,"Coating rejects another depth layer");
     Check(CoatingDetailFade(.01f,2)==1&&CoatingDetailFade(2,2)==0,"Subpixel coating detail fades rather than aliasing");
     {
+        // Issue 135: settled snow under a night sky turned the dark ground grey.
+        const float night=.02f,dusk=.06f,day=.35f;
+        Check(SnowCoverShade(night)<=kSnowMaxLift*night+1e-6f,"Snow on night ground stays within the lift bound");
+        Check(SnowCoverShade(night)<.25f*(.03f+.97f*std::pow(night,.28f)),"Night snow is under a quarter of the old unbounded cover");
+        Check(Near(SnowCoverShade(day),.03f+.97f*std::pow(day,.28f)),"Daylight snow keeps its established brightness");
+        Check(SnowCoverShade(0)==0,"Black ground stays black under snow");
+        Check(SnowCoverShade(dusk)>=dusk&&SnowCoverShade(night)>=night,"Snow never darkens the ground it covers");
+        float previous=0;bool rising=true;
+        for(int i=1;i<=100;++i){const float s=SnowCoverShade(i/100.f);rising=rising&&s>=previous;previous=s;}
+        Check(rising,"Brighter ground carries brighter snow");
+    }
+    {
         // A player claims only its own body, never the floor around it.
         const Vec3 feet{100,200,50},up{0,0,1};
         const float r=kCoatingBodyRadius;

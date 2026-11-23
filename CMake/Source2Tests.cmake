@@ -245,6 +245,12 @@ add_executable(RenderCaptureMathTests
 target_compile_features(RenderCaptureMathTests PRIVATE cxx_std_17)
 add_test(NAME RenderCaptureMathTests COMMAND RenderCaptureMathTests)
 
+add_executable(RenderWriterFailureMathTests
+    ../Automation/tests/render-writer-failure-math-tests.cpp
+)
+target_compile_features(RenderWriterFailureMathTests PRIVATE cxx_std_17)
+add_test(NAME RenderWriterFailureMathTests COMMAND RenderWriterFailureMathTests)
+
 add_executable(RenderEncodingTests
     ../Automation/tests/render-encoding-tests.cpp
     Filmmaker/Render/RenderEncoding.cpp
@@ -365,6 +371,13 @@ add_executable(DemoScrubMathTests
 )
 target_compile_features(DemoScrubMathTests PRIVATE cxx_std_17)
 add_test(NAME DemoScrubMathTests COMMAND DemoScrubMathTests)
+
+add_executable(DemoClockMathTests
+    ../Automation/tests/demo-clock-math-tests.cpp
+    Filmmaker/Movie/DemoClockMath.h
+)
+target_compile_features(DemoClockMathTests PRIVATE cxx_std_17)
+add_test(NAME DemoClockMathTests COMMAND DemoClockMathTests)
 
 add_executable(ScrubFrameCacheMathTests
     ../Automation/tests/scrub-frame-cache-math-tests.cpp

@@ -448,6 +448,16 @@ export default function App() {
       ? `Moved ${result.moved.length} file(s) out of Steam's CS2 folder to ${result.backup}`
       : "Steam's CS2 folder is already clean.");
   };
+  const importReShade = async () => {
+    try {
+      const result = await window.sourceMvm.importReShade();
+      if (!result) return;
+      setDlss(result.status);
+      setDlssNote(`Imported ${result.presets.length} preset(s)${result.preset ? `, using ${result.preset}` : ''}. It is in your renders from the next launch.`);
+    } catch (error) {
+      setDlssNote(error instanceof Error ? error.message : 'ReShade import failed.');
+    }
+  };
   const steamLeftovers = dlss?.steamLeftovers ?? [];
 
   // Persist settings as they change. Historically only GO saved them, so anything edited in the
@@ -1238,6 +1248,26 @@ export default function App() {
                 </button>
               )}
             </div>
+            {dlss?.installed && dlss.reshade && (
+              <div className="dlss-reshade">
+                <strong>ReShade</strong>
+                <span>
+                  Home opens it in game, and what you set up there is in your renders. SOURCE:MVM keeps its own ReShade folder, separate from Steam&apos;s CS2 folder, so presets and shaders go here.
+                </span>
+                <code title={dlss.reshade.folder}>{dlss.reshade.folder}</code>
+                <span className="dlss-reshade-state">
+                  {dlss.reshade.effects} EFFECTS · {dlss.reshade.activePreset ? `PRESET ${dlss.reshade.activePreset.toUpperCase()}` : `${dlss.reshade.presets.length} PRESETS`}
+                </span>
+                <div className="dlss-actions">
+                  <button type="button" className="utility-button is-primary" onClick={importReShade} disabled={dlssBusy}>
+                    <span>IMPORT MY RESHADE…</span>
+                  </button>
+                  <button type="button" className="utility-button" onClick={() => window.sourceMvm.openReShadeFolder()} disabled={dlssBusy}>
+                    <span>OPEN FOLDER</span>
+                  </button>
+                </div>
+              </div>
+            )}
             <p className="dlss-note" role="status">
               {dlssNote || 'INSTALL asks for your "dlss 5" folder, and for ReShade with add-on support if that folder has none. Nothing is downloaded.'}
             </p>

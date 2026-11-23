@@ -39,6 +39,7 @@ interface DlssStatus {
   privateExe: string;
   /** ReShade / DLSS files found beside STEAM's cs2.exe: they load in online matches. */
   steamLeftovers: string[];
+  reshade: { folder: string; effects: number; presets: string[]; activePreset: string } | null;
   variants: string[];
   /** This launcher carries the whole DLSS 5 payload, ReShade included: nothing to choose. */
   bundled?: boolean;
@@ -203,6 +204,8 @@ interface Window {
     detectDlss: () => Promise<DlssDetect>;
     uninstallDlss: () => Promise<DlssStatus>;
     cleanSteamFolder: () => Promise<{ ok: boolean; moved: string[]; backup: string; status: DlssStatus }>;
+    openReShadeFolder: () => Promise<string>;
+    importReShade: () => Promise<{ presets: string[]; preset: string; shaderFolders: number; status: DlssStatus } | null>;
     onDlssStatus: (callback: (status: { message: string }) => void) => () => void;
     onPayloadStatus: (callback: (status: PayloadProgress) => void) => () => void;
   };

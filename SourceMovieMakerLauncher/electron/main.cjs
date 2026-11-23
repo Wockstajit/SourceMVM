@@ -833,6 +833,22 @@ function registerIpc() {
     settings = saveSettings({ ...settings, dlss5Enabled: false });
     return dlssTool.status(settings.cs2Exe);
   });
+  ipcMain.handle('dlss:open-reshade-folder', async () => {
+    const info = dlssTool.reshadeInfo();
+    const failure = await shell.openPath(info.folder);
+    if (failure) throw new Error(failure);
+    return info.folder;
+  });
+  ipcMain.handle('dlss:import-reshade', async () => {
+    if (isProcessRunning(launchedCs2ProcessId)) throw new Error('Close CS2 before importing into ReShade.');
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose the folder with your ReShade preset and reshade-shaders',
+      properties: ['openDirectory'],
+    });
+    if (picked.canceled || !picked.filePaths[0]) return null;
+    const result = dlssTool.importReShade(picked.filePaths[0]);
+    return { ...result, status: dlssTool.status(settings && settings.cs2Exe) };
+  });
   ipcMain.handle('dlss:clean-steam', () => {
     const result = dlssTool.cleanSteam(settings.cs2Exe);
     return { ...result, status: dlssTool.status(settings.cs2Exe) };

@@ -94,6 +94,11 @@ bool CoatingActor(float3 p,float3 geometric) {
 // the distance and cut straight bare bands under arcades.) The fringe grows with the cover's height
 // but stays short: a building above an arcade is not an opening.
 static const float kSnowFringeMax=140;
+// Snow follows the luminance of the ground it covers, at most SNOW_MAX_LIFT times it, so night ground
+// stays dark under snow (issue 135). Mirror of SnowCoverShade in EnvironmentCoatingMath.h.
+float SnowCoverShade(float mapLuminance){
+    return min(.03+.97*pow(saturate(mapLuminance),.28),SNOW_MAX_LIFT*max(mapLuminance,0));
+}
 float SettledSnowExposure(float3 world){
     if(shelterInfo.x<=0)return 1;
     float4 clip=mul(shelterMatrix,float4(world+shelterDirection.xyz*shelterInfo.z,1));
@@ -184,7 +189,7 @@ float3 ApplyCoatings(float3 color,float3 p,float3 normal,float3 coatingNormal,fl
         float snowLit=saturate(dot(snowNormal,sun));
         float visibility=CL_contactShadows>0?WorldSunShadowQuick(p+sun*shadowInfo.y,snowNormal,viewmodel):1;
         float3 snowAlbedo=float3(.94,.97,1);
-        float inheritedShade=.03+.97*pow(saturate(mapLuminance),.28);
+        float inheritedShade=SnowCoverShade(mapLuminance);
         float3 mappedSnow=snowAlbedo*inheritedShade;
         mappedSnow*=1+SunColor()*snowLit*visibility*CL_sunRelight;
         float3 relitSnow=snowAlbedo*(CL_ambient+SunColor()*snowLit*visibility*CL_sunRelight);

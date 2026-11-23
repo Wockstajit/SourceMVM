@@ -35,6 +35,25 @@ test("writer failures prevent a completed manifest", () => {
   assert.match(post, /FailJob\(/);
 });
 
+test("a writer failure ends the job at once and says why", () => {
+  const top = driver.slice(driver.indexOf("void RenderSessionDriver_RunFrame()"), driver.indexOf("case S::Validating"));
+  assert.match(top, /state == S::Capturing \|\| state == S::FlushingGpu\) && AfxStreams_GetWriterFailureCount\(\) > 0/);
+  assert.match(top, /FailJob\(WriterFailureText\(\)\)/);
+  assert.match(driver, /failure\.reason, failure\.ffmpegTail/);
+  assert.match(hookHeader, /AfxStreamWriterFailure AfxStreams_GetWriterFailure\(\);/);
+  // Both writer failure sites keep the first reason.
+  assert.equal((hooks.match(/AfxNoteWriterFailure\("/g) || []).length, 2);
+});
+
+test("an FFmpeg format checks FFmpeg before anything records", () => {
+  const prep = driver.slice(driver.indexOf("case S::PreparingOutput"), driver.indexOf("case S::SavingState"));
+  const check = prep.indexOf("RenderFormatUsesFfmpeg(s_job.out.format)");
+  assert.ok(check > 0 && check < prep.indexOf("RenderOutput_PrepareRecorderPreset"));
+  assert.match(prep, /RenderEncoderDetect_Probing\(\)/);
+  assert.match(prep, /FailJob\(ffmpegProblem\)/);
+  assert.match(driver, /RenderEncoderDetect_RetryIfFfmpegFailed\(\)/);
+});
+
 // The pass system was removed 2026-08-10: a render job captures exactly ONE image stream through
 // the inherited HLAE recorder. World Only (rule 9c) chooses what that one stream CONTAINS; it is a
 // subject filter, not a second stream. These tests pin that shape so a multi-stream pass selection

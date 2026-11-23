@@ -882,8 +882,8 @@ ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
     o.alpha=alpha*CL_particleOpacity;
     o.light=1;
     if(alpha<=0){o.position=float4(2,2,2,1);return o;}
-    // Rain and ash take the map's light at the particle centre, once per particle.
-    if(weatherParams.z==1||weatherParams.z==3){
+    // Rain, snow and ash take the map's light at the particle centre, once per particle.
+    if(weatherParams.z>=1&&weatherParams.z<=3){
         float4 centre=mul(viewProjection,float4(p,1));
         float2 pixel=(centre.xy/max(centre.w,1e-4)*float2(.5,-.5)+.5)*dimensions.xy;
         o.light=PrecipitationLighting(p,pixel);
@@ -947,12 +947,16 @@ float4 WeatherPS(ParticleOutput i,uint sample:SV_SampleIndex):SV_Target {
         a*=saturate((length(World(i.position.xy,d)-camera.xyz)-length(i.world-camera.xyz))/contact);
     }
     float3 energy=0;
-    if(weatherParams.z!=1&&weatherParams.z!=3)energy=FillLights(i.world,normalize(camera.xyz-i.world));
+    if(weatherParams.z>=4)energy=FillLights(i.world,normalize(camera.xyz-i.world));
     float3 color=weatherColor.rgb*tone*(1+energy*CL_particleLight);
     // Ash takes the map's light like rain does: pale flakes in sun, dim ones in shade, and the
     // map's colour cast, instead of a fixed grey that floats over every scene at the same value.
     // Both were lit per particle in WeatherVS.
     if(weatherParams.z==3)color=weatherColor.rgb*tone*i.light*2.4*tintExposure.rgb*tintExposure.w;
+    // So does snow (issue 135). In its own colour, unlit and unexposed, it glowed white under a night
+    // sky and brightened the whole frame. Lit daylight saturates at that same white, so day snow is
+    // unchanged; under a dark sky it dims with the scene, and lamps still light it.
+    if(weatherParams.z==2)color=weatherColor.rgb*tone*min(1,i.light*SNOW_BRIGHTNESS)*tintExposure.rgb*tintExposure.w;
     if(weatherParams.z==1){
         color=weatherColor.rgb*i.light*RAIN_BRIGHTNESS*tintExposure.rgb*tintExposure.w;
         a=saturate(a*RAIN_SHAPE_GAIN);
@@ -1024,6 +1028,8 @@ float4 WeatherVeilPS(Screen i):SV_Target {
         color=lerp(color,fogColorDensity.rgb,1-exp(-optical));
     }
     if(weatherParams.z==3)color=weatherColor.rgb*.7*PrecipitationLighting(p,pixel)*2.4*tintExposure.rgb*tintExposure.w;
+    // The far snow is lit like the flakes: an unlit veil hazed a night sky grey.
+    if(weatherParams.z==2)color=weatherColor.rgb*min(1,PrecipitationLighting(p,pixel)*SNOW_BRIGHTNESS)*tintExposure.rgb*tintExposure.w;
     return float4(color,coverage);
 }
 )HLSL"

@@ -7,6 +7,7 @@
 
 #include "../../ClientEntitySystem.h"   // CEntityInstance, CBaseHandle
 #include "../../SchemaSystem.h"          // g_clientDllOffsets
+#include "../../Globals.h"               // getFunctionStart
 #include "../Debug/MvmDebugLog.h"
 #include "CosmeticEntityAccess.h"           // MvmDebugLog_* + MvmAgentLog + MvmCrashWatch_Arm
 
@@ -315,9 +316,14 @@ bool SafeApplyGloves(unsigned char* pawn, int gloveDef, int paintKit, float wear
 // the hands). Running that same per-pawn glove step on a paused frame fixes both.
 //
 // Resolved from its only call site inside the think: `lea rcx,[rbx+disp32]; call fn; mov rcx,rbx;
-// call ...; mov rdi,[rbx+disp32]; mov r14,[rsp+...]` (unique in build 2000930). The lea displacement is
-// the glove helper's offset in the pawn; the helper stores its owning pawn at the displacement of the
-// function's own `mov r14,[rcx+disp32]` (byte 21 of the prologue), which is checked before every call.
+// call ...; mov r64,[rbx+disp32]; mov r14,[rsp+...]` (unique in builds 2000930 and 2026-11-20; the
+// third mov's register changed from rdi to rsi in the 2026-11-20 build, so it is wildcarded). The lea
+// displacement is the glove helper's offset in the pawn; the helper stores its owning pawn at the
+// displacement of the function's own `mov r14,[rcx+disp32]` (byte 21 of the prologue), which is checked
+// before every call.
+
+constexpr const char* kGloveCallSitePattern =
+	"48 8D 8B ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B CB E8 ?? ?? ?? ?? 48 8B ?? ?? ?? ?? ?? 4C 8B B4 24";
 
 typedef void(__fastcall* PawnGloveUpdate_t)(void* helper);
 
@@ -333,8 +339,7 @@ const PawnGloveUpdateFns& ResolvePawnGloveUpdate() {
 	if (g_gloveUpdate.attempted)
 		return g_gloveUpdate;
 	g_gloveUpdate.attempted = true;
-	const size_t site = FindClientPattern(
-		"48 8D 8B ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B CB E8 ?? ?? ?? ?? 48 8B BB ?? ?? ?? ?? 4C 8B B4 24");
+	const size_t site = FindClientPattern(kGloveCallSitePattern);
 	if (!site)
 		return g_gloveUpdate;
 	const ptrdiff_t helperOff = *(int32_t*)(site + 3);
@@ -372,22 +377,13 @@ const PreviewThink& ResolvePreviewThink() {
 	HMODULE client = GetModuleHandleA("client.dll");
 	if (!client)
 		return g_previewThink;
-	const size_t site = FindClientPattern(
-		"48 8D 8B ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B CB E8 ?? ?? ?? ?? 48 8B BB ?? ?? ?? ?? 4C 8B B4 24");
+	const size_t site = FindClientPattern(kGloveCallSitePattern);
 	if (!site)
 		return g_previewThink;
-	DWORD64 imageBase = 0;
-	PRUNTIME_FUNCTION rf = RtlLookupFunctionEntry((DWORD64)site, &imageBase, nullptr);
-	if (!rf)
+	// The site may sit in a cold fragment; getFunctionStart follows the chain to the primary entry.
+	const uintptr_t thinkFn = (uintptr_t)getFunctionStart(site);
+	if (!thinkFn)
 		return g_previewThink;
-	// The site may sit in a cold fragment: follow UNW_FLAG_CHAININFO to the primary entry.
-	for (int guard = 0; guard < 8; ++guard) {
-		const unsigned char* ui = (const unsigned char*)(imageBase + rf->UnwindData);
-		if (!((ui[0] >> 3) & 4))
-			break;
-		rf = (PRUNTIME_FUNCTION)(ui + 4 + ((ui[2] + 1) & ~1) * 2);
-	}
-	const uintptr_t thinkFn = (uintptr_t)imageBase + rf->BeginAddress;
 	void** pawnVt = (void**)Afx::BinUtils::FindClassVtable(client, ".?AVC_CSPlayerPawn@@", 0, 0);
 	void** previewVt = (void**)Afx::BinUtils::FindClassVtable(client, ".?AVC_CSGO_PreviewPlayer@@", 0, 0);
 	if (!pawnVt || !previewVt)

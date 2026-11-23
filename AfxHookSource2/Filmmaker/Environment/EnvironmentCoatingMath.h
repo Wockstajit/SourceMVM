@@ -15,6 +15,17 @@ inline float CoatingDetailFade(float footprint, float frequency) {
     float t = std::clamp((footprint * frequency - .25f) / .75f, 0.f, 1.f);
     return 1 - t * t * (3 - 2 * t);
 }
+// SETTLED SNOW keeps the map image's broad shading: its brightness follows the luminance of the
+// surface it covers on a curve that lifts dark ground (snow is far brighter than asphalt). That curve
+// alone lifted night ground at luminance .02 to .35, seventeen times, and switching snow on under a
+// night sky turned the scene grey (issue 135). Snow reflects a few times what the ground under it
+// does, never more, so it is also bounded by kSnowMaxLift times the surface. Daylit ground (about
+// .15 and up) keeps the curve. Mirror of SnowCoverShade in EnvironmentClimateShaders.h.
+inline constexpr float kSnowMaxLift = 4.f;
+inline float SnowCoverShade(float mapLuminance) {
+    const float curve = .03f + .97f * std::pow(std::clamp(mapLuminance, 0.f, 1.f), .28f);
+    return (std::min)(curve, kSnowMaxLift * (std::max)(mapLuminance, 0.f));
+}
 inline float CoatingCoverage(float amount, float noise, float softness) {
     float threshold = 1 - (1 + softness) * amount;
     float t = std::clamp((noise - threshold) / softness, 0.f, 1.f);
