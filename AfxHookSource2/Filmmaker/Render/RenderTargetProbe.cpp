@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <intrin.h> // _ReturnAddress
 #include <cstring>
 #include <d3d11.h>
 #include <mutex>
