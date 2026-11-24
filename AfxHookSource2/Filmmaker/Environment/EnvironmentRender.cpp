@@ -1216,7 +1216,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     // Particles have no depth: what they did to the frame and where they are says how much fog is in
     // front of them. w: the mask is bound.
     // The ground coatings need it as well: they are painted over the frame and must leave effects be.
-    if (climate[CL_fogDensity] > 0 || climate[CL_groundFog] > 0 || climate[CL_snow] > 0 || climate[CL_wet] > 0 || climate[CL_puddles] > 0) {
+    if (climate[CL_fogDensity] > 0 || climate[CL_groundFog] > 0 || climate[CL_snow] > 0 || climate[CL_wet] > 0 || climate[CL_puddles] > 0 || gustVolume) {
         c.fogAmbient.w = PrepareFogFrontMask(ctx, td.Width, td.Height) ? 1.f : 0.f;
         const int anchors = (std::min)(int(f.fogEffects.size()), kFogEffectAnchors);
         for (int i = 0; i < anchors; ++i) {

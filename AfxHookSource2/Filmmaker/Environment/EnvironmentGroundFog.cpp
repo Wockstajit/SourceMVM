@@ -797,7 +797,7 @@ void DumpGroundFogIfRequested(ID3D11DeviceContext *immediate) {
                 for (int y = 0; y < mh; ++y) {
                     const auto *row = reinterpret_cast<const uint16_t *>(static_cast<const char *>(maskMap.pData) + size_t(y) * maskMap.RowPitch);
                     for (int x = 0; x < mw; ++x) {
-                        const float light = HalfToFloat(row[x * 2]), dark = HalfToFloat(row[x * 2 + 1]);
+                        const float light = HalfToFloat(row[x * 4]), dark = HalfToFloat(row[x * 4 + 1]);
                         lightSum += light;
                         darkSum += dark;
                         // Screen rows run top-down and BMP rows bottom-up.
