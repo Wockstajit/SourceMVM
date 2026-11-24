@@ -29,7 +29,11 @@ bool WorldWarp_OverrideCubemapFaceView(int faceIndex, float baseYaw,
 
 // Lock-step CSetupView -> BeforeUi cubemap face handshake (0..5 cycling, -1 when inactive).
 int WorldWarp_PeekCubemapFace(float baseYaw);
-int WorldWarp_ConsumeCapturedFace();
+// Render thread, after a cubemap face rendered at demoTime: returns the face to capture, or -1 when
+// the set's demo time moved and the face is dropped. outPublish is set when the six faces are complete.
+int WorldWarp_ConsumeCapturedFace(double demoTime, bool& outPublish);
+// Main thread: holds the demo on one time while a Little Planet set is captured.
+void WorldWarp_RunMainThreadFrame();
 void WorldWarp_SetActiveCubemapFace(int faceIndex, float baseYaw);
 int WorldWarp_ActiveCubemapFace(float* outBaseYaw = nullptr);
 

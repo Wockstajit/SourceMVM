@@ -3621,13 +3621,16 @@ public:
                     const float fwd[3] = { std::cos(radP) * std::cos(radY), std::cos(radP) * std::sin(radY), -std::sin(radP) };
                     if (Filmmaker::WorldWarp_WantsCubemap()) {
                         // Lock-step 6-face cubemap capture: save this frame's rotated camera view
-                        // into the cubemap array, advance to the next face for the next CSetupView,
-                        // and immediately composite the full 360 Little Planet onto the backbuffer.
-                        const int capturedFace = Filmmaker::WorldWarp_ConsumeCapturedFace();
+                        // into the working cubemap, advance to the next face for the next CSetupView,
+                        // and publish the six once they share one demo time (the composite shows the
+                        // last published set, so the planet never mixes two moments).
+                        bool publishCube = false;
+                        const int capturedFace = Filmmaker::WorldWarp_ConsumeCapturedFace(f.time, publishCube);
                         if (capturedFace >= 0) {
                             Filmmaker::WorldWarp::CaptureCubemapFace(pDeviceContext, pRenderTargetViews[0], capturedFace,
                                 f.hasWorldToClip ? f.projection.data() : nullptr);
                         }
+                        if (publishCube) Filmmaker::WorldWarp::PublishCubemap(pDeviceContext);
                         Filmmaker::WorldWarp::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                             f.hasWorldToClip ? f.worldToClip.data() : nullptr,
                             f.hasWorldToClip ? f.projection.data() : nullptr,

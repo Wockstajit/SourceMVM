@@ -465,7 +465,11 @@ struct Gpu {
 	ComPtr<ID3D11ShaderResourceView> cubeSrv;
 	UINT cubeW = 0, cubeH = 0;
 	DXGI_FORMAT cubeFmt = DXGI_FORMAT_UNKNOWN;
-	bool faceCaptured[6] = {};
+	// The six faces are captured into cubeArray and copied as a whole into cubeShow once all six
+	// share one demo time (WorldWarp_ConsumeCapturedFace), so the planet never mixes two moments.
+	ComPtr<ID3D11Texture2D> cubeShow;
+	ComPtr<ID3D11ShaderResourceView> cubeShowSrv;
+	bool cubeShown = false;
 	float tanHalfX = 1.0f, tanHalfY = 1.0f;
 	bool failed = false;
 } g_gpu;
@@ -922,6 +926,12 @@ void EndDevice() {
 	g_uploadedGen.store(0, std::memory_order_relaxed);
 }
 
+void PublishCubemap(ID3D11DeviceContext* immediate) {
+	if (!immediate || !g_gpu.cubeArray || !g_gpu.cubeShow) return;
+	immediate->CopyResource(g_gpu.cubeShow.Get(), g_gpu.cubeArray.Get());
+	g_gpu.cubeShown = true;
+}
+
 void CaptureCubemapFace(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	int faceIndex, const float* projectionMatrix) {
 	if (!immediate || !target || !g_gpu.device || faceIndex < 0 || faceIndex >= 6) return;
@@ -933,6 +943,7 @@ void CaptureCubemapFace(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* 
 	if (!g_gpu.cubeArray || g_gpu.cubeW != d.Width || g_gpu.cubeH != d.Height || g_gpu.cubeFmt != typed) {
 		RenderPrivateTextureScope priv;
 		g_gpu.cubeArray.Reset(); g_gpu.cubeSrv.Reset();
+		g_gpu.cubeShow.Reset(); g_gpu.cubeShowSrv.Reset(); g_gpu.cubeShown = false;
 		D3D11_TEXTURE2D_DESC td{};
 		td.Width = d.Width; td.Height = d.Height; td.MipLevels = 1; td.ArraySize = 6;
 		td.Format = typed; td.SampleDesc.Count = 1; td.Usage = D3D11_USAGE_DEFAULT;
@@ -941,10 +952,13 @@ void CaptureCubemapFace(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* 
 		sd.Format = typed; sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
 		sd.Texture2DArray.MipLevels = 1; sd.Texture2DArray.ArraySize = 6;
 		if (FAILED(g_gpu.device->CreateTexture2D(&td, nullptr, &g_gpu.cubeArray))
-			|| FAILED(g_gpu.device->CreateShaderResourceView(g_gpu.cubeArray.Get(), &sd, &g_gpu.cubeSrv)))
+			|| FAILED(g_gpu.device->CreateShaderResourceView(g_gpu.cubeArray.Get(), &sd, &g_gpu.cubeSrv))
+			|| FAILED(g_gpu.device->CreateTexture2D(&td, nullptr, &g_gpu.cubeShow))
+			|| FAILED(g_gpu.device->CreateShaderResourceView(g_gpu.cubeShow.Get(), &sd, &g_gpu.cubeShowSrv))) {
+			g_gpu.cubeArray.Reset(); g_gpu.cubeSrv.Reset(); g_gpu.cubeShow.Reset(); g_gpu.cubeShowSrv.Reset();
 			return;
+		}
 		g_gpu.cubeW = d.Width; g_gpu.cubeH = d.Height; g_gpu.cubeFmt = typed;
-		for (int i = 0; i < 6; ++i) g_gpu.faceCaptured[i] = false;
 	}
 	if (d.SampleDesc.Count > 1) {
 		if (!EnsureColorCopy(immediate, src.Get(), typed)) return;
@@ -952,7 +966,6 @@ void CaptureCubemapFace(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* 
 	} else {
 		immediate->CopySubresourceRegion(g_gpu.cubeArray.Get(), faceIndex, 0, 0, 0, src.Get(), 0, nullptr);
 	}
-	g_gpu.faceCaptured[faceIndex] = true;
 	if (projectionMatrix) {
 		const float p00 = std::fabs(projectionMatrix[0]);
 		const float p11 = std::fabs(projectionMatrix[5]);
@@ -1007,8 +1020,7 @@ bool Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	}
 	if (projection) reversed = projection[10] < 0.0f;
 
-	bool cubeReady = true;
-	for (int i = 0; i < 6; ++i) cubeReady = cubeReady && g_gpu.faceCaptured[i];
+	const bool cubeReady = g_gpu.cubeShown;
 
 	Constants cb{};
 	std::memcpy(cb.viewProj, vp.data(), sizeof(float) * 16);
@@ -1025,7 +1037,7 @@ bool Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	cb.originFlags[3] = s.useSceneOrigin ? 1.0f : 0.0f;
 	cb.planetA[0] = s.planetScale; cb.planetA[1] = s.planetSpin * kDegToRad;
 	cb.planetA[2] = s.planetTilt * kDegToRad; cb.planetA[3] = s.planetConformal;
-	cb.planetB[0] = s.planetRimSoftness; cb.planetB[1] = (cubeReady && g_gpu.cubeSrv) ? 1.0f : 0.0f;
+	cb.planetB[0] = s.planetRimSoftness; cb.planetB[1] = (cubeReady && g_gpu.cubeShowSrv) ? 1.0f : 0.0f;
 	cb.planetB[2] = g_gpu.tanHalfX; cb.planetB[3] = g_gpu.tanHalfY;
 	cb.horizonParams[0] = s.horizonBend; cb.horizonParams[1] = s.horizonFlatRadius; cb.horizonParams[2] = s.horizonCurve;
 	cb.waveParams[0] = s.waveHeight; cb.waveParams[1] = s.waveLength; cb.waveParams[2] = s.waveSpeed; cb.waveParams[3] = s.waveDirection * kDegToRad;
@@ -1051,7 +1063,7 @@ bool Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	ID3D11ShaderResourceView* srvs[3] = {
 		g_gpu.colorSrv.Get(),
 		needDepth ? g_gpu.depthSrv.Get() : nullptr,
-		(cubeReady && g_gpu.cubeSrv) ? g_gpu.cubeSrv.Get() : nullptr
+		(cubeReady && g_gpu.cubeShowSrv) ? g_gpu.cubeShowSrv.Get() : nullptr
 	};
 
 	if (s.mode == Mode::LittlePlanet) {

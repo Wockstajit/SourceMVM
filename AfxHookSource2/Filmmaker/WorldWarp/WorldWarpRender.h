@@ -61,6 +61,8 @@ private:
 };
 
 // Called during Little Planet capture for each face (0..5: Down, Fwd, Left, Back, Right, Up).
+// Makes the six faces captured so far the planet's source; called once they share one demo time.
+void PublishCubemap(ID3D11DeviceContext* immediate);
 void CaptureCubemapFace(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	int faceIndex, const float* projectionMatrix);
 

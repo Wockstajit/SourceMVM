@@ -4,12 +4,18 @@
 
 #include "../Movie/CameraBridge.h"
 #include "../Debug/MvmDebugLog.h"
+#include "../Render/RenderSessionDriver.h" // a render owns playback: no Little Planet hold
+#include "../../RenderSystemDX11Hooks.h"         // AfxStreams_IsRcording
+#include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
+#include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
 #include "../../../Shared/AfxConsole.h"
 
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+
+extern SOURCESDK::CS2::ISource2EngineToClient* g_pEngineToClient;
 
 namespace Filmmaker {
 namespace {
@@ -20,6 +26,18 @@ std::atomic<int> g_activeMode{ 0 };
 std::atomic<uint32_t> g_settingsGen{ 1 };
 std::atomic<int> g_cubemapFace{ -1 };
 std::atomic<float> g_cubemapBaseYaw{ 0.0f };
+
+// Little Planet set tracking (render thread) and the demo hold that keeps one demo time for a set
+// (main thread). See CubemapSetTracker in WorldWarpMath.h.
+std::mutex g_cubeMutex;
+WorldWarp::CubemapSetTracker g_cubeSet;
+std::atomic<bool> g_cubeMidSet{ false };
+std::atomic<bool> g_cubeDemoClock{ false };   // a demo is open: sets must share one demo time
+std::atomic<uint32_t> g_cubePublished{ 0 };
+bool g_holdOwned = false;                     // main thread: we paused the demo for a set
+uint32_t g_holdPublished = 0;
+int g_holdFrames = 0;
+constexpr int kMaxHoldFrames = 120;           // a set takes 6 frames; past this the demo plays on
 
 } // namespace
 
@@ -62,6 +80,9 @@ void WorldWarp_SetMode(WorldWarp::Mode m, bool applyPresetDefaults) {
 		g_cubemapFace.store(0, std::memory_order_release);
 	else
 		g_cubemapFace.store(-1, std::memory_order_release);
+	std::lock_guard<std::mutex> cube(g_cubeMutex);
+	g_cubeSet = WorldWarp::CubemapSetTracker{};
+	g_cubeMidSet.store(false, std::memory_order_release);
 }
 
 void WorldWarp_Reset() {
@@ -95,12 +116,60 @@ int WorldWarp_PeekCubemapFace(float baseYaw) {
 	return f;
 }
 
-int WorldWarp_ConsumeCapturedFace() {
+int WorldWarp_ConsumeCapturedFace(double demoTime, bool& outPublish) {
+	outPublish = false;
 	if (!WorldWarp_WantsCubemap()) return -1;
 	int f = g_cubemapFace.load(std::memory_order_acquire);
 	if (f < 0 || f >= 6) f = 0;
-	g_cubemapFace.store((f + 1) % 6, std::memory_order_release);
+	std::lock_guard<std::mutex> lock(g_cubeMutex);
+	const auto step = g_cubeSet.OnFace(f, demoTime, g_cubeDemoClock.load(std::memory_order_acquire));
+	g_cubemapFace.store(g_cubeSet.next, std::memory_order_release);
+	g_cubeMidSet.store(g_cubeSet.MidSet(), std::memory_order_release);
+	if (step == WorldWarp::CubemapSetTracker::Step::Discard) {
+		if (MvmDebugLog_Active())
+			MvmDebugLog_Linef("worldwarp.cube", "face %d at t=%.6f dropped: the set's demo time moved", f, demoTime);
+		return -1;
+	}
+	if (step == WorldWarp::CubemapSetTracker::Step::CaptureAndPublish) {
+		outPublish = true;
+		g_cubePublished.fetch_add(1, std::memory_order_release);
+	}
 	return f;
+}
+
+// Main thread. While a Little Planet set is mid-way through its six faces and the demo is playing,
+// the demo is held paused so faces 1..5 render at face 0's time; it plays on as soon as the set is
+// published. A user pause is left alone, and a render job owns playback itself.
+void WorldWarp_RunMainThreadFrame() {
+	auto* demo = g_pEngineToClient ? g_pEngineToClient->GetDemoFile() : nullptr;
+	const bool demoOpen = demo && (demo->IsPlayingDemo() || demo->IsDemoPaused());
+	g_cubeDemoClock.store(demoOpen, std::memory_order_release);
+	const bool paused = demoOpen && demo->IsDemoPaused();
+	const bool recorderOwns = RenderSessionDriver_IsActive() || AfxStreams_IsRcording();
+	const uint32_t published = g_cubePublished.load(std::memory_order_acquire);
+
+	if (g_holdOwned) {
+		++g_holdFrames;
+		const bool setDone = published != g_holdPublished;
+		const bool release = !WorldWarp_WantsCubemap() || !demoOpen || recorderOwns || setDone
+			|| g_holdFrames > kMaxHoldFrames;
+		if (release) {
+			if (paused && g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, "demo_resume", true);
+			if (MvmDebugLog_Active())
+				MvmDebugLog_Linef("worldwarp.cube", "hold released after %d frames (%s)", g_holdFrames,
+					setDone ? "set published" : g_holdFrames > kMaxHoldFrames ? "timeout" : "mode off or recorder");
+			g_holdOwned = false;
+		}
+		return;
+	}
+	if (WorldWarp_WantsCubemap() && demoOpen && !paused && !recorderOwns
+		&& g_cubeMidSet.load(std::memory_order_acquire) && g_pEngineToClient) {
+		// demo_pause toggles: only sent while the demo is playing.
+		g_pEngineToClient->ExecuteClientCmd(0, "demo_pause", true);
+		g_holdOwned = true;
+		g_holdPublished = published;
+		g_holdFrames = 0;
+	}
 }
 
 void WorldWarp_SetActiveCubemapFace(int faceIndex, float baseYaw) {

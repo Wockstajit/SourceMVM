@@ -95,6 +95,7 @@
 #include "Render/RenderWorldPlayersNoGun.h"
 #include "Render/RenderPlayersOnlyGreen.h"
 #include "Render/RenderPlayerMatte.h"
+#include "WorldWarp/WorldWarp.h"
 #include "WorldDecals/WorldDecals.h"
 #include "EventFx/EventFx.h"
 #include "Window/WindowResize.h"
@@ -1105,6 +1106,7 @@ void RunMainThreadFrame() {
 	// commands, so this never paints the beauty pass while a capture is running.
 	RenderPlayersOnlyGreen_RunMainThreadFrame();
 	RenderPlayerMatte_RunMainThreadFrame();
+	WorldWarp_RunMainThreadFrame();
 	WorldDecals::RunMainThreadFrame();
 	EventFx_RunMainThreadFrame();
 	{ PanoramaPerf_Scope _p("moviehud"); MovieHudRef().RunFrame(); }

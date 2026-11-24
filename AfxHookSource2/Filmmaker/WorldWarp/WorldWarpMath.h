@@ -269,4 +269,42 @@ inline Vec3 DeformPoint(Vec3 p, Vec3 camera, double demoTime, const Settings& s)
 	}
 }
 
+// Little Planet's six cubemap faces are rendered one per frame. A planet built from faces taken at
+// different demo times smears anything that moves, so a set counts only when all six share one
+// time. The capture keeps a set going while the time holds (the demo held paused for it), starts
+// over at face 0 when the time moves mid-set, and publishes the set when face 5 lands. Without a
+// demo there is no clock to hold, so a complete set publishes as it is (requireSameTime false).
+struct CubemapSetTracker {
+	static constexpr double kSameTime = 1e-6;
+	int next = 0;           // the face the next frame renders
+	double setTime = 0.0;   // the demo time of this set's face 0
+	bool started = false;
+
+	enum class Step { Capture, CaptureAndPublish, Discard };
+
+	// Called after the frame that rendered `face` at `time`. Sets `next` for the following frame.
+	Step OnFace(int face, double time, bool requireSameTime) {
+		if (face < 0 || face > 5) { next = 0; started = false; return Step::Discard; }
+		if (face == 0) {
+			started = true;
+			setTime = time;
+		} else if (!started || face != next || (requireSameTime && std::fabs(time - setTime) > kSameTime)) {
+			// The time moved, or the face order broke: what is captured so far is from another moment.
+			next = 0;
+			started = false;
+			return Step::Discard;
+		}
+		if (face == 5) {
+			next = 0;
+			started = false;
+			return Step::CaptureAndPublish;
+		}
+		next = face + 1;
+		return Step::Capture;
+	}
+
+	// True while faces 1..5 of a set are still to come, so the demo must stay on setTime.
+	bool MidSet() const { return started && next > 0; }
+};
+
 } // namespace Filmmaker::WorldWarp

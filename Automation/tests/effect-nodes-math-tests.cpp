@@ -53,11 +53,82 @@ void TestDisabledGraphProducesNoSteps() {
 	CHECK(p.steps.empty());
 }
 
+
+// Runs the plan on paper: every slot a step reads must still hold the mask node it was compiled to read.
+bool SlotsHoldTheirMasks(const CompiledPlan& p) {
+	int holds[kMaskSlots] = { -1, -1, -1, -1 };
+	for (const auto& st : p.steps) {
+		if (st.maskNodeA > 0 && (st.maskSlotA < 0 || holds[st.maskSlotA] != st.maskNodeA)) return false;
+		if (st.maskNodeB > 0 && (st.maskSlotB < 0 || holds[st.maskSlotB] != st.maskNodeB)) return false;
+		if (IsMaskNode(st.type)) { if (st.outMaskSlot < 0 || st.outMaskSlot >= kMaskSlots) return false; holds[st.outMaskSlot] = st.nodeId; }
+	}
+	return true;
+}
+
+int AddNode(NodeGraph& g, NodeType t) { g.nodes.push_back(MakeDefaultNode(g.nextNodeId++, t, 0, 0)); return g.nodes.back().id; }
+void Link(NodeGraph& g, int from, int to, int port) { g.edges.push_back(Edge{ g.nextEdgeId++, from, 0, to, port }); }
+
+void TestSharedMaskOutlivesLaterMasks() {
+	// One sky mask feeds the first and the last of six effects; four other masks are made in between.
+	// Round-robin slots overwrote the sky mask before the last effect read it.
+	NodeGraph g; g.enabled = true;
+	const int sky = AddNode(g, NodeType::SkyMask);
+	int prev = -1;
+	for (int i = 0; i < 6; ++i) {
+		const int fx = AddNode(g, NodeType::ColorGrade);
+		if (prev > 0) Link(g, prev, fx, 0);
+		const int mask = (i == 0 || i == 5) ? sky : AddNode(g, NodeType::DepthRange);
+		Link(g, mask, fx, 1);
+		prev = fx;
+	}
+	const int out = AddNode(g, NodeType::Output);
+	Link(g, prev, out, 0);
+	CompiledPlan p = CompileGraph(g);
+	CHECK(p.droppedForMaskSlots == 0);
+	CHECK(p.steps.size() == 11);
+	CHECK(SlotsHoldTheirMasks(p));
+}
+
+void TestDeepCombineTreeKeepsLiveBranches() {
+	// combine(combine(a,b), combine(combine(combine(c,d),e),f)): the first branch's result waits while
+	// the second builds. Eleven masks wrap round-robin slots onto it; at most three are live at once.
+	NodeGraph g; g.enabled = true;
+	auto leaf = [&] { return AddNode(g, NodeType::DepthRange); };
+	auto combine = [&](int a, int b) { const int c = AddNode(g, NodeType::MaskCombine); Link(g, a, c, 0); Link(g, b, c, 1); return c; };
+	const int left = combine(leaf(), leaf());
+	const int right = combine(combine(combine(leaf(), leaf()), leaf()), leaf());
+	const int root = combine(left, right);
+	const int fx = AddNode(g, NodeType::Glow); Link(g, root, fx, 1);
+	const int out = AddNode(g, NodeType::Output); Link(g, fx, out, 0);
+	CompiledPlan p = CompileGraph(g);
+	CHECK(p.droppedForMaskSlots == 0);
+	CHECK(p.steps.size() == 12);
+	CHECK(SlotsHoldTheirMasks(p));
+}
+
+void TestTooManyLiveMasksAreDroppedNotOverwritten() {
+	// Five masks all read by one five-input chain at the end: the fifth cannot get a slot.
+	NodeGraph g; g.enabled = true;
+	int masks[5];
+	for (int& m : masks) m = AddNode(g, NodeType::DepthRange);
+	int acc = masks[4];
+	for (int i = 3; i >= 0; --i) { const int c = AddNode(g, NodeType::MaskCombine); Link(g, masks[i], c, 0); Link(g, acc, c, 1); acc = c; }
+	// combine(m0, combine(m1, combine(m2, combine(m3, m4)))) visits m0..m3 first: all four stay live
+	// until m4 is made, so m4 (and the combines that need it) are dropped.
+	const int fx = AddNode(g, NodeType::Glow); Link(g, acc, fx, 1);
+	const int out = AddNode(g, NodeType::Output); Link(g, fx, out, 0);
+	CompiledPlan p = CompileGraph(g);
+	CHECK(p.droppedForMaskSlots > 0);
+	CHECK(SlotsHoldTheirMasks(p));
+}
 } // namespace
 
 int main() {
 	TestStarterPresetsCompileCleanly();
 	TestCycleSafety();
+	TestSharedMaskOutlivesLaterMasks();
+	TestDeepCombineTreeKeepsLiveBranches();
+	TestTooManyLiveMasksAreDroppedNotOverwritten();
 	TestDisabledGraphProducesNoSteps();
 	if (g_failed) {
 		std::cerr << g_failed << " EffectNodesMathTests failed\n";

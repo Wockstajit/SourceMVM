@@ -92,11 +92,32 @@ void TestWorldFoldRigidLift() {
 
 } // namespace
 
+void TestCubemapSetNeedsOneDemoTime() {
+	using Step = CubemapSetTracker::Step;
+	CubemapSetTracker t;
+	// Six faces at one time publish on face 5.
+	for (int f = 0; f < 5; ++f) { CHECK(t.OnFace(f, 10.0, true) == Step::Capture); CHECK(t.MidSet()); }
+	CHECK(t.OnFace(5, 10.0, true) == Step::CaptureAndPublish);
+	CHECK(!t.MidSet() && t.next == 0);
+	// The demo moved after face 2: the set is dropped and starts again at face 0.
+	CHECK(t.OnFace(0, 11.0, true) == Step::Capture);
+	CHECK(t.OnFace(1, 11.0, true) == Step::Capture);
+	CHECK(t.OnFace(2, 11.0 + 1.0 / 64.0, true) == Step::Discard);
+	CHECK(t.next == 0 && !t.MidSet());
+	// A face out of order (a frame that rendered a stale face) also restarts the set.
+	CHECK(t.OnFace(0, 12.0, true) == Step::Capture);
+	CHECK(t.OnFace(3, 12.0, true) == Step::Discard);
+	// Without a demo clock to hold, a complete set publishes as it is.
+	for (int f = 0; f < 5; ++f) CHECK(t.OnFace(f, 20.0 + f, false) == Step::Capture);
+	CHECK(t.OnFace(5, 30.0, false) == Step::CaptureAndPublish);
+}
+
 int main() {
 	TestLittlePlanetConformalDirections();
 	TestRollingHorizonFlatZoneAndSign();
 	TestWorldWaveDirectionAndPeriodicity();
 	TestWorldFoldRigidLift();
+	TestCubemapSetNeedsOneDemoTime();
 	if (g_failed) {
 		std::cerr << g_failed << " WorldWarpMathTests failed\n";
 		return 1;

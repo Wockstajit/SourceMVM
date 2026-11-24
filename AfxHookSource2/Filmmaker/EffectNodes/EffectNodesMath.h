@@ -183,17 +183,76 @@ struct CompiledStep {
 	int maskSlotA = -1;   // bound mask slot for Effect or MaskCombine A
 	int maskSlotB = -1;   // bound mask slot for MaskCombine B
 	float p[8] = {};
+	// The mask nodes this step reads (MaskCombine A/B, an Effect's mask), before slots are assigned.
+	int maskNodeA = -1;
+	int maskNodeB = -1;
 };
 
 struct CompiledPlan {
 	bool enabled = false;
 	bool needsWorldDepthRef = false;
 	float masterMix = 1.0f;
+	// Steps dropped because more than kMaskSlots masks would have to be alive at once.
+	int droppedForMaskSlots = 0;
 	std::vector<CompiledStep> steps;
 };
 
+// Gives every mask step a slot that no mask still waiting for a reader holds. A slot is free again
+// only after the last step that reads its mask has run, so a mask feeding several effects, or the
+// first branch of a deep MaskCombine tree, is never overwritten before it is used. A step whose
+// mask would need a fifth live slot is dropped (with everything that reads it) instead of
+// overwriting a live mask, and counted in droppedForMaskSlots.
+inline void AssignMaskSlots(CompiledPlan& plan) {
+	std::map<int, size_t> lastRead; // mask node id -> index of its last reader
+	for (size_t i = 0; i < plan.steps.size(); ++i) {
+		const CompiledStep& st = plan.steps[i];
+		if (st.maskNodeA > 0) lastRead[st.maskNodeA] = i;
+		if (st.maskNodeB > 0) lastRead[st.maskNodeB] = i;
+	}
+	std::map<int, int> slotOf; // mask node id -> slot
+	int owner[kMaskSlots];
+	for (int& o : owner) o = -1;
+	std::vector<CompiledStep> kept;
+	for (size_t i = 0; i < plan.steps.size(); ++i) {
+		CompiledStep st = plan.steps[i];
+		const auto bound = [&](int node) { auto it = slotOf.find(node); return it == slotOf.end() ? -1 : it->second; };
+		const bool needsA = st.maskNodeA > 0, needsB = st.maskNodeB > 0;
+		st.maskSlotA = needsA ? bound(st.maskNodeA) : -1;
+		st.maskSlotB = needsB ? bound(st.maskNodeB) : -1;
+		const bool inputsLost = (needsA && st.maskSlotA < 0) || (needsB && st.maskSlotB < 0);
+		if (IsMaskNode(st.type)) {
+			int slot = -1;
+			if (!inputsLost)
+				for (int s = 0; s < kMaskSlots && slot < 0; ++s) if (owner[s] < 0) slot = s;
+			if (slot < 0) { ++plan.droppedForMaskSlots; }
+			else {
+				st.outMaskSlot = slot;
+				owner[slot] = st.nodeId;
+				slotOf[st.nodeId] = slot;
+			}
+		} else if (inputsLost && IsEffectNode(st.type)) {
+			// Its mask was dropped: apply the effect unmasked would change the look, so skip it.
+			++plan.droppedForMaskSlots;
+		}
+		const bool keep = IsMaskNode(st.type) ? st.outMaskSlot >= 0 : !(inputsLost && IsEffectNode(st.type));
+		if (keep) kept.push_back(st);
+		// Free the slots of masks this step was the last reader of (after the step, so a MaskCombine
+		// never writes into a slot it is still reading).
+		for (int node : { st.maskNodeA, st.maskNodeB }) {
+			auto lr = lastRead.find(node);
+			if (node > 0 && lr != lastRead.end() && lr->second == i) {
+				const int s = bound(node);
+				if (s >= 0 && owner[s] == node) owner[s] = -1;
+			}
+		}
+		// A mask nothing reads frees its slot at once.
+		if (IsMaskNode(st.type) && st.outMaskSlot >= 0 && !lastRead.count(st.nodeId)) owner[st.outMaskSlot] = -1;
+	}
+	plan.steps.swap(kept);
+}
+
 // Cycle-safe topological compiler: walks backward from the Output node, emits mask evaluations
-// before the effects that consume them, and allocates mask slots 0..3.
+// before the effects that consume them, then gives masks slots 0..3 by lifetime (AssignMaskSlots).
 inline CompiledPlan CompileGraph(const NodeGraph& g) {
 	CompiledPlan plan;
 	plan.enabled = g.enabled;
@@ -215,8 +274,7 @@ inline CompiledPlan CompileGraph(const NodeGraph& g) {
 	};
 
 	std::set<int> visiting, visited;
-	std::map<int, int> nodeMaskSlot;
-	int nextMaskSlot = 0;
+	std::set<int> maskNodes; // mask nodes already emitted
 
 	auto visit = [&](auto&& self, int id) -> void {
 		if (id <= 0 || visited.count(id) || visiting.count(id)) return;
@@ -243,24 +301,22 @@ inline CompiledPlan CompileGraph(const NodeGraph& g) {
 		std::memcpy(step.p, n->p, sizeof(step.p));
 
 		if (IsMaskNode(n->type)) {
-			const int slot = nextMaskSlot % kMaskSlots;
-			++nextMaskSlot;
-			step.outMaskSlot = slot;
-			nodeMaskSlot[n->id] = slot;
+			maskNodes.insert(n->id);
 			if (n->type == NodeType::MaskCombine) {
-				if (nodeMaskSlot.count(in0)) step.maskSlotA = nodeMaskSlot[in0];
-				if (nodeMaskSlot.count(in1)) step.maskSlotB = nodeMaskSlot[in1];
+				if (maskNodes.count(in0)) step.maskNodeA = in0;
+				if (maskNodes.count(in1)) step.maskNodeB = in1;
 			}
 			if (n->type == NodeType::PlayerMatte) plan.needsWorldDepthRef = true;
 		} else if (IsEffectNode(n->type)) {
 			// Port 1 is the mask input on every Effect node.
-			if (nodeMaskSlot.count(in1)) step.maskSlotA = nodeMaskSlot[in1];
-			else if (nodeMaskSlot.count(in0)) step.maskSlotA = nodeMaskSlot[in0];
+			if (maskNodes.count(in1)) step.maskNodeA = in1;
+			else if (maskNodes.count(in0)) step.maskNodeA = in0;
 		}
 		plan.steps.push_back(step);
 	};
 
 	visit(visit, outputNode->id);
+	AssignMaskSlots(plan);
 	return plan;
 }
 
