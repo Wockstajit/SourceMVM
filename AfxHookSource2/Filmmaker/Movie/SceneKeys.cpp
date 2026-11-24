@@ -233,8 +233,8 @@ void OptionsJson(JsonBuilder& j, const ChannelSpec& s) {
         j.BeginObject(); j.StringField("value","default"); j.StringField("label","Map default"); j.EndObject();
         for (const auto& e : SkyboxLibrary_Entries()) { j.BeginObject(); j.StringField("value",e.name); j.StringField("label",e.label); j.EndObject(); }
     } else {
-        const char* names[] = {"Clear","Rain","Snow","Ash","Embers","Motes","Smoke"};
-        for (int i=0; i<7; ++i) { j.BeginObject(); j.IntField("value",i); j.StringField("label",names[i]); j.EndObject(); }
+        const char* names[] = {"Clear","Rain","Snow","Ash","Embers","Motes","Smoke","Sand"};
+        for (int i=0; i<8; ++i) { j.BeginObject(); j.IntField("value",i); j.StringField("label",names[i]); j.EndObject(); }
     }
     j.EndArray();
 }

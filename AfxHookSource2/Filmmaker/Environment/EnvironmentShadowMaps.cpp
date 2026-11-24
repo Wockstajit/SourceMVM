@@ -26,8 +26,22 @@ void BeginShadowMaps(ID3D11Device *device) {
     state.device = device;
     static HMODULE compiler = EnvironmentShaderCompiler();
     auto compile = compiler ? reinterpret_cast<pD3DCompile>(GetProcAddress(compiler, "D3DCompile")) : nullptr;
-    const char *shader = "cbuffer Draw:register(b3){row_major float4x4 transform;} float4 Main(float3 "
-                         "p:POSITION):SV_Position{return mul(transform,float4(p,1));}";
+    // A LAMP'S CLEARANCE IS A SPHERE. A face's depth starts at its near distance (the lamp's housing
+    // clearance, Relight::AuthoredShadowNearClip), but a flat near plane per cube face clears a cube
+    // round the lamp, not a sphere: a hood or a cap was drawn straight up and to the sides and dropped
+    // along the face diagonals, and the light leaked out there in an X round the lamp (2026-11-23).
+    // The clip distance below removes casters within the near distance of the lamp in every
+    // direction, read from the face's own matrix (rows 0 and 1: the offsets across, row 3: along,
+    // row 2: depth zero at the near distance); the rasterizer does not clip at the flat near plane
+    // (state.raster), and a caster outside the sphere but nearer than the plane stores depth 0, which
+    // is what it is: in the way. Orthographic projections (the sun) have no lamp and are not clipped.
+    const char *shader = "cbuffer Draw:register(b3){row_major float4x4 transform;}"
+                         "struct Out{float4 p:SV_Position;float clear:SV_ClipDistance0;};"
+                         "Out Main(float3 p:POSITION){Out o;o.p=mul(transform,float4(p,1));o.clear=1;"
+                         "float sx=length(transform[0].xyz),sy=length(transform[1].xyz),a=length(transform[2].xyz);"
+                         "if(dot(transform[3].xyz,transform[3].xyz)>.5&&sx>0&&sy>0&&a>0)"
+                         "o.clear=length(float3(o.p.x/sx,o.p.y/sy,o.p.w))-(o.p.w-o.p.z/a);"
+                         "return o;}";
     ComPtr<ID3DBlob> code, errors;
     if (!compile || FAILED(CompileEnvironmentShader(shader, strlen(shader), "EnvironmentShadowDepth", nullptr, "Main",
                                    "vs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, &code, &errors))) {
@@ -52,7 +66,8 @@ void BeginShadowMaps(ID3D11Device *device) {
     D3D11_RASTERIZER_DESC raster{};
     raster.FillMode = D3D11_FILL_SOLID;
     raster.CullMode = D3D11_CULL_NONE;
-    raster.DepthClipEnable = TRUE;
+    // No flat near-plane clip for lamp faces: the depth shader clips a sphere instead (see above).
+    raster.DepthClipEnable = FALSE;
     raster.SlopeScaledDepthBias = 1;
     if (FAILED(device->CreateDepthStencilState(&depth, &state.depth)) ||
         FAILED(device->CreateRasterizerState(&raster, &state.raster)))
@@ -109,8 +124,9 @@ void PrepareShadowMaps(ID3D11DeviceContext *ctx, const Frame &f, bool viewmodel,
     // state through here (requireWorld) and must not draw a sky map or restart the cover bake.
     // The ground fog reads them too: fog under a roof or inside a stack of crates is lit by the sky
     // only as far as open air reaches it (GroundFogSkyOpen).
-    bool shelter=!requireWorld&&f.scene.weather.shelter&&((f.scene.weather.type>=1&&f.scene.weather.type<=3&&f.scene.weather.count>0)||
-        f.scene.climate[CL_snow]>0||(f.scene.climate[CL_enabled]>0&&f.scene.climate[CL_groundFog]>0));
+    const bool shelterWeather=((f.scene.weather.type>=1&&f.scene.weather.type<=3)||f.scene.weather.type==7)&&f.scene.weather.count>0;
+    bool shelter=!requireWorld&&f.scene.weather.shelter&&(shelterWeather||
+        f.scene.climate[CL_snow]>0||f.scene.climate[CL_sand]>0||(f.scene.climate[CL_enabled]>0&&f.scene.climate[CL_groundFog]>0));
     c.shelterInfo={shelter?-1.f:0.f,float(SunResolution),1.f,0};
     if (!state.ready)
         return;

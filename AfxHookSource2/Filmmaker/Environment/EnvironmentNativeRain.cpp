@@ -294,7 +294,7 @@ NativeWorldWeather NativeWorldWeatherFor(const Scene &scene, bool active) {
         return w;
     const bool raining = scene.weather.type == kPrecipitationRain && scene.weather.count > 0;
     const bool climate = scene.climate[CL_enabled] != 0;
-    const float snow = climate ? std::clamp(scene.climate[CL_snow], 0.f, 1.f) : 0.f;
+    const float snow = climate ? std::clamp((std::max)(scene.climate[CL_snow], scene.climate[CL_sand]), 0.f, 1.f) : 0.f;
     const float wet = climate ? scene.climate[CL_wet] : 0.f;
     const float puddles = climate ? scene.climate[CL_puddles] : 0.f;
     w.exposed = raining;
@@ -464,7 +464,8 @@ bool NativeFrostWanted(const Scene &scene, bool active) {
     if (scene.weather.type == kPrecipitationRain && scene.weather.count > 0)
         return false;
     const bool snowing = scene.weather.type == 2 && scene.weather.count > 0;
-    return snowing || (scene.climate[CL_enabled] != 0 && scene.climate[CL_snow] > 0);
+    const bool snowLies = scene.climate[CL_enabled] != 0 && scene.climate[CL_snow] > 0 && scene.climate[CL_snow] >= scene.climate[CL_sand];
+    return snowing || snowLies;
 }
 const char *NativeFrostStatus() { return g_frostStatus; }
 

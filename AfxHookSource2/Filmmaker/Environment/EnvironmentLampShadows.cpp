@@ -143,8 +143,34 @@ struct TileRefresh {
     ComPtr<ID3D11DepthStencilState> always;ComPtr<ID3D11RasterizerState> restoreRaster,casterRaster;
     bool failed=false;
 } tileRefresh;
+// Close face reduction (Relight::NearShadowSize): a face drawn at LocalSize becomes a smaller tile, as
+// if drawn at that size: each texel takes the depth at its centre, plus the slope bias a draw at that
+// size would have had (the depth change across half a reduced texel). Taking the nearest depth of a
+// block instead made walls seen at an angle shadow themselves in thin lines, an X along the cube
+// face diagonals round a lamp (2026-11-23). The slope is the smaller one-sided difference, so a
+// caster's silhouette, where one side jumps to the background, is not pushed away.
+constexpr char FaceReduceShader[]=R"HLSL(
+cbuffer Reduce:register(b0){float step;float3 pad;}
+Texture2D<float> face:register(t0);
+float4 VS(uint id:SV_VertexID):SV_Position{return float4(float2((id<<1)&2,id&2)*2-1,0,1);}
+float At(int2 t){uint w,h;face.GetDimensions(w,h);return face.Load(int3(clamp(t,int2(0,0),int2(w,h)-1),0));}
+float PS(float4 p:SV_Position):SV_Target{
+    int2 t=int2((float2(int2(p.xy))+.5)*step);
+    float d=At(t);
+    if(d>=1)return d;
+    float sx=min(abs(At(t+int2(1,0))-d),abs(d-At(t-int2(1,0))));
+    float sy=min(abs(At(t+int2(0,1))-d),abs(d-At(t-int2(0,1))));
+    return saturate(d+max(sx,sy)*step*.5);
+}
+)HLSL";
+struct FaceReduce {
+    ComPtr<ID3D11Texture2D> target;ComPtr<ID3D11RenderTargetView> rtv;ComPtr<ID3D11ShaderResourceView> source;
+    ComPtr<ID3D11VertexShader> vertex;ComPtr<ID3D11PixelShader> pixel;ComPtr<ID3D11Buffer> constants;
+    ComPtr<ID3D11RasterizerState> raster;ComPtr<ID3D11DepthStencilState> noDepth;
+    bool failed=false;
+} faceReduce;
 } // namespace
-void ShadowDetail::ResetTileRefresh(){tileRefresh=TileRefresh{};}
+void ShadowDetail::ResetTileRefresh(){tileRefresh=TileRefresh{};faceReduce=FaceReduce{};}
 namespace {
 bool EnsureTileRefresh(){
     auto& t=tileRefresh;
@@ -174,6 +200,50 @@ bool EnsureTileRefresh(){
     // The casters keep the face rasterizer's own settings, with the scissor added.
     state.raster->GetDesc(&raster);raster.ScissorEnable=TRUE;
     if(FAILED(state.device->CreateRasterizerState(&raster,&t.casterRaster)))return fail("caster rasterizer");
+    return true;
+}
+bool EnsureFaceReduce(){
+    auto& r=faceReduce;
+    if(r.failed||!state.device||!proofTransfer)return false;
+    if(r.rtv&&r.source&&r.vertex&&r.pixel&&r.constants&&r.raster&&r.noDepth)return true;
+    const auto fail=[&](const char* what){r=FaceReduce{};r.failed=true;MvmDebugLog_LinefAlways("environment.shadow.reduce","disabled: %s",what);return false;};
+    D3D11_TEXTURE2D_DESC d{};d.Width=d.Height=Relight::LocalSize;d.MipLevels=d.ArraySize=d.SampleDesc.Count=1;
+    d.Format=DXGI_FORMAT_R32_TYPELESS;d.BindFlags=D3D11_BIND_RENDER_TARGET;
+    if(FAILED(state.device->CreateTexture2D(&d,nullptr,&r.target)))return fail("target");
+    D3D11_RENDER_TARGET_VIEW_DESC rt{};rt.Format=DXGI_FORMAT_R32_FLOAT;rt.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
+    if(FAILED(state.device->CreateRenderTargetView(r.target.Get(),&rt,&r.rtv)))return fail("target view");
+    D3D11_SHADER_RESOURCE_VIEW_DESC sr{};sr.Format=DXGI_FORMAT_R32_FLOAT;sr.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sr.Texture2D.MipLevels=1;
+    if(FAILED(state.device->CreateShaderResourceView(proofTransfer.Get(),&sr,&r.source)))return fail("source view");
+    ComPtr<ID3DBlob> vs,ps,errors;
+    if(FAILED(CompileEnvironmentShader(FaceReduceShader,sizeof(FaceReduceShader)-1,"EnvironmentFaceReduce",nullptr,"VS","vs_5_0",D3DCOMPILE_ENABLE_STRICTNESS,&vs,&errors))||
+       FAILED(CompileEnvironmentShader(FaceReduceShader,sizeof(FaceReduceShader)-1,"EnvironmentFaceReduce",nullptr,"PS","ps_5_0",D3DCOMPILE_ENABLE_STRICTNESS,&ps,&errors))||
+       FAILED(state.device->CreateVertexShader(vs->GetBufferPointer(),vs->GetBufferSize(),nullptr,&r.vertex))||
+       FAILED(state.device->CreatePixelShader(ps->GetBufferPointer(),ps->GetBufferSize(),nullptr,&r.pixel)))return fail("shader");
+    D3D11_BUFFER_DESC b{};b.ByteWidth=16;b.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+    if(FAILED(state.device->CreateBuffer(&b,nullptr,&r.constants)))return fail("constants");
+    D3D11_RASTERIZER_DESC raster{};raster.FillMode=D3D11_FILL_SOLID;raster.CullMode=D3D11_CULL_NONE;raster.DepthClipEnable=TRUE;
+    if(FAILED(state.device->CreateRasterizerState(&raster,&r.raster)))return fail("rasterizer");
+    D3D11_DEPTH_STENCIL_DESC depth{};
+    if(FAILED(state.device->CreateDepthStencilState(&depth,&r.noDepth)))return fail("depth state");
+    return true;
+}
+// Reduces the face in proofTransfer to size x size and copies it into the atlas at (x, y).
+bool ReduceFaceInto(ID3D11DeviceContext* ctx,unsigned x,unsigned y,unsigned size){
+    if(size>=Relight::LocalSize||!EnsureFaceReduce())return false;
+    auto& r=faceReduce;
+    const float step[4]{float(Relight::LocalSize)/float(size),0,0,0};
+    ctx->UpdateSubresource(r.constants.Get(),0,nullptr,step,0,0);
+    ID3D11RenderTargetView* rtv=r.rtv.Get();ctx->OMSetRenderTargets(1,&rtv,nullptr);
+    ctx->OMSetDepthStencilState(r.noDepth.Get(),0);ctx->OMSetBlendState(nullptr,nullptr,0xffffffff);
+    D3D11_VIEWPORT vp{0,0,float(size),float(size),0,1};ctx->RSSetViewports(1,&vp);ctx->RSSetState(r.raster.Get());
+    ctx->IASetInputLayout(nullptr);ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->VSSetShader(r.vertex.Get(),nullptr,0);ctx->PSSetShader(r.pixel.Get(),nullptr,0);
+    ID3D11Buffer* cb=r.constants.Get();ctx->PSSetConstantBuffers(0,1,&cb);
+    ID3D11ShaderResourceView* src=r.source.Get();ctx->PSSetShaderResources(0,1,&src);
+    ctx->Draw(3,0);
+    ID3D11ShaderResourceView* none=nullptr;ctx->PSSetShaderResources(0,1,&none);ctx->OMSetRenderTargets(0,nullptr,nullptr);
+    const D3D11_BOX box{0,0,0,size,size,1};
+    ctx->CopySubresourceRegion(mapAtlas.Get(),0,x,y,0,r.target.Get(),0,&box);
     return true;
 }
 } // namespace
@@ -333,6 +403,21 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
     if(state.world!=input.occlusion||(lights&&!state.local)){
         ctx->ClearState();ComPtr<ID3D11CommandList> discarded;ctx->FinishCommandList(FALSE,&discarded);return 0;}
     ctx->OMSetRenderTargets(0,nullptr,nullptr);
+    {
+        for(unsigned i=0;i<lights;++i){
+            const float weight=i<Relight::ShadowBudgetLimit?Relight::NearShadowKeeps[i]:1.f;
+            const unsigned size=Relight::NearShadowSize(weight);
+            // Whether this lamp's far-tier faces are all drawn (the tier fills in order).
+            bool hadFar=false;
+            for(unsigned k=0;k<staticLights&&k<mapStaticDone/Relight::ShadowFaces;++k)
+                if(staticPositions[k].x==positions[i].x&&staticPositions[k].y==positions[i].y&&staticPositions[k].z==positions[i].z){hadFar=true;break;}
+            const float strength=hadFar?1.f:weight;
+            for(unsigned face=0;face<Relight::ShadowFaces;++face){const unsigned tile=i*6+face;
+                if(tile>=Relight::LocalColumns*Relight::LocalRows)continue;
+                Relight::LocalFaceSizes[tile]=faceReduce.failed?Relight::LocalSize:size;
+                Relight::LocalFaceStrengths[tile]=strength;}
+        }
+    }
     unsigned rendered=0;
     {GPU_PASS_SCOPE(ctx,"shadows: near lamp copies");
     for(unsigned light=0;light<lights;++light){
@@ -349,7 +434,10 @@ unsigned PrepareMapLightShadows(ID3D11DeviceContext* immediate,const Frame& inpu
             Relight::GuardFace(matrices[tile].data(),1/Relight::LocalFaceGuard);
             unsigned tileX=0,tileY=0,tileSize=0;Relight::TileOrigin(tile,tileX,tileY,tileSize);
             ctx->CopySubresourceRegion(proofTransfer.Get(),0,0,0,0,state.local.Get(),first+face,nullptr);
-            ctx->CopySubresourceRegion(mapAtlas.Get(),0,tileX,tileY,0,proofTransfer.Get(),0,nullptr);
+            if(!ReduceFaceInto(ctx,tileX,tileY,tileSize)){
+                Relight::LocalFaceSizes[tile]=Relight::LocalSize;tileSize=Relight::LocalSize;
+                ctx->CopySubresourceRegion(mapAtlas.Get(),0,tileX,tileY,0,proofTransfer.Get(),0,nullptr);
+            }
             MarkLampTile(tileX,tileY,tileSize);
         }
         ++rendered;

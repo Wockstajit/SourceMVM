@@ -4,6 +4,7 @@
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentRender.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentGroundFog.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentGameTextures.h"
+#include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentTumbleweeds.h"
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentReflectionProbes.h"
 #include <wrl/client.h>
 #include "../../AfxHookSource2/Filmmaker/Environment/EnvironmentSurfaceMath.h"
@@ -45,9 +46,12 @@ unsigned drawn = 0;
 bool NativeRainActive() { return false; }
 // CS2's own textures are read from the installed game; a standalone device test keeps the
 // procedural snow and wet ground, so its images do not depend on the install or on load timing.
-GameTexturesBound BindGameTextures(ID3D11Device *, ID3D11DeviceContext *, bool, bool) { return {}; }
+GameTexturesBound BindGameTextures(ID3D11Device *, ID3D11DeviceContext *, bool, bool, bool, int) { return {}; }
 std::string GameTexturesStatus() { return "test"; }
 void ReleaseGameTextures() {}
+TumbleweedFrame PrepareTumbleweeds(const Frame &, const Climate &, const Matrix &) { return {}; }
+std::string TumbleweedsStatus() { return "test"; }
+void ReleaseTumbleweeds() {}
 // The wet film's off-screen reflections read CS2's probes and its tone curve from a running game;
 // a standalone device test has neither, so the film keeps its own fallback (mode 0).
 void ReflectionProbes_Want(bool) {}
@@ -301,6 +305,20 @@ int main(int argc, char **argv) {
     frame.angles={90,0,0};frame.camera={0,0,1000};
     auto snowFloor=render(.004f);
     Check(snowFloor[climateCenter]>150,"Snow covers upward floor");
+    {
+        Frame savedSand=frame;
+        frame.scene.climate[CL_snow]=0;frame.scene.climate[CL_sand]=1;
+        frame.angles={0,0,0};frame.camera={0,0,0};
+        Check(render(.004f)==baseline,"Sand avoids vertical walls");
+        frame.angles={90,0,0};frame.camera={0,0,1000};
+        auto sandFloor=render(.004f);
+        std::cout<<"Sand floor rgb="<<int(sandFloor[climateCenter])<<","<<int(sandFloor[climateCenter+1])<<","<<int(sandFloor[climateCenter+2])<<"\n";
+        Check(sandFloor[climateCenter]>baseline[climateCenter]+25&&
+              sandFloor[climateCenter]>sandFloor[climateCenter+1]+15&&
+              sandFloor[climateCenter+1]>sandFloor[climateCenter+2]+15,
+              "Sand covers upward floor with warm golden-tan albedo");
+        frame=savedSand;
+    }
     {
         // CS2 SMOKE HIDES EVERYTHING WE ADD. The hook hands over CS2's full-resolution OIT absorbance
         // (R32); coverage is 1-exp(-b0). No smoke leaves the frame untouched, dense smoke leaves only

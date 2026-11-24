@@ -1,8 +1,9 @@
 #pragma once
 
 // Placed props, world fragments and foliage of a map's world nodes -> the runtime's visual
-// shadow casters (MVMCAST6): opaque render geometry with surface albedo, alpha-tested
-// cutouts with their masks and native foliage-sway inputs, and stained-glass transmitters.
+// shadow casters (MVMCAST7): opaque render geometry with surface albedo, alpha-tested
+// cutouts with their masks and native foliage-sway inputs, stained-glass transmitters, and the
+// triangles of water surfaces (which cast nothing; the coatings and relighting leave water alone).
 // Scene traversal, LOD choice, material/tint keying and texture selection follow
 // ValveResourceFormat 21.1 (MIT, commit 8d9f7d9) world-node glTF export; the caster rules are the ones the
 // map-lighting cache has always applied.
@@ -18,7 +19,8 @@
 namespace Filmmaker::MapData {
 
 struct CasterStats {
-    size_t batches = 0, cutoutBatches = 0, stainedGlassBatches = 0, rigidVertices = 0, rigidTriangles = 0, triangles = 0;
+    size_t batches = 0, cutoutBatches = 0, stainedGlassBatches = 0, rigidVertices = 0, rigidTriangles = 0, triangles = 0,
+           waterTriangles = 0;
     uint64_t bytes = 0;
     std::array<float, 3> low{}, high{};
 };

@@ -202,6 +202,28 @@ enum ClimateField {
     // CS2's beads of water on wet ground (EnvironmentGameTextures.h), read from the installed game.
     // 0 keeps the plain wet film. (The snow always takes CS2's own snow texture.)
     CL_rainTexture,
+    // SAND on the ground (Weather > Sand): drawn through the snow's path (cover, drifts, footprints,
+    // the hole each foot sinks in) with its own CC0 Poly Haven textures (EnvironmentGameTextures.h) and
+    // its own look. How much lies, how deep it lies where it has drifted (1 = about ankle deep), which
+    // texture style is drawn (0 Dusty Mix, 1 Cracked Crust, 2 Pebbly Grit, 3 Trampled), continuous colour
+    // harmonization (0 = each scan's original captured colour, 1 = unified desert sand palette), and the
+    // harmonized target sand colour (linear RGB). Where both sand and snow are set, the larger one lies.
+    CL_sand,
+    CL_sandDepth,
+    // TUMBLEWEEDS (EnvironmentTumbleweeds.cpp): how many roll through the map at once, carried by the
+    // wind. They come in from out of sight upwind and leave out of sight downwind.
+    CL_tumbleweeds,
+    CL_sandStyle,
+    CL_sandHarmonize,
+    CL_sandColorR,
+    CL_sandColorG,
+    CL_sandColorB,
+    // Whether snow/sand also coats props (cars, crates, barrels) above the walkable floor,
+    // including subtle side/edge accumulation. 0 keeps coating on walkable ground and wall bases.
+    CL_snowProps,
+    CL_sandProps,
+    // Whether the map's fill lights (Light::fill) shine under Environment lighting.
+    CL_fillLights,
     ClimateCount
 };
 struct ClimateSpec {
@@ -357,7 +379,18 @@ inline const std::array<ClimateSpec, ClimateCount> &ClimateSpecs() {
         {"sunHeight", "sky", 60.0f, 5.0f, 90.0f},
         {"hideMapClouds", "sky", 0.0f, 0.0f, 1.0f},
         {"groundFogShadows", "atmosphere", 1.0f, 0.0f, 1.0f},
-        {"rainTexture", "weather", 1.0f, 0.0f, 1.0f},
+        {"rainTexture", "weather", 1.0f, 0.0f, 2.0f},
+        {"sand", "weather", 0.0f, 0.0f, 1.0f},
+        {"sandDepth", "weather", 0.5f, 0.0f, 1.0f},
+        {"tumbleweeds", "weather", 0.0f, 0.0f, 16.0f},
+        {"sandStyle", "weather", 0.0f, 0.0f, 3.0f},
+        {"sandHarmonize", "weather", 1.0f, 0.0f, 1.0f},
+        {"sandColorR", "weather", 0.62f, 0.0f, 1.0f},
+        {"sandColorG", "weather", 0.51f, 0.0f, 1.0f},
+        {"sandColorB", "weather", 0.34f, 0.0f, 1.0f},
+        {"snowProps", "weather", 1.0f, 0.0f, 1.0f},
+        {"sandProps", "weather", 1.0f, 0.0f, 1.0f},
+        {"fillLights", "lighting", 1.0f, 0.0f, 1.0f},
 
 
     }};
@@ -393,7 +426,8 @@ inline bool ClimateValueValid(int i, double n) {
         n > ClimateSpecs()[i].hi)
         return false;
     return (i != CL_bakedSuppressed && i != CL_enabled &&
-            i != CL_relighting && i != CL_worldGi && i != CL_bounceSteps && i != CL_storm && i != CL_stormSeed && i != CL_stormHold && i != CL_puddleNative) ||
+            i != CL_relighting && i != CL_worldGi && i != CL_bounceSteps && i != CL_storm && i != CL_stormSeed && i != CL_stormHold && i != CL_puddleNative &&
+            i != CL_tumbleweeds && i != CL_sandStyle) ||
            std::floor(n) == n;
 }
 inline Climate EffectiveClimate(Climate c) {
@@ -499,11 +533,13 @@ inline bool IsTimeOfDayField(ClimateField f) { return f == CL_timeOfDay || f == 
 // white tint). Three separate floats would key red without green and blend through odd hues.
 struct ClimateColour { const char *id; ClimateField red; float scale; };
 static_assert(CL_sunColorB == CL_sunColorR + 2 && CL_moonColorB == CL_moonColorR + 2 &&
-              CL_groundFogColorB == CL_groundFogColorR + 2 && CL_groundFogShadeB == CL_groundFogShadeR + 2,
+              CL_groundFogColorB == CL_groundFogColorR + 2 && CL_groundFogShadeB == CL_groundFogShadeR + 2 &&
+              CL_sandColorB == CL_sandColorR + 2,
               "a keyed climate colour is three consecutive fields");
-inline const std::array<ClimateColour, 4> &ClimateColours() {
-    static const std::array<ClimateColour, 4> list{{{"sunColor", CL_sunColorR, 2.f}, {"moonColor", CL_moonColorR, 2.f},
-        {"groundFogColor", CL_groundFogColorR, 1.f}, {"groundFogShadeColor", CL_groundFogShadeR, 1.f}}};
+inline const std::array<ClimateColour, 5> &ClimateColours() {
+    static const std::array<ClimateColour, 5> list{{{"sunColor", CL_sunColorR, 2.f}, {"moonColor", CL_moonColorR, 2.f},
+        {"groundFogColor", CL_groundFogColorR, 1.f}, {"groundFogShadeColor", CL_groundFogShadeR, 1.f},
+        {"sandColor", CL_sandColorR, 1.f}}};
     return list;
 }
 inline double ClimateColourToKey(const ClimateColour &k, float value) {
@@ -552,18 +588,18 @@ inline bool ClimateSamplesSunShadow(const Climate &c, bool lighting, bool receiv
         return false;
     const bool lit = lighting || c[CL_relighting] > 0;
     return receivers || lit || c[CL_worldGi] > 0 || c[CL_clouds] > 0 ||
-           c[CL_snow] > 0 || c[CL_wet] > 0 || c[CL_puddles] > 0 ||
+           c[CL_snow] > 0 || c[CL_sand] > 0 || c[CL_tumbleweeds] > 0 || c[CL_wet] > 0 || c[CL_puddles] > 0 ||
            (c[CL_fogDensity] > 0 && c[CL_lightShafts] > 0) || (c[CL_groundFog] > 0 && c[CL_groundFogShadows] > 0);
 }
 // The passes a restart switches off, with the value that means off: sky, lighting, fog and
 // weather. Each is restored by a card switch that reads `held` (Sky and Fog through envPassPill,
 // Weather through its own switch) or is a plain 0/1 switch. The grade (bloom, saturation, ...) is
 // left alone: it costs nothing to keep and no switch could restore a held grade value.
-inline const std::array<std::pair<ClimateField, float>, 11> &RestoredPassNeutrals() {
-    static const std::array<std::pair<ClimateField, float>, 11> list{{
+inline const std::array<std::pair<ClimateField, float>, 13> &RestoredPassNeutrals() {
+    static const std::array<std::pair<ClimateField, float>, 13> list{{
         {CL_sky, 0.f}, {CL_clouds, 0.f}, {CL_storm, 0.f}, {CL_relighting, 0.f}, {CL_worldGi, 0.f},
         {CL_bakedSuppressed, 0.f}, {CL_fogDensity, 0.f}, {CL_groundFog, 0.f}, {CL_snow, 0.f}, {CL_wet, 0.f},
-        {CL_puddles, 0.f}}};
+        {CL_puddles, 0.f}, {CL_sand, 0.f}, {CL_tumbleweeds, 0.f}}};
     return list;
 }
 // Key under which a held weather type is kept beside the climate keys.

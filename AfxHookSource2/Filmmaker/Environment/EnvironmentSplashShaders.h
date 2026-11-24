@@ -151,9 +151,10 @@ float4 SplashPS(SplashOutput i,uint sample:SV_SampleIndex):SV_Target {
     }
     if(Hidden(i.position.z,ReadCombinedSample(i.position.xy,sample)))discard;
     bool foot=i.info.w>.5;
-    // A foot splashes only where it came down in standing water. Where snow lies instead, it kicks
-    // up a small puff of powder: the same sheets, white and soft, with no froth.
-    bool powder=foot&&CL_snow>=.25;
+    // A foot splashes only where it came down in standing water. Where snow or sand lies instead,
+    // it kicks up a small puff of powder or dry sand: the same sheets, soft, with no froth.
+    bool sandFoot=foot&&SandLies()&&CL_sand>=.25;
+    bool powder=foot&&((!SandLies()&&CL_snow>=.25)||sandFoot);
     if(foot&&!powder&&PuddleAt(i.hit)<.3)discard;
     if(powder&&(i.info.y<.5||WeatherCover(i.hit,float3(0,0,1)).x<.5))discard;
     // Partial exposure keeps that share of splashes (one fixed draw per impact point), so the wetted fringe
@@ -191,7 +192,8 @@ float4 SplashPS(SplashOutput i,uint sample:SV_SampleIndex):SV_Target {
     }
     // Lit by the scene and no brighter than it: thrown water is clear, it shows as a grey smudge
     // against what is behind it and catches lamps from behind (the forward scatter in RainLighting).
-    float3 tone=powder?float3(.95,.97,1)*.55:foot?float3(.8,.86,.93)*(i.info.y>1.5?.5:i.info.y>.5?.75:.6):weatherColor.rgb*.75;
+    float3 powderTone=sandFoot?float3(.78,.60,.37)*.62:float3(.95,.97,1)*.55;
+    float3 tone=powder?powderTone:foot?float3(.8,.86,.93)*(i.info.y>1.5?.5:i.info.y>.5?.75:.6):weatherColor.rgb*.75;
     float3 color=tone*RainLighting(i.world,i.position.xy,sample)*RAIN_BRIGHTNESS*.8*tintExposure.rgb*tintExposure.w;
     float distance=length(i.world-camera.xyz);
     float optical=max(0,distance-CL_fogStart)*CL_fogDensity*.001*exp(-max(0,i.world.z-CL_fogBase)/CL_fogHeight);
@@ -234,8 +236,8 @@ SplashOutput FootSplashVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         return o;
     }
     uint s=instance/FOOT_SPLASH_PARTS,part=instance%FOOT_SPLASH_PARTS;
-    // Powder: the sheets and a third of the flecks.
-    if(CL_snow>=.25&&part>=32)return o;
+    // Powder or sand: the sheets and a third of the flecks.
+    if((CL_snow>=.25||CL_sand>=.25)&&part>=32)return o;
     float4 landed=footSteps[s];
     float age=climateClock.x-landed.w;
     // HOW HARD THE FOOT CAME DOWN (FootImpact): about .55 a walk, .85 a run, 1.5 and up a landing

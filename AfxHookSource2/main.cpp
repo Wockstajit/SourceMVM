@@ -39,6 +39,7 @@
 #include "Filmmaker/Movie/SmoothView.h"       // Smooth View 2 camera module
 #include "Filmmaker/Movie/ViewFxVm.h"         // true viewmodel angular steering
 #include "Filmmaker/Movie/CameraOwnership.h"    // who claimed the pose + shake-mode precedence
+namespace Filmmaker { namespace Environment { void Tumbleweeds_SetFilmmakerCamera(bool owned); } }
 #include "Filmmaker/Panorama/AimCrosshairHud.h"
 #include "Filmmaker/Movie/CameraRuntimeInternal.h"
 #include "Filmmaker/MouseCapture.h"
@@ -796,6 +797,8 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	g_PendingPostDemoView.curTime = curTime;
 	g_PendingPostDemoView.povViewForAim = povViewForAim;
 	g_PendingPostDemoView.filmmakerCamera = owner.Any();
+	// Tumbleweeds come out in front of the player in first person, from any side for our cameras.
+	Filmmaker::Environment::Tumbleweeds_SetFilmmakerCamera(owner.Any());
 	g_PendingPostDemoView.valid = true;
 
 	if(originOrAnglesOverriden) {
@@ -906,7 +909,7 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	// the pose we just wrote. Range-gated playpath out-of-range remains unaffected because
 	// it releases free cam and stops pushing a path pose before this hook runs.
 	const bool pathOwnsView = Filmmaker::CameraPathOwnsView() || Filmmaker::GraphEditorExperiment_OwnsView();
-	const bool blockDemoViewOverride = inputOverride || pathOwnsView;
+	const bool blockDemoViewOverride = inputOverride || pathOwnsView || owner.Any();
 
 	if (Filmmaker::CampathDebug()) {
 		static unsigned s_ownerLogThrottle = 0;

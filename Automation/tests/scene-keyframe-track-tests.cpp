@@ -63,6 +63,10 @@ int main(int argc,char** argv) {try {
     Check(at("env.mapLightPower")<at("env.ambient")&&at("env.ambient")<at("env.playerFill")&&at("env.shadowSoftness")<at("env.exposureBias"),"Lighting keys in CONFIG's Light, Shadows, Exposure order");
     Check(at("env.groundFogBillowSize")<at("env.groundFogColor")&&at("env.groundFogShadows")<at("env.groundFogShadeColor")&&at("env.groundFogShadeColor")<at("env.groundFogFlow"),"ground fog colours where CONFIG's Light group shows them");
     Check(at("env.snowDepth")<at("env.stormStrength")&&at("env.snow")<at("env.snowDepth"),"Lightning follows Ground, as on CONFIG's Weather card");
+    Check(FindSpec(catalog,"env.sand")&&FindSpec(catalog,"env.sandDepth")&&FindSpec(catalog,"env.sandHarmonize")&&FindSpec(catalog,"env.sandColor")&&FindSpec(catalog,"env.tumbleweeds")&&
+          group("env.sand")=="Ground"&&group("env.sandDepth")=="Ground"&&group("env.sandHarmonize")=="Ground"&&group("env.sandColor")=="Ground"&&group("env.tumbleweeds")=="Ground"&&
+          at("env.snowDepth")<at("env.sand")&&at("env.sand")<at("env.sandDepth")&&at("env.sandDepth")<at("env.sandHarmonize")&&at("env.sandHarmonize")<at("env.sandColor")&&at("env.sandColor")<at("env.tumbleweeds")&&at("env.tumbleweeds")<at("env.stormStrength")&&
+          FindSpec(catalog,"env.weather.type")->max==7,"Sand, Sand depth, Color harmonize, Sand colour, Tumbleweeds and Sand weather sit in Ground/Weather catalog");
     Check(at("env.weather.type")<at("env.weather.count")&&at("env.weather.count")<at("env.weather.windSpeed")&&at("env.weather.windDirection")<at("env.gusts")&&at("env.gusts")<at("env.foliageWind")&&at("env.foliageWind")<at("env.gustDensity"),"Weather keys in CONFIG's Weather card order");
     Check(at("env.storm")<at("env.stormStrength")&&at("lens.flare.dirt")<at("exposure"),"Lightning switch first; CONFIG's CAMERA tab before EFFECTS");
     {

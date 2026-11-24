@@ -13,6 +13,7 @@
 #include "SceneUndoClock.h"
 #include "../Environment/EnvironmentSurfaceMath.h"
 #include "../Environment/MapCollisionGrid.h"
+#include "../MapData/MapSources.h"
 #include "../Movie/CameraBridge.h"
 #include "../Movie/MovieMode.h"
 #include "../Platform/JsonBuilder.h"
@@ -230,8 +231,10 @@ std::filesystem::path WorkshopMapVpk(const std::string& map, std::vector<uint8_t
 	if (name.empty()) return {};
 	std::error_code official;
 	if (std::filesystem::exists(GameCsgoDir() / "maps" / (name + ".vpk"), official)) return {};
-	// game/csgo -> game -> Counter-Strike Global Offensive -> common -> steamapps
-	const auto steamapps = GameCsgoDir().parent_path().parent_path().parent_path().parent_path();
+	// The Steam install's steamapps, not the running game's: the launcher runs CS2 from its own copy under
+	// %APPDATA%, with no Workshop folder beside it. The running folder is the fallback.
+	const auto steam = MapData::ResolveCs2Root();
+	const auto steamapps = (steam.empty() ? GameCsgoDir().parent_path().parent_path() : steam).parent_path().parent_path();
 	std::error_code ec;
 	for (const auto& item : std::filesystem::directory_iterator(steamapps / "workshop" / "content" / "730", ec)) {
 		std::error_code ec2;

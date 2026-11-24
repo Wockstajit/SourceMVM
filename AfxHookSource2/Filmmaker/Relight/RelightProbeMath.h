@@ -267,8 +267,9 @@ inline uint64_t ProbeLightingKey(const Scene& scene,unsigned residentStaticLight
     for(const auto& light:scene.lights){
         add(light.position);add(light.angles);add(light.color);add(light.lumens);
         add(light.brightnessScale);add(light.range);add(light.sizeX);add(light.sizeY);
-        add(light.sourceRadius);add(light.enabled);add(light.castShadows);
-        add(light.innerAngle);add(light.outerAngle);add(light.sceneObject);add(light.runtimeShadows);
+        add(light.sourceRadius);add(light.enabled);add(light.castShadows);add(light.bounceOnly);add(light.bounceScale);
+        add(light.innerAngle);add(light.outerAngle);add(light.hoodedEmitter);add(light.sceneObject);add(light.runtimeShadows);
+        add(light.skirtNear);add(light.skirtFar);
     }
     return hash;
 }

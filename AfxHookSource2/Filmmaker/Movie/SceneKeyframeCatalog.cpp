@@ -92,6 +92,7 @@ const std::map<std::string, std::string>& Names() {
         {"env.surfaceRadius", "Surface radius"}, {"env.surfaceX", "Surface centre X"}, {"env.surfaceY", "Surface centre Y"},
         {"env.maskScale", "Patch scale"}, {"env.ripple", "Ripples"}, {"env.reflectionRoughness", "Reflection roughness"},
         {"env.snowDepth", "Snow depth"},
+        {"env.sand", "Sand coverage"}, {"env.sandDepth", "Sand depth"}, {"env.sandHarmonize", "Color harmonize"}, {"env.sandColor", "Sand colour"}, {"env.tumbleweeds", "Tumbleweeds"},
         // CONFIG > ENVIRONMENT > WEATHER > Lightning
         {"env.storm", "Lightning"}, {"env.stormStrength", "Lightning intensity"},
         {"env.stormInterval", "Strike interval"}, {"env.stormRadius", "Strike radius"},
@@ -126,7 +127,7 @@ const EnvGroup kEnvGroups[] = {
     {"lighting", "Lighting", "enabled mapLightPower ambient playerFill bounce sunAngle lampAngle shadowSoftness exposureBias sunRelight bakedFill"},
     {"fog", "Fog", "fogDensity fogStart fogHeight fogNoise fogColor lightShafts groundFog groundFogCoverage groundFogHeight groundFogSoftness groundFogWisps groundFogWispSize groundFogStreak groundFogDetail groundFogBillowSize groundFogColor groundFogSun groundFogShade groundFogShadows groundFogShadeColor groundFogFlow groundFogPushSize groundFogRecovery groundFogSwirl groundFogWind groundFogWindAngle groundFogChurn fogBase fogRange scatter localFogRadius fogX fogY fogZ"},
     {"weather", "Weather", "weather.type weather.count weather.speed weather.windSpeed weather.windDirection gusts foliageWind gustDensity gustHeight gustWisps gustFloor weather.size weather.color turbulence particleOpacity softness streak particleLight"},
-    {"ground", "Ground", "wet puddles snow snowDepth puddleHeight puddleDepth surfaceRadius surfaceX surfaceY maskScale ripple reflectionRoughness"},
+    {"ground", "Ground", "wet puddles snow snowDepth sand sandDepth sandHarmonize sandColor tumbleweeds puddleHeight puddleDepth surfaceRadius surfaceX surfaceY maskScale ripple reflectionRoughness"},
     {"lightning", "Lightning", "storm stormStrength stormInterval stormRadius"},
 };
 // Position of `word` in a space-separated list, or -1.
@@ -224,7 +225,7 @@ const std::vector<ChannelSpec>& Catalog() {
             // Wind you can see and the lightning: the renderer samples them every frame. The strike
             // interval re-times the strikes, so a keyed interval moves which strike is lit; it is
             // still the same strike at the same demo time, as a capture needs.
-            " gusts gustDensity gustHeight gustWisps gustFloor storm stormInterval stormRadius";
+            " gusts gustDensity gustHeight gustWisps gustFloor sand sandDepth sandHarmonize tumbleweeds storm stormInterval stormRadius";
         for (const auto& f : Environment::ClimateSpecs()) {
             const std::string id = f.key;
             if (!Has(safe, id)) continue;
@@ -248,7 +249,7 @@ const std::vector<ChannelSpec>& Catalog() {
         // Intensity is CONFIG's percent (the particle count / 60): the count only fills a grid of
         // particles built once, so changing it never rebuilds anything. Wind is CONFIG's speed and
         // compass direction; EnvironmentScene.cpp turns them into the x/y the weather stores.
-        for (auto w : {WeatherSpec{"type",0,0,6}, {"count",30,0,100}, {"speed",600,0,1500}, {"size",1,.1,12}, {"windSpeed",40,0,500}})
+        for (auto w : {WeatherSpec{"type",0,0,7}, {"count",30,0,100}, {"speed",600,0,1500}, {"size",1,.1,12}, {"windSpeed",40,0,500}})
             addEnv(std::string("weather.") + w.id, std::string(w.id) == "type" ? ChannelType::Enum : ChannelType::Float,
                 w.lo, w.hi, 1, {{w.value}, {}});
         addEnv("weather.windDirection", ChannelType::Angle, 0, 360, 1, {{0}, {}});

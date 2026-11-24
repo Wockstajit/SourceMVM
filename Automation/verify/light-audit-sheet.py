@@ -1,7 +1,7 @@
 """Contact sheets and an index page for audit-map-lights.ps1 output.
 
 Usage: python light-audit-sheet.py <audit output dir>
-Reads index.json, writes sheet-NN.png (12 labelled thumbnails each) and index.html.
+Reads index.json, writes sheet-NN.png (native and relit frames side by side when available) and index.html.
 """
 import html
 import json
@@ -20,17 +20,26 @@ def main(root: str) -> int:
         entries = json.load(handle)
     if isinstance(entries, dict):
         entries = [entries]
-    per_sheet = COLUMNS * ROWS
+    paired = any(entry.get("frameBaked") for entry in entries)
+    columns = COLUMNS // 2 if paired else COLUMNS
+    per_sheet = columns * ROWS
     sheets = []
     for first in range(0, len(entries), per_sheet):
         batch = entries[first:first + per_sheet]
         sheet = Image.new("RGB", (COLUMNS * THUMB[0], ROWS * (THUMB[1] + LABEL)), (24, 24, 24))
         draw = ImageDraw.Draw(sheet)
         for i, entry in enumerate(batch):
-            x, y = (i % COLUMNS) * THUMB[0], (i // COLUMNS) * (THUMB[1] + LABEL)
-            path = os.path.join(root, entry["frame"])
-            if os.path.exists(path):
-                sheet.paste(Image.open(path).convert("RGB").resize(THUMB), (x, y))
+            x = (i % columns) * THUMB[0] * (2 if paired else 1)
+            y = (i // columns) * (THUMB[1] + LABEL)
+            frames = [("frameBaked", "Native"), ("frame", "Relit")] if paired else [("frame", "")]
+            for column, (key, title) in enumerate(frames):
+                if not entry.get(key):
+                    continue
+                left = x + column * THUMB[0]
+                with Image.open(os.path.join(root, entry[key])) as source:
+                    sheet.paste(source.convert("RGB").resize(THUMB), (left, y))
+                if title:
+                    draw.text((left + 6, y + 4), title, fill="white", stroke_width=2, stroke_fill="black")
             text = "{label}  {lumens} lm  r={range:.0f}  @({p[0]:.0f},{p[1]:.0f},{p[2]:.0f})".format(
                 label=entry["label"], lumens="/".join(str(round(v)) for v in entry["lumens"]),
                 range=float(entry["range"]), p=entry["position"])

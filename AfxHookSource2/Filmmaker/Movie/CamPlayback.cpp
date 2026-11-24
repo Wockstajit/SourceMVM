@@ -98,7 +98,9 @@ bool CamPlayback::TickPlay(const CamMarkers& mk, const CamPathEval& eval, const 
 
 	double demoNow = 0.0; g_MirvTime.GetCurrentDemoTime(demoNow);
 	int demoTickInt = 0; g_MirvTime.GetCurrentDemoTick(demoTickInt);
-	const double demoTick = (double)demoTickInt;
+	double fracDemoTick = 0.0;
+	const bool haveFractionalTick = g_MirvTime.GetFractionalDemoTick(fracDemoTick);
+	const double demoTick = haveFractionalTick ? fracDemoTick : (double)demoTickInt;
 	bool atEnd = false;
 	CamPathEval::Pose pose;
 	// Where we are on the path, in DEMO TICKS. The per-keyframe shake layer is keyed and clocked
@@ -106,49 +108,42 @@ bool CamPlayback::TickPlay(const CamMarkers& mk, const CamPathEval& eval, const 
 	double shakeTick = 0.0;
 
 	if (!freeze) {
-		// PREDICTIVE demo clock in TICK SPACE -- two fixes in one. (a) marker.time can
-		// go STALE after retiming, while marker.tick is the axis the editor/timeline /
-		// scrubber are all built on; so Live evaluates by TICK to stay locked to the
-		// real playhead. (b) the engine's demo tick still arrives COARSE and sometimes
-		// reversed at low timescale, so we keep the predict/correct/snap machinery that
-		// killed the slow-timescale jitter -- just driven by ticks instead of seconds:
-		// (1) estimate the tick RATE (low-passed), (2) ADVANCE at that rate each frame,
-		// (3) gently CORRECT toward the true tick, and (4) SNAP on a genuine seek.
-		constexpr double kSeekTicks = 16.0; // ~0.25s @ 64tick: a real seek snaps the clock
-		if (m_liveClock < 0.0 || std::fabs(demoTick - m_liveClock) > kSeekTicks) {
-			// init / seek
-			m_liveClock = demoTick; m_liveClockRate = -1.0; m_prevDemoNow = demoTick;
-			m_prevLiveClock = demoTick; m_rateDemoAccum = 0.0; m_rateWallAccum = 0.0;
+		if (haveFractionalTick) {
+			// Exact fractional demo tick (DemoClockMath.h): phase-locked to the same interpolated
+			// clock CS2 uses for moving players/entities, smooth at any demo_timescale, and free of
+			// wall-clock predictor drift or low-pass lag relative to players.
+			m_liveClock = fracDemoTick;
+			m_prevDemoNow = fracDemoTick;
+			m_prevLiveClock = fracDemoTick;
 		} else {
-			double dDemo = demoTick - m_prevDemoNow; // >= 0 when advancing
-			m_prevDemoNow = demoTick;
+			// Fallback predictor when outside fractional demo clock:
+			// (1) estimate the tick RATE (low-passed), (2) ADVANCE at that rate each frame,
+			// (3) gently CORRECT toward the true tick, and (4) SNAP on a genuine seek.
+			constexpr double kSeekTicks = 16.0; // ~0.25s @ 64tick: a real seek snaps the clock
+			if (m_liveClock < 0.0 || std::fabs(demoTick - m_liveClock) > kSeekTicks) {
+				// init / seek
+				m_liveClock = demoTick; m_liveClockRate = -1.0; m_prevDemoNow = demoTick;
+				m_prevLiveClock = demoTick; m_rateDemoAccum = 0.0; m_rateWallAccum = 0.0;
+			} else {
+				double dDemo = demoTick - m_prevDemoNow; // >= 0 when advancing
+				m_prevDemoNow = demoTick;
 
-			// Unbiased rate: accumulate the tick advance AND the wall time across
-			// frames, then rate = ticksAdvanced / wallElapsed over the window. Counting
-			// the FLAT frames (where the coarse demo tick didn't change) in the
-			// denominator is what keeps the estimate honest -- sampling dDemo/wallDt
-			// only on the tick frames reads a whole tick landing in one frame as
-			// near real-time, so the predictor races ahead and the corrector hauls it
-			// back: the visible back-and-forth wiggle.
-			if (dDemo > 0.0) m_rateDemoAccum += dDemo; // skip tiny backward blips
-			m_rateWallAccum += wallDt;
-			if (m_rateWallAccum >= kClockRateTau) {
-				double inst = m_rateDemoAccum / m_rateWallAccum;
-				m_liveClockRate = (m_liveClockRate < 0.0) ? inst
-					: m_liveClockRate + (inst - m_liveClockRate) * 0.5;
-				m_rateDemoAccum = 0.0; m_rateWallAccum = 0.0;
+				if (dDemo > 0.0) m_rateDemoAccum += dDemo; // skip tiny backward blips
+				m_rateWallAccum += wallDt;
+				if (m_rateWallAccum >= kClockRateTau) {
+					double inst = m_rateDemoAccum / m_rateWallAccum;
+					m_liveClockRate = (m_liveClockRate < 0.0) ? inst
+						: m_liveClockRate + (inst - m_liveClockRate) * 0.5;
+					m_rateDemoAccum = 0.0; m_rateWallAccum = 0.0;
+				}
+
+				double rate = (m_liveClockRate > 0.0) ? m_liveClockRate : 0.0;
+				m_liveClock += rate * wallDt; // predict at the (now unbiased) tick rate
+				m_liveClock += (demoTick - m_liveClock) * (1.0 - std::exp(-wallDt / kClockCorrectTau));
+
+				if (m_liveClock < m_prevLiveClock) m_liveClock = m_prevLiveClock;
+				m_prevLiveClock = m_liveClock;
 			}
-
-			double rate = (m_liveClockRate > 0.0) ? m_liveClockRate : 0.0;
-			m_liveClock += rate * wallDt; // predict at the (now unbiased) tick rate
-			m_liveClock += (demoTick - m_liveClock) * (1.0 - std::exp(-wallDt / kClockCorrectTau));
-
-			// Monotonic guard: a momentary over-predict + the correction pull must
-			// never dip the clock below its last value (would read as the camera
-			// stuttering backwards). Holding keeps motion one-directional; a real
-			// seek is caught by the snap branch above.
-			if (m_liveClock < m_prevLiveClock) m_liveClock = m_prevLiveClock;
-			m_prevLiveClock = m_liveClock;
 		}
 		const double clk = m_liveClock; // predicted demo TICK
 		const double tFirst = (double)mk.Front().tick, tLast = (double)mk.Back().tick;
@@ -212,7 +207,9 @@ bool CamPlayback::TickPlay(const CamMarkers& mk, const CamPathEval& eval, const 
 		// Low-pass the OUTPUT pose: rounds the velocity "corner" at each marker so the
 		// move glides through keyframes and mops up any residual clock roughness.
 		// Angles smooth along the SHORTEST arc so the +-180 wrap never spins.
-		if (!m_poseSmoothInit) {
+		if (!m_poseSmoothInit || (!freeze && haveFractionalTick)) {
+			// When locked to the exact fractional demo tick, push the evaluated spline pose directly
+			// with zero wall-clock low-pass lag so moving players stay phase-locked to the camera.
 			m_sX = pose.x; m_sY = pose.y; m_sZ = pose.z;
 			m_sPitch = pose.pitch; m_sYaw = pose.yaw; m_sRoll = pose.roll; m_sFov = pose.fov;
 			m_poseSmoothInit = true;

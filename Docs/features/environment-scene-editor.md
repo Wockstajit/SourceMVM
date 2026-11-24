@@ -20,9 +20,9 @@ implementation and browser mock expose six task-oriented cards:
 | --- | --- |
 | Looks | Starting presets; Color: exposure, tint, saturation, contrast; Lens: bloom, vignette, grain, chromatic shift |
 | Sky | Time of day, sun direction, sun height, sun power, haze, stars, sun color; Moon: brightness, phase, size, color; Clouds: enable, amount, density, height, cloud speed, rain darkening |
-| Lighting | Map light power, ambient light, player fill, bounce intensity, 1 to 3 bounce steps per frame, shadows and source sizes; Exposure: the Environment's own auto exposure and its bias |
+| Lighting | Map light power, ambient light, player fill, fill lights, bounce intensity, 1 to 3 bounce steps per frame, shadows and source sizes; Exposure: the Environment's own auto exposure and its bias |
 | Fog | Two pages. **Fog**: height fog density, start distance, height, variation and color, and Light shafts. **Ground fog**: starting looks, density, coverage, depth; shape; light (color, sun, shade, shadows); motion (push, refill time, swirl, drift speed and direction) and the sim view |
-| Weather | Type, intensity, fall speed, wind speed/direction; Ground: wetness, puddles, snow, snow depth, CS2 water beads; Lightning: enable, intensity, interval |
+| Weather | Type (Clear, Rain, Snow, Ash, Sand), intensity, fall speed, wind speed/direction, gusts, foliage wind; Ground drift: drift density, height, wisps, floor drift; Ground: wetness, puddles, snow, snow depth, sand, sand depth, sand texture (Dusty Mix/Cracked Crust/Pebbly Grit/Trampled), harmonize color, sand color, tumbleweeds, CS2 water beads; Lightning: enable, intensity, interval |
 | Scene Objects | **+ Add** in the header (point, spot and area lights, a camera object); Outliner: every placed thing in groups, with show/hide, in-renders and lock; Library: CS2 models and your OBJ meshes; the selected object's light or mesh editor and its RIG under the tree; Map lights: Edit lights and Turn all back on for the map's own lamps |
 | Round heat map | Its own card: where the round's players walked ([`round-heatmap.md`](round-heatmap.md)) |
 
@@ -116,14 +116,38 @@ header-only `EnvironmentGizmoMath.h`, with standalone native tests.
 
 ## Surface experiments and relighting without a rebake
 
-**WEATHER → Ground** provides snow coverage, wetness and
-puddles. Rain and wetness are one effect. Choosing Rain on untouched ground also sets wetness 0.6
-and puddles 0.25. Snow sets snow 0.6. The card switch turns the particles and the ground off and back
-on together. While it rains, only exposed ground is wet, and wetness 0 keeps it dry. Ground response
-is global by default. Puddle coverage is the environment shader's standing-water film. Native CS2
-water meshes are not built for coverage, because regenerating wet-ground geometry stalled every
-slider edit. Scene Objects reports scene messages, while Weather summarizes the
-enabled ground effects.
+**WEATHER** pins the **Weather** preset grid (**Clear**, **Rain**, **Snow**, **Ash**, **Sand**,
+**Sandstorm**) above five focused sub-tabs: **General** (universal intensity, fall speed, wind,
+gusts, foliage wind, ground drift, particles and coating area), **Rain** (wetness, puddles,
+ripples, reflections, streak length, CS2 water beads), **Snow** (snow coverage, depth, snowflake
+detail, snow on props), **Sand** (sand textures, harmonize slider, coverage, depth, tumbleweeds,
+sand on props and sandstorm fog)
+and **Storm** (lightning and storm center). Rain and wetness are one effect: choosing Rain sets
+wetness 0.6 and puddles 0.25. Snow sets snow 0.6. **Sand** sets sand 0.65 with warm blown-sand haze,
+fine wind-streaked sand grains and low golden saltation drifts along the floor. **Sandstorm**
+(`weather sandstorm` and `look sandstorm` on **LOOKS → Starting looks**) turns both the regular
+height fog and the floor/ground fog dusty yellow, paired with strong gusts, dense blown sand, sandy
+ground (0.85) and rolling tumbleweeds; switching back to Clear or another weather cleans up the
+sandstorm floor fog. Turning up **Gusts** with sand lying on **Clear** also kicks up yellow
+blown-sand drifts across the ground. Sand ships four bundled CC0 Poly Haven sand scans
+(`Assets/environment/sand/`), named by how they look: **Dusty Mix** (a blend of the other three),
+**Cracked Crust** (Poly Haven `sand_01`), **Pebbly Grit** (`coast_sand_02`) and **Trampled** (`park_sand`), with a continuous **Color harmonize** slider (0 keeps each scan's
+original captured colour; 1 harmonizes every texture to one cohesive desert-sand palette). For sand
+only (leaving snow and rain overhead shelter unchanged), outdoor ground stays covered anywhere open
+air reaches — including under outdoor roofs, awnings, balconies and open-air bridges/arches — while
+blowing a natural fringe of fallout inside doorways and tapering to zero inside closed buildings. It
+gathers in drifts (never by how bright the ground is, so it does not follow shadows), sheds softly off steeper curbs/walls, kicks up warm sand puffs on
+footsteps, and fills footprints back in faster than snow (scaling with wind speed and gusts).
+**Tumbleweeds** (0–16) spawns a procedural Russian thistle mesh
+(`Assets/environment/tumbleweed/tumbleweed.glb`) from off-camera upwind open-street spots (outside
+the frustum or occluded behind map walls) so they roll smoothly into view, channel airflow around
+walls and down streets, climb only verified low curbs/steps without erratic wall jumping, deflect
+calmly off walls and players, cast porous contact/sun shadows, and recycle only out of view. The
+card switch turns the particles and the ground off and back on together. While it rains, only
+exposed ground is wet, and wetness 0 keeps it dry. Ground response is global by default. Puddle
+coverage is the environment shader's standing-water film. Native CS2 water meshes are not built for
+coverage, because regenerating wet-ground geometry stalled every slider edit. Scene Objects reports
+scene messages, while Weather summarizes the enabled ground effects.
 
 Snow uses a world-space coverage mask and filtered upward-facing normals. Full coverage leaves no
 noise-mask holes on eligible faces, and anything that is not steep is covered, so a tiled roof is
@@ -730,7 +754,7 @@ game at run time and never shipped (`EnvironmentGameTextures.cpp`, reading throu
   sheen toward the sun and decides where it sparkles (the smooth specks); a thin patch's edge follows
   the height. The procedural lumps and grain it replaced are removed. Drifts, footprints and trenches
   stay. Until the textures have loaded the snow is plain white.
-- **CS2 water beads** (`rainTexture`, on by default): `materials/dev/water_droplets`, the beads of water
+- **CS2 water beads** (`rainTexture`, a slider from 0 to 2, default 1; 0 turns them off and leaves the plain wet film, above 1 they spread into more of the clumps): `materials/dev/water_droplets`, the beads of water
   CS2's wet surfaces use, one repeat every 32 units on wet ground that is not under a pool. They gather
   in a ring round each pool's edge and in scattered spots (`WeatherClumps`), not over every wet
   surface. They bend
@@ -769,6 +793,8 @@ shader can ask in one read whether any foot has been near a point, and skips the
 has; whole snow skips the wet-ground section. The weather cover of a map (about two seconds of
 eight threads on Inferno) is kept in `<AppData>\HLAE\source_mvm\environment\cover` under a
 fingerprint of the map's triangles and read back in a few hundredths of a second on later launches.
+
+**Fill lights** (`climate fillLights`, a switch, on by default). Fill lights are the lights a map adds only to brighten a place, with no lamp of their own, picked by type and aim the same way on every map (`MarkFillLights` in `Relight/RelightMath.h`): lights authored as bounce only (`directlight` 0), rect and barn fixtures aimed more than 30 degrees up at arches and ceilings, and the downward panel paired with such an uplight. Off, they give neither direct light nor bounce. Bounce-only lights never give direct light either way. A `light_rect` spreads to twice its authored size and fades over the outer 60%, because the game lights past a panel's edges; a `light_barn` keeps its hard cut.
 
 **Player fill** (`climate playerFill`, 1 to 4, default 1.8). Under dynamic lighting players take
 their ambient light from sparse probes and stood out near black in shade beside walls lit per

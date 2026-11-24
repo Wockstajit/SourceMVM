@@ -142,7 +142,7 @@ R"CFJS(
       // could never be released. They are settings OF a pass, not passes.
       ['relighting', 0], ['worldGi', 0], ['bakedSuppressed', 0],
       ['fogDensity', 0], ['groundFog', 0],
-      ['snow', 0], ['wet', 0], ['puddles', 0],
+      ['snow', 0], ['sand', 0], ['tumbleweeds', 0], ['wet', 0], ['puddles', 0],
       ['bloom', 0], ['vignette', 0], ['grain', 0], ['chromatic', 0],
       ['saturation', 1], ['contrast', 1]
     ];
@@ -277,10 +277,15 @@ R"CFJS(
       chromatic:   [T('Chromatic shift'), 0, 4, 2, '', true, T('Colour fringing toward the frame edges.')],
       snow:        [T('Snow coverage'), 0, 1, 2, '', true, T('Snow on upward-facing surfaces, including actors.')],
       snowDepth:   [T('Snow depth'), 0, 1, 2, '', false, T('How deep the snow lies where it has drifted. Deep snow is parted by the players who walk through it; thin snow only takes their footprints.')],
+      sand:        [T('Sand coverage'), 0, 1, 2, '', true, T('Desert sand on outdoor ground, including under outdoor overhangs and bridges, with natural fallout inside doorways. Players leave tracks that fill back in faster than snow; turn up Gusts to blow yellow sand across the floor.')],
+      sandDepth:   [T('Sand depth'), 0, 1, 2, '', false, T('How deep the sand lies where it has drifted. Deep sand takes recessed tracks that slump and blow back in with the wind.')],
+      sandHarmonize: [T('Color harmonize'), 0, 1, 2, '', false, T('0 keeps each sand scan’s original captured color; 1 harmonizes every sand texture to one cohesive desert palette.')],
+      tumbleweeds: [T('Tumbleweeds'), 0, 16, 0, '', true, T('Dry tumbleweeds carried across the map by the wind. They roll in from out of sight upwind, channel down streets around walls, climb low curbs and deflect off players.')],
       puddles:     [T('Puddle coverage'), 0, 1, 2, '', true, T('Standing water on flat ground. Local radius uses the height band.')],
       wet:         [T('Wetness'), 0, 1, 2, '', true, T('Darkens and glosses surfaces as if rained on.')],
       puddleHeight:[T('Puddle height'), -4000, 8000, 0, 'u', false, T('World height the puddle band sits at when the coating is local.')],
       puddleDepth: [T('Height tolerance'), 1, 200, 0, 'u', false, T('How far either side of that height still counts as puddle when local.')],
+      rainTexture: [T('CS2 water beads'), 0, 2, 2, '', true, T('Puts Counter-Strike’s own beads of water on wet ground, read from your game. Off keeps the plain wet film.')],
       ripple:      [T('Ripples'), 0, 2, 2, '', true, T('Surface movement on the standing water.')],
       reflectionRoughness: [T('Reflection roughness'), 0, 1, 2, '', false, T('How sharp the wet-surface reflections are.')],
       maskScale:   [T('Patch scale'), 0.002, 0.1, 3, '', false, T('Size of the coverage patches.')],
@@ -289,11 +294,11 @@ R"CFJS(
       turbulence:  [T('Turbulence'), 0, 8, 2, '', true, T('How much the precipitation tumbles as it falls.')],
 )CFJS"
 R"CFJS(
-      gusts:       [T('Gusts'), 0, 1, 2, '', true, T('Wind you can see: fronts of thicker, slanting rain or streaking snow that sweep across with the wind, with blown mist between. Turn it up in snow for a blizzard. Wind speed and direction steer it.')],
-      gustDensity: [T('Drift density'), 0, 2, 2, '', true, T('How thick the snow, ash or spray is that gusts blow along the ground. 1 is how the weather comes.')],
+      gusts:       [T('Gusts'), 0, 1, 2, '', true, T('Wind you can see: fronts of slanting rain, streaking snow, ash or yellow blown sand sweeping across the ground. Works under Sand weather and over sandy ground on Clear. Wind speed and direction steer it.')],
+      gustDensity: [T('Drift density'), 0, 2, 2, '', true, T('How thick the snow, sand, ash or spray is that gusts blow along the ground. 1 is how the weather comes.')],
       gustHeight:  [T('Drift height'), 0.25, 2, 2, '', false, T('How high the blown layer stands over the ground.')],
       gustWisps:   [T('Drift wisps'), 0, 2, 2, '', false, T('How much the blown layer is torn into wisps and clumps. 0 is an even sheet.')],
-      gustFloor:   [T('Floor powder'), 0, 2, 2, '', true, T('Loose snow blown over the ground where a gust carries it, and the rough patches a gust sweeps over wet ground.')],
+      gustFloor:   [T('Floor drift'), 0, 2, 2, '', true, T('Loose snow or sand blown over the ground where a gust carries it, and the rough patches a gust sweeps over wet ground.')],
       particleOpacity: [T('Opacity'), 0, 1, 2, '', false, T('How solid each particle reads.')],
       softness:    [T('Soft intersections'), 0.1, 64, 1, '', false, T('Fades particles as they meet geometry so they do not cut hard.')],
       streak:      [T('Rain streak length'), 1, 50, 0, '', false, T('How long each rain streak is drawn.')],
@@ -322,7 +327,7 @@ R"CFJS(
     // Every Lighting control. Editing one keeps dynamic lighting on (relighting 1), so turning a
     // lighting feature off or resetting the card never releases the renderer and drops the map
     // back to its baked lighting.
-    var LIGHT_KEYS = ['mapLightPower', 'playerFill', 'ambient', 'sunAngle', 'lampAngle', 'shadowSoftness', 'contactShadows', 'ao', 'skyOcclusion',
+    var LIGHT_KEYS = ['mapLightPower', 'playerFill', 'fillLights', 'ambient', 'sunAngle', 'lampAngle', 'shadowSoftness', 'contactShadows', 'ao', 'skyOcclusion',
       'bounce', 'bounceSteps', 'autoExposure', 'exposureBias'];
     // A Lighting feature switch: on/off only, and never a reason to switch the renderer off.
     function lw(parent, label, key, tip) {
@@ -453,7 +458,7 @@ R"CFJS(
       moon: 1, moonAzimuth: 315, moonElevation: -30, moonPhase: 0.5, moonSize: 1.5,
       moonColorR: 0.75, moonColorG: 0.85, moonColorB: 1, cloudRain: 1,
       relighting: 0, relight: 0, ambient: 1, mapLightPower: 1, playerFill: 1.8, sunRelight: 0.6, bakedSuppressed: 0, bakedFill: 0.6,
-      contactShadows: 1, shadowBias: 2, sunAngle: 0.53, lampAngle: 1, shadowSoftness: 1, worldGi: 0, bounce: 1, bounceSteps: 1, bounceSize: 2048,
+      fillLights: 1, contactShadows: 1, shadowBias: 2, sunAngle: 0.53, lampAngle: 1, shadowSoftness: 1, worldGi: 0, bounce: 1, bounceSteps: 1, bounceSize: 2048,
       bounceX: 0, bounceY: 0, bounceZ: 0, bounceAlbedo: 0.55, sceneReflections: 0, ao: 1, skyOcclusion: 1,
       autoExposure: 1, exposureBias: 0,
       fogDensity: 0, fogStart: 0, fogHeight: 320, fogBase: 0, fogNoise: 0.4, fogRange: 4000, scatter: 0.45,
@@ -465,7 +470,7 @@ R"CFJS(
       groundFogBillowSize: 220, groundFogChurn: 1, groundFogSun: 1, groundFogShade: 1,
       groundFogShadeR: 1, groundFogShadeG: 1, groundFogShadeB: 1, groundFogPushSize: 0.55, groundFogShadows: 1,
       rainTexture: 1,
-      snow: 0, snowDepth: 0.5, wet: 0, puddles: 0, puddleHeight: 128, puddleDepth: 24, surfaceRadius: 0, puddleNative: 0,
+      snow: 0, snowDepth: 0.5, snowProps: 1, sand: 0, sandDepth: 0.5, sandProps: 1, sandStyle: 0, sandHarmonize: 1, sandColorR: 0.62, sandColorG: 0.51, sandColorB: 0.34, tumbleweeds: 0, wet: 0, puddles: 0, puddleHeight: 128, puddleDepth: 24, surfaceRadius: 0, puddleNative: 0,
       maskScale: 0.02, ripple: 0.35, reflectionRoughness: 0.35,
       particleDetail: 1, turbulence: 1, gusts: 0, gustDensity: 1, gustHeight: 1, gustWisps: 1, gustFloor: 1,
       particleOpacity: 0.65, softness: 8, streak: 12,
@@ -541,7 +546,7 @@ R"CFJS(
     // Release every lighting switch while restoring its tuning.
     var envLightResetSpec = envResetCmds(
       ['relighting', 'relight', 'worldGi', 'bakedSuppressed', 'sceneReflections',
-       'mapLightPower', 'playerFill', 'ambient', 'sunRelight', 'bakedFill', 'contactShadows',
+       'mapLightPower', 'playerFill', 'fillLights', 'ambient', 'sunRelight', 'bakedFill', 'contactShadows',
        'shadowBias', 'sunAngle', 'lampAngle', 'shadowSoftness', 'bounce', 'bounceSteps',
        'bounceSize', 'bounceX', 'bounceY', 'bounceZ', 'bounceAlbedo',
        'ao', 'skyOcclusion', 'autoExposure', 'exposureBias']);

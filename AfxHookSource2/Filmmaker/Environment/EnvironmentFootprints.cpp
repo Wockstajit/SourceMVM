@@ -215,9 +215,16 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
         const int rows = (std::min)(kFootSize, int(double(kFootSize) * (frame.time - s.filled) / .35));
         if (rows > 0) {
             s.filled = frame.time;
-            // Snow cleared by a fire or a blast drifts back in about forty seconds, snowing or not.
-            const bool snowing = frame.scene.weather.type == 2 && frame.scene.weather.count > 0;
-            s.image.FillRows(snowing ? 2 : 0, s.fillRow, rows, snowing ? 3 : 2);
+            // Snow cleared by a fire or a blast drifts back in about forty seconds, snowing or not;
+            // sand prints slump and blow back in faster, scaling with wind and gusts (FootFillStep).
+            const auto &cl = frame.scene.climate;
+            const auto &w = frame.scene.weather;
+            const bool sandLies = cl[CL_sand] > 0 && cl[CL_sand] > cl[CL_snow];
+            const bool snowing = w.type == 2 && w.count > 0;
+            const bool sandWeather = w.type == 7 && w.count > 0;
+            const float windSpeed = std::sqrt(w.windX * w.windX + w.windY * w.windY);
+            const FootFillRate fill = FootFillStep(sandLies, snowing, sandWeather, windSpeed, cl[CL_gusts]);
+            s.image.FillRows(fill.mark, s.fillRow, rows, fill.back);
             s.fillRow = FootImage::Wrap(s.fillRow + rows);
         }
     }

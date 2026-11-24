@@ -67,6 +67,9 @@ inline void ApplyEnvironmentLighting(Scene& out,const Environment::Climate& auth
     out.sunAngle=c[CL_sunAngle];
     out.lampAngle=c[CL_lampAngle];
     out.shadowSoftness=c[CL_shadowSoftness];
+    // Fill lights (Light::fill) off: no direct light and no bounce from them.
+    const bool fillsOff=c[CL_fillLights]<.5f;
+    if(fillsOff)for(auto& light:out.lights)if(light.fill)light.enabled=false;
     // The probe field also supplies occluded skylight. Zero bounce removes reflected
     // transport at composition, while retaining that visibility solution.
     out.bounce=c[CL_bounce];
@@ -87,6 +90,7 @@ inline void ApplyEnvironmentLighting(Scene& out,const Environment::Climate& auth
     add(&out.skyColor,sizeof(out.skyColor));add(&out.indirect,sizeof(out.indirect));add(&out.intensity,sizeof(out.intensity));
     add(&out.shadows,sizeof(out.shadows));add(&out.sunAngle,sizeof(out.sunAngle));
     add(&out.lampAngle,sizeof(out.lampAngle));add(&out.shadowSoftness,sizeof(out.shadowSoftness));
+    add(&fillsOff,sizeof(fillsOff));
     out.generation=hash;
 }
 // Scene Objects must enter the same material/occlusion path as map lights. The

@@ -345,23 +345,37 @@ bool FollowCamera::ViewSetupAttachOverride(float curTime,
 			m_renderTimeSample ? 1 : 0);
 	}
 	if (!m_renderTimeSample) return false;
-	// Rebase the smoothed camera onto the interpolated target. For oriented attach points the
-	// offset is stored in target-local axes, so it rotates with the same render-time bone pose the
-	// visible model uses. A world-space offset from the stepped pose makes hand/weapon mounts look
-	// stable in screenshots but swim/jitter in motion as the bone orientation interpolates.
-	const FollowVec3 freshOffset = freshOriented && m_attachOffsetIsLocal
-		? FollowRotateVector(m_attachOffsetFromTarget, freshAng)
-		: m_attachOffsetFromTarget;
-	x = freshTarget.x + freshOffset.x;
-	y = freshTarget.y + freshOffset.y;
-	z = freshTarget.z + freshOffset.z;
-	const FollowAngles freshOutput = freshOriented && m_attachBaseOriented
-		? FollowComposeRotation(freshAng, m_attachAngleOffsetFromBase)
-		: m_outputAngles;
+	// Rebase the camera onto the interpolated render-time target. For rigid attach mounts (the
+	// default: zero smoothing/prediction) compose directly from m_state.offset / rotationOffset on
+	// the fresh render-time transform so no tick-stepped RunFrame residual can ever leak in.
+	const bool rigidDirect = m_state.positionSmoothing <= 0.0001
+		&& m_state.lookSmoothing <= 0.0001
+		&& m_state.prediction <= 0.0001;
+	FollowAngles freshOutput = m_outputAngles;
+	if (rigidDirect) {
+		const FollowAngles baseAng = freshOriented ? freshAng : m_baseAngles;
+		const FollowVec3 freshOffset = FollowRotateVector(m_state.offset, baseAng);
+		x = freshTarget.x + freshOffset.x;
+		y = freshTarget.y + freshOffset.y;
+		z = freshTarget.z + freshOffset.z;
+		freshOutput = FollowComposeRotation(baseAng, m_state.rotationOffset);
+	} else {
+		const FollowVec3 freshOffset = freshOriented && m_attachOffsetIsLocal
+			? FollowRotateVector(m_attachOffsetFromTarget, freshAng)
+			: m_attachOffsetFromTarget;
+		x = freshTarget.x + freshOffset.x;
+		y = freshTarget.y + freshOffset.y;
+		z = freshTarget.z + freshOffset.z;
+		if (freshOriented && m_attachBaseOriented)
+			freshOutput = FollowComposeRotation(freshAng, m_attachAngleOffsetFromBase);
+	}
 	pitch = freshOutput.pitch;
 	yaw = freshOutput.yaw;
 	roll = freshOutput.roll;
 	fov = m_state.fov;
+	m_lastCamPos = FollowVec3{ x, y, z };
+	m_lastCamAng = freshOutput;
+	m_lastTargetPos = freshTarget;
 	if (MvmDebugLog_Active() && sampleRenderDebug) {
 		int tick = 0; g_MirvTime.GetCurrentDemoTick(tick);
 		const auto localPosition = FollowInverseRotateVector({x-freshTarget.x, y-freshTarget.y, z-freshTarget.z}, freshAng);

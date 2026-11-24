@@ -81,9 +81,29 @@ int main(){
         Check(far.x>under.x,"Closer is brighter");
         Light off=bulb;off.enabled=false;Light fire=bulb;fire.transient=true;
         Check(!MakeLiteLamp(off,1,lamp)&&!MakeLiteLamp(fire,1,lamp),"Disabled and effect lights are left out");
+        // A bounce-only fill (authored directlight 0) lights nothing directly but still feeds the bounce.
+        Light bounceFill=bulb;bounceFill.bounceOnly=true;
+        Check(Power(bounceFill,1)==0&&ToRecord(bounceFill,1)[40]==0,"A bounce-only fill light gives no direct light");
+        LiteLamp bounceLamp;Check(MakeLiteLamp(bounceFill,1,bounceLamp)&&bounceLamp.radiance.x>0,"A bounce-only fill light still feeds the bounce");
+        auto authored=bulb;
+        authored.bounceScale=1.5f;
+        const auto direct=ToRecord(authored,1);
+        Check(direct==ToRecord(bulb,1),"Authored bounce gain leaves direct lighting at full power");
+        const auto transport=ScaleBounceRecord(direct,authored.bounceScale);
+        Check(transport[40]==direct[40]*1.5f&&transport[32]==direct[32],
+              "Probe transport scales only the light's radiance");
+        LiteLamp scaled;
+        Check(MakeLiteLamp(authored,1,scaled)&&scaled.radiance.x==bounceLamp.radiance.x*1.5f,
+              "Lite transport uses the authored bounce gain");
+        authored.bounceScale=0;
+        Check(ToRecord(authored,1)==direct&&!MakeLiteLamp(authored,1,scaled),
+              "Disabling authored bounce preserves direct radiance and removes lite bounce");
         // A rect fill light aimed down: it lights the floor inside its opening's projection only.
         Light fill;fill.kind="light_rect";fill.position={192,192,200};fill.angles={90,0,0};fill.lumens=400;fill.range=300;
         fill.sizeX=fill.sizeY=32;fill.sizeZ=.05f;
+        fill.bounceOnly=true;
+        const auto record=ToRecord(fill,1);
+        Check(record[40]==0&&record[41]==0&&record[42]==0,"Projected bounce-only fills emit no direct RGB radiance");
         LiteLamp panel;Check(MakeLiteLamp(fill,1,panel)&&panel.fixture,"A shaped fill light is kept, as a projection");
         const auto below=LiteLampRadiance(panel,{192,192,40},{0,0,1},toward,distance);
         Check(below.x>0&&toward.z>.9f&&distance>100&&distance<200,"The floor under a fill light is lit, and its shadow ray ends at the opening");

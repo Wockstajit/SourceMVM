@@ -53,7 +53,7 @@ std::string Bounds(const std::array<float, 3> &low, const std::array<float, 3> &
 
 std::string VisualJson(const CasterStats &s) {
     std::ostringstream o;
-    o << "{\"batches\":" << s.batches << ",\"cutoutBatches\":" << s.cutoutBatches << ",\"stainedGlassBatches\":" << s.stainedGlassBatches
+    o << "{\"batches\":" << s.batches << ",\"cutoutBatches\":" << s.cutoutBatches << ",\"stainedGlassBatches\":" << s.stainedGlassBatches << ",\"waterTriangles\":" << s.waterTriangles
       << ",\"rigidVertices\":" << s.rigidVertices << ",\"rigidTriangles\":" << s.rigidTriangles << ",\"triangles\":" << s.triangles
       << ",\"bytes\":" << s.bytes << ",\"bounds\":" << Bounds(s.low, s.high) << "}";
     return o.str();

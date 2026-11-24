@@ -16,6 +16,7 @@
 #include "EnvironmentGroundFog.h"
 #include "EnvironmentWindFluid.h"
 #include "EnvironmentGameTextures.h"
+#include "EnvironmentTumbleweeds.h"
 #include "EnvironmentReflectionProbes.h"
 #include "EnvironmentFootprints.h"
 #include "EnvironmentFootprintMath.h"
@@ -88,6 +89,9 @@ struct Constants {
     // the info vector is how many. Match mapLamps/mapLampInfo in the shader.
     Float4 mapLamps[kPuddleLamps * kPuddleLampRows];
     Float4 mapLampInfo;
+    // Sand and tumbleweeds; match sandInfo/tumbleweeds in the shader (TUMBLEWEED_MAX = kTumbleweedMax).
+    Float4 sandInfo;
+    Float4 tumbleweeds[kTumbleweedMax];
 };
 static_assert(kBodyBones == 16, "actorBones is COATING_ACTORS*16 in the shader");
 static_assert(kPuddleLamps * kPuddleLampRows == 32, "mapLamps is float4[32] in the shader");
@@ -549,6 +553,7 @@ void EndDevice() {
     EndGroundFog();
     EndWindFluid();
     ReleaseGameTextures();
+    ReleaseTumbleweeds();
     ReflectionProbes_Release();
     EndFootprints();
     g = Resources{};
@@ -900,7 +905,12 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     const auto climate = EffectiveClimate(f.scene.climate);
     // What a gust blows along the ground is a layer of the fog volume (GustVolumeMarch).
     const auto &weatherNow = f.scene.weather;
-    const bool gustVolume = climate[CL_gusts] > 0 && weatherNow.type >= 1 && weatherNow.type <= 3 && weatherNow.count > 0;
+    const bool sandWeather = weatherNow.type == 7 && weatherNow.count > 0;
+    const bool sandLies = climate[CL_sand] > 0 && climate[CL_sand] > climate[CL_snow];
+    // Blown sand runs along the ground under the Sand weather, and off lying sand under Clear.
+    const bool sandGust = sandWeather || (weatherNow.type == 0 && sandLies);
+    const bool windPrecip = (weatherNow.type >= 1 && weatherNow.type <= 3 && weatherNow.count > 0) || sandWeather;
+    const bool gustVolume = climate[CL_gusts] > 0 && (windPrecip || sandGust);
     const bool volumes = climate[CL_clouds] > 0 || climate[CL_fogDensity] > 0 || climate[CL_groundFog] > 0 || gustVolume;
     const int quality = f.exporting ? 2 : 1;
     // Live preview marches the clouds/fog at quarter resolution; renders keep half.
@@ -910,9 +920,9 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         return false;
     }
     c.climate = climate.values;
-    if (weatherNow.type == 3) {
-        // Give airborne ash a little more opacity at typical settings. The slider still
-        // covers the full range from no particles to the existing maximum.
+    if (weatherNow.type == 3 || weatherNow.type == 7) {
+        // Give airborne ash and blown sand a little more opacity at typical settings. The slider
+        // still covers the full range from no particles to the existing maximum.
         float &opacity = c.climate[CL_particleOpacity];
         opacity += .4f * opacity * (1.f - opacity);
     }
@@ -948,6 +958,8 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         c.previousCamera = Pack(g.historyCamera);
         c.temporalInfo = {usable ? 1.f : 0.f, temporal ? float(std::fmod(g.temporalFrame * 0.6180339887, 1.0)) : 0.f, .12f, 0};
     }
+    // Step rolling tumbleweeds on demo time and include their bundled GLB mesh/textures in the GPU cache.
+    const TumbleweedFrame tumbleweedFrame = !f.nativeLightingPass ? PrepareTumbleweeds(f, climate, c.vp) : TumbleweedFrame{};
     // Resolve all GPU meshes before recording any commands. Failure leaves the original image.
     std::set<MaterialImageKey> usedImages;
     for(const auto &o:f.scene.objects)if(o.enabled&&!o.IsLight()&&o.cameraVisible&&o.material.enabled){
@@ -960,27 +972,48 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
             auto images=std::array<std::shared_ptr<const MaterialImage>,3>{part.albedo,part.normal,part.roughnessMap};
             for(int i=0;i<3;++i)if(images[i]){usedImages.insert({images[i].get(),i==0});if(!UploadMaterialImage(immediate,images[i],i==0)){SetRenderStatus("Could not upload mesh texture");return false;}}
         }
+    if(tumbleweedFrame.mesh)
+        for(const auto &part:tumbleweedFrame.mesh->parts){
+            auto images=std::array<std::shared_ptr<const MaterialImage>,3>{part.albedo,part.normal,part.roughnessMap};
+            for(int i=0;i<3;++i)if(images[i]){usedImages.insert({images[i].get(),i==0});if(!UploadMaterialImage(immediate,images[i],i==0)){SetRenderStatus("Could not upload tumbleweed texture");return false;}}
+        }
     for(auto it=g.materialImages.begin();it!=g.materialImages.end();)if(!usedImages.count(it->first))it=g.materialImages.erase(it);else ++it;
     std::set<const Mesh *> used;
+    auto ensureGpuMesh = [&](const std::shared_ptr<const Mesh> &source) -> bool {
+        if (!source || source->vertices.empty()) return true;
+        used.insert(source.get());
+        if (g.meshes.count(source.get())) return true;
+        GpuMesh mesh;
+        mesh.source = source;
+        if (!Buffer(UINT(source->vertices.size() * sizeof(Vertex)), D3D11_BIND_VERTEX_BUFFER, mesh.buffer,
+                    source->vertices.data()))
+            return false;
+        g.meshes.emplace(source.get(), std::move(mesh));
+        return true;
+    };
     for (auto &o : f.scene.objects)
         if (o.enabled && !o.IsLight() && o.mesh) {
-            used.insert(o.mesh.get());
-            if (g.meshes.count(o.mesh.get()))
-                continue;
-            GpuMesh mesh;
-            mesh.source = o.mesh;
-            if (!Buffer(UINT(o.mesh->vertices.size() * sizeof(Vertex)), D3D11_BIND_VERTEX_BUFFER, mesh.buffer,
-                        o.mesh->vertices.data())) {
+            if (!ensureGpuMesh(o.mesh)) {
                 SetRenderStatus("Could not upload prop mesh");
                 return false;
             }
-            g.meshes.emplace(o.mesh.get(), std::move(mesh));
         }
+    if (tumbleweedFrame.mesh && !ensureGpuMesh(tumbleweedFrame.mesh)) {
+        SetRenderStatus("Could not upload tumbleweed mesh");
+        return false;
+    }
     for (auto it = g.meshes.begin(); it != g.meshes.end();) {
         if (!used.count(it->first))
             it = g.meshes.erase(it);
         else
             ++it;
+    }
+    {
+        const int twCount = (std::min)(int(tumbleweedFrame.items.size()), kTumbleweedMax);
+        const float twShadow = climate[CL_contactShadows] > 0 ? 1.f : .45f;
+        c.sandInfo = {sandGust && climate[CL_gusts] > 0 ? 1.f : 0.f, sandWeather ? 1.f : 0.f, float(twCount), twShadow};
+        for (int i = 0; i < twCount; ++i)
+            c.tumbleweeds[i] = Pack(tumbleweedFrame.items[size_t(i)].position, tumbleweedFrame.items[size_t(i)].radius);
     }
     c.camera = Pack(f.camera, reversed ? 1.f : 0.f);
     c.dimensions = {float(td.Width), float(td.Height), float(dd.Width), float(dd.Height)};
@@ -1043,25 +1076,28 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         c.smokeVolumeCount = {float(n), 0, 0, 0};
     }
     const auto &w = f.scene.weather;
+    // Sand weather (type 7) draws its airborne grains through ash's world-anchored dust path (type 3)
+    // with sandInfo.y = 1, keeping the exact same lattice, roof cover and gust streaking.
+    const int shaderWeatherType = w.type == 7 ? 3 : w.type;
     Vec3 center = w.follow ? f.camera : w.center;
     c.weatherCenter = Pack(center, w.radius);
-    c.weatherParams = {w.height, w.size, float(w.type), float(w.seed)};
+    c.weatherParams = {w.height, w.size, float(shaderWeatherType), float(w.seed)};
     c.weatherOffset = {Wrap(f.time * w.windX, w.radius * 2), Wrap(f.time * w.windY, w.radius * 2),
-                       Wrap(f.time * w.speed * (w.type >= 4 ? 1 : -1), w.height),
+                       Wrap(f.time * w.speed * (shaderWeatherType >= 4 ? 1 : -1), w.height),
                        float(std::fmod(f.time, 628.3185307))};
     // Rain count controls lattice occupancy, including fractional final-drop coverage.
-    // Rain count is lattice occupancy out of 3000; snow and ash use the same lattice with their own scale.
-    const float occupancyScale = (w.type == 2 || w.type == 3) ? 6000.f : 3000.f;
+    // Rain count is lattice occupancy out of 3000; snow, ash and sand use the same lattice with their own scale.
+    const float occupancyScale = (shaderWeatherType == 2 || shaderWeatherType == 3) ? 6000.f : 3000.f;
     c.weatherColor = {w.color.x, w.color.y, w.color.z, std::clamp(float(w.count) / occupancyScale, 0.f, 1.f)};
-    c.weatherVelocity = {w.windX, w.windY, w.speed * (w.type >= 4 ? 1.f : -1.f), w.follow ? 1.f : 0.f};
+    c.weatherVelocity = {w.windX, w.windY, w.speed * (shaderWeatherType >= 4 ? 1.f : -1.f), w.follow ? 1.f : 0.f};
     // Map collision bounds only: the visual caster bounds also enclose the 3D skybox miniature.
     const auto precipitation = PrecipitationLattice(w.radius, c.weatherColor.w, bool(f.occlusion), f.occlusion ? f.occlusion->low : Vec3{},
                                                     f.occlusion ? f.occlusion->high : Vec3{}, w.height);
     // The veil's optical density is the particles' own: particles (one per cell) per unit volume
     // times the coverage each adds. Opacity is applied in the shader, where the particles apply it too.
-    const bool precipitating = w.type >= 1 && w.type <= 3 && w.count > 0;
+    const bool precipitating = shaderWeatherType >= 1 && shaderWeatherType <= 3 && w.count > 0;
     const float veilDensity = precipitating
-        ? PrecipitationCrossSection(w.type, w.size, climate[CL_streak]) /
+        ? PrecipitationCrossSection(shaderWeatherType, w.size, climate[CL_streak]) /
               (precipitation.cell * precipitation.cell * precipitation.cell)
         : 0.f;
     c.weatherLattice = {precipitation.cell, float(precipitation.across), float(precipitation.layers), veilDensity};
@@ -1098,7 +1134,8 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     // otherwise.
     {
         const bool wetGround = climate[CL_wet] > 0 || climate[CL_puddles] > 0 || climate[CL_snow] > 0;
-        const auto lamps = wetGround ? PuddleLamps(f.relight, f.camera)
+        const bool relitBulbs = f.relight.enabled && !f.relight.reference && f.relight.localLights;
+        const auto lamps = (wetGround || relitBulbs) ? PuddleLamps(f.relight, f.camera)
                                      : PuddleLampTable{};
         for (unsigned i = 0; i < lamps.count * kPuddleLampRows; ++i)
             c.mapLamps[i] = {lamps.rows[i][0], lamps.rows[i][1], lamps.rows[i][2], lamps.rows[i][3]};
@@ -1172,22 +1209,22 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     {GPU_PASS_SCOPE(ctx, "composite: shadow maps");
      PrepareShadowMaps(ctx, f, BindViewmodel(ctx,depthTexture.Get()));}
     ctx->ClearState();
-    // Which pixels are a person: every coating (snow, wet film, rain impacts) stays off them.
-    const bool coating = climate[CL_snow] > 0 || climate[CL_wet] > 0 || climate[CL_puddles] > 0 ||
+    // Which pixels are a person: every coating (snow, sand, wet film, rain impacts) stays off them.
+    const bool coating = climate[CL_snow] > 0 || climate[CL_sand] > 0 || climate[CL_wet] > 0 || climate[CL_puddles] > 0 ||
                          (w.type == 1 && w.count > 0) ||
                          (climate[CL_playerFill] > 1 && f.scene.climate[CL_relighting] > 0); // the fill light finds players by the same mask
     bool playerMask = false;
     if (coating) {GPU_PASS_SCOPE(ctx, "composite: player mask");
      playerMask = PreparePlayerMask(ctx, c.vp, td.Width, td.Height, reversed);}
     c.coatingActorCount.y = playerMask ? 1.f : 0.f;
-    // Footprints: followed whenever snow lies or the ground is wet, so marks are there the moment
-    // either is looked at.
+    // Footprints: followed whenever snow, sand or wet ground is on, so marks are there the moment
+    // any of them is looked at.
     ID3D11ShaderResourceView* footprints=nullptr;
     int footStepCount=0;
     c.footInfo={0,0,0,0};
     for(auto& step:c.footSteps)step={0,0,0,-1e9f};
     for(auto& foot:c.footLive)foot={0,0,0,-1e9f};
-    if(climate[CL_snow]>0||climate[CL_wet]>0||climate[CL_puddles]>0||(f.scene.weather.type>=1&&f.scene.weather.type<=2&&f.scene.weather.count>0)){
+    if(climate[CL_snow]>0||climate[CL_sand]>0||climate[CL_wet]>0||climate[CL_puddles]>0||(f.scene.weather.type>=1&&f.scene.weather.type<=2&&f.scene.weather.count>0)){
         ComPtr<ID3D11Device> footDevice;ctx->GetDevice(&footDevice);
         const auto marks=PrepareFootprints(footDevice.Get(),ctx,f,c.climateClock.x);
         footprints=marks.view;c.footInfo.x=marks.view?1.f:0.f;footStepCount=marks.stepCount;
@@ -1200,14 +1237,20 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     ctx->ClearState();
     // Ground fog: step the fluid players push (once per demo time) and publish where to read it.
     {
-        const auto ground = PrepareGroundFog(ctx, f, climate, gustVolume);
+        // The floor map also carries the map's water grid (BuildWaterGrid). Under our lighting the engine
+        // draws its water unlit and the composite shades it (WaterSurfaceShade), so a map with water
+        // wants the floor map whenever our lighting is on, in clear weather too.
+        const bool mapWater = f.occlusion && f.occlusion->visual && !f.occlusion->visual->water.empty();
+        const bool ourLighting = climate[CL_relight] > 0.f || f.nativeLightingApplied;
+        const auto ground = PrepareGroundFog(ctx, f, climate,
+                                             gustVolume || climate[CL_sand] > 0.f || climate[CL_snow] > 0.f || (mapWater && ourLighting));
         c.groundFogWindow = {ground.windowX, ground.windowY, ground.fluid ? 1.f / ground.windowWidth : 0.f,
                              ground.fluid ? 1.f / ground.windowHeight : 0.f};
         c.groundFogFloor = {ground.floorX, ground.floorY, ground.floorCell, ground.floorMap ? 1.f : 0.f};
         c.groundFogFloorSize = {ground.floorWidth, ground.floorHeight, ground.driftX, ground.driftY};
         ctx->ClearState();
-        // Wind gusts: step the air the weather is blown by and publish where to read it.
-        const auto wind = PrepareWindFluid(ctx, f, climate, precipitating);
+        // Wind gusts: step the air the weather (or lying sand under Clear) is blown by and publish where to read it.
+        const auto wind = PrepareWindFluid(ctx, f, climate, windPrecip || sandGust);
         c.windFluidWindow = {wind.originX, wind.originY, wind.perUnitX, wind.perUnitY};
         ctx->ClearState();
     }
@@ -1216,7 +1259,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     // Particles have no depth: what they did to the frame and where they are says how much fog is in
     // front of them. w: the mask is bound.
     // The ground coatings need it as well: they are painted over the frame and must leave effects be.
-    if (climate[CL_fogDensity] > 0 || climate[CL_groundFog] > 0 || climate[CL_snow] > 0 || climate[CL_wet] > 0 || climate[CL_puddles] > 0) {
+    if (climate[CL_fogDensity] > 0 || climate[CL_groundFog] > 0 || climate[CL_snow] > 0 || climate[CL_sand] > 0 || climate[CL_wet] > 0 || climate[CL_puddles] > 0) {
         c.fogAmbient.w = PrepareFogFrontMask(ctx, td.Width, td.Height) ? 1.f : 0.f;
         const int anchors = (std::min)(int(f.fogEffects.size()), kFogEffectAnchors);
         for (int i = 0; i < anchors; ++i) {
@@ -1230,15 +1273,20 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     BindGi(ctx);
     BindPlayerMask(ctx);
     {
-        // CS2's own snow and water-bead textures (EnvironmentGameTextures.h), while their switches
-        // are on and the coating they dress is: x snow, y droplets, z snow tile size (u).
+        // CS2's own snow/water-bead textures and the bundled CC0 sand maps (EnvironmentGameTextures.h):
+        // x ground texture bound, y droplets bound, z tile size (u), w 1 when sand.
         const bool rainy = f.scene.weather.type == 1 && f.scene.weather.count > 0;
-        const auto game = BindGameTextures(g.device.Get(), ctx, climate[CL_snow] > 0,
-                                           (climate[CL_wet] > 0 || climate[CL_puddles] > 0 || rainy) && climate[CL_rainTexture] > .5f);
-        c.gameTextureInfo = {game.snow ? 1.f : 0.f, game.droplets ? 1.f : 0.f, 128.f, 0};
+        const auto game = BindGameTextures(g.device.Get(), ctx, !sandLies && climate[CL_snow] > 0, sandLies,
+                                           (climate[CL_wet] > 0 || climate[CL_puddles] > 0 || rainy) && climate[CL_rainTexture] > .001f,
+                                           int(std::lround(climate[CL_sandStyle])));
+        c.gameTextureInfo = {(game.sand || game.snow) ? 1.f : 0.f, game.droplets ? climate[CL_rainTexture] : 0.f,
+                             game.sand ? kSandTile : kGameSnowTile, game.sand ? 1.f : 0.f};
         // What wet ground mirrors off screen (EnvironmentReflectionProbes.h): asked for while a wet film
         // is drawn, so the next frame catches CS2's probes and measures the tone curve for it.
-        const bool wetFilm = climate[CL_wet] > 0 || climate[CL_puddles] > 0 || rainy;
+        // Water under our lighting mirrors them too.
+        const bool waterShaded = f.occlusion && f.occlusion->visual && !f.occlusion->visual->water.empty() &&
+                                 (climate[CL_relight] > 0.f || f.nativeLightingApplied);
+        const bool wetFilm = climate[CL_wet] > 0 || climate[CL_puddles] > 0 || rainy || waterShaded;
         ReflectionProbes_Want(wetFilm);
         const float eye[3]{f.camera.x, f.camera.y, f.camera.z};
         const auto probes = ReflectionProbes_Bind(ctx, eye, f.relight.enabled);
@@ -1279,6 +1327,11 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     c.relightDebug.y=float(BindRelightRecords(ctx));
     c.relightDebug.z=f.relight.enabled&&!f.relight.reference?f.relight.ceiling:0.f;
     c.relightDebug.w=float(RelightClusterMode());
+    // What the composite has of the relighting this frame (lamp glow, water glints read these).
+    if(MvmDebugLog_Active()){static ULONGLONG last=0;const auto now=GetTickCount64();
+        if(now-last>=3000){last=now;MvmDebugLog_LinefAlways("environment.composite.relight",
+            "records=%.0f clusters=%.0f nativeApplied=%.0f nativeMaterial=%.0f ownedHdr=%.0f",
+            c.relightDebug.y,c.relightDebug.w,c.viewmodelInfo.z,c.viewmodelInfo.y,c.viewmodelInfo.w);}}
     // The 3D skybox is a miniature standing outside the map, so only a directional source
     // reaches it meaningfully. Hand the owned sun and sky over for it.
     if(f.relight.enabled){
@@ -1309,6 +1362,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     }
     if(volumes&&c.lighting.z>.5f&&VolumeCompositeSplit.load(std::memory_order_relaxed)){
         volumeSplit=true;
+        if(!tumbleweedFrame.items.empty())volumeSplit=false;
         for(const auto& o:f.scene.objects)if(!f.nativeLightingPass&&o.enabled&&!o.IsLight()&&o.mesh&&o.cameraVisible){volumeSplit=false;break;}
     }
     c.shadowDebug.z=volumeSplit?1.f:0.f;
@@ -1410,6 +1464,51 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
             ctx->UpdateSubresource(g.objectConstants.Get(), 0, nullptr, &oc, 0, 0);
             ctx->Draw(UINT(o.mesh->vertices.size()), 0);
         }
+    // Rolling tumbleweeds: drawn into the same prop depth buffer before fog/drift volumes so distant
+    // tumbleweeds sit naturally inside height fog and blown-sand drifts. objectColor.a = 0 keeps
+    // static floor coatings off their twigs and enables shaded-alley ambient darkening.
+    if (!f.nativeLightingPass && tumbleweedFrame.mesh && !tumbleweedFrame.items.empty() &&
+        g.meshes.count(tumbleweedFrame.mesh.get())) {
+        const auto &twMesh = *tumbleweedFrame.mesh;
+        auto buffer = g.meshes[tumbleweedFrame.mesh.get()].buffer.Get();
+        ctx->IASetVertexBuffers(0, 1, &buffer, &stride, &offset);
+        ctx->PSSetShader(g.materialMeshPS[variant].Get(), nullptr, 0);
+        const float twGain = 1.f; // lit by the map's own light in the shader (ShadeMaterial, brush)
+        for (const auto &tw : tumbleweedFrame.items) {
+            ObjectConstants oc{};
+            oc.model = tw.model;
+            Matrix inverse{};
+            if (!Inverse(oc.model, inverse)) continue;
+            for (int i = 0; i < 4; ++i)
+                for (int j = 0; j < 4; ++j)
+                    oc.normal[i * 4 + j] = inverse[j * 4 + i];
+            if (!twMesh.parts.empty()) {
+                for (const auto &part : twMesh.parts) {
+                    if (!part.count || part.first + part.count > twMesh.vertices.size()) continue;
+                    oc.color = {part.color.x * twGain, part.color.y * twGain, part.color.z * twGain, 0.f};
+                    oc.materialParams = {part.roughness, part.metallic, 0, 1};
+                    oc.materialCoat = {0, .12f, 0, 1};
+                    oc.materialTextures = {part.albedo ? 1.f : 0.f, part.normal ? 1.f : 0.f, part.roughnessMap ? 1.f : 0.f, 1};
+                    auto partImages = std::array<std::shared_ptr<const MaterialImage>, 3>{part.albedo, part.normal, part.roughnessMap};
+                    ID3D11ShaderResourceView *partTextures[3]{};
+                    for (int i = 0; i < 3; ++i)
+                        if (partImages[i]) partTextures[i] = g.materialImages.at({partImages[i].get(), i == 0}).view.Get();
+                    ctx->PSSetShaderResources(10, 3, partTextures);
+                    ctx->UpdateSubresource(g.objectConstants.Get(), 0, nullptr, &oc, 0, 0);
+                    ctx->Draw(part.count, part.first);
+                }
+            } else {
+                oc.color = {.72f * twGain, .60f * twGain, .42f * twGain, 0.f};
+                oc.materialParams = {.92f, 0, 0, 1};
+                oc.materialCoat = {0, .12f, 0, 1};
+                oc.materialTextures = {0, 0, 0, 1};
+                ID3D11ShaderResourceView *noTextures[3]{};
+                ctx->PSSetShaderResources(10, 3, noTextures);
+                ctx->UpdateSubresource(g.objectConstants.Get(), 0, nullptr, &oc, 0, 0);
+                ctx->Draw(UINT(twMesh.vertices.size()), 0);
+            }
+        }
+    }
     propScope.reset();
     ctx->OMSetRenderTargets(1, &workingTarget, nullptr);
     ctx->OMSetDepthStencilState(g.noDepth.Get(), 0);
@@ -1490,8 +1589,8 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
             ctx->VSSetShader(g.footSplashVS.Get(), nullptr, 0);
             ctx->PSSetShader(g.splashPS[variant].Get(), nullptr, 0);
             drawQuads(UINT(kFootSteps) * kFootSplashParts + UINT(kFootLive + kFootSteps));
-        } else if (footprints && footStepCount > 0 && (climate[CL_puddles] > 0 || climate[CL_wet] > 0 || climate[CL_snow] >= .25f)) {
-            // In snow the same sprites are a puff of powder (SplashPS).
+        } else if (footprints && footStepCount > 0 && (climate[CL_puddles] > 0 || climate[CL_wet] > 0 || climate[CL_snow] >= .25f || climate[CL_sand] >= .25f)) {
+            // In snow or sand the same sprites are a puff of powder or dry sand (SplashPS).
             GPU_PASS_SCOPE(ctx, "composite: foot splashes");
             ctx->OMSetBlendState(g.alpha.Get(), blend, 0xffffffff);
             ctx->VSSetShader(g.footSplashVS.Get(), nullptr, 0);
@@ -1663,7 +1762,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     // ADVISORY, not a blocker. Precipitation now draws without a shelter map (see
     // WorldPrecipitationVisible) -- preparing the map only adds roofs stopping the flakes, so the
     // wording says what is missing rather than reading as "nothing will work until you do this".
-    bool missingShelter=f.scene.weather.shelter&&f.scene.weather.type>=1&&f.scene.weather.type<=3&&!f.occlusion;
+    bool missingShelter=f.scene.weather.shelter&&((f.scene.weather.type>=1&&f.scene.weather.type<=3)||f.scene.weather.type==7)&&!f.occlusion;
     SetRenderStatus(climate[CL_storm] > .5f && !stormLighting ? "Rendering lightning (surface light needs map geometry and free light/shadow slots)" : missingShelter?"Rendering (precipitation falls through roofs until the map is prepared)":"Rendering", true);
     static unsigned probe = 0;
     if (MvmDebugLog_Active() && (++probe % 60) == 1) {
@@ -1671,14 +1770,14 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
             "environment.frame",
             "target=%p depth=%p targetSize=%ux%u depthSize=%ux%u samples=%u nativeViewFormat=%u displayFormat=%u hdr=%d nativeLightingApplied=%d nativeSkyApplied=%d reversed=%d time=%.5f props=%zu "
             "lights=%d weather=%d count=%d shelter=%d geometry=%d camera=(%.2f %.2f %.2f) proj=(%.4f %.4f %.6f %.6f) "
-            "depthRange=(%.6f %.6f) samplePreserving=1 climate sky=%.2f clouds=%.2f volume=%.2f snow=%.2f "
+            "depthRange=(%.6f %.6f) samplePreserving=1 climate sky=%.2f clouds=%.2f volume=%.2f snow=%.2f sand=%.2f tumbleweeds=%.0f "
             "wet=%.2f puddles=%.2f coatingNormals=filtered coatingShading=mapInherited "
             "worldGi=%.2f bounce=%.2f reflections=%.2f quality=%d",
             target, depth, td.Width, td.Height, dd.Width, dd.Height, dd.SampleDesc.Count,
             unsigned(rt.Format), unsigned(displayFormat), int(f.hdr), int(f.nativeLightingApplied), int(f.nativeSkyApplied), reversed, f.time,
             used.size(), lightCount, w.type, w.count, int(w.shelter), int(bool(f.occlusion)), f.camera.x, f.camera.y, f.camera.z, f.projection[0],
             f.projection[5], f.projection[10], f.projection[11], depthMin, depthMax, climate[CL_sky],
-            climate[CL_clouds], climate[CL_fogDensity], climate[CL_snow], climate[CL_wet], climate[CL_puddles],
+            climate[CL_clouds], climate[CL_fogDensity], climate[CL_snow], climate[CL_sand], climate[CL_tumbleweeds], climate[CL_wet], climate[CL_puddles],
             climate[CL_worldGi], climate[CL_bounce], climate[CL_sceneReflections], quality);
         if (precipitating)
             MvmDebugLog_Linef("environment.precipitation",

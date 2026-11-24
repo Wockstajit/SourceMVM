@@ -144,13 +144,28 @@ exposure.
 Status: **in development; the fully dynamic replacement is not complete.**
 
 Authored fixture decoding reads the nested VRF properties for cone angles, source sizes,
-edge softness and near/far skirts. Rect/barn sources use their authored half extents and
+edge softness and near/far skirts. An explicit `skirt=0` disables the far fade for a
+projected fixture and keeps its authored range clip. Nonzero skirts retain the existing
+fade profile pending further brightness calibration. Rect/barn sources use their authored half extents and
 reciprocal near-plane distance to form an expanding projection, with one shadow face and
 light record rather than six cube partitions. Tube sources use the native local +Y segment
 axis and authored half-length. Spot lights use their authored cone; omni entities retain
 full-sphere emission even when their exported property bag contains cone controls.
+On Inferno Night, a hooded downlight paired with a short-range bulb uses its authored cone.
+The bulb retains spherical emission. For map lamps, close shadow detail follows camera distance
+and fades back to cached resolution at the boundary of the four-light budget. A lamp without a
+cached shadow fades its shadow strength over the same distance band.
 Native material lighting and GI injection share the resulting emission and analytic edge fade.
 Brightness conversion remains provisional.
+
+CS2 labels authored `directlight=3` as stationary. These fixtures emit direct light and use
+baked shadows in the native renderer. The replacement uses its own shadow geometry. A fixture
+with `directlight=0` supplies zero direct radiance, including across a projected rect or barn
+opening. Both the runtime probes and the lite bounce grid use each light's authored
+`bouncescale`. A light with `bouncelight=0` contributes no indirect radiance. Missing
+settings preserve the default, with a bounce multiplier of one. Runtime probes
+include bounce-only fills with shadows when their cached caster tiles are ready.
+`mirv_relight list` reports the effective bounce gain.
 
 Owned local shadows use a five-depth blocker search and 32 fixed comparison taps to estimate
 source-size penumbrae; an atlas depth summary skips the taps where it proves every one of them lit
@@ -367,7 +382,7 @@ Together, AO and sky visibility measured about 1 ms at the saved foliage view.
 Runtime bounce is on by default and updates continuously (`RelightProbeGi.cpp`,
 `RelightProbeGiShaders.h`, `RelightProbeMath.h`).
 
-- Real surface colour. Map preparation (converter 9, `MVMCAST6`) stores each render triangle's
+- Real surface colour. Map preparation (converter 9, `MVMCAST7`) stores each render triangle's
   linear material albedo, averaged from the material's base-colour texture times its factor.
   Cutout batches store one albedo per batch. This is material reflectance, not baked lighting.
   The whole map is voxelized once from this render geometry at 20-unit cells, spread over a few

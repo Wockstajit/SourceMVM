@@ -374,7 +374,7 @@ baked/native toggle combinations alone are still not a solved replacement.
 ## 13. Animated visual-caster proof
 
 Mirage's merged `urban_trees_branches03_medium_animated` world-node asset exports through
-the visual-caster converter (`Filmmaker/MapData/MapCasters.cpp`) into a separate `MVMCAST6` cache. It retains actual leaf triangles,
+the visual-caster converter (`Filmmaker/MapData/MapCasters.cpp`) into a separate `MVMCAST7` cache. It retains actual leaf triangles,
 UVs, material alpha cutoff, the alpha texture, vertex-color animation weights and the eight
 material sway/flutter parameters. The collision mesh remains separate: alpha cards must not
 become solid physics walls or opaque ray blockers.
@@ -441,7 +441,7 @@ repeating the disproven light-binner experiments above does not address it.
 ## 15. Placed caster coverage and receiver detail
 
 Normal preparation now visits all packaged world nodes, preserving both nested model instances
-and aggregate-fragment transforms. The `MVMCAST6` cache records each material's native texture addressing
+and aggregate-fragment transforms. The `MVMCAST7` cache records each material's native texture addressing
 (wrap, mirror, clamp, border, mirror-once). Cutout foliage/fences retain alpha; opaque foliage
 trunks and supported vertexlit/complex props cast too. Skinned entity exports, overlays and
 non-shadow-casting/blended materials are not turned into opaque static blockers. Opaque

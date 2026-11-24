@@ -243,5 +243,19 @@ int main() {
         AdvanceFootLanding(ledge, 0, true, dt);
         Check(!ledgeJump && FootLandingSpeed(ledge) > 400, "A drop off a ledge lands hard without a jump");
     }
+    {
+        // Footprints in sand fill back in faster than falling snow, accelerating with wind, gusts and Sand weather.
+        const auto snowIdle = FootFillStep(false, false, false, 0, 0);
+        const auto snowFall = FootFillStep(false, true, false, 0, 0);
+        Check(snowIdle.mark == 0 && snowIdle.back == 2, "Calm snow holds footprints until snowfall");
+        Check(snowFall.mark == 2 && snowFall.back == 3, "Falling snow fills footprints at its original pace");
+        const auto sandCalm = FootFillStep(true, false, false, 0, 0);
+        const auto sandBreeze = FootFillStep(true, false, false, 160, .4f);
+        const auto sandStorm = FootFillStep(true, false, true, 220, .8f);
+        Check(sandCalm.mark > snowFall.mark, "Calm sand fills prints faster than falling snow");
+        Check(sandBreeze.mark > sandCalm.mark && sandStorm.mark >= sandBreeze.mark && sandStorm.mark <= 12,
+              "Wind, gusts and Sand weather speed up sand footprint refill within a bounded rate");
+        Check(sandStorm.back > sandStorm.mark, "Sand craters fill back in at least as fast as prints");
+    }
     std::cout << "Footprint math passed\n";
 }
