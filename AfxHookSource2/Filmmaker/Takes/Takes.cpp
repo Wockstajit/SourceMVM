@@ -19,6 +19,7 @@
 #include "../../../Shared/AfxConsole.h"
 #include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
 #include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h"
+#include "../../../Deps/release/prop/cs2/sdk_src/public/icvar.h" // sv_maxspeed, read before an animation overrides it
 
 #include <Windows.h>
 
@@ -124,7 +125,8 @@ struct State {
 	bool thirdPerson = false;  // third-person preview mode for live animation performance
 	std::string animGiven;     // the weapon Play-on-me last gave, so it is not given (and dropped) again
 	std::string animWeapon = "auto"; // what Play-on-me equips: auto (what the clip was posed for), keep, or a weapon
-	int appliedMaxSpeed = -1;  // last sv_maxspeed written (-1 = default 320 untouched; 0 = movement locked)
+	int appliedMaxSpeed = -1;  // last sv_maxspeed written (-1 = untouched; 0 = movement locked)
+	float savedMaxSpeed = 320.0f; // sv_maxspeed as it was before the first override, put back when playback ends
 	std::string lastMap;
 	bool scrubPreviewActive = false;
 	int scrubPreviewTick = 0;
@@ -170,6 +172,41 @@ void Execf(const char *fmt, ...) {
 	vsnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
 	Exec(buf);
+}
+
+// sv_maxspeed as the server has it now, so an animation that overrides it can put it back.
+float ReadMaxSpeedCvar() {
+	using namespace SOURCESDK::CS2;
+	if (!g_pCVar) return 320.0f;
+	const ConVarHandle h = g_pCVar->FindConVar("sv_maxspeed", false);
+	if (!h.IsValid()) return 320.0f;
+	const Cvar_s *cv = g_pCVar->GetCvar(h.Get());
+	if (!cv || cv->m_eVarType != EConVarType_Float32) return 320.0f;
+	return cv->m_Value.m_flValue;
+}
+
+void ApplyMaxSpeed(int wantMax) {
+	if (g.appliedMaxSpeed < 0) g.savedMaxSpeed = ReadMaxSpeedCvar();
+	Execf("sv_maxspeed %d", wantMax);
+	g.appliedMaxSpeed = wantMax;
+}
+
+void RestoreMaxSpeed() {
+	if (g.appliedMaxSpeed < 0) return;
+	Execf("sv_maxspeed %g", g.savedMaxSpeed);
+	g.appliedMaxSpeed = -1;
+}
+
+// Which inventory slot (slotN) holds a weapon, so the one just given is the one drawn.
+int SlotForWeapon(const char *weapon) {
+	static const char *const kPistols[] = {"weapon_deagle", "weapon_revolver", "weapon_glock", "weapon_usp_silencer", "weapon_hkp2000",
+	                                       "weapon_p250", "weapon_fiveseven", "weapon_tec9", "weapon_cz75a", "weapon_elite"};
+	static const char *const kGrenades[] = {"weapon_hegrenade", "weapon_flashbang", "weapon_smokegrenade", "weapon_molotov",
+	                                        "weapon_incgrenade", "weapon_decoy"};
+	for (const char *p : kPistols) if (0 == _stricmp(weapon, p)) return 2;
+	for (const char *gr : kGrenades) if (0 == _stricmp(weapon, gr)) return 4;
+	if (0 == _strnicmp(weapon, "weapon_knife", 12) || 0 == _stricmp(weapon, "weapon_bayonet")) return 3;
+	return 1;
 }
 
 bool PlayingDemo() {
@@ -1221,17 +1258,12 @@ void RunMainThreadFrame() {
 		const float wantMaxF = ActorAnim::DesiredLocalMaxSpeed();
 		if (wantMaxF > 0.f) {
 			const int wantMax = int(std::round(wantMaxF));
-			if (g.appliedMaxSpeed < 0 || std::abs(wantMax - g.appliedMaxSpeed) >= 2) {
-				Execf("sv_maxspeed %d", wantMax);
-				g.appliedMaxSpeed = wantMax;
-			}
-		} else if (g.appliedMaxSpeed >= 0) {
-			Exec("sv_maxspeed 320");
-			g.appliedMaxSpeed = -1;
+			if (g.appliedMaxSpeed < 0 || std::abs(wantMax - g.appliedMaxSpeed) >= 2) ApplyMaxSpeed(wantMax);
+		} else {
+			RestoreMaxSpeed();
 		}
-	} else if (g.appliedMaxSpeed >= 0) {
-		Exec("sv_maxspeed 320");
-		g.appliedMaxSpeed = -1;
+	} else {
+		RestoreMaxSpeed();
 	}
 	// GOTV is what records every player at full rate, and its master only starts with a map. So it
 	// is asked for on the first frame, before any private match or workshop map loads. It costs a
@@ -1347,12 +1379,16 @@ void RunMainThreadFrame() {
 			break;
 		}
 		if (g.demoRecording) break;
+		// Hold only while at least one enabled take is a placed actor looping an animation. A scene with
+		// every take turned off has no length and finishes like any other.
 		bool allLoopingPlaced = !g.scene.tracks.empty();
+		bool anyEnabled = false;
 		for (const Track &t : g.scene.tracks) {
 			if (!t.enabled) continue;
+			anyEnabled = true;
 			if (!t.placedActor || t.animCues.empty() || !t.animCues[0].loop) { allLoopingPlaced = false; break; }
 		}
-		if (allLoopingPlaced) break;
+		if (allLoopingPlaced && anyEnabled) break;
 		if (g.loop) {
 			if (sceneTick >= length + g.tailTicks) BeginPass();
 		} else if (sceneTick >= length) {
@@ -1452,7 +1488,7 @@ void EquipForClip(const std::string &clipId) {
 		}
 	} else {
 		weapon = g.animWeapon.c_str();
-		if (0 == _stricmp(weapon, "weapon_hegrenade")) slot = 4;
+		slot = SlotForWeapon(weapon);
 	}
 	Exec("mirv_cvar_unlock_sv_cheats");
 	Exec("sv_cheats 1");
@@ -2013,7 +2049,7 @@ void RunCommand(int argc, advancedfx::ICommandArgs *args, const char *cmd) {
 			Say("animation weapon: %s", g.animWeapon.c_str());
 		} else if (0 == _stricmp(what, "stop")) {
 			ActorAnim::StopLocal();
-			if (g.appliedMaxSpeed >= 0) { Exec("sv_maxspeed 320"); g.appliedMaxSpeed = -1; }
+			RestoreMaxSpeed();
 			Say("stopped local animation");
 		} else if (0 == _stricmp(what, "assign")) {
 			if (argc < 6) { Say("usage: %s takes anim assign <track#> <clip|off> [speed] [loop] [start] [dur] [blendIn] [blendOut]", cmd); return; }
@@ -2022,6 +2058,9 @@ void RunCommand(int argc, advancedfx::ICommandArgs *args, const char *cmd) {
 			const char *clip = arg(5);
 			if (0 == _stricmp(clip, "off") || 0 == _stricmp(clip, "none") || 0 == _stricmp(clip, "-")) {
 				g.scene.tracks[n].animCues.clear();
+				// Same as `anim clear`: the performer keeps playing the old cue until it is told it has none.
+				ActorAnim::SetPerformer(PerformerSteamId(g.scene.tracks[n].name), g.scene.tracks[n].delayTicks,
+				                        g.scene.tracks[n].placedActor, {});
 				Autosave();
 				Say("cleared animation on %s", g.scene.tracks[n].name.c_str());
 				return;
