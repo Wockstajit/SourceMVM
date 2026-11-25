@@ -121,8 +121,11 @@ jobs:
     runs-on: windows-2022
     # A run that cannot reuse most of the shader bundle (a change to how programs are keyed, or a
     # pull request's first run after such a change lands) recompiled 76 of 98 programs in 63 minutes
-    # on this runner, before the C++ build and the tests (Docs/setup/ci.md).
-    timeout-minutes: 120
+    # on this runner, before the C++ build and the tests (Docs/setup/ci.md). A pull request that edits
+    # the climate shader header on top of an uncached main took over 105 minutes for the bundle alone
+    # and was cancelled at 120 before the build ended, so 180 leaves room for that first run to finish
+    # and save the bundle.
+    timeout-minutes: 180
     env:
       PRESET: x64-deadlock-ninja-release
       SCOPE: ${{ needs.changes.outputs.native }}
