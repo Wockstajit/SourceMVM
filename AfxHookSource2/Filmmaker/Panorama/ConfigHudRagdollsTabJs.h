@@ -38,7 +38,7 @@ R"CFJS(
     var nsPage = nsSec;
     var DA_KEYS = ['mw2019', 'classic', 'extra'];
     var daSource = modeRow(daPage, T('Animations'),
-      [['mw2019', 'MW2019'], ['classic', T('Classic CoD')], ['extra', T('Extra')]], '260px',
+      [['mw2019', 'MW2019'], ['classic', T('Classic CoD')], ['extra', T('Extra')], ['alyx', T('HL: Alyx')]], '320px',
       function (key) { cmd('mirv_filmmaker deathanim source ' + key); },
       T('MW2019: Modern Warfare 2019. Classic CoD: World at War, Black Ops 1 and 2, MW3. '
         + 'Extra: the GMod death pack. Applies to the next death.'));
@@ -189,7 +189,7 @@ R"CFJS(
           + (st.nsActive > 0 ? ' ' + T('Reacting: {0}.', st.nsActive) : '');
       // Each card's own summary. The death animations card names its clip source and count; the
       // nervous system card lists the reactions that are on, or says what it is waiting for.
-      var srcName = ['MW2019', T('Classic CoD'), T('Extra')][(typeof st.daSource === 'number') ? st.daSource : 0];
+      var srcName = ['MW2019', T('Classic CoD'), T('Extra'), T('HL: Alyx')][(typeof st.daSource === 'number') ? st.daSource : 0];
       var clipCounts = st.daClips || [0, 0, 0], clipN = clipCounts[(typeof st.daSource === 'number') ? st.daSource : 0] || 0;
       rgSec.__note(st.daOn ? (srcName + (clipN > 0 ? ' · ' + TN(clipN, '{0} clip', '{0} clips') : '')) : T('Off'));
       var reactions = [];

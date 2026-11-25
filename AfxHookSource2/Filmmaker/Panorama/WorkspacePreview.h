@@ -40,7 +40,7 @@ public:
 	// Precedence order, highest first. The Camera Editor outranks Config because it is the full
 	// workspace and Config is a sidebar; in practice they are mutually exclusive, but a stated
 	// rule beats "whichever RunFrame happened to be last".
-	enum class Owner { None = 0, Config = 1, CameraEditor = 2 };
+	enum class Owner { None = 0, Config = 1, CameraEditor = 2, SceneEditor = 3 };
 
 	// A panel wants the viewport scaled into `rect` this frame. Ignored when a higher-precedence
 	// owner has already submitted for the same frame.

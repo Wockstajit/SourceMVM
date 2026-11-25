@@ -862,6 +862,7 @@ R"CFJS(
 // The per-player death animation picker the Advanced Ragdolls card opens. Parents to root, so it
 // must follow the fragments that build the tabs underneath it.
 #include "ConfigHudDeathAnimPickerJs.h"
+#include "ConfigHudActorAnimPickerJs.h"
 #include "ConfigHudEnvironmentTabJs.h"
 // Global search. MUST follow every tab fragment: the index fills as their widgets build.
 #include "ConfigHudSearchJs.h"

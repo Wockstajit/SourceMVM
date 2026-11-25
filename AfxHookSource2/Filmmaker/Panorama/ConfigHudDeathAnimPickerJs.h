@@ -51,7 +51,7 @@ R"CFJS(
     }
     // The catalog's tag values (DeathAnimations.cpp kSourceNames / kStanceNames / kSideNames /
     // kWeaponNames), translated where they are shown. Filters and commands keep the English value.
-    var DAP_SOURCE_NAMES = { 'Classic CoD': T('Classic CoD'), 'Extra': T('Extra') };
+    var DAP_SOURCE_NAMES = { 'Classic CoD': T('Classic CoD'), 'Extra': T('Extra'), 'HL: Alyx': T('HL: Alyx') };
     var DAP_STANCE_NAMES = { standing: T('standing'), crouched: T('crouched'), prone: T('prone'), running: T('running') };
     var DAP_WEAPON_NAMES = { shotgun: T('shotgun'), sniper: T('sniper'), heavy: T('heavy') };
     var DAP_FROM_NAMES = { any: T('from any'), front: T('from front'), back: T('from back'),
@@ -244,7 +244,7 @@ R"CFJS(
       for (var k in seg.btns) { seg.btns[k].style.paddingTop = '5px'; seg.btns[k].style.paddingBottom = '5px'; }
       dapSegs[key] = seg;
     }
-    dapSegFilter(T('SOURCE'), 'source', [['All', T('All')], ['MW2019', 'MW2019'], ['Classic CoD', T('Classic CoD')], ['Extra', T('Extra')]]);
+    dapSegFilter(T('SOURCE'), 'source', [['All', T('All')], ['MW2019', 'MW2019'], ['Classic CoD', T('Classic CoD')], ['Extra', T('Extra')], ['HL: Alyx', T('HL: Alyx')]]);
     dapSegFilter(T('STANCE'), 'stance', [['All', T('All')], ['standing', T('Standing')], ['crouched', T('Crouched')], ['running', T('Running')]]);
     dapSegFilter(T('WEAPON'), 'weapon', [['All', T('All')], ['any', T('Universal')], ['shotgun', T('Shotgun')], ['heavy', T('Heavy')]]);
 

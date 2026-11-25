@@ -63,7 +63,7 @@ struct Offsets {
 	ptrdiff_t sceneNode = 0, absOrigin = 0;
 	ptrdiff_t controllerPawn = 0, steamId = 0, playerName = 0, playerPawn = 0, pawnController = 0;
 	ptrdiff_t myWeapons = 0, activeWeapon = 0;
-	ptrdiff_t armor = 0, helmet = 0, eyeAngles = 0;
+	ptrdiff_t armor = 0, helmet = 0, eyeAngles = 0, isWalking = 0;
 	ptrdiff_t moneyServices = 0, account = 0, pendingTeam = 0;
 	ptrdiff_t ownerEntity = 0, clip1 = 0, numSpawns = 0, modelState = 0, modelName = 0, flags = 0, xuidLow = 0, xuidHigh = 0;
 	ptrdiff_t gameRulesProxy = 0, warmupPeriod = 0, freezePeriod = 0, gameRestart = 0, restartRoundTime = 0, roundStartTime = 0;
@@ -134,6 +134,7 @@ bool ResolveOffsets() {
 	schemaLiveOffset("server.dll", "CModelState", "m_ModelName", &off.modelName);
 	schemaLiveOffset("server.dll", "CCSPlayerPawn", "m_ArmorValue", &off.armor);
 	schemaLiveOffset("server.dll", "CCSPlayerPawn", "m_angEyeAngles", &off.eyeAngles);
+	schemaLiveOffset("server.dll", "CCSPlayerPawn", "m_bIsWalking", &off.isWalking);
 	schemaLiveOffset("server.dll", "CCSPlayer_ItemServices", "m_bHasHelmet", &off.helmet);
 	return ok;
 }
@@ -508,6 +509,24 @@ void *ControllerOfPawn(void *pawn) {
 bool Alive(void *pawn) {
 	__try {
 		return pawn && Read<uint8_t>(pawn, off.lifeState) == 0 && Read<int>(pawn, off.health) > 0;
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		return false;
+	}
+}
+
+bool IsWalking(void *pawn) {
+	if (!off.isWalking || !pawn) return false;
+	__try {
+		return Read<bool>(pawn, off.isWalking);
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		return false;
+	}
+}
+
+bool IsDucking(void *pawn) {
+	if (!off.flags || !pawn) return false;
+	__try {
+		return (Read<uint32_t>(pawn, off.flags) & 2u) != 0;
 	} __except (EXCEPTION_EXECUTE_HANDLER) {
 		return false;
 	}

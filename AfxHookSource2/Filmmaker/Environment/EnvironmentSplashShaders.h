@@ -192,7 +192,8 @@ float4 SplashPS(SplashOutput i,uint sample:SV_SampleIndex):SV_Target {
     }
     // Lit by the scene and no brighter than it: thrown water is clear, it shows as a grey smudge
     // against what is behind it and catches lamps from behind (the forward scatter in RainLighting).
-    float3 powderTone=sandFoot?float3(.78,.60,.37)*.62:float3(.95,.97,1)*.55;
+    float3 powderTone=sandFoot?float3(CL_sandColorR,CL_sandColorG,CL_sandColorB)*.82:float3(.95,.97,1)*.58;
+    if(powder)powderTone*=.78+.44*Hash31(floor(i.world*4));
     float3 tone=powder?powderTone:foot?float3(.8,.86,.93)*(i.info.y>1.5?.5:i.info.y>.5?.75:.6):weatherColor.rgb*.75;
     float3 color=tone*RainLighting(i.world,i.position.xy,sample)*RAIN_BRIGHTNESS*.8*tintExposure.rgb*tintExposure.w;
     float distance=length(i.world-camera.xyz);
@@ -236,8 +237,10 @@ SplashOutput FootSplashVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         return o;
     }
     uint s=instance/FOOT_SPLASH_PARTS,part=instance%FOOT_SPLASH_PARTS;
-    // Powder or sand: the sheets and a third of the flecks.
-    if((CL_snow>=.25||CL_sand>=.25)&&part>=32)return o;
+    // Powder snow or dry sand kicks up sheets plus a dense spray of granular clumps and grains.
+    bool powderStep=(CL_snow>=.25||CL_sand>=.25);
+    bool sandStep=CL_sand>=.25&&CL_sand>CL_snow;
+    if(powderStep&&part>=48)return o;
     float4 landed=footSteps[s];
     float age=climateClock.x-landed.w;
     // HOW HARD THE FOOT CAME DOWN (FootImpact): about .55 a walk, .85 a run, 1.5 and up a landing
@@ -282,13 +285,11 @@ SplashOutput FootSplashVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         kind=2;
     }else{
         uint j=part-10;
-        // A soft step throws fewer drops than a run, a landing all of them.
+        // A soft step throws fewer drops/grains than a run, a landing all of them.
         if(j>=(uint)(66*saturate(.2+.55*impact)))return o;
-        // Thrown out low: most drops leave fast along the ground and land within a pace, a few
-        // go up to the knee (a landing's to the hip). Most are small.
         float theta=Random01(en+10+j)*6.2831853;
-        float vh=lerp(30,130,Random01(en+20+j))*throwScale;
-        float vz=lerp(30,190,pow(Random01(en+30+j),1.5))*throwScale;
+        float vh=lerp(30,powderStep&&sandStep?105:130,Random01(en+20+j))*throwScale;
+        float vz=lerp(30,powderStep&&sandStep?160:190,pow(Random01(en+30+j),1.5))*throwScale;
         float flight=2*vz/kSplashGravity;
         float a=age-Random01(en+50+j)*.06;
         if(a<0||a>flight)return o;
@@ -300,9 +301,9 @@ SplashOutput FootSplashVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         float3 side=cross(dirV,view);
         float sl=length(side);
         side=sl>.02?side/sl:cameraRight.xyz;
-        float physical=lerp(.14,.55,pow(Random01(en+40+j),2))*(.8+.2*impact);
-        float width=max(physical,pixelWorld*.7);
-        float length_=max(width*1.3,length(velocity)*lerp(.016,.008,saturate(a/.1))+width);
+        float physical=lerp(powderStep?.18:.14,powderStep?(sandStep?.48:.65):.55,pow(Random01(en+40+j),2))*(.8+.2*impact);
+        float width=max(physical,pixelWorld*(powderStep?.85:.7));
+        float length_=powderStep?width*lerp(1.05,1.45,Random01(en+65+j)):max(width*1.3,length(velocity)*lerp(.016,.008,saturate(a/.1))+width);
         world=center+side*uv.x*width+dirV*uv.y*length_;
         alpha=(1-pow(a/flight,4))*(physical/width);
         kind=1;

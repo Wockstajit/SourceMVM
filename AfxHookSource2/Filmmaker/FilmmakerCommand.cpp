@@ -34,6 +34,7 @@
 #include "Movie/SceneRig.h"
 #include "Props/Props.h"
 #include "Takes/Takes.h" // "takes": bots that perform what you recorded, in a private match
+#include "SceneEditor/SceneEditor.h"
 #include "Movie/FollowCamera.h"
 #include "Movie/ViewFx.h"
 #include "Movie/SmoothView.h"
@@ -75,6 +76,7 @@
 #include "Panorama/UiLiveReload.h"
 
 #include "../ClientEntitySystem.h"
+#include "../RenderSystemDX11Hooks.h"
 #include "../WrpConsole.h"
 #include "../../Shared/AfxConsole.h"
 
@@ -592,6 +594,11 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 		Filmmaker::CamPathShake_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "render")) {
 		Filmmaker::Render_RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "sceneeditor")) {
+		Filmmaker::SceneEditor::RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "snapshot")) {
+		if (argc >= 3) RenderSystemDX11_RequestPresentSnapshot(args->ArgV(2));
+		else advancedfx::Warning("usage: %s snapshot <path.bmp>\n", cmd);
 	} else if (0 == _stricmp(sub, "livejs")) {
 		Filmmaker::UiLive_RunCommand(argc, args, cmd);
 	} else {

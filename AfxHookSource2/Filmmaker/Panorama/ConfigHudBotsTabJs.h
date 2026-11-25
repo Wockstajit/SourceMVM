@@ -74,8 +74,22 @@ R"CFJS(
     attachTip(btRecBtn, T('Closes this panel and records everything you do from where you stand. Takes you already recorded play along. {0} does the same.', K('takes.record', 'F6')));
     attachTip(btStopBtn, T('Ends the recording and keeps it, or stops the bots where they are.'));
     attachTip(btPlayBtn, T('Plays every take once as a real bot, while you stay where you are. A bot you killed comes back at its start. {0} does the same.', K('takes.play', 'F7')));
+    var btSceneEdRow = actionGroup(btSec, '', [
+      [T('Open Scene Editor'), function () { cmd('mirv_filmmaker config off; mirv_filmmaker sceneeditor on'); }]
+    ]);
+    attachTip(btSceneEdRow.btns[0], T('Opens the dedicated 3D Scene Editor with floor path lines, move/rotate gizmos, timeline/graph, animation placement, and model placement.'));
     var btLoop = togglePill(btSec, T('Loop'), T('Plays again from the start after the last take ends. When this is off, bots stay where their takes ended.'),
       function () { btCommand('loop ' + (st && st.takes && st.takes.loop ? 'off' : 'on')); });
+    var btThirdPerson = togglePill(btSec, T('Third-person preview'), T('Switches to third-person camera so you can preview your character animations in real time while moving or recording.'),
+      function () { btCommand('thirdperson ' + (st && st.takes && st.takes.thirdPerson ? 'off' : 'on')); });
+    var btWalkBlend = togglePill(btSec, T('Blend with CS walk'), T('Plays animations on the upper body while you walk, run, crouch and jump normally with CS2 WASD.'),
+      function () { btCommand('anim walkblend ' + (st && st.takes && st.takes.localAnimUpper ? 'off' : 'on')); });
+    var btAnimRow = actionGroup(btSec, T('Character performance'), [
+      [T('Animation picker'), function () { if ($.ConfigHudAap) $.ConfigHudAap.open(-1); }],
+      [T('Place actor where looking'), function () { btCommand('actor place'); }]
+    ], 2);
+    attachTip(btAnimRow.btns[0], T('Open the compact inline animation browser inside this panel to search, preview and play Half-Life: Alyx animations.'));
+    attachTip(btAnimRow.btns[1], T('Places a bot actor on the surface under your crosshair facing you and spawns it immediately.'));
     var btFollow = modeRow(btSec, T('Stay on the path'), [['auto', T('Auto')], ['on', T('Always')], ['off', T('Never')]], '236px',
       function (k) { btCommand('follow ' + k); },
       T('A bot replays your input, so it matches on its own. A different gun runs at a different speed, so Auto keeps those takes on the recorded path. Always ignores anything placed in the way later.'), 13);
@@ -131,6 +145,23 @@ R"CFJS(
       r.__caret = caret; r.__name = name; r.__sub = sub;
       hoverable(r, btPaintRow);
       r.SetPanelEvent('onactivate', function () { btOpen = btOpen === i ? -1 : i; btApplyOpen(); });
+      r.SetPanelEvent('oncontextmenu', function () {
+        var a = st && st.takes && st.takes.tracks;
+        var tk = a && a[i];
+        if (!tk || typeof cfgMenu !== 'function') return;
+        var num = i + 1;
+        cfgMenu([
+          [tk.enabled ? T('Disable take') : T('Enable take'), function () { btCommand('enable ' + num + ' ' + (tk.enabled ? 'off' : 'on')); }],
+          [T('Pick animation...'), function () { btOpen = i; btApplyOpen(); if ($.ConfigHudAap) $.ConfigHudAap.open(i); }],
+          null,
+          [T('Delete take'), function () {
+            btCommand('delete ' + num);
+            if (btOpen === i) btOpen = -1;
+            else if (btOpen > i) --btOpen;
+            btApplyOpen();
+          }, '', true]
+        ]);
+      });
       btRows[i] = r;
       return r;
     }
@@ -149,6 +180,13 @@ R"CFJS(
       onChange: function (v) { btCommand('delay ' + btN() + ' ' + v); } });
     var btAgent = dropdownRow(btEdit, T('Player model'), btAgents(), function (v) { btCommand('model ' + btN() + ' ' + v); });
     attachTip(btAgent.row, T('The character this bot appears as. The performance stays the same.'));
+    var btAnimNote = lbl(btEdit, '', S.hint, 12); btAnimNote.hittest = false;
+    btAnimNote.style.whiteSpace = 'normal'; btAnimNote.style.width = '100%'; btAnimNote.style.marginTop = '4px';
+    btAnimNote.style.paddingLeft = UI.line.padH + 'px'; btAnimNote.style.paddingRight = UI.line.padH + 'px';
+    var btTrackAnimRow = actionGroup(btEdit, T('Animation'), [
+      [T('Pick animation...'), function () { if ($.ConfigHudAap) $.ConfigHudAap.open(btOpen); }],
+      [T('Clear animation'), function () { btCommand('anim clear ' + btN()); }]
+    ], 2);
     // One row per gun used in the take: the row's name is the recorded gun, its value what the bot holds.
     var btSwapItems = [['-', T('Same gun')]];
     for (var bwi = 0; bwi < BT_WEAPONS.length; bwi++) btSwapItems.push([BT_WEAPONS[bwi][0], BT_WEAPONS[bwi][1]]);
@@ -222,6 +260,8 @@ R"CFJS(
       setBtnDisabled(btStopBtn, !k.recording && (k.phase === 'idle' || k.phase === 'finished'));
       setBtnDisabled(btPlayBtn, !tracks.length || !!k.recording);
       btLoop.set(!!k.loop);
+      btThirdPerson.set(!!k.thirdPerson);
+      btWalkBlend.set(!!k.localAnimUpper);
       btFollow.sync(k.follow || 'auto');
       btSolidNew.set(!!k.solidNew);
       btNoSpread.set(!!k.noSpread);
@@ -267,6 +307,11 @@ R"CFJS(
       btTeam.sync(t.team === 2 ? 't' : 'ct');
       btDelay.sync(t.delay || 0);
       btAgent.sync(t.agent || '-');
+      var animTxt = t.animClip
+        ? T('Animation: {0} ({1}x{2})', t.animClip, (t.animSpeed || 1).toFixed(2), t.animLoop ? ', ' + T('loop') : '')
+        : T('Animation: none (uses movement)');
+      if (t.animCueCount > 1) animTxt += ' · ' + TN(t.animCueCount, '{0} cue', '{0} cues');
+      if (btAnimNote.text !== animTxt) btAnimNote.text = animTxt;
       var weapons = t.weapons || [];
       btGunClasses = weapons;
       for (var w = 0; w < Math.max(weapons.length, btGunRows.length); w++) {

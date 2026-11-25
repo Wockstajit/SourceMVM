@@ -849,6 +849,22 @@ add_executable(TakesMathTests
 target_compile_features(TakesMathTests PRIVATE cxx_std_17)
 add_test(NAME TakesMathTests COMMAND TakesMathTests)
 
+add_executable(ActorAnimationsMathTests
+    ../Automation/tests/actor-animations-math-tests.cpp
+    Filmmaker/Takes/ActorAnimationsMath.h
+)
+target_compile_features(ActorAnimationsMathTests PRIVATE cxx_std_17)
+add_test(NAME ActorAnimationsMathTests COMMAND ActorAnimationsMathTests)
+
+add_executable(SceneEditorMathTests
+    ../Automation/tests/scene-editor-math-tests.cpp
+    Filmmaker/SceneEditor/SceneEditorMath.h
+    Filmmaker/Takes/TakesMath.h
+    Filmmaker/Takes/ActorAnimationsMath.h
+)
+target_compile_features(SceneEditorMathTests PRIVATE cxx_std_17)
+add_test(NAME SceneEditorMathTests COMMAND SceneEditorMathTests)
+
 add_executable(KeybindsMathTests
     ../Automation/tests/keybinds-math-tests.cpp
     Filmmaker/Input/KeybindsMath.h

@@ -22,6 +22,7 @@
 #include "EnvironmentNativeMaterial.h" // NativeExposureScale
 #include "EnvironmentNativeWater.h"
 #include "EnvironmentNativeRain.h"
+#include "EnvironmentNativeFog.h"
 #include "EnvironmentRayProbe.h"
 #include "EnvironmentGizmoMath.h"
 #include "../Panorama/ConfigHud.h"
@@ -736,6 +737,7 @@ float RunMainThreadFrame() {
     Relight::UpdateStainedGlassMaterials((active || authoredLighting.enabled) && authoredLighting.stainedGlass > 0 && RendererReady());
     UpdateNativeWater(animated,map);
     UpdateNativeRain(animated, map, active, g_camera, g_cameraValid);
+    UpdateNativeFog(animated, map, active, g_camera, g_cameraValid);
     pumpCollisionGrid = active && animated.climate[CL_tumbleweeds] > 0;
     const Weather &weather = animated.weather;
     if (!active || !g_cameraValid || weather.type != kPrecipitationRain || weather.count <= 0) return 0.f;
@@ -824,6 +826,7 @@ void OnLevelInit() {
     ++g_sceneGeneration; SceneRig_CancelCameraRides();
     ResetNativeWater();
     ResetNativeRain();
+    ResetNativeFog();
     g_cameraValid = false;
 
     ReloadMapOcclusion();
@@ -2056,18 +2059,28 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 // a weather is picked again. (Ground fog is its own pass and is never touched here.)
                 auto look = [&](float gusts, float fog, float fogHeight, float fogNoise, Vec3 fogColor, float haze) {
                     auto &c = next.climate;
+                    const bool useAlyxFog = c[CL_alyxFog] > 0.5f;
+                    const float effFog = (useAlyxFog && fog > 0.f) ? (std::min)(6.0f, fog * 1.35f) : fog;
                     // The ground drift starts as each weather's own look (1), whatever the last one was set to.
-                    const std::pair<ClimateField, float> keys[] = {{CL_gusts, gusts},     {CL_fogDensity, fog},  {CL_fogHeight, fogHeight},
+                    const std::pair<ClimateField, float> keys[] = {{CL_gusts, gusts},     {CL_fogDensity, effFog}, {CL_fogHeight, fogHeight},
                                                                     {CL_fogNoise, fogNoise}, {CL_haze, haze},       {CL_gustDensity, 1.f},
                                                                     {CL_gustHeight, 1.f},  {CL_gustWisps, 1.f}, {CL_gustFloor, 1.f}};
                     for (const auto &[field, value] : keys) {
                         c.values[field] = value;
                         next.held.erase(ClimateSpecs()[field].key);
                     }
-                    if (fog > 0) next.fogColor = fogColor;
+                    if (useAlyxFog && fog > 0.f) {
+                        c[CL_lightShafts] = 1.0f;
+                        c[CL_scatter] = 0.72f;
+                        c[CL_fogLightIntensity] = gusts > 0.7f ? 1.55f : 1.35f;
+                        next.held.erase("lightShafts");
+                        next.held.erase("scatter");
+                        next.held.erase("fogLightIntensity");
+                    }
+                    if (effFog > 0) next.fogColor = fogColor;
                     // The renderer's master switch follows what is on, as the panel's does: a
                     // weather that brings gusts and fog switches it on.
-                    if (gusts > 0 || fog > 0) c[CL_enabled] = 1;
+                    if (gusts > 0 || effFog > 0) c[CL_enabled] = 1;
                 };
                 // And its ground, replacing the last weather's: rain lifts the snow/sand, snow and sand
                 // dry the street and replace each other, ash and clear leave it dry. Picking a weather
@@ -2232,6 +2245,14 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 next.climate[CL_stormX]=g_camera.x;next.climate[CL_stormY]=g_camera.y;next.climate[CL_stormZ]=g_camera.z-64;
             }
             next.climate.values[field] = float(n);
+            if (field == CL_alyxFog && n > 0.5) {
+                if (next.climate[CL_fogDensity] <= 1e-4f) {
+                    next.climate[CL_fogDensity] = 0.45f;
+                    next.held.erase("fogDensity");
+                }
+                next.climate[CL_enabled] = 1.0f;
+                next.climate[CL_lightShafts] = 1.0f;
+            }
             // The sun and the moon move together (ApplyTimeOfDay): a time-of-day value places both,
             // and a sun placed by its angles sets the time of day that puts it there.
             if (field == CL_sunAzimuth || field == CL_sunElevation) TimeOfDayFromSun(next.climate);
@@ -2305,7 +2326,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             if (name == "clear")
                 c = Climate{};
             else if (name == "storm" || name == "winter" || name == "sunset" || name == "night" || name == "sandstorm") {
+                const float keepAlyxFog = c[CL_alyxFog];
                 c = Climate{};
+                c[CL_alyxFog] = keepAlyxFog;
                 next.weather = Weather{};
                 c[CL_enabled] = 1;
                 c[CL_relighting] = 1;
@@ -2316,6 +2339,12 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 c[CL_sunElevation] = name == "night" ? -12 : name == "sunset" ? 8 : name == "sandstorm" ? 20 : 25;
                 c[CL_coverage] = name == "storm" ? .8f : (name == "winter" || name == "sandstorm") ? .7f : .45f;
                 c[CL_fogDensity] = name == "sandstorm" ? .4f : name == "storm" ? .25f : .12f;
+                if (keepAlyxFog > 0.5f) {
+                    c[CL_fogDensity] = (std::min)(6.0f, c[CL_fogDensity] * 1.35f);
+                    c[CL_scatter] = 0.72f;
+                    c[CL_fogLightIntensity] = 1.45f;
+                    c[CL_lightShafts] = 1.0f;
+                }
                 c[CL_bloom] = .18f;
                 if (name == "winter") {
                     c[CL_snow] = .8f;

@@ -98,6 +98,9 @@
 #include <functional>
 #include <intrin.h>
 #include <cmath>
+#include <cstdio>
+#include <filesystem>
+#include <vector>
 #include <optional>
 
 #include <dxgi.h>
@@ -301,6 +304,150 @@ RenderProgress RenderProgress_Sample() {
 }
 
 extern ID3D11Device * g_pDevice;
+extern IDXGISwapChain * g_pSwapChain;
+
+namespace {
+
+std::mutex g_presentSnapshotMutex;
+std::string g_presentSnapshotPath;
+
+void Write24BitBmpFromBackBuffer(const std::string& pathUtf8) {
+    if (!g_pSwapChain || !g_pDevice || pathUtf8.empty()) return;
+
+    ID3D11Texture2D* backBuffer = nullptr;
+    if (FAILED(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBuffer)) || !backBuffer) {
+        advancedfx::Warning("[snapshot] GetBuffer(0) failed.\n");
+        return;
+    }
+
+    ID3D11DeviceContext* context = nullptr;
+    g_pDevice->GetImmediateContext(&context);
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    backBuffer->GetDesc(&desc);
+
+    DXGI_FORMAT resolveFmt = desc.Format;
+    if (resolveFmt == DXGI_FORMAT_B8G8R8A8_TYPELESS) resolveFmt = DXGI_FORMAT_B8G8R8A8_UNORM;
+    else if (resolveFmt == DXGI_FORMAT_R8G8B8A8_TYPELESS) resolveFmt = DXGI_FORMAT_R8G8B8A8_UNORM;
+    else if (resolveFmt == DXGI_FORMAT_R10G10B10A2_TYPELESS) resolveFmt = DXGI_FORMAT_R10G10B10A2_UNORM;
+
+    D3D11_TEXTURE2D_DESC staging = desc;
+    staging.Format = resolveFmt;
+    staging.Usage = D3D11_USAGE_STAGING;
+    staging.BindFlags = 0;
+    staging.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    staging.MiscFlags = 0;
+    staging.SampleDesc.Count = 1;
+    staging.SampleDesc.Quality = 0;
+
+    ID3D11Texture2D* staged = nullptr;
+    bool ok = false;
+    if (context && SUCCEEDED(g_pDevice->CreateTexture2D(&staging, nullptr, &staged)) && staged) {
+        if (desc.SampleDesc.Count > 1) {
+            context->ResolveSubresource(staged, 0, backBuffer, 0, resolveFmt);
+        } else {
+            context->CopyResource(staged, backBuffer);
+        }
+        D3D11_MAPPED_SUBRESOURCE mapped = {};
+        const bool isBgra = (resolveFmt == DXGI_FORMAT_B8G8R8A8_UNORM || resolveFmt == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+        const bool isRgba = (resolveFmt == DXGI_FORMAT_R8G8B8A8_UNORM || resolveFmt == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
+        const bool isRgb10 = (resolveFmt == DXGI_FORMAT_R10G10B10A2_UNORM);
+        if ((isBgra || isRgba || isRgb10) && SUCCEEDED(context->Map(staged, 0, D3D11_MAP_READ, 0, &mapped))) {
+            const UINT w = desc.Width, h = desc.Height;
+            const uint32_t rowStride = ((w * 3u + 3u) & ~3u);
+            const uint32_t pixelBytes = rowStride * h;
+            std::vector<uint8_t> bmp(54 + pixelBytes, 0);
+
+            bmp[0] = 'B'; bmp[1] = 'M';
+            const uint32_t fileSize = 54u + pixelBytes;
+            std::memcpy(bmp.data() + 2, &fileSize, 4);
+            const uint32_t dataOff = 54u;
+            std::memcpy(bmp.data() + 10, &dataOff, 4);
+            const uint32_t infoSize = 40u;
+            std::memcpy(bmp.data() + 14, &infoSize, 4);
+            const int32_t biW = (int32_t)w, biH = (int32_t)h;
+            std::memcpy(bmp.data() + 18, &biW, 4);
+            std::memcpy(bmp.data() + 22, &biH, 4);
+            const uint16_t planes = 1, bpp = 24;
+            std::memcpy(bmp.data() + 26, &planes, 2);
+            std::memcpy(bmp.data() + 28, &bpp, 2);
+            std::memcpy(bmp.data() + 34, &pixelBytes, 4);
+
+            const uint8_t* srcBase = (const uint8_t*)mapped.pData;
+            for (UINT y = 0; y < h; ++y) {
+                const uint8_t* srcRow = srcBase + (size_t)y * mapped.RowPitch;
+                uint8_t* dstRow = bmp.data() + 54 + (size_t)(h - 1 - y) * rowStride;
+                if (isBgra) {
+                    for (UINT x = 0; x < w; ++x) {
+                        dstRow[x * 3 + 0] = srcRow[x * 4 + 0];
+                        dstRow[x * 3 + 1] = srcRow[x * 4 + 1];
+                        dstRow[x * 3 + 2] = srcRow[x * 4 + 2];
+                    }
+                } else if (isRgba) {
+                    for (UINT x = 0; x < w; ++x) {
+                        dstRow[x * 3 + 0] = srcRow[x * 4 + 2];
+                        dstRow[x * 3 + 1] = srcRow[x * 4 + 1];
+                        dstRow[x * 3 + 2] = srcRow[x * 4 + 0];
+                    }
+                } else {
+                    const uint32_t* p32 = (const uint32_t*)srcRow;
+                    for (UINT x = 0; x < w; ++x) {
+                        const uint32_t v = p32[x];
+                        dstRow[x * 3 + 2] = (uint8_t)(((v >> 0) & 0x3FFu) >> 2);
+                        dstRow[x * 3 + 1] = (uint8_t)(((v >> 10) & 0x3FFu) >> 2);
+                        dstRow[x * 3 + 0] = (uint8_t)(((v >> 20) & 0x3FFu) >> 2);
+                    }
+                }
+            }
+            context->Unmap(staged, 0);
+
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, pathUtf8.c_str(), -1, nullptr, 0);
+            if (wlen > 0) {
+                std::wstring wpath((size_t)wlen - 1, L'\0');
+                MultiByteToWideChar(CP_UTF8, 0, pathUtf8.c_str(), -1, wpath.data(), wlen);
+                std::error_code ec;
+                std::filesystem::path fp(wpath);
+                if (fp.has_parent_path()) std::filesystem::create_directories(fp.parent_path(), ec);
+                FILE* f = nullptr;
+                if (_wfopen_s(&f, wpath.c_str(), L"wb") == 0 && f) {
+                    ok = (std::fwrite(bmp.data(), 1, bmp.size(), f) == bmp.size());
+                    std::fclose(f);
+                }
+            }
+            if (ok) {
+                advancedfx::Message("[snapshot] wrote %s (%ux%u fmt=%d)\n", pathUtf8.c_str(), w, h, (int)resolveFmt);
+            } else {
+                advancedfx::Warning("[snapshot] failed writing %s (fmt=%d)\n", pathUtf8.c_str(), (int)resolveFmt);
+            }
+        } else {
+            advancedfx::Warning("[snapshot] Map failed or unsupported format %d.\n", (int)resolveFmt);
+        }
+    } else {
+        advancedfx::Warning("[snapshot] CreateTexture2D(staging) failed.\n");
+    }
+
+    if (staged) staged->Release();
+    if (context) context->Release();
+    backBuffer->Release();
+}
+
+void CapturePresentSnapshotIfRequested() {
+    std::string path;
+    {
+        std::lock_guard<std::mutex> lk(g_presentSnapshotMutex);
+        if (g_presentSnapshotPath.empty()) return;
+        path.swap(g_presentSnapshotPath);
+    }
+    Write24BitBmpFromBackBuffer(path);
+}
+
+} // namespace
+
+void RenderSystemDX11_RequestPresentSnapshot(const char *pathUtf8) {
+    if (!pathUtf8 || !*pathUtf8) return;
+    std::lock_guard<std::mutex> lk(g_presentSnapshotMutex);
+    g_presentSnapshotPath = pathUtf8;
+}
 bool RenderGpuMemory_Sample(RenderGpuMemory& out) {
     ID3D11Device* device = g_pDevice;
     if (!device) return false;
@@ -4883,6 +5030,8 @@ void Before_Present() {
             }
         }
     }
+
+    CapturePresentSnapshotIfRequested();
 }
 
 void After_Present() {

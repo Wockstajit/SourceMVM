@@ -88,13 +88,19 @@ int main() {
         Check(image->Press(at, 0, 1, true), "Pressing fresh snow changes the image");
         Check(!image->Press(at, 0, 1, true), "A foot standing still changes nothing more");
         const int x = int(std::floor(120 / kFootTexel)), y = int(std::floor(90 / kFootTexel));
-        Check(image->At(x, y)[0] > 200 && image->At(x, y)[2] == FootLayer(64), "A print is deep at its middle and keeps its height layer");
-        Check(image->At(x + int(12 / kFootTexel), y)[0] == 0 && image->At(x, y + int(6 / kFootTexel))[0] == 0, "A print is a small oval: 12 units along, 5 across");
-        Check(image->At(x, y)[3] == 255 && image->At(x + int(5 / kFootTexel), y)[3] == 255 && image->At(x, y + int(2 / kFootTexel))[3] == 255,
+        Check(image->Print8(x, y) > 200 && image->Layer(x, y) == FootLayer(64), "A print is deep at its middle and keeps its height layer");
+        Check(image->Print8(x + int(12 / kFootTexel), y) == 0 && image->Print8(x, y + int(6 / kFootTexel)) == 0, "A print is a small oval: 12 units along, 5 across");
+        Check(image->Press8(x, y) == 255 && image->Press8(x + int(5 / kFootTexel), y) == 255 && image->Press8(x, y + int(2 / kFootTexel)) == 255,
               "Under the boot the snow is pressed to its bed");
-        Check(image->At(x, y + int(3.8f / kFootTexel))[3] > 0 && image->At(x, y + int(3.8f / kFootTexel))[3] < 255, "The wall of the hole slopes out beyond the boot");
-        Check(image->At(x, y + int(9 / kFootTexel))[3] == 0 && image->At(x + int(13.5f / kFootTexel), y)[3] == 0 && image->At(x - int(13.5f / kFootTexel), y)[3] == 0,
+        Check(image->Press8(x, y + int(3.8f / kFootTexel)) > 0 && image->Press8(x, y + int(3.8f / kFootTexel)) < 255, "The wall of the hole slopes out beyond the boot");
+        Check(image->Press8(x, y + int(9 / kFootTexel)) == 0 && image->Press8(x + int(13.5f / kFootTexel), y) == 0 && image->Press8(x - int(13.5f / kFootTexel), y) == 0,
               "The hole is the size of a boot: nothing is pressed a boot's width away");
+        {
+            uint8_t peakBerm = 0;
+            for (int oy = -14; oy <= 14; ++oy)
+                for (int ox = -14; ox <= 14; ++ox) peakBerm = (std::max)(peakBerm, image->Berm8(x + ox, y + oy));
+            Check(peakBerm > 40, "Displaced material forms a granular berm around the footprint");
+        }
         {
             float low = 1, high = -1;
             for (int i = 0; i < 400; ++i) {
@@ -115,12 +121,12 @@ int main() {
             const int row = int(std::floor(0 / kFootTexel));
             int least = 255, most = 0;
             for (float along = 0; along <= 30; along += kFootTexel) {
-                const int v = swing->At(int(std::floor(along / kFootTexel)), row)[3];
+                const int v = swing->Press8(int(std::floor(along / kFootTexel)), row);
                 least = (std::min)(least, v);
                 most = (std::max)(most, v);
             }
             Check(least > 90 && most <= 103, "The groove is as deep as the foot was low, with no gap along it");
-            Check(swing->At(int(std::floor(15 / kFootTexel)), row)[0] == 0, "A swinging foot leaves no print");
+            Check(swing->Print8(int(std::floor(15 / kFootTexel)), row) == 0, "A swinging foot leaves no print");
             Check(!swing->Sweep({0, 0, 0}, {30, 0, 0}, 0, 0, 0), "A foot lifted clear marks nothing");
         }
         {
@@ -129,9 +135,9 @@ int main() {
             pair->Centre({0, 0, 0});
             pair->Press({0, 5, 0}, 0, 1, false);
             const int my = int(std::floor(0 / kFootTexel));
-            const int one = pair->At(0, my)[3];
+            const int one = pair->Press8(0, my);
             pair->Press({0, -1.5f, 0}, 0, 1, false);
-            Check(one < 255 && pair->At(0, my)[3] == 255, "Holes that overlap are one hole");
+            Check(one < 255 && pair->Press8(0, my) == 255, "Holes that overlap are one hole");
         }
         {
             // A body lying on the ground presses a hollow its own shape; the same body upright presses
@@ -153,7 +159,7 @@ int main() {
             auto bed = std::make_unique<FootImage>();
             bed->Centre({0, 0, 0});
             Check(bed->PressBody(lying, ground), "A body lying in snow marks it");
-            auto at = [&](FootImage &image, float px, float py) { return int(image.At(int(std::floor(px / kFootTexel)), int(std::floor(py / kFootTexel)))[3]); };
+            auto at = [&](FootImage &image, float px, float py) { return int(image.Press8(int(std::floor(px / kFootTexel)), int(std::floor(py / kFootTexel)))); };
             Check(at(*bed, 0, 0) == 255 && at(*bed, 18, 0) == 255 && at(*bed, 30, 0) == 255 && at(*bed, -30, 5.5f) > 240, "It is pressed to the bed under the trunk, the head and the leg");
             Check(at(*bed, 10, 14) == 0 && at(*bed, -30, -8) == 0 && at(*bed, 45, 0) == 0, "The snow beside the body is untouched: the hollow is the body's shape");
             Check(at(*bed, 9, 0) == 255, "There is no gap between one part of the body and the next");
@@ -170,21 +176,21 @@ int main() {
             Check(at(*stood, 0, 5) == 255 && at(*stood, 0, -6) == 0, "A body still upright presses only where its foot is");
         }
         image->Fill(100);
-        Check(image->At(x, y)[0] < 160 && image->At(x, y)[0] > 0, "Falling snow fills a print back in");
-        Check(image->At(x, y)[3] == 205, "Pressed snow fills at half the pace of a print");
-        Check(image->At(x, y + int(3.8f / kFootTexel))[3] < 205, "A hole fills from the bottom: its wall stays lower than its middle");
+        Check(image->Print8(x, y) < 160 && image->Print8(x, y) > 0, "Falling snow fills a print back in");
+        Check(image->Press8(x, y) == 205, "Pressed snow fills at half the pace of a print");
+        Check(image->Press8(x, y + int(3.8f / kFootTexel)) < 205, "A hole fills from the bottom: its wall stays lower than its middle");
         // Marks outside the window are not written; the window follows the camera and wipes what scrolls in.
         Check(!image->Press({100 + 1200, 100, 0}, 0, 1, true), "A foot beyond the window is not kept");
-        Check(image->At(int(std::floor(1300 / kFootTexel)), int(std::floor(100 / kFootTexel)))[0] == 0, "Nothing was written for it");
+        Check(image->Print8(int(std::floor(1300 / kFootTexel)), int(std::floor(100 / kFootTexel))) == 0, "Nothing was written for it");
         Check(image->Centre({100 + 600, 100, 0}), "Moving the camera wipes the edge that scrolls in");
-        Check(image->At(x, y)[0] > 0, "Marks still inside the window stay where they are in the world");
+        Check(image->Print8(x, y) > 0, "Marks still inside the window stay where they are in the world");
         {
             // Only what changed is noted for sending: a boot's rectangle, not the image.
             auto small = std::make_unique<FootImage>();
             small->Centre({0, 0, 0});
             small->Sent();
             small->Press({40, 40, 0}, 0, 1, true);
-            Check(!small->all && small->changed.size() == 1 && small->changed[0].x1 - small->changed[0].x0 < 40, "A footprint notes one small rectangle to send");
+            Check(!small->all && small->changed.size() == 1 && small->changed[0].x1 - small->changed[0].x0 < 48, "A footprint notes one small rectangle to send");
             small->Sent();
             small->Press({-2, 30, 0}, 0, 1, true);
             Check(!small->all && small->changed.size() == 2, "A mark across the image's seam notes a piece each side");
@@ -197,7 +203,79 @@ int main() {
                   small->changed[0].x0 == small->changed[0].x1, "The camera moving one texel notes one column to send");
         }
         image->Centre({100 + 5000, 100, 0});
-        Check(image->At(x, y)[0] == 0, "A camera cut far away starts clean");
+        Check(image->Print8(x, y) == 0, "A camera cut far away starts clean");
+    }
+    {
+        // Granular physics & smooth continuous refill: smooth decay at 60-300 FPS without 0.35s stepping,
+        // angle-of-repose sand slumping faster than cohesive snow, directional wind saltation, and tile cleanup.
+        auto sim = std::make_unique<FootImage>();
+        sim->Centre({0, 0, 0});
+        sim->Press({20, 20, 0}, 0, 1, true, 1.15f);
+        Check(sim->ActiveTileCount() > 0, "Stamping activates touched simulation tiles");
+        sim->Sent();
+
+        const int cx = int(std::floor(20 / kFootTexel)), cy = int(std::floor(20 / kFootTexel));
+        const FootGranularParams sandParams = MakeFootGranularParams(true, false, false, 180.f, 0.f, 0.5f);
+        float prevPrint = sim->PrintF(cx, cy), prevPress = sim->PressF(cx, cy);
+        bool everyFrameSmooth = true;
+        for (int f = 0; f < 60; ++f) {
+            sim->Sent();
+            Check(sim->StepGranular(1.f / 120.f, sandParams), "Each 120 FPS frame steps sand refill smoothly");
+            const float curPrint = sim->PrintF(cx, cy), curPress = sim->PressF(cx, cy);
+            if (!(curPrint < prevPrint && curPress <= prevPress)) everyFrameSmooth = false;
+            prevPrint = curPrint;
+            prevPress = curPress;
+        }
+        Check(everyFrameSmooth, "Sand print and pit refill strictly smoothly every frame at 120 FPS");
+
+        // Steep cliff angle-of-repose slumping: sand slumps faster and flatter than snow, and
+        // preserves >7u height-layer boundaries.
+        auto cliff = std::make_unique<FootImage>();
+        cliff->Centre({0, 0, 0});
+        const int gx = 40, gy = 40;
+        for (int ox = 0; ox < 4; ++ox) {
+            cliff->At(gx + ox, gy)[3] = 65535;
+            FootImage::PackBlue(cliff->At(gx + ox, gy), FootLayer(0), 0);
+        }
+        cliff->bermFine[FootImage::CellIdx(gx - 1, gy)] = 65535;
+        FootImage::PackBlue(cliff->At(gx - 1, gy), FootLayer(0), 65535);
+        cliff->MarkActiveBox(gx - 4, gy - 4, gx + 6, gy + 4);
+        cliff->StepGranular(0.05f, sandParams);
+        Check(cliff->At(gx, gy)[3] < 65535 && cliff->bermFine[FootImage::CellIdx(gx - 1, gy)] < 65535,
+              "Steep rim slumps down into the adjacent sand pit via angle-of-repose avalanching");
+
+        // Directional wind-driven saltation: +X wind slumps a steep +X drop faster than a -X drop,
+        // and cohesive snow slumps less than loose sand over the same step.
+        auto sym = std::make_unique<FootImage>();
+        sym->Centre({0, 0, 0});
+        const int sx = 40, sy = 80;
+        sym->bermFine[FootImage::CellIdx(sx, sy)] = 65535;
+        FootImage::PackBlue(sym->At(sx, sy), FootLayer(0), 65535);
+        sym->MarkActiveBox(sx - 4, sy - 4, sx + 4, sy + 4);
+        auto snowSym = std::make_unique<FootImage>();
+        snowSym->Centre({0, 0, 0});
+        snowSym->bermFine[FootImage::CellIdx(sx, sy)] = 65535;
+        FootImage::PackBlue(snowSym->At(sx, sy), FootLayer(0), 65535);
+        snowSym->MarkActiveBox(sx - 4, sy - 4, sx + 4, sy + 4);
+        const FootGranularParams eastWind = MakeFootGranularParams(true, false, true, 240.f, 0.f, 0.9f);
+        const FootGranularParams calmSnow = MakeFootGranularParams(false, true, false, 0.f, 0.f, 0.f);
+        sym->StepGranular(0.05f, eastWind);
+        snowSym->StepGranular(0.05f, calmSnow);
+        Check(sym->bermFine[FootImage::CellIdx(sx + 1, sy)] > sym->bermFine[FootImage::CellIdx(sx - 1, sy)],
+              "Wind saltation pushes more sand grains onto the downwind side than the upwind side");
+        Check(sym->bermFine[FootImage::CellIdx(sx, sy)] < snowSym->bermFine[FootImage::CellIdx(sx, sy)],
+              "Loose dry sand slumps faster and flatter than cohesive snow");
+
+        // Stepping on a berm crushes it flat and idempotent standing still changes nothing.
+        auto still = std::make_unique<FootImage>();
+        still->Centre({0, 0, 0});
+        still->Press({10, 10, 0}, 0, 1, true, 1.f);
+        Check(!still->Press({10, 10, 0}, 0, 1, true, 1.f), "Repeated identical Press remains idempotent");
+
+        // Fast-forward full refill and confirm active tiles retire cleanly.
+        const FootGranularParams fastClear = {2.f, 2.f, 2.f, 2.f, 0.05f, 0.f, 0.f, 0.f, 0.f};
+        for (int i = 0; i < 15; ++i) still->StepGranular(0.1f, fastClear);
+        Check(still->ActiveTileCount() == 0, "Completely refilled tiles retire from active simulation");
     }
     {
         // How hard a foot comes down: a walk throws less than a run, a landing more than either, and

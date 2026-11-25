@@ -246,8 +246,9 @@ R"CFJS(
       fogBase:     [T('Base height'), -4000, 32000, 0, 'u', false, T('World height the fog sits at.')],
       fogHeight:   [T('Height'), 20, 3000, 0, 'u', false, T('How quickly the fog thins with height.')],
       fogNoise:    [T('Variation'), 0, 1, 2, '', false, T('Breaks the fog up so it is not a flat sheet.')],
-      fogRange:    [T('Ray distance'), 128, 12000, 0, 'u', false, T('How far the fog is marched. Longer costs more.')],
-      scatter:     [T('Forward scattering'), 0, 0.85, 2, '', false, T('How much light bends toward the camera, which makes shafts read.')],
+      fogRange:    [T('Fog distance'), 128, 12000, 0, 'u', false, T('Maximum distance for volumetric fog lighting and shafts.')],
+      fogLightIntensity: [T('Light intensity'), 0, 4, 2, '', false, T('Strength of sunlight, placed lights and map lamps scattering through the volumetric fog.')],
+      scatter:     [T('Light scattering'), 0, 0.85, 2, '', false, T('How strongly light scatters forward toward the camera through the fog.')],
       localFogRadius: [T('Local radius'), 0, 8000, 0, 'u', true, T('Confines the fog to a sphere. 0 keeps it global.')],
       groundFog:   [T('Density'), 0, 4, 2, '', true, T('A low layer lying on the floor. Players moving through it push it aside and leave trails that drift and fill back in. Around 1 it hides the floor; 0.2 is a thin veil.')],
       groundFogCoverage: [T('Coverage'), 0.05, 1, 2, '', false, T('How much of the floor the fog covers. Lower it for separate patches with clear ground between them. Moving air is easiest to see there.')],
@@ -461,8 +462,8 @@ R"CFJS(
       fillLights: 1, contactShadows: 1, shadowBias: 2, sunAngle: 0.53, lampAngle: 1, shadowSoftness: 1, worldGi: 0, bounce: 1, bounceSteps: 1, bounceSize: 2048,
       bounceX: 0, bounceY: 0, bounceZ: 0, bounceAlbedo: 0.55, sceneReflections: 0, ao: 1, skyOcclusion: 1,
       autoExposure: 1, exposureBias: 0,
-      fogDensity: 0, fogStart: 0, fogHeight: 320, fogBase: 0, fogNoise: 0.4, fogRange: 4000, scatter: 0.45,
-      lightShafts: 1, localFogRadius: 0,
+      fogDensity: 0, fogStart: 0, fogHeight: 320, fogBase: 0, fogNoise: 0.4, fogRange: 4000, fogLightIntensity: 1, scatter: 0.45,
+      lightShafts: 1, alyxFog: 0, localFogRadius: 0,
       groundFogColorR: 0.93, groundFogColorG: 0.91, groundFogColorB: 0.87,
       groundFog: 0, groundFogCoverage: 0.85, groundFogHeight: 56, groundFogDetail: 0.6, groundFogFlow: 1,
       groundFogRecovery: 8, groundFogSwirl: 0.8, groundFogWind: 12, groundFogWindAngle: 30,
@@ -556,7 +557,7 @@ R"CFJS(
 
     // One fog card: the height fog, the ground fog that lies on the floor, and the light both share.
     var envFogResetSpec = envResetCmds(
-      ['fogDensity', 'fogStart', 'fogBase', 'fogHeight', 'fogNoise', 'fogRange', 'scatter', 'lightShafts',
+      ['fogDensity', 'fogStart', 'fogBase', 'fogHeight', 'fogNoise', 'fogRange', 'fogLightIntensity', 'scatter', 'lightShafts', 'alyxFog',
        'localFogRadius', 'groundFog', 'groundFogCoverage', 'groundFogHeight', 'groundFogDetail', 'groundFogFlow',
        'groundFogRecovery', 'groundFogSwirl', 'groundFogWind', 'groundFogWindAngle',
        'groundFogColorR', 'groundFogColorG', 'groundFogColorB', 'groundFogSoftness', 'groundFogWisps', 'groundFogWispSize',

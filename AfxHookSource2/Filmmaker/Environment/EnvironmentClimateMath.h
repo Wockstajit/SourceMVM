@@ -224,6 +224,10 @@ enum ClimateField {
     CL_sandProps,
     // Whether the map's fill lights (Light::fill) shine under Environment lighting.
     CL_fillLights,
+    // Volumetric light scattering intensity multiplier for sun, placed lights, and map lamps in height fog.
+    CL_fogLightIntensity,
+    // Half-Life: Alyx 3-layer volumetric + gradient + sky-bounce fog mode for height fog and weather.
+    CL_alyxFog,
     ClimateCount
 };
 struct ClimateSpec {
@@ -391,6 +395,8 @@ inline const std::array<ClimateSpec, ClimateCount> &ClimateSpecs() {
         {"snowProps", "weather", 1.0f, 0.0f, 1.0f},
         {"sandProps", "weather", 1.0f, 0.0f, 1.0f},
         {"fillLights", "lighting", 1.0f, 0.0f, 1.0f},
+        {"fogLightIntensity", "atmosphere", 1.0f, 0.0f, 4.0f},
+        {"alyxFog", "atmosphere", 0.0f, 0.0f, 1.0f},
 
 
     }};
@@ -657,14 +663,19 @@ inline float SnowSlope(float up) {
 inline int ClimateSteps(const Climate &, bool exporting = false) {
     return exporting ? 64 : 32;
 }
+// Keep CL_alyxFog out of climateData so CLIMATE_VECTORS stays 33 and non-fog shaders keep their cached .cso bytecode;
+// FrameConstants uploads it in depthRange.z instead.
+inline constexpr int kShaderClimateCount = int(CL_alyxFog);
+inline constexpr int kShaderClimateVectors = (kShaderClimateCount + 3) / 4;
 inline std::string ClimateShaderDefines() {
-    std::string s = "#define CLIMATE_VECTORS " + std::to_string((ClimateCount + 3) / 4) + "\n";
+    std::string s = "#define CLIMATE_VECTORS " + std::to_string(kShaderClimateVectors) + "\n";
     // Coating actors (players, which get no world coating). Keep in step with Frame::kMaxActors --
     // the cbuffer array and the C++ upload are sized from these two and must agree.
     s += "#define COATING_ACTORS 12\n";
-    for (int i = 0; i < ClimateCount; ++i)
+    for (int i = 0; i < kShaderClimateCount; ++i)
         s += "#define CL_" + std::string(ClimateSpecs()[i].key) + " climateData[" + std::to_string(i / 4) +
              "][" + std::to_string(i % 4) + "]\n";
+    s += "#define CL_alyxFog depthRange.z\n";
     return s;
 }
 // The sky light both fogs scatter when the Environment sky is off (fogAmbient in the shaders): the

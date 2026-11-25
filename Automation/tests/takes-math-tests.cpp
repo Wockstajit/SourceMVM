@@ -360,6 +360,50 @@ static void TestSceneRoundTrip() {
 	CHECK(Near(out.objects[0].ang[1], 45.0f));
 }
 
+static void TestSpatialTransformAndYawRewrite() {
+	Track t = MakeTrack("Mover", 3, 0);
+	t.ticks[0].pos[0] = 100.f; t.ticks[0].pos[1] = 200.f; t.ticks[0].pos[2] = 10.f; t.ticks[0].yaw = 0.f;
+	t.ticks[1].pos[0] = 120.f; t.ticks[1].pos[1] = 200.f; t.ticks[1].pos[2] = 25.f;
+	t.ticks[1].vel[0] = 64.f; t.ticks[1].vel[1] = 0.f; t.ticks[1].vel[2] = 12.f; t.ticks[1].yaw = 45.f;
+	CHECK(!HasSpatialOffset(t));
+
+	t.offsetPos[0] = 10.f; t.offsetPos[1] = -20.f; t.offsetPos[2] = 5.f;
+	t.offsetYaw = 90.f;
+	CHECK(HasSpatialOffset(t));
+
+	float p[3], v[3], y = 0.f;
+	TransformTrackSample(t, t.ticks[0], p, v, y);
+	CHECK(Near(p[0], 110.f, 0.01f) && Near(p[1], 180.f, 0.01f) && Near(p[2], 15.f, 0.01f) && Near(y, 90.f, 0.01f));
+
+	TransformTrackSample(t, t.ticks[1], p, v, y);
+	// +20 along X around anchor rotated +90 deg becomes +20 along Y, plus offset (10, -20, 5)
+	CHECK(Near(p[0], 110.f, 0.01f) && Near(p[1], 200.f, 0.01f) && Near(p[2], 30.f, 0.01f));
+	CHECK(Near(v[0], 0.f, 0.01f) && Near(v[1], 64.f, 0.01f) && Near(v[2], 12.f, 0.01f));
+	CHECK(Near(y, 135.f, 0.01f));
+
+	// Verify RewriteCmdForBot applies yawOffset cleanly while keeping pitch/roll/buttons.
+	const std::vector<uint8_t> cmd = SampleCmd(); // yaw = 90.25f, pitch = -12.5f
+	CmdRewrite r;
+	r.clientTick = 10;
+	r.yawOffset = 100.0f; // 190.25 -> wrapped -169.75
+	const std::vector<uint8_t> out = RewriteCmdForBot(cmd.data(), cmd.size(), r);
+	const CmdSummary s = SummarizeCmd(out.data(), out.size());
+	CHECK(s.valid);
+	CHECK(Near(s.pitch, -12.5f, 0.01f));
+	CHECK(Near(s.yaw, -169.75f, 0.01f));
+
+	// SVTK v4 offset persistence round-trip
+	Scene sc;
+	sc.map = "de_mirage";
+	sc.tracks.push_back(t);
+	const std::vector<uint8_t> encoded = SerializeScene(sc);
+	Scene decoded;
+	CHECK(ParseScene(encoded.data(), encoded.size(), decoded));
+	CHECK(decoded.tracks.size() == 1);
+	CHECK(Near(decoded.tracks[0].offsetPos[0], 10.f) && Near(decoded.tracks[0].offsetPos[1], -20.f) &&
+	      Near(decoded.tracks[0].offsetPos[2], 5.f) && Near(decoded.tracks[0].offsetYaw, 90.f));
+}
+
 static void TestSceneRejectsDamage() {
 	const std::vector<uint8_t> good = SerializeScene(MakeScene());
 	Scene kept;
@@ -401,6 +445,7 @@ int main() {
 	TestInternName();
 	TestSceneRoundTrip();
 	TestSceneRejectsDamage();
+	TestSpatialTransformAndYawRewrite();
 	if (g_failures) {
 		std::printf("takes-math-tests: %d failure(s)\n", g_failures);
 		return EXIT_FAILURE;

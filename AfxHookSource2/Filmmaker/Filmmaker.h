@@ -270,4 +270,15 @@ void Fisheye_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 // and while the armed preview has its background HUD toggled off with Tab.
 bool CameraPath_PreviewHudHidden();
 
+// --- Standalone 3D Scene Editor ---
+bool SceneEditor_Enabled();
+bool SceneEditor_WantsCursor();
+void SceneEditor_SetCursor(bool cursor);
+void SceneEditor_ToggleCursor();
+void SceneEditor_PushWheel(int notches);
+void SceneEditor_PushChar(unsigned charCode);
+bool SceneEditor_TextCaptureActive();
+bool SceneEditor_BusyEditing();
+bool SceneEditor_FlyCam();
+
 } // namespace Filmmaker

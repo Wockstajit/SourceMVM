@@ -27,7 +27,7 @@ inline const std::string& EnvironmentShaderSource(){
 // One list owns both device creation and bytecode preparation. Missing a variant here used
 // to make enabling Sky compile it synchronously on the render thread and stall presentation.
 inline constexpr const char* EnvironmentPixelShaderEntries[] = {
-    "AtmospherePS", "AtmospherePixelPS", "MeshPS", "MaterialMeshPS", "WeatherPS", "VolumePS",
+    "AtmospherePS", "AtmospherePixelPS", "MeshPS", "MaterialMeshPS", "WeatherPS", "VolumePS", "AlyxVolumePS", "AlyxSkyVolumePS", "AlyxExactWalkPS",
     "CompositePS", "StormPS", "SplashPS", "WeatherVeilPS", "VolumeBlurPS", "SkyVolumePS", "CompositePixelPS", "VolumeTemporalPS",
     "ExactListPS", "ExactWalkPS"};
 inline constexpr size_t EnvironmentPixelShaderCount =

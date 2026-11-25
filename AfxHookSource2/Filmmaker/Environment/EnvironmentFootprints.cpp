@@ -30,8 +30,7 @@ struct State {
     std::map<int, Feet> feet;
     std::map<int, Fallen> fallen;
     const OcclusionMesh *world = nullptr;
-    double time = 0, filled = 0;
-    int fillRow = 0; // where the falling snow has filled the marks up to (a band of rows a frame)
+    double time = 0;
     float steps[kFootSteps][4]{};
     float impact[kFootSteps]{}; // FootImpact of each step
     float live[kFootLive][4]{};
@@ -51,7 +50,7 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
     if (!g_state) {
         g_state = new State;
         g_state->device = device;
-        g_state->time = g_state->filled = frame.time;
+        g_state->time = frame.time;
     }
     auto &s = *g_state;
     if (!s.texture) {
@@ -62,7 +61,7 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
         // whole trace of holes where nothing is, which is nearly all the snow on screen.
         d.ArraySize = d.SampleDesc.Count = 1;
         d.MipLevels = 0;
-        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        d.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
         d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
         d.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
         if (FAILED(device->CreateTexture2D(&d, nullptr, &s.texture)) ||
@@ -84,7 +83,6 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
         s.feet.clear();
         s.fallen.clear();
         s.stepCount = s.stepNext = 0;
-        s.filled = frame.time;
         s.dirty = true;
     }
     const float dt = float(frame.time - s.time);
@@ -103,6 +101,8 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
         s.stepNext = (s.stepNext + 1) % kFootSteps;
         s.stepCount = (std::min)(s.stepCount + 1, kFootSteps);
     };
+    const auto &clTop = frame.scene.climate;
+    const float footBerm = (clTop[CL_sand] > 0 && clTop[CL_sand] > clTop[CL_snow]) ? 1.15f : 0.95f;
     for (const auto &actor : frame.actors) {
         if (actor.hasFeet) {
             // The pawn's own feet: each presses the snow to its own height wherever it goes, and
@@ -131,11 +131,11 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
                 const float dx = at.x - foot.last.x, dy = at.y - foot.last.y;
                 // The same foot a frame on, not a respawn or a teleport.
                 const bool follows = foot.valid && dx * dx + dy * dy < 48 * 48 && std::abs(at.z - foot.last.z) < 24;
-                if (follows) s.dirty |= s.image.Sweep(foot.last, at, actor.footYaw[k], FootPress(foot.lift), press);
-                else if (press > .02f) s.dirty |= s.image.Press(at, actor.footYaw[k], press, false);
+                if (follows) s.dirty |= s.image.Sweep(foot.last, at, actor.footYaw[k], FootPress(foot.lift), press, footBerm);
+                else if (press > .02f) s.dirty |= s.image.Press(at, actor.footYaw[k], press, false, footBerm);
                 const float footSpeed = follows ? std::sqrt(dx * dx + dy * dy) / dt : 0;
                 if (FootSetDown(foot, lift, footSpeed, pawnSpeed) && follows) {
-                    s.dirty |= s.image.Press(at, actor.footYaw[k], 1, true);
+                    s.dirty |= s.image.Press(at, actor.footYaw[k], 1, true, footBerm);
                     const float impact = FootImpact(pawnSpeed, landingSpeed);
                     splash(at, impact);
                     if (MvmDebugLog_Active())
@@ -160,7 +160,7 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
         FootStep steps[2];
         bool grounded = false;
         const int landed = AdvanceFootTrack(track, actor.origin, dt, steps, grounded);
-        for (int i = 0; i < landed; ++i) s.dirty |= s.image.Press(steps[i].position, steps[i].heading, 1, true);
+        for (int i = 0; i < landed; ++i) s.dirty |= s.image.Press(steps[i].position, steps[i].heading, 1, true, footBerm);
         // Only a stride throws water: feet set down together where a pawn stands do not.
         if (landed == 1) splash(steps[0].position, .7f); // speed unknown here: between a walk and a run
         seen[actor.entity] = track;
@@ -174,7 +174,7 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
             if (dt > 0) s.image.Melt(heat.position, heat.radius, (std::min)(dt * 1.6f, .3f), true);
         } else if (heat.age < .6f) {
             s.image.Melt(heat.position, heat.radius, 1, false);
-            s.image.PressRound({heat.position.x, heat.position.y, heat.position.z}, heat.radius * .45f, .7f);
+            s.image.PressRound({heat.position.x, heat.position.y, heat.position.z}, heat.radius * .45f, .7f, footBerm);
         }
     }
     // The dead: each body presses the snow under it as it drops and where it lies.
@@ -192,7 +192,7 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
             }
         }
         if (moved > .25f || frame.time - fallen.pressed > 1) {
-            s.dirty |= s.image.PressBody(body.bones, ground);
+            s.dirty |= s.image.PressBody(body.bones, ground, footBerm);
             fallen.bones = body.bones;
             fallen.pressed = frame.time;
         }
@@ -209,35 +209,24 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
         seenFallen[body.entity] = fallen;
     }
     s.fallen.swap(seenFallen);
-    // Falling snow fills the marks back in: about 45 seconds for a full print.
-    // The whole image is gone over once every 0.35 seconds, a band of rows a frame.
-    if (frame.time > s.filled) {
-        const int rows = (std::min)(kFootSize, int(double(kFootSize) * (frame.time - s.filled) / .35));
-        if (rows > 0) {
-            s.filled = frame.time;
-            // Snow cleared by a fire or a blast drifts back in about forty seconds, snowing or not;
-            // sand prints slump and blow back in faster, scaling with wind and gusts (FootFillStep).
-            const auto &cl = frame.scene.climate;
-            const auto &w = frame.scene.weather;
-            const bool sandLies = cl[CL_sand] > 0 && cl[CL_sand] > cl[CL_snow];
-            const bool snowing = w.type == 2 && w.count > 0;
-            const bool sandWeather = w.type == 7 && w.count > 0;
-            const float windSpeed = std::sqrt(w.windX * w.windX + w.windY * w.windY);
-            const FootFillRate fill = FootFillStep(sandLies, snowing, sandWeather, windSpeed, cl[CL_gusts]);
-            s.image.FillRows(fill.mark, s.fillRow, rows, fill.back);
-            s.fillRow = FootImage::Wrap(s.fillRow + rows);
-        }
-    }
-    // Only what changed is sent (FootImage::Touch); the smaller copies are made again from it. Every
-    // stamp, melt, fill and scroll records its box, and a reset or a new texture sends it whole. (A
-    // change used to send all 2048 x 2048 texels, 16 MB, on nearly every frame the camera moved.)
+    // Smooth continuous per-frame granular physics (angle-of-repose slumping + wind saltation) and
+    // continuous 16-bit refill over active tiles, replacing stepped 0.35 s row-band clears.
+    const auto &cl = frame.scene.climate;
+    const auto &w = frame.scene.weather;
+    const bool sandLies = cl[CL_sand] > 0 && cl[CL_sand] > cl[CL_snow];
+    const bool snowing = w.type == 2 && w.count > 0;
+    const bool sandWeather = w.type == 7 && w.count > 0;
+    const float bermStrength = sandLies ? 1.15f : 0.95f;
+    if (dt > 0)
+        s.dirty |= s.image.StepGranular(dt, MakeFootGranularParams(sandLies, snowing, sandWeather, w.windX, w.windY, cl[CL_gusts]));
+
     if (s.image.all || !s.image.changed.empty()) {
         if (s.image.all)
-            ctx->UpdateSubresource(s.texture.Get(), 0, nullptr, s.image.texels.data(), kFootSize * 4, 0);
+            ctx->UpdateSubresource(s.texture.Get(), 0, nullptr, s.image.texels.data(), kFootSize * 8, 0);
         else
             for (const auto &b : s.image.changed) {
                 const D3D11_BOX box{UINT(b.x0), UINT(b.y0), 0, UINT(b.x1 + 1), UINT(b.y1 + 1), 1};
-                ctx->UpdateSubresource(s.texture.Get(), 0, &box, s.image.At(b.x0, b.y0), kFootSize * 4, 0);
+                ctx->UpdateSubresource(s.texture.Get(), 0, &box, s.image.At(b.x0, b.y0), kFootSize * 8, 0);
             }
         ctx->GenerateMips(s.view.Get());
         s.image.Sent();
@@ -248,7 +237,8 @@ FootprintBinding PrepareFootprints(ID3D11Device *device, ID3D11DeviceContext *ct
         if (std::abs(frame.time - last) > 2) {
             last = frame.time;
             size_t marked = 0;
-            for (size_t i = 0; i < s.image.texels.size(); i += 4) marked += s.image.texels[i] || s.image.texels[i + 3];
+            for (size_t i = 0; i < s.image.texels.size(); i += 4)
+                marked += (s.image.texels[i] || s.image.texels[i + 3] || s.image.bermFine[i >> 2]);
             const CoatingActor first = frame.actors.empty() ? CoatingActor{} : frame.actors[0];
             MvmDebugLog_Linef("environment.footprints",
                               "actors=%zu fallen=%zu withFeet=%zu withoutFeet=%zu steps=%d markedTexels=%zu camera=(%.0f %.0f %.0f) first=(%.0f %.0f %.0f) grounded=%d "

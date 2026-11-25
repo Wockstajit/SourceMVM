@@ -74,6 +74,8 @@ std::string DescribeMatch();
 
 // -- A pawn ----------------------------------------------------------------------------------------
 bool Pose(void *pawn, float pos[3], float vel[3]);
+bool IsWalking(void *pawn);
+bool IsDucking(void *pawn);
 bool EyeAngles(void *pawn, float &pitch, float &yaw);
 bool EyePosition(void *pawn, float out[3]);
 // Any of the three may be null to leave it alone. Clients do not interpolate across a teleport,

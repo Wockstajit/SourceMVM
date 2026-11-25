@@ -44,6 +44,7 @@ namespace Filmmaker::Environment {
 unsigned drawn = 0;
 // The native CS2 rain lives in the hook (engine particle manager); off in a standalone device test.
 bool NativeRainActive() { return false; }
+bool NativeAlyxFogActive() { return false; }
 // CS2's own textures are read from the installed game; a standalone device test keeps the
 // procedural snow and wet ground, so its images do not depend on the install or on load timing.
 GameTexturesBound BindGameTextures(ID3D11Device *, ID3D11DeviceContext *, bool, bool, bool, int) { return {}; }

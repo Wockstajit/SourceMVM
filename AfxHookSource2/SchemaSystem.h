@@ -62,6 +62,9 @@ struct ClientDllOffsets_t {
 		ptrdiff_t m_szRagdollDamageWeaponName=0;
 		ptrdiff_t m_bRagdollDamageHeadshot=0;
 	} DeathWeaponRagdoll;
+	struct ActorAnimGraph {
+		ptrdiff_t m_bAnimGraphUpdateEnabled = 0; // bool on the animating entity: false stops the engine rewriting its pose
+	} ActorAnimGraph;
 	struct DeathWeaponPhysics {
 		ptrdiff_t m_pVPhysicsAggregate = 0, m_nIdealMotionType = 0;
 		ptrdiff_t m_nParentAttachmentOrBone = 0, m_nHierarchyType = 0;
@@ -157,6 +160,25 @@ struct ClientDllOffsets_t {
 		ptrdiff_t m_vTintColor = 0; // Color
 		ptrdiff_t m_flBrightnessScale = 0; // float32
 	} C_EnvSky;
+
+	// Native Source 2 gradient fog controller (optional/non-fatal). Synchronized by
+	// EnvironmentWorld when Half-Life: Alyx fog mode is active so particles, water, and
+	// regular-lit surfaces match the volumetric power-falloff haze.
+	struct C_GradientFog {
+		ptrdiff_t m_bFogEnable = 0;                 // bool
+		ptrdiff_t m_bStartDisabled = 0;             // bool
+		ptrdiff_t m_bHeightFogEnabled = 0;          // bool
+		ptrdiff_t m_bGradientFogNeedsTextures = 0;  // bool
+		ptrdiff_t m_FogColor = 0;                   // Color (RGBA bytes)
+		ptrdiff_t m_flFogStart = 0;                 // float32
+		ptrdiff_t m_flFogEnd = 0;                   // float32
+		ptrdiff_t m_flFogFalloffExponent = 0;       // float32
+		ptrdiff_t m_flFogStartHeight = 0;           // float32
+		ptrdiff_t m_flFogEndHeight = 0;             // float32
+		ptrdiff_t m_flFogVerticalExponent = 0;      // float32
+		ptrdiff_t m_flFogStrength = 0;              // float32
+		ptrdiff_t m_flFogMaxOpacity = 0;            // float32
+	} C_GradientFog;
 
 	// Econ/cosmetics fields for the offline demo skin-changer (Phase 3). Resolved separately
 	// and NON-FATALLY (see g_cosmeticsOffsetsOk) so a renamed field disables skins instead of
@@ -261,6 +283,8 @@ struct ClientDllOffsets_t {
 		ptrdiff_t m_iShotsFired = 0; // int32
 		// Optional: the controller that owned this pawn, kept after death (Customize: a dead player's body).
 		ptrdiff_t m_hOriginalController = 0; // CHandle< CCSPlayerController >
+		// Optional: eye orientation (QAngle pitch, yaw, roll) for aligning full/upper-body pose yaw.
+		ptrdiff_t m_angEyeAngles = 0; // QAngle
 	} C_CSPlayerPawn;
 
 	// READ-ONLY model-state chain for showing which agent/player-model a spectated player wears

@@ -191,8 +191,8 @@ function harness(withLighting = false) {
       enabled: 0, relighting: 0, snow: 0.4, clouds: 1, storm: 0, stormInterval: 9, stormStrength: 2, fogStart: 0,
       sky: 1, coverage: 0.55, density: 0.65, cloudBase: 1800, cloudDepth: 1200, cloudScale: 0.0008,
       windSpeed: 25, sunAzimuth: 135, sunElevation: 35, sunPower: 1, haze: 0.4, stars: 0.3,
-      fogDensity: 0, fogHeight: 320, fogBase: 0, fogNoise: 0.4, fogRange: 4000, scatter: 0.45,
-      lightShafts: 1, localFogRadius: 0, wet: 0, puddles: 0, puddleHeight: 128, puddleDepth: 24,
+      fogDensity: 0, fogHeight: 320, fogBase: 0, fogNoise: 0.4, fogRange: 4000, fogLightIntensity: 1, scatter: 0.45,
+      lightShafts: 1, alyxFog: 0, localFogRadius: 0, wet: 0, puddles: 0, puddleHeight: 128, puddleDepth: 24,
       surfaceRadius: 0, maskScale: 0.02, ripple: 0.35, reflectionRoughness: 0.35,
       relight: 0, ambient: 0.3, sunRelight: 0.6, bakedSuppressed: 0, bakedFill: 0.6, contactShadows: 1,
       shadowBias: 2, worldGi: 0, bounce: 1, bounceSteps: 1, bounceSize: 2048, bounceX: 0, bounceY: 0, bounceZ: 0,
@@ -486,11 +486,16 @@ test('fog card carries the ground fog and its light shafts',()=>{
   for(const name of ['Coverage','Depth','Billows','Billow size','Push','Push size','Refill time','Swirl','Drift speed','Drift direction',
     'Softness','Wisps','Wisp size','Streak','Churn','Sun on fog','Shade brightness']) h.slider(name);
   assert.ok(h.toggles.some(t=>t.label==='Light shafts'),'light shafts switch on the fog page');
+  const alyxFogToggle = h.toggles.find(t=>t.label==='Half-Life: Alyx fog');
+  assert.ok(alyxFogToggle, 'alyx fog toggle on the fog page');
+  alyxFogToggle.click();
+  assert.ok(h.sent.includes('mirv_filmmaker environment climate alyxFog 1'), 'alyx fog toggle writes climate alyxFog 1');
   const ground=h.context.climateControls.find(row=>row[1]==='groundFog');
   assert.ok(ground&&ground[0].opts.label==='Density','the ground fog has its own density');
   ground[0].opts.onChange(1.5);
   assert.equal(h.sent.at(-1),'mirv_filmmaker environment climate groundFog 1.5');
   const resets=h.card('FOG').resets.join(' ');
+  assert.match(resets,/climate alyxFog 0/);
   assert.match(resets,/climate groundFog 0/);assert.match(resets,/climate groundFogHeight 56/);
   assert.match(resets,/climate groundFogRecovery 8/);assert.match(resets,/climate groundFogCoverage 0.85/);
   assert.match(resets,/climate groundFogColorR 0.93/);

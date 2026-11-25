@@ -1,11 +1,15 @@
 #define NOMINMAX
 #include "Takes.h"
 
+#include "ActorAnimations.h"
 #include "TakesHud.h"
 #include "TakesMath.h"
 #include "TakesServer.h"
 
 #include "../Debug/MvmDebugLog.h"
+#include "../Environment/MapCollisionGrid.h"
+#include "../Movie/CameraBridge.h"
+#include "../Panorama/PanoramaBridge.h"
 #include "../Platform/JsonBuilder.h"
 #include "../Props/ClientEntitySpawn.h"
 #include "../Props/Props.h"
@@ -32,6 +36,8 @@
 #include <vector>
 
 extern SOURCESDK::CS2::ISource2EngineToClient *g_pEngineToClient;
+
+namespace Filmmaker::SceneEditor { void OnRecordingFinished(int newTrackIdx); }
 
 namespace Filmmaker::Takes {
 namespace {
@@ -115,7 +121,14 @@ struct State {
 	bool demoRecording = false;
 	bool demoStopAtEnd = false;
 	bool demoPending = false;  // starts with the next pass
+	bool thirdPerson = false;  // third-person preview mode for live animation performance
+	std::string animGiven;     // the weapon Play-on-me last gave, so it is not given (and dropped) again
+	std::string animWeapon = "auto"; // what Play-on-me equips: auto (what the clip was posed for), keep, or a weapon
+	int appliedMaxSpeed = -1;  // last sv_maxspeed written (-1 = default 320 untouched; 0 = movement locked)
 	std::string lastMap;
+	bool scrubPreviewActive = false;
+	int scrubPreviewTick = 0;
+	bool reopenSceneEditorOnRecFinish = false;
 } g;
 
 std::filesystem::path SettingsFile() {
@@ -663,10 +676,12 @@ void StartActor(Actor &a) {
 	if (void *controller = Server::EntityFromHandle(a.controllerHandle)) Server::SetPlayerName(controller, t.name.c_str());
 	if (a.spawnModel.empty()) a.spawnModel = Server::ModelOf(pawn);
 	const TickSample &first = t.ticks[0];
-	const float angles[3] = {first.pitch, first.yaw, 0};
+	float startPos[3], startVel[3], startYaw = first.yaw;
+	TransformTrackSample(t, first, startPos, startVel, startYaw);
+	const float angles[3] = {first.pitch, startYaw, 0};
 	// At the speed the take starts at. From a standstill, a take started on the move stays a whole
 	// acceleration behind the recording for its entire length: about 47 units at a run.
-	Server::Teleport(pawn, first.pos, angles, first.vel);
+	Server::Teleport(pawn, startPos, angles, startVel);
 	Server::SetHealth(pawn, t.health > 0 ? t.health : 100);
 	ApplyAgentModel(t, a, pawn);
 	EquipForStart(t, pawn);
@@ -674,14 +689,14 @@ void StartActor(Actor &a) {
 	a.started = true;
 	a.nextInventory = 0;
 	a.lastPitch = first.pitch;
-	a.lastYaw = first.yaw;
+	a.lastYaw = startYaw;
 	a.pendingGive.clear();
 	a.maxDrift = 0;
 	a.lastDrift = 0;
 	a.corrections = 0;
 	a.fed = 0;
 	a.wasAlive = true;
-	MvmDebugLog_Linef("takes.start", "track=%s pawn=%p pos=(%.1f %.1f %.1f) ticks=%d", t.name.c_str(), pawn, first.pos[0], first.pos[1], first.pos[2], int(t.ticks.size()));
+	MvmDebugLog_Linef("takes.start", "track=%s pawn=%p pos=(%.1f %.1f %.1f) ticks=%d", t.name.c_str(), pawn, startPos[0], startPos[1], startPos[2], int(t.ticks.size()));
 }
 
 // What the last pass left in the world: guns the bots dropped, and grenades still in the air or burning.
@@ -762,6 +777,29 @@ void BeginPass() {
 	WaitForSpawns();
 }
 
+void SyncPerformersFromScene(ActorAnim::CompanionSequence *outComp = nullptr) {
+	ActorAnim::ClearPerformers();
+	for (size_t i = 0; i < g.scene.tracks.size(); ++i) {
+		const Track &t = g.scene.tracks[i];
+		if (!t.enabled || t.animCues.empty()) continue;
+		int ctrlSlot = -1;
+		for (const Actor &a : g.actors) {
+			if (a.track == int(i) && a.controllerHandle) { ctrlSlot = int(a.controllerHandle & 0x7fffu); break; }
+		}
+		const uint64_t sid = PerformerSteamId(t.name);
+		ActorAnim::SetPerformer(sid, t.delayTicks, t.placedActor, t.animCues, ctrlSlot);
+		if (outComp) {
+			ActorAnim::CompanionActor ca;
+			ca.steamId = sid;
+			ca.name = t.name;
+			ca.delayTicks = t.delayTicks;
+			ca.placedActor = t.placedActor;
+			ca.cues = t.animCues;
+			outComp->actors.push_back(std::move(ca));
+		}
+	}
+}
+
 void StartScene() {
 	++g.passes;
 	void *host = Server::HostController();
@@ -770,11 +808,16 @@ void StartScene() {
 	SpawnMissingObjects();
 	g.sceneStartTick = Server::TickCount() + 1;
 	g.phase = Phase::Running;
+	ActorAnim::CompanionSequence comp;
+	comp.demoStartTick = g.sceneStartTick;
+	SyncPerformersFromScene(&comp);
+	ActorAnim::SetSceneElapsed(0.0, true);
 	if (g.demoPending) {
 		g.demoPending = false;
 		g.demoRecording = true;
 		g.demoStopAtEnd = true;
 		Execf("tv_record %s", g.demoName.c_str());
+		if (!comp.actors.empty()) ActorAnim::SaveCompanionForDemo(g.demoName, comp);
 		Say("recording demo %s", g.demoName.c_str());
 	}
 	if (g.rec.armed) {
@@ -810,11 +853,13 @@ void FinishRecording() {
 	RecordingState &r = g.rec;
 	r.active = false;
 	r.armed = false;
+	int recordedIdx = -1;
 	if (r.track.ticks.size() < 8) {
 		Say("recording dropped: nothing was captured");
 	} else {
 		g.scene.map = CurrentMap();
 		g.scene.tracks.push_back(std::move(r.track));
+		recordedIdx = int(g.scene.tracks.size()) - 1;
 		const Track &t = g.scene.tracks.back();
 		Say("%s kept: %.1f seconds. Press Play to see it.", t.name.c_str(), t.ticks.size() / g.scene.tickRate);
 		Autosave();
@@ -823,6 +868,10 @@ void FinishRecording() {
 	r.pawn = nullptr;
 	// F7 plays it. Any bot that played along stays where it is now.
 	g.phase = Phase::Idle;
+	if (g.reopenSceneEditorOnRecFinish) {
+		g.reopenSceneEditorOnRecFinish = false;
+		SceneEditor::OnRecordingFinished(recordedIdx);
+	}
 }
 
 // The bot's command for this tick. Runs on the server's frame.
@@ -842,24 +891,29 @@ bool OnBotBuildCmd(void *pawn, void *cmd) {
 		return true;
 	}
 	const TickSample &s = t.ticks[frame.index];
+	float sPos[3], sVel[3], sYaw = s.yaw;
+	TransformTrackSample(t, s, sPos, sVel, sYaw);
 	if (frame.index > 0) {
 		const TickSample &before = t.ticks[frame.index - 1];
+		float beforePos[3], beforeVel[3], beforeYaw = before.yaw;
+		TransformTrackSample(t, before, beforePos, beforeVel, beforeYaw);
 		float pos[3], vel[3];
 		if (before.flags & kTickJumped) {
 			// The recording itself moved here without walking, so this is the one 1-to-1 teleport.
-			const float angles[3] = {before.pitch, before.yaw, 0};
-			Server::Teleport(pawn, before.pos, angles, before.vel);
+			const float angles[3] = {before.pitch, beforeYaw, 0};
+			Server::Teleport(pawn, beforePos, angles, beforeVel);
 		} else if (Server::Pose(pawn, pos, vel)) {
-			const float drift = Distance3(pos, before.pos);
+			const float drift = Distance3(pos, beforePos);
 			a->lastDrift = drift;
 			a->maxDrift = (std::max)(a->maxDrift, drift);
-			// A different gun runs at a different speed, so its take would slowly leave the path it
-			// was recorded on. Moved without the teleport flag, the tiny per-tick nudge stays smooth.
-			const bool follow = g.follow == FollowMode::On || (g.follow == FollowMode::Auto && !t.weaponSwaps.empty());
+			// A different gun runs at a different speed, a placed actor has authored root motion, or the
+			// Scene Editor moved/rotated this take in 3D space, so move cleanly along the transformed path.
+			const bool follow = g.follow == FollowMode::On || t.placedActor || HasSpatialOffset(t) ||
+			                    (g.follow == FollowMode::Auto && !t.weaponSwaps.empty());
 			if (follow && drift > 0.01f) {
-				Server::SetAbsOrigin(pawn, before.pos);
+				Server::SetAbsOrigin(pawn, beforePos);
 			} else if (ShouldCorrectDrift(drift, g.driftLimit)) {
-				Server::Teleport(pawn, before.pos, nullptr, before.vel);
+				Server::Teleport(pawn, beforePos, nullptr, beforeVel);
 				++a->corrections;
 				MvmDebugLog_Linef("takes.drift", "track=%s frame=%d drift=%.2f", t.name.c_str(), frame.index, drift);
 			}
@@ -869,6 +923,7 @@ bool OnBotBuildCmd(void *pawn, void *cmd) {
 	rewrite.clientTick = tick;
 	rewrite.pawnHandle = handle;
 	rewrite.stripAttack = t.holdFire;
+	rewrite.yawOffset = t.offsetYaw;
 	rewrite.hasEye = Server::EyePosition(pawn, rewrite.eye);
 	if (s.activeWeapon < t.names.size()) {
 		const std::string &wanted = SwappedWeapon(t, t.names[s.activeWeapon]);
@@ -878,12 +933,14 @@ bool OnBotBuildCmd(void *pawn, void *cmd) {
 			if (void *owned = Server::FindWeapon(pawn, wanted.c_str())) rewrite.weaponSelect = int32_t(Server::HandleOf(owned) & 0x7fff);
 		}
 	}
-	const std::vector<uint8_t> bytes = RewriteCmdForBot(t.cmds.data() + s.cmdOffset, s.cmdSize, rewrite);
-	if (bytes.empty() && s.cmdSize) return false;
+	const std::vector<uint8_t> bytes = s.cmdSize
+	    ? RewriteCmdForBot(t.cmds.data() + s.cmdOffset, s.cmdSize, rewrite)
+	    : BuildIdleCmd(tick, handle, s.pitch, sYaw);
+	if (bytes.empty()) return false;
 	Server::ParseCmd(cmd, bytes.data(), bytes.size());
 	Server::SetCmdNumber(cmd, tick);
 	a->lastPitch = s.pitch;
-	a->lastYaw = s.yaw;
+	a->lastYaw = sYaw;
 	++a->fed;
 	return true;
 }
@@ -1114,8 +1171,68 @@ std::string HudLine(bool &recording) {
 	return "";
 }
 
+uint8_t ClassifyServerWeapon(void *weapon) {
+	const char *cls = weapon ? Server::ClassNameOf(weapon) : nullptr;
+	if (!cls || !cls[0]) return 0; // WeaponClass::None
+	if (std::strstr(cls, "knife") || std::strstr(cls, "bayonet") || 0 == strcmp(cls, "weapon_c4") || 0 == strcmp(cls, "weapon_taser"))
+		return 0; // None
+	if (0 == strcmp(cls, "weapon_hegrenade") || 0 == strcmp(cls, "weapon_flashbang") ||
+	    0 == strcmp(cls, "weapon_smokegrenade") || 0 == strcmp(cls, "weapon_molotov") ||
+	    0 == strcmp(cls, "weapon_incgrenade") || 0 == strcmp(cls, "weapon_decoy"))
+		return 3; // Grenade
+	if (0 == strcmp(cls, "weapon_deagle") || 0 == strcmp(cls, "weapon_glock") ||
+	    0 == strcmp(cls, "weapon_usp_silencer") || 0 == strcmp(cls, "weapon_hkp2000") ||
+	    0 == strcmp(cls, "weapon_p250") || 0 == strcmp(cls, "weapon_elite") ||
+	    0 == strcmp(cls, "weapon_fiveseven") || 0 == strcmp(cls, "weapon_tec9") ||
+	    0 == strcmp(cls, "weapon_cz75a") || 0 == strcmp(cls, "weapon_revolver"))
+		return 2; // Pistol
+	return 1; // Rifle
+}
+
 void RunMainThreadFrame() {
 	RunHudFrame();
+	if (ActorAnim::LocalActive() && Server::Resolve() && Server::Active()) {
+		void *hostCtrl = Server::HostController();
+		void *hostPawn = hostCtrl ? Server::PawnOf(hostCtrl) : nullptr;
+		float hp[3] = {}, hv[3] = {};
+		bool havePose = false;
+		if (hostPawn) {
+			ActorAnim::SetLocalEquippedWeaponClass(ClassifyServerWeapon(Server::ActiveWeapon(hostPawn)));
+			float pitch = 0.f, yaw = 0.f;
+			havePose = Server::Pose(hostPawn, hp, hv);
+			Server::EyeAngles(hostPawn, pitch, yaw);
+			const float rad = yaw * 0.0174532925f;
+			const float fx = std::cos(rad), fy = std::sin(rad);
+			const float rx = fy, ry = -fx;
+			ActorAnim::SetLocalMotion(hv[0] * fx + hv[1] * fy, hv[0] * rx + hv[1] * ry,
+			                          Server::IsWalking(hostPawn), Server::IsDucking(hostPawn));
+
+			// Drive world-space HL:A root motion (e.g. explosion stagger/dodge) into the physics pawn
+			// when a non-locomotion root-motion clip plays and the user isn't actively steering faster.
+			float rmLocal[2] = {};
+			if (havePose && ActorAnim::SampleLocalRootVelocity(rmLocal) &&
+			    (hv[0] * hv[0] + hv[1] * hv[1] < 2500.f)) {
+				const float wx = rmLocal[0] * fx - rmLocal[1] * fy;
+				const float wy = rmLocal[0] * fy + rmLocal[1] * fx;
+				const float rootVel[3] = {wx, wy, hv[2]};
+				Server::Teleport(hostPawn, nullptr, nullptr, rootVel);
+			}
+		}
+		const float wantMaxF = ActorAnim::DesiredLocalMaxSpeed();
+		if (wantMaxF > 0.f) {
+			const int wantMax = int(std::round(wantMaxF));
+			if (g.appliedMaxSpeed < 0 || std::abs(wantMax - g.appliedMaxSpeed) >= 2) {
+				Execf("sv_maxspeed %d", wantMax);
+				g.appliedMaxSpeed = wantMax;
+			}
+		} else if (g.appliedMaxSpeed >= 0) {
+			Exec("sv_maxspeed 320");
+			g.appliedMaxSpeed = -1;
+		}
+	} else if (g.appliedMaxSpeed >= 0) {
+		Exec("sv_maxspeed 320");
+		g.appliedMaxSpeed = -1;
+	}
 	// GOTV is what records every player at full rate, and its master only starts with a map. So it
 	// is asked for on the first frame, before any private match or workshop map loads. It costs a
 	// spectator slot on a local server and does nothing for demo playback.
@@ -1138,7 +1255,7 @@ void RunMainThreadFrame() {
 	// Solid props are the one thing that wants this pump with no take in sight, so they get a cheap
 	// test here: a demo or a match without them returns straight away.
 	const bool solid = !PlayingDemo() && Props_AnySolid();
-	if (g.phase == Phase::Idle && !g.setupDone && !g.rec.active && !g.rec.armed && g_spawnChecks.empty() && !solid && g_live.empty() && !g.recoilApplied && g.recoilRandom == 100) return;
+	if (g.phase == Phase::Idle && !g.setupDone && !g.rec.active && !g.rec.armed && g_spawnChecks.empty() && !solid && g_live.empty() && !g.recoilApplied && g.recoilRandom == 100 && !g.scrubPreviewActive) return;
 	if (PlayingDemo() || CurrentMap().empty() || !Server::Active()) {
 		// The map or the match went away under us.
 		g.rec = RecordingState{};
@@ -1218,6 +1335,8 @@ void RunMainThreadFrame() {
 	}
 	case Phase::Running: {
 		const int sceneTick = tick - g.sceneStartTick;
+		const float rate = g.scene.tickRate > 0 ? g.scene.tickRate : 64.0f;
+		ActorAnim::SetSceneElapsed(double(sceneTick) / double(rate), true);
 		PumpActors(sceneTick);
 		if (g.rec.active) break; // a take being recorded sets the length
 		const int length = SceneLengthTicks(g.scene);
@@ -1228,6 +1347,12 @@ void RunMainThreadFrame() {
 			break;
 		}
 		if (g.demoRecording) break;
+		bool allLoopingPlaced = !g.scene.tracks.empty();
+		for (const Track &t : g.scene.tracks) {
+			if (!t.enabled) continue;
+			if (!t.placedActor || t.animCues.empty() || !t.animCues[0].loop) { allLoopingPlaced = false; break; }
+		}
+		if (allLoopingPlaced) break;
 		if (g.loop) {
 			if (sceneTick >= length + g.tailTicks) BeginPass();
 		} else if (sceneTick >= length) {
@@ -1238,9 +1363,195 @@ void RunMainThreadFrame() {
 	}
 	case Phase::Finished:
 	case Phase::Idle:
-		PumpActors(0);
+		if (g.scrubPreviewActive) {
+			const float rate = g.scene.tickRate > 0 ? g.scene.tickRate : 64.0f;
+			SyncPerformersFromScene();
+			ActorAnim::SetSceneElapsed(double(std::max(0, g.scrubPreviewTick)) / double(rate), true);
+			for (Actor &a : g.actors) {
+				void *pawn = ActorPawn(a);
+				a.pawn = pawn;
+				if (!pawn || !Server::Alive(pawn) || a.track < 0 || a.track >= int(g.scene.tracks.size())) continue;
+				const Track &t = g.scene.tracks[a.track];
+				if (!t.enabled || t.ticks.empty()) continue;
+				const TrackFrame f = FrameForSceneTick(t, g.scrubPreviewTick);
+				const TickSample &sample = (f.kind == FrameKind::BeforeStart) ? t.ticks.front() : t.ticks[f.index];
+				float pos[3], vel[3], yaw = sample.yaw;
+				TransformTrackSample(t, sample, pos, vel, yaw);
+				float curPos[3] = {}, curVel[3] = {};
+				float curPitch = 0.f, curYaw = 0.f;
+				const bool haveCur = Server::Pose(pawn, curPos, curVel);
+				Server::EyeAngles(pawn, curPitch, curYaw);
+				if (!haveCur || Distance3(curPos, pos) > 0.1f || std::fabs(WrapAngleDeg(curYaw - yaw)) > 0.5f) {
+					const float ang[3] = {sample.pitch, yaw, 0.f};
+					const float still[3] = {0.f, 0.f, 0.f};
+					Server::Teleport(pawn, pos, ang, still);
+				}
+				a.lastPitch = sample.pitch;
+				a.lastYaw = yaw;
+			}
+		} else {
+			ActorAnim::SetSceneElapsed(0.0, false);
+		}
+		PumpActors(g.scrubPreviewActive ? g.scrubPreviewTick : 0);
 		break;
 	}
+}
+
+namespace {
+
+// A placed actor holds what its animation was posed for, and walks where its animation walks.
+void ConfigureActorForClip(Track &t, const std::string &clipId, const float pos[3], float yawDeg, float tickRate) {
+	const auto *clip = ActorAnim::GetLibrary().Find(clipId);
+	if (!clip) return;
+	const char *weapon = "weapon_ak47";
+	if (0 != _stricmp(g.animWeapon.c_str(), "auto") && 0 != _stricmp(g.animWeapon.c_str(), "keep") &&
+	    0 == strncmp(g.animWeapon.c_str(), "weapon_", 7))
+		weapon = g.animWeapon.c_str();
+	else if (clip->weaponClass == 3) weapon = "weapon_hegrenade";
+	else if (clip->weaponClass == 2) weapon = "weapon_deagle";
+	else if (clip->weaponClass == 0) weapon = "weapon_knife";
+	t.names.clear();
+	const uint16_t wi = InternName(t.names, weapon);
+	t.startWeapons.assign(1, wi);
+	t.inventory.clear();
+	const ActorAnim::Cue &c = t.animCues.empty() ? ActorAnim::Cue() : t.animCues[0];
+	const double yaw = double(yawDeg) * 0.017453292519943295;
+	const double cs = std::cos(yaw), sn = std::sin(yaw);
+	for (size_t k = 0; k < t.ticks.size(); ++k) {
+		TickSample &s = t.ticks[k];
+		s.activeWeapon = wi;
+		float off[2] = {0.f, 0.f}, next[2] = {0.f, 0.f};
+		if (clip->rootSpeed > 1.f && !t.animCues.empty()) {
+			ActorAnim::RootMotionOffset(*clip, c, double(k) / double(tickRate), off);
+			ActorAnim::RootMotionOffset(*clip, c, double(k + 1) / double(tickRate), next);
+		}
+		s.pos[0] = pos[0] + float(off[0] * cs - off[1] * sn);
+		s.pos[1] = pos[1] + float(off[0] * sn + off[1] * cs);
+		s.pos[2] = pos[2];
+		s.vel[0] = float((next[0] - off[0]) * cs - (next[1] - off[1]) * sn) * tickRate;
+		s.vel[1] = float((next[0] - off[0]) * sn + (next[1] - off[1]) * cs) * tickRate;
+		s.vel[2] = 0.f;
+		s.yaw = float(yawDeg);
+	}
+}
+
+// The Alyx clips are posed with the hands on a rifle. Playing one on the player equips a gun that
+// matches, so the hands meet it: the clip's own weapon in Auto, or the one picked in the picker.
+void EquipForClip(const std::string &clipId) {
+	if (0 == _stricmp(g.animWeapon.c_str(), "keep")) return;
+	const auto *clip = ActorAnim::GetLibrary().Find(clipId);
+	if (!clip) return;
+	const char *weapon = "weapon_ak47";
+	int slot = 1;
+	if (0 == _stricmp(g.animWeapon.c_str(), "auto")) {
+		switch (clip->weaponClass) {
+		case 3: weapon = "weapon_hegrenade"; slot = 4; break;
+		case 2: weapon = "weapon_deagle"; slot = 2; break;
+		case 0: weapon = nullptr; slot = 3; break; // hands free: the knife
+		default: break;
+		}
+	} else {
+		weapon = g.animWeapon.c_str();
+		if (0 == _stricmp(weapon, "weapon_hegrenade")) slot = 4;
+	}
+	Exec("mirv_cvar_unlock_sv_cheats");
+	Exec("sv_cheats 1");
+	bool alreadyHas = false;
+	if (weapon) {
+		void *host = Server::HostController();
+		void *pawn = host ? Server::PawnOf(host) : nullptr;
+		if (pawn) {
+			std::vector<void *> held;
+			Server::ListWeapons(pawn, held);
+			for (void *w : held) {
+				if (const char *cn = Server::ClassNameOf(w)) {
+					if (0 == _stricmp(cn, weapon)) {
+						alreadyHas = true;
+						break;
+					}
+				}
+			}
+		}
+	}
+	if (weapon && !alreadyHas && g.animGiven != weapon) {
+		Execf("give %s", weapon);
+		g.animGiven = weapon;
+	}
+	Execf("slot%d", slot);
+}
+
+// Finds the 3D surface under the player/camera crosshair so "Place actor here" drops the bot
+// right where you're looking instead of on top of your own feet.
+bool ResolveLookPlacePose(void *pawn, float outPos[3], float &outPitch, float &outYaw, bool &usedRaycast) {
+	usedRaycast = false;
+	float pPos[3] = {}, pVel[3] = {};
+	if (!Server::Pose(pawn, pPos, pVel)) return false;
+	float pPitch = 0.f, pYaw = 0.f;
+	Server::EyeAngles(pawn, pPitch, pYaw);
+
+	double camOrg[3] = {}, camAng[3] = {}, camFov = 90.0;
+	CameraBridge_GetCurrentCamera(camOrg, camAng, camFov);
+	const bool validCam = std::isfinite(camOrg[0]) && std::isfinite(camOrg[1]) && std::isfinite(camOrg[2]) &&
+	                      (std::fabs(camOrg[0]) + std::fabs(camOrg[1]) + std::fabs(camOrg[2]) > 1.0);
+	const float pitchDeg = validCam ? float(camAng[0]) : pPitch;
+	const float yawDeg = validCam ? float(camAng[1]) : pYaw;
+	const Environment::Vec3 eye = validCam
+	    ? Environment::Vec3{float(camOrg[0]), float(camOrg[1]), float(camOrg[2])}
+	    : Environment::Vec3{pPos[0], pPos[1], pPos[2] + 64.f};
+
+	constexpr float kDegToRad = 3.14159265358979323846f / 180.f;
+	const float pr = pitchDeg * kDegToRad, yr = yawDeg * kDegToRad;
+	const Environment::Vec3 fwd{std::cos(pr) * std::cos(yr), std::cos(pr) * std::sin(yr), -std::sin(pr)};
+
+	Environment::MapCollisionGrid_Pump();
+	Environment::SurfaceHit hit;
+	if (Environment::MapCollisionRaycast(eye, fwd, 4096.f, hit)) {
+		Environment::Vec3 placed = hit.position;
+		if (hit.normal.z < 0.6f) {
+			// Aimed at a wall/box side: step 24u into the open and drop to the floor below.
+			const Environment::Vec3 pull{placed.x + hit.normal.x * 24.f, placed.y + hit.normal.y * 24.f, placed.z + 36.f};
+			Environment::SurfaceHit floorHit;
+			if (Environment::MapCollisionRaycast(pull, Environment::Vec3{0.f, 0.f, -1.f}, 512.f, floorHit))
+				placed = floorHit.position;
+			else
+				placed = {pull.x, pull.y, pPos[2]};
+		}
+		outPos[0] = placed.x;
+		outPos[1] = placed.y;
+		outPos[2] = placed.z + 2.f;
+		usedRaycast = true;
+	} else {
+		float distAhead = 160.f;
+		if (fwd.z < -0.05f) {
+			distAhead = std::clamp((pPos[2] - eye.z) / fwd.z, 64.f, 420.f);
+			outPos[0] = eye.x + fwd.x * distAhead;
+			outPos[1] = eye.y + fwd.y * distAhead;
+			outPos[2] = pPos[2] + 2.f;
+		} else {
+			outPos[0] = pPos[0] + std::cos(yr) * distAhead;
+			outPos[1] = pPos[1] + std::sin(yr) * distAhead;
+			outPos[2] = pPos[2] + 2.f;
+		}
+		Environment::SurfaceHit floorHit;
+		if (Environment::MapCollisionRaycast(Environment::Vec3{outPos[0], outPos[1], pPos[2] + 48.f},
+		                                     Environment::Vec3{0.f, 0.f, -1.f}, 256.f, floorHit)) {
+			outPos[2] = floorHit.position.z + 2.f;
+			usedRaycast = true;
+		}
+	}
+	outPitch = 0.f;
+	outYaw = yawDeg + 180.f;
+	return true;
+}
+
+} // namespace
+
+void RunMainThreadPostFrame(bool panelOpen) {
+	ActorAnim::RunLateFrame(panelOpen);
+}
+
+void RunMainThreadLateFrame(bool panelOpen) {
+	ActorAnim::RunLateFrame(panelOpen);
 }
 
 namespace {
@@ -1420,7 +1731,8 @@ void RunCommand(int argc, advancedfx::ICommandArgs *args, const char *cmd) {
 		Autosave();
 		Say("scene cleared");
 	} else if (0 == _stricmp(sub, "delete") || 0 == _stricmp(sub, "enable") || 0 == _stricmp(sub, "team") || 0 == _stricmp(sub, "name") ||
-	           0 == _stricmp(sub, "holdfire") || 0 == _stricmp(sub, "delay") || 0 == _stricmp(sub, "model") || 0 == _stricmp(sub, "weapon")) {
+	           0 == _stricmp(sub, "holdfire") || 0 == _stricmp(sub, "delay") || 0 == _stricmp(sub, "model") || 0 == _stricmp(sub, "weapon") ||
+	           0 == _stricmp(sub, "offset")) {
 		const int n = ParseTrackIndex(arg(3));
 		if (n < 0) {
 			Say("no take %s", arg(3));
@@ -1429,17 +1741,9 @@ void RunCommand(int argc, advancedfx::ICommandArgs *args, const char *cmd) {
 		Track &t = g.scene.tracks[n];
 		if (0 == _stricmp(sub, "delete")) {
 			const std::string name = t.name;
-			g.scene.tracks.erase(g.scene.tracks.begin() + n);
-			for (Actor &a : g.actors) {
-				if (a.track == n) a.track = -1;
-				else if (a.track > n) --a.track;
-			}
-			if (g.scene.tracks.empty()) {
-				g.phase = Phase::Idle;
-				g.actors.clear();
-				// Before setup these are somebody's ordinary match bots (see `clear`).
-				if (g.setupDone) KickExtraBots();
-			}
+			// One owner for "a take went away": renumbers the actors, resets an emptied scene (an ordinary
+			// match's bots are left alone before setup, see `clear`), re-syncs the performers and autosaves.
+			DeleteTrack(n);
 			Say("%s deleted", name.c_str());
 		} else if (0 == _stricmp(sub, "enable")) {
 			t.enabled = 0 != _stricmp(arg(4), "off");
@@ -1462,6 +1766,12 @@ void RunCommand(int argc, advancedfx::ICommandArgs *args, const char *cmd) {
 				if (a.track == n)
 					if (void *pawn = ActorPawn(a)) ApplyAgentModel(t, a, pawn);
 			Say("%s now wears %s", t.name.c_str(), t.agentModel.empty() ? "the model its bot joined with" : t.agentModel.c_str());
+		} else if (0 == _stricmp(sub, "offset")) {
+			t.offsetPos[0] = float(atof(arg(4)));
+			t.offsetPos[1] = float(atof(arg(5)));
+			t.offsetPos[2] = float(atof(arg(6)));
+			if (argc > 7) t.offsetYaw = WrapAngleDeg(float(atof(arg(7))));
+			Say("%s offset (%.1f %.1f %.1f) yaw %.1f", t.name.c_str(), t.offsetPos[0], t.offsetPos[1], t.offsetPos[2], t.offsetYaw);
 		} else if (0 == _stricmp(sub, "weapon")) {
 			const std::string from = arg(4), to = arg(5);
 			t.weaponSwaps.erase(std::remove_if(t.weaponSwaps.begin(), t.weaponSwaps.end(), [&](const WeaponSwap &s) { return s.from == from; }),
@@ -1536,6 +1846,239 @@ void RunCommand(int argc, advancedfx::ICommandArgs *args, const char *cmd) {
 		g.passes = 0;
 		BeginPass();
 		Say("demo starts with this pass");
+	} else if (0 == _stricmp(sub, "thirdperson")) {
+		const char *mode = argc > 3 ? arg(3) : "toggle";
+		if (0 == _stricmp(mode, "on") || 0 == _stricmp(mode, "1")) g.thirdPerson = true;
+		else if (0 == _stricmp(mode, "off") || 0 == _stricmp(mode, "0")) g.thirdPerson = false;
+		else g.thirdPerson = !g.thirdPerson;
+		if (g.thirdPerson) {
+			Exec("sv_cheats 1");
+			Exec("thirdperson");
+			// Zero cam_idealyaw so W always walks dead straight ahead; use Valve's shoulder offset 30 instead.
+			Exec("cam_idealyaw 0");
+			Exec("c_thirdpersonshoulder 1");
+			Exec("c_thirdpersonshoulderoffset 30");
+		} else {
+			Exec("firstperson");
+		}
+		Say("third-person preview %s", g.thirdPerson ? "on" : "off");
+	} else if (0 == _stricmp(sub, "actor")) {
+		const char *what = argc > 3 ? arg(3) : "";
+		if (0 == _stricmp(what, "place")) {
+			if (!CanUseHere() || !EnsureHooks()) return;
+			EnsureSceneForMap();
+			void *host = Server::HostController();
+			void *pawn = host ? Server::PawnOf(host) : nullptr;
+			if (!pawn || !Server::Alive(pawn)) {
+				Say("cannot place actor: you must be alive in the round");
+				return;
+			}
+			bool atSelf = false, noPlay = false;
+			int numArgEnd = argc;
+			for (int i = 4; i < argc; ++i) {
+				if (0 == _stricmp(arg(i), "atself")) { atSelf = true; numArgEnd = std::min(numArgEnd, i); }
+				else if (0 == _stricmp(arg(i), "noplay")) { noPlay = true; numArgEnd = std::min(numArgEnd, i); }
+			}
+			float pos[3] = {}, vel[3] = {};
+			float pitch = 0.f, yaw = 0.f;
+			bool usedRaycast = false;
+			if (atSelf) {
+				Server::Pose(pawn, pos, vel);
+				Server::EyeAngles(pawn, pitch, yaw);
+			} else {
+				ResolveLookPlacePose(pawn, pos, pitch, yaw, usedRaycast);
+			}
+			Track t;
+			t.name = NextTakeName(g.scene.tracks);
+			t.team = uint8_t(Server::Team(host) == 2 ? 2 : 3);
+			t.enabled = true;
+			t.holdFire = true;
+			t.placedActor = true;
+			t.health = 100;
+			t.agentModel = Server::ModelOf(pawn);
+			float durSec = 10.0f;
+			if (numArgEnd > 4 && arg(4)[0] && 0 != _stricmp(arg(4), "none") && 0 != _stricmp(arg(4), "-")) {
+				ActorAnim::Cue c;
+				c.startTick = 0;
+				c.clip = arg(4);
+				if (numArgEnd > 5) c.speed = std::clamp(float(atof(arg(5))), 0.1f, 3.0f);
+				if (numArgEnd > 6) c.loop = (atoi(arg(6)) != 0 || 0 == _stricmp(arg(6), "on") || 0 == _stricmp(arg(6), "true"));
+				if (numArgEnd > 7) c.startTime = std::max(0.f, float(atof(arg(7))));
+				if (numArgEnd > 8) c.duration = std::max(0.f, float(atof(arg(8))));
+				if (numArgEnd > 9) c.blendIn = std::clamp(float(atof(arg(9))), 0.f, 2.f);
+				if (numArgEnd > 10) c.blendOut = std::clamp(float(atof(arg(10))), 0.f, 2.f);
+				if (numArgEnd > 11) c.upperBodyOnly = (atoi(arg(11)) != 0 || 0 == _stricmp(arg(11), "on") || 0 == _stricmp(arg(11), "upper") || 0 == _stricmp(arg(11), "true"));
+				const auto &lib = ActorAnim::GetLibrary();
+				if (const auto *clip = lib.Find(c.clip)) {
+					if (numArgEnd <= 6) c.loop = clip->loopable;
+					if (!c.loop && c.duration <= 0.f)
+						durSec = std::max(2.0f, ActorAnim::CueEffectiveDuration(c, *clip) + 0.5f);
+					else if (c.duration > 0.f)
+						durSec = std::max(2.0f, c.duration + 0.5f);
+				}
+				t.animCues.push_back(std::move(c));
+			}
+			const int nTicks = std::max(64, int(std::ceil(durSec * (g.scene.tickRate > 0 ? g.scene.tickRate : 64.0f))));
+			t.ticks.resize(nTicks);
+			for (int k = 0; k < nTicks; ++k) {
+				TickSample &s = t.ticks[k];
+				for (int j = 0; j < 3; ++j) { s.pos[j] = pos[j]; s.vel[j] = 0.f; }
+				s.pitch = pitch;
+				s.yaw = yaw;
+				s.flags = uint16_t(kTickAlive | (k == 0 ? kTickJumped : 0));
+			}
+			if (!t.animCues.empty())
+				ConfigureActorForClip(t, t.animCues[0].clip, pos, yaw, g.scene.tickRate > 0 ? g.scene.tickRate : 64.0f);
+			g.scene.tracks.push_back(std::move(t));
+			Autosave();
+			Say("placed actor %s at (%.0f, %.0f, %.0f) (%s)", g.scene.tracks.back().name.c_str(), pos[0], pos[1], pos[2],
+			    atSelf ? "at self" : (usedRaycast ? "crosshair raycast" : "ahead"));
+			if (!noPlay && !g.rec.active) DoPlay();
+		} else {
+			Say("usage: %s takes actor place [clip] [speed] [loop] [start] [dur] [blendIn] [blendOut] [atself|noplay]", cmd);
+		}
+	} else if (0 == _stricmp(sub, "anim")) {
+		const char *what = argc > 3 ? arg(3) : "status";
+		if (0 == _stricmp(what, "catalog")) {
+			std::string js = "$.ConfigHudAap && $.ConfigHudAap.setCatalog(" + ActorAnim::CatalogJson() + ");";
+			ActorAnim::QueueScript(js);
+		} else if (0 == _stricmp(what, "view")) {
+			const char *clip = argc > 4 ? arg(4) : "off";
+			if (0 == _stricmp(clip, "off") || !clip[0]) {
+				ActorAnim::StopPreview();
+			} else {
+				const float speed = argc > 5 ? float(atof(arg(5))) : 1.0f;
+				const bool loop = argc > 6 ? (atoi(arg(6)) != 0 || 0 == _stricmp(arg(6), "on") || 0 == _stricmp(arg(6), "true")) : true;
+				const float startT = argc > 7 ? float(atof(arg(7))) : 0.0f;
+				const float dur = argc > 8 ? float(atof(arg(8))) : 0.0f;
+				ActorAnim::SetPreview(clip, speed, loop, startT, dur);
+			}
+		} else if (0 == _stricmp(what, "play")) {
+			if (argc < 5) { Say("usage: %s takes anim play <clip> [speed] [loop] [start] [dur] [blendIn] [blendOut] [upper]", cmd); return; }
+			ActorAnim::Cue c;
+			c.clip = arg(4);
+			if (argc > 5) c.speed = std::clamp(float(atof(arg(5))), 0.1f, 3.0f);
+			if (argc > 6) {
+				c.loop = (atoi(arg(6)) != 0 || 0 == _stricmp(arg(6), "on") || 0 == _stricmp(arg(6), "true"));
+			} else if (const auto *lc = ActorAnim::GetLibrary().Find(c.clip)) {
+				c.loop = lc->loopable;
+			}
+			if (argc > 7) c.startTime = std::max(0.f, float(atof(arg(7))));
+			if (argc > 8) c.duration = std::max(0.f, float(atof(arg(8))));
+			if (argc > 9) c.blendIn = std::clamp(float(atof(arg(9))), 0.f, 2.f);
+			if (argc > 10) c.blendOut = std::clamp(float(atof(arg(10))), 0.f, 2.f);
+			if (argc > 11) c.upperBodyOnly = (atoi(arg(11)) != 0 || 0 == _stricmp(arg(11), "on") || 0 == _stricmp(arg(11), "upper") || 0 == _stricmp(arg(11), "true"));
+			if (!ActorAnim::PlayLocal(c)) {
+				Say("unknown actor animation: %s", c.clip.c_str());
+				return;
+			}
+			if (g.rec.active) {
+				c.startTick = std::max(0, Server::TickCount() - g.rec.startTick);
+				g.rec.track.animCues.push_back(c);
+				Say("recorded animation %s at tick %d", c.clip.c_str(), c.startTick);
+			} else {
+				if (!g.thirdPerson) {
+					g.thirdPerson = true;
+					Exec("sv_cheats 1");
+					Exec("thirdperson");
+				}
+				Exec("cam_idealyaw 0");
+				Exec("c_thirdpersonshoulder 1");
+				Exec("c_thirdpersonshoulderoffset 30");
+				EquipForClip(c.clip);
+				Say("playing animation %s", c.clip.c_str());
+			}
+		} else if (0 == _stricmp(what, "speed")) {
+			if (argc < 5) { Say("usage: %s takes anim speed <0.1..3.0>", cmd); return; }
+			const float s = std::clamp(float(atof(arg(4))), 0.1f, 3.0f);
+			ActorAnim::SetLocalSpeedScale(s);
+			Say("actor animation speed: %.2fx", ActorAnim::LocalSpeedScale());
+		} else if (0 == _stricmp(what, "walkblend")) {
+			const char *mode = argc > 4 ? arg(4) : "toggle";
+			const bool next = (0 == _stricmp(mode, "toggle"))
+			                      ? !ActorAnim::LocalUpperBody()
+			                      : (atoi(mode) != 0 || 0 == _stricmp(mode, "on") || 0 == _stricmp(mode, "true"));
+			ActorAnim::SetLocalUpperBody(next);
+			Say("actor animation walk blend (upper body): %s", ActorAnim::LocalUpperBody() ? "on" : "off");
+		} else if (0 == _stricmp(what, "attach")) {
+			advancedfx::Message("%s\n", ActorAnim::DumpAttachments().c_str());
+		} else if (0 == _stricmp(what, "dbg")) {
+			ActorAnim::SetDebug(argc > 4 ? atoi(arg(4)) : 0, argc > 5 ? atoi(arg(5)) : 1, argc > 6 ? atoi(arg(6)) : 0);
+			Say("actor animation test switches set");
+		} else if (0 == _stricmp(what, "weapon")) {
+			const char *w = argc > 4 ? arg(4) : "auto";
+			if (0 == _stricmp(w, "auto") || 0 == _stricmp(w, "keep")) g.animWeapon = w;
+			else if (0 == strncmp(w, "weapon_", 7)) g.animWeapon = w;
+			else { Say("usage: %s takes anim weapon auto|keep|weapon_<name>", cmd); return; }
+			Say("animation weapon: %s", g.animWeapon.c_str());
+		} else if (0 == _stricmp(what, "stop")) {
+			ActorAnim::StopLocal();
+			if (g.appliedMaxSpeed >= 0) { Exec("sv_maxspeed 320"); g.appliedMaxSpeed = -1; }
+			Say("stopped local animation");
+		} else if (0 == _stricmp(what, "assign")) {
+			if (argc < 6) { Say("usage: %s takes anim assign <track#> <clip|off> [speed] [loop] [start] [dur] [blendIn] [blendOut]", cmd); return; }
+			const int n = ParseTrackIndex(arg(4));
+			if (n < 0) { Say("no take %s", arg(4)); return; }
+			const char *clip = arg(5);
+			if (0 == _stricmp(clip, "off") || 0 == _stricmp(clip, "none") || 0 == _stricmp(clip, "-")) {
+				g.scene.tracks[n].animCues.clear();
+				Autosave();
+				Say("cleared animation on %s", g.scene.tracks[n].name.c_str());
+				return;
+			}
+			ActorAnim::Cue c;
+			c.startTick = 0;
+			c.clip = clip;
+			if (argc > 6) c.speed = std::clamp(float(atof(arg(6))), 0.1f, 3.0f);
+			if (argc > 7) c.loop = (atoi(arg(7)) != 0 || 0 == _stricmp(arg(7), "on") || 0 == _stricmp(arg(7), "true"));
+			if (argc > 8) c.startTime = std::max(0.f, float(atof(arg(8))));
+			if (argc > 9) c.duration = std::max(0.f, float(atof(arg(9))));
+			if (argc > 10) c.blendIn = std::clamp(float(atof(arg(10))), 0.f, 2.f);
+			if (argc > 11) c.blendOut = std::clamp(float(atof(arg(11))), 0.f, 2.f);
+			if (argc > 12) c.upperBodyOnly = (atoi(arg(12)) != 0 || 0 == _stricmp(arg(12), "on") || 0 == _stricmp(arg(12), "upper") || 0 == _stricmp(arg(12), "true"));
+			if (!ActorAnim::GetLibrary().Find(c.clip)) {
+				Say("unknown actor animation: %s", c.clip.c_str());
+				return;
+			}
+			g.scene.tracks[n].animCues = {c};
+			if (g.scene.tracks[n].placedActor && !g.scene.tracks[n].ticks.empty()) {
+				const TickSample &s0 = g.scene.tracks[n].ticks[0];
+				ConfigureActorForClip(g.scene.tracks[n], c.clip, s0.pos, s0.yaw, g.scene.tickRate > 0 ? g.scene.tickRate : 64.0f);
+			}
+			Autosave();
+			{
+				int ctrlSlot = -1;
+				for (const Actor &a : g.actors) {
+					if (a.track == n && a.controllerHandle) { ctrlSlot = int(a.controllerHandle & 0x7fffu); break; }
+				}
+				const uint64_t sid = PerformerSteamId(g.scene.tracks[n].name);
+				ActorAnim::SetPerformer(sid, g.scene.tracks[n].delayTicks, g.scene.tracks[n].placedActor,
+				                        g.scene.tracks[n].animCues, ctrlSlot);
+				if (!g.rec.active) {
+					if (g.phase != Phase::Running || ctrlSlot < 0) DoPlay();
+					else {
+						g.sceneStartTick = Server::TickCount();
+						ActorAnim::SetSceneElapsed(0.0, true);
+					}
+				}
+			}
+			Say("assigned %s to %s", c.clip.c_str(), g.scene.tracks[n].name.c_str());
+		} else if (0 == _stricmp(what, "clear")) {
+			const int n = argc > 4 ? ParseTrackIndex(arg(4)) : -1;
+			if (n >= 0) {
+				g.scene.tracks[n].animCues.clear();
+				const uint64_t sid = PerformerSteamId(g.scene.tracks[n].name);
+				ActorAnim::SetPerformer(sid, g.scene.tracks[n].delayTicks, g.scene.tracks[n].placedActor, {});
+				Autosave();
+				Say("cleared animation on %s", g.scene.tracks[n].name.c_str());
+			}
+		} else if (0 == _stricmp(what, "load")) {
+			if (argc < 5) { Say("usage: %s takes anim load <demo_name>", cmd); return; }
+			const bool ok = ActorAnim::LoadCompanionForDemo(arg(4));
+			Say(ok ? "loaded demo animation companion for %s" : "no companion file found for %s", arg(4));
+		} else {
+			advancedfx::Message("%s\n", ActorAnim::StatusLine().c_str());
+		}
 	} else if (0 == _stricmp(sub, "save")) {
 		const std::string name = argc > 3 ? arg(3) : "scene";
 		Say(SaveScene(name) ? "saved %s" : "could not save %s", name.c_str());
@@ -1571,6 +2114,11 @@ void AppendStateJson(std::ostringstream &out) {
 	out << ",\"follow\":\"" << FollowName(g.follow) << "\"";
 	out << ",\"noSpread\":" << (g.noSpread ? "true" : "false") << ",\"recoilRandom\":" << g.recoilRandom;
 	out << ",\"demoRecording\":" << (g.demoRecording ? "true" : "false");
+	out << ",\"thirdPerson\":" << (g.thirdPerson ? "true" : "false");
+	out << ",\"animWeapon\":\"" << JsonBuilder::Escape(g.animWeapon) << "\"";
+	out << ",\"localAnim\":\"" << JsonBuilder::Escape(ActorAnim::LocalClip()) << "\"";
+	out << ",\"localAnimSpeed\":" << ActorAnim::LocalSpeedScale();
+	out << ",\"localAnimUpper\":" << (ActorAnim::LocalUpperBody() ? "true" : "false");
 	out << ",\"solidNew\":" << (Props_SolidNew() ? "true" : "false") << ",\"solidCount\":" << solid.size();
 	out << ",\"message\":\"" << JsonBuilder::Escape(g.message) << "\"";
 	out << ",\"tracks\":[";
@@ -1597,9 +2145,249 @@ void AppendStateJson(std::ostringstream &out) {
 		out << "],\"swaps\":[";
 		for (size_t w = 0; w < t.weaponSwaps.size(); ++w)
 			out << (w ? "," : "") << "[\"" << JsonBuilder::Escape(t.weaponSwaps[w].from) << "\",\"" << JsonBuilder::Escape(t.weaponSwaps[w].to) << "\"]";
-		out << "]}";
+		out << "],\"placedActor\":" << (t.placedActor ? "true" : "false");
+		out << ",\"delayTicks\":" << t.delayTicks << ",\"durationTicks\":" << int(t.ticks.size());
+		out << ",\"offsetPos\":[" << t.offsetPos[0] << ',' << t.offsetPos[1] << ',' << t.offsetPos[2] << "]";
+		out << ",\"offsetYaw\":" << t.offsetYaw;
+		out << ",\"animCueCount\":" << t.animCues.size();
+		if (!t.animCues.empty()) {
+			const auto &c = t.animCues.front();
+			out << ",\"animClip\":\"" << JsonBuilder::Escape(c.clip) << "\""
+			    << ",\"animSpeed\":" << c.speed << ",\"animLoop\":" << (c.loop ? "true" : "false")
+			    << ",\"animStart\":" << c.startTime << ",\"animDuration\":" << c.duration
+			    << ",\"animBlendIn\":" << c.blendIn << ",\"animBlendOut\":" << c.blendOut;
+		} else {
+			out << ",\"animClip\":\"\",\"animSpeed\":1,\"animLoop\":false,\"animStart\":0,\"animDuration\":0,\"animBlendIn\":0.2,\"animBlendOut\":0.25";
+		}
+		out << "}";
 	}
 	out << "]}";
+}
+
+bool Available() {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	return CanUseHere(true);
+}
+
+bool SnapshotScene(Scene &outScene, int &outSceneTick, bool &outPlaying, bool &outRecording, bool &outLoop, std::string &outPhase) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	if (!CanUseHere(true)) {
+		outScene = Scene{};
+		outSceneTick = 0;
+		outPlaying = false;
+		outRecording = false;
+		outLoop = g.loop;
+		outPhase = PhaseName(g.phase);
+		return false;
+	}
+	EnsureSceneForMap();
+	outScene = g.scene;
+	outPlaying = (g.phase == Phase::Running);
+	outRecording = (g.rec.active || g.rec.armed);
+	outLoop = g.loop;
+	outPhase = PhaseName(g.phase);
+	if (outPlaying) outSceneTick = (std::max)(0, Server::TickCount() - g.sceneStartTick);
+	else if (g.scrubPreviewActive) outSceneTick = g.scrubPreviewTick;
+	else outSceneTick = 0;
+	return true;
+}
+
+bool SetTrackOffset(int trackIdx, const float offsetPos[3], float offsetYaw, bool save) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	if (trackIdx < 0 || trackIdx >= int(g.scene.tracks.size())) return false;
+	Track &t = g.scene.tracks[trackIdx];
+	for (int k = 0; k < 3; ++k) t.offsetPos[k] = std::isfinite(offsetPos[k]) ? offsetPos[k] : 0.f;
+	t.offsetYaw = WrapAngleDeg(offsetYaw);
+	if (save) Autosave();
+	return true;
+}
+
+bool ResetTrackOffset(int trackIdx) {
+	const float z[3] = {0.f, 0.f, 0.f};
+	return SetTrackOffset(trackIdx, z, 0.f, true);
+}
+
+bool SetTrackDelayTicks(int trackIdx, int32_t delayTicks) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	if (trackIdx < 0 || trackIdx >= int(g.scene.tracks.size())) return false;
+	g.scene.tracks[trackIdx].delayTicks = (std::max)(int32_t(0), delayTicks);
+	SyncPerformersFromScene();
+	Autosave();
+	return true;
+}
+
+bool SetTrackEnabled(int trackIdx, bool enabled) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	if (trackIdx < 0 || trackIdx >= int(g.scene.tracks.size())) return false;
+	g.scene.tracks[trackIdx].enabled = enabled;
+	SyncPerformersFromScene();
+	Autosave();
+	return true;
+}
+
+bool SetTrackTeam(int trackIdx, uint8_t team) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	if (trackIdx < 0 || trackIdx >= int(g.scene.tracks.size())) return false;
+	g.scene.tracks[trackIdx].team = (team == 2) ? 2 : 3;
+	for (Actor &a : g.actors)
+		if (a.track == trackIdx) a.track = -1;
+	Autosave();
+	return true;
+}
+
+bool SetTrackHoldFire(int trackIdx, bool holdFire) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	if (trackIdx < 0 || trackIdx >= int(g.scene.tracks.size())) return false;
+	g.scene.tracks[trackIdx].holdFire = holdFire;
+	Autosave();
+	return true;
+}
+
+bool DeleteTrack(int trackIdx) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	if (trackIdx < 0 || trackIdx >= int(g.scene.tracks.size())) return false;
+	g.scene.tracks.erase(g.scene.tracks.begin() + trackIdx);
+	for (Actor &a : g.actors) {
+		if (a.track == trackIdx) a.track = -1;
+		else if (a.track > trackIdx) --a.track;
+	}
+	if (g.scene.tracks.empty()) {
+		g.phase = Phase::Idle;
+		g.actors.clear();
+		if (g.setupDone) KickExtraBots();
+	}
+	SyncPerformersFromScene();
+	Autosave();
+	return true;
+}
+
+bool AddOrUpdateTrackCue(int trackIdx, int cueIdx, const ActorAnim::Cue &cue) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	if (trackIdx < 0 || trackIdx >= int(g.scene.tracks.size())) return false;
+	if (!ActorAnim::GetLibrary().Find(cue.clip)) return false;
+	Track &t = g.scene.tracks[trackIdx];
+	if (cueIdx >= 0 && cueIdx < int(t.animCues.size())) t.animCues[cueIdx] = cue;
+	else t.animCues.push_back(cue);
+	if (t.placedActor && !t.ticks.empty() && !t.animCues.empty()) {
+		const TickSample &s0 = t.ticks[0];
+		ConfigureActorForClip(t, t.animCues[0].clip, s0.pos, s0.yaw, g.scene.tickRate > 0 ? g.scene.tickRate : 64.0f);
+	}
+	SyncPerformersFromScene();
+	Autosave();
+	return true;
+}
+
+bool RemoveTrackCue(int trackIdx, int cueIdx) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	if (trackIdx < 0 || trackIdx >= int(g.scene.tracks.size())) return false;
+	Track &t = g.scene.tracks[trackIdx];
+	if (cueIdx < 0 || cueIdx >= int(t.animCues.size())) return false;
+	t.animCues.erase(t.animCues.begin() + cueIdx);
+	SyncPerformersFromScene();
+	Autosave();
+	return true;
+}
+
+void SetScrubPreview(bool active, int sceneTick) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	g.scrubPreviewActive = active;
+	g.scrubPreviewTick = (std::max)(0, sceneTick);
+	if (active && g.phase == Phase::Running && !g.rec.active && !g.rec.armed) {
+		g.phase = Phase::Idle;
+		StopDemoIfAny();
+	}
+	if (active && CanUseHere(true) && EnsureHooks()) {
+		EnsureSceneForMap();
+		ApplySetup();
+		if (AssignBots() > 0) RequestMissingBots();
+	}
+}
+
+void Play() {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	g.scrubPreviewActive = false;
+	DoPlay();
+}
+
+void Stop() {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	DoStop();
+}
+
+void SetLoop(bool loop) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	g.loop = loop;
+	SaveSettings();
+}
+
+void RecordForSceneEditor(const char *name) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	g.scrubPreviewActive = false;
+	g.reopenSceneEditorOnRecFinish = true;
+	DoRecord(name ? name : "");
+}
+
+bool PlaceActorForSceneEditor(const char *clipId, const float *optPos, float optYaw) {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	if (!CanUseHere() || !EnsureHooks()) return false;
+	EnsureSceneForMap();
+	ApplySetup();
+	void *host = Server::HostController();
+	void *pawn = host ? Server::PawnOf(host) : nullptr;
+	float pos[3] = {}, vel[3] = {};
+	float pitch = 0.f, yaw = optYaw;
+	if (optPos) {
+		for (int k = 0; k < 3; ++k) pos[k] = optPos[k];
+	} else if (pawn && Server::Alive(pawn)) {
+		bool usedRaycast = false;
+		ResolveLookPlacePose(pawn, pos, pitch, yaw, usedRaycast);
+	} else {
+		return false;
+	}
+	Track t;
+	t.name = NextTakeName(g.scene.tracks);
+	t.team = uint8_t((host && Server::Team(host) == 2) ? 2 : 3);
+	t.enabled = true;
+	t.holdFire = true;
+	t.placedActor = true;
+	t.health = 100;
+	if (pawn) t.agentModel = Server::ModelOf(pawn);
+	float durSec = 6.0f;
+	if (clipId && clipId[0] && 0 != _stricmp(clipId, "none") && 0 != _stricmp(clipId, "-")) {
+		ActorAnim::Cue c;
+		c.startTick = 0;
+		c.clip = clipId;
+		if (const auto *clip = ActorAnim::GetLibrary().Find(c.clip)) {
+			c.loop = clip->loopable;
+			if (!c.loop) durSec = (std::max)(2.0f, ActorAnim::CueEffectiveDuration(c, *clip) + 0.5f);
+		}
+		t.animCues.push_back(std::move(c));
+	}
+	const float rate = g.scene.tickRate > 0 ? g.scene.tickRate : 64.0f;
+	const int nTicks = (std::max)(64, int(std::ceil(durSec * rate)));
+	t.ticks.resize(nTicks);
+	for (int k = 0; k < nTicks; ++k) {
+		TickSample &s = t.ticks[k];
+		for (int j = 0; j < 3; ++j) { s.pos[j] = pos[j]; s.vel[j] = 0.f; }
+		s.pitch = 0.f;
+		s.yaw = yaw;
+		s.flags = uint16_t(kTickAlive | (k == 0 ? kTickJumped : 0));
+	}
+	if (!t.animCues.empty()) ConfigureActorForClip(t, t.animCues[0].clip, pos, yaw, rate);
+	g.scene.tracks.push_back(std::move(t));
+	Autosave();
+	if (AssignBots() > 0) RequestMissingBots();
+	SyncPerformersFromScene();
+	return true;
+}
+
+bool EnsureMapSceneAndBotsReady() {
+	std::lock_guard<std::recursive_mutex> lock(g.mutex);
+	if (!CanUseHere(true) || !EnsureHooks()) return false;
+	EnsureSceneForMap();
+	ApplySetup();
+	if (AssignBots() > 0) RequestMissingBots();
+	return true;
 }
 
 } // namespace Filmmaker::Takes

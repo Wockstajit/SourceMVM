@@ -356,18 +356,23 @@ float WaterGlintExponent(float puddle,float porous,float detail){
 }
 )HLSL"
 R"HLSL(
-// FOOTPRINTS: x = how deep a print is here (thin snow), y unused, z = how far down the players' feet
-// have pressed deep snow (1 is to its bed), all 0..1, from the image of marks around the camera
-// (EnvironmentFootprintMath.h). A mark made on another floor (its height layer is far from this
-// surface's) is not this floor's.
+// FOOTPRINTS: x = how deep a print is here (thin snow), y = displaced berm height, z = how far down
+// players' feet have pressed deep snow/sand (1 is to its bed), all 0..1, from the R16G16B16A16_UNORM
+// image of marks around the camera (EnvironmentFootprintMath.h). Blue packs (layer << 8) | berm8.
 #define FOOT_SAME_LEVEL 7. // see FootMarksNear
+void FootUnpackBlue(float4 b,out float4 layers,out float4 berms){
+    float4 raw=round(b*65535.);
+    layers=floor(raw/256.);
+    berms=saturate((raw-layers*256.)/255.);
+}
 float3 FootMarksAt(float2 xy,float z){
     float2 g=xy/FOOT_TEXEL-.5;int2 a=(int2)floor(g);float2 f=g-a;float3 sum=0;
     [unroll]for(int k=0;k<4;++k){
         int2 o=int2(k&1,k>>1);
         float4 t=footTexture.Load(int3((a+o)&(FOOT_SIZE-1),0));
-        float apart=abs(frac((z/FOOT_LAYER-t.z*255)/256+.5)-.5)*256*FOOT_LAYER;
-        sum+=float3(t.x,0,t.w)*step(apart,FOOT_SAME_LEVEL)*(o.x?f.x:1-f.x)*(o.y?f.y:1-f.y);
+        float raw=round(t.z*65535.),layer=floor(raw/256.),berm=saturate((raw-layer*256.)/255.);
+        float apart=abs(frac((z/FOOT_LAYER-layer)/256+.5)-.5)*256*FOOT_LAYER;
+        sum+=float3(t.x,berm,t.w)*step(apart,FOOT_SAME_LEVEL)*(o.x?f.x:1-f.x)*(o.y?f.y:1-f.y);
     }
     return sum;
 }
@@ -450,7 +455,8 @@ R"HLSL(
 // trodden right down. So a foot on the ground stands in a hole, a foot that swung low ploughed a
 // groove, and holes close together are one hole.
 float SnowHeight(float3 marks,float deep){
-    return max(min(deep,(1-marks.z)*SNOW_TOP+.2*deep*marks.z)-min(deep,1.4)*marks.x,0);
+    float bermLift=marks.y*deep*(SandLies()?.34:.38);
+    return max(min(deep,(1-marks.z)*SNOW_TOP+.2*deep*marks.z)+bermLift-min(deep,1.4)*marks.x,0);
 }
 // THE SNOW DOES NOT LIE AS ONE FLAT SHEET. It lies in mounds and hollows: broad swells several
 // paces across, lumps a pace or two across on them and small ones on those, fixed to the map. This
@@ -536,29 +542,16 @@ float SnowRelief(float2 xy){
 // kerb as a slab hanging in the air, and its hollow was traced from the pavement as if the street's
 // holes lay under it. Seven units takes in a slope under one boot and leaves out a kerb.
 float3 FootMarksNear(float3 p){
-    // The four texels round the point, each counted only if it was marked on this level, and blended.
-    // (With the level taken from the nearest texel alone and the marks blended across all four, a
-    // stair's treads, whose texels belong to one step or the next by turns, were drawn in blocks.)
     float2 uv=p.xy/(FOOT_TEXEL*FOOT_SIZE);
-    float4 layers=footTexture.GatherBlue(footSampler,uv);
-    float4 same=step(abs(frac((p.z/FOOT_LAYER-layers*255)/256+.5)-.5)*256*FOOT_LAYER,FOOT_SAME_LEVEL);
+    float4 layers,berms;
+    FootUnpackBlue(footTexture.GatherBlue(footSampler,uv),layers,berms);
+    float4 same=step(abs(frac((p.z/FOOT_LAYER-layers)/256+.5)-.5)*256*FOOT_LAYER,FOOT_SAME_LEVEL);
     float2 f=frac(uv*FOOT_SIZE-.5);
     float4 share=float4((1-f.x)*f.y,f.x*f.y,f.x*(1-f.y),(1-f.x)*(1-f.y))*same;
-    float3 m=float3(dot(share,footTexture.GatherRed(footSampler,uv)),0,dot(share,footTexture.GatherAlpha(footSampler,uv)));
+    float3 m=float3(dot(share,footTexture.GatherRed(footSampler,uv)),dot(share,berms),dot(share,footTexture.GatherAlpha(footSampler,uv)));
     float2 d=abs(p.xy-camera.xy);
-    // The image of marks reaches 768 units from the camera. They fade out over the outer third of
-    // that, a long way, where they used to go in the last fifty units, which read as a line.
     return m*(1-smoothstep(.66,.97,max(d.x,d.y)/(FOOT_SIZE*.5*FOOT_TEXEL)));
 }
-// THE MARKS, ROUND. A texel of the image is three quarters of a unit, so a pace from the eye it is
-// drawn ten pixels wide, and the four-texel blend above, cut sharp by a print's edge, its rim and the
-// melt line, drew every print and every bare patch as a stack of little squares. This reads the
-// sixteen texels round the point with cubic B-spline weights (smooth across texels, so an edge cut
-// from it is a curve; after Sigg and Hadwiger, "Fast Third-Order Texture Filtering", GPU Gems 2,
-// ch. 20), each counted only if it was marked on this level as above. x/z as FootMarksNear; y is the
-// melt, kept from marks within three times the level gap (as SnowMelted always took it).
-// Four times the reads of FootMarksNear: the march into a hole keeps the cheap one, and only what is
-// drawn from the point it found reads this.
 float3 FootMarksRound(float3 p,out float melt){
     float2 g=p.xy/FOOT_TEXEL-.5,i=floor(g),t=g-i,s=1-t;
     float2 w0=s*s*s/6,w3=t*t*t/6,w1=(3*t*t*t-6*t*t+4)/6,w2=1-w0-w1-w3;
@@ -568,9 +561,11 @@ float3 FootMarksRound(float3 p,out float melt){
         float2 uv=(i+float2(qx,qy)*2)/FOOT_SIZE;
         float u0=qx?w2.x:w0.x,u1=qx?w3.x:w1.x,v0=qy?w2.y:w0.y,v1=qy?w3.y:w1.y;
         float4 weight=float4(u0*v1,u1*v1,u1*v0,u0*v0);
-        float4 apart=abs(frac((p.z/FOOT_LAYER-footTexture.GatherBlue(footSampler,uv)*255)/256+.5)-.5)*256*FOOT_LAYER;
+        float4 layers,berms;
+        FootUnpackBlue(footTexture.GatherBlue(footSampler,uv),layers,berms);
+        float4 apart=abs(frac((p.z/FOOT_LAYER-layers)/256+.5)-.5)*256*FOOT_LAYER;
         float4 share=weight*step(apart,FOOT_SAME_LEVEL);
-        m+=float3(dot(share,footTexture.GatherRed(footSampler,uv)),0,dot(share,footTexture.GatherAlpha(footSampler,uv)));
+        m+=float3(dot(share,footTexture.GatherRed(footSampler,uv)),dot(share,berms),dot(share,footTexture.GatherAlpha(footSampler,uv)));
         melt+=dot(weight*step(apart,FOOT_SAME_LEVEL*3),footTexture.GatherGreen(footSampler,uv));
     }
     float2 d=abs(p.xy-camera.xy);
@@ -597,7 +592,7 @@ void SnowTrench(float3 p,float3 view,float3 sun,float deep,float2 tilt,out float
     // east and north. Taken as level, the bed under a point of the ray a few paces up a slope was
     // put at the wrong height: the marks there were counted as another floor's and no hole was
     // drawn, and what was drawn stood off the ground.
-    float down=max(view.z-dot(tilt,view.xy),.12),top=deep*SNOW_RELIEF_MOST;
+    float down=max(view.z-dot(tilt,view.xy),.12),top=deep*(SNOW_RELIEF_MOST+.40);
     shadow=0;met=0;
     {
         // WHERE THE RAY MEETS THE SNOW AS IT LAY, EXACTLY. The untrodden surface is a formula (its
@@ -634,7 +629,7 @@ void SnowTrench(float3 p,float3 view,float3 sun,float deep,float2 tilt,out float
         // screen, and it used to pay for twenty-odd reads of the image for nothing.
         float2 landing=p.xy+view.xy*(entry/down);
         float4 nearby=footTexture.SampleLevel(footSampler,landing/(FOOT_TEXEL*FOOT_SIZE),4);
-        [branch]if(nearby.x+nearby.w<=0){
+        [branch]if(nearby.x+nearby.z+nearby.w<=0){
             // UNTRODDEN SNOW IS DRAWN ON THE GROUND WHERE IT IS SEEN. Its grain and lumps used to be
             // looked up where the ray met the raised surface, some way nearer the eye, while its edges,
             // the shade on it and everything standing in it stayed at the ground: two layers that slid
@@ -678,8 +673,8 @@ void SnowTrench(float3 p,float3 view,float3 sun,float deep,float2 tilt,out float
     slope+=deep*float2(SnowRelief(p.xy-float2(5,0))-SnowRelief(p.xy+float2(5,0)),SnowRelief(p.xy-float2(0,5))-SnowRelief(p.xy+float2(0,5)))*.1*(1-marks.z);
     float around=.25*(FootMarksSmooth(q+float3(3.4,3.4,0)).z+FootMarksSmooth(q+float3(-3.4,3.4,0)).z+FootMarksSmooth(q+float3(3.4,-3.4,0)).z+FootMarksSmooth(q-float3(3.4,3.4,0)).z);
     float rim=smoothstep(.02,.45,max(around,.25*(east.z+west.z+north.z+south.z))-marks.z)*(1-marks.z);
-    height+=.1*deep*rim;
-    slope+=float2(east.z-west.z,north.z-south.z)*rim*deep*.05;
+    height+=.03*deep*rim;
+    slope+=float2(east.z-west.z,north.z-south.z)*rim*deep*.03;
     {
         float flat=max(length(sun.xy),.05);
         float2 toSun=sun.xy/flat;float rise=max(sun.z,.05)/flat;
@@ -694,8 +689,8 @@ void SnowTrench(float3 p,float3 view,float3 sun,float deep,float2 tilt,out float
     // another route than the branch above: looked up where the ray met it, its mounds cut off at
     // SNOW_TOP, and the bed check on. Each of those shaded level snow a little differently, so every
     // print sat in a lighter, flatter square. Where nothing has touched the snow (no print, no
-    // pressing, no heaped rim, no hole's shade) the result is now exactly the untrodden one.
-    float touched=saturate(max(max(marks.x,marks.z),rim)*12+shadow*6);
+    // pressing, no heaped berm/rim, no hole's shade) the result is now exactly the untrodden one.
+    float touched=saturate(max(max(marks.x,marks.z),max(marks.y,rim))*12+shadow*6);
     float flatLevel=deep*SnowRelief(p.xy);
     float2 flatSlope=deep*float2(SnowRelief(p.xy-float2(5,0))-SnowRelief(p.xy+float2(5,0)),SnowRelief(p.xy-float2(0,5))-SnowRelief(p.xy+float2(0,5)))*.1;
     where=lerp(p.xy,where,touched);level=lerp(flatLevel,level,touched);height=lerp(flatLevel,height,touched);
@@ -991,6 +986,22 @@ float3 WaterSurfaceShade(float3 base,float3 bed,float level){
     shaded+=WaterLampGlints(s,n,v,WaterPixel(s));
     return shaded;
 }
+// Fine distance-faded granular mineral/crumb relief across snow & sand surfaces, amplified on
+// disturbed footprint troughs, walls, and displaced berms.
+void GranularMicro(float3 p,bool sand,float disturbed,float footprint,out float2 grainLean,out float grainVal){
+    float s1=sand?2.4:1.45,s2=sand?5.6:3.5;
+    float fade1=CoatingDetailFade(footprint,s1),fade2=CoatingDetailFade(footprint,s2);
+    float2 r1=float2(p.x*.866-p.y*.5,p.x*.5+p.y*.866)*s1;
+    float2 r2=float2(p.x*.643+p.y*.766,-p.x*.766+p.y*.643)*s2;
+    float g1=Noise2(r1)-.5,g2=Noise2(r2)-.5;
+    float dx=(Noise2(r1+float2(.28,0))-Noise2(r1-float2(.28,0)))*fade1*s1
+            +(Noise2(r2+float2(.28,0))-Noise2(r2-float2(.28,0)))*fade2*s2*.55;
+    float dy=(Noise2(r1+float2(0,.28))-Noise2(r1-float2(0,.28)))*fade1*s1
+            +(Noise2(r2+float2(0,.28))-Noise2(r2-float2(0,.28)))*fade2*s2*.55;
+    float strength=(sand?.12:.09)*(1+1.55*disturbed);
+    grainLean=float2(-dx,-dy)*strength;
+    grainVal=(g1*.65+g2*.35)*(fade1*.7+.3)*(1+1.3*disturbed);
+}
 float3 ApplyCoatings(float3 color,float3 p,float3 normal,float3 coatingNormal,float mapLuminance,bool viewmodel=false) {
     // The Wetness control decides how wet surfaces get. While it rains, only ground the rain
     // actually reaches is wet; picking Rain sets a starting wetness in the UI.
@@ -1168,7 +1179,7 @@ R"HLSL(
         // through to the ground under a print.
         // Where it has drifted deep every foot goes in: a hole with walls, a packed floor and a
         // heaped rim, seen with its real depth (SnowTrench).
-        float dent=0,sunk=0,trenchLight=1;
+        float dent=0,sunk=0,berm=0,trenchLight=1;
         // WHERE ON THE SNOW THIS PIXEL IS. The snow's surface stands above the ground, so the
         // point of it the eye meets is not over the ground point of this pixel: it is nearer the
         // camera, by more the lower the camera looks. Everything drawn ON the snow (its lumps, its
@@ -1197,6 +1208,7 @@ R"HLSL(
                 float3 level=snowNormal;
                 snowNormal=normalize(snowNormal+float3(slope,0)*seen);
                 dent=m.x*seen;
+                berm=m.y*seen;
                 sunk=saturate(1-height/max(full,.1))*seen;
                 // Lit as a trough whatever lights the map: the wall turned to the sun is brighter than
                 // level snow and the wall turned away is darker, the floor sits in the wall's shade.
@@ -1211,11 +1223,16 @@ R"HLSL(
         // Until the textures have loaded the snow is plain.
         const bool gameSnow=gameTextureInfo.x>.5;
         float3 levelSnow=snowNormal;
+        float2 gLean=0;float gVal=0;
+        float disturbed=saturate(sunk*1.35+berm*1.7+dent*1.1);
+        GranularMicro(onSnow,sand,disturbed,footprint,gLean,gVal);
         GameSnowSample game=(GameSnowSample)0;
         game.color=1;game.cavity=1;game.rough=.75;game.height=.5;
         [branch]if(gameSnow){
             game=GameSnowAt(onSnow,view,GameTextureLod(footprint,(gameTextureInfo.w>.5?1024:2048)/gameTextureInfo.z),coatingNormal);
-            snowNormal=normalize(snowNormal+float3(game.lean,0)*snow*up*(sand?1.15:1));
+            snowNormal=normalize(snowNormal+float3(game.lean*(sand?1.15:1)+gLean,0)*snow*up);
+        }else{
+            snowNormal=normalize(snowNormal+float3(gLean,0)*snow*up);
         }
         float snowLit=saturate(dot(snowNormal,sun));
         // The sun on snow is the brightest thing on screen, so its shadow's edge is drawn sharp and
@@ -1240,6 +1257,7 @@ R"HLSL(
                 snowAlbedo=snowAlbedo*clamp(game.color/max(mean.rgb,.05),.4,1.25)*clamp(game.cavity/max(mean.a,.05),.5,1.1);
             }
         }
+        snowAlbedo*=1+gVal*(sand?float3(.15,.13,.11):float3(.08,.07,.06));
         float3 light=SnowLight(p,color,shadowInfo.x>=.5?sunSoft:-1);
         float lightLuminance=dot(max(light,0),float3(.2126,.7152,.0722));
         float inheritedShade=SnowCoverShade(lightLuminance);
@@ -1285,7 +1303,7 @@ R"HLSL(
         // (The snow itself is kept a tenth under full white, or a glint would have nowhere to go:
         // drawn at full white, nothing on it could be brighter.)
         // Sand glints far less: a quartz grain here and there catching the sun, not a field of ice.
-        float3 sparkle=SnowGlisten(onSnow,hv,view,footprint)*(sand?float3(.14,.13,.11):float3(1,.98,.94))*(.3+1.7*lightLuminance)*max(snowLit*visibility,.3*(1-CL_relight))*saturate(trenchLight)*(1-.6*sunk);
+        float3 sparkle=SnowGlisten(onSnow,hv,view,footprint)*(sand?float3(.22,.20,.16):float3(1,.98,.94))*(.3+1.7*lightLuminance)*max(snowLit*visibility,.3*(1-CL_relight))*saturate(trenchLight)*(1-.6*sunk)*(1+.5*berm);
         [branch]if(gameSnow){
             // CS2's snow sparkles where its roughness map has smooth specks and dulls on the rough
             // ridges, and it has a sheen: the sun's highlight off the crust, as broad as the crust is
@@ -1620,6 +1638,31 @@ float FogVariation(float3 p){
     float3 q=p*.0014+float3(climateClock.y,climateClock.y*.28,0)*.0005+float3(0,0,climateClock.x*.012);
     return saturate((Fbm(q)-.5)*2.6+.5);
 }
+// Half-Life: Alyx fog helpers (lightweight for FXC loop compilation: zero SkyColor calls inside marches).
+float AlyxFogNoise(float3 p){
+    float t=climateClock.x;
+    float3 qa=(p+float3(64,12,-8)*t*.35)*.0017;
+    float3 qb=(p+float3(-14,48,-48)*t*.28)*.0028;
+    float n=.65*Fbm(qa)+.35*Noise3(qb);
+    return saturate((n-.5)*2.8+.5);
+}
+float FogPhase(float cosine,float alyxF){
+    float a=lerp(CL_scatter,clamp(max(CL_scatter,.72),0,.86),alyxF);
+    float hg=(1-a*a)/max(.06,pow(1+a*a-2*a*cosine,1.5));
+    return lerp(hg,lerp(.35,hg,.72),alyxF);
+}
+float AlyxHG(float cosine,float g){
+    return (1.-g*g)/max(.06,pow(1.+g*g-2.*g*cosine,1.5));
+}
+float AlyxPhase(float cosine){
+    float g=lerp(.45,.82,saturate(CL_scatter));
+    return lerp(.24,.82*AlyxHG(cosine,g)+.18*AlyxHG(cosine,-.25),.85);
+}
+float3 AlyxAmbient(float3 ray,float3 ambient){
+    float horizon=1-saturate(abs(ray.z)*1.8);
+    float sunGlow=pow(saturate(dot(ray,SunDirection())*.5+.5),3);
+    return ambient*(.90+.35*horizon)+SunColor()*(.05*sunGlow*(1+.5*horizon));
+}
 // Interleaved gradient noise: a per-texel offset whose error a small blur removes, unlike white noise.
 float InterleavedGradient(float2 p){return frac(52.9829189*frac(dot(p,float2(.06711056,.00583715))));}
 // THE SKY LIGHT IN THE FOG. With the Environment sky on, the fogs take their light from that sky
@@ -1928,9 +1971,18 @@ void GroundFogMarch(float3 ray,float distance,float jitter,float3 ambient,inout 
         float3 lit=light*tint;
         [branch]if(CL_fogDensity>0&&CL_localFogRadius<=0){
             float along=max(0,t-CL_fogStart);
-            float thick=CL_fogDensity*.001*.5*(exp(-max(0,camera.z-CL_fogBase)/CL_fogHeight)+exp(-max(0,q.z-CL_fogBase)/CL_fogHeight));
-            float seen=exp(-thick*along);
-            lit=lerp((ambient+SunColor()*Phase(dot(ray,sun))*.25)*fogColorDensity.rgb,lit,seen);
+            [branch]if(CL_alyxFog>.5){
+                float hNorm=max(0,q.z-CL_fogBase)/max(CL_fogHeight,20.);
+                float nearFade=smoothstep(50.,250.,t);
+                float thick=CL_fogDensity*.00115*(depthRange.w>.5?.35:1.)*nearFade*exp(-pow(hNorm,1.35));
+                float seen=max(.18,exp(-thick*along));
+                float3 alyxLight=AlyxAmbient(ray,ambient)+SunColor()*FogPhase(dot(ray,sun),1.)*.24*CL_fogLightIntensity;
+                lit=lerp(alyxLight*fogColorDensity.rgb,lit,seen);
+            }else{
+                float thick=CL_fogDensity*.001*.5*(exp(-max(0,camera.z-CL_fogBase)/CL_fogHeight)+exp(-max(0,q.z-CL_fogBase)/CL_fogHeight));
+                float seen=exp(-thick*along);
+                lit=lerp((ambient+SunColor()*Phase(dot(ray,sun))*.25)*fogColorDensity.rgb,lit,seen);
+            }
         }
         color+=trans*a*lit;trans*=1-a;
         if(trans<.01)break;
@@ -2222,8 +2274,17 @@ void GustVolumeMarch(float3 ray,float distance,float jitter,float3 ambient,inout
         // The height fog in front of it, as for the ground fog.
         [branch]if(CL_fogDensity>0&&CL_localFogRadius<=0){
             float along=max(0,t-CL_fogStart);
-            float thick=CL_fogDensity*.001*.5*(exp(-max(0,camera.z-CL_fogBase)/CL_fogHeight)+exp(-max(0,q.z-CL_fogBase)/CL_fogHeight));
-            lit=lerp((ambient+SunColor()*Phase(dot(ray,sun))*.25)*fogColorDensity.rgb,lit,exp(-thick*along));
+            [branch]if(CL_alyxFog>.5){
+                float hNorm=max(0,q.z-CL_fogBase)/max(CL_fogHeight,20.);
+                float nearFade=smoothstep(50.,250.,t);
+                float thick=CL_fogDensity*.00115*(depthRange.w>.5?.35:1.)*nearFade*exp(-pow(hNorm,1.35));
+                float seen=max(.18,exp(-thick*along));
+                float3 alyxLight=AlyxAmbient(ray,ambient)+SunColor()*FogPhase(dot(ray,sun),1.)*.22*CL_fogLightIntensity;
+                lit=lerp(alyxLight*fogColorDensity.rgb,lit,seen);
+            }else{
+                float thick=CL_fogDensity*.001*.5*(exp(-max(0,camera.z-CL_fogBase)/CL_fogHeight)+exp(-max(0,q.z-CL_fogBase)/CL_fogHeight));
+                lit=lerp((ambient+SunColor()*Phase(dot(ray,sun))*.25)*fogColorDensity.rgb,lit,exp(-thick*along));
+            }
         }
         color+=trans*a*lit;trans*=1-a;
         if(trans<.01)break;
@@ -2238,58 +2299,7 @@ R"HLSL(
 // block and different for the next, so a thin layer seen through a crack came out as a row of
 // fogged and clear squares (the checkerboard reported 2026-11-17).
 static const int kMarchStill=0,kMarchBlended=1,kMarchExact=2;
-float4 VolumeAt(float2 pixel,float d,int sampling=0) {
-    bool sky=IsSky(d);
-    float3 farPoint=World(pixel,camera.w>0?.00001:.99999);
-    float3 ray=normalize(farPoint-camera.xyz);
-    float distance=FogDistance(pixel,d);
-    float3 color=0;float trans=1;int steps=(int)volumeDimensions.z;
-    // A new offset every frame in the live view (temporalInfo.y), which VolumeTemporalPS averages.
-    float jitter=sampling==kMarchExact?.5:frac(InterleavedGradient(floor(pixel*volumeDimensions.xy/dimensions.xy))+(sampling==kMarchBlended?temporalInfo.y:0));
-    float3 ambient=(CL_fogDensity>0||CL_groundFog>0||CL_gusts>0)?FogAmbient():0;
-    GroundFogMarch(ray,distance,jitter,ambient,color,trans);
-    GustVolumeMarch(ray,distance,jitter,ambient,color,trans);
-    if(CL_fogDensity>0) {
-        float enter=min(distance,CL_fogStart),extent=min(distance,CL_fogStart+CL_fogRange);
-        float stepLength=max(0,extent-enter)/steps;
-        [loop] for(int j=0;j<steps;++j) {
-            float3 p=camera.xyz+ray*(enter+(j+jitter)*stepLength);
-            // Variation thins and thickens the fog and raises and lowers its top, so banks roll.
-            float vary=CL_fogNoise>0?FogVariation(p):.5;
-            float height=exp(-max(0,p.z-CL_fogBase)/(CL_fogHeight*lerp(1,.4+1.2*vary,CL_fogNoise)));
-            // Global until placed, same contract as the coatings: radius 0 fogs the map, a placed
-            // radius confines it to that volume and leaves it there when the camera moves on.
-            float local=CL_localFogRadius>0?1-smoothstep(CL_localFogRadius*.65,CL_localFogRadius,length(p-float3(CL_fogX,CL_fogY,CL_fogZ))):1;
-            float density=CL_fogDensity*.001*height*local*lerp(1,vary*2,CL_fogNoise);
-            float visibility=CL_lightShafts>0?WorldSunShadow(p+SunDirection()*shadowInfo.y):1;
-            // Exponential fog integrates toward the sun in closed form: density here times the scale
-            // height over the sun's height, so deep, thick fog is lit by the sky more than the sun.
-            float selfShadow=FogSunTransmittance(density*CL_fogHeight/max(SunDirection().z,.08));
-            float3 illumination=ambient+SunColor()*Phase(dot(ray,SunDirection()))*.25*visibility*selfShadow;
-            [loop] for(int l=0;l<min((int)lighting.x,4);++l) {
-                [loop]for(int sample=0;sample<StudioSamples(l);++sample){
-                    float3 dir;float atten=StudioAttenuation(l,sample,p,dir);
-                    if(CL_lightShafts>0&&atten>.001)atten*=WorldLightShadowSample(l,p,sample);
-                    illumination+=lightColorIntensity[l].rgb*lightColorIntensity[l].w*atten*Phase(dot(ray,dir));
-                }
-            }
-            float a=1-exp(-density*stepLength);color+=trans*a*illumination*fogColorDensity.rgb;trans*=1-a;
-            if(trans<.01)break;
-        }
-    }
-    // Continue the same medium beyond the detailed, lit interval. Disjoint intervals mean
-    // near fog is never applied twice. Height and color still come from the same controls.
-    if(CL_fogDensity>0 && CL_localFogRadius<=0 && distance>CL_fogStart+CL_fogRange) {
-        float enter=CL_fogStart+CL_fogRange,dt=(distance-enter)/8,optical=0;
-        [unroll]for(int f=0;f<8;++f) {
-            float3 p=camera.xyz+ray*(enter+(f+.5)*dt);
-            optical+=CL_fogDensity*.001*exp(-max(0,p.z-CL_fogBase)/CL_fogHeight)*dt;
-        }
-        float a=1-exp(-optical);
-        // Lit like the near interval (unshadowed sun), so the two meet without a brightness step.
-        float3 farLight=ambient+SunColor()*Phase(dot(ray,SunDirection()))*.25;
-        color+=trans*a*farLight*fogColorDensity.rgb;trans*=1-a;
-    }
+void MarchClouds(float d,float3 ray,float distance,int steps,float jitter,inout float3 color,inout float trans) {
     if(CL_clouds>0&&!IsSkyboxGeometry(d)&&abs(ray.z)>.0001) {
         float t0=(CL_cloudBase-camera.z)/ray.z,t1=(CL_cloudBase+CL_cloudDepth-camera.z)/ray.z;
         float enter=max(0,min(t0,t1)),leave=min(distance,max(t0,t1));leave=min(leave,24000);
@@ -2333,6 +2343,149 @@ float4 VolumeAt(float2 pixel,float d,int sampling=0) {
             color+=trans*cloudColor;trans*=cloudTrans;
         }
     }
+}
+float4 VolumeAt(float2 pixel,float d,int sampling=0) {
+    bool sky=IsSky(d);
+    float3 farPoint=World(pixel,camera.w>0?.00001:.99999);
+    float3 ray=normalize(farPoint-camera.xyz);
+    float distance=FogDistance(pixel,d);
+    float3 color=0;float trans=1;int steps=(int)volumeDimensions.z;
+    // A new offset every frame in the live view (temporalInfo.y), which VolumeTemporalPS averages.
+    float jitter=sampling==kMarchExact?.5:frac(InterleavedGradient(floor(pixel*volumeDimensions.xy/dimensions.xy))+(sampling==kMarchBlended?temporalInfo.y:0));
+    float3 ambient=(CL_fogDensity>0||CL_groundFog>0||CL_gusts>0)?FogAmbient():0;
+    GroundFogMarch(ray,distance,jitter,ambient,color,trans);
+    GustVolumeMarch(ray,distance,jitter,ambient,color,trans);
+    if(CL_fogDensity>0) {
+        float enter=min(distance,CL_fogStart),extent=min(distance,CL_fogStart+CL_fogRange);
+        float stepLength=max(0,extent-enter)/steps;
+        [loop] for(int j=0;j<steps;++j) {
+            float distHere=enter+(j+jitter)*stepLength;
+            float3 p=camera.xyz+ray*distHere;
+            // Global until placed, same contract as the coatings: radius 0 fogs the map, a placed
+            // radius confines it to that volume and leaves it there when the camera moves on.
+            float local=CL_localFogRadius>0?1-smoothstep(CL_localFogRadius*.65,CL_localFogRadius,length(p-float3(CL_fogX,CL_fogY,CL_fogZ))):1;
+            // Variation thins and thickens the fog and raises and lowers its top, so banks roll.
+            float vary=CL_fogNoise>0?FogVariation(p):.5;
+            float height=exp(-max(0,p.z-CL_fogBase)/(CL_fogHeight*lerp(1,.4+1.2*vary,CL_fogNoise)));
+            float density=CL_fogDensity*.001*height*local*lerp(1,vary*2,CL_fogNoise);
+            float visibility=CL_lightShafts>0?WorldSunShadow(p+SunDirection()*shadowInfo.y):1;
+            // Exponential fog integrates toward the sun in closed form: density here times the scale
+            // height over the sun's height, so deep, thick fog is lit by the sky more than the sun.
+            float selfShadow=FogSunTransmittance(density*CL_fogHeight/max(SunDirection().z,.08));
+            float volGain=CL_fogLightIntensity;
+            float sunPhase=Phase(dot(ray,SunDirection()))*.25;
+            float3 illumination=ambient+SunColor()*sunPhase*visibility*selfShadow*volGain;
+            [loop] for(int l=0;l<min((int)lighting.x,4);++l) {
+                [loop]for(int sample=0;sample<StudioSamples(l);++sample){
+                    float3 dir;float atten=StudioAttenuation(l,sample,p,dir);
+                    if(CL_lightShafts>0&&atten>.001)atten*=WorldLightShadowSample(l,p,sample);
+                    illumination+=lightColorIntensity[l].rgb*lightColorIntensity[l].w*atten*Phase(dot(ray,dir))*volGain;
+                }
+            }
+            [loop] for(int m=0;m<min((int)mapLampInfo.x,4);++m) {
+                float4 at=mapLamps[m*4],shine=mapLamps[m*4+1],second=mapLamps[m*4+2],third=mapLamps[m*4+3];
+                float3 delta=at.xyz-p;float d2=max(dot(delta,delta),1e-5),dist=sqrt(d2);float3 dir=delta/dist;
+                float softR2=max(at.w,2500.);
+                float bf=saturate(third.x+second.w*dist);bf=bf*bf*(3-2*bf)*at.w/(softR2+d2)*(third.z!=0?saturate(third.y+third.z*dot(second.xyz,dir)):1);
+                float3 e=second.xyz-p;float sf=at.w/(softR2+dot(e,e))*smoothstep(0,.25,dot(third.xyz,-dir));
+                float lp=Phase(dot(ray,dir))*.12;
+                float3 lampScatter=shine.rgb*lerp(bf,sf,step(.5,shine.w))*lp*volGain;
+                illumination+=lampScatter/(1.+lampScatter*0.35);
+            }
+            float a=1-exp(-density*stepLength);color+=trans*a*illumination*fogColorDensity.rgb;trans*=1-a;
+            if(trans<.01)break;
+        }
+    }
+    // Continue the same medium beyond the detailed, lit interval. Disjoint intervals mean
+    // near fog is never applied twice. Height and color still come from the same controls.
+    if(CL_fogDensity>0 && CL_localFogRadius<=0 && distance>CL_fogStart+CL_fogRange) {
+        float enter=CL_fogStart+CL_fogRange,dt=(distance-enter)/8,optical=0;
+        [unroll]for(int f=0;f<8;++f) {
+            float3 p=camera.xyz+ray*(enter+(f+.5)*dt);
+            optical+=CL_fogDensity*.001*exp(-max(0,p.z-CL_fogBase)/CL_fogHeight)*dt;
+        }
+        float a=1-exp(-optical);
+        // Lit like the near interval (unshadowed sun), so the two meet without a brightness step.
+        float3 farLight=ambient+SunColor()*Phase(dot(ray,SunDirection()))*.25*CL_fogLightIntensity;
+        color+=trans*a*farLight*fogColorDensity.rgb;trans*=1-a;
+    }
+    MarchClouds(d,ray,distance,steps,jitter,color,trans);
+    return float4(color,trans);
+}
+)HLSL"
+R"HLSL(
+// Dedicated 1:1 Half-Life: Alyx volumetric froxel shader (calibrated against live `a3_c17_processing_plant`:
+// exponential Z slice spacing, crisp 50..250 foreground fade-in, counter-drifting 3D air noise, and
+// dual-lobe Henyey-Greenstein forward scattering + sky irradiance).
+float4 AlyxVolumeAt(float2 pixel,float d,int sampling=0) {
+    bool sky=IsSky(d);
+    float3 farPoint=World(pixel,camera.w>0?.00001:.99999);
+    float3 ray=normalize(farPoint-camera.xyz);
+    float distance=FogDistance(pixel,d);
+    float3 color=0;float trans=1;int steps=(int)volumeDimensions.z;
+    float jitter=sampling==kMarchExact?.5:frac(InterleavedGradient(floor(pixel*volumeDimensions.xy/dimensions.xy))+(sampling==kMarchBlended?temporalInfo.y:0));
+    float3 ambient=(CL_fogDensity>0||CL_groundFog>0||CL_gusts>0)?FogAmbient():0;
+    GroundFogMarch(ray,distance,jitter,ambient,color,trans);
+    GustVolumeMarch(ray,distance,jitter,ambient,color,trans);
+    float3 alyxAmb=AlyxAmbient(ray,ambient);
+    if(CL_fogDensity>0) {
+        float enter=min(distance,CL_fogStart);
+        float extent=min(distance,CL_fogStart+max(800.,CL_fogRange));
+        float span=max(0.,extent-enter);
+        float fadeStart=max(50.,CL_fogStart);
+        float extScale=depthRange.w>.5?.55:1.;
+        [loop] for(int j=0;j<steps;++j) {
+            float u0=pow(float(j)/steps,1.35);
+            float u1=pow(float(j+1)/steps,1.35);
+            float distHere=enter+span*lerp(u0,u1,jitter);
+            float stepLength=span*(u1-u0);
+            float3 p=camera.xyz+ray*distHere;
+            float local=CL_localFogRadius>0?1-smoothstep(CL_localFogRadius*.65,CL_localFogRadius,length(p-float3(CL_fogX,CL_fogY,CL_fogZ))):1;
+            float noiseAmt=max(CL_fogNoise,.55);
+            float vary=AlyxFogNoise(p);
+            float nearFade=smoothstep(fadeStart,fadeStart+200.,distHere);
+            float hNorm=max(0.,p.z-CL_fogBase)/max(CL_fogHeight*lerp(1.,.55+.95*vary,noiseAmt),20.);
+            float height=exp(-pow(hNorm,1.65));
+            float density=CL_fogDensity*.00125*extScale*nearFade*height*local*lerp(.55,vary*1.9,noiseAmt);
+            float visibility=CL_lightShafts>0?WorldSunShadow(p+SunDirection()*shadowInfo.y):1;
+            float selfShadow=FogSunTransmittance(density*CL_fogHeight/max(SunDirection().z,.08));
+            float volGain=CL_fogLightIntensity;
+            float sunPhase=AlyxPhase(dot(ray,SunDirection()))*.32;
+            float3 illumination=alyxAmb+SunColor()*sunPhase*visibility*selfShadow*volGain;
+            [loop] for(int l=0;l<min((int)lighting.x,4);++l) {
+                [loop]for(int sample=0;sample<StudioSamples(l);++sample){
+                    float3 dir;float atten=StudioAttenuation(l,sample,p,dir);
+                    if(CL_lightShafts>0&&atten>.001)atten*=WorldLightShadowSample(l,p,sample);
+                    illumination+=lightColorIntensity[l].rgb*lightColorIntensity[l].w*atten*AlyxPhase(dot(ray,dir))*volGain;
+                }
+            }
+            [loop] for(int m=0;m<min((int)mapLampInfo.x,4);++m) {
+                float4 at=mapLamps[m*4],shine=mapLamps[m*4+1],second=mapLamps[m*4+2],third=mapLamps[m*4+3];
+                float3 delta=at.xyz-p;float d2=max(dot(delta,delta),1e-5),dist=sqrt(d2);float3 dir=delta/dist;
+                float softR2=max(at.w,2500.);
+                float bf=saturate(third.x+second.w*dist);bf=bf*bf*(3-2*bf)*at.w/(softR2+d2)*(third.z!=0?saturate(third.y+third.z*dot(second.xyz,dir)):1);
+                float3 e=second.xyz-p;float sf=at.w/(softR2+dot(e,e))*smoothstep(0,.25,dot(third.xyz,-dir));
+                float lp=AlyxPhase(dot(ray,dir))*.20;
+                float3 lampScatter=shine.rgb*lerp(bf,sf,step(.5,shine.w))*lp*volGain;
+                illumination+=lampScatter/(1.+lampScatter*0.35);
+            }
+            float a=1-exp(-density*stepLength);color+=trans*a*illumination*fogColorDensity.rgb;trans*=1-a;
+            if(trans<.01)break;
+        }
+    }
+    if(CL_fogDensity>0 && CL_localFogRadius<=0 && distance>CL_fogStart+max(800.,CL_fogRange)) {
+        float enter=CL_fogStart+max(800.,CL_fogRange),dt=(distance-enter)/8,optical=0;
+        float extScale=depthRange.w>.5?.55:1.;
+        [unroll]for(int f=0;f<8;++f) {
+            float3 p=camera.xyz+ray*(enter+(f+.5)*dt);
+            float hNorm=max(0.,p.z-CL_fogBase)/max(CL_fogHeight,20.);
+            optical+=CL_fogDensity*.00125*extScale*exp(-pow(hNorm,1.65))*dt;
+        }
+        float a=min(1-exp(-optical),sky?.88:.78);
+        float3 farLight=alyxAmb+SunColor()*AlyxPhase(dot(ray,SunDirection()))*.24*CL_fogLightIntensity;
+        color+=trans*a*farLight*fogColorDensity.rgb;trans*=1-a;
+    }
+    MarchClouds(d,ray,distance,steps,jitter,color,trans);
     return float4(color,trans);
 }
 struct VolumeOutput {float4 scene:SV_Target0;float4 sky:SV_Target1;};
@@ -2340,6 +2493,10 @@ struct VolumeMarchOutput {float4 scene:SV_Target0;float2 geometry:SV_Target1;};
 VolumeMarchOutput VolumePS(Screen i) {
     float2 p=i.position.xy*dimensions.xy/volumeDimensions.xy;float d=ReadDepth(p);
     VolumeMarchOutput o;o.scene=VolumeAt(p,d,kMarchBlended);o.geometry=float2(FogDistance(p,d),IsSky(d));return o;
+}
+VolumeMarchOutput AlyxVolumePS(Screen i) {
+    float2 p=i.position.xy*dimensions.xy/volumeDimensions.xy;float d=ReadDepth(p);
+    VolumeMarchOutput o;o.scene=AlyxVolumeAt(p,d,kMarchBlended);o.geometry=float2(FogDistance(p,d),IsSky(d));return o;
 }
 float2 VolumeGeometry(int2 q) {return volumeGeometryTexture.Load(int3(q,0));}
 // THE VOLUME'S TEMPORAL BLEND (live view). The march is jittered differently every frame and each
@@ -2392,6 +2549,17 @@ float4 SkyVolumePS(Screen i):SV_Target {
     // Keep minority sky coverage in the same filtered cache as open sky. A closest-depth
     // cache alone forces those samples through an unfiltered, differently jittered march.
     [branch]if(sky)return VolumeAt(p,camera.w>0?0:1);
+    return float4(0,0,0,-1);
+}
+float4 AlyxSkyVolumePS(Screen i):SV_Target {
+    float2 p=i.position.xy*dimensions.xy/volumeDimensions.xy;float d=ReadDepth(p);
+    [branch]if(IsSky(d))return volumeTexture.Load(int3(int2(i.position.xy),0));
+    bool sky=IsSky(d);
+#if COLOR_MS
+    uint w,h,n;sourceColor.GetDimensions(w,h,n);
+    [loop]for(uint sample=0;sample<n&&!sky;++sample)sky=IsSky(ReadCombinedSample(p,sample));
+#endif
+    [branch]if(sky)return AlyxVolumeAt(p,camera.w>0?0:1);
     return float4(0,0,0,-1);
 }
 // 5x5 depth-aware Gaussian over the marched volume, at volume resolution. Taps across a depth edge
@@ -2567,7 +2735,7 @@ float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
         // the list has no walk for (a third depth in one pixel, a full list) walks here.
         bool listed=false;float4 walked=0;
         [branch]if(!walk)listed=ExactShared(p,distance,walked);
-        [branch]if(!listed)walked=VolumeAt(p,walk?frontDepth:d,kMarchExact);
+        [branch]if(!listed)walked=CL_alyxFog>.5?AlyxVolumeAt(p,walk?frontDepth:d,kMarchExact):VolumeAt(p,walk?frontDepth:d,kMarchExact);
         if(walk)front=walked;else volume=walked;
     }
     [branch] if(smoke>0) {
@@ -2657,6 +2825,15 @@ float4 ExactWalkPS(Screen i):SV_Target {
     [branch]if(at<min(exactCount[0],kExactWalkCapacity)){
         uint4 e=exactEntries[at];
         v=VolumeAt(SamplePixel(float2(e.x&0xffff,e.x>>16)+.5,e.y),asfloat(e.z),kMarchExact);
+    }
+    return v;
+}
+float4 AlyxExactWalkPS(Screen i):SV_Target {
+    uint at=uint(i.position.y)*kExactWalkWidth+uint(i.position.x);
+    float4 v=float4(0,0,0,1);
+    [branch]if(at<min(exactCount[0],kExactWalkCapacity)){
+        uint4 e=exactEntries[at];
+        v=AlyxVolumeAt(SamplePixel(float2(e.x&0xffff,e.x>>16)+.5,e.y),asfloat(e.z),kMarchExact);
     }
     return v;
 }

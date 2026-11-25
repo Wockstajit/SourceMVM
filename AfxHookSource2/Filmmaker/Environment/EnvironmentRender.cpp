@@ -5,6 +5,7 @@
 #include "EnvironmentNativeMaterial.h"
 #include "../Render/RenderPrivateTextureScope.h"
 #include "EnvironmentNativeRain.h"
+#include "EnvironmentNativeFog.h"
 #include "EnvironmentWeatherMath.h"
 #include "EnvironmentShaders.h"
 #include "EnvironmentShaderPrograms.h"
@@ -49,7 +50,7 @@ struct Constants {
         weatherColor, weatherVelocity, right, up, lighting;
     Float4 lightPosition[16], lightColor[16], lightDirection[16];
     Float4 lightRight[16], lightUp[16], lightStudio[16], lightPatternTime[16];
-    decltype(Climate::values) climate;
+    std::array<float, kShaderClimateVectors * 4> climate;
     Float4 climateClock, volumeDimensions;
     Float4 stormSource, stormPoints[kStormPointCount], stormLinks[kStormPointCount];
     // Coating actors: the players the world coatings skip. Must match COATING_ACTORS in the shader
@@ -119,7 +120,7 @@ struct Resources {
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<ID3D11VertexShader> screenVS, meshVS, weatherVS[2], stormVS, splashVS[2], footSplashVS, exactWalkVS;
     ComPtr<ID3D11PixelShader> atmospherePS[4], atmospherePixelPS[4], meshPS[4], materialMeshPS[4], weatherPS[4], stormPS[4], splashPS[4], veilPS[4];
-    ComPtr<ID3D11PixelShader> blitPS[2], volumePS[4], volumeBlurPS[4], compositePS[4], skyVolumePS[4], compositePixelPS[4], volumeTemporalPS[4];
+    ComPtr<ID3D11PixelShader> blitPS[2], volumePS[4], alyxVolumePS[4], alyxSkyVolumePS[4], alyxExactWalkPS[4], volumeBlurPS[4], compositePS[4], skyVolumePS[4], compositePixelPS[4], volumeTemporalPS[4];
     ComPtr<ID3D11PixelShader> atmosphereEdgePS, exactListPS[4], exactWalkPS[4];
     ComPtr<ID3D11Buffer> weatherQuadIndices;
     // The shared exact fog walks (ExactListPS in the shaders): which pixels need which walk, the
@@ -653,6 +654,7 @@ void BeginDevice(ID3D11Device *device, bool background) {
         for (int cm = 0; cm < 2; ++cm) {
             ComPtr<ID3D11PixelShader> *outputs[] = {&g.atmospherePS[ms + cm * 2], &g.atmospherePixelPS[ms + cm * 2], &g.meshPS[ms + cm * 2], &g.materialMeshPS[ms + cm * 2],
                                                     &g.weatherPS[ms + cm * 2], &g.volumePS[ms + cm * 2],
+                                                    &g.alyxVolumePS[ms + cm * 2], &g.alyxSkyVolumePS[ms + cm * 2], &g.alyxExactWalkPS[ms + cm * 2],
                                                     &g.compositePS[ms + cm * 2], &g.stormPS[ms + cm * 2], &g.splashPS[ms + cm * 2], &g.veilPS[ms + cm * 2],
                                                     &g.volumeBlurPS[ms + cm * 2],&g.skyVolumePS[ms + cm * 2],&g.compositePixelPS[ms + cm * 2],
                                                     &g.volumeTemporalPS[ms + cm * 2],&g.exactListPS[ms + cm * 2],&g.exactWalkPS[ms + cm * 2]};
@@ -919,7 +921,9 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         SetRenderStatus("Could not allocate volumetric surface");
         return false;
     }
-    c.climate = climate.values;
+    c.climate.fill(0.f);
+    for (int i = 0; i < kShaderClimateCount; ++i)
+        c.climate[i] = climate.values[i];
     if (weatherNow.type == 3 || weatherNow.type == 7) {
         // Give airborne ash and blown sand a little more opacity at typical settings. The slider
         // still covers the full range from no particles to the existing maximum.
@@ -1017,7 +1021,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     }
     c.camera = Pack(f.camera, reversed ? 1.f : 0.f);
     c.dimensions = {float(td.Width), float(td.Height), float(dd.Width), float(dd.Height)};
-    c.depthRange = {depthMin, depthMax, 0, 0};
+    c.depthRange = {depthMin, depthMax, climate[CL_alyxFog], NativeAlyxFogActive() ? 1.f : 0.f};
     c.fog = Pack(f.scene.fogColor, climate[CL_fogDensity]);
     c.tint = Pack(f.scene.tint, f.scene.exposure);
     // Publish the coating actors. Empty is the normal case (nobody on screen, or no coating on)
@@ -1134,8 +1138,9 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     // otherwise.
     {
         const bool wetGround = climate[CL_wet] > 0 || climate[CL_puddles] > 0 || climate[CL_snow] > 0;
+        const bool volFog = climate[CL_fogDensity] > 0 || climate[CL_groundFog] > 0;
         const bool relitBulbs = f.relight.enabled && !f.relight.reference && f.relight.localLights;
-        const auto lamps = (wetGround || relitBulbs) ? PuddleLamps(f.relight, f.camera)
+        const auto lamps = (wetGround || volFog || relitBulbs) ? PuddleLamps(f.relight, f.camera)
                                      : PuddleLampTable{};
         for (unsigned i = 0; i < lamps.count * kPuddleLampRows; ++i)
             c.mapLamps[i] = {lamps.rows[i][0], lamps.rows[i][1], lamps.rows[i][2], lamps.rows[i][3]};
@@ -1600,6 +1605,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
     };
     if (!volumes) drawWeather();
     if (volumes) {
+        const bool useAlyxFog = climate[CL_alyxFog] > 0.5f && climate[CL_fogDensity] > 0.f;
         GPU_PASS_SCOPE(ctx, "composite: fog volumes");
         // t35/t36/s6 stay bound through the march, blur and composite (the composite marches
         // unmatched MSAA samples itself), and the wind with its noise for what gusts blow along the
@@ -1615,7 +1621,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         ctx->OMSetRenderTargets(2, volumeTargets, nullptr);
         D3D11_VIEWPORT volumeViewport{0, 0, float(g.volumeWidth), float(g.volumeHeight), 0, 1};
         ctx->RSSetViewports(1, &volumeViewport);
-        ctx->PSSetShader(g.volumePS[variant].Get(), nullptr, 0);
+        ctx->PSSetShader((useAlyxFog ? g.alyxVolumePS[variant] : g.volumePS[variant]).Get(), nullptr, 0);
         {GPU_PASS_SCOPE(ctx, "fog volumes: march");ctx->Draw(3, 0);}
         auto geometry=g.volumeGeometrySrv.Get();
         ID3D11ShaderResourceView *marched = g.volumeSrv.Get();
@@ -1648,7 +1654,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         ctx->OMSetRenderTargets(1,&skyVolumeTarget,nullptr);
         ctx->PSSetShaderResources(33,1,&geometry);
         ctx->PSSetShaderResources(4,1,&marched);
-        ctx->PSSetShader(g.skyVolumePS[variant].Get(),nullptr,0);
+        ctx->PSSetShader((useAlyxFog ? g.alyxSkyVolumePS[variant] : g.skyVolumePS[variant]).Get(),nullptr,0);
         ctx->Draw(3,0);
         // Depth-aware blur of the jittered march, still at volume resolution: the per-texel jitter
         // that hides step banding otherwise shows as grain in the light shafts.
@@ -1689,7 +1695,7 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
             ctx->VSSetShaderResources(55,1,walkInputs);
             ctx->PSSetShaderResources(55,2,walkInputs);
             ctx->VSSetShader(g.exactWalkVS.Get(), nullptr, 0);
-            ctx->PSSetShader(g.exactWalkPS[variant].Get(), nullptr, 0);
+            ctx->PSSetShader((useAlyxFog ? g.alyxExactWalkPS[variant] : g.exactWalkPS[variant]).Get(), nullptr, 0);
             ctx->Draw(6, 0);
             ctx->VSSetShader(g.screenVS.Get(), nullptr, 0);
             ID3D11ShaderResourceView *noInputs[2]{};

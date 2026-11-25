@@ -177,6 +177,11 @@ void RenderSystemDX11_EngineThread_EndNextRenderPass();
 void RenderSystemDX11_EngineThread_BeginMainRenderPass();
 void RenderSystemDX11_EngineThread_EndMainRenderPass();
 
+// Request a one-shot non-recording PNG/BMP snapshot of the final presented swapchain backbuffer
+// (after BeforeUi2 viewport scaling and Panorama UI compositing). Writes a 24-bit BMP without
+// activating AfxStreams recording so AfxViewportScaler remains active.
+void RenderSystemDX11_RequestPresentSnapshot(const char *pathUtf8);
+
 void Hook_RenderSystemDX11(void * hModule);
 
 void Hook_SceneSystem(void * hModule);

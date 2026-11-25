@@ -714,7 +714,7 @@ static void TestJitterCounter() {
 static void TestSourceField() {
 	// The v9 clip table stores the source as an explicit u32; the enum order is the file format.
 	CHECK((int)Source::Mw2019 == 0 && (int)Source::Classic == 1 && (int)Source::Extra == 2);
-	CHECK((int)Source::Count == 3);
+	CHECK((int)Source::Count == 4);
 	ClipTags t; t.source = Source::Classic;
 	CHECK(t.source == Source::Classic);
 }
