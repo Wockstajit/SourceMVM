@@ -29,7 +29,7 @@ inline const std::string& EnvironmentShaderSource(){
 inline constexpr const char* EnvironmentPixelShaderEntries[] = {
     "AtmospherePS", "AtmospherePixelPS", "MeshPS", "MaterialMeshPS", "WeatherPS", "VolumePS", "AlyxVolumePS", "AlyxSkyVolumePS", "AlyxExactWalkPS",
     "CompositePS", "StormPS", "SplashPS", "WeatherVeilPS", "VolumeBlurPS", "SkyVolumePS", "CompositePixelPS", "VolumeTemporalPS",
-    "ExactListPS", "ExactWalkPS"};
+    "ExactListPS", "ExactWalkPS", "AlyxCompositePS", "AlyxCompositePixelPS"};
 inline constexpr size_t EnvironmentPixelShaderCount =
     sizeof(EnvironmentPixelShaderEntries) / sizeof(EnvironmentPixelShaderEntries[0]);
 // The build-time bundle and runtime fallback must prepare exactly the same programs.

@@ -120,7 +120,7 @@ struct Resources {
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<ID3D11VertexShader> screenVS, meshVS, weatherVS[2], stormVS, splashVS[2], footSplashVS, exactWalkVS;
     ComPtr<ID3D11PixelShader> atmospherePS[4], atmospherePixelPS[4], meshPS[4], materialMeshPS[4], weatherPS[4], stormPS[4], splashPS[4], veilPS[4];
-    ComPtr<ID3D11PixelShader> blitPS[2], volumePS[4], alyxVolumePS[4], alyxSkyVolumePS[4], alyxExactWalkPS[4], volumeBlurPS[4], compositePS[4], skyVolumePS[4], compositePixelPS[4], volumeTemporalPS[4];
+    ComPtr<ID3D11PixelShader> blitPS[2], volumePS[4], alyxVolumePS[4], alyxSkyVolumePS[4], alyxExactWalkPS[4], volumeBlurPS[4], compositePS[4], skyVolumePS[4], compositePixelPS[4], volumeTemporalPS[4], alyxCompositePS[4], alyxCompositePixelPS[4];
     ComPtr<ID3D11PixelShader> atmosphereEdgePS, exactListPS[4], exactWalkPS[4];
     ComPtr<ID3D11Buffer> weatherQuadIndices;
     // The shared exact fog walks (ExactListPS in the shaders): which pixels need which walk, the
@@ -657,7 +657,8 @@ void BeginDevice(ID3D11Device *device, bool background) {
                                                     &g.alyxVolumePS[ms + cm * 2], &g.alyxSkyVolumePS[ms + cm * 2], &g.alyxExactWalkPS[ms + cm * 2],
                                                     &g.compositePS[ms + cm * 2], &g.stormPS[ms + cm * 2], &g.splashPS[ms + cm * 2], &g.veilPS[ms + cm * 2],
                                                     &g.volumeBlurPS[ms + cm * 2],&g.skyVolumePS[ms + cm * 2],&g.compositePixelPS[ms + cm * 2],
-                                                    &g.volumeTemporalPS[ms + cm * 2],&g.exactListPS[ms + cm * 2],&g.exactWalkPS[ms + cm * 2]};
+                                                    &g.volumeTemporalPS[ms + cm * 2],&g.exactListPS[ms + cm * 2],&g.exactWalkPS[ms + cm * 2],
+                                                    &g.alyxCompositePS[ms + cm * 2],&g.alyxCompositePixelPS[ms + cm * 2]};
             static_assert(sizeof(outputs) / sizeof(outputs[0]) == EnvironmentPixelShaderCount,
                           "Every environment pixel shader needs an output");
             for (size_t k = 0; k < EnvironmentPixelShaderCount; ++k) {
@@ -1714,8 +1715,11 @@ bool Render(ID3D11DeviceContext *immediate, ID3D11RenderTargetView *target, ID3D
         ctx->RSSetViewports(1, &viewport);
         ctx->PSSetShaderResources(0, 5, composite);
         ctx->PSSetShaderResources(32,1,&skyComposite);
-        if(volumeSplit){ctx->PSSetShader(g.compositePixelPS[variant].Get(), nullptr, 0);ctx->Draw(3, 0);}
-        ctx->PSSetShader(g.compositePS[variant].Get(), nullptr, 0);
+        // One fog model per composite program (EnvironmentClimateShaders.h): the gradient fog's
+        // composite while CL_alyxFog is on, the test the shader made before the split.
+        const bool alyxComposite = climate[CL_alyxFog] > 0.5f;
+        if(volumeSplit){ctx->PSSetShader((alyxComposite ? g.alyxCompositePixelPS[variant] : g.compositePixelPS[variant]).Get(), nullptr, 0);ctx->Draw(3, 0);}
+        ctx->PSSetShader((alyxComposite ? g.alyxCompositePS[variant] : g.compositePS[variant]).Get(), nullptr, 0);
         ctx->Draw(3, 0);
         ctx->PSSetShaderResources(53,4,noExact);
         frameView = g.colorSrv.Get();

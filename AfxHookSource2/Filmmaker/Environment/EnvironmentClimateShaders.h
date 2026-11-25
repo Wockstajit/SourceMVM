@@ -2614,9 +2614,16 @@ R"HLSL(
 // samples lie on one surface once, and CompositePS keeps per-sample shading for the edge pixels.
 // The split is used only while nothing after the atmosphere pass (props, precipitation) has given
 // the samples of an interior pixel different colours.
+//
+// ONE FOG MODEL PER PROGRAM. The composite walks the samples the coarse volume has no match for
+// with the fog march, and the gradient fog has its own march (AlyxVolumeAt). Choosing between them
+// at run time put both long marches into every composite: fxc inlines each in full, and the
+// composite went from about 2 to 13 minutes a variant, which timed the CI build out (2026-11-25).
+// The model is now a literal argument from the entry point, so each program carries one march;
+// the renderer binds AlyxCompositePS/AlyxCompositePixelPS while CL_alyxFog is on.
 bool CachedAtmosphereEdge(float2 pixel);
-float4 Composite(float2 p,uint sample);
-float4 CompositeAt(float2 p,uint sample,float d,float3 color);
+float4 Composite(float2 p,uint sample,bool alyx);
+float4 CompositeAt(float2 p,uint sample,float d,float3 color,bool alyx);
 // SHARED EXACT WALKS. The pixels the coarse volume has no match for (an outline: a pole, a roof
 // edge, a player against the far street) are walked from the eye at full resolution, and a walk
 // with blown snow in it is long. Walked inside the composite they were a thin line of pixels each
@@ -2647,19 +2654,35 @@ float4 CompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
 #if COLOR_MS
     [branch]if(shadowDebug.z>.5&&!CachedAtmosphereEdge(SamplePixel(i.position.xy,0)))discard;
 #endif
-    return Composite(SamplePixel(i.position.xy,sample),sample);
+    return Composite(SamplePixel(i.position.xy,sample),sample,false);
+}
+float4 AlyxCompositePS(Screen i,uint sample:SV_SampleIndex):SV_Target {
+#if COLOR_MS
+    [branch]if(shadowDebug.z>.5&&!CachedAtmosphereEdge(SamplePixel(i.position.xy,0)))discard;
+#endif
+    return Composite(SamplePixel(i.position.xy,sample),sample,true);
 }
 float4 CompositePixelPS(Screen i):SV_Target {
 #if COLOR_MS
     float2 pixel=SamplePixel(i.position.xy,0);
     [branch]if(CachedAtmosphereEdge(pixel))discard;
-    return Composite(pixel,0);
+    return Composite(pixel,0,false);
 #else
     discard;
     return 0;
 #endif
 }
-float4 Composite(float2 p,uint sample) {
+float4 AlyxCompositePixelPS(Screen i):SV_Target {
+#if COLOR_MS
+    float2 pixel=SamplePixel(i.position.xy,0);
+    [branch]if(CachedAtmosphereEdge(pixel))discard;
+    return Composite(pixel,0,true);
+#else
+    discard;
+    return 0;
+#endif
+}
+float4 Composite(float2 p,uint sample,bool alyx) {
     float d=ReadCombinedSample(p,sample);
     float3 color=ReadColor(p,sample);
     // An edge pixel against the sky (EdgeSkyShare) is two layers: the thing in front, and the sky
@@ -2671,7 +2694,7 @@ float4 Composite(float2 p,uint sample) {
     float3 surface=share>0?max((color-share*sky)/max(1-share,.125),0):color;
     float4 sum=0;
     [loop]for(uint layer=0;layer<(share>0?2u:1u);++layer)
-        sum+=(layer?share:1-share)*CompositeAt(p,sample,layer?SkyDepth():d,layer?sky:surface);
+        sum+=(layer?share:1-share)*CompositeAt(p,sample,layer?SkyDepth():d,layer?sky:surface,alyx);
     return sum;
 }
 // The coarse volume's texels around p that match its depth, weighted, and how much they weigh.
@@ -2692,7 +2715,7 @@ float4 CoarseVolume(float2 p,float d,float distance,out float weights) {
     }
     return sum;
 }
-float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
+float4 CompositeAt(float2 p,uint sample,float d,float3 color,bool alyx) {
     float2 uv=p/dimensions.xy;
     bool sky=IsSky(d);
     float distance=FogDistance(p,d);
@@ -2735,7 +2758,7 @@ float4 CompositeAt(float2 p,uint sample,float d,float3 color) {
         // the list has no walk for (a third depth in one pixel, a full list) walks here.
         bool listed=false;float4 walked=0;
         [branch]if(!walk)listed=ExactShared(p,distance,walked);
-        [branch]if(!listed)walked=CL_alyxFog>.5?AlyxVolumeAt(p,walk?frontDepth:d,kMarchExact):VolumeAt(p,walk?frontDepth:d,kMarchExact);
+        [branch]if(!listed)walked=alyx?AlyxVolumeAt(p,walk?frontDepth:d,kMarchExact):VolumeAt(p,walk?frontDepth:d,kMarchExact);
         if(walk)front=walked;else volume=walked;
     }
     [branch] if(smoke>0) {

@@ -178,7 +178,7 @@ void Execf(const char *fmt, ...) {
 float ReadMaxSpeedCvar() {
 	using namespace SOURCESDK::CS2;
 	if (!g_pCVar) return 320.0f;
-	const ConVarHandle h = g_pCVar->FindConVar("sv_maxspeed", false);
+	ConVarHandle h = g_pCVar->FindConVar("sv_maxspeed", false);
 	if (!h.IsValid()) return 320.0f;
 	const Cvar_s *cv = g_pCVar->GetCvar(h.Get());
 	if (!cv || cv->m_eVarType != EConVarType_Float32) return 320.0f;
