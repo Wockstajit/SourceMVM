@@ -3247,6 +3247,16 @@ static void AfxFillPassFrame(AfxRenderPass::ComposeParams& params) {
     params.depthMax = g_ViewPort.MaxDepth;
 }
 
+// The view the render now at its BeforeUi boundary was drawn through, kept with its World Only depth.
+static AfxRenderPass::WorldReferenceView AfxWorldReferenceView() {
+    AfxRenderPass::WorldReferenceView view;
+    view.valid = g_EnvironmentFrame.hasWorldToClip;
+    if (view.valid) for (int k = 0; k < 16; ++k) view.worldToClip[k] = g_EnvironmentFrame.worldToClip[k];
+    view.depthMin = g_ViewPort.MinDepth;
+    view.depthMax = g_ViewPort.MaxDepth;
+    return view;
+}
+
 // Render workspace live view of a Depth / Normal pass (AfxStreams_SetLivePassPreview). Written on
 // the main thread, read once per presented frame on the render thread.
 struct AfxLivePassPreview {
@@ -3367,6 +3377,36 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
     }
     texture->Release();
 }
+// The finished scene target (UI included) into the back buffer, for a present the engine did not ask
+// for itself: CS2 resolves its scene target only for its own Present, so at any other moment the back
+// buffer still holds the last render the engine finished. No-op when the engine draws into the back
+// buffer, or when the two sizes differ (a copy cannot scale it); the debug log says which.
+static void AfxSceneToBackBuffer(ID3D11DeviceContext* pDeviceContext, ID3D11Texture2D* pScene) {
+    if (!pDeviceContext || !pScene || !g_pSwapChain) return;
+    ID3D11Texture2D* pBack = nullptr;
+    if (FAILED(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pBack)) || !pBack) return;
+    D3D11_TEXTURE2D_DESC scene = {}, back = {};
+    pScene->GetDesc(&scene);
+    pBack->GetDesc(&back);
+    const bool same = pScene == pBack;
+    const bool fits = scene.Width == back.Width && scene.Height == back.Height && back.SampleDesc.Count == 1;
+    if (!same && fits) {
+        if (scene.SampleDesc.Count > 1) pDeviceContext->ResolveSubresource(pBack, 0, pScene, 0, back.Format);
+        else pDeviceContext->CopyResource(pBack, pScene);
+    }
+    if (Filmmaker::MvmDebugLog_Active()) {
+        static UINT s_logged = ~0u;
+        const UINT state = (same ? 1u : 0u) | (fits ? 2u : 0u) | (scene.SampleDesc.Count << 4) | ((UINT)scene.Format << 12);
+        if (state != s_logged) {
+            s_logged = state;
+            Filmmaker::MvmDebugLog_LinefAlways("render.worldref", "scene to back buffer: scene=%ux%u fmt=%d samples=%u back=%ux%u fmt=%d same=%d copied=%d",
+                scene.Width, scene.Height, (int)scene.Format, scene.SampleDesc.Count,
+                back.Width, back.Height, (int)back.Format, same ? 1 : 0, (!same && fits) ? 1 : 0);
+        }
+    }
+    pBack->Release();
+}
+
 class CAfxRenderCallbackBeforeClear : public IRenderThreadCallback {
 public:
     CAfxRenderCallbackBeforeClear()
@@ -3637,8 +3677,10 @@ public:
                             eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
                     } else {
                         if (Filmmaker::EffectNodes::Active()) {
+                            AfxRenderPass::WorldReferenceView refView;
+                            ID3D11ShaderResourceView* refDepth = AfxRenderPass::WorldDepthReferenceSrv(refView);
                             Filmmaker::EffectNodes::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
-                                AfxRenderPass::WorldDepthReferenceSrv(),
+                                refDepth, refView.worldToClip, refView.depthMin, refView.depthMax,
                                 f.hasWorldToClip ? f.worldToClip.data() : nullptr,
                                 f.hasWorldToClip ? f.projection.data() : nullptr,
                                 eye, fwd, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
@@ -5022,6 +5064,7 @@ void After_Present() {
     }
 
     g_RenderCommands.RenderThread_EndFrame();    
+    AfxRenderPass::NoteRenderEnded();
     g_DepthCompositor.OnEndFrame();
     g_SmokeAbsorbance.OnEndFrame();
 
@@ -5923,10 +5966,15 @@ public:
         commands.HoldLensFocus = true;
         if (m_LiveWorldRefPending && m_RecordingExtraPassesIterator == m_RecordingExtraPasses.end()) {
             // The live Players Only / Effect Nodes view's World Only reference (never shown: present suppressed).
+            // Cleared here, not when the render ends, so no third render follows it: this one is the
+            // frame's last and the engine's own Present (suppressed) closes it.
+            m_LiveWorldRefPending = false;
+            m_LiveWorldRefActive = true;
             BeginPassRender((int)Filmmaker::RenderKey::WorldOnly);
+            EngineThread_Suppress_Present();
             commands.SkipLens = true;
             commands.BeforeUi.Push([](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture){
-                AfxRenderPass::StoreWorldReference(pDeviceContext, g_pCurrentDepthStencilView);
+                AfxRenderPass::StoreWorldReference(pDeviceContext, g_pCurrentDepthStencilView, AfxWorldReferenceView());
             });
             return;
         }
@@ -5952,10 +6000,9 @@ public:
     }
 
     void EngineThread_EndNextRenderPass() {
-        if (m_LiveWorldRefPending && m_RecordingExtraPassesIterator == m_RecordingExtraPasses.end()) {
-            m_LiveWorldRefPending = false;
+        if (m_LiveWorldRefActive) {
+            m_LiveWorldRefActive = false;
             EndPassRender();
-            EngineThread_Suppress_Present();
             return;
         }
         // End in reverse begin order: each stream restores the cvars its begin saw, so the first
@@ -5980,6 +6027,16 @@ public:
         g_RenderCommands.EngineThread_GetCommands().PassOrdinal = 0;
         // The Main render is always the full scene: state it (see BeginPassRender).
         if (m_Recording) BeginPassRender((int)Filmmaker::RenderKey::Main);
+        // The live World Only reference renders over the back buffer after Main, so Main has to be
+        // shown before it. Queued here, while this is still Main's own command object: once the
+        // render is submitted the engine thread holds the next pass's. Queued there, the reference
+        // was the frame on screen, and everything drawn on Main only (the Effect Nodes) was lost.
+        if (m_LiveWorldRefPending) {
+            g_RenderCommands.EngineThread_GetCommands().BeforePresent.Push([](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture){
+                AfxSceneToBackBuffer(pDeviceContext, pTexture);
+            });
+            EngineThread_Expect_Present();
+        }
         // The Gun only reference and the Main render's Depth / Normal passes are built from the
         // scene before the lens; the Beauty plate keeps it.
         if (m_Recording)
@@ -6024,7 +6081,8 @@ public:
         }
         g_CurrentPassRenderKey.store(-1, std::memory_order_release);
 
-        if(EngineThread_HasNextRenderPass()) EngineThread_Expect_Present();
+        // The live World Only reference has queued its own (EngineThread_BeginMainRenderPass).
+        if(!m_LiveWorldRefPending && EngineThread_HasNextRenderPass()) EngineThread_Expect_Present();
     }
 
     // --- Filmmaker render-job control surface (see RenderSystemDX11Hooks.h) ---
@@ -6166,6 +6224,7 @@ public:
     bool m_PassNeedsMainReference = false;
     bool m_PassMainComposes = false; // a Depth / Normal pass of Everything (CStreamSettings::IsComposedPass)
     bool m_LiveWorldRefPending = false; // engine thread, per frame (see g_LiveWorldRefWanted)
+    bool m_LiveWorldRefActive = false;  // engine thread: that reference is the render in flight
     int m_CubemapFacesPending = 0;      // Little Planet 6-face 360 cubemap capture
     int m_CubemapNextFace = 0;
     bool m_CubemapPassActive = false;
@@ -6308,7 +6367,7 @@ private:
             if (m_Settings.PassReferenceOnly) {
                 // World Only reference for the Players Only mask of this same logical frame.
                 g_RenderCommands.EngineThread_GetCommands().BeforeUi.Push([](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture){
-                    AfxRenderPass::StoreWorldReference(pDeviceContext, g_pCurrentDepthStencilView);
+                    AfxRenderPass::StoreWorldReference(pDeviceContext, g_pCurrentDepthStencilView, AfxWorldReferenceView());
                 });
                 return;
             }
@@ -8118,6 +8177,7 @@ void CAfxStreams::RecordStart()
             } else
                 m_RecordingExtraPasses.emplace(this, it->second);
         }
+        bool worldReference = false;
         // Players Only is the NoGun render masked to what is closer than the World Only render of
         // the same frame (render order Main, WorldOnly, NoGun; RenderPassPlan.h says why it is not
         // a chroma repaint). One output-less World Only render supplies that depth when no World
@@ -8130,7 +8190,19 @@ void CAfxStreams::RecordStart()
             ref.PassElements = (int)Filmmaker::VisibleElements::OnlyWorld;
             ref.PassReferenceOnly = true;
             m_RecordingExtraPasses.emplace(this, ref);
+            worldReference = true;
             break;
+        }
+        // A Player Matte node reads the same reference, one frame later, on every Beauty plate.
+        if (!worldReference && Filmmaker::EffectNodes::NeedsWorldDepthRef()) {
+            if (advancedfx::CRecordingSettings* refSettings = advancedfx::CRecordingSettings::GetDefault()) {
+                CStreamSettings ref(refSettings);
+                ref.Name = L"_worldref";
+                ref.PassType = (int)Filmmaker::PassType::Depth;
+                ref.PassElements = (int)Filmmaker::VisibleElements::OnlyWorld;
+                ref.PassReferenceOnly = true;
+                m_RecordingExtraPasses.emplace(this, ref);
+            }
         }
 
 

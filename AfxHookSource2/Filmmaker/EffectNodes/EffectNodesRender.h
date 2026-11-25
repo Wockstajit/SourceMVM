@@ -11,6 +11,7 @@ void EndDevice();
 
 bool Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	ID3D11DepthStencilView* depth, ID3D11ShaderResourceView* worldDepthSrv,
+	const float* refWorldToClip, float refDepthMin, float refDepthMax,
 	const float* worldToClip, const float* projection,
 	const float camera[3], const float forward[3],
 	float depthMin, float depthMax, double demoTime);

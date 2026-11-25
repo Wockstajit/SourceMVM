@@ -368,7 +368,7 @@ public:
 		return target ? color : m_Out.tex;
 	}
 
-	bool StoreWorldReference(ID3D11DeviceContext* immediate, ID3D11DepthStencilView* depth) {
+	bool StoreWorldReference(ID3D11DeviceContext* immediate, ID3D11DepthStencilView* depth, const WorldReferenceView& view) {
 		m_WorldRefValid = false;
 		if (!Ready() || !immediate || !depth) return Fail("world reference: not ready");
 		PS_CONSTANT_BUFFER cb = {};
@@ -377,10 +377,18 @@ public:
 		if (!CaptureDepth(depth, m_WorldDepth)) { Discard(); return false; }
 		if (!Submit(immediate)) return Fail("world reference: submit");
 		m_WorldRefValid = true;
+		m_WorldRefView = view;
+		m_WorldRefAge = 0;
 		return true;
 	}
 
-	ID3D11ShaderResourceView* WorldDepthSrv() const { return m_WorldRefValid ? m_WorldDepth.srv : nullptr; }
+	ID3D11ShaderResourceView* WorldDepthSrv(WorldReferenceView& view) const {
+		if (!m_WorldRefValid || m_WorldRefAge > kWorldRefMaxAge || !m_WorldRefView.valid) return nullptr;
+		view = m_WorldRefView;
+		return m_WorldDepth.srv;
+	}
+
+	void NoteRenderEnded() { if (m_WorldRefAge <= kWorldRefMaxAge) ++m_WorldRefAge; }
 
 private:
 	bool Fail(const char* why) {
@@ -501,6 +509,10 @@ private:
 	ID3D11Texture2D* m_Clean = nullptr; // this render's colour before the lens (KeepCleanColor)
 	bool m_RefValid = false;
 	bool m_WorldRefValid = false;
+	// Renders since the reference: the most one frame draws (Main and the extra passes) with room to spare.
+	static constexpr int kWorldRefMaxAge = 24;
+	WorldReferenceView m_WorldRefView;
+	int m_WorldRefAge = 0;
 	bool m_CleanValid = false;
 	bool m_Reversed = false;
 };
@@ -524,13 +536,15 @@ bool StoreReference(ID3D11DeviceContext* immediate, ID3D11Texture2D* color, ID3D
 	return g_Compositor.StoreReference(immediate, color, depth);
 }
 
-bool StoreWorldReference(ID3D11DeviceContext* immediate, ID3D11DepthStencilView* depth) {
-	return g_Compositor.StoreWorldReference(immediate, depth);
+bool StoreWorldReference(ID3D11DeviceContext* immediate, ID3D11DepthStencilView* depth, const WorldReferenceView& view) {
+	return g_Compositor.StoreWorldReference(immediate, depth, view);
 }
 
-ID3D11ShaderResourceView* WorldDepthReferenceSrv() {
-	return g_Compositor.WorldDepthSrv();
+ID3D11ShaderResourceView* WorldDepthReferenceSrv(WorldReferenceView& view) {
+	return g_Compositor.WorldDepthSrv(view);
 }
+
+void NoteRenderEnded() { g_Compositor.NoteRenderEnded(); }
 
 ID3D11Texture2D* Compose(ID3D11DeviceContext* immediate, ID3D11Texture2D* color,
 	ID3D11DepthStencilView* depth, const ComposeParams& params) {

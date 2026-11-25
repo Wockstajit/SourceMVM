@@ -130,6 +130,8 @@ void RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 		if (0 == _stricmp(a, "open") || 0 == _stricmp(a, "on")) g_graphCanvasOpen = true;
 		else if (0 == _stricmp(a, "close") || 0 == _stricmp(a, "off")) g_graphCanvasOpen = false;
 		else if (0 == _stricmp(a, "toggle")) g_graphCanvasOpen = !g_graphCanvasOpen;
+		advancedfx::Message("%s nodes canvas: %s\n", cmd, g_graphCanvasOpen
+			? "open. It is drawn over the preview while CONFIG is open on the NODES tab." : "closed");
 		return;
 	}
 	if (0 == _stricmp(sub, "add") && argc >= 4) {

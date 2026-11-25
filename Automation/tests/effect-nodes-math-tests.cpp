@@ -37,6 +37,27 @@ void TestStarterPresetsCompileCleanly() {
 	CHECK(p2.steps[1].maskSlotA == p2.steps[0].outMaskSlot);
 }
 
+// The two player presets act on the picked player, and every effect of theirs is held by that mask: an
+// unmasked Glow bloomed the whole frame and whited out a bright scene.
+void TestPlayerPresetsFollowThePick() {
+	for (const char* name : { "color_subject_desat_world", "player_neon_outline" }) {
+		const CompiledPlan p = CompileGraph(BuildPreset(name, true));
+		CHECK(p.needsWorldDepthRef);
+		int mattes = 0, effects = 0;
+		for (const auto& st : p.steps) {
+			if (st.type == NodeType::PlayerMatte) { ++mattes; CHECK(st.p[0] > 0.5f); }
+			if (IsEffectNode(st.type)) { ++effects; CHECK(st.maskSlotA >= 0); }
+		}
+		CHECK(mattes >= 1);
+		CHECK(effects == 2);
+	}
+	// The subject and the world are the same mask, one of them inverted.
+	const CompiledPlan p = CompileGraph(BuildPreset("color_subject_desat_world", true));
+	int inverted = 0;
+	for (const auto& st : p.steps) if (st.type == NodeType::PlayerMatte && st.p[2] > 0.5f) ++inverted;
+	CHECK(inverted == 1);
+}
+
 void TestCycleSafety() {
 	NodeGraph g = BuildPreset("depth_spotlight", true);
 	// Introduce an artificial cycle between two nodes: compiler must terminate cleanly without hanging.
@@ -125,6 +146,7 @@ void TestTooManyLiveMasksAreDroppedNotOverwritten() {
 
 int main() {
 	TestStarterPresetsCompileCleanly();
+	TestPlayerPresetsFollowThePick();
 	TestCycleSafety();
 	TestSharedMaskOutlivesLaterMasks();
 	TestDeepCombineTreeKeepsLiveBranches();

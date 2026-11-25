@@ -26,11 +26,14 @@ namespace {
 constexpr char kShader[] = R"HLSL(
 cbuffer NodeConstants : register(b0) {
     row_major float4x4 invViewProj;
+    row_major float4x4 refViewProj;    // the view the world reference was rendered through
+    row_major float4x4 refInvViewProj;
     float4 dims;         // target w, h; depth w, h
     float4 depthInfo;    // minDepth, maxDepth, reversed, hasWorldDepth
     float4 cameraTime;   // cam xyz, demoTime
     float4 camFwd;       // fwd xyz, hasMaskA
     float4 stepInfo;     // nodeType, hasMaskB, masterMix, 0
+    float4 refInfo;      // the reference's minDepth, maxDepth
     float4 p0;           // params[0..3]
     float4 p1;           // params[4..7]
     int4   pmCounts;     // hasTarget, targetBoneCount, otherCount, 0
@@ -97,17 +100,31 @@ float CameraDistAtUv(float2 uv) {
     return dot(w - cameraTime.xyz, camFwd.xyz);
 }
 
-float WorldRefDistAtUv(float2 uv) {
-    if (depthInfo.w < 0.5) return 1e30;
-    int2 p = clamp(int2(uv * dims.xy), int2(0, 0), int2(dims.xy) - 1);
+// View distance of one reference texel: 1 / h.w of its unprojection.
+float RefTexelDist(int2 p) {
+    p = clamp(p, int2(0, 0), int2(dims.zw) - 1);
     float d = worldDepth.Load(int3(p, 0));
     if (Reversed() ? d < 1e-7 : d > 0.9999999) return 1e30;
-    float span = max(depthInfo.y - depthInfo.x, 1e-12);
-    float n = (d - depthInfo.x) / span;
+    float n = (d - refInfo.x) / max(refInfo.y - refInfo.x, 1e-12);
     if (n < 0.0 || n > 1.0) return 1e30;
-    float4 h = mul(invViewProj, float4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, n, 1.0));
-    if (abs(h.w) < 1e-10) return 1e30;
-    return dot(h.xyz / h.w - cameraTime.xyz, camFwd.xyz);
+    float2 uv = (float2(p) + 0.5) / dims.zw;
+    float4 h = mul(refInvViewProj, float4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, n, 1.0));
+    return abs(h.w) < 1e-10 ? 1e30 : 1.0 / abs(h.w);
+}
+
+// 1 where the scene point stands in front of the world the reference shows there. The reference is
+// from the frame before, so the point is looked up through the reference's own view: compared pixel
+// for pixel, a moving camera made slivers of walls and ground read as players. The nearest of the
+// four texels around the point, so a floor seen at a grazing angle is not in front of itself.
+float InFrontOfWorld(float3 w) {
+    float4 c = mul(refViewProj, float4(w, 1.0));
+    if (c.w <= 1.0) return 0.0;
+    float2 uv = float2(c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5);
+    if (any(uv < 0.0) || any(uv > 1.0)) return 0.0;
+    int2 p = int2(floor(uv * dims.zw - 0.5));
+    float worldD = min(min(RefTexelDist(p), RefTexelDist(p + int2(1, 0))),
+        min(RefTexelDist(p + int2(0, 1)), RefTexelDist(p + int2(1, 1))));
+    return c.w < worldD - max(1.5, worldD * 0.004) ? 1.0 : 0.0;
 }
 
 float CapsuleSdf(float3 p, float3 feet, float height, float radius) {
@@ -167,9 +184,8 @@ float MaskPS(VsOut i) : SV_Target {
         float3 w;
         if (WorldAtUv(i.uv, w)) {
             float here = dot(w - cameraTime.xyz, camFwd.xyz);
-            float worldD = WorldRefDistAtUv(i.uv);
             float isPlayer = (depthInfo.w > 0.5)
-                ? ((here < 1e29 && here < worldD - max(1.5, worldD * 0.004)) ? 1.0 : 0.0)
+                ? InFrontOfWorld(w)
                 : ((here < 900.0) ? SelectedPlayerWeight(w) : 0.0);
             if (isPlayer > 0.01 && p0.x > 0.5)
                 isPlayer *= SelectedPlayerWeight(w);
@@ -305,11 +321,14 @@ float4 OutputPS(VsOut i) : SV_Target {
 
 struct Constants {
 	float invViewProj[16];
+	float refViewProj[16];
+	float refInvViewProj[16];
 	float dims[4];
 	float depthInfo[4];
 	float cameraTime[4];
 	float camFwd[4];
 	float stepInfo[4];
+	float refInfo[4];
 	float p0[4];
 	float p1[4];
 	int pmCounts[4];
@@ -512,6 +531,7 @@ void EndDevice() {
 
 bool Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	ID3D11DepthStencilView* depth, ID3D11ShaderResourceView* worldDepthSrv,
+	const float* refWorldToClip, float refDepthMin, float refDepthMax,
 	const float* worldToClip, const float* projection,
 	const float camera[3], const float forward[3],
 	float depthMin, float depthMax, double demoTime) {
@@ -573,6 +593,14 @@ bool Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 
 	Constants baseCb{};
 	std::memcpy(baseCb.invViewProj, inv.data(), sizeof(float) * 16);
+	Environment::Matrix refVp{}, refInv{};
+	if (worldDepthSrv && refWorldToClip) {
+		std::memcpy(refVp.data(), refWorldToClip, sizeof(float) * 16);
+		if (!Environment::Inverse(refVp, refInv)) worldDepthSrv = nullptr;
+	} else worldDepthSrv = nullptr;
+	std::memcpy(baseCb.refViewProj, refVp.data(), sizeof(float) * 16);
+	std::memcpy(baseCb.refInvViewProj, refInv.data(), sizeof(float) * 16);
+	baseCb.refInfo[0] = refDepthMin; baseCb.refInfo[1] = refDepthMax;
 	baseCb.dims[0] = (float)W; baseCb.dims[1] = (float)H;
 	baseCb.dims[2] = (float)dw; baseCb.dims[3] = (float)dh;
 	baseCb.depthInfo[0] = depthMin; baseCb.depthInfo[1] = depthMax;

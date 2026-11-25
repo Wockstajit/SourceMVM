@@ -338,11 +338,12 @@ inline NodeGraph BuildPreset(const std::string& name, bool enableNow = true) {
 
 	if (name == "color_subject_desat_world") {
 		Node& pmWorld = addNode(NodeType::PlayerMatte, 40, 60, "World (Inv Player)");
-		pmWorld.p[0] = 0.0f; pmWorld.p[2] = 1.0f; // inverted player matte -> selects world
+		// The picked player (everyone while nobody is picked), inverted -> selects world
+		pmWorld.p[0] = 1.0f; pmWorld.p[2] = 1.0f;
 		const int pmWorldId = pmWorld.id;
 
 		Node& pmSubj = addNode(NodeType::PlayerMatte, 40, 210, "Subject Matte");
-		pmSubj.p[0] = 0.0f; pmSubj.p[2] = 0.0f;
+		pmSubj.p[0] = 1.0f; pmSubj.p[2] = 0.0f;
 		const int pmSubjId = pmSubj.id;
 
 		Node& desat = addNode(NodeType::ColorGrade, 270, 60, "Desaturate World");
@@ -381,7 +382,7 @@ inline NodeGraph BuildPreset(const std::string& name, bool enableNow = true) {
 		g.selectedNodeId = glowId;
 	} else if (name == "player_neon_outline") {
 		Node& pm = addNode(NodeType::PlayerMatte, 40, 110, "Player Matte");
-		pm.p[0] = 0.0f; pm.p[2] = 0.0f;
+		pm.p[0] = 1.0f; pm.p[2] = 0.0f; // the picked player, or everyone while nobody is picked
 		const int pmId = pm.id;
 
 		Node& outline = addNode(NodeType::Outline, 280, 110, "Neon Silhouette");
@@ -397,6 +398,8 @@ inline NodeGraph BuildPreset(const std::string& name, bool enableNow = true) {
 		Node& out = addNode(NodeType::Output, 740, 110, "Final Output");
 		link(pmId, outlId, 1);
 		link(outlId, glowId, 0);
+		// Only the player's side of the outline glows; unmasked, the bloom whites out a bright scene.
+		link(pmId, glowId, 1);
 		link(glowId, out.id, 0);
 		g.selectedNodeId = outlId;
 	} else if (name == "sky_grade_heat_haze") {

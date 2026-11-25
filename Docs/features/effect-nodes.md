@@ -2,7 +2,8 @@
 
 `CONFIG > NODES` builds a post-process graph: mask nodes pick a part of the frame, effect nodes
 change it, and the Output node mixes the result over the scene. The graph editor
-(`NodesGraphOverlay`) draws the nodes and wires in game and can be dragged.
+(`NodesGraphOverlay`) draws the nodes and wires in game and can be dragged. It shows only while
+CONFIG is open on the NODES tab, so `nodes canvas open` alone shows nothing until then.
 
 | Kind | Nodes |
 | --- | --- |
@@ -24,7 +25,19 @@ that would need a fifth mask alive at the same moment drops that mask and the no
 (`droppedForMaskSlots`) instead of drawing with the wrong mask.
 
 Player Matte nodes isolate the player picked for the Selected player pass
-([render passes](filmmaker_render_passes.md)).
+([render passes](filmmaker_render_passes.md)), or every player while `selectedOnly` is off or nobody
+is picked. The two player presets follow the pick.
+
+## The live player mask
+
+A Player Matte compares the scene depth with a World Only depth, so a graph with one adds a second
+render of each frame (`m_LiveWorldRefPending` in `RenderSystemDX11Hooks.cpp`). That render draws over
+the same back buffer after Main, so Main is shown first: `EngineThread_BeginMainRenderPass` queues the
+present on Main's own commands, together with `AfxSceneToBackBuffer`, which copies the finished scene
+target across. CS2 resolves its MSAA scene target only for its own Present, so without the copy the
+present shows the reference render of the frame before. The reference render is never shown. The mask
+lags the scene by one frame, so `MaskPS` looks each pixel up through the view the reference was
+rendered with (`AfxRenderPass::WorldReferenceView`). A recording adds the same reference render.
 
 ## Console
 
@@ -40,5 +53,5 @@ mirv_filmmaker nodes connect <fromId> <toId> [toPort 0|1] | disconnect <edgeId>
 
 - [EffectNodes/](../../AfxHookSource2/Filmmaker/EffectNodes) (model and compiler, the D3D11
   evaluator, the graph editor script)
-- `EffectNodesMathTests`: presets, cycles, and mask slot lifetimes (a shared mask outliving later
+- `EffectNodesMathTests`: presets (the player presets follow the pick), cycles, and mask slot lifetimes (a shared mask outliving later
   masks, a deep Mask Combine tree, a graph with too many live masks)
