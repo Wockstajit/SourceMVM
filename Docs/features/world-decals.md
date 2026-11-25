@@ -45,5 +45,6 @@ mirv_filmmaker decals attach <id> <objectId|off>
 
 ## Known limits
 
-- Video playback is built and linked (`mfuuid.lib`) but has only been checked with still images in
-  game.
+- Video decals follow demo time and loop. Checked in game with an H.264 MP4 whose picture changes each
+  second. A seek has to decode forward from the clip's previous keyframe, so jumping far on a clip with
+  a long keyframe interval can cost a short hitch.

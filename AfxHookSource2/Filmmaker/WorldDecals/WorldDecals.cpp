@@ -128,7 +128,9 @@ struct VideoDecoder {
 			return false; // within ~1 frame at 60fps
 
 		// Seek if rewinding or jumping more than 0.25s forward.
+		bool seeked = false;
 		if (targetSec < lastDecodedSec - 0.005 || targetSec > lastDecodedSec + 0.25) {
+			seeked = true;
 			PROPVARIANT pos;
 			PropVariantInit(&pos);
 			pos.vt = VT_I8;
@@ -140,13 +142,18 @@ struct VideoDecoder {
 		ComPtr<IMFSample> sample;
 		DWORD flags = 0;
 		LONGLONG ts = 0;
-		for (int step = 0; step < 8; ++step) {
+		// A seek lands on the keyframe before the target, so the reader has to decode forward from
+		// there. A clip with a keyframe every few seconds needs hundreds of frames, and a cap of 8
+		// left the picture stuck near the keyframe. Frames before the target are dropped without
+		// being converted. Playing forward only ever needs a few.
+		const int maxSteps = seeked ? 1500 : 24;
+		for (int step = 0; step < maxSteps; ++step) {
 			sample.Reset();
 			HRESULT hr = reader->ReadSample(MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, nullptr, &flags, &ts, &sample);
 			if (FAILED(hr) || (flags & MF_SOURCE_READERF_ENDOFSTREAM)) break;
 			if (!sample) continue;
 			const double sampleSec = (double)ts / 10000000.0;
-			if (sampleSec + 0.016 < targetSec && step < 7) continue;
+			if (sampleSec + 0.016 < targetSec && step < maxSteps - 1) continue;
 			ComPtr<IMFMediaBuffer> buf;
 			if (FAILED(sample->ConvertToContiguousBuffer(&buf)) || !buf) break;
 			BYTE* raw = nullptr;
