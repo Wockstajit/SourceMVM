@@ -3,6 +3,7 @@
 #include "WorldDecals.h"
 
 #include "../Environment/EnvironmentMaterialMath.h"
+#include "../Environment/MapCollisionGrid.h"
 #include "../Environment/EnvironmentScene.h"
 #include "../Movie/CameraBridge.h"
 #include "../Platform/JsonBuilder.h"
@@ -320,6 +321,25 @@ void PlaceAheadOfCamera(Decal& d, bool onFloor) {
 	float ang[3] = { (float)angles[0], (float)angles[1], 0.0f };
 	Vec3 fwd, right, up;
 	BasisFromAngles(ang, fwd, right, up);
+	// With the map's collision available, the decal goes on the surface it hits and is aligned to
+	// that surface's normal, so a wall decal placed from an angle stays flat on its wall. Without
+	// map data it falls back to the camera-relative placement below.
+	Environment::SurfaceHit hit;
+	if (onFloor) {
+		const Environment::Vec3 probe{ (float)origin[0] + fwd.x * 160.0f, (float)origin[1] + fwd.y * 160.0f, (float)origin[2] };
+		if (Environment::MapCollisionRaycast(probe, { 0.0f, 0.0f, -1.0f }, 4096.0f, hit) && hit.normal.z > 0.5f) {
+			OrientDecalToSurface({ hit.position.x, hit.position.y, hit.position.z }, { hit.normal.x, hit.normal.y, hit.normal.z }, ang[1], d);
+			d.depth = 64.0f;
+			return;
+		}
+	} else {
+		const Environment::Vec3 eye{ (float)origin[0], (float)origin[1], (float)origin[2] };
+		if (Environment::MapCollisionRaycast(eye, { fwd.x, fwd.y, fwd.z }, 8192.0f, hit)) {
+			OrientDecalToSurface({ hit.position.x, hit.position.y, hit.position.z }, { hit.normal.x, hit.normal.y, hit.normal.z }, ang[1], d);
+			d.depth = 48.0f;
+			return;
+		}
+	}
 	if (onFloor) {
 		// Floor projection: drop ahead of camera onto floor plane, looking straight down.
 		d.position[0] = (float)origin[0] + fwd.x * 160.0f;

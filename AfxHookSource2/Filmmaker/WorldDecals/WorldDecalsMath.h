@@ -175,6 +175,23 @@ struct Decal {
 	uint64_t textureRevision = 1;
 };
 
+// Puts a decal on a surface. `normal` is the surface normal facing the viewer. The decal projects
+// into the surface (forward = -normal) and its centre sits on the hit point, so it stays glued to
+// that surface and does not turn toward whoever looks at it later. A floor or ceiling keeps the
+// viewer's yaw at placement, so text reads upright from where it was put. A wall keeps world up
+// (roll 0), so it never tilts.
+inline void OrientDecalToSurface(Vec3 hit, Vec3 normal, float viewerYawDeg, Decal& d) {
+	normal = Normalize(normal);
+	d.position[0] = hit.x; d.position[1] = hit.y; d.position[2] = hit.z;
+	if (std::fabs(normal.z) > 0.85f) {
+		d.angles[0] = normal.z > 0.0f ? 89.5f : -89.5f; // looking down onto a floor, up onto a ceiling
+		d.angles[1] = viewerYawDeg;
+		d.angles[2] = 0.0f;
+	} else {
+		AnglesFromForward(Scale(normal, -1.0f), d.angles);
+	}
+}
+
 // Projects a world-space point into a decal's local box.
 // Returns true iff inside [-0.5, 0.5] along U, V, and projection depth.
 inline bool ProjectWorldToDecal(Vec3 worldPos, const Decal& d,

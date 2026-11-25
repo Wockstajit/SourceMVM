@@ -12,7 +12,18 @@ using the scene depth, so they follow walls and floors.
 | Route | A path that draws itself along the ground (`routeProgress`, `routeSpeed`) |
 
 A decal can be attached to a scene object or player so it moves with them, and can skip players so
-they are not painted over.
+they are not painted over (on by default, and wide enough to cover arms and a held weapon).
+
+## Placement
+
+`add` and `place` cast a ray from the camera and put the decal on the surface they hit. The decal is
+aligned to that surface's normal, so a wall decal placed from an angle stays flat on its wall and
+does not turn toward the camera when it moves. Walls keep world up, floors keep the yaw the camera had.
+Only surfaces that face the projector take the decal, so a wall decal does not spill onto the floor
+or the far side of an object. Without map collision data the decal falls back to a spot ahead of the
+camera.
+
+In the console, put a path with a drive letter in quotes: `decals set 1 media "C:/pics/logo.png"`.
 
 ## Console
 

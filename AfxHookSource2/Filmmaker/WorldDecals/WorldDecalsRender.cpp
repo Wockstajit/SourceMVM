@@ -101,7 +101,8 @@ bool HitPlayer(float3 w) {
     int count = int(depthInfo.w + 0.5);
     [loop] for (int i = 0; i < count; ++i) {
         float3 a = actors[i].xyz;
-        if (length(w.xy - a.xy) < 20.0 && w.z > a.z + 2.0 && w.z < a.z + 78.0) return true;
+        // Wide enough for arms and a held weapon, not just the torso.
+        if (length(w.xy - a.xy) < 34.0 && w.z > a.z + 4.0 && w.z < a.z + 84.0) return true;
     }
     return false;
 }
@@ -213,9 +214,11 @@ float4 PS(float4 pos : SV_Position) : SV_Target {
         if (abs(lx) > rightW.w || abs(ly) > upH.w || abs(lz) > fwdD.w) discard;
 
         float2 uv = float2(lx / (2.0 * rightW.w) + 0.5, 0.5 - ly / (2.0 * upH.w));
-        // Fade gracefully on grazing angles relative to projection direction.
-        float facing = abs(dot(n, fwdD.xyz));
-        float angleFade = smoothstep(flags.y * 0.7, min(flags.y + 0.25, 1.0), facing);
+        // Only surfaces that face the projector take the decal: the far side of an object inside
+        // the box, and a floor or ceiling beside a wall decal, are left alone. The edge fades over
+        // a narrow band so a slight bend in the wall does not break the picture.
+        float facing = dot(n, -fwdD.xyz);
+        float angleFade = smoothstep(flags.y * 0.8, min(flags.y + 0.2, 1.0), facing);
         float depthFade = 1.0 - smoothstep(0.82, 1.0, abs(lz) / max(fwdD.w, 1e-4));
 
         if (kind == 3) {

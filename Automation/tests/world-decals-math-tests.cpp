@@ -66,12 +66,49 @@ void TestSceneObjectAttachment() {
 	CHECK(std::fabs(outAng[1] - 105.0f) < 1e-2f);
 }
 
+// A decal put on a wall stays flat on that wall. Where the camera stood when it was placed has no
+// effect on its orientation, and it never turns toward a viewer.
+void TestDecalAlignsToSurface() {
+	const Vec3 hit{ 100.0f, 200.0f, 50.0f };
+	const Vec3 wallNormal{ 0.0f, -1.0f, 0.0f }; // a wall on the +Y side, facing the viewer at -Y
+
+	Decal a, b;
+	OrientDecalToSurface(hit, wallNormal, 10.0f, a);   // placed from one side
+	OrientDecalToSurface(hit, wallNormal, -75.0f, b);  // placed from a steep angle
+	for (int i = 0; i < 3; ++i) CHECK(std::fabs(a.angles[i] - b.angles[i]) < 1e-4f);
+
+	Vec3 fwd, right, up;
+	BasisFromAngles(a.angles, fwd, right, up);
+	CHECK(std::fabs(fwd.x) < 1e-4f && std::fabs(fwd.y - 1.0f) < 1e-4f && std::fabs(fwd.z) < 1e-4f); // into the wall
+	CHECK(up.z > 0.999f); // text stays upright, no tilt
+
+	a.width = 100.0f; a.height = 60.0f; a.depth = 48.0f;
+	float u = 0, v = 0, z = 0;
+	CHECK(ProjectWorldToDecal({ 100.0f, 200.0f, 50.0f }, a, u, v, z));          // on the wall
+	CHECK(ProjectWorldToDecal({ 130.0f, 200.0f, 70.0f }, a, u, v, z));          // along the wall
+	CHECK(!ProjectWorldToDecal({ 100.0f, 160.0f, 50.0f }, a, u, v, z));         // a player 40 units in front
+	CHECK(!ProjectWorldToDecal({ 100.0f, 200.0f, 120.0f }, a, u, v, z));        // above the decal on the same wall
+
+	// A floor keeps the viewer's yaw so text reads upright from where it was placed.
+	Decal f;
+	OrientDecalToSurface({ 0.0f, 0.0f, 10.0f }, { 0.0f, 0.0f, 1.0f }, 33.0f, f);
+	CHECK(std::fabs(f.angles[0] - 89.5f) < 1e-4f && std::fabs(f.angles[1] - 33.0f) < 1e-4f);
+	BasisFromAngles(f.angles, fwd, right, up);
+	CHECK(fwd.z < -0.999f);
+	// A sloped wall is followed, not levelled.
+	Decal s;
+	OrientDecalToSurface({ 0.0f, 0.0f, 0.0f }, { 0.0f, -0.6f, 0.8f }, 0.0f, s);
+	BasisFromAngles(s.angles, fwd, right, up);
+	CHECK(std::fabs(fwd.y - 0.6f) < 1e-3f && std::fabs(fwd.z + 0.8f) < 1e-3f);
+}
+
 } // namespace
 
 int main() {
 	TestObbProjection();
 	TestAnimatedRouteDrawing();
 	TestSceneObjectAttachment();
+	TestDecalAlignsToSurface();
 	if (g_failed) {
 		std::cerr << g_failed << " WorldDecalsMathTests failed\n";
 		return 1;
