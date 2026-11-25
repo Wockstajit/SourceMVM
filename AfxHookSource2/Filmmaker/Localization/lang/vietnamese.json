@@ -1317,11 +1317,8 @@
  "+ Arrow": "+ Mũi tên",
  "+ Ground Route": "+ Đường trên sàn",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "Chiếu văn bản, logo, hình ảnh, video, mũi tên hoặc đường di chuyển hoạt hình lên tường và sàn.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "Chưa có phép chiếu nào. Thêm văn bản, hình ảnh/video tường, mũi tên hoặc đường trên sàn hoạt hình ở trên.",
  "Dup": "Nhân bản",
  "Place at camera": "Đặt tại camera",
- "Project on Wall": "Chiếu lên tường",
- "Project on Floor": "Chiếu lên sàn",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "Di chuyển và căn chỉnh phép chiếu lên tường hoặc sàn trước camera.",
  "Text": "Văn bản",
  "Click to type decal text…": "Nhấp để nhập văn bản decal…",
@@ -3420,5 +3417,7 @@
  "No HCs running right now. Check back soon.": "Hiện không có HC nào đang chạy. Hãy quay lại sau.",
  "{0} LIVE": "{0} ĐANG DIỄN RA",
  "NEXT {0}": "TIẾP THEO {0}",
- "{0} UPCOMING": "{0} SẮP TỚI"
+ "{0} UPCOMING": "{0} SẮP TỚI",
+ "Place where looking": "Đặt ở nơi đang nhìn",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "Kéo một decal trong khung nhìn để di chuyển. Nó sẽ bám vào tường hoặc sàn dưới con trỏ."
 }

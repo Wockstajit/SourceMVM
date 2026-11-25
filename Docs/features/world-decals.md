@@ -23,6 +23,21 @@ Only surfaces that face the projector take the decal, so a wall decal does not s
 or the far side of an object. Without map collision data the decal falls back to a spot ahead of the
 camera.
 
+The page lists decals in a box like the outliner's: six rows show and the rest scroll inside it.
+Click a row to select it; right-click it for Duplicate, Place where looking, Hide and Remove. While
+the page shows, Delete removes the selected decal and Ctrl+D duplicates it. The inspector puts its
+values in two- and three-column grids.
+
+**Place where looking** in the inspector (`place <id> here`) moves the selected decal to the surface
+at the centre of the view and turns it to face that surface.
+
+While the Decals & Media page shows, the view belongs to it instead of the props gizmo. Press on a
+decal in the view to select and grab it, drag to move it, and let go to keep it. While you drag, the
+decal follows the surface under the cursor: over a wall it stands upright on the wall and keeps the
+roll you gave it, over a floor it keeps its turn. Moving a decal by hand detaches it from any object.
+A press picks the smallest switched-on decal under the cursor. Routes are moved by their waypoints,
+so they are not picked.
+
 In the console, put a path with a drive letter in quotes: `decals set 1 media "C:/pics/logo.png"`.
 
 ## Console
@@ -31,7 +46,8 @@ In the console, put a path with a drive letter in quotes: `decals set 1 media "C
 mirv_filmmaker decals add <text|image|video|arrow|route> [floor|wall]
 mirv_filmmaker decals select <id> | remove <id> | duplicate <id> | clear
 mirv_filmmaker decals set <id> <field> <value...>
-mirv_filmmaker decals place <id> <wall|floor>
+mirv_filmmaker decals place <id> <here|wall|floor>
+mirv_filmmaker decals grab <u> <v> | drag <u> <v> | release | cancel
 mirv_filmmaker decals pickmedia <id> <image|video>
 mirv_filmmaker decals route <id> addpoint|undo|clear|startnow
 mirv_filmmaker decals attach <id> <objectId|off>

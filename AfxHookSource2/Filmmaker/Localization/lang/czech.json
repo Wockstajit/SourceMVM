@@ -1363,11 +1363,8 @@
  "+ Arrow": "+ Šipka",
  "+ Ground Route": "+ Trasa po zemi",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "Promítá text, loga, obrázky, videa, šipky nebo animované trasy na stěny a podlahy.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "Zatím žádné projekce. Přidejte výše text, obrázek nebo video na stěnu, šipku či animovanou trasu po podlaze.",
  "Dup": "Kopie",
  "Place at camera": "Umístit ke kameře",
- "Project on Wall": "Promítnout na stěnu",
- "Project on Floor": "Promítnout na podlahu",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "Přesune a zarovná projekci na stěnu nebo podlahu před kamerou.",
  "Text": "Text",
  "Click to type decal text…": "Kliknutím zadejte text dekalu…",
@@ -3520,5 +3517,7 @@
  "No HCs running right now. Check back soon.": "Právě neběží žádné HC. Zkus to brzy znovu.",
  "{0} LIVE": "{0} ŽIVĚ",
  "NEXT {0}": "DALŠÍ {0}",
- "{0} UPCOMING": "{0} BRZY"
+ "{0} UPCOMING": "{0} BRZY",
+ "Place where looking": "Umístit, kam se dívám",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "Přetažením obtisku v náhledu jej přesunete. Přilepí se ke stěně nebo podlaze pod kurzorem."
 }

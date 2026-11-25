@@ -1340,11 +1340,8 @@
  "+ Arrow": "+ Pijl",
  "+ Ground Route": "+ Grondroute",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "Projecteert tekst, logo's, afbeeldingen, video's, pijlen of geanimeerde routes op muren en vloeren.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "Nog geen projecties. Voeg hierboven tekst, een wandafbeelding/-video, een pijl of een geanimeerde vloerroute toe.",
  "Dup": "Dup",
  "Place at camera": "Op camera plaatsen",
- "Project on Wall": "Op muur projecteren",
- "Project on Floor": "Op vloer projecteren",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "Verplaatst en richt de projectie op de muur of vloer voor de camera.",
  "Text": "Tekst",
  "Click to type decal text…": "Klik om decaltekst te typen…",
@@ -3470,5 +3467,7 @@
  "No HCs running right now. Check back soon.": "Er lopen nu geen HC's. Kijk binnenkort nog eens.",
  "{0} LIVE": "{0} LIVE",
  "NEXT {0}": "VOLGENDE {0}",
- "{0} UPCOMING": "{0} BINNENKORT"
+ "{0} UPCOMING": "{0} BINNENKORT",
+ "Place where looking": "Plaatsen waar ik kijk",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "Sleep een decal in de weergave om hem te verplaatsen. Hij plakt aan de muur of vloer onder de cursor."
 }

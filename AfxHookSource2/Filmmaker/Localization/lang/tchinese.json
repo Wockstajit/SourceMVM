@@ -1317,11 +1317,8 @@
  "+ Arrow": "+ 箭頭",
  "+ Ground Route": "+ 地面路線",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "將文字、標誌、圖片、影片、箭頭或動畫路線投射到牆面和地面。",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "尚無投影。請於上方新增文字、牆面圖片/影片、箭頭或動畫地面路線。",
  "Dup": "複製",
  "Place at camera": "放到攝影機處",
- "Project on Wall": "投射到牆面",
- "Project on Floor": "投射到地面",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "將投影移動並對齊到攝影機前方的牆面或地面。",
  "Text": "文字",
  "Click to type decal text…": "點擊輸入貼花文字…",
@@ -3420,5 +3417,7 @@
  "No HCs running right now. Check back soon.": "目前沒有進行中的 HC。請稍後再來看看。",
  "{0} LIVE": "{0} 進行中",
  "NEXT {0}": "下一場 {0}",
- "{0} UPCOMING": "{0} 即將開始"
+ "{0} UPCOMING": "{0} 即將開始",
+ "Place where looking": "放置在注視處",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "在檢視中拖曳貼花即可移動它。它會貼附到游標下方的牆面或地面上。"
 }

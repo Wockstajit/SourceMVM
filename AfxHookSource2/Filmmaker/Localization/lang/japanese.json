@@ -1317,11 +1317,8 @@
  "+ Arrow": "+ 矢印",
  "+ Ground Route": "+ 地面ルート",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "テキスト、ロゴ、画像、動画、矢印、アニメーションするルートを壁や床に投影します。",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "まだ投影がありません。上でテキスト、壁の画像/動画、矢印、またはアニメーションする床のルートを追加してください。",
  "Dup": "複製",
  "Place at camera": "カメラ位置に配置",
- "Project on Wall": "壁に投影",
- "Project on Floor": "床に投影",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "投影を、カメラの前にある壁または床に移動して揃えます。",
  "Text": "テキスト",
  "Click to type decal text…": "クリックしてデカールのテキストを入力…",
@@ -3420,5 +3417,7 @@
  "No HCs running right now. Check back soon.": "現在開催中の HC はありません。また後で確認してください。",
  "{0} LIVE": "{0} 件開催中",
  "NEXT {0}": "次回 {0}",
- "{0} UPCOMING": "{0} 件予定"
+ "{0} UPCOMING": "{0} 件予定",
+ "Place where looking": "見ている場所に配置",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "ビューでデカールをドラッグして移動します。カーソルの下の壁や床に貼り付きます。"
 }

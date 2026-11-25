@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <vector>
 
 using namespace Filmmaker::WorldDecals;
 
@@ -102,6 +103,44 @@ void TestDecalAlignsToSurface() {
 	CHECK(std::fabs(fwd.y - 0.6f) < 1e-3f && std::fabs(fwd.z + 0.8f) < 1e-3f);
 }
 
+// Dragging only moves a decal: a wall decal keeps its roll, a floor decal keeps its turn, and a
+// decal dragged from a floor onto a wall stands upright on the wall.
+void TestDragKeepsTurn() {
+	Decal d;
+	OrientDecalToSurface({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, 30.0f, d);
+	d.angles[1] = 75.0f; // turned by hand on the floor
+	DragDecalToSurface({ 50.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, -120.0f, d);
+	CHECK(std::fabs(d.angles[1] - 75.0f) < 1e-4f);
+	CHECK(std::fabs(d.position[0] - 50.0f) < 1e-4f);
+
+	DragDecalToSurface({ 0.0f, 100.0f, 60.0f }, { 0.0f, -1.0f, 0.0f }, -120.0f, d); // onto a wall
+	Vec3 fwd, right, up;
+	BasisFromAngles(d.angles, fwd, right, up);
+	CHECK(fwd.y > 0.999f);
+	d.angles[2] = 20.0f; // rolled by hand on the wall
+	DragDecalToSurface({ 40.0f, 100.0f, 60.0f }, { 0.0f, -1.0f, 0.0f }, 0.0f, d);
+	CHECK(std::fabs(d.angles[2] - 20.0f) < 1e-4f);
+	CHECK(std::fabs(d.position[0] - 40.0f) < 1e-4f);
+}
+
+// A click picks the decal its surface point falls in, the smaller one where two overlap; routes
+// and switched-off decals are not picked.
+void TestPickDecalAt() {
+	std::vector<Decal> all(4);
+	for (int i = 0; i < 4; ++i) {
+		all[i].id = i + 1;
+		OrientDecalToSurface({ 0.0f, 100.0f, 50.0f }, { 0.0f, -1.0f, 0.0f }, 0.0f, all[i]);
+	}
+	all[0].width = 200.0f; all[0].height = 200.0f;
+	all[1].width = 40.0f; all[1].height = 40.0f;
+	all[2].kind = DecalKind::Route;
+	all[3].enabled = false;
+	CHECK(PickDecalAt({ 0.0f, 100.0f, 50.0f }, all) == 2);   // inside both: the small one
+	CHECK(PickDecalAt({ 80.0f, 100.0f, 50.0f }, all) == 1);  // only the large one
+	CHECK(PickDecalAt({ 0.0f, 100.0f, 400.0f }, all) == -1); // above both
+	CHECK(PickDecalAt({ 0.0f, 20.0f, 50.0f }, all) == -1);   // far in front of the wall
+}
+
 } // namespace
 
 int main() {
@@ -109,6 +148,8 @@ int main() {
 	TestAnimatedRouteDrawing();
 	TestSceneObjectAttachment();
 	TestDecalAlignsToSurface();
+	TestDragKeepsTurn();
+	TestPickDecalAt();
 	if (g_failed) {
 		std::cerr << g_failed << " WorldDecalsMathTests failed\n";
 		return 1;

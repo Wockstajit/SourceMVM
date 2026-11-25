@@ -1340,11 +1340,8 @@
  "+ Arrow": "+ Pil",
  "+ Ground Route": "+ Rute på gulvet",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "Projicerer tekst, logoer, billeder, videoer, pile eller animerede ruter på vægge og gulve.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "Ingen projektioner endnu. Tilføj tekst, et billede/video til væg, en pil eller en animeret gulvrute ovenfor.",
  "Dup": "Kopi",
  "Place at camera": "Placer ved kamera",
- "Project on Wall": "Projicer på væg",
- "Project on Floor": "Projicer på gulv",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "Flytter og justerer projektionen på væggen eller gulvet foran kameraet.",
  "Text": "Tekst",
  "Click to type decal text…": "Klik for at skrive dekaltekst…",
@@ -3470,5 +3467,7 @@
  "No HCs running right now. Check back soon.": "Ingen HC'er kører lige nu. Kig forbi igen snart.",
  "{0} LIVE": "{0} LIVE",
  "NEXT {0}": "NÆSTE {0}",
- "{0} UPCOMING": "{0} KOMMENDE"
+ "{0} UPCOMING": "{0} KOMMENDE",
+ "Place where looking": "Placér hvor jeg kigger",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "Træk en decal i visningen for at flytte den. Den sætter sig fast på væggen eller gulvet under markøren."
 }

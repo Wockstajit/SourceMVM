@@ -1363,11 +1363,8 @@
  "+ Arrow": "+ Săgeată",
  "+ Ground Route": "+ Traseu pe sol",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "Proiectează text, logouri, imagini, videoclipuri, săgeți sau trasee animate pe pereți și pe podele.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "Nicio proiecție încă. Adaugă mai sus text, o imagine sau un video pe perete, o săgeată ori un traseu animat pe sol.",
  "Dup": "Dubl.",
  "Place at camera": "Plasează la cameră",
- "Project on Wall": "Proiectează pe perete",
- "Project on Floor": "Proiectează pe podea",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "Mută și aliniază proiecția pe peretele sau podeaua din fața camerei.",
  "Text": "Text",
  "Click to type decal text…": "Apasă pentru a scrie textul decalcomaniei…",
@@ -3520,5 +3517,7 @@
  "No HCs running right now. Check back soon.": "Niciun HC în desfășurare acum. Revino în curând.",
  "{0} LIVE": "{0} LIVE",
  "NEXT {0}": "URMĂTORUL {0}",
- "{0} UPCOMING": "{0} URMEAZĂ"
+ "{0} UPCOMING": "{0} URMEAZĂ",
+ "Place where looking": "Plasează unde mă uit",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "Trage un decal în vizualizare pentru a-l muta. Se lipește de peretele sau podeaua de sub cursor."
 }

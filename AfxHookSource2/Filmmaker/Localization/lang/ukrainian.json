@@ -1363,11 +1363,8 @@
  "+ Arrow": "+ Стрілка",
  "+ Ground Route": "+ Маршрут по землі",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "Проєктує текст, логотипи, зображення, відео, стрілки або анімовані маршрути на стіни й підлогу.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "Проєкцій поки немає. Додайте вище текст, зображення чи відео на стіні, стрілку або анімований маршрут по підлозі.",
  "Dup": "Копія",
  "Place at camera": "Розмістити в камері",
- "Project on Wall": "Проєктувати на стіну",
- "Project on Floor": "Проєктувати на підлогу",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "Переміщує й вирівнює проєкцію на стіні або підлозі перед камерою.",
  "Text": "Текст",
  "Click to type decal text…": "Натисніть, щоб ввести текст декалі…",
@@ -3520,5 +3517,7 @@
  "No HCs running right now. Check back soon.": "Зараз немає активних HC. Зазирніть пізніше.",
  "{0} LIVE": "{0} ЗАРАЗ",
  "NEXT {0}": "ДАЛІ {0}",
- "{0} UPCOMING": "{0} СКОРО"
+ "{0} UPCOMING": "{0} СКОРО",
+ "Place where looking": "Розмістити там, куди дивлюся",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "Перетягніть декаль у вікні, щоб перемістити її. Вона прилипає до стіни чи підлоги під курсором."
 }

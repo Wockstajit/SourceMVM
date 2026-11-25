@@ -1340,11 +1340,8 @@
  "+ Arrow": "+ Nuoli",
  "+ Ground Route": "+ Reitti lattialla",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "Projisoi tekstejä, logoja, kuvia, videoita, nuolia tai animoituja reittejä seinille ja lattioille.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "Ei vielä projisointeja. Lisää ylhäältä teksti, seinäkuva tai -video, nuoli tai animoitu lattiareitti.",
  "Dup": "Kopio",
  "Place at camera": "Sijoita kameraan",
- "Project on Wall": "Projisoi seinälle",
- "Project on Floor": "Projisoi lattialle",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "Siirtää ja kohdistaa projisoinnin kameran edessä olevalle seinälle tai lattialle.",
  "Text": "Teksti",
  "Click to type decal text…": "Napsauta kirjoittaaksesi dekaalitekstin…",
@@ -3470,5 +3467,7 @@
  "No HCs running right now. Check back soon.": "Avoimia HC:itä ei ole juuri nyt. Palaa pian uudelleen.",
  "{0} LIVE": "{0} AVOINNA",
  "NEXT {0}": "SEURAAVA {0}",
- "{0} UPCOMING": "{0} TULOSSA"
+ "{0} UPCOMING": "{0} TULOSSA",
+ "Place where looking": "Aseta katsomaani kohtaan",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "Siirrä tarraa vetämällä sitä näkymässä. Se tarttuu kohdistimen alla olevaan seinään tai lattiaan."
 }

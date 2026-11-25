@@ -1317,11 +1317,8 @@
  "+ Arrow": "+ ลูกศร",
  "+ Ground Route": "+ เส้นทางพื้น",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "ฉายข้อความ โลโก้ ภาพ วิดีโอ ลูกศร หรือเส้นทางแบบเคลื่อนไหวลงบนผนังและพื้น",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "ยังไม่มีการฉาย เพิ่มข้อความ ภาพ/วิดีโอผนัง ลูกศร หรือเส้นทางพื้นแบบเคลื่อนไหวจากด้านบน",
  "Dup": "ทำซ้ำ",
  "Place at camera": "วางที่กล้อง",
- "Project on Wall": "ฉายบนผนัง",
- "Project on Floor": "ฉายบนพื้น",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "ย้ายและจัดการฉายให้ตรงกับผนังหรือพื้นที่อยู่หน้ากล้อง",
  "Text": "ข้อความ",
  "Click to type decal text…": "คลิกเพื่อพิมพ์ข้อความดีคอล…",
@@ -3420,5 +3417,7 @@
  "No HCs running right now. Check back soon.": "ตอนนี้ไม่มี HC ที่กำลังจัดอยู่ กลับมาดูใหม่ภายหลัง",
  "{0} LIVE": "สด {0}",
  "NEXT {0}": "ถัดไป {0}",
- "{0} UPCOMING": "เร็ว ๆ นี้ {0}"
+ "{0} UPCOMING": "เร็ว ๆ นี้ {0}",
+ "Place where looking": "วางตรงที่มอง",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "ลากเดคัลในมุมมองเพื่อย้าย เดคัลจะติดกับผนังหรือพื้นใต้เคอร์เซอร์"
 }

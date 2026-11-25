@@ -1340,11 +1340,8 @@
  "+ Arrow": "+ Nyíl",
  "+ Ground Route": "+ Talajútvonal",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "Szöveget, logókat, képeket, videókat, nyilakat vagy animált útvonalakat vetít falakra és padlókra.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "Még nincs vetítés. Fent adj hozzá szöveget, falképet vagy falvideót, nyilat, illetve animált padlóútvonalat.",
  "Dup": "Dupl.",
  "Place at camera": "Kamerához helyezés",
- "Project on Wall": "Vetítés falra",
- "Project on Floor": "Vetítés padlóra",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "A vetítést a kamera előtti falra vagy padlóra mozgatja és igazítja.",
  "Text": "Szöveg",
  "Click to type decal text…": "Kattints a matrica szövegének beírásához…",
@@ -3470,5 +3467,7 @@
  "No HCs running right now. Check back soon.": "Most egy HC sem fut. Nézz vissza hamarosan.",
  "{0} LIVE": "{0} ÉLŐ",
  "NEXT {0}": "KÖVETKEZŐ: {0}",
- "{0} UPCOMING": "{0} HAMAROSAN"
+ "{0} UPCOMING": "{0} HAMAROSAN",
+ "Place where looking": "Elhelyezés oda, ahova nézek",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "Húzzon egy matricát a nézetben az áthelyezéshez. A kurzor alatti falra vagy padlóra tapad."
 }

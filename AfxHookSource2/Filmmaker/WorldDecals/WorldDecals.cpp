@@ -4,6 +4,7 @@
 
 #include "../Environment/EnvironmentMaterialMath.h"
 #include "../Environment/MapCollisionGrid.h"
+#include "../Props/PropEditMath.h"
 #include "../Environment/EnvironmentScene.h"
 #include "../Movie/CameraBridge.h"
 #include "../Platform/JsonBuilder.h"
@@ -299,6 +300,8 @@ std::mutex g_mutex;
 std::vector<Entry> g_entries;
 int g_nextId = 1;
 int g_selectedId = -1;
+int g_grabId = -1;     // the decal being dragged in the view, -1 when none
+Decal g_grabBefore;    // its pose when the drag started, for cancel
 uint64_t g_texRevision = 1;
 std::atomic<bool> g_anyEnabled{ false };
 std::atomic<bool> g_pickerPending{ false };
@@ -319,6 +322,25 @@ void UpdateEnabledFlagLocked() {
 	for (const auto& e : g_entries)
 		if (e.decal.enabled) { any = true; break; }
 	g_anyEnabled.store(any, std::memory_order_release);
+}
+
+// The map surface under viewport point (u, v): the hit and its normal turned toward the camera.
+// False without a rendered camera or without collision under the cursor.
+bool SurfaceUnderCursor(float u, float v, Vec3& hit, Vec3& normal) {
+	Environment::Matrix vp;
+	Environment::Vec3 eye, dir;
+	if (!Environment::RenderedCamera(vp, eye) || !Props::CursorRay(vp, eye, u, v, dir)) return false;
+	Environment::SurfaceHit h;
+	if (!Environment::MapCollisionRaycast(eye, dir, 8192.0f, h)) return false;
+	hit = { h.position.x, h.position.y, h.position.z };
+	normal = { h.normal.x, h.normal.y, h.normal.z };
+	return true;
+}
+
+float CameraYawDeg() {
+	double origin[3] = {}, angles[3] = {}, fov = 90.0;
+	CameraBridge_GetCurrentCamera(origin, angles, fov);
+	return (float)angles[1];
 }
 
 // Places a new decal ahead of the current camera.
@@ -399,6 +421,7 @@ void OnLevelInit() {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	g_entries.clear();
 	g_selectedId = -1;
+	g_grabId = -1;
 	g_nextId = 1;
 	g_anyEnabled.store(false, std::memory_order_release);
 }
@@ -494,6 +517,7 @@ std::vector<RenderItem> RenderSnapshot() {
 void AppendStateJson(std::ostringstream& out) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	out << ",\"decals\":{\"selected\":" << g_selectedId
+		<< ",\"grab\":" << g_grabId
 		<< ",\"pickerPending\":" << (g_pickerPending.load(std::memory_order_relaxed) ? "true" : "false")
 		<< ",\"items\":[";
 	for (size_t i = 0; i < g_entries.size(); ++i) {
@@ -544,11 +568,12 @@ void RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 			"%s decals add <text|image|video|arrow|route> [floor|wall]\n"
 			"%s decals select <id> | remove <id> | duplicate <id> | clear\n"
 			"%s decals set <id> <field> <value...>\n"
-			"%s decals place <id> <wall|floor>\n"
+			"%s decals place <id> <here|wall|floor>\n"
+			"%s decals grab <u> <v> | drag <u> <v> | release | cancel\n"
 			"%s decals pickmedia <id> <image|video>\n"
 			"%s decals route <id> addpoint|undo|clear|startnow\n"
 			"%s decals attach <id> <objectId|off>\n",
-			cmd, cmd, cmd, cmd, cmd, cmd, cmd);
+			cmd, cmd, cmd, cmd, cmd, cmd, cmd, cmd);
 		return;
 	}
 	const char* sub = args->ArgV(2);
@@ -631,8 +656,68 @@ void RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 		UpdateEnabledFlagLocked();
 		return;
 	}
+	// grab <u> <v>: select the decal under the cursor and start dragging it. drag <u> <v>: move it
+	// onto the surface under the cursor, wall or floor. release keeps it there; cancel puts it back.
+	if (0 == _stricmp(sub, "grab") && argc >= 5) {
+		Vec3 hit, normal;
+		if (!SurfaceUnderCursor((float)std::atof(args->ArgV(3)), (float)std::atof(args->ArgV(4)), hit, normal)) return;
+		std::lock_guard<std::mutex> lock(g_mutex);
+		std::vector<Decal> all;
+		all.reserve(g_entries.size());
+		for (const Entry& e : g_entries) all.push_back(e.decal);
+		const int id = PickDecalAt(hit, all);
+		if (id < 0) return;
+		g_selectedId = id;
+		g_grabId = id;
+		g_grabBefore = FindLocked(id)->decal;
+		return;
+	}
+	if (0 == _stricmp(sub, "drag") && argc >= 5) {
+		Vec3 hit, normal;
+		if (!SurfaceUnderCursor((float)std::atof(args->ArgV(3)), (float)std::atof(args->ArgV(4)), hit, normal)) return;
+		const float yaw = CameraYawDeg();
+		std::lock_guard<std::mutex> lock(g_mutex);
+		if (g_grabId < 0) return;
+		Entry* e = FindLocked(g_grabId);
+		if (!e) { g_grabId = -1; return; }
+		e->decal.attachObjectId = -1;
+		DragDecalToSurface(hit, normal, yaw, e->decal);
+		return;
+	}
+	if (0 == _stricmp(sub, "release")) {
+		std::lock_guard<std::mutex> lock(g_mutex);
+		g_grabId = -1;
+		return;
+	}
+	if (0 == _stricmp(sub, "cancel")) {
+		std::lock_guard<std::mutex> lock(g_mutex);
+		if (g_grabId >= 0) {
+			if (Entry* e = FindLocked(g_grabId)) e->decal = g_grabBefore;
+		}
+		g_grabId = -1;
+		return;
+	}
 	if (0 == _stricmp(sub, "place") && argc >= 5) {
 		const int id = std::atoi(args->ArgV(3));
+		// "here": onto whatever is under the crosshair, wall or floor, aligned to it. With nothing
+		// under the crosshair (sky, no map data) it goes ahead of the camera like wall/floor do,
+		// keeping whether it lay flat.
+		if (0 == _stricmp(args->ArgV(4), "here")) {
+			Vec3 hit, normal;
+			const bool onSurface = SurfaceUnderCursor(0.5f, 0.5f, hit, normal);
+			const float yaw = CameraYawDeg();
+			std::lock_guard<std::mutex> lock(g_mutex);
+			if (Entry* e = FindLocked(id)) {
+				e->decal.attachObjectId = -1;
+				if (onSurface) {
+					OrientDecalToSurface(hit, normal, yaw, e->decal);
+					e->decal.depth = std::fabs(Normalize(normal).z) > 0.85f ? 64.0f : 48.0f;
+				} else {
+					PlaceAheadOfCamera(e->decal, std::fabs(e->decal.angles[0]) > 80.0f);
+				}
+			}
+			return;
+		}
 		const bool onFloor = 0 == _stricmp(args->ArgV(4), "floor");
 		std::lock_guard<std::mutex> lock(g_mutex);
 		if (Entry* e = FindLocked(id)) {

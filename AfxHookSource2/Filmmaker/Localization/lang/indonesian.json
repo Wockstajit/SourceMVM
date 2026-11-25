@@ -1317,11 +1317,8 @@
  "+ Arrow": "+ Panah",
  "+ Ground Route": "+ Rute Tanah",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "Memproyeksikan teks, logo, gambar, video, panah, atau rute animasi ke dinding dan lantai.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "Belum ada proyeksi. Tambahkan teks, gambar/video dinding, panah, atau rute lantai animasi di atas.",
  "Dup": "Duplikat",
  "Place at camera": "Taruh di kamera",
- "Project on Wall": "Proyeksikan ke Dinding",
- "Project on Floor": "Proyeksikan ke Lantai",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "Memindahkan dan menyejajarkan proyeksi ke dinding atau lantai di depan kamera.",
  "Text": "Teks",
  "Click to type decal text…": "Klik untuk mengetik teks decal…",
@@ -3420,5 +3417,7 @@
  "No HCs running right now. Check back soon.": "Tidak ada HC yang berlangsung saat ini. Cek lagi nanti.",
  "{0} LIVE": "{0} LIVE",
  "NEXT {0}": "BERIKUTNYA {0}",
- "{0} UPCOMING": "{0} AKAN DATANG"
+ "{0} UPCOMING": "{0} AKAN DATANG",
+ "Place where looking": "Tempatkan di arah pandangan",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "Seret decal di tampilan untuk memindahkannya. Decal menempel pada dinding atau lantai di bawah kursor."
 }

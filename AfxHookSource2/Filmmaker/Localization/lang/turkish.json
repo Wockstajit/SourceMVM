@@ -1340,11 +1340,8 @@
  "+ Arrow": "+ Ok",
  "+ Ground Route": "+ Zemin Rotası",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "Duvarlara ve zemine metin, logo, görsel, video, ok ya da animasyonlu rotalar yansıtır.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "Henüz projeksiyon yok. Yukarıdan metin, duvar görseli/videosu, ok ya da animasyonlu zemin rotası ekle.",
  "Dup": "Çoğalt",
  "Place at camera": "Kameraya yerleştir",
- "Project on Wall": "Duvara yansıt",
- "Project on Floor": "Zemine yansıt",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "Projeksiyonu kameranın önündeki duvara ya da zemine taşır ve hizalar.",
  "Text": "Metin",
  "Click to type decal text…": "Çıkartma metnini yazmak için tıkla…",
@@ -3470,5 +3467,7 @@
  "No HCs running right now. Check back soon.": "Şu anda devam eden HC yok. Biraz sonra tekrar bak.",
  "{0} LIVE": "{0} CANLI",
  "NEXT {0}": "SONRAKİ {0}",
- "{0} UPCOMING": "{0} YAKLAŞAN"
+ "{0} UPCOMING": "{0} YAKLAŞAN",
+ "Place where looking": "Baktığım yere yerleştir",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "Taşımak için görünümde bir çıkartmayı sürükleyin. İmlecin altındaki duvara veya zemine yapışır."
 }

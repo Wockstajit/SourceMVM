@@ -1340,11 +1340,8 @@
  "+ Arrow": "+ Freccia",
  "+ Ground Route": "+ Percorso a terra",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "Proietta testi, loghi, immagini, video, frecce o percorsi animati su pareti e pavimenti.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "Nessuna proiezione ancora. Aggiungi sopra un testo, un'immagine o video a parete, una freccia o un percorso animato a terra.",
  "Dup": "Dup",
  "Place at camera": "Metti sulla camera",
- "Project on Wall": "Proietta su parete",
- "Project on Floor": "Proietta su pavimento",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "Sposta e allinea la proiezione sulla parete o sul pavimento davanti alla camera.",
  "Text": "Testo",
  "Click to type decal text…": "Clicca per scrivere il testo del decal…",
@@ -3470,5 +3467,7 @@
  "No HCs running right now. Check back soon.": "Nessun HC in corso al momento. Riprova più tardi.",
  "{0} LIVE": "{0} IN CORSO",
  "NEXT {0}": "PROSSIMO {0}",
- "{0} UPCOMING": "{0} IN ARRIVO"
+ "{0} UPCOMING": "{0} IN ARRIVO",
+ "Place where looking": "Posiziona dove guardo",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "Trascina un decal nella vista per spostarlo. Si attacca al muro o al pavimento sotto il cursore."
 }

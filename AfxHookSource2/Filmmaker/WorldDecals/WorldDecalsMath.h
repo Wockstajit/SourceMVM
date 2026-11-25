@@ -192,6 +192,35 @@ inline void OrientDecalToSurface(Vec3 hit, Vec3 normal, float viewerYawDeg, Deca
 	}
 }
 
+// Moves a decal to a surface point while it is dragged. Unlike placing, a wall decal keeps its roll
+// and a decal already lying on a floor keeps its turn, so dragging only moves it.
+inline void DragDecalToSurface(Vec3 hit, Vec3 normal, float cameraYawDeg, Decal& d) {
+	const bool wasFlat = std::fabs(d.angles[0]) > 80.0f;
+	const float roll = d.angles[2];
+	OrientDecalToSurface(hit, normal, wasFlat ? d.angles[1] : cameraYawDeg, d);
+	if (std::fabs(Normalize(normal).z) <= 0.85f) d.angles[2] = roll;
+}
+
+inline bool ProjectWorldToDecal(Vec3 worldPos, const Decal& d, float& outU, float& outV, float& outLocalZ);
+
+// The decal a click on surface point `p` lands on: the smallest one whose box holds it (with some
+// slack along its depth), so a small decal over a large one can still be picked. Routes have no
+// box and are not picked. -1 when none.
+inline int PickDecalAt(Vec3 p, const std::vector<Decal>& decals, float depthSlack = 16.0f) {
+	int best = -1;
+	float bestArea = 1e30f;
+	for (const Decal& d : decals) {
+		if (!d.enabled || d.kind == DecalKind::Route) continue;
+		Decal grown = d;
+		grown.depth = d.depth + 2.0f * depthSlack;
+		float u = 0, v = 0, z = 0;
+		if (!ProjectWorldToDecal(p, grown, u, v, z)) continue;
+		const float area = d.width * d.height;
+		if (area < bestArea) { bestArea = area; best = d.id; }
+	}
+	return best;
+}
+
 // Projects a world-space point into a decal's local box.
 // Returns true iff inside [-0.5, 0.5] along U, V, and projection depth.
 inline bool ProjectWorldToDecal(Vec3 worldPos, const Decal& d,

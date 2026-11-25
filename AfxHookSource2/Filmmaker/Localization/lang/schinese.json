@@ -1317,11 +1317,8 @@
  "+ Arrow": "+ 箭头",
  "+ Ground Route": "+ 地面路线",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "将文字、徽标、图片、视频、箭头或动画路线投射到墙面和地面。",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "暂无投影。请在上方添加文字、墙面图片/视频、箭头或动画地面路线。",
  "Dup": "复制",
  "Place at camera": "放到摄像机处",
- "Project on Wall": "投射到墙面",
- "Project on Floor": "投射到地面",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "将投影移动并对齐到摄像机前方的墙面或地面。",
  "Text": "文字",
  "Click to type decal text…": "点击输入贴花文字…",
@@ -3420,5 +3417,7 @@
  "No HCs running right now. Check back soon.": "目前没有进行中的 HC，请稍后再来看看。",
  "{0} LIVE": "{0} 进行中",
  "NEXT {0}": "下一场 {0}",
- "{0} UPCOMING": "{0} 即将开始"
+ "{0} UPCOMING": "{0} 即将开始",
+ "Place where looking": "放置在注视处",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "在视图中拖动贴花即可移动它。它会贴附到光标下方的墙面或地面上。"
 }

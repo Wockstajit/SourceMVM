@@ -1317,11 +1317,8 @@
  "+ Arrow": "+ 화살표",
  "+ Ground Route": "+ 바닥 경로",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "텍스트, 로고, 이미지, 영상, 화살표 또는 애니메이션 경로를 벽과 바닥에 투영합니다.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "아직 투영이 없습니다. 위에서 텍스트, 벽 이미지/영상, 화살표 또는 애니메이션 바닥 경로를 추가하세요.",
  "Dup": "복제",
  "Place at camera": "카메라 위치에 배치",
- "Project on Wall": "벽에 투영",
- "Project on Floor": "바닥에 투영",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "투영을 카메라 앞의 벽이나 바닥에 맞춰 이동하고 정렬합니다.",
  "Text": "텍스트",
  "Click to type decal text…": "클릭하여 데칼 텍스트 입력…",
@@ -3420,5 +3417,7 @@
  "No HCs running right now. Check back soon.": "지금 진행 중인 HC가 없습니다. 나중에 다시 확인하세요.",
  "{0} LIVE": "{0}개 진행 중",
  "NEXT {0}": "다음 {0}",
- "{0} UPCOMING": "{0}개 예정"
+ "{0} UPCOMING": "{0}개 예정",
+ "Place where looking": "바라보는 곳에 배치",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "뷰에서 데칼을 드래그해 옮깁니다. 커서 아래의 벽이나 바닥에 붙습니다."
 }

@@ -181,12 +181,13 @@ R"CFJS(
     // MAP LIGHTS, the third page of Scene Objects (moved from the Lighting card, 2026-11): the map's
     // own lamps are objects in the scene, picked by flying to them, like everything else on this card.
     var envMapLightPage = envSceneSec.__page(T('Map lights'));
-    actionGroup(envMapLightPage, T('Pick lights'), [
+    var envMapLightGroup = actionGroup(envMapLightPage, T('Pick lights'), [
       [T('Edit lights'), function () { cmd('mirv_relight lighteditor on'); cmd('mirv_filmmaker config close'); }],
       [T('Turn all back on'), function () { cmd('mirv_relight lights reset'); }]
-    ], 2, T('Edit lights shows a marker on every map light. Fly to a light, aim at it and press F to switch it off or back on; Esc finishes. Your choices are saved for this map.'));
+    ], 2, null);
+    attachTip(envMapLightGroup.btns[0], T('Edit lights shows a marker on every map light. Fly to a light, aim at it and press F to switch it off or back on; Esc finishes. Your choices are saved for this map.'));
+    attachTip(envMapLightGroup.row, T('Map lights light rooms whatever the ambient light is. Their overall strength is Map light power on the Lighting card.'));
     var lightPickStatus = envNote(envMapLightPage, '');
-    envNote(envMapLightPage, T('Map lights light rooms whatever the ambient light is. Their overall strength is Map light power on the Lighting card.'));
     // The light and mesh inspectors live in the Outliner's selected-object card (olLightHost,
     // olMeshHost). The old Lights page and its LIT BY cards are gone: the tree's footer line says
     // what draws the lights, and the add-light row sits above the card's tabs.

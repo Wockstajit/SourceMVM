@@ -1340,11 +1340,8 @@
  "+ Arrow": "+ Βέλος",
  "+ Ground Route": "+ Διαδρομή εδάφους",
  "Projects text, logos, images, videos, arrows, or animated routes onto walls and floors.": "Προβάλλει κείμενα, λογότυπα, εικόνες, βίντεο, βέλη ή κινούμενες διαδρομές σε τοίχους και δάπεδα.",
- "No projections yet. Add text, a wall image/video, an arrow, or an animated floor route above.": "Δεν υπάρχουν ακόμη προβολές. Πρόσθεσε παραπάνω κείμενο, εικόνα ή βίντεο τοίχου, βέλος ή κινούμενη διαδρομή δαπέδου.",
  "Dup": "Αντιγρ.",
  "Place at camera": "Τοποθέτηση στην κάμερα",
- "Project on Wall": "Προβολή σε τοίχο",
- "Project on Floor": "Προβολή σε δάπεδο",
  "Moves and aligns the projection onto the wall or floor in front of the camera.": "Μετακινεί και ευθυγραμμίζει την προβολή στον τοίχο ή στο δάπεδο μπροστά από την κάμερα.",
  "Text": "Κείμενο",
  "Click to type decal text…": "Κάνε κλικ για να γράψεις το κείμενο του αυτοκόλλητου…",
@@ -3470,5 +3467,7 @@
  "No HCs running right now. Check back soon.": "Δεν τρέχει κανένα HC αυτή τη στιγμή. Ξαναελέγξτε σύντομα.",
  "{0} LIVE": "{0} LIVE",
  "NEXT {0}": "ΕΠΟΜΕΝΟ ΣΕ {0}",
- "{0} UPCOMING": "{0} ΣΥΝΤΟΜΑ"
+ "{0} UPCOMING": "{0} ΣΥΝΤΟΜΑ",
+ "Place where looking": "Τοποθέτηση εκεί που κοιτάζω",
+ "Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.": "Σύρετε ένα decal στην προβολή για να το μετακινήσετε. Κολλάει στον τοίχο ή στο πάτωμα κάτω από τον κέρσορα."
 }
