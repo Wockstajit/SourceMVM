@@ -1168,6 +1168,8 @@ R"CFJS(
         var hv = st.hudView || 'full', hudName = T('Show All');
         for (var hb = 0; hb < HUD_CYCLE.length; hb++) if (HUD_CYCLE[hb][0] === hv) hudName = HUD_CYCLE[hb][1];
         hudCycle.__lbl.text = T('GAME UI: {0}', hudName.toUpperCase());
+        // The MODULAR layout always keeps the game HUD (CameraTimelineJs), so the switch has no job there.
+        if (hudCycle.visible !== !modularNow) hudCycle.visible = !modularNow;
       } catch (eChrome) {
         $.Msg('[confighud] chrome render failed: ' + eChrome + '\n');
       }
