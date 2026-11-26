@@ -78,12 +78,14 @@ R"CFJS(
       [T('Open Scene Editor'), function () { cmd('mirv_filmmaker config off; mirv_filmmaker sceneeditor on'); }]
     ]);
     attachTip(btSceneEdRow.btns[0], T('Opens the dedicated 3D Scene Editor with floor path lines, move/rotate gizmos, timeline/graph, animation placement, and model placement.'));
-    var btLoop = togglePill(btSec, T('Loop'), T('Plays again from the start after the last take ends. When this is off, bots stay where their takes ended.'),
+    var btPlayGrid = toggleGrid(btSec);
+    var btLoop = togglePill(btPlayGrid.cell(), T('Loop'), T('Plays again from the start after the last take ends. When this is off, bots stay where their takes ended.'),
       function () { btCommand('loop ' + (st && st.takes && st.takes.loop ? 'off' : 'on')); });
-    var btThirdPerson = togglePill(btSec, T('Third-person preview'), T('Switches to third-person camera so you can preview your character animations in real time while moving or recording.'),
+    var btThirdPerson = togglePill(btPlayGrid.cell(), T('Third-person preview'), T('Switches to third-person camera so you can preview your character animations in real time while moving or recording.'),
       function () { btCommand('thirdperson ' + (st && st.takes && st.takes.thirdPerson ? 'off' : 'on')); });
-    var btWalkBlend = togglePill(btSec, T('Blend with CS walk'), T('Plays animations on the upper body while you walk, run, crouch and jump normally with CS2 WASD.'),
+    var btWalkBlend = togglePill(btPlayGrid.cell(), T('Blend with CS walk'), T('Plays animations on the upper body while you walk, run, crouch and jump normally with CS2 WASD.'),
       function () { btCommand('anim walkblend ' + (st && st.takes && st.takes.localAnimUpper ? 'off' : 'on')); });
+    btPlayGrid.__layout();
     var btAnimRow = actionGroup(btSec, T('Character performance'), [
       [T('Animation picker'), function () { if ($.ConfigHudAap) $.ConfigHudAap.open(-1); }],
       [T('Place actor where looking'), function () { btCommand('actor place'); }]
@@ -99,12 +101,6 @@ R"CFJS(
       [T('Load'), function () { btCommand('load scene'); }]
     ]);
     attachTip(btDemoRow.btns[0], T('Plays one pass from the start and records it to a demo file. Open it from the demo browser.'));
-    attachTip(btDemoRow.btns[1], T('Saves every take on this map.'));
-    attachTip(btDemoRow.btns[2], T('Loads the saved takes for this map.'));
-    var btHelp = lbl(btSec, T('{0} starts and stops recording. {1} plays and stops.', K('takes.record', 'F6'), K('takes.play', 'F7')), S.hint, 12);
-    btHelp.hittest = false; btHelp.style.marginTop = '8px';
-    btHelp.style.whiteSpace = 'normal'; btHelp.style.width = '100%';
-    btHelp.style.paddingLeft = UI.line.padH + 'px'; btHelp.style.paddingRight = UI.line.padH + 'px';
 
 )CFJS"
 R"CFJS(
@@ -213,10 +209,7 @@ R"CFJS(
     var btObjSec = section(pageBots, T('SOLID OBJECTS'), true, false, 'bots.objects', '#7fd18bff');
     // Reset is the one setting here (new props start not solid). Props already placed keep theirs.
     var btObjReset = btObjSec.__headerReset(['mirv_filmmaker props solidnew off'], 'bots.objects');
-    var btObjNote = lbl(btObjSec, T('Place props from ENVIRONMENT > Scene objects, then turn on Solid for each one. You and the bots collide with solid props, so you can jump on them.'), S.hint, 13);
-    btObjNote.hittest = false; btObjNote.style.whiteSpace = 'normal'; btObjNote.style.width = '100%'; btObjNote.style.marginTop = '6px';
-    btObjNote.style.paddingLeft = UI.line.padH + 'px'; btObjNote.style.paddingRight = UI.line.padH + 'px';
-    var btSolidNew = togglePill(btObjSec, T('New props are solid'), T('Anything you place from now on starts solid.'),
+    var btSolidNew = togglePill(btObjSec, T('New props are solid'), '',
       function () { cmd('mirv_filmmaker props solidnew ' + (st && st.takes && st.takes.solidNew ? 'off' : 'on')); });
     var btObjActions = actionGroup(btObjSec, '', [
       [T('Place props'), function () { activeTab = 'environment'; applyTabs(); }],

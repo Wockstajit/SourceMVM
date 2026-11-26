@@ -144,6 +144,15 @@ function harness(withLighting = false) {
       groups.push(g);
       return g;
     },
+    // A preset list is a dropdown in the panel; here each entry is a button the tests can press.
+    presetActions(parent, caption, items) {
+      const btns = items.map(([cap, onClick]) => button(cap, onClick));
+      const g = { row: panel(), caption, btns, note: label('') };
+      groups.push(g);
+      return g;
+    },
+    presetDropdown: (parent, caption, items, perRow, tip, onPick) =>
+      ({ ...grid(parent, caption, items, onPick), sync() {} }),
     sliderRow(parent, opts) { const s = { opts, parent, row: panel(), slot: panel(), sync(value) { this.value = value; } }; sliders.push(s); return s; },
     swatchGrid() { return {select() {}, paintCustom() {}}; },
     // Lives in ConfigColorPickerJs.h, which this harness does not load; the climate fragment
@@ -159,6 +168,8 @@ function harness(withLighting = false) {
       pickers.push(p);
       return p;
     },
+    // Two-up switch rows: each cell is just a parent for one togglePill here.
+    toggleGrid: () => ({ cell: () => panel(), __layout() {} }),
     togglePill(parent, label_, hint, onClick, tip) {
       const t = { row: panel(), label: label_, hint, tip, parent, on: false, click: onClick, set(v) { this.on = !!v; } };
       toggles.push(t);
@@ -504,7 +515,7 @@ test('fog card carries the ground fog and its light shafts',()=>{
   assert.match(resets,/climate groundFogPushSize 0.55/);
   // A starting look sets only values the sliders own, and turns the Environment on if it was off.
   const fogSource=fs.readFileSync(new URL('../../AfxHookSource2/Filmmaker/Panorama/ConfigHudClimateJs.h',import.meta.url),'utf8');
-  assert.match(fogSource,/actionGroup\(envGroundFogPage, T\('Start from'\), \[\s*\[T\('Street mist'\)[\s\S]*?\[T\('Thick sheet'\)/);
+  assert.match(fogSource,/presetActions\(envGroundFogPage, T\('Start from'\), \[\s*\[T\('Street mist'\)[\s\S]*?\[T\('Thick sheet'\)/);
   const look=fogSource.match(/mist: \{ climate: \{([\s\S]*?)\},\s*scene:/)[1];
   for(const key of look.match(/\b[a-zA-Z]+(?=:)/g))
     assert.ok(h.context.climateControls.some(row=>row[1]===key)||/ColorR|ColorG|ColorB|ShadeR|ShadeG|ShadeB|lightShafts/.test(key),`${key} has a control to change it afterwards`);

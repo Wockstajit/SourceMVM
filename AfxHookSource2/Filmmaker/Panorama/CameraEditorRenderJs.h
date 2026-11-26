@@ -618,7 +618,6 @@ R"EDJS(
     var extRow = rsLabeledRow(camSec, T('If the path is shorter than the range'), 200, 12);
     var extSeg = rsSeg(extRow, EXT_ROWS, function (token) { cmd('mirv_filmmaker render extension ' + token); },
       { padV: 7, width: 'fill-parent-flow(1.0)', id: 'RsExtSeg' });
-    var extNote = rsNote(camSec, T('Default is Fail. Silent clamping renders the wrong clip without telling you.'));
 
     // The pinned footer: the playhead and the three actions that act on it.
     var phCol = mk('Panel', renderFooter); phCol.hittest = false;
@@ -917,10 +916,10 @@ R"EDJS(
     var pmHlBox = mk('Panel', pmSec); pmHlBox.hittest = false; pmHlBox.hittestchildren = true;
     pmHlBox.style.flowChildren = 'down'; pmHlBox.style.width = '100%'; pmHlBox.style.marginTop = '4px';
     var pmDimTile = edValueTile(pmHlBox, { label: T('Dim world'), min: 0, max: 100, decimals: 0, unit: '%', fill: RS_GOLD,
-      tip: T('How much to darken everything outside the picked player.'),
+      tip: '',
       onChange: function (v) { cmd('mirv_filmmaker render player highlight dim ' + (v / 100).toFixed(3)); } });
     var pmDesatTile = edValueTile(pmHlBox, { label: T('Desaturate world'), min: 0, max: 100, decimals: 0, unit: '%', fill: RS_AC,
-      tip: T('How much colour to remove from everything outside the picked player.'),
+      tip: '',
       onChange: function (v) { cmd('mirv_filmmaker render player highlight desat ' + (v / 100).toFixed(3)); } });
     var pmOutTile = edValueTile(pmHlBox, { label: T('Edge outline'), min: 0, max: 100, decimals: 0, unit: '%', fill: '#ffcf5cff',
       tip: T('Strength of the highlight rim drawn around the picked player silhouette.'),
@@ -1199,7 +1198,6 @@ R"EDJS(
         var v = parseInt(text, 10);
         if (isFinite(v) && v > 0) cmd('mirv_filmmaker render output fps ' + v);
       });
-    rsNote(picSec, T('Render sets host_framerate to the frame rate automatically.'));
 
     // ENCODING: drives MP4 only, so the whole block greys out for the other formats.
     var encSec = rsSection(outputPanel, T('ENCODING'));
@@ -1667,7 +1665,7 @@ R"EDJS(
       if (camErr.__err && camSrc !== camErr.__lastSrc) rsBlockClear(camErr);
       camErr.__lastSrc = camSrc;
       // Path-extension policy only applies to the authored camera path.
-      extRow.visible = extNote.visible = (camSrc === 4);
+      extRow.visible = (camSrc === 4);
       extSeg.sync((EXT_ROWS[r.extension || 0] || EXT_ROWS[0])[0]);
 )EDJS"
 R"EDJS(

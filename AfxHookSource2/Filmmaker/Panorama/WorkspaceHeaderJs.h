@@ -73,7 +73,7 @@ R"WHJS(
     band.style.width = '100%'; band.style.height = MVM_WIN.headerH + 'px';
     band.style.horizontalAlign = 'left'; band.style.verticalAlign = 'top';
     band.style.flowChildren = 'right';
-    band.style.paddingLeft = '14px'; band.style.paddingRight = '12px';
+    band.style.paddingLeft = '12px'; band.style.paddingRight = '10px';
     // The column ground's base under the bar, with CS2's GO-button line map washed in at a whisper
     // (WorkspaceShellJs.h mvmColumnGround): the bar is made of the same stuff as the windows.
     band.style.backgroundColor = 'rgba(15,17,20,0.97)';
@@ -92,13 +92,13 @@ R"WHJS(
     var mark = mk('Panel', band); mark.hittest = false;
     mark.style.flowChildren = 'right'; mark.style.verticalAlign = 'center'; mark.style.marginRight = '16px';
     var markRule = mk('Panel', mark); markRule.hittest = false;
-    markRule.style.width = '3px'; markRule.style.height = '16px'; markRule.style.verticalAlign = 'center';
+    markRule.style.width = '3px'; markRule.style.height = '13px'; markRule.style.verticalAlign = 'center';
     markRule.style.backgroundColor = S.editor; markRule.style.marginRight = '9px';
-    var markLbl = lbl(mark, 'SOURCE // MVM', S.value, 12); markLbl.hittest = false;
+    var markLbl = lbl(mark, 'SOURCE // MVM', S.value, 11); markLbl.hittest = false;
     markLbl.style.fontWeight = 'bold'; markLbl.style.letterSpacing = '3px';
     markLbl.style.verticalAlign = 'center'; markLbl.style.whiteSpace = 'nowrap';
     var divider = mk('Panel', band); divider.hittest = false;
-    divider.style.width = '1px'; divider.style.height = '22px'; divider.style.verticalAlign = 'center';
+    divider.style.width = '1px'; divider.style.height = '18px'; divider.style.verticalAlign = 'center';
     divider.style.backgroundColor = '#ffffff1f'; divider.style.marginRight = '12px';
 
     // One tab: the dock ribbon's box (TimelineDockRibbonJs.h), sized to its caption -- nothing on
@@ -107,15 +107,15 @@ R"WHJS(
     function tab(key, caption, accent, onClick, tip) {
       var b = mk('Panel', band); b.hittest = true;
       b.style.verticalAlign = 'center';
-      b.style.paddingTop = '7px'; b.style.paddingBottom = '7px';
-      b.style.paddingLeft = '14px'; b.style.paddingRight = '14px';
+      b.style.paddingTop = '4px'; b.style.paddingBottom = '4px';
+      b.style.paddingLeft = '12px'; b.style.paddingRight = '12px';
       b.style.marginRight = '6px';
       b.style.borderRadius = '3px';
       b.style.transitionProperty = 'background-color, border-color';
       b.style.transitionDuration = '0.12s';
       b.style.transitionTimingFunction = 'ease-out';
-      var t = lbl(b, caption, S.label, 13); t.hittest = false;
-      t.style.fontWeight = 'bold'; t.style.letterSpacing = '1.4px';
+      var t = lbl(b, caption, S.label, 11); t.hittest = false;
+      t.style.fontWeight = 'bold'; t.style.letterSpacing = '1.2px';
       t.style.whiteSpace = 'nowrap'; t.style.textAlign = 'center'; t.style.horizontalAlign = 'center';
       var rec = { panel: b, lbl: t, accent: accent, on: false, hot: false, enabled: true, onClick: onClick };
       b.SetPanelEvent('onmouseover', function () { rec.hot = true; paintTab(rec); });
@@ -160,11 +160,11 @@ R"WHJS(
 
     // Editor Settings: the same gear and card the panels' dock ribbon opens.
     var gear = mk('Panel', band); gear.hittest = true;
-    gear.style.width = '34px'; gear.style.marginRight = '10px'; gear.style.verticalAlign = 'center';
-    gear.style.paddingTop = '5px'; gear.style.paddingBottom = '5px';
+    gear.style.width = '28px'; gear.style.marginRight = '10px'; gear.style.verticalAlign = 'center';
+    gear.style.paddingTop = '2px'; gear.style.paddingBottom = '2px';
     gear.style.borderRadius = '3px';
     gear.style.backgroundColor = '#ffffff14'; gear.style.border = '1px solid #ffffff1a';
-    var gearLbl = lbl(gear, '⚙', S.value, 16); gearLbl.hittest = false;
+    var gearLbl = lbl(gear, '⚙', S.value, 14); gearLbl.hittest = false;
     gearLbl.style.horizontalAlign = 'center'; gearLbl.style.textAlign = 'center';
     var settingsPopup = mvmEditorSettingsPopup(ctx, {
       id: 'MvmHeaderSettingsRoot',

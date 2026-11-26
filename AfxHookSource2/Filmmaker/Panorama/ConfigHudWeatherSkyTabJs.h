@@ -307,7 +307,7 @@ R"CFJS(
     var skyPitchSlider = sliderRow(orientSec, {
       label: T('Tilt'), cmd: 'mirv_filmmaker world skyorient pitch',
       min: -180, max: 180, decimals: 0, unit: '°',
-      tip: T('Tilts the active skybox up or down while you drag.')
+      tip: ''
     });
 
     // Mirroring belongs WITH yaw and tilt: it is a third way to orient the same sky, not a
@@ -496,7 +496,7 @@ R"CFJS(
     var cloudBright = sliderRow(cloudSec, {
       label: T('Cloud brightness'), cmd: 'mirv_filmmaker world clouds brightness',
       min: 0, max: 3, decimals: 2, unit: 'x',
-      tip: T('Dims or lifts the clouds without touching their colour.')
+      tip: ''
     });
 
     var cloudActions = actionRowEnd(cloudSec, 10);

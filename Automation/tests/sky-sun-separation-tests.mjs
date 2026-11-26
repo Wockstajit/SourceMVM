@@ -151,7 +151,7 @@ test("sun visibility and the engine shadow switch both sit under Sun", () => {
   assert.match(lightingUi, /litSec = section\(pageEffects, T\('LIGHTING'\).*light\.card/s);
   // Sun visibility and the engine shadow switch are both on the Sun page: they are two halves of
   // the same thing, and the mod's own shadow-map composite is no longer in the panel at all.
-  assert.match(lightingUi, /shadowsToggle = togglePill\(sunPage, T\('Engine shadows'\)/);
+  assert.match(lightingUi, /lightSrcGrid = toggleGrid\(sunPage\);[\s\S]*?shadowsToggle = togglePill\(lightSrcGrid\.cell\(\), T\('Engine shadows'\)/);
   assert.doesNotMatch(lightingUi, /Shader shadows/);
   assert.match(lightingUi, /mirv_filmmaker world shadows/);
   assert.match(lightingUi, /Bloom size/);

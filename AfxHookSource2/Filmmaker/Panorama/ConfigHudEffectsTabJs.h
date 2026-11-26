@@ -102,24 +102,21 @@ R"CFJS(
     // the render hook's bitmask contract (1 molly, 2 flashbang, 4 grenade).
     subHead(fxPageExpl, T('Dynamic lights'));
     var fxDlMask = 0;
+    var fxDlGrid = toggleGrid(fxPageExpl);
     function fxDlToggle(label, key, bit, tip) {
-      return togglePill(fxPageExpl, label, tip, function () {
+      return togglePill(fxDlGrid.cell(), label, tip, function () {
         cmd('mirv_filmmaker fx ' + key + ((fxDlMask & bit) ? ' off' : ' on'));
       });
     }
     var fxDlMolly = fxDlToggle(T('Molotov'), 'mollylights', 1, T('Fire lighting on molotov and incendiary flames.'));
     var fxDlFlash = fxDlToggle(T('Flashbang'), 'flashlights', 2, T('A brief burst of light when a flashbang detonates.'));
     var fxDlNade = fxDlToggle(T('HE grenade'), 'helights', 4, T('A brief burst of light when an HE grenade detonates.'));
+    fxDlGrid.__layout();
     var fxDynamicLights = { row: fxDlMolly.row, sync: function (value) {
       fxDlMask = value || 0;
       fxDlMolly.set(!!(fxDlMask & 1)); fxDlFlash.set(!!(fxDlMask & 2)); fxDlNade.set(!!(fxDlMask & 4));
     } };
 
-    var fxWorldNote = lbl(fxPageExpl, T('Off keeps the CS2 default for that category. Smoke grenades are never swapped.'),
-      S.hint, 12);
-    fxWorldNote.hittest = false; fxWorldNote.style.whiteSpace = 'normal';
-    fxWorldNote.style.width = '100%'; fxWorldNote.style.marginTop = '10px';
-    fxWorldNote.style.paddingLeft = UI.line.padH + 'px'; fxWorldNote.style.paddingRight = UI.line.padH + 'px';
     // The one state the card cannot show as a value: the pack is enabled but still installing.
     var fxStatus = lbl(fxPageExpl, T('Effects are still loading.'), '#e8b339ff', 13);
     fxStatus.hittest = false; fxStatus.style.fontWeight = 'bold';

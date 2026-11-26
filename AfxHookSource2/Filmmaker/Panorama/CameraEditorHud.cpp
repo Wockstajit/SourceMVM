@@ -139,6 +139,22 @@ void CameraEditorHud::Teardown() {
 	m_textCapture = false;   // ...same for a focused text field
 }
 
+void CameraEditorHud::Park() {
+	if (!m_built || !m_hudPanel || !m_bridge.ContextPanel() || (m_root = FindRoot()) == nullptr) {
+		Teardown();
+		return;
+	}
+	// m_enabled is already false here, so this is the closed state: render() closes the settings
+	// card, Customize, the confirm dialog and the Render workspace, and hides the column.
+	const std::string state = BuildStateJson();
+	m_bridge.SetAttributeString(m_root, m_symState, state.c_str());
+	m_bridge.RunScriptCached("$.CamEditor && $.CamEditor.render();", "mvm/cameditor.render");
+	m_lastState.clear(); // the next open pushes its state again, and that render() shows the editor
+	m_customizeOpen = false;
+	m_popupOpen = false;
+	m_textCapture = false;
+}
+
 // Declared in Filmmaker.cpp.
 bool GraphEditorExperiment_Enabled();
 void GraphEditorExperiment_Set(bool enabled);
@@ -245,7 +261,15 @@ void CameraEditorHud::OnExit() {
 	// released automatically that same frame.
 	WorkspacePreviewRef().Release(WorkspacePreview::Owner::CameraEditor);
 
-	Teardown();
+	// A HUD that is going away (demo ended, level change) has already cleared the context panel,
+	// so Park falls back to Teardown there.
+	Park();
+
+	// Switching to CONFIG: hand it the dock in this same frame. CONFIG's frame ran earlier, while
+	// the editor still held the dock, so without this the dock stood empty for one frame (seen as
+	// a black band under the preview on every Camera Editor -> CONFIG switch).
+	if (ConfigHud_Enabled() && TimelineDock_Claim(DockHost::Config))
+		TimelineDock_Apply(DockHost::Config);
 }
 
 std::string CameraEditorHud::BuildStateJson() {

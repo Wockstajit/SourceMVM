@@ -156,6 +156,14 @@ void GraphEditorExperimentHud::Teardown() {
 	m_lastState.clear();
 }
 
+void GraphEditorExperimentHud::Park() {
+	// A HUD that is going away has already cleared the context panel: delete in that case.
+	if (!m_built || !m_hudPanel || !m_bridge.ContextPanel()) { Teardown(); return; }
+	m_bridge.RunScript("$.GraphExp && $.GraphExp.park && $.GraphExp.park();");
+	m_lastState.clear(); // the next open pushes its state again, and that render() shows the dock
+	m_textCapture = false;
+}
+
 bool GraphEditorExperimentHud::AdoptPathChanges(const char* why) {
 	const CameraPath& cp = CameraPathRef();
 	if (m_pathSeenValid && GraphExpModel::SameMarkers(cp.Markers(), m_pathSeen))
@@ -227,7 +235,7 @@ void GraphEditorExperimentHud::OnExit() {
 			ChKeyCounts(m_model).c_str(), m_model.TotalKeys(), CameraPathRef().Count(),
 			m_drive ? 1 : 0, OwnsView() ? 1 : 0);
 	TimelinePlayhead_EndScrub();
-	Teardown();
+	Park();
 	// We intentionally leave free cam as-is: the regular Camera Editor (which usually hosts the
 	// Experiment button) manages it. Live-drive simply stops because m_enabled is now false.
 }

@@ -90,12 +90,12 @@ R"CFJS(
       function (k) { evSet('lightFlash', k); }, T('White flashbang burst or warm amber HE blast light.'), 12);
     var evChroma = sliderRow(evInsp, {
       label: T('Chromatic burst'), min: 0, max: 100, decimals: 0, unit: '%',
-      tip: T('RGB edge split during the impact pulse.'),
+      tip: '',
       onChange: function (v) { evSet('chromatic', (v / 100).toFixed(3)); }
     });
     var evVig = sliderRow(evInsp, {
       label: T('Vignette pulse'), min: 0, max: 100, decimals: 0, unit: '%',
-      tip: T('Brief dark edge vignette during the cue.'),
+      tip: '',
       onChange: function (v) { evSet('vignette', (v / 100).toFixed(3)); }
     });
 

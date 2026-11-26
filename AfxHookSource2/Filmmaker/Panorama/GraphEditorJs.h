@@ -82,7 +82,7 @@ R"GEJS(
     // DOCK_H_MIN, so more of the game shows above it (Movie/TimelineDock.h, `timeline.dockH`). Only
     // the rows give up height; the toolbar, ruler and footer keep theirs.
     var DOCK_H_MAX = 440, DOCK_H_MIN = 220;
-    var DOCK_H = DOCK_H_MAX, HEADER_H = 72, OVERVIEW_H = 14, RULER_H = 26, ROWS_Y = 112, FOOTER_H = 26;
+    var DOCK_H = DOCK_H_MAX, HEADER_H = 56, OVERVIEW_H = 10, RULER_H = 20, ROWS_Y = 86, FOOTER_H = 26;
     var ROWS_H = DOCK_H - ROWS_Y - FOOTER_H;
     function setDockH(h) {
       h = Math.round(Math.min(DOCK_H_MAX, Math.max(DOCK_H_MIN, h)));
@@ -461,25 +461,25 @@ R"GEJS(
     header.style.flowChildren = 'right'; header.style.paddingLeft = '14px'; header.style.paddingRight = '14px';
     header.style.borderBottom = '1px solid ' + S.border;
     var tcCol = mk('Panel', header); tcCol.hittest = false;
-    tcCol.style.width = '150px'; tcCol.style.flowChildren = 'down'; tcCol.style.verticalAlign = 'center';
+    tcCol.style.width = '132px'; tcCol.style.flowChildren = 'down'; tcCol.style.verticalAlign = 'center';
     tcCol.style.marginRight = '18px';
-    var tcLbl = lbl(tcCol, '0:00.00', S.accent, 22); tcLbl.hittest = false;
-    tcLbl.style.fontFamily = S.fontMonodigit; tcLbl.style.marginBottom = '4px';
-    var tickLbl = lbl(tcCol, '', S.hint, 11); tickLbl.hittest = false;
+    var tcLbl = lbl(tcCol, '0:00.00', S.accent, 18); tcLbl.hittest = false;
+    tcLbl.style.fontFamily = S.fontMonodigit; tcLbl.style.marginBottom = '2px';
+    var tickLbl = lbl(tcCol, '', S.hint, 10); tickLbl.hittest = false;
     tickLbl.style.letterSpacing = '0.5px'; tickLbl.style.whiteSpace = 'nowrap';
     var midCol = mk('Panel', header); midCol.hittest = false;
     midCol.style.width = 'fill-parent-flow(1.0)'; midCol.style.flowChildren = 'down';
     midCol.style.verticalAlign = 'center'; midCol.style.marginRight = '18px';
     var tabRow = mk('Panel', midCol); tabRow.hittest = false; tabRow.style.flowChildren = 'right';
-    tabRow.style.marginBottom = '6px';
+    tabRow.style.marginBottom = '3px';
     function viewTab(caption, mode, last) {
       var b = tabify(btn(tabRow, caption, function () { setView(mode); }, S.label,
         mode === 'graph' ? T('Curves of the selected layer or property') : T('Every key, one row per property')));
       b.style.width = 'fit-children';
       b.style.paddingLeft = '0px'; b.style.paddingRight = '0px';
-      b.style.paddingTop = '4px'; b.style.paddingBottom = '6px';
-      b.style.marginRight = last ? '0px' : '16px';
-      b.__lbl.style.fontSize = '15px'; b.__lbl.style.letterSpacing = '1.4px';
+      b.style.paddingTop = '1px'; b.style.paddingBottom = '3px';
+      b.style.marginRight = last ? '0px' : '14px';
+      b.__lbl.style.fontSize = '12px'; b.__lbl.style.letterSpacing = '1.4px';
       return b;
     }
     var keysTab = viewTab(T('KEYFRAMES'), 'keys');
@@ -488,26 +488,36 @@ R"GEJS(
     // CAM EDITOR | CONFIG at the end of the view tabs, in KEYFRAMES and GRAPH alike: the workspace
     // hosting the dock is lit, the other one switches over. The native bar's colours (gold editor,
     // blue Config) and commands (CameraTimelineJs ModeSwapBtn).
-    tabRow.style.width = '100%';
-    var wsGap = mk('Panel', tabRow); wsGap.hittest = false; wsGap.style.width = 'fill-parent-flow(1.0)';
+    var wsPair = null;   // built at the right end of the lower toolbar row, below
     function wsBtn(caption, ws, fg, bg, bgOn, tip) {
-      var b = btn(tabRow, caption, function () {
+      var b = btn(wsPair, caption, function () {
         if (st && st.workspace !== ws) rawCmd(ws === 'editor' ? 'mirv_filmmaker editor on' : 'mirv_filmmaker config on');
       }, fg, tip);
-      b.style.marginLeft = '6px'; b.style.marginRight = '0px';
-      b.style.paddingTop = '3px'; b.style.paddingBottom = '3px'; b.style.paddingLeft = '10px'; b.style.paddingRight = '10px';
-      b.__lbl.style.fontSize = '11px'; b.__lbl.style.letterSpacing = '1px';
+      // Equal widths, one joined pair: the two halves of a single switch.
+      b.style.width = '50%'; b.style.marginRight = '0px'; b.style.borderRadius = '0px';
+      b.style.paddingTop = '3px'; b.style.paddingBottom = '3px'; b.style.paddingLeft = '0px'; b.style.paddingRight = '0px';
+      b.__lbl.style.fontSize = '10px'; b.__lbl.style.letterSpacing = '1px'; b.__lbl.style.horizontalAlign = 'center';
       b.__bgBase = bg; b.__fgBase = fg; b.__bgSel = bgOn; b.__fgSel = fg;
       b.style.border = '1px solid #ffffff14';
       b.__ws = ws; btnVisual(b);
       return b;
     }
-    var wsEditorBtn = wsBtn(T('CAM EDITOR'), 'editor', S.accent, '#4a3a10ff', '#6b5416ff',
+    function buildWsPair(parent) {
+      wsPair = mk('Panel', parent); wsPair.hittest = false; wsPair.style.flowChildren = 'right';
+      wsPair.style.width = '190px'; wsPair.style.marginLeft = '10px'; wsPair.style.verticalAlign = 'center';
+      wsPair.style.borderRadius = '3px'; wsPair.style.overflow = 'clip clip';
+    }
+    var wsEditorBtn = null, wsConfigBtn = null;
+    function buildWsButtons() {
+    wsEditorBtn = wsBtn(T('CAM EDITOR'), 'editor', S.accent, '#4a3a10ff', '#6b5416ff',
       T('The Camera Editor: camera paths, follow cameras and scene keys'));
-    var wsConfigBtn = wsBtn(T('CONFIG'), 'config', '#7fb6ffff', '#1c3552ff', '#28497aff',
+    wsConfigBtn = wsBtn(T('CONFIG'), 'config', '#7fb6ffff', '#1c3552ff', '#28497aff',
       T('Config: camera, effects, environment and scene objects'));
     tourSet('tl.ws.editor', wsEditorBtn); tourSet('tl.ws.config', wsConfigBtn);
+    }
     function paintWorkspaceBtns() {
+      if (!wsEditorBtn) return;
+      wsPair.visible = !!(st && st.workspace && st.workspace !== 'none');
       [wsEditorBtn, wsConfigBtn].forEach(function (b) {
         var on = !!(st && st.workspace === b.__ws);
         b.visible = !!(st && st.workspace && st.workspace !== 'none');
@@ -516,13 +526,13 @@ R"GEJS(
         b.style.border = '1px solid ' + (on ? b.__fgBase : '#ffffff14');
       });
     }
-    var selInfo = lbl(midCol, '', S.hint, 11); selInfo.hittest = false;
+    var selInfo = lbl(midCol, '', S.hint, 10); selInfo.hittest = false;
     selInfo.style.letterSpacing = '0.5px'; selInfo.style.whiteSpace = 'nowrap';
     selInfo.style.textOverflow = 'ellipsis'; selInfo.style.width = '100%';
     var rightCol = mk('Panel', header); rightCol.hittest = false;
     rightCol.style.flowChildren = 'down'; rightCol.style.verticalAlign = 'center';
     var rowTop = mk('Panel', rightCol); rowTop.hittest = false; rowTop.style.flowChildren = 'right';
-    rowTop.style.horizontalAlign = 'right'; rowTop.style.marginBottom = '5px';
+    rowTop.style.horizontalAlign = 'right'; rowTop.style.marginBottom = '3px';
     var prevKeyBtn = btn(rowTop, '|◀', function () { jumpKey(-1); }, S.value, T('Previous keyframe on the selected layer'));
     var playBtn = btn(rowTop, '▶', function () { togglePlay(); }, S.value, T('Play / pause ({0})', K('demo.pause', 'SPACE')));
     playBtn.style.width = '46px'; playBtn.__lbl.style.horizontalAlign = 'center';
@@ -537,7 +547,7 @@ R"GEJS(
     }, S.value, T('Keep every frame you play, so scrubbing back over it is instant'));
     cacheBtn.style.marginRight = '11px';
     // The SAME continuous speed scrubber the native demo bar carries.
-    var speedScrub = buildSpeedScrubber(rowTop, { width: 250, height: 30, font: S.font });
+    var speedScrub = buildSpeedScrubber(rowTop, { width: 230, height: 24, font: S.font });
     speedScrub.strip.style.marginRight = '0px';
     var rowBot = mk('Panel', rightCol); rowBot.hittest = false; rowBot.style.flowChildren = 'right';
     rowBot.style.horizontalAlign = 'right';
@@ -552,7 +562,7 @@ R"GEJS(
     var easeBtns = {};
     EASE_ITEMS.forEach(function (it) {
       var b = mk('Panel', easeBar); b.hittest = true; b.style.flowChildren = 'right';
-      b.style.paddingTop = '5px'; b.style.paddingBottom = '5px'; b.style.paddingLeft = '9px'; b.style.paddingRight = '9px';
+      b.style.paddingTop = '4px'; b.style.paddingBottom = '4px'; b.style.paddingLeft = '7px'; b.style.paddingRight = '7px';
       var gw = mk('Panel', b); gw.hittest = false; gw.style.width = '10px'; gw.style.height = '10px';
       gw.style.verticalAlign = 'center'; gw.style.marginRight = '6px';
       var l = lbl(b, it[1], S.label, 12); l.hittest = false; l.style.fontWeight = 'bold';
@@ -582,11 +592,12 @@ R"GEJS(
     }
     var snapBtn = btn(rowBot, T('SNAP'), function () { showSnapMenu(); }, S.value,
       T('Time snap: quantise the playhead and key placement to a tick grid'));
-    var undoBtn = btn(rowBot, T('↺ Undo'), function () { undo(false); }, S.value, T('Undo (Ctrl+Z)'));
-    var redoBtn = btn(rowBot, T('↻ Redo'), function () { undo(true); }, S.value, T('Redo (Ctrl+Shift+Z)'));
+    var undoBtn = btn(rowBot, '↺', function () { undo(false); }, S.value, T('Undo (Ctrl+Z)'));
+    var redoBtn = btn(rowBot, '↻', function () { undo(true); }, S.value, T('Redo (Ctrl+Shift+Z)'));
     var delBtn = btn(rowBot, '✕', function () { deleteSelection(); }, S.dangerText, T('Delete the selected keyframes (Del)'));
     delBtn.style.marginRight = '0px';
     delBtn.style.backgroundColor = S.dangerBg; delBtn.style.border = '1px solid ' + S.dangerBorder;
+    buildWsPair(rowBot); buildWsButtons();
 
     // ---- time-snap dropdown ---------------------------------------------
     // Real panels with onactivate because Custom… hosts a text field. It opens UNDER the SNAP pill.
@@ -677,8 +688,8 @@ R"GEJS(
     colHead.style.flowChildren = 'right'; colHead.style.paddingLeft = '10px'; colHead.style.paddingRight = '8px';
     colHead.style.borderRight = '1px solid ' + S.border; colHead.style.borderBottom = '1px solid ' + S.border;
     function headCap(text, w, align) {
-      var l = lbl(colHead, text, S.hint, 11); l.hittest = false;
-      l.style.fontWeight = 'bold'; l.style.letterSpacing = '2px'; l.style.verticalAlign = 'center';
+      var l = lbl(colHead, text, S.hint, 10); l.hittest = false;
+      l.style.fontWeight = 'bold'; l.style.letterSpacing = '1.6px'; l.style.verticalAlign = 'center';
       if (w) { l.style.width = w + 'px'; l.style.textAlign = align; l.style.marginLeft = '6px'; }
       else l.style.width = 'fill-parent-flow(1.0)';
       l.style.whiteSpace = 'nowrap'; l.style.textOverflow = 'shrink';
@@ -3139,8 +3150,8 @@ R"GEJS(
         var major = Math.abs(t / s.major - Math.round(t / s.major)) < 1e-6;
         box(rulerLayer, x, RULER_H - (major ? 10 : 5), 1, major ? 10 : 5, major ? '#ffffff55' : '#ffffff26');
         if (major) {
-          var l = lbl(rulerLayer, fmtTimeShort(t), S.hint, 11); l.hittest = false;
-          l.style.fontFamily = S.fontMonodigit; l.style.position = (x + 4).toFixed(0) + 'px 9px 0px';
+          var l = lbl(rulerLayer, fmtTimeShort(t), S.hint, 10); l.hittest = false;
+          l.style.fontFamily = S.fontMonodigit; l.style.position = (x + 4).toFixed(0) + 'px 3px 0px';
         }
       }
     }
@@ -3241,9 +3252,8 @@ R"GEJS(
       phLine.style.height = (DOCK_H - FOOTER_H - (HEADER_H + OVERVIEW_H + 8)) + 'px';
       footer.style.position = '0px ' + (DOCK_H - FOOTER_H) + 'px 0px'; footer.style.width = dockW + 'px'; footer.style.height = FOOTER_H + 'px';
       emptyHint.style.position = (LEFTW + 24) + 'px ' + (ROWS_Y + 60) + 'px 0px';
-      // A narrow dock (a wide inspector) keeps the ease strip's glyphs and drops its words.
-      var narrow = dockW < 1180;
-      EASE_ITEMS.forEach(function (it) { easeBtns[it[0]].__lbl.visible = !narrow; easeBtns[it[0]].__gw.style.marginRight = narrow ? '0px' : '6px'; });
+      // The ease strip is glyphs only: the tooltips and the key right-click menu name them.
+      EASE_ITEMS.forEach(function (it) { easeBtns[it[0]].__lbl.visible = false; easeBtns[it[0]].__gw.style.marginRight = '0px'; });
       rowSig = ''; trackSig = ''; graphSig = ''; navSig = '';
       return true;
     }
@@ -3486,6 +3496,16 @@ R"GEJS(
     api.fit = function () { fitAll(); };
     // Automation (captures, live checks): select a row by its node id, as a click on its name does.
     api.select = function (id) { if (nodeById('' + id)) { selectNode('' + id); trackSig = ''; graphSig = ''; } return selNode; };
+    // A workspace switch HIDES the built dock instead of deleting it (GraphEditorExperimentHud::Park):
+    // rebuilding it cost 20-40 ms in the switch frame. The next render() shows it again.
+    api.park = function () {
+      try { if (editState) cancelEdit(); } catch (e) {}
+      try { closeMenu(); hideSnapMenu(); hideTip(); } catch (e2) {}
+      root.SetAttributeString('state', '');
+      publishTextCapture();
+      root.visible = false;
+      return 'parked';
+    };
     $.GraphExp = api;
     api.render();
     $.Msg('[timeline] unified timeline built.\n');

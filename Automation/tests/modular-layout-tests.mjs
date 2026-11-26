@@ -111,7 +111,12 @@ test('a press on a surface drawn over the windows never reaches a window underne
   // Each surface registers itself from its own script.
   assert.match(read('Panorama', 'GraphEditorJs.h'), /\$\.MvmWinCovers\.dock = function \(px, py\) \{/);
   assert.match(read('Panorama', 'CameraTimelineJs.h'), /\$\.MvmWinCovers\.timelineBar = function \(px, py\) \{/);
-  assert.match(read('Panorama', 'CameraEditorCustomizeJs.h'), /\$\.MvmWinCovers\.customize = function \(\) \{ return custOverlay\.IsValid\(\) && custOverlay\.visible; \};/);
+  // Customize covers the whole screen, except in the MODULAR layout, where only its card does: the
+  // CONFIG and Camera Editor windows stay movable beside it.
+  const cust = read('Panorama', 'CameraEditorCustomizeJs.h');
+  assert.match(cust, /\$\.MvmWinCovers\.customize = function \(px, py\) \{/);
+  assert.match(cust, /if \(!\(st && st\.modular\) \|\| typeof px !== 'number'\) return true;/);
+  assert.match(read('Panorama', 'ModuleWindowJs.h'), /typeof st\.winLmb === 'boolean' \? st\.winLmb : st\.lmb/);
   assert.match(editor, /\$\.MvmWinCovers\.clearConfirm = function \(\) \{ return confirmOverlay\.IsValid\(\) && confirmOverlay\.visible; \};/);
   assert.match(read('Panorama', 'EditorSettingsPopupJs.h'), /\$\.MvmWinCovers\['settings:' \+ \(opts\.id \|\| 'MvmEditorSettingsRoot'\)\] = function \(\) \{/);
 });

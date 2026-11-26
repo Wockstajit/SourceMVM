@@ -146,7 +146,7 @@ R"CFJS(
     var envWindDirection = 0;
     var envWindSpeedControl = sliderRow(envWxGeneral, {
       label: T('Wind speed'), min: 0, max: 500, decimals: 0, unit: 'u/s',
-      tip: T('How strongly the wind pushes the weather.'),
+      tip: '',
       onChange: function (v) {
         envEnsureEnabled();
         envCommand('weather wind ' + v + ' ' + envWindDirection);
@@ -157,7 +157,7 @@ R"CFJS(
     });
     var envWindDirectionControl = sliderRow(envWxGeneral, {
       label: T('Wind direction'), min: 0, max: 360, decimals: 0, unit: '°',
-      tip: T('Compass direction of the wind.'),
+      tip: '',
       onChange: function (v) {
         var w = envState().weather; envWindDirection = v;
         envEnsureEnabled();
@@ -202,10 +202,10 @@ R"CFJS(
     cs(envWxSand, 'sand'); cs(envWxSand, 'sandDepth'); cs(envWxSand, 'tumbleweeds');
     cw(envWxSand, T('Sand on props'), 'sandProps', T('Coats props like cars, crates and barrels, including subtle wind-blown sand on their sides and edges. Off keeps sand on walkable ground and wall bases.'));
     subHead(envWxSand, T('Sandstorm'));
-    actionGroup(envWxSand, T('Sandstorm preset'), [
+    presetActions(envWxSand, T('Sandstorm preset'), [
       [T('Sand breeze'), function () { envChooseWeather('sand'); }],
       [T('Sandstorm'), function () { envChooseWeather('sandstorm'); }]
-    ], 2, T('Sandstorm turns both height fog and floor fog dusty yellow with heavy blown sand, gusts and tumbleweeds.'));
+    ]);
     var envSandFog = sliderRow(envWxSand, {
       label: T('Sandstorm fog'), min: 0, max: 6, decimals: 2, unit: '', offAtZero: true,
       tip: T('Density of the regular height fog during a sandstorm. Shared with the Fog card.'),
@@ -224,7 +224,7 @@ R"CFJS(
     cs(envWxStorm, 'stormStrength'); cs(envWxStorm, 'stormInterval'); cs(envWxStorm, 'stormRadius');
     actionGroup(envWxStorm, T('Storm center'), [
       [T('Place at camera'), function () { envEnsureEnabled(); envCommand('storm-center'); }]
-    ], 1, T('Centers lightning strikes around the current camera position.'));
+    ], 1);
 )CFJS"
 #include "ConfigHudHeatmapJs.h"
 #include "ConfigHudAltEnvironmentJs.h"

@@ -51,11 +51,6 @@ R"CFJS(
     var aeResetSpec = { cmds: ['mirv_filmmaker altenv reset'] };
     var aeHeadReset = aeSec.__headerReset(aeResetSpec, 'env.map');
 
-    var aeIntro = aeWrapLabel(lbl(aeSec, '', S.hint, 12));
-    aeIntro.hittest = false; aeIntro.style.marginTop = '2px';
-    aeIntro.style.paddingLeft = UI.line.padH + 'px'; aeIntro.style.paddingRight = UI.line.padH + 'px';
-    aeIntro.text = T('Play this demo on another map, such as a night or rain version from the Workshop. '
-      + 'Players, weapons, grenades and effects stay where the demo recorded them; the new map is moved under them.');
     endTileLine(aeSec);
 
     // ---- which map ----
@@ -210,8 +205,6 @@ R"CFJS(
       'fill-parent-flow(1.0)', function (k) { aePage = 0; aeListSig = ''; aeSort.sync(k); aeCmd('list sort ' + k + ' quiet'); }, 12);
     if (aeSort.btns) {
       attachTip(aeSort.btns.alike, T('The maps most like the demo\'s own first: a remake of the same map by its name, or by how well its layout matches (AUTO ALIGN\'s score, or the floors measured where map data is already on disk).'));
-      attachTip(aeSort.btns.name, T('A to Z by title.'));
-      attachTip(aeSort.btns.recent, T('The most recently downloaded or installed first.'));
     }
     var aeOwn = wideBtn(aeList, '', function () { aeCmd('pick none'); }, S.label);
     aeOwn.__lbl.style.whiteSpace = 'normal'; aeOwn.style.marginBottom = '6px';

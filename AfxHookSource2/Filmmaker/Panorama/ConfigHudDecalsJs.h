@@ -44,7 +44,6 @@ R"CFJS(
     attachTip(dcHead, T('Drag a decal in the view to move it. It sticks to the wall or floor under the cursor.'));
     var dcHeadEye = mk('Panel', dcHead); dcHeadEye.style.width = '30px'; dcHeadEye.style.height = DC_ROW_H + 'px';
     olIcon(dcHeadEye, 'eye', 14, '#8b95a3ff');
-    attachTip(dcHeadEye, T('Shown in the view'));
     var dcWell = scrollWell(dcTree, DC_LIST_ROWS * (DC_ROW_H + 1));
     var decalListHost = dcWell.inner;
     var dcEmpty = lbl(dcTree, T('Nothing yet'), S.muted, 12);

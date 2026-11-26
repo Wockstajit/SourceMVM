@@ -69,18 +69,20 @@ R"CFJS(
         + 'lands, at the end of the animation, and after it hits a wall. The ragdoll picks up the '
         + 'motion smoothly instead of the body snapping loose. 0 lets go at once.')
     });
-    var daWalls = togglePill(daPage, T('React to walls'),
+    var daBodyGrid = toggleGrid(daPage);
+    var daWalls = togglePill(daBodyGrid.cell(), T('React to walls'),
       T('Arms and legs that hit something bend or go limp; a body that hits a wall stops the animation.'),
       function () { cmd('mirv_filmmaker deathanim walls ' + (st && st.daWalls ? 'off' : 'on')); },
       T('A limb pushed a little by a wall or object bends against it; pushed hard, it goes limp while '
         + 'the rest of the animation keeps playing. If the chest, hips or head hit something, the '
         + 'animation stops and physics takes over from there.'));
-    var daSolid = togglePill(daPage, T('Solid body'),
+    var daSolid = togglePill(daBodyGrid.cell(), T('Solid body'),
       T('The body collides with floors, walls and itself while the animation plays.'),
       function () { cmd('mirv_filmmaker deathanim solid ' + (st && st.daSolid ? 'off' : 'on')); },
       T('On: the animation steers the body, and physics keeps knees, feet and arms out of the floor '
         + 'and walls. Off: the body follows the animation exactly, even if that means sinking '
         + 'into the ground or passing through a wall.'));
+    daBodyGrid.__layout();
     var daPickBtn = wideBtn(daPage, T('PER-PLAYER ANIMATIONS'), function () {
       if ($.ConfigHudDap) $.ConfigHudDap.open();
     }, S.accent);
@@ -104,7 +106,7 @@ R"CFJS(
       daSolid.set(!!st.daSolid);
       var counts = st.daClips || [0, 0, 0];
       var n = counts[src] || 0;
-      daInfo.text = !st.daOn ? T('Off. Deaths use the normal ragdoll.')
+      daInfo.text = !st.daOn ? ''
         : (!st.daLoaded ? T('Loading clips...')
         : (n > 0 ? TN(n, '{0} clip. Hit location and direction pick the clip.',
                      '{0} clips. Hit location and direction pick the clip.')
@@ -121,22 +123,24 @@ R"CFJS(
     // Headshots go limp at once. The Death Animations master gates it (nsTog is its header switch).
     // Prefix `ns`: the fragments share one scope.
     subHead(nsPage, T('Reactions'));
-    var nsReach = togglePill(nsPage, T('Reach for the wound'),
+    var nsReactGrid = toggleGrid(nsPage);
+    var nsReach = togglePill(nsReactGrid.cell(), T('Reach for the wound'),
       T('Hands go to where the shot landed. A leg hit grabs the leg and draws it up, a stomach hit '
         + 'curls up with both hands on it, an arm hit clutches it with the other hand.'),
       function () { cmd('mirv_filmmaker nervous reach ' + (st && st.nsReach ? 'off' : 'on')); });
-    var nsBreath = togglePill(nsPage, T('Breathing'),
+    var nsBreath = togglePill(nsReactGrid.cell(), T('Breathing'),
       T('The chest heaves, fast at first and slowing down, with one last breath at the end.'),
       function () { cmd('mirv_filmmaker nervous breath ' + (st && st.nsBreath ? 'off' : 'on')); });
-    var nsWrithe = togglePill(nsPage, T('Writhing'),
+    var nsWrithe = togglePill(nsReactGrid.cell(), T('Writhing'),
       T('Arms, legs and head move in pain. Grenade and fire deaths thrash and kick their legs.'),
       function () { cmd('mirv_filmmaker nervous writhe ' + (st && st.nsWrithe ? 'off' : 'on')); });
-    var nsTwitch = togglePill(nsPage, T('Twitches'),
+    var nsTwitch = togglePill(nsReactGrid.cell(), T('Twitches'),
       T('Short spasms of a hand, foot or the head, more of them as the body fades.'),
       function () { cmd('mirv_filmmaker nervous twitch ' + (st && st.nsTwitch ? 'off' : 'on')); });
-    var nsRollOver = togglePill(nsPage, T('Roll over'),
+    var nsRollOver = togglePill(nsReactGrid.cell(), T('Roll over'),
       T('A body that lands face down tries to turn onto its back before reaching for the wound.'),
       function () { cmd('mirv_filmmaker nervous rollover ' + (st && st.nsRollOver ? 'off' : 'on')); });
+    nsReactGrid.__layout();
     subHead(nsPage, T('Timing'));
     var nsStrength = sliderRow(nsPage, {
       label: T('Reaction strength'), cmd: 'mirv_filmmaker nervous strength',
@@ -183,10 +187,8 @@ R"CFJS(
       nsRollOver.set(!!st.nsRollOver);
       nsInfo.text = !st.daOn ? (st.nsOn
           ? T('Armed: reactions start as soon as Death animations are switched on.')
-          : T('Death animations are off, so the nervous system is inactive. Switch them on first.'))
-        : !st.nsOn ? T('Nervous system off. Bodies go limp when they die.')
-        : T('Where the shot landed decides the reaction. Headshots go limp at once.')
-          + (st.nsActive > 0 ? ' ' + T('Reacting: {0}.', st.nsActive) : '');
+          : '')
+        : (st.nsOn && st.nsActive > 0) ? T('Reacting: {0}.', st.nsActive) : '';
       // Each card's own summary. The death animations card names its clip source and count; the
       // nervous system card lists the reactions that are on, or says what it is waiting for.
       var srcName = ['MW2019', T('Classic CoD'), T('Extra'), T('HL: Alyx')][(typeof st.daSource === 'number') ? st.daSource : 0];
@@ -241,10 +243,6 @@ R"CFJS(
     // that breaks on a game update beyond a convar rename.
     var rpSec = section(pageRagdolls, T('PHYSICS'), true, false, 'ragdoll.physics');
     var rpReset = rpSec.__headerReset(['mirv_filmmaker ragdollphys reset'], 'rag.physics');
-    var rpNote = lbl(rpSec, T('Affects bodies as they fall. Existing bodies keep the physics they landed with.'),
-      S.hint, 12);
-    rpNote.style.whiteSpace = 'normal'; rpNote.style.width = '100%';
-    rpNote.style.paddingLeft = UI.line.padH + 'px'; rpNote.style.paddingRight = UI.line.padH + 'px';
 
     var rpGravity = sliderRow(rpSec, {
       label: T('Gravity'), cmd: 'mirv_filmmaker ragdollphys gravity',
@@ -287,18 +285,20 @@ R"CFJS(
     var maTog = maSec.__headerPill(function () {
       cmd('mirv_filmmaker methodacting ' + (st && st.actingOn ? 'off' : 'on'));
     }, T('Subtle eye movement and reactions. Works on agents with animated eyes.'));
-    var maBlinkTog = togglePill(maSec, T('Blink naturally'),
+    var maEyesGrid = toggleGrid(maSec);
+    var maBlinkTog = togglePill(maEyesGrid.cell(), T('Blink naturally'),
       T('Irregular blinks with occasional double blinks. Timing is automatic.'),
       function () { cmd('mirv_filmmaker methodacting blink ' + (st && st.actingBlink ? 'off' : 'on')); });
-    var maSquintTog = togglePill(maSec, T('Combat squint'),
+    var maSquintTog = togglePill(maEyesGrid.cell(), T('Combat squint'),
       T('Squint while firing, when hit, near incoming shots, and while blinded by a flashbang.'),
       function () { cmd('mirv_filmmaker methodacting squint ' + (st && st.actingSquint > 0 ? '0' : '0.5')); });
-    var maGazeTog = togglePill(maSec, T('Look around'),
+    var maGazeTog = togglePill(maEyesGrid.cell(), T('Look around'),
       T('Held left and right glances, occasional head turns, and brief looks toward nearby players.'),
       function () { cmd('mirv_filmmaker methodacting gaze ' + (st && st.actingGaze ? 'off' : 'on')); });
-    var maDeathTog = togglePill(maSec, T('Relax eyes on death'),
+    var maDeathTog = togglePill(maEyesGrid.cell(), T('Relax eyes on death'),
       T('Eyes roll upward and slightly aside, then rest under partly open lids.'),
       function () { cmd('mirv_filmmaker methodacting deatheyes ' + (st && st.actingDeathEyes ? 'off' : 'on')); });
+    maEyesGrid.__layout();
     renderHooks.push(function (st) {
       maTog.set(!!st.actingOn);
       maBlinkTog.set(!!st.actingBlink);

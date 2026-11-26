@@ -35,10 +35,8 @@
 // Graph (z65) and timeline (z55) roots, and the menu is then covered whenever a bottom editor is
 // open. Each host passes a unique `id` and deletes that id in its own Teardown.
 //
-// ACCENT: Editor Settings deliberately does NOT use the Camera Editor's gold accent, which every
-// other selected control there already uses. It carries the theme blue (#80bdffff -- S.freeze in
-// the editor, S.accent in Config) so "these are engine/demo playback settings, not camera state"
-// reads at a glance. Hosts should paint their own trigger button with the same blue.
+// ACCENT: the host's own accent (gold in the Camera Editor, blue in Config), so the card reads as
+// part of the panel that opened it. Hosts paint their trigger button with the same colour.
 
 R"ESJS(
     function mvmEditorSettingsPopup(ctx, opts) {

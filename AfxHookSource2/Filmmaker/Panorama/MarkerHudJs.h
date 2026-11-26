@@ -656,17 +656,12 @@ R"MKJS(
       var perSeg = (sm === 'Per-Segment');
       mulStepper.row.visible = (perSeg && !s.isLast);
 
-      if (!freeze) {
-        expl.text = T('LIVE: the camera follows the replay — markers are hit at their tick/time. Use the speed scrubber for pace. The speed modes shape FREEZE playback.');
-      } else if (sm === 'Manual') {
-        expl.text = T('FREEZE · Manual: each segment’s duration is the tick/time gap to the next marker.');
-      } else if (sm === 'Constant') {
-        expl.text = T('FREEZE · Constant: the whole path glides at one shared speed.');
-      } else if (s.isLast) {
-        expl.text = T('No outgoing segment — the last marker ends the path.');
-      } else {
-        expl.text = T('FREEZE · Per-Segment: this marker controls the move to the next marker.');
-      }
+      // Only the one state worth saying: a last marker has nothing to time. The mode rows above
+      // already name the mode, so it is not explained again here.
+      var explText = (freeze && sm !== 'Manual' && sm !== 'Constant' && s.isLast)
+        ? T('No outgoing segment — the last marker ends the path.') : '';
+      expl.text = explText;
+      expl.visible = explText !== '';
 
       resetDelAll();
     };

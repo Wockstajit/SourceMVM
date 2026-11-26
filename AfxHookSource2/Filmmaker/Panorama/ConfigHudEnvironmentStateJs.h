@@ -37,7 +37,6 @@ R"CFJS(
     envPresetBtn.SetPanelEvent('onmouseover', function () { envPresetBtnPaint(true); });
     envPresetBtn.SetPanelEvent('onmouseout', function () { envPresetBtnPaint(false); });
     envPresetBtn.SetPanelEvent('onactivate', function () { if (envPresetMenu) cfgDropdownClose(); else envPresetOpen(); });
-    attachTip(envPresetBtn, T('Scene presets: save the whole environment under a name, or load one.'));
 
     var envNameField = null, envNameLabel = null;
     function envNamePaint() {
@@ -99,8 +98,6 @@ R"CFJS(
         r.SetPanelEvent('onactivate', function () { envName = name; envCommand('load "' + name + '"'); cfgDropdownClose(); });
       });
       if (!((st && st.envPresets) || []).length) envNote(m, T('No saved presets yet.'));
-      var foot = lbl(m, T('Stores the complete environment. Placed objects belong to the map they were placed on.'), S.hint, 11);
-      foot.style.marginTop = '8px'; foot.style.whiteSpace = 'normal';
       var tools = actionRowEnd(m, 8);
       actionBtn(tools, T('Refresh list'), function () { envCommand('rescan'); cfgDropdownClose(); });
       actionBtn(tools, T('Reload map geometry'), function () { envCommand('reload-geometry'); });

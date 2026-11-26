@@ -207,7 +207,7 @@ R"CFJS(
         applyWorldTint(c[0] + ' ' + c[1] + ' ' + c[2]);
       }],
       [T('Reset tint'), function () { cmd('mirv_filmmaker world modulate reset'); }]
-    ], 2, T('Reaches map geometry, model props, foliage, players and the HDR sky.'));
+    ], 2);
 
     // Local half of the footer's RESET: only the open pickers. Both swatch grids and the strength
     // value mirror back from C++, so the commands settle them.

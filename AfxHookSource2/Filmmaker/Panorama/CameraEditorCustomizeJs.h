@@ -800,7 +800,17 @@ R"EDJS(
     // Exclusive and full screen while it is up: no press under it moves, scales or closes a MODULAR
     // window (ModuleWindowJs.h, $.MvmWinCovers).
     if (!$.MvmWinCovers) $.MvmWinCovers = {};
-    $.MvmWinCovers.customize = function () { return custOverlay.IsValid() && custOverlay.visible; };
+    // In the MODULAR layout only the card itself covers: the CONFIG and Camera Editor windows stay
+    // movable and scalable by their title bars and corners while Customize is open beside them.
+    $.MvmWinCovers.customize = function (px, py) {
+      if (!custOverlay.IsValid() || !custOverlay.visible) return false;
+      if (!(st && st.modular) || typeof px !== 'number') return true;
+      var r = custWin.GetPositionWithinWindow ? custWin.GetPositionWithinWindow() : null;
+      if (!r) return true;
+      var w = custWin.actuallayoutwidth || 0, h = custWin.actuallayoutheight || 0, k = CUST_SCALE || 1;
+      var x0 = r.x + w * (1 - k) / 2, y0 = r.y + h * (1 - k) / 2;
+      return px >= x0 && px < x0 + w * k && py >= y0 && py < y0 + h * k;
+    };
     // A tool window over a CLEAR backdrop (CameraEditorCustomizeWindowJs.h): the game behind it is
     // what is being changed, so it is no longer dimmed. The backdrop still takes every click outside
     // the window -- the modal is an exclusive surface, nothing reaches the editor, CONFIG or the game

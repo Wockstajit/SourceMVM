@@ -112,7 +112,7 @@ test('C++ publishes a suggestion plus an epoch, and never re-derives it from the
 test('the dock follows the design: 440 tall, toolbar, overview over the ruler, rows, footer', () => {
   // 440 is the design height and the most the operator's top-edge drag allows (Movie/TimelineDock.h).
   assert.match(graph, /var DOCK_H_MAX = 440, DOCK_H_MIN = 220;/);
-  assert.match(graph, /var DOCK_H = DOCK_H_MAX, HEADER_H = 72, OVERVIEW_H = 14, RULER_H = 26, ROWS_Y = 112, FOOTER_H = 26;/);
+  assert.match(graph, /var DOCK_H = DOCK_H_MAX, HEADER_H = 56, OVERVIEW_H = 10, RULER_H = 20, ROWS_Y = 86, FOOTER_H = 26;/);
   assert.match(graph, /var LEFTW = 296, PAD = 12, SB_W = 12, ROW_H = 22, VAL_W = 120, NAV_W = 54;/);
   assert.match(graph, /overview\.style\.position = LEFTW \+ 'px ' \+ HEADER_H \+ 'px 0px'/);
   assert.match(graph, /ruler\.style\.position = LEFTW \+ 'px ' \+ \(HEADER_H \+ OVERVIEW_H\) \+ 'px 0px'/);

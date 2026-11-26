@@ -1088,6 +1088,7 @@ R"TLJS(
       'MvmEggRoot': 1,
       // Clippy's onboarding tutorial: it has to stay up while it explains the hidden-HUD views.
       'MvmOnboardingRoot': 1 };
+    var OURS_PREFIX = /^(CamEditor|CamTimeline|ConfigHud|ConfigEditor|Mvm|GraphExp|MarkerHud|MovieHud|SceneEditor)/;
     var VIEWPORT_HUD_ROOTS = {
       'HudBottomGradient': 1,
       'HudInWorld': 1,
@@ -1260,7 +1261,7 @@ R"TLJS(
         var nk = ctx.GetChildCount ? ctx.GetChildCount() : 0;
         for (var i = 0; i < nk; i++) {
           var c = ctx.GetChild(i);
-          if (!c || OURS[c.id]) continue;
+          if (!c || isOurPanel(c)) continue;
           if ((c.FindChildTraverse && (c.FindChildTraverse('SliderRow') || c.FindChildTraverse('ControlRow')))) continue;
           var kept = hudKeepIn[c.id];
           if (kept) {
@@ -1282,7 +1283,10 @@ R"TLJS(
 R"TLJS(
     var viewportHudPanels = [];
     function isOurPanel(p) {
-      return !!(p && OURS[p.id]);
+      // By name as well as by list: every root this project adds to the HUD context starts with one
+      // of these, and a new one (a settings card, a toast) must not have to be added here by hand or
+      // Hide All hides it the moment it opens.
+      return !!(p && (OURS[p.id] || OURS_PREFIX.test(p.id || '')));
     }
     function isViewportHudRoot(p) {
       return !!(p && VIEWPORT_HUD_ROOTS[p.id]);

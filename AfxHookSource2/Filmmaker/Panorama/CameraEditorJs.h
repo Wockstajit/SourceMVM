@@ -288,7 +288,7 @@ R"EDJS(
       publish: root,
       modular: function () { return !!(st && st.modular); },
       marginBottom: BOTTOM_H + 16,
-      accent: S.freeze,          // Editor Settings owns the theme BLUE, not the editor's gold
+      accent: S.accent,          // the editor's gold, like the rest of the editor
       debugTag: 'camsettings',
       debugOn: function () { return mvmDebugOn(); },
       debugState: function () { return 'en=' + (st && st.enabled) + ' cur=' + (st && st.cursor); },

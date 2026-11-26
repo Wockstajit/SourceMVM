@@ -92,6 +92,9 @@ private:
 	void* FindRoot();
 	bool BuildIfNeeded();
 	void Teardown();
+	// Close in the demo workspace: hide the built panel instead of deleting it, so the next open
+	// (a switch back from the Camera Editor) skips the ~250 ms rebuild. See $.ConfigHud.park.
+	void Park();
 	void DispatchWheel(); // main thread: drain the queue into the panel's JS
 	void DispatchChars(); // main thread: drain typed numeric input into the panel's JS
 	void UpdateTextCapture();

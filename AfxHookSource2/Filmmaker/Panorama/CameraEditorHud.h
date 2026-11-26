@@ -141,6 +141,9 @@ private:
 	void* FindRoot();
 	bool BuildIfNeeded();
 	void Teardown();
+	// Close without deleting: one render() of the closed state hides the editor's roots, and the
+	// next open (a switch back from CONFIG) skips the ~200 ms rebuild.
+	void Park();
 	std::string BuildStateJson();
 	void OnEnter(); // one-shot: host the timeline, hide MovieHud (no free-cam / no jump on open)
 	void OnExit();  // one-shot: un-host the timeline, restore MovieHud, stop scrub
