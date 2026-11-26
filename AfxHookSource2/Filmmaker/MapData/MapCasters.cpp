@@ -351,8 +351,8 @@ struct DrawCallStreams {
 
 class NodeExporter {
 public:
-    NodeExporter(const PackageSet &r, TextureCache &t, std::vector<Batch> &b, std::vector<std::string> &w)
-        : resources(r), textures(t), batches(b), warnings(w) {}
+    NodeExporter(const PackageSet &r, TextureCache &t, std::vector<Batch> &b, std::vector<Float3> &wa, std::vector<std::string> &w)
+        : resources(r), textures(t), batches(b), water(wa), warnings(w) {}
 
     void Export(const Kv3 &node) {
         std::map<uint32_t, std::vector<MaterialOverride>> overrides;
@@ -394,6 +394,7 @@ private:
     const PackageSet &resources;
     TextureCache &textures;
     std::vector<Batch> &batches;
+    std::vector<Float3> &water;
     std::vector<std::string> &warnings;
     std::map<std::string, std::vector<Primitive>> exportedMeshes;
     std::map<std::pair<std::string, Vec4>, int> materialKeys;
@@ -621,6 +622,10 @@ private:
             warnings.push_back("non-triangle draw call left out: " + m.name);
             return;
         }
+        if (ContainsNoCase(m.shader, "water")) {
+            EmitWater(p, placement, dc);
+            return;
+        }
         bool foliage = false, blockerShader = false;
         if (!AllowedShader(m.shader, foliage, blockerShader)) return;
         const bool blocker = blockerShader && ContainsNoCase(m.name, "blocklight");
@@ -703,6 +708,44 @@ private:
             }
             b.indices.push_back(r->second);
         }
+    }
+
+    // WATER SURFACES (CS2's water shaders) cast nothing, but the coatings and the relighting must know
+    // where water lies: snow and sand are not laid over it, and it keeps the game's own shading. Only
+    // the triangles' world positions are kept.
+    void EmitWater(const Primitive &p, const Placement &placement, const Kv3 &dc) {
+        const DrawCallStreams s = Streams(*p.mesh, dc);
+        std::vector<Float3> pos;
+        if (!s.position || !ReadFloat3(*s.position, *s.positionAttr, pos)) return;
+        const int64_t ibIndex = dc["m_indexBuffer"]["m_hBuffer"].Integer(-1);
+        if (ibIndex < 0 || size_t(ibIndex) >= p.mesh->indexBuffers.size()) return;
+        const GpuBuffer &ib = p.mesh->indexBuffers[size_t(ibIndex)];
+        const int64_t baseVertex = dc["m_nBaseVertex"].Integer(), start = dc["m_nStartIndex"].Integer(), count = dc["m_nIndexCount"].Integer();
+        if (start < 0 || count < 0 || count % 3 || (ib.stride != 2 && ib.stride != 4) || size_t(start + count) * ib.stride > ib.data.size()) return;
+        std::vector<Float3> tris;
+        tris.reserve(size_t(count));
+        for (int64_t i = 0; i < count; ++i) {
+            int64_t vertex;
+            if (ib.stride == 4) {
+                int32_t v;
+                std::memcpy(&v, ib.data.data() + size_t(start + i) * 4, 4);
+                vertex = int64_t(int32_t(uint32_t(v) + uint32_t(baseVertex)));
+            } else {
+                uint16_t v;
+                std::memcpy(&v, ib.data.data() + size_t(start + i) * 2, 2);
+                vertex = baseVertex + v;
+            }
+            if (vertex < 0 || size_t(vertex) >= pos.size()) return;
+            const Float3 w = placement.Apply(pos[size_t(vertex)]);
+            if (!std::isfinite(w[0]) || !std::isfinite(w[1]) || !std::isfinite(w[2]) ||
+                std::fabs(w[0]) > 100000 || std::fabs(w[1]) > 100000 || std::fabs(w[2]) > 100000) return;
+            tris.push_back(w);
+        }
+        if (water.size() + tris.size() > size_t(kWaterTrianglesMax) * 3) {
+            warnings.push_back("water surfaces beyond the limit left out");
+            return;
+        }
+        water.insert(water.end(), tris.begin(), tris.end());
     }
 
     Batch CreateBatch(const Material &m, bool foliage, bool blocker, bool cutout, bool stained, bool missingWeights) {
@@ -789,6 +832,7 @@ private:
 std::vector<uint8_t> BuildVisualCasters(const Vpk &package, const PackageSet &resources, CasterStats &stats,
                                         std::vector<std::string> &warnings, const CasterProgress &progress) {
     std::vector<Batch> batches;
+    std::vector<Float3> water;
     TextureCache textures{resources, warnings, {}};
     const auto nodes = package.List("vwnod_c");
     if (nodes.empty()) throw MapDataError("no world nodes in map package");
@@ -798,7 +842,7 @@ std::vector<uint8_t> BuildVisualCasters(const Vpk &package, const PackageSet &re
         std::vector<uint8_t> bytes;
         package.Read(nodes[n], bytes);
         const Kv3 node = Resource(std::move(bytes)).Kv3Block("DATA");
-        NodeExporter(resources, textures, batches, warnings).Export(node);
+        NodeExporter(resources, textures, batches, water, warnings).Export(node);
     }
 
     // Validation (former converter bounds); offending batches are left out, not the map.
@@ -851,7 +895,7 @@ std::vector<uint8_t> BuildVisualCasters(const Vpk &package, const PackageSet &re
                            std::to_string(rigid.vertices.size()) + " vertices, " + std::to_string(rigid.indices.size()) + " indices");
 
     ByteWriter w;
-    w.Bytes("MVMCAST6", 8);
+    w.Bytes("MVMCAST7", 8);
     w.Put(int32_t(cutouts.size()));
     w.Put(int32_t(1));
     w.Put(int32_t(rigid.vertices.size()));
@@ -883,10 +927,13 @@ std::vector<uint8_t> BuildVisualCasters(const Vpk &package, const PackageSet &re
         w.Bytes(b->indices.data(), b->indices.size() * 4);
         w.Bytes(b->color.data(), b->color.size());
     }
+    w.Put(int32_t(water.size() / 3));
+    for (const Float3 &p : water) w.Bytes(p.data(), 12);
 
     stats.batches = batches.size();
     stats.cutoutBatches = cutouts.size();
     stats.stainedGlassBatches = stained.size();
+    stats.waterTriangles = water.size() / 3;
     stats.rigidVertices = rigid.vertices.size();
     stats.rigidTriangles = rigid.indices.size() / 3;
     stats.bytes = bytes;

@@ -174,7 +174,7 @@ R"EDJS(
         + ' env.groundFogShadows env.groundFogShadeColor env.groundFogFlow env.groundFogPushSize env.groundFogRecovery'
         + ' env.groundFogSwirl env.groundFogWind env.groundFogWindAngle env.groundFogChurn'
         + ' env.weather.type env.weather.count env.weather.speed env.weather.windSpeed env.weather.windDirection env.gusts env.foliageWind'
-        + ' env.wet env.puddles env.snow env.snowDepth env.storm env.stormStrength env.stormInterval env.stormRadius'
+        + ' env.wet env.puddles env.snow env.snowDepth env.sand env.sandDepth env.sandHarmonize env.sandColor env.tumbleweeds env.storm env.stormStrength env.stormInterval env.stormRadius'
         + ' lens.dof.focus lens.dof.fstop lens.dof.focalLength lens.flare.intensity lens.flare.halo lens.flare.streak lens.flare.dirt ')
         .indexOf(' ' + id + ' ') >= 0;
     }

@@ -6,6 +6,7 @@
 #include <chrono>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <string>
 
 namespace Filmmaker::Environment {
@@ -13,6 +14,8 @@ namespace {
 std::future<std::shared_ptr<SurfaceRayGrid>> g_pending;
 std::shared_ptr<const OcclusionMesh> g_building, g_geometry; // g_geometry: the mesh g_grid was built for
 std::shared_ptr<const SurfaceRayGrid> g_grid;
+std::mutex g_snapshotLock;
+MapCollisionSnapshot g_snapshot;
 std::string g_status = "waiting for map data";
 } // namespace
 
@@ -23,6 +26,10 @@ void MapCollisionGrid_Pump() {
 		if (g_building == CollisionGeometrySnapshot()) {
 			g_geometry = g_building;
 			g_grid = grid;
+			{
+				std::lock_guard<std::mutex> lock(g_snapshotLock);
+				g_snapshot = {g_geometry, g_grid};
+			}
 			g_status = grid ? "ready (static map collision)" : "grid build failed: full sweep";
 			MvmDebugLog_LinefAlways("map.collision.grid", "triangles=%zu cells=%zu buckets=%zu status=%s",
 				g_geometry->indices.size() / 3, g_grid ? g_grid->CellCount() : 0,
@@ -34,6 +41,10 @@ void MapCollisionGrid_Pump() {
 	if (mesh == g_geometry) return;
 	g_geometry.reset();
 	g_grid.reset();
+	{
+		std::lock_guard<std::mutex> lock(g_snapshotLock);
+		g_snapshot = {};
+	}
 	if (!mesh) { g_status = "waiting for map data"; return; }
 	g_status = "building map collision grid";
 	g_building = mesh;
@@ -45,6 +56,10 @@ void MapCollisionGrid_Pump() {
 
 const char* MapCollisionGrid_Status() { return g_status.c_str(); }
 bool MapCollisionGrid_Ready() { return g_geometry && g_grid; }
+MapCollisionSnapshot MapCollisionGrid_Snapshot() {
+	std::lock_guard<std::mutex> lock(g_snapshotLock);
+	return g_snapshot;
+}
 
 bool MapCollisionRaycast(Vec3 origin, Vec3 direction, float range, SurfaceHit& hit) {
 	if (!(range > 0.f)) return false;

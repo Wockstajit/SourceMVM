@@ -5,6 +5,7 @@
 #include "EnvironmentCoatingMath.h"
 #include "EnvironmentFootprintMath.h"
 #include "EnvironmentStormMath.h"
+#include "EnvironmentTumbleweedMath.h"
 #include "EnvironmentWeatherMath.h"
 #include "EnvironmentShaders.h"
 
@@ -16,7 +17,7 @@ inline const std::string& EnvironmentShaderSource(){
         "\n#define RAIN_MOTION_BLUR "+std::to_string(kRainMotionBlur)+"\n#define RAIN_BRIGHTNESS "+std::to_string(kRainBrightness)+
         "\n#define SNOW_BRIGHTNESS "+std::to_string(kSnowBrightness)+"\n#define SNOW_MAX_LIFT "+std::to_string(kSnowMaxLift)+
         "\n#define RAIN_MAX_OPACITY "+std::to_string(kRainMaxOpacity)+"\n#define RAIN_SHAPE_GAIN "+std::to_string(kRainShapeGain)+
-        "\n#define FOOT_SIZE "+std::to_string(kFootSize)+"\n#define FOOT_TEXEL "+std::to_string(kFootTexel)+"\n#define FOOT_LAYER "+std::to_string(kFootLayer)+"\n#define FOOT_STEPS "+std::to_string(kFootSteps)+"\n#define FOOT_LIVE "+std::to_string(kFootLive)+"\n#define FOOT_DOWN "+std::to_string(kFootDown)+"\n#define SNOW_DEPTH "+std::to_string(kSnowDepth)+"\n#define SNOW_TOP "+std::to_string(kSnowDepth*kSnowReliefMost)+"\n#define SNOW_RELIEF_MOST "+std::to_string(kSnowReliefMost)+
+        "\n#define FOOT_SIZE "+std::to_string(kFootSize)+"\n#define FOOT_TEXEL "+std::to_string(kFootTexel)+"\n#define FOOT_LAYER "+std::to_string(kFootLayer)+"\n#define FOOT_STEPS "+std::to_string(kFootSteps)+"\n#define FOOT_LIVE "+std::to_string(kFootLive)+"\n#define FOOT_DOWN "+std::to_string(kFootDown)+"\n#define SNOW_DEPTH "+std::to_string(kSnowDepth)+"\n#define SAND_DEPTH "+std::to_string(kSandDepth)+"\n#define SNOW_TOP "+std::to_string(kSnowDepth*kSnowReliefMost)+"\n#define SNOW_RELIEF_MOST "+std::to_string(kSnowReliefMost)+"\n#define TUMBLEWEED_MAX "+std::to_string(kTumbleweedMax)+
         "\n#define FOOT_SPLASH_PARTS "+std::to_string(kFootSplashParts)+
         "\n#define SPLASH_GRID "+std::to_string(kSplashGrid)+
         "\n#define SPLASH_PARTS "+std::to_string(kSplashParts)+"\n#define SPLASH_NEAR "+std::to_string(int(kSplashNear))+

@@ -78,7 +78,7 @@ def load(cache, name):
     visual = cache / (str(info.get("visualDigest")) + ".mvmcasters")
     if visual.exists():
         raw = mvm_cache.read_payload(str(visual))
-        if raw[:8] != b"MVMCAST6":
+        if raw[:8] != b"MVMCAST7":
             raise ValueError("Invalid visual caster cache: " + str(visual))
         _, _, nv, ni = struct.unpack_from("<iiii", raw, 8)
         v = np.frombuffer(raw, dtype="<f4", count=nv * 3, offset=24).reshape(-1, 3)

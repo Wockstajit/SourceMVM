@@ -35,7 +35,7 @@ struct Light {
     // Authored planar extents from size_params[0], size_params[1]. Zero means undecoded.
     float sizeX = 0, sizeY = 0;
     float sizeZ = 0, innerAngle = 0, outerAngle = 180;
-    float softX = .25f, softY = .25f, skirtNear = .05f, falloff = 1, roundness = 0;
+    float softX = .25f, softY = .25f, skirtNear = .05f, skirtFar = 1, roundness = 0;
     int shape = -1; // Authored omni shape; 0 is its spherical source.
     // Authored castshadows is a tri-state: 0 none, 1 sunlight only, 2 full.
     int castShadows = 2;
@@ -45,6 +45,15 @@ struct Light {
     bool runtimeShadows = true; // Explicit runtime choice; authored castShadows is a bake flag.
     int transientGroup = -1; // Fire patches from one entity share the moving-light budget.
     bool viewmodelEmitter = false; // Emitted by the current first-person attachment.
+    // Authored directlight 0 ("None"): a fill light the map's bake uses for bounced light only. CS2
+    // never lights a surface with it directly; drawn direct, its projection laid hard-edged boxes of
+    // light across the map. It feeds indirect lighting only.
+    bool bounceOnly = false;
+    // A FILL LIGHT: one a map adds only to brighten a place, with no lamp of its own (MarkFillLights).
+    // Environment lighting's Fill lights switch turns these off.
+    bool fill = false;
+    bool hoodedEmitter = false;
+    float bounceScale = 1; // Zero when authored indirect lighting is disabled.
     float minimumRoughness = .04f;
 };
 
@@ -225,6 +234,11 @@ struct Scene {
 // as read by that bytecode; Docs/effects/whole-map-relighting.md carries the decode.
 using LightRecord = std::array<float, 120>;
 
+inline LightRecord ScaleBounceRecord(LightRecord record, float scale) {
+    for (unsigned channel : {40u, 41u, 42u}) record[channel] *= scale;
+    return record;
+}
+
 
 // The clustered loop reads this many 32-bit mask words per tile and per depth slice, so
 // capacity is 32 * words. cb3[19].z carries it.
@@ -246,14 +260,18 @@ inline float AuthoredSourceRadius(float sizeX, float sizeY, float fallback = 16.
     const float half = .5f * (std::max)(sizeX, sizeY);
     return half >= 1.f ? std::clamp(half, 1.f, 256.f) : fallback;
 }
+// An omni lamp's shadow starts outside its own housing. A map lamp sits inside a lantern's glass,
+// cage and cap; the close shadow tier draws prop models, so a projection starting at the bulb drew
+// that housing round the light and the lamp went dark as soon as it became one of the nearest lights
+// (Inferno's corner lanterns, the owner, 2026-11-23). Hooded bulbs use their authored radius to preserve the hood; other housings clear half again the authored
+// bulb size, never under OmniHousingClear units, and never past a quarter of the range. A planar
+// emitter keeps its own projection (FixtureDepthStart); sizeY is not a sphere radius.
+inline constexpr float OmniHousingClear=8.f;
 inline float AuthoredShadowNearClip(const Light& light) {
-    // A finite spherical source emits from outside its own luminous bulb. A
-    // center projection starting inside that shell falsely blocks every ray.
-    // Other shapes retain the conservative point projection until represented
-    // by their actual surface samples; planar sizeY is not a sphere radius.
-    if(light.kind=="light_omni2"&&light.shape==0&&std::isfinite(light.sizeX)&&light.sizeX>0)
-        return std::clamp(light.sizeX,1.f,(std::max)(1.f,light.range*.25f));
-    return 1.f;
+    if(light.kind!="light_omni2"&&light.kind!="light_omni")return 1.f;
+    const float bulb=std::isfinite(light.sizeX)&&light.sizeX>0?light.sizeX*1.5f:0.f;
+    const float clearance=light.hoodedEmitter && bulb>0 ? light.sizeX : (std::max)(bulb,OmniHousingClear);
+    return std::clamp(clearance,1.f,(std::max)(1.f,light.range*.25f));
 }
 
 // Source entity angles â†’ light-local basis. Local +X is forward (matches VRF barn
@@ -306,8 +324,57 @@ inline bool HasFixtureProjection(const Light& light) {
 }
 // Baked fill boundaries acquire a penumbra during compilation. Runtime fills
 // need a finite analytic feather even when the authored edge softness is zero.
+// An explicitly disabled far skirt keeps full emission up to the range clip.
+// Keep the established fade for nonzero skirts while their energy is calibrated.
+inline float FixtureFarSkirt(float authoredSkirt, float existingFade) {
+    return authoredSkirt == 0 ? 0.f : std::clamp(existingFade,0.f,1.f);
+}
 inline constexpr float RuntimeFillFeather=.15f;
 inline float FixtureFeather(float authored) {return std::clamp(authored,RuntimeFillFeather,1.f);}
+// A RECT PANEL IS AN AREA LIGHT, NOT A PROJECTOR. The game lights past a light_rect's edges in a soft
+// falloff; drawn as a hard-edged box from the panel, a large fill panel laid a straight line of light
+// across every wall its box edge crossed (Inferno's street panels, the owner, 2026-11-23). By type, on
+// every map: a rect spreads to twice its authored half extents and fades over the outer 60% of that,
+// so its full-strength core still covers 80% of the panel. A barn keeps its cut: its doors are the
+// point of it.
+inline constexpr float RectSpread=2.f, RectFeather=.6f;
+// A panel sends next to nothing out along its own plane. Without a near fade a rect lit the wall level
+// with it at full strength and grazing, a hard bright band at the panel's height (Inferno's up/down
+// street pair, 2026-11-23). A rect fades in over at least the first tenth of its range.
+inline constexpr float RectSkirtNear=.1f;
+inline float FixtureSkirtNear(const Light& light) {
+    return light.kind=="light_rect"?(std::max)(light.skirtNear,RectSkirtNear):light.skirtNear;}
+inline float FixtureSpread(const Light& light) {return light.kind=="light_rect"?RectSpread:1.f;}
+inline float FixtureFeatherFor(const Light& light,float authored) {
+    return light.kind=="light_rect"?std::clamp(authored,RectFeather,1.f):FixtureFeather(authored);}
+inline void MarkHoodedEmitters(std::vector<Light>& lights) {
+    // Inferno Night pairs each hooded downlight with a small omnidirectional bulb inside the fixture.
+    for (auto& lamp : lights) {
+        if (lamp.kind != "light_omni2" || lamp.shape != 0 || lamp.angles.x < 85 ||
+            lamp.outerAngle >= 180 || lamp.innerAngle >= lamp.outerAngle) continue;
+        lamp.hoodedEmitter = std::any_of(lights.begin(), lights.end(), [&](const Light& bulb) {
+            const auto offset = bulb.position - lamp.position;
+            return bulb.kind == lamp.kind && bulb.shape == 0 && bulb.outerAngle == 180 &&
+                   bulb.range > 0 && bulb.range < lamp.range * .1f && offset.z > 0 &&
+                   Environment::Dot(offset, offset) < bulb.range * bulb.range &&
+                   bulb.color.x == lamp.color.x && bulb.color.y == lamp.color.y && bulb.color.z == lamp.color.z;
+        });
+    }
+}
+// Which lights are fill, by type and aim, the same on every map: bounce-only lights; panels and spots
+// (light_rect, light_barn) aimed more than 30 degrees up, which light the undersides of arches and
+// ceilings; and the downward panel paired with such an uplight (within 8 units across and 48 up or
+// down), the other half of the same fill. Office's ceiling panels aim down and stay lamps.
+inline bool AimsUp(const Light& l) {return IsShapedFixture(l)&&l.angles.x<-30;}
+inline void MarkFillLights(std::vector<Light>& lights) {
+    for(auto& l:lights)l.fill=l.bounceOnly||AimsUp(l);
+    for(const auto& up:lights){
+        if(!AimsUp(up))continue;
+        for(auto& l:lights)
+            if(IsShapedFixture(l)&&l.angles.x>30&&std::abs(l.position.x-up.position.x)<8&&
+               std::abs(l.position.y-up.position.y)<8&&std::abs(l.position.z-up.position.z)<48)l.fill=true;
+    }
+}
 inline unsigned FixtureFaces(const Light& light) { return HasFixtureProjection(light)?1u:ShadowFaces; }
 // Panel lights sit at or just above the ceiling they are recessed into (Office's rect lights are
 // two units above the tile surface). Depth that starts exactly at the emitter made that ceiling
@@ -320,7 +387,7 @@ inline float FixtureDepthStart(const Light& light) {
 }
 inline Environment::Matrix FixtureProjection(const Light& light) {
     Vec3 f,r,u;LightBasis(light.angles,f,r,u);
-    const float hx=(std::max)(.01f,light.sizeX),hy=(std::max)(.01f,light.sizeY);
+    const float hx=(std::max)(.01f,light.sizeX)*FixtureSpread(light),hy=(std::max)(.01f,light.sizeY)*FixtureSpread(light);
     const float range=(std::max)(1.f,light.range);
     Environment::Matrix m{};
     const float nearPlane=light.sizeZ>0?1/light.sizeZ:0;
@@ -358,7 +425,7 @@ inline void ConeFade(float inner,float outer,float& bias,float& scale) {
 // authored brightness also arrives as a separate log-scale value with per-kind units, so
 // this is not established parity and the global multiplier is the tuning handle.
 inline float Power(const Light &light, float intensity) {
-    if (!light.enabled) return 0.f;
+    if (!light.enabled || light.bounceOnly) return 0.f;
     return light.lumens * light.brightnessScale * (light.sceneObject ? 1.f : intensity) * 10.f / SourceRadiusSquared(light);
 }
 
@@ -412,7 +479,7 @@ inline LightRecord ToRecord(const Light &light, float intensity) {
     // Omni entities retain cone controls in their exported property bag too.
     // Applying those as a spotlight removed the upper hemisphere of globe
     // lamps, including illumination and moving fan shadows on the ceiling.
-    if(light.kind=="light_spot")ConeFade(light.innerAngle,light.outerAngle,record[48],record[49]);
+    if(light.kind=="light_spot" || light.hoodedEmitter)ConeFade(light.innerAngle,light.outerAngle,record[48],record[49]);
     else {record[48]=1;record[49]=0;}
     if(light.kind=="light_omni2"&&(light.shape==1||light.shape==2))record[50]=light.sizeY;
     if(HasFixtureProjection(light)){
@@ -426,17 +493,18 @@ inline LightRecord ToRecord(const Light &light, float intensity) {
         // matrix: zero at FixtureDepthStart, one at the authored range.
         const float start=FixtureDepthStart(light);
         const auto depth=[&](float w){return nearPlane>0?(1/start-1/w)/(1/start-1/farPlane):(w-start)/(farPlane-start);};
-        const float skirtDepth=depth(nearPlane+light.skirtNear*range),falloffDepth=depth(nearPlane+(1-light.falloff)*range);
-        record[38]=light.skirtNear>0&&skirtDepth>0?1/skirtDepth:0;
-        record[39]=light.falloff>0&&falloffDepth<1?1/(1-falloffDepth):0;
+        const float skirtNear=FixtureSkirtNear(light);
+        const float skirtDepth=depth(nearPlane+skirtNear*range),falloffDepth=depth(nearPlane+(1-light.skirtFar)*range);
+        record[38]=skirtNear>0&&skirtDepth>0?1/skirtDepth:0;
+        record[39]=light.skirtFar>0&&falloffDepth<1?1/(1-falloffDepth):0;
         record[48]=1;record[49]=record[50]=0;
-        record[56]=1-FixtureFeather(light.softX);record[57]=1-FixtureFeather(light.softY);
+        record[56]=1-FixtureFeatherFor(light,light.softX);record[57]=1-FixtureFeatherFor(light,light.softY);
         record[58]=std::clamp(light.roundness,0.f,1.f);
         // Flux over the authored aperture, with the existing x10 conversion.
         const float aperture=4*light.sizeX*light.sizeY;
         const float solid=nearPlane>0?4*std::atan(light.sizeX*light.sizeY/(nearPlane*std::sqrt(nearPlane*nearPlane+light.sizeX*light.sizeX+light.sizeY*light.sizeY))):0;
         const float divisor=nearPlane>0?solid*nearPlane*nearPlane/(4*3.14159265358979323846f*10):aperture/(4*3.14159265358979323846f*10);
-        const float radiance=light.enabled?light.lumens*light.brightnessScale*intensity/(std::max)(1e-6f,divisor):0;
+        const float radiance=power>0?light.lumens*light.brightnessScale*intensity/(std::max)(1e-6f,divisor):0;
         record[40]=Linear(light.color.x)*radiance;record[41]=Linear(light.color.y)*radiance;record[42]=Linear(light.color.z)*radiance;
         record[80]=1;record[81]=range; // owned projection metadata for cluster bounds
     }
@@ -579,9 +647,37 @@ inline void AtlasRectPixels(unsigned x, unsigned y, unsigned size, float *rect) 
 }
 // Where a tile lives and how big it is. The sun's square sits at the origin, the budgeted
 // cube faces in a grid beside it, and the static tier in a finer grid beyond that.
+// The close tier blends over camera distance and returns to the cached tile size at its boundary.
+inline constexpr unsigned NearShadowStep = 64;
+inline constexpr float NearShadowFullDistance = 150.f, NearShadowFadeDistance = 450.f;
+inline std::array<unsigned, LocalColumns * LocalRows> LocalFaceSizes = [] {
+    std::array<unsigned, LocalColumns * LocalRows> sizes{};sizes.fill(LocalSize);return sizes;}();
+inline std::array<float, LocalColumns * LocalRows> LocalFaceStrengths = [] {
+    std::array<float, LocalColumns * LocalRows> strengths{};strengths.fill(1.f);return strengths;}();
+inline float NearShadowProximity(float distance) {
+    const float t = std::clamp((NearShadowFadeDistance - distance) /
+                               (NearShadowFadeDistance - NearShadowFullDistance), 0.f, 1.f);
+    return t * t * (3.f - 2.f * t);
+}
+// At promotion the old resident becomes an outsider at 1 / NearShadowSwap
+// times the new resident's distance. Start both sides of this exchange at coarse quality.
+inline constexpr float NearShadowSwap = .8f, NearShadowKeepWidth = .3f;
+inline std::array<float, ShadowBudgetLimit> NearShadowKeeps = [] {
+    std::array<float, ShadowBudgetLimit> keeps{};keeps.fill(1.f);return keeps;}();
+inline float NearShadowKeep(float distance, float nearestOutsider) {
+    if (!std::isfinite(nearestOutsider) || !std::isfinite(distance)) return 1.f;
+    const float ratio = nearestOutsider * NearShadowSwap / (std::max)(distance, 1.f);
+    const float t = std::clamp((ratio - 1) / NearShadowKeepWidth, 0.f, 1.f);
+    return t * t * (3 - 2 * t);
+}
+inline unsigned NearShadowSize(float weight) {
+    const float size = StaticSize + (LocalSize - StaticSize) * weight;
+    const unsigned stepped = unsigned(std::lround(size / NearShadowStep)) * NearShadowStep;
+    return std::clamp(stepped, StaticSize, LocalSize);
+}
 inline void TileOrigin(unsigned tile, unsigned &x, unsigned &y, unsigned &size) {
     if (tile < SunTile) {
-        size = LocalSize;
+        size = LocalFaceSizes[tile];
         x = LocalOriginX + (tile % LocalColumns) * LocalSize;
         y = (tile / LocalColumns) * LocalSize;
     } else if (tile == SunTile) {
@@ -681,7 +777,9 @@ inline LightRecord ToShadowedRecord(const Light &light, float intensity, const f
         GuardFace(record.data(),ShadowFaceBlendWidth);
         record[54]*=ShadowFaceBlendWidth;record[55]*=ShadowFaceBlendWidth;
     }
-    record[65] = 1;  // shadow strength; the atlas scale above is what enables the lookup
+    // Shadow strength; the atlas scale above is what enables the lookup. A close tile's strength
+    // fades in (LocalFaceStrengths).
+    record[65] = IsLocalFaceTile(tile) ? LocalFaceStrengths[tile] : 1.f;
     // Perspective depth has 1/z linear in stored depth. This coefficient
     // converts receiver-minus-blocker depth into the source's angular penumbra.
     const float nearPlane=HasFixtureProjection(light)?(light.sizeZ>0?FixtureDepthStart(light):0):AuthoredShadowNearClip(light);
@@ -691,11 +789,13 @@ inline LightRecord ToShadowedRecord(const Light &light, float intensity, const f
     if(nearPlane>0&&farPlane>nearPlane){
         record[84]=radius*(farPlane-nearPlane)/(nearPlane*farPlane);
         record[85]=radius/nearPlane;
-        record[86]=IsLocalFaceTile(tile)?LocalFaceGuardTexels:FaceGuardTexels;
+        // A close tile reduced below LocalSize keeps the face's framing: its guard shrinks with it.
+        const float faceScale=IsLocalFaceTile(tile)?float(LocalFaceSizes[tile])/float(LocalSize):1.f;
+        record[86]=IsLocalFaceTile(tile)?LocalFaceGuardTexels*faceScale:FaceGuardTexels;
         if(!HasFixtureProjection(light)){
             // The blend overlap uses part of the existing atlas guard. Leave
             // every filter sample inside this face, including at the overlap edge.
-            const float size=IsLocalFaceTile(tile)?float(LocalSize):float(StaticSize);
+            const float size=IsLocalFaceTile(tile)?float(LocalFaceSizes[tile]):float(StaticSize);
             record[86]=size*.5f-(size*.5f-record[86])*ShadowFaceBlendWidth;
             record[84]/=ShadowFaceBlendWidth;record[85]/=ShadowFaceBlendWidth;
         }

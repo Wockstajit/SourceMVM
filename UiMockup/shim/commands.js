@@ -369,12 +369,16 @@
       if (t[1] === 'set') s.weather[t[2]] = +t[3];
       else if (t[1] === 'wind') { s.weather.windX = +t[2] * Math.cos(+t[3]*Math.PI/180); s.weather.windY = +t[2] * Math.sin(+t[3]*Math.PI/180); }
       else {
-        // Mirrors the weather command in EnvironmentScene.cpp: storm is rain, and rain, snow and ash
-        // bring their own air (gusts, haze, fog); clear takes it away.
-        s.weather.type = ['clear','rain','snow','ash','embers','motes','smoke'].indexOf(t[1] === 'storm' ? 'rain' : t[1]);
+        // Mirrors the weather command in EnvironmentScene.cpp: storm is rain, sandstorm is sand
+        // with yellow height and floor fog, and each brings its own air and ground; clear takes them away.
+        var wasSandstorm = s.weather.type === 7 && s.climate.groundFog > 0;
+        var mapped = t[1] === 'storm' ? 'rain' : (t[1] === 'sandstorm' ? 'sand' : t[1]);
+        s.weather.type = ['clear','rain','snow','ash','embers','motes','smoke','sand'].indexOf(mapped);
         var looks = {clear:[0,0,climateDefaults.fogHeight,climateDefaults.fogNoise,null,climateDefaults.haze,0,0],
           rain:[.55,.16,420,.6,[.50,.56,.64],.8,110,35], storm:[.85,.3,420,.6,[.50,.56,.64],1.1,220,70],
-          snow:[.75,.26,520,.7,[.86,.88,.91],1,55,20], ash:[.6,.3,620,.7,[.54,.51,.47],1.2,48,14]};
+          snow:[.75,.26,520,.7,[.86,.88,.91],1,55,20], ash:[.6,.3,620,.7,[.54,.51,.47],1.2,48,14],
+          sand:[.78,.24,520,.65,[.78,.68,.50],1.15,165,42],
+          sandstorm:[.95,.4,900,.72,[.84,.67,.34],1.6,235,58]};
         var look = looks[t[1]];
         if (look) {
           s.climate.gusts = look[0]; s.climate.fogDensity = look[1]; s.climate.fogHeight = look[2];
@@ -383,9 +387,18 @@
           s.climate.gustDensity = 1; s.climate.gustHeight = 1; s.climate.gustWisps = 1; s.climate.gustFloor = 1;
           if (look[4]) s.fogColor = look[4].slice();
           if (look[0] > 0 || look[1] > 0) s.climate.enabled = 1;
+          if (t[1] === 'sandstorm') {
+            s.climate.fogStart = 40; s.climate.groundFog = .3; s.climate.groundFogCoverage = .7;
+            s.climate.groundFogHeight = 40; s.climate.groundFogColorR = .88; s.climate.groundFogColorG = .72; s.climate.groundFogColorB = .38;
+            s.climate.tumbleweeds = Math.max(s.climate.tumbleweeds || 0, 5);
+          } else if (wasSandstorm) {
+            s.climate.fogStart = 0; s.climate.groundFog = 0;
+            s.climate.groundFogColorR = .93; s.climate.groundFogColorG = .91; s.climate.groundFogColorB = .87;
+          }
+          if (t[1] === 'clear') { s.fogColor = [.45,.5,.6]; s.climate.tumbleweeds = 0; }
           // And its ground, replacing the last weather's.
-          var grounds = {rain:[0,.6,.25], storm:[0,.6,.25], snow:[.6,0,0], ash:[0,0,0], clear:[0,0,0]}, g = grounds[t[1]];
-          if (g) { s.climate.snow = g[0]; s.climate.wet = g[1]; s.climate.puddles = g[2]; }
+          var grounds = {rain:[0,0,.6,.25], storm:[0,0,.6,.25], snow:[.6,0,0,0], ash:[0,0,0,0], sand:[0,.65,0,0], sandstorm:[0,.85,0,0], clear:[0,0,0,0]}, g = grounds[t[1]];
+          if (g) { s.climate.snow = g[0]; s.climate.sand = g[1]; s.climate.wet = g[2]; s.climate.puddles = g[3]; }
           if (t[1] !== 'clear') { s.weather.windX = look[6]; s.weather.windY = look[7]; }
         }
       }
@@ -408,9 +421,16 @@
       st.envSelected = st.envEditing = 0; push(before);
     } else if (op === 'look') {
       s.enabled = true; s.climate.enabled = 1;
-      var looks = {storm:[215,18,0.8,0.85,0.4],winter:[200,22,1.8,0.65,0.25],sunset:[260,8,3,0.3,0.15],night:[210,-12,0,0.25,0.2]};
+      var looks = {storm:[215,18,0.8,0.85,0.4],winter:[200,22,1.8,0.65,0.25],sunset:[260,8,3,0.3,0.15],night:[210,-12,0,0.25,0.2],sandstorm:[135,20,1,0.7,0.4]};
       var look = looks[t[1]];
-      if (look) { ['sunAzimuth','sunElevation','sunPower','coverage','fogDensity'].forEach(function(k,i){s.climate[k]=look[i];}); push(before); }
+      if (look) {
+        ['sunAzimuth','sunElevation','sunPower','coverage','fogDensity'].forEach(function(k,i){s.climate[k]=look[i];});
+        if (t[1] === 'sandstorm') {
+          s.fogColor = [.84,.67,.34]; s.climate.groundFog = .3; s.climate.groundFogColorR = .88; s.climate.groundFogColorG = .72; s.climate.groundFogColorB = .38;
+          s.climate.sand = .85; s.climate.tumbleweeds = 5; s.climate.gusts = .95; s.weather.type = 7;
+        }
+        push(before);
+      }
     } else if (op === 'texture') {
       o = selected(t[1]); if (o) { o[t[2]+'Texture'] = t[3] === '-' ? '' : t[3]; push(before); }
     } else if (['rescan','folder','reload-geometry','status'].indexOf(op) < 0) return false;

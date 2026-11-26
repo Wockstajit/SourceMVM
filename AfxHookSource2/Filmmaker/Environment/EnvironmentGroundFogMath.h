@@ -59,6 +59,79 @@ struct GroundFogFloorSettings {
     int smooth = 1;       // same-floor blur radius in texels, so cell steps do not show in the fog top
 };
 
+// WATER: the height of the map's water surfaces on a fine grid of their own, from the triangles of
+// the water surfaces (three corners each, VisualCasters::water). Upward faces only, the highest where
+// two overlap. A texel is water when its centre or any corner lies inside a surface, so a pool's edge
+// is water up to the stone round it; the stone stands above the surface, and whoever reads the grid
+// compares heights. A pool's own grid, not the floor map's 16-unit texels: grown to those, it took
+// the ground round a raised basin for water. Empty when the map has no water.
+struct WaterGrid {
+    float originX = 0, originY = 0, cell = 4;
+    int width = 0, height = 0;
+    std::vector<float> heights; // kGroundFogNoFloor where there is no water
+    bool Valid() const { return width > 0 && height > 0 && heights.size() == size_t(width) * size_t(height); }
+};
+inline constexpr int kWaterGridMaxTexels = 2048;
+inline WaterGrid BuildWaterGrid(const std::vector<Vec3> &corners, float finest = 4) {
+    WaterGrid g;
+    Vec3 low{1e30f, 1e30f, 1e30f}, high{-1e30f, -1e30f, -1e30f};
+    std::vector<size_t> surfaces;
+    for (size_t t = 0; t + 2 < corners.size(); t += 3) {
+        const Vec3 a = corners[t], b = corners[t + 1], c = corners[t + 2];
+        if (!Finite(a) || !Finite(b) || !Finite(c)) continue;
+        Vec3 n = Cross(b - a, c - a);
+        const float length = std::sqrt(Dot(n, n));
+        if (length < 1e-6f || std::abs(n.z) < .7f * length) continue; // a surface, not the side of a wave mesh
+        surfaces.push_back(t);
+        for (const Vec3 &p : {a, b, c}) {
+            low = {(std::min)(low.x, p.x), (std::min)(low.y, p.y), 0};
+            high = {(std::max)(high.x, p.x), (std::max)(high.y, p.y), 0};
+        }
+    }
+    if (surfaces.empty()) return g;
+    const float extent = (std::max)(high.x - low.x, high.y - low.y);
+    g.cell = (std::max)(finest, extent / float(kWaterGridMaxTexels - 2));
+    g.originX = low.x - g.cell;
+    g.originY = low.y - g.cell;
+    g.width = int(std::ceil((high.x - low.x) / g.cell)) + 2;
+    g.height = int(std::ceil((high.y - low.y) / g.cell)) + 2;
+    g.heights.assign(size_t(g.width) * size_t(g.height), kGroundFogNoFloor);
+    for (const size_t t : surfaces) {
+        Vec3 a = corners[t], b = corners[t + 1], c = corners[t + 2];
+        if (Cross(b - a, c - a).z < 0) std::swap(b, c);
+        const float area2 = Cross(b - a, c - a).z;
+        const auto inside = [&](float px, float py, float &z) {
+            const float wa = ((c.x - b.x) * (py - b.y) - (c.y - b.y) * (px - b.x)) / area2;
+            const float wb = ((a.x - c.x) * (py - c.y) - (a.y - c.y) * (px - c.x)) / area2;
+            const float wc = 1 - wa - wb;
+            if (wa < -1e-4f || wb < -1e-4f || wc < -1e-4f) return false;
+            z = wa * a.z + wb * b.z + wc * c.z;
+            return true;
+        };
+        const int i0 = (std::max)(0, int(std::floor(((std::min)({a.x, b.x, c.x}) - g.originX) / g.cell)));
+        const int i1 = (std::min)(g.width - 1, int(std::floor(((std::max)({a.x, b.x, c.x}) - g.originX) / g.cell)));
+        const int j0 = (std::max)(0, int(std::floor(((std::min)({a.y, b.y, c.y}) - g.originY) / g.cell)));
+        const int j1 = (std::min)(g.height - 1, int(std::floor(((std::max)({a.y, b.y, c.y}) - g.originY) / g.cell)));
+        for (int j = j0; j <= j1; ++j)
+            for (int i = i0; i <= i1; ++i) {
+                const float x0 = g.originX + float(i) * g.cell, y0 = g.originY + float(j) * g.cell;
+                float z = 0;
+                bool hit = false;
+                for (const auto &s : {std::array<float, 2>{.5f, .5f}, {0, 0}, {1, 0}, {0, 1}, {1, 1}}) {
+                    float zs = 0;
+                    if (inside(x0 + s[0] * g.cell, y0 + s[1] * g.cell, zs)) { z = hit ? (std::max)(z, zs) : zs; hit = true; }
+                }
+                // A triangle smaller than a texel covers no sample point; it still marks its own texel.
+                if (!hit && i == int(std::floor(((a.x + b.x + c.x) / 3 - g.originX) / g.cell)) &&
+                    j == int(std::floor(((a.y + b.y + c.y) / 3 - g.originY) / g.cell))) { z = (a.z + b.z + c.z) / 3; hit = true; }
+                if (!hit) continue;
+                float &h = g.heights[size_t(j) * size_t(g.width) + size_t(i)];
+                h = (std::max)(h, z);
+            }
+    }
+    return g;
+}
+
 struct GroundFogFloorMap {
     float originX = 0, originY = 0, cell = 16;
     int width = 0, height = 0;
@@ -68,6 +141,8 @@ struct GroundFogFloorMap {
     std::vector<std::array<float, kGroundFogFloorLayers>> thickness;
     // The floor a gust's drift lies on, one per texel (GroundFogDriftFloor); empty until it is made.
     std::vector<float> drift;
+    // The map's water surfaces (BuildWaterGrid), on their own grid; invalid on a map without water.
+    WaterGrid water;
     bool Valid() const {
         return width > 0 && height > 0 && cell > 0 && layers.size() == size_t(width) * size_t(height);
     }

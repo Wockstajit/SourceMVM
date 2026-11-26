@@ -108,6 +108,28 @@ install(
     DESTINATION "bin/resources/shaders"
     COMPONENT x64-source2
 )
+install(
+    FILES
+        ../Assets/environment/sand/sand_color.png
+        ../Assets/environment/sand/sand_normal.png
+        ../Assets/environment/sand/sand_height.png
+        ../Assets/environment/sand/sand_fine_color.png
+        ../Assets/environment/sand/sand_fine_normal.png
+        ../Assets/environment/sand/sand_fine_height.png
+        ../Assets/environment/sand/sand_coarse_color.png
+        ../Assets/environment/sand/sand_coarse_normal.png
+        ../Assets/environment/sand/sand_coarse_height.png
+        ../Assets/environment/sand/sand_rough_color.png
+        ../Assets/environment/sand/sand_rough_normal.png
+        ../Assets/environment/sand/sand_rough_height.png
+    DESTINATION "bin/resources/environment/sand"
+    COMPONENT x64-source2
+)
+install(
+    FILES ../Assets/environment/tumbleweed/tumbleweed.glb
+    DESTINATION "bin/resources/environment/tumbleweed"
+    COMPONENT x64-source2
+)
 # Death Animations clip library (FX/tools/extract-death-anims.py): one file holding every source.
 # Its donor animations are third-party, so a checkout may not carry it: the hook then reports
 # "ragdoll animation file missing" and Death Animations has no clips.
@@ -420,6 +442,10 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Environment/EnvironmentNativeWater.cpp
     Filmmaker/Environment/EnvironmentGameTextures.cpp
     Filmmaker/Environment/EnvironmentGameTextures.h
+    Filmmaker/Environment/EnvironmentSandTextureMath.h
+    Filmmaker/Environment/EnvironmentTumbleweedMath.h
+    Filmmaker/Environment/EnvironmentTumbleweeds.h
+    Filmmaker/Environment/EnvironmentTumbleweeds.cpp
     Filmmaker/Environment/EnvironmentReflectionProbes.cpp
     Filmmaker/Environment/EnvironmentReflectionProbes.h
     Filmmaker/Environment/EnvironmentReflectionProbeMath.h

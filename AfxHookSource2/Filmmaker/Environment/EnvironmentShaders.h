@@ -68,7 +68,7 @@ cbuffer FrameConstants : register(b0) {
     row_major float4x4 previousViewProjection;
     float4 previousCamera;
     float4 temporalInfo;
-    float4 gameTextureInfo; // x = CS2 snow bound, y = CS2 water beads bound, z = units a snow repeat covers
+    float4 gameTextureInfo; // x = ground texture bound, y = CS2 water beads bound, z = tile size (u), w = 1 when sand
     // WHAT WET GROUND MIRRORS OFF SCREEN (EnvironmentReflectionProbes.h): x 0 none, 1 CS2's probes, 2 the
     // live capture; y the cubes' highest mip; z how many probes reflectionIndex lists; w 1 when the
     // tone curve is measured.
@@ -78,6 +78,12 @@ cbuffer FrameConstants : register(b0) {
     // kind, then a bulb's falloff or a shaded lamp's eye and aim). x of the info: how many.
     float4 mapLamps[32];
     float4 mapLampInfo;
+    // SAND AND TUMBLEWEEDS. x = 1 when what the gusts blow along the ground is sand (the Sand weather,
+    // or sand lying under Clear), y = 1 when the weather's particles are blown sand (the Sand weather,
+    // drawn through ash's dust), z = how many tumbleweeds are filled in below, w = their shadow's
+    // strength (0 with no key light).
+    float4 sandInfo;
+    float4 tumbleweeds[TUMBLEWEED_MAX]; // EnvironmentTumbleweedMath.h: xyz centre, w radius
 };
 cbuffer NativeViewmodel : register(b7) {
     column_major float4x4 nativeProjectionToWorld : packoffset(c4);
@@ -118,6 +124,7 @@ Texture2D<float4> fogFrontMask : register(t39);      // what transparent effects
 // How much snow ApplyCoatings laid on the pixel being shaded, 0..1, for Atmosphere, which lays the
 // game's effects back over it.
 static float snowLaid=0;
+static float frontEffectLift=1;
 Texture2D<float> fogFrontNearby : register(t40);     // the most they hid close to each pixel (see FrontNearby)
 SamplerState groundFogSampler : register(s6);
 // Depth of every posed player and what they hold (world weapons), seen from the camera. Cleared to the
@@ -128,6 +135,7 @@ Texture2D<float4> windFluid : register(t42);        // velocity xy (u/s), what t
 SamplerState windSampler : register(s8);            // linear clamp
 Texture3D<float> gustNoise : register(t49);         // the billow noise blown snow, spray and ash are torn by (GustNoiseVolume); repeats
 Texture2D<float> gustFloorMap : register(t50);      // the floor a gust's drift lies on, over 100000 (GroundFogDriftFloor); EnvironmentGroundFog
+Texture2D<float> waterHeightMap : register(t57);    // the water grid (BuildWaterGrid): row 0 origin and cell, then heights, none below -500000
 SamplerState gustNoiseSampler : register(s10);      // trilinear, wrapping
 SamplerState footSampler : register(s7);             // wrapping, filtered
 #if COLOR_MS
@@ -218,6 +226,37 @@ void RelightProbe(float3 world,float3 normal,float2 pixel,out float reaching,out
         const float facing=saturate(dot(normal,delta/distance));
         energy+=dot(radiance,float3(.2126,.7152,.0722))*falloff*curve*facing;
     }
+}
+// A LAMP'S OWN BULB GLOWS. A visible bulb (a sconce's globe, a lantern's glass) wraps the small light
+// authored inside it, so its outward faces turn away from that light and our lighting left them dark,
+// while the game shows them white (the owner, 2026-11-23). Their brightness is a native lighting input
+// (the bake lit the bulb from the light inside it), present in the native baseline of the same draw.
+// How far inside some lamp's housing a surface is: 1 within three quarters of the housing radius
+// (half again the light's source radius, at least 6 units), 0 at its edge, the most over the lights
+// the frame lists for this pixel. A light switched off has no radiance and does not count. `glow` is
+// what the lamps give a surface there seen as lit head on: each housing's light at its full radiance
+// (inside the source radius the falloff is 1), by the weight. With native materials owning the frame
+// the native baseline is not at hand, so this is the bulb's brightness: as bright as the shade's
+// underside our light already lights beside it.
+float LampHousingWeight(float3 world,float2 pixel,out float3 glow){
+    glow=0;
+    float weight=0;
+    [loop]for(uint i=0;i<(uint)mapLampInfo.x;++i){
+        float4 source=mapLamps[i*4],radiance=mapLamps[i*4+1];
+        if(radiance.w!=0 || source.w<=0 || source.w>64)continue;
+        float radius=sqrt(source.w);
+        float inside=1-smoothstep(radius*.85,radius*1.25,length(world-source.xyz));
+        weight=max(weight,inside);
+        glow=max(glow,radiance.rgb*inside);
+    }
+    return weight;
+}
+// Inside a housing the surface keeps the native look where that is brighter: never more than the game.
+float3 LampHousingGlow(float3 lit,float3 native,float3 world,float2 pixel){
+    const float3 luminance=float3(.2126,.7152,.0722);
+    if(dot(native,luminance)<=dot(lit,luminance))return lit;
+    float3 glow;const float weight=LampHousingWeight(world,pixel,glow);
+    return weight>0?lerp(lit,native,weight):lit;
 }
 float3 RelightHeat(float value,float scale) {
     const float t=saturate(value*scale);
@@ -635,6 +674,32 @@ float4 ShadeMesh(MeshOutput i,uint sample,int kind) {
 float4 MeshPS(MeshOutput i,uint sample:SV_SampleIndex):SV_Target {return ShadeMesh(i,sample,0);}
 float4 MaterialMeshPS(MeshOutput i,uint sample:SV_SampleIndex):SV_Target {return ShadeMesh(i,sample,1);}
 
+// SOFT POROUS SHADOW OF ROLLING TUMBLEWEEDS (sandInfo.z count, sandInfo.w sun-shadow strength).
+// Placed meshes do not cast into CS2's baked lighting, so each tumbleweed casts:
+//  1. soft contact occlusion directly beneath/beside it where twigs meet the floor or a wall;
+//  2. a porous directional sun shadow along -SunDirection() letting filtered light through the brush.
+float TumbleweedShadow(float3 p,float3 normal) {
+    int count=(int)sandInfo.z;
+    float3 sun=SunDirection();
+    float sunStrength=sandInfo.w*saturate(sun.z*4);
+    float keep=1;
+    [loop]for(int i=0;i<count;++i){
+        float4 tw=tumbleweeds[i];
+        float r=max(tw.w,.001),on=step(.001,tw.w);
+        float3 d=tw.xyz-p;
+        float horiz=length(d.xy),below=d.z;
+        float radial=1-smoothstep(r*.15,r*1.35,horiz);
+        float vert=smoothstep(-r*.25,r*.2,below)*(1-smoothstep(r*.7,r*1.85,below));
+        keep*=1-.44*on*radial*vert*saturate(normal.z*.7+.3);
+        float along=dot(d,sun);
+        float perp=length(d-sun*along);
+        float soft=r*(.28+max(along,0)*.045);
+        float mask=1-smoothstep(r*.35,r*.98+soft,perp);
+        float reach=step(0,along)*(1-smoothstep(r*8,r*14,along));
+        keep*=1-.46*on*sunStrength*mask*reach*saturate(dot(normal,sun)*2+.2);
+    }
+    return keep;
+}
 float3 ShadeSample(float2 pixel,float depth,float3 color,uint sample) {
     bool sky=IsSky(depth);
     float3 position=sky?camera.xyz:ReceiverPosition(pixel,depth,sample);
@@ -653,11 +718,11 @@ float3 ShadeSample(float2 pixel,float depth,float3 color,uint sample) {
     // relight/sun relight (multiplied through), FillLights (loops lighting.x) and WorldBounce
     // (returns 0 when worldGi<.5 or bounce<=0 -- hence >=.5 here, not >.5).
     // 3D skybox leftover depth is not a reconstructable world surface.
-    [branch] if(!sky && !IsSkyboxGeometry(depth) && (viewmodelInfo.w>.5 || CL_snow>0 || CL_wet>0 || CL_puddles>0 || CL_relight>0 || CL_sunRelight>0 ||
+    [branch] if(!sky && !IsSkyboxGeometry(depth) && (viewmodelInfo.w>.5 || (viewmodelInfo.z>.5 && mapLampInfo.x>0) || CL_snow>0 || CL_sand>0 || sandInfo.z>.5 || CL_wet>0 || CL_puddles>0 || CL_relight>0 || CL_sunRelight>0 ||
                        lighting.x>0 || weatherParams.z==1 || (CL_worldGi>=.5 && CL_bounce>0))) {
         float3 normal=RelightNormal(pixel,depth,sample,false);
         float3 coating=normal;
-        [branch] if(CL_snow>0||CL_wet>0||CL_puddles>0)coating=CoatingNormal(pixel,depth,sample,normal);
+        [branch] if(CL_snow>0||CL_sand>0||CL_wet>0||CL_puddles>0)coating=CoatingNormal(pixel,depth,sample,normal);
         bool viewmodel=IsViewmodelSample(pixel,sample);
         float contactOcclusion=1; // Preserve native hand/weapon contact shading; no synthetic self occlusion.
         float4 material=0;
@@ -707,22 +772,34 @@ float3 ShadeSample(float2 pixel,float depth,float3 color,uint sample) {
             if(relightDebug.x<2.5)return RelightHeat(log2(1+energy),1./8);
             return (nativeCoverage>0?float3(0,nativeCoverage,0):float3(1,0,1))*.06;
         }
-        [branch]if(viewmodelInfo.w>.5&&nativeCoverage>0){
+        // WATER. Water writes no depth, so a pixel of a pool is the pool's bed. Under the map's own
+        // lighting the game's water is left as drawn (relit, the bed replaced its reflections with a
+        // flat floor). Under ours the engine draws the water unlit, so the bed is lit by us and the
+        // water shaded over it (WaterSurfaceShade). The owner, 2026-11-23.
+        float waterLevel=viewmodel?-1e6:WaterLevelAt(position.xy);
+        bool underWater=waterLevel>-5e5&&position.z<waterLevel+3;
+        bool ourLighting=CL_relight>0||viewmodelInfo.z>.5;
+        [branch]if(viewmodelInfo.w>.5&&nativeCoverage>0&&(!underWater||ourLighting)){
             // Optional diagnostic clamp precedes native HDR input encoding.
             float3 owned=relightDebug.z>0?min(material.rgb,relightDebug.z):material.rgb;
+            [branch]if(underWater)owned=WaterSurfaceShade(owned,position,waterLevel);
+            [branch]if(!viewmodel&&!underWater&&viewmodelInfo.y>.5)owned=LampHousingGlow(owned,nativeBase,position,pixel);
             return Grade(owned,distance);
         }
         float3 nativeDirect=nativeCoverage>0&&volumeDimensions.w>.5?max(material.rgb-nativeBase,0):float3(-1,-1,-1);
         // One call to the coatings for both paths (see SurfaceLight): same result as coating each.
         float mapLuminance=dot(max(color,0),float3(.2126,.7152,.0722));
-        if(viewmodelInfo.z<=.5)color=SurfaceLight(color,position,normal,viewmodel,contactOcclusion,nativeDirect,max(nativeBase-nativeWithoutFixtures,0));
+        if(viewmodelInfo.z<=.5&&!(underWater&&!ourLighting))color=SurfaceLight(color,position,normal,viewmodel,contactOcclusion,nativeDirect,max(nativeBase-nativeWithoutFixtures,0));
+        // Native materials own the frame: a lamp's bulb glows with its own light (LampHousingWeight).
+        [branch]if(viewmodelInfo.z>.5&&!viewmodel&&!underWater){float3 glow;if(LampHousingWeight(position,pixel,glow)>0)color=max(color,glow);}
+        [branch]if(underWater&&ourLighting)color=WaterSurfaceShade(color,position,waterLevel);
         color=ApplyCoatings(color,position,normal,coating,mapLuminance,viewmodel);
-        // Impacts belong to the FLOOR and other map surfaces, never the first-person gun (drops ringed
-        // out across it as if it were a puddle). On a pixel CoatingActor attributes to a
-        // player the ripple normals, refraction and highlights read as a strange wet sheen painted on a
-        // person, and CS2's own player wetness already covers them.
-        if(weatherParams.z==1&&weatherColor.w>0&&!viewmodel&&!CoatingActor(position,normal))
-            color=ActiveRainImpacts(color,position,normal,pixel,sample);
+        // Impacts and tumbleweed shadows belong to map surfaces, never the first-person gun or
+        // player bodies. Share one CoatingActor check so fxc does not inline it twice in ShadeSample.
+        [branch]if(!viewmodel&&(sandInfo.z>.5||(weatherParams.z==1&&weatherColor.w>0))&&!CoatingActor(position,normal)){
+            [branch]if(sandInfo.z>.5)color*=TumbleweedShadow(position,normal);
+            [branch]if(weatherParams.z==1&&weatherColor.w>0)color=ActiveRainImpacts(color,position,normal,pixel,sample);
+        }
         // PLAYER FILL. Under dynamic lighting a player in shade is far darker than the wall beside
         // them. Their darkest shade is lifted by CL_playerFill, less the brighter the pixel already
         // is, so a player in the sun is left as lit.
@@ -823,15 +900,19 @@ float4 Atmosphere(float2 pixel,uint sample) {
     // back to what it was before the effect, by how much the effect changed the pixel's brightness),
     // the ground is shaded and coated as if nothing were in front of it, and the effect is laid back
     // over that: light added to it, smoke partly hiding it.
-    float lift=1,glow=0;snowLaid=0;
-    bool frontKnown=fogAmbient.w>.5&&(CL_snow>0||CL_wet>0||CL_puddles>0);
+    float lift=1,glow=0;snowLaid=0;frontEffectLift=1;
+    bool frontKnown=fogAmbient.w>.5&&(CL_snow>0||CL_sand>0||CL_wet>0||CL_puddles>0);
     [branch]if(frontKnown){
         float4 effect=fogFrontMask.Load(int3(int2(pixel),0));
-        // Light of its own is strongly coloured AND well brighter than the ground. Dust off a wall
-        // or a floor is tinted too (it is the colour of the stone), but it is a cloud, not a light:
-        // taken for a light, it was added to the snow as the frame's difference, which is a picture
-        // of the ground under it, and every bullet's dust showed the cobbles.
-        lift=clamp(effect.b,.02,64);glow=smoothstep(.45,.8,effect.a)*smoothstep(1.4,2.6,lift);
+        // Light of its own is strongly coloured, well brighter than the ground, AND bright in
+        // absolute linear terms (flames, sparks, muzzle flash). Bullet impact dust or gun smoke in
+        // dark shade can have a large relative lift over dim stone while remaining low luminance:
+        // gating on linear brightness keeps dust puffs from routing through the flame branch and
+        // cutting bare-ground holes through sand or snow in shade.
+        float srcLuma=dot(max(source,0),float3(.2126,.7152,.0722));
+        lift=clamp(effect.b,.02,64);
+        glow=smoothstep(.45,.8,effect.a)*smoothstep(1.4,2.6,lift)*smoothstep(.25,.75,srcLuma);
+        frontEffectLift=lift;
     }
 #if COLOR_MS
     float3 shaded=ShadeSample(pixel,depth,source/lift,sample);
@@ -947,7 +1028,17 @@ float PrecipitationOpenSky(float3 world){
 // filtered cascades. Evaluated once per particle (vertex shader) and once per veil pixel; a drop is
 // too small and too fast for a soft shadow edge across it to show.
 float3 PrecipitationLighting(float3 p,float2 pixel){
-    float3 illumination=RainSceneRadiance(pixel,0)*CL_ambient+SunColor()*WorldSunShadow(p)*CL_sunRelight*.3;
+    float3 scene=RainSceneRadiance(pixel,0);
+    // In front of the sky the frame still holds the game's own clear blue: our sky and its clouds
+    // are drawn later. A drop there takes our sky instead, kept in the frame's brightness scale, so
+    // rain under storm clouds is grey and dim rather than sky blue (the owner, 2026-11-23).
+    [branch]if(CL_sky>0&&IsSky(ReadCombinedSample(pixel,0))){
+        float3 drawn=NativePostLinear(ReadSource(pixel,0));
+        float3 ours=SkyColor(normalize(World(pixel,camera.w>0?.00001:.99999)-camera.xyz),1,true);
+        float3 lum=float3(.2126,.7152,.0722);
+        scene=lerp(scene,ours*(dot(scene,lum)/max(dot(drawn,lum),1e-4)),saturate(CL_sky));
+    }
+    float3 illumination=scene*CL_ambient+SunColor()*WorldSunShadow(p)*CL_sunRelight*.3;
     float3 view=normalize(camera.xyz-p);
     [loop]for(int l=0;l<(int)lighting.x;++l){
         float3 dir;float atten=StudioAttenuation(l,0,p,dir);
@@ -1035,8 +1126,8 @@ float FloorVolumeThrough(float3 world,int maxSteps){
     [branch]if(reach>1&&(CL_groundFog>0||CL_gusts>0)){
         ray/=reach;
         tau=GroundFogDepthAlong(ray,reach);
-        [branch]if(CL_gusts>0&&weatherParams.z>=1&&weatherParams.z<=3&&windFluidWindow.z>0&&weatherColor.w>0){
-            GustLook g=GustLookFor(weatherParams.z);
+        [branch]if(CL_gusts>0&&GustLookType()>0&&windFluidWindow.z>0){
+            GustLook g=GustLookFor(GustLookType());
             float show=GustShown(),range=min(reach,3000),layer=g.top+g.lift,climb=max(abs(ray.z),.01),t=0;
             [loop]for(int i=0;i<maxSteps&&t<range;++i){
                 float3 p=camera.xyz+ray*t;
@@ -1188,9 +1279,16 @@ ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
     // to the pixel stage in rnd.x's whole part.
     float ashKind=0;
     if(weatherParams.z==3){
-        float pick=Random01(n+31);
-        ashKind=pick<.025?2:pick<.425?1:0;
-        if(ashKind>0)variation*=ashKind==2?.32:.4;
+        if(sandInfo.y>.5){
+            // Blown sand weather: fine wind-streaked sand grains and subtle dust motes
+            // (no burnt-paper flakes, embers or oversized round blobs).
+            ashKind=1;
+            variation*=lerp(.22,.52,Random01(n+31));
+        }else{
+            float pick=Random01(n+31);
+            ashKind=pick<.025?2:pick<.425?1:0;
+            if(ashKind>0)variation*=ashKind==2?.32:.4;
+        }
     }
     // ASH DUST AND EMBERS ARE DRAWN OUT ALONG THEIR FLIGHT: they face their velocity and grow with
     // speed (2 times wider and 10 times longer at 787 units/s). Snow flakes stay round: drawn out,
@@ -1207,7 +1305,7 @@ ParticleOutput WeatherVS(uint vertex:SV_VertexID,uint instance:SV_InstanceID) {
         alpha*=smoothstep(10,48,dist); // nothing fills the lens
         float3 eye=normalize(camera.xyz-p),side=cross(streak,eye);
         float projected=length(side);side=projected>.01?side/projected:cameraRight.xyz;
-        float w=widthR*(1+grow),l=widthR*(1+9*grow);
+        float w=widthR*(1+(sandInfo.y>.5?.25:1)*grow),l=widthR*(1+(sandInfo.y>.5?11:9)*grow);
         right=side*w;
         up=streak*l+cameraUp.xyz*w*(1-smoothstep(.0,.12,projected));
         // A flake smeared over its streak spreads the same snow over more of the frame.
@@ -1280,11 +1378,13 @@ float4 WeatherPS(ParticleOutput i,uint sample:SV_SampleIndex):SV_Target {
     if(ashKind>0)i.rnd.x-=ashKind*2;
     bool ember=ashKind==2;
     if(ashKind==1){
-        // Ash dust: motes like a sand storm's, dim and soft, streaked by the wind.
+        // Ash dust or blown sand motes: subtle wind-streaked grains.
         float r=length(i.uv);
-        a=pow(saturate(1-r),1.6)*.75;
-        float lum=lerp(.62,.95,i.rnd.z);
-        tone=float3(lum,lum*.98,lum*.95);
+        a=pow(saturate(1-r),sandInfo.y>.5?1.75:1.6)*(sandInfo.y>.5?.58:.75);
+        float lum=lerp(.68,.98,i.rnd.z);
+        float3 sc=float3(CL_sandColorR,CL_sandColorG,CL_sandColorB);
+        float3 sandTint=lerp(float3(1.02,.98,.9),lerp(float3(1,1,1),clamp(sc/max(dot(sc,float3(.2126,.7152,.0722)),.05),.55,1.35),.45),saturate(CL_sandHarmonize));
+        tone=sandInfo.y>.5?sandTint*lum:float3(lum,lum*.98,lum*.95);
     }else if(ember){
         // An ember: a hot point that flickers, drawn out along its flight like a spark.
         float r=length(i.uv);

@@ -3,7 +3,7 @@
     python Automation/verify/compare-map-data.py <reference-dir> <candidate-dir> <map> [<map> ...]
 
 Each dir holds <map>.json (format 4 manifest) plus digest-named payloads: .lights.json (compact
-format 1), .mvmocclusion (MVMOCC01) and .mvmcasters (MVMCAST6), both in the compressed container (Automation/lib/mvm_cache.py), and any skybox caster payloads.
+format 1), .mvmocclusion (MVMOCC01) and .mvmcasters (MVMCAST7), both in the compressed container (Automation/lib/mvm_cache.py), and any skybox caster payloads.
 Use it to check a change to the native map extractor against a previous extraction of the same
 game files. Every criterion and tolerance is printed; exits 1 if any check fails.
 """
@@ -78,9 +78,10 @@ def read_occlusion(path):
     return pos, idx
 
 
-def read_casters(path):
+def read_casters(path, reference=False):
     data = mvm_cache.read_payload(path)
-    assert data[:8] == b'MVMCAST6', path
+    has_water = data[:8] == b'MVMCAST7'
+    assert has_water or (reference and data[:8] == b'MVMCAST6'), path
     cutouts, _, rvc, ric = struct.unpack_from('<iiii', data, 8)
     o = 24
     rpos = np.frombuffer(data, np.float32, rvc * 3, o).reshape(-1, 3); o += rvc * 12
@@ -105,8 +106,13 @@ def read_casters(path):
         idx = np.frombuffer(data, np.uint32, ic, o); o += ic * 4
         color = np.frombuffer(data, np.uint8, cw * ch * 4, o); o += cw * ch * 4
         stained.append(dict(vc=vc, ic=ic, cw=cw, ch=ch, verts=verts, idx=idx, color=color))
+    water = None
+    if has_water:
+        wc, = struct.unpack_from('<i', data, o); o += 4
+        assert wc >= 0, path
+        water = np.frombuffer(data, np.float32, wc * 9, o).reshape(-1, 3); o += wc * 36
     assert o == len(data), 'trailing bytes in ' + path
-    return dict(rpos=rpos, ridx=ridx, ralb=ralb, cuts=cuts, stained=stained)
+    return dict(rpos=rpos, ridx=ridx, ralb=ralb, cuts=cuts, stained=stained, water=water)
 
 
 def unpack_albedo(a):
@@ -120,6 +126,15 @@ def albedo_mean(albedo, weights):
 
 
 def compare_casters(label, ref, cand):
+    rw, cw = ref['water'], cand['water']
+    if rw is None:
+        print('  INFO ' + label + ' water is new in candidate: %d triangles' % (len(cw) // 3))
+    elif len(rw) == 0 or len(cw) == 0:
+        check(len(rw) == len(cw), label + ' water triangle count', '%d vs %d' % (len(rw) // 3, len(cw) // 3))
+    else:
+        compare_geometry(label + ' water', tri_stats(rw, np.arange(len(rw))),
+                         tri_stats(cw, np.arange(len(cw))), 0.005, 0.005, 0.005, 0.05)
+
     rs, cs = tri_stats(ref['rpos'], ref['ridx']), tri_stats(cand['rpos'], cand['ridx'])
     compare_geometry(label + ' rigid', rs, cs, 0.005, 0.005, 0.005, 0.05)
     if rs['count'] and cs['count']:
@@ -287,7 +302,7 @@ def main():
         cp, ci = read_occlusion(payload(canddir, cm['physicsDigest'], '.mvmocclusion'))
         compare_geometry(m + ' collision', tri_stats(rp, ri), tri_stats(cp, ci), 0.005, 0.001, 0.005, 0.05)
 
-        compare_casters(m + ' casters', read_casters(payload(refdir, rm['visualDigest'], '.mvmcasters')),
+        compare_casters(m + ' casters', read_casters(payload(refdir, rm['visualDigest'], '.mvmcasters'), reference=True),
                         read_casters(payload(canddir, cm['visualDigest'], '.mvmcasters')))
 
         rs, cs = rm.get('skyboxes') or [], cm.get('skyboxes') or []
@@ -298,7 +313,7 @@ def main():
             check(r.get('cameraScale') == c.get('cameraScale') and vec_close(r.get('cameraOrigin'), c.get('cameraOrigin'), 1e-3),
                   m + ' skybox camera', '%s %s vs %s %s' % (r.get('cameraScale'), r.get('cameraOrigin'),
                                                             c.get('cameraScale'), c.get('cameraOrigin')))
-            compare_casters(m + ' skybox casters', read_casters(payload(refdir, r['visualDigest'], '.mvmcasters')),
+            compare_casters(m + ' skybox casters', read_casters(payload(refdir, r['visualDigest'], '.mvmcasters'), reference=True),
                             read_casters(payload(canddir, c['visualDigest'], '.mvmcasters')))
     print()
     print('FAILED %d checks' % len(FAILS) if FAILS else 'ALL CHECKS PASSED')

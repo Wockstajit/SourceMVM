@@ -25,7 +25,7 @@ inline constexpr float kNativeWaterLift = 3.0f;
 // coverage would exceed the geometry budget.
 inline std::vector<Vec3> NativeCoatingTriangles(const OcclusionMesh& world,const Climate& c,float edge=32) {
     std::vector<Vec3> result;
-    float amount=std::clamp(c[CL_puddles],0.f,1.f)*(1-c[CL_snow]);
+    float amount=std::clamp(c[CL_puddles],0.f,1.f)*(1-(std::max)(c[CL_snow],c[CL_sand]));
     if(amount<=0)return result;
     auto mask=[&](Vec3 p){
         float noise=NativeCoatingNoise(p*c[CL_maskScale])*.57f+

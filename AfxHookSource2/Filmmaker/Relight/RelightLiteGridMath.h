@@ -125,8 +125,10 @@ struct LiteLamp {
 };
 inline bool MakeLiteLamp(const Light& light,float intensity,LiteLamp& out) {
     // Fire, muzzle flashes and other effect lights come and go; their bounce is not worth a redo.
-    if(!light.enabled||light.transient)return false;
-    const auto r=ToRecord(light,intensity);
+    if(!light.enabled||light.transient||light.bounceScale<=0)return false;
+    // A bounce-only fill (Light::bounceOnly) has no direct power, but its bounce is what it is for.
+    Light bounced=light;bounced.bounceOnly=false;
+    const auto r=ScaleBounceRecord(ToRecord(bounced,intensity),light.bounceScale);
     out=LiteLamp{};
     out.position=light.position;out.soft=r[35];out.windowBias=r[36];out.windowScale=r[37];
     out.radiance={r[40],r[41],r[42]};

@@ -207,6 +207,7 @@ struct State {
     // (which scales effect lights). Every view of a frame reads the same lights, tiles and matrices.
     // litBounds: one row per record, or empty when no record has bounds.
     struct RecordCache {bool valid=false;std::vector<Relight::LightRecord> records;ID3D11ShaderResourceView* glassCookies=nullptr;
+        std::vector<Relight::LightRecord> bounceRecords;
         std::vector<Relight::LitBoundsRow> litBounds;};
     // mirv_relight dumpview: staging copies of the engine's b1 and b4 for one world lit draw.
     ComPtr<ID3D11Buffer> viewDump[2];UINT viewDumpBytes[2]{};bool viewDumpPending=false;
@@ -220,6 +221,9 @@ struct State {
     Relight::ClusterGrid clusterGrid{};
     Relight::NativeClusterWork nativeClusters;
     unsigned clusterMode=0;bool clusterSummaries=false;
+    // The world pass's cluster mode, kept past the first-person pass (which sets up without clusters and
+    // clears clusterMode): the composite reads the world's light lists for its full-screen pixels.
+    unsigned worldClusterMode=0;
     ComPtr<ID3D11Buffer> clusterParams,clusterExtents,clusterViewReadback,clusterViewportReadback;
     ComPtr<ID3D11ShaderResourceView> clusterExtentSrv;
     ComPtr<ID3D11UnorderedAccessView> clusterExtentUav,clusterMaskUav;

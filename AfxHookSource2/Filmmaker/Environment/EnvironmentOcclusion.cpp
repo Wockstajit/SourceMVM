@@ -31,8 +31,12 @@ void SetStatus(std::string text) {
     std::lock_guard<std::mutex> lock(statusLock);
     status = std::move(text);
 }
-// <root>/game/bin/win64/cs2.exe -> <root>
+// The Steam install, where Workshop maps sit beside the game (steamapps/workshop/content/730). Not the
+// running cs2.exe's folder: the launcher runs CS2 from its own copy under %APPDATA%, which has no Workshop
+// folder beside it, so every Workshop map went without map data (no lighting data, collision or floor map).
+// The running folder stays the fallback for a machine where Steam's library list cannot be read.
 std::filesystem::path Cs2Root() {
+    if (auto steam = MapData::ResolveCs2Root(); !steam.empty()) return steam;
     wchar_t executable[32768];
     const auto length = GetModuleFileNameW(nullptr, executable, 32768);
     if (!length || length >= 32768) return {};

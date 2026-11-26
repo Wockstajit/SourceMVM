@@ -33,6 +33,7 @@ inline constexpr float kFootLength = 6.2f, kFootWidth = 2.7f; // a print's half 
 inline constexpr float kFootBootLength = 7.f, kFootBootWidth = 3.f; // half extents of the hole a boot presses in deep snow
 inline constexpr float kFootWall = 5.f;      // how far the wall of a hole slopes out beyond the boot: a gentle dish, not a punched hole (two legs' furrows run together)
 inline constexpr float kSnowDepth = 14.f;    // how deep the deepest snow lies, in units (about shin deep)
+inline constexpr float kSandDepth = 9.f;     // how deep drifted sand lies, in units (about ankle deep)
 inline constexpr float kSnowReliefMost = 1.35f; // the snow lies in mounds: up to this much of its depth (SnowRelief in the shader)
 inline constexpr float kFootClear = kSnowDepth * kSnowReliefMost; // a sole lifted over the highest mound presses nothing
 inline constexpr float kFootDown = 1.5f;     // a sole this near the ground has come down
@@ -448,4 +449,21 @@ struct FootImage {
         else if (count > 0) Touch(0, first, kFootSize - 1, first + count - 1);
     }
 };
+// How fast footprints and blast craters fill back in on each 0.35 s sweep of the image.
+// Falling snow fills a full print in ~45 s (mark = 2). Dry sand slumps and blows back in faster:
+// ~22 s in calm air, ~11-15 s in a steady breeze or gusts, ~8-9 s in a sandstorm.
+struct FootFillRate {
+    uint8_t mark = 0; // subtracted from prints (row[0]); deep holes (row[3]) take half
+    uint8_t back = 2; // subtracted from cleared melt/blast layer (row[1])
+};
+inline FootFillRate FootFillStep(bool sandLies, bool snowing, bool sandWeather, float windSpeed, float gusts) {
+    if (sandLies) {
+        const float windFactor = std::clamp(windSpeed / 220.f, 0.f, 1.4f);
+        const float gustFactor = std::clamp(gusts, 0.f, 1.f);
+        const float pace = 4.f + 3.5f * windFactor + 2.5f * gustFactor + (sandWeather ? 2.f : 0.f);
+        const uint8_t mark = uint8_t(std::clamp(int(std::lround(pace)), 4, 12));
+        return {mark, uint8_t((std::min)(14, int(mark) + 2))};
+    }
+    return {uint8_t(snowing ? 2 : 0), uint8_t(snowing ? 3 : 2)};
+}
 } // namespace Filmmaker::Environment

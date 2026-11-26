@@ -42,5 +42,7 @@ int main(){
      vast.positions={{-8000,-8000,0},{8000,-8000,0},{8000,8000,0},{-8000,8000,0}};if(!NativeCoatingTriangles(vast,full).empty())return 18;}
     c[CL_snow]=1;
     if(!NativeCoatingTriangles(world,c).empty())return 9;
+    c[CL_snow]=0;c[CL_sand]=1;
+    if(!NativeCoatingTriangles(world,c).empty())return 19;
     std::cout<<"Native coating geometry: walls, area, level, coverage and deterministic placement passed\n";
 }

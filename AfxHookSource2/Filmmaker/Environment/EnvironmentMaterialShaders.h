@@ -45,15 +45,37 @@ float3 ShadeMaterial(float3 world,float3 geometric,float2 uv){
     if(materialTextures.z>.5)roughness*=materialRoughness.Sample(materialSampler,uv).r;
     roughness=clamp(roughness,.05,1);
     float3 n,t,b;MaterialFrame(world,normalize(geometric),uv,n,t,b);float3 v=normalize(camera.xyz-world);
-    float3 color=base*(1-materialParams.y)*(lighting.y*.2+CL_ambient+WorldBounce(world,n))+base*materialParams.z;
     float3 sun=SunDirection();float visible=CL_contactShadows>0?WorldSunShadowSoft(world+n*shadowInfo.y,n):1;
+    // BRUSH TAKES THE MAP'S OWN LIGHT (tumbleweeds, objectColor.a < .5). Lit by our sun and a flat
+    // ambient it looked the same in an alley's shade as in the sun, and ignored the map's lamps and
+    // colour (the owner, 2026-11-23). It takes the light the frame has on the ground under it, as
+    // the sand and snow do (GustFloorLight): the map's sun and shade, its lamps and its tint. Inside
+    // the ball the tangle shades itself, and where the sun reaches, the side facing it is brighter.
+    [branch]if(objectColor.a<.5){
+        float3 center=float3(model[0][3],model[1][3],model[2][3]);
+        float size=max(length(float3(model[0][0],model[1][0],model[2][0])),1e-3);
+        float3 rel=(world-center)/size;
+        float twSun=1;
+        float3 light=TumbleweedLight(center,size,sun,twSun);
+        float inner=lerp(.52,1,smoothstep(.25,.95,length(rel)));
+        float sunSide=lerp(.82,1.14,saturate(dot(normalize(rel+1e-4),sun)*.5+.5));
+        return base*light*inner*lerp(1,sunSide,twSun);
+    }
+    // Dynamic brush props (tumbleweeds, objectColor.a < .5) darken naturally when rolling into
+    // building shade and skip static floor coatings so sand/snow does not paint over their twigs.
+    float shadeScale=objectColor.a<.5?lerp(.42,1.,visible)*(.55+.45*saturate(n.z*.5+.5)):1;
+    float3 color=base*(1-materialParams.y)*(lighting.y*.2+CL_ambient*shadeScale+WorldBounce(world,n))+base*materialParams.z;
     color+=MaterialBrdf(base,n,t,b,v,sun,roughness)*SunColor()*CL_sunRelight*visible;
     [loop]for(int l=0;l<(int)lighting.x;++l)[loop]for(int sample=0;sample<StudioSamples(l);++sample){
         float3 dir;float attenuation=StudioAttenuation(l,sample,world,dir);
         if(attenuation>0)color+=MaterialBrdf(base,n,t,b,v,dir,roughness)*lightColorIntensity[l].rgb*lightColorIntensity[l].w*attenuation*WorldLightShadowSample(l,world+n*shadowInfo.y,sample);
     }
     float3 ray=reflect(-v,n);float3 reflected=WorldReflectionRoughness(world,n,ray,SkyColor(ray),roughness);
-    color+=reflected*MaterialFresnel(lerp(.04,base,materialParams.y),dot(n,v))*(1-roughness*.75);
-    return ApplyCoatings(color,world,n,geometric,dot(max(color,0),float3(.2126,.7152,.0722)));
+    // Dry brush (tumbleweeds) is matte all the way to its edges. A twig is nearly all grazing edge,
+    // where the Fresnel term reaches the full sky, and the sky laid over every stem turned the straw a
+    // cold grey in game (2026-11-23): brush keeps a tenth of the mirror.
+    color+=reflected*MaterialFresnel(lerp(.04,base,materialParams.y),dot(n,v))*(1-roughness*.75)*(objectColor.a<.5?.1:1);
+    if(objectColor.a>.5)return ApplyCoatings(color,world,n,geometric,dot(max(color,0),float3(.2126,.7152,.0722)));
+    return color;
 }
 )HLSL"
