@@ -1142,7 +1142,7 @@ float FloorVolumeThrough(float3 world,int maxSteps){
                 t+=dt;
                 float region=PrecipitationRegion(q);
                 if(region<=0)continue;
-                float d;float sigma=GustVolumeAt(q,floorHere,g,true,d);
+                float d;float sigma=GustVolumeAt(q,GustFloor(q),g,true,d);
                 if(sigma<=0)continue;
                 tau+=sigma*region*max(PrecipitationOpenSky(q),CoverReach(q).x)*show*(1-smoothstep(2400,3000,t))*dt;
             }

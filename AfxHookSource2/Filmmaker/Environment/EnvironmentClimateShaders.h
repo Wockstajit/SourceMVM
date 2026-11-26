@@ -1750,8 +1750,10 @@ float GroundFogProfile(float h,float top){
     float t=saturate((h-start*reach)/((1-start)*reach));
     return pow(1-t*t*(3-2*t),1+1.5*soft);
 }
-// As high over its floor as this layer's fog can stand.
-float GroundFogReach(){return CL_groundFogHeight*1.55*(1+1.2*CL_groundFogSoftness);}
+// As high over its floor as this layer's fog can stand: the tallest top GroundFogAt makes (billows
+// 1.28, heaped fluid 1.25^.8 = 1.195, wisps 1.21, so 1.85) with a little to spare. At 1.55 the heaped,
+// wisped peaks were cut while still about a third dense: a flat lid across the top of the layer.
+float GroundFogReach(){return CL_groundFogHeight*1.86*(1+1.2*CL_groundFogSoftness);}
 // The field that tears the fog into wisps, 0 to 1. It is stretched along the drift and flattened into thin
 // sheets of height: a ray near the horizon stays inside one sheet for a long way, and that is what reads as
 // a long streak. Uniform noise in height averages away along such a ray and leaves smooth fog. `wave` (the
@@ -2240,7 +2242,10 @@ void GustVolumeMarch(float3 ray,float distance,float jitter,float3 ambient,inout
         t+=dt;
         float region=PrecipitationRegion(q);
         if(region<=0)continue;
-        float d;float sigma=GustVolumeAt(q,floorHere,g,true,d);
+        // The sample's own floor: a step runs up to 180 units on from p, and over a stair or a kerb
+        // the floor at p left the drift floating over the higher ground or sunk into the lower.
+        float floorZ=GustFloor(q);
+        float d;float sigma=GustVolumeAt(q,floorZ,g,true,d);
         if(sigma<=0)continue;
         // Out in the open air, and as far under cover as open air reaches (a doorway, an arch).
         float open=max(PrecipitationOpenSky(q),CoverReach(q).x);
@@ -2264,8 +2269,8 @@ void GustVolumeMarch(float3 ray,float distance,float jitter,float3 ambient,inout
             // march toward the sun, its density times `shadow`, softened by the shade above) and a
             // little brighter looking toward the sun.
             float tau=0,ds=12/max(sun.z,.3);
-            [loop]for(int k=0;k<4;++k){float dk;tau+=GustVolumeAt(q+sun*ds*(k+.5),floorHere,g,false,dk);}
-            light=GustFloorLight(q,floorHere)*(lerp(.8,1,exp(-tau*ds*g.shadow)*lerp(.6,1,shade))+Phase(dot(ray,sun))*.25*shade);
+            [loop]for(int k=0;k<4;++k){float dk;tau+=GustVolumeAt(q+sun*ds*(k+.5),floorZ,g,false,dk);}
+            light=GustFloorLight(q,floorZ)*(lerp(.8,1,exp(-tau*ds*g.shadow)*lerp(.6,1,shade))+Phase(dot(ray,sun))*.25*shade);
         }else{
             // Unlit: spray in a storm, lit by the sky with a little of the sun.
             light=sky*GroundFogSkyOpen(q)*1.1+sunLight*.35*shade;
