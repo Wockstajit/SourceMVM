@@ -1083,7 +1083,8 @@ input:focus-visible {
   display: grid;
   place-items: center;
   overflow: hidden;
-  pointer-events: none;
+  /* Takes the clicks while it plays: a click skips it (App.tsx) instead of reaching GO beneath. */
+  pointer-events: auto;
   background: var(--bg);
   opacity: 1;
   transition: opacity 420ms ease-out, visibility 420ms ease-out;
@@ -1826,6 +1827,13 @@ input:focus-visible {
 @keyframes wm-ghost {
   0%, 100% { transform: translateX(-14px); }
   50% { transform: translateX(14px); }
+}
+
+/* Held while CS2 runs, the drawer is open or the window is behind something (App.tsx `quiet`). */
+.launcher.is-quiet .wm-title,
+.launcher.is-quiet .wm-trail,
+.launcher.is-quiet .wm-ghost {
+  animation-play-state: paused;
 }
 
 @media (prefers-reduced-motion: reduce) {

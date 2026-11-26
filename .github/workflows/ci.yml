@@ -107,6 +107,10 @@ jobs:
         run: |
           node --test Automation/tests/launcher-launch-host-tests.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($suite in 'startup-quiet', 'save-reset', 'update-service', 'auto-update', 'advanced-settings', 'cs2-process') {
+            node --test "Automation/tests/launcher-$suite-tests.mjs"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
           powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File Automation/tests/launcher-host-tests.ps1
 
   # The CS2 and Deadlock hooks and their native tests, built with Ninja so sccache can cache each
