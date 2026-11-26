@@ -1354,6 +1354,18 @@ std::vector<PickBox> ScenePickBoxes() {
     }
     return out;
 }
+bool ObjectWorldPose(int id, float outPos[3], float outAngles[3]) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    const auto rig = RigTransient::Read();
+    for (Object o : g_scene.objects) {
+        if (o.id != id) continue;
+        ApplyRig(o, *rig);
+        outPos[0] = o.position.x; outPos[1] = o.position.y; outPos[2] = o.position.z;
+        outAngles[0] = o.angles.x; outAngles[1] = o.angles.y; outAngles[2] = o.angles.z;
+        return true;
+    }
+    return false;
+}
 void SelectInView(int id) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_drag.active) { g_scene = g_dragBefore; g_drag.Cancel(); }

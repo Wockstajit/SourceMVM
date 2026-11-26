@@ -51,8 +51,25 @@ void DropCleanColor();
 // Keeps the Main render's colour and depth for Gun Only passes rendered later in the same frame.
 bool StoreReference(ID3D11DeviceContext* immediate, ID3D11Texture2D* color, ID3D11DepthStencilView* depth);
 
+// The view a World Only reference was rendered through. A reader that runs before the next
+// reference (the Effect Nodes on Main) is one frame ahead of it, so it has to look the world up
+// through this view and not through its own.
+struct WorldReferenceView {
+	bool valid = false;
+	float worldToClip[16] = {}; // row-major, column vectors
+	float depthMin = 0.0f, depthMax = 1.0f;
+};
+
 // Keeps the World Only render's depth for the Players Only passes rendered later in the same frame.
-bool StoreWorldReference(ID3D11DeviceContext* immediate, ID3D11DepthStencilView* depth);
+bool StoreWorldReference(ID3D11DeviceContext* immediate, ID3D11DepthStencilView* depth, const WorldReferenceView& view);
+
+// Borrowed SRV of the stored World Only depth reference and the view it belongs to, or nullptr when
+// there is none or it is old (no World Only render in the last renders).
+// Shared with Effect Nodes so Player Matte nodes reuse the exact same world-only depth pass.
+ID3D11ShaderResourceView* WorldDepthReferenceSrv(WorldReferenceView& view);
+
+// Render thread, after every render: ages the stored World Only reference.
+void NoteRenderEnded();
 
 // Returns the composed RGBA8 frame (borrowed; valid until the next Compose), or nullptr.
 ID3D11Texture2D* Compose(ID3D11DeviceContext* immediate, ID3D11Texture2D* color,

@@ -67,7 +67,7 @@ test("no recorded render repaints materials: a job's Players Only is masked by d
   // The job's Players Only takes its depth reference from an output-less World Only render, and
   // the compositor masks it by depth, never by the chroma repaint.
   assert.match(hooks, /ref\.PassReferenceOnly = true;/);
-  assert.match(hooks, /params\.worldRef = pass\.elements == Filmmaker::VisibleElements::OnlyPlayers;/);
+  assert.match(hooks, /params\.worldRef = pass\.elements == Filmmaker::VisibleElements::OnlyPlayers\s*\|\|\s*pass\.elements == Filmmaker::VisibleElements::OnlySelectedPlayer;/);
   assert.match(shader, /if \(mask == 3\) \{[\s\S]*?here < world - max\(1\.5, world \* 0\.004\)/);
 });
 

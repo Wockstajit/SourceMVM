@@ -3,6 +3,7 @@
 #include "RenderCommand.h"
 #include "RenderOutput.h"
 #include "RenderPassPlan.h"
+#include "RenderPlayerMatte.h"
 #include "RenderRange.h"
 #include "RenderSessionDriver.h"
 #include "RenderTypes.h"
@@ -46,6 +47,9 @@ struct Entry {
 	CameraPath::Interp interp = CameraPath::Interp::Bezier;
 	CameraPath::SpeedMode speedMode = CameraPath::SpeedMode::Manual;
 	KillFeedState killFeed;    // the kill feed's names and filter
+	// The player a Selected player pass isolates, picked when the shot was queued (-1 = none).
+	int matteController = -1;
+	std::string matteName;
 	std::string status = "queued"; // queued | rendering | completed | failed | canceled | skipped
 	std::string note;
 };
@@ -63,6 +67,7 @@ struct Saved {
 	CameraPath::Interp interp = CameraPath::Interp::Bezier;
 	CameraPath::SpeedMode speedMode = CameraPath::SpeedMode::Manual;
 	KillFeedState killFeed;
+	int matteController = -1; // the Selected player pick before the queue
 	int tick = -1;          // the playhead the queue started from
 	uint64_t watched = 0;   // the player being watched then, 0 = none
 };
@@ -147,6 +152,15 @@ bool AddCurrent(std::string& error) {
 	e.passes.passes = NormalizePasses(e.passes.passes);
 	e.killFeed = KillFeed_Snapshot();
 	if (e.passes.passes.empty()) { error = "no render pass selected"; return false; }
+	// The Selected player pass isolates whoever is picked when it renders, so the shot keeps the
+	// pick it was queued with: two shots of two players must not both render the last pick.
+	const bool selectedPass = std::any_of(e.passes.passes.begin(), e.passes.passes.end(),
+		[](const PassConfig& pc) { return pc.elements == VisibleElements::OnlySelectedPlayer; });
+	if (selectedPass) {
+		if (!RenderPlayerMatte_HasTarget()) { error = "the Selected player pass needs a picked player"; return false; }
+		e.matteController = RenderPlayerMatte_SelectedController();
+		e.matteName = RenderPlayerMatte_SelectedName();
+	}
 	// Each shot keeps what its camera follows, so a later shot changing the watched player or the
 	// view does not change it: the watched player for the player cameras, the pose for Free Camera.
 	if (e.camera == RenderCameraSource::FreeCamera) {
@@ -193,6 +207,8 @@ void Restore() {
 		CameraPathRef().ReplaceMarkersFromGraph(g_saved.path, false);
 	}
 	KillFeed_Apply(g_saved.killFeed);
+	if (g_saved.matteController >= 0) RenderPlayerMatte_PickController(g_saved.matteController);
+	else RenderPlayerMatte_Clear();
 	// Each shot switched the live camera, so the view itself goes back to the saved source too.
 	Render_ApplyCameraSourceLive(g_saved.camera, "mirv_filmmaker render queue");
 	// And back to where the queue started, watching whom it was watching.
@@ -225,6 +241,9 @@ void Apply(Entry& e) {
 	// A Free Camera shot renders as a camera held at the pose it was queued with.
 	const RenderCameraSource source = e.stillPose ? RenderCameraSource::CameraPath : e.camera;
 	KillFeed_Apply(e.killFeed);
+	if (e.matteController >= 0 && !RenderPlayerMatte_PickController(e.matteController))
+		MvmDebugLog_LinefAlways("render.queue", "the queued Selected player (controller %d, \"%s\") is not in this demo now",
+			e.matteController, e.matteName.c_str());
 	if (source == RenderCameraSource::CameraPath) {
 		CameraPathRef().SetInterp(e.interp);
 		CameraPathRef().SetSpeedMode(e.speedMode);
@@ -254,6 +273,7 @@ void Begin() {
 	g_saved.interp = CameraPathRef().GetInterp();
 	g_saved.speedMode = CameraPathRef().GetSpeedMode();
 	g_saved.killFeed = KillFeed_Snapshot();
+	g_saved.matteController = RenderPlayerMatte_SelectedController();
 	{
 		int tick = -1;
 		g_saved.tick = g_MirvTime.GetCurrentDemoTick(tick) ? tick : -1;

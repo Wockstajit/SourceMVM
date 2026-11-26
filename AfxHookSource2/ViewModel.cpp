@@ -2,6 +2,7 @@
 #include "Globals.h"
 #include "Filmmaker/Movie/ViewFx.h"
 #include "Filmmaker/Movie/ViewFxVm.h"
+#include "Filmmaker/WorldWarp/WorldWarp.h"
 
 #include <cstddef>
 #include <windows.h>
@@ -85,6 +86,13 @@ g_OriginalViewmodelFunc_t g_OriginalViewmodelFunc = nullptr;
 void __fastcall setViewmodel(void* param_1, float* pViewmodelOffsets, float* pFov)
 {
     g_OriginalViewmodelFunc(param_1, pViewmodelOffsets, pFov);
+
+    if (pViewmodelOffsets != nullptr && Filmmaker::WorldWarp_WantsCubemap()) {
+        // Move first-person weapon/arms behind the camera so they never appear on Little Planet's 6 faces.
+        pViewmodelOffsets[1] = -200.0f;
+        pViewmodelOffsets[2] = -200.0f;
+        return;
+    }
 
     if (pViewmodelOffsets != nullptr && g_MirvViewmodel.enabled) {
         if (g_MirvViewmodel.enabledX) pViewmodelOffsets[0] = g_MirvViewmodel.offsetX; // x

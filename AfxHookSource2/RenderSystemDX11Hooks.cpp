@@ -15,6 +15,13 @@
 #include "Filmmaker/Lens/LensFx.h"
 #include "Filmmaker/Lens/LensRain.h"
 #include "Filmmaker/Heatmap/RoundHeatmap.h"
+#include "Filmmaker/WorldWarp/WorldWarp.h"
+#include "Filmmaker/WorldWarp/WorldWarpRender.h"
+#include "Filmmaker/WorldDecals/WorldDecals.h"
+#include "Filmmaker/WorldDecals/WorldDecalsRender.h"
+#include "Filmmaker/EffectNodes/EffectNodes.h"
+#include "Filmmaker/EffectNodes/EffectNodesRender.h"
+#include "Filmmaker/EventFx/EventFx.h"
 #include "Filmmaker/World/SunFx.h" // the lens flare's sun (SunFx_VisibleSunDirection)
 #include "Filmmaker/Lens/LensSunLocator.h" // the lens flare's sun: the disc CS2 draws, found on the GPU
 #include "Filmmaker/World/CustomShadowAtlas.h"
@@ -49,7 +56,8 @@
 #include "Filmmaker/Render/RenderEngineSize.h"    // scaled scene target dimensions (raster probe)
 #include "Filmmaker/Render/RenderViewportRecordProbe.h" // recording-side viewport-owner probe
 #include "Filmmaker/Render/RenderSupersample.h"   // scene supersampling (viewport interception)
-#include "Filmmaker/Render/RenderPlayersOnlyGreen.h" // dedicated subject-pass bracket
+#include "Filmmaker/Render/RenderPlayersOnlyGreen.h"
+#include "Filmmaker/Render/RenderPlayerMatte.h" // dedicated subject-pass bracket
 #include "Filmmaker/Render/RenderHdrCapture.h"    // pre-tonemap HDR frame grab -> EXR
 #include "Filmmaker/World/AutoExposure.h"         // eye adaptation meter (before-UI boundary)
 #include "UiInputGate.h" // pause-menu render-pass stamp for the director input gate
@@ -2095,6 +2103,7 @@ HRESULT STDMETHODCALLTYPE New_CreateVertexShader(ID3D11Device* This, const void*
     // The foliage observer only reflects verified bindings into shader-owned private data.
     if (SUCCEEDED(result) && ppVertexShader && *ppVertexShader){
         if (!Filmmaker::SmokeAppearance::CreatingShader()) Filmmaker::SmokeAppearance::NoteVertexShader(*ppVertexShader, pBytecode, BytecodeLength);
+        if (!Filmmaker::WorldWarp::CreatingShader()) Filmmaker::WorldWarp::NoteVertexShader(*ppVertexShader, pBytecode, BytecodeLength);
         Filmmaker::Environment::NoteFoliageShader(*ppVertexShader, pBytecode, BytecodeLength);
         Filmmaker::Environment::NoteViewmodelShader(*ppVertexShader, pBytecode, BytecodeLength);
         Filmmaker::Environment::NoteAnimatedCasterShader(*ppVertexShader, pBytecode, BytecodeLength);
@@ -2176,6 +2185,10 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                     g_ReShadeScenePass.EndDevice();
                     Filmmaker::LensFx_EndDevice();
                     Filmmaker::LensRain_EndDevice();
+                    Filmmaker::WorldWarp::EndDevice();
+                    Filmmaker::WorldDecals::EndDevice();
+                    Filmmaker::EffectNodes::EndDevice();
+                    Filmmaker::EventFx_EndDevice();
                     AfxContactShadow::EndDevice();
                     AfxRenderPass::EndDevice();
                     if (environmentDeviceChanged)
@@ -2198,6 +2211,10 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                 g_ReShadeScenePass.BeginDevice(This);
                 Filmmaker::LensFx_BeginDevice(This);
                 Filmmaker::LensRain_BeginDevice(This);
+                Filmmaker::WorldWarp::BeginDevice(This);
+                Filmmaker::WorldDecals::BeginDevice(This);
+                Filmmaker::EffectNodes::BeginDevice(This);
+                Filmmaker::EventFx_BeginDevice(This);
                 AfxContactShadow::BeginDevice(This);
                 AfxRenderPass::BeginDevice(This);
                 if (environmentDeviceChanged)
@@ -3377,6 +3394,16 @@ static void AfxFillPassFrame(AfxRenderPass::ComposeParams& params) {
     params.depthMax = g_ViewPort.MaxDepth;
 }
 
+// The view the render now at its BeforeUi boundary was drawn through, kept with its World Only depth.
+static AfxRenderPass::WorldReferenceView AfxWorldReferenceView() {
+    AfxRenderPass::WorldReferenceView view;
+    view.valid = g_EnvironmentFrame.hasWorldToClip;
+    if (view.valid) for (int k = 0; k < 16; ++k) view.worldToClip[k] = g_EnvironmentFrame.worldToClip[k];
+    view.depthMin = g_ViewPort.MinDepth;
+    view.depthMax = g_ViewPort.MaxDepth;
+    return view;
+}
+
 // Render workspace live view of a Depth / Normal pass (AfxStreams_SetLivePassPreview). Written on
 // the main thread, read once per presented frame on the render thread.
 struct AfxLivePassPreview {
@@ -3449,7 +3476,10 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
         std::lock_guard<std::mutex> lock(g_LivePassPreviewMutex);
         live = g_LivePassPreview;
     }
-    if (live.type == (int)Filmmaker::PassType::Beauty || AfxStreams_IsRcording()) return;
+    const bool liveHighlight = (live.type == (int)Filmmaker::PassType::Beauty)
+        && Filmmaker::RenderPlayerMatte_HighlightEnabled()
+        && Filmmaker::RenderPlayerMatte_HasTarget();
+    if ((live.type == (int)Filmmaker::PassType::Beauty && !liveHighlight) || AfxStreams_IsRcording()) return;
     ID3D11Resource* resource = nullptr;
     pTarget->GetResource(&resource);
     if (!resource) return;
@@ -3458,10 +3488,19 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
     resource->Release();
     if (!texture) return;
     AfxRenderPass::ComposeParams params;
-    params.mode = live.type;
-    params.mask = (int)Filmmaker::PassMaskFor((Filmmaker::VisibleElements)live.elements);
-    // Gun only is Main against NoGun in a job; live there is one render, so its viewmodel band.
-    if (live.elements == (int)Filmmaker::VisibleElements::OnlyWeapon) params.mask = (int)Filmmaker::PassMask::GunBand;
+    if (liveHighlight) {
+        params.mode = 5; // Highlight picked player in scene
+        params.mask = (int)Filmmaker::PassMask::SinglePlayerDepth;
+        params.worldRef = true;
+    } else {
+        params.mode = live.type;
+        params.mask = (int)Filmmaker::PassMaskFor((Filmmaker::VisibleElements)live.elements);
+        // Gun only is Main against NoGun in a job; live there is one render, so its viewmodel band.
+        if (live.elements == (int)Filmmaker::VisibleElements::OnlyWeapon) params.mask = (int)Filmmaker::PassMask::GunBand;
+        // Players Only / Selected Player: masked by depth against the live World Only reference render.
+        params.worldRef = live.elements == (int)Filmmaker::VisibleElements::OnlyPlayers
+            || live.elements == (int)Filmmaker::VisibleElements::OnlySelectedPlayer;
+    }
     float key[4];
     Filmmaker::RenderPlayersOnlyGreen_KeyColor(key);
     params.keyIn[0] = key[0]; params.keyIn[1] = key[1]; params.keyIn[2] = key[2];
@@ -3469,8 +3508,6 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
     for (int k = 0; k < 3; ++k) params.keyOut[k] = live.keyOut[k];
     params.nearUnits = live.depthNear;
     params.farUnits = live.depthFar;
-    // Players Only: masked by depth against the live World Only reference render, like a job.
-    params.worldRef = live.elements == (int)Filmmaker::VisibleElements::OnlyPlayers;
     AfxFillPassFrame(params);
     params.keySky = AfxSkyKeyOn();
     const bool ok = AfxRenderPass::ComposeInto(pDeviceContext, texture, g_pCurrentDepthStencilView, params, pTarget);
@@ -3487,6 +3524,36 @@ static void AfxRenderLivePassPreview(ID3D11DeviceContext* pDeviceContext, ID3D11
     }
     texture->Release();
 }
+// The finished scene target (UI included) into the back buffer, for a present the engine did not ask
+// for itself: CS2 resolves its scene target only for its own Present, so at any other moment the back
+// buffer still holds the last render the engine finished. No-op when the engine draws into the back
+// buffer, or when the two sizes differ (a copy cannot scale it); the debug log says which.
+static void AfxSceneToBackBuffer(ID3D11DeviceContext* pDeviceContext, ID3D11Texture2D* pScene) {
+    if (!pDeviceContext || !pScene || !g_pSwapChain) return;
+    ID3D11Texture2D* pBack = nullptr;
+    if (FAILED(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pBack)) || !pBack) return;
+    D3D11_TEXTURE2D_DESC scene = {}, back = {};
+    pScene->GetDesc(&scene);
+    pBack->GetDesc(&back);
+    const bool same = pScene == pBack;
+    const bool fits = scene.Width == back.Width && scene.Height == back.Height && back.SampleDesc.Count == 1;
+    if (!same && fits) {
+        if (scene.SampleDesc.Count > 1) pDeviceContext->ResolveSubresource(pBack, 0, pScene, 0, back.Format);
+        else pDeviceContext->CopyResource(pBack, pScene);
+    }
+    if (Filmmaker::MvmDebugLog_Active()) {
+        static UINT s_logged = ~0u;
+        const UINT state = (same ? 1u : 0u) | (fits ? 2u : 0u) | (scene.SampleDesc.Count << 4) | ((UINT)scene.Format << 12);
+        if (state != s_logged) {
+            s_logged = state;
+            Filmmaker::MvmDebugLog_LinefAlways("render.worldref", "scene to back buffer: scene=%ux%u fmt=%d samples=%u back=%ux%u fmt=%d same=%d copied=%d",
+                scene.Width, scene.Height, (int)scene.Format, scene.SampleDesc.Count,
+                back.Width, back.Height, (int)back.Format, same ? 1 : 0, (!same && fits) ? 1 : 0);
+        }
+    }
+    pBack->Release();
+}
+
 class CAfxRenderCallbackBeforeClear : public IRenderThreadCallback {
 public:
     CAfxRenderCallbackBeforeClear()
@@ -3678,6 +3745,43 @@ public:
                 // On the glass, so after the depth of field (the drops are not part of the world it blurs).
                 if (rainRuns)
                     Filmmaker::LensRain_Render(pDeviceContext, pRenderTargetViews[0], rainOnly, g_NativeScopeDrawnThisPresent);
+                // World-space decals & wall media (Text, Logos/Images, Videos on walls, Arrows,
+                // Animated ground routes): runs before Effect Nodes / WorldWarp so projected
+                // decals participate naturally in node grades and world bending.
+                if (Filmmaker::WorldDecals::AnyEnabled()) {
+                    const auto& f = g_EnvironmentFrame;
+                    float actorFeet[Filmmaker::Environment::Frame::kMaxActors][4] = {};
+                    int actN = 0;
+                    for (const auto& a : f.actors) {
+                        if (actN >= Filmmaker::Environment::Frame::kMaxActors) break;
+                        actorFeet[actN][0] = a.origin.x; actorFeet[actN][1] = a.origin.y;
+                        actorFeet[actN][2] = a.origin.z; actorFeet[actN][3] = a.radius;
+                        ++actN;
+                    }
+                    // Also merge live player capsules from RenderPlayerMatte so skipPlayers works
+                    // even when Environment is turned off.
+                    const auto pmSnap = Filmmaker::RenderPlayerMatte_Snapshot();
+                    if (pmSnap.hasTarget && actN < Filmmaker::Environment::Frame::kMaxActors) {
+                        actorFeet[actN][0] = pmSnap.targetCapsule[0];
+                        actorFeet[actN][1] = pmSnap.targetCapsule[1];
+                        actorFeet[actN][2] = pmSnap.targetCapsule[2];
+                        actorFeet[actN][3] = 24.0f;
+                        ++actN;
+                    }
+                    for (int pi = 0; pi < pmSnap.otherCount && actN < Filmmaker::Environment::Frame::kMaxActors; ++pi) {
+                        actorFeet[actN][0] = pmSnap.otherCapsules[pi][0];
+                        actorFeet[actN][1] = pmSnap.otherCapsules[pi][1];
+                        actorFeet[actN][2] = pmSnap.otherCapsules[pi][2];
+                        actorFeet[actN][3] = 24.0f;
+                        ++actN;
+                    }
+                    const float eye[3] = { f.camera.x, f.camera.y, f.camera.z };
+                    Filmmaker::WorldDecals::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
+                        f.hasWorldToClip ? f.worldToClip.data() : nullptr,
+                        f.hasWorldToClip ? f.projection.data() : nullptr,
+                        eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth,
+                        actorFeet, actN, f.time, AfxStreams_IsRcording());
+                }
                 // Round heat map: a placement aid painted on the floor after the lens, so it stays
                 // sharp. It sits out recordings (the scene objects tab is where it is switched on).
                 {
@@ -3693,6 +3797,49 @@ public:
                     Filmmaker::Heatmap::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                         f.hasWorldToClip ? f.worldToClip.data() : nullptr, f.hasWorldToClip ? f.projection.data() : nullptr,
                         eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, feet, players, AfxStreams_IsRcording());
+                }
+                Filmmaker::WorldWarp::UpdateFrameConstants(pDeviceContext, g_EnvironmentFrame.time,
+                    (UINT)g_ViewPort.Width, (UINT)g_ViewPort.Height);
+                if (!pLensCommands || !pLensCommands->SkipLens) {
+                    const auto& f = g_EnvironmentFrame;
+                    const float eye[3] = { f.camera.x, f.camera.y, f.camera.z };
+                    const float radP = f.angles.x * 0.0174532925f;
+                    const float radY = f.angles.y * 0.0174532925f;
+                    const float fwd[3] = { std::cos(radP) * std::cos(radY), std::cos(radP) * std::sin(radY), -std::sin(radP) };
+                    if (Filmmaker::WorldWarp_WantsCubemap()) {
+                        // Lock-step 6-face cubemap capture: save this frame's rotated camera view
+                        // into the working cubemap, advance to the next face for the next CSetupView,
+                        // and publish the six once they share one demo time (the composite shows the
+                        // last published set, so the planet never mixes two moments).
+                        bool publishCube = false;
+                        const int capturedFace = Filmmaker::WorldWarp_ConsumeCapturedFace(f.time, publishCube);
+                        if (capturedFace >= 0) {
+                            Filmmaker::WorldWarp::CaptureCubemapFace(pDeviceContext, pRenderTargetViews[0], capturedFace,
+                                f.hasWorldToClip ? f.projection.data() : nullptr);
+                        }
+                        if (publishCube) Filmmaker::WorldWarp::PublishCubemap(pDeviceContext);
+                        Filmmaker::WorldWarp::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
+                            f.hasWorldToClip ? f.worldToClip.data() : nullptr,
+                            f.hasWorldToClip ? f.projection.data() : nullptr,
+                            eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
+                    } else {
+                        if (Filmmaker::EffectNodes::Active()) {
+                            AfxRenderPass::WorldReferenceView refView;
+                            ID3D11ShaderResourceView* refDepth = AfxRenderPass::WorldDepthReferenceSrv(refView);
+                            Filmmaker::EffectNodes::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
+                                refDepth, refView.worldToClip, refView.depthMin, refView.depthMax,
+                                f.hasWorldToClip ? f.worldToClip.data() : nullptr,
+                                f.hasWorldToClip ? f.projection.data() : nullptr,
+                                eye, fwd, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
+                        }
+                        Filmmaker::EventFx_RenderPost(pDeviceContext, pRenderTargetViews[0], f.time);
+                        if (Filmmaker::WorldWarp_Active()) {
+                            Filmmaker::WorldWarp::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
+                                f.hasWorldToClip ? f.worldToClip.data() : nullptr,
+                                f.hasWorldToClip ? f.projection.data() : nullptr,
+                                eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
+                        }
+                    }
                 }
                 // ReShade: on the finished scene, before the recorder and the scaled preview, so a render
                 // gets the look the user set up and the HUD and panels do not. Like the lens it is a Beauty
@@ -4345,6 +4492,8 @@ void STDMETHODCALLTYPE New_DrawIndexed( ID3D11DeviceContext * This,
 		return;
     OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return;
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexed(This, IndexCount, StartIndexLocation, BaseVertexLocation); }
     AfxLocateSun(This, { Filmmaker::LensSunDraw::DrawIndexed, IndexCount, 1, StartIndexLocation, BaseVertexLocation, 0 });
@@ -4384,6 +4533,8 @@ void STDMETHODCALLTYPE New_Draw( ID3D11DeviceContext * This,
     AfxCompositeEnvironmentBeforeScope(This, VertexCount);
     OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return;
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_Draw(This, VertexCount, StartVertexLocation); }
     AfxLocateSun(This, { Filmmaker::LensSunDraw::Draw, VertexCount, 1, StartVertexLocation, 0, 0 });
@@ -4433,6 +4584,8 @@ void STDMETHODCALLTYPE New_DrawIndexedInstanced(ID3D11DeviceContext * This,
 		return;
     OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return;
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
 	{ QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexedInstanced(This, IndexCountPerInstance, InstanceCount, StartIndexLocation,
 		BaseVertexLocation, StartInstanceLocation); }
@@ -4471,6 +4624,8 @@ void STDMETHODCALLTYPE New_DrawInstanced( ID3D11DeviceContext * This,
 		return;
     OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return;
 	Filmmaker::SkyGpuRotationScope skyRotation = Filmmaker::SkyGpuRotation_BeginDraw(This);
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawInstanced(This, VertexCountPerInstance, InstanceCount,
         StartVertexLocation, StartInstanceLocation); }
@@ -4534,6 +4689,8 @@ int NvidiaMultiDraw(NvidiaMultiDraw_t original, ID3D11DeviceContext* context,
     if (AfxPlayersOnlyGreen_SkipIndirectDraw(context, operation)) return 0;
     OptionalNativeMaterialScopes environmentMaterial(context, !g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(context);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(context, !g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return 0;
     // Keep native multi-draw submission intact. Verified skinned depth draws also
     // replay through SO; the capture reads only their bounded argument records.
     // Driver fallback Draw* calls remain inside this outer scope.
@@ -4609,6 +4766,8 @@ void STDMETHODCALLTYPE New_DrawIndexedInstancedIndirect( ID3D11DeviceContext * T
         return;
     OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return;
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawIndexedInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs); }
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawIndexedInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs);
@@ -4633,6 +4792,8 @@ void STDMETHODCALLTYPE New_DrawInstancedIndirect( ID3D11DeviceContext * This,
         return;
     OptionalNativeMaterialScopes environmentMaterial(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
     Filmmaker::SmokeAppearance::Scope smokeAppearance(This,!g_bInOwnDraw);
+    Filmmaker::WorldWarp::DrawScope worldWarpDraw(This,!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent);
+    if (worldWarpDraw.ShouldSkip()) return;
     { QpcScope nativeCost(g_hookCostAccum.drawNative); g_Old_DrawInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs); }
     if(!g_bInOwnDraw&&!g_BeforeUiFiredThisPresent&&environmentMaterial.Active()&&TimedBeginNativeMaterialDraw(This)){ QpcScope extraCost(g_hookCostAccum.drawExtra);
         g_Old_DrawInstancedIndirect(This, pBufferForArgs, AlignedByteOffsetForArgs);
@@ -5052,6 +5213,7 @@ void After_Present() {
     }
 
     g_RenderCommands.RenderThread_EndFrame();    
+    AfxRenderPass::NoteRenderEnded();
     g_DepthCompositor.OnEndFrame();
     g_SmokeAbsorbance.OnEndFrame();
 
@@ -5912,7 +6074,8 @@ public:
 		if (m_Recording)
 			m_RecordedSourceFrameCount.fetch_add(1, std::memory_order_release);
         m_RecordingExtraPassesIterator = m_RecordingExtraPasses.begin();
-        m_LiveWorldRefPending = !m_Recording && g_LiveWorldRefWanted.load(std::memory_order_acquire);
+        m_LiveWorldRefPending = !m_Recording
+            && (g_LiveWorldRefWanted.load(std::memory_order_acquire) || Filmmaker::EffectNodes::NeedsWorldDepthRef());
 
         if (m_Recording) {
             if (m_AutoForceFullReSmoke) {
@@ -5940,7 +6103,8 @@ public:
     }
 
     bool EngineThread_HasNextRenderPass() {
-        return m_RecordingExtraPassesIterator != m_RecordingExtraPasses.end() || m_LiveWorldRefPending;
+        return m_RecordingExtraPassesIterator != m_RecordingExtraPasses.end()
+            || m_LiveWorldRefPending;
     }
 
     void EngineThread_BeginNextRenderPass() {
@@ -5950,11 +6114,16 @@ public:
         // Every plate of a frame is seen through the lens the Main render focused.
         commands.HoldLensFocus = true;
         if (m_LiveWorldRefPending && m_RecordingExtraPassesIterator == m_RecordingExtraPasses.end()) {
-            // The live Players Only view's World Only reference (never shown: present suppressed).
+            // The live Players Only / Effect Nodes view's World Only reference (never shown: present suppressed).
+            // Cleared here, not when the render ends, so no third render follows it: this one is the
+            // frame's last and the engine's own Present (suppressed) closes it.
+            m_LiveWorldRefPending = false;
+            m_LiveWorldRefActive = true;
             BeginPassRender((int)Filmmaker::RenderKey::WorldOnly);
+            EngineThread_Suppress_Present();
             commands.SkipLens = true;
             commands.BeforeUi.Push([](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture){
-                AfxRenderPass::StoreWorldReference(pDeviceContext, g_pCurrentDepthStencilView);
+                AfxRenderPass::StoreWorldReference(pDeviceContext, g_pCurrentDepthStencilView, AfxWorldReferenceView());
             });
             return;
         }
@@ -5980,10 +6149,9 @@ public:
     }
 
     void EngineThread_EndNextRenderPass() {
-        if (m_LiveWorldRefPending && m_RecordingExtraPassesIterator == m_RecordingExtraPasses.end()) {
-            m_LiveWorldRefPending = false;
+        if (m_LiveWorldRefActive) {
+            m_LiveWorldRefActive = false;
             EndPassRender();
-            EngineThread_Suppress_Present();
             return;
         }
         // End in reverse begin order: each stream restores the cvars its begin saw, so the first
@@ -6008,6 +6176,16 @@ public:
         g_RenderCommands.EngineThread_GetCommands().PassOrdinal = 0;
         // The Main render is always the full scene: state it (see BeginPassRender).
         if (m_Recording) BeginPassRender((int)Filmmaker::RenderKey::Main);
+        // The live World Only reference renders over the back buffer after Main, so Main has to be
+        // shown before it. Queued here, while this is still Main's own command object: once the
+        // render is submitted the engine thread holds the next pass's. Queued there, the reference
+        // was the frame on screen, and everything drawn on Main only (the Effect Nodes) was lost.
+        if (m_LiveWorldRefPending) {
+            g_RenderCommands.EngineThread_GetCommands().BeforePresent.Push([](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture){
+                AfxSceneToBackBuffer(pDeviceContext, pTexture);
+            });
+            EngineThread_Expect_Present();
+        }
         // The Gun only reference and the Main render's Depth / Normal passes are built from the
         // scene before the lens; the Beauty plate keeps it.
         if (m_Recording)
@@ -6052,7 +6230,8 @@ public:
         }
         g_CurrentPassRenderKey.store(-1, std::memory_order_release);
 
-        if(EngineThread_HasNextRenderPass()) EngineThread_Expect_Present();
+        // The live World Only reference has queued its own (EngineThread_BeginMainRenderPass).
+        if(!m_LiveWorldRefPending && EngineThread_HasNextRenderPass()) EngineThread_Expect_Present();
     }
 
     // --- Filmmaker render-job control surface (see RenderSystemDX11Hooks.h) ---
@@ -6194,6 +6373,10 @@ public:
     bool m_PassNeedsMainReference = false;
     bool m_PassMainComposes = false; // a Depth / Normal pass of Everything (CStreamSettings::IsComposedPass)
     bool m_LiveWorldRefPending = false; // engine thread, per frame (see g_LiveWorldRefWanted)
+    bool m_LiveWorldRefActive = false;  // engine thread: that reference is the render in flight
+    int m_CubemapFacesPending = 0;      // Little Planet 6-face 360 cubemap capture
+    int m_CubemapNextFace = 0;
+    bool m_CubemapPassActive = false;
 
 private:
     class CStream : public advancedfx::IRecordStreamSettings {
@@ -6333,7 +6516,7 @@ private:
             if (m_Settings.PassReferenceOnly) {
                 // World Only reference for the Players Only mask of this same logical frame.
                 g_RenderCommands.EngineThread_GetCommands().BeforeUi.Push([](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture){
-                    AfxRenderPass::StoreWorldReference(pDeviceContext, g_pCurrentDepthStencilView);
+                    AfxRenderPass::StoreWorldReference(pDeviceContext, g_pCurrentDepthStencilView, AfxWorldReferenceView());
                 });
                 return;
             }
@@ -6361,7 +6544,8 @@ private:
                         params.mode = m_Settings.PassType;
                         params.mask = (int)Filmmaker::PassMaskFor(pass.elements);
                         // The job renders World Only before this (RecordStart's reference stream).
-                        params.worldRef = pass.elements == Filmmaker::VisibleElements::OnlyPlayers;
+                        params.worldRef = pass.elements == Filmmaker::VisibleElements::OnlyPlayers
+                            || pass.elements == Filmmaker::VisibleElements::OnlySelectedPlayer;
                         float key[4];
                         Filmmaker::RenderPlayersOnlyGreen_KeyColor(key);
                         params.keyIn[0] = key[0]; params.keyIn[1] = key[1]; params.keyIn[2] = key[2];
@@ -6371,7 +6555,7 @@ private:
                         params.keyOut[2] = m_Settings.PassKeyOut[2];
                         params.nearUnits = m_Settings.PassDepthNear;
                         params.farUnits = m_Settings.PassDepthFar;
-                        if (g_PassDepthDebug && params.mode == (int)Filmmaker::PassType::Depth) params.mode = 4;
+                        if (g_PassDepthDebug && params.mode == (int)Filmmaker::PassType::Depth) params.mode = 6;
                         queue.Push([capture, params](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture) mutable {
                             {
                                 AfxFillPassFrame(params);
@@ -8142,6 +8326,7 @@ void CAfxStreams::RecordStart()
             } else
                 m_RecordingExtraPasses.emplace(this, it->second);
         }
+        bool worldReference = false;
         // Players Only is the NoGun render masked to what is closer than the World Only render of
         // the same frame (render order Main, WorldOnly, NoGun; RenderPassPlan.h says why it is not
         // a chroma repaint). One output-less World Only render supplies that depth when no World
@@ -8154,7 +8339,19 @@ void CAfxStreams::RecordStart()
             ref.PassElements = (int)Filmmaker::VisibleElements::OnlyWorld;
             ref.PassReferenceOnly = true;
             m_RecordingExtraPasses.emplace(this, ref);
+            worldReference = true;
             break;
+        }
+        // A Player Matte node reads the same reference, one frame later, on every Beauty plate.
+        if (!worldReference && Filmmaker::EffectNodes::NeedsWorldDepthRef()) {
+            if (advancedfx::CRecordingSettings* refSettings = advancedfx::CRecordingSettings::GetDefault()) {
+                CStreamSettings ref(refSettings);
+                ref.Name = L"_worldref";
+                ref.PassType = (int)Filmmaker::PassType::Depth;
+                ref.PassElements = (int)Filmmaker::VisibleElements::OnlyWorld;
+                ref.PassReferenceOnly = true;
+                m_RecordingExtraPasses.emplace(this, ref);
+            }
         }
 
 
@@ -8374,8 +8571,11 @@ void AfxStreams_SetLivePassPreview(int passType, int passElements, float depthNe
     g_LivePassPreview.depthNear = depthNear;
     g_LivePassPreview.depthFar = depthFar;
     for (int k = 0; k < 3; ++k) g_LivePassPreview.keyOut[k] = keyOut ? keyOut[k] : 0.0f;
-    g_LiveWorldRefWanted.store(passType != (int)Filmmaker::PassType::Beauty
-        && passElements == (int)Filmmaker::VisibleElements::OnlyPlayers, std::memory_order_release);
+    const bool wantsPlayerWorldRef = (passType != (int)Filmmaker::PassType::Beauty
+        && (passElements == (int)Filmmaker::VisibleElements::OnlyPlayers
+            || passElements == (int)Filmmaker::VisibleElements::OnlySelectedPlayer))
+        || (Filmmaker::RenderPlayerMatte_HighlightEnabled() && Filmmaker::RenderPlayerMatte_HasTarget());
+    g_LiveWorldRefWanted.store(wantsPlayerWorldRef, std::memory_order_release);
 }
 
 void AfxStreams_SetSkyKey(bool on, bool live, const float keyOut[3]) {

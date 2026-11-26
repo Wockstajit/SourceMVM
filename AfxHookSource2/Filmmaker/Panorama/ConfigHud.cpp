@@ -9,6 +9,10 @@
 #include "../Environment/EnvironmentScene.h"
 #include "../Heatmap/RoundHeatmap.h" // ENVIRONMENT > Scene Objects: round heat map
 #include "../AltEnvironment/AltEnvironment.h" // ENVIRONMENT > Map: the demo plays on another map
+#include "../WorldWarp/WorldWarp.h"
+#include "../WorldDecals/WorldDecals.h"
+#include "../EffectNodes/EffectNodes.h"
+#include "../EventFx/EventFx.h"
 
 #include "PanoramaFindPanel.h"
 #include "../Debug/MvmDebugLog.h" // MvmDebugLog_Active / _LinefAlways (previewrect probe)
@@ -430,6 +434,10 @@ std::string ConfigHud::BuildStateJson() {
 	o << ",\"wbPivotOrb\":"
 		<< (RecoilPivotMarkerRef().Enabled(WeaponPivotOwner::Bob) ? "true" : "false");
 	LensFx_AppendStateJson(o);
+	WorldWarp_AppendStateJson(o);
+	WorldDecals::AppendStateJson(o);
+	EffectNodes::AppendStateJson(o);
+	EventFx_AppendStateJson(o);
 	o << ",\"wrPivotOrbShowing\":"
 		<< (RecoilPivotMarkerRef().Showing(WeaponPivotOwner::Recoil) ? "true" : "false");
 	o << ",\"wbPivotOrbShowing\":"

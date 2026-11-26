@@ -18,6 +18,7 @@
 #include "RenderWorldOnly.h"
 #include "RenderWorldPlayersNoGun.h"
 #include "RenderPlayersOnlyGreen.h"
+#include "RenderPlayerMatte.h"
 #include "RenderPassPlan.h"
 #include "RenderDoneSound.h"
 #include "RenderTakeHistory.h"
@@ -162,9 +163,12 @@ void Render_ApplyLivePreview() {
 	const VisibleElements e = live.elements;
 	AfxStreams_SetLivePassPreview((int)live.type, (int)live.elements, passes.depthNear, passes.depthFar, passes.keyColor);
 	RenderWorldOnly_SetArmed(e == VisibleElements::OnlyWorld, "render workspace preview");
-	// Players Only is the no-gun view masked by depth against a World Only reference render the
-	// render loop adds while this is on (AfxStreams_SetLivePassPreview) -- no chroma repaint.
-	RenderWorldPlayersNoGun_SetArmed(e == VisibleElements::WorldAndPlayers || e == VisibleElements::OnlyPlayers,
+	// Players Only / Selected Player is the no-gun view masked by depth against a World Only reference
+	// render the render loop adds while this is on (AfxStreams_SetLivePassPreview) -- no chroma repaint.
+	RenderWorldPlayersNoGun_SetArmed(
+		e == VisibleElements::WorldAndPlayers
+		|| e == VisibleElements::OnlyPlayers
+		|| e == VisibleElements::OnlySelectedPlayer,
 		"render workspace preview");
 	// Only Beauty + Everything can carry the game HUD (the HUD setting is that plate's alone), so the
 	// live view of any other plate hides it as well. The HUD's own bottom shading laid a dark gradient
@@ -452,6 +456,7 @@ std::string Render_BuildStateJson() {
 	RenderTakeHistory_AppendJson(o);
 	RenderQueue_AppendStateJson(o);
 	KillFeed_AppendStateJson(o); // the Passes tab's KILL FEED names and filter
+	RenderPlayerMatte_AppendStateJson(o);
 	o << "}";
 	return o.str();
 }
@@ -1202,6 +1207,9 @@ void Render_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd
 		RunOutputCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "pass")) {
 		RunPassCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "player")) {
+		RenderPlayerMatte_RunCommand(argc, args, cmd);
+		Render_ApplyLivePreview();
 	} else if (0 == _stricmp(sub, "worldonly")) {
 		RenderWorldOnly_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "playersonlygreen")

@@ -18,6 +18,7 @@
 #include "Filmmaker/Movie/CameraShakeStack.h"
 #include "Filmmaker/Movie/WeaponBobProbe.h"
 #include "Filmmaker/EasterEggs/EasterEggs.h"
+#include "Filmmaker/EventFx/EventFx.h"
 
 #include <Windows.h>
 #include "../Deps/release/Detours/src/detours.h"
@@ -89,6 +90,7 @@ bool New_CGameEventManager_FireEvent( void * This, SOURCESDK::CS2::CGameEvent *e
     Filmmaker::CameraShake_OnGameEvent(event);     // weapon_fire -> recoil, player_hurt -> step bob, player_footstep -> step bob
     Filmmaker::WeaponBobProbe_OnGameEvent(event);  // Phase 0 research probe: weapon_reload / player_footstep arrival
     Filmmaker::EasterEggs_OnGameEvent(event);      // player_death -> Michael Bay, round_start -> Wes chapter
+    Filmmaker::EventFx_OnGameEvent(event);         // event-driven FX presets (kill, grenade pops, bomb)
 
     return g_Old_CGameEventManager_FireEvent(This, event, bDontBroadcast);
 }
@@ -106,6 +108,7 @@ bool New_CGameEventManager_FireEventClientSide( void * This, SOURCESDK::CS2::CGa
     Filmmaker::CameraShake_OnGameEvent(event);     // weapon_fire/player_hurt/player_footstep — demo events also arrive here (deduped)
     Filmmaker::WeaponBobProbe_OnGameEvent(event);  // Phase 0 research probe: weapon_reload / player_footstep arrival
     Filmmaker::EasterEggs_OnGameEvent(event);      // deduped per userid / per chapter
+    Filmmaker::EventFx_OnGameEvent(event);         // deduped per trigger / tick
 
     if(g_b_on_game_event) SendGameEvent(event);
 

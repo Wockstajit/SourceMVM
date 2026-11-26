@@ -38,7 +38,9 @@ void TestStreamNamesUnique() {
 			for (const std::string& m : names) CHECK(m != n);
 			names.push_back(n);
 		}
-	CHECK(names.size() == 20);
+	CHECK(names.size() == (size_t)PassType::Count * (size_t)VisibleElements::Count);
+	CHECK(PassStreamName(P(PassType::Matte, VisibleElements::OnlySelectedPlayer)) == "matte_player");
+	CHECK(PassStreamName(P(PassType::Key, VisibleElements::OnlySelectedPlayer)) == "key_player");
 }
 
 void TestOutputLayout() {
@@ -78,15 +80,30 @@ void TestRenderGrouping() {
 		for (int e = 0; e < (int)VisibleElements::Count; ++e) all.push_back(P((PassType)t, (VisibleElements)e));
 	PassPlan c = BuildPassPlan(all);
 	CHECK(c.PhysicalRendersPerFrame() == 3);
-	CHECK(c.StreamCount() == 15); // Beauty and Key are exclusive per group
+	// 3 non-isolated groups x (Beauty, Depth, Normal) = 9
+	// 3 isolated groups (Players, SelectedPlayer, Gun) x (Depth, Normal, Key, Matte) = 12 => 21 total
+	CHECK(c.StreamCount() == 21);
 	CHECK(PassAllowed(P(PassType::Key, VisibleElements::OnlyPlayers)));
+	CHECK(PassAllowed(P(PassType::Key, VisibleElements::OnlySelectedPlayer)));
+	CHECK(PassAllowed(P(PassType::Matte, VisibleElements::OnlySelectedPlayer)));
+	CHECK(PassAllowed(P(PassType::Matte, VisibleElements::OnlyPlayers)));
 	CHECK(PassAllowed(P(PassType::Key, VisibleElements::OnlyWeapon)));
 	CHECK(!PassAllowed(P(PassType::Key, VisibleElements::Everything)));
+	CHECK(!PassAllowed(P(PassType::Matte, VisibleElements::Everything)));
 	CHECK(!PassAllowed(P(PassType::Key, VisibleElements::WorldAndPlayers)));
 	CHECK(!PassAllowed(P(PassType::Key, VisibleElements::OnlyWorld)));
 	CHECK(!PassAllowed(P(PassType::Beauty, VisibleElements::OnlyPlayers)));
+	CHECK(!PassAllowed(P(PassType::Beauty, VisibleElements::OnlySelectedPlayer)));
 	CHECK(!PassAllowed(P(PassType::Beauty, VisibleElements::OnlyWeapon)));
 	CHECK(PassAllowed(P(PassType::Depth, VisibleElements::OnlyPlayers)));
+	CHECK(PassAllowed(P(PassType::Depth, VisibleElements::OnlySelectedPlayer)));
+
+	// Selected player uses the same WorldOnly + NoGun depth reference as Players only (no extra renders).
+	PassPlan sp = BuildPassPlan({P(PassType::Matte, VisibleElements::OnlySelectedPlayer)});
+	CHECK(sp.renders[(int)RenderKey::NoGun] && sp.renders[(int)RenderKey::WorldOnly]);
+	CHECK(sp.needsWorldReference && !sp.needsMainReference);
+	CHECK(sp.PhysicalRendersPerFrame() == 3);
+	CHECK(PassMaskFor(VisibleElements::OnlySelectedPlayer) == PassMask::SinglePlayerDepth);
 
 	// Players only is the no-gun render masked against World only: both render, nothing else.
 	PassPlan e = BuildPassPlan({P(PassType::Key, VisibleElements::OnlyPlayers)});

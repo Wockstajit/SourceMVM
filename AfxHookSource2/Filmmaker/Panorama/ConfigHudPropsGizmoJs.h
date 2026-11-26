@@ -258,6 +258,17 @@ R"CFJS(
       var pressed = down && !propsPointerDown, moved = Math.abs(u - propsLastU) + Math.abs(v - propsLastV) > 0.0015;
       // Hover: what a click here would pick, asked for as the cursor moves (not mid-drag, placing
       // or painting, where the cursor is busy with something else).
+      // SCENE OBJECTS > DECALS & MEDIA owns the view while it shows (ConfigHudDecalsJs.h): a press
+      // grabs the decal under the cursor and drags it over the map. Nothing here picks or hovers.
+      if (typeof decalsViewActive === 'function' && decalsViewActive() && editing) {
+        if (propsHoverSent) { propsCommand('hoverat -1 -1'); propsHoverSent = false; }
+        propsHideHandles();
+        propsHint.visible = false;
+        decalsViewInput(u, v, free, down, pressed);
+        if (moved) { propsLastU = u; propsLastV = v; }
+        propsPointerDown = down;
+        return;
+      }
       var hovering = free && !down && !placing && !painting && !propsGrabbing;
       if (hovering && (moved || !propsHoverSent)) { propsCommand('hoverat ' + u.toFixed(4) + ' ' + v.toFixed(4)); propsHoverSent = true; }
       else if (!hovering && propsHoverSent) { propsCommand('hoverat -1 -1'); propsHoverSent = false; }

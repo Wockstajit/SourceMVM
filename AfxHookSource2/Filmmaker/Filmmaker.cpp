@@ -97,6 +97,10 @@
 #include "Render/RenderWorldOnly.h"
 #include "Render/RenderWorldPlayersNoGun.h"
 #include "Render/RenderPlayersOnlyGreen.h"
+#include "Render/RenderPlayerMatte.h"
+#include "WorldWarp/WorldWarp.h"
+#include "WorldDecals/WorldDecals.h"
+#include "EventFx/EventFx.h"
 #include "Window/WindowResize.h"
 #include "Window/UnfocusedRate.h"
 #include "../EngineLogQuiet.h"
@@ -1106,6 +1110,10 @@ void RunMainThreadFrame() {
 	// reconciles live-preview state. The render job itself arms the policy through reliable pass
 	// commands, so this never paints the beauty pass while a capture is running.
 	RenderPlayersOnlyGreen_RunMainThreadFrame();
+	RenderPlayerMatte_RunMainThreadFrame();
+	WorldWarp_RunMainThreadFrame();
+	WorldDecals::RunMainThreadFrame();
+	EventFx_RunMainThreadFrame();
 	{ PanoramaPerf_Scope _p("moviehud"); MovieHudRef().RunFrame(); }
 
 	// Camera-marker / dolly path: hover picking, playback driver, auto-save, then
@@ -1343,6 +1351,7 @@ void Shutdown() {
 	FilmmakerSettings_Flush();
 	FollowCameraRef().Shutdown(); // cancel + join the background loadout-event loader
 	Heatmap::Shutdown(); // cancel + join the round paths scan and the grid build
+	WorldDecals::Shutdown();
 	AltEnvironment::Shutdown(); // cancel + join the copy build, map pictures and AUTO ALIGN
 	SceneEditor::Shutdown();
 	g_library.Shutdown();

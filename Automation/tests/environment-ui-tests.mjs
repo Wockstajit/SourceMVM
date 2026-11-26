@@ -246,7 +246,7 @@ test('eight task cards, one page each with groups as dividers', () => {
   assert.deepEqual(h.card('LOOKS').groups.map(p=>p.head),['Presets','Color','Lens']);
   assert.equal(h.card('LOOKS').pages.length,0);
   assert.deepEqual(h.card('WEATHER').pages.map(p=>p.head),['General','Rain','Snow','Sand','Storm']);
-  assert.deepEqual(h.card('SCENE OBJECTS').pages.map(p=>p.head),['Outliner','Library','Map lights']);
+  assert.deepEqual(h.card('SCENE OBJECTS').pages.map(p=>p.head),['Outliner','Library','Decals & Media','Map lights']);
   // Lights and cameras are added from ONE header menu; the four add buttons are gone.
   assert.equal(h.card('SCENE OBJECTS').action.__lbl.text,'+ Add');
   for(const kind of ['+ Point','+ Spot','+ Area']) assert.ok(!h.buttons.some(b=>b.__lbl.text===kind),kind+' is gone');
@@ -440,7 +440,7 @@ test('weather percent and wind translate to atomic backend edits',()=>{
   h.card('SCENE OBJECTS').action.click();
   const pointItem=h.context.__menu.find(i=>i&&i[0]==='Point light');
   assert.ok(pointItem,'the + Add menu offers a point light');
-  assert.equal(JSON.stringify(h.context.__menu.filter(Boolean).map(i=>i[0])),JSON.stringify(['Point light','Spot light','Area light','Spot light on the camera','Point light on the camera','Area light on the camera','Camera']));
+  assert.equal(JSON.stringify(h.context.__menu.filter(Boolean).map(i=>i[0])),JSON.stringify(['Point light','Spot light','Area light','Spot light on the camera','Point light on the camera','Area light on the camera','Camera','Text decal','Wall image / logo','Wall video','Arrow / Ground route']));
   pointItem[1]();assert.equal(h.sent.at(-1),'mirv_filmmaker environment add point');
   assert.equal(h.card('SCENE OBJECTS').selectedPage,0,'a new light opens on the Outliner');
 });
